@@ -68,6 +68,9 @@ jobs:
         with:
           distribution: temurin
           java-version: '25'
+      # Idempotent: a tree that already carries the default-target JARs in libs/ only re-verifies their checksums.
+      - name: Fetch third-party mod JARs
+        run: ./scripts/fetch-libs.sh
       - name: Test Java POSIX coordinator ownership
         run: ./gradlew verifyCore --no-daemon --console=plain
 
@@ -191,6 +194,9 @@ jobs:
         run: |
           .\scripts\install-node-runtime.ps1 -ProjectRoot .
           .\scripts\verify-startup-packaging.ps1 -PackageRoot .
+      - name: Fetch third-party mod JARs
+        shell: bash
+        run: ./scripts/fetch-libs.sh
       - name: Verify Java, Fabric, and embedded coordinator
         shell: powershell
         run: |
