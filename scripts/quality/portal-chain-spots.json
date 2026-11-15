@@ -1,0 +1,3730 @@
+[
+ {
+  "name": "chain-gate-1",
+  "seed": "5433312384530337025",
+  "expect": "nether",
+  "inventory": [],
+  "totalMs": 1800000,
+  "budgetMs": 900000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed gate-1: fresh spawn with nothing; the steps the route names, kit then lava then portal then in, 30 minutes",
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:iron_pickaxe"
+     },
+     "why": "iron pickaxe"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:shield"
+     },
+     "why": "a shield against arrows"
+    },
+    "optional": true
+   },
+   {
+    "equip": "minecraft:shield",
+    "to": "offhand"
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:bucket",
+      "count": 2
+     },
+     "why": "two buckets for the cast"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:flint_and_steel"
+     },
+     "why": "a light for the portal"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:water_bucket"
+     },
+     "why": "water for the cast"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "find",
+     "target": {
+      "block": "minecraft:lava"
+     },
+     "why": "a lava pool for the portal frame"
+    },
+    "recover": {
+     "FIND_BLOCKED": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:stone_pickaxe"
+        },
+        "why": "a pickaxe to dig on with"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "nether_portal"
+     },
+     "why": "cast and light a portal at the pool"
+    },
+    "recover": {
+     "BUILD_SHORT": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:cobblestone",
+         "count": 24
+        },
+        "why": "plain blocks for the mould"
+       }
+      }
+     ],
+     "BUILD_NO_SITE": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "find",
+        "target": {
+         "block": "minecraft:lava"
+        },
+        "why": "a lava pool for the portal frame"
+       }
+      }
+     ],
+     "BUILD_BLOCKED": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "travel_to",
+        "target": "$lava",
+        "why": "down to the lava the find named"
+       },
+       "once": true,
+       "optional": true
+      }
+     ],
+     "NO_STAND_SPOT": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "travel_to",
+        "target": "$lava",
+        "why": "down to the lava the find named"
+       },
+       "once": true,
+       "optional": true
+      }
+     ],
+     "BUILD_SHORT:no lava source in reach": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "travel_to",
+        "target": "$lava",
+        "why": "down to the lava the find named"
+       },
+       "once": true,
+       "optional": true
+      }
+     ],
+     "BUILD_SHORT:carried water_bucket 0": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:water_bucket"
+        },
+        "why": "water for the cast again"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "travel_to",
+     "target": "$opening",
+     "why": "step into the portal"
+    }
+   }
+  ]
+ },
+ {
+  "name": "chain-gate-2",
+  "seed": "313280743662651985",
+  "expect": "nether",
+  "inventory": [],
+  "totalMs": 1800000,
+  "budgetMs": 900000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed gate-2: fresh spawn with nothing; the steps the route names, kit then lava then portal then in, 30 minutes",
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:iron_pickaxe"
+     },
+     "why": "iron pickaxe"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:shield"
+     },
+     "why": "a shield against arrows"
+    },
+    "optional": true
+   },
+   {
+    "equip": "minecraft:shield",
+    "to": "offhand"
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:bucket",
+      "count": 2
+     },
+     "why": "two buckets for the cast"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:flint_and_steel"
+     },
+     "why": "a light for the portal"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:water_bucket"
+     },
+     "why": "water for the cast"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "find",
+     "target": {
+      "block": "minecraft:lava"
+     },
+     "why": "a lava pool for the portal frame"
+    },
+    "recover": {
+     "FIND_BLOCKED": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:stone_pickaxe"
+        },
+        "why": "a pickaxe to dig on with"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "nether_portal"
+     },
+     "why": "cast and light a portal at the pool"
+    },
+    "recover": {
+     "BUILD_SHORT": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:cobblestone",
+         "count": 24
+        },
+        "why": "plain blocks for the mould"
+       }
+      }
+     ],
+     "BUILD_NO_SITE": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "find",
+        "target": {
+         "block": "minecraft:lava"
+        },
+        "why": "a lava pool for the portal frame"
+       }
+      }
+     ],
+     "BUILD_BLOCKED": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "travel_to",
+        "target": "$lava",
+        "why": "down to the lava the find named"
+       },
+       "once": true,
+       "optional": true
+      }
+     ],
+     "NO_STAND_SPOT": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "travel_to",
+        "target": "$lava",
+        "why": "down to the lava the find named"
+       },
+       "once": true,
+       "optional": true
+      }
+     ],
+     "BUILD_SHORT:no lava source in reach": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "travel_to",
+        "target": "$lava",
+        "why": "down to the lava the find named"
+       },
+       "once": true,
+       "optional": true
+      }
+     ],
+     "BUILD_SHORT:carried water_bucket 0": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:water_bucket"
+        },
+        "why": "water for the cast again"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "travel_to",
+     "target": "$opening",
+     "why": "step into the portal"
+    }
+   }
+  ]
+ },
+ {
+  "name": "chain-gate-3",
+  "seed": "3244043502755372002",
+  "expect": "nether",
+  "inventory": [],
+  "totalMs": 1800000,
+  "budgetMs": 900000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed gate-3: fresh spawn with nothing; the steps the route names, kit then lava then portal then in, 30 minutes",
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:iron_pickaxe"
+     },
+     "why": "iron pickaxe"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:shield"
+     },
+     "why": "a shield against arrows"
+    },
+    "optional": true
+   },
+   {
+    "equip": "minecraft:shield",
+    "to": "offhand"
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:bucket",
+      "count": 2
+     },
+     "why": "two buckets for the cast"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:flint_and_steel"
+     },
+     "why": "a light for the portal"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:water_bucket"
+     },
+     "why": "water for the cast"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "find",
+     "target": {
+      "block": "minecraft:lava"
+     },
+     "why": "a lava pool for the portal frame"
+    },
+    "recover": {
+     "FIND_BLOCKED": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:stone_pickaxe"
+        },
+        "why": "a pickaxe to dig on with"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "nether_portal"
+     },
+     "why": "cast and light a portal at the pool"
+    },
+    "recover": {
+     "BUILD_SHORT": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:cobblestone",
+         "count": 24
+        },
+        "why": "plain blocks for the mould"
+       }
+      }
+     ],
+     "BUILD_NO_SITE": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "find",
+        "target": {
+         "block": "minecraft:lava"
+        },
+        "why": "a lava pool for the portal frame"
+       }
+      }
+     ],
+     "BUILD_BLOCKED": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "travel_to",
+        "target": "$lava",
+        "why": "down to the lava the find named"
+       },
+       "once": true,
+       "optional": true
+      }
+     ],
+     "NO_STAND_SPOT": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "travel_to",
+        "target": "$lava",
+        "why": "down to the lava the find named"
+       },
+       "once": true,
+       "optional": true
+      }
+     ],
+     "BUILD_SHORT:no lava source in reach": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "travel_to",
+        "target": "$lava",
+        "why": "down to the lava the find named"
+       },
+       "once": true,
+       "optional": true
+      }
+     ],
+     "BUILD_SHORT:carried water_bucket 0": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:water_bucket"
+        },
+        "why": "water for the cast again"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "travel_to",
+     "target": "$opening",
+     "why": "step into the portal"
+    }
+   }
+  ]
+ },
+ {
+  "name": "chain-gate-4",
+  "seed": "3315172112810107624",
+  "expect": "nether",
+  "inventory": [],
+  "totalMs": 1800000,
+  "budgetMs": 900000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed gate-4: fresh spawn with nothing; the steps the route names, kit then lava then portal then in, 30 minutes",
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:iron_pickaxe"
+     },
+     "why": "iron pickaxe"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:shield"
+     },
+     "why": "a shield against arrows"
+    },
+    "optional": true
+   },
+   {
+    "equip": "minecraft:shield",
+    "to": "offhand"
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:bucket",
+      "count": 2
+     },
+     "why": "two buckets for the cast"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:flint_and_steel"
+     },
+     "why": "a light for the portal"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:water_bucket"
+     },
+     "why": "water for the cast"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "find",
+     "target": {
+      "block": "minecraft:lava"
+     },
+     "why": "a lava pool for the portal frame"
+    },
+    "recover": {
+     "FIND_BLOCKED": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:stone_pickaxe"
+        },
+        "why": "a pickaxe to dig on with"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "nether_portal"
+     },
+     "why": "cast and light a portal at the pool"
+    },
+    "recover": {
+     "BUILD_SHORT": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:cobblestone",
+         "count": 24
+        },
+        "why": "plain blocks for the mould"
+       }
+      }
+     ],
+     "BUILD_NO_SITE": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "find",
+        "target": {
+         "block": "minecraft:lava"
+        },
+        "why": "a lava pool for the portal frame"
+       }
+      }
+     ],
+     "BUILD_BLOCKED": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "travel_to",
+        "target": "$lava",
+        "why": "down to the lava the find named"
+       },
+       "once": true,
+       "optional": true
+      }
+     ],
+     "NO_STAND_SPOT": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "travel_to",
+        "target": "$lava",
+        "why": "down to the lava the find named"
+       },
+       "once": true,
+       "optional": true
+      }
+     ],
+     "BUILD_SHORT:no lava source in reach": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "travel_to",
+        "target": "$lava",
+        "why": "down to the lava the find named"
+       },
+       "once": true,
+       "optional": true
+      }
+     ],
+     "BUILD_SHORT:carried water_bucket 0": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:water_bucket"
+        },
+        "why": "water for the cast again"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "travel_to",
+     "target": "$opening",
+     "why": "step into the portal"
+    }
+   }
+  ]
+ },
+ {
+  "name": "chain-gate-5",
+  "seed": "3228933235070990393",
+  "expect": "nether",
+  "inventory": [],
+  "totalMs": 1800000,
+  "budgetMs": 900000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed gate-5: fresh spawn with nothing; the steps the route names, kit then lava then portal then in, 30 minutes",
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:iron_pickaxe"
+     },
+     "why": "iron pickaxe"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:shield"
+     },
+     "why": "a shield against arrows"
+    },
+    "optional": true
+   },
+   {
+    "equip": "minecraft:shield",
+    "to": "offhand"
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:bucket",
+      "count": 2
+     },
+     "why": "two buckets for the cast"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:flint_and_steel"
+     },
+     "why": "a light for the portal"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:water_bucket"
+     },
+     "why": "water for the cast"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "find",
+     "target": {
+      "block": "minecraft:lava"
+     },
+     "why": "a lava pool for the portal frame"
+    },
+    "recover": {
+     "FIND_BLOCKED": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:stone_pickaxe"
+        },
+        "why": "a pickaxe to dig on with"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "nether_portal"
+     },
+     "why": "cast and light a portal at the pool"
+    },
+    "recover": {
+     "BUILD_SHORT": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:cobblestone",
+         "count": 24
+        },
+        "why": "plain blocks for the mould"
+       }
+      }
+     ],
+     "BUILD_NO_SITE": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "find",
+        "target": {
+         "block": "minecraft:lava"
+        },
+        "why": "a lava pool for the portal frame"
+       }
+      }
+     ],
+     "BUILD_BLOCKED": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "travel_to",
+        "target": "$lava",
+        "why": "down to the lava the find named"
+       },
+       "once": true,
+       "optional": true
+      }
+     ],
+     "NO_STAND_SPOT": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "travel_to",
+        "target": "$lava",
+        "why": "down to the lava the find named"
+       },
+       "once": true,
+       "optional": true
+      }
+     ],
+     "BUILD_SHORT:no lava source in reach": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "travel_to",
+        "target": "$lava",
+        "why": "down to the lava the find named"
+       },
+       "once": true,
+       "optional": true
+      }
+     ],
+     "BUILD_SHORT:carried water_bucket 0": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:water_bucket"
+        },
+        "why": "water for the cast again"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "travel_to",
+     "target": "$opening",
+     "why": "step into the portal"
+    }
+   }
+  ]
+ },
+ {
+  "name": "chain-gate-6",
+  "seed": "8196621077778941313",
+  "expect": "nether",
+  "inventory": [],
+  "totalMs": 1800000,
+  "budgetMs": 900000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed gate-6: fresh spawn with nothing; the steps the route names, kit then lava then portal then in, 30 minutes",
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:iron_pickaxe"
+     },
+     "why": "iron pickaxe"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:shield"
+     },
+     "why": "a shield against arrows"
+    },
+    "optional": true
+   },
+   {
+    "equip": "minecraft:shield",
+    "to": "offhand"
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:bucket",
+      "count": 2
+     },
+     "why": "two buckets for the cast"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:flint_and_steel"
+     },
+     "why": "a light for the portal"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:water_bucket"
+     },
+     "why": "water for the cast"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "find",
+     "target": {
+      "block": "minecraft:lava"
+     },
+     "why": "a lava pool for the portal frame"
+    },
+    "recover": {
+     "FIND_BLOCKED": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:stone_pickaxe"
+        },
+        "why": "a pickaxe to dig on with"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "nether_portal"
+     },
+     "why": "cast and light a portal at the pool"
+    },
+    "recover": {
+     "BUILD_SHORT": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:cobblestone",
+         "count": 24
+        },
+        "why": "plain blocks for the mould"
+       }
+      }
+     ],
+     "BUILD_NO_SITE": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "find",
+        "target": {
+         "block": "minecraft:lava"
+        },
+        "why": "a lava pool for the portal frame"
+       }
+      }
+     ],
+     "BUILD_BLOCKED": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "travel_to",
+        "target": "$lava",
+        "why": "down to the lava the find named"
+       },
+       "once": true,
+       "optional": true
+      }
+     ],
+     "NO_STAND_SPOT": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "travel_to",
+        "target": "$lava",
+        "why": "down to the lava the find named"
+       },
+       "once": true,
+       "optional": true
+      }
+     ],
+     "BUILD_SHORT:no lava source in reach": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "travel_to",
+        "target": "$lava",
+        "why": "down to the lava the find named"
+       },
+       "once": true,
+       "optional": true
+      }
+     ],
+     "BUILD_SHORT:carried water_bucket 0": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:water_bucket"
+        },
+        "why": "water for the cast again"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "travel_to",
+     "target": "$opening",
+     "why": "step into the portal"
+    }
+   }
+  ]
+ },
+ {
+  "name": "chain-gate-7",
+  "seed": "4514800570176826331",
+  "expect": "nether",
+  "inventory": [],
+  "totalMs": 1800000,
+  "budgetMs": 900000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed gate-7: fresh spawn with nothing; the steps the route names, kit then lava then portal then in, 30 minutes",
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:iron_pickaxe"
+     },
+     "why": "iron pickaxe"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:shield"
+     },
+     "why": "a shield against arrows"
+    },
+    "optional": true
+   },
+   {
+    "equip": "minecraft:shield",
+    "to": "offhand"
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:bucket",
+      "count": 2
+     },
+     "why": "two buckets for the cast"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:flint_and_steel"
+     },
+     "why": "a light for the portal"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:water_bucket"
+     },
+     "why": "water for the cast"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "find",
+     "target": {
+      "block": "minecraft:lava"
+     },
+     "why": "a lava pool for the portal frame"
+    },
+    "recover": {
+     "FIND_BLOCKED": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:stone_pickaxe"
+        },
+        "why": "a pickaxe to dig on with"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "nether_portal"
+     },
+     "why": "cast and light a portal at the pool"
+    },
+    "recover": {
+     "BUILD_SHORT": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:cobblestone",
+         "count": 24
+        },
+        "why": "plain blocks for the mould"
+       }
+      }
+     ],
+     "BUILD_NO_SITE": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "find",
+        "target": {
+         "block": "minecraft:lava"
+        },
+        "why": "a lava pool for the portal frame"
+       }
+      }
+     ],
+     "BUILD_BLOCKED": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "travel_to",
+        "target": "$lava",
+        "why": "down to the lava the find named"
+       },
+       "once": true,
+       "optional": true
+      }
+     ],
+     "NO_STAND_SPOT": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "travel_to",
+        "target": "$lava",
+        "why": "down to the lava the find named"
+       },
+       "once": true,
+       "optional": true
+      }
+     ],
+     "BUILD_SHORT:no lava source in reach": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "travel_to",
+        "target": "$lava",
+        "why": "down to the lava the find named"
+       },
+       "once": true,
+       "optional": true
+      }
+     ],
+     "BUILD_SHORT:carried water_bucket 0": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:water_bucket"
+        },
+        "why": "water for the cast again"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "travel_to",
+     "target": "$opening",
+     "why": "step into the portal"
+    }
+   }
+  ]
+ },
+ {
+  "name": "chain-gate-8",
+  "seed": "5593788349168817449",
+  "expect": "nether",
+  "inventory": [],
+  "totalMs": 1800000,
+  "budgetMs": 900000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed gate-8: fresh spawn with nothing; the steps the route names, kit then lava then portal then in, 30 minutes",
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:iron_pickaxe"
+     },
+     "why": "iron pickaxe"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:shield"
+     },
+     "why": "a shield against arrows"
+    },
+    "optional": true
+   },
+   {
+    "equip": "minecraft:shield",
+    "to": "offhand"
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:bucket",
+      "count": 2
+     },
+     "why": "two buckets for the cast"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:flint_and_steel"
+     },
+     "why": "a light for the portal"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:water_bucket"
+     },
+     "why": "water for the cast"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "find",
+     "target": {
+      "block": "minecraft:lava"
+     },
+     "why": "a lava pool for the portal frame"
+    },
+    "recover": {
+     "FIND_BLOCKED": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:stone_pickaxe"
+        },
+        "why": "a pickaxe to dig on with"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "nether_portal"
+     },
+     "why": "cast and light a portal at the pool"
+    },
+    "recover": {
+     "BUILD_SHORT": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:cobblestone",
+         "count": 24
+        },
+        "why": "plain blocks for the mould"
+       }
+      }
+     ],
+     "BUILD_NO_SITE": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "find",
+        "target": {
+         "block": "minecraft:lava"
+        },
+        "why": "a lava pool for the portal frame"
+       }
+      }
+     ],
+     "BUILD_BLOCKED": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "travel_to",
+        "target": "$lava",
+        "why": "down to the lava the find named"
+       },
+       "once": true,
+       "optional": true
+      }
+     ],
+     "NO_STAND_SPOT": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "travel_to",
+        "target": "$lava",
+        "why": "down to the lava the find named"
+       },
+       "once": true,
+       "optional": true
+      }
+     ],
+     "BUILD_SHORT:no lava source in reach": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "travel_to",
+        "target": "$lava",
+        "why": "down to the lava the find named"
+       },
+       "once": true,
+       "optional": true
+      }
+     ],
+     "BUILD_SHORT:carried water_bucket 0": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:water_bucket"
+        },
+        "why": "water for the cast again"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "travel_to",
+     "target": "$opening",
+     "why": "step into the portal"
+    }
+   }
+  ]
+ },
+ {
+  "name": "kit-gate-1",
+  "seed": "5433312384530337025",
+  "expect": "nether",
+  "inventory": [
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:bucket",
+    "count": 2
+   },
+   {
+    "item": "minecraft:flint_and_steel",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "totalMs": 900000,
+  "budgetMs": 900000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed gate-1: fresh spawn with the kit (iron pickaxe, a spare stone pickaxe, two buckets, flint and steel, 16 cobblestone, 8 bread); water, lava, portal, in, 15 minutes",
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:water_bucket"
+     },
+     "why": "water for the cast"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "find",
+     "target": {
+      "block": "minecraft:lava"
+     },
+     "why": "a lava pool for the portal frame"
+    },
+    "recover": {
+     "FIND_BLOCKED": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:stone_pickaxe"
+        },
+        "why": "a pickaxe to dig on with"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "nether_portal"
+     },
+     "why": "cast and light a portal at the pool"
+    },
+    "recover": {
+     "BUILD_SHORT": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:cobblestone",
+         "count": 24
+        },
+        "why": "plain blocks for the mould"
+       }
+      }
+     ],
+     "BUILD_NO_SITE": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "find",
+        "target": {
+         "block": "minecraft:lava"
+        },
+        "why": "a lava pool for the portal frame"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "travel_to",
+     "target": "$opening",
+     "why": "step into the portal"
+    }
+   }
+  ]
+ },
+ {
+  "name": "kit-gate-2",
+  "seed": "313280743662651985",
+  "expect": "nether",
+  "inventory": [
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:bucket",
+    "count": 2
+   },
+   {
+    "item": "minecraft:flint_and_steel",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "totalMs": 900000,
+  "budgetMs": 900000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed gate-2: fresh spawn with the kit (iron pickaxe, a spare stone pickaxe, two buckets, flint and steel, 16 cobblestone, 8 bread); water, lava, portal, in, 15 minutes",
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:water_bucket"
+     },
+     "why": "water for the cast"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "find",
+     "target": {
+      "block": "minecraft:lava"
+     },
+     "why": "a lava pool for the portal frame"
+    },
+    "recover": {
+     "FIND_BLOCKED": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:stone_pickaxe"
+        },
+        "why": "a pickaxe to dig on with"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "nether_portal"
+     },
+     "why": "cast and light a portal at the pool"
+    },
+    "recover": {
+     "BUILD_SHORT": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:cobblestone",
+         "count": 24
+        },
+        "why": "plain blocks for the mould"
+       }
+      }
+     ],
+     "BUILD_NO_SITE": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "find",
+        "target": {
+         "block": "minecraft:lava"
+        },
+        "why": "a lava pool for the portal frame"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "travel_to",
+     "target": "$opening",
+     "why": "step into the portal"
+    }
+   }
+  ]
+ },
+ {
+  "name": "kit-gate-3",
+  "seed": "3244043502755372002",
+  "expect": "nether",
+  "inventory": [
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:bucket",
+    "count": 2
+   },
+   {
+    "item": "minecraft:flint_and_steel",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "totalMs": 900000,
+  "budgetMs": 900000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed gate-3: fresh spawn with the kit (iron pickaxe, a spare stone pickaxe, two buckets, flint and steel, 16 cobblestone, 8 bread); water, lava, portal, in, 15 minutes",
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:water_bucket"
+     },
+     "why": "water for the cast"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "find",
+     "target": {
+      "block": "minecraft:lava"
+     },
+     "why": "a lava pool for the portal frame"
+    },
+    "recover": {
+     "FIND_BLOCKED": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:stone_pickaxe"
+        },
+        "why": "a pickaxe to dig on with"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "nether_portal"
+     },
+     "why": "cast and light a portal at the pool"
+    },
+    "recover": {
+     "BUILD_SHORT": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:cobblestone",
+         "count": 24
+        },
+        "why": "plain blocks for the mould"
+       }
+      }
+     ],
+     "BUILD_NO_SITE": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "find",
+        "target": {
+         "block": "minecraft:lava"
+        },
+        "why": "a lava pool for the portal frame"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "travel_to",
+     "target": "$opening",
+     "why": "step into the portal"
+    }
+   }
+  ]
+ },
+ {
+  "name": "kit-gate-4",
+  "seed": "3315172112810107624",
+  "expect": "nether",
+  "inventory": [
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:bucket",
+    "count": 2
+   },
+   {
+    "item": "minecraft:flint_and_steel",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "totalMs": 900000,
+  "budgetMs": 900000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed gate-4: fresh spawn with the kit (iron pickaxe, a spare stone pickaxe, two buckets, flint and steel, 16 cobblestone, 8 bread); water, lava, portal, in, 15 minutes",
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:water_bucket"
+     },
+     "why": "water for the cast"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "find",
+     "target": {
+      "block": "minecraft:lava"
+     },
+     "why": "a lava pool for the portal frame"
+    },
+    "recover": {
+     "FIND_BLOCKED": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:stone_pickaxe"
+        },
+        "why": "a pickaxe to dig on with"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "nether_portal"
+     },
+     "why": "cast and light a portal at the pool"
+    },
+    "recover": {
+     "BUILD_SHORT": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:cobblestone",
+         "count": 24
+        },
+        "why": "plain blocks for the mould"
+       }
+      }
+     ],
+     "BUILD_NO_SITE": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "find",
+        "target": {
+         "block": "minecraft:lava"
+        },
+        "why": "a lava pool for the portal frame"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "travel_to",
+     "target": "$opening",
+     "why": "step into the portal"
+    }
+   }
+  ]
+ },
+ {
+  "name": "kit-gate-5",
+  "seed": "937420255288055328",
+  "expect": "nether",
+  "inventory": [
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:bucket",
+    "count": 2
+   },
+   {
+    "item": "minecraft:flint_and_steel",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "totalMs": 900000,
+  "budgetMs": 900000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed gate-5: fresh spawn with the kit (iron pickaxe, a spare stone pickaxe, two buckets, flint and steel, 16 cobblestone, 8 bread); water, lava, portal, in, 15 minutes",
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:water_bucket"
+     },
+     "why": "water for the cast"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "find",
+     "target": {
+      "block": "minecraft:lava"
+     },
+     "why": "a lava pool for the portal frame"
+    },
+    "recover": {
+     "FIND_BLOCKED": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:stone_pickaxe"
+        },
+        "why": "a pickaxe to dig on with"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "nether_portal"
+     },
+     "why": "cast and light a portal at the pool"
+    },
+    "recover": {
+     "BUILD_SHORT": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:cobblestone",
+         "count": 24
+        },
+        "why": "plain blocks for the mould"
+       }
+      }
+     ],
+     "BUILD_NO_SITE": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "find",
+        "target": {
+         "block": "minecraft:lava"
+        },
+        "why": "a lava pool for the portal frame"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "travel_to",
+     "target": "$opening",
+     "why": "step into the portal"
+    }
+   }
+  ]
+ },
+ {
+  "name": "kit-gate-6",
+  "seed": "8196621077778941313",
+  "expect": "nether",
+  "inventory": [
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:bucket",
+    "count": 2
+   },
+   {
+    "item": "minecraft:flint_and_steel",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "totalMs": 900000,
+  "budgetMs": 900000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed gate-6: fresh spawn with the kit (iron pickaxe, a spare stone pickaxe, two buckets, flint and steel, 16 cobblestone, 8 bread); water, lava, portal, in, 15 minutes",
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:water_bucket"
+     },
+     "why": "water for the cast"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "find",
+     "target": {
+      "block": "minecraft:lava"
+     },
+     "why": "a lava pool for the portal frame"
+    },
+    "recover": {
+     "FIND_BLOCKED": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:stone_pickaxe"
+        },
+        "why": "a pickaxe to dig on with"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "nether_portal"
+     },
+     "why": "cast and light a portal at the pool"
+    },
+    "recover": {
+     "BUILD_SHORT": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:cobblestone",
+         "count": 24
+        },
+        "why": "plain blocks for the mould"
+       }
+      }
+     ],
+     "BUILD_NO_SITE": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "find",
+        "target": {
+         "block": "minecraft:lava"
+        },
+        "why": "a lava pool for the portal frame"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "travel_to",
+     "target": "$opening",
+     "why": "step into the portal"
+    }
+   }
+  ]
+ },
+ {
+  "name": "kit-gate-7",
+  "seed": "4514800570176826331",
+  "expect": "nether",
+  "inventory": [
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:bucket",
+    "count": 2
+   },
+   {
+    "item": "minecraft:flint_and_steel",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "totalMs": 900000,
+  "budgetMs": 900000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed gate-7: fresh spawn with the kit (iron pickaxe, a spare stone pickaxe, two buckets, flint and steel, 16 cobblestone, 8 bread); water, lava, portal, in, 15 minutes",
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:water_bucket"
+     },
+     "why": "water for the cast"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "find",
+     "target": {
+      "block": "minecraft:lava"
+     },
+     "why": "a lava pool for the portal frame"
+    },
+    "recover": {
+     "FIND_BLOCKED": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:stone_pickaxe"
+        },
+        "why": "a pickaxe to dig on with"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "nether_portal"
+     },
+     "why": "cast and light a portal at the pool"
+    },
+    "recover": {
+     "BUILD_SHORT": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:cobblestone",
+         "count": 24
+        },
+        "why": "plain blocks for the mould"
+       }
+      }
+     ],
+     "BUILD_NO_SITE": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "find",
+        "target": {
+         "block": "minecraft:lava"
+        },
+        "why": "a lava pool for the portal frame"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "travel_to",
+     "target": "$opening",
+     "why": "step into the portal"
+    }
+   }
+  ]
+ },
+ {
+  "name": "kit-gate-8",
+  "seed": "5593788349168817449",
+  "expect": "nether",
+  "inventory": [
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:bucket",
+    "count": 2
+   },
+   {
+    "item": "minecraft:flint_and_steel",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "totalMs": 900000,
+  "budgetMs": 900000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed gate-8: fresh spawn with the kit (iron pickaxe, a spare stone pickaxe, two buckets, flint and steel, 16 cobblestone, 8 bread); water, lava, portal, in, 15 minutes",
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:water_bucket"
+     },
+     "why": "water for the cast"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "find",
+     "target": {
+      "block": "minecraft:lava"
+     },
+     "why": "a lava pool for the portal frame"
+    },
+    "recover": {
+     "FIND_BLOCKED": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:stone_pickaxe"
+        },
+        "why": "a pickaxe to dig on with"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "nether_portal"
+     },
+     "why": "cast and light a portal at the pool"
+    },
+    "recover": {
+     "BUILD_SHORT": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:cobblestone",
+         "count": 24
+        },
+        "why": "plain blocks for the mould"
+       }
+      }
+     ],
+     "BUILD_NO_SITE": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "find",
+        "target": {
+         "block": "minecraft:lava"
+        },
+        "why": "a lava pool for the portal frame"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "travel_to",
+     "target": "$opening",
+     "why": "step into the portal"
+    }
+   }
+  ]
+ },
+ {
+  "name": "lava-gate-1",
+  "seed": "5433312384530337025",
+  "expect": "nether",
+  "inventory": [
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:water_bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:flint_and_steel",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "totalMs": 720000,
+  "budgetMs": 720000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed gate-1: fresh spawn holding the whole kit (iron pickaxe, a spare stone pickaxe, a water bucket, an empty bucket, flint and steel, 16 cobblestone, 8 bread); lava, portal, in, 12 minutes",
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "find",
+     "target": {
+      "block": "minecraft:lava"
+     },
+     "why": "a lava pool for the portal frame"
+    },
+    "recover": {
+     "FIND_BLOCKED": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:stone_pickaxe"
+        },
+        "why": "a pickaxe to dig on with"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "nether_portal"
+     },
+     "why": "cast and light a portal at the pool"
+    },
+    "recover": {
+     "BUILD_SHORT": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:cobblestone",
+         "count": 24
+        },
+        "why": "plain blocks for the mould"
+       }
+      }
+     ],
+     "BUILD_NO_SITE": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "find",
+        "target": {
+         "block": "minecraft:lava"
+        },
+        "why": "a lava pool for the portal frame"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "travel_to",
+     "target": "$opening",
+     "why": "step into the portal"
+    }
+   }
+  ],
+  "dump": true
+ },
+ {
+  "name": "lava-gate-2",
+  "seed": "313280743662651985",
+  "expect": "nether",
+  "inventory": [
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:water_bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:flint_and_steel",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "totalMs": 720000,
+  "budgetMs": 720000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed gate-2: fresh spawn holding the whole kit (iron pickaxe, a spare stone pickaxe, a water bucket, an empty bucket, flint and steel, 16 cobblestone, 8 bread); lava, portal, in, 12 minutes",
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "find",
+     "target": {
+      "block": "minecraft:lava"
+     },
+     "why": "a lava pool for the portal frame"
+    },
+    "recover": {
+     "FIND_BLOCKED": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:stone_pickaxe"
+        },
+        "why": "a pickaxe to dig on with"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "nether_portal"
+     },
+     "why": "cast and light a portal at the pool"
+    },
+    "recover": {
+     "BUILD_SHORT": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:cobblestone",
+         "count": 24
+        },
+        "why": "plain blocks for the mould"
+       }
+      }
+     ],
+     "BUILD_NO_SITE": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "find",
+        "target": {
+         "block": "minecraft:lava"
+        },
+        "why": "a lava pool for the portal frame"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "travel_to",
+     "target": "$opening",
+     "why": "step into the portal"
+    }
+   }
+  ],
+  "dump": true
+ },
+ {
+  "name": "lava-gate-3",
+  "seed": "3244043502755372002",
+  "expect": "nether",
+  "inventory": [
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:water_bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:flint_and_steel",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "totalMs": 720000,
+  "budgetMs": 720000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed gate-3: fresh spawn holding the whole kit (iron pickaxe, a spare stone pickaxe, a water bucket, an empty bucket, flint and steel, 16 cobblestone, 8 bread); lava, portal, in, 12 minutes",
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "find",
+     "target": {
+      "block": "minecraft:lava"
+     },
+     "why": "a lava pool for the portal frame"
+    },
+    "recover": {
+     "FIND_BLOCKED": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:stone_pickaxe"
+        },
+        "why": "a pickaxe to dig on with"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "nether_portal"
+     },
+     "why": "cast and light a portal at the pool"
+    },
+    "recover": {
+     "BUILD_SHORT": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:cobblestone",
+         "count": 24
+        },
+        "why": "plain blocks for the mould"
+       }
+      }
+     ],
+     "BUILD_NO_SITE": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "find",
+        "target": {
+         "block": "minecraft:lava"
+        },
+        "why": "a lava pool for the portal frame"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "travel_to",
+     "target": "$opening",
+     "why": "step into the portal"
+    }
+   }
+  ],
+  "dump": true
+ },
+ {
+  "name": "lava-gate-4",
+  "seed": "3315172112810107624",
+  "expect": "nether",
+  "inventory": [
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:water_bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:flint_and_steel",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "totalMs": 720000,
+  "budgetMs": 720000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed gate-4: fresh spawn holding the whole kit (iron pickaxe, a spare stone pickaxe, a water bucket, an empty bucket, flint and steel, 16 cobblestone, 8 bread); lava, portal, in, 12 minutes",
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "find",
+     "target": {
+      "block": "minecraft:lava"
+     },
+     "why": "a lava pool for the portal frame"
+    },
+    "recover": {
+     "FIND_BLOCKED": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:stone_pickaxe"
+        },
+        "why": "a pickaxe to dig on with"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "nether_portal"
+     },
+     "why": "cast and light a portal at the pool"
+    },
+    "recover": {
+     "BUILD_SHORT": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:cobblestone",
+         "count": 24
+        },
+        "why": "plain blocks for the mould"
+       }
+      }
+     ],
+     "BUILD_NO_SITE": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "find",
+        "target": {
+         "block": "minecraft:lava"
+        },
+        "why": "a lava pool for the portal frame"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "travel_to",
+     "target": "$opening",
+     "why": "step into the portal"
+    }
+   }
+  ],
+  "dump": true
+ },
+ {
+  "name": "lava-gate-5",
+  "seed": "937420255288055328",
+  "expect": "nether",
+  "inventory": [
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:water_bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:flint_and_steel",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "totalMs": 720000,
+  "budgetMs": 720000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed gate-5: fresh spawn holding the whole kit (iron pickaxe, a spare stone pickaxe, a water bucket, an empty bucket, flint and steel, 16 cobblestone, 8 bread); lava, portal, in, 12 minutes",
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "find",
+     "target": {
+      "block": "minecraft:lava"
+     },
+     "why": "a lava pool for the portal frame"
+    },
+    "recover": {
+     "FIND_BLOCKED": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:stone_pickaxe"
+        },
+        "why": "a pickaxe to dig on with"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "nether_portal"
+     },
+     "why": "cast and light a portal at the pool"
+    },
+    "recover": {
+     "BUILD_SHORT": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:cobblestone",
+         "count": 24
+        },
+        "why": "plain blocks for the mould"
+       }
+      }
+     ],
+     "BUILD_NO_SITE": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "find",
+        "target": {
+         "block": "minecraft:lava"
+        },
+        "why": "a lava pool for the portal frame"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "travel_to",
+     "target": "$opening",
+     "why": "step into the portal"
+    }
+   }
+  ],
+  "dump": true
+ },
+ {
+  "name": "lava-gate-6",
+  "seed": "8196621077778941313",
+  "expect": "nether",
+  "inventory": [
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:water_bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:flint_and_steel",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "totalMs": 720000,
+  "budgetMs": 720000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed gate-6: fresh spawn holding the whole kit (iron pickaxe, a spare stone pickaxe, a water bucket, an empty bucket, flint and steel, 16 cobblestone, 8 bread); lava, portal, in, 12 minutes",
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "find",
+     "target": {
+      "block": "minecraft:lava"
+     },
+     "why": "a lava pool for the portal frame"
+    },
+    "recover": {
+     "FIND_BLOCKED": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:stone_pickaxe"
+        },
+        "why": "a pickaxe to dig on with"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "nether_portal"
+     },
+     "why": "cast and light a portal at the pool"
+    },
+    "recover": {
+     "BUILD_SHORT": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:cobblestone",
+         "count": 24
+        },
+        "why": "plain blocks for the mould"
+       }
+      }
+     ],
+     "BUILD_NO_SITE": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "find",
+        "target": {
+         "block": "minecraft:lava"
+        },
+        "why": "a lava pool for the portal frame"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "travel_to",
+     "target": "$opening",
+     "why": "step into the portal"
+    }
+   }
+  ],
+  "dump": true
+ },
+ {
+  "name": "lava-gate-7",
+  "seed": "4514800570176826331",
+  "expect": "nether",
+  "inventory": [
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:water_bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:flint_and_steel",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "totalMs": 720000,
+  "budgetMs": 720000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed gate-7: fresh spawn holding the whole kit (iron pickaxe, a spare stone pickaxe, a water bucket, an empty bucket, flint and steel, 16 cobblestone, 8 bread); lava, portal, in, 12 minutes",
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "find",
+     "target": {
+      "block": "minecraft:lava"
+     },
+     "why": "a lava pool for the portal frame"
+    },
+    "recover": {
+     "FIND_BLOCKED": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:stone_pickaxe"
+        },
+        "why": "a pickaxe to dig on with"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "nether_portal"
+     },
+     "why": "cast and light a portal at the pool"
+    },
+    "recover": {
+     "BUILD_SHORT": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:cobblestone",
+         "count": 24
+        },
+        "why": "plain blocks for the mould"
+       }
+      }
+     ],
+     "BUILD_NO_SITE": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "find",
+        "target": {
+         "block": "minecraft:lava"
+        },
+        "why": "a lava pool for the portal frame"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "travel_to",
+     "target": "$opening",
+     "why": "step into the portal"
+    }
+   }
+  ],
+  "dump": true
+ },
+ {
+  "name": "lava-gate-8",
+  "seed": "5593788349168817449",
+  "expect": "nether",
+  "inventory": [
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:water_bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:flint_and_steel",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "totalMs": 720000,
+  "budgetMs": 720000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed gate-8: fresh spawn holding the whole kit (iron pickaxe, a spare stone pickaxe, a water bucket, an empty bucket, flint and steel, 16 cobblestone, 8 bread); lava, portal, in, 12 minutes",
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "find",
+     "target": {
+      "block": "minecraft:lava"
+     },
+     "why": "a lava pool for the portal frame"
+    },
+    "recover": {
+     "FIND_BLOCKED": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:stone_pickaxe"
+        },
+        "why": "a pickaxe to dig on with"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "nether_portal"
+     },
+     "why": "cast and light a portal at the pool"
+    },
+    "recover": {
+     "BUILD_SHORT": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "obtain",
+        "target": {
+         "item": "minecraft:cobblestone",
+         "count": 24
+        },
+        "why": "plain blocks for the mould"
+       }
+      }
+     ],
+     "BUILD_NO_SITE": [
+      {
+       "name": "do_step",
+       "arguments": {
+        "verb": "find",
+        "target": {
+         "block": "minecraft:lava"
+        },
+        "why": "a lava pool for the portal frame"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "travel_to",
+     "target": "$opening",
+     "why": "step into the portal"
+    }
+   }
+  ],
+  "dump": true
+ }
+]

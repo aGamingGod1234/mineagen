@@ -1,0 +1,171 @@
+[
+ {
+  "name": "zombie-tunnel",
+  "seed": 20261107,
+  "inventory": [
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 32
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "monsters": false,
+  "time": 6000,
+  "steer": true,
+  "repeat": true,
+  "budgetMs": 240000,
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "find",
+     "target": {
+      "block": "lava",
+      "within": 64
+     },
+     "why": "lava for the portal"
+    }
+   }
+  ],
+  "probe": [
+   "execute positioned {x} -58 {z} as @e[type=minecraft:zombie,distance=..12] run data get entity @s Pos",
+   "execute positioned {x} -58 {z} as @e[type=minecraft:zombie,distance=..12] run data get entity @s Health"
+  ],
+  "setup": [
+   "forceload add {x-20} {z-20} {x+20} {z+20}",
+   "fill {x-16} -63 {z-16} {x+16} -53 {z+16} minecraft:stone",
+   "fill {x} -58 {z} {x} -57 {z} minecraft:air",
+   "fill {x-1} -59 {z-15} {x+1} -58 {z-14} minecraft:lava",
+   "fill {x-1} -59 {z+14} {x+1} -58 {z+15} minecraft:lava",
+   "fill {x+14} -59 {z-1} {x+15} -58 {z+1} minecraft:lava",
+   "fill {x-15} -59 {z-1} {x-14} -58 {z+1} minecraft:lava",
+   "fill {x} -58 {z-6} {x} -57 {z-1} minecraft:air",
+   "tp Probe {x+0.5} -58 {z+0.5} 0 0",
+   "kill @e[type=minecraft:item,distance=..40]",
+   "summon minecraft:zombie {x+0.5} -58 {z-5.5} {PersistenceRequired:1b,IsBaby:0b,CanPickUpLoot:0b}"
+  ]
+ },
+ {
+  "name": "skeleton-wall",
+  "seed": 20261107,
+  "inventory": [
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 32
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "monsters": false,
+  "time": 6000,
+  "steer": true,
+  "repeat": true,
+  "budgetMs": 240000,
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "find",
+     "target": {
+      "block": "lava",
+      "within": 64
+     },
+     "why": "lava for the portal"
+    }
+   }
+  ],
+  "probe": [
+   "execute positioned {x} -58 {z} as @e[type=minecraft:skeleton,distance=..12] run data get entity @s Pos",
+   "execute positioned {x} -58 {z} as @e[type=minecraft:skeleton,distance=..12] run data get entity @s Health"
+  ],
+  "setup": [
+   "forceload add {x-20} {z-20} {x+20} {z+20}",
+   "fill {x-16} -63 {z-16} {x+16} -53 {z+16} minecraft:stone",
+   "fill {x} -58 {z} {x} -57 {z} minecraft:air",
+   "fill {x-1} -59 {z-15} {x+1} -58 {z-14} minecraft:lava",
+   "fill {x-1} -59 {z+14} {x+1} -58 {z+15} minecraft:lava",
+   "fill {x+14} -59 {z-1} {x+15} -58 {z+1} minecraft:lava",
+   "fill {x-15} -59 {z-1} {x-14} -58 {z+1} minecraft:lava",
+   "fill {x+6} -58 {z} {x+7} -57 {z} minecraft:air",
+   "fill {x+1} -57 {z} {x+5} -57 {z} minecraft:air",
+   "tp Probe {x+0.5} -58 {z+0.5} 0 0",
+   "kill @e[type=minecraft:item,distance=..40]",
+   "summon minecraft:skeleton {x+6.5} -58 {z+0.5} {PersistenceRequired:1b,equipment:{mainhand:{id:\"minecraft:bow\",count:1}}}"
+  ],
+  "after": {
+   "ms": 3000,
+   "commands": [
+    "fill {x+1} -57 {z} {x+5} -57 {z} minecraft:stone"
+   ]
+  }
+ },
+ {
+  "name": "spider-lit",
+  "seed": 20261107,
+  "inventory": [
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 32
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "monsters": false,
+  "time": 6000,
+  "steer": true,
+  "repeat": true,
+  "budgetMs": 240000,
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "find",
+     "target": {
+      "block": "lava",
+      "within": 64
+     },
+     "why": "lava for the portal"
+    }
+   }
+  ],
+  "probe": [
+   "execute positioned {x} -58 {z} as @e[type=minecraft:spider,distance=..12] run data get entity @s Pos",
+   "execute positioned {x} -58 {z} as @e[type=minecraft:spider,distance=..12] run data get entity @s Health"
+  ],
+  "setup": [
+   "forceload add {x-20} {z-20} {x+20} {z+20}",
+   "fill {x-16} -63 {z-16} {x+16} -53 {z+16} minecraft:stone",
+   "fill {x} -58 {z} {x} -57 {z} minecraft:air",
+   "fill {x-1} -59 {z-15} {x+1} -58 {z-14} minecraft:lava",
+   "fill {x-1} -59 {z+14} {x+1} -58 {z+15} minecraft:lava",
+   "fill {x-15} -59 {z-1} {x-14} -58 {z+1} minecraft:lava",
+   "fill {x+1} -58 {z} {x+4} -57 {z} minecraft:air",
+   "fill {x+5} -58 {z-1} {x+7} -57 {z+1} minecraft:air",
+   "setblock {x} -57 {z} minecraft:light[level=15]",
+   "setblock {x+3} -57 {z} minecraft:light[level=15]",
+   "setblock {x+6} -57 {z} minecraft:light[level=15]",
+   "tp Probe {x+0.5} -58 {z+0.5} 0 0",
+   "kill @e[type=minecraft:item,distance=..40]",
+   "summon minecraft:spider {x+6.5} -58 {z+0.5} {PersistenceRequired:1b}"
+  ]
+ }
+]

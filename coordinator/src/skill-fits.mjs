@@ -1,0 +1,286 @@
+import { foodAdviceNeeded } from './survival-advice.mjs';
+
+// One wake fact: a goal skill (fight_until, barter_until, build nether_portal by casting, cast_obsidian) whose preconditions hold right now, with the
+// call's fields and the facts that make it fit. It names a call the model may make; nothing runs from it.
+
+export const SKILL_FITS_BYTES = 240;
+// fight_until's default area radius; barter_until and cast_obsidian look for piglins and lava within 16 blocks.
+const FIGHT_RANGE = 24;
+const BARTER_RANGE = 16;
+const LAVA_RANGE = 16;
+const MELEE = /^minecraft:(wooden|golden|stone|copper|iron|diamond|netherite)_(sword|axe)$/;
+const GOLD_ARMOUR = /^minecraft:golden_(helmet|chestplate|leggings|boots)$/;
+const WORN = new Set(['head', 'chest', 'legs', 'feet']);
+
+/**
+ * needs: the plan's open counted needs in plan order, { id, have, need } (have < need). sightings: remembered source rows
+ * (kind spawner with mob or nether). lavaPools: remembered still lava ({ dimension, x, y, z, sources, cells }).
+ * Returns at most one line, or null when no goal skill fits.
+ */
+export function skillFitsLine({ observation: o = null, needs = [], sightings = [], lavaPools = [] } = {}) {
+	if (!live(o) || !Array.isArray(o.inventory?.items) || remembered(o, 'inventory') || !needs.length) return null;
+	const at = o.position ?? o.player?.position ?? o.player;
+	if (![at?.x, at?.y, at?.z].every(Number.isFinite)) return null;
+	const items = o.inventory.items.filter(i => i?.count > 0);
+	const count = re => items.filter(i => re.test(i.itemId ?? '')).reduce((n, i) => n + i.count, 0);
+	const entities = remembered(o, 'entities') ? [] : (o.entities ?? []).filter(e => e?.alive !== false && Number.isFinite(e?.distance));
+	const nearest = (type, range, ok = () => true) => entities.filter(e => e.type === type && e.distance <= range && ok(e)).sort((a, b) => a.distance - b.distance)[0] ?? null;
+	const away = row => Math.hypot(row.x - at.x, row.y - at.y, row.z - at.z);
+	const dimension = o.world?.dimension;
+	const running = o.currentAction?.active === true ? o.currentAction.actionType : null;
+	const melee = items.filter(i => MELEE.test(i.itemId)).sort((a, b) => tier(b.itemId) - tier(a.itemId))[0]?.itemId.slice(10) ?? null;
+	const bow = count(/^minecraft:(bow|crossbow)$/) > 0 ? count(/^minecraft:(arrow|spectral_arrow|tipped_arrow)$/) : 0;
+	const m = n => `${Math.round(n)} m`;
+
+	const blaze = need => {
+		if (dimension !== 'minecraft:the_nether' || running === 'fight_until' || (!melee && !bow)) return null;
+		const blocks = remembered(o, 'blocks') ? [] : [...(o.blocks ?? []), ...(o.landmarks ?? [])];
+		const spawners = [...blocks.filter(b => b?.blockId === 'minecraft:spawner' && [b.x, b.y, b.z].every(Number.isFinite)),
+			...sightings.filter(r => r?.kind === 'spawner' && (r.mob === 'minecraft:blaze' || r.mob === undefined && r.nether === true) && [r.x, r.y, r.z].every(Number.isFinite))]
+			.map(away).filter(d => d <= FIGHT_RANGE).sort((a, b) => a - b);
+		const mob = nearest('minecraft:blaze', FIGHT_RANGE);
+		if (!spawners.length && !mob) return null;
+		const gear = [melee, bow ? `bow + ${bow} arrows` : null].filter(Boolean).join(', ');
+		return `fight_until mob:minecraft:blaze untilItem:minecraft:blaze_rod untilCount:${need.need} (${spawners.length ? `spawner ${m(spawners[0])}` : `blaze ${m(mob.distance)}`}, ${gear}, rods ${need.have}/${need.need})`;
+	};
+	const enderman = need => {
+		// An enderman is always fought in melee (fight_until never shoots one).
+		if (running === 'fight_until' || !melee) return null;
+		const mob = nearest('minecraft:enderman', FIGHT_RANGE);
+		return mob && `fight_until mob:minecraft:enderman untilItem:minecraft:ender_pearl untilCount:${need.need} (enderman ${m(mob.distance)}, ${melee}, pearls ${need.have}/${need.need})`;
+	};
+	const barter = need => {
+		const gold = count(/^minecraft:gold_ingot$/);
+		if (running === 'barter_until' || gold === 0 || !items.some(i => WORN.has(i.slot) && GOLD_ARMOUR.test(i.itemId))) return null;
+		const piglin = nearest('minecraft:piglin', BARTER_RANGE, e => e.baby !== true && e.targetingAgent !== true);
+		return piglin && `barter_until itemId:minecraft:ender_pearl count:${Math.min(64, need.need - need.have)} (piglin ${m(piglin.distance)}, gold ${gold}, gold armour worn, pearls ${need.have}/${need.need})`;
+	};
+	const cast = need => {
+		// Water poured in the Nether evaporates, so casting is an Overworld (or End) fact.
+		if (dimension === 'minecraft:the_nether' || running === 'cast_obsidian' || count(/^minecraft:water_bucket$/) === 0) return null;
+		const seen = remembered(o, 'blocks') ? [] : (o.blocks ?? []).filter(b => b?.blockId === 'minecraft:lava' && String(b.state?.level) === '0' && b.visible !== false);
+		const pools = lavaPools.filter(p => p?.dimension === dimension).flatMap(p => Array.isArray(p.cells) && p.cells.length ? p.cells.map(c => { const [x, y, z] = String(c).split(',').map(Number); return { x, y, z }; }) : [p]);
+		const source = [...seen, ...pools].filter(c => [c.x, c.y, c.z].every(Number.isFinite)).map(c => ({ c, d: away(c) })).filter(r => r.d <= LAVA_RANGE).sort((a, b) => a.d - b.d)[0];
+		if (!source) return null;
+		// With a second bucket the build verb casts the whole frame beside the pool and lights it (a frame needs 10).
+		if (count(/^minecraft:(bucket|lava_bucket)$/) > 0 && need.need >= 10 && running !== 'build')
+			return `build nether_portal (casts the frame by the lava source at ${source.c.x},${source.c.y},${source.c.z}, ${m(source.d)}, and lights it; ${need.step ? `for ${need.step}; ` : ''}water_bucket + bucket, plain blocks ${count(MOULD)}/13, obsidian ${need.have}/${need.need})`;
+		return `cast_obsidian x:${source.c.x} y:${source.c.y} z:${source.c.z} count:${Math.min(64, need.need - need.have)} (${need.step ? `for ${need.step}; ` : ''}lava source ${m(source.d)}, water_bucket, obsidian ${need.have}/${need.need})`;
+	};
+	const iron = need => {
+		if (running === 'break_block' || remembered(o, 'blocks')) return null;
+		const pick = items.filter(i => /^(?:minecraft:)(stone|copper|iron|diamond|netherite)_pickaxe$/.test(i.itemId) && (i.usesLeft === undefined || i.usesLeft > 0))
+			.sort((a, b) => tier(b.itemId) - tier(a.itemId))[0];
+		if (!pick) return null;
+		const ore = (o.blocks ?? []).filter(b => /^minecraft:(deepslate_)?iron_ore$/.test(b?.blockId) && b.visible !== false && b.remembered !== true && [b.x,b.y,b.z].every(Number.isFinite))
+			.map(c => ({ c, d: away(c) })).filter(r => r.d <= 4.5).sort((a,b) => a.d - b.d)[0];
+		return ore && `break_block x:${ore.c.x} y:${ore.c.y} z:${ore.c.z} with ${pick.itemId.slice(10)} (iron ore seen ${m(ore.d)}; for ${need.step ?? 'iron'}; click reach/line must be clear)`;
+	};
+	const ways = { 'minecraft:raw_iron': [iron], 'minecraft:iron_ingot': [iron], 'minecraft:iron_ore': [iron], 'minecraft:deepslate_iron_ore': [iron], 'minecraft:blaze_rod': [blaze], 'minecraft:ender_pearl': [enderman, barter], 'minecraft:obsidian': [cast] };
+	for (const need of needs) {
+		if (!(need?.have < need?.need)) continue;
+		for (const way of ways[need.id] ?? []) {
+			const line = way(need);
+			if (line) return Buffer.byteLength(line) <= SKILL_FITS_BYTES ? line : null;
+		}
+	}
+	return null;
+}
+
+function live(o) { return o?.ready === true && o.player?.dead !== true && o.continuity?.phase !== 'dead'; }
+function remembered(o, section) { return o.continuity?.rememberedSections?.includes(section) === true; }
+function tier(id) { return ['wooden', 'golden', 'stone', 'copper', 'iron', 'diamond', 'netherite'].indexOf(id.slice(10).split('_')[0]); }
+
+// The usual route to beat the game, as data: each stage is done when its plan check holds (plan-checks.mjs, placements
+// included), and the first stage not done is the usual next step. One wake line that suggests; it names a step the model
+// may take or ignore, and starts nothing.
+export const ROUTE_BYTES = 220;
+export const PORTAL_ENTRY_NEXT = 'enter the Nether through the lit portal now';
+export const PORTAL_ENTRY_PREP = 'food stocks and a bed are optional unless health or hunger is low';
+// Hunger at or under this (of 20) makes food part of the step (health stops regenerating under 18). The 7 gate2 games
+// that held a bucket and flint and steel had hunger 19-20 at the time, and all of them went hunting instead of to lava.
+const HUNGRY = 14;
+const FOOD = /^minecraft:(cooked_(beef|porkchop|mutton|chicken|rabbit|cod|salmon)|bread|baked_potato|golden_carrot|pumpkin_pie|rabbit_stew|mushroom_stew|beetroot_soup)$/;
+// Raw meat and fish count as carried food for the spawn food step (any of it eaten restores hunger).
+const RAW_FOOD = /^minecraft:(beef|porkchop|mutton|chicken|rabbit|cod|salmon)$/;
+// Anything a player eats from the inventory without crafting: what 'food held' counts everywhere in the route line.
+const EDIBLE = new RegExp(`${FOOD.source}|${RAW_FOOD.source}|^minecraft:(apple|carrot|potato|sweet_berries|glow_berries|melon_slice|beetroot|cookie|dried_kelp)$`);
+// About 4 raw meat from one animal at spawn: batch 1 ended 14 of 24 runs by health with no food carried (health comes back
+// only at hunger 18+).
+const MEAT = 4;
+const MEAT_STOCK = 8;
+const MEATS = ['beef', 'porkchop', 'mutton', 'chicken', 'rabbit', 'cod', 'salmon'];
+const COOKED_MEAT = /^minecraft:cooked_(beef|porkchop|mutton|chicken|rabbit|cod|salmon)$/;
+const ANIMAL_MEAT = { cow: 'beef', pig: 'porkchop', sheep: 'mutton', chicken: 'chicken', rabbit: 'rabbit' };
+
+function nearbyMeat(o) {
+	if (remembered(o, 'entities')) return null;
+	const at = o.position ?? o.player;
+	return (o.entities ?? []).filter(row => row?.alive !== false && row.visible !== false && row.perceivedBy !== 'sound' && row.baby !== true && row.appearance?.baby !== true && ANIMAL_MEAT[String(row.type).replace(/^minecraft:/, '')])
+		.map(row => ({ meat: ANIMAL_MEAT[String(row.type).replace(/^minecraft:/, '')], distance: Number.isFinite(row.distance) ? row.distance : Math.hypot(row.x - at?.x, row.y - at?.y, row.z - at?.z) }))
+		.filter(row => row.distance <= 32).sort((a, b) => a.distance - b.distance)[0]?.meat ?? null;
+}
+
+function stockFoodNext(f) {
+	const exact = meat => f.count(new RegExp('^minecraft:' + meat + '$'));
+	const raw = MEATS.find(meat => exact(meat) > 0);
+	const meat = raw ?? f.nearbyMeat;
+	const why = `cooked meat ${f.cookedMeat}/${MEAT_STOCK}`;
+	if (meat === null || meat === undefined) return ['look for nearby cows/pigs/sheep/chickens, then obtain cooked meat with a furnace before digging below Y40', why];
+	// Obtain counts are totals of this cooked type; cook held raw meat before hunting for more.
+	const total = exact('cooked_' + meat) + Math.min(MEAT_STOCK - f.cookedMeat, raw ? exact(raw) : MEAT_STOCK);
+	return [`obtain cooked_${meat} count ${total} using a furnace before digging below Y40`, `${why}; ${raw ? 'raw meat held' : 'animal seen nearby'}`];
+}
+// The blocks a cast frame's mould is made of: plain full blocks that neither burn nor fall (planks would catch fire).
+const MOULD = /^minecraft:(cobblestone|cobbled_deepslate|dirt|stone|deepslate|andesite|diorite|granite|tuff|blackstone|basalt|end_stone)$/;
+const BUCKETS = 'has:minecraft:bucket|minecraft:water_bucket|minecraft:lava_bucket*2';
+// Plain blocks a cast frame's mould takes (build nether_portal), with one to step up on.
+const CAST_BLOCKS = 13;
+const EYES = 12;
+const ROUTE = [
+	// Food at spawn from the nearest passive animal. Optional: once the first pickaxe is made (a seed with no animal in view
+	// moves on), the portal is lit or the Nether visited, the route no longer holds it up. held: any food carried ends it too (eating it down to one piece keeps it ended; all of it eaten before a pickaxe brings it back).
+	{ id: 'food', done: 'tool:pickaxe:wooden+ | frame:lit | visited:minecraft:the_nether', held: f => f.food >= 1 || !f.foodNeeded,
+		next: f => [`obtain beef count ${MEAT} (or porkchop, mutton or chicken from the nearest animal; skip if none in view)`, 'no food held, health regrows only at hunger 18+'] },
+	{ id: 'wood', done: 'tool:pickaxe:wooden+', next: f => [`obtain wooden_pickaxe`, f.wood ? `${f.wood} logs/planks held` : 'no tools yet'] },
+	// R6G5: food after casting meant a 95-block climb. Bite before stone/furnace acquisition can enter a mine.
+	{ id: 'food_stock', done: 'visited:minecraft:the_nether', held: f => f.cookedMeat >= MEAT_STOCK, next: stockFoodNext },
+	{ id: 'stone', done: 'tool:pickaxe:stone+', next: () => ['obtain stone_pickaxe', 'wooden pickaxe, no stone tools'] },
+	{ id: 'furnace', done: 'has:minecraft:furnace*1 | has:minecraft:iron_ingot*3 | tool:pickaxe:iron+', next: f => ['obtain furnace', `stone tools, ${f.count(/^minecraft:cobblestone$/)} cobblestone`] },
+	{ id: 'iron_pickaxe', done: 'tool:pickaxe:iron+', next: f => ['obtain iron_pickaxe', f.iron ? `stone tools, ${f.iron}/3 iron held` : 'stone tools, no iron yet'] },
+	// Skeletons killed 8 of 12 scripted deaths; a shield in the off hand blocks their arrows.
+	// A shield lost after the portal is lit (or the Nether visited) no longer holds the route back.
+	{ id: 'shield', done: 'offhand:minecraft:shield | frame:lit | visited:minecraft:the_nether', next: f => f.count(/^minecraft:shield$/) ? ['equip_item shield to offhand', 'shield held, not in the off hand']
+		: ['obtain shield, then equip_item it to offhand', `iron ${f.iron} held, shield takes 1`] },
+	{ id: 'iron_kit', done: `${BUCKETS} & has:minecraft:flint_and_steel*1`,
+		held: f => f.count(/^minecraft:obsidian$/) >= 10 && f.count(/^minecraft:flint_and_steel$/) > 0, next: f => {
+		// A carried frame skips the casting buckets, but still needs its lighter.
+		if (f.count(/^minecraft:obsidian$/) >= 10) return ['obtain flint_and_steel', `iron ${f.iron} held, 1 needed for flint_and_steel`];
+		const missing = [f.buckets < 2 ? `${2 - f.buckets} bucket${2 - f.buckets > 1 ? 's' : ''}` : null, f.count(/^minecraft:flint_and_steel$/) ? null : 'flint_and_steel'].filter(Boolean);
+		// obtain takes one item at a time and its count is the total to hold: empty buckets held plus the ones still
+		// missing (a filled bucket counts toward the two but is not an empty bucket).
+		const first = f.buckets < 2 ? `bucket count ${f.count(/^minecraft:bucket$/) + 2 - f.buckets}` : missing[0];
+		// Iron still needed for what is missing (3 per bucket, 1 for flint_and_steel), not the whole kit's 11.
+		const need = Math.max(0, 2 - f.buckets) * 3 + (f.count(/^minecraft:flint_and_steel$/) ? 0 : 1);
+		return [`obtain ${first}${missing.length > 1 ? `, then ${missing.slice(1).join(', ')}` : ''}`, `iron ${f.iron} held, ${need} needed for ${missing.join(', ')}`];
+	} },
+	// Without a diamond pickaxe the frame is cast in place: build nether_portal does it beside a seen lava pool.
+	{ id: 'portal', done: 'frame:lit | visited:minecraft:the_nether', next: f => {
+		const kit = `plain blocks ${f.blocks}/${CAST_BLOCKS}, lava pools seen ${f.pools}`;
+		if (f.count(/^minecraft:obsidian$/) >= 10) return ['build nether_portal', `${f.count(/^minecraft:obsidian$/)} obsidian held`];
+		// obtain fills a carried bucket at the nearest water; gate games that read "fill a bucket with water" asked obtain for
+		// water_bucket (then refused) or climbed to the surface for it.
+		if (!f.count(/^minecraft:water_bucket$/)) return [`obtain water_bucket, then ${f.pools ? 'build nether_portal beside the lava pool' : 'find block minecraft:lava and build nether_portal beside it'}`, kit];
+		if (!f.pools) return ['find block minecraft:lava, then build nether_portal beside the pool (casts the frame with your buckets, lights it)', `water bucket held, ${kit}`];
+		return ['build nether_portal beside the lava pool (casts the frame with your buckets and lights it)', `water bucket held, ${kit}`];
+	} },
+];
+
+/**
+ * The usual next step toward beating the game from the player's state, or null without a live sample. observation: the
+ * newest live sample; known: plan-checks facts (visited dimensions, lit frames, lava pools, placements); evaluate: the
+ * plan-check evaluator (evaluatePlanCheck); memory: scoped, contradiction-aware source facts from LiveTaskViews.
+ */
+export function routeLine({ observation: o = null, known = null, memory = null, evaluate } = {}) {
+	if (!live(o) || !Array.isArray(o.inventory?.items) || remembered(o, 'inventory') || known === null || typeof evaluate !== 'function') return null;
+	const items = o.inventory.items.filter(i => i?.count > 0);
+	const count = re => items.filter(i => re.test(i.itemId ?? '')).reduce((n, i) => n + i.count, 0);
+	const ok = check => { try { return evaluate(check, o, known).ok === true; } catch { return false; } };
+	const done = row => row.held?.(facts) === true || ok(row.done);
+	const dimension = o.world?.dimension;
+	const food = count(EDIBLE);
+	// The End needs 12 eyes in its portal frames. What is still missing counts down from the eyes already held or set in a
+	// frame (a thrown eye that broke counts up again), then the powder and rods that make them, and pearls likewise.
+	const frames = remembered(o, 'blocks') ? [] : [...(o.blocks ?? []), ...(o.landmarks ?? [])];
+	const filled = Math.min(EYES, frames.filter(b => b?.blockId === 'minecraft:end_portal_frame' && [true, 'true'].includes(b.state?.eye)).length);
+	const portalOpen = frames.some(b => b?.blockId === 'minecraft:end_portal');
+	const eyesHeld = count(/^minecraft:ender_eye$/), eyesNeeded = portalOpen ? 0 : Math.max(0, EYES - eyesHeld - filled);
+	const powderNeeded = Math.max(0, eyesNeeded - count(/^minecraft:blaze_powder$/));
+	// One spare rod while nothing is crafted yet: the usual 7 rods for 12 eyes.
+	const rodsNeeded = Math.ceil(powderNeeded / 2) + (eyesHeld + filled + count(/^minecraft:blaze_powder$/) === 0 && eyesNeeded > 0 ? 1 : 0);
+	const rods = count(/^minecraft:blaze_rod$/), pearls = count(/^minecraft:ender_pearl$/);
+	const rodsMissing = Math.max(0, rodsNeeded - rods), pearlsMissing = Math.max(0, eyesNeeded - pearls);
+	const eyeFacts = `rods ${rods}/${rodsNeeded}, pearls ${pearls}/${eyesNeeded}, eyes ${eyesHeld} held + ${filled} set of ${EYES}`;
+	const facts = { count, foodNeeded: foodAdviceNeeded(o), food: count(EDIBLE), cookedMeat: count(COOKED_MEAT), nearbyMeat: nearbyMeat(o), blocks: count(MOULD), wood: count(/^minecraft:([a-z_]+_(log|planks|stem))$/), iron: count(/^minecraft:(iron_ingot|raw_iron)$/),
+		buckets: count(/^minecraft:(bucket|water_bucket|lava_bucket)$/), pools: (known.lavaPools ?? []).filter(p => p?.dimension === dimension).length };
+	const line = (next, why) => {
+		const text = `usual next step: ${next} (${why})`;
+		if (Buffer.byteLength(text) <= ROUTE_BYTES) return text;
+		let clipped = '', used = 0;
+		for (const char of text) {
+			const bytes = Buffer.byteLength(char);
+			if (used + bytes > ROUTE_BYTES - 3) break;
+			clipped += char; used += bytes;
+		}
+		return `${clipped}…`;
+	};
+	if (dimension === 'minecraft:the_end') {
+		// A queued wake can render an older sample after the live tally has changed.
+		const seen = o.endCrystals;
+		const crystals = Array.isArray(seen?.standing) && Number.isSafeInteger(seen.broken) && seen.broken >= 0
+			? { standing: seen.standing.length, broken: seen.broken } : known.crystals;
+		if (crystals?.standing === 0 && crystals.broken > 0)
+			return line('fight the dragon from open ground near the exit fountain', 'no remembered standing crystals; if it heals, look for others');
+		return line('kill the ender_dragon: break the end crystals first', 'in the End');
+	}
+	if (dimension === 'minecraft:the_nether') {
+		if (rodsMissing > 0) {
+			const fortress = `find a fortress and fight_until ${rodsNeeded} blaze_rods`;
+			if (items.some(i => WORN.has(i.slot) && GOLD_ARMOUR.test(i.itemId))) return line(fortress, eyeFacts);
+			const gold = items.find(i => GOLD_ARMOUR.test(i.itemId));
+			const prep = gold ? `consider equip_item ${gold.itemId.slice(10)} before searching` : 'consider gold armour if safely nearby; skip a gold hunt';
+			return line(`${prep}; ${fortress}`, `no gold worn; ${eyeFacts}`);
+		}
+		if (pearlsMissing > 0) return line(`get ${eyesNeeded}-${eyesNeeded + 2} ender_pearls: warped-forest endermen, or barter_until with gold`, eyeFacts);
+		return line('return home through the portal', eyeFacts);
+	}
+	const visitedNether = ok('visited:minecraft:the_nether') || [...(known.advancements ?? []), ...(o.advancements ?? [])]
+		.some(id => /^(minecraft:)?story\/enter_the_nether$/.test(id));
+	if (visitedNether) {
+		if (portalOpen) return line('enter the End portal', 'portal open');
+		// At the frames with eyes in hand, set them first: an observation lists at most 8 blocks of a kind, so the filled
+		// count seen here is a lower bound and must not send the agent back to the Nether while it still holds eyes.
+		if (eyesHeld > 0 && frames.some(b => b?.blockId === 'minecraft:end_portal_frame')) return line('set the ender_eyes in the empty End portal frames', eyeFacts);
+		const portal = overworldPortal(o, memory);
+		if ((rodsMissing > 0 || pearlsMissing > 0) && portal) {
+			const survival = foodAdviceNeeded(o) ? `low health/hunger, food ${food} held: recover first; ` : 'food stocking optional while healthy; ';
+			return line(`return via known Overworld portal at ${portal.x},${portal.y},${portal.z} to the Nether`, `${survival}active portal needs no iron pick or ignition; use held tools`);
+		}
+		// Without a retained portal, keep the existing preparation route; no coordinates are inferred from history.
+		const rebuild = ROUTE.slice(0, ROUTE.findIndex(row => row.id === 'iron_pickaxe') + 1).find(row => row.id !== 'food_stock' && !done(row));
+		if (rebuild !== undefined) { const [next, why] = rebuild.next(facts); return line(next, `${why}; rebuild after the Nether visit`); }
+		if (foodAdviceNeeded(o) && food < 10) return line(`obtain cooked_beef count ${20 - food} before going on (food ${food}/10)`, eyeFacts);
+		if (frames.some(b => /^minecraft:(?:(?:mossy_|cracked_)?stone_bricks|iron_bars)$/.test(b?.blockId ?? '')))
+			return line('find block end_portal_frame walks observed passages to the portal room; resume after handling danger or a blocked doorway', eyeFacts);
+		if (rodsMissing > 0 || pearlsMissing > 0) return line(`go back to the Nether for ${[rodsMissing ? `${rodsMissing} blaze_rods` : null, pearlsMissing ? `${pearlsMissing} ender_pearls` : null].filter(Boolean).join(' and ')}`, eyeFacts);
+		if (eyesNeeded > 0) return line(`craft ${eyesNeeded} ender_eyes from pearls and blaze powder`, eyeFacts);
+		if (filled > 0 || frames.some(b => b?.blockId === 'minecraft:end_portal_frame')) return line(`set the ender_eyes in the empty End portal frames`, eyeFacts);
+		return line('find structure stronghold follows thrown eyes and digs down; then find block end_portal_frame walks passages; resume after danger', eyeFacts);
+	}
+	// Round1 games6/8 lit portals, then spent the rest of the game on optional surface preparation.
+	if (ok('frame:lit')) return line(PORTAL_ENTRY_NEXT, PORTAL_ENTRY_PREP);
+	const stage = ROUTE.find(row => !done(row));
+	if (stage !== undefined) {
+		const [next, why] = stage.next(facts);
+		// Food on the way when hungry, once the stone tools are made: a full hunger bar needs no hunt.
+		const restock = !['food', 'food_stock', 'wood', 'stone'].includes(stage.id) && food < 10 && foodAdviceNeeded(o) ? `; low hunger/health, food ${food} held: obtain cooked_beef on the way` : '';
+		return line(`${next}${restock}`, why);
+	}
+	return null;
+}
+
+// knownSources already scopes and withdraws sources. Never refill an empty result from historical frames or poi.
+function overworldPortal(o, memory) {
+	if (o.world?.dimension !== 'minecraft:overworld' || remembered(o, 'world')) return null;
+	const scoped = row => (row.worldId === undefined || row.worldId === o.world?.worldId)
+		&& (row.dimension === undefined || row.dimension === o.world?.dimension);
+	const known = memory?.known;
+	if (known != null && !scoped(known)) return null;
+	const rows = known != null ? [...(known.sightings ?? []).filter(r => /^(minecraft:)?nether_portal$/.test(r?.what)),
+		...(known.blocks ?? []).filter(r => r?.blockId === 'minecraft:nether_portal')]
+		: remembered(o, 'blocks') ? [] : [...(o.blocks ?? []), ...(o.landmarks ?? [])]
+			.filter(r => r?.blockId === 'minecraft:nether_portal' && r.visible !== false && r.remembered !== true);
+	const at = memory?.position ?? o.position ?? o.player?.position ?? o.player;
+	const distance = row => [at?.x, at?.y, at?.z].every(Number.isFinite) ? Math.hypot(row.x - at.x, row.y - at.y, row.z - at.z) : 0;
+	return rows.filter(r => r && scoped(r) && [r.x, r.y, r.z].every(Number.isFinite)).sort((a, b) => distance(a) - distance(b))[0] ?? null;
+}

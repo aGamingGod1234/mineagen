@@ -1,0 +1,198 @@
+[
+	{
+		"seed": 20261029,
+		"x": 0,
+		"z": 0,
+		"y": 40,
+		"heading": "east",
+		"legs": 1,
+		"inventory": [
+			{
+				"item": "minecraft:iron_pickaxe",
+				"count": 1
+			},
+			{
+				"item": "minecraft:cobblestone",
+				"count": 32
+			},
+			{
+				"item": "minecraft:dirt",
+				"count": 16
+			}
+		],
+		"name": "stairs-side-cave-default",
+		"pattern": "stairs_down",
+		"targetY": 28,
+		"digArgs": {
+			"maxBlocks": 120,
+			"timeoutMs": 120000
+		},
+		"fixture": [
+			"fill {x-4} {y-24} {z-4} {x+14} {y-1} {z+4} minecraft:stone",
+			"fill {x+4} {y-6} {z+1} {x+9} {y-3} {z+3} minecraft:air"
+		]
+	},
+	{
+		"seed": 20261029,
+		"x": 0,
+		"z": 0,
+		"y": 40,
+		"heading": "east",
+		"legs": 1,
+		"inventory": [
+			{
+				"item": "minecraft:iron_pickaxe",
+				"count": 1
+			},
+			{
+				"item": "minecraft:cobblestone",
+				"count": 32
+			},
+			{
+				"item": "minecraft:dirt",
+				"count": 16
+			}
+		],
+		"name": "stairs-side-cave-false",
+		"pattern": "stairs_down",
+		"targetY": 28,
+		"digArgs": {
+			"maxBlocks": 120,
+			"timeoutMs": 120000,
+			"throughCaves": false
+		},
+		"fixture": [
+			"fill {x-4} {y-24} {z-4} {x+14} {y-1} {z+4} minecraft:stone",
+			"fill {x+4} {y-6} {z+1} {x+9} {y-3} {z+3} minecraft:air"
+		]
+	},
+	{
+		"seed": 20261029,
+		"x": 0,
+		"z": 0,
+		"y": 40,
+		"heading": "east",
+		"legs": 1,
+		"inventory": [
+			{
+				"item": "minecraft:iron_pickaxe",
+				"count": 1
+			},
+			{
+				"item": "minecraft:cobblestone",
+				"count": 32
+			},
+			{
+				"item": "minecraft:dirt",
+				"count": 16
+			}
+		],
+		"name": "stairs-drop4-default",
+		"expectDamageTaken": 1,
+		"pattern": "stairs_down",
+		"targetY": 26,
+		"digArgs": {
+			"maxBlocks": 120,
+			"timeoutMs": 120000
+		},
+		"fixture": [
+			"fill {x-4} {y-24} {z-4} {x+14} {y-1} {z+4} minecraft:stone",
+			"fill {x+5} {y-8} {z-1} {x+8} {y-6} {z+1} minecraft:air"
+		]
+	},
+	{
+		"seed": 20261029,
+		"x": 0,
+		"z": 0,
+		"y": 40,
+		"heading": "east",
+		"legs": 1,
+		"inventory": [
+			{
+				"item": "minecraft:iron_pickaxe",
+				"count": 1
+			},
+			{
+				"item": "minecraft:cobblestone",
+				"count": 32
+			},
+			{
+				"item": "minecraft:dirt",
+				"count": 16
+			}
+		],
+		"name": "shaft-nobucket-solid",
+		"pattern": "shaft",
+		"targetY": 24,
+		"digArgs": {
+			"maxBlocks": 120,
+			"timeoutMs": 120000
+		},
+		"fixture": [
+			"fill {x-4} {y-24} {z-4} {x+14} {y-1} {z+4} minecraft:stone"
+		]
+	},
+	{
+		"seed": 20261029,
+		"x": 0,
+		"z": 0,
+		"y": 40,
+		"heading": "east",
+		"legs": 1,
+		"inventory": [
+			{
+				"item": "minecraft:iron_pickaxe",
+				"count": 1
+			},
+			{
+				"item": "minecraft:cobblestone",
+				"count": 32
+			},
+			{
+				"item": "minecraft:dirt",
+				"count": 16
+			}
+		],
+		"name": "shaft-nobucket-lava-cave",
+		"expectCode": "LAVA_AHEAD",
+		"pattern": "shaft",
+		"targetY": 24,
+		"digArgs": {
+			"maxBlocks": 120,
+			"timeoutMs": 120000
+		},
+		"fixture": [
+			"fill {x-4} {y-24} {z-4} {x+14} {y-1} {z+4} minecraft:stone",
+			"fill {x-3} {y-7} {z-3} {x+3} {y-5} {z+3} minecraft:air",
+			"fill {x-3} {y-8} {z-3} {x+3} {y-8} {z+3} minecraft:lava"
+		]
+	},
+	{
+		"seed": 20261029,
+		"x": 300,
+		"z": -200,
+		"name": "shaft-nobucket-surface-real",
+		"expectCode": "WATER_AHEAD",
+		"pattern": "shaft",
+		"targetY": 20,
+		"legs": 3,
+		"inventory": [
+			{
+				"item": "minecraft:iron_pickaxe",
+				"count": 1
+			},
+			{
+				"item": "minecraft:cobblestone",
+				"count": 32
+			},
+			{
+				"item": "minecraft:dirt",
+				"count": 16
+			}
+		],
+		"digArgs": {
+			"maxBlocks": 200,
+			"timeoutMs": 240000
+		}
+	}
+]

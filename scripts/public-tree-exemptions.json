@@ -1,0 +1,159 @@
+[
+  {
+    "file": ".gitignore",
+    "line": 68,
+    "rule": "device-word context",
+    "sha256": "fe9281c87bbc688f91a82735c47287f21353867bbab0c0470526cb40ce41a42c",
+    "reason": "Operating-system folder/file or GUI terminology, not a named machine."
+  },
+  {
+    "file": "runtime/README.md",
+    "line": 39,
+    "rule": "device-word context",
+    "sha256": "eea5f8ce35d7cad450a5be515c83f605ed2e34014419c4e3328486734fa7a6c7",
+    "reason": "Operating-system folder/file or GUI terminology, not a named machine."
+  },
+  {
+    "file": "scripts/check-public-tree.mjs",
+    "line": 20,
+    "rule": "personal name",
+    "sha256": "9124ab82197767e191698fe0b71ec6e2e738aadbdcf17ca7e495da9660c01d06",
+    "reason": "Scanner signature or assembled negative fixture, not a person or host reference."
+  },
+  {
+    "file": "scripts/check-public-tree.mjs",
+    "line": 44,
+    "rule": "device-word context",
+    "sha256": "2519d0d11a3a1befeab50a13b36dc93212ace7061576c9608e6a82f5f87e476d",
+    "reason": "Scanner signature or assembled negative fixture, not a person or host reference."
+  },
+  {
+    "file": "scripts/quality/README.md",
+    "line": 57,
+    "rule": "device-word context",
+    "sha256": "91ed9e198ca8472e52100561641bfacb086f620c26521e1b18bf9691712c3df4",
+    "reason": "Operating-system folder/file or GUI terminology, not a named machine."
+  },
+  {
+    "file": "scripts/quality/README.md",
+    "line": 382,
+    "rule": "device-word context",
+    "sha256": "c7d994cb98a400cf0e831f4c539fb3970cf05b6496822e21d0b075accc1f3257",
+    "reason": "Operating-system folder/file or GUI terminology, not a named machine."
+  },
+  {
+    "file": "scripts/quality/fixture-servers.mjs",
+    "line": 13,
+    "rule": "device-word context",
+    "sha256": "2c613f51a01592c02e90b383a481620915178d44869912c503b79fea752abec8",
+    "reason": "Operating-system folder/file or GUI terminology, not a named machine."
+  },
+  {
+    "file": "scripts/quality/fixture-servers.mjs",
+    "line": 157,
+    "rule": "device-word context",
+    "sha256": "9b21d5e2588c08c3fb90765b2a528293bb0bb9cd7d82828b027e816ac275ef73",
+    "reason": "Operating-system folder/file or GUI terminology, not a named machine."
+  },
+  {
+    "file": "scripts/quality/lib/stake-comparison.mjs",
+    "line": 125,
+    "rule": "device-word context",
+    "sha256": "40f4112a3bff11f53f7cfaef60536f5598ffa3fc31a97ac3999b9c4d9ab4c426",
+    "reason": "Operating-system folder/file or GUI terminology, not a named machine."
+  },
+  {
+    "file": "scripts/tests/public-export.test.mjs",
+    "line": 15,
+    "rule": "personal name",
+    "sha256": "e1a0209dcfb56c31c603e6c9e89ada730bc9291634b53eef3b8575f850ab7640",
+    "reason": "Scanner signature or assembled negative fixture, not a person or host reference."
+  },
+  {
+    "file": "src/client/java/dev/agaminggod/arenaagents/client/gui/AgentControlScreen.java",
+    "line": 1238,
+    "rule": "device-word context",
+    "sha256": "0e0c30e7864c534bcbc55cc988e1d5e5aa0fb864755b6ec55bf5feefa62f6560",
+    "reason": "Operating-system folder/file or GUI terminology, not a named machine."
+  },
+  {
+    "file": "src/client/java/dev/agaminggod/arenaagents/client/gui/AgentControlScreen.java",
+    "line": 1247,
+    "rule": "device-word context",
+    "sha256": "37046c03926eb7bf57d4dc059c8fe0ddfe251a890235931ac72a2e4e2d3f80ba",
+    "reason": "Operating-system folder/file or GUI terminology, not a named machine."
+  },
+  {
+    "file": "src/test/java/dev/agaminggod/arenaagents/control/ClientAwtInitializationVerification.java",
+    "line": 23,
+    "rule": "device-word context",
+    "sha256": "5937856e6bdd2d9a28a19c987abfefe57883d802e1a70598598719745a98e1fa",
+    "reason": "Operating-system folder/file or GUI terminology, not a named machine."
+  },
+  {
+    "file": "coordinator/test/contracts/claims.json",
+    "rule": "file exceeds 2 MB",
+    "reason": "Reviewed executable contract table, not recordings or a dump."
+  },
+  {
+    "file": "maps/registries/minecraft-26.3-block-states.json",
+    "rule": "file exceeds 2 MB",
+    "reason": "Pinned generated Minecraft block-state catalog required by map validation, not gameplay recordings."
+  },
+  {
+    "file": "src/test/java/dev/agaminggod/arenaagents/client/control/UsageCardsRenderVerification.java",
+    "line": 23,
+    "rule": "recorded usage",
+    "sha256": "b158247eec23658a648e02a16b605d6d818a21dac8fbc9bf811b82f5c30fd305",
+    "reason": "Authored test inputs: replaced ambiguous captured totals/costs with invented values; 93 assertions and headless rendering pass. No account observation."
+  },
+  {
+    "file": "src/test/java/dev/agaminggod/arenaagents/client/control/UsageCardsRenderVerification.java",
+    "line": 24,
+    "rule": "recorded usage",
+    "sha256": "fe8a8c866f8fe0743aaf37e49e7c864f6b9ad18bf525666bd5983d2be5e71d31",
+    "reason": "Authored test inputs: replaced ambiguous captured totals/costs with invented values; 93 assertions and headless rendering pass. No account observation."
+  },
+  {
+    "file": "src/test/java/dev/agaminggod/arenaagents/client/control/UsageCardsRenderVerification.java",
+    "line": 38,
+    "rule": "recorded usage",
+    "sha256": "a0ce58fa12ede5e373fa07994028a73049403ce7e07b8356f18030e15ea37bdc",
+    "reason": "Authored test inputs: replaced ambiguous captured totals/costs with invented values; 93 assertions and headless rendering pass. No account observation."
+  },
+  {
+    "file": "src/test/java/dev/agaminggod/arenaagents/client/control/UsageCardsRenderVerification.java",
+    "line": 39,
+    "rule": "recorded usage",
+    "sha256": "e36921997401a6dda8287422ab6d09d340dcb1cbfc5e8e53d2a03b35de701962",
+    "reason": "Authored test inputs: replaced ambiguous captured totals/costs with invented values; 93 assertions and headless rendering pass. No account observation."
+  },
+  {
+    "file": "src/test/java/dev/agaminggod/arenaagents/control/LiveTaskUsageVerification.java",
+    "line": 16,
+    "rule": "recorded usage",
+    "sha256": "3f24a82b6abdbe0715c14cdfb29eda2d4cab615845fe02bff86cabebfff923ef",
+    "reason": "Authored test inputs: replaced ambiguous captured totals/costs with invented values; 93 assertions and headless rendering pass. No account observation."
+  },
+  {
+    "file": "src/test/java/dev/agaminggod/arenaagents/control/LiveTaskViewVerification.java",
+    "line": 34,
+    "rule": "recorded usage",
+    "sha256": "6532d727d268702884a0fc9d83d58fa1d71050d1fa03e3b2183a08dbf426ba4e",
+    "reason": "Authored test inputs: replaced ambiguous captured totals/costs with invented values; 93 assertions and headless rendering pass. No account observation."
+  },
+  {
+    "file": "src/test/java/dev/agaminggod/arenaagents/control/LiveTaskViewVerification.java",
+    "line": 35,
+    "rule": "recorded usage",
+    "sha256": "ee63629381c65418d0c4db259cd61abe5bd1b537b2d06a5b6276df1f158c86db",
+    "reason": "Authored test inputs: replaced ambiguous captured totals/costs with invented values; 93 assertions and headless rendering pass. No account observation."
+  },
+  {
+    "file": "src/test/java/dev/agaminggod/arenaagents/control/LiveTaskWindowRenderVerification.java",
+    "line": 41,
+    "rule": "recorded usage",
+    "sha256": "3fe77880c3d68e38292d42673ee9c1d45595c4b171cdd61e6e673b57b3042fa4",
+    "reason": "Authored test inputs: replaced ambiguous captured totals/costs with invented values; 93 assertions and headless rendering pass. No account observation."
+  }
+]

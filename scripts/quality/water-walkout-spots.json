@@ -1,0 +1,44 @@
+[
+	{
+		"name": "water-walkout-40",
+		"seed": "1001",
+		"time": "day",
+		"monsters": false,
+		"inventory": [
+			{
+				"item": "minecraft:bucket",
+				"count": 1
+			},
+			{
+				"item": "minecraft:bread",
+				"count": 8
+			}
+		],
+		"note": "obtain water_bucket at a shallow pond 34-45 blocks east, in a walled stone corridor (open only east, so find's first leg heads that way): one layer of still water on the floor that the body wades into, ending at a 1-high ledge with water on top at eye height, so a leg sees it from the start. The walk to the ledge water ends standing in the pond, so the fill is from the water and the body must walk back about 40 blocks to dry ground (review 2 of #177: a 32-block cap left it in the water)",
+		"commands": [
+			"fill ~-5 ~ ~-9 ~53 ~5 ~9 minecraft:air",
+			"fill ~-5 ~-1 ~-9 ~53 ~-1 ~9 minecraft:stone",
+			"fill ~-5 ~ ~-9 ~-5 ~5 ~9 minecraft:stone",
+			"fill ~-5 ~ ~-9 ~53 ~5 ~-9 minecraft:stone",
+			"fill ~-5 ~ ~9 ~53 ~5 ~9 minecraft:stone",
+			"fill ~53 ~ ~-9 ~53 ~5 ~9 minecraft:stone",
+			"fill ~34 ~ ~-8 ~44 ~ ~8 minecraft:water",
+			"fill ~45 ~ ~-8 ~45 ~ ~8 minecraft:stone",
+			"fill ~45 ~1 ~-8 ~45 ~1 ~8 minecraft:water"
+		],
+		"totalMs": 300000,
+		"budgetMs": 300000,
+		"calls": [
+			{
+				"name": "do_step",
+				"arguments": {
+					"verb": "obtain",
+					"target": {
+						"item": "minecraft:water_bucket"
+					},
+					"why": "water for the cast"
+				}
+			}
+		]
+	}
+]

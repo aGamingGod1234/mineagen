@@ -1,0 +1,986 @@
+{
+  "version": 1,
+  "id": "late-result",
+  "mode": "recorded-fact-reconstruction",
+  "source": {
+    "run": "gate3-1",
+    "file": "protocol.jsonl.3",
+    "line": 4339,
+    "rowSha256": "075eb1183f986097afc0522432005b33eee60792aec49b2c093d786b5abb9b38"
+  },
+  "reconstruction": [
+    "Fresh task/tool admission; original active execution, earlier observations and memory are not restored.",
+    "Use recorded player/inventory/threat facts; omit terrain/entities/perception unrelated to the steering assertion.",
+    "Focused observation reads reuse the latest supplied snapshot with synthetic clock/sequence metadata.",
+    "Inject a new goal and delay the current control receipt across its revision. This scheduling variant is synthetic."
+  ],
+  "initial": {
+    "ready": true,
+    "status": "STARTING",
+    "position": {
+      "x": 32.50000939604455,
+      "y": 19,
+      "z": -61.42166086480471
+    },
+    "velocity": {
+      "x": 0,
+      "y": -0.0784000015258789,
+      "z": 0
+    },
+    "view": {
+      "yaw": 179.99949645996094,
+      "pitch": 70.05009460449219
+    },
+    "player": {
+      "stand": {
+        "here": {
+          "pushSafe": false,
+          "roof": true,
+          "walls": 2
+        },
+        "pushSafe": {
+          "x": 32,
+          "y": 19,
+          "z": -59,
+          "steps": 3,
+          "roof": true,
+          "walls": 2,
+          "open": "N,S"
+        },
+        "covered": {
+          "x": 32,
+          "y": 19,
+          "z": -59,
+          "steps": 3,
+          "roof": true,
+          "walls": 2,
+          "open": "N,S"
+        },
+        "searchedSteps": 16
+      },
+      "pose": "crouching",
+      "underWater": false,
+      "swimming": false,
+      "gliding": false,
+      "sprinting": false,
+      "crouching": true,
+      "onClimbable": false,
+      "inLava": false,
+      "horizontalCollision": false,
+      "verticalCollision": true,
+      "passenger": false,
+      "skyOpen": false,
+      "groundAhead": {
+        "status": "unknown",
+        "at": 0.75,
+        "drop": 2,
+        "atLeast": true
+      },
+      "edges": {
+        "drops": [
+          {
+            "dir": "N",
+            "at": 0,
+            "drop": 4
+          }
+        ]
+      },
+      "health": 20,
+      "maxHealth": 20,
+      "armor": 0,
+      "foodLevel": 20,
+      "saturation": 5,
+      "gameMode": "survival",
+      "onGround": true,
+      "inWater": false,
+      "onFire": false,
+      "air": 300,
+      "maxAir": 300,
+      "suffocating": false,
+      "fallDistance": 0,
+      "effects": []
+    },
+    "inventory": {
+      "items": [
+        {
+          "displayName": "Stone Pickaxe",
+          "fingerprint": "1d0877d295470003b72dcb214d66d456658905287191c645ce8464d807bfb857",
+          "maxStackSize": 1,
+          "itemId": "minecraft:stone_pickaxe",
+          "count": 1,
+          "damage": 57,
+          "maxDamage": 131,
+          "slot": "mainhand",
+          "tags": [
+            "#c:enchantables",
+            "#c:tools",
+            "#c:tools/mining_tool",
+            "#minecraft:breaks_decorated_pots",
+            "#minecraft:cluster_max_harvestables",
+            "#minecraft:enchantable/durability",
+            "#minecraft:enchantable/mining",
+            "#minecraft:enchantable/mining_loot",
+            "#minecraft:enchantable/vanishing",
+            "#minecraft:pickaxes"
+          ]
+        },
+        {
+          "displayName": "Birch Log",
+          "fingerprint": "357f30e3bb7150ac66b7bebddcaa53ec093a2fbeb90baf1e5aefd50e7d71d518",
+          "maxStackSize": 64,
+          "itemId": "minecraft:birch_log",
+          "count": 2,
+          "damage": 0,
+          "maxDamage": 0,
+          "slot": 0,
+          "hotbar": true,
+          "tags": [
+            "#c:natural_logs",
+            "#c:natural_logs/overworld",
+            "#minecraft:birch_logs",
+            "#minecraft:completes_find_tree_tutorial",
+            "#minecraft:logs",
+            "#minecraft:logs_that_burn",
+            "#minecraft:sulfur_cube_archetype/bouncy",
+            "#minecraft:sulfur_cube_swallowable"
+          ]
+        },
+        {
+          "displayName": "Dirt",
+          "fingerprint": "49dc8d5d796971c36cf158a8ff4b006961bfbd364fa8e22749c45751fa3c77b4",
+          "maxStackSize": 64,
+          "itemId": "minecraft:dirt",
+          "count": 17,
+          "damage": 0,
+          "maxDamage": 0,
+          "slot": 2,
+          "hotbar": true,
+          "tags": [
+            "#minecraft:dirt",
+            "#minecraft:sulfur_cube_archetype/regular",
+            "#minecraft:sulfur_cube_swallowable"
+          ]
+        },
+        {
+          "displayName": "Wildflowers",
+          "fingerprint": "f925cca8c5d7d86619f75347ea90dc59dee2e8e5ab1eca5e004698bcbdfa54a2",
+          "maxStackSize": 64,
+          "itemId": "minecraft:wildflowers",
+          "count": 1,
+          "damage": 0,
+          "maxDamage": 0,
+          "slot": 3,
+          "hotbar": true,
+          "tags": [
+            "#c:animal_foods",
+            "#c:flowers",
+            "#minecraft:bee_food",
+            "#minecraft:flowers"
+          ]
+        },
+        {
+          "displayName": "Furnace",
+          "fingerprint": "1ea4257b305eb4f86fbb4439749fa9583d45434e40dd4d99832f5f38411999db",
+          "maxStackSize": 64,
+          "itemId": "minecraft:furnace",
+          "count": 1,
+          "damage": 0,
+          "maxDamage": 0,
+          "slot": 4,
+          "hotbar": true,
+          "tags": [
+            "#c:player_workstations/furnaces"
+          ]
+        },
+        {
+          "displayName": "Stick",
+          "fingerprint": "6fe9c6e0e133738d9d58d565a6a1cb78578442be8ae37f953ea527d78748f083",
+          "maxStackSize": 64,
+          "itemId": "minecraft:stick",
+          "count": 2,
+          "damage": 0,
+          "maxDamage": 0,
+          "slot": 5,
+          "hotbar": true,
+          "tags": [
+            "#c:rods",
+            "#c:rods/wooden"
+          ]
+        },
+        {
+          "displayName": "Wooden Pickaxe",
+          "fingerprint": "7c02d1b8b5138addeaad75e0eb733b7f70d653d5b2fa67ebfd987314b3f39a8a",
+          "maxStackSize": 1,
+          "itemId": "minecraft:wooden_pickaxe",
+          "count": 1,
+          "damage": 57,
+          "maxDamage": 59,
+          "slot": 6,
+          "hotbar": true,
+          "tags": [
+            "#c:enchantables",
+            "#c:tools",
+            "#c:tools/mining_tool",
+            "#minecraft:breaks_decorated_pots",
+            "#minecraft:cluster_max_harvestables",
+            "#minecraft:enchantable/durability",
+            "#minecraft:enchantable/mining",
+            "#minecraft:enchantable/mining_loot",
+            "#minecraft:enchantable/vanishing",
+            "#minecraft:pickaxes"
+          ]
+        },
+        {
+          "displayName": "Stone Pickaxe",
+          "fingerprint": "ff5cd31f7dc4b5bdf5d2e03dda3faf1c63434b41ddbcda372b791d1bfaae0816",
+          "maxStackSize": 1,
+          "itemId": "minecraft:stone_pickaxe",
+          "count": 1,
+          "damage": 129,
+          "maxDamage": 131,
+          "slot": 7,
+          "hotbar": true,
+          "tags": [
+            "#c:enchantables",
+            "#c:tools",
+            "#c:tools/mining_tool",
+            "#minecraft:breaks_decorated_pots",
+            "#minecraft:cluster_max_harvestables",
+            "#minecraft:enchantable/durability",
+            "#minecraft:enchantable/mining",
+            "#minecraft:enchantable/mining_loot",
+            "#minecraft:enchantable/vanishing",
+            "#minecraft:pickaxes"
+          ]
+        },
+        {
+          "displayName": "Birch Planks",
+          "fingerprint": "eadc5264b3cba61108b69d8773d34a4a443a835a25dd4f10c9c22c76813e999b",
+          "maxStackSize": 64,
+          "itemId": "minecraft:birch_planks",
+          "count": 5,
+          "damage": 0,
+          "maxDamage": 0,
+          "slot": 8,
+          "hotbar": true,
+          "tags": [
+            "#minecraft:planks",
+            "#minecraft:sulfur_cube_archetype/bouncy",
+            "#minecraft:sulfur_cube_swallowable",
+            "#minecraft:wooden_tool_materials"
+          ]
+        },
+        {
+          "displayName": "Cobblestone",
+          "fingerprint": "6e8b0a6bba78a49e783b15172dc6ec4617a1e4b8931b3823670015f7b61bcc38",
+          "maxStackSize": 64,
+          "itemId": "minecraft:cobblestone",
+          "count": 64,
+          "damage": 0,
+          "maxDamage": 0,
+          "slot": 9,
+          "hotbar": false,
+          "tags": [
+            "#c:cobblestones",
+            "#c:cobblestones/normal",
+            "#minecraft:stone_crafting_materials",
+            "#minecraft:stone_tool_materials",
+            "#minecraft:sulfur_cube_archetype/slow_bouncy",
+            "#minecraft:sulfur_cube_swallowable"
+          ]
+        },
+        {
+          "displayName": "Diorite",
+          "fingerprint": "f98856234ef0c5463b3c1362d6508ef722ee80771cce3521ebacbd7973c840ae",
+          "maxStackSize": 64,
+          "itemId": "minecraft:diorite",
+          "count": 19,
+          "damage": 0,
+          "maxDamage": 0,
+          "slot": 10,
+          "hotbar": false,
+          "tags": [
+            "#c:stones",
+            "#minecraft:sulfur_cube_archetype/slow_bouncy",
+            "#minecraft:sulfur_cube_swallowable"
+          ]
+        },
+        {
+          "displayName": "Andesite",
+          "fingerprint": "6280b487e547001b8c33f85f4e0683bfdc80fdf880fb1c2bdc43c205b4693505",
+          "maxStackSize": 64,
+          "itemId": "minecraft:andesite",
+          "count": 22,
+          "damage": 0,
+          "maxDamage": 0,
+          "slot": 11,
+          "hotbar": false,
+          "tags": [
+            "#c:stones",
+            "#minecraft:sulfur_cube_archetype/slow_bouncy",
+            "#minecraft:sulfur_cube_swallowable"
+          ]
+        },
+        {
+          "displayName": "Cobblestone",
+          "fingerprint": "6e8b0a6bba78a49e783b15172dc6ec4617a1e4b8931b3823670015f7b61bcc38",
+          "maxStackSize": 64,
+          "itemId": "minecraft:cobblestone",
+          "count": 64,
+          "damage": 0,
+          "maxDamage": 0,
+          "slot": 12,
+          "hotbar": false,
+          "tags": [
+            "#c:cobblestones",
+            "#c:cobblestones/normal",
+            "#minecraft:stone_crafting_materials",
+            "#minecraft:stone_tool_materials",
+            "#minecraft:sulfur_cube_archetype/slow_bouncy",
+            "#minecraft:sulfur_cube_swallowable"
+          ]
+        },
+        {
+          "displayName": "Granite",
+          "fingerprint": "f0a123718ecba57b80aaa6b06ec59de7da72aa523de49fd152cc1be3441d0ca5",
+          "maxStackSize": 64,
+          "itemId": "minecraft:granite",
+          "count": 26,
+          "damage": 0,
+          "maxDamage": 0,
+          "slot": 13,
+          "hotbar": false,
+          "tags": [
+            "#c:stones",
+            "#minecraft:sulfur_cube_archetype/slow_bouncy",
+            "#minecraft:sulfur_cube_swallowable"
+          ]
+        },
+        {
+          "displayName": "Crafting Table",
+          "fingerprint": "f7aedf6f4ef4f274fe6f34ddb440f7d92caa3783357cf5ff48c5fdbfaf1aca40",
+          "maxStackSize": 64,
+          "itemId": "minecraft:crafting_table",
+          "count": 1,
+          "damage": 0,
+          "maxDamage": 0,
+          "slot": 14,
+          "hotbar": false,
+          "tags": [
+            "#c:player_workstations/crafting_tables"
+          ]
+        },
+        {
+          "displayName": "Cobblestone",
+          "fingerprint": "6e8b0a6bba78a49e783b15172dc6ec4617a1e4b8931b3823670015f7b61bcc38",
+          "maxStackSize": 64,
+          "itemId": "minecraft:cobblestone",
+          "count": 14,
+          "damage": 0,
+          "maxDamage": 0,
+          "slot": 15,
+          "hotbar": false,
+          "tags": [
+            "#c:cobblestones",
+            "#c:cobblestones/normal",
+            "#minecraft:stone_crafting_materials",
+            "#minecraft:stone_tool_materials",
+            "#minecraft:sulfur_cube_archetype/slow_bouncy",
+            "#minecraft:sulfur_cube_swallowable"
+          ]
+        }
+      ],
+      "selectedItem": "minecraft:stone_pickaxe",
+      "selectedSlot": 1,
+      "tagCounts": {
+        "#c:animal_foods": 1,
+        "#c:cobblestones": 142,
+        "#c:cobblestones/normal": 142,
+        "#c:enchantables": 3,
+        "#c:flowers": 1,
+        "#c:natural_logs": 2,
+        "#c:natural_logs/overworld": 2,
+        "#c:player_workstations/crafting_tables": 1,
+        "#c:player_workstations/furnaces": 1,
+        "#c:rods": 2,
+        "#c:rods/wooden": 2,
+        "#c:stones": 67,
+        "#c:tools": 3,
+        "#c:tools/mining_tool": 3,
+        "#minecraft:bee_food": 1,
+        "#minecraft:birch_logs": 2,
+        "#minecraft:breaks_decorated_pots": 3,
+        "#minecraft:cluster_max_harvestables": 3,
+        "#minecraft:completes_find_tree_tutorial": 2,
+        "#minecraft:dirt": 17,
+        "#minecraft:enchantable/durability": 3,
+        "#minecraft:enchantable/mining": 3,
+        "#minecraft:enchantable/mining_loot": 3,
+        "#minecraft:enchantable/vanishing": 3,
+        "#minecraft:flowers": 1,
+        "#minecraft:logs": 2,
+        "#minecraft:logs_that_burn": 2,
+        "#minecraft:pickaxes": 3,
+        "#minecraft:planks": 5,
+        "#minecraft:stone_crafting_materials": 142,
+        "#minecraft:stone_tool_materials": 142,
+        "#minecraft:sulfur_cube_archetype/bouncy": 7,
+        "#minecraft:sulfur_cube_archetype/regular": 17,
+        "#minecraft:sulfur_cube_archetype/slow_bouncy": 209,
+        "#minecraft:sulfur_cube_swallowable": 233,
+        "#minecraft:wooden_tool_materials": 5
+      },
+      "food": {
+        "items": 0,
+        "nutrition": 0
+      }
+    },
+    "world": {
+      "worldId": "904d2017-b7c7-4cb3-a7ec-23e97638dfcc",
+      "dimension": "minecraft:overworld",
+      "biome": "minecraft:old_growth_birch_forest",
+      "gameTime": 9072,
+      "dayTime": 9835,
+      "raining": false,
+      "thundering": false,
+      "sleep": {
+        "bedExplodes": false,
+        "timeAllowsSleep": false
+      },
+      "difficulty": "normal",
+      "naturalRegeneration": true,
+      "simulationDistance": 6
+    },
+    "threats": {
+      "entries": []
+    },
+    "goalRevision": 1,
+    "observedAtEpochMs": 1800000000000,
+    "eventSequence": 1,
+    "attention": false,
+    "changedFacts": [],
+    "entities": [],
+    "blocks": [],
+    "nearbyContainers": [],
+    "currentAction": {
+      "active": false
+    },
+    "lastResult": {
+      "present": false
+    }
+  },
+  "observation": {
+    "ready": true,
+    "status": "STARTING",
+    "position": {
+      "x": 32.50000939604455,
+      "y": 19,
+      "z": -61.42166086480471
+    },
+    "velocity": {
+      "x": 0,
+      "y": -0.0784000015258789,
+      "z": 0
+    },
+    "view": {
+      "yaw": 179.99949645996094,
+      "pitch": 70.05009460449219
+    },
+    "player": {
+      "stand": {
+        "here": {
+          "pushSafe": false,
+          "roof": true,
+          "walls": 2
+        },
+        "pushSafe": {
+          "x": 32,
+          "y": 19,
+          "z": -59,
+          "steps": 3,
+          "roof": true,
+          "walls": 2,
+          "open": "N,S"
+        },
+        "covered": {
+          "x": 32,
+          "y": 19,
+          "z": -59,
+          "steps": 3,
+          "roof": true,
+          "walls": 2,
+          "open": "N,S"
+        },
+        "searchedSteps": 16
+      },
+      "pose": "crouching",
+      "underWater": false,
+      "swimming": false,
+      "gliding": false,
+      "sprinting": false,
+      "crouching": true,
+      "onClimbable": false,
+      "inLava": false,
+      "horizontalCollision": false,
+      "verticalCollision": true,
+      "passenger": false,
+      "skyOpen": false,
+      "groundAhead": {
+        "status": "unknown",
+        "at": 0.75,
+        "drop": 2,
+        "atLeast": true
+      },
+      "edges": {
+        "drops": [
+          {
+            "dir": "N",
+            "at": 0,
+            "drop": 4
+          }
+        ]
+      },
+      "health": 20,
+      "maxHealth": 20,
+      "armor": 0,
+      "foodLevel": 20,
+      "saturation": 5,
+      "gameMode": "survival",
+      "onGround": true,
+      "inWater": false,
+      "onFire": false,
+      "air": 300,
+      "maxAir": 300,
+      "suffocating": false,
+      "fallDistance": 0,
+      "effects": []
+    },
+    "inventory": {
+      "items": [
+        {
+          "displayName": "Stone Pickaxe",
+          "fingerprint": "1d0877d295470003b72dcb214d66d456658905287191c645ce8464d807bfb857",
+          "maxStackSize": 1,
+          "itemId": "minecraft:stone_pickaxe",
+          "count": 1,
+          "damage": 57,
+          "maxDamage": 131,
+          "slot": "mainhand",
+          "tags": [
+            "#c:enchantables",
+            "#c:tools",
+            "#c:tools/mining_tool",
+            "#minecraft:breaks_decorated_pots",
+            "#minecraft:cluster_max_harvestables",
+            "#minecraft:enchantable/durability",
+            "#minecraft:enchantable/mining",
+            "#minecraft:enchantable/mining_loot",
+            "#minecraft:enchantable/vanishing",
+            "#minecraft:pickaxes"
+          ]
+        },
+        {
+          "displayName": "Birch Log",
+          "fingerprint": "357f30e3bb7150ac66b7bebddcaa53ec093a2fbeb90baf1e5aefd50e7d71d518",
+          "maxStackSize": 64,
+          "itemId": "minecraft:birch_log",
+          "count": 2,
+          "damage": 0,
+          "maxDamage": 0,
+          "slot": 0,
+          "hotbar": true,
+          "tags": [
+            "#c:natural_logs",
+            "#c:natural_logs/overworld",
+            "#minecraft:birch_logs",
+            "#minecraft:completes_find_tree_tutorial",
+            "#minecraft:logs",
+            "#minecraft:logs_that_burn",
+            "#minecraft:sulfur_cube_archetype/bouncy",
+            "#minecraft:sulfur_cube_swallowable"
+          ]
+        },
+        {
+          "displayName": "Dirt",
+          "fingerprint": "49dc8d5d796971c36cf158a8ff4b006961bfbd364fa8e22749c45751fa3c77b4",
+          "maxStackSize": 64,
+          "itemId": "minecraft:dirt",
+          "count": 17,
+          "damage": 0,
+          "maxDamage": 0,
+          "slot": 2,
+          "hotbar": true,
+          "tags": [
+            "#minecraft:dirt",
+            "#minecraft:sulfur_cube_archetype/regular",
+            "#minecraft:sulfur_cube_swallowable"
+          ]
+        },
+        {
+          "displayName": "Wildflowers",
+          "fingerprint": "f925cca8c5d7d86619f75347ea90dc59dee2e8e5ab1eca5e004698bcbdfa54a2",
+          "maxStackSize": 64,
+          "itemId": "minecraft:wildflowers",
+          "count": 1,
+          "damage": 0,
+          "maxDamage": 0,
+          "slot": 3,
+          "hotbar": true,
+          "tags": [
+            "#c:animal_foods",
+            "#c:flowers",
+            "#minecraft:bee_food",
+            "#minecraft:flowers"
+          ]
+        },
+        {
+          "displayName": "Furnace",
+          "fingerprint": "1ea4257b305eb4f86fbb4439749fa9583d45434e40dd4d99832f5f38411999db",
+          "maxStackSize": 64,
+          "itemId": "minecraft:furnace",
+          "count": 1,
+          "damage": 0,
+          "maxDamage": 0,
+          "slot": 4,
+          "hotbar": true,
+          "tags": [
+            "#c:player_workstations/furnaces"
+          ]
+        },
+        {
+          "displayName": "Stick",
+          "fingerprint": "6fe9c6e0e133738d9d58d565a6a1cb78578442be8ae37f953ea527d78748f083",
+          "maxStackSize": 64,
+          "itemId": "minecraft:stick",
+          "count": 2,
+          "damage": 0,
+          "maxDamage": 0,
+          "slot": 5,
+          "hotbar": true,
+          "tags": [
+            "#c:rods",
+            "#c:rods/wooden"
+          ]
+        },
+        {
+          "displayName": "Wooden Pickaxe",
+          "fingerprint": "7c02d1b8b5138addeaad75e0eb733b7f70d653d5b2fa67ebfd987314b3f39a8a",
+          "maxStackSize": 1,
+          "itemId": "minecraft:wooden_pickaxe",
+          "count": 1,
+          "damage": 57,
+          "maxDamage": 59,
+          "slot": 6,
+          "hotbar": true,
+          "tags": [
+            "#c:enchantables",
+            "#c:tools",
+            "#c:tools/mining_tool",
+            "#minecraft:breaks_decorated_pots",
+            "#minecraft:cluster_max_harvestables",
+            "#minecraft:enchantable/durability",
+            "#minecraft:enchantable/mining",
+            "#minecraft:enchantable/mining_loot",
+            "#minecraft:enchantable/vanishing",
+            "#minecraft:pickaxes"
+          ]
+        },
+        {
+          "displayName": "Stone Pickaxe",
+          "fingerprint": "ff5cd31f7dc4b5bdf5d2e03dda3faf1c63434b41ddbcda372b791d1bfaae0816",
+          "maxStackSize": 1,
+          "itemId": "minecraft:stone_pickaxe",
+          "count": 1,
+          "damage": 129,
+          "maxDamage": 131,
+          "slot": 7,
+          "hotbar": true,
+          "tags": [
+            "#c:enchantables",
+            "#c:tools",
+            "#c:tools/mining_tool",
+            "#minecraft:breaks_decorated_pots",
+            "#minecraft:cluster_max_harvestables",
+            "#minecraft:enchantable/durability",
+            "#minecraft:enchantable/mining",
+            "#minecraft:enchantable/mining_loot",
+            "#minecraft:enchantable/vanishing",
+            "#minecraft:pickaxes"
+          ]
+        },
+        {
+          "displayName": "Birch Planks",
+          "fingerprint": "eadc5264b3cba61108b69d8773d34a4a443a835a25dd4f10c9c22c76813e999b",
+          "maxStackSize": 64,
+          "itemId": "minecraft:birch_planks",
+          "count": 5,
+          "damage": 0,
+          "maxDamage": 0,
+          "slot": 8,
+          "hotbar": true,
+          "tags": [
+            "#minecraft:planks",
+            "#minecraft:sulfur_cube_archetype/bouncy",
+            "#minecraft:sulfur_cube_swallowable",
+            "#minecraft:wooden_tool_materials"
+          ]
+        },
+        {
+          "displayName": "Cobblestone",
+          "fingerprint": "6e8b0a6bba78a49e783b15172dc6ec4617a1e4b8931b3823670015f7b61bcc38",
+          "maxStackSize": 64,
+          "itemId": "minecraft:cobblestone",
+          "count": 64,
+          "damage": 0,
+          "maxDamage": 0,
+          "slot": 9,
+          "hotbar": false,
+          "tags": [
+            "#c:cobblestones",
+            "#c:cobblestones/normal",
+            "#minecraft:stone_crafting_materials",
+            "#minecraft:stone_tool_materials",
+            "#minecraft:sulfur_cube_archetype/slow_bouncy",
+            "#minecraft:sulfur_cube_swallowable"
+          ]
+        },
+        {
+          "displayName": "Diorite",
+          "fingerprint": "f98856234ef0c5463b3c1362d6508ef722ee80771cce3521ebacbd7973c840ae",
+          "maxStackSize": 64,
+          "itemId": "minecraft:diorite",
+          "count": 19,
+          "damage": 0,
+          "maxDamage": 0,
+          "slot": 10,
+          "hotbar": false,
+          "tags": [
+            "#c:stones",
+            "#minecraft:sulfur_cube_archetype/slow_bouncy",
+            "#minecraft:sulfur_cube_swallowable"
+          ]
+        },
+        {
+          "displayName": "Andesite",
+          "fingerprint": "6280b487e547001b8c33f85f4e0683bfdc80fdf880fb1c2bdc43c205b4693505",
+          "maxStackSize": 64,
+          "itemId": "minecraft:andesite",
+          "count": 22,
+          "damage": 0,
+          "maxDamage": 0,
+          "slot": 11,
+          "hotbar": false,
+          "tags": [
+            "#c:stones",
+            "#minecraft:sulfur_cube_archetype/slow_bouncy",
+            "#minecraft:sulfur_cube_swallowable"
+          ]
+        },
+        {
+          "displayName": "Cobblestone",
+          "fingerprint": "6e8b0a6bba78a49e783b15172dc6ec4617a1e4b8931b3823670015f7b61bcc38",
+          "maxStackSize": 64,
+          "itemId": "minecraft:cobblestone",
+          "count": 64,
+          "damage": 0,
+          "maxDamage": 0,
+          "slot": 12,
+          "hotbar": false,
+          "tags": [
+            "#c:cobblestones",
+            "#c:cobblestones/normal",
+            "#minecraft:stone_crafting_materials",
+            "#minecraft:stone_tool_materials",
+            "#minecraft:sulfur_cube_archetype/slow_bouncy",
+            "#minecraft:sulfur_cube_swallowable"
+          ]
+        },
+        {
+          "displayName": "Granite",
+          "fingerprint": "f0a123718ecba57b80aaa6b06ec59de7da72aa523de49fd152cc1be3441d0ca5",
+          "maxStackSize": 64,
+          "itemId": "minecraft:granite",
+          "count": 26,
+          "damage": 0,
+          "maxDamage": 0,
+          "slot": 13,
+          "hotbar": false,
+          "tags": [
+            "#c:stones",
+            "#minecraft:sulfur_cube_archetype/slow_bouncy",
+            "#minecraft:sulfur_cube_swallowable"
+          ]
+        },
+        {
+          "displayName": "Crafting Table",
+          "fingerprint": "f7aedf6f4ef4f274fe6f34ddb440f7d92caa3783357cf5ff48c5fdbfaf1aca40",
+          "maxStackSize": 64,
+          "itemId": "minecraft:crafting_table",
+          "count": 1,
+          "damage": 0,
+          "maxDamage": 0,
+          "slot": 14,
+          "hotbar": false,
+          "tags": [
+            "#c:player_workstations/crafting_tables"
+          ]
+        },
+        {
+          "displayName": "Cobblestone",
+          "fingerprint": "6e8b0a6bba78a49e783b15172dc6ec4617a1e4b8931b3823670015f7b61bcc38",
+          "maxStackSize": 64,
+          "itemId": "minecraft:cobblestone",
+          "count": 14,
+          "damage": 0,
+          "maxDamage": 0,
+          "slot": 15,
+          "hotbar": false,
+          "tags": [
+            "#c:cobblestones",
+            "#c:cobblestones/normal",
+            "#minecraft:stone_crafting_materials",
+            "#minecraft:stone_tool_materials",
+            "#minecraft:sulfur_cube_archetype/slow_bouncy",
+            "#minecraft:sulfur_cube_swallowable"
+          ]
+        }
+      ],
+      "selectedItem": "minecraft:stone_pickaxe",
+      "selectedSlot": 1,
+      "tagCounts": {
+        "#c:animal_foods": 1,
+        "#c:cobblestones": 142,
+        "#c:cobblestones/normal": 142,
+        "#c:enchantables": 3,
+        "#c:flowers": 1,
+        "#c:natural_logs": 2,
+        "#c:natural_logs/overworld": 2,
+        "#c:player_workstations/crafting_tables": 1,
+        "#c:player_workstations/furnaces": 1,
+        "#c:rods": 2,
+        "#c:rods/wooden": 2,
+        "#c:stones": 67,
+        "#c:tools": 3,
+        "#c:tools/mining_tool": 3,
+        "#minecraft:bee_food": 1,
+        "#minecraft:birch_logs": 2,
+        "#minecraft:breaks_decorated_pots": 3,
+        "#minecraft:cluster_max_harvestables": 3,
+        "#minecraft:completes_find_tree_tutorial": 2,
+        "#minecraft:dirt": 17,
+        "#minecraft:enchantable/durability": 3,
+        "#minecraft:enchantable/mining": 3,
+        "#minecraft:enchantable/mining_loot": 3,
+        "#minecraft:enchantable/vanishing": 3,
+        "#minecraft:flowers": 1,
+        "#minecraft:logs": 2,
+        "#minecraft:logs_that_burn": 2,
+        "#minecraft:pickaxes": 3,
+        "#minecraft:planks": 5,
+        "#minecraft:stone_crafting_materials": 142,
+        "#minecraft:stone_tool_materials": 142,
+        "#minecraft:sulfur_cube_archetype/bouncy": 7,
+        "#minecraft:sulfur_cube_archetype/regular": 17,
+        "#minecraft:sulfur_cube_archetype/slow_bouncy": 209,
+        "#minecraft:sulfur_cube_swallowable": 233,
+        "#minecraft:wooden_tool_materials": 5
+      },
+      "food": {
+        "items": 0,
+        "nutrition": 0
+      }
+    },
+    "world": {
+      "worldId": "904d2017-b7c7-4cb3-a7ec-23e97638dfcc",
+      "dimension": "minecraft:overworld",
+      "biome": "minecraft:old_growth_birch_forest",
+      "gameTime": 9072,
+      "dayTime": 9835,
+      "raining": false,
+      "thundering": false,
+      "sleep": {
+        "bedExplodes": false,
+        "timeAllowsSleep": false
+      },
+      "difficulty": "normal",
+      "naturalRegeneration": true,
+      "simulationDistance": 6
+    },
+    "threats": {
+      "entries": [
+        {
+          "uuid": "49d2238e-4a72-4816-bb35-787efba5887c",
+          "type": "minecraft:skeleton",
+          "distance": 7.6,
+          "bearing": 12.2,
+          "targeting": false,
+          "swelling": false,
+          "lineOfSight": true,
+          "signals": [
+            "ranged_sight"
+          ],
+          "visible": true,
+          "targetable": true,
+          "dy": -4,
+          "holding": "minecraft:bow",
+          "shot": "clear",
+          "risk": 53.8,
+          "expectedHitDamage": 4,
+          "closingSpeed": 0,
+          "approaching": false
+        },
+        {
+          "uuid": "4db4a5a0-b23e-4c1c-9f6b-f71ddc5969b7",
+          "type": "minecraft:zombie",
+          "distance": 4.2,
+          "bearing": -15.7,
+          "targeting": true,
+          "swelling": false,
+          "lineOfSight": true,
+          "signals": [
+            "targeting"
+          ],
+          "visible": true,
+          "targetable": true,
+          "dy": -3,
+          "shot": "clear",
+          "risk": 48.9,
+          "expectedHitDamage": 3,
+          "closingSpeed": 0.1,
+          "approaching": false
+        }
+      ],
+      "bestWeapon": {
+        "slot": 1,
+        "itemId": "minecraft:stone_pickaxe"
+      }
+    },
+    "goalRevision": 1,
+    "observedAtEpochMs": 1800000000000,
+    "eventSequence": 1,
+    "attention": false,
+    "changedFacts": [],
+    "entities": [],
+    "blocks": [],
+    "nearbyContainers": [],
+    "currentAction": {
+      "active": false
+    },
+    "lastResult": {
+      "present": false
+    }
+  },
+  "kind": "late-result",
+  "invariant": "late-result-ignored",
+  "call": {
+    "name": "do_step",
+    "arguments": {
+      "verb": "find",
+      "target": {
+        "block": "minecraft:lava",
+        "within": 32
+      },
+      "why": "Recorded gameplay failure replay"
+    }
+  }
+}

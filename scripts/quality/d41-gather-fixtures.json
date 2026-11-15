@@ -1,0 +1,77 @@
+[
+	{
+		"name": "two-oaks-6-logs",
+		"seed": 20261029,
+		"x": 300,
+		"z": -200,
+		"inventory": [
+			{
+				"item": "minecraft:bread",
+				"count": 4
+			}
+		],
+		"fixture": [
+			"fill {x-12} {y-1} {z-12} {x+12} {y-1} {z+12} minecraft:grass_block",
+			"fill {x-12} {y} {z-12} {x+12} {y+12} {z+12} minecraft:air",
+			"fill {x+4} {y+3} {z+0} {x+4} {y+6} {z+0} minecraft:oak_leaves",
+			"fill {x+2} {y+3} {z-2} {x+6} {y+5} {z+2} minecraft:oak_leaves",
+			"fill {x+4} {y} {z+0} {x+4} {y+4} {z+0} minecraft:oak_log",
+			"fill {x-6} {y+3} {z+5} {x-6} {y+6} {z+5} minecraft:oak_leaves",
+			"fill {x-8} {y+3} {z+3} {x-4} {y+5} {z+7} minecraft:oak_leaves",
+			"fill {x-6} {y} {z+5} {x-6} {y+4} {z+5} minecraft:oak_log"
+		],
+		"gather": {
+			"itemId": "minecraft:oak_log",
+			"count": 6
+		}
+	},
+	{
+		"name": "birch-among-oaks-4",
+		"seed": 20261029,
+		"x": 300,
+		"z": -200,
+		"inventory": [
+			{
+				"item": "minecraft:bread",
+				"count": 4
+			}
+		],
+		"fixture": [
+			"fill {x-12} {y-1} {z-12} {x+12} {y-1} {z+12} minecraft:grass_block",
+			"fill {x-12} {y} {z-12} {x+12} {y+12} {z+12} minecraft:air",
+			"fill {x+3} {y+3} {z+2} {x+3} {y+6} {z+2} minecraft:oak_leaves",
+			"fill {x+1} {y+3} {z+0} {x+5} {y+5} {z+4} minecraft:oak_leaves",
+			"fill {x+3} {y} {z+2} {x+3} {y+4} {z+2} minecraft:oak_log",
+			"fill {x-5} {y+3} {z-4} {x-5} {y+6} {z-4} minecraft:birch_leaves",
+			"fill {x-7} {y+3} {z-6} {x-3} {y+5} {z-2} minecraft:birch_leaves",
+			"fill {x-5} {y} {z-4} {x-5} {y+4} {z-4} minecraft:birch_log"
+		],
+		"gather": {
+			"itemId": "minecraft:birch_log",
+			"count": 4
+		}
+	},
+	{
+		"name": "none-within-8",
+		"expectCode": "NO_TARGET",
+		"seed": 20261029,
+		"x": 300,
+		"z": -200,
+		"inventory": [
+			{
+				"item": "minecraft:bread",
+				"count": 4
+			}
+		],
+		"fixture": [
+			"fill {x-12} {y-1} {z-12} {x+12} {y-1} {z+12} minecraft:grass_block",
+			"fill {x-12} {y} {z-12} {x+12} {y+12} {z+12} minecraft:air"
+		],
+		"gather": {
+			"itemId": "minecraft:oak_log",
+			"count": 3,
+			"timeoutMs": 30000,
+			"radius": 8
+		}
+	}
+]

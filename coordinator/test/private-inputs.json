@@ -1,0 +1,299 @@
+{
+  "description": "Public-only omissions. Asterisk selects a module whose private input is loaded before test discovery; other entries select exact test titles. The private npm test command ignores this manifest.",
+  "tests": [
+    {
+      "file": "test/arena-script-facts-benchmark-paths.test.mjs",
+      "test": "facts benchmark CLI resolves modules and fixtures in a checkout with URL-encoded characters",
+      "inputs": [
+        "coordinator/test/fixtures/decision-eval/extra/night-bed.json"
+      ]
+    },
+    {
+      "file": "test/arena-script-facts.test.mjs",
+      "test": "facts chained to the previous sample equal a fresh build for every recorded replay observation",
+      "inputs": [
+        "coordinator/test/fixtures/decision-eval/"
+      ]
+    },
+    {
+      "file": "test/cave-navigation-attention-benchmark.test.mjs",
+      "test": "cave attention benchmark compares actual public native interfaces with identical authored controls",
+      "inputs": [
+        "reports/cave-navigation-baseline-sources-2026-10-02.json"
+      ]
+    },
+    {
+      "file": "test/context-cost-replay.test.mjs",
+      "test": "recorded smoke2-8c1ed360 baseline remains exact for typical and stress assumptions",
+      "inputs": [
+        "coordinator/test/fixtures/context-cost-replay/smoke2-8c1ed360.json"
+      ]
+    },
+    {
+      "file": "test/context-cost-replay.test.mjs",
+      "test": "recorded base1-9d44450c baseline remains exact for typical and stress assumptions",
+      "inputs": [
+        "coordinator/test/fixtures/context-cost-replay/base1-9d44450c.json"
+      ]
+    },
+    {
+      "file": "test/continuity-header.test.mjs",
+      "test": "recorded full-game route failures keep obstruction and drop evidence in the next wake",
+      "inputs": [
+        "coordinator/test/fixtures/decision-eval/train/fullgame-route-repair.json"
+      ]
+    },
+    {
+      "file": "test/death-decisions.test.mjs",
+      "test": "*",
+      "inputs": [
+        "coordinator/test/fixtures/decision-eval/fullgame-deaths.json"
+      ]
+    },
+    {
+      "file": "test/decision-eval-cli.test.mjs",
+      "test": "*",
+      "inputs": [
+        "coordinator/test/fixtures/decision-eval/g1-replay-sample.json"
+      ]
+    },
+    {
+      "file": "test/decision-eval-corpus.test.mjs",
+      "test": "*",
+      "inputs": [
+        "coordinator/test/fixtures/decision-eval/train/"
+      ]
+    },
+    {
+      "file": "test/decision-eval-drift.test.mjs",
+      "test": "*",
+      "inputs": [
+        "coordinator/test/fixtures/decision-eval/extra/drift.json"
+      ]
+    },
+    {
+      "file": "test/decision-eval-eval-cli-judge-wait.test.mjs",
+      "test": "*",
+      "inputs": [
+        "coordinator/test/fixtures/decision-eval/g1-replay-sample.json"
+      ]
+    },
+    {
+      "file": "test/decision-eval-eval-cli-runs.test.mjs",
+      "test": "*",
+      "inputs": [
+        "coordinator/test/fixtures/decision-eval/g1-replay-sample.json"
+      ]
+    },
+    {
+      "file": "test/decision-eval-eval-cli.test.mjs",
+      "test": "*",
+      "inputs": [
+        "coordinator/test/fixtures/decision-eval/g1-replay-sample.json"
+      ]
+    },
+    {
+      "file": "test/decision-eval-fixture-validator.test.mjs",
+      "test": "*",
+      "inputs": [
+        "coordinator/test/fixtures/decision-eval/train/"
+      ]
+    },
+    {
+      "file": "test/decision-eval-fixtures.test.mjs",
+      "test": "*",
+      "inputs": [
+        "coordinator/test/fixtures/decision-eval/train/"
+      ]
+    },
+    {
+      "file": "test/decision-eval-iron-sourcing.test.mjs",
+      "test": "*",
+      "inputs": [
+        "coordinator/test/fixtures/decision-eval/train/iron-sourcing.json"
+      ]
+    },
+    {
+      "file": "test/decision-eval-ironpick.test.mjs",
+      "test": "*",
+      "inputs": [
+        "coordinator/test/fixtures/decision-eval/extra/n18-ironpick.json"
+      ]
+    },
+    {
+      "file": "test/decision-eval-ironpick2-liquid.test.mjs",
+      "test": "*",
+      "inputs": [
+        "coordinator/test/fixtures/decision-eval/extra/n18-ironpick2-liquid.json"
+      ]
+    },
+    {
+      "file": "test/decision-eval-judge-report.test.mjs",
+      "test": "the judge sees the night clock, the bed and the ray target: a night bed and a day grass block give different prompts",
+      "inputs": [
+        "coordinator/test/fixtures/decision-eval/train/plan-prerequisite-gap.json"
+      ]
+    },
+    {
+      "file": "test/decision-eval-judge-report.test.mjs",
+      "test": "a multi-step answer shows the judge the recorded reply it actually received",
+      "inputs": [
+        "coordinator/test/fixtures/decision-eval/train/failed-interaction-retry.json"
+      ]
+    },
+    {
+      "file": "test/decision-eval-judge-report.test.mjs",
+      "test": "maintenance judge sees prior authored rule definitions, live state and firing failures",
+      "inputs": [
+        "coordinator/test/fixtures/decision-eval/extra/rx-teach2.json"
+      ]
+    },
+    {
+      "file": "test/decision-eval-n18-respawn.test.mjs",
+      "test": "*",
+      "inputs": [
+        "coordinator/test/fixtures/decision-eval/extra/n18-respawn.json"
+      ]
+    },
+    {
+      "file": "test/decision-eval-nether-route.test.mjs",
+      "test": "*",
+      "inputs": [
+        "coordinator/test/fixtures/decision-eval/extra/nether-route.json"
+      ]
+    },
+    {
+      "file": "test/decision-eval-portal-casting.test.mjs",
+      "test": "*",
+      "inputs": [
+        "coordinator/test/fixtures/decision-eval/portal-casting.json"
+      ]
+    },
+    {
+      "file": "test/decision-eval-predicates-r2.test.mjs",
+      "test": "*",
+      "inputs": [
+        "coordinator/test/fixtures/decision-eval/train/"
+      ]
+    },
+    {
+      "file": "test/decision-eval-predicates.test.mjs",
+      "test": "committed hazard cases send unproven water-bucket and ranged answers to the rubric",
+      "inputs": [
+        "coordinator/test/fixtures/decision-eval/train/burning.json"
+      ]
+    },
+    {
+      "file": "test/decision-eval-predicates.test.mjs",
+      "test": "a prerequisite-gap plan that names a keyword but skips the prerequisite is not graded good",
+      "inputs": [
+        "coordinator/test/fixtures/decision-eval/train/plan-prerequisite-gap.json"
+      ]
+    },
+    {
+      "file": "test/decision-eval-pricing.test.mjs",
+      "test": "*",
+      "inputs": [
+        "coordinator/test/fixtures/decision-eval/g1-replay-sample.json"
+      ]
+    },
+    {
+      "file": "test/decision-eval-progression.test.mjs",
+      "test": "*",
+      "inputs": [
+        "coordinator/test/fixtures/decision-eval/train/"
+      ]
+    },
+    {
+      "file": "test/decision-eval-reflex-rooms.test.mjs",
+      "test": "*",
+      "inputs": [
+        "coordinator/test/fixtures/decision-eval/extra/rx-teach2.json"
+      ]
+    },
+    {
+      "file": "test/decision-eval-reflex.test.mjs",
+      "test": "*",
+      "inputs": [
+        "coordinator/test/fixtures/decision-eval/extra/rx-setup.json"
+      ]
+    },
+    {
+      "file": "test/decision-eval-render.test.mjs",
+      "test": "*",
+      "inputs": [
+        "coordinator/test/fixtures/decision-eval/g1-replay-sample.json"
+      ]
+    },
+    {
+      "file": "test/decision-eval-runner.test.mjs",
+      "test": "*",
+      "inputs": [
+        "coordinator/test/fixtures/decision-eval/g1-replay-sample.json"
+      ]
+    },
+    {
+      "file": "test/decision-eval-stall2.test.mjs",
+      "test": "*",
+      "inputs": [
+        "coordinator/test/fixtures/decision-eval/extra/stall2-source.json"
+      ]
+    },
+    {
+      "file": "test/decision-eval-work-safety.test.mjs",
+      "test": "*",
+      "inputs": [
+        "coordinator/test/fixtures/decision-eval/extra/work-safety.json"
+      ]
+    },
+    {
+      "file": "test/lean-danger-wake.test.mjs",
+      "test": "the recorded 9 HP zombie bail-out wake is about 30% smaller and still carries the whole decision",
+      "inputs": [
+        "coordinator/test/fixtures/decision-eval/train/melee-threat-low-health.json"
+      ]
+    },
+    {
+      "file": "test/live-body-benchmark-staging.test.mjs",
+      "test": "historical observations stay intact and zombie claims are explicitly invalidated",
+      "inputs": [
+        "reports/live-body-benchmark-26.3-2026-11-01.json"
+      ]
+    },
+    {
+      "file": "test/live-body-benchmark-terrain-reset.test.mjs",
+      "test": "historical paired summaries carry terrain invalidation without claiming new measurements",
+      "inputs": [
+        "reports/live-body-benchmark-26.3-2026-11-01.json"
+      ]
+    },
+    {
+      "file": "test/native-successor-handoff-benchmark.test.mjs",
+      "test": "successor benchmark preserves authored action shapes and exercises guarded runtime behavior",
+      "inputs": [
+        "Private Git object 267f1a3de226a55046a0f97c903f39a7bf5a898c and its native-tool-runtime import graph (cannot fetch into public history)"
+      ]
+    },
+    {
+      "file": "test/quality-scenarios.test.mjs",
+      "test": "*",
+      "inputs": [
+        "coordinator/test/fixtures/quality-owner-nether.json"
+      ]
+    },
+    {
+      "file": "test/respawn-route-facts.test.mjs",
+      "test": "*",
+      "inputs": [
+        "coordinator/test/fixtures/decision-eval/extra/d31-respawn-recovery.json"
+      ]
+    },
+    {
+      "file": "test/warped-provider-stall.test.mjs",
+      "test": "*",
+      "inputs": [
+        "evals/d39-warped4/provider-stall.mjs"
+      ]
+    }
+  ]
+}

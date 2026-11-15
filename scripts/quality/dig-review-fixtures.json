@@ -1,0 +1,360 @@
+[
+ {
+  "seed": 20261029,
+  "x": 0,
+  "z": 0,
+  "y": 40,
+  "heading": "east",
+  "legs": 1,
+  "inventory": [
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 32
+   },
+   {
+    "item": "minecraft:dirt",
+    "count": 16
+   }
+  ],
+  "name": "stairs-covered-lava-beside-cut",
+  "expectCode": "LAVA_AHEAD",
+  "pattern": "stairs_down",
+  "targetY": 28,
+  "digArgs": {
+   "maxBlocks": 120,
+   "timeoutMs": 120000
+  },
+  "fixture": [
+   "fill {x-4} {y-24} {z-4} {x+14} {y-1} {z+4} minecraft:stone",
+   "setblock {x+3} {y-2} {z+1} minecraft:lava"
+  ]
+ },
+ {
+  "seed": 20261029,
+  "x": 0,
+  "z": 0,
+  "y": 40,
+  "heading": "east",
+  "legs": 1,
+  "inventory": [
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 32
+   },
+   {
+    "item": "minecraft:dirt",
+    "count": 16
+   }
+  ],
+  "name": "stairs-up-gravel-over-step-headroom",
+  "pattern": "stairs_up",
+  "targetY": 44,
+  "digArgs": {
+   "maxBlocks": 60,
+   "timeoutMs": 120000
+  },
+  "fixture": [
+   "fill {x-4} {y-3} {z-4} {x+8} {y-1} {z+4} minecraft:stone",
+   "fill {x-4} {y+2} {z-4} {x+8} {y+10} {z+4} minecraft:stone",
+   "fill {x+1} {y} {z-4} {x+8} {y+1} {z+4} minecraft:stone",
+   "fill {x-4} {y} {z-4} {x-1} {y+1} {z+4} minecraft:stone",
+   "fill {x} {y} {z-4} {x} {y+1} {z-1} minecraft:stone",
+   "fill {x} {y} {z+1} {x} {y+1} {z+4} minecraft:stone",
+   "fill {x-1} {y-1} {z} {x-1} {y} {z} minecraft:air",
+   "setblock {x} {y+2} {z} minecraft:air",
+   "fill {x+1} {y+3} {z} {x+1} {y+5} {z} minecraft:gravel"
+  ]
+ },
+ {
+  "seed": 20261029,
+  "x": 0,
+  "z": 0,
+  "y": 40,
+  "heading": "east",
+  "legs": 1,
+  "inventory": [
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 32
+   },
+   {
+    "item": "minecraft:dirt",
+    "count": 16
+   }
+  ],
+  "name": "stairs-up-gravel-over-body-backstep",
+  "pattern": "stairs_up",
+  "targetY": 44,
+  "digArgs": {
+   "maxBlocks": 60,
+   "timeoutMs": 120000
+  },
+  "fixture": [
+   "fill {x-4} {y-3} {z-4} {x+8} {y-1} {z+4} minecraft:stone",
+   "fill {x-4} {y+2} {z-4} {x+8} {y+10} {z+4} minecraft:stone",
+   "fill {x+1} {y} {z-4} {x+8} {y+1} {z+4} minecraft:stone",
+   "fill {x-4} {y} {z-4} {x-1} {y+1} {z+4} minecraft:stone",
+   "fill {x} {y} {z-4} {x} {y+1} {z-1} minecraft:stone",
+   "fill {x} {y} {z+1} {x} {y+1} {z+4} minecraft:stone",
+   "fill {x} {y+3} {z} {x} {y+5} {z} minecraft:gravel",
+   "fill {x-1} {y-1} {z} {x-1} {y} {z} minecraft:air"
+  ]
+ },
+ {
+  "seed": 20261029,
+  "x": 0,
+  "z": 0,
+  "y": 40,
+  "heading": "east",
+  "legs": 1,
+  "inventory": [
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 32
+   },
+   {
+    "item": "minecraft:dirt",
+    "count": 16
+   }
+  ],
+  "name": "stairs-up-gravel-over-steps-backstep",
+  "expectCode": [
+   "FALLING_BLOCKS",
+   "DIG_GOAL_REACHED"
+  ],
+  "pattern": "stairs_up",
+  "targetY": 46,
+  "digArgs": {
+   "maxBlocks": 80,
+   "timeoutMs": 120000
+  },
+  "fixture": [
+   "fill {x-4} {y-3} {z-4} {x+8} {y-1} {z+4} minecraft:stone",
+   "fill {x-4} {y+2} {z-4} {x+8} {y+10} {z+4} minecraft:stone",
+   "fill {x+1} {y} {z-4} {x+8} {y+1} {z+4} minecraft:stone",
+   "fill {x-4} {y} {z-4} {x-1} {y+1} {z+4} minecraft:stone",
+   "fill {x} {y} {z-4} {x} {y+1} {z-1} minecraft:stone",
+   "fill {x} {y} {z+1} {x} {y+1} {z+4} minecraft:stone",
+   "fill {x} {y+3} {z} {x+3} {y+8} {z} minecraft:gravel",
+   "fill {x-1} {y-1} {z} {x-1} {y} {z} minecraft:air"
+  ]
+ },
+ {
+  "seed": 20261029,
+  "x": 0,
+  "z": 0,
+  "y": 40,
+  "heading": "east",
+  "legs": 1,
+  "inventory": [
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 32
+   },
+   {
+    "item": "minecraft:dirt",
+    "count": 16
+   }
+  ],
+  "name": "travel-stairs-nosealing-grid",
+  "expectCode": "WATER_AHEAD",
+  "travelTo": {
+   "dx": 12,
+   "dy": -10,
+   "dz": 0
+  },
+  "digArgs": {
+   "sealFluids": false,
+   "timeoutMs": 180000
+  },
+  "fixture": [
+   "fill {x-4} {y-24} {z-4} {x+14} {y-1} {z+4} minecraft:stone",
+   "setblock {x+1} {y-1} {z+1} minecraft:water",
+   "setblock {x+1} {y-1} {z-1} minecraft:water",
+   "setblock {x+1} {y-3} {z+1} minecraft:water",
+   "setblock {x+1} {y-3} {z-1} minecraft:water",
+   "setblock {x+1} {y-5} {z+1} minecraft:water",
+   "setblock {x+1} {y-5} {z-1} minecraft:water",
+   "setblock {x+1} {y-7} {z+1} minecraft:water",
+   "setblock {x+1} {y-7} {z-1} minecraft:water",
+   "setblock {x+1} {y-9} {z+1} minecraft:water",
+   "setblock {x+1} {y-9} {z-1} minecraft:water",
+   "setblock {x+3} {y-1} {z+1} minecraft:water",
+   "setblock {x+3} {y-1} {z-1} minecraft:water",
+   "setblock {x+3} {y-3} {z+1} minecraft:water",
+   "setblock {x+3} {y-3} {z-1} minecraft:water",
+   "setblock {x+3} {y-5} {z+1} minecraft:water",
+   "setblock {x+3} {y-5} {z-1} minecraft:water",
+   "setblock {x+3} {y-7} {z+1} minecraft:water",
+   "setblock {x+3} {y-7} {z-1} minecraft:water",
+   "setblock {x+3} {y-9} {z+1} minecraft:water",
+   "setblock {x+3} {y-9} {z-1} minecraft:water",
+   "setblock {x+5} {y-1} {z+1} minecraft:water",
+   "setblock {x+5} {y-1} {z-1} minecraft:water",
+   "setblock {x+5} {y-3} {z+1} minecraft:water",
+   "setblock {x+5} {y-3} {z-1} minecraft:water",
+   "setblock {x+5} {y-5} {z+1} minecraft:water",
+   "setblock {x+5} {y-5} {z-1} minecraft:water",
+   "setblock {x+5} {y-7} {z+1} minecraft:water",
+   "setblock {x+5} {y-7} {z-1} minecraft:water",
+   "setblock {x+5} {y-9} {z+1} minecraft:water",
+   "setblock {x+5} {y-9} {z-1} minecraft:water",
+   "setblock {x+7} {y-1} {z+1} minecraft:water",
+   "setblock {x+7} {y-1} {z-1} minecraft:water",
+   "setblock {x+7} {y-3} {z+1} minecraft:water",
+   "setblock {x+7} {y-3} {z-1} minecraft:water",
+   "setblock {x+7} {y-5} {z+1} minecraft:water",
+   "setblock {x+7} {y-5} {z-1} minecraft:water",
+   "setblock {x+7} {y-7} {z+1} minecraft:water",
+   "setblock {x+7} {y-7} {z-1} minecraft:water",
+   "setblock {x+7} {y-9} {z+1} minecraft:water",
+   "setblock {x+7} {y-9} {z-1} minecraft:water",
+   "setblock {x+9} {y-1} {z+1} minecraft:water",
+   "setblock {x+9} {y-1} {z-1} minecraft:water",
+   "setblock {x+9} {y-3} {z+1} minecraft:water",
+   "setblock {x+9} {y-3} {z-1} minecraft:water",
+   "setblock {x+9} {y-5} {z+1} minecraft:water",
+   "setblock {x+9} {y-5} {z-1} minecraft:water",
+   "setblock {x+9} {y-7} {z+1} minecraft:water",
+   "setblock {x+9} {y-7} {z-1} minecraft:water",
+   "setblock {x+9} {y-9} {z+1} minecraft:water",
+   "setblock {x+9} {y-9} {z-1} minecraft:water",
+   "setblock {x+11} {y-1} {z+1} minecraft:water",
+   "setblock {x+11} {y-1} {z-1} minecraft:water",
+   "setblock {x+11} {y-3} {z+1} minecraft:water",
+   "setblock {x+11} {y-3} {z-1} minecraft:water",
+   "setblock {x+11} {y-5} {z+1} minecraft:water",
+   "setblock {x+11} {y-5} {z-1} minecraft:water",
+   "setblock {x+11} {y-7} {z+1} minecraft:water",
+   "setblock {x+11} {y-7} {z-1} minecraft:water",
+   "setblock {x+11} {y-9} {z+1} minecraft:water",
+   "setblock {x+11} {y-9} {z-1} minecraft:water"
+  ]
+ },
+ {
+  "seed": 20261029,
+  "x": 0,
+  "z": 0,
+  "y": 40,
+  "heading": "east",
+  "legs": 1,
+  "pattern": "stairs_up",
+  "targetY": 44,
+  "digArgs": {
+   "maxBlocks": 60,
+   "timeoutMs": 120000
+  },
+  "name": "stairs-up-glass-roof-sand-no-step-no-filler",
+  "expectCode": "FALLING_BLOCKS",
+  "inventory": [
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   }
+  ],
+  "fixture": [
+   "fill {x-4} {y-3} {z-4} {x+8} {y-1} {z+4} minecraft:stone",
+   "fill {x-4} {y+2} {z-4} {x+8} {y+10} {z+4} minecraft:stone",
+   "fill {x+1} {y} {z-4} {x+8} {y+1} {z+4} minecraft:stone",
+   "fill {x-4} {y} {z-4} {x-1} {y+1} {z+4} minecraft:stone",
+   "fill {x} {y} {z-4} {x} {y+1} {z-1} minecraft:stone",
+   "fill {x} {y} {z+1} {x} {y+1} {z+4} minecraft:stone",
+   "fill {x-1} {y-1} {z} {x-1} {y} {z} minecraft:air",
+   "fill {x+1} {y} {z} {x+1} {y+2} {z} minecraft:air",
+   "setblock {x} {y+2} {z} minecraft:glass",
+   "fill {x} {y+3} {z} {x} {y+5} {z} minecraft:sand"
+  ]
+ },
+ {
+  "seed": 20261029,
+  "x": 0,
+  "z": 0,
+  "y": 40,
+  "heading": "east",
+  "legs": 1,
+  "pattern": "stairs_up",
+  "targetY": 44,
+  "digArgs": {
+   "maxBlocks": 60,
+   "timeoutMs": 120000
+  },
+  "name": "stairs-up-glass-roof-sand-no-step-with-filler",
+  "inventory": [
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 16
+   }
+  ],
+  "fixture": [
+   "fill {x-4} {y-3} {z-4} {x+8} {y-1} {z+4} minecraft:stone",
+   "fill {x-4} {y+2} {z-4} {x+8} {y+10} {z+4} minecraft:stone",
+   "fill {x+1} {y} {z-4} {x+8} {y+1} {z+4} minecraft:stone",
+   "fill {x-4} {y} {z-4} {x-1} {y+1} {z+4} minecraft:stone",
+   "fill {x} {y} {z-4} {x} {y+1} {z-1} minecraft:stone",
+   "fill {x} {y} {z+1} {x} {y+1} {z+4} minecraft:stone",
+   "fill {x-1} {y-1} {z} {x-1} {y} {z} minecraft:air",
+   "fill {x+1} {y} {z} {x+1} {y+2} {z} minecraft:air",
+   "setblock {x} {y+2} {z} minecraft:glass",
+   "fill {x} {y+3} {z} {x} {y+5} {z} minecraft:sand"
+  ]
+ },
+ {
+  "seed": 20261029,
+  "x": 0,
+  "z": 0,
+  "y": 40,
+  "heading": "east",
+  "legs": 1,
+  "pattern": "stairs_up",
+  "targetY": 44,
+  "digArgs": {
+   "maxBlocks": 60,
+   "timeoutMs": 120000
+  },
+  "name": "stairs-up-sand-over-body-step-present",
+  "inventory": [
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 16
+   }
+  ],
+  "fixture": [
+   "fill {x-4} {y-3} {z-4} {x+8} {y-1} {z+4} minecraft:stone",
+   "fill {x-4} {y+2} {z-4} {x+8} {y+10} {z+4} minecraft:stone",
+   "fill {x+1} {y} {z-4} {x+8} {y+1} {z+4} minecraft:stone",
+   "fill {x-4} {y} {z-4} {x-1} {y+1} {z+4} minecraft:stone",
+   "fill {x} {y} {z-4} {x} {y+1} {z-1} minecraft:stone",
+   "fill {x} {y} {z+1} {x} {y+1} {z+4} minecraft:stone",
+   "fill {x-1} {y-1} {z} {x-1} {y} {z} minecraft:air",
+   "fill {x} {y+3} {z} {x} {y+5} {z} minecraft:sand"
+  ]
+ }
+]

@@ -1,0 +1,3138 @@
+[
+ {
+  "name": "water-1-surface",
+  "seed": "5433312384530337025",
+  "expect": "water",
+  "waterSeconds": 180,
+  "inventory": [
+   {
+    "item": "minecraft:bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   }
+  ],
+  "totalMs": 1500000,
+  "budgetMs": 900000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET",
+    "LOW_HEALTH"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed 1: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; obtain water_bucket at once; filled within 180 s of the first water call, no death, Air never 0",
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:water_bucket",
+      "timeoutMs": 180000
+     },
+     "why": "water for the cast"
+    }
+   }
+  ]
+ },
+ {
+  "name": "water-1-y16",
+  "seed": "5433312384530337025",
+  "expect": "water",
+  "waterSeconds": 180,
+  "inventory": [
+   {
+    "item": "minecraft:bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   }
+  ],
+  "totalMs": 1500000,
+  "budgetMs": 900000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET",
+    "LOW_HEALTH"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed 1: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y16 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
+  "calls": [
+   {
+    "command": "difficulty peaceful"
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": 16,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "south",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": 16,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "west",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": 16,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "north",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": 16,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "command": "clear @s minecraft:iron_pickaxe"
+   },
+   {
+    "command": "clear @s minecraft:stone_pickaxe"
+   },
+   {
+    "command": "give @s minecraft:iron_pickaxe"
+   },
+   {
+    "command": "give @s minecraft:stone_pickaxe"
+   },
+   {
+    "command": "difficulty normal"
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:water_bucket",
+      "timeoutMs": 180000
+     },
+     "why": "water for the cast"
+    }
+   }
+  ]
+ },
+ {
+  "name": "water-1-y-54",
+  "seed": "5433312384530337025",
+  "expect": "water",
+  "waterSeconds": 180,
+  "inventory": [
+   {
+    "item": "minecraft:bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   }
+  ],
+  "totalMs": 1500000,
+  "budgetMs": 900000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET",
+    "LOW_HEALTH"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed 1: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y-54 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
+  "calls": [
+   {
+    "command": "difficulty peaceful"
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": -54,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "south",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": -54,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "west",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": -54,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "north",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": -54,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "command": "clear @s minecraft:iron_pickaxe"
+   },
+   {
+    "command": "clear @s minecraft:stone_pickaxe"
+   },
+   {
+    "command": "give @s minecraft:iron_pickaxe"
+   },
+   {
+    "command": "give @s minecraft:stone_pickaxe"
+   },
+   {
+    "command": "difficulty normal"
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:water_bucket",
+      "timeoutMs": 180000
+     },
+     "why": "water for the cast"
+    }
+   }
+  ]
+ },
+ {
+  "name": "water-2-surface",
+  "seed": "313280743662651985",
+  "expect": "water",
+  "waterSeconds": 180,
+  "inventory": [
+   {
+    "item": "minecraft:bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   }
+  ],
+  "totalMs": 1500000,
+  "budgetMs": 900000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET",
+    "LOW_HEALTH"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed 2: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; obtain water_bucket at once; filled within 180 s of the first water call, no death, Air never 0",
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:water_bucket",
+      "timeoutMs": 180000
+     },
+     "why": "water for the cast"
+    }
+   }
+  ]
+ },
+ {
+  "name": "water-2-y16",
+  "seed": "313280743662651985",
+  "expect": "water",
+  "waterSeconds": 180,
+  "inventory": [
+   {
+    "item": "minecraft:bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   }
+  ],
+  "totalMs": 1500000,
+  "budgetMs": 900000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET",
+    "LOW_HEALTH"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed 2: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y16 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
+  "calls": [
+   {
+    "command": "difficulty peaceful"
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": 16,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "south",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": 16,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "west",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": 16,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "north",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": 16,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "command": "clear @s minecraft:iron_pickaxe"
+   },
+   {
+    "command": "clear @s minecraft:stone_pickaxe"
+   },
+   {
+    "command": "give @s minecraft:iron_pickaxe"
+   },
+   {
+    "command": "give @s minecraft:stone_pickaxe"
+   },
+   {
+    "command": "difficulty normal"
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:water_bucket",
+      "timeoutMs": 180000
+     },
+     "why": "water for the cast"
+    }
+   }
+  ]
+ },
+ {
+  "name": "water-2-y-54",
+  "seed": "313280743662651985",
+  "expect": "water",
+  "waterSeconds": 180,
+  "inventory": [
+   {
+    "item": "minecraft:bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   }
+  ],
+  "totalMs": 1500000,
+  "budgetMs": 900000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET",
+    "LOW_HEALTH"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed 2: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y-54 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
+  "calls": [
+   {
+    "command": "difficulty peaceful"
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": -54,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "south",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": -54,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "west",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": -54,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "north",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": -54,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "command": "clear @s minecraft:iron_pickaxe"
+   },
+   {
+    "command": "clear @s minecraft:stone_pickaxe"
+   },
+   {
+    "command": "give @s minecraft:iron_pickaxe"
+   },
+   {
+    "command": "give @s minecraft:stone_pickaxe"
+   },
+   {
+    "command": "difficulty normal"
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:water_bucket",
+      "timeoutMs": 180000
+     },
+     "why": "water for the cast"
+    }
+   }
+  ]
+ },
+ {
+  "name": "water-3-surface",
+  "seed": "3244043502755372002",
+  "expect": "water",
+  "waterSeconds": 180,
+  "inventory": [
+   {
+    "item": "minecraft:bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   }
+  ],
+  "totalMs": 1500000,
+  "budgetMs": 900000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET",
+    "LOW_HEALTH"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed 3: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; obtain water_bucket at once; filled within 180 s of the first water call, no death, Air never 0",
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:water_bucket",
+      "timeoutMs": 180000
+     },
+     "why": "water for the cast"
+    }
+   }
+  ]
+ },
+ {
+  "name": "water-3-y16",
+  "seed": "3244043502755372002",
+  "expect": "water",
+  "waterSeconds": 180,
+  "inventory": [
+   {
+    "item": "minecraft:bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   }
+  ],
+  "totalMs": 1500000,
+  "budgetMs": 900000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET",
+    "LOW_HEALTH"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed 3: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y16 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
+  "calls": [
+   {
+    "command": "difficulty peaceful"
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": 16,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "south",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": 16,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "west",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": 16,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "north",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": 16,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "command": "clear @s minecraft:iron_pickaxe"
+   },
+   {
+    "command": "clear @s minecraft:stone_pickaxe"
+   },
+   {
+    "command": "give @s minecraft:iron_pickaxe"
+   },
+   {
+    "command": "give @s minecraft:stone_pickaxe"
+   },
+   {
+    "command": "difficulty normal"
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:water_bucket",
+      "timeoutMs": 180000
+     },
+     "why": "water for the cast"
+    }
+   }
+  ]
+ },
+ {
+  "name": "water-3-y-54",
+  "seed": "3244043502755372002",
+  "expect": "water",
+  "waterSeconds": 180,
+  "inventory": [
+   {
+    "item": "minecraft:bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   }
+  ],
+  "totalMs": 1500000,
+  "budgetMs": 900000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET",
+    "LOW_HEALTH"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed 3: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y-54 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
+  "calls": [
+   {
+    "command": "difficulty peaceful"
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": -54,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "south",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": -54,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "west",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": -54,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "north",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": -54,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "command": "clear @s minecraft:iron_pickaxe"
+   },
+   {
+    "command": "clear @s minecraft:stone_pickaxe"
+   },
+   {
+    "command": "give @s minecraft:iron_pickaxe"
+   },
+   {
+    "command": "give @s minecraft:stone_pickaxe"
+   },
+   {
+    "command": "difficulty normal"
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:water_bucket",
+      "timeoutMs": 180000
+     },
+     "why": "water for the cast"
+    }
+   }
+  ]
+ },
+ {
+  "name": "water-4-surface",
+  "seed": "3315172112810107624",
+  "expect": "water",
+  "waterSeconds": 180,
+  "inventory": [
+   {
+    "item": "minecraft:bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   }
+  ],
+  "totalMs": 1500000,
+  "budgetMs": 900000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET",
+    "LOW_HEALTH"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed 4: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; obtain water_bucket at once; filled within 180 s of the first water call, no death, Air never 0",
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:water_bucket",
+      "timeoutMs": 180000
+     },
+     "why": "water for the cast"
+    }
+   }
+  ]
+ },
+ {
+  "name": "water-4-y16",
+  "seed": "3315172112810107624",
+  "expect": "water",
+  "waterSeconds": 180,
+  "inventory": [
+   {
+    "item": "minecraft:bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   }
+  ],
+  "totalMs": 1500000,
+  "budgetMs": 900000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET",
+    "LOW_HEALTH"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed 4: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y16 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
+  "calls": [
+   {
+    "command": "difficulty peaceful"
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": 16,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "south",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": 16,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "west",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": 16,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "north",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": 16,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "command": "clear @s minecraft:iron_pickaxe"
+   },
+   {
+    "command": "clear @s minecraft:stone_pickaxe"
+   },
+   {
+    "command": "give @s minecraft:iron_pickaxe"
+   },
+   {
+    "command": "give @s minecraft:stone_pickaxe"
+   },
+   {
+    "command": "difficulty normal"
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:water_bucket",
+      "timeoutMs": 180000
+     },
+     "why": "water for the cast"
+    }
+   }
+  ]
+ },
+ {
+  "name": "water-4-y-54",
+  "seed": "3315172112810107624",
+  "expect": "water",
+  "waterSeconds": 180,
+  "inventory": [
+   {
+    "item": "minecraft:bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   }
+  ],
+  "totalMs": 1500000,
+  "budgetMs": 900000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET",
+    "LOW_HEALTH"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed 4: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y-54 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
+  "calls": [
+   {
+    "command": "difficulty peaceful"
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": -54,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "south",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": -54,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "west",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": -54,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "north",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": -54,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "command": "clear @s minecraft:iron_pickaxe"
+   },
+   {
+    "command": "clear @s minecraft:stone_pickaxe"
+   },
+   {
+    "command": "give @s minecraft:iron_pickaxe"
+   },
+   {
+    "command": "give @s minecraft:stone_pickaxe"
+   },
+   {
+    "command": "difficulty normal"
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:water_bucket",
+      "timeoutMs": 180000
+     },
+     "why": "water for the cast"
+    }
+   }
+  ]
+ },
+ {
+  "name": "water-5-surface",
+  "seed": "937420255288055328",
+  "expect": "water",
+  "waterSeconds": 180,
+  "inventory": [
+   {
+    "item": "minecraft:bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   }
+  ],
+  "totalMs": 1500000,
+  "budgetMs": 900000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET",
+    "LOW_HEALTH"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed 5: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; obtain water_bucket at once; filled within 180 s of the first water call, no death, Air never 0",
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:water_bucket",
+      "timeoutMs": 180000
+     },
+     "why": "water for the cast"
+    }
+   }
+  ]
+ },
+ {
+  "name": "water-5-y16",
+  "seed": "937420255288055328",
+  "expect": "water",
+  "waterSeconds": 180,
+  "inventory": [
+   {
+    "item": "minecraft:bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   }
+  ],
+  "totalMs": 1500000,
+  "budgetMs": 900000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET",
+    "LOW_HEALTH"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed 5: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y16 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
+  "calls": [
+   {
+    "command": "difficulty peaceful"
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": 16,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "south",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": 16,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "west",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": 16,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "north",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": 16,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "command": "clear @s minecraft:iron_pickaxe"
+   },
+   {
+    "command": "clear @s minecraft:stone_pickaxe"
+   },
+   {
+    "command": "give @s minecraft:iron_pickaxe"
+   },
+   {
+    "command": "give @s minecraft:stone_pickaxe"
+   },
+   {
+    "command": "difficulty normal"
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:water_bucket",
+      "timeoutMs": 180000
+     },
+     "why": "water for the cast"
+    }
+   }
+  ]
+ },
+ {
+  "name": "water-5-y-54",
+  "seed": "937420255288055328",
+  "expect": "water",
+  "waterSeconds": 180,
+  "inventory": [
+   {
+    "item": "minecraft:bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   }
+  ],
+  "totalMs": 1500000,
+  "budgetMs": 900000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET",
+    "LOW_HEALTH"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed 5: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y-54 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
+  "calls": [
+   {
+    "command": "difficulty peaceful"
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": -54,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "south",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": -54,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "west",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": -54,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "north",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": -54,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "command": "clear @s minecraft:iron_pickaxe"
+   },
+   {
+    "command": "clear @s minecraft:stone_pickaxe"
+   },
+   {
+    "command": "give @s minecraft:iron_pickaxe"
+   },
+   {
+    "command": "give @s minecraft:stone_pickaxe"
+   },
+   {
+    "command": "difficulty normal"
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:water_bucket",
+      "timeoutMs": 180000
+     },
+     "why": "water for the cast"
+    }
+   }
+  ]
+ },
+ {
+  "name": "water-6-surface",
+  "seed": "8196621077778941313",
+  "expect": "water",
+  "waterSeconds": 180,
+  "inventory": [
+   {
+    "item": "minecraft:bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   }
+  ],
+  "totalMs": 1500000,
+  "budgetMs": 900000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET",
+    "LOW_HEALTH"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed 6: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; obtain water_bucket at once; filled within 180 s of the first water call, no death, Air never 0",
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:water_bucket",
+      "timeoutMs": 180000
+     },
+     "why": "water for the cast"
+    }
+   }
+  ]
+ },
+ {
+  "name": "water-6-y16",
+  "seed": "8196621077778941313",
+  "expect": "water",
+  "waterSeconds": 180,
+  "inventory": [
+   {
+    "item": "minecraft:bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   }
+  ],
+  "totalMs": 1500000,
+  "budgetMs": 900000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET",
+    "LOW_HEALTH"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed 6: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y16 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
+  "calls": [
+   {
+    "command": "difficulty peaceful"
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": 16,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "south",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": 16,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "west",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": 16,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "north",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": 16,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "command": "clear @s minecraft:iron_pickaxe"
+   },
+   {
+    "command": "clear @s minecraft:stone_pickaxe"
+   },
+   {
+    "command": "give @s minecraft:iron_pickaxe"
+   },
+   {
+    "command": "give @s minecraft:stone_pickaxe"
+   },
+   {
+    "command": "difficulty normal"
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:water_bucket",
+      "timeoutMs": 180000
+     },
+     "why": "water for the cast"
+    }
+   }
+  ]
+ },
+ {
+  "name": "water-6-y-54",
+  "seed": "8196621077778941313",
+  "expect": "water",
+  "waterSeconds": 180,
+  "inventory": [
+   {
+    "item": "minecraft:bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   }
+  ],
+  "totalMs": 1500000,
+  "budgetMs": 900000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET",
+    "LOW_HEALTH"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed 6: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y-54 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
+  "calls": [
+   {
+    "command": "difficulty peaceful"
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": -54,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "south",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": -54,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "west",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": -54,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "north",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": -54,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "command": "clear @s minecraft:iron_pickaxe"
+   },
+   {
+    "command": "clear @s minecraft:stone_pickaxe"
+   },
+   {
+    "command": "give @s minecraft:iron_pickaxe"
+   },
+   {
+    "command": "give @s minecraft:stone_pickaxe"
+   },
+   {
+    "command": "difficulty normal"
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:water_bucket",
+      "timeoutMs": 180000
+     },
+     "why": "water for the cast"
+    }
+   }
+  ]
+ },
+ {
+  "name": "water-7-surface",
+  "seed": "4514800570176826331",
+  "expect": "water",
+  "waterSeconds": 180,
+  "inventory": [
+   {
+    "item": "minecraft:bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   }
+  ],
+  "totalMs": 1500000,
+  "budgetMs": 900000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET",
+    "LOW_HEALTH"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed 7: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; obtain water_bucket at once; filled within 180 s of the first water call, no death, Air never 0",
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:water_bucket",
+      "timeoutMs": 180000
+     },
+     "why": "water for the cast"
+    }
+   }
+  ]
+ },
+ {
+  "name": "water-7-y16",
+  "seed": "4514800570176826331",
+  "expect": "water",
+  "waterSeconds": 180,
+  "inventory": [
+   {
+    "item": "minecraft:bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   }
+  ],
+  "totalMs": 1500000,
+  "budgetMs": 900000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET",
+    "LOW_HEALTH"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed 7: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y16 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
+  "calls": [
+   {
+    "command": "difficulty peaceful"
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": 16,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "south",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": 16,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "west",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": 16,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "north",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": 16,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "command": "clear @s minecraft:iron_pickaxe"
+   },
+   {
+    "command": "clear @s minecraft:stone_pickaxe"
+   },
+   {
+    "command": "give @s minecraft:iron_pickaxe"
+   },
+   {
+    "command": "give @s minecraft:stone_pickaxe"
+   },
+   {
+    "command": "difficulty normal"
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:water_bucket",
+      "timeoutMs": 180000
+     },
+     "why": "water for the cast"
+    }
+   }
+  ]
+ },
+ {
+  "name": "water-7-y-54",
+  "seed": "4514800570176826331",
+  "expect": "water",
+  "waterSeconds": 180,
+  "inventory": [
+   {
+    "item": "minecraft:bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   }
+  ],
+  "totalMs": 1500000,
+  "budgetMs": 900000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET",
+    "LOW_HEALTH"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed 7: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y-54 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
+  "calls": [
+   {
+    "command": "difficulty peaceful"
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": -54,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "south",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": -54,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "west",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": -54,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "north",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": -54,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "command": "clear @s minecraft:iron_pickaxe"
+   },
+   {
+    "command": "clear @s minecraft:stone_pickaxe"
+   },
+   {
+    "command": "give @s minecraft:iron_pickaxe"
+   },
+   {
+    "command": "give @s minecraft:stone_pickaxe"
+   },
+   {
+    "command": "difficulty normal"
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:water_bucket",
+      "timeoutMs": 180000
+     },
+     "why": "water for the cast"
+    }
+   }
+  ]
+ },
+ {
+  "name": "water-8-surface",
+  "seed": "5593788349168817449",
+  "expect": "water",
+  "waterSeconds": 180,
+  "inventory": [
+   {
+    "item": "minecraft:bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   }
+  ],
+  "totalMs": 1500000,
+  "budgetMs": 900000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET",
+    "LOW_HEALTH"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed 8: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; obtain water_bucket at once; filled within 180 s of the first water call, no death, Air never 0",
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:water_bucket",
+      "timeoutMs": 180000
+     },
+     "why": "water for the cast"
+    }
+   }
+  ]
+ },
+ {
+  "name": "water-8-y16",
+  "seed": "5593788349168817449",
+  "expect": "water",
+  "waterSeconds": 180,
+  "inventory": [
+   {
+    "item": "minecraft:bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   }
+  ],
+  "totalMs": 1500000,
+  "budgetMs": 900000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET",
+    "LOW_HEALTH"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed 8: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y16 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
+  "calls": [
+   {
+    "command": "difficulty peaceful"
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": 16,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "south",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": 16,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "west",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": 16,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "north",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": 16,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": 16,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "command": "clear @s minecraft:iron_pickaxe"
+   },
+   {
+    "command": "clear @s minecraft:stone_pickaxe"
+   },
+   {
+    "command": "give @s minecraft:iron_pickaxe"
+   },
+   {
+    "command": "give @s minecraft:stone_pickaxe"
+   },
+   {
+    "command": "difficulty normal"
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:water_bucket",
+      "timeoutMs": 180000
+     },
+     "why": "water for the cast"
+    }
+   }
+  ]
+ },
+ {
+  "name": "water-8-y-54",
+  "seed": "5593788349168817449",
+  "expect": "water",
+  "waterSeconds": 180,
+  "inventory": [
+   {
+    "item": "minecraft:bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   }
+  ],
+  "totalMs": 1500000,
+  "budgetMs": 900000,
+  "retry": {
+   "codes": [
+    "DANGER",
+    "FIND_DANGER",
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "TRAVEL_DAMAGED",
+    "NAVIGATION_DAMAGED",
+    "NO_SOURCE",
+    "OBTAIN_STUCK",
+    "FIND_NOT_FOUND",
+    "NO_ROUTE",
+    "FIND_BLOCKED",
+    "FIND_BUDGET",
+    "LOW_HEALTH"
+   ],
+   "times": 6,
+   "waitMs": 3000,
+   "answer": true
+  },
+  "note": "gate seed 8: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y-54 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
+  "calls": [
+   {
+    "command": "difficulty peaceful"
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": -54,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "south",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": -54,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "west",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": -54,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "heading": "north",
+      "maxBlocks": 10,
+      "timeoutMs": 60000
+     }
+    }
+   },
+   {
+    "name": "act",
+    "setup": true,
+    "untilY": -54,
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "stairs_down",
+      "y": -54,
+      "timeoutMs": 420000
+     }
+    }
+   },
+   {
+    "command": "clear @s minecraft:iron_pickaxe"
+   },
+   {
+    "command": "clear @s minecraft:stone_pickaxe"
+   },
+   {
+    "command": "give @s minecraft:iron_pickaxe"
+   },
+   {
+    "command": "give @s minecraft:stone_pickaxe"
+   },
+   {
+    "command": "difficulty normal"
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "minecraft:water_bucket",
+      "timeoutMs": 180000
+     },
+     "why": "water for the cast"
+    }
+   }
+  ]
+ }
+]

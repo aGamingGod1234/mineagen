@@ -1,0 +1,1608 @@
+{
+  "kind": "Retained b3 snapshot before terminal TOOL_WORN; bridge effects remain mocked, no world physics",
+  "terminal": {
+    "_file": "recordings/sub/long/gate6b-3-codex/raw/decision-1794322198924-ed3d8878-aaa9-4a83-a4ae-d92913b25180--62192334-0f43-4ab5-8fab-dd4409b9b081-dae9241e.jsonl",
+    "_line": 748,
+    "type": "action_result",
+    "time": 1794323867357,
+    "agentId": "62192334-0f43-4ab5-8fab-dd4409b9b081",
+    "decisionId": "1794322198924-ed3d8878-aaa9-4a83-a4ae-d92913b25180:11:1",
+    "callId": "exec-8189d448-3b2d-47d5-ba31-a68eb02b62dc",
+    "actionId": "native:fed3ff19-4c73-4552-914b-290e4762128c:358:62192334-0f43-4ab5-8fab-dd4409b9:1",
+    "result": {
+      "traceId": "native-fed3ff19-4c73-4552-914b-290e4762128c-358-62192334-0f43-4ab5-8fab-dd4409b9-1",
+      "goalRevision": 1,
+      "actionId": "native:fed3ff19-4c73-4552-914b-290e4762128c:358:62192334-0f43-4ab5-8fab-dd4409b9:1",
+      "commandId": "native:fed3ff19-4c73-4552-914b-290e4762128c:358:62192334-0f43-4ab5-8fab-dd4409b9:1",
+      "actionType": "travel_to",
+      "state": "FAILED",
+      "reasonCode": "TOOL_WORN",
+      "message": "Digging down toward y -3: Stopped: Every hotbar tool for minecraft:diorite has 2 or fewer uses left. At 176,17,-441, stairs_down heading south; 2 blocks mined in 0 steps over 4 s (y17 to y17); mined diorite 2; tool wooden_pickaxe 2 uses left; turned north along a cave at y17; turned south along a cave at y17; at 176.5,17.0,-440.6; 18 blocks left to the target (yaw 81), -20 above; covered -0 blocks toward it in 5 s (-2 blocks/min, 1 walked); 0 legs, bridged 0, pillared 0, tunnelled 0; 495 plain blocks carried; dug 1 dig_to staircase(s) toward the target's level; footing {\"drop\":48,\"yaw\":-130}",
+      "elapsedMs": 5000,
+      "observedAtEpochMs": 1794323867343,
+      "executionStarted": true,
+      "physicalAttempted": true,
+      "timing": {
+        "acceptedAtEpochMs": 1794323862346,
+        "startedAtEpochMs": 1794323862390,
+        "startedTick": 33165,
+        "endedTick": 33265
+      },
+      "replayProof": "k0QIBJoLb7XeLEWUQDRElk3bJPGxCC4H3tBQa5BvLi8"
+    },
+    "call": {
+      "callId": "exec-8189d448-3b2d-47d5-ba31-a68eb02b62dc",
+      "name": "do_step",
+      "arguments": {
+        "verb": "obtain",
+        "target": {
+          "item": "minecraft:water_bucket",
+          "count": 1
+        },
+        "why": "Fill one of the two casting buckets with water before finding a lava pool."
+      },
+      "at": 1794323330697,
+      "decisionId": "1794322198924-ed3d8878-aaa9-4a83-a4ae-d92913b25180:11:1",
+      "_file": "recordings/sub/long/gate6b-3-codex/raw/decision-1794322198924-ed3d8878-aaa9-4a83-a4ae-d92913b25180--62192334-0f43-4ab5-8fab-dd4409b9b081-dae9241e.jsonl",
+      "_line": 574
+    }
+  },
+  "snapshot": {
+    "_file": "recordings/sub/long/gate6b-3-codex/raw/protocol.jsonl.1",
+    "_line": 2602,
+    "runId": "run-1794322171354-eaf9adef",
+    "scenarioId": "q-at3brx-b12e-LONG-r1",
+    "direction": "server_to_coordinator",
+    "envelope": {
+      "protocolVersion": 2,
+      "serverInstanceId": "4a0760da-69a1-441a-aaaa-2013c768b589",
+      "agentId": "62192334-0f43-4ab5-8fab-dd4409b9b081",
+      "type": "observation",
+      "messageId": "server-9148",
+      "payload": {
+        "goalRevision": 1,
+        "observedAtEpochMs": 1794323867356,
+        "ready": true,
+        "status": "STARTING",
+        "eventSequence": 4971,
+        "attention": true,
+        "changedFacts": [
+          "lastResult",
+          "perception"
+        ],
+        "position": {
+          "x": 176.4655163915167,
+          "y": 17,
+          "z": -440.5965642618718
+        },
+        "velocity": {
+          "x": 0.006395719244707964,
+          "y": -0.0784000015258789,
+          "z": 0.018052443704564363
+        },
+        "view": {
+          "yaw": -19.581350326538086,
+          "pitch": 30
+        },
+        "player": {
+          "pose": "standing",
+          "underWater": false,
+          "swimming": false,
+          "gliding": false,
+          "sprinting": false,
+          "crouching": false,
+          "onClimbable": false,
+          "inLava": false,
+          "horizontalCollision": false,
+          "verticalCollision": true,
+          "passenger": false,
+          "skyOpen": false,
+          "groundAhead": {
+            "status": "unknown",
+            "at": 1.75
+          },
+          "brink": {
+            "dir": "W",
+            "at": 1.05,
+            "below": "drop",
+            "drop": 43
+          },
+          "edges": {
+            "drops": [
+              {
+                "dir": "W",
+                "at": 0,
+                "drop": 44,
+                "into": "water"
+              },
+              {
+                "dir": "N",
+                "at": 0,
+                "drop": 46
+              }
+            ]
+          },
+          "health": 20,
+          "maxHealth": 20,
+          "armor": 0,
+          "foodLevel": 20,
+          "saturation": 2,
+          "gameMode": "survival",
+          "onGround": true,
+          "inWater": false,
+          "onFire": false,
+          "air": 300,
+          "maxAir": 300,
+          "suffocating": false,
+          "fallDistance": 0,
+          "effects": []
+        },
+        "inventory": {
+          "items": [
+            {
+              "displayName": "Wooden Pickaxe",
+              "fingerprint": "7c02d1b8b5138addeaad75e0eb733b7f70d653d5b2fa67ebfd987314b3f39a8a",
+              "maxStackSize": 1,
+              "itemId": "minecraft:wooden_pickaxe",
+              "count": 1,
+              "damage": 57,
+              "maxDamage": 59,
+              "slot": "mainhand",
+              "tags": [
+                "#c:enchantables",
+                "#c:tools",
+                "#c:tools/mining_tool",
+                "#minecraft:breaks_decorated_pots",
+                "#minecraft:cluster_max_harvestables",
+                "#minecraft:enchantable/durability",
+                "#minecraft:enchantable/mining",
+                "#minecraft:enchantable/mining_loot",
+                "#minecraft:enchantable/vanishing",
+                "#minecraft:pickaxes"
+              ]
+            },
+            {
+              "displayName": "Cobblestone",
+              "fingerprint": "6e8b0a6bba78a49e783b15172dc6ec4617a1e4b8931b3823670015f7b61bcc38",
+              "maxStackSize": 64,
+              "itemId": "minecraft:cobblestone",
+              "count": 27,
+              "damage": 0,
+              "maxDamage": 0,
+              "slot": 0,
+              "hotbar": true,
+              "tags": [
+                "#c:cobblestones",
+                "#c:cobblestones/normal",
+                "#minecraft:stone_crafting_materials",
+                "#minecraft:stone_tool_materials",
+                "#minecraft:sulfur_cube_archetype/slow_bouncy",
+                "#minecraft:sulfur_cube_swallowable"
+              ]
+            },
+            {
+              "displayName": "Flint and Steel",
+              "fingerprint": "ab9e24630f9de4fbfbcc2751a03e76c036096423e71fd995529183b5bc90016d",
+              "maxStackSize": 1,
+              "itemId": "minecraft:flint_and_steel",
+              "count": 1,
+              "damage": 0,
+              "maxDamage": 64,
+              "slot": 1,
+              "hotbar": true,
+              "tags": [
+                "#c:enchantables",
+                "#c:tools",
+                "#c:tools/igniter",
+                "#minecraft:creeper_igniters",
+                "#minecraft:enchantable/durability",
+                "#minecraft:enchantable/vanishing"
+              ]
+            },
+            {
+              "displayName": "Cobblestone",
+              "fingerprint": "6e8b0a6bba78a49e783b15172dc6ec4617a1e4b8931b3823670015f7b61bcc38",
+              "maxStackSize": 64,
+              "itemId": "minecraft:cobblestone",
+              "count": 58,
+              "damage": 0,
+              "maxDamage": 0,
+              "slot": 2,
+              "hotbar": true,
+              "tags": [
+                "#c:cobblestones",
+                "#c:cobblestones/normal",
+                "#minecraft:stone_crafting_materials",
+                "#minecraft:stone_tool_materials",
+                "#minecraft:sulfur_cube_archetype/slow_bouncy",
+                "#minecraft:sulfur_cube_swallowable"
+              ]
+            },
+            {
+              "displayName": "Leaf Litter",
+              "fingerprint": "be6c4c8e80c6277d71e416750ad2e9fd4c84614c48fc552e35a0ae186b4c9d39",
+              "maxStackSize": 64,
+              "itemId": "minecraft:leaf_litter",
+              "count": 5,
+              "damage": 0,
+              "maxDamage": 0,
+              "slot": 3,
+              "hotbar": true,
+              "tags": []
+            },
+            {
+              "displayName": "Bucket",
+              "fingerprint": "a43c457970926122cfde8a02700d6a5e6225e3bcabc80002bf2b719108686213",
+              "maxStackSize": 16,
+              "itemId": "minecraft:bucket",
+              "count": 2,
+              "damage": 0,
+              "maxDamage": 0,
+              "slot": 4,
+              "hotbar": true,
+              "tags": [
+                "#c:buckets",
+                "#c:buckets/empty",
+                "#minecraft:furnace_fuel_bottom_takeable"
+              ]
+            },
+            {
+              "displayName": "Cobblestone",
+              "fingerprint": "6e8b0a6bba78a49e783b15172dc6ec4617a1e4b8931b3823670015f7b61bcc38",
+              "maxStackSize": 64,
+              "itemId": "minecraft:cobblestone",
+              "count": 64,
+              "damage": 0,
+              "maxDamage": 0,
+              "slot": 5,
+              "hotbar": true,
+              "tags": [
+                "#c:cobblestones",
+                "#c:cobblestones/normal",
+                "#minecraft:stone_crafting_materials",
+                "#minecraft:stone_tool_materials",
+                "#minecraft:sulfur_cube_archetype/slow_bouncy",
+                "#minecraft:sulfur_cube_swallowable"
+              ]
+            },
+            {
+              "displayName": "Oak Planks",
+              "fingerprint": "f8621886f2e915899b0625dc2f2f7d97bf964b5d2d2cc49a870b6af7546be7c7",
+              "maxStackSize": 64,
+              "itemId": "minecraft:oak_planks",
+              "count": 2,
+              "damage": 0,
+              "maxDamage": 0,
+              "slot": 8,
+              "hotbar": true,
+              "tags": [
+                "#minecraft:planks",
+                "#minecraft:sulfur_cube_archetype/bouncy",
+                "#minecraft:sulfur_cube_swallowable",
+                "#minecraft:wooden_tool_materials"
+              ]
+            },
+            {
+              "displayName": "Dirt",
+              "fingerprint": "49dc8d5d796971c36cf158a8ff4b006961bfbd364fa8e22749c45751fa3c77b4",
+              "maxStackSize": 64,
+              "itemId": "minecraft:dirt",
+              "count": 13,
+              "damage": 0,
+              "maxDamage": 0,
+              "slot": 9,
+              "hotbar": false,
+              "tags": [
+                "#minecraft:dirt",
+                "#minecraft:sulfur_cube_archetype/regular",
+                "#minecraft:sulfur_cube_swallowable"
+              ]
+            },
+            {
+              "displayName": "Raw Copper",
+              "fingerprint": "5132d2bcd116995a15faf978973ab706b794a6ba6ebc4e049423c0305e5c36a8",
+              "maxStackSize": 64,
+              "itemId": "minecraft:raw_copper",
+              "count": 5,
+              "damage": 0,
+              "maxDamage": 0,
+              "slot": 10,
+              "hotbar": false,
+              "tags": [
+                "#c:raw_materials",
+                "#c:raw_materials/copper"
+              ]
+            },
+            {
+              "displayName": "Cobblestone",
+              "fingerprint": "6e8b0a6bba78a49e783b15172dc6ec4617a1e4b8931b3823670015f7b61bcc38",
+              "maxStackSize": 64,
+              "itemId": "minecraft:cobblestone",
+              "count": 64,
+              "damage": 0,
+              "maxDamage": 0,
+              "slot": 11,
+              "hotbar": false,
+              "tags": [
+                "#c:cobblestones",
+                "#c:cobblestones/normal",
+                "#minecraft:stone_crafting_materials",
+                "#minecraft:stone_tool_materials",
+                "#minecraft:sulfur_cube_archetype/slow_bouncy",
+                "#minecraft:sulfur_cube_swallowable"
+              ]
+            },
+            {
+              "displayName": "Gravel",
+              "fingerprint": "682e925c866760497852243fab333bbdff57e8c97b99af3305a16d2ebd3a4d87",
+              "maxStackSize": 64,
+              "itemId": "minecraft:gravel",
+              "count": 5,
+              "damage": 0,
+              "maxDamage": 0,
+              "slot": 12,
+              "hotbar": false,
+              "tags": [
+                "#c:gravels"
+              ]
+            },
+            {
+              "displayName": "Andesite",
+              "fingerprint": "6280b487e547001b8c33f85f4e0683bfdc80fdf880fb1c2bdc43c205b4693505",
+              "maxStackSize": 64,
+              "itemId": "minecraft:andesite",
+              "count": 18,
+              "damage": 0,
+              "maxDamage": 0,
+              "slot": 13,
+              "hotbar": false,
+              "tags": [
+                "#c:stones",
+                "#minecraft:sulfur_cube_archetype/slow_bouncy",
+                "#minecraft:sulfur_cube_swallowable"
+              ]
+            },
+            {
+              "displayName": "Diorite",
+              "fingerprint": "f98856234ef0c5463b3c1362d6508ef722ee80771cce3521ebacbd7973c840ae",
+              "maxStackSize": 64,
+              "itemId": "minecraft:diorite",
+              "count": 53,
+              "damage": 0,
+              "maxDamage": 0,
+              "slot": 14,
+              "hotbar": false,
+              "tags": [
+                "#c:stones",
+                "#minecraft:sulfur_cube_archetype/slow_bouncy",
+                "#minecraft:sulfur_cube_swallowable"
+              ]
+            },
+            {
+              "displayName": "Furnace",
+              "fingerprint": "1ea4257b305eb4f86fbb4439749fa9583d45434e40dd4d99832f5f38411999db",
+              "maxStackSize": 64,
+              "itemId": "minecraft:furnace",
+              "count": 1,
+              "damage": 0,
+              "maxDamage": 0,
+              "slot": 15,
+              "hotbar": false,
+              "tags": [
+                "#c:player_workstations/furnaces"
+              ]
+            },
+            {
+              "displayName": "Oak Log",
+              "fingerprint": "fa6051282077d07257ac82526d3e18dd28e4c1b7038d941c2841e846b838e86d",
+              "maxStackSize": 64,
+              "itemId": "minecraft:oak_log",
+              "count": 1,
+              "damage": 0,
+              "maxDamage": 0,
+              "slot": 16,
+              "hotbar": false,
+              "tags": [
+                "#c:natural_logs",
+                "#c:natural_logs/overworld",
+                "#minecraft:completes_find_tree_tutorial",
+                "#minecraft:logs",
+                "#minecraft:logs_that_burn",
+                "#minecraft:oak_logs",
+                "#minecraft:sulfur_cube_archetype/bouncy",
+                "#minecraft:sulfur_cube_swallowable"
+              ]
+            },
+            {
+              "displayName": "Cobblestone",
+              "fingerprint": "6e8b0a6bba78a49e783b15172dc6ec4617a1e4b8931b3823670015f7b61bcc38",
+              "maxStackSize": 64,
+              "itemId": "minecraft:cobblestone",
+              "count": 64,
+              "damage": 0,
+              "maxDamage": 0,
+              "slot": 17,
+              "hotbar": false,
+              "tags": [
+                "#c:cobblestones",
+                "#c:cobblestones/normal",
+                "#minecraft:stone_crafting_materials",
+                "#minecraft:stone_tool_materials",
+                "#minecraft:sulfur_cube_archetype/slow_bouncy",
+                "#minecraft:sulfur_cube_swallowable"
+              ]
+            },
+            {
+              "displayName": "Raw Iron",
+              "fingerprint": "fc0d8527884079de3fce6d9a9b2db29bc653969e90f1206cc9b8283d8f8724f1",
+              "maxStackSize": 64,
+              "itemId": "minecraft:raw_iron",
+              "count": 6,
+              "damage": 0,
+              "maxDamage": 0,
+              "slot": 18,
+              "hotbar": false,
+              "tags": [
+                "#c:raw_materials",
+                "#c:raw_materials/iron"
+              ]
+            },
+            {
+              "displayName": "Cobblestone",
+              "fingerprint": "6e8b0a6bba78a49e783b15172dc6ec4617a1e4b8931b3823670015f7b61bcc38",
+              "maxStackSize": 64,
+              "itemId": "minecraft:cobblestone",
+              "count": 64,
+              "damage": 0,
+              "maxDamage": 0,
+              "slot": 19,
+              "hotbar": false,
+              "tags": [
+                "#c:cobblestones",
+                "#c:cobblestones/normal",
+                "#minecraft:stone_crafting_materials",
+                "#minecraft:stone_tool_materials",
+                "#minecraft:sulfur_cube_archetype/slow_bouncy",
+                "#minecraft:sulfur_cube_swallowable"
+              ]
+            },
+            {
+              "displayName": "Cobblestone",
+              "fingerprint": "6e8b0a6bba78a49e783b15172dc6ec4617a1e4b8931b3823670015f7b61bcc38",
+              "maxStackSize": 64,
+              "itemId": "minecraft:cobblestone",
+              "count": 64,
+              "damage": 0,
+              "maxDamage": 0,
+              "slot": 20,
+              "hotbar": false,
+              "tags": [
+                "#c:cobblestones",
+                "#c:cobblestones/normal",
+                "#minecraft:stone_crafting_materials",
+                "#minecraft:stone_tool_materials",
+                "#minecraft:sulfur_cube_archetype/slow_bouncy",
+                "#minecraft:sulfur_cube_swallowable"
+              ]
+            },
+            {
+              "displayName": "Granite",
+              "fingerprint": "f0a123718ecba57b80aaa6b06ec59de7da72aa523de49fd152cc1be3441d0ca5",
+              "maxStackSize": 64,
+              "itemId": "minecraft:granite",
+              "count": 6,
+              "damage": 0,
+              "maxDamage": 0,
+              "slot": 21,
+              "hotbar": false,
+              "tags": [
+                "#c:stones",
+                "#minecraft:sulfur_cube_archetype/slow_bouncy",
+                "#minecraft:sulfur_cube_swallowable"
+              ]
+            }
+          ],
+          "selectedItem": "minecraft:wooden_pickaxe",
+          "selectedSlot": 6,
+          "tagCounts": {
+            "#c:buckets": 2,
+            "#c:buckets/empty": 2,
+            "#c:cobblestones": 405,
+            "#c:cobblestones/normal": 405,
+            "#c:enchantables": 2,
+            "#c:gravels": 5,
+            "#c:natural_logs": 1,
+            "#c:natural_logs/overworld": 1,
+            "#c:player_workstations/furnaces": 1,
+            "#c:raw_materials": 11,
+            "#c:raw_materials/copper": 5,
+            "#c:raw_materials/iron": 6,
+            "#c:stones": 77,
+            "#c:tools": 2,
+            "#c:tools/igniter": 1,
+            "#c:tools/mining_tool": 1,
+            "#minecraft:breaks_decorated_pots": 1,
+            "#minecraft:cluster_max_harvestables": 1,
+            "#minecraft:completes_find_tree_tutorial": 1,
+            "#minecraft:creeper_igniters": 1,
+            "#minecraft:dirt": 13,
+            "#minecraft:enchantable/durability": 2,
+            "#minecraft:enchantable/mining": 1,
+            "#minecraft:enchantable/mining_loot": 1,
+            "#minecraft:enchantable/vanishing": 2,
+            "#minecraft:furnace_fuel_bottom_takeable": 2,
+            "#minecraft:logs": 1,
+            "#minecraft:logs_that_burn": 1,
+            "#minecraft:oak_logs": 1,
+            "#minecraft:pickaxes": 1,
+            "#minecraft:planks": 2,
+            "#minecraft:stone_crafting_materials": 405,
+            "#minecraft:stone_tool_materials": 405,
+            "#minecraft:sulfur_cube_archetype/bouncy": 3,
+            "#minecraft:sulfur_cube_archetype/regular": 13,
+            "#minecraft:sulfur_cube_archetype/slow_bouncy": 482,
+            "#minecraft:sulfur_cube_swallowable": 498,
+            "#minecraft:wooden_tool_materials": 2
+          },
+          "food": {
+            "items": 0,
+            "nutrition": 0
+          }
+        },
+        "entities": [
+          {
+            "velocity": {
+              "x": 0,
+              "y": -0.159104835446646,
+              "z": -0.05126219911332371
+            },
+            "yaw": 230.45572,
+            "pitch": 0,
+            "pose": "standing",
+            "bounds": {
+              "minX": 176.75,
+              "minY": 17.157711288348317,
+              "minZ": -440.1465825918489,
+              "maxX": 177,
+              "maxY": 17.407711288348317,
+              "maxZ": -439.8965825918489
+            },
+            "pickable": false,
+            "perceivedBy": "sight",
+            "uuid": "3de93bf8-f8b9-437d-9eb8-c4c17541590c",
+            "type": "minecraft:item",
+            "name": "Diorite",
+            "distance": 0.7232936024665833,
+            "position": {
+              "x": 176.875,
+              "y": 17.157711288348317,
+              "z": -440.0215825918489
+            },
+            "tags": [
+              "#c:stones",
+              "#minecraft:sulfur_cube_archetype/slow_bouncy",
+              "#minecraft:sulfur_cube_swallowable"
+            ],
+            "itemId": "minecraft:diorite",
+            "count": 1
+          },
+          {
+            "velocity": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "yaw": 42.18104,
+            "pitch": 0,
+            "pose": "standing",
+            "bounds": {
+              "minX": 176.75,
+              "minY": 17,
+              "minZ": -439.25,
+              "maxX": 177,
+              "maxY": 17.25,
+              "maxZ": -439
+            },
+            "pickable": false,
+            "perceivedBy": "sight",
+            "uuid": "df84bd8e-bab6-4c04-81cf-ec631224d7ba",
+            "type": "minecraft:item",
+            "name": "Diorite",
+            "distance": 1.5274745225906372,
+            "position": {
+              "x": 176.875,
+              "y": 17,
+              "z": -439.125
+            },
+            "tags": [
+              "#c:stones",
+              "#minecraft:sulfur_cube_archetype/slow_bouncy",
+              "#minecraft:sulfur_cube_swallowable"
+            ],
+            "itemId": "minecraft:diorite",
+            "count": 1
+          }
+        ],
+        "blocks": [
+          {
+            "state": {},
+            "bounds": [
+              {
+                "minX": 0,
+                "minY": 0,
+                "minZ": 0,
+                "maxX": 1,
+                "maxY": 1,
+                "maxZ": 1
+              }
+            ],
+            "boundsTruncated": false,
+            "replaceable": false,
+            "x": 176,
+            "y": 16,
+            "z": -441,
+            "blockId": "minecraft:cobblestone",
+            "placeableFaces": [],
+            "tags": [
+              "#c:cobblestones",
+              "#c:cobblestones/normal",
+              "#minecraft:blocks_dolphin_jump",
+              "#minecraft:blocks_fluid_flow",
+              "#minecraft:blocks_lava_fire_spread",
+              "#minecraft:blocks_motion",
+              "#minecraft:blocks_motion_in_heightmap",
+              "#minecraft:blocks_motion_in_heightmap_no_leaves",
+              "#minecraft:blocks_motion_no_leaves",
+              "#minecraft:causes_suffocation",
+              "#minecraft:entities_can_teleport_to",
+              "#minecraft:ice_melts_when_destroyed_above",
+              "#minecraft:mineable/pickaxe"
+            ]
+          },
+          {
+            "state": {},
+            "bounds": [
+              {
+                "minX": 0,
+                "minY": 0,
+                "minZ": 0,
+                "maxX": 1,
+                "maxY": 1,
+                "maxZ": 1
+              }
+            ],
+            "boundsTruncated": false,
+            "replaceable": false,
+            "x": 176,
+            "y": 16,
+            "z": -440,
+            "blockId": "minecraft:diorite",
+            "placeableFaces": [
+              "up"
+            ],
+            "tags": [
+              "#c:stones",
+              "#minecraft:azalea_root_replaceable",
+              "#minecraft:base_stone_overworld",
+              "#minecraft:bats_spawnable_on",
+              "#minecraft:blocks_dolphin_jump",
+              "#minecraft:blocks_fluid_flow",
+              "#minecraft:blocks_lava_fire_spread",
+              "#minecraft:blocks_motion",
+              "#minecraft:blocks_motion_in_heightmap",
+              "#minecraft:blocks_motion_in_heightmap_no_leaves",
+              "#minecraft:blocks_motion_no_leaves",
+              "#minecraft:causes_suffocation",
+              "#minecraft:dripstone_replaceable_blocks",
+              "#minecraft:entities_can_teleport_to",
+              "#minecraft:forest_rock_can_place_on",
+              "#minecraft:ice_melts_when_destroyed_above",
+              "#minecraft:lush_ground_replaceable",
+              "#minecraft:mineable/pickaxe",
+              "#minecraft:moss_replaceable",
+              "#minecraft:sculk_replaceable",
+              "#minecraft:sculk_replaceable_world_gen",
+              "#minecraft:stone_ore_replaceables"
+            ]
+          },
+          {
+            "state": {},
+            "bounds": [
+              {
+                "minX": 0,
+                "minY": 0,
+                "minZ": 0,
+                "maxX": 1,
+                "maxY": 1,
+                "maxZ": 1
+              }
+            ],
+            "boundsTruncated": false,
+            "replaceable": false,
+            "x": 177,
+            "y": 16,
+            "z": -441,
+            "blockId": "minecraft:cobblestone",
+            "placeableFaces": [
+              "up"
+            ],
+            "tags": [
+              "#c:cobblestones",
+              "#c:cobblestones/normal",
+              "#minecraft:blocks_dolphin_jump",
+              "#minecraft:blocks_fluid_flow",
+              "#minecraft:blocks_lava_fire_spread",
+              "#minecraft:blocks_motion",
+              "#minecraft:blocks_motion_in_heightmap",
+              "#minecraft:blocks_motion_in_heightmap_no_leaves",
+              "#minecraft:blocks_motion_no_leaves",
+              "#minecraft:causes_suffocation",
+              "#minecraft:entities_can_teleport_to",
+              "#minecraft:ice_melts_when_destroyed_above",
+              "#minecraft:mineable/pickaxe"
+            ]
+          },
+          {
+            "state": {},
+            "bounds": [
+              {
+                "minX": 0,
+                "minY": 0,
+                "minZ": 0,
+                "maxX": 1,
+                "maxY": 1,
+                "maxZ": 1
+              }
+            ],
+            "boundsTruncated": false,
+            "replaceable": false,
+            "x": 175,
+            "y": 18,
+            "z": -440,
+            "blockId": "minecraft:diorite",
+            "placeableFaces": [
+              "north",
+              "east"
+            ],
+            "tags": [
+              "#c:stones",
+              "#minecraft:azalea_root_replaceable",
+              "#minecraft:base_stone_overworld",
+              "#minecraft:bats_spawnable_on",
+              "#minecraft:blocks_dolphin_jump",
+              "#minecraft:blocks_fluid_flow",
+              "#minecraft:blocks_lava_fire_spread",
+              "#minecraft:blocks_motion",
+              "#minecraft:blocks_motion_in_heightmap",
+              "#minecraft:blocks_motion_in_heightmap_no_leaves",
+              "#minecraft:blocks_motion_no_leaves",
+              "#minecraft:causes_suffocation",
+              "#minecraft:dripstone_replaceable_blocks",
+              "#minecraft:entities_can_teleport_to",
+              "#minecraft:forest_rock_can_place_on",
+              "#minecraft:ice_melts_when_destroyed_above",
+              "#minecraft:lush_ground_replaceable",
+              "#minecraft:mineable/pickaxe",
+              "#minecraft:moss_replaceable",
+              "#minecraft:sculk_replaceable",
+              "#minecraft:sculk_replaceable_world_gen",
+              "#minecraft:stone_ore_replaceables"
+            ]
+          },
+          {
+            "state": {},
+            "bounds": [
+              {
+                "minX": 0,
+                "minY": 0,
+                "minZ": 0,
+                "maxX": 1,
+                "maxY": 1,
+                "maxZ": 1
+              }
+            ],
+            "boundsTruncated": false,
+            "replaceable": false,
+            "x": 177,
+            "y": 18,
+            "z": -440,
+            "blockId": "minecraft:diorite",
+            "placeableFaces": [
+              "north",
+              "west"
+            ],
+            "tags": [
+              "#c:stones",
+              "#minecraft:azalea_root_replaceable",
+              "#minecraft:base_stone_overworld",
+              "#minecraft:bats_spawnable_on",
+              "#minecraft:blocks_dolphin_jump",
+              "#minecraft:blocks_fluid_flow",
+              "#minecraft:blocks_lava_fire_spread",
+              "#minecraft:blocks_motion",
+              "#minecraft:blocks_motion_in_heightmap",
+              "#minecraft:blocks_motion_in_heightmap_no_leaves",
+              "#minecraft:blocks_motion_no_leaves",
+              "#minecraft:causes_suffocation",
+              "#minecraft:dripstone_replaceable_blocks",
+              "#minecraft:entities_can_teleport_to",
+              "#minecraft:forest_rock_can_place_on",
+              "#minecraft:ice_melts_when_destroyed_above",
+              "#minecraft:lush_ground_replaceable",
+              "#minecraft:mineable/pickaxe",
+              "#minecraft:moss_replaceable",
+              "#minecraft:sculk_replaceable",
+              "#minecraft:sculk_replaceable_world_gen",
+              "#minecraft:stone_ore_replaceables"
+            ]
+          },
+          {
+            "state": {},
+            "bounds": [
+              {
+                "minX": 0,
+                "minY": 0,
+                "minZ": 0,
+                "maxX": 1,
+                "maxY": 1,
+                "maxZ": 1
+              }
+            ],
+            "boundsTruncated": false,
+            "replaceable": false,
+            "x": 176,
+            "y": 17,
+            "z": -439,
+            "blockId": "minecraft:diorite",
+            "placeableFaces": [
+              "north"
+            ],
+            "tags": [
+              "#c:stones",
+              "#minecraft:azalea_root_replaceable",
+              "#minecraft:base_stone_overworld",
+              "#minecraft:bats_spawnable_on",
+              "#minecraft:blocks_dolphin_jump",
+              "#minecraft:blocks_fluid_flow",
+              "#minecraft:blocks_lava_fire_spread",
+              "#minecraft:blocks_motion",
+              "#minecraft:blocks_motion_in_heightmap",
+              "#minecraft:blocks_motion_in_heightmap_no_leaves",
+              "#minecraft:blocks_motion_no_leaves",
+              "#minecraft:causes_suffocation",
+              "#minecraft:dripstone_replaceable_blocks",
+              "#minecraft:entities_can_teleport_to",
+              "#minecraft:forest_rock_can_place_on",
+              "#minecraft:ice_melts_when_destroyed_above",
+              "#minecraft:lush_ground_replaceable",
+              "#minecraft:mineable/pickaxe",
+              "#minecraft:moss_replaceable",
+              "#minecraft:sculk_replaceable",
+              "#minecraft:sculk_replaceable_world_gen",
+              "#minecraft:stone_ore_replaceables"
+            ]
+          },
+          {
+            "state": {},
+            "bounds": [
+              {
+                "minX": 0,
+                "minY": 0,
+                "minZ": 0,
+                "maxX": 1,
+                "maxY": 1,
+                "maxZ": 1
+              }
+            ],
+            "boundsTruncated": false,
+            "replaceable": false,
+            "x": 178,
+            "y": 16,
+            "z": -441,
+            "blockId": "minecraft:cobblestone",
+            "placeableFaces": [
+              "up"
+            ],
+            "tags": [
+              "#c:cobblestones",
+              "#c:cobblestones/normal",
+              "#minecraft:blocks_dolphin_jump",
+              "#minecraft:blocks_fluid_flow",
+              "#minecraft:blocks_lava_fire_spread",
+              "#minecraft:blocks_motion",
+              "#minecraft:blocks_motion_in_heightmap",
+              "#minecraft:blocks_motion_in_heightmap_no_leaves",
+              "#minecraft:blocks_motion_no_leaves",
+              "#minecraft:causes_suffocation",
+              "#minecraft:entities_can_teleport_to",
+              "#minecraft:ice_melts_when_destroyed_above",
+              "#minecraft:mineable/pickaxe"
+            ]
+          },
+          {
+            "state": {},
+            "bounds": [
+              {
+                "minX": 0,
+                "minY": 0,
+                "minZ": 0,
+                "maxX": 1,
+                "maxY": 1,
+                "maxZ": 1
+              }
+            ],
+            "boundsTruncated": false,
+            "replaceable": false,
+            "x": 176,
+            "y": 18,
+            "z": -439,
+            "blockId": "minecraft:diorite",
+            "placeableFaces": [
+              "north"
+            ],
+            "tags": [
+              "#c:stones",
+              "#minecraft:azalea_root_replaceable",
+              "#minecraft:base_stone_overworld",
+              "#minecraft:bats_spawnable_on",
+              "#minecraft:blocks_dolphin_jump",
+              "#minecraft:blocks_fluid_flow",
+              "#minecraft:blocks_lava_fire_spread",
+              "#minecraft:blocks_motion",
+              "#minecraft:blocks_motion_in_heightmap",
+              "#minecraft:blocks_motion_in_heightmap_no_leaves",
+              "#minecraft:blocks_motion_no_leaves",
+              "#minecraft:causes_suffocation",
+              "#minecraft:dripstone_replaceable_blocks",
+              "#minecraft:entities_can_teleport_to",
+              "#minecraft:forest_rock_can_place_on",
+              "#minecraft:ice_melts_when_destroyed_above",
+              "#minecraft:lush_ground_replaceable",
+              "#minecraft:mineable/pickaxe",
+              "#minecraft:moss_replaceable",
+              "#minecraft:sculk_replaceable",
+              "#minecraft:sculk_replaceable_world_gen",
+              "#minecraft:stone_ore_replaceables"
+            ]
+          },
+          {
+            "state": {},
+            "bounds": [
+              {
+                "minX": 0,
+                "minY": 0,
+                "minZ": 0,
+                "maxX": 1,
+                "maxY": 1,
+                "maxZ": 1
+              }
+            ],
+            "boundsTruncated": false,
+            "replaceable": false,
+            "x": 176,
+            "y": 19,
+            "z": -440,
+            "blockId": "minecraft:diorite",
+            "placeableFaces": [
+              "down",
+              "north"
+            ],
+            "tags": [
+              "#c:stones",
+              "#minecraft:azalea_root_replaceable",
+              "#minecraft:base_stone_overworld",
+              "#minecraft:bats_spawnable_on",
+              "#minecraft:blocks_dolphin_jump",
+              "#minecraft:blocks_fluid_flow",
+              "#minecraft:blocks_lava_fire_spread",
+              "#minecraft:blocks_motion",
+              "#minecraft:blocks_motion_in_heightmap",
+              "#minecraft:blocks_motion_in_heightmap_no_leaves",
+              "#minecraft:blocks_motion_no_leaves",
+              "#minecraft:causes_suffocation",
+              "#minecraft:dripstone_replaceable_blocks",
+              "#minecraft:entities_can_teleport_to",
+              "#minecraft:forest_rock_can_place_on",
+              "#minecraft:ice_melts_when_destroyed_above",
+              "#minecraft:lush_ground_replaceable",
+              "#minecraft:mineable/pickaxe",
+              "#minecraft:moss_replaceable",
+              "#minecraft:sculk_replaceable",
+              "#minecraft:sculk_replaceable_world_gen",
+              "#minecraft:stone_ore_replaceables"
+            ]
+          },
+          {
+            "state": {},
+            "bounds": [
+              {
+                "minX": 0,
+                "minY": 0,
+                "minZ": 0,
+                "maxX": 1,
+                "maxY": 1,
+                "maxZ": 1
+              }
+            ],
+            "boundsTruncated": false,
+            "replaceable": false,
+            "x": 177,
+            "y": 19,
+            "z": -441,
+            "blockId": "minecraft:stone",
+            "placeableFaces": [
+              "down",
+              "west"
+            ],
+            "tags": [
+              "#c:ore_bearing_ground/stone",
+              "#c:stones",
+              "#minecraft:azalea_root_replaceable",
+              "#minecraft:base_stone_overworld",
+              "#minecraft:bats_spawnable_on",
+              "#minecraft:blocks_dolphin_jump",
+              "#minecraft:blocks_fluid_flow",
+              "#minecraft:blocks_lava_fire_spread",
+              "#minecraft:blocks_motion",
+              "#minecraft:blocks_motion_in_heightmap",
+              "#minecraft:blocks_motion_in_heightmap_no_leaves",
+              "#minecraft:blocks_motion_no_leaves",
+              "#minecraft:causes_suffocation",
+              "#minecraft:dripstone_replaceable_blocks",
+              "#minecraft:entities_can_teleport_to",
+              "#minecraft:forest_rock_can_place_on",
+              "#minecraft:goats_spawnable_on",
+              "#minecraft:ice_melts_when_destroyed_above",
+              "#minecraft:lush_ground_replaceable",
+              "#minecraft:mineable/pickaxe",
+              "#minecraft:moss_replaceable",
+              "#minecraft:sculk_replaceable",
+              "#minecraft:sculk_replaceable_world_gen",
+              "#minecraft:snaps_goat_horn",
+              "#minecraft:stone_ore_replaceables"
+            ]
+          },
+          {
+            "state": {},
+            "bounds": [
+              {
+                "minX": 0,
+                "minY": 0,
+                "minZ": 0,
+                "maxX": 1,
+                "maxY": 1,
+                "maxZ": 1
+              }
+            ],
+            "boundsTruncated": false,
+            "replaceable": false,
+            "x": 175,
+            "y": 19,
+            "z": -440,
+            "blockId": "minecraft:stone",
+            "placeableFaces": [],
+            "tags": [
+              "#c:ore_bearing_ground/stone",
+              "#c:stones",
+              "#minecraft:azalea_root_replaceable",
+              "#minecraft:base_stone_overworld",
+              "#minecraft:bats_spawnable_on",
+              "#minecraft:blocks_dolphin_jump",
+              "#minecraft:blocks_fluid_flow",
+              "#minecraft:blocks_lava_fire_spread",
+              "#minecraft:blocks_motion",
+              "#minecraft:blocks_motion_in_heightmap",
+              "#minecraft:blocks_motion_in_heightmap_no_leaves",
+              "#minecraft:blocks_motion_no_leaves",
+              "#minecraft:causes_suffocation",
+              "#minecraft:dripstone_replaceable_blocks",
+              "#minecraft:entities_can_teleport_to",
+              "#minecraft:forest_rock_can_place_on",
+              "#minecraft:goats_spawnable_on",
+              "#minecraft:ice_melts_when_destroyed_above",
+              "#minecraft:lush_ground_replaceable",
+              "#minecraft:mineable/pickaxe",
+              "#minecraft:moss_replaceable",
+              "#minecraft:sculk_replaceable",
+              "#minecraft:sculk_replaceable_world_gen",
+              "#minecraft:snaps_goat_horn",
+              "#minecraft:stone_ore_replaceables"
+            ]
+          },
+          {
+            "state": {},
+            "bounds": [
+              {
+                "minX": 0,
+                "minY": 0,
+                "minZ": 0,
+                "maxX": 1,
+                "maxY": 1,
+                "maxZ": 1
+              }
+            ],
+            "boundsTruncated": false,
+            "replaceable": false,
+            "x": 176,
+            "y": 20,
+            "z": -441,
+            "blockId": "minecraft:stone",
+            "placeableFaces": [
+              "down"
+            ],
+            "tags": [
+              "#c:ore_bearing_ground/stone",
+              "#c:stones",
+              "#minecraft:azalea_root_replaceable",
+              "#minecraft:base_stone_overworld",
+              "#minecraft:bats_spawnable_on",
+              "#minecraft:blocks_dolphin_jump",
+              "#minecraft:blocks_fluid_flow",
+              "#minecraft:blocks_lava_fire_spread",
+              "#minecraft:blocks_motion",
+              "#minecraft:blocks_motion_in_heightmap",
+              "#minecraft:blocks_motion_in_heightmap_no_leaves",
+              "#minecraft:blocks_motion_no_leaves",
+              "#minecraft:causes_suffocation",
+              "#minecraft:dripstone_replaceable_blocks",
+              "#minecraft:entities_can_teleport_to",
+              "#minecraft:forest_rock_can_place_on",
+              "#minecraft:goats_spawnable_on",
+              "#minecraft:ice_melts_when_destroyed_above",
+              "#minecraft:lush_ground_replaceable",
+              "#minecraft:mineable/pickaxe",
+              "#minecraft:moss_replaceable",
+              "#minecraft:sculk_replaceable",
+              "#minecraft:sculk_replaceable_world_gen",
+              "#minecraft:snaps_goat_horn",
+              "#minecraft:stone_ore_replaceables"
+            ]
+          }
+        ],
+        "landmarks": [],
+        "nearbyContainers": [],
+        "furnaces": [],
+        "world": {
+          "worldId": "c0012449-8ebb-450c-b139-0a4c7753edb2",
+          "dimension": "minecraft:overworld",
+          "biome": "minecraft:forest",
+          "gameTime": 32159,
+          "dayTime": 33005,
+          "raining": false,
+          "thundering": false,
+          "sleep": {
+            "bedExplodes": false,
+            "timeAllowsSleep": false
+          },
+          "difficulty": "normal",
+          "naturalRegeneration": true,
+          "simulationDistance": 6
+        },
+        "currentAction": {
+          "active": false
+        },
+        "lastResult": {
+          "present": true,
+          "actionId": "native:fed3ff19-4c73-4552-914b-290e4762128c:358:62192334-0f43-4ab5-8fab-dd4409b9:1",
+          "actionType": "travel_to",
+          "state": "FAILED",
+          "reasonCode": "TOOL_WORN",
+          "message": "Digging down toward y -3: Stopped: Every hotbar tool for minecraft:diorite has 2 or fewer uses left. At 176,17,-441, stairs_down heading south; 2 blocks mined in 0 steps over 4 s (y17 to y17); mined diorite 2; tool wooden_pickaxe 2 uses left; turned north along a cave at y17; turned south along a cave at y17; at 176.5,17.0,-440.6; 18 blocks left to the target (yaw 81), -20 above; covered -0 blocks toward it in 5 s (-2 blocks/min, 1 walked); 0 legs, bridged 0, pillared 0, tunnelled 0; 495 plain blocks carried; dug 1 dig_to staircase(s) toward the target's level; footing {\"drop\":48,\"yaw\":-130}"
+        },
+        "interaction": {
+          "mainHandItemId": "minecraft:wooden_pickaxe",
+          "offHandItemId": "minecraft:air",
+          "usingItem": false,
+          "activeHand": "none",
+          "useRemainingTicks": 0,
+          "attackCooldown": 1,
+          "input": {
+            "active": false,
+            "forward": 0,
+            "strafe": 0,
+            "jump": false,
+            "sneak": false,
+            "sprint": false,
+            "attack": false,
+            "use": false,
+            "yaw": -19.581350326538086,
+            "pitch": 30,
+            "selectedSlot": 6,
+            "hand": "main_hand"
+          },
+          "menu": {
+            "containerId": 0,
+            "stateId": 1283,
+            "slotCount": 46,
+            "offset": 0,
+            "hasMore": true,
+            "type": "minecraft:inventory",
+            "cursor": {
+              "displayName": "Air",
+              "fingerprint": "",
+              "maxStackSize": 1,
+              "damage": 0,
+              "maxDamage": 0,
+              "itemId": "minecraft:air",
+              "count": 0
+            },
+            "slots": [
+              {
+                "slot": 0,
+                "itemId": "minecraft:air",
+                "count": 0
+              },
+              {
+                "slot": 1,
+                "itemId": "minecraft:air",
+                "count": 0
+              },
+              {
+                "slot": 2,
+                "itemId": "minecraft:air",
+                "count": 0
+              },
+              {
+                "slot": 3,
+                "itemId": "minecraft:air",
+                "count": 0
+              },
+              {
+                "slot": 4,
+                "itemId": "minecraft:air",
+                "count": 0
+              },
+              {
+                "slot": 5,
+                "itemId": "minecraft:air",
+                "count": 0
+              },
+              {
+                "slot": 6,
+                "itemId": "minecraft:air",
+                "count": 0
+              },
+              {
+                "slot": 7,
+                "itemId": "minecraft:air",
+                "count": 0
+              },
+              {
+                "slot": 8,
+                "itemId": "minecraft:air",
+                "count": 0
+              },
+              {
+                "slot": 9,
+                "fingerprint": "49dc8d5d796971c36cf158a8ff4b006961bfbd364fa8e22749c45751fa3c77b4",
+                "itemId": "minecraft:dirt",
+                "count": 13
+              },
+              {
+                "slot": 10,
+                "fingerprint": "5132d2bcd116995a15faf978973ab706b794a6ba6ebc4e049423c0305e5c36a8",
+                "itemId": "minecraft:raw_copper",
+                "count": 5
+              },
+              {
+                "slot": 11,
+                "fingerprint": "6e8b0a6bba78a49e783b15172dc6ec4617a1e4b8931b3823670015f7b61bcc38",
+                "itemId": "minecraft:cobblestone",
+                "count": 64
+              },
+              {
+                "slot": 12,
+                "fingerprint": "682e925c866760497852243fab333bbdff57e8c97b99af3305a16d2ebd3a4d87",
+                "itemId": "minecraft:gravel",
+                "count": 5
+              },
+              {
+                "slot": 13,
+                "fingerprint": "6280b487e547001b8c33f85f4e0683bfdc80fdf880fb1c2bdc43c205b4693505",
+                "itemId": "minecraft:andesite",
+                "count": 18
+              },
+              {
+                "slot": 14,
+                "fingerprint": "f98856234ef0c5463b3c1362d6508ef722ee80771cce3521ebacbd7973c840ae",
+                "itemId": "minecraft:diorite",
+                "count": 53
+              },
+              {
+                "slot": 15,
+                "fingerprint": "1ea4257b305eb4f86fbb4439749fa9583d45434e40dd4d99832f5f38411999db",
+                "itemId": "minecraft:furnace",
+                "count": 1
+              }
+            ],
+            "capabilities": [
+              "menu_click",
+              "menu_close"
+            ]
+          },
+          "rayTarget": {
+            "type": "block",
+            "x": 177,
+            "y": 17,
+            "z": -440,
+            "face": "west",
+            "blockId": "minecraft:diorite"
+          }
+        },
+        "routeMemory": {
+          "walkedCells": 571,
+          "seenResources": [
+            {
+              "blockId": "minecraft:oak_log",
+              "x": 204,
+              "y": 70,
+              "z": -304,
+              "kind": "wood",
+              "dimension": "minecraft:overworld"
+            },
+            {
+              "blockId": "minecraft:crafting_table",
+              "x": 212,
+              "y": 17,
+              "z": -322,
+              "kind": "crafting table",
+              "dimension": "minecraft:overworld"
+            }
+          ]
+        },
+        "coverage": {
+          "mode": "sampled_visible",
+          "complete": false,
+          "blocksRadius": 6,
+          "landmarkDistanceLimit": 256,
+          "entitiesDistanceLimit": 128,
+          "sections": {
+            "entities": {
+              "returned": 2,
+              "complete": false
+            },
+            "blocks": {
+              "returned": 12,
+              "complete": false,
+              "placeableFacesFor": "minecraft:cobblestone",
+              "placeableFacesStandIn": true
+            },
+            "landmarks": {
+              "returned": 0,
+              "complete": false
+            },
+            "nearbyContainers": {
+              "returned": 0,
+              "complete": false
+            }
+          }
+        },
+        "perception": {
+          "latestSequence": 259,
+          "earliestSequence": 132,
+          "events": [
+            {
+              "type": "sound",
+              "sequence": 252,
+              "gameTime": 31620,
+              "dimension": "minecraft:overworld",
+              "observedAtEpochMs": 1794323840396,
+              "soundId": "minecraft:entity.skeleton.step",
+              "direction": "front",
+              "range": "medium",
+              "elevation": "above"
+            },
+            {
+              "type": "sound",
+              "sequence": 253,
+              "gameTime": 31646,
+              "dimension": "minecraft:overworld",
+              "observedAtEpochMs": 1794323841694,
+              "soundId": "minecraft:entity.skeleton.step",
+              "direction": "front",
+              "range": "medium",
+              "elevation": "above"
+            },
+            {
+              "type": "sound",
+              "sequence": 254,
+              "gameTime": 32027,
+              "dimension": "minecraft:overworld",
+              "observedAtEpochMs": 1794323860745,
+              "soundId": "minecraft:entity.skeleton.step",
+              "direction": "back_right",
+              "range": "medium",
+              "elevation": "above"
+            },
+            {
+              "type": "sound",
+              "sequence": 255,
+              "gameTime": 32039,
+              "dimension": "minecraft:overworld",
+              "observedAtEpochMs": 1794323861344,
+              "soundId": "minecraft:entity.skeleton.step",
+              "direction": "back_right",
+              "range": "medium",
+              "elevation": "above"
+            },
+            {
+              "type": "sound",
+              "sequence": 256,
+              "gameTime": 32054,
+              "dimension": "minecraft:overworld",
+              "observedAtEpochMs": 1794323862094,
+              "soundId": "minecraft:entity.skeleton.step",
+              "direction": "back_right",
+              "range": "medium",
+              "elevation": "above"
+            },
+            {
+              "type": "sound",
+              "sequence": 257,
+              "gameTime": 32071,
+              "dimension": "minecraft:overworld",
+              "observedAtEpochMs": 1794323862945,
+              "soundId": "minecraft:entity.skeleton.step",
+              "direction": "back_right",
+              "range": "medium",
+              "elevation": "above"
+            },
+            {
+              "type": "sound",
+              "sequence": 258,
+              "gameTime": 32095,
+              "dimension": "minecraft:overworld",
+              "observedAtEpochMs": 1794323864145,
+              "soundId": "minecraft:entity.skeleton.ambient",
+              "direction": "back",
+              "range": "medium",
+              "elevation": "above"
+            },
+            {
+              "type": "system_message",
+              "sequence": 259,
+              "gameTime": 32158,
+              "dimension": "minecraft:overworld",
+              "observedAtEpochMs": 1794323867350,
+              "text": "[ha_q_at3br_t42sq] Couldn't finish moving to the next position: tool worn.",
+              "textTruncated": false
+            }
+          ],
+          "bossBars": []
+        },
+        "heard": [
+          {
+            "sound": "entity.skeleton.ambient",
+            "direction": "back_left",
+            "elevation": "above",
+            "distance": 9
+          },
+          {
+            "sound": "entity.skeleton.step",
+            "direction": "back_left",
+            "elevation": "above",
+            "distance": 9,
+            "count": 4
+          }
+        ],
+        "sighted": {
+          "caves": [
+            {
+              "air": 72,
+              "x": 176,
+              "y": 17,
+              "z": -441,
+              "distance": 1,
+              "bearing": 0
+            }
+          ],
+          "built": [
+            {
+              "blocks": [
+                "minecraft:cobblestone"
+              ],
+              "size": 3,
+              "x": 176,
+              "y": 16,
+              "z": -441,
+              "distance": 2,
+              "bearing": 0
+            }
+          ]
+        },
+        "reflexes": {
+          "revision": 1,
+          "rules": [
+            {
+              "id": "default-lava",
+              "kind": "trigger",
+              "state": "armed",
+              "fired": 0,
+              "expiresInS": 1945
+            },
+            {
+              "id": "default-fire",
+              "kind": "trigger",
+              "state": "armed",
+              "fired": 0,
+              "expiresInS": 1945
+            },
+            {
+              "id": "default-air",
+              "kind": "trigger",
+              "state": "armed",
+              "fired": 0,
+              "expiresInS": 1945
+            },
+            {
+              "id": "default-edge",
+              "kind": "stance",
+              "state": "armed",
+              "fired": 0,
+              "expiresInS": 1945
+            },
+            {
+              "id": "default-creeper",
+              "kind": "trigger",
+              "state": "armed",
+              "fired": 0,
+              "expiresInS": 1945
+            },
+            {
+              "id": "default-suffocate",
+              "kind": "trigger",
+              "state": "armed",
+              "fired": 0,
+              "expiresInS": 1945
+            },
+            {
+              "id": "default-fireball",
+              "kind": "trigger",
+              "state": "armed",
+              "fired": 0,
+              "expiresInS": 1945
+            },
+            {
+              "id": "default-arrow",
+              "kind": "trigger",
+              "state": "armed",
+              "fired": 0,
+              "expiresInS": 1945,
+              "lacks": "no shield in either hand"
+            },
+            {
+              "id": "default-retreat",
+              "kind": "trigger",
+              "state": "armed",
+              "fired": 0,
+              "expiresInS": 1945
+            },
+            {
+              "id": "default-eat",
+              "kind": "stance",
+              "state": "armed",
+              "fired": 0,
+              "expiresInS": 1945,
+              "lacks": "no food in hotbar or offhand"
+            },
+            {
+              "id": "default-defend",
+              "kind": "stance",
+              "state": "armed",
+              "fired": 0,
+              "expiresInS": 1945
+            },
+            {
+              "id": "default-cover",
+              "kind": "trigger",
+              "state": "armed",
+              "fired": 0,
+              "expiresInS": 1945
+            }
+          ],
+          "events": []
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,79 @@
+[
+ {
+  "name": "cast-short-blocks",
+  "seed": "937420255288055328",
+  "budgetMs": 600000,
+  "time": 1000,
+  "note": "gate seed 5 cave start with 2 cobblestone: every cast site needs more mould blocks, so build hands back BUILD_SHORT naming the plain blocks, not BUILD_NO_SITE",
+  "pool": {
+   "x": 409,
+   "y": -27,
+   "z": -45
+  },
+  "startAt": {
+   "x": 426,
+   "y": -23,
+   "z": -57
+  },
+  "inventory": [
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:water_bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:flint_and_steel",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 2
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "find",
+     "target": {
+      "block": "minecraft:lava",
+      "within": 64
+     },
+     "why": "a lava pool for the portal frame"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "nether_portal",
+      "timeoutMs": 540000
+     },
+     "why": "cast and light a portal at the pool"
+    }
+   }
+  ],
+  "retry": {
+   "codes": [
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "FIND_DANGER"
+   ],
+   "times": 2,
+   "waitMs": 5000
+  },
+  "expectCode": "BUILD_SHORT"
+ }
+]

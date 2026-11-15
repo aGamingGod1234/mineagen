@@ -1,0 +1,94 @@
+{
+  "zombie-hold": {
+    "decisions": [
+      {
+        "event": "native_wake_filtered",
+        "trigger": "threat",
+        "verdict": "hold",
+        "reason": "search handles: one zombie 4 blocks away, health 20"
+      }
+    ],
+    "commands": [
+      {
+        "event": "action_command",
+        "goalRevision": 1,
+        "actionType": "control"
+      }
+    ],
+    "returned": []
+  },
+  "creeper-steer": {
+    "decisions": [
+      {
+        "event": "native_turn_steered",
+        "trigger": "threat"
+      }
+    ],
+    "commands": [
+      {
+        "event": "action_command",
+        "goalRevision": 1,
+        "actionType": "control"
+      }
+    ],
+    "returned": []
+  },
+  "hit-then-lava": {
+    "decisions": [
+      {
+        "event": "native_wake_filtered",
+        "trigger": "damage",
+        "verdict": "hold",
+        "reason": "search handles: one zombie 4 blocks away, health 17"
+      },
+      {
+        "event": "native_turn_steered",
+        "trigger": "damage"
+      }
+    ],
+    "commands": [
+      {
+        "event": "action_command",
+        "goalRevision": 1,
+        "actionType": "control"
+      }
+    ],
+    "returned": [
+      {
+        "event": "tool_hand_back",
+        "state": "RUNNING",
+        "reasonCode": "FIND_DANGER"
+      }
+    ]
+  },
+  "late-result": {
+    "decisions": [
+      {
+        "event": "native_tool_rejected",
+        "reasonCode": "NATIVE_ACTION_CANCELLED",
+        "toolKind": "find"
+      },
+      {
+        "event": "native_turn_steered",
+        "trigger": "threat"
+      }
+    ],
+    "commands": [
+      {
+        "event": "action_command",
+        "goalRevision": 1,
+        "actionType": "control"
+      },
+      {
+        "event": "action_cancel",
+        "goalRevision": 1
+      }
+    ],
+    "returned": [
+      {
+        "event": "tool_hand_back",
+        "reasonCode": "NATIVE_ACTION_CANCELLED"
+      }
+    ]
+  }
+}

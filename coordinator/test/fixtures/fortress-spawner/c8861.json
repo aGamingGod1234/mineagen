@@ -1,0 +1,85 @@
+{
+  "run": "q1114050513-c8861",
+  "boundary": "Selected recorded fields only: player position/health/motion flags, dimension, all block IDs/positions/faces, inventory IDs/counts. Other fields and sections omitted. Synthetic bridge replies; no historical physics/survival claim.",
+  "sourceCommit": "352aad4360e0fec9571149caa1ca3492b9c66d23",
+  "windows": [
+    {
+      "sourceFile": "protocol.jsonl.1",
+      "line": 197,
+      "sourceRowSha256": "4bef7338a9d186bd437070f5eef8a49763f491ea65e527f58e3d69c35c45607c",
+      "actionId": "native:301699aa-49a0-4713-8e3b-e881ca291790:5:b124fe39-193b-4388-aa6d-366ec424:1",
+      "observation": {
+        "player": {"x": 5.935691504565892, "y": 65, "z": 119.49667224184964, "yaw": 0, "health": 20, "dead": false, "onGround": true, "inWater": false, "underWater": false, "inLava": false, "onFire": false, "suffocating": false},
+        "world": {"dimension": "minecraft:the_nether"},
+        "blocks": [
+          {"blockId": "minecraft:nether_bricks", "x": 5, "y": 66, "z": 118, "placeableFaces": []},
+          {"blockId": "minecraft:nether_bricks", "x": 5, "y": 66, "z": 120, "placeableFaces": []},
+          {"blockId": "minecraft:nether_bricks", "x": 6, "y": 66, "z": 118, "placeableFaces": []},
+          {"blockId": "minecraft:nether_bricks", "x": 6, "y": 66, "z": 120, "placeableFaces": []},
+          {"blockId": "minecraft:nether_bricks", "x": 5, "y": 67, "z": 119, "placeableFaces": []},
+          {"blockId": "minecraft:nether_bricks", "x": 6, "y": 67, "z": 119, "placeableFaces": []},
+          {"blockId": "minecraft:nether_wart", "x": 8, "y": 67, "z": 120, "placeableFaces": []}
+        ],
+        "inventory": { "items": [
+          {"itemId": "minecraft:iron_pickaxe", "count": 1},
+          {"itemId": "minecraft:shield", "count": 1},
+          {"itemId": "minecraft:iron_boots", "count": 1},
+          {"itemId": "minecraft:iron_leggings", "count": 1},
+          {"itemId": "minecraft:iron_chestplate", "count": 1},
+          {"itemId": "minecraft:iron_helmet", "count": 1},
+          {"itemId": "minecraft:iron_sword", "count": 1},
+          {"itemId": "minecraft:bow", "count": 1},
+          {"itemId": "minecraft:arrow", "count": 64},
+          {"itemId": "minecraft:cooked_beef", "count": 64},
+          {"itemId": "minecraft:cobblestone", "count": 64},
+          {"itemId": "minecraft:cobblestone", "count": 64},
+          {"itemId": "minecraft:water_bucket", "count": 1},
+          {"itemId": "minecraft:crafting_table", "count": 1},
+          {"itemId": "minecraft:oak_planks", "count": 32},
+          {"itemId": "minecraft:flint_and_steel", "count": 1}
+        ] }
+      }
+    },
+    {
+      "sourceFile": "protocol.jsonl.1",
+      "line": 1248,
+      "sourceRowSha256": "049fb86c4f695855e03451d2d219d2192aa86f41b2272871c2ca6235f9cd1c1b",
+      "actionId": "native:301699aa-49a0-4713-8e3b-e881ca291790:36:b124fe39-193b-4388-aa6d-366ec424:2",
+      "observation": {
+        "player": {"x": 11.507105178096793, "y": 67, "z": 115.50655414760325, "yaw": 90, "health": 19.726669311523438, "dead": false, "onGround": true, "inWater": false, "underWater": false, "inLava": false, "onFire": false, "suffocating": false},
+        "world": {"dimension": "minecraft:the_nether"},
+        "blocks": [
+          {"blockId": "minecraft:cobblestone", "x": 11, "y": 67, "z": 114, "placeableFaces": ["up"]},
+          {"blockId": "minecraft:cobblestone", "x": 10, "y": 68, "z": 115, "placeableFaces": []},
+          {"blockId": "minecraft:cobblestone", "x": 11, "y": 68, "z": 116, "placeableFaces": []},
+          {"blockId": "minecraft:nether_bricks", "x": 12, "y": 68, "z": 115, "placeableFaces": []},
+          {"blockId": "minecraft:cobblestone", "x": 11, "y": 69, "z": 115, "placeableFaces": []},
+          {"blockId": "minecraft:nether_bricks", "x": 9, "y": 66, "z": 113, "placeableFaces": ["up"]},
+          {"blockId": "minecraft:nether_brick_fence", "x": 9, "y": 68, "z": 110, "placeableFaces": []},
+          {"blockId": "minecraft:nether_brick_fence", "x": 9, "y": 69, "z": 110, "placeableFaces": []}
+        ],
+        "inventory": { "items": [
+          {"itemId": "minecraft:cooked_beef", "count": 62},
+          {"itemId": "minecraft:shield", "count": 1},
+          {"itemId": "minecraft:iron_boots", "count": 1},
+          {"itemId": "minecraft:iron_leggings", "count": 1},
+          {"itemId": "minecraft:iron_chestplate", "count": 1},
+          {"itemId": "minecraft:iron_helmet", "count": 1},
+          {"itemId": "minecraft:iron_pickaxe", "count": 1},
+          {"itemId": "minecraft:iron_sword", "count": 1},
+          {"itemId": "minecraft:bow", "count": 1},
+          {"itemId": "minecraft:arrow", "count": 57},
+          {"itemId": "minecraft:cobblestone", "count": 52},
+          {"itemId": "minecraft:cobblestone", "count": 63},
+          {"itemId": "minecraft:water_bucket", "count": 1},
+          {"itemId": "minecraft:crafting_table", "count": 1},
+          {"itemId": "minecraft:oak_planks", "count": 32},
+          {"itemId": "minecraft:flint_and_steel", "count": 1},
+          {"itemId": "minecraft:nether_bricks", "count": 25},
+          {"itemId": "minecraft:bow", "count": 1},
+          {"itemId": "minecraft:bone", "count": 2}
+        ] }
+      }
+    }
+  ]
+}

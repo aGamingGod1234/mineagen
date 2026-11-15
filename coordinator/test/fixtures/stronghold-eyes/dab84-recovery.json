@@ -1,0 +1,318 @@
+{
+  "run": "q1114095440-dab84",
+  "boundary": "Selected actual positions, eye inventory, eye items, flight events and safety fields; unrelated entities/blocks omitted and threats cleared for safe continuation reconstruction. No chronological physics/model replay.",
+  "windows": {
+    "beforeThrow": {
+      "source": {
+        "file": "protocol.jsonl.2",
+        "line": 1539,
+        "rowSha256": "1808a1e698a615b1f41f154d9f06bf1e9301764985035a42cb74bdb799d42695",
+        "observedAtEpochMs": 1794621588710
+      },
+      "observation": {
+        "player": {
+          "x": -191.7961406940415,
+          "y": 76,
+          "z": 1856.4999929080248,
+          "health": 20,
+          "skyOpen": true,
+          "onFire": false,
+          "inLava": false,
+          "underWater": false,
+          "air": 300,
+          "threats": []
+        },
+        "world": {
+          "worldId": "834a87ca-b569-4746-b971-4bc615be9017",
+          "dimension": "minecraft:overworld"
+        },
+        "inventory": {
+          "selectedSlot": 6,
+          "items": [
+            {
+              "itemId": "minecraft:ender_eye",
+              "count": 11,
+              "slot": 0
+            }
+          ]
+        },
+        "entities": [],
+        "items": [],
+        "blocks": [],
+        "perception": {
+          "events": [
+            {
+              "type": "eye_of_ender_flight",
+              "sequence": 133,
+              "gameTime": 161437,
+              "dimension": "minecraft:overworld",
+              "observedAtEpochMs": 1794621559559,
+              "flightId": 1031,
+              "from": {
+                "x": -130.5,
+                "y": 77.9,
+                "z": 1856.9
+              },
+              "droppedAt": {
+                "x": -139.7,
+                "y": 64,
+                "z": 1855.8
+              },
+              "to": {
+                "x": -132.1,
+                "y": 78.7,
+                "z": 1856.9
+              },
+              "yaw": 90.3,
+              "heading": "west",
+              "flewBlocks": 9.2,
+              "outcome": "dropped"
+            }
+          ]
+        }
+      }
+    },
+    "falling": {
+      "source": {
+        "file": "protocol.jsonl.2",
+        "line": 1607,
+        "rowSha256": "f467d5b8f3ff8d9251153230996c24370867764b7eee98376a0996dbe968cef8",
+        "observedAtEpochMs": 1794621594260
+      },
+      "observation": {
+        "player": {
+          "x": -191.7961406940415,
+          "y": 76,
+          "z": 1856.4999929080248,
+          "health": 20,
+          "skyOpen": true,
+          "onFire": false,
+          "inLava": false,
+          "underWater": false,
+          "air": 300,
+          "threats": []
+        },
+        "world": {
+          "worldId": "834a87ca-b569-4746-b971-4bc615be9017",
+          "dimension": "minecraft:overworld"
+        },
+        "inventory": {
+          "selectedSlot": 0,
+          "items": [
+            {
+              "itemId": "minecraft:ender_eye",
+              "count": 10,
+              "slot": "mainhand"
+            }
+          ]
+        },
+        "entities": [],
+        "items": [
+          {
+            "stableId": "9494d09c-9d9b-4817-aeb4-84c56f06e352",
+            "itemId": "minecraft:ender_eye",
+            "count": 1,
+            "x": -205.0286932941384,
+            "y": 78.32070221466695,
+            "z": 1856.4464922356628
+          }
+        ],
+        "blocks": [],
+        "perception": {
+          "events": [
+            {
+              "type": "eye_of_ender_flight",
+              "sequence": 137,
+              "gameTime": 162130,
+              "dimension": "minecraft:overworld",
+              "observedAtEpochMs": 1794621594210,
+              "flightId": 1119,
+              "from": {
+                "x": -191.8,
+                "y": 76.8,
+                "z": 1856.5
+              },
+              "droppedAt": {
+                "x": -205,
+                "y": 79,
+                "z": 1856.4
+              },
+              "to": {
+                "x": -193.7,
+                "y": 77.7,
+                "z": 1856.5
+              },
+              "yaw": 90.2,
+              "heading": "west",
+              "flewBlocks": 13.2,
+              "outcome": "dropped"
+            }
+          ]
+        }
+      }
+    },
+    "grounded": {
+      "source": {
+        "file": "protocol.jsonl.2",
+        "line": 1684,
+        "rowSha256": "41722ad10a6bd1f77a1b8ba0ade13ff3012a65639d84ecb1f57623d9229983eb",
+        "observedAtEpochMs": 1794621603965
+      },
+      "observation": {
+        "player": {
+          "x": -204.04035647682085,
+          "y": 76,
+          "z": 1856.49998440838,
+          "health": 20,
+          "skyOpen": true,
+          "onFire": false,
+          "inLava": false,
+          "underWater": false,
+          "air": 300,
+          "threats": []
+        },
+        "world": {
+          "worldId": "834a87ca-b569-4746-b971-4bc615be9017",
+          "dimension": "minecraft:overworld"
+        },
+        "inventory": {
+          "selectedSlot": 5,
+          "items": [
+            {
+              "itemId": "minecraft:ender_eye",
+              "count": 10,
+              "slot": 0
+            }
+          ]
+        },
+        "entities": [],
+        "items": [
+          {
+            "stableId": "9494d09c-9d9b-4817-aeb4-84c56f06e352",
+            "itemId": "minecraft:ender_eye",
+            "count": 1,
+            "x": -205.67039016188284,
+            "y": 63,
+            "z": 1856.4430036721533
+          }
+        ],
+        "blocks": [],
+        "perception": {
+          "events": [
+            {
+              "type": "eye_of_ender_flight",
+              "sequence": 138,
+              "gameTime": 162149,
+              "dimension": "minecraft:overworld",
+              "observedAtEpochMs": 1794621595160,
+              "flightId": 1119,
+              "from": {
+                "x": -191.8,
+                "y": 76.8,
+                "z": 1856.5
+              },
+              "droppedAt": {
+                "x": -205.6,
+                "y": 63,
+                "z": 1856.4
+              },
+              "to": {
+                "x": -193.7,
+                "y": 77.7,
+                "z": 1856.5
+              },
+              "yaw": 90.2,
+              "heading": "west",
+              "flewBlocks": 13.8,
+              "outcome": "dropped"
+            }
+          ]
+        }
+      }
+    },
+    "afterFailure": {
+      "source": {
+        "file": "protocol.jsonl.2",
+        "line": 1876,
+        "rowSha256": "4654deebba8c1082154255524e6448085c0cce4abadb9eda1dbbf015f2288345",
+        "observedAtEpochMs": 1794621636710
+      },
+      "observation": {
+        "player": {
+          "x": -137.43486945914293,
+          "y": 70,
+          "z": 1856.693845137254,
+          "health": 20,
+          "skyOpen": false,
+          "onFire": false,
+          "inLava": false,
+          "underWater": false,
+          "air": 300,
+          "threats": []
+        },
+        "world": {
+          "worldId": "834a87ca-b569-4746-b971-4bc615be9017",
+          "dimension": "minecraft:overworld"
+        },
+        "inventory": {
+          "selectedSlot": 5,
+          "items": [
+            {
+              "itemId": "minecraft:ender_eye",
+              "count": 10,
+              "slot": 0
+            }
+          ]
+        },
+        "entities": [],
+        "items": [],
+        "blocks": [],
+        "perception": {
+          "events": []
+        }
+      }
+    },
+    "modelMoved": {
+      "source": {
+        "file": "protocol.jsonl.1",
+        "line": 2812,
+        "rowSha256": "3f71b294a9586c23b65e8d27e7d2d676178368dafdf839f590c1f67f7e85ddcb",
+        "observedAtEpochMs": 1794622316158
+      },
+      "observation": {
+        "player": {
+          "x": -248.3410679324806,
+          "y": 63,
+          "z": 1922.5180709135245,
+          "health": 16.63333511352539,
+          "skyOpen": true,
+          "onFire": false,
+          "inLava": false,
+          "underWater": false,
+          "air": 300,
+          "threats": []
+        },
+        "world": {
+          "worldId": "834a87ca-b569-4746-b971-4bc615be9017",
+          "dimension": "minecraft:overworld"
+        },
+        "inventory": {
+          "selectedSlot": 6,
+          "items": [
+            {
+              "itemId": "minecraft:ender_eye",
+              "count": 10,
+              "slot": 0
+            }
+          ]
+        },
+        "entities": [],
+        "items": [],
+        "blocks": [],
+        "perception": {
+          "events": []
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,149 @@
+{
+  "id": "lava-gate-seed-2",
+  "source": {
+    "report": "draft-182/docs/verification/lava-search-gate-2026-11-09.json",
+    "reportSha256": "e07c5c7db75c89382056ade9115c3e31e87cb982b6b3b2115ac64834f6664939",
+    "mainCommit": "0c6894375817d04bb7523126ff230a16ba743a73",
+    "branchRuntimeCommit": "1701a857623fa5d47177c4810754ec17ef5ada4a",
+    "gateSeed": 2,
+    "record": {
+      "gateSeed": 2,
+      "worldSeed": "313280743662651985",
+      "foundSource": false,
+      "pass": false,
+      "elapsedSeconds": 105,
+      "findCalls": 1,
+      "dangerHandbacks": 1,
+      "firstCallSeconds": 88,
+      "deaths": 1,
+      "burningSamples": 0,
+      "lavaContactSamples": 0,
+      "fireContactSamples": 0,
+      "healthLostAtEnd": 20,
+      "terminalCode": "FIND_DANGER",
+      "ended": "death",
+      "findResults": [
+        {
+          "call": "do_step",
+          "verb": "find",
+          "what": "minecraft:lava",
+          "atS": 0,
+          "seconds": 88,
+          "state": "FAILED",
+          "reasonCode": "FIND_DANGER",
+          "message": "Stopped for danger: a creeper 8 blocks away (HOSTILE_NEAR); minecraft:skeleton 30e21965-3cd6-484a-83c9-b9a4c72e8531. Covered in 88 s: 3 leg(s), walked 1 blocks, now 1 from the start at y39 (deepest y39); lava not seen"
+        }
+      ],
+      "scriptedAnswers": [
+        {
+          "call": 0,
+          "code": "FIND_DANGER",
+          "answered": "flee_from skeleton: CANCELLED ACTION_CANCELLED"
+        }
+      ]
+    }
+  },
+  "spot": {
+    "name": "lava-find-2",
+    "seed": "313280743662651985",
+    "expect": "lava",
+    "inventory": [
+      {
+        "item": "minecraft:iron_pickaxe",
+        "count": 1
+      },
+      {
+        "item": "minecraft:stone_pickaxe",
+        "count": 1
+      },
+      {
+        "item": "minecraft:cobblestone",
+        "count": 32
+      },
+      {
+        "item": "minecraft:bread",
+        "count": 8
+      },
+      {
+        "item": "minecraft:torch",
+        "count": 16
+      }
+    ],
+    "totalMs": 480000,
+    "budgetMs": 480000,
+    "retry": {
+      "codes": [
+        "DANGER",
+        "FIND_DANGER",
+        "HOSTILE_NEAR",
+        "DAMAGE_TAKEN",
+        "TRAVEL_DAMAGED",
+        "NAVIGATION_DAMAGED",
+        "FIND_NOT_FOUND",
+        "NO_ROUTE",
+        "FIND_BLOCKED",
+        "FIND_BUDGET"
+      ],
+      "times": 6,
+      "waitMs": 3000,
+      "answer": true
+    },
+    "note": "gate seed gate-2: fresh spawn with an iron pickaxe, a stone pickaxe, 32 cobblestone, 8 bread and 16 torches; find lava within 8 minutes, no death, no burning",
+    "calls": [
+      {
+        "name": "do_step",
+        "arguments": {
+          "verb": "find",
+          "target": {
+            "block": "minecraft:lava"
+          },
+          "why": "a lava pool for the portal frame"
+        }
+      }
+    ],
+    "dump": true
+  },
+  "mode": "fresh-world reproduction, scripted planner; not historical trajectory replay",
+  "script": {
+    "calls": [
+      {
+        "name": "do_step",
+        "arguments": {
+          "verb": "find",
+          "target": {
+            "block": "minecraft:lava"
+          },
+          "why": "a lava pool for the portal frame"
+        }
+      },
+      {
+        "name": "act",
+        "arguments": {
+          "actionType": "dig_to",
+          "arguments": {
+            "pattern": "tunnel",
+            "heading": "east",
+            "maxBlocks": 8,
+            "timeoutMs": 30000
+          }
+        }
+      },
+      {
+        "name": "do_step",
+        "arguments": {
+          "verb": "find",
+          "target": {
+            "block": "minecraft:lava"
+          },
+          "why": "a lava pool for the portal frame"
+        }
+      }
+    ],
+    "onSteer": "interrupt the waiting tool; cancel any returned running handle; continue the fixed call list"
+  },
+  "assertStart": {
+    "dimension": "minecraft:overworld",
+    "health": 20,
+    "onFire": false
+  }
+}

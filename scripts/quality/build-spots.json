@@ -1,0 +1,1028 @@
+[
+ {
+  "name": "portal-1001",
+  "seed": 1001,
+  "expect": "portal",
+  "budgetMs": 360000,
+  "inventory": [
+   {
+    "item": "minecraft:obsidian",
+    "count": 10
+   },
+   {
+    "item": "minecraft:flint_and_steel",
+    "count": 1
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "nether_portal"
+     },
+     "why": "a portal to the Nether"
+    }
+   }
+  ]
+ },
+ {
+  "name": "portal-2002",
+  "seed": 2002,
+  "expect": "portal",
+  "budgetMs": 360000,
+  "inventory": [
+   {
+    "item": "minecraft:obsidian",
+    "count": 10
+   },
+   {
+    "item": "minecraft:flint_and_steel",
+    "count": 1
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "nether_portal"
+     },
+     "why": "a portal to the Nether"
+    }
+   }
+  ]
+ },
+ {
+  "name": "portal-3003",
+  "seed": 3003,
+  "expect": "portal",
+  "budgetMs": 360000,
+  "inventory": [
+   {
+    "item": "minecraft:obsidian",
+    "count": 10
+   },
+   {
+    "item": "minecraft:flint_and_steel",
+    "count": 1
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "nether_portal"
+     },
+     "why": "a portal to the Nether"
+    }
+   }
+  ]
+ },
+ {
+  "name": "portal-4004",
+  "seed": 4004,
+  "expect": "portal",
+  "budgetMs": 360000,
+  "inventory": [
+   {
+    "item": "minecraft:obsidian",
+    "count": 10
+   },
+   {
+    "item": "minecraft:flint_and_steel",
+    "count": 1
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "nether_portal"
+     },
+     "why": "a portal to the Nether"
+    }
+   }
+  ]
+ },
+ {
+  "name": "portal-5005",
+  "seed": 5005,
+  "expect": "portal",
+  "budgetMs": 360000,
+  "inventory": [
+   {
+    "item": "minecraft:obsidian",
+    "count": 10
+   },
+   {
+    "item": "minecraft:flint_and_steel",
+    "count": 1
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "nether_portal"
+     },
+     "why": "a portal to the Nether"
+    }
+   }
+  ]
+ },
+ {
+  "name": "portal-6006",
+  "seed": 6006,
+  "expect": "portal",
+  "budgetMs": 360000,
+  "inventory": [
+   {
+    "item": "minecraft:obsidian",
+    "count": 10
+   },
+   {
+    "item": "minecraft:flint_and_steel",
+    "count": 1
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "nether_portal"
+     },
+     "why": "a portal to the Nether"
+    }
+   }
+  ]
+ },
+ {
+  "name": "portal-7007",
+  "seed": 7007,
+  "expect": "portal",
+  "budgetMs": 360000,
+  "inventory": [
+   {
+    "item": "minecraft:obsidian",
+    "count": 10
+   },
+   {
+    "item": "minecraft:flint_and_steel",
+    "count": 1
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "nether_portal"
+     },
+     "why": "a portal to the Nether"
+    }
+   }
+  ]
+ },
+ {
+  "name": "portal-8008",
+  "seed": 8008,
+  "expect": "portal",
+  "budgetMs": 360000,
+  "inventory": [
+   {
+    "item": "minecraft:obsidian",
+    "count": 10
+   },
+   {
+    "item": "minecraft:flint_and_steel",
+    "count": 1
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "nether_portal"
+     },
+     "why": "a portal to the Nether"
+    }
+   }
+  ]
+ },
+ {
+  "name": "pillar-1001",
+  "seed": 1001,
+  "expect": "pillar",
+  "budgetMs": 120000,
+  "inventory": [
+   {
+    "item": "minecraft:cobblestone",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "pillar",
+      "size": 5
+     },
+     "why": "climb up to look around"
+    }
+   }
+  ]
+ },
+ {
+  "name": "pillar-2002",
+  "seed": 2002,
+  "expect": "pillar",
+  "budgetMs": 120000,
+  "inventory": [
+   {
+    "item": "minecraft:cobblestone",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "pillar",
+      "size": 5
+     },
+     "why": "climb up to look around"
+    }
+   }
+  ]
+ },
+ {
+  "name": "pillar-3003",
+  "seed": 3003,
+  "expect": "pillar",
+  "budgetMs": 120000,
+  "inventory": [
+   {
+    "item": "minecraft:cobblestone",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "pillar",
+      "size": 5
+     },
+     "why": "climb up to look around"
+    }
+   }
+  ]
+ },
+ {
+  "name": "bridge-1001",
+  "seed": 1001,
+  "expect": "bridge",
+  "budgetMs": 180000,
+  "inventory": [
+   {
+    "item": "minecraft:cobblestone",
+    "count": 32
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "commands": [
+   "fill ~2 ~-12 ~-20 ~5 ~6 ~20 minecraft:air",
+   "fill ~-1 ~-1 ~-1 ~1 ~-1 ~1 minecraft:stone",
+   "fill ~6 ~-1 ~-1 ~10 ~-1 ~1 minecraft:stone",
+   "fill ~6 ~ ~-1 ~10 ~4 ~1 minecraft:air"
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "bridge",
+      "at": {
+       "x": "~8",
+       "y": "~0",
+       "z": "~0"
+      }
+     },
+     "why": "cross the gap east"
+    }
+   }
+  ]
+ },
+ {
+  "name": "bridge-2002",
+  "seed": 2002,
+  "expect": "bridge",
+  "budgetMs": 180000,
+  "inventory": [
+   {
+    "item": "minecraft:cobblestone",
+    "count": 32
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "commands": [
+   "fill ~2 ~-12 ~-20 ~5 ~6 ~20 minecraft:air",
+   "fill ~-1 ~-1 ~-1 ~1 ~-1 ~1 minecraft:stone",
+   "fill ~6 ~-1 ~-1 ~10 ~-1 ~1 minecraft:stone",
+   "fill ~6 ~ ~-1 ~10 ~4 ~1 minecraft:air"
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "bridge",
+      "at": {
+       "x": "~8",
+       "y": "~0",
+       "z": "~0"
+      }
+     },
+     "why": "cross the gap east"
+    }
+   }
+  ]
+ },
+ {
+  "name": "bridge-3003",
+  "seed": 3003,
+  "expect": "bridge",
+  "budgetMs": 180000,
+  "inventory": [
+   {
+    "item": "minecraft:cobblestone",
+    "count": 32
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "commands": [
+   "fill ~2 ~-12 ~-20 ~5 ~6 ~20 minecraft:air",
+   "fill ~-1 ~-1 ~-1 ~1 ~-1 ~1 minecraft:stone",
+   "fill ~6 ~-1 ~-1 ~10 ~-1 ~1 minecraft:stone",
+   "fill ~6 ~ ~-1 ~10 ~4 ~1 minecraft:air"
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "bridge",
+      "at": {
+       "x": "~8",
+       "y": "~0",
+       "z": "~0"
+      }
+     },
+     "why": "cross the gap east"
+    }
+   }
+  ]
+ },
+ {
+  "name": "shelter-1001",
+  "seed": 1001,
+  "expect": "shelter",
+  "budgetMs": 150000,
+  "inventory": [
+   {
+    "item": "minecraft:cobblestone",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "shelter"
+     },
+     "why": "walls and a roof for the night"
+    }
+   }
+  ]
+ },
+ {
+  "name": "material-planks-pillar-1001",
+  "seed": 1001,
+  "expectCode": "INVALID_BUILD_MATERIAL",
+  "budgetMs": 60000,
+  "inventory": [
+   {
+    "item": "minecraft:oak_planks",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "pillar",
+      "size": 4,
+      "materials": "minecraft:oak_planks"
+     },
+     "why": "climb with planks"
+    }
+   }
+  ]
+ },
+ {
+  "name": "material-sand-bridge-1001",
+  "seed": 1001,
+  "expectCode": "INVALID_BUILD_MATERIAL",
+  "budgetMs": 60000,
+  "inventory": [
+   {
+    "item": "minecraft:sand",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "commands": [
+   "fill ~2 ~-12 ~-20 ~5 ~6 ~20 minecraft:air",
+   "fill ~-1 ~-1 ~-1 ~1 ~-1 ~1 minecraft:stone",
+   "fill ~6 ~-1 ~-1 ~10 ~-1 ~1 minecraft:stone",
+   "fill ~6 ~ ~-1 ~10 ~4 ~1 minecraft:air"
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "bridge",
+      "at": {
+       "x": "~8",
+       "y": "~0",
+       "z": "~0"
+      },
+      "materials": "minecraft:sand"
+     },
+     "why": "cross with sand"
+    }
+   }
+  ]
+ },
+ {
+  "name": "thinroof-1001",
+  "seed": 1001,
+  "expect": "noharm",
+  "budgetMs": 240000,
+  "inventory": [
+   {
+    "item": "minecraft:obsidian",
+    "count": 10
+   },
+   {
+    "item": "minecraft:flint_and_steel",
+    "count": 1
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "commands": [
+   "fill ~-8 ~ ~-8 ~8 ~8 ~8 minecraft:air",
+   "fill ~-8 ~-5 ~-8 ~8 ~-2 ~8 minecraft:air",
+   "fill ~-8 ~-1 ~-8 ~8 ~-1 ~8 minecraft:grass_block"
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "nether_portal"
+     },
+     "why": "a portal on the roof"
+    }
+   }
+  ]
+ },
+ {
+  "name": "thinroof-2002",
+  "seed": 2002,
+  "expect": "noharm",
+  "budgetMs": 240000,
+  "inventory": [
+   {
+    "item": "minecraft:obsidian",
+    "count": 10
+   },
+   {
+    "item": "minecraft:flint_and_steel",
+    "count": 1
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "commands": [
+   "fill ~-8 ~ ~-8 ~8 ~8 ~8 minecraft:air",
+   "fill ~-8 ~-5 ~-8 ~8 ~-2 ~8 minecraft:air",
+   "fill ~-8 ~-1 ~-8 ~8 ~-1 ~8 minecraft:grass_block"
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "nether_portal"
+     },
+     "why": "a portal on the roof"
+    }
+   }
+  ]
+ },
+ {
+  "name": "thinroof-4004",
+  "seed": 4004,
+  "expect": "noharm",
+  "budgetMs": 240000,
+  "inventory": [
+   {
+    "item": "minecraft:obsidian",
+    "count": 10
+   },
+   {
+    "item": "minecraft:flint_and_steel",
+    "count": 1
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "commands": [
+   "fill ~-8 ~ ~-8 ~8 ~8 ~8 minecraft:air",
+   "fill ~-8 ~-5 ~-8 ~8 ~-2 ~8 minecraft:air",
+   "fill ~-8 ~-1 ~-8 ~8 ~-1 ~8 minecraft:grass_block"
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "nether_portal"
+     },
+     "why": "a portal on the roof"
+    }
+   }
+  ]
+ },
+ {
+  "name": "magma-1001",
+  "seed": 1001,
+  "expect": "bridge",
+  "budgetMs": 120000,
+  "inventory": [
+   {
+    "item": "minecraft:cobblestone",
+    "count": 32
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "commands": [
+   "fill ~-1 ~ ~-2 ~12 ~5 ~2 minecraft:air",
+   "fill ~-1 ~-1 ~-2 ~12 ~-1 ~2 minecraft:stone",
+   "fill ~2 ~-1 ~0 ~5 ~-1 ~0 minecraft:magma_block"
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "bridge",
+      "at": {
+       "x": "~9",
+       "y": "~0",
+       "z": "~0"
+      },
+      "size": 12
+     },
+     "why": "along the magma strip"
+    }
+   }
+  ]
+ },
+ {
+  "name": "magma-2002",
+  "seed": 2002,
+  "expect": "bridge",
+  "budgetMs": 120000,
+  "inventory": [
+   {
+    "item": "minecraft:cobblestone",
+    "count": 32
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "commands": [
+   "fill ~-1 ~ ~-2 ~12 ~5 ~2 minecraft:air",
+   "fill ~-1 ~-1 ~-2 ~12 ~-1 ~2 minecraft:stone",
+   "fill ~2 ~-1 ~0 ~5 ~-1 ~0 minecraft:magma_block"
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "bridge",
+      "at": {
+       "x": "~9",
+       "y": "~0",
+       "z": "~0"
+      },
+      "size": 12
+     },
+     "why": "along the magma strip"
+    }
+   }
+  ]
+ },
+ {
+  "name": "magma-3003",
+  "seed": 3003,
+  "expect": "bridge",
+  "budgetMs": 120000,
+  "inventory": [
+   {
+    "item": "minecraft:cobblestone",
+    "count": 32
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "commands": [
+   "fill ~-1 ~ ~-2 ~12 ~5 ~2 minecraft:air",
+   "fill ~-1 ~-1 ~-2 ~12 ~-1 ~2 minecraft:stone",
+   "fill ~2 ~-1 ~0 ~5 ~-1 ~0 minecraft:magma_block"
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "bridge",
+      "at": {
+       "x": "~9",
+       "y": "~0",
+       "z": "~0"
+      },
+      "size": 12
+     },
+     "why": "along the magma strip"
+    }
+   }
+  ]
+ },
+ {
+  "name": "ledge-1001",
+  "seed": 1001,
+  "expect": "bridge",
+  "budgetMs": 120000,
+  "inventory": [
+   {
+    "item": "minecraft:cobblestone",
+    "count": 32
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "commands": [
+   "fill ~-1 ~ ~-2 ~12 ~5 ~2 minecraft:air",
+   "fill ~-1 ~-1 ~-2 ~12 ~-1 ~2 minecraft:stone",
+   "fill ~2 ~ ~-2 ~2 ~ ~2 minecraft:stone",
+   "fill ~3 ~-9 ~-2 ~4 ~-1 ~2 minecraft:air",
+   "fill ~3 ~-10 ~-2 ~4 ~-10 ~2 minecraft:stone"
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "bridge",
+      "at": {
+       "x": "~8",
+       "y": "~0",
+       "z": "~0"
+      }
+     },
+     "why": "over the ledge and the pit"
+    }
+   }
+  ]
+ },
+ {
+  "name": "ledge-2002",
+  "seed": 2002,
+  "expect": "bridge",
+  "budgetMs": 120000,
+  "inventory": [
+   {
+    "item": "minecraft:cobblestone",
+    "count": 32
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "commands": [
+   "fill ~-1 ~ ~-2 ~12 ~5 ~2 minecraft:air",
+   "fill ~-1 ~-1 ~-2 ~12 ~-1 ~2 minecraft:stone",
+   "fill ~2 ~ ~-2 ~2 ~ ~2 minecraft:stone",
+   "fill ~3 ~-9 ~-2 ~4 ~-1 ~2 minecraft:air",
+   "fill ~3 ~-10 ~-2 ~4 ~-10 ~2 minecraft:stone"
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "bridge",
+      "at": {
+       "x": "~8",
+       "y": "~0",
+       "z": "~0"
+      }
+     },
+     "why": "over the ledge and the pit"
+    }
+   }
+  ]
+ },
+ {
+  "name": "ledge-3003",
+  "seed": 3003,
+  "expect": "bridge",
+  "budgetMs": 120000,
+  "inventory": [
+   {
+    "item": "minecraft:cobblestone",
+    "count": 32
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "commands": [
+   "fill ~-1 ~ ~-2 ~12 ~5 ~2 minecraft:air",
+   "fill ~-1 ~-1 ~-2 ~12 ~-1 ~2 minecraft:stone",
+   "fill ~2 ~ ~-2 ~2 ~ ~2 minecraft:stone",
+   "fill ~3 ~-9 ~-2 ~4 ~-1 ~2 minecraft:air",
+   "fill ~3 ~-10 ~-2 ~4 ~-10 ~2 minecraft:stone"
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "bridge",
+      "at": {
+       "x": "~8",
+       "y": "~0",
+       "z": "~0"
+      }
+     },
+     "why": "over the ledge and the pit"
+    }
+   }
+  ]
+ },
+ {
+  "name": "iceledge-1001",
+  "seed": 1001,
+  "expect": "bridge",
+  "budgetMs": 120000,
+  "inventory": [
+   {
+    "item": "minecraft:cobblestone",
+    "count": 32
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "commands": [
+   "fill ~-1 ~ ~-2 ~12 ~5 ~2 minecraft:air",
+   "fill ~-1 ~-1 ~-2 ~12 ~-1 ~2 minecraft:stone",
+   "fill ~2 ~ ~-2 ~2 ~ ~2 minecraft:packed_ice",
+   "fill ~3 ~-9 ~-2 ~4 ~-1 ~2 minecraft:air",
+   "fill ~3 ~-10 ~-2 ~4 ~-10 ~2 minecraft:stone"
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "bridge",
+      "at": {
+       "x": "~8",
+       "y": "~0",
+       "z": "~0"
+      }
+     },
+     "why": "over the ledge and the pit"
+    }
+   }
+  ]
+ },
+ {
+  "name": "iceledge-2002",
+  "seed": 2002,
+  "expect": "bridge",
+  "budgetMs": 120000,
+  "inventory": [
+   {
+    "item": "minecraft:cobblestone",
+    "count": 32
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "commands": [
+   "fill ~-1 ~ ~-2 ~12 ~5 ~2 minecraft:air",
+   "fill ~-1 ~-1 ~-2 ~12 ~-1 ~2 minecraft:stone",
+   "fill ~2 ~ ~-2 ~2 ~ ~2 minecraft:packed_ice",
+   "fill ~3 ~-9 ~-2 ~4 ~-1 ~2 minecraft:air",
+   "fill ~3 ~-10 ~-2 ~4 ~-10 ~2 minecraft:stone"
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "bridge",
+      "at": {
+       "x": "~8",
+       "y": "~0",
+       "z": "~0"
+      }
+     },
+     "why": "over the ledge and the pit"
+    }
+   }
+  ]
+ },
+ {
+  "name": "iceledge-3003",
+  "seed": 3003,
+  "expect": "bridge",
+  "budgetMs": 120000,
+  "inventory": [
+   {
+    "item": "minecraft:cobblestone",
+    "count": 32
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "commands": [
+   "fill ~-1 ~ ~-2 ~12 ~5 ~2 minecraft:air",
+   "fill ~-1 ~-1 ~-2 ~12 ~-1 ~2 minecraft:stone",
+   "fill ~2 ~ ~-2 ~2 ~ ~2 minecraft:packed_ice",
+   "fill ~3 ~-9 ~-2 ~4 ~-1 ~2 minecraft:air",
+   "fill ~3 ~-10 ~-2 ~4 ~-10 ~2 minecraft:stone"
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "bridge",
+      "at": {
+       "x": "~8",
+       "y": "~0",
+       "z": "~0"
+      }
+     },
+     "why": "over the ledge and the pit"
+    }
+   }
+  ]
+ }
+]

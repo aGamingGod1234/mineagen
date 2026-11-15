@@ -1,0 +1,69 @@
+name: Decision eval
+
+# Off unless the repository variable DECISION_EVAL_ENABLED is "true" (Settings > Secrets and variables > Actions >
+# Variables). It calls the real play model, so it costs money per run; see scripts/decision-eval/README.md "CI".
+# Two ways to supply the model, chosen with DECISION_EVAL_AUTH:
+#   self-hosted (default): a lab machine registered as a self-hosted runner with the labels in DECISION_EVAL_RUNS_ON,
+#                          where Claude Code (and Codex, for the judge) are already installed and logged in. No secret.
+#                          The default labels include decision-eval so the job never lands on the general-purpose CI runner,
+#                          which only has self-hosted and general-purpose.
+#   api-key:               a GitHub-hosted runner that installs Claude Code and reads the ANTHROPIC_API_KEY secret.
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: decision-eval-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  decisions:
+    name: Decision eval (quick)
+    if: vars.DECISION_EVAL_ENABLED == 'true'
+    runs-on: ${{ fromJSON(vars.DECISION_EVAL_RUNS_ON || '["self-hosted", "decision-eval"]') }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Claude Code (api-key mode only)
+        if: vars.DECISION_EVAL_AUTH == 'api-key'
+        run: npm install -g @anthropic-ai/claude-code
+      - name: Compare the PR head with its base (self-hosted login)
+        if: vars.DECISION_EVAL_AUTH != 'api-key'
+        run: >-
+          node scripts/decision-eval/ci-check.mjs
+          --base ${{ github.event.pull_request.base.sha }}
+          --head ${{ github.event.pull_request.head.sha }}
+          ${{ vars.DECISION_EVAL_SCOPE == 'full' && ' ' || vars.DECISION_EVAL_SCOPE == 'preflight' && '--preflight' || '--quick' }}
+          --judge ${{ vars.DECISION_EVAL_JUDGE || 'auto' }}
+          --budget-usd ${{ vars.DECISION_EVAL_BUDGET_USD || '20' }}
+          --out decision-eval-out
+      - name: Compare the PR head with its base (API key)
+        if: vars.DECISION_EVAL_AUTH == 'api-key'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: >-
+          node scripts/decision-eval/ci-check.mjs
+          --base ${{ github.event.pull_request.base.sha }}
+          --head ${{ github.event.pull_request.head.sha }}
+          ${{ vars.DECISION_EVAL_SCOPE == 'full' && ' ' || vars.DECISION_EVAL_SCOPE == 'preflight' && '--preflight' || '--quick' }}
+          --judge ${{ vars.DECISION_EVAL_JUDGE || 'auto' }}
+          --budget-usd ${{ vars.DECISION_EVAL_BUDGET_USD || '20' }}
+          --out decision-eval-out
+      - name: Keep the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: decision-eval-report
+          path: |
+            decision-eval-out/eval.md
+            decision-eval-out/eval.json
+            decision-eval-out/screen/report.md
+            decision-eval-out/final/report.md
+          if-no-files-found: ignore

@@ -1,0 +1,626 @@
+[
+ {
+  "name": "cast-obi-1",
+  "seed": "5433312384530337025",
+  "expect": "portal",
+  "barSeconds": 600,
+  "budgetMs": 600000,
+  "time": 1000,
+  "note": "gate seed obi-1; start in the pool's cave 15 walked blocks from its shore (survey-spawn-lava.mjs + cave-start.py)",
+  "pool": {
+   "x": 35,
+   "y": -55,
+   "z": -134
+  },
+  "startAt": {
+   "x": 15,
+   "y": -52,
+   "z": -124
+  },
+  "inventory": [
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:water_bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:flint_and_steel",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "find",
+     "target": {
+      "block": "minecraft:lava",
+      "within": 64
+     },
+     "why": "a lava pool for the portal frame"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "nether_portal",
+      "timeoutMs": 540000
+     },
+     "why": "cast and light a portal at the pool"
+    }
+   }
+  ],
+  "retry": {
+   "codes": [
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "FIND_DANGER"
+   ],
+   "times": 2,
+   "waitMs": 5000
+  }
+ },
+ {
+  "name": "cast-obi-2",
+  "seed": "313280743662651985",
+  "expect": "portal",
+  "barSeconds": 600,
+  "budgetMs": 600000,
+  "time": 1000,
+  "note": "gate seed obi-2; start in the pool's cave 20 walked blocks from its shore (survey-spawn-lava.mjs + cave-start.py)",
+  "pool": {
+   "x": -523,
+   "y": -55,
+   "z": -70
+  },
+  "startAt": {
+   "x": -508,
+   "y": -48,
+   "z": -51
+  },
+  "inventory": [
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:water_bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:flint_and_steel",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "find",
+     "target": {
+      "block": "minecraft:lava",
+      "within": 64
+     },
+     "why": "a lava pool for the portal frame"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "nether_portal",
+      "timeoutMs": 540000
+     },
+     "why": "cast and light a portal at the pool"
+    }
+   }
+  ],
+  "retry": {
+   "codes": [
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "FIND_DANGER"
+   ],
+   "times": 2,
+   "waitMs": 5000
+  }
+ },
+ {
+  "name": "cast-obi-3",
+  "seed": "3244043502755372002",
+  "expect": "portal",
+  "barSeconds": 600,
+  "budgetMs": 600000,
+  "time": 1000,
+  "note": "gate seed obi-3; start in the pool's cave 20 walked blocks from its shore (survey-spawn-lava.mjs + cave-start.py); first two pools tried gave no cast site (see PR)",
+  "pool": {
+   "x": 290,
+   "y": -55,
+   "z": -142
+  },
+  "startAt": {
+   "x": 301,
+   "y": -50,
+   "z": -168
+  },
+  "inventory": [
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:water_bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:flint_and_steel",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "find",
+     "target": {
+      "block": "minecraft:lava",
+      "within": 64
+     },
+     "why": "a lava pool for the portal frame"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "nether_portal",
+      "timeoutMs": 540000
+     },
+     "why": "cast and light a portal at the pool"
+    }
+   }
+  ],
+  "retry": {
+   "codes": [
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "FIND_DANGER"
+   ],
+   "times": 2,
+   "waitMs": 5000
+  }
+ },
+ {
+  "name": "cast-obi-4",
+  "seed": "3315172112810107624",
+  "expect": "portal",
+  "barSeconds": 600,
+  "budgetMs": 600000,
+  "time": 1000,
+  "note": "gate seed obi-4; start in the pool's cave 20 walked blocks from its shore (survey-spawn-lava.mjs + cave-start.py)",
+  "pool": {
+   "x": -300,
+   "y": -55,
+   "z": 24
+  },
+  "startAt": {
+   "x": -280,
+   "y": -50,
+   "z": 12
+  },
+  "inventory": [
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:water_bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:flint_and_steel",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "find",
+     "target": {
+      "block": "minecraft:lava",
+      "within": 64
+     },
+     "why": "a lava pool for the portal frame"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "nether_portal",
+      "timeoutMs": 540000
+     },
+     "why": "cast and light a portal at the pool"
+    }
+   }
+  ],
+  "retry": {
+   "codes": [
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "FIND_DANGER"
+   ],
+   "times": 2,
+   "waitMs": 5000
+  }
+ },
+ {
+  "name": "cast-gate-5",
+  "seed": "937420255288055328",
+  "expect": "portal",
+  "barSeconds": 600,
+  "budgetMs": 600000,
+  "time": 1000,
+  "note": "gate seed gate-5; start in the pool's cave 20 walked blocks from its shore (survey-spawn-lava.mjs + cave-start.py); the first pool tried left find in a dug tunnel (see PR)",
+  "pool": {
+   "x": 409,
+   "y": -27,
+   "z": -45
+  },
+  "startAt": {
+   "x": 426,
+   "y": -23,
+   "z": -57
+  },
+  "inventory": [
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:water_bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:flint_and_steel",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "find",
+     "target": {
+      "block": "minecraft:lava",
+      "within": 64
+     },
+     "why": "a lava pool for the portal frame"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "nether_portal",
+      "timeoutMs": 540000
+     },
+     "why": "cast and light a portal at the pool"
+    }
+   }
+  ],
+  "retry": {
+   "codes": [
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "FIND_DANGER"
+   ],
+   "times": 2,
+   "waitMs": 5000
+  }
+ },
+ {
+  "name": "cast-gate-6",
+  "seed": "8196621077778941313",
+  "expect": "portal",
+  "barSeconds": 600,
+  "budgetMs": 600000,
+  "time": 1000,
+  "note": "gate seed gate-6; start in the pool's cave 20 walked blocks from its shore (survey-spawn-lava.mjs + cave-start.py)",
+  "pool": {
+   "x": -342,
+   "y": -55,
+   "z": 717
+  },
+  "startAt": {
+   "x": -354,
+   "y": -52,
+   "z": 733
+  },
+  "inventory": [
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:water_bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:flint_and_steel",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "find",
+     "target": {
+      "block": "minecraft:lava",
+      "within": 64
+     },
+     "why": "a lava pool for the portal frame"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "nether_portal",
+      "timeoutMs": 540000
+     },
+     "why": "cast and light a portal at the pool"
+    }
+   }
+  ],
+  "retry": {
+   "codes": [
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "FIND_DANGER"
+   ],
+   "times": 2,
+   "waitMs": 5000
+  }
+ },
+ {
+  "name": "cast-gate-7",
+  "seed": "4514800570176826331",
+  "expect": "portal",
+  "barSeconds": 600,
+  "budgetMs": 600000,
+  "time": 1000,
+  "note": "gate seed gate-7; start in the pool's cave 20 walked blocks from its shore (survey-spawn-lava.mjs + cave-start.py)",
+  "pool": {
+   "x": 7,
+   "y": -55,
+   "z": -27
+  },
+  "startAt": {
+   "x": -11,
+   "y": -51,
+   "z": -48
+  },
+  "inventory": [
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:water_bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:flint_and_steel",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "find",
+     "target": {
+      "block": "minecraft:lava",
+      "within": 64
+     },
+     "why": "a lava pool for the portal frame"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "nether_portal",
+      "timeoutMs": 540000
+     },
+     "why": "cast and light a portal at the pool"
+    }
+   }
+  ],
+  "retry": {
+   "codes": [
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "FIND_DANGER"
+   ],
+   "times": 2,
+   "waitMs": 5000
+  }
+ },
+ {
+  "name": "cast-gate-8",
+  "seed": "5593788349168817449",
+  "expect": "portal",
+  "barSeconds": 600,
+  "budgetMs": 600000,
+  "time": 1000,
+  "note": "gate seed gate-8; start in the pool's cave 14 walked blocks from its shore (survey-spawn-lava.mjs + cave-start.py)",
+  "pool": {
+   "x": 200,
+   "y": -55,
+   "z": -127
+  },
+  "startAt": {
+   "x": 205,
+   "y": -53,
+   "z": -147
+  },
+  "inventory": [
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:water_bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:bucket",
+    "count": 1
+   },
+   {
+    "item": "minecraft:flint_and_steel",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "find",
+     "target": {
+      "block": "minecraft:lava",
+      "within": 64
+     },
+     "why": "a lava pool for the portal frame"
+    }
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "build",
+     "target": {
+      "structure": "nether_portal",
+      "timeoutMs": 540000
+     },
+     "why": "cast and light a portal at the pool"
+    }
+   }
+  ],
+  "retry": {
+   "codes": [
+    "HOSTILE_NEAR",
+    "DAMAGE_TAKEN",
+    "FIND_DANGER"
+   ],
+   "times": 2,
+   "waitMs": 5000
+  }
+ }
+]

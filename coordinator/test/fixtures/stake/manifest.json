@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "baselineCommit": "0c6894375817d04bb7523126ff230a16ba743a73",
+  "claim": "Change detector on recorded-fact reconstructions, not a historical execution or world simulator.",
+  "episodes": [
+    {
+      "id": "zombie-hold",
+      "file": "zombie-hold/episode.json",
+      "sha256": "2e4182673ba53b9de159d66ec64b03140871dd499bf55b46b72436a22cb4d780",
+      "source": {
+        "run": "gate3-1",
+        "file": "protocol.jsonl.3",
+        "line": 4339,
+        "rowSha256": "075eb1183f986097afc0522432005b33eee60792aec49b2c093d786b5abb9b38"
+      }
+    },
+    {
+      "id": "creeper-steer",
+      "file": "creeper-steer/episode.json",
+      "sha256": "6286e80ccf6618a315416b58e0ea1c52e64c28c99d0a5882731293df0b76ffc1",
+      "source": {
+        "run": "gate3-3",
+        "file": "protocol.jsonl.1",
+        "line": 398,
+        "rowSha256": "248b2ec060f505d67300c047cf2880ce05400d9fda8ed6fe35cddfac7e7ab13d"
+      }
+    },
+    {
+      "id": "hit-then-lava",
+      "file": "hit-then-lava/episode.json",
+      "sha256": "a1744df601729f22381fca3e88acb642c335903f0ae8c304ab4284583b6aabda",
+      "source": {
+        "run": "gate3-1",
+        "file": "protocol.jsonl.3",
+        "line": 4339,
+        "rowSha256": "075eb1183f986097afc0522432005b33eee60792aec49b2c093d786b5abb9b38"
+      }
+    },
+    {
+      "id": "late-result",
+      "file": "late-result/episode.json",
+      "sha256": "9e6e362585df5edc3010b42879d436c330f704175db80e2f4280aa9cce4a9928",
+      "source": {
+        "run": "gate3-1",
+        "file": "protocol.jsonl.3",
+        "line": 4339,
+        "rowSha256": "075eb1183f986097afc0522432005b33eee60792aec49b2c093d786b5abb9b38"
+      }
+    }
+  ],
+  "unreplayable": [
+    {
+      "id": "gate3-5-full-lava-window",
+      "reason": "Full window requires the historical active runtime, inspection/action sequencing and snapshots. The sampled projection cannot establish historical fidelity; the full raw window is not claimed as replayed."
+    },
+    {
+      "id": "b14-desktop-water-top-shaft",
+      "source": {
+        "runs": [
+          "b14-desktop/chain-gate-3-r1",
+          "b14-desktop/chain-gate-5-r2"
+        ],
+        "reference": "https://github.com/aGamingGod1234/agent-arena/pull/310",
+        "reviewedHead": "a27caac92b6283c1fd914bc591398ba332e138d1"
+      },
+      "reason": "Original incident lacks the coordinator journal and full observation/action samples needed for a production acceptance replay. The four shaft variants and ceiling/headroom case in find-search.test.mjs are scripted-body mechanics regressions, not historical replay or safety/effectiveness evidence. Counted matched A/B remains pending.",
+      "friction": "docs/gameplay-friction/329-water-top-b9-port.md"
+    },
+    {
+      "id": "round1-lit-portals-preparation-detour",
+      "source": {
+        "runs": [
+          "mr-round1-6",
+          "mr-round1-8c"
+        ],
+        "reference": "https://github.com/aGamingGod1234/agent-arena/pull/355",
+        "playedHead": "54fe4d3089d66116e8ca8f95bb86ae260c7140e9"
+      },
+      "reason": "Captured choices and terminal receipts establish the food/bed detour, but historical full goal/task-memory/sight/hunger state at each native turn has not been reconstructed for a faithful decision replay. survival-advice.test.mjs exercises presentation variants, not a historical model response or counterfactual efficacy. Round 2 must measure behavior.",
+      "friction": "docs/gameplay-friction/355-survival-advice.md"
+    }
+  ]
+}

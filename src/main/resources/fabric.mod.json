@@ -1,0 +1,37 @@
+{
+	"schemaVersion": 1,
+	"id": "arenaagents",
+	"version": "${version}",
+	"name": "Arena Agents",
+	"description": "Summon configurable Codex-powered humanoid agents that can act autonomously in Minecraft.",
+	"icon": "assets/arenaagents/icon.png",
+	"license": "MIT",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"dev.agaminggod.arenaagents.ArenaAgents"
+		],
+		"client": [
+			"dev.agaminggod.arenaagents.client.ArenaAgentsClient"
+		]
+	},
+	"mixins": [
+		"arenaagents.mixins.json",
+		"arenaagents.compat.mixins.json",
+		{
+			"config": "arenaagents.client.mixins.json",
+			"environment": "client"
+		},
+		{
+			"config": "arenaagents.client.compat.mixins.json",
+			"environment": "client"
+		}
+	],
+	"depends": {
+		"fabricloader": ">=0.20.1",
+		"minecraft": "${minecraftDependency}",
+		"java": ">=25",
+		"fabric-api": "*",
+		"carpet": "${carpetDependency}"
+	}
+}

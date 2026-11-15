@@ -1,0 +1,256 @@
+{
+  "version": 1,
+  "id": "creeper-steer",
+  "mode": "recorded-fact-reconstruction",
+  "source": {
+    "run": "gate3-3",
+    "file": "protocol.jsonl.1",
+    "line": 398,
+    "rowSha256": "248b2ec060f505d67300c047cf2880ce05400d9fda8ed6fe35cddfac7e7ab13d"
+  },
+  "reconstruction": [
+    "Fresh task/tool admission; original active execution, earlier observations and memory are not restored.",
+    "Use recorded player/inventory/threat facts; omit terrain/entities/perception unrelated to the steering assertion.",
+    "Focused observation reads reuse the latest supplied snapshot with synthetic clock/sequence metadata."
+  ],
+  "initial": {
+    "ready": true,
+    "status": "STARTING",
+    "position": {
+      "x": 244.61591433062014,
+      "y": 75,
+      "z": -236.216589575515
+    },
+    "velocity": {
+      "x": 0,
+      "y": -0.0784000015258789,
+      "z": 0
+    },
+    "view": {
+      "yaw": 178.98292541503906,
+      "pitch": 10
+    },
+    "player": {
+      "stand": {
+        "here": {
+          "pushSafe": true,
+          "roof": false,
+          "walls": 0
+        },
+        "searchedSteps": 16
+      },
+      "pose": "standing",
+      "underWater": false,
+      "swimming": false,
+      "gliding": false,
+      "sprinting": false,
+      "crouching": false,
+      "onClimbable": false,
+      "inLava": false,
+      "horizontalCollision": false,
+      "verticalCollision": true,
+      "passenger": false,
+      "skyOpen": true,
+      "teleportTick": 38047,
+      "groundAhead": {
+        "status": "clear",
+        "at": 8
+      },
+      "health": 20,
+      "maxHealth": 20,
+      "armor": 0,
+      "foodLevel": 20,
+      "saturation": 5,
+      "gameMode": "survival",
+      "onGround": true,
+      "inWater": false,
+      "onFire": false,
+      "air": 300,
+      "maxAir": 300,
+      "suffocating": false,
+      "fallDistance": 0,
+      "effects": []
+    },
+    "inventory": {
+      "items": [],
+      "selectedItem": "minecraft:air",
+      "selectedSlot": 0,
+      "tagCounts": {},
+      "food": {
+        "items": 0,
+        "nutrition": 0
+      }
+    },
+    "world": {
+      "worldId": "82b7050a-835c-49d0-aeb4-fb2cb5afab0c",
+      "dimension": "minecraft:overworld",
+      "biome": "minecraft:plains",
+      "gameTime": 38259,
+      "dayTime": 39074,
+      "raining": false,
+      "thundering": false,
+      "sleep": {
+        "bedExplodes": false,
+        "timeAllowsSleep": true
+      },
+      "difficulty": "normal",
+      "naturalRegeneration": true,
+      "simulationDistance": 6
+    },
+    "threats": {
+      "entries": []
+    },
+    "goalRevision": 1,
+    "observedAtEpochMs": 1800000000000,
+    "eventSequence": 1,
+    "attention": false,
+    "changedFacts": [],
+    "entities": [],
+    "blocks": [],
+    "nearbyContainers": [],
+    "currentAction": {
+      "active": false
+    },
+    "lastResult": {
+      "present": false
+    }
+  },
+  "observation": {
+    "ready": true,
+    "status": "STARTING",
+    "position": {
+      "x": 244.61591433062014,
+      "y": 75,
+      "z": -236.216589575515
+    },
+    "velocity": {
+      "x": 0,
+      "y": -0.0784000015258789,
+      "z": 0
+    },
+    "view": {
+      "yaw": 178.98292541503906,
+      "pitch": 10
+    },
+    "player": {
+      "stand": {
+        "here": {
+          "pushSafe": true,
+          "roof": false,
+          "walls": 0
+        },
+        "searchedSteps": 16
+      },
+      "pose": "standing",
+      "underWater": false,
+      "swimming": false,
+      "gliding": false,
+      "sprinting": false,
+      "crouching": false,
+      "onClimbable": false,
+      "inLava": false,
+      "horizontalCollision": false,
+      "verticalCollision": true,
+      "passenger": false,
+      "skyOpen": true,
+      "teleportTick": 38047,
+      "groundAhead": {
+        "status": "clear",
+        "at": 8
+      },
+      "health": 20,
+      "maxHealth": 20,
+      "armor": 0,
+      "foodLevel": 20,
+      "saturation": 5,
+      "gameMode": "survival",
+      "onGround": true,
+      "inWater": false,
+      "onFire": false,
+      "air": 300,
+      "maxAir": 300,
+      "suffocating": false,
+      "fallDistance": 0,
+      "effects": []
+    },
+    "inventory": {
+      "items": [],
+      "selectedItem": "minecraft:air",
+      "selectedSlot": 0,
+      "tagCounts": {},
+      "food": {
+        "items": 0,
+        "nutrition": 0
+      }
+    },
+    "world": {
+      "worldId": "82b7050a-835c-49d0-aeb4-fb2cb5afab0c",
+      "dimension": "minecraft:overworld",
+      "biome": "minecraft:plains",
+      "gameTime": 38259,
+      "dayTime": 39074,
+      "raining": false,
+      "thundering": false,
+      "sleep": {
+        "bedExplodes": false,
+        "timeAllowsSleep": true
+      },
+      "difficulty": "normal",
+      "naturalRegeneration": true,
+      "simulationDistance": 6
+    },
+    "threats": {
+      "entries": [
+        {
+          "uuid": "b7954173-335f-4776-b63c-0ab1372d529d",
+          "type": "minecraft:creeper",
+          "distance": 7.6,
+          "bearing": 65.8,
+          "targeting": true,
+          "swelling": false,
+          "lineOfSight": true,
+          "signals": [
+            "targeting"
+          ],
+          "visible": true,
+          "targetable": true,
+          "dy": 1,
+          "shot": "clear",
+          "risk": 7.8,
+          "expectedHitDamage": 0,
+          "closingSpeed": 1.4,
+          "approaching": true,
+          "etaSeconds": 3.3,
+          "contactRisk": 145.6
+        }
+      ]
+    },
+    "goalRevision": 1,
+    "observedAtEpochMs": 1800000000000,
+    "eventSequence": 1,
+    "attention": false,
+    "changedFacts": [],
+    "entities": [],
+    "blocks": [],
+    "nearbyContainers": [],
+    "currentAction": {
+      "active": false
+    },
+    "lastResult": {
+      "present": false
+    }
+  },
+  "kind": "threat",
+  "invariant": "creeper-steers",
+  "call": {
+    "name": "do_step",
+    "arguments": {
+      "verb": "find",
+      "target": {
+        "block": "minecraft:lava",
+        "within": 32
+      },
+      "why": "Recorded gameplay failure replay"
+    }
+  }
+}
