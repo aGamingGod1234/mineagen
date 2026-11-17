@@ -9,7 +9,8 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { pairedTokenConfidence } from '../src/benchmark/quality-metrics.mjs';
 import { readArtifactReport } from '../src/benchmark/report-artifacts.mjs';
-import { coordinatorFingerprint, instrumentationFingerprint, INSTRUMENTATION_FILES, parseArgs, pairedSchedule, validateArmBuild, runPairedScenarios } from '../../scripts/quality/run-scenarios.mjs';
+import { armFlags, coordinatorFingerprint, instrumentationFingerprint, INSTRUMENTATION_FILES, loadScenarioFile, parseArgs, pairedSchedule, validateArmBuild, runPairedScenarios } from '../../scripts/quality/run-scenarios.mjs';
+import { serverJvmArgs } from '../../scripts/run-headless-provider-matrix.mjs';
 
 const sha = data => createHash('sha256').update(data).digest('hex');
 const git = promisify(execFile);
@@ -223,5 +224,73 @@ test('retry preserves B-only first-attempt failures in pooled and separate-arm C
 		await runPairedScenarios({ ...f.options, retryFailed: true }, execute(false), fakeTiming());
 		const again = JSON.parse(await readFile(path.join(f.options.out, 'B.json')));
 		assert.equal(again.firstAttemptRuns.filter(run => run.termination === 'ERROR').length, 1, 'second retry retains the original failure');
+	} finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
+const armExecutor = (arms, calls) => async options => {
+	calls.push(options);
+	const arm = options.sourceCommit === arms.A.commit && JSON.stringify(options.jvmArgs) === JSON.stringify(armFlags(arms.A, 'A').jvmArgs) ? 'A' : 'B';
+	return { coordinatorSha256: arms[arm].expectedCoordinatorSha256, jar: { sha256: arms[arm].expectedJarSha256 }, instrumentationSha256: 'fixed', scenarioDataSha256: options.scenarioDataSha256 ?? 'fixed',
+		runs: [{ ...healthy(), scenario: options.scenarios[0], repetition: options.repetition }] };
+};
+
+test('an A/A run needs --allow-identical-arms, and the flag refuses arms that differ', async () => {
+	assert.equal(parseArgs(['--arms', 'arms.json', '--allow-identical-arms']).allowIdenticalArms, true);
+	assert.equal(parseArgs(['--arms', 'arms.json']).allowIdenticalArms, false);
+	assert.throws(() => parseArgs(['--allow-identical-arms']), /requires --arms/);
+	const f = await fixture();
+	try {
+		await writeFile(f.options.arms, JSON.stringify({ A: f.arms.A, B: f.arms.A }));
+		await assert.rejects(runPairedScenarios(f.options, armExecutor(f.arms, []), fakeTiming()), /identical/);
+		const calls = [];
+		await runPairedScenarios({ ...f.options, allowIdenticalArms: true }, armExecutor(f.arms, calls), fakeTiming());
+		assert.equal(calls.length, 6);
+		const saved = await readArtifactReport(path.join(f.options.out, 'results.json'));
+		assert.equal(saved.configuration.design, 'A/A');
+		await writeFile(f.options.arms, JSON.stringify(f.arms));
+		await assert.rejects(runPairedScenarios({ ...f.options, out: path.join(f.dir, 'out2'), allowIdenticalArms: true }, armExecutor(f.arms, []), fakeTiming()), /needs identical arms/);
+	} finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
+test('arms may differ only by JVM and environment flags, which reach the launcher', async () => {
+	const f = await fixture();
+	try {
+		const B = { ...f.arms.A, jvmArgs: ['-Dmineagen.example=true'], env: { ARENA_EXAMPLE: '1' } };
+		await writeFile(f.options.arms, JSON.stringify({ A: f.arms.A, B }));
+		const calls = [];
+		await runPairedScenarios(f.options, armExecutor({ A: f.arms.A, B }, calls), fakeTiming());
+		const b = calls.find(call => call.jvmArgs.length);
+		assert.deepEqual(b.jvmArgs, ['-Dmineagen.example=true']);
+		assert.deepEqual(b.env, { ARENA_EXAMPLE: '1' });
+		assert.deepEqual(calls.find(call => !call.jvmArgs.length).env, {});
+		const saved = await readArtifactReport(path.join(f.options.out, 'results.json'));
+		assert.deepEqual(saved.pinnedArms.B.jvmArgs, ['-Dmineagen.example=true']);
+		assert.equal(saved.pinnedArms.A.jvmArgs, undefined);
+		assert.throws(() => armFlags({ jvmArgs: ['not a flag'] }, 'B'), /jvmArgs/);
+		assert.throws(() => armFlags({ env: { 'BAD-NAME': '1' } }, 'B'), /env/);
+		assert.deepEqual(serverJvmArgs(JSON.stringify(['-Da=b'])), ['-Da=b']);
+		assert.deepEqual(serverJvmArgs(''), []);
+		assert.throws(() => serverJvmArgs(JSON.stringify(['-Da b'])), /single-token/);
+	} finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
+test('--scenario-file loads the whole rooms file once, hashed once, with room success evaluated at the end', async () => {
+	const file = fileURLToPath(new URL('../../scripts/quality/reflex-rooms.json', import.meta.url));
+	const options = parseArgs(['--scenario-file', file, '--scenarios', 'R-SKELETON,R-BLAZE']);
+	assert.equal(options.scenarioFile, file);
+	assert.throws(() => parseArgs(['--scenario-file', file]), /requires --scenarios/);
+	const loaded = await loadScenarioFile(file);
+	const rooms = JSON.parse(await readFile(file, 'utf8')).scenarios;
+	assert.equal(loaded.definitions.length, rooms.length);
+	assert.ok(loaded.definitions.every(definition => definition.evaluatorEarlyStop === false));
+	assert.equal(loaded.scenarioDataSha256, sha(await readFile(file)));
+	for (const instrumented of ['scripts/quality/reflex-rooms.json', 'scripts/quality/lib/reflex-round.mjs']) assert.ok(INSTRUMENTATION_FILES.includes(instrumented));
+	const f = await fixture();
+	try {
+		const calls = [];
+		await runPairedScenarios({ ...f.options, ...loaded, scenarioFile: file, scenarios: ['R-SKELETON'] }, armExecutor(f.arms, calls), fakeTiming());
+		assert.ok(calls.every(call => call.definitions === loaded.definitions && call.scenarioDataSha256 === loaded.scenarioDataSha256));
+		const saved = await readArtifactReport(path.join(f.options.out, 'results.json'));
+		assert.equal(saved.configuration.scenarioFile, 'reflex-rooms.json');
 	} finally { await rm(f.dir, { recursive: true, force: true }); }
 });
