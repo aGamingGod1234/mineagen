@@ -137,8 +137,12 @@ public final class ReflexScheduler {
 	private boolean harmed;
 	/** Whether the running firing has met its goal and only holds on (set each step by the engine; see {@link #settled}). */
 	private boolean settledHold;
-	/** A floor firing kept through a model command's yield: it yields in {@link #step} once out of its hazard or settled. */
-	private Firing deferredYield;
+	/**
+	 * The floor rule whose firing a model command's yield was kept through: it yields in {@link #step} once out of its hazard
+	 * or settled. Kept per rule while the hazard holds, so a firing that hits its maxS or fails in the hazard and fires again
+	 * still owes the waiting command its yield.
+	 */
+	private String deferredYield;
 	/** The last step ended a firing for a deferred yield (read by the engine, which then follows the command). */
 	private boolean deferredYielded;
 
@@ -164,6 +168,7 @@ public final class ReflexScheduler {
 				current = null;
 			}
 		}
+		if (deferredYield != null && next.get(deferredYield) != states.get(deferredYield)) deferredYield = null;
 		states.clear();
 		states.putAll(next);
 		return decision;
@@ -280,7 +285,8 @@ public final class ReflexScheduler {
 			}
 			if (!truth) state.heldBack = false;
 		}
-		if (deferredYield != current) deferredYield = null;
+		if (deferredYield != null && !(current != null ? current.ruleId().equals(deferredYield)
+				: states.containsKey(deferredYield) && states.get(deferredYield).lastTruth)) deferredYield = null;
 		deferredYielded = false;
 		if (current != null) {
 			State state = states.get(current.ruleId());
@@ -314,7 +320,8 @@ public final class ReflexScheduler {
 				ended = current;
 				endOutcome = outcome;
 				current = null;
-				deferredYield = null;
+				// A floor firing that ran out or failed in its hazard fires again: the command still waits for its yield.
+				if (!(state.lastTruth && (outcome == Outcome.TIMEOUT || outcome == Outcome.FAILED))) deferredYield = null;
 				recordEnd(state, outcome, now, reason);
 				rearmSwallowedEdges(ended, now);
 			}
@@ -365,7 +372,7 @@ public final class ReflexScheduler {
 		Firing ended = current;
 		State state = states.get(ended.ruleId());
 		if (state.floor && state.lastTruth && !settledHold) {
-			deferredYield = current;
+			deferredYield = current.ruleId();
 			return Decision.NONE;
 		}
 		current = null;

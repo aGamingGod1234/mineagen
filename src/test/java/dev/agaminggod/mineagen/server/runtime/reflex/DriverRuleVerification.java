@@ -30,6 +30,7 @@ public final class DriverRuleVerification {
 		List<ReflexSpec.Rule> defaults = defaults();
 		floorIsTheFourHazardDefaults(defaults);
 		floorFiringOutlastsACommandWhileTheHazardHolds(defaults);
+		keptYieldOutlastsARefireInTheHazard(defaults);
 		floorTriggerIsLevelTriggered(defaults);
 		settledFloorYieldWaitsForAFreshHazard(defaults);
 		floorStaysArmedAtTheFailureLimit(defaults);
@@ -210,6 +211,31 @@ public final class DriverRuleVerification {
 		model.replace(List.of(rule("{\"id\":\"default-lava\",\"priority\":9,\"when\":{\"type\":\"in_lava\"},\"do\":{\"type\":\"leave_lava\"}}")), 0L);
 		step(model, 1L, "default-lava", true, RUNNING);
 		check(model.yield(2L).endOutcome() == ReflexScheduler.Outcome.YIELDED, "the model's own lava rule still yields to its command");
+	}
+
+	/**
+	 * A kept floor firing that hits its maxS (or fails) still in its hazard ends and fires again; the command's one yield
+	 * carries over to the new firing, which yields to it on the first tick out.
+	 */
+	private static void keptYieldOutlastsARefireInTheHazard(List<ReflexSpec.Rule> defaults) {
+		for (ReflexScheduler.ActionStatus ending : List.of(RUNNING, ReflexScheduler.ActionStatus.FAILED)) {
+			ReflexSpec.Rule lava = named(defaults, "default-lava");
+			ReflexScheduler scheduler = new ReflexScheduler();
+			scheduler.replace(List.of(lava), 0L);
+			step(scheduler, 1L, "default-lava", true, RUNNING);
+			long maxTicks = scheduler.current().maxTicks();
+			check(scheduler.yield(2L).ended() == null, "the yield is kept while in lava");
+			long end = ending == RUNNING ? 1L + maxTicks : 5L;
+			for (long tick = 3L; tick < end; tick++) step(scheduler, tick, "default-lava", true, RUNNING);
+			ReflexScheduler.Decision first = step(scheduler, end, "default-lava", true, ending);
+			check(first.endOutcome() == (ending == RUNNING ? ReflexScheduler.Outcome.TIMEOUT : ReflexScheduler.Outcome.FAILED), "the kept firing ends " + first.endOutcome());
+			long tick = end + 1L;
+			for (; scheduler.current() == null && tick < end + 200L; tick++) step(scheduler, tick, "default-lava", true, RUNNING);
+			check(scheduler.current() != null, "it fires again in the lava");
+			ReflexScheduler.Decision out = step(scheduler, tick, "default-lava", false, RUNNING);
+			check(out.endOutcome() == ReflexScheduler.Outcome.YIELDED && scheduler.deferredYielded() && scheduler.anySuppressed(),
+					"the refired firing still yields to the waiting command after " + first.endOutcome());
+		}
 	}
 
 	/** A floor trigger fires again after its cooldown while the hazard holds; a model trigger on the same condition fires once. */
