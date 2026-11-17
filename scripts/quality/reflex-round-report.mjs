@@ -7,7 +7,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { findWatchDirs, readWatchDir } from './watch-files.mjs';
-import { resolveGoalWindow } from '../../coordinator/src/benchmark/quality-metrics.mjs';
+import { epoch, resolveGoalWindow } from '../../coordinator/src/benchmark/quality-metrics.mjs';
 import { judgeRooms, noiseFloor, pairRuns, scoreRun } from './lib/reflex-round.mjs';
 
 const USAGE = 'node scripts/quality/reflex-round-report.mjs (--run RUN_DIR|results.json ... | --paired PAIRED_RESULTS.json) [--margin MARGIN.json] [--out REPORT.json]';
@@ -36,6 +36,15 @@ async function goalStart(record, directory) {
 	return directory ? resolveGoalWindow(await maybeJsonl(path.join(directory, 'quality-protocol.jsonl'))).startedAt : null;
 }
 
+/** The run's goal_control lifecycle (start, dead, respawn) from its protocol journal: the sampler pauses while dead. */
+async function lifecycle(directory) {
+	if (!directory) return [];
+	return (await maybeJsonl(path.join(directory, 'quality-protocol.jsonl'))).map(row => ({ row, event: row.envelope ?? row }))
+		.filter(({ event }) => event.type === 'goal_control' && ['start', 'dead', 'respawn'].includes(event.payload?.operation))
+		.map(({ row, event }) => ({ operation: event.payload.operation, at: event.payload.updatedAtEpochMs ?? epoch(row) }))
+		.filter(event => Number.isFinite(event.at));
+}
+
 /** One run's inputs from its artifact directory: quality-run.json, quality-samples.json and the arena-watch danger rows. */
 export async function loadRun(run) {
 	const directory = run.artifacts;
@@ -48,7 +57,7 @@ export async function loadRun(run) {
 		dangerDropped += watch.dangerDropped ?? 0;
 	}
 	return { pairId: record.pairId ?? `${record.scenario}-r${record.repetition ?? 1}`, ...scoreRun({ scenario: record.scenario ?? record.definition?.id,
-		goalStartedAtMs: await goalStart(record, directory), samples, dangerRows, dangerDropped, evaluation: record.evaluation ?? null }) };
+		goalStartedAtMs: await goalStart(record, directory), samples, dangerRows, dangerDropped, lifecycle: await lifecycle(directory), evaluation: record.evaluation ?? null }) };
 }
 
 /** --run takes a run artifact directory (holding quality-run.json) or a run-scenarios results.json. */

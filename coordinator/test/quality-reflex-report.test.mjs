@@ -193,6 +193,16 @@ test('deaths come from counter samples at both room boundaries; a missing bounda
 	assert.equal(windowDeaths(deathsAt([0, 0], [150, 2], [300, 0]), START, START + 300_000), null, 'a counter that goes down is corrupt');
 	assert.equal(windowDeaths(deathsAt([0, 0], [300, 1.5]), START, START + 300_000), null, 'a fractional counter is corrupt');
 	assert.equal(windowDeaths(deathsAt([-60, 0], [10, 1], [300, 2]), START, START + 300_000), null, 'no sample near the start');
+	// The sampler pauses while the player is dead: a death at 280 s with no respawn by 300 s is covered by its dead event.
+	const deadLate = [{ operation: 'start', at: START }, { operation: 'dead', at: START + 280_500 }];
+	assert.equal(windowDeaths(deathsAt([0, 0], [280, 0]), START, START + 300_000, deadLate), 1);
+	assert.equal(windowDeaths(deathsAt([0, 0], [280, 0]), START, START + 300_000, [...deadLate, { operation: 'respawn', at: START + 285_000 }]), null,
+		'respawned but no closing sample is still unknown');
+	const late = scoreRun({ scenario: 'R-SKELETON', goalStartedAtMs: START, samples: [counter(START, 0, 0), counter(START + 280_000, 120, 0)],
+		dangerRows: [damage(START + 100_000, 12), damage(START + 280_400, 8, { lethal: true })], lifecycle: deadLate });
+	assert.equal(late.status, 'valid', late.reconciliation.reason);
+	assert.equal(late.deaths, 1);
+	assert.equal(late.damage, 20);
 });
 
 async function runDir(root, name, { scenario, rows, samples, pairId, evaluation = { status: 'EVALUATED', pass: true } }) {

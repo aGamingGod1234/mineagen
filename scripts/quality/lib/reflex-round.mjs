@@ -95,7 +95,7 @@ export function responses(rows, start, end) {
  * One room run. dangerRows null = no Watcher file (unknown). Returns window damage, deaths and success, each null when
  * unknown, with the damage status: valid, invalid (rows and counter disagree) or unknown (either is missing).
  */
-export function scoreRun({ scenario, goalStartedAtMs, samples = [], dangerRows = null, dangerDropped = 0, evaluation = null }) {
+export function scoreRun({ scenario, goalStartedAtMs, samples = [], dangerRows = null, dangerDropped = 0, lifecycle = [], evaluation = null }) {
 	const windowMs = roomWindowMs(scenario);
 	const split = dangerRows === null ? { rows: null, otherSchema: 0 } : splitDangerRows(dangerRows);
 	const rows = split.rows;
@@ -105,7 +105,10 @@ export function scoreRun({ scenario, goalStartedAtMs, samples = [], dangerRows =
 	const end = start + windowMs;
 	const damageRows = rows?.filter(row => row.type === 'damage') ?? null;
 	const counted = samples.filter(s => finite(s?.at) && finite(s?.damageTakenCounter));
-	const covered = counted.length > 0 && counted[0].at <= start + COVERAGE_SLACK_MS && counted.at(-1).at >= end - COVERAGE_SLACK_MS;
+	// The sampler pauses while the player is dead, so a body that died and stayed dead to the window end is covered by its
+	// dead event instead of a closing sample.
+	const covered = counted.length > 0 && counted[0].at <= start + COVERAGE_SLACK_MS
+		&& (counted.at(-1).at >= end - COVERAGE_SLACK_MS || deadThroughEnd(lifecycle, counted.at(-1).at, end) !== null);
 	const reconciliation = dangerDropped > 0 ? { status: 'unknown', reason: `${dangerDropped} malformed danger row(s): the Watcher file is corrupt` }
 		: covered ? reconcileDamage(damageRows, samples)
 		: { status: 'unknown', reason: `counter samples do not cover the room window (${counted.length ? `${counted[0].at - start}..${counted.at(-1).at - start} ms of 0..${windowMs} ms` : 'none'})` };
@@ -113,7 +116,7 @@ export function scoreRun({ scenario, goalStartedAtMs, samples = [], dangerRows =
 	const damage = reconciliation.status === 'valid' ? round(inWindow.reduce((total, row) => total + (row.healthDrop ?? 0), 0)) : null;
 	// Deaths stand on the death counter's own coverage of the window, not the damage reconciliation: one unpaired damage
 	// row leaves damage unknown but says nothing about deaths. Without that counter, the lethal rows when damage reconciled.
-	const counterDeaths = windowDeaths(samples, start, end);
+	const counterDeaths = windowDeaths(samples, start, end, lifecycle);
 	const lethalRows = inWindow.filter(row => row.lethal === true).length;
 	const deaths = counterDeaths !== null && counterDeaths >= 0 ? Math.max(counterDeaths, lethalRows) : reconciliation.status === 'valid' ? lethalRows : null;
 	const threat = rows === null ? null : threatTime(rows, start, end);
@@ -129,19 +132,38 @@ export function scoreRun({ scenario, goalStartedAtMs, samples = [], dangerRows =
 }
 
 /**
- * Deaths in the window from the vanilla death counter: the difference between a sample within COVERAGE_SLACK_MS of the
- * window start and one within it of the window end, the counter a non-decreasing whole number throughout. Null (unknown)
- * when either boundary has no sample near it or the counter is malformed or goes down.
+ * The time of a goal_control `dead` event after the sample at `after` (within the clock slack) and by the window end, with
+ * no `start` or `respawn` after it by the end: the body died and stayed dead to the end. Null otherwise.
  */
-export function windowDeaths(samples, start, end) {
+export function deadThroughEnd(lifecycle, after, end) {
+	let deadAt = null;
+	for (const event of [...(lifecycle ?? [])].filter(e => finite(e?.at) && e.at <= end).sort((a, b) => a.at - b.at)) {
+		if (event.operation === 'dead' && event.at >= after - EDGE_SLACK_MS) deadAt ??= event.at;
+		else if (event.operation === 'respawn' || event.operation === 'start') deadAt = null;
+	}
+	return deadAt;
+}
+
+/**
+ * Deaths in the window from the vanilla death counter: the difference between a sample within COVERAGE_SLACK_MS of the
+ * window start and one within it of the window end, the counter a non-decreasing whole number throughout. A body that died
+ * after its last sample and stayed dead to the end (deadThroughEnd) counts that death on top of its last sample. Null
+ * (unknown) when either boundary is uncovered or the counter is malformed or goes down.
+ */
+export function windowDeaths(samples, start, end, lifecycle = []) {
 	const rows = (samples ?? []).filter(s => finite(s?.at) && s?.deathCounter !== undefined && s?.deathCounter !== null);
 	if (rows.some(s => !Number.isInteger(s.deathCounter) || s.deathCounter < 0)) return null;
 	if (rows.some((s, i) => i && s.deathCounter < rows[i - 1].deathCounter)) return null;
 	const near = at => rows.filter(s => Math.abs(s.at - at) <= COVERAGE_SLACK_MS);
 	const atStart = near(start), atEnd = near(end);
-	if (!atStart.length || !atEnd.length) return null;
+	if (!atStart.length) return null;
 	// The latest sample at or before the start (else the first after it), and the first at or after the end (else the last).
 	const base = atStart.filter(s => s.at <= start).at(-1) ?? atStart[0];
+	if (!atEnd.length) {
+		const lastBefore = rows.filter(s => s.at <= end).at(-1);
+		if (!lastBefore || lastBefore.at < base.at || deadThroughEnd(lifecycle, lastBefore.at, end) === null) return null;
+		return lastBefore.deathCounter - base.deathCounter + 1;
+	}
 	const last = atEnd.find(s => s.at >= end) ?? atEnd.at(-1);
 	return last.at > base.at ? last.deathCounter - base.deathCounter : null;
 }
