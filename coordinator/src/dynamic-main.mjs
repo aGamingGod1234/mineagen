@@ -6534,7 +6534,7 @@ function steerHealth(request) {
  * from the mob it is fighting, so those hits reach the model with the next steer instead of interrupting the fight
  * every two seconds. Anything new still interrupts: hazards, projectiles, escalating threats, an attacker outside the
  * fight, an unknown attacker, or health falling into a lower band (14, 10, 6) since the fight started or last cut. A
-fight with a bail-out line absorbs those bands down to max(fleeAtHealth, 6), and only that line cuts (fightSteerBands).
+ * fight with a bail-out line absorbs those bands down to max(fleeAtHealth, 6), and only that line cuts (fightSteerBands).
  * Pure: returns { interruption, absorbed, cut }. The caller stores `cut` as the new reference only when it actually
  * interrupts, so evaluating the same steer twice gives the same answer.
  */
