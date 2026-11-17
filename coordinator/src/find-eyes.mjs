@@ -94,7 +94,7 @@ export async function followEyes(target, body, { observation: initial, deadline,
 			if (at) return finish('FIND_SEEN', result.message, { ...at, blockId: 'minecraft:stone_bricks' });
 		}
 		// A leg cut short by its time or by water with ground covered is still a leg: throw again from here.
-		if (soft && ['TRAVEL_TIMEOUT', 'NO_ROUTE', 'TRAVEL_STALLED'].includes(result?.reasonCode) && Math.hypot(o.player.x - before.x, o.player.z - before.z) >= 8) return null;
+		if (soft && ['TRAVEL_TIMEOUT', 'NO_ROUTE', 'TRAVEL_STALLED', 'STALLED_IN_PLACE'].includes(result?.reasonCode) && Math.hypot(o.player.x - before.x, o.player.z - before.z) >= 8) return null;
 		if (result?.state !== 'SUCCEEDED') return finish('FIND_BLOCKED', result?.reasonCode ?? 'action did not complete');
 		return null;
 	};

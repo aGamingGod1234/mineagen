@@ -155,7 +155,7 @@ const MAX_WATER_STEPS = 6;
 const MAX_STEP_OUTS = 2;
 const MAX_STAIR_PULSES = 30;
 // Stops that say the way back up is flooded or shut, not that the body is in danger: a new stair up instead.
-const SHUT_WAY = new Set(['TUNNEL_FLOODED', 'NO_ROUTE', 'NO_STANDABLE_PATH', 'PATH_BLOCKED', 'OUT_OF_BLOCKS', 'WATER_AHEAD']);
+const SHUT_WAY = new Set(['TUNNEL_FLOODED', 'NO_ROUTE', 'STALLED_IN_PLACE', 'NO_STANDABLE_PATH', 'PATH_BLOCKED', 'OUT_OF_BLOCKS', 'WATER_AHEAD']);
 // A heading of a look is open water when this many of its far samples are water and none is land.
 const SEA_SAMPLES = 3;
 const SWIM_TICKS = 20;
@@ -1463,7 +1463,7 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 		if (ended !== null) return ended;
 		let from = at, after = bodyAt(observation);
 		if (building && !charged) built += Math.hypot(after.x - at.x, after.z - at.z);
-		if (!building && netherCrossing() && outcome.result?.reasonCode === 'NO_ROUTE' && supportedBlocks() >= MIN_SURFACE_LEG
+		if (!building && netherCrossing() && ['NO_ROUTE', 'STALLED_IN_PLACE'].includes(outcome.result?.reasonCode) && supportedBlocks() >= MIN_SURFACE_LEG
 			&& Math.hypot(after.x - at.x, after.z - at.z) < distance / 2 && left() >= MIN_LEG_MS && withinReach() >= MIN_SURFACE_LEG) {
 			if (BUILD_BUDGET - built < MIN_SURFACE_LEG) return constructionHandBack();
 			from = after;
