@@ -675,6 +675,18 @@ public final class MultiplexedServerBridgeVerification {
 			placement.set(session, true);
 			assertEquals("SUPPORT_FACE_HIDDEN", ((JsonObject) encoder.invoke(bridge, placementResult, session)).get("cause").getAsString(),
 					"negotiated placement cause reaches the actual wire payload");
+			// pausedBy reaches only a coordinator that announced pausedByFacts: an older one rejects unknown action_result keys.
+			Field pausedByFacts = sessionClass.getDeclaredField("pausedByFacts"); pausedByFacts.setAccessible(true);
+			var paused = new ServerActionResult(AgentId.random(), 1L, "paused-action", ActionType.NAVIGATE_TO, "trace-paused",
+					ServerActionState.SUCCEEDED, "ARRIVED", "", 1L, 1L).withPausedBy(new ServerActionResult.PausedBy(
+					List.of(new ServerActionResult.PausedBy.Rule("default-defend", 2)), 3_400L, 2, false));
+			assertTrue(!((JsonObject) encoder.invoke(bridge, paused, session)).has("pausedBy"), "a coordinator without pausedByFacts receives no pausedBy");
+			pausedByFacts.set(session, true);
+			JsonObject pausedWire = ((JsonObject) encoder.invoke(bridge, paused, session)).getAsJsonObject("pausedBy");
+			assertEquals("{\"rules\":[{\"id\":\"default-defend\",\"times\":2}],\"ms\":3400,\"resumes\":2,\"endedPaused\":false}", pausedWire.toString(),
+					"a negotiated coordinator receives pausedBy");
+			var unpaused = new ServerActionResult(AgentId.random(), 1L, "plain-action", ActionType.WAIT, "trace-plain", ServerActionState.SUCCEEDED, "DONE", "", 1L, 1L);
+			assertTrue(!((JsonObject) encoder.invoke(bridge, unpaused, session)).has("pausedBy"), "an action no firing paused has no pausedBy");
 			var announced = MultiplexedServerBridge.class.getDeclaredMethod("announcedCapability", JsonObject.class, String.class);
 			announced.setAccessible(true);
 			JsonObject hello = new JsonObject(); hello.addProperty("breakExposureFacts", true);
@@ -2838,6 +2850,16 @@ public final class MultiplexedServerBridgeVerification {
 		);
 		assertEquals(traceId, request.traceId(), "action request retains the trace ID");
 		assertEquals("watcher-0", request.provenance().watcherId(), "action request retains watcher provenance");
+		// provenance.issuer is optional (older coordinators omit it), audit-only, and limited to the known issuers.
+		assertTrue(MultiplexedServerBridge.actionIssuer(payload) == null, "an older coordinator's command has no issuer");
+		wireProvenance.addProperty("issuer", "standing_order");
+		assertEquals("standing_order", MultiplexedServerBridge.actionIssuer(payload), "the explicit issuer is read");
+		BridgeEnvelope issued = new BridgeEnvelope(2, "server-instance", agent.toString(), "action_command", "message-1", payload);
+		assertEquals(request.provenance(), MultiplexedServerBridge.decodeActionRequest(issued).provenance(), "the issuer stays out of the provenance identity");
+		wireProvenance.addProperty("issuer", "native-");
+		BridgeEnvelope unknown = new BridgeEnvelope(2, "server-instance", agent.toString(), "action_command", "message-1", payload);
+		assertThrowsBridgeCode(() -> MultiplexedServerBridge.decodeActionRequest(unknown), "INVALID_PROVENANCE", "an unknown issuer is rejected");
+		wireProvenance.remove("issuer");
 		ServerActionProgress progress = new ServerActionProgress(agent, 1L, "action-1", ActionType.WAIT, traceId, 0.5D, 1L, 2L);
 		ServerActionResult result = new ServerActionResult(agent, 1L, "action-1", ActionType.WAIT, traceId, ServerActionState.SUCCEEDED, "DONE", "", 2L, 3L);
 		assertEquals(traceId, progress.traceId(), "first progress retains the action trace ID");

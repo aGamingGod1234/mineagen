@@ -717,7 +717,7 @@ export function validateActionProvenance(value) {
 	}
 	requireKeys(
 		provenance,
-		['provider', 'model', 'reasoningEffort', 'serviceTier', 'programId', 'programVersion', 'sourceStepId', 'eventSequence', 'traceId', 'watcherId'],
+		['provider', 'model', 'reasoningEffort', 'serviceTier', 'programId', 'programVersion', 'sourceStepId', 'eventSequence', 'traceId', 'watcherId', 'issuer'],
 		'provenance',
 		['provider', 'model', 'reasoningEffort', 'serviceTier', 'programId', 'programVersion', 'sourceStepId', 'eventSequence'],
 	);
@@ -734,7 +734,16 @@ export function validateActionProvenance(value) {
 		eventSequence: provenance.eventSequence,
 		...(provenance.traceId === undefined ? {} : { traceId: requireTraceId(provenance.traceId) }),
 		...(provenance.watcherId === undefined ? {} : { watcherId: requireText(provenance.watcherId, 'provenance.watcherId', 128) }),
+		...(provenance.issuer === undefined ? {} : { issuer: requireIssuer(provenance.issuer) }),
 	});
+}
+
+/** Who issued a command, recorded for audits (never inferred from the programId prefix). */
+export const ACTION_ISSUERS = Object.freeze(['model', 'skill_leg', 'program', 'standing_order', 'guard']);
+
+function requireIssuer(value) {
+	if (!ACTION_ISSUERS.includes(value)) throw invalid('INVALID_FIELD', `provenance.issuer must be one of ${ACTION_ISSUERS.join(', ')}`);
+	return value;
 }
 
 function requireTraceId(value) {

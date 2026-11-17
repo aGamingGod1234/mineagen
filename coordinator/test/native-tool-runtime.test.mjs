@@ -329,6 +329,7 @@ test('an interrupted sequence reports its active step and leaves later actions u
 	}, record());
 	for (let attempt = 0; attempt < 8 && sent.length === 0; attempt += 1) await new Promise((resolve) => setImmediate(resolve));
 	assert.equal(sent.length, 1, 'only the current sequence step has started');
+	assert.equal(sent[0][2].provenance.issuer, 'skill_leg', 'a sequence step is a composite-skill leg, whatever its programId prefix');
 	const actionId = sent[0][2].actionId;
 	assert.equal(runtime.interruptBlockingTool('agent-a'), true);
 	const early = await Promise.race([
@@ -1645,6 +1646,11 @@ test('the dispatch chain is traced per call: journal, bridge send and the Java a
 	for (const event of ['native_tool_dispatch_started', 'native_tool_journal_written', 'native_tool_command_sent']) assert.equal(by(event).callId, 'call-new', event);
 	assert.ok(by('native_tool_journal_written').journalMs >= 0);
 	assert.ok(by('native_tool_command_sent').sendMs >= 0 && by('native_tool_command_sent').dispatchMs >= by('native_tool_command_sent').sendMs);
+	// The sent row names the observation the command was chosen on, its program and its explicit issuer (C17).
+	assert.equal(by('native_tool_command_sent').eventSequence, 1);
+	assert.equal(by('native_tool_command_sent').programId, sent[0][2].provenance.programId);
+	assert.equal(by('native_tool_command_sent').issuer, 'model');
+	assert.equal(sent[0][2].provenance.issuer, 'model', 'a direct model call is issued by the model');
 	assert.equal(by('native_tool_action_progress').serverTick, 4_012);
 	const completed = by('native_tool_action_completed');
 	assert.deepEqual(

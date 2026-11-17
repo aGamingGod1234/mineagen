@@ -266,7 +266,7 @@ function normalizeProtocolV2Payload(type, value) {
 				proof: authenticationToken(value.proof, 'proof'),
 			};
 		case 'hello':
-			exactKeys(value, ['replyTo', 'clientNonce', 'serverNonce', 'proof', 'launchId', 'registryFragments', 'actionTiming', 'blockTags', 'planFacts', 'bodyFacts', 'breakExposureFacts', 'breakOutcomeFacts', 'placementFacts', 'dropAheadFacts'], ['replyTo', 'clientNonce', 'serverNonce', 'proof'], type);
+			exactKeys(value, ['replyTo', 'clientNonce', 'serverNonce', 'proof', 'launchId', 'registryFragments', 'actionTiming', 'blockTags', 'planFacts', 'bodyFacts', 'breakExposureFacts', 'breakOutcomeFacts', 'placementFacts', 'dropAheadFacts', 'pausedByFacts', 'actionIssuer'], ['replyTo', 'clientNonce', 'serverNonce', 'proof'], type);
 			return {
 				replyTo: boundedText(value.replyTo, 'replyTo', MAX_COMMAND_ID_LENGTH),
 				clientNonce: authenticationToken(value.clientNonce, 'clientNonce'),
@@ -281,16 +281,19 @@ function normalizeProtocolV2Payload(type, value) {
 				...(value.placementFacts === undefined ? {} : { placementFacts: boolean(value.placementFacts, 'placementFacts') }),
 				...(value.breakOutcomeFacts === undefined ? {} : { breakOutcomeFacts: boolean(value.breakOutcomeFacts, 'breakOutcomeFacts') }),
 				...(value.dropAheadFacts === undefined ? {} : { dropAheadFacts: boolean(value.dropAheadFacts, 'dropAheadFacts') }),
+				...(value.pausedByFacts === undefined ? {} : { pausedByFacts: boolean(value.pausedByFacts, 'pausedByFacts') }),
+				...(value.actionIssuer === undefined ? {} : { actionIssuer: boolean(value.actionIssuer, 'actionIssuer') }),
 				...(value.launchId === undefined ? {} : { launchId: launchIdentity(value.launchId) }),
 			};
 		case 'hello_ack':
-			exactKeys(value, ['replyTo', 'authenticated', 'registry', 'launchId', 'registryCount'], ['replyTo', 'authenticated', 'registry'], type);
+			exactKeys(value, ['replyTo', 'authenticated', 'registry', 'launchId', 'registryCount', 'actionIssuer'], ['replyTo', 'authenticated', 'registry'], type);
 			if (value.authenticated !== true) throw new ProtocolV2Error('INVALID_PAYLOAD', 'hello_ack authenticated must be true');
 			return {
 				replyTo: boundedText(value.replyTo, 'replyTo', MAX_COMMAND_ID_LENGTH),
 				authenticated: true,
 				registry: boundedArray(value.registry, 'registry', MAX_REGISTRY_SNAPSHOT_AGENTS).map((entry) => normalizeRegisteredAgent(entry, 'registry entry')),
 				...(value.registryCount === undefined ? {} : { registryCount: nonnegativeInteger(value.registryCount, 'registryCount') }),
+				...(value.actionIssuer === undefined ? {} : { actionIssuer: boolean(value.actionIssuer, 'actionIssuer') }),
 				...(value.launchId === undefined ? {} : { launchId: launchIdentity(value.launchId) }),
 			};
 		case 'registry_fragment': {
@@ -557,6 +560,7 @@ export class MultiplexedServerBridge extends EventEmitter {
 	#registryFragment = null;
 	#running = false;
 	#ready = false;
+	#actionIssuer = false;
 	#recovering = false;
 	#challengeMessageId = null;
 	#helloMessageId = null;
@@ -674,7 +678,7 @@ export class MultiplexedServerBridge extends EventEmitter {
 			agentId,
 			type,
 			messageId: this.#messageIds.next(),
-			payload,
+			payload: type === 'action_command' && !this.#actionIssuer ? withoutIssuer(payload) : payload,
 		});
 		validateProtocolV2Envelope(envelope, { direction: 'coordinator_to_server' });
 		this.#assertRevision(envelope, REVISION_GUARDED_OUTBOUND_TYPES);
@@ -960,6 +964,10 @@ export class MultiplexedServerBridge extends EventEmitter {
 				placementFacts: true,
 				// Lets the server add player.dropAhead and its attention path; an older coordinator rejects both.
 				dropAheadFacts: true,
+				// Lets the server add action_result.pausedBy (the reflex firings that paused the action).
+				pausedByFacts: true,
+				// Asks the server to echo actionIssuer in hello_ack; only then is provenance.issuer sent (an older server rejects it).
+				actionIssuer: true,
 				...(this.#launchId === null ? {} : { launchId: this.#launchId }),
 			},
 		});
@@ -987,6 +995,7 @@ export class MultiplexedServerBridge extends EventEmitter {
 		const registry = envelope.payload.registry ?? [];
 		if (!Array.isArray(registry)) throw new ProtocolV2Error('INVALID_REGISTRY_SNAPSHOT', 'hello_ack registry must be an array');
 		this.#serverInstanceId = envelope.serverInstanceId;
+		this.#actionIssuer = envelope.payload.actionIssuer === true;
 		this.#knownAgentIds = new Set(registry.map((entry) => requireIdentifier(entry?.agentId, 'registry agentId')));
 		for (const agentId of this.#knownAgentIds) this.#retiredAgentIds.delete(agentId);
 		this.#observedRevisions = new Map(registry.map((entry) => [
@@ -2584,8 +2593,15 @@ function normalizeActionProgress(value) {
 	return normalized;
 }
 
+/** A server that did not echo actionIssuer predates provenance.issuer and rejects it; the trace keeps the issuer. */
+function withoutIssuer(payload) {
+	if (payload?.provenance?.issuer === undefined) return payload;
+	const { issuer: _issuer, ...provenance } = payload.provenance;
+	return { ...payload, provenance };
+}
+
 function normalizeActionResult(value) {
-	const allowed = ['traceId', 'goalRevision', 'actionId', 'commandId', 'actionType', 'state', 'reasonCode', 'message', 'elapsedMs', 'observedAtEpochMs', 'executionStarted', 'physicalAttempted', 'timing', 'actionObservation', 'breakOutcome', 'cause', 'replayProof'];
+	const allowed = ['traceId', 'goalRevision', 'actionId', 'commandId', 'actionType', 'state', 'reasonCode', 'message', 'elapsedMs', 'observedAtEpochMs', 'executionStarted', 'physicalAttempted', 'timing', 'actionObservation', 'breakOutcome', 'cause', 'replayProof', 'pausedBy'];
 	exactKeys(value, allowed, ['traceId', 'goalRevision', 'actionId', 'commandId', 'actionType', 'state', 'reasonCode', 'message', 'elapsedMs', 'observedAtEpochMs'], 'action_result');
 	const actionId = requireIdentifier(value.actionId, 'actionId');
 	if (value.commandId !== actionId) throw new ProtocolV2Error('INVALID_PAYLOAD', 'commandId must match actionId');
@@ -2623,9 +2639,23 @@ function normalizeActionResult(value) {
 		normalized.cause = boundedText(value.cause, 'cause', MAX_REASON_CODE_LENGTH);
 	}
 	if (value.breakOutcome !== undefined) normalized.breakOutcome = normalizeBreakOutcome(value.breakOutcome);
+	if (value.pausedBy !== undefined) normalized.pausedBy = normalizePausedBy(value.pausedBy);
 	if (value.replayProof !== undefined) normalized.replayProof = authenticationToken(value.replayProof, 'replayProof');
 	if (normalized.physicalAttempted === true && normalized.executionStarted !== true) throw new ProtocolV2Error('INVALID_PAYLOAD', 'physicalAttempted requires executionStarted');
 	return normalized;
+}
+
+/** Reflex firings that paused the action: each rule and how often, paused ms, resumes, and whether it ended paused. */
+function normalizePausedBy(value) {
+	exactKeys(value, ['rules', 'ms', 'resumes', 'endedPaused'], ['rules', 'ms', 'resumes', 'endedPaused'], 'action_result.pausedBy');
+	const rules = boundedArray(value.rules, 'pausedBy.rules', 32).map((rule, index) => {
+		exactKeys(rule, ['id', 'times'], ['id', 'times'], `action_result.pausedBy.rules[${index}]`);
+		const times = nonnegativeInteger(rule.times, `pausedBy.rules[${index}].times`);
+		if (times < 1) throw new ProtocolV2Error('INVALID_PAYLOAD', 'pausedBy rule times must be at least 1');
+		return { id: boundedText(rule.id, `pausedBy.rules[${index}].id`, 128), times };
+	});
+	if (rules.length === 0) throw new ProtocolV2Error('INVALID_PAYLOAD', 'pausedBy needs at least one rule');
+	return { rules, ms: nonnegativeInteger(value.ms, 'pausedBy.ms'), resumes: nonnegativeInteger(value.resumes, 'pausedBy.resumes'), endedPaused: boolean(value.endedPaused, 'pausedBy.endedPaused') };
 }
 
 /**
