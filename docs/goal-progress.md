@@ -43,14 +43,14 @@ Full games from a fresh world:
 | 5 | 2026-11-14 | 8 | 6 | 54 | 1 | 0 | 0 | 2.5 |
 | 6 | 2026-11-15 | 6 | 4 | 122 | 1 | 1 | 0 | 2.2 |
 
-Round 6 dropped the two seeds that had not reached the Nether in rounds 4 or 5. Every game in rounds 4 to 6 got the iron pickaxe and the shield. The median time to the iron pickaxe was 8 minutes in round 5. Single-seed experiments after round 6 and games started from a Nether save point are not in this table.
+Round 3 changed the test tooling and played no games. Round 6 dropped the two seeds that had not reached the Nether in rounds 4 or 5. Every game in rounds 4 to 6 got the iron pickaxe and the shield. The median time to the iron pickaxe was 8 minutes in round 5. Single-seed experiments after round 6 and games started from a Nether save point are not in this table.
 
 Where things stand:
 
 - **Furthest from scratch:** a Nether fortress and ender pearls. No fresh-world game has yet got blaze rods, eyes of ender, the stronghold, the End or the dragon.
 - **Late game, staged:** the agent has killed the dragon twice from a start already in the End (in 44 minutes, then in 7 minutes), and entered the End once from a start holding twelve eyes.
 - **Biggest walls:** reaching the Nether reliably (one seed has never got there in three rounds), then finding a fortress and getting blaze rods once there.
-- **Deaths:** about 2.5 per game. Across rounds 2 to 6 there were 78 deaths: skeleton arrows (28), zombies (12), lava (9, all after the agent had reached the Nether), Drowned mobs (5), creepers (4), spiders (4), drowning (2) and other or unknown causes (14).
+- **Deaths:** about 2.6 per game. The 30 games in the table had 78 deaths: skeleton arrows (28), zombies (12), lava (9, all after the agent had reached the Nether), Drowned mobs (5), creepers (4), spiders (4), drowning (2) and other or unknown causes (14).
 
 ## Keeping this page current
 
