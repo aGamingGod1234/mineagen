@@ -51,8 +51,9 @@ import net.minecraft.world.phys.Vec3;
  * an ordinary fight_target (melee) or use_ranged untilDead (bow) at the nearest seen target of that type inside the
  * area, with the same aim, reach, timing and pickup those actions have. Between engagements the body walks back to the
  * model's spot (when one was given). It stops at the count, at timeoutMs, at fleeAtHealth, on new lava contact, when a
- * bow-only skill runs out of arrows or bow, when no target was seen for 30 s, when two engagements in a row fail with the
- * same reason, or when the model cancels. Fire alone does not hand back: as a player plays blazes, the body steps off a
+ * bow-only skill runs out of arrows or bow, when no target was seen for 30 s (after a kill, once a look around of 3 to
+ * 5 s finds none left; {@link AreaCleared}), when two engagements in a row fail with the same reason, or when the model
+ * cancels. Fire alone does not hand back: as a player plays blazes, the body steps off a
  * fire block and fights on while it burns; with a shield in the offhand it lowers the weapon and raises the shield
  * toward a shot it sees flying at it (vanilla blocking: activation delay, front arc), then fights on; and between
  * engagements with two or more blazes in line of fire it steps to a seen cell within 3 blocks that fewer of them see
@@ -201,6 +202,10 @@ public final class ServerFightUntilController implements ServerController {
 	private boolean heldForFloor;
 	private boolean bowSpent;
 	private long lastTargetMs;
+	/** The cleared-area look after a kill: how long the body has looked around without a target. */
+	private final AreaCleared areaCleared = new AreaCleared();
+	/** collect:false drops seen in the area that wait for a hostile to leave; the area is not cleared while they do. */
+	private boolean clearDropsWaiting;
 	/** The shield arm and fire footwork share one combat input lease, held only while they act. */
 	private final CombatInputLease guardInput = new CombatInputLease();
 	/**
@@ -635,16 +640,23 @@ public final class ServerFightUntilController implements ServerController {
 			return TickResult.running(progress(player));
 		}
 		if (elapsed - lastTargetMs >= NO_TARGET_MS) {
-			Vec3 outside = leads == null ? null : leads.nearestOutside(player.position(), elapsed);
-			String seenOutside = outside == null ? "" : String.format(Locale.ROOT, "; you last saw one outside that area at %s, %.0f blocks from you",
-					cell(outside), player.position().distanceTo(outside));
 			return stop(player, TickResult.failed("NO_TARGET_SEEN", String.format(Locale.ROOT,
-					"No %s seen within %.0f blocks of %s for %.0f s%s", mobId, radius, cell(center), NO_TARGET_MS / 1000.0D, seenOutside), progress(player)));
+					"No %s seen within %.0f blocks of %s for %.0f s%s", mobId, radius, cell(center), NO_TARGET_MS / 1000.0D, seenOutside(player, elapsed)), progress(player)));
 		}
 		if (roofed) {
 			TickResult walking = walkTo(player, Vec3.atBottomCenterOf(roofCenter), nowEpochMs);
-			if (walking != null) return walking;
-		} else if (spot != null && (walk != null || player.position().distanceTo(spot) > SPOT_SLACK)) return walkBack(player, nowEpochMs);
+			if (walking != null) { areaCleared.busy(elapsed); return walking; }
+		} else if (spot != null && (walk != null || player.position().distanceTo(spot) > SPOT_SLACK)) {
+			areaCleared.busy(elapsed);
+			return walkBack(player, nowEpochMs);
+		}
+		boolean blaze = mob == McEntityTypes.BLAZE;
+		long quietMs = areaCleared.observe(kills, blaze, elapsed, lastTargetMs,
+				AreaCleared.applies(kills, blaze) && (clearDropsWaiting || passedOverInView(player)), lookStep);
+		if (quietMs >= 0L)
+			return stop(player, TickResult.failed("AREA_CLEARED", String.format(Locale.ROOT,
+					"No %s left in view within %.0f blocks of %s after %d kill%s (looked around %.1f s)%s", mobId, radius, cell(center),
+					kills, kills == 1 ? "" : "s", quietMs / 1000.0D, seenOutside(player, elapsed)), progress(player)));
 		lookAround(player, nowEpochMs);
 		return TickResult.running(progress(player));
 	}
@@ -995,6 +1007,21 @@ public final class ServerFightUntilController implements ServerController {
 	private static boolean eyesClear(ServerPlayer player, LivingEntity target) {
 		return player.level().clip(new ClipContext(target.getEyePosition(), player.getEyePosition(), ClipContext.Block.COLLIDER,
 				ClipContext.Fluid.NONE, target)).getType() == HitResult.Type.MISS;
+	}
+
+	private String seenOutside(ServerPlayer player, long elapsed) {
+		Vec3 outside = leads == null ? null : leads.nearestOutside(player.position(), elapsed);
+		return outside == null ? "" : String.format(Locale.ROOT, "; you last saw one outside that area at %s, %.0f blocks from you",
+				cell(outside), player.position().distanceTo(outside));
+	}
+
+	/** A mob of the type passed over for a while ({@link #EXCLUDE_MS}) that the body still sees inside the area. */
+	private boolean passedOverInView(ServerPlayer player) {
+		if (excluded.isEmpty()) return false;
+		for (LivingEntity entity : player.level().getEntitiesOfClass(LivingEntity.class, new AABB(center, center).inflate(radius),
+				e -> e.getType() == mob && e.isAlive() && !e.isDeadOrDying() && excluded.containsKey(e.getUUID())))
+			if (entity.position().distanceTo(center) <= radius && sensed(player, entity)) return true;
+		return false;
 	}
 
 	/** Eased 60-degree turns, alternating level and raised pitch (blazes hover), one after another. */
@@ -1728,6 +1755,7 @@ public final class ServerFightUntilController implements ServerController {
 	 * goes on from there. Null when there is nothing to do.
 	 */
 	private TickResult tickClear(ServerPlayer player, long now, long elapsed) {
+		clearDropsWaiting = false;
 		if (clearCollector != null) {
 			String blocker = blockerNow(player);
 			if (blocker != null) {
@@ -1781,6 +1809,7 @@ public final class ServerFightUntilController implements ServerController {
 		if (blocker != null) {
 			clearWaitTicks++;
 			clearBlocker = blocker;
+			clearDropsWaiting = true;
 			return null;
 		}
 		clearTried.addAll(drops);

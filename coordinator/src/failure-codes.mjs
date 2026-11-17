@@ -322,9 +322,10 @@ export const FAILURE_CODES = Object.freeze({
 	PROTECTION_DENIED: ['rule', 'server protection permits the requested action', ['protection.may', 'policy.mayModifyBlock', 'isUnderSpawnProtection', 'level.mayInteract', 'plantProtection = at ->']],
 	RANGED_USE_TIMED_OUT: ['rule', null],
 	RANGED_VOLLEY_TIMED_OUT: ['rule', null],
-	// fight_until stops (the model's goal skill hands back): time, no target, burning, spot.
+	// fight_until stops (the model's goal skill hands back): time, no target, an area cleared after a kill, burning, spot.
 	FIGHT_UNTIL_TIMED_OUT: ['rule', null],
 	NO_TARGET_SEEN: ['entity', null],
+	AREA_CLEARED: ['entity', null],
 	BURNING: ['threat', null],
 	SPOT_UNREACHABLE: ['cell', null],
 	// roof:true against endermen: not enough carried blocks, the shelter build failed, the sill could not be aimed at.
