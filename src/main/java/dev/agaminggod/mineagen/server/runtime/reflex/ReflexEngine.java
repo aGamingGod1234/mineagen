@@ -520,8 +520,15 @@ public final class ReflexEngine {
 			rules.add(rule);
 		}
 		status.add("rules", rules);
+		status.add("events", eventRows(agent.scheduler.events()));
+		if (agent.error != null) status.addProperty("error", agent.error.length() > 240 ? agent.error.substring(0, 240) : agent.error);
+		return status;
+	}
+
+	/** The observation's {@code reflexes.events} rows; server-free so its output can be held to a golden string. */
+	static JsonArray eventRows(List<ReflexScheduler.Event> recent) {
 		JsonArray events = new JsonArray();
-		for (ReflexScheduler.Event event : agent.scheduler.events()) {
+		for (ReflexScheduler.Event event : recent) {
 			JsonObject row = new JsonObject();
 			row.addProperty("seq", event.sequence());
 			row.addProperty("id", event.ruleId());
@@ -531,9 +538,7 @@ public final class ReflexEngine {
 			if (event.wake()) row.addProperty("wake", true);
 			events.add(row);
 		}
-		status.add("events", events);
-		if (agent.error != null) status.addProperty("error", agent.error.length() > 240 ? agent.error.substring(0, 240) : agent.error);
-		return status;
+		return events;
 	}
 
 	private long now() {

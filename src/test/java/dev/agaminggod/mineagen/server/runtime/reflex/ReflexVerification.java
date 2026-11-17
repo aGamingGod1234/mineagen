@@ -60,7 +60,60 @@ public final class ReflexVerification {
 		heldInputPassesThrough();
 		diggingVocabulary();
 		fireVocabulary();
+		eventEndTicks();
 		return assertions;
+	}
+
+	/**
+	 * Every event carries the tick it happened at; for a real firing, endTick minus its duration is the firing's start,
+	 * whichever way it ended. Held-back and disabled events are not firings. The observation's event rows stay unchanged.
+	 */
+	private static void eventEndTicks() {
+		String trigger = "[{\"id\":\"swap\",\"when\":{\"type\":\"tool_broke\"},\"do\":{\"type\":\"select\",\"tool\":\"any\"},\"maxMs\":1000}]";
+		ReflexScheduler done = new ReflexScheduler();
+		done.replace(rules(trigger), 0);
+		done.step(1, sense("swap", true), RUNNING, "", false);
+		done.step(5, sense("swap", true), ReflexScheduler.ActionStatus.DONE, "selected", false);
+		ReflexScheduler timeout = new ReflexScheduler();
+		timeout.replace(rules(trigger), 0);
+		timeout.step(1, sense("swap", true), RUNNING, "", false);
+		for (long tick = 2; tick <= 21; tick++) timeout.step(tick, sense("swap", true), RUNNING, "", false);
+		ReflexScheduler yielded = new ReflexScheduler();
+		yielded.replace(rules(trigger), 0);
+		yielded.step(1, sense("swap", true), RUNNING, "", false);
+		yielded.yield(7);
+		ReflexScheduler interrupted = new ReflexScheduler();
+		interrupted.replace(rules(trigger), 0);
+		interrupted.step(1, sense("swap", true), RUNNING, "", false);
+		interrupted.interrupt(9, "died");
+		for (Object[] row : new Object[][] {{done, ReflexScheduler.Outcome.DONE, 5L}, {timeout, ReflexScheduler.Outcome.TIMEOUT, 21L},
+				{yielded, ReflexScheduler.Outcome.YIELDED, 7L}, {interrupted, ReflexScheduler.Outcome.YIELDED, 9L}}) {
+			ReflexScheduler.Event event = ((ReflexScheduler) row[0]).events().getLast();
+			check(event.outcome() == row[1] && event.firing() && event.endTick() == (long) row[2] && event.endTick() - event.durationTicks() == 1L,
+					"endTick minus duration is the start for " + row[1] + " ending at " + row[2]);
+		}
+		ReflexScheduler held = new ReflexScheduler();
+		held.replace(rules(trigger), 0);
+		held.step(3, sense("swap", true), RUNNING, "", false, false, 0L, Map.of("swap", "short of air"));
+		ReflexScheduler.Event heldBack = held.events().getLast();
+		check(heldBack.outcome() == ReflexScheduler.Outcome.YIELDED && !heldBack.firing() && heldBack.endTick() == 3L && heldBack.durationTicks() == 0L,
+				"a held-back rule is not a firing");
+		ReflexScheduler failing = new ReflexScheduler();
+		failing.replace(rules("[{\"id\":\"eat\",\"when\":{\"type\":\"health_below\",\"value\":8},\"do\":{\"type\":\"eat\"}}]"), 0);
+		long tick = 0;
+		for (int firing = 0; firing < ReflexScheduler.MAX_FAILURES_IN_A_ROW; firing++) {
+			failing.step(++tick, sense("eat", false), RUNNING, "", false);
+			failing.step(++tick, sense("eat", true), RUNNING, "", false);
+			failing.step(++tick, sense("eat", true), ReflexScheduler.ActionStatus.FAILED, "no food", false);
+			tick += 20;
+		}
+		check(failing.events().getLast().outcome() == ReflexScheduler.Outcome.DISABLED && !failing.events().getLast().firing()
+				&& failing.events().stream().filter(event -> event.outcome() == ReflexScheduler.Outcome.FAILED).allMatch(ReflexScheduler.Event::firing),
+				"a disabled event is not a firing; each failed firing is");
+		String golden = "[{\"seq\":1,\"id\":\"swap\",\"outcome\":\"done\",\"ms\":200,\"detail\":\"selected\"}]";
+		check(golden.equals(ReflexEngine.eventRows(done.events()).toString()), "observation event rows are unchanged: " + ReflexEngine.eventRows(done.events()));
+		String yieldGolden = "[{\"seq\":1,\"id\":\"swap\",\"outcome\":\"yielded\",\"ms\":300,\"detail\":\"model command\"}]";
+		check(yieldGolden.equals(ReflexEngine.eventRows(yielded.events()).toString()), "yield rows are unchanged: " + ReflexEngine.eventRows(yielded.events()));
 	}
 
 	/** The work-interruption terms parse with their bounds and reject what a player could not do or see. */

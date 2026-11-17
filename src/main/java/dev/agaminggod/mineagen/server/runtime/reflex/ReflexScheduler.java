@@ -44,7 +44,11 @@ public final class ReflexScheduler {
 		}
 	}
 
-	public record Event(long sequence, String ruleId, Outcome outcome, long durationTicks, String detail, boolean wake) {
+	/**
+	 * One scheduler event. {@code endTick} is the server tick it happened at; {@code firing} is true only when a real firing
+	 * ended (then {@code endTick - durationTicks} is its start), false for held-back, disabled and idle expiry events.
+	 */
+	public record Event(long sequence, String ruleId, Outcome outcome, long durationTicks, String detail, boolean wake, long endTick, boolean firing) {
 	}
 
 	public record Firing(String ruleId, long startTick, long maxTicks) {
@@ -218,7 +222,8 @@ public final class ReflexScheduler {
 				current = null;
 			}
 			states.remove(state.rule.id());
-			addEvent(state.rule.id(), Outcome.EXPIRED, ended != null && ended.ruleId().equals(state.rule.id()) ? now - ended.startTick() : 0L, why, false);
+			boolean wasFiring = ended != null && ended.ruleId().equals(state.rule.id());
+			addEvent(state.rule.id(), Outcome.EXPIRED, wasFiring ? now - ended.startTick() : 0L, why, false, now, wasFiring);
 		}
 		for (State state : states.values()) {
 			if (state.disabledReason != null) continue;
@@ -241,7 +246,7 @@ public final class ReflexScheduler {
 			boolean waiting = state.rule.kind() == ReflexSpec.Kind.TRIGGER ? state.pendingUntil >= now : truth && !state.suppressed;
 			if (held != null && truth && !state.heldBack && waiting && !firing && now >= state.cooldownUntil) {
 				state.heldBack = true;
-				addEvent(state.rule.id(), Outcome.YIELDED, 0L, "held back: " + held, false);
+				addEvent(state.rule.id(), Outcome.YIELDED, 0L, "held back: " + held, false, now, false);
 			} else if (held == null && state.heldBack) {
 				state.heldBack = false;
 				if (truth && state.rule.kind() == ReflexSpec.Kind.TRIGGER) state.pendingUntil = Math.max(now, state.cooldownUntil) + PENDING_TICKS;
@@ -356,7 +361,7 @@ public final class ReflexScheduler {
 		if (current == null) return Decision.NONE;
 		Firing ended = current;
 		current = null;
-		addEvent(ended.ruleId(), Outcome.YIELDED, now - ended.startTick(), why, false);
+		addEvent(ended.ruleId(), Outcome.YIELDED, now - ended.startTick(), why, false, now, true);
 		State state = states.get(ended.ruleId());
 		if (state != null) state.cooldownUntil = now + Math.max(1L, state.rule.cooldownMs() / 50L);
 		return new Decision(ended, Outcome.YIELDED, null);
@@ -400,7 +405,7 @@ public final class ReflexScheduler {
 		} else if (progress) {
 			state.failuresInARow = 0;
 		}
-		addEvent(state.rule.id(), outcome, duration, detail, wake);
+		addEvent(state.rule.id(), outcome, duration, detail, wake, now, true);
 		String disabled = null;
 		if (state.failuresInARow >= MAX_FAILURES_IN_A_ROW) {
 			disabled = "fired " + state.failuresInARow + "x in a row without progress"
@@ -410,13 +415,13 @@ public final class ReflexScheduler {
 		}
 		if (disabled != null) {
 			state.disabledReason = disabled;
-			addEvent(state.rule.id(), Outcome.DISABLED, 0L, disabled, true);
+			addEvent(state.rule.id(), Outcome.DISABLED, 0L, disabled, true, now, false);
 		}
 	}
 
-	private void addEvent(String ruleId, Outcome outcome, long durationTicks, String detail, boolean wake) {
+	private void addEvent(String ruleId, Outcome outcome, long durationTicks, String detail, boolean wake, long endTick, boolean firing) {
 		String bounded = detail == null ? "" : detail.length() > 160 ? detail.substring(0, 160) : detail;
-		events.addLast(new Event(nextSequence++, ruleId, outcome, durationTicks, bounded, wake));
+		events.addLast(new Event(nextSequence++, ruleId, outcome, durationTicks, bounded, wake, endTick, firing));
 		while (events.size() > MAX_EVENTS) events.removeFirst();
 	}
 
