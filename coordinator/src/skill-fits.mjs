@@ -1,4 +1,4 @@
-import { foodAdviceNeeded } from './survival-advice.mjs';
+import { foodAdviceNeeded, portalBedSource } from './survival-advice.mjs';
 
 // One wake fact: a goal skill (fight_until, barter_until, build nether_portal by casting, cast_obsidian) whose preconditions hold right now, with the
 // call's fields and the facts that make it fit. It names a call the model may make; nothing runs from it.
@@ -96,7 +96,42 @@ function tier(id) { return ['wooden', 'golden', 'stone', 'copper', 'iron', 'diam
 // may take or ignore, and starts nothing.
 export const ROUTE_BYTES = 220;
 export const PORTAL_ENTRY_NEXT = 'enter the Nether through the lit portal now';
-export const PORTAL_ENTRY_PREP = 'food stocks and a bed are optional unless health or hunger is low';
+const ENTRY_FOOD = 'food stocks are optional unless health or hunger is low';
+// Also the PORTAL_LIT result's hint, which cannot see the inventory, so it names the bed step's condition.
+export const PORTAL_ENTRY_PREP = `place and use a bed by the portal first if a bed, 3 matching wool or sheep are in reach; ${ENTRY_FOOD}`;
+// A respawn set this close to the portal already brings a Nether death back to it.
+const BED_NEAR = 24;
+const USE_BED = 'interact_block it until "Respawn point set" (by day too), keep it';
+
+/**
+ * C33: the respawn bed by the Overworld portal before the first Nether entry. In rounds 4 to 6, 17 Nether deaths
+ * respawned 50 to 576 blocks from the portal and took about 557 minutes to get back, more than the 362 spent there.
+ * Only from what is in reach (portalBedSource), never a wool search. lit: the portal is lit (frame: its cell when known);
+ * before lighting the bed is only made ready. Returns { step: [next, why] } or { skip: reason }.
+ */
+function portalBed(o, known, { lit, frame = null }) {
+	const at = o.position ?? o.player?.position ?? o.player;
+	const near = frame ?? at;
+	const spawn = known.spawn;
+	if (spawn?.kind === 'set' && spawn.dimension === 'minecraft:overworld' && [near?.x, near?.z].every(Number.isFinite)
+		&& Math.hypot(spawn.x - near.x, spawn.z - near.z) <= BED_NEAR) return { skip: 'respawn set by the portal' };
+	const source = portalBedSource(o);
+	if (source === null) return { skip: 'no bed, 3 matching wool or sheep in reach: no portal bed' };
+	const by = frame ? `the portal at ${frame.x},${frame.y},${frame.z}` : 'the portal';
+	const place = lit ? `place_block it by ${by}, ${USE_BED}` : 'carry it to the portal';
+	if (source.kind === 'held') return lit ? { step: [`place_block ${source.itemId.slice(10)} by ${by}, ${USE_BED}`, 'bed held; a Nether death then respawns here'] } : { skip: 'bed held' };
+	if (source.kind === 'seen') {
+		const b = source.block, id = b.blockId.slice(10), cell = `${b.x},${b.y},${b.z}`;
+		if (lit && Math.hypot(b.x - near.x, b.z - near.z) <= BED_NEAR) return { step: [`interact_block the ${id} at ${cell} until "Respawn point set" (by day too), keep it`, 'bed by the portal'] };
+		return { step: [`break_block the ${id} at ${cell}, then ${place}`, 'bed in view'] };
+	}
+	const bed = `${source.colour}_bed`;
+	if (source.kind === 'wool') return { step: [`obtain ${bed}, then ${place}`, `${source.held} ${source.colour}_wool held`] };
+	const from = [source.sheep ? `${source.sheep} sheep` : null, source.blocks ? `${source.blocks} wool blocks` : null].filter(Boolean).join(' and ');
+	return { step: [`get ${source.colour}_wool from the ${from} in view, obtain ${bed}, then ${lit ? 'place and use it by the portal' : 'carry it to the portal'}`,
+		`${source.held} held, no wool search; skip if they leave`] };
+}
+
 // Hunger at or under this (of 20) makes food part of the step (health stops regenerating under 18). The 7 gate2 games
 // that held a bucket and flint and steel had hunger 19-20 at the time, and all of them went hunting instead of to lava.
 const HUNGRY = 14;
@@ -257,16 +292,29 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 		if (filled > 0 || frames.some(b => b?.blockId === 'minecraft:end_portal_frame')) return line(`set the ender_eyes in the empty End portal frames`, eyeFacts);
 		return line('find structure stronghold follows thrown eyes and digs down; then find block end_portal_frame walks passages; resume after danger', eyeFacts);
 	}
-	// Round1 games6/8 lit portals, then spent the rest of the game on optional surface preparation.
-	if (ok('frame:lit')) return line(PORTAL_ENTRY_NEXT, PORTAL_ENTRY_PREP);
+	// Round1 games6/8 lit portals, then spent the rest of the game on optional surface preparation; the portal bed is the
+	// one step allowed there, and only from what is in reach.
+	if (ok('frame:lit')) {
+		const bed = portalBed(o, known, { lit: true, frame: litFrame(o, known) });
+		return bed.step ? line(...bed.step) : line(PORTAL_ENTRY_NEXT, `${bed.skip}; ${ENTRY_FOOD}`);
+	}
 	const stage = ROUTE.find(row => !done(row));
 	if (stage !== undefined) {
-		const [next, why] = stage.next(facts);
+		// Checked before lighting too: the sheep or wool in view now may be gone once the portal is lit.
+		const bed = stage.id === 'portal' ? portalBed(o, known, { lit: false }) : null;
+		const [next, why] = bed?.step ? [`before lighting the portal, ${bed.step[0]}`, bed.step[1]] : stage.next(facts);
 		// Food on the way when hungry, once the stone tools are made: a full hunger bar needs no hunt.
 		const restock = !['food', 'food_stock', 'wood', 'stone'].includes(stage.id) && food < 10 && foodAdviceNeeded(o) ? `; low hunger/health, food ${food} held: obtain cooked_beef on the way` : '';
 		return line(`${next}${restock}`, why);
 	}
 	return null;
+}
+
+// The lit Overworld frame nearest the player, from the plan-check facts that made frame:lit hold.
+function litFrame(o, known) {
+	const at = o.position ?? o.player?.position ?? o.player;
+	return (known.frames ?? []).filter(f => f?.lit === true && f.dimension === 'minecraft:overworld' && [f.x, f.y, f.z].every(Number.isFinite))
+		.sort((a, b) => Math.hypot(a.x - at?.x, a.z - at?.z) - Math.hypot(b.x - at?.x, b.z - at?.z))[0] ?? null;
 }
 
 // knownSources already scopes and withdraws sources. Never refill an empty result from historical frames or poi.

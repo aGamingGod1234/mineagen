@@ -11,11 +11,11 @@ const record = { agentId: 'portal-entry', provider: 'codex', model: 'gpt-6.1-sol
 const sample = (health = 20, foodLevel = 20) => ({ ready: true, observedAtEpochMs: 1,
 	world: { dimension: 'minecraft:overworld' }, player: { x: 229.5, y: -55, z: 7.5, health, foodLevel },
 	inventory: { items: [{ itemId: 'minecraft:iron_pickaxe', count: 1 }, { itemId: 'minecraft:shield', count: 1, slot: 'offhand' },
-		{ itemId: 'minecraft:bucket', count: 2 }, { itemId: 'minecraft:flint_and_steel', count: 1 }, { itemId: 'minecraft:white_wool', count: 3 }] },
+		{ itemId: 'minecraft:bucket', count: 2 }, { itemId: 'minecraft:flint_and_steel', count: 1 }, { itemId: 'minecraft:white_wool', count: 2 }] },
 });
 const assertEntry = (message) => {
 	assert.match(message, /enter the Nether through the lit portal now/);
-	assert.match(message, /food stocks and a bed are optional unless health or hunger is low/);
+	assert.match(message, /food stocks are optional unless health or hunger is low/);
 };
 
 for (const [health, hunger] of [[20, 20], [15, 20], [5, 20], [20, 6], [5, 6]]) test(`lit portal route names entry with recovery exception at health${health}/hunger${hunger}`, () => {
@@ -67,6 +67,8 @@ for (const scenario of [
 		assert.equal(result.executionStarted, true);
 		if (scenario.guided) {
 			assertEntry(result.message); assert.ok(result.message.endsWith(original)); assertEntry(completed[0].message);
+			// The result cannot see the inventory, so it names the portal bed's condition (C33) instead of calling the bed optional.
+			assert.match(result.message, /place and use a bed by the portal first if a bed, 3 matching wool or sheep are in reach/);
 			const shown = decodeModelFacts(JSON.parse(presentNativeToolResult(result, { kind: 'action_status' }).response.contentItems[0].text));
 			assertEntry(shown.message); assert.match(shown.message, /229\.5, -54\.0, 7\.5/);
 		}

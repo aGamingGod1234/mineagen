@@ -12,8 +12,11 @@ const kit = [['iron_pickaxe'], ['shield'], ['bucket', 2], ['flint_and_steel'], [
 
 test('round1 lit-portal detour: healthy player has an entry suggestion, not food stocks or a bed hunt', () => {
  const known = emptyKnown(); known.frames.push({ dimension: 'minecraft:overworld', x: 0, y: 64, z: 0, lit: true, obsidian: 10 });
- const o = sample([...kit, ['white_wool', 3]], { sighted: { portalFrames: [{ lit: true }] }, blocks: [{ blockId: 'minecraft:nether_portal', x: 0, y: 64, z: 0 }] });
- assert.equal(routeLine({ observation: o, known, evaluate: evaluatePlanCheck }), 'usual next step: enter the Nether through the lit portal now (food stocks and a bed are optional unless health or hunger is low)');
+ const portalView = { sighted: { portalFrames: [{ lit: true }] }, blocks: [{ blockId: 'minecraft:nether_portal', x: 0, y: 64, z: 0 }] };
+ // Three matching wool held is the one preparation the route asks for at a lit portal (C33): a bed from them, no hunt.
+ assert.match(routeLine({ observation: sample([...kit, ['white_wool', 3]], portalView), known, evaluate: evaluatePlanCheck }), /^usual next step: obtain white_bed, then place_block it by the portal at 0,64,0/);
+ const o = sample([...kit, ['white_wool', 2]], portalView);
+ assert.equal(routeLine({ observation: o, known, evaluate: evaluatePlanCheck }), 'usual next step: enter the Nether through the lit portal now (no bed, 3 matching wool or sheep in reach: no portal bed; food stocks are optional unless health or hunger is low)');
  assert.equal(bedSpawnOption(o, 'nether'), null);
  assert.equal(spawnLine(o), null);
  assert.equal(sleepLine(o), null);
