@@ -957,8 +957,11 @@ export class NativeToolRuntime {
 			// Yield before the cancel: otherwise the reflex holding the body keeps it, or default defend takes the body in the
 			// idle gap the cancel leaves, and the replacement starts paused under it. Each path yields only once the replace
 			// is certain to go on (past every refusal), so a refused replace ends no firing.
+			// A failed yield is traced, never thrown: the old action may already be cancelled, and the replacement must still run.
 			const yieldFiring = request.tool.actionType === 'chat' ? null
-				: () => (this.#reflexes.firing(record.agentId) ? this.#sendReflexes(record, { yieldFiring: true }) : Promise.resolve());
+				: () => (this.#reflexes.firing(record.agentId) ? this.#sendReflexes(record, { yieldFiring: true })
+					.catch((error) => this.#trace('reflexes_send_failed', { agentId: record.agentId, path: 'replace_action', reasonCode: error?.code ?? 'REFLEX_SEND_FAILED' }))
+					: Promise.resolve());
 			this.#answerLegChain(record, request.tool.actionId);
 			const pausedProgram = this.#programRuns.has(record.agentId);
 			const interrupted = pausedProgram ? this.#interruptedPausedDangerAction(record) : null;

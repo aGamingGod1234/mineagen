@@ -310,6 +310,38 @@ test('replace_action yields a firing the coordinator knows of before it cancels 
 	assert.deepEqual(refused.types, [], 'a refused replacement leaves the firing alone');
 });
 
+test('a replace_action whose yield fails to send still cancels the old action and starts the replacement', async () => {
+	const sent = [], traced = [];
+	let sequence = 1;
+	const runtime = new NativeToolRuntime({
+		reflexBook: new ReflexBook({ defaults: [] }),
+		trace: (event, fields) => traced.push({ event, ...fields }),
+		bridge: { send: async (type, agentId, payload) => {
+			if (type === 'reflex_update' && payload.yield === true) throw Object.assign(new Error('bridge closed'), { code: 'BRIDGE_SEND_FAILED' });
+			sent.push({ type, payload });
+		} },
+		requestObservation: async () => ({ observation: adaptObservation(wire()), eventSequence: ++sequence }),
+	});
+	runtime.updateObservation(record(), adaptObservation(wire()), { eventSequence: ++sequence });
+	await runtime.execute(call(normalizeMinecraftToolCall('runProgram', { reflexes: [SHIELD] })), record());
+	const handle = await runtime.execute(call({ kind: 'start_action', actionType: 'wait', arguments: { durationMs: 100 } }, 3, 'call-2'), record());
+	const rules = [{ id: 'blaze-shield', kind: 'stance', state: 'firing', fired: 1, expiresInS: 599 }];
+	runtime.updateObservation(record(), adaptObservation({ ...wire(), reflexes: { revision: 1, firing: { id: 'blaze-shield', ms: 400 }, rules, events: [] } }), { eventSequence: ++sequence });
+	sent.length = 0;
+	const pending = runtime.execute(call({ kind: 'replace_action', actionId: handle.actionId, goalRevision: 3, actionType: 'look_at', arguments: { x: 2, y: 64, z: 3 } }, 3, 'call-3'), record()).catch((error) => error);
+	for (let i = 0; i < 50 && !sent.some((entry) => entry.type === 'action_cancel'); i += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+	runtime.onActionResult(record(), { actionId: handle.actionId, state: 'CANCELLED', reasonCode: 'ACTION_CANCELLED' });
+	for (let i = 0; i < 50 && !sent.some((entry) => entry.type === 'action_command'); i += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+	const successor = sent.find((entry) => entry.type === 'action_command');
+	assert.ok(successor !== undefined, `the replacement starts: ${sent.map((entry) => entry.type)}`);
+	runtime.onActionResult(record(), { actionId: successor.payload.actionId, state: 'SUCCEEDED', reasonCode: 'ACTION_COMPLETED' });
+	const outcome = await pending;
+	assert.ok(!(outcome instanceof Error), `the replace does not fail: ${outcome?.message}`);
+	assert.equal(outcome.replacedAction?.state, 'CANCELLED');
+	assert.ok(traced.some((row) => row.event === 'reflexes_send_failed' && row.path === 'replace_action'), 'the failed yield is traced');
+	await runtime.dispose('agent-a', 'goal_revised');
+});
+
 // Before, the yield went out first and its own await let a cancel of the same action in: the replace then failed
 // CANCELLATION_IN_PROGRESS after it had ended the firing. Now the yield starts past the cancel's own check.
 test('replace_action yields only once past every refusal: a cancel racing the yield is the call refused, not the replace', async () => {
