@@ -1,6 +1,6 @@
 ---
 name: Mineagen control center
-description: A readable in-world mission console for configuring and directing Minecraft agents.
+description: A readable in-world control center for configuring and directing Minecraft agents.
 colors:
   obsidian-panel: "#18202B"
   slate-surface: "#27313E"
@@ -83,7 +83,7 @@ The palette is restrained: tinted charcoal surfaces and one amber signal, with s
 
 ### Neutral
 
-- **Obsidian Panel:** Main console shell.
+- **Obsidian Panel:** Main control center shell.
 - **Slate Surface:** Controls, rows, and secondary regions.
 - **Selected Surface:** Full-row selection reinforcement beneath amber details.
 - **Cloud Text:** Primary readable copy.
@@ -109,7 +109,7 @@ The palette is restrained: tinted charcoal surfaces and one amber signal, with s
 
 ## Elevation
 
-Depth uses tonal layering and one-pixel keylines, not decorative shadows or glass blur. The world remains context, while the console stays readable across snow, desert, caves, and night.
+Depth uses tonal layering and one-pixel keylines, not decorative shadows or glass blur. The world remains context, while the control center stays readable across snow, desert, caves, and night.
 
 **The Flat Console Rule.** Surfaces are flat at rest. Focus and selection change fill and keyline contrast, never add ornamental glow.
 
