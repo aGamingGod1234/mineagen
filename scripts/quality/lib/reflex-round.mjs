@@ -15,8 +15,11 @@ export const EDGE_SLACK_MS = 2000;
 export const COVERAGE_SLACK_MS = 5000;
 /** Margin = z x per-pair SD x sqrt(complete pairs), per room and metric (see scripts/quality/README.md). */
 export const DEFAULT_MARGIN_Z = 2;
-/** Deaths and room success move in whole events, so one event is never beyond the margin, even when the A/A SD is 0. */
-export const MIN_MARGIN = Object.freeze({ deaths: 1, success: 1 });
+/**
+ * Deaths and room success move in whole events, so one event is never beyond the margin, even when the A/A SD is 0.
+ * Damage keeps 1 HP: a room with no damage in any A/A pair would otherwise read a single half-heart hit as WORSE.
+ */
+export const MIN_MARGIN = Object.freeze({ damage: 1, deaths: 1, success: 1 });
 export const METRICS = Object.freeze(['damage', 'deaths', 'success']);
 /** Lower is better for damage and deaths; higher for success. */
 const BETTER_LOWER = Object.freeze({ damage: true, deaths: true, success: false });
@@ -107,10 +110,14 @@ export function scoreRun({ scenario, goalStartedAtMs, samples = [], dangerRows =
 		: { status: 'unknown', reason: `counter samples do not cover the room window (${counted.length ? `${counted[0].at - start}..${counted.at(-1).at - start} ms of 0..${windowMs} ms` : 'none'})` };
 	const inWindow = damageRows?.filter(row => row.atMs >= start && row.atMs <= end) ?? [];
 	const damage = reconciliation.status === 'valid' ? round(inWindow.reduce((total, row) => total + (row.healthDrop ?? 0), 0)) : null;
-	const windowSamples = samples.filter(s => finite(s?.at) && s.at >= start - EDGE_SLACK_MS && s.at <= end + EDGE_SLACK_MS && finite(s.deathCounter));
-	const counterDeaths = windowSamples.length > 1 ? windowSamples.at(-1).deathCounter - windowSamples[0].deathCounter : null;
+	// Deaths stand on the death counter's own coverage of the window, not the damage reconciliation: one unpaired damage
+	// row leaves damage unknown but says nothing about deaths. Without that counter, the lethal rows when damage reconciled.
+	const deathSamples = samples.filter(s => finite(s?.at) && finite(s?.deathCounter));
+	const deathsCovered = deathSamples.length > 0 && deathSamples[0].at <= start + COVERAGE_SLACK_MS && deathSamples.at(-1).at >= end - COVERAGE_SLACK_MS;
+	const windowSamples = deathSamples.filter(s => s.at >= start - EDGE_SLACK_MS && s.at <= end + EDGE_SLACK_MS);
+	const counterDeaths = deathsCovered && windowSamples.length > 1 ? windowSamples.at(-1).deathCounter - windowSamples[0].deathCounter : null;
 	const lethalRows = inWindow.filter(row => row.lethal === true).length;
-	const deaths = !covered ? null : counterDeaths !== null && counterDeaths >= 0 ? Math.max(counterDeaths, lethalRows) : rows === null ? null : lethalRows;
+	const deaths = counterDeaths !== null && counterDeaths >= 0 ? Math.max(counterDeaths, lethalRows) : reconciliation.status === 'valid' ? lethalRows : null;
 	const threat = rows === null ? null : threatTime(rows, start, end);
 	const result = { scenario, windowMs, goalStartedAtMs: start, status: reconciliation.status, damage, deaths, success, reconciliation,
 		hits: inWindow.length, absorbedHp: round(inWindow.reduce((total, row) => total + (row.absorbed ?? 0), 0)), blockedHits: inWindow.filter(row => row.blocked === true).length,
@@ -131,8 +138,9 @@ export function firingSummary(rows, start, end) {
 	return { count: firings.length, outcomes, orderViolations: firings.filter(row => !(row.startGameTime <= row.endGameTime)).length };
 }
 
+// Damage counts only when reconciled; deaths carry their own coverage (scoreRun leaves them null when unknown).
 const metricValue = (run, metric) => metric === 'success' ? (run.success === null ? null : Number(run.success))
-	: run.status === 'valid' ? run[metric] : null;
+	: metric === 'deaths' ? run.deaths ?? null : run.status === 'valid' ? run[metric] : null;
 
 /**
  * Pairs scored runs by pairId (run-scenarios' <room>-r<n>); a pair counts for a metric only when both runs have it.

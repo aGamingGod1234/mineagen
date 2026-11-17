@@ -147,6 +147,33 @@ test('deaths and success keep a one-event margin when the A/A run never varied',
 	assert.equal(oneLoss.rooms['R-CREEPER'].success.verdict, 'INCONCLUSIVE');
 });
 
+test('damage keeps a 1 HP margin when the A/A run never varied: one half-heart hit is not WORSE', () => {
+	const a = [1, 2, 3, 4].map(n => scored('R-CREEPER', n, 0));
+	const flat = { z: 2, rooms: { 'R-CREEPER': { damage: { perPairSd: 0 }, deaths: { perPairSd: 0 }, success: { perPairSd: 0 } } } };
+	const halfHeart = judgeRooms(pairRuns(a, [1, 2, 3, 4].map(n => scored('R-CREEPER', n, n === 1 ? 0.5 : 0))), flat);
+	assert.equal(halfHeart.rooms['R-CREEPER'].damage.margin, 1);
+	assert.equal(halfHeart.rooms['R-CREEPER'].damage.verdict, 'INCONCLUSIVE');
+	assert.equal(judgeRooms(pairRuns(a, [1, 2, 3, 4].map(n => scored('R-CREEPER', n, n === 1 ? 2 : 0))), flat).rooms['R-CREEPER'].damage.verdict, 'WORSE');
+});
+
+test('deaths stand on the death counter, not the damage reconciliation: an unpaired damage row leaves them counted', () => {
+	const samples = [counter(START, 0, 0), counter(START + 200_000, 40, 1), counter(START + 300_000, 40, 1)];
+	const rows = [damage(START + 100_000, null, { paired: false }), damage(START + 199_000, 4, { lethal: true })];
+	const run = scoreRun({ scenario: 'R-CREEPER', goalStartedAtMs: START, samples, dangerRows: rows });
+	assert.equal(run.status, 'unknown', 'damage is unknown');
+	assert.equal(run.damage, null);
+	assert.equal(run.deaths, 1);
+	const [pair] = pairRuns([{ ...scored('R-CREEPER', 1, 0), deaths: 0 }], [{ ...run, pairId: 'R-CREEPER-r1' }]);
+	assert.equal(pair.deltas.damage, null);
+	assert.equal(pair.deltas.deaths, 1, 'the pair counts for deaths');
+	// A death counter that stops before the window ends is unknown deaths unless reconciled damage rows stand in for it.
+	const shortSamples = [counter(START, 0, 0), counter(START + 100_000, 0, 0), { at: START + 300_000, damageTakenCounter: 0, health: 20 }];
+	const short = scoreRun({ scenario: 'R-CREEPER', goalStartedAtMs: START, dangerRows: [damage(START + 10, null, { paired: false })], samples: shortSamples });
+	assert.equal(short.status, 'unknown');
+	assert.equal(short.deaths, null);
+	assert.equal(scoreRun({ scenario: 'R-CREEPER', goalStartedAtMs: START, dangerRows: [], samples: shortSamples }).deaths, 0, 'reconciled rows with no lethal hit');
+});
+
 test('an invalid, unknown or missing run leaves its pair incomplete, never a zero', () => {
 	const a = [scored('R-BLAZE', 1, 4), scored('R-BLAZE', 2, 4), scored('R-BLAZE', 3, 4)];
 	const b = [scored('R-BLAZE', 1, 4, { status: 'invalid' }), scored('R-BLAZE', 2, 6)];
