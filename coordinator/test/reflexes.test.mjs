@@ -309,3 +309,41 @@ test('replace_action yields a firing the coordinator knows of before it cancels 
 	assert.equal(refused.outcome?.code, 'STALE_ACTION');
 	assert.deepEqual(refused.types, [], 'a refused replacement leaves the firing alone');
 });
+
+// Before, the yield went out first and its own await let a cancel of the same action in: the replace then failed
+// CANCELLATION_IN_PROGRESS after it had ended the firing. Now the yield starts past the cancel's own check.
+test('replace_action yields only once past every refusal: a cancel racing the yield is the call refused, not the replace', async () => {
+	const sent = [];
+	let sequence = 1, handle = null, runtime = null, raced = null;
+	runtime = new NativeToolRuntime({
+		reflexBook: new ReflexBook({ defaults: [] }),
+		bridge: { send: async (type, agentId, payload) => {
+			sent.push({ type, payload });
+			// A cancel of the same action arrives while the yield is in flight.
+			if (type === 'reflex_update' && payload.yield === true && raced === null) {
+				await new Promise((resolve) => setTimeout(resolve, 5));
+				raced = runtime.execute(call({ kind: 'cancel_action', actionId: handle.actionId, goalRevision: 3 }, 3, 'call-4'), record()).catch((error) => error);
+			}
+			if (type === 'action_cancel') setTimeout(() => runtime.onActionResult(record(), { actionId: payload.actionId, state: 'CANCELLED', reasonCode: 'ACTION_CANCELLED' }), 5);
+		} },
+		requestObservation: async () => ({ observation: adaptObservation(wire()), eventSequence: ++sequence }),
+	});
+	runtime.updateObservation(record(), adaptObservation(wire()), { eventSequence: ++sequence });
+	await runtime.execute(call(normalizeMinecraftToolCall('runProgram', { reflexes: [SHIELD] })), record());
+	handle = await runtime.execute(call({ kind: 'start_action', actionType: 'wait', arguments: { durationMs: 100 } }, 3, 'call-2'), record());
+	const rules = [{ id: 'blaze-shield', kind: 'stance', state: 'firing', fired: 1, expiresInS: 599 }];
+	runtime.updateObservation(record(), adaptObservation({ ...wire(), reflexes: { revision: 1, firing: { id: 'blaze-shield', ms: 400 }, rules, events: [] } }), { eventSequence: ++sequence });
+	sent.length = 0;
+	const replace = call({ kind: 'replace_action', actionId: handle.actionId, goalRevision: 3, actionType: 'look_at', arguments: { x: 2, y: 64, z: 3 } }, 3, 'call-3');
+	const pending = runtime.execute(replace, record()).catch((error) => error);
+	for (let i = 0; i < 60 && !sent.some((entry) => entry.type === 'action_command') && !(await Promise.race([pending, Promise.resolve(null)]) instanceof Error); i += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+	const successor = sent.find((entry) => entry.type === 'action_command');
+	if (successor !== undefined) runtime.onActionResult(record(), { actionId: successor.payload.actionId, state: 'SUCCEEDED', reasonCode: 'ACTION_COMPLETED' });
+	const outcome = await pending;
+	const racedOutcome = await raced;
+	const types = sent.map((entry) => entry.type === 'reflex_update' ? `reflex_update:${entry.payload.yield}` : entry.type);
+	await runtime.dispose('agent-a', 'goal_revised');
+	assert.ok(!(outcome instanceof Error), `the replace went on, not refused after its yield: ${outcome?.code} after ${types}`);
+	assert.equal(racedOutcome?.code, 'CANCELLATION_IN_PROGRESS', 'the racing cancel is the call refused');
+	assert.deepEqual(types, ['reflex_update:true', 'action_cancel', 'action_command'], 'the yield goes ahead of the cancel, then the replacement');
+});
