@@ -34,7 +34,180 @@ public final class WatchVerification {
 		isolation();
 		harmUnderAnotherCommand();
 		offUnlessOptedIn();
+		dangerOnsetsOncePerSource();
+		dangerResponses();
+		dangerDamageRows();
+		dangerClearAndDeath();
+		dangerEventCursor();
+		dangerGoldenRows();
 		return assertions;
+	}
+
+	private static final String AGENT = "00000000-0000-0000-0000-000000000a01";
+
+	private static Danger targeting(String key, String kind) {
+		return new Danger(key, kind, "minecraft:skeleton", key, null, 2.0D, 10.0D, true);
+	}
+
+	private static DangerLog.Command command(String id, String program, String step, String issuer) {
+		return new DangerLog.Command(id, "fight_target", program, step, issuer);
+	}
+
+	private static List<JsonObject> rows(List<JsonObject> rows, String type) {
+		return rows.stream().filter(row -> type.equals(row.get("type").getAsString())).toList();
+	}
+
+	private static String text(JsonObject row, String field) {
+		return row.get(field) == null || row.get(field).isJsonNull() ? null : row.get(field).getAsString();
+	}
+
+	/** One targeted onset per mob however often the scan sees it; a mob merely nearby (not targeting) has none. */
+	private static void dangerOnsetsOncePerSource() {
+		DangerLog log = new DangerLog(AGENT);
+		Danger idle = new Danger("idle", "creeper", "minecraft:creeper", "idle", null, 1.0D, 5.0D, false);
+		for (long tick = 0; tick <= 210; tick += 2) log.observe(List.of(targeting("m1", "ranged_mob"), targeting("m2", "mob"), idle), tick, tick * 50L, null, null);
+		List<JsonObject> onsets = rows(log.take(), "onset");
+		check(onsets.size() == 2 && onsets.stream().map(row -> text(row, "key")).distinct().count() == 2, "one targeted onset per mob, no duplicates: " + onsets);
+		check(onsets.stream().allMatch(row -> "targeted".equals(text(row, "onset")) && "none".equals(text(row, "response")) && row.get("latencyTicks").isJsonNull()),
+				"no response within 200 ticks is none");
+		check("ranged_mob".equals(text(onsets.get(0), "kind")), "the onset keeps the scan kind");
+		log.observe(List.of(new Danger("s1", "projectile", "minecraft:skeleton", "s1", null, 0.5D, 8.0D)), 300, 15_000L, null, null);
+		log.observe(List.of(), 501, 25_050L, null, null);
+		check(rows(log.take(), "onset").stream().anyMatch(row -> "aimed".equals(text(row, "onset")) && "s1".equals(text(row, "key"))), "a shot on course is an aimed onset");
+	}
+
+	private static void dangerResponses() {
+		DangerLog.FiringNow defend = new DangerLog.FiringNow("defend", 0L, Set.of("hostile_near"));
+		DangerLog running = new DangerLog(AGENT);
+		running.observe(List.of(targeting("z", "mob")), 10, 500L, defend, null);
+		JsonObject zero = rows(running.take(), "onset").getFirst();
+		check("instinct:defend".equals(text(zero, "response")) && zero.get("latencyTicks").getAsLong() == 0L, "a covering firing already running is latency 0");
+
+		DangerLog later = new DangerLog(AGENT);
+		later.observe(List.of(targeting("z", "mob")), 10, 500L, null, null);
+		later.observe(List.of(targeting("z", "mob")), 16, 800L, new DangerLog.FiringNow("defend", 16L, Set.of("hostile_near")), null);
+		JsonObject instinct = rows(later.take(), "onset").getFirst();
+		check("instinct:defend".equals(text(instinct, "response")) && instinct.get("latencyTicks").getAsLong() == 6L, "a covering firing after the onset responds");
+
+		DangerLog uncovered = new DangerLog(AGENT);
+		uncovered.observe(List.of(targeting("z", "mob")), 10, 500L, null, null);
+		uncovered.observe(List.of(targeting("z", "mob")), 12, 600L, new DangerLog.FiringNow("eat", 12L, Set.of("hunger_below")), null);
+		uncovered.observe(List.of(), 211, 10_550L, null, null);
+		check("none".equals(text(rows(uncovered.take(), "onset").getFirst(), "response")), "a firing that does not cover the danger is no response");
+
+		for (String[] issuer : new String[][] {{"model", "command:model"}, {"skill_leg", "command:model"}, {"program", "command:program"},
+				{"standing_order", "command:program"}, {"guard", "command:program"}, {null, "command:unknown"}}) {
+			DangerLog log = new DangerLog(AGENT);
+			log.observe(List.of(targeting("z", "mob")), 10, 500L, null, null);
+			log.command(command("act-1", "native-turn-1", "call-1", issuer[0]), 14);
+			log.observe(List.of(targeting("z", "mob")), 14, 700L, null, null);
+			JsonObject row = rows(log.take(), "onset").getFirst();
+			check(issuer[1].equals(text(row, "response")) && row.get("latencyTicks").getAsLong() == 4L && "act-1".equals(text(row, "responseActionId")),
+					"issuer " + issuer[0] + " is " + issuer[1]);
+		}
+
+		// A keepGoing leg or later sequence step of a command chosen before the onset continues it; it is not a response.
+		DangerLog legs = new DangerLog(AGENT);
+		legs.command(command("leg-1", "native-turn-2", "call-9-leg1", "skill_leg"), 5);
+		legs.observe(List.of(targeting("z", "mob")), 10, 500L, null, null);
+		legs.command(command("leg-2", "native-turn-2", "call-9-leg2", "skill_leg"), 12);
+		legs.command(command("step-2", "native-turn-2", "call-9:2", "skill_leg"), 13);
+		legs.observe(List.of(), 211, 10_550L, null, null);
+		check("none".equals(text(rows(legs.take(), "onset").getFirst(), "response")), "a leg start is not a response");
+		check(DangerLog.path("model").equals("command:model") && DangerLog.path("bogus").equals("command:unknown"), "unknown issuers stay unknown");
+
+		DangerLog late = new DangerLog(AGENT);
+		late.observe(List.of(targeting("z", "mob")), 10, 500L, null, null);
+		late.command(command("act-late", "native-turn-3", "call-1", "model"), 211);
+		late.observe(List.of(), 212, 10_600L, null, null);
+		check("none".equals(text(rows(late.take(), "onset").getFirst(), "response")), "a command after 200 ticks is not a response");
+	}
+
+	private static void dangerDamageRows() {
+		DangerLog log = new DangerLog(AGENT);
+		log.beforeDamage(100L, 20.0F, 4.0F, 6.0F);
+		log.damage(100L, "mob", "minecraft:mob_attack", "minecraft:zombie", "z1", "z1", 6.0F, 3.0F, false, 20.0F, 1.0F, false, 1000L, 50_000L, null);
+		log.beforeDamage(200L, 20.0F, 0.0F, 5.0F);
+		log.damage(200L, "projectile", "minecraft:arrow", "minecraft:skeleton", "s1", "s1", 5.0F, 0.0F, true, 20.0F, 0.0F, false, 1100L, 55_000L, null);
+		log.beforeDamage(300L, 3.0F, 0.0F, 8.0F);
+		log.damage(300L, "mob", "minecraft:mob_attack", "minecraft:zombie", "z1", "z1", null, null, false, 3.0F, 0.0F, true, 1200L, 60_000L, null);
+		log.beforeDamage(400L, 20.0F, 0.0F, 2.0F);
+		log.damage(401L, "fall", "minecraft:fall", null, null, null, 2.0F, 2.0F, false, 18.0F, 0.0F, false, 1301L, 65_050L, null);
+		List<JsonObject> taken = log.take();
+		List<JsonObject> hits = rows(taken, "damage");
+		check(hits.size() == 4, "every hit is a row, blocked and lethal ones too");
+		JsonObject absorbed = hits.get(0), blocked = hits.get(1), lethal = hits.get(2), unpaired = hits.get(3);
+		check(absorbed.get("absorbed").getAsDouble() == 3.0D && absorbed.get("healthDrop").getAsDouble() == 0.0D, "absorbed HP is its own field");
+		check(blocked.get("blocked").getAsBoolean() && blocked.get("taken").getAsDouble() == 0.0D && blocked.get("healthDrop").getAsDouble() == 0.0D,
+				"a fully shield-blocked hit is kept");
+		check(lethal.get("lethal").getAsBoolean() && lethal.get("healthAfter").getAsDouble() == 0.0D && lethal.get("healthDrop").getAsDouble() == 3.0D
+				&& lethal.get("amount").getAsDouble() == 8.0D && lethal.get("taken").isJsonNull(), "the lethal hit is written with its paired amount");
+		check(!unpaired.get("paired").getAsBoolean() && unpaired.get("healthDrop").isJsonNull(), "a hit without a same-tick before value is unpaired, not 0");
+		List<JsonObject> onsets = rows(taken, "onset");
+		log.observe(List.of(), 1600L, 80_000L, null, null);
+		List<JsonObject> after = log.take();
+		check(rows(after, "onset").stream().anyMatch(row -> "hit".equals(text(row, "onset")) && "fall".equals(text(row, "key"))) && onsets.isEmpty(),
+				"an unforeseen hit opens a hit onset keyed by its source or kind");
+		check(rows(after, "onset").stream().filter(row -> "hit".equals(text(row, "onset"))).count() == 3, "one hit onset per source: z1, s1, fall");
+	}
+
+	private static void dangerClearAndDeath() {
+		DangerLog log = new DangerLog(AGENT);
+		for (long tick = 0; tick <= 60; tick += 2) log.observe(List.of(targeting("m1", "mob")), tick, tick * 50L, null, null);
+		for (long tick = 62; tick < 100; tick += 2) log.observe(List.of(), tick, tick * 50L, null, null);
+		check(rows(log.take(), "clear").isEmpty(), "no clear inside the grace");
+		log.observe(List.of(), 100, 5_000L, null, null);
+		List<JsonObject> clears = rows(log.take(), "clear");
+		check(clears.size() == 1 && clears.getFirst().get("threatTicks").getAsLong() == 60L && clears.getFirst().get("startGameTime").getAsLong() == 0L
+				&& "quiet".equals(text(clears.getFirst(), "cause")), "clear after the last close, threat from first onset to last activity: " + clears);
+		DangerLog dying = new DangerLog(AGENT);
+		dying.observe(List.of(targeting("m1", "mob")), 10, 500L, null, null);
+		dying.death(30, 1_500L);
+		List<JsonObject> rows = dying.take();
+		check(rows(rows, "onset").getFirst().get("truncated").getAsBoolean() && "death".equals(text(rows(rows, "clear").getFirst(), "cause")),
+				"death resolves open onsets as truncated and clears the threat");
+	}
+
+	private static void dangerEventCursor() {
+		dev.agaminggod.mineagen.server.runtime.reflex.ReflexScheduler.Event first = event(1, 5, 20, true);
+		dev.agaminggod.mineagen.server.runtime.reflex.ReflexScheduler.Event second = event(2, 0, 30, false);
+		DangerLog log = new DangerLog(AGENT);
+		log.events(List.of(first, second), 1000L, 1030L, 1_000L);
+		log.events(List.of(first, second), 1000L, 1031L, 1_050L);
+		List<JsonObject> rows = log.take();
+		check(rows.size() == 2 && "firing".equals(text(rows.get(0), "type")) && "held_back".equals(text(rows.get(1), "event")), "each event is one row");
+		JsonObject firing = rows.getFirst();
+		check(firing.get("startGameTime").getAsLong() == 1015L && firing.get("endGameTime").getAsLong() == 1020L
+				&& firing.get("startGameTime").getAsLong() <= firing.get("endGameTime").getAsLong(), "firing ticks convert to game time, start before end");
+		log.events(List.of(event(1, 3, 50, true)), 1000L, 1050L, 2_000L);
+		check(rows(log.take(), "firing").size() == 1 && log.eventCursor() == 1L, "a replaced scheduler resets the cursor");
+	}
+
+	private static dev.agaminggod.mineagen.server.runtime.reflex.ReflexScheduler.Event event(long sequence, long duration, long end, boolean firing) {
+		var outcome = firing ? dev.agaminggod.mineagen.server.runtime.reflex.ReflexScheduler.Outcome.DONE : dev.agaminggod.mineagen.server.runtime.reflex.ReflexScheduler.Outcome.YIELDED;
+		return new dev.agaminggod.mineagen.server.runtime.reflex.ReflexScheduler.Event(sequence, "defend", outcome, duration, firing ? "" : "held back: short of air",
+				false, end, firing);
+	}
+
+	/** One golden line per row kind; coordinator/test/quality-reflex-report.test.mjs reads the same file. */
+	private static void dangerGoldenRows() {
+		DangerLog log = new DangerLog(AGENT);
+		log.observe(List.of(targeting("z1", "mob")), 1000L, 1_700_000_000_000L, null, null);
+		log.command(command("act-1", "native-turn-1", "call-1", "model"), 1006L);
+		log.beforeDamage(77L, 20.0F, 4.0F, 6.0F);
+		log.damage(77L, "mob", "minecraft:mob_attack", "minecraft:zombie", "z1", "z1", 6.0F, 5.0F, false, 18.0F, 1.0F, false, 1010L, 1_700_000_000_500L, null);
+		log.observe(List.of(), 1012L, 1_700_000_000_600L, null, null);
+		log.events(List.of(event(1, 4, 60, true), event(2, 0, 61, false)), 1000L, 1061L, 1_700_000_003_050L);
+		log.observe(List.of(), 1050L, 1_700_000_002_500L, null, null);
+		StringBuilder generated = new StringBuilder();
+		for (JsonObject row : log.take()) generated.append(WatchJson.line(row)).append('\n');
+		Path fixture = Path.of("coordinator/test/fixtures/reflex-danger-rows.jsonl");
+		try {
+			String expected = Files.readString(fixture).replace("\r\n", "\n");
+			check(expected.equals(generated.toString()), "danger rows match " + fixture + "; generated:\n" + generated);
+		} catch (IOException failure) {
+			throw new AssertionError("WatchVerification: missing " + fixture + "; generated:\n" + generated, failure);
+		}
 	}
 
 	/**

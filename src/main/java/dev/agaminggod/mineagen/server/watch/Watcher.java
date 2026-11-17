@@ -31,6 +31,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.regex.Pattern;
 import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
@@ -55,8 +56,9 @@ import org.slf4j.LoggerFactory;
  * of the system failed ({@link Diagnosis}), and forecasts hazards on body actions as they start ({@link Forecasts}).
  *
  * <p>It never acts and nothing it learns reaches the model: it only reads the world and the runtime, and writes
- * {@code arena-watch/<agentId>-episodes.jsonl}, {@code -forecasts.jsonl} and {@code -progress.jsonl} (progress truth for
- * the time audit, {@link ProgressWatch}) under the server's working directory.
+ * {@code arena-watch/<agentId>-episodes.jsonl}, {@code -forecasts.jsonl}, {@code -progress.jsonl} (progress truth for
+ * the time audit, {@link ProgressWatch}) and {@code -danger.jsonl} (per-hit damage, onsets, threat clears and reflex
+ * firings, {@link DangerLog}) under the server's working directory.
  *
  * <p>Off by default: it scans the world for every agent every few ticks and writes on the server thread, which a
  * player's server should not pay for. Enable it with {@code -Dmineagen.watch=true}; the quality harness launchers
@@ -100,6 +102,9 @@ public final class Watcher {
 	private static final Map<AgentId, Long> LAST_ATTENTION = new ConcurrentHashMap<>();
 	private static final Map<AgentId, Long> LAST_MODEL = new ConcurrentHashMap<>();
 	private static final Map<AgentId, String> LAST_PROGRAM = new ConcurrentHashMap<>();
+	/** Commands the bridge accepted since the agent's last Watcher tick. */
+	private static final Map<AgentId, ConcurrentLinkedQueue<DangerLog.Command>> ACCEPTED = new ConcurrentHashMap<>();
+	private static final int MAX_ACCEPTED = 64;
 
 	private final MinecraftServer server;
 	private final Path directory;
@@ -124,11 +129,20 @@ public final class Watcher {
 		long forecastSequence;
 		String firingKey;
 		long eventSequence = -1L;
+		final DangerLog danger;
+		/** Issuer per recently accepted action id, so the running action's row names who issued it. */
+		final Map<String, String> issuers = new LinkedHashMap<>(16, 0.75F, false) {
+			@Override
+			protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {
+				return size() > 32;
+			}
+		};
 
 		AgentWatch(AgentId id, int phase) {
 			this.id = id;
 			this.idText = id.toString();
 			this.tracker = new EpisodeTracker(idText);
+			this.danger = new DangerLog(idText);
 			this.phase = phase;
 		}
 	}
@@ -149,10 +163,19 @@ public final class Watcher {
 		if (registered || !enabled()) return;
 		registered = true;
 		ServerTickEvents.END_SERVER_TICK.register(server -> of(server).tick());
-		ServerLivingEntityEvents.AFTER_DAMAGE.register((entity, source, baseDamage, damageTaken, blocked) -> {
-			if (entity instanceof ServerPlayer player && damageTaken > 0.0F) {
+		// Health and absorption before each hit, for the danger rows; it never vetoes damage.
+		ServerLivingEntityEvents.ALLOW_DAMAGE.register((entity, source, amount) -> {
+			if (entity instanceof ServerPlayer player) {
 				Watcher watcher = existing(player.level().getServer());
-				if (watcher != null) watcher.damaged(player, source, damageTaken);
+				if (watcher != null) watcher.beforeDamage(player, amount);
+			}
+			return true;
+		});
+		// Fully shield-blocked hits (damageTaken 0) get a danger row; episodes keep counting only real damage.
+		ServerLivingEntityEvents.AFTER_DAMAGE.register((entity, source, baseDamage, damageTaken, blocked) -> {
+			if (entity instanceof ServerPlayer player) {
+				Watcher watcher = existing(player.level().getServer());
+				if (watcher != null) watcher.damaged(player, source, baseDamage, damageTaken, blocked);
 			}
 		});
 		ServerLivingEntityEvents.AFTER_DEATH.register((entity, source) -> {
@@ -179,6 +202,12 @@ public final class Watcher {
 			@Override
 			public void actionResult(AgentId agentId, String actionType, String state, String reasonCode) {
 				ProgressWatch.result(agentId, actionType, state, reasonCode);
+			}
+
+			@Override
+			public void actionAccepted(AgentId agentId, String actionId, String actionType, String programId, String sourceStepId, String issuer) {
+				ConcurrentLinkedQueue<DangerLog.Command> queue = ACCEPTED.computeIfAbsent(agentId, ignored -> new ConcurrentLinkedQueue<>());
+				if (queue.size() < MAX_ACCEPTED) queue.add(new DangerLog.Command(actionId, actionType, programId, sourceStepId, issuer));
 			}
 
 			@Override
@@ -318,6 +347,9 @@ public final class Watcher {
 			if (present.contains(agentId)) return false;
 			AgentWatch gone = agents.get(agentId);
 			write(gone, gone.tracker.closeAll(serverGameTime(), epochMs), reflexes);
+			gone.danger.stop(serverGameTime(), epochMs);
+			writeDanger(gone);
+			ACCEPTED.remove(agentId);
 			ProgressWatch.forget(agentId);
 			return true;
 		});
@@ -368,11 +400,12 @@ public final class Watcher {
 		forecasts(watch, player, executor, active, portal, epochMs);
 		List<Episode> closed = watch.tracker.observe(dangers, gameTime, epochMs, player.getHealth(), player.isOnFire() || player.isInLava());
 		for (Episode episode : watch.tracker.takeOpened()) opened(watch, episode, player, reflexes, active, epochMs);
+		ReflexEngine.View view = reflexes == null ? null : reflexes.view(watch.id);
+		danger(watch, dangers, view, active, gameTime, tick, epochMs);
 		if (watch.tracker.hasOpen()) {
 			Map<String, Danger> byKey = new HashMap<>();
 			for (Danger danger : dangers) byKey.putIfAbsent(danger.key(), danger);
 			boolean knowledge = (tick + watch.phase) % KNOWLEDGE_EVERY_TICKS == 0;
-			ReflexEngine.View view = reflexes == null ? null : reflexes.view(watch.id);
 			for (Episode episode : watch.tracker.open()) {
 				follow(watch, episode, player, byKey.get(episode.key), active, active == null || executor == null ? null : executor.activeTarget(watch.id),
 						view, knowledge, epochMs);
@@ -571,7 +604,10 @@ public final class Watcher {
 				}
 			}
 		}
-		for (ReflexScheduler.Event event : view.events()) {
+		List<ReflexScheduler.Event> events = view.events();
+		// A replaced scheduler (clearAll, forget) numbers its events from 1 again.
+		if (!events.isEmpty() && events.getLast().sequence() < watch.eventSequence) watch.eventSequence = 0L;
+		for (ReflexScheduler.Event event : events) {
 			if (event.sequence() <= watch.eventSequence) continue;
 			watch.eventSequence = event.sequence();
 			for (Episode episode : watch.tracker.open()) {
@@ -663,12 +699,38 @@ public final class Watcher {
 		return new Attribution(key, kind, type, key, block);
 	}
 
-	private void damaged(ServerPlayer player, DamageSource source, float amount) {
+	private AgentWatch watchOf(ServerPlayer player) {
 		AgentId agentId = byPlayer.get(player.getUUID());
-		AgentWatch watch = agentId == null ? null : agents.get(agentId);
+		return agentId == null ? null : agents.get(agentId);
+	}
+
+	private void beforeDamage(ServerPlayer player, float amount) {
+		AgentWatch watch = watchOf(player);
+		if (watch != null) watch.danger.beforeDamage(server.getTickCount(), player.getHealth(), player.getAbsorptionAmount(), amount);
+	}
+
+	private void damaged(ServerPlayer player, DamageSource source, float baseDamage, float damageTaken, boolean blocked) {
+		AgentWatch watch = watchOf(player);
 		if (watch == null) return;
 		long epochMs = System.currentTimeMillis();
 		Attribution who = attribute(player, source);
+		dangerHit(watch, player, source, who, baseDamage, damageTaken, blocked, false, epochMs);
+		if (damageTaken <= 0.0F) return;
+		damagedEpisode(watch, player, who, damageTaken, epochMs);
+	}
+
+	private void dangerHit(AgentWatch watch, ServerPlayer player, DamageSource source, Attribution who, Float baseDamage, Float taken, boolean blocked,
+			boolean lethal, long epochMs) {
+		ReflexEngine reflexes = ReflexEngine.existing(server).orElse(null);
+		long offset = player.level().getGameTime() - server.getTickCount();
+		watch.danger.damage(server.getTickCount(), who.kind(), source.typeHolder().getRegisteredName(), who.key() == null ? null : who.sourceType(),
+				who.entityId(), who.key(), baseDamage, taken, blocked, player.getHealth(), player.getAbsorptionAmount(), lethal,
+				player.level().getGameTime(), epochMs, reflexes == null ? null : firingNow(reflexes.view(watch.id), offset));
+		writeDanger(watch);
+	}
+
+	private void damagedEpisode(AgentWatch watch, ServerPlayer player, Attribution who, float amount, long epochMs) {
+		AgentId agentId = watch.id;
 		Episode harmed = watch.tracker.damage(who.key(), who.kind(), who.sourceType(), who.entityId(), who.block(), amount, player.getHealth(),
 				player.level().getGameTime(), epochMs);
 		ReflexEngine reflexes = ReflexEngine.existing(server).orElse(null);
@@ -683,6 +745,8 @@ public final class Watcher {
 		if (watch == null) return;
 		long epochMs = System.currentTimeMillis();
 		Attribution who = attribute(player, source);
+		// AFTER_DAMAGE never reports the lethal hit; its row comes from here, paired with that tick's ALLOW_DAMAGE.
+		dangerHit(watch, player, source, who, null, null, false, true, epochMs);
 		String message = player.getCombatTracker().getDeathMessage().getString();
 		ReflexEngine reflexes = ReflexEngine.existing(server).orElse(null);
 		ServerActionRequest active = BridgeTap.executor(server) == null ? null : BridgeTap.executor(server).activeRequest(agentId);
@@ -690,8 +754,46 @@ public final class Watcher {
 		List<Episode> closed = watch.tracker.death(who.key(), who.kind(), who.sourceType(), who.entityId(), who.block(), message,
 				player.level().getGameTime(), epochMs);
 		for (Episode episode : watch.tracker.takeOpened()) opened(watch, episode, player, reflexes, active, epochMs);
-		if (reflexes != null) firings(watch, reflexes.view(agentId), epochMs);
+		if (reflexes != null) {
+			firings(watch, reflexes.view(agentId), epochMs);
+			// Dead players are skipped by tick(); the firing the death ended is written now.
+			watch.danger.events(reflexes.view(agentId).events(), player.level().getGameTime() - server.getTickCount(), player.level().getGameTime(), epochMs);
+		}
+		watch.danger.death(player.level().getGameTime(), epochMs);
+		writeDanger(watch);
 		write(watch, closed, reflexes);
+	}
+
+	/** Feeds the danger log one tick: accepted commands, dangers, the running firing and action, and new scheduler events. */
+	private void danger(AgentWatch watch, List<Danger> dangers, ReflexEngine.View view, ServerActionRequest active, long gameTime, long tick, long epochMs) {
+		long offset = gameTime - tick;
+		ConcurrentLinkedQueue<DangerLog.Command> accepted = ACCEPTED.get(watch.id);
+		for (DangerLog.Command command; accepted != null && (command = accepted.poll()) != null; ) {
+			if (command.issuer() != null) watch.issuers.put(command.actionId(), command.issuer());
+			watch.danger.command(command, gameTime);
+		}
+		DangerLog.Command running = active == null ? null : new DangerLog.Command(active.actionId(), active.type().wireName(),
+				active.provenance() == null ? null : active.provenance().programId(), active.provenance() == null ? null : active.provenance().sourceStepId(),
+				watch.issuers.get(active.actionId()));
+		watch.danger.observe(dangers, gameTime, epochMs, view == null ? null : firingNow(view, offset), running);
+		if (view != null) watch.danger.events(view.events(), offset, gameTime, epochMs);
+		writeDanger(watch);
+	}
+
+	static DangerLog.FiringNow firingNow(ReflexEngine.View view, long tickOffset) {
+		ReflexScheduler.Firing current = view.current();
+		if (current == null) return null;
+		Set<String> when = Set.of();
+		for (ReflexEngine.RuleView rule : view.rules()) if (rule.id().equals(current.ruleId())) when = rule.when();
+		return new DangerLog.FiringNow(current.ruleId(), current.startTick() + tickOffset, when);
+	}
+
+	private void writeDanger(AgentWatch watch) {
+		List<JsonObject> rows = watch.danger.take();
+		if (rows.isEmpty()) return;
+		StringBuilder lines = new StringBuilder();
+		for (JsonObject row : rows) lines.append(WatchJson.line(row)).append('\n');
+		appendRaw(watch.idText + "-danger.jsonl", lines.toString());
 	}
 
 
@@ -721,7 +823,11 @@ public final class Watcher {
 
 	private void stop() {
 		long epochMs = System.currentTimeMillis();
-		for (AgentWatch watch : agents.values()) write(watch, watch.tracker.closeAll(serverGameTime(), epochMs), null);
+		for (AgentWatch watch : agents.values()) {
+			write(watch, watch.tracker.closeAll(serverGameTime(), epochMs), null);
+			watch.danger.stop(serverGameTime(), epochMs);
+			writeDanger(watch);
+		}
 		agents.clear();
 	}
 }
