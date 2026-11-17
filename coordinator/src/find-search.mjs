@@ -40,8 +40,9 @@ const MAX_FIGHTS = 3;
 // A mob judged out of the search's way (search-danger.mjs) that stops legs this many times is answered as before.
 const MAX_PASSES = 3;
 // How long the body stands for a mob after it that is not in reach yet (fight_target with no pursuit) before it goes on,
-// and the most one fight in reach takes (a zombie dies to a pickaxe in about 5 s).
-const MEET_MS = 20_000;
+// and the most one fight in reach takes (a zombie dies to a pickaxe in about 5 s). A mob after the body crosses the
+// distance a search fights at in a few seconds; one not there in 8 s is behind rock, and 20 s stood idle for it (K7).
+const MEET_MS = 8_000;
 const FIGHT_MS = 30_000;
 // Damage stops a mob's hit ends (not a fall, lava or fire): the search fights that mob when it is one to fight.
 const HIT_STOPS = new Set(['TRAVEL_DAMAGED', 'NAVIGATION_DAMAGED', 'DAMAGE_TAKEN']);
