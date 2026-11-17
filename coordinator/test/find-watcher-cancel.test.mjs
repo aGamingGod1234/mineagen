@@ -49,3 +49,51 @@ test('K5: the next action after a watched find leg starts with no fake time pass
 	// Metric: fake ms between the leg's result and the next action command. Pass bar: 0 (it was up to 2000).
 	assert.equal(next.at - sent[leg].endedAt, 0, `the next action waited ${next.at - sent[leg].endedAt} ms of the watcher's sleep`);
 });
+
+test('K5: a leg that ends while the watcher waits on a slow sample does not wait for that sample', async (t) => {
+	t.mock.timers.enable({ apis: ['setTimeout'] });
+	let fakeNow = 0, sequence = 0, walking = false;
+	const observation = structuredClone(saved.windows[1].observation);
+	const record = { agentId: 'watcher-k5-slow', goalRevision: 1, provider: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'low' };
+	const sent = [];
+	let runtime;
+	runtime = new NativeToolRuntime({
+		// A sample asked for while the floor leg walks arrives 1.5 s late.
+		requestObservation: async () => {
+			if (walking) await new Promise((resolve) => setTimeout(resolve, 1_500));
+			return { eventSequence: ++sequence, observation: structuredClone(observation) };
+		},
+		inspectObservation: async () => ({ survey: {} }),
+		bridge: { send: async (type, _agent, p) => {
+			if (type !== 'action_command') return;
+			const moving = p.actionType !== 'control';
+			sent.push({ actionType: p.actionType, at: fakeNow });
+			const end = () => {
+				walking = false;
+				if (moving) sent.at(-1).endedAt = fakeNow;
+				runtime.onActionResult(record, { actionId: p.actionId, goalRevision: 1, state: moving ? 'FAILED' : 'SUCCEEDED',
+					reasonCode: moving ? 'NO_ROUTE' : 'CONTROL_SEGMENT_COMPLETED', executionStarted: true, physicalAttempted: true });
+			};
+			// The first floor leg walks 2.5 s: the watcher asks for a sample at 2 s and the leg ends while it waits.
+			if (p.actionType === 'travel_to' && !sent.slice(0, -1).some((row) => row.actionType === 'travel_to')) { walking = true; setTimeout(end, 2_500); }
+			else queueMicrotask(end);
+		} },
+	});
+	t.after(() => runtime.dispose(record.agentId, 'test_complete'));
+	runtime.updateObservation(record, observation, { eventSequence: ++sequence });
+	let done = false;
+	const finding = runtime.execute({ agentId: record.agentId, goalRevision: 1, turnId: 'k5-slow', callId: 'find',
+		tool: normalizeMinecraftToolCall('do_step', { verb: 'find', target: { block: 'spawner', within: 96, timeoutMs: 60000 }, why: 'k5 slow sample' }) }, record)
+		.finally(() => { done = true; });
+	for (let spins = 0; !done && fakeNow <= 8_000; spins++) {
+		const before = sent.length;
+		for (let i = 0; i < 20 && !done; i++) await new Promise((resolve) => setImmediate(resolve));
+		if (!done && sent.length === before) { fakeNow += 100; t.mock.timers.tick(100); }
+	}
+	await finding;
+	const leg = sent.findIndex((row) => row.actionType === 'travel_to');
+	assert.ok(leg >= 0 && sent[leg].endedAt === 2_500, 'the floor leg ends at 2.5 s, during the watcher\'s sample request');
+	const next = sent[leg + 1];
+	assert.ok(next !== undefined, 'an action follows the leg');
+	assert.equal(next.at - sent[leg].endedAt, 0, `the next action waited ${next.at - sent[leg].endedAt} ms for the watcher's sample`);
+});

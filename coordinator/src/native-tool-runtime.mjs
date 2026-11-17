@@ -2731,16 +2731,18 @@ export class NativeToolRuntime {
 				steps += 1;
 				const action = normalizeMinecraftToolCall('act', { actionType, arguments: args });
 				if (action.kind !== 'action') throw codedError('INVALID_NATIVE_TOOL', `${label} expected one body action for ${actionType}`);
-				let seen = null, running = true, timer = null, wake = null;
+				let seen = null, running = true, timer = null, wake = null, release = null;
 				// Samples arrive with each published change; a watched leg also asks for one every 2 s. The leg's end wakes the
-				// sleep, so the next leg never waits out the rest of it (it cost about 1.5 s after every failed search leg).
-				const stop = () => { running = false; clearTimeout(timer); wake?.(); };
+				// sleep and releases a sample still on its way, so the next leg never waits on the watcher (the sleep cost about
+				// 1.5 s after every failed search leg).
+				const stopped = new Promise((resolve) => { release = resolve; });
+				const stop = () => { running = false; clearTimeout(timer); wake?.(); release(null); };
 				const watcher = watch === null ? null : (async () => {
 					while (running) {
 						await new Promise((resolve) => { wake = resolve; timer = setTimeout(resolve, 2_000); });
 						if (!running || this.#executionEpoch(agentId) !== executionEpoch) return;
 						let sample = latest();
-						try { sample = (await this.#observe(record, { includeMetadata: false, deliver: false })).observation ?? sample; } catch { /* the latest pushed sample stands */ }
+						try { sample = (await Promise.race([this.#observe(record, { includeMetadata: false, deliver: false }), stopped]))?.observation ?? sample; } catch { /* the latest pushed sample stands */ }
 						if (!running) return;
 						seen = watch(sample);
 						if (seen === null) continue;
