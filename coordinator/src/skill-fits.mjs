@@ -104,10 +104,12 @@ const BED_NEAR = 24;
 const USE_BED = 'interact_block it until "Respawn point set" (by day too), keep it';
 
 /**
- * C33: the respawn bed by the Overworld portal before the first Nether entry. In rounds 4 to 6, 17 Nether deaths
- * respawned 50 to 576 blocks from the portal and took about 557 minutes to get back, more than the 362 spent there.
- * Only from what is in reach (portalBedSource), never a wool search. lit: the portal is lit (frame: its cell when known);
- * before lighting the bed is only made ready. Returns { step: [next, why] } or { skip: reason }.
+ * C33: the respawn bed by the Overworld portal. In rounds 4 to 6, 17 Nether deaths respawned 50 to 576 blocks from the
+ * portal and took about 557 minutes to get back, more than the 362 spent there. Offered at every lit-portal visit while
+ * the respawn is not set by the portal, not only before the first entry, on purpose: a respawn far from the portal
+ * costs the same walk back after any death, first trip or tenth. Only from what is in reach (portalBedSource), never a
+ * wool search. lit: the portal is lit (frame: its cell when known); before lighting the bed is only made ready. Returns
+ * { step: [next, why] } or { skip: reason }.
  */
 function portalBed(o, known, { lit, frame = null }) {
 	const at = o.position ?? o.player?.position ?? o.player;
