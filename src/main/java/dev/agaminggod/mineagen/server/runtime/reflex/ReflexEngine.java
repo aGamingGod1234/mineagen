@@ -3,7 +3,7 @@ package dev.agaminggod.mineagen.server.runtime.reflex;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import dev.agaminggod.mineagen.agent.AgentId;
-import dev.agaminggod.mineagen.server.CodexAgentManager;
+import dev.agaminggod.mineagen.server.AgentManager;
 import dev.agaminggod.mineagen.server.perception.ObservationVisibility;
 import dev.agaminggod.mineagen.protocol.ActionType;
 import dev.agaminggod.mineagen.server.pov.AgentControlReservations;
@@ -72,7 +72,7 @@ public final class ReflexEngine {
 	}
 	private static final Map<MinecraftServer, ReflexEngine> ENGINES = new WeakHashMap<>();
 
-	private final CodexAgentManager manager;
+	private final AgentManager manager;
 	private final Map<AgentId, AgentReflexes> agents = new LinkedHashMap<>();
 	private final Set<AgentId> changed = new LinkedHashSet<>();
 	private java.util.function.Predicate<AgentId> actionProbe = ignored -> false;
@@ -114,7 +114,7 @@ public final class ReflexEngine {
 		return player != null && FIGHT_SHIELDS.contains(player.getUUID());
 	}
 
-	public ReflexEngine(CodexAgentManager manager) {
+	public ReflexEngine(AgentManager manager) {
 		this.manager = Objects.requireNonNull(manager, "manager must not be null");
 	}
 
@@ -123,7 +123,7 @@ public final class ReflexEngine {
 		actionProbe = Objects.requireNonNull(probe, "probe must not be null");
 	}
 
-	public static synchronized ReflexEngine of(MinecraftServer server, CodexAgentManager manager) {
+	public static synchronized ReflexEngine of(MinecraftServer server, AgentManager manager) {
 		return ENGINES.computeIfAbsent(Objects.requireNonNull(server, "server must not be null"), ignored -> new ReflexEngine(manager));
 	}
 

@@ -3,7 +3,7 @@ package dev.agaminggod.mineagen.server.bridge;
 import com.google.gson.*;
 import dev.agaminggod.mineagen.agent.*;
 import dev.agaminggod.mineagen.agent.goal.GoalPredicate;
-import dev.agaminggod.mineagen.server.CodexAgentManager;
+import dev.agaminggod.mineagen.server.AgentManager;
 import dev.agaminggod.mineagen.server.goal.*;
 import java.lang.reflect.*;
 import java.net.Socket;
@@ -92,7 +92,7 @@ public final class BridgeIntegrationFindingsVerification {
         System.out.println("PASS actual proposal handler and correlated results");
     }
 
-    private static UUID stage(CodexAgentManager manager, AgentRecord idle) {
+    private static UUID stage(AgentManager manager, AgentRecord idle) {
         UUID id = UUID.randomUUID();
         manager.stageGoalDraft(new PendingGoalDraft(id, idle.agentId(), UUID.randomUUID(),
                 "Get a good pickaxe", List.of("minecraft:iron_pickaxe"), Optional.empty(),
@@ -225,7 +225,7 @@ public final class BridgeIntegrationFindingsVerification {
 
     private static Fixture fixture() throws Exception {
         // Reuse the established lifecycle-only fixture; no server/world constructor is run.
-        CodexAgentManager manager = (CodexAgentManager) invoke(null, MultiplexedServerBridgeVerification.class,
+        AgentManager manager = (AgentManager) invoke(null, MultiplexedServerBridgeVerification.class,
                 "uninitializedManager", new Class<?>[]{});
         MultiplexedServerBridge bridge = MultiplexedServerBridge.withPreparedSecret(manager, 0, "0123456789abcdef0123456789abcdef");
         Class<?> type = Class.forName(MultiplexedServerBridge.class.getName() + "$Session");
@@ -260,7 +260,7 @@ public final class BridgeIntegrationFindingsVerification {
         }
     }
 
-    private record Fixture(CodexAgentManager manager, MultiplexedServerBridge bridge, Object session,
+    private record Fixture(AgentManager manager, MultiplexedServerBridge bridge, Object session,
                            Socket socket, BlockingQueue<BridgeEnvelope> outbound) implements AutoCloseable {
         BridgeEnvelope take(String type) {
             BridgeEnvelope result = outbound.poll();

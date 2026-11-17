@@ -91,10 +91,10 @@ try {
 	await bridge.send('catalog_snapshot', 'server', { refreshedAtEpochMs: Date.now(), models: [{ provider: 'codex', model: 'gpt-6.1-sol', id: 'gpt-6.1-sol', displayName: 'Provider-free flee fixture', reasoningEfforts: ['low'], serviceTiers: ['default'] }] });
 	await command('difficulty normal'); await command('gamerule minecraft:send_command_feedback false'); await command('gamerule minecraft:spawn_mobs false');
 	await command('time set midnight'); await command('gamerule minecraft:advance_time false'); await command('forceload add -48 32 80 160'); await sleep(3000);
-	const registered = inbox.wait('agent_registered'); console.log(await command(`execute positioned 9.5 72 90.5 run codex summon gpt-6.1-sol low ${agent}`));
+	const registered = inbox.wait('agent_registered'); console.log(await command(`execute positioned 9.5 72 90.5 run mineagen summon gpt-6.1-sol low ${agent}`));
 	const summoned = await registered; record = { ...(summoned.payload.record ?? summoned.payload), agentId: summoned.agentId };
 	await bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false });
-	const started = inbox.wait('goal_control', (event) => event.payload.operation === 'start'); await command(`codex start ${agent} Survive for 1200 seconds.`); record.goalRevision = (await started).payload.goalRevision;
+	const started = inbox.wait('goal_control', (event) => event.payload.operation === 'start'); await command(`mineagen start ${agent} Survive for 1200 seconds.`); record.goalRevision = (await started).payload.goalRevision;
 	await bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false });
 	await sleep(2000); await observe();
 	await command(`gamemode survival ${agent}`); await command(`clear ${agent}`);

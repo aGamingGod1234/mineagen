@@ -92,7 +92,7 @@ for await (const { item: [, raw, checkpoint], server: s, error: bootError } of w
 			const first = seedSpots[0], fx = first.x ?? first.checkpointData?.setup.position[0] ?? 0, fz = first.z ?? first.checkpointData?.setup.position[2] ?? 0;
 			await s.command(`forceload add ${Math.floor(fx)} ${Math.floor(fz)}`);
 			for (let wait = 0; wait < 600 && !/time is/i.test(await s.command(`execute if loaded ${Math.floor(fx)} 0 ${Math.floor(fz)} run time query gametime`)); wait++) await sleep(100);
-			console.log(`summon: ${await s.command(`execute positioned ${fx} 0 ${fz} positioned over motion_blocking_no_leaves run codex summon gpt-6.1-sol low ${AGENT}`)}`);
+			console.log(`summon: ${await s.command(`execute positioned ${fx} 0 ${fz} positioned over motion_blocking_no_leaves run mineagen summon gpt-6.1-sol low ${AGENT}`)}`);
 			e = await registered;
 		}
 		if (!e) throw new Error('agent never registered');
@@ -101,7 +101,7 @@ for await (const { item: [, raw, checkpoint], server: s, error: bootError } of w
 		const command = async text => ({ text: await s.command(text) });
 		for (const spot of seedSpots) {
 			const started = s.inbox.wait('goal_control', g => g.payload.operation === 'start', 120_000);
-			await s.command(`codex start ${AGENT} Survive for 1200 seconds.`);
+			await s.command(`mineagen start ${AGENT} Survive for 1200 seconds.`);
 			s.record.goalRevision = (await started).payload.goalRevision;
 			await s.bridge.send('agent_ready', s.record.agentId, { goalRevision: s.record.goalRevision, reconciled: false });
 			const base = spot.checkpointData?.setup ?? { dimension: 'minecraft:overworld', inventory: [{ item: 'minecraft:iron_pickaxe', count: 1 }], generality: true, groundBelowCanopy: true };

@@ -145,7 +145,7 @@ export async function runPlayerCapabilityProbe(config) {
 	let predicate = { ...MECHANICS_PROBE_PREDICATE };
 	let failure = null, stage = 'connect_rcon', rconResponsive = true;
 	const command = async (text) => {
-		const startedAt = Date.now(), operation = /\bcodex (summon|start|stop)\b/.exec(text)?.[0] ?? text.split(' ')[0];
+		const startedAt = Date.now(), operation = /\bmineagen (summon|start|stop)\b/.exec(text)?.[0] ?? text.split(' ')[0];
 		try {
 			const result = await rcon.command(text);
 			if (/Unknown or incomplete command|Incorrect argument|Unknown player|Unknown agent|Unknown entity|Unable to summon|No entity was found|Invalid .*name|position is not loaded|outside of the world/i.test(result.text)) throw new Error(`FIXTURE_COMMAND_REJECTED:${operation.replace(' ', '_')}`);
@@ -212,10 +212,10 @@ export async function runPlayerCapabilityProbe(config) {
 		await action('menu_close', { menuId: page.menu.type, containerId: page.menu.containerId, stateId: page.menu.stateId });
 	};
 	const killGoal = async (entityType) => {
-		await command(`codex stop ${config.agentName}`);
+		await command(`mineagen stop ${config.agentName}`);
 		predicate = { type: 'entity_killed_by_agent', entityType, afterGoalStart: true };
 		const activated = inbox.wait('goal_control', (event) => event.agentId === record.agentId && ['start', 'replace'].includes(event.payload.operation));
-		report.goalSetupResponse = await command(`codex start ${config.agentName} Kill ${entityType}`);
+		report.goalSetupResponse = await command(`mineagen start ${config.agentName} Kill ${entityType}`);
 		const goal = await activated;
 		assertFact(goal.payload.goal === `Kill ${entityType}` && goal.payload.goalSpec?.predicate?.entityType === entityType, 'NEW_KILL_GOAL_NOT_TRANSMITTED');
 		record.goalRevision = goal.payload.goalRevision;
@@ -242,14 +242,14 @@ export async function runPlayerCapabilityProbe(config) {
 		for (const entry of setup) await command(entry);
 		stage = 'summon_fixture_agent';
 		const registered = inbox.wait('agent_registered');
-		await command(`execute in minecraft:overworld positioned 0.5 64 0.5 run codex summon ${PROFILE.model} ${PROFILE.reasoningEffort} ${config.agentName}`);
+		await command(`execute in minecraft:overworld positioned 0.5 64 0.5 run mineagen summon ${PROFILE.model} ${PROFILE.reasoningEffort} ${config.agentName}`);
 		const event = await registered;
 		record = { ...(event.payload.record ?? event.payload), agentId: event.agentId };
 		report.registeredProfile = { provider: record.provider, model: record.model, reasoningEffort: record.reasoningEffort, serviceTier: record.serviceTier };
 		await bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false });
 		stage = 'start_fixture_agent';
 		const activated = inbox.wait('goal_control', (event) => event.agentId === record.agentId && event.payload.operation === 'start');
-		await command(`codex start ${config.agentName} ${MECHANICS_PROBE_GOAL}`);
+		await command(`mineagen start ${config.agentName} ${MECHANICS_PROBE_GOAL}`);
 		const goal = await activated;
 		assertFact(Number.isSafeInteger(goal.payload.goalRevision) && goal.payload.goalSpec?.predicate?.type === MECHANICS_PROBE_PREDICATE.type
 			&& goal.payload.goalSpec.predicate.ticks === MECHANICS_PROBE_PREDICATE.ticks, 'SURVIVAL_GOAL_NOT_ACTIVATED');
@@ -616,9 +616,9 @@ export async function runPlayerCapabilityProbe(config) {
 			const lethalAt = Date.now();
 			await action('attack', { targetId: head.uuid, timeoutMs: 3000 });
 			const lethalRevision = record.goalRevision;
-			await command(`codex stop ${config.agentName}`);
+			await command(`mineagen stop ${config.agentName}`);
 			const resumed = inbox.wait('goal_control', (event) => event.agentId === record.agentId && event.payload.operation === 'resume');
-			await command(`codex resume ${config.agentName}`);
+			await command(`mineagen resume ${config.agentName}`);
 			const resumedGoal = await resumed;
 			record.goalRevision = resumedGoal.payload.goalRevision;
 			assertFact(record.goalRevision > lethalRevision, 'DRAGON_RESUME_DID_NOT_ADVANCE_REVISION');
@@ -651,7 +651,7 @@ export async function runPlayerCapabilityProbe(config) {
 	} catch (error) { failure = error; report.failure = safeError(error); report.failureMessage = probeFailureMessage(error, secrets); report.failureStage = stage; }
 	finally {
 		stage = 'cleanup_fixture';
-		if (record) { try { if (!rconResponsive) throw new Error('RCON_UNRESPONSIVE'); await command(`codex stop ${config.agentName}`); report.cleanup.agentStopped = true; } catch { report.cleanup.agentStopped = false; } }
+		if (record) { try { if (!rconResponsive) throw new Error('RCON_UNRESPONSIVE'); await command(`mineagen stop ${config.agentName}`); report.cleanup.agentStopped = true; } catch { report.cleanup.agentStopped = false; } }
 		try { if (!rconResponsive) throw new Error('RCON_UNRESPONSIVE'); await command('forceload remove -16 -16 48 32'); report.cleanup.fixtureChunksReleased = true; } catch { report.cleanup.fixtureChunksReleased = false; }
 		try { if (rconResponsive) await command('execute in minecraft:the_nether run forceload remove 0 0'); } catch {}
 		bridge.stop(); inbox.close(); await rcon.close();

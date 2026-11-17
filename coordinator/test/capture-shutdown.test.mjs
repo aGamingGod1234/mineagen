@@ -63,7 +63,7 @@ test('the real headless runner exits a stopped evaluator attempt through normal 
 	assert.equal(report.classification, 'EVALUATOR_STOP', report.diagnostics);
 	assert.equal(report.cleanup.status, 'CLEAN');
 	assert.equal(closed, true);
-	assert.ok(commands.some(command => command.startsWith('codex remove ')));
+	assert.ok(commands.some(command => command.startsWith('mineagen remove ')));
 	assert.ok(writes.some(([file]) => file.endsWith('report.json')));
 });
 

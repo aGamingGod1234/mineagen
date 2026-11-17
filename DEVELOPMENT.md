@@ -6,7 +6,7 @@ This file covers building, testing and packaging Mineagen, and the detailed beha
 
 Mineagen is a Fabric + Carpet mod pack and a local coordinator for Minecraft Java 26.x: 26.1, 26.1.1, 26.1.2, 26.2 and 26.3. 26.3 is the default build and the Windows release. It adds offline fake players controlled through local provider CLIs. Codex and Claude use their existing local CLI logins (Codex CLI and Claude Code). The coordinator supports Codex and Claude.
 
-By default the mod stores no provider API keys. An operator can save one key per provider from the Agents screen. This works only for the host of a single-player or opened-to-LAN world, over the in-memory connection. The client never sends the key anywhere else. The server refuses a key from any other sender before it validates the key or changes the key file. A dedicated server uses the CLI login or the environment variables on its own machine. The mod writes the key to `runtime/provider-keys/<provider>.key` under the installed runtime folder with owner-only permissions. On Windows the file holds one line, `mineagen-provider-key:1:dpapi:<base64>`, the key encrypted to the current Windows user with DPAPI. If encryption fails, or on Linux and macOS, the file holds the bare key. An older bare-key file still loads and is encrypted the next time a key is saved. The mod passes the key to the coordinator as `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`. An explicit server environment variable of that name overrides the saved key.
+By default the mod stores no provider API keys. An operator can save one key per provider from the control center. This works only for the host of a single-player or opened-to-LAN world, over the in-memory connection. The client never sends the key anywhere else. The server refuses a key from any other sender before it validates the key or changes the key file. A dedicated server uses the CLI login or the environment variables on its own machine. The mod writes the key to `runtime/provider-keys/<provider>.key` under the installed runtime folder with owner-only permissions. On Windows the file holds one line, `mineagen-provider-key:1:dpapi:<base64>`, the key encrypted to the current Windows user with DPAPI. If encryption fails, or on Linux and macOS, the file holds the bare key. An older bare-key file still loads and is encrypted the next time a key is saved. The mod passes the key to the coordinator as `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`. An explicit server environment variable of that name overrides the saved key.
 
 Each agent is a real `ServerPlayer` with vanilla collision, gravity, health, hunger, inventory, and Survival/Creative/Adventure capabilities. It also has its own provider, model, thinking setting, planner session, provider-scoped working directory, goal queue, lifecycle, readable model name, and provider-themed client skin.
 
@@ -108,7 +108,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\start-dynamic-coordinator.ps1
 
 ## Visual release validation
 
-The release gate (`scripts/verify-distribution-fabric-boot.ps1`) starts a temporary offline Fabric server with the exact five JARs from the Windows ZIP: Mineagen, Mineagen Voice, Fabric API, Fabric Carpet, and Simple Voice Chat. It waits for Minecraft's `Done` marker, runs `codex status`, checks for mixin and crash failures, sends `stop`, and requires a clean exit. Live launcher gameplay and provider-latency acceptance remain separate manual checks.
+The release gate (`scripts/verify-distribution-fabric-boot.ps1`) starts a temporary offline Fabric server with the exact five JARs from the Windows ZIP: Mineagen, Mineagen Voice, Fabric API, Fabric Carpet, and Simple Voice Chat. It waits for Minecraft's `Done` marker, runs `mineagen status`, checks for mixin and crash failures, sends `stop`, and requires a clean exit. Live launcher gameplay and provider-latency acceptance remain separate manual checks.
 
 ## Body control
 
@@ -120,48 +120,35 @@ ArenaScript provides a validated interpreter for model-authored programs. Its ac
 
 ### Summoning and tasks
 
-`/codex summon` and the legacy two-argument form use the configured Codex default. The command center asks the Codex CLI for its current model catalog and uses a bounded built-in catalog when discovery is unavailable; Claude models come from the coordinator's configured list. Availability still depends on the installed CLI, its login, and that provider's model access. Player-facing speed choices are `Normal` and `Fast mode`; provider wire values stay internal. `summon-configured` takes the speed as `default`, `priority` or `fast` and the game mode as `survival`, `creative` or `adventure`; its name argument is required and `""` keeps the generated name. A newly summoned NPC remains idle until `/codex start`; `stop` freezes its active work, `queue` preserves later goals, and `steer` interrupts the current plan at a higher revision.
+`/mineagen summon` and the legacy two-argument form use the configured Codex default. The control center asks the Codex CLI for its current model catalog and uses a bounded built-in catalog when discovery is unavailable; Claude models come from the coordinator's configured list. Availability still depends on the installed CLI, its login, and that provider's model access. Player-facing speed choices are `Normal` and `Fast mode`; provider wire values stay internal. `summon-configured` takes the speed as `default`, `priority` or `fast` and the game mode as `survival`, `creative` or `adventure`; its name argument is required and `""` keeps the generated name. A newly summoned NPC remains idle until `/mineagen start`; `stop` freezes its active work, `queue` preserves later goals, and `steer` interrupts the current plan at a higher revision.
 
 ### Spectate and takeover
 
-`/spectate <agent>` switches your view to the agent's first-person camera, one-to-one with what a player in its body would see: its hands, skin, held tools and how it swings, eats, blocks or draws them, plus its hotbar, hearts, food, armor, air, XP, effects, game mode, open container screens and death screen. Nothing else is drawn over the view; a lost signal or a hit on your own body shows briefly on the action bar. `<agent>` is the tab-completed selector (the agent's username or short id, no spaces), not the display name shown in chat. `<agent>` alone means `start`; `/spectate <agent> stop` (or `exit`) ends that agent's view and `/spectate exit` ends whichever view is active. Your own body stays where it is, so your surroundings stop rendering while you watch.
+`/mineagen spectate <agent>` switches your view to the agent's first-person camera, one-to-one with what a player in its body would see: its hands, skin, held tools and how it swings, eats, blocks or draws them, plus its hotbar, hearts, food, armor, air, XP, effects, game mode, open container screens and death screen. Nothing else is drawn over the view; a lost signal or a hit on your own body shows briefly on the action bar. `<agent>` is the tab-completed selector (the agent's username or short id, no spaces), not the display name shown in chat. `/mineagen spectate <agent>` starts the view; `/mineagen spectate <agent> stop` ends that agent's view and `/mineagen spectate exit` ends whichever view is active. Your own body stays where it is, so your surroundings stop rendering while you watch.
 
-`/takeover <agent>` uses the same grammar and routes your movement, mouse look, jump, sneak, sprint, attack, use, hotbar and inventory clicks to the agent's body while its model is paused; the model resumes from whatever state you leave the agent in and receives a short report of what you did. A takeover ends when you run `/takeover exit`, when your own body loses two hearts, dies, changes dimension or disconnects, or when the agent is removed or enters another dimension (run the command again once you are in the same dimension). Both commands need operator permission and the client mod. The mod replaces vanilla `/spectate` (which would move your body to the target) on servers it runs on. `/codex spectate` and `/codex takeover` are aliases.
+`/mineagen takeover <agent>` uses the same grammar and routes your movement, mouse look, jump, sneak, sprint, attack, use, hotbar and inventory clicks to the agent's body while its model is paused; the model resumes from whatever state you leave the agent in and receives a short report of what you did. A takeover ends when you run `/mineagen takeover exit` or `/mineagen takeover <agent> stop`, when your own body loses two hearts, dies, changes dimension or disconnects, or when the agent is removed or enters another dimension (run the command again once you are in the same dimension). Both commands need operator permission and the client mod.
 
 ### Voice
 
 Operators can save settings for an ordinary agent's voice commands, speak a line using those settings, or speak a line with one-off settings that are not saved (`say_with`). Voice requires the optional Mineagen Voice add-on and Simple Voice Chat. Automatic selection uses the voice worker's assigned agent profile; named voice IDs and saved settings remain compatible.
 
 ```text
-/codex voice profiles
-/codex voice profile Claude voice.adrian.v1 dramatic 1.05 64
-/codex voice say Claude You should not have come here.
-/codex voice say_with Claude voice.selene.v1 warm 1.0 48 Hello there.
+/mineagen voice profiles
+/mineagen voice profile Claude voice.adrian.v1 dramatic 1.05 64
+/mineagen voice say Claude You should not have come here.
+/mineagen voice say_with Claude voice.selene.v1 warm 1.0 48 Hello there.
 ```
 
 Tones are `neutral`, `warm`, `excited`, `serious`, `dramatic`, `whisper`, `robotic` and `angry`. Speed runs from 0.5 to 2.0 and radius from 1 to 128 blocks.
 
 The shipped coordinator configuration selects OpenAI speech: `gpt-4o-mini-tts` reads the selected agent's exact reply, and `gpt-transcribe` turns consented microphone audio into text for that same agent. Speech models do not decide gameplay or generate replies. Add `OPENAI_API_KEY` in Windows **Environment Variables for your account**, then restart the launcher and Minecraft. The key is read on the host, never embedded in the JAR, and is withheld from gameplay provider processes so Codex keeps its existing sign-in. In `mineagen-runtime/runtime/dynamic-agents.json`, set `voice.provider` to `openai`; `openaiTtsModel`, `openaiSttModel`, and `openaiApiKeyEnvironmentVariable` select the speech models and key variable. A line that OpenAI speech has not finished within 13 seconds is sent as text instead; `interactiveTtsTimeoutMs` changes that cutoff in milliseconds. Existing external configuration is preserved during mod updates, so older installs need this provider setting once; a configuration without `voice.provider` uses `legacy`. Saved voice profile IDs map consistently to OpenAI's built-in voices. Use `legacy` explicitly to retain the previous Fish, Deepgram, or local speech routing.
 
-Spatial voice is optional to use. The Windows release ZIP includes the Mineagen Voice add-on and Simple Voice Chat. In a separate main-mod installation without them, `/codex voice-consent` reports `VOICE_UNAVAILABLE` and leaves consent unchanged. With the add-on and its compatible Simple Voice Chat dependency active, the command changes the player's transcription consent state. Text control and ArenaScript do not require voice.
-
-### Cameras
-
-Find **Tripod Camera** in the **Cameras** creative tab or use `/codex camera kit`. Place it on a solid floor and right-click it. Its **Record** and **Position** tabs record shots, adjust lens height, pan, tilt and dolly without rails. Movement stops after five seconds unless braked sooner. Closing the controls brakes the camera and saves an active recording. **Viewfinder** opens the lens view; the mouse pans, **K** returns to camera controls, and sneak saves and exits. A physical pass supports about 102 seconds (512 keyframes, one every 4 ticks). This records camera motion; use a video recorder for video. Existing rail-camera saves and manual keyframe commands remain compatible.
-
-```text
-/camera path start intro
-/camera path keyframe
-/camera path stop
-/camera path play intro
-```
-
-Run `/camera` on the recording client. The client-only camera director records the operator's current camera position and rotation as keyframes, then replays them with smooth position interpolation and shortest-turn rotation. Paths are stored locally in `config/mineagen/camera-paths.json`, support looping playback (`/camera path play <name> true`), and can be listed (`list`), inspected (`info`), deleted (`delete`, `clear`) or stopped (`stop-playback`) without changing server or agent state.
+Spatial voice is optional to use. The Windows release ZIP includes the Mineagen Voice add-on and Simple Voice Chat. In a separate main-mod installation without them, `/mineagen voice-consent` reports `VOICE_UNAVAILABLE` and leaves consent unchanged. With the add-on and its compatible Simple Voice Chat dependency active, the command changes the player's transcription consent state. Text control and ArenaScript do not require voice.
 
 ### Skins
 
 Only `brand_openai` and `brand_claude` skins ship; see [the artwork reference](docs/agent-logo-skins.md). Brand agent textures are authored at 512x512 while retaining the vanilla 64x64 UV layout. That gives each visible 8x8 head face a 64px logo raster, while ordinary player and mob textures remain at their native resolutions. These are mod assets, not files for the vanilla skin-upload screen.
 
-### Agents screen (Field Console)
+### Control center
 
-Press the configured Agent Controls key (`G` by default) in a world to open the custom Field Console. Agent creation, one-at-a-time configuration, individual tasks, lifecycle controls, and settings use the `Agents` workspace. Direct messages stay in Minecraft's native `/msg`, `/tell`, and `/w` flow; the mod routes messages addressed to online agents into their private conversation memory and mirrors them to operators. The console renders its own flat controls, text fields, confirmation surface, selection rows, no-shadow labels, and mod-local Roboto typography instead of exposing Minecraft's default button grid or pixel type. Full-row selection, explicit `SELECTED` labels, keyboard focus outlines, scroll-safe 320x240 layouts, and plain status copy keep the current target unmistakable.
+Press the configured Open control center key (`G` by default) in a world to open the control center. Agent creation, one-at-a-time configuration, individual tasks, lifecycle controls, and settings use the `Agents` workspace. Direct messages use `/mineagen dm <agent> <message>`, and Minecraft's native `/msg`, `/tell`, and `/w` reach agents too; the mod routes messages addressed to online agents into their private conversation memory and mirrors them to operators. The control center renders its own flat controls, text fields, confirmation surface, selection rows, no-shadow labels, and mod-local Roboto typography instead of exposing Minecraft's default button grid or pixel type. Full-row selection, explicit `SELECTED` labels, keyboard focus outlines, scroll-safe 320x240 layouts, and plain status copy keep the current target unmistakable.

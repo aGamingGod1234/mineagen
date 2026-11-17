@@ -2,6 +2,7 @@ package dev.agaminggod.mineagen.server.pov;
 
 import dev.agaminggod.mineagen.agent.AgentDomainException;
 import dev.agaminggod.mineagen.agent.AgentId;
+import dev.agaminggod.mineagen.control.AgentControlCommandBuilder;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -64,7 +65,8 @@ public final class AgentControlReservations {
 		synchronized void requireUnreserved(AgentId agentId) {
 			if (owners.containsKey(agentId)) {
 				throw new AgentDomainException(RESERVED_CODE,
-						"An operator is controlling this agent with /takeover. Wait until they run /takeover exit");
+						"An operator is controlling this agent with /" + AgentControlCommandBuilder.ROOT + " takeover. Wait until they run /"
+								+ AgentControlCommandBuilder.ROOT + " takeover exit");
 			}
 		}
 

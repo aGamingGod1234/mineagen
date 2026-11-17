@@ -59,10 +59,10 @@ async function fixture({ scenario = makeScenario(), seed = scenario.world.seed, 
 				if (command.includes(' if loaded ')) return { text: loaded ? 'The time is 500' : 'Test failed' };
 				if (command.startsWith('gamerule ')) return { text: 'The gamerule is true' };
 				if (command.includes('summon-configured')) { name = command.split(' ').at(-1); return { text: pendingJoin ? `Creating ${name}. It will be ready when its player joins.` : `Created ${name}. It is ready for a task.` }; }
-				if (command.startsWith('codex start ')) { started = true; afterStart?.(); return { text: 'started' }; }
-				if (command.startsWith('codex status ')) return { text: pendingJoin && !started ? `${name} | READY.` : 'state=COMPLETED' };
+				if (command.startsWith('mineagen start ')) { started = true; afterStart?.(); return { text: 'started' }; }
+				if (command.startsWith('mineagen status ')) return { text: pendingJoin && !started ? `${name} | READY.` : 'state=COMPLETED' };
 				// No audit answer is what an older server without the intervention audit returns.
-				if (command === `codex audit ${name}`) return { text: audit === null ? 'Unknown or incomplete command, see below for error' : audit(name) };
+				if (command === `mineagen audit ${name}`) return { text: audit === null ? 'Unknown or incomplete command, see below for error' : audit(name) };
 				if (command === `data get entity ${name} Inventory`) return { text: `${name} has the following entity data: ${inventory}` };
 				if (command === `data get entity ${name} Pos` || command.startsWith('execute if ') || command.startsWith('execute positioned ')) return { text: command.startsWith('data get ') || (holds === null ? outcome : holds(command, name)) ? `${name} has the following entity data: [10.5d, 65.0d, -3.5d]` : 'Test failed' };
 				return { text: 'ok' };
@@ -82,13 +82,13 @@ test('natural runner preserves terrain and inventory, scopes exact settings, and
 	assert.deepEqual(report.settings, { requested: profile, configured: profile, configuredVerified: true, effective: null, evidence: null });
 	assert.deepEqual(report.budget, { wallClockMs: 10_000 });
 	assert.equal(commands.some((command) => /\b(?:fill|setblock|give|clear|teleport|tp)\b/.test(command)), false);
-	const task = commands.find((command) => command.startsWith('codex start '));
+	const task = commands.find((command) => command.startsWith('mineagen start '));
 	assert.match(task, / Collect a log$/);
 	assert.doesNotMatch(task, /922337|manifest|seed|assert|profile/);
-	assert.ok(commands.some((command) => command.includes('positioned 10.5 65 -3.5 run codex summon-configured')));
+	assert.ok(commands.some((command) => command.includes('positioned 10.5 65 -3.5 run mineagen summon-configured')));
 	const release = commands.indexOf('execute in minecraft:overworld run forceload remove 10 -4');
 	assert.ok(release > commands.findIndex((command) => command.endsWith(' Inventory')));
-	assert.ok(release < commands.findIndex((command) => command.startsWith('codex start ')));
+	assert.ok(release < commands.findIndex((command) => command.startsWith('mineagen start ')));
 	assert.equal(report.world.setupInterventions[0].released, true);
 });
 
@@ -103,11 +103,11 @@ test('natural spawn readiness fails closed and releases its exact ticket without
 	assert.equal(missing.commands.some((command) => command.includes('summon-configured')), false);
 	const surface = await fixture({ scenario: makeScenario({ world: { mode: 'natural', seed: '1', spawn: { policy: 'surface', x: -20, z: 48 } } }) });
 	assert.equal(surface.report.status, 'PASSED');
-	assert.ok(surface.commands.some((command) => command.includes('positioned -19.5 0 48.5 positioned over world_surface run codex summon-configured')));
+	assert.ok(surface.commands.some((command) => command.includes('positioned -19.5 0 48.5 positioned over world_surface run mineagen summon-configured')));
 	assert.ok(surface.commands.includes('execute in minecraft:overworld run forceload remove -20 48'));
 	const joining = await fixture({ pendingJoin: true });
 	assert.equal(joining.report.status, 'PASSED');
-	assert.ok(joining.commands.findIndex((command) => command.startsWith('codex status ')) < joining.commands.indexOf('execute in minecraft:overworld run forceload remove 10 -4'));
+	assert.ok(joining.commands.findIndex((command) => command.startsWith('mineagen status ')) < joining.commands.indexOf('execute in minecraft:overworld run forceload remove 10 -4'));
 });
 
 test('natural runner fails before agent start for missing identity, wrong seed or nonempty inventory', async () => {
@@ -115,7 +115,7 @@ test('natural runner fails before agent start for missing identity, wrong seed o
 		const { report, commands } = await fixture(options);
 		assert.equal(report.status, 'FAILED');
 		assert.equal(report.failureCategory, 'infrastructure');
-		assert.equal(commands.some((command) => command.startsWith('codex start ')), false);
+		assert.equal(commands.some((command) => command.startsWith('mineagen start ')), false);
 	}
 });
 

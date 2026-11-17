@@ -4,10 +4,10 @@ import dev.agaminggod.mineagen.client.compat.McClientCompat;
 
 import com.mojang.blaze3d.platform.InputConstants;
 import dev.agaminggod.mineagen.agent.AgentIdentity;
-import dev.agaminggod.mineagen.client.camera.CameraDirectorClient;
 import dev.agaminggod.mineagen.client.control.AgentControlClient;
 import dev.agaminggod.mineagen.client.mixin.CameraEyeHeightAccessor;
 import dev.agaminggod.mineagen.client.pov.screen.PovScreens;
+import dev.agaminggod.mineagen.control.AgentControlCommandBuilder;
 import dev.agaminggod.mineagen.pov.AgentPovMenuPayload;
 import dev.agaminggod.mineagen.pov.AgentPovPosePayload;
 import dev.agaminggod.mineagen.pov.AgentPovStatePayload;
@@ -38,7 +38,7 @@ import net.minecraft.world.entity.player.Player;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** Client side of /spectate and /takeover: session state, camera binding, hand source and the exit key. */
+/** Client side of /mineagen spectate and /mineagen takeover: session state, camera binding, hand source and the exit key. */
 public final class PovClient {
 	private static final Logger LOGGER = LoggerFactory.getLogger(PovClient.class);
 	// Category is a record, so an equal id joins AgentControlClient's registered "Mineagen" group.
@@ -126,7 +126,8 @@ public final class PovClient {
 		Minecraft client = Minecraft.getInstance();
 		PovClientSession current = TRACKER.session().orElse(null);
 		if (current == null) return;
-		if (client.getConnection() != null) client.getConnection().sendCommand(current.takeover() ? "takeover exit" : "spectate exit");
+		if (client.getConnection() != null) client.getConnection().sendCommand(
+				AgentControlCommandBuilder.ROOT + (current.takeover() ? " takeover exit" : " spectate exit"));
 		// With the stream already silent no stop payload will come, so the exit is local only.
 		if (client.getConnection() == null || silentTicks >= SILENT_SERVER_TICKS) endLocal(client);
 	}
@@ -287,7 +288,6 @@ public final class PovClient {
 	// Entry for a new session or a switch to another agent; camera ownership is captured only once.
 	private static void begin(Minecraft client, PovClientSession next) {
 		if (!cameraCaptured) {
-			CameraDirectorClient.stopForExternalCamera(client);
 			previousCamera = client.getCameraEntity();
 			previousCameraType = client.options.getCameraType();
 			cameraCaptured = true;
@@ -431,7 +431,7 @@ public final class PovClient {
 		return agent ? candidate : null;
 	}
 
-	// Signal lost: hold the view at the agent's last eye position, same marker technique as camera paths.
+	// Signal lost: hold the view at the agent's last eye position on a client-side marker entity.
 	private static Entity anchor(Minecraft client) {
 		if (!hasLastPosition || client.level == null) return null;
 		if (signalAnchor != null && !signalAnchor.isRemoved() && signalAnchor.level() == client.level) return signalAnchor;

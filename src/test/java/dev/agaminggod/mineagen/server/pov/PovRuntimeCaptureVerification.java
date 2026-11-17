@@ -10,7 +10,7 @@ import dev.agaminggod.mineagen.pov.AgentPovStatePayload;
 import dev.agaminggod.mineagen.pov.PovMode;
 import dev.agaminggod.mineagen.pov.PovViewAnchors;
 import dev.agaminggod.mineagen.server.AgentSavedData;
-import dev.agaminggod.mineagen.server.CodexAgentManager;
+import dev.agaminggod.mineagen.server.AgentManager;
 import dev.agaminggod.mineagen.server.OfflineAgentPlayers;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -225,7 +225,7 @@ public final class PovRuntimeCaptureVerification {
 		final List<ServerPlayer> viewers = new ArrayList<>();
 		final List<Packets> sinks = new ArrayList<>();
 		final Map<UUID, PovSession> sessions;
-		final Map<MinecraftServer, CodexAgentManager> managers;
+		final Map<MinecraftServer, AgentManager> managers;
 		final Map<MinecraftServer, Object> states;
 
 		@SuppressWarnings("unchecked")
@@ -238,9 +238,9 @@ public final class PovRuntimeCaptureVerification {
 			level.server = server;
 			set(level, Level.class, "dimension", Level.OVERWORLD);
 			set(server, MinecraftServer.class, "levels", Map.of(Level.OVERWORLD, level));
-			var manager = allocate(CodexAgentManager.class);
-			set(manager, CodexAgentManager.class, "server", server);
-			set(manager, CodexAgentManager.class, "savedData", new AgentSavedData());
+			var manager = allocate(AgentManager.class);
+			set(manager, AgentManager.class, "server", server);
+			set(manager, AgentManager.class, "savedData", new AgentSavedData());
 			record = manager.registry().create("codex", "gpt-6.1-sol", "low", Optional.of("Snapshot Agent"), 1_000L);
 			UUID agentId = OfflineAgentPlayers.offlineUuid(record.agentId(), record.profile());
 			agent = allocate(EntityPlayerMPFake.class);
@@ -270,8 +270,8 @@ public final class PovRuntimeCaptureVerification {
 			dataConstructor.setAccessible(true);
 			set(agent, Entity.class, "entityData", dataConstructor.newInstance(agent, dataItems));
 			players.connected.put(agentId, agent);
-			var managersField = CodexAgentManager.class.getDeclaredField("INSTANCES"); managersField.setAccessible(true);
-			managers = (Map<MinecraftServer, CodexAgentManager>) managersField.get(null);
+			var managersField = AgentManager.class.getDeclaredField("INSTANCES"); managersField.setAccessible(true);
+			managers = (Map<MinecraftServer, AgentManager>) managersField.get(null);
 			var statesField = PovSessionRuntime.class.getDeclaredField("STATES"); statesField.setAccessible(true);
 			states = (Map<MinecraftServer, Object>) statesField.get(null);
 			var stateType = Class.forName(PovSessionRuntime.class.getName() + "$State");

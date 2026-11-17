@@ -102,13 +102,13 @@ async function observe(record) {
 
 async function spawnAgent(name, position) {
 	const registered = inbox.wait('agent_registered');
-	await command(`execute in minecraft:overworld positioned ${position.x} ${position.y} ${position.z} run codex summon ${PROFILE.model} ${PROFILE.reasoningEffort} ${name}`);
+	await command(`execute in minecraft:overworld positioned ${position.x} ${position.y} ${position.z} run mineagen summon ${PROFILE.model} ${PROFILE.reasoningEffort} ${name}`);
 	const event = await registered;
 	const record = { ...(event.payload.record ?? event.payload), agentId: event.agentId, name };
 	records.set(record.agentId, record);
 	await bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false });
 	const activated = inbox.wait('goal_control', (item) => item.agentId === record.agentId && item.payload.operation === 'start');
-	await command(`codex start ${name} Stay alive for 600 seconds.`);
+	await command(`mineagen start ${name} Stay alive for 600 seconds.`);
 	record.goalRevision = (await activated).payload.goalRevision;
 	await bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false });
 	return record;
@@ -286,7 +286,7 @@ try {
 	if (mode === 'eight' && !measurement.tickProfileStop) throw new Error('SERVER_TICK_PROFILE_MISSING');
 } finally {
 	if (tickProfilerActive) await command('debug stop').catch(() => {});
-	for (const record of records.values()) await command(`codex stop ${record.name}`).catch(() => {});
+	for (const record of records.values()) await command(`mineagen stop ${record.name}`).catch(() => {});
 	bridge.stop();
 	await rcon.close();
 }

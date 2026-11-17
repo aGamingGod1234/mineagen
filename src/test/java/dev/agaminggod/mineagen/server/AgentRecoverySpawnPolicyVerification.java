@@ -80,7 +80,7 @@ public final class AgentRecoverySpawnPolicyVerification {
 				"recovery rejects safe-looking terrain outside the bounded persisted-height search");
 		assertions++;
 
-		CodexAgentManager.RecoveryAttemptGate attemptGate = new CodexAgentManager.RecoveryAttemptGate();
+		AgentManager.RecoveryAttemptGate attemptGate = new AgentManager.RecoveryAttemptGate();
 		assertEquals(true, attemptGate.tryClaim(), "the first missing agent can claim this tick's recovery attempt");
 		assertions++;
 		assertEquals(false, attemptGate.tryClaim(),
@@ -102,10 +102,10 @@ public final class AgentRecoverySpawnPolicyVerification {
 		registry.start(first.agentId(), "continue mining", 103L);
 		registry.start(second.agentId(), "continue exploring", 103L);
 		Set<AgentId> pending = new LinkedHashSet<>();
-		CodexAgentManager.RecoveryAttemptGate firstTick = new CodexAgentManager.RecoveryAttemptGate();
+		AgentManager.RecoveryAttemptGate firstTick = new AgentManager.RecoveryAttemptGate();
 		int admitted = 0;
 		for (AgentId id : List.of(first.agentId(), second.agentId())) {
-			CodexAgentManager.prepareMissingPlayer(registry, registry.require(id), true, pending, 104L);
+			AgentManager.prepareMissingPlayer(registry, registry.require(id), true, pending, 104L);
 			if (firstTick.tryClaim()) admitted++;
 		}
 		assertEquals(1, admitted, "failed recovery consumes the only spawn admission");
@@ -123,22 +123,22 @@ public final class AgentRecoverySpawnPolicyVerification {
 			assertEquals(false, control.entityPresent(), "failed and deferred recovery do not project the retained UUID as a body");
 			assertEquals(false, AgentControlActions.supports(control, "start"), "missing recovered agent cannot Start");
 			assertEquals(false, AgentControlActions.supports(control, "resume"), "missing recovered agent cannot Resume");
-			CodexAgentManager.maintainPresentBodyTicket(Optional.empty(), ignored -> trackedTickets.incrementAndGet(),
+			AgentManager.maintainPresentBodyTicket(Optional.empty(), ignored -> trackedTickets.incrementAndGet(),
 					releasedTickets::incrementAndGet);
 		}
 		assertEquals(0, trackedTickets.get(), "saved locations cannot reacquire chunk tickets for absent or deferred bodies");
 		assertEquals(2, releasedTickets.get(), "ticket maintenance releases both missing-body tickets");
-		CodexAgentManager.maintainPresentBodyTicket(Optional.of("observed living body"),
+		AgentManager.maintainPresentBodyTicket(Optional.of("observed living body"),
 				ignored -> trackedTickets.incrementAndGet(), releasedTickets::incrementAndGet);
 		assertEquals(1, trackedTickets.get(), "an observed living replacement keeps its chunk ticket");
 		assertEquals(2, releasedTickets.get(), "a live-body ticket is not released during maintenance");
 		// A later retry uses the persisted record, not a transient copy from the failed tick.
-		AgentRecord retry = CodexAgentManager.prepareMissingPlayer(registry, registry.require(first.agentId()), true, pending, 105L);
+		AgentRecord retry = AgentManager.prepareMissingPlayer(registry, registry.require(first.agentId()), true, pending, 105L);
 		assertEquals(Optional.of(nether), retry.entityLocation(), "retry reads the durable original location");
 		var retriedControl = AgentControlSync.controlSnapshot(true, true, "Automation ready", 105L,
 				List.of(retry), AgentControlCatalog.currentOptions(), ignored -> Optional.empty()).agents().getFirst();
 		assertEquals(false, retriedControl.entityPresent(), "retry still requires an observed living body");
-		CodexAgentManager.RecoveryAttemptGate nextTick = new CodexAgentManager.RecoveryAttemptGate();
+		AgentManager.RecoveryAttemptGate nextTick = new AgentManager.RecoveryAttemptGate();
 		assertEquals(true, nextTick.tryClaim(), "the deferred agent can claim the next tick while the first backs off");
 		AgentEntityLocation replacement = AgentEntityLocation.exact("minecraft:the_end", 12, 8, 201, 71, 131, 180, 0);
 		registry.attachEntity(second.agentId(), registry.require(second.agentId()).entityUuid().orElseThrow(), replacement, 106L);

@@ -1,6 +1,6 @@
 ---
-name: Mineagen Field Console
-description: A readable in-world mission console for configuring and directing Minecraft agents.
+name: Mineagen control center
+description: A readable in-world control center for configuring and directing Minecraft agents.
 colors:
   obsidian-panel: "#18202B"
   slate-surface: "#27313E"
@@ -49,7 +49,7 @@ components:
     padding: "6px 8px"
 ---
 
-# Design System: Mineagen Field Console
+# Design System: Mineagen control center
 
 This is the visual direction. `ConsoleTheme.java`, `ConsoleFont.java` and the widgets under `src/client/java/dev/agaminggod/mineagen/client/gui/` define the rendered values.
 
@@ -57,7 +57,7 @@ This is the visual direction. `ConsoleTheme.java`, `ConsoleFont.java` and the wi
 
 **Creative North Star: "The Field Command Table"**
 
-The player opens this console while standing in an active world, often under a bright sky with visual noise behind the interface. The console is a dark, opaque-enough map table layered above that world, with strong text contrast, deliberate sections, and one signal color reserved for current selection and primary action.
+The player opens the control center while standing in an active world, often under a bright sky with visual noise behind the interface. It is a dark, opaque-enough map table layered above that world, with strong text contrast, deliberate sections, and one signal color reserved for current selection and primary action.
 
 It must feel native to Minecraft without looking like a vanilla settings menu. Custom-rendered navigation, roster rows, status timelines, segmented controls, and agent controls provide identity. Default buttons are implementation primitives, not the visual system.
 
@@ -83,7 +83,7 @@ The palette is restrained: tinted charcoal surfaces and one amber signal, with s
 
 ### Neutral
 
-- **Obsidian Panel:** Main console shell.
+- **Obsidian Panel:** Main control center shell.
 - **Slate Surface:** Controls, rows, and secondary regions.
 - **Selected Surface:** Full-row selection reinforcement beneath amber details.
 - **Cloud Text:** Primary readable copy.
@@ -109,7 +109,7 @@ The palette is restrained: tinted charcoal surfaces and one amber signal, with s
 
 ## Elevation
 
-Depth uses tonal layering and one-pixel keylines, not decorative shadows or glass blur. The world remains context, while the console stays readable across snow, desert, caves, and night.
+Depth uses tonal layering and one-pixel keylines, not decorative shadows or glass blur. The world remains context, while the control center stays readable across snow, desert, caves, and night.
 
 **The Flat Console Rule.** Surfaces are flat at rest. Focus and selection change fill and keyline contrast, never add ornamental glow.
 

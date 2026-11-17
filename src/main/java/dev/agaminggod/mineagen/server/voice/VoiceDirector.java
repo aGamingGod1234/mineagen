@@ -2,7 +2,7 @@ package dev.agaminggod.mineagen.server.voice;
 
 import dev.agaminggod.mineagen.agent.AgentDomainException;
 import dev.agaminggod.mineagen.agent.AgentId;
-import dev.agaminggod.mineagen.server.CodexAgentManager;
+import dev.agaminggod.mineagen.server.AgentManager;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 
@@ -28,7 +28,7 @@ public final class VoiceDirector {
 	/** Previews exactly the selected settings without changing saved settings. */
 	public static void say(MinecraftServer server, AgentId agentId, String text, VoiceProfile settings) {
 		if (!VoiceCatalog.accepts(settings.profileId())) throw new AgentDomainException(
-				"VOICE_PROFILE_UNKNOWN", "Unknown voice profile. Use /codex voice profiles");
+				"VOICE_PROFILE_UNKNOWN", "Unknown voice profile. Use /mineagen voice profiles");
 		speak(server, agentId, text, settings);
 	}
 
@@ -39,7 +39,7 @@ public final class VoiceDirector {
 
 	private static void speak(MinecraftServer server, AgentId agentId, String text, VoiceProfile settings) {
 		requireAvailable(server);
-		if (CodexAgentManager.get(server).findAgentPlayer(agentId).filter(ServerPlayer::isAlive).isEmpty()) {
+		if (AgentManager.get(server).findAgentPlayer(agentId).filter(ServerPlayer::isAlive).isEmpty()) {
 			throw new AgentDomainException("AGENT_NOT_PRESENT", "Respawn the agent before speaking");
 		}
 		var request = new VoiceRequest(agentId, text.strip(), settings.profileId(), settings.radius(),

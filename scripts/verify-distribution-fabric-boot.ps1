@@ -172,7 +172,7 @@ try {
 	}
 	if (-not $ready) { throw "Fabric server did not reach the Done marker within $StartupTimeoutSeconds seconds." }
 
-	Send-ProcessInput $process 'codex status'
+	Send-ProcessInput $process 'mineagen status'
 	$statusDeadline = [DateTime]::UtcNow.AddSeconds(15)
 	$statusObserved = $false
 	while ([DateTime]::UtcNow -lt $statusDeadline) {
@@ -185,7 +185,7 @@ try {
 		if ($process.HasExited) { throw 'Fabric server exited before the status command completed.' }
 		Start-Sleep -Milliseconds 100
 	}
-	if (-not $statusObserved) { throw 'The packaged mod loaded, but its codex status command did not answer.' }
+	if (-not $statusObserved) { throw 'The packaged mod loaded, but its mineagen status command did not answer.' }
 
 	$coordinatorDeadline = [DateTime]::UtcNow.AddSeconds(20)
 	$coordinatorStarted = $false
@@ -210,7 +210,7 @@ try {
 	if ($finalLog -match '(?im)(Mixin apply failed|MixinTransformerError|Exception in server tick loop|A crash report has been saved)') {
 		throw 'Fabric server log contains a fatal mixin or crash marker.'
 	}
-	Write-Host "PASS: exact staged mod set reached Done, answered codex status, started its coordinator, and stopped cleanly ($($packageMods.Name -join ', '))"
+	Write-Host "PASS: exact staged mod set reached Done, answered mineagen status, started its coordinator, and stopped cleanly ($($packageMods.Name -join ', '))"
 	Write-Host 'Evidence boundary: boot and process launch only; authenticated, fresh, reconciled coordinator readiness was not verified.'
 } catch {
 	$failure = $_

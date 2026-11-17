@@ -44,7 +44,7 @@ test('observer-metered play stops one call before its cap', async () => {
 	observer.nextSpendCheck = 0;
 	observer.trace.rows.push({ event: 'native_model_call', goalRevision: 1, modelCallId: 'b', inputTokens: 20000, cachedInputTokens: 0, outputTokens: 2000 });
 	await observer.enforceSpendCap();
-	assert.deepEqual(commands, ['codex stop player']);
+	assert.deepEqual(commands, ['mineagen stop player']);
 	assert.equal(observer.stopRequest.reason, 'SPEND_CAP');
 	observer.nextSpendCheck = 0; await observer.enforceSpendCap();
 	assert.equal(commands.length, 1, 'one stop per run');

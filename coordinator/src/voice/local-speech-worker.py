@@ -119,7 +119,7 @@ def _warmup_model(name, loader):
             loader()
         return True
     except Exception as error:
-        sys.stderr.write(f"Arena local speech {name} warmup failed: {type(error).__name__}: {error}\n")
+        sys.stderr.write(f"Mineagen local speech {name} warmup failed: {type(error).__name__}: {error}\n")
         sys.stderr.flush()
         return False
 

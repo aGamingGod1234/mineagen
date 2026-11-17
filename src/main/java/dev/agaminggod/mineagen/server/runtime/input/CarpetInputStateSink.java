@@ -6,7 +6,7 @@ import dev.agaminggod.mineagen.server.runtime.ArmSwing;
 import carpet.helpers.EntityPlayerActionPack;
 import carpet.script.utils.Tracer;
 import dev.agaminggod.mineagen.agent.AgentId;
-import dev.agaminggod.mineagen.server.CodexAgentManager;
+import dev.agaminggod.mineagen.server.AgentManager;
 import dev.agaminggod.mineagen.server.OfflineAgentPlayers;
 import java.util.HashMap;
 import java.util.Map;
@@ -35,10 +35,10 @@ public final class CarpetInputStateSink implements InputStateSink {
 	private static final Map<UUID, AgentId> CLICK_ONLY_MELEE = new HashMap<>();
 	private static final ThreadLocal<AttackTarget> ATTACK_TARGET = new ThreadLocal<>();
 	private record AttackTarget(ServerPlayer player, HitResult hit) { }
-	private final CodexAgentManager manager;
+	private final AgentManager manager;
 	private final ExactHandUseDriver useDriver = new ExactHandUseDriver();
 
-	public CarpetInputStateSink(CodexAgentManager manager) {
+	public CarpetInputStateSink(AgentManager manager) {
 		this.manager = Objects.requireNonNull(manager, "manager must not be null");
 	}
 

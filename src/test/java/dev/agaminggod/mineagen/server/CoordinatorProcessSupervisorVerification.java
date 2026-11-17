@@ -678,7 +678,7 @@ public final class CoordinatorProcessSupervisorVerification {
 
 	private static void verifyOccupiedBridgePortRecoversAndAuthenticates() {
 		Fixture fixture = Fixture.ready();
-		CodexAgentServerRuntime.BridgeSlot slot = null;
+		AgentServerRuntime.BridgeSlot slot = null;
 		ServerSocket conflict = null;
 		Socket authenticated = null;
 		try {
@@ -687,15 +687,15 @@ public final class CoordinatorProcessSupervisorVerification {
 			conflict = new ServerSocket(0, 1, InetAddress.getLoopbackAddress());
 			int port = conflict.getLocalPort();
 			AtomicInteger constructions = new AtomicInteger();
-			CodexAgentManager manager = uninitializedManager();
-			slot = new CodexAgentServerRuntime.BridgeSlot(fixture.clock);
-			CodexAgentServerRuntime.BridgeSlot ownedSlot = slot;
+			AgentManager manager = uninitializedManager();
+			slot = new AgentServerRuntime.BridgeSlot(fixture.clock);
+			AgentServerRuntime.BridgeSlot ownedSlot = slot;
 			java.util.function.Function<String, MultiplexedServerBridge> factory = preparedSecret -> {
 				constructions.incrementAndGet();
 				return MultiplexedServerBridge.withPreparedSecret(manager, port, preparedSecret);
 			};
 
-			CodexAgentServerRuntime.reconcilePreparedBridge(slot, 1L, secret, factory);
+			AgentServerRuntime.reconcilePreparedBridge(slot, 1L, secret, factory);
 			assertEquals(null, slot.bridge(), "occupied configured port leaves no partially active bridge");
 			assertEquals("BRIDGE_BIND_FAILED", slot.retry().failureCode(),
 					"BridgeSlot reports the real bind boundary");
@@ -706,7 +706,7 @@ public final class CoordinatorProcessSupervisorVerification {
 			long started = System.nanoTime();
 			for (int tick = 0; tick < 50; tick++) {
 				fixture.supervisor.tick(false, null, 0L);
-				CodexAgentServerRuntime.reconcilePreparedBridge(ownedSlot, 1L, secret, factory);
+				AgentServerRuntime.reconcilePreparedBridge(ownedSlot, 1L, secret, factory);
 			}
 			long elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
 			assertTrue(elapsedMs < 250L, "bridge recovery ticks remain nonblocking: elapsed=" + elapsedMs + "ms");
@@ -716,7 +716,7 @@ public final class CoordinatorProcessSupervisorVerification {
 			conflict = null;
 			fixture.clock.advance(1_000L);
 			fixture.supervisor.tick(false, null, 0L);
-			CodexAgentServerRuntime.reconcilePreparedBridge(slot, 1L, secret, factory);
+			AgentServerRuntime.reconcilePreparedBridge(slot, 1L, secret, factory);
 			MultiplexedServerBridge recovered = slot.bridge();
 			assertEquals(2, constructions.get(), "released port creates exactly one recovery bridge");
 			assertTrue(recovered != null, "BridgeSlot automatically binds after the retry deadline");
@@ -742,7 +742,7 @@ public final class CoordinatorProcessSupervisorVerification {
 			assertTrue(recovered.authenticatedSessionGeneration() > 0L,
 					"recovered bridge publishes one positive session generation");
 
-			CodexAgentServerRuntime.reconcilePreparedBridge(slot, 1L, secret, ignored -> {
+			AgentServerRuntime.reconcilePreparedBridge(slot, 1L, secret, ignored -> {
 				throw new AssertionError("unchanged BridgeSlot revision must not construct another bridge");
 			});
 			assertEquals(recovered, slot.bridge(), "unchanged reconciliation retains exactly one active bridge");
@@ -1369,22 +1369,22 @@ public final class CoordinatorProcessSupervisorVerification {
 					new SequentialLaunchIds(1800), Runnable::run, root -> 0, task -> { })) {
 				assertEquals("120000", System.getProperty(property), "initial timeout derived");
 				AtomicInteger starts = new AtomicInteger();
-				var gate = new CodexAgentServerRuntime.VoiceInitializationGate(starts::incrementAndGet, () -> { });
-				gate.reconcile(true, CodexAgentServerRuntime.voiceConfigurationRevision(supervisor));
+				var gate = new AgentServerRuntime.VoiceInitializationGate(starts::incrementAndGet, () -> { });
+				gate.reconcile(true, AgentServerRuntime.voiceConfigurationRevision(supervisor));
 				Files.writeString(config, "{\"voice\":{\"port\":18766,\"localSpeechTimeoutMs\":240000}}");
 				dependencies.fingerprint = "timeout-only";
 				supervisor.publishDependencyFingerprintChange();
 				supervisor.tickWithBridgeListener(false, null, 0L, false, false, false);
 				assertEquals("240000", System.getProperty(property), "same supervisor reloads owned timeout");
-				gate.reconcile(true, CodexAgentServerRuntime.voiceConfigurationRevision(supervisor));
+				gate.reconcile(true, AgentServerRuntime.voiceConfigurationRevision(supervisor));
 				assertEquals(2, starts.get(), "timeout-only edit recreates clients");
 				supervisor.configureSharedVoiceEndpoint(config);
-				gate.reconcile(true, CodexAgentServerRuntime.voiceConfigurationRevision(supervisor));
+				gate.reconcile(true, AgentServerRuntime.voiceConfigurationRevision(supervisor));
 				assertEquals(2, starts.get(), "unchanged timeout leaves clients intact");
 				System.setProperty(property, "77777");
 				supervisor.configureSharedVoiceEndpoint(config);
 				assertEquals("77777", System.getProperty(property), "later explicit override preserved");
-				gate.reconcile(true, CodexAgentServerRuntime.voiceConfigurationRevision(supervisor));
+				gate.reconcile(true, AgentServerRuntime.voiceConfigurationRevision(supervisor));
 				assertEquals(3, starts.get(), "explicit override also refreshes client revision");
 			}
 			assertEquals("77777", System.getProperty(property), "close preserves explicit override");
@@ -1419,19 +1419,19 @@ public final class CoordinatorProcessSupervisorVerification {
 					Path.of("build", "manual-snapshot-fixture"), Map.of(), new FakeClock(), MutableDependencies.ready(),
 					request -> { throw new AssertionError("manual mode cannot launch"); }, new SequentialLaunchIds(2000),
 					Runnable::run, root -> 0, task -> { })) {
-				var initial = CodexAgentServerRuntime.voiceConfigurationSnapshot(supervisor);
+				var initial = AgentServerRuntime.voiceConfigurationSnapshot(supervisor);
 				assertTrue(initial.prepared(), "accepted manual secret is ready");
-				assertEquals(initial, CodexAgentServerRuntime.voiceConfigurationSnapshot(supervisor), "unchanged content keeps revision");
+				assertEquals(initial, AgentServerRuntime.voiceConfigurationSnapshot(supervisor), "unchanged content keeps revision");
 				FileTime timestamp = Files.getLastModifiedTime(secret);
 				Files.writeString(secret, "w".repeat(32));
 				Files.setLastModifiedTime(secret, timestamp);
-				assertEquals(initial, CodexAgentServerRuntime.voiceConfigurationSnapshot(supervisor),
+				assertEquals(initial, AgentServerRuntime.voiceConfigurationSnapshot(supervisor),
 						"same-size/same-time content is not re-read inside the rehash interval");
-				Thread.sleep(CodexAgentServerRuntime.EXPLICIT_SECRET_REHASH_INTERVAL_MS + 100L);
-				var rotated = CodexAgentServerRuntime.voiceConfigurationSnapshot(supervisor);
+				Thread.sleep(AgentServerRuntime.EXPLICIT_SECRET_REHASH_INTERVAL_MS + 100L);
+				var rotated = AgentServerRuntime.voiceConfigurationSnapshot(supervisor);
 				assertTrue(rotated.prepared() && rotated.revision() != initial.revision(), "same-size/same-time rotation detected after the rehash interval");
 				Files.writeString(secret, "short");
-				assertTrue(!CodexAgentServerRuntime.voiceConfigurationSnapshot(supervisor).prepared(), "invalid secret fences voice");
+				assertTrue(!AgentServerRuntime.voiceConfigurationSnapshot(supervisor).prepared(), "invalid secret fences voice");
 			}
 		} catch (IOException | InterruptedException failure) {
 			throw new AssertionError("manual secret fixture", failure);
@@ -1500,8 +1500,8 @@ public final class CoordinatorProcessSupervisorVerification {
 			fixture.clock.advance(STATUS_RECOVERY_TIMEOUT_MS - 1L);
 			CoordinatorStatusSnapshot reconciling = coordinatorStatus(false, fixture.clock.now);
 			fixture.supervisor.tickWithBridgeListener(true, launch, 1L,
-					CodexAgentServerRuntime.coordinatorStatusReady(reconciling, fixture.clock.now),
-					CodexAgentServerRuntime.coordinatorStatusFresh(reconciling, fixture.clock.now), true);
+					AgentServerRuntime.coordinatorStatusReady(reconciling, fixture.clock.now),
+					AgentServerRuntime.coordinatorStatusFresh(reconciling, fixture.clock.now), true);
 			assertEquals(CoordinatorRecoveryState.HEALTHY, fixture.supervisor.snapshot().state(),
 					"fresh unreconciled status restores liveness without claiming candidate readiness");
 			assertEquals(null, fixture.supervisor.snapshot().failureCode(), "fresh status clears stale diagnostic");
@@ -1572,7 +1572,7 @@ public final class CoordinatorProcessSupervisorVerification {
 	private static void verifyBridgeBindFailureRecovery() {
 		try {
 			FakeClock clock = new FakeClock();
-			Class<?> retryType = Class.forName("dev.agaminggod.mineagen.server.CodexAgentServerRuntime$BridgeRetry");
+			Class<?> retryType = Class.forName("dev.agaminggod.mineagen.server.AgentServerRuntime$BridgeRetry");
 			var constructor = retryType.getDeclaredConstructor(java.util.function.LongSupplier.class);
 			constructor.setAccessible(true);
 			Object retry = constructor.newInstance(clock);
@@ -2318,7 +2318,7 @@ public final class CoordinatorProcessSupervisorVerification {
 	private static void verifySecretRepairRebindsBridgeAndAuthenticatesReplacement() {
 		Path fixtureRoot = null;
 		CoordinatorProcessSupervisor supervisor = null;
-		CodexAgentServerRuntime.BridgeSlot slot = null;
+		AgentServerRuntime.BridgeSlot slot = null;
 		Socket originalConnection = null;
 		Socket repairedConnection = null;
 		try {
@@ -2339,16 +2339,16 @@ public final class CoordinatorProcessSupervisorVerification {
 			clock.advance(STARTUP_GRACE_MS);
 			supervisor.tick(false, null, 0L);
 
-			CodexAgentManager manager = uninitializedManager();
+			AgentManager manager = uninitializedManager();
 			AgentRecord active = manager.registry().create("gpt-5.6-sol", "high", Optional.of("Keeper"), 1_000L);
 			manager.registry().setAutomaticProgress(active.agentId(), false, 1_000L);
 			manager.registry().start(active.agentId(), "keep gathering stone", 1_001L);
 			var originalProfile = manager.registry().require(active.agentId()).profile();
 			var originalGoal = manager.registry().require(active.agentId()).currentGoal();
 			int port = unusedLoopbackPort();
-			slot = new CodexAgentServerRuntime.BridgeSlot(clock);
+			slot = new AgentServerRuntime.BridgeSlot(clock);
 			CoordinatorProcessSupervisor ownedSupervisor = supervisor;
-			CodexAgentServerRuntime.BridgeSlot ownedSlot = slot;
+			AgentServerRuntime.BridgeSlot ownedSlot = slot;
 			slot.reconcile(supervisor.bridgeRevision(), () ->
 					MultiplexedServerBridge.withPreparedSecret(manager, port, ownedSupervisor.bridgeSecret()));
 			MultiplexedServerBridge originalBridge = slot.bridge();
@@ -2406,7 +2406,7 @@ public final class CoordinatorProcessSupervisorVerification {
 
 	private static void verifyBridgeWaitsForWorkerPreparedSecret() {
 		CoordinatorProcessSupervisor supervisor = null;
-		CodexAgentServerRuntime.BridgeSlot slot = null;
+		AgentServerRuntime.BridgeSlot slot = null;
 		try {
 			FakeClock clock = new FakeClock();
 			MutableDependencies dependencies = MutableDependencies.ready();
@@ -2415,15 +2415,15 @@ public final class CoordinatorProcessSupervisorVerification {
 					Path.of("build", "deferred-bridge-game"), Map.of(), clock, dependencies, new FakeLauncher(),
 					() -> "00000000-0000-0000-0000-000000000252", worker, runtimeRoot -> 0
 			);
-			slot = new CodexAgentServerRuntime.BridgeSlot(clock);
+			slot = new AgentServerRuntime.BridgeSlot(clock);
 			AtomicInteger constructions = new AtomicInteger();
 			AtomicReference<String> suppliedSecret = new AtomicReference<>();
-			CodexAgentManager manager = uninitializedManager();
+			AgentManager manager = uninitializedManager();
 			int port = unusedLoopbackPort();
 			long started = System.nanoTime();
 			for (int index = 0; index < 50; index++) {
 				supervisor.tick(false, null, 0L);
-				CodexAgentServerRuntime.reconcilePreparedBridge(
+				AgentServerRuntime.reconcilePreparedBridge(
 						slot, supervisor.bridgeRevision(), supervisor.bridgeSecret(), secret -> {
 							constructions.incrementAndGet();
 							suppliedSecret.set(secret);
@@ -2439,7 +2439,7 @@ public final class CoordinatorProcessSupervisorVerification {
 
 			worker.runNext();
 			supervisor.tick(false, null, 0L);
-			CodexAgentServerRuntime.reconcilePreparedBridge(
+			AgentServerRuntime.reconcilePreparedBridge(
 					slot, supervisor.bridgeRevision(), supervisor.bridgeSecret(), secret -> {
 						constructions.incrementAndGet();
 						suppliedSecret.set(secret);
@@ -2510,8 +2510,8 @@ public final class CoordinatorProcessSupervisorVerification {
 	private static void verifyDeferredVoiceInitialization() {
 		AtomicInteger starts = new AtomicInteger();
 		AtomicInteger closes = new AtomicInteger();
-		CodexAgentServerRuntime.VoiceInitializationGate gate =
-				new CodexAgentServerRuntime.VoiceInitializationGate(starts::incrementAndGet, closes::incrementAndGet);
+		AgentServerRuntime.VoiceInitializationGate gate =
+				new AgentServerRuntime.VoiceInitializationGate(starts::incrementAndGet, closes::incrementAndGet);
 
 		assertFalse(gate.reconcile(false, 1L),
 				"voice remains deferred while the coordinator has not published its prepared paths");
@@ -2530,19 +2530,19 @@ public final class CoordinatorProcessSupervisorVerification {
 		long now = 10_000L;
 		CoordinatorStatusSnapshot fresh = coordinatorStatus(true, now - 2_500L);
 		CoordinatorStatusSnapshot stale = coordinatorStatus(true, now - 2_501L);
-		assertTrue(CodexAgentServerRuntime.coordinatorStatusReady(fresh, now),
+		assertTrue(AgentServerRuntime.coordinatorStatusReady(fresh, now),
 				"candidate promotion accepts a reconciled status at the bounded freshness edge");
-		assertFalse(CodexAgentServerRuntime.coordinatorStatusReady(stale, now),
+		assertFalse(AgentServerRuntime.coordinatorStatusReady(stale, now),
 				"candidate promotion rejects a status that stopped refreshing");
-		assertFalse(CodexAgentServerRuntime.coordinatorStatusReady(coordinatorStatus(false, now), now),
+		assertFalse(AgentServerRuntime.coordinatorStatusReady(coordinatorStatus(false, now), now),
 				"candidate promotion still requires coordinator reconciliation");
-		assertTrue(CodexAgentServerRuntime.coordinatorStatusFresh(fresh, now),
+		assertTrue(AgentServerRuntime.coordinatorStatusFresh(fresh, now),
 				"liveness accepts the existing freshness boundary");
-		assertFalse(CodexAgentServerRuntime.coordinatorStatusFresh(stale, now),
+		assertFalse(AgentServerRuntime.coordinatorStatusFresh(stale, now),
 				"liveness rejects stale status independently of reconciliation");
-		assertTrue(CodexAgentServerRuntime.coordinatorStatusFresh(coordinatorStatus(false, now), now),
+		assertTrue(AgentServerRuntime.coordinatorStatusFresh(coordinatorStatus(false, now), now),
 				"fresh unreconciled status proves liveness");
-		assertFalse(CodexAgentServerRuntime.coordinatorStatusFresh(null, now),
+		assertFalse(AgentServerRuntime.coordinatorStatusFresh(null, now),
 				"missing status does not prove liveness");
 	}
 
@@ -2555,7 +2555,7 @@ public final class CoordinatorProcessSupervisorVerification {
 	}
 
 	private static void verifyPortOnlyChangeAdvancesBridgeRevision() {
-		CodexAgentServerRuntime.BridgeSlot slot = null;
+		AgentServerRuntime.BridgeSlot slot = null;
 		Socket reboundConnection = null;
 		Fixture fixture = null;
 		try {
@@ -2565,9 +2565,9 @@ public final class CoordinatorProcessSupervisorVerification {
 			MutableDependencies dependencies = MutableDependencies.ready();
 			dependencies.setPort(originalPort);
 			fixture = new Fixture(dependencies);
-			CodexAgentManager manager = uninitializedManager();
-			slot = new CodexAgentServerRuntime.BridgeSlot(fixture.clock);
-			CodexAgentServerRuntime.reconcileBridgeConfiguration(slot, manager, fixture.supervisor);
+			AgentManager manager = uninitializedManager();
+			slot = new AgentServerRuntime.BridgeSlot(fixture.clock);
+			AgentServerRuntime.reconcileBridgeConfiguration(slot, manager, fixture.supervisor);
 			long originalRevision = fixture.supervisor.bridgeRevision();
 			MultiplexedServerBridge originalBridge = slot.bridge();
 			assertTrue(originalBridge != null, "production bridge binds its initial configured port");
@@ -2581,7 +2581,7 @@ public final class CoordinatorProcessSupervisorVerification {
 			assertTrue(fixture.supervisor.bridgeRevision() > originalRevision,
 					"a port-only config change advances the Java bridge rebind revision");
 
-			CodexAgentServerRuntime.reconcileBridgeConfiguration(slot, manager, fixture.supervisor);
+			AgentServerRuntime.reconcileBridgeConfiguration(slot, manager, fixture.supervisor);
 			MultiplexedServerBridge reboundBridge = slot.bridge();
 			assertTrue(reboundBridge != null && reboundBridge != originalBridge,
 					"production reconciliation replaces the listener after a port-only change");
@@ -2610,7 +2610,7 @@ public final class CoordinatorProcessSupervisorVerification {
 		String oldPort = System.getProperty("mineagen.bridgePort");
 		Path secretFile = null;
 		CoordinatorProcessSupervisor supervisor = null;
-		CodexAgentServerRuntime.BridgeSlot slot = null;
+		AgentServerRuntime.BridgeSlot slot = null;
 		try {
 			secretFile = Files.createTempFile("arena-explicit-bridge-", ".txt");
 			String authenticationSecret = "e".repeat(32);
@@ -2631,10 +2631,10 @@ public final class CoordinatorProcessSupervisorVerification {
 					"disabled coordinator autostart stops only child-process supervision");
 			assertEquals(0, launcher.launches.size(),
 					"disabled coordinator autostart never launches a child coordinator");
-			assertFalse(CodexAgentServerRuntime.voiceConfigurationPrepared(supervisor),
+			assertFalse(AgentServerRuntime.voiceConfigurationPrepared(supervisor),
 					"bridge-secret-only explicit setup leaves voice disabled without its dedicated secret");
-			slot = new CodexAgentServerRuntime.BridgeSlot(System::currentTimeMillis);
-			CodexAgentServerRuntime.reconcileBridgeConfiguration(slot, uninitializedManager(), supervisor);
+			slot = new AgentServerRuntime.BridgeSlot(System::currentTimeMillis);
+			AgentServerRuntime.reconcileBridgeConfiguration(slot, uninitializedManager(), supervisor);
 			assertTrue(slot.bridge() != null, "explicit bridge secret still constructs the Java listener");
 			try (Socket connection = authenticate(
 					port, authenticationSecret, "00000000-0000-0000-0000-000000000773", "explicit-disabled-autostart"
@@ -2644,17 +2644,17 @@ public final class CoordinatorProcessSupervisorVerification {
 			}
 			Files.writeString(secretFile, initialSecret, StandardCharsets.UTF_8);
 			FileTime originalTimestamp = Files.getLastModifiedTime(secretFile);
-			CodexAgentServerRuntime.reconcileBridgeConfiguration(slot, uninitializedManager(), supervisor);
+			AgentServerRuntime.reconcileBridgeConfiguration(slot, uninitializedManager(), supervisor);
 			MultiplexedServerBridge initialBridge = slot.bridge();
 			Files.writeString(secretFile, rotatedSecret, StandardCharsets.UTF_8);
 			Files.setLastModifiedTime(secretFile, originalTimestamp);
-			CodexAgentServerRuntime.reconcileBridgeConfiguration(slot, uninitializedManager(), supervisor);
+			AgentServerRuntime.reconcileBridgeConfiguration(slot, uninitializedManager(), supervisor);
 			assertEquals(initialBridge, slot.bridge(), "same-size/same-time content is not re-read inside the rehash interval");
 			long rotationDeadline = System.currentTimeMillis() + 3_000L;
 			while ((slot.bridge() == null || slot.bridge() == initialBridge)
 					&& System.currentTimeMillis() < rotationDeadline) {
 				Thread.sleep(25L);
-				CodexAgentServerRuntime.reconcileBridgeConfiguration(slot, uninitializedManager(), supervisor);
+				AgentServerRuntime.reconcileBridgeConfiguration(slot, uninitializedManager(), supervisor);
 			}
 			assertTrue(slot.bridge() != null && slot.bridge() != initialBridge,
 					"same-size same-timestamp rotation after byte 257 rebinds the explicit Java bridge");
@@ -2683,7 +2683,7 @@ public final class CoordinatorProcessSupervisorVerification {
 		String oldAutoStart = System.getProperty("mineagen.coordinatorAutoStart");
 		String oldSecret = System.getProperty("mineagen.bridgeSecretFile");
 		CoordinatorProcessSupervisor supervisor = null;
-		CodexAgentServerRuntime.BridgeSlot slot = null;
+		AgentServerRuntime.BridgeSlot slot = null;
 		try {
 			System.setProperty("mineagen.coordinatorAutoStart", "false");
 			System.setProperty("mineagen.bridgeSecretFile", "invalid\0secret-path");
@@ -2692,8 +2692,8 @@ public final class CoordinatorProcessSupervisorVerification {
 					new FakeLauncher(), () -> "00000000-0000-0000-0000-000000000775"
 			);
 			FakeClock clock = new FakeClock();
-			slot = new CodexAgentServerRuntime.BridgeSlot(clock);
-			CodexAgentServerRuntime.reconcileBridgeConfiguration(slot, uninitializedManager(), supervisor);
+			slot = new AgentServerRuntime.BridgeSlot(clock);
+			AgentServerRuntime.reconcileBridgeConfiguration(slot, uninitializedManager(), supervisor);
 			assertEquals(null, slot.bridge(), "invalid explicit secret path leaves automation safely offline");
 			assertEquals("JAVA_BRIDGE_START_FAILED", slot.retry().failureCode(),
 					"invalid explicit secret path uses the normal retry diagnostic");
@@ -2702,7 +2702,7 @@ public final class CoordinatorProcessSupervisorVerification {
 			long firstRetry = slot.retry().nextRetryEpochMs();
 			assertTrue(firstRetry > clock.getAsLong(), "invalid explicit secret path enters bounded retry backoff");
 			clock.advance(firstRetry - clock.getAsLong());
-			CodexAgentServerRuntime.reconcileBridgeConfiguration(slot, uninitializedManager(), supervisor);
+			AgentServerRuntime.reconcileBridgeConfiguration(slot, uninitializedManager(), supervisor);
 			assertTrue(slot.retry().nextRetryEpochMs() > firstRetry,
 					"invalid explicit secret path retries without escaping the server tick boundary");
 		} finally {
@@ -3361,7 +3361,6 @@ public final class CoordinatorProcessSupervisorVerification {
 			)).getBytes(StandardCharsets.UTF_8));
 			socket.getOutputStream().flush();
 			assertEquals("hello_ack", codec.decode(reader.readLine()).type(), "matching child receives hello acknowledgement");
-			assertEquals("verbose_control", codec.decode(reader.readLine()).type(), "matching child receives verbose control");
 			return socket;
 		} catch (Exception failure) {
 			closeSocket(socket);
@@ -3516,15 +3515,15 @@ public final class CoordinatorProcessSupervisorVerification {
 		return System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win");
 	}
 
-	private static CodexAgentManager uninitializedManager() {
+	private static AgentManager uninitializedManager() {
 		try {
 			Field field = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
 			field.setAccessible(true);
 			sun.misc.Unsafe unsafe = (sun.misc.Unsafe) field.get(null);
-			CodexAgentManager manager = (CodexAgentManager) unsafe.allocateInstance(CodexAgentManager.class);
-			Field savedData = CodexAgentManager.class.getDeclaredField("savedData");
+			AgentManager manager = (AgentManager) unsafe.allocateInstance(AgentManager.class);
+			Field savedData = AgentManager.class.getDeclaredField("savedData");
 			unsafe.putObject(manager, unsafe.objectFieldOffset(savedData), new AgentSavedData());
-			Field pendingRegistrations = CodexAgentManager.class.getDeclaredField("pendingAgentRegistrations");
+			Field pendingRegistrations = AgentManager.class.getDeclaredField("pendingAgentRegistrations");
 			unsafe.putObject(manager, unsafe.objectFieldOffset(pendingRegistrations), new LinkedHashSet<AgentId>());
 			return manager;
 		} catch (ReflectiveOperationException exception) {

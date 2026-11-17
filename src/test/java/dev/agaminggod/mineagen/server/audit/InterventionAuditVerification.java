@@ -28,7 +28,7 @@ public final class InterventionAuditVerification {
 		return verifyRunnerSequence(dispatcher) + verifyRoundThree(dispatcher) + verifyRoundFour() + verifyInterventions(dispatcher) + verifyReports();
 	}
 
-	/** The real vanilla command tree, the mod's codex tree and a stand-in for Carpet's player command. */
+	/** The real vanilla command tree, the mod's /mineagen tree and a stand-in for Carpet's player command. */
 	private static CommandDispatcher<CommandSourceStack> dispatcher() {
 		net.minecraft.SharedConstants.tryDetectVersion();
 		net.minecraft.server.Bootstrap.bootStrap();
@@ -41,10 +41,10 @@ public final class InterventionAuditVerification {
 				datapack.listRegistryKeys().map(key -> (net.minecraft.core.HolderLookup.RegistryLookup<?>) datapack.lookupOrThrow(key))));
 		CommandDispatcher<CommandSourceStack> dispatcher = new Commands(Commands.CommandSelection.DEDICATED,
 				net.minecraft.commands.CommandBuildContext.simple(lookup, net.minecraft.world.flag.FeatureFlags.VANILLA_SET)).getDispatcher();
-		// CodexAgentCommands.register needs a Fabric mixin accessor that plain verification cannot load, so this mirrors
-		// the shape of the codex nodes the runner uses (literal names and argument names as registered there).
+		// AgentCommands.register is package-private to the server package, so this mirrors the shape of the
+		// /mineagen nodes the runner uses (literal names and argument names as registered there).
 		var agent = (java.util.function.Supplier<com.mojang.brigadier.builder.RequiredArgumentBuilder<CommandSourceStack, String>>) () -> Commands.argument("agent", StringArgumentType.word());
-		dispatcher.register(Commands.literal("codex")
+		dispatcher.register(Commands.literal(dev.agaminggod.mineagen.control.AgentControlCommandBuilder.ROOT)
 				.then(Commands.literal("summon-configured").then(Commands.argument("provider", StringArgumentType.word())
 						.then(Commands.argument("model", StringArgumentType.word()).then(Commands.argument("reasoning", StringArgumentType.word())
 								.then(Commands.argument("speed_mode", StringArgumentType.word()).then(Commands.argument("game_mode", StringArgumentType.word())
@@ -56,8 +56,8 @@ public final class InterventionAuditVerification {
 				.then(Commands.literal("audit").then(agent.get().executes(context -> 1)))
 				.then(Commands.literal("stop").then(agent.get().executes(context -> 1)))
 				.then(Commands.literal("remove").then(agent.get().executes(context -> 1)))
+				.then(Commands.literal("spectate").then(agent.get().executes(context -> 1)))
 				.then(Commands.literal("takeover").then(agent.get().executes(context -> 1))));
-		dispatcher.register(Commands.literal("takeover").then(agent.get().executes(context -> 1)));
 		dispatcher.register(Commands.literal("player").then(Commands.argument("player", StringArgumentType.word())
 				.then(Commands.literal("attack").then(Commands.literal("continuous").executes(context -> 1)))));
 		return dispatcher;
@@ -90,21 +90,21 @@ public final class InterventionAuditVerification {
 				{"seed", Verdict.ALLOWED}, {"difficulty", Verdict.ALLOWED}, {"gamerule spawn_monsters true", Verdict.SETUP_ONLY},
 				{"gamerule spawn_monsters", Verdict.ALLOWED}, {"execute in minecraft:overworld run forceload add 10 -4", Verdict.SETUP_ONLY},
 				{"execute in minecraft:overworld if loaded 10 0 -4 run time query gametime", Verdict.ALLOWED},
-				{"codex summon-configured codex gpt-5.6-sol high priority survival " + AGENT, Verdict.AGENT_CREATE},
+				{"mineagen summon-configured codex gpt-5.6-sol high priority survival " + AGENT, Verdict.AGENT_CREATE},
 				{"CREATED", null},
 				{"data get entity " + AGENT + " Pos", Verdict.ALLOWED}, {"data get entity " + AGENT + " Inventory", Verdict.ALLOWED},
 				{"execute in minecraft:overworld run forceload remove 10 -4", Verdict.TICKET_RELEASE},
-				{"codex start " + AGENT + " Enter the Nether.", Verdict.GOAL_START},
+				{"mineagen start " + AGENT + " Enter the Nether.", Verdict.GOAL_START},
 				{"STARTED", null},
-				{"codex status " + AGENT, Verdict.ALLOWED}, {"tick query", Verdict.ALLOWED},
+				{"mineagen status " + AGENT, Verdict.ALLOWED}, {"tick query", Verdict.ALLOWED},
 				{"execute if entity @a[name=" + AGENT + ",advancements={minecraft:story/enter_the_nether=true}] run data get entity " + AGENT + " Pos", Verdict.ALLOWED},
 				{"execute if items entity " + AGENT + " container.* minecraft:ender_pearl run data get entity " + AGENT + " Pos", Verdict.ALLOWED},
 				{"execute positioned 10.5 65 -3.5 if entity @a[name=" + AGENT + ",distance=32..] run data get entity " + AGENT + " Pos", Verdict.ALLOWED},
-				{"codex audit " + AGENT, Verdict.ALLOWED}, {"list", Verdict.ALLOWED}, {"time query gametime", Verdict.ALLOWED},
+				{"mineagen audit " + AGENT, Verdict.ALLOWED}, {"list", Verdict.ALLOWED}, {"time query gametime", Verdict.ALLOWED},
 				{"attribute " + AGENT + " minecraft:max_health get", Verdict.ALLOWED}, {"attribute " + AGENT + " minecraft:max_health base get", Verdict.ALLOWED},
 				{"experience query " + AGENT + " levels", Verdict.ALLOWED}, {"xp query " + AGENT + " points", Verdict.ALLOWED},
 				{"FINISHED", null},
-				{"codex stop " + AGENT, Verdict.ALLOWED}, {"codex remove " + AGENT, Verdict.ALLOWED}};
+				{"mineagen stop " + AGENT, Verdict.ALLOWED}, {"mineagen remove " + AGENT, Verdict.ALLOWED}};
 		for (Object[] step : sequence) {
 			String command = (String) step[0];
 			if (step[1] == null) {
@@ -133,18 +133,18 @@ public final class InterventionAuditVerification {
 		java.util.function.Supplier<AgentInterventionAudit> running = () -> {
 			AgentInterventionAudit audit = new AgentInterventionAudit(1_000L, World.FRESH);
 			audit.baseline(List.of());
-			expect(audit.permits(Verdict.AGENT_CREATE, path(dispatcher, "codex summon-configured codex m high priority survival " + AGENT)), "first agent");
+			expect(audit.permits(Verdict.AGENT_CREATE, path(dispatcher, "mineagen summon-configured codex m high priority survival " + AGENT)), "first agent");
 			audit.observeAgent(agent, 2_000L, 0L, null, false, false);
-			expect(audit.permits(Verdict.GOAL_START, path(dispatcher, "codex start " + AGENT + " Enter the Nether.")), "first goal");
+			expect(audit.permits(Verdict.GOAL_START, path(dispatcher, "mineagen start " + AGENT + " Enter the Nether.")), "first goal");
 			audit.observeAgent(agent, 2_000L, 1L, goal, false, false);
 			return audit;
 		};
 		int checks = 0;
 		// F1: a second start, a stop/start replacement, a goal change, steering or another agent is operator control.
 		AgentInterventionAudit restart = running.get();
-		expect(restart.permits(Verdict.ALLOWED, path(dispatcher, "codex stop " + AGENT)), "stop is teardown");
-		expect(!restart.permits(InterventionAllowlist.classify(path(dispatcher, "codex start " + AGENT + " Enter the Nether; use the portal at 100 64 100")),
-				path(dispatcher, "codex start " + AGENT + " x")), "second goal start is an intervention");
+		expect(restart.permits(Verdict.ALLOWED, path(dispatcher, "mineagen stop " + AGENT)), "stop is teardown");
+		expect(!restart.permits(InterventionAllowlist.classify(path(dispatcher, "mineagen start " + AGENT + " Enter the Nether; use the portal at 100 64 100")),
+				path(dispatcher, "mineagen start " + AGENT + " x")), "second goal start is an intervention");
 		AgentInterventionAudit replaced = running.get();
 		replaced.observeAgent(agent, 2_000L, 3L, UUID.randomUUID(), false, false);
 		expect(replaced.report(agent).autonomy() == Autonomy.ASSISTED, "replacement goal is assisted");
@@ -152,10 +152,10 @@ public final class InterventionAuditVerification {
 		steered.observeAgent(agent, 2_000L, 2L, goal, false, true);
 		expect(steered.report(agent).autonomy() == Autonomy.ASSISTED, "steered goal is assisted");
 		AgentInterventionAudit helper = running.get();
-		expect(!helper.permits(Verdict.AGENT_CREATE, path(dispatcher, "codex summon-configured codex m high priority survival Helper")), "second agent creation");
+		expect(!helper.permits(Verdict.AGENT_CREATE, path(dispatcher, "mineagen summon-configured codex m high priority survival Helper")), "second agent creation");
 		helper.observeAgent(UUID.randomUUID(), 3_000L, 0L, null, false, false);
 		expect(helper.report(agent).autonomy() == Autonomy.ASSISTED, "an additional agent is assisted");
-		expect(verdict(dispatcher, "codex steer " + AGENT + " go north") == Verdict.INTERVENTION && verdict(dispatcher, "codex resume " + AGENT) == Verdict.INTERVENTION, "codex steer and resume");
+		expect(verdict(dispatcher, "mineagen steer " + AGENT + " go north") == Verdict.INTERVENTION && verdict(dispatcher, "mineagen resume " + AGENT) == Verdict.INTERVENTION, "mineagen steer and resume");
 		checks += 7;
 		// F2: forceload is setup only, released before play; anything else changes ticking chunks.
 		AgentInterventionAudit loaded = running.get();
@@ -264,8 +264,8 @@ public final class InterventionAuditVerification {
 				// N9 and earlier rounds: anything else parsed counts, whatever its target.
 				"execute if entity @a[name=" + AGENT + "] run give Bob minecraft:ender_pearl 1", "advancement grant " + AGENT + " only minecraft:story/enter_the_nether",
 				"give " + AGENT + " minecraft:ender_pearl", "item replace block 0 64 0 container.0 with minecraft:ender_pearl 1", "time set day",
-				"gamemode creative " + AGENT, "codex summon-configured codex gpt-5.6-sol high priority creative " + AGENT, "codex takeover " + AGENT,
-				"takeover " + AGENT, "player " + AGENT + " attack continuous", "msg " + AGENT + " hello", "experience add " + AGENT + " 30 levels",
+				"gamemode creative " + AGENT, "mineagen summon-configured codex gpt-5.6-sol high priority creative " + AGENT, "mineagen takeover " + AGENT,
+				"mineagen spectate " + AGENT, "player " + AGENT + " attack continuous", "msg " + AGENT + " hello", "experience add " + AGENT + " 30 levels",
 				"tag " + AGENT + " add winner", "scoreboard objectives add x dummy", "setblock 0 64 0 minecraft:chest"}) {
 			expect(verdict(dispatcher, command) == Verdict.INTERVENTION, "intervention allowed: " + command + " path " + path(dispatcher, command));
 			checks++;

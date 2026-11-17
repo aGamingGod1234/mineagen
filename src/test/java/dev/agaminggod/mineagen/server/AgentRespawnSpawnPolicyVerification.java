@@ -69,20 +69,20 @@ public final class AgentRespawnSpawnPolicyVerification {
 				AgentRespawnSpawnPolicy.existingPlayerAction(false, true),
 				"an unrelated stale live player must be removed before replacement"
 		);
-		CodexAgentManager.RespawnRemovalDecision beforeGrace = CodexAgentManager.respawnRemovalDecision(
+		AgentManager.RespawnRemovalDecision beforeGrace = AgentManager.respawnRemovalDecision(
 				false, false, true, 999L, 1_000L, deadline);
 		assertFalse(
 				beforeGrace.requestRemoval(),
 				"respawn waits for the fixed removal grace deadline"
 		);
-		CodexAgentManager.RespawnRemovalDecision firstRemoval = CodexAgentManager.respawnRemovalDecision(
+		AgentManager.RespawnRemovalDecision firstRemoval = AgentManager.respawnRemovalDecision(
 				false, false, true, 1_000L, 1_000L, deadline);
 		assertTrue(
 				firstRemoval.requestRemoval(),
 				"respawn requests stale-player removal once after grace"
 		);
 		assertEquals(deadline, firstRemoval.deadlineEpochMs(), "stale-player removal retains the original deadline");
-		CodexAgentManager.RespawnRemovalDecision repeatedRemoval = CodexAgentManager.respawnRemovalDecision(
+		AgentManager.RespawnRemovalDecision repeatedRemoval = AgentManager.respawnRemovalDecision(
 				false, true, true, 3_000L, 1_000L, firstRemoval.deadlineEpochMs());
 		assertFalse(
 				repeatedRemoval.requestRemoval(),
@@ -99,7 +99,7 @@ public final class AgentRespawnSpawnPolicyVerification {
 		java.util.concurrent.atomic.AtomicInteger cleanupCalls = new java.util.concurrent.atomic.AtomicInteger();
 		IllegalStateException primary = new IllegalStateException("runtime hook failed");
 		IllegalArgumentException secondary = new IllegalArgumentException("ticket cleanup failed");
-		RuntimeException observed = expectRuntimeFailure(() -> CodexAgentManager.releaseOnce(
+		RuntimeException observed = expectRuntimeFailure(() -> AgentManager.releaseOnce(
 				released,
 				() -> {
 					cleanupCalls.incrementAndGet();
@@ -115,13 +115,13 @@ public final class AgentRespawnSpawnPolicyVerification {
 		assertEquals(3, cleanupCalls.get(), "shutdown attempts every owned cleanup after a failure");
 		assertEquals(1, observed.getSuppressed().length, "shutdown retains later cleanup failures");
 		assertSame(secondary, observed.getSuppressed()[0], "shutdown suppresses the later failure on the primary");
-		CodexAgentManager.releaseOnce(released, cleanupCalls::incrementAndGet);
+		AgentManager.releaseOnce(released, cleanupCalls::incrementAndGet);
 		assertEquals(3, cleanupCalls.get(), "repeated shutdown is idempotent after a failed first release");
 
 		java.util.concurrent.atomic.AtomicInteger physicalCleanupCalls = new java.util.concurrent.atomic.AtomicInteger();
 		java.util.concurrent.atomic.AtomicInteger durableDeleteCalls = new java.util.concurrent.atomic.AtomicInteger();
 		IllegalStateException cleanupFailure = new IllegalStateException("player removal failed");
-		assertSame(cleanupFailure, expectRuntimeFailure(() -> CodexAgentManager.deleteAfterRequiredCleanup(
+		assertSame(cleanupFailure, expectRuntimeFailure(() -> AgentManager.deleteAfterRequiredCleanup(
 				() -> {
 					physicalCleanupCalls.incrementAndGet();
 					throw cleanupFailure;
@@ -132,7 +132,7 @@ public final class AgentRespawnSpawnPolicyVerification {
 				}
 		)), "failed physical cleanup is reported");
 		assertEquals(0, durableDeleteCalls.get(), "failed player cleanup leaves the registry record retryable");
-		assertEquals("removed", CodexAgentManager.deleteAfterRequiredCleanup(
+		assertEquals("removed", AgentManager.deleteAfterRequiredCleanup(
 				physicalCleanupCalls::incrementAndGet,
 				() -> {
 					durableDeleteCalls.incrementAndGet();
@@ -145,31 +145,31 @@ public final class AgentRespawnSpawnPolicyVerification {
 		java.util.Set<String> currentNames = java.util.Set.of("c00_11111111", "k20_22222222");
 		assertEquals(
 				java.util.List.of("c01_DEADBEEF", "legacy_33333333"),
-				CodexAgentManager.staleHiddenTeamMembers(
+				AgentManager.staleHiddenTeamMembers(
 						java.util.List.of("c00_11111111", "c01_DEADBEEF", "k20_22222222", "legacy_33333333"),
 						currentNames
 				),
 				"startup pruning selects only hidden-team identities absent from the current registry"
 		);
-		assertEquals(java.util.List.of(), CodexAgentManager.staleHiddenTeamMembers(currentNames, currentNames),
+		assertEquals(java.util.List.of(), AgentManager.staleHiddenTeamMembers(currentNames, currentNames),
 				"repeated hidden-team cleanup is idempotent");
-		assertEquals(java.util.List.of("c00_11111111"), CodexAgentManager.staleHiddenTeamMembers(
+		assertEquals(java.util.List.of("c00_11111111"), AgentManager.staleHiddenTeamMembers(
 				java.util.List.of("c00_11111111"), java.util.Set.of()),
 				"removing the final registry record marks its hidden-team membership stale");
-		assertTrue(CodexAgentManager.shouldPersistEntityLocation(Long.MIN_VALUE, 10_000L, false),
+		assertTrue(AgentManager.shouldPersistEntityLocation(Long.MIN_VALUE, 10_000L, false),
 				"the first exact location is persisted immediately");
-		assertFalse(CodexAgentManager.shouldPersistEntityLocation(10_000L, 10_999L, false),
+		assertFalse(AgentManager.shouldPersistEntityLocation(10_000L, 10_999L, false),
 				"the hot tick loop does not dirty saved data before the one-second bound");
-		assertTrue(CodexAgentManager.shouldPersistEntityLocation(10_000L, 11_000L, false),
+		assertTrue(AgentManager.shouldPersistEntityLocation(10_000L, 11_000L, false),
 				"exact location persistence runs at the one-second bound");
-		assertTrue(CodexAgentManager.shouldPersistEntityLocation(10_999L, 10_999L, true),
+		assertTrue(AgentManager.shouldPersistEntityLocation(10_999L, 10_999L, true),
 				"shutdown forces the final exact position and view write");
 
 		AgentEntityLocation exactLocation = AgentEntityLocation.exact(
 				"minecraft:overworld", -2, 2, -16.25D, 70.75D, 32.5D, 120.0F, -15.0F
 		);
 		java.util.concurrent.atomic.AtomicInteger safetyChecks = new java.util.concurrent.atomic.AtomicInteger();
-		CodexAgentManager.ExactRecoveryCoordinates exact = CodexAgentManager.exactRecoveryCoordinates(
+		AgentManager.ExactRecoveryCoordinates exact = AgentManager.exactRecoveryCoordinates(
 				exactLocation,
 				(x, y, z) -> {
 					safetyChecks.incrementAndGet();
@@ -185,9 +185,9 @@ public final class AgentRespawnSpawnPolicyVerification {
 		assertEquals(32.5D, exact.z(), "safe recovery preserves exact Z");
 		assertEquals(120.0F, exact.yaw(), "safe recovery preserves yaw");
 		assertEquals(-15.0F, exact.pitch(), "safe recovery preserves pitch");
-		assertTrue(CodexAgentManager.exactRecoveryCoordinates(exactLocation, (x, y, z) -> false).isEmpty(),
+		assertTrue(AgentManager.exactRecoveryCoordinates(exactLocation, (x, y, z) -> false).isEmpty(),
 				"an unsafe exact column yields to the bounded nearby fallback");
-		assertTrue(CodexAgentManager.exactRecoveryCoordinates(
+		assertTrue(AgentManager.exactRecoveryCoordinates(
 				new AgentEntityLocation("minecraft:overworld", 0, 0),
 				(x, y, z) -> {
 					throw new AssertionError("coarse snapshots must skip exact recovery");
@@ -197,11 +197,11 @@ public final class AgentRespawnSpawnPolicyVerification {
 		var inFlight = new java.util.LinkedHashMap<dev.agaminggod.mineagen.agent.AgentId, Object>();
 		var agentId = dev.agaminggod.mineagen.agent.AgentId.random();
 		var starts = new java.util.concurrent.atomic.AtomicInteger();
-		Object first = CodexAgentManager.singleFlight(inFlight, agentId, () -> {
+		Object first = AgentManager.singleFlight(inFlight, agentId, () -> {
 			starts.incrementAndGet();
 			return new Object();
 		});
-		Object second = CodexAgentManager.singleFlight(inFlight, agentId, () -> {
+		Object second = AgentManager.singleFlight(inFlight, agentId, () -> {
 			starts.incrementAndGet();
 			return new Object();
 		});
@@ -212,27 +212,27 @@ public final class AgentRespawnSpawnPolicyVerification {
 		AgentId abortId = AgentId.random();
 		AgentRecord deadRecord = AgentRecord.create(
 				abortId, new AgentProfile("codex", "gpt-5.6-sol", "high", Optional.empty(), 0), 1_000L);
-		CodexAgentManager.VanillaRespawnAttempt attempt = vanillaRespawnAttempt(deadRecord);
-		var pending = new LinkedHashMap<AgentId, CodexAgentManager.VanillaRespawnAttempt>();
+		AgentManager.VanillaRespawnAttempt attempt = vanillaRespawnAttempt(deadRecord);
+		var pending = new LinkedHashMap<AgentId, AgentManager.VanillaRespawnAttempt>();
 		pending.put(abortId, attempt);
-		assertTrue(CodexAgentManager.abortPendingVerifiedRespawn(pending, attempt),
+		assertTrue(AgentManager.abortPendingVerifiedRespawn(pending, attempt),
 				"cancellation removes the manager-owned pending respawn");
 		assertTrue(pending.isEmpty(), "a cancelled respawn cannot remain eligible to commit");
-		assertFalse(CodexAgentManager.abortPendingVerifiedRespawn(pending, attempt),
+		assertFalse(AgentManager.abortPendingVerifiedRespawn(pending, attempt),
 				"a second cancel cannot abort a respawn that already left the map");
-		CodexAgentManager.VanillaRespawnAttempt replacement = vanillaRespawnAttempt(deadRecord);
+		AgentManager.VanillaRespawnAttempt replacement = vanillaRespawnAttempt(deadRecord);
 		pending.put(abortId, replacement);
-		assertFalse(CodexAgentManager.abortPendingVerifiedRespawn(pending, attempt),
+		assertFalse(AgentManager.abortPendingVerifiedRespawn(pending, attempt),
 				"cancellation cannot abort a replacement attempt");
 		assertSame(replacement, pending.get(abortId), "a newer pending respawn stays in flight");
 
-		assertTrue(CodexAgentManager.shouldRetryConnectedRespawn(true, true, true),
+		assertTrue(AgentManager.shouldRetryConnectedRespawn(true, true, true),
 				"publication failure keeps a healthy connected replacement for retry");
-		assertFalse(CodexAgentManager.shouldRetryConnectedRespawn(true, false, true),
+		assertFalse(AgentManager.shouldRetryConnectedRespawn(true, false, true),
 				"a missing connected replacement falls back to recovery");
-		assertFalse(CodexAgentManager.shouldRetryConnectedRespawn(false, true, true),
+		assertFalse(AgentManager.shouldRetryConnectedRespawn(false, true, true),
 				"legacy createFake failures retain their existing rollback semantics");
-		assertFalse(CodexAgentManager.shouldRetryConnectedRespawn(true, true, false),
+		assertFalse(AgentManager.shouldRetryConnectedRespawn(true, true, false),
 				"a superseded lifecycle cannot replay an old connected respawn commit");
 		return 56 + verifyRemovedDelayedRespawn() + AgentSummonNameVerification.verify() + AgentShutdownLocationVerification.verify()
 				+ verifyRecoveryBodySafety();
@@ -244,8 +244,8 @@ public final class AgentRespawnSpawnPolicyVerification {
 			var field = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
 			field.setAccessible(true);
 			var allocator = (sun.misc.Unsafe) field.get(null);
-			var manager = (CodexAgentManager) allocator.allocateInstance(CodexAgentManager.class);
-			var select = CodexAgentManager.class.getDeclaredMethod("findRecoverySpawn",
+			var manager = (AgentManager) allocator.allocateInstance(AgentManager.class);
+			var select = AgentManager.class.getDeclaredMethod("findRecoverySpawn",
 					net.minecraft.server.level.ServerLevel.class, AgentEntityLocation.class);
 			select.setAccessible(true);
 			var stone = net.minecraft.world.level.block.Blocks.STONE.defaultBlockState();
@@ -309,26 +309,26 @@ public final class AgentRespawnSpawnPolicyVerification {
 			RecoveryFixtureLevel boundary = recoveryFixture(allocator);
 			boundary.unloadedChunkX = 1;
 			assertTrue(boundary.hasChunk(1, 0), "ticket eligibility alone cannot prove a completed chunk");
-			assertFalse(CodexAgentManager.recoveryBodySafe(boundary, 15.95, 70, .5),
+			assertFalse(AgentManager.recoveryBodySafe(boundary, 15.95, 70, .5),
 					"unknown neighboring body space cannot be accepted");
 			assertEquals(0, boundary.chunkAcquisitions, "body safety never acquires the unloaded neighbor");
 			assertEquals(0, boundary.worldReads, "unloaded halo is rejected before world reads");
 			boundary.unloadedChunkX = Integer.MIN_VALUE;
-			assertTrue(CodexAgentManager.recoveryBodySafe(boundary, 15.95, 70, .5),
+			assertTrue(AgentManager.recoveryBodySafe(boundary, 15.95, 70, .5),
 					"the same clear cross-chunk body is safe once its surrounding chunks are resident");
 			assertEquals(0, boundary.chunkAcquisitions, "resident body safety does not acquire chunks either");
 			boundary.border.setCenter(0, 0);
 			boundary.border.setSize(20);
-			assertFalse(CodexAgentManager.recoveryBodySafe(boundary, 9.95, 70, .5), "the whole body must fit the world border");
-			assertTrue(CodexAgentManager.recoveryBodySafe(boundary, 9.5, 70, .5), "clear body inside the world border remains valid");
+			assertFalse(AgentManager.recoveryBodySafe(boundary, 9.95, 70, .5), "the whole body must fit the world border");
+			assertTrue(AgentManager.recoveryBodySafe(boundary, 9.5, 70, .5), "clear body inside the world border remains valid");
 			double halfWidth = dev.agaminggod.mineagen.compat.McEntityTypes.PLAYER.getDimensions().width() / 2.0D;
-			assertTrue(CodexAgentManager.recoveryBodySafe(boundary, 10 - halfWidth, 70, .5),
+			assertTrue(AgentManager.recoveryBodySafe(boundary, 10 - halfWidth, 70, .5),
 					"a body touching the border without crossing it remains valid");
-			assertFalse(CodexAgentManager.recoveryBodySafe(boundary, .5, 319, .5), "body cannot cross the build ceiling");
-			assertFalse(CodexAgentManager.recoveryBodySafe(boundary, .5, -64.1, .5), "body cannot cross the build floor");
+			assertFalse(AgentManager.recoveryBodySafe(boundary, .5, 319, .5), "body cannot cross the build ceiling");
+			assertFalse(AgentManager.recoveryBodySafe(boundary, .5, -64.1, .5), "body cannot cross the build floor");
 
 			RecoveryFixtureLevel nearby = recoveryFixture(allocator);
-			var column = CodexAgentManager.class.getDeclaredMethod("recoveryColumn",
+			var column = AgentManager.class.getDeclaredMethod("recoveryColumn",
 					net.minecraft.server.level.ServerLevel.class, int.class, int.class, java.util.OptionalInt.class);
 			column.setAccessible(true);
 			var selectedColumn = (AgentRecoverySpawnPolicy.Column) column.invoke(manager, nearby, 8, 8, java.util.OptionalInt.of(70));
@@ -419,7 +419,7 @@ public final class AgentRespawnSpawnPolicyVerification {
 		var pending = new LinkedHashMap<AgentId, Long>();
 		pending.put(removed.agentId(), 10_000L);
 		PendingSpawnCancellationLedger cancellations = new PendingSpawnCancellationLedger(120_000L);
-		CodexAgentManager.cancelPendingPlayerSpawn(removed, pending, cancellations, 101L);
+		AgentManager.cancelPendingPlayerSpawn(removed, pending, cancellations, 101L);
 		pending.remove(removed.agentId()); // Respawn rollback runs after cancellation and clears this map too.
 		assertTrue(pending.isEmpty(), "removed respawn loses its pending commit ownership");
 		assertEquals(1, cancellations.active(102L).size(), "rollback cannot consume delayed callback cancellation ownership");
@@ -429,14 +429,14 @@ public final class AgentRespawnSpawnPolicyVerification {
 			delayedBodies.remove(cancellation.agentId(), cancellation.profile());
 		}
 		assertTrue(delayedBodies.isEmpty(), "reconciliation still owns the removed agent's late body");
-		CodexAgentManager.cancelPendingPlayerSpawn(removed, pending, cancellations, 104L);
+		AgentManager.cancelPendingPlayerSpawn(removed, pending, cancellations, 104L);
 		assertEquals(1, cancellations.active(105L).size(), "repeated cleanup preserves the existing cancellation");
 		return 4;
 	}
 
-	private static CodexAgentManager.VanillaRespawnAttempt vanillaRespawnAttempt(AgentRecord deadRecord) {
+	private static AgentManager.VanillaRespawnAttempt vanillaRespawnAttempt(AgentRecord deadRecord) {
 		try {
-			var constructor = CodexAgentManager.VanillaRespawnAttempt.class.getDeclaredConstructor(
+			var constructor = AgentManager.VanillaRespawnAttempt.class.getDeclaredConstructor(
 					AgentRecord.class, OfflineAgentPlayers.VanillaRespawnTarget.class, long.class, long.class);
 			constructor.setAccessible(true);
 			return constructor.newInstance(deadRecord, null, 0L, 0L);

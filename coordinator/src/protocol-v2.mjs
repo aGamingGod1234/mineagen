@@ -87,7 +87,6 @@ export const SERVER_TO_COORDINATOR_TYPES = Object.freeze([
 	'entity_killed',
 	'goal_spec_result',
 	'task_request_result',
-	'verbose_control',
 	'task_view_request',
 	'heartbeat',
 	'shutdown',
@@ -236,7 +235,7 @@ function validateEnvelopeHeader(value, direction) {
 	const messageId = requireText(value.messageId, 'messageId', MAX_COMMAND_ID_LENGTH);
 	if (!isPlainObject(value.payload)) throw new ProtocolV2Error('INVALID_PAYLOAD', 'Protocol v2 payload must be an object');
 	validateDirection(type, direction);
-	if ((type === 'auth_challenge' || type === 'auth_response' || type === 'hello' || type === 'hello_ack' || type === 'registry_complete' || type === 'catalog_request' || type === 'catalog_snapshot' || type === 'coordinator_status' || type === 'verbose_control' || type === 'heartbeat' || type === 'shutdown') && agentId !== 'server') {
+	if ((type === 'auth_challenge' || type === 'auth_response' || type === 'hello' || type === 'hello_ack' || type === 'registry_complete' || type === 'catalog_request' || type === 'catalog_snapshot' || type === 'coordinator_status' || type === 'heartbeat' || type === 'shutdown') && agentId !== 'server') {
 		throw new ProtocolV2Error('INVALID_AGENT_SCOPE', `Message type '${type}' must use agentId 'server'`);
 	}
 	if ((type === 'verbose_event' || type === 'agent_notice' || type === 'action_result_ack') && agentId === 'server') {
@@ -485,9 +484,6 @@ function normalizeProtocolV2Payload(type, value) {
 			for (const event of value.events) { boundedText(event.message, 'event.message', 2048); boundedText(event.stage, 'event.stage', 40); nonnegativeInteger(event.sequence, 'event.sequence'); nonnegativeInteger(event.at, 'event.at'); }
 			return structuredClone(value);
 		}
-		case 'verbose_control':
-			exactKeys(value, ['enabled'], ['enabled'], type);
-			return { enabled: boolean(value.enabled, 'enabled') };
 		case 'verbose_event': {
 			exactKeys(value, ['goalRevision', 'stage', 'message'], ['goalRevision', 'stage', 'message'], type);
 			const stage = requireIdentifier(value.stage, 'stage');

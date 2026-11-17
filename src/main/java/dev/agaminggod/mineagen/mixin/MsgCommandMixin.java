@@ -1,8 +1,8 @@
 package dev.agaminggod.mineagen.mixin;
 
 import dev.agaminggod.mineagen.agent.AgentDomainException;
-import dev.agaminggod.mineagen.server.CodexAgentManager;
-import dev.agaminggod.mineagen.server.CodexAgentServerRuntime;
+import dev.agaminggod.mineagen.server.AgentManager;
+import dev.agaminggod.mineagen.server.AgentServerRuntime;
 import dev.agaminggod.mineagen.server.conversation.MinecraftWhisperDelivery;
 import dev.agaminggod.mineagen.server.conversation.NativeAgentWhisperTargets;
 import java.util.Collection;
@@ -39,14 +39,14 @@ public abstract class MsgCommandMixin {
 			recipient.sendChatMessage(outgoing, filtered, bound);
 			return;
 		}
-		CodexAgentManager manager = CodexAgentManager.get(source.getServer());
+		AgentManager manager = AgentManager.get(source.getServer());
 		var agentId = NativeAgentWhisperTargets.fromRecords(manager.records()).resolve(recipient.getUUID());
 		if (agentId.isEmpty()) {
 			recipient.sendChatMessage(outgoing, filtered, bound);
 			return;
 		}
 		try {
-			CodexAgentServerRuntime.sendNativeDirectMessage(
+			AgentServerRuntime.sendNativeDirectMessage(
 					source.getServer(), sender, agentId.orElseThrow(),
 					MinecraftWhisperDelivery.nativeText(message, filtered)
 			);

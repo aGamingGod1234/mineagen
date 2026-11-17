@@ -188,7 +188,7 @@ async function main() {
 			'difficulty normal', 'time set 18000', 'weather clear', `forceload add ${Math.floor(X) - 48} ${Math.floor(Z) - 48} ${Math.floor(X) + 48} ${Math.floor(Z) + 48}`]) await command(setup);
 		await sleep(2000);
 		const registered = inbox.wait('agent_registered');
-		await command(`execute positioned ${X} ${Y} ${Z} run codex summon ${MODEL} low ${AGENT}`);
+		await command(`execute positioned ${X} ${Y} ${Z} run mineagen summon ${MODEL} low ${AGENT}`);
 		const event = await registered;
 		record = { ...(event.payload.record ?? event.payload), agentId: event.agentId };
 		// No goal: reflex rules are not tied to a goal revision, and an idle body is the fair baseline for both arms.
@@ -210,7 +210,7 @@ async function main() {
 			// The selector above was resolved before killed mobs produced their loot.
 			await command(`kill @e[type=minecraft:item,distance=..64,x=${X},y=${Y},z=${Z}]`);
 			if (!(await alive())) {
-				await command(`codex respawn ${AGENT}`);
+				await command(`mineagen respawn ${AGENT}`);
 				for (let i = 0; i < 40 && !(await alive()); i++) await sleep(500);
 				await command(`gamemode survival ${AGENT}`);
 				await sleep(3500);

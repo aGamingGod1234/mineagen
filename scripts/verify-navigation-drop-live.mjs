@@ -163,12 +163,12 @@ try {
 	await command(`fill 298 ${TOP - 1} 111 300 ${TOP - 1} 113 minecraft:stone`);
 
 	const registered = inbox.wait('agent_registered');
-	await command(`execute in minecraft:overworld positioned 299.5 ${TOP} 112.5 run codex summon gpt-5.6-sol high ${AGENT}`);
+	await command(`execute in minecraft:overworld positioned 299.5 ${TOP} 112.5 run mineagen summon gpt-5.6-sol high ${AGENT}`);
 	const event = await registered;
 	record = { ...(event.payload.record ?? event.payload), agentId: event.agentId };
 	await bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false });
 	const activated = inbox.wait('goal_control', (item) => item.agentId === record.agentId && item.payload.operation === 'start');
-	await command(`codex start ${AGENT} Stay alive for 600 seconds.`);
+	await command(`mineagen start ${AGENT} Stay alive for 600 seconds.`);
 	record.goalRevision = (await activated).payload.goalRevision;
 	await bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false });
 
@@ -202,7 +202,7 @@ try {
 	if (boundary.state !== 'FAILED' || boundary.reasonCode !== 'NO_PATH') throw new Error('FOUR_BLOCK_DROP_BOUNDARY_CHANGED');
 	if (summary.maxPenaltyMs > PENALTY_LIMIT_MS) throw new Error(`DROP_LANDING_PENALTY_${summary.maxPenaltyMs}MS`);
 } finally {
-	if (record) await command(`codex stop ${AGENT}`).catch(() => {});
+	if (record) await command(`mineagen stop ${AGENT}`).catch(() => {});
 	bridge.stop();
 	await rcon.close();
 }

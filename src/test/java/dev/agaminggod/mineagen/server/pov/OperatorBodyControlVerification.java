@@ -144,15 +144,15 @@ public final class OperatorBodyControlVerification {
 				java.lang.reflect.Field unsafeField = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
 				unsafeField.setAccessible(true);
 				sun.misc.Unsafe unsafe = (sun.misc.Unsafe) unsafeField.get(null);
-				var manager = (dev.agaminggod.mineagen.server.CodexAgentManager)
-						unsafe.allocateInstance(dev.agaminggod.mineagen.server.CodexAgentManager.class);
+				var manager = (dev.agaminggod.mineagen.server.AgentManager)
+						unsafe.allocateInstance(dev.agaminggod.mineagen.server.AgentManager.class);
 				var server = (net.minecraft.server.MinecraftServer)
 						unsafe.allocateInstance(net.minecraft.server.dedicated.DedicatedServer.class);
 				FixturePlayers players = (FixturePlayers) unsafe.allocateInstance(FixturePlayers.class);
 				players.connected = new java.util.LinkedHashMap<>();
 				set(unsafe, server, net.minecraft.server.MinecraftServer.class, "playerList", players);
-				set(unsafe, manager, dev.agaminggod.mineagen.server.CodexAgentManager.class, "server", server);
-				set(unsafe, manager, dev.agaminggod.mineagen.server.CodexAgentManager.class, "savedData",
+				set(unsafe, manager, dev.agaminggod.mineagen.server.AgentManager.class, "server", server);
+				set(unsafe, manager, dev.agaminggod.mineagen.server.AgentManager.class, "savedData",
 						new dev.agaminggod.mineagen.server.AgentSavedData());
 				instances().put(server, manager);
 				var level = (net.minecraft.server.level.ServerLevel)
@@ -238,11 +238,11 @@ public final class OperatorBodyControlVerification {
 		}
 
 		@SuppressWarnings("unchecked")
-		private static java.util.Map<net.minecraft.server.MinecraftServer, dev.agaminggod.mineagen.server.CodexAgentManager> instances()
+		private static java.util.Map<net.minecraft.server.MinecraftServer, dev.agaminggod.mineagen.server.AgentManager> instances()
 				throws ReflectiveOperationException {
-			java.lang.reflect.Field field = dev.agaminggod.mineagen.server.CodexAgentManager.class.getDeclaredField("INSTANCES");
+			java.lang.reflect.Field field = dev.agaminggod.mineagen.server.AgentManager.class.getDeclaredField("INSTANCES");
 			field.setAccessible(true);
-			return (java.util.Map<net.minecraft.server.MinecraftServer, dev.agaminggod.mineagen.server.CodexAgentManager>) field.get(null);
+			return (java.util.Map<net.minecraft.server.MinecraftServer, dev.agaminggod.mineagen.server.AgentManager>) field.get(null);
 		}
 
 		private static net.minecraft.network.syncher.EntityDataAccessor<?> accessor(Class<?> owner, String name)

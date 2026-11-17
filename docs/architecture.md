@@ -32,7 +32,7 @@ Paths below are relative to the repository root. Java paths beginning with `serv
 | Tool admission | `coordinator/src/native-minecraft-tools.mjs` defines `MINECRAFT_DYNAMIC_TOOLS` and `STEP_VERBS`. `native-tool-runtime.mjs` handles calls and dispatches body work. |
 | Compound operations | `coordinator/src/obtain-runner.mjs` exports `runObtain`; `obtain-plan.mjs` plans resource work. `find-search.mjs` exports `searchFor`, which can invoke `followEyes` in `find-eyes.mjs` or `findPortalRoom` in `find-portal-room.mjs`. |
 | Bridge | `server/bridge/MultiplexedServerBridge.java` and `coordinator/src/protocol-v2.mjs` implement the authenticated JSON-line connection. The server's default listener is `127.0.0.1:25570`. |
-| Body | `server/CodexAgentManager.java` manages agents. `server/runtime/ServerActionExecutor.java` dispatches actions to controllers under `server/runtime/controller/`. The wire enum is `src/main/java/dev/agaminggod/mineagen/protocol/ActionType.java`. |
+| Body | `server/AgentManager.java` manages agents. `server/runtime/ServerActionExecutor.java` dispatches actions to controllers under `server/runtime/controller/`. The wire enum is `src/main/java/dev/agaminggod/mineagen/protocol/ActionType.java`. |
 | Perception | `server/perception/ServerObservationCollector.java` collects player state, inventory and world observations. Its entity/block caps are 64 and 128; these are collection limits, not promises that every sample contains that many rows. |
 | Reflexes | `coordinator/src/reflexes.mjs` defines the default rules and their wire representation. `server/runtime/reflex/ReflexEngine.java` executes them. |
 | Danger notifications | `coordinator/src/danger-steer-coalescer.mjs` coalesces repeated danger steers, with a default interval of 2,000 ms. Materially new danger can be delivered immediately. |
@@ -222,7 +222,7 @@ flowchart TD
 
 | # | Blocker | Hand that exists | Best evidence | Named cause | Owner |
 |---|---|---|---|---|---|
-| 1 | Find a fortress | `find structure fortress`, with a fortress-floor walk for spawners (`find-search.mjs`); `nether-regions.mjs` gives search facts | Fresh: 1 of 8 (round 5), 1 of 6 (round 6). Real save: found and entered once | The body wanders. 61 of 75 large turn-backs happened inside hunts for tools, chests, food or gold. `obtain` plans Overworld mobs while in the Nether (16 of 25 goals checked). A refused route is walked again and again | Portal lane after blocker 2; water-and-lava lane owns the Nether `obtain` fault |
+| 1 | Find a fortress | `find structure fortress`, with a fortress-floor walk for spawners (`find-search.mjs`); `nether-regions.mjs` gives search facts | Fresh: 1 of 8 (round 4), 1 of 8 (round 5), 1 of 6 (round 6). Real save: found and entered once | The body wanders. 61 of 75 large turn-backs happened inside hunts for tools, chests, food or gold. `obtain` plans Overworld mobs while in the Nether (16 of 25 goals checked). A refused route is walked again and again | Portal lane after blocker 2; water-and-lava lane owns the Nether `obtain` fault |
 | 2 | Get blaze rods | `fight_until` with built-in drop collection (`ServerFightUntilController.java`), `build_shelter`, `flee_from`, the `default-blaze-cover` reflex | Fresh: 0. Best in single tests: 4 held, then lost on death. Rod gate on base `9d10cedb`: 0 of 5 alive with 4+ rods on a real fortress save without armour, 0 of 5 on a STAGED fortress-with-gear save (lower deck, Y 65). 13 deaths; 6 of the 8 games that died were first killed by a wither skeleton; blazes were involved in 3 deaths | Wither skeletons kill first. A flee or shelter command sent while a reflex holds the body never runs (proven in 2 STAGED games, B3 and B4). Likely, not proven: rods from ranged kills are not collected. B1 and B5 made 5 bow kills and held 0 rods; no rod was seen | Portal lane (fix A, command hand-off), water-and-lava lane (fix B, ranged-kill fact and rod logging) |
 | 3 | Find a warped forest or bastion | Generic `find biome` and `find structure`; `need-sources.mjs` names the sources | One real-save test made 31 legs toward a warped forest, walked 418 blocks for 101 net, and earned 1 pearl. Barter: three tests (two real save, one staged), 0 trades | No dedicated search hand. Bastions stay off the route by decision. Barter needs about 190 gold ingots for 12 pearls (`need-sources.mjs`, about 15.6 per pearl) | Survive lane, with blocker 4 |
 | 4 | Get the pearls | Enderman hunt inside `fight_until` (`EndermanHuntLeads.java`); `barter_until` (`ServerBarterController.java`) | Fresh: 1 pearl, in two games (round 4 G7, round 6 G7). Tests: best 4 pearls held, from a staged forest start; one staged test got 3 enderman kills and 1 pearl | The hunt reports "no target seen" in real terrain. Fights work once a target is found | Survive lane, with blocker 3 |
@@ -243,9 +243,9 @@ flowchart TD
   CE --> FS["find structure stronghold<br/>throws eyes, follows them, digs down<br/>staged"]
   FS --> PR["find block end_portal_frame<br/>walks passages to the portal room<br/>staged: reached in some scouts,<br/>missed in more, count unverified"]
   PR --> SE["Set the eyes in the frames<br/>interact_block, no dedicated hand<br/>staged: 11 of 12 frames from 12 eyes<br/>world started with 2 filled"]
-  SE --> EN["Enter the End<br/>staged starts only, count unverified"]
+  SE --> EN["Enter the End<br/>staged: once from a twelve-eye start, 14 Nov"]
   EN --> CR["Break the end crystals<br/>fight_target, use_ranged"]
-  CR --> DR(["Kill the dragon<br/>staged 1, from an End save"])
+  CR --> DR(["Kill the dragon<br/>staged 1 on this code, from an End save, 14 Nov<br/>one more on 26 Oct code"])
 
   ECON["Eye economy: thrown eyes break about 1 in 5,<br/>12 eyes left the frame one short"] -.-> SE
 
@@ -275,8 +275,8 @@ flowchart LR
   E --> F["12 pearls<br/>never"]
   F --> G["Home with loot<br/>never"]
   G --> H["Stronghold room<br/>staged, count unverified"]
-  H --> I["End entered<br/>staged, count unverified"]
-  I --> J["Dragon dead<br/>staged 1, from an End save"]
+  H --> I["End entered<br/>staged, once from a twelve-eye start"]
+  I --> J["Dragon dead<br/>staged 1 on this code, from an End save<br/>one more on 26 Oct code"]
 
   classDef ok fill:#1f7a3a,color:#ffffff,stroke:#14532d
   classDef part fill:#a16207,color:#ffffff,stroke:#713f12
@@ -294,7 +294,7 @@ A full run needs every box in the same game. The green and yellow boxes work fro
 
 - Fresh games: rounds 4, 5 and 6 (8, 8 and 6 games, up to 180 minutes each, 14 to 15 Nov). Spend caps ended many games early.
 - Rod gate: batch A played a real fortress save five times, batch B a STAGED fortress-with-gear save five times, on base `9d10cedb`, 15 Nov.
-- Staged results: the staged scouts of 13 to 14 Nov, including the staged chain that made the first dragon kill (`retained-first-dragon-kill`). No fresh game has killed the dragon.
+- Staged results: the staged scouts of 13 to 14 Nov, including the staged chain that made the first dragon kill on current code (`retained-first-dragon-kill`). An earlier staged dragon eval on 26 Oct code also killed the dragon from an End start. No fresh game has killed the dragon.
 - Reads without the model: the Nether wandering audit, the `obtain` dimension check and the command-replacement read, all 15 Nov.
 
 The recordings and run records now live in the private archive read through `ARENA_PRIVATE_INPUTS`, with repository-relative paths preserved.

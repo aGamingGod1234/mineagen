@@ -5,7 +5,7 @@ import dev.agaminggod.mineagen.compat.McCompat;
 import carpet.patches.EntityPlayerMPFake;
 import com.llamalad7.mixinextras.sugar.Share;
 import com.llamalad7.mixinextras.sugar.ref.LocalBooleanRef;
-import dev.agaminggod.mineagen.server.CodexAgentServerRuntime;
+import dev.agaminggod.mineagen.server.AgentServerRuntime;
 import net.minecraft.advancements.AdvancementHolder;
 import net.minecraft.advancements.AdvancementProgress;
 import net.minecraft.server.PlayerAdvancements;
@@ -31,7 +31,7 @@ abstract class PlayerAdvancementsMixin {
 	private void mineagen$advancementGranted(AdvancementHolder holder, String criterion, CallbackInfoReturnable<Boolean> callback, @Share("wasDone") LocalBooleanRef wasDone) {
 		if (player instanceof EntityPlayerMPFake && holder.value().display().isPresent() && dev.agaminggod.mineagen.server.goal.PlanProgressFacts.advancementCompleted(
 				holder.value().display().isPresent(), wasDone.get(), getOrStartProgress(holder).isDone())) {
-			CodexAgentServerRuntime.advancementGranted(player, holder.id().toString());
+			AgentServerRuntime.advancementGranted(player, holder.id().toString());
 			holder.value().display().filter(display -> McCompat.advancementShowsToast(display)).ifPresent(display ->
 					dev.agaminggod.mineagen.server.perception.PlayerObservationEvents.advancementToast(player, McCompat.advancementTitle(display).getString()));
 		}

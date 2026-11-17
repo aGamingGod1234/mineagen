@@ -225,10 +225,10 @@ async function naturalReport(mode, hooks = {}) {
         audit.push({ envelope: { type: 'agent_registered', agentId: 'offline-agent', payload: { agentId: 'offline-agent', name, ...profile, ...(mode === 'profile-mismatch' ? { reasoningEffort: 'low' } : {}) } } });
         return { text: `Created ${name}. It is ready for a task.` };
       }
-      if (command.startsWith('codex start ')) started = true;
-      if (command.startsWith('codex status ')) return { text: mode === 'timeout' ? 'state=RUNNING' : 'state=COMPLETED' };
-      if (command.startsWith('codex stop ')) { runnerTime += 3; return { text: `Stopped ${command.split(' ').at(-1)}.` }; }
-      if (mode === 'timeout' && runnerTime >= 1000 && command.startsWith('codex remove ')) runnerTime += 2;
+      if (command.startsWith('mineagen start ')) started = true;
+      if (command.startsWith('mineagen status ')) return { text: mode === 'timeout' ? 'state=RUNNING' : 'state=COMPLETED' };
+      if (command.startsWith('mineagen stop ')) { runnerTime += 3; return { text: `Stopped ${command.split(' ').at(-1)}.` }; }
+      if (mode === 'timeout' && runnerTime >= 1000 && command.startsWith('mineagen remove ')) runnerTime += 2;
       if (command.endsWith(' Pos')) return { text: 'player has the following entity data: [0.5d, 64.0d, 0.5d]' };
       if (command.endsWith(' Inventory')) return { text: `player has the following entity data: ${started && mode !== 'objective-failure' ? '[{id:"minecraft:oak_log"}]' : '[]'}` };
       return { text: 'ok' };
@@ -270,11 +270,11 @@ test('real runner yields before post-stop evidence and uses only the supplied cl
  let cleanup = false; const commands = [];
  const actual = await naturalReport('timeout', { trialDeadlineMs: 1000,
   onCleanup: async event => { assert.equal(event.classification, 'TIMEOUT'); cleanup = true; return 1005; },
-  onCommand: command => { if (command.startsWith('codex stop ') || command.startsWith('codex remove ')) assert.equal(cleanup, true); commands.push(command); },
+  onCommand: command => { if (command.startsWith('mineagen stop ') || command.startsWith('mineagen remove ')) assert.equal(cleanup, true); commands.push(command); },
  });
  assert.equal(actual.report.classification, 'TIMEOUT'); assert.equal(actual.runnerFinishedAtMs, 1005);
  assert.equal(actual.report.factualSuccess, true);
- assert.ok(commands.some(c => c.startsWith('codex stop ')));
+ assert.ok(commands.some(c => c.startsWith('mineagen stop ')));
 });
 
 test('invalid seed reaches cleanup boundary before reclaiming the partially owned spawn ticket', async () => {

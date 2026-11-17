@@ -5,13 +5,12 @@ import dev.agaminggod.mineagen.agent.AgentRegistryVerification;
 import dev.agaminggod.mineagen.agent.GoalSpecVerification;
 import dev.agaminggod.mineagen.agent.AgentIdentityVerification;
 import dev.agaminggod.mineagen.server.AgentActivityPresentationVerification;
-import dev.agaminggod.mineagen.server.AgentVerbosePresentationVerification;
+import dev.agaminggod.mineagen.server.AgentChatSanitizerVerification;
 import dev.agaminggod.mineagen.server.AgentDeathCaptureVerification;
 import dev.agaminggod.mineagen.server.AgentControlSyncVerification;
 import dev.agaminggod.mineagen.server.ChunkedSavedPayloadVerification;
 import dev.agaminggod.mineagen.server.OfflineAgentProfileLookupVerification;
 import dev.agaminggod.mineagen.server.VoiceConsentCommandVerification;
-import dev.agaminggod.mineagen.client.camera.CameraPathVerification;
 import dev.agaminggod.mineagen.client.gui.AgentControlLayoutVerification;
 import dev.agaminggod.mineagen.client.gui.AgentControlSubmissionVerification;
 import dev.agaminggod.mineagen.client.gui.AgentRosterGridLayoutVerification;
@@ -51,7 +50,7 @@ import dev.agaminggod.mineagen.server.CoordinatorExhaustedStatusSnapshotVerifica
 import dev.agaminggod.mineagen.server.CoordinatorVoiceEndpointVerification;
 import dev.agaminggod.mineagen.server.CoordinatorVoiceEndpointRefreshVerification;
 import dev.agaminggod.mineagen.server.CoordinatorVoiceTimeoutLifecycleVerification;
-import dev.agaminggod.mineagen.server.CodexAgentServerRuntimeVoiceStartVerification;
+import dev.agaminggod.mineagen.server.AgentServerRuntimeVoiceStartVerification;
 import dev.agaminggod.mineagen.server.AgentSpawnPlacementVerification;
 import dev.agaminggod.mineagen.server.OfflineAgentPlayersVerification;
 import dev.agaminggod.mineagen.server.PendingSpawnCancellationLedgerVerification;
@@ -122,7 +121,7 @@ public final class VerificationMain {
 		dev.agaminggod.mineagen.control.TestCatalog.install();
 		ProtocolCodec codec = new ProtocolCodec();
 
-		passedAssertions += AgentVerbosePresentationVerification.verify();
+		passedAssertions += AgentChatSanitizerVerification.verify();
 		verifyProtocolConstants();
 		verifyActionWireNames();
 		verifyValidActionUnion(codec);
@@ -177,14 +176,13 @@ public final class VerificationMain {
 		passedAssertions += CoordinatorVoiceTimeoutLifecycleVerification.verify();
 		passedAssertions += CoordinatorVoiceEndpointVerification.verify();
 		passedAssertions += CoordinatorVoiceEndpointRefreshVerification.verify();
-		passedAssertions += CodexAgentServerRuntimeVoiceStartVerification.verify();
+		passedAssertions += AgentServerRuntimeVoiceStartVerification.verify();
 		passedAssertions += AgentActivityPresentationVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.FailureChatThrottleVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.AgentFeedVerification.verify();
 		passedAssertions += AgentDeathCaptureVerification.verify();
 		passedAssertions += AgentControlSyncVerification.verify();
 		passedAssertions += VoiceConsentCommandVerification.verify();
-		passedAssertions += CameraPathVerification.verify();
 		passedAssertions += AgentSpawnPlacementVerification.verify();
 		passedAssertions += ChunkedSavedPayloadVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.RemovedWorldDataVerification.verify();
@@ -313,7 +311,7 @@ public final class VerificationMain {
 		passedAssertions += MenuCapabilityRegistryVerification.verify();
 		passedAssertions += VoiceSubsystemVerification.verify();
 		passedAssertions += VoiceDirectorVerification.verify();
-		passedAssertions += dev.agaminggod.mineagen.server.VoiceCameraCommandVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.VoiceCommandVerification.verify();
 		passedAssertions += ServerPathPlannerVerification.verify();
 		passedAssertions += MinecraftNavigationWorldVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.SeenNavigationVerification.verify();

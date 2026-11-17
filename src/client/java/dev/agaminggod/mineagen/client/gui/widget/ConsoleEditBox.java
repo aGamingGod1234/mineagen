@@ -9,7 +9,7 @@ import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.network.chat.Component;
 
-/** Single-line editor drawn as part of the Field Console instead of a vanilla text box. */
+/** Single-line editor drawn as part of the control center instead of a vanilla text box. */
 public final class ConsoleEditBox extends EditBox implements ConsoleFocusTarget {
 	private static final int HORIZONTAL_PADDING = 6;
 	private final Font font;

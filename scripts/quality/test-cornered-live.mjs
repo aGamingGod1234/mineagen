@@ -117,7 +117,7 @@ async function register() {
 	// A summon right after boot can go unanswered while the server settles; a player would just try again.
 	for (let attempt = 0; attempt < 3 && !e; attempt++) {
 		const registered = s.inbox.wait('agent_registered', () => true, 30000).catch(() => null);
-		const summon = () => s.command(`execute positioned -270.5 80 23.5 run codex summon gpt-6.1-sol low ${AGENT}`);
+		const summon = () => s.command(`execute positioned -270.5 80 23.5 run mineagen summon gpt-6.1-sol low ${AGENT}`);
 		reply = await summon();
 		// The mod applies boot's model catalog at the start of a later tick, so the first summon is often refused at once
 		// (MODEL_CATALOG_UNAVAILABLE) and no registration follows: ask again shortly instead of waiting out the 30 s.
@@ -128,7 +128,7 @@ async function register() {
 	s.record = { ...(e.payload.record ?? e.payload), agentId: e.agentId };
 	await s.bridge.send('agent_ready', s.record.agentId, { goalRevision: s.record.goalRevision, reconciled: false });
 	const started = s.inbox.wait('goal_control', g => g.payload.operation === 'start');
-	await s.command(`codex start ${AGENT} Survive for 1200 seconds.`); s.record.goalRevision = (await started).payload.goalRevision;
+	await s.command(`mineagen start ${AGENT} Survive for 1200 seconds.`); s.record.goalRevision = (await started).payload.goalRevision;
 	await s.bridge.send('agent_ready', s.record.agentId, { goalRevision: s.record.goalRevision, reconciled: false });
 	await s.command(`gamemode survival ${AGENT}`);
 }

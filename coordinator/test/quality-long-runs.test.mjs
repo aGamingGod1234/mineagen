@@ -306,9 +306,9 @@ async function clockFixture({ continueAfterDeath = true, emitStart = true, playW
 				if (command === 'difficulty') return { text: 'The difficulty is normal' };
 				if (command.includes(' if loaded ')) return { text: 'The time is 1' };
 				if (command.includes('summon-configured')) { const name = command.split(' ').at(-1); if (!dropRegistration) audit.push({ ...p('agent_registered', now, { agentId: 'a', name, ...profile }), agentId: 'a' }); if (rotatedAudit && !dropRegistration) await appendFile(protocolPath, JSON.stringify(audit.at(-1)) + '\n'); return { text: `Created ${name}. It is ready for a task.` }; }
-				if (command.startsWith('codex start ')) { now += 120000; goalAt = now; if (emitStart) { audit.push({ ...p('goal_control', now, { operation: 'start', updatedAtEpochMs: now, goal: scenario.task }), agentId: 'a' }); if (rotatedAudit) { await rename(protocolPath, `${protocolPath}.1`); await writeFile(protocolPath, JSON.stringify(audit.at(-1)) + '\n'); } } }
-				if (command.startsWith('codex status ')) { attempt++; if (complete && attempt === 3) return { text: 'state=COMPLETED' }; return { text: attempt === 2 ? 'state=DEAD' : 'state=RUNNING' }; }
-				if (command.startsWith('codex stop ')) return { text: `Stopped ${command.split(' ').at(-1)}.` };
+				if (command.startsWith('mineagen start ')) { now += 120000; goalAt = now; if (emitStart) { audit.push({ ...p('goal_control', now, { operation: 'start', updatedAtEpochMs: now, goal: scenario.task }), agentId: 'a' }); if (rotatedAudit) { await rename(protocolPath, `${protocolPath}.1`); await writeFile(protocolPath, JSON.stringify(audit.at(-1)) + '\n'); } } }
+				if (command.startsWith('mineagen status ')) { attempt++; if (complete && attempt === 3) return { text: 'state=COMPLETED' }; return { text: attempt === 2 ? 'state=DEAD' : 'state=RUNNING' }; }
+				if (command.startsWith('mineagen stop ')) return { text: `Stopped ${command.split(' ').at(-1)}.` };
 				if (command.endsWith(' Pos')) return { text: 'player has the following entity data: [0d, 64d, 0d]' };
 				if (command.endsWith(' Inventory')) return { text: 'player has the following entity data: []' };
 				return { text: 'ok' };
@@ -322,7 +322,7 @@ test('real runner entry point keeps a full 30/60-minute goal-start window across
 		const { report, commands, goalAt } = await clockFixture({ playWindowMs, rotatedAudit });
 		assert.equal(report.classification, 'TIMEOUT', report.diagnostics);
 		assert.equal(report.budget.goalStartedAt, goalAt);
-		assert.equal(commands.find(c => c.command.startsWith('codex stop ')).at, goalAt + playWindowMs);
+		assert.equal(commands.find(c => c.command.startsWith('mineagen stop ')).at, goalAt + playWindowMs);
 		assert.equal(report.lifecycle, null);
 	}
 });
@@ -332,13 +332,13 @@ test('death remains terminal without continuation; completion still ends early; 
 	assert.equal((await clockFixture({ complete: true })).report.classification, 'PASSED');
 	const missing = await clockFixture({ emitStart: false });
 	assert.equal(missing.report.budget.goalStartedAt, null); assert.equal(missing.report.classification, 'TIMEOUT');
-	assert.ok(missing.commands.find(c => c.command.startsWith('codex stop ')).at < missing.goalAt + 1800000);
+	assert.ok(missing.commands.find(c => c.command.startsWith('mineagen stop ')).at < missing.goalAt + 1800000);
 });
 
 test('a dropped registration audit row still starts the play window and a missing start is loud', async () => {
 	const { report, commands, goalAt } = await clockFixture({ dropRegistration: true });
 	assert.equal(report.budget.goalStartedAt, goalAt);
-	assert.equal(commands.find(c => c.command.startsWith('codex stop ')).at, goalAt + 1800000);
+	assert.equal(commands.find(c => c.command.startsWith('mineagen stop ')).at, goalAt + 1800000);
 	const missing = await clockFixture({ emitStart: false });
 	assert.equal(missing.report.budget.goalStartedAt, null);
 	assert.match(missing.report.diagnostics, /GOAL_START_NOT_RECOGNIZED/);

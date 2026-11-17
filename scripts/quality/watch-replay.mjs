@@ -283,10 +283,10 @@ async function replayOne(s, { incident, savepoint }, { windowMs }) {
 	const pos = incident.replay?.at ?? setup.position, at = `execute in ${dim} run`;
 	await s.command(`execute in ${dim} run forceload add ${Math.floor(pos[0]) - 24} ${Math.floor(pos[2]) - 24} ${Math.floor(pos[0]) + 24} ${Math.floor(pos[2]) + 24}`);
 	const registered = s.inbox.wait('agent_registered');
-	await s.command(`execute positioned 0.5 200 0.5 run codex summon gpt-6.1-sol low ${AGENT}`);
+	await s.command(`execute positioned 0.5 200 0.5 run mineagen summon gpt-6.1-sol low ${AGENT}`);
 	const e = await registered; s.record = { ...(e.payload.record ?? e.payload), agentId: e.agentId };
 	await s.bridge.send('agent_ready', s.record.agentId, { goalRevision: s.record.goalRevision, reconciled: false });
-	const started = s.inbox.wait('goal_control', g => g.payload.operation === 'start'); await s.command(`codex start ${AGENT} Survive for 1200 seconds.`); s.record.goalRevision = (await started).payload.goalRevision;
+	const started = s.inbox.wait('goal_control', g => g.payload.operation === 'start'); await s.command(`mineagen start ${AGENT} Survive for 1200 seconds.`); s.record.goalRevision = (await started).payload.goalRevision;
 	await s.bridge.send('agent_ready', s.record.agentId, { goalRevision: s.record.goalRevision, reconciled: false });
 	await s.command(`gamemode survival ${AGENT}`);
 	// Through another dimension, so the body arrives knowing no terrain, as a respawned or newly arrived player.

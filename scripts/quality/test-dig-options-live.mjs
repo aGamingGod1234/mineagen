@@ -19,12 +19,12 @@ try {
  await s.command(`forceload add 0 0`);
  await s.command(`fill -3 57 -3 12 65 12 minecraft:stone`);
  await s.command(`setblock 0 65 0 minecraft:stone`);
- await s.command(`execute positioned 0.5 66 0.5 run codex summon gpt-6.1-sol low ${A}`);
+ await s.command(`execute positioned 0.5 66 0.5 run mineagen summon gpt-6.1-sol low ${A}`);
  const e = await registered;
  s.record = { ...(e.payload.record ?? e.payload), agentId: e.agentId };
  await s.bridge.send('agent_ready', s.record.agentId, { goalRevision: s.record.goalRevision, reconciled: false });
  const started = s.inbox.wait('goal_control', e => e.payload.operation === 'start');
- await s.command(`codex start ${A} Survive for 1200 seconds.`);
+ await s.command(`mineagen start ${A} Survive for 1200 seconds.`);
  s.record.goalRevision = (await started).payload.goalRevision;
  await s.bridge.send('agent_ready', s.record.agentId, { goalRevision: s.record.goalRevision, reconciled: false });
  await s.command('difficulty peaceful');

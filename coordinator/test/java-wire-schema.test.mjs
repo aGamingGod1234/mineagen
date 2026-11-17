@@ -80,7 +80,6 @@ const CONTRACTS = {
 		['acceptHello', 'payload', 'normalizeProtocolV2Payload:hello_ack/value'],
 		['onRemoved', 'payload', 'normalizeProtocolV2Payload:agent_removed/value'],
 		['onServerStopping', 'payload', 'normalizeProtocolV2Payload:shutdown/value'],
-		['verboseControlEnvelope', 'payload', 'normalizeProtocolV2Payload:verbose_control/value'],
 		['sendGoalSpecResult', 'result', 'normalizeProtocolV2Payload:goal_spec_result/value'],
 		['acceptInspectionRequest', 'reply', 'normalizeProtocolV2Payload:inspection_result/value'],
 		['requestTaskView', 'payload', 'normalizeProtocolV2Payload:task_view_request/value'],

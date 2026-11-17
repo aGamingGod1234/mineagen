@@ -104,7 +104,7 @@ export async function runNativeSuccessorLive(config) {
     await command('fill -4 64 -4 8 68 8 minecraft:air');
     await command('fill -4 63 -4 8 63 8 minecraft:stone');
     const registeredOffset = messages.length;
-    await command(`execute in minecraft:overworld positioned 0.5 64 0.5 run codex summon ${PROFILE.model} ${PROFILE.reasoningEffort} ${config.agentName}`);
+    await command(`execute in minecraft:overworld positioned 0.5 64 0.5 run mineagen summon ${PROFILE.model} ${PROFILE.reasoningEffort} ${config.agentName}`);
     const registered = await waitMessage('agent_registered', () => true, registeredOffset);
     record = { ...(registered.payload.record ?? registered.payload), agentId: registered.agentId };
     bridge.on('goal_spec_request', event => {
@@ -115,7 +115,7 @@ export async function runNativeSuccessorLive(config) {
     await bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false });
     await waitMessage('observation', event => event.agentId === record.agentId && event.payload.ready === true);
     const goalOffset = messages.length;
-    report.fixtureGoalResponse = await command(`codex start ${config.agentName} Get a stone pickaxe`);
+    report.fixtureGoalResponse = await command(`mineagen start ${config.agentName} Get a stone pickaxe`);
     const goal = await waitMessage('goal_control', event => event.agentId === record.agentId && event.payload.operation === 'start', goalOffset);
     record.goalRevision = goal.payload.goalRevision;
     await bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false });
@@ -331,7 +331,7 @@ export async function runNativeSuccessorLive(config) {
   } finally {
     try { await runtime?.disposeAll(); report.cleanup.runtime = 'CLEAN'; } catch { report.cleanup.runtime = 'FAILED'; }
     try { await memory.flush(); report.cleanup.taskMemory = 'FLUSHED'; } catch { report.cleanup.taskMemory = 'FAILED'; }
-    try { if (record) await command(`codex remove ${config.agentName}`); report.cleanup.agent = 'REMOVED'; } catch { report.cleanup.agent = 'FAILED'; }
+    try { if (record) await command(`mineagen remove ${config.agentName}`); report.cleanup.agent = 'REMOVED'; } catch { report.cleanup.agent = 'FAILED'; }
     bridge.stop(); await rcon.close();
     report.actions = commands.map(action => {
       const result = results.findLast(result => result.actionId === action.actionId && terminal.has(result.state));

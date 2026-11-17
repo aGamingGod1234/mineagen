@@ -12,7 +12,7 @@ function wake(run) {
 	run.bridge.emit('observation', { agentId: 'agent-a', payload: observation });
 }
 
-test('concise feed sends accepted model summaries with verbose off and ignores provider fragments', async () => {
+test('concise feed sends accepted model summaries and ignores provider fragments', async () => {
 	const registry = new AgentRegistry(), planner = new FakePlanner(registry);
 	planner.requestPlan = async request => {
 		request.onVerbose('output', 'raw provider output');
@@ -57,7 +57,7 @@ test('native concise feed publishes authored intent and reason once per change, 
 	} finally { await run.coordinator.stop(); }
 });
 
-test('native concise feed keeps private tool JSON out of chat with verbose off', async () => {
+test('native concise feed keeps private tool JSON out of chat', async () => {
 	const registry = new AgentRegistry(), planner = new FakePlanner(registry);
 	let finished = false;
 	planner.requestNativeTurn = async request => {

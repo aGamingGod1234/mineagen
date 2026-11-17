@@ -2,10 +2,8 @@ package dev.agaminggod.mineagen.voiceaddon;
 
 import de.maxhenkel.voicechat.api.VoicechatServerApi;
 import de.maxhenkel.voicechat.api.opus.OpusDecoder;
-import dev.agaminggod.mineagen.server.CodexAgentServerRuntime;
+import dev.agaminggod.mineagen.server.AgentServerRuntime;
 import dev.agaminggod.mineagen.server.conversation.ServerAgentConversationRouter.ProximitySpeechAudience;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Executor;
@@ -20,7 +18,6 @@ final class HumanSpeechCapture implements ServerSpeechCaptureRegistry.Capture {
 	private static final long MIN_SILENCE_MILLISECONDS = 160L;
 	private static final long SILENCE_MILLISECONDS = 300L;
 	private static final ConsentCapture CONSENT_CAPTURE = resolveConsentCapture();
-	private static final VoiceInputReporter INPUT_REPORTER = resolveInputReporter();
 	private final InputActivityAdapter<MinecraftServer, ProximitySpeechAudience> inputActivity;
 	private final SpeechCaptureEngine engine;
 
@@ -31,12 +28,12 @@ final class HumanSpeechCapture implements ServerSpeechCaptureRegistry.Capture {
 					public Optional<ProximitySpeechAudience> capture(
 							MinecraftServer server, UUID playerId, boolean whispering
 					) {
-						return CodexAgentServerRuntime.captureHumanSpeechAudience(server, playerId, whispering);
+						return AgentServerRuntime.captureHumanSpeechAudience(server, playerId, whispering);
 					}
 
 					@Override
 					public int deliver(MinecraftServer server, ProximitySpeechAudience audience, String transcript) {
-						return CodexAgentServerRuntime.deliverHumanSpeech(server, audience, transcript)
+						return AgentServerRuntime.deliverHumanSpeech(server, audience, transcript)
 								.deliveredIds().size();
 					}
 				},
@@ -44,12 +41,9 @@ final class HumanSpeechCapture implements ServerSpeechCaptureRegistry.Capture {
 					@Override public boolean hasRecipients(ProximitySpeechAudience audience) {
 						return !audience.recipientAgentIds().isEmpty();
 					}
-					@Override public void reportAudience(MinecraftServer server, ProximitySpeechAudience audience, String message) {
-						INPUT_REPORTER.reportAudience(server, audience, message);
-					}
-					@Override public void reportSystem(MinecraftServer server, String message) {
-						INPUT_REPORTER.reportSystem(server, message);
-					}
+					// Nothing reports voice input activity in game; the core no longer has a verbose reporter.
+					@Override public void reportAudience(MinecraftServer server, ProximitySpeechAudience audience, String message) { }
+					@Override public void reportSystem(MinecraftServer server, String message) { }
 				}
 		);
 		this.engine = new SpeechCaptureEngine(
@@ -125,45 +119,6 @@ final class HumanSpeechCapture implements ServerSpeechCaptureRegistry.Capture {
 	public void cancel(UUID playerId) {
 		engine.cancel(playerId);
 		inputActivity.cancel(playerId);
-	}
-
-	private static VoiceInputReporter resolveInputReporter() {
-		try {
-			Class<?> reporter = Class.forName(
-					"dev.agaminggod.mineagen.server.voice.VoiceInputVerboseReporter",
-					false,
-					HumanSpeechCapture.class.getClassLoader()
-			);
-			Method reportAudience = reporter.getMethod(
-					"reportAudience", MinecraftServer.class, ProximitySpeechAudience.class, String.class
-			);
-			Method reportSystem = reporter.getMethod("reportSystem", MinecraftServer.class, String.class);
-			return new VoiceInputReporter() {
-				@Override
-				public void reportAudience(
-						MinecraftServer server,
-						ProximitySpeechAudience audience,
-						String message
-				) {
-					invokeReporter(reportAudience, server, audience, message);
-				}
-
-				@Override
-				public void reportSystem(MinecraftServer server, String message) {
-					invokeReporter(reportSystem, server, message);
-				}
-			};
-		} catch (ClassNotFoundException | NoSuchMethodException | LinkageError legacyCore) {
-			return VoiceInputReporter.NO_OP;
-		}
-	}
-
-	private static void invokeReporter(Method method, Object... arguments) {
-		try {
-			method.invoke(null, arguments);
-		} catch (IllegalAccessException | InvocationTargetException | RuntimeException ignored) {
-			// Verbose reporting is optional and cannot interrupt microphone capture.
-		}
 	}
 
 	static final class InputActivityAdapter<S, A> {
@@ -316,17 +271,6 @@ final class HumanSpeechCapture implements ServerSpeechCaptureRegistry.Capture {
 	@FunctionalInterface
 	private interface ConsentCapture {
 		boolean capture(MinecraftServer server, UUID playerId, Runnable capture);
-	}
-
-	private interface VoiceInputReporter {
-		VoiceInputReporter NO_OP = new VoiceInputReporter() {
-			@Override public void reportAudience(MinecraftServer server, ProximitySpeechAudience audience, String message) { }
-			@Override public void reportSystem(MinecraftServer server, String message) { }
-		};
-
-		void reportAudience(MinecraftServer server, ProximitySpeechAudience audience, String message);
-
-		void reportSystem(MinecraftServer server, String message);
 	}
 
 	private static final class ModernConsentCapture implements ConsentCapture {

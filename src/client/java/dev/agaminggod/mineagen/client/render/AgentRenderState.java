@@ -3,7 +3,7 @@ package dev.agaminggod.mineagen.client.render;
 import dev.agaminggod.mineagen.agent.AgentVisualIdentity;
 import net.minecraft.client.renderer.entity.state.HumanoidRenderState;
 
-public final class CodexAgentRenderState extends HumanoidRenderState {
+public final class AgentRenderState extends HumanoidRenderState {
 	private String provider = "codex";
 	private String model = "unconfigured";
 	private int skinVariant;

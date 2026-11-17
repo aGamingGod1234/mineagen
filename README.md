@@ -27,8 +27,8 @@ Download the files from the [Releases page](https://github.com/aGamingGod1234/mi
 2. Sign in to a model CLI: run `codex login` or `claude auth login`.
 3. Extract `mineagen-modpack-<version>.zip` into a new folder and follow its `README.md`. The installer is `.\scripts\install-distribution.ps1`. It creates a separate `.minecraft-mineagen` game folder and a launcher profile.
 4. Start Minecraft with that profile and open a world.
-5. Press `G` and choose **Create an agent**, or type `/codex summon`.
-6. Give it a task: `/codex start <agent> Build a safe shelter before night`.
+5. Press `G` to open the control center and choose **Create an agent**, or type `/mineagen summon`.
+6. Give it a task: `/mineagen start <agent> Build a safe shelter before night`.
 
 To build the package yourself, see [DEVELOPMENT.md](DEVELOPMENT.md).
 
@@ -40,70 +40,66 @@ To build the package yourself, see [DEVELOPMENT.md](DEVELOPMENT.md).
 
 | Command | What it does |
 |---|---|
-| `/codex summon` | Create a Codex agent with the default model. |
-| `/codex summon <model> <thinking> [name]` | Create a Codex agent with a chosen model and thinking level. |
-| `/codex summon claude <model> <thinking> [name]` | Create a Claude Code agent. |
-| `/codex summon-configured <provider> <model> <thinking> <speed> <game_mode> <name>` | Create an agent with every setting given. |
-| `/codex list` | List your agents and what each one is doing. |
-| `/codex status [agent]` | Show the state, current task and queue. |
-| `/codex respawn <agent>` | Respawn a dead agent. |
-| `/codex remove <agent>` | Delete an agent and its saved state. |
+| `/mineagen summon` | Create a Codex agent with the default model. |
+| `/mineagen summon <model> <thinking> [name]` | Create a Codex agent with a chosen model and thinking level. |
+| `/mineagen summon claude <model> <thinking> [name]` | Create a Claude Code agent. |
+| `/mineagen summon-configured <provider> <model> <thinking> <speed> <game_mode> <name>` | Create an agent with every setting given. |
+| `/mineagen list` | List your agents and what each one is doing. |
+| `/mineagen status [agent]` | Show the state, current task and queue. |
+| `/mineagen respawn <agent>` | Respawn a dead agent. |
+| `/mineagen remove <agent>` | Delete an agent and its saved state. |
 
 ### Give tasks
 
 | Command | What it does |
 |---|---|
-| `/codex start <agent> <task>` | Start a task now. A new agent waits until you do this. |
-| `/codex queue <agent> <task>` | Add a task to run after the current one. |
-| `/codex steer <agent> <instruction>` | Change the current task while it runs. |
-| `/codex stop <agent>` | Pause the agent. |
-| `/codex resume <agent>` | Continue after a pause. |
-| `/codex goal complete <agent>` | Confirm a task that waits for your sign-off. |
+| `/mineagen start <agent> <task>` | Start a task now. A new agent waits until you do this. |
+| `/mineagen queue <agent> <task>` | Add a task to run after the current one. |
+| `/mineagen steer <agent> <instruction>` | Change the current task while it runs. |
+| `/mineagen stop <agent>` | Pause the agent. |
+| `/mineagen resume <agent>` | Continue after a pause. |
+| `/mineagen goal complete <agent>` | Confirm a task that waits for your sign-off. |
 
 ### Talk and watch
 
 | Command | What it does |
 |---|---|
-| `/msg <agent> <message>` | Message an agent privately. `/tell`, `/w` and `/codex dm` work too. |
-| `/codex auto <agent>` | Turn the agent's progress messages in chat on or off. |
-| `/verbose on` or `/verbose off` | Show operators detailed agent activity until the server stops. |
-| `/codex audit <agent>` | Show the outside interventions recorded during the current task. |
-| `/spectate <agent>` | See through the agent's eyes. `/spectate exit` returns you. |
-| `/takeover <agent>` | Control the agent's body yourself. `/takeover exit` hands it back. |
+| `/mineagen dm <agent> <message>` | Message an agent privately. Vanilla `/msg`, `/tell` and `/w` to an agent reach it too. |
+| `/mineagen auto <agent>` | Turn the agent's progress messages in chat on or off. |
+| `/mineagen audit <agent>` | Show the outside interventions recorded during the current task. |
+| `/mineagen spectate <agent>` | See through the agent's eyes. `/mineagen spectate exit` returns you. |
+| `/mineagen takeover <agent>` | Control the agent's body yourself. `/mineagen takeover exit` hands it back. |
 
-### Voice and camera
+### Voice
 
 | Command | What it does |
 |---|---|
-| `/codex voice-consent on`, `off` or `status` | Allow the agents to hear your microphone, or stop it. |
-| `/codex voice profiles` | List the available voices. |
-| `/codex voice profile <agent> <voice> [tone] [speed] [radius]` | Save an agent's voice. |
-| `/codex voice say <agent> <text>` | Make an agent say a line in its voice. |
-| `/codex camera kit` | Get a Tripod Camera item. |
-| `/camera path start <name>`, `keyframe`, `stop` | Record a camera path by hand. |
-| `/camera path play <name> [true]` | Replay a recorded path. `true` loops it. |
+| `/mineagen voice-consent on`, `off` or `status` | Allow the agents to hear your microphone, or stop it. |
+| `/mineagen voice profiles` | List the available voices. |
+| `/mineagen voice profile <agent> <voice> [tone] [speed] [radius]` | Save an agent's voice. |
+| `/mineagen voice say <agent> <text>` | Make an agent say a line in its voice. |
 
 ## Features
 
-- **Agents screen.** Press `G` to create agents, pick provider, model, thinking level, speed and game mode, give tasks, pause, resume, respawn or remove them. It also shows which model CLIs it found on the machine and whether they are signed in.
+- **Control center.** Press `G` to create agents, pick provider, model, thinking level, speed and game mode, give tasks, pause, resume, respawn or remove them. It also shows which model CLIs it found on the machine and whether they are signed in.
 - **Codex and Claude Code.** Each agent can use a different provider and model. Codex models come from your installed CLI; Claude models come from the coordinator's configured list.
-- **Spectate and takeover.** `/spectate` shows the agent's own first-person view with its hand, hotbar, health and open screens. `/takeover` pauses the model and gives you its body. When you leave, the model gets a short report of what you did.
-- **Live windows.** From the Agents screen you can open a plan window with the agent's task map and a model terminal with its output and tool calls.
+- **Spectate and takeover.** `/mineagen spectate` shows the agent's own first-person view with its hand, hotbar, health and open screens. `/mineagen takeover` pauses the model and gives you its body. When you leave, the model gets a short report of what you did.
+- **Live windows.** From the control center you can open a plan window with the agent's task map and a model terminal with its output and tool calls.
 - **Voice.** With Mineagen Voice and Simple Voice Chat, agents speak their replies out loud near their body and can hear players who turn on consent. Speech uses OpenAI text-to-speech and transcription with your own OpenAI API key.
-- **Cameras.** A placeable Tripod Camera records smooth shots with pan, tilt, height and dolly moves. Client-side camera paths replay keyframes you record.
 - **Skins.** Codex agents wear an OpenAI skin and Claude agents a Claude skin, so you can tell them apart.
 - **Several Minecraft versions.** One source tree builds for 26.1.x, 26.2 and 26.3.
 
 ## Status and limits
 
 - Mineagen is early (version 0.2.0) and changes often.
-- Worlds and installs made with builds named Arena Agents are not carried over. Agents and cameras saved in those worlds are not loaded. Install the package from a fresh folder.
-- No agent has beaten the Ender Dragon from a fresh spawn yet. That is the end-to-end test the project works toward. [The architecture notes](docs/architecture.md) show how far agents get.
+- Worlds and installs made with builds named Arena Agents are not carried over. Agents saved in those worlds are not loaded. Install the package from a fresh folder.
+- Camera blocks and the Tripod Camera have been removed. Worlds that contain them lose them when they load.
+- No agent has beaten the Ender Dragon from a fresh spawn yet. That is the end-to-end test the project works toward. [The goal page](docs/goal-progress.md) has the latest results, and [the architecture notes](docs/architecture.md) show where runs get stuck.
 - Learning from past games is a goal. Agents keep facts, chat and task memory, but it has not been shown to make them better from one game to the next.
 - Agents run on your own Codex or Claude account, so their model calls use that account's usage.
 - Only Windows has a packaged installer. Other systems need a manual setup.
-- Agents use your CLI login by default. You can instead save an API key per provider in the Agents screen. A saved key works only in a world you host yourself, and it never leaves your machine. On Windows it is encrypted to your Windows account; elsewhere it is a file only your account can read.
-- `/spectate` replaces the vanilla command on servers that run Mineagen. Spectate and takeover need the Mineagen client mod.
+- Agents use your CLI login by default. You can instead save an API key per provider in the control center. A saved key works only in a world you host yourself, and it never leaves your machine. On Windows it is encrypted to your Windows account; elsewhere it is a file only your account can read.
+- Spectate and takeover need the Mineagen client mod.
 
 ## More
 

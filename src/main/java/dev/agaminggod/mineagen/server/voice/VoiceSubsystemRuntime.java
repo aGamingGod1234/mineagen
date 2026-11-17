@@ -1,7 +1,7 @@
 package dev.agaminggod.mineagen.server.voice;
 
 import dev.agaminggod.mineagen.agent.AgentId;
-import dev.agaminggod.mineagen.server.CodexAgentManager;
+import dev.agaminggod.mineagen.server.AgentManager;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -145,7 +145,7 @@ public final class VoiceSubsystemRuntime {
 		}
 		Holder holder = INSTANCES.get(server);
 		if (holder == null) return;
-		CodexAgentManager manager = CodexAgentManager.get(server);
+		AgentManager manager = AgentManager.get(server);
 		Map<AgentId, java.util.UUID> current = new LinkedHashMap<>();
 		manager.records().forEach(record -> manager.findAgentPlayer(record.agentId())
 				.filter(player -> player.isAlive())

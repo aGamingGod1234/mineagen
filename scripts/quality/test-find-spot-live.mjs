@@ -54,13 +54,13 @@ for (let run = 0; run < runs; run++) {
 		for (let i = 0; i < 90 && !/time is/i.test(await s.command(`execute if loaded ${cx} 0 ${cz} run time query gametime`)); i++) await sleep(1000);
 		const name = `Fs${run}`;
 		const registered = s.inbox.wait('agent_registered', () => true, 60_000);
-		await s.command(`execute positioned ${cx} 0 ${cz} positioned over motion_blocking_no_leaves run codex summon gpt-6.1-sol low ${name}`);
+		await s.command(`execute positioned ${cx} 0 ${cz} positioned over motion_blocking_no_leaves run mineagen summon gpt-6.1-sol low ${name}`);
 		const e = await registered;
 		const record = { ...(e.payload.record ?? e.payload), agentId: e.agentId, provider: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'low', serviceTier: 'default' };
 		s.record = record;
 		await s.bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false });
 		const started = s.inbox.wait('goal_control', (g) => g.agentId === record.agentId && g.payload.operation === 'start', 120_000);
-		await s.command(`codex start ${name} Survive for 36000 seconds.`);
+		await s.command(`mineagen start ${name} Survive for 36000 seconds.`);
 		record.goalRevision = (await started).payload.goalRevision;
 		await s.bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false });
 		let latest = null;

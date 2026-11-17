@@ -61,7 +61,7 @@ public final class AgentControlSync {
 						ProviderApiKeyStore.update(GoalControl.mayControl(context.player().createCommandSourceStack()),
 								isLocalKeyHost(context.server(), context.player()),
 								ProviderApiKeyStore.runtimeRoot(), payload.provider(), payload.key());
-						CodexAgentServerRuntime.reloadProviderCredentials(context.server());
+						AgentServerRuntime.reloadProviderCredentials(context.server());
 						context.player().sendSystemMessage(Component.literal("Provider API key updated. Scanning model CLIs..."));
 					} catch (ProviderApiKeyStore.LocalOnlyException refused) {
 						context.player().sendSystemMessage(Component.literal(ProviderApiKeyStore.LOCAL_ONLY_MESSAGE));
@@ -76,7 +76,7 @@ public final class AgentControlSync {
 		ServerPlayNetworking.registerGlobalReceiver(dev.agaminggod.mineagen.control.ProviderRescanPayload.TYPE,
 				(payload, context) -> context.server().execute(() -> {
 					if (GoalControl.mayControl(context.player().createCommandSourceStack())) {
-						CodexAgentServerRuntime.requestProviderRescan(context.server());
+						AgentServerRuntime.requestProviderRescan(context.server());
 					}
 				}));
 		PayloadTypeRegistry.serverboundPlay().register(dev.agaminggod.mineagen.control.LiveTaskViewPayload.Request.TYPE, dev.agaminggod.mineagen.control.LiveTaskViewPayload.Request.CODEC);
@@ -136,14 +136,14 @@ public final class AgentControlSync {
 		try {
 			var server = player.level().getServer();
 			boolean canControl = GoalControl.mayControl(player.createCommandSourceStack());
-			CodexAgentManager manager = CodexAgentManager.get(player.level().getServer());
+			AgentManager manager = AgentManager.get(player.level().getServer());
 			AgentControlSnapshot snapshot = controlSnapshot(
 					canControl,
-					CodexAgentServerRuntime.automationAvailable(player.level().getServer()),
-					CodexAgentServerRuntime.automationStatus(player.level().getServer()),
+					AgentServerRuntime.automationAvailable(player.level().getServer()),
+					AgentServerRuntime.automationStatus(player.level().getServer()),
 					nextControlRevision(player.level().getServer()),
 					manager.records(),
-					CodexAgentServerRuntime.modelCatalog(player.level().getServer()),
+					AgentServerRuntime.modelCatalog(player.level().getServer()),
 					manager::findAgentPlayer
 			);
 			if (ServerPlayNetworking.canSend(player, AgentControlSnapshotPayload.TYPE)) {

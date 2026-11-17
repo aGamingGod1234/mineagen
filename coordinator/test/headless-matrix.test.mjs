@@ -78,14 +78,14 @@ async function runEvidenceFixtureInDirectory(directory, { turns = [evidenceTurn(
 				if (corrupt) await appendFile(providerPath, '{"tokens":');
 				return { text: `Created ${name}. It is ready for a task.` };
 			}
-			if (command.startsWith('codex start ')) started = true;
-			if (command.startsWith('codex status ')) {
+			if (command.startsWith('mineagen start ')) started = true;
+			if (command.startsWith('mineagen status ')) {
 				if (incompleteStatus) return { text: 'bad response', complete: false, truncated: true };
 				if (gameplay === 'TIMEOUT') { time = 10100; return { text: 'state=RUNNING' }; }
 				if (statusPadding) return { text: `${command.split(' ').at(-1)} | Task complete. Current task: ${'x'.repeat(statusPadding)}`, complete: true, truncated: false };
 				return { text: gameplay === 'DEAD' ? 'state=DEAD' : 'state=COMPLETED' };
 			}
-			if (command.startsWith('codex stop ')) return { text: `Stopped ${command.split(' ').at(-1)}.` };
+			if (command.startsWith('mineagen stop ')) return { text: `Stopped ${command.split(' ').at(-1)}.` };
 			if (command.endsWith(' Pos')) return { text: 'player has the following entity data: [0.5d, 64.0d, 0.5d]' };
 			if (command.endsWith(' Inventory') && oversizedInventory) return { text: 'x'.repeat(18_393), complete: true, truncated: false };
 			if (command.endsWith(' Inventory')) return { text: `player has the following entity data: ${started ? '[{id:"minecraft:diamond_pickaxe"}]' : '[]'}` };
@@ -380,7 +380,7 @@ test('speed matrix omits the unverified zombie scenario and rejects selecting it
  test('RCON failure retains the failing command and named reason', async () => {
  const report = await runEvidenceFixture({ incompleteStatus: true });
  assert.equal(report.errorCode, 'RCON_INCOMPLETE');
- assert.match(report.diagnostics, /RCON_INCOMPLETE: codex status/);
+ assert.match(report.diagnostics, /RCON_INCOMPLETE: mineagen status/);
  assert.match(report.diagnostics, /complete=false, truncated=true/);
  });
 

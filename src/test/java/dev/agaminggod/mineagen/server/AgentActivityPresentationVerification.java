@@ -23,7 +23,7 @@ public final class AgentActivityPresentationVerification {
 		assertTrue(!AgentActivityPresentation.shouldAnnounceAction(ActionType.NAVIGATE_TO),
 				"routine navigation is visible in-world instead of repeated in chat");
 		assertTrue(!AgentActivityPresentation.shouldAnnounceFailure("PATH_BLOCKED"),
-				"retryable path failures remain in the console until the task actually stops");
+				"retryable path failures remain in the control center until the task actually stops");
 		assertTrue(!AgentActivityPresentation.shouldAnnounceFailure("TARGET_NOT_FOUND"),
 				"stale target selectors are routine replanning evidence rather than red errors");
 		assertTrue(!AgentActivityPresentation.shouldAnnounceFailure("TARGET_TOO_FAR"),

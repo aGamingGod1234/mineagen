@@ -27,7 +27,7 @@ class LiveSmokeStatusCommandTest(unittest.TestCase):
         server.wait_for_player.return_value = True
 
         def command(text):
-            if text in ('agent status', 'codex status'):
+            if text in ('agent status', 'mineagen status'):
                 return status
             if text == 'data get entity LiveFall Health':
                 return 'LiveFall has the following entity data: 13.0f'
@@ -48,9 +48,9 @@ class LiveSmokeStatusCommandTest(unittest.TestCase):
     def test_fresh_server_status_passes_and_uses_registered_command(self):
         code, output, server = self.run_smoke('You have not created any agents yet.')
         self.assertEqual(0, code, output)
-        server.command.assert_any_call('codex status')
+        server.command.assert_any_call('mineagen status')
         self.assertNotIn(mock.call('agent status'), server.command.call_args_list)
-        self.assertIn('PASS: /codex status answers', output)
+        self.assertIn('PASS: /mineagen status answers', output)
 
     def test_errors_and_unexpected_responses_fail_smoke(self):
         for status in (
@@ -64,7 +64,7 @@ class LiveSmokeStatusCommandTest(unittest.TestCase):
             with self.subTest(status=status):
                 code, output, _ = self.run_smoke(status)
                 self.assertEqual(1, code, output)
-                self.assertIn('FAIL: /codex status answers', output)
+                self.assertIn('FAIL: /mineagen status answers', output)
 
     def test_rcon_surrounding_whitespace_is_accepted(self):
         code, output, _ = self.run_smoke('  You have not created any agents yet.\n')

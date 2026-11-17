@@ -18,7 +18,7 @@ import java.util.Objects;
 public final class AgentRuntimeRouter {
 	private final AgentRegistry registry;
 
-	public AgentRuntimeRouter(CodexAgentManager manager) {
+	public AgentRuntimeRouter(AgentManager manager) {
 		this.registry = Objects.requireNonNull(manager, "manager must not be null").registry();
 	}
 

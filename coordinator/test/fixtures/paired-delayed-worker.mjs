@@ -30,9 +30,9 @@ if(process.argv[2]==='--inert-child'){
         if(command==='difficulty')return {text:'The difficulty is normal'};
         if(command.includes(' if loaded '))return {text:'The time is 1'};
         if(command.includes('summon-configured')){const name=command.split(' ').at(-1);audit.push({envelope:{type:'agent_registered',agentId:'offline-agent',payload:{agentId:'offline-agent',name,...profile}}});return {text:`Created ${name}. It is ready for a task.`};}
-        if(command.startsWith('codex start '))started=true;
-        if(command.startsWith('codex status '))return {text:'state=COMPLETED'};
-        if(command.startsWith('codex stop '))return {text:`Stopped ${command.split(' ').at(-1)}.`};
+        if(command.startsWith('mineagen start '))started=true;
+        if(command.startsWith('mineagen status '))return {text:'state=COMPLETED'};
+        if(command.startsWith('mineagen stop '))return {text:`Stopped ${command.split(' ').at(-1)}.`};
         if(command.endsWith(' Pos'))return {text:'player has the following entity data: [0.5d, 64.0d, 0.5d]'};
         if(command.endsWith(' Inventory'))return {text:`player has the following entity data: ${started?'[{id:"minecraft:oak_log"}]':'[]'}`};
         return {text:'ok'};

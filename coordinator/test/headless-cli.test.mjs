@@ -41,7 +41,7 @@ test('wires provider-turn capture into scenario evidence paths', async () => {
 		},
 		writeFile: async () => {}, mkdir: async () => {}, rconFactory: () => ({
 			connect: async () => {},
-			command: async (command) => command.includes('summon-configured') ? { text: 'Created test agent. It is ready for a task.' } : command.startsWith('codex status') ? { text: 'state=COMPLETED' } : { text: 'ok' },
+			command: async (command) => command.includes('summon-configured') ? { text: 'Created test agent. It is ready for a task.' } : command.startsWith('mineagen status') ? { text: 'state=COMPLETED' } : { text: 'ok' },
 			close: async () => {},
 		}),
 	});
@@ -123,7 +123,7 @@ test('a matrix report larger than the summary budget is written as a bounded sum
 		writeFile: async (file, content) => { writes.set(path.resolve(String(file)), String(content)); }, mkdir: async () => {},
 		rconFactory: () => ({
 			connect: async () => {},
-			command: async (command) => command.includes('summon-configured') ? { text: 'Created test agent. It is ready for a task.' } : command.startsWith('codex status') ? { text: 'state=COMPLETED' } : { text: 'ok' },
+			command: async (command) => command.includes('summon-configured') ? { text: 'Created test agent. It is ready for a task.' } : command.startsWith('mineagen status') ? { text: 'state=COMPLETED' } : { text: 'ok' },
 			close: async () => {},
 		}),
 	});
@@ -195,8 +195,8 @@ test('runs a selected matrix scenario through the injected RCON client and forwa
 		command: async (command) => {
 			commands.push(command);
 			if (command.includes('summon-configured')) return { text: 'Created test agent. It is ready for a task.' };
-			if (command.startsWith('codex start')) return { text: 'started' };
-			return { text: command.startsWith('codex status') ? 'state=ERROR' : 'ok' };
+			if (command.startsWith('mineagen start')) return { text: 'started' };
+			return { text: command.startsWith('mineagen status') ? 'state=ERROR' : 'ok' };
 		},
 		close: async () => {},
 	};
@@ -223,7 +223,7 @@ test('runs only the selected scenario', async () => {
 		command: async (command) => {
 			if (command.includes('summon-configured')) summoned.push(command);
 			if (command.includes('summon-configured')) return { text: 'Created test agent. It is ready for a task.' };
-			if (command.startsWith('codex status')) return { text: 'state=COMPLETED' };
+			if (command.startsWith('mineagen status')) return { text: 'state=COMPLETED' };
 			return { text: 'started' };
 		},
 		close: async () => {},
@@ -290,7 +290,7 @@ test('fails the matrix when a required roster has no per-agent factual evidence'
 					names.push(name);
 					return { text: `Created ${name}. It is ready for a task.` };
 				}
-				return { text: command.startsWith('codex status') ? 'state=COMPLETED' : 'ok' };
+				return { text: command.startsWith('mineagen status') ? 'state=COMPLETED' : 'ok' };
 			},
 			close: async () => {},
 		}),
@@ -322,7 +322,7 @@ test('isolates append-only evidence between unselected direct-CLI scenarios', as
 				if (command.includes('summon-configured') && summonCount++ === 0) {
 					protocolText += `${JSON.stringify({ envelope: { type: 'chat', payload: { message: 'ONLY_FIRST' } } })}\n`;
 				}
-				return { text: command.includes('summon-configured') ? 'Created test agent. It is ready for a task.' : command.startsWith('codex status') ? 'state=COMPLETED' : 'ok' };
+				return { text: command.includes('summon-configured') ? 'Created test agent. It is ready for a task.' : command.startsWith('mineagen status') ? 'state=COMPLETED' : 'ok' };
 			},
 			close: async () => {},
 		}),

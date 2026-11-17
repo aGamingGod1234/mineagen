@@ -116,9 +116,9 @@ public final class PovReportOutboxVerification {
 
 	private static void verifyOfflineDirectMessagePath() {
 		try {
-			var manager = allocate(dev.agaminggod.mineagen.server.CodexAgentManager.class);
+			var manager = allocate(dev.agaminggod.mineagen.server.AgentManager.class);
 			var saved = new dev.agaminggod.mineagen.server.AgentSavedData();
-			set(manager, dev.agaminggod.mineagen.server.CodexAgentManager.class, "savedData", saved);
+			set(manager, dev.agaminggod.mineagen.server.AgentManager.class, "savedData", saved);
 			var target = saved.registry().create("codex", "gpt-6.1-sol", "low", java.util.Optional.of("POV Agent"), 1_000L);
 			var events = new ArrayList<dev.agaminggod.mineagen.server.conversation.ConversationEvent>();
 			var router = new dev.agaminggod.mineagen.server.conversation.ServerAgentConversationRouter(manager, (event, goal) -> {
@@ -148,14 +148,14 @@ public final class PovReportOutboxVerification {
 			var server = allocate(net.minecraft.server.dedicated.DedicatedServer.class);
 			var players = allocate(OfflinePlayers.class);
 			set(server, net.minecraft.server.MinecraftServer.class, "playerList", players);
-			var manager = allocate(dev.agaminggod.mineagen.server.CodexAgentManager.class);
+			var manager = allocate(dev.agaminggod.mineagen.server.AgentManager.class);
 			var saved = new dev.agaminggod.mineagen.server.AgentSavedData();
-			set(manager, dev.agaminggod.mineagen.server.CodexAgentManager.class, "savedData", saved);
-			set(manager, dev.agaminggod.mineagen.server.CodexAgentManager.class, "server", server);
+			set(manager, dev.agaminggod.mineagen.server.AgentManager.class, "savedData", saved);
+			set(manager, dev.agaminggod.mineagen.server.AgentManager.class, "server", server);
 			var target = saved.registry().create("codex", "gpt-6.1-sol", "low", java.util.Optional.of("POV Agent"), 1_000L);
-			var managersField = dev.agaminggod.mineagen.server.CodexAgentManager.class.getDeclaredField("INSTANCES");
+			var managersField = dev.agaminggod.mineagen.server.AgentManager.class.getDeclaredField("INSTANCES");
 			managersField.setAccessible(true);
-			var managers = (java.util.Map<net.minecraft.server.MinecraftServer, dev.agaminggod.mineagen.server.CodexAgentManager>) managersField.get(null);
+			var managers = (java.util.Map<net.minecraft.server.MinecraftServer, dev.agaminggod.mineagen.server.AgentManager>) managersField.get(null);
 			var statesField = PovSessionRuntime.class.getDeclaredField("STATES");
 			statesField.setAccessible(true);
 			var states = (java.util.Map<Object, Object>) statesField.get(null);

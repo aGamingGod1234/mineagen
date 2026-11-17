@@ -96,10 +96,10 @@ try {
 	await command('forceload add -16 -16 32 32'); await sleep(2000);
 	await command('fill -5 80 -5 12 90 8 minecraft:air'); await command('fill -5 79 -5 12 79 8 minecraft:stone');
 	await command('fill 3 79 -2 7 79 2 minecraft:end_portal_frame[eye=true]'); await command('fill 4 79 -1 6 79 1 minecraft:end_portal');
-	const registered = inbox.wait('agent_registered'); await command(`execute positioned 0.5 80 0.5 run codex summon gpt-6.1-sol low ${AGENT}`);
+	const registered = inbox.wait('agent_registered'); await command(`execute positioned 0.5 80 0.5 run mineagen summon gpt-6.1-sol low ${AGENT}`);
 	const e = await registered; record = { ...(e.payload.record ?? e.payload), agentId: e.agentId };
 	await bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false });
-	const started = inbox.wait('goal_control', (g) => g.payload.operation === 'start'); await command(`codex start ${AGENT} Survive for 1200 seconds.`);
+	const started = inbox.wait('goal_control', (g) => g.payload.operation === 'start'); await command(`mineagen start ${AGENT} Survive for 1200 seconds.`);
 	record.goalRevision = (await started).payload.goalRevision;
 	result.startedGoalRevision = record.goalRevision;
 	await bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false });

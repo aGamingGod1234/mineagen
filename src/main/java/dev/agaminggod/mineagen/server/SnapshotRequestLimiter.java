@@ -11,9 +11,9 @@ import java.util.UUID;
 /**
  * Per-player token bucket for control snapshot requests. Building a snapshot walks every agent record and the model
  * catalog, and any connected client (operator or not) can ask for one, so one requester gets at most {@link #BURST}
- * at once and then one per {@link #REFILL_INTERVAL_MS}. The Field Console pairs each snapshot with the request that
+ * at once and then one per {@link #REFILL_INTERVAL_MS}. The control center pairs each snapshot with the request that
  * asked for it, so an over-rate request is deferred and answered later rather than dropped; only past
- * {@link #MAX_DEFERRED} waiting requests (far more than the console ever sends) are they dropped.
+ * {@link #MAX_DEFERRED} waiting requests (far more than the control center ever sends) are they dropped.
  */
 final class SnapshotRequestLimiter {
 	enum Decision { SEND, DEFERRED, DROPPED }

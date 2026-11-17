@@ -151,14 +151,14 @@ try {
 	Start-Sleep -Seconds 5
 	Send-Command $process 'execute in minecraft:overworld run fill 0 70 0 24 70 24 minecraft:obsidian'
 	Send-Command $process 'execute in minecraft:overworld run fill 0 71 0 24 74 24 minecraft:air'
-	Send-Command $process "execute in minecraft:overworld positioned 8 71 8 run codex summon gpt-5.6-sol high $ManagedName"
+	Send-Command $process "execute in minecraft:overworld positioned 8 71 8 run mineagen summon gpt-5.6-sol high $ManagedName"
 	Wait-Until { (Read-SharedText $latestLog) -match "(?i)$([regex]::Escape($ManagedName)) joined the game" } 60 'Managed fake player did not join'
 	$joinedMatch = [regex]::Matches(
 		(Read-SharedText $latestLog),
 		"(?im)(?<name>$([regex]::Escape($ManagedName))) joined the game"
 	) | Select-Object -Last 1
 	$ManagedPlayerName = $joinedMatch.Groups['name'].Value
-	Send-Command $process "codex stop $ManagedName"
+	Send-Command $process "mineagen stop $ManagedName"
 	Start-Sleep -Seconds 1
 
 	$managedOffset = (Read-SharedText $latestLog).Length

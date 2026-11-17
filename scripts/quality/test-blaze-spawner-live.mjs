@@ -293,11 +293,11 @@ try {
 				}
 				await sleep(100);
 				if (!cleared) throw new Error('Old body reflexes did not clear before removal');
-				await command(`codex remove ${agent}`);
+				await command(`mineagen remove ${agent}`);
 			}
 			record = null; observation = null; agent = `Blazer${trialOrdinal++}`;
 			const registered = inbox.wait('agent_registered');
-			await command(`codex summon gpt-6.1-sol low ${agent}`);
+			await command(`mineagen summon gpt-6.1-sol low ${agent}`);
 			const fresh = await registered; record = { ...(fresh.payload.record ?? fresh.payload), agentId: fresh.agentId };
 			await bridge.send('agent_ready',record.agentId,{goalRevision:record.goalRevision,reconciled:false});
 			await command(`gamemode survival ${agent}`);
@@ -316,7 +316,7 @@ try {
 			await kit();
 			const survivalSeconds = 1200 + goalOrdinal++; survivalTicks = survivalSeconds * 20;
 			const restart = inbox.wait('goal_control', e=>e.agentId===record.agentId && e.payload.operation==='start');
-			const taskStart = await command(`codex start ${agent} Survive for ${survivalSeconds} seconds.`);
+			const taskStart = await command(`mineagen start ${agent} Survive for ${survivalSeconds} seconds.`);
 			console.log("trial task", variant, repeat, taskStart);
 			record.goalRevision = (await restart).payload.goalRevision;
 			await bridge.send('agent_ready',record.agentId,{goalRevision:record.goalRevision,reconciled:false});

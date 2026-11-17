@@ -4,7 +4,7 @@ import com.mojang.authlib.GameProfile;
 import dev.agaminggod.mineagen.agent.AgentId;
 import dev.agaminggod.mineagen.agent.AgentRecord;
 import dev.agaminggod.mineagen.server.AgentSavedData;
-import dev.agaminggod.mineagen.server.CodexAgentManager;
+import dev.agaminggod.mineagen.server.AgentManager;
 import dev.agaminggod.mineagen.server.runtime.input.AgentInputRuntime;
 import dev.agaminggod.mineagen.server.runtime.input.AgentInputState;
 import dev.agaminggod.mineagen.server.runtime.input.InputStateSink;
@@ -149,9 +149,9 @@ public final class FightWeaponBreakVerification {
 			level.registries = net.minecraft.core.RegistryAccess.fromRegistryOfRegistries(registries);
 			set(unsafe, level, Level.class, "dimension", Level.OVERWORLD);
 
-			CodexAgentManager manager = (CodexAgentManager) unsafe.allocateInstance(CodexAgentManager.class);
-			set(unsafe, manager, CodexAgentManager.class, "server", server);
-			set(unsafe, manager, CodexAgentManager.class, "savedData", new AgentSavedData());
+			AgentManager manager = (AgentManager) unsafe.allocateInstance(AgentManager.class);
+			set(unsafe, manager, AgentManager.class, "server", server);
+			set(unsafe, manager, AgentManager.class, "savedData", new AgentSavedData());
 			AgentRecord record = manager.registry().create("gpt-5.6-sol", "high", Optional.of("Fighter"), 1_000L);
 			UUID playerId = UUID.fromString("00000000-0000-4000-8000-00000000f001");
 			manager.registry().attachEntity(record.agentId(), playerId, 1_000L);
@@ -351,10 +351,10 @@ public final class FightWeaponBreakVerification {
 	}
 
 	@SuppressWarnings("unchecked")
-	private static Map<MinecraftServer, CodexAgentManager> instances() throws Exception {
-		Field field = CodexAgentManager.class.getDeclaredField("INSTANCES");
+	private static Map<MinecraftServer, AgentManager> instances() throws Exception {
+		Field field = AgentManager.class.getDeclaredField("INSTANCES");
 		field.setAccessible(true);
-		return (Map<MinecraftServer, CodexAgentManager>) field.get(null);
+		return (Map<MinecraftServer, AgentManager>) field.get(null);
 	}
 
 	@SuppressWarnings("unchecked")

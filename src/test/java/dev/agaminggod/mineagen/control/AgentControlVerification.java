@@ -170,33 +170,33 @@ public final class AgentControlVerification {
 
 	private static int verifyCommandConstruction() {
 		assertEquals(
-				"codex summon-configured codex gpt-6.1-sol high default survival \"Builder One\"",
+				"mineagen summon-configured codex gpt-6.1-sol high default survival \"Builder One\"",
 				AgentControlCommandBuilder.summon("codex", "gpt-6.1-sol", "high", "Builder One"),
 				"Codex summon command defaults to the standard tier"
 		);
 		assertEquals(
-				"codex summon-configured claude claude-opus-5-5 high priority survival Scout",
+				"mineagen summon-configured claude claude-opus-5-5 high priority survival Scout",
 				AgentControlCommandBuilder.summon("claude", "claude-opus-5-5", "high", "Scout"),
 				"Claude summon command"
 		);
 		assertEquals(
-				"codex summon-configured codex gpt-6.1-sol ultra fast survival Speedy",
+				"mineagen summon-configured codex gpt-6.1-sol ultra fast survival Speedy",
 				AgentControlCommandBuilder.summon(
 						"codex", "gpt-6.1-sol", "ultra", "fast", "Speedy", AgentGameMode.SURVIVAL),
 				"Codex fast-mode command"
 		);
 		assertEquals(
-				"codex start " + AGENT_UUID + " Build a safe shelter",
+				"mineagen start " + AGENT_UUID + " Build a safe shelter",
 				AgentControlCommandBuilder.prompt("start", AGENT_UUID, "  Build\na safe\tshelter  "),
 				"prompt whitespace normalization"
 		);
 		assertEquals(
-				"codex stop " + AGENT_UUID,
+				"mineagen stop " + AGENT_UUID,
 				AgentControlCommandBuilder.agent("stop", AGENT_UUID),
 				"agent lifecycle command"
 		);
 		assertEquals(
-				"codex respawn " + AGENT_UUID,
+				"mineagen respawn " + AGENT_UUID,
 				AgentControlCommandBuilder.agent("respawn", AGENT_UUID),
 				"dead-agent respawn command"
 		);

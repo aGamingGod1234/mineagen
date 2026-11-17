@@ -9,7 +9,7 @@ import dev.agaminggod.mineagen.pov.OperatorBodyControllers;
 import dev.agaminggod.mineagen.pov.OperatorInputPayload;
 import dev.agaminggod.mineagen.pov.OperatorTextPayload;
 import dev.agaminggod.mineagen.pov.OperatorCreativeSlotPayload;
-import dev.agaminggod.mineagen.server.CodexAgentManager;
+import dev.agaminggod.mineagen.server.AgentManager;
 import dev.agaminggod.mineagen.server.OfflineAgentPlayers;
 import dev.agaminggod.mineagen.server.runtime.input.AgentInputRuntime;
 import dev.agaminggod.mineagen.server.runtime.input.AgentInputState;
@@ -238,7 +238,7 @@ public final class CarpetOperatorBodyController implements OperatorBodyControlle
 
 	private ServerPlayer livingAgent() {
 		try {
-			return CodexAgentManager.get(server).findAgentPlayer(agentId)
+			return AgentManager.get(server).findAgentPlayer(agentId)
 					.filter(player -> player.isAlive() && !player.isRemoved())
 					.orElse(null);
 		} catch (AgentDomainException missing) {

@@ -148,10 +148,10 @@ public final class AgentControlClient {
 				ClientPlayNetworking.send(AgentControlRequestPayload.INSTANCE);
 				SNAPSHOT_ACKNOWLEDGEMENTS.recordRequest();
 			} else {
-				snapshotError = "This server does not support the Field Console";
+				snapshotError = "This server does not support the control center";
 			}
 		} catch (IllegalStateException exception) {
-			snapshotError = "The Field Console is disconnected";
+			snapshotError = "The control center is disconnected";
 			LOGGER.debug("Mineagen control snapshot request skipped while disconnected");
 		}
 	}

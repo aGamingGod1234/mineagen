@@ -98,9 +98,9 @@ public final class AgentFeedVerification {
 			var players = (FeedPlayers) unsafe.allocateInstance(FeedPlayers.class);
 			players.lines = new java.util.ArrayList<>();
 			put(unsafe, server, net.minecraft.server.MinecraftServer.class, "playerList", players);
-			var manager = (CodexAgentManager) unsafe.allocateInstance(CodexAgentManager.class);
-			put(unsafe, manager, CodexAgentManager.class, "server", server);
-			put(unsafe, manager, CodexAgentManager.class, "savedData", new AgentSavedData());
+			var manager = (AgentManager) unsafe.allocateInstance(AgentManager.class);
+			put(unsafe, manager, AgentManager.class, "server", server);
+			put(unsafe, manager, AgentManager.class, "savedData", new AgentSavedData());
 			var record = manager.registry().create("gpt-6.1-sol", "high", java.util.Optional.of("FeedTest"), 1_000L);
 			var request = new dev.agaminggod.mineagen.server.runtime.ServerActionRequest(record.agentId(), 0, "mine",
 					dev.agaminggod.mineagen.protocol.ActionType.BREAK_BLOCK, new com.google.gson.JsonObject(),
@@ -159,7 +159,6 @@ public final class AgentFeedVerification {
 			queue.remove().run();
 			check(players.lines.size() == 4, "queued intent from an obsolete goal revision is discarded");
 			AgentChatReporter.release(server);
-			AgentVerboseState.release(server);
 			return 9;
 		} catch (ReflectiveOperationException | InterruptedException exception) {
 			throw new AssertionError("could not exercise reporter server-thread dispatch", exception);

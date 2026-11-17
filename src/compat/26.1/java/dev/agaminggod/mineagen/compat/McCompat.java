@@ -42,10 +42,6 @@ public final class McCompat {
 		entity.setInvulnerable(invulnerable);
 	}
 
-	public static void syncVelocity(Entity entity) {
-		entity.hurtMarked = true;
-	}
-
 	public static boolean velocitySyncPending(Entity entity) {
 		return entity.hurtMarked;
 	}

@@ -10,8 +10,8 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /** Verifies fail-closed runtime ticks and manual-secret voice lifecycle transitions. */
-public final class CodexAgentServerRuntimeVoiceStartVerification {
-	private CodexAgentServerRuntimeVoiceStartVerification() {
+public final class AgentServerRuntimeVoiceStartVerification {
+	private AgentServerRuntimeVoiceStartVerification() {
 	}
 
 	private static final String ISOLATED_FIXTURE = "--isolated-default-secret-fixture";
@@ -49,7 +49,7 @@ public final class CodexAgentServerRuntimeVoiceStartVerification {
 			String nodePath = System.getProperty("mineagen.nodePath");
 			if (nodePath != null) command.add("-Dmineagen.nodePath=" + nodePath);
 			command.addAll(java.util.List.of("-cp", classPath,
-					CodexAgentServerRuntimeVoiceStartVerification.class.getName(), ISOLATED_FIXTURE));
+					AgentServerRuntimeVoiceStartVerification.class.getName(), ISOLATED_FIXTURE));
 			ProcessBuilder builder = new ProcessBuilder(command).directory(workingDirectory.toFile()).redirectErrorStream(true);
 			// Default resolution is under test: no inherited explicit secret location may bypass it.
 			builder.environment().keySet().removeIf(name -> name.toUpperCase(java.util.Locale.ROOT).contains("SECRET"));
@@ -102,7 +102,7 @@ public final class CodexAgentServerRuntimeVoiceStartVerification {
 		byte[] previousBridgeSecret = hadDefaultBridgeSecret ? Files.readAllBytes(defaultBridgeSecret) : null;
 		byte[] previousVoiceSecret = hadDefaultVoiceSecret ? Files.readAllBytes(defaultVoiceSecret) : null;
 		CoordinatorProcessSupervisor supervisor = null;
-		CodexAgentServerRuntime.BridgeSlot slot = null;
+		AgentServerRuntime.BridgeSlot slot = null;
 		try {
 			Files.createDirectories(defaultBridgeSecret.getParent());
 			Files.writeString(defaultBridgeSecret, "b".repeat(32), StandardCharsets.UTF_8);
@@ -117,56 +117,56 @@ public final class CodexAgentServerRuntimeVoiceStartVerification {
 					null, null, () -> "00000000-0000-0000-0000-000000000901"
 			);
 			assertFalse(supervisor.configured(), "disabled autostart skips coordinator dependency preparation");
-			assertTrue(CodexAgentServerRuntime.voiceConfigurationPrepared(supervisor),
+			assertTrue(AgentServerRuntime.voiceConfigurationPrepared(supervisor),
 					"readable default voice secret prepares voice without an explicit secret property");
-			Object unchangedSecretCache = CodexAgentServerRuntime.explicitSecretCacheEntryForVerification(defaultVoiceSecret);
-			for (int index = 0; index < 20; index++) CodexAgentServerRuntime.voiceConfigurationRevision(supervisor);
-			assertTrue(unchangedSecretCache == CodexAgentServerRuntime.explicitSecretCacheEntryForVerification(defaultVoiceSecret),
+			Object unchangedSecretCache = AgentServerRuntime.explicitSecretCacheEntryForVerification(defaultVoiceSecret);
+			for (int index = 0; index < 20; index++) AgentServerRuntime.voiceConfigurationRevision(supervisor);
+			assertTrue(unchangedSecretCache == AgentServerRuntime.explicitSecretCacheEntryForVerification(defaultVoiceSecret),
 					"unchanged secret metadata reuses its cached fingerprint");
 
-			slot = new CodexAgentServerRuntime.BridgeSlot(System::currentTimeMillis);
-			CodexAgentServerRuntime.reconcileBridgeConfiguration(slot, uninitializedManager(), supervisor);
+			slot = new AgentServerRuntime.BridgeSlot(System::currentTimeMillis);
+			AgentServerRuntime.reconcileBridgeConfiguration(slot, uninitializedManager(), supervisor);
 			assertTrue(slot.bridge() != null, "the Java bridge starts from its separate default runtime secret");
 			MultiplexedServerBridge adoptionListener = slot.bridge();
 			AtomicInteger voiceStarts = new AtomicInteger();
 			AtomicInteger voiceCloses = new AtomicInteger();
-			CodexAgentServerRuntime.VoiceInitializationGate gate =
-					new CodexAgentServerRuntime.VoiceInitializationGate(
+			AgentServerRuntime.VoiceInitializationGate gate =
+					new AgentServerRuntime.VoiceInitializationGate(
 							voiceStarts::incrementAndGet, voiceCloses::incrementAndGet
 					);
-			assertTrue(gate.reconcile(CodexAgentServerRuntime.voiceConfigurationPrepared(supervisor),
-					CodexAgentServerRuntime.voiceConfigurationRevision(supervisor)),
+			assertTrue(gate.reconcile(AgentServerRuntime.voiceConfigurationPrepared(supervisor),
+					AgentServerRuntime.voiceConfigurationRevision(supervisor)),
 					"prepared default runtime secret starts the voice subsystem");
 			assertEquals(1, voiceStarts.get(), "voice starts once for the prepared default runtime secret");
 
 			Files.writeString(defaultVoiceSecret, "invalid", StandardCharsets.UTF_8);
-			boolean invalidPrepared = CodexAgentServerRuntime.voiceConfigurationPrepared(supervisor);
+			boolean invalidPrepared = AgentServerRuntime.voiceConfigurationPrepared(supervisor);
 			assertFalse(invalidPrepared, "invalid default runtime secret keeps voice fail-closed");
-			assertTrue(gate.reconcile(invalidPrepared, CodexAgentServerRuntime.voiceConfigurationRevision(supervisor)),
+			assertTrue(gate.reconcile(invalidPrepared, AgentServerRuntime.voiceConfigurationRevision(supervisor)),
 					"invalidating the effective manual secret fences the active voice subsystem");
 			assertEquals(1, voiceCloses.get(), "invalid secret transition closes the active voice subsystem once");
 
 			Files.writeString(defaultVoiceSecret, "r".repeat(32), StandardCharsets.UTF_8);
-			assertTrue(gate.reconcile(CodexAgentServerRuntime.voiceConfigurationPrepared(supervisor),
-					CodexAgentServerRuntime.voiceConfigurationRevision(supervisor)),
+			assertTrue(gate.reconcile(AgentServerRuntime.voiceConfigurationPrepared(supervisor),
+					AgentServerRuntime.voiceConfigurationRevision(supervisor)),
 					"repairing the effective manual secret restarts voice without restarting Minecraft");
 			assertEquals(2, voiceStarts.get(), "valid secret recovery starts one replacement voice subsystem");
 
 			Files.delete(defaultVoiceSecret);
-			boolean missingPrepared = CodexAgentServerRuntime.voiceConfigurationPrepared(supervisor);
+			boolean missingPrepared = AgentServerRuntime.voiceConfigurationPrepared(supervisor);
 			assertFalse(missingPrepared, "missing default runtime secret keeps voice fail-closed");
-			Object missingSecretCache = CodexAgentServerRuntime.explicitSecretCacheEntryForVerification(defaultVoiceSecret);
-			for (int index = 0; index < 20; index++) CodexAgentServerRuntime.voiceConfigurationRevision(supervisor);
-			assertTrue(missingSecretCache == CodexAgentServerRuntime.explicitSecretCacheEntryForVerification(defaultVoiceSecret),
+			Object missingSecretCache = AgentServerRuntime.explicitSecretCacheEntryForVerification(defaultVoiceSecret);
+			for (int index = 0; index < 20; index++) AgentServerRuntime.voiceConfigurationRevision(supervisor);
+			assertTrue(missingSecretCache == AgentServerRuntime.explicitSecretCacheEntryForVerification(defaultVoiceSecret),
 					"a missing secret is negatively cached between bounded retries");
-			assertTrue(gate.reconcile(missingPrepared, CodexAgentServerRuntime.voiceConfigurationRevision(supervisor)),
+			assertTrue(gate.reconcile(missingPrepared, AgentServerRuntime.voiceConfigurationRevision(supervisor)),
 					"removing the effective manual secret fences the recovered voice subsystem");
 			assertEquals(2, voiceCloses.get(), "missing secret transition closes the recovered voice subsystem once");
 
 			Files.writeString(defaultVoiceSecret, "s".repeat(32), StandardCharsets.UTF_8);
 			Thread.sleep(300L);
-			assertTrue(gate.reconcile(CodexAgentServerRuntime.voiceConfigurationPrepared(supervisor),
-					CodexAgentServerRuntime.voiceConfigurationRevision(supervisor)),
+			assertTrue(gate.reconcile(AgentServerRuntime.voiceConfigurationPrepared(supervisor),
+					AgentServerRuntime.voiceConfigurationRevision(supervisor)),
 					"recreating the missing manual secret recovers voice on a later tick");
 			assertEquals(3, voiceStarts.get(), "missing secret recovery starts one replacement voice subsystem");
 			return 16;
@@ -181,20 +181,20 @@ public final class CodexAgentServerRuntimeVoiceStartVerification {
 			else Files.deleteIfExists(defaultBridgeSecret);
 			if (hadDefaultVoiceSecret) Files.write(defaultVoiceSecret, previousVoiceSecret);
 			else Files.deleteIfExists(defaultVoiceSecret);
-			CodexAgentServerRuntime.clearExplicitSecretCacheForVerification(defaultBridgeSecret);
-			CodexAgentServerRuntime.clearExplicitSecretCacheForVerification(defaultVoiceSecret);
+			AgentServerRuntime.clearExplicitSecretCacheForVerification(defaultBridgeSecret);
+			AgentServerRuntime.clearExplicitSecretCacheForVerification(defaultVoiceSecret);
 		}
 	}
 
-	private static CodexAgentManager uninitializedManager() {
+	private static AgentManager uninitializedManager() {
 		try {
 			Field field = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
 			field.setAccessible(true);
 			sun.misc.Unsafe unsafe = (sun.misc.Unsafe) field.get(null);
-			CodexAgentManager manager = (CodexAgentManager) unsafe.allocateInstance(CodexAgentManager.class);
-			Field savedData = CodexAgentManager.class.getDeclaredField("savedData");
+			AgentManager manager = (AgentManager) unsafe.allocateInstance(AgentManager.class);
+			Field savedData = AgentManager.class.getDeclaredField("savedData");
 			unsafe.putObject(manager, unsafe.objectFieldOffset(savedData), new AgentSavedData());
-			Field pendingRegistrations = CodexAgentManager.class.getDeclaredField("pendingAgentRegistrations");
+			Field pendingRegistrations = AgentManager.class.getDeclaredField("pendingAgentRegistrations");
 			unsafe.putObject(manager, unsafe.objectFieldOffset(pendingRegistrations), new java.util.LinkedHashSet<>());
 			return manager;
 		} catch (ReflectiveOperationException exception) {

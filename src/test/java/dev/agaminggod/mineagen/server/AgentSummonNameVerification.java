@@ -60,7 +60,7 @@ public final class AgentSummonNameVerification {
 				pending.remove(record.agentId());
 				registry.remove(record.agentId());
 			};
-			AgentRecord allocated = CodexAgentManager.allocatePlayerName(List.of("CapabilityProbe"), create, name -> {
+			AgentRecord allocated = AgentManager.allocatePlayerName(List.of("CapabilityProbe"), create, name -> {
 				checks.incrementAndGet();
 				return name.equals("CapabilityProbe2");
 			}, reject);
@@ -71,7 +71,7 @@ public final class AgentSummonNameVerification {
 			reject.accept(allocated);
 			checks.set(0);
 			try {
-				CodexAgentManager.allocatePlayerName(List.of(), create, name -> { checks.incrementAndGet(); return true; }, reject);
+				AgentManager.allocatePlayerName(List.of(), create, name -> { checks.incrementAndGet(); return true; }, reject);
 				throw new AssertionError("all-reserved namespace must fail at the bounded limit");
 			} catch (AgentDomainException expected) {
 				assertEquals("AGENT_NAME_ALLOCATION_EXHAUSTED", expected.code(), "bounded name exhaustion is an explicit domain failure");
@@ -79,7 +79,7 @@ public final class AgentSummonNameVerification {
 			assertEquals(64, checks.get(), "reservation checks are bounded even if every candidate collides");
 			assertTrue(pending.isEmpty() && registry.records().isEmpty(), "name exhaustion cleans every candidate");
 			try {
-				CodexAgentManager.allocatePlayerName(List.of(), create, name -> { throw new IllegalStateException("cache unavailable"); }, reject);
+				AgentManager.allocatePlayerName(List.of(), create, name -> { throw new IllegalStateException("cache unavailable"); }, reject);
 				throw new AssertionError("reservation error must propagate");
 			} catch (IllegalStateException expected) {
 				assertEquals("cache unavailable", expected.getMessage(), "reservation failure remains visible");

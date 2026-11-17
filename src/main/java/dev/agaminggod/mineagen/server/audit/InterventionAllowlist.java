@@ -1,5 +1,6 @@
 package dev.agaminggod.mineagen.server.audit;
 
+import dev.agaminggod.mineagen.control.AgentControlCommandBuilder;
 import java.util.List;
 import java.util.Set;
 
@@ -9,6 +10,7 @@ import java.util.Set;
  * anyone, is an intervention. This is deliberately not an attempt to work out who a command helped.
  */
 public final class InterventionAllowlist {
+	private static final String ROOT = AgentControlCommandBuilder.ROOT;
 	/**
 	 * SETUP_ONLY: before any agent exists (world rules, the runner's temporary spawn ticket); AGENT_CREATE: the first and
 	 * only agent; GOAL_START: the first and only goal; TICKET_RELEASE: releasing a setup ticket before any goal starts.
@@ -22,9 +24,9 @@ public final class InterventionAllowlist {
 			"data get entity * **", "data get block * **", "data get storage * **",
 			"attribute * * get **", "attribute * * base get **", "attribute * * modifier value get * **",
 			"experience query * levels", "experience query * points",
-			"forceload query **", "codex list", "codex status **", "codex audit *",
+			"forceload query **", ROOT + " list", ROOT + " status **", ROOT + " audit *",
 			// Ending a run: stopping or removing the agent changes nothing it could still use.
-			"codex stop *", "codex remove *");
+			ROOT + " stop *", ROOT + " remove *");
 	/** gamerule <rule> reads; the rule is a literal node. */
 	private static final List<String> READ_RULE = List.of("gamerule ?");
 	private static final Set<String> EXECUTE_MODIFIERS = Set.of(
@@ -46,8 +48,8 @@ public final class InterventionAllowlist {
 		if (tokens.size() == 3 && tokens.getFirst().equals("gamerule") && isLiteral(tokens.get(1)) && !isLiteral(tokens.get(2))) return Verdict.SETUP_ONLY;
 		if (matches(List.of("forceload", "add", "*"), tokens)) return Verdict.SETUP_ONLY;
 		if (matches(List.of("forceload", "remove", "*"), tokens)) return Verdict.TICKET_RELEASE;
-		if (matches(List.of("codex", "summon-configured", "*", "*", "*", "*", "<game_mode:survival>", "*"), tokens)) return Verdict.AGENT_CREATE;
-		if (matches(List.of("codex", "start", "*", "*"), tokens)) return Verdict.GOAL_START;
+		if (matches(List.of(ROOT, "summon-configured", "*", "*", "*", "*", "<game_mode:survival>", "*"), tokens)) return Verdict.AGENT_CREATE;
+		if (matches(List.of(ROOT, "start", "*", "*"), tokens)) return Verdict.GOAL_START;
 		return Verdict.INTERVENTION;
 	}
 

@@ -35,9 +35,9 @@ public final class UseTickPhaseVerification {
 
 	private static void verifyHookOrdering() throws IOException {
 		Path sources = Path.of("src/main/java/dev/agaminggod/mineagen");
-		String runtime = Files.readString(sources.resolve("server/CodexAgentServerRuntime.java"));
-		check(runtime.contains("START_SERVER_TICK.register(CodexAgentServerRuntime::startTick)"), "START hook is registered");
-		check(runtime.contains("END_SERVER_TICK.register(CodexAgentServerRuntime::endTick)"), "END hook is registered");
+		String runtime = Files.readString(sources.resolve("server/AgentServerRuntime.java"));
+		check(runtime.contains("START_SERVER_TICK.register(AgentServerRuntime::startTick)"), "START hook is registered");
+		check(runtime.contains("END_SERVER_TICK.register(AgentServerRuntime::endTick)"), "END hook is registered");
 		String start = method(runtime, "private static void startTick(");
 		check(start.indexOf("if (!ACTIVE_SERVERS.contains(server)) return;") >= 0,
 				"the first end tick still precedes input and admission");

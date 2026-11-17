@@ -4,7 +4,7 @@ import com.google.gson.JsonObject;
 import dev.agaminggod.mineagen.agent.AgentId;
 import dev.agaminggod.mineagen.agent.AgentRecord;
 import dev.agaminggod.mineagen.protocol.ActionType;
-import dev.agaminggod.mineagen.server.CodexAgentManager;
+import dev.agaminggod.mineagen.server.AgentManager;
 import dev.agaminggod.mineagen.server.runtime.ActionProvenance;
 import dev.agaminggod.mineagen.server.runtime.ServerActionExecutor;
 import dev.agaminggod.mineagen.server.runtime.ServerActionRequest;
@@ -183,7 +183,7 @@ public final class BridgeJournalGroupVerification {
 	private record Agent(AgentRecord record, UUID goalId, ServerActionRequest request) { }
 
 	private static final class Fixture implements AutoCloseable {
-		final CodexAgentManager manager = MultiplexedServerBridgeVerification.uninitializedManager();
+		final AgentManager manager = MultiplexedServerBridgeVerification.uninitializedManager();
 		final Path directory;
 		final DurableActionJournal journal;
 		final MultiplexedServerBridge bridge;

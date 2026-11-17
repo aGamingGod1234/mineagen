@@ -2,7 +2,7 @@ package dev.agaminggod.mineagen.server.goal;
 
 import dev.agaminggod.mineagen.agent.*;
 import dev.agaminggod.mineagen.agent.goal.*;
-import dev.agaminggod.mineagen.server.CodexAgentManager;
+import dev.agaminggod.mineagen.server.AgentManager;
 import dev.agaminggod.mineagen.server.runtime.GoalCompletionVerifier;
 import java.util.*;
 import net.minecraft.core.RegistryAccess;
@@ -29,10 +29,10 @@ public final class GoalMixedConstraintVerification {
   registry.start(idle.agentId(), GoalSpec.create("Mixed factual goal", predicate, 100), 1001);
   return registry.require(idle.agentId());
  }
- private static CodexAgentManager manager() {
+ private static AgentManager manager() {
   try {
    var f = sun.misc.Unsafe.class.getDeclaredField("theUnsafe"); f.setAccessible(true);
-   return (CodexAgentManager)((sun.misc.Unsafe)f.get(null)).allocateInstance(CodexAgentManager.class);
+   return (AgentManager)((sun.misc.Unsafe)f.get(null)).allocateInstance(AgentManager.class);
   } catch (ReflectiveOperationException exception) { throw new AssertionError(exception); }
  }
  private static final class Facts implements GoalCompletionVerifier.FactSource {

@@ -202,17 +202,10 @@ function serverEnvelope(type, agentId, messageId, payload = {}) {
 	return { protocolVersion: 2, serverInstanceId: 'server-instance', agentId, type, messageId, payload };
 }
 
-test('verbose control and events use strict authenticated scopes, stages, revisions, and message bounds', () => {
-	assert.deepEqual(validateProtocolV2Payload('verbose_control', { enabled: true }), { enabled: true });
-	assert.throws(() => validateProtocolV2Payload('verbose_control', { enabled: true, agentId: 'agent-a' }), /field/i);
-	assert.throws(() => validateProtocolV2Payload('verbose_control', { enabled: 'true' }), /boolean/i);
-	assert.deepEqual(
-		validateProtocolV2Envelope(serverEnvelope('verbose_control', 'server', 'verbose-on', { enabled: true }), { direction: 'server_to_coordinator' }).payload,
-		{ enabled: true },
-	);
+test('verbose events use strict agent scopes, stages, revisions, and message bounds', () => {
 	assert.throws(
-		() => validateProtocolV2Envelope(serverEnvelope('verbose_control', 'agent-a', 'verbose-agent', { enabled: true }), { direction: 'server_to_coordinator' }),
-		/agentId 'server'/i,
+		() => validateProtocolV2Envelope(serverEnvelope('verbose_control', 'server', 'verbose-on', { enabled: true }), { direction: 'server_to_coordinator' }),
+		/type/i,
 	);
 
 	for (const stage of VERBOSE_STAGES) {
@@ -1454,7 +1447,7 @@ test('only a heartbeat response refreshes the authenticated peer deadline', asyn
 	await ready;
 
 	const initialDeadline = deadlines.pendingId(29);
-	socket.emit('data', `${JSON.stringify(serverEnvelope('verbose_control', 'server', 'server-unrelated-traffic', { enabled: true }))}\n`);
+	socket.emit('data', `${JSON.stringify(serverEnvelope('catalog_request', 'server', 'server-unrelated-traffic', {}))}\n`);
 	assert.equal(deadlines.pendingId(29), initialDeadline, 'unrelated inbound traffic cannot mask a failed coordinator-to-server path');
 
 	socket.emit('data', `${JSON.stringify(serverEnvelope('heartbeat', 'server', 'server-heartbeat-response', {}))}\n`);
@@ -2785,7 +2778,7 @@ test('underwater breath facts survive wire validation and adaptation', () => {
 	assert.equal(adapted.player.waterAbove, 'blocked');
 	assert.deepEqual(adapted.player.breathable, breathable);
 	assert.equal(adapted.player.air, 150);
-	assert.equal(adapted.player.operatorControlled, true, 'a /takeover is reported so danger never wakes the model onto the operator body');
+	assert.equal(adapted.player.operatorControlled, true, 'a /mineagen takeover is reported so danger never wakes the model onto the operator body');
 });
 
 test('heard sounds and the first-heard-lava fact pass wire validation with relative direction only', () => {

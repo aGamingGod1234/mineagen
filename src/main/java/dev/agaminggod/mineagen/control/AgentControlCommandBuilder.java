@@ -9,6 +9,8 @@ import java.util.Objects;
 import java.util.Set;
 
 public final class AgentControlCommandBuilder {
+	/** The command root the server registers and the control center sends. */
+	public static final String ROOT = "mineagen";
 	private static final Set<String> AGENT_OPERATIONS = Set.of("stop", "resume", "respawn", "remove", "status", "auto");
 	private static final Set<String> PROMPT_OPERATIONS = Set.of("start", "queue", "steer");
 
@@ -50,7 +52,7 @@ public final class AgentControlCommandBuilder {
 			throw new IllegalArgumentException("name exceeds the supported length");
 		}
 		String encodedName = normalizedName.isEmpty() ? "\"\"" : StringArgumentType.escapeIfRequired(normalizedName);
-		return "codex summon-configured "
+		return ROOT + " summon-configured "
 				+ checkedProvider + " "
 				+ StringArgumentType.escapeIfRequired(checkedModel) + " "
 				+ StringArgumentType.escapeIfRequired(checkedReasoning) + " "
@@ -60,12 +62,12 @@ public final class AgentControlCommandBuilder {
 	}
 	public static String agent(String operation, String agentId) {
 		String checkedOperation = requireOperation(operation, AGENT_OPERATIONS);
-		return "codex " + checkedOperation + " " + AgentId.parse(agentId);
+		return ROOT + " " + checkedOperation + " " + AgentId.parse(agentId);
 	}
 
 	public static String prompt(String operation, String agentId, String prompt) {
 		String checkedOperation = requireOperation(operation, PROMPT_OPERATIONS);
-		return "codex " + checkedOperation + " " + AgentId.parse(agentId) + " " + normalizePrompt(prompt);
+		return ROOT + " " + checkedOperation + " " + AgentId.parse(agentId) + " " + normalizePrompt(prompt);
 	}
 
 	private static String requireOperation(String operation, Set<String> allowed) {

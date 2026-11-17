@@ -124,7 +124,7 @@ export async function runCaveNavigationLive(config) {
       'fill 1 64 1 1 66 1 minecraft:stone', 'fill 3 64 2 4 64 2 minecraft:stone',
       'fill 4 64 3 4 64 4 minecraft:stone', 'fill 5 64 4 6 64 4 minecraft:stone']) await command(text);
     const offset = messages.length;
-    await command(`execute in minecraft:overworld positioned 0.5 64 0.5 run codex summon ${PROFILE.model} ${PROFILE.reasoningEffort} ${config.agentName}`);
+    await command(`execute in minecraft:overworld positioned 0.5 64 0.5 run mineagen summon ${PROFILE.model} ${PROFILE.reasoningEffort} ${config.agentName}`);
     const registered = await waitMessage('agent_registered', () => true, offset);
     record = { ...(registered.payload.record ?? registered.payload), agentId: registered.agentId };
     player = record.entityUuid ?? config.agentName;
@@ -136,7 +136,7 @@ export async function runCaveNavigationLive(config) {
     await bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false });
     await waitMessage('observation', event => event.agentId === record.agentId && event.payload.ready === true);
     const goalOffset = messages.length;
-    await command(`codex start ${config.agentName} Get a stone pickaxe`);
+    await command(`mineagen start ${config.agentName} Get a stone pickaxe`);
     const goal = await waitMessage('goal_control', event => event.agentId === record.agentId && event.payload.operation === 'start', goalOffset);
     record.goalRevision = goal.payload.goalRevision;
     await bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false });
@@ -256,7 +256,7 @@ export async function runCaveNavigationLive(config) {
     activeArm = null;
     for (const timer of timers) clearTimeout(timer);
     try { await runtime?.disposeAll(); report.cleanup.runtime = 'CLEAN'; } catch { report.cleanup.runtime = 'FAILED'; }
-    try { if (record) await command(`codex remove ${config.agentName}`); report.cleanup.agent = 'REMOVED'; } catch { report.cleanup.agent = 'FAILED'; }
+    try { if (record) await command(`mineagen remove ${config.agentName}`); report.cleanup.agent = 'REMOVED'; } catch { report.cleanup.agent = 'FAILED'; }
     bridge.stop(); await rcon.close();
     report.elapsedMs = Date.now() - startedAt;
     const rawEvidence = { commands, results, samples, progress, responses, boundaryFacts };

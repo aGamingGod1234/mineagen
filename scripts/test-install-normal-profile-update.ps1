@@ -151,7 +151,7 @@ try {
     Assert-RuntimeTransactionCleanup $installedRoot
     if (-not (Test-Path -LiteralPath (Join-Path $mods $modJarName))) { throw 'Updated jar missing.' }
     if (-not (Test-Path -LiteralPath (Join-Path $mods $voiceJarName))) { throw 'Updated voice-addon jar missing.' }
-    if (Test-Path -LiteralPath (Join-Path $mods 'mineagen-old-unparseable.jar')) { throw 'Stale Arena jar remains.' }
+    if (Test-Path -LiteralPath (Join-Path $mods 'mineagen-old-unparseable.jar')) { throw 'Stale Mineagen jar remains.' }
     if (Test-Path -LiteralPath (Join-Path $mods 'mineagen-voice-0.0.1.jar')) { throw 'Stale voice-addon jar remains.' }
     if (-not (Test-Path -LiteralPath (Join-Path $mods 'unrelated.jar'))) { throw 'Unrelated mod was changed.' }
     if (Test-Path -LiteralPath (Join-Path $runtimeCoordinator 'stale.log')) { throw 'Stale coordinator state remains.' }

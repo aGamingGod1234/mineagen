@@ -13,7 +13,7 @@ public final class CoordinatorExhaustedStatusSnapshotVerification {
 	}
 
 	public static int verify() throws Exception {
-		var statusMethod = Class.forName("dev.agaminggod.mineagen.server.CodexAgentServerRuntime")
+		var statusMethod = Class.forName("dev.agaminggod.mineagen.server.AgentServerRuntime")
 				.getDeclaredMethod("startupFailureStatus", String.class);
 		statusMethod.setAccessible(true);
 		String status = (String) statusMethod.invoke(null, "COORDINATOR_RESTART_EXHAUSTED");

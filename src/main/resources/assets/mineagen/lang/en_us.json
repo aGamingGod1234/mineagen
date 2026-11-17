@@ -1,6 +1,6 @@
 {
-  "entity.mineagen.codex_agent": "Codex Agent",
-  "key.mineagen.open_controls": "Open Agent Controls",
+  "entity.mineagen.codex_agent": "Mineagen Agent",
+  "key.mineagen.open_controls": "Open control center",
   "key.mineagen.exit_agent_view": "Exit agent view",
   "key.category.mineagen.controls": "Mineagen",
   "screen.mineagen.controls.title": "Mineagen control center",
@@ -50,9 +50,5 @@
   "screen.mineagen.roster.unavailable": "Unavailable: %s",
   "screen.mineagen.roster.page": "Agents %s to %s of %s",
   "screen.mineagen.control.selected": "Selected",
-  "screen.mineagen.control.cycle_hint": "Use Left and Right to change the value",
-  "item.mineagen.camera_dolly": "Tripod Camera",
-  "block.mineagen.camera_dolly": "Camera",
-  "entity.mineagen.camera_rig": "Tripod Camera",
-  "key.mineagen.camera_controls": "Open Camera Controls"
+  "screen.mineagen.control.cycle_hint": "Use Left and Right to change the value"
 }

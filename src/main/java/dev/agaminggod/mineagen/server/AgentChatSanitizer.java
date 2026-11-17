@@ -7,26 +7,11 @@ import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
-import java.util.Set;
 import java.util.regex.Pattern;
-import net.minecraft.ChatFormatting;
-import net.minecraft.network.chat.Component;
-import net.minecraft.network.chat.MutableComponent;
-import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.level.ServerPlayer;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-public final class AgentVerboseChat {
+/** Hides credentials, prompts, world dumps and technical identifiers before agent text reaches chat. */
+public final class AgentChatSanitizer {
 	public static final int MAX_MESSAGE_LENGTH = 256;
-	private static final Logger LOGGER = LoggerFactory.getLogger(AgentVerboseChat.class);
-	private static final Set<String> STAGES = Set.of(
-			"conversation", "lifecycle", "planner", "provider", "output", "decision",
-			"agent_message", "action", "progress", "result", "retry", "error", "voice"
-	);
-	private static final Set<String> CURATED_STAGES = Set.of(
-			"planner", "output", "agent_message", "decision", "action", "progress", "result", "retry", "error", "voice"
-	);
 	private static final Pattern UUID_PATTERN = Pattern.compile(
 			"(?i)\\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\b"
 	);
@@ -51,15 +36,7 @@ public final class AgentVerboseChat {
 			"traceid", "trace_id", "program step", "diagnostic"
 	);
 
-	private AgentVerboseChat() {
-	}
-
-	public static boolean allowedStage(String stage) {
-		return stage != null && STAGES.contains(stage);
-	}
-
-	public static boolean curatedStage(String stage) {
-		return stage != null && CURATED_STAGES.contains(stage);
+	private AgentChatSanitizer() {
 	}
 
 	public static String sanitizeMessage(String message) {
@@ -92,92 +69,6 @@ public final class AgentVerboseChat {
 				.orElse(false);
 		if (exposesCurrentGoal) return "Private prompt details redacted.";
 		return safe;
-	}
-
-	public static void report(
-			CodexAgentManager manager,
-			AgentVerboseState state,
-			AgentRecord record,
-			String stage,
-			String message
-	) {
-		Objects.requireNonNull(manager, "manager must not be null");
-		Objects.requireNonNull(state, "state must not be null");
-		Objects.requireNonNull(record, "record must not be null");
-		if (!state.enabled()) return;
-		if (!allowedStage(stage)) {
-			LOGGER.warn("Skipped unsupported verbose stage {}", stage);
-			return;
-		}
-		if (!curatedStage(stage)) return;
-		try {
-			MinecraftServer server = manager.server();
-			if (server == null) return;
-			Component line = line(
-					manager.displayName(record), record.profile().provider(), stage, sanitizeMessage(record, message)
-			);
-			for (ServerPlayer player : server.getPlayerList().getPlayers()) {
-				try {
-					if (GoalControl.mayControl(player.createCommandSourceStack())) player.sendSystemMessage(line);
-				} catch (RuntimeException exception) {
-					LOGGER.warn("Could not send verbose event to operator {}", player.getGameProfile().name(), exception);
-				}
-			}
-		} catch (RuntimeException exception) {
-			LOGGER.warn("Could not publish verbose {} event for {}", stage, record.agentId(), exception);
-		}
-	}
-
-	public static void report(CodexAgentManager manager, AgentRecord record, String stage, String message) {
-		try {
-			MinecraftServer server = manager.server();
-			if (!AgentVerboseState.enabled(server)) return;
-			report(manager, AgentVerboseState.forServer(server), record, stage, message);
-		} catch (RuntimeException exception) {
-			LOGGER.warn("Could not publish verbose {} event for {}", stage, record.agentId(), exception);
-		}
-	}
-
-	public static void reportSystem(MinecraftServer server, String stage, String message) {
-		try {
-			if (!AgentVerboseState.enabled(server) || !curatedStage(stage)) return;
-			Component line = line("Voice", "voice", stage, sanitizeMessage(message));
-			for (ServerPlayer player : server.getPlayerList().getPlayers()) {
-				if (GoalControl.mayControl(player.createCommandSourceStack())) player.sendSystemMessage(line);
-			}
-		} catch (RuntimeException exception) {
-			LOGGER.warn("Could not publish system verbose {} event", stage, exception);
-		}
-	}
-
-	static Component line(String agentName, String provider, String stage, String message) {
-		MutableComponent prefix = Component.literal("[" + agentName + "]")
-				.withStyle(familyColor(provider));
-		MutableComponent body = Component.literal(" " + stageLabel(stage) + ": " + message)
-				.withStyle("error".equals(stage) ? ChatFormatting.RED : ChatFormatting.GRAY);
-		return prefix.append(body);
-	}
-
-	private static String stageLabel(String stage) {
-		return switch (stage) {
-			case "planner", "output", "agent_message" -> "Thinking";
-			case "decision" -> "Plan";
-			case "action" -> "Action";
-			case "progress" -> "Progress";
-			case "result" -> "Result";
-			case "retry" -> "Problem";
-			case "error" -> "Error";
-			case "voice" -> "Voice";
-			default -> throw new IllegalArgumentException("Unsupported verbose stage: " + stage);
-		};
-	}
-
-	private static ChatFormatting familyColor(String provider) {
-		return switch (provider.toLowerCase(Locale.ROOT)) {
-			case "codex" -> ChatFormatting.AQUA;
-			case "claude" -> ChatFormatting.GOLD;
-			default -> ChatFormatting.WHITE;
-		};
 	}
 
 	private static String compact(String value) {

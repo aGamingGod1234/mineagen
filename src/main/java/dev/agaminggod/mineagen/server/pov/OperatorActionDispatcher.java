@@ -10,7 +10,7 @@ import dev.agaminggod.mineagen.agent.AgentLifecycleState;
 import dev.agaminggod.mineagen.mixin.EntityPlayerActionPackAccessor;
 import dev.agaminggod.mineagen.mixin.ServerGamePacketListenerImplAccessor;
 import dev.agaminggod.mineagen.pov.OperatorActionPayload;
-import dev.agaminggod.mineagen.server.CodexAgentManager;
+import dev.agaminggod.mineagen.server.AgentManager;
 import dev.agaminggod.mineagen.server.OfflineAgentPlayers;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMaps;
 import java.util.Optional;
@@ -408,7 +408,7 @@ public final class OperatorActionDispatcher {
 
 	/** Requests the manager's verified vanilla respawn, only while the agent record is dead. */
 	static boolean respawn(MinecraftServer server, AgentId agentId) {
-		CodexAgentManager manager = CodexAgentManager.get(server);
+		AgentManager manager = AgentManager.get(server);
 		try {
 			if (manager.registry().require(agentId).state() != AgentLifecycleState.DEAD) return false;
 			manager.requestRespawn(agentId.toString());

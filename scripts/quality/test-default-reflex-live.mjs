@@ -52,11 +52,11 @@ const agents = [
 
 async function register(agent) {
 	const registered = inbox.wait('agent_registered');
-	await command(`execute positioned ${agent.ox + 0.5} 81 -1.5 run codex summon gpt-6.1-sol low ${agent.name}`);
+	await command(`execute positioned ${agent.ox + 0.5} 81 -1.5 run mineagen summon gpt-6.1-sol low ${agent.name}`);
 	const e = await registered; agent.record = { ...(e.payload.record ?? e.payload), agentId: e.agentId };
 	await bridge.send('agent_ready', agent.record.agentId, { goalRevision: agent.record.goalRevision, reconciled: false });
 	const started = inbox.wait('goal_control', e => e.agentId === agent.record.agentId && e.payload.operation === 'start');
-	await command(`codex start ${agent.name} Survive for 1200 seconds.`); agent.record.goalRevision = (await started).payload.goalRevision;
+	await command(`mineagen start ${agent.name} Survive for 1200 seconds.`); agent.record.goalRevision = (await started).payload.goalRevision;
 	await bridge.send('agent_ready', agent.record.agentId, { goalRevision: agent.record.goalRevision, reconciled: false });
 	await command(`gamemode survival ${agent.name}`);
 	await command(`effect give ${agent.name} minecraft:saturation 1200 4 true`);

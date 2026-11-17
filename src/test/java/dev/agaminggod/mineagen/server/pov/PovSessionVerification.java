@@ -78,15 +78,16 @@ public final class PovSessionVerification {
 		check(run(dispatcher, "spectate", operator) < 0, "the command needs an agent or exit");
 		check(run(dispatcher, "spectate Alex restart", operator) < 0, "unknown words after the agent are rejected");
 		check(run(dispatcher, "spectate Alex", stranger) < 0, "the permission gate covers the whole tree");
-		check(PovCommands.exitCommand(PovMode.SPECTATE).equals("/spectate exit")
-				&& PovCommands.exitCommand(PovMode.TAKEOVER).equals("/takeover exit"), "exit hints name /spectate and /takeover");
-		check(PovCommands.startMessage(PovMode.SPECTATE, "Alex", false).equals("Viewing Alex. Type /spectate exit to return."),
+		check(PovCommands.exitCommand(PovMode.SPECTATE).equals("/mineagen spectate exit")
+				&& PovCommands.exitCommand(PovMode.TAKEOVER).equals("/mineagen takeover exit"),
+				"exit hints name /mineagen spectate and /mineagen takeover");
+		check(PovCommands.startMessage(PovMode.SPECTATE, "Alex", false).equals("Viewing Alex. Type /mineagen spectate exit to return."),
 				"spectate start message");
 		check(PovCommands.startMessage(PovMode.TAKEOVER, "Alex", false).equals("You are controlling Alex. Its model is paused until you type"
-				+ " /takeover exit. Your own body stays here; if it loses 2 hearts the takeover ends."), "takeover start message");
-		check(PovCommands.startMessage(PovMode.TAKEOVER, "Alex", true).equals("You are already in Alex's view. Type /takeover exit to return."),
+				+ " /mineagen takeover exit. Your own body stays here; if it loses 2 hearts the takeover ends."), "takeover start message");
+		check(PovCommands.startMessage(PovMode.TAKEOVER, "Alex", true).equals("You are already in Alex's view. Type /mineagen takeover exit to return."),
 				"repeat start message");
-		check(!PovCommands.startMessage(PovMode.SPECTATE, "Alex", false).contains("vanilla"), "no vanilla disclaimer: /spectate is ours");
+		check(!PovCommands.startMessage(PovMode.SPECTATE, "Alex", false).contains("vanilla"), "the start message carries no vanilla disclaimer");
 	}
 
 	private static int run(CommandDispatcher<Object> dispatcher, String command, Object source) {
@@ -183,10 +184,10 @@ public final class PovSessionVerification {
 		check(stays(observe(PovMode.SPECTATE).agentElsewhere().agentAbsent()),
 				"an absent agent is not judged by dimension");
 		check(PovExitReason.agentDimensionMessage("minecraft:the_nether", PovMode.TAKEOVER, "Alex").equals(
-				"Agent moved to minecraft:the_nether. Run /takeover Alex again once you are in the same dimension."),
+				"Agent moved to minecraft:the_nether. Run /mineagen takeover Alex again once you are in the same dimension."),
 				"dimension message names the command to re-run");
-		check(PovExitReason.agentDimensionMessage("minecraft:the_end", PovMode.SPECTATE, "Alex").contains("/spectate Alex"),
-				"spectate hint names /spectate");
+		check(PovExitReason.agentDimensionMessage("minecraft:the_end", PovMode.SPECTATE, "Alex").contains("/mineagen spectate Alex"),
+				"spectate hint names /mineagen spectate");
 		expectThrows(() -> new PovExitReason.Observation(PovMode.TAKEOVER, true, true, true, false, Double.NaN,
 				true, true, false, 0.0D), "observation rejects non-finite movement");
 	}

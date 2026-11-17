@@ -1,4 +1,4 @@
-package dev.agaminggod.mineagen.client.camera;
+package dev.agaminggod.mineagen.client;
 
 import java.lang.reflect.Field;
 import java.nio.file.Path;
@@ -11,9 +11,9 @@ import java.util.function.Supplier;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.loader.impl.launch.knot.Knot;
 
-/** Verifies the required accessor through Fabric without launching Minecraft client main. */
-public final class CameraMixinVerification {
-	private CameraMixinVerification() {
+/** Verifies the client mixins and the POV camera accessor through Fabric without launching Minecraft client main. */
+public final class ClientMixinVerification {
+	private ClientMixinVerification() {
 	}
 
 	public static void main(String[] args) throws Exception {
@@ -28,11 +28,6 @@ public final class CameraMixinVerification {
 		if (java.util.Arrays.stream(gameRenderer.getDeclaredMethods()).noneMatch(method -> method.getName().contains("mineagen$planItemIcons")))
 			throw new AssertionError("Fabric did not apply the render-thread plan icon hook");
 		verifyProfileSkinLookup(target);
-        Class<?> cartType = target.loadClass("net.minecraft.world.entity.vehicle.minecart.Minecart");
-        for (String method : new String[]{"mineagen$cameraDrop", "mineagen$cameraPick"}) {
-            if (java.util.Arrays.stream(cartType.getDeclaredMethods()).noneMatch(candidate -> candidate.getName().contains(method)))
-                throw new AssertionError("Fabric did not apply " + method + " to Minecart");
-        }
 		Class<?> cameraType = target.loadClass("net.minecraft.client.Camera");
 		Class<?> accessor = target.loadClass("dev.agaminggod.mineagen.client.mixin.CameraEyeHeightAccessor");
 		Object camera = cameraType.getConstructor().newInstance();
@@ -48,7 +43,7 @@ public final class CameraMixinVerification {
 		setOldHeight.invoke(camera, 0.0F);
 		assertHeight(cameraType, camera, "eyeHeight", 0.0F);
 		assertHeight(cameraType, camera, "eyeHeightOld", 0.0F);
-		System.out.println("Camera, plan icon and agent presentation mixin verification passed (20 checks); Minecraft client main was not invoked.");
+		System.out.println("Client mixin verification passed (18 checks); Minecraft client main was not invoked.");
 	}
 
 	private static void verifyProfileSkinLookup(ClassLoader target) throws Exception {

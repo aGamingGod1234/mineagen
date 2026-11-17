@@ -67,10 +67,10 @@ async function runNaturalInventoryTimeout(finalInventory, stopResponse = null) {
 					if (started && finalInventory instanceof Error) throw finalInventory;
 					return { text: started ? finalInventory : 'timeout-agent has the following entity data: []' };
 				}
-				if (command.startsWith('codex start ')) { started = true; return { text: 'started' }; }
-				if (command.startsWith('codex status ')) return { text: 'state=RUNNING' };
-				if (command.startsWith('codex stop ')) return { text: stopResponse ?? `Paused ${command.split(' ').at(-1)}.` };
-				if (command.startsWith('codex remove ')) return { text: 'Removed timeout-agent.' };
+				if (command.startsWith('mineagen start ')) { started = true; return { text: 'started' }; }
+				if (command.startsWith('mineagen status ')) return { text: 'state=RUNNING' };
+				if (command.startsWith('mineagen stop ')) return { text: stopResponse ?? `Paused ${command.split(' ').at(-1)}.` };
+				if (command.startsWith('mineagen remove ')) return { text: 'Removed timeout-agent.' };
 				return { text: 'ok' };
 			},
 			close: async () => {},
@@ -232,11 +232,11 @@ test('runs a real-provider scenario with exact RCON sequence and injected eviden
 			commands.push(command);
 			if (command.includes('forceload ')) return { text: 'OK' };
 			if (command.includes(' run fill ')) return { text: 'Successfully filled blocks' };
-			if (command.includes('codex summon-configured ')) return { text: 'Created runner-case-agent. It is ready for a task.' };
-			if (command.startsWith('codex start ')) return { text: 'Goal started.' };
-			if (command.startsWith('codex status ')) return { text: statusReads++ === 0 ? 'state=RUNNING' : 'state=COMPLETED' };
+			if (command.includes('mineagen summon-configured ')) return { text: 'Created runner-case-agent. It is ready for a task.' };
+			if (command.startsWith('mineagen start ')) return { text: 'Goal started.' };
+			if (command.startsWith('mineagen status ')) return { text: statusReads++ === 0 ? 'state=RUNNING' : 'state=COMPLETED' };
 			if (command === 'data get entity @s Pos') return { text: '[1.0d, 64.0d, 1.0d]' };
-			if (command.startsWith('codex remove ')) return { text: 'Removed runner-case-agent.' };
+			if (command.startsWith('mineagen remove ')) return { text: 'Removed runner-case-agent.' };
 			throw new Error(`unexpected command: ${command}`);
 		},
 		close: async () => {},
@@ -256,10 +256,10 @@ test('runs a real-provider scenario with exact RCON sequence and injected eviden
 	const generatedName = commands[3].split(' ').at(-1);
 	assert.ok(generatedName.length <= 16);
 	assert.equal(commands[4], 'execute in minecraft:overworld run forceload remove 0 0');
-	assert.equal(commands[5], `codex start ${generatedName} Do the bounded task`);
-	assert.equal(commands[6], `codex status ${generatedName}`);
-	assert.ok(commands.indexOf('data get entity @s Pos') < commands.indexOf(`codex remove ${generatedName}`));
-	assert.equal(commands.at(-1), `codex remove ${generatedName}`);
+	assert.equal(commands[5], `mineagen start ${generatedName} Do the bounded task`);
+	assert.equal(commands[6], `mineagen status ${generatedName}`);
+	assert.ok(commands.indexOf('data get entity @s Pos') < commands.indexOf(`mineagen remove ${generatedName}`));
+	assert.equal(commands.at(-1), `mineagen remove ${generatedName}`);
 	assert.equal(commands.some((command) => command.includes('action_result')), false);
 	assert.equal(recorderClosed, 1);
 	assert.equal(report.assertions.every((result) => result.passed), true);
@@ -276,7 +276,7 @@ test('timeout evidence reads final inventory only after bounded post-stop collec
 	assert.deepEqual(report.postRunEvidence, { snapshot: 'post_stop', status: 'STOPPED', delayMs: 100 });
 	const inventoryReads = commands.reduce((indexes, command, index) => command.endsWith(' Inventory') ? [...indexes, index] : indexes, []);
 	assert.equal(inventoryReads.length, 2);
-	assert.ok(commands.findIndex((command) => command.startsWith('codex stop ')) < inventoryReads.at(-1));
+	assert.ok(commands.findIndex((command) => command.startsWith('mineagen stop ')) < inventoryReads.at(-1));
 	const assertion = report.assertions.find((entry) => entry.type === 'rcon');
 	assert.deepEqual(assertion.actual, ['timeout-agent has the following entity data: [{id:"minecraft:diamond"}]']);
 });
@@ -285,7 +285,7 @@ test('timeout evidence leaves final inventory unknown when post-stop read is una
 	const { report, commands } = await runNaturalInventoryTimeout(new Error('inventory read unavailable'));
 	assert.equal(report.classification, 'TIMEOUT');
 	assert.equal(report.status, 'FAILED');
-	const stopIndex = commands.findIndex((command) => command.startsWith('codex stop '));
+	const stopIndex = commands.findIndex((command) => command.startsWith('mineagen stop '));
 	const inventoryReads = commands.reduce((indexes, command, index) => command.endsWith(' Inventory') ? [...indexes, index] : indexes, []);
 	assert.ok(stopIndex >= 0 && stopIndex < inventoryReads.at(-1));
 	const assertion = report.assertions.find((entry) => entry.type === 'rcon');
@@ -334,8 +334,8 @@ test('summons, starts, and polls an eight-agent exact-profile roster concurrentl
 				await phaseBarrier('summon', 8);
 				return { text: `Created ${name}. It is ready for a task.` };
 			}
-			if (command.startsWith('codex start ')) { await phaseBarrier('start', 8); return { text: 'started' }; }
-			if (command.startsWith('codex status ')) { await phaseBarrier('status', 8); return { text: 'state=COMPLETED' }; }
+			if (command.startsWith('mineagen start ')) { await phaseBarrier('start', 8); return { text: 'started' }; }
+			if (command.startsWith('mineagen status ')) { await phaseBarrier('status', 8); return { text: 'state=COMPLETED' }; }
 			if (command.startsWith('data get entity ')) {
 				assert.doesNotMatch(command, /\{agent\}/);
 				factualCommands.push(command);
@@ -377,7 +377,7 @@ test('summons, starts, and polls an eight-agent exact-profile roster concurrentl
 	assert.equal(maxActiveByPhase.get('start'), 8);
 	assert.equal(maxActiveByPhase.get('status'), 8);
 	const summons = commands.filter((command) => command.includes('summon-configured'));
-	const removals = commands.filter((command) => command.startsWith('codex remove '));
+	const removals = commands.filter((command) => command.startsWith('mineagen remove '));
 	assert.equal(summons.length, 8);
 	assert.equal(removals.length, 8);
 	assert.deepEqual(new Set(removals.map((command) => command.split(' ').at(-1))), new Set(names));
@@ -393,7 +393,7 @@ test('does not let one agent satisfy another agent evidence assertion', async ()
 		rcon: {
 			command: async (command) => {
 				if (command.includes('summon-configured')) { const name = command.split(' ').at(-1); names.push(name); return { text: `Created ${name}. It is ready for a task.` }; }
-				return { text: command.startsWith('codex status ') ? 'state=COMPLETED' : 'ok' };
+				return { text: command.startsWith('mineagen status ') ? 'state=COMPLETED' : 'ok' };
 			},
 			close: async () => {},
 		},
@@ -422,9 +422,9 @@ test('fails only the roster member whose authoritative identity or status comman
 		rcon: {
 			command: async (command) => {
 				if (command.includes('summon-configured')) { const name = command.split(' ').at(-1); names.push(name); return { text: `Created ${name}. It is ready for a task.` }; }
-				if (command.startsWith('codex start ')) { started.push(command.split(' ')[2]); return { text: 'started' }; }
-				if (command.startsWith('codex status ') && command.endsWith(names[3])) throw new Error('one status read failed');
-				return { text: command.startsWith('codex status ') ? 'state=COMPLETED' : 'ok' };
+				if (command.startsWith('mineagen start ')) { started.push(command.split(' ')[2]); return { text: 'started' }; }
+				if (command.startsWith('mineagen status ') && command.endsWith(names[3])) throw new Error('one status read failed');
+				return { text: command.startsWith('mineagen status ') ? 'state=COMPLETED' : 'ok' };
 			},
 			close: async () => {},
 		},
@@ -451,7 +451,7 @@ test('keeps a sixteen-agent report bounded with one isolated lifecycle per autho
 		rcon: {
 			command: async (command) => {
 				if (command.includes('summon-configured')) { const name = command.split(' ').at(-1); names.push(name); return { text: `Created ${name}. It is ready for a task.` }; }
-				return { text: command.startsWith('codex status ') ? 'state=COMPLETED' : 'ok' };
+				return { text: command.startsWith('mineagen status ') ? 'state=COMPLETED' : 'ok' };
 			},
 			close: async () => {},
 		},
@@ -488,7 +488,7 @@ test('reports bounded p50 p95 p99 metrics and null provider-native token categor
 	]);
 	const report = await runHeadlessScenario({
 		scenario: scenario({ assert: [{ type: 'lifecycle', state: 'COMPLETED' }] }), runDirectory: 'C:/runs/metrics',
-		rcon: { command: async (command) => ({ text: command.includes('summon-configured') ? 'Created agent. It is ready for a task.' : command.startsWith('codex status') ? 'state=COMPLETED' : command === 'tick query' ? 'The server averages 4.25 ms per tick' : 'ok' }), close: async () => {} },
+		rcon: { command: async (command) => ({ text: command.includes('summon-configured') ? 'Created agent. It is ready for a task.' : command.startsWith('mineagen status') ? 'state=COMPLETED' : command === 'tick query' ? 'The server averages 4.25 ms per tick' : 'ok' }), close: async () => {} },
 		now: () => 100, providerTurnsPath: 'C:/provider.jsonl', protocolAudit: 'C:/protocol.jsonl',
 		readFile: async (file) => files.get(String(file).replace('C:/', '')) ?? '', writeFile: async () => {}, poll: async () => {},
 	});
@@ -528,7 +528,7 @@ test('uses the latest native timing snapshot and keeps native inference unknown'
 	]);
 	const report = await runHeadlessScenario({
 		scenario: scenario({ assert: [{ type: 'lifecycle', state: 'COMPLETED' }] }), runDirectory: 'C:/runs/native-timing',
-		rcon: { command: async (command) => ({ text: command.includes('summon-configured') ? `Created ${GENERATED_NAME_AT_100}. It is ready for a task.` : command.startsWith('codex status') ? 'state=COMPLETED' : 'ok' }), close: async () => {} },
+		rcon: { command: async (command) => ({ text: command.includes('summon-configured') ? `Created ${GENERATED_NAME_AT_100}. It is ready for a task.` : command.startsWith('mineagen status') ? 'state=COMPLETED' : 'ok' }), close: async () => {} },
 		now: () => 100, providerTurnsPath: 'C:/provider.jsonl', protocolAudit: 'C:/protocol.jsonl',
 		readFile: async (file) => [...files.entries()].find(([name]) => String(file).endsWith(name))?.[1] ?? '', writeFile: async () => {}, poll: async () => {},
 	});
@@ -562,7 +562,7 @@ test('accepts the production summon response and binds metrics to the authoritat
 	const commands = [];
 	const report = await runHeadlessScenario({
 		scenario: scenario({ setupBlocks: [{ x: 2, y: 201, z: 0, blockId: 'minecraft:oak_log' }], assert: [{ type: 'lifecycle', state: 'COMPLETED' }] }), runDirectory: 'C:/runs/single-authoritative',
-		rcon: { command: async (command) => { commands.push(command); return { text: command.includes('summon-configured') ? `Creating ${generatedName}. It will be ready when its player joins.` : command.startsWith('codex status') ? statusReads++ === 0 ? `${generatedName} | Ready. Current task: none. Queued tasks: 0.` : 'state=COMPLETED' : 'ok' }; }, close: async () => {} },
+		rcon: { command: async (command) => { commands.push(command); return { text: command.includes('summon-configured') ? `Creating ${generatedName}. It will be ready when its player joins.` : command.startsWith('mineagen status') ? statusReads++ === 0 ? `${generatedName} | Ready. Current task: none. Queued tasks: 0.` : 'state=COMPLETED' : 'ok' }; }, close: async () => {} },
 		now: () => 100, providerTurnsPath: 'C:/provider.jsonl', protocolAudit: 'C:/protocol.jsonl',
 		readFile: async (file) => files.get(String(file).replace('C:/', '')) ?? '', writeFile: async () => {}, poll: async () => {},
 	});
@@ -582,7 +582,7 @@ test('keeps concurrent native timing snapshots isolated by agent and exact profi
 		scenario: scenario({ rosterSize: 8, assert: [{ type: 'lifecycle', state: 'COMPLETED' }] }), runDirectory: 'C:/runs/native-timing-roster',
 		rcon: { command: async (command) => {
 			if (command.includes('summon-configured')) { const name = command.split(' ').at(-1); names.push(name); return { text: `Created ${name}. It is ready for a task.` }; }
-			return { text: command.startsWith('codex status') ? 'state=COMPLETED' : 'ok' };
+			return { text: command.startsWith('mineagen status') ? 'state=COMPLETED' : 'ok' };
 		}, close: async () => {} },
 		now: () => 100, providerTurnsPath: 'C:/provider.jsonl', protocolAudit: 'C:/protocol.jsonl',
 		readFile: async (file) => {
@@ -623,7 +623,7 @@ test('evaluates single-agent assertions only after exact authoritative identity 
 	const report = await runHeadlessScenario({
 		scenario: scenario({ timeoutMs: 1, assert: [{ type: 'lifecycle', state: 'COMPLETED' }, { type: 'chat', message: 'UNRELATED_ONLY' }] }),
 		runDirectory: 'C:/runs/single-assertion-isolation',
-		rcon: { command: async (command) => ({ text: command.includes('summon-configured') ? `Created ${generatedName}. It is ready for a task.` : command.startsWith('codex status') ? 'state=COMPLETED' : 'ok' }), close: async () => {} },
+		rcon: { command: async (command) => ({ text: command.includes('summon-configured') ? `Created ${generatedName}. It is ready for a task.` : command.startsWith('mineagen status') ? 'state=COMPLETED' : 'ok' }), close: async () => {} },
 		now: () => 100, protocolAudit: 'C:/protocol.jsonl',
 		readFile: async (file) => files.get(String(file).replace('C:/', '')) ?? '', writeFile: async () => {}, poll: async () => {},
 	});
@@ -644,7 +644,7 @@ test('aggregates concurrent metrics from exact member IDs and preserves per-agen
 		scenario: scenario({ rosterSize: 8, assert: [{ type: 'lifecycle', state: 'COMPLETED' }] }), runDirectory: 'C:/runs/concurrent-metrics',
 		rcon: { command: async (command) => {
 			if (command.includes('summon-configured')) { const name = command.split(' ').at(-1); names.push(name); return { text: `Created ${name}. It is ready for a task.` }; }
-			return { text: command.startsWith('codex status') ? 'state=COMPLETED' : 'ok' };
+			return { text: command.startsWith('mineagen status') ? 'state=COMPLETED' : 'ok' };
 		}, close: async () => {} },
 		now: () => 100, providerTurnsPath: 'C:/provider.jsonl', protocolAudit: 'C:/protocol.jsonl',
 		readFile: async (file) => {
@@ -668,7 +668,7 @@ test('provider turn summaries expose only allowlisted structured errors', async 
 	]);
 	const report = await runHeadlessScenario({
 		scenario: scenario({ assert: [{ type: 'lifecycle', state: 'COMPLETED' }] }), runDirectory: 'C:/runs/summary-error',
-		rcon: { command: async (command) => ({ text: command.includes('summon-configured') ? `Created ${generatedName}. It is ready for a task.` : command.startsWith('codex status') ? 'state=COMPLETED' : 'ok' }), close: async () => {} },
+		rcon: { command: async (command) => ({ text: command.includes('summon-configured') ? `Created ${generatedName}. It is ready for a task.` : command.startsWith('mineagen status') ? 'state=COMPLETED' : 'ok' }), close: async () => {} },
 		now: () => 100, providerTurnsPath: 'C:/provider.jsonl', protocolAudit: 'C:/protocol.jsonl', readFile: async (file) => files.get(String(file).replace('C:/', '')) ?? '', writeFile: async () => {}, poll: async () => {},
 	});
 	assert.doesNotMatch(JSON.stringify(report), new RegExp(secret));
@@ -685,7 +685,7 @@ test('fails closed when single-agent authoritative snapshot identity is missing'
 	]);
 	const report = await runHeadlessScenario({
 		scenario: scenario({ assert: [{ type: 'lifecycle', state: 'COMPLETED' }] }), runDirectory: 'C:/runs/single-missing',
-		rcon: { command: async (command) => ({ text: command.includes('summon-configured') ? `Created ${generatedName}. It is ready for a task.` : command.startsWith('codex status') ? 'state=COMPLETED' : 'ok' }), close: async () => {} },
+		rcon: { command: async (command) => ({ text: command.includes('summon-configured') ? `Created ${generatedName}. It is ready for a task.` : command.startsWith('mineagen status') ? 'state=COMPLETED' : 'ok' }), close: async () => {} },
 		now: () => 100, providerTurnsPath: 'C:/provider.jsonl', protocolAudit: 'C:/protocol.jsonl',
 		readFile: async (file) => files.get(String(file).replace('C:/', '')) ?? '', writeFile: async () => {}, poll: async () => {},
 	});
@@ -701,7 +701,7 @@ test('fails closed when single-agent authoritative snapshot identity is ambiguou
 	} } }));
 	const report = await runHeadlessScenario({
 		scenario: scenario({ assert: [{ type: 'lifecycle', state: 'COMPLETED' }] }), runDirectory: 'C:/runs/single-ambiguous',
-		rcon: { command: async (command) => ({ text: command.includes('summon-configured') ? `Created ${generatedName}. It is ready for a task.` : command.startsWith('codex status') ? 'state=COMPLETED' : 'ok' }), close: async () => {} },
+		rcon: { command: async (command) => ({ text: command.includes('summon-configured') ? `Created ${generatedName}. It is ready for a task.` : command.startsWith('mineagen status') ? 'state=COMPLETED' : 'ok' }), close: async () => {} },
 		now: () => 100, protocolAudit: 'C:/protocol.jsonl', readFile: async (file) => String(file).endsWith('protocol.jsonl') ? jsonl(snapshots) : '', writeFile: async () => {}, poll: async () => {},
 	});
 	assert.equal(report.status, 'FAILED');
@@ -712,7 +712,7 @@ test('redacts arbitrary task text and secrets from public command records', asyn
 	const secretTask = 'Find obsidian with phrase ULTRA_PRIVATE_PROMPT and api_key=sk-arbitrary-secret';
 	const report = await runHeadlessScenario({
 		scenario: scenario({ task: secretTask, assert: [{ type: 'lifecycle', state: 'COMPLETED' }] }), runDirectory: 'C:/runs/public-command-redaction',
-		rcon: { command: async (command) => ({ text: command.includes('summon-configured') ? 'Created agent. It is ready for a task.' : command.startsWith('codex status') ? 'state=COMPLETED' : 'ok' }), close: async () => {} },
+		rcon: { command: async (command) => ({ text: command.includes('summon-configured') ? 'Created agent. It is ready for a task.' : command.startsWith('mineagen status') ? 'state=COMPLETED' : 'ok' }), close: async () => {} },
 		now: () => 100, readFile: async () => '', writeFile: async () => {}, poll: async () => {},
 	});
 	const publicText = JSON.stringify(report);
@@ -727,7 +727,7 @@ test('does not pass a roster scenario when any requested profile member is skipp
 		scenario: scenario({ rosterSize: 8, assert: [{ type: 'lifecycle', state: 'COMPLETED' }] }), runDirectory: 'C:/runs/partial-profile-skip',
 		rcon: { command: async (command) => {
 			if (command.includes('summon-configured')) { const name = command.split(' ').at(-1); names.push(name); return { text: names.length === 8 ? 'profile unavailable' : `Created ${name}. It is ready for a task.` }; }
-			return { text: command.startsWith('codex status') ? 'state=COMPLETED' : 'ok' };
+			return { text: command.startsWith('mineagen status') ? 'state=COMPLETED' : 'ok' };
 		}, close: async () => {} },
 		now: () => 100, readFile: async (file) => String(file).endsWith('protocol.jsonl') ? jsonl(names.slice(0, 7).map((name, index) => ({
 			direction: 'server_to_coordinator', envelope: { type: 'agent_snapshot', agentId: `launched-${index}`, payload: { agentId: `launched-${index}`, name, provider: 'codex', model: 'gpt-5.6-sol', reasoningEffort: 'high', serviceTier: 'priority' } },
@@ -745,7 +745,7 @@ test('isolates early agent evidence before applying row bounds across more than 
 		scenario: scenario({ rosterSize: 16, assert: [{ type: 'lifecycle', state: 'COMPLETED' }, { type: 'chat', message: 'EARLY_EVIDENCE' }] }), runDirectory: 'C:/runs/many-evidence-rows',
 		rcon: { command: async (command) => {
 			if (command.includes('summon-configured')) { const name = command.split(' ').at(-1); names.push(name); return { text: `Created ${name}. It is ready for a task.` }; }
-			return { text: command.startsWith('codex status') ? 'state=COMPLETED' : 'ok' };
+			return { text: command.startsWith('mineagen status') ? 'state=COMPLETED' : 'ok' };
 		}, close: async () => {} },
 		now: () => 100, readFile: async (file) => {
 			if (!String(file).endsWith('protocol.jsonl')) return '';
@@ -777,7 +777,7 @@ test('retains authoritative action and chat evidence ahead of hundreds of later 
 			{ type: 'chat', message: 'HEADLESS_PASS' },
 			{ type: 'action', actionType: 'move', args: { x: 1 }, resultState: 'SUCCEEDED' },
 		] }), runDirectory: 'C:/runs/durable-evidence', now: () => 100,
-		rcon: { command: async (command) => ({ text: command.includes('summon-configured') ? `Created ${generatedName}. It is ready for a task.` : command.startsWith('codex status') ? 'state=COMPLETED' : 'ok' }), close: async () => {} },
+		rcon: { command: async (command) => ({ text: command.includes('summon-configured') ? `Created ${generatedName}. It is ready for a task.` : command.startsWith('mineagen status') ? 'state=COMPLETED' : 'ok' }), close: async () => {} },
 		readFile: async (file) => String(file).endsWith('protocol.jsonl') ? protocol : '', writeFile: async () => {}, poll: async () => {},
 	});
 	assert.equal(report.status, 'PASSED');
@@ -810,7 +810,7 @@ test('releases the temporary spawn chunk when summon fails', async () => {
 		'execute in minecraft:overworld run forceload remove 0 0',
 	]);
 	assert.match(commands[3], /summon-configured/);
-	assert.equal(commands.some((command) => command.startsWith('codex start ')), false);
+	assert.equal(commands.some((command) => command.startsWith('mineagen start ')), false);
 });
 
 test('bounds generated agent selectors to the Java profile limit', async () => {
@@ -822,7 +822,7 @@ test('bounds generated agent selectors to the Java profile limit', async () => {
 			command: async (command) => {
 				commands.push(command);
 				if (command.includes('summon-configured')) return { text: 'Created bounded agent. It is ready for a task.' };
-				return { text: command.startsWith('codex status') ? 'state=COMPLETED' : 'ok' };
+				return { text: command.startsWith('mineagen status') ? 'state=COMPLETED' : 'ok' };
 			},
 			close: async () => {},
 		},
@@ -842,10 +842,10 @@ test('fails immediately when summon lacks the exact Java success response', asyn
 		readFile: async () => '', writeFile: async () => {}, poll: async () => {},
 	});
 	assert.equal(report.classification, 'ERROR');
-	assert.equal(commands.some((command) => command.startsWith('codex start')), false);
+	assert.equal(commands.some((command) => command.startsWith('mineagen start')), false);
 });
 
-test('parses the exact Java codex status lifecycle strings', async () => {
+test('parses the exact Java mineagen status lifecycle strings', async () => {
 	for (const [statusText, expected] of [
 		['runner | Task complete. Goal finished.', 'PASSED'],
 		['runner | Needs attention. Provider failed.', 'ERROR'],
@@ -856,14 +856,14 @@ test('parses the exact Java codex status lifecycle strings', async () => {
 			scenario: scenario({ assert: [{ type: 'lifecycle', state: expected === 'PASSED' ? 'COMPLETED' : expected }] }),
 			runDirectory: 'C:/runs/status-shapes',
 			rcon: {
-				command: async (command) => { commands.push(command); return { text: command.includes('summon-configured') ? 'Created test agent. It is ready for a task.' : command.startsWith('codex status') ? statusText : 'ok' }; },
+				command: async (command) => { commands.push(command); return { text: command.includes('summon-configured') ? 'Created test agent. It is ready for a task.' : command.startsWith('mineagen status') ? statusText : 'ok' }; },
 				close: async () => {},
 			},
 			now: () => 1,
 			readFile: async () => '', poll: async () => {}, writeFile: async () => {},
 		});
 		assert.equal(report.classification, expected);
-		assert.equal(commands.filter((command) => command.includes('codex status')).length, 1);
+		assert.equal(commands.filter((command) => command.includes('mineagen status')).length, 1);
 	}
 });
 
@@ -874,7 +874,7 @@ test('polls beyond the old 256-attempt cap until a long-deadline terminal state'
 		scenario: scenario({ timeoutMs: 20_000, assert: [{ type: 'lifecycle', state: 'COMPLETED' }] }),
 		runDirectory: 'C:/runs/long-poll',
 		rcon: {
-		command: async (command) => ({ text: command.includes('summon-configured') ? 'Created test agent. It is ready for a task.' : command.startsWith('codex status') ? (++statusReads > 300 ? 'runner | Task complete. Goal finished.' : 'runner | Working.') : 'ok' }),
+		command: async (command) => ({ text: command.includes('summon-configured') ? 'Created test agent. It is ready for a task.' : command.startsWith('mineagen status') ? (++statusReads > 300 ? 'runner | Task complete. Goal finished.' : 'runner | Working.') : 'ok' }),
 		close: async () => {},
 	},
 	now: () => clock,
@@ -893,7 +893,7 @@ test('continues evidence polling for late markers and reads bounded tails', asyn
 		scenario: scenario({ assert: [{ type: 'lifecycle', state: 'COMPLETED' }, { type: 'chat', message: 'LATE_PASS' }] }),
 		runDirectory: 'C:/runs/late-evidence',
 		rcon: {
-		command: async (command) => ({ text: command.includes('summon-configured') ? 'Created test agent. It is ready for a task.' : command.startsWith('codex status') ? 'runner | Task complete. Goal finished.' : 'ok' }),
+		command: async (command) => ({ text: command.includes('summon-configured') ? 'Created test agent. It is ready for a task.' : command.startsWith('mineagen status') ? 'runner | Task complete. Goal finished.' : 'ok' }),
 		close: async () => {},
 	},
 	now: () => 1,
@@ -911,7 +911,7 @@ test('redacts secret-bearing diagnostics and RCON evidence from serialized repor
 		scenario: scenario({ assert: [{ type: 'lifecycle', state: 'COMPLETED' }, { type: 'rcon', command: 'list', match: 'missing' }] }),
 		runDirectory: 'C:/runs/redaction',
 		rcon: {
-		command: async (command) => command === 'list' ? { text: '{"password":"shh-secret", "token":"tok-secret"}' } : { text: command.includes('summon-configured') ? 'Created test agent. It is ready for a task.' : command.startsWith('codex status') ? 'runner | Task complete. Goal finished.' : 'ok' },
+		command: async (command) => command === 'list' ? { text: '{"password":"shh-secret", "token":"tok-secret"}' } : { text: command.includes('summon-configured') ? 'Created test agent. It is ready for a task.' : command.startsWith('mineagen status') ? 'runner | Task complete. Goal finished.' : 'ok' },
 		close: async () => {},
 	},
 	 now: () => 1, readFile: async () => '', poll: async () => {},
@@ -928,7 +928,7 @@ test('rejects mutation-capable RCON assertion commands using a conservative allo
 		const report = await runHeadlessScenario({
 			scenario: scenario({ assert: [{ type: 'lifecycle', state: 'COMPLETED' }, { type: 'rcon', command: unsafe, match: 'never' }] }),
 			runDirectory: 'C:/runs/rcon-deny',
-			rcon: { command: async (command) => { forwarded = forwarded || command === unsafe; return { text: command.includes('summon-configured') ? 'Created test agent. It is ready for a task.' : command.startsWith('codex status') ? 'runner | Task complete. Goal finished.' : 'ok' }; }, close: async () => {} },
+			rcon: { command: async (command) => { forwarded = forwarded || command === unsafe; return { text: command.includes('summon-configured') ? 'Created test agent. It is ready for a task.' : command.startsWith('mineagen status') ? 'runner | Task complete. Goal finished.' : 'ok' }; }, close: async () => {} },
 			now: () => 1, readFile: async () => '', poll: async () => {}, writeFile: async () => {},
 		});
 		assert.equal(forwarded, false);
@@ -946,7 +946,7 @@ test('allows a bounded block predicate to guard a read-only entity query', async
 		runDirectory: 'C:/runs/rcon-block-predicate',
 		rcon: { command: async (command) => {
 			if (command.startsWith('execute if block')) { forwarded = true; return { text: 'test_agent has the following entity data' }; }
-			return { text: command.includes('summon-configured') ? 'Created test_agent. It is ready for a task.' : command.startsWith('codex status') ? 'runner | Task complete. Goal finished.' : 'ok' };
+			return { text: command.includes('summon-configured') ? 'Created test_agent. It is ready for a task.' : command.startsWith('mineagen status') ? 'runner | Task complete. Goal finished.' : 'ok' };
 		}, close: async () => {} },
 		now: () => 1, readFile: async () => '', poll: async () => {}, writeFile: async () => {},
 	});
@@ -958,7 +958,7 @@ test('returns cleanup failure even when cleanup report writing also fails', asyn
 	const report = await runHeadlessScenario({
 		scenario: scenario({ assert: [{ type: 'lifecycle', state: 'COMPLETED' }] }),
 		runDirectory: 'C:/runs/cleanup-write',
-		rcon: { command: async (command) => ({ text: command.includes('summon-configured') ? 'Created test agent. It is ready for a task.' : command.startsWith('codex status') ? 'runner | Task complete. Goal finished.' : 'ok' }), close: async () => { throw new Error('port still open password=secret'); } },
+		rcon: { command: async (command) => ({ text: command.includes('summon-configured') ? 'Created test agent. It is ready for a task.' : command.startsWith('mineagen status') ? 'runner | Task complete. Goal finished.' : 'ok' }), close: async () => { throw new Error('port still open password=secret'); } },
 		now: () => 1, readFile: async () => '', poll: async () => {}, writeFile: async () => { throw new Error('disk unavailable token=secret'); },
 	});
 	assert.equal(report.classification, 'CLEANUP_FAILURE');
@@ -986,7 +986,7 @@ test('classifies timeout, terminal ERROR/DEAD, skipped profiles, assertion misma
 	const make = async (statusText, overrides = {}) => {
 		let clock = 0;
 		const rcon = {
-			command: async (command) => command.includes('codex summon-configured') ? { text: overrides.summonText ?? 'Created test agent. It is ready for a task.' } : command.startsWith('codex start') ? { text: 'started' } : { text: statusText },
+			command: async (command) => command.includes('mineagen summon-configured') ? { text: overrides.summonText ?? 'Created test agent. It is ready for a task.' } : command.startsWith('mineagen start') ? { text: 'started' } : { text: statusText },
 			close: overrides.close ?? (async () => {}),
 		};
 		const selectedScenario = overrides.scenario ? { ...scenario(), ...overrides.scenario } : scenario({ assert: [{ type: 'lifecycle', state: 'COMPLETED' }] });
@@ -1027,8 +1027,8 @@ async function runChatEvidence({ protocol = [], coordinator = [], rosterSize = 1
 		rcon: {
 			command: async (command) => {
 				if (command.includes('summon-configured')) { const name = command.split(' ').at(-1); names.push(name); return { text: `Created ${name}. It is ready for a task.` }; }
-				if (command.startsWith('codex status ')) return { text: 'state=COMPLETED' };
-				if (command.startsWith('codex remove ')) { removals.push(command); return removal(command); }
+				if (command.startsWith('mineagen status ')) return { text: 'state=COMPLETED' };
+				if (command.startsWith('mineagen remove ')) { removals.push(command); return removal(command); }
 				return { text: 'ok' };
 			},
 			close: async () => { closes.rcon += 1; },
@@ -1082,7 +1082,7 @@ test('a terminal word inside the echoed task text does not end the run', async (
 			rcon: {
 				command: async (command) => {
 					if (command.includes('summon-configured')) return { text: 'Created test agent. It is ready for a task.' };
-					if (command.startsWith('codex status ')) { statusReads += 1; clock += 200; return { text: `runner | Working. Current task: ${task}. Queued tasks: 0.` }; }
+					if (command.startsWith('mineagen status ')) { statusReads += 1; clock += 200; return { text: `runner | Working. Current task: ${task}. Queued tasks: 0.` }; }
 					return { text: 'ok' };
 				},
 				close: async () => {},
@@ -1095,7 +1095,7 @@ test('a terminal word inside the echoed task text does not end the run', async (
 	for (const [label, expected] of [['Task complete', 'PASSED'], ['Needs attention', 'ERROR'], ['Dead - ready to respawn', 'DEAD']]) {
 		const report = await runHeadlessScenario({
 			scenario: scenario({ assert: [{ type: 'lifecycle', state: expected === 'PASSED' ? 'COMPLETED' : expected }] }), runDirectory: 'C:/runs/status-java-format',
-			rcon: { command: async (command) => ({ text: command.includes('summon-configured') ? 'Created test agent. It is ready for a task.' : command.startsWith('codex status') ? `runner | ${label}. Current task: none. Queued tasks: 0.` : 'ok' }), close: async () => {} },
+			rcon: { command: async (command) => ({ text: command.includes('summon-configured') ? 'Created test agent. It is ready for a task.' : command.startsWith('mineagen status') ? `runner | ${label}. Current task: none. Queued tasks: 0.` : 'ok' }), close: async () => {} },
 			now: () => 1, readFile: async () => '', poll: async () => {}, writeFile: async () => {},
 		});
 		assert.equal(report.classification, expected, label);

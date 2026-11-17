@@ -2,6 +2,10 @@
 
 This file is for agents working on the codebase. The in-game agent's own instructions live in `coordinator/config/minecraft-agent/AGENTS.md`.
 
+## Current goal
+
+The goal right now is for one AI agent to beat Minecraft from scratch: start with an empty inventory in a new random world and kill the Ender Dragon on its own, in a reasonable time. Every change should move that forward or keep it from going backward. [docs/goal-progress.md](docs/goal-progress.md) says how progress is measured and has the latest numbers. Read it before you pick work, and add to its status table when a full-game round finishes.
+
 ## Private details stay off the repository
 
 This repository is public. Every push is public at once, and deleting a line later does not take it back.

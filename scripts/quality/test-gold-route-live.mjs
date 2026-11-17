@@ -123,14 +123,14 @@ try{
  const registered=s.inbox.wait('agent_registered',()=>true,45000);
  let summon;
  for(let n=0;n<20;n++){
-  summon=await s.command('execute positioned 0.5 200 0.5 run codex summon gpt-6.1-sol low Probe');
+  summon=await s.command('execute positioned 0.5 200 0.5 run mineagen summon gpt-6.1-sol low Probe');
   if(!summon.includes('MODEL_CATALOG_UNAVAILABLE'))break;
   await s.bridge.send('catalog_snapshot','server',{refreshedAtEpochMs:Date.now(),models:[{provider:'codex',model:'gpt-6.1-sol',id:'gpt-6.1-sol',displayName:'Model-free gold route',reasoningEfforts:['low'],serviceTiers:['default']}]});await sleep(100);
  }
  if(!summon.includes('Creating')){registered.catch(()=>{});throw Error('Summon refused');}
  const e=await registered;s.record={...(e.payload.record??e.payload),agentId:e.agentId};
  await s.bridge.send('agent_ready',s.record.agentId,{goalRevision:s.record.goalRevision,reconciled:false});
- const start=s.inbox.wait('goal_control',e=>e.payload.operation==='start');await s.command('codex start Probe Survive for 5000 seconds.');
+ const start=s.inbox.wait('goal_control',e=>e.payload.operation==='start');await s.command('mineagen start Probe Survive for 5000 seconds.');
  s.record.goalRevision=(await start).payload.goalRevision;await s.bridge.send('agent_ready',s.record.agentId,{goalRevision:s.record.goalRevision,reconciled:false});
  s.bridge.on('observation',e=>{if(active&&e.agentId===s.record.agentId&&e.payload.status==='PLAYER_DEAD')dead=true;});
  const receipt=await applyQualitySetup({...cp.setup,randomSalt:Number(saltArg)},async text=>({text:await s.command(text)}),'Probe');

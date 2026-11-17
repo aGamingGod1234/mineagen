@@ -6,7 +6,7 @@ import com.google.gson.JsonObject;
 import dev.agaminggod.mineagen.agent.AgentId;
 import dev.agaminggod.mineagen.agent.AgentRecord;
 import dev.agaminggod.mineagen.protocol.ActionType;
-import dev.agaminggod.mineagen.server.CodexAgentManager;
+import dev.agaminggod.mineagen.server.AgentManager;
 import dev.agaminggod.mineagen.server.bridge.BridgeTap;
 import dev.agaminggod.mineagen.server.perception.ObservationVisibility;
 import dev.agaminggod.mineagen.server.runtime.ServerActionExecutor;
@@ -287,7 +287,7 @@ public final class Watcher {
 
 	private void tick() {
 		long started = System.nanoTime();
-		CodexAgentManager manager = CodexAgentManager.get(server);
+		AgentManager manager = AgentManager.get(server);
 		ServerActionExecutor executor = BridgeTap.executor(server);
 		ReflexEngine reflexes = ReflexEngine.existing(server).orElse(null);
 		long tick = server.getTickCount();

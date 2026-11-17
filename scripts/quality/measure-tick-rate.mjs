@@ -117,7 +117,7 @@ async function addBody(index) {
 		const registered = s.inbox.wait('agent_registered', () => true, 45_000).catch(() => null);
 		await s.command(`forceload add ${x} ${z}`);
 		for (let wait = 0; wait < 60 && !/time is/i.test(await s.command(`execute if loaded ${x} 0 ${z} run time query gametime`)); wait++) await sleep(1000);
-		await s.command(`execute positioned ${x} 0 ${z} positioned over motion_blocking_no_leaves run codex summon gpt-6.1-sol low ${name}`);
+		await s.command(`execute positioned ${x} 0 ${z} positioned over motion_blocking_no_leaves run mineagen summon gpt-6.1-sol low ${name}`);
 		e = await registered;
 	}
 	if (!e) throw new Error(`${name} never registered`);
@@ -125,7 +125,7 @@ async function addBody(index) {
 	records.set(e.agentId, record);
 	await s.bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false });
 	const started = s.inbox.wait('goal_control', g => g.agentId === record.agentId && g.payload.operation === 'start', 120_000);
-	await s.command(`codex start ${name} Survive for 1200 seconds.`);
+	await s.command(`mineagen start ${name} Survive for 1200 seconds.`);
 	record.goalRevision = Math.max(record.goalRevision, (await started).payload.goalRevision);
 	await s.bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false });
 	await s.command(`gamemode survival ${name}`);

@@ -27,8 +27,8 @@ import dev.agaminggod.mineagen.server.goal.GoalSpecRequestSink;
 import dev.agaminggod.mineagen.server.goal.GoalSubmission;
 import dev.agaminggod.mineagen.server.goal.GoalSubmissionFlow;
 import dev.agaminggod.mineagen.server.goal.DraftIntent;
-import dev.agaminggod.mineagen.agent.CodexAgentEntities;
-import dev.agaminggod.mineagen.agent.CodexAgentEntity;
+import dev.agaminggod.mineagen.agent.AgentEntities;
+import dev.agaminggod.mineagen.agent.AgentEntity;
 import dev.agaminggod.mineagen.server.conversation.ConversationEvent;
 import dev.agaminggod.mineagen.server.conversation.ModelTaskAdoption;
 import dev.agaminggod.mineagen.server.conversation.PendingConversationWake;
@@ -78,9 +78,9 @@ import net.minecraft.world.waypoints.WaypointStyleAssets;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public final class CodexAgentManager {
-	private static final Logger LOGGER = LoggerFactory.getLogger(CodexAgentManager.class);
-	private static final Map<MinecraftServer, CodexAgentManager> INSTANCES = new WeakHashMap<>();
+public final class AgentManager {
+	private static final Logger LOGGER = LoggerFactory.getLogger(AgentManager.class);
+	private static final Map<MinecraftServer, AgentManager> INSTANCES = new WeakHashMap<>();
 	private static final int AGENT_TICKET_RADIUS = 2;
 	private static final long PLAYER_SPAWN_TIMEOUT_MS = 10_000L;
 	private static final int MAX_PLAYER_NAME_ALLOCATION_ATTEMPTS = 64;
@@ -119,23 +119,23 @@ public final class CodexAgentManager {
 	private final AtomicBoolean releaseStarted = new AtomicBoolean();
 	private AgentRuntimeHooks runtimeHooks = AgentRuntimeHooks.NO_OP;
 
-	private CodexAgentManager(MinecraftServer server) {
+	private AgentManager(MinecraftServer server) {
 		this.server = Objects.requireNonNull(server, "server must not be null");
 		this.savedData = AgentSavedData.get(server);
 		this.savedData.setRuntimeHooks(new ForwardingRuntimeHooks());
 		prunePersistentMembership();
 	}
 
-	public static synchronized CodexAgentManager get(MinecraftServer server) {
+	public static synchronized AgentManager get(MinecraftServer server) {
 		return INSTANCES.computeIfAbsent(
 				Objects.requireNonNull(server, "server must not be null"),
-				CodexAgentManager::new
+				AgentManager::new
 		);
 	}
 
 	/** A name read must not initialize a manager while players are joining or leaving. */
 	public static synchronized Optional<String> playerDisplayName(ServerPlayer player) {
-		CodexAgentManager manager = INSTANCES.get(player.level().getServer());
+		AgentManager manager = INSTANCES.get(player.level().getServer());
 		if (manager == null) return Optional.empty();
 		return manager.records().stream()
 				.filter(record -> OfflineAgentPlayers.isManagedFakePlayer(player, record.agentId(), record.profile()))
@@ -143,7 +143,7 @@ public final class CodexAgentManager {
 	}
 
 	public static synchronized void release(MinecraftServer server) {
-		CodexAgentManager manager = INSTANCES.remove(server);
+		AgentManager manager = INSTANCES.remove(server);
 		if (manager != null) {
 			try {
 				manager.releaseOwnedState();
@@ -809,7 +809,7 @@ public final class CodexAgentManager {
 	private VanillaRespawnAttempt beginVanillaRespawn(AgentId agentId) {
 		AgentRecord record = savedData.registry().require(Objects.requireNonNull(agentId, "agentId must not be null"));
 		if (record.state() != dev.agaminggod.mineagen.agent.AgentLifecycleState.DEAD) {
-			throw new AgentDomainException("AGENT_NOT_DEAD", "Only a dead Codex agent can be respawned");
+			throw new AgentDomainException("AGENT_NOT_DEAD", "Only a dead agent can be respawned");
 		}
 		runtimeHooks.validateProfile(record.profile());
 		try {
@@ -1430,9 +1430,9 @@ public final class CodexAgentManager {
 	private boolean recoverOfflinePlayer(AgentRecord record, long now) {
 		Optional<RecoverySpawn> recovery;
 		try {
-			Optional<CodexAgentEntity> legacy = findAgentEntity(record.agentId());
+			Optional<AgentEntity> legacy = findAgentEntity(record.agentId());
 			if (legacy.isPresent() && legacy.get().level() instanceof ServerLevel legacyLevel) {
-				CodexAgentEntity legacyEntity = legacy.get();
+				AgentEntity legacyEntity = legacy.get();
 				Vec3 legacyPosition = legacyEntity.position();
 				AgentRecoverySpawnPolicy.ChunkPosition chunk =
 						AgentRecoverySpawnPolicy.chunkContaining(legacyPosition.x, legacyPosition.z);
@@ -1903,11 +1903,11 @@ public final class CodexAgentManager {
 		return server;
 	}
 
-	public Optional<CodexAgentEntity> findAgentEntity(AgentId agentId) {
+	public Optional<AgentEntity> findAgentEntity(AgentId agentId) {
 		AgentRecord record = savedData.registry().require(agentId);
 		return findEntity(record)
-				.filter(CodexAgentEntity.class::isInstance)
-				.map(CodexAgentEntity.class::cast)
+				.filter(AgentEntity.class::isInstance)
+				.map(AgentEntity.class::cast)
 				.or(() -> findLoadedAgentEntity(agentId));
 	}
 
@@ -1916,10 +1916,10 @@ public final class CodexAgentManager {
 		return OfflineAgentPlayers.find(server, agentId, record.profile());
 	}
 
-	private Optional<CodexAgentEntity> findLoadedAgentEntity(AgentId agentId) {
+	private Optional<AgentEntity> findLoadedAgentEntity(AgentId agentId) {
 		for (ServerLevel level : server.getAllLevels()) {
 			for (Entity entity : level.getAllEntities()) {
-				if (entity instanceof CodexAgentEntity agentEntity
+				if (entity instanceof AgentEntity agentEntity
 						&& agentEntity.getAgentId().filter(agentId::equals).isPresent()) {
 					return Optional.of(agentEntity);
 				}
@@ -1983,7 +1983,7 @@ public final class CodexAgentManager {
 
 	private static AgentEntityLocation entityLocation(Entity entity) {
 		if (!(entity.level() instanceof ServerLevel level)) {
-			throw new AgentDomainException("AGENT_LEVEL_INVALID", "Codex agent is not in a server level");
+			throw new AgentDomainException("AGENT_LEVEL_INVALID", "Agent is not in a server level");
 		}
 		ChunkPos position = entity.chunkPosition();
 		return AgentEntityLocation.exact(
@@ -2000,7 +2000,7 @@ public final class CodexAgentManager {
 
 	private void trackChunkTicket(AgentId agentId, Entity entity, long nowEpochMs) {
 		if (!(entity.level() instanceof ServerLevel level)) {
-			throw new AgentDomainException("AGENT_LEVEL_INVALID", "Codex agent is not in a server level");
+			throw new AgentDomainException("AGENT_LEVEL_INVALID", "Agent is not in a server level");
 		}
 		ChunkPos position = entity.chunkPosition();
 		AgentChunkTicket current = chunkTickets.get(agentId);
@@ -2105,7 +2105,7 @@ public final class CodexAgentManager {
 			}
 			if (transition.after().state() == dev.agaminggod.mineagen.agent.AgentLifecycleState.PLANNING
 					&& transition.before().state() != transition.after().state()) {
-				AgentChatReporter.planning(CodexAgentManager.this, transition.after());
+				AgentChatReporter.planning(AgentManager.this, transition.after());
 			}
 			runtimeHooks.onTransition(transition);
 		}

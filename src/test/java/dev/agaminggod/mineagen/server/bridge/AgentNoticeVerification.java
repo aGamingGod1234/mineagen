@@ -3,7 +3,7 @@ package dev.agaminggod.mineagen.server.bridge;
 import com.google.gson.JsonObject;
 import dev.agaminggod.mineagen.server.AgentChatReporter;
 import dev.agaminggod.mineagen.server.AgentSavedData;
-import dev.agaminggod.mineagen.server.CodexAgentManager;
+import dev.agaminggod.mineagen.server.AgentManager;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.lang.reflect.Field;
@@ -46,7 +46,7 @@ public final class AgentNoticeVerification {
 		verifyStrictSchema();
 		verifyChatPresentation();
 		verifyNoticeIsAcceptedForIdleAndUnknownAgents();
-		return 27;
+		return 26;
 	}
 
 	private static void verifyStrictSchema() {
@@ -94,7 +94,7 @@ public final class AgentNoticeVerification {
 			String secret = "0123456789abcdef0123456789abcdef";
 			secretFile = Files.createTempFile("mineagen-agent-notice-", ".txt");
 			Files.writeString(secretFile, secret);
-			CodexAgentManager manager = uninitializedManager();
+			AgentManager manager = uninitializedManager();
 			var record = manager.registry().create("gpt-5.6-luna", "high", Optional.of("NoticeAgent"), 1_000L);
 			bridge = new MultiplexedServerBridge(manager, 0, secretFile);
 			List<MultiplexedServerBridge.AcceptedAgentNotice> accepted = new ArrayList<>();
@@ -107,7 +107,6 @@ public final class AgentNoticeVerification {
 				sendHello(socket, reader, codec, secret, "hello-agent-notice");
 				BridgeEnvelope helloAck = codec.decode(reader.readLine());
 				assertEquals("hello_ack", helloAck.type(), "notice fixture authenticates");
-				assertEquals("verbose_control", codec.decode(reader.readLine()).type(), "notice fixture receives control");
 
 				// The agent is idle (no goal revision), which is exactly when agent_error would be dropped.
 				send(socket, codec, new BridgeEnvelope(
@@ -164,15 +163,15 @@ public final class AgentNoticeVerification {
 		return payload;
 	}
 
-	private static CodexAgentManager uninitializedManager() {
+	private static AgentManager uninitializedManager() {
 		try {
 			Field field = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
 			field.setAccessible(true);
 			sun.misc.Unsafe unsafe = (sun.misc.Unsafe) field.get(null);
-			CodexAgentManager manager = (CodexAgentManager) unsafe.allocateInstance(CodexAgentManager.class);
-			Field savedData = CodexAgentManager.class.getDeclaredField("savedData");
+			AgentManager manager = (AgentManager) unsafe.allocateInstance(AgentManager.class);
+			Field savedData = AgentManager.class.getDeclaredField("savedData");
 			unsafe.putObject(manager, unsafe.objectFieldOffset(savedData), new AgentSavedData());
-			Field pendingRegistrations = CodexAgentManager.class.getDeclaredField("pendingAgentRegistrations");
+			Field pendingRegistrations = AgentManager.class.getDeclaredField("pendingAgentRegistrations");
 			unsafe.putObject(manager, unsafe.objectFieldOffset(pendingRegistrations), ConcurrentHashMap.newKeySet());
 			return manager;
 		} catch (ReflectiveOperationException exception) {

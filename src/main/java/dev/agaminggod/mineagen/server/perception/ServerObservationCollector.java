@@ -7,7 +7,7 @@ import com.google.gson.JsonObject;
 import dev.agaminggod.mineagen.agent.AgentId;
 import dev.agaminggod.mineagen.agent.AgentRecord;
 import dev.agaminggod.mineagen.agent.AgentDomainException;
-import dev.agaminggod.mineagen.server.CodexAgentManager;
+import dev.agaminggod.mineagen.server.AgentManager;
 import dev.agaminggod.mineagen.server.ObservedWorldIdentity;
 import dev.agaminggod.mineagen.server.runtime.BlockPlacementAttemptPolicy;
 import dev.agaminggod.mineagen.server.runtime.ServerActionExecutor;
@@ -112,7 +112,7 @@ public final class ServerObservationCollector {
 	static final float LANDMARK_VIEW_QUANTUM_DEGREES = 4.0F;
 	private static final EquipmentSlot[] EQUIPMENT_SLOTS = EquipmentSlot.values();
 
-	private final CodexAgentManager manager;
+	private final AgentManager manager;
 	private final ServerActionExecutor actionExecutor;
 	private final ObservationSectionCache<RawSpatialObservation.Key, RawSpatialObservation> spatialCache =
 			new ObservationSectionCache<>(SPATIAL_CACHE_CAPACITY, SPATIAL_CACHE_TICKS, value -> value);
@@ -136,7 +136,7 @@ public final class ServerObservationCollector {
 	private final Map<AgentId, InventorySnapshot> lastInventories = new HashMap<>();
 	private static final IdentityHashMap<Holder<?>, List<String>> TAG_VALUES = new IdentityHashMap<>();
 
-	public ServerObservationCollector(CodexAgentManager manager, ServerActionExecutor actionExecutor) {
+	public ServerObservationCollector(AgentManager manager, ServerActionExecutor actionExecutor) {
 		this.manager = Objects.requireNonNull(manager, "manager must not be null");
 		this.actionExecutor = Objects.requireNonNull(actionExecutor, "actionExecutor must not be null");
 	}
@@ -218,7 +218,7 @@ public final class ServerObservationCollector {
 		player.addProperty("maxAir", Math.max(1, agent.getMaxAirSupply()));
 		// Eyes under water: air is draining. airSecondsLeft is the time before drowning damage starts.
 		player.addProperty("underWater", agent.isUnderWater());
-		// Only while an operator's /takeover owns the body, so the coordinator never wakes the model to act on it.
+		// Only while an operator's /mineagen takeover owns the body, so the coordinator never wakes the model to act on it.
 		if (dev.agaminggod.mineagen.server.pov.AgentControlReservations.isReserved(level.getServer(), agentId)) {
 			player.addProperty("operatorControlled", true);
 		}

@@ -30,7 +30,7 @@ public final class AgentPlayerSkins {
 					? AgentVisualIdentity.resolveProviderFallback(legacy.provider(), legacy.variant())
 					: AgentVisualIdentity.resolveFamily(legacy.provider(), legacy.modelFamily(), legacy.variant());
 		}
-		Identifier texture = CodexAgentRenderer.textureFor(identity);
+		Identifier texture = AgentRenderer.textureFor(identity);
 		ClientAsset.Texture body = new ClientAsset.ResourceTexture(texture, texture);
 		return Optional.of(new PlayerSkin(body, null, null, PlayerModelType.WIDE, false));
 	}

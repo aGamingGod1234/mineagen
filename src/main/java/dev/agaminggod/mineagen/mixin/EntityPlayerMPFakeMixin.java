@@ -3,7 +3,7 @@ package dev.agaminggod.mineagen.mixin;
 import carpet.patches.EntityPlayerMPFake;
 import com.mojang.authlib.GameProfile;
 import dev.agaminggod.mineagen.server.AgentDeathCapture;
-import dev.agaminggod.mineagen.server.CodexAgentManager;
+import dev.agaminggod.mineagen.server.AgentManager;
 import dev.agaminggod.mineagen.server.OfflineAgentProfileLookup;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -21,10 +21,10 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 @Mixin(value = EntityPlayerMPFake.class, remap = false)
 abstract class EntityPlayerMPFakeMixin {
 	@Inject(method = "kill(Lnet/minecraft/server/level/ServerLevel;)V", at = @At("HEAD"), cancellable = true, remap = false)
-	private void mineagen$killArenaBodyAsVanillaDeath(ServerLevel level, CallbackInfo callback) {
+	private void mineagen$killAgentBodyAsVanillaDeath(ServerLevel level, CallbackInfo callback) {
 		EntityPlayerMPFake player = (EntityPlayerMPFake) (Object) this;
-		boolean arenaBody = CodexAgentManager.playerDisplayName(player).isPresent();
-		switch (AgentDeathCapture.killRoute(arenaBody, player.isDeadOrDying())) {
+		boolean agentBody = AgentManager.playerDisplayName(player).isPresent();
+		switch (AgentDeathCapture.killRoute(agentBody, player.isDeadOrDying())) {
 			case CARPET_DISCONNECT -> { }
 			case ALREADY_DEAD -> callback.cancel();
 			case VANILLA_DEATH -> {
@@ -71,7 +71,7 @@ abstract class EntityPlayerMPFakeMixin {
 	)
 	private void mineagen$retainManagedDeath(EntityPlayerMPFake player, Component reason) {
 		MinecraftServer server = player.level().getServer();
-		if (server != null && CodexAgentManager.get(server).retainConnectedDeath(player)) return;
+		if (server != null && AgentManager.get(server).retainConnectedDeath(player)) return;
 		player.kill(reason);
 	}
 }

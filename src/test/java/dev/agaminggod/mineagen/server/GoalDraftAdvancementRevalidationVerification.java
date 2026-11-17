@@ -43,14 +43,14 @@ public final class GoalDraftAdvancementRevalidationVerification {
 				))
 		));
 
-		CodexAgentManager.validateLiveGoalIdentifiers(
+		AgentManager.validateLiveGoalIdentifiers(
 				nested, liveItems::contains, liveEntities::contains, liveAdvancements::contains);
 		pass("valid nested draft identifiers survive confirmation revalidation");
 
 		liveItems.clear();
 		expectCode(
 				"UNKNOWN_GOAL_IDENTIFIER",
-				() -> CodexAgentManager.validateLiveGoalIdentifiers(
+				() -> AgentManager.validateLiveGoalIdentifiers(
 						nested, liveItems::contains, liveEntities::contains, liveAdvancements::contains),
 				"restart removal rejects a stale item nested under all-of"
 		);
@@ -59,7 +59,7 @@ public final class GoalDraftAdvancementRevalidationVerification {
 		liveEntities.clear();
 		expectCode(
 				"UNKNOWN_GOAL_IDENTIFIER",
-				() -> CodexAgentManager.validateLiveGoalIdentifiers(
+				() -> AgentManager.validateLiveGoalIdentifiers(
 						nested, liveItems::contains, liveEntities::contains, liveAdvancements::contains),
 				"restart removal rejects a stale entity nested under any-of"
 		);
@@ -68,7 +68,7 @@ public final class GoalDraftAdvancementRevalidationVerification {
 		liveAdvancements.remove("example:quest/finish");
 		expectCode(
 				"UNKNOWN_GOAL_IDENTIFIER",
-				() -> CodexAgentManager.validateLiveGoalIdentifiers(
+				() -> AgentManager.validateLiveGoalIdentifiers(
 						nested, liveItems::contains, liveEntities::contains, liveAdvancements::contains),
 				"reload removal rejects a stale advancement nested under any-of"
 		);
@@ -76,7 +76,7 @@ public final class GoalDraftAdvancementRevalidationVerification {
 		liveAdvancements.clear();
 		expectCode(
 				"UNKNOWN_GOAL_IDENTIFIER",
-				() -> CodexAgentManager.validateLiveGoalIdentifiers(
+				() -> AgentManager.validateLiveGoalIdentifiers(
 						nested, liveItems::contains, liveEntities::contains, liveAdvancements::contains),
 				"restart removal rejects every stale advancement leaf before activation"
 		);
@@ -85,7 +85,7 @@ public final class GoalDraftAdvancementRevalidationVerification {
 				new GoalPredicate.InventoryContains("minecraft:iron_pickaxe", 1),
 				new GoalPredicate.SurviveDuration(20)
 		));
-		CodexAgentManager.validateLiveGoalIdentifiers(
+		AgentManager.validateLiveGoalIdentifiers(
 				nonAdvancement, ignored -> true, ignored -> false, ignored -> false);
 		pass("non-advancement predicates remain valid when no advancements are registered");
 		return 6;
@@ -95,7 +95,7 @@ public final class GoalDraftAdvancementRevalidationVerification {
 		Set<String> liveItems = new LinkedHashSet<>(List.of("example:oak_log", "example:birch_log"));
 		Set<String> checkedItems = new LinkedHashSet<>();
 		GoalPredicate alternatives = new GoalPredicate.InventoryContainsAny(List.copyOf(liveItems), 12);
-		CodexAgentManager.validateLiveGoalIdentifiers(alternatives, itemId -> {
+		AgentManager.validateLiveGoalIdentifiers(alternatives, itemId -> {
 			checkedItems.add(itemId);
 			return liveItems.contains(itemId);
 		}, ignored -> false, ignored -> false);
@@ -104,7 +104,7 @@ public final class GoalDraftAdvancementRevalidationVerification {
 		pass("a mixed-item inventory goal checks every listed item against the live registry");
 
 		liveItems.remove("example:birch_log");
-		expectCode("UNKNOWN_GOAL_IDENTIFIER", () -> CodexAgentManager.validateLiveGoalIdentifiers(
+		expectCode("UNKNOWN_GOAL_IDENTIFIER", () -> AgentManager.validateLiveGoalIdentifiers(
 				new GoalPredicate.AnyOf(List.of(new GoalPredicate.SurviveDuration(20), alternatives)),
 				liveItems::contains, ignored -> false, ignored -> false),
 				"a removed alternative item is rejected even when another branch or item remains valid");
@@ -116,14 +116,14 @@ public final class GoalDraftAdvancementRevalidationVerification {
 				new GoalPredicate.InventoryContains("minecraft:apple", 38),
 				new GoalPredicate.InventoryContains("minecraft:dirt", 64)
 		));
-		CodexAgentManager.validateGoalDraftPredicate(predicate, RegistryAccess.EMPTY, ignored -> true);
+		AgentManager.validateGoalDraftPredicate(predicate, RegistryAccess.EMPTY, ignored -> true);
 		pass("staged compound fits the original shared inventory capacity");
 
 		bindItemStackSize(Items.APPLE, 1);
 		try {
 			expectCode(
 					"INVALID_GOAL_PREDICATE",
-					() -> CodexAgentManager.validateGoalDraftPredicate(
+					() -> AgentManager.validateGoalDraftPredicate(
 							predicate, RegistryAccess.EMPTY, ignored -> true),
 					"confirmation rejects a compound after a restart lowers its live stack limit"
 			);

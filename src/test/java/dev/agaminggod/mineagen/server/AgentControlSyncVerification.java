@@ -53,7 +53,7 @@ public final class AgentControlSyncVerification {
 		for (long now = 11_050L; now <= 13_000L; now += 50L) lateAnswers += limiter.due(now).getOrDefault(spammer, 0);
 		assertEquals(SnapshotRequestLimiter.MAX_DEFERRED - 4, lateAnswers, "every deferred request is answered once");
 
-		// The Field Console (one request a second, a few more after a command) is never deferred.
+		// The control center (one request a second, a few more after a command) is never deferred.
 		for (long now = 20_000L; now < 80_000L; now += 1_000L) {
 			assertEquals(SnapshotRequestLimiter.Decision.SEND, limiter.request(console, now), "periodic refresh is answered at once");
 			if (now % 10_000L == 0L) {
@@ -126,7 +126,7 @@ public final class AgentControlSyncVerification {
 		registry.attachEntity(active.agentId(), attachment, location, 102L);
 		registry.attachEntity(idle.agentId(), UUID.randomUUID(), location, 102L);
 		registry.start(active.agentId(), "continue mining", 103L);
-		CodexAgentManager.prepareMissingPlayer(registry, registry.require(active.agentId()), true,
+		AgentManager.prepareMissingPlayer(registry, registry.require(active.agentId()), true,
 				new java.util.LinkedHashSet<>(), 104L);
 		var catalog = AgentControlCatalog.currentOptions();
 		var absent = AgentControlSync.controlSnapshot(true, true, "Automation ready", 105L,
