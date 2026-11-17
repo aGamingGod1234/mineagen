@@ -2731,11 +2731,13 @@ export class NativeToolRuntime {
 				steps += 1;
 				const action = normalizeMinecraftToolCall('act', { actionType, arguments: args });
 				if (action.kind !== 'action') throw codedError('INVALID_NATIVE_TOOL', `${label} expected one body action for ${actionType}`);
-				let seen = null, running = true;
-				// Samples arrive with each published change; a watched leg also asks for one every 2 s.
+				let seen = null, running = true, timer = null, wake = null;
+				// Samples arrive with each published change; a watched leg also asks for one every 2 s. The leg's end wakes the
+				// sleep, so the next leg never waits out the rest of it (it cost about 1.5 s after every failed search leg).
+				const stop = () => { running = false; clearTimeout(timer); wake?.(); };
 				const watcher = watch === null ? null : (async () => {
 					while (running) {
-						await new Promise((resolve) => setTimeout(resolve, 2_000));
+						await new Promise((resolve) => { wake = resolve; timer = setTimeout(resolve, 2_000); });
 						if (!running || this.#executionEpoch(agentId) !== executionEpoch) return;
 						let sample = latest();
 						try { sample = (await this.#observe(record, { includeMetadata: false, deliver: false })).observation ?? sample; } catch { /* the latest pushed sample stands */ }
@@ -2751,7 +2753,7 @@ export class NativeToolRuntime {
 				})();
 				let result;
 				try { result = await this.#executeAction(request, record, action, steps); }
-				finally { running = false; }
+				finally { stop(); }
 				await watcher;
 				return seen === null ? result : { ...result, seen };
 			},
