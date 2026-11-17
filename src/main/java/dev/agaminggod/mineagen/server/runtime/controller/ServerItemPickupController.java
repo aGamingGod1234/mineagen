@@ -30,6 +30,8 @@ public final class ServerItemPickupController implements ServerController {
 	 */
 	private long walkLimitMs;
 	private boolean routeKnown;
+	/** The first planned route's length when it raised walkLimitMs, else NaN. */
+	private double limitRouteBlocks = Double.NaN;
 	private final double startDistance;
 	/** Replans the walks of this pickup have used; a walk planned again for a moved drop gets only what is left. */
 	private int replansSpent;
@@ -87,10 +89,14 @@ public final class ServerItemPickupController implements ServerController {
 		return switch (decision) {
 			case SUCCEEDED -> succeed(player);
 			case ITEM_UNAVAILABLE -> fail(player, "ITEM_UNAVAILABLE", ActionResultFacts.unavailableDrop(player, lastSeenPosition(player), identity));
-			case TIMED_OUT -> fail(player, "ITEM_PICKUP_TIMED_OUT", walkLimitMs < timeoutMs
-					? String.format(java.util.Locale.ROOT, "The player could not physically reach the dropped item %.1f blocks away within the %.1f s pickup walk limit",
-							startDistance, walkLimitMs / 1000.0D)
-					: "The player could not physically reach the dropped item");
+			case TIMED_OUT -> fail(player, "ITEM_PICKUP_TIMED_OUT", walkLimitMs >= timeoutMs
+					? "The player could not physically reach the dropped item"
+					: Double.isNaN(limitRouteBlocks)
+							? String.format(java.util.Locale.ROOT, "The player could not physically reach the dropped item %.1f blocks away within the %.1f s pickup walk limit",
+									startDistance, walkLimitMs / 1000.0D)
+							: String.format(java.util.Locale.ROOT,
+									"The player could not physically reach the dropped item %.1f blocks away by its %.1f-block planned route within the %.1f s pickup walk limit",
+									startDistance, limitRouteBlocks, walkLimitMs / 1000.0D));
 			case RUNNING -> approach(player, nowEpochMs, elapsedMs);
 		};
 	}
@@ -134,8 +140,10 @@ public final class ServerItemPickupController implements ServerController {
 		TickResult result = navigation.tick(player, nowEpochMs);
 		if (!routeKnown && !navigation.plannedRoute().isEmpty()) {
 			routeKnown = true;
-			walkLimitMs = PickupBudget.routeLimitMs(walkLimitMs,
-					PickupBudget.routeBlocks(player.getX(), player.getY(), player.getZ(), navigation.plannedRoute()), timeoutMs);
+			double routeBlocks = PickupBudget.routeBlocks(player.getX(), player.getY(), player.getZ(), navigation.plannedRoute());
+			long routeLimitMs = PickupBudget.routeLimitMs(walkLimitMs, routeBlocks, timeoutMs);
+			if (routeLimitMs > walkLimitMs) limitRouteBlocks = routeBlocks;
+			walkLimitMs = routeLimitMs;
 		}
 		if (awaitingDropLanding(result, item.onGround(), item.isNoGravity(), item.isInWater() || item.isInLava())) {
 			// A fresh mining drop has no standing position while airborne. Let vanilla
