@@ -40304,6 +40304,12 @@
           "test": "verifySeenRouteOnly",
           "type": "java-behavior",
           "command": "gradlew verifyCore"
+        },
+        {
+          "file": "src/test/java/dev/agaminggod/mineagen/server/runtime/controller/PickupRouteLimitTickVerification.java",
+          "test": "verifyLedgeRoute + verifyStraightRoute",
+          "type": "java-behavior",
+          "command": "gradlew verifyCore"
         }
       ],
       "id": "control:1508491af9ad4270:a0a7c10fead4953d",
@@ -40318,7 +40324,7 @@
         "line": 727
       },
       "status": "partial",
-      "reason": "The action shape is checked through validation and dispatch; the walk limit and replan budget are checked on PickupBudget and the seen-route refusal on a navigation fixture, but no live pickup fixture runs the limited walk yet. The route-length limit is checked on PickupBudget; its update after the first planned route in ServerItemPickupController.approach is reviewed, not exercised by a tick fixture."
+      "reason": "The action shape is checked through validation and dispatch; the walk limit and replan budget are checked on PickupBudget and the seen-route refusal on a navigation fixture, but no live pickup fixture runs the limited walk yet. The route-length limit is checked on PickupBudget, and its update after the first planned route by a tick fixture of ServerItemPickupController with a stub body, level, drop and planned walk."
     },
     {
       "id": "control:1508491af9ad4270:1f5b834be4f6fa81",
@@ -52825,6 +52831,12 @@
           "test": "verify",
           "type": "java-behavior",
           "command": "gradlew verifyCore"
+        },
+        {
+          "file": "src/test/java/dev/agaminggod/mineagen/server/runtime/controller/PickupRouteLimitTickVerification.java",
+          "test": "verifyLedgeRoute + verifyStraightRoute",
+          "type": "java-behavior",
+          "command": "gradlew verifyCore"
         }
       ],
       "id": "control:1508491af9ad4270:a0a7c10fead4953d:result:ITEM_PICKUP_TIMED_OUT",
@@ -52841,7 +52853,7 @@
         "line": 727
       },
       "status": "partial",
-      "reason": "The limit arithmetic and the timed-out decision are checked server-free; the controller's use of the limit is not exercised by a live pickup fixture yet. The route-length limit is checked on PickupBudget; its update after the first planned route in ServerItemPickupController.approach is reviewed, not exercised by a tick fixture."
+      "reason": "The limit arithmetic and the timed-out decision are checked server-free; the controller's use of the limit, raised to the first planned route's length and named in the timeout, is exercised by a tick fixture with a stub body, level, drop and planned walk, not by a live pickup fixture yet."
     },
     {
       "predicate": "pick_up_item never walks a route that ends at unseen cells short of the drop: the body looks toward the drop for more (the bounded observation replans, no step taken) and then fails NO_SEEN_ROUTE naming where the seen route ends.",
