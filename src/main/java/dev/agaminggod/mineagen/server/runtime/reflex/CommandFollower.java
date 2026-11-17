@@ -2,6 +2,7 @@ package dev.agaminggod.mineagen.server.runtime.reflex;
 
 import dev.agaminggod.mineagen.protocol.ActionType;
 import java.util.EnumSet;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -15,6 +16,30 @@ final class CommandFollower {
 			ActionType.WAIT, ActionType.PICK_UP_ITEM, ActionType.SELECT_ITEM));
 	/** An action that stops on these leaves the body to the model's reflexes instead of standing still until its turn. */
 	static final Set<String> HANDOFF_CODES = Set.of("LOW_HEALTH_BAILOUT", "ON_FIRE", "IN_LAVA", "NAVIGATION_DAMAGED");
+	/** Navigation failures a shelter's walk to its site ends on (as ServerNavigationController reports them). */
+	private static final Set<String> APPROACH_FAILURES = Set.of("NO_STANDABLE_PATH", "NO_SEEN_ROUTE", "PATH_BLOCKED", "NO_PROGRESS",
+			"REACHED_FRONTIER", "MISSED_LANDING", "DISPLACED", "ACTION_TIMEOUT", "LAVA_FLOW", "SNEAK_HOLDS_EDGE", "DESTINATION_NEAR_UNVERIFIED");
+	/**
+	 * Codes that hand off only for the action that stops on them: a travel stopped by danger, and a failed defence. Keyed by
+	 * type because the same code ends ordinary work too (NO_STANDABLE_PATH ends navigation and pickup, HOSTILE_NEAR digging).
+	 */
+	static final Map<ActionType, Set<String>> HANDOFF_CODES_BY_TYPE = Map.of(
+			ActionType.TRAVEL_TO, Set.of("TRAVEL_DAMAGED", "HOSTILE_NEAR"),
+			ActionType.FLEE_FROM, Set.of("FLEE_BLOCKED", "FLEE_TIMED_OUT", "TARGET_GONE"),
+			ActionType.BUILD_SHELTER, union(APPROACH_FAILURES, Set.of("SHELTER_TIMEOUT", "SHELTER_BLOCKED", "SNEAK_SHELTER_BLOCKED",
+					"SHELTER_DISPLACED", "NO_TOOL", "TOOL_WORN", "ITEM_NOT_FOUND", "TARGET_OCCUPIED", "PROTECTION_DENIED")));
+
+	private static Set<String> union(Set<String> first, Set<String> second) {
+		java.util.HashSet<String> all = new java.util.HashSet<>(first);
+		all.addAll(second);
+		return Set.copyOf(all);
+	}
+
+	/** Whether an action of {@code type} that stopped on {@code code} hands the body to the agent's rules. */
+	static boolean handsOff(ActionType type, String code) {
+		if (code == null) return false;
+		return HANDOFF_CODES.contains(code) || type != null && HANDOFF_CODES_BY_TYPE.getOrDefault(type, Set.of()).contains(code);
+	}
 	/** A yielded stance fires again once the body has been without an action this long after the model's command. */
 	static final long IDLE_RESUME_TICKS = 10L;
 	/** How long a yield waits for the model's command to start (a held shield), or a yielded stance waits for it to. */
@@ -48,14 +73,20 @@ final class CommandFollower {
 		idleSince = -1L;
 	}
 
-	/**
-	 * One tick. {@code activeId}/{@code activeType} name the running action (null when idle); {@code lastId} and
-	 * {@code lastReason} the latest finished one.
-	 */
+	/** As below, the finished action's type unknown (only the codes that hand off for any action count). */
 	Result observe(ReflexScheduler scheduler, boolean heldPassesMovement, String activeId, ActionType activeType,
 			String lastId, String lastReason, long now) {
+		return observe(scheduler, heldPassesMovement, activeId, activeType, lastId, null, lastReason, now);
+	}
+
+	/**
+	 * One tick. {@code activeId}/{@code activeType} name the running action (null when idle); {@code lastId},
+	 * {@code lastType} and {@code lastReason} the latest finished one.
+	 */
+	Result observe(ReflexScheduler scheduler, boolean heldPassesMovement, String activeId, ActionType activeType,
+			String lastId, ActionType lastType, String lastReason, long now) {
 		boolean handedOff = false;
-		if (activeId == null && lastActionId != null && lastActionId.equals(lastId) && HANDOFF_CODES.contains(lastReason)) {
+		if (activeId == null && lastActionId != null && lastActionId.equals(lastId) && handsOff(lastType, lastReason)) {
 			scheduler.resume(now, true);
 			yieldedAt = -1L;
 			handedOff = true;

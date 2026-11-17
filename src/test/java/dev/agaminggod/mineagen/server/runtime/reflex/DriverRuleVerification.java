@@ -36,7 +36,67 @@ public final class DriverRuleVerification {
 		floorStaysArmedAtTheRateLimit(defaults);
 		yieldableHazardsStillYield(defaults);
 		replacementGapKeepsDefendDown();
+		handOffCodesAreKeyedByActionType();
+		stoppedTravelAndFailedDefenceHandOff();
 		return assertions;
+	}
+
+	private static void handOffCodesAreKeyedByActionType() {
+		for (String code : CommandFollower.HANDOFF_CODES) {
+			check(CommandFollower.handsOff(null, code) && CommandFollower.handsOff(ActionType.MINE_VEIN, code), code + " hands off for any action");
+		}
+		check(CommandFollower.handsOff(ActionType.TRAVEL_TO, "TRAVEL_DAMAGED") && CommandFollower.handsOff(ActionType.TRAVEL_TO, "HOSTILE_NEAR"),
+				"a travel stopped by a hit or a hostile hands off");
+		for (ActionType work : List.of(ActionType.DIG_TO, ActionType.MINE_VEIN, ActionType.CAST_OBSIDIAN, ActionType.BARTER_UNTIL)) {
+			check(!CommandFollower.handsOff(work, "HOSTILE_NEAR"), work.wireName() + " stopping on HOSTILE_NEAR hands nothing off");
+		}
+		check(!CommandFollower.handsOff(null, "TRAVEL_DAMAGED") && !CommandFollower.handsOff(null, "NO_STANDABLE_PATH"),
+				"an unknown action type gets only the shared codes");
+		for (ActionType ordinary : List.of(ActionType.NAVIGATE_TO, ActionType.MOVE_TO, ActionType.PICK_UP_ITEM, ActionType.TRAVEL_TO)) {
+			check(!CommandFollower.handsOff(ordinary, "NO_STANDABLE_PATH"), ordinary.wireName() + " ending NO_STANDABLE_PATH hands nothing off");
+		}
+		check(CommandFollower.handsOff(ActionType.BUILD_SHELTER, "NO_STANDABLE_PATH") && CommandFollower.handsOff(ActionType.BUILD_SHELTER, "SHELTER_BLOCKED")
+				&& CommandFollower.handsOff(ActionType.BUILD_SHELTER, "SHELTER_TIMEOUT"), "a failed shelter hands off");
+		check(CommandFollower.handsOff(ActionType.FLEE_FROM, "FLEE_BLOCKED") && CommandFollower.handsOff(ActionType.FLEE_FROM, "FLEE_TIMED_OUT"),
+				"a failed flee hands off");
+		for (ActionType defence : List.of(ActionType.BUILD_SHELTER, ActionType.FLEE_FROM, ActionType.TRAVEL_TO)) {
+			for (String code : List.of("SHELTER_BUILT", "ESCAPED", "TARGET_LOST", "ACTION_CANCELLED", "AGENT_DEAD", "DESTINATION_REACHED")) {
+				check(!CommandFollower.handsOff(defence, code), defence.wireName() + " ending " + code + " hands nothing off");
+			}
+		}
+		check(!CommandFollower.handsOff(ActionType.TRAVEL_TO, null), "no code, no hand-off");
+	}
+
+	/**
+	 * A protective trigger that already fired and still holds (the low-health retreat) fires again at once when a travel stops
+	 * on TRAVEL_DAMAGED or a flee fails; a navigation ending NO_STANDABLE_PATH leaves it waiting for a new edge.
+	 */
+	private static void stoppedTravelAndFailedDefenceHandOff() {
+		String retreat = "[{\"id\":\"retreat\",\"priority\":7,\"when\":[{\"type\":\"health_below\",\"value\":7},{\"type\":\"hostile_near\",\"within\":6}],"
+				+ "\"do\":{\"type\":\"sprint_away\",\"blocks\":10}}]";
+		Object[][] endings = {
+				{ActionType.TRAVEL_TO, "TRAVEL_DAMAGED", true}, {ActionType.TRAVEL_TO, "HOSTILE_NEAR", true},
+				{ActionType.FLEE_FROM, "FLEE_BLOCKED", true}, {ActionType.BUILD_SHELTER, "NO_STANDABLE_PATH", true},
+				{ActionType.NAVIGATE_TO, "NO_STANDABLE_PATH", false}, {ActionType.PICK_UP_ITEM, "NO_STANDABLE_PATH", false},
+				{ActionType.DIG_TO, "HOSTILE_NEAR", false}};
+		for (Object[] ending : endings) {
+			ActionType type = (ActionType) ending[0];
+			String code = (String) ending[1];
+			boolean expected = (boolean) ending[2];
+			ReflexScheduler scheduler = new ReflexScheduler();
+			scheduler.replace(rules(retreat), 0L);
+			CommandFollower follower = new CommandFollower();
+			check("retreat".equals(step(scheduler, 1L, "retreat", true, RUNNING).started()), "the retreat fires");
+			step(scheduler, 20L, "retreat", true, ReflexScheduler.ActionStatus.DONE, "ran 10 blocks");
+			for (long tick = 21L; tick < 60L; tick++) {
+				follower.observe(scheduler, false, "act", type, null, null, null, tick);
+				check(step(scheduler, tick, "retreat", true, RUNNING).started() == null, "it waits for a new edge while " + type.wireName() + " runs");
+			}
+			CommandFollower.Result ended = follower.observe(scheduler, false, null, null, "act", type, code, 60L);
+			check(ended.handedOff() == expected, type.wireName() + " ending " + code + (expected ? " hands off" : " hands nothing off"));
+			check(("retreat".equals(step(scheduler, 60L, "retreat", true, RUNNING).started())) == expected,
+					type.wireName() + " ending " + code + (expected ? ": the retreat fires again at once" : ": the retreat still waits"));
+		}
 	}
 
 	/**

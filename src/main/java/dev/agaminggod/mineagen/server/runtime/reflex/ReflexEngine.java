@@ -247,7 +247,8 @@ public final class ReflexEngine {
 	private void followCommand(AgentId agentId, AgentReflexes agent, ServerActionRequest active, Body body, long now) {
 		ServerActionResult last = body.last(agentId);
 		CommandFollower.Result result = agent.command.observe(agent.scheduler, holdsMoving(agent), active == null ? null : active.actionId(),
-				CommandFollower.movesUnderHold(active) ? active.type() : null, last == null ? null : last.actionId(), last == null ? null : last.reasonCode(), now);
+				CommandFollower.movesUnderHold(active) ? active.type() : null, last == null ? null : last.actionId(), last == null ? null : last.actionType(),
+				last == null ? null : last.reasonCode(), now);
 		if (result.handedOff()) changed.add(agentId);
 		if (result.yieldNow()) yieldNow(agentId, agent, now);
 	}
