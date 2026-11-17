@@ -183,7 +183,9 @@ export function placementCells(o, tried = new Set(), { ground = false, trail = [
 	// Each seen block row lists the faces the body can click now to place into the cell beside it (placeableFaces, the
 	// server's own reach and sight check). A cell whose seen supports all list no face toward it fails
 	// NO_PLACEMENT_SUPPORT: 453 of 646 such failures placed a crafting table. A support row without the list says nothing.
-	// A replaceable plant in the cell is clicked directly and needs no support face.
+	// A replaceable plant in the cell is clicked directly and needs no support face. Remembered rows' lists are from where
+	// the body stood then, so they say nothing either.
+	const lists = !(o.continuity?.rememberedSections ?? []).includes('blocks');
 	const plant = (row) => row?.replaceable === true && !/(water|lava|air)$/.test(row.blockId);
 	const support = (x, y, z) => {
 		let seen = 0, unknown = false;
@@ -192,7 +194,7 @@ export function placementCells(o, tried = new Set(), { ground = false, trail = [
 			const row = at.get(`${x + ox},${y + oy},${z + oz}`);
 			if (!solid(row)) continue;
 			seen += 1;
-			if (!Array.isArray(row.placeableFaces)) unknown = true;
+			if (!lists || !Array.isArray(row.placeableFaces)) unknown = true;
 			else if (row.placeableFaces.includes(name)) faces.push(name);
 		}
 		return { faces, shut: seen > 0 && !unknown && faces.length === 0 && !plant(at.get(`${x},${y},${z}`)) };

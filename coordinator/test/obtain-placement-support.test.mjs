@@ -53,4 +53,7 @@ test('K6: support rows without placeableFaces say nothing, and cells are offered
 	const all = placementCells(o, new Set(), { trail: ['-1,64,0', '1,64,0'] });
 	assert.ok(all.some((cell) => key(cell) === '-1,64,0') && all.some((cell) => cell.x < 0 && cell.y === 64), 'cells over floors of unknown faces stay');
 	assert.ok(all.every((cell) => cell.face === 'up' || cell.y !== 64), 'ground cells still click the floor top');
+	// Remembered block rows carry the lists from where the body stood then: they say nothing either.
+	const remembered = { ...scene(), continuity: { rememberedSections: ['blocks'] } };
+	assert.ok(placementCells(remembered, new Set(), { trail: ['-1,64,0'] }).some((cell) => key(cell) === '-1,64,0'));
 });
