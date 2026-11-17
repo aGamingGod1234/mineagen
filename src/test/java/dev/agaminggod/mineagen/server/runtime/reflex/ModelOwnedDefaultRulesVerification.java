@@ -138,7 +138,10 @@ public final class ModelOwnedDefaultRulesVerification {
 		check(contact.id().equals(scheduler.step(1, Map.of(contact.id(), new ReflexScheduler.Sense(true, false),
 				flow.id(), new ReflexScheduler.Sense(true, false)), ReflexScheduler.ActionStatus.RUNNING, "", false).started()),
 				"contact escape wins the tie while the incoming flow stays pending");
-		scheduler.yield(2);
+		// Out of the lava and only holding on (settled): the hazard floor lets the casting command take the body.
+		scheduler.settled(true);
+		check(scheduler.yield(2).endOutcome() == ReflexScheduler.Outcome.YIELDED, "the settled contact escape yields to the cast");
+		scheduler.settled(false);
 		scheduler.replace(List.of(contact, flow), 2);
 		return scheduler;
 	}
