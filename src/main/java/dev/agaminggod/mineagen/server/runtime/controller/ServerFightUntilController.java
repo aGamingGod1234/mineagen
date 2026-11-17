@@ -650,7 +650,7 @@ public final class ServerFightUntilController implements ServerController {
 			areaCleared.busy(elapsed);
 			return walkBack(player, nowEpochMs);
 		}
-		boolean waitsForMore = mob == McEntityTypes.BLAZE || roof || roams();
+		boolean waitsForMore = waitsForMore(mob, roof, spot);
 		long quietMs = areaCleared.observe(kills, waitsForMore, elapsed, lastTargetMs,
 				AreaCleared.applies(kills, waitsForMore) && (clearDropsWaiting || passedOverInView(player)), lookStep);
 		if (quietMs >= 0L)
@@ -1615,7 +1615,21 @@ public final class ServerFightUntilController implements ServerController {
 
 	/** Enderman hunts roam: open ground (no roof), no model spot to hold. */
 	private boolean roams() {
+		return roams(mob, roof, spot);
+	}
+
+	/** An enderman hunt on open ground with no spot roams: it walks on to remembered sightings between kills. */
+	static boolean roams(EntityType<?> mob, boolean roof, Vec3 spot) {
 		return mob == McEntityTypes.ENDERMAN && !roof && spot == null;
+	}
+
+	/**
+	 * Whether a hunt keeps the 30 s no-target wait after a kill instead of ending once a look around finds the area clear
+	 * ({@link AreaCleared}): blazes (spawners keep making more), roof:true (the doorway is the only view) and a roaming
+	 * enderman hunt (it finds them one at a time).
+	 */
+	static boolean waitsForMore(EntityType<?> mob, boolean roof, Vec3 spot) {
+		return mob == McEntityTypes.BLAZE || roof || roams(mob, roof, spot);
 	}
 
 	/** Endermen the body sees now (its view cone and a clear line, out to SIGHT_RANGE) are remembered where they stand. */

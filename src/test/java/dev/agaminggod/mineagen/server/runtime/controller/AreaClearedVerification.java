@@ -20,6 +20,7 @@ public final class AreaClearedVerification {
 		verifyGates();
 		verifyQuietWait();
 		verifyBusyHoldsTheWait();
+		verifyWhoWaitsForMore();
 		return assertions;
 	}
 
@@ -32,6 +33,23 @@ public final class AreaClearedVerification {
 		check(AreaCleared.cleared(3_000L, 6), "3 s and a full circle");
 		check(AreaCleared.cleared(5_000L, 0), "5 s even when the turns were held up");
 		check(AreaCleared.MAX_QUIET_MS < ServerFightUntilController.NO_TARGET_MS, "the cleared end comes before the no-target end");
+	}
+
+	/** Which hunts keep the 30 s wait: blazes, roof:true and an open-ground enderman hunt with no spot, which roams on to its sightings. */
+	private static void verifyWhoWaitsForMore() {
+		net.minecraft.SharedConstants.tryDetectVersion();
+		net.minecraft.server.Bootstrap.bootStrap();
+		var spot = new net.minecraft.world.phys.Vec3(10.5D, 64.0D, 10.5D);
+		var enderman = dev.agaminggod.mineagen.compat.McEntityTypes.ENDERMAN;
+		check(ServerFightUntilController.roams(enderman, false, null) && ServerFightUntilController.waitsForMore(enderman, false, null),
+				"an open-ground enderman hunt roams and keeps the wait: one kill does not clear the area");
+		check(!AreaCleared.applies(1, ServerFightUntilController.waitsForMore(enderman, false, null)), "so its first kill does not end it");
+		check(!ServerFightUntilController.roams(enderman, false, spot) && !ServerFightUntilController.waitsForMore(enderman, false, spot),
+				"an enderman hunt at a spot does not roam and ends once the area is clear");
+		check(!ServerFightUntilController.roams(enderman, true, null) && ServerFightUntilController.waitsForMore(enderman, true, null),
+				"roof:true keeps the wait without roaming");
+		check(ServerFightUntilController.waitsForMore(dev.agaminggod.mineagen.compat.McEntityTypes.BLAZE, false, spot), "blazes keep the wait");
+		check(!ServerFightUntilController.waitsForMore(dev.agaminggod.mineagen.compat.McEntityTypes.ZOMBIE, false, null), "a zombie hunt ends once the area is clear");
 	}
 
 	/** The metric: a 60-degree eased turn settles in about 4 ticks; one held up runs to its 40-tick guard. */
