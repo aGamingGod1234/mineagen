@@ -128,7 +128,7 @@ public final class Watcher {
 		final ArrayDeque<WatchJson.Forecast> forecasts = new ArrayDeque<>();
 		long forecastSequence;
 		String firingKey;
-		long eventSequence = -1L;
+		final EventCursor events = new EventCursor();
 		final DangerLog danger;
 		/** Issuer per recently accepted action id, so the running action's row names who issued it. */
 		final Map<String, String> issuers = new LinkedHashMap<>(16, 0.75F, false) {
@@ -604,12 +604,7 @@ public final class Watcher {
 				}
 			}
 		}
-		List<ReflexScheduler.Event> events = view.events();
-		// A replaced scheduler (clearAll, forget) numbers its events from 1 again.
-		if (!events.isEmpty() && events.getLast().sequence() < watch.eventSequence) watch.eventSequence = 0L;
-		for (ReflexScheduler.Event event : events) {
-			if (event.sequence() <= watch.eventSequence) continue;
-			watch.eventSequence = event.sequence();
+		for (ReflexScheduler.Event event : watch.events.fresh(view.generation(), view.events())) {
 			for (Episode episode : watch.tracker.open()) {
 				for (int index = episode.fired.size() - 1; index >= 0; index--) {
 					Episode.Firing firing = episode.fired.get(index);
@@ -755,9 +750,10 @@ public final class Watcher {
 				player.level().getGameTime(), epochMs);
 		for (Episode episode : watch.tracker.takeOpened()) opened(watch, episode, player, reflexes, active, epochMs);
 		if (reflexes != null) {
-			firings(watch, reflexes.view(agentId), epochMs);
+			ReflexEngine.View view = reflexes.view(agentId);
+			firings(watch, view, epochMs);
 			// Dead players are skipped by tick(); the firing the death ended is written now.
-			watch.danger.events(reflexes.view(agentId).events(), player.level().getGameTime() - server.getTickCount(), player.level().getGameTime(), epochMs);
+			watch.danger.events(view.events(), view.generation(), player.level().getGameTime() - server.getTickCount(), player.level().getGameTime(), epochMs);
 		}
 		watch.danger.death(player.level().getGameTime(), epochMs);
 		writeDanger(watch);
@@ -776,7 +772,7 @@ public final class Watcher {
 				active.provenance() == null ? null : active.provenance().programId(), active.provenance() == null ? null : active.provenance().sourceStepId(),
 				watch.issuers.get(active.actionId()));
 		watch.danger.observe(dangers, gameTime, epochMs, view == null ? null : firingNow(view, offset), running);
-		if (view != null) watch.danger.events(view.events(), offset, gameTime, epochMs);
+		if (view != null) watch.danger.events(view.events(), view.generation(), offset, gameTime, epochMs);
 		writeDanger(watch);
 	}
 

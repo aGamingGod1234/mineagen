@@ -2835,7 +2835,8 @@ export class NativeToolRuntime {
 				// later use_item takes the sample rather than trusting the cached hand.
 				hasPostActionFacts ||= index > 0 && action.actionType === 'use_item' || this.#needsPostActionFacts(record, action);
 				blockingRun.sequence = { runningStep: index + 1, completedSteps: results.length, remainingSteps: request.tool.actions.length - index - 1 };
-				lastResult = await this.#executeAction(request, record, { kind: 'action', ...action }, index, true, null, finishToken);
+				// The first step is the model's own choice (its response); later steps carry out the plan it already made.
+				lastResult = await this.#executeAction(request, record, { kind: 'action', ...action }, index, true, null, finishToken, index === 0 ? { issuer: 'model' } : undefined);
 				if (lastResult.state === 'RUNNING') return { ...lastResult,
 					sequence: blockingRun.sequence, ...(results.length === 0 ? {} : { results }) };
 				results.push({ actionType: action.actionType, ...lastResult });

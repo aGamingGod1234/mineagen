@@ -51,16 +51,17 @@ export function parseWatchLines(text) {
 
 /**
  * Episodes, forecasts and danger rows (damage, onset, clear, firing, reflex_event) of one arena-watch directory; the run is
- * the directory that holds it. dangerFiles counts the -danger.jsonl files, so no file (watch off, older mod) reads as unknown.
+ * the directory that holds it. dangerFiles counts the -danger.jsonl files, so no file (watch off, older mod) reads as unknown;
+ * dangerDropped counts their malformed lines, so a corrupt file reads as unknown too.
  */
 export async function readWatchDir(watchDir) {
 	const episodes = [], forecasts = [], danger = [];
-	let dropped = 0, dangerFiles = 0;
+	let dropped = 0, dangerFiles = 0, dangerDropped = 0;
 	for (const name of (await readdir(watchDir).catch(() => [])).sort()) {
 		if (!name.endsWith('.jsonl')) continue;
 		const parsed = parseWatchLines(await readFile(path.join(watchDir, name), 'utf8'));
 		dropped += parsed.dropped;
-		if (name.endsWith('-danger.jsonl')) { dangerFiles++; danger.push(...parsed.rows); continue; }
+		if (name.endsWith('-danger.jsonl')) { dangerFiles++; dangerDropped += parsed.dropped; danger.push(...parsed.rows); continue; }
 		for (const row of parsed.rows) {
 			if (row.type === 'episode' || name.endsWith('-episodes.jsonl') && row.type === undefined) episodes.push(row);
 			else if (row.type === 'forecast' || name.endsWith('-forecasts.jsonl') && row.type === undefined) forecasts.push(row);
@@ -68,5 +69,5 @@ export async function readWatchDir(watchDir) {
 	}
 	let run = path.dirname(watchDir);
 	if (path.basename(run) === 'server') run = path.dirname(run);
-	return { run, watchDir, episodes, forecasts, danger, dangerFiles, dropped };
+	return { run, watchDir, episodes, forecasts, danger, dangerFiles, dangerDropped, dropped };
 }

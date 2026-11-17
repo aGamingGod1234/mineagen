@@ -494,14 +494,17 @@ public final class ReflexEngine {
 		return firing == null ? null : firing.ruleId();
 	}
 
-	/** A read-only copy of an agent's rules, current firing and recent events, for server-side audits. */
-	public record View(List<RuleView> rules, ReflexScheduler.Firing current, List<ReflexScheduler.Event> events, long nowTick) {
+	/**
+	 * A read-only copy of an agent's rules, current firing and recent events, for server-side audits. {@code generation}
+	 * names the scheduler the events came from (0 without one).
+	 */
+	public record View(List<RuleView> rules, ReflexScheduler.Firing current, List<ReflexScheduler.Event> events, long generation, long nowTick) {
 	}
 
 	public synchronized View view(AgentId agentId) {
 		AgentReflexes agent = agents.get(agentId);
 		long now = now();
-		if (agent == null) return new View(List.of(), null, List.of(), now);
+		if (agent == null) return new View(List.of(), null, List.of(), 0L, now);
 		java.util.ArrayList<RuleView> rows = new java.util.ArrayList<>();
 		for (ReflexScheduler.RuleStatus row : agent.scheduler.statuses(now)) {
 			ReflexSpec.Rule rule = agent.scheduler.rule(row.id());
@@ -509,7 +512,7 @@ public final class ReflexEngine {
 			if (rule != null) for (ReflexSpec.Condition condition : rule.when()) if (!condition.negated()) when.add(condition.type());
 			rows.add(new RuleView(row.id(), row.state(), Set.copyOf(when)));
 		}
-		return new View(List.copyOf(rows), agent.scheduler.current(), agent.scheduler.events(), now);
+		return new View(List.copyOf(rows), agent.scheduler.current(), agent.scheduler.events(), agent.scheduler.generation(), now);
 	}
 
 	/** The agent's reflex status for its observation, or null when it has no rules and nothing to report. */

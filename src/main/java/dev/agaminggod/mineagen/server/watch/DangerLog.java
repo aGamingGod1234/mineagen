@@ -30,6 +30,8 @@ public final class DangerLog {
 	public static final long CLOSE_GRACE_TICKS = 40L;
 	public static final int MAX_OPEN = 32;
 	static final int MAX_STEMS = 256;
+	/** Command kinds that never take the body, so they answer no onset. */
+	static final Set<String> NOT_BODY = Set.of("chat", "complete_goal");
 	private static final Pattern STEM_SUFFIX = Pattern.compile("(-leg\\d+|:\\d+)$");
 
 	/** A command the bridge accepted for this agent; {@code issuer} is the coordinator's explicit field, or null from an older one. */
@@ -90,7 +92,7 @@ public final class DangerLog {
 	private long spanEndTick;
 	private long spanEndMs;
 	private int spanOnsets;
-	private long eventCursor;
+	private final EventCursor eventCursor = new EventCursor();
 	private long beforeTick = Long.MIN_VALUE;
 	private float beforeHealth;
 	private float beforeAbsorption;
@@ -130,8 +132,12 @@ public final class DangerLog {
 		expire(gameTime, epochMs);
 	}
 
-	/** The bridge accepted a command. Only the first command of each step stem under a program is a response. */
+	/**
+	 * The bridge accepted a command. Only the first command of each step stem under a program is a response, and only a
+	 * command that moves the body: a chat line or a goal report is routed beside the running action.
+	 */
 	public void command(Command command, long gameTime) {
+		if (NOT_BODY.contains(command.actionType())) return;
 		active = command;
 		String stem = command.programId() + "\u0000" + STEM_SUFFIX.matcher(command.sourceStepId() == null ? "" : command.sourceStepId()).replaceFirst("");
 		if (stems.size() >= MAX_STEMS) stems.clear();
@@ -195,21 +201,16 @@ public final class DangerLog {
 	}
 
 	/**
-	 * New scheduler events. A cursor above every event means the scheduler was replaced ({@code ReflexEngine.clearAll} or
-	 * {@code forget}) and numbering restarted, so the cursor resets. {@code tickOffset} is game time minus server tick.
+	 * New events of the scheduler {@code generation} names (a replaced scheduler numbers from 1 again; see {@link
+	 * EventCursor}). {@code tickOffset} is game time minus server tick.
 	 */
-	public void events(List<ReflexScheduler.Event> events, long tickOffset, long gameTime, long epochMs) {
-		if (events.isEmpty()) return;
-		if (events.getLast().sequence() < eventCursor) eventCursor = 0L;
-		for (ReflexScheduler.Event event : events) {
-			if (event.sequence() <= eventCursor) continue;
-			eventCursor = event.sequence();
+	public void events(List<ReflexScheduler.Event> events, long generation, long tickOffset, long gameTime, long epochMs) {
+		for (ReflexScheduler.Event event : eventCursor.fresh(generation, events))
 			rows.add(event.firing() ? firingRow(event, tickOffset, gameTime, epochMs) : eventRow(event, gameTime, epochMs));
-		}
 	}
 
 	long eventCursor() {
-		return eventCursor;
+		return eventCursor.sequence();
 	}
 
 	private void seen(String kind, Danger danger, long gameTime, long epochMs, FiringNow firing) {

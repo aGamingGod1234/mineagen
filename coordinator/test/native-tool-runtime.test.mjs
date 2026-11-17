@@ -329,7 +329,7 @@ test('an interrupted sequence reports its active step and leaves later actions u
 	}, record());
 	for (let attempt = 0; attempt < 8 && sent.length === 0; attempt += 1) await new Promise((resolve) => setImmediate(resolve));
 	assert.equal(sent.length, 1, 'only the current sequence step has started');
-	assert.equal(sent[0][2].provenance.issuer, 'skill_leg', 'a sequence step is a composite-skill leg, whatever its programId prefix');
+	assert.equal(sent[0][2].provenance.issuer, 'model', 'the first step of the model\'s own sequence is the model\'s response');
 	const actionId = sent[0][2].actionId;
 	assert.equal(runtime.interruptBlockingTool('agent-a'), true);
 	const early = await Promise.race([
@@ -364,6 +364,7 @@ test('an armed danger interrupt lets quick authored sequence steps finish and re
 	}
 	const early = await Promise.race([pending, new Promise((resolve) => setTimeout(() => resolve({ state: 'STILL_BLOCKED' }), 10_000).unref())]);
 	assert.deepEqual(sent.map(([, , payload]) => payload.actionType), ['equip_item', 'select_item', 'fight_target']);
+	assert.deepEqual(sent.map(([, , payload]) => payload.provenance.issuer), ['model', 'skill_leg', 'skill_leg'], 'only the first step is the model\'s response');
 	assert.equal(early.state, 'RUNNING');
 	assert.equal(early.actionType, 'fight_target');
 	assert.equal(early.interruptedBy, 'danger');
