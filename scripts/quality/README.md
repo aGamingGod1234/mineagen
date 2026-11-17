@@ -311,7 +311,7 @@ Prepare two checkouts, one per arm, each with its own built JAR and installed co
 }
 ```
 
-Paired runs reject mismatched JAR or coordinator SHA-256 values before launching. Checkouts carrying `.git` also require a clean tree and HEAD matching the supplied commit prefix. Identical A/B artifact hashes are refused. Then run:
+Paired runs reject mismatched JAR or coordinator SHA-256 values before launching. Checkouts carrying `.git` also require a clean tree and HEAD matching the supplied commit prefix. Identical arms (the same JAR, coordinator and flags) are refused unless `--allow-identical-arms` asks for an A/A run, which in turn refuses arms that differ. An arm may also carry `jvmArgs` (single-token server JVM flags, passed to the launcher as `ARENA_HEADLESS_SERVER_JVM_ARGS`) and `env` (environment variables for the launcher and coordinator), so two arms can share one build and differ only by flags; the flags are pinned with the hashes. Then run:
 
 ```powershell
 node scripts/quality/run-scenarios.mjs --arms runtime/quality/arms.json --scenarios S1,S1-deltas,S5 --provider claude --model claude-opus-5-5 --effort low --runs 8 --budget-ms 240000 --harness-commit HARNESS_COMMIT --out runtime/quality-paired
@@ -345,6 +345,46 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/quality/launch-s
 ```
 
 Pass absolute paths, as above, because the launcher resolves them outside the PowerShell location. `worker.log` combines stdout/stderr, `status.json` records the final exit code, and `pid.txt` records the worker's PID. New jobs require new directories. The argument file is copied into the job folder before launch. No scheduled tasks or services are installed. Benchmark checkpoints remain under the `--out` directory, and a fresh job directory may point to an existing benchmark output for `--retry-failed`.
+
+## Reflex room gate
+
+The reflex rooms (`scripts/quality/reflex-rooms.json`) are a fast regression check between route checkpoints. `validate-reflex-rooms.mjs` checks their setup only; this section is the one procedure that gates a step on them. The paired room gate is Claude only.
+
+### Danger rows
+
+With `-Dmineagen.watch=true` (every harness launcher passes it) the Watcher also writes `arena-watch/<agentId>-danger.jsonl`. With the watch off nothing is written and observations are unchanged. Every row has `type`, `schema` (currently 1), `agentId`, `atMs` (epoch ms) and `gameTime`. Onset and clear rows also carry `rules` (`onset-1`); a change to an onset, close or response rule bumps it, because it moves the gate's denominator. Rows of another schema are counted apart, never mixed in.
+
+| Row | What it records |
+|---|---|
+| `damage` | One per hit, including fully shield-blocked hits and the lethal hit (written from the death event, which `AFTER_DAMAGE` never reports). `amount` is before armour, `taken` after armour and shield (null on the lethal hit). Health and absorption before (from `ALLOW_DAMAGE` in the same server tick) and after; `absorbed` is the absorption HP the hit used and `healthDrop` the health it took. A hit with no same-tick before value has `paired: false` and null drops. |
+| `onset` | A danger begins: `targeted` (a mob's target is the agent, any distance the scan covers), `aimed` (a shot on course) or `hit` (damage from a source with no open onset). It keeps the scan `kind`, the running `action`, and the first `response` within 200 ticks with `latencyTicks`: `instinct:<rule>` (a firing whose rule covers the danger; one already running is latency 0), `command:model`, `command:program`, `command:unknown` (an older coordinator sent no issuer) or `none`. Only the first command of each step stem under a program counts, so keepGoing legs and later sequence steps of an earlier command are continuations. `truncated` marks an onset that death or a stop resolved before its window ran out. |
+| `clear` | The last open onset closed (40 ticks without activity, a death or a stop). `startGameTime` to `endGameTime` is one span of threat time. |
+| `firing` | A real reflex firing ended: rule, outcome, detail, server ticks and game time of its start and end. Written every tick, not only during episodes. |
+| `reflex_event` | A scheduler event that is not a firing: `held_back`, `disabled`, `expired` (an idle rule) and so on. |
+
+The issuer of each command comes from `provenance.issuer` (`model`, `skill_leg`, `program`, `standing_order`, `guard`), which the coordinator sets explicitly and sends only to a server that echoed `actionIssuer` in `hello_ack`; it is never inferred from the `native-` programId prefix. The coordinator's `native_tool_command_sent` trace row carries the same `issuer` with `eventSequence` and `programId`. `scripts/quality/watch-files.mjs` returns these rows as `danger`.
+
+### Report
+
+```powershell
+node scripts/quality/reflex-round-report.mjs --run RUN_DIR [--run RUN_DIR ...] [--out report.json]
+node scripts/quality/reflex-round-report.mjs --paired PAIRED_OUT/results.json --margin margin.json [--out report.json]
+```
+
+Each run is scored over its room's own window from goal start: 300 s, 360 s for `R-FLOOD`, 180 s for `R-TOOLBREAK`. The gate metrics are total damage (the sum of `healthDrop`), deaths (the death counter, at least the lethal rows) and room success (the evaluator's end-of-window check; `--scenario-file` sets `evaluatorEarlyStop: false` so it is evaluated). Damage is reconciled with the vanilla `damage_taken` counter in the run's samples over the whole run up to the final sample, at 0.05 HP per hit and a 2 s clock slack at the final sample; with a lethal hit the counter may only read higher. A mismatch is `invalid` and a missing counter or Watcher file is `unknown`; neither is ever a pass or a zero. Onsets, threat time, response paths, latency p50/p95, firings and damage per threat-minute are diagnostics only, because the plan's own fixes shorten threat time. A run with no onset is `no_opportunity`.
+
+Paired runs give per-pair deltas (B minus A) for damage, deaths and success. A pair counts for a metric only when both runs have it; otherwise it is incomplete. Deltas are summed by room and judged against a margin set in advance: margin = z x per-pair SD x sqrt(complete pairs), with z = 2 unless the margin file says otherwise. Beyond the margin a room is `WORSE` or `BETTER`; inside it `INCONCLUSIVE`; a room without a margin is `NO_MARGIN`. Any `WORSE` fails the step.
+
+### A/A run and noise floor
+
+Run one JAR and one coordinator in both arms, with the watch on in both (the launchers always pass it), before judging any step:
+
+```powershell
+node scripts/quality/run-scenarios.mjs --arms runtime/quality/arms-aa.json --allow-identical-arms --scenario-file scripts/quality/reflex-rooms.json --scenarios R-SKELETON,R-BLAZE,R-CREEPER,R-GHAST --runs 8 --provider claude --out runtime/quality-aa
+node scripts/quality/reflex-round-report.mjs --paired runtime/quality-aa/results.json --out runtime/quality-aa/reflex-report.json
+```
+
+That is 32 counterbalanced pairs, under the cap of 40. The report's `noiseFloor` block (per room and metric, the SD of per-pair deltas and the pair count) is the margin file for later steps: save it and pass it with `--margin`. Record the floor in `docs/goal-progress.md` once measured. On Linux the paired runner still needs the matrix launcher; two `run-ladder` batches in alternated order lose counterbalancing.
 
 ## Tests
 
