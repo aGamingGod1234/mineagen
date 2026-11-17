@@ -40271,7 +40271,7 @@
       }
     },
     {
-      "predicate": "Actual action validation and interpreter dispatch accept the advertised pick_up_item shape (targetSelector, optional timeoutMs bounding the pickup, default 30000), preserve its exact fields, and reject extra/unsupported unsafe values. The walk is limited to 4 s plus 0.6 s per block of the drop's starting distance, never past timeoutMs; only a route that reaches the drop over seen cells is walked; a stalled walk is replanned once over the whole pickup.",
+      "predicate": "Actual action validation and interpreter dispatch accept the advertised pick_up_item shape (targetSelector, optional timeoutMs bounding the pickup, default 30000), preserve its exact fields, and reject extra/unsupported unsafe values. The walk is limited to 4 s plus 0.6 s per block of the drop's starting distance, or of the first planned route to it when that is longer, never past timeoutMs; only a route that reaches the drop over seen cells is walked; a stalled walk is replanned once over the whole pickup.",
       "checks": [
         {
           "file": "coordinator/test/schema.test.mjs",
@@ -40295,7 +40295,7 @@
         },
         {
           "file": "src/test/java/dev/agaminggod/mineagen/server/runtime/controller/PickupBudgetVerification.java",
-          "test": "verifyWalkLimit + verifyReplansAcrossWalks + verifyStalledWalk",
+          "test": "verifyWalkLimit + verifyReplansAcrossWalks + verifyStalledWalk + verifyRouteLimit",
           "type": "java-behavior",
           "command": "gradlew verifyCore"
         },
@@ -40306,10 +40306,10 @@
           "command": "gradlew verifyCore"
         }
       ],
-      "id": "control:1508491af9ad4270:66aa692c42e70833",
+      "id": "control:1508491af9ad4270:a0a7c10fead4953d",
       "contract": {
-        "id": "control:1508491af9ad4270:66aa692c42e70833",
-        "claim": "Fields: `targetSelector`, optional `timeoutMs` (default 30000). The walk is limited to 4 s plus 0.6 s per block of the drop's distance at the start, within `timeoutMs` (`ITEM_PICKUP_TIMED_OUT`); it walks only a route that reaches the drop over cells you have seen (`NO_SEEN_ROUTE` before any step otherwise) and replans a stalled walk once (`PATH_BLOCKED` after that).",
+        "id": "control:1508491af9ad4270:a0a7c10fead4953d",
+        "claim": "Fields: `targetSelector`, optional `timeoutMs` (default 30000). The walk is limited to 4 s plus 0.6 s per block of the drop's distance at the start, or of the first planned route to it when that is longer, within `timeoutMs` (`ITEM_PICKUP_TIMED_OUT`); it walks only a route that reaches the drop over cells you have seen (`NO_SEEN_ROUTE` before any step otherwise) and replans a stalled walk once (`PATH_BLOCKED` after that).",
         "kind": "control-reference",
         "topic": "pick_up_item"
       },
@@ -40318,7 +40318,7 @@
         "line": 727
       },
       "status": "partial",
-      "reason": "The action shape is checked through validation and dispatch; the walk limit and replan budget are checked on PickupBudget and the seen-route refusal on a navigation fixture, but no live pickup fixture runs the limited walk yet."
+      "reason": "The action shape is checked through validation and dispatch; the walk limit and replan budget are checked on PickupBudget and the seen-route refusal on a navigation fixture, but no live pickup fixture runs the limited walk yet. The route-length limit is checked on PickupBudget; its update after the first planned route in ServerItemPickupController.approach is reviewed, not exercised by a tick fixture."
     },
     {
       "id": "control:1508491af9ad4270:1f5b834be4f6fa81",
@@ -52812,11 +52812,11 @@
       "reason": "Witnessed by a model-free replay only; no unit test."
     },
     {
-      "predicate": "ITEM_PICKUP_TIMED_OUT ends pick_up_item when the drop is still on the ground and not collected after 4 s plus 0.6 s per block of its distance at the start, or after timeoutMs when that is shorter.",
+      "predicate": "ITEM_PICKUP_TIMED_OUT ends pick_up_item when the drop is still on the ground and not collected after 4 s plus 0.6 s per block of its distance at the start (of the first planned route's length when that is longer), or after timeoutMs when that is shorter.",
       "checks": [
         {
           "file": "src/test/java/dev/agaminggod/mineagen/server/runtime/controller/PickupBudgetVerification.java",
-          "test": "verifyWalkLimit",
+          "test": "verifyWalkLimit + verifyRouteLimit",
           "type": "java-behavior",
           "command": "gradlew verifyCore"
         },
@@ -52827,21 +52827,21 @@
           "command": "gradlew verifyCore"
         }
       ],
-      "id": "control:1508491af9ad4270:66aa692c42e70833:result:ITEM_PICKUP_TIMED_OUT",
+      "id": "control:1508491af9ad4270:a0a7c10fead4953d:result:ITEM_PICKUP_TIMED_OUT",
       "contract": {
-        "id": "control:1508491af9ad4270:66aa692c42e70833:result:ITEM_PICKUP_TIMED_OUT",
-        "claim": "Fields: `targetSelector`, optional `timeoutMs` (default 30000). The walk is limited to 4 s plus 0.6 s per block of the drop's distance at the start, within `timeoutMs` (`ITEM_PICKUP_TIMED_OUT`); it walks only a route that reaches the drop over cells you have seen (`NO_SEEN_ROUTE` before any step otherwise) and replans a stalled walk once (`PATH_BLOCKED` after that).",
+        "id": "control:1508491af9ad4270:a0a7c10fead4953d:result:ITEM_PICKUP_TIMED_OUT",
+        "claim": "Fields: `targetSelector`, optional `timeoutMs` (default 30000). The walk is limited to 4 s plus 0.6 s per block of the drop's distance at the start, or of the first planned route to it when that is longer, within `timeoutMs` (`ITEM_PICKUP_TIMED_OUT`); it walks only a route that reaches the drop over cells you have seen (`NO_SEEN_ROUTE` before any step otherwise) and replans a stalled walk once (`PATH_BLOCKED` after that).",
         "kind": "result-code",
         "topic": "pick_up_item",
         "code": "ITEM_PICKUP_TIMED_OUT",
-        "parent": "control:1508491af9ad4270:66aa692c42e70833"
+        "parent": "control:1508491af9ad4270:a0a7c10fead4953d"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
         "line": 727
       },
       "status": "partial",
-      "reason": "The limit arithmetic and the timed-out decision are checked server-free; the controller's use of the limit is not exercised by a live pickup fixture yet."
+      "reason": "The limit arithmetic and the timed-out decision are checked server-free; the controller's use of the limit is not exercised by a live pickup fixture yet. The route-length limit is checked on PickupBudget; its update after the first planned route in ServerItemPickupController.approach is reviewed, not exercised by a tick fixture."
     },
     {
       "predicate": "pick_up_item never walks a route that ends at unseen cells short of the drop: the body looks toward the drop for more (the bounded observation replans, no step taken) and then fails NO_SEEN_ROUTE naming where the seen route ends.",
@@ -52853,14 +52853,14 @@
           "command": "gradlew verifyCore"
         }
       ],
-      "id": "control:1508491af9ad4270:66aa692c42e70833:result:NO_SEEN_ROUTE",
+      "id": "control:1508491af9ad4270:a0a7c10fead4953d:result:NO_SEEN_ROUTE",
       "contract": {
-        "id": "control:1508491af9ad4270:66aa692c42e70833:result:NO_SEEN_ROUTE",
-        "claim": "Fields: `targetSelector`, optional `timeoutMs` (default 30000). The walk is limited to 4 s plus 0.6 s per block of the drop's distance at the start, within `timeoutMs` (`ITEM_PICKUP_TIMED_OUT`); it walks only a route that reaches the drop over cells you have seen (`NO_SEEN_ROUTE` before any step otherwise) and replans a stalled walk once (`PATH_BLOCKED` after that).",
+        "id": "control:1508491af9ad4270:a0a7c10fead4953d:result:NO_SEEN_ROUTE",
+        "claim": "Fields: `targetSelector`, optional `timeoutMs` (default 30000). The walk is limited to 4 s plus 0.6 s per block of the drop's distance at the start, or of the first planned route to it when that is longer, within `timeoutMs` (`ITEM_PICKUP_TIMED_OUT`); it walks only a route that reaches the drop over cells you have seen (`NO_SEEN_ROUTE` before any step otherwise) and replans a stalled walk once (`PATH_BLOCKED` after that).",
         "kind": "result-code",
         "topic": "pick_up_item",
         "code": "NO_SEEN_ROUTE",
-        "parent": "control:1508491af9ad4270:66aa692c42e70833"
+        "parent": "control:1508491af9ad4270:a0a7c10fead4953d"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -52874,19 +52874,19 @@
       "checks": [
         {
           "file": "src/test/java/dev/agaminggod/mineagen/server/runtime/controller/PickupBudgetVerification.java",
-          "test": "verifyReplansAcrossWalks + verifyStalledWalk",
+          "test": "verifyReplansAcrossWalks + verifyStalledWalk + verifyWalkIsOnThePickupBudget",
           "type": "java-behavior",
           "command": "gradlew verifyCore"
         }
       ],
-      "id": "control:1508491af9ad4270:66aa692c42e70833:result:PATH_BLOCKED",
+      "id": "control:1508491af9ad4270:a0a7c10fead4953d:result:PATH_BLOCKED",
       "contract": {
-        "id": "control:1508491af9ad4270:66aa692c42e70833:result:PATH_BLOCKED",
-        "claim": "Fields: `targetSelector`, optional `timeoutMs` (default 30000). The walk is limited to 4 s plus 0.6 s per block of the drop's distance at the start, within `timeoutMs` (`ITEM_PICKUP_TIMED_OUT`); it walks only a route that reaches the drop over cells you have seen (`NO_SEEN_ROUTE` before any step otherwise) and replans a stalled walk once (`PATH_BLOCKED` after that).",
+        "id": "control:1508491af9ad4270:a0a7c10fead4953d:result:PATH_BLOCKED",
+        "claim": "Fields: `targetSelector`, optional `timeoutMs` (default 30000). The walk is limited to 4 s plus 0.6 s per block of the drop's distance at the start, or of the first planned route to it when that is longer, within `timeoutMs` (`ITEM_PICKUP_TIMED_OUT`); it walks only a route that reaches the drop over cells you have seen (`NO_SEEN_ROUTE` before any step otherwise) and replans a stalled walk once (`PATH_BLOCKED` after that).",
         "kind": "result-code",
         "topic": "pick_up_item",
         "code": "PATH_BLOCKED",
-        "parent": "control:1508491af9ad4270:66aa692c42e70833"
+        "parent": "control:1508491af9ad4270:a0a7c10fead4953d"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
