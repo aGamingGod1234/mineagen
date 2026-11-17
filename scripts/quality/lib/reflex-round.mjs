@@ -118,7 +118,9 @@ export function scoreRun({ scenario, goalStartedAtMs, samples = [], dangerRows =
 	// row leaves damage unknown but says nothing about deaths. Without that counter, the lethal rows when damage reconciled.
 	const counterDeaths = windowDeaths(samples, start, end, lifecycle);
 	const lethalRows = inWindow.filter(row => row.lethal === true).length;
-	const deaths = counterDeaths !== null && counterDeaths >= 0 ? Math.max(counterDeaths, lethalRows) : reconciliation.status === 'valid' ? lethalRows : null;
+	// A corrupt counter is unknown evidence, not an absent one: it never falls back to the lethal rows.
+	const deaths = deathCounterCorrupt(samples) ? null
+		: counterDeaths !== null && counterDeaths >= 0 ? Math.max(counterDeaths, lethalRows) : reconciliation.status === 'valid' ? lethalRows : null;
 	const threat = rows === null ? null : threatTime(rows, start, end);
 	const result = { scenario, windowMs, goalStartedAtMs: start, status: reconciliation.status, damage, deaths, success, reconciliation,
 		hits: inWindow.length, absorbedHp: round(inWindow.reduce((total, row) => total + (row.absorbed ?? 0), 0)), blockedHits: inWindow.filter(row => row.blocked === true).length,
@@ -150,10 +152,17 @@ export function deadThroughEnd(lifecycle, after, end) {
  * after its last sample and stayed dead to the end (deadThroughEnd) counts that death on top of its last sample. Null
  * (unknown) when either boundary is uncovered or the counter is malformed or goes down.
  */
+const deathRows = samples => (samples ?? []).filter(s => finite(s?.at) && s?.deathCounter !== undefined && s?.deathCounter !== null);
+
+/** The death counter is present but malformed: not a whole number, negative, or going down between samples. */
+export function deathCounterCorrupt(samples) {
+	const rows = deathRows(samples);
+	return rows.some(s => !Number.isInteger(s.deathCounter) || s.deathCounter < 0) || rows.some((s, i) => i && s.deathCounter < rows[i - 1].deathCounter);
+}
+
 export function windowDeaths(samples, start, end, lifecycle = []) {
-	const rows = (samples ?? []).filter(s => finite(s?.at) && s?.deathCounter !== undefined && s?.deathCounter !== null);
-	if (rows.some(s => !Number.isInteger(s.deathCounter) || s.deathCounter < 0)) return null;
-	if (rows.some((s, i) => i && s.deathCounter < rows[i - 1].deathCounter)) return null;
+	const rows = deathRows(samples);
+	if (deathCounterCorrupt(samples)) return null;
 	const near = at => rows.filter(s => Math.abs(s.at - at) <= COVERAGE_SLACK_MS);
 	const atStart = near(start), atEnd = near(end);
 	if (!atStart.length) return null;
@@ -165,7 +174,10 @@ export function windowDeaths(samples, start, end, lifecycle = []) {
 		return lastBefore.deathCounter - base.deathCounter + 1;
 	}
 	const last = atEnd.find(s => s.at >= end) ?? atEnd.at(-1);
-	return last.at > base.at ? last.deathCounter - base.deathCounter : null;
+	if (last.at <= base.at) return null;
+	// A death after the closing sample (inside the end margin) is not in that sample's counter, respawned or not.
+	const diedAfter = (lifecycle ?? []).filter(e => e?.operation === 'dead' && finite(e.at) && e.at > last.at && e.at <= end).length;
+	return last.deathCounter - base.deathCounter + diedAfter;
 }
 
 /** Firing rows that ended in the window, by outcome (diagnostic); start must never follow end. */

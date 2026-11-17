@@ -203,6 +203,22 @@ test('deaths come from counter samples at both room boundaries; a missing bounda
 	assert.equal(late.status, 'valid', late.reconciliation.reason);
 	assert.equal(late.deaths, 1);
 	assert.equal(late.damage, 20);
+	// A death inside the closing 5 s margin, after the closing sample, with no respawn by the end.
+	assert.equal(windowDeaths(deathsAt([0, 0], [297, 0]), START, START + 300_000, [{ operation: 'dead', at: START + 299_000 }]), 1);
+	assert.equal(windowDeaths(deathsAt([0, 0], [297, 0]), START, START + 300_000,
+		[{ operation: 'dead', at: START + 298_000 }, { operation: 'respawn', at: START + 299_000 }]), 1, 'a death after the closing sample counts even when it respawned');
+	assert.equal(windowDeaths(deathsAt([0, 0], [297, 1]), START, START + 300_000, [{ operation: 'dead', at: START + 296_000 }]), 1, 'a death the closing sample already counts is not counted twice');
+});
+
+test('a corrupt death counter leaves deaths unknown through scoreRun and pairing, never a fallback zero', () => {
+	for (const deaths of [[1, 0], [0, 1.5]]) {
+		const samples = [counter(START, 0, deaths[0]), counter(START + 300_000, 0, deaths[1])];
+		const run = scoreRun({ scenario: 'R-SKELETON', goalStartedAtMs: START, samples, dangerRows: [] });
+		assert.equal(run.status, 'valid', 'damage itself reconciles');
+		assert.equal(run.deaths, null, `deaths ${deaths} are corrupt`);
+		const pair = pairRuns([{ ...run, pairId: 'R-SKELETON-r1' }], [scored('R-SKELETON', 1, 0)]);
+		assert.equal(pair[0].deltas.deaths, null, 'the pair is incomplete for deaths');
+	}
 });
 
 async function runDir(root, name, { scenario, rows, samples, pairId, evaluation = { status: 'EVALUATED', pass: true } }) {
