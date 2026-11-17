@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { buildGate, readRun, compare, verdict, SCHEMA } from '../../scripts/quality/gate-report.mjs';
+import { buildGate, readRun, compare, verdict, funnel, SCHEMA } from '../../scripts/quality/gate-report.mjs';
 import { findGateFunnel, collectReplays } from '../../scripts/quality/lib/stake-comparison.mjs';
 import { formatFunnel, formatReplays } from '../src/decision-eval/stake-summary.mjs';
 
@@ -74,7 +74,7 @@ test('scripted rounds measure only their item; repeats on one commit report the 
 		assert.equal(cohort.commit, '4b5a7088cda98a9ebe61bcfac07ccbc30b7bae43');
 		// Only the iron pickaxe is measured; a repeated seed counts once in the funnel, every run in runs.
 		assert.deepEqual(Object.keys(cohort.funnel), ['ironPickaxe']);
-		assert.deepEqual(cohort.funnel.ironPickaxe, { reached: 2, total: 2, medianMin: 7.8, runs: { reached: 3, total: 4 } });
+		assert.deepEqual(cohort.funnel.ironPickaxe, { reached: 2, total: 2, censored: 0, medianMin: 7.8, runs: { reached: 3, total: 4 } });
 		assert.deepEqual(cohort.repeats.map((row) => [row.seed, row.flipped]), [['1', ['ironPickaxe']], ['2', []]]);
 		assert.match(report.notes.join(' '), /No pair/);
 	} finally { await rm(root, { recursive: true, force: true }); }
@@ -159,7 +159,7 @@ test('a gate one commit ran pairs with the previous gate on the same seeds, mode
 	const base = { 'docs/gates/gate-3.json': JSON.stringify(gate3), 'docs/gates/gate-4.json': JSON.stringify(withRuns(4, '0c6894375817d04bb7523126ff230a16ba743a73', [5, 6, 7, 8, 9, 10, 11, 12])) };
 	const product = await findGateFunnel({ base: 'base', evaluated: 'merge' }, fakeGit({ base, merge: base }));
 	assert.equal(product.gate.comparison.acrossGate, 3);
-	assert.deepEqual(product.gate.comparison.milestones.ironPickaxe, { before: 7, after: 8, total: 8, diff: 1, verdict: 'no change', beforeMedianMin: 8, afterMedianMin: 8.5 });
+	assert.deepEqual(product.gate.comparison.milestones.ironPickaxe, { before: 7, after: 8, total: 8, diff: 1, verdict: 'no change', beforeMedianMin: 8.5, afterMedianMin: 8.5 });
 	const text = formatFunnel(product).join('\n');
 	assert.match(text, /\| Milestone \| Seeds \| Median \| gate3 → gate4 \|/);
 	assert.match(text, /\| 7 → 8 no change \|/);
@@ -182,4 +182,87 @@ test('scripted repeats are labelled scripted, and an unknown commit is not "mixe
 	assert.match(text, /`unknown commit`/);
 	assert.match(text, /repeats \(scripted runs, no model, 15 min\): #178 round 1, 3 of 8 seeds flipped \(iron pickaxe\)/);
 	assert.match(formatFunnel({ ...product, gate: { ...product.gate, cohort: { ...product.gate.cohort, commit: ['a', 'b'] } } }).join('\n'), /`mixed commits`/);
+});
+
+/** A standard round as its runner saves it: the round manifest, then per game a timeline, spend, manifest and samples. */
+async function standardRound(root, games) {
+	const dir = path.join(root, 'round9');
+	await mkdir(dir, { recursive: true });
+	await writeFile(path.join(dir, 'manifest.json'), JSON.stringify({ games: games.map(({ id }, i) => ({ id, tag: `r9-${i + 1}`, jar: `jars/route-${SHA.slice(0, 8)}.jar`, minutes: 180 })) }));
+	for (const { id, seed, stages, deaths = 0, minute = 60, samples } of games) {
+		const game = path.join(dir, id);
+		await mkdir(path.join(game, 'raw'), { recursive: true });
+		await writeFile(path.join(game, 'timeline.json'), JSON.stringify({ stageOrder: ['iron pickaxe', 'in the Nether'], startedAt: T0, stoppedAt: T0 + minute * MIN, minute, startKind: 'fresh',
+			stages: Object.entries(stages).map(([stage, at]) => ({ stage, minute: at, at: T0 + at * MIN, source: 'observation' })), deaths: Array.from({ length: deaths }, () => ({ cause: 'x' })) }));
+		await writeFile(path.join(game, 'spend.json'), JSON.stringify({ usd: 2.5 }));
+		await writeFile(path.join(game, 'raw', 'manifest.json'), JSON.stringify({ provider: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'low', world: { seed } }));
+		if (samples) await writeFile(path.join(game, 'raw', 'quality-samples.jsonl'), samples.map((row) => JSON.stringify(row)).join('\n') + '\n');
+	}
+	return dir;
+}
+
+const OVER = 'minecraft:overworld', NETHER = 'minecraft:the_nether';
+const sample = (minute, dimension, x, z, deathCounter, inventoryNbt = '[]') => ({ at: T0 + minute * MIN, dimension, position: { x, y: 64, z }, health: 20, deathCounter, inventoryNbt, equipmentNbt: '[]', gameTime: minute * 1200 });
+// An Overworld death before entering, then two Nether deaths: one back in 5 min, one never back before the game ends at 60.
+const ROUTE = [
+	sample(0, OVER, 0, 0, 0), sample(8, OVER, 0, 0, 0, '[{count: 1, Slot: 0b, id: "minecraft:bucket"}]'), sample(15, OVER, 0, 0, 1),
+	sample(20, OVER, 100, 0, 1), sample(20.5, NETHER, 12, 0, 1), sample(30, NETHER, 40, 0, 1),
+	sample(31, OVER, 0, 30, 2), sample(35, OVER, 100, 0, 2), sample(36, NETHER, 12, 0, 2), sample(49, NETHER, 30, 0, 2),
+	sample(50, OVER, 100, 50, 3), sample(59, OVER, 90, 50, 3), sample(61, OVER, 0, 0, 4),
+];
+
+test('a standard round folder gives each game, with the first bucket and Nether recovery from its samples', async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), 'gate-report-'));
+	try {
+		const dir = await standardRound(root, [
+			{ id: 'game-1', seed: '777', deaths: 3, stages: { 'iron pickaxe': 5, 'water bucket': 10, buckets: 12, 'portal lit': 20, 'in the Nether': 20.5 }, samples: ROUTE },
+			{ id: 'game-2', seed: '778', minute: 40, stages: { 'iron pickaxe': 7, 'water bucket': 14, buckets: 11 } },
+		]);
+		const runs = readRun(dir);
+		assert.deepEqual(readRun(path.join(dir, 'game-1')), [runs[0]]);
+		const [first, second] = runs;
+		assert.equal(first.seed, '777');
+		assert.equal(first.commit, SHA.slice(0, 8));
+		assert.equal(first.model, 'codex gpt-6.1-sol low');
+		assert.equal(first.windowMin, 180);
+		assert.equal(first.playedMin, 60);
+		assert.equal(first.deaths, 3);
+		assert.equal(first.costUsd, 2.5);
+		// The first bucket is the first sample holding one, before "water bucket" and "buckets" (two of them).
+		assert.deepEqual(first.milestones, { ironPickaxe: 5, bucket: 8, flintAndSteel: null, lavaSeen: null, portalLit: 20, nether: 20.5, fortress: null, blazeRods: null, enderPearls: null });
+		assert.deepEqual(first.nether, { minutes: 22.5, firstEntryMin: 20.5, deathsAfterFirstEntry: 2, deaths: [
+			{ minute: 31, respawnBlocks: 104, returned: true, backMin: 5 },
+			{ minute: 50, respawnBlocks: 50, returned: false, backMin: 10 },
+		] });
+		// No samples: the earlier of two buckets and a water bucket bounds the first bucket, and the Nether is not measured.
+		assert.equal(second.milestones.bucket, 11);
+		assert.equal('nether' in second, false);
+		assert.equal(second.playedMin, 40);
+
+		const [cohort] = buildGate({ gate: 'r9', title: 'round 9', cohorts: [{ name: 'r9', label: 'round 9', dirs: [dir] }] }).cohorts;
+		assert.deepEqual(cohort.funnel.nether, { reached: 1, total: 2, censored: 1, medianMin: null, runs: { reached: 1, total: 2 } });
+		assert.deepEqual(cohort.nether, { games: 1, entered: 1, minutes: 22.5, deathsAfterFirstEntry: 2, deaths: 2, gamesWithDeaths: 1,
+			respawnBlocks: { min: 50, median: 77, max: 104 }, back: { returned: 1, returnedMin: 5, neverReturned: 1, neverReturnedMin: 10, totalMin: 15 } });
+	} finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('a seed that never reached a milestone stays in the median as censored', () => {
+	const run = (seed, nether) => ({ seed, milestones: { nether } });
+	assert.deepEqual(funnel([run('1', 30), run('2', 50), run('3', null)]).nether, { reached: 2, total: 3, censored: 1, medianMin: 50, runs: { reached: 2, total: 3 } });
+	// Half or more censored: the median lies past the window, so it is unknown.
+	assert.equal(funnel([run('1', 30), run('2', null)]).nether.medianMin, null);
+	// A seed run twice is reached if either run was; it is not censored.
+	assert.equal(funnel([run('1', null), run('1', 40), run('2', 20)]).nether.censored, 0);
+});
+
+test('a long run scored before stage-score tracked the fortress leaves the late milestones unmeasured', async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), 'gate-report-'));
+	try {
+		const dir = await longRun(root, 'old', { seed: '5', nether: 30 });
+		const [run] = readRun(dir);
+		assert.deepEqual(Object.keys(run.milestones), ['ironPickaxe', 'bucket', 'flintAndSteel', 'lavaSeen', 'portalLit', 'nether']);
+		const report = buildGate({ gate: 'old', title: 'old', cohorts: [{ name: 'a', label: 'a', dirs: [dir] }] });
+		assert.equal(report.cohorts[0].funnel.fortress, undefined);
+		assert.equal(report.cohorts[0].nether, null);
+	} finally { await rm(root, { recursive: true, force: true }); }
 });
