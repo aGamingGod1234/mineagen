@@ -120,6 +120,18 @@ test('paired arms: per-pair deltas summed by room, judged against a margin set i
 	assert.equal(better.rooms['R-SKELETON'].damage.verdict, 'BETTER');
 });
 
+test('deaths and success keep a one-event margin when the A/A run never varied', () => {
+	const a = [1, 2, 3, 4].map(n => scored('R-CREEPER', n, 4));
+	const flat = { z: 2, rooms: { 'R-CREEPER': { damage: { perPairSd: 1 }, deaths: { perPairSd: 0 }, success: { perPairSd: 0 } } } };
+	const oneDeath = judgeRooms(pairRuns(a, [1, 2, 3, 4].map(n => scored('R-CREEPER', n, 4, { deaths: n === 1 ? 1 : 0 }))), flat);
+	assert.equal(oneDeath.rooms['R-CREEPER'].deaths.margin, 1);
+	assert.equal(oneDeath.rooms['R-CREEPER'].deaths.verdict, 'INCONCLUSIVE', 'one death is not a result');
+	const twoDeaths = judgeRooms(pairRuns(a, [1, 2, 3, 4].map(n => scored('R-CREEPER', n, 4, { deaths: n <= 2 ? 1 : 0 }))), flat);
+	assert.equal(twoDeaths.rooms['R-CREEPER'].deaths.verdict, 'WORSE');
+	const oneLoss = judgeRooms(pairRuns(a, [1, 2, 3, 4].map(n => scored('R-CREEPER', n, 4, { success: n !== 1 }))), flat);
+	assert.equal(oneLoss.rooms['R-CREEPER'].success.verdict, 'INCONCLUSIVE');
+});
+
 test('an invalid, unknown or missing run leaves its pair incomplete, never a zero', () => {
 	const a = [scored('R-BLAZE', 1, 4), scored('R-BLAZE', 2, 4), scored('R-BLAZE', 3, 4)];
 	const b = [scored('R-BLAZE', 1, 4, { status: 'invalid' }), scored('R-BLAZE', 2, 6)];

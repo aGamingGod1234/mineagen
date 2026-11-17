@@ -13,6 +13,8 @@ export const HIT_TOLERANCE_HP = 0.05;
 export const EDGE_SLACK_MS = 2000;
 /** Margin = z x per-pair SD x sqrt(complete pairs), per room and metric (see scripts/quality/README.md). */
 export const DEFAULT_MARGIN_Z = 2;
+/** Deaths and room success move in whole events, so one event is never beyond the margin, even when the A/A SD is 0. */
+export const MIN_MARGIN = Object.freeze({ deaths: 1, success: 1 });
 export const METRICS = Object.freeze(['damage', 'deaths', 'success']);
 /** Lower is better for damage and deaths; higher for success. */
 const BETTER_LOWER = Object.freeze({ damage: true, deaths: true, success: false });
@@ -180,7 +182,7 @@ export function judgeRooms(pairs, margin = null) {
 			const deltas = inRoom.map(pair => pair.deltas[metric]).filter(value => value !== null);
 			const sum = round(deltas.reduce((a, b) => a + b, 0));
 			const perPairSd = margin?.rooms?.[scenario]?.[metric]?.perPairSd;
-			const limit = finite(perPairSd) && deltas.length ? round(z * perPairSd * Math.sqrt(deltas.length), 4) : null;
+			const limit = finite(perPairSd) && deltas.length ? round(Math.max(z * perPairSd * Math.sqrt(deltas.length), MIN_MARGIN[metric] ?? 0), 4) : null;
 			let verdict = 'NO_MARGIN';
 			if (!deltas.length) verdict = 'NO_DATA';
 			else if (limit !== null) {

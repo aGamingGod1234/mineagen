@@ -384,7 +384,7 @@ node scripts/quality/run-scenarios.mjs --arms runtime/quality/arms-aa.json --all
 node scripts/quality/reflex-round-report.mjs --paired runtime/quality-aa/results.json --out runtime/quality-aa/reflex-report.json
 ```
 
-That is 32 counterbalanced pairs, under the cap of 40. The report's `noiseFloor` block (per room and metric, the SD of per-pair deltas and the pair count) is the margin file for later steps: save it and pass it with `--margin`. Record the floor in `docs/goal-progress.md` once measured. A room with no variation in a metric (no deaths in any A/A pair) has a per-pair SD of 0, so its margin is 0 and any change in that metric is judged beyond it.
+That is 32 counterbalanced pairs, under the cap of 40. The report's `noiseFloor` block (per room and metric, the SD of per-pair deltas and the pair count) is the margin file for later steps: save it and pass it with `--margin`. Record the floor in `docs/goal-progress.md` once measured. Deaths and room success change in whole events, so their margin is at least 1: a room with no deaths in any A/A pair (per-pair SD 0) still reads one extra death as `INCONCLUSIVE` and two as `WORSE`.
 
 ## Tests
 
