@@ -62,7 +62,7 @@ public final class BoundedServerTaskQueueVerification {
 		assertEquals(BoundedServerTaskQueue.Lane.CONTROL, MultiplexedServerBridge.inboundLane("task_request"),
 				"model task requests ride the control lane with other lifecycle requests");
 		assertEquals(BoundedServerTaskQueue.Lane.BULK, MultiplexedServerBridge.inboundLane("verbose_event"),
-				"verbose telemetry cannot consume reserved action capacity");
+				"agent activity events cannot consume reserved action capacity");
 
 		queue = new BoundedServerTaskQueue(8, 2, 2);
 		assertTrue(queue.offer(BoundedServerTaskQueue.Lane.URGENT, () -> { }),

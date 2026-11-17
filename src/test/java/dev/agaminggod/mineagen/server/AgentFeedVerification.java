@@ -159,7 +159,6 @@ public final class AgentFeedVerification {
 			queue.remove().run();
 			check(players.lines.size() == 4, "queued intent from an obsolete goal revision is discarded");
 			AgentChatReporter.release(server);
-			AgentVerboseState.release(server);
 			return 9;
 		} catch (ReflectiveOperationException | InterruptedException exception) {
 			throw new AssertionError("could not exercise reporter server-thread dispatch", exception);

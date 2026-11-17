@@ -42,12 +42,21 @@ public final class VoiceCommandVerification {
 	@SuppressWarnings("unchecked")
 	public static int verify() throws Exception {
 		assertions = 0;
-		var dispatcher = new CommandDispatcher<CommandSourceStack>(new FixtureRoot());
+		var dispatcher = new CommandDispatcher<CommandSourceStack>();
+		// Stands in for vanilla /spectate, which Fabric registers before the mod's callback runs.
+		dispatcher.register(net.minecraft.commands.Commands.literal("spectate").executes(context -> 0));
+		var vanillaSpectate = dispatcher.getRoot().getChild("spectate");
 		AgentCommands.register(dispatcher);
 		var operator = source(null, PermissionSet.ALL_PERMISSIONS);
 		var nonOperator = source(null, PermissionSet.NO_PERMISSIONS);
-		check(dispatcher.getRoot().getChild("mineagen") != null, "agent commands live under /mineagen");
-		check(dispatcher.getRoot().getChild("codex") == null, "the old /codex root is gone");
+		// Registering a same-named literal would merge into this node, so an empty node means the mod added nothing.
+		check(dispatcher.getRoot().getChild("spectate") == vanillaSpectate && vanillaSpectate.getChildren().isEmpty(),
+				"vanilla /spectate stays registered and untouched");
+		check(dispatcher.getRoot().getChildren().stream().map(com.mojang.brigadier.tree.CommandNode::getName)
+				.filter(name -> !name.equals("spectate")).toList().equals(List.of("mineagen")), "/mineagen is the only mod command root");
+		for (String removed : List.of("agent", "verbose", "takeover", "codex")) {
+			check(dispatcher.getRoot().getChild(removed) == null, "no /" + removed + " root");
+		}
 		var root = dispatcher.getRoot().getChild("mineagen");
 		check(root.getRequirement().test(nonOperator), "the /mineagen root itself is open to every player");
 		for (String literal : List.of("stop", "status", "dm")) {
@@ -61,9 +70,14 @@ public final class VoiceCommandVerification {
 				"an operator can read every agent's status or one agent's");
 		check(!complete(dispatcher, nonOperator, "mineagen status " + agentId), "status remains operator-only");
 		check(complete(dispatcher, nonOperator, "mineagen dm " + agentId + " Meet me at the bridge."), "any player can message an agent");
+		for (String command : List.of("mineagen spectate " + agentId, "mineagen spectate exit", "mineagen takeover " + agentId,
+				"mineagen takeover exit")) {
+			check(complete(dispatcher, operator, command), "an operator can run " + command);
+			check(!complete(dispatcher, nonOperator, command), command + " remains operator-only");
+		}
 		check(complete(dispatcher, operator, dev.agaminggod.mineagen.control.AgentControlCommandBuilder.agent("stop", agentId))
 				&& complete(dispatcher, operator, dev.agaminggod.mineagen.control.AgentControlCommandBuilder.prompt("start", agentId, "Build a shelter.")),
-				"commands the Agents screen sends parse against the registered tree");
+				"commands the control center sends parse against the registered tree");
 		check(root.getChild("skit") == null, "skit command root is removed");
 		check(root.getChild("group") == null, "group command root is removed");
 		check(root.getChild("camera") == null, "camera commands are removed");
@@ -175,22 +189,6 @@ public final class VoiceCommandVerification {
 	private static void check(boolean condition, String message) {
 		if (!condition) throw new AssertionError(message);
 		assertions++;
-	}
-
-	/** The plain JVM has no mixin transformer; expose Brigadier's actual maps through the production accessor contract. */
-	private static final class FixtureRoot extends com.mojang.brigadier.tree.RootCommandNode<CommandSourceStack>
-			implements dev.agaminggod.mineagen.mixin.CommandNodeAccessor {
-		@Override public Map<String, com.mojang.brigadier.tree.CommandNode<?>> mineagen$children() { return map("children"); }
-		@Override public Map<String, com.mojang.brigadier.tree.LiteralCommandNode<?>> mineagen$literals() { return map("literals"); }
-		@Override public Map<String, com.mojang.brigadier.tree.ArgumentCommandNode<?, ?>> mineagen$arguments() { return map("arguments"); }
-		@SuppressWarnings("unchecked")
-		private <V> Map<String, V> map(String name) {
-			try {
-				var field = com.mojang.brigadier.tree.CommandNode.class.getDeclaredField(name);
-				field.setAccessible(true);
-				return (Map<String, V>) field.get(this);
-			} catch (ReflectiveOperationException exception) { throw new AssertionError(exception); }
-		}
 	}
 
 	private static final class FixtureLevel extends TestServerLevelBase {

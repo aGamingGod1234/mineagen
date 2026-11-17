@@ -211,7 +211,6 @@ export class DynamicCoordinator extends EventEmitter {
 	#programRuntimeEpochs = new Map();
 	#nativeRuntimeEpochs = new Map();
 	#nativeProgramLeases = new Map();
-	#verboseReporters = new Set();
 	#traceUsageSamples = new Map();
 	#factLedgers = new Map();
 	#conversationMemories = new Map();
@@ -289,7 +288,6 @@ export class DynamicCoordinator extends EventEmitter {
 	#traceWriter;
 	#bodyPace;
 	#providerTurnRecorder;
-	#verboseEnabled = false;
 	#runtimeGeneration;
 	#verboseTransitions = new ReportingTransitionDeduper();
 	#maxPendingAgentOperations;
@@ -649,7 +647,7 @@ export class DynamicCoordinator extends EventEmitter {
 		for (const receipt of receipts) { clearTimeout(receipt.retry); receipt.resolve(); }
 		this.#inspections.cancel();
 		this.#connected = false;
-		this.#setVerboseEnabled(false);
+		this.#verboseTransitions.clearAll();
 		if (this.#statusHandle !== null) this.#clearStatusInterval(this.#statusHandle);
 		this.#statusHandle = null;
 		this.#bridge.stop();
@@ -733,7 +731,7 @@ export class DynamicCoordinator extends EventEmitter {
 			const connectionEpoch = this.#acceptReadyEpoch(connection);
 			if (connectionEpoch === null) return;
 			const { serverInstanceId, registry } = connection;
-			this.#setVerboseEnabled(false);
+			this.#verboseTransitions.clearAll();
 			if (this.#serverInstanceId !== null && serverInstanceId !== this.#serverInstanceId) {
 				this.#invalidateServerInstance(connectionEpoch);
 			}
@@ -743,9 +741,6 @@ export class DynamicCoordinator extends EventEmitter {
 			this.#supportedAgentIds.clear();
 			this.#beginReconciliation(registry, connectionEpoch);
 		}, { lifecycle: true });
-		this.#listen('verbose_control', (message) => {
-			this.#setVerboseEnabled(message.payload.enabled);
-		});
 		this.#listen('catalog_request', (_message, connectionEpoch) => this.#run(async () => {
 			await this.#reconciliation;
 			if (!this.#isConnectionEpochCurrent(connectionEpoch)) return;
@@ -1414,7 +1409,7 @@ export class DynamicCoordinator extends EventEmitter {
 			void this.#playerMemory.markUnknown(undefined, 'BRIDGE_DISCONNECTED').catch((error) => this.#emitRuntimeError(error));
 			this.#connected = false;
 			this.#retireReceiptReconciliations();
-			this.#setVerboseEnabled(false);
+			this.#verboseTransitions.clearAll();
 			this.#cancelGoalSpecRequests();
 			this.#settleTaskRequests(undefined, 'BRIDGE_DISCONNECTED', 'Lost the connection to Minecraft before it answered.');
 			for (const record of this.#registry.list()) {
@@ -1890,7 +1885,7 @@ export class DynamicCoordinator extends EventEmitter {
 		const accepted = this.#nativeRuntime.updateObservation(record, observation, { eventSequence: payload.eventSequence, conversation,
 			attention: attention.attention, priority: attention.priority, trigger: attention.trigger, changedFacts: payload.changedFacts });
 		if (!accepted) this.#playerMemory.observe(record, observation);
-		// An operator's /takeover owns the body: Minecraft reports it, and the model is not woken to act on it.
+		// An operator's /mineagen takeover owns the body: Minecraft reports it, and the model is not woken to act on it.
 		if (observation?.player?.operatorControlled === true) return;
 		if (attention.priority !== 'urgent' || !NO_TASK_WAKE_TRIGGERS.has(attention.trigger)) {
 			this.#considerHealWake(record, observation, lifecycleGeneration, connectionEpoch);
@@ -2142,8 +2137,7 @@ export class DynamicCoordinator extends EventEmitter {
 			.then(async (result) => {
 				try { return await this.#completeNativeTurn(work, result); }
 				catch (error) { return this.#failNativeTurn(work, error); }
-			}, (error) => this.#failNativeTurn(work, error))
-			.finally(() => verboseReporter.dispose());
+			}, (error) => this.#failNativeTurn(work, error));
 		return work.promise;
 	}
 
@@ -3155,8 +3149,7 @@ export class DynamicCoordinator extends EventEmitter {
 		};
 		work.promise = Promise.resolve()
 			.then(() => this.#planner.requestPlan(providerRequest))
-			.then((decision) => this.#completeProviderPlan(work, decision), (error) => this.#failProviderPlan(work, record, error))
-			.finally(() => verboseReporter.dispose());
+			.then((decision) => this.#completeProviderPlan(work, decision), (error) => this.#failProviderPlan(work, record, error));
 		return work.promise;
 	}
 
@@ -3814,7 +3807,7 @@ export class DynamicCoordinator extends EventEmitter {
 					this.#taskViews.event(viewRecord, stage, message);
 				}
 				// Direct replies still require say's audience and successful Minecraft receipt.
-				if (!this.#verboseEnabled && !publicActivity) return;
+				if (!publicActivity) return;
 				if (allowPublicAgentMessage && stage === 'agent_message') {
 					if (publishedAgentMessage) return;
 					const publicMessage = sanitizePublicAgentMessage(message);
@@ -3825,11 +3818,6 @@ export class DynamicCoordinator extends EventEmitter {
 				}
 			} catch { /* verbose reporting is observational */ }
 		};
-		reporter.reset = () => {};
-		reporter.dispose = () => {
-			this.#verboseReporters.delete(reporter);
-		};
-		this.#verboseReporters.add(reporter);
 		return reporter;
 	}
 
@@ -3840,13 +3828,6 @@ export class DynamicCoordinator extends EventEmitter {
 		if (typeof value?.event !== 'string' || (!value.event.startsWith('native_provider_') && value.event !== 'native_tool_rejected')) return;
 		const { event, ...fields } = value;
 		this.#writeTrace(event, { agentId, goalRevision, ...fields });
-	}
-
-	#setVerboseEnabled(enabled) {
-		this.#verboseEnabled = enabled;
-		if (enabled) return;
-		this.#verboseTransitions.clearAll();
-		for (const reporter of this.#verboseReporters) reporter.reset();
 	}
 
 	#publishVerbose(agentId, goalRevision, stage, message, connectionEpoch = this.#connectionEpoch, transition = {}) {
@@ -3862,7 +3843,7 @@ export class DynamicCoordinator extends EventEmitter {
 	}
 
 	#sendVerbose(agentId, goalRevision, stage, message, connectionEpoch) {
-		if ((!this.#verboseEnabled && stage !== 'decision') || !this.#isConnectionEpochCurrent(connectionEpoch) || !this.#bridge.ready || !VERBOSE_STAGES.includes(stage)) return;
+		if (stage !== 'decision' || !this.#isConnectionEpochCurrent(connectionEpoch) || !this.#bridge.ready || !VERBOSE_STAGES.includes(stage)) return;
 		const current = this.#registry.get(agentId);
 		if (current === null || current.goalRevision !== goalRevision || message.length === 0 || message.length > MAX_VERBOSE_MESSAGE_LENGTH) return;
 		Promise.resolve(this.#sendForEpoch(connectionEpoch, 'verbose_event', agentId, { goalRevision, stage, message })).catch(() => {});

@@ -9,7 +9,7 @@ import java.util.Objects;
 import java.util.Set;
 
 public final class AgentControlCommandBuilder {
-	/** The command root the server registers and the Agents screen sends. */
+	/** The command root the server registers and the control center sends. */
 	public static final String ROOT = "mineagen";
 	private static final Set<String> AGENT_OPERATIONS = Set.of("stop", "resume", "respawn", "remove", "status", "auto");
 	private static final Set<String> PROMPT_OPERATIONS = Set.of("start", "queue", "steer");

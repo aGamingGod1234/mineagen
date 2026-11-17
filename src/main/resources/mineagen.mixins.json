@@ -7,7 +7,6 @@
     "ArrowImpactReceiptMixin",
     "AbstractFurnaceBlockEntityAccessor",
     "CachedUserNameToIdResolverAccessor",
-    "CommandNodeAccessor",
     "CachedProfileInfoAccessor",
     "CarpetBoatInputMixin",
     "EnderDragonHearingMixin",

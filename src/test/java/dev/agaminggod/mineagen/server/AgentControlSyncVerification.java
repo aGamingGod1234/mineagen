@@ -53,7 +53,7 @@ public final class AgentControlSyncVerification {
 		for (long now = 11_050L; now <= 13_000L; now += 50L) lateAnswers += limiter.due(now).getOrDefault(spammer, 0);
 		assertEquals(SnapshotRequestLimiter.MAX_DEFERRED - 4, lateAnswers, "every deferred request is answered once");
 
-		// The Field Console (one request a second, a few more after a command) is never deferred.
+		// The control center (one request a second, a few more after a command) is never deferred.
 		for (long now = 20_000L; now < 80_000L; now += 1_000L) {
 			assertEquals(SnapshotRequestLimiter.Decision.SEND, limiter.request(console, now), "periodic refresh is answered at once");
 			if (now % 10_000L == 0L) {

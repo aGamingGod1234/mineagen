@@ -525,7 +525,7 @@ public final class ServerActionExecutor {
 					pendingRespawns,
 					pending.request().agentId(),
 					pending,
-					() -> { if (pending.attempt() != null) AgentChatReporter.respawnDisconnected(manager, pending.attempt().deadRecord()); }
+					() -> { }
 			);
 		}
 	}

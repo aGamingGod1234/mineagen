@@ -1361,7 +1361,6 @@ src/main/java/dev/agaminggod/mineagen/mixin/CarpetBoatInputMixin.java
 src/main/java/dev/agaminggod/mineagen/mixin/ChunkMapPovViewMixin.java
 src/main/java/dev/agaminggod/mineagen/mixin/ChunkMapTrackedEntityPovMixin.java
 src/main/java/dev/agaminggod/mineagen/mixin/CommandBlockInterventionAuditMixin.java
-src/main/java/dev/agaminggod/mineagen/mixin/CommandNodeAccessor.java
 src/main/java/dev/agaminggod/mineagen/mixin/CommandsInterventionAuditMixin.java
 src/main/java/dev/agaminggod/mineagen/mixin/EnderDragonHearingMixin.java
 src/main/java/dev/agaminggod/mineagen/mixin/EnderEyeThrowMixin.java
@@ -1426,6 +1425,7 @@ src/main/java/dev/agaminggod/mineagen/risk/RiskOverlayPayload.java
 src/main/java/dev/agaminggod/mineagen/risk/RiskOverlayPublisher.java
 src/main/java/dev/agaminggod/mineagen/server/AgentActivityPresentation.java
 src/main/java/dev/agaminggod/mineagen/server/AgentChatReporter.java
+src/main/java/dev/agaminggod/mineagen/server/AgentChatSanitizer.java
 src/main/java/dev/agaminggod/mineagen/server/AgentControlSync.java
 src/main/java/dev/agaminggod/mineagen/server/AgentDeathCapture.java
 src/main/java/dev/agaminggod/mineagen/server/AgentFeedPolicy.java
@@ -1438,8 +1438,6 @@ src/main/java/dev/agaminggod/mineagen/server/AgentRuntimeHooks.java
 src/main/java/dev/agaminggod/mineagen/server/AgentRuntimeRouter.java
 src/main/java/dev/agaminggod/mineagen/server/AgentSavedData.java
 src/main/java/dev/agaminggod/mineagen/server/AgentSpawnPlacement.java
-src/main/java/dev/agaminggod/mineagen/server/AgentVerboseChat.java
-src/main/java/dev/agaminggod/mineagen/server/AgentVerboseState.java
 src/main/java/dev/agaminggod/mineagen/server/BundledCoordinatorInstaller.java
 src/main/java/dev/agaminggod/mineagen/server/ChunkedSavedPayload.java
 src/main/java/dev/agaminggod/mineagen/server/AgentCommands.java
@@ -1454,6 +1452,7 @@ src/main/java/dev/agaminggod/mineagen/server/CoordinatorRecoveryState.java
 src/main/java/dev/agaminggod/mineagen/server/CoordinatorVoiceEndpoint.java
 src/main/java/dev/agaminggod/mineagen/server/FailureChatThrottle.java
 src/main/java/dev/agaminggod/mineagen/server/GoalControl.java
+src/main/java/dev/agaminggod/mineagen/server/GoalVerificationDedupe.java
 src/main/java/dev/agaminggod/mineagen/server/LiveTaskViewSync.java
 src/main/java/dev/agaminggod/mineagen/server/NodeRuntimeLocator.java
 src/main/java/dev/agaminggod/mineagen/server/ObservedWorldIdentity.java
@@ -1731,7 +1730,6 @@ src/main/java/dev/agaminggod/mineagen/server/voice/VoiceCatalog.java
 src/main/java/dev/agaminggod/mineagen/server/voice/VoiceConsentRegistry.java
 src/main/java/dev/agaminggod/mineagen/server/voice/VoiceDirector.java
 src/main/java/dev/agaminggod/mineagen/server/voice/VoiceDirectorSavedData.java
-src/main/java/dev/agaminggod/mineagen/server/voice/VoiceInputVerboseReporter.java
 src/main/java/dev/agaminggod/mineagen/server/voice/VoiceProfile.java
 src/main/java/dev/agaminggod/mineagen/server/voice/VoiceReceipt.java
 src/main/java/dev/agaminggod/mineagen/server/voice/VoiceRegistrationTracker.java
@@ -1866,6 +1864,7 @@ src/test/java/dev/agaminggod/mineagen/pov/PovContractsVerification.java
 src/test/java/dev/agaminggod/mineagen/pov/PovMixinVerification.java
 src/test/java/dev/agaminggod/mineagen/protocol/PlayerActionSchemaVerification.java
 src/test/java/dev/agaminggod/mineagen/server/AgentActivityPresentationVerification.java
+src/test/java/dev/agaminggod/mineagen/server/AgentChatSanitizerVerification.java
 src/test/java/dev/agaminggod/mineagen/server/AgentControlSyncVerification.java
 src/test/java/dev/agaminggod/mineagen/server/AgentDeathCaptureVerification.java
 src/test/java/dev/agaminggod/mineagen/server/AgentFeedReplay.java
@@ -1877,7 +1876,6 @@ src/test/java/dev/agaminggod/mineagen/server/AgentSavedDataGoalDraftVerification
 src/test/java/dev/agaminggod/mineagen/server/AgentShutdownLocationVerification.java
 src/test/java/dev/agaminggod/mineagen/server/AgentSpawnPlacementVerification.java
 src/test/java/dev/agaminggod/mineagen/server/AgentSummonNameVerification.java
-src/test/java/dev/agaminggod/mineagen/server/AgentVerbosePresentationVerification.java
 src/test/java/dev/agaminggod/mineagen/server/BundledCoordinatorInstallerVerification.java
 src/test/java/dev/agaminggod/mineagen/server/ChunkedSavedPayloadVerification.java
 src/test/java/dev/agaminggod/mineagen/server/AgentServerRuntimeVoiceStartVerification.java

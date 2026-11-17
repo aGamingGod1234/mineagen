@@ -1,17 +1,15 @@
 package dev.agaminggod.mineagen.server.pov;
 
 import com.mojang.brigadier.Command;
-import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.builder.RequiredArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.mojang.brigadier.exceptions.DynamicCommandExceptionType;
-import com.mojang.brigadier.tree.CommandNode;
 import dev.agaminggod.mineagen.agent.AgentDomainException;
 import dev.agaminggod.mineagen.agent.AgentRecord;
-import dev.agaminggod.mineagen.mixin.CommandNodeAccessor;
+import dev.agaminggod.mineagen.control.AgentControlCommandBuilder;
 import dev.agaminggod.mineagen.pov.PovMode;
 import dev.agaminggod.mineagen.pov.PovStopPayload;
 import dev.agaminggod.mineagen.server.AgentManager;
@@ -26,16 +24,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * /spectate and /takeover, plus the /mineagen spectate|takeover aliases. Grammar for both:
+ * /mineagen spectate and /mineagen takeover. Grammar for both:
  * {@code <agent> [start|stop]} (no word after the agent means start). A bare {@code exit} or {@code stop}
  * still ends any session, but is read from the agent argument so suggestions list only agent names;
- * an agent with such a name stays reachable by its id. Vanilla /spectate (which moves the body) is
- * removed so this one replaces it.
+ * an agent with such a name stays reachable by its id.
  */
 public final class PovCommands {
 	static final String ARGUMENT_AGENT = "agent";
 	private static final Logger LOGGER = LoggerFactory.getLogger(PovCommands.class);
-	private static final String VANILLA_SPECTATE = "spectate";
 	private static final DynamicCommandExceptionType COMMAND_FAILURE = new DynamicCommandExceptionType(
 			message -> Component.literal(String.valueOf(message))
 	);
@@ -43,29 +39,11 @@ public final class PovCommands {
 	private PovCommands() {
 	}
 
-	/** {@code agentArgument} must produce the shared {@code agent} selector argument. */
-	public static void register(CommandDispatcher<CommandSourceStack> dispatcher,
-			Supplier<RequiredArgumentBuilder<CommandSourceStack, String>> agentArgument) {
-		removeVanillaSpectate(dispatcher.getRoot());
-		dispatcher.register(tree(VANILLA_SPECTATE, PovMode.SPECTATE, agentArgument));
-		dispatcher.register(tree("takeover", PovMode.TAKEOVER, agentArgument));
-	}
-
-	/** The same tree under the /mineagen root, so every agent command is reachable from one place. */
-	public static LiteralArgumentBuilder<CommandSourceStack> rootAlias(String literal, PovMode mode,
-			Supplier<RequiredArgumentBuilder<CommandSourceStack, String>> agentArgument) {
-		return tree(literal, mode, agentArgument);
-	}
-
-	/** Runs in Fabric's registration callback, which fires after vanilla registered its own /spectate. */
-	private static void removeVanillaSpectate(CommandNode<CommandSourceStack> root) {
-		CommandNodeAccessor accessor = (CommandNodeAccessor) root;
-		accessor.mineagen$children().remove(VANILLA_SPECTATE);
-		accessor.mineagen$literals().remove(VANILLA_SPECTATE);
-		accessor.mineagen$arguments().remove(VANILLA_SPECTATE);
-	}
-
-	private static LiteralArgumentBuilder<CommandSourceStack> tree(String literal, PovMode mode,
+	/**
+	 * The subcommand mounted under the /mineagen root. {@code agentArgument} must produce the shared
+	 * {@code agent} selector argument.
+	 */
+	public static LiteralArgumentBuilder<CommandSourceStack> command(String literal, PovMode mode,
 			Supplier<RequiredArgumentBuilder<CommandSourceStack, String>> agentArgument) {
 		return grammar(literal, agentArgument, GoalControl::mayControl,
 				context -> start(context, mode), context -> exitAgent(context, mode), PovCommands::exit);
@@ -93,7 +71,7 @@ public final class PovCommands {
 	}
 
 	static String exitCommand(PovMode mode) {
-		return mode == PovMode.TAKEOVER ? "/takeover exit" : "/spectate exit";
+		return "/" + AgentControlCommandBuilder.ROOT + " " + commandName(mode) + " exit";
 	}
 
 	static String startMessage(PovMode mode, String agentName, boolean alreadyActive) {
@@ -176,7 +154,7 @@ public final class PovCommands {
 	}
 
 	private static CommandSyntaxException unexpectedFailure(String operation, RuntimeException exception) {
-		LOGGER.error("Unexpected /{} failure", operation, exception);
+		LOGGER.error("Unexpected {} failure", operation, exception);
 		return COMMAND_FAILURE.create("INTERNAL_ERROR: " + operation + " failed; see the server log");
 	}
 }

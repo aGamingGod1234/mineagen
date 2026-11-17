@@ -227,9 +227,8 @@ public final class AgentServerRuntime {
 			slot.reconcile(supervisor.bridgeRevision(), () -> {
 				GoalVerificationRuntime goalVerifier = goalVerification(manager);
 				return goalVerifier == null
-						? MultiplexedServerBridge.withPreparedSecret(manager, port, preparedSecret, verboseState(manager))
-						: MultiplexedServerBridge.withPreparedSecret(
-								manager, port, preparedSecret, verboseState(manager), goalVerifier);
+						? MultiplexedServerBridge.withPreparedSecret(manager, port, preparedSecret)
+						: MultiplexedServerBridge.withPreparedSecret(manager, port, preparedSecret, goalVerifier);
 			});
 			return;
 		}
@@ -237,15 +236,10 @@ public final class AgentServerRuntime {
 			slot.reconcile(explicitBridgeRevision(), () -> {
 				GoalVerificationRuntime goalVerifier = goalVerification(manager);
 				return goalVerifier == null
-						? new MultiplexedServerBridge(manager, verboseState(manager))
-						: new MultiplexedServerBridge(manager, verboseState(manager), goalVerifier);
+						? new MultiplexedServerBridge(manager)
+						: new MultiplexedServerBridge(manager, goalVerifier);
 			});
 		}
-	}
-
-	private static AgentVerboseState verboseState(AgentManager manager) {
-		MinecraftServer server = manager.server();
-		return server == null ? new AgentVerboseState() : AgentVerboseState.forServer(server);
 	}
 
 	private static GoalVerificationRuntime goalVerification(AgentManager manager) {
@@ -473,13 +467,6 @@ public final class AgentServerRuntime {
 		return bridge != null && bridge.authenticated();
 	}
 
-	public static void setVerbose(MinecraftServer server, boolean enabled) {
-		AgentVerboseState state = AgentVerboseState.forServer(server);
-		state.setEnabled(enabled);
-		MultiplexedServerBridge bridge = bridge(server);
-		if (bridge != null) bridge.setVerbose(enabled);
-	}
-
 	public static String automationStatus(MinecraftServer server) {
 		CoordinatorProcessSupervisor supervisor = COORDINATORS.get(server);
 		if (supervisor != null && supervisor.failureCode() != null) {
@@ -655,13 +642,9 @@ public final class AgentServerRuntime {
 			dev.agaminggod.mineagen.agent.AgentRecord record,
 			dev.agaminggod.mineagen.agent.goal.GoalEvidence evidence
 	) {
-		AgentVerboseState verbose = AgentVerboseState.forServer(manager.server());
-		if (!verbose.goalVerificationChanged(record.agentId(), record.goalRevision(), true, evidence.facts())) return;
+		GoalVerificationDedupe dedupe = GoalVerificationDedupe.forServer(manager.server());
+		if (!dedupe.goalVerificationChanged(record.agentId(), record.goalRevision(), true, evidence.facts())) return;
 		AgentChatReporter.goalVerified(manager, record, evidence.facts());
-		String detail = evidence.facts().isEmpty()
-				? "Goal verified."
-				: "Goal verified: " + evidence.facts().getFirst().expectedValue() + ".";
-		AgentVerboseChat.report(manager, verbose, record, "result", detail);
 	}
 
 	private static void recordAttributedKill(net.minecraft.world.entity.LivingEntity entity, net.minecraft.world.damagesource.DamageSource source) {
@@ -702,7 +685,7 @@ public final class AgentServerRuntime {
 		} finally {
 			if (bridgeSlot != null) bridgeSlot.close();
 			if (supervisor != null) supervisor.close();
-			AgentVerboseState.release(server);
+			GoalVerificationDedupe.release(server);
 			AgentChatReporter.release(server);
 		}
 	}

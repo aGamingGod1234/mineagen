@@ -2,14 +2,12 @@ package dev.agaminggod.mineagen.server.bridge;
 
 import com.google.gson.JsonObject;
 import dev.agaminggod.mineagen.server.AgentSavedData;
-import dev.agaminggod.mineagen.server.AgentVerboseChat;
-import dev.agaminggod.mineagen.server.AgentVerboseState;
+import dev.agaminggod.mineagen.server.AgentChatSanitizer;
 import dev.agaminggod.mineagen.server.AgentManager;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.lang.reflect.Field;
 import java.net.Socket;
-import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -18,7 +16,6 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 
 public final class AgentVerboseVerification {
 	private AgentVerboseVerification() {
@@ -28,42 +25,13 @@ public final class AgentVerboseVerification {
 		net.minecraft.SharedConstants.tryDetectVersion();
 		net.minecraft.server.Bootstrap.bootStrap();
 		int assertions = verify();
-		System.out.println("Agent verbose verification passed: " + assertions + " assertions");
+		System.out.println("Agent activity event verification passed: " + assertions + " assertions");
 	}
 
 	public static int verify() {
-		verifyDefaultControlAfterAuthentication();
-		verifyToggleSurvivesReconnect();
 		verifyStrictVerboseEventIsAccepted();
 		verifyStrictSchemaAndRedaction();
-		verifyRawAgentErrorChatPolicy();
-		return 38;
-	}
-
-	private static void verifyRawAgentErrorChatPolicy() {
-		AgentVerboseState state = new AgentVerboseState();
-		AtomicInteger rawReports = new AtomicInteger();
-		reportRawAgentError(state, rawReports::incrementAndGet);
-		assertEquals(1, rawReports.get(), "verbose off retains concise agent_error chat");
-
-		state.setEnabled(true);
-		reportRawAgentError(state, rawReports::incrementAndGet);
-		assertEquals(1, rawReports.get(), "verbose on suppresses the duplicate raw agent_error message");
-
-		state.setEnabled(false);
-		reportRawAgentError(state, rawReports::incrementAndGet);
-		assertEquals(2, rawReports.get(), "turning verbose off restores concise agent_error chat");
-	}
-
-	private static void reportRawAgentError(AgentVerboseState state, Runnable reporter) {
-		try {
-			var method = MultiplexedServerBridge.class.getDeclaredMethod(
-					"reportRawAgentError", AgentVerboseState.class, Runnable.class);
-			method.setAccessible(true);
-			method.invoke(null, state, reporter);
-		} catch (ReflectiveOperationException exception) {
-			throw new AssertionError("missing raw agent_error reporting boundary", exception);
-		}
+		return 24;
 	}
 
 	private static void verifyStrictSchemaAndRedaction() {
@@ -90,22 +58,22 @@ public final class AgentVerboseVerification {
 				"verbose events reject messages beyond 256 characters");
 
 		assertEquals("Sensitive details redacted.",
-				AgentVerboseChat.sanitizeMessage("Authorization: Bearer sk-private-token"),
+				AgentChatSanitizer.sanitizeMessage("Authorization: Bearer sk-private-token"),
 				"credential-shaped text is never sent to Minecraft chat");
 		assertEquals("Private prompt details redacted.",
-				AgentVerboseChat.sanitizeMessage("System prompt: private task text"),
+				AgentChatSanitizer.sanitizeMessage("System prompt: private task text"),
 				"private prompt text is never sent to Minecraft chat");
 		assertEquals("World details redacted.",
-				AgentVerboseChat.sanitizeMessage("Raw observation {\"blocks\":[1,2,3]}"),
+				AgentChatSanitizer.sanitizeMessage("Raw observation {\"blocks\":[1,2,3]}"),
 				"raw world dumps are never sent to Minecraft chat");
 		assertEquals("Technical details hidden.",
-				AgentVerboseChat.sanitizeMessage("{\"directive\":\"replace\",\"summary\":\"Gather wood\"}"),
+				AgentChatSanitizer.sanitizeMessage("{\"directive\":\"replace\",\"summary\":\"Gather wood\"}"),
 				"raw planner JSON never reaches Minecraft chat");
 		AgentManager manager = uninitializedManager();
 		var record = manager.registry().create("gpt-5.6-luna", "high", Optional.of("RedactionAgent"), 1_000L);
 		record = manager.registry().start(record.agentId(), "Find the hidden diamond cache", 1_001L).after();
 		assertEquals("Private prompt details redacted.",
-				AgentVerboseChat.sanitizeMessage(record, "Find the hidden diamond cache"),
+				AgentChatSanitizer.sanitizeMessage(record, "Find the hidden diamond cache"),
 				"unlabelled current prompt text is never sent to Minecraft chat");
 	}
 
@@ -136,7 +104,6 @@ public final class AgentVerboseVerification {
 				sendHello(socket, reader, codec, secret, "hello-verbose-event");
 				BridgeEnvelope helloAck = codec.decode(reader.readLine());
 				assertEquals("hello_ack", helloAck.type(), "event fixture authenticates");
-				assertEquals("verbose_control", codec.decode(reader.readLine()).type(), "event fixture receives control");
 
 				JsonObject event = new JsonObject();
 				event.addProperty("goalRevision", 1L);
@@ -166,105 +133,6 @@ public final class AgentVerboseVerification {
 					Files.deleteIfExists(secretFile);
 				} catch (java.io.IOException exception) {
 					throw new AssertionError("could not remove temporary event secret", exception);
-				}
-			}
-		}
-	}
-
-	private static void verifyToggleSurvivesReconnect() {
-		MultiplexedServerBridge bridge = null;
-		Path secretFile = null;
-		try {
-			String secret = "abcdef0123456789abcdef0123456789";
-			secretFile = Files.createTempFile("mineagen-verbose-reconnect-", ".txt");
-			Files.writeString(secretFile, secret);
-			AgentVerboseState state = new AgentVerboseState();
-			assertEquals(false, state.enabled(), "verbose state defaults off");
-			bridge = new MultiplexedServerBridge(uninitializedManager(), 0, secretFile, state);
-			bridge.start();
-			BridgeEnvelopeCodec codec = new BridgeEnvelopeCodec();
-			try (Socket first = new Socket(MultiplexedServerBridge.LOOPBACK_HOST, bridge.boundPortForVerification());
-				 BufferedReader reader = new BufferedReader(new InputStreamReader(first.getInputStream(), StandardCharsets.UTF_8))) {
-				first.setSoTimeout(1_000);
-				sendHello(first, reader, codec, secret, "hello-verbose-first");
-				assertEquals("hello_ack", codec.decode(reader.readLine()).type(), "first session authenticates");
-				assertEquals(false, codec.decode(reader.readLine()).payload().get("enabled").getAsBoolean(),
-						"first session receives disabled control");
-
-				bridge.setVerbose(true);
-				assertEquals(true, state.enabled(), "bridge toggle updates the server session state");
-				BridgeEnvelope enabled = codec.decode(reader.readLine());
-				assertEquals(true, enabled.payload().get("enabled").getAsBoolean(),
-						"active coordinator receives the enabled control");
-			}
-			MultiplexedServerBridge activeBridge = bridge;
-			awaitCondition(() -> !activeBridge.authenticated(), "first verbose session closes");
-			awaitCondition(activeBridge::coordinatorDisconnectPendingForVerification,
-					"first verbose session schedules coordinator cleanup");
-			bridge.tick();
-			try (Socket second = new Socket(MultiplexedServerBridge.LOOPBACK_HOST, bridge.boundPortForVerification());
-				 BufferedReader reader = new BufferedReader(new InputStreamReader(second.getInputStream(), StandardCharsets.UTF_8))) {
-				second.setSoTimeout(1_000);
-				sendHello(second, reader, codec, secret, "hello-verbose-second");
-				assertEquals("hello_ack", codec.decode(reader.readLine()).type(), "replacement session authenticates");
-				assertEquals(true, codec.decode(reader.readLine()).payload().get("enabled").getAsBoolean(),
-						"replacement coordinator inherits the enabled server setting");
-			}
-		} catch (AssertionError error) {
-			throw error;
-		} catch (Exception exception) {
-			throw new AssertionError("verbose reconnect verification failed", exception);
-		} finally {
-			if (bridge != null) bridge.close();
-			if (secretFile != null) {
-				try {
-					Files.deleteIfExists(secretFile);
-				} catch (java.io.IOException exception) {
-					throw new AssertionError("could not remove temporary reconnect secret", exception);
-				}
-			}
-		}
-	}
-
-	private static void verifyDefaultControlAfterAuthentication() {
-		MultiplexedServerBridge bridge = null;
-		Path secretFile = null;
-		try {
-			String secret = "0123456789abcdef0123456789abcdef";
-			secretFile = Files.createTempFile("mineagen-verbose-secret-", ".txt");
-			Files.writeString(secretFile, secret);
-			bridge = new MultiplexedServerBridge(uninitializedManager(), 0, secretFile);
-			bridge.start();
-			BridgeEnvelopeCodec codec = new BridgeEnvelopeCodec();
-			try (Socket socket = new Socket(MultiplexedServerBridge.LOOPBACK_HOST, bridge.boundPortForVerification());
-				 BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8))) {
-				socket.setSoTimeout(750);
-				sendHello(socket, reader, codec, secret, "hello-verbose-default");
-
-				assertEquals("hello_ack", codec.decode(reader.readLine()).type(),
-						"authentication acknowledges the coordinator first");
-				BridgeEnvelope control;
-				try {
-					control = codec.decode(reader.readLine());
-				} catch (SocketTimeoutException exception) {
-					throw new AssertionError("authentication must publish the server session verbose setting", exception);
-				}
-				assertEquals("verbose_control", control.type(),
-						"authentication publishes verbose control before ordinary traffic");
-				assertEquals(false, control.payload().get("enabled").getAsBoolean(),
-						"a new server session starts with verbose output disabled");
-			}
-		} catch (AssertionError error) {
-			throw error;
-		} catch (Exception exception) {
-			throw new AssertionError("verbose bridge verification failed", exception);
-		} finally {
-			if (bridge != null) bridge.close();
-			if (secretFile != null) {
-				try {
-					Files.deleteIfExists(secretFile);
-				} catch (java.io.IOException exception) {
-					throw new AssertionError("could not remove temporary bridge secret", exception);
 				}
 			}
 		}
@@ -310,12 +178,6 @@ public final class AgentVerboseVerification {
 				2, response.serverInstanceId(), "server", "hello", messageId, hello
 		)).getBytes(StandardCharsets.UTF_8));
 		socket.getOutputStream().flush();
-	}
-
-	private static void awaitCondition(java.util.function.BooleanSupplier condition, String label) {
-		long deadline = System.nanoTime() + 2_000_000_000L;
-		while (!condition.getAsBoolean() && System.nanoTime() < deadline) Thread.onSpinWait();
-		if (!condition.getAsBoolean()) throw new AssertionError(label);
 	}
 
 	private static BridgeEnvelope pollBridgeResponse(

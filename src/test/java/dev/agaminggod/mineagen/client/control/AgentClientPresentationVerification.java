@@ -19,7 +19,7 @@ public final class AgentClientPresentationVerification {
 		assertEquals(0, disconnected.nextCountdown(), "disconnect resets the background refresh timer");
 
 		SnapshotRefreshPolicy.Tick due = SnapshotRefreshPolicy.advance(0, true, 20);
-		assertTrue(due.requestSnapshot(), "connected clients refresh snapshots even with the console closed");
+		assertTrue(due.requestSnapshot(), "connected clients refresh snapshots even with the control center closed");
 		assertEquals(19, due.nextCountdown(), "a refresh starts an exact twenty-tick interval");
 		SnapshotRefreshPolicy.Tick waiting = SnapshotRefreshPolicy.advance(7, true, 20);
 		assertFalse(waiting.requestSnapshot(), "background polling waits until the interval expires");

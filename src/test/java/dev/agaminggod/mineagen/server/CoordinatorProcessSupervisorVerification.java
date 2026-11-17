@@ -3361,7 +3361,6 @@ public final class CoordinatorProcessSupervisorVerification {
 			)).getBytes(StandardCharsets.UTF_8));
 			socket.getOutputStream().flush();
 			assertEquals("hello_ack", codec.decode(reader.readLine()).type(), "matching child receives hello acknowledgement");
-			assertEquals("verbose_control", codec.decode(reader.readLine()).type(), "matching child receives verbose control");
 			return socket;
 		} catch (Exception failure) {
 			closeSocket(socket);

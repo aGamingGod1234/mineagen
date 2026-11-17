@@ -120,13 +120,13 @@ public final class ProviderApiKeyStore {
 		int separator = body.indexOf(':');
 		ProviderKeyProtector active = protector;
 		if (separator <= 0 || active == null || !body.substring(0, separator).equals(active.scheme())) {
-			reportOnce("A saved provider API key is encrypted for another account or machine and was ignored; save it again from the Agents screen.");
+			reportOnce("A saved provider API key is encrypted for another account or machine and was ignored; save it again from the control center.");
 			return null;
 		}
 		try {
 			return new String(active.unprotect(Base64.getDecoder().decode(body.substring(separator + 1).strip())), StandardCharsets.UTF_8);
 		} catch (RuntimeException | LinkageError failure) {
-			reportOnce("A saved provider API key could not be decrypted and was ignored; save it again from the Agents screen.");
+			reportOnce("A saved provider API key could not be decrypted and was ignored; save it again from the control center.");
 			return null;
 		}
 	}

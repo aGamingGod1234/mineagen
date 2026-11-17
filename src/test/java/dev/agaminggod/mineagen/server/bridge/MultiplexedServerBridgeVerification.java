@@ -16,7 +16,6 @@ import dev.agaminggod.mineagen.agent.goal.GoalPredicate;
 import dev.agaminggod.mineagen.agent.goal.GoalSpec;
 import dev.agaminggod.mineagen.server.AgentRuntimeHooks;
 import dev.agaminggod.mineagen.server.AgentSavedData;
-import dev.agaminggod.mineagen.server.AgentVerboseState;
 import dev.agaminggod.mineagen.server.AgentManager;
 import dev.agaminggod.mineagen.server.conversation.ConversationAudience;
 import dev.agaminggod.mineagen.server.conversation.ConversationEvent;
@@ -100,7 +99,7 @@ public final class MultiplexedServerBridgeVerification {
 		}
 		if (args.length == 1 && "preauth-overflow".equals(args[0])) {
 			verifyPreauthOverflowPreservesIncumbentHandshake();
-			System.out.println("MultiplexedServerBridgeVerification preauth-overflow assertions=14");
+			System.out.println("MultiplexedServerBridgeVerification preauth-overflow assertions=13");
 			return;
 		}
 		System.out.println("MultiplexedServerBridgeVerification assertions=" + verify());
@@ -122,8 +121,7 @@ public final class MultiplexedServerBridgeVerification {
 		verifyObsoletePlannerReadinessIsIgnored();
 		verifyAgentErrorRevisionGate();
 		verifyRespawnContinuationPayload();
-		verifyVerboseControlRetriesAfterBackpressure();
-		verifyVerboseTelemetryCannotSuppressProgress();
+		verifyProgressSurvivesMissingRecord();
 		verifyBlockTagCapability();
 		verifyPlanFactsWireCapability();
 		verifyBodyFactsCapability();
@@ -201,7 +199,7 @@ public final class MultiplexedServerBridgeVerification {
 		verifyPendingRegistrationMarkerIsFenced();
 		verifyAtomicPublicationRacesSessionClose();
 		verifyObservationWriterRacesSessionClose();
-		return 403 + dropSampleAssertions;
+		return 383 + dropSampleAssertions;
 	}
 
 	@SuppressWarnings("unchecked")
@@ -586,8 +584,6 @@ public final class MultiplexedServerBridgeVerification {
 				);
 				BridgeEnvelope replacementAck = codec.decode(replacementReader.readLine());
 				assertEquals("hello_ack", replacementAck.type(), "replacement authenticates before terminal replay");
-				assertEquals("verbose_control", codec.decode(replacementReader.readLine()).type(),
-						"replacement consumes verbose control before terminal replay");
 				BridgeEnvelope replay = codec.decode(replacementReader.readLine());
 				assertEquals("action_result", replay.type(),
 						"replacement handshake replays a terminal result after the disconnect revision");
@@ -738,7 +734,6 @@ public final class MultiplexedServerBridgeVerification {
 				AuthenticationExchange exchange = beginAuthentication(socket, reader, codec, secret, messageId);
 				writeAuthenticatedHello(socket, codec, secret, null, messageId, exchange, negotiated);
 				assertEquals("hello_ack", codec.decode(reader.readLine()).type(), "timing fixture authenticates");
-				assertEquals("verbose_control", codec.decode(reader.readLine()).type(), "timing fixture consumes verbose control");
 				BridgeEnvelope replay = codec.decode(reader.readLine());
 				assertEquals("action_result", replay.type(), "the retained result is replayed on handshake");
 				assertEquals(negotiated, replay.payload().has("timing"),
@@ -1491,8 +1486,6 @@ public final class MultiplexedServerBridgeVerification {
 				releaseSnapshot.countDown();
 				assertEquals("hello_ack", codec.decode(reader.readLine()).type(),
 						"handshake retries after the staged goal draft invalidates its snapshot");
-				assertEquals("verbose_control", codec.decode(reader.readLine()).type(),
-						"verbose control remains ordered before goal draft replay");
 				BridgeEnvelope replay = codec.decode(reader.readLine());
 				assertEquals("goal_spec_request", replay.type(),
 						"goal draft staged during authentication is included by the retried handshake");
@@ -1629,8 +1622,6 @@ public final class MultiplexedServerBridgeVerification {
 				BridgeEnvelope acknowledgement = codec.decode(reader.readLine());
 				assertEquals(0, acknowledgement.payload().getAsJsonArray("registry").size(),
 						"handshake excludes the atomically marked pending spawn");
-				assertEquals("verbose_control", codec.decode(reader.readLine()).type(),
-						"atomic pending fixture consumes verbose control");
 			}
 			creator.join(2_000L);
 			assertTrue(!creator.isAlive(), "pending creation boundary finishes after the handshake snapshot is released");
@@ -1657,45 +1648,6 @@ public final class MultiplexedServerBridgeVerification {
 		}
 	}
 
-	private static void verifyVerboseControlRetriesAfterBackpressure() {
-		MultiplexedServerBridge bridge = null;
-		Path secretFile = null;
-		try {
-			String secret = "0123456789abcdef0123456789abcdef";
-			secretFile = Files.createTempFile("mineagen-verbose-retry-secret-", ".txt");
-			Files.writeString(secretFile, secret);
-			AgentVerboseState verboseState = new AgentVerboseState();
-			verboseState.setEnabled(true);
-			bridge = new MultiplexedServerBridge(uninitializedManager(), 0, secretFile, verboseState);
-			bridge.start();
-			BridgeEnvelopeCodec codec = new BridgeEnvelopeCodec();
-			try (Socket socket = new Socket(MultiplexedServerBridge.LOOPBACK_HOST, bridge.boundPortForVerification());
-				 BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8))) {
-				socket.setSoTimeout(2_000);
-				authenticate(socket, reader, codec, secret, "hello-verbose-retry");
-				setQueuedCount(bridge, "server", MultiplexedServerBridge.AGENT_QUEUE_CAP);
-				bridge.setVerbose(false);
-				setQueuedCount(bridge, "server", 0);
-				bridge.tick();
-				BridgeEnvelope retried = codec.decode(reader.readLine());
-				assertEquals("verbose_control", retried.type(), "a backpressured verbose change is retried");
-				assertEquals(false, retried.payload().get("enabled").getAsBoolean(),
-						"the retry publishes the latest server verbose setting");
-			}
-		} catch (Exception exception) {
-			throw new AssertionError("verbose control retry verification failed", exception);
-		} finally {
-			if (bridge != null) bridge.close();
-			if (secretFile != null) {
-				try {
-					Files.deleteIfExists(secretFile);
-				} catch (java.io.IOException exception) {
-					throw new AssertionError("could not remove verbose retry secret", exception);
-				}
-			}
-		}
-	}
-
 	private static void verifyPlanFactsWireCapability() {
 		for (boolean supported : List.of(false, true)) {
 			MultiplexedServerBridge bridge = null;
@@ -1716,7 +1668,6 @@ public final class MultiplexedServerBridgeVerification {
 					writeAuthenticatedHello(socket, codec, secret, null, "hello-progress", exchange, false, supported);
 					BridgeEnvelope hello = codec.decode(reader.readLine());
 					assertEquals("hello_ack", hello.type(), "both coordinator generations authenticate");
-					assertEquals("verbose_control", codec.decode(reader.readLine()).type(), "consume the initial control message");
 					bridge.publishProgressReceipt(agent.agentId(), "advancement_granted", "advancementId", "minecraft:story/root");
 					bridge.publishProgressReceipt(agent.agentId(), "entity_killed", "entityType", "minecraft:zombie");
 					Method publish = MultiplexedServerBridge.class.getDeclaredMethod("publishPlanFacts", AgentId.class, String.class, JsonObject.class);
@@ -1808,64 +1759,47 @@ public final class MultiplexedServerBridgeVerification {
 				"the legacy overload strips it too");
 	}
 
-	private static void verifyVerboseTelemetryCannotSuppressProgress() {
+	private static void verifyProgressSurvivesMissingRecord() {
 		MultiplexedServerBridge bridge = null;
 		Path secretFile = null;
 		try {
 			String secret = "0123456789abcdef0123456789abcdef";
-			secretFile = Files.createTempFile("mineagen-observational-verbose-secret-", ".txt");
+			secretFile = Files.createTempFile("mineagen-missing-record-progress-secret-", ".txt");
 			Files.writeString(secretFile, secret);
-			AgentManager manager = uninitializedManager();
-			AgentVerboseState verboseState = new AgentVerboseState();
-			verboseState.setEnabled(true);
-			bridge = new MultiplexedServerBridge(manager, 0, secretFile, verboseState);
+			bridge = new MultiplexedServerBridge(uninitializedManager(), 0, secretFile);
 			bridge.start();
 			BridgeEnvelopeCodec codec = new BridgeEnvelopeCodec();
 			try (Socket socket = new Socket(MultiplexedServerBridge.LOOPBACK_HOST, bridge.boundPortForVerification());
 				 BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8))) {
 				socket.setSoTimeout(2_000);
-				BridgeEnvelope verboseHandshake = authenticate(
-						socket, reader, codec, secret, "hello-observational-verbose"
+				BridgeEnvelope handshake = authenticate(
+						socket, reader, codec, secret, "hello-missing-record-progress"
 				);
-				assertEquals("hello_ack", verboseHandshake.type(),
-						"observational verbose fixture authenticates the bridge");
+				assertEquals("hello_ack", handshake.type(),
+						"missing-record progress fixture authenticates the bridge");
 				AgentId removedAgent = AgentId.parse("00000000-0000-0000-0000-000000000401");
 				invokeActionProgress(bridge, new ServerActionProgress(
 						removedAgent, 1L, "action-progress-1", ActionType.WAIT, "trace-progress-1",
 						0.5D, 25L, 4_000L
 				));
 				assertEquals("action_progress", codec.decode(reader.readLine()).type(),
-						"missing verbose record cannot suppress the authoritative progress frame");
+						"a missing agent record cannot suppress the authoritative progress frame");
 			}
 		} catch (Exception exception) {
-			throw new AssertionError("observational verbose progress verification failed", exception);
+			throw new AssertionError("missing-record progress verification failed", exception);
 		} finally {
 			if (bridge != null) bridge.close();
 			if (secretFile != null) {
 				try {
 					Files.deleteIfExists(secretFile);
 				} catch (java.io.IOException exception) {
-					throw new AssertionError("could not remove observational verbose secret", exception);
+					throw new AssertionError("could not remove missing-record progress secret", exception);
 				}
 			}
 		}
 	}
 
 	private static void verifyRespawnContinuationPayload() {
-		ServerActionResult respawnResult = new ServerActionResult(
-				AgentId.parse("00000000-0000-0000-0000-000000000300"), 3L, "respawn-result",
-				ActionType.RESPAWN, ServerActionState.SUCCEEDED, "VANILLA_RESPAWNED",
-				"Respawned", 42L, 3_000L
-		);
-		assertEquals("Respawned.", invokeVerboseResult(respawnResult),
-				"respawn verbose result uses readable player-facing copy");
-		ServerActionResult technicalResult = new ServerActionResult(
-				respawnResult.agentId(), 3L, "respawn-result-technical", ActionType.RESPAWN,
-				ServerActionState.FAILED, "RESPAWN_REJECTED",
-				"Result payload {\"action\":\"respawn-result-technical\"}", 42L, 3_001L
-		);
-		assertEquals("Technical details hidden.", invokeVerboseResult(technicalResult),
-				"typed action result messages pass through the technical-output defense");
 		AgentManager activeManager = uninitializedManager();
 		AgentRecord active = activeManager.registry().create("gpt-5.6-sol", "high", Optional.of("ActiveDeath"), 3_000L);
 		activeManager.registry().start(active.agentId(), "continue after respawn", 3_001L);
@@ -2315,8 +2249,6 @@ public final class MultiplexedServerBridgeVerification {
 			secretFile = Files.createTempFile("mineagen-error-revision-secret-", ".txt");
 			Files.writeString(secretFile, secret);
 			AgentManager manager = uninitializedManager();
-			AgentVerboseState verboseState = new AgentVerboseState();
-			verboseState.setEnabled(true);
 			AgentRecord active = manager.registry().create(
 					"gpt-5.6-sol", "high", Optional.of("Error gate"), 2_100L
 			);
@@ -2325,7 +2257,7 @@ public final class MultiplexedServerBridgeVerification {
 			);
 			long currentRevision = started.after().goalRevision();
 
-			bridge = new MultiplexedServerBridge(manager, 0, secretFile, verboseState);
+			bridge = new MultiplexedServerBridge(manager, 0, secretFile);
 			savedData(manager).setRuntimeHooks(bridge);
 			bridge.start();
 			BridgeEnvelopeCodec codec = new BridgeEnvelopeCodec();
@@ -2754,8 +2686,6 @@ public final class MultiplexedServerBridgeVerification {
 				JsonObject published = acknowledgement.payload().getAsJsonArray("registry").get(0).getAsJsonObject();
 				assertEquals(AgentLifecycleState.STARTING.name(), published.get("state").getAsString(),
 						"transition during authentication is folded into the retried handshake snapshot");
-				assertEquals("verbose_control", codec.decode(reader.readLine()).type(),
-						"transition fixture consumes the handshake verbose-control frame");
 				socket.setSoTimeout(150);
 				try {
 					reader.readLine();
@@ -2862,25 +2792,15 @@ public final class MultiplexedServerBridgeVerification {
 		assertEquals(goalFingerprint, payload.get("goalFingerprint").getAsString(), "completion result retains the immutable goal fingerprint");
 		assertEquals("minecraft:iron_pickaxe x1", payload.getAsJsonArray("facts").get(0).getAsJsonObject().get("expectedValue").getAsString(), "completion result retains expected value");
 		assertEquals("minecraft:iron_pickaxe x0", payload.getAsJsonArray("facts").get(0).getAsJsonObject().get("observedValue").getAsString(), "completion result retains observed value");
-		MultiplexedServerBridge.VerboseEvent rejected = invokeCompletionVerboseEvent(7L, verification);
-		assertEquals(7L, rejected.goalRevision(), "rejected completion feedback retains the guarded revision");
-		assertEquals("retry", rejected.stage(), "rejected completion feedback uses the Problem stage exactly once");
-		assertEquals("Still need iron pickaxe x1. I'll keep working.", rejected.message(),
+		assertEquals("Still need iron pickaxe x1. I'll keep working.",
+				dev.agaminggod.mineagen.server.AgentActivityPresentation.goalNotComplete(verification.facts()),
 				"rejected completion feedback explains that work will continue");
-		GoalCompletionVerifier.VerificationResult verified = new GoalCompletionVerifier.VerificationResult(
-				true, 7L, "VERIFIED", List.of()
-		);
-		MultiplexedServerBridge.VerboseEvent completed = invokeCompletionVerboseEvent(7L, verified);
-		assertEquals(7L, completed.goalRevision(), "successful completion feedback retains the guarded revision");
-		assertEquals("result", completed.stage(), "successful completion feedback uses Result instead of Lifecycle");
-		assertEquals("Goal verified.", completed.message(), "successful completion feedback is concise");
 		GoalCompletionVerifier.VerificationResult waiting = new GoalCompletionVerifier.VerificationResult(
 				false, 7L, "PREDICATE_FAILED",
 				List.of(new GoalEvidence.Fact("operator_confirmed", false, "operator confirmation", "not confirmed"))
 		);
-		MultiplexedServerBridge.VerboseEvent awaitingConfirmation = invokeCompletionVerboseEvent(7L, waiting);
-		assertEquals("result", awaitingConfirmation.stage(), "manual confirmation is a waiting state rather than an action problem");
-		assertEquals("Finished the work. Waiting for your confirmation.", awaitingConfirmation.message(),
+		assertEquals("Finished the work. Waiting for your confirmation.",
+				dev.agaminggod.mineagen.server.AgentActivityPresentation.goalNotComplete(waiting.facts()),
 				"manual confirmation feedback does not falsely claim the agent is continuing");
 	}
 
@@ -3532,8 +3452,6 @@ public final class MultiplexedServerBridgeVerification {
 				writeAuthenticatedHello(incumbent, codec, secret, null, messageId, exchange);
 				assertEquals("hello_ack", codec.decode(reader.readLine()).type(),
 						"oldest incumbent completes authentication after overflow rejection");
-				assertEquals("verbose_control", codec.decode(reader.readLine()).type(),
-						"incumbent handshake replay remains intact after pool saturation");
 				awaitCondition(activeBridge.observationPublicationForVerification()::hasActiveSession,
 						"incumbent becomes the active coordinator after saturation");
 			}
@@ -3652,30 +3570,6 @@ public final class MultiplexedServerBridgeVerification {
 			return (String) method.invoke(null, transition);
 		} catch (ReflectiveOperationException exception) {
 			throw new AssertionError("could not classify goal control operation", exception);
-		}
-	}
-
-	private static String invokeVerboseResult(ServerActionResult result) {
-		try {
-			var method = MultiplexedServerBridge.class.getDeclaredMethod("verboseResult", ServerActionResult.class);
-			method.setAccessible(true);
-			return (String) method.invoke(null, result);
-		} catch (ReflectiveOperationException exception) {
-			throw new AssertionError("could not format verbose action result", exception);
-		}
-	}
-
-	private static MultiplexedServerBridge.VerboseEvent invokeCompletionVerboseEvent(
-			long goalRevision,
-			GoalCompletionVerifier.VerificationResult verification
-	) {
-		try {
-			var method = MultiplexedServerBridge.class.getDeclaredMethod(
-					"completionVerboseEvent", long.class, GoalCompletionVerifier.VerificationResult.class);
-			method.setAccessible(true);
-			return (MultiplexedServerBridge.VerboseEvent) method.invoke(null, goalRevision, verification);
-		} catch (ReflectiveOperationException exception) {
-			throw new AssertionError("could not format goal completion verbose feedback", exception);
 		}
 	}
 
@@ -3939,8 +3833,6 @@ public final class MultiplexedServerBridgeVerification {
 		writeHello(socket, reader, codec, secret, launchId, messageId);
 		BridgeEnvelope acknowledgement = codec.decode(reader.readLine());
 		assertEquals("hello_ack", acknowledgement.type(), "launch fixture authenticates the session");
-		assertEquals("verbose_control", codec.decode(reader.readLine()).type(),
-				"launch fixture consumes verbose control");
 		return acknowledgement;
 	}
 
@@ -4180,8 +4072,6 @@ public final class MultiplexedServerBridgeVerification {
 		writeHello(socket, reader, codec, secret, null, messageId);
 		BridgeEnvelope acknowledgement = codec.decode(reader.readLine());
 		assertEquals("hello_ack", acknowledgement.type(), "replacement fixture authenticates the session");
-		assertEquals("verbose_control", codec.decode(reader.readLine()).type(),
-				"replacement fixture consumes verbose control");
 		return acknowledgement;
 	}
 
@@ -4196,9 +4086,6 @@ public final class MultiplexedServerBridgeVerification {
 		writeHello(socket, reader, codec, secret, null, messageId);
 		BridgeEnvelope acknowledgement = pollBridgeResponseOfType(
 				bridge, socket, reader, codec, "hello_ack", null);
-		assertEquals("verbose_control", pollBridgeResponseOfType(
-				bridge, socket, reader, codec, "verbose_control", null).type(),
-				"replacement fixture consumes verbose control");
 		return acknowledgement;
 	}
 

@@ -10,21 +10,21 @@ public final class AgentControlLayoutVerification {
 
 	public static int verify() {
 		AgentControlLayout wide = AgentControlLayout.calculate(960, 540);
-		assertTrue(wide.sideNavigation(), "wide command center keeps persistent side navigation");
-		assertTrue(wide.splitWorkspace(), "wide command center reserves a readable context rail");
-		assertTrue(wide.canvasWidth() >= 420, "wide command center keeps a useful primary canvas");
-		assertTrue(wide.contextWidth() >= 180, "wide command center context rail remains readable");
+		assertTrue(wide.sideNavigation(), "wide control center keeps persistent side navigation");
+		assertTrue(wide.splitWorkspace(), "wide control center reserves a readable context rail");
+		assertTrue(wide.canvasWidth() >= 420, "wide control center keeps a useful primary canvas");
+		assertTrue(wide.contextWidth() >= 180, "wide control center context rail remains readable");
 		assertTrue(wide.navigationTop() - wide.panelTop() >= 57,
-				"wide navigation leaves breathing room below the console header");
+				"wide navigation leaves breathing room below the control center header");
 		assertTrue(wide.contentBottom() < wide.footerY(), "wide content never collides with footer actions");
 
 		AgentControlLayout compact = AgentControlLayout.calculate(320, 240);
-		assertTrue(!compact.sideNavigation(), "compact command center reflows navigation above the canvas");
-		assertTrue(!compact.splitWorkspace(), "compact command center stacks context below the primary task");
+		assertTrue(!compact.sideNavigation(), "compact control center reflows navigation above the canvas");
+		assertTrue(!compact.splitWorkspace(), "compact control center stacks context below the primary task");
 		assertTrue(compact.canvasWidth() >= 276, "compact canvas stays wide enough for prompt and roster controls");
 		assertTrue(compact.contentTop() > compact.navigationBottom(), "compact content begins after navigation");
 		assertTrue(compact.navigationTop() - compact.panelTop() >= 45,
-				"compact navigation leaves breathing room below the console header");
+				"compact navigation leaves breathing room below the control center header");
 		assertTrue(compact.footerY() + AgentControlLayout.CONTROL_HEIGHT <= compact.panelBottom(),
 				"compact footer remains fully on screen");
 		assertTrue(compact.minimumTargetHeight() >= 24, "custom controls meet the minimum target-height contract");

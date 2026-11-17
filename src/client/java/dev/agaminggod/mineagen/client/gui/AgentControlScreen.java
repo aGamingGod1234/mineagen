@@ -867,13 +867,13 @@ public final class AgentControlScreen extends Screen {
 			graphics.fill(layout.contentLeft(), layout.panelTop() + 31, layout.panelRight(), layout.panelTop() + 32, PANEL_EDGE);
 			graphics.text(font, "Mineagen", left + 14, layout.panelTop() + 8, ACCENT, false);
 			graphics.text(font, "Agents", left + 14, layout.panelTop() + 19, TEXT, false);
-			graphics.text(font, "Field Console", left + 14, layout.panelTop() + 35, MUTED, false);
+			graphics.text(font, "Control center", left + 14, layout.panelTop() + 35, MUTED, false);
 			graphics.text(font, "Operations", left + 14, layout.navigationTop() - 15, MUTED, false);
 		} else {
 			graphics.fill(left, layout.panelTop(), layout.panelRight(), layout.panelTop() + 37, NAV_SURFACE);
 			graphics.fill(left, layout.panelTop() + 37, layout.panelRight(), layout.panelTop() + 38, PANEL_EDGE);
 			graphics.text(font, "Mineagen", left + 14, layout.panelTop() + 10, TEXT, false);
-			graphics.text(font, "Field Console", left + 14, layout.panelTop() + 22, MUTED, false);
+			graphics.text(font, "Control center", left + 14, layout.panelTop() + 22, MUTED, false);
 		}
 		String connection = snapshot == null ? "Syncing" : snapshot.canControl() ? "Link online" : "View only";
 		int connectionColor = snapshot != null && snapshot.canControl() ? SUCCESS : ACCENT;
@@ -882,7 +882,7 @@ public final class AgentControlScreen extends Screen {
 			graphics.fill(left + 10, layout.panelBottom() - 50, navigationRight - 10, layout.panelBottom() - 24, TRACK);
 			graphics.fill(left + 16, layout.panelBottom() - 42, left + 21, layout.panelBottom() - 37, connectionColor);
 			graphics.text(font, connection, left + 27, layout.panelBottom() - 44, connectionColor, false);
-			graphics.text(font, AgentControlClient.openControlKeyLabel() + "  open console",
+			graphics.text(font, AgentControlClient.openControlKeyLabel() + "  control center",
 					left + 16, layout.panelBottom() - 32, MUTED, false);
 		} else {
 			int textX = layout.panelRight() - font.width(connection) - 14;
@@ -990,7 +990,7 @@ public final class AgentControlScreen extends Screen {
 		graphics.text(font, "Remove " + fit(agent.displayName(), right - left - 34),
 				left + 14, top + 14, ERROR, false);
 		graphics.text(font, "This deletes the agent and its saved state.", left + 14, top + 37, TEXT, false);
-		graphics.text(font, "This cannot be undone from the Field Console.", left + 14, top + 53, MUTED, false);
+		graphics.text(font, "This cannot be undone from the control center.", left + 14, top + 53, MUTED, false);
 		graphics.text(font, "Choose Keep Agent to return without changing anything.", left + 14, top + 75,
 				MUTED, false);
 	}

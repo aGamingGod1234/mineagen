@@ -10,7 +10,7 @@ $Project = [IO.Path]::GetFullPath($ProjectRoot)
 # These paths are the explicit retention boundary for cleanup work. Keep this
 # audit independent from deletion candidates so it remains useful after a cut.
 $retainedFiles = [ordered]@{
-    'console control screen' = 'src/client/java/dev/agaminggod/mineagen/client/gui/AgentControlScreen.java'
+    'control center screen' = 'src/client/java/dev/agaminggod/mineagen/client/gui/AgentControlScreen.java'
     'voice runtime' = 'src/main/java/dev/agaminggod/mineagen/server/voice/VoiceSubsystemRuntime.java'
     'shared server pathfinder' = 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerPathPlanner.java'
     'visual identity' = 'src/main/java/dev/agaminggod/mineagen/agent/AgentVisualIdentity.java'

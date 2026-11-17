@@ -70,14 +70,6 @@ public final class AgentCommands {
 	}
 
 	static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
-		dispatcher.register(Commands.literal("agent").then(goalDraftCommands()));
-		PovCommands.register(dispatcher, AgentCommands::povAgentArgument);
-		dispatcher.register(
-				Commands.literal("verbose")
-						.requires(GoalControl::mayControl)
-						.then(Commands.literal("on").executes(context -> verbose(context, true)))
-						.then(Commands.literal("off").executes(context -> verbose(context, false)))
-		);
 		dispatcher.register(
 				Commands.literal(AgentControlCommandBuilder.ROOT)
 						.then(Commands.literal("summon")
@@ -135,8 +127,8 @@ public final class AgentCommands {
 								.requires(GoalControl::mayControl)
 								.then(agentArgument().executes(AgentCommands::toggleAutomatic)))
 						.then(voiceCommands())
-						.then(PovCommands.rootAlias("spectate", PovMode.SPECTATE, AgentCommands::povAgentArgument))
-						.then(PovCommands.rootAlias("takeover", PovMode.TAKEOVER, AgentCommands::povAgentArgument))
+						.then(PovCommands.command("spectate", PovMode.SPECTATE, AgentCommands::povAgentArgument))
+						.then(PovCommands.command("takeover", PovMode.TAKEOVER, AgentCommands::povAgentArgument))
 						);
 	}
 
@@ -250,16 +242,6 @@ public final class AgentCommands {
 		} catch (RuntimeException exception) {
 			throw unexpectedFailure("goal draft", exception);
 		}
-	}
-
-	private static int verbose(CommandContext<CommandSourceStack> context, boolean enabled) {
-		AgentServerRuntime.setVerbose(context.getSource().getServer(), enabled);
-		context.getSource().sendSuccess(
-				() -> Component.literal("Verbose agent activity " + (enabled ? "enabled" : "disabled")
-						+ " for operators for this server session."),
-				false
-		);
-		return 1;
 	}
 
 	private static int setVoiceProfile(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
@@ -437,7 +419,7 @@ public final class AgentCommands {
 				));
 	}
 
-	// /spectate and /takeover suggest one readable name per agent; ids and legacy aliases still resolve.
+	// /mineagen spectate and /mineagen takeover suggest one readable name per agent; ids and legacy aliases still resolve.
 	private static com.mojang.brigadier.builder.RequiredArgumentBuilder<CommandSourceStack, String> povAgentArgument() {
 		return Commands.argument(ARGUMENT_AGENT, StringArgumentType.word())
 				.suggests((context, builder) -> SharedSuggestionProvider.suggest(

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "generatedAt": "2026-08-12T15:10:00+08:00",
-  "title": "Design System: Mineagen Field Console",
+  "title": "Design System: Mineagen control center",
   "extensions": {
     "colorMeta": {
       "obsidian-panel": { "role": "neutral", "displayName": "Obsidian Panel", "canonical": "#18202B", "tonalRamp": ["#10151C", "#18202B", "#263342", "#3A4A5D", "#596B7E", "#8493A2", "#B7C1CA", "#E7EBEF"] },

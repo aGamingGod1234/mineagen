@@ -14,7 +14,6 @@ import dev.agaminggod.mineagen.agent.AgentRecord;
 import dev.agaminggod.mineagen.agent.AgentTransition;
 import dev.agaminggod.mineagen.agent.AgentValidators;
 import dev.agaminggod.mineagen.agent.goal.GoalPredicate;
-import dev.agaminggod.mineagen.agent.goal.GoalEvidence;
 import dev.agaminggod.mineagen.control.AgentControlCatalog;
 import dev.agaminggod.mineagen.control.AgentControlModelOption;
 import dev.agaminggod.mineagen.protocol.ActionType;
@@ -24,10 +23,9 @@ import dev.agaminggod.mineagen.protocol.ProtocolConstants;
 import dev.agaminggod.mineagen.server.AgentRuntimeHooks;
 import dev.agaminggod.mineagen.server.AgentSavedData;
 import dev.agaminggod.mineagen.server.AgentRuntimeRouter;
-import dev.agaminggod.mineagen.server.AgentActivityPresentation;
 import dev.agaminggod.mineagen.server.AgentChatReporter;
-import dev.agaminggod.mineagen.server.AgentVerboseChat;
-import dev.agaminggod.mineagen.server.AgentVerboseState;
+import dev.agaminggod.mineagen.server.AgentChatSanitizer;
+import dev.agaminggod.mineagen.server.GoalVerificationDedupe;
 import dev.agaminggod.mineagen.server.AgentManager;
 import dev.agaminggod.mineagen.server.conversation.ConversationAudience;
 import dev.agaminggod.mineagen.server.conversation.ConversationEvent;
@@ -190,7 +188,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 	private final int port;
 	private final ServerSocketFactory serverSockets;
 	private final LongSupplier nanoTime;
-	private final AgentVerboseState verboseState;
+	private final GoalVerificationDedupe goalVerifications;
 	private final BoundedServerTaskQueue serverTasks = new BoundedServerTaskQueue(
 			SERVER_TASK_BULK_CAP + SERVER_TASK_URGENT_RESERVE + SERVER_TASK_CONTROL_RESERVE,
 			SERVER_TASK_URGENT_RESERVE,
@@ -210,7 +208,6 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 	private long lastJournalFailureWarningNanos;
 	private List<PendingRespawnPublication> pendingRespawnPublications = new ArrayList<>();
 	private final DurableActionJournal actionJournal;
-	private final Object verboseControlLock = new Object();
 	private final Set<AgentId> protocolKnownAgentIds = new HashSet<>();
 	private final Set<AgentId> coordinatorReadyAgentIds = new HashSet<>();
 	private final LinkedHashSet<Session> preauthSessions = new LinkedHashSet<>();
@@ -225,8 +222,6 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 	private volatile java.util.function.Consumer<AutoCloseable> handshakeCommittedHook = ignored -> { };
 	private boolean disconnectInProgress;
 	private long coordinatorLifecycleGeneration;
-	private long verboseControlRevision;
-	private long publishedVerboseControlRevision;
 	private volatile Session session;
 	private volatile ServerSocket serverSocket;
 	private volatile Set<String> catalogProfiles = Set.of();
@@ -243,59 +238,36 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 	private volatile long publicationTicks;
 
 	public MultiplexedServerBridge(AgentManager manager) {
-		this(manager, configuredPort(), configuredSecretPath(), new AgentVerboseState());
+		this(manager, configuredPort(), configuredSecretPath());
 	}
 
-	public MultiplexedServerBridge(AgentManager manager, AgentVerboseState verboseState) {
-		this(manager, configuredPort(), configuredSecretPath(), verboseState);
-	}
-
-	public MultiplexedServerBridge(
-			AgentManager manager,
-			AgentVerboseState verboseState,
-			GoalVerificationRuntime goalVerificationRuntime
-	) {
-		this(manager, configuredPort(), configuredSecretPath(), verboseState, goalVerificationRuntime);
+	public MultiplexedServerBridge(AgentManager manager, GoalVerificationRuntime goalVerificationRuntime) {
+		this(manager, configuredPort(), configuredSecretPath(), goalVerificationRuntime);
 	}
 
 	public MultiplexedServerBridge(AgentManager manager, Path secretPath) {
-		this(manager, DEFAULT_PORT, secretPath, new AgentVerboseState());
-	}
-
-	public MultiplexedServerBridge(AgentManager manager, Path secretPath, AgentVerboseState verboseState) {
-		this(manager, DEFAULT_PORT, secretPath, verboseState);
+		this(manager, DEFAULT_PORT, secretPath);
 	}
 
 	public MultiplexedServerBridge(AgentManager manager, int port, Path secretPath) {
-		this(manager, port, secretPath, new AgentVerboseState());
+		this(manager, port, secretPath, defaultGoalVerificationRuntime(manager));
+	}
+
+	public MultiplexedServerBridge(
+			AgentManager manager,
+			Path secretPath,
+			GoalVerificationRuntime goalVerificationRuntime
+	) {
+		this(manager, DEFAULT_PORT, secretPath, goalVerificationRuntime);
 	}
 
 	public MultiplexedServerBridge(
 			AgentManager manager,
 			int port,
 			Path secretPath,
-			AgentVerboseState verboseState
-	) {
-		this(manager, port, secretPath, verboseState, defaultGoalVerificationRuntime(manager));
-	}
-
-	public MultiplexedServerBridge(
-			AgentManager manager,
-			Path secretPath,
-			AgentVerboseState verboseState,
 			GoalVerificationRuntime goalVerificationRuntime
 	) {
-		this(manager, DEFAULT_PORT, secretPath, verboseState, goalVerificationRuntime);
-	}
-
-	public MultiplexedServerBridge(
-			AgentManager manager,
-			int port,
-			Path secretPath,
-			AgentVerboseState verboseState,
-			GoalVerificationRuntime goalVerificationRuntime
-	) {
-		this(manager, port, secretPath, verboseState, goalVerificationRuntime, ServerSocket::new, System::nanoTime);
+		this(manager, port, secretPath, goalVerificationRuntime, ServerSocket::new, System::nanoTime);
 	}
 
 	MultiplexedServerBridge(
@@ -305,10 +277,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 			ServerSocketFactory serverSockets,
 			LongSupplier nanoTime
 	) {
-		this(
-				manager, port, secretPath, new AgentVerboseState(), defaultGoalVerificationRuntime(manager),
-				serverSockets, nanoTime
-		);
+		this(manager, port, secretPath, defaultGoalVerificationRuntime(manager), serverSockets, nanoTime);
 	}
 
 	MultiplexedServerBridge(
@@ -320,7 +289,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 			DurableActionJournal actionJournal
 	) {
 		this(
-				manager, port, readSecret(secretPath), new AgentVerboseState(), defaultGoalVerificationRuntime(manager),
+				manager, port, readSecret(secretPath), defaultGoalVerificationRuntime(manager),
 				serverSockets, nanoTime, actionJournal
 		);
 	}
@@ -329,24 +298,22 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 			AgentManager manager,
 			int port,
 			Path secretPath,
-			AgentVerboseState verboseState,
 			GoalVerificationRuntime goalVerificationRuntime,
 			ServerSocketFactory serverSockets
 	) {
-		this(manager, port, secretPath, verboseState, goalVerificationRuntime, serverSockets, System::nanoTime);
+		this(manager, port, secretPath, goalVerificationRuntime, serverSockets, System::nanoTime);
 	}
 
 	private MultiplexedServerBridge(
 			AgentManager manager,
 			int port,
 			Path secretPath,
-			AgentVerboseState verboseState,
 			GoalVerificationRuntime goalVerificationRuntime,
 			ServerSocketFactory serverSockets,
 			LongSupplier nanoTime
 	) {
 		this(
-				manager, port, readSecret(secretPath), verboseState, goalVerificationRuntime,
+				manager, port, readSecret(secretPath), goalVerificationRuntime,
 				serverSockets, nanoTime
 		);
 	}
@@ -355,19 +322,17 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 			AgentManager manager,
 			int port,
 			String preparedSecret,
-			AgentVerboseState verboseState,
 			GoalVerificationRuntime goalVerificationRuntime,
 			ServerSocketFactory serverSockets,
 			LongSupplier nanoTime
 	) {
-		this(manager, port, preparedSecret, verboseState, goalVerificationRuntime, serverSockets, nanoTime, defaultActionJournal(manager));
+		this(manager, port, preparedSecret, goalVerificationRuntime, serverSockets, nanoTime, defaultActionJournal(manager));
 	}
 
 	private MultiplexedServerBridge(
 			AgentManager manager,
 			int port,
 			String preparedSecret,
-			AgentVerboseState verboseState,
 			GoalVerificationRuntime goalVerificationRuntime,
 			ServerSocketFactory serverSockets,
 			LongSupplier nanoTime,
@@ -381,7 +346,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		this.serverSockets = Objects.requireNonNull(serverSockets, "server socket factory must not be null");
 		this.nanoTime = Objects.requireNonNull(nanoTime, "nanoTime must not be null");
 		this.secret = validatePreparedSecret(preparedSecret);
-		this.verboseState = Objects.requireNonNull(verboseState, "verboseState must not be null");
+		this.goalVerifications = manager.server() == null ? new GoalVerificationDedupe() : GoalVerificationDedupe.forServer(manager.server());
 		this.goalVerificationRuntime = Objects.requireNonNull(goalVerificationRuntime, "goalVerificationRuntime must not be null");
 		this.conversationRouter = new ServerAgentConversationRouter(
 				manager, this::publishConversationEvent, this::publishGoalSpecRequest);
@@ -399,27 +364,17 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 	}
 
 	public static MultiplexedServerBridge withPreparedSecret(AgentManager manager, int port, String secret) {
-		return withPreparedSecret(manager, port, secret, new AgentVerboseState(), defaultGoalVerificationRuntime(manager));
+		return withPreparedSecret(manager, port, secret, defaultGoalVerificationRuntime(manager));
 	}
 
 	public static MultiplexedServerBridge withPreparedSecret(
 			AgentManager manager,
 			int port,
 			String secret,
-			AgentVerboseState verboseState
-	) {
-		return withPreparedSecret(manager, port, secret, verboseState, defaultGoalVerificationRuntime(manager));
-	}
-
-	public static MultiplexedServerBridge withPreparedSecret(
-			AgentManager manager,
-			int port,
-			String secret,
-			AgentVerboseState verboseState,
 			GoalVerificationRuntime goalVerificationRuntime
 	) {
 		return new MultiplexedServerBridge(
-				manager, port, secret, verboseState, goalVerificationRuntime, ServerSocket::new, System::nanoTime
+				manager, port, secret, goalVerificationRuntime, ServerSocket::new, System::nanoTime
 		);
 	}
 
@@ -490,7 +445,6 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		// collection here so urgent input is physically applied before expensive world reads.
 		serverTasks.drainInspections(SERVER_INSPECTION_TASKS_PER_TICK, this::runServerTask);
 		publishPendingDisconnects();
-		publishPendingVerboseControl();
 		publishCatalogDiscoveryRetry();
 		replayPendingTerminalResults();
 		List<AgentRecord> visibleRecords = manager.coordinatorVisibleRecords();
@@ -604,48 +558,6 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 			int pendingControl,
 			int pendingBulk
 	) { }
-
-	public void setVerbose(boolean enabled) {
-		synchronized (verboseControlLock) {
-			verboseState.setEnabled(enabled);
-			verboseControlRevision += 1L;
-		}
-		publishPendingVerboseControl();
-	}
-
-	private void publishPendingVerboseControl() {
-		VerboseControlSnapshot control = verboseControlSnapshot();
-		if (control.revision() <= publishedVerboseControlRevision()) return;
-		Session active = session;
-		if (active == null || !active.authenticated.get()) return;
-		try {
-			active.enqueue(verboseControlEnvelope(control.enabled()));
-			markVerboseControlPublished(control);
-		} catch (BridgeProtocolException exception) {
-			LOGGER.debug("Verbose control will retry on the next server tick: {}", exception.getMessage());
-		}
-	}
-
-	private VerboseControlSnapshot verboseControlSnapshot() {
-		synchronized (verboseControlLock) {
-			return new VerboseControlSnapshot(verboseControlRevision, verboseState.enabled());
-		}
-	}
-
-	private long publishedVerboseControlRevision() {
-		synchronized (verboseControlLock) {
-			return publishedVerboseControlRevision;
-		}
-	}
-
-	private void markVerboseControlPublished(VerboseControlSnapshot control) {
-		synchronized (verboseControlLock) {
-			if (verboseControlRevision == control.revision() && verboseState.enabled() == control.enabled()) {
-				publishedVerboseControlRevision = Math.max(publishedVerboseControlRevision, control.revision());
-			}
-		}
-	}
-
 
 	public String authenticatedLaunchId() {
 		Session active = session;
@@ -994,7 +906,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		List<Session> candidates;
 		synchronized (publicationLock) {
 			running.set(false);
-			verboseState.clearActivity();
+			goalVerifications.clear();
 			CoordinatorStatusStore.clear(manager.server());
 			Session active = session;
 			if (active != null) {
@@ -1207,8 +1119,6 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 			handshake.add(new BridgeEnvelope(
 					2, serverInstanceId, "server", "hello_ack", "server-" + messageIds.incrementAndGet(), payload
 			));
-			VerboseControlSnapshot verboseControl = verboseControlSnapshot();
-			handshake.add(verboseControlEnvelope(verboseControl.enabled()));
 			for (PendingConversationWake wake : snapshot.pendingWakes()) {
 				handshake.add(conversationWakeEnvelope(wake));
 			}
@@ -1231,7 +1141,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 				session = source;
 				onSessionAccepted(observationPublication, source);
 				resetObservationPublication();
-				verboseState.clearActivity();
+				goalVerifications.clear();
 				catalogProfiles = Set.of();
 				catalogModels = List.of();
 				catalogLoaded = false;
@@ -1269,7 +1179,6 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 					handshakeCommittedHook.accept(source);
 					latestAgentNotices.clear();
 					coordinatorLifecycleGeneration++;
-					markVerboseControlPublished(verboseControl);
 				} catch (RuntimeException exception) {
 					for (ServerActionResult result : claimedReplay) terminalResults.release(result, source);
 					protocolKnownAgentIds.clear();
@@ -1283,15 +1192,6 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 				return;
 			}
 		}
-	}
-
-	private BridgeEnvelope verboseControlEnvelope(boolean enabled) {
-		JsonObject payload = new JsonObject();
-		payload.addProperty("enabled", enabled);
-		return new BridgeEnvelope(
-				2, serverInstanceId, "server", "verbose_control",
-				"server-" + messageIds.incrementAndGet(), payload
-		);
 	}
 
 	private void routeAuthenticated(BridgeEnvelope envelope) {
@@ -1849,12 +1749,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		String code = requiredString(envelope.payload(), "code");
 		String message = requiredString(envelope.payload(), "message");
 		AgentTransition transition = router.plannerFailed(agentId, goalRevision, message);
-		reportRawAgentError(verboseState,
-				() -> AgentChatReporter.failed(manager, transition.after(), code, message));
-	}
-
-	static void reportRawAgentError(AgentVerboseState verboseState, Runnable reporter) {
-		if (verboseState.standardActivityEnabled()) reporter.run();
+		AgentChatReporter.failed(manager, transition.after(), code, message);
 	}
 
 	/**
@@ -1935,7 +1830,6 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		AgentRecord record = manager.registry().require(agentId);
 		if (event.goalRevision() != record.goalRevision()) return;
 		if (event.stage().equals("decision")) AgentChatReporter.decision(manager, record, event.message());
-		else AgentVerboseChat.report(manager, verboseState, record, event.stage(), event.message());
 	}
 
 	public boolean requestTaskView(AgentId agentId) {
@@ -1946,15 +1840,21 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		return true;
 	}
 
+	// The coordinator may send any of these; only "decision" reaches chat, the rest are dropped after validation.
+	private static final Set<String> VERBOSE_EVENT_STAGES = Set.of(
+			"conversation", "lifecycle", "planner", "provider", "output", "decision",
+			"agent_message", "action", "progress", "result", "retry", "error", "voice"
+	);
+
 	static VerboseEvent decodeVerboseEvent(JsonObject payload) {
 		requireKeys(payload, Set.of("goalRevision", "stage", "message"), "verbose_event");
 		long goalRevision = requiredLong(payload, "goalRevision");
 		String stage = requiredString(payload, "stage");
-		if (!AgentVerboseChat.allowedStage(stage)) {
+		if (!VERBOSE_EVENT_STAGES.contains(stage)) {
 			throw new BridgeProtocolException("INVALID_VERBOSE_EVENT", "verbose_event.stage is not supported");
 		}
 		String message = requiredString(payload, "message");
-		if (message.length() > AgentVerboseChat.MAX_MESSAGE_LENGTH
+		if (message.length() > AgentChatSanitizer.MAX_MESSAGE_LENGTH
 				|| message.codePoints().anyMatch(codePoint -> codePoint < 0x20 || codePoint == 0x7f)) {
 			throw new BridgeProtocolException(
 					"INVALID_VERBOSE_EVENT", "verbose_event.message must be plain text with at most 256 characters"
@@ -1986,12 +1886,10 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		}
 		GoalCompletionVerifier.VerificationResult verification = goalVerificationRuntime.evaluateRequest(
 				agentId, goalRevision, goalFingerprint);
-		VerboseEvent feedback = completionVerboseEvent(goalRevision, verification);
-		boolean changed = verboseState.goalVerificationChanged(
+		boolean changed = goalVerifications.goalVerificationChanged(
 				agentId, goalRevision, verification.verified(), verification.facts());
 		if (!verification.verified() && changed) {
 			AgentChatReporter.goalNotComplete(manager, record, verification.facts());
-			AgentVerboseChat.report(manager, verboseState, record, feedback.stage(), feedback.message());
 		}
 		JsonObject result = completionResultPayload(goalRevision, traceId, goalFingerprint, verification);
 		send("goal_completion_result", agentId.toString(), result);
@@ -2000,24 +1898,8 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 			AgentRecord completed = manager.registry().require(agentId);
 			if (changed) {
 				AgentChatReporter.goalVerified(manager, completed, verification.facts());
-				AgentVerboseChat.report(manager, verboseState, completed, feedback.stage(), feedback.message());
 			}
 		}
-	}
-
-	static VerboseEvent completionVerboseEvent(
-			long goalRevision,
-			GoalCompletionVerifier.VerificationResult verification
-	) {
-		Objects.requireNonNull(verification, "verification must not be null");
-		GoalEvidence.Fact fact = verification.facts().stream().filter(item -> !item.satisfied()).findFirst()
-				.orElse(verification.facts().isEmpty() ? null : verification.facts().getFirst());
-		if (verification.verified()) {
-			return new VerboseEvent(goalRevision, "result",
-					fact == null ? "Goal verified." : "Goal verified: " + fact.expectedValue() + ".");
-		}
-		return new VerboseEvent(goalRevision, verification.awaitingOperatorConfirmation() ? "result" : "retry",
-				AgentActivityPresentation.goalNotComplete(verification.facts()));
 	}
 
 	static JsonObject completionResultPayload(long goalRevision, String traceId, String goalFingerprint, GoalCompletionVerifier.VerificationResult verification) {
@@ -2496,7 +2378,6 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 			// result; never invent a cancellation receipt or cancel another action's identity.
 			LOGGER.debug("ACTION_NOT_ACTIVE: cancellation arrived after action completion for {} revision {}", agentId, goalRevision);
 			replayPendingTerminalResults();
-			reportVerbose(agentId, "progress", "ACTION_NOT_ACTIVE: referenced action already ended; retained results replayed");
 		}
 	}
 
@@ -2552,8 +2433,6 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		result.addProperty("physicalAttempted", false);
 		send("action_result", identity.agentId(), result);
 		BridgeTap.result(AgentId.parse(identity.agentId()), identity.actionType(), "FAILED", result.get("reasonCode").getAsString());
-		reportVerbose(AgentId.parse(identity.agentId()), "error",
-				"Action rejected: " + boundedRejectionMessage(exception.getMessage()));
 		return true;
 	}
 
@@ -2668,7 +2547,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 	}
 
 	/**
-	 * A detached action never bypasses a /takeover reservation: a takeover of an idle or
+	 * A detached action never bypasses a /mineagen takeover reservation: a takeover of an idle or
 	 * completed agent does not change its revision, so the reservation itself must refuse the model's action.
 	 */
 	public static void requireDetachedBodyActionAllowed(net.minecraft.server.MinecraftServer server, AgentRecord record,
@@ -2737,8 +2616,6 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		synchronized (publicationLock) {
 			terminalResults.retain(result);
 		}
-		reportVerbose(result.agentId(), AgentActivityPresentation.verboseResultStage(result), verboseResult(result));
-		verboseState.finishAction(result);
 		observationPublication.markAttention(result.agentId());
 		queueUrgentObservation(result.agentId());
 	}
@@ -2844,9 +2721,6 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 				2, serverInstanceId, draft.agentId().toString(), "goal_spec_request",
 				"server-" + messageIds.incrementAndGet(), payload
 		);
-	}
-
-	private record VerboseControlSnapshot(long revision, boolean enabled) {
 	}
 
 	private Session requireConversationSession(AgentId agentId) {
@@ -2961,8 +2835,6 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		}
 		programActions.terminal(result);
 		observations.invalidate(result.agentId());
-		reportVerbose(result.agentId(), AgentActivityPresentation.verboseResultStage(result), verboseResult(result));
-		verboseState.finishAction(result);
 		observationPublication.markAttention(result.agentId());
 		queueUrgentObservation(result.agentId());
 		return true;
@@ -3011,10 +2883,6 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 	private BridgeEnvelope actionResultEnvelope(ServerActionResult result, Session target) {
 		return new BridgeEnvelope(2, serverInstanceId, result.agentId().toString(), "action_result",
 				"server-" + messageIds.incrementAndGet(), actionResultPayload(result, target));
-	}
-
-	private static String verboseResult(ServerActionResult result) {
-		return AgentVerboseChat.sanitizeMessage(AgentActivityPresentation.verboseResult(result));
 	}
 
 	private static JsonObject goalControlPayload(AgentTransition transition, String operation) {
@@ -3100,13 +2968,6 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		if (manager.server() != null && timingSession != null && timingSession.actionTiming) payload.addProperty("serverTick", manager.server().getTickCount());
 		if (progress.actionObservation() != null) payload.add("actionObservation", actionObservationPayload(progress.actionObservation(), timingSession != null && timingSession.bodyFacts));
 		send("action_progress", progress.agentId().toString(), payload);
-		if (progress.actionObservation() == null || progress.actionObservation().progress() == null
-				|| progress.actionObservation().progress().verified()) {
-			verboseState.progressMilestone(progress).ifPresent(milestone -> {
-				String message = AgentActivityPresentation.progress(progress, milestone);
-				reportVerbose(progress.agentId(), "progress", message);
-			});
-		}
 		queueObservation(progress.agentId());
 	}
 
@@ -3194,15 +3055,6 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		value.addProperty("y", position.y());
 		value.addProperty("z", position.z());
 		parent.add(name, value);
-	}
-
-	private void reportVerbose(AgentId agentId, String stage, String message) {
-		try {
-			AgentRecord record = manager.registry().require(agentId);
-			AgentVerboseChat.report(manager, verboseState, record, stage, message);
-		} catch (RuntimeException exception) {
-			LOGGER.debug("Verbose {} event was unavailable for {}: {}", stage, agentId, exception.getMessage());
-		}
 	}
 
 	private void queueObservation(AgentId agentId) {
@@ -4759,7 +4611,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 				terminalResults.sessionClosed(this);
 				preauthSessions.remove(this);
 				if (session == this) {
-					verboseState.clearActivity();
+					goalVerifications.clear();
 					MultiplexedServerBridge.onSessionClosed(observationPublication, this);
 					session = null;
 					protocolKnownAgentIds.clear();

@@ -13,7 +13,7 @@ import java.util.Optional;
 import java.util.UUID;
 import net.minecraft.server.MinecraftServer;
 
-/** A /takeover reservation refuses the model's detached (no-task) body actions on the operator's body. */
+/** A /mineagen takeover reservation refuses the model's detached (no-task) body actions on the operator's body. */
 public final class DetachedActionReservationVerification {
 	private DetachedActionReservationVerification() {
 	}

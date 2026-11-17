@@ -46,7 +46,7 @@ public final class AgentNoticeVerification {
 		verifyStrictSchema();
 		verifyChatPresentation();
 		verifyNoticeIsAcceptedForIdleAndUnknownAgents();
-		return 27;
+		return 26;
 	}
 
 	private static void verifyStrictSchema() {
@@ -107,7 +107,6 @@ public final class AgentNoticeVerification {
 				sendHello(socket, reader, codec, secret, "hello-agent-notice");
 				BridgeEnvelope helloAck = codec.decode(reader.readLine());
 				assertEquals("hello_ack", helloAck.type(), "notice fixture authenticates");
-				assertEquals("verbose_control", codec.decode(reader.readLine()).type(), "notice fixture receives control");
 
 				// The agent is idle (no goal revision), which is exactly when agent_error would be dropped.
 				send(socket, codec, new BridgeEnvelope(

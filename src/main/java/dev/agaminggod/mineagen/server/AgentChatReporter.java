@@ -120,8 +120,8 @@ public final class AgentChatReporter {
 	}
 
 	/**
-	 * Operator-facing notice that must always reach chat: it bypasses automatic-progress,
-	 * verbose and reason-code filtering because it tells players why an agent cannot think
+	 * Operator-facing notice that must always reach chat: it bypasses automatic-progress
+	 * and reason-code filtering because it tells players why an agent cannot think
 	 * at all (provider CLI missing, broken or signed out). Unknown agents are logged only.
 	 */
 	public static void notice(AgentManager manager, AgentRecord record, String severity, String code, String message) {
@@ -171,7 +171,7 @@ public final class AgentChatReporter {
 	}
 
 	public static void planning(AgentManager manager, AgentRecord record) {
-		// Public agent summaries describe intent. Generic planner state stays in the field console.
+		// Public agent summaries describe intent. Generic planner state stays in the control center.
 	}
 
 	public static void stillPlanning(AgentManager manager, AgentRecord record) {
@@ -184,32 +184,23 @@ public final class AgentChatReporter {
 		if (request.type() != dev.agaminggod.mineagen.protocol.ActionType.CHAT) {
 			feed(manager).acting(record.agentId().toString(), request.actionId(), AgentActivityPresentation.status(request.type(), request.arguments()), System.currentTimeMillis());
 		}
-		AgentVerboseState verbose = verboseState(manager);
-		if (verbose != null && verbose.beginAction(request)) {
-			AgentVerboseChat.report(
-					manager, verbose, record, "action", AgentActivityPresentation.actionStart(request.type()));
-		}
 	}
 
 	public static void decision(AgentManager manager, AgentRecord record, String summary) {
 		if (defer(manager.server(), () -> decision(manager, record, summary))) return;
 		if (summary == null || summary.isBlank() || summary.equals("Plan accepted.")) return;
 		if (manager.records().stream().noneMatch(current -> current.agentId().equals(record.agentId()) && current.goalRevision() == record.goalRevision())) return;
-		String safe = AgentVerboseChat.sanitizeMessage(record, summary);
+		String safe = AgentChatSanitizer.sanitizeMessage(record, summary);
 		if (safe.endsWith("redacted.") || safe.equals("Technical details hidden.") || safe.equals("No details.")) return;
-		AgentVerboseState verbose = verboseState(manager);
-		if (!manager.automaticProgress(record.agentId()) && (verbose == null || !verbose.enabled())) return;
+		if (!manager.automaticProgress(record.agentId())) return;
 		if (!feed(manager).decision(record.agentId().toString(), record.goalRevision(), safe)) return;
-		if (verbose != null && verbose.enabled()) AgentVerboseChat.report(manager, verbose, record, "decision", safe);
-		else report(manager, record, safe, ChatFormatting.WHITE);
+		report(manager, record, safe, ChatFormatting.WHITE);
 	}
 
 	public static void result(AgentManager manager, AgentRecord record, ServerActionResult result) {
 		if (defer(manager.server(), () -> result(manager, record, result))) return;
 		AgentFeedPolicy feed = feed(manager);
 		feed.result(record.agentId().toString(), result.actionId(), result.state() == dev.agaminggod.mineagen.server.runtime.ServerActionState.SUCCEEDED, System.currentTimeMillis());
-		AgentVerboseState verbose = verboseState(manager);
-		if (verbose != null && !verbose.standardActivityEnabled()) return;
 		AgentActivityPresentation.result(result)
 				.filter(message -> feed.problem(record.agentId().toString(), result.reasonCode(), message, System.currentTimeMillis()))
 				.ifPresent(message -> report(manager, record, message, ChatFormatting.RED));
@@ -217,15 +208,11 @@ public final class AgentChatReporter {
 
 	public static void completed(AgentManager manager, AgentRecord record, String summary) {
 		if (defer(manager.server(), () -> completed(manager, record, summary))) return;
-		AgentVerboseState verbose = verboseState(manager);
-		if (verbose != null && !verbose.standardActivityEnabled()) return;
 		report(manager, record, summary == null || summary.isBlank() ? "Task complete" : summary, ChatFormatting.GREEN);
 	}
 
 	public static void goalVerified(AgentManager manager, AgentRecord record, java.util.List<GoalEvidence.Fact> facts) {
 		if (defer(manager.server(), () -> goalVerified(manager, record, facts))) return;
-		AgentVerboseState verbose = verboseState(manager);
-		if (verbose != null && !verbose.standardActivityEnabled()) return;
 		GoalEvidence.Fact fact = firstFact(facts, true);
 		String detail = fact == null ? "server-observed requirements satisfied" : fact.expectedValue();
 		report(manager, record, "Goal verified: " + detail + ".", ChatFormatting.GREEN);
@@ -233,8 +220,6 @@ public final class AgentChatReporter {
 
 	public static void goalNotComplete(AgentManager manager, AgentRecord record, java.util.List<GoalEvidence.Fact> facts) {
 		if (defer(manager.server(), () -> goalNotComplete(manager, record, facts))) return;
-		AgentVerboseState verbose = verboseState(manager);
-		if (verbose != null && !verbose.standardActivityEnabled()) return;
 		report(manager, record, AgentActivityPresentation.goalNotComplete(facts), ChatFormatting.YELLOW);
 	}
 
@@ -250,15 +235,10 @@ public final class AgentChatReporter {
 
 	public static void failed(AgentManager manager, AgentRecord record, String reasonCode, String error) {
 		if (defer(manager.server(), () -> failed(manager, record, reasonCode, error))) return;
-		String safe = AgentVerboseChat.sanitizeMessage(record, error == null ? "" : error);
+		String safe = AgentChatSanitizer.sanitizeMessage(record, error == null ? "" : error);
 		String message = failureMessage(reasonCode, safe);
 		if (AgentFeedPolicy.severe(reasonCode)) {
 			notice(manager, record, "error", reasonCode, message);
-			return;
-		}
-		AgentVerboseState verbose = verboseState(manager);
-		if (verbose != null && !verbose.standardActivityEnabled()) {
-			AgentVerboseChat.report(manager, verbose, record, "error", message);
 			return;
 		}
 		AgentFeedPolicy.problem("continue", reasonCode, "")
@@ -279,18 +259,6 @@ public final class AgentChatReporter {
 	public static void disconnected(AgentManager manager, AgentRecord record) {
 		if (defer(manager.server(), () -> disconnected(manager, record))) return;
 		notice(manager, record, "error", "DISCONNECTED", "Connection lost. Reconnect the coordinator, then resume or restart this task.");
-	}
-
-	public static void respawnDisconnected(AgentManager manager, AgentRecord record) {
-		if (defer(manager.server(), () -> respawnDisconnected(manager, record))) return;
-		AgentVerboseState verbose = verboseState(manager);
-		if (verbose == null || verbose.standardActivityEnabled()) return;
-		AgentVerboseChat.report(manager, verbose, record, "error", AgentActivityPresentation.respawnDisconnected());
-	}
-
-	private static AgentVerboseState verboseState(AgentManager manager) {
-		var server = manager.server();
-		return server == null ? null : AgentVerboseState.forServer(server);
 	}
 
 	private static void report(

@@ -7,6 +7,7 @@ import com.mojang.brigadier.tree.LiteralCommandNode;
 import dev.agaminggod.mineagen.agent.AgentLifecycleState;
 import dev.agaminggod.mineagen.agent.AgentRecord;
 import dev.agaminggod.mineagen.agent.goal.GoalStatus;
+import dev.agaminggod.mineagen.control.AgentControlCommandBuilder;
 import dev.agaminggod.mineagen.server.AgentManager;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -101,7 +102,7 @@ public final class InterventionAuditHook {
 	}
 
 	public static void takeover(MinecraftServer server, String operator, String agent) {
-		intervention(server, operator, "takeover " + agent);
+		intervention(server, operator, AgentControlCommandBuilder.ROOT + " takeover " + agent);
 	}
 
 	/** Fabric JOIN: every connection for the server lifetime, so a visit between audit samples still counts. */

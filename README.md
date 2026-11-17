@@ -27,7 +27,7 @@ Download the files from the [Releases page](https://github.com/aGamingGod1234/mi
 2. Sign in to a model CLI: run `codex login` or `claude auth login`.
 3. Extract `mineagen-modpack-<version>.zip` into a new folder and follow its `README.md`. The installer is `.\scripts\install-distribution.ps1`. It creates a separate `.minecraft-mineagen` game folder and a launcher profile.
 4. Start Minecraft with that profile and open a world.
-5. Press `G` and choose **Create an agent**, or type `/mineagen summon`.
+5. Press `G` to open the control center and choose **Create an agent**, or type `/mineagen summon`.
 6. Give it a task: `/mineagen start <agent> Build a safe shelter before night`.
 
 To build the package yourself, see [DEVELOPMENT.md](DEVELOPMENT.md).
@@ -64,12 +64,11 @@ To build the package yourself, see [DEVELOPMENT.md](DEVELOPMENT.md).
 
 | Command | What it does |
 |---|---|
-| `/msg <agent> <message>` | Message an agent privately. `/tell`, `/w` and `/mineagen dm` work too. |
+| `/mineagen dm <agent> <message>` | Message an agent privately. Vanilla `/msg`, `/tell` and `/w` to an agent reach it too. |
 | `/mineagen auto <agent>` | Turn the agent's progress messages in chat on or off. |
-| `/verbose on` or `/verbose off` | Show operators detailed agent activity until the server stops. |
 | `/mineagen audit <agent>` | Show the outside interventions recorded during the current task. |
-| `/spectate <agent>` | See through the agent's eyes. `/spectate exit` returns you. |
-| `/takeover <agent>` | Control the agent's body yourself. `/takeover exit` hands it back. |
+| `/mineagen spectate <agent>` | See through the agent's eyes. `/mineagen spectate exit` returns you. |
+| `/mineagen takeover <agent>` | Control the agent's body yourself. `/mineagen takeover exit` hands it back. |
 
 ### Voice
 
@@ -82,10 +81,10 @@ To build the package yourself, see [DEVELOPMENT.md](DEVELOPMENT.md).
 
 ## Features
 
-- **Agents screen.** Press `G` to create agents, pick provider, model, thinking level, speed and game mode, give tasks, pause, resume, respawn or remove them. It also shows which model CLIs it found on the machine and whether they are signed in.
+- **Control center.** Press `G` to create agents, pick provider, model, thinking level, speed and game mode, give tasks, pause, resume, respawn or remove them. It also shows which model CLIs it found on the machine and whether they are signed in.
 - **Codex and Claude Code.** Each agent can use a different provider and model. Codex models come from your installed CLI; Claude models come from the coordinator's configured list.
-- **Spectate and takeover.** `/spectate` shows the agent's own first-person view with its hand, hotbar, health and open screens. `/takeover` pauses the model and gives you its body. When you leave, the model gets a short report of what you did.
-- **Live windows.** From the Agents screen you can open a plan window with the agent's task map and a model terminal with its output and tool calls.
+- **Spectate and takeover.** `/mineagen spectate` shows the agent's own first-person view with its hand, hotbar, health and open screens. `/mineagen takeover` pauses the model and gives you its body. When you leave, the model gets a short report of what you did.
+- **Live windows.** From the control center you can open a plan window with the agent's task map and a model terminal with its output and tool calls.
 - **Voice.** With Mineagen Voice and Simple Voice Chat, agents speak their replies out loud near their body and can hear players who turn on consent. Speech uses OpenAI text-to-speech and transcription with your own OpenAI API key.
 - **Skins.** Codex agents wear an OpenAI skin and Claude agents a Claude skin, so you can tell them apart.
 - **Several Minecraft versions.** One source tree builds for 26.1.x, 26.2 and 26.3.
@@ -99,8 +98,8 @@ To build the package yourself, see [DEVELOPMENT.md](DEVELOPMENT.md).
 - Learning from past games is a goal. Agents keep facts, chat and task memory, but it has not been shown to make them better from one game to the next.
 - Agents run on your own Codex or Claude account, so their model calls use that account's usage.
 - Only Windows has a packaged installer. Other systems need a manual setup.
-- Agents use your CLI login by default. You can instead save an API key per provider in the Agents screen. A saved key works only in a world you host yourself, and it never leaves your machine. On Windows it is encrypted to your Windows account; elsewhere it is a file only your account can read.
-- `/spectate` replaces the vanilla command on servers that run Mineagen. Spectate and takeover need the Mineagen client mod.
+- Agents use your CLI login by default. You can instead save an API key per provider in the control center. A saved key works only in a world you host yourself, and it never leaves your machine. On Windows it is encrypted to your Windows account; elsewhere it is a file only your account can read.
+- Spectate and takeover need the Mineagen client mod.
 
 ## More
 

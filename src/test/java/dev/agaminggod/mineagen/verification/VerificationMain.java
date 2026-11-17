@@ -5,7 +5,7 @@ import dev.agaminggod.mineagen.agent.AgentRegistryVerification;
 import dev.agaminggod.mineagen.agent.GoalSpecVerification;
 import dev.agaminggod.mineagen.agent.AgentIdentityVerification;
 import dev.agaminggod.mineagen.server.AgentActivityPresentationVerification;
-import dev.agaminggod.mineagen.server.AgentVerbosePresentationVerification;
+import dev.agaminggod.mineagen.server.AgentChatSanitizerVerification;
 import dev.agaminggod.mineagen.server.AgentDeathCaptureVerification;
 import dev.agaminggod.mineagen.server.AgentControlSyncVerification;
 import dev.agaminggod.mineagen.server.ChunkedSavedPayloadVerification;
@@ -121,7 +121,7 @@ public final class VerificationMain {
 		dev.agaminggod.mineagen.control.TestCatalog.install();
 		ProtocolCodec codec = new ProtocolCodec();
 
-		passedAssertions += AgentVerbosePresentationVerification.verify();
+		passedAssertions += AgentChatSanitizerVerification.verify();
 		verifyProtocolConstants();
 		verifyActionWireNames();
 		verifyValidActionUnion(codec);

@@ -41,8 +41,8 @@ public final class InterventionAuditVerification {
 				datapack.listRegistryKeys().map(key -> (net.minecraft.core.HolderLookup.RegistryLookup<?>) datapack.lookupOrThrow(key))));
 		CommandDispatcher<CommandSourceStack> dispatcher = new Commands(Commands.CommandSelection.DEDICATED,
 				net.minecraft.commands.CommandBuildContext.simple(lookup, net.minecraft.world.flag.FeatureFlags.VANILLA_SET)).getDispatcher();
-		// AgentCommands.register needs a Fabric mixin accessor that plain verification cannot load, so this mirrors
-		// the shape of the /mineagen nodes the runner uses (literal names and argument names as registered there).
+		// AgentCommands.register is package-private to the server package, so this mirrors the shape of the
+		// /mineagen nodes the runner uses (literal names and argument names as registered there).
 		var agent = (java.util.function.Supplier<com.mojang.brigadier.builder.RequiredArgumentBuilder<CommandSourceStack, String>>) () -> Commands.argument("agent", StringArgumentType.word());
 		dispatcher.register(Commands.literal(dev.agaminggod.mineagen.control.AgentControlCommandBuilder.ROOT)
 				.then(Commands.literal("summon-configured").then(Commands.argument("provider", StringArgumentType.word())
@@ -56,8 +56,8 @@ public final class InterventionAuditVerification {
 				.then(Commands.literal("audit").then(agent.get().executes(context -> 1)))
 				.then(Commands.literal("stop").then(agent.get().executes(context -> 1)))
 				.then(Commands.literal("remove").then(agent.get().executes(context -> 1)))
+				.then(Commands.literal("spectate").then(agent.get().executes(context -> 1)))
 				.then(Commands.literal("takeover").then(agent.get().executes(context -> 1))));
-		dispatcher.register(Commands.literal("takeover").then(agent.get().executes(context -> 1)));
 		dispatcher.register(Commands.literal("player").then(Commands.argument("player", StringArgumentType.word())
 				.then(Commands.literal("attack").then(Commands.literal("continuous").executes(context -> 1)))));
 		return dispatcher;
@@ -265,7 +265,7 @@ public final class InterventionAuditVerification {
 				"execute if entity @a[name=" + AGENT + "] run give Bob minecraft:ender_pearl 1", "advancement grant " + AGENT + " only minecraft:story/enter_the_nether",
 				"give " + AGENT + " minecraft:ender_pearl", "item replace block 0 64 0 container.0 with minecraft:ender_pearl 1", "time set day",
 				"gamemode creative " + AGENT, "mineagen summon-configured codex gpt-5.6-sol high priority creative " + AGENT, "mineagen takeover " + AGENT,
-				"takeover " + AGENT, "player " + AGENT + " attack continuous", "msg " + AGENT + " hello", "experience add " + AGENT + " 30 levels",
+				"mineagen spectate " + AGENT, "player " + AGENT + " attack continuous", "msg " + AGENT + " hello", "experience add " + AGENT + " 30 levels",
 				"tag " + AGENT + " add winner", "scoreboard objectives add x dummy", "setblock 0 64 0 minecraft:chest"}) {
 			expect(verdict(dispatcher, command) == Verdict.INTERVENTION, "intervention allowed: " + command + " path " + path(dispatcher, command));
 			checks++;

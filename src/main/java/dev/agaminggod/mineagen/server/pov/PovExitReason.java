@@ -1,5 +1,6 @@
 package dev.agaminggod.mineagen.server.pov;
 
+import dev.agaminggod.mineagen.control.AgentControlCommandBuilder;
 import dev.agaminggod.mineagen.pov.PovMode;
 import java.util.Objects;
 import java.util.Optional;
@@ -35,7 +36,7 @@ public enum PovExitReason {
 
 	/** Dimension changes end the session in v1; the operator re-runs the same command afterwards. */
 	public static String agentDimensionMessage(String dimensionId, PovMode mode, String agentName) {
-		String command = mode == PovMode.TAKEOVER ? "/takeover " : "/spectate ";
+		String command = "/" + AgentControlCommandBuilder.ROOT + (mode == PovMode.TAKEOVER ? " takeover " : " spectate ");
 		return "Agent moved to " + dimensionId + ". Run " + command + agentName
 				+ " again once you are in the same dimension.";
 	}
