@@ -51,8 +51,8 @@ import net.minecraft.world.phys.Vec3;
  * an ordinary fight_target (melee) or use_ranged untilDead (bow) at the nearest seen target of that type inside the
  * area, with the same aim, reach, timing and pickup those actions have. Between engagements the body walks back to the
  * model's spot (when one was given). It stops at the count, at timeoutMs, at fleeAtHealth, on new lava contact, when a
- * bow-only skill runs out of arrows or bow, when no target was seen for 30 s (after a kill, once a look around of 3 to
- * 5 s finds none left; {@link AreaCleared}), when two engagements in a row fail with the same reason, or when the model
+ * bow-only skill runs out of arrows or bow, when no target was seen for 30 s (after a kill, outside blazes and roof:true,
+ * once a look around of 3 to 5 s finds none left; {@link AreaCleared}), when two engagements in a row fail with the same reason, or when the model
  * cancels. Fire alone does not hand back: as a player plays blazes, the body steps off a
  * fire block and fights on while it burns; with a shield in the offhand it lowers the weapon and raises the shield
  * toward a shot it sees flying at it (vanilla blocking: activation delay, front arc), then fights on; and between
@@ -650,9 +650,9 @@ public final class ServerFightUntilController implements ServerController {
 			areaCleared.busy(elapsed);
 			return walkBack(player, nowEpochMs);
 		}
-		boolean blaze = mob == McEntityTypes.BLAZE;
-		long quietMs = areaCleared.observe(kills, blaze, elapsed, lastTargetMs,
-				AreaCleared.applies(kills, blaze) && (clearDropsWaiting || passedOverInView(player)), lookStep);
+		boolean waitsForMore = mob == McEntityTypes.BLAZE || roof;
+		long quietMs = areaCleared.observe(kills, waitsForMore, elapsed, lastTargetMs,
+				AreaCleared.applies(kills, waitsForMore) && (clearDropsWaiting || passedOverInView(player)), lookStep);
 		if (quietMs >= 0L)
 			return stop(player, TickResult.failed("AREA_CLEARED", String.format(Locale.ROOT,
 					"No %s left in view within %.0f blocks of %s after %d kill%s (looked around %.1f s)%s", mobId, radius, cell(center),

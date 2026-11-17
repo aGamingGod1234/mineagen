@@ -25,7 +25,7 @@ public final class AreaClearedVerification {
 
 	private static void verifyGates() {
 		check(!AreaCleared.applies(0, false), "zero kills keeps the 30 s no-target wait");
-		check(!AreaCleared.applies(3, true), "blazes keep the 30 s wait (spawners keep making more)");
+		check(!AreaCleared.applies(3, true), "blazes (spawners keep making more) and roof:true (the doorway is the only view) keep the 30 s wait");
 		check(AreaCleared.applies(1, false), "one kill of any other mob ends a cleared area early");
 		check(!AreaCleared.cleared(2_950L, 12), "never before 3 s, however many turns");
 		check(!AreaCleared.cleared(4_000L, 5), "not before a full circle of turns");
@@ -43,7 +43,7 @@ public final class AreaClearedVerification {
 		check(typical >= 3_000L && typical <= 5_000L, "a cleared area ends within 3 to 5 s with ordinary turns: " + typical);
 		check(slow >= 3_000L && slow <= 5_000L, "and within 5 s with held-up turns: " + slow);
 		check(secondsToClear(0, false, 4) < 0L, "zero kills: no early end (the 30 s no-target wait runs as before)");
-		check(secondsToClear(2, true, 4) < 0L, "blaze: no early end");
+		check(secondsToClear(2, true, 4) < 0L, "blaze or roof:true: no early end");
 	}
 
 	/** Walking back to the spot, drops waiting on a hostile, or a passed-over mob in view: the quiet time starts after. */
@@ -78,15 +78,27 @@ public final class AreaClearedVerification {
 			if (quietMs >= 0L) end = elapsed;
 		}
 		check(end >= 2_000L + AreaCleared.MIN_QUIET_MS, "a target seen again restarts the look around: " + end);
+
+		// Ticks spent elsewhere (a hunt walk, a perch) that left lastTargetMs alone are not looking around.
+		AreaCleared away = new AreaCleared();
+		int turnTick = 0;
+		for (long elapsed = 50L; elapsed <= 1_000L; elapsed += TICK_MS) check(away.observe(1, false, elapsed, 0L, false, turnTick++ / 4) < 0L, "1 s of looking is not enough");
+		long back = away.observe(1, false, 7_000L, 0L, false, 100);
+		check(back < 0L, "back after 6 s elsewhere, the look around starts again instead of ending at once");
+		long resumed = -1L;
+		for (long elapsed = 7_050L; elapsed <= 20_000L && resumed < 0L; elapsed += TICK_MS) {
+			if (away.observe(1, false, elapsed, 0L, false, 100 + (int) ((elapsed - 7_000L) / 200L)) >= 0L) resumed = elapsed;
+		}
+		check(resumed >= 7_000L + AreaCleared.MIN_QUIET_MS && resumed <= 7_000L + AreaCleared.MAX_QUIET_MS, "and runs its 3 to 5 s from there: " + resumed);
 	}
 
-	/** Ms from the last target until the area counts as cleared, a turn finishing every turnTicks; -1 within 30 s. */
-	private static long secondsToClear(int kills, boolean blaze, int turnTicks) {
+	/** Ms from the first tick without a target until the area counts as cleared, a turn finishing every turnTicks; -1 within 30 s. */
+	private static long secondsToClear(int kills, boolean waitsForMore, int turnTicks) {
 		AreaCleared area = new AreaCleared();
 		long lastTarget = 40_000L;
 		int step = 0;
 		for (long elapsed = lastTarget + TICK_MS; elapsed - lastTarget < ServerFightUntilController.NO_TARGET_MS; elapsed += TICK_MS) {
-			if (area.observe(kills, blaze, elapsed, lastTarget, false, step) >= 0L) return elapsed - lastTarget;
+			if (area.observe(kills, waitsForMore, elapsed, lastTarget, false, step) >= 0L) return elapsed - lastTarget - TICK_MS;
 			if (((elapsed - lastTarget) / TICK_MS) % turnTicks == 0) step++;
 		}
 		return -1L;

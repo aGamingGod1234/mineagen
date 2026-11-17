@@ -39470,7 +39470,7 @@
       "status": "checked"
     },
     {
-      "predicate": "fight_until stops at the held count, timeoutMs, fleeAtHealth, new lava contact, death, bow-only out of arrows or bow, 30 s without a seen target, or (after at least one kill of a mob other than a blaze) a 3 to 5 s look around with no target left (AREA_CLEARED, with the partial count), two failed walks back, or two same-code failed engagements in a row. Fire does not stop it: in a fire block it walks to the nearest seen exit and fights on; with an offhand shield it puts the engagement down and raises the shield toward a seen inbound shot (vanilla delay and arc), then fights the same target on. After a kill that gained nothing it turns toward where the target died for up to 1.5 s and collects an untilItem drop it then sees within 4 blocks. The result lists fire time, steps off fire, shield raises and blocks, cover moves, drops looked for and found, kills, counts before and after, arrows used, engagements, endings and the last engagement messages. Cover steps between engagements are off by default (-Dmineagen.fight.cover=true enables them for fixtures).; The authored combat action attempts existing flee steering for at most five seconds and its remaining timeout, then reports LOW_HEALTH_BAILOUT with the actual retreat outcome and movement facts. Hold-ground choices preserve no movement; blocked retreat starts no new fight or build. A reported attempt does not establish safe escape.",
+      "predicate": "fight_until stops at the held count, timeoutMs, fleeAtHealth, new lava contact, death, bow-only out of arrows or bow, 30 s without a seen target, or (after at least one kill, outside blazes and roof:true) a 3 to 5 s look around with no target left (AREA_CLEARED, with the partial count), two failed walks back, or two same-code failed engagements in a row. Fire does not stop it: in a fire block it walks to the nearest seen exit and fights on; with an offhand shield it puts the engagement down and raises the shield toward a seen inbound shot (vanilla delay and arc), then fights the same target on. After a kill that gained nothing it turns toward where the target died for up to 1.5 s and collects an untilItem drop it then sees within 4 blocks. The result lists fire time, steps off fire, shield raises and blocks, cover moves, drops looked for and found, kills, counts before and after, arrows used, engagements, endings and the last engagement messages. Cover steps between engagements are off by default (-Dmineagen.fight.cover=true enables them for fixtures).; The authored combat action attempts existing flee steering for at most five seconds and its remaining timeout, then reports LOW_HEALTH_BAILOUT with the actual retreat outcome and movement facts. Hold-ground choices preserve no movement; blocked retreat starts no new fight or build. A reported attempt does not establish safe escape.",
       "checks": [
         {
           "file": "coordinator/test/schema.test.mjs",
@@ -39514,10 +39514,10 @@
           "command": "gradlew verifyCore"
         }
       ],
-      "id": "control:629c87d2f91da4c7:5c492d4d350a8b66",
+      "id": "control:629c87d2f91da4c7:3b58dd00850ddadd",
       "contract": {
-        "id": "control:629c87d2f91da4c7:5c492d4d350a8b66",
-        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, cover moves, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
+        "id": "control:629c87d2f91da4c7:3b58dd00850ddadd",
+        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes and `roof:true` keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, cover moves, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
         "kind": "control-reference",
         "topic": "fight_until"
       },
@@ -52088,14 +52088,14 @@
           "command": "api/fix-slot.sh: STANDIN=until VARIANTS=gap0 REPEATS=5 RUN_S=240 node scripts/quality/test-blaze-spawner-live.mjs <out> (headless Minecraft, 0 model calls)"
         }
       ],
-      "id": "control:629c87d2f91da4c7:5c492d4d350a8b66:result:SUCCEEDED",
+      "id": "control:629c87d2f91da4c7:3b58dd00850ddadd:result:SUCCEEDED",
       "contract": {
-        "id": "control:629c87d2f91da4c7:5c492d4d350a8b66:result:SUCCEEDED",
-        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, cover moves, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
+        "id": "control:629c87d2f91da4c7:3b58dd00850ddadd:result:SUCCEEDED",
+        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes and `roof:true` keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, cover moves, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
         "kind": "result-code",
         "topic": "fight_until",
         "code": "SUCCEEDED",
-        "parent": "control:629c87d2f91da4c7:5c492d4d350a8b66"
+        "parent": "control:629c87d2f91da4c7:3b58dd00850ddadd"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -52119,14 +52119,14 @@
           "command": "api/fix-slot.sh: STANDIN=until VARIANTS=gap0 REPEATS=5 RUN_S=240 node scripts/quality/test-blaze-spawner-live.mjs <out> (headless Minecraft, 0 model calls)"
         }
       ],
-      "id": "control:629c87d2f91da4c7:5c492d4d350a8b66:result:UNTIL_COUNT_REACHED",
+      "id": "control:629c87d2f91da4c7:3b58dd00850ddadd:result:UNTIL_COUNT_REACHED",
       "contract": {
-        "id": "control:629c87d2f91da4c7:5c492d4d350a8b66:result:UNTIL_COUNT_REACHED",
-        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, cover moves, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
+        "id": "control:629c87d2f91da4c7:3b58dd00850ddadd:result:UNTIL_COUNT_REACHED",
+        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes and `roof:true` keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, cover moves, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
         "kind": "result-code",
         "topic": "fight_until",
         "code": "UNTIL_COUNT_REACHED",
-        "parent": "control:629c87d2f91da4c7:5c492d4d350a8b66"
+        "parent": "control:629c87d2f91da4c7:3b58dd00850ddadd"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -52150,14 +52150,14 @@
           "command": "api/fix-slot.sh: STANDIN=until VARIANTS=gap0 REPEATS=5 RUN_S=240 node scripts/quality/test-blaze-spawner-live.mjs <out> (headless Minecraft, 0 model calls)"
         }
       ],
-      "id": "control:629c87d2f91da4c7:5c492d4d350a8b66:result:FIGHT_UNTIL_TIMED_OUT",
+      "id": "control:629c87d2f91da4c7:3b58dd00850ddadd:result:FIGHT_UNTIL_TIMED_OUT",
       "contract": {
-        "id": "control:629c87d2f91da4c7:5c492d4d350a8b66:result:FIGHT_UNTIL_TIMED_OUT",
-        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, cover moves, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
+        "id": "control:629c87d2f91da4c7:3b58dd00850ddadd:result:FIGHT_UNTIL_TIMED_OUT",
+        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes and `roof:true` keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, cover moves, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
         "kind": "result-code",
         "topic": "fight_until",
         "code": "FIGHT_UNTIL_TIMED_OUT",
-        "parent": "control:629c87d2f91da4c7:5c492d4d350a8b66"
+        "parent": "control:629c87d2f91da4c7:3b58dd00850ddadd"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -52193,14 +52193,14 @@
           "command": "gradlew verifyCore"
         }
       ],
-      "id": "control:629c87d2f91da4c7:5c492d4d350a8b66:result:LOW_HEALTH_BAILOUT",
+      "id": "control:629c87d2f91da4c7:3b58dd00850ddadd:result:LOW_HEALTH_BAILOUT",
       "contract": {
-        "id": "control:629c87d2f91da4c7:5c492d4d350a8b66:result:LOW_HEALTH_BAILOUT",
-        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, cover moves, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
+        "id": "control:629c87d2f91da4c7:3b58dd00850ddadd:result:LOW_HEALTH_BAILOUT",
+        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes and `roof:true` keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, cover moves, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
         "kind": "result-code",
         "topic": "fight_until",
         "code": "LOW_HEALTH_BAILOUT",
-        "parent": "control:629c87d2f91da4c7:5c492d4d350a8b66"
+        "parent": "control:629c87d2f91da4c7:3b58dd00850ddadd"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -52224,14 +52224,14 @@
           "command": "api/fix-slot.sh: STANDIN=until VARIANTS=gap0 REPEATS=5 RUN_S=240 node scripts/quality/test-blaze-spawner-live.mjs <out> (headless Minecraft, 0 model calls)"
         }
       ],
-      "id": "control:629c87d2f91da4c7:5c492d4d350a8b66:result:IN_LAVA",
+      "id": "control:629c87d2f91da4c7:3b58dd00850ddadd:result:IN_LAVA",
       "contract": {
-        "id": "control:629c87d2f91da4c7:5c492d4d350a8b66:result:IN_LAVA",
-        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, cover moves, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
+        "id": "control:629c87d2f91da4c7:3b58dd00850ddadd:result:IN_LAVA",
+        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes and `roof:true` keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, cover moves, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
         "kind": "result-code",
         "topic": "fight_until",
         "code": "IN_LAVA",
-        "parent": "control:629c87d2f91da4c7:5c492d4d350a8b66"
+        "parent": "control:629c87d2f91da4c7:3b58dd00850ddadd"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -52255,14 +52255,14 @@
           "command": "api/fix-slot.sh: STANDIN=until VARIANTS=gap0 REPEATS=5 RUN_S=240 node scripts/quality/test-blaze-spawner-live.mjs <out> (headless Minecraft, 0 model calls)"
         }
       ],
-      "id": "control:629c87d2f91da4c7:5c492d4d350a8b66:result:AGENT_DEAD",
+      "id": "control:629c87d2f91da4c7:3b58dd00850ddadd:result:AGENT_DEAD",
       "contract": {
-        "id": "control:629c87d2f91da4c7:5c492d4d350a8b66:result:AGENT_DEAD",
-        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, cover moves, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
+        "id": "control:629c87d2f91da4c7:3b58dd00850ddadd:result:AGENT_DEAD",
+        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes and `roof:true` keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, cover moves, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
         "kind": "result-code",
         "topic": "fight_until",
         "code": "AGENT_DEAD",
-        "parent": "control:629c87d2f91da4c7:5c492d4d350a8b66"
+        "parent": "control:629c87d2f91da4c7:3b58dd00850ddadd"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -52286,14 +52286,14 @@
           "command": "api/fix-slot.sh: STANDIN=until VARIANTS=gap0 REPEATS=5 RUN_S=240 node scripts/quality/test-blaze-spawner-live.mjs <out> (headless Minecraft, 0 model calls)"
         }
       ],
-      "id": "control:629c87d2f91da4c7:5c492d4d350a8b66:result:OUT_OF_ARROWS",
+      "id": "control:629c87d2f91da4c7:3b58dd00850ddadd:result:OUT_OF_ARROWS",
       "contract": {
-        "id": "control:629c87d2f91da4c7:5c492d4d350a8b66:result:OUT_OF_ARROWS",
-        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, cover moves, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
+        "id": "control:629c87d2f91da4c7:3b58dd00850ddadd:result:OUT_OF_ARROWS",
+        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes and `roof:true` keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, cover moves, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
         "kind": "result-code",
         "topic": "fight_until",
         "code": "OUT_OF_ARROWS",
-        "parent": "control:629c87d2f91da4c7:5c492d4d350a8b66"
+        "parent": "control:629c87d2f91da4c7:3b58dd00850ddadd"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -52317,14 +52317,14 @@
           "command": "api/fix-slot.sh: STANDIN=until VARIANTS=gap0 REPEATS=5 RUN_S=240 node scripts/quality/test-blaze-spawner-live.mjs <out> (headless Minecraft, 0 model calls)"
         }
       ],
-      "id": "control:629c87d2f91da4c7:5c492d4d350a8b66:result:BOW_NOT_EQUIPPED",
+      "id": "control:629c87d2f91da4c7:3b58dd00850ddadd:result:BOW_NOT_EQUIPPED",
       "contract": {
-        "id": "control:629c87d2f91da4c7:5c492d4d350a8b66:result:BOW_NOT_EQUIPPED",
-        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, cover moves, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
+        "id": "control:629c87d2f91da4c7:3b58dd00850ddadd:result:BOW_NOT_EQUIPPED",
+        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes and `roof:true` keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, cover moves, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
         "kind": "result-code",
         "topic": "fight_until",
         "code": "BOW_NOT_EQUIPPED",
-        "parent": "control:629c87d2f91da4c7:5c492d4d350a8b66"
+        "parent": "control:629c87d2f91da4c7:3b58dd00850ddadd"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -52334,7 +52334,7 @@
       "reason": "Contract changed or added; inspect behavior and update its predicate and witnesses before approving."
     },
     {
-      "predicate": "NO_TARGET_SEEN ends the skill after 30 s without a seen living target of the mob type inside the area when no kill has happened yet or the mob is a blaze; after a kill of any other mob AREA_CLEARED ends it first.",
+      "predicate": "NO_TARGET_SEEN ends the skill after 30 s without a seen living target of the mob type inside the area. After a kill, outside blazes and roof:true, AREA_CLEARED ends it first unless the body stays busy that long (walking back to its spot, collect:false drops waiting for a hostile to leave, a passed-over mob of the type in view).",
       "checks": [
         {
           "file": "coordinator/test/schema.test.mjs",
@@ -52354,14 +52354,14 @@
           "command": "gradlew verifyCore"
         }
       ],
-      "id": "control:629c87d2f91da4c7:5c492d4d350a8b66:result:NO_TARGET_SEEN",
+      "id": "control:629c87d2f91da4c7:3b58dd00850ddadd:result:NO_TARGET_SEEN",
       "contract": {
-        "id": "control:629c87d2f91da4c7:5c492d4d350a8b66:result:NO_TARGET_SEEN",
-        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, cover moves, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
+        "id": "control:629c87d2f91da4c7:3b58dd00850ddadd:result:NO_TARGET_SEEN",
+        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes and `roof:true` keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, cover moves, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
         "kind": "result-code",
         "topic": "fight_until",
         "code": "NO_TARGET_SEEN",
-        "parent": "control:629c87d2f91da4c7:5c492d4d350a8b66"
+        "parent": "control:629c87d2f91da4c7:3b58dd00850ddadd"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -52371,7 +52371,7 @@
       "reason": "Contract changed or added; inspect behavior and update its predicate and witnesses before approving."
     },
     {
-      "predicate": "After at least one kill of a mob other than a blaze, AREA_CLEARED (state FAILED) ends the skill once the body has gone without a target, and without walking back to its spot, drops waiting on a hostile or a passed-over mob of the type in view, for 3 s with a full circle of look-around turns, or for 5 s; the result carries the gained count as progress and the usual kills and item-count receipt. Zero kills and blazes keep the 30 s NO_TARGET_SEEN wait.",
+      "predicate": "After at least one kill, with a mob other than a blaze and without roof:true, AREA_CLEARED (state FAILED) ends the skill once the body has looked around without a target for 3 s with a full circle of look-around turns, or for 5 s, counted from its first tick of looking around and restarted by a seen target, by walking back to its spot, by collect:false drops waiting for a hostile to leave, by a passed-over mob of the type in view, or by ticks spent elsewhere; the result carries the gained count as progress and the usual kills and item-count receipt. Zero kills, blazes and roof:true keep the 30 s NO_TARGET_SEEN wait.",
       "checks": [
         {
           "file": "src/test/java/dev/agaminggod/mineagen/server/runtime/controller/AreaClearedVerification.java",
@@ -52380,21 +52380,21 @@
           "command": "gradlew verifyCore"
         }
       ],
-      "id": "control:629c87d2f91da4c7:5c492d4d350a8b66:result:AREA_CLEARED",
+      "id": "control:629c87d2f91da4c7:3b58dd00850ddadd:result:AREA_CLEARED",
       "contract": {
-        "id": "control:629c87d2f91da4c7:5c492d4d350a8b66:result:AREA_CLEARED",
-        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, cover moves, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
+        "id": "control:629c87d2f91da4c7:3b58dd00850ddadd:result:AREA_CLEARED",
+        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes and `roof:true` keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, cover moves, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
         "kind": "result-code",
         "topic": "fight_until",
         "code": "AREA_CLEARED",
-        "parent": "control:629c87d2f91da4c7:5c492d4d350a8b66"
+        "parent": "control:629c87d2f91da4c7:3b58dd00850ddadd"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
         "line": 669
       },
       "status": "partial",
-      "reason": "The server-free witness checks the cleared-area timing, the kill and blaze gates and the busy holds; no live fixture yet shows a herd fight ending AREA_CLEARED in game."
+      "reason": "The server-free witness checks the cleared-area timing, the kill, blaze and roof gates and the restarts; no live fixture yet shows a herd fight ending AREA_CLEARED in game."
     },
     {
       "predicate": "SPOT_UNREACHABLE ends the skill after two failed walks back to the model spot.",
@@ -52411,14 +52411,14 @@
           "command": "api/fix-slot.sh: STANDIN=until VARIANTS=gap0 REPEATS=5 RUN_S=240 node scripts/quality/test-blaze-spawner-live.mjs <out> (headless Minecraft, 0 model calls)"
         }
       ],
-      "id": "control:629c87d2f91da4c7:5c492d4d350a8b66:result:SPOT_UNREACHABLE",
+      "id": "control:629c87d2f91da4c7:3b58dd00850ddadd:result:SPOT_UNREACHABLE",
       "contract": {
-        "id": "control:629c87d2f91da4c7:5c492d4d350a8b66:result:SPOT_UNREACHABLE",
-        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, cover moves, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
+        "id": "control:629c87d2f91da4c7:3b58dd00850ddadd:result:SPOT_UNREACHABLE",
+        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes and `roof:true` keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, cover moves, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
         "kind": "result-code",
         "topic": "fight_until",
         "code": "SPOT_UNREACHABLE",
-        "parent": "control:629c87d2f91da4c7:5c492d4d350a8b66"
+        "parent": "control:629c87d2f91da4c7:3b58dd00850ddadd"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
