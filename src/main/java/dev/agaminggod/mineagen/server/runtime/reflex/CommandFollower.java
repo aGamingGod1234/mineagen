@@ -42,8 +42,14 @@ final class CommandFollower {
 	}
 	/** A yielded stance fires again once the body has been without an action this long after the model's command. */
 	static final long IDLE_RESUME_TICKS = 10L;
-	/** How long a yield waits for the model's command to start (a held shield), or a yielded stance waits for it to. */
+	/** How long a yield waits for the model's command to start (a held shield). */
 	static final long COMMAND_WAIT_TICKS = 20L;
+	/**
+	 * How long a yielded stance stays down with the body idle and the model's command not yet started. replace_action yields
+	 * before its cancel, and the replacement starts only after the cancel's receipt; past this the command is taken to have
+	 * never come (rejected, or a skill that needed no action) and the stance guards the idle body again.
+	 */
+	static final long REPLACEMENT_WAIT_TICKS = 20L;
 
 	record Result(boolean yieldNow, boolean handedOff) {
 		static final Result NONE = new Result(false, false);
@@ -52,6 +58,7 @@ final class CommandFollower {
 	/** The action running last tick, to see it end and how. */
 	private String lastActionId;
 	private long yieldRequestedAt = -1L;
+	/** The action running when the model's command asked for the body: the one it replaces, never the command itself. */
 	private String yieldBaselineActionId;
 	private long yieldedAt = -1L;
 	private boolean sawCommand;
@@ -59,13 +66,16 @@ final class CommandFollower {
 
 	/** A model command asks for the body; true means yield now, false means a held shield waits to see the command. */
 	boolean requestYield(boolean heldPassesMovement, long now) {
+		yieldBaselineActionId = lastActionId;
 		if (!heldPassesMovement) return true;
 		yieldRequestedAt = now;
-		yieldBaselineActionId = lastActionId;
 		return false;
 	}
 
-	/** The firing was yielded: its stance stays down until the command ends (or its condition clears). */
+	/**
+	 * The firing was yielded: its stance stays down until the command ends (or its condition clears). The action the command
+	 * replaces does not count as the command: the stance stays down through its cancel and the idle gap after it.
+	 */
 	void yielded(long now) {
 		yieldRequestedAt = -1L;
 		yieldedAt = now;
@@ -104,11 +114,11 @@ final class CommandFollower {
 		if (yieldedAt >= 0L) {
 			if (activeId != null) {
 				if (!movesUnderHold(activeType)) scheduler.suppressIdleShields();
-				sawCommand = true;
+				if (!activeId.equals(yieldBaselineActionId)) sawCommand = true;
 				idleSince = -1L;
 			} else {
 				if (idleSince < 0L) idleSince = now;
-				if ((sawCommand || now - yieldedAt >= COMMAND_WAIT_TICKS) && now - idleSince >= IDLE_RESUME_TICKS) scheduler.resume(now, false);
+				if (now - idleSince >= (sawCommand ? IDLE_RESUME_TICKS : REPLACEMENT_WAIT_TICKS)) scheduler.resume(now, false);
 			}
 			if (!scheduler.anySuppressed()) yieldedAt = -1L;
 		}

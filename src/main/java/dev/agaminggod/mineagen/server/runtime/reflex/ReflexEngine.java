@@ -103,6 +103,21 @@ public final class ReflexEngine {
 		return new FiringStep(status, detail);
 	}
 
+	/**
+	 * A direct model command asks for the body: a held shield that only moves waits to see the command; anything else yields
+	 * now (a floor firing in its hazard keeps the body and yields later). Returns the firing it ended, if any.
+	 */
+	static ReflexScheduler.Decision commandYield(ReflexScheduler scheduler, CommandFollower command, boolean holdsMoving, long now) {
+		return command.requestYield(holdsMoving, now) ? yieldTo(scheduler, command, now) : ReflexScheduler.Decision.NONE;
+	}
+
+	/** Ends the firing for the model's command; a yielded rule then follows the command (see {@link CommandFollower}). */
+	static ReflexScheduler.Decision yieldTo(ReflexScheduler scheduler, CommandFollower command, long now) {
+		ReflexScheduler.Decision decision = scheduler.yield(now);
+		if (scheduler.anySuppressed()) command.yielded(now);
+		return decision;
+	}
+
 	/** A floor firing kept through a command's yield has just yielded to it: follow the command as a yield does. */
 	static void followDeferredYield(ReflexScheduler scheduler, CommandFollower command, long now) {
 		if (scheduler.deferredYielded() && scheduler.anySuppressed()) command.yielded(now);
@@ -184,7 +199,7 @@ public final class ReflexEngine {
 		long now = now();
 		agent.revision = revision;
 		// A held shield composes with a command that only moves; that is decided once the command has started.
-		if (yield && !clutching(agent) && agent.command.requestYield(holdsMoving(agent), now)) yieldNow(agentId, agent, now);
+		if (yield && !clutching(agent)) end(agentId, agent, commandYield(agent.scheduler, agent.command, holdsMoving(agent), now));
 		end(agentId, agent, agent.scheduler.replace(parsed, now));
 		changed.add(agentId);
 	}
@@ -233,9 +248,7 @@ public final class ReflexEngine {
 	}
 
 	private void yieldNow(AgentId agentId, AgentReflexes agent, long now) {
-		ReflexScheduler.Decision decision = agent.scheduler.yield(now);
-		if (decision.ended() != null) end(agentId, agent, decision);
-		if (agent.scheduler.anySuppressed()) agent.command.yielded(now);
+		end(agentId, agent, yieldTo(agent.scheduler, agent.command, now));
 	}
 
 	private static boolean clutching(AgentReflexes agent) {

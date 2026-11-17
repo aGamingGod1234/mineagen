@@ -104,18 +104,19 @@ public final class DriverRuleVerification {
 
 	/**
 	 * replace_action's yield arrives while the old action still runs; the cancel then leaves the body idle until the replacement
-	 * starts. A yielded defend stays down through a gap of up to CommandFollower.IDLE_RESUME_TICKS, so the replacement
-	 * (here build_shelter, which defend would otherwise pause) starts with the body; a longer gap lets defend back first.
+	 * starts. The action being replaced is not the command: a yielded defend stays down through the cancel and an idle gap of
+	 * up to CommandFollower.REPLACEMENT_WAIT_TICKS, so the replacement (here build_shelter, which defend would otherwise pause)
+	 * starts with the body; with no command by then, defend guards the idle body again.
 	 */
 	private static void replacementGapKeepsDefendDown() {
-		for (long gap : new long[] {CommandFollower.IDLE_RESUME_TICKS, CommandFollower.IDLE_RESUME_TICKS + 1L}) {
+		long wait = CommandFollower.REPLACEMENT_WAIT_TICKS;
+		for (long gap : new long[] {CommandFollower.IDLE_RESUME_TICKS + 1L, wait, wait + 1L}) {
 			ReflexScheduler scheduler = new ReflexScheduler();
 			scheduler.replace(rules("[" + DEFEND + "]"), 0L);
 			CommandFollower follower = new CommandFollower();
 			follower.observe(scheduler, false, "old", ActionType.TRAVEL_TO, null, null, 1L);
 			check("default-defend".equals(defendTick(scheduler, 1L, true, ActionType.TRAVEL_TO).started()), "defend holds the travel");
-			check(scheduler.yield(5L).endOutcome() == ReflexScheduler.Outcome.YIELDED, "replace_action's yield ends it");
-			follower.yielded(5L);
+			check(ReflexEngine.commandYield(scheduler, follower, false, 5L).endOutcome() == ReflexScheduler.Outcome.YIELDED, "replace_action's yield ends it");
 			long tick = 6L;
 			for (; tick < 8L; tick++) {
 				follower.observe(scheduler, false, "old", ActionType.TRAVEL_TO, null, null, tick);
@@ -124,12 +125,20 @@ public final class DriverRuleVerification {
 			for (long idle = 0L; idle < gap; idle++, tick++) {
 				follower.observe(scheduler, false, null, null, "old", "ACTION_CANCELLED", tick);
 				ReflexScheduler.Decision decision = defendTick(scheduler, tick, true, null);
-				if (gap <= CommandFollower.IDLE_RESUME_TICKS) check(decision.started() == null, "down in the idle gap before the replacement");
+				if (gap <= wait) check(decision.started() == null, "down in a " + gap + "-tick idle gap before the replacement");
 			}
 			follower.observe(scheduler, false, "new", ActionType.BUILD_SHELTER, "old", "ACTION_CANCELLED", tick);
 			boolean defendBack = scheduler.current() != null || defendTick(scheduler, tick, true, ActionType.BUILD_SHELTER).started() != null;
-			check(defendBack == (gap > CommandFollower.IDLE_RESUME_TICKS),
-					"a " + gap + "-tick gap " + (defendBack ? "lets defend back before" : "leaves the body to") + " the replacement");
+			check(defendBack == (gap > wait), "a " + gap + "-tick gap " + (defendBack ? "lets defend back before" : "leaves the body to") + " the replacement");
+			if (defendBack) continue;
+			// The replacement is the command: once it ends, defend comes back after the usual idle wait.
+			for (tick++; tick < 60L; tick++) {
+				follower.observe(scheduler, false, "new", ActionType.BUILD_SHELTER, null, null, tick);
+				check(defendTick(scheduler, tick, true, ActionType.BUILD_SHELTER).started() == null, "down while the replacement runs");
+			}
+			long ended = tick;
+			for (; scheduler.anySuppressed() && tick < ended + 100L; tick++) follower.observe(scheduler, false, null, null, "new", "SHELTER_BUILT", tick);
+			check(tick - ended == CommandFollower.IDLE_RESUME_TICKS + 1L, "defend is back " + (tick - ended) + " ticks after the replacement ends");
 		}
 	}
 
