@@ -90,7 +90,7 @@ public final class DangerLog {
 	private long spanEndTick;
 	private long spanEndMs;
 	private int spanOnsets;
-	private long eventCursor;
+	private final EventCursor eventCursor = new EventCursor();
 	private long beforeTick = Long.MIN_VALUE;
 	private float beforeHealth;
 	private float beforeAbsorption;
@@ -195,21 +195,16 @@ public final class DangerLog {
 	}
 
 	/**
-	 * New scheduler events. A cursor above every event means the scheduler was replaced ({@code ReflexEngine.clearAll} or
-	 * {@code forget}) and numbering restarted, so the cursor resets. {@code tickOffset} is game time minus server tick.
+	 * New events of the scheduler {@code generation} names (a replaced scheduler numbers from 1 again; see {@link
+	 * EventCursor}). {@code tickOffset} is game time minus server tick.
 	 */
-	public void events(List<ReflexScheduler.Event> events, long tickOffset, long gameTime, long epochMs) {
-		if (events.isEmpty()) return;
-		if (events.getLast().sequence() < eventCursor) eventCursor = 0L;
-		for (ReflexScheduler.Event event : events) {
-			if (event.sequence() <= eventCursor) continue;
-			eventCursor = event.sequence();
+	public void events(List<ReflexScheduler.Event> events, long generation, long tickOffset, long gameTime, long epochMs) {
+		for (ReflexScheduler.Event event : eventCursor.fresh(generation, events))
 			rows.add(event.firing() ? firingRow(event, tickOffset, gameTime, epochMs) : eventRow(event, gameTime, epochMs));
-		}
 	}
 
 	long eventCursor() {
-		return eventCursor;
+		return eventCursor.sequence();
 	}
 
 	private void seen(String kind, Danger danger, long gameTime, long epochMs, FiringNow firing) {

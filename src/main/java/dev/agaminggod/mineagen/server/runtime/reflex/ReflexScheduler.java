@@ -103,6 +103,10 @@ public final class ReflexScheduler {
 		}
 	}
 
+	private static final java.util.concurrent.atomic.AtomicLong GENERATIONS = new java.util.concurrent.atomic.AtomicLong();
+
+	/** Which scheduler this is: a replacement ({@code clearAll}, {@code forget}) numbers its events from 1 again. */
+	private final long generation = GENERATIONS.incrementAndGet();
 	private final Map<String, State> states = new LinkedHashMap<>();
 	private final Deque<Event> events = new ArrayDeque<>();
 	private Firing current;
@@ -423,6 +427,10 @@ public final class ReflexScheduler {
 		String bounded = detail == null ? "" : detail.length() > 160 ? detail.substring(0, 160) : detail;
 		events.addLast(new Event(nextSequence++, ruleId, outcome, durationTicks, bounded, wake, endTick, firing));
 		while (events.size() > MAX_EVENTS) events.removeFirst();
+	}
+
+	public long generation() {
+		return generation;
 	}
 
 	public List<Event> events() {

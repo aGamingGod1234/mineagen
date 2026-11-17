@@ -172,15 +172,21 @@ public final class WatchVerification {
 		dev.agaminggod.mineagen.server.runtime.reflex.ReflexScheduler.Event first = event(1, 5, 20, true);
 		dev.agaminggod.mineagen.server.runtime.reflex.ReflexScheduler.Event second = event(2, 0, 30, false);
 		DangerLog log = new DangerLog(AGENT);
-		log.events(List.of(first, second), 1000L, 1030L, 1_000L);
-		log.events(List.of(first, second), 1000L, 1031L, 1_050L);
+		log.events(List.of(first, second), 1L, 1000L, 1030L, 1_000L);
+		log.events(List.of(first, second), 1L, 1000L, 1031L, 1_050L);
 		List<JsonObject> rows = log.take();
 		check(rows.size() == 2 && "firing".equals(text(rows.get(0), "type")) && "held_back".equals(text(rows.get(1), "event")), "each event is one row");
 		JsonObject firing = rows.getFirst();
 		check(firing.get("startGameTime").getAsLong() == 1015L && firing.get("endGameTime").getAsLong() == 1020L
 				&& firing.get("startGameTime").getAsLong() <= firing.get("endGameTime").getAsLong(), "firing ticks convert to game time, start before end");
-		log.events(List.of(event(1, 3, 50, true)), 1000L, 1050L, 2_000L);
+		log.events(List.of(event(1, 3, 50, true)), 2L, 1000L, 1050L, 2_000L);
 		check(rows(log.take(), "firing").size() == 1 && log.eventCursor() == 1L, "a replaced scheduler resets the cursor");
+		// After clearAll the new scheduler can reach the old sequence before the next read: its events are still new.
+		log.events(List.of(event(1, 2, 60, true), event(2, 0, 61, false), event(3, 2, 70, true)), 3L, 1000L, 1070L, 3_000L);
+		check(log.take().size() == 3 && log.eventCursor() == 3L, "a new scheduler past the old cursor still has every event read");
+		EventCursor cursor = new EventCursor();
+		check(cursor.fresh(7L, List.of(first, second)).size() == 2 && cursor.fresh(7L, List.of(first, second)).isEmpty(), "the same scheduler's events are read once");
+		check(cursor.fresh(8L, List.of(first, second)).size() == 2, "the Watcher's firing cursor follows the scheduler generation");
 	}
 
 	private static dev.agaminggod.mineagen.server.runtime.reflex.ReflexScheduler.Event event(long sequence, long duration, long end, boolean firing) {
@@ -197,7 +203,7 @@ public final class WatchVerification {
 		log.beforeDamage(77L, 20.0F, 4.0F, 6.0F);
 		log.damage(77L, "mob", "minecraft:mob_attack", "minecraft:zombie", "z1", "z1", 6.0F, 5.0F, false, 18.0F, 1.0F, false, 1010L, 1_700_000_000_500L, null);
 		log.observe(List.of(), 1012L, 1_700_000_000_600L, null, null);
-		log.events(List.of(event(1, 4, 60, true), event(2, 0, 61, false)), 1000L, 1061L, 1_700_000_003_050L);
+		log.events(List.of(event(1, 4, 60, true), event(2, 0, 61, false)), 1L, 1000L, 1061L, 1_700_000_003_050L);
 		log.observe(List.of(), 1050L, 1_700_000_002_500L, null, null);
 		StringBuilder generated = new StringBuilder();
 		for (JsonObject row : log.take()) generated.append(WatchJson.line(row)).append('\n');
