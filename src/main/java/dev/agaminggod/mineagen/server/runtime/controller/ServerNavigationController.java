@@ -204,7 +204,8 @@ public final class ServerNavigationController implements ServerController {
 
 	/**
 	 * Walk only a route that reaches the destination over seen cells: a route ending at the edge of what the body has
-	 * seen hands back NO_SEEN_ROUTE before any step, instead of walking to the edge and looking around for more.
+	 * seen is never walked. The body looks toward the destination for more as any walk does (the bounded observation
+	 * replans) and hands back NO_SEEN_ROUTE when that shows no seen way, instead of walking to the edge first.
 	 */
 	ServerNavigationController seenRouteOnly() {
 		this.seenRouteOnly = true;
@@ -912,7 +913,9 @@ public final class ServerNavigationController implements ServerController {
 		GridPosition endpoint = candidate.nodes().getLast().position();
 		boolean finalSegment = searchGoals.contains(endpoint);
 		if (seenRouteOnly && !finalSegment && unknownEndpoint) {
-			return fail(player, "NO_SEEN_ROUTE", "Only a seen route is walked; " + frontierMessage(endpoint), currentProgress());
+			// Never walked: the body looks toward the destination for more (the bounded observation replans), then hands back.
+			return retrySeenRoute(player, world, nowEpochMs, elapsedMs, "The seen route ends at " + endpoint.x() + "," + endpoint.y() + "," + endpoint.z()
+					+ ", short of the destination");
 		}
 		if (!finalSegment && (endpoint.equals(searchOrigin) || endpoint.equals(reachedUnknownFrontier))) {
 			return retrySeenRoute(player, world, nowEpochMs, elapsedMs, "No seen continuation");
@@ -1650,11 +1653,6 @@ public final class ServerNavigationController implements ServerController {
 
 	private TickResult retrySeenRoute(ServerPlayer player, MinecraftNavigationWorld world, long nowEpochMs, long elapsedMs, String detail) {
 		if (player.isUnderWater()) return breathe(player, nowEpochMs, elapsedMs, 0, true);
-		if (seenRouteOnly) {
-			discardPlanning();
-			plan = null;
-			return noSeenRoute(player, detail);
-		}
 		resolvedEndpointPosition = null;
 		resolvedEndpointTarget = null;
 		endpointStabilityPosition = null;

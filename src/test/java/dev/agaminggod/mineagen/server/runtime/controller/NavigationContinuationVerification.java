@@ -186,25 +186,32 @@ public final class NavigationContinuationVerification {
 		check(plan.nodes().getLast().position().z() > 0, "replacement guard excludes completed cells rather than requiring straight-line gain");
 	}
 
-	/** pick_up_item walks only a route that reaches its drop over seen cells: no walk to the edge, no look-around retries. */
+	/**
+	 * pick_up_item walks only a route that reaches its drop over seen cells: a route ending at unseen cells is never
+	 * walked; the body looks toward the drop (the bounded observation replans) and then hands back NO_SEEN_ROUTE.
+	 */
 	private static void verifySeenRouteOnly() throws ReflectiveOperationException {
 		FixturePlayer player = player();
-		ServerNavigationController shared = controller(player, TARGET, 5_000L);
-		check(retry(shared, player, nearWorld(null, null), 0L).state() == ServerController.State.RUNNING, "a shared walk looks again at the edge of what it saw");
-		ServerNavigationController seenOnly = controller(player, TARGET, 5_000L).seenRouteOnly();
-		var refused = retry(seenOnly, player, nearWorld(null, null), 0L);
-		check(refused.state() == ServerController.State.FAILED && refused.reasonCode().equals("NO_SEEN_ROUTE"), "a seen-route-only walk hands back at once instead of looking again");
-		check(get(seenOnly, "plan") == null, "and keeps no plan to walk");
-
 		SeenNavigationVerification.World terrain = new SeenNavigationVerification.World(); terrain.seenThrough = 1;
 		Vec3 far = new Vec3(12.5D, 64D, 0.5D);
-		ServerNavigationController sharedFar = controller(player, far, 5_000L);
-		set(sharedFar, "route", new RouteProgress(HERE.x, HERE.y, HERE.z, HERE.distanceTo(far), 0L));
-		var walked = replan(sharedFar, player, SeenNavigationVerification.view(terrain, new SeenTerrain.Memory<>(), 1L), 0L);
-		check(walked == null && get(sharedFar, "plan") != null, "a shared walk takes the seen route toward the edge");
-		var stopped = replan(controller(player, far, 5_000L).seenRouteOnly(), player, SeenNavigationVerification.view(terrain, new SeenTerrain.Memory<>(), 1L), 0L);
-		check(stopped != null && stopped.state() == ServerController.State.FAILED && stopped.reasonCode().equals("NO_SEEN_ROUTE"),
-				"a seen-route-only walk refuses a route that ends at unseen cells before any step: " + (stopped == null ? "accepted" : stopped.reasonCode()));
+		ServerNavigationController shared = controller(player, far, 5_000L);
+		set(shared, "route", new RouteProgress(HERE.x, HERE.y, HERE.z, HERE.distanceTo(far), 0L));
+		var walked = replan(shared, player, SeenNavigationVerification.view(terrain, new SeenTerrain.Memory<>(), 1L), 0L);
+		check(walked == null && get(shared, "plan") != null, "a shared walk takes the seen route toward the edge");
+
+		ServerNavigationController seenOnly = controller(player, far, 5_000L).seenRouteOnly();
+		set(seenOnly, "route", new RouteProgress(HERE.x, HERE.y, HERE.z, HERE.distanceTo(far), 0L));
+		ServerController.TickResult last = null;
+		int looks = 0;
+		for (long time = 0L; time <= 3_000L && (last == null || last.state() == ServerController.State.RUNNING); time += 250L) {
+			last = replan(seenOnly, player, SeenNavigationVerification.view(terrain, new SeenTerrain.Memory<>(), 1L), time);
+			check(get(seenOnly, "plan") == null, "a seen-route-only walk never holds a route that ends at unseen cells");
+			if (last != null && last.state() == ServerController.State.RUNNING) looks++;
+		}
+		check(looks > 0, "it looks toward the destination before handing back");
+		check(last != null && last.state() == ServerController.State.FAILED && last.reasonCode().equals("NO_SEEN_ROUTE"),
+				"then hands back NO_SEEN_ROUTE without a step: " + (last == null ? "accepted" : last.reasonCode()));
+		check(last.message().contains("short of the destination"), "naming where the seen route ends: " + last.message());
 	}
 
 	private static MinecraftNavigationWorld nearWorld(BlockPos changed, BlockState state) {

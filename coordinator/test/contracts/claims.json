@@ -52844,7 +52844,7 @@
       "reason": "The limit arithmetic and the timed-out decision are checked server-free; the controller's use of the limit is not exercised by a live pickup fixture yet."
     },
     {
-      "predicate": "pick_up_item fails NO_SEEN_ROUTE before any step when the planned route toward the drop ends at unseen cells, and does not walk to the edge or look around for more.",
+      "predicate": "pick_up_item never walks a route that ends at unseen cells short of the drop: the body looks toward the drop for more (the bounded observation replans, no step taken) and then fails NO_SEEN_ROUTE naming where the seen route ends.",
       "checks": [
         {
           "file": "src/test/java/dev/agaminggod/mineagen/server/runtime/controller/NavigationContinuationVerification.java",
@@ -52867,7 +52867,7 @@
         "line": 727
       },
       "status": "partial",
-      "reason": "A navigation fixture checks the seen-route-only refusal at the route edge and in the retry path; that pick_up_item turns it on is not exercised by a live pickup fixture yet."
+      "reason": "A navigation fixture checks that a seen-route-only walk holds no route ending at unseen cells, looks, then fails NO_SEEN_ROUTE; that pick_up_item turns it on is not exercised by a live pickup fixture yet."
     },
     {
       "predicate": "pick_up_item's walk fails PATH_BLOCKED when it stalls (no progress toward the next route cell for 3 s, scaled for slow ground) after its one replan; replans spent by an earlier walk of the same pickup count against it.",
