@@ -110,3 +110,29 @@ test('K1: a tree or animal search under a roof climbs out before the surface leg
 	assert.match(result.message, /Still under cover/);
 	assert.equal(stuck.calls.filter((call) => call.actionType === 'travel_to').length, 0, 'no walk legs under the roof');
 });
+
+test('K1: a build leg that moved clears the headings ruled out at the spot before; each is tried again from the new spot', async () => {
+	// No walk gets anywhere. The first build heading is walled at the start; the next build leg gets through, and from
+	// there every heading is walled except the first one.
+	let first = null, moved = false;
+	const builds = [];
+	const fake = body({ player: { x: 0.5, y: 70, z: 0.5, skyOpen: true }, travel: (args, player) => {
+		if (!args.build) return { result: noRoute };
+		builds.push({ yaw: args.yaw, after: moved });
+		if (first === null) { first = args.yaw; return { result: noRoute }; }
+		if (!moved || args.yaw === first) { moved = true; return { player: along(player, args) }; }
+		return { result: noRoute };
+	} });
+	await searchFor({ structure: 'village' }, fake, { timeoutMs: 540_000 });
+	assert.ok(builds.some((leg) => leg.after && leg.yaw === first), `build legs: ${JSON.stringify(builds)}`);
+});
+
+test('K1: blocks that structures or ocean floors also place in the Overworld or the End are not refused there', async () => {
+	for (const [block, dimension] of [['minecraft:magma_block', 'minecraft:overworld'], ['minecraft:netherrack', 'minecraft:overworld'], ['minecraft:bedrock', 'minecraft:the_end']]) {
+		const fake = body({ player: { x: 0.5, y: 70, z: 0.5 }, dimension, travel: () => ({ result: noRoute }) });
+		const result = await searchFor({ block }, fake, { timeoutMs: 30_000 });
+		assert.ok(fake.calls.length > 0, `${block} in ${dimension}: ${result.message}`);
+	}
+	// A block only the Nether places is still refused in the Overworld.
+	assert.equal((await searchFor({ block: 'minecraft:crimson_nylium' }, body({ player: { x: 0.5, y: 70, z: 0.5 } }))).reasonCode, 'FIND_NOT_FOUND');
+});

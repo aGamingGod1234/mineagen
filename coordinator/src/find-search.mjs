@@ -76,6 +76,10 @@ const BREATH_STOPS = new Set(['AIR_RESERVE_REACHED', 'BREATH_NOT_COVERED', 'TUNN
 // Stops a search cannot work round by itself: the model decides (craft a pickaxe, empty the inventory...).
 const BLOCKED = new Set(['NO_TOOL', 'TOOL_WORN', 'INVENTORY_FULL']);
 const CARDINALS = Object.freeze([{ name: 'south', yaw: 0 }, { name: 'west', yaw: 90 }, { name: 'north', yaw: 180 }, { name: 'east', yaw: -90 }]);
+// The index's worldgen rows come from biome features and noise settings only (HowtoIndexExporter.readWorldgen). Structures
+// and carvers it does not walk place these blocks in other dimensions too: netherrack and magma in ruined portals and
+// magma under the oceans (Overworld), bedrock in the End's exit portal and gateways. A find for one there is never refused.
+const ALSO_PLACED = Object.freeze({ magma_block: ['overworld'], netherrack: ['overworld'], bedrock: ['the_end'] });
 const HEADING_YAW = Object.freeze({ S: 0, SW: 45, W: 90, NW: 135, N: 180, NE: -135, E: -90, SE: -45 });
 const BUCKET_FLUIDS = new Set(['minecraft:lava', 'minecraft:water']);
 // Far sight's own near range (FarSight.SMALL_SIGHT): within it a survey marks a fluid's flow, past it only landmarks see.
@@ -994,7 +998,8 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 	{
 		const here = bare(String(observation?.world?.dimension ?? ''));
 		const named = (name) => (name.startsWith('the_') ? name : `the_${name}`).replace(/_/g, ' ');
-		const rows = profile.kind === 'block' && ['overworld', 'the_nether', 'the_end'].includes(here) ? [...profile.ids].map((one) => howtoIndex().worldgen[bare(one)]) : [];
+		const rows = profile.kind === 'block' && ['overworld', 'the_nether', 'the_end'].includes(here)
+			? [...profile.ids].map((one) => { const row = howtoIndex().worldgen[bare(one)]; return row && { d: [...row.d, ...(ALSO_PLACED[bare(one)] ?? [])] }; }) : [];
 		if (rows.length > 0 && rows.every((row) => Array.isArray(row?.d)) && !rows.some((row) => row.d.includes(here))) {
 			const where = [...new Set(rows.flatMap((row) => row.d))].map(named).join(' or ');
 			return handBack('FAILED', 'FIND_NOT_FOUND', `${profile.label} does not generate in ${named(here)} (only in ${where}), so no search here turns one up`);
@@ -1528,8 +1533,10 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 		else {
 			visited.push(after);
 			// A build leg that got through builds on that heading while the budget lasts: walking legs from the far side of
-			// what it bridged or tunnelled ended NO_ROUTE again, several per spot, before the next build (K1).
-			if (!building || BUILD_BUDGET - built < MIN_SURFACE_LEG) { blocked.clear(); building = false; }
+			// what it bridged or tunnelled ended NO_ROUTE again, several per spot, before the next build (K1). Headings ruled
+			// out at the spot it left say nothing about this one: each is tried again from here.
+			blocked.clear();
+			if (!building || BUILD_BUDGET - built < MIN_SURFACE_LEG) building = false;
 		}
 		// One look per new cell: a leg that left the body in the cell it last looked from shows the same view (about 2 s).
 		if (cellOfBody(bodyAt(observation)) !== cellOfBody(lookedFrom)) {
