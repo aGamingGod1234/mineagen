@@ -1,0 +1,197 @@
+// Pure scoring for the reflex-room round report (scripts/quality/reflex-round-report.mjs): damage, deaths and room
+// success over each room's own window, damage reconciled against the vanilla counter, and paired arms judged against a
+// margin set in advance. Rows are the Watcher's arena-watch/<agent>-danger.jsonl rows (schema DANGER_SCHEMA).
+import { damageEvidence } from './damage-counter.mjs';
+
+export const DANGER_SCHEMA = 1;
+/** Each room is scored over its own window from goal start, whatever the run's budget was. */
+export const ROOM_WINDOWS_MS = Object.freeze({ 'R-FLOOD': 360000, 'R-TOOLBREAK': 180000 });
+export const DEFAULT_ROOM_WINDOW_MS = 300000;
+/** Per-hit tolerance between the Watcher's health drop and the vanilla counter (tenths of HP, rounded per hit). */
+export const HIT_TOLERANCE_HP = 0.05;
+/** The sampler and the Watcher use different clocks; a hit this close to the final sample may fall on either side. */
+export const EDGE_SLACK_MS = 2000;
+/** Margin = z x per-pair SD x sqrt(complete pairs), per room and metric (see scripts/quality/README.md). */
+export const DEFAULT_MARGIN_Z = 2;
+export const METRICS = Object.freeze(['damage', 'deaths', 'success']);
+/** Lower is better for damage and deaths; higher for success. */
+const BETTER_LOWER = Object.freeze({ damage: true, deaths: true, success: false });
+
+export const roomWindowMs = scenario => ROOM_WINDOWS_MS[scenario] ?? DEFAULT_ROOM_WINDOW_MS;
+const round = (value, places = 2) => value === null || value === undefined ? null : Math.round(value * 10 ** places) / 10 ** places;
+const finite = Number.isFinite;
+
+/** Danger rows of the current schema only; older or unknown schemas are counted, never mixed in. */
+export function splitDangerRows(rows) {
+	const current = [], other = [];
+	for (const row of rows ?? []) (row?.schema === DANGER_SCHEMA ? current : other).push(row);
+	return { rows: current, otherSchema: other.length };
+}
+
+/**
+ * Reconciles the Watcher's per-hit health drop with the vanilla damage_taken counter (tenths of HP, after armour and
+ * absorption) over the whole run up to the final sample. A lethal hit's row stops at 0 health while the counter counts
+ * the hit in full, so with a lethal hit the counter may only read higher. Missing counter or rows = unknown, never 0.
+ */
+export function reconcileDamage(damageRows, samples) {
+	const counted = (samples ?? []).filter(s => finite(s?.damageTakenCounter) && finite(s?.at));
+	if (!counted.length) return { status: 'unknown', reason: 'no vanilla damage counter samples' };
+	if (damageRows === null) return { status: 'unknown', reason: 'no danger rows' };
+	const first = counted[0], last = counted.at(-1);
+	const evidence = damageEvidence(0, last.damageTakenCounter, null, null);
+	if (evidence.damageTaken === null || counted.some((s, i) => i && s.damageTakenCounter < counted[i - 1].damageTakenCounter)) return { status: 'unknown', reason: 'missing or decreasing vanilla damage counter' };
+	if (damageRows.some(row => row.paired === false)) return { status: 'unknown', reason: 'a damage row has no health before the hit' };
+	const upTo = limit => damageRows.filter(row => row.atMs <= limit);
+	const sum = rows => rows.reduce((total, row) => total + (row.healthDrop ?? 0), 0);
+	const early = upTo(last.at - EDGE_SLACK_MS), late = upTo(last.at + EDGE_SLACK_MS);
+	const tolerance = HIT_TOLERANCE_HP * Math.max(1, late.length);
+	const lethal = late.some(row => row.lethal === true);
+	const counter = evidence.damageTaken;
+	const low = sum(early) - tolerance, high = lethal ? Infinity : sum(late) + tolerance;
+	const status = counter >= low && counter <= high ? 'valid' : 'invalid';
+	return { status, counterHp: round(counter), rowsHp: round(sum(upTo(last.at))), hits: upTo(last.at).length, lethal, toleranceHp: round(tolerance, 3),
+		firstSampleAt: first.at, finalSampleAt: last.at, ...(status === 'invalid' ? { reason: `counter ${round(counter)} HP outside rows ${round(low)}..${round(high)} HP` } : {}) };
+}
+
+/** Threat spans from onset and clear rows, clipped to the window; a span still open at the window end runs to it. */
+export function threatTime(rows, start, end) {
+	const onsets = rows.filter(row => row.type === 'onset' && row.atMs >= start && row.atMs <= end);
+	const clears = rows.filter(row => row.type === 'clear').sort((a, b) => a.atMs - b.atMs);
+	let ms = 0;
+	for (const clear of clears) {
+		const from = Math.max(start, clear.startAtMs), to = Math.min(end, clear.endAtMs);
+		if (to > from) ms += to - from;
+	}
+	const lastClear = clears.at(-1)?.atMs ?? -Infinity;
+	const open = onsets.filter(row => row.atMs > lastClear);
+	if (open.length) ms += Math.max(0, end - Math.max(start, Math.min(...open.map(row => row.atMs))));
+	return { onsets: onsets.length, threatMs: ms };
+}
+
+/** Response paths and latency of the onsets in the window (diagnostic). */
+export function responses(rows, start, end) {
+	const onsets = rows.filter(row => row.type === 'onset' && row.atMs >= start && row.atMs <= end);
+	const paths = {}, latencies = [];
+	for (const row of onsets) {
+		const path = String(row.response ?? 'none').startsWith('instinct:') ? 'instinct' : row.response ?? 'none';
+		paths[path] = (paths[path] ?? 0) + 1;
+		if (finite(row.latencyTicks)) latencies.push(row.latencyTicks);
+	}
+	latencies.sort((a, b) => a - b);
+	const pct = p => latencies.length ? latencies[Math.min(latencies.length - 1, Math.floor(p * latencies.length))] : null;
+	const byKind = {};
+	for (const row of onsets) byKind[row.onset] = (byKind[row.onset] ?? 0) + 1;
+	return { paths, byKind, latencyTicks: { p50: pct(0.5), p95: pct(0.95), n: latencies.length } };
+}
+
+/**
+ * One room run. dangerRows null = no Watcher file (unknown). Returns window damage, deaths and success, each null when
+ * unknown, with the damage status: valid, invalid (rows and counter disagree) or unknown (either is missing).
+ */
+export function scoreRun({ scenario, goalStartedAtMs, samples = [], dangerRows = null, evaluation = null }) {
+	const windowMs = roomWindowMs(scenario);
+	const split = dangerRows === null ? { rows: null, otherSchema: 0 } : splitDangerRows(dangerRows);
+	const rows = split.rows;
+	const start = finite(goalStartedAtMs) ? goalStartedAtMs : null;
+	const success = evaluation?.status === 'EVALUATED' ? evaluation.pass === true : null;
+	if (start === null) return { scenario, windowMs, status: 'unknown', reason: 'no goal start', damage: null, deaths: null, success, otherSchemaRows: split.otherSchema };
+	const end = start + windowMs;
+	const damageRows = rows?.filter(row => row.type === 'damage') ?? null;
+	const reconciliation = reconcileDamage(damageRows, samples);
+	const inWindow = damageRows?.filter(row => row.atMs >= start && row.atMs <= end) ?? [];
+	const damage = reconciliation.status === 'valid' ? round(inWindow.reduce((total, row) => total + (row.healthDrop ?? 0), 0)) : null;
+	const windowSamples = samples.filter(s => finite(s?.at) && s.at >= start - EDGE_SLACK_MS && s.at <= end + EDGE_SLACK_MS && finite(s.deathCounter));
+	const counterDeaths = windowSamples.length > 1 ? windowSamples.at(-1).deathCounter - windowSamples[0].deathCounter : null;
+	const lethalRows = inWindow.filter(row => row.lethal === true).length;
+	const deaths = counterDeaths !== null && counterDeaths >= 0 ? Math.max(counterDeaths, lethalRows) : rows === null ? null : lethalRows;
+	const threat = rows === null ? null : threatTime(rows, start, end);
+	const result = { scenario, windowMs, goalStartedAtMs: start, status: reconciliation.status, damage, deaths, success, reconciliation,
+		hits: inWindow.length, absorbedHp: round(inWindow.reduce((total, row) => total + (row.absorbed ?? 0), 0)), blockedHits: inWindow.filter(row => row.blocked === true).length,
+		otherSchemaRows: split.otherSchema };
+	if (threat) {
+		result.diagnostics = { ...threat, opportunity: threat.onsets === 0 ? 'no_opportunity' : 'opportunity', responses: responses(rows, start, end),
+			damagePerThreatMinute: damage !== null && threat.threatMs > 0 ? round(damage / (threat.threatMs / 60000)) : null,
+			firings: firingSummary(rows, start, end) };
+	}
+	return result;
+}
+
+/** Firing rows that ended in the window, by outcome (diagnostic); start must never follow end. */
+export function firingSummary(rows, start, end) {
+	const firings = rows.filter(row => row.type === 'firing' && row.atMs >= start && row.atMs <= end);
+	const outcomes = {};
+	for (const row of firings) outcomes[row.outcome] = (outcomes[row.outcome] ?? 0) + 1;
+	return { count: firings.length, outcomes, orderViolations: firings.filter(row => !(row.startGameTime <= row.endGameTime)).length };
+}
+
+const metricValue = (run, metric) => metric === 'success' ? (run.success === null ? null : Number(run.success))
+	: run.status === 'valid' ? run[metric] : null;
+
+/**
+ * Pairs scored runs by pairId (run-scenarios' <room>-r<n>); a pair counts for a metric only when both runs have it.
+ * Deltas are B minus A, A the baseline.
+ */
+export function pairRuns(armA, armB) {
+	const byId = runs => new Map(runs.map(run => [run.pairId, run]));
+	const a = byId(armA), b = byId(armB);
+	const pairs = [];
+	for (const id of [...new Set([...a.keys(), ...b.keys()])].sort()) {
+		const left = a.get(id), right = b.get(id);
+		const deltas = {};
+		for (const metric of METRICS) {
+			const x = left ? metricValue(left, metric) : null, y = right ? metricValue(right, metric) : null;
+			deltas[metric] = x === null || y === null ? null : round(y - x);
+		}
+		pairs.push({ pairId: id, scenario: (left ?? right).scenario, deltas, statusA: left?.status ?? 'missing', statusB: right?.status ?? 'missing' });
+	}
+	return pairs;
+}
+
+const sd = values => {
+	if (values.length < 2) return null;
+	const mean = values.reduce((a, b) => a + b, 0) / values.length;
+	return Math.sqrt(values.reduce((total, v) => total + (v - mean) ** 2, 0) / (values.length - 1));
+};
+
+/** Per room and metric: the SD of per-pair deltas. From an A/A run this is the noise floor the margin file keeps. */
+export function noiseFloor(pairs) {
+	const rooms = {};
+	for (const scenario of [...new Set(pairs.map(pair => pair.scenario))].sort()) {
+		rooms[scenario] = {};
+		for (const metric of METRICS) {
+			const values = pairs.filter(pair => pair.scenario === scenario && pair.deltas[metric] !== null).map(pair => pair.deltas[metric]);
+			rooms[scenario][metric] = { perPairSd: round(sd(values), 4), pairs: values.length };
+		}
+	}
+	return { rooms };
+}
+
+/**
+ * Room-stratified sums of per-pair deltas judged against a margin set in advance: margin = z x perPairSd x sqrt(n). Beyond
+ * it the step is WORSE or BETTER on that room; inside it INCONCLUSIVE; with no margin for the room, NO_MARGIN.
+ */
+export function judgeRooms(pairs, margin = null) {
+	const z = finite(margin?.z) ? margin.z : DEFAULT_MARGIN_Z;
+	const rooms = {};
+	for (const scenario of [...new Set(pairs.map(pair => pair.scenario))].sort()) {
+		const inRoom = pairs.filter(pair => pair.scenario === scenario);
+		rooms[scenario] = { pairs: inRoom.length };
+		for (const metric of METRICS) {
+			const deltas = inRoom.map(pair => pair.deltas[metric]).filter(value => value !== null);
+			const sum = round(deltas.reduce((a, b) => a + b, 0));
+			const perPairSd = margin?.rooms?.[scenario]?.[metric]?.perPairSd;
+			const limit = finite(perPairSd) && deltas.length ? round(z * perPairSd * Math.sqrt(deltas.length), 4) : null;
+			let verdict = 'NO_MARGIN';
+			if (!deltas.length) verdict = 'NO_DATA';
+			else if (limit !== null) {
+				const worse = BETTER_LOWER[metric] ? sum > limit : sum < -limit;
+				const better = BETTER_LOWER[metric] ? sum < -limit : sum > limit;
+				verdict = worse ? 'WORSE' : better ? 'BETTER' : 'INCONCLUSIVE';
+			}
+			rooms[scenario][metric] = { complete: deltas.length, incomplete: inRoom.length - deltas.length, sum, margin: limit, verdict };
+		}
+	}
+	const verdicts = Object.values(rooms).flatMap(room => METRICS.map(metric => room[metric].verdict));
+	const overall = verdicts.includes('WORSE') ? 'FAIL' : verdicts.every(v => v === 'BETTER' || v === 'INCONCLUSIVE') && verdicts.length ? (verdicts.includes('BETTER') ? 'PASS' : 'INCONCLUSIVE') : 'INCOMPLETE';
+	return { z, rooms, overall };
+}

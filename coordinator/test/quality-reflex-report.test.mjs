@@ -1,0 +1,174 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { DANGER_SCHEMA, judgeRooms, noiseFloor, pairRuns, reconcileDamage, roomWindowMs, scoreRun } from '../../scripts/quality/lib/reflex-round.mjs';
+import { buildReport, parseReportArgs } from '../../scripts/quality/reflex-round-report.mjs';
+import { readWatchDir } from '../../scripts/quality/watch-files.mjs';
+
+// The same lines src/test/java/dev/agaminggod/mineagen/server/watch/WatchVerification.java generates from DangerLog.
+const FIXTURE = new URL('./fixtures/reflex-danger-rows.jsonl', import.meta.url);
+const golden = async () => (await readFile(FIXTURE, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+const START = 1_700_000_000_000 - 1_000;
+const counter = (atMs, tenths, deaths = 0) => ({ at: atMs, damageTakenCounter: tenths, deathCounter: deaths, health: 20 });
+const damage = (atMs, healthDrop, extra = {}) => ({ type: 'damage', schema: DANGER_SCHEMA, atMs, healthDrop, absorbed: 0, paired: true, lethal: false, blocked: false, ...extra });
+
+test('the fixture has one row of each kind the Watcher writes, all on the current schema', async () => {
+	const rows = await golden();
+	assert.deepEqual(rows.map(row => row.type).sort(), ['clear', 'damage', 'firing', 'onset', 'reflex_event']);
+	assert.ok(rows.every(row => row.schema === DANGER_SCHEMA && Number.isFinite(row.atMs) && Number.isFinite(row.gameTime)));
+	const firing = rows.find(row => row.type === 'firing');
+	assert.ok(firing.startGameTime <= firing.endGameTime);
+});
+
+test('a run is scored on window damage, deaths and success, reconciled with the vanilla counter', async () => {
+	const rows = await golden();
+	const samples = [counter(START, 0), counter(START + 60_000, 20), counter(START + 300_000, 20)];
+	const run = scoreRun({ scenario: 'R-SKELETON', goalStartedAtMs: START, samples, dangerRows: rows, evaluation: { status: 'EVALUATED', pass: true } });
+	assert.equal(run.status, 'valid');
+	assert.equal(run.damage, 2);
+	assert.equal(run.absorbedHp, 3);
+	assert.equal(run.deaths, 0);
+	assert.equal(run.success, true);
+	assert.equal(run.windowMs, 300_000);
+	assert.equal(run.diagnostics.onsets, 1);
+	assert.equal(run.diagnostics.opportunity, 'opportunity');
+	assert.equal(run.diagnostics.threatMs, 500);
+	assert.deepEqual(run.diagnostics.responses.paths, { 'command:model': 1 });
+	assert.equal(run.diagnostics.responses.latencyTicks.p50, 6);
+	assert.equal(run.diagnostics.damagePerThreatMinute, 240);
+	assert.equal(run.diagnostics.firings.count, 1);
+	assert.equal(run.diagnostics.firings.orderViolations, 0);
+	assert.equal(scoreRun({ scenario: 'R-SKELETON', goalStartedAtMs: START, samples, dangerRows: rows }).success, null, 'no evaluation is unknown success, not a failure');
+});
+
+test('a counter that disagrees is invalid, a missing counter or Watcher file is unknown, never 0', async () => {
+	const rows = await golden();
+	const mismatch = scoreRun({ scenario: 'R-SKELETON', goalStartedAtMs: START, samples: [counter(START, 0), counter(START + 300_000, 50)], dangerRows: rows });
+	assert.equal(mismatch.status, 'invalid');
+	assert.equal(mismatch.damage, null);
+	const noCounter = scoreRun({ scenario: 'R-SKELETON', goalStartedAtMs: START, samples: [{ at: START, health: 20 }], dangerRows: rows });
+	assert.equal(noCounter.status, 'unknown');
+	assert.equal(noCounter.damage, null);
+	const noWatch = scoreRun({ scenario: 'R-SKELETON', goalStartedAtMs: START, samples: [counter(START, 0), counter(START + 300_000, 0)], dangerRows: null });
+	assert.equal(noWatch.status, 'unknown');
+	assert.equal(noWatch.diagnostics, undefined);
+	const unpaired = reconcileDamage([damage(START + 10, null, { paired: false })], [counter(START, 0), counter(START + 1000, 10)]);
+	assert.equal(unpaired.status, 'unknown');
+	const decreasing = reconcileDamage([], [counter(START, 10), counter(START + 1000, 0)]);
+	assert.equal(decreasing.status, 'unknown');
+});
+
+test('reconciliation tolerates rounding per hit, an edge hit, and a lethal hit read in full by the counter', () => {
+	const end = START + 300_000;
+	const samples = [counter(START, 0), counter(end, 31)];
+	assert.equal(reconcileDamage([damage(START + 5, 1.55), damage(START + 9, 1.53)], samples).status, 'valid', 'rounding within 0.05 HP per hit');
+	assert.equal(reconcileDamage([damage(START + 5, 2.0)], samples).status, 'invalid');
+	// The counter's final sample may land either side of a hit within the clock slack.
+	const edge = [damage(START + 5, 2.1), damage(end + 1_000, 1.0)];
+	assert.equal(reconcileDamage(edge, [counter(START, 0), counter(end, 21)]).status, 'valid', 'counter before the edge hit');
+	assert.equal(reconcileDamage(edge, [counter(START, 0), counter(end, 31)]).status, 'valid', 'counter after the edge hit');
+	// A lethal hit's row stops at 0 health while the counter counts the whole hit: the counter may only read higher.
+	const lethal = [damage(START + 5, 3, { lethal: true })];
+	assert.equal(reconcileDamage(lethal, [counter(START, 0), counter(end, 80)]).status, 'valid');
+	assert.equal(reconcileDamage(lethal, [counter(START, 0), counter(end, 10)]).status, 'invalid');
+});
+
+test('each room is scored over its own window; deaths come from the death counter', () => {
+	assert.equal(roomWindowMs('R-FLOOD'), 360_000);
+	assert.equal(roomWindowMs('R-TOOLBREAK'), 180_000);
+	assert.equal(roomWindowMs('R-CREEPER'), 300_000);
+	const rows = [damage(START + 100_000, 2), damage(START + 200_000, 4)];
+	const samples = [counter(START, 0, 0), counter(START + 250_000, 60, 1)];
+	const toolbreak = scoreRun({ scenario: 'R-TOOLBREAK', goalStartedAtMs: START, samples, dangerRows: rows });
+	assert.equal(toolbreak.damage, 2, 'a hit after 180 s is outside R-TOOLBREAK');
+	const creeper = scoreRun({ scenario: 'R-CREEPER', goalStartedAtMs: START, samples, dangerRows: rows });
+	assert.equal(creeper.damage, 6);
+	assert.equal(creeper.deaths, 1);
+	assert.equal(creeper.diagnostics.opportunity, 'no_opportunity', 'no onset is no opportunity, not a clean pass');
+	assert.equal(creeper.diagnostics.damagePerThreatMinute, null);
+	const other = scoreRun({ scenario: 'R-CREEPER', goalStartedAtMs: START, samples, dangerRows: [...rows, { type: 'damage', schema: 99, atMs: START, healthDrop: 9 }] });
+	assert.equal(other.otherSchemaRows, 1);
+	assert.equal(other.damage, 6, 'rows of another schema are counted apart, never mixed in');
+});
+
+const scored = (scenario, repetition, damageHp, { deaths = 0, success = true, status = 'valid' } = {}) =>
+	({ pairId: `${scenario}-r${repetition}`, scenario, status, damage: status === 'valid' ? damageHp : null, deaths: status === 'valid' ? deaths : null, success });
+
+test('paired arms: per-pair deltas summed by room, judged against a margin set in advance', () => {
+	const a = [1, 2, 3, 4].map(n => scored('R-SKELETON', n, 4));
+	const same = [1, 2, 3, 4].map(n => scored('R-SKELETON', n, [5, 3, 4, 4][n - 1]));
+	const pairs = pairRuns(a, same);
+	assert.deepEqual(pairs.map(pair => pair.deltas.damage), [1, -1, 0, 0]);
+	assert.deepEqual(judgeRooms(pairs).rooms['R-SKELETON'].damage.verdict, 'NO_MARGIN');
+	const floor = noiseFloor(pairs);
+	assert.equal(floor.rooms['R-SKELETON'].damage.pairs, 4);
+	assert.ok(floor.rooms['R-SKELETON'].damage.perPairSd > 0.8 && floor.rooms['R-SKELETON'].damage.perPairSd < 0.83);
+	const margin = { z: 2, rooms: { 'R-SKELETON': { damage: { perPairSd: 1 }, deaths: { perPairSd: 0.5 }, success: { perPairSd: 0.5 } } } };
+	const identical = judgeRooms(pairs, margin);
+	assert.equal(identical.rooms['R-SKELETON'].damage.verdict, 'INCONCLUSIVE', 'identical arms stay inside the margin');
+	assert.equal(identical.rooms['R-SKELETON'].damage.margin, 4, 'z x SD x sqrt(4 pairs)');
+	assert.equal(identical.overall, 'INCONCLUSIVE');
+	const worse = judgeRooms(pairRuns(a, [1, 2, 3, 4].map(n => scored('R-SKELETON', n, 8))), margin);
+	assert.equal(worse.rooms['R-SKELETON'].damage.sum, 16);
+	assert.equal(worse.rooms['R-SKELETON'].damage.verdict, 'WORSE');
+	assert.equal(worse.overall, 'FAIL');
+	const lost = judgeRooms(pairRuns(a, [1, 2, 3, 4].map(n => scored('R-SKELETON', n, 4, { success: false }))), margin);
+	assert.equal(lost.rooms['R-SKELETON'].success.verdict, 'WORSE', 'fewer successes is worse');
+	const better = judgeRooms(pairRuns(a, [1, 2, 3, 4].map(n => scored('R-SKELETON', n, 0))), margin);
+	assert.equal(better.rooms['R-SKELETON'].damage.verdict, 'BETTER');
+});
+
+test('an invalid, unknown or missing run leaves its pair incomplete, never a zero', () => {
+	const a = [scored('R-BLAZE', 1, 4), scored('R-BLAZE', 2, 4), scored('R-BLAZE', 3, 4)];
+	const b = [scored('R-BLAZE', 1, 4, { status: 'invalid' }), scored('R-BLAZE', 2, 6)];
+	const judged = judgeRooms(pairRuns(a, b), { rooms: { 'R-BLAZE': { damage: { perPairSd: 1 } } } });
+	assert.equal(judged.rooms['R-BLAZE'].damage.complete, 1);
+	assert.equal(judged.rooms['R-BLAZE'].damage.incomplete, 2);
+	assert.equal(judged.rooms['R-BLAZE'].damage.sum, 2);
+	assert.equal(judged.rooms['R-BLAZE'].pairs, 3);
+});
+
+async function runDir(root, name, { scenario, rows, samples, pairId, evaluation = { status: 'EVALUATED', pass: true } }) {
+	const dir = path.join(root, name);
+	await mkdir(path.join(dir, 'arena-watch'), { recursive: true });
+	if (rows) await writeFile(path.join(dir, 'arena-watch', 'agent-danger.jsonl'), rows.map(row => JSON.stringify(row)).join('\n') + '\n');
+	await writeFile(path.join(dir, 'quality-samples.json'), JSON.stringify({ samples }));
+	const run = { scenario, repetition: Number(pairId?.split('-r').at(-1) ?? 1), pairId, metrics: { goalStartedAtMs: START }, evaluation, artifacts: dir };
+	await writeFile(path.join(dir, 'quality-run.json'), JSON.stringify(run));
+	return run;
+}
+
+test('the CLI reads run directories and paired results, and reports the noise floor of an A/A run', async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), 'reflex-report-'));
+	try {
+		const rows = await golden();
+		const samples = [counter(START, 0), counter(START + 300_000, 20)];
+		const single = await runDir(root, 'single', { scenario: 'R-SKELETON', rows, samples });
+		const watch = await readWatchDir(path.join(single.artifacts, 'arena-watch'));
+		assert.equal(watch.dangerFiles, 1);
+		assert.equal(watch.danger.length, rows.length);
+		assert.equal(watch.episodes.length, 0, 'danger rows are not episodes');
+		const report = await buildReport(parseReportArgs(['--run', single.artifacts]));
+		assert.equal(report.runs[0].damage, 2);
+		const noWatch = await runDir(root, 'no-watch', { scenario: 'R-SKELETON', rows: null, samples });
+		assert.equal((await buildReport(parseReportArgs(['--run', noWatch.artifacts]))).runs[0].status, 'unknown');
+		const arms = { A: { runs: [] }, B: { runs: [] } };
+		for (const arm of ['A', 'B']) for (const n of [1, 2, 3]) {
+			arms[arm].runs.push(await runDir(root, `${arm}-${n}`, { scenario: 'R-SKELETON', rows, samples, pairId: `R-SKELETON-r${n}` }));
+		}
+		const pairedFile = path.join(root, 'results.json');
+		await writeFile(pairedFile, JSON.stringify({ configuration: { design: 'A/A' }, arms }));
+		const marginFile = path.join(root, 'margin.json');
+		await writeFile(marginFile, JSON.stringify({ z: 2, rooms: { 'R-SKELETON': { damage: { perPairSd: 0.5 }, deaths: { perPairSd: 0.5 }, success: { perPairSd: 0.5 } } } }));
+		const paired = await buildReport(parseReportArgs(['--paired', pairedFile, '--margin', marginFile]));
+		assert.equal(paired.design, 'A/A');
+		assert.equal(paired.pairs.length, 3);
+		assert.ok(paired.pairs.every(pair => pair.deltas.damage === 0));
+		assert.equal(paired.judgement.rooms['R-SKELETON'].damage.verdict, 'INCONCLUSIVE');
+		assert.equal(paired.noiseFloor.rooms['R-SKELETON'].damage.perPairSd, 0);
+		assert.throws(() => parseReportArgs([]), /Pass --run or --paired/);
+		assert.throws(() => parseReportArgs(['--run', 'a', '--paired', 'b']), /Pass --run or --paired/);
+	} finally { await rm(root, { recursive: true, force: true }); }
+});
