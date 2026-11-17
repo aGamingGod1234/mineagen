@@ -53,7 +53,7 @@ Danger already acting on you comes first: answer it with one direct action, not 
 
 Author a standing guard with standing:{id,when,guard:true} and your own source, using current health, air, fire, lava, observed threats and acquired exits. A targetable threat behind you remains actionable with visible:false. Check all threats before choosing melee; a creeper fuse is only 1.5 s.
 
-Arm only missing live-authored reflexes on the first body call (act, sequence or runProgram). For danger already close, that call is the short escape or defense itself. The setup syntax, vocabulary and interruption/maintenance teaching are in control topic tool:reflexes; use current gear and footing. Keep working rules, and revise failed rules by the same id using the firing report.
+Arm live-authored reflexes on the first body call (act, sequence or runProgram). For danger already close, that call is the short escape or defense itself. The setup syntax, vocabulary and interruption/maintenance teaching are in control topic tool:reflexes; use current gear and footing. Keep working rules, and revise failed rules by the same id using the firing report.
 
 LOW_HEALTH_BAILOUT reports a bounded retreat attempt; pursue:false holds ground. Combat and flee receipts end the action: read the actual outcome and author the next defense in the same handler. Read control topic tool:runProgram for precedence and bounded response mechanics.
 

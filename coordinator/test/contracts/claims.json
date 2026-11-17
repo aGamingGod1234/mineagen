@@ -32684,10 +32684,10 @@
           "type": "node-behavior"
         }
       ],
-      "id": "control:d152b9a98f8eec0f:3a19b14b7ba6e9c7",
+      "id": "control:d152b9a98f8eec0f:8d97a33feda40b8c",
       "contract": {
-        "id": "control:d152b9a98f8eec0f:3a19b14b7ba6e9c7",
-        "claim": "At a firing report, compare the rules shown in now.reflexes with the current need. Keep working definitions unchanged; add only missing protection and continue useful work. Send the physical response or rule repair before narrating it in chat. A new program needs only missing protection. A failed, disabled or harmful rule needs a changed response under the same id (or {id,remove:true} when obsolete); choose from current gear and escape facts. A shield failure with no shield calls for escape/cover, not another shield. Consume the report before choosing the next action; a firing count alone does not prove protection.",
+        "id": "control:d152b9a98f8eec0f:8d97a33feda40b8c",
+        "claim": "At a firing report, compare the rules shown in now.reflexes with the current need. Keep working definitions unchanged; add missing protection and continue useful work. Send the physical response or rule repair before narrating it in chat. A new program keeps the rules already armed. A failed, disabled or harmful rule needs a changed response under the same id (or {id,remove:true} when obsolete); choose from current gear and escape facts. A shield failure with no shield calls for escape/cover, not another shield. Consume the report before choosing the next action; a firing count alone does not prove protection.",
         "kind": "control-reference",
         "topic": "Survival and recovery"
       },
@@ -32696,6 +32696,13 @@
         "line": 113
       },
       "status": "partial",
+      "documentationChecks": [
+        {
+          "file": "coordinator/test/minecraft-control-reference.test.mjs",
+          "test": "reflex guidance does not limit authoring to rules the defaults miss",
+          "type": "node-behavior"
+        }
+      ],
       "reason": "Carried predicates and witnesses cover the implemented API and report behavior. Tactical choices and first-call authoring are evaluated separately in rx-teach2; guidance does not guarantee compliance."
     },
     {
@@ -35862,10 +35869,10 @@
           "type": "node-behavior"
         }
       ],
-      "id": "control:aacbb15253093b39:7cce1053013d75ee",
+      "id": "control:aacbb15253093b39:b363de9432c0d7e8",
       "contract": {
-        "id": "control:aacbb15253093b39:7cce1053013d75ee",
-        "claim": "Before exposure, author only missing rules for the current threats, gear and footing. For close danger, the short escape or defense call itself carries them. Consider continuing fire after projectile hits, deflectable fireballs, approaching creepers, air and tool durability as relevant to the job. Give survival responses priority over shield/combat stances; choose expiry and important wakes. Keep working rules across programs; revise failed rules by the same id from the firing report. Author every rule live; no saved or named sets. Setup timing and maintenance are taught in the player instructions.",
+        "id": "control:aacbb15253093b39:b363de9432c0d7e8",
+        "claim": "Before exposure, author rules for the current threats, gear and footing. For close danger, the short escape or defense call itself carries them. Consider continuing fire after projectile hits, deflectable fireballs, approaching creepers, air and tool durability as relevant to the job. Give survival responses priority over shield/combat stances; choose expiry and important wakes. Keep working rules across programs; revise failed rules by the same id from the firing report. Author every rule live; no saved or named sets. Setup timing and maintenance are taught in the player instructions.",
         "kind": "control-reference",
         "topic": "reflexes"
       },
@@ -35874,6 +35881,13 @@
         "line": 345
       },
       "status": "partial",
+      "documentationChecks": [
+        {
+          "file": "coordinator/test/minecraft-control-reference.test.mjs",
+          "test": "reflex guidance does not limit authoring to rules the defaults miss",
+          "type": "node-behavior"
+        }
+      ],
       "reason": "Carried runtime witnesses cover rule installation, firing, persistence and reports. Tactical choices remain model-dependent; the 13-case rx-teach2 decision evaluation measures authoring separately. Carried witnesses plus the reflex carrier tests. Tactical choices and first-call authoring are measured separately by the rx-teach3 decision evaluation (rx-setup and rx-teach2 cases); guidance does not guarantee compliance."
     },
     {
@@ -46602,10 +46616,10 @@
           "type": "node-behavior"
         }
       ],
-      "id": "skill:8302496de0ace160:df97c6f9bded68ff",
+      "id": "skill:8302496de0ace160:2c5d0bf401e86e6e",
       "contract": {
-        "id": "skill:8302496de0ace160:df97c6f9bded68ff",
-        "claim": "Arm only missing live-authored reflexes on the first body call (act, sequence or runProgram). For danger already close, that call is the short escape or defense itself. The setup syntax, vocabulary and interruption/maintenance teaching are in control topic tool:reflexes; use current gear and footing. Keep working rules, and revise failed rules by the same id using the firing report.",
+        "id": "skill:8302496de0ace160:2c5d0bf401e86e6e",
+        "claim": "Arm live-authored reflexes on the first body call (act, sequence or runProgram). For danger already close, that call is the short escape or defense itself. The setup syntax, vocabulary and interruption/maintenance teaching are in control topic tool:reflexes; use current gear and footing. Keep working rules, and revise failed rules by the same id using the firing report.",
         "kind": "skill-reference",
         "topic": "Survival"
       },
@@ -46614,6 +46628,13 @@
         "line": 56
       },
       "status": "partial",
+      "documentationChecks": [
+        {
+          "file": "coordinator/test/minecraft-control-reference.test.mjs",
+          "test": "reflex guidance does not limit authoring to rules the defaults miss",
+          "type": "node-behavior"
+        }
+      ],
       "reason": "Carried runtime witnesses cover rule installation, firing, persistence and reports. Tactical choices remain model-dependent; the 13-case rx-teach2 decision evaluation measures authoring separately. Carried witnesses plus the reflex carrier tests. Tactical choices and first-call authoring are measured separately by the rx-teach3 decision evaluation (rx-setup and rx-teach2 cases); guidance does not guarantee compliance."
     },
     {
@@ -47683,10 +47704,10 @@
           "type": "node-behavior"
         }
       ],
-      "id": "agent:8302496de0ace160:c035e20fe5ca92a4",
+      "id": "agent:8302496de0ace160:a057f8702bc1d491",
       "contract": {
-        "id": "agent:8302496de0ace160:c035e20fe5ca92a4",
-        "claim": "Fourteen reflexes are on from spawn, after each respawn and at each dimension change: default-lava, default-lava-flow, default-fire, default-air, default-edge, default-creeper, default-suffocate, default-fireball, default-arrow, default-retreat, default-eat, default-defend, default-blaze-cover and default-cover. They act within a quarter second, faster than any reply; leave them on. {id, remove:true} switches one off until the next respawn or dimension change; the same id replaces it. Add a rule only for a danger they miss (control topic tool:reflexes); any body call carries reflexes:[...]. When danger already acts on you and no reflex handles it, your first call is the escape or the defence itself, not a lookup.",
+        "id": "agent:8302496de0ace160:a057f8702bc1d491",
+        "claim": "Fourteen reflexes are on from spawn, after each respawn and at each dimension change: default-lava, default-lava-flow, default-fire, default-air, default-edge, default-creeper, default-suffocate, default-fireball, default-arrow, default-retreat, default-eat, default-defend, default-blaze-cover and default-cover. They act within a quarter second, faster than any reply; leave them on. {id, remove:true} switches one off until the next respawn or dimension change; the same id replaces it. Add rules for any danger they miss (control topic tool:reflexes); any body call carries reflexes:[...]. When danger already acts on you and no reflex handles it, your first call is the escape or the defence itself, not a lookup.",
         "kind": "agent-reference",
         "topic": "Survival"
       },
@@ -47700,9 +47721,14 @@
           "file": "coordinator/test/minecraft-control-reference.test.mjs",
           "test": "the always-loaded player instructions stay a few KB: the role, steps, the route, seven rules and reflexes on",
           "type": "node-behavior"
+        },
+        {
+          "file": "coordinator/test/minecraft-control-reference.test.mjs",
+          "test": "reflex guidance does not limit authoring to rules the defaults miss",
+          "type": "node-behavior"
         }
       ],
-      "reason": "The fourteen default configurations, independent removal and same-id replacement are exercised. The flow default wires the existing known-flow sensor to the existing escape; physical rescue remains unverified. Adding rules only for missed dangers and making escape the first call are model guidance. The added blaze-cover configuration and disclosure do not establish physical survival efficacy."
+      "reason": "The fourteen default configurations, independent removal and same-id replacement are exercised. The flow default wires the existing known-flow sensor to the existing escape; physical rescue remains unverified. Adding rules for missed dangers and making escape the first call are model guidance. The added blaze-cover configuration and disclosure do not establish physical survival efficacy."
     },
     {
       "predicate": "The step-by-step tools stay available after do_step; when to use them is model guidance.",
