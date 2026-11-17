@@ -208,6 +208,13 @@ test('deaths come from counter samples at both room boundaries; a missing bounda
 	assert.equal(windowDeaths(deathsAt([0, 0], [297, 0]), START, START + 300_000,
 		[{ operation: 'dead', at: START + 298_000 }, { operation: 'respawn', at: START + 299_000 }]), 1, 'a death after the closing sample counts even when it respawned');
 	assert.equal(windowDeaths(deathsAt([0, 0], [297, 1]), START, START + 300_000, [{ operation: 'dead', at: START + 296_000 }]), 1, 'a death the closing sample already counts is not counted twice');
+	// A sample stamped just before the death that read the raised counter, then no sample to the end: one death, not two.
+	const stampedBefore = [{ operation: 'dead', at: START + 280_000 }];
+	assert.equal(windowDeaths(deathsAt([0, 0], [278.9, 0], [279.9, 1]), START, START + 300_000, stampedBefore), 1);
+	assert.equal(windowDeaths(deathsAt([0, 0], [278.9, 0], [279.9, 1], [280.4, 1]), START, START + 300_000, stampedBefore), 1);
+	// An earlier death and respawn plus a final death with no respawn: two.
+	assert.equal(windowDeaths(deathsAt([0, 0], [100, 1], [279, 1]), START, START + 300_000,
+		[{ operation: 'dead', at: START + 99_500 }, { operation: 'respawn', at: START + 102_000 }, { operation: 'dead', at: START + 280_000 }]), 2);
 });
 
 test('a corrupt death counter leaves deaths unknown through scoreRun and pairing, never a fallback zero', () => {

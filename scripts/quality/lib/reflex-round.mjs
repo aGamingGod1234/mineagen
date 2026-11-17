@@ -168,16 +168,18 @@ export function windowDeaths(samples, start, end, lifecycle = []) {
 	if (!atStart.length) return null;
 	// The latest sample at or before the start (else the first after it), and the first at or after the end (else the last).
 	const base = atStart.filter(s => s.at <= start).at(-1) ?? atStart[0];
+	// A sample's time is stamped before its counter is read, so a death near a sample may or may not be in it. Each death
+	// also has a dead event; the larger of the counter's rise and the dead events since the base counts each death once,
+	// including one after the closing sample or one the body never respawned from.
+	const deadSince = (lifecycle ?? []).filter(e => e?.operation === 'dead' && finite(e.at) && e.at > base.at && e.at <= end).length;
 	if (!atEnd.length) {
 		const lastBefore = rows.filter(s => s.at <= end).at(-1);
 		if (!lastBefore || lastBefore.at < base.at || deadThroughEnd(lifecycle, lastBefore.at, end) === null) return null;
-		return lastBefore.deathCounter - base.deathCounter + 1;
+		return Math.max(lastBefore.deathCounter - base.deathCounter, deadSince);
 	}
 	const last = atEnd.find(s => s.at >= end) ?? atEnd.at(-1);
 	if (last.at <= base.at) return null;
-	// A death after the closing sample (inside the end margin) is not in that sample's counter, respawned or not.
-	const diedAfter = (lifecycle ?? []).filter(e => e?.operation === 'dead' && finite(e.at) && e.at > last.at && e.at <= end).length;
-	return last.deathCounter - base.deathCounter + diedAfter;
+	return Math.max(last.deathCounter - base.deathCounter, deadSince);
 }
 
 /** Firing rows that ended in the window, by outcome (diagnostic); start must never follow end. */
