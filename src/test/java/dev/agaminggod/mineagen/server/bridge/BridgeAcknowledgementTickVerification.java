@@ -2,7 +2,7 @@ package dev.agaminggod.mineagen.server.bridge;
 
 import com.google.gson.JsonObject;
 import dev.agaminggod.mineagen.agent.AgentId;
-import dev.agaminggod.mineagen.server.CodexAgentManager;
+import dev.agaminggod.mineagen.server.AgentManager;
 import dev.agaminggod.mineagen.server.AgentSavedData;
 import dev.agaminggod.mineagen.server.runtime.ServerActionExecutor;
 import java.nio.channels.FileChannel;

@@ -41,7 +41,7 @@ public final class InterventionAuditVerification {
 				datapack.listRegistryKeys().map(key -> (net.minecraft.core.HolderLookup.RegistryLookup<?>) datapack.lookupOrThrow(key))));
 		CommandDispatcher<CommandSourceStack> dispatcher = new Commands(Commands.CommandSelection.DEDICATED,
 				net.minecraft.commands.CommandBuildContext.simple(lookup, net.minecraft.world.flag.FeatureFlags.VANILLA_SET)).getDispatcher();
-		// CodexAgentCommands.register needs a Fabric mixin accessor that plain verification cannot load, so this mirrors
+		// AgentCommands.register needs a Fabric mixin accessor that plain verification cannot load, so this mirrors
 		// the shape of the /mineagen nodes the runner uses (literal names and argument names as registered there).
 		var agent = (java.util.function.Supplier<com.mojang.brigadier.builder.RequiredArgumentBuilder<CommandSourceStack, String>>) () -> Commands.argument("agent", StringArgumentType.word());
 		dispatcher.register(Commands.literal(dev.agaminggod.mineagen.control.AgentControlCommandBuilder.ROOT)

@@ -28,7 +28,7 @@ import dev.agaminggod.mineagen.server.AgentActivityPresentation;
 import dev.agaminggod.mineagen.server.AgentChatReporter;
 import dev.agaminggod.mineagen.server.AgentVerboseChat;
 import dev.agaminggod.mineagen.server.AgentVerboseState;
-import dev.agaminggod.mineagen.server.CodexAgentManager;
+import dev.agaminggod.mineagen.server.AgentManager;
 import dev.agaminggod.mineagen.server.conversation.ConversationAudience;
 import dev.agaminggod.mineagen.server.conversation.ConversationEvent;
 import dev.agaminggod.mineagen.server.conversation.ConversationKind;
@@ -151,7 +151,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 			"auth_challenge", "hello", "catalog_snapshot", "coordinator_status", "agent_ready", "planning_state", "goal_completed", "conversation_wake_ack", "goal_spec_proposal", "task_request", "request_observation", "inspection_request", "action_command", "action_cancel", "action_result_ack", "agent_error", "agent_notice", "verbose_event", "task_view", "reflex_update", "heartbeat"
 	);
 
-	private final CodexAgentManager manager;
+	private final AgentManager manager;
 	private final AgentRuntimeRouter router;
 	private final ServerActionExecutor actionExecutor;
 	private final ServerAgentConversationRouter conversationRouter;
@@ -242,36 +242,36 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 	private volatile long admissionTicks;
 	private volatile long publicationTicks;
 
-	public MultiplexedServerBridge(CodexAgentManager manager) {
+	public MultiplexedServerBridge(AgentManager manager) {
 		this(manager, configuredPort(), configuredSecretPath(), new AgentVerboseState());
 	}
 
-	public MultiplexedServerBridge(CodexAgentManager manager, AgentVerboseState verboseState) {
+	public MultiplexedServerBridge(AgentManager manager, AgentVerboseState verboseState) {
 		this(manager, configuredPort(), configuredSecretPath(), verboseState);
 	}
 
 	public MultiplexedServerBridge(
-			CodexAgentManager manager,
+			AgentManager manager,
 			AgentVerboseState verboseState,
 			GoalVerificationRuntime goalVerificationRuntime
 	) {
 		this(manager, configuredPort(), configuredSecretPath(), verboseState, goalVerificationRuntime);
 	}
 
-	public MultiplexedServerBridge(CodexAgentManager manager, Path secretPath) {
+	public MultiplexedServerBridge(AgentManager manager, Path secretPath) {
 		this(manager, DEFAULT_PORT, secretPath, new AgentVerboseState());
 	}
 
-	public MultiplexedServerBridge(CodexAgentManager manager, Path secretPath, AgentVerboseState verboseState) {
+	public MultiplexedServerBridge(AgentManager manager, Path secretPath, AgentVerboseState verboseState) {
 		this(manager, DEFAULT_PORT, secretPath, verboseState);
 	}
 
-	public MultiplexedServerBridge(CodexAgentManager manager, int port, Path secretPath) {
+	public MultiplexedServerBridge(AgentManager manager, int port, Path secretPath) {
 		this(manager, port, secretPath, new AgentVerboseState());
 	}
 
 	public MultiplexedServerBridge(
-			CodexAgentManager manager,
+			AgentManager manager,
 			int port,
 			Path secretPath,
 			AgentVerboseState verboseState
@@ -280,7 +280,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 	}
 
 	public MultiplexedServerBridge(
-			CodexAgentManager manager,
+			AgentManager manager,
 			Path secretPath,
 			AgentVerboseState verboseState,
 			GoalVerificationRuntime goalVerificationRuntime
@@ -289,7 +289,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 	}
 
 	public MultiplexedServerBridge(
-			CodexAgentManager manager,
+			AgentManager manager,
 			int port,
 			Path secretPath,
 			AgentVerboseState verboseState,
@@ -299,7 +299,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 	}
 
 	MultiplexedServerBridge(
-			CodexAgentManager manager,
+			AgentManager manager,
 			int port,
 			Path secretPath,
 			ServerSocketFactory serverSockets,
@@ -312,7 +312,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 	}
 
 	MultiplexedServerBridge(
-			CodexAgentManager manager,
+			AgentManager manager,
 			int port,
 			Path secretPath,
 			ServerSocketFactory serverSockets,
@@ -326,7 +326,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 	}
 
 	private MultiplexedServerBridge(
-			CodexAgentManager manager,
+			AgentManager manager,
 			int port,
 			Path secretPath,
 			AgentVerboseState verboseState,
@@ -337,7 +337,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 	}
 
 	private MultiplexedServerBridge(
-			CodexAgentManager manager,
+			AgentManager manager,
 			int port,
 			Path secretPath,
 			AgentVerboseState verboseState,
@@ -352,7 +352,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 	}
 
 	private MultiplexedServerBridge(
-			CodexAgentManager manager,
+			AgentManager manager,
 			int port,
 			String preparedSecret,
 			AgentVerboseState verboseState,
@@ -364,7 +364,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 	}
 
 	private MultiplexedServerBridge(
-			CodexAgentManager manager,
+			AgentManager manager,
 			int port,
 			String preparedSecret,
 			AgentVerboseState verboseState,
@@ -398,12 +398,12 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		BridgeTap.bind(manager.server(), actionExecutor);
 	}
 
-	public static MultiplexedServerBridge withPreparedSecret(CodexAgentManager manager, int port, String secret) {
+	public static MultiplexedServerBridge withPreparedSecret(AgentManager manager, int port, String secret) {
 		return withPreparedSecret(manager, port, secret, new AgentVerboseState(), defaultGoalVerificationRuntime(manager));
 	}
 
 	public static MultiplexedServerBridge withPreparedSecret(
-			CodexAgentManager manager,
+			AgentManager manager,
 			int port,
 			String secret,
 			AgentVerboseState verboseState
@@ -412,7 +412,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 	}
 
 	public static MultiplexedServerBridge withPreparedSecret(
-			CodexAgentManager manager,
+			AgentManager manager,
 			int port,
 			String secret,
 			AgentVerboseState verboseState,
@@ -1459,7 +1459,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 			boolean duplicate = draft.proposedPredicate().isPresent();
 			PendingGoalDraft updated = manager.updateGoalDraftProposal(requestId, agentId, predicate);
 			ServerPlayer player = manager.server() == null ? null : manager.server().getPlayerList().getPlayer(updated.requestingPlayerId());
-			Optional<CodexAgentManager.GoalDraftResult> activatedResult = manager.activateTranslatedManagerDraft(updated, summary);
+			Optional<AgentManager.GoalDraftResult> activatedResult = manager.activateTranslatedManagerDraft(updated, summary);
 			if (activatedResult.isPresent()) {
 				recordActivatedGoalSpecRequest(requestId, agentId, decodedPredicate);
 				if (player != null) {
@@ -3450,7 +3450,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		return goal.plannerPrompt();
 	}
 
-	private static GoalVerificationRuntime defaultGoalVerificationRuntime(CodexAgentManager manager) {
+	private static GoalVerificationRuntime defaultGoalVerificationRuntime(AgentManager manager) {
 		Objects.requireNonNull(manager, "manager must not be null");
 		return new GoalVerificationRuntime(
 				manager.registry(),
@@ -3468,7 +3468,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		persistTerminal.run();
 	}
 
-	private static DurableActionJournal defaultActionJournal(CodexAgentManager manager) {
+	private static DurableActionJournal defaultActionJournal(AgentManager manager) {
 		Objects.requireNonNull(manager, "manager must not be null");
 		if (manager.server() == null || !manager.server().isRunning()) return DurableActionJournal.inMemory();
 		return DurableActionJournal.open(AgentSavedData.actionJournalPath(manager.server()));

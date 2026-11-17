@@ -38,8 +38,8 @@ import dev.agaminggod.mineagen.server.voice.VoiceSubsystemRuntime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public final class CodexAgentCommands {
-	private static final Logger LOGGER = LoggerFactory.getLogger(CodexAgentCommands.class);
+public final class AgentCommands {
+	private static final Logger LOGGER = LoggerFactory.getLogger(AgentCommands.class);
 	private static final String DEFAULT_MODEL = "gpt-6.1-sol";
 	private static final String DEFAULT_REASONING = "low";
 	private static final String DEFAULT_CODEX_SERVICE_TIER = "default";
@@ -62,7 +62,7 @@ public final class CodexAgentCommands {
 			message -> Component.literal(String.valueOf(message))
 	);
 
-	private CodexAgentCommands() {
+	private AgentCommands() {
 	}
 
 	public static void register() {
@@ -71,7 +71,7 @@ public final class CodexAgentCommands {
 
 	static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
 		dispatcher.register(Commands.literal("agent").then(goalDraftCommands()));
-		PovCommands.register(dispatcher, CodexAgentCommands::povAgentArgument);
+		PovCommands.register(dispatcher, AgentCommands::povAgentArgument);
 		dispatcher.register(
 				Commands.literal("verbose")
 						.requires(GoalControl::mayControl)
@@ -105,38 +105,38 @@ public final class CodexAgentCommands {
 						.then(Commands.literal("dm")
 								.then(agentArgument().then(
 										Commands.argument(ARGUMENT_MESSAGE, StringArgumentType.greedyString())
-												.executes(CodexAgentCommands::directMessage)
+												.executes(AgentCommands::directMessage)
 								)))
 						.then(Commands.literal("voice-consent")
 								.then(Commands.literal("on").executes(context -> voiceConsent(context, true)))
 								.then(Commands.literal("off").executes(context -> voiceConsent(context, false)))
-								.then(Commands.literal("status").executes(CodexAgentCommands::voiceConsentStatus)))
+								.then(Commands.literal("status").executes(AgentCommands::voiceConsentStatus)))
 						.then(goalDraftCommands())
 						.then(goalPromptCommand("start", GoalSubmission.Operation.START))
-						.then(agentCommand("stop", CodexAgentManager::stop))
-						.then(agentCommand("resume", CodexAgentManager::resume))
+						.then(agentCommand("stop", AgentManager::stop))
+						.then(agentCommand("resume", AgentManager::resume))
 						.then(Commands.literal("respawn")
 								.requires(GoalControl::mayControl)
-								.then(agentArgument().executes(CodexAgentCommands::respawn)))
+								.then(agentArgument().executes(AgentCommands::respawn)))
 						.then(goalPromptCommand("queue", GoalSubmission.Operation.QUEUE))
 						.then(promptCommand("steer", (manager, selector, prompt, ignored) -> manager.steer(selector, prompt)))
 						.then(Commands.literal("status")
 								.requires(GoalControl::mayControl)
-								.executes(CodexAgentCommands::statusAll)
-								.then(agentArgument().executes(CodexAgentCommands::statusOne)))
+								.executes(AgentCommands::statusAll)
+								.then(agentArgument().executes(AgentCommands::statusOne)))
 						.then(Commands.literal("audit")
 								.requires(GoalControl::mayControl)
-								.then(agentArgument().executes(CodexAgentCommands::auditOne)))
-						.then(Commands.literal("list").requires(GoalControl::mayControl).executes(CodexAgentCommands::statusAll))
+								.then(agentArgument().executes(AgentCommands::auditOne)))
+						.then(Commands.literal("list").requires(GoalControl::mayControl).executes(AgentCommands::statusAll))
 						.then(Commands.literal("remove")
 								.requires(GoalControl::mayControl)
-								.then(agentArgument().executes(CodexAgentCommands::remove)))
+								.then(agentArgument().executes(AgentCommands::remove)))
 						.then(Commands.literal("auto")
 								.requires(GoalControl::mayControl)
-								.then(agentArgument().executes(CodexAgentCommands::toggleAutomatic)))
+								.then(agentArgument().executes(AgentCommands::toggleAutomatic)))
 						.then(voiceCommands())
-						.then(PovCommands.rootAlias("spectate", PovMode.SPECTATE, CodexAgentCommands::povAgentArgument))
-						.then(PovCommands.rootAlias("takeover", PovMode.TAKEOVER, CodexAgentCommands::povAgentArgument))
+						.then(PovCommands.rootAlias("spectate", PovMode.SPECTATE, AgentCommands::povAgentArgument))
+						.then(PovCommands.rootAlias("takeover", PovMode.TAKEOVER, AgentCommands::povAgentArgument))
 						);
 	}
 
@@ -145,20 +145,20 @@ public final class CodexAgentCommands {
 		var profile = Commands.literal("profile")
 				.then(voiceAgentArgument().then(Commands.argument("profile", StringArgumentType.word())
 						.suggests((context, builder) -> SharedSuggestionProvider.suggest(VOICE_PROFILE_IDS, builder))
-						.executes(CodexAgentCommands::setVoiceProfile)
+						.executes(AgentCommands::setVoiceProfile)
 						.then(Commands.argument("tone", StringArgumentType.word())
 							.suggests((context, builder) -> SharedSuggestionProvider.suggest(VOICE_TONES, builder))
-							.executes(CodexAgentCommands::setVoiceProfile)
+							.executes(AgentCommands::setVoiceProfile)
 								.then(Commands.argument("speed", DoubleArgumentType.doubleArg(0.5D, 2.0D))
-										.executes(CodexAgentCommands::setVoiceProfile)
+										.executes(AgentCommands::setVoiceProfile)
 										.then(Commands.argument("radius", IntegerArgumentType.integer(1, 128))
-												.executes(CodexAgentCommands::setVoiceProfile))))));
+												.executes(AgentCommands::setVoiceProfile))))));
 		voice.then(profile);
-		voice.then(Commands.literal("profiles").executes(CodexAgentCommands::listVoiceProfiles));
+		voice.then(Commands.literal("profiles").executes(AgentCommands::listVoiceProfiles));
 
 		var say = Commands.literal("say")
 				.then(voiceAgentArgument().then(Commands.argument("text", StringArgumentType.greedyString())
-						.executes(CodexAgentCommands::sayVoice)));
+						.executes(AgentCommands::sayVoice)));
 		voice.then(say);
 		voice.then(Commands.literal("say_with").then(voiceAgentArgument()
 				.then(Commands.argument("profile", StringArgumentType.word())
@@ -168,7 +168,7 @@ public final class CodexAgentCommands {
 								.then(Commands.argument("speed", DoubleArgumentType.doubleArg(0.5D, 2.0D))
 										.then(Commands.argument("radius", IntegerArgumentType.integer(1, 128))
 												.then(Commands.argument("text", StringArgumentType.greedyString())
-														.executes(CodexAgentCommands::sayVoiceWith))))))));
+														.executes(AgentCommands::sayVoiceWith))))))));
 
 		return voice;
 	}
@@ -181,13 +181,13 @@ public final class CodexAgentCommands {
 				.then(goalDraftChoice("cancel", GoalDraftChoice.CANCEL))
 				.then(Commands.literal("complete")
 						.requires(GoalControl::mayControl)
-						.then(agentArgument().executes(CodexAgentCommands::confirmCompletion)));
+						.then(agentArgument().executes(AgentCommands::confirmCompletion)));
 	}
 
 	private static int confirmCompletion(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
 		try {
 			AgentRecord record = manager(context).resolve(StringArgumentType.getString(context, ARGUMENT_AGENT));
-			CodexAgentServerRuntime.confirmCurrentGoal(context.getSource().getServer(), record.agentId());
+			AgentServerRuntime.confirmCurrentGoal(context.getSource().getServer(), record.agentId());
 			context.getSource().sendSuccess(
 					() -> Component.literal("Confirmed completion for " + manager(context).displayName(record) + "."),
 					false
@@ -216,19 +216,19 @@ public final class CodexAgentCommands {
 	) throws CommandSyntaxException {
 		try {
 			if (choice != GoalDraftChoice.CANCEL) {
-				CodexAgentServerRuntime.requireAutomation(context.getSource().getServer());
+				AgentServerRuntime.requireAutomation(context.getSource().getServer());
 			}
 			UUID draftId = UUID.fromString(StringArgumentType.getString(context, ARGUMENT_DRAFT));
 			UUID actorId = context.getSource().getEntity() instanceof ServerPlayer player
 					? player.getUUID()
 					: new UUID(0L, 0L);
-			Optional<CodexAgentManager.GoalDraftResult> resolved = manager(context).resolveGoalDraft(
+			Optional<AgentManager.GoalDraftResult> resolved = manager(context).resolveGoalDraft(
 					draftId, actorId, GoalControl.mayControl(context.getSource()), choice);
 			if (resolved.isEmpty()) {
 				context.getSource().sendSuccess(() -> Component.literal("Goal draft was already resolved."), false);
 				return 0;
 			}
-			CodexAgentManager.GoalDraftResult result = resolved.orElseThrow();
+			AgentManager.GoalDraftResult result = resolved.orElseThrow();
 			result.transition().ifPresent(transition -> reportTransition(
 					context,
 					switch (result.operation()) {
@@ -253,7 +253,7 @@ public final class CodexAgentCommands {
 	}
 
 	private static int verbose(CommandContext<CommandSourceStack> context, boolean enabled) {
-		CodexAgentServerRuntime.setVerbose(context.getSource().getServer(), enabled);
+		AgentServerRuntime.setVerbose(context.getSource().getServer(), enabled);
 		context.getSource().sendSuccess(
 				() -> Component.literal("Verbose agent activity " + (enabled ? "enabled" : "disabled")
 						+ " for operators for this server session."),
@@ -345,7 +345,7 @@ public final class CodexAgentCommands {
 		return Commands.literal("summon-configured").requires(GoalControl::mayControl).then(
 				Commands.argument(ARGUMENT_PROVIDER, StringArgumentType.word())
 						.suggests((context, builder) -> SharedSuggestionProvider.suggest(
-								CodexAgentServerRuntime.modelCatalog(context.getSource().getServer()).stream()
+								AgentServerRuntime.modelCatalog(context.getSource().getServer()).stream()
 										.map(dev.agaminggod.mineagen.control.AgentControlModelOption::provider).distinct().toList(), builder))
 						.then(Commands.argument(ARGUMENT_MODEL, AgentModelArgumentType.model()).then(
 								Commands.argument(ARGUMENT_REASONING, StringArgumentType.word()).then(
@@ -514,7 +514,7 @@ public final class CodexAgentCommands {
 			String provider, String model, String reasoning, String serviceTier,
 			Optional<String> userName, AgentGameMode gameMode
 	) {
-		CodexAgentManager manager = manager(context);
+		AgentManager manager = manager(context);
 		AgentRecord record = manager.summon(context.getSource().getLevel(), position,
 				provider, model, reasoning, serviceTier, userName, gameMode);
 		context.getSource().sendSuccess(
@@ -540,7 +540,7 @@ public final class CodexAgentCommands {
 			PromptOperation operation
 	) throws CommandSyntaxException {
 		try {
-			CodexAgentServerRuntime.requireAutomation(context.getSource().getServer());
+			AgentServerRuntime.requireAutomation(context.getSource().getServer());
 			String selector = StringArgumentType.getString(context, ARGUMENT_AGENT);
 			String prompt = StringArgumentType.getString(context, ARGUMENT_PROMPT);
 			AgentTransition transition = operation.apply(manager(context), selector, prompt, context.getSource().getLevel());
@@ -559,12 +559,12 @@ public final class CodexAgentCommands {
 			GoalSubmission.Operation operation
 	) throws CommandSyntaxException {
 		try {
-			CodexAgentServerRuntime.requireAutomation(context.getSource().getServer());
+			AgentServerRuntime.requireAutomation(context.getSource().getServer());
 			String selector = StringArgumentType.getString(context, ARGUMENT_AGENT);
 			String prompt = StringArgumentType.getString(context, ARGUMENT_PROMPT);
 			Optional<UUID> requester = context.getSource().getEntity() instanceof ServerPlayer player
 					? Optional.of(player.getUUID()) : Optional.empty();
-			GoalSubmission submission = CodexAgentServerRuntime.submitGoal(
+			GoalSubmission submission = AgentServerRuntime.submitGoal(
 					context.getSource().getServer(), selector, prompt, context.getSource().getLevel(), requester, operation);
 			if (submission.transition().isPresent()) {
 				reportTransition(context, operationName, submission.transition().orElseThrow());
@@ -588,9 +588,9 @@ public final class CodexAgentCommands {
 			if (!(context.getSource().getEntity() instanceof ServerPlayer player)) {
 				throw new AgentDomainException("PLAYER_REQUIRED", "Only an in-game player can send an agent DM");
 			}
-			CodexAgentManager manager = manager(context);
+			AgentManager manager = manager(context);
 			AgentRecord target = manager.resolve(StringArgumentType.getString(context, ARGUMENT_AGENT));
-			CodexAgentServerRuntime.sendDirectMessage(
+			AgentServerRuntime.sendDirectMessage(
 					context.getSource().getServer(),
 					player,
 					target.agentId(),
@@ -653,7 +653,7 @@ public final class CodexAgentCommands {
 	) throws CommandSyntaxException {
 		try {
 			if (operationName.equals("resume")) {
-				CodexAgentServerRuntime.requireAutomation(context.getSource().getServer());
+				AgentServerRuntime.requireAutomation(context.getSource().getServer());
 			}
 			String selector = StringArgumentType.getString(context, ARGUMENT_AGENT);
 			AgentTransition transition = operation.apply(manager(context), selector);
@@ -707,7 +707,7 @@ public final class CodexAgentCommands {
 
 	private static int remove(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
 		try {
-			CodexAgentManager manager = manager(context);
+			AgentManager manager = manager(context);
 			AgentRecord removed = manager.remove(StringArgumentType.getString(context, ARGUMENT_AGENT));
 			context.getSource().sendSuccess(
 					() -> Component.literal("Removed " + manager.displayName(removed) + "."),
@@ -723,7 +723,7 @@ public final class CodexAgentCommands {
 
 	private static int respawn(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
 		try {
-			CodexAgentManager manager = manager(context);
+			AgentManager manager = manager(context);
 			AgentRecord record = manager.requestRespawn(StringArgumentType.getString(context, ARGUMENT_AGENT));
 			context.getSource().sendSuccess(
 					() -> Component.literal("Respawning " + manager.displayName(record) + "..."),
@@ -784,8 +784,8 @@ public final class CodexAgentCommands {
 				+ ". Queued tasks: " + record.queuedGoals().size() + ".";
 	}
 
-	private static CodexAgentManager manager(CommandContext<CommandSourceStack> context) {
-		return CodexAgentManager.get(context.getSource().getServer());
+	private static AgentManager manager(CommandContext<CommandSourceStack> context) {
+		return AgentManager.get(context.getSource().getServer());
 	}
 
 	private static CommandSyntaxException commandFailure(AgentDomainException exception) {
@@ -799,11 +799,11 @@ public final class CodexAgentCommands {
 
 	@FunctionalInterface
 	private interface PromptOperation {
-		AgentTransition apply(CodexAgentManager manager, String selector, String prompt, ServerLevel sourceLevel);
+		AgentTransition apply(AgentManager manager, String selector, String prompt, ServerLevel sourceLevel);
 	}
 
 	@FunctionalInterface
 	private interface AgentOperation {
-		AgentTransition apply(CodexAgentManager manager, String selector);
+		AgentTransition apply(AgentManager manager, String selector);
 	}
 }

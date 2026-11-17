@@ -169,7 +169,7 @@ public final class QueuedGoalRevalidationVerification {
 	}
 
 	private static int verifySpatialActivationValidation() {
-		expectCode("UNKNOWN_GOAL_IDENTIFIER", () -> CodexAgentManager.validateGoalDraftPredicate(
+		expectCode("UNKNOWN_GOAL_IDENTIFIER", () -> AgentManager.validateGoalDraftPredicate(
 				new GoalPredicate.BlockMatches(
 						"minecraft:overworld", 0, 64, 0, "missing:block", Map.of()),
 				RegistryAccess.EMPTY,
@@ -184,7 +184,7 @@ public final class QueuedGoalRevalidationVerification {
 			Set<String> liveEntities,
 			Set<String> liveAdvancements
 	) {
-		CodexAgentManager.validateLiveGoalIdentifiers(
+		AgentManager.validateLiveGoalIdentifiers(
 				spec.completion(), liveItems::contains, liveEntities::contains, liveAdvancements::contains);
 		GoalInventoryCapacity.validateTranslated(spec.completion(), RegistryAccess.EMPTY);
 	}

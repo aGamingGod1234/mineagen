@@ -88,14 +88,14 @@ public final class AgentShutdownLocationVerification {
 			Field unsafeField = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
 			unsafeField.setAccessible(true);
 			sun.misc.Unsafe unsafe = (sun.misc.Unsafe) unsafeField.get(null);
-			CodexAgentManager manager = (CodexAgentManager) unsafe.allocateInstance(CodexAgentManager.class);
+			AgentManager manager = (AgentManager) unsafe.allocateInstance(AgentManager.class);
 			MinecraftServer server = (MinecraftServer) unsafe.allocateInstance(DedicatedServer.class);
 			FixturePlayers players = (FixturePlayers) unsafe.allocateInstance(FixturePlayers.class);
 			players.connected = new LinkedHashMap<>();
 			set(unsafe, server, MinecraftServer.class, "playerList", players);
-			set(unsafe, manager, CodexAgentManager.class, "server", server);
-			set(unsafe, manager, CodexAgentManager.class, "savedData", new AgentSavedData());
-			set(unsafe, manager, CodexAgentManager.class, "lastLocationPersistenceEpochMs", new LinkedHashMap<>());
+			set(unsafe, manager, AgentManager.class, "server", server);
+			set(unsafe, manager, AgentManager.class, "savedData", new AgentSavedData());
+			set(unsafe, manager, AgentManager.class, "lastLocationPersistenceEpochMs", new LinkedHashMap<>());
 			ServerLevel level = (ServerLevel) unsafe.allocateInstance(ServerLevel.class);
 			set(unsafe, level, Level.class, "dimension", Level.OVERWORLD);
 			return new Fixture(unsafe, manager, players, level);
@@ -111,7 +111,7 @@ public final class AgentShutdownLocationVerification {
 
 	private static final class Fixture {
 		private final sun.misc.Unsafe unsafe;
-		private final CodexAgentManager manager;
+		private final AgentManager manager;
 		private final FixturePlayers players;
 		private final ServerLevel level;
 		private final AgentEntityLocation oldLocation = AgentEntityLocation.exact(
@@ -119,7 +119,7 @@ public final class AgentShutdownLocationVerification {
 		private final AgentEntityLocation finalLocation = AgentEntityLocation.exact(
 				"minecraft:overworld", -2, 2, -16.25D, 70.75D, 32.5D, 120.0F, -15.0F);
 
-		private Fixture(sun.misc.Unsafe unsafe, CodexAgentManager manager, FixturePlayers players, ServerLevel level) {
+		private Fixture(sun.misc.Unsafe unsafe, AgentManager manager, FixturePlayers players, ServerLevel level) {
 			this.unsafe = unsafe;
 			this.manager = manager;
 			this.players = players;
@@ -161,7 +161,7 @@ public final class AgentShutdownLocationVerification {
 
 		private void persist() {
 			try {
-				var writer = CodexAgentManager.class.getDeclaredMethod("persistLiveAgentLocations");
+				var writer = AgentManager.class.getDeclaredMethod("persistLiveAgentLocations");
 				writer.setAccessible(true);
 				writer.invoke(manager);
 			} catch (InvocationTargetException exception) {

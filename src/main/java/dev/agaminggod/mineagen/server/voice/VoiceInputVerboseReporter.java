@@ -3,7 +3,7 @@ package dev.agaminggod.mineagen.server.voice;
 import dev.agaminggod.mineagen.agent.AgentId;
 import dev.agaminggod.mineagen.agent.AgentRecord;
 import dev.agaminggod.mineagen.server.AgentVerboseChat;
-import dev.agaminggod.mineagen.server.CodexAgentManager;
+import dev.agaminggod.mineagen.server.AgentManager;
 import dev.agaminggod.mineagen.server.conversation.ServerAgentConversationRouter.ProximitySpeechAudience;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -23,7 +23,7 @@ public final class VoiceInputVerboseReporter {
 		Objects.requireNonNull(server, "server must not be null");
 		Objects.requireNonNull(audience, "audience must not be null");
 		Objects.requireNonNull(message, "message must not be null");
-		CodexAgentManager manager = CodexAgentManager.get(server);
+		AgentManager manager = AgentManager.get(server);
 		Map<AgentId, AgentRecord> records = new LinkedHashMap<>();
 		for (AgentRecord record : manager.records()) records.put(record.agentId(), record);
 		for (AgentId agentId : audience.recipientAgentIds()) {

@@ -1,7 +1,7 @@
 package dev.agaminggod.mineagen.server.perception;
 
 import dev.agaminggod.mineagen.agent.AgentId;
-import dev.agaminggod.mineagen.server.CodexAgentManager;
+import dev.agaminggod.mineagen.server.AgentManager;
 import dev.agaminggod.mineagen.server.runtime.ServerActionExecutor;
 import dev.agaminggod.mineagen.world.WorldMutationRevisions;
 import java.lang.reflect.Field;
@@ -25,7 +25,7 @@ public final class TerminalObservationCacheVerification {
 		unsafeField.setAccessible(true);
 		var unsafe = (sun.misc.Unsafe) unsafeField.get(null);
 		var collector = new ServerObservationCollector(
-				(CodexAgentManager) unsafe.allocateInstance(CodexAgentManager.class),
+				(AgentManager) unsafe.allocateInstance(AgentManager.class),
 				(ServerActionExecutor) unsafe.allocateInstance(ServerActionExecutor.class));
 		var spatial = (ObservationSectionCache<RawSpatialObservation.Key, RawSpatialObservation>) field(collector, "spatialCache");
 		var landmarks = (ObservationSectionCache<ServerObservationCollector.LandmarkSampleKey, ServerObservationCollector.SightSample>) field(collector, "landmarkCache");

@@ -50,7 +50,7 @@ import dev.agaminggod.mineagen.server.CoordinatorExhaustedStatusSnapshotVerifica
 import dev.agaminggod.mineagen.server.CoordinatorVoiceEndpointVerification;
 import dev.agaminggod.mineagen.server.CoordinatorVoiceEndpointRefreshVerification;
 import dev.agaminggod.mineagen.server.CoordinatorVoiceTimeoutLifecycleVerification;
-import dev.agaminggod.mineagen.server.CodexAgentServerRuntimeVoiceStartVerification;
+import dev.agaminggod.mineagen.server.AgentServerRuntimeVoiceStartVerification;
 import dev.agaminggod.mineagen.server.AgentSpawnPlacementVerification;
 import dev.agaminggod.mineagen.server.OfflineAgentPlayersVerification;
 import dev.agaminggod.mineagen.server.PendingSpawnCancellationLedgerVerification;
@@ -176,7 +176,7 @@ public final class VerificationMain {
 		passedAssertions += CoordinatorVoiceTimeoutLifecycleVerification.verify();
 		passedAssertions += CoordinatorVoiceEndpointVerification.verify();
 		passedAssertions += CoordinatorVoiceEndpointRefreshVerification.verify();
-		passedAssertions += CodexAgentServerRuntimeVoiceStartVerification.verify();
+		passedAssertions += AgentServerRuntimeVoiceStartVerification.verify();
 		passedAssertions += AgentActivityPresentationVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.FailureChatThrottleVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.AgentFeedVerification.verify();

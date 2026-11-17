@@ -1,6 +1,6 @@
 package dev.agaminggod.mineagen.mixin;
 
-import dev.agaminggod.mineagen.server.CodexAgentManager;
+import dev.agaminggod.mineagen.server.AgentManager;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Player;
@@ -15,7 +15,7 @@ abstract class PlayerDisplayNameMixin {
 	@Inject(method = "getName", at = @At("HEAD"), cancellable = true)
 	private void mineagen$directorLabel(CallbackInfoReturnable<Component> callback) {
 		if ((Object) this instanceof ServerPlayer player) {
-			CodexAgentManager.playerDisplayName(player)
+			AgentManager.playerDisplayName(player)
 					.ifPresent(name -> callback.setReturnValue(Component.literal(name)));
 		}
 	}

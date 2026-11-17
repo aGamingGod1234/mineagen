@@ -3,7 +3,7 @@ package dev.agaminggod.mineagen.server.runtime;
 import com.google.gson.JsonObject;
 import dev.agaminggod.mineagen.agent.AgentId;
 import dev.agaminggod.mineagen.protocol.ActionType;
-import dev.agaminggod.mineagen.server.CodexAgentManager;
+import dev.agaminggod.mineagen.server.AgentManager;
 import dev.agaminggod.mineagen.server.runtime.controller.ThrowPreview;
 import dev.agaminggod.mineagen.server.runtime.input.AgentInputRuntime;
 import dev.agaminggod.mineagen.server.runtime.input.AgentInputState;
@@ -65,8 +65,8 @@ final class EndActionVerification {
 			set(player, Entity.class, "eyeHeight", 1.62F);
 			set(player, ServerPlayer.class, "gameMode", unsafe.allocateInstance(GameMode.class));
 			set(level, net.minecraft.world.level.Level.class, "dimension", net.minecraft.world.level.Level.END);
-			var manager = (CodexAgentManager) unsafe.allocateInstance(CodexAgentManager.class);
-			Map<MinecraftServer, CodexAgentManager> managers = map(CodexAgentManager.class, "INSTANCES");
+			var manager = (AgentManager) unsafe.allocateInstance(AgentManager.class);
+			Map<MinecraftServer, AgentManager> managers = map(AgentManager.class, "INSTANCES");
 			Map<MinecraftServer, LeasedServerInputController> controllers = map(AgentInputRuntime.class, "CONTROLLERS");
 			List<AgentInputState> inputs = new ArrayList<>();
 			var input = new LeasedServerInputController(new InputStateSink() {

@@ -4,7 +4,7 @@ import com.google.gson.JsonObject;
 import dev.agaminggod.mineagen.server.AgentSavedData;
 import dev.agaminggod.mineagen.server.AgentVerboseChat;
 import dev.agaminggod.mineagen.server.AgentVerboseState;
-import dev.agaminggod.mineagen.server.CodexAgentManager;
+import dev.agaminggod.mineagen.server.AgentManager;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.lang.reflect.Field;
@@ -101,7 +101,7 @@ public final class AgentVerboseVerification {
 		assertEquals("Technical details hidden.",
 				AgentVerboseChat.sanitizeMessage("{\"directive\":\"replace\",\"summary\":\"Gather wood\"}"),
 				"raw planner JSON never reaches Minecraft chat");
-		CodexAgentManager manager = uninitializedManager();
+		AgentManager manager = uninitializedManager();
 		var record = manager.registry().create("gpt-5.6-luna", "high", Optional.of("RedactionAgent"), 1_000L);
 		record = manager.registry().start(record.agentId(), "Find the hidden diamond cache", 1_001L).after();
 		assertEquals("Private prompt details redacted.",
@@ -124,7 +124,7 @@ public final class AgentVerboseVerification {
 			String secret = "fedcba9876543210fedcba9876543210";
 			secretFile = Files.createTempFile("mineagen-verbose-event-", ".txt");
 			Files.writeString(secretFile, secret);
-			CodexAgentManager manager = uninitializedManager();
+			AgentManager manager = uninitializedManager();
 			var record = manager.registry().create("gpt-5.6-luna", "high", Optional.of("VerboseAgent"), 1_000L);
 			manager.registry().start(record.agentId(), "private task text", 1_001L);
 			bridge = new MultiplexedServerBridge(manager, 0, secretFile);
@@ -270,15 +270,15 @@ public final class AgentVerboseVerification {
 		}
 	}
 
-	private static CodexAgentManager uninitializedManager() {
+	private static AgentManager uninitializedManager() {
 		try {
 			Field field = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
 			field.setAccessible(true);
 			sun.misc.Unsafe unsafe = (sun.misc.Unsafe) field.get(null);
-			CodexAgentManager manager = (CodexAgentManager) unsafe.allocateInstance(CodexAgentManager.class);
-			Field savedData = CodexAgentManager.class.getDeclaredField("savedData");
+			AgentManager manager = (AgentManager) unsafe.allocateInstance(AgentManager.class);
+			Field savedData = AgentManager.class.getDeclaredField("savedData");
 			unsafe.putObject(manager, unsafe.objectFieldOffset(savedData), new AgentSavedData());
-			Field pendingRegistrations = CodexAgentManager.class.getDeclaredField("pendingAgentRegistrations");
+			Field pendingRegistrations = AgentManager.class.getDeclaredField("pendingAgentRegistrations");
 			unsafe.putObject(manager, unsafe.objectFieldOffset(pendingRegistrations), ConcurrentHashMap.newKeySet());
 			return manager;
 		} catch (ReflectiveOperationException exception) {

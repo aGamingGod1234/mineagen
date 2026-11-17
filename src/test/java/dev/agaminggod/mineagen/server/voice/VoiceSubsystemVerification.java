@@ -1,7 +1,7 @@
 package dev.agaminggod.mineagen.server.voice;
 
 import dev.agaminggod.mineagen.agent.AgentId;
-import dev.agaminggod.mineagen.server.CodexAgentServerRuntime;
+import dev.agaminggod.mineagen.server.AgentServerRuntime;
 import dev.agaminggod.mineagen.server.conversation.ServerAgentConversationRouter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -39,7 +39,7 @@ public final class VoiceSubsystemVerification {
 			throw new AssertionError("Disconnect must revoke consent before a later connection");
 		}
 		assertions++;
-		if (!CodexAgentServerRuntime.deliverHumanSpeech(null, humanPlayer, "must stay private", false)
+		if (!AgentServerRuntime.deliverHumanSpeech(null, humanPlayer, "must stay private", false)
 				.deliveredIds().isEmpty()) {
 			throw new AssertionError("Revoked consent must fence buffered or in-flight speech delivery");
 		}
@@ -47,7 +47,7 @@ public final class VoiceSubsystemVerification {
 		var capturedAudience = new ServerAgentConversationRouter.ProximitySpeechAudience(
 				humanPlayer, net.minecraft.world.level.Level.OVERWORLD, List.of(firstAgentId())
 		);
-		if (!CodexAgentServerRuntime.deliverHumanSpeech(null, capturedAudience, "still private")
+		if (!AgentServerRuntime.deliverHumanSpeech(null, capturedAudience, "still private")
 				.deliveredIds().isEmpty()) {
 			throw new AssertionError("Revoked consent must fence delivery through a captured speech-time audience");
 		}

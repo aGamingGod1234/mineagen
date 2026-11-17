@@ -95,7 +95,7 @@ public final class AgentVerboseChat {
 	}
 
 	public static void report(
-			CodexAgentManager manager,
+			AgentManager manager,
 			AgentVerboseState state,
 			AgentRecord record,
 			String stage,
@@ -128,7 +128,7 @@ public final class AgentVerboseChat {
 		}
 	}
 
-	public static void report(CodexAgentManager manager, AgentRecord record, String stage, String message) {
+	public static void report(AgentManager manager, AgentRecord record, String stage, String message) {
 		try {
 			MinecraftServer server = manager.server();
 			if (!AgentVerboseState.enabled(server)) return;

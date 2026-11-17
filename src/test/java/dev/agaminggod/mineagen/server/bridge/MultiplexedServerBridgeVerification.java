@@ -17,7 +17,7 @@ import dev.agaminggod.mineagen.agent.goal.GoalSpec;
 import dev.agaminggod.mineagen.server.AgentRuntimeHooks;
 import dev.agaminggod.mineagen.server.AgentSavedData;
 import dev.agaminggod.mineagen.server.AgentVerboseState;
-import dev.agaminggod.mineagen.server.CodexAgentManager;
+import dev.agaminggod.mineagen.server.AgentManager;
 import dev.agaminggod.mineagen.server.conversation.ConversationAudience;
 import dev.agaminggod.mineagen.server.conversation.ConversationEvent;
 import dev.agaminggod.mineagen.server.conversation.ConversationKind;
@@ -211,7 +211,7 @@ public final class MultiplexedServerBridgeVerification {
 		try {
 			secretFile = Files.createTempFile("mineagen-cancel-secret-", ".txt");
 			Files.writeString(secretFile, "0123456789abcdef0123456789abcdef");
-			CodexAgentManager manager = uninitializedManager();
+			AgentManager manager = uninitializedManager();
 			AgentRecord agent = manager.registry().create("gpt-5.6-sol", "high", Optional.of("Cancel"), 4_000L);
 			bridge = new MultiplexedServerBridge(manager, 0, secretFile);
 			Method cancel = MultiplexedServerBridge.class.getDeclaredMethod("acceptActionCancel", BridgeEnvelope.class);
@@ -261,7 +261,7 @@ public final class MultiplexedServerBridgeVerification {
 			Files.writeString(secretFile, "0123456789abcdef0123456789abcdef");
 			journalFile = Files.createTempFile("mineagen-rebind-journal-", ".json");
 			Files.delete(journalFile);
-			CodexAgentManager manager = uninitializedManager();
+			AgentManager manager = uninitializedManager();
 			AgentRecord created = manager.registry().create("gpt-5.6-sol", "high", Optional.of("Rebind"), 4_000L);
 			AgentRecord started = manager.registry().start(created.agentId(), "wait", 4_001L).after();
 			JsonObject arguments = new JsonObject();
@@ -310,7 +310,7 @@ public final class MultiplexedServerBridgeVerification {
 			Files.writeString(secretFile, "0123456789abcdef0123456789abcdef");
 			journalFile = Files.createTempFile("mineagen-action-recovery-", ".json");
 			Files.delete(journalFile);
-			CodexAgentManager manager = uninitializedManager();
+			AgentManager manager = uninitializedManager();
 			AgentRecord created = manager.registry().create("gpt-5.6-sol", "high", Optional.of("JournalRecovery"), 4_000L);
 			AgentRecord started = manager.registry().start(created.agentId(), "recover the accepted action", 4_001L).after();
 			JsonObject arguments = new JsonObject();
@@ -534,7 +534,7 @@ public final class MultiplexedServerBridgeVerification {
 			String secret = "0123456789abcdef0123456789abcdef";
 			secretFile = Files.createTempFile("mineagen-terminal-replay-reconnect-secret-", ".txt");
 			Files.writeString(secretFile, secret);
-			CodexAgentManager manager = uninitializedManager();
+			AgentManager manager = uninitializedManager();
 			AgentRecord active = manager.registry().create("gpt-5.6-sol", "high", Optional.of("Replay"), 2_500L);
 			manager.registry().start(active.agentId(), "finish the queued action", 2_501L);
 			AgentRecord started = manager.registry().require(active.agentId());
@@ -704,7 +704,7 @@ public final class MultiplexedServerBridgeVerification {
 			String secret = "0123456789abcdef0123456789abcdef";
 			secretFile = Files.createTempFile("mineagen-action-timing-secret-", ".txt");
 			Files.writeString(secretFile, secret);
-			CodexAgentManager manager = uninitializedManager();
+			AgentManager manager = uninitializedManager();
 			AgentRecord active = manager.registry().create("gpt-5.6-sol", "high", Optional.of("Timing"), 2_500L);
 			manager.registry().start(active.agentId(), "finish the timed action", 2_501L);
 			AgentRecord started = manager.registry().require(active.agentId());
@@ -994,7 +994,7 @@ public final class MultiplexedServerBridgeVerification {
 	}
 
 	private static void verifyGoalSummaryWireBoundaries() {
-		CodexAgentManager manager = uninitializedManager();
+		AgentManager manager = uninitializedManager();
 		AgentRecord idle = manager.registry().create("gpt-5.6-sol", "high", Optional.of("Summary"), 1_000L);
 		UUID requestId = UUID.fromString("00000000-0000-0000-0000-000000000331");
 		manager.stageGoalDraft(new PendingGoalDraft(requestId, idle.agentId(), UUID.randomUUID(),
@@ -1053,7 +1053,7 @@ public final class MultiplexedServerBridgeVerification {
 			String secret = "0123456789abcdef0123456789abcdef";
 			secretFile = Files.createTempFile("mineagen-goal-spec-secret-", ".txt");
 			Files.writeString(secretFile, secret);
-			CodexAgentManager manager = uninitializedManager();
+			AgentManager manager = uninitializedManager();
 			AgentRecord idle = manager.registry().create("gpt-5.6-sol", "high", Optional.of("Translator"), 1_000L);
 			UUID requestId = UUID.fromString("00000000-0000-0000-0000-000000000301");
 			PendingGoalDraft draft = new PendingGoalDraft(
@@ -1424,7 +1424,7 @@ public final class MultiplexedServerBridgeVerification {
 			String secret = "0123456789abcdef0123456789abcdef";
 			secretFile = Files.createTempFile("mineagen-stale-goal-draft-secret-", ".txt");
 			Files.writeString(secretFile, secret);
-			CodexAgentManager manager = uninitializedManager();
+			AgentManager manager = uninitializedManager();
 			AgentRecord idle = manager.registry().create("gpt-5.6-sol", "high", Optional.of("StaleDraft"), 1_000L);
 			UUID draftId = UUID.fromString("00000000-0000-0000-0000-000000000311");
 			manager.stageGoalDraft(new PendingGoalDraft(
@@ -1463,7 +1463,7 @@ public final class MultiplexedServerBridgeVerification {
 			String secret = "0123456789abcdef0123456789abcdef";
 			secretFile = Files.createTempFile("mineagen-goal-draft-handshake-", ".txt");
 			Files.writeString(secretFile, secret);
-			CodexAgentManager manager = uninitializedManager();
+			AgentManager manager = uninitializedManager();
 			AgentRecord idle = manager.registry().create("gpt-5.6-sol", "high", Optional.of("DraftRace"), 1_100L);
 			bridge = new MultiplexedServerBridge(manager, 0, secretFile);
 			CountDownLatch snapshotCaptured = new CountDownLatch(1);
@@ -1514,7 +1514,7 @@ public final class MultiplexedServerBridgeVerification {
 		try {
 			secretFile = Files.createTempFile("mineagen-obsolete-ready-secret-", ".txt");
 			Files.writeString(secretFile, "0123456789abcdef0123456789abcdef");
-			CodexAgentManager manager = uninitializedManager();
+			AgentManager manager = uninitializedManager();
 			AgentRecord created = manager.registry().create("gpt-5.6-sol", "high", Optional.of("LateReady"), 1_700L);
 			AgentRecord started = manager.registry().start(created.agentId(), "keep working", 1_701L).after();
 			bridge = new MultiplexedServerBridge(manager, 0, secretFile);
@@ -1597,7 +1597,7 @@ public final class MultiplexedServerBridgeVerification {
 			String secret = "0123456789abcdef0123456789abcdef";
 			secretFile = Files.createTempFile("mineagen-atomic-pending-secret-", ".txt");
 			Files.writeString(secretFile, secret);
-			CodexAgentManager manager = uninitializedManager();
+			AgentManager manager = uninitializedManager();
 			Set<AgentId> pending = pendingRegistrations(manager);
 			bridge = new MultiplexedServerBridge(manager, 0, secretFile);
 			manager.setRuntimeHooks(bridge);
@@ -1704,7 +1704,7 @@ public final class MultiplexedServerBridgeVerification {
 				String secret = "0123456789abcdef0123456789abcdef";
 				secretFile = Files.createTempFile("mineagen-plan-facts-secret-", ".txt");
 				Files.writeString(secretFile, secret);
-				CodexAgentManager manager = uninitializedManager();
+				AgentManager manager = uninitializedManager();
 				AgentRecord agent = manager.registry().create("gpt-5.6-sol", "high", Optional.of("ProtocolSkew"), 1_000L);
 				bridge = new MultiplexedServerBridge(manager, 0, secretFile);
 				bridge.start();
@@ -1815,7 +1815,7 @@ public final class MultiplexedServerBridgeVerification {
 			String secret = "0123456789abcdef0123456789abcdef";
 			secretFile = Files.createTempFile("mineagen-observational-verbose-secret-", ".txt");
 			Files.writeString(secretFile, secret);
-			CodexAgentManager manager = uninitializedManager();
+			AgentManager manager = uninitializedManager();
 			AgentVerboseState verboseState = new AgentVerboseState();
 			verboseState.setEnabled(true);
 			bridge = new MultiplexedServerBridge(manager, 0, secretFile, verboseState);
@@ -1866,7 +1866,7 @@ public final class MultiplexedServerBridgeVerification {
 		);
 		assertEquals("Technical details hidden.", invokeVerboseResult(technicalResult),
 				"typed action result messages pass through the technical-output defense");
-		CodexAgentManager activeManager = uninitializedManager();
+		AgentManager activeManager = uninitializedManager();
 		AgentRecord active = activeManager.registry().create("gpt-5.6-sol", "high", Optional.of("ActiveDeath"), 3_000L);
 		activeManager.registry().start(active.agentId(), "continue after respawn", 3_001L);
 		activeManager.registry().die(active.agentId(), deathSnapshot(3_002L), 3_002L);
@@ -1877,7 +1877,7 @@ public final class MultiplexedServerBridgeVerification {
 		assertTrue(activePayload.has("resumeGoal") && activePayload.get("resumeGoal").getAsBoolean(),
 				"active-at-death respawn tells the coordinator to continue the unfinished goal");
 
-		CodexAgentManager pausedManager = uninitializedManager();
+		AgentManager pausedManager = uninitializedManager();
 		AgentRecord paused = pausedManager.registry().create("gpt-5.6-sol", "high", Optional.of("PausedDeath"), 3_010L);
 		pausedManager.registry().start(paused.agentId(), "remain paused after respawn", 3_011L);
 		pausedManager.registry().stop(paused.agentId(), 3_012L);
@@ -1904,7 +1904,7 @@ public final class MultiplexedServerBridgeVerification {
 			String secret = "0123456789abcdef0123456789abcdef";
 			secretFile = Files.createTempFile("mineagen-pending-registration-secret-", ".txt");
 			Files.writeString(secretFile, secret);
-			CodexAgentManager manager = uninitializedManager();
+			AgentManager manager = uninitializedManager();
 			AgentRecord registered = manager.registry().create("gpt-5.6-sol", "high", Optional.of("Luna"), 1_000L);
 			AgentRecord pending = manager.registry().create("gpt-5.6-sol", "high", Optional.of("Sol"), 1_001L);
 			Set<AgentId> pendingRegistrations = pendingRegistrations(manager);
@@ -2068,7 +2068,7 @@ public final class MultiplexedServerBridgeVerification {
 			String secret = "0123456789abcdef0123456789abcdef";
 			secretFile = Files.createTempFile("mineagen-removal-backpressure-secret-", ".txt");
 			Files.writeString(secretFile, secret);
-			CodexAgentManager manager = uninitializedManager();
+			AgentManager manager = uninitializedManager();
 			AgentRecord removed = manager.registry().create("gpt-5.6-sol", "high", Optional.of("Removed"), 1_100L);
 			bridge = new MultiplexedServerBridge(manager, 0, secretFile);
 			bridge.start();
@@ -2121,7 +2121,7 @@ public final class MultiplexedServerBridgeVerification {
 			String secret = "0123456789abcdef0123456789abcdef";
 			secretFile = Files.createTempFile("mineagen-replacement-handshake-secret-", ".txt");
 			Files.writeString(secretFile, secret);
-			CodexAgentManager manager = uninitializedManager();
+			AgentManager manager = uninitializedManager();
 			AgentRecord active = manager.registry().create("gpt-5.6-sol", "high", Optional.of("Replacement"), 1_500L);
 			AgentTransition started = manager.registry().start(active.agentId(), "survive fast reconnect", 1_501L);
 			bridge = new MultiplexedServerBridge(manager, 0, secretFile);
@@ -2209,7 +2209,7 @@ public final class MultiplexedServerBridgeVerification {
 			String secret = "0123456789abcdef0123456789abcdef";
 			secretFile = Files.createTempFile("mineagen-reconnect-secret-", ".txt");
 			Files.writeString(secretFile, secret);
-			CodexAgentManager manager = uninitializedManager();
+			AgentManager manager = uninitializedManager();
 			AgentRecord disconnected = manager.registry().create("gpt-5.6-sol", "high", Optional.of("Recovering"), 2_000L);
 			manager.registry().start(disconnected.agentId(), "finish the interrupted task", 2_001L);
 			disconnected = manager.registry().disconnect(disconnected.agentId(), 2_002L).after();
@@ -2314,7 +2314,7 @@ public final class MultiplexedServerBridgeVerification {
 			String secret = "0123456789abcdef0123456789abcdef";
 			secretFile = Files.createTempFile("mineagen-error-revision-secret-", ".txt");
 			Files.writeString(secretFile, secret);
-			CodexAgentManager manager = uninitializedManager();
+			AgentManager manager = uninitializedManager();
 			AgentVerboseState verboseState = new AgentVerboseState();
 			verboseState.setEnabled(true);
 			AgentRecord active = manager.registry().create(
@@ -2517,7 +2517,7 @@ public final class MultiplexedServerBridgeVerification {
 			String secret = "0123456789abcdef0123456789abcdef";
 			secretFile = Files.createTempFile("mineagen-replacement-disconnect-", ".txt");
 			Files.writeString(secretFile, secret);
-			CodexAgentManager manager = uninitializedManager();
+			AgentManager manager = uninitializedManager();
 			AgentRecord record = manager.registry().create("gpt-5.6-sol", "high", Optional.of("Disconnect"), 1_000L);
 			manager.registry().setAutomaticProgress(record.agentId(), false, 1_001L);
 			manager.registry().start(record.agentId(), "remain owned until cleanup", 1_002L);
@@ -2595,7 +2595,7 @@ public final class MultiplexedServerBridgeVerification {
 			String secret = "0123456789abcdef0123456789abcdef";
 			secretFile = Files.createTempFile("mineagen-handshake-lock-order-", ".txt");
 			Files.writeString(secretFile, secret);
-			CodexAgentManager manager = uninitializedManager();
+			AgentManager manager = uninitializedManager();
 			manager.registry().create("gpt-5.6-sol", "high", Optional.of("LockOrder"), 1_000L);
 			bridge = new MultiplexedServerBridge(manager, 0, secretFile);
 			CountDownLatch snapshotCaptured = new CountDownLatch(1);
@@ -2673,7 +2673,7 @@ public final class MultiplexedServerBridgeVerification {
 			String secret = "0123456789abcdef0123456789abcdef";
 			secretFile = Files.createTempFile("mineagen-removal-handshake-", ".txt");
 			Files.writeString(secretFile, secret);
-			CodexAgentManager manager = uninitializedManager();
+			AgentManager manager = uninitializedManager();
 			AgentRecord record = manager.registry().create("gpt-5.6-sol", "high", Optional.of("Removed"), 1_000L);
 			bridge = new MultiplexedServerBridge(manager, 0, secretFile);
 			AtomicBoolean firstSnapshot = new AtomicBoolean(true);
@@ -2730,7 +2730,7 @@ public final class MultiplexedServerBridgeVerification {
 			String secret = "0123456789abcdef0123456789abcdef";
 			secretFile = Files.createTempFile("mineagen-transition-handshake-", ".txt");
 			Files.writeString(secretFile, secret);
-			CodexAgentManager manager = uninitializedManager();
+			AgentManager manager = uninitializedManager();
 			AgentRecord record = manager.registry().create("gpt-5.6-sol", "high", Optional.of("Starting"), 1_000L);
 			bridge = new MultiplexedServerBridge(manager, 0, secretFile);
 			AtomicBoolean firstSnapshot = new AtomicBoolean(true);
@@ -2807,7 +2807,7 @@ public final class MultiplexedServerBridgeVerification {
 
 	private static void verifyPendingRegistrationMarkerIsFenced() {
 		try {
-			CodexAgentManager manager = uninitializedManager();
+			AgentManager manager = uninitializedManager();
 			AgentRecord record = manager.registry().create("gpt-5.6-sol", "high", Optional.of("Pending"), 1_000L);
 			Set<AgentId> pending = pendingRegistrations(manager);
 			pending.add(record.agentId());
@@ -2834,7 +2834,7 @@ public final class MultiplexedServerBridgeVerification {
 					}
 				}
 			});
-			Method publish = CodexAgentManager.class.getDeclaredMethod("publishPendingRegistration", AgentRecord.class);
+			Method publish = AgentManager.class.getDeclaredMethod("publishPendingRegistration", AgentRecord.class);
 			publish.setAccessible(true);
 			publish.invoke(manager, record);
 			assertTrue(removedInsideBoundary.get(),
@@ -2963,7 +2963,7 @@ public final class MultiplexedServerBridgeVerification {
 			String secret = "0123456789abcdef0123456789abcdef";
 			secretFile = Files.createTempFile("mineagen-conversation-secret-", ".txt");
 			Files.writeString(secretFile, secret);
-			CodexAgentManager manager = uninitializedManager();
+			AgentManager manager = uninitializedManager();
 			AgentRecord idle = manager.registry().create("gpt-5.6-sol", "high", Optional.of("WakeTarget"), 1_000L);
 			ConversationEvent event = new ConversationEvent(
 					idle.agentId(), "00000000-0000-0000-0000-000000000099", idle.agentId().toString(),
@@ -3563,19 +3563,19 @@ public final class MultiplexedServerBridgeVerification {
 		}
 	}
 
-	static CodexAgentManager uninitializedManager() {
+	static AgentManager uninitializedManager() {
 		try {
 			Field field = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
 			field.setAccessible(true);
 			sun.misc.Unsafe unsafe = (sun.misc.Unsafe) field.get(null);
-			CodexAgentManager manager = (CodexAgentManager) unsafe.allocateInstance(CodexAgentManager.class);
+			AgentManager manager = (AgentManager) unsafe.allocateInstance(AgentManager.class);
 			TestMinecraftServer server = (TestMinecraftServer) unsafe.allocateInstance(TestMinecraftServer.class);
 			unsafe.putObject(server, unsafe.objectFieldOffset(MinecraftServer.class.getDeclaredField("serverThread")), Thread.currentThread());
 			unsafe.putObject(server, unsafe.objectFieldOffset(net.minecraft.util.thread.BlockableEventLoop.class.getDeclaredField("pendingRunnables")),
 					new java.util.concurrent.ConcurrentLinkedQueue<>());
 			server.playerList = (EmptyPlayerList) unsafe.allocateInstance(EmptyPlayerList.class);
 			putObject(unsafe, manager, "server", server);
-			Field savedData = CodexAgentManager.class.getDeclaredField("savedData");
+			Field savedData = AgentManager.class.getDeclaredField("savedData");
 			unsafe.putObject(manager, unsafe.objectFieldOffset(savedData), new AgentSavedData());
 			putObject(unsafe, manager, "chunkTickets", new java.util.LinkedHashMap<>());
 			putObject(unsafe, manager, "chunkTicketReferences", new java.util.LinkedHashMap<>());
@@ -3592,9 +3592,9 @@ public final class MultiplexedServerBridgeVerification {
 	}
 
 	@SuppressWarnings("unchecked")
-	private static Set<AgentId> pendingRegistrations(CodexAgentManager manager) {
+	private static Set<AgentId> pendingRegistrations(AgentManager manager) {
 		try {
-			Field field = CodexAgentManager.class.getDeclaredField("pendingAgentRegistrations");
+			Field field = AgentManager.class.getDeclaredField("pendingAgentRegistrations");
 			field.setAccessible(true);
 			Set<AgentId> registrations = (Set<AgentId>) field.get(manager);
 			return registrations;
@@ -3625,9 +3625,9 @@ public final class MultiplexedServerBridgeVerification {
 		}
 	}
 
-	private static void invokePendingRegistrationPublication(CodexAgentManager manager, AgentRecord record) {
+	private static void invokePendingRegistrationPublication(AgentManager manager, AgentRecord record) {
 		try {
-			var method = CodexAgentManager.class.getDeclaredMethod("publishPendingRegistration", AgentRecord.class);
+			var method = AgentManager.class.getDeclaredMethod("publishPendingRegistration", AgentRecord.class);
 			method.setAccessible(true);
 			method.invoke(manager, record);
 		} catch (ReflectiveOperationException exception) {
@@ -3725,9 +3725,9 @@ public final class MultiplexedServerBridgeVerification {
 		}
 	}
 
-	private static void putObject(sun.misc.Unsafe unsafe, CodexAgentManager manager, String fieldName, Object value)
+	private static void putObject(sun.misc.Unsafe unsafe, AgentManager manager, String fieldName, Object value)
 			throws ReflectiveOperationException {
-		Field field = CodexAgentManager.class.getDeclaredField(fieldName);
+		Field field = AgentManager.class.getDeclaredField(fieldName);
 		unsafe.putObject(manager, unsafe.objectFieldOffset(field), value);
 	}
 
@@ -4908,9 +4908,9 @@ public final class MultiplexedServerBridgeVerification {
 		assertThrowsCode(() -> state.requireDirectMessageRecipient(agent, 4_097L, "00000000-0000-0000-0000-000000000004"), "TARGET_NOT_OBSERVED");
 	}
 
-	private static AgentSavedData savedData(CodexAgentManager manager) {
+	private static AgentSavedData savedData(AgentManager manager) {
 		try {
-			Field field = CodexAgentManager.class.getDeclaredField("savedData");
+			Field field = AgentManager.class.getDeclaredField("savedData");
 			field.setAccessible(true);
 			return (AgentSavedData) field.get(manager);
 		} catch (ReflectiveOperationException exception) {

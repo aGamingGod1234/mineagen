@@ -7,7 +7,7 @@ import com.mojang.brigadier.tree.LiteralCommandNode;
 import dev.agaminggod.mineagen.agent.AgentLifecycleState;
 import dev.agaminggod.mineagen.agent.AgentRecord;
 import dev.agaminggod.mineagen.agent.goal.GoalStatus;
-import dev.agaminggod.mineagen.server.CodexAgentManager;
+import dev.agaminggod.mineagen.server.AgentManager;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -106,7 +106,7 @@ public final class InterventionAuditHook {
 
 	/** Fabric JOIN: every connection for the server lifetime, so a visit between audit samples still counts. */
 	public static void playerJoined(MinecraftServer server, net.minecraft.server.level.ServerPlayer player) {
-		guard(server, "record a player join", () -> checkPlayer(server, CodexAgentManager.get(server).records(), player));
+		guard(server, "record a player join", () -> checkPlayer(server, AgentManager.get(server).records(), player));
 	}
 
 	/**
@@ -136,7 +136,7 @@ public final class InterventionAuditHook {
 
 	private static void observe(MinecraftServer server) {
 		AgentInterventionAudit audit = audit(server);
-		List<AgentRecord> records = CodexAgentManager.get(server).records();
+		List<AgentRecord> records = AgentManager.get(server).records();
 		for (var player : server.getPlayerList().getPlayers()) checkPlayer(server, records, player);
 		for (AgentRecord record : records) {
 			var goal = record.currentGoal().orElse(null);

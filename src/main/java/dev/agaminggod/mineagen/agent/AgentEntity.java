@@ -16,7 +16,7 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
 
-public final class CodexAgentEntity extends PathfinderMob {
+public final class AgentEntity extends PathfinderMob {
 	private static final String DEFAULT_AGENT_ID = "";
 	private static final String DEFAULT_PROVIDER = "codex";
 	private static final String DEFAULT_MODEL = "unconfigured";
@@ -31,32 +31,32 @@ public final class CodexAgentEntity extends PathfinderMob {
 	private static final String SAVE_INVENTORY = "codex_inventory";
 	private static final int INVENTORY_SIZE = 36;
 	private static final EntityDataAccessor<String> AGENT_ID = SynchedEntityData.defineId(
-			CodexAgentEntity.class,
+			AgentEntity.class,
 			EntityDataSerializers.STRING
 	);
 	private static final EntityDataAccessor<String> MODEL = SynchedEntityData.defineId(
-			CodexAgentEntity.class,
+			AgentEntity.class,
 			EntityDataSerializers.STRING
 	);
 	private static final EntityDataAccessor<String> PROVIDER = SynchedEntityData.defineId(
-			CodexAgentEntity.class,
+			AgentEntity.class,
 			EntityDataSerializers.STRING
 	);
 	private static final EntityDataAccessor<String> REASONING = SynchedEntityData.defineId(
-			CodexAgentEntity.class,
+			AgentEntity.class,
 			EntityDataSerializers.STRING
 	);
 	private static final EntityDataAccessor<String> GAME_MODE = SynchedEntityData.defineId(
-			CodexAgentEntity.class,
+			AgentEntity.class,
 			EntityDataSerializers.STRING
 	);
 	private static final EntityDataAccessor<Integer> SKIN_VARIANT = SynchedEntityData.defineId(
-			CodexAgentEntity.class,
+			AgentEntity.class,
 			EntityDataSerializers.INT
 	);
 	private final SimpleContainer agentInventory = new SimpleContainer(INVENTORY_SIZE);
 
-	public CodexAgentEntity(EntityType<? extends PathfinderMob> entityType, Level level) {
+	public AgentEntity(EntityType<? extends PathfinderMob> entityType, Level level) {
 		super(entityType, level);
 		setPersistenceRequired();
 	}

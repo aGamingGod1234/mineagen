@@ -7,7 +7,7 @@ import dev.agaminggod.mineagen.agent.AgentGameMode;
 import dev.agaminggod.mineagen.agent.AgentId;
 import dev.agaminggod.mineagen.protocol.ActionType;
 import dev.agaminggod.mineagen.server.AgentSavedData;
-import dev.agaminggod.mineagen.server.CodexAgentManager;
+import dev.agaminggod.mineagen.server.AgentManager;
 import dev.agaminggod.mineagen.server.OfflineAgentPlayers;
 import dev.agaminggod.mineagen.server.runtime.ActionProvenance;
 import dev.agaminggod.mineagen.server.runtime.ServerActionExecutor;
@@ -68,9 +68,9 @@ public final class VoiceAsyncChatContractVerification {
 			Field unsafeField = sun.misc.Unsafe.class.getDeclaredField("theUnsafe"); unsafeField.setAccessible(true);
 			var unsafe = (sun.misc.Unsafe) unsafeField.get(null);
 			var server = (MinecraftServer) unsafe.allocateInstance(DedicatedServer.class);
-			var manager = (CodexAgentManager) unsafe.allocateInstance(CodexAgentManager.class);
-			set(unsafe, manager, CodexAgentManager.class, "server", server);
-			set(unsafe, manager, CodexAgentManager.class, "savedData", new AgentSavedData());
+			var manager = (AgentManager) unsafe.allocateInstance(AgentManager.class);
+			set(unsafe, manager, AgentManager.class, "server", server);
+			set(unsafe, manager, AgentManager.class, "savedData", new AgentSavedData());
 			var agent = manager.registry().create("codex", "gpt-5.6-sol", "high", Optional.of("AsyncVoice"),
 					AgentGameMode.SURVIVAL, 1000L);
 			var player = (EntityPlayerMPFake) unsafe.allocateInstance(EntityPlayerMPFake.class);

@@ -51,8 +51,8 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public final class CodexAgentServerRuntime {
-	private static final Logger LOGGER = LoggerFactory.getLogger(CodexAgentServerRuntime.class);
+public final class AgentServerRuntime {
+	private static final Logger LOGGER = LoggerFactory.getLogger(AgentServerRuntime.class);
 	private static final Map<MinecraftServer, BridgeSlot> BRIDGE_SLOTS = new ConcurrentHashMap<>();
 	private static final Map<MinecraftServer, CoordinatorProcessSupervisor> COORDINATORS = new ConcurrentHashMap<>();
 	private static final Map<MinecraftServer, VoiceInitializationGate> VOICE_GATES = new ConcurrentHashMap<>();
@@ -71,7 +71,7 @@ public final class CodexAgentServerRuntime {
 	private static final int MAX_EXPLICIT_SECRET_CHARACTERS = 512;
 	private static boolean registered;
 
-	private CodexAgentServerRuntime() {
+	private AgentServerRuntime() {
 	}
 
 	public static void confirmCurrentGoal(MinecraftServer server, AgentId agentId) {
@@ -81,7 +81,7 @@ public final class CodexAgentServerRuntime {
 					"GOAL_VERIFIER_UNAVAILABLE", "Goal verification is not running"
 			);
 		}
-		var goal = CodexAgentManager.get(server).registry().require(agentId).currentGoal()
+		var goal = AgentManager.get(server).registry().require(agentId).currentGoal()
 				.orElseThrow(() -> new dev.agaminggod.mineagen.agent.AgentDomainException(
 						"NO_CURRENT_GOAL", "Agent has no current goal to confirm"
 				));
@@ -101,10 +101,10 @@ public final class CodexAgentServerRuntime {
 	private static boolean containsOperatorConfirmation(dev.agaminggod.mineagen.agent.goal.GoalPredicate predicate) {
 		if (predicate instanceof dev.agaminggod.mineagen.agent.goal.GoalPredicate.OperatorConfirmed) return true;
 		if (predicate instanceof dev.agaminggod.mineagen.agent.goal.GoalPredicate.AllOf all) {
-			return all.predicates().stream().anyMatch(CodexAgentServerRuntime::containsOperatorConfirmation);
+			return all.predicates().stream().anyMatch(AgentServerRuntime::containsOperatorConfirmation);
 		}
 		if (predicate instanceof dev.agaminggod.mineagen.agent.goal.GoalPredicate.AnyOf any) {
-			return any.predicates().stream().anyMatch(CodexAgentServerRuntime::containsOperatorConfirmation);
+			return any.predicates().stream().anyMatch(AgentServerRuntime::containsOperatorConfirmation);
 		}
 		return false;
 	}
@@ -118,17 +118,17 @@ public final class CodexAgentServerRuntime {
 		// Before the world loads, so the intervention audit knows whether this server is creating it.
 		ServerLifecycleEvents.SERVER_STARTING.register(dev.agaminggod.mineagen.server.audit.InterventionAuditHook::serverStarting);
 		ServerLifecycleEvents.SERVER_STARTED.register(dev.agaminggod.mineagen.server.audit.InterventionAuditHook::serverStarted);
-		ServerLifecycleEvents.SERVER_STARTED.register(CodexAgentServerRuntime::start);
+		ServerLifecycleEvents.SERVER_STARTED.register(AgentServerRuntime::start);
 		ServerChunkEvents.CHUNK_LOAD.register((level, chunk, newChunk) ->
 				((WorldMutationRevisionAccess) level).mineagen$recordWorldMutation(chunk.getPos().getWorldPosition()));
 		ServerChunkEvents.CHUNK_UNLOAD.register((level, chunk) ->
 				((WorldMutationRevisionAccess) level).mineagen$recordWorldMutation(chunk.getPos().getWorldPosition()));
-		ServerTickEvents.START_SERVER_TICK.register(CodexAgentServerRuntime::startTick);
-		ServerTickEvents.END_SERVER_TICK.register(CodexAgentServerRuntime::endTick);
+		ServerTickEvents.START_SERVER_TICK.register(AgentServerRuntime::startTick);
+		ServerTickEvents.END_SERVER_TICK.register(AgentServerRuntime::endTick);
 		dev.agaminggod.mineagen.server.perception.EyeFlightObservation.register();
 		// Ground-truth danger audit for logs and reports only; it never reaches the model (see Watcher).
 		dev.agaminggod.mineagen.server.watch.Watcher.register();
-		ServerLifecycleEvents.SERVER_STOPPING.register(CodexAgentServerRuntime::stop);
+		ServerLifecycleEvents.SERVER_STOPPING.register(AgentServerRuntime::stop);
 		ServerLifecycleEvents.END_DATA_PACK_RELOAD.register((server, resourceManager, success) ->
 				ServerObservationCollector.clearTagCache());
 		// Who hurt which player: turns a player's potential risk into an active threat for 30 s after a hit.
@@ -151,10 +151,10 @@ public final class CodexAgentServerRuntime {
 			if (!(entity instanceof net.minecraft.server.level.ServerPlayer player)) return true;
 			return AgentDeathCapture.allowVanillaDeath(
 					AgentDeathCapture.totemWillSave(player, source),
-					() -> CodexAgentManager.get(player.level().getServer()).captureDeath(player, source)
+					() -> AgentManager.get(player.level().getServer()).captureDeath(player, source)
 			);
 		});
-		ServerLivingEntityEvents.AFTER_DEATH.register(CodexAgentServerRuntime::recordAttributedKill);
+		ServerLivingEntityEvents.AFTER_DEATH.register(AgentServerRuntime::recordAttributedKill);
 		PovSessionRuntime.registerEvents();
 		net.fabricmc.fabric.api.event.lifecycle.v1.ServerEntityEvents.ENTITY_UNLOAD.register((entity, level) -> {
 			if (!(entity instanceof net.minecraft.world.entity.boss.enderdragon.EnderDragon dragon)) return;
@@ -174,7 +174,7 @@ public final class CodexAgentServerRuntime {
 
 	private static void start(MinecraftServer server) {
 		ServerObservationCollector.clearTagCache();
-		CodexAgentManager manager = CodexAgentManager.get(server);
+		AgentManager manager = AgentManager.get(server);
 		CoordinatorProcessSupervisor supervisor = COORDINATORS.get(server);
 		if (supervisor == null) {
 			CoordinatorProcessSupervisor candidate = new CoordinatorProcessSupervisor();
@@ -207,7 +207,7 @@ public final class CodexAgentServerRuntime {
 
 	private static void tryStartBridge(
 			MinecraftServer server,
-			CodexAgentManager manager,
+			AgentManager manager,
 			CoordinatorProcessSupervisor supervisor
 	) {
 		BridgeSlot slot = BRIDGE_SLOTS.computeIfAbsent(server, ignored -> new BridgeSlot(System::currentTimeMillis));
@@ -216,7 +216,7 @@ public final class CodexAgentServerRuntime {
 
 	static void reconcileBridgeConfiguration(
 			BridgeSlot slot,
-			CodexAgentManager manager,
+			AgentManager manager,
 			CoordinatorProcessSupervisor supervisor
 	) {
 		java.util.Objects.requireNonNull(slot, "bridge slot must not be null");
@@ -243,12 +243,12 @@ public final class CodexAgentServerRuntime {
 		}
 	}
 
-	private static AgentVerboseState verboseState(CodexAgentManager manager) {
+	private static AgentVerboseState verboseState(AgentManager manager) {
 		MinecraftServer server = manager.server();
 		return server == null ? new AgentVerboseState() : AgentVerboseState.forServer(server);
 	}
 
-	private static GoalVerificationRuntime goalVerification(CodexAgentManager manager) {
+	private static GoalVerificationRuntime goalVerification(AgentManager manager) {
 		MinecraftServer server = manager.server();
 		return server == null ? null : GOAL_VERIFIERS.get(server);
 	}
@@ -414,7 +414,7 @@ public final class CodexAgentServerRuntime {
 	private static void endTick(MinecraftServer server) {
 		// First, so the operator's view of this tick's physics is not held behind the bridge work below.
 		PovSessionRuntime.endTick(server);
-		CodexAgentManager manager = CodexAgentManager.get(server);
+		AgentManager manager = AgentManager.get(server);
 		CoordinatorProcessSupervisor supervisor = COORDINATORS.get(server);
 		MultiplexedServerBridge bridge = bridge(server);
 		if (supervisor != null) {
@@ -451,7 +451,7 @@ public final class CodexAgentServerRuntime {
 		verifyGoals(server, manager);
 	}
 
-	private static void maintainPlanningProgress(CodexAgentManager manager) {
+	private static void maintainPlanningProgress(AgentManager manager) {
 		long now = System.currentTimeMillis();
 		Map<String, Long> lastUpdates = PLANNING_UPDATES.computeIfAbsent(manager.server(), ignored -> new HashMap<>());
 		java.util.Set<String> planning = new java.util.HashSet<>();
@@ -535,7 +535,7 @@ public final class CodexAgentServerRuntime {
 		}
 	}
 
-	private static void verifyGoals(MinecraftServer server, CodexAgentManager manager) {
+	private static void verifyGoals(MinecraftServer server, AgentManager manager) {
 		GoalVerificationRuntime goalVerifier = GOAL_VERIFIERS.get(server);
 		if (goalVerifier == null) return;
 		for (var transition : goalVerifier.tick()) {
@@ -613,7 +613,7 @@ public final class CodexAgentServerRuntime {
 		if (bridge == null || !bridge.authenticated()) return Optional.empty();
 		ServerPlayer source = server.getPlayerList().getPlayer(sourcePlayerId);
 		if (source == null) return Optional.empty();
-		for (var record : CodexAgentManager.get(server).records()) {
+		for (var record : AgentManager.get(server).records()) {
 			if (record.entityUuid().filter(sourcePlayerId::equals).isPresent()) {
 				return Optional.empty();
 			}
@@ -651,7 +651,7 @@ public final class CodexAgentServerRuntime {
 	}
 
 	private static void reportProactiveGoalVerification(
-			CodexAgentManager manager,
+			AgentManager manager,
 			dev.agaminggod.mineagen.agent.AgentRecord record,
 			dev.agaminggod.mineagen.agent.goal.GoalEvidence evidence
 	) {
@@ -670,7 +670,7 @@ public final class CodexAgentServerRuntime {
 		MinecraftServer server = responsible.level().getServer();
 		GoalVerificationRuntime runtime = GOAL_VERIFIERS.get(server);
 		if (runtime == null) return;
-		for (var record : CodexAgentManager.get(server).records()) {
+		for (var record : AgentManager.get(server).records()) {
 			if (record.entityUuid().filter(responsible.getUUID()::equals).isEmpty()) continue;
 			if (entity instanceof net.minecraft.world.entity.boss.enderdragon.EnderDragon dragon) {
 				record.currentGoal().ifPresent(goal -> AgentSavedData.get(server).stageDragonKill(new AgentSavedData.PendingDragonKill(
@@ -698,7 +698,7 @@ public final class CodexAgentServerRuntime {
 			PovSessionRuntime.release(server);
 			VoiceSubsystemRuntime.close(server);
 			VoiceConsentRegistry.clear(server);
-			CodexAgentManager.release(server);
+			AgentManager.release(server);
 		} finally {
 			if (bridgeSlot != null) bridgeSlot.close();
 			if (supervisor != null) supervisor.close();
@@ -800,7 +800,7 @@ public final class CodexAgentServerRuntime {
 		MinecraftServer server = player.level().getServer();
 		MultiplexedServerBridge active = bridge(server);
 		if (active == null) return;
-		for (var record : CodexAgentManager.get(server).records()) {
+		for (var record : AgentManager.get(server).records()) {
 			if (record.entityUuid().filter(player.getUUID()::equals).isPresent()) {
 				active.publishProgressReceipt(record.agentId(), "advancement_granted", "advancementId", advancementId);
 				return;

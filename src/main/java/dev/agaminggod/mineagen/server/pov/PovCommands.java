@@ -14,7 +14,7 @@ import dev.agaminggod.mineagen.agent.AgentRecord;
 import dev.agaminggod.mineagen.mixin.CommandNodeAccessor;
 import dev.agaminggod.mineagen.pov.PovMode;
 import dev.agaminggod.mineagen.pov.PovStopPayload;
-import dev.agaminggod.mineagen.server.CodexAgentManager;
+import dev.agaminggod.mineagen.server.AgentManager;
 import dev.agaminggod.mineagen.server.GoalControl;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
@@ -114,7 +114,7 @@ public final class PovCommands {
 						"Agent view needs the Mineagen client mod. Install it, then try again");
 			}
 			String selector = StringArgumentType.getString(context, ARGUMENT_AGENT);
-			CodexAgentManager manager = CodexAgentManager.get(context.getSource().getServer());
+			AgentManager manager = AgentManager.get(context.getSource().getServer());
 			AgentRecord record = manager.resolve(selector);
 			boolean alreadyActive = PovSessionRuntime.session(operator)
 					.filter(session -> session.agentId().equals(record.agentId()) && session.mode() == mode)
@@ -135,7 +135,7 @@ public final class PovCommands {
 		ServerPlayer operator = context.getSource().getPlayerOrException();
 		try {
 			String selector = StringArgumentType.getString(context, ARGUMENT_AGENT);
-			CodexAgentManager manager = CodexAgentManager.get(context.getSource().getServer());
+			AgentManager manager = AgentManager.get(context.getSource().getServer());
 			AgentRecord record = manager.resolve(selector);
 			PovSession session = PovSessionRuntime.session(operator)
 					.filter(current -> current.agentId().equals(record.agentId()))

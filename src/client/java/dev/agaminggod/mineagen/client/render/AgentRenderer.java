@@ -1,31 +1,31 @@
 package dev.agaminggod.mineagen.client.render;
 
 import dev.agaminggod.mineagen.agent.AgentVisualIdentity;
-import dev.agaminggod.mineagen.agent.CodexAgentEntity;
+import dev.agaminggod.mineagen.agent.AgentEntity;
 import net.minecraft.client.model.HumanoidModel;
 import net.minecraft.client.model.geom.ModelLayers;
 import net.minecraft.client.renderer.entity.EntityRendererProvider;
 import net.minecraft.client.renderer.entity.HumanoidMobRenderer;
 import net.minecraft.resources.Identifier;
 
-public final class CodexAgentRenderer extends HumanoidMobRenderer<
-		CodexAgentEntity,
-		CodexAgentRenderState,
-		HumanoidModel<CodexAgentRenderState>
+public final class AgentRenderer extends HumanoidMobRenderer<
+		AgentEntity,
+		AgentRenderState,
+		HumanoidModel<AgentRenderState>
 > {
 	private static final float SHADOW_RADIUS = 0.5F;
 
-	public CodexAgentRenderer(EntityRendererProvider.Context context) {
+	public AgentRenderer(EntityRendererProvider.Context context) {
 		super(context, new HumanoidModel<>(context.bakeLayer(ModelLayers.ZOMBIE)), SHADOW_RADIUS);
 	}
 
 	@Override
-	public CodexAgentRenderState createRenderState() {
-		return new CodexAgentRenderState();
+	public AgentRenderState createRenderState() {
+		return new AgentRenderState();
 	}
 
 	@Override
-	public void extractRenderState(CodexAgentEntity entity, CodexAgentRenderState state, float partialTick) {
+	public void extractRenderState(AgentEntity entity, AgentRenderState state, float partialTick) {
 		super.extractRenderState(entity, state, partialTick);
 		state.setProvider(entity.getProvider());
 		state.setModel(entity.getModelName());
@@ -33,7 +33,7 @@ public final class CodexAgentRenderer extends HumanoidMobRenderer<
 	}
 
 	@Override
-	public Identifier getTextureLocation(CodexAgentRenderState state) {
+	public Identifier getTextureLocation(AgentRenderState state) {
 		return textureFor(AgentVisualIdentity.resolve(state.provider(), state.model(), state.skinVariant()));
 	}
 

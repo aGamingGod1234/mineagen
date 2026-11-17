@@ -1207,9 +1207,9 @@ src/client/java/dev/agaminggod/mineagen/client/pov/screen/PovContainerScreens.ja
 src/client/java/dev/agaminggod/mineagen/client/pov/screen/PovScreens.java
 src/client/java/dev/agaminggod/mineagen/client/presentation/RiskOverlayClient.java
 src/client/java/dev/agaminggod/mineagen/client/render/AgentPlayerSkins.java
-src/client/java/dev/agaminggod/mineagen/client/render/CodexAgentRenderState.java
-src/client/java/dev/agaminggod/mineagen/client/render/CodexAgentRenderer.java
-src/client/java/dev/agaminggod/mineagen/client/render/CodexAgentRenderers.java
+src/client/java/dev/agaminggod/mineagen/client/render/AgentRenderState.java
+src/client/java/dev/agaminggod/mineagen/client/render/AgentRenderer.java
+src/client/java/dev/agaminggod/mineagen/client/render/AgentRenderers.java
 src/client/resources/mineagen.client.mixins.json
 src/compat/26.1/clientJava/dev/agaminggod/mineagen/client/compat/McClientCompat.java
 src/compat/26.1/clientJava/dev/agaminggod/mineagen/client/compat/mixin/ExperienceBarRendererPovMixin.java
@@ -1307,8 +1307,8 @@ src/main/java/dev/agaminggod/mineagen/agent/AgentRegistrySnapshotCodec.java
 src/main/java/dev/agaminggod/mineagen/agent/AgentTransition.java
 src/main/java/dev/agaminggod/mineagen/agent/AgentValidators.java
 src/main/java/dev/agaminggod/mineagen/agent/AgentVisualIdentity.java
-src/main/java/dev/agaminggod/mineagen/agent/CodexAgentEntities.java
-src/main/java/dev/agaminggod/mineagen/agent/CodexAgentEntity.java
+src/main/java/dev/agaminggod/mineagen/agent/AgentEntities.java
+src/main/java/dev/agaminggod/mineagen/agent/AgentEntity.java
 src/main/java/dev/agaminggod/mineagen/agent/RespawnPolicy.java
 src/main/java/dev/agaminggod/mineagen/agent/goal/GoalEvidence.java
 src/main/java/dev/agaminggod/mineagen/agent/goal/GoalPredicate.java
@@ -1442,9 +1442,9 @@ src/main/java/dev/agaminggod/mineagen/server/AgentVerboseChat.java
 src/main/java/dev/agaminggod/mineagen/server/AgentVerboseState.java
 src/main/java/dev/agaminggod/mineagen/server/BundledCoordinatorInstaller.java
 src/main/java/dev/agaminggod/mineagen/server/ChunkedSavedPayload.java
-src/main/java/dev/agaminggod/mineagen/server/CodexAgentCommands.java
-src/main/java/dev/agaminggod/mineagen/server/CodexAgentManager.java
-src/main/java/dev/agaminggod/mineagen/server/CodexAgentServerRuntime.java
+src/main/java/dev/agaminggod/mineagen/server/AgentCommands.java
+src/main/java/dev/agaminggod/mineagen/server/AgentManager.java
+src/main/java/dev/agaminggod/mineagen/server/AgentServerRuntime.java
 src/main/java/dev/agaminggod/mineagen/server/CoordinatorLaunchPolicy.java
 src/main/java/dev/agaminggod/mineagen/server/CoordinatorLogRotation.java
 src/main/java/dev/agaminggod/mineagen/server/CoordinatorProcessOwnership.java
@@ -1880,7 +1880,7 @@ src/test/java/dev/agaminggod/mineagen/server/AgentSummonNameVerification.java
 src/test/java/dev/agaminggod/mineagen/server/AgentVerbosePresentationVerification.java
 src/test/java/dev/agaminggod/mineagen/server/BundledCoordinatorInstallerVerification.java
 src/test/java/dev/agaminggod/mineagen/server/ChunkedSavedPayloadVerification.java
-src/test/java/dev/agaminggod/mineagen/server/CodexAgentServerRuntimeVoiceStartVerification.java
+src/test/java/dev/agaminggod/mineagen/server/AgentServerRuntimeVoiceStartVerification.java
 src/test/java/dev/agaminggod/mineagen/server/CoordinatorExhaustedStatusSnapshotVerification.java
 src/test/java/dev/agaminggod/mineagen/server/CoordinatorLaunchPolicyVerification.java
 src/test/java/dev/agaminggod/mineagen/server/CoordinatorLogRotationVerification.java

@@ -2,7 +2,7 @@ package dev.agaminggod.mineagen.voiceaddon;
 
 import de.maxhenkel.voicechat.api.VoicechatServerApi;
 import de.maxhenkel.voicechat.api.opus.OpusDecoder;
-import dev.agaminggod.mineagen.server.CodexAgentServerRuntime;
+import dev.agaminggod.mineagen.server.AgentServerRuntime;
 import dev.agaminggod.mineagen.server.conversation.ServerAgentConversationRouter.ProximitySpeechAudience;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -31,12 +31,12 @@ final class HumanSpeechCapture implements ServerSpeechCaptureRegistry.Capture {
 					public Optional<ProximitySpeechAudience> capture(
 							MinecraftServer server, UUID playerId, boolean whispering
 					) {
-						return CodexAgentServerRuntime.captureHumanSpeechAudience(server, playerId, whispering);
+						return AgentServerRuntime.captureHumanSpeechAudience(server, playerId, whispering);
 					}
 
 					@Override
 					public int deliver(MinecraftServer server, ProximitySpeechAudience audience, String transcript) {
-						return CodexAgentServerRuntime.deliverHumanSpeech(server, audience, transcript)
+						return AgentServerRuntime.deliverHumanSpeech(server, audience, transcript)
 								.deliveredIds().size();
 					}
 				},

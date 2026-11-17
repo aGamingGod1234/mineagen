@@ -8,7 +8,7 @@ import de.maxhenkel.voicechat.api.events.VoiceDistanceEvent;
 import de.maxhenkel.voicechat.api.events.VoicechatServerStartedEvent;
 import de.maxhenkel.voicechat.api.events.VoicechatServerStoppedEvent;
 import dev.agaminggod.mineagen.agent.AgentId;
-import dev.agaminggod.mineagen.server.CodexAgentServerRuntime;
+import dev.agaminggod.mineagen.server.AgentServerRuntime;
 import dev.agaminggod.mineagen.server.voice.VoiceReceipt;
 import dev.agaminggod.mineagen.server.voice.VoiceRequest;
 import dev.agaminggod.mineagen.server.voice.VoiceSubsystem;

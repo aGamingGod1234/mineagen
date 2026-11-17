@@ -59,11 +59,11 @@ public final class CoordinatorVoiceEndpointRefreshVerification {
 			assertEquals(refreshedRevision, managed.voiceConfigurationRevision(),
 					"an unchanged resolved endpoint does not recreate the voice client");
 
-			CodexAgentServerRuntime.VoiceInitializationGate voiceGate =
-					new CodexAgentServerRuntime.VoiceInitializationGate(
+			AgentServerRuntime.VoiceInitializationGate voiceGate =
+					new AgentServerRuntime.VoiceInitializationGate(
 							voiceStarts::incrementAndGet, voiceCloses::incrementAndGet
 					);
-			long initialRuntimeRevision = CodexAgentServerRuntime.voiceConfigurationRevision(managed);
+			long initialRuntimeRevision = AgentServerRuntime.voiceConfigurationRevision(managed);
 			assertTrue(voiceGate.reconcile(true, initialRuntimeRevision),
 					"prepared voice configuration creates the initial worker client");
 			long endpointRevisionBeforeSecretRotation = managed.voiceConfigurationRevision();
@@ -76,7 +76,7 @@ public final class CoordinatorVoiceEndpointRefreshVerification {
 					"secret-only rotation preserves the endpoint-only revision");
 			assertTrue(managed.bridgeRevision() > bridgeRevisionBeforeSecretRotation,
 					"same-path shared-secret rotation advances the bridge content revision");
-			long rotatedRuntimeRevision = CodexAgentServerRuntime.voiceConfigurationRevision(managed);
+			long rotatedRuntimeRevision = AgentServerRuntime.voiceConfigurationRevision(managed);
 			assertFalse(initialRuntimeRevision == rotatedRuntimeRevision,
 					"same-path shared-secret rotation advances the voice initialization gate revision");
 			assertTrue(voiceGate.reconcile(true, rotatedRuntimeRevision),
@@ -123,14 +123,14 @@ public final class CoordinatorVoiceEndpointRefreshVerification {
 					"00000000-0000-0000-0000-000000000803");
 			assertEquals(CoordinatorRecoveryState.STOPPED, manual.snapshot().state(),
 					"manual coordinator mode leaves child-process supervision stopped");
-			long initialManualRevision = CodexAgentServerRuntime.voiceConfigurationRevision(manual);
-			CodexAgentServerRuntime.VoiceInitializationGate manualGate =
-					new CodexAgentServerRuntime.VoiceInitializationGate(
+			long initialManualRevision = AgentServerRuntime.voiceConfigurationRevision(manual);
+			AgentServerRuntime.VoiceInitializationGate manualGate =
+					new AgentServerRuntime.VoiceInitializationGate(
 							voiceStarts::incrementAndGet, voiceCloses::incrementAndGet
 					);
 			assertTrue(manualGate.reconcile(true, initialManualRevision),
 					"manual dedicated voice secret creates the initial worker client");
-			String initialFingerprint = CodexAgentServerRuntime.explicitSecretContentFingerprint(manualSecret);
+			String initialFingerprint = AgentServerRuntime.explicitSecretContentFingerprint(manualSecret);
 			assertEquals(
 					HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
 							.digest(initialManualSecret.getBytes(StandardCharsets.UTF_8))),
@@ -144,8 +144,8 @@ public final class CoordinatorVoiceEndpointRefreshVerification {
 			assertEquals(512L, Files.size(manualSecret),
 					"tail-only rotation preserves the maximum accepted secret file size");
 			// Metadata is unchanged, so detection waits for the bounded content re-read.
-			Thread.sleep(CodexAgentServerRuntime.EXPLICIT_SECRET_REHASH_INTERVAL_MS + 100L);
-			long rotatedManualRevision = CodexAgentServerRuntime.voiceConfigurationRevision(manual);
+			Thread.sleep(AgentServerRuntime.EXPLICIT_SECRET_REHASH_INTERVAL_MS + 100L);
+			long rotatedManualRevision = AgentServerRuntime.voiceConfigurationRevision(manual);
 			assertFalse(initialManualRevision == rotatedManualRevision,
 					"same-size same-timestamp tail rotation advances the voice gate revision");
 			assertTrue(manualGate.reconcile(true, rotatedManualRevision),

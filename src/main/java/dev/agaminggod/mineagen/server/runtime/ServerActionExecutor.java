@@ -10,7 +10,7 @@ import dev.agaminggod.mineagen.protocol.ActionType;
 import dev.agaminggod.mineagen.server.runtime.BlockPlacementGeometry.Cause;
 import dev.agaminggod.mineagen.server.AgentChatReporter;
 import dev.agaminggod.mineagen.server.AgentRuntimeRouter;
-import dev.agaminggod.mineagen.server.CodexAgentManager;
+import dev.agaminggod.mineagen.server.AgentManager;
 import dev.agaminggod.mineagen.server.OfflineAgentPlayers;
 import dev.agaminggod.mineagen.server.perception.ObservationVisibility;
 import dev.agaminggod.mineagen.server.perception.SeenTerrain;
@@ -134,7 +134,7 @@ public final class ServerActionExecutor {
 	private static final long PROGRESS_HEARTBEAT_MS = 1_000L;
 	static final int MAX_CLEANUP_ATTEMPTS = 8;
 
-	private final CodexAgentManager manager;
+	private final AgentManager manager;
 	private final AgentRuntimeRouter router;
 	private final Consumer<ServerActionResult> resultSink;
 	private final RespawnResultSink respawnResultSink;
@@ -164,12 +164,12 @@ public final class ServerActionExecutor {
 	private long coordinatorGeneration;
 	private long pathfindingRoundRobinCursor;
 
-	public ServerActionExecutor(CodexAgentManager manager, Consumer<ServerActionResult> resultSink) {
+	public ServerActionExecutor(AgentManager manager, Consumer<ServerActionResult> resultSink) {
 		this(manager, resultSink, progress -> { }, ServerProtectionPolicy.TRUSTED_LOCAL_OPERATOR);
 	}
 
 	public ServerActionExecutor(
-			CodexAgentManager manager,
+			AgentManager manager,
 			Consumer<ServerActionResult> resultSink,
 			Consumer<ServerActionProgress> progressSink
 	) {
@@ -177,7 +177,7 @@ public final class ServerActionExecutor {
 	}
 
 	public ServerActionExecutor(
-			CodexAgentManager manager,
+			AgentManager manager,
 			Consumer<ServerActionResult> resultSink,
 			ServerProtectionPolicy protection
 	) {
@@ -185,7 +185,7 @@ public final class ServerActionExecutor {
 	}
 
 	public ServerActionExecutor(
-			CodexAgentManager manager,
+			AgentManager manager,
 			Consumer<ServerActionResult> resultSink,
 			Consumer<ServerActionProgress> progressSink,
 			ServerProtectionPolicy protection
@@ -197,7 +197,7 @@ public final class ServerActionExecutor {
 	}
 
 	public ServerActionExecutor(
-			CodexAgentManager manager,
+			AgentManager manager,
 			Consumer<ServerActionResult> resultSink,
 			Consumer<ServerActionProgress> progressSink,
 			ServerProtectionPolicy protection,
@@ -214,7 +214,7 @@ public final class ServerActionExecutor {
 	}
 
 	public ServerActionExecutor(
-			CodexAgentManager manager,
+			AgentManager manager,
 			Consumer<ServerActionResult> resultSink,
 			Consumer<ServerActionProgress> progressSink,
 			ServerProtectionPolicy protection,
@@ -301,7 +301,7 @@ public final class ServerActionExecutor {
 				pendingRespawns.remove(agentId, pending);
 				return;
 			}
-			CodexAgentManager.VanillaRespawnAttempt attempt = manager.requestVerifiedRespawn(agentId);
+			AgentManager.VanillaRespawnAttempt attempt = manager.requestVerifiedRespawn(agentId);
 			pendingRespawns.replace(agentId, pending, new PendingRespawn(
 					pending.request(), attempt, pending.elapsedTime(), pending.coordinatorGeneration()));
 			AgentChatReporter.acting(manager, attempt.deadRecord(), pending.request());
@@ -563,10 +563,10 @@ public final class ServerActionExecutor {
 				pendingRespawns.remove(pending.request().agentId(), pending);
 				return;
 			}
-			CodexAgentManager.VerifiedRespawnState state = manager.verifiedRespawnState(pending.attempt());
-			if (state == CodexAgentManager.VerifiedRespawnState.PENDING) return;
+			AgentManager.VerifiedRespawnState state = manager.verifiedRespawnState(pending.attempt());
+			if (state == AgentManager.VerifiedRespawnState.PENDING) return;
 			pendingRespawns.remove(pending.request().agentId(), pending);
-			if (state == CodexAgentManager.VerifiedRespawnState.SUCCEEDED) {
+			if (state == AgentManager.VerifiedRespawnState.SUCCEEDED) {
 				quarantinedAgents.remove(pending.request().agentId());
 				emit(pending.request(), ServerActionState.SUCCEEDED, "VANILLA_RESPAWNED",
 						"Respawned at the vanilla target", pending.elapsedTime().advance(now), true, true);
@@ -685,12 +685,12 @@ public final class ServerActionExecutor {
 	}
 
 	static ServerActionState settleRespawnCancellation(
-			java.util.function.Supplier<CodexAgentManager.VerifiedRespawnState> state,
+			java.util.function.Supplier<AgentManager.VerifiedRespawnState> state,
 			java.util.function.BooleanSupplier cancelPending
 	) {
-		if (state.get() == CodexAgentManager.VerifiedRespawnState.SUCCEEDED) return ServerActionState.SUCCEEDED;
+		if (state.get() == AgentManager.VerifiedRespawnState.SUCCEEDED) return ServerActionState.SUCCEEDED;
 		if (cancelPending.getAsBoolean()) return ServerActionState.CANCELLED;
-		return state.get() == CodexAgentManager.VerifiedRespawnState.SUCCEEDED
+		return state.get() == AgentManager.VerifiedRespawnState.SUCCEEDED
 				? ServerActionState.SUCCEEDED : ServerActionState.FAILED;
 	}
 
@@ -1411,7 +1411,7 @@ public final class ServerActionExecutor {
 
 	private record PendingRespawn(
 			ServerActionRequest request,
-			CodexAgentManager.VanillaRespawnAttempt attempt,
+			AgentManager.VanillaRespawnAttempt attempt,
 			ElapsedTimeAccumulator elapsedTime,
 			long coordinatorGeneration
 	) { }

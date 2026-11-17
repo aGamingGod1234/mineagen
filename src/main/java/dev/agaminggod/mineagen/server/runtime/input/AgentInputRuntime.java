@@ -2,7 +2,7 @@ package dev.agaminggod.mineagen.server.runtime.input;
 
 import dev.agaminggod.mineagen.agent.AgentDomainException;
 import dev.agaminggod.mineagen.agent.AgentId;
-import dev.agaminggod.mineagen.server.CodexAgentManager;
+import dev.agaminggod.mineagen.server.AgentManager;
 import java.util.Map;
 import java.util.Optional;
 import java.util.WeakHashMap;
@@ -19,7 +19,7 @@ public final class AgentInputRuntime {
 	}
 
 	public static synchronized LeasedServerInputController controller(MinecraftServer server) {
-		CodexAgentManager manager = CodexAgentManager.get(server);
+		AgentManager manager = AgentManager.get(server);
 		return CONTROLLERS.computeIfAbsent(server, ignored -> new LeasedServerInputController(new CarpetInputStateSink(manager)));
 	}
 
@@ -40,7 +40,7 @@ public final class AgentInputRuntime {
 	}
 
 	public static Optional<AgentId> findAgentId(ServerPlayer player) {
-		return CodexAgentManager.get(player.level().getServer()).records().stream()
+		return AgentManager.get(player.level().getServer()).records().stream()
 				.filter(record -> record.entityUuid().filter(player.getUUID()::equals).isPresent())
 				.map(record -> record.agentId())
 				.findFirst();

@@ -6,7 +6,7 @@ import dev.agaminggod.mineagen.server.pov.PovMessageRelay;
 import dev.agaminggod.mineagen.agent.AgentDomainException;
 import dev.agaminggod.mineagen.agent.AgentId;
 import dev.agaminggod.mineagen.agent.AgentRecord;
-import dev.agaminggod.mineagen.server.CodexAgentManager;
+import dev.agaminggod.mineagen.server.AgentManager;
 import dev.agaminggod.mineagen.server.GoalControl;
 import dev.agaminggod.mineagen.agent.goal.GoalSpec;
 import dev.agaminggod.mineagen.server.goal.DraftIntent;
@@ -33,17 +33,17 @@ import net.minecraft.world.level.Level;
 public final class ServerAgentConversationRouter implements AgentConversationRouter {
 	public static final double DEFAULT_PROXIMITY_RANGE = 48.0D;
 
-	private final CodexAgentManager manager;
+	private final AgentManager manager;
 	private final ConversationEventSink eventSink;
 	private final GoalSpecRequestSink goalSpecRequestSink;
 	private final GoalCompiler goalCompiler = new GoalCompiler();
 	private final Map<AgentId, Long> sequences = new LinkedHashMap<>();
 
-	public ServerAgentConversationRouter(CodexAgentManager manager, ConversationEventSink eventSink) {
+	public ServerAgentConversationRouter(AgentManager manager, ConversationEventSink eventSink) {
 		this(manager, eventSink, draft -> { });
 	}
 
-	public ServerAgentConversationRouter(CodexAgentManager manager, ConversationEventSink eventSink, GoalSpecRequestSink goalSpecRequestSink) {
+	public ServerAgentConversationRouter(AgentManager manager, ConversationEventSink eventSink, GoalSpecRequestSink goalSpecRequestSink) {
 		this.manager = Objects.requireNonNull(manager, "manager must not be null");
 		this.eventSink = Objects.requireNonNull(eventSink, "eventSink must not be null");
 		this.goalSpecRequestSink = Objects.requireNonNull(goalSpecRequestSink, "goalSpecRequestSink must not be null");
@@ -375,7 +375,7 @@ public final class ServerAgentConversationRouter implements AgentConversationRou
 		// Historical requesters do not retain authority after de-op.
 		if (operator && ConversationWakePolicy.isPlayerGoalChannel(event.kind(), event.audience())
 				&& ConversationWakePolicy.isCompletionConfirmation(event.text())
-				&& dev.agaminggod.mineagen.server.CodexAgentServerRuntime.confirmCurrentGoalFromSpeech(manager.server(), target.agentId())) {
+				&& dev.agaminggod.mineagen.server.AgentServerRuntime.confirmCurrentGoalFromSpeech(manager.server(), target.agentId())) {
 			notifyRequester(requestingPlayerId(event), "Confirmed. Minecraft will finish this goal after checking its requirements.");
 			return GoalRoute.CONSUMED;
 		}

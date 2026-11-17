@@ -5,7 +5,7 @@ import dev.agaminggod.mineagen.agent.AgentDomainException;
 import dev.agaminggod.mineagen.agent.AgentGameMode;
 import dev.agaminggod.mineagen.agent.AgentRecord;
 import dev.agaminggod.mineagen.server.AgentSavedData;
-import dev.agaminggod.mineagen.server.CodexAgentManager;
+import dev.agaminggod.mineagen.server.AgentManager;
 import dev.agaminggod.mineagen.server.runtime.controller.ServerController;
 import dev.agaminggod.mineagen.server.runtime.controller.ServerItemPickupController;
 import dev.agaminggod.mineagen.server.runtime.controller.ServerNavigationController;
@@ -731,7 +731,7 @@ public final class ServerActionExecutorVerification {
 
 	private static void verifyModelOnlyControlBoundary() {
 		try (var compiledRuntime = ServerActionExecutorVerification.class.getResourceAsStream(
-				"/dev/agaminggod/mineagen/server/CodexAgentServerRuntime.class")) {
+				"/dev/agaminggod/mineagen/server/AgentServerRuntime.class")) {
 			assertTrue(compiledRuntime != null, "production runtime bytecode is present for the registration check");
 			String references = new String(compiledRuntime.readAllBytes(), java.nio.charset.StandardCharsets.ISO_8859_1);
 			assertFalse(references.contains("GoalSafetyController"), "compiled production runtime cannot register the removed autonomous safety controller");
@@ -824,7 +824,7 @@ public final class ServerActionExecutorVerification {
 	}
 
 	private static void verifySetupFailureDoesNotClaimPhysicalExecution() {
-		CodexAgentManager manager = uninitializedManager();
+		AgentManager manager = uninitializedManager();
 		AgentRecord agent = manager.registry().create(
 				"codex", "gpt-5.6-sol", "high", Optional.of("SetupFailureTarget"), AgentGameMode.SURVIVAL, 1_000L
 		);
@@ -847,7 +847,7 @@ public final class ServerActionExecutorVerification {
 	}
 
 	private static void verifySetupFailurePublicationRetries() {
-		CodexAgentManager manager = uninitializedManager();
+		AgentManager manager = uninitializedManager();
 		AgentRecord agent = manager.registry().create(
 				"codex", "gpt-5.6-sol", "high", Optional.of("PublicationRetryTarget"), AgentGameMode.SURVIVAL, 2_000L
 		);
@@ -886,7 +886,7 @@ public final class ServerActionExecutorVerification {
 
 	@SuppressWarnings("unchecked")
 	private static void verifyConcurrentChatKeepsItsOwnTerminalPublication() {
-		CodexAgentManager manager = uninitializedManager();
+		AgentManager manager = uninitializedManager();
 		AgentRecord agent = manager.registry().create(
 				"codex", "gpt-5.6-sol", "high", Optional.of("PublicationIdentityTarget"), AgentGameMode.SURVIVAL, 2_500L
 		);
@@ -941,7 +941,7 @@ public final class ServerActionExecutorVerification {
 
 	@SuppressWarnings("unchecked")
 	private static void verifyPermanentCleanupQuarantines() {
-		CodexAgentManager manager = uninitializedManager();
+		AgentManager manager = uninitializedManager();
 		AgentRecord agent = manager.registry().create(
 				"codex", "gpt-5.6-sol", "high", Optional.of("CleanupQuarantineTarget"), AgentGameMode.SURVIVAL, 3_000L
 		);
@@ -1022,7 +1022,7 @@ public final class ServerActionExecutorVerification {
 
 	@SuppressWarnings("unchecked")
 	private static void verifyDetachedActionsAreCancellable() {
-		CodexAgentManager manager = uninitializedManager();
+		AgentManager manager = uninitializedManager();
 		AgentRecord agent = manager.registry().create(
 				"codex", "gpt-5.6-sol", "high", Optional.of("DetachedTarget"), AgentGameMode.SURVIVAL, 4_000L
 		);
@@ -1111,33 +1111,33 @@ public final class ServerActionExecutorVerification {
 	private static int verifyCommittedRespawnCancellation() {
 		AtomicInteger rollbacks = new AtomicInteger();
 		assertEquals(ServerActionState.SUCCEEDED, ServerActionExecutor.settleRespawnCancellation(
-				() -> CodexAgentManager.VerifiedRespawnState.SUCCEEDED,
+				() -> AgentManager.VerifiedRespawnState.SUCCEEDED,
 				() -> { rollbacks.incrementAndGet(); return true; }),
 				"committed replacement wins even while the manager still owns a cancellable pending attempt");
 		assertEquals(0, rollbacks.get(), "lifecycle cancellation never rolls back the committed live body");
 		assertEquals(ServerActionState.CANCELLED, ServerActionExecutor.settleRespawnCancellation(
-				() -> CodexAgentManager.VerifiedRespawnState.PENDING,
+				() -> AgentManager.VerifiedRespawnState.PENDING,
 				() -> { rollbacks.incrementAndGet(); return true; }),
 				"a genuinely pending attempt still cancels");
 		assertEquals(1, rollbacks.get(), "pending cancellation executes exactly once");
 		AtomicInteger reads = new AtomicInteger();
 		assertEquals(ServerActionState.SUCCEEDED, ServerActionExecutor.settleRespawnCancellation(
-				() -> reads.getAndIncrement() == 0 ? CodexAgentManager.VerifiedRespawnState.PENDING : CodexAgentManager.VerifiedRespawnState.SUCCEEDED,
+				() -> reads.getAndIncrement() == 0 ? AgentManager.VerifiedRespawnState.PENDING : AgentManager.VerifiedRespawnState.SUCCEEDED,
 				() -> false), "completion during cancellation retains its success");
 		assertEquals(2, reads.get(), "a refused cancellation refreshes physical completion evidence");
 		assertEquals(ServerActionState.FAILED, ServerActionExecutor.settleRespawnCancellation(
-				() -> CodexAgentManager.VerifiedRespawnState.FAILED, () -> false),
+				() -> AgentManager.VerifiedRespawnState.FAILED, () -> false),
 				"an unverified failed replacement never reports success");
 		return 7;
 	}
 
-	private static CodexAgentManager uninitializedManager() {
+	private static AgentManager uninitializedManager() {
 		try {
 			Field field = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
 			field.setAccessible(true);
 			sun.misc.Unsafe unsafe = (sun.misc.Unsafe) field.get(null);
-			CodexAgentManager manager = (CodexAgentManager) unsafe.allocateInstance(CodexAgentManager.class);
-			Field savedData = CodexAgentManager.class.getDeclaredField("savedData");
+			AgentManager manager = (AgentManager) unsafe.allocateInstance(AgentManager.class);
+			Field savedData = AgentManager.class.getDeclaredField("savedData");
 			unsafe.putObject(manager, unsafe.objectFieldOffset(savedData), new AgentSavedData());
 			return manager;
 		} catch (ReflectiveOperationException exception) {

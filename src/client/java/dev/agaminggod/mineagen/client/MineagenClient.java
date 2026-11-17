@@ -6,7 +6,7 @@ import dev.agaminggod.mineagen.client.pov.PovClient;
 import dev.agaminggod.mineagen.client.pov.PovHudProxy;
 import dev.agaminggod.mineagen.client.pov.input.OperatorInputSender;
 import dev.agaminggod.mineagen.client.pov.screen.PovScreens;
-import dev.agaminggod.mineagen.client.render.CodexAgentRenderers;
+import dev.agaminggod.mineagen.client.render.AgentRenderers;
 import net.fabricmc.api.ClientModInitializer;
 
 public final class MineagenClient implements ClientModInitializer {
@@ -15,7 +15,7 @@ public final class MineagenClient implements ClientModInitializer {
 	public void onInitializeClient() {
 		DesktopAwtInitialization.initialize();
 		dev.agaminggod.mineagen.client.control.PlanItemIcons.register();
-		CodexAgentRenderers.register();
+		AgentRenderers.register();
 		AgentControlClient.register();
 		PovClient.register();
 		OperatorInputSender.register();

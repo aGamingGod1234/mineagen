@@ -7,17 +7,17 @@ public final class VoiceConsentCommandVerification {
 	public static int verify() {
 		assertEquals(
 				"Agent voice transcription enabled for this session.",
-				CodexAgentCommands.voiceConsentConfirmation(true),
+				AgentCommands.voiceConsentConfirmation(true),
 				"voice consent confirmation states its connection-scoped lifetime"
 		);
 		assertEquals(
 				"Agent voice transcription disabled.",
-				CodexAgentCommands.voiceConsentConfirmation(false),
+				AgentCommands.voiceConsentConfirmation(false),
 				"voice consent revocation remains explicit"
 		);
 		assertEquals(
 				"VOICE_UNAVAILABLE: Install and start the Mineagen Voice add-on with Simple Voice Chat",
-				CodexAgentCommands.voiceUnavailableMessage(),
+				AgentCommands.voiceUnavailableMessage(),
 				"missing optional voice components report an actionable error"
 		);
 		return 3;

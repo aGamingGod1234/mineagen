@@ -18,8 +18,8 @@ import dev.agaminggod.mineagen.pov.PovDeath;
 import dev.agaminggod.mineagen.pov.PovMode;
 import dev.agaminggod.mineagen.pov.PovStopPayload;
 import dev.agaminggod.mineagen.pov.PovViewAnchors;
-import dev.agaminggod.mineagen.server.CodexAgentManager;
-import dev.agaminggod.mineagen.server.CodexAgentServerRuntime;
+import dev.agaminggod.mineagen.server.AgentManager;
+import dev.agaminggod.mineagen.server.AgentServerRuntime;
 import dev.agaminggod.mineagen.server.GoalControl;
 import dev.agaminggod.mineagen.server.OfflineAgentPlayers;
 import dev.agaminggod.mineagen.server.conversation.ConversationEvent;
@@ -119,7 +119,7 @@ public final class PovSessionRuntime {
 	}
 
 	public static PovSession start(ServerPlayer operator, AgentId agentId, PovMode mode) {
-		AgentRecord record = CodexAgentManager.get(operator.level().getServer()).registry().require(agentId);
+		AgentRecord record = AgentManager.get(operator.level().getServer()).registry().require(agentId);
 		return start(operator, agentId, mode, record.profile().userName().orElse(agentId.shortValue()));
 	}
 
@@ -129,7 +129,7 @@ public final class PovSessionRuntime {
 		Objects.requireNonNull(agentId, "agentId must not be null");
 		Objects.requireNonNull(mode, "mode must not be null");
 		MinecraftServer server = operator.level().getServer();
-		CodexAgentManager manager = CodexAgentManager.get(server);
+		AgentManager manager = AgentManager.get(server);
 		AgentRecord record = manager.registry().require(agentId);
 		String agentName = manager.displayName(record);
 		State state = STATES.computeIfAbsent(server, ignored -> new State(PovReportOutbox.get(server)));
@@ -177,7 +177,7 @@ public final class PovSessionRuntime {
 		return session;
 	}
 
-	private static void beginTakeover(MinecraftServer server, CodexAgentManager manager, State state, PovSession session,
+	private static void beginTakeover(MinecraftServer server, AgentManager manager, State state, PovSession session,
 			ServerPlayer operator, AgentRecord record) {
 		AgentId agentId = session.agentId();
 		// A human now drives this body: the run is assisted however the takeover was requested.
@@ -284,7 +284,7 @@ public final class PovSessionRuntime {
 	private static void persistRespawnResumes(MinecraftServer server, State state) {
 		if (state.respawnResumes.isEmpty()) return;
 		try {
-			persistRespawnResumes(CodexAgentManager.get(server).registry(), state.respawnResumes, System.currentTimeMillis());
+			persistRespawnResumes(AgentManager.get(server).registry(), state.respawnResumes, System.currentTimeMillis());
 		} catch (RuntimeException failure) {
 			LOGGER.warn("Could not persist takeover respawn continuations during shutdown", failure);
 		}
@@ -309,7 +309,7 @@ public final class PovSessionRuntime {
 	public static void tick(MinecraftServer server) {
 		State state = STATES.computeIfAbsent(server, ignored -> new State(PovReportOutbox.get(server)));
 		if (!state.sessions.isEmpty()) {
-			CodexAgentManager manager = CodexAgentManager.get(server);
+			AgentManager manager = AgentManager.get(server);
 			for (PovSession session : List.copyOf(state.sessions.values())) {
 				if (state.sessions.get(session.operatorId()) != session) continue;
 				try {
@@ -329,7 +329,7 @@ public final class PovSessionRuntime {
 		if (!state.reports.isEmpty()) tickReports(server, state);
 	}
 
-	private static void tickSession(MinecraftServer server, CodexAgentManager manager, State state, PovSession session) {
+	private static void tickSession(MinecraftServer server, AgentManager manager, State state, PovSession session) {
 		ServerPlayer operator = server.getPlayerList().getPlayer(session.operatorId());
 		boolean operatorOnline = operator != null && !operator.hasDisconnected();
 		AgentRegistry registry = manager.registry();
@@ -387,7 +387,7 @@ public final class PovSessionRuntime {
 		PovMessageRelay.flush(server);
 		State state = STATES.get(server);
 		if (state == null || state.sessions.isEmpty()) return;
-		CodexAgentManager manager = CodexAgentManager.get(server);
+		AgentManager manager = AgentManager.get(server);
 		PovAgentSnapshot.Frame frame = new PovAgentSnapshot.Frame();
 		for (PovSession session : List.copyOf(state.sessions.values())) {
 			if (state.sessions.get(session.operatorId()) != session) continue;
@@ -461,7 +461,7 @@ public final class PovSessionRuntime {
 		String message = detail == null ? reason.message() : detail;
 		boolean online = operator != null && reason != PovExitReason.OPERATOR_DISCONNECTED;
 		if (session.takeover()) {
-			CodexAgentManager manager = CodexAgentManager.get(server);
+			AgentManager manager = AgentManager.get(server);
 			AgentRecord record = manager.registry().contains(session.agentId())
 					? manager.registry().require(session.agentId()) : null;
 			ServerPlayer agent = record == null ? null : findAgent(server, record).orElse(null);
@@ -507,7 +507,7 @@ public final class PovSessionRuntime {
 		}
 	}
 
-	private static void restoreLifecycle(CodexAgentManager manager, State state, PovSession session, PovExitReason reason) {
+	private static void restoreLifecycle(AgentManager manager, State state, PovSession session, PovExitReason reason) {
 		AgentRecord record = manager.registry().require(session.agentId());
 		boolean unfinished = record.currentGoal()
 				.filter(goal -> goal.status() != GoalStatus.SATISFIED && goal.status() != GoalStatus.CANCELLED)
@@ -529,7 +529,7 @@ public final class PovSessionRuntime {
 	 * goal revision means someone else stopped, steered or replaced the goal, so the intent is dropped.
 	 */
 	private static void tickRespawnResumes(MinecraftServer server, State state) {
-		CodexAgentManager manager = CodexAgentManager.get(server);
+		AgentManager manager = AgentManager.get(server);
 		for (Map.Entry<AgentId, Long> entry : List.copyOf(state.respawnResumes.entrySet())) {
 			AgentId agentId = entry.getKey();
 			if (AgentControlReservations.isReserved(server, agentId)) continue;
@@ -565,7 +565,7 @@ public final class PovSessionRuntime {
 	}
 
 	private static void drainReports(MinecraftServer server, State state) {
-		CodexAgentManager manager = CodexAgentManager.get(server);
+		AgentManager manager = AgentManager.get(server);
 		state.reports.drain(System.currentTimeMillis(), manager.registry()::contains,
 				id -> AgentControlReservations.isReserved(server, id), report -> deliver(server, report),
 				PovSessionRuntime::reportOutcome);
@@ -582,7 +582,7 @@ public final class PovSessionRuntime {
 	/** The report is informational direct conversation, independent of the operator's live player. */
 	private static boolean deliver(MinecraftServer server, PovReportOutbox.Report report) {
 		try {
-			return CodexAgentServerRuntime.sendTakeoverReport(server, report).deliveredIds()
+			return AgentServerRuntime.sendTakeoverReport(server, report).deliveredIds()
 					.contains(report.agentId().toString());
 		} catch (AgentDomainException unavailable) {
 			LOGGER.debug("Takeover report {} is waiting: {}", report.deliveryId(), unavailable.code());
@@ -633,7 +633,7 @@ public final class PovSessionRuntime {
 			session.controller().applyAction(operator, action);
 			return;
 		}
-		CodexAgentManager manager = CodexAgentManager.get(operator.level().getServer());
+		AgentManager manager = AgentManager.get(operator.level().getServer());
 		if (!manager.registry().contains(session.agentId())
 				|| manager.registry().require(session.agentId()).state() != AgentLifecycleState.DEAD) return;
 		try {
@@ -684,7 +684,7 @@ public final class PovSessionRuntime {
 	}
 
 	private static void resendFull(MinecraftServer server, PovSession session, ServerPlayer operator) {
-		CodexAgentManager manager = CodexAgentManager.get(server);
+		AgentManager manager = AgentManager.get(server);
 		AgentRecord record = manager.registry().require(session.agentId());
 		session.publisher().sendFull(operator, findAgent(server, record).orElse(null), death(record, session.mode()),
 				session.lookResetSeq(), inputSequence(session));
@@ -699,7 +699,7 @@ public final class PovSessionRuntime {
 		return player == null ? "Another operator" : player.getScoreboardName();
 	}
 
-	private static void resumeQuietly(CodexAgentManager manager, AgentId agentId) {
+	private static void resumeQuietly(AgentManager manager, AgentId agentId) {
 		try {
 			manager.registry().resume(agentId, System.currentTimeMillis());
 		} catch (RuntimeException failure) {

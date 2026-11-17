@@ -339,7 +339,7 @@ public final class WatchVerification {
 					continue;
 				}
 				if (!text.contains("mineagen.server.watch")) continue;
-				check(file.getFileName().toString().equals("CodexAgentServerRuntime.java"), file + " must not reference the watch package");
+				check(file.getFileName().toString().equals("AgentServerRuntime.java"), file + " must not reference the watch package");
 				check(text.split("mineagen\\.server\\.watch", -1).length == 2
 						&& text.contains("dev.agaminggod.mineagen.server.watch.Watcher.register();"),
 						"the runtime only registers the Watcher");

@@ -43,7 +43,7 @@ public final class VoiceCommandVerification {
 	public static int verify() throws Exception {
 		assertions = 0;
 		var dispatcher = new CommandDispatcher<CommandSourceStack>(new FixtureRoot());
-		CodexAgentCommands.register(dispatcher);
+		AgentCommands.register(dispatcher);
 		var operator = source(null, PermissionSet.ALL_PERMISSIONS);
 		var nonOperator = source(null, PermissionSet.NO_PERMISSIONS);
 		check(dispatcher.getRoot().getChild("mineagen") != null, "agent commands live under /mineagen");
@@ -73,9 +73,9 @@ public final class VoiceCommandVerification {
 		Field field = sun.misc.Unsafe.class.getDeclaredField("theUnsafe"); field.setAccessible(true);
 		var unsafe = (sun.misc.Unsafe) field.get(null);
 		var server = (MinecraftServer) unsafe.allocateInstance(DedicatedServer.class);
-		var manager = (CodexAgentManager) unsafe.allocateInstance(CodexAgentManager.class);
-		set(unsafe, manager, CodexAgentManager.class, "server", server);
-		set(unsafe, manager, CodexAgentManager.class, "savedData", new AgentSavedData());
+		var manager = (AgentManager) unsafe.allocateInstance(AgentManager.class);
+		set(unsafe, manager, AgentManager.class, "server", server);
+		set(unsafe, manager, AgentManager.class, "savedData", new AgentSavedData());
 		var agent = manager.registry().create("codex", "gpt-6.1-sol", "low", Optional.of("Voice Agent"), 1_000L);
 		var player = (EntityPlayerMPFake) unsafe.allocateInstance(EntityPlayerMPFake.class);
 		UUID identity = OfflineAgentPlayers.offlineUuid(agent.agentId(), agent.profile());
@@ -98,8 +98,8 @@ public final class VoiceCommandVerification {
 		set(unsafe, level, Level.class, "dimension", Level.OVERWORLD);
 		set(unsafe, player, Entity.class, "level", level);
 		set(unsafe, server, MinecraftServer.class, "levels", Map.of(Level.OVERWORLD, level));
-		Field instances = CodexAgentManager.class.getDeclaredField("INSTANCES"); instances.setAccessible(true);
-		var managers = (Map<MinecraftServer, CodexAgentManager>) instances.get(null);
+		Field instances = AgentManager.class.getDeclaredField("INSTANCES"); instances.setAccessible(true);
+		var managers = (Map<MinecraftServer, AgentManager>) instances.get(null);
 		managers.put(server, manager);
 		var voice = new RecordingVoice();
 		try (var storage = new SavedDataStorage(Files.createTempDirectory("mineagen-voice-commands-"), DataFixers.getDataFixer(), RegistryAccess.EMPTY)) {

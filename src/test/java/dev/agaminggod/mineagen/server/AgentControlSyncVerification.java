@@ -126,7 +126,7 @@ public final class AgentControlSyncVerification {
 		registry.attachEntity(active.agentId(), attachment, location, 102L);
 		registry.attachEntity(idle.agentId(), UUID.randomUUID(), location, 102L);
 		registry.start(active.agentId(), "continue mining", 103L);
-		CodexAgentManager.prepareMissingPlayer(registry, registry.require(active.agentId()), true,
+		AgentManager.prepareMissingPlayer(registry, registry.require(active.agentId()), true,
 				new java.util.LinkedHashSet<>(), 104L);
 		var catalog = AgentControlCatalog.currentOptions();
 		var absent = AgentControlSync.controlSnapshot(true, true, "Automation ready", 105L,
