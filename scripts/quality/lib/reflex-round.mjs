@@ -146,12 +146,6 @@ export function deadThroughEnd(lifecycle, after, end) {
 	return deadAt;
 }
 
-/**
- * Deaths in the window from the vanilla death counter: the difference between a sample within COVERAGE_SLACK_MS of the
- * window start and one within it of the window end, the counter a non-decreasing whole number throughout. A body that died
- * after its last sample and stayed dead to the end (deadThroughEnd) counts that death on top of its last sample. Null
- * (unknown) when either boundary is uncovered or the counter is malformed or goes down.
- */
 const deathRows = samples => (samples ?? []).filter(s => finite(s?.at) && s?.deathCounter !== undefined && s?.deathCounter !== null);
 
 /** The death counter is present but malformed: not a whole number, negative, or going down between samples. */
@@ -160,6 +154,13 @@ export function deathCounterCorrupt(samples) {
 	return rows.some(s => !Number.isInteger(s.deathCounter) || s.deathCounter < 0) || rows.some((s, i) => i && s.deathCounter < rows[i - 1].deathCounter);
 }
 
+/**
+ * Deaths in the window: the larger of the death counter's rise and the goal_control dead events since the base sample,
+ * the base within COVERAGE_SLACK_MS of the window start and the closing sample within it of the window end, the counter a
+ * non-decreasing whole number throughout. A body that died after its last sample and stayed dead to the end
+ * (deadThroughEnd) needs no closing sample: its dead event covers the end. Null
+ * (unknown) when either boundary is uncovered or the counter is malformed or goes down.
+ */
 export function windowDeaths(samples, start, end, lifecycle = []) {
 	const rows = deathRows(samples);
 	if (deathCounterCorrupt(samples)) return null;
