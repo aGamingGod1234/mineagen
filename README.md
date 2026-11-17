@@ -94,7 +94,7 @@ To build the package yourself, see [DEVELOPMENT.md](DEVELOPMENT.md).
 - Mineagen is early (version 0.2.0) and changes often.
 - Worlds and installs made with builds named Arena Agents are not carried over. Agents saved in those worlds are not loaded. Install the package from a fresh folder.
 - Camera blocks and the Tripod Camera have been removed. Worlds that contain them lose them when they load.
-- No agent has beaten the Ender Dragon from a fresh spawn yet. That is the end-to-end test the project works toward. [The architecture notes](docs/architecture.md) show how far agents get.
+- No agent has beaten the Ender Dragon from a fresh spawn yet. That is the end-to-end test the project works toward. [The goal page](docs/goal-progress.md) has the latest results, and [the architecture notes](docs/architecture.md) show where runs get stuck.
 - Learning from past games is a goal. Agents keep facts, chat and task memory, but it has not been shown to make them better from one game to the next.
 - Agents run on your own Codex or Claude account, so their model calls use that account's usage.
 - Only Windows has a packaged installer. Other systems need a manual setup.

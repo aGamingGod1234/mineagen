@@ -17,7 +17,7 @@ The route, in order:
 3. Buckets
 4. Flint and steel
 5. Water bucket
-6. Lava found
+6. Lava seen
 7. Portal lit
 8. In the Nether
 9. Fortress found
@@ -48,7 +48,7 @@ Round 3 changed the test tooling and played no games. Round 6 dropped the two se
 Where things stand:
 
 - **Furthest from scratch:** a Nether fortress and ender pearls. No fresh-world game has yet got blaze rods, eyes of ender, the stronghold, the End or the dragon.
-- **Late game, staged:** the agent has killed the dragon twice from a start already in the End (in 44 minutes, then in 7 minutes), and entered the End once from a start holding twelve eyes.
+- **Late game, staged:** the agent has killed the dragon from a start already in the End twice: on 2026-10-26 in 44 minutes, on older code, and on 2026-11-14 in 7 minutes. On 2026-11-14 it also entered the End once, in 11 minutes, from a start holding twelve eyes.
 - **Biggest walls:** reaching the Nether reliably (one seed has never got there in three rounds), then finding a fortress and getting blaze rods once there.
 - **Deaths:** about 2.6 per game. The 30 games in the table had 78 deaths: skeleton arrows (28), zombies (12), lava (9, all after the agent had reached the Nether), Drowned mobs (5), creepers (4), spiders (4), drowning (2) and other or unknown causes (14).
 

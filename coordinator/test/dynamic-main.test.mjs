@@ -502,7 +502,11 @@ test('verbose feed never publishes raw provider chunks', async () => {
 		planner.requests.push(request);
 		request.onVerbose('output', 'Provider error: verbose mode is on');
 		request.onVerbose('provider', 'Provider response received.');
-		return withCompletionContract({ summary: 'Keep watch.', directive: 'replace', source: SOURCE }, request.goalRevision);
+		// The plan summary is the one path that still reaches the wire, so the raw chunk rides it through the sanitizer.
+		return withCompletionContract({
+			summary: 'Keep watch. {"type":"response.output_text.delta","delta":"Provider error: verbose mode is on"}',
+			directive: 'replace', source: SOURCE,
+		}, request.goalRevision);
 	};
 	const run = await start({ registry, planner });
 	try {
@@ -513,7 +517,8 @@ test('verbose feed never publishes raw provider chunks', async () => {
 		} });
 		await eventually(() => run.bridge.sent.some(({ type }) => type === 'action_command'));
 		const feed = run.bridge.sent.filter(({ type }) => type === 'verbose_event');
-		assert.equal(feed.some(({ payload }) => payload.message.includes('Provider error: verbose mode is on')), false);
+		assert.deepEqual(feed.map(({ payload }) => `${payload.stage}:${payload.message}`), ['decision:Keep watch.']);
+		assert.doesNotMatch(JSON.stringify(feed), /verbose mode is on|response\.output_text|delta/);
 	} finally {
 		await run.coordinator.stop();
 	}
@@ -1072,7 +1077,11 @@ test('the activity feed sends only sanitized, revision-bound decision events', a
 		request.onVerbose('output', 'Visible plan output. password=hunter2 Authorization: Bearer top-secret Basic Zm9vOmJhcg== api-key="key-value"');
 		request.onVerbose('error', 'Raw provider stderr private body password=raw-error-secret');
 		request.onVerbose('decision', 'Decision accepted');
-		return withCompletionContract({ summary: 'Wait.', directive: 'replace', source: SOURCE }, request.goalRevision);
+		// The plan summary reaches the wire, so the secret probes ride it through the sanitizer.
+		return withCompletionContract({
+			summary: 'Wait. password=hunter2 Authorization: Bearer top-secret Basic Zm9vOmJhcg== api-key="key-value"',
+			directive: 'replace', source: SOURCE,
+		}, request.goalRevision);
 	};
 	const run = await start({ bridge, registry, planner });
 	try {
@@ -1099,7 +1108,9 @@ test('the activity feed sends only sanitized, revision-bound decision events', a
 		const verbose = run.bridge.sent.filter(({ type }) => type === 'verbose_event');
 		assert.equal(verbose.every(({ agentId, payload }) => agentId === 'agent-a' && payload.goalRevision === 1 && payload.message.length <= 256), true);
 		assert.deepEqual(new Set(verbose.map(({ payload }) => payload.stage)), new Set(['decision']), 'planner, provider, output and error stages stay off the wire');
-		assert.deepEqual(verbose.filter(({ payload }) => payload.stage === 'decision').map(({ payload }) => payload.message), ['Wait.']);
+		assert.deepEqual(verbose.filter(({ payload }) => payload.stage === 'decision').map(({ payload }) => payload.message), [
+			'Wait. password=[REDACTED] Authorization: [REDACTED] [REDACTED_AUTH] api-key=[REDACTED]',
+		]);
 		assert.doesNotMatch(JSON.stringify(verbose), /hunter2|top-secret|Zm9vOmJhcg|key-value|private body|raw-error-secret|stderr/i);
 
 		const published = verbose.length;

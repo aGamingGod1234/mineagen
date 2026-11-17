@@ -243,9 +243,9 @@ flowchart TD
   CE --> FS["find structure stronghold<br/>throws eyes, follows them, digs down<br/>staged"]
   FS --> PR["find block end_portal_frame<br/>walks passages to the portal room<br/>staged: reached in some scouts,<br/>missed in more, count unverified"]
   PR --> SE["Set the eyes in the frames<br/>interact_block, no dedicated hand<br/>staged: 11 of 12 frames from 12 eyes<br/>world started with 2 filled"]
-  SE --> EN["Enter the End<br/>staged starts only, count unverified"]
+  SE --> EN["Enter the End<br/>staged: once from a twelve-eye start, 14 Nov"]
   EN --> CR["Break the end crystals<br/>fight_target, use_ranged"]
-  CR --> DR(["Kill the dragon<br/>staged 1, from an End save"])
+  CR --> DR(["Kill the dragon<br/>staged 1 on this code, from an End save, 14 Nov<br/>one more on 26 Oct code"])
 
   ECON["Eye economy: thrown eyes break about 1 in 5,<br/>12 eyes left the frame one short"] -.-> SE
 
@@ -275,8 +275,8 @@ flowchart LR
   E --> F["12 pearls<br/>never"]
   F --> G["Home with loot<br/>never"]
   G --> H["Stronghold room<br/>staged, count unverified"]
-  H --> I["End entered<br/>staged, count unverified"]
-  I --> J["Dragon dead<br/>staged 1, from an End save"]
+  H --> I["End entered<br/>staged, once from a twelve-eye start"]
+  I --> J["Dragon dead<br/>staged 1 on this code, from an End save<br/>one more on 26 Oct code"]
 
   classDef ok fill:#1f7a3a,color:#ffffff,stroke:#14532d
   classDef part fill:#a16207,color:#ffffff,stroke:#713f12

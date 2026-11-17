@@ -121,7 +121,7 @@ public final class MultiplexedServerBridgeVerification {
 		verifyObsoletePlannerReadinessIsIgnored();
 		verifyAgentErrorRevisionGate();
 		verifyRespawnContinuationPayload();
-		verifyProgressSurvivesMissingRecord();
+		verifyActionProgressReachesCoordinator();
 		verifyBlockTagCapability();
 		verifyPlanFactsWireCapability();
 		verifyBodyFactsCapability();
@@ -1759,12 +1759,12 @@ public final class MultiplexedServerBridgeVerification {
 				"the legacy overload strips it too");
 	}
 
-	private static void verifyProgressSurvivesMissingRecord() {
+	private static void verifyActionProgressReachesCoordinator() {
 		MultiplexedServerBridge bridge = null;
 		Path secretFile = null;
 		try {
 			String secret = "0123456789abcdef0123456789abcdef";
-			secretFile = Files.createTempFile("mineagen-missing-record-progress-secret-", ".txt");
+			secretFile = Files.createTempFile("mineagen-action-progress-secret-", ".txt");
 			Files.writeString(secretFile, secret);
 			bridge = new MultiplexedServerBridge(uninitializedManager(), 0, secretFile);
 			bridge.start();
@@ -1773,27 +1773,27 @@ public final class MultiplexedServerBridgeVerification {
 				 BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8))) {
 				socket.setSoTimeout(2_000);
 				BridgeEnvelope handshake = authenticate(
-						socket, reader, codec, secret, "hello-missing-record-progress"
+						socket, reader, codec, secret, "hello-action-progress"
 				);
 				assertEquals("hello_ack", handshake.type(),
-						"missing-record progress fixture authenticates the bridge");
-				AgentId removedAgent = AgentId.parse("00000000-0000-0000-0000-000000000401");
+						"action progress fixture authenticates the bridge");
+				AgentId agent = AgentId.parse("00000000-0000-0000-0000-000000000401");
 				invokeActionProgress(bridge, new ServerActionProgress(
-						removedAgent, 1L, "action-progress-1", ActionType.WAIT, "trace-progress-1",
+						agent, 1L, "action-progress-1", ActionType.WAIT, "trace-progress-1",
 						0.5D, 25L, 4_000L
 				));
 				assertEquals("action_progress", codec.decode(reader.readLine()).type(),
-						"a missing agent record cannot suppress the authoritative progress frame");
+						"server action progress is sent to the authenticated coordinator as an action_progress frame");
 			}
 		} catch (Exception exception) {
-			throw new AssertionError("missing-record progress verification failed", exception);
+			throw new AssertionError("action progress verification failed", exception);
 		} finally {
 			if (bridge != null) bridge.close();
 			if (secretFile != null) {
 				try {
 					Files.deleteIfExists(secretFile);
 				} catch (java.io.IOException exception) {
-					throw new AssertionError("could not remove missing-record progress secret", exception);
+					throw new AssertionError("could not remove action progress secret", exception);
 				}
 			}
 		}

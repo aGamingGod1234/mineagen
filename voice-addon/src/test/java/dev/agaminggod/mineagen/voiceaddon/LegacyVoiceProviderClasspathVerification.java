@@ -12,8 +12,6 @@ import java.util.List;
 final class LegacyVoiceProviderClasspathVerification {
 	private static final String CONFIGURATION_CLASS =
 			"dev.agaminggod.mineagen.server.voice.VoiceSubsystemConfiguration";
-	private static final String VERBOSE_REPORTER_CLASS =
-			"dev.agaminggod.mineagen.server.voice.VoiceInputVerboseReporter";
 
 	private LegacyVoiceProviderClasspathVerification() {
 	}
@@ -59,7 +57,7 @@ final class LegacyVoiceProviderClasspathVerification {
 		@Override
 		protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
 			synchronized (getClassLoadingLock(name)) {
-				if (name.equals(CONFIGURATION_CLASS) || name.equals(VERBOSE_REPORTER_CLASS)) {
+				if (name.equals(CONFIGURATION_CLASS)) {
 					throw new ClassNotFoundException(name);
 				}
 				Class<?> loaded = findLoadedClass(name);

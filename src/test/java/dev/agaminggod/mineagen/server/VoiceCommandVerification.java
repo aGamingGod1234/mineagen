@@ -44,13 +44,21 @@ public final class VoiceCommandVerification {
 		assertions = 0;
 		var dispatcher = new CommandDispatcher<CommandSourceStack>();
 		// Stands in for vanilla /spectate, which Fabric registers before the mod's callback runs.
-		dispatcher.register(net.minecraft.commands.Commands.literal("spectate").executes(context -> 0));
+		com.mojang.brigadier.Command<CommandSourceStack> vanillaSpectateCommand = context -> 0;
+		java.util.function.Predicate<CommandSourceStack> vanillaSpectateRequirement = stack -> true;
+		dispatcher.register(net.minecraft.commands.Commands.literal("spectate")
+				.requires(vanillaSpectateRequirement).executes(vanillaSpectateCommand));
 		var vanillaSpectate = dispatcher.getRoot().getChild("spectate");
 		AgentCommands.register(dispatcher);
 		var operator = source(null, PermissionSet.ALL_PERMISSIONS);
 		var nonOperator = source(null, PermissionSet.NO_PERMISSIONS);
-		// Registering a same-named literal would merge into this node, so an empty node means the mod added nothing.
-		check(dispatcher.getRoot().getChild("spectate") == vanillaSpectate && vanillaSpectate.getChildren().isEmpty(),
+		// A same-named mod literal would merge into this same node object: Brigadier copies its command over
+		// the stub and adds its children. So the node must still carry the stub command, no children and the
+		// stand-in requirement.
+		check(dispatcher.getRoot().getChild("spectate") == vanillaSpectate
+						&& vanillaSpectate.getCommand() == vanillaSpectateCommand
+						&& vanillaSpectate.getChildren().isEmpty()
+						&& vanillaSpectate.getRequirement() == vanillaSpectateRequirement,
 				"vanilla /spectate stays registered and untouched");
 		check(dispatcher.getRoot().getChildren().stream().map(com.mojang.brigadier.tree.CommandNode::getName)
 				.filter(name -> !name.equals("spectate")).toList().equals(List.of("mineagen")), "/mineagen is the only mod command root");
