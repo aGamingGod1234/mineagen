@@ -4,6 +4,8 @@ import { NativeToolRuntime } from '../src/native-tool-runtime.mjs';
 import { normalizeMinecraftToolCall } from '../src/native-minecraft-tools.mjs';
 
 const keepAlive = setInterval(() => {}, 1000);
+// A stop the coordinator makes for a fork, not for danger (Step 3: fork stops keep their own codes).
+const FORK = { reasonCode: 'LOW_HEALTH', message: 'Health 7: recover first' };
 test.after(() => clearInterval(keepAlive));
 // Independent review's production setup: real normalization, runtime and station placement;
 // inert bridge inventory effects establish terminal completion, not Minecraft physics.
@@ -33,6 +35,7 @@ async function replay(scenario) {
 		if (type !== 'action_command') return;
 		assert.ok(commands.length < 60, 'bounded production replay');
 		if (p.actionType === 'place_block') { observation.blocks.push({ blockId: p.arguments.itemId, x: p.arguments.x, y: p.arguments.y, z: p.arguments.z }); observation.inventory.items.splice(1, 1); }
+		if (p.actionType === 'craft_table' && scenario === 'craft-fork') { queueMicrotask(() => runtime.interruptBlockingTool(record.agentId, { forkStop: FORK })); return; }
 		if (p.actionType === 'craft_table' && scenario.startsWith('failed-')) {
 			craftFailures++;
 			queueMicrotask(() => runtime.onActionResult(record, { actionId: p.actionId, goalRevision: 1, state: 'FAILED', reasonCode: 'CRAFT_FAILED', executionStarted: true }));
@@ -42,6 +45,7 @@ async function replay(scenario) {
 		if (p.actionType === 'navigate_to' && scenario === 'after-move-danger') observation.player.onFire = true;
 		if (p.actionType === 'break_block') {
 			if (scenario === 'running' || scenario === 'failed-running') { queueMicrotask(() => runtime.interruptBlockingTool(record.agentId)); return; }
+			if (scenario === 'running-fork') { queueMicrotask(() => runtime.interruptBlockingTool(record.agentId, { forkStop: FORK })); return; }
 			if (scenario === 'ordinary') observation.inventory.items.push({ itemId: 'minecraft:crafting_table', slot: 1, count: 1 });
 			if (scenario === 'after-break-danger') { observation.player.onFire = true; }
 			if (scenario === 'inventory-loss') observation.inventory.items = [];
@@ -64,6 +68,17 @@ test('production cleanup interruption returns the current live break without pre
 	const actions = commands.filter(c => c.type === 'action_command');
 	assert.equal(actions.at(-1).actionType, 'break_block');
 	assert.equal(result.running.actionId, actions.at(-1).actionId);
+	assert.equal(commands.filter(c => c.type === 'action_cancel').length, 0);
+});
+for (const scenario of ['craft-fork', 'running-fork']) test(`production ${scenario}: a fork stop ends obtain with its own code and line, not DANGER`, async () => {
+	const { result, commands } = await replay(scenario);
+	assert.equal(result.state, 'INTERRUPTED');
+	assert.equal(result.reasonCode, 'LOW_HEALTH', JSON.stringify(result));
+	assert.match(result.message, /Health 7: recover first/);
+	assert.doesNotMatch(result.message, /danger/i);
+	const actions = commands.filter(c => c.type === 'action_command');
+	assert.equal(actions.at(-1).actionType, scenario === 'craft-fork' ? 'craft_table' : 'break_block');
+	assert.equal(result.running.actionId, actions.at(-1).actionId, 'the leg the fork cut short is handed back');
 	assert.equal(commands.filter(c => c.type === 'action_cancel').length, 0);
 });
 for (const scenario of ['fresh-danger', 'after-break-danger']) test(`production ${scenario} stops cleanup dispatch and retains stations`, async () => {

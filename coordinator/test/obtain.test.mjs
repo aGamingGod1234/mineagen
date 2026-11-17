@@ -1356,15 +1356,48 @@ test('food at health 5: the low-health line does not stop the obtain, and the hu
 	assert.ok(hunts.length > 0 && hunts.every(([, args]) => args.fleeAtHealth === 4), JSON.stringify(hunts));
 });
 
-test('a non-food item at health 5 still stops at the low-health line (the cleanup reports it as danger), and a full-health hunt keeps fight_until\'s own flee line', async () => {
+test('a non-food item at health 5 still stops at the low-health line (handed back as LOW_HEALTH, not danger), and a full-health hunt keeps fight_until\'s own flee line', async () => {
 	const body = lowHealth(simulatedBody());
 	const result = await runObtain({ item: 'oak_planks', count: 4 }, body, { now: clock() });
 	assert.equal(result.state, 'INTERRUPTED', result.message);
-	assert.match(result.message, /^Health 5: stopped to recover, then danger .*\(health 5\)/);
+	assert.equal(result.reasonCode, 'LOW_HEALTH', result.message);
+	assert.match(result.message, /^Health 5: stopped to recover\. Holding/);
+	assert.doesNotMatch(result.message, /danger/);
 	assert.ok(!body.calls.some(([type]) => type === 'gather'), 'no work at health 5');
 	const healthy = simulatedBody();
 	assert.equal((await runObtain({ item: 'minecraft:beef', count: 2 }, healthy, { now: clock() })).state, 'SUCCEEDED');
 	assert.ok(healthy.calls.filter(([type]) => type === 'fight_until').every(([, args]) => !('fleeAtHealth' in args)));
+});
+
+test('a non-food obtain that ends holding its item at health 5 hands back LOW_HEALTH, not danger', async () => {
+	const result = await runObtain({ item: 'oak_planks', count: 4 }, lowHealth(simulatedBody({ start: { oak_planks: 4 } })), { now: clock() });
+	assert.equal(result.state, 'INTERRUPTED', result.message);
+	assert.equal(result.reasonCode, 'LOW_HEALTH');
+	assert.match(result.message, /^Obtained oak_planks, but health is 5, at or under 6; recover/);
+});
+
+test('a fork stop ends obtain with its own code: the leg it cut short is not read as danger, and real danger still wins', async () => {
+	for (const scenario of ['fork', 'fork in lava', 'no fork reader']) {
+		const body = simulatedBody();
+		let fork = null;
+		body.gather = async (args) => {
+			body.calls.push(['gather', args]);
+			fork = { reasonCode: 'LOW_HEALTH', message: 'Health 7: recover first' };
+			return { state: 'INTERRUPTED', reasonCode: 'LOW_HEALTH' };
+		};
+		body.interrupted = () => fork !== null;
+		if (scenario !== 'no fork reader') body.forkStop = () => fork;
+		const observe = body.observe;
+		body.observe = async () => { const o = await observe(); return scenario === 'fork in lava' && fork !== null ? { ...o, player: { ...o.player, inLava: true } } : o; };
+		const result = await runObtain({ item: 'oak_planks', count: 4 }, body, { now: clock() });
+		assert.equal(body.calls.filter(([type]) => type === 'gather').length, 1, scenario);
+		assert.equal(result.state, 'INTERRUPTED', `${scenario}: ${result.message}`);
+		assert.equal(result.reasonCode, scenario === 'fork' ? 'LOW_HEALTH' : 'DANGER', `${scenario}: ${result.message}`);
+		if (scenario === 'fork') {
+			assert.match(result.message, /^Health 7: recover first; decide, then call obtain again/);
+			assert.doesNotMatch(result.message, /danger/i);
+		}
+	}
 });
 
 test('food at health 5 with damage taken during the hunt still hands back as danger', async () => {
@@ -1410,8 +1443,8 @@ test('the food hunt flee line is set once: a lower health on a later hunt round 
 // defend reflex, and handed back LOW_HEALTH only at 1.67 health. The re-break loop now checks the body before each round.
 for (const [name, harm, reasonCode, said] of [
 	['a skeleton shooting at the body', (o) => ({ ...o, player: { ...o.player, threats: [{ uuid: 's', type: 'minecraft:skeleton', distance: 12, targeting: true, signals: ['targeting'] }] } }), 'DANGER', /skeleton 12 blocks away/],
-	// obtain's low-health stop ends through end(), whose after-cleanup check reports the same health as DANGER.
-	['low health', (o) => ({ ...o, player: { ...o.player, health: 5 } }), 'DANGER', /Health 5: stopped to recover/],
+	// obtain's low-health stop keeps its own code through end(): low health alone is not danger.
+	['low health', (o) => ({ ...o, player: { ...o.player, health: 5 } }), 'LOW_HEALTH', /Health 5: stopped to recover/],
 ]) {
 	test(`the gravel re-break for flint hands back on ${name} instead of breaking on`, async () => {
 		const body = simulatedBody({ start: { iron_ingot: 1 } });
@@ -1854,7 +1887,7 @@ for (const stop of ['danger', 'cancel', 'deadline', 'low health']) {
 		};
 		const result = await runObtain({ item: 'flint', timeoutMs: 60000 }, body, { now: stop === 'deadline' ? () => expired ? 60001 : 0 : ticking() });
 		assert.notEqual(result.state, 'SUCCEEDED', result.message);
-		assert.equal(result.reasonCode, stop === 'deadline' ? 'OBTAIN_TIMEOUT' : stop === 'cancel' ? 'CANCELLED' : 'DANGER', result.message);
+		assert.equal(result.reasonCode, { deadline: 'OBTAIN_TIMEOUT', cancel: 'CANCELLED', 'low health': 'LOW_HEALTH' }[stop] ?? 'DANGER', result.message);
 		assert.equal(body.calls.filter(([type]) => type === 'search' || type === 'gather').length, 0);
 		assert.equal(body.calls.filter(([type]) => type === 'place_block').length, 1);
 	});

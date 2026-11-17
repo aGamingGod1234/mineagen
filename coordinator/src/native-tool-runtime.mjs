@@ -615,17 +615,23 @@ export class NativeToolRuntime {
 			&& status.programVersion === programVersion && status.decision == null;
 	}
 
-	interruptBlockingTool(agentId, { armNext = false } = {}) {
+	/**
+	 * Stops the running blocking tool for danger, or, given forkStop {reasonCode, message}, for that fork: the run is
+	 * interruptedBy 'fork' and obtain ends with the stop's own code and line instead of DANGER.
+	 */
+	interruptBlockingTool(agentId, { armNext = false, forkStop = null } = {}) {
 		this.#wakeProgramWaits(agentId, 'danger');
 		// Advice must yield to danger before the asynchronous action interruption marker catches up.
 		const action = this.#actions.get(agentId);
 		if (action?.actionType === 'cast_obsidian') action.suppressCastResumeAdvice = true;
 		const run = this.#blockingToolRuns.get(agentId);
 		if (run === undefined) {
-			if (armNext) this.#armedDangerInterrupts.add(agentId);
+			if (armNext && forkStop === null) this.#armedDangerInterrupts.add(agentId);
 			return false;
 		}
-		run.interruptedBy = 'danger';
+		// Danger outranks a fork: it replaces an earlier fork stop, and a later fork stop leaves it standing.
+		if (forkStop === null) { run.interruptedBy = 'danger'; run.forkStop = null; }
+		else if (run.interruptedBy !== 'danger') { run.interruptedBy = 'fork'; run.forkStop = { reasonCode: forkStop.reasonCode, message: forkStop.message ?? null }; }
 		run.resolveInterruption();
 		return true;
 	}
@@ -1344,7 +1350,7 @@ export class NativeToolRuntime {
 		const interruption = new Promise((resolve) => { resolveInterruption = resolve; });
 		let releaseWork = null;
 		const run = {
-			interruption, resolveInterruption, interruptedBy: null, sequence: null, lookAround: null, searching: false,
+			interruption, resolveInterruption, interruptedBy: null, forkStop: null, sequence: null, lookAround: null, searching: false,
 			settleBudgetMs: this.#sequenceStepSettleMs, activeActions: 0, finished: false, released: false,
 			retainAction: () => {
 				if (releaseWork === null) releaseWork = this.#onWorkStarted(record, 'action');
@@ -2483,9 +2489,10 @@ export class NativeToolRuntime {
 		let steps = 0;
 		const current = () => this.#executionEpoch(record.agentId) === executionEpoch;
 		const interrupted = () => blockingRun.interruptedBy !== null;
+		const halted = () => ({ state: 'INTERRUPTED', reasonCode: blockingRun.forkStop?.reasonCode ?? 'DANGER' });
 		const run = async (name, args) => {
 			if (!current()) throw codedError('NATIVE_ACTION_CANCELLED', 'obtain cancelled before its next step');
-			if (interrupted()) return { state: 'INTERRUPTED', reasonCode: 'DANGER' };
+			if (interrupted()) return halted();
 			steps += 1;
 			let normalized;
 			try { normalized = normalizeMinecraftToolCall(name, args); }
@@ -2514,7 +2521,7 @@ export class NativeToolRuntime {
 			moveTo: (args) => run('moveTo', args),
 			gather: async ({ itemIds, ...args }) => {
 				if (!current()) throw codedError('NATIVE_ACTION_CANCELLED', 'obtain cancelled before its next step');
-				if (interrupted()) return { state: 'INTERRUPTED', reasonCode: 'DANGER' };
+				if (interrupted()) return halted();
 				const normalized = normalizeMinecraftToolCall('gather', { itemId: itemIds[0], ...args });
 				try { return await this.#executeGather(request, record, { ...normalized, arguments: { ...normalized.arguments, itemIds } }, executionEpoch, blockingRun); }
 				catch (error) {
@@ -2558,6 +2565,8 @@ export class NativeToolRuntime {
 			},
 			stopped: () => !current(),
 			interrupted,
+			// The fork that stopped this run ({reasonCode, message}), or null for danger: obtain ends with its code.
+			forkStop: () => blockingRun.forkStop,
 			note: (text) => {
 				blockingRun.obtain = { step: steps, label: text };
 				this.#trace('native_obtain_step', { agentId: record.agentId, goalRevision: record.goalRevision, step: steps, text });
