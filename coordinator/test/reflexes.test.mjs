@@ -266,3 +266,46 @@ test('a do_step carries the same rule as act and mine: normalized alike and arme
 	assert.deepEqual(result.reflexes.map((row) => row.id), ['flow-out'], 'the step result lists the installed rules, as act does');
 	await runtime.dispose('agent-a', 'goal_revised');
 });
+
+test('replace_action yields a firing the coordinator knows of before it cancels the old action, and only then', async () => {
+	const run = async ({ firing, actionId }) => {
+		const sent = [];
+		let sequence = 1;
+		const runtime = new NativeToolRuntime({
+			reflexBook: new ReflexBook({ defaults: [] }),
+			bridge: { send: async (type, agentId, payload) => { sent.push({ type, payload }); } },
+			requestObservation: async () => ({ observation: adaptObservation(wire()), eventSequence: ++sequence }),
+		});
+		runtime.updateObservation(record(), adaptObservation(wire()), { eventSequence: ++sequence });
+		await runtime.execute(call(normalizeMinecraftToolCall('runProgram', { reflexes: [SHIELD] })), record());
+		const handle = await runtime.execute(call({ kind: 'start_action', actionType: 'wait', arguments: { durationMs: 100 } }, 3, 'call-2'), record());
+		const rules = [{ id: 'blaze-shield', kind: 'stance', state: firing ? 'firing' : 'armed', fired: firing ? 1 : 0, expiresInS: 599 }];
+		runtime.updateObservation(record(), adaptObservation({ ...wire(), reflexes: { revision: 1, ...(firing ? { firing: { id: 'blaze-shield', ms: 400 } } : {}), rules, events: [] } }), { eventSequence: ++sequence });
+		sent.length = 0;
+		const replace = call({ kind: 'replace_action', actionId: actionId ?? handle.actionId, goalRevision: 3, actionType: 'look_at', arguments: { x: 2, y: 64, z: 3 } }, 3, 'call-3');
+		const pending = runtime.execute(replace, record()).catch((error) => error);
+		for (let i = 0; i < 50 && !sent.some((entry) => entry.type !== 'reflex_update'); i += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+		if (actionId === undefined) runtime.onActionResult(record(), { actionId: handle.actionId, state: 'CANCELLED', reasonCode: 'ACTION_CANCELLED' });
+		for (let i = 0; i < 50 && actionId === undefined && !sent.some((entry) => entry.type === 'action_command'); i += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+		const successor = sent.find((entry) => entry.type === 'action_command');
+		if (successor !== undefined) runtime.onActionResult(record(), { actionId: successor.payload.actionId, state: 'SUCCEEDED', reasonCode: 'ACTION_COMPLETED' });
+		const outcome = await pending;
+		const types = sent.map((entry) => entry.type === 'reflex_update' ? `reflex_update:${entry.payload.yield}` : entry.type);
+		await runtime.dispose('agent-a', 'goal_revised');
+		return { types, outcome };
+	};
+	const known = await run({ firing: true });
+	assert.equal(known.types[0], 'reflex_update:true', `the yield goes first: ${known.types}`);
+	const cancel = known.types.findIndex((type) => type !== 'reflex_update:true');
+	assert.ok(cancel > 0 && known.types[cancel] !== 'action_command', `then the old action's cancel: ${known.types}`);
+	assert.ok(known.types.indexOf('action_command') > cancel, `then the replacement: ${known.types}`);
+	assert.equal(known.outcome.replacedAction?.state, 'CANCELLED');
+
+	const idle = await run({ firing: false });
+	assert.ok(!idle.types.includes('reflex_update:true'), `no firing known, no yield: ${idle.types}`);
+	assert.ok(idle.types.includes('action_command'), 'the replacement still runs');
+
+	const refused = await run({ firing: true, actionId: 'unknown' });
+	assert.equal(refused.outcome?.code, 'STALE_ACTION');
+	assert.deepEqual(refused.types, [], 'a refused replacement leaves the firing alone');
+});

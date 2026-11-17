@@ -35,7 +35,39 @@ public final class DriverRuleVerification {
 		floorStaysArmedAtTheFailureLimit(defaults);
 		floorStaysArmedAtTheRateLimit(defaults);
 		yieldableHazardsStillYield(defaults);
+		replacementGapKeepsDefendDown();
 		return assertions;
+	}
+
+	/**
+	 * replace_action's yield arrives while the old action still runs; the cancel then leaves the body idle until the replacement
+	 * starts. A yielded defend stays down through a gap of up to CommandFollower.IDLE_RESUME_TICKS, so the replacement
+	 * (here build_shelter, which defend would otherwise pause) starts with the body; a longer gap lets defend back first.
+	 */
+	private static void replacementGapKeepsDefendDown() {
+		for (long gap : new long[] {CommandFollower.IDLE_RESUME_TICKS, CommandFollower.IDLE_RESUME_TICKS + 1L}) {
+			ReflexScheduler scheduler = new ReflexScheduler();
+			scheduler.replace(rules("[" + DEFEND + "]"), 0L);
+			CommandFollower follower = new CommandFollower();
+			follower.observe(scheduler, false, "old", ActionType.TRAVEL_TO, null, null, 1L);
+			check("default-defend".equals(defendTick(scheduler, 1L, true, ActionType.TRAVEL_TO).started()), "defend holds the travel");
+			check(scheduler.yield(5L).endOutcome() == ReflexScheduler.Outcome.YIELDED, "replace_action's yield ends it");
+			follower.yielded(5L);
+			long tick = 6L;
+			for (; tick < 8L; tick++) {
+				follower.observe(scheduler, false, "old", ActionType.TRAVEL_TO, null, null, tick);
+				check(defendTick(scheduler, tick, true, ActionType.TRAVEL_TO).started() == null, "down while the old action is cancelled");
+			}
+			for (long idle = 0L; idle < gap; idle++, tick++) {
+				follower.observe(scheduler, false, null, null, "old", "ACTION_CANCELLED", tick);
+				ReflexScheduler.Decision decision = defendTick(scheduler, tick, true, null);
+				if (gap <= CommandFollower.IDLE_RESUME_TICKS) check(decision.started() == null, "down in the idle gap before the replacement");
+			}
+			follower.observe(scheduler, false, "new", ActionType.BUILD_SHELTER, "old", "ACTION_CANCELLED", tick);
+			boolean defendBack = scheduler.current() != null || defendTick(scheduler, tick, true, ActionType.BUILD_SHELTER).started() != null;
+			check(defendBack == (gap > CommandFollower.IDLE_RESUME_TICKS),
+					"a " + gap + "-tick gap " + (defendBack ? "lets defend back before" : "leaves the body to") + " the replacement");
+		}
 	}
 
 	private static List<ReflexSpec.Rule> defaults() {

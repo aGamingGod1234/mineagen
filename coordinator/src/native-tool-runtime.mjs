@@ -57,6 +57,7 @@ const PAUSED_PROGRAM_DANGER_ACTIONS = new Set(['fight_target', 'flee_from']);
 const GUARD_DEFENSIVE_ACTIONS = new Set(['fight_target', 'flee_from', 'block_with_shield', 'use_item', 'respawn']);
 const GUARD_OVERRIDE_KINDS = new Set(['action', 'start_action', 'run_program', 'sequence', 'lookAround', 'gather', 'find', 'obtain', 'repair_inventory', 'finish']);
 // A direct model body command takes the body from a firing reflex. Starting a program does not: the program pauses under it.
+// replace_action is one too; it yields in its own branch, once the replacement is accepted and before the old action is cancelled.
 const REFLEX_YIELD_KINDS = new Set(['action', 'start_action', 'sequence', 'lookAround', 'gather', 'find', 'obtain', 'repair_inventory']);
 const STOOD_STILL_KINDS = new Set(['action', 'start_action', 'run_program', 'sequence', 'lookAround', 'gather', 'find', 'obtain', 'repair_inventory']);
 const BODY_SEEN_VERBS = new Set(['travel_to', 'dig_to']);
@@ -953,6 +954,9 @@ export class NativeToolRuntime {
 		if (request.tool.kind === 'replace_action') {
 			const rejected = this.#operationRejection(record, request.tool);
 			if (rejected !== null) throw codedError(rejected.code, rejected.message);
+			// Yield before the cancel: otherwise the reflex holding the body keeps it, or default defend takes the body in the
+			// idle gap the cancel leaves, and the replacement starts paused under it.
+			if (request.tool.actionType !== 'chat' && this.#reflexes.firing(record.agentId)) await this.#sendReflexes(record, { yieldFiring: true });
 			this.#answerLegChain(record, request.tool.actionId);
 			const pausedProgram = this.#programRuns.has(record.agentId);
 			const interrupted = pausedProgram ? this.#interruptedPausedDangerAction(record) : null;
