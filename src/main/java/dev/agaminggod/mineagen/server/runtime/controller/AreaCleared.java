@@ -28,6 +28,8 @@ final class AreaCleared {
 	 * Zero kills keeps the long wait (nothing was found yet, so the herd may still come into view). Blazes keep it too:
 	 * they come from fortress spawners, which keep making more, and nothing handles spawners yet. So does roof:true: from
 	 * inside the shelter the body sees out only through its doorway, so a look around there cannot show the area clear.
+	 * Roaming enderman hunts (open ground, no spot) keep walking on to remembered sightings instead: a hunt finds endermen
+	 * one at a time, so one kill does not clear the area.
 	 */
 	static boolean applies(int kills, boolean waitsForMore) {
 		return kills > 0 && !waitsForMore;
