@@ -30,6 +30,8 @@ public final class DangerLog {
 	public static final long CLOSE_GRACE_TICKS = 40L;
 	public static final int MAX_OPEN = 32;
 	static final int MAX_STEMS = 256;
+	/** Command kinds that never take the body, so they answer no onset. */
+	static final Set<String> NOT_BODY = Set.of("chat", "complete_goal");
 	private static final Pattern STEM_SUFFIX = Pattern.compile("(-leg\\d+|:\\d+)$");
 
 	/** A command the bridge accepted for this agent; {@code issuer} is the coordinator's explicit field, or null from an older one. */
@@ -130,8 +132,12 @@ public final class DangerLog {
 		expire(gameTime, epochMs);
 	}
 
-	/** The bridge accepted a command. Only the first command of each step stem under a program is a response. */
+	/**
+	 * The bridge accepted a command. Only the first command of each step stem under a program is a response, and only a
+	 * command that moves the body: a chat line or a goal report is routed beside the running action.
+	 */
 	public void command(Command command, long gameTime) {
+		if (NOT_BODY.contains(command.actionType())) return;
 		active = command;
 		String stem = command.programId() + "\u0000" + STEM_SUFFIX.matcher(command.sourceStepId() == null ? "" : command.sourceStepId()).replaceFirst("");
 		if (stems.size() >= MAX_STEMS) stems.clear();

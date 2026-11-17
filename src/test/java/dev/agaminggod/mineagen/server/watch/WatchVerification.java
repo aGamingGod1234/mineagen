@@ -116,6 +116,15 @@ public final class WatchVerification {
 		check("none".equals(text(rows(legs.take(), "onset").getFirst(), "response")), "a leg start is not a response");
 		check(DangerLog.path("model").equals("command:model") && DangerLog.path("bogus").equals("command:unknown"), "unknown issuers stay unknown");
 
+		// A model chat line is routed beside the running action; it does not answer the onset, the next body command does.
+		DangerLog chat = new DangerLog(AGENT);
+		chat.observe(List.of(targeting("z", "mob")), 10, 500L, null, null);
+		chat.command(new DangerLog.Command("say-1", "chat", "native-turn-4", "call-1", "model"), 12);
+		chat.command(new DangerLog.Command("act-2", "flee_from", "native-turn-4", "call-2", "model"), 16);
+		chat.observe(List.of(), 211, 10_550L, null, null);
+		JsonObject answered = rows(chat.take(), "onset").getFirst();
+		check("act-2".equals(text(answered, "responseActionId")) && answered.get("latencyTicks").getAsLong() == 6L, "a chat line is not a response");
+
 		DangerLog late = new DangerLog(AGENT);
 		late.observe(List.of(targeting("z", "mob")), 10, 500L, null, null);
 		late.command(command("act-late", "native-turn-3", "call-1", "model"), 211);
