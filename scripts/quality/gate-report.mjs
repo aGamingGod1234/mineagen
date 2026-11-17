@@ -171,6 +171,8 @@ function readRoundGame(dir) {
 	const roundManifest = path.join(dir, '..', 'manifest.json');
 	const game = existsSync(roundManifest) ? readJson(roundManifest).games?.find((entry) => entry.id === path.basename(dir)) : null;
 	const t0 = timeline.startedAt;
+	// Older timelines name no start kind; inherited (snapshot baseline) stages still mark a save point.
+	const savePoint = timeline.startKind != null ? timeline.startKind !== 'fresh' : timeline.stages.some((stage) => stage.source === 'snapshot baseline');
 	// Some games stopped without a stop time; the timeline's own minute count still gives the end.
 	const end = Number.isFinite(timeline.stoppedAt) && timeline.stoppedAt > t0 ? timeline.stoppedAt : t0 + timeline.minute * 60_000;
 	const samples = samplesOf(path.join(dir, 'raw'), t0, end);
@@ -187,9 +189,11 @@ function readRoundGame(dir) {
 		run: game?.tag ?? path.basename(dir), seed: String(manifest?.world?.seed ?? timeline.spawnCheck?.seed), commit: /-([0-9a-f]{7,40})\.jar$/.exec(game?.jar ?? '')?.[1] ?? null,
 		ranAt: new Date(t0).toISOString().slice(0, 10), mode: 'model', model: profile, windowMin: game?.minutes ?? minutes(end - t0), playedMin: minutes(end - t0),
 		startKind: timeline.startKind ?? null,
-		milestones: Object.fromEntries(MILESTONES.map(({ key }) => [key, ms[key] === null ? null : minutes(ms[key] - t0)])),
+		// A game started from a save point inherits stages (snapshot baseline) and items (a bucket in the first sample):
+		// its milestones are not its own, so it measures none.
+		...(savePoint ? { milestones: {}, unmeasured: `start ${timeline.startKind ?? 'from a snapshot'}: inherited stages are not this game's` } : {
+			milestones: Object.fromEntries(MILESTONES.map(({ key }) => [key, ms[key] === null ? null : minutes(ms[key] - t0)])), ...samples.nether }),
 		deaths: timeline.deaths?.length ?? 0, costUsd: Math.round((spend?.usd ?? 0) * 1000) / 1000, decisionLog: false,
-		...samples.nether,
 	}];
 }
 
@@ -209,6 +213,25 @@ export function readRun(dir) {
 const one = (values) => { const set = [...new Set(values)]; return set.length === 1 ? set[0] : set.length ? set : null; };
 
 /**
+ * Kaplan-Meier median minutes over seeds: { t, reached } rows, an unreached one censored at t (the minutes it played).
+ * A game that stopped early leaves the risk set at its stop, so it never ranks behind a longer game that reached the
+ * milestone. Where the survival curve sits at exactly one half the median is the midpoint to the next reached time (an
+ * ordinary median with no censoring); a curve that never falls to one half leaves the median unknown (null).
+ */
+export function censoredMedian(rows) {
+	const reachedAt = [...new Set(rows.filter((row) => row.reached).map((row) => row.t))].sort((a, b) => a - b);
+	let survival = 1;
+	for (let i = 0; i < reachedAt.length; i++) {
+		const t = reachedAt[i];
+		const atRisk = rows.filter((row) => row.t >= t).length, reached = rows.filter((row) => row.reached && row.t === t).length;
+		survival *= 1 - reached / atRisk;
+		if (Math.abs(survival - 0.5) < 1e-9) return i + 1 < reachedAt.length ? Math.round((t + reachedAt[i + 1]) / 2 * 10) / 10 : null;
+		if (survival < 0.5) return Math.round(t * 10) / 10;
+	}
+	return null;
+}
+
+/**
  * Per milestone, over seeds (a repeated seed counts once: reached if any of its runs reached it; its time is the median
  * of its runs that did). Repeats are reported separately, so a seed run twice cannot double its weight here.
  */
@@ -218,12 +241,18 @@ export function funnel(runs) {
 	for (const { key } of MILESTONES) {
 		const measured = seeds.filter((seed) => runs.some((run) => run.seed === seed && key in run.milestones));
 		if (measured.length === 0) continue;
-		const times = measured.map((seed) => median(runs.filter((run) => run.seed === seed && run.milestones[key] !== null && key in run.milestones).map((run) => run.milestones[key]))).filter((value) => value !== null);
+		const rows = measured.map((seed) => {
+			const own = runs.filter((run) => run.seed === seed && key in run.milestones);
+			const t = median(own.filter((run) => run.milestones[key] !== null).map((run) => run.milestones[key]));
+			// Never reached: censored at the longest it played, else at the window. Early: stopped over a minute short of it.
+			return t !== null ? { t, reached: true } : { t: Math.max(...own.map((run) => run.playedMin ?? run.windowMin ?? Infinity)), reached: false,
+				early: own.every((run) => Number.isFinite(run.playedMin) && Number.isFinite(run.windowMin) && run.playedMin < run.windowMin - 1) };
+		});
 		const tried = runs.filter((run) => key in run.milestones);
-		// A seed that never reached the milestone stays in the median as censored (later than every reached time).
-		const censored = measured.length - times.length;
-		out[key] = { reached: times.length, total: measured.length, censored, medianMin: median([...times, ...Array(censored).fill(Infinity)]),
-			runs: { reached: tried.filter((run) => run.milestones[key] !== null).length, total: tried.length } };
+		const censored = rows.filter((row) => !row.reached);
+		out[key] = { reached: rows.length - censored.length, total: measured.length, censored: censored.length,
+			...(censored.some((row) => row.early) ? { censoredEarly: censored.filter((row) => row.early).length } : {}),
+			medianMin: censoredMedian(rows), runs: { reached: tried.filter((run) => run.milestones[key] !== null).length, total: tried.length } };
 	}
 	return out;
 }
@@ -297,6 +326,10 @@ export function buildGate({ gate, title, cohorts }) {
 	if (built.length === 1) notes.push('No pair in this file: one commit ran this gate. The PR comment pairs it with the previous gate when both ran the same seeds with the same model and window.');
 	for (const comparison of comparisons) if (comparison.missingPairs.length) notes.push(`${comparison.before} → ${comparison.after}: ${comparison.missingPairs.length} seed(s) without a pair.`);
 	if (!built.some((cohort) => cohort.repeats.length)) notes.push('No repeats: each seed ran once per commit, so run-to-run noise is not measured here.');
+	for (const cohort of built) {
+		const unmeasured = cohort.runs.filter((run) => run.unmeasured);
+		if (unmeasured.length) notes.push(`${cohort.name}: ${unmeasured.length} game(s) measure no milestone (${unmeasured.map((run) => `${run.run}: ${run.unmeasured}`).join('; ')}).`);
+	}
 	return { schema: SCHEMA, gate, title, generatedBy: 'scripts/quality/gate-report.mjs', rule: `A difference under ${NO_CHANGE_SEEDS} seeds is "no change" (rule of thumb).`,
 		milestones: MILESTONES, cohorts: built, comparisons, notes };
 }

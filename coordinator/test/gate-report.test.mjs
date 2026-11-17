@@ -185,15 +185,15 @@ test('scripted repeats are labelled scripted, and an unknown commit is not "mixe
 });
 
 /** A standard round as its runner saves it: the round manifest, then per game a timeline, spend, manifest and samples. */
-async function standardRound(root, games) {
+async function standardRound(root, games, { startKind = 'fresh', baseline = startKind !== 'fresh' } = {}) {
 	const dir = path.join(root, 'round9');
 	await mkdir(dir, { recursive: true });
 	await writeFile(path.join(dir, 'manifest.json'), JSON.stringify({ games: games.map(({ id }, i) => ({ id, tag: `r9-${i + 1}`, jar: `jars/route-${SHA.slice(0, 8)}.jar`, minutes: 180 })) }));
 	for (const { id, seed, stages, deaths = 0, minute = 60, samples } of games) {
 		const game = path.join(dir, id);
 		await mkdir(path.join(game, 'raw'), { recursive: true });
-		await writeFile(path.join(game, 'timeline.json'), JSON.stringify({ stageOrder: ['iron pickaxe', 'in the Nether'], startedAt: T0, stoppedAt: T0 + minute * MIN, minute, startKind: 'fresh',
-			stages: Object.entries(stages).map(([stage, at]) => ({ stage, minute: at, at: T0 + at * MIN, source: 'observation' })), deaths: Array.from({ length: deaths }, () => ({ cause: 'x' })) }));
+		await writeFile(path.join(game, 'timeline.json'), JSON.stringify({ stageOrder: ['iron pickaxe', 'in the Nether'], startedAt: T0, stoppedAt: T0 + minute * MIN, minute, startKind,
+			stages: Object.entries(stages).map(([stage, at]) => ({ stage, minute: at, at: T0 + at * MIN, source: at === 0 && baseline ? 'snapshot baseline' : 'observation' })), deaths: Array.from({ length: deaths }, () => ({ cause: 'x' })) }));
 		await writeFile(path.join(game, 'spend.json'), JSON.stringify({ usd: 2.5 }));
 		await writeFile(path.join(game, 'raw', 'manifest.json'), JSON.stringify({ provider: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'low', world: { seed } }));
 		if (samples) await writeFile(path.join(game, 'raw', 'quality-samples.jsonl'), samples.map((row) => JSON.stringify(row)).join('\n') + '\n');
@@ -240,7 +240,8 @@ test('a standard round folder gives each game, with the first bucket and Nether 
 		assert.equal(second.playedMin, 40);
 
 		const [cohort] = buildGate({ gate: 'r9', title: 'round 9', cohorts: [{ name: 'r9', label: 'round 9', dirs: [dir] }] }).cohorts;
-		assert.deepEqual(cohort.funnel.nether, { reached: 1, total: 2, censored: 1, medianMin: null, runs: { reached: 1, total: 2 } });
+		// game-2 stopped at 40 of 180 minutes without the Nether: censored early, at 40.
+		assert.deepEqual(cohort.funnel.nether, { reached: 1, total: 2, censored: 1, censoredEarly: 1, medianMin: null, runs: { reached: 1, total: 2 } });
 		assert.deepEqual(cohort.nether, { games: 1, entered: 1, minutes: 22.5, deathsAfterFirstEntry: 2, deaths: 2, gamesWithDeaths: 1,
 			respawnBlocks: { min: 50, median: 77, max: 104 }, back: { returned: 1, returnedMin: 5, neverReturned: 1, neverReturnedMin: 10, totalMin: 15 } });
 	} finally { await rm(root, { recursive: true, force: true }); }
@@ -253,6 +254,38 @@ test('a seed that never reached a milestone stays in the median as censored', ()
 	assert.equal(funnel([run('1', 30), run('2', null)]).nether.medianMin, null);
 	// A seed run twice is reached if either run was; it is not censored.
 	assert.equal(funnel([run('1', null), run('1', 40), run('2', 20)]).nether.censored, 0);
+});
+
+test('a game that stopped early is censored where it stopped, never ranked behind a longer game that reached the milestone', () => {
+	const run = (seed, nether, playedMin = 180) => ({ seed, windowMin: 180, playedMin, milestones: { nether } });
+	// Two games stopped at 20 and 25 minutes, before the others reached the Nether at 60, 90 and 120. Counted as never
+	// reaching it (past the window) the median was 120; out of the risk set at their stop it is the median of the three.
+	const early = funnel([run('1', 60), run('2', 90), run('3', 120), run('4', null, 20), run('5', null, 25)]).nether;
+	assert.equal(early.medianMin, 90);
+	assert.equal(early.censored, 2);
+	assert.equal(early.censoredEarly, 2, 'flagged: they stopped before the window ended');
+	// Censored at the window end, they stay later than every reached time, as before.
+	const full = funnel([run('1', 60), run('2', 90), run('3', 120), run('4', null), run('5', null)]).nether;
+	assert.equal(full.medianMin, 120);
+	assert.equal('censoredEarly' in full, false);
+	// A game that stopped after the others reached it is still at risk at their times.
+	assert.equal(funnel([run('1', 30), run('2', 50), run('3', null, 100)]).nether.medianMin, 50);
+});
+
+test('a game started from a save point measures no milestone: its inherited stages are not its own', async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), 'gate-report-'));
+	try {
+		const dir = await standardRound(root, [{ id: 'game-1', seed: '777', stages: { 'iron pickaxe': 0, 'in the Nether': 12 } }], { startKind: 'snapshot' });
+		const [game] = readRun(dir);
+		assert.equal(game.startKind, 'snapshot');
+		assert.deepEqual(game.milestones, {});
+		const gate = buildGate({ gate: 'r9', title: 'round 9', cohorts: [{ name: 'r9', label: 'round 9', dirs: [dir] }] });
+		assert.deepEqual(gate.cohorts[0].funnel, {});
+		assert.ok(gate.notes.some((note) => /r9: 1 game\(s\) measure no milestone \(r9-1: start snapshot/.test(note)), gate.notes.join('\n'));
+		// An older timeline names no start kind: its inherited stages still mark the save point.
+		const older = await standardRound(path.join(root, 'older'), [{ id: 'game-1', seed: '777', stages: { 'iron pickaxe': 0, 'in the Nether': 12 } }], { startKind: null, baseline: true });
+		assert.deepEqual(readRun(older)[0].milestones, {});
+	} finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test('a long run scored before stage-score tracked the fortress leaves the late milestones unmeasured', async () => {
