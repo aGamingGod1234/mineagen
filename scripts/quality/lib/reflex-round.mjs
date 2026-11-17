@@ -167,18 +167,19 @@ export function windowDeaths(samples, start, end, lifecycle = []) {
 	const near = at => rows.filter(s => Math.abs(s.at - at) <= COVERAGE_SLACK_MS);
 	const atStart = near(start), atEnd = near(end);
 	if (!atStart.length) return null;
-	// The latest sample at or before the start (else the first after it), and the first at or after the end (else the last).
-	const base = atStart.filter(s => s.at <= start).at(-1) ?? atStart[0];
+	// Both boundary samples are taken inside the window where one is near (the first at or after the start, the last at or
+	// before the end), so the counter's rise never takes in a death just outside it.
+	const base = atStart.find(s => s.at >= start) ?? atStart.at(-1);
 	// A sample's time is stamped before its counter is read, so a death near a sample may or may not be in it. Each death
-	// also has a dead event; the larger of the counter's rise and the dead events since the base counts each death once,
-	// including one after the closing sample or one the body never respawned from.
-	const deadSince = (lifecycle ?? []).filter(e => e?.operation === 'dead' && finite(e.at) && e.at > base.at && e.at <= end).length;
+	// also has a dead event; the larger of the counter's rise and the dead events inside the window counts each death once,
+	// including one between a boundary sample and the window edge, or one the body never respawned from.
+	const deadSince = (lifecycle ?? []).filter(e => e?.operation === 'dead' && finite(e.at) && e.at > start && e.at <= end).length;
 	if (!atEnd.length) {
 		const lastBefore = rows.filter(s => s.at <= end).at(-1);
 		if (!lastBefore || lastBefore.at < base.at || deadThroughEnd(lifecycle, lastBefore.at, end) === null) return null;
 		return Math.max(lastBefore.deathCounter - base.deathCounter, deadSince);
 	}
-	const last = atEnd.find(s => s.at >= end) ?? atEnd.at(-1);
+	const last = atEnd.filter(s => s.at <= end).at(-1) ?? atEnd[0];
 	if (last.at <= base.at) return null;
 	return Math.max(last.deathCounter - base.deathCounter, deadSince);
 }

@@ -212,6 +212,10 @@ test('deaths come from counter samples at both room boundaries; a missing bounda
 	const stampedBefore = [{ operation: 'dead', at: START + 280_000 }];
 	assert.equal(windowDeaths(deathsAt([0, 0], [278.9, 0], [279.9, 1]), START, START + 300_000, stampedBefore), 1);
 	assert.equal(windowDeaths(deathsAt([0, 0], [278.9, 0], [279.9, 1], [280.4, 1]), START, START + 300_000, stampedBefore), 1);
+	// Deaths just outside the window do not count: one 3 s after the end, read by a sample 4 s after it, and one 2 s before
+	// the start, after a base sample 4 s before it.
+	assert.equal(windowDeaths(deathsAt([0, 0], [296, 0], [304, 1]), START, START + 300_000, [{ operation: 'dead', at: START + 303_000 }]), 0);
+	assert.equal(windowDeaths(deathsAt([-4, 0], [1, 1], [300, 1]), START, START + 300_000, [{ operation: 'dead', at: START - 2_000 }]), 0);
 	// An earlier death and respawn plus a final death with no respawn: two.
 	assert.equal(windowDeaths(deathsAt([0, 0], [100, 1], [279, 1]), START, START + 300_000,
 		[{ operation: 'dead', at: START + 99_500 }, { operation: 'respawn', at: START + 102_000 }, { operation: 'dead', at: START + 280_000 }]), 2);
