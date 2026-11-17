@@ -169,6 +169,9 @@ const FACES = [['up', 0, -1, 0], ['down', 0, 1, 0], ['north', 0, 0, 1], ['south'
  * wall or ceiling. A sample lists few blocks underground (six in a dug pit), so a cell not seen as solid is a candidate
  * too; place_block's preferred face lets the server click whichever seen support face the cell has.
  */
+// Full-cube block items: faces judged for one hold for a crafting table, furnace or sand placed the same way.
+const FULL_CUBE_BASIS = /^(cobblestone|cobbled_deepslate|stone|deepslate|andesite|diorite|granite|tuff|blackstone|dirt|netherrack|end_stone|crafting_table|furnace|sand|red_sand|gravel|[a-z_]+_(planks|log|wood|stem|hyphae))$/;
+
 export function placementCells(o, tried = new Set(), { ground = false, trail = [] } = {}) {
 	const body = bodyAt(o);
 	if (body === null) return [];
@@ -185,7 +188,11 @@ export function placementCells(o, tried = new Set(), { ground = false, trail = [
 	// NO_PLACEMENT_SUPPORT: 453 of 646 such failures placed a crafting table. A support row without the list says nothing.
 	// A replaceable plant in the cell is clicked directly and needs no support face. Remembered rows' lists are from where
 	// the body stood then, so they say nothing either.
-	const lists = !(o.continuity?.rememberedSections ?? []).includes('blocks');
+	// The lists are judged for the held block item (cobblestone stands in when the hand holds none): a held sapling or
+	// seeds list no face on stone, which says nothing about a full-cube station. Only a full-cube basis counts.
+	const basis = o.coverage?.sections?.blocks;
+	const fullCube = basis?.placeableFacesStandIn === true || FULL_CUBE_BASIS.test(bare(basis?.placeableFacesFor));
+	const lists = fullCube && !(o.continuity?.rememberedSections ?? []).includes('blocks');
 	const plant = (row) => row?.replaceable === true && !/(water|lava|air)$/.test(row.blockId);
 	const support = (x, y, z) => {
 		let seen = 0, unknown = false;

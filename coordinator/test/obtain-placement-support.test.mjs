@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { placementCells } from '../src/obtain-runner.mjs';
+import { NativeToolRuntime } from '../src/native-tool-runtime.mjs';
+import { adaptObservation } from '../src/observation-adapter.mjs';
 
 // K6 (issue #2): obtain's station cells. Each seen block row lists the faces the body can click now to place into the
 // cell beside it (placeableFaces). 453 of 646 NO_PLACEMENT_SUPPORT failures placed a crafting table in a cell none of
@@ -10,13 +12,15 @@ const key = (cell) => `${cell.x},${cell.y},${cell.z}`;
 
 // A body on a stone floor. The floor's top faces west of it (x < 0) and the wall north of it are hidden from the eye:
 // the server lists no face for them. A tall grass plant stands on a hidden floor block.
-function scene({ withFaces = true } = {}) {
+// The faces are judged for cobblestone standing in for a full block (the hand holds no block item).
+const STAND_IN = { sections: { blocks: { placeableFacesFor: 'minecraft:cobblestone', placeableFacesStandIn: true } } };
+function scene({ withFaces = true, coverage = STAND_IN } = {}) {
 	const blocks = [];
 	const faces = (list) => (withFaces ? { placeableFaces: list } : {});
 	for (let x = -3; x <= 3; x++) for (let z = -3; z <= 3; z++) blocks.push({ blockId: 'minecraft:stone', x, y: 63, z, ...faces(x < 0 ? [] : ['up']) });
 	for (let x = -3; x <= 3; x++) for (const y of [64, 65, 66]) blocks.push({ blockId: 'minecraft:stone', x, y, z: -3, ...faces([]) });
 	blocks.push({ blockId: 'minecraft:short_grass', x: -1, y: 64, z: 1, replaceable: true, ...faces([]) });
-	return { player: { x: 0.5, y: 64, z: 0.5, onGround: true }, blocks };
+	return { player: { x: 0.5, y: 64, z: 0.5, onGround: true }, blocks, ...(coverage === null ? {} : { coverage }) };
 }
 
 /** Whether place_block into this cell would fail NO_PLACEMENT_SUPPORT: seen supports, none clickable toward it, no plant. */
@@ -56,4 +60,39 @@ test('K6: support rows without placeableFaces say nothing, and cells are offered
 	// Remembered block rows carry the lists from where the body stood then: they say nothing either.
 	const remembered = { ...scene(), continuity: { rememberedSections: ['blocks'] } };
 	assert.ok(placementCells(remembered, new Set(), { trail: ['-1,64,0'] }).some((cell) => key(cell) === '-1,64,0'));
+});
+
+test('K6: faces judged for a held sapling or seeds say nothing about a station, and every cell stays a candidate', () => {
+	// A sapling only goes on dirt: every stone support lists no face. The table is a full cube and fits there.
+	const sapling = { sections: { blocks: { placeableFacesFor: 'minecraft:oak_sapling' } } };
+	const o = scene({ coverage: sapling });
+	for (const row of o.blocks) row.placeableFaces = [];
+	const all = placementCells(o, new Set(), { trail: ['-1,64,0', '1,64,0'] });
+	assert.ok(all.length >= 8, `cells offered: ${all.length}`);
+	assert.ok(all.some((cell) => key(cell) === '1,64,0') && all.some((cell) => key(cell) === '-1,64,0'), 'cells over the floor stay');
+	// The same lists judged for a full block (or with no basis named) would shut these cells; with no basis they stay.
+	assert.ok(placementCells(scene({ coverage: null }), new Set(), { trail: ['-1,64,0'] }).some((cell) => key(cell) === '-1,64,0'), 'no basis named: unknown');
+	for (const held of ['minecraft:oak_planks', 'minecraft:spruce_log', 'minecraft:cobblestone']) {
+		const full = scene({ coverage: { sections: { blocks: { placeableFacesFor: held } } } });
+		assert.ok(!placementCells(full, new Set(), { trail: ['-1,64,0'] }).some((cell) => key(cell) === '-1,64,0'), `a held ${held} judges the faces`);
+	}
+});
+
+test('K6: the basis reaches placementCells through the observation adapter and the runtime, as obtain reads it', () => {
+	const scenery = scene();
+	const wire = { ready: true, position: { x: 0.5, y: 64, z: 0.5 }, velocity: { x: 0, y: 0, z: 0 }, view: { yaw: 0, pitch: 0 },
+		player: { health: 20, maxHealth: 20, armor: 0, foodLevel: 20, saturation: 5, gameMode: 'survival', onGround: true, inWater: false, onFire: false,
+			air: 300, maxAir: 300, suffocating: false, fallDistance: 0, effects: [] },
+		inventory: { items: [], selectedItem: 'minecraft:air' }, entities: [], blocks: scenery.blocks.map((row) => ({ ...row, replaceable: row.replaceable === true })), nearbyContainers: [],
+		world: { dimension: 'minecraft:overworld', gameTime: 1, dayTime: 1, raining: false, thundering: false },
+		currentAction: { active: false }, lastResult: { present: false },
+		coverage: { mode: 'sampled_visible', complete: false, sections: { blocks: { returned: scenery.blocks.length, complete: false, placeableFacesFor: 'minecraft:cobblestone', placeableFacesStandIn: true } } } };
+	const record = { agentId: 'agent-a', provider: 'claude', model: 'claude-opus-5-5', reasoningEffort: 'low', serviceTier: 'standard', goalRevision: 3, currentGoal: 'beat the game' };
+	const runtime = new NativeToolRuntime({ bridge: { send: async () => {} } });
+	runtime.updateObservation(record, adaptObservation(wire), { eventSequence: 2 });
+	const o = runtime.decorateObservation(record, adaptObservation(wire), { deliver: false });
+	assert.equal(o.coverage?.sections?.blocks?.placeableFacesStandIn, true, 'the basis survives');
+	const all = placementCells(o, new Set(), { trail: ['-1,64,0', '1,64,0'] });
+	assert.ok(!all.some((cell) => key(cell) === '-1,64,0'), 'a cell over a hidden floor is dropped');
+	assert.ok(all.some((cell) => key(cell) === '1,64,0'), 'one over a floor it can click stays');
 });
