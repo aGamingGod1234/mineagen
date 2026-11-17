@@ -814,15 +814,15 @@ public final class AgentControlScreen extends Screen {
 		planWindow.active = canControl();
 		planWindow.setTooltip(net.minecraft.client.gui.components.Tooltip.create(Component.literal("Open the selected agent's live dependency map in a separate window. Closing it leaves the task running.")));
 		addRenderableWidget(planWindow);
-		ConsoleButton codexWindow = consoleButton("Model terminal: " + (dev.agaminggod.mineagen.client.control.LiveAgentWindows.terminalEnabled() ? "On" : "Off"),
+		ConsoleButton terminalWindow = consoleButton("Model terminal: " + (dev.agaminggod.mineagen.client.control.LiveAgentWindows.terminalEnabled() ? "On" : "Off"),
 				x + (width - GAP) / 2 + GAP, top + 64, (width - GAP) / 2, ROW_HEIGHT,
 				dev.agaminggod.mineagen.client.control.LiveAgentWindows.terminalEnabled(), () -> {
 					if (!dev.agaminggod.mineagen.client.control.LiveAgentWindows.toggleTerminal(agent)) setFeedback("Desktop windows are unavailable in a headless client", true);
 					rebuildWidgets();
 				});
-		codexWindow.active = canControl();
-		codexWindow.setTooltip(net.minecraft.client.gui.components.Tooltip.create(Component.literal("View the agent's model output, tools and usage, whichever provider runs it. This starts no additional model calls.")));
-		addRenderableWidget(codexWindow);
+		terminalWindow.active = canControl();
+		terminalWindow.setTooltip(net.minecraft.client.gui.components.Tooltip.create(Component.literal("View the agent's model output, tools and usage, whichever provider runs it. This starts no additional model calls.")));
+		addRenderableWidget(terminalWindow);
 		addBackFooter();
 	}
 
@@ -865,7 +865,7 @@ public final class AgentControlScreen extends Screen {
 			graphics.fill(left, layout.panelTop(), navigationRight, layout.panelBottom(), NAV_SURFACE);
 			graphics.fill(navigationRight, layout.panelTop(), navigationRight + 1, layout.panelBottom(), PANEL_EDGE);
 			graphics.fill(layout.contentLeft(), layout.panelTop() + 31, layout.panelRight(), layout.panelTop() + 32, PANEL_EDGE);
-			graphics.text(font, "Arena", left + 14, layout.panelTop() + 8, ACCENT, false);
+			graphics.text(font, "Mineagen", left + 14, layout.panelTop() + 8, ACCENT, false);
 			graphics.text(font, "Agents", left + 14, layout.panelTop() + 19, TEXT, false);
 			graphics.text(font, "Field Console", left + 14, layout.panelTop() + 35, MUTED, false);
 			graphics.text(font, "Operations", left + 14, layout.navigationTop() - 15, MUTED, false);

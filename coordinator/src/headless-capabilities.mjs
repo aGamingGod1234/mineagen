@@ -12,8 +12,8 @@ const owns = (item) => factual(`execute if items entity {agent} container.* ${it
 const earned = (advancement) => factual(`execute if entity @a[name={agent},advancements={minecraft:${advancement}=true}] run data get entity {agent} Pos`);
 const HOUR_MS = 3_600_000;
 // Advancements and items are outcomes, not provenance: /advancement grant or /give sets the same bits. The server's
-// intervention audit (codex audit) reports whether any command could have changed this agent during its goal.
-// The runner reads `codex audit <agent>` and accepts only a strict, self-consistent autonomous answer for that agent.
+// intervention audit (mineagen audit) reports whether any command could have changed this agent during its goal.
+// The runner reads `mineagen audit <agent>` and accepts only a strict, self-consistent autonomous answer for that agent.
 export const AUTONOMY_AUDIT = Object.freeze({ type: 'audit', autonomy: 'autonomous' });
 export const CAPABILITY_TASKS = Object.freeze([
 	{ id: 'gather', task: 'Collect at least one log from any tree and keep it in your inventory.', assert: [owns('#minecraft:logs')] },

@@ -71,7 +71,7 @@ async function main() {
 			await s.command(`forceload add ${spawn.x} ${spawn.z}`);
 			for (let i = 0; i < 60 && !/time is/i.test(await s.command(`execute if loaded ${spawn.x} 0 ${spawn.z} run time query gametime`)); i++) await sleep(500);
 			const registered = s.inbox.wait('agent_registered', () => true, 45000);
-			await s.command(`execute positioned ${spawn.x} 0 ${spawn.z} positioned over motion_blocking_no_leaves run codex summon gpt-6.1-sol low ${AGENT}`);
+			await s.command(`execute positioned ${spawn.x} 0 ${spawn.z} positioned over motion_blocking_no_leaves run mineagen summon gpt-6.1-sol low ${AGENT}`);
 			const e = await registered; s.record = { ...(e.payload.record ?? e.payload), agentId: e.agentId };
 			const command = async text => ({ text: await s.command(text) });
 			const setup = await applyQualitySetup({ dimension: 'minecraft:overworld', startAt: 'world_spawn', inventory: incident.spot.inventory, mobs: [], commands: [], freezeUntilGoalStart: true }, command, AGENT);
@@ -89,7 +89,7 @@ async function main() {
 			row.phasesMs.setup = Date.now() - setupAt;
 			row.playStartedAt = Date.now();
 			const started = s.inbox.wait('goal_control', event => event.payload.operation === 'start', 60000);
-			await s.command(`codex start ${AGENT} Find lava.`); s.record.goalRevision = (await started).payload.goalRevision;
+			await s.command(`mineagen start ${AGENT} Find lava.`); s.record.goalRevision = (await started).payload.goalRevision;
 			await Promise.race([planner.finished.promise, new Promise((_, reject) => { deadline = setTimeout(() => reject(new Error('Incident did not finish within its scripted budget')), incident.spot.totalMs + 30000); })]);
 			clearTimeout(deadline);
 			row.phasesMs.run = Date.now() - row.playStartedAt; row.calls = planner.results;

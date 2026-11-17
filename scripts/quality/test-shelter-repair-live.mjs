@@ -15,11 +15,11 @@ try {
  await s.command('forceload add -32 -32 64 32');
  await s.command('fill -20 100 -20 60 100 20 minecraft:stone');
  await s.command('fill -20 101 -20 60 107 20 minecraft:air');
- const registered=s.inbox.wait('agent_registered'); await s.command('codex summon gpt-6.1-sol low Probe');
+ const registered=s.inbox.wait('agent_registered'); await s.command('mineagen summon gpt-6.1-sol low Probe');
  const e=await registered; s.record={...(e.payload.record??e.payload),agentId:e.agentId};
  await s.bridge.send('agent_ready',s.record.agentId,{goalRevision:s.record.goalRevision,reconciled:false});
  const started=s.inbox.wait('goal_control',g=>g.payload.operation==='start');
- await s.command('codex start Probe Survive for 1200 seconds.'); s.record.goalRevision=(await started).payload.goalRevision;
+ await s.command('mineagen start Probe Survive for 1200 seconds.'); s.record.goalRevision=(await started).payload.goalRevision;
  await s.bridge.send('agent_ready',s.record.agentId,{goalRevision:s.record.goalRevision,reconciled:false});
  await s.command('gamemode survival Probe');
  await s.command('tp Probe 0.5 101 0.5 -90 0');

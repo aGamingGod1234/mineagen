@@ -394,7 +394,7 @@ export class Observer {
 		stop.attempts++; stop.nextAttemptAt = now + this.stopRetryMs;
 		if (!this.rcon || !this.agent) { stop.failures.push({ at: now, error: 'No RCON connection to the player yet' }); return; }
 		try {
-			const text = String((await (this.stopCommand ? this.stopCommand(`codex stop ${this.agent}`) : this.rcon.command(`codex stop ${this.agent}`))).text ?? '');
+			const text = String((await (this.stopCommand ? this.stopCommand(`mineagen stop ${this.agent}`) : this.rcon.command(`mineagen stop ${this.agent}`))).text ?? '');
 			if (/unknown|incorrect|error|fail|not found|no agent|no player|usage:/i.test(text)) stop.failures.push({ at: now, error: `Stop rejected: ${text.slice(0, 200)}` });
 			else stop.acknowledgedAt ??= Date.now();
 		} catch (error) { stop.failures.push({ at: now, error: error.message }); }

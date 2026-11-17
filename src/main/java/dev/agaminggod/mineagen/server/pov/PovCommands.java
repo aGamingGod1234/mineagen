@@ -26,7 +26,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * /spectate and /takeover, plus the /codex spectate|takeover aliases. Grammar for both:
+ * /spectate and /takeover, plus the /mineagen spectate|takeover aliases. Grammar for both:
  * {@code <agent> [start|stop]} (no word after the agent means start). A bare {@code exit} or {@code stop}
  * still ends any session, but is read from the agent argument so suggestions list only agent names;
  * an agent with such a name stays reachable by its id. Vanilla /spectate (which moves the body) is
@@ -51,8 +51,8 @@ public final class PovCommands {
 		dispatcher.register(tree("takeover", PovMode.TAKEOVER, agentArgument));
 	}
 
-	/** The same tree under /codex, so the in-game console keeps its "codex" command pattern. */
-	public static LiteralArgumentBuilder<CommandSourceStack> codexAlias(String literal, PovMode mode,
+	/** The same tree under the /mineagen root, so every agent command is reachable from one place. */
+	public static LiteralArgumentBuilder<CommandSourceStack> rootAlias(String literal, PovMode mode,
 			Supplier<RequiredArgumentBuilder<CommandSourceStack, String>> agentArgument) {
 		return tree(literal, mode, agentArgument);
 	}

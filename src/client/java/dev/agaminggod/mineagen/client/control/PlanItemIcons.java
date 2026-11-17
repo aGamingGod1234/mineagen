@@ -203,7 +203,7 @@ public final class PlanItemIcons {
     int x = Math.round(slot.u0() * atlas.textureSize());
     int y = Math.round(slot.v1() * atlas.textureSize());
     var device = RenderSystem.getDevice();
-    var buffer = McClientCompat.createReadbackBuffer(device, "Arena plan icon readback", SIZE * SIZE * 4L);
+    var buffer = McClientCompat.createReadbackBuffer(device, "Mineagen plan icon readback", SIZE * SIZE * 4L);
     var commands = device.createCommandEncoder();
     try {
      commands.copyTextureToBuffer(texture, buffer, 0, () -> {

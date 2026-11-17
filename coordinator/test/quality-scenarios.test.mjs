@@ -83,7 +83,7 @@ test('all fixtures are data and execute entirely before the real goal starts', a
 		const result = await applyQualitySetup(s.setup, async command => { commands.push(command); return { text: 'fixture_agent has the following entity data: [0d, 0d, 0d]' }; }, 'fixture_agent');
 		assert.equal(result.agent, 'fixture_agent');
 		assert.ok(commands.includes('gamemode survival fixture_agent'));
-		assert.ok(commands.every(c => !c.includes('codex start')));
+		assert.ok(commands.every(c => !c.includes('mineagen start')));
 		assert.ok(commands.at(-1).includes('forceload remove'));
 	}
 	assert.throws(() => normalizeQualitySetup({ ...scenarios[0].setup, commands: ['say one\nstop'] }));

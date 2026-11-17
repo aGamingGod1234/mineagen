@@ -31,7 +31,7 @@ const THREAD_START_TIMEOUT_MS = 60_000;
 const MAX_BUFFERED_TURN_NOTIFICATIONS = 4_096;
 const MAX_PUBLIC_AGENT_MESSAGE_CANDIDATE_CHARS = 1_280;
 const PROFILE_CONFLICT_MESSAGE = 'Agent profile is immutable for the active Codex session';
-const CLIENT_INFO = Object.freeze({ name: 'mineagen-coordinator', title: 'Minecraft Codex Agents', version: '2.0.0' });
+const CLIENT_INFO = Object.freeze({ name: 'mineagen-coordinator', title: 'Mineagen', version: '2.0.0' });
 const CLIENT_CAPABILITIES = Object.freeze({ experimentalApi: true, requestAttestation: false });
 const CONTROL_PROTOCOLS = new Set(['arena_script', 'native_tools', 'goal_spec']);
 

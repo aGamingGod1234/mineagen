@@ -4,7 +4,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const HEADER = /^audit=v2 agent=([A-Za-z0-9_.-]{1,64}) agentId=([A-Za-z0-9-]{1,64}) goalRevision=(none|0|[1-9][0-9]{0,17}) goal=(none|[0-9a-f-]{36}) world=(fresh|existing|unknown) coverage=(complete|partial) interventions=(0|[1-9][0-9]{0,9}) autonomy=([a-z]+)$/;
 
 /**
- * Strict reader for the server's `codex audit` line, bound to the measured run: the expected agent name, agent id and
+ * Strict reader for the server's `mineagen audit` line, bound to the measured run: the expected agent name, agent id and
  * goal revision must all match. 'autonomous' needs a fresh world, complete coverage, zero interventions and a goal.
  * Missing, malformed, duplicated, contradictory, foreign or stale answers are 'unverifiable', with the reason.
  */

@@ -46,10 +46,10 @@ try {
  await s.command('fill -24 101 -24 100 112 24 minecraft:air');
  await s.command('fill 9 103 -1 11 103 1 minecraft:nether_bricks');
  await s.command('fill 39 103 -1 41 103 1 minecraft:nether_bricks'); await s.command('setblock 39 104 0 minecraft:spawner');
- const registered = s.inbox.wait('agent_registered'); await s.command('codex summon gpt-6.1-sol low Probe');
+ const registered = s.inbox.wait('agent_registered'); await s.command('mineagen summon gpt-6.1-sol low Probe');
  const e = await registered; s.record = { ...(e.payload.record ?? e.payload), agentId: e.agentId };
  await s.bridge.send('agent_ready', s.record.agentId, { goalRevision: s.record.goalRevision, reconciled: false });
- const started = s.inbox.wait('goal_control', g => g.payload.operation === 'start'); await s.command('codex start Probe Survive for 1200 seconds.');
+ const started = s.inbox.wait('goal_control', g => g.payload.operation === 'start'); await s.command('mineagen start Probe Survive for 1200 seconds.');
  s.record.goalRevision = (await started).payload.goalRevision;
  await s.bridge.send('agent_ready', s.record.agentId, { goalRevision: s.record.goalRevision, reconciled: false });
  await s.command('gamemode survival Probe');

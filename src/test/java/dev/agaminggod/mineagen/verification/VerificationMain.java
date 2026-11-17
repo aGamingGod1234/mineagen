@@ -11,7 +11,6 @@ import dev.agaminggod.mineagen.server.AgentControlSyncVerification;
 import dev.agaminggod.mineagen.server.ChunkedSavedPayloadVerification;
 import dev.agaminggod.mineagen.server.OfflineAgentProfileLookupVerification;
 import dev.agaminggod.mineagen.server.VoiceConsentCommandVerification;
-import dev.agaminggod.mineagen.client.camera.CameraPathVerification;
 import dev.agaminggod.mineagen.client.gui.AgentControlLayoutVerification;
 import dev.agaminggod.mineagen.client.gui.AgentControlSubmissionVerification;
 import dev.agaminggod.mineagen.client.gui.AgentRosterGridLayoutVerification;
@@ -184,7 +183,6 @@ public final class VerificationMain {
 		passedAssertions += AgentDeathCaptureVerification.verify();
 		passedAssertions += AgentControlSyncVerification.verify();
 		passedAssertions += VoiceConsentCommandVerification.verify();
-		passedAssertions += CameraPathVerification.verify();
 		passedAssertions += AgentSpawnPlacementVerification.verify();
 		passedAssertions += ChunkedSavedPayloadVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.RemovedWorldDataVerification.verify();
@@ -313,7 +311,7 @@ public final class VerificationMain {
 		passedAssertions += MenuCapabilityRegistryVerification.verify();
 		passedAssertions += VoiceSubsystemVerification.verify();
 		passedAssertions += VoiceDirectorVerification.verify();
-		passedAssertions += dev.agaminggod.mineagen.server.VoiceCameraCommandVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.VoiceCommandVerification.verify();
 		passedAssertions += ServerPathPlannerVerification.verify();
 		passedAssertions += MinecraftNavigationWorldVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.SeenNavigationVerification.verify();

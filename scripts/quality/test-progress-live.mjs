@@ -99,13 +99,13 @@ async function summon(s) {
 	const registered = s.inbox.wait('agent_registered');
 	// The catalog snapshot lands asynchronously; summon once it has.
 	for (let i = 0; i < 20; i++) {
-		const text = await s.command(`execute positioned 0.5 200 0.5 run codex summon gpt-6.1-sol low ${agent}`);
+		const text = await s.command(`execute positioned 0.5 200 0.5 run mineagen summon gpt-6.1-sol low ${agent}`);
 		if (!/MODEL_CATALOG_UNAVAILABLE/.test(text)) { console.log(`[summon] ${text}`); break; }
 		await sleep(1000);
 	}
 	const e = await registered; s.record = { ...(e.payload.record ?? e.payload), agentId: e.agentId };
 	await s.bridge.send('agent_ready', s.record.agentId, { goalRevision: s.record.goalRevision, reconciled: false });
-	const started = s.inbox.wait('goal_control', e => e.payload.operation === 'start'); await s.command(`codex start ${agent} Survive for 1200 seconds.`); s.record.goalRevision = (await started).payload.goalRevision;
+	const started = s.inbox.wait('goal_control', e => e.payload.operation === 'start'); await s.command(`mineagen start ${agent} Survive for 1200 seconds.`); s.record.goalRevision = (await started).payload.goalRevision;
 	await s.bridge.send('agent_ready', s.record.agentId, { goalRevision: s.record.goalRevision, reconciled: false });
 	await s.command(`gamemode survival ${agent}`);
 	await s.command(`effect give ${agent} minecraft:resistance 600 5 true`);

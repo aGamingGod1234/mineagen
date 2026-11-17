@@ -4,7 +4,6 @@ import carpet.patches.EntityPlayerMPFake;
 import com.mojang.authlib.GameProfile;
 import com.mojang.brigadier.CommandDispatcher;
 import dev.agaminggod.mineagen.agent.AgentId;
-import dev.agaminggod.mineagen.client.camera.CameraDirectorClient;
 import dev.agaminggod.mineagen.compat.TestCompat;
 import dev.agaminggod.mineagen.compat.TestServerLevelBase;
 import dev.agaminggod.mineagen.server.voice.*;
@@ -35,10 +34,10 @@ import net.minecraft.world.level.storage.SavedDataStorage;
 import net.minecraft.world.phys.Vec2;
 import net.minecraft.world.phys.Vec3;
 
-/** Parses the exact client camera builders, then executes ordinary-agent voice commands with a fake add-on. */
-public final class VoiceCameraCommandVerification {
+/** Checks the registered /mineagen tree, then executes ordinary-agent voice commands with a fake add-on. */
+public final class VoiceCommandVerification {
 	private static int assertions;
-	private VoiceCameraCommandVerification() { }
+	private VoiceCommandVerification() { }
 
 	@SuppressWarnings("unchecked")
 	public static int verify() throws Exception {
@@ -46,24 +45,30 @@ public final class VoiceCameraCommandVerification {
 		var dispatcher = new CommandDispatcher<CommandSourceStack>(new FixtureRoot());
 		CodexAgentCommands.register(dispatcher);
 		var operator = source(null, PermissionSet.ALL_PERMISSIONS);
-		UUID camera = UUID.randomUUID();
-		for (boolean stop : List.of(false, true)) {
-			parses(dispatcher, operator, CameraDirectorClient.dollyCommand(stop, null, 0));
-			for (float yaw : new float[] {-540, -180, -90, 0, 90, 180, 540}) {
-				parses(dispatcher, operator, CameraDirectorClient.dollyCommand(stop, camera, yaw));
-			}
+		var nonOperator = source(null, PermissionSet.NO_PERMISSIONS);
+		check(dispatcher.getRoot().getChild("mineagen") != null, "agent commands live under /mineagen");
+		check(dispatcher.getRoot().getChild("codex") == null, "the old /codex root is gone");
+		var root = dispatcher.getRoot().getChild("mineagen");
+		check(root.getRequirement().test(nonOperator), "the /mineagen root itself is open to every player");
+		for (String literal : List.of("stop", "status", "dm")) {
+			check(root.getChild(literal).getChildren().stream().map(com.mojang.brigadier.tree.CommandNode::getName).toList()
+					.equals(List.of("agent")), "/mineagen " + literal + " takes only the agent argument");
 		}
-		for (String operation : List.of("height", "pan", "tilt", "yaw", "pitch", "drive", "stop")) {
-			for (float value : new float[] {-360, -90, -1, 0, 0.25f, 1, 90, 360}) {
-				parses(dispatcher, operator, CameraDirectorClient.rigCommand(camera, operation, value));
-			}
-		}
-		parses(dispatcher, operator, "codex camera kit");
-		check(dispatcher.getRoot().getChild("codex").getChild("skit") == null, "skit command root is removed");
-		check(dispatcher.getRoot().getChild("codex").getChild("group") == null, "group command root is removed");
-		check(dispatcher.getRoot().getChild("codex").getChild("voice").getChild("script") == null, "speech scripts are removed");
-		check(!complete(dispatcher, source(null, PermissionSet.NO_PERMISSIONS), "codex voice profiles"), "voice settings remain operator-only");
-		check(!complete(dispatcher, source(null, PermissionSet.NO_PERMISSIONS), "codex camera kit"), "camera controls remain operator-only");
+		String agentId = UUID.randomUUID().toString();
+		check(complete(dispatcher, operator, "mineagen stop " + agentId), "an operator can stop an agent");
+		check(!complete(dispatcher, nonOperator, "mineagen stop " + agentId), "stop remains operator-only");
+		check(complete(dispatcher, operator, "mineagen status") && complete(dispatcher, operator, "mineagen status " + agentId),
+				"an operator can read every agent's status or one agent's");
+		check(!complete(dispatcher, nonOperator, "mineagen status " + agentId), "status remains operator-only");
+		check(complete(dispatcher, nonOperator, "mineagen dm " + agentId + " Meet me at the bridge."), "any player can message an agent");
+		check(complete(dispatcher, operator, dev.agaminggod.mineagen.control.AgentControlCommandBuilder.agent("stop", agentId))
+				&& complete(dispatcher, operator, dev.agaminggod.mineagen.control.AgentControlCommandBuilder.prompt("start", agentId, "Build a shelter.")),
+				"commands the Agents screen sends parse against the registered tree");
+		check(root.getChild("skit") == null, "skit command root is removed");
+		check(root.getChild("group") == null, "group command root is removed");
+		check(root.getChild("camera") == null, "camera commands are removed");
+		check(root.getChild("voice").getChild("script") == null, "speech scripts are removed");
+		check(!complete(dispatcher, nonOperator, "mineagen voice profiles"), "voice settings remain operator-only");
 
 		Field field = sun.misc.Unsafe.class.getDeclaredField("theUnsafe"); field.setAccessible(true);
 		var unsafe = (sun.misc.Unsafe) field.get(null);
@@ -97,7 +102,7 @@ public final class VoiceCameraCommandVerification {
 		var managers = (Map<MinecraftServer, CodexAgentManager>) instances.get(null);
 		managers.put(server, manager);
 		var voice = new RecordingVoice();
-		try (var storage = new SavedDataStorage(Files.createTempDirectory("arena-voice-commands-"), DataFixers.getDataFixer(), RegistryAccess.EMPTY)) {
+		try (var storage = new SavedDataStorage(Files.createTempDirectory("mineagen-voice-commands-"), DataFixers.getDataFixer(), RegistryAccess.EMPTY)) {
 			level.storage = storage;
 			var startVoice = VoiceSubsystemRuntime.class.getDeclaredMethod("start", MinecraftServer.class,
 					VoiceSubsystemConfiguration.class, Iterable.class);
@@ -107,30 +112,30 @@ public final class VoiceCameraCommandVerification {
 			var actualOperator = source(level, PermissionSet.ALL_PERMISSIONS);
 			set(unsafe, actualOperator, CommandSourceStack.class, "server", server);
 			String selector = "\"Voice Agent\"";
-			check(dispatcher.execute("codex voice profile " + selector + " voice.ethan.v1 dramatic 1.25 64", actualOperator) == 1,
+			check(dispatcher.execute("mineagen voice profile " + selector + " voice.ethan.v1 dramatic 1.25 64", actualOperator) == 1,
 					"profile command resolves an ordinary named agent");
 			var saved = new VoiceProfile("voice.ethan.v1", "dramatic", 1.25, 64);
 			check(saved.equals(VoiceDirector.profile(server, agent.agentId())), "profile command persists exact settings");
-			check(dispatcher.execute("codex voice say " + selector + " Saved settings.", actualOperator) == 1, "say works without a skit mode");
+			check(dispatcher.execute("mineagen voice say " + selector + " Saved settings.", actualOperator) == 1, "say works without a skit mode");
 			check(voice.requests.getLast().equals(new VoiceRequest(agent.agentId(), "Saved settings.", "voice.ethan.v1", 64, 1, 1.25, "dramatic")),
 					"ordinary say reaches the add-on with saved settings");
-			check(dispatcher.execute("codex voice say_with " + agent.agentId() + " voice.selene.v1 warm 0.75 24 Preview only.", actualOperator) == 1,
+			check(dispatcher.execute("mineagen voice say_with " + agent.agentId() + " voice.selene.v1 warm 0.75 24 Preview only.", actualOperator) == 1,
 					"preview resolves an ordinary agent UUID");
 			check(voice.requests.getLast().equals(new VoiceRequest(agent.agentId(), "Preview only.", "voice.selene.v1", 24, 2, 0.75, "warm")),
 					"preview reaches the add-on with the selected settings");
 			check(saved.equals(VoiceDirector.profile(server, agent.agentId())), "preview preserves saved settings");
 			var savedCodec = VoiceDirectorSavedData.TYPE.codec();
-			check(dispatcher.execute("codex voice profile " + selector + " voice.auto.v1 warm", actualOperator) == 1,
+			check(dispatcher.execute("mineagen voice profile " + selector + " voice.auto.v1 warm", actualOperator) == 1,
 					"profile command accepts a tone without a speed");
 			var reloaded = savedCodec.parse(com.mojang.serialization.JsonOps.INSTANCE, savedCodec.encodeStart(
 					com.mojang.serialization.JsonOps.INSTANCE, VoiceDirectorSavedData.get(server)).getOrThrow()).getOrThrow();
 			VoiceRequest inherited = reloaded.request(agent.agentId(), "Automatic pacing.", 9L);
 			check(!inherited.explicitSpeed() && inherited.profileId().equals("voice.auto.v1") && inherited.tone().equals("warm")
 					&& inherited.radius() == 48, "a saved profile without a speed keeps automatic pacing after reload");
-			check(dispatcher.execute("codex voice say " + selector + " Inherited pace.", actualOperator) == 1, "say uses inherited settings");
+			check(dispatcher.execute("mineagen voice say " + selector + " Inherited pace.", actualOperator) == 1, "say uses inherited settings");
 			check(!voice.requests.getLast().explicitSpeed() && voice.requests.getLast().tone().equals("warm"),
 					"say with an inherited saved speed lets the voice worker choose the pace");
-			check(dispatcher.execute("codex voice profile " + selector + " voice.auto.v1 warm 1.0 48", actualOperator) == 1,
+			check(dispatcher.execute("mineagen voice profile " + selector + " voice.auto.v1 warm 1.0 48", actualOperator) == 1,
 					"profile command accepts an explicit speed of 1.0");
 			var encodedExplicit = savedCodec.encodeStart(com.mojang.serialization.JsonOps.INSTANCE,
 					VoiceDirectorSavedData.get(server)).getOrThrow().getAsJsonObject();
@@ -142,7 +147,7 @@ public final class VoiceCameraCommandVerification {
 					"an explicit 1.0 speed stays explicit after reload");
 			VoiceSubsystemRuntime.close(server);
 			try {
-				dispatcher.execute("codex voice say " + selector + " No add-on.", actualOperator);
+				dispatcher.execute("mineagen voice say " + selector + " No add-on.", actualOperator);
 				throw new AssertionError("missing add-on must reject speech");
 			} catch (com.mojang.brigadier.exceptions.CommandSyntaxException expected) {
 				check(expected.getMessage().contains("VOICE_UNAVAILABLE"), "missing add-on reports voice unavailability");
@@ -153,15 +158,12 @@ public final class VoiceCameraCommandVerification {
 			managers.remove(server);
 			OfflineAgentPlayers.clearIdentityCache();
 		}
-		System.out.println("PASS: " + assertions + " retained command assertions, including 73 camera command parses");
+		System.out.println("PASS: " + assertions + " command tree and voice command assertions");
 		return assertions;
 	}
 
 	private static CommandSourceStack source(FixtureLevel level, PermissionSet permissions) {
 		return TestCompat.commandSource(CommandSource.NULL, Vec3.ZERO, Vec2.ZERO, level, permissions, Component.literal("Voice check"));
-	}
-	private static void parses(CommandDispatcher<CommandSourceStack> dispatcher, CommandSourceStack source, String command) {
-		check(complete(dispatcher, source, command), "client command parses against retained tree: " + command);
 	}
 	private static boolean complete(CommandDispatcher<CommandSourceStack> dispatcher, CommandSourceStack source, String command) {
 		var parsed = dispatcher.parse(command, source);

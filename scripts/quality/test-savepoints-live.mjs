@@ -25,13 +25,13 @@ try{
  let e;
  for(let attempt=0;attempt<3&&!e;attempt++){
   const registered=s.inbox.wait('agent_registered',()=>true,45000).catch(()=>null);
-  r.summon=await s.command(`execute positioned 0.5 200 0.5 run codex summon gpt-6.1-sol low ${AGENT}`);
+  r.summon=await s.command(`execute positioned 0.5 200 0.5 run mineagen summon gpt-6.1-sol low ${AGENT}`);
   e=await registered;
  }
  if(!e)throw new Error(`Agent never registered: ${r.summon}`);
  s.record={...(e.payload.record??e.payload),agentId:e.agentId};
  await s.bridge.send('agent_ready',s.record.agentId,{goalRevision:s.record.goalRevision,reconciled:false});
- const started=s.inbox.wait('goal_control',g=>g.payload.operation==='start');await s.command(`codex start ${AGENT} Survive for 1200 seconds.`);s.record.goalRevision=(await started).payload.goalRevision;
+ const started=s.inbox.wait('goal_control',g=>g.payload.operation==='start');await s.command(`mineagen start ${AGENT} Survive for 1200 seconds.`);s.record.goalRevision=(await started).payload.goalRevision;
  await s.bridge.send('agent_ready',s.record.agentId,{goalRevision:s.record.goalRevision,reconciled:false});
  const receipt=await applyQualitySetup({...cp.setup,randomSalt:380038},command,AGENT);
  await activateQualitySetup(receipt,command,{stage:'goal-start'});await activateQualitySetup(receipt,command,{stage:'first-decision'});

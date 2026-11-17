@@ -134,12 +134,12 @@ async function joinAgent(s, lane, nextSpot) {
 	const name = `Ob${lane}`;
 	const spot = await landSpot(s, nextSpot);
 	const registered = s.inbox.wait('agent_registered', () => true, 60_000);
-	await s.command(`execute positioned ${spot[0]} 0 ${spot[1]} positioned over motion_blocking_no_leaves run codex summon gpt-6.1-sol low ${name}`);
+	await s.command(`execute positioned ${spot[0]} 0 ${spot[1]} positioned over motion_blocking_no_leaves run mineagen summon gpt-6.1-sol low ${name}`);
 	const e = await registered;
 	const record = { ...(e.payload.record ?? e.payload), agentId: e.agentId, provider: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'low', serviceTier: 'default' };
 	await s.bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false });
 	const started = s.inbox.wait('goal_control', g => g.agentId === record.agentId && g.payload.operation === 'start', 120_000);
-	await s.command(`codex start ${name} Survive for 36000 seconds.`);
+	await s.command(`mineagen start ${name} Survive for 36000 seconds.`);
 	record.goalRevision = (await started).payload.goalRevision;
 	await s.bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false });
 	let latest = null;
@@ -203,9 +203,9 @@ async function runLane(s, agent, queue, seed, seedIndex, nextSpot) {
 			const deadAtStart = !(await health() > 0);
 			if (deadAtStart) {
 				const started = s.inbox.wait('goal_control', g => g.agentId === record.agentId && g.payload.operation === 'start', 60_000).catch(() => null);
-				await s.command(`codex respawn ${name}`).catch(() => {});
+				await s.command(`mineagen respawn ${name}`).catch(() => {});
 				for (let i = 0; i < 60 && !(await health() > 0); i++) await sleep(500);
-				await s.command(`codex start ${name} Survive for 36000 seconds.`).catch(() => {});
+				await s.command(`mineagen start ${name} Survive for 36000 seconds.`).catch(() => {});
 				const goal = await started;
 				if (goal) record.goalRevision = goal.payload.goalRevision;
 				await s.bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false }).catch(() => {});

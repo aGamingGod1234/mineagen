@@ -168,7 +168,7 @@ public final class FakeServer {
                 int type = readLittleEndian(payload, 4);
                 String command = new String(payload, 8, length - 10, StandardCharsets.UTF_8);
                 String summonResponse = System.getenv("ARENA_HEADLESS_FAKE_SUMMON_RESPONSE");
-                String response = type == 3 ? "" : command.contains("summon-configured") ? (summonResponse == null ? "Created fixture_agent. It is ready for a task." : summonResponse) : command.startsWith("codex status") ? "state=COMPLETED" : "OK";
+                String response = type == 3 ? "" : command.contains("summon-configured") ? (summonResponse == null ? "Created fixture_agent. It is ready for a task." : summonResponse) : command.startsWith("mineagen status") ? "state=COMPLETED" : "OK";
                 writeResponse(output, id, type == 3 ? 2 : 0, response);
                 output.flush();
             }

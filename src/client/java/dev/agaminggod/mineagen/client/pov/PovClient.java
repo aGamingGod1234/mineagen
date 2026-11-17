@@ -4,7 +4,6 @@ import dev.agaminggod.mineagen.client.compat.McClientCompat;
 
 import com.mojang.blaze3d.platform.InputConstants;
 import dev.agaminggod.mineagen.agent.AgentIdentity;
-import dev.agaminggod.mineagen.client.camera.CameraDirectorClient;
 import dev.agaminggod.mineagen.client.control.AgentControlClient;
 import dev.agaminggod.mineagen.client.mixin.CameraEyeHeightAccessor;
 import dev.agaminggod.mineagen.client.pov.screen.PovScreens;
@@ -287,7 +286,6 @@ public final class PovClient {
 	// Entry for a new session or a switch to another agent; camera ownership is captured only once.
 	private static void begin(Minecraft client, PovClientSession next) {
 		if (!cameraCaptured) {
-			CameraDirectorClient.stopForExternalCamera(client);
 			previousCamera = client.getCameraEntity();
 			previousCameraType = client.options.getCameraType();
 			cameraCaptured = true;
@@ -431,7 +429,7 @@ public final class PovClient {
 		return agent ? candidate : null;
 	}
 
-	// Signal lost: hold the view at the agent's last eye position, same marker technique as camera paths.
+	// Signal lost: hold the view at the agent's last eye position on a client-side marker entity.
 	private static Entity anchor(Minecraft client) {
 		if (!hasLastPosition || client.level == null) return null;
 		if (signalAnchor != null && !signalAnchor.isRemoved() && signalAnchor.level() == client.level) return signalAnchor;

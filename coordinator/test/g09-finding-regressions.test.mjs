@@ -94,7 +94,7 @@ test('scenario factual inventory evaluation receives the trailing RCON witness a
             audit = JSON.stringify(envelope('agent_registered', { agentId: 'owned-agent', name,
               provider: scenario.provider, model: scenario.model, reasoningEffort: scenario.reasoningEffort, serviceTier: scenario.serviceTier }));
             text = `Created ${name}. It is ready for a task.`;
-          } else if (command.startsWith('codex status ')) text = 'state=COMPLETED';
+          } else if (command.startsWith('mineagen status ')) text = 'state=COMPLETED';
           else if (command.endsWith(' Pos')) text = 'Fixture has the following entity data: [0.5d, 201.0d, 0.5d]';
           else if (command.endsWith(' Inventory')) text = body;
           this.parts = [text.slice(0, 4096), ...(text.length > 4096 ? [text.slice(4096)] : [])];
@@ -147,7 +147,7 @@ async function recoveryCase({ count = 514, state, resultIndex = count - 1, paddi
         if (state) rows.push(envelope('action_result', { actionId: `action-${resultIndex}`, state }, wrongAgent ? 'unrelated' : 'owned-agent'));
         audit = rows.map(JSON.stringify).join('\n'); return { text: `Created ${command.split(' ').at(-1)}. It is ready for a task.` };
       }
-      return { text: command.startsWith('codex status ') ? 'state=DEAD' : 'ok' };
+      return { text: command.startsWith('mineagen status ') ? 'state=DEAD' : 'ok' };
     } },
   });
   assert.equal(report.classification, 'DEAD'); assert.equal(report.cleanup.status, 'CLEAN');

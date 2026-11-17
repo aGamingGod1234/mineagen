@@ -5,7 +5,6 @@ import com.mojang.blaze3d.platform.IconSet;
 import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.blaze3d.systems.GpuDevice;
 import com.mojang.blaze3d.textures.GpuTexture;
-import com.mojang.blaze3d.vertex.PoseStack;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
@@ -14,17 +13,12 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.network.protocol.game.ServerboundSignUpdatePacket;
 import net.minecraft.server.packs.resources.IoSupplier;
 import net.minecraft.world.entity.player.Player;
-import org.joml.Quaternionfc;
 
 public final class McClientCompat {
 	private McClientCompat() {
 	}
 
 	public static final InputConstants.Type KEYBOARD = InputConstants.Type.KEYSYM;
-
-	public static void rotate(PoseStack pose, Quaternionfc rotation) {
-		pose.mulPose(rotation);
-	}
 
 	/** Before 26.3 the HUD blinked the hearts while the player's invulnerableTime was positive. */
 	public static int damageBlinkTicks(Player player) {

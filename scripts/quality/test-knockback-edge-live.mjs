@@ -103,10 +103,10 @@ try {
 	// Floor 22 blocks under the bridge's walking surface, like the fortress bridge the runs fell from.
 	await command('fill -16 58 -16 16 58 16 minecraft:stone'); await command('fill -16 59 -16 16 100 16 minecraft:air');
 	await command('fill -6 80 0 6 80 0 minecraft:stone');
-	const registered = inbox.wait('agent_registered'); console.log(await command(`execute positioned 0.5 81 0.5 run codex summon gpt-6.1-sol low ${agent}`));
+	const registered = inbox.wait('agent_registered'); console.log(await command(`execute positioned 0.5 81 0.5 run mineagen summon gpt-6.1-sol low ${agent}`));
 	const e = await registered; record = { ...(e.payload.record ?? e.payload), agentId: e.agentId };
 	await bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false });
-	const started = inbox.wait('goal_control', e => e.payload.operation === 'start'); await command(`codex start ${agent} Survive for 1200 seconds.`); record.goalRevision = (await started).payload.goalRevision;
+	const started = inbox.wait('goal_control', e => e.payload.operation === 'start'); await command(`mineagen start ${agent} Survive for 1200 seconds.`); record.goalRevision = (await started).payload.goalRevision;
 	await bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false });
 	await command(`gamemode survival ${agent}`);
 	await command(`effect give ${agent} minecraft:saturation 1200 4 true`);

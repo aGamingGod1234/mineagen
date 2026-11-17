@@ -809,7 +809,7 @@ public final class CodexAgentManager {
 	private VanillaRespawnAttempt beginVanillaRespawn(AgentId agentId) {
 		AgentRecord record = savedData.registry().require(Objects.requireNonNull(agentId, "agentId must not be null"));
 		if (record.state() != dev.agaminggod.mineagen.agent.AgentLifecycleState.DEAD) {
-			throw new AgentDomainException("AGENT_NOT_DEAD", "Only a dead Codex agent can be respawned");
+			throw new AgentDomainException("AGENT_NOT_DEAD", "Only a dead agent can be respawned");
 		}
 		runtimeHooks.validateProfile(record.profile());
 		try {
@@ -1983,7 +1983,7 @@ public final class CodexAgentManager {
 
 	private static AgentEntityLocation entityLocation(Entity entity) {
 		if (!(entity.level() instanceof ServerLevel level)) {
-			throw new AgentDomainException("AGENT_LEVEL_INVALID", "Codex agent is not in a server level");
+			throw new AgentDomainException("AGENT_LEVEL_INVALID", "Agent is not in a server level");
 		}
 		ChunkPos position = entity.chunkPosition();
 		return AgentEntityLocation.exact(
@@ -2000,7 +2000,7 @@ public final class CodexAgentManager {
 
 	private void trackChunkTicket(AgentId agentId, Entity entity, long nowEpochMs) {
 		if (!(entity.level() instanceof ServerLevel level)) {
-			throw new AgentDomainException("AGENT_LEVEL_INVALID", "Codex agent is not in a server level");
+			throw new AgentDomainException("AGENT_LEVEL_INVALID", "Agent is not in a server level");
 		}
 		ChunkPos position = entity.chunkPosition();
 		AgentChunkTicket current = chunkTickets.get(agentId);

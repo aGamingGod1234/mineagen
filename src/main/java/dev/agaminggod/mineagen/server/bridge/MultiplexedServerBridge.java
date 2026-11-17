@@ -560,7 +560,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		try {
 			task.run();
 		} catch (RuntimeException exception) {
-			LOGGER.error("Codex bridge server task failed", exception);
+			LOGGER.error("Coordinator bridge server task failed", exception);
 		}
 	}
 
@@ -1042,7 +1042,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 				}
 			} catch (IOException exception) {
 				if (running.get()) {
-					LOGGER.error("Codex bridge accept failed", exception);
+					LOGGER.error("Coordinator bridge accept failed", exception);
 				}
 			}
 		}
@@ -2589,7 +2589,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 			throw new AgentDomainException("STALE_REVISION", "Coordinator action revision is stale");
 		}
 		if (respawn && record.state() != AgentLifecycleState.DEAD) {
-			throw new AgentDomainException("AGENT_NOT_DEAD", "Only a dead Codex agent can be respawned");
+			throw new AgentDomainException("AGENT_NOT_DEAD", "Only a dead agent can be respawned");
 		}
 		requireDetachedBodyActionAllowed(manager.server(), record, request);
 		// With no task, a block or item action must target food in the live world (ripe crop, berries, food drop).
@@ -4689,9 +4689,9 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 					if (authenticated.get()) socket.setSoTimeout(0);
 				}
 			} catch (SocketTimeoutException exception) {
-				LOGGER.warn("Codex bridge authentication timed out");
+				LOGGER.warn("Coordinator bridge authentication timed out");
 			} catch (RuntimeException | IOException exception) {
-				if (open.get()) LOGGER.warn("Codex bridge session closed: {}", exception.getMessage());
+				if (open.get()) LOGGER.warn("Coordinator bridge session closed: {}", exception.getMessage());
 			} finally {
 				close();
 			}
@@ -4737,7 +4737,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 			} catch (InterruptedException exception) {
 				Thread.currentThread().interrupt();
 			} catch (RuntimeException | IOException exception) {
-				if (open.get()) LOGGER.warn("Codex bridge writer failed: {}", exception.getMessage());
+				if (open.get()) LOGGER.warn("Coordinator bridge writer failed: {}", exception.getMessage());
 			} finally {
 				close();
 			}

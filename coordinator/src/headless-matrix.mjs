@@ -211,9 +211,9 @@ function publicCommandRecords(value) {
 		if (/\bforceload\s+add\b/i.test(source)) operation = 'arena_forceload_add';
 		else if (/\bforceload\s+remove\b/i.test(source)) operation = 'arena_forceload_remove';
 		else if (/\brun\s+fill\b/i.test(source)) operation = 'arena_prepare';
-		else if (/\bcodex\s+summon-configured\b/i.test(source)) operation = 'agent_summon';
-		else if (/^codex\s+start\b/i.test(source)) operation = 'agent_start';
-		else if (/^codex\s+status\b/i.test(source)) operation = 'agent_status';
+		else if (/\bmineagen\s+summon-configured\b/i.test(source)) operation = 'agent_summon';
+		else if (/^mineagen\s+start\b/i.test(source)) operation = 'agent_start';
+		else if (/^mineagen\s+status\b/i.test(source)) operation = 'agent_status';
 		else if (/^tick\s+query$/i.test(source)) operation = 'minecraft_tick_query';
 		else if (isReadOnlyRcon(source)) operation = 'read_only_assertion';
 		return { operation };
@@ -331,7 +331,7 @@ export async function runHeadlessScenario({
 			});
 		const rawText = String(result?.text ?? result);
 		// A complete lifecycle poll is input, not retained assertion evidence; long task text can exceed the report bound.
-		const statusPoll = !readOnly && commandText === `codex status ${generatedName}`;
+		const statusPoll = !readOnly && commandText === `mineagen status ${generatedName}`;
 		if (result?.complete === false || result?.truncated === true || (!statusPoll && Buffer.byteLength(rawText, 'utf8') > MAX_EVIDENCE_BYTES)) {
 			throw Object.assign(new Error(`RCON_INCOMPLETE: ${commandText}; received ${Buffer.byteLength(rawText, 'utf8')} bytes; complete=${result?.complete}, truncated=${result?.truncated}`), { code: 'RCON_INCOMPLETE' });
 		}
@@ -371,7 +371,7 @@ export async function runHeadlessScenario({
 			const loaded = await command(`execute in minecraft:overworld if loaded ${origin.x} 0 ${origin.z} run time query gametime`);
 			if (!/\btime is \d+\b/i.test(loaded.text)) throw new Error('NATURAL_SPAWN_LOADING: spawn chunk is no longer loaded');
 			const source = `execute in minecraft:overworld positioned ${origin.x + 0.5} ${origin.y} ${origin.z + 0.5}${spawn.policy === 'surface' ? ' positioned over world_surface' : ''} run `;
-			summon = await command(`${source}codex summon-configured ${scenario.provider} ${scenario.model} ${scenario.reasoningEffort} ${scenario.serviceTier ?? defaultServiceTier(scenario.provider)} ${gameMode} ${generatedName}`);
+			summon = await command(`${source}mineagen summon-configured ${scenario.provider} ${scenario.model} ${scenario.reasoningEffort} ${scenario.serviceTier ?? defaultServiceTier(scenario.provider)} ${gameMode} ${generatedName}`);
 		} else {
 		await command('execute in minecraft:overworld run forceload add 0 0');
 		try {
@@ -383,7 +383,7 @@ export async function runHeadlessScenario({
 				const setup = await command(`execute in minecraft:overworld run setblock ${block.x} ${block.y} ${block.z} ${block.blockId}`);
 				if (isFailedResponse(setup.text)) throw new Error('Could not place a headless arena fixture block');
 			}
-			summon = await command(`execute in minecraft:overworld positioned 0.5 201 0.5 run codex summon-configured ${scenario.provider} ${scenario.model} ${scenario.reasoningEffort} ${scenario.serviceTier ?? defaultServiceTier(scenario.provider)} survival ${generatedName}`);
+			summon = await command(`execute in minecraft:overworld positioned 0.5 201 0.5 run mineagen summon-configured ${scenario.provider} ${scenario.model} ${scenario.reasoningEffort} ${scenario.serviceTier ?? defaultServiceTier(scenario.provider)} survival ${generatedName}`);
 		} finally {
 			const removalDeadline = cleanupDeadline();
 			await command('execute in minecraft:overworld run forceload remove 0 0', { deadlineMs: removalDeadline });
@@ -414,7 +414,7 @@ export async function runHeadlessScenario({
 				if(scenario.qualitySetup.generality) await new Promise(resolve=>setTimeout(resolve,1000));
 				await writeFile(path.join(directory, 'quality-setup.json'), JSON.stringify(setup, null, 2));
 			}
-			const start = await command(`codex start ${generatedName} ${scenario.task}`, { attempt: 0 });
+			const start = await command(`mineagen start ${generatedName} ${scenario.task}`, { attempt: 0 });
 			if (isFailedResponse(start.text)) {
 				classification = 'ERROR';
 				diagnostics = start.text;
@@ -450,7 +450,7 @@ export async function runHeadlessScenario({
 				}
 				if (logicalNow(now, startedAt, attempts) >= deadline) { classification = 'TIMEOUT'; break; }
 				let status;
-				try { status = await command(`codex status ${generatedName}`, { attempt: attempts }); }
+				try { status = await command(`mineagen status ${generatedName}`, { attempt: attempts }); }
 				catch (error) {
 					if (error?.code === 'HEADLESS_TIMEOUT') { classification = 'TIMEOUT'; break; }
 					throw error;
@@ -459,7 +459,7 @@ export async function runHeadlessScenario({
 				terminalState = parsedState === 'DEAD' && scenario.continueAfterDeath === true ? null : LIFECYCLE_STATES.has(parsedState) ? parsedState : null;
 				if (terminalState !== null) break;
 				try {
-					await withinDeadline(() => poll({ phase: 'status', attempt: attempts, deadline, status: status.text, readStatus: () => command(`codex status ${generatedName}`, { attempt: attempts }), now }), deadline, () => logicalNow(now, startedAt, attempts), 'HEADLESS_TIMEOUT');
+					await withinDeadline(() => poll({ phase: 'status', attempt: attempts, deadline, status: status.text, readStatus: () => command(`mineagen status ${generatedName}`, { attempt: attempts }), now }), deadline, () => logicalNow(now, startedAt, attempts), 'HEADLESS_TIMEOUT');
 				} catch (error) {
 					if (error?.code === 'HEADLESS_TIMEOUT') { classification = 'TIMEOUT'; break; }
 					throw error;
@@ -483,7 +483,7 @@ export async function runHeadlessScenario({
 		let cleanupStopError = null;
 		if (classification === 'TIMEOUT' && summoned) {
 			try {
-				const stop = await command(`codex stop ${generatedName}`, { deadlineMs: postRunDeadline });
+				const stop = await command(`mineagen stop ${generatedName}`, { deadlineMs: postRunDeadline });
 				if (!isStopAcknowledged(stop.text, generatedName)) throw new Error('Could not confirm stop of the timed-out headless scenario agent');
 				postRunEvidence = { snapshot: 'post_stop', status: 'STOPPED', delayMs: Math.max(0, Number(now()) - deadline) };
 			} catch (error) {
@@ -538,7 +538,7 @@ export async function runHeadlessScenario({
 			await releaseSpawnTicket();
 			if (summoned) {
 				const removalDeadline = cleanupDeadline();
-				const removal = await command(`codex remove ${generatedName}`, { deadlineMs: removalDeadline });
+				const removal = await command(`mineagen remove ${generatedName}`, { deadlineMs: removalDeadline });
 				if (isFailedResponse(removal.text)) throw new Error('Could not remove the headless scenario agent');
 				summoned = false;
 			}
@@ -556,7 +556,7 @@ export async function runHeadlessScenario({
 		if (summoned) {
 			try {
 				const removalDeadline = cleanupDeadline();
-				const removal = await command(`codex remove ${generatedName}`, { deadlineMs: removalDeadline });
+				const removal = await command(`mineagen remove ${generatedName}`, { deadlineMs: removalDeadline });
 				if (isFailedResponse(removal.text)) throw new Error('Could not remove the headless scenario agent');
 				summoned = false;
 			} catch (errorDuringRemoval) { cleanupError = errorDuringRemoval; }
@@ -619,7 +619,7 @@ async function runConcurrentHeadlessScenario({
 		commands.push(commandText);
 		const result = await withDeadline(() => rcon.command(commandText), deadlineMs, () => logicalNow(now, startedAt, attempt), 'HEADLESS_TIMEOUT');
 		const rawText = String(result?.text ?? result);
-		const statusPoll = !readOnly && members.some(({ generatedName }) => commandText === `codex status ${generatedName}`);
+		const statusPoll = !readOnly && members.some(({ generatedName }) => commandText === `mineagen status ${generatedName}`);
 		if (result?.complete === false || result?.truncated === true || (!statusPoll && Buffer.byteLength(rawText, 'utf8') > MAX_EVIDENCE_BYTES)) {
 			throw Object.assign(new Error('RCON response evidence is incomplete'), { code: 'RCON_INCOMPLETE' });
 		}
@@ -639,7 +639,7 @@ async function runConcurrentHeadlessScenario({
 			}
 			const summons = await Promise.allSettled(members.map((member) => {
 				const position = rosterPosition(member.index);
-				return command(`execute in minecraft:overworld positioned ${position.x} 201 ${position.z} run codex summon-configured ${scenario.provider} ${scenario.model} ${scenario.reasoningEffort} ${scenario.serviceTier ?? defaultServiceTier(scenario.provider)} survival ${member.generatedName}`);
+				return command(`execute in minecraft:overworld positioned ${position.x} 201 ${position.z} run mineagen summon-configured ${scenario.provider} ${scenario.model} ${scenario.reasoningEffort} ${scenario.serviceTier ?? defaultServiceTier(scenario.provider)} survival ${member.generatedName}`);
 			}));
 			for (let index = 0; index < summons.length; index += 1) {
 				const result = summons[index];
@@ -680,7 +680,7 @@ async function runConcurrentHeadlessScenario({
 			member.diagnostics = boundedText(failure?.message ?? failure, MAX_DIAGNOSTICS);
 		}
 		const readyToStart = startable.filter((member) => member.classification === null);
-		const starts = await Promise.allSettled(readyToStart.map((member) => command(`codex start ${member.generatedName} ${scenario.task}`)));
+		const starts = await Promise.allSettled(readyToStart.map((member) => command(`mineagen start ${member.generatedName} ${scenario.task}`)));
 		for (let index = 0; index < starts.length; index += 1) {
 			const member = readyToStart[index];
 			const result = starts[index];
@@ -693,7 +693,7 @@ async function runConcurrentHeadlessScenario({
 		while (members.some((member) => member.started && member.lifecycle === null && member.classification === null)) {
 			if (logicalNow(now, startedAt, attempt) >= deadline) break;
 			const active = members.filter((member) => member.started && member.lifecycle === null && member.classification === null);
-			const statuses = await Promise.allSettled(active.map((member) => command(`codex status ${member.generatedName}`, { attempt })));
+			const statuses = await Promise.allSettled(active.map((member) => command(`mineagen status ${member.generatedName}`, { attempt })));
 			for (let index = 0; index < statuses.length; index += 1) {
 				const member = active[index];
 				const result = statuses[index];
@@ -794,7 +794,7 @@ async function runConcurrentHeadlessScenario({
 
 async function removeHeadlessMembers(members, command, deadlineMs) {
 	const summoned = members.filter((member) => member.summoned);
-	const removals = await Promise.allSettled(summoned.map((member) => command(`codex remove ${member.generatedName}`, { deadlineMs })));
+	const removals = await Promise.allSettled(summoned.map((member) => command(`mineagen remove ${member.generatedName}`, { deadlineMs })));
 	let failed = false;
 	for (let index = 0; index < removals.length; index += 1) {
 		const removal = removals[index];
@@ -1897,7 +1897,7 @@ function generatedAgentName(scenario, timestamp, rosterIndex = null) {
 }
 
 function resolveAgentAssertions(assertions, generatedName, spawnPosition = null) {
-	return assertions.map((assertion) => assertion.type === 'audit' ? { ...assertion, command: `codex audit ${generatedName}`, agent: generatedName } : assertion.type === 'rcon'
+	return assertions.map((assertion) => assertion.type === 'audit' ? { ...assertion, command: `mineagen audit ${generatedName}`, agent: generatedName } : assertion.type === 'rcon'
 		? { ...assertion, command: assertion.command.replaceAll('{agent}', generatedName).replace(/\{spawn([XYZ])\}/g, (_, axis) => {
 			if (spawnPosition === null) throw new Error('Spawn-relative assertions require natural-world authoritative spawn evidence');
 			return String(spawnPosition[axis.toLowerCase()]);
@@ -1945,7 +1945,7 @@ function parseLifecycle(value) {
 async function waitForAgentReady({ generatedName, command, poll, deadline, now, startedAt }) {
 	let attempt = 0;
 	while (logicalNow(now, startedAt, attempt) < deadline) {
-		const status = await command(`codex status ${generatedName}`, { attempt });
+		const status = await command(`mineagen status ${generatedName}`, { attempt });
 		if (/\|\s*READY\s*\./i.test(status.text)) return;
 		const lifecycle = parseLifecycle(status.text);
 		if (lifecycle === 'ERROR' || lifecycle === 'DEAD') {
@@ -1981,7 +1981,7 @@ function isReadOnlyRcon(value) {
 		|| /^execute if entity @a\[name=[A-Za-z0-9_]{1,16},advancements=\{[a-z0-9_.-]+:[a-z0-9_./-]+=true\}\] run data get entity [A-Za-z0-9_]{1,16} Pos$/.test(command)
 		|| /^execute positioned -?\d+(?:\.\d+)? -?\d+(?:\.\d+)? -?\d+(?:\.\d+)? if entity @a\[name=[A-Za-z0-9_]{1,16},distance=\d+(?:\.\d+)?\.\.\] run data get entity [A-Za-z0-9_]{1,16} Pos$/.test(command)
 		// The intervention audit only reports what the server observed during the agent's goal.
-		|| /^codex audit [A-Za-z0-9_]{1,16}$/.test(command);
+		|| /^mineagen audit [A-Za-z0-9_]{1,16}$/.test(command);
 }
 function validateRunnerScenario(scenario, assertions) {
 	for (const field of ['id', 'provider', 'model', 'reasoningEffort', 'serviceTier', 'task']) {

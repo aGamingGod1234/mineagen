@@ -130,14 +130,14 @@ try {
 	let e = null;
 	for (let attempt = 0; attempt < 3 && !e; attempt++) {
 		const registered = s.inbox.wait('agent_registered', () => true, 45_000).catch(() => null);
-		await s.command(`execute positioned 0.5 100 2.5 run codex summon gpt-6.1-sol low ${AGENT}`);
+		await s.command(`execute positioned 0.5 100 2.5 run mineagen summon gpt-6.1-sol low ${AGENT}`);
 		e = await registered;
 	}
 	if (!e) throw new Error('agent never registered');
 	s.record = { ...(e.payload.record ?? e.payload), agentId: e.agentId };
 	await s.bridge.send('agent_ready', s.record.agentId, { goalRevision: s.record.goalRevision, reconciled: false });
 	const started = s.inbox.wait('goal_control', g => g.payload.operation === 'start', 120_000);
-	await s.command(`codex start ${AGENT} Survive for 1200 seconds.`);
+	await s.command(`mineagen start ${AGENT} Survive for 1200 seconds.`);
 	s.record.goalRevision = Math.max(s.record.goalRevision, (await started).payload.goalRevision);
 	await s.bridge.send('agent_ready', s.record.agentId, { goalRevision: s.record.goalRevision, reconciled: false });
 	await s.command(`gamemode survival ${AGENT}`);

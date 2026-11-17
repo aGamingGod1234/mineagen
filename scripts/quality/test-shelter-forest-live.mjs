@@ -22,12 +22,12 @@ try {
 	s = await boot(out, { jar, template: process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port: Number(process.env.SLOT_PORT_BASE), world: null, seed: cp.seed, spawnMonsters: false, goalTicks: 150000 });
 	const registered = s.inbox.wait('agent_registered', () => true, 45000);
 	let summon; for (let i = 0; i < 20; i++) {
-		summon = await s.command('execute positioned 0.5 200 0.5 run codex summon gpt-6.1-sol low Probe'); if (!summon.includes('MODEL_CATALOG_UNAVAILABLE')) break;
+		summon = await s.command('execute positioned 0.5 200 0.5 run mineagen summon gpt-6.1-sol low Probe'); if (!summon.includes('MODEL_CATALOG_UNAVAILABLE')) break;
 		await s.bridge.send('catalog_snapshot', 'server', { refreshedAtEpochMs: Date.now(), models: [{ provider: 'codex', model: 'gpt-6.1-sol', id: 'gpt-6.1-sol', displayName: 'Model-free shelter', reasoningEfforts: ['low'], serviceTiers: ['default'] }] }); await sleep(100);
 	}
 	if (!summon.includes('Creating')) { registered.catch(() => {}); throw Error('SUMMON_REFUSED'); }
 	const e = await registered; s.record = { ...(e.payload.record ?? e.payload), agentId: e.agentId }; await s.bridge.send('agent_ready', s.record.agentId, { goalRevision: s.record.goalRevision, reconciled: false });
-	const start = s.inbox.wait('goal_control', g => g.payload.operation === 'start'); await s.command('codex start Probe Survive for 7000 seconds.'); s.record.goalRevision = (await start).payload.goalRevision;
+	const start = s.inbox.wait('goal_control', g => g.payload.operation === 'start'); await s.command('mineagen start Probe Survive for 7000 seconds.'); s.record.goalRevision = (await start).payload.goalRevision;
 	await s.bridge.send('agent_ready', s.record.agentId, { goalRevision: s.record.goalRevision, reconciled: false });
 	const setup = await applyQualitySetup({ ...cp.setup, randomSalt: 1 }, async command => ({ text: await s.command(command) }), 'Probe');
 	await activateQualitySetup(setup, async command => ({ text: await s.command(command) }), { stage: 'goal-start' });

@@ -11,7 +11,7 @@ public final class OfflineAgentProfileLookupVerification {
 		UUID ordinary = UUID.fromString("293a9add-1234-5678-9abc-123456789abc");
 		OfflineAgentProfileLookup.begin("DeathSmoke", agent);
 		assertTrue(OfflineAgentProfileLookup.requestedUuid("DeathSmoke").orElseThrow().equals(agent),
-				"exact pending name keeps the Arena offline UUID before Carpet resolves a real account");
+				"exact pending name keeps the agent offline UUID before Carpet resolves a real account");
 		assertTrue(OfflineAgentProfileLookup.requestedUuid("Deathsmoke").isEmpty(),
 				"profile interception never guesses across different requested name casing");
 		assertTrue(OfflineAgentProfileLookup.shouldBypassRemoteLookup(agent),

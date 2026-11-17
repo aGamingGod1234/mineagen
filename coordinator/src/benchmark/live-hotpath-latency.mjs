@@ -124,14 +124,14 @@ try {
 	await command('fill -4 64 -4 40 70 4 minecraft:air');
 	for (const [index, name] of names.entries()) {
 		const offset = messages.length;
-		await command(`execute in minecraft:overworld positioned ${index * 4 + 0.5} 64 0.5 run codex summon ${PROFILE.model} ${PROFILE.reasoningEffort} ${name}`);
+		await command(`execute in minecraft:overworld positioned ${index * 4 + 0.5} 64 0.5 run mineagen summon ${PROFILE.model} ${PROFILE.reasoningEffort} ${name}`);
 		const registered = await until(() => messages.slice(offset).find((event) => event.type === 'agent_registered'), 'agent_registered');
 		const record = { ...(registered.payload.record ?? registered.payload), agentId: registered.agentId };
 		records.set(record.agentId, record);
 		record.name = record.name ?? name;
 		await bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false });
 		const goalOffset = messages.length;
-		const startReply = await command(`codex start ${record.name} Get a stone pickaxe`);
+		const startReply = await command(`mineagen start ${record.name} Get a stone pickaxe`);
 		const goal = await until(() => messages.slice(goalOffset).find((event) => event.type === 'goal_control' && event.agentId === record.agentId && event.payload.operation === 'start'), 'goal_control').catch((error) => { throw new Error(`${error.message}; start reply: ${startReply}; seen: ${messages.slice(goalOffset).map((e) => e.type).join(',')}`); });
 		record.goalRevision = goal.payload.goalRevision;
 		await bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false });
@@ -170,8 +170,8 @@ try {
 	console.log(JSON.stringify(timed));
 } finally {
 	try { await runtime.disposeAll(); } catch {}
-	for (const record of records.values()) await command(`codex remove ${record.name}`).catch(() => {});
-	for (const name of names) await command(`codex remove ${name}`).catch(() => {});
+	for (const record of records.values()) await command(`mineagen remove ${record.name}`).catch(() => {});
+	for (const name of names) await command(`mineagen remove ${name}`).catch(() => {});
 	if (timed !== null) await writeFile(outFile, JSON.stringify(timed, null, 2));
 	bridge.stop(); await rcon.close().catch(() => {});
 }

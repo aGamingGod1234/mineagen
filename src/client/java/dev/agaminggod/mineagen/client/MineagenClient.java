@@ -1,6 +1,5 @@
 package dev.agaminggod.mineagen.client;
 
-import dev.agaminggod.mineagen.client.camera.CameraDirectorClient;
 import dev.agaminggod.mineagen.client.control.AgentControlClient;
 import dev.agaminggod.mineagen.client.control.DesktopAwtInitialization;
 import dev.agaminggod.mineagen.client.pov.PovClient;
@@ -17,7 +16,6 @@ public final class MineagenClient implements ClientModInitializer {
 		DesktopAwtInitialization.initialize();
 		dev.agaminggod.mineagen.client.control.PlanItemIcons.register();
 		CodexAgentRenderers.register();
-		CameraDirectorClient.register();
 		AgentControlClient.register();
 		PovClient.register();
 		OperatorInputSender.register();

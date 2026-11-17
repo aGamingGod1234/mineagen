@@ -297,7 +297,7 @@ try {
     New-Item -ItemType Directory -Force -Path $backup | Out-Null
     $oldArena = @(Get-ChildItem -LiteralPath $mods -File -ErrorAction SilentlyContinue |
             Where-Object { (Test-CoreArenaModName $_.Name) -or (Test-ArenaVoiceModName $_.Name) })
-    foreach ($old in $oldArena) { Assert-NoReparseTree $old.FullName "Arena JAR $($old.Name)" }
+    foreach ($old in $oldArena) { Assert-NoReparseTree $old.FullName "Mineagen JAR $($old.Name)" }
     foreach ($old in $oldArena) { Copy-Item -LiteralPath $old.FullName -Destination (Join-Path $backup $old.Name) -Force }
     if ($FailurePoint -eq 'AfterJarsBackup') { throw 'Injected failure after JAR backup.' }
     Assert-NoReparseTree $backup 'backup path'

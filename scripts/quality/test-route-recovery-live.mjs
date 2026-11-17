@@ -54,11 +54,11 @@ for(const scenario of (only==='ladder'?['ladder']:['cave','nether','end']).filte
    } else {await s.command('fill 7 99 -2 11 99 2 minecraft:end_portal_frame[eye=true]');await s.command('fill 8 99 -1 10 99 1 minecraft:end_portal');}
   }
   const spawnX=scenario==='ladder'?1.5:0.5;
-  const registered=s.inbox.wait('agent_registered');await s.command(`execute positioned ${spawnX} ${y} 0.5 run codex summon gpt-6.1-sol low ${A}`);
+  const registered=s.inbox.wait('agent_registered');await s.command(`execute positioned ${spawnX} ${y} 0.5 run mineagen summon gpt-6.1-sol low ${A}`);
   const e=await registered;s.record={...(e.payload.record??e.payload),agentId:e.agentId};
   s.bridge.on('goal_control',e=>{if(e.agentId===s.record.agentId&&Number.isSafeInteger(e.payload.goalRevision)){s.record.goalRevision=e.payload.goalRevision;s.bridge.send('agent_ready',s.record.agentId,{goalRevision:s.record.goalRevision,reconciled:false}).catch(()=>{});}});
   await s.bridge.send('agent_ready',s.record.agentId,{goalRevision:s.record.goalRevision,reconciled:false});
-  const started=s.inbox.wait('goal_control',e=>e.payload.operation==='start');await s.command(`codex start ${A} Survive for 1200 seconds.`);s.record.goalRevision=(await started).payload.goalRevision;
+  const started=s.inbox.wait('goal_control',e=>e.payload.operation==='start');await s.command(`mineagen start ${A} Survive for 1200 seconds.`);s.record.goalRevision=(await started).payload.goalRevision;
   await s.bridge.send('agent_ready',s.record.agentId,{goalRevision:s.record.goalRevision,reconciled:false});
   await s.command(`spawnpoint ${A} ${Math.floor(spawnX)} ${y} 0`);
   for(let run=1;run<=Number(process.env.RECOVERY_REPS??3);run++) {

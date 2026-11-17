@@ -49,12 +49,12 @@ try {
 	await s.command('time set 1000');
 	const registered = s.inbox.wait('agent_registered', () => true, 60_000);
 	await s.command('forceload add 0 0');
-	await s.command(`execute positioned 0 0 0 positioned over motion_blocking_no_leaves run codex summon gpt-6.1-sol low ${NAME}`);
+	await s.command(`execute positioned 0 0 0 positioned over motion_blocking_no_leaves run mineagen summon gpt-6.1-sol low ${NAME}`);
 	const e = await registered;
 	s.record = { ...(e.payload.record ?? e.payload), agentId: e.agentId, provider: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'low', serviceTier: 'default' };
 	await s.bridge.send('agent_ready', s.record.agentId, { goalRevision: s.record.goalRevision, reconciled: false });
 	const started = s.inbox.wait('goal_control', g => g.payload.operation === 'start', 120_000);
-	await s.command(`codex start ${NAME} Survive for 36000 seconds.`);
+	await s.command(`mineagen start ${NAME} Survive for 36000 seconds.`);
 	s.record.goalRevision = (await started).payload.goalRevision;
 	await s.bridge.send('agent_ready', s.record.agentId, { goalRevision: s.record.goalRevision, reconciled: false });
 	const pos = async () => String(await s.command(`data get entity ${NAME} Pos`)).match(/\[\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?\]/)?.slice(1).map(Number) ?? null;
@@ -85,7 +85,7 @@ try {
 			row.pass = judge(row);
 			rows.push(row);
 			console.log(`[${fixture} ${run}] ${row.state} ${row.reasonCode} ${row.seconds}s left=${row.left} hpLost=${row.healthLost}${row.died ? ' DIED' : ''} | ${row.message.slice(0, 140)}`);
-			if (row.died) { await s.command(`codex respawn ${NAME}`).catch(() => {}); await sleep(3000); }
+			if (row.died) { await s.command(`mineagen respawn ${NAME}`).catch(() => {}); await sleep(3000); }
 			continue;
 		}
 		const X = 200 + 80 * n++, Z = 200;
@@ -162,7 +162,7 @@ try {
 		row.pass = judge(row);
 		rows.push(row);
 		console.log(`[${fixture} ${run}] ${row.state} ${row.reasonCode} ${row.seconds}s left=${row.left} hpLost=${row.healthLost} air ${row.airBefore}->${row.minAir} east(low)=${row.deepEast} dy=${row.endY}${row.healthLostAfter !== undefined ? ` hpLostNext${afterMs / 1000}s=${row.healthLostAfter}` : ''}${row.died ? ' DIED' : ''} | ${row.message.slice(0, 140)}`);
-		if (row.died) { await s.command(`codex respawn ${NAME}`).catch(() => {}); await sleep(3000); }
+		if (row.died) { await s.command(`mineagen respawn ${NAME}`).catch(() => {}); await sleep(3000); }
 	}
 } catch (error) {
 	// Recorded as an invalid row: the trials it cut short are missing too.

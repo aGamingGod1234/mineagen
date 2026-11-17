@@ -3,7 +3,7 @@
 	"id": "mineagen",
 	"version": "${version}",
 	"name": "Mineagen",
-	"description": "Summon configurable Codex-powered humanoid agents that can act autonomously in Minecraft.",
+	"description": "Summon AI agents, run by Codex or Claude Code, that play Minecraft on their own.",
 	"icon": "assets/mineagen/icon.png",
 	"license": "MIT",
 	"environment": "*",

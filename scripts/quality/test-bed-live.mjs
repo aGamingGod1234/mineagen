@@ -67,10 +67,10 @@ try {
   await command('difficulty peaceful');await command('gamerule minecraft:send_command_feedback false');await command('time set noon');
   await command('forceload add -16 -16 32 32');await sleep(2000);
   await command('fill -5 75 -5 20 90 10 minecraft:air');await command('fill -4 79 -4 2 79 4 minecraft:stone');
-  const registered=inbox.wait('agent_registered');console.log(await command(`execute positioned 0.5 80 0.5 run codex summon gpt-6.1-sol low ${agent}`));
+  const registered=inbox.wait('agent_registered');console.log(await command(`execute positioned 0.5 80 0.5 run mineagen summon gpt-6.1-sol low ${agent}`));
   const e=await registered;record={...(e.payload.record??e.payload),agentId:e.agentId};
   await bridge.send('agent_ready',record.agentId,{goalRevision:record.goalRevision,reconciled:false});
-  const started=inbox.wait('goal_control',e=>e.payload.operation==='start');await command(`codex start ${agent} Survive for 600 seconds.`);record.goalRevision=(await started).payload.goalRevision;
+  const started=inbox.wait('goal_control',e=>e.payload.operation==='start');await command(`mineagen start ${agent} Survive for 600 seconds.`);record.goalRevision=(await started).payload.goalRevision;
   await bridge.send('agent_ready',record.agentId,{goalRevision:record.goalRevision,reconciled:false});
   await command('fill -4 79 -4 5 79 5 minecraft:stone');
   await command('setblock 1 80 0 minecraft:crafting_table');

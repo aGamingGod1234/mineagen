@@ -199,7 +199,7 @@ public final class CodexAgentServerRuntime {
 			tryStartBridge(server, manager, supervisor);
 		} catch (RuntimeException exception) {
 			LOGGER.error(
-					"Codex agent bridge is unavailable; summoned agents will remain locally controllable but autonomous planning is disabled",
+					"Coordinator bridge is unavailable; summoned agents will remain locally controllable but autonomous planning is disabled",
 					exception
 			);
 		}

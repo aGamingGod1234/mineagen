@@ -15,7 +15,7 @@ async function fixture({ geometryResponse = 'Bench has the following entity data
 	const key = (x, y, z) => `${x},${y},${z}`;
 	const command = async (text) => {
 		commands.push(text);
-		if (text === 'codex respawn Bench') alive = true;
+		if (text === 'mineagen respawn Bench') alive = true;
 		const parts = text.split(' ');
 		if (parts[0] === 'fill') {
 			const [x1, y1, z1, x2, y2, z2] = parts.slice(1, 7).map(Number);
@@ -65,7 +65,7 @@ test('reset removes surviving threats before respawn and stops prior reflex inpu
 	const f = await fixture({ dead: true });
 	await f.reset();
 	const index = (prefix) => f.commands.findIndex((command) => command.startsWith(prefix));
-	assert.ok(index('kill @e') < index('codex respawn'), 'the old zombie must not attack the respawned body');
+	assert.ok(index('kill @e') < index('mineagen respawn'), 'the old zombie must not attack the respawned body');
 	assert.ok(index('kill @e[type=minecraft:item') > index('kill @e[type=!minecraft:player'));
 	assert.ok(index('kill @e[type=minecraft:item') < index('clear Bench'), 'newly dropped loot must not be picked up after clearing inventory');
 	assert.ok(index('rules:[]') >= 0 && index('rules:[]') < index('observe:rules'));

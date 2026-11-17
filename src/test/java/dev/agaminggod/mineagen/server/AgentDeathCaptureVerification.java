@@ -58,10 +58,10 @@ public final class AgentDeathCaptureVerification {
 		assertions++;
 
 		assertEquals(AgentDeathCapture.KillRoute.VANILLA_DEATH, AgentDeathCapture.killRoute(true, false),
-				"/kill on a living Arena body is a vanilla death, never Carpet's disconnect and recreate");
+				"/kill on a living agent body is a vanilla death, never Carpet's disconnect and recreate");
 		assertions++;
 		assertEquals(AgentDeathCapture.KillRoute.ALREADY_DEAD, AgentDeathCapture.killRoute(true, true),
-				"/kill on a dead Arena body records no second death and keeps the body connected for respawn");
+				"/kill on a dead agent body records no second death and keeps the body connected for respawn");
 		assertions++;
 		assertEquals(AgentDeathCapture.KillRoute.CARPET_DISCONNECT, AgentDeathCapture.killRoute(false, false),
 				"plain Carpet bots keep Carpet's /kill disconnect");

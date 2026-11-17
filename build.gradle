@@ -458,15 +458,15 @@ if (!defaultTarget) {
 	}
 }
 
-tasks.register('verifyCameraMixin', JavaExec) {
+tasks.register('verifyClientMixins', JavaExec) {
 	group = 'verification'
-	description = 'Verifies camera accessor transformation in Fabric without starting client main or a world.'
+	description = 'Verifies client mixins and the POV camera accessor in Fabric without starting client main or a world.'
 	dependsOn tasks.named('testClasses'), tasks.named('clientClasses'), tasks.named('processResources'), tasks.named('processClientResources')
 	classpath = sourceSets.test.runtimeClasspath
 	if (project.hasProperty('facebarVerificationJar')) {
 		classpath += files(project.property('facebarVerificationJar'))
 	}
-	mainClass.set('dev.agaminggod.mineagen.client.camera.CameraMixinVerification')
+	mainClass.set('dev.agaminggod.mineagen.client.ClientMixinVerification')
 	systemProperty 'java.awt.headless', 'true'
 	systemProperty 'fabric.development', 'true'
 	systemProperty 'fabric.defaultModDistributionNamespace', 'official'
@@ -474,12 +474,12 @@ tasks.register('verifyCameraMixin', JavaExec) {
 	doFirst {
 		['fabric.gameJarPath': 'minecraft-common-', 'fabric.gameJarPath.client': 'minecraft-clientOnly-'].each { property, prefix ->
 			def jars = classpath.files.findAll { it.name.startsWith(prefix) && it.name.endsWith('.jar') }
-			if (jars.size() != 1) throw new GradleException("Camera mixin verification requires exactly one ${prefix}*.jar; found ${jars.size()}.")
+			if (jars.size() != 1) throw new GradleException("Client mixin verification requires exactly one ${prefix}*.jar; found ${jars.size()}.")
 			systemProperty property, jars.first().absolutePath
 		}
 		systemProperty 'fabric.classPathGroups', (sourceSets.main.output.files + sourceSets.client.output.files)
 			.collect { it.absolutePath }.join(File.pathSeparator)
-		def gameDirectory = layout.buildDirectory.dir('camera-mixin-verification').get().asFile
+		def gameDirectory = layout.buildDirectory.dir('client-mixin-verification').get().asFile
 		java.nio.file.Files.createDirectories(gameDirectory.toPath())
 		setArgs(['--gameDir', gameDirectory.absolutePath])
 	}
@@ -595,7 +595,7 @@ tasks.register('verifyMixinTargets', Exec) {
 tasks.named('check') {
 	if (!defaultTarget) dependsOn tasks.named('verifyFurnaceFuelDuration')
 	dependsOn tasks.named('verifyStrategyKnowledge')
-	dependsOn tasks.named('verifyCore'), tasks.named('verifyCameraMixin'), tasks.named('verifyPovMixins'), tasks.named('verifyEntrypoints'), ':voice-addon:check'
+	dependsOn tasks.named('verifyCore'), tasks.named('verifyClientMixins'), tasks.named('verifyPovMixins'), tasks.named('verifyEntrypoints'), ':voice-addon:check'
 	dependsOn tasks.named('verifyClientAwtTrue'), tasks.named('verifyClientAwtFalse'), tasks.named('verifyClientAwtAuto')
 }
 

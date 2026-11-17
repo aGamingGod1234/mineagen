@@ -6,7 +6,6 @@
     "AbstractArrowInvoker",
     "ArrowImpactReceiptMixin",
     "AbstractFurnaceBlockEntityAccessor",
-    "CameraDollyMinecartMixin",
     "CachedUserNameToIdResolverAccessor",
     "CommandNodeAccessor",
     "CachedProfileInfoAccessor",

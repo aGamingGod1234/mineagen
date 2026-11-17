@@ -13,6 +13,7 @@ import dev.agaminggod.mineagen.agent.AgentId;
 import dev.agaminggod.mineagen.agent.AgentRecord;
 import dev.agaminggod.mineagen.agent.AgentTransition;
 import dev.agaminggod.mineagen.control.AgentControlCatalog;
+import dev.agaminggod.mineagen.control.AgentControlCommandBuilder;
 import dev.agaminggod.mineagen.pov.PovMode;
 import dev.agaminggod.mineagen.server.pov.PovCommands;
 import dev.agaminggod.mineagen.server.goal.GoalDraftChoice;
@@ -78,7 +79,7 @@ public final class CodexAgentCommands {
 						.then(Commands.literal("off").executes(context -> verbose(context, false)))
 		);
 		dispatcher.register(
-				Commands.literal("codex")
+				Commands.literal(AgentControlCommandBuilder.ROOT)
 						.then(Commands.literal("summon")
 								.requires(GoalControl::mayControl)
 								.executes(context -> summon(context, PROVIDER_CODEX, DEFAULT_MODEL, DEFAULT_REASONING, Optional.empty()))
@@ -134,9 +135,8 @@ public final class CodexAgentCommands {
 								.requires(GoalControl::mayControl)
 								.then(agentArgument().executes(CodexAgentCommands::toggleAutomatic)))
 						.then(voiceCommands())
-						.then(dev.agaminggod.mineagen.camera.CameraDolly.commands())
-						.then(PovCommands.codexAlias("spectate", PovMode.SPECTATE, CodexAgentCommands::povAgentArgument))
-						.then(PovCommands.codexAlias("takeover", PovMode.TAKEOVER, CodexAgentCommands::povAgentArgument))
+						.then(PovCommands.rootAlias("spectate", PovMode.SPECTATE, CodexAgentCommands::povAgentArgument))
+						.then(PovCommands.rootAlias("takeover", PovMode.TAKEOVER, CodexAgentCommands::povAgentArgument))
 						);
 	}
 
@@ -267,7 +267,7 @@ public final class CodexAgentCommands {
 			String selector = StringArgumentType.getString(context, ARGUMENT_AGENT);
 			String profileId = StringArgumentType.getString(context, "profile");
 			if (!VoiceCatalog.accepts(profileId)) {
-				throw new AgentDomainException("VOICE_PROFILE_UNKNOWN", "Unknown voice profile. Use /codex voice profiles");
+				throw new AgentDomainException("VOICE_PROFILE_UNKNOWN", "Unknown voice profile. Use /" + AgentControlCommandBuilder.ROOT + " voice profiles");
 			}
 			String tone = requireVoiceTone(getOptionalString(context, "tone", VoiceProfile.DEFAULT_TONE));
 			Double speed = getOptionalDouble(context, "speed");
@@ -529,7 +529,7 @@ public final class CodexAgentCommands {
 		if (failure instanceof AgentDomainException exception) {
 			source.sendFailure(Component.literal(exception.code() + ": " + exception.getMessage()));
 		} else {
-			LOGGER.error("Unexpected /codex summon failure", failure);
+			LOGGER.error("Unexpected /{} summon failure", AgentControlCommandBuilder.ROOT, failure);
 			source.sendFailure(Component.literal("INTERNAL_ERROR: summon failed; see the server log"));
 		}
 	}
@@ -793,7 +793,7 @@ public final class CodexAgentCommands {
 	}
 
 	private static CommandSyntaxException unexpectedFailure(String operation, RuntimeException exception) {
-		LOGGER.error("Unexpected /codex {} failure", operation, exception);
+		LOGGER.error("Unexpected /{} {} failure", AgentControlCommandBuilder.ROOT, operation, exception);
 		return COMMAND_FAILURE.create("INTERNAL_ERROR: " + operation + " failed; see the server log");
 	}
 

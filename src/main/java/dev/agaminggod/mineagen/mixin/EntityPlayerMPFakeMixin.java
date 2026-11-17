@@ -21,10 +21,10 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 @Mixin(value = EntityPlayerMPFake.class, remap = false)
 abstract class EntityPlayerMPFakeMixin {
 	@Inject(method = "kill(Lnet/minecraft/server/level/ServerLevel;)V", at = @At("HEAD"), cancellable = true, remap = false)
-	private void mineagen$killArenaBodyAsVanillaDeath(ServerLevel level, CallbackInfo callback) {
+	private void mineagen$killAgentBodyAsVanillaDeath(ServerLevel level, CallbackInfo callback) {
 		EntityPlayerMPFake player = (EntityPlayerMPFake) (Object) this;
-		boolean arenaBody = CodexAgentManager.playerDisplayName(player).isPresent();
-		switch (AgentDeathCapture.killRoute(arenaBody, player.isDeadOrDying())) {
+		boolean agentBody = CodexAgentManager.playerDisplayName(player).isPresent();
+		switch (AgentDeathCapture.killRoute(agentBody, player.isDeadOrDying())) {
 			case CARPET_DISCONNECT -> { }
 			case ALREADY_DEAD -> callback.cancel();
 			case VANILLA_DEATH -> {

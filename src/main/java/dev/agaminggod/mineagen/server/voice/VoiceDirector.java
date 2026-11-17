@@ -28,7 +28,7 @@ public final class VoiceDirector {
 	/** Previews exactly the selected settings without changing saved settings. */
 	public static void say(MinecraftServer server, AgentId agentId, String text, VoiceProfile settings) {
 		if (!VoiceCatalog.accepts(settings.profileId())) throw new AgentDomainException(
-				"VOICE_PROFILE_UNKNOWN", "Unknown voice profile. Use /codex voice profiles");
+				"VOICE_PROFILE_UNKNOWN", "Unknown voice profile. Use /mineagen voice profiles");
 		speak(server, agentId, text, settings);
 	}
 

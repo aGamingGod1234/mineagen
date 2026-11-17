@@ -1135,12 +1135,6 @@ server-template/README.md
 server-template/server.properties
 settings.gradle
 src/client/java/dev/agaminggod/mineagen/client/MineagenClient.java
-src/client/java/dev/agaminggod/mineagen/client/camera/CameraDirectorClient.java
-src/client/java/dev/agaminggod/mineagen/client/camera/CameraKeyframe.java
-src/client/java/dev/agaminggod/mineagen/client/camera/CameraPath.java
-src/client/java/dev/agaminggod/mineagen/client/camera/CameraPose.java
-src/client/java/dev/agaminggod/mineagen/client/camera/CameraRigRenderer.java
-src/client/java/dev/agaminggod/mineagen/client/camera/CameraRigScreen.java
 src/client/java/dev/agaminggod/mineagen/client/control/AgentClientRoster.java
 src/client/java/dev/agaminggod/mineagen/client/control/AgentControlClient.java
 src/client/java/dev/agaminggod/mineagen/client/control/AgentPlayerIdentity.java
@@ -1236,7 +1230,6 @@ src/compat/26.1/testJava/dev/agaminggod/mineagen/compat/TestChunkCacheBase.java
 src/compat/26.1/testJava/dev/agaminggod/mineagen/compat/TestCompat.java
 src/compat/26.1/testJava/dev/agaminggod/mineagen/compat/TestDedicatedServerBase.java
 src/compat/26.1/testJava/dev/agaminggod/mineagen/compat/TestFurnaceBase.java
-src/compat/26.1/testJava/dev/agaminggod/mineagen/compat/TestHud.java
 src/compat/26.1/testJava/dev/agaminggod/mineagen/compat/TestMinecraftServerBase.java
 src/compat/26.1/testJava/dev/agaminggod/mineagen/compat/TestRecipeManagerBase.java
 src/compat/26.1/testJava/dev/agaminggod/mineagen/compat/TestServerLevelBase.java
@@ -1261,7 +1254,6 @@ src/compat/26.2/testJava/dev/agaminggod/mineagen/compat/TestChunkCacheBase.java
 src/compat/26.2/testJava/dev/agaminggod/mineagen/compat/TestCompat.java
 src/compat/26.2/testJava/dev/agaminggod/mineagen/compat/TestDedicatedServerBase.java
 src/compat/26.2/testJava/dev/agaminggod/mineagen/compat/TestFurnaceBase.java
-src/compat/26.2/testJava/dev/agaminggod/mineagen/compat/TestHud.java
 src/compat/26.2/testJava/dev/agaminggod/mineagen/compat/TestMinecraftServerBase.java
 src/compat/26.2/testJava/dev/agaminggod/mineagen/compat/TestRecipeManagerBase.java
 src/compat/26.2/testJava/dev/agaminggod/mineagen/compat/TestServerLevelBase.java
@@ -1288,7 +1280,6 @@ src/compat/26.3/testJava/dev/agaminggod/mineagen/compat/TestChunkCacheBase.java
 src/compat/26.3/testJava/dev/agaminggod/mineagen/compat/TestCompat.java
 src/compat/26.3/testJava/dev/agaminggod/mineagen/compat/TestDedicatedServerBase.java
 src/compat/26.3/testJava/dev/agaminggod/mineagen/compat/TestFurnaceBase.java
-src/compat/26.3/testJava/dev/agaminggod/mineagen/compat/TestHud.java
 src/compat/26.3/testJava/dev/agaminggod/mineagen/compat/TestMinecraftServerBase.java
 src/compat/26.3/testJava/dev/agaminggod/mineagen/compat/TestRecipeManagerBase.java
 src/compat/26.3/testJava/dev/agaminggod/mineagen/compat/TestServerLevelBase.java
@@ -1324,8 +1315,6 @@ src/main/java/dev/agaminggod/mineagen/agent/goal/GoalSpec.java
 src/main/java/dev/agaminggod/mineagen/agent/goal/GoalSpecCodec.java
 src/main/java/dev/agaminggod/mineagen/agent/goal/GoalStatus.java
 src/main/java/dev/agaminggod/mineagen/agent/goal/MinecraftCoordinateBounds.java
-src/main/java/dev/agaminggod/mineagen/camera/CameraDolly.java
-src/main/java/dev/agaminggod/mineagen/camera/CameraRig.java
 src/main/java/dev/agaminggod/mineagen/client/navigation/GridPosition.java
 src/main/java/dev/agaminggod/mineagen/client/navigation/LocalPathfinder.java
 src/main/java/dev/agaminggod/mineagen/client/navigation/MovementCosts.java
@@ -1367,7 +1356,6 @@ src/main/java/dev/agaminggod/mineagen/mixin/AbstractFurnaceBlockEntityAccessor.j
 src/main/java/dev/agaminggod/mineagen/mixin/ArrowImpactReceiptMixin.java
 src/main/java/dev/agaminggod/mineagen/mixin/CachedProfileInfoAccessor.java
 src/main/java/dev/agaminggod/mineagen/mixin/CachedUserNameToIdResolverAccessor.java
-src/main/java/dev/agaminggod/mineagen/mixin/CameraDollyMinecartMixin.java
 src/main/java/dev/agaminggod/mineagen/mixin/CarpetBoatInputMixin.java
 src/main/java/dev/agaminggod/mineagen/mixin/ChunkMapPovViewMixin.java
 src/main/java/dev/agaminggod/mineagen/mixin/ChunkMapTrackedEntityPovMixin.java
@@ -1451,7 +1439,6 @@ src/main/java/dev/agaminggod/mineagen/server/AgentSavedData.java
 src/main/java/dev/agaminggod/mineagen/server/AgentSpawnPlacement.java
 src/main/java/dev/agaminggod/mineagen/server/AgentVerboseChat.java
 src/main/java/dev/agaminggod/mineagen/server/AgentVerboseState.java
-src/main/java/dev/agaminggod/mineagen/server/MineagenCommands.java
 src/main/java/dev/agaminggod/mineagen/server/BundledCoordinatorInstaller.java
 src/main/java/dev/agaminggod/mineagen/server/ChunkedSavedPayload.java
 src/main/java/dev/agaminggod/mineagen/server/CodexAgentCommands.java
@@ -1466,7 +1453,6 @@ src/main/java/dev/agaminggod/mineagen/server/CoordinatorRecoveryState.java
 src/main/java/dev/agaminggod/mineagen/server/CoordinatorVoiceEndpoint.java
 src/main/java/dev/agaminggod/mineagen/server/FailureChatThrottle.java
 src/main/java/dev/agaminggod/mineagen/server/GoalControl.java
-src/main/java/dev/agaminggod/mineagen/server/GoalPayload.java
 src/main/java/dev/agaminggod/mineagen/server/LiveTaskViewSync.java
 src/main/java/dev/agaminggod/mineagen/server/NodeRuntimeLocator.java
 src/main/java/dev/agaminggod/mineagen/server/ObservedWorldIdentity.java
@@ -1767,20 +1753,11 @@ src/main/java/dev/agaminggod/mineagen/world/WorldMutationRevisionAccess.java
 src/main/java/dev/agaminggod/mineagen/world/WorldMutationRevisions.java
 src/main/resources/META-INF/licenses/roboto-apache-2.0.txt
 src/main/resources/mineagen.mixins.json
-src/main/resources/assets/mineagen/blockstates/camera_column.json
-src/main/resources/assets/mineagen/blockstates/camera_dolly.json
-src/main/resources/assets/mineagen/blockstates/camera_head.json
-src/main/resources/assets/mineagen/blockstates/camera_tripod.json
 src/main/resources/assets/mineagen/font/console.json
 src/main/resources/assets/mineagen/font/roboto_regular.ttf
 src/main/resources/assets/mineagen/icon.png
 src/main/resources/assets/mineagen/identity/agent_visual_manifest.json
-src/main/resources/assets/mineagen/items/camera_dolly.json
 src/main/resources/assets/mineagen/lang/en_us.json
-src/main/resources/assets/mineagen/models/block/camera_column.json
-src/main/resources/assets/mineagen/models/block/camera_dolly.json
-src/main/resources/assets/mineagen/models/block/camera_head.json
-src/main/resources/assets/mineagen/models/block/camera_tripod.json
 src/main/resources/assets/mineagen/textures/entity/brand_claude_agent_0.png
 src/main/resources/assets/mineagen/textures/entity/brand_claude_agent_1.png
 src/main/resources/assets/mineagen/textures/entity/brand_claude_agent_2.png
@@ -1860,8 +1837,7 @@ src/test/java/dev/agaminggod/mineagen/agent/AgentLifecycleVerification.java
 src/test/java/dev/agaminggod/mineagen/agent/AgentRegistryVerification.java
 src/test/java/dev/agaminggod/mineagen/agent/AgentVisualIdentityVerification.java
 src/test/java/dev/agaminggod/mineagen/agent/GoalSpecVerification.java
-src/test/java/dev/agaminggod/mineagen/client/camera/CameraMixinVerification.java
-src/test/java/dev/agaminggod/mineagen/client/camera/CameraPathVerification.java
+src/test/java/dev/agaminggod/mineagen/client/ClientMixinVerification.java
 src/test/java/dev/agaminggod/mineagen/client/control/AgentClientPresentationVerification.java
 src/test/java/dev/agaminggod/mineagen/client/control/UsageCardsRenderVerification.java
 src/test/java/dev/agaminggod/mineagen/client/gui/AgentControlLayoutVerification.java
@@ -1926,7 +1902,7 @@ src/test/java/dev/agaminggod/mineagen/server/PendingDragonKillVerification.java
 src/test/java/dev/agaminggod/mineagen/server/PendingSpawnCancellationLedgerVerification.java
 src/test/java/dev/agaminggod/mineagen/server/ProviderApiKeyVerification.java
 src/test/java/dev/agaminggod/mineagen/server/QueuedGoalRevalidationVerification.java
-src/test/java/dev/agaminggod/mineagen/server/VoiceCameraCommandVerification.java
+src/test/java/dev/agaminggod/mineagen/server/VoiceCommandVerification.java
 src/test/java/dev/agaminggod/mineagen/server/VoiceConsentCommandVerification.java
 src/test/java/dev/agaminggod/mineagen/server/WindowsCoordinatorJobDrainVerification.java
 src/test/java/dev/agaminggod/mineagen/server/audit/InterventionAuditVerification.java

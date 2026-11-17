@@ -430,7 +430,7 @@ public final class AgentSavedData extends SavedData {
 		try {
 			runtimeHooks.onTransition(transition);
 		} catch (RuntimeException exception) {
-			LOGGER.error("Codex agent runtime transition hook failed for {}", transition.after().agentId(), exception);
+			LOGGER.error("Agent runtime transition hook failed for {}", transition.after().agentId(), exception);
 		}
 	}
 

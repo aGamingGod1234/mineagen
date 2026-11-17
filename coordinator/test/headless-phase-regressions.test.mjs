@@ -43,10 +43,10 @@ function world({ completed = false, removalFails = false, stopFails = false, aft
 			if (command.split(' ')[3] !== state.name) return 'No entity was found';
 			return `${state.name} has the following entity data: ${command.endsWith(' Inventory') ? '[]' : '[10.5d, 65.0d, -3.5d]'}`;
 		}
-		if (command.startsWith('codex start ')) { state.started = true; afterStart(); return 'started'; }
-		if (command.startsWith('codex status ')) return completed ? 'state=COMPLETED' : 'state=RUNNING';
-		if (command.startsWith('codex stop ')) return stopFails ? 'Failed to stop agent' : `Stopped ${state.name}.`;
-		if (command.startsWith('codex remove ') && removalFails) return 'Failed to remove agent';
+		if (command.startsWith('mineagen start ')) { state.started = true; afterStart(); return 'started'; }
+		if (command.startsWith('mineagen status ')) return completed ? 'state=COMPLETED' : 'state=RUNNING';
+		if (command.startsWith('mineagen stop ')) return stopFails ? 'Failed to stop agent' : `Stopped ${state.name}.`;
+		if (command.startsWith('mineagen remove ') && removalFails) return 'Failed to remove agent';
 		return 'ok';
 	};
 	state.readFile = async (file) => String(file).endsWith('protocol.jsonl') && state.name
@@ -93,7 +93,7 @@ class FramedSocket extends EventEmitter {
 			this.emit('data', response.subarray(0, 3));
 			this.emit('data', response.subarray(3));
 		};
-		const delay = type === 2 && text.startsWith('codex status ') ? this.statusDelay : 0;
+		const delay = type === 2 && text.startsWith('mineagen status ') ? this.statusDelay : 0;
 		if (delay) {
 			const timer = setTimeout(() => { this.timers.delete(timer); send(); }, delay);
 			this.timers.add(timer);
@@ -152,9 +152,9 @@ test('paired matrix retires status request at trial expiry and authenticates cle
 	assert.equal(report.postRunEvidence.status, 'STOPPED');
 	assert.deepEqual(headlessTrialOutcome(report), { status: 'TIMED_OUT', resourcesClean: true });
 	assert.equal(sockets.length, 2);
-	assert.equal(commandTexts(sockets[0]).some((command) => /^codex (stop|remove) /.test(command)), false);
+	assert.equal(commandTexts(sockets[0]).some((command) => /^mineagen (stop|remove) /.test(command)), false);
 	const cleanup = commandTexts(sockets[1]);
-	assert.ok(cleanup[0].startsWith('codex stop ')); assert.ok(cleanup.at(-1).startsWith('codex remove '));
+	assert.ok(cleanup[0].startsWith('mineagen stop ')); assert.ok(cleanup.at(-1).startsWith('mineagen remove '));
 	assert.equal(sockets[1].writes[0].type, 3);
 });
 
@@ -172,7 +172,7 @@ test('cleanup connection/authentication, stop and removal failures stay unclean 
 		assert.equal(sockets.length, 2);
 		if (label === 'stop fails') {
 			assert.equal(report.postRunEvidence.status, 'UNAVAILABLE');
-			assert.ok(commandTexts(sockets[1]).some((command) => command.startsWith('codex remove ')), 'still remove after failed stop');
+			assert.ok(commandTexts(sockets[1]).some((command) => command.startsWith('mineagen remove ')), 'still remove after failed stop');
 		} else if (label !== 'removal fails') assert.equal(commandTexts(sockets[1]).length, 0);
 	});
 });
@@ -191,7 +191,7 @@ test('paired poll expiry and unpaired delayed status controls keep the original 
 		});
 		assert.equal(report.classification, 'TIMEOUT'); assert.equal(report.cleanup.status, 'CLEAN');
 		assert.deepEqual(headlessTrialOutcome(report), { status: 'TIMED_OUT', resourcesClean: true });
-		for (const op of ['stop', 'remove']) assert.ok(commandTexts(socket).some((command) => command.startsWith(`codex ${op} `)));
+		for (const op of ['stop', 'remove']) assert.ok(commandTexts(socket).some((command) => command.startsWith(`mineagen ${op} `)));
 		assertClosed([socket], [client]);
 	});
 });

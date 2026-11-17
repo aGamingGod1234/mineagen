@@ -2,7 +2,6 @@ package dev.agaminggod.mineagen.client.compat;
 
 import com.mojang.blaze3d.platform.IconSet;
 import com.mojang.blaze3d.platform.InputConstants;
-import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.renderpearl.api.buffers.GpuBuffer;
 import com.mojang.renderpearl.api.device.GpuDevice;
 import com.mojang.renderpearl.api.textures.GpuTexture;
@@ -15,17 +14,12 @@ import net.minecraft.network.protocol.game.ServerboundSignUpdatePacket;
 import net.minecraft.server.packs.resources.IoSupplier;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.block.entity.SignTextSlot;
-import org.joml.Quaternionfc;
 
 public final class McClientCompat {
 	private McClientCompat() {
 	}
 
 	public static final InputConstants.Type KEYBOARD = InputConstants.Type.KEYBOARD;
-
-	public static void rotate(PoseStack pose, Quaternionfc rotation) {
-		pose.rotate(rotation);
-	}
 
 	/** Ticks the HUD still blinks the hearts after a hit. */
 	public static int damageBlinkTicks(Player player) {

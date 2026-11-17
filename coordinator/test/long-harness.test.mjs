@@ -64,7 +64,7 @@ test('execution exception retains discovered artifacts and writes a named failur
 	const raw = path.join(dir, 'raw');
 	const { mkdir } = await import('node:fs/promises'); await mkdir(raw);
 	await writeFile(path.join(raw, 'manifest.json'), '{}');
-	await writeFile(path.join(raw, 'report.json'), JSON.stringify({ classification: 'ERROR', errorCode: 'RCON_INCOMPLETE', diagnostics: 'RCON_INCOMPLETE: codex status agent; received 20000 bytes' }));
+	await writeFile(path.join(raw, 'report.json'), JSON.stringify({ classification: 'ERROR', errorCode: 'RCON_INCOMPLETE', diagnostics: 'RCON_INCOMPLETE: mineagen status agent; received 20000 bytes' }));
 	const options = parseLongArgs(['--budget-minutes', '1', '--max-total-cost-usd', '5', '--port-base', '28000', '--out', path.join(dir, 'out'), '--provider', 'codex', '--codex-observer-cap', 'yes']);
 	await assert.rejects(runLong(options, { execute: async (_options, { onObserver }) => { onObserver({ directory: raw }); throw new Error('extraction broke'); } }), /extraction broke/);
 	const md = await readFile(path.join(dir, 'out/long-run.md'), 'utf8');

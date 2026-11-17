@@ -26,7 +26,7 @@ test('actual scenario dispatch rejects delayed trial and cleanup cutoffs without
       report=await worker.phase('cleanup',{now:()=>performance.now(),deadlineMs:cleanupDeadlineMs});
     }finally{await worker.terminate();try{process.kill(worker.pid,0);}catch(error){if(error.code!=='ESRCH')throw error;exited=true;}}
     assert.equal(exited,true);
-    const commands=await json(path.join(directory,'commands.json'));const starts=commands.filter(row=>row.command.startsWith('codex start '));
+    const commands=await json(path.join(directory,'commands.json'));const starts=commands.filter(row=>row.command.startsWith('mineagen start '));
     const published = await json(path.join(directory,'published.json'));
     const startOffsetMs=starts.length?starts[0].dispatchedSystemMs-published.request.cutoffMs:null;
     if(mode==='no-delay-control'){assert.equal(starts.length,1);assert.ok(startOffsetMs<0);assert.equal(report.status,'PASSED');assert.notEqual(trial.deadlineReached,true);}

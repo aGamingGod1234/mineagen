@@ -107,10 +107,10 @@ async function place(s, spot, kit) {
 	await s.command(`execute in ${spot.dim} run forceload add ${Math.floor(spot.pos[0]) - 24} ${Math.floor(spot.pos[2]) - 24} ${Math.floor(spot.pos[0]) + 24} ${Math.floor(spot.pos[2]) + 24}`);
 	if (!s.record) {
 		const registered = s.inbox.wait('agent_registered');
-		console.log(await s.command(`execute positioned 0.5 200 0.5 run codex summon gpt-6.1-sol low ${agent}`));
+		console.log(await s.command(`execute positioned 0.5 200 0.5 run mineagen summon gpt-6.1-sol low ${agent}`));
 		const e = await registered; s.record = { ...(e.payload.record ?? e.payload), agentId: e.agentId };
 		await s.bridge.send('agent_ready', s.record.agentId, { goalRevision: s.record.goalRevision, reconciled: false });
-		const started = s.inbox.wait('goal_control', e => e.payload.operation === 'start'); await s.command(`codex start ${agent} Survive for 1200 seconds.`); s.record.goalRevision = (await started).payload.goalRevision;
+		const started = s.inbox.wait('goal_control', e => e.payload.operation === 'start'); await s.command(`mineagen start ${agent} Survive for 1200 seconds.`); s.record.goalRevision = (await started).payload.goalRevision;
 		await s.bridge.send('agent_ready', s.record.agentId, { goalRevision: s.record.goalRevision, reconciled: false });
 		await s.command(`gamemode survival ${agent}`);
 	}

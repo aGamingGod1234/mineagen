@@ -53,7 +53,7 @@ test('the observer samples the progression advancements and stops the agent once
 	await observer.samplePlayer();
 	assert.deepEqual(observer.samples[0].advancements, ['story/enter_the_end', 'end/kill_dragon']);
 	for (const advancement of ['story/enter_the_nether', 'nether/find_fortress', 'story/follow_ender_eye']) assert.ok(commands.some(c => c.includes(advancement)));
-	assert.equal(commands.at(-1), 'codex stop Player'); assert.equal(observer.stopRequest.reason, 'ADVANCEMENT');
+	assert.equal(commands.at(-1), 'mineagen stop Player'); assert.equal(observer.stopRequest.reason, 'ADVANCEMENT');
 });
 
 const sample = (at, items, extra = {}) => ({ at, health: 20, dimension: 'minecraft:overworld', inventoryNbt: `[${items.map(id => `{id:"minecraft:${id}",count:1}`).join(',')}]`, equipmentNbt: '[]', advancements: [], ...extra });
