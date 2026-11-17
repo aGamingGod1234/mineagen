@@ -27,10 +27,12 @@ public final class DriverRuleVerification {
 		assertions = 0;
 		defendStandsAsideOnlyForFightAndFlight();
 		defendCoversWorkAndExitsForFightOrFlee();
+		engineExitsForARunningFiring();
 		List<ReflexSpec.Rule> defaults = defaults();
 		floorIsTheFourHazardDefaults(defaults);
 		floorFiringOutlastsACommandWhileTheHazardHolds(defaults);
 		keptYieldOutlastsARefireInTheHazard(defaults);
+		deferredYieldHandsTheCommandItsYield(defaults);
 		floorTriggerIsLevelTriggered(defaults);
 		settledFloorYieldWaitsForAFreshHazard(defaults);
 		floorStaysArmedAtTheFailureLimit(defaults);
@@ -420,14 +422,56 @@ public final class DriverRuleVerification {
 		}
 	}
 
-	/** One engine tick for a defend rule: its gated truth and, while it fires, its own exit (as ReflexEngine.tickAgent). */
+	/** One engine tick for a defend rule: its gated truth and, while it fires, its own exit (ReflexEngine.tickAgent's helpers). */
 	private static ReflexScheduler.Decision defendTick(ReflexScheduler scheduler, long now, boolean attacked, ActionType active) {
-		boolean truth = attacked && !ReflexEngine.defendStandsAside(active);
-		ReflexScheduler.ActionStatus status = scheduler.current() != null && ReflexEngine.defendStandsAside(active)
-				? ReflexScheduler.ActionStatus.DONE : RUNNING;
+		ReflexSpec.Rule rule = scheduler.rule("default-defend");
+		boolean truth = ReflexEngine.gatedTruth(rule, attacked, active);
+		ReflexScheduler.Firing firing = scheduler.current();
+		ReflexScheduler.ActionStatus status = firing == null ? RUNNING
+				: ReflexEngine.firingStep(rule, RUNNING, "", active, false, now - firing.startTick(), firing.maxTicks(), false).status();
 		// Chased: defend's longest release grace, which only its own exit cuts short.
 		return scheduler.step(now, Map.of("default-defend", new ReflexScheduler.Sense(truth, false)), status, "", true, false,
 				ReflexActions.Defend.CHASED_GRACE_TICKS);
+	}
+
+	/** The engine's own exits: defend hands over to a fight or flee, a settled hold ends at its maxS, a fight-yielding action under a fight. */
+	private static void engineExitsForARunningFiring() {
+		ReflexSpec.Rule defend = rules("[" + DEFEND + "]").getFirst();
+		ReflexSpec.Rule leave = rule("{\"id\":\"leave\",\"priority\":9,\"when\":{\"type\":\"in_lava\"},\"do\":{\"type\":\"leave_lava\"}}");
+		ReflexEngine.FiringStep handed = ReflexEngine.firingStep(defend, RUNNING, "blocking", ActionType.FLEE_FROM, false, 3L, 200L, false);
+		check(handed.status() == ReflexScheduler.ActionStatus.DONE && "blocking; handed to flee_from".equals(handed.detail()), "defend hands the body to a flee: " + handed);
+		check(ReflexEngine.firingStep(defend, RUNNING, "", ActionType.TRAVEL_TO, false, 3L, 200L, false).status() == RUNNING, "defend keeps holding a travel");
+		check(ReflexEngine.firingStep(defend, ReflexScheduler.ActionStatus.FAILED, "", ActionType.FIGHT_TARGET, false, 3L, 200L, false).status()
+				== ReflexScheduler.ActionStatus.FAILED, "a failed defend stays failed");
+		check(ReflexEngine.firingStep(leave, RUNNING, "", ActionType.FIGHT_TARGET, false, 3L, 200L, false).status() == RUNNING, "only defend stands aside");
+		check(ReflexEngine.firingStep(leave, RUNNING, "", ActionType.FIGHT_TARGET, false, 3L, 200L, true).status() == ReflexScheduler.ActionStatus.DONE,
+				"a fight-yielding action ends under a paused fight");
+		check(ReflexEngine.firingStep(leave, RUNNING, "", ActionType.TRAVEL_TO, false, 3L, 200L, true).status() == RUNNING, "but not under a travel");
+		check(ReflexEngine.firingStep(leave, RUNNING, "", null, true, 200L, 200L, false).status() == ReflexScheduler.ActionStatus.DONE
+				&& ReflexEngine.firingStep(leave, RUNNING, "", null, true, 199L, 200L, false).status() == RUNNING, "a settled hold ends done at its maxS");
+		check(!ReflexEngine.gatedTruth(defend, true, ActionType.USE_RANGED) && ReflexEngine.gatedTruth(defend, true, ActionType.DIG_TO)
+				&& ReflexEngine.gatedTruth(leave, true, ActionType.FLEE_FROM), "only defend's truth is gated by a fight or flee");
+	}
+
+	/**
+	 * The engine's hand-off: when a kept floor firing yields once out of its hazard, the command follower takes over as for a
+	 * direct yield, so the yielded rule comes back once the command has ended.
+	 */
+	private static void deferredYieldHandsTheCommandItsYield(List<ReflexSpec.Rule> defaults) {
+		ReflexScheduler scheduler = new ReflexScheduler();
+		scheduler.replace(List.of(named(defaults, "default-lava")), 0L);
+		CommandFollower follower = new CommandFollower();
+		follower.observe(scheduler, false, null, null, null, null, 0L);
+		step(scheduler, 1L, "default-lava", true, RUNNING);
+		check(follower.requestYield(false, 2L) && scheduler.yield(2L).ended() == null, "the command's yield is kept in lava");
+		follower.observe(scheduler, false, "cmd", ActionType.MINE_VEIN, null, null, 3L);
+		check(step(scheduler, 4L, "default-lava", false, RUNNING).endOutcome() == ReflexScheduler.Outcome.YIELDED && scheduler.anySuppressed(), "it yields once out");
+		ReflexEngine.followDeferredYield(scheduler, follower, 4L);
+		long tick = 5L;
+		for (; tick < 20L; tick++) follower.observe(scheduler, false, "cmd", ActionType.MINE_VEIN, null, null, tick);
+		check(scheduler.anySuppressed(), "the rule stays yielded while the command runs");
+		for (long end = tick + CommandFollower.IDLE_RESUME_TICKS + 1L; tick < end; tick++) follower.observe(scheduler, false, null, null, "cmd", "DONE", tick);
+		check(!scheduler.anySuppressed(), "the follower brings the rule back once the command has ended");
 	}
 
 	private static List<ReflexSpec.Rule> rules(String json) {
