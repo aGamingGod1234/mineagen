@@ -25,6 +25,27 @@ final class PickupBudget {
 		return Math.min(timeoutMs, BASE_MS + Math.round(PER_BLOCK_MS * blocks));
 	}
 
+	/**
+	 * The walk's limit once its first route is planned: the limit for the route's length when that is longer than the
+	 * straight line (a ledge drop 8 blocks off but 30 blocks round by the stairs), never shorter than the limit it had.
+	 */
+	static long routeLimitMs(long limitMs, double routeBlocks, long timeoutMs) {
+		return Math.max(limitMs, walkLimitMs(routeBlocks, timeoutMs));
+	}
+
+	/** Blocks along a planned route of standing cells, from the body's position through each cell's middle. */
+	static double routeBlocks(double fromX, double fromY, double fromZ, java.util.List<dev.agaminggod.mineagen.client.navigation.GridPosition> route) {
+		double blocks = 0.0D, x = fromX, y = fromY, z = fromZ;
+		for (var cell : route) {
+			double nextX = cell.x() + 0.5D, nextY = cell.y(), nextZ = cell.z() + 0.5D;
+			blocks += Math.sqrt((nextX - x) * (nextX - x) + (nextY - y) * (nextY - y) + (nextZ - z) * (nextZ - z));
+			x = nextX;
+			y = nextY;
+			z = nextZ;
+		}
+		return blocks;
+	}
+
 	/** Replans a new walk may still use after the earlier walks of the same pickup used {@code spent}. */
 	static int replansLeft(int spent) {
 		return Math.max(0, REPLANS - Math.max(0, spent));

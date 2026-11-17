@@ -24,8 +24,12 @@ public final class ServerItemPickupController implements ServerController {
 	private final int initialInventoryCount;
 	private final int initialReceipt;
 	private final long timeoutMs;
-	/** The walk's own limit from the drop's distance at the start ({@link PickupBudget}), within timeoutMs. */
-	private final long walkLimitMs;
+	/**
+	 * The walk's own limit ({@link PickupBudget}), within timeoutMs: from the drop's distance at the start, then from the
+	 * first planned route's length when that is longer.
+	 */
+	private long walkLimitMs;
+	private boolean routeKnown;
 	private final double startDistance;
 	/** Replans the walks of this pickup have used; a walk planned again for a moved drop gets only what is left. */
 	private int replansSpent;
@@ -120,18 +124,19 @@ public final class ServerItemPickupController implements ServerController {
 						replansSpent += existing.stallReplans();
 						existing.cancel(player);
 					},
-					() -> {
-						ServerNavigationController move = new ServerNavigationController(currentTarget, 0.2D, true, nowEpochMs,
-								remainingNavigationTimeout(walkLimitMs, elapsedMs), pickupRegion)
-								.stallBudget(PickupBudget.STALL_MS, PickupBudget.replansLeft(replansSpent))
-								.seenRouteOnly();
-						move.crouched(crouched);
-						return keepLevel ? move.onLevel(net.minecraft.util.Mth.floor(startingY + 0.2D)) : move;
-					}
+					// The walk limit is checked before every step and may grow once a route is planned, so the walk itself runs
+					// to the call's timeout.
+					() -> walk(currentTarget, pickupRegion, nowEpochMs, remainingNavigationTimeout(timeoutMs, elapsedMs), replansSpent, crouched,
+							keepLevel, startingY)
 			);
 			navigationTarget = currentTarget;
 		}
 		TickResult result = navigation.tick(player, nowEpochMs);
+		if (!routeKnown && !navigation.plannedRoute().isEmpty()) {
+			routeKnown = true;
+			walkLimitMs = PickupBudget.routeLimitMs(walkLimitMs,
+					PickupBudget.routeBlocks(player.getX(), player.getY(), player.getZ(), navigation.plannedRoute()), timeoutMs);
+		}
 		if (awaitingDropLanding(result, item.onGround(), item.isNoGravity(), item.isInWater() || item.isInLava())) {
 			// A fresh mining drop has no standing position while airborne. Let vanilla
 			// gravity move it, then plan from its new position within the original deadline.
@@ -144,6 +149,16 @@ public final class ServerItemPickupController implements ServerController {
 			stopNavigation(player);
 		}
 		return result;
+	}
+
+	/** One walk toward the drop, on pick_up_item's own stall budget and over seen cells only. */
+	static ServerNavigationController walk(Vec3 target, AABB region, long nowEpochMs, long timeoutMs, int replansSpent, boolean crouched,
+			boolean keepLevel, double startingY) {
+		ServerNavigationController move = new ServerNavigationController(target, 0.2D, true, nowEpochMs, timeoutMs, region)
+				.stallBudget(PickupBudget.STALL_MS, PickupBudget.replansLeft(replansSpent))
+				.seenRouteOnly();
+		move.crouched(crouched);
+		return keepLevel ? move.onLevel(net.minecraft.util.Mth.floor(startingY + 0.2D)) : move;
 	}
 
 	/**
