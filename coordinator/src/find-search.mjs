@@ -808,16 +808,26 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 	// goes on, else its ending: a fight that left the mob alive (it bailed at low health, or ran out of time in reach)
 	// is the model's fork, handed back walled in; looking round or digging on turns the body's back on a live mob.
 	const fightMob = async (mob) => {
-		const at = bodyAt(observation);
 		const id = mob.uuid ?? mob.stableId;
-		const row = (observation?.entities ?? []).find((entity) => entity?.stableId === id && [entity.x, entity.y, entity.z].every(Number.isFinite));
-		const near = row !== undefined && Math.abs(row.y - at.y) <= 2 && Math.hypot(row.x - at.x, row.z - at.z) <= 6;
+		const inReach = () => {
+			const at = bodyAt(observation);
+			const row = (observation?.entities ?? []).find((entity) => entity?.stableId === id && entity.alive !== false && [entity.x, entity.y, entity.z].every(Number.isFinite));
+			return row !== undefined && at !== null && Math.abs(row.y - at.y) <= 2 && Math.hypot(row.x - at.x, row.z - at.z) <= 6;
+		};
+		const near = inReach();
 		fights += 1;
-		const outcome = await leg(`fight ${bare(mob.type)}`, 'fight_target', { targetId: id, fleeAtHealth: SEARCH_LOW_HEALTH,
-			...(profile.surface && near ? {} : { pursue: false }), timeoutMs: near ? FIGHT_MS : MEET_MS });
+		const fightFor = (timeoutMs, pursue) => leg(`fight ${bare(mob.type)}`, 'fight_target', { targetId: id, fleeAtHealth: SEARCH_LOW_HEALTH,
+			...(profile.surface && pursue ? {} : { pursue: false }), timeoutMs });
+		let outcome = await fightFor(near ? FIGHT_MS : MEET_MS, near);
 		if (outcome.seen || outcome.interrupted) return settle(outcome);
+		// MEET_MS covers the wait and the fight: a mob that came late can time it out alive in reach. Only one still out of
+		// reach on the leg's fresh sample never came; one in reach is fought on for a whole fight.
+		if (!near && outcome.result?.reasonCode === 'FIGHT_TIMED_OUT') {
+			if (!inReach()) { passes.set(id, (passes.get(id) ?? 0) + 1); return true; }
+			outcome = await fightFor(FIGHT_MS, true);
+			if (outcome.seen || outcome.interrupted) return settle(outcome);
+		}
 		if (outcome.result?.state === 'SUCCEEDED' || ['TARGET_KILLED', 'TARGET_GONE', 'TARGET_LOST'].includes(outcome.result?.reasonCode)) return true;
-		if (!near && outcome.result?.reasonCode === 'FIGHT_TIMED_OUT') { passes.set(id, (passes.get(id) ?? 0) + 1); return true; }
 		const now = searchDanger(observation);
 		const why = now?.fork ?? `health ${observation?.player?.health ?? '?'} with a ${bare(mob.type)} it fought and did not kill`;
 		const walled = observation?.player?.underWater === true ? false : await cover();
