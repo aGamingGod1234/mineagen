@@ -135,7 +135,7 @@ async function runDir(root, name, { scenario, rows, samples, pairId, evaluation 
 	await mkdir(path.join(dir, 'arena-watch'), { recursive: true });
 	if (rows) await writeFile(path.join(dir, 'arena-watch', 'agent-danger.jsonl'), rows.map(row => JSON.stringify(row)).join('\n') + '\n');
 	await writeFile(path.join(dir, 'quality-samples.json'), JSON.stringify({ samples }));
-	const run = { scenario, repetition: Number(pairId?.split('-r').at(-1) ?? 1), pairId, metrics: { goalStartedAtMs: START }, evaluation, artifacts: dir };
+	const run = { scenario, repetition: Number(pairId?.split('-r').at(-1) ?? 1), pairId, goalStartedAtMs: START, metrics: {}, evaluation, artifacts: dir };
 	await writeFile(path.join(dir, 'quality-run.json'), JSON.stringify(run));
 	return run;
 }
@@ -152,6 +152,14 @@ test('the CLI reads run directories and paired results, and reports the noise fl
 		assert.equal(watch.episodes.length, 0, 'danger rows are not episodes');
 		const report = await buildReport(parseReportArgs(['--run', single.artifacts]));
 		assert.equal(report.runs[0].damage, 2);
+		// A run recorded before goalStartedAtMs was stored: the goal start comes from its protocol journal.
+		const older = await runDir(root, 'older', { scenario: 'R-SKELETON', rows, samples });
+		const olderRecord = JSON.parse(await readFile(path.join(older.artifacts, 'quality-run.json'), 'utf8'));
+		delete olderRecord.goalStartedAtMs;
+		await writeFile(path.join(older.artifacts, 'quality-run.json'), JSON.stringify(olderRecord));
+		await writeFile(path.join(older.artifacts, 'quality-protocol.jsonl'), JSON.stringify({ direction: 'server_to_coordinator',
+			envelope: { type: 'goal_control', agentId: 'agent-a', payload: { operation: 'start', updatedAtEpochMs: START } } }) + '\n');
+		assert.equal((await buildReport(parseReportArgs(['--run', older.artifacts]))).runs[0].damage, 2);
 		const noWatch = await runDir(root, 'no-watch', { scenario: 'R-SKELETON', rows: null, samples });
 		assert.equal((await buildReport(parseReportArgs(['--run', noWatch.artifacts]))).runs[0].status, 'unknown');
 		const arms = { A: { runs: [] }, B: { runs: [] } };

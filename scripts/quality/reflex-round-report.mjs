@@ -7,6 +7,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { findWatchDirs, readWatchDir } from './watch-files.mjs';
+import { resolveGoalWindow } from '../../coordinator/src/benchmark/quality-metrics.mjs';
 import { judgeRooms, noiseFloor, pairRuns, scoreRun } from './lib/reflex-round.mjs';
 
 const USAGE = 'node scripts/quality/reflex-round-report.mjs (--run RUN_DIR|results.json ... | --paired PAIRED_RESULTS.json) [--margin MARGIN.json] [--out REPORT.json]';
@@ -27,11 +28,18 @@ export function parseReportArgs(argv) {
 
 const readJson = async file => JSON.parse(await readFile(file, 'utf8'));
 const maybeJson = async file => { try { return await readJson(file); } catch (error) { if (error.code === 'ENOENT') return null; throw error; } };
+const maybeJsonl = async file => { try { return (await readFile(file, 'utf8')).split('\n').filter(line => line.trim()).flatMap(line => { try { return [JSON.parse(line)]; } catch { return []; } }); } catch (error) { if (error.code === 'ENOENT') return []; throw error; } };
+
+/** The run record's goal start; runs recorded before it was stored fall back to the protocol journal's goal start. */
+async function goalStart(record, directory) {
+	if (Number.isFinite(record.goalStartedAtMs)) return record.goalStartedAtMs;
+	return directory ? resolveGoalWindow(await maybeJsonl(path.join(directory, 'quality-protocol.jsonl'))).startedAt : null;
+}
 
 /** One run's inputs from its artifact directory: quality-run.json, quality-samples.json and the arena-watch danger rows. */
 export async function loadRun(run) {
 	const directory = run.artifacts;
-	const record = run.metrics || !directory ? run : { ...run, ...(await maybeJson(path.join(directory, 'quality-run.json')) ?? {}) };
+	const record = run.metrics || run.goalStartedAtMs !== undefined || !directory ? run : { ...run, ...(await maybeJson(path.join(directory, 'quality-run.json')) ?? {}) };
 	const samples = directory ? (await maybeJson(path.join(directory, 'quality-samples.json')))?.samples ?? [] : [];
 	let dangerRows = null;
 	for (const watchDir of directory ? await findWatchDirs(directory) : []) {
@@ -39,7 +47,7 @@ export async function loadRun(run) {
 		if (watch.dangerFiles) dangerRows = [...(dangerRows ?? []), ...watch.danger];
 	}
 	return { pairId: record.pairId ?? `${record.scenario}-r${record.repetition ?? 1}`, ...scoreRun({ scenario: record.scenario ?? record.definition?.id,
-		goalStartedAtMs: record.metrics?.goalStartedAtMs, samples, dangerRows, evaluation: record.evaluation ?? null }) };
+		goalStartedAtMs: await goalStart(record, directory), samples, dangerRows, evaluation: record.evaluation ?? null }) };
 }
 
 /** --run takes a run artifact directory (holding quality-run.json) or a run-scenarios results.json. */

@@ -473,9 +473,10 @@ export class Observer {
 		const evaluation = this.definition.successCheck && typeof this.definition.evaluatorEarlyStop === 'boolean'
 			? (() => { try { return evaluateSamples(this.samples, { ...this.definition, goalStartAt: window.startedAt, protocolRows: this.protocol.rows }); } catch (error) { return { status: 'ERROR', pass: false, error: error.message }; } })() : null;
 		const runnerTermination = runner?.classification ?? report?.diagnostics ?? 'NO_REPORT';
-		const run = { scenario: this.definition.id, name: this.definition.name, profile: this.profile, goalCompleted: window.goalCompleted, measurementStatus: measurementStatus(metrics, this.samples, this.errors, jsonlDroppedLines, this.profile.provider),
+		const run = { scenario: this.definition.id, name: this.definition.name, profile: this.profile, goalStartedAtMs: window.startedAt ?? null, goalCompleted: window.goalCompleted, measurementStatus: measurementStatus(metrics, this.samples, this.errors, jsonlDroppedLines, this.profile.provider),
 			diagnostics: runner?.diagnostics ?? null, errorCode: runner?.errorCode ?? null,
-			termination: evaluation?.pass && evaluation.source === 'samples' ? 'EVALUATOR_PASS' : runnerTermination, runnerStatus: runner?.status ?? report?.status ?? null,
+			// A room played to the end of its window (evaluatorEarlyStop false) keeps its runner termination, so a pass stays eligible for pairing.
+			termination: evaluation?.pass && evaluation.source === 'samples' && this.definition.evaluatorEarlyStop !== false ? 'EVALUATOR_PASS' : runnerTermination, runnerStatus: runner?.status ?? report?.status ?? null,
 			metrics, definition: this.definition, setup: this.setup ?? null, artifacts: this.directory, observerErrors: this.errors, terminalObserverErrors: this.terminalObserverErrors,
 			samplingGaps: this.samplingGaps, providerAttestation: runner?.settings ?? null, stopRequest: this.stopRequest ?? null, liveSpend: this.liveSpend ?? null,
 			...(evaluation ? { evaluation, runnerTermination } : {}),
