@@ -23,6 +23,9 @@ export const SCENARIOS = Object.freeze([
 		running: { actionType: 'fight_target', arguments: { targetId: 'z1', continueWithAttackers: true } } },
 	// Control: a skeleton the fight is not about must still interrupt a zombie fight.
 	{ name: 'control: zombie fight, skeleton shooting in', durationMs: 20_000, hitEveryMs: 1_000, startHealth: 20, perHit: 0.5, attacker: 'minecraft:skeleton', attackerUuids: ['s1'] },
+	// A fight with its own bail-out line: hits are absorbed down to max(fleeAtHealth, 6), where the fight hands back itself.
+	{ name: 'one zombie, 20 s, 1 HP per hit, fleeAtHealth 8', durationMs: 20_000, hitEveryMs: 1_000, startHealth: 20, perHit: 1,
+		running: { actionType: 'fight_target', arguments: { targetId: 'z1', fleeAtHealth: 8 } } },
 ]);
 
 export function runScenario(scenario, decide) {

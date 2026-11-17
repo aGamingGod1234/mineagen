@@ -44,6 +44,36 @@ test('falling into a lower health band cuts the fight once, then the band is the
 		'state from an earlier fight is ignored; this fight started at 20');
 });
 
+test('a fight with a bail-out line absorbs the bands above max(fleeAtHealth, 6) and cuts once at that line', () => {
+	const lined = fight({ arguments: { targetId: 'z1', fleeAtHealth: 8 } });
+	for (const health of [13.5, 9.5, 8.5]) assert.equal(fightSteerDecision(damage({ health }), lined).absorbed, true, `health ${health}`);
+	const cut = fightSteerDecision(damage({ health: 8 }), lined);
+	assert.equal(cut.interruption, 'danger', 'the line itself cuts');
+	assert.equal(fightSteerDecision(damage({ health: 5.5 }), lined, cut.cut).absorbed, true, 'below the line after its cut');
+	const low = fight({ arguments: { targetId: 'z1', fleeAtHealth: 4 } });
+	assert.equal(fightSteerDecision(damage({ health: 9.5 }), low).absorbed, true, 'a line under 6 still absorbs 14 and 10');
+	assert.equal(fightSteerDecision(damage({ health: 6 }), low).interruption, 'danger', 'a line under 6 cuts at 6');
+	const high = fight({ arguments: { targetId: 'z1', fleeAtHealth: 12 } });
+	assert.equal(fightSteerDecision(damage({ health: 13 }), high).absorbed, true);
+	assert.equal(fightSteerDecision(damage({ health: 12 }), high).interruption, 'danger', 'a line over 6 cuts at that line');
+});
+
+test('fight_target without fleeAtHealth never bails out, so it keeps every band; fight_until without one bails at 6', () => {
+	assert.equal(fightSteerDecision(damage({ health: 13.5 }), fight()).interruption, 'danger', 'null line: 14 still cuts');
+	const farm = { actionId: 'f', actionType: 'fight_until', arguments: { mob: 'minecraft:zombie' }, startHealth: 20 };
+	for (const health of [13.5, 9.5, 6.5]) assert.equal(fightSteerDecision(damage({ health }), farm).absorbed, true, `health ${health}`);
+	assert.equal(fightSteerDecision(damage({ health: 6 }), farm).interruption, 'danger');
+	assert.equal(fightSteerDecision(damage({ health: 13.5 }), { ...farm, arguments: { mob: 'minecraft:zombie', fleeAtHealth: 14 } }).interruption, 'danger');
+});
+
+test('above its line a fight with fleeAtHealth is still cut by new information', () => {
+	const lined = fight({ arguments: { targetId: 'z1', fleeAtHealth: 4 } });
+	assert.equal(fightSteerDecision(damage({ health: 15, player: { inLava: true } }), lined).interruption, 'danger', 'hazard');
+	assert.equal(fightSteerDecision(damage({ health: 15, attacker: 'minecraft:skeleton', attackerUuid: 's1' }), lined).interruption, 'danger', 'other attacker');
+	const unknown = damage({ health: 15 }); delete unknown.nativeEvent.observation.player.lastAttacker;
+	assert.equal(fightSteerDecision(unknown, lined).interruption, 'danger', 'unknown attacker');
+});
+
 test('the decision is pure, so evaluating one steer twice agrees', () => {
 	const request = damage({ health: 13 });
 	assert.deepEqual(fightSteerDecision(request, fight()), fightSteerDecision(request, fight()));
@@ -96,10 +126,11 @@ test('type-only summaries cannot prove a named target covered earlier hits', () 
 
 test('benchmark: hits from the fought mob cut the fight only at health bands', () => {
 	const rows = runFightSteerBenchmark();
-	const [half, one, three, control] = rows;
+	const [half, one, three, control, lined] = rows;
 	assert.deepEqual([half.before.interruptions, half.after.interruptions], [12, 2]);
 	assert.deepEqual([one.before.interruptions, one.after.interruptions], [14, 3]);
 	assert.deepEqual([three.before.interruptions, three.after.interruptions], [17, 3]);
 	assert.equal(control.after.interruptions, control.before.interruptions, 'an attacker outside the fight still interrupts every steer');
+	assert.deepEqual([lined.before.interruptions, lined.after.interruptions], [14, 1], 'a bail-out line at 8 cuts once, at the line');
 	for (const row of rows) assert.equal(row.after.delivered, row.before.delivered, 'every steer is still delivered to the model');
 });
