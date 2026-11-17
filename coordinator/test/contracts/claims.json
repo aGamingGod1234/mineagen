@@ -47568,7 +47568,7 @@
       ]
     },
     {
-      "predicate": "The route is advisory and starts nothing. The casting kit still counts two bucket forms and flint and steel, with obtain bucket counts meaning total empties to hold. The urgent food cue requires observed hunger or health <=14/20. Separately, before mineral gathering the route stocks eight cooked meat even while healthy, totals mixed meats, and selects held raw meat or a currently seen nearby adult animal. Post-Nether recovery keeps priority. Before the first Nether entry, at a lit Overworld portal the route asks to place and use a bed by it, ahead of entry, only from a bed held or in view, 3 wool of one colour held, or one colour reaching 3 from held wool, wool blocks in view and adult unsheared sheep of a known colour in view; it names no wool search, gives the skip reason with entry otherwise, and drops the step once a respawn is set within 24 blocks of the lit frame or the Nether was visited. Before lighting it only makes such a bed ready. Other bed advice requires a fresh local opportunity, follows an available stage and is suppressed at an open portal. These presentations neither dispatch nor refuse a model action.",
+      "predicate": "The route is advisory and starts nothing. The casting kit still counts two bucket forms and flint and steel, with obtain bucket counts meaning total empties to hold. The urgent food cue requires observed hunger or health <=14/20. Separately, before mineral gathering the route stocks eight cooked meat even while healthy, totals mixed meats, and selects held raw meat or a currently seen nearby adult animal. Post-Nether recovery keeps priority. Before any Nether entry while the respawn is not set by the portal, at a lit Overworld portal the route asks to place and use a bed by it, ahead of entry, only from a bed held or in view, 3 wool of one colour held, or one colour reaching 3 from held wool, wool blocks in view and adult unsheared sheep of a known colour in view; it names no wool search, gives the skip reason with entry otherwise, and drops the step once a respawn is set within 24 blocks of the lit frame or the Nether was visited. Before lighting it only makes such a bed ready. Other bed advice requires a fresh local opportunity, follows an available stage and is suppressed at an open portal. These presentations neither dispatch nor refuse a model action.",
       "checks": [
         {
           "file": "coordinator/test/route-line.test.mjs",
@@ -47661,10 +47661,10 @@
           "type": "node-behavior"
         }
       ],
-      "id": "agent:13e34df494c1ec73:db82097e54aee9e0",
+      "id": "agent:13e34df494c1ec73:a7dc6b0e599f3011",
       "contract": {
-        "id": "agent:13e34df494c1ec73:db82097e54aee9e0",
-        "claim": "For \"beat the game\", now.route suggests the usual next step and starts nothing; take it or choose better. A checked now.plan step is not the full casting kit: iron pickaxe, shield, 2 buckets, flint_and_steel (11 iron). One bucket holds water, one moves lava. obtain bucket count 2 with no filled bucket, count 1 with one filled bucket; count is total empty buckets to hold. When safe, advance the available stage. At hunger or health <=14/20, eat carried food or get nearby food, then resume. Use a bed by the portal before the first Nether entry if bed/3 same wool/sheep in reach. Next: water_bucket, find lava, build nether_portal. Enter a lit portal when current health/hunger allow; carry blocks. Stage facts: capabilities strategy topics.",
+        "id": "agent:13e34df494c1ec73:a7dc6b0e599f3011",
+        "claim": "For \"beat the game\", now.route suggests the usual next step and starts nothing; take it or choose better. A checked now.plan step is not the full casting kit: iron pickaxe, shield, 2 buckets, flint_and_steel (11 iron). One bucket holds water, one moves lava. obtain bucket count 2 with no filled bucket, count 1 with one filled bucket; count is total empty buckets to hold. When safe, advance the available stage. At hunger or health <=14/20, eat carried food or get nearby food, then resume. Before any Nether entry, set respawn by the portal (bed) if bed/3 same wool/sheep in reach. Next: water_bucket, find lava, build nether_portal. Enter a lit portal when current health/hunger allow; carry blocks. Stage facts: capabilities strategy topics.",
         "kind": "agent-reference",
         "topic": "The route"
       },
@@ -47673,7 +47673,7 @@
         "line": 19
       },
       "status": "partial",
-      "reason": "Reviewed advice-only presenters and executable witnesses cover healthy cooked-food stocking before mineral gathering, mixed/held meat counts and current animal sightings, urgent low-health/low-hunger advice, stale or heard-only evidence, portal/recovery priority, the in-reach portal bed step before the first Nether entry and its skip reasons, unchanged bucket counts and offhand facts. These presenters start no action and do not establish that a real model follows the route or that the bed sets the respawn in play; the authorized fresh seed-5 scout is still pending."
+      "reason": "Reviewed advice-only presenters and executable witnesses cover healthy cooked-food stocking before mineral gathering, mixed/held meat counts and current animal sightings, urgent low-health/low-hunger advice, stale or heard-only evidence, portal/recovery priority, the in-reach portal bed step before a Nether entry while the respawn is not by the portal and its skip reasons, unchanged bucket counts and offhand facts. These presenters start no action and do not establish that a real model follows the route or that the bed sets the respawn in play; the authorized fresh seed-5 scout is still pending."
     },
     {
       "predicate": "Seven general rules of play the model is asked to follow; no runtime enforces them.",

@@ -16,7 +16,7 @@ When a step ends, read the result and choose the next. When the body stopped it,
 
 # The route
 
-For "beat the game", now.route suggests the usual next step and starts nothing; take it or choose better. A checked now.plan step is not the full casting kit: iron pickaxe, shield, 2 buckets, flint_and_steel (11 iron). One bucket holds water, one moves lava. obtain bucket count 2 with no filled bucket, count 1 with one filled bucket; count is total empty buckets to hold. When safe, advance the available stage. At hunger or health <=14/20, eat carried food or get nearby food, then resume. Use a bed by the portal before the first Nether entry if bed/3 same wool/sheep in reach. Next: water_bucket, find lava, build nether_portal. Enter a lit portal when current health/hunger allow; carry blocks. Stage facts: capabilities strategy topics.
+For "beat the game", now.route suggests the usual next step and starts nothing; take it or choose better. A checked now.plan step is not the full casting kit: iron pickaxe, shield, 2 buckets, flint_and_steel (11 iron). One bucket holds water, one moves lava. obtain bucket count 2 with no filled bucket, count 1 with one filled bucket; count is total empty buckets to hold. When safe, advance the available stage. At hunger or health <=14/20, eat carried food or get nearby food, then resume. Before any Nether entry, set respawn by the portal (bed) if bed/3 same wool/sheep in reach. Next: water_bucket, find lava, build nether_portal. Enter a lit portal when current health/hunger allow; carry blocks. Stage facts: capabilities strategy topics.
 
 # How to play
 
