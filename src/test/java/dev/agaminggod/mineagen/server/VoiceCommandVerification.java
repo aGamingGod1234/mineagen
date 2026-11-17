@@ -53,8 +53,8 @@ public final class VoiceCommandVerification {
 		var operator = source(null, PermissionSet.ALL_PERMISSIONS);
 		var nonOperator = source(null, PermissionSet.NO_PERMISSIONS);
 		// A same-named mod literal would merge into this same node object: Brigadier copies its command over
-		// the stub and adds its children. So the node must still carry the stub command, no children and the
-		// stand-in requirement.
+		// the stub and adds its children, so the node must still carry the stub command and no children. A merge
+		// never changes the requirement; checking it only pins that this is still the stand-in node.
 		check(dispatcher.getRoot().getChild("spectate") == vanillaSpectate
 						&& vanillaSpectate.getCommand() == vanillaSpectateCommand
 						&& vanillaSpectate.getChildren().isEmpty()

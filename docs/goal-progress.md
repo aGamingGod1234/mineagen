@@ -36,7 +36,7 @@ Counts come from each game's milestone timeline and death records. A missing rec
 
 Full games from a fresh world:
 
-| Round | Date | Games | In the Nether | Median minutes to the Nether | Fortress found | Ender pearls | Blaze rods | Deaths per game |
+| Round | Date | Games | In the Nether | Median minutes to the Nether (games that got there) | Fortress found | Ender pearls | Blaze rods | Deaths per game |
 |---|---|---:|---:|---:|---:|---:|---:|---:|
 | 2 | 2026-11-13 | 8 | 3 | 122 | 1 | 0 | 0 | 3.0 |
 | 4 | 2026-11-14 | 8 | 3 | 74 | 1 | 1 | 0 | 2.6 |
