@@ -1391,6 +1391,22 @@ test('a leg\'s own low-health stop at health 7 hands back LOW_HEALTH with its li
 	}
 });
 
+test('a find leg\'s own low-health stop reaches obtain as LOW_HEALTH; a find danger stop stays danger', async () => {
+	for (const stopCode of ['LOW_HEALTH', 'IN_LAVA']) {
+		const body = lowHealth(simulatedBody({ iron: false, start: { stone_pickaxe: 1, furnace: 1, crafting_table: 1, stick: 2, oak_planks: 6 } }), 7);
+		let searches = 0;
+		body.search = async () => {
+			searches += 1;
+			return { state: 'FAILED', reasonCode: 'FIND_DANGER', message: `Stopped for danger: ${stopCode} (Health 7: stopped digging). Covered in 9 s`, find: { covered: {}, stopCode } };
+		};
+		const result = await runObtain({ item: 'iron_pickaxe', count: 1 }, body, { now: clock() });
+		assert.equal(searches, 1, `${stopCode}: no searching on`);
+		assert.equal(result.state, 'INTERRUPTED', `${stopCode}: ${result.message}`);
+		assert.equal(result.reasonCode, stopCode === 'LOW_HEALTH' ? 'LOW_HEALTH' : 'DANGER', `${stopCode}: ${result.message}`);
+		if (stopCode === 'LOW_HEALTH') assert.doesNotMatch(result.message, /danger/i);
+	}
+});
+
 test('a fork stop ends obtain with its own code: the leg it cut short is not read as danger, and real danger still wins', async () => {
 	for (const scenario of ['fork', 'fork in lava', 'no fork reader']) {
 		const body = simulatedBody();

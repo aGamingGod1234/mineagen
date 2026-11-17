@@ -395,7 +395,11 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			dryBeforeSearch = lastDry !== null;
 			// A search a fork stopped ends with the fork's code (the loop top), not as danger.
 			const fork = forkStop() !== null;
-			if (!fork && result?.reasonCode === 'FIND_DANGER') danger ??= `find: ${String(result.message ?? '').slice(0, 160)}`;
+			if (!fork && result?.reasonCode === 'FIND_DANGER' && danger === null) {
+				// A find leg's own LOW_HEALTH stop is handed back as LOW_HEALTH, as a gather leg's is (seen()).
+				lowLeg = result.find?.stopCode === 'LOW_HEALTH';
+				danger = `find: ${String(result.message ?? '').replace(lowLeg ? /^Stopped for danger: / : /^$/, '').slice(0, 160)}`;
+			}
 			if (result?.state === 'RUNNING' && typeof result.actionId === 'string') { running = result; if (!fork) danger ??= 'find: danger stopped the search'; }
 			return result;
 		}) };

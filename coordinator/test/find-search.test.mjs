@@ -703,6 +703,7 @@ test('a danger hand-back underground walls the body in first, and fights there d
 	});
 	const result = await searchFor({ block: 'minecraft:iron_ore' }, body);
 	assert.equal(result.reasonCode, 'FIND_DANGER');
+	assert.equal(result.find.stopCode, 'LOW_HEALTH', 'the leg\'s own stop code goes back with the hand-back');
 	assert.match(result.message, /walled in where it stands/);
 	assert.equal(body.calls.find((call) => call.actionType === 'fight_target').args.pursue, false);
 });
