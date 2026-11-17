@@ -66,6 +66,18 @@ public final class ReflexEngine {
 		return weaker;
 	}
 
+	/**
+	 * Actions that are the body's own fight or flight. A defend rule stands aside for them: it does not fire while one runs,
+	 * and a defend firing ends on the tick one starts (a program's fight or flee that no model command yielded it to).
+	 * Defend covers every other action, as it covers the idle body.
+	 */
+	static final Set<ActionType> DEFEND_STANDS_ASIDE = Set.copyOf(java.util.EnumSet.of(ActionType.FIGHT_TARGET, ActionType.FIGHT_UNTIL,
+			ActionType.USE_RANGED, ActionType.FLEE_FROM));
+
+	static boolean defendStandsAside(ActionType activeType) {
+		return activeType != null && DEFEND_STANDS_ASIDE.contains(activeType);
+	}
+
 	/** The cast hand manages its own pour and cooling; the separate lava-contact rule still interrupts it. */
 	static boolean deferFlowDuringCast(ReflexSpec.Rule rule, ActionType activeType) {
 		return activeType == ActionType.CAST_OBSIDIAN && rule.coordinatorDefault() && "default-lava-flow".equals(rule.id());
@@ -266,6 +278,7 @@ public final class ReflexEngine {
 		agent.falling = !player.onGround() && !player.isInWater() && player.getDeltaMovement().y < -0.1D;
 		agent.memory.actionActive(actionProbe.test(agentId));
 		ServerActionRequest active = body.active(agentId);
+		ActionType activeType = active == null ? null : active.type();
 		followCommand(agentId, agent, active, body, now);
 		ObservationVisibility.Frame frame = ObservationVisibility.frame(player.level(), player);
 		boolean cornered = active != null && active.type() == ActionType.FLEE_FROM
@@ -277,7 +290,8 @@ public final class ReflexEngine {
 			boolean truth = true;
 			Entity found = null;
 			Vec3 point = null;
-			boolean guards = "defend".equals(rule.action().type()) && !agent.memory.actionActive();
+			boolean defend = "defend".equals(rule.action().type());
+			boolean guards = defend && !defendStandsAside(activeType);
 			for (ReflexSpec.Condition condition : rule.when()) {
 				ReflexSensors.Reading reading = ReflexSensors.sense(player, condition, frame, agent.memory, now);
 				// For defend, "attacked" also reads a melee hit about to land, as it does a shot about to land.
@@ -292,7 +306,7 @@ public final class ReflexEngine {
 			// A default rule sleeps while its action needs an item the body does not hold (no shield, no food), so a
 			// default shield or eat rule costs nothing and reports no failure until the item is there.
 			if (truth && sleepsWithoutItem(rule, ReflexActions.lacks(player, rule.action()))) truth = false;
-			if (deferFlowDuringCast(rule, active == null ? null : active.type())) {
+			if (deferFlowDuringCast(rule, activeType)) {
 				truth = false;
 				agent.scheduler.discardPendingStart(rule.id());
 			}
@@ -301,7 +315,7 @@ public final class ReflexEngine {
 				if (!until) break;
 				until = ReflexSensors.sense(player, condition, frame, agent.memory, now).truth();
 			}
-			if (truth && "defend".equals(rule.action().type()) && agent.memory.actionActive()) truth = false;
+			if (truth && defend && defendStandsAside(activeType)) truth = false;
 			// A default "back off when weaker" rule does not pause a flee that has already found no way out and stands its
 			// ground: running or taking cover there only hands the attackers free hits (cornered fixture: 4.6 s paused
 			// mid-fight). Hazard flinches (a fusing creeper, fire, lava, air, an edge, suffocation) still interrupt it.
@@ -325,10 +339,16 @@ public final class ReflexEngine {
 			ReflexSpec.Rule rule = agent.scheduler.rule(firing.ruleId());
 			ReflexActions.Step step = agent.behaviour.tick(context(agentId, player, agent, firing.ruleId(), rule, active), state -> apply(agentId, agent, player, state));
 			status = step.status();
+			String detail = step.detail();
+			if (status == ReflexScheduler.ActionStatus.RUNNING && rule != null && "defend".equals(rule.action().type()) && defendStandsAside(activeType)) {
+				// Defend's own exit: the fight or flee takes the body now, not after defend's release grace (up to 10 s when chased).
+				status = ReflexScheduler.ActionStatus.DONE;
+				detail = (detail == null || detail.isEmpty() ? "" : detail + "; ") + "handed to " + activeType.wireName();
+			}
 			// A firing that only holds on after reaching its goal (out of lava, burn running out) ends done at its maxS.
 			status = ReflexScheduler.settledStatus(status, agent.behaviour.settled(), now - firing.startTick(), firing.maxTicks());
 			if (status == ReflexScheduler.ActionStatus.RUNNING && agent.behaviour.yieldsToFight() && pausedFight(active)) status = ReflexScheduler.ActionStatus.DONE;
-			agent.detail = withHealth(step.detail(), agent.startHealth - player.getHealth());
+			agent.detail = withHealth(detail, agent.startHealth - player.getHealth());
 		}
 		// A firing that has cost 2+ health is not making progress, whatever its action reports.
 		boolean harmed = firing != null && agent.startHealth - player.getHealth() >= HARM_HEALTH;

@@ -1620,7 +1620,7 @@ export class NativeToolRuntime {
 		if (active !== undefined && (active.cancelling || !active.dispatched || active.dispatchPending === true || (!order.guard && active.engineActionId !== undefined) || active.goalRevision !== record.goalRevision)) return 'ACTION_SETTLING';
 		if (order.guard && GUARD_DEFENSIVE_ACTIONS.has(active?.actionType)) return 'MODEL_DEFENSE';
 		// A firing reflex is the faster answer to the same danger; the guard waits for it to end and then fires only if
-		// its condition still holds (reconsidered when the firing ends). Default defend is not one: it holds the idle body
+		// its condition still holds (reconsidered when the firing ends). Default defend is not one: it holds the body
 		// until the model's command, and an order is that command written ahead (it fires before contact and holds while
 		// a mob chases, so waiting for it kept the model's own escape off for the whole chase; review of PR #176).
 		if (this.#reflexes.firing(agentId) && !this.#reflexes.firingStandsIn(agentId)) return 'REFLEX_FIRING';
