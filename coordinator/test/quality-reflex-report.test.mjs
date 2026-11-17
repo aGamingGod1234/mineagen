@@ -3,7 +3,7 @@ import test from 'node:test';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { DANGER_SCHEMA, judgeRooms, noiseFloor, pairRuns, reconcileDamage, roomWindowMs, scoreRun } from '../../scripts/quality/lib/reflex-round.mjs';
+import { DANGER_SCHEMA, judgeRooms, noiseFloor, pairRuns, reconcileDamage, roomWindowMs, scoreRun, windowDeaths } from '../../scripts/quality/lib/reflex-round.mjs';
 import { buildReport, parseReportArgs } from '../../scripts/quality/reflex-round-report.mjs';
 import { readWatchDir } from '../../scripts/quality/watch-files.mjs';
 
@@ -184,6 +184,17 @@ test('an invalid, unknown or missing run leaves its pair incomplete, never a zer
 	assert.equal(judged.rooms['R-BLAZE'].pairs, 3);
 });
 
+test('deaths come from counter samples at both room boundaries; a missing boundary or a falling counter is unknown', () => {
+	const deathsAt = (...points) => points.map(([seconds, deaths]) => ({ at: START + seconds * 1000, deathCounter: deaths }));
+	// R-TOOLBREAK ends at 180 s: samples at 100 s and 250 s leave the end boundary unsampled, so a death at 170 s is unknown.
+	assert.equal(windowDeaths(deathsAt([0, 0], [100, 0], [250, 1], [300, 1]), START, START + 180_000), null);
+	assert.equal(scoreRun({ scenario: 'R-TOOLBREAK', goalStartedAtMs: START, samples: deathsAt([0, 0], [100, 0], [250, 1], [300, 1]) }).deaths, null);
+	assert.equal(windowDeaths(deathsAt([0, 0], [100, 0], [179, 1], [250, 1]), START, START + 180_000), 1);
+	assert.equal(windowDeaths(deathsAt([0, 0], [150, 2], [300, 0]), START, START + 300_000), null, 'a counter that goes down is corrupt');
+	assert.equal(windowDeaths(deathsAt([0, 0], [300, 1.5]), START, START + 300_000), null, 'a fractional counter is corrupt');
+	assert.equal(windowDeaths(deathsAt([-60, 0], [10, 1], [300, 2]), START, START + 300_000), null, 'no sample near the start');
+});
+
 async function runDir(root, name, { scenario, rows, samples, pairId, evaluation = { status: 'EVALUATED', pass: true } }) {
 	const dir = path.join(root, name);
 	await mkdir(path.join(dir, 'arena-watch'), { recursive: true });
@@ -214,6 +225,13 @@ test('the CLI reads run directories and paired results, and reports the noise fl
 		await writeFile(path.join(older.artifacts, 'quality-protocol.jsonl'), JSON.stringify({ direction: 'server_to_coordinator',
 			envelope: { type: 'goal_control', agentId: 'agent-a', payload: { operation: 'start', updatedAtEpochMs: START } } }) + '\n');
 		assert.equal((await buildReport(parseReportArgs(['--run', older.artifacts]))).runs[0].damage, 2);
+		// A danger file with a malformed line is corrupt evidence: damage is unknown, never a clean 0.
+		const corrupt = await runDir(root, 'corrupt', { scenario: 'R-SKELETON', rows: [], samples: [counter(START, 0), counter(START + 300_000, 0)] });
+		await writeFile(path.join(corrupt.artifacts, 'arena-watch', 'agent-danger.jsonl'), '{"type":"damage","schema":1,"atMs":\n');
+		const corruptRun = (await buildReport(parseReportArgs(['--run', corrupt.artifacts]))).runs[0];
+		assert.equal(corruptRun.status, 'unknown');
+		assert.equal(corruptRun.damage, null);
+		assert.match(corruptRun.reconciliation.reason, /malformed danger row/);
 		const noWatch = await runDir(root, 'no-watch', { scenario: 'R-SKELETON', rows: null, samples });
 		assert.equal((await buildReport(parseReportArgs(['--run', noWatch.artifacts]))).runs[0].status, 'unknown');
 		const arms = { A: { runs: [] }, B: { runs: [] } };

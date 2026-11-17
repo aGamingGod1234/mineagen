@@ -95,7 +95,7 @@ export function responses(rows, start, end) {
  * One room run. dangerRows null = no Watcher file (unknown). Returns window damage, deaths and success, each null when
  * unknown, with the damage status: valid, invalid (rows and counter disagree) or unknown (either is missing).
  */
-export function scoreRun({ scenario, goalStartedAtMs, samples = [], dangerRows = null, evaluation = null }) {
+export function scoreRun({ scenario, goalStartedAtMs, samples = [], dangerRows = null, dangerDropped = 0, evaluation = null }) {
 	const windowMs = roomWindowMs(scenario);
 	const split = dangerRows === null ? { rows: null, otherSchema: 0 } : splitDangerRows(dangerRows);
 	const rows = split.rows;
@@ -106,16 +106,14 @@ export function scoreRun({ scenario, goalStartedAtMs, samples = [], dangerRows =
 	const damageRows = rows?.filter(row => row.type === 'damage') ?? null;
 	const counted = samples.filter(s => finite(s?.at) && finite(s?.damageTakenCounter));
 	const covered = counted.length > 0 && counted[0].at <= start + COVERAGE_SLACK_MS && counted.at(-1).at >= end - COVERAGE_SLACK_MS;
-	const reconciliation = covered ? reconcileDamage(damageRows, samples)
+	const reconciliation = dangerDropped > 0 ? { status: 'unknown', reason: `${dangerDropped} malformed danger row(s): the Watcher file is corrupt` }
+		: covered ? reconcileDamage(damageRows, samples)
 		: { status: 'unknown', reason: `counter samples do not cover the room window (${counted.length ? `${counted[0].at - start}..${counted.at(-1).at - start} ms of 0..${windowMs} ms` : 'none'})` };
 	const inWindow = damageRows?.filter(row => row.atMs >= start && row.atMs <= end) ?? [];
 	const damage = reconciliation.status === 'valid' ? round(inWindow.reduce((total, row) => total + (row.healthDrop ?? 0), 0)) : null;
 	// Deaths stand on the death counter's own coverage of the window, not the damage reconciliation: one unpaired damage
 	// row leaves damage unknown but says nothing about deaths. Without that counter, the lethal rows when damage reconciled.
-	const deathSamples = samples.filter(s => finite(s?.at) && finite(s?.deathCounter));
-	const deathsCovered = deathSamples.length > 0 && deathSamples[0].at <= start + COVERAGE_SLACK_MS && deathSamples.at(-1).at >= end - COVERAGE_SLACK_MS;
-	const windowSamples = deathSamples.filter(s => s.at >= start - EDGE_SLACK_MS && s.at <= end + EDGE_SLACK_MS);
-	const counterDeaths = deathsCovered && windowSamples.length > 1 ? windowSamples.at(-1).deathCounter - windowSamples[0].deathCounter : null;
+	const counterDeaths = windowDeaths(samples, start, end);
 	const lethalRows = inWindow.filter(row => row.lethal === true).length;
 	const deaths = counterDeaths !== null && counterDeaths >= 0 ? Math.max(counterDeaths, lethalRows) : reconciliation.status === 'valid' ? lethalRows : null;
 	const threat = rows === null ? null : threatTime(rows, start, end);
@@ -128,6 +126,24 @@ export function scoreRun({ scenario, goalStartedAtMs, samples = [], dangerRows =
 			firings: firingSummary(rows, start, end) };
 	}
 	return result;
+}
+
+/**
+ * Deaths in the window from the vanilla death counter: the difference between a sample within COVERAGE_SLACK_MS of the
+ * window start and one within it of the window end, the counter a non-decreasing whole number throughout. Null (unknown)
+ * when either boundary has no sample near it or the counter is malformed or goes down.
+ */
+export function windowDeaths(samples, start, end) {
+	const rows = (samples ?? []).filter(s => finite(s?.at) && s?.deathCounter !== undefined && s?.deathCounter !== null);
+	if (rows.some(s => !Number.isInteger(s.deathCounter) || s.deathCounter < 0)) return null;
+	if (rows.some((s, i) => i && s.deathCounter < rows[i - 1].deathCounter)) return null;
+	const near = at => rows.filter(s => Math.abs(s.at - at) <= COVERAGE_SLACK_MS);
+	const atStart = near(start), atEnd = near(end);
+	if (!atStart.length || !atEnd.length) return null;
+	// The latest sample at or before the start (else the first after it), and the first at or after the end (else the last).
+	const base = atStart.filter(s => s.at <= start).at(-1) ?? atStart[0];
+	const last = atEnd.find(s => s.at >= end) ?? atEnd.at(-1);
+	return last.at > base.at ? last.deathCounter - base.deathCounter : null;
 }
 
 /** Firing rows that ended in the window, by outcome (diagnostic); start must never follow end. */

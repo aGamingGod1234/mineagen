@@ -41,13 +41,14 @@ export async function loadRun(run) {
 	const directory = run.artifacts;
 	const record = run.metrics || run.goalStartedAtMs !== undefined || !directory ? run : { ...run, ...(await maybeJson(path.join(directory, 'quality-run.json')) ?? {}) };
 	const samples = directory ? (await maybeJson(path.join(directory, 'quality-samples.json')))?.samples ?? [] : [];
-	let dangerRows = null;
+	let dangerRows = null, dangerDropped = 0;
 	for (const watchDir of directory ? await findWatchDirs(directory) : []) {
 		const watch = await readWatchDir(watchDir);
 		if (watch.dangerFiles) dangerRows = [...(dangerRows ?? []), ...watch.danger];
+		dangerDropped += watch.dangerDropped ?? 0;
 	}
 	return { pairId: record.pairId ?? `${record.scenario}-r${record.repetition ?? 1}`, ...scoreRun({ scenario: record.scenario ?? record.definition?.id,
-		goalStartedAtMs: await goalStart(record, directory), samples, dangerRows, evaluation: record.evaluation ?? null }) };
+		goalStartedAtMs: await goalStart(record, directory), samples, dangerRows, dangerDropped, evaluation: record.evaluation ?? null }) };
 }
 
 /** --run takes a run artifact directory (holding quality-run.json) or a run-scenarios results.json. */
