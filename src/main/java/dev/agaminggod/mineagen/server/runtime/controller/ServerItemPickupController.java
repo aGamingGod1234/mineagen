@@ -24,6 +24,11 @@ public final class ServerItemPickupController implements ServerController {
 	private final int initialInventoryCount;
 	private final int initialReceipt;
 	private final long timeoutMs;
+	/** The walk's own limit from the drop's distance at the start ({@link PickupBudget}), within timeoutMs. */
+	private final long walkLimitMs;
+	private final double startDistance;
+	/** Replans the walks of this pickup have used; a walk planned again for a moved drop gets only what is left. */
+	private int replansSpent;
 	private final ElapsedTimeAccumulator elapsedTime;
 	private final ResourceKey<Level> startingDimension;
 	private ServerNavigationController navigation;
@@ -48,6 +53,8 @@ public final class ServerItemPickupController implements ServerController {
 		this.initialInventoryCount = countMatching(player, identity);
 		this.initialReceipt = dev.agaminggod.mineagen.server.perception.PickupReceipts.collected(player, item.getUUID());
 		this.timeoutMs = timeoutMs;
+		this.startDistance = player.position().distanceTo(item.position());
+		this.walkLimitMs = PickupBudget.walkLimitMs(startDistance, timeoutMs);
 		this.elapsedTime = new ElapsedTimeAccumulator(startedAt);
 		this.startingDimension = player.level().dimension();
 	}
@@ -72,11 +79,14 @@ public final class ServerItemPickupController implements ServerController {
 		boolean alive = item.isAlive() && !item.isRemoved() && !item.getItem().isEmpty();
 		ItemPickupProgress.Decision decision = ItemPickupProgress.evaluate(initialInventoryCount, currentCount, initialReceipt,
 				dev.agaminggod.mineagen.server.perception.PickupReceipts.collected(player, item.getUUID()), alive,
-				elapsedMs >= timeoutMs);
+				elapsedMs >= walkLimitMs);
 		return switch (decision) {
 			case SUCCEEDED -> succeed(player);
 			case ITEM_UNAVAILABLE -> fail(player, "ITEM_UNAVAILABLE", ActionResultFacts.unavailableDrop(player, lastSeenPosition(player), identity));
-			case TIMED_OUT -> fail(player, "ITEM_PICKUP_TIMED_OUT", "The player could not physically reach the dropped item");
+			case TIMED_OUT -> fail(player, "ITEM_PICKUP_TIMED_OUT", walkLimitMs < timeoutMs
+					? String.format(java.util.Locale.ROOT, "The player could not physically reach the dropped item %.1f blocks away within the %.1f s pickup walk limit",
+							startDistance, walkLimitMs / 1000.0D)
+					: "The player could not physically reach the dropped item");
 			case RUNNING -> approach(player, nowEpochMs, elapsedMs);
 		};
 	}
@@ -106,10 +116,15 @@ public final class ServerItemPickupController implements ServerController {
 		if (navigation == null || navigationTarget.distanceToSqr(currentTarget) > REPLAN_DISTANCE_SQUARED) {
 			navigation = replaceNavigation(
 					navigation,
-					existing -> existing.cancel(player),
+					existing -> {
+						replansSpent += existing.stallReplans();
+						existing.cancel(player);
+					},
 					() -> {
 						ServerNavigationController move = new ServerNavigationController(currentTarget, 0.2D, true, nowEpochMs,
-								remainingNavigationTimeout(timeoutMs, elapsedMs), pickupRegion);
+								remainingNavigationTimeout(walkLimitMs, elapsedMs), pickupRegion)
+								.stallBudget(PickupBudget.STALL_MS, PickupBudget.replansLeft(replansSpent))
+								.seenRouteOnly();
 						move.crouched(crouched);
 						return keepLevel ? move.onLevel(net.minecraft.util.Mth.floor(startingY + 0.2D)) : move;
 					}
@@ -156,7 +171,10 @@ public final class ServerItemPickupController implements ServerController {
 	}
 
 	private void stopNavigation(ServerPlayer player) {
-		if (navigation != null) navigation.cancel(player);
+		if (navigation != null) {
+			replansSpent += navigation.stallReplans();
+			navigation.cancel(player);
+		}
 		navigation = null;
 		navigationTarget = null;
 	}

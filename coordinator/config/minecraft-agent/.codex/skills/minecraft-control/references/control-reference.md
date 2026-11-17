@@ -724,7 +724,7 @@ A block with lava beside it is refused with LAVA_BEHIND before any swing, since 
 
 ### pick_up_item
 
-Fields: `targetSelector`, optional `timeoutMs` (default 30000).
+Fields: `targetSelector`, optional `timeoutMs` (default 30000). The walk is limited to 4 s plus 0.6 s per block of the drop's distance at the start, within `timeoutMs` (`ITEM_PICKUP_TIMED_OUT`); it walks only a route that reaches the drop over cells you have seen (`NO_SEEN_ROUTE` before any step otherwise) and replans a stalled walk once (`PATH_BLOCKED` after that).
 
 ```json executor-call
 {"tool":"act","arguments":{"actionType":"pick_up_item","arguments":{"targetSelector":"550e8400-e29b-41d4-a716-446655440000"}}}
