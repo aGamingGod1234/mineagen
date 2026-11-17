@@ -1,8 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-// Real coordinator regressions adapted from the independently verified fixtures.
-// Provider, bridge, and clocks below are controlled offline test boundaries.
 
 test("g01 f016 status exposes least healthy real profile and native operation without duplicate wire identities", { timeout: 120000 }, async () => {
 const { EventEmitter, once } = await import('node:events');

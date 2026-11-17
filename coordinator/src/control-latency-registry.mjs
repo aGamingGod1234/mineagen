@@ -83,7 +83,6 @@ export class ControlLatencyRegistry {
 		return Object.freeze({ operation, durationMs });
 	}
 
-	/** Records one disjoint monotonic span in the fixed task trace. */
 	recordTracePhase(traceIdValue, phaseValue, spanValue) {
 		const traceId = requireTraceId(traceIdValue);
 		const trace = this.#ensureTrace(traceId);

@@ -13,7 +13,7 @@ Default: offline decision stake vs the PR base (or origin/main merge-base); prin
 Edit loop: use the selected incident, get counts from --report, run the full matrix only at the product gate.
 The stake uses recorded-fact reconstructions; it does not simulate world or model outcomes.
 Expectation changes update expected.json plus a one-line PR reason; critical danger and incomplete evidence remain red.
-End the gameplay brief with three lines in docs/gameplay-friction/<pr>-<slug>.md.`);
+End the gameplay brief with three lines in $ARENA_PRIVATE_INPUTS/docs/gameplay-friction/<pr>-<slug>.md.`);
 	} else if (values.report) {
 		if (values.incident) throw new Error('Choose --report or --incident');
 		const score = await scoreStageRun(values.report);

@@ -39,7 +39,7 @@ const results = [];
 
 // Each spot gets its own server and world; the next one boots while this one plays, from the seed's cached world.
 for await (const { item: [, spot], server: s, error: bootError } of warmBoots([...spots.entries()], ([index, spot]) => ({ dir: path.join(out, `spot-${index}`),
-	options: { jar: path.resolve(jarArg ?? path.join(root, 'build/libs/arena-agents-0.2.0.jar')), template, port, world: null, seed: String(spot.seed), worldCache: true } }))) {
+	options: { jar: path.resolve(jarArg ?? path.join(root, 'build/libs/mineagen-0.2.0.jar')), template, port, world: null, seed: String(spot.seed), worldCache: true } }))) {
 	const pos = async () => String(await s.command(`data get entity ${AGENT} Pos`)).match(/\[\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?\]/)?.slice(1).map(Number) ?? null;
 	const health = async () => number(await s.command(`data get entity ${AGENT} Health`));
 	const deaths = async () => number(await s.command(`scoreboard players get ${AGENT} deaths`)) || 0;

@@ -8,12 +8,12 @@ Materialize the runnable copy at `runtime/server-template` from the repository r
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\prepare-headless-server-template.ps1 -AcceptMinecraftEula
 ```
 
-The command pins Minecraft 26.3, Fabric Loader 0.20.1, Fabric Installer 1.1.2, and Fabric API 0.165.0+26.3; verifies downloaded hashes; builds Arena Agents; and installs the required Fabric Carpet JAR already tracked under `libs/`.
+The command pins Minecraft 26.3, Fabric Loader 0.20.1, Fabric Installer 1.1.2, and Fabric API 0.165.0+26.3; verifies downloaded hashes; builds Mineagen; and installs the required Fabric Carpet JAR already tracked under `libs/`.
 
 The headless matrix copies this clean runnable template for every scenario, creates a bounded temporary platform in that scenario's new world, and removes the generated server and private evidence after the run unless `-KeepArtifacts` is requested.
 
 The Reliability workflow also copies this template to a temporary directory,
-replaces `mods` with the exact three JARs extracted from the Windows release ZIP,
+replaces `mods` with the exact five JARs extracted from the Windows release ZIP,
 waits for the server `Done` marker, runs `codex status`, and requires a clean
 `stop`. This boot gate does not contact a model provider.
 

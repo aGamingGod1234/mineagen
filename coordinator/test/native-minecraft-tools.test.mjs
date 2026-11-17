@@ -473,7 +473,7 @@ test('optional mining aim expands only the exact caller-chosen block and preserv
 });
 
 test('advertised native actions exactly match Java model-authored dispatch', async () => {
-	const executor = await readFile(new URL('../../src/main/java/dev/agaminggod/arenaagents/server/runtime/ServerActionExecutor.java', import.meta.url), 'utf8');
+	const executor = await readFile(new URL('../../src/main/java/dev/agaminggod/mineagen/server/runtime/ServerActionExecutor.java', import.meta.url), 'utf8');
 	const allowlist = executor.match(/ARENA_SCRIPT_PRIMITIVES\s*=\s*Set\.of\(([\s\S]*?)\);/)?.[1] ?? '';
 	const javaActions = [...allowlist.matchAll(/ActionType\.([A-Z_]+)/g)]
 		.map(([, name]) => name.toLowerCase())
@@ -860,7 +860,7 @@ test('a survey drops bulk-terrain block searches the server refuses when somethi
 	assert.deepEqual(look.survey.include, ['caves', 'blocks:minecraft:lava']);
 	assert.match(toolAdjustments(look)['survey.include'], /dropped blocks:minecraft:water/);
 	assert.deepEqual(normalizeMinecraftToolCall('survey', { include: ['blocks:minecraft:water'] }).include, ['blocks:minecraft:water'], 'a survey of only bulk terrain still gets the server reason');
-	const java = readFileSync(new URL('../../src/main/java/dev/agaminggod/arenaagents/server/perception/FarSight.java', import.meta.url), 'utf8');
+	const java = readFileSync(new URL('../../src/main/java/dev/agaminggod/mineagen/server/perception/FarSight.java', import.meta.url), 'utf8');
 	const server = java.match(/UNSEARCHABLE = Set\.of\(([^;]+)\);/)[1].match(/Blocks\.([A-Z_]+)/g).map(name => `minecraft:${name.slice(7).toLowerCase()}`);
 	assert.deepEqual([...UNSEARCHABLE_BLOCKS].sort(), server.sort(), 'the coordinator mirrors FarSight.UNSEARCHABLE');
 });

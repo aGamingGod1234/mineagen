@@ -13,10 +13,6 @@ const TOOL = /(^|:)[a-z_]+_pickaxe$/;
 // The mob's hit when the server does not say (a zombie on normal).
 const HIT = 3;
 const HITS = 3;
-// At or below this with a mob after it, the body stops for the model (the wake filter's low floor); a search's fight
-// bails out here too (fleeAtHealth). The body fights only from three of the mob's hits above it, so the fight is not
-// ended by that line with the mob alive: 17 against a zombie, whatever it holds. Gate3-5 at 11 min (health 11, stone
-// pickaxe) would bail after one hit; scripted gate seed 6 set pickaxe fights at 16 or more for the same reason.
 export const SEARCH_LOW_HEALTH = 8;
 // Threat rows the server senses reach 16 blocks (ThreatPerception.RANGE); a creeper this close counts even unaware.
 const RANGE = 16;
@@ -37,10 +33,6 @@ export function threatRows(observation) {
 	return rows === null ? null : rows.filter((row) => row !== null && typeof row === 'object' && typeof row.type === 'string' && Number.isFinite(row.distance));
 }
 
-// A creeper this close is backed away from, never built beside: a shelter takes seconds and its blast breaks one.
-// Round 5 chain-gate-8-r3 and round 4 seed 8: walled in with a creeper at 7.8-7.9 blocks, then blown up. Batch 2
-// chain-gate-6-r2: walled in with one at 11.3 blocks, which closed in during the build. So the whole sensed range
-// (ThreatPerception.RANGE, 16 blocks).
 export const CREEPER_NO_WALL = 16;
 
 /** The nearest live creeper within CREEPER_NO_WALL blocks in the sample's threat or entity rows ({ uuid, distance, x?, z? }), or null. */

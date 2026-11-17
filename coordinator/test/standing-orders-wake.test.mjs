@@ -7,7 +7,6 @@ import { FakePlanner, start, eventually, factToWireObservation, ManualTimerQueue
 
 const POLICY = 'program.onUnhandledAttention("continue_and_notify", { survival: "continue_and_notify" });';
 const THREAT = '00000000-0000-4000-8000-0000000000aa';
-/** The wake event exactly as presented to the model. */
 const presented = (request) => JSON.parse(request.input.slice(request.input.indexOf('\n') + 1));
 const settle = () => new Promise((resolve) => setTimeout(resolve, 120));
 
@@ -55,7 +54,6 @@ async function coordinatorWith(firstTurnTools = [], options = {}) {
 	return { run, planner, results, emit, emitSample, commands, nextSequence: () => (sequence += 1000) };
 }
 
-// Review r2 finding 1: the scheduling boundary, not the classifier, decides whether a model turn happens.
 test('a drop edge alone schedules no model turn, on the first and on repeated approaches', async () => {
 	const { run, planner, emitSample } = await coordinatorWith();
 	try {
@@ -84,7 +82,6 @@ test('the edge sample still reaches an authored standing order, which fires with
 	} finally { await run.coordinator.stop(); }
 });
 
-// Review r2 finding 2: the drop is ignored as a reason; every other reason in the same sample still wakes.
 test('a drop in the same sample never hides another wake reason', async () => {
 	const { run, planner, emit } = await coordinatorWith();
 	try {
@@ -112,7 +109,6 @@ test('classifier: with the drop ignored, loop, resource, dimension and damage si
 	const sample = { player: { health: 20 } };
 	const edge = { attention: false, changedFacts: [], sampleOnly: true };
 	assert.deepEqual(classifyObservationTrigger(edge, sample), { attention: false, priority: 'ordinary', trigger: 'observation', sampleOnly: true });
-	// Review r3 finding 1: forced attention (an action result) beside the edge fact is not a sample; it keeps its wake.
 	assert.deepEqual(classifyObservationTrigger({ attention: true, changedFacts: ['player.dropAhead'] }, sample), { attention: true, priority: 'ordinary', trigger: 'attention' });
 	assert.equal(classifyObservationTrigger(edge, sample, { movementLoop: true }).trigger, 'movement_loop');
 	assert.equal(classifyObservationTrigger(edge, sample, { resourceDiscovery: true }).trigger, 'resource_discovery');
@@ -138,8 +134,6 @@ async function heldSightingThenCompletion() {
 	return fixture;
 }
 
-// Review r3 finding 1: the server forces the completion observation for the action result; a drop seen in the same
-// sample is listed beside it. The completion and the held sighting still wake the model at once.
 test('a completion observation that also carries the drop wakes with the held sighting', async () => {
 	const { run, planner, emit } = await heldSightingThenCompletion();
 	try {
@@ -158,8 +152,6 @@ test('a drop sample arriving after the action ended does not swallow its held wa
 	} finally { await run.coordinator.stop(); }
 });
 
-// Review r3 finding 2, coordinator half: every drop change the server samples reaches the order book. A condition on the
-// depth first turns true on the deeper drop, a retreat clears it, and the next approach fires again.
 test('drop samples drive an order through changing depth, retreat and a second approach', async () => {
 	const { run, results, emitSample, commands, nextSequence } = await coordinatorWith([{ kind: 'standing_order', id: 'deep', ttlS: 300,
 		when: 'player.state().dropAhead !== null && player.state().dropAhead.drop >= 6', source: `${POLICY} await player.wait(50);`, maxActions: 2, timeoutMs: 3000 }]);
@@ -183,7 +175,6 @@ test('drop samples drive an order through changing depth, retreat and a second a
 	} finally { await run.coordinator.stop(); }
 });
 
-// R4: distance-only samples must evaluate the model's own threshold immediately, without a model wake.
 test('a distance-only sample fires an authored threshold before any heartbeat', async () => {
 	const { run, planner, results, emitSample, commands } = await coordinatorWith([{ kind: 'standing_order', id: 'near', ttlS: 300,
 		when: 'player.state().dropAhead !== null && player.state().dropAhead.at <= 1', source: `${POLICY} await player.wait(50);`, maxActions: 2, timeoutMs: 3000 }]);

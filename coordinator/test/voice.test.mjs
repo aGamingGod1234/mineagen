@@ -136,7 +136,7 @@ test('loopback voice worker authenticates, caches, and emits 48 kHz PCM', async 
 	}
 });
 
-test('Director explicit speed overrides automatic voice presets', async () => {
+test('Explicit voice speed overrides automatic voice presets', async () => {
 	const speeds = [];
 	const worker = createVoiceHttpServer({ provider: { async synthesize(request) {
 		speeds.push(request.speed);
@@ -158,7 +158,7 @@ test('Director explicit speed overrides automatic voice presets', async () => {
 	} finally { await worker.close(); }
 });
 
-test('Director Fish delivery tones become S2 inline cues', async () => {
+test('Named voice delivery tones become S2 inline cues', async () => {
 	const texts = [];
 	const provider = new FishTtsProvider({ apiKey: 'director-tone-fixture', fetchImpl: async (_url, request) => {
 		texts.push(JSON.parse(request.body).text);
@@ -283,4 +283,26 @@ test('loopback speech route preserves player identity, utterance order, and whis
 	} finally {
 		await worker.close();
 	}
+});
+
+
+test('inherited speed with an explicit tone reaches the provider preset while 1.0 stays explicit', async () => {
+	const speeds = [];
+	const profile = builtInVoiceProfiles()[0];
+	const worker = createVoiceHttpServer({ port: 0, secret: VOICE_TEST_SECRET,
+		profileStore: { resolve: () => profile },
+		provider: { async synthesize({ speed }) { speeds.push(speed); return { sampleRateHz: 48_000, channels: 1, sampleFormat: 's16le', pcm: Buffer.alloc(4) }; } },
+	});
+	const address = await worker.start();
+	try {
+		for (const explicit of [false, true]) {
+			const body = JSON.stringify({ agentId: AGENT_ONE, text: explicit ? 'Explicit pacing.' : 'Inherited pacing.',
+				profileId: 'voice.auto.v1', radius: 48, conversationSequence: 1, tone: 'neutral', ...(explicit ? { speed: 1.0 } : {}) });
+			const response = await fetch(`http://127.0.0.1:${address.port}/v1/tts`, {
+				method: 'POST', headers: { ...createVoiceRequestHeaders({ secret: VOICE_TEST_SECRET, path: '/v1/tts' }), 'Content-Type': 'application/json' }, body,
+			});
+			assert.equal(response.status, 200, await response.text());
+		}
+		assert.deepEqual(speeds, [0.94, 1.0]);
+	} finally { await worker.close(); }
 });

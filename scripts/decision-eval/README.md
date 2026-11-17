@@ -14,6 +14,19 @@ Headless game runs stay the test for what this cannot see: pathing, combat execu
 Code: `coordinator/src/decision-eval/` (schema, renderer, runner, predicates, judge, statistics, report, pricing).
 Train cases: `coordinator/test/fixtures/decision-eval/train/<family>.json`. Tests: `coordinator/test/decision-eval-*.test.mjs`.
 
+## Private recordings
+
+Recorded game moments live outside the checkout. Set `ARENA_PRIVATE_INPUTS` to the private archive root, which preserves repository-relative paths such as `coordinator/test/fixtures/decision-eval/train/`. The decision-eval scripts use that root for their default corpus; explicit `--cases` paths still work. Without the variable, tools that default to archived cases print a named `SKIP` and write no verdict. Corpus contents, grading and judges are unchanged.
+
+`cd coordinator && npm test` uses the same private-input manifest and runner in both trees. With `ARENA_PRIVATE_INPUTS` set, it runs every archive-backed test and missing or corrupt recordings fail normally; the few selections marked `"source": "checkout"` in `coordinator/test/private-inputs.json` read files that only the private checkout holds and stay omitted where those are absent. Without it, only selections with unavailable private inputs are omitted; each printed `SKIP` names the file, exact test or whole module, missing input, and environment variable. Module selections are needed where recordings load before test discovery. Direct `node --test` bypasses this selection, so set the variable for direct recording tests too.
+
+Keep new recordings and evaluation outputs in the private archive, and link them from PRs.
+
+The play providers are Claude and Codex. With `--judge auto`, Claude players use the Codex judge
+(`gpt-6.1-sol`, medium effort), and Codex players use the Claude judge (`claude-opus-5-5`, medium effort).
+Both use their existing CLI login; the judge needs access to the other provider. OpenCode players and judges
+are no longer supported. `--judge off` is a predicate diagnostic and cannot establish a passing gate.
+
 ## Run it
 
 From `coordinator/`:
@@ -332,7 +345,7 @@ asset summaries remain reported in `replay.unreplayed`.
 ## Held-out split
 
 Held-out cases live only outside the repo, in `arena-quality-research/evaluator-only/decision-eval/heldout.json`.
-The repo keeps their SHA-256 in `coordinator/test/fixtures/decision-eval/heldout.sha256`; the runner refuses a set
+The private archive keeps their SHA-256 in `coordinator/test/fixtures/decision-eval/heldout.sha256`; the runner refuses a set
 whose hash does not match. People and agents fixing behaviour never read the held-out file. Current held-out set (q9
 progression): 51 cases from 50 source moments (the fix round 2 set of 41 plus 10 progression cases, `ho-prog-*`: 6
 recorded, 4 derived), SHA-256 `6140e6bc19edd641d8b79b8be97b7f90951d9239707b9b43afb458e90b429fca`; no source moment is
@@ -344,7 +357,7 @@ runs or worlds. A stronger split would reserve whole source runs for the evaluat
 ```sh
 npm run eval:decisions -- --baseline main --split heldout \
   --cases ../../arena-quality-research/evaluator-only/decision-eval/heldout.json \
-  --expect-fixture-sha256 @test/fixtures/decision-eval/heldout.sha256 \
+  --expect-fixture-sha256 "@$ARENA_PRIVATE_INPUTS/coordinator/test/fixtures/decision-eval/heldout.sha256" \
   --out ../../arena-quality-research/evaluator-only/decision-eval/runs/<name>
 ```
 
@@ -357,22 +370,6 @@ or runs that train does not use), then update `heldout.sha256` with the file's S
 `npm run eval:decisions:pr` (`scripts/decision-eval/ci-check.mjs`) runs the check for a PR: `--pr <n>` (reads base and
 head with `gh pr view`) or `--base <ref> --head <ref>`. `--post-status` (off by default) sets a `decision-eval` commit
 status on the head with `gh api`.
-
-`.github/workflows/decision-eval.yml` runs the quick check on pull requests, but its job is skipped unless the
-repository variable `DECISION_EVAL_ENABLED` is `true`. Choose model access through repository configuration:
-
-| | Self-hosted runner on a lab machine (default) | GitHub-hosted runner with an API key |
-|---|---|---|
-| Setup | Register a lab machine as a self-hosted runner; Claude Code (and Codex for the judge) already logged in there. Optional `DECISION_EVAL_RUNS_ON` (JSON label list, default `["self-hosted", "decision-eval"]`, so the coordinator CI runner on the coordinator host never picks it up). | Set `DECISION_EVAL_AUTH=api-key` and add the `ANTHROPIC_API_KEY` secret. The job installs Claude Code. |
-| Billing | The machine's existing Claude Code plan or key | Anthropic API, per token |
-| Secrets | None in GitHub | One repository secret |
-| Caching | Baseline and judge caches persist on the machine between PRs | Cache is lost per job unless `actions/cache` is added |
-| Judge | Works if Codex is logged in (`DECISION_EVAL_JUDGE=auto`, the default) | Needs a Codex login or OpenAI key on the runner; without it the check can only run the predicate diagnostic and cannot PASS |
-| Risk | A PR's code runs on the lab machine; limit it to trusted branches | Runs on GitHub's machines; forks do not get the secret |
-
-Other variables: `DECISION_EVAL_SCOPE=full` (full train set instead of quick) or `preflight` (the weaker per-push
-check), `DECISION_EVAL_BUDGET_USD`
-(default 20: a quick check with a cached baseline is estimated at about $11 and keeps a 30% confirmation reserve). Nothing is enabled by default and the workflow creates no secrets.
 
 ## Full-game stalls
 

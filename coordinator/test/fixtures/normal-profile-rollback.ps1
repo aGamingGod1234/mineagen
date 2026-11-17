@@ -41,7 +41,7 @@ try {
     $entries = @(Get-ChildItem -LiteralPath $coordinator -File -Recurse | Sort-Object FullName | ForEach-Object {
         (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() + ' ' + $_.FullName.Substring($coordinator.Length + 1).Replace('\', '/')
     })
-    Write-Fixture (Join-Path $coordinator '.arena-agents-bundle-manifest') (($entries -join "`n") + "`n")
+    Write-Fixture (Join-Path $coordinator '.mineagen-bundle-manifest') (($entries -join "`n") + "`n")
     # This installer entry point copies and hashes Node; it never executes it.
     $nodeRelative = if ($env:OS -eq 'Windows_NT') { 'runtime/toolchains/node/node.exe' } else { 'runtime/toolchains/node/bin/node' }
     Write-Fixture (Join-Path $source $nodeRelative) 'inert fixture Node bytes'

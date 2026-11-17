@@ -37,7 +37,6 @@ const WORN_SLOTS = new Set(['head', 'chest', 'legs', 'feet']);
 const STOP_WORDS = new Set(['of', 'the', 'a', 'an', 'minecraft']);
 
 let cachedIndex = null;
-/** The generated index, read once on first use. */
 export function howtoIndex() {
 	cachedIndex ??= JSON.parse(readFileSync(INDEX_URL, 'utf8'));
 	return cachedIndex;
@@ -373,7 +372,6 @@ class Query {
 		return options.sort((a, b) => TYPE_ORDER.indexOf(a.type) - TYPE_ORDER.indexOf(b.type));
 	}
 
-	/** Held and worn counts per item, to be reserved by one option's requirements. */
 	pool() {
 		return new Map([...this.holdings.items].map(([id, row]) => [id, row.held + row.worn]));
 	}
@@ -519,7 +517,6 @@ function alternatives(thunks) {
 	return { open: false, sources: [...sources] };
 }
 
-/** One recipe's unmet inputs: reachable only when every input is. */
 function allOf(results) {
 	if (results.every(r => r.open)) return { open: true, sources: [] };
 	return { open: false, sources: [...new Set(results.filter(r => !r.open).flatMap(r => r.sources))] };
@@ -802,7 +799,6 @@ function memberIds(id, index) {
 	return id.startsWith('#') ? index.tags[id] ?? [] : id.split('|');
 }
 
-/** A tag or list with one member is that member. */
 function singleton(id, index) {
 	const members = memberIds(id, index);
 	return members.length === 1 ? members[0] : id;

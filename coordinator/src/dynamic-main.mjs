@@ -7,7 +7,6 @@ import { compactStandingOrder } from './standing-orders.mjs';
 import { presentEventHealing, presentEventObservation } from './event-observation-presentation.mjs';
 import { boundedResourceSightings, isDiscoveryBlock, resourceBlockFact } from './resource-sightings.mjs';
 import { compactProjectileObservation } from './projectile-attention.mjs';
-import { generateDirectorScript } from './director-script-generator.mjs';
 import { encodeModelFacts, hasHeardSection, withoutHeardSoundEvents } from './model-fact-encoding.mjs';
 import { NEW_CONTEXT_EVENT_INSTRUCTION, ROUTINE_NEW_CONTEXT_EVENT_INSTRUCTION, isNewContextEventInput } from './native-event-instructions.mjs';
 import { respawnLead } from './respawn-recovery.mjs';
@@ -24,9 +23,7 @@ import { ActiveGoalSupervisor } from './active-goal-supervisor.mjs';
 import { MAX_LEASE_TIMEOUT_MS } from './work-lease-supervisor.mjs';
 import { AgentWorkspaceManager } from './agent-workspace.mjs';
 import { MinecraftAgentWorkspace } from './minecraft-agent-workspace.mjs';
-import { AntigravityProviderService } from './antigravity-service.mjs';
 import { ClaudeProviderService } from './claude-service.mjs';
-import { OpenCodeProviderService } from './opencode-service.mjs';
 import { CodexService } from './codex-service.mjs';
 import { ControlLatencyRegistry } from './control-latency-registry.mjs';
 import { buildCoordinatorStatus, providerRecoveryComponents } from './coordinator-status.mjs';
@@ -67,7 +64,7 @@ import { ProgramRuntimeManager } from './program-runtime-manager.mjs';
 import { createProviderChildEnvironment } from './provider-environment.mjs';
 import { PROVIDER_CLI, ProviderCliHealthMonitor, createDisabledProviderCliHealthMonitor } from './provider-cli-health.mjs';
 import { NATIVE_TOOL_PROVIDERS, PROVIDER_IDS, TOOL_BOUNDARY_STEER_PROVIDERS } from './provider-identity.mjs';
-import { ProviderDiscovery, createAccountReaders, discoverOpenCodeModels } from './provider-discovery.mjs';
+import { ProviderDiscovery, createAccountReaders } from './provider-discovery.mjs';
 import { registerDiscoveredPrice } from './call-cost.mjs';
 import { TASK_VIEW_MAX_BYTES } from './protocol-v2.mjs';
 import { UsageLedger } from './usage-ledger.mjs';
@@ -159,6 +156,8 @@ const DEFAULT_VOICE_MAX_CONCURRENT = 5;
 const DEFAULT_VOICE_PROFILE_ASSIGNMENTS_PATH = path.join('runtime', 'voice-profile-assignments.json');
 const DEFAULT_VOICE_SECRET_PATH = path.join('runtime', 'voice-secret.txt');
 const DEFAULT_LOCAL_SPEECH_TIMEOUT_MS = 120_000;
+// Three times the slowest of ten measured gpt-4o-mini-tts calls (4,114 ms, 17 Nov 2026), rounded up to a whole second.
+const DEFAULT_OPENAI_INTERACTIVE_TTS_TIMEOUT_MS = 13_000;
 const DEFAULT_FISH_FALLBACK_BASE_DELAY_MS = 30_000;
 const DEFAULT_FISH_FALLBACK_MAX_DELAY_MS = 300_000;
 const VOICE_WARMUP_GRACE_MS = 1_000;
@@ -251,7 +250,6 @@ export class DynamicCoordinator extends EventEmitter {
 	#taskRequestTimeoutMs;
 	#supervisedObservationRequests = new Map();
 	#conversationWakeTransactions = new Map();
-	#directorRequests = new Set();
 	#goalSpecRequests = new Map();
 	#goalSpecRequestCap;
 	#setGoalSpecTimeout;
@@ -848,24 +846,7 @@ export class DynamicCoordinator extends EventEmitter {
 			} catch (error) { this.#emitRuntimeError(error); }
 			await this.#publishStatus(connectionEpoch);
 		}, connectionEpoch));
-        this.#listen('director_script_request', (message, connectionEpoch) => {
-            const request=message.payload;
-            if(this.#directorRequests.has(request.requestId)) return;
-            this.#run(async () => {
-                let script='', error='';
-                if(this.#directorRequests.has(request.requestId)) return;
-                if(this.#directorRequests.size>=4) error='Luna is busy. Try again shortly.';
-                else {
-                    this.#directorRequests.add(request.requestId);
-                    try {
-                        const value=await this.#scheduler.schedule(`director-${request.requestId}`, ({signal})=>generateDirectorScript(this.#codexService,request,{signal}), {lane:'codex',priority:'ordinary',capacityClass:'auxiliary'});
-                        script=JSON.stringify(value);
-                    } catch(failure) { error=('Luna could not generate this script: '+(failure.message??'Unknown error')).slice(0,400); }
-                    finally { this.#directorRequests.delete(request.requestId); }
-                }
-                if(this.#isConnectionEpochCurrent(connectionEpoch)) await this.#sendForEpoch(connectionEpoch,'director_script_result','server',{requestId:request.requestId,script,error});
-            },connectionEpoch);
-        });
+
 		this.#listen('goal_spec_request', (message, connectionEpoch) => {
 			const key = this.#goalSpecRequestKey(message.agentId, message.payload.requestId);
 			const { playerState, ...intent } = message.payload;
@@ -1433,7 +1414,6 @@ export class DynamicCoordinator extends EventEmitter {
 			void this.#playerMemory.markUnknown(undefined, 'BRIDGE_DISCONNECTED').catch((error) => this.#emitRuntimeError(error));
 			this.#connected = false;
 			this.#retireReceiptReconciliations();
-            for(const requestId of this.#directorRequests) this.#scheduler.cancel(`director-${requestId}`, 'Director connection closed');
 			this.#setVerboseEnabled(false);
 			this.#cancelGoalSpecRequests();
 			this.#settleTaskRequests(undefined, 'BRIDGE_DISCONNECTED', 'Lost the connection to Minecraft before it answered.');
@@ -3806,7 +3786,7 @@ export class DynamicCoordinator extends EventEmitter {
 		let publishedAgentMessage = false, qualityMessageCaptured = false;
 		const reporter = (stage, message) => {
 			try {
-				if (stage === 'provider_event') { this.#traceProviderEvent(agentId, goalRevision, message); this.#noteProviderLimitEvent(agentId, message); return; }
+				if (stage === 'provider_event') { this.#traceProviderEvent(agentId, goalRevision, message); return; }
 				// Usage statistics and account limits are per agent and per account, independent of the goal revision.
 				if (stage === 'live_allowance') {
 					const allowance = JSON.parse(message);
@@ -3942,15 +3922,6 @@ export class DynamicCoordinator extends EventEmitter {
 		if (Buffer.byteLength(JSON.stringify(withRoster)) <= TASK_VIEW_MAX_BYTES) return withRoster;
 		const trimmed = { ...view, roster: { ...roster, agents: roster.agents.filter((row) => row.agentId === record.agentId) } };
 		return Buffer.byteLength(JSON.stringify(trimmed)) <= TASK_VIEW_MAX_BYTES ? trimmed : view;
-	}
-
-	/** OpenCode reports its free-tier refusals as provider retries; they are the only limit signal that tier has. */
-	#noteProviderLimitEvent(agentId, message) {
-		let value;
-		try { value = JSON.parse(message); } catch { return; }
-		if (value?.event !== 'native_provider_retry' || value.reason !== 'RATE_LIMITED') return;
-		const provider = this.#registry.get(agentId)?.provider;
-		if (provider !== undefined) this.#usageLedger.recordRateLimited(provider);
 	}
 
 	/** One notice per level change, to every agent on that account, plus a console line. */
@@ -4672,9 +4643,7 @@ export function createDynamicCoordinator(configValue, dependencies = {}) {
 	if (typeof providerCliHealth.configure === 'function') {
 		providerCliHealth.configure({
 			codex: { ...config.codex, ...(config.codex.launchProfile ?? {}), environment: providerEnvironments.codex, bridgeSecretEnvironmentVariable: config.bridge.secretEnvironmentVariable },
-			gemini: { ...config.gemini, environment: providerEnvironments.gemini, bridgeSecretEnvironmentVariable: config.bridge.secretEnvironmentVariable },
 			claude: { ...config.claude, environment: providerEnvironments.claude, bridgeSecretEnvironmentVariable: config.bridge.secretEnvironmentVariable },
-			opencode: { ...config.opencode, environment: providerEnvironments.opencode, bridgeSecretEnvironmentVariable: config.bridge.secretEnvironmentVariable },
 		});
 	}
 	// Discovery spawns the CLIs' read-only status and model-list commands, so it runs only where CLI probes may.
@@ -4684,24 +4653,8 @@ export function createDynamicCoordinator(configValue, dependencies = {}) {
 		: new CodexService({ ...config.codex, environment: providerEnvironments.codex, bridgeSecretEnvironmentVariable: config.bridge.secretEnvironmentVariable }, { transport: dependencies.codexTransport, now: dependencies.now ?? Date.now, workspaceManager, minecraftWorkspace });
 	const codexService = injectedProviders ?? new ProviderService({
 		codex: codexProvider,
-		gemini: new AntigravityProviderService({ ...config.gemini, environment: providerEnvironments.gemini, bridgeSecretEnvironmentVariable: config.bridge.secretEnvironmentVariable }, {
-			spawn: dependencies.antigravitySpawn,
-			terminate: dependencies.terminateProviderProcess,
-			platform: dependencies.platform,
-			workspaceManager,
-		}),
 		claude: new ClaudeProviderService({ ...config.claude, environment: providerEnvironments.claude, bridgeSecretEnvironmentVariable: config.bridge.secretEnvironmentVariable }, {
 			spawn: dependencies.claudeSpawn,
-			terminate: dependencies.terminateProviderProcess,
-			toolServer: dependencies.claudeToolServer,
-			workspaceManager,
-			minecraftWorkspace,
-		}),
-		opencode: new OpenCodeProviderService({ ...config.opencode, environment: providerEnvironments.opencode, bridgeSecretEnvironmentVariable: config.bridge.secretEnvironmentVariable }, {
-			discoverModels: dependencies.opencodeDiscoverModels ?? (discoveryEnabled
-				? () => discoverOpenCodeModels({ executable: config.opencode.executable ?? 'opencode', environment: providerEnvironments.opencode })
-				: null),
-			spawn: dependencies.opencodeSpawn,
 			terminate: dependencies.terminateProviderProcess,
 			toolServer: dependencies.claudeToolServer,
 			workspaceManager,
@@ -4787,7 +4740,7 @@ export function createDynamicCoordinator(configValue, dependencies = {}) {
 			cliHealth: discoveryEnabled ? providerCliHealth : null,
 			accountReaders: createAccountReaders({
 				environments: providerEnvironments,
-				executables: { opencode: config.opencode.executable, claude: config.claude.executable },
+				executables: { claude: config.claude.executable },
 				codexService: codexProvider,
 			}),
 		}),
@@ -4837,25 +4790,20 @@ export async function loadDynamicConfig(configPath = DEFAULT_DYNAMIC_CONFIG_PATH
 export function normalizeDynamicConfig(value, environment = process.env) {
 	if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('dynamic coordinator config must be an object');
 	value = migrateDynamicConfig(value);
-	assertKnownConfigKeys(value, ['schemaVersion', 'bridge', 'voice', 'codex', 'gemini', 'claude', 'opencode', 'limits', 'workspaceRoot', 'minecraftAgentRoot', 'minecraftAgentTemplateRoot'], 'config');
+	assertKnownConfigKeys(value, ['schemaVersion', 'bridge', 'voice', 'codex', 'claude', 'limits', 'workspaceRoot', 'minecraftAgentRoot', 'minecraftAgentTemplateRoot'], 'config');
 	if (value.bridge === null || typeof value.bridge !== 'object' || Array.isArray(value.bridge)) throw new TypeError('dynamic coordinator bridge config must be an object');
 	if (value.codex === null || typeof value.codex !== 'object' || Array.isArray(value.codex)) throw new TypeError('dynamic coordinator Codex config must be an object');
 	if (value.voice !== undefined && (value.voice === null || typeof value.voice !== 'object' || Array.isArray(value.voice))) throw new TypeError('dynamic coordinator voice config must be an object');
 	assertOptionalConfigObject(value.limits, 'limits');
-	assertOptionalConfigObject(value.gemini, 'gemini');
 	assertOptionalConfigObject(value.claude, 'claude');
-	assertOptionalConfigObject(value.opencode, 'opencode');
 	assertKnownConfigKeys(value.bridge, ['host', 'port', 'secret', 'secretEnvironmentVariable', 'reconnectDelayMs', 'maxReconnectDelayMs', 'connectionQueueCap', 'agentQueueCap', 'inboundConnectionQueueCap', 'inboundAgentQueueCap', 'inboundDispatchBatch', 'trackedTerminalActionIdCap', 'handshakeTimeoutMs', 'heartbeatIntervalMs', 'heartbeatTimeoutMs', 'serverInstanceId', 'launchId'], 'bridge');
-	assertKnownConfigKeys(value.voice ?? {}, ['port', 'maxConcurrent', 'profileAssignmentsPath', 'provider', 'openaiApiKeyEnvironmentVariable', 'openaiTtsModel', 'openaiSttModel', 'fishApiKeyEnvironmentVariable', 'deepgramApiKeyEnvironmentVariable', 'localSpeechTimeoutMs', 'localSpeechPythonPath', 'secret', 'secretFile'], 'voice');
+	assertKnownConfigKeys(value.voice ?? {}, ['port', 'maxConcurrent', 'profileAssignmentsPath', 'provider', 'openaiApiKeyEnvironmentVariable', 'openaiTtsModel', 'openaiSttModel', 'fishApiKeyEnvironmentVariable', 'deepgramApiKeyEnvironmentVariable', 'localSpeechTimeoutMs', 'interactiveTtsTimeoutMs', 'localSpeechPythonPath', 'secret', 'secretFile'], 'voice');
 	assertKnownConfigKeys(value.codex, ['cwd', 'controlProtocol', 'planningTimeoutMs', 'maxDecisionBytes', 'catalogTtlMs', 'startupTimeoutMs', 'serviceTier', 'launchProfile', 'contextRotationTokens', 'midTurnContextRotationTokens'], 'codex');
 	if (value.codex.launchProfile !== undefined) {
 		assertOptionalConfigObject(value.codex.launchProfile, 'codex.launchProfile');
 		assertKnownConfigKeys(value.codex.launchProfile, ['agentId', 'model', 'reasoningEffort', 'serviceTier', 'planningTimeoutMs', 'maxDecisionBytes', 'cwd'], 'codex.launchProfile');
 	}
-	const providerKeys = ['provider', 'cwd', 'executable', 'models', 'reasoningEfforts', 'modelReasoningEfforts', 'catalogDiscovery', 'catalogDiscoveryTimeoutMs', 'planningTimeoutMs', 'maxDecisionBytes', 'stdoutLimitBytes', 'stderrLimitBytes', 'serviceTier'];
-	assertKnownConfigKeys(value.gemini ?? {}, providerKeys, 'gemini');
 	assertKnownConfigKeys(value.claude ?? {}, ['provider', 'cwd', 'executable', 'models', 'reasoningEfforts', 'planningTimeoutMs', 'startupTimeoutMs', 'interruptTimeoutMs', 'maxDecisionBytes', 'stdoutLimitBytes', 'stderrLimitBytes', 'runtimeRoot', 'fastMode'], 'claude');
-	assertKnownConfigKeys(value.opencode ?? {}, ['provider', 'executable', 'models', 'reasoningEfforts', 'planningTimeoutMs', 'startupTimeoutMs', 'interruptTimeoutMs', 'maxDecisionBytes', 'runtimeRoot', 'contextRotationTokens'], 'opencode');
 	assertKnownConfigKeys(value.limits ?? {}, ['agentCap', 'goalQueueCap', 'planningConcurrency', 'planningMode', 'urgentReserve', 'invalidDecisionRetries'], 'limits');
 	const secret = value.bridge.secret ?? environment[value.bridge.secretEnvironmentVariable ?? 'ARENA_AGENT_BRIDGE_SECRET'];
 	const cwd = value.codex.cwd ?? PROJECT_DIRECTORY;
@@ -4893,29 +4841,12 @@ export function normalizeDynamicConfig(value, environment = process.env) {
 			controlProtocol: codexControlProtocol,
 			launchProfile: value.codex.launchProfile === undefined ? undefined : { ...value.codex.launchProfile, cwd },
 		},
-		gemini: {
-			provider: 'gemini',
-			cwd,
-			catalogDiscovery: true,
-			models: ['gemini-3.7-flash', 'gemini-3.1-pro', 'gemini-3.6-flash', 'gemini-3.5-flash'],
-			modelReasoningEfforts: {
-				'gemini-3.7-flash': ['high', 'medium', 'low'],
-				'gemini-3.1-pro': ['high', 'low'],
-				'gemini-3.6-flash': ['high', 'medium', 'low'],
-				'gemini-3.5-flash': ['high', 'medium', 'low'],
-			},
-			...(value.gemini ?? {}),
-		},
 		claude: {
 			provider: 'claude',
 			cwd,
 			// Claude agents share Codex's dedicated Minecraft workspace; only their launch prompt files live here.
 			runtimeRoot: path.join(minecraftAgentRoot, 'claude'),
 			...(value.claude ?? {}),
-		},
-		opencode: {
-			provider: 'opencode',
-			...(value.opencode ?? {}),
 		},
 		limits: {
 			agentCap,
@@ -4932,8 +4863,8 @@ function migrateDynamicConfig(value) {
 	const schemaVersion = value.schemaVersion ?? 0;
 	if (!Number.isSafeInteger(schemaVersion) || schemaVersion < 0) throw new TypeError('config.schemaVersion must be a nonnegative safe integer');
 	if (schemaVersion > 1) throw new TypeError(`Unsupported dynamic coordinator config schemaVersion ${schemaVersion}`);
-	// Kimi and Cursor were retired as providers; installed configs may still carry their sections.
-	const { kimi: _retiredKimi, cursor: _retiredCursor, ...current } = value;
+	// Installed configs may still carry retired provider, agent-group and skit sections.
+	const { kimi: _retiredKimi, cursor: _retiredCursor, gemini: _retiredGemini, opencode: _retiredOpenCode, groups: _retiredGroups, skit: _retiredSkit, director: _retiredDirector, ...current } = value;
 	return { ...current, schemaVersion: 1 };
 }
 
@@ -5125,7 +5056,9 @@ export async function startVoiceWorker(config, environment = process.env, depend
 	const openaiApiKey = firstNonBlank(environment[voice.openaiApiKeyEnvironmentVariable ?? 'OPENAI_API_KEY']);
 	if (voice.provider === 'openai') {
 		if (openaiApiKey === null) throw codedRuntimeError('VOICE_OPENAI_KEY_MISSING', 'Set OPENAI_API_KEY on the host and restart Minecraft to enable OpenAI speech');
-		return startOpenAiVoiceWorker(voice, openaiApiKey, dependencies, { signal, reportVoiceDiagnostic, localSpeechTimeoutMs });
+		return startOpenAiVoiceWorker(voice, openaiApiKey, dependencies, {
+			signal, reportVoiceDiagnostic, localSpeechTimeoutMs, interactiveTtsTimeoutMs: optionalInteractiveTtsTimeoutMs(voice.interactiveTtsTimeoutMs),
+		});
 	}
 	const createLocalSpeechProvider = dependencies.createLocalSpeechProvider
 		?? ((options) => LocalSpeechProvider.createIfAvailable(options));
@@ -5234,6 +5167,8 @@ export async function startVoiceWorker(config, environment = process.env, depend
 			port: voice.port ?? DEFAULT_VOICE_PORT,
 			maxConcurrent: voice.maxConcurrent ?? DEFAULT_VOICE_MAX_CONCURRENT,
 			requestTimeoutMs: localSpeechTimeoutMs,
+			// Only a raw local provider is probed (exactly one remote key is set). Its warmup may be a whole model reload.
+			probeTimeoutMs: localSpeechTimeoutMs,
 			onDiagnostic: reportVoiceDiagnostic,
 		});
 		throwIfVoiceStartupAborted(signal);
@@ -5256,7 +5191,7 @@ export async function startVoiceWorker(config, environment = process.env, depend
 	}
 }
 
-async function startOpenAiVoiceWorker(voice, apiKey, dependencies, { signal, reportVoiceDiagnostic, localSpeechTimeoutMs }) {
+async function startOpenAiVoiceWorker(voice, apiKey, dependencies, { signal, reportVoiceDiagnostic, localSpeechTimeoutMs, interactiveTtsTimeoutMs }) {
 	let profiles = null;
 	let profileStore = null;
 	let worker = null;
@@ -5273,6 +5208,7 @@ async function startOpenAiVoiceWorker(voice, apiKey, dependencies, { signal, rep
 		worker = (dependencies.createVoiceServer ?? createVoiceHttpServer)({
 			provider, sttProvider, profileStore, secret, port: voice.port ?? DEFAULT_VOICE_PORT,
 			maxConcurrent: voice.maxConcurrent ?? DEFAULT_VOICE_MAX_CONCURRENT, requestTimeoutMs: localSpeechTimeoutMs,
+			interactiveTtsTimeoutMs: interactiveTtsTimeoutMs ?? DEFAULT_OPENAI_INTERACTIVE_TTS_TIMEOUT_MS,
 			directorUsesPrimaryProvider: true, onDiagnostic: reportVoiceDiagnostic,
 		});
 		await worker.start({ signal });
@@ -5763,6 +5699,7 @@ function normalizeVoiceConfig(value, environment) {
 	const profileAssignmentsPath = path.resolve(PROJECT_DIRECTORY, source.profileAssignmentsPath ?? DEFAULT_VOICE_PROFILE_ASSIGNMENTS_PATH);
 	const localSpeechTimeoutMs = positiveInteger(source.localSpeechTimeoutMs ?? DEFAULT_LOCAL_SPEECH_TIMEOUT_MS, 'voice.localSpeechTimeoutMs');
 	if (localSpeechTimeoutMs > 600_000) throw new TypeError('voice.localSpeechTimeoutMs must not exceed 600000');
+	optionalInteractiveTtsTimeoutMs(source.interactiveTtsTimeoutMs);
 	const secret = firstNonBlank(source.secret, environment.ARENA_AGENT_VOICE_SECRET);
 	const configuredSecretFile = firstNonBlank(source.secretFile, environment.ARENA_AGENT_VOICE_SECRET_FILE);
 	return {
@@ -5780,6 +5717,13 @@ function normalizeVoiceConfig(value, environment) {
 		fishApiKeyEnvironmentVariable: requireEnvironmentVariableName(source.fishApiKeyEnvironmentVariable ?? DEFAULT_FISH_API_KEY_ENVIRONMENT_VARIABLE, 'voice.fishApiKeyEnvironmentVariable'),
 		deepgramApiKeyEnvironmentVariable: requireEnvironmentVariableName(source.deepgramApiKeyEnvironmentVariable ?? DEFAULT_DEEPGRAM_API_KEY_ENVIRONMENT_VARIABLE, 'voice.deepgramApiKeyEnvironmentVariable'),
 	};
+}
+
+function optionalInteractiveTtsTimeoutMs(value) {
+	if (value !== undefined && (!Number.isSafeInteger(value) || value < 1 || value > 600_000)) {
+		throw new TypeError('voice.interactiveTtsTimeoutMs must be between 1 and 600000');
+	}
+	return value;
 }
 
 function requireSpeechProvider(value) {

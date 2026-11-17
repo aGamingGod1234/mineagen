@@ -25,7 +25,6 @@ function parseArgs(argv) {
 	return args;
 }
 
-/** Folders that hold a protocol trace, preferring quality-protocol.jsonl when both exist. */
 export function findTraceDirs(start) {
 	const found = [];
 	const walk = (dir, depth) => {
@@ -49,7 +48,6 @@ function readJsonl(file) {
 	return fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).flatMap((line) => { try { return [JSON.parse(line)]; } catch { return []; } });
 }
 
-/** The last authored plan in player-memory/plans (definitions only; checked steps restart pending). */
 export function readRecordedPlan(dir) {
 	const plansDir = [path.join(dir, 'player-memory', 'plans'), path.join(dir, 'provider-workspaces', 'player-memory', 'plans')].find((p) => fs.existsSync(p));
 	if (!plansDir) return null;

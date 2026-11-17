@@ -3,7 +3,6 @@ import test from 'node:test';
 
 import { compareCases, confirmVerdict, minUsable, screenVerdict, unitCoverage } from '../src/decision-eval/stats.mjs';
 
-// Reproductions from reviews/q8-decision-eval-r2.md (q8-r2-stats-reproductions.mjs), turned into the expected outcomes.
 
 test('a family that is 90% ungraded cannot FAIL from its one surviving case', () => {
 	const rows = Array.from({ length: 10 }, (_, i) => ({ id: `x${i}`, family: 'f',
@@ -87,7 +86,6 @@ test('a source moment weighs one however many derived variants it has (the live 
 	const rowWeighted = compareCases(rows.map((row) => ({ ...row, sourceWeight: 1, source: row.id }))).families[0];
 	assert.ok(Math.abs(rowWeighted.pWorse - 0.025) < 1e-9);
 	assert.ok(Math.abs(rowWeighted.meanDelta - (-5 / 18)) < 1e-12);
-	// The local finding stays visible per case.
 	const cases = compareCases(rows).cases.filter((row) => row.status === 'regression-suspect').map((row) => row.id);
 	assert.deepEqual(cases, ['drowning-02', 'drowning-05']);
 });

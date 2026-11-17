@@ -4,11 +4,6 @@ import { runObtain } from '../src/obtain-runner.mjs';
 const { NativeToolRuntime } = await import(process.env.IRON_RUNTIME ?? '../src/native-tool-runtime.mjs');
 import { normalizeMinecraftToolCall } from '../src/native-minecraft-tools.mjs';
 
-// Incident: b19c/chain-gate-7-r1, runner 9ac6ea99, calls 0..6, ore (24,4,172).
-// Seven unique CRC-validated flood terminals total 175250 ms; see lane water-lava-b19-action-evidence.tsv.
-// Exact observations are unavailable: footing/inventory below are synthetic, not a historical replay.
-// Offline production adapter acceptance: real normalization, dispatch and terminal-result handling;
-// bridge observations/results are fixtures, not Minecraft physics or counted gameplay.
 const ore = { blockId: 'minecraft:deepslate_iron_ore', x: 24, y: 4, z: 172 };
 const sample = () => ({ world: { worldId: 'flood-world', dimension: 'minecraft:overworld' },
 	player: { x: 27.5, y: 7, z: 181.5, health: 20, air: 300, maxAir: 300, onGround: true },

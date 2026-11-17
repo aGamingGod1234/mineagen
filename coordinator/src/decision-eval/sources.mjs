@@ -16,7 +16,6 @@ export function sourceMomentId(testCase) {
 	return `case:${testCase.id}`;
 }
 
-/** Variants per source group within this set of cases. */
 export function sourceGroups(cases) {
 	const groups = new Map();
 	for (const testCase of cases) {

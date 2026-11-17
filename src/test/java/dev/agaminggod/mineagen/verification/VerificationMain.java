@@ -1,0 +1,1037 @@
+package dev.agaminggod.mineagen.verification;
+
+import com.google.gson.JsonObject;
+import dev.agaminggod.mineagen.agent.AgentRegistryVerification;
+import dev.agaminggod.mineagen.agent.GoalSpecVerification;
+import dev.agaminggod.mineagen.agent.AgentIdentityVerification;
+import dev.agaminggod.mineagen.server.AgentActivityPresentationVerification;
+import dev.agaminggod.mineagen.server.AgentVerbosePresentationVerification;
+import dev.agaminggod.mineagen.server.AgentDeathCaptureVerification;
+import dev.agaminggod.mineagen.server.AgentControlSyncVerification;
+import dev.agaminggod.mineagen.server.ChunkedSavedPayloadVerification;
+import dev.agaminggod.mineagen.server.OfflineAgentProfileLookupVerification;
+import dev.agaminggod.mineagen.server.VoiceConsentCommandVerification;
+import dev.agaminggod.mineagen.client.camera.CameraPathVerification;
+import dev.agaminggod.mineagen.client.gui.AgentControlLayoutVerification;
+import dev.agaminggod.mineagen.client.gui.AgentControlSubmissionVerification;
+import dev.agaminggod.mineagen.client.gui.AgentRosterGridLayoutVerification;
+import dev.agaminggod.mineagen.client.gui.AgentRosterGridVerification;
+import dev.agaminggod.mineagen.client.gui.ConsoleThemeVerification;
+import dev.agaminggod.mineagen.client.gui.LocalizationVerification;
+import dev.agaminggod.mineagen.client.control.AgentClientPresentationVerification;
+import dev.agaminggod.mineagen.client.navigation.LocalPathfinderVerification;
+import dev.agaminggod.mineagen.control.AgentControlVerification;
+import dev.agaminggod.mineagen.control.AgentControlSelectionStateVerification;
+import dev.agaminggod.mineagen.control.AgentRosterViewStateVerification;
+import dev.agaminggod.mineagen.pov.PovContractsVerification;
+import dev.agaminggod.mineagen.protocol.ActionCommand;
+import dev.agaminggod.mineagen.protocol.ActionResult;
+import dev.agaminggod.mineagen.protocol.ActionState;
+import dev.agaminggod.mineagen.protocol.ActionType;
+import dev.agaminggod.mineagen.protocol.ProtocolCodec;
+import dev.agaminggod.mineagen.protocol.ProtocolConstants;
+import dev.agaminggod.mineagen.protocol.ProtocolException;
+import dev.agaminggod.mineagen.server.GoalControlVerification;
+import dev.agaminggod.mineagen.server.GoalDraftAdvancementRevalidationVerification;
+import dev.agaminggod.mineagen.server.QueuedGoalRevalidationVerification;
+import dev.agaminggod.mineagen.server.AgentSavedDataGoalDraftVerification;
+import dev.agaminggod.mineagen.server.goal.GoalCompilerVerification;
+import dev.agaminggod.mineagen.server.goal.GoalInventoryCapacityVerification;
+import dev.agaminggod.mineagen.server.conversation.AgentConversationRouterVerification;
+import dev.agaminggod.mineagen.server.conversation.NativeAgentWhisperTargetsVerification;
+import dev.agaminggod.mineagen.server.AgentModelArgumentVerification;
+import dev.agaminggod.mineagen.server.CoordinatorRecoveryFaultMatrixVerification;
+import dev.agaminggod.mineagen.server.BundledCoordinatorInstallerVerification;
+import dev.agaminggod.mineagen.server.CoordinatorProcessOwnershipVerification;
+import dev.agaminggod.mineagen.server.CoordinatorStartupSmokeVerification;
+import dev.agaminggod.mineagen.server.CoordinatorLogRotationVerification;
+import dev.agaminggod.mineagen.server.NodeRuntimeLocatorVerification;
+import dev.agaminggod.mineagen.server.CoordinatorLaunchPolicyVerification;
+import dev.agaminggod.mineagen.server.CoordinatorExhaustedStatusSnapshotVerification;
+import dev.agaminggod.mineagen.server.CoordinatorVoiceEndpointVerification;
+import dev.agaminggod.mineagen.server.CoordinatorVoiceEndpointRefreshVerification;
+import dev.agaminggod.mineagen.server.CoordinatorVoiceTimeoutLifecycleVerification;
+import dev.agaminggod.mineagen.server.CodexAgentServerRuntimeVoiceStartVerification;
+import dev.agaminggod.mineagen.server.AgentSpawnPlacementVerification;
+import dev.agaminggod.mineagen.server.OfflineAgentPlayersVerification;
+import dev.agaminggod.mineagen.server.PendingSpawnCancellationLedgerVerification;
+import dev.agaminggod.mineagen.server.bridge.BridgeEnvelopeCodecVerification;
+import dev.agaminggod.mineagen.server.bridge.BoundedServerTaskQueueVerification;
+import dev.agaminggod.mineagen.server.bridge.ProgramActionLedgerVerification;
+import dev.agaminggod.mineagen.server.bridge.TerminalResultLedgerVerification;
+import dev.agaminggod.mineagen.server.bridge.CoordinatorStatusVerification;
+import dev.agaminggod.mineagen.server.bridge.MultiplexedServerBridgeVerification;
+import dev.agaminggod.mineagen.server.bridge.AgentVerboseVerification;
+import dev.agaminggod.mineagen.server.bridge.SingleBrainBoundaryVerification;
+import dev.agaminggod.mineagen.server.AgentRecoverySpawnPolicyVerification;
+import dev.agaminggod.mineagen.server.AgentRespawnSpawnPolicyVerification;
+import dev.agaminggod.mineagen.server.perception.BlockObservationLazyVisibilityVerification;
+import dev.agaminggod.mineagen.server.perception.BlockObservationOrderingVerification;
+import dev.agaminggod.mineagen.server.perception.InventoryObservationSlotsVerification;
+import dev.agaminggod.mineagen.server.perception.ObservationBudgetVerification;
+import dev.agaminggod.mineagen.server.perception.ServerObservationRayTargetVerification;
+import dev.agaminggod.mineagen.server.perception.ServerObservationTagCacheVerification;
+import dev.agaminggod.mineagen.server.perception.ServerObservationInventorySnapshotVerification;
+import dev.agaminggod.mineagen.server.perception.ServerObservationWireBudgetVerification;
+import dev.agaminggod.mineagen.server.runtime.ActionProgressTrackerVerification;
+import dev.agaminggod.mineagen.server.runtime.AdvancedInteractionRollbackVerification;
+import dev.agaminggod.mineagen.server.runtime.BlockPlacementPostconditionVerification;
+import dev.agaminggod.mineagen.server.runtime.BlockPlacementAttemptPolicyVerification;
+import dev.agaminggod.mineagen.server.runtime.BreakSpeedAdvisorVerification;
+import dev.agaminggod.mineagen.server.runtime.BreakOutcomeEvidenceVerification;
+import dev.agaminggod.mineagen.server.runtime.DesiredBlockStateVerification;
+import dev.agaminggod.mineagen.server.runtime.ResourceLeaseManagerVerification;
+import dev.agaminggod.mineagen.server.runtime.RecipeActionVerification;
+import dev.agaminggod.mineagen.server.runtime.ServerActionExecutorVerification;
+import dev.agaminggod.mineagen.server.goal.GoalVerificationRuntimeVerification;
+import dev.agaminggod.mineagen.server.runtime.ActionSuccessLedgerVerification;
+import dev.agaminggod.mineagen.server.runtime.input.InputStateVerification;
+import dev.agaminggod.mineagen.server.perception.AttentionHazardVerification;
+import dev.agaminggod.mineagen.server.runtime.menu.MenuCapabilityRegistryVerification;
+import dev.agaminggod.mineagen.server.voice.VoiceSubsystemVerification;
+import dev.agaminggod.mineagen.server.voice.VoiceDirectorVerification;
+import dev.agaminggod.mineagen.server.runtime.transaction.EquipmentAndUseVerification;
+import dev.agaminggod.mineagen.server.runtime.transaction.TransactionPostconditionVerification;
+import dev.agaminggod.mineagen.server.runtime.transaction.TransactionProtocolVerification;
+import dev.agaminggod.mineagen.server.runtime.controller.ServerPathPlannerVerification;
+import dev.agaminggod.mineagen.server.runtime.controller.MinecraftNavigationWorldVerification;
+import dev.agaminggod.mineagen.server.runtime.controller.NavigationProgressVerification;
+import dev.agaminggod.mineagen.server.runtime.controller.SurvivalReflexVerification;
+import dev.agaminggod.mineagen.server.runtime.controller.ItemPickupProgressVerification;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+
+public final class VerificationMain {
+	private static final long ISSUED_AT_EPOCH_MS = 1_750_000_000_000L;
+	private static final String COMMAND_ID = "command-1";
+	private static final String DESIRED_OAK_STAIRS_STATE =
+			"minecraft:oak_stairs[facing=north,half=bottom,shape=straight,waterlogged=false]";
+	private static int passedAssertions;
+
+	private VerificationMain() {
+	}
+
+	public static void main(String[] args) throws Exception {
+		configureExplicitNodeForVerification();
+		// The mod bundles no model catalog; verifications run against a discovered-looking one.
+		dev.agaminggod.mineagen.control.TestCatalog.install();
+		ProtocolCodec codec = new ProtocolCodec();
+
+		passedAssertions += AgentVerbosePresentationVerification.verify();
+		verifyProtocolConstants();
+		verifyActionWireNames();
+		verifyValidActionUnion(codec);
+		verifyBriefExamples(codec);
+		verifyEnvelopeValidation(codec);
+		verifyDirectCommandSchemaValidation();
+		verifyBoundedValidation(codec);
+		verifyStrictArguments(codec);
+		verifyDesiredStateProtocol(codec);
+		verifyBuildSequenceProtocol(codec);
+		verifyCommandImmutability();
+		verifyCommandEncodingRoundTrip(codec);
+		verifyActionResultContract();
+		passedAssertions += LocalPathfinderVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.reflex.ReflexVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.reflex.ReflexBodyVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.reflex.ReflexShieldVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.watch.WatchVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.NetherCostsVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.TravelVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.perception.WalkedRouteVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.LavaFlowMovementVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.LavaSpreadVerification.verify();
+		passedAssertions += GoalControlVerification.verify();
+		passedAssertions += GoalDraftAdvancementRevalidationVerification.verify();
+		passedAssertions += QueuedGoalRevalidationVerification.verify();
+		passedAssertions += AgentSavedDataGoalDraftVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.PendingDragonKillVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.audit.InterventionAuditVerification.verify();
+		passedAssertions += GoalCompilerVerification.verify();
+		dev.agaminggod.mineagen.server.voice.VoiceProfileVerification.main(new String[0]);
+		passedAssertions += GoalInventoryCapacityVerification.verify();
+		passedAssertions += AgentConversationRouterVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.conversation.ModelTaskAdoptionVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.bridge.ModelTaskRequestHandlerVerification.verify();
+		passedAssertions += NativeAgentWhisperTargetsVerification.verify();
+		passedAssertions += AgentModelArgumentVerification.verify();
+		passedAssertions += BundledCoordinatorInstallerVerification.verify();
+		passedAssertions += CoordinatorRecoveryFaultMatrixVerification.verify();
+		passedAssertions += CoordinatorLogRotationVerification.verify();
+		passedAssertions += NodeRuntimeLocatorVerification.verify();
+		passedAssertions += CoordinatorLaunchPolicyVerification.verify();
+		passedAssertions += CoordinatorExhaustedStatusSnapshotVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.reflex.LeaveFireDouseRecoveryVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.reflex.RetreatEmergencyPriorityVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.reflex.DefaultEatRearmingVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.reflex.ModelOwnedDefaultRulesVerification.verify();
+		passedAssertions += CoordinatorProcessOwnershipVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.WindowsCoordinatorJobDrainVerification.verify();
+		passedAssertions += CoordinatorStartupSmokeVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.ProviderApiKeyVerification.verify();
+		passedAssertions += CoordinatorVoiceTimeoutLifecycleVerification.verify();
+		passedAssertions += CoordinatorVoiceEndpointVerification.verify();
+		passedAssertions += CoordinatorVoiceEndpointRefreshVerification.verify();
+		passedAssertions += CodexAgentServerRuntimeVoiceStartVerification.verify();
+		passedAssertions += AgentActivityPresentationVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.FailureChatThrottleVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.AgentFeedVerification.verify();
+		passedAssertions += AgentDeathCaptureVerification.verify();
+		passedAssertions += AgentControlSyncVerification.verify();
+		passedAssertions += VoiceConsentCommandVerification.verify();
+		passedAssertions += CameraPathVerification.verify();
+		passedAssertions += AgentSpawnPlacementVerification.verify();
+		passedAssertions += ChunkedSavedPayloadVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.RemovedWorldDataVerification.verify();
+		passedAssertions += OfflineAgentProfileLookupVerification.verify();
+		passedAssertions += OfflineAgentPlayersVerification.verify();
+		passedAssertions += PendingSpawnCancellationLedgerVerification.verify();
+		passedAssertions += AgentRegistryVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.agent.AgentLifecycleVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.agent.AgentGoalVerification.verify();
+		passedAssertions += GoalSpecVerification.verify();
+		passedAssertions += AgentIdentityVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.agent.AgentVisualIdentityVerification.verify();
+		passedAssertions += AgentControlVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.control.LiveTaskViewVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.control.PlanItemIconsVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.control.LiveTaskUsageVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.client.control.UsageCardsRenderVerification.verify();
+		passedAssertions += AgentClientPresentationVerification.verify();
+		passedAssertions += AgentControlSelectionStateVerification.verify();
+		passedAssertions += AgentRosterViewStateVerification.verify();
+		passedAssertions += AgentControlLayoutVerification.verify();
+		passedAssertions += AgentControlSubmissionVerification.verify();
+		passedAssertions += BlockObservationOrderingVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.perception.PortalFrameSightVerification.verify();
+		passedAssertions += BlockObservationLazyVisibilityVerification.verify();
+		passedAssertions += InventoryObservationSlotsVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.perception.PlayerKnowledgeInspectionVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.perception.InspectionContractTruthVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.bridge.RespawnContractTruthVerification.verify();
+		passedAssertions += ServerObservationTagCacheVerification.verify();
+		passedAssertions += ServerObservationInventorySnapshotVerification.verify();
+		passedAssertions += ObservationBudgetVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.perception.FurnaceMemoryVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.world.WorldMutationRevisionsVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.world.LandmarkMutationLocalityVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.perception.TerminalObservationCacheVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.perception.SkyOpenVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.perception.FoodObservationVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.perception.BurnEstimateContractVerification.verify();
+		passedAssertions += ServerObservationRayTargetVerification.verify();
+		passedAssertions += ServerObservationWireBudgetVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.bridge.ObservationWirePipelineVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.perception.ObservationBlockTagsVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.goal.PlanProgressFactsVerification.verify();
+		passedAssertions += ActionProgressTrackerVerification.verify();
+		passedAssertions += AdvancedInteractionRollbackVerification.verify();
+		passedAssertions += BlockPlacementPostconditionVerification.verify();
+		passedAssertions += BlockPlacementAttemptPolicyVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.perception.PlacementPerceptionAgreementVerification.verify();
+		passedAssertions += BreakSpeedAdvisorVerification.verify();
+		passedAssertions += BreakOutcomeEvidenceVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.OreHarvestFactsVerification.verify();
+		passedAssertions += DesiredBlockStateVerification.verify();
+		passedAssertions += ResourceLeaseManagerVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.GameClockVerification.verify();
+		passedAssertions += RecipeActionVerification.verify();
+		passedAssertions += TransactionProtocolVerification.verify();
+		passedAssertions += TransactionPostconditionVerification.verify();
+		passedAssertions += EquipmentAndUseVerification.verify();
+		passedAssertions += ServerActionExecutorVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.BlockerVisibilityVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.ToolContractTruthVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.TargetSightlineVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.BucketUseVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.CombatResultContractVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.voice.VoiceAsyncChatContractVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.RangedTargetContractVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.BowBallisticsVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.EndermanGazeVerification.verify();
+		passedAssertions += GoalVerificationRuntimeVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.perception.ObservationPageVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.perception.PlayerObservationEventsVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.perception.PlayerHudInspectionVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.perception.PlayerHudExtrasVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.perception.PerceivedHarmVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.perception.CloudDangerVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.ThrowPreviewVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.input.SneakSettlingVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.BrinkGuardVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.EndermanHuntLeadsVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.ShelterPlanVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.BuildPlanVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.DigPlanVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.DigFootprintVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.VerticalDescentHeadingVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.MiningToolsVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.VeinPlanVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.VeinSelectedToolInventoryVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.TravelStopsVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.SwimOutVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.DoorNavigationVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.DigContinuationVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.perception.HearingPerceptionVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.perception.SightedFeaturesVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.perception.PlayerTeleportsVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.input.RidingJumpInputVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.input.VanillaMoveInputVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.input.UseTickPhaseVerification.verify();
+		passedAssertions += ActionSuccessLedgerVerification.verify();
+		passedAssertions += InputStateVerification.verify();
+		passedAssertions += AttentionHazardVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.perception.WaterAirFactsVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.NavigationBreathingVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.perception.ProjectilePerceptionVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.perception.ThreatAttentionVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.CombatPlanningVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.FightWeaponBreakVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.CombatBailoutVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.HazardExitsVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.SeenHazardAdoptionVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.perception.HazardSightVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.BreakSightlineVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.perception.BreakExposureEvidenceVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.perception.SeenTerrainVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.perception.DropAheadVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.perception.VoidEdgeVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.FallReportVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.FightMovementVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.CountFightVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.PerceptionGateVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.FightMotionVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.perception.EntityHitboxSightVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.perception.CombatRiskVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.perception.VisibleAppearanceVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.perception.SpawnerAppearanceVerification.verify();
+		passedAssertions += MenuCapabilityRegistryVerification.verify();
+		passedAssertions += VoiceSubsystemVerification.verify();
+		passedAssertions += VoiceDirectorVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.VoiceCameraCommandVerification.verify();
+		passedAssertions += ServerPathPlannerVerification.verify();
+		passedAssertions += MinecraftNavigationWorldVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.SeenNavigationVerification.verify();
+		passedAssertions += NavigationProgressVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.RouteProgressVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.NavigationMotionVerification.verify();
+		passedAssertions += SurvivalReflexVerification.verify();
+		passedAssertions += ItemPickupProgressVerification.verify();
+		passedAssertions += AgentRosterGridLayoutVerification.verify();
+		passedAssertions += AgentRosterGridVerification.verify();
+		passedAssertions += ConsoleThemeVerification.verify();
+		passedAssertions += LocalizationVerification.verify();
+		passedAssertions += BridgeEnvelopeCodecVerification.verify();
+		passedAssertions += BoundedServerTaskQueueVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.bridge.ActionAcknowledgementRetryVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.bridge.BridgeAcknowledgementTickVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.bridge.BridgeJournalGroupVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.bridge.ServerTaskPhaseVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.bridge.TerminalReplayFairnessVerification.verify();
+		passedAssertions += ProgramActionLedgerVerification.verify();
+		passedAssertions += TerminalResultLedgerVerification.verify();
+		passedAssertions += CoordinatorStatusVerification.verify();
+		passedAssertions += AgentRecoverySpawnPolicyVerification.verify();
+		passedAssertions += AgentRespawnSpawnPolicyVerification.verify();
+		passedAssertions += MultiplexedServerBridgeVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.bridge.BridgeIntegrationFindingsVerification.verify();
+		passedAssertions += AgentVerboseVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.bridge.AgentNoticeVerification.verify();
+		passedAssertions += SingleBrainBoundaryVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.pov.PovViewRedirectVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.pov.PovStatePublisherVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.pov.PovSessionVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.pov.DetachedActionReservationVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.pov.OperatorBodyControlVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.pov.PovMessageRelayVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.client.pov.PovClientStateVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.client.pov.PovInputCaptureVerification.verify();
+		verifyJsonLineFraming(codec);
+		passedAssertions += PovContractsVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.pov.PovRelayVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.client.pov.input.PovOutgoingRelayVerification.verify();
+
+		System.out.printf("PASS: %d protocol and core assertions%n", passedAssertions);
+	}
+
+	private static void verifyProtocolConstants() {
+		assertEquals(1, ProtocolConstants.PROTOCOL_VERSION, "protocol version");
+		assertEquals(65_536, ProtocolConstants.MAX_LINE_BYTES, "line byte limit");
+		assertEquals(600_000L, ProtocolConstants.MAX_DURATION_MS, "duration limit");
+	}
+
+	private static void verifyActionWireNames() {
+		List<String> expectedWireNames = List.of(
+				"move_to",
+				"control",
+				"control_sequence",
+				"look_at",
+				"attack",
+				"select_item",
+				"use_item",
+				"break_block",
+				"place_block",
+				"build_sequence",
+				"chat",
+				"wait",
+				"set_door",
+				"pick_up_item",
+				"drop_item",
+				"navigate_to",
+				"dig_to",
+				"mine_vein",
+				"build_shelter",
+				"cast_obsidian",
+				"barter_until",
+				"rest",
+				"build",
+				"travel_to",
+				"fight_target",
+				"fight_until",
+				"flee_from",
+				"follow_entity",
+				"transfer_container",
+				"craft_inventory",
+				"craft_table",
+				"furnace_transaction",
+				"equip_item",
+				"select_tool",
+				"block_with_shield",
+				"use_ranged",
+				"interact_block",
+				"interact_entity",
+				"dismount",
+				"start_fall_flying",
+				"wake_up",
+				"set_flight",
+				"write_sign",
+				"edit_book",
+				"menu_click",
+				"menu_close",
+				"beacon_effects",
+				"menu_transfer",
+				"menu_button",
+				"anvil_rename",
+				"respawn",
+				"complete_goal"
+		);
+		List<String> actualWireNames = List.of(ActionType.values()).stream()
+				.map(ActionType::wireName)
+				.toList();
+
+		assertEquals(expectedWireNames, actualWireNames, "exhaustive action wire names");
+		assertEquals(ActionType.WAIT, ActionType.fromWireName("wait").orElseThrow(), "wire action lookup");
+		assertTrue(ActionType.fromWireName("WAIT").isEmpty(), "wire action lookup is case-sensitive");
+		assertTrue(ActionType.fromWireName(null).isEmpty(), "null wire action lookup is empty");
+	}
+
+	private static void verifyValidActionUnion(ProtocolCodec codec) throws ProtocolException {
+		assertDecodedType(codec, "move_to", "\"x\":1.5,\"y\":64,\"z\":-2.5,\"tolerance\":0.75,\"sprint\":true", ActionType.MOVE_TO);
+		assertDecodedType(codec, "control", "\"forward\":1,\"strafe\":-0.5,\"jump\":true,\"sneak\":false,"
+				+ "\"sprint\":true,\"attack\":false,\"use\":true,\"yaw\":90,\"pitch\":-15,\"selectedSlot\":2,\"hand\":\"off\",\"ticks\":20",
+				ActionType.CONTROL);
+		assertDecodedType(codec, "look_at", "\"x\":1,\"y\":65.25,\"z\":3", ActionType.LOOK_AT);
+		assertDecodedType(codec, "attack", "\"targetId\":\"00000000-0000-0000-0000-000000000001\",\"timeoutMs\":5000", ActionType.ATTACK);
+		assertDecodedType(codec, "select_item", "\"itemId\":\"minecraft:diamond_sword\"", ActionType.SELECT_ITEM);
+		assertDecodedType(codec, "use_item", "\"durationMs\":1250", ActionType.USE_ITEM);
+		assertDecodedType(codec, "break_block", "\"x\":1,\"y\":64,\"z\":-2,\"timeoutMs\":5000", ActionType.BREAK_BLOCK);
+		assertDecodedType(codec, "place_block", "\"x\":1,\"y\":64,\"z\":-2,\"face\":\"up\",\"itemId\":\"minecraft:stone\",\"desiredState\":null", ActionType.PLACE_BLOCK);
+		for (String faceMode : List.of("preferred", "strict")) {
+			assertDecodedType(codec, "place_block", "\"x\":1,\"y\":64,\"z\":0,\"face\":\"up\",\"itemId\":\"minecraft:stone\",\"faceMode\":\"" + faceMode + "\"", ActionType.PLACE_BLOCK);
+		}
+		expectProtocolException(() -> codec.decodeCommand(commandJson("place_block",
+				"\"x\":1,\"y\":64,\"z\":0,\"face\":\"up\",\"itemId\":\"minecraft:stone\",\"faceMode\":\"any\"")),
+				"INVALID_FIELD", "faceMode", "placement face mode");
+		assertDecodedType(codec, "build_sequence", "\"placements\":[{\"x\":1,\"y\":64,\"z\":-2,\"face\":\"up\",\"itemId\":\"minecraft:stone\",\"desiredState\":null}],\"timeoutMs\":60000", ActionType.BUILD_SEQUENCE);
+		assertDecodedType(codec, "chat", "\"message\":\"Ready.\"", ActionType.CHAT);
+		ActionCommand directChat = codec.decodeCommand(commandJson(
+				"chat",
+				"\"message\":\"Meet behind the tower.\",\"audience\":\"direct\","
+						+ "\"recipientId\":\"00000000-0000-0000-0000-000000000001\""
+		));
+		assertEquals("direct", directChat.arguments().get("audience").getAsString(), "direct chat audience");
+		assertEquals(
+				"00000000-0000-0000-0000-000000000001",
+				directChat.arguments().get("recipientId").getAsString(),
+				"direct chat recipient"
+		);
+		assertDecodedType(codec, "wait", "\"durationMs\":250", ActionType.WAIT);
+		assertDecodedType(codec, "set_door", "\"x\":1,\"y\":64,\"z\":-2,\"open\":true", ActionType.SET_DOOR);
+		assertDecodedType(codec, "pick_up_item", "\"targetSelector\":\"minecraft:item\"", ActionType.PICK_UP_ITEM);
+		assertDecodedType(codec, "drop_item", "\"slot\":0,\"count\":1", ActionType.DROP_ITEM);
+		assertDecodedType(codec, "navigate_to", "\"x\":10,\"y\":64,\"z\":-5,\"tolerance\":1.25,\"sprint\":true,\"timeoutMs\":30000", ActionType.NAVIGATE_TO);
+		assertDecodedType(codec, "dig_to", "\"pattern\":\"stairs_down\",\"y\":-55,\"timeoutMs\":300000", ActionType.DIG_TO);
+		assertDecodedType(codec, "mine_vein", "\"x\":4,\"y\":64,\"z\":-2,\"maxBlocks\":24,\"timeoutMs\":120000", ActionType.MINE_VEIN);
+		expectProtocolException(
+				() -> codec.decodeCommand(commandJson("mine_vein", "\"x\":4,\"y\":64,\"z\":-2,\"maxBlocks\":65,\"timeoutMs\":120000")),
+				"OUT_OF_RANGE",
+				"maxBlocks",
+				"mine_vein maxBlocks is at most 64"
+		);
+		assertDecodedType(codec, "build", "\"structure\":\"nether_portal\",\"timeoutMs\":300000", ActionType.BUILD);
+		assertDecodedType(codec, "build", "\"structure\":\"bridge\",\"x\":8,\"y\":64,\"z\":0,\"itemId\":\"minecraft:cobblestone\",\"size\":12,\"timeoutMs\":300000", ActionType.BUILD);
+		expectProtocolException(
+				() -> codec.decodeCommand(commandJson("build", "\"structure\":\"castle\",\"timeoutMs\":300000")),
+				"INVALID_FIELD",
+				"structure",
+				"build structure is one of the four"
+		);
+		assertDecodedType(codec, "build_shelter", "\"x\":83,\"y\":73,\"z\":91,\"opening\":\"east\",\"itemId\":\"minecraft:cobblestone\",\"timeoutMs\":120000", ActionType.BUILD_SHELTER);
+		assertDecodedType(codec, "fight_target", "\"targetId\":\"00000000-0000-0000-0000-000000000001\",\"desiredRange\":2.5,\"fleeAtHealth\":6,\"timeoutMs\":15000", ActionType.FIGHT_TARGET);
+		assertDecodedType(codec, "fight_until", "\"mob\":\"minecraft:blaze\",\"untilItem\":\"minecraft:blaze_rod\",\"untilCount\":6,\"weapon\":\"auto\",\"x\":1,\"y\":70,\"z\":2,\"radius\":16,\"timeoutMs\":180000", ActionType.FIGHT_UNTIL);
+		assertDecodedType(codec, "fight_target", "\"targetId\":\"00000000-0000-0000-0000-000000000001\",\"untilItem\":\"minecraft:ender_pearl\",\"untilCount\":4,\"roof\":true,\"timeoutMs\":180000", ActionType.FIGHT_TARGET);
+		assertDecodedType(codec, "use_ranged", "\"targetId\":\"00000000-0000-0000-0000-000000000001\",\"drawDurationMs\":1000,\"untilItem\":\"minecraft:blaze_rod\",\"untilCount\":3,\"collect\":true", ActionType.USE_RANGED);
+		expectProtocolException(
+				() -> codec.decodeCommand(commandJson("fight_target",
+						"\"targetId\":\"00000000-0000-0000-0000-000000000001\",\"untilItem\":\"minecraft:ender_pearl\",\"timeoutMs\":15000")),
+				"INVALID_FIELD",
+				"untilCount",
+				"fight_target untilItem needs untilCount"
+		);
+		expectProtocolException(
+				() -> codec.decodeCommand(commandJson("fight_target",
+						"\"targetId\":\"00000000-0000-0000-0000-000000000001\",\"roof\":true,\"timeoutMs\":15000")),
+				"INVALID_FIELD",
+				"roof",
+				"fight_target roof needs count mode"
+		);
+		ActionCommand followThrough = codec.decodeCommand(commandJson("fight_target",
+				"\"targetId\":\"00000000-0000-0000-0000-000000000001\",\"continueWithAttackers\":false,\"timeoutMs\":15000"));
+		assertEquals(false, followThrough.arguments().get("continueWithAttackers").getAsBoolean(),
+				"fight_target keeps the model's continueWithAttackers opt-out");
+		expectProtocolException(
+				() -> codec.decodeCommand(commandJson("fight_target",
+						"\"targetId\":\"00000000-0000-0000-0000-000000000001\",\"continueWithAttackers\":\"yes\",\"timeoutMs\":15000")),
+				"INVALID_FIELD",
+				"continueWithAttackers",
+				"fight_target continueWithAttackers must be a boolean"
+		);
+		ActionCommand riskPolicy = codec.decodeCommand(commandJson("fight_target",
+				"\"targetId\":\"00000000-0000-0000-0000-000000000001\",\"targetPolicy\":\"highest_risk\",\"timeoutMs\":15000"));
+		assertEquals("highest_risk", riskPolicy.arguments().get("targetPolicy").getAsString(),
+				"fight_target keeps the model-chosen targetPolicy");
+		expectProtocolException(
+				() -> codec.decodeCommand(commandJson("fight_target",
+						"\"targetId\":\"00000000-0000-0000-0000-000000000001\",\"targetPolicy\":\"auto\",\"timeoutMs\":15000")),
+				"INVALID_FIELD",
+				"targetPolicy",
+				"fight_target targetPolicy must be a known policy"
+		);
+		ActionCommand optIn = codec.decodeCommand(commandJson("fight_target",
+				"\"targetId\":\"00000000-0000-0000-0000-000000000001\",\"includePlayers\":true,\"timeoutMs\":15000"));
+		assertEquals(true, optIn.arguments().get("includePlayers").getAsBoolean(), "fight_target keeps the model's includePlayers opt-in");
+		expectProtocolException(
+				() -> codec.decodeCommand(commandJson("fight_target",
+						"\"targetId\":\"00000000-0000-0000-0000-000000000001\",\"includePlayers\":\"yes\",\"timeoutMs\":15000")),
+				"INVALID_FIELD",
+				"includePlayers",
+				"fight_target includePlayers must be a boolean"
+		);
+		assertDecodedType(codec, "flee_from", "\"targetId\":\"00000000-0000-0000-0000-000000000001\",\"distance\":16,\"timeoutMs\":10000", ActionType.FLEE_FROM);
+		assertDecodedType(codec, "follow_entity", "\"targetSelector\":\"player:ExamplePlayer\",\"distance\":3,\"timeoutMs\":30000", ActionType.FOLLOW_ENTITY);
+		assertDecodedType(codec, "interact_block", "\"x\":1,\"y\":64,\"z\":-2,\"face\":\"north\",\"hand\":\"main\",\"expectedItemId\":\"minecraft:air\"", ActionType.INTERACT_BLOCK);
+		assertDecodedType(codec, "interact_entity", "\"targetId\":\"00000000-0000-0000-0000-000000000001\",\"hand\":\"off\",\"expectedItemId\":\"minecraft:lead\"", ActionType.INTERACT_ENTITY);
+		assertDecodedType(codec, "dismount", "", ActionType.DISMOUNT);
+		assertDecodedType(codec, "start_fall_flying", "", ActionType.START_FALL_FLYING);
+		assertDecodedType(codec, "menu_transfer", "\"menuId\":\"minecraft:smithing\",\"sourceSlot\":3,\"destinationSlot\":4,\"count\":1,\"expectedItemId\":\"minecraft:netherite_sword\",\"timeoutMs\":5000", ActionType.MENU_TRANSFER);
+		assertDecodedType(codec, "menu_button", "\"menuId\":\"minecraft:enchantment\",\"buttonId\":1,\"timeoutMs\":5000", ActionType.MENU_BUTTON);
+		assertDecodedType(codec, "anvil_rename", "\"menuId\":\"minecraft:anvil\",\"name\":\"Explorer\",\"timeoutMs\":5000", ActionType.ANVIL_RENAME);
+		assertDecodedType(codec, "respawn", "", ActionType.RESPAWN);
+		assertDecodedType(codec, "complete_goal", "\"summary\":\"Reached the arena.\"", ActionType.COMPLETE_GOAL);
+	}
+
+	private static void verifyBriefExamples(ProtocolCodec codec) throws ProtocolException {
+		expectProtocolException(
+				() -> codec.decodeCommand("{\"type\":\"unknown\"}"),
+				"UNKNOWN_ACTION",
+				"unknown",
+				"unknown action"
+		);
+		expectProtocolException(
+				() -> codec.decodeCommand("{\"type\":\"wait\",\"durationMs\":600001}"),
+				"OUT_OF_RANGE",
+				"durationMs",
+				"overlong wait"
+		);
+		expectProtocolException(
+				() -> codec.decodeCommand(commandJson(
+						"control",
+						"\"forward\":0,\"strafe\":0,\"jump\":false,\"sneak\":false,\"sprint\":false,"
+								+ "\"attack\":false,\"use\":false,\"yaw\":0,\"pitch\":0,\"selectedSlot\":0,\"hand\":\"left\",\"ticks\":1"
+				)),
+				"INVALID_FIELD",
+				"hand",
+				"control hand selector"
+		);
+
+		ActionCommand command = codec.decodeCommand(commandJson("wait", "\"durationMs\":250"));
+		assertEquals(ActionType.WAIT, command.type(), "wait action type");
+	}
+
+	private static void verifyEnvelopeValidation(ProtocolCodec codec) {
+		expectProtocolException(
+				() -> codec.decodeCommand("{not-json"),
+				"MALFORMED_JSON",
+				"JSON",
+				"malformed JSON"
+		);
+		expectProtocolException(
+				() -> codec.decodeCommand("[]"),
+				"MALFORMED_JSON",
+				"object",
+				"non-object JSON"
+		);
+		expectProtocolException(
+				() -> codec.decodeCommand("{\"type\":\"wait\",\"durationMs\":1,\"commandId\":\"command-1\",\"issuedAtEpochMs\":1}"),
+				"MISSING_FIELD",
+				"protocolVersion",
+				"required protocol version"
+		);
+		expectProtocolException(
+				() -> codec.decodeCommand("{\"protocolVersion\":2,\"commandId\":\"command-1\",\"type\":\"wait\",\"issuedAtEpochMs\":1,\"durationMs\":1}"),
+				"UNSUPPORTED_VERSION",
+				"2",
+				"unsupported protocol version"
+		);
+		expectProtocolException(
+				() -> codec.decodeCommand("{\"protocolVersion\":1,\"type\":\"wait\",\"issuedAtEpochMs\":1,\"durationMs\":1}"),
+				"MISSING_FIELD",
+				"commandId",
+				"required command id"
+		);
+		expectProtocolException(
+				() -> codec.decodeCommand("{\"protocolVersion\":1,\"commandId\":\"command-1\",\"issuedAtEpochMs\":1}"),
+				"MISSING_FIELD",
+				"type",
+				"required action type"
+		);
+		expectProtocolException(
+				() -> codec.decodeCommand("{\"protocolVersion\":1,\"commandId\":\"command-1\",\"type\":\"wait\",\"durationMs\":1}"),
+				"MISSING_FIELD",
+				"issuedAtEpochMs",
+				"required issue timestamp"
+		);
+		expectProtocolException(
+				() -> codec.decodeCommand(commandJson("wait", "\"durationMs\":1,\"extra\":true")),
+				"UNKNOWN_FIELD",
+				"extra",
+				"unknown action field"
+		);
+	}
+
+	private static void verifyBoundedValidation(ProtocolCodec codec) {
+		String oversizedUtf8Line = "{\"type\":\"chat\",\"message\":\"" + "\u00e9".repeat(ProtocolConstants.MAX_LINE_BYTES / 2) + "\"}";
+		expectProtocolException(
+				() -> codec.decodeCommand(oversizedUtf8Line),
+				"LINE_TOO_LARGE",
+				Integer.toString(ProtocolConstants.MAX_LINE_BYTES),
+				"UTF-8 line byte limit"
+		);
+		expectProtocolException(
+				() -> codec.decodeCommand(commandJson("look_at", "\"x\":1e309,\"y\":64,\"z\":0")),
+				"OUT_OF_RANGE",
+				"x",
+				"finite coordinate"
+		);
+		expectProtocolException(
+				() -> codec.decodeCommand(commandJson("break_block", "\"x\":1.5,\"y\":64,\"z\":0,\"timeoutMs\":1")),
+				"OUT_OF_RANGE",
+				"x",
+				"integral block coordinate"
+		);
+		expectProtocolException(
+				() -> codec.decodeCommand(commandJson(
+						"break_block",
+						"\"x\":1.00000000000000001,\"y\":64,\"z\":0,\"timeoutMs\":1"
+				)),
+				"OUT_OF_RANGE",
+				"x",
+				"exact break block coordinate"
+		);
+		expectProtocolException(
+				() -> codec.decodeCommand(commandJson(
+						"place_block",
+						"\"x\":0,\"y\":64,\"z\":-2.00000000000000001,\"face\":\"up\",\"itemId\":\"minecraft:stone\""
+				)),
+				"OUT_OF_RANGE",
+				"z",
+				"exact place block coordinate"
+		);
+		expectProtocolException(
+				() -> codec.decodeCommand(commandJson("wait", "\"durationMs\":0")),
+				"OUT_OF_RANGE",
+				"durationMs",
+				"minimum duration"
+		);
+		expectProtocolException(
+				() -> codec.decodeCommand(commandJson("chat", "\"message\":\"" + "a".repeat(ProtocolConstants.MAX_CHAT_LENGTH + 1) + "\"")),
+				"OUT_OF_RANGE",
+				"message",
+				"chat text limit"
+		);
+		expectProtocolException(
+				() -> codec.decodeCommand(commandJson("chat", "\"message\":\"Missing target.\",\"audience\":\"direct\"")),
+				"MISSING_FIELD",
+				"recipientId",
+				"direct chat recipient"
+		);
+		expectProtocolException(
+				() -> codec.decodeCommand(commandJson(
+						"chat",
+						"\"message\":\"Wrong target.\",\"audience\":\"public\","
+								+ "\"recipientId\":\"00000000-0000-0000-0000-000000000001\""
+				)),
+				"INVALID_FIELD",
+				"recipientId",
+				"public chat recipient"
+		);
+	}
+
+	private static void verifyStrictArguments(ProtocolCodec codec) throws ProtocolException {
+		expectProtocolException(
+				() -> codec.decodeCommand(commandJson("wait", "")),
+				"MISSING_FIELD",
+				"durationMs",
+				"required action argument"
+		);
+		expectProtocolException(
+				() -> codec.decodeCommand(commandJson("move_to", "\"x\":0,\"y\":64,\"z\":0,\"tolerance\":1,\"sprint\":\"yes\"")),
+				"INVALID_FIELD",
+				"sprint",
+				"boolean action argument"
+		);
+		expectProtocolException(
+				() -> codec.decodeCommand(commandJson("place_block", "\"x\":0,\"y\":64,\"z\":0,\"face\":\"forward\",\"itemId\":\"minecraft:stone\"")),
+				"INVALID_FIELD",
+				"face",
+				"block face"
+		);
+
+		ActionCommand shortestWait = codec.decodeCommand(commandJson("wait", "\"durationMs\":1"));
+		ActionCommand longestWait = codec.decodeCommand(commandJson("wait", "\"durationMs\":" + ProtocolConstants.MAX_DURATION_MS));
+		assertEquals(1L, shortestWait.arguments().get("durationMs").getAsLong(), "minimum valid duration");
+		assertEquals(ProtocolConstants.MAX_DURATION_MS, longestWait.arguments().get("durationMs").getAsLong(), "maximum valid duration");
+	}
+
+	private static void verifyDesiredStateProtocol(ProtocolCodec codec) throws ProtocolException {
+		ActionCommand command = codec.decodeCommand(commandJson(
+				"place_block",
+				"\"x\":1,\"y\":64,\"z\":-2,\"face\":\"up\",\"itemId\":\"minecraft:oak_stairs\",\"desiredState\":\""
+						+ DESIRED_OAK_STAIRS_STATE + "\""
+		));
+		assertEquals(
+			DESIRED_OAK_STAIRS_STATE,
+			command.arguments().get("desiredState").getAsString(),
+			"desired block state survives Java protocol validation"
+		);
+
+		ActionCommand nullable = codec.decodeCommand(commandJson(
+				"place_block",
+				"\"x\":1,\"y\":64,\"z\":-2,\"face\":\"up\",\"itemId\":\"minecraft:oak_stairs\",\"desiredState\":null"
+		));
+		assertTrue(nullable.arguments().get("desiredState").isJsonNull(), "null desired block state is accepted");
+
+		ActionCommand mismatchedBlockId = codec.decodeCommand(commandJson(
+				"place_block",
+				"\"x\":1,\"y\":64,\"z\":-2,\"face\":\"up\",\"itemId\":\"minecraft:oak_stairs\",\"desiredState\":\"minecraft:stone[facing=north]\""
+		));
+		assertEquals(
+			"minecraft:stone[facing=north]",
+			mismatchedBlockId.arguments().get("desiredState").getAsString(),
+			"block-id mismatch is deferred to execution validation"
+		);
+
+		expectProtocolException(
+				() -> codec.decodeCommand(commandJson(
+						"place_block",
+						"\"x\":1,\"y\":64,\"z\":-2,\"face\":\"up\",\"itemId\":\"minecraft:oak_stairs\",\"desiredState\":\""
+								+ "x".repeat(513) + "\""
+				)),
+				"OUT_OF_RANGE",
+				"desiredState",
+				"desired block state length"
+		);
+	}
+
+	private static void verifyBuildSequenceProtocol(ProtocolCodec codec) throws ProtocolException {
+		String placement = "{\"x\":1,\"y\":64,\"z\":-2,\"face\":\"up\","
+				+ "\"itemId\":\"minecraft:stone\",\"desiredState\":null}";
+		String placements32 = java.util.stream.IntStream.range(0, 32)
+				.mapToObj(ignored -> placement)
+				.collect(java.util.stream.Collectors.joining(","));
+		ActionCommand command = codec.decodeCommand(commandJson(
+				"build_sequence", "\"placements\":[" + placements32 + "],\"timeoutMs\":60000"));
+		assertEquals(32, command.arguments().getAsJsonArray("placements").size(),
+				"build sequence preserves 32 ordered placements");
+		expectProtocolException(
+				() -> codec.decodeCommand(commandJson(
+						"build_sequence", "\"placements\":[" + placements32 + "," + placement + "],\"timeoutMs\":60000")),
+				"OUT_OF_RANGE",
+				"placements",
+				"build sequence placement limit"
+		);
+	}
+
+	private static void verifyDirectCommandSchemaValidation() {
+		JsonObject validArguments = new JsonObject();
+		validArguments.addProperty("durationMs", 250);
+		ActionCommand validCommand = new ActionCommand(
+				COMMAND_ID,
+				ActionType.WAIT,
+				validArguments,
+				ISSUED_AT_EPOCH_MS
+		);
+		assertEquals(250L, validCommand.arguments().get("durationMs").getAsLong(), "direct valid command arguments");
+
+		expectProtocolException(
+				() -> new ActionCommand(
+						COMMAND_ID,
+						ActionType.WAIT,
+						new JsonObject(),
+						ISSUED_AT_EPOCH_MS
+				),
+				"MISSING_FIELD",
+				"durationMs",
+				"direct command required argument"
+		);
+
+		JsonObject unknownArguments = validArguments.deepCopy();
+		unknownArguments.addProperty("extra", true);
+		expectProtocolException(
+				() -> new ActionCommand(
+						COMMAND_ID,
+						ActionType.WAIT,
+						unknownArguments,
+						ISSUED_AT_EPOCH_MS
+				),
+				"UNKNOWN_FIELD",
+				"extra",
+				"direct command unknown argument"
+		);
+
+		JsonObject outOfRangeArguments = new JsonObject();
+		outOfRangeArguments.addProperty("durationMs", ProtocolConstants.MAX_DURATION_MS + 1L);
+		expectProtocolException(
+				() -> new ActionCommand(
+						COMMAND_ID,
+						ActionType.WAIT,
+						outOfRangeArguments,
+						ISSUED_AT_EPOCH_MS
+				),
+				"OUT_OF_RANGE",
+				"durationMs",
+				"direct command bounded argument"
+		);
+	}
+
+	private static void verifyCommandImmutability() {
+		JsonObject sourceArguments = new JsonObject();
+		sourceArguments.addProperty("durationMs", 250);
+		ActionCommand command = new ActionCommand(COMMAND_ID, ActionType.WAIT, sourceArguments, ISSUED_AT_EPOCH_MS);
+
+		sourceArguments.addProperty("durationMs", 500);
+		JsonObject returnedArguments = command.arguments();
+		returnedArguments.addProperty("durationMs", 750);
+
+		assertEquals(250L, command.arguments().get("durationMs").getAsLong(), "action arguments are defensively copied");
+		expectProtocolException(
+				() -> new ActionCommand(
+						"a".repeat(ProtocolConstants.MAX_COMMAND_ID_LENGTH + 1),
+						ActionType.WAIT,
+						sourceArguments,
+						ISSUED_AT_EPOCH_MS
+				),
+				"OUT_OF_RANGE",
+				"commandId",
+				"record command id limit"
+		);
+	}
+
+	private static void verifyCommandEncodingRoundTrip(ProtocolCodec codec) throws ProtocolException {
+		JsonObject arguments = new JsonObject();
+		arguments.addProperty("durationMs", 250);
+		ActionCommand original = new ActionCommand(COMMAND_ID, ActionType.WAIT, arguments, ISSUED_AT_EPOCH_MS);
+
+		String encoded = codec.encode(original);
+		ActionCommand decoded = codec.decodeCommand(encoded);
+
+		assertTrue(encoded.contains("\"protocolVersion\":1"), "encoded command protocol version");
+		assertTrue(encoded.contains("\"type\":\"wait\""), "encoded action wire name");
+		assertTrue(!encoded.contains("\"arguments\""), "encoded action arguments are flattened");
+		assertEquals(original, decoded, "command encoding round trip");
+	}
+
+	private static void verifyActionResultContract() throws ProtocolException {
+		ActionResult result = new ActionResult(
+				COMMAND_ID,
+				ActionState.SUCCEEDED,
+				"COMPLETED",
+				"Goal completed.",
+				ISSUED_AT_EPOCH_MS + 250
+		);
+
+		assertEquals(ActionState.SUCCEEDED, result.state(), "action result state");
+		assertTrue(result.state().isTerminal(), "successful action is terminal");
+		assertTrue(!ActionState.RUNNING.isTerminal(), "running action is non-terminal");
+		expectProtocolException(
+				() -> new ActionResult(COMMAND_ID, ActionState.RUNNING, "RUNNING", "Still running.", ISSUED_AT_EPOCH_MS),
+				"INVALID_FIELD",
+				"terminal",
+				"result rejects non-terminal state"
+		);
+
+		String encoded = new ProtocolCodec().encode(result);
+		assertTrue(encoded.contains("\"protocolVersion\":1"), "encoded result protocol version");
+		assertTrue(encoded.contains("\"state\":\"SUCCEEDED\""), "encoded terminal state");
+	}
+
+	private static void verifyJsonLineFraming(ProtocolCodec codec) throws IOException {
+		String json = "{\"message\":\"ready\"}";
+		ByteArrayOutputStream output = new ByteArrayOutputStream();
+		codec.writeLine(output, json);
+		assertEquals(json, codec.readLine(new ByteArrayInputStream(output.toByteArray())), "UTF-8 JSONL round trip");
+		byte[] oversizedLine = ("a".repeat(ProtocolConstants.MAX_LINE_BYTES + 1) + "\n")
+				.getBytes(StandardCharsets.UTF_8);
+		expectProtocolException(
+				() -> codec.readLine(new ByteArrayInputStream(oversizedLine)),
+				"LINE_TOO_LARGE",
+				Integer.toString(ProtocolConstants.MAX_LINE_BYTES),
+				"framing line byte limit"
+		);
+	}
+
+
+	private static void configureExplicitNodeForVerification() throws IOException {
+		if (System.getProperty("mineagen.nodePath") != null) return;
+		String executableName = System.getProperty("os.name", "")
+				.toLowerCase(java.util.Locale.ROOT).contains("win") ? "node.exe" : "node";
+		String path = System.getenv("PATH");
+		if (path != null) {
+			for (String entry : path.split(java.util.regex.Pattern.quote(java.io.File.pathSeparator), -1)) {
+				if (entry.isBlank()) continue;
+				Path candidate = Path.of(entry).resolve(executableName).toAbsolutePath().normalize();
+				if (Files.isRegularFile(candidate) && Files.isExecutable(candidate)) {
+					System.setProperty("mineagen.nodePath", candidate.toString());
+					return;
+				}
+			}
+		}
+		throw new IOException("Node 22+ is required for the integrated verification fixture");
+	}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	private static void assertDecodedType(
+			ProtocolCodec codec,
+			String wireType,
+			String actionFields,
+			ActionType expectedType
+	) throws ProtocolException {
+		ActionCommand command = codec.decodeCommand(commandJson(wireType, actionFields));
+		assertEquals(expectedType, command.type(), wireType + " action type");
+		assertEquals(COMMAND_ID, command.commandId(), wireType + " command id");
+		assertEquals(ISSUED_AT_EPOCH_MS, command.issuedAtEpochMs(), wireType + " issue timestamp");
+	}
+
+	private static String commandJson(String wireType, String actionFields) {
+		String actionSuffix = actionFields.isEmpty() ? "" : "," + actionFields;
+		return "{\"protocolVersion\":1,\"commandId\":\"" + COMMAND_ID
+				+ "\",\"type\":\"" + wireType
+				+ "\",\"issuedAtEpochMs\":" + ISSUED_AT_EPOCH_MS
+				+ actionSuffix + "}";
+	}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	private static void expectProtocolException(
+			ThrowingRunnable action,
+			String expectedCode,
+			String expectedMessagePart,
+			String label
+	) {
+		try {
+			action.run();
+		} catch (ProtocolException exception) {
+			assertEquals(expectedCode, exception.code(), label + " code");
+			assertTrue(exception.getMessage().contains(expectedMessagePart), label + " message");
+			return;
+		} catch (Exception exception) {
+			throw new AssertionError(label + " threw " + exception.getClass().getSimpleName(), exception);
+		}
+
+		throw new AssertionError(label + " did not throw ProtocolException");
+	}
+
+	private static void assertEquals(Object expected, Object actual, String label) {
+		if (!expected.equals(actual)) {
+			throw new AssertionError(label + ": expected <" + expected + "> but was <" + actual + ">");
+		}
+		pass(label);
+	}
+
+	private static void assertTrue(boolean condition, String label) {
+		if (!condition) {
+			throw new AssertionError(label);
+		}
+		pass(label);
+	}
+
+	private static void assertDoesNotThrow(ThrowingRunnable action, String label) {
+		try {
+			action.run();
+		} catch (Exception exception) {
+			throw new AssertionError(label + " threw " + exception.getClass().getSimpleName(), exception);
+		}
+		pass(label);
+	}
+
+	private static void pass(String label) {
+		passedAssertions++;
+		System.out.println("PASS: " + label);
+	}
+
+
+
+	@FunctionalInterface
+	private interface ThrowingRunnable {
+		void run() throws Exception;
+	}
+}

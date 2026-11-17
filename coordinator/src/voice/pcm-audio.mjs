@@ -1,3 +1,10 @@
+/**
+ * Longest speech audio any part of the path keeps. Nine gpt-4o-mini-tts calls ran 0.061 to 0.086 s per character at
+ * speed 1, so the longest legal line (280 code points at speed 0.5) is about 34 to 48 s; a lower ceiling discards a
+ * line after the provider has been paid for it.
+ */
+export const MAX_TTS_AUDIO_SECONDS = 60;
+
 export function resampleS16leMono(input, sourceRate = 44_100, targetRate = 48_000, maxSeconds = 20) {
 	if (!Buffer.isBuffer(input)) throw new TypeError('PCM input must be a Buffer');
 	if (input.length % 2 !== 0) throw new TypeError('PCM input must contain complete signed 16-bit samples');

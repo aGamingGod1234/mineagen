@@ -58,9 +58,9 @@ test('sanitizer preserves URLs and operational token metrics while redacting onl
 	].join(' ');
 	assert.equal(sanitizeDiagnosticText(preserved), preserved);
 	for (const absolutePath of [
-		'C:\\Users\\player\\Arena Agents\\secret.json',
+		'C:\\Users\\player\\Mineagen\\secret.json',
 		'/var/lib/arena agents/secret.json',
-		'\\\\server\\share\\Arena Agents\\secret.json',
+		'\\\\server\\share\\Mineagen\\secret.json',
 	]) {
 		const sanitized = sanitizeDiagnosticText(`failure at "${absolutePath}"`);
 		assert.equal(sanitized.includes(absolutePath), false);

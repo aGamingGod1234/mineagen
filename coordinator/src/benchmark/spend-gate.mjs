@@ -76,8 +76,6 @@ const validUsage = usage => usage && tokenCount(usage.input_tokens) && tokenCoun
 		&& usage.cache_creation.ephemeral_5m_input_tokens + usage.cache_creation.ephemeral_1h_input_tokens === (usage.cache_creation_input_tokens ?? 0)));
 const exactUsage = usage => Boolean(validUsage(usage) && ((usage.cache_creation_input_tokens ?? 0) === 0 || usage.cache_creation !== undefined));
 
-// Published list prices, independent of call-cost.mjs's historical comparison weights.
-// https://platform.claude.com/docs/en/about-claude/pricing (2026-10-13). Admission uses the dearer 1h rate; settlement retains each reported duration.
 const STRICT_PRICES = Object.freeze({
 	'claude-opus-5-5': { input: 4, output: 20, cacheRead: .2, cacheWrite: 8, cacheWrite5m: 5 },
 	'claude-sonnet-5-5': { input: 2, output: 10, cacheRead: .1, cacheWrite: 4, cacheWrite5m: 2.5 },

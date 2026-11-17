@@ -327,12 +327,13 @@ test('a stalled channel probe replaces the exact worker and recovers without ove
 				secret: SECRET,
 				initialProbeDelayMs: 5,
 				maxProbeDelayMs: 5,
-				probeTimeoutMs: 500,
+				probeTimeoutMs: 80,
 				port: 0,
 			});
 			const address = await worker.start();
 			const owned = {
 				...worker,
+				synthesisCalls: () => synthesisCalls,
 				baseUrl: `http://127.0.0.1:${address.port}`,
 				async close() {
 					releaseProbe();
@@ -365,9 +366,10 @@ test('a stalled channel probe replaces the exact worker and recovers without ove
 		});
 		assert.equal((await request('first failure', 1)).status, 502);
 		await eventually(() => unsettledProbes === 1);
-		assert.equal((await request('real recovery', 2)).status, 200);
-		assert.equal((await request('second failure', 3)).status, 502);
+		assert.equal((await request('real recovery', 2)).status, 503);
+		assert.equal((await request('second failure', 3)).status, 503);
 		await eventually(() => workers.length === 2 && component(supervisor, 'voice:tts').state === 'ready');
+		assert.equal(first.synthesisCalls(), 1, 'open-circuit traffic adds no synthesis while the old probe hangs');
 		assert.equal(maxUnsettledProbes, 1);
 		assert.equal(unsettledProbes, 0);
 	} finally {

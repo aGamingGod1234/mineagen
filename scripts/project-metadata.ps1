@@ -41,7 +41,6 @@ function Use-ArenaMinecraftTarget([string] $ProjectRoot, [string] $Target) {
 	return $Target
 }
 
-# Arguments that select the current target for a Gradle call (none for the default).
 function Get-ArenaGradleTargetArguments {
 	if ([string]::IsNullOrEmpty($script:ArenaMinecraftTarget)) { return @() }
 	return @("-Pmc=$($script:ArenaMinecraftTarget)")
@@ -49,7 +48,6 @@ function Get-ArenaGradleTargetArguments {
 
 function Get-ArenaModVersion([string] $ProjectRoot) {
 	$version = Get-ArenaGradleProperty $ProjectRoot 'mod_version'
-	# A non-default target says so in its JAR version, as build.gradle names it (arena-agents-0.2.0+mc26.2.jar).
 	if ($null -ne $version -and -not [string]::IsNullOrEmpty($script:ArenaMinecraftTarget)) { return "$version+mc$($script:ArenaMinecraftTarget)" }
 	return $version
 }
@@ -58,11 +56,11 @@ function Resolve-ArenaModJar([string] $ProjectRoot) {
 	$version = Get-ArenaModVersion $ProjectRoot
 	$libraryDirectory = Join-Path $ProjectRoot 'build\libs'
 	if ($null -ne $version) {
-		return Join-Path $libraryDirectory "arena-agents-$version.jar"
+		return Join-Path $libraryDirectory "mineagen-$version.jar"
 	}
-	$candidates = @(Get-ChildItem -LiteralPath $libraryDirectory -Filter 'arena-agents-*.jar' -File -ErrorAction SilentlyContinue)
+	$candidates = @(Get-ChildItem -LiteralPath $libraryDirectory -Filter 'mineagen-*.jar' -File -ErrorAction SilentlyContinue)
 	if ($candidates.Count -ne 1) {
-		throw "Could not resolve exactly one Arena Agents JAR under $libraryDirectory"
+		throw "Could not resolve exactly one Mineagen JAR under $libraryDirectory"
 	}
 	return $candidates[0].FullName
 }

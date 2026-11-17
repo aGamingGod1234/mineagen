@@ -2,10 +2,12 @@ import { createInterface } from 'node:readline';
 
 const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
 let inferenceBlocked = false;
+let warmed = false;
 for await (const line of lines) {
 	const request = JSON.parse(line);
 	if (inferenceBlocked) continue;
 	if (request.op === 'warmup') {
+		warmed = true;
 		process.stdout.write(`${JSON.stringify({ id: request.id, ok: true, sttReady: true, ttsReady: true })}\n`);
 		continue;
 	}
@@ -14,6 +16,10 @@ for await (const line of lines) {
 			inferenceBlocked = true;
 			process.stderr.write('ARENA_FIXTURE_INFERENCE_BLOCKED\n');
 			continue;
+		}
+		if (request.text.startsWith('cold-reload') && !warmed) {
+			await new Promise(resolve => setTimeout(resolve, 2500));
+			warmed = true;
 		}
 		const pcmBase64 = request.text === 'malformed'
 			? Buffer.from([1]).toString('base64')

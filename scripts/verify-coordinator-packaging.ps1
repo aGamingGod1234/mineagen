@@ -14,7 +14,7 @@ Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $archive = [IO.Compression.ZipFile]::OpenRead($resolvedJar)
 try {
-    $prefix = 'arena-agents/coordinator/'
+    $prefix = 'mineagen/coordinator/'
     $entries = @($archive.Entries | ForEach-Object { $_.FullName.Replace('\', '/') })
     $manifestPath = "${prefix}coordinator-manifest.txt"
     if ($entries -notcontains $manifestPath) {
@@ -111,7 +111,7 @@ try {
         $resolvedStaging = (Resolve-Path -LiteralPath $StagingPath).Path
         # Installed generations add metadata; raw runtime extractions remain supported.
         # Only the exact embedded manifest is recognized, including when it is hidden.
-        $installedManifest = Join-Path $resolvedStaging '.arena-agents-bundle-manifest'
+        $installedManifest = Join-Path $resolvedStaging '.mineagen-bundle-manifest'
         if (Test-Path -LiteralPath $installedManifest -PathType Leaf) {
             $sha = [Security.Cryptography.SHA256]::Create()
             $stream = $manifestEntry.Open()
@@ -137,26 +137,6 @@ try {
             if ($sourceHash -ne $record.Hash) { throw "Source coordinator hash differs from embedded resource: $relative" }
             if ($stagedHash -ne $record.Hash) { throw "Installed coordinator hash differs from embedded resource: $relative" }
         }
-    }
-
-    # Verify attribution against the retained source text whenever derived geometry ships.
-    $derivedModules = @($archive.Entries | Where-Object {
-        $_.FullName.StartsWith('data/arenaagents/arena_modules/') -and $_.FullName.EndsWith('.json')
-    })
-    foreach ($module in $derivedModules) {
-        $reader = [IO.StreamReader]::new($module.Open())
-        try { $metadata = $reader.ReadToEnd() | ConvertFrom-Json } finally { $reader.Dispose() }
-        if ($metadata.sourceKey -ne 're-structured') { continue }
-        $notice = $archive.GetEntry('META-INF/licenses/re-structured-MIT.txt')
-        if ($null -eq $notice) { throw 'Retained map notice is missing for re-structured modules.' }
-        $retainedPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'maps/licenses/re-structured-MIT.txt'
-        $retainedHash = (Get-FileHash -LiteralPath $retainedPath -Algorithm SHA256).Hash
-        $sha = [Security.Cryptography.SHA256]::Create()
-        $stream = $notice.Open()
-        try { $noticeHash = (($sha.ComputeHash($stream) | ForEach-Object { $_.ToString('x2') }) -join '') }
-        finally { $stream.Dispose(); $sha.Dispose() }
-        if ($noticeHash -ne $retainedHash) { throw 'Retained map notice hash differs from source for re-structured modules.' }
-        break
     }
 
     Write-Host "Coordinator packaging verified: $($expected.Count) files; jar=$resolvedJar"

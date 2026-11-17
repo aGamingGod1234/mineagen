@@ -239,7 +239,6 @@ test('assisted and unverifiable runs never pass a late-game milestone, however r
 		assert.equal(classifyCapabilityRun(unknown.report).autonomy, 'unverifiable');
 		assert.equal(capabilityMilestonePassed(unknown.report, 'dragon'), false);
 	}
-	// Review finding 6: the runner's own pass path rejects malformed, foreign and contradictory headers.
 	for (const audit of [
 		() => 'audit=v2 autonomy=autonomous',
 		(name) => header('Other', 'coverage=partial interventions=5 autonomy=autonomous'),
@@ -254,11 +253,9 @@ test('assisted and unverifiable runs never pass a late-game milestone, however r
 		assert.equal(classifyCapabilityRun(malformed.report).autonomy, 'unverifiable');
 		assert.equal(capabilityMilestonePassed(malformed.report, 'nether'), false);
 	}
-	// Positive control: the same outcome with a clean audit passes.
 	const clean = await run(late.nether, always, autonomous);
 	assert.equal(clean.report.status, 'PASSED');
 	assert.equal(capabilityMilestonePassed(clean.report, 'nether'), true);
-	// Early tasks keep their outcome-only check and need no audit.
 	const early = await fixture({ scenario: makeScenario(), audit: null });
 	assert.equal(early.report.status, 'PASSED');
 	assert.equal(capabilityMilestonePassed(early.report, 'gather'), true);

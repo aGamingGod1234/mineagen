@@ -26,7 +26,6 @@ const MAX_HEARD = 2;
 const MAX_OPTIONS_CHARS = 240;
 const MAX_KNOWN_CHARS = 160;
 const MAX_RECEIPTS = 2;
-// Block centres around and under the feet: the 3x3 below and the 8 beside.
 const FOOTING_BLOCKS = 1.8;
 
 // Plain terrain a player walks on or digs through; ores, fluids, fire, portals, obsidian, logs, crops, nether bricks (they
@@ -114,7 +113,6 @@ function leanBlocks(rows, player) {
 		kept.push(rest);
 	}
 	if (kept.length <= MAX_BLOCKS) return { kept, terrainCounts, omitted: 0 };
-	// Hazards first, then the rows nearest the feet.
 	const rank = row => HAZARD.test(row?.blockId ?? '') ? 0 : 1;
 	const chosen = kept.map((row, index) => [row, index]).sort(([a, i], [b, j]) => rank(a) - rank(b) || near(a) - near(b) || i - j).slice(0, MAX_BLOCKS)
 		.sort(([, i], [, j]) => i - j).map(([row]) => row);
@@ -202,7 +200,6 @@ export function presentLeanObservation(observation, threatRows = null) {
 		if (key === 'hungerShaking' && value === false) continue;
 		switch (key) {
 			case 'threats': {
-				// Raw server samples wrap the rows: {entries:[...], ...}.
 				if (record(value) && Array.isArray(value.entries)) {
 					const entries = nearest(value.entries, MAX_THREATS).map(leanThreat);
 					out.threats = { ...value, entries, ...(value.entries.length > entries.length ? { omittedEntries: value.entries.length - entries.length } : {}) };

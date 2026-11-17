@@ -95,12 +95,10 @@ test('a dimension edge outranks ordinary healing in the same sample, after urgen
 	assert.equal(classifyObservationTrigger({ attention: true, changedFacts: ['world.dimension', 'survival.heal_opportunity'] }, { player: { health: 20 } }, moved).trigger, 'dimension_changed');
 	assert.equal(classifyObservationTrigger({ attention: true, changedFacts: ['survival.low_health_no_food'] }, { player: { health: 20 } }, moved).trigger, 'low_health');
 	assert.equal(classifyObservationTrigger({ attention: true }, { player: { health: 20 } }, { ...moved, movementLoop: true }).trigger, 'movement_loop');
-	// Without the edge, healing keeps its own trigger.
 	assert.equal(classifyObservationTrigger({ attention: true, changedFacts: ['survival.heal_opportunity'] }, { player: { health: 20 } }, { dimensionChanged: false }).trigger, 'heal_opportunity');
 });
 
 test('programs: the dimension edge notifies past reassessWhen; the authored policy decides the body; danger still pauses it', async () => {
-	// Control: an authored waiver still holds back plain attention.
 	assert.deepEqual(await portalDuringProgram({ policy: 'continue_and_notify', filter: true, trigger: 'attention', priority: 'ordinary' }),
 		{ decisions: [], engineState: 'ACTIVE', cancelled: false });
 	for (const filter of [true, false]) {
@@ -119,17 +117,14 @@ test('a standalone action does not hold the dimension wake; it carries the asses
 	const { run, planner, rows } = await coordinator({ firstTool: { kind: 'start_action', actionType: 'wait', arguments: { durationMs: 5000 } } });
 	try {
 		assert.equal(instructionOf(planner.requests[0]), compactEventInstruction(NEW_CONTEXT_EVENT_INSTRUCTION), 'the goal start carries it');
-		// An ordinary sighting is held for the running action ...
 		run.bridge.emit('observation', observation(2, { changedFacts: ['sighted'] }));
 		await eventually(() => rows.some(({ event }) => event === 'native_wake_deferred_for_action'));
-		// ... the portal is not.
 		run.bridge.emit('observation', observation(3, { dimension: NETHER, changedFacts: ['world.dimension'] }));
 		await eventually(() => planner.requests.length === 2);
 		assert.equal(wake(planner.requests[1]).trigger, 'dimension_changed');
 		assert.equal(instructionOf(planner.requests[1]), `${compactEventInstruction(NEW_CONTEXT_EVENT_INSTRUCTION)} ${NETHER_ENTRY}`);
 		assert.match(wake(planner.requests[1]).situation, /^the_nether, no day cycle;/);
 		await eventually(() => rows.filter(({ event }) => event === 'native_turn_completed').length === 2);
-		// Delivered: the next wake is an ordinary one.
 		run.bridge.emit('observation', observation(4, { dimension: NETHER, changedFacts: ['blocks'], attention: true, health: 20 }));
 		const command = run.bridge.sent.find(({ type }) => type === 'action_command');
 		run.bridge.emit('action_result', { agentId: 'agent-a', payload: { goalRevision: 1, actionId: command.payload.actionId, state: 'SUCCEEDED', reasonCode: 'WAIT_DONE', actionType: 'wait', eventSequence: 50 } });
@@ -148,7 +143,6 @@ for (const [policy, paused] of [['continue_and_notify', false], ['pause_and_noti
 			const commands = () => run.bridge.sent.filter((message) => message.type === 'action_command');
 			try {
 				await eventually(() => commands().length === 1);
-				// Ordinary progress inside the waiver does not wake the model.
 				run.bridge.emit('observation', observation(2, { changedFacts: ['blocks'] }));
 				await tick(); await tick();
 				assert.equal(planner.requests.length, 1);
@@ -231,7 +225,6 @@ test('engine: routine attention coalesced behind a portal notification keeps the
 	engine.applyDirective({ directive: 'continue', ...requests[0] });
 	assert.equal(requests[1].trigger, 'dimension_changed');
 	assert.equal(requests[1].eventSequence, 3);
-	// Danger still takes precedence over it.
 	engine.ingestObservation({ observation: facts(12), eventSequence: 4, attention: true, priority: 'urgent', trigger: 'damage' });
 	engine.applyDirective({ directive: 'continue', ...requests.at(-1) });
 	assert.equal(requests.at(-1).trigger, 'damage');

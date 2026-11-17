@@ -16,7 +16,7 @@ test('exact UTF-8 bytes, attempt order and completion outcome survive without pr
 	const third = summary.begin(fields);
 	second.finish(false, 4.5);
 	first.finish(true, 3);
-	first.finish(false, 900); // Completion is idempotent.
+	first.finish(false, 900);
 	const row = summary.snapshot().rows[0];
 	const bytes = Buffer.byteLength(serializedResponse, 'utf8');
 	assert.ok(bytes > serializedResponse.length);

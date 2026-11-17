@@ -32,7 +32,6 @@ function clause(text) {
 }
 const all = of => of.length === 1 ? of[0] : { type: 'all', of };
 
-/** Machine-readable form of a ladder `successCheck` string. */
 export function parseSuccessCheck(text) {
 	const t = String(text).trim();
 	let m;
@@ -51,7 +50,6 @@ export function parseSuccessCheck(text) {
 	throw new Error(`Unparseable successCheck: ${t}`);
 }
 
-/** Advancement ids the evaluator must sample for this check. */
 export function checkAdvancements(spec) {
 	if (spec.type === 'advancement') return [spec.id];
 	return (spec.of ?? []).flatMap(checkAdvancements);
@@ -123,7 +121,6 @@ export class LadderEvaluator {
 		return { pass: false, passAt: null, timeToPassMs: null, source: null, died: this.died, lastSampleAt };
 	}
 }
-// Compact record of the sample that satisfied the check (never the full entity NBT).
 function evidenceSample(spec, sample) {
 	const leaves = s => s.of ? s.of.flatMap(leaves) : [s];
 	const inventory = Object.fromEntries(leaves(spec).filter(l => l.type === 'inventory').flatMap(l => l.items)

@@ -1,5 +1,5 @@
 // Cross-family judge for decision-eval cases whose predicates cannot decide. GPT judges Claude players and Claude judges GPT
-// players, so a model family never grades itself; for the free OpenCode players GLM judges DeepSeek and DeepSeek judges GLM. The judge sees a blind projection: situation facts, the rubric and each
+// players, so a model family never grades itself. The judge sees a blind projection: situation facts, the rubric and each
 // answer's tool calls. It never sees build, provider, model or which arm produced an answer; candidate and baseline answers
 // for one case are shuffled into one call so both arms get the same judge state.
 //
@@ -15,7 +15,6 @@ import { terminateChildProcess } from '../child-process-lifecycle.mjs';
 import { resolveClaudeLaunch } from '../claude-service.mjs';
 import { buildCodexArgs, resolveCodexLaunchAsync } from '../codex-app-server.mjs';
 import { mirrorCodexExecUsage } from '../codex-usage-mirror.mjs';
-import { OPENCODE_PERMISSION, classifyOpenCodeError, httpJsonRequest, retryDelayMs } from '../opencode-service.mjs';
 import { createProviderChildEnvironment, findNpmEntrypointBesideShim } from '../provider-environment.mjs';
 import { buildContext, canonicalCalls } from './predicates.mjs';
 import { estimateTokenCostUsd as estimateJudgeCostUsd } from './pricing.mjs';
@@ -29,20 +28,13 @@ const MAX_PROCESS_BYTES = 512 * 1024;
 export { TOKEN_PRICES_PER_MILLION as JUDGE_PRICES_PER_MILLION } from './pricing.mjs';
 export { estimateJudgeCostUsd };
 
-export const OPENCODE_JUDGE_MODELS = Object.freeze({ deepseek: 'opencode/deepseek-v4.1-flash-free', glm: 'opencode/glm-5.3-flash-free' });
-const openCodeFamily = (model) => (/glm/i.test(model ?? '') ? 'glm' : /deepseek/i.test(model ?? '') ? 'deepseek' : null);
-
-// The judge comes from the other model family than the player. OpenCode hosts two free families, so an OpenCode player is
-// judged by the other free model (GLM for DeepSeek, DeepSeek for GLM) at no cost.
-export function crossFamilyJudge(playerProvider, overrides = {}, playerModel = null) {
-	const provider = overrides.provider ?? (playerProvider === 'codex' ? 'claude' : playerProvider === 'opencode' ? 'opencode' : 'codex');
-	const model = overrides.model ?? (provider === 'claude' ? 'claude-opus-5-5' : provider === 'codex' ? 'gpt-6.1-sol'
-		: openCodeFamily(playerModel) === 'glm' ? OPENCODE_JUDGE_MODELS.deepseek : OPENCODE_JUDGE_MODELS.glm);
-	const effort = overrides.effort ?? (provider === 'opencode' ? 'high' : 'medium');
-	if (!['claude', 'codex', 'opencode'].includes(provider)) throw new TypeError('judge provider must be claude, codex or opencode');
-	const sameFamily = provider === 'opencode' ? playerProvider === 'opencode' && openCodeFamily(model) === openCodeFamily(playerModel ?? OPENCODE_JUDGE_MODELS.deepseek)
-		: provider === playerProvider;
-	if (sameFamily && !overrides.allowSameFamily) throw new TypeError('judge must come from the other model family than the player');
+// The judge comes from the other retained model family.
+export function crossFamilyJudge(playerProvider, overrides = {}) {
+	const provider = overrides.provider ?? (playerProvider === 'codex' ? 'claude' : 'codex');
+	if (!['claude', 'codex'].includes(provider)) throw new TypeError('judge provider must be claude or codex');
+	const model = overrides.model ?? (provider === 'claude' ? 'claude-opus-5-5' : 'gpt-6.1-sol');
+	const effort = overrides.effort ?? 'medium';
+	if (provider === playerProvider && !overrides.allowSameFamily) throw new TypeError('judge must come from the other model family than the player');
 	return { provider, model, effort };
 }
 
@@ -270,9 +262,9 @@ async function appendCache(file, rows) {
 // ---------- judge factory used by grade.gradeSamples ----------
 
 // Returns judge(caseDef, samples) -> [{ verdict: judge_good|judge_bad|neutral, rationale, judge }] plus a ledger of spend.
-export function createJudge({ playerProvider, playerModel = null, overrides = {}, invoke = invokeJudgeCli, cacheFile = null, timeoutMs = 180_000, concurrency = 6,
+export function createJudge({ playerProvider, overrides = {}, invoke = invokeJudgeCli, cacheFile = null, timeoutMs = 180_000, concurrency = 6,
 	maxSpendUsd = Infinity, seed = 7 } = {}) {
-	const config = crossFamilyJudge(playerProvider, overrides, playerModel);
+	const config = crossFamilyJudge(playerProvider, overrides);
 	const ledger = { config, calls: 0, cacheHits: 0, answersJudged: 0, costUsd: 0, unknownCostCalls: 0, unknownCostReservedUsd: 0, failures: 0, wallMs: 0, durationsMs: [] };
 	let cachePromise = null;
 	const queue = [];
@@ -383,27 +375,7 @@ export function judgeAttemptAccounting(value, { provider, model }) {
 export function parseJudgeCliResult(provider, { stdout = '', stderr = '', exitCode = 0, processError }, model) {
 	let usage = null, costUsd = null, text, failure, retry = null;
 	const fail = message => { failure ??= message; };
-	if (provider === 'opencode') {
-		// `opencode run --format json` streams one event per line: text parts, step_finish with tokens and cost, error.
-		let parts = [];
-		for (const line of stdout.split(/\r?\n/).filter(line => line.trim())) {
-			let row;
-			try { row = JSON.parse(line); } catch { continue; }
-			if (row.type === 'step_start') parts = [];
-			if (row.type === 'text' && typeof row.part?.text === 'string') parts.push(row.part.text);
-			if (row.type === 'step_finish' && row.part?.tokens) {
-				const t = row.part.tokens;
-				usage = { input_tokens: (usage?.input_tokens ?? 0) + (t.input ?? 0), output_tokens: (usage?.output_tokens ?? 0) + (t.output ?? 0) + (t.reasoning ?? 0), cache_read_input_tokens: (usage?.cache_read_input_tokens ?? 0) + (t.cache?.read ?? 0) };
-				if (Number.isFinite(row.part.cost)) costUsd = (costUsd ?? 0) + row.part.cost;
-			}
-			if (row.type === 'error') {
-				const classified = classifyOpenCodeError(row.error);
-				fail(`OpenCode judge provider failed (${classified.code}): ${blind(classified.message, 200)}`);
-				retry ??= classified.retryable ? classified : null;
-			}
-		}
-		if (parts.length) text = parts.join('');
-	} else if (provider === 'claude') {
+	if (provider === 'claude') {
 		let result;
 		try { result = JSON.parse(stdout.trim()); } catch { fail('Claude judge returned malformed provider JSON'); }
 		if (result) {
@@ -435,7 +407,6 @@ export async function invokeJudgeCli({ provider, model, effort, executable, time
 	try {
 		let launch;
 		let outputFile;
-		if (provider === 'opencode') return await invokeOpenCodeJudge({ model, effort, executable, timeoutMs, prompt });
 		if (provider === 'claude') {
 			launch = resolveClaudeLaunch({ executable });
 			if (process.platform === 'win32' && /\.(?:cmd|bat)$/i.test(launch.command)) {
@@ -481,126 +452,6 @@ export async function invokeJudgeCli({ provider, model, effort, executable, time
 		if (error instanceof JudgeAttemptError) throw error;
 		throw new JudgeAttemptError(error.message, { costUsd: !launched || error.code === 'ENOENT' ? 0 : null, cause: error });
 	} finally { await rm(cwd, { recursive: true, force: true }); }
-}
-
-const OPENCODE_JUDGE_AGENT = 'arena-judge';
-const OPENCODE_JUDGE_RATE_LIMIT_ATTEMPTS = 4;
-const OPENCODE_SERVE_ARGS = Object.freeze(['serve', '--pure', '--port', '0', '--hostname', '127.0.0.1']);
-let openCodeJudgePool = null;
-let openCodeJudgeInstance = null;
-
-/** Stops the shared OpenCode judge server; the next judge call starts a new one. */
-export async function closeOpenCodeJudgeServer() {
-	const pool = openCodeJudgePool;
-	const instance = openCodeJudgeInstance;
-	openCodeJudgePool = null;
-	openCodeJudgeInstance = null;
-	await pool?.stop();
-	if (instance !== null) await rm((await instance).directory, { recursive: true, force: true }).catch(() => {});
-}
-
-/**
- * The free OpenCode models answer only the OpenCode client, so the judge runs on OpenCode headless, isolated as
- * opencode-service.mjs isolates `opencode serve`: a generated config (built-in tools listed but denied), a private
- * config home and session database, no Claude Code files or default plugins, so the operator's own OpenCode setup and
- * AGENTS.md never reach the judge. Every judge call of this process is a fresh session on one long-lived server (one
- * `opencode run` process per call cost 450-750 MB each); the config is that server's instance directory's opencode.json.
- * A fixed session title keeps OpenCode from calling its paid title model. OpenCode retries provider errors silently,
- * so the judge watches the session's status and stops at the first provider retry: a free-tier rate limit is waited out
- * with the service's backoff, an exhausted free usage allowance or any other failure surfaces at once. The session's
- * parts are read back as the `opencode run --format json` events they stand for, so parsing and accounting are shared.
- */
-async function invokeOpenCodeJudge({ model, effort, executable, timeoutMs, prompt }) {
-	const { OpenCodeServerPool } = await import('./opencode-pool.mjs');
-	openCodeJudgePool ??= new OpenCodeServerPool();
-	openCodeJudgeInstance ??= (async () => {
-		const directory = await mkdtemp(path.join(os.tmpdir(), 'arena-decision-judge-'));
-		const config = {
-			$schema: 'https://opencode.ai/config.json', autoupdate: false, share: 'disabled', snapshot: false,
-			agent: { [OPENCODE_JUDGE_AGENT]: { description: 'Decision grader', mode: 'primary', prompt: 'You grade recorded decisions of a Minecraft player. Never call tools. Reply with only the JSON object the user message asks for.' } },
-			permission: structuredClone(OPENCODE_PERMISSION),
-		};
-		await writeFile(path.join(directory, 'opencode.json'), JSON.stringify(config), { encoding: 'utf8', mode: 0o600 });
-		return { directory };
-	})();
-	const { directory } = await openCodeJudgeInstance;
-	const launch = {
-		command: executable ?? 'opencode', args: [...OPENCODE_SERVE_ARGS],
-		env: {
-			...createProviderChildEnvironment('opencode', process.env),
-			OPENCODE_DISABLE_CLAUDE_CODE: '1', OPENCODE_DISABLE_DEFAULT_PLUGINS: '1', OPENCODE_DISABLE_AUTOUPDATE: '1', OPENCODE_DISABLE_LSP_DOWNLOAD: '1',
-		},
-	};
-	const deadline = Date.now() + timeoutMs;
-	for (let attempt = 0; ; attempt++) {
-		try {
-			const server = await openCodeJudgePool.server(launch);
-			return parseJudgeCliResult('opencode', await askOpenCodeJudge(server, directory, { model, effort, prompt, timeoutMs: Math.max(1_000, deadline - Date.now()) }), model);
-		} catch (error) {
-			const wait = retryDelayMs(attempt, error.retryAfterMs);
-			if (!error.retryable || attempt + 1 >= OPENCODE_JUDGE_RATE_LIMIT_ATTEMPTS || Date.now() + wait >= deadline) throw error;
-			await new Promise(resolve => setTimeout(resolve, wait));
-		}
-	}
-}
-
-/** One judge prompt on a fresh session; returns what runProcess returns for `opencode run --format json`. */
-async function askOpenCodeJudge(server, directory, { model, effort, prompt, timeoutMs }) {
-	const { openInstanceEvents, withDirectory } = await import('./opencode-pool.mjs');
-	const call = (method, pathname, body = null, options = {}) => httpJsonRequest(server, method, withDirectory(pathname, directory), body, options);
-	const slash = model.indexOf('/');
-	let sessionId = null;
-	let stop = null;
-	const stopped = new Promise((resolve) => { stop = resolve; });
-	const events = openInstanceEvents(server, directory, (event) => {
-		const status = event?.type === 'session.status' ? event.properties?.status : null;
-		if (status?.type !== 'retry' || event.properties?.sessionID !== sessionId || sessionId === null) return;
-		const error = openCodeStreamError(`message="stream error" error.error="${String(status.message ?? 'provider stream error').replaceAll('"', "'")}"`);
-		stop({ processError: error });
-	}, () => server.exited);
-	const timer = setTimeout(() => stop({ processError: new Error(`judge CLI exceeded ${timeoutMs} ms`) }), timeoutMs);
-	try {
-		sessionId = (await call('POST', '/session', { title: 'decision-judge' }, { timeoutMs: 30_000 }))?.id ?? null;
-		if (typeof sessionId !== 'string') throw new Error('OpenCode did not create a judge session');
-		const outcome = await Promise.race([
-			call('POST', `/session/${encodeURIComponent(sessionId)}/message`, {
-				agent: OPENCODE_JUDGE_AGENT, model: { providerID: model.slice(0, slash), modelID: model.slice(slash + 1) }, ...(effort ? { variant: effort } : {}),
-				parts: [{ type: 'text', text: prompt }],
-			}).then(() => null, (error) => ({ processError: error })),
-			stopped,
-		]);
-		if (outcome !== null) {
-			await call('POST', `/session/${encodeURIComponent(sessionId)}/abort`, {}, { timeoutMs: 5_000 }).catch(() => {});
-			return { stdout: '', stderr: '', exitCode: null, processError: outcome.processError };
-		}
-		const messages = await call('GET', `/session/${encodeURIComponent(sessionId)}/message`, null, { timeoutMs: 30_000 });
-		const rows = [];
-		for (const message of Array.isArray(messages) ? messages : []) {
-			if (message?.info?.role !== 'assistant') continue;
-			for (const part of message.parts ?? []) {
-				if (part?.type === 'step-start') rows.push({ type: 'step_start', part });
-				else if (part?.type === 'text') rows.push({ type: 'text', part });
-				else if (part?.type === 'step-finish') rows.push({ type: 'step_finish', part });
-			}
-			if (message.info.error) rows.push({ type: 'error', error: message.info.error });
-		}
-		return { stdout: rows.map((row) => JSON.stringify(row)).join('\n'), stderr: '', exitCode: 0 };
-	} catch (error) {
-		return { stdout: '', stderr: '', exitCode: null, processError: error };
-	} finally {
-		clearTimeout(timer);
-		events.close();
-		if (sessionId !== null) void call('DELETE', `/session/${encodeURIComponent(sessionId)}`, null, { timeoutMs: 5_000 }).catch(() => {});
-	}
-}
-
-// OpenCode logs `message="stream error" ... error.error="AI_APICallError: <provider message>"` for each failed model call.
-export function openCodeStreamError(stderr) {
-	const line = stderr.split(/\r?\n/).find(entry => /message="stream error"/.test(entry) && !/\bsmall=true\b/.test(entry));
-	if (line === undefined) return null;
-	const message = /error\.error="([^"]*)"/.exec(line)?.[1] ?? 'provider stream error';
-	const classified = /free usage limit/i.test(message) ? { code: 'MODEL_UNAVAILABLE', retryable: false, message } : classifyOpenCodeError({ name: 'APIError', data: { message } });
-	return Object.assign(new Error(`OpenCode judge provider failed (${classified.code}): ${blind(classified.message, 200)}`), classified.retryable ? { retryable: true } : {});
 }
 
 function runProcess(launch, cwd, prompt, timeoutMs) {

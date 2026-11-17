@@ -115,7 +115,6 @@ export function presentFailures(value, depth = 0) {
 	return next;
 }
 
-/** The tool result for a thrown tool error, shared by both providers. */
 export function toolErrorResult(error, extraFields = {}) {
 	const reasonCode = String(error?.code ?? 'TOOL_EXECUTION_FAILED').slice(0, 128);
 	return {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Boot a real Fabric dedicated server with Arena Agents for one Minecraft 26.x target and drive it over RCON.
+"""Boot a real Fabric dedicated server with Mineagen for one Minecraft 26.x target and drive it over RCON.
 
 The server is Loom's development server (./gradlew -Pmc=<target> runServer), so the mod runs from this checkout,
 with that target's Fabric API, and with Carpet, Simple Voice Chat and the voice add-on loaded from the run
@@ -179,7 +179,7 @@ class LiveServer:
         version = self.props['mod_version'] + ('' if self.target == properties(None)['mc_compat'] else f'+mc{self.target}')
         for jar in [os.path.join(ROOT, 'libs', f"fabric-carpet-{self.props['carpet_version']}.jar"),
                     os.path.join(ROOT, 'libs', f"voicechat-fabric-{self.props['voicechat_version']}.jar"),
-                    os.path.join(ROOT, 'voice-addon', 'build', 'libs', f'arena-agents-voice-{version}.jar')]:
+                    os.path.join(ROOT, 'voice-addon', 'build', 'libs', f'mineagen-voice-{version}.jar')]:
             if not os.path.isfile(jar):
                 raise FileNotFoundError(f'{jar} (run scripts/fetch-libs.sh {self.target})')
             shutil.copy(jar, mods)
@@ -288,7 +288,7 @@ OFFLINE_NOISE = [r'Failed to request yggdrasil public key', r'error with a html 
 
 
 def hold(target):
-    """Boot a server whose Arena Agents bridge waits for a coordinator on a local port, print how to reach it as one JSON
+    """Boot a server whose Mineagen bridge waits for a coordinator on a local port, print how to reach it as one JSON
     line, and stop the server when stdin closes. The coordinator is not started: the caller connects as it."""
     bridge_port = free_port()
     secret = secrets.token_hex(32)
@@ -297,8 +297,8 @@ def hold(target):
     os.makedirs(os.path.dirname(secret_file), exist_ok=True)
     with open(os.open(secret_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), 'w') as handle:
         handle.write(secret)
-    server.jvm_args = [f'-Darenaagents.bridgePort={bridge_port}', '-Darenaagents.coordinatorAutoStart=false',
-                       f'-Darenaagents.bridgeSecretFile={secret_file}']
+    server.jvm_args = [f'-Dmineagen.bridgePort={bridge_port}', '-Dmineagen.coordinatorAutoStart=false',
+                       f'-Dmineagen.bridgeSecretFile={secret_file}']
     try:
         server.start()
         print(json.dumps({'target': server.target, 'minecraftVersion': server.props['minecraft_version'], 'rconPort': server.rcon_port,
@@ -324,7 +324,7 @@ def main():
         boot = time.time() - started
         text = server.read_log()
         loaded = re.search(r'Loading (\d+) mods:', text)
-        for mod in ['arenaagents', 'carpet', 'voicechat', 'fabric-api', 'minecraft']:
+        for mod in ['mineagen', 'carpet', 'voicechat', 'fabric-api', 'minecraft']:
             checks.append((f'mod {mod} loaded', re.search(rf'^\s*- {re.escape(mod)} ', text, re.M) is not None))
         game = re.search(r'^\s*- minecraft (\S+)', text, re.M)
         checks.append((f"runs Minecraft {server.props['minecraft_version']}", bool(game) and game.group(1) == server.props['minecraft_version']))

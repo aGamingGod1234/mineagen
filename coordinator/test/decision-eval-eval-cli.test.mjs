@@ -1,3 +1,4 @@
+import { privateInputUrl } from '../scripts/private-inputs.mjs';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -9,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 // The whole eval.mjs flow (screen, redo into a new screen, confirmation with a manifest) on a scripted fake provider:
 // no model calls. Both arms run this checkout; the script decides each answer by arm, stage, case and sample.
 const evalCli = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'scripts', 'decision-eval', 'eval.mjs');
-const replay = JSON.parse(await readFile(new URL('./fixtures/decision-eval/g1-replay-sample.json', import.meta.url), 'utf8'));
+const replay = JSON.parse(await readFile(privateInputUrl('coordinator/test/fixtures/decision-eval/g1-replay-sample.json'), 'utf8'));
 const cases = ['a', 'b', 'c', 'd', 'e', 'f'].flatMap((family) => Array.from({ length: 6 }, (_, i) => ({
 	id: `${family}${i}`, family: `fam-${family}`, causeClass: 'test', split: 'train',
 	state: { observation: replay.observations[0], agent: { goal: replay.goal, goalSpec: replay.goalSpec } },
@@ -42,7 +43,7 @@ async function runEval(scenario, extra = [], envExtra = {}) {
 		'--samples', '3', '--concurrency', '8', '--out', out, '--cache-dir', path.join(root, 'cache'), '--budget-usd', '50', ...extra],
 	{ timeout: 240_000, env: { ...process.env, DECISION_EVAL_FAKE_PROVIDER: fake, FAKE_SCENARIO: scenario, DECISION_EVAL_FIRST_SAMPLE_USD: '0.01', DECISION_EVAL_REPEAT_SAMPLE_USD: '0.01', ...envExtra } }, (error, stdout, stderr) => resolve({ code: error?.code ?? 0, stdout, stderr })));
 	let summary = null;
-	try { summary = JSON.parse(await readFile(path.join(out, 'eval.json'), 'utf8')); } catch { /* asserted by the caller */ }
+	try { summary = JSON.parse(await readFile(path.join(out, 'eval.json'), 'utf8')); } catch {}
 	const log = await readFile(path.join(out, 'eval.log'), 'utf8').catch(() => '');
 	return { ...result, summary, log, root, out };
 }

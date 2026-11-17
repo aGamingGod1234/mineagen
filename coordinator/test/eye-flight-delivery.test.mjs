@@ -25,7 +25,6 @@ function fixture() {
 	return { wake, build, views, send, tool };
 }
 
-// Independent Sol r2 delivery fixture, including the real native tool presentation/commit path.
 for (const prior of ['wake', 'observe', 'action', 'sequence']) for (const count of [1, 2, 3, 4, 8]) {
 	test(`${count} unseen flights arrive after delivered ${prior} without replacing inventory or interaction`, () => {
 		const { wake, build, views, send, tool } = fixture();
@@ -80,7 +79,7 @@ test('delivered flights remain usable by exact view while only one changed or ne
 test('an undelivered tool reply cannot consume flight evidence', () => {
 	const { wake, send, tool } = fixture(); send();
 	wake.observation.perception.events = facts(8);
-	tool(); // Prepared, but never committed as delivered.
+	tool();
 	assert.equal(flightKeys(parse(send()).observationView.replace).length, 8);
 });
 

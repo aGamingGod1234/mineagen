@@ -33,12 +33,10 @@ export class ExplorationOccupancy {
 		const value = this.#memory.query(agentId, { ...(dimension === null ? {} : { dimension }), worldId, limit: 0 });
 		return { worldId: value.worldId, dimension: value.dimension, knownCells: value.knownCells, seenCells: value.seenCells, visitedCells: value.visitedCells, blockedCells: value.blockedCells };
 	}
-	/** Walked, net displacement and revisited places over the recent walk, or null. */
 	recentTravel(agentId, observation) {
 		const position = observationPosition(observation);
 		return position === null ? null : recentTravel(this.#search(agentId, observation).odometer, position);
 	}
-	/** Compact search facts for a survey result: coverage without candidates. */
 	coverage(agentId, observation) {
 		const position = observationPosition(observation);
 		if (position === null) return null;

@@ -1,3 +1,4 @@
+import { privateInputUrl } from '../scripts/private-inputs.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
@@ -9,7 +10,7 @@ import { readFile } from 'node:fs/promises';
 import { renderWake } from '../src/decision-eval/render.mjs';
 import { encodeNativeEventInput, ModelObservationViews } from '../src/model-fact-encoding.mjs';
 
-const replay = JSON.parse(await readFile(new URL('./fixtures/decision-eval/g1-replay-sample.json', import.meta.url), 'utf8'));
+const replay = JSON.parse(await readFile(privateInputUrl('coordinator/test/fixtures/decision-eval/g1-replay-sample.json'), 'utf8'));
 
 test('the shared Claude rows equal the production Claude proxy', () => {
 	for (const model of ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-fable-5-1']) {

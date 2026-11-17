@@ -57,7 +57,6 @@ const KEEP_GOING_SCHEMA = Object.freeze({ type: 'boolean' });
 // call it runs; the background ones return a handle at once, the rest their result.
 export const STEP_VERBS = Object.freeze({ travel_to: 'travel_to', dig_to: 'dig_to', mine: 'mine_vein', cast_obsidian: 'cast_obsidian', fight_until: 'fight_until',
 	build: 'build', build_shelter: 'build_shelter', barter_until: 'barter_until', rest: 'rest', gather: 'gather', find: 'find', craft: 'craft', smelt: 'furnace_transaction', obtain: 'obtain', repair_inventory: 'repair_inventory' });
-// do_step verbs that run to their result inside the call instead of in the background.
 const FOREGROUND_VERBS = new Set(['gather', 'find', 'craft', 'smelt', 'obtain', 'repair_inventory']);
 export const STEP_WHY_LENGTH = 100;
 export const STEP_SEEN_PATTERN = /^seen:((?:[a-z0-9_.-]+:)?[a-z0-9_./-]+)$/;
@@ -273,7 +272,6 @@ const TOOL_ADJUSTMENTS = new WeakMap();
 /** What normalization changed in the model's arguments (field -> note), or undefined. Reported in the tool result. */
 export function toolAdjustments(tool) { return tool !== null && typeof tool === 'object' ? TOOL_ADJUSTMENTS.get(tool) : undefined; }
 
-/** A copy of a normalized tool for presentation that keeps its adjustment notes. */
 export function presentedTool(tool, extra) {
 	const copy = { ...tool, ...extra };
 	const adjusted = toolAdjustments(tool);
@@ -518,7 +516,6 @@ function normalizeMinecraftToolArguments(name, value) {
 			if (args.section === 'strategy') {
 				if (args.offset !== undefined) invalid('strategy topics are returned whole');
 				if (args.topic !== undefined) {
-					// Live d4e: topic "stronghold" failed and the End topic was never read.
 					const topic = resolveStrategyTopic(args.topic);
 					if (topic === null) invalid(`strategy topic is not supported; topics: ${STRATEGY_REFERENCE_TOPICS.join(', ')}`);
 					return { kind: 'capabilities', section: 'strategy', topic };
@@ -1007,7 +1004,6 @@ export function toolResultContent(value, success = true, reserveBytes = 0) {
 		return { success, contentItems: [{ type: 'inputText', text: JSON.stringify(isPlainObject(compacted) ? { ...compacted, inspected } : compacted) }] };
 	}
 	if (Buffer.byteLength(text, 'utf8') > limit) {
-		// Keep fallback order stable, but construct only candidates actually needed.
 		const candidates = [
 			...(value?.postAction?.observation === undefined || isSequenceResult(value) ? [] : [() => compactActionFeedback(value)]),
 			...(Array.isArray(value?.entries) ? [() => compactInspectionResult(value), () => compactInspectionResult(value, true)] : []),
@@ -1504,7 +1500,6 @@ function normalizeCarriedReflexes(value) {
 }
 function codedError(code, message) { return Object.assign(new Error(message), { code }); }
 
-/** A standing order is a stored program plus its trigger; it never runs on this call. */
 function normalizeStandingOrder(args) {
 	const standing = requireObject(args.standing);
 	if (args.background !== undefined && typeof args.background !== 'boolean') invalid('background must be boolean');

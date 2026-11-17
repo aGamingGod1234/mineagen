@@ -23,7 +23,7 @@ if ((await readdir(out)).length) throw new Error('Use a fresh output directory')
 const sleep = ms => new Promise(done => setTimeout(done, ms));
 const AGENT = 'Probe';
 const result = { checkpoint: path.basename(checkpointFile), bed };
-const s = await boot(out, { jar: path.resolve(jarArg ?? path.join(root, 'build/libs/arena-agents-0.2.0.jar')), template, port, world: null, seed: checkpoint.seed });
+const s = await boot(out, { jar: path.resolve(jarArg ?? path.join(root, 'build/libs/mineagen-0.2.0.jar')), template, port, world: null, seed: checkpoint.seed });
 const pos = async () => String(await s.command(`data get entity ${AGENT} Pos`)).match(/\[\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?\]/)?.slice(1).map(Number) ?? null;
 try {
 	let e = null;

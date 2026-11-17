@@ -84,7 +84,7 @@ for (const [name, Provider, invoke] of [
 }
 
 for (const channel of ['tts', 'stt']) {
-	test(`${channel} recovery respects Retry-After and foreground success cancels it`, async () => {
+	test(`${channel} recovery respects Retry-After with one foreground attempt and no synthetic probes`, async () => {
 		let calls = 0, failed = true;
 		const Provider = channel === 'tts' ? OpenAiTtsProvider : OpenAiSttProvider;
 		const provider = new Provider({ apiKey: 'fixture', fetchImpl: async () => {
@@ -92,14 +92,19 @@ for (const channel of ['tts', 'stt']) {
 			if (failed) return new Response(null, { status: 429, headers: { 'retry-after': '60' } });
 			return channel === 'tts' ? new Response(Buffer.alloc(24)) : Response.json({ text: 'Recovered.' });
 		} });
-		await withWorker({ provider: channel === 'tts' ? provider : null, sttProvider: channel === 'stt' ? provider : null }, async ({ time, post }) => {
+		await withWorker({ provider: channel === 'tts' ? provider : null, sttProvider: channel === 'stt' ? provider : null }, async ({ worker, time, post }) => {
 			const first = await post(channel);
 			assert.equal(first.status, 429); assert.equal(first.retryAfter, '60');
-			assert.deepEqual(time.pending(), [60000]);
+			assert.deepEqual(time.pending(), [], 'paid providers have no synthetic health timer');
+			assert.equal(worker.statusSnapshots().find(row => row.component === `voice:${channel}`).nextProbeAtEpochMs, 60000);
 			await time.advance(59999); assert.equal(calls, 1);
-			await time.advance(60000); assert.equal(calls, 2);
-			assert.deepEqual(time.pending(), [120000]);
+			assert.equal((await post(channel)).status, 503); assert.equal(calls, 1);
+			await time.advance(60000); assert.equal(calls, 1);
+			assert.equal((await post(channel)).status, 429); assert.equal(calls, 2);
+			assert.equal(worker.statusSnapshots().find(row => row.component === `voice:${channel}`).nextProbeAtEpochMs, 120000);
 			failed = false;
+			assert.equal((await post(channel, { text: 'Too early.' })).status, 503);
+			await time.advance(120000);
 			assert.equal((await post(channel, { text: 'Foreground recovery.' })).status, 200);
 			assert.deepEqual(time.pending(), []);
 			await time.advance(180000); assert.equal(calls, 3);
@@ -107,17 +112,20 @@ for (const channel of ['tts', 'stt']) {
 	});
 }
 
-test('later rate limit extends a pending recovery deadline; malformed headers preserve backoff', async () => {
+test('rate-limit recovery honors malformed-header backoff and later provider deadlines', async () => {
 	let retryAfter = 'invalid', probes = 0;
 	await withWorker({ provider: { synthesize() { throw Object.assign(new Error('limited'), { code: 'TTS_RATE_LIMITED', retryAfter }); }, probe() { probes++; } } },
 		async ({ time, post }) => {
 			assert.equal((await post('tts')).status, 429);
 			assert.deepEqual(time.pending(), [1000]);
 			await time.advance(500); retryAfter = '60';
+			assert.equal((await post('tts')).status, 503, 'open circuit does not spend another provider call');
+			assert.deepEqual(time.pending(), [1000]);
+			await time.advance(1000); assert.equal(probes, 1);
 			assert.equal((await post('tts')).status, 429);
-			assert.deepEqual(time.pending(), [60500]);
-			await time.advance(60499); assert.equal(probes, 0);
-			await time.advance(60500); assert.equal(probes, 1);
+			assert.deepEqual(time.pending(), [61000]);
+			await time.advance(60999); assert.equal(probes, 1);
+			await time.advance(61000); assert.equal(probes, 2);
 		});
 });
 

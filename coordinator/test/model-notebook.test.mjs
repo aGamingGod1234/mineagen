@@ -150,7 +150,7 @@ test('model note provenance survives restart and rejects unrelated payload field
 	assert.deepEqual((await restored.query('a', { worldId: 'one' })).entries[0].provenance, provenance);
 	assert.throws(() => restored.writeNote('a', { ...note, provenance: { ...provenance, apiKey: 'not-accepted' } }), /provenance/);
 	assert.throws(() => restored.writeNote('a', { ...note, provenance: { ...provenance, goalRevision: 4 } }), /goalRevision/);
-	assert.throws(() => restored.writeNote('a', { ...note, provenance: { ...provenance, provider: 'gemini', serviceTier: 'fast' } }), /fast/);
+	assert.throws(() => restored.writeNote('a', { ...note, provenance: { ...provenance, provider: 'claude', serviceTier: 'fast' } }), /fast/);
 });
 
 test('a valid empty server reason code remains empty in the authoritative journal', async () => {

@@ -181,11 +181,8 @@ export const DEFAULT_THRESHOLD = 0.67;
 
 const ID = /^[a-z0-9][a-z0-9._-]{0,127}$/;
 const PREDICATE_KEYS = new Set(['tool', 'args', 'normalized', 'index', 'not', 'any', 'all', 'none', 'awayFrom', 'targetsEntity', 'usesItem',
-	// v1.2 grade extensions (semantics in predicates.mjs)
 	'action', 'actionArgs', 'movesAway', 'approaches', 'placesBlock', 'breaksBlock', 'waits', 'noBodyAction', 'bodyAction', 'count',
-	// v1.3
 	'firstAction', 'firstActionArgs', 'escapesHazard', 'rises', 'freesSlot', 'discardsItem', 'clearsLineOfSight',
-	// v1.4
 	'collectsWithoutRoom']);
 const MATCHER_KEYS = new Set(['eq', 'regex', 'flags', 'gte', 'lte', 'gt', 'lt', 'in', 'contains', 'exists', 'not', 'range', 'anyOf', 'allOf']);
 
@@ -200,7 +197,6 @@ export class DecisionEvalSchemaError extends TypeError {
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const fail = (path, message) => { throw new DecisionEvalSchemaError(path, message); };
 
-/** Validates one matcher; returns it unchanged. */
 export function validateMatcher(value, path = 'matcher') {
 	if (value === null || ['string', 'number', 'boolean'].includes(typeof value)) return value;
 	if (!isObject(value)) fail(path, 'matcher must be a literal or an object');
@@ -243,7 +239,6 @@ function validatePosition(value, path) {
 	if (!isObject(value) || !['x', 'y', 'z'].every((axis) => Number.isFinite(value[axis]))) fail(path, 'must be "player", "threat" or {x,y,z}');
 }
 
-/** Validates one predicate; returns it unchanged. */
 export function validatePredicate(value, path = 'predicate') {
 	if (!isObject(value)) fail(path, 'predicate must be an object');
 	const keys = Object.keys(value);
@@ -302,7 +297,6 @@ export function validatePredicate(value, path = 'predicate') {
 	return value;
 }
 
-// An item id, a list of ids, "food", or { food, tag, regex, flags, in }.
 function validateItemSpec(value, path) {
 	if (!isObject(value)) { validateStringOrList(value, path); return; }
 	const known = new Set(['food', 'tag', 'regex', 'flags', 'in']);
@@ -399,7 +393,6 @@ export function casePreviousObservations(testCase) {
 	return isObject(state.previousObservation) ? [state.previousObservation] : [];
 }
 
-/** Validates one sample result row as written by the runner. */
 export function validateSampleResult(value, path = 'result') {
 	if (!isObject(value)) fail(path, 'must be an object');
 	if (value.schemaVersion !== DECISION_EVAL_SCHEMA_VERSION || value.kind !== 'decision-eval-sample') fail(path, 'not a v1 decision-eval-sample');

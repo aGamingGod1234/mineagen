@@ -219,7 +219,6 @@ async function startWithCancellingTurn(secondTool) {
 	run.bridge.emit('goal_control', { agentId: 'agent-a', payload: { operation: 'start', goalRevision: 1, goal: 'Wait.' } });
 	run.bridge.emit('observation', observation(1, { attention: true, changedFacts: ['blocks'] }));
 	await eventually(() => run.bridge.sent.some(({ type }) => type === 'action_command'));
-	// Held while the turn that owns the wait is still running.
 	run.bridge.emit('observation', observation(2, { attention: true, changedFacts: ['sighted'] }));
 	await eventually(() => timers.length === 1);
 	return { run, planner, rows, timers, release };

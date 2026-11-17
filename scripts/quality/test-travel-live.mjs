@@ -23,7 +23,7 @@ const argv = process.argv.slice(2);
 const flag = (name, fallback) => { const i = argv.indexOf(name); return i < 0 ? fallback : argv[i + 1]; };
 const [coursesFile, outArg] = argv.filter((value, i) => !value.startsWith('--') && !argv[i - 1]?.startsWith('--'));
 const mode = flag('--mode', 'travel');
-const jar = path.resolve(flag('--jar', path.join(root, 'build/libs/arena-agents-0.2.0.jar')));
+const jar = path.resolve(flag('--jar', path.join(root, 'build/libs/mineagen-0.2.0.jar')));
 const only = flag('--only', null)?.split(',');
 const checkpointDir = flag('--checkpoints', null);
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port = Number(process.env.SLOT_PORT_BASE);
@@ -59,7 +59,6 @@ for (const course of courses) {
 	bySeed.get(checkpoint.seed).push(course);
 }
 
-/** One action with a long result wait (travel_to runs for minutes). */
 async function act(s, type, args, waitMs) {
 	const id = `course-${++s.ordinal}`;
 	const payload = { actionId: id, traceId: id, goalRevision: s.record.goalRevision, actionType: type, arguments: args,
@@ -126,7 +125,6 @@ async function locateTarget(s, course, start, dim) {
 	return { x: x + 0.5, z: z + 0.5, located: String(text) };
 }
 
-/** The scripted stand-in for model-chosen navigate_to legs. */
 async function navigateLeg(s, target, run) {
 	const here = positionOf(await observe(s));
 	const bearing = Math.atan2(target.z - here[2], target.x - here[0]);
@@ -206,7 +204,6 @@ async function runCourse(s, course) {
 	let lastGameTick = startGameTick;
 	const startedAt = Date.now();
 	let last = start, health = startObservation.player?.health ?? 20, sampling = true, noProgress = 0;
-	// Health, fire and lava sampled beside the actions (observations are answered while an action runs).
 	const sampler = (async () => {
 		while (sampling) {
 			const o = await observe(s).catch(() => null);
@@ -338,7 +335,6 @@ async function runCourse(s, course) {
 	run.blocksPerGameMinute = run.gameTicks > 0 ? round(run.progressBlocks / (run.gameTicks / 1200)) : null;
 	run.gameClockSource = s.dead ? 'last alive observation; death may omit the final sampling interval' : 'ready observation world.gameTime';
 	run.pathBlocks = round(run.path);
-	// The same legs with the model choosing each one: Sol took about 5 s per call on Oct 23.
 	run.blocksPerMinuteWithModel5s = round(run.progressBlocks / ((wallMs + run.actions * 5_000) / 60_000));
 	return run;
 }

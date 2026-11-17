@@ -20,7 +20,6 @@ function endermanFact(observation, threats) {
 	for (const e of [...endermen.filter(e => e.appearance?.screaming === true || e.targetingAgent === true), ...threats.filter(t => t.type === 'minecraft:enderman')]) {
 		if (id(e) && !Number.isFinite(angry.get(id(e)))) angry.set(id(e), e.distance);
 	}
-	// How near the closest angry one is: a pearl or path choice needs it (run d9-end-b pearled beside one 27 m off).
 	const nearest = Math.min(...[...angry.values()].filter(Number.isFinite));
 	// EnderMan cannot path into water, refuses water as a teleport destination and is hurt and teleported by its touch.
 	return 'Endermen turn hostile if attacked or stared at (worn carved pumpkin prevents); looking away never calms one. A 2-high gap blocks their body; standing water keeps them off.'
@@ -28,11 +27,6 @@ function endermanFact(observation, threats) {
 		+ (angry.size ? ` Angry: ${angry.size}${Number.isFinite(nearest) ? ` (nearest ${Math.round(nearest)}m)` : ''}.` : '');
 }
 
-/**
- * EnderDragon.knockBack: bodies inside its wings' reach are pushed 4 blocks/tick away and lifted, so a pass over open
- * ground throws a player far and high (run d7-end-a: thrown from y64 to y73, killed by the landing at 6.5 HP).
- * The End has no natural water, so an emptied bucket stays empty unless placed water is scooped back.
- */
 function dragonFact(observation) {
 	const items = observation.continuity?.rememberedSections?.includes('inventory') ? null : observation.inventory?.items;
 	const has = id => Array.isArray(items) && items.some(e => e.itemId === `minecraft:${id}` && e.count > 0);
@@ -109,7 +103,6 @@ export function combatFacts(observation, { lean = false } = {}) {
 	if (types.has('minecraft:blaze') && lean) facts.push(`Blazes: 20 health, fire-immune, hover; with sight within 48 they fire 3 fireballs (5 damage + fire each) about every 8 s; a facing shield or a solid block between stops them. build_shelter at x,y,z (interior feet cell, itemId a carried solid block) gives two-high walls with a fighting window. Hovering blazes beyond reach: select a bow and use_ranged with targetId, drawDurationMs:1000 and no aim fields; shield and bow cannot be used together. Use fight_target pursue:false only once a blaze is in reach. Fight receipts give drop UUIDs for pick_up_item; pick up dropped rods (a count fight does it itself; with collect:false once no hostile is within 16 blocks).${swordHits(observation)}`);
 	else if (types.has('minecraft:blaze')) facts.push(`Players often enclose themselves before a blaze fight: build_shelter at x,y,z (interior feet cell), opening north/south/east/west, itemId a carried solid block, roof true by default (omit it if it hides hovering targets). It clears partial wall obstructions with hotbar tools and touching fire, then builds two-high walls with an eye-height fighting window above a sill, so knockback stays inside and walls stop shots. Build before pressure. Hovering blazes beyond melee reach can be shot from the window: select a bow and use_ranged with targetId, drawDurationMs:1000 and no aim fields for ballistic aim; shield and bow cannot be used together. If the arc names a shelter head-height wall as its obstruction, mine that block for another window; keep the feet-level walls. Use fight_target pursue:false only when a blaze enters reach. Pick up witnessed rods (a count fight does it itself; with collect:false once no hostile is within 16 blocks); for drops outside a shelter, open the sill with break_block, collect, then return and rebuild if safe. The model chooses whether and where. Blaze fights hold the deck and leave fire with pursue:true. With shield:true they guard at range and wait for reach; unshielded blocked approaches return control. Idle: shield stance maxS up to 600 (default 600); hostile_near targetId tracks one UUID. Fight receipts give drop UUIDs/last-seen positions for pick_up_item. Blazes: 20 health, fire-immune, hover; with line of sight within 48 blocks they charge, then fire 3 small fireballs (5 damage + fire each; a miss lights a fire block where it lands) about every 8 s, and hit in melee within 2 blocks. A raised shield facing the shots blocks them; a solid block between you and the blaze stops the volley; snowballs deal 3; placed water evaporates in the Nether.${swordHits(observation)}`);
 	if (types.has('minecraft:blaze')) facts.push("Rod counts mean rods held, not blazes killed. collect:false waits for no hostile within 16 blocks; an active spawner may never clear. collect:true and pursue:true permit moving pickup; pursue:false keeps count fights in place. Rods can land on a ledge above: collection builds seen routes with carried blocks; open a sealed shelter's sill first. Choose the route and health floor.");
-	// BlocksAttacks (shield): a blocked hit of 3+ damage costs 1 + floor(damage) uses (run d9-nether-e: it broke mid-fight).
 	const shield = (observation.inventory?.items ?? []).find(e => e?.slot === 'offhand' && e.itemId === 'minecraft:shield');
 	const shieldLeft = Number.isFinite(shield?.usesLeft) ? shield.usesLeft : Number.isFinite(shield?.maxDamage) && Number.isFinite(shield?.damage) ? shield.maxDamage - shield.damage : null;
 	if (threats.length && Number.isFinite(shieldLeft) && shieldLeft <= 60 && !observation.continuity?.rememberedSections?.includes('inventory')) facts.push(`Offhand shield: ${shieldLeft} uses left; each blocked hit of 3+ damage costs 1 + that damage.`);

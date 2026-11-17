@@ -38,7 +38,6 @@ export function rankPatches(episodes, { examples = 2 } = {}) {
 		.sort((a, b) => b.deaths - a.deaths || b.damage - a.damage || b.closeCalls - a.closeCalls || b.damageTaken - a.damageTaken || a.diagnosis.localeCompare(b.diagnosis) || String(a.kind).localeCompare(String(b.kind)));
 }
 
-/** The counts for one set of episodes and forecasts. */
 export function summarizeWatch(episodes, forecasts = [], { top = 10 } = {}) {
 	const byKindOutcome = {}, byDiagnosis = {};
 	for (const e of episodes) {

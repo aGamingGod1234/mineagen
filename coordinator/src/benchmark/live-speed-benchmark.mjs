@@ -55,8 +55,6 @@ export const SPEED_SCENARIOS = Object.freeze([
 	}),
 ]);
 
-// Scenarios removed until their setup and objective can be verified. zombie-response promised a zombie encounter and an
-// iron sword but set up neither, and passed on lifecycle completion plus a readable position.
 const UNSUPPORTED_SPEED_SCENARIOS = Object.freeze(['zombie-response']);
 
 export function createSpeedMatrix({ profiles = DEFAULT_SPEED_PROFILES, repetitions = 3, runId = 'live-speed', scenarioIds = null, timeoutMs = SPEED_BENCHMARK_TIMEOUT_MS } = {}) {

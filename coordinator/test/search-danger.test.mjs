@@ -90,7 +90,6 @@ test('fixture zombie in a tunnel: find lava meets the zombie coming at it before
 	assert.equal(body.calls[0].actionType, 'fight_target', 'fought before the look turns its back (the live fixture lost 9 health to it during the look)');
 	assert.deepEqual([body.calls[0].args.targetId, body.calls[0].args.pursue, body.calls[0].args.timeoutMs], ['z1', false, 30_000]);
 	assert.equal(body.calls.some((call) => call.actionType === 'build_shelter'), false);
-	// One that comes during the dig stops it and is fought there.
 	const later = fakeBody({ start: atDepth([]), acts: {
 		dig_to: [{ ...stopFor('zombie z1 at 3,-54,0, 3.0 blocks away'), then: () => ({ player: { ...atDepth([zombie({ distance: 3 })]).player }, entities: [{ stableId: 'z1', type: 'minecraft:zombie', hostile: true, x: 3.5, y: -54, z: 0.5 }] }) }, lavaSeen],
 		fight_target: [killed] } });
@@ -165,13 +164,11 @@ test('a fight that leaves the mob alive hands the fork back walled in, never loo
 	assert.equal(result.reasonCode, 'FIND_DANGER', result.message);
 	assert.match(result.message, /^Stopped for danger: health 8 with a zombie 2 blocks away \(fight LOW_HEALTH_BAILOUT\); walled in where it stands/);
 	assert.deepEqual(body.calls.map((call) => call.actionType ?? 'look'), ['fight_target', 'build_shelter']);
-	// Out of time with the zombie in reach and alive: the same.
 	const timed = fakeBody({ start: kit(atDepth([zombie({ distance: 3 })], coming)), acts: { fight_target: [{ result: { state: 'TIMED_OUT', reasonCode: 'FIGHT_TIMED_OUT' } }], build_shelter: [shelter], dig_to: [lavaSeen] } });
 	const out = await searchFor({ block: 'minecraft:lava' }, timed);
 	assert.equal(out.reasonCode, 'FIND_DANGER', out.message);
 	assert.match(out.message, /^Stopped for danger: health 20 with a zombie it fought and did not kill \(fight FIGHT_TIMED_OUT\)/);
 	assert.equal(timed.calls.some((call) => call.look !== undefined || call.actionType === 'dig_to'), false);
-	// The same fight met on a dig's stop for the zombie's hit.
 	const hit = { result: { state: 'FAILED', reasonCode: 'DAMAGE_TAKEN', message: 'Took 3 damage (mob); health 17' },
 		then: (now) => ({ player: { ...now.player, health: 17, threats: [zombie({ distance: 1.5 })], lastAttacker: { uuid: 'z1', type: 'minecraft:zombie' } }, ...coming }) };
 	const dug = fakeBody({ start: kit(atDepth([])), acts: { dig_to: [hit, lavaSeen], fight_target: [bailed], build_shelter: [shelter] } });

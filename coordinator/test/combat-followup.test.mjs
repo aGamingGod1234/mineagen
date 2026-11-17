@@ -145,7 +145,6 @@ test('danger lines are the approved neutral text within the budget each replaced
 	// The no-task line names some of the allowed self-care and says so; the enforced allowlist is wider (look, wait, pick up food).
 	assert.match(NO_TASK_DANGER_INSTRUCTION, /Options include: /);
 	assert.doesNotMatch(NO_TASK_DANGER_INSTRUCTION, /Allowed now|Defend yourself/);
-	// Steering sentences the old verb check accepted, spliced into otherwise approved text, are rejected.
 	for (const steer of ['Eat steak before moving out of lava.', 'Run away from the piglin.', 'Attack the nearest mob.']) {
 		const [hazard] = APPROVED_DANGER_LINES.hazardContact;
 		assert.equal(approvedDangerLine(hazard.replace(' Lava costs', ` ${steer} Lava costs`), APPROVED_DANGER_LINES.hazardContact), false, steer);
@@ -159,7 +158,6 @@ test('danger lines are the approved neutral text within the budget each replaced
 	}
 });
 
-// ---- Direct fight/flee while a program is paused for danger ----
 
 const record = { agentId: 'survivor', provider: 'codex', model: 'test', reasoningEffort: 'high', goalRevision: 1 };
 
@@ -382,7 +380,6 @@ test('fight/flee are still refused while the program owns the body (not paused)'
 	await assert.rejects(h.call('act', { actionType: 'fight_target', arguments: { targetId: ZOMBIE_B, timeoutMs: 15_000 } }), { code: 'NATIVE_PROGRAM_IN_PROGRESS' });
 });
 
-// ---- The live trace, replayed through the coordinator ----
 
 test('trace replay: kill, then a second zombie hitting every ~1.1 s no longer steers the turn 13 times', async () => {
 	let release;

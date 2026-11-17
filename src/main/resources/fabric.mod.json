@@ -1,29 +1,29 @@
 {
 	"schemaVersion": 1,
-	"id": "arenaagents",
+	"id": "mineagen",
 	"version": "${version}",
-	"name": "Arena Agents",
+	"name": "Mineagen",
 	"description": "Summon configurable Codex-powered humanoid agents that can act autonomously in Minecraft.",
-	"icon": "assets/arenaagents/icon.png",
+	"icon": "assets/mineagen/icon.png",
 	"license": "MIT",
 	"environment": "*",
 	"entrypoints": {
 		"main": [
-			"dev.agaminggod.arenaagents.ArenaAgents"
+			"dev.agaminggod.mineagen.Mineagen"
 		],
 		"client": [
-			"dev.agaminggod.arenaagents.client.ArenaAgentsClient"
+			"dev.agaminggod.mineagen.client.MineagenClient"
 		]
 	},
 	"mixins": [
-		"arenaagents.mixins.json",
-		"arenaagents.compat.mixins.json",
+		"mineagen.mixins.json",
+		"mineagen.compat.mixins.json",
 		{
-			"config": "arenaagents.client.mixins.json",
+			"config": "mineagen.client.mixins.json",
 			"environment": "client"
 		},
 		{
-			"config": "arenaagents.client.compat.mixins.json",
+			"config": "mineagen.client.compat.mixins.json",
 			"environment": "client"
 		}
 	],

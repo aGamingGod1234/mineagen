@@ -162,7 +162,7 @@ export class FactLedger {
 	toPlannerFacts(nowTick = this.#lastTick) {
 		const entries = this.snapshot(nowTick);
 		const selected = [];
-		let bytes = Buffer.byteLength(PREFIX, 'utf8') + 2; // JSON array brackets.
+		let bytes = Buffer.byteLength(PREFIX, 'utf8') + 2;
 		for (const entry of entries) {
 			const serialized = JSON.stringify(entry);
 			const addedBytes = Buffer.byteLength(serialized, 'utf8') + (selected.length > 0 ? 1 : 0);

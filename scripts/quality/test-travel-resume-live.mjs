@@ -1,11 +1,4 @@
 #!/usr/bin/env node
-// Provider-free check that a running travel_to survives what used to end it (FIX 3, d41-resume). This script stands in
-// for the coordinator over the bridge and checks:
-//   zombieStop     a zombie on the route stops travel_to without fightThrough (HOSTILE_NEAR, unchanged);
-//   zombieFight    with the model's fightThrough:true the body fights the zombie with its sword and arrives;
-//   reflexResume   a model-armed reflex fires mid-trip after a hit; the paused trip resumes and arrives, and its result
-//                  names the reflex that paused it.
-// Always launch under fix-slot.sh (slot.sh live); ports come from SLOT_PORT_BASE. Operator commands build fixtures and spawn mobs only.
 import { readFile, writeFile, mkdir, cp, readdir, unlink, open } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,20 +12,20 @@ const root = fileURLToPath(new URL('../..', import.meta.url));
 const out = resolve(process.argv[2] ?? 'runtime/travel-resume-live');
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE;
 if (!template || !process.env.SLOT_PORT_BASE) throw new Error('Set ARENA_HEADLESS_SERVER_TEMPLATE and launch under slot.sh live');
-const jar = resolve(process.env.ARENA_JAR ?? join(root, 'build/libs/arena-agents-0.2.0.jar'));
+const jar = resolve(process.env.ARENA_JAR ?? join(root, 'build/libs/mineagen-0.2.0.jar'));
 const port = Number(process.env.SLOT_PORT_BASE), server = join(out, 'server');
 await mkdir(out, { recursive: true });
 if ((await readdir(out)).length) throw new Error('Use a fresh output directory');
 await writeFile(join(out, 'manifest.json'), JSON.stringify({ kind: 'provider-free live mechanics', aiPerformanceMeasured: false, fixtureSetupUsesOperatorCommands: true,
 	jarSha256: createHash('sha256').update(await readFile(jar)).digest('hex'), node: process.version }, null, 2));
 await cp(template, server, { recursive: true });
-for (const name of await readdir(join(server, 'mods'))) if (name.startsWith('arena-agents-')) await unlink(join(server, 'mods', name));
-await cp(jar, join(server, 'mods/arena-agents-0.2.0.jar'));
+for (const name of await readdir(join(server, 'mods'))) if (name.startsWith('mineagen-')) await unlink(join(server, 'mods', name));
+await cp(jar, join(server, 'mods/mineagen-0.2.0.jar'));
 const secret = randomBytes(32).toString('hex');
 await writeFile(join(out, 'secret.txt'), secret, { mode: 0o600 });
 await writeFile(join(server, 'server.properties'), `online-mode=false\nserver-ip=127.0.0.1\nserver-port=${port + 2}\nenable-rcon=true\nrcon.ip=127.0.0.1\nrcon.port=${port + 1}\nrcon.password=${secret}\nlevel-name=world\nlevel-seed=20261018\nlevel-type=minecraft:flat\ngenerator-settings={"layers":[{"block":"minecraft:bedrock","height":1},{"block":"minecraft:stone","height":3}],"biome":"minecraft:plains"}\nspawn-protection=0\nview-distance=5\nsimulation-distance=5\npause-when-empty-seconds=-1\nmax-players=4\nspawn-monsters=false\n`);
 const log = await open(join(out, 'server.log'), 'a');
-const child = spawn(`${process.env.JAVA_HOME}/bin/java`, [`-Darenaagents.bridgePort=${port}`, '-Darenaagents.coordinatorAutoStart=false', `-Darenaagents.bridgeSecretFile=${join(out, 'secret.txt')}`, '-Xms512M', '-Xmx2G', '-jar', 'fabric-server-launch.jar', 'nogui'], { cwd: server, stdio: ['ignore', log.fd, log.fd] });
+const child = spawn(`${process.env.JAVA_HOME}/bin/java`, [`-Dmineagen.bridgePort=${port}`, '-Dmineagen.coordinatorAutoStart=false', `-Dmineagen.bridgeSecretFile=${join(out, 'secret.txt')}`, '-Xms512M', '-Xmx2G', '-jar', 'fabric-server-launch.jar', 'nogui'], { cwd: server, stdio: ['ignore', log.fd, log.fd] });
 await writeFile(join(out, 'server.pid'), String(child.pid));
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 
@@ -115,7 +108,6 @@ try {
 	await command(`gamemode survival ${agent}`); await command(`clear ${agent}`);
 	await command(`effect give ${agent} minecraft:saturation 5 10 true`);
 	await command(`effect give ${agent} minecraft:resistance 1000 2 true`);
-	// A long stone strip: start at z 0.5, target z 36.5; nothing but the strip and air.
 	const resetCourse = async () => {
 		await command('kill @e[type=!minecraft:player]'); await command('fill -6 80 -6 6 90 40 minecraft:air'); await command('fill -6 79 -6 6 79 40 minecraft:stone');
 		await command(`clear ${agent}`); await command(`effect give ${agent} minecraft:instant_health 1 3 true`);
@@ -125,7 +117,6 @@ try {
 	const zombie = async () => { await command('summon minecraft:zombie 0.5 80 14.5 {PersistenceRequired:1b,CanPickUpLoot:0b,IsBaby:0b}'); await command('item replace entity @e[type=minecraft:zombie] armor.head with minecraft:leather_helmet'); await sleep(300); };
 	const zombies = async () => Number((await command('execute if entity @e[type=minecraft:zombie]')).match(/\d+/)?.[0] ?? 0);
 
-	// zombieStop: without fightThrough the trip hands back at the first hostile, as before.
 	if (only.length === 0 || only.includes('zombieStop')) {
 		await command('time set noon'); await resetCourse();
 		await command(`item replace entity ${agent} hotbar.0 with minecraft:iron_sword`);

@@ -24,22 +24,16 @@ import { ContextCarryOver, DEFAULT_CONTEXT_ROTATION_TOKENS } from './context-car
 const DEFAULT_PLANNING_TIMEOUT_MS = 45_000;
 const DEFAULT_STARTUP_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_DECISION_BYTES = 256 * 1_024;
-// Interrupting a turn at a tool boundary and continuing on a warm thread (see rotateAtToolBoundary). Off by default: it cut
-// cost index about 29% on a 70-block turn, but the model lost a fact it had seen once and not written down (0 of 3 runs kept it,
-// against 3 of 3 without). Completed-turn rotation is separate and stays on.
 const DEFAULT_CODEX_MID_TURN_ROTATION = false;
-// Recorded Codex turns run up to 100 tool calls, so waiting three completed turns let contexts reach 450k tokens
-// (mean 113k against a 64k threshold). Any completed turn is a safe boundary; the growth guard stops a session that
-// already starts large (a big first tool result) from rotating again before it grows by a quarter of the threshold.
 const MIN_TURNS_BETWEEN_ROTATIONS = 1;
 const MIN_ROTATION_GROWTH_SHARE = 0.25;
 const THREAD_START_TIMEOUT_MS = 60_000;
 const MAX_BUFFERED_TURN_NOTIFICATIONS = 4_096;
 const MAX_PUBLIC_AGENT_MESSAGE_CANDIDATE_CHARS = 1_280;
 const PROFILE_CONFLICT_MESSAGE = 'Agent profile is immutable for the active Codex session';
-const CLIENT_INFO = Object.freeze({ name: 'arena-agents-coordinator', title: 'Minecraft Codex Agents', version: '2.0.0' });
+const CLIENT_INFO = Object.freeze({ name: 'mineagen-coordinator', title: 'Minecraft Codex Agents', version: '2.0.0' });
 const CLIENT_CAPABILITIES = Object.freeze({ experimentalApi: true, requestAttestation: false });
-const CONTROL_PROTOCOLS = new Set(['arena_script', 'native_tools', 'goal_spec', 'director_script']);
+const CONTROL_PROTOCOLS = new Set(['arena_script', 'native_tools', 'goal_spec']);
 
 export class CodexService {
 	#config;
@@ -232,10 +226,10 @@ export class CodexService {
 			ephemeral: true,
 			baseInstructions: controlProtocol === 'native_tools'
 				? nativeInstructions(minecraftInstructions, minecraftSkillInstructions)
-				: controlProtocol === 'director_script' ? 'Translate creative direction into a bounded Minecraft animation draft. Never call tools, inspect files, run commands or execute actions. Return only the supplied JSON schema.' : controlProtocol === 'goal_spec' ? goalSpecInstructions() : PLANNER_SYSTEM_PROMPT,
+				: controlProtocol === 'goal_spec' ? goalSpecInstructions() : PLANNER_SYSTEM_PROMPT,
 			developerInstructions: controlProtocol === 'native_tools'
 				? nativeRecoveryInstructions(recoverySummary)
-				: ['goal_spec', 'director_script'].includes(controlProtocol) ? 'Return only one JSON value matching the supplied output schema. Never call tools.' : recoveryInstructions(recoverySummary),
+				: controlProtocol === 'goal_spec' ? 'Return only one JSON value matching the supplied output schema. Never call tools.' : recoveryInstructions(recoverySummary),
 		};
 		const startThread = async (params) => {
 			const response = await this.#transport.request('thread/start', params, { timeoutMs: THREAD_START_TIMEOUT_MS });
@@ -1957,13 +1951,10 @@ function validateServiceConfig(value, { requireLaunchProfile }) {
 	if (!Number.isSafeInteger(catalogTtlMs) || catalogTtlMs <= 0) throw new TypeError('catalogTtlMs must be a positive safe integer');
 	const startupTimeoutMs = value.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS;
 	if (!Number.isSafeInteger(startupTimeoutMs) || startupTimeoutMs <= 0) throw new TypeError('startupTimeoutMs must be a positive safe integer');
-	// Same default as Claude: a fresh thread past this many context tokens (0 disables).
 	const contextRotationTokens = value.contextRotationTokens ?? DEFAULT_CONTEXT_ROTATION_TOKENS;
 	if (!Number.isSafeInteger(contextRotationTokens) || contextRotationTokens < 0) throw new TypeError('contextRotationTokens must be a nonnegative safe integer');
 	const midTurnContextRotation = value.midTurnContextRotation ?? DEFAULT_CODEX_MID_TURN_ROTATION;
 	if (typeof midTurnContextRotation !== 'boolean') throw new TypeError('midTurnContextRotation must be a boolean');
-	// Opt-in: rotate inside a long turn once its context reaches this many tokens (0 = off). Off by default because
-	// mid-turn rotation at 64k lost a fact seen once (Oct 9); a high value trims only the longest turns.
 	const midTurnContextRotationTokens = value.midTurnContextRotationTokens ?? 0;
 	if (!Number.isSafeInteger(midTurnContextRotationTokens) || midTurnContextRotationTokens < 0) throw new TypeError('midTurnContextRotationTokens must be a nonnegative safe integer');
 	if (requireLaunchProfile && value.launchProfile === undefined) throw new TypeError('Codex service launchProfile is required when no transport is injected');

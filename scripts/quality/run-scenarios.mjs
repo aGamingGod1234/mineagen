@@ -61,7 +61,7 @@ export function parseArgs(argv) {
 	const harnessCommit = values['harness-commit'] ?? process.env.ARENA_QUALITY_HARNESS_COMMIT ?? null;
 	if (harnessCommit && !/^[0-9a-f]{7,64}$/i.test(harnessCommit)) throw new Error('--harness-commit must be a Git hash');
 	const provider = values.provider ?? 'claude';
-	if (!['claude', 'codex', 'opencode'].includes(provider)) throw new Error('--provider must be claude, codex or opencode');
+	if (!['claude', 'codex'].includes(provider)) throw new Error('--provider must be claude or codex');
 	const scenarios = (values.scenarios ?? 'S1,S1-deltas,S5').split(',');
 	if (values['budget-ms'] && values['play-window-ms']) throw new Error('Use --budget-ms or --play-window-ms');
 	// Without an explicit window, each scenario uses its own durationBudgetMs (see resolveQualityScenarios).
@@ -76,7 +76,7 @@ export function parseArgs(argv) {
 	if (!Number.isInteger(runs) || runs < 1 || runs > 32 || budget !== null && !validBudget(budget)) throw new Error('--runs must be 1..32; play window must be 1000..3600000 ms');
 	if (scenarios.length * runs > 40) throw new Error('At most 40 scenario/repetition pairs per invocation');
 	if (values['retry-failed'] && !values.arms) throw new Error('--retry-failed requires --arms');
-	return { serviceTier, seed: values.seed ?? null, spawnPosition: spawnPosition ?? null, goalStartClock: Boolean(values['play-window-ms']), retryFailed: Boolean(values['retry-failed']), harnessCommit, arms: values.arms && path.resolve(values.arms), coordinatorRoot: path.resolve(values['coordinator-root'] ?? ROOT), sourceCommit: values['source-commit'] ?? null, provider, model: values.model ?? ({ claude: 'claude-opus-5-5', codex: 'gpt-6.1-sol', opencode: 'opencode/deepseek-v4.1-flash-free' })[provider], effort: values.effort ?? 'low', runs, budget,
+	return { serviceTier, seed: values.seed ?? null, spawnPosition: spawnPosition ?? null, goalStartClock: Boolean(values['play-window-ms']), retryFailed: Boolean(values['retry-failed']), harnessCommit, arms: values.arms && path.resolve(values.arms), coordinatorRoot: path.resolve(values['coordinator-root'] ?? ROOT), sourceCommit: values['source-commit'] ?? null, provider, model: values.model ?? ({ claude: 'claude-opus-5-5', codex: 'gpt-6.1-sol' })[provider], effort: values.effort ?? 'low', runs, budget,
 		scenarios, jar: values.jar && path.resolve(values.jar),
 		portBase, out: path.resolve(values.out ?? path.join(ROOT, 'runtime/quality-results', `quality-${Date.now()}`)),
 		template: path.resolve(values['server-template'] ?? process.env.ARENA_HEADLESS_SERVER_TEMPLATE ?? DEFAULT_TEMPLATE), java: values.java ?? process.env.ARENA_HEADLESS_JAVA ?? (process.env.JAVA_HOME ? path.join(process.env.JAVA_HOME, 'bin', JAVA_EXE) : DEFAULT_JAVA) };
@@ -481,7 +481,7 @@ export async function runScenarios(options, { spawnLauncher = spawnOwnedProcess,
 	if (new Set(options.scenarios).size !== selected.length || selected.length * options.runs > 24) throw new Error('Select unique scenarios, at most 24 attempts per invocation');
 	const profile = { provider: options.provider, model: options.model, reasoningEffort: options.effort, serviceTier: options.serviceTier ?? (options.provider === 'codex' ? 'default' : 'priority') };
 	const version = (await readFile(path.join(ROOT, 'gradle.properties'), 'utf8')).match(/^mod_version=(.+)$/m)[1].trim();
-	const jar = options.jar ?? path.join(ROOT, 'build/libs', `arena-agents-${version}.jar`);
+	const jar = options.jar ?? path.join(ROOT, 'build/libs', `mineagen-${version}.jar`);
 	if (!existsSync(jar)) throw new Error(`Missing JAR ${jar}; build first or pass --jar`);
 	if (!existsSync(options.java)) throw new Error(`Missing JDK ${options.java}`);
 	const coordinatorRoot = options.coordinatorRoot ?? ROOT;
@@ -492,7 +492,7 @@ export async function runScenarios(options, { spawnLauncher = spawnOwnedProcess,
 	const token = `q-${Date.now().toString(36).slice(-6)}-${randomUUID().slice(0, 4)}`;
 	const work = path.join(ROOT, 'runtime/quality', token), template = path.join(work, 'server-template');
 	await mkdir(options.out, { recursive: true }); await mkdir(work, { recursive: true });
-	await cp(options.template, template, { recursive: true, filter: entry => !['world', 'logs'].includes(path.basename(entry)) && !/^arena-agents-.*\.jar$/i.test(path.basename(entry)) });
+	await cp(options.template, template, { recursive: true, filter: entry => !['world', 'logs'].includes(path.basename(entry)) && !/^mineagen-.*\.jar$/i.test(path.basename(entry)) });
 	const definitions = new Map();
 	const scenarios = [];
 	for (let index = 1; index <= options.runs; index++) for (const s of selected) {
@@ -504,7 +504,7 @@ export async function runScenarios(options, { spawnLauncher = spawnOwnedProcess,
 	// A spend gate makes the budget hold per call: Claude play goes through a local gateway that reserves each request's worst case.
 	// Codex with ChatGPT sign-in cannot be routed through it, so capped Codex play must be explicitly accepted as observer-metered.
 	const gate = options.spendGate ?? null, playMetering = gate ? (options.provider === 'claude' ? 'gateway' : 'observer') : null;
-	if (gate && playMetering === 'observer' && options.codexObserverCap !== true && options.provider !== 'opencode') throw new Error('A spend gate cannot meter Codex play per call; pass codexObserverCap to accept an observer-enforced cap');
+	if (gate && playMetering === 'observer' && options.codexObserverCap !== true) throw new Error('A spend gate cannot meter Codex play per call; pass codexObserverCap to accept an observer-enforced cap');
 	if (gate && options.runs * selected.length !== 1) throw new Error('A spend gate belongs to exactly one run');
 	if (gate && !strict && !gate.admit('preparation', PREPARATION_ALLOWANCE_USD, 'preparation')) throw new Error(`Run budget $${gate.budgetUsd} cannot hold the $${PREPARATION_ALLOWANCE_USD} preparation allowance`);
 	const gateway = gate && playMetering === 'gateway' ? options.gateway ?? await gatewayFactory({ gate, strict, profileFor: model => ({ ...profile, model }) }) : null;
@@ -713,7 +713,7 @@ export function formatTimeline(run) {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-	try { const options = parseArgs(process.argv.slice(2)); if (options.help) console.log('node scripts/quality/run-scenarios.mjs --scenarios S1,S1-deltas,S5 --provider claude|codex|opencode --model claude-opus-5-5 --effort low --runs 8 --arms arms.json --out DIR [--retry-failed] [--budget-ms MS | --play-window-ms MS (default: scenario durationBudgetMs)] [--service-tier priority] [--seed INTEGER --spawn X,Y,Z] [--coordinator-root PATH --jar PATH]; acceptance gate is Claude only'); else if (options.arms) await runPairedScenarios(options); else await runScenarios(options); }
+	try { const options = parseArgs(process.argv.slice(2)); if (options.help) console.log('node scripts/quality/run-scenarios.mjs --scenarios S1,S1-deltas,S5 --provider claude|codex --model claude-opus-5-5 --effort low --runs 8 --arms arms.json --out DIR [--retry-failed] [--budget-ms MS | --play-window-ms MS (default: scenario durationBudgetMs)] [--service-tier priority] [--seed INTEGER --spawn X,Y,Z] [--coordinator-root PATH --jar PATH]; acceptance gate is Claude only'); else if (options.arms) await runPairedScenarios(options); else await runScenarios(options); }
 	catch (e) { console.error(e.stack); process.exitCode = 1; }
 }
 

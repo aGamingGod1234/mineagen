@@ -15,7 +15,7 @@ import os from 'node:os';
 const root = path.resolve(process.argv[2]);
 const AGENTS = Number(process.argv[3] ?? 1);
 const ACTIONS = Number(process.argv[4] ?? 40);
-const WORKLOAD = process.argv[5] ?? 'model'; // model | program
+const WORKLOAD = process.argv[5] ?? 'model';
 const TICK = Number(process.env.TICK_MS ?? 50);
 const OBS_SIZE = Number(process.env.OBS_SCALE ?? 1);
 const imp = (rel) => import(pathToFileURL(path.join(root, rel)).href);
@@ -46,7 +46,7 @@ function buildObservation(agentId, goalRevision, seq) {
 class SimBridge extends FakeBridge {
 	automaticInspections = false; trim = false;
 	stats = { actionCommands: 0, inspections: 0 };
-	marks = []; // { agentId, actionId, send, result, nextSend }
+	marks = [];
 	inbound = []; running = []; seq = new Map();
 	tickTimer = null; nextTick = 0;
 	startTicks() { this.nextTick = performance.now(); const loop = () => { this.nextTick += TICK; this.tickTimer = setTimeout(() => { this.tick(); loop(); }, Math.max(0, this.nextTick - performance.now())); }; loop(); }

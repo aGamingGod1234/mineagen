@@ -4,9 +4,6 @@ const { searchFor } = await import(process.env.ASCENT_SOURCE ?? '../src/find-sea
 const { NativeToolRuntime } = await import(process.env.ASCENT_RUNTIME ?? '../src/native-tool-runtime.mjs');
 import { normalizeMinecraftToolCall } from '../src/native-minecraft-tools.mjs';
 
-// b21b Mini1-r1 :345..350: blocked retrace y19, successful stair y27,
-// failed replay y21, stair y29, failed replay y21. Injected results/observations
-// model this decision sequence only, not Minecraft physics or measured savings.
 const sample = () => ({ player: { x: 55.5, y: 19, z: -54.5, yaw: 0, health: 20, air: 300, maxAir: 300, skyOpen: false, onGround: true },
 	world: { dimension: 'minecraft:overworld' }, inventory: { selectedSlot: 0, items: [{ itemId: 'minecraft:stone_pickaxe', slot: 0, count: 1 }] }, blocks: [] });
 const sky = { x: 55.5, y: 70, z: -54.5 };

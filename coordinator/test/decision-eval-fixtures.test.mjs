@@ -1,3 +1,4 @@
+import { privateInput } from '../scripts/private-inputs.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -11,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 // DECISION_EVAL_FIXTURE_DIR points the checks at another train directory (for example an older corpus).
 
 const trainDir = process.env.DECISION_EVAL_FIXTURE_DIR
-	?? path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'decision-eval', 'train');
+	?? privateInput('coordinator/test/fixtures/decision-eval/train');
 const cases = fs.readdirSync(trainDir).filter((name) => name.endsWith('.json')).sort()
 	.flatMap((name) => JSON.parse(fs.readFileSync(path.join(trainDir, name), 'utf8')).cases);
 
@@ -155,7 +156,6 @@ test('the checks catch the contradictions the review found', () => {
 	assert.match(fullProblems, /oak_log stack in slot 10 has room/);
 });
 
-// ---------- fix round 2 (q8 review r2 P2-5, P2-6) ----------
 
 // Vitals restated in one observation: air and its seconds (the game reports airSecondsLeft = air / 20 only under water),
 // bounded health, food and saturation. Between observations at most 5 s apart, air never drops while above water and
@@ -259,13 +259,11 @@ test('canned replies fire only for the recorded command itself', async () => {
 			assert.ok(!callMatches(choice.when, call({ ...command.arguments, [key]: changed }), ctx), `${c.id} changing ${key} does not get the recorded reply`);
 		}
 		if ('timeoutMs' in command.arguments) assert.ok(callMatches(choice.when, call({ ...command.arguments, timeoutMs: command.arguments.timeoutMs + 1000 }), ctx), `${c.id} timeoutMs is not semantic`);
-		// The whole call must be that single action.
 		const sequence = { name: 'sequence', args: { actions: [{ actionType: command.actionType, arguments: command.arguments }, { actionType: 'wait', arguments: { durationMs: 500 } }] } };
 		assert.ok(!callMatches(choice.when, sequence, ctx), `${c.id} a longer sequence does not get the recorded reply`);
 	}
 });
 
-// ---------- progression families (q9): stage kits and synthetic End views ----------
 
 // Vanilla nutrition per item; the server's inventory.food sums count x nutrition and flags raw chicken, rotten flesh,
 // spider eyes and poisonous potatoes as risky. Armour points of worn pieces restate the worn items.

@@ -53,7 +53,6 @@ function deterministicClock() {
 			for (let turn = 0; turn < 4; turn += 1) await new Promise((resolve) => setImmediate(resolve));
 		},
 		advanceBy(durationMs) { return this.advanceTo(now + durationMs); },
-		/** Fires due timers in order until the condition holds. */
 		async runUntil(condition) {
 			while (!condition()) {
 				const next = timers.filter((candidate) => !candidate.cancelled).sort((left, right) => left.dueAt - right.dueAt || left.id - right.id)[0];
@@ -61,7 +60,6 @@ function deterministicClock() {
 				await this.advanceTo(next.dueAt);
 			}
 		},
-		/** Runs the clock until the promise settles, firing due timers in order. */
 		async until(promise) {
 			let settled = false;
 			const value = promise.then((result) => { settled = true; return result; }, (error) => { settled = true; throw error; });
@@ -137,7 +135,6 @@ function harness(strategy) {
 
 const think = (clock) => clock.advanceBy(THINKING_MS);
 
-// Today's default: think, then a blocking act; the body waits for every decision.
 async function serialChain() {
 	const h = harness('serial-chain');
 	h.plan(CHAIN);
@@ -177,7 +174,6 @@ function tunnelAccounting(h, completedAtMs) {
 		completedAtMs, stopFinishedAtMs: h.clock.now() };
 }
 
-// Today's default for open-ended work: one decision per tunnel leg.
 async function serialTunnel() {
 	const h = harness('serial-tunnel');
 	h.plan([TUNNEL_LEG]);

@@ -8,11 +8,6 @@ export const TOKEN_PRICES_PER_MILLION = Object.freeze({
 	// gpt-6-sol: no separate proxy yet; weighted like gpt-6.1-sol so spend caps stay conservative.
 	'codex:gpt-6-sol': Object.freeze({ input: 2, cacheRead: .1, cacheWrite: 2.5, output: 10, tierMultiplier: 2 }),
 	'codex:gpt-6-luna': Object.freeze({ input: .1, cacheRead: .01, cacheWrite: .125, output: .5, tierMultiplier: 2 }),
-	// OpenCode's free tier: no charge per token.
-	'opencode:opencode/deepseek-v4.1-flash-free': Object.freeze({ input: 0, cacheRead: 0, cacheWrite: 0, output: 0, tierMultiplier: 1 }),
-	'opencode:opencode/glm-5.3-flash-free': Object.freeze({ input: 0, cacheRead: 0, cacheWrite: 0, output: 0, tierMultiplier: 1 }),
-	// OpenCode Go (flat subscription): its models.dev per-token prices, so a Go run records what its calls are worth.
-	'opencode:opencode-go/deepseek-v4.1-flash': Object.freeze({ input: .15, cacheRead: .003, cacheWrite: 0, output: .6, tierMultiplier: 1 }),
 });
 
 export function estimateTokenCostUsd(tokens, profile) {

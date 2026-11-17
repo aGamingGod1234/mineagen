@@ -1,3 +1,4 @@
+import { privateInputUrl } from '../scripts/private-inputs.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -6,7 +7,7 @@ import { observationSha256 } from '../src/decision-eval/capture.mjs';
 import { validateCaseFile } from '../src/decision-eval/schema.mjs';
 import { renderWake } from '../src/decision-eval/render.mjs';
 
-const { cases } = JSON.parse(fs.readFileSync(new URL('./fixtures/decision-eval/extra/n18-ironpick2-liquid.json', import.meta.url)));
+const { cases } = JSON.parse(fs.readFileSync(privateInputUrl('coordinator/test/fixtures/decision-eval/extra/n18-ironpick2-liquid.json')));
 
 test('liquid-context cases preserve two recorded dry idle moments and disclose reconstruction limits', () => {
  validateCaseFile(cases);

@@ -200,7 +200,7 @@ test('translator crafted forms use raw sums or separate thresholds, never recipe
 });
 
 test('advancement capture is shared per award invocation for reentrant rewards', async () => {
- const source = await readFile(new URL('../../src/main/java/dev/agaminggod/arenaagents/mixin/PlayerAdvancementsMixin.java', import.meta.url), 'utf8');
+ const source = await readFile(new URL('../../src/main/java/dev/agaminggod/mineagen/mixin/PlayerAdvancementsMixin.java', import.meta.url), 'utf8');
  assert.equal((source.match(/@Share\("wasDone"\) LocalBooleanRef wasDone/g) ?? []).length, 2);
  assert.match(source, /wasDone\.set\(/); assert.match(source, /wasDone\.get\(\)/);
  assert.doesNotMatch(source, /@Unique|private boolean/);

@@ -21,7 +21,6 @@ export class BodyPace {
 		return agent;
 	}
 
-	/** One trace event; anything that is not a timing event is ignored. */
 	note(event, fields) {
 		const agentId = fields?.agentId;
 		if (typeof agentId !== 'string') return;

@@ -48,7 +48,6 @@ function diff(later, earlier) {
 	return Number.isFinite(later) && Number.isFinite(earlier) && later > 0 && earlier > 0 ? later - earlier : null;
 }
 
-/** Builds one record per dispatched action, with every stage that its trace rows allow. */
 export function buildChains(rows, { agent = null } = {}) {
 	const timestamped = rows.some((row) => Number.isFinite(row.at));
 	const byAgent = new Map();

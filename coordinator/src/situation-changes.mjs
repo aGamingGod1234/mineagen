@@ -5,7 +5,6 @@
 
 import { dayPhase } from './situation-facts.mjs';
 
-/** Payload field that carries the line; other wake text may refer to it by this name. */
 export const SITUATION_CHANGED_FIELD = 'changed';
 /** Payload field naming a newly matching on-demand strategy topic. A bare id costs less than any wrapper or suffix. */
 export const STRATEGY_POINTER_FIELD = 'strategy';
@@ -86,7 +85,6 @@ export function situationSnapshot(observation) {
 	};
 }
 
-// "diamond helmet+chestplate+sword, shield": pieces sharing a material share one name.
 function itemList(ids) {
 	const groups = new Map();
 	for (const id of ids.map(bare)) {
@@ -119,7 +117,6 @@ export function situationChanges(before, after, { died = false, hpReported = fal
 		add('time', after.night ? 'night began' : 'dawn');
 	}
 	if (lost.length > 0 && !died) add('gear', `lost ${itemList(lost)}: steps needing ${lost.length === 1 ? 'it' : 'them'} are unmet`);
-	// Hearts plus absorption hearts, as drawn; absorption is named only when it changed.
 	if (!died && !hpReported && before.health !== null && after.health !== null && before.health + before.absorption - after.health - after.absorption >= LARGE_DROP) {
 		add('health', `health ${before.health}->${after.health}${before.absorption === after.absorption ? '' : `, absorption ${before.absorption}->${after.absorption}`}`);
 	}

@@ -57,8 +57,8 @@ try {
 		if (-not $properties.Contains($required)) { throw "Distribution metadata is missing '$required'." }
 	}
 	$expectedMods = @(
-		"mods/arena-agents-$($properties.mod_version).jar"
-		"mods/arena-agents-voice-$($properties.voice_addon_version).jar"
+		"mods/mineagen-$($properties.mod_version).jar"
+		"mods/mineagen-voice-$($properties.voice_addon_version).jar"
 		"mods/fabric-api-$($properties.fabric_api_version).jar"
 		"mods/fabric-carpet-$($properties.carpet_version).jar"
 		"mods/voicechat-fabric-$($properties.voicechat_version).jar"
@@ -75,13 +75,13 @@ try {
 		'coordinator/src/dynamic-main.mjs',
 		'coordinator/src/posix-process-group.mjs',
 		'coordinator/src/posix-process-wrapper.mjs',
-		'coordinator/.arena-agents-bundle-manifest',
+		'coordinator/.mineagen-bundle-manifest',
 		'runtime/toolchains/node/node.exe'
 	)) {
 		if ($files -notcontains $required) { throw "Distribution archive is missing '$required'." }
 	}
 
-	$manifestRecords = @((Read-ZipText $archive 'coordinator/.arena-agents-bundle-manifest') -split "\r?\n" |
+	$manifestRecords = @((Read-ZipText $archive 'coordinator/.mineagen-bundle-manifest') -split "\r?\n" |
 		Where-Object { $_ -ne '' } |
 		ForEach-Object {
 			if ($_ -notmatch '^(?<Hash>[0-9a-f]{64}) (?<Path>.+)$') { throw "Invalid coordinator manifest entry: $_" }
@@ -94,7 +94,7 @@ try {
 	$manifestPaths = @($manifestRecords.Path | Sort-Object)
 	if ($manifestPaths.Count -ne @($manifestPaths | Sort-Object -Unique).Count) { throw 'Coordinator manifest contains duplicate paths.' }
 	$coordinatorFiles = @($files |
-		Where-Object { $_.StartsWith('coordinator/') -and $_ -ne 'coordinator/.arena-agents-bundle-manifest' } |
+		Where-Object { $_.StartsWith('coordinator/') -and $_ -ne 'coordinator/.mineagen-bundle-manifest' } |
 		ForEach-Object { $_.Substring('coordinator/'.Length) } |
 		Sort-Object)
 	if (@(Compare-Object $manifestPaths $coordinatorFiles).Count -ne 0) {
@@ -125,10 +125,10 @@ try {
 
 	if (-not [string]::IsNullOrWhiteSpace($BuiltJarPath)) {
 		$resolvedJar = (Resolve-Path -LiteralPath $BuiltJarPath).Path
-		$entry = $archive.GetEntry("mods/arena-agents-$($properties.mod_version).jar")
+		$entry = $archive.GetEntry("mods/mineagen-$($properties.mod_version).jar")
 		$archiveHash = Get-ZipEntrySha256 $entry
 		$builtHash = (Get-FileHash -LiteralPath $resolvedJar -Algorithm SHA256).Hash.ToLowerInvariant()
-		if ($archiveHash -cne $builtHash) { throw 'Distribution Arena Agents JAR differs from the built JAR.' }
+		if ($archiveHash -cne $builtHash) { throw 'Distribution Mineagen JAR differs from the built JAR.' }
 	}
 
 	Write-Host "Windows distribution verified: version $($properties.mod_version), $($files.Count) files"

@@ -1,11 +1,4 @@
 #!/usr/bin/env node
-// Provider-free check of the dragon fight body: default bow shots at crystals half hidden by their pillar tops, default
-// shots at the flying dragon (lead), an arrow at the perched dragon, and fight_target on the perched dragon's head.
-// End runs 2026-10-20: default shots passed 1.1-1.6 blocks over partly hidden crystals; arrows at the flying dragon
-// missed by 4-9 blocks; fight_target refused the perched head (TARGET_NOT_LIVING). ARENA_JAR selects the jar (old vs new).
-// 2026-10-21: a perched dragon's row read "hovering" from the ground with its last flight velocity, and a model-armed
-// target_in_reach -> attack reflex could not strike the dragon at all (its root is not pickable); 2d checks both.
-// Always launch under slot.sh live; ports come from SLOT_PORT_BASE. Operator commands build/reset fixtures only.
 import { readFile, writeFile, mkdir, cp, readdir, unlink, open } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,7 +9,7 @@ import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
-const jarPath = resolve(process.env.ARENA_JAR ?? join(root, 'build/libs/arena-agents-0.2.0.jar'));
+const jarPath = resolve(process.env.ARENA_JAR ?? join(root, 'build/libs/mineagen-0.2.0.jar'));
 const out = resolve(process.argv[2] ?? 'runtime/dragon-live');
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE;
 if (!template || !process.env.SLOT_PORT_BASE) throw new Error('Set ARENA_HEADLESS_SERVER_TEMPLATE and launch under slot.sh live');
@@ -25,13 +18,13 @@ await mkdir(out, { recursive: true });
 if ((await readdir(out)).length) throw new Error('Use a fresh output directory');
 await writeFile(join(out, 'manifest.json'), JSON.stringify({ kind: 'provider-free live mechanics', aiPerformanceMeasured: false, fixtureSetupUsesOperatorCommands: true, jarSha256: createHash('sha256').update(await readFile(jarPath)).digest('hex'), node: process.version }, null, 2));
 await cp(template, server, { recursive: true });
-for (const name of await readdir(join(server, 'mods'))) if (name.startsWith('arena-agents-')) await unlink(join(server, 'mods', name));
-await cp(jarPath, join(server, 'mods/arena-agents-0.2.0.jar'));
+for (const name of await readdir(join(server, 'mods'))) if (name.startsWith('mineagen-')) await unlink(join(server, 'mods', name));
+await cp(jarPath, join(server, 'mods/mineagen-0.2.0.jar'));
 const secret = randomBytes(32).toString('hex');
 await writeFile(join(out, 'secret.txt'), secret, { mode: 0o600 });
 await writeFile(join(server, 'server.properties'), `online-mode=false\nserver-ip=127.0.0.1\nserver-port=${port + 2}\nenable-rcon=true\nrcon.ip=127.0.0.1\nrcon.port=${port + 1}\nrcon.password=${secret}\nlevel-name=world\nlevel-seed=20261017\nlevel-type=minecraft:flat\ngenerator-settings={"layers":[{"block":"minecraft:bedrock","height":1},{"block":"minecraft:stone","height":3}],"biome":"minecraft:plains"}\nspawn-protection=0\nview-distance=6\nsimulation-distance=6\npause-when-empty-seconds=-1\nmax-players=4\n`);
 const log = await open(join(out, 'server.log'), 'a');
-const child = spawn(`${process.env.JAVA_HOME}/bin/java`, [`-Darenaagents.bridgePort=${port}`, '-Darenaagents.coordinatorAutoStart=false', `-Darenaagents.bridgeSecretFile=${join(out, 'secret.txt')}`, '-Xms512M', '-Xmx2G', '-jar', 'fabric-server-launch.jar', 'nogui'], { cwd: server, stdio: ['ignore', log.fd, log.fd] });
+const child = spawn(`${process.env.JAVA_HOME}/bin/java`, [`-Dmineagen.bridgePort=${port}`, '-Dmineagen.coordinatorAutoStart=false', `-Dmineagen.bridgeSecretFile=${join(out, 'secret.txt')}`, '-Xms512M', '-Xmx2G', '-jar', 'fabric-server-launch.jar', 'nogui'], { cwd: server, stdio: ['ignore', log.fd, log.fd] });
 await writeFile(join(out, 'server.pid'), String(child.pid));
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 class Inbox {
@@ -68,7 +61,6 @@ async function act(type, args, eventSequence = observation.eventSequence) {
 const number = text => Number((/(-?\d+(?:\.\d+)?)[fdb]?\s*$/.exec(text.trim()) ?? [])[1]);
 const dragonHealth = async () => number(await end('data get entity @e[type=minecraft:ender_dragon,limit=1] Health'));
 const dragonPhase = async () => number(await end('data get entity @e[type=minecraft:ender_dragon,limit=1] DragonPhase'));
-/** A fresh observation's part rows of the dragon, by part name. */
 async function parts() {
 	const o = await observe();
 	const rows = (o.entities ?? []).filter(e => e.type === 'minecraft:ender_dragon' && e.partName);
@@ -115,7 +107,6 @@ try {
 		await command('kill @e[type=minecraft:end_crystal]'); await command(`fill ${x - 2} 80 ${z - 2} ${x + 2} ${y + 3} ${z + 2} minecraft:air`); await command('kill @e[type=minecraft:arrow]');
 	}
 
-	// 2. The End: the real dragon fight, crystals removed so nothing heals it.
 	await end('forceload add -48 -48 48 48');
 	await end(`tp ${agent} 0.5 120 0.5`);
 	await command(`effect give ${agent} minecraft:slow_falling 30 0 true`);
@@ -128,7 +119,6 @@ try {
 	await command(`effect clear ${agent} minecraft:slow_falling`);
 	results.start = { dragonSeen, health: await dragonHealth(), phase: await dragonPhase(), surfaceY };
 
-	// 2a. Default arrows at the flying dragon's body.
 	await end('data merge entity @e[type=minecraft:ender_dragon,limit=1] {DragonPhase:0}');
 	await command(`item replace entity ${agent} weapon.mainhand with minecraft:bow`);
 	for (let shot = 0; shot < 10; shot++) {
@@ -143,7 +133,6 @@ try {
 		await command('kill @e[type=minecraft:arrow]');
 	}
 
-	// 2b. Perch: landing phase brings it onto the fountain.
 	await end('data merge entity @e[type=minecraft:ender_dragon,limit=1] {DragonPhase:3}');
 	let phase = -1;
 	for (let i = 0; i < 40 && ![5, 6, 7].includes(phase); i++) { await sleep(500); phase = await dragonPhase(); }
@@ -155,7 +144,6 @@ try {
 		const r = body ? await act('use_ranged', { targetId: body.uuid, drawDurationMs: 1100, timeoutMs: 6000 }) : null;
 		results.perchedArrow = r && { phase: await dragonPhase(), state: r.state, reasonCode: r.reasonCode, bounced: /bounced off/.test(r.message ?? ''), healthDrop: before - await dragonHealth(), message: r.message };
 	}
-	// 2c. fight_target on the perched head with the sword.
 	phase = await dragonPhase();
 	for (let i = 0; i < 40 && ![5, 6, 7].includes(phase); i++) { await sleep(500); phase = await dragonPhase(); }
 	{

@@ -24,16 +24,16 @@ if (!template || !process.env.SLOT_PORT_BASE || !process.env.JAVA_HOME) throw ne
 const port = Number(process.env.SLOT_PORT_BASE), server = join(out, 'server');
 await mkdir(out, { recursive: true });
 if ((await readdir(out)).length) throw new Error('Use a fresh output directory');
-const jar = resolve(process.env.RESPAWN_RECOVERY_JAR ?? join(root, 'build/libs/arena-agents-0.2.0.jar'));
+const jar = resolve(process.env.RESPAWN_RECOVERY_JAR ?? join(root, 'build/libs/mineagen-0.2.0.jar'));
 await writeFile(join(out, 'manifest.json'), JSON.stringify({ kind: 'provider-free live mechanics', aiPerformanceMeasured: false, fixtureSetupUsesOperatorCommands: true, jarSha256: createHash('sha256').update(await readFile(jar)).digest('hex'), node: process.version }, null, 2));
 await cp(template, server, { recursive: true });
-for (const name of await readdir(join(server, 'mods'))) if (name.startsWith('arena-agents-')) await unlink(join(server, 'mods', name));
-await cp(jar, join(server, 'mods/arena-agents-0.2.0.jar'));
+for (const name of await readdir(join(server, 'mods'))) if (name.startsWith('mineagen-')) await unlink(join(server, 'mods', name));
+await cp(jar, join(server, 'mods/mineagen-0.2.0.jar'));
 const secret = randomBytes(32).toString('hex');
 await writeFile(join(out, 'secret.txt'), secret, { mode: 0o600 });
 await writeFile(join(server, 'server.properties'), `online-mode=false\nserver-ip=127.0.0.1\nserver-port=${port + 2}\nenable-rcon=true\nrcon.ip=127.0.0.1\nrcon.port=${port + 1}\nrcon.password=${secret}\nlevel-name=world\nlevel-seed=20261024\nlevel-type=minecraft:flat\ngenerator-settings={"layers":[{"block":"minecraft:bedrock","height":1},{"block":"minecraft:stone","height":3}],"biome":"minecraft:plains"}\nspawn-protection=0\nview-distance=6\nsimulation-distance=6\npause-when-empty-seconds=-1\nmax-players=4\ndifficulty=peaceful\n`);
 const log = await open(join(out, 'server.log'), 'a');
-const child = spawn(`${process.env.JAVA_HOME}/bin/java`, [`-Darenaagents.bridgePort=${port}`, '-Darenaagents.coordinatorAutoStart=false', `-Darenaagents.bridgeSecretFile=${join(out, 'secret.txt')}`, '-Xms512M', '-Xmx2G', '-jar', 'fabric-server-launch.jar', 'nogui'], { cwd: server, stdio: ['ignore', log.fd, log.fd] });
+const child = spawn(`${process.env.JAVA_HOME}/bin/java`, [`-Dmineagen.bridgePort=${port}`, '-Dmineagen.coordinatorAutoStart=false', `-Dmineagen.bridgeSecretFile=${join(out, 'secret.txt')}`, '-Xms512M', '-Xmx2G', '-jar', 'fabric-server-launch.jar', 'nogui'], { cwd: server, stdio: ['ignore', log.fd, log.fd] });
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 class Inbox {
 	events = []; waiters = [];
@@ -94,7 +94,6 @@ try {
 	await bridge.send('catalog_snapshot', 'server', { refreshedAtEpochMs: Date.now(), models: [{ provider: 'codex', model: 'gpt-6.1-sol', id: 'gpt-6.1-sol', displayName: 'Provider-free respawn fixture', reasoningEfforts: ['low'], serviceTiers: ['priority'] }] });
 	await command('gamerule minecraft:send_command_feedback false'); await command('time set 1000');
 	await command('forceload add -16 -16 32 32'); await sleep(2000);
-	// Overworld: stone floor at y79, a lit End portal (3x3 at x4..6 z-1..1) and room for a bed at 0,80,2.
 	await command('fill -5 80 -5 12 90 8 minecraft:air'); await command('fill -5 79 -5 12 79 8 minecraft:stone');
 	await command('fill 3 79 -2 7 79 2 minecraft:end_portal_frame[eye=true]'); await command('fill 4 79 -1 6 79 1 minecraft:end_portal');
 	const registered = inbox.wait('agent_registered'); await command(`execute positioned 0.5 80 0.5 run codex summon gpt-6.1-sol low ${AGENT}`);
@@ -108,7 +107,6 @@ try {
 	await observe();
 	result.respawnAtStart = await command(`data get entity ${AGENT} respawn`);
 
-	// 1. A bed placed and used by day sets the respawn there.
 	result.steps.place = await act('place_block', { x: 0, y: 80, z: 2, face: 'up', itemId: 'minecraft:white_bed' });
 	const placed = await observe();
 	const bed = placed.blocks.find((b) => b.blockId === 'minecraft:white_bed');
@@ -120,7 +118,6 @@ try {
 	result.respawnAfterUse = await command(`data get entity ${AGENT} respawn`);
 	result.bedSetsSpawnByDay = result.dayTimeAtUse < 12000 && result.messagesAtUse.includes('Respawn point set') && /pos/i.test(result.respawnAfterUse);
 
-	// 2. Into the End portal with the kit: arrival on the obsidian platform at 100,49,0.
 	for (const item of ['iron_pickaxe', 'iron_sword', 'golden_helmet']) await command(`give ${AGENT} minecraft:${item} 1`);
 	await command(`give ${AGENT} minecraft:cobblestone 16`);
 	await observe();
@@ -131,7 +128,6 @@ try {
 	result.enteredEnd1 = await waitDimension('minecraft:the_end');
 	await sleep(1500);
 	result.arrival1 = await pos();
-	// A stone ledge from the platform toward the island; the death happens at its far end.
 	await command('execute in minecraft:the_end run forceload add 80 -16 112 16'); await sleep(1500);
 	await command('execute in minecraft:the_end run fill 80 48 -8 97 48 8 minecraft:stone');
 	await command('execute in minecraft:the_end run forceload remove 80 -16 112 16');
@@ -146,7 +142,6 @@ try {
 	await sleep(1500);
 	result.dropsAtDeath = await itemsNearDrop();
 
-	// 3. The agent's own respawn: at the bed in the Overworld.
 	result.steps.respawn = await act('respawn', {});
 	result.respawnReceiptConfirmed = result.steps.respawn?.state === 'SUCCEEDED'
 		&& result.steps.respawn.reasonCode === 'VANILLA_RESPAWNED'

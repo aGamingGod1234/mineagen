@@ -42,7 +42,7 @@ public class Target extends Parent {
         shutil.copyfile(SPEC.origin, cls.script)
         resources = cls.root / 'src/main/resources'
         resources.mkdir(parents=True)
-        (resources / 'arenaagents.mixins.json').write_text(
+        (resources / 'mineagen.mixins.json').write_text(
             json.dumps({'package': 'fixture', 'mixins': ['Hands']}))
         cls.source = cls.root / 'src/main/java/fixture/Hands.java'
         cls.source.parent.mkdir(parents=True)

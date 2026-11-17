@@ -1,5 +1,5 @@
 {
-  "description": "Public-only omissions. Asterisk selects a module whose private input is loaded before test discovery; other entries select exact test titles. The private npm test command ignores this manifest.",
+  "description": "Private input selections shared by both trees. npm test runs every archive-backed selection when ARENA_PRIVATE_INPUTS names the archive root, so a missing or corrupt recording fails. Without it, the runner omits only unavailable inputs, naming each selection and its missing paths. A selection marked source checkout reads files or Git history that only the private checkout holds; no archive supplies those, so it is omitted wherever they are absent. Asterisk selects a module that loads inputs before discovery; other entries select exact test titles.",
   "tests": [
     {
       "file": "test/arena-script-facts-benchmark-paths.test.mjs",
@@ -18,6 +18,7 @@
     {
       "file": "test/cave-navigation-attention-benchmark.test.mjs",
       "test": "cave attention benchmark compares actual public native interfaces with identical authored controls",
+      "source": "checkout",
       "inputs": [
         "reports/cave-navigation-baseline-sources-2026-10-02.json"
       ]
@@ -25,6 +26,7 @@
     {
       "file": "test/context-cost-replay.test.mjs",
       "test": "recorded smoke2-8c1ed360 baseline remains exact for typical and stress assumptions",
+      "source": "checkout",
       "inputs": [
         "coordinator/test/fixtures/context-cost-replay/smoke2-8c1ed360.json"
       ]
@@ -32,6 +34,7 @@
     {
       "file": "test/context-cost-replay.test.mjs",
       "test": "recorded base1-9d44450c baseline remains exact for typical and stress assumptions",
+      "source": "checkout",
       "inputs": [
         "coordinator/test/fixtures/context-cost-replay/base1-9d44450c.json"
       ]
@@ -69,13 +72,6 @@
       "test": "*",
       "inputs": [
         "coordinator/test/fixtures/decision-eval/extra/drift.json"
-      ]
-    },
-    {
-      "file": "test/decision-eval-eval-cli-judge-wait.test.mjs",
-      "test": "*",
-      "inputs": [
-        "coordinator/test/fixtures/decision-eval/g1-replay-sample.json"
       ]
     },
     {
@@ -256,6 +252,7 @@
     {
       "file": "test/live-body-benchmark-staging.test.mjs",
       "test": "historical observations stay intact and zombie claims are explicitly invalidated",
+      "source": "checkout",
       "inputs": [
         "reports/live-body-benchmark-26.3-2026-11-01.json"
       ]
@@ -263,6 +260,7 @@
     {
       "file": "test/live-body-benchmark-terrain-reset.test.mjs",
       "test": "historical paired summaries carry terrain invalidation without claiming new measurements",
+      "source": "checkout",
       "inputs": [
         "reports/live-body-benchmark-26.3-2026-11-01.json"
       ]
@@ -270,6 +268,7 @@
     {
       "file": "test/native-successor-handoff-benchmark.test.mjs",
       "test": "successor benchmark preserves authored action shapes and exercises guarded runtime behavior",
+      "source": "checkout",
       "inputs": [
         "Private Git object 267f1a3de226a55046a0f97c903f39a7bf5a898c and its native-tool-runtime import graph (cannot fetch into public history)"
       ]
@@ -277,6 +276,7 @@
     {
       "file": "test/quality-scenarios.test.mjs",
       "test": "*",
+      "source": "checkout",
       "inputs": [
         "coordinator/test/fixtures/quality-owner-nether.json"
       ]
@@ -286,13 +286,6 @@
       "test": "*",
       "inputs": [
         "coordinator/test/fixtures/decision-eval/extra/d31-respawn-recovery.json"
-      ]
-    },
-    {
-      "file": "test/warped-provider-stall.test.mjs",
-      "test": "*",
-      "inputs": [
-        "evals/d39-warped4/provider-stall.mjs"
       ]
     }
   ]

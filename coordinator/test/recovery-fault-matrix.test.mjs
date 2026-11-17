@@ -1140,7 +1140,7 @@ async function disconnectFencesOutstandingActionReplay() {
 	assert.equal(result.providerSessions.created, 1);
 	assert.equal(result.leaseStats.maxByKind.provider, 1);
 	assert.equal(result.leaseStats.maxByKind.action, 1);
-	assert.equal(result.listenerStats.maximum, 28, 'listener gauge includes inspection, Director generation, task-view, takeTask, the three plan-fact receipts and contained message rejections across reconnect');
+	assert.equal(result.listenerStats.maximum, 27, 'listener gauge includes inspection, task-view, takeTask, the three plan-fact receipts and contained message rejections across reconnect');
 	assert.equal(result.listenerStats.current, 0, 'listener gauge samples final cleanup separately from the lifecycle maximum');
 	return evidence({
 		recovery: { healthy: result.connectionEpoch === 2 && replacementDispatches.length === 1, permanentLatch: false, stateBefore: 'bridge_disconnected', stateAfter: result.finalState, nextProbeAtEpochMs: null, attemptTimes: [1, 2], probeDeadlines: [], retryDelays: [], attemptCount: 2 },
@@ -1430,7 +1430,7 @@ function assertBoundedResources(resourcesValue) {
 function valueOf(entry) { return entry.kind === 'observed' ? entry.value : null; }
 
 function providerServices() {
-	return Object.fromEntries(['codex', 'gemini', 'claude'].map((provider) => {
+	return Object.fromEntries(['codex', 'claude'].map((provider) => {
 		let current = null;
 		let currentSessions = 0;
 		let maxCurrentSessions = 0;

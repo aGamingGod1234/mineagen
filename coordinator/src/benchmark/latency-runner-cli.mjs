@@ -47,7 +47,6 @@ const FLAG_NAMES = new Map([
 	['--trialId', 'trialId'],
 ]);
 
-/** Parse the deliberately small CLI surface without touching the filesystem. */
 export function parseLatencyRunnerArgs(argv) {
 	if (!Array.isArray(argv)) throw cliUsage('arguments must be an array');
 	const values = Object.create(null);

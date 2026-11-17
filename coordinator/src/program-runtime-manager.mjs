@@ -11,7 +11,6 @@ import { classifyRecoveryFailure } from './recovery-policy.mjs';
 import { normalizeMinecraftToolCall } from './native-minecraft-tools.mjs';
 import { defaultServiceTier } from './constants.mjs';
 
-/** Coordinates model-authored ArenaScript programs for independent agents. */
 export class ProgramRuntimeManager {
 	#registry;
 	#bridge;
@@ -279,7 +278,6 @@ export class ProgramRuntimeManager {
 		return true;
 	}
 
-	/** Returns true when a result belongs to an old/disposed action and must be ignored. */
 	isActionResultStale(record, payload = {}) {
 		const state = this.#states.get(record.agentId);
 		if (!state || state.disposed || state.goalRevision !== record.goalRevision) return true;

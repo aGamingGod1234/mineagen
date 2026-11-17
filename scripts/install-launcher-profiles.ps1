@@ -28,7 +28,7 @@ $MinimumBridgeSecretLength = 32
 $MaximumBridgeSecretLength = 256
 $BridgeSecretBytes = 32
 $LegacyJavaArgs = '-Xms1G -Xmx4G'
-$JavaArguments = "$LegacyJavaArgs -Darenaagents.bridgeSecretFile=`"$SecretPath`""
+$JavaArguments = "$LegacyJavaArgs -Dmineagen.bridgeSecretFile=`"$SecretPath`""
 $Timestamp = (Get-Date).ToUniversalTime().ToString('o')
 
 if (Get-Process -Name MinecraftLauncher,Minecraft -ErrorAction SilentlyContinue) {
@@ -111,12 +111,12 @@ function Add-OrVerifyAgentProfile(
     Write-Host "Added launcher installation: $Name"
 }
 
-Add-OrVerifyAgentProfile 'arena-agent-55' 'Arena Agent 55' ([IO.Path]::GetFullPath((Join-Path $env:APPDATA '.minecraft-agent-55')))
-Add-OrVerifyAgentProfile 'arena-agent-56' 'Arena Agent 56' ([IO.Path]::GetFullPath((Join-Path $env:APPDATA '.minecraft-agent-56')))
+Add-OrVerifyAgentProfile 'mineagen-55' 'Mineagen 55' ([IO.Path]::GetFullPath((Join-Path $env:APPDATA '.minecraft-agent-55')))
+Add-OrVerifyAgentProfile 'mineagen-56' 'Mineagen 56' ([IO.Path]::GetFullPath((Join-Path $env:APPDATA '.minecraft-agent-56')))
 
 if ($changed) {
-    $temporaryPath = "$ResolvedProfiles.arena-agents.tmp"
-    $backupPath = "$ResolvedProfiles.arena-agents.backup"
+    $temporaryPath = "$ResolvedProfiles.mineagen.tmp"
+    $backupPath = "$ResolvedProfiles.mineagen.backup"
     [IO.File]::WriteAllText($temporaryPath, ($document | ConvertTo-Json -Depth 100), $Utf8NoBom)
     Copy-Item -LiteralPath $ResolvedProfiles -Destination $backupPath -Force
     Move-Item -LiteralPath $temporaryPath -Destination $ResolvedProfiles -Force

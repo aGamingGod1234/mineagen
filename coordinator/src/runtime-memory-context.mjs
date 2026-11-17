@@ -10,7 +10,6 @@ const TERMINAL_STATES = new Set(['SUCCEEDED', 'FAILED', 'CANCELLED', 'TIMED_OUT'
 const AUTHOR_FIELDS = ['provider', 'model', 'reasoningEffort', 'serviceTier'];
 const AUTHOR_IDS = ['programId', 'sourceStepId', 'turnId', 'callId'];
 
-/** Shares scoped model notes and factual action receipts across execution modes. */
 export class RuntimeMemoryContext {
 	#notebook; #sessionId; #contexts = new Map(); #dispatches = new Map(); #onReceipt;
 	#tasks; #taskPending = new Map(); #taskContexts = new Map();

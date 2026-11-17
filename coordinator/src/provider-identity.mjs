@@ -27,7 +27,7 @@ export function normalizeProviderId(value, field = 'provider', { ErrorType = Typ
 	if (typeof value !== 'string' || value.trim() === '') throw providerError(ErrorType, code, `${field} must be nonblank`);
 	const provider = value.toLowerCase();
 	if (!PROVIDER_SET.has(provider)) {
-		throw providerError(ErrorType, code, `${field} must be one of ${PROVIDER_IDS.join(', ')}`);
+		throw providerError(ErrorType, code, `${field} must be one of ${PROVIDER_IDS.join(', ')}; received '${provider}'`);
 	}
 	return provider;
 }

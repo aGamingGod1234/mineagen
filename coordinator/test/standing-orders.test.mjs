@@ -309,8 +309,6 @@ test('falling: a bucket order fires mid-air and a seen drop ahead fires an order
 	await until(() => events.filter(({ event }) => event === 'program_ended').length === 2, 'the edge order');
 	assert.equal(commands(sent).at(-1).arguments.sneak, true);
 	assert.deepEqual(events.at(-1).result.standingOrder.cause.dropAhead, { drop: 9, at: 2 });
-	// Review r1 finding 6: the edge is about a second away, faster than any model round; it serves orders, not wakes.
-	// The server publishes it alone as a sampleOnly sample (see MultiplexedServerBridgeVerification).
 	const raised = classifyObservationTrigger({ attention: false, changedFacts: [], sampleOnly: true }, wire({ dropAhead: { drop: 9, at: 2 } }));
 	assert.equal(raised.attention, false);
 	assert.equal(raised.sampleOnly, true);
@@ -357,7 +355,6 @@ test('a firing cause reports player-visible facts only, from wire and stored (ad
 	assert.deepEqual(standingOrderCause(adaptObservation(sample)), { health: 8, hunger: 20, fallDistance: 0, fire: true, hpLossPerSecond: 1.5, threats: 1 });
 });
 
-// Review r1 finding 1: only attention the order's own source continues is acknowledged; the rest reaches the model.
 test('an order paused by its authored ordinary policy, or by an action failure, delivers the decision to the model', async () => {
 	const { runtime, sent, events, observe } = harness({ holdActions: new Set(['wait']) });
 	observe(wire({ onFire: true, health: 12 }));
@@ -387,7 +384,6 @@ test('an order action failure is delivered to the model, never answered by the r
 	await runtime.dispose('agent-a', 'test_complete');
 });
 
-// Review r1 finding 4: a new body starts each condition afresh, keeping source and remaining time.
 test('an order true before death fires again on the first live respawn sample', async () => {
 	let now = 1_000_000;
 	const book = new StandingOrderBook({ now: () => now });
@@ -398,14 +394,13 @@ test('an order true before death fires again on the first live respawn sample', 
 	await until(() => events.filter(({ event }) => event === 'program_ended').length === 1, 'the first firing');
 	observe({ ready: false, status: 'PLAYER_DEAD', player: { health: 0, dead: true } });
 	await runtime.dispose('agent-a', 'goal_respawn');
-	now += 500; // still inside the refire window of the old body
+	now += 500;
 	observe(wire({ health: 6 }));
 	await until(() => commands(sent).length === 2, 'a firing in the new body');
 	assert.equal(book.list('agent-a')[0].expiresInS, 300, 'remaining time is kept');
 	await runtime.dispose('agent-a', 'test_complete');
 });
 
-// Review r1 finding 2: the firing report reaches the model through the real presenters.
 test('the firing report survives the wake presenter and tool-result compaction; cancelledBy survives compact action results', () => {
 	const standingOrder = { id: 'eat', when: 'player.state().fire && player.state().health < 10', firedAtMs: 1_791_635_751_854,
 		cause: { health: 9, hunger: 12, air: 300, fallDistance: 0, fire: true }, preempted: [{ actionId: 'native:a:1', actionType: 'wait' }], continuedAttention: 1 };
@@ -436,7 +431,6 @@ test('ArenaScript reads dropAhead as null when the observation omits it', () => 
 	assert.equal(createInterpreterFacts({ player: { health: 20, dropAhead: { drop: 9, at: 2 } } }).player.dropAhead.drop, 9);
 });
 
-// Review r3 finding 4: the stated ceiling holds for any text, counting UTF-8 multi-byte characters and JSON escapes.
 test('a firing report stays within its byte ceiling whatever its text fields hold, without splitting a character', () => {
 	const int = Number.MAX_SAFE_INTEGER;
 	for (const big of [-Number.MAX_VALUE, -0.0000012345678901234567]) {
@@ -457,7 +451,6 @@ test('a firing report stays within its byte ceiling whatever its text fields hol
 	assert.ok(Buffer.byteLength(JSON.stringify(typical)) < 400, 'a typical firing is about 350 bytes');
 });
 
-// R4: exercise the encoded wake and compact tool response, not just the helper.
 function presentedOrderReports(standingOrder, observation = wire()) {
 	const result = { state: 'YIELDED', reasonCode: 'PROGRAM_EXHAUSTED', programId: 'p1', goalRevision: 3, standingOrder,
 		receipts: Array.from({ length: 200 }, (_, i) => ({ actionId: `x${i}`, actionType: 'wait', state: 'SUCCEEDED', detail: randomBytes(256).toString('hex') })) };
@@ -591,8 +584,6 @@ test('a standing guard interrupts a running routine and yields to an explicit mo
 	await runtime.dispose('agent-a', 'test_complete');
 });
 
-// Review of PR #176: default defend fires before contact and holds while a mob chases; a guard that waited for it to
-// end never ran the model's own escape during the chase.
 async function guardUnderFiring(firing) {
 	const { runtime, sent, observe } = harness({ holdActions: new Set(['fight_target']), reflexBook: new ReflexBook() });
 	const world = { world: { dimension: 'minecraft:overworld', gameTime: 1, dayTime: 1, raining: false, thundering: false } };

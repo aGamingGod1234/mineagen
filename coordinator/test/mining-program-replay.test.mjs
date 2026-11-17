@@ -4,9 +4,6 @@ import { NativeProgramExecutor } from '../src/native-program-executor.mjs';
 import { classifyObservationTrigger } from '../src/dynamic-main.mjs';
 import { programSourceSummary, programTermination } from '../src/native-tool-runtime.mjs';
 
-// Replays the event shape of the 2026-10-08 "find lava" session (sol-lava-trace.jsonl): an agent inside a
-// deepslate wall mining forward. After every broken block Minecraft publishes ordinary attention (the drop
-// lands in the inventory), the first lava pop is heard, and later lava comes into view.
 const record = { agentId: 'lava-replay', goalRevision: 1, provider: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'low', serviceTier: 'priority' };
 const turn = () => new Promise((resolve) => setImmediate(resolve));
 

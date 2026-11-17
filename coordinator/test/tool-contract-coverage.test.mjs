@@ -25,51 +25,8 @@ test('tool descriptions are generated from the canonical claim table without inl
 });
 
 test('model-facing contract bytes remain within the pinned baseline budgets', () => {
-	// 26,440 -> 28,572: the four bounded actionType enums cost 533-560 bytes each.
-	// 28,572 -> 28,667: taskPlan intent text fields now state their maxLength (step 48, others 100).
-	// place_block adds the optional faceMode signature; pin the current serialized size.
-	// runProgram adds the bounded reflexes array (per-tick reflex rules).
-	// 28,666 -> 29,069: act and sequence carry the same reflexes array, so the call answering a danger also arms rules.
-	// 29,069 -> 29,105: the taskPlan check description names the stage terms (y<=N, lava:N, frame:N, crystals<=N).
-	// moveTo/act/sequence inspectAfter (one model call fewer per follow-up read) is paid for by a tighter observe description.
-	// 29,105 -> 29,116: the check description names spawn:bed (a respawn set by using a bed).
-	// 29,116 -> 29,395: the dig_to action (enums, signature, one act sentence) replaces one break_block call per block.
-	// 29,395 -> 30,904: travelTo (a whole trip in one call instead of a decision every few blocks) and its actionType enum entries.
-	// d38 retrace arguments, tool description and near check: exactly +317 tool bytes, +22 reference bytes.
-	// d38-blaze3: build_shelter adds exactly 116 serialized tool bytes and 69 program-reference bytes.
-	// d41-portal: use_item and interact_block accept acceptLavaRisk (LAVA_POUR_AT_BODY override): exactly +32 tool bytes.
-	// d41-ranged-loop: use_ranged untilDead?/fleeAtHealth?/collect? (timeoutMs? with untilDead) and fight_target collect?: exactly +44 tool bytes.
-	// d41-resume: travelTo fightThrough (fight hostiles on the route instead of stopping): exactly +226 tool bytes.
-	// d41-fight-until: the fight_until action (actionType enum entries and its act signature): exactly +153 tool bytes.
-	// 14,847 -> 14,895: player.useRanged gains timeoutMs?/untilDead?/fleeAtHealth?/collect? and player.fightTarget collect? (d41-ranged-loop).
-	// d41-cast-barter: cast_obsidian and barter_until (actionType enums, signatures, one act sentence each): exactly +673 tool bytes.
-	// d41-fight-count: fight_target/use_ranged untilItem?/untilCount? (+roof? on fight_target, fight_until) and one act sentence: exactly +245 tool bytes.
-	// d41-blaze-survive: fight_target/use_ranged single? and the plan-count act sentence: exactly +128 tool bytes.
-	// 2026-11-01 overlap: act/startAction after and keepGoing (schemas plus one startAction and one act sentence): exactly +545 tool bytes.
-	// 2026-11-01 body skills (mine tool choice +97, mine_vein +276, travel stops +128, travel descent +102, doors +62): exactly +665 tool bytes.
-	// d41-continue: independent cave/discard/fluid choices and timeout-resume guidance add 1,037 tool bytes.
-	// d41-dig: the gather tool (a whole tree in one call instead of chop, craft, chop: +1,059) and the lookAround reuse sentence (+126).
-	// claude/one-main merges both lines: 35,906 bytes.
-	// rw-loop: do_step, the primary step tool (verb enum, target, why, until, after, keepGoing and its description): exactly +1,336 tool bytes.
-	// rw-loop review: do_step carries reflexes (schema) and its description states what until does: exactly +359 tool bytes.
-	// verb-survive-rest: the rest action (5 enum entries, its act signature, rest in the do_step description): exactly +56 tool bytes.
-	// verb-find: the find verb (enum entry, target shape, one description clause): exactly +135 tool bytes.
-	// verb-obtain: the obtain verb (enum entry, target text and one description sentence; the item's whole chain in one step): exactly +357 tool bytes.
-	// obtain re-check: pick_up_item takes an optional timeoutMs (gather and obtain pass what is left of their time): exactly +11 tool bytes.
-	// verb-survive-rest merged in: the rest action and the rest verb in do_step's description, +57 tool bytes: 38,161.
-	// verb-build: the build verb (5 enum entries, its act signature, the do_step target shape, build in the description): exactly +176 tool bytes: 38,337.
-	// Explicit inventory repair adds observed input arguments and the required loss acknowledgement: 39,476 measured bytes.
 	assert.ok(Buffer.byteLength(JSON.stringify(MINECRAFT_DYNAMIC_TOOLS)) <= 39_476);
 	assert.ok(Buffer.byteLength(NATIVE_AGENT_INSTRUCTIONS) <= 1_500);
-	// 14,586 -> 14,695: the generated player.travelTo signature.
-	// 14,813 -> 14,847: player.useItem and player.interactBlock signatures gain acceptLavaRisk? (d41-portal).
-	// 14,847 -> 15,028: player.useRanged gains timeoutMs?/untilDead?/fleeAtHealth?/collect? and player.fightTarget collect? (d41-ranged-loop); +15: travelTo fightThrough? (d41-resume); +118: player.fightUntil (d41-fight-until); +118: castObsidian/barterUntil (d41-cast-barter).
-	// +64: fightTarget/useRanged untilItem?/untilCount?, fightTarget/fightUntil roof? (d41-fight-count).
-	// +18: fightTarget/useRanged single? (d41-blaze-survive).
-	// +178: absent facts read null, + joins strings with numbers/booleans/null, runtime errors name code, line:column and cause.
-	// +53: player.mineVein (2026-11-01 body skills); +61: optional digTo/travelTo choice signatures (d41-continue).
-	// +28: player.rest (verb-survive-rest); +12: pickUpItem timeoutMs? (obtain re-check).
-	// +68: player.build (verb-build).
 	assert.ok(Buffer.byteLength(ARENA_SCRIPT_API_REFERENCE) <= 15_710);
 });
 

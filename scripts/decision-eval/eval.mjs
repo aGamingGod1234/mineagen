@@ -4,8 +4,8 @@
 //   node scripts/decision-eval/eval.mjs --baseline <checkout|commit> [--candidate <checkout|commit>] [--quick | --preflight]
 //        [--split train|heldout] [--cases <file|dir>] [--expect-fixture-sha256 <hex|@file>] [--samples 3]
 //        [--confirm-samples 3] [--no-confirm] [--concurrency 32] [--out <dir>] [--cache-dir <dir>] [--cache-candidate]
-//        [--judge auto|off] [--judge-max-usd 5] [--judge-provider claude|codex|opencode] [--judge-model <id>] [--judge-effort <level>]
-//        [--judge-waits n] [--judge-wait-minutes 20] [--budget-usd <x>] [--provider claude|codex|opencode] [--model <id>] [--effort low]
+//        [--judge auto|off] [--judge-max-usd 5] [--judge-provider claude|codex] [--judge-model <id>] [--judge-effort <level>]
+//        [--judge-waits n] [--judge-wait-minutes 20] [--budget-usd <x>] [--provider claude|codex] [--model <id>] [--effort low]
 //        [--ids a,b] [--sample-offset n] [--random-view-id] [--keep-worktrees] [--probe]
 //
 // Each build renders and runs every case with its OWN production code: a commit is checked out into a temporary
@@ -15,8 +15,8 @@
 // are cached by build fingerprint + harness + case + model profile, so a PR whose baseline did not change only pays
 // for the candidate. Writes <out>/eval.json and <out>/eval.md. Exit codes: 0 PASS, 1 FAIL, 3 INCONCLUSIVE (only
 // with --no-confirm), 2 usage, setup or run error. The judge is the player's cross-family default unless --judge-provider and
-// --judge-model pick one (still from another family). Answers left ungraded (for example a free OpenCode judge's usage
-// limit) are graded again up to --judge-waits times, --judge-wait-minutes apart; the judge cache keeps every verdict given.
+// --judge-model pick one (still from another family). Answers left ungraded (for example a judge outage) are graded again up to --judge-waits times, --judge-wait-minutes apart; the judge cache keeps every verdict given.
+import { privateInput, skipWithoutPrivateInputs } from '../../coordinator/scripts/private-inputs.mjs';
 import { execFile, spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { createWriteStream, existsSync } from 'node:fs';
@@ -30,9 +30,6 @@ const execFileAsync = promisify(execFile);
 const harnessRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const HARNESS_DIR = path.join('coordinator', 'src', 'decision-eval');
 const RUNNER_SCRIPT = path.join('scripts', 'decision-eval', 'run.mjs');
-// The OpenCode transport, lent to builds from before the OpenCode provider (each file only where the build lacks it).
-const OPENCODE_SHIM = ['opencode-service.mjs', 'provider-environment.mjs'].map((name) => path.join('coordinator', 'src', name));
-const PROVIDER_SHIM_MARKER = path.join(HARNESS_DIR, 'provider-shim.json');
 const EXIT = { PASS: 0, FAIL: 1, INCONCLUSIVE: 3 };
 
 const { values: args } = parseArgs({
@@ -58,7 +55,6 @@ const positive = (value, name) => { const number = Number(value); if (!Number.is
 function fail(message) { process.stderr.write(`eval: ${message}\n`); process.exit(2); }
 function abort(message) { throw new Error(message); }
 if (!['train', 'heldout'].includes(args.split)) fail('--split must be train or heldout');
-// A free OpenCode eval is judged by the other free OpenCode model (judge.mjs crossFamilyJudge), so it costs nothing.
 // --preflight is the quick case list with 4 screen samples instead of 6: an explicitly weaker, cheaper per-push check
 // (simulate-verdict.mjs: about 40% detection of a 50-point single-family drop against about 70% for --quick). The
 // quick check (6/6) stays the PR gate.
@@ -70,17 +66,17 @@ const confirmSamples = positive(args['confirm-samples'] ?? (args.quick ? '6' : '
 const confirmReserve = Number(args['confirm-reserve']);
 if (!(confirmReserve >= 0 && confirmReserve < 1)) fail('--confirm-reserve must be a fraction from 0 to below 1');
 const concurrency = positive(args.concurrency, 'concurrency');
-if (args['judge-provider'] && !['claude', 'codex', 'opencode'].includes(args['judge-provider'])) fail('--judge-provider must be claude, codex or opencode');
-// The free OpenCode judge stops at once on its usage limit, which resets within hours, so it waits by default (6 hours).
-const judgeWaits = Number(args['judge-waits'] ?? (args['judge-provider'] === 'opencode' || (args.provider === 'opencode' && !args['judge-provider']) ? '18' : '0'));
+if (args['judge-provider'] && !['claude', 'codex'].includes(args['judge-provider'])) fail('--judge-provider must be claude or codex');
+const judgeWaits = Number(args['judge-waits'] ?? '0');
 const judgeWaitMs = Number(args['judge-wait-minutes']) * 60_000;
 if (!Number.isSafeInteger(judgeWaits) || judgeWaits < 0) fail('--judge-waits must be a nonnegative integer');
 if (!(judgeWaitMs > 0)) fail('--judge-wait-minutes must be a positive number');
 const heldout = args.split === 'heldout';
-const casePaths = (args.cases ?? [heldout ? process.env.DECISION_EVAL_HELDOUT : path.join(harnessRoot, 'coordinator', 'test', 'fixtures', 'decision-eval', 'train')])
+if (!args.cases && !heldout) skipWithoutPrivateInputs('decision-eval');
+const casePaths = (args.cases ?? [heldout ? process.env.DECISION_EVAL_HELDOUT : privateInput('coordinator/test/fixtures/decision-eval/train')])
 	.map((entry) => entry && path.resolve(entry));
 if (casePaths.some((entry) => !entry || !existsSync(entry))) fail(heldout ? 'held-out cases live outside the repo: pass --cases <file> or set DECISION_EVAL_HELDOUT' : `case path not found: ${casePaths.join(', ')}`);
-if (heldout && args['expect-fixture-sha256'] === undefined) fail('held-out runs need --expect-fixture-sha256 (the committed coordinator/test/fixtures/decision-eval/heldout.sha256)');
+if (heldout && args['expect-fixture-sha256'] === undefined) fail('held-out runs need --expect-fixture-sha256 (the archived coordinator/test/fixtures/decision-eval/heldout.sha256)');
 const expectFixture = args['expect-fixture-sha256']?.startsWith('@') ? `@${path.resolve(args['expect-fixture-sha256'].slice(1))}` : args['expect-fixture-sha256'];
 const stamp = new Date().toISOString().replace(/[:.]/g, '-');
 const out = path.resolve(args.out ?? path.join(os.tmpdir(), 'arena-decision-eval', `eval-${stamp}`));
@@ -136,21 +132,6 @@ async function resolveBuild(spec, name) {
 		await mkdir(path.dirname(path.join(root, file)), { recursive: true });
 		await copyFile(path.join(harnessRoot, file), path.join(root, file));
 	}
-	// A build from before the OpenCode provider has no OpenCode transport. Its own instructions, tools and rendering still
-	// decide the prompt; only the transport files it lacks are lent from this checkout. They are hidden from the build's
-	// dirty check and listed in PROVIDER_SHIM_MARKER, which run.mjs adds to the sample cache key.
-	const providerShim = [];
-	if (args.provider === 'opencode') {
-		for (const file of OPENCODE_SHIM) {
-			const target = path.join(root, file);
-			if (existsSync(target) && /opencode/.test(await readFile(target, 'utf8'))) continue;
-			const tracked = existsSync(target);
-			await copyFile(path.join(harnessRoot, file), target);
-			if (tracked) await git(root, 'update-index', '--skip-worktree', file);
-			providerShim.push(file);
-		}
-		if (providerShim.length) await writeFile(path.join(root, PROVIDER_SHIM_MARKER), `${JSON.stringify({ lentFrom: await git(harnessRoot, 'rev-parse', 'HEAD'), files: providerShim })}\n`);
-	}
 	// Every worktree installs its own locked dependencies; node_modules is never shared.
 	await new Promise((resolve, reject) => {
 		const child = spawn('npm ci --ignore-scripts --omit=dev --no-audit --no-fund', { cwd: path.join(root, 'coordinator'), shell: true, stdio: ['ignore', 'ignore', 'pipe'] });
@@ -159,7 +140,7 @@ async function resolveBuild(spec, name) {
 		child.on('error', reject);
 		child.on('close', (code) => code === 0 ? resolve() : reject(new Error(`npm ci failed in ${root}: ${errorText.slice(-2000)}`)));
 	});
-	return { spec, root, commit, temporary: true, providerShim };
+	return { spec, root, commit, temporary: true };
 }
 
 async function cleanup() {
@@ -167,7 +148,6 @@ async function cleanup() {
 	for (const root of temporaryWorktrees.splice(0)) await git(harnessRoot, 'worktree', 'remove', '--force', root).catch((error) => say(`could not remove worktree ${root}: ${error.message}`));
 }
 
-/** Runs one arm through that build's own run.mjs; returns { code, file, run }. */
 function runArm(build, { name, file, ids = null, count, offset = 0, cache, armConcurrency, extra = [] }) {
 	const runArgs = [path.join(build.root, RUNNER_SCRIPT), ...casePaths.flatMap((entry) => ['--cases', entry]), '--split', args.split,
 		...(args.quick ? ['--quick'] : []), ...((ids ?? selectedIds) === null ? [] : ['--ids', (ids ?? selectedIds).join(',')]), '--samples', String(count), '--sample-offset', String(offset),
@@ -192,7 +172,7 @@ function runArm(build, { name, file, ids = null, count, offset = 0, cache, armCo
 		child.on('close', async (code) => {
 			if (buffered.trim()) say(`[${name}] ${buffered.trimEnd()}`);
 			let run = null;
-			if (file !== null && code === 0) try { run = JSON.parse(await readFile(file, 'utf8')); } catch { /* reported below */ }
+			if (file !== null && code === 0) try { run = JSON.parse(await readFile(file, 'utf8')); } catch {}
 			resolve({ code, file, run, stdout });
 		});
 	});
@@ -326,7 +306,7 @@ let exitCode = 2;
 try {
 	say(`decision-eval: baseline ${args.baseline} vs candidate ${args.candidate ?? harnessRoot}; split ${args.split}${mode ? ` (${mode})` : ''}, ${samples} samples; out ${out}`);
 	const builds = await timed('setup', async () => ({ baseline: await resolveBuild(args.baseline, 'baseline'), candidate: await resolveBuild(args.candidate ?? harnessRoot, 'candidate') }));
-	for (const [arm, build] of Object.entries(builds)) say(`${arm}: ${build.commit.slice(0, 12)} at ${build.root}${build.temporary ? ' (temporary worktree, harness overlaid)' : ''}${build.providerShim?.length ? `; it predates the OpenCode provider, so ${build.providerShim.join(', ')} were lent from this checkout` : ''}`);
+	for (const [arm, build] of Object.entries(builds)) say(`${arm}: ${build.commit.slice(0, 12)} at ${build.root}${build.temporary ? ' (temporary worktree, harness overlaid)' : ''}`);
 	// Every stage asks for sample indexes no earlier stage used, so no sample can count twice.
 	let nextOffset = firstSample;
 	const stages = [];
@@ -345,8 +325,7 @@ try {
 		for (let wait = 1; wait <= judgeWaits && ungraded(result.report) > 0 && args.judge !== 'off'; wait++) {
 			const reasons = (await readFile(path.join(out, stage, 'graded-samples.jsonl'), 'utf8').catch(() => '')).split('\n').filter(Boolean)
 				.map((line) => JSON.parse(line).grade).filter((grade) => grade?.source === 'judge-error').map((grade) => grade.reason);
-			const limited = reasons.some((reason) => /free usage limit/i.test(reason));
-			say(`${stage}: ${ungraded(result.report)} answers ungraded${limited ? ' (judge free usage limit reached)' : reasons[0] ? ` (${reasons[0].slice(0, 160)})` : ''}; waiting ${judgeWaitMs / 60_000} min, then grading again (${wait}/${judgeWaits})`);
+			say(`${stage}: ${ungraded(result.report)} answers ungraded${reasons[0] ? ` (${reasons[0].slice(0, 160)})` : ''}; waiting ${judgeWaitMs / 60_000} min, then grading again (${wait}/${judgeWaits})`);
 			await new Promise((resolve) => setTimeout(resolve, judgeWaitMs));
 			result = await once();
 		}
@@ -425,8 +404,8 @@ try {
 		kind: 'decision-eval-check', runId, verdict, screenVerdict: firstScreenVerdict, newScreen, confirmation: confirmation === null ? null
 			: { verdict: confirmation.verdict, reasons: confirmation.reasons, units: confirmation.units, overall: confirmation.overall },
 		split: args.split, quick: args.quick, preflight: args.preflight, samples, confirmSamples,
-		builds: Object.fromEntries(Object.entries(builds).map(([arm, build]) => [arm, { spec: build.spec, commit: build.commit, temporary: build.temporary, providerShim: build.providerShim ?? [] }])),
-		profile: { provider: args.provider, model: args.model ?? (args.provider === 'opencode' ? 'opencode/deepseek-v4.1-flash-free' : 'claude-opus-5-5'), effort: args.effort, viewSession: args['random-view-id'] ? 'random' : 'eval-fixed' },
+		builds: Object.fromEntries(Object.entries(builds).map(([arm, build]) => [arm, { spec: build.spec, commit: build.commit, temporary: build.temporary }])),
+		profile: { provider: args.provider, model: args.model ?? 'claude-opus-5-5', effort: args.effort, viewSession: args['random-view-id'] ? 'random' : 'eval-fixed' },
 		wallMs: Math.round(performance.now() - startedAt), playerPhaseMs, gradingMs, phases, stages,
 		samples: { asked: askedStages.flatMap((stage) => Object.values(stage.arms)).reduce((sum, arm) => sum + arm.askedSamples, 0),
 			fromCache: askedStages.flatMap((stage) => Object.values(stage.arms)).reduce((sum, arm) => sum + arm.cachedSamples, 0),

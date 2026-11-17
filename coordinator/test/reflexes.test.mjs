@@ -53,7 +53,7 @@ test('invalid reflexes are refused with errors that name the field and the allow
 });
 
 test('the coordinator vocabulary matches the mod vocabulary (ReflexSpec.java)', () => {
-	const java = readFileSync(new URL('../../src/main/java/dev/agaminggod/arenaagents/server/runtime/reflex/ReflexSpec.java', import.meta.url), 'utf8');
+	const java = readFileSync(new URL('../../src/main/java/dev/agaminggod/mineagen/server/runtime/reflex/ReflexSpec.java', import.meta.url), 'utf8');
 	const declared = (kind) => [...java.matchAll(new RegExp(`\\t\\t${kind}\\("([a-z_]+)"`, 'g'))].map((match) => match[1]).sort();
 	assert.deepEqual(declared('condition'), Object.keys(REFLEX_CONDITIONS).sort());
 	assert.deepEqual(declared('action'), Object.keys(REFLEX_ACTIONS).sort());
@@ -92,7 +92,7 @@ test('protocol carries reflex_update and the observation reflex status', () => {
 	// A full set: every rule the model may arm plus the defaults. The wire once capped this at 12 and refused it.
 	const full = normalizeReflexEntries(Array.from({ length: MAX_REFLEXES }, (_, index) => ({ ...SHIELD, id: `rule-${index}` }))).concat(DEFAULT_REFLEXES);
 	assert.equal(validateProtocolV2Payload('reflex_update', { revision: 3, rules: full, yield: false }).rules.length, MAX_REFLEXES + DEFAULT_REFLEXES.length);
-	assert.match(readFileSync(new URL('../../src/main/java/dev/agaminggod/arenaagents/server/runtime/reflex/ReflexSpec.java', import.meta.url), 'utf8'),
+	assert.match(readFileSync(new URL('../../src/main/java/dev/agaminggod/mineagen/server/runtime/reflex/ReflexSpec.java', import.meta.url), 'utf8'),
 		new RegExp(`MAX_RULES = ${MAX_REFLEXES + DEFAULT_REFLEXES.length};`), 'the mod accepts the same full set');
 	const observation = validateProtocolV2Payload('observation', { ...wire(), goalRevision: 3, observedAtEpochMs: 1, status: 'ready', eventSequence: 4, attention: false, changedFacts: [],
 		reflexes: { revision: 2, firing: { id: 'blaze-shield', ms: 900, detail: 'shield raised' }, rules: [{ id: 'blaze-shield', kind: 'stance', state: 'firing', fired: 1, expiresInS: 599 }], events: [] } });

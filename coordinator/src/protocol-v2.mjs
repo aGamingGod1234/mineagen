@@ -48,7 +48,6 @@ export const COORDINATOR_TO_SERVER_TYPES = Object.freeze([
 	'agent_ready',
 	'planning_state',
 	'goal_completed',
-	'director_script_result',
 	'goal_spec_proposal',
 	'task_request',
 	'conversation_wake_ack',
@@ -82,7 +81,6 @@ export const SERVER_TO_COORDINATOR_TYPES = Object.freeze([
 	'action_progress',
 	'action_result',
 	'goal_completion_result',
-	'director_script_request',
 	'goal_spec_request',
 	'plan_facts',
 	'advancement_granted',
@@ -139,8 +137,8 @@ const MAX_COMPLETION_FACTS = 16;
 const MAX_CHANGED_FACTS = 256;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const AUTHENTICATION_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
-const AUTHENTICATION_CONTEXT = 'arena-agents-v2';
-const ACTION_RESULT_REPLAY_CONTEXT = 'arena-agents-v2-action-result-replay';
+const AUTHENTICATION_CONTEXT = 'mineagen-v2';
+const ACTION_RESULT_REPLAY_CONTEXT = 'mineagen-v2-action-result-replay';
 export const MAX_VERBOSE_MESSAGE_LENGTH = 256;
 export const AGENT_NOTICE_SEVERITIES = Object.freeze(['error', 'warning', 'info']);
 const AGENT_NOTICE_SEVERITY_SET = new Set(AGENT_NOTICE_SEVERITIES);
@@ -360,12 +358,6 @@ function normalizeProtocolV2Payload(type, value) {
 				reasonCode: boundedText(value.reasonCode, 'reasonCode', MAX_REASON_CODE_LENGTH),
 				facts: boundedArray(value.facts, 'facts', MAX_COMPLETION_FACTS).map((fact, index) => normalizeCompletionFact(fact, index)),
 			};
-		case 'director_script_request':
-            exactKeys(value, ['requestId','description','actorName'], ['requestId','description','actorName'], type);
-            return {requestId:requireIdentifier(value.requestId,'requestId'), description:boundedText(value.description,'description',2048), actorName:boundedText(value.actorName,'actorName',64)};
-        case 'director_script_result':
-            exactKeys(value, ['requestId','script','error'], ['requestId','script','error'], type);
-            return {requestId:requireIdentifier(value.requestId,'requestId'), script:boundedText(value.script,'script',32768,0), error:boundedText(value.error,'error',400,0)};
 		case 'plan_facts': {
 			exactKeys(value, ['goalRevision', 'advancements', 'verifiedKills'], ['goalRevision', 'advancements', 'verifiedKills'], type);
 			const ids = field => boundedArray(value[field], field, 2048).map(id => {
@@ -468,8 +460,6 @@ function normalizeProtocolV2Payload(type, value) {
 			// The model's complete reflex rule set for one agent; reflexes.mjs validated each rule. Not revision guarded:
 			// rules outlive goal revisions.
 			exactKeys(value, ['revision', 'rules', 'yield'], ['revision', 'rules', 'yield'], type);
-			// The model's own rules plus the default survival rules (ReflexSpec.MAX_RULES on the mod side). A cap of 12 here
-			// refused every update once a model set 7 rules (the recorded Oct 29 Terra game: 300 refused sends).
 			const rules = boundedArray(value.rules, 'rules', MAX_REFLEXES + DEFAULT_REFLEXES.length);
 			if (!rules.every(isPlainObject) || Buffer.byteLength(JSON.stringify(rules)) > 16_384) throw new ProtocolV2Error('INVALID_PAYLOAD', 'Invalid reflex rules');
 			return { revision: nonnegativeInteger(value.revision, 'revision'), rules: structuredClone(rules), yield: boolean(value.yield, 'yield') };
@@ -2051,9 +2041,6 @@ function reflexStatusObservation(value) {
 	const text = (row, key, maximum) => row[key] === undefined ? {} : { [key]: boundedText(row[key], `reflexes.${key}`, maximum, 0) };
 	const result = {
 		revision: nonnegativeInteger(value.revision, 'reflexes.revision'),
-		// The mod reports every rule it runs: the model's own plus the default survival rules, the same cap as reflex_update.
-		// A cap of 12 here refused the whole observation once the defaults and the model's rules passed 12, and the
-		// bridge then reconnected and re-sent the same set every 1-2 s (one-main baseline, Nov 7: 4 of 4 games).
 		rules: boundedArray(value.rules, 'reflexes.rules', MAX_REFLEXES + DEFAULT_REFLEXES.length).map((row) => {
 			if (!isPlainObject(row)) throw new ProtocolV2Error('INVALID_PAYLOAD', 'reflex rule status must be an object');
 			exactKeys(row, ['id', 'kind', 'state', 'fired', 'expiresInS', 'disabled', 'lacks'], ['id', 'kind', 'state', 'fired', 'expiresInS'], 'reflexes.rules');
@@ -2655,7 +2642,6 @@ function normalizeBreakOutcome(value) {
 	if (value.held !== undefined) normalized.held = requireIdentifier(value.held, 'breakOutcome.held');
 	normalized.correctTool = boolean(value.correctTool, 'breakOutcome.correctTool');
 	normalized.noDropsSeen = boolean(value.noDropsSeen, 'breakOutcome.noDropsSeen');
-	// Round-2 servers and journals omit handChanged: unknown, so it stays absent rather than assumed false.
 	if (value.handChanged !== undefined) normalized.handChanged = boolean(value.handChanged, 'breakOutcome.handChanged');
 	if (normalized.noDropsSeen && normalized.blocks === 0) throw new ProtocolV2Error('INVALID_PAYLOAD', 'breakOutcome.noDropsSeen requires a broken block');
 	return normalized;

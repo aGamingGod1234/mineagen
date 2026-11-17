@@ -58,9 +58,10 @@ secrets/
 *.key
 *.pem
 
-# Agent-local work ledgers and tool state
+# Agent-local work ledgers and tool state; project skills under .claude/skills/ are shared
 .superpowers/
-.claude/
+.claude/*
+!.claude/skills/
 
 # Operating-system metadata
 *.DS_Store

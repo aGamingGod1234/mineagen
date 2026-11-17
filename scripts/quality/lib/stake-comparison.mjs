@@ -67,7 +67,6 @@ export function summarizeGate(report, extra = {}, previous = null) {
 			ranAt: cohort.ranAt ?? null, seeds: cohort.seeds.length, funnel: cohort.funnel, deaths: cohort.deaths, costUsd: cohort.costUsd }, ...extra };
 }
 
-/** Before → after against the previous gate file, or null when it is not a like-for-like pair. */
 export function pairAcross(previous, report) {
 	const before = previous?.cohorts?.at(-1), after = report.cohorts.at(-1);
 	if (!before?.runs?.length || !after?.runs?.length || before.commit === after.commit) return null;
@@ -107,7 +106,6 @@ export async function findGateFunnel({ base, evaluated, head = evaluated, repo }
 	const fromPr = await newest(evaluated, touched, GATE_FILE);
 	// Links use the PR head: GitHub's merge commit is not a stable address for a file.
 	const gate = fromPr ? { ...fromPr, ref: head, source: 'this PR' } : { ...(await newest(base, onBase, GATE_FILE)), ref: base, source: 'base' };
-	// The gate before it, on the same tree, for a gate one commit ran.
 	const gateRef = gate.source === 'this PR' ? evaluated : base;
 	const previous = gate.report && !gate.report.comparisons?.length
 		? await newest(gateRef, gate.source === 'this PR' ? (await run('ls-tree', '-r', '--name-only', evaluated, 'docs/gates')).split('\n').filter(Boolean) : onBase, GATE_FILE, gate.order)
@@ -191,7 +189,6 @@ export async function collectComparison(context, { incident = null, root, git: r
 	report.base = { sha: context.base }; report.head = context.head; report.evaluated = context.evaluated ?? context.head; report.summaryUrl = context.summaryUrl;
 	// The PR head object is not in a merge checkout; the evaluated merge carries the head's files.
 	try { report.product = await findGateFunnel({ base: context.base, evaluated: report.evaluated, head: context.head, repo: context.repo }, run); } catch { report.product = null; }
-	// The whole check: head stake, base checkout and replay, both log replays and the funnel lookup.
 	report.checkMs = Math.round(performance.now() - started);
 	return report;
 }

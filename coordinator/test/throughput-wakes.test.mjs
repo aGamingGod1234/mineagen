@@ -159,7 +159,6 @@ for (const startsProgram of [true, false]) {
 			if (startsProgram) await call('c1', program('continue_and_notify', 'await player.wait(20000);'));
 		});
 		try {
-			// The model is still deciding: this sample queues behind the turn.
 			run.bridge.emit('observation', observation(2, { changedFacts: ['entities'] }));
 			await eventually(() => rows.some(({ event, mode }) => event === 'native_event_ready' && mode === 'pending'));
 			proceed();

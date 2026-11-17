@@ -346,7 +346,6 @@ test('actions that never reached the bridge are settled history, not unknown out
 	const unsent = await notebook.recordNotSent('a', { ...identity('unsent'), reasonCode: 'DISPATCH_NOT_SENT' });
 	assert.deepEqual([unsent.state, unsent.reasonCode], ['FAILED', 'DISPATCH_NOT_SENT']);
 	assert.throws(() => notebook.recordNotSent('a', { ...identity('maybe-sent'), reasonCode: 'DISPATCH_RESULT_UNKNOWN' }), /reasonCode must be one of/);
-	// Far past the old 1024-entry hard cap that every cancellation used to count against.
 	for (let i = 0; i < 1500; i++) {
 		await notebook.recordDispatch('a', identity(`cancel-${i}`));
 		await notebook.recordNotSent('a', { ...identity(`cancel-${i}`), reasonCode: i % 2 === 0 ? 'CANCELLED_BEFORE_DISPATCH' : 'DISPATCH_NOT_SENT' });
@@ -359,7 +358,6 @@ test('actions that never reached the bridge are settled history, not unknown out
 	assert.equal((await restored.listUnresolved('a', query)).total, 0);
 	assert.equal((await restored.findReceipt('a', { actionId: 'cancel-1499' })).state, 'FAILED');
 	assert.equal(saved?.recovery?.length ?? 0, 0, 'nothing reaches the recovery list');
-	// A server result still wins if one ever arrives.
 	assert.equal((await restored.recordReceipt('a', terminal('cancel-1499'))).source, 'server_action_result');
 });
 

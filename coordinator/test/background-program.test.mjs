@@ -398,7 +398,6 @@ test('a same-turn wait after a background program already ended reports that end
 	assert.equal(result.waitedMs, 0);
 	assert.equal(result.program.programId, handle.programId);
 	assert.equal(run.commands().length, 0);
-	// The end is reported once; a later wait is an ordinary body wait.
 	const later = run.call('wait', { durationMs: 5 });
 	await tick();
 	assert.equal(run.commands().length, 1);

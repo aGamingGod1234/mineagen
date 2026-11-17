@@ -127,7 +127,7 @@ class ProcessTreeCleanupTest(unittest.TestCase):
         rcon.close.assert_called_once_with()
         self.assert_tree_stopped()
         self.assertIsNone(unrelated.poll())
-        self.server.stop(timeout=.02)  # repeated cleanup must be harmless
+        self.server.stop(timeout=.02)
 
     def test_startup_without_rcon_is_cleaned_on_shutdown_timeout(self):
         with mock.patch.object(live_server, 'Rcon', side_effect=ConnectionRefusedError()):

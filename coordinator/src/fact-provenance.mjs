@@ -65,7 +65,6 @@ export function bodyClock(observation) {
 	return clock;
 }
 
-/** The newer of two clocks, field by field; null when neither carries a clock. */
 export function laterClock(previous, next) {
 	const clock = {};
 	for (const field of ['lastSeenTick', 'observedAtEpochMs']) {
@@ -75,7 +74,6 @@ export function laterClock(previous, next) {
 	return Object.keys(clock).length === 0 ? null : clock;
 }
 
-/** True when `sample` is older than `clock` on a clock both carry. */
 export function clockPrecedes(clock, sample) {
 	if (clock === null || clock === undefined || sample === null || sample === undefined) return false;
 	return ['lastSeenTick', 'observedAtEpochMs'].some((field) => Number.isFinite(clock[field]) && Number.isFinite(sample[field]) && sample[field] < clock[field]);
@@ -211,7 +209,6 @@ export const LIFECYCLE_BINDINGS = Object.freeze({
 	note: Object.freeze([]),
 });
 
-/** Whether `change` (from FactLifecycle) ends facts with this binding. */
 export function invalidated(binding, change) {
 	const ends = LIFECYCLE_BINDINGS[binding];
 	if (ends === undefined) throw new TypeError(`unknown fact binding ${binding}`);
@@ -233,7 +230,6 @@ export class FactLifecycle {
 
 	constructor(session = PROCESS_SESSION) { this.#session = session; }
 
-	/** A new lifecycle holding a record saved by toJSON (see adopt). */
 	static restore(saved, { after = null, session = after?.#session ?? PROCESS_SESSION } = {}) {
 		const lifecycle = new FactLifecycle(session);
 		if (after !== null) { lifecycle.#origins = new Map(after.#origins); lifecycle.#origin = after.#origin; lifecycle.#dead = after.#dead; lifecycle.#dimension = after.#dimension; lifecycle.#worldId = after.#worldId; lifecycle.#samples = after.#samples; }

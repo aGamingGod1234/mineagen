@@ -1,3 +1,4 @@
+import { privateInput } from '../scripts/private-inputs.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -8,7 +9,7 @@ import { validateCaseFile } from '../src/decision-eval/schema.mjs';
 import { observationSha256 } from '../src/decision-eval/capture.mjs';
 import { loadCases, verifyProvenance } from '../../scripts/decision-eval/verify-provenance.mjs';
 
-const fixtures = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'decision-eval');
+const fixtures = privateInput('coordinator/test/fixtures/decision-eval');
 const trainDir = path.join(fixtures, 'train');
 const files = fs.readdirSync(trainDir).filter((name) => name.endsWith('.json')).sort();
 const fileCases = files.map((name) => ({ name, parsed: JSON.parse(fs.readFileSync(path.join(trainDir, name), 'utf8')) }));
@@ -23,7 +24,7 @@ test('every train case file validates against the shared schema', () => {
 		assert.ok(parsed.cases.every((c) => c.family === parsed.family && c.causeClass === parsed.causeClass));
 		assert.ok(typeof parsed.rationale === 'string' && parsed.rationale.length > 40, `${name} has a player-sense rationale`);
 	}
-	validateCaseFile(cases, 'all train cases'); // ids unique across files
+	validateCaseFile(cases, 'all train cases');
 	assert.ok(cases.every((c) => c.split === 'train'));
 	assert.ok(cases.every((c) => typeof c.rationale === 'string' && c.rationale.length > 40));
 });
@@ -72,8 +73,6 @@ test('multi-step cases only answer with recorded game replies', () => {
 	}
 });
 
-// Grading policy since fix round 2 (the recorded decision on review r2 P1-1): predicates decide only unambiguous outcomes,
-// so every case carries a rubric that states its own recorded cause and what counts as good, bad and neutral.
 test('every case keeps deterministic predicates for clear outcomes and carries a rubric for the rest', () => {
 	const withPredicates = cases.filter((c) => (c.expect.good?.length ?? 0) + (c.expect.bad?.length ?? 0) > 0);
 	assert.equal(withPredicates.length, cases.length, 'every case has at least one deterministic predicate');

@@ -11,8 +11,8 @@ foreach ($line in Get-Content -LiteralPath (Join-Path $root 'gradle.properties')
 	$separator = $trimmed.IndexOf('=')
 	if ($separator -gt 0) { $properties[$trimmed.Substring(0, $separator).Trim()] = $trimmed.Substring($separator + 1).Trim() }
 }
-$modJarName = "arena-agents-$($properties.mod_version).jar"
-$voiceJarName = "arena-agents-voice-$($properties.mod_version).jar"
+$modJarName = "mineagen-$($properties.mod_version).jar"
+$voiceJarName = "mineagen-voice-$($properties.mod_version).jar"
 $fabricApiJarName = "fabric-api-$($properties.fabric_api_version).jar"
 $carpetJarName = "fabric-carpet-$($properties.carpet_version).jar"
 $updater = Join-Path $root 'scripts\install-normal-profile-update.ps1'
@@ -101,7 +101,7 @@ function Assert-CurrentUserRuntimeAccess([string] $Path, [switch] $RequireInheri
 # prefixes, since file enumeration and the updater use the expanded path.
 $target = [IO.Path]::GetFullPath((Join-Path $env:TEMP ('arena up ' + [guid]::NewGuid().ToString('N'))))
 $mods = Join-Path $target 'mods'
-$installedRoot = Join-Path $target 'arena-agents-runtime'
+$installedRoot = Join-Path $target 'mineagen-runtime'
 $runtimeCoordinator = Join-Path $installedRoot 'coordinator'
 $runtime = Join-Path $installedRoot 'runtime'
 $config = Join-Path $installedRoot 'config'
@@ -113,8 +113,8 @@ $installedNode = Join-Path $runtime 'toolchains\node\node.exe'
 New-Item -ItemType Directory -Force -Path $mods, $runtimeCoordinator, $runtime, $config | Out-Null
 $verificationFailed = $false
 try {
-    Copy-Item -LiteralPath (Join-Path $root ("build\libs\" + $modJarName)) -Destination (Join-Path $mods 'arena-agents-old-unparseable.jar')
-    Copy-Item -LiteralPath (Join-Path $root ("voice-addon\build\libs\" + $voiceJarName)) -Destination (Join-Path $mods 'arena-agents-voice-0.0.1.jar')
+    Copy-Item -LiteralPath (Join-Path $root ("build\libs\" + $modJarName)) -Destination (Join-Path $mods 'mineagen-old-unparseable.jar')
+    Copy-Item -LiteralPath (Join-Path $root ("voice-addon\build\libs\" + $voiceJarName)) -Destination (Join-Path $mods 'mineagen-voice-0.0.1.jar')
     Set-Content -LiteralPath (Join-Path $mods 'unrelated.jar') -Value 'keep'
     Set-Content -LiteralPath (Join-Path $mods $fabricApiJarName) -Value 'api'
     Set-Content -LiteralPath (Join-Path $mods $carpetJarName) -Value 'carpet'
@@ -151,18 +151,18 @@ try {
     Assert-RuntimeTransactionCleanup $installedRoot
     if (-not (Test-Path -LiteralPath (Join-Path $mods $modJarName))) { throw 'Updated jar missing.' }
     if (-not (Test-Path -LiteralPath (Join-Path $mods $voiceJarName))) { throw 'Updated voice-addon jar missing.' }
-    if (Test-Path -LiteralPath (Join-Path $mods 'arena-agents-old-unparseable.jar')) { throw 'Stale Arena jar remains.' }
-    if (Test-Path -LiteralPath (Join-Path $mods 'arena-agents-voice-0.0.1.jar')) { throw 'Stale voice-addon jar remains.' }
+    if (Test-Path -LiteralPath (Join-Path $mods 'mineagen-old-unparseable.jar')) { throw 'Stale Arena jar remains.' }
+    if (Test-Path -LiteralPath (Join-Path $mods 'mineagen-voice-0.0.1.jar')) { throw 'Stale voice-addon jar remains.' }
     if (-not (Test-Path -LiteralPath (Join-Path $mods 'unrelated.jar'))) { throw 'Unrelated mod was changed.' }
     if (Test-Path -LiteralPath (Join-Path $runtimeCoordinator 'stale.log')) { throw 'Stale coordinator state remains.' }
-    $installedManifest = Join-Path $runtimeCoordinator '.arena-agents-bundle-manifest'
+    $installedManifest = Join-Path $runtimeCoordinator '.mineagen-bundle-manifest'
     if (-not (Test-Path -LiteralPath $installedManifest -PathType Leaf)) { throw 'Updated coordinator is missing its Java generation manifest.' }
     Add-Type -AssemblyName System.IO.Compression
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $installedJarPath = Join-Path $mods $modJarName
     $archive = [IO.Compression.ZipFile]::OpenRead($installedJarPath)
     try {
-        $manifestEntry = $archive.GetEntry('arena-agents/coordinator/coordinator-manifest.txt')
+        $manifestEntry = $archive.GetEntry('mineagen/coordinator/coordinator-manifest.txt')
         if ($null -eq $manifestEntry) { throw 'Updated JAR is missing its embedded coordinator manifest.' }
         $reader = [IO.StreamReader]::new($manifestEntry.Open())
         try { $embeddedManifest = $reader.ReadToEnd() } finally { $reader.Dispose() }
@@ -218,7 +218,7 @@ try {
         $before = Get-FileSnapshot $mods
         $runtimeBefore = Get-FileSnapshot $installedRoot
         try { & $updater -ProjectRoot $root -GameDirectory $target -FailurePoint $failurePoint; throw "Failure injection did not occur: $failurePoint" } catch { if ($_.Exception.Message -notmatch 'Injected failure') { throw } }
-        if (@(Get-ChildItem -LiteralPath $target -Directory -Filter '.arena-agents-backup-*').Count -eq 0) { throw "No preserved backup after failure: $failurePoint" }
+        if (@(Get-ChildItem -LiteralPath $target -Directory -Filter '.mineagen-backup-*').Count -eq 0) { throw "No preserved backup after failure: $failurePoint" }
         Assert-SameSnapshot $before (Get-FileSnapshot $mods) "Forced failure did not restore prior mod state: $failurePoint"
         $runtimeTransactionStarted = $failurePoint -in @('AfterCoordinatorSwap', 'AfterNodeSwap', 'AfterGenerationStateSwap')
         Assert-RuntimeRollbackSnapshot $runtimeBefore (Get-FileSnapshot $installedRoot) $runtimeTransactionStarted "Forced failure did not restore runtime state: $failurePoint"

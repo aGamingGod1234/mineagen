@@ -1,5 +1,5 @@
 ---
-name: Arena Agents Field Console
+name: Mineagen Field Console
 description: A readable in-world mission console for configuring and directing Minecraft agents.
 colors:
   obsidian-panel: "#18202B"
@@ -12,17 +12,17 @@ colors:
   fault-coral: "#FF737A"
 typography:
   title:
-    fontFamily: "Minecraft, monospace"
+    fontFamily: "Roboto, sans-serif"
     fontSize: "18px"
     fontWeight: 700
     lineHeight: 1.25
   body:
-    fontFamily: "Minecraft, monospace"
+    fontFamily: "Roboto, sans-serif"
     fontSize: "12px"
     fontWeight: 400
     lineHeight: 1.4
   label:
-    fontFamily: "Minecraft, monospace"
+    fontFamily: "Roboto, sans-serif"
     fontSize: "10px"
     fontWeight: 600
     lineHeight: 1.2
@@ -49,7 +49,9 @@ components:
     padding: "6px 8px"
 ---
 
-# Design System: Arena Agents Field Console
+# Design System: Mineagen Field Console
+
+This is the visual direction. `ConsoleTheme.java`, `ConsoleFont.java` and the widgets under `src/client/java/dev/agaminggod/mineagen/client/gui/` define the rendered values.
 
 ## Overview
 
@@ -57,13 +59,13 @@ components:
 
 The player opens this console while standing in an active world, often under a bright sky with visual noise behind the interface. The console is a dark, opaque-enough map table layered above that world, with strong text contrast, deliberate sections, and one signal color reserved for current selection and primary action.
 
-It must feel native to Minecraft without looking like a vanilla settings menu. Custom-rendered navigation, roster rows, status timelines, segmented controls, and world-coordinate previews provide identity. Default buttons are implementation primitives, not the visual system.
+It must feel native to Minecraft without looking like a vanilla settings menu. Custom-rendered navigation, roster rows, status timelines, segmented controls, and agent controls provide identity. Default buttons are implementation primitives, not the visual system.
 
 **Key Characteristics:**
 
 - Strong full-row selected states with explicit Selected text.
 - A stable three-region shell: navigation, working canvas, live activity rail.
-- Progressive disclosure between setup, group messaging, and arena operations.
+- Progressive disclosure between setup and individual tasks.
 - Dense but readable information with no nested card grid.
 
 ## Colors
@@ -91,16 +93,16 @@ The palette is restrained: tinted charcoal surfaces and one amber signal, with s
 
 ## Typography
 
-**Display Font:** Minecraft with monospace fallback
-**Body Font:** Minecraft with monospace fallback
-**Label/Mono Font:** Minecraft with monospace fallback
+**Display Font:** Roboto with Minecraft fallback
+**Body Font:** Roboto with Minecraft fallback
+**Label Font:** Roboto with Minecraft fallback
 
-**Character:** The native glyph language preserves game identity. Hierarchy comes from placement, scale, spacing, and color rather than introducing an unrelated display typeface.
+**Implementation:** `ConsoleFont` selects the mod-local `mineagen:console` font and falls back to Minecraft if it is unavailable. The font resource loads Roboto Regular with a Unifont fallback.
 
 ### Hierarchy
 
 - **Title** (700, 18px, 1.25): Current workspace and selected subject.
-- **Body** (400, 12px, 1.4): Agent names, tasks, status explanations, and arena details.
+- **Body** (400, 12px, 1.4): Agent names, tasks, status explanations.
 - **Label** (600, 10px, 1.2): Navigation, field names, chips, and compact metadata.
 
 **The Human Copy Rule.** Provider and model metadata may be precise, but lifecycle and error text must be phrased for a player, not a protocol engineer.
@@ -142,27 +144,25 @@ Depth uses tonal layering and one-pixel keylines, not decorative shadows or glas
 
 ### Navigation
 
-Use persistent navigation for Agents, Group, Live, and Build. It remains visible across every workspace, using a left rail when wide and a four-part top row when compact. The active destination has a filled background, amber marker, and text label. Never use icons alone.
+The agent workflow uses Agents navigation, with a side rail when wide and a top row when compact. The active destination has a filled background, amber marker, and text label. Never use icons alone.
 
 ### Agent Roster Row
 
-The entire row is the target. It shows a friendly name, readable model label, current state, and provider color as secondary metadata. Selection changes the full background, adds an amber outline, and prints Selected. In group mode, a visible checkbox and selected count replace the single-selection treatment.
+The entire row is the target. It shows a friendly name, readable model label, current state, and provider color as secondary metadata. Selection changes the full background, adds an amber outline, and prints Selected.
 
 ## Do's and Don'ts
 
 ### Do:
 
 - **Do** reserve amber for current selection, active progress, and the primary action.
-- **Do** show exact arena coordinates and placement mode before applying blocks.
-- **Do** show changed block count, remaining block count, and current construction region during arena work.
-- **Do** keep single-agent setup and saved-group management in different workspaces.
+- **Do** keep agent setup and individual tasks clear and easy to reach.
 - **Do** expose a readable failure with a recovery action when planning stalls.
 
 ### Don't:
 
 - **Don't** build a pile of default Minecraft buttons with no hierarchy.
 - **Don't** use tiny glyphs as the only selection signal.
-- **Don't** bundle configuration and group messaging into one crowded surface.
+- **Don't** bundle configuration and tasks into one crowded surface.
 - **Don't** present technical slugs, IDs, revisions, and internal state names as primary copy.
 - **Don't** report progress that does not correspond to visible or measurable world changes.
 - **Don't** use glassmorphism, gradient text, colored side stripes, or identical card grids.

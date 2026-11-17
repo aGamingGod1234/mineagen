@@ -42,12 +42,10 @@ try {
   await s.command('clear Probe');
   await s.command('give Probe minecraft:cobblestone 48');
   await s.command('give Probe minecraft:iron_pickaxe');
-  // Let perception see the carved cells the way a player glances around before building.
   for(const yaw of [0,90,180,270])await s.act('look_at',{x:x+0.5-Math.sin(yaw*Math.PI/180)*3,y:99,z:0.5+Math.cos(yaw*Math.PI/180)*3}).catch(()=>null);
   const before=await s.observe();
   const result=await s.act('build_shelter',{x,y:101,z:0,opening:c.opening,itemId:'minecraft:cobblestone',roof:c.roof,timeoutMs:60000});
   const o=await s.observe();
-  // Operator check of the finished enclosure (walls on 3 sides at y 101-102, sill, roof if asked).
   const [ox,oz]={north:[0,-1],east:[1,0],south:[0,1],west:[-1,0]}[c.opening];
   const cells=[];
   for(const [dx,dz] of [[1,0],[-1,0],[0,1],[0,-1]]){

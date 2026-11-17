@@ -1,8 +1,8 @@
-# Arena Agents Windows package
+# Mineagen Windows package
 
 <!-- Packaging fills in the @...@ versions from the build (gradle.properties or gradle/mc/<target>.properties). -->
 
-This ZIP contains the Arena Agents mod pack, its local coordinator, and a pinned
+This ZIP contains the Mineagen mod pack, its local coordinator, and a pinned
 Node.js runtime. It does not contain a Minecraft account, Java, the Minecraft
 launcher, provider logins, worlds, logs, or credentials.
 
@@ -22,9 +22,9 @@ Extract the complete ZIP to a local directory. In PowerShell, run:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-distribution.ps1
 ```
 
-The installer creates the separate `%APPDATA%\.minecraft-arena-agents` game
-directory and the `Arena Agents` launcher profile. It preserves unrelated mods,
-replaces the package-owned mod JARs, removes older `arena-agents-*.jar` files,
+The installer creates the separate `%APPDATA%\.minecraft-mineagen` game
+directory and the `Mineagen` launcher profile. It preserves unrelated mods,
+replaces the package-owned mod JARs, removes older `mineagen-*.jar` files,
 and installs the matching coordinator and Node.js runtime. It generates local
 bridge and voice secrets in the installed runtime directory.
 
@@ -35,4 +35,4 @@ last-known-good coordinator and Node.js backup.
 Run the same command again after an interrupted update. The runtime installer
 recovers its recorded transaction before it starts the new update.
 
-The ZIP includes Arena Agents, Arena Agents Voice, Fabric API, Fabric Carpet, and Simple Voice Chat.
+The ZIP includes Mineagen, Mineagen Voice, Fabric API, Fabric Carpet, and Simple Voice Chat.

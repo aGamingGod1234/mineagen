@@ -170,7 +170,7 @@ try {
 		fabricApiVersion = $FabricApiVersion
 		fabricInstallerSha256 = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash
 		fabricApiSha256 = (Get-FileHash -LiteralPath $fabricApi -Algorithm SHA256).Hash
-		arenaAgentsSha256 = (Get-FileHash -LiteralPath $arenaJar -Algorithm SHA256).Hash
+		mineagenSha256 = (Get-FileHash -LiteralPath $arenaJar -Algorithm SHA256).Hash
 		fabricCarpetSha256 = (Get-FileHash -LiteralPath $carpetJar -Algorithm SHA256).Hash
 		generatedAt = [DateTime]::UtcNow.ToString('o')
 		thirdPartyBinariesTracked = $false

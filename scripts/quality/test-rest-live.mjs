@@ -21,9 +21,9 @@ const root = fileURLToPath(new URL('../..', import.meta.url));
 const out = path.resolve(process.argv[2] ?? 'runtime/rest-live');
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE, basePort = Number(process.env.SLOT_PORT_BASE);
 if (!template || !basePort || !process.env.JAVA_HOME) throw new Error('Launch under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME');
-const jar = path.resolve(process.env.ARENA_JAR ?? path.join(root, 'build/libs/arena-agents-0.2.0.jar'));
+const jar = path.resolve(process.env.ARENA_JAR ?? path.join(root, 'build/libs/mineagen-0.2.0.jar'));
 const SEEDS = (process.env.SEEDS ?? '3315172112810107624,20261107,424242').split(',');
-const CASES = (process.env.CASES ?? 'wool,nowool').split(',');  // also: dawn, thin1, thin2, cancel, timeout
+const CASES = (process.env.CASES ?? 'wool,nowool').split(',');
 const EXTRAS = process.env.EXTRAS !== '0';
 const TICK_RATE = Number(process.env.TICK_RATE ?? 60);
 await mkdir(out, { recursive: true });
@@ -98,7 +98,6 @@ async function session(seed, index) {
 			await s.command(`effect clear ${AGENT}`);
 			await s.command(`effect give ${AGENT} minecraft:instant_health 1 5 true`);
 			await s.command(`effect give ${AGENT} minecraft:saturation 1 20 true`);
-			// Let the body see where it stands (a respawned or newly arrived player looks around first).
 			await s.gameSleep(2500);
 		};
 		const run = async (name, { kit, at, setTime = 13000, mobs = [], fast = false, timeoutMs = 600000, cancelAsleepMs = null, healthTarget = 20, lateMobs = [], lateAfterMs = 0 }) => {
@@ -154,7 +153,6 @@ async function session(seed, index) {
 				}
 				// Once walled in the body only waits: run the clock faster so a night takes minutes, not ten.
 				if (fast && !sped && (await timer.elapsed()) > 20000) {
-					// s.setRate records the raised rate, so s.normalRate() brings the server back to 20 after the case.
 					if (TICK_RATE > s.tickRate) await s.setRate(TICK_RATE);
 					sped = true;
 				}
@@ -186,8 +184,6 @@ async function session(seed, index) {
 			await writeFile(path.join(out, 'rows.json'), JSON.stringify(rows, null, 1));
 			if (died) { await s.gameSleep(1500); await s.act('respawn', {}).catch(() => null); await s.gameSleep(3500); }
 		};
-		// PR #164 re-check: dawn with a spider and a zombie waiting outside the walls and the body at 5 health.
-		// A flat pad of its own; the mobs come 3-4 blocks out about 8 s before dawn, so they are there when a wall opens.
 		const dawnPad = async () => {
 			await s.command('forceload add -215 785 -185 815'); await sleep(1500);
 			await s.command('fill -212 99 788 -188 99 812 minecraft:stone');
@@ -202,11 +198,9 @@ async function session(seed, index) {
 		}
 		if (CASES.includes('wool')) await run('wool', { kit: [[0, 'white_wool 3'], [1, 'oak_planks 7']] });
 		if (CASES.includes('nowool')) await run('nowool', { kit: [[0, 'cobblestone 16']], mobs: [['zombie', 12, 0], ['zombie', -12, 3], ['skeleton', 3, 14]], fast: true });
-		// PR #164 review: a thin roof over a deep cave with too few blocks to wall in (1 and 2 blocks thick).
 		const thin = thick => async () => {
 			const [x, z] = [-200, 600];
 			await s.command(`forceload add ${x - 10} ${z - 10} ${x + 10} ${z + 10}`); await sleep(1500);
-			// Solid stone, a cave 28 deep under a roof `thick` blocks thick (y69..), open sky above the roof.
 			await s.command(`fill ${x - 8} 40 ${z - 8} ${x + 8} ${68 + thick} ${z + 8} minecraft:stone`);
 			await s.command(`fill ${x - 7} 41 ${z - 7} ${x + 7} 68 ${z + 7} minecraft:air`);
 			await s.command(`fill ${x - 8} ${69 + thick} ${z - 8} ${x + 8} 100 ${z + 8} minecraft:air`);
@@ -221,7 +215,6 @@ async function session(seed, index) {
 			await s.command('fill -206 100 694 -194 110 706 minecraft:air');
 			await s.command(`tp ${AGENT} -199.5 100 700.5`);
 		};
-		// PR #164 review: a cancelled or timed-out rest must not leave the body in bed. Night skipping is off for these.
 		if (CASES.includes('cancel') || CASES.includes('timeout')) await s.command('gamerule minecraft:players_sleeping_percentage 101');
 		if (CASES.includes('cancel')) await run('cancel', { kit: [[0, 'white_wool 3'], [1, 'oak_planks 7']], at: pad, cancelAsleepMs: 2000 });
 		if (CASES.includes('timeout')) await run('timeout', { kit: [[0, 'white_wool 3'], [1, 'oak_planks 7']], at: pad, timeoutMs: 20000 });

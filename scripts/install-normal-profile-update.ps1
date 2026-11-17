@@ -135,7 +135,7 @@ function Assert-ArchiveParity([string] $JarPath, [string] $CoordinatorRoot, [str
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $zip = [IO.Compression.ZipFile]::OpenRead($JarPath)
     try {
-        $prefix = 'arena-agents/coordinator/'
+        $prefix = 'mineagen/coordinator/'
         $files = @($zip.Entries | Where-Object { $_.FullName.StartsWith($prefix) -and -not $_.FullName.EndsWith('/') -and $_.FullName -ne ($prefix + 'coordinator-manifest.txt') } | ForEach-Object { $_.FullName.Substring($prefix.Length) } | Sort-Object)
         $differences = @(Compare-Object -ReferenceObject $Expected -DifferenceObject $files)
         if ($differences.Count -ne 0) {
@@ -184,9 +184,9 @@ function Copy-InstalledCoordinatorManifest([string] $JarPath, [string] $Destinat
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $zip = [IO.Compression.ZipFile]::OpenRead($JarPath)
     try {
-        $entry = $zip.GetEntry('arena-agents/coordinator/coordinator-manifest.txt')
+        $entry = $zip.GetEntry('mineagen/coordinator/coordinator-manifest.txt')
         if ($null -eq $entry) { throw 'Embedded coordinator manifest is missing.' }
-        $target = Join-Path $Destination '.arena-agents-bundle-manifest'
+        $target = Join-Path $Destination '.mineagen-bundle-manifest'
         $input = $entry.Open()
         try {
             $output = [IO.File]::Open($target, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
@@ -209,23 +209,23 @@ foreach ($line in Get-Content -LiteralPath $gradlePropertiesPath) {
 }
 
 function Test-CoreArenaModName([string] $Name) {
-	return $Name -match '^(?i:arena-agents)-(?!voice-).+\.jar$'
+	return $Name -match '^(?i:mineagen)-(?!voice-).+\.jar$'
 }
 
 function Test-ArenaVoiceModName([string] $Name) {
-	return $Name -match '^(?i:arena-agents-voice)-.+\.jar$'
+	return $Name -match '^(?i:mineagen-voice)-.+\.jar$'
 }
 foreach ($requiredProperty in @('mod_version', 'fabric_api_version', 'carpet_version')) {
 	if (-not $gradleProperties.Contains($requiredProperty)) { throw "Missing Gradle property '$requiredProperty'." }
 }
-$modJarName = "arena-agents-$($gradleProperties.mod_version).jar"
-$voiceJarName = "arena-agents-voice-$($gradleProperties.mod_version).jar"
+$modJarName = "mineagen-$($gradleProperties.mod_version).jar"
+$voiceJarName = "mineagen-voice-$($gradleProperties.mod_version).jar"
 $fabricApiJarName = "fabric-api-$($gradleProperties.fabric_api_version).jar"
 $carpetJarName = "fabric-carpet-$($gradleProperties.carpet_version).jar"
 Assert-NoReparse $project 'project root'
 Assert-NoReparse $game 'game directory'
 $mods = Resolve-ContainedPath $game (Join-Path $game 'mods') 'mods target'
-$runtime = Resolve-ContainedPath $game (Join-Path $game 'arena-agents-runtime') 'runtime target'
+$runtime = Resolve-ContainedPath $game (Join-Path $game 'mineagen-runtime') 'runtime target'
 $jar = Join-Path $project ("build\libs\" + $modJarName)
 $voiceJar = Join-Path $project ("voice-addon\build\libs\" + $voiceJarName)
 $coordinator = Join-Path $project 'coordinator'
@@ -265,8 +265,8 @@ $secret = Join-Path $runtime 'runtime\bridge-secret.txt'
 if (-not (Test-Path -LiteralPath $secret -PathType Leaf)) { throw "Installed bridge secret is missing: $secret" }
 $secretHash = (Get-FileHash -LiteralPath $secret -Algorithm SHA256).Hash
 Assert-ArchiveParity $jar $coordinator $expected
-$stage = Join-Path $game ('.arena-agents-update-' + [guid]::NewGuid().ToString('N'))
-$backup = Join-Path $game ('.arena-agents-backup-' + [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ') + '-' + [guid]::NewGuid().ToString('N'))
+$stage = Join-Path $game ('.mineagen-update-' + [guid]::NewGuid().ToString('N'))
+$backup = Join-Path $game ('.mineagen-backup-' + [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ') + '-' + [guid]::NewGuid().ToString('N'))
 $stageMods = Join-Path $stage 'mods'
 $stagePackage = Join-Path $stage 'package'
 $stageCoordinator = Join-Path $stagePackage 'coordinator'

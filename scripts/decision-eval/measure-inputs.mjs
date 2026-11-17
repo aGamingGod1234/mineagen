@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // Render every train case through the chosen checkout's actual provider boundary.
+import { privateInput, skipWithoutPrivateInputs } from '../../coordinator/scripts/private-inputs.mjs';
 import { readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -12,7 +13,8 @@ const { decodeModelFacts } = await import(pathToFileURL(path.join(root, 'coordin
 const { minecraftCapabilities } = await import(pathToFileURL(path.join(root, 'coordinator/src/native-minecraft-tools.mjs')));
 const { presentNativeToolResult } = await import(pathToFileURL(path.join(root, 'coordinator/src/codex-service.mjs')));
 const { ModelObservationViews } = await import(pathToFileURL(path.join(root, 'coordinator/src/model-fact-encoding.mjs')));
-const directory = path.join(root, 'coordinator/test/fixtures/decision-eval/train');
+skipWithoutPrivateInputs('decision-eval measure-inputs');
+const directory = privateInput('coordinator/test/fixtures/decision-eval/train');
 const bytes = value => Buffer.byteLength(typeof value === 'string' ? value : JSON.stringify(value));
 const percentile = (values, p) => [...values].sort((a, b) => a - b)[Math.ceil(p * values.length) - 1];
 const cases = [];

@@ -24,7 +24,7 @@ const DESKTOP_RUNTIME_EXECUTABLES = Object.freeze([
 	'codex-command-runner.exe',
 	'codex-windows-sandbox-setup.exe',
 ]);
-const CLIENT_INFO = Object.freeze({ name: 'arena-agents-coordinator', title: 'Minecraft Arena Agents', version: '1.0.0' });
+const CLIENT_INFO = Object.freeze({ name: 'mineagen-coordinator', title: 'Minecraft Mineagen', version: '1.0.0' });
 const CLIENT_CAPABILITIES = Object.freeze({ experimentalApi: true, requestAttestation: false });
 
 export class CodexProtocolError extends Error {
@@ -207,7 +207,7 @@ function cacheInstalledCodexDesktopCli(environment, dependencies = {}) {
 				size: statSync(path.join(candidate.resources, name)).size,
 			}));
 			if (sources.some(({ size }) => size <= 0)) continue;
-			const cacheDirectory = path.join(localAppData, 'ArenaAgents', 'codex-runtime', candidate.version);
+			const cacheDirectory = path.join(localAppData, 'Mineagen', 'codex-runtime', candidate.version);
 			const cachedCli = path.join(cacheDirectory, 'codex.exe');
 			mkdirSync(cacheDirectory, { recursive: true });
 			for (const source of sources) {
@@ -231,7 +231,7 @@ function cacheInstalledCodexDesktopCli(environment, dependencies = {}) {
 }
 
 function findCompleteCachedDesktopCli(localAppData) {
-	const cacheRoot = path.join(localAppData, 'ArenaAgents', 'codex-runtime');
+	const cacheRoot = path.join(localAppData, 'Mineagen', 'codex-runtime');
 	try {
 		const versions = readdirSync(cacheRoot, { withFileTypes: true })
 			.filter((entry) => entry.isDirectory() && /^[0-9]+(?:\.[0-9]+){3}$/.test(entry.name))
@@ -392,7 +392,6 @@ export class CodexStdioTransport extends EventEmitter {
 		this.#decoder = new JsonlDecoder({ maxBytes: APP_SERVER_MAX_LINE_BYTES });
 		let child;
 		try {
-			// Without a prepared launch this is the synchronous resolution start() always used.
 			const launch = prepared ?? resolveCodexLaunch(this.#config, this.#launchDependencies);
 			child = this.#spawn(launch.command, launch.args, {
 				cwd: this.#config.cwd,

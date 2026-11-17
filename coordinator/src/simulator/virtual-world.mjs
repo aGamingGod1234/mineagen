@@ -451,7 +451,6 @@ export class VirtualWorld extends EventEmitter {
 		return this.performSimulationAction(agentId, action, options);
 	}
 
-	/** Executes one deterministic slice of a complete simulator action. */
 	performSimulationAction(agentId, action, { elapsedTicks = 0 } = {}) {
 		const player = this.#requirePlayer(agentId);
 		const normalized = normalizeAction(action);

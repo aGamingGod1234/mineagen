@@ -7,7 +7,6 @@ import { validateProgramParameters } from './program-parameters.mjs';
 
 const compiledPreconditions = new WeakSet();
 
-/** Validates one bounded, read-only expression before it can be queued. */
 export function compileProgramPrecondition(source) {
 	try {
 		const compiled = parseArenaScriptPrecondition(source);

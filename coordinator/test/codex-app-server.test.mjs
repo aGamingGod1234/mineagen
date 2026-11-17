@@ -139,7 +139,7 @@ test('copies the complete installed Codex desktop runtime to a runnable private 
 			execPath: 'C:\\node.exe',
 		});
 
-		const cachedCli = path.join(localAppData, 'ArenaAgents', 'codex-runtime', '26.818.8289.0', 'codex.exe');
+		const cachedCli = path.join(localAppData, 'Mineagen', 'codex-runtime', '26.818.8289.0', 'codex.exe');
 		assert.equal(launch.command, cachedCli);
 		assert.deepEqual(launch.args, buildCodexArgs(config));
 		for (const name of desktopRuntimeFiles) {
@@ -164,7 +164,7 @@ test('uses the registered Codex Appx location when WindowsApps cannot be enumera
 			windowsPackageLocations: [packageRoot],
 		});
 
-		const cachedCli = path.join(localAppData, 'ArenaAgents', 'codex-runtime', '26.818.8289.0', 'codex.exe');
+		const cachedCli = path.join(localAppData, 'Mineagen', 'codex-runtime', '26.818.8289.0', 'codex.exe');
 		assert.equal(launch.command, cachedCli);
 		for (const name of desktopRuntimeFiles) {
 			assert.equal(readFileSync(path.join(path.dirname(cachedCli), name), 'utf8'), `registered-appx-codex-fixture-${name}`);
@@ -178,7 +178,7 @@ test('reuses a complete private desktop runtime before any Windows package disco
 	const root = mkdtempSync(path.join(tmpdir(), 'arena-codex-cache-'));
 	try {
 		const localAppData = path.join(root, 'Local');
-		const cachedRuntime = path.join(localAppData, 'ArenaAgents', 'codex-runtime', '26.818.8289.0');
+		const cachedRuntime = path.join(localAppData, 'Mineagen', 'codex-runtime', '26.818.8289.0');
 		writeDesktopRuntime(cachedRuntime, 'cached-desktop-runtime');
 		let discoveryCalls = 0;
 
@@ -203,8 +203,8 @@ test('desktop runtime selection observes cache upgrades and rejects incomplete v
 	const root = mkdtempSync(path.join(tmpdir(), 'arena-codex-cache-generation-'));
 	try {
 		const localAppData = path.join(root, 'Local');
-		const firstRuntime = path.join(localAppData, 'ArenaAgents', 'codex-runtime', '26.818.8289.0');
-		const upgradedRuntime = path.join(localAppData, 'ArenaAgents', 'codex-runtime', '26.819.1.0');
+		const firstRuntime = path.join(localAppData, 'Mineagen', 'codex-runtime', '26.818.8289.0');
+		const upgradedRuntime = path.join(localAppData, 'Mineagen', 'codex-runtime', '26.819.1.0');
 		writeDesktopRuntime(firstRuntime, 'first-runtime');
 		const dependencies = {
 			platform: 'win32',
@@ -229,7 +229,7 @@ test('reuses the user profile cache when a packaged launcher redirects LOCALAPPD
 		const userProfile = path.join(root, 'Users', 'exampleplayer');
 		const localAppData = path.join(userProfile, 'AppData', 'Local');
 		const redirectedLocalAppData = path.join(localAppData, 'Packages', 'Minecraft', 'LocalCache', 'Local');
-		const cachedRuntime = path.join(localAppData, 'ArenaAgents', 'codex-runtime', '26.818.8289.0');
+		const cachedRuntime = path.join(localAppData, 'Mineagen', 'codex-runtime', '26.818.8289.0');
 		writeDesktopRuntime(cachedRuntime, 'user-profile-desktop-runtime');
 		let discoveryCalls = 0;
 
@@ -421,7 +421,7 @@ test('async Codex launch resolution queries the Windows package without blocking
 		assert.ok(ticks >= 10, `expected the event loop to keep ticking, got ${ticks} ticks in ${Math.round(elapsedMs)} ms`);
 		assert.equal(calls.length, 1);
 		assert.equal(calls[0].options.timeout, 5_000);
-		assert.equal(launch.command, path.join(localAppData, 'ArenaAgents', 'codex-runtime', '26.818.8289.0', 'codex.exe'));
+		assert.equal(launch.command, path.join(localAppData, 'Mineagen', 'codex-runtime', '26.818.8289.0', 'codex.exe'));
 		assert.deepEqual(launch.args, buildCodexArgs(config));
 	} finally {
 		rmSync(root, { recursive: true, force: true });
@@ -433,7 +433,7 @@ test('async Codex launch resolution skips the package query when the sync path w
 	const execFile = () => { throw new Error('package discovery must not run'); };
 	try {
 		const localAppData = path.join(root, 'Local');
-		const cachedRuntime = path.join(localAppData, 'ArenaAgents', 'codex-runtime', '26.818.8289.0');
+		const cachedRuntime = path.join(localAppData, 'Mineagen', 'codex-runtime', '26.818.8289.0');
 		writeDesktopRuntime(cachedRuntime, 'cached-desktop-runtime');
 		const cached = await resolveCodexLaunchAsync(config, { platform: 'win32', env: { LOCALAPPDATA: localAppData }, execFile });
 		assert.equal(cached.command, path.join(cachedRuntime, 'codex.exe'));
@@ -504,7 +504,6 @@ async function assertSynchronousStartContracts(launch, prepare) {
 test('on Windows without a cached runtime, start() still spawns before it returns', async () => {
 	const root = mkdtempSync(path.join(tmpdir(), 'arena-codex-win-start-'));
 	try {
-		// A direct start() keeps the synchronous resolution it always had.
 		let syncLookups = 0;
 		await assertSynchronousStartContracts(uncachedWindowsLaunch(root, {
 			spawnSync: () => { syncLookups += 1; return { status: 0, stdout: '' }; },
@@ -544,7 +543,7 @@ test('prepareLaunch resolves the Windows desktop launch off the event loop for t
 		const started = transport.start();
 		child.emit('spawn');
 		await started;
-		assert.deepEqual(commands, [path.join(root, 'Local', 'ArenaAgents', 'codex-runtime', '26.818.8289.0', 'codex.exe')]);
+		assert.deepEqual(commands, [path.join(root, 'Local', 'Mineagen', 'codex-runtime', '26.818.8289.0', 'codex.exe')]);
 		await transport.stop();
 	} finally {
 		rmSync(root, { recursive: true, force: true });

@@ -17,15 +17,15 @@ const out = resolve(process.argv[2] ?? 'runtime/flee-forest-live');
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE;
 const world = process.env.FLEE_WORLD;
 if (!template || !world || !process.env.SLOT_PORT_BASE) throw new Error('Set ARENA_HEADLESS_SERVER_TEMPLATE, FLEE_WORLD and launch under slot.sh live');
-const jar = resolve(process.env.ARENA_JAR ?? join(root, 'build/libs/arena-agents-0.2.0.jar'));
+const jar = resolve(process.env.ARENA_JAR ?? join(root, 'build/libs/mineagen-0.2.0.jar'));
 const port = Number(process.env.SLOT_PORT_BASE), server = join(out, 'server');
 await mkdir(out, { recursive: true });
 if ((await readdir(out)).length) throw new Error('Use a fresh output directory');
 await writeFile(join(out, 'manifest.json'), JSON.stringify({ kind: 'provider-free live mechanics', aiPerformanceMeasured: false, fixtureSetupUsesOperatorCommands: true,
 	world, jarSha256: createHash('sha256').update(await readFile(jar)).digest('hex'), node: process.version }, null, 2));
 await cp(template, server, { recursive: true });
-for (const name of await readdir(join(server, 'mods'))) if (name.startsWith('arena-agents-')) await unlink(join(server, 'mods', name));
-await cp(jar, join(server, 'mods/arena-agents-0.2.0.jar'));
+for (const name of await readdir(join(server, 'mods'))) if (name.startsWith('mineagen-')) await unlink(join(server, 'mods', name));
+await cp(jar, join(server, 'mods/mineagen-0.2.0.jar'));
 // Terrain only: no saved players, entities or lock from the source run.
 await cp(world, join(server, 'world'), { recursive: true, filter: (path) => !/[\\/](players|entities)([\\/]|$)|session\.lock$/.test(path.slice(world.length)) });
 await rm(join(server, 'world', 'session.lock'), { force: true });
@@ -33,7 +33,7 @@ const secret = randomBytes(32).toString('hex');
 await writeFile(join(out, 'secret.txt'), secret, { mode: 0o600 });
 await writeFile(join(server, 'server.properties'), `online-mode=false\nserver-ip=127.0.0.1\nserver-port=${port + 2}\nenable-rcon=true\nrcon.ip=127.0.0.1\nrcon.port=${port + 1}\nrcon.password=${secret}\nlevel-name=world\nspawn-protection=0\nview-distance=6\nsimulation-distance=6\npause-when-empty-seconds=-1\nmax-players=4\nspawn-monsters=false\n`);
 const log = await open(join(out, 'server.log'), 'a');
-const child = spawn(`${process.env.JAVA_HOME}/bin/java`, [`-Darenaagents.bridgePort=${port}`, '-Darenaagents.coordinatorAutoStart=false', `-Darenaagents.bridgeSecretFile=${join(out, 'secret.txt')}`, '-Xms512M', '-Xmx2G', '-jar', 'fabric-server-launch.jar', 'nogui'], { cwd: server, stdio: ['ignore', log.fd, log.fd] });
+const child = spawn(`${process.env.JAVA_HOME}/bin/java`, [`-Dmineagen.bridgePort=${port}`, '-Dmineagen.coordinatorAutoStart=false', `-Dmineagen.bridgeSecretFile=${join(out, 'secret.txt')}`, '-Xms512M', '-Xmx2G', '-jar', 'fabric-server-launch.jar', 'nogui'], { cwd: server, stdio: ['ignore', log.fd, log.fd] });
 await writeFile(join(out, 'server.pid'), String(child.pid));
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 
@@ -69,7 +69,6 @@ function startAction(type, args) {
 	return bridge.send('action_command', record.agentId, payload).then(() => ({ id, result }));
 }
 
-// Spots where d2b-iron-c respawned or died in the forest, and the zombie's side (dx, dz) at 4 blocks.
 const spots = [[9.5, 90.5], [10.5, 92.5], [16.5, 80.5], [24.5, 79.5], [26.5, 86.5], [15.5, 88.5]];
 const sides = [[4, 0], [-4, 0], [0, 4], [0, -4]];
 const fresh = process.env.FLEE_FRESH !== '0';
@@ -113,7 +112,6 @@ try {
 			await command('kill @e[type=minecraft:zombie]');
 			await command(`effect give ${agent} minecraft:instant_health 1 5 true`); await command(`effect give ${agent} minecraft:saturation 2 10 true`);
 			await command(`effect give ${agent} minecraft:resistance 30 4 true`);
-			// Face the zombie, as a player who has just seen it.
 			const yaw = Math.atan2(-dx, dz) * 180 / Math.PI;
 			// As after a respawn the body knows no terrain: a dimension change empties its seen-terrain memory.
 			if (fresh) { await command(`execute in minecraft:the_nether run tp ${agent} 0.5 140 0.5`); await sleep(1500); }

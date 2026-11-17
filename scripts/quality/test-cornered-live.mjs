@@ -34,7 +34,7 @@ const strict = !cli.includes('--descriptive');
 const out = path.resolve(cli.filter(arg => !['--strict', '--descriptive'].includes(arg))[0] ?? 'runtime/cornered-live');
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port = Number(process.env.SLOT_PORT_BASE);
 if (!template || !port || !process.env.JAVA_HOME) { console.error(USAGE); process.exit(2); }
-const jar = path.resolve(process.env.ARENA_JAR ?? path.join(root, 'build/libs/arena-agents-0.2.0.jar'));
+const jar = path.resolve(process.env.ARENA_JAR ?? path.join(root, 'build/libs/mineagen-0.2.0.jar'));
 if (!existsSync(jar)) { console.error(`no jar at ${jar}`); process.exit(2); }
 const WATCH_S = Number(process.env.WATCH_S ?? 45), REPEATS = Number(process.env.REPEATS ?? 3);
 const CASES = (process.env.CASES ?? 'seed4-cave,corridor,corridor-archer,crowd-low').split(',');
@@ -133,7 +133,6 @@ async function register() {
 	await s.command(`gamemode survival ${AGENT}`);
 }
 
-/** Exactly the default rule set the coordinator's ReflexBook arms at spawn and after each respawn. */
 async function armDefaults() {
 	const book = new ReflexBook();
 	const sample = await s.observe();

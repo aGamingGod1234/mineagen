@@ -75,7 +75,7 @@ test('an empty ready roster does not initialize providers through bootstrap cata
 	const registry = new AgentRegistry();
 	const planner = new FakePlanner(registry);
 	const starts = [];
-	const services = Object.fromEntries(['codex', 'gemini', 'claude'].map((provider) => [provider, {
+	const services = Object.fromEntries(['codex', 'claude'].map((provider) => [provider, {
 		catalog: { stale: false, refresh: async () => ({ refreshedAtEpochMs: 1, models: [] }), assertSupported() {} },
 		async start() { starts.push(provider); },
 		async stop() {},
@@ -113,7 +113,7 @@ test('a roster saved under one provider still publishes every provider to the su
 	provider.bootstrapCatalog = async () => ({ refreshedAtEpochMs: 1, models: [model('claude', 'claude-opus-5-5')] });
 	provider.catalog.refresh = async () => ({
 		refreshedAtEpochMs: 2,
-		models: [model('codex', 'gpt-6-luna'), model('gemini', 'gemini-3.1-pro'), model('claude', 'claude-opus-5-5')],
+		models: [model('codex', 'gpt-6-luna'), model('claude', 'claude-opus-5-5')],
 	});
 	const coordinator = createDynamicCoordinator(
 		{ bridge: { port: 25570, secret: 's'.repeat(32) }, codex: { controlProtocol: 'arena_script' } },
@@ -124,7 +124,7 @@ test('a roster saved under one provider still publishes every provider to the su
 		bridge.emit('ready', { connectionEpoch: 1, serverInstanceId: 'claude-only', registry: [] });
 		await eventually(() => bridge.sent.some(({ type, payload }) => type === 'catalog_snapshot' && payload.refreshedAtEpochMs === 2));
 		const latest = bridge.sent.filter(({ type }) => type === 'catalog_snapshot').at(-1);
-		assert.deepEqual([...new Set(latest.payload.models.map(({ provider }) => provider))], ['codex', 'gemini', 'claude']);
+		assert.deepEqual([...new Set(latest.payload.models.map(({ provider }) => provider))], ['codex', 'claude']);
 	} finally {
 		await coordinator.stop();
 	}
@@ -464,11 +464,26 @@ test('dynamic config migrates legacy input and rejects unknown or future schema 
 		codex: {},
 		cursor: { serviceTiers: ['priority', 'fast'] },
 		kimi: { models: ['kimi-code/k3'] },
+		gemini: { models: ['gemini-3.7-flash'], command: 'agy' },
+		opencode: { executable: 'opencode', models: ['opencode/deepseek-v4.1-flash-free'], obsoleteOption: true },
+		groups: { Builders: ['saved-agent-id'] },
+		skit: { enabled: true },
+		director: { generation: true },
 	};
 	const migrated = normalizeDynamicConfig(legacy);
 	assert.equal(migrated.schemaVersion, 1);
 	assert.equal(Object.hasOwn(migrated, 'cursor'), false, 'retired Cursor config is dropped');
 	assert.equal(Object.hasOwn(migrated, 'kimi'), false, 'retired Kimi config is dropped');
+	assert.equal(Object.hasOwn(migrated, 'gemini'), false, 'retired Gemini config is dropped');
+	assert.equal(Object.hasOwn(migrated, 'opencode'), false, 'retired OpenCode config is dropped before validation');
+	assert.equal(Object.hasOwn(normalizeDynamicConfig({ ...legacy, schemaVersion: 1 }), 'opencode'), false);
+	assert.ok(Object.hasOwn(legacy, 'opencode'), 'migration does not mutate installed input');
+	assert.equal(Object.hasOwn(migrated, 'groups'), false, 'retired groups config is dropped');
+	for (const section of ['skit', 'director']) {
+		assert.equal(Object.hasOwn(migrated, section), false);
+		assert.equal(Object.hasOwn(normalizeDynamicConfig({ ...legacy, schemaVersion: 1 }), section), false);
+	}
+	assert.equal(Object.hasOwn(normalizeDynamicConfig({ ...legacy, schemaVersion: 1 }), 'groups'), false);
 	assert.equal(Object.hasOwn(normalizeDynamicConfig({ ...legacy, schemaVersion: 1 }), 'cursor'), false);
 	assert.throws(() => normalizeDynamicConfig({ ...legacy, schemaVersion: 2 }), /schemaVersion 2/);
 	assert.throws(() => normalizeDynamicConfig({ ...legacy, misspelledLimit: 1 }), /config\.misspelledLimit/);
@@ -1659,4 +1674,33 @@ test('headless coordinator closes capture only after provider final turn cleanup
 	assert.deepEqual(events, ['provider-stop']);
 	release(); await stopping;
 	assert.deepEqual(events, ['provider-stop', 'final-turn', 'capture-close']);
+});
+
+
+test('a saved Gemini profile reports one error without falling back and the coordinator stays usable', async () => {
+	const bridge = new FakeBridge();
+	const provider = new FakeProvider();
+	const registry = new AgentRegistry();
+	provider.reconcile = async (records) => ({ valid: records, invalid: [], catalog: { models: [] } });
+	const coordinator = createDynamicCoordinator(
+		{ bridge: { port: 25570, secret: 's'.repeat(32) }, codex: {} },
+		{ bridge, registry, codexService: provider },
+	);
+	const errors = [];
+	coordinator.on('runtimeError', error => errors.push(error));
+	await coordinator.start();
+	try {
+		bridge.emit('ready', { serverInstanceId: 'saved-profile', registry: [{ ...record(), provider: 'gemini' }] });
+		await eventually(() => errors.length > 0);
+		assert.deepEqual(errors.map(error => error.message), ["provider must be one of codex, claude; received 'gemini'"]);
+		assert.deepEqual(registry.list(), []);
+		assert.equal(bridge.sent.some(message => message.type === 'agent_ready'), false);
+		bridge.emit('disconnected');
+		bridge.emit('ready', { serverInstanceId: 'saved-profile', registry: [record()] });
+		await eventually(() => bridge.sent.some(message => message.type === 'agent_ready'));
+		assert.equal(registry.get(record().agentId).provider, 'codex');
+		assert.equal(errors.length, 1);
+	} finally {
+		await coordinator.stop();
+	}
 });

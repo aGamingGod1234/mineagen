@@ -16,21 +16,21 @@ const out=resolve(process.argv[2] ?? 'runtime/place-face-live');
 const template=process.env.ARENA_HEADLESS_SERVER_TEMPLATE;
 if(!template || !process.env.SLOT_PORT_BASE) throw new Error('Set ARENA_HEADLESS_SERVER_TEMPLATE and launch under slot.sh live');
 const port=Number(process.env.SLOT_PORT_BASE), server=join(out,'server');
-const jar=resolve(process.env.ARENA_JAR ?? join(root,'build/libs/arena-agents-0.2.0.jar'));
+const jar=resolve(process.env.ARENA_JAR ?? join(root,'build/libs/mineagen-0.2.0.jar'));
 await mkdir(out,{recursive:true});
 if((await readdir(out)).length)throw new Error('Use a fresh output directory');
 await writeFile(join(out,'manifest.json'),JSON.stringify({kind:'provider-free live mechanics',aiPerformanceMeasured:false,fixtureSetupUsesOperatorCommands:true,jarSha256:createHash('sha256').update(await readFile(jar)).digest('hex'),jar,node:process.version},null,2));
 await cp(template,server,{recursive:true});
-for(const name of await readdir(join(server,'mods'))) if(name.startsWith('arena-agents-')) {
+for(const name of await readdir(join(server,'mods'))) if(name.startsWith('mineagen-')) {
   const {unlink}=await import('node:fs/promises'); await unlink(join(server,'mods',name));
 }
-await cp(jar,join(server,'mods/arena-agents-0.2.0.jar'));
+await cp(jar,join(server,'mods/mineagen-0.2.0.jar'));
 const secret=randomBytes(32).toString('hex');
 await writeFile(join(out,'secret.txt'),secret,{mode:0o600});
 await writeFile(join(server,'server.properties'),`online-mode=false\nserver-ip=127.0.0.1\nserver-port=${port+2}\nenable-rcon=true\nrcon.ip=127.0.0.1\nrcon.port=${port+1}\nrcon.password=${secret}\nlevel-name=world\nlevel-seed=20261017\nlevel-type=minecraft:flat\ngenerator-settings={"layers":[{"block":"minecraft:bedrock","height":1},{"block":"minecraft:stone","height":3}],"biome":"minecraft:plains"}\nspawn-protection=0\nview-distance=5\nsimulation-distance=5\npause-when-empty-seconds=-1\nmax-players=4\n`);
 const {open}=await import('node:fs/promises');
 const log=await open(join(out,'server.log'),'a');
-const child=spawn(`${process.env.JAVA_HOME}/bin/java`,[`-Darenaagents.bridgePort=${port}`,'-Darenaagents.coordinatorAutoStart=false',`-Darenaagents.bridgeSecretFile=${join(out,'secret.txt')}`,'-Xms512M','-Xmx2G','-jar','fabric-server-launch.jar','nogui'],{cwd:server,stdio:['ignore',log.fd,log.fd]});
+const child=spawn(`${process.env.JAVA_HOME}/bin/java`,[`-Dmineagen.bridgePort=${port}`,'-Dmineagen.coordinatorAutoStart=false',`-Dmineagen.bridgeSecretFile=${join(out,'secret.txt')}`,'-Xms512M','-Xmx2G','-jar','fabric-server-launch.jar','nogui'],{cwd:server,stdio:['ignore',log.fd,log.fd]});
 await writeFile(join(out,'server.pid'),String(child.pid));
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 class Inbox {
@@ -92,10 +92,8 @@ try {
   await command('fill 1 76 0 1 80 0 minecraft:nether_bricks');
   await at(1.5,81,0.5,90,60);await hold('cobblestone');
   results.awayFromEye=keep(await place(0,80,0,'west','cobblestone'),{placed:await block(0,80,0,'cobblestone')});
-  // The same click from the edge, eye past the face plane as a player bridging places it.
   await at(0.75,81,0.5,90,70);await hold('cobblestone');
   results.fromEdge=keep(await place(0,80,0,'west','cobblestone'),{placed:await block(0,80,0,'cobblestone')});
-  // A torch clicked on the side of a wall is vanilla's wall torch.
   await command('fill 2 79 4 9 79 7 minecraft:stone');await command('setblock 6 80 5 minecraft:stone');
   await at(3.5,80,5.5,-90,10);await hold('torch');
   results.wallTorch=keep(await place(5,80,5,'west','torch'),{wallTorch:await block(5,80,5,'wall_torch')});

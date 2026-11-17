@@ -61,7 +61,7 @@ test('eight-agent fake-provider soak preserves capacity, isolation, cancellation
 
 		for (let index = 1; index <= 9; index += 1) {
 			const agentId = `soak-${index}`;
-			const provider = ['codex', 'gemini'][(index - 1) % 2];
+			const provider = ['codex', 'claude'][(index - 1) % 2];
 			registry.register({ agentId, provider, model: `${provider}-model`, reasoningEffort: 'high', state: DynamicAgentState.IDLE, goalRevision: 0, queue: [] });
 			registry.applyGoalControl(agentId, { operation: 'start', goalRevision: 1, goal: `Goal ${index}` });
 		}
@@ -92,15 +92,15 @@ test('eight-agent fake-provider soak preserves capacity, isolation, cancellation
 
 		let healthTime = 0;
 		const health = new ProviderHealthRegistry({ minimumSamples: 2, failureRateToOpen: 1, cooldownMs: 10, now: () => healthTime });
-		const geminiHealth = { provider: 'gemini', model: 'gemini-model', operation: 'decide' };
+		const claudeHealth = { provider: 'claude', model: 'claude-model', operation: 'decide' };
 		const codexHealth = { provider: 'codex', model: 'codex-model', operation: 'decide' };
-		health.record(telemetry('gemini', 'PROVIDER_UNAVAILABLE'));
-		health.record(telemetry('gemini', 'PROVIDER_UNAVAILABLE'));
-		assert.equal(health.canAttempt(geminiHealth), false);
+		health.record(telemetry('claude', 'PROVIDER_UNAVAILABLE'));
+		health.record(telemetry('claude', 'PROVIDER_UNAVAILABLE'));
+		assert.equal(health.canAttempt(claudeHealth), false);
 		healthTime = 11;
-		assert.equal(health.canAttempt(geminiHealth), true);
-		health.record(telemetry('gemini', null));
-		assert.equal(health.snapshot(geminiHealth).circuit, 'closed');
+		assert.equal(health.canAttempt(claudeHealth), true);
+		health.record(telemetry('claude', null));
+		assert.equal(health.snapshot(claudeHealth).circuit, 'closed');
 		assert.equal(health.snapshot(codexHealth).count, 0, 'provider samples remain isolated');
 		console.log(`TASK10_EIGHT_AGENT_SUMMARY ${JSON.stringify({ scenario: 'eight_agent_fake_provider_soak', passed: true, agents: 8, maxConcurrent: scheduler.maxConcurrent, maxPending: scheduler.maxPending, pressureWarning: true, cancellation: 'all-rejected', providerCircuitRecovery: true })}`);
 	} finally {

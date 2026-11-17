@@ -239,14 +239,11 @@ test('explicit vocabulary from active authored plan steps selects remembered res
 	const memory = new ObservedMemoryStore();
 	memory.ingest('a', view(100, { landmarks: [log, iron] }), { snapshot: false });
 	const ids = (seen) => (seen?.blocks ?? []).map(row => row.blockId).sort();
-	// Baseline: a resource-free final goal selects neither sighting.
 	assert.equal(memory.recentlySeen('a', view(340), broad), null);
 	assert.deepEqual(ids(memory.recentlySeen('a', view(340), broad, { ids: [], text: 'Get iron' })), ['minecraft:iron_ore']);
 	assert.deepEqual(ids(memory.recentlySeen('a', view(340), broad, { ids: ['#minecraft:logs'], text: 'Stock up' })), ['minecraft:oak_log']);
 	assert.deepEqual(ids(memory.recentlySeen('a', view(340), broad, { ids: ['minecraft:iron_ore'], text: 'x' })), ['minecraft:iron_ore']);
-	// Exact ids only: an ingot step does not infer its ore.
 	assert.equal(memory.recentlySeen('a', view(340), broad, { ids: ['minecraft:iron_ingot'], text: 'Smelt' }), null);
-	// Wrong world, stale rows and contradicted cells stay out.
 	assert.equal(memory.recentlySeen('a', view(340, { world: { worldId: 'other', dimension: 'minecraft:overworld', gameTime: 340 } }), broad, { ids: [], text: 'Get iron' }), null);
 	assert.equal(memory.recentlySeen('a', view(3000), broad, { ids: [], text: 'Get iron' }), null);
 	memory.ingest('a', view(350, { blocks: [{ ...iron, blockId: 'minecraft:air' }] }), { snapshot: false });

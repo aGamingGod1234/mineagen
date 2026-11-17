@@ -22,7 +22,6 @@ test('page sizes above their maximum are clamped and reported', () => {
 		assert.equal(read(tool), expected, name);
 		assert.match(toolAdjustments(tool)[field], new RegExp(`^${expected} \\(max, asked `), name);
 	}
-	// The caller's object is not modified.
 	const args = { limit: 64 };
 	normalizeMinecraftToolCall('survey', args);
 	assert.equal(args.limit, 64);

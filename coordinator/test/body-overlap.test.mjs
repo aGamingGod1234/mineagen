@@ -3,7 +3,6 @@ import test from 'node:test';
 import { MAX_KEEP_GOING_LEGS, NativeToolRuntime } from '../src/native-tool-runtime.mjs';
 import { MINECRAFT_DYNAMIC_TOOLS, normalizeMinecraftToolCall } from '../src/native-minecraft-tools.mjs';
 
-// Overlap: the body keeps working while the model decides (audit 2026-11-01 #6).
 
 function record(overrides = {}) {
 	return { agentId: 'agent-a', provider: 'codex', model: 'test-model', reasoningEffort: 'low', serviceTier: 'fast', goalRevision: 3, currentGoal: 'explore', ...overrides };

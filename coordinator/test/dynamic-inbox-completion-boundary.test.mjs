@@ -26,7 +26,6 @@ test('burst followup waits for the prior correction to commit', { timeout: 120_0
       entered.promise,
       run.then(() => assert.fail('burst finished without reaching the held empty correction commit')),
     ]);
-    // Cross the old 150 ms sleep while storage still owns completion.
     await delay(200);
     assert.equal(fixture.calls.some(call => call.conversation.entries.some(entry => entry.sequence === 41)), false,
       'followup must not reuse an unfinished correction');

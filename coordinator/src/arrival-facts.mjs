@@ -12,7 +12,6 @@ const HOSTILE = new Set(['minecraft:ghast', 'minecraft:piglin', 'minecraft:pigli
 const finite = (...values) => values.every(Number.isFinite);
 const bare = (id) => id.replace(/^minecraft:/, '');
 
-/** 8-way compass heading from one point to another (north is -z, east is +x). */
 function heading(dx, dz) {
 	if (Math.abs(dx) < 0.5 && Math.abs(dz) < 0.5) return '';
 	const names = ['S', 'SW', 'W', 'NW', 'N', 'NE', 'E', 'SE'];

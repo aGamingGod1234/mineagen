@@ -1,4 +1,3 @@
-/** Shapes factual recovery, exploration candidates and action failure categories. */
 
 import { ExplorationOccupancy } from './explore-frontier.mjs';
 import { RecoveryProgressStore, doNotRedoFor } from './recovery-progress-wrap.mjs';
@@ -57,7 +56,6 @@ const CAPABILITY_FAILURE_CODES = new Set([
 
 export { doNotRedoFor };
 
-/** Unit facade over recovery + occupancy. Production uses NativeToolRuntime's stores. */
 export class TwoCallLlmWrap {
 	#recovery = new RecoveryProgressStore();
 	#occupancy = new ExplorationOccupancy();

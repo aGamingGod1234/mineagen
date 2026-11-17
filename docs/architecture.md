@@ -1,10 +1,85 @@
-# Architecture: how the agent plays, and where a run from spawn stands
+# Architecture: how the agent plays
 
-Written 15 Nov 2026 against base `c72db796` (`claude/sf-model-r2`). File references are to that commit.
+Mineagen connects an ordinary model to a real Minecraft player body. The model chooses work; the coordinator supplies tools, memory and route suggestions; Java controllers and reflexes operate the body while the world continues ticking.
 
-Goal of the project: `gpt-6.1-sol` at low effort kills the Ender Dragon from a fresh spawn. The model decides every step. Skills are its hands, the route line only suggests, and nothing starts by itself.
+The Ender Dragon kill from a fresh spawn is the end-to-end test. It has not been achieved in a fresh game yet. A prepared-save result does not establish a fresh-game win. Historical run records and recordings live outside this tree under `ARENA_PRIVATE_INPUTS`; the current implementation is mapped below, followed by the dated run results.
 
-## How to read the status tags
+## System
+
+```mermaid
+flowchart LR
+  P["Provider CLI"] <--> C["Coordinator: dynamic-main.mjs<br/>AgentPlanner and turn scheduler"]
+  W["Instructions and minecraft-control skill"] --> P
+  M["Facts, conversation and task memory"] --> C
+  R["Route suggestion: routeLine"] --> C
+  C <--> T["Native tool runtime<br/>compound helpers and ArenaScript programs"]
+  T <-->|"TCP JSON lines, loopback, HMAC"| B["MultiplexedServerBridge"]
+  B --> E["ServerActionExecutor and controllers"]
+  X["ReflexEngine"] -->|"can pause actions"| E
+  E --> BODY["ServerPlayer body"]
+  BODY --> O["ServerObservationCollector"]
+  O --> B
+  B -->|"observations and action receipts"| C
+```
+
+Paths below are relative to the repository root. Java paths beginning with `server/` are relative to `src/main/java/dev/agaminggod/mineagen/`.
+
+| Part | Source and responsibility |
+|---|---|
+| Runtime and scheduling | `coordinator/src/dynamic-main.mjs`, `agent-planner.mjs` and `planning-scheduler.mjs` create and schedule provider work. |
+| Provider transport | `coordinator/src/codex-app-server.mjs` launches `codex app-server --stdio`; `claude-service.mjs` builds the `claude --print` stream-json command; `claude-tool-server.mjs` serves its native tools over loopback MCP HTTP. `provider-registry.mjs` lists the shipped adapters. |
+| Instructions | `coordinator/src/minecraft-agent-workspace.mjs` prepares the templates under `coordinator/config/minecraft-agent/`, including `AGENTS.md` and `.codex/skills/minecraft-control/`. These are the in-game model's instructions. |
+| Tool admission | `coordinator/src/native-minecraft-tools.mjs` defines `MINECRAFT_DYNAMIC_TOOLS` and `STEP_VERBS`. `native-tool-runtime.mjs` handles calls and dispatches body work. |
+| Compound operations | `coordinator/src/obtain-runner.mjs` exports `runObtain`; `obtain-plan.mjs` plans resource work. `find-search.mjs` exports `searchFor`, which can invoke `followEyes` in `find-eyes.mjs` or `findPortalRoom` in `find-portal-room.mjs`. |
+| Bridge | `server/bridge/MultiplexedServerBridge.java` and `coordinator/src/protocol-v2.mjs` implement the authenticated JSON-line connection. The server's default listener is `127.0.0.1:25570`. |
+| Body | `server/CodexAgentManager.java` manages agents. `server/runtime/ServerActionExecutor.java` dispatches actions to controllers under `server/runtime/controller/`. The wire enum is `src/main/java/dev/agaminggod/mineagen/protocol/ActionType.java`. |
+| Perception | `server/perception/ServerObservationCollector.java` collects player state, inventory and world observations. Its entity/block caps are 64 and 128; these are collection limits, not promises that every sample contains that many rows. |
+| Reflexes | `coordinator/src/reflexes.mjs` defines the default rules and their wire representation. `server/runtime/reflex/ReflexEngine.java` executes them. |
+| Danger notifications | `coordinator/src/danger-steer-coalescer.mjs` coalesces repeated danger steers, with a default interval of 2,000 ms. Materially new danger can be delivered immediately. |
+| Memory | `coordinator/src/fact-ledger.mjs` retains bounded facts; `conversation-memory.mjs` retains chat; `context-carry-over.mjs` carries tool digests into a replacement session. `task-memory-store.mjs` persists task evidence scoped by world, dimension and agent. This is memory infrastructure, not proof of learning across games. |
+
+In the coordinator rows, subsequent bare filenames share the `coordinator/src/` prefix. In the Java rows, `server/` is the package directory below the Java root above.
+
+## A body action through the server
+
+```mermaid
+sequenceDiagram
+  participant L as Selected model
+  participant C as Coordinator tool runtime
+  participant B as Server bridge
+  participant R as Reflex engine
+  participant E as Action executor
+  participant W as Player body
+  L->>C: Native tool call
+  C->>B: action_command, action ID and goal revision
+  loop Server ticks while work runs
+    B->>R: Tick reflexes before action execution
+    R-->>B: Agents paused by firing rules
+    B->>E: Tick actions, respecting holds and pauses
+    E->>W: Body inputs and interactions
+  end
+  E-->>B: Action progress or terminal result
+  B-->>C: Receipt and observations
+  C-->>L: Tool result or later event
+```
+
+`MultiplexedServerBridge.executeAcceptedInput` flushes staged acceptances, ticks reflexes, then ticks the executor. If the acceptance journal is not durable, the affected agents are held. `ServerActionExecutor.tick` skips reflex-paused actions and accounts for their paused time. Observations and results are published through the bridge; a tool's admission alone does not prove its physical effect.
+
+The model can start body work through native actions or model-authored programs. The coordinator's `arena-script/` modules validate and interpret programs; the Java executor remains the physical action boundary. A compound call such as `obtain` can issue several body actions. The route suggestion itself issues none.
+
+## Route suggestions and game progression
+
+`routeLine` in `coordinator/src/skill-fits.mjs` reads current inventory, dimension and known plan facts. Its Overworld route suggests food, tools, a furnace, iron equipment and portal preparation. It handles carried obsidian separately from bucket casting. In the Nether it suggests rods, pearls and returning through the portal. After returning, it suggests eyes, a stronghold, the portal room and filling frames; in the End it suggests crystals and the dragon.
+
+These are suggestions that the model may take or ignore. The actual helpers and controllers can stop for danger, missing resources, blocked routes or exhausted budgets. Their existence does not certify that the sequence succeeds in one fresh game.
+
+For the model-facing tool contract, read [the control reference](../coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md). For the edit and acceptance path, read [the quality guide](../scripts/quality/README.md#edit-loop). Historical measured results retained for video material are in `docs/technical-catalogue.md` and `docs/technical-catalogue/` in the working repository.
+
+## Where a run from spawn stands (results up to 15 Nov 2026)
+
+The following results, observations, blockers and lane assignments are the 15 Nov snapshot. They describe those games and investigations, not a new measurement of today's build. Source filenames remain current; unconfirmed source line numbers have been removed.
+
+### How to read the status tags
 
 Each step in the three segment diagrams carries the best result so far and where it came from.
 
@@ -17,64 +92,8 @@ Each step in the three segment diagrams carries the best result so far and where
 
 Colours: green = works from spawn, yellow = partly, red = the current walls, grey = seen only from staged starts.
 
-## 1. System
 
-Three processes: the model provider's CLI, the Node coordinator, and the Minecraft server with the mod. The body is a real `ServerPlayer`.
-
-```mermaid
-flowchart LR
-  subgraph P["Model provider CLI"]
-    CX["codex app-server<br/>JSON-RPC over stdio"]
-    CL["claude CLI stream-json<br/>tools over local MCP HTTP"]
-  end
-
-  subgraph C["Coordinator, Node, coordinator/src"]
-    PL["Planner and turn scheduler<br/>dynamic-main.mjs, agent-planner.mjs"]
-    TV["Wake input builder<br/>continuity header with now.route<br/>live-task-view.mjs, skill-fits.mjs"]
-    MEM["Carried memory<br/>fact ledger, tool digests, chat log"]
-    RT["Tool runtime<br/>native-tool-runtime.mjs"]
-    JH["Hands written in JS<br/>obtain, find, follow eyes, portal room"]
-    DG["Danger steers<br/>danger-steer-coalescer.mjs"]
-  end
-
-  subgraph M["Minecraft server mod, Java, Fabric"]
-    BR["Bridge server<br/>MultiplexedServerBridge.java"]
-    RX["Reflex engine<br/>14 default reflexes"]
-    EX["Action executor and controllers<br/>travel, dig, build, cast, fight, shelter, flee, barter"]
-    OB["Observation collector<br/>max 64 entities, 128 blocks"]
-    BODY["Body<br/>ServerPlayer in the world"]
-  end
-
-  CX <--> PL
-  CL <--> PL
-  PL --> TV
-  MEM --> TV
-  TV --> PL
-  PL -- "tool call" --> RT
-  RT --> JH
-  JH --> RT
-  RT -- "action_command, action_cancel<br/>TCP JSON lines, 127.0.0.1:25570, HMAC" --> BR
-  BR -- "observation, action_progress, action_result" --> RT
-  BR --> EX
-  RX -- "pauses the action" --> EX
-  EX --> BODY
-  BODY --> OB
-  OB --> BR
-  BR -. "urgent sample" .-> DG
-  DG -. "turn/steer" .-> PL
-```
-
-| Part | What it does | Where |
-|---|---|---|
-| Provider link | Codex: `codex app-server --stdio`, JSON-RPC (`thread/start`, `turn/start`, `turn/steer`, `turn/interrupt`). Claude: `claude --print` with stream-json and a per-agent MCP tool server on localhost | `codex-app-server.mjs:43`, `codex-service.mjs:241`, `claude-service.mjs:1915`, `claude-tool-server.mjs:67` |
-| Tools the model sees | `do_step` with one verb (`travel_to`, `dig_to`, `mine`, `cast_obsidian`, `fight_until`, `build`, `build_shelter`, `barter_until`, `rest`, `gather`, `find`, `craft`, `smelt`, `obtain`, `repair_inventory`), and 31 more tools in the same list, among them `startAction`, `replaceAction`, `cancelAction`, `act`, `sequence`, `runProgram`, `observe`, `inspect`, `survey`, memory tools and `finish` | `native-minecraft-tools.mjs:110` |
-| Route line | Suggests the usual next step for "beat the game" and starts nothing | `skill-fits.mjs:94`, `:184` |
-| Bridge | TCP, JSON lines, bound to 127.0.0.1, default port 25570, HMAC-SHA256 challenge | `protocol-v2.mjs:625`, `MultiplexedServerBridge.java:110` |
-| Body actions | 52 action types in the protocol enum | `protocol/ActionType.java:10`, `ServerActionExecutor.java:818` |
-| Observation | Position, health, inventory, threats, entities, blocks, landmarks, current action, last result, reflex state | `ServerObservationCollector.java:176` |
-| Carried memory | Fact ledger (12 entries), chat log (32 entries), tool digests that seed a new session after 64k tokens | `fact-ledger.mjs:9`, `conversation-memory.mjs:5`, `context-carry-over.mjs:16` |
-
-## 2. One decision turn
+### 1. One decision turn
 
 ```mermaid
 sequenceDiagram
@@ -106,11 +125,11 @@ sequenceDiagram
 Rules that hold the loop together:
 
 - **One turn, one physical action.** Each agent has at most one model turn and one world action in flight.
-- **Stale work is rejected.** Every command carries the goal revision and an action id; both sides refuse an old revision (`dynamic-main.mjs:3727`, `protocol-v2.mjs:100`).
-- **Danger steers, it does not act.** The coordinator tells the model about danger; the model chooses (`danger-steer-coalescer.mjs:76`, `danger-glance.mjs:68`).
+- **Stale work is rejected.** Every command carries the goal revision and an action id; both sides refuse an old revision (`dynamic-main.mjs`, `protocol-v2.mjs`).
+- **Danger steers, it does not act.** The coordinator tells the model about danger; the model chooses (`danger-steer-coalescer.mjs`, `danger-glance.mjs`).
 - **Reflexes do act.** They are the only part of the body that moves without the model asking.
 
-### What happens inside one server tick
+#### What happens inside one server tick
 
 ```mermaid
 flowchart TD
@@ -124,15 +143,15 @@ flowchart TD
   AT --> E
 ```
 
-Source: `MultiplexedServerBridge.java:541` (`executeAcceptedInput`), `ServerActionExecutor.java:436`.
+Source: `MultiplexedServerBridge.java` (`executeAcceptedInput`), `ServerActionExecutor.java`.
 
-The 14 default reflexes (`reflexes.mjs:20`, also listed in `coordinator/config/minecraft-agent/AGENTS.md`): `default-lava`, `default-lava-flow`, `default-fire`, `default-air`, `default-edge`, `default-creeper`, `default-suffocate`, `default-fireball`, `default-arrow`, `default-retreat`, `default-eat`, `default-defend`, `default-blaze-cover`, `default-cover`. The model can switch each one off by name.
+The 14 default reflexes (`reflexes.mjs`, also listed in `coordinator/config/minecraft-agent/AGENTS.md`): `default-lava`, `default-lava-flow`, `default-fire`, `default-air`, `default-edge`, `default-creeper`, `default-suffocate`, `default-fireball`, `default-arrow`, `default-retreat`, `default-eat`, `default-defend`, `default-blaze-cover`, `default-cover`. The model can switch each one off by name.
 
-**Known fault in this loop (found 15 Nov, fix assigned to the portal lane).** `default-defend` fires only while no action is running. When the model replaces a command, the old one is cancelled first, so for a moment the body is idle. The reflex takes the body in that gap and the model's new command arrives already paused. `replaceAction` skips the reflex hand-off that a normal command gets (`native-tool-runtime.mjs:60`, `:1306`). In two STAGED test games (rod gate batch B, B4 and B3) the model asked to flee or build a shelter, the command never ran, and the body died 2.7 and 3.7 seconds later.
+**Known fault in this loop (found 15 Nov, fix assigned to the portal lane).** `default-defend` fires only while no action is running. When the model replaces a command, the old one is cancelled first, so for a moment the body is idle. The reflex takes the body in that gap and the model's new command arrives already paused. `replaceAction` skips the reflex hand-off that a normal command gets (`native-tool-runtime.mjs`). In two STAGED test games (rod gate batch B, B4 and B3) the model asked to flee or build a shelter, the command never ran, and the body died 2.7 and 3.7 seconds later.
 
-## 3. Overworld segment
+### 2. Overworld segment
 
-The route rows are in `skill-fits.mjs:140`. The first row that is not done is the suggested step.
+The route rows are in `skill-fits.mjs`. The first row that is not done is the suggested step.
 
 ```mermaid
 flowchart TD
@@ -162,17 +181,17 @@ Numbers are round 5 (8 games, 14 Nov). Buckets were 8 of 8 but flint and steel 7
 
 | Step | Hand | Where |
 |---|---|---|
-| Tools, furnace, buckets, shield, food | `obtain`, which plans gather, craft and smelt | `obtain-runner.mjs:325`, `obtain-plan.mjs` |
-| Find lava | `find block minecraft:lava` | `find-search.mjs:438` |
-| Build and light the portal | `build nether_portal` | `ServerBuildController.java:53` |
-| Cast the frame directly | `cast_obsidian` with `frame:true` | `ServerCastObsidianController.java:54` |
-| Enter a portal | No hand. `travel_to` detects standing in a portal | `ServerTravelController.java:413` |
+| Tools, furnace, buckets, shield, food | `obtain`, which plans gather, craft and smelt | `obtain-runner.mjs`, `obtain-plan.mjs` |
+| Find lava | `find block minecraft:lava` | `find-search.mjs` |
+| Build and light the portal | `build nether_portal` | `ServerBuildController.java` |
+| Cast the frame directly | `cast_obsidian` with `frame:true` | `ServerCastObsidianController.java` |
+| Enter a portal | No hand. `travel_to` detects standing in a portal | `ServerTravelController.java` |
 
 Open in this segment: first Nether entry came at minute 35 to 173 in rounds 4 to 6, with time lost mostly to food trips, worn tools, flooded tunnels and deaths that reset the kit. Portal casting still fails in some real saves, when lava is out of reach or there is no dry spot to work from.
 
-## 4. Nether segment
+### 3. Nether segment
 
-Every fresh game that reached the Nether ended here. In the Nether the route line has only three states (`skill-fits.mjs:227`): get blaze rods, then get pearls, then go home.
+Every fresh game that reached the Nether ended here. In the Nether the route line has only three states (`skill-fits.mjs`): get blaze rods, then get pearls, then go home.
 
 ```mermaid
 flowchart TD
@@ -199,22 +218,22 @@ flowchart TD
   class WS,DROP,WAND,BAST,DEAD cause
 ```
 
-### The five blockers
+#### The five blockers
 
 | # | Blocker | Hand that exists | Best evidence | Named cause | Owner |
 |---|---|---|---|---|---|
-| 1 | Find a fortress | `find structure fortress`, with a fortress-floor walk for spawners (`find-search.mjs:1491`); `nether-regions.mjs:113` gives search facts | Fresh: 1 of 8 (round 5), 1 of 6 (round 6). Real save: found and entered once | The body wanders. 61 of 75 large turn-backs happened inside hunts for tools, chests, food or gold. `obtain` plans Overworld mobs while in the Nether (16 of 25 goals checked). A refused route is walked again and again | Portal lane after blocker 2; water-and-lava lane owns the Nether `obtain` fault |
-| 2 | Get blaze rods | `fight_until` with built-in drop collection (`ServerFightUntilController.java:155`), `build_shelter`, `flee_from`, the `default-blaze-cover` reflex | Fresh: 0. Best in single tests: 4 held, then lost on death. Rod gate on base `9d10cedb`: 0 of 5 alive with 4+ rods on a real fortress save without armour, 0 of 5 on a STAGED fortress-with-gear save (lower deck, Y 65). 13 deaths; 6 of the 8 games that died were first killed by a wither skeleton; blazes were involved in 3 deaths | Wither skeletons kill first. A flee or shelter command sent while a reflex holds the body never runs (proven in 2 STAGED games, B3 and B4). Likely, not proven: rods from ranged kills are not collected. B1 and B5 made 5 bow kills and held 0 rods; no rod was seen | Portal lane (fix A, command hand-off), water-and-lava lane (fix B, ranged-kill fact and rod logging) |
-| 3 | Find a warped forest or bastion | Generic `find biome` and `find structure`; `need-sources.mjs:607` names the sources | One real-save test made 31 legs toward a warped forest, walked 418 blocks for 101 net, and earned 1 pearl. Barter: three tests (two real save, one staged), 0 trades | No dedicated search hand. Bastions stay off the route by decision. Barter needs about 190 gold ingots for 12 pearls (`need-sources.mjs:18`, about 15.6 per pearl) | Survive lane, with blocker 4 |
+| 1 | Find a fortress | `find structure fortress`, with a fortress-floor walk for spawners (`find-search.mjs`); `nether-regions.mjs` gives search facts | Fresh: 1 of 8 (round 5), 1 of 6 (round 6). Real save: found and entered once | The body wanders. 61 of 75 large turn-backs happened inside hunts for tools, chests, food or gold. `obtain` plans Overworld mobs while in the Nether (16 of 25 goals checked). A refused route is walked again and again | Portal lane after blocker 2; water-and-lava lane owns the Nether `obtain` fault |
+| 2 | Get blaze rods | `fight_until` with built-in drop collection (`ServerFightUntilController.java`), `build_shelter`, `flee_from`, the `default-blaze-cover` reflex | Fresh: 0. Best in single tests: 4 held, then lost on death. Rod gate on base `9d10cedb`: 0 of 5 alive with 4+ rods on a real fortress save without armour, 0 of 5 on a STAGED fortress-with-gear save (lower deck, Y 65). 13 deaths; 6 of the 8 games that died were first killed by a wither skeleton; blazes were involved in 3 deaths | Wither skeletons kill first. A flee or shelter command sent while a reflex holds the body never runs (proven in 2 STAGED games, B3 and B4). Likely, not proven: rods from ranged kills are not collected. B1 and B5 made 5 bow kills and held 0 rods; no rod was seen | Portal lane (fix A, command hand-off), water-and-lava lane (fix B, ranged-kill fact and rod logging) |
+| 3 | Find a warped forest or bastion | Generic `find biome` and `find structure`; `need-sources.mjs` names the sources | One real-save test made 31 legs toward a warped forest, walked 418 blocks for 101 net, and earned 1 pearl. Barter: three tests (two real save, one staged), 0 trades | No dedicated search hand. Bastions stay off the route by decision. Barter needs about 190 gold ingots for 12 pearls (`need-sources.mjs`, about 15.6 per pearl) | Survive lane, with blocker 4 |
 | 4 | Get the pearls | Enderman hunt inside `fight_until` (`EndermanHuntLeads.java`); `barter_until` (`ServerBarterController.java`) | Fresh: 1 pearl, in two games (round 4 G7, round 6 G7). Tests: best 4 pearls held, from a staged forest start; one staged test got 3 enderman kills and 1 pearl | The hunt reports "no target seen" in real terrain. Fights work once a target is found | Survive lane, with blocker 3 |
-| 5 | Return to the portal | None. The route says "return home through the portal" with no coordinates while in the Nether (`skill-fits.mjs:235`); the model uses `travel_to` | No game has carried rods or pearls back. Only returns after death are measured: 13 to 57 minutes in round 5, 10 to 58 in round 4 | Not yet read. The Overworld side of the route names the known portal's coordinates (`skill-fits.mjs:247`); the Nether side does not | Survive lane, after 3 and 4 (a read first) |
+| 5 | Return to the portal | None. The route says "return home through the portal" with no coordinates while in the Nether (`skill-fits.mjs`); the model uses `travel_to` | No game has carried rods or pearls back. Only returns after death are measured: 13 to 57 minutes in round 5, 10 to 58 in round 4 | Not yet read. The Overworld side of the route names the known portal's coordinates (`skill-fits.mjs`); the Nether side does not | Survive lane, after 3 and 4 (a read first) |
 
 Two more walls sit across the whole segment and are not steps:
 
 - **Death recovery.** In round 5, five games spent 265 minutes back in the Overworld after eight Nether deaths. There is no dedicated return hand; `respawn-recovery.mjs` gives facts only.
 - **Armour.** Bodies mostly arrive with no armour: no armour at 10 of 12 Nether entries in round 5. A route step for a chestplate was merged and reverted on 15 Nov. In its one fresh test game the route row never showed; the model asked for a chestplate three times anyway and each obtain stopped (twice for danger, once with no source and a worn tool).
 
-## 5. After the Nether: stronghold, the End, the dragon
+### 4. After the Nether: stronghold, the End, the dragon
 
 No fresh game has reached this segment. Everything below comes from staged starts.
 
@@ -240,12 +259,12 @@ flowchart TD
 
 | Step | Hand | Where |
 |---|---|---|
-| Follow thrown eyes | `followEyes`, started by `find structure stronghold` | `find-eyes.mjs:36`, `EyeFlightObservation.java:25` |
-| Reach the portal room | `findPortalRoom`, started by `find block end_portal_frame` | `find-portal-room.mjs:13` |
+| Follow thrown eyes | `followEyes`, started by `find structure stronghold` | `find-eyes.mjs`, `EyeFlightObservation.java` |
+| Reach the portal room | `findPortalRoom`, started by `find block end_portal_frame` | `find-portal-room.mjs` |
 | Fill the frames, enter the End | No hand; `interact_block` and `travel_to` | |
-| Dragon | No hand. Facts about perching and crystals, then `fight_target` and `use_ranged` | `dragon-fight-facts.mjs:21`, `ServerFightController.java:621` |
+| Dragon | No hand. Facts about perching and crystals, then `fight_target` and `use_ranged` | `dragon-fight-facts.mjs`, `ServerFightController.java` |
 
-## 6. The whole run on one line
+### 5. The whole run on one line
 
 ```mermaid
 flowchart LR
@@ -271,9 +290,11 @@ flowchart LR
 
 A full run needs every box in the same game. The green and yellow boxes work from spawn. The red boxes have never worked. The grey boxes have worked only from prepared starts, so "the End is solved" is not yet shown from a real run.
 
-## Where the numbers come from
+### Where the numbers come from
 
 - Fresh games: rounds 4, 5 and 6 (8, 8 and 6 games, up to 180 minutes each, 14 to 15 Nov). Spend caps ended many games early.
 - Rod gate: batch A played a real fortress save five times, batch B a STAGED fortress-with-gear save five times, on base `9d10cedb`, 15 Nov.
 - Staged results: the staged scouts of 13 to 14 Nov, including the staged chain that made the first dragon kill (`retained-first-dragon-kill`). No fresh game has killed the dragon.
 - Reads without the model: the Nether wandering audit, the `obtain` dimension check and the command-replacement read, all 15 Nov.
+
+The recordings and run records now live in the private archive read through `ARENA_PRIVATE_INPUTS`, with repository-relative paths preserved.

@@ -10,7 +10,7 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-CONTROLLER = ROOT / "src/main/java/dev/agaminggod/arenaagents/server/runtime/controller/ServerNavigationController.java"
+CONTROLLER = ROOT / "src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerNavigationController.java"
 BUILDER = CONTROLLER.with_name("TravelBuilder.java")
 
 
@@ -29,8 +29,8 @@ source = CONTROLLER.read_text()
 methods = "\n".join(method(source, signature) for signature in (
     "private boolean doorAhead(", "private boolean closeDoorBehind(",
     "private static boolean door(", "private boolean clickDoor("))
-for prefix in ("dev.agaminggod.arenaagents.server.runtime.input.",
-               "dev.agaminggod.arenaagents.server.runtime.",
+for prefix in ("dev.agaminggod.mineagen.server.runtime.input.",
+               "dev.agaminggod.mineagen.server.runtime.",
                "net.minecraft.world.phys.shapes.", "net.minecraft.world.level.block."):
     methods = methods.replace(prefix, "")
 click = method(BUILDER.read_text(), "static boolean click(")

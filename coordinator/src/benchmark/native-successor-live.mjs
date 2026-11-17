@@ -85,8 +85,8 @@ export async function runNativeSuccessorLive(config) {
   const finalProgram = programId => until(() => events.find(event => event.programId === programId && event.event === 'program_ended'), 'program end');
   try {
     const installedMods = join(config.runDirectory, 'server', 'mods');
-    const jars = (await readdir(installedMods)).filter(name => /^arena-agents-[\d.]+\.jar$/.test(name));
-    assert.equal(jars.length, 1, 'one current installed Arena Agents jar');
+    const jars = (await readdir(installedMods)).filter(name => /^mineagen-[\d.]+\.jar$/.test(name));
+    assert.equal(jars.length, 1, 'one current installed Mineagen jar');
     report.installedJar = { name: jars[0], sha256: hash(await readFile(join(installedMods, jars[0]))) };
     report.sourceSha256 = hash(routine);
     report.runtimeSha256 = hash(await readFile(new URL('../native-tool-runtime.mjs', import.meta.url)));

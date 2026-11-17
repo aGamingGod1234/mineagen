@@ -39,7 +39,6 @@ test('the model own count, single:true, or no fitting need keep the call as writ
 	const single = planCountDefault(fight(BLAZE, { single: true }), { needs: [rods], entities });
 	assert.deepEqual(single.tool.arguments, { targetId: BLAZE, timeoutMs: 15000 });
 	assert.equal(single.note, undefined);
-	// Met need, other mob, unseen target, no plan.
 	assert.equal(planCountDefault(fight(BLAZE), { needs: [{ ...rods, have: 6 }], entities }).note, undefined);
 	assert.equal(planCountDefault(fight(ZOMBIE), { needs: [rods], entities }).note, undefined);
 	assert.equal(planCountDefault(fight('44444444-4444-4444-8444-444444444444'), { needs: [rods], entities }).note, undefined);

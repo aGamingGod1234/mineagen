@@ -144,7 +144,6 @@ test('a bell placed in the Nether whose result arrives in the Overworld does not
 	try {
 		await wakeWith(wire(1, { dimension: 'minecraft:the_nether', items: [['stone_pickaxe', 1], ['bell', 1]] }));
 		await eventually(() => commands().length === 1);
-		// Through a portal before the result arrives.
 		await wakeWith(wire(3));
 		run.bridge.emit('action_result', { agentId: 'agent-a', payload: { goalRevision: 1, actionId: commands()[0].payload.actionId, actionType: 'place_block', state: 'SUCCEEDED', reasonCode: 'BLOCK_PLACED', observedAtEpochMs: 4000, eventSequence: 4 } });
 		await eventually(() => rows.some(({ event }) => event === 'native_tool_action_completed'));

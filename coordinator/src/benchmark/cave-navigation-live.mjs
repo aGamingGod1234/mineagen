@@ -105,7 +105,7 @@ export async function runCaveNavigationLive(config) {
   };
   try {
     const mods = join(config.runDirectory, 'server', 'mods');
-    const jars = (await readdir(mods)).filter(name => /^arena-agents-[\d.]+\.jar$/.test(name));
+    const jars = (await readdir(mods)).filter(name => /^mineagen-[\d.]+\.jar$/.test(name));
     assert.equal(jars.length, 1);
     report.installedJar = { name: jars[0], sha256: hash(await readFile(join(mods, jars[0]))) };
     report.runtimeSha256 = hash(await readFile(new URL('../native-tool-runtime.mjs', import.meta.url)));

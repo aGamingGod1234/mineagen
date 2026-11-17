@@ -456,7 +456,6 @@ export function startTravel(search) {
 		broken: false, startStanding: motion.standing, endStanding: motion.standing, before: null };
 }
 
-/** Folds one classified sample into a move's measurement. */
 export function advanceTravel(travel, sample) {
 	if (travel === null || travel.broken) return;
 	if (sample.continuity === 'break') { travel.broken = true; return; }

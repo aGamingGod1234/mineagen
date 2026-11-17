@@ -6,7 +6,6 @@
  * limitKind says what kind of allowance the account has:
  * - plan_percent: a subscription window reported as a used percentage (Codex rateLimits, Claude rate_limit_event)
  * - credits: a spendable balance (API credits)
- * - requests: request-rate limited with no published budget (OpenCode free tier); only 429s are observable
  * - unknown: the CLI exposes nothing about its allowance
  */
 export const PROVIDER_REGISTRY = Object.freeze({
@@ -22,34 +21,12 @@ export const PROVIDER_REGISTRY = Object.freeze({
 		speedTiers: true,
 		defaultServiceTier: 'default',
 	}),
-	gemini: Object.freeze({
-		id: 'gemini',
-		label: 'Antigravity',
-		cliLabel: 'Antigravity CLI',
-		color: 0xff55ff,
-		limitKind: 'unknown',
-		nativeTools: false,
-		toolBoundarySteer: false,
-		speedTiers: false,
-		defaultServiceTier: 'priority',
-	}),
 	claude: Object.freeze({
 		id: 'claude',
 		label: 'Claude',
 		cliLabel: 'Claude Code',
 		color: 0xffaa00,
 		limitKind: 'plan_percent',
-		nativeTools: true,
-		toolBoundarySteer: true,
-		speedTiers: false,
-		defaultServiceTier: 'priority',
-	}),
-	opencode: Object.freeze({
-		id: 'opencode',
-		label: 'OpenCode',
-		cliLabel: 'OpenCode',
-		color: 0x55ffaa,
-		limitKind: 'requests',
 		nativeTools: true,
 		toolBoundarySteer: true,
 		speedTiers: false,

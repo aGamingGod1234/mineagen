@@ -1,10 +1,11 @@
+import { privateInputUrl } from '../scripts/private-inputs.mjs';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { createJudge, crossFamilyJudge, openCodeStreamError, parseJudgeCliResult, parseJudgeVerdicts, projectAnswer, projectSituation, entityLabels } from '../src/decision-eval/judge.mjs';
+import { createJudge, crossFamilyJudge, parseJudgeCliResult, parseJudgeVerdicts, projectAnswer, projectSituation, entityLabels } from '../src/decision-eval/judge.mjs';
 import { gradeSamples } from '../src/decision-eval/grade.mjs';
 import { selectSpotChecks } from '../src/decision-eval/report.mjs';
 import { main } from '../../scripts/decision-eval/compare.mjs';
@@ -18,10 +19,7 @@ test('the judge comes from the other model family', () => {
 	assert.deepEqual(crossFamilyJudge('claude'), { provider: 'codex', model: 'gpt-6.1-sol', effort: 'medium' });
 	assert.deepEqual(crossFamilyJudge('codex'), { provider: 'claude', model: 'claude-opus-5-5', effort: 'medium' });
 	assert.throws(() => crossFamilyJudge('claude', { provider: 'claude' }), /other model family/);
-	// Free OpenCode players are judged by the other free model.
-	assert.deepEqual(crossFamilyJudge('opencode', {}, 'opencode/deepseek-v4.1-flash-free'), { provider: 'opencode', model: 'opencode/glm-5.3-flash-free', effort: 'high' });
-	assert.deepEqual(crossFamilyJudge('opencode', {}, 'opencode/glm-5.3-flash-free'), { provider: 'opencode', model: 'opencode/deepseek-v4.1-flash-free', effort: 'high' });
-	assert.throws(() => crossFamilyJudge('opencode', { model: 'opencode/deepseek-v4.1-flash-free' }, 'opencode/deepseek-v4.1-flash-free'), /other model family/);
+	assert.throws(() => crossFamilyJudge('claude', { provider: 'opencode' }), /judge provider must be claude or codex/);
 });
 
 test('judge input is blind: entity ids become labels, no model identity, situation keeps the facts', () => {
@@ -77,19 +75,6 @@ test('verdict parsing rejects missing, unknown and repeated answers', () => {
 	assert.equal(claude.costUsd, 0.012);
 	const codex = parseJudgeCliResult('codex', { stdout: [JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 1000, cached_input_tokens: 0, output_tokens: 100 } }), JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: '{"verdicts":[]}' } })].join('\n') }, 'gpt-6.1-sol');
 	assert.ok(codex.costUsd > 0);
-	const step = (text) => [JSON.stringify({ type: 'step_start' }), JSON.stringify({ type: 'text', part: { text } }), JSON.stringify({ type: 'step_finish', part: { tokens: { input: 900, output: 80, reasoning: 20, cache: { read: 0 } }, cost: 0 } })];
-	const opencode = parseJudgeCliResult('opencode', { stdout: step('{"verdicts":[]}').join('\n') }, 'opencode/glm-5.3-flash-free');
-	assert.equal(opencode.text, '{"verdicts":[]}');
-	assert.equal(opencode.costUsd, 0);
-	assert.throws(() => parseJudgeCliResult('opencode', { stdout: JSON.stringify({ type: 'error', error: { name: 'APIError', data: { message: 'Rate limit exceeded', statusCode: 429 } } }), exitCode: 1 }, 'opencode/glm-5.3-flash-free'),
-		(error) => error.retryable === true && /RATE_LIMITED/.test(error.message));
-	// `opencode run` retries silently, so the judge stops on OpenCode's logged stream error; the title model's error is ignored.
-	const log = (small, error) => `timestamp=x level=ERROR message="stream error" providerID=opencode small=${small} agent=arena-judge error.error="${error}"`;
-	assert.equal(openCodeStreamError(log(true, 'AI_APICallError: Insufficient account funds')), null);
-	const exhausted = openCodeStreamError(log(false, 'AI_APICallError: Free usage limit reached. Subscribe to keep going'));
-	assert.match(exhausted.message, /MODEL_UNAVAILABLE.*Free usage limit/);
-	assert.equal(exhausted.retryable, undefined);
-	assert.equal(openCodeStreamError(log(false, 'AI_APICallError: Rate limit exceeded')).retryable, true);
 });
 
 test('createJudge batches a case, shuffles answers, caches verdicts and keeps a spend ledger', async () => {
@@ -233,7 +218,7 @@ test('judge verdicts are keyed by case, accepted trajectory, rubric and judge mo
 
 test('the judge sees the night clock, the bed and the ray target: a night bed and a day grass block give different prompts', async () => {
 	const { buildJudgePrompt, entityLabels, judgeCacheKey, projectAnswer, projectSituation, JUDGE_PROJECTION_VERSION } = await import('../src/decision-eval/judge.mjs');
-	const caseDef = JSON.parse(await readFile(new URL('./fixtures/decision-eval/train/plan-prerequisite-gap.json', import.meta.url), 'utf8')).cases.find((c) => c.id === 'plan-prerequisite-gap-04');
+	const caseDef = JSON.parse(await readFile(privateInputUrl('coordinator/test/fixtures/decision-eval/train/plan-prerequisite-gap.json'), 'utf8')).cases.find((c) => c.id === 'plan-prerequisite-gap-04');
 	// Review r3 audit row 34: the accepted answer replaces the running wait with using the bed at night.
 	const sample = { calls: [{ name: 'replaceAction', args: { actionId: caseDef.state.observation.currentAction?.actionId ?? 'a', goalRevision: 1, actionType: 'interact_block', arguments: { x: 58, y: 72, z: 426, face: 'up', hand: 'main', expectedItemId: 'minecraft:air' } } }] };
 	const prompt = (c) => { const view = entityLabels(c); return buildJudgePrompt({ rubric: c.expect.judge.rubric, situation: projectSituation(c, view), answers: [{ id: 'A1', ...projectAnswer(sample, view.labels, c) }] }); };
@@ -263,7 +248,7 @@ test('the judge sees the night clock, the bed and the ray target: a night bed an
 
 test('a multi-step answer shows the judge the recorded reply it actually received', async () => {
 	const { projectAnswer } = await import('../src/decision-eval/judge.mjs');
-	const caseDef = JSON.parse(await readFile(new URL('./fixtures/decision-eval/train/failed-interaction-retry.json', import.meta.url), 'utf8')).cases.find((c) => c.steps?.length);
+	const caseDef = JSON.parse(await readFile(privateInputUrl('coordinator/test/fixtures/decision-eval/train/failed-interaction-retry.json'), 'utf8')).cases.find((c) => c.steps?.length);
 	const recorded = caseDef.steps[0].canned[0];
 	const answer = projectAnswer({ calls: [{ name: 'act', args: { actionType: recorded.recorded.command.actionType, arguments: recorded.recorded.command.arguments }, canned: { step: 0, choice: 0 } }] }, new Map(), caseDef);
 	assert.equal(answer.calls[0].receivedRecordedReply.state, recorded.result.state);
@@ -331,7 +316,7 @@ test('a launched judge attempt with unknown cost keeps its reservation and stops
 });
 
 test('maintenance judge sees prior authored rule definitions, live state and firing failures', async () => {
- const { cases } = JSON.parse(await readFile(new URL('./fixtures/decision-eval/extra/rx-teach2.json', import.meta.url), 'utf8'));
+ const { cases } = JSON.parse(await readFile(privateInputUrl('coordinator/test/fixtures/decision-eval/extra/rx-teach2.json'), 'utf8'));
  const c = cases.find(c => c.id === 'rx-adjust');
  const situation = projectSituation(c);
  const reflexes = situation.recordedState.reflexes;
@@ -342,4 +327,31 @@ test('maintenance judge sees prior authored rule definitions, live state and fir
  const replacement = projectAnswer({ calls: [{ name: 'runProgram', args: { reflexes: [{ ...c.state.agent.reflexes[0], do: { type: 'take_cover', within: 6 } }] } }] }, entityLabels(c).labels);
  assert.equal(replacement.calls[0].args.reflexes[0].id, reflexes.authored[0].id);
  assert.equal(replacement.calls[0].args.reflexes[0].do.type, 'take_cover');
+});
+
+
+test('Codex judge CLI returns schema-checked verdicts without the removed provider', { skip: process.platform === 'win32' }, async () => {
+	const { invokeJudgeCli } = await import('../src/decision-eval/judge.mjs');
+	const root = await mkdtemp(path.join(os.tmpdir(), 'decision-judge-codex-'));
+	try {
+		const executable = path.join(root, 'fake-codex');
+		await writeFile(executable, `#!/usr/bin/env node
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+if (!args.includes('exec') || !args.includes('--ephemeral') || !args.includes('--ignore-user-config')) process.exit(2);
+const schema = JSON.parse(fs.readFileSync(args[args.indexOf('--output-schema') + 1], 'utf8'));
+if (!schema.properties.verdicts) process.exit(3);
+let input = '';
+process.stdin.on('data', chunk => input += chunk).on('end', () => {
+ if (input !== 'grade this recorded answer') process.exit(4);
+ const verdict = JSON.stringify({ verdicts: [{ id: 'A1', verdict: 'good', rationale: 'moves away' }] });
+ fs.writeFileSync(args[args.indexOf('--output-last-message') + 1], verdict);
+ console.log(JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 100, cached_input_tokens: 0, output_tokens: 10 } }));
+});
+`);
+		await chmod(executable, 0o755);
+		const result = await invokeJudgeCli({ provider: 'codex', model: 'gpt-6.1-sol', effort: 'medium', executable, timeoutMs: 5_000, prompt: 'grade this recorded answer' });
+		assert.equal(parseJudgeVerdicts(result.text, ['A1']).get('A1').verdict, 'good');
+		assert.ok(result.costUsd > 0, 'fake token usage is still accounted for');
+	} finally { await rm(root, { recursive: true, force: true }); }
 });

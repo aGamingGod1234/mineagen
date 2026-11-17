@@ -103,7 +103,6 @@ test('a replayed terminal receipt does not add an action or busy time, in one fi
 	assert.deepEqual(replayed.conflictingResults, []);
 	assert.deepEqual(replayed.phaseAttribution.observedGoalWindow, clean.phaseAttribution.observedGoalWindow);
 
-	// The same receipt retained in an older generation file.
 	const directory = await makeRun(t, { protocol: base });
 	await writeFile(path.join(directory, 'protocol.jsonl.1'), JSON.stringify(result('b1')));
 	const acrossGenerations = await summarize(directory);

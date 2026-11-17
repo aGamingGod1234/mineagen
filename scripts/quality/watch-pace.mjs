@@ -32,7 +32,6 @@ async function* rows(file, filter) {
 	}
 }
 
-/** Model segments, action spans (with type) and program spans from coordinator.jsonl. */
 export async function readSpans(dir) {
 	const model = [], actions = [], programs = [], dispatched = new Map(), started = new Map();
 	let first = Infinity, last = -Infinity;
@@ -72,7 +71,6 @@ export async function readSpans(dir) {
 	return { model, actions, programs, paused, first, last };
 }
 
-/** Per-bucket class over [from, to). */
 export function classify({ model, actions, programs = [], paused = [] }, from, to) {
 	const n = Math.max(0, Math.ceil((to - from) / BUCKET_MS));
 	const think = new Uint8Array(n), act = new Uint8Array(n), wait = new Uint8Array(n);
@@ -99,7 +97,6 @@ function tally(classes, from, keyOf) {
 	return out;
 }
 
-/** The milestone report next to a long run's output (sorted reached milestones). */
 async function readMilestones(runDir) {
 	const report = path.join(runDir, 'long-run.json');
 	if (!existsSync(report)) return [];
@@ -114,7 +111,6 @@ async function readMilestones(runDir) {
 const sum = row => CLASSES.reduce((t, c) => t + row[c], 0);
 const fmt = v => v.toFixed(1);
 
-/** Action pace: count, total and median duration and failures per action type. */
 export function actionPace(actions, from, to) {
 	const by = new Map();
 	for (const a of actions) {
@@ -128,7 +124,6 @@ export function actionPace(actions, from, to) {
 		.sort((a, b) => b.min - a.min);
 }
 
-/** End pace from progress truth: crystal kill times and dragon health over time. */
 export function endPace(progress) {
 	const end = progress.filter(p => p.dim === 'minecraft:the_end');
 	if (!end.length) return null;
@@ -150,7 +145,6 @@ export function endPace(progress) {
 		dragonNearInObservation: near.length ? near.filter(p => p.targets.dragon.inObservation).length / near.length : null, nearSamples: near.length };
 }
 
-/** Walking pace from progress positions while a move action ran (blocks per minute of moving). */
 export function walkPace(progress, actions) {
 	const moves = actions.filter(a => /move_to|navigate_to|follow_entity|flee_from/.test(a.type)).sort((a, b) => a.start - b.start);
 	let blocks = 0, ms = 0;

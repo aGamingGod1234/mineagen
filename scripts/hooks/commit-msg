@@ -1,0 +1,4 @@
+#!/bin/sh
+# Scans the commit message with the publication gate and stops the commit on a finding.
+# Turn the hooks on once per clone: git config core.hooksPath scripts/hooks
+exec node scripts/check-public-tree.mjs --commit-msg "$1"

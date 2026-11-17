@@ -350,7 +350,6 @@ test('native tool probe certifies behaviour only when every instructed phase hap
 		assert.equal(noWait.signal, null, 'a turn without the initial wait ends the probe instead of hanging');
 		assert.equal(noWait.outcome.status, 'FAILED');
 		assert.ok(noWait.outcome.failedChecks.includes('steerInitialWaitStarted'));
-		// A chat sent before steering is not the steered reply.
 		const preSteer = await runProbeWithService(root, 'presteer');
 		assert.equal(preSteer.outcome.status, 'FAILED');
 		assert.deepEqual(preSteer.outcome.failedChecks, ['steerReplyBeforeBodyResult']);

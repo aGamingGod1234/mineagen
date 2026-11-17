@@ -21,7 +21,6 @@ export class ToolDigests {
 	constructor(limit = CARRY_OVER_TOOL_CALLS) { this.#limit = limit; }
 	get length() { return this.#entries.length; }
 
-	/** Records one call; returns its rendered line as it reads now. */
 	push(name, argsText, result) {
 		this.noteDelivered(result);
 		const decision = result?.decision ?? result?.status?.decision;

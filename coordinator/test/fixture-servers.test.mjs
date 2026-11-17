@@ -143,7 +143,7 @@ test('a swallowed playing-server stop failure prevents advancement and port reus
 				abort: async () => { throw new Error('Replay server exit unconfirmed; preserve its world'); },
 			})) {
 				taken.push(index);
-				await server.stop().catch(() => {}); // build/find/gather record this error and continue.
+				await server.stop().catch(() => {});
 			}
 		}, /exit unconfirmed/);
 		assert.deepEqual(taken, [0]);
@@ -252,7 +252,7 @@ test('world properties match the text boot() always wrote, and the cache key fol
 	await mkdir(path.join(template, 'mods'), { recursive: true });
 	await writeFile(path.join(template, 'server.jar'), 'server');
 	await writeFile(path.join(template, 'mods', 'fabric-api.jar'), 'api');
-	await writeFile(path.join(template, 'mods', 'arena-agents-old.jar'), 'ignored');
+	await writeFile(path.join(template, 'mods', 'mineagen-old.jar'), 'ignored');
 	await writeFile(path.join(root, 'a.jar'), 'jar a');
 	await writeFile(path.join(root, 'b.jar'), 'jar b');
 	const key = (seed, monsters, jar = 'a.jar') => worldCacheKey({ template, jar: path.join(root, jar), properties: worldProperties({ seed, spawnMonsters: monsters }) });
@@ -274,7 +274,7 @@ test('a staged server links the prepared template, copies its config and never w
 		await writeFile(path.join(template, 'libraries', 'net', 'loader.jar'), 'loader');
 		await writeFile(path.join(template, 'server.properties'), 'template');
 		await writeFile(path.join(template, 'mods', 'fabric-api.jar'), 'api');
-		await writeFile(path.join(template, 'mods', 'arena-agents-old.jar'), 'old');
+		await writeFile(path.join(template, 'mods', 'mineagen-old.jar'), 'old');
 		// A minimal vanilla bundle: one library and the version jar, listed with their hashes.
 		const { createHash } = await import('node:crypto');
 		const sha = text => createHash('sha256').update(text).digest('hex');
@@ -295,8 +295,8 @@ z.close()`, path.join(template, 'server.jar')]);
 		assert.ok((await lstat(path.join(server, 'libraries/net/loader.jar'))).isSymbolicLink());
 		assert.ok(!(await readlink(path.join(server, 'server.jar'))).startsWith(template));
 		assert.ok(!(await lstat(path.join(server, 'server.properties'))).isSymbolicLink());
-		assert.ok(!(await lstat(path.join(server, 'mods/arena-agents-0.2.0.jar'))).isSymbolicLink());
-		await assert.rejects(lstat(path.join(server, 'mods/arena-agents-old.jar')));
+		assert.ok(!(await lstat(path.join(server, 'mods/mineagen-0.2.0.jar'))).isSymbolicLink());
+		await assert.rejects(lstat(path.join(server, 'mods/mineagen-old.jar')));
 		await assert.rejects(lstat(path.join(template, 'libraries/x')));
 	} finally {
 		if (previous === undefined) delete process.env.ARENA_FIXTURE_CACHE; else process.env.ARENA_FIXTURE_CACHE = previous;

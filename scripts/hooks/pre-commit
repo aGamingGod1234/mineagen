@@ -1,0 +1,4 @@
+#!/bin/sh
+# Scans the staged content of every staged file with the publication gate and stops the commit on a finding.
+# Turn the hooks on once per clone: git config core.hooksPath scripts/hooks
+exec node scripts/check-public-tree.mjs --staged

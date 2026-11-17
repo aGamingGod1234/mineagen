@@ -44,7 +44,6 @@ def start_for(names, px, py, pz):
     def stand(c):
         return name(c) in AIR and name((c[0], c[1] + 1, c[2])) in AIR and solid((c[0], c[1] - 1, c[2]))
     near_lava = lambda c, r: any(lava((c[0] + dx, c[1] + dy, c[2] + dz)) for dx in range(-r, r + 1) for dy in range(-1, 2) for dz in range(-r, r + 1))
-    # The pool: still sources near the centroid.
     sources = [(x, y, z) for x in range(px - 12, px + 13) for z in range(pz - 12, pz + 13) for y in range(py - 4, py + 5) if names.get((x, y, z)) == ('minecraft:lava', '0')]
     if not sources: return {'pool': {'x': px, 'y': py, 'z': pz}, 'error': 'no pool here'}
     exposed = [c for c in sources if name((c[0], c[1] + 1, c[2])) in AIR]
@@ -74,7 +73,6 @@ def start_for(names, px, py, pz):
 def main():
     world = sys.argv[1]
     args = sys.argv[2:]
-    # One pool as X Y Z, or many as x,y,z strings: one JSON line each.
     pools = [tuple(map(int, args[:3]))] if len(args) == 3 and ',' not in args[0] else [tuple(map(int, a.split(','))) for a in args]
     names = load(world, pools)
     if len(pools) == 1 and ',' not in args[0]: print(json.dumps(start_for(names, *pools[0]))); return

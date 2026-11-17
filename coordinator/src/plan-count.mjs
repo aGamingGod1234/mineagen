@@ -3,7 +3,6 @@
 // own untilItem/untilCount, or single:true, keeps its call as written. Nothing starts from this; it only fills fields
 // of a call the model made.
 
-/** Mobs whose drop a player fights them for, and that drop. */
 export const MOB_DROPS = Object.freeze({
 	'minecraft:blaze': 'minecraft:blaze_rod',
 	'minecraft:enderman': 'minecraft:ender_pearl',

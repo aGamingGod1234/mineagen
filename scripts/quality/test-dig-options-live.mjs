@@ -7,7 +7,7 @@ import { resolve, join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { boot } from './watch-replay.mjs';
 const out = resolve(process.argv[2]);
-const jar = resolve(process.argv[3] ?? 'build/libs/arena-agents-0.2.0.jar');
+const jar = resolve(process.argv[3] ?? 'build/libs/mineagen-0.2.0.jar');
 assert.ok(process.env.SLOT_PORT_BASE && process.env.ARENA_HEADLESS_SERVER_TEMPLATE && process.env.JAVA_HOME);
 await mkdir(out, { recursive: false });
 const rows = [];

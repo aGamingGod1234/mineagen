@@ -54,7 +54,6 @@ test('only material changes count; facts the wake already reports are not repeat
 	for (const [before, after] of [
 		[{ biome: 'minecraft:forest' }, { biome: 'minecraft:birch_forest' }], [{ biome: 'minecraft:snowy_plains' }, { biome: 'minecraft:grove' }],
 		[{ health: 20 }, { health: 15 }], [{ foodLevel: 17 }, { foodLevel: 14 }], [{ dayTime: 1_000 }, { dayTime: 11_500 }],
-		// The Nether has no sky to lose.
 		[{ dimension: NETHER, biome: 'minecraft:nether_wastes' }, { dimension: NETHER, biome: 'minecraft:nether_wastes', y: 30 }],
 	]) assert.deepEqual(changeOf(before, after), [], JSON.stringify(after));
 	assert.deepEqual(changeOf({}, { biome: 'minecraft:cherry_grove' }).map(([kind]) => kind), ['biome'], 'cherry_grove is not snowy');
@@ -65,7 +64,6 @@ test('only material changes count; facts the wake already reports are not repeat
 	assert.equal(situationSnapshot(observation({ dead: true })), null);
 });
 
-// Review q5-orientation r1 findings: each change states only what the observation and game rules support.
 test('r1 P2-1: sky cover is reported as observed, never inferred as a cave from Y', () => {
 	const END = { dimension: 'minecraft:the_end', biome: 'minecraft:the_end' };
 	for (const [label, before, after] of [
@@ -87,7 +85,6 @@ test('r1 P2-2: water and dawn keep only consequences the observed facts support'
 		const facts = (dayTime) => ({ ...observation({ dayTime }), world: { ...observation({ dayTime }).world, ...weather } });
 		return situationChanges(situationSnapshot(facts(22_000)), situationSnapshot(facts(23_400))).map(({ text }) => text);
 	};
-	// r2: even a clear dawn does not stop every surface spawn (patrols, slimes), so the turn is reported alone.
 	assert.deepEqual(dawn({ raining: false, thundering: false }), ['dawn']);
 	assert.deepEqual(dawn({ raining: true, thundering: true }), ['dawn'], 'thunderstorm darkness still allows spawns');
 	assert.deepEqual(dawn({ raining: true, thundering: false }), ['dawn'], 'weather unknown to the light rule claims nothing');
@@ -122,7 +119,6 @@ test('r1 P3: dawn after a quick sleep is not held by the cooldown; dark forest i
 	assert.deepEqual(changeOf({ biome: 'minecraft:forest' }, { biome: 'minecraft:dark_forest' }), [['biome', 'biome forest->dark_forest']]);
 });
 
-// Review q4-hud-parity r1, merge section: the line shows nothing the HUD-parity model view hides.
 test('hud parity: hearts round up as drawn, absorption counts, and hidden sky, clock and biome stay hidden', () => {
 	assert.deepEqual(changeOf({ health: 9.5 }, { health: 3.2 }), [['health', 'health 10->4']], 'ceil, as the HUD draws hearts');
 	assert.deepEqual(changeOf({ health: 20, absorption: 8 }, { health: 20, absorption: 0 }), [['health', 'health 20->20, absorption 8->0']]);
@@ -133,7 +129,6 @@ test('hud parity: hearts round up as drawn, absorption counts, and hidden sky, c
 	assert.deepEqual(situationChanges(situationSnapshot(hidden('minecraft:plains')), situationSnapshot(hidden('minecraft:desert'))), [], 'reduced debug info hides the biome');
 });
 
-// Review q5-orientation r3: an absorption loss held by the cooldown stays owed, like every other held change.
 test('r3: an absorption loss during the cooldown is reported once the cooldown ends', () => {
 	assert.deepEqual(replay([
 		{ at: 0, absorption: 16 }, { at: 1_000, absorption: 8 }, { at: 2_000, absorption: 16 },
@@ -162,7 +157,6 @@ test('replay: nightfall, cave and biome ride on the next wake, debounced by net 
 		// Out of the cave and back in between wakes: no net change, nothing to say.
 		{ at: 20_000, dayTime: 13_400, y: 52, skyOpen: false },
 		{ at: 30_000, dayTime: 13_600, biome: 'minecraft:desert' },
-		// Back over the border at once: held by the cooldown ...
 		{ at: 40_000, dayTime: 13_800 },
 		{ at: 60_000, dayTime: 14_200 },
 		// ... and reported once the cooldown ends, because it still differs from what the model last read.

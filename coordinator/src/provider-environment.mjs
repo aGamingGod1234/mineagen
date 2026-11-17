@@ -17,18 +17,6 @@ const PROVIDER_ENVIRONMENT_VARIABLES = Object.freeze({
 		'OPENAI_PROJECT',
 		'OPENAI_PROJECT_ID',
 	]),
-	gemini: Object.freeze([
-		'AGY_HOME',
-		'GEMINI_API_KEY',
-		'GEMINI_CLI_HOME',
-		'GOOGLE_API_KEY',
-		'GOOGLE_APPLICATION_CREDENTIALS',
-		'GOOGLE_CLOUD_LOCATION',
-		'GOOGLE_CLOUD_PROJECT',
-		'GOOGLE_CLOUD_QUOTA_PROJECT',
-		'GOOGLE_GENAI_USE_GCA',
-		'GOOGLE_GENAI_USE_VERTEXAI',
-	]),
 	claude: Object.freeze([
 		'ANTHROPIC_API_KEY',
 		'ANTHROPIC_AUTH_TOKEN',
@@ -36,8 +24,6 @@ const PROVIDER_ENVIRONMENT_VARIABLES = Object.freeze({
 		'CLAUDE_CODE_OAUTH_TOKEN',
 		'CLAUDE_CONFIG_DIR',
 	]),
-	// OpenCode reads its saved login from the XDG data home, which the OS bootstrap list already carries.
-	opencode: Object.freeze(['OPENCODE_API_KEY']),
 });
 
 const OS_BOOTSTRAP_ENVIRONMENT_VARIABLES = Object.freeze([
@@ -114,7 +100,7 @@ export function createProviderChildEnvironment(provider, environment = process.e
 	}
 	// A speech-only OpenAI key must not change the gameplay provider's saved-login billing.
 	if (speechCredential !== undefined) delete childEnvironment[speechCredential.toUpperCase()];
-	return configureProviderKeyAuth(normalizedProvider, childEnvironment, environmentValue(environment, 'ARENA_PROVIDER_CREDENTIAL_ROOT'));
+	return configureProviderKeyAuth(normalizedProvider, childEnvironment);
 }
 
 function copyUnauthenticatedProxyEnvironment(source, target) {
@@ -141,7 +127,6 @@ function isUnauthenticatedProxyUrl(value) {
 	}
 }
 
-/** Reads one variable from an environment object regardless of key casing (Windows PATH vs Path). */
 export function environmentValue(environment, name) {
 	if (environment === null || typeof environment !== 'object') return null;
 	const wanted = name.toUpperCase();

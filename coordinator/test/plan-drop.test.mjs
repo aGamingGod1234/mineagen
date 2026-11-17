@@ -8,7 +8,6 @@ const requestId = '9a0cb875-61fd-429d-a227-019367f24369';
 const logIds = ['acacia', 'birch', 'cherry', 'dark_oak', 'jungle', 'mangrove', 'oak', 'pale_oak', 'spruce'].flatMap(wood => [`minecraft:${wood}_log`, `minecraft:stripped_${wood}_log`]);
 const LOG_TAGS = ['#c:natural_logs', '#minecraft:logs', '#minecraft:logs_that_burn', '#minecraft:oak_logs'];
 const step = (id, label, kind, check, dependsOn = [], evidence = null) => ({ id, label, kind, status: 'pending', dependsOn, detail: '', check, evidence });
-// Recorded translator output, benchmark final-3 arm B S5-r1 (the same plan shape in all 8 runs).
 const recordedS5 = {
  requestId, summary: 'Find nearest trees; punch and collect logs from them until holding 10 logs of any type; pick up dropped logs.',
  predicate: { type: 'inventory_contains_any', itemIds: logIds, count: 10 },
@@ -69,7 +68,6 @@ test('translator prompt offers the tag form and the tool schema stays within its
  assert.match(TASK_PLAN_SCHEMA.properties.steps.items.properties.check.description, /#tag/);
 });
 
-// Recorded saved plan shape, benchmark final-3 arm B S1-deltas-r7 (same in 6 B plans).
 const respawnPlan = { steps: [
  step('blaze_rods', 'Blaze rods', 'inventory', 'has:minecraft:blaze_rod*7 | has:minecraft:blaze_powder*14 | has:minecraft:ender_eye*12'),
  step('ender_pearls', 'Ender pearls', 'inventory', 'has:minecraft:ender_pearl*12 | has:minecraft:ender_eye*12'),

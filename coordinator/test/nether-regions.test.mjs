@@ -5,7 +5,6 @@ import { LiveTaskViews } from '../src/live-task-view.mjs';
 
 const nether = { world: { worldId: 'w', dimension: 'minecraft:the_nether' } };
 const arrival = { x: 9.5, y: 37, z: 24.5 };
-// The Oct 23 save point 9-nether-entry: arrival beside a bastion, a second bastion seen to the north-west.
 const oct23 = [{ what: 'bastion', kind: 'structure', x: -7, y: 64, z: 46 }, { what: 'built:minecraft:polished_blackstone_bricks', kind: 'built', x: -85, y: 68, z: -127, size: 9 }];
 
 test('regions follow the 27-chunk grid from chunk 0, and a block in a region\'s last 64 joins the nearer start ground', () => {

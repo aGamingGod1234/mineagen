@@ -58,11 +58,11 @@ try {
     $manifest = $utf8.GetBytes(($records -join "`n") + "`n")
     $zip = [IO.Compression.ZipFile]::Open($jar, [IO.Compression.ZipArchiveMode]::Create)
     $zip.Dispose()
-    foreach ($relative in $files) { Set-ArchiveEntry ('arena-agents/coordinator/' + $relative) ([IO.File]::ReadAllBytes((Join-Path $source $relative))) }
-    Set-ArchiveEntry 'arena-agents/coordinator/coordinator-manifest.txt' $manifest
+    foreach ($relative in $files) { Set-ArchiveEntry ('mineagen/coordinator/' + $relative) ([IO.File]::ReadAllBytes((Join-Path $source $relative))) }
+    Set-ArchiveEntry 'mineagen/coordinator/coordinator-manifest.txt' $manifest
     Test-Case 'jar-only' $true -JarOnly
     Test-Case 'raw-extraction' $true
-    $marker = Join-Path $stage '.arena-agents-bundle-manifest'
+    $marker = Join-Path $stage '.mineagen-bundle-manifest'
     [IO.File]::WriteAllBytes($marker, $manifest)
     Test-Case 'installed-manifest' $true
     [IO.File]::SetAttributes($marker, [IO.FileAttributes]::Hidden)
@@ -92,12 +92,6 @@ try {
     Test-Case 'stage-only-mismatch' $false 'Installed coordinator hash differs'
     [IO.File]::WriteAllBytes($stageFile, $original)
     Test-Case 'restored-parity' $true
-    Set-ArchiveEntry 'data/arenaagents/arena_modules/fixture.json' ($utf8.GetBytes('{"sourceKey":"re-structured"}'))
-    Test-Case 'derived-module-missing-notice' $false 'Retained map notice is missing' -JarOnly
-    Set-ArchiveEntry 'META-INF/licenses/re-structured-MIT.txt' ($utf8.GetBytes('unrelated attribution'))
-    Test-Case 'derived-module-wrong-notice' $false 'Retained map notice hash differs' -JarOnly
-    Set-ArchiveEntry 'META-INF/licenses/re-structured-MIT.txt' ([IO.File]::ReadAllBytes((Join-Path $project 'maps/licenses/re-structured-MIT.txt')))
-    Test-Case 'derived-module-exact-notice' $true -JarOnly
     $results | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $root 'results.json') -Encoding UTF8
     if (@($results | Where-Object { -not $_.passed }).Count) { throw 'Packaging regression failed; see case results.' }
     Write-Host "PASS: $($results.Count) offline packaging cases."

@@ -18,8 +18,6 @@ const measure = value => {
 	return { bytes: Buffer.byteLength(text, 'utf8'), sha256: sha256(text) };
 };
 
-// Canonical contract descriptions already removed the program-reuse repetition.
-// Each remaining arm changes one prose location; changed anchors fail closed.
 export const CONTEXT_CANDIDATES = Object.freeze([
 	{ id: 'workspace-communication-repetition', field: 'baseInstructions',
 		remove: ' Plain assistant text is not visible in Minecraft; use say for communication.',
@@ -88,7 +86,7 @@ export function scoreQualityCase(scenario, response) {
 		}
 		if (expected.answer !== undefined) {
 			let answer;
-			try { answer = JSON.parse(actual.arguments?.message); } catch { /* Incorrect answer below. */ }
+			try { answer = JSON.parse(actual.arguments?.message); } catch {}
 			if (!isDeepStrictEqual(answer, expected.answer)) errors.push(`call ${index} answer`);
 		}
 	}

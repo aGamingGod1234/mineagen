@@ -1,6 +1,5 @@
 import { MAX_DURATION_MS } from './constants.mjs';
 
-// Names a model uses for the staircase; the recorded Oct 29 game lost a turn to each "staircase" call before re-sending.
 const STAIRCASE_NAMES = new Set(['staircase', 'stairs', 'staircase_down', 'stair_down', 'stairs_downward']);
 // Minecraft yaw: 0 faces south, 90 west, 180 north, -90 east.
 const YAW_HEADINGS = ['south', 'west', 'north', 'east'];

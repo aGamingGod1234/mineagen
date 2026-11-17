@@ -252,7 +252,6 @@ test('the stall fact counts blocks broken since the step last changed', async ()
 	assert.match(views.progress(record), /unchanged 3m, 5 blocks broken/, 'progress restarts the clock and the count');
 });
 
-// Review regressions.
 
 test('held ingredients ready to process need no acquisition options', async () => {
 	const views = new LiveTaskViews();
@@ -299,9 +298,6 @@ test('a sighting whose block is later seen or broken as something else is withdr
 });
 
 test('a lava source the agent filled a bucket from is no longer remembered, even while the server repeats its sighting', () => {
-	// Recorded d3b-iron-c (2026-10-19, 53.5 min): interact_block at the ruined portal's lava with an empty bucket succeeded,
-	// later rows no longer listed the (now air) cell, and passive sighted rows kept naming it, so options said
-	// "possible lava 1m W" after the run had used it.
 	const memory = new ObservedMemoryStore();
 	const world = (gameTime) => ({ worldId: 'w', dimension: 'minecraft:overworld', gameTime });
 	const at = (gameTime, extra = {}) => ({ position: { x: 69, y: 81, z: 145 }, ready: true, world: world(gameTime), observedAtEpochMs: gameTime * 50, ...extra });
@@ -378,7 +374,6 @@ test('crying obsidian is not obsidian', () => {
 	assert.doesNotMatch(needOptions({ ids: ['minecraft:obsidian'], position: { x: 0, y: 10, z: 0 }, known }), /bastion|crying/);
 });
 
-// Round 2 review regressions.
 
 const rootStep = (check) => ({ id: 'need', label: 'need', kind: 'milestone', status: 'pending', dependsOn: [], detail: '', evidence: null, check });
 
@@ -432,7 +427,6 @@ test('a cached row does not revive a sighting withdrawn by direct evidence', () 
 	assert.equal(restored.withdrawn.size, 0);
 });
 
-// Round 3 review regressions.
 
 const placeBell = (views, who, worldId, id) => views.actionReceipt(who, { state: 'SUCCEEDED', reasonCode: 'BLOCK_PLACED', actionType: 'place_block', actionId: id, goalRevision: 1, worldId, dimension: 'minecraft:overworld', arguments: { x: 5, y: 16, z: 5, itemId: 'minecraft:bell' }, observedAtEpochMs: 10 });
 const bellSighting = (at, worldId) => ({ ...sample(at, [['stone_pickaxe']], { sighted: { poi: [{ blockId: 'minecraft:bell', ...place(5, 16, 5) }] } }), world: { worldId, dimension: 'minecraft:overworld', gameTime: at } });
@@ -482,7 +476,6 @@ test('a newer crosshair hit on the block brings a withdrawn sighting back', () =
 	assert.deepEqual(whats(40), ['minecraft:bell']);
 });
 
-// Round 4 review regression.
 
 test('a stale bell row in a newer sample does not revive a bell withdrawn by later air', () => {
 	const memory = new ObservedMemoryStore();
@@ -647,7 +640,6 @@ test('the mining feedback starts at one break and expires after ten minutes', as
 	assert.equal(views.continuity(who).mining, undefined);
 });
 
-// Review round 5 regressions.
 
 test('held-attack break tallies count toward the mining yield; break_block tallies are not counted twice', async () => {
 	const views = new LiveTaskViews({ now: () => 100_000 });
@@ -716,7 +708,6 @@ test('native receipts without a dimension still count breaks and own bells', asy
 	assert.match(views.continuity(who).options, /^\(best pickaxe stone\) iron: seen none remembered;/, 'its own bell is still no village');
 });
 
-// Review round 6 regressions.
 
 test('namespaced ids in step text stay whole', () => {
 	assert.deepEqual(textResources('need minecraft:iron_ingot'), ['iron']);
@@ -738,7 +729,6 @@ test('a place phrase is no progression goal', () => {
 test('seen spawners and source mobs are remembered and offered as blaze rod and pearl leads (d6-nether-a saw the spawner 23 m away, then lost it)', () => {
 	const search = createSearch();
 	const nether = { dimension: 'minecraft:the_nether' };
-	// A far row shows no mob; in the Nether it is a possible rod lead.
 	recordSightings(search, { blocks: [{ blockId: 'minecraft:spawner', ...place(84, 73, 92) }] }, 10, undefined, nether);
 	const position = { x: 60, y: 70, z: 90 };
 	const known = () => ({ sightings: [...search.sightings.values()], blocks: [] });
@@ -753,11 +743,9 @@ test('seen spawners and source mobs are remembered and offered as blaze rod and 
 	assert.match(needOptions({ ids: ['minecraft:ender_pearl'], position, known: known() }), /^ender_pearl: 12 more needed .*; enderman seen 40m W @20,70,90: 0-1 pearl per kill/);
 	assert.ok(![...search.sightings.values()].some(row => row.what === 'minecraft:wither_skeleton' || row.x === 0), 'other mobs and heard ones are not leads');
 	assert.match(knownLine({ known: known(), position }), /places: spawner\(blaze\) 24m E y73 @84,73,92/);
-	// An Overworld dungeon spawner of unseen mob is no rod lead.
 	const overworld = createSearch();
 	recordSightings(overworld, { blocks: [{ blockId: 'minecraft:spawner', ...place(84, 73, 92) }] }, 10, undefined, { dimension: 'minecraft:overworld' });
 	assert.match(needOptions({ ids: ['minecraft:blaze_rod'], position, known: { sightings: [...overworld.sightings.values()], blocks: [] } }), /^blaze_rod: seen none remembered/);
-	// Pearl and rod sources both fit an ender eye's line.
 	const both = needOptions({ ids: ['minecraft:ender_eye'], position, known: known() });
 	assert.match(both, /^ender_pearl: .* \| blaze_rod: seen blaze/);
 	assert.ok(Buffer.byteLength(both) <= PEARL_OPTIONS_BYTES, 'a pearl need widens the line for its priced options');
@@ -770,7 +758,6 @@ test('a Nether sample\'s sighted spawner and seen blazes reach the blaze rod opt
 		sighted: { blocks: [{ blockId: 'minecraft:spawner', ...place(84, 73, 92) }] },
 		entities: [{ stableId: 'b1', type: 'minecraft:blaze', x: 82, y: 75, z: 93, perceivedBy: 'sight', alive: true }] };
 	memory.ingest('a', observation, { snapshot: false });
-	// Later samples no longer show either; memory keeps them.
 	const later = { ready: true, observedAtEpochMs: 2, world: { ...world, gameTime: 400 }, position: { x: 40, y: 70, z: 90 } };
 	memory.ingest('a', later, { snapshot: false });
 	assert.match(needOptions({ ids: ['minecraft:blaze_rod'], known: memory.knownSources('a', later), position: later.position }),
@@ -893,7 +880,6 @@ test('pearlHuntLine names the nearest walkable enderman within 16 m while pearls
 	const observation = (entities, items = [{ itemId: 'minecraft:ender_pearl', count: 1 }, { itemId: 'minecraft:iron_sword', count: 1 }]) => ({ entities, inventory: { items } });
 	assert.equal(pearlHuntLine({ observation: observation([enderman(7, 51), enderman(12, 50)]), position, open }),
 		'enderman 7 m, 1 up, calm, 1 more within 16 m; pearls 1/12 open');
-	// The wire form nests the feet position.
 	assert.equal(pearlHuntLine({ observation: observation([{ type: 'minecraft:enderman', distance: 5, position: { x: 5, y: 48, z: 0 }, targetingAgent: true }]), position, open }),
 		'enderman 5 m, 2 down, angry at you; pearls 1/12 open');
 	// A ledge 7 up is skipped for a walkable one farther off; none walkable or none within 16 m gives no line.

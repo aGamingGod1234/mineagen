@@ -44,7 +44,6 @@ const RESOURCES = [
 		sighting: (row, kind) => kind === 'lava' || kind === 'portal' || kind === 'structure' && /^ruined portal/.test(row.what),
 		blocks: /(^|:)obsidian$/,
 		ways: 'water on a lava source makes 1 obsidian in place (frame 10); lava lies in caves (cave air below y-54 is lava, pools sit in caves higher up), rarely open to the sky; a staircase through rock sees only what it breaks; ruined portals; mining needs a diamond pick' },
-	// Not interchangeable with obsidian: water on lava never makes it.
 	{ name: 'crying_obsidian', ids: /^(crying_obsidian|respawn_anchor)$/,
 		sighting: (row, kind) => kind === 'structure' && /^(ruined portal|bastion)/.test(row.what),
 		blocks: /(^|:)crying_obsidian$/,
@@ -177,7 +176,6 @@ export function needResources(ids, chainKey = null) {
 	const items = chainKey === null ? ids.map(short) : chainLeaves(chainKey);
 	const names = [];
 	for (const item of items) {
-		// Of alternatives ("flint_and_steel|fire_charge"), the first one a resource yields.
 		const resource = item.split('|').map((id) => id.replace(/^#/, '')).map((id) => RESOURCES.find((row) => row.ids.test(id))).find(Boolean);
 		if (resource && !names.includes(resource.name)) names.push(resource.name);
 		if (chainKey === null) for (const row of RESOURCES) if (row.ids.test(item) && !names.includes(row.name)) names.push(row.name);
@@ -250,7 +248,6 @@ function knownRows(resource, known, position, placed) {
 	const sightings = known?.sightings ?? [];
 	const rows = [...sightings, ...villages(sightings, placed)].flatMap((row) => {
 		const kind = sightingKind(row);
-		// A named village structure is a village too.
 		const as = kind === 'structure' && row.what === 'village' ? 'village' : kind;
 		if (as === 'mob' && Number.isFinite(known?.tick) && Number.isFinite(row.tick) && known.tick - row.tick > MOB_FRESH_TICKS) return [];
 		return as !== 'poi' && resource.sighting(row, as) ? [{ ...row, kind }] : [];
@@ -264,7 +261,6 @@ function knownRows(resource, known, position, placed) {
 			if (group === undefined) groups.set(key, { kind: 'block', what: block.blockId, x: block.x, y: block.y, z: block.z, count: 1 });
 			else group.count += 1;
 		}
-		// A vein sighting already names the same ore close by.
 		for (const group of groups.values()) if (!rows.some((row) => row.kind === 'vein' && short(row.what) === short(group.what) && Math.hypot(row.x - group.x, row.y - group.y, row.z - group.z) <= 8)) rows.push(group);
 	}
 	// The resource itself seen (its ore vein or block, a source mob or spawner) comes before places that may hold it
@@ -287,15 +283,8 @@ function distinctOpenings(rows) {
 
 // Obsidian estimates, in minutes from where the agent stands. Measured in recorded games unless marked vanilla.
 const WALK_MPS = 4.3;
-// dig_to, provider-free surface-to-y-55 runs (Oct 24, reports/dig-to-live-2026-10-24-r2.json): 262-526 s of digging for
-// 118-134 levels (about 3.5 s per level with its own turns, drops and cave crossings) plus the model's turn at each of the
-// 1-3 stops between calls (mostly a mob in sight), so ~8 min from y63 against ~11 min for the model-driven staircase.
 const STAIR_MIN = 4 / 60;
-// dig_to shaft (1x1 straight down with a water bucket, steep_down below y-20), the same kind of runs (Oct 24,
-// reports/dig-descent-live-2026-10-24.json): 3-4.5 min of digging for 120-130 levels in 1-4 calls (1 s per level in the
-// shaft, 2.7 s in steep_down below y-20) plus the model's turn at each stop.
 const SHAFT_MIN = 2 / 60;
-// d5-iron-h cast a 10-block frame at a y42 lava pool in ~13 min.
 const CAST_MIN = 1.3;
 // Diamond pick: water over a source, then a 9.4 s break (vanilla) and the pickup; mined obsidian is then placed.
 const MINE_MIN = 0.5, FRAME_MIN = 2;
@@ -304,19 +293,11 @@ const CRYING_MIN = 0.7, CRYING_DIAMOND_MIN = 0.16;
 const FLOOR_Y = -55;
 // Vanilla: below y-54 cave air is lava, so the floors there are still sources.
 const FLOOR_USABLE = 0.95;
-// Those floors lie in caves. Watcher truth, 6 recorded descents to y-45 and below (d19-iron-a/b, d21-iron-a/b on Oct 22;
-// q-kjq0vh, w-lap-seed-e random seeds on Oct 23): 2 had a 64-source pool in their observation 1.7 and 3.9 min after
-// arriving, 4 climbed back after 0.8-15.8 min without one; 37 min down there for 2 pools is ~19 min per pool. Below y-45 a
-// 10+ source pool lay within 32 blocks in every sampled moment (median 5 blocks), so the search is short but blind.
 const FLOOR_MISS_MIN = 19;
 const FLOOR_SEARCH = `search: 6 recorded descents, 2 saw a 64-source pool within 4 min, 4 climbed back after 1-16 min without one`;
-// Above y-20 the same 26 recorded Overworld games (Oct 22-23) spent 1767 min and 1 pool of 10+ still sources came into
-// their observation (a surface lake); caves up there hold small pools and lava falls.
 const UPPER_MIN = 1767, UPPER_POOLS = 1, UPPER_Y = -20;
 const DEEP_NOTE = 'below y-45 the recorded games had a 10+ source pool within 32 blocks at every moment (median 5), behind rock until a cave opening or heard lava shows its side';
 const CAVE_ROWS = 2;
-// 76 recorded games (Oct 20-21) saw 4 distinct underground lava places up close; 3 held 10+ still sources, 1 was a
-// lava fall (only flowing lava).
 const POOL_USABLE = 0.75;
 // Small surface lava seen up close in the same games: 0 of 2 (a ruined portal's 1-2 sources, a lava fall's 1).
 const SURFACE_USABLE = 0.2, SURFACE_Y = 56, LARGE_POOL = 8;
@@ -445,7 +426,6 @@ export function obsidianOptions({ position, known = null, placed = [], items = [
 
 	const held = [heldObsidian ? `${heldObsidian} obsidian` : '', lavaBuckets ? `${lavaBuckets} lava bucket${lavaBuckets > 1 ? 's' : ''} (1 cast each anywhere)` : ''].filter(Boolean);
 	const head = `obsidian: est. minutes to ${casts} more frame obsidian from here${held.length ? ` (held: ${held.join(', ')})` : ''}${!water && !diamond ? ' (no water bucket held; casting needs one, any water fills a bucket)' : ''}, cheapest first: `;
-	// Caves seen: where lava is. The caves met in 12 measured descents (Oct 24) were mostly small; their look round showed lava within 16 blocks on 1.
 	const caves = sightings.filter((row) => row.kind === 'cave' && [row.x, row.y, row.z].every(Number.isFinite))
 		.sort((a, b) => Math.hypot(a.x - position.x, a.y - position.y, a.z - position.z) - Math.hypot(b.x - position.x, b.y - position.y, b.z - position.z)).slice(0, CAVE_ROWS);
 	const caveNote = caves.length ? [`caves seen: ${caves.map((row) => `${where(position, row)} y${Math.round(row.y)}`).join(', ')} (lava pools sit in caves; dig_to's look round one names lava in sight)`] : [];
@@ -572,7 +552,6 @@ export function netherReadiness(observation) {
 	return `Nether facts: ${foodAdviceNeeded(observation) ? 'food is scarce there early except hoglins in crimson forests; ' : ''}each armour point cuts most damage 4%; a death there drops everything carried and respawns at the Overworld spawn or the last bed used there${gold ? '' : `; piglins attack a player wearing no gold armour piece | ${goldHelmetOption(items)}`}`;
 }
 
-/** Gold held as ingots, nuggets counted as ninths (rounded down). */
 function goldIngots(items) {
 	const count = (id) => items.reduce((sum, item) => sum + (item?.itemId === id && item.count > 0 ? item.count : 0), 0);
 	return count('minecraft:gold_ingot') + Math.floor(count('minecraft:gold_nugget') / 9) + count('minecraft:gold_block') * 9;
@@ -590,14 +569,10 @@ export function goldHelmetOption(items) {
 // Pearl sources, vanilla 26.1 unless marked measured. Barter: weight 10 of 469 per ingot, 2-4 pearls (mean 3), ~15.6 ingots
 // per pearl; test-barter-odds-live with a fresh loot salt per trial measured 190 pearls from 3350 ingots (~17.6 per pearl).
 const BARTER_HIT = 10 / 469, PEARLS_PER_INGOT = BARTER_HIT * 3;
-// test-barter-odds-live (2026-10-24): 6.0 game seconds per ingot with one piglin, 0.76 with eight bartering at once.
 const BARTER_S = 6;
 // minecraft:entities/enderman: 0-1 pearl (uniform), +0-1 per looting level; 18 from 40 salted kills measured.
 const ENDER_DROP = 0.5;
-// test-enderman-live (2026-10-24, iron sword): drawn by a look at its eyes, then fight_target pursue:false killed it in
-// 5.5 s on open ground (3 of 3) and 8.4 s from a hillside tunnel (3 of 3), no damage taken; with walking up, ~0.5 min each.
 const ENDER_FIGHT_MIN = 0.5;
-// Existing options plus the new bounded sighting fact and its separator.
 export const PEARL_OPTIONS_BYTES = 720 + GOLD_SOURCE_BYTES + 2;
 const WARPED = /^minecraft:warped_(nylium|stem|wart_block|fungus|roots)$/;
 const PIGLIN_SIGHT = 16;
@@ -685,7 +660,6 @@ export function pearlHuntLine({ observation = null, position = null, open = '' }
 	const dy = Math.round(feet(target) - position.y);
 	const angry = target.targetingAgent === true || target.appearance?.screaming === true;
 	const others = near.length - 1;
-	// c3 123456789-2: the model let a running travel_to carry it past endermen 6-9 m away; the walk is part of the fact.
 	const action = observation.currentAction?.active === true ? observation.currentAction.actionType : null;
 	const unready = angry ? null : endermanGearGap(observation);
 	return `enderman ${Math.round(target.distance)} m, ${dy === 0 ? 'level' : dy > 0 ? `${dy} up` : `${-dy} down`}, ${angry ? 'angry at you' : 'calm'}`
@@ -767,11 +741,6 @@ export function portalAtHand(observation) {
 	return frame?.lit === true || obsidian + framed >= needed;
 }
 
-/**
- * The respawn option a prepared player weighs at the portal into the Nether or the End, with its vanilla price.
- * Every game on 2026-10-23 entered both with no bed and no wool, so each death there respawned at the world spawn,
- * far from the portal and the dropped kit. Facts and a priced option only; the model decides.
- */
 export function bedSpawnOption(observation, target) {
 	const source = quickBedSource(observation);
 	if (source === null) return null;
@@ -780,12 +749,6 @@ export function bedSpawnOption(observation, target) {
 	return `option quick respawn bed, after the available stage: ${cost}, only if setup is quick; used by ${place} (by day too) sets respawn there; keep it placed. Beds explode in the Nether and End.`;
 }
 
-/**
- * Before the trip down to the lava floors, while a bed is at hand (placed nearby, carried, or 3 wool held): where a death
- * down there would respawn. Sol held a bed in 6 of 10 random-seed games on 2026-10-23 and never used one; the one that
- * filled a lava bucket at y-55 died there and respawned at the world spawn with nothing. Null without bed materials, so
- * the fact never sends the player off to gather for it.
- */
 export function descentRespawnFact({ position = null, placed = [], items = [] } = {}) {
 	if (position === null || position.y <= 0) return null;
 	const count = (pattern) => (items ?? []).reduce((sum, item) => sum + (item?.count > 0 && pattern.test(item.itemId ?? '') ? item.count : 0), 0);

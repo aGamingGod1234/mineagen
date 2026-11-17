@@ -16,7 +16,6 @@ const PRESENCE = new Set(['in', 'visited', 'seen', 'y', 'lava', 'near', 'spawn']
 // visit seen from elsewhere stays presence-only: after a death the player is back in the Overworld without that chain.
 const FAR_SIDE = new Set(['minecraft:the_nether', 'minecraft:the_end']);
 const presence = (term, here) => PRESENCE.has(term.type) && !(['in', 'visited'].includes(term.type) && FAR_SIDE.has(term.id) && term.id === here);
-// Remembered lava pools and portal frames per world, newest kept.
 const MAX_REMEMBERED = 16, MAX_POOL_CELLS = 32;
 
 /** Spaces separate boolean operators; unspaced pipes are eligible item alternatives. */
@@ -156,8 +155,6 @@ function rememberStageFacts(known, o, dimension) {
   if (!SEEN_BLOCKS.has(b?.blockId) || !Number.isFinite(b.x) || !Number.isFinite(b.z) || known.structuresSeen.some(v => v.id === b.blockId && v.dimension === dimension)) continue;
   known.structuresSeen.push({ id: b.blockId, x: b.x, z: b.z, dimension }); changed = true;
  }
- // Distinct still source cells seen up close, grouped into pools; one sample shows only part of a pool (8 at most in
- // d14-iron-i beside the pool it cast from).
  for (const b of blocks) {
   if (b.blockId !== 'minecraft:lava' || String(b.state?.level ?? '') !== '0') continue;
   let pool = known.lavaPools.find(p => p.dimension === dimension && Math.abs(p.x - b.x) <= 12 && Math.abs(p.y - b.y) <= 8 && Math.abs(p.z - b.z) <= 12);

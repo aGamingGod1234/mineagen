@@ -1,3 +1,4 @@
+import { privateInput } from '../scripts/private-inputs.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -8,7 +9,7 @@ import { gradeSample } from '../src/decision-eval/grade.mjs';
 // Progression families (q9): the hard predicates decide only the unambiguous outcomes. These checks pin what they
 // decide on the committed cases with canonical calls: the stage's obvious next step is good, idling is bad, and a
 // plausible alternative stays with the judge.
-const trainDir = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'decision-eval', 'train');
+const trainDir = privateInput('coordinator/test/fixtures/decision-eval/train');
 const FAMILIES = ['progression-next-milestone', 'progression-efficiency', 'nether-fortress-search', 'blaze-fight', 'enderman-pearl-hunt',
 	'late-stage-next-step', 'transition-prep', 'eye-of-ender-stronghold', 'end-fight-basics'];
 const cases = new Map(FAMILIES.flatMap((f) => JSON.parse(fs.readFileSync(path.join(trainDir, `${f}.json`), 'utf8')).cases).map((c) => [c.id, c]));

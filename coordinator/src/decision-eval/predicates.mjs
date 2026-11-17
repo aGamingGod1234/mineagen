@@ -47,7 +47,6 @@ const NO_BODY_TOOLS = new Set(['observe', 'inspect', 'capabilities', 'survey', '
 const CALL_KEYS = new Set(['tool', 'action', 'args', 'normalized', 'actionArgs', 'awayFrom', 'movesAway', 'approaches', 'targetsEntity', 'usesItem', 'placesBlock',
 	'breaksBlock', 'waits', 'noBodyAction', 'bodyAction', 'any', 'all', 'not',
 	'firstAction', 'firstActionArgs', 'escapesHazard', 'rises', 'freesSlot', 'discardsItem', 'clearsLineOfSight', 'collectsWithoutRoom']);
-// Blocks that hurt on contact; escapesHazard defaults to these.
 const DEFAULT_HAZARD_BLOCKS = 'lava|fire|magma_block|campfire|sweet_berry_bush|cactus|powder_snow';
 // Player body box (vanilla standing hitbox) used to decide whether a destination still touches a hazard cell.
 const BODY_HALF_WIDTH = 0.3;
@@ -118,7 +117,6 @@ export function canonicalCalls(calls) {
 	return (Array.isArray(calls) ? calls : []).map((call, index) => canonicalCall(call, index, call?.step ?? 0));
 }
 
-// ---------- observation context ----------
 
 export function observationPayload(observation) {
 	if (!object(observation)) return {};
@@ -295,7 +293,6 @@ function itemsUsed(call, context, { placingOnly = false } = {}) {
 	return used.filter(id => typeof id === 'string');
 }
 
-// ---------- matchers ----------
 
 function deepEqual(a, b) {
 	if (a === b) return true;
@@ -356,7 +353,6 @@ function matchPaths(spec, root) {
 	});
 }
 
-// ---------- call level ----------
 
 function asList(value) { return [value].flat(); }
 
@@ -475,7 +471,6 @@ function approaches(call, context, spec) {
 	return spec?.maxFinalDistance === undefined || finalDistance(call, context, to, gain) <= spec.maxFinalDistance;
 }
 
-// ---------- v1.3 helpers ----------
 
 function hazardCells(context, pattern) {
 	const re = new RegExp(pattern ?? DEFAULT_HAZARD_BLOCKS);
@@ -599,7 +594,6 @@ export function clearsLineOfSight(call, context, target) {
 	});
 }
 
-// ---------- v1.4 helpers ----------
 
 // The one item a mined block adds to the inventory in vanilla survival without enchantments. Explicit on purpose: a
 // block whose drop varies or is not listed (leaves, gravel, short grass, clay) is unknown, so a capacity check never
@@ -669,7 +663,6 @@ export function collectsWithoutRoom(call, context) {
 	return false;
 }
 
-// ---------- trajectory level ----------
 
 function selectCalls(calls, index) {
 	if (index === undefined || index === 'any' || index === 'every') return calls;

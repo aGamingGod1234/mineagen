@@ -8,7 +8,6 @@ const ZOMBIE = '00000000-0000-0000-0000-0000000000c2';
 
 const threat = (uuid, type, distance, dy, extra = {}) => ({ uuid, type, distance, bearing: 0, targeting: true, swelling: false,
 	lineOfSight: true, signals: ['targeting'], visible: true, dy, risk: 40, expectedHitDamage: 3, ...extra });
-// A seen mob's box: 0.6 wide, standing with its feet at (x, y, z).
 const mob = (uuid, type, x, y, z, height = 1.8) => ({ uuid, type, position: { x, y, z }, distance: Math.hypot(x, y - 70, z),
 	bounds: { minX: x - 0.3, minY: y, minZ: z - 0.3, maxX: x + 0.3, maxY: y + height, maxZ: z + 0.3 } });
 

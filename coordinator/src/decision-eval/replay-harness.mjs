@@ -26,7 +26,6 @@ export async function withVirtualClock(start, fn) {
 			return handle;
 		},
 		cancel: (handle) => { timers.delete(handle?.id); },
-		/** Moves to `time`, firing due timers in order; returns how many fired. */
 		async advanceTo(time) {
 			let fired = 0;
 			for (;;) {
@@ -41,7 +40,6 @@ export async function withVirtualClock(start, fn) {
 			if (time > clock.now) clock.now = time;
 			return fired;
 		},
-		/** Fires the earliest pending timer, if any. */
 		async fireNext() {
 			const next = [...timers.values()].sort((a, b) => a.due - b.due || a.handle.id - b.handle.id)[0];
 			if (next === undefined) return false;

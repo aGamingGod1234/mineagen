@@ -43,7 +43,6 @@ try {
 		await s.command('effect give Probe minecraft:fire_resistance 120 0 true'); await s.command('effect give Probe minecraft:resistance 120 4 true');
 		await sleep(1000);
 		let o = await s.observe(); const p = o.position, feet = { x: Math.floor(p.x), y: Math.floor(p.y + 1e-3), z: Math.floor(p.z) };
-		// The body glances around and down before building, as a player does.
 		for (let k = 0; k < 4; k++) await s.act('look_at', { x: p.x + 3 * Math.cos(k * Math.PI / 2), y: p.y - 1.5, z: p.z + 3 * Math.sin(k * Math.PI / 2) }).catch(() => null);
 		const opening = openings[i % 4];
 		const r = await s.act('build_shelter', { x: feet.x, y: feet.y, z: feet.z, opening, itemId: 'minecraft:cobblestone', roof: true, timeoutMs: 60000 });

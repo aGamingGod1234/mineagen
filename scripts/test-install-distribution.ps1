@@ -52,7 +52,7 @@ function Assert-TransactionCleanup([string] $Root, [string] $Profiles) {
 			throw "Installation transaction artifact remains: $relative"
 		}
 	}
-	if (@(Get-ChildItem -LiteralPath (Split-Path -Parent $Profiles) -File -Filter ((Split-Path -Leaf $Profiles) + '.arena-agents-*.tmp')).Count -ne 0) {
+	if (@(Get-ChildItem -LiteralPath (Split-Path -Parent $Profiles) -File -Filter ((Split-Path -Leaf $Profiles) + '.mineagen-*.tmp')).Count -ne 0) {
 		throw 'Launcher profile staging file remains.'
 	}
 }
@@ -73,26 +73,26 @@ $launcherProfiles = Join-Path $appData '.minecraft\launcher_profiles.json'
 $versionId = "fabric-loader-$($metadata.loader_version)-$($metadata.minecraft_version)"
 $versionMetadata = Join-Path $appData ".minecraft\versions\$versionId\$versionId.json"
 $mods = Join-Path $game 'mods'
-$installedRoot = Join-Path $game 'arena-agents-runtime'
+$installedRoot = Join-Path $game 'mineagen-runtime'
 $previousAppData = $env:APPDATA
 try {
 	New-Item -ItemType Directory -Force -Path $mods, (Split-Path -Parent $launcherProfiles), (Split-Path -Parent $versionMetadata) | Out-Null
 	[IO.File]::WriteAllText($launcherProfiles, '{"profiles":{}}')
 	[IO.File]::WriteAllText($versionMetadata, '{}')
-	[IO.File]::WriteAllText((Join-Path $mods 'arena-agents-old-unparseable.jar'), 'old arena')
+	[IO.File]::WriteAllText((Join-Path $mods 'mineagen-old-unparseable.jar'), 'old arena')
 	[IO.File]::WriteAllText((Join-Path $mods 'fabric-api-old.jar'), 'old api')
 	[IO.File]::WriteAllText((Join-Path $mods 'fabric-carpet-old.jar'), 'old carpet')
 	[IO.File]::WriteAllText((Join-Path $mods 'voicechat-fabric-old.jar'), 'old voicechat')
 	[IO.File]::WriteAllText((Join-Path $mods 'unrelated.jar'), 'keep')
-	$voiceAddon = Join-Path $mods 'arena-agents-voice-0.1.0.jar'
+	$voiceAddon = Join-Path $mods 'mineagen-voice-0.1.0.jar'
 	[IO.File]::WriteAllText($voiceAddon, 'optional voice addon')
 	$voiceAddonHash = (Get-FileHash -LiteralPath $voiceAddon -Algorithm SHA256).Hash
 	$env:APPDATA = $appData
 
 	& $installer -JavaPath $JavaPath -LauncherProfiles $launcherProfiles -GameDirectory $game
 	$expectedModNames = @(
-		"arena-agents-$($metadata.mod_version).jar",
-		"arena-agents-voice-$($metadata.voice_addon_version).jar",
+		"mineagen-$($metadata.mod_version).jar",
+		"mineagen-voice-$($metadata.voice_addon_version).jar",
 		"fabric-api-$($metadata.fabric_api_version).jar",
 		"fabric-carpet-$($metadata.carpet_version).jar",
 		"voicechat-fabric-$($metadata.voicechat_version).jar"
@@ -100,13 +100,13 @@ try {
 	$owned = @(Get-ChildItem -LiteralPath $mods -Filter '*.jar' -File |
 		Where-Object {
 			$_.Name -match '^(?i:fabric-api|fabric-carpet|voicechat-fabric)-.+\.jar$' -or
-			$_.Name -match '^(?i:arena-agents).+\.jar$'
+			$_.Name -match '^(?i:mineagen).+\.jar$'
 		} |
 		Select-Object -ExpandProperty Name | Sort-Object)
 	if (@(Compare-Object ($expectedModNames | Sort-Object) $owned).Count -ne 0) { throw 'Successful package update retained a stale package-owned JAR.' }
 	if (-not (Test-Path -LiteralPath (Join-Path $mods 'unrelated.jar') -PathType Leaf)) { throw 'Successful package update removed an unrelated mod.' }
 	if (Test-Path -LiteralPath $voiceAddon -PathType Leaf) {
-		throw 'Successful package update retained a stale Arena Agents Voice add-on.'
+		throw 'Successful package update retained a stale Mineagen Voice add-on.'
 	}
 	if (Test-Path -LiteralPath (Join-Path $mods 'voicechat-fabric-old.jar') -PathType Leaf) {
 		throw 'Successful package update retained a stale Simple Voice Chat JAR.'
@@ -130,7 +130,7 @@ try {
 	}
 
 	$profileDocument = Get-Content -LiteralPath $launcherProfiles -Raw | ConvertFrom-Json
-	$profileDocument.profiles.'arena-agents-modpack'.javaArgs = '-Xms1G -Xmx4G -Dstale=true'
+	$profileDocument.profiles.'mineagen-modpack'.javaArgs = '-Xms1G -Xmx4G -Dstale=true'
 	[IO.File]::WriteAllText($launcherProfiles, ($profileDocument | ConvertTo-Json -Depth 64))
 	$modsBefore = File-Snapshot $mods
 	$runtimeBefore = File-Snapshot $installedRoot
@@ -149,7 +149,7 @@ try {
 	Assert-GenerationStateBackupRotation $runtimeBefore (File-Snapshot $installedRoot) 'Successful retry failed to prune obsolete generation state backups.'
 	Assert-TransactionCleanup $installedRoot $launcherProfiles
 	$profileDocument = Get-Content -LiteralPath $launcherProfiles -Raw | ConvertFrom-Json
-	if ($profileDocument.profiles.'arena-agents-modpack'.javaArgs -match '-Dstale=true') { throw 'Successful retry did not update the launcher profile.' }
+	if ($profileDocument.profiles.'mineagen-modpack'.javaArgs -match '-Dstale=true') { throw 'Successful retry did not update the launcher profile.' }
 
 	Write-Host 'PASS: packaged install removes stale core and voice JARs, rolls back runtime, mods, and launcher profile together, and prunes retry state backups'
 } finally {

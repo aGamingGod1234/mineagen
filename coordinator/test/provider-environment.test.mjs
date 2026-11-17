@@ -8,7 +8,7 @@ test('provider environments retain only OS bootstrap and the selected provider c
 		Path: 'C:\\Windows\\System32',
 		APPDATA: 'C:\\Users\\player\\AppData\\Roaming',
 		OPENAI_API_KEY: 'openai-key',
-		GEMINI_API_KEY: 'gemini-key',
+		OPENCODE_API_KEY: 'opencode-key',
 		ANTHROPIC_API_KEY: 'anthropic-key',
 		FISH_AUDIO_API_KEY: 'voice-key',
 		DEEPGRAM_API_KEY: 'speech-key',
@@ -23,7 +23,6 @@ test('provider environments retain only OS bootstrap and the selected provider c
 
 	for (const [provider, credential] of [
 		['codex', 'OPENAI_API_KEY'],
-		['gemini', 'GEMINI_API_KEY'],
 		['claude', 'ANTHROPIC_API_KEY'],
 	]) {
 		const environment = createProviderChildEnvironment(provider, parent, 'CUSTOM_BRIDGE_SECRET');
@@ -39,7 +38,7 @@ test('provider environments retain only OS bootstrap and the selected provider c
 		assert.equal(environment.ARENA_AGENT_BRIDGE_SECRET, undefined);
 		assert.equal(environment.ARENA_AGENT_BRIDGE_SECRET_FILE, undefined);
 		assert.equal(environment.CUSTOM_BRIDGE_SECRET, undefined);
-		for (const otherCredential of ['OPENAI_API_KEY', 'GEMINI_API_KEY', 'ANTHROPIC_API_KEY']) {
+		for (const otherCredential of ['OPENAI_API_KEY', 'OPENCODE_API_KEY', 'ANTHROPIC_API_KEY']) {
 			if (otherCredential !== credential) assert.equal(environment[otherCredential], undefined);
 		}
 	}
@@ -70,6 +69,7 @@ test('proxy forwarding requires opt-in and omits URLs containing credentials', (
 
 test('provider environment rejects unknown providers and non-object sources', () => {
 	assert.throws(() => createProviderChildEnvironment('unknown', {}), /provider must be one of/);
+	assert.throws(() => createProviderChildEnvironment('opencode', {}), /provider must be one of codex, claude/);
 	assert.throws(() => createProviderChildEnvironment('codex', null), /must be an object/);
 	assert.throws(() => createProviderChildEnvironment('codex', {}, null, { forwardProxyEnvironment: 'yes' }), /must be a boolean/);
 	assert.throws(() => createProviderChildEnvironment('codex', {}, null, { speechApiKeyEnvironmentVariable: '' }), /environment variable name/);

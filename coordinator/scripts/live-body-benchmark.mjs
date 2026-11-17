@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Provider-free live body benchmark. A real Fabric server (scripts/live-server.py --hold) runs Arena Agents with its
+// Provider-free live body benchmark. A real Fabric server (scripts/live-server.py --hold) runs Mineagen with its
 // coordinator off; this script connects as the coordinator, summons one agent body, installs a reflex set, and stages
 // dangers with operator commands. It never drives the body: only the mod's reflex engine and vanilla act. It measures
 // how often the body dies and how much health it loses with the 4 original default reflexes (lava, fire, air, edge)
@@ -194,7 +194,7 @@ async function main() {
 		// No goal: reflex rules are not tied to a goal revision, and an idle body is the fair baseline for both arms.
 		await bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false });
 		await command(`gamemode survival ${AGENT}`);
-		await sleep(4000); // spawn invulnerability
+		await sleep(4000);
 
 		let revision = 0;
 		const reflexHistory = trackBenchmarkReflexes({ bridge, inbox, record });
@@ -213,7 +213,7 @@ async function main() {
 				await command(`codex respawn ${AGENT}`);
 				for (let i = 0; i < 40 && !(await alive()); i++) await sleep(500);
 				await command(`gamemode survival ${AGENT}`);
-				await sleep(3500); // spawn invulnerability
+				await sleep(3500);
 			}
 			// Replacing rules ends their input leases; no previous firing may steer the reset.
 			await install([]);

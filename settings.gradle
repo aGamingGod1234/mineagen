@@ -13,7 +13,7 @@ pluginManagement {
 	}
 }
 
-rootProject.name = 'arena-agents'
+rootProject.name = 'mineagen'
 include 'voice-addon'
 
 // Minecraft target: the default is gradle.properties (26.3); -Pmc=<target> loads gradle/mc/<target>.properties over it

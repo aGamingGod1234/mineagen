@@ -155,7 +155,6 @@ export function encodeModelFacts(value) {
  return wrappedAlready || bytes(encoded) + 128 < originalBytes ? encoded : value;
 }
 
-/** Exact decoder used for replay checks; the runtime keeps its original objects. */
 export function decodeModelFacts(value) {
  if (value?.format !== MODEL_FACT_FORMAT || !Array.isArray(value.values) || !Object.hasOwn(value, 'data')) return value;
  const resolved = new Map(), resolving = new Set();
@@ -428,7 +427,6 @@ export function withoutHeardSoundEvents(perception, observation) {
  return { ...perception, events, soundEventsInHeard: perception.events.length - events.length };
 }
 
-/** Applies withoutHeardSoundEvents to the observation-bearing parts of a tool result. */
 export function presentHeardSounds(value) {
  if (!record(value)) return value;
  const strip = holder => record(holder) && record(holder.perception) ? { ...holder, perception: withoutHeardSoundEvents(holder.perception, holder) } : holder;
@@ -489,7 +487,6 @@ export function encodeNativeEventInput(input, views = null) {
    value.observation = { ...value.hud, ...value.observation };
    delete value.hud;
   }
-  // Lean only: the default text stays as gated on 48f02318.
   const deduplicated = lean ? withoutDuplicatePlayerThreat(value.observation) : value.observation;
   const threatDeduplicated = deduplicated !== value.observation;
   value.observation = deduplicated;

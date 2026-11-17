@@ -1,4 +1,3 @@
-/** Attach bounded runtime diagnostics to a coordinator lifecycle. */
 export function wireRuntimeDiagnostics(coordinator, reporter) {
 	if (coordinator === null || typeof coordinator !== 'object'
 		|| typeof coordinator.on !== 'function' || typeof coordinator.off !== 'function') {

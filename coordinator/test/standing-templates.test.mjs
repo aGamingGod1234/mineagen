@@ -53,14 +53,8 @@ test('survival template normalizes to one bounded standing guard with optional p
 	assert.equal(install({}, { id: 'g1' }).id, 'g1');
 	assert.equal(new StandingOrderBook().evaluate('a', observation({ inLava: true })), null);
 	assert.ok(Buffer.byteLength(NATIVE_AGENT_INSTRUCTIONS) <= 1500);
-	// Merged shaft signature: API reference 14,695 -> 14,722 (+27 B), dynamic tools 30,904 -> 30,929 (+25 B).
-	// 14,813 -> 14,847: useItem/interactBlock signatures gain acceptLavaRisk? (d41-portal LAVA_POUR_AT_BODY).
-	assert.ok(Buffer.byteLength(ARENA_SCRIPT_API_REFERENCE) <= 15_710); // +68: player.build (verb-build); +28: player.rest (verb-survive-rest); +12: pickUpItem timeoutMs? (obtain re-check); +53: player.mineVein; +178: absent facts read null, string + number, located runtime errors; +18: fightTarget/useRanged single? (d41-blaze-survive); +64: fightTarget/useRanged untilItem?/untilCount?, roof? (d41-fight-count); +48: useRanged untilDead?/fleeAtHealth?/collect?, fightTarget collect? (d41-ranged-loop); +15: travelTo fightThrough? (d41-resume); +118: player.fightUntil (d41-fight-until); +118: castObsidian/barterUntil (d41-cast-barter)
-	// +36 B: the stage check terms in the taskPlan check description; +11 B: spawn:bed; +282 B: the dig_to action; +1,509 B: the travel_to action.
-	// +32 B: acceptLavaRisk on use_item and interact_block (d41-portal).
-	// +1,120 B: the gather tool and the lookAround reuse note (d41-dig).
-	// Inventory repair uses the reviewed full-tool cap already pinned in tool-contract-coverage.
-	assert.ok(Buffer.byteLength(JSON.stringify(MINECRAFT_DYNAMIC_TOOLS)) <= 39_476) // +176 B: verb-build, the build verb; +57 B: verb-survive-rest rest action and verb; +11 B: obtain re-check, pick_up_item timeoutMs?; +357 B: verb-obtain, the obtain do_step verb; +135 B: verb-find, the find verb; +1,336 B: rw-loop do_step, the primary step tool; +359 B: do_step reflexes and until (rw-loop review); +665 B: 2026-11-01 body skills (mine tool choice +97, mine_vein +276, travel stops +128, travel descent +102, doors +62); +545 B: 2026-11-01 overlap act/startAction after and keepGoing; +128 B: d41-blaze-survive single? and the plan-count act sentence; +44 B: d41-ranged-loop use_ranged/fight_target options; +226 B: d41-resume travelTo fightThrough; +153 B: d41-fight-until fight_until; +673 B: d41-cast-barter cast_obsidian/barter_until
+	assert.ok(Buffer.byteLength(ARENA_SCRIPT_API_REFERENCE) <= 15_710);
+	assert.ok(Buffer.byteLength(JSON.stringify(MINECRAFT_DYNAMIC_TOOLS)) <= 39_476)
 });
 
 test('background is ignored for templates, authored guards, legacy orders and deletion', () => {

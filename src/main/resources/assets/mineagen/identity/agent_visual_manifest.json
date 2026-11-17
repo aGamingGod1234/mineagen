@@ -1,0 +1,154 @@
+{
+  "schemaVersion": 1,
+  "brandSkins": [
+    {
+      "key": "openai",
+      "label": "ChatGPT / OpenAI",
+      "variants": [
+        {"texturePath": "mineagen:textures/entity/brand_openai_agent_0.png"},
+        {"texturePath": "mineagen:textures/entity/brand_openai_agent_1.png"},
+        {"texturePath": "mineagen:textures/entity/brand_openai_agent_2.png"},
+        {"texturePath": "mineagen:textures/entity/brand_openai_agent_3.png"}
+      ]
+    },
+    {
+      "key": "claude",
+      "label": "Claude",
+      "variants": [
+        {"texturePath": "mineagen:textures/entity/brand_claude_agent_0.png"},
+        {"texturePath": "mineagen:textures/entity/brand_claude_agent_1.png"},
+        {"texturePath": "mineagen:textures/entity/brand_claude_agent_2.png"},
+        {"texturePath": "mineagen:textures/entity/brand_claude_agent_3.png"}
+      ]
+    }
+  ],
+  "providers": [
+    {
+      "key": "codex",
+      "chassis": "codex",
+      "glyph": "⌁",
+      "fallbackFamily": "spark",
+      "families": [
+        {
+          "key": "sol",
+          "models": [
+            "gpt-6.1-sol",
+            "gpt-6-sol",
+            "gpt-5.6-sol",
+            "gpt-5.6-sol-wm"
+          ],
+          "shortLabel": "Sol",
+          "variants": [
+            {"texturePath": "mineagen:textures/entity/brand_openai_agent_0.png", "transportCode": "c00"},
+            {"texturePath": "mineagen:textures/entity/brand_openai_agent_1.png", "transportCode": "c01"},
+            {"texturePath": "mineagen:textures/entity/brand_openai_agent_2.png", "transportCode": "c02"},
+            {"texturePath": "mineagen:textures/entity/brand_openai_agent_3.png", "transportCode": "c03"}
+          ]
+        },
+        {
+          "key": "terra",
+          "models": [
+            "gpt-6-astra",
+            "gpt-5.6-terra",
+            "gpt-5.5",
+            "gpt-5.4"
+          ],
+          "shortLabel": "Terra",
+          "variants": [
+            {"texturePath": "mineagen:textures/entity/brand_openai_agent_0.png", "transportCode": "c10"},
+            {"texturePath": "mineagen:textures/entity/brand_openai_agent_1.png", "transportCode": "c11"},
+            {"texturePath": "mineagen:textures/entity/brand_openai_agent_2.png", "transportCode": "c12"},
+            {"texturePath": "mineagen:textures/entity/brand_openai_agent_3.png", "transportCode": "c13"}
+          ]
+        },
+        {
+          "key": "luna",
+          "models": [
+            "gpt-6-luna",
+            "gpt-5.6-luna",
+            "gpt-5.4-mini"
+          ],
+          "shortLabel": "Luna",
+          "variants": [
+            {"texturePath": "mineagen:textures/entity/brand_openai_agent_0.png", "transportCode": "c20"},
+            {"texturePath": "mineagen:textures/entity/brand_openai_agent_1.png", "transportCode": "c21"},
+            {"texturePath": "mineagen:textures/entity/brand_openai_agent_2.png", "transportCode": "c22"},
+            {"texturePath": "mineagen:textures/entity/brand_openai_agent_3.png", "transportCode": "c23"}
+          ]
+        },
+        {
+          "key": "spark",
+          "models": [
+            "gpt-5.3-codex-spark",
+            "codex-auto-review"
+          ],
+          "shortLabel": "Spark",
+          "variants": [
+            {"texturePath": "mineagen:textures/entity/brand_openai_agent_0.png", "transportCode": "c30"},
+            {"texturePath": "mineagen:textures/entity/brand_openai_agent_1.png", "transportCode": "c31"},
+            {"texturePath": "mineagen:textures/entity/brand_openai_agent_2.png", "transportCode": "c32"},
+            {"texturePath": "mineagen:textures/entity/brand_openai_agent_3.png", "transportCode": "c33"}
+          ]
+        }
+      ]
+    },
+    {
+      "key": "claude",
+      "chassis": "claude",
+      "glyph": "✻",
+      "fallbackFamily": "next",
+      "families": [
+        {
+          "key": "opus",
+          "models": [
+            "claude-opus-5-5"
+          ],
+          "shortLabel": "Opus 5.5",
+          "variants": [
+            {"texturePath": "mineagen:textures/entity/brand_claude_agent_0.png", "transportCode": "a00"},
+            {"texturePath": "mineagen:textures/entity/brand_claude_agent_1.png", "transportCode": "a01"},
+            {"texturePath": "mineagen:textures/entity/brand_claude_agent_2.png", "transportCode": "a02"},
+            {"texturePath": "mineagen:textures/entity/brand_claude_agent_3.png", "transportCode": "a03"}
+          ]
+        },
+        {
+          "key": "sonnet",
+          "models": [
+            "claude-sonnet-5-5"
+          ],
+          "shortLabel": "Sonnet 5.5",
+          "variants": [
+            {"texturePath": "mineagen:textures/entity/brand_claude_agent_0.png", "transportCode": "a10"},
+            {"texturePath": "mineagen:textures/entity/brand_claude_agent_1.png", "transportCode": "a11"},
+            {"texturePath": "mineagen:textures/entity/brand_claude_agent_2.png", "transportCode": "a12"},
+            {"texturePath": "mineagen:textures/entity/brand_claude_agent_3.png", "transportCode": "a13"}
+          ]
+        },
+        {
+          "key": "fable",
+          "models": [
+            "claude-fable-5-1"
+          ],
+          "shortLabel": "Fable 5.1",
+          "variants": [
+            {"texturePath": "mineagen:textures/entity/brand_claude_agent_0.png", "transportCode": "a20"},
+            {"texturePath": "mineagen:textures/entity/brand_claude_agent_1.png", "transportCode": "a21"},
+            {"texturePath": "mineagen:textures/entity/brand_claude_agent_2.png", "transportCode": "a22"},
+            {"texturePath": "mineagen:textures/entity/brand_claude_agent_3.png", "transportCode": "a23"}
+          ]
+        },
+        {
+          "key": "next",
+          "models": [],
+          "shortLabel": "Anthropic",
+          "variants": [
+            {"texturePath": "mineagen:textures/entity/brand_claude_agent_0.png", "transportCode": "a30"},
+            {"texturePath": "mineagen:textures/entity/brand_claude_agent_1.png", "transportCode": "a31"},
+            {"texturePath": "mineagen:textures/entity/brand_claude_agent_2.png", "transportCode": "a32"},
+            {"texturePath": "mineagen:textures/entity/brand_claude_agent_3.png", "transportCode": "a33"}
+          ]
+        }
+      ]
+    }
+  ]
+}

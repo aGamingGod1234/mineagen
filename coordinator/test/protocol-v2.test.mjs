@@ -194,7 +194,7 @@ test('optional launch identity is authenticated without weakening manual coordin
 // Mirrors MultiplexedServerBridge.authenticationProof in Java: NUL-joined context, role, nonces, instance and launch ID.
 function javaCoordinatorProof(payload, launchId) {
 	return createHmac('sha256', SECRET)
-		.update(['arena-agents-v2', 'coordinator', payload.clientNonce, payload.serverNonce, 'server-instance', launchId].join('\0'), 'utf8')
+		.update(['mineagen-v2', 'coordinator', payload.clientNonce, payload.serverNonce, 'server-instance', launchId].join('\0'), 'utf8')
 		.digest('base64url');
 }
 
@@ -2957,7 +2957,7 @@ test('an old jar can send legacy goal requests to a new coordinator without prog
 	assert.equal(socket.destroyed, false);
 });
 
-const JAVA_PERCEPTION = new URL('../../src/main/java/dev/agaminggod/arenaagents/server/perception/', import.meta.url);
+const JAVA_PERCEPTION = new URL('../../src/main/java/dev/agaminggod/mineagen/server/perception/', import.meta.url);
 
 /** The string values of a Java class's `SIGNALS = List.of(CONST, ...)`, resolved through its String constants. */
 function javaSignals(file, source = readFileSync(new URL(file, JAVA_PERCEPTION), 'utf8')) {
@@ -3081,8 +3081,6 @@ function observationWithUnknownSignal() {
 }
 
 test('one observation with an invalid payload is dropped and reported without closing the bridge', async (t) => {
-	// Play-test (2026-10-10): every observation during a blaze fight carried a signal the schema lacked; each one closed
-	// the bridge, so the coordinator reconnected 29 times in 16 seconds while the agent burned.
 	const fixture = await readyBridgeFixture(t);
 	for (let index = 0; index < 5; index++) {
 		fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('observation', 'agent-a', `server-bad-${index}`, observationWithUnknownSignal()))}\n`);
@@ -3120,7 +3118,6 @@ test('payload rejection stays contained only for authenticated snapshots; corrup
 		assert.equal(fixture.protocolErrors.length, 1, name);
 		assert.deepEqual(fixture.rejections, [], name);
 	}
-	// Malformed JSON framing is never contained either.
 	const fixture = await readyBridgeFixture(t);
 	fixture.socket.emit('data', '{"protocolVersion":2,\n');
 	await new Promise((resolve) => setImmediate(resolve));
@@ -3383,4 +3380,11 @@ test('a far-sight block row marked flowing or small passes the wire schema and r
 	assert.equal(adapted.sighted.blocks[1].small, true, 'find skips a pocket too small for the cast');
 	observation.sighted.blocks[0].flowing = 'yes';
 	assert.throws(() => validateProtocolV2Payload('observation', observation), /flowing/);
+});
+
+
+test('retired director script messages are rejected at the protocol boundary', () => {
+	for (const type of ['director_script_request', 'director_script_result']) {
+		assert.throws(() => validateProtocolV2Payload(type, {}), { code: 'INVALID_MESSAGE_TYPE' });
+	}
 });

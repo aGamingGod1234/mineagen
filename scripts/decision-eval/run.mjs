@@ -21,7 +21,7 @@ const USAGE = `Usage: node scripts/decision-eval/run.mjs --cases <file|dir> [opt
   --limit <n>                   first n cases after filtering
   --samples <n>                 samples per case (default 3)
   --concurrency <n>             provider calls in flight (default 16)
-  --provider claude|codex|opencode  play provider (default claude)
+  --provider claude|codex  play provider (default claude)
   --model <id>                  play model (default claude-opus-5-5)
   --effort <level>              reasoning effort (default low, the gameplay profile)
   --out <file.json>             run file; samples also stream to <file>.jsonl
@@ -62,8 +62,8 @@ const provider = args.provider;
 // "fake" exists for orchestration tests only: DECISION_EVAL_FAKE_PROVIDER names a module whose answer({ caseId, sample,
 // arm, stage }) returns { calls, error } for each sample. No model is called.
 const fakeProvider = provider === 'fake' && process.env.DECISION_EVAL_FAKE_PROVIDER ? (await import(pathToFileURL(path.resolve(process.env.DECISION_EVAL_FAKE_PROVIDER)).href)).answer : null;
-if (!['claude', 'codex', 'opencode'].includes(provider) && fakeProvider === null) { console.error('--provider must be claude, codex or opencode'); process.exit(2); }
-const model = args.model ?? (provider === 'codex' ? null : provider === 'opencode' ? 'opencode/deepseek-v4.1-flash-free' : runner.DEFAULT_PLAY_PROFILE.model);
+if (!['claude', 'codex'].includes(provider) && fakeProvider === null) { console.error('--provider must be claude or codex'); process.exit(2); }
+const model = args.model ?? (provider === 'codex' ? null : runner.DEFAULT_PLAY_PROFILE.model);
 // The fake provider renders exactly what a Claude session would receive.
 const renderProvider = fakeProvider !== null ? 'claude' : provider;
 if (model === null) { console.error('--model is required for codex'); process.exit(2); }
@@ -157,14 +157,7 @@ const harnessText = async (name) => (await readFile(path.join(repositoryRoot, 'c
  * chosen, so their case key adds multiStepHarnessSha256.
  */
 async function harnessSha256() {
-	return createHash('sha256').update(`render.mjs\0${await harnessText('render.mjs')}\0protocol\0${runner.RUNNER_PROTOCOL ?? 'unversioned'}${await openCodeShimText()}`).digest('hex');
-}
-/** eval.mjs lends the OpenCode transport to builds from before it (decision-eval/provider-shim.json); lent code is part of the answer's identity. */
-async function openCodeShimText() {
-	let marker;
-	try { marker = JSON.parse(await readFile(path.join(repositoryRoot, 'coordinator', 'src', 'decision-eval', 'provider-shim.json'), 'utf8')); } catch { return ''; }
-	const texts = await Promise.all(marker.files.map(async (file) => `${file}\0${(await readFile(path.join(repositoryRoot, file), 'utf8')).replace(/\r\n/g, '\n')}`));
-	return `\0provider-shim\0${texts.join('\0')}`;
+	return createHash('sha256').update(`render.mjs\0${await harnessText('render.mjs')}\0protocol\0${runner.RUNNER_PROTOCOL ?? 'unversioned'}`).digest('hex');
 }
 const multiStepHarnessSha256 = createHash('sha256').update((await Promise.all(['runner.mjs', 'match.mjs', 'predicates.mjs'].map(async (name) => `${name}\0${await harnessText(name)}`))).join('\0')).digest('hex');
 async function dirtyDiffSha256() {
@@ -213,7 +206,7 @@ async function importCached(testCase) {
 }
 async function readCached(testCase) {
 	let rows = [];
-	try { rows = (await readFile(cacheFile(testCase), 'utf8')).split('\n').filter(Boolean).map((line) => JSON.parse(line)); } catch { /* none yet */ }
+	try { rows = (await readFile(cacheFile(testCase), 'utf8')).split('\n').filter(Boolean).map((line) => JSON.parse(line)); } catch {}
 	const found = new Map(rows.filter((row) => row.error === null && row.caseId === testCase.id).map((row) => [row.sample, row]));
 	for (const row of await importCached(testCase)) {
 		if (found.has(row.sample)) continue;
@@ -275,8 +268,6 @@ if (!args['dry-run'] && renders.size > 0) {
 	results.push(...cachedResults);
 	const adapter = fakeProvider !== null ? { provider: 'fake', model, effort, async start() {}, async stop() {} } : provider === 'claude'
 		? runner.createClaudeAdapter({ model, effort, root: runRoot, viewSession })
-		// DECISION_EVAL_OPENCODE_POOL=off starts one OpenCode server per sample instead of sharing pooled servers.
-		: provider === 'opencode' ? runner.createOpenCodeAdapter({ model, effort, root: runRoot, viewSession, pooled: process.env.DECISION_EVAL_OPENCODE_POOL !== 'off' })
 		: runner.createCodexAdapter({ model, effort, root: runRoot, viewSession });
 	if (tasks.length > 0) await adapter.start();
 	let done = 0;

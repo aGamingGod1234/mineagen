@@ -17,7 +17,6 @@ test('item 1: launches reserve first, so three concurrent workers cannot push co
 	assert.equal(defaultRunReserveUsd(60000), 6.7);
 	assert.equal(defaultRunReserveUsd(600000, { judges: false }), 8.75);
 	const ledger = new SpendLedger({ capUsd: 150 });
-	// The r3 failure: $149.99 committed, three workers ready to launch 10-minute runs.
 	await ledger.reserve('earlier', 149.99); await ledger.settle('earlier', 149.99);
 	const launched = await boundedMap([1, 2, 3], 3, async n => ledger.reserve(`run-${n}`, 5));
 	assert.deepEqual(launched, [false, false, false]);
@@ -54,7 +53,6 @@ test('observer-metered play stops one call before its cap', async () => {
 test('item 2a: runs without model calls are known preparation spend; unknown or cancelled spend is reserved, never Infinity', () => {
 	const R = 5;
 	assert.deepEqual(runSpendUsd({ termination: 'NO_OBSERVER', metrics: null }, { reserveUsd: R }).usd, 0);
-	// The fixer's cold-chunk T12: setup failed before any model call.
 	assert.equal(runSpendUsd({ metrics: { modelCalls: 0, costEstimateUsd: null }, judge: { status: 'NO_ACTIONS', judgments: [{ costUsd: 0 }, { costUsd: 0 }], attempts: [], costUsd: 0, unknownSpend: false } }, { reserveUsd: R }).usd, 0);
 	assert.equal(runSpendUsd({ metrics: { modelCalls: 0, costEstimateUsd: 0.004 } }, { reserveUsd: R }).usd, 0.004);
 	assert.equal(runSpendUsd(null, { reserveUsd: R }).usd, R, 'worker crash or timeout is charged R');
@@ -63,7 +61,6 @@ test('item 2a: runs without model calls are known preparation spend; unknown or 
 	const judged = runSpendUsd({ metrics: { modelCalls: 3, costEstimateUsd: 0.25 }, judge: { error: 'timeout', costUsd: null, unknownSpend: true, attempts: [{ costUsd: 0.1 }, { costUsd: null }] } }, { reserveUsd: R });
 	close(judged.usd, 0.25 + 0.1 + 0.25); close(judged.reservedUsd, 0.25);
 	assert.equal(runSpendUsd({ metrics: { modelCalls: 3, costEstimateUsd: 0.25 }, judge: { error: 'thrown before any attempt' } }, { reserveUsd: R }).usd, 0.75);
-	// The r2-era judgments shape still sums.
 	close(runSpendUsd({ metrics: { modelCalls: 1, costEstimateUsd: 2 }, judge: { judgments: [{ costUsd: .3 }, { costUsd: .4 }] } }, { reserveUsd: R }).usd, 2.7);
 	assert.equal(runSpendUsd({ metrics: { modelCalls: 1, costEstimateUsd: .25 }, judge: { error: 'second pass failed', costUsd: .1, unknownSpend: false } }, { reserveUsd: R }).usd, .35);
 	for (const run of [null, { metrics: null }, { metrics: { modelCalls: 4, costEstimateUsd: null } }]) assert.ok(Number.isFinite(runSpendUsd(run, { reserveUsd: R }).usd));
@@ -76,7 +73,6 @@ test('item 2b: each cut-off Codex call with missing usage is charged the largest
 	close(runSpendUsd({ metrics: { modelCalls: 2, costEstimateUsd: 0.2 }, unmeteredProviderCalls: 2 }, { reserveUsd: 5 }).usd, 1.2);
 	const partial = runSpendUsd({ metrics: { modelCalls: 2, costEstimateUsd: null, modelCallDetails: [{ phase: 'play', costEstimateUsd: 0.1 }, { phase: 'play', costEstimateUsd: null }] } }, { reserveUsd: 5 });
 	close(partial.usd, 0.2);
-	// The live estimate applies the same rule to provider rows.
 	const live = liveSpendUsd({ profile: claude, traceRows: [{ event: 'native_model_call', goalRevision: 1, inputTokens: 1000, outputTokens: 100 }], providerRows: [{ usage: { status: 'available' } }, { usage: { status: 'missing' } }] });
 	assert.equal(live.unmetered, 0, 'Claude meters per call; its counter-missing turn rows are not unmetered calls');
 	close(live.usd, liveSpendUsd({ profile: claude, traceRows: [{ event: 'native_model_call', goalRevision: 1, inputTokens: 1000, outputTokens: 100 }] }).usd);

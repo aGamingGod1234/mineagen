@@ -15,7 +15,7 @@ import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
-const jarPath = resolve(process.env.ARENA_JAR ?? join(root, 'build/libs/arena-agents-0.2.0.jar'));
+const jarPath = resolve(process.env.ARENA_JAR ?? join(root, 'build/libs/mineagen-0.2.0.jar'));
 const out = resolve(process.argv[2] ?? 'runtime/progress-live');
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE;
 if (!template || !process.env.SLOT_PORT_BASE) throw new Error('Set ARENA_HEADLESS_SERVER_TEMPLATE and launch under slot.sh live');
@@ -39,7 +39,6 @@ const WORLDS = [
 	{ world: END_WORLD, spots: [{ name: 'end', dim: 'minecraft:the_end', pos: [0.5, 75, 40.5], stay: 25_000, expect: ['crystals', 'dragon'],
 		surface: true, setup: ['execute in minecraft:the_end positioned 10.5 0 40.5 positioned over motion_blocking run summon minecraft:end_crystal ~ ~ ~', 'execute in minecraft:the_end positioned -20.5 0 40.5 positioned over motion_blocking run summon minecraft:end_crystal ~ ~ ~', 'execute in minecraft:the_end run summon minecraft:ender_dragon 0.5 110 0.5'] }] },
 ];
-// The block a reported cell must hold, per target kind.
 const BLOCKS = { iron: '#minecraft:iron_ores', gravel: 'minecraft:gravel', obsidian: 'minecraft:obsidian', nether_portal: 'minecraft:nether_portal', portal_room: 'minecraft:end_portal_frame',
 	blaze_spawner: 'minecraft:spawner', lava_pool: 'minecraft:lava' };
 
@@ -58,8 +57,8 @@ class Inbox {
 async function boot(dir, world) {
 	const server = join(dir, 'server');
 	await cp(template, server, { recursive: true });
-	for (const name of await readdir(join(server, 'mods'))) if (name.startsWith('arena-agents-')) await unlink(join(server, 'mods', name));
-	await cp(jarPath, join(server, 'mods/arena-agents-0.2.0.jar'));
+	for (const name of await readdir(join(server, 'mods'))) if (name.startsWith('mineagen-')) await unlink(join(server, 'mods', name));
+	await cp(jarPath, join(server, 'mods/mineagen-0.2.0.jar'));
 	const saved = join(world, 'server', (await readdir(join(world, 'server'))).find(name => name.startsWith('headless-run-')));
 	await cp(saved, join(server, 'world'), { recursive: true, filter: (path) => !/[\\/](players|entities)([\\/]|$)|session\.lock$/.test(path.slice(saved.length)) });
 	await rm(join(server, 'world', 'session.lock'), { force: true });
@@ -67,8 +66,7 @@ async function boot(dir, world) {
 	await writeFile(join(dir, 'secret.txt'), secret, { mode: 0o600 });
 	await writeFile(join(server, 'server.properties'), `online-mode=false\nserver-ip=127.0.0.1\nserver-port=${port + 2}\nenable-rcon=true\nrcon.ip=127.0.0.1\nrcon.port=${port + 1}\nrcon.password=${secret}\nlevel-name=world\nspawn-protection=0\nview-distance=8\nsimulation-distance=6\npause-when-empty-seconds=-1\nmax-players=4\nspawn-monsters=false\ndifficulty=peaceful\n`);
 	const log = await open(join(dir, 'server.log'), 'a');
-	// The Watcher is off by default, and this check reads its progress lines.
-	const child = spawn(`${process.env.JAVA_HOME}/bin/java`, [`-Darenaagents.bridgePort=${port}`, '-Darenaagents.coordinatorAutoStart=false', `-Darenaagents.bridgeSecretFile=${join(dir, 'secret.txt')}`, '-Darenaagents.watch=true', '-Xms512M', '-Xmx2G', '-jar', 'fabric-server-launch.jar', 'nogui'], { cwd: server, stdio: ['ignore', log.fd, log.fd] });
+	const child = spawn(`${process.env.JAVA_HOME}/bin/java`, [`-Dmineagen.bridgePort=${port}`, '-Dmineagen.coordinatorAutoStart=false', `-Dmineagen.bridgeSecretFile=${join(dir, 'secret.txt')}`, '-Dmineagen.watch=true', '-Xms512M', '-Xmx2G', '-jar', 'fabric-server-launch.jar', 'nogui'], { cwd: server, stdio: ['ignore', log.fd, log.fd] });
 	const s = { child, log, server, record: null, observation: null, ordinal: 0 };
 	liveServer = child;
 	for (let i = 0; i < 150; i++) { try { s.rcon = new HeadlessRconClient({ host: '127.0.0.1', port: port + 1, password: secret, connectTimeoutMs: 500, commandTimeoutMs: 30000 }); await s.rcon.connect(); break; } catch (e) { await s.rcon?.close(); if (i === 149) throw e; await sleep(1000); } }
@@ -152,7 +150,6 @@ for (const [index, entry] of WORLDS.entries()) {
 			for (const command of spot.setup ?? []) await s.command(command);
 			const before = (await linesOf(s)).length;
 			await sleep(6_000);
-			// A success and three identical failures (breaking air), so the window's counts can be checked.
 			const actions = [await s.act('look_at', { x: x + 3, y: y + 1, z: z + 3 })];
 			for (let i = 0; i < 3; i++) actions.push(await s.act('break_block', { x: Math.floor(x), y: Math.floor(y) + 1, z: Math.floor(z), timeoutMs: 3000 }));
 			await sleep(spot.stay);

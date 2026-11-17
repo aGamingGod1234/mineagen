@@ -3,6 +3,7 @@
 //   node scripts/decision-eval/simulate-verdict.mjs [--trials 2000] [--json out.json]
 // Each scenario draws per-case true good-rates from the default mix (55% easy 0.85-1.0, 30% borderline 0.55-0.85,
 // 15% hard 0.15-0.55), samples both builds, applies the screen and, when INCONCLUSIVE, a confirm run on fresh samples.
+import { privateInput, skipWithoutPrivateInputs } from '../../coordinator/scripts/private-inputs.mjs';
 import { readdirSync, readFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -10,7 +11,8 @@ import { fileURLToPath } from 'node:url';
 import { VERDICT_RULE, simulateVerdicts } from '../../coordinator/src/decision-eval/stats.mjs';
 
 // Shapes come from the committed corpus: the train families and their mean case count, and the quick list.
-const fixtures = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'coordinator', 'test', 'fixtures', 'decision-eval');
+skipWithoutPrivateInputs('decision-eval simulate-verdict');
+const fixtures = privateInput('coordinator/test/fixtures/decision-eval');
 const train = readdirSync(path.join(fixtures, 'train')).filter((name) => name.endsWith('.json'))
 	.map((name) => JSON.parse(readFileSync(path.join(fixtures, 'train', name), 'utf8')));
 const familyOf = new Map(train.flatMap((file) => file.cases.map((c) => [c.id, c.family])));

@@ -27,9 +27,9 @@ def mixin_roots(target):
 
 
 def configs(target):
-    names = ['src/main/resources/arenaagents.mixins.json', 'src/client/resources/arenaagents.client.mixins.json',
-             f'src/compat/{target}/resources/arenaagents.compat.mixins.json',
-             f'src/compat/{target}/clientResources/arenaagents.client.compat.mixins.json']
+    names = ['src/main/resources/mineagen.mixins.json', 'src/client/resources/mineagen.client.mixins.json',
+             f'src/compat/{target}/resources/mineagen.compat.mixins.json',
+             f'src/compat/{target}/clientResources/mineagen.client.compat.mixins.json']
     found = []
     for name in names:
         path = os.path.join(ROOT, name)
@@ -289,7 +289,7 @@ def check(jar, target):
             elif rest not in methods[name]:
                 problems.append(f'{short}: @At method {owner}.{name}{rest} has no matching descriptor (have {methods[name]})')
         for kind, name in re.findall(r'@(Accessor|Invoker)\s*\(\s*(?:value\s*=\s*)?"([^"]+)"', source):
-            if name.startswith('arenaagents$'):
+            if name.startswith('mineagen$'):
                 continue  # a field or method another of the mod's mixins adds, not vanilla's
             checked += 1
             if kind == 'Accessor' and name not in owner_fields:

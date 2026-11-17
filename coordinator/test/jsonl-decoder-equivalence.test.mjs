@@ -3,8 +3,6 @@ import test from 'node:test';
 
 import { JsonlDecoder } from '../src/jsonl.mjs';
 
-// Independent reference scanner written the way the decoder used to scan: regex
-// whitespace classes, per-character string slicing, and JSON.parse for every name.
 function referenceDuplicateKeyError(text) {
 	let index = 0;
 	const whitespace = () => { while (/\s/u.test(text[index] ?? '')) index += 1; };

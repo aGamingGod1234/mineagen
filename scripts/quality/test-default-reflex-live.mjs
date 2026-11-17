@@ -1,16 +1,4 @@
 #!/usr/bin/env node
-// Provider-free check of the default survival reflexes (the recorded ruling 16, Oct 28). This script stands in for the
-// coordinator: agent "Ember" gets exactly the rule set the coordinator's ReflexBook arms at spawn (no model rule), agent
-// "Ash" gets no rules (the base build: no model rule armed). Each agent has its own pad 40 blocks apart.
-//   1. lava-knock: the body stands at a 1-block lava pool's lip and a small fireball from behind shoves it in;
-//   2. lava-drop: the body lands in the pool from just above (a knockback hop that ends in it);
-//   4. shelter-fire (d41 rods): a fire block at the feet inside a closed, roofed one-cell shelter (a fireball through the
-//      window lit its floor; live floor death, d41-m5-fortress-floor-c0b8-1): no fire-free cell to step to. Whether the
-//      fire is out after 10 s, alive, health. CASES=shelter-fire runs only this case.
-//   3. edge-control: on a 1-wide bridge 30 blocks up (a lethal fall), a fireball from the side hits the body while it runs raw control
-//      keys standing still (not a commanded stance, so the base brink guard does not walk the shove back).
-// Per case: whether the body entered lava, alive after 10 s, health, where it ended, how far it fell.
-// ARENA_JAR selects the jar. Launch under fix-slot.sh (slot.sh live); operator commands build fixtures and fire shots only.
 import { readFile, writeFile, mkdir, cp, readdir, unlink, open } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -21,7 +9,7 @@ import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { ReflexBook } from '../../coordinator/src/reflexes.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
-const jarPath = resolve(process.env.ARENA_JAR ?? join(root, 'build/libs/arena-agents-0.2.0.jar'));
+const jarPath = resolve(process.env.ARENA_JAR ?? join(root, 'build/libs/mineagen-0.2.0.jar'));
 const out = resolve(process.argv[2] ?? 'runtime/default-reflex-live');
 const repeats = Number(process.env.REPEATS ?? 2);
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE;
@@ -31,13 +19,13 @@ await mkdir(out, { recursive: true });
 if ((await readdir(out)).length) throw new Error('Use a fresh output directory');
 await writeFile(join(out, 'manifest.json'), JSON.stringify({ kind: 'provider-free live mechanics', aiPerformanceMeasured: false, fixtureSetupUsesOperatorCommands: true, jarSha256: createHash('sha256').update(await readFile(jarPath)).digest('hex'), node: process.version }, null, 2));
 await cp(template, server, { recursive: true });
-for (const name of await readdir(join(server, 'mods'))) if (name.startsWith('arena-agents-')) await unlink(join(server, 'mods', name));
-await cp(jarPath, join(server, 'mods/arena-agents-0.2.0.jar'));
+for (const name of await readdir(join(server, 'mods'))) if (name.startsWith('mineagen-')) await unlink(join(server, 'mods', name));
+await cp(jarPath, join(server, 'mods/mineagen-0.2.0.jar'));
 const secret = randomBytes(32).toString('hex');
 await writeFile(join(out, 'secret.txt'), secret, { mode: 0o600 });
 await writeFile(join(server, 'server.properties'), `online-mode=false\nserver-ip=127.0.0.1\nserver-port=${port + 2}\nenable-rcon=true\nrcon.ip=127.0.0.1\nrcon.port=${port + 1}\nrcon.password=${secret}\nlevel-name=world\nlevel-seed=20261028\nlevel-type=minecraft:flat\ngenerator-settings={"layers":[{"block":"minecraft:bedrock","height":1},{"block":"minecraft:stone","height":3}],"biome":"minecraft:plains"}\nspawn-protection=0\nview-distance=5\nsimulation-distance=5\npause-when-empty-seconds=-1\nmax-players=4\nspawn-monsters=false\n`);
 const log = await open(join(out, 'server.log'), 'a');
-const child = spawn(`${process.env.JAVA_HOME}/bin/java`, [`-Darenaagents.bridgePort=${port}`, '-Darenaagents.coordinatorAutoStart=false', `-Darenaagents.bridgeSecretFile=${join(out, 'secret.txt')}`, '-Xms512M', '-Xmx2G', '-jar', 'fabric-server-launch.jar', 'nogui'], { cwd: server, stdio: ['ignore', log.fd, log.fd] });
+const child = spawn(`${process.env.JAVA_HOME}/bin/java`, [`-Dmineagen.bridgePort=${port}`, '-Dmineagen.coordinatorAutoStart=false', `-Dmineagen.bridgeSecretFile=${join(out, 'secret.txt')}`, '-Xms512M', '-Xmx2G', '-jar', 'fabric-server-launch.jar', 'nogui'], { cwd: server, stdio: ['ignore', log.fd, log.fd] });
 await writeFile(join(out, 'server.pid'), String(child.pid));
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 class Inbox {
@@ -119,7 +107,6 @@ async function revive(agent) {
 	await command(`effect give ${agent.name} minecraft:saturation 1200 4 true`);
 }
 
-/** Watches the body for 10 s: entered lava, alive, final health and place, lowest y. */
 async function watch(agent, start) {
 	let minY = start.y, entered = false, last = start, alive = true;
 	for (let i = 0; i < 50; i++) {

@@ -44,14 +44,12 @@ test('edge triggers fire on entry into each condition', () => {
 		const fired = detectObservationTriggers(calm, observation(2000, overrides)).map((e) => e.trigger);
 		assert.ok(fired.includes(trigger), `${trigger} from ${JSON.stringify(overrides)} fired ${fired}`);
 	}
-	// Staying in a condition does not fire again.
 	const low = observation(2000, { player: { health: 6 } });
 	assert.deepEqual(detectObservationTriggers(low, observation(3000, { player: { health: 6 } })).map((e) => e.trigger), []);
 	// Distant or passive mobs do not count; creepers count within their own radius.
 	assert.deepEqual(detectObservationTriggers(calm, observation(2000, { entities: [{ type: 'minecraft:zombie', hostile: true, distance: 20 }] })), []);
 	assert.deepEqual(detectObservationTriggers(calm, observation(2000, { entities: [{ type: 'minecraft:cow', hostile: false, distance: 2 }] })), []);
 	assert.equal(detectObservationTriggers(calm, observation(2000, { entities: [{ type: 'minecraft:skeleton', distance: 5 }] }))[0].trigger, 'hostile_near', 'type fallback without the hostile flag');
-	// Dead bodies never trigger.
 	assert.deepEqual(detectObservationTriggers(calm, observation(2000, { player: { health: 0 } })), []);
 });
 
@@ -159,8 +157,8 @@ test('capture pairs failed results with their command, dedupes, and records prov
 	const capture = new MomentCapture({ trace: 'notes/run/A' });
 	let line = 0;
 	const feed = (r) => capture.ingest(r, ++line);
-	feed(observation(500)); // not a protocol row: ignored
-	feed(row('observation', observation(900)));  // before any goal: no moment
+	feed(observation(500));
+	feed(row('observation', observation(900)));
 	feed(start());
 	feed(row('observation', observation(1000)));
 	feed(row('action_command', { actionId: 'a1', actionType: 'navigate_to', arguments: { x: 9, y: 64, z: 9 } }, 'coordinator_to_server'));
@@ -179,7 +177,6 @@ test('capture pairs failed results with their command, dedupes, and records prov
 	assert.equal(failure.state.previousObservations.length, DEFAULT_CAPTURE_OPTIONS.previousObservations);
 	assert.equal(failure.state.previousObservations.at(-1).observedAtEpochMs, 1000);
 
-	// Repeated hits within the cooldown fold into the first moment.
 	feed(row('observation', observation(3000, { player: { health: 18 } })));
 	feed(row('observation', observation(4000, { player: { health: 16 } })));
 	feed(row('observation', observation(4000 + DEFAULT_CAPTURE_OPTIONS.cooldownMs, { player: { health: 14 } })));
@@ -260,7 +257,6 @@ test('a hostile still near right after a successful flee is a threat-after-escap
 	const moment = capture.moments.find((m) => m.trigger === 'threat_after_escape');
 	assert.equal(moment.detail.type, 'minecraft:creeper');
 	assert.equal(moment.detail.sinceEscapeMs, 1000);
-	// Outside the window it does not fire.
 	capture.ingest(row('action_result', { actionId: 'f2', actionType: 'flee_from', state: 'SUCCEEDED', observedAtEpochMs: 7000 }));
 	capture.ingest(row('observation', observation(7000 + DEFAULT_CAPTURE_OPTIONS.escapeWindowMs + 1, { entities: creeper })));
 	assert.equal(capture.moments.filter((m) => m.trigger === 'threat_after_escape').length, 1);

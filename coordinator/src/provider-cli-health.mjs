@@ -3,7 +3,6 @@ import { execFile as nodeExecFile } from 'node:child_process';
 import { existsSync as nodeExistsSync } from 'node:fs';
 import path from 'node:path';
 
-import { resolveAntigravityLaunch } from './antigravity-service.mjs';
 import { resolveClaudeLaunch } from './claude-service.mjs';
 import { codexNpmEntrypoint, discoverCodexWindowsPackageLocations, resolveCodexLaunch } from './codex-app-server.mjs';
 import { sanitizeDiagnosticErrorCode, sanitizeDiagnosticText } from './diagnostic-sanitizer.mjs';
@@ -18,7 +17,6 @@ export const PROVIDER_CLI_CODES = Object.freeze({
 });
 export const DEFAULT_PROVIDER_CLI_TIMEOUT_MS = 15_000;
 export const MAX_PROVIDER_CLI_MESSAGE_CHARS = 900;
-const AUTH_TIMEOUT_MS = Object.freeze({ gemini: 25_000 });
 const MAX_OUTPUT_BYTES = 256 * 1_024;
 const MAX_DETAIL_BYTES = 1_024;
 const EXCERPT_BYTES = 200;
@@ -51,27 +49,6 @@ export const PROVIDER_CLI = Object.freeze({
 		credentialVariables: Object.freeze(['OPENAI_API_KEY', 'CODEX_API_KEY']),
 		credentialHint: 'OPENAI_API_KEY',
 		authArgs: Object.freeze(['login', 'status']),
-	}),
-	gemini: Object.freeze({
-		display: 'Antigravity CLI',
-		command: 'agy',
-		installStep: "run 'agy' once to sign in",
-		signInStep: "Run 'agy' once and sign in",
-		shimStep: "Install the Antigravity CLI with its installer so agy.exe is on PATH",
-		credentialVariables: Object.freeze(['GEMINI_API_KEY']),
-		credentialHint: 'GEMINI_API_KEY',
-		authArgs: Object.freeze(['models']),
-	}),
-	opencode: Object.freeze({
-		display: 'OpenCode CLI',
-		command: 'opencode',
-		installStep: "sign in with 'opencode auth login'",
-		signInStep: "Run 'opencode auth login'",
-		shimStep: "Install OpenCode with its installer so opencode is on PATH",
-		credentialVariables: Object.freeze(['OPENCODE_API_KEY']),
-		credentialHint: 'OPENCODE_API_KEY',
-		// Lists saved providers by name only; it never prints a key.
-		authArgs: Object.freeze(['auth', 'list']),
 	}),
 });
 
@@ -133,8 +110,7 @@ export async function probeProviderCli(provider, options = {}) {
 	if (credential !== undefined) {
 		return health({ ...base, status: 'ok', message: null, details: `authenticated through ${credential}` });
 	}
-	const authTimeoutMs = AUTH_TIMEOUT_MS[provider] ?? timeoutMs;
-	const authRun = await runCommand(execFile, located, [...launch.args, ...spec.authArgs], { environment, timeoutMs: authTimeoutMs });
+	const authRun = await runCommand(execFile, located, [...launch.args, ...spec.authArgs], { environment, timeoutMs: timeoutMs });
 	const verdict = classifyAuthentication(provider, authRun);
 	if (verdict === 'ok') return health({ ...base, status: 'ok', message: null, details: `signed in (${spec.command} ${spec.authArgs.join(' ')})` });
 	if (verdict === 'unauthenticated') {
@@ -146,7 +122,7 @@ export async function probeProviderCli(provider, options = {}) {
 		});
 	}
 	if (verdict === 'broken') {
-		return health({ ...base, status: 'broken', message: brokenMessage(spec, base.executable, `${spec.command} ${spec.authArgs.join(' ')}`, authRun, authTimeoutMs), details: runDetails(authRun) });
+		return health({ ...base, status: 'broken', message: brokenMessage(spec, base.executable, `${spec.command} ${spec.authArgs.join(' ')}`, authRun, timeoutMs), details: runDetails(authRun) });
 	}
 	return health({ ...base, status: 'unknown', message: null, details: runDetails(authRun) });
 }
@@ -156,11 +132,6 @@ async function resolveLaunch(provider, config, dependencies) {
 		case 'claude': {
 			const launch = resolveClaudeLaunch(config, dependencies);
 			return { ...launch, entrypoint: launch.args.length > 0 ? launch.args[0] : null };
-		}
-		case 'gemini': return { ...resolveAntigravityLaunch(config, dependencies), entrypoint: null };
-		case 'opencode': {
-			const configured = typeof config.executable === 'string' && config.executable.trim().length > 0 ? config.executable.trim() : 'opencode';
-			return { command: configured, args: [], environment: createProviderChildEnvironment('opencode', dependencies.env ?? config.environment ?? process.env, config.bridgeSecretEnvironmentVariable), entrypoint: null };
 		}
 		case 'codex': {
 			// Only the entrypoint prefix matters here; the app-server arguments are stripped again below.
@@ -217,17 +188,6 @@ function classifyAuthentication(provider, run) {
 		if (run.spawnError !== null || run.timedOut) return 'broken';
 		if (!run.ok) return 'unauthenticated';
 		return 'unknown';
-	}
-	if (provider === 'opencode') {
-		if (/\b0 credentials\b/i.test(text)) return 'unauthenticated';
-		if (run.ok && /opencode/i.test(text)) return 'ok';
-		if (run.spawnError !== null || run.timedOut) return 'broken';
-		return run.ok ? 'unauthenticated' : 'broken';
-	}
-	if (provider === 'gemini') {
-		if (run.ok) return 'ok';
-		if (/sign in|log ?in|authenticat/i.test(text)) return 'unauthenticated';
-		return 'broken';
 	}
 	return 'unknown';
 }

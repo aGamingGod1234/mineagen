@@ -67,8 +67,6 @@ test('placed workstations are reported once the agent walks away, until broken o
 });
 
 test('a live wire sample places the body at player.x/y/z with no top-level position, and still reports the station', () => {
-	// the recorded Oct 29 game: Sol climbed 40 blocks back to its table and the notice never showed, because live samples
-	// (observation-adapter) carry no top-level position.
 	const placed = new PlacedWorkstations();
 	const live = (x) => { const { position: _position, ...rest } = observation(); return { ...rest, player: { ...rest.player, x, y: 64, z: 0.5 } }; };
 	placed.onActionResult('a', { actionType: 'place_block', arguments: { x: 0, y: 64, z: 0, itemId: 'minecraft:crafting_table' }, state: 'SUCCEEDED' }, live(0));
@@ -200,7 +198,6 @@ test('ingest path: sight, threat trend, healing, sound and wear facts survive th
 });
 
 test('own staircases chain leg by leg and are offered from beside their top', () => {
-	// the recorded Oct 29 game: Sol dug y83 to y43 in two legs, climbed back to its table, then dug a new staircase beside it.
 	const stairs = new DugStairs();
 	const at = (x, y, z) => ({ x, y, z });
 	const live = (x, y, z, extra = {}) => ({ world: { dimension: 'minecraft:overworld', worldId: 'w' }, player: { x, y, z }, ...extra });

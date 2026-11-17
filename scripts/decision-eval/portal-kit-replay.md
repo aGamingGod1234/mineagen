@@ -1,6 +1,6 @@
 # Portal kit decision replay
 
-`coordinator/test/fixtures/decision-eval/extra/portal-kit-continuity.json` freezes 123 distinct recorded moments: 29 bucket requests, the next three `do_step` choices in each game (87), six low-health controls, and one hunger control. Gate 5 supplies 14 requests: 11 recorded one-bucket choices and three two-bucket controls. Gate 3/4 supply the other 15 requests. No observation is edited.
+`coordinator/test/fixtures/decision-eval/extra/portal-kit-continuity.json`, kept in the private archive under `ARENA_PRIVATE_INPUTS`, freezes 123 distinct recorded moments: 29 bucket requests, the next three `do_step` choices in each game (87), six low-health controls, and one hunger control. Gate 5 supplies 14 requests: 11 recorded one-bucket choices and three two-bucket controls. Gate 3/4 supply the other 15 requests. No observation is edited.
 
 The request is the last bucket request before the first bucket appears in the recorded inventory, rather than an earlier failed attempt. Subsequent points are the next three recorded steps after that first inventory sample. Each source names the decision, recorded call, raw protocol line and canonical observation hash. Plans come from `quality-initial-plan.json` and preceding authored replacements; dropped steps are removed according to the recorded coordinator events. The immutable compiled goal comes from the recorded `goal_control start`.
 
@@ -9,7 +9,7 @@ These are fresh reconstructed decisions, not full conversation replays. Prior co
 Run from the root of each build, with the same frozen corpus file on both sides:
 
 ```sh
-node scripts/decision-eval/run.mjs --cases coordinator/test/fixtures/decision-eval/extra/portal-kit-continuity.json --provider codex --model gpt-6.1-sol --effort low --samples 3 --concurrency 12 --out runtime/portal-kit.json
+node scripts/decision-eval/run.mjs --cases "$ARENA_PRIVATE_INPUTS/coordinator/test/fixtures/decision-eval/extra/portal-kit-continuity.json" --provider codex --model gpt-6.1-sol --effort low --samples 3 --concurrency 12 --out runtime/portal-kit.json
 node scripts/decision-eval/score-portal-kit.mjs --out runtime/portal-kit-scores.json runtime/portal-kit.json
 ```
 

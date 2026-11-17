@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { ANTIGRAVITY_INTERNAL_TEST_MODE, AntigravityProviderService } from '../src/antigravity-service.mjs';
 import { ProviderService } from '../src/provider-service.mjs';
+import { PROVIDER_IDS } from '../src/provider-identity.mjs';
 
 class FakeService {
 	constructor(provider) {
@@ -18,20 +18,8 @@ class FakeService {
 	async reconcile(records) { return { valid: records, invalid: [], removed: [], catalog: { provider: this.provider, models: [] } }; }
 }
 
-test('provider catalog exposes enforced adapter unavailability without advertising Gemini models', async () => {
-	const services = Object.fromEntries(['codex', 'gemini', 'claude'].map((provider) => [provider, new FakeService(provider)]));
-	services.gemini = new AntigravityProviderService({ cwd: 'C:\\workspace' });
-	const router = new ProviderService(services);
-	const catalog = await router.catalog.refresh({ providers: ['gemini'] });
-	assert.deepEqual(catalog.models, []);
-	assert.equal(catalog.availability.find((value) => value.provider === 'gemini').playable, false);
-	assert.equal(catalog.availability.find((value) => value.provider === 'gemini').reasonCode, 'PROVIDER_UNAVAILABLE');
-	assert.equal(router.getExecutionSettings('missing'), null);
-	await router.stop();
-});
-
 test('provider router coalesces one exact-profile replacement and rejects tier mutation', async () => {
-	const services = Object.fromEntries(['codex', 'gemini', 'claude'].map((provider) => [provider, new FakeService(provider)]));
+	const services = Object.fromEntries(['codex', 'claude'].map((provider) => [provider, new FakeService(provider)]));
 	let release;
 	const gate = new Promise((resolve) => { release = resolve; });
 	services.codex.replaceAgent = async (value) => {
@@ -56,7 +44,7 @@ test('provider router coalesces one exact-profile replacement and rejects tier m
 });
 
 test('replacement requests during initial creation coalesce into one replacement generation', async () => {
-	const services = Object.fromEntries(['codex', 'gemini', 'claude'].map((provider) => [provider, new FakeService(provider)]));
+	const services = Object.fromEntries(['codex', 'claude'].map((provider) => [provider, new FakeService(provider)]));
 	let releaseCreate;
 	const createGate = new Promise((resolve) => { releaseCreate = resolve; });
 	let creates = 0;
@@ -118,21 +106,20 @@ function manualTimeouts() {
 }
 
 test('provider router defaults legacy profiles to Codex and isolates each backend', async () => {
-	const services = Object.fromEntries(['codex', 'gemini', 'claude'].map((provider) => [provider, new FakeService(provider)]));
+	const services = Object.fromEntries(['codex', 'claude'].map((provider) => [provider, new FakeService(provider)]));
 	const router = new ProviderService(services);
 	assert.equal((await router.createAgent({ agentId: 'legacy' })).provider, 'codex');
-	assert.equal((await router.createAgent({ agentId: 'g', provider: 'gemini' })).provider, 'gemini');
 	assert.equal((await router.createAgent({ agentId: 'k', provider: 'claude' })).provider, 'claude');
 	assert.deepEqual(services.codex.created.map((profile) => profile.provider), ['codex']);
-	assert.equal(router.getAgent('g').provider, 'gemini');
+	assert.equal(router.getAgent('k').provider, 'claude');
 	await router.removeAgent('k');
 	assert.deepEqual(services.claude.removed, ['k']);
 	await router.stop();
-	assert.equal(services.gemini.stopped, true);
+	assert.equal(services.claude.stopped, true);
 });
 
 test('provider router rejects every profile mutation for an existing agent ID', async () => {
-	const services = Object.fromEntries(['codex', 'gemini', 'claude'].map((provider) => [provider, new FakeService(provider)]));
+	const services = Object.fromEntries(['codex', 'claude'].map((provider) => [provider, new FakeService(provider)]));
 	const router = new ProviderService(services);
 	const selected = profile('codex');
 	const agent = await router.createAgent(selected);
@@ -150,46 +137,16 @@ test('provider router rejects every profile mutation for an existing agent ID', 
 				&& !error?.message.includes('secret'),
 		);
 	}
-	await assert.rejects(router.createAgent({ ...selected, provider: 'gemini' }), /fast is available only/);
+	await assert.rejects(router.createAgent({ ...selected, provider: 'claude' }), /fast is available only/);
 	assert.equal(services.codex.created.length, 1);
-	assert.equal(services.gemini.created.length, 0);
 	assert.equal(services.claude.created.length, 0);
-	await router.stop();
-});
-
-test('provider reconciliation retains a Gemini priority profile and rejects a fast tier', async () => {
-	const gemini = new AntigravityProviderService({
-		provider: 'gemini',
-		cwd: 'C:\\workspace',
-		models: ['gemini-3.1-pro'],
-		modelReasoningEfforts: { 'gemini-3.1-pro': ['high', 'low'] },
-		testOnlyMode: ANTIGRAVITY_INTERNAL_TEST_MODE,
-	});
-	const router = new ProviderService({
-		codex: new FakeService('codex'),
-		gemini,
-		claude: new FakeService('claude'),
-	});
-	const selected = profile('gemini', {
-		agentId: 'gemini-session',
-		model: 'gemini-3.1-pro',
-		serviceTier: 'priority',
-	});
-	const agent = await router.createAgent(selected);
-	const reconciliation = await router.reconcile([selected]);
-	assert.deepEqual(reconciliation.valid, [selected], 'reconciliation preserves the complete Gemini profile');
-	assert.equal(await router.createAgent(selected), agent, 'same profile reuses the existing Gemini session');
-	await assert.rejects(
-		router.createAgent({ ...selected, serviceTier: 'fast' }),
-		/fast is available only/,
-	);
 	await router.stop();
 });
 
 test('provider router reserves an in-flight agent ID before recovery can mutate its profile', async () => {
 	let release;
 	const pending = new Promise((resolve) => { release = resolve; });
-	const services = Object.fromEntries(['codex', 'gemini', 'claude'].map((provider) => [provider, new FakeService(provider)]));
+	const services = Object.fromEntries(['codex', 'claude'].map((provider) => [provider, new FakeService(provider)]));
 	services.codex.createAgent = async (value) => {
 		services.codex.created.push(value);
 		await pending;
@@ -209,19 +166,18 @@ test('provider router reserves an in-flight agent ID before recovery can mutate 
 
 test('provider reconciliation groups profiles and preserves an unavailable provider as an invalid subset', async () => {
 	const codex = new FakeService('codex');
-	const gemini = new FakeService('gemini');
 	const claude = new FakeService('claude');
-	gemini.reconcile = async (records) => ({ valid: [], invalid: records.map((record) => ({ profile: record, code: 'PROVIDER_UNAVAILABLE', message: 'login rejected' })), removed: [], catalog: { provider: 'gemini', models: [] } });
-	const router = new ProviderService({ codex, gemini, claude });
+	claude.reconcile = async (records) => ({ valid: [], invalid: records.map((record) => ({ profile: record, code: 'PROVIDER_UNAVAILABLE', message: 'login rejected' })), removed: [], catalog: { provider: 'claude', models: [] } });
+	const router = new ProviderService({ codex, claude });
 	const result = await router.reconcile([
-		{ agentId: 'c', provider: 'codex' }, { agentId: 'g', provider: 'gemini' }, { agentId: 'k', provider: 'claude' },
+		{ agentId: 'c', provider: 'codex' }, { agentId: 'g', provider: 'claude' },
 	]);
-	assert.deepEqual(result.valid.map((record) => record.agentId), ['c', 'k']);
+	assert.deepEqual(result.valid.map((record) => record.agentId), ['c']);
 	assert.deepEqual(result.invalid.map((entry) => entry.profile.agentId), ['g']);
 });
 
 test('combined catalog refreshes independent provider CLIs concurrently', async () => {
-	const services = Object.fromEntries(['codex', 'gemini', 'claude'].map((provider) => [provider, new FakeService(provider)]));
+	const services = Object.fromEntries(['codex', 'claude'].map((provider) => [provider, new FakeService(provider)]));
 	const started = [];
 	const releases = new Map();
 	for (const [provider, service] of Object.entries(services)) {
@@ -233,7 +189,7 @@ test('combined catalog refreshes independent provider CLIs concurrently', async 
 	const router = new ProviderService(services);
 	const refreshing = router.catalog.refresh();
 	await new Promise((resolve) => setImmediate(resolve));
-	assert.deepEqual(started, ['codex', 'gemini', 'claude']);
+	assert.deepEqual(started, ['codex', 'claude']);
 	for (const release of releases.values()) release();
 	await refreshing;
 });
@@ -241,7 +197,7 @@ test('combined catalog refreshes independent provider CLIs concurrently', async 
 for (const order of ['earlier first', 'newer first']) {
 	for (const newer of ['succeeds', 'fails']) {
 		test(`overlapping catalog reads never hand a successful caller an empty catalog (${order}, newer ${newer})`, async () => {
-			const services = Object.fromEntries(['codex', 'gemini', 'claude'].map((provider) => [provider, new FakeService(provider)]));
+			const services = Object.fromEntries(['codex', 'claude'].map((provider) => [provider, new FakeService(provider)]));
 			const loads = [];
 			services.codex.catalog.refresh = (options) => new Promise((resolve, reject) => {
 				const index = loads.length;
@@ -272,7 +228,7 @@ for (const order of ['earlier first', 'newer first']) {
 }
 
 test('a superseded catalog caller does not fall back to its own data after the router stops', async () => {
-	const services = Object.fromEntries(['codex', 'gemini', 'claude'].map((provider) => [provider, new FakeService(provider)]));
+	const services = Object.fromEntries(['codex', 'claude'].map((provider) => [provider, new FakeService(provider)]));
 	const loads = [];
 	services.codex.catalog.refresh = () => new Promise((resolve) => {
 		const index = loads.length;
@@ -294,7 +250,7 @@ test('a superseded catalog caller does not fall back to its own data after the r
 });
 
 test('reconciles independent providers concurrently', async () => {
-	const services = Object.fromEntries(['codex', 'gemini', 'claude'].map((provider) => [provider, new FakeService(provider)]));
+	const services = Object.fromEntries(['codex', 'claude'].map((provider) => [provider, new FakeService(provider)]));
 	const started = [];
 	const releases = new Map();
 	for (const [provider, service] of Object.entries(services)) {
@@ -305,17 +261,17 @@ test('reconciles independent providers concurrently', async () => {
 	}
 	const router = new ProviderService(services);
 	const reconciling = router.reconcile([
-		{ agentId: 'c', provider: 'codex' }, { agentId: 'g', provider: 'gemini' }, { agentId: 'k', provider: 'claude' },
+		{ agentId: 'c', provider: 'codex' }, { agentId: 'k', provider: 'claude' },
 	]);
 	await new Promise((resolve) => setImmediate(resolve));
-	assert.deepEqual(started, ['codex', 'gemini', 'claude']);
+	assert.deepEqual(started, ['codex', 'claude']);
 	for (const release of releases.values()) release();
 	const result = await reconciling;
-	assert.deepEqual(result.valid.map((profile) => profile.agentId), ['c', 'g', 'k']);
+	assert.deepEqual(result.valid.map((profile) => profile.agentId), ['c', 'k']);
 });
 
 test('bootstrap catalog is complete before mixed-provider profiles can be accepted', async () => {
-	const services = Object.fromEntries(['codex', 'gemini', 'claude'].map((provider) => [provider, new FakeService(provider)]));
+	const services = Object.fromEntries(['codex', 'claude'].map((provider) => [provider, new FakeService(provider)]));
 	for (const [provider, service] of Object.entries(services)) {
 		service.catalog.refresh = async () => ({
 			refreshedAtEpochMs: 42,
@@ -327,13 +283,12 @@ test('bootstrap catalog is complete before mixed-provider profiles can be accept
 	const snapshot = await router.bootstrapCatalog();
 	assert.deepEqual(snapshot.models.map((model) => [model.provider, model.id]), [
 		['codex', 'codex-model'],
-		['gemini', 'gemini-model'],
 		['claude', 'claude-model'],
 	]);
 });
 
 test('bootstrap catalog delegates profile-aware fast paths to the selected provider', async () => {
-	const services = Object.fromEntries(['codex', 'gemini', 'claude'].map((provider) => [provider, new FakeService(provider)]));
+	const services = Object.fromEntries(['codex', 'claude'].map((provider) => [provider, new FakeService(provider)]));
 	let receivedRecords = null;
 	services.codex.bootstrapCatalog = async (records) => {
 		receivedRecords = records;
@@ -353,7 +308,7 @@ test('bootstrap catalog delegates profile-aware fast paths to the selected provi
 });
 
 test('concurrent creation coalesces one lazy startup for the selected provider', async () => {
-	const services = Object.fromEntries(['codex', 'gemini', 'claude'].map((provider) => [provider, new FakeService(provider)]));
+	const services = Object.fromEntries(['codex', 'claude'].map((provider) => [provider, new FakeService(provider)]));
 	let releaseStart;
 	let startCalls = 0;
 	services.codex.start = async () => {
@@ -375,7 +330,7 @@ test('concurrent creation coalesces one lazy startup for the selected provider',
 });
 
 test('a timed-out provider start is evicted so a later probe starts a fresh generation', async () => {
-	const services = Object.fromEntries(['codex', 'gemini', 'claude'].map((provider) => [provider, new FakeService(provider)]));
+	const services = Object.fromEntries(['codex', 'claude'].map((provider) => [provider, new FakeService(provider)]));
 	const releases = [];
 	let startCalls = 0;
 	services.codex.start = () => new Promise((resolve) => {
@@ -411,7 +366,7 @@ test('a timed-out provider start is evicted so a later probe starts a fresh gene
 });
 
 test('stop fences a start-delayed creation before the backend can create or assign it', async () => {
-	const services = Object.fromEntries(['codex', 'gemini', 'claude'].map((provider) => [provider, new FakeService(provider)]));
+	const services = Object.fromEntries(['codex', 'claude'].map((provider) => [provider, new FakeService(provider)]));
 	let releaseStart;
 	services.codex.start = () => new Promise((resolve) => { releaseStart = resolve; });
 	services.codex.stop = async () => {
@@ -429,7 +384,7 @@ test('stop fences a start-delayed creation before the backend can create or assi
 });
 
 test('stop performs final backend cleanup after an already-entered create settles', async () => {
-	const services = Object.fromEntries(['codex', 'gemini', 'claude'].map((provider) => [provider, new FakeService(provider)]));
+	const services = Object.fromEntries(['codex', 'claude'].map((provider) => [provider, new FakeService(provider)]));
 	let releaseCreate;
 	let stopCalls = 0;
 	services.codex.createAgent = async (value) => {
@@ -455,7 +410,7 @@ test('stop performs final backend cleanup after an already-entered create settle
 });
 
 test('an explicit empty-roster bootstrap initializes no provider', async () => {
-	const services = Object.fromEntries(['codex', 'gemini', 'claude'].map((provider) => [provider, new FakeService(provider)]));
+	const services = Object.fromEntries(['codex', 'claude'].map((provider) => [provider, new FakeService(provider)]));
 	const started = [];
 	for (const [provider, service] of Object.entries(services)) service.start = async () => { started.push(provider); };
 	const router = new ProviderService(services);
@@ -469,13 +424,13 @@ test('an explicit empty-roster bootstrap initializes no provider', async () => {
 });
 
 test('a hung provider is bounded while healthy provider reconciliation remains usable', async () => {
-	const services = Object.fromEntries(['codex', 'gemini', 'claude'].map((provider) => [provider, new FakeService(provider)]));
+	const services = Object.fromEntries(['codex', 'claude'].map((provider) => [provider, new FakeService(provider)]));
 	let releaseCodex;
 	services.codex.reconcile = async () => new Promise((resolve) => { releaseCodex = () => resolve({ valid: [], invalid: [], removed: [] }); });
 	const router = new ProviderService(services, { operationTimeoutMs: 5 });
 	const reconciling = router.reconcile([
 		profile('codex', { agentId: 'codex-a' }),
-		profile('gemini', { agentId: 'gemini-a' }),
+		profile('claude', { agentId: 'claude-a' }),
 	]);
 	try {
 		const outcome = await Promise.race([
@@ -483,7 +438,7 @@ test('a hung provider is bounded while healthy provider reconciliation remains u
 			new Promise((resolve) => setTimeout(() => resolve('still-pending'), 2_000)),
 		]);
 		assert.notEqual(outcome, 'still-pending', 'one hung provider cannot hold reconciliation forever');
-		assert.deepEqual(outcome.valid.map(({ agentId }) => agentId), ['gemini-a']);
+		assert.deepEqual(outcome.valid.map(({ agentId }) => agentId), ['claude-a']);
 		assert.deepEqual(outcome.invalid.map((entry) => entry.profile.agentId), ['codex-a']);
 		assert.equal(outcome.recovery.find(({ provider }) => provider === 'codex').state, 'degraded');
 	} finally {
@@ -494,27 +449,26 @@ test('a hung provider is bounded while healthy provider reconciliation remains u
 });
 
 test('provider catalog aggregation settles failures and promotes a restored provider live', async () => {
-	const services = Object.fromEntries(['codex', 'gemini', 'claude'].map((provider) => [provider, new FakeService(provider)]));
+	const services = Object.fromEntries(['codex', 'claude'].map((provider) => [provider, new FakeService(provider)]));
 	let codexAvailable = false;
 	services.codex.catalog.refresh = async () => {
 		if (!codexAvailable) throw Object.assign(new Error('Codex unavailable'), { code: 'PROVIDER_UNAVAILABLE' });
 		return { refreshedAtEpochMs: 2, models: [{ id: 'codex-model', model: 'codex-model', displayName: 'Codex', reasoningEfforts: ['high'], serviceTiers: ['priority'] }] };
 	};
-	services.gemini.catalog.refresh = async () => ({
+	services.claude.catalog.refresh = async () => ({
 		refreshedAtEpochMs: 1,
-		models: [{ id: 'gemini-model', model: 'gemini-model', displayName: 'Gemini', reasoningEfforts: ['high'], serviceTiers: [] }],
+		models: [{ id: 'claude-model', model: 'claude-model', displayName: 'Claude', reasoningEfforts: ['high'], serviceTiers: [] }],
 	});
-	services.claude.catalog.refresh = async () => ({ refreshedAtEpochMs: 1, models: [] });
 	const router = new ProviderService(services, { operationTimeoutMs: 10 });
 
-	const degraded = await router.catalog.refresh({ providers: ['codex', 'gemini'] });
-	assert.deepEqual(degraded.models.map(({ provider, id }) => [provider, id]), [['gemini', 'gemini-model']]);
+	const degraded = await router.catalog.refresh({ providers: ['codex', 'claude'] });
+	assert.deepEqual(degraded.models.map(({ provider, id }) => [provider, id]), [['claude', 'claude-model']]);
 	assert.equal(degraded.recovery.find(({ provider }) => provider === 'codex').state, 'degraded');
 
 	codexAvailable = true;
-	const restored = await router.catalog.refresh({ providers: ['codex', 'gemini'], force: true });
+	const restored = await router.catalog.refresh({ providers: ['codex', 'claude'], force: true });
 	assert.deepEqual(restored.models.map(({ provider, id }) => [provider, id]), [
-		['codex', 'codex-model'], ['gemini', 'gemini-model'],
+		['codex', 'codex-model'], ['claude', 'claude-model'],
 	]);
 	assert.equal(restored.recovery.find(({ provider }) => provider === 'codex').state, 'live');
 
@@ -522,9 +476,9 @@ test('provider catalog aggregation settles failures and promotes a restored prov
 		refreshedAtEpochMs: 3,
 		models: [{ id: 'codex-model', model: 'codex-model' }],
 	});
-	const retained = await router.catalog.refresh({ providers: ['codex', 'gemini'], force: true });
+	const retained = await router.catalog.refresh({ providers: ['codex', 'claude'], force: true });
 	assert.deepEqual(retained.models.map(({ provider, id }) => [provider, id]), [
-		['codex', 'codex-model'], ['gemini', 'gemini-model'],
+		['codex', 'codex-model'], ['claude', 'claude-model'],
 	]);
 	assert.equal(retained.source, 'last_valid');
 	assert.equal(retained.recovery.find(({ provider }) => provider === 'codex').state, 'degraded');
@@ -532,7 +486,7 @@ test('provider catalog aggregation settles failures and promotes a restored prov
 });
 
 test('builtin catalog discovery remains degraded with a bounded retry deadline', async () => {
-	const services = Object.fromEntries(['codex', 'gemini', 'claude'].map((provider) => [provider, new FakeService(provider)]));
+	const services = Object.fromEntries(['codex', 'claude'].map((provider) => [provider, new FakeService(provider)]));
 	services.codex.catalog.stale = true;
 	services.codex.catalog.refresh = async () => ({
 		refreshedAtEpochMs: 0,
@@ -555,7 +509,7 @@ test('builtin catalog discovery remains degraded with a bounded retry deadline',
 });
 
 test('an empty live catalog is degraded and cannot replace the retained valid catalog', async () => {
-	const services = Object.fromEntries(['codex', 'gemini', 'claude'].map((provider) => [provider, new FakeService(provider)]));
+	const services = Object.fromEntries(['codex', 'claude'].map((provider) => [provider, new FakeService(provider)]));
 	let empty = false;
 	services.codex.catalog.refresh = async () => ({
 		refreshedAtEpochMs: empty ? 2 : 1,
@@ -576,7 +530,7 @@ test('an empty live catalog is degraded and cannot replace the retained valid ca
 });
 
 test('a stale reconciliation cannot remove or overwrite sessions installed by its replacement', async () => {
-	const services = Object.fromEntries(['codex', 'gemini', 'claude'].map((provider) => [provider, new FakeService(provider)]));
+	const services = Object.fromEntries(['codex', 'claude'].map((provider) => [provider, new FakeService(provider)]));
 	let calls = 0;
 	let releaseFirst;
 	// Stateful backend: live sessions are physically deleted by removeAgent, unlike the shared history-only fake.
@@ -622,7 +576,7 @@ test('a stale reconciliation cannot remove or overwrite sessions installed by it
 });
 
 test('a stale successful reconciliation cannot mark a degraded provider restored', async () => {
-	const services = Object.fromEntries(['codex', 'gemini', 'claude'].map((provider) => [provider, new FakeService(provider)]));
+	const services = Object.fromEntries(['codex', 'claude'].map((provider) => [provider, new FakeService(provider)]));
 	services.codex.catalog.refresh = async () => ({
 		refreshedAtEpochMs: 1,
 		models: [{ id: 'codex-model', model: 'codex-model', displayName: 'Codex', reasoningEfforts: ['high'], serviceTiers: ['fast'] }],
@@ -654,7 +608,7 @@ test('a stale successful reconciliation cannot mark a degraded provider restored
 });
 
 test('failed desired-removal reconciliation retains hidden ownership until backend cleanup succeeds', async () => {
-	const services = Object.fromEntries(['codex', 'gemini', 'claude'].map((provider) => [provider, new FakeService(provider)]));
+	const services = Object.fromEntries(['codex', 'claude'].map((provider) => [provider, new FakeService(provider)]));
 	const backend = new Map();
 	let reconcileCalls = 0;
 	let failCleanup = true;
@@ -695,7 +649,7 @@ test('failed desired-removal reconciliation retains hidden ownership until backe
 });
 
 test('empty-roster reconciliation does not fence finalized absent-agent history', async () => {
-	const services = Object.fromEntries(['codex', 'gemini', 'claude'].map((provider) => [provider, new FakeService(provider)]));
+	const services = Object.fromEntries(['codex', 'claude'].map((provider) => [provider, new FakeService(provider)]));
 	services.codex.createAgent = async () => { throw Object.assign(new Error('create failed'), { code: 'PROVIDER_UNAVAILABLE' }); };
 	const router = new ProviderService(services);
 	for (let index = 0; index < 128; index += 1) {
@@ -723,7 +677,7 @@ test('empty-roster reconciliation does not fence finalized absent-agent history'
 });
 
 test('pruned mutation generations still fence a late timed-out create from the replacement session', async () => {
-	const services = Object.fromEntries(['codex', 'gemini', 'claude'].map((provider) => [provider, new FakeService(provider)]));
+	const services = Object.fromEntries(['codex', 'claude'].map((provider) => [provider, new FakeService(provider)]));
 	const backend = new Map();
 	let createCalls = 0;
 	let releaseFirst;
@@ -771,11 +725,23 @@ test('pruned mutation generations still fence a late timed-out create from the r
 });
 
 test('provider recovery status retains the exact failing boundary', async () => {
-	const services = Object.fromEntries(['codex', 'gemini', 'claude'].map((provider) => [provider, new FakeService(provider)]));
+	const services = Object.fromEntries(['codex', 'claude'].map((provider) => [provider, new FakeService(provider)]));
 	services.codex.createAgent = async () => { throw Object.assign(new Error('create failed'), { code: 'PROVIDER_UNAVAILABLE' }); };
 	const router = new ProviderService(services);
 	await assert.rejects(router.createAgent(profile('codex')));
 
 	assert.equal(router.recoverySnapshot()[0].boundary, 'create');
 	await router.stop();
+});
+
+
+test('the provider router accepts any registered adapter without requiring unrelated backends', async () => {
+	for (const provider of PROVIDER_IDS) {
+		const router = new ProviderService({ [provider]: new FakeService(provider) });
+		try {
+			assert.equal((await router.createAgent(profile(provider))).provider, provider);
+		} finally {
+			await router.stop();
+		}
+	}
 });

@@ -79,7 +79,7 @@ function createUsageCollector({ provider, model, serviceTier = 'default' }) {
 			if (stage !== 'live_usage') return;
 			let value;
 			try { value = JSON.parse(message); } catch { return; }
-			if (provider === 'claude' || provider === 'opencode') {
+			if (provider === 'claude') {
 				const id = value?.call?.modelCallId;
 				if (typeof id !== 'string' || value.last === undefined) return;
 				calls.set(id, {
@@ -92,7 +92,7 @@ function createUsageCollector({ provider, model, serviceTier = 'default' }) {
 			}
 		},
 		summary(providerCostUsd = null) {
-			if (provider === 'claude' || provider === 'opencode') {
+			if (provider === 'claude') {
 				const rows = [...calls.values()];
 				const sum = (key) => rows.reduce((acc, row) => acc + row[key], 0);
 				const usage = { input: sum('input'), cacheRead: sum('cacheRead'), cacheWrite: sum('cacheWrite'), output: sum('output') };
@@ -171,70 +171,11 @@ export function createClaudeAdapter({ model = DEFAULT_PLAY_PROFILE.model, effort
 			await agent.setGoalRevision(GOAL_REVISION);
 			return { agent, close: () => service.stop() };
 		},
-		/** The first user message Claude Code received: the encoded wake. */
 		sentInput(lines) {
 			for (const line of lines) {
 				let value;
 				try { value = JSON.parse(line); } catch { continue; }
 				if (value?.type === 'user' && typeof value.message?.content === 'string') return value.message.content;
-			}
-			return null;
-		},
-	};
-}
-
-/**
- * OpenCode through OpenCodeProviderService, as the coordinator launches it, with the same taps as Claude: raw MCP calls,
- * the prompt text sent to the session, and the agent prompt. Each sample's agent writes its own config and gets its own
- * OpenCode instance and session; the instances share a few long-lived server processes (opencode-pool.mjs) unless
- * `pooled` is false, which starts one server process per sample as the coordinator does.
- */
-export function createOpenCodeAdapter({ model, effort = 'low', root, planningTimeoutMs = 120_000, viewSession = EVAL_VIEW_SESSION, pooled = true } = {}) {
-	const toolServer = new ClaudeToolServer();
-	let workspace = null;
-	let prepared = null;
-	let pool = null;
-	const minecraftWorkspace = { prepare: () => (prepared ??= workspace.prepare()) };
-	return {
-		provider: 'opencode', model, effort, prewarm: true, viewSession, pooled,
-		async start() {
-			await mkdir(root, { recursive: true });
-			workspace = await evalMinecraftWorkspace(path.join(root, 'minecraft-agent'));
-			if (pooled) {
-				const { OpenCodeServerPool } = await import('./opencode-pool.mjs');
-				pool = new OpenCodeServerPool();
-			}
-		},
-		async stop() { await pool?.stop(); await toolServer.stop(); },
-		poolStats() { return pool === null ? null : { ...pool.stats }; },
-		async open({ sampleId, recoverySummary, tap }) {
-			const routedServer = {
-				register: (options) => toolServer.register({ ...options, callTool: async (name, args, meta) => {
-					const call = tap.raw(name, args, null);
-					const content = await options.callTool(name, args, meta);
-					tap.responded(call, content);
-					return content;
-				} }),
-				stop: async () => {},
-			};
-			// Loaded only for OpenCode players, so the harness still runs on builds from before the OpenCode provider.
-			const { OpenCodeProviderService, httpJsonRequest } = await import('../opencode-service.mjs');
-			const service = new OpenCodeProviderService({ models: [model], reasoningEfforts: [effort], planningTimeoutMs }, {
-				minecraftWorkspace, toolServer: routedServer, observationViewSession: viewSession,
-				...(pool === null ? {} : pool.playerDependencies({ request: httpJsonRequest })),
-				onPromptSent: (text) => tap.stdin(JSON.stringify({ type: 'user', text })),
-				onSystemPrompt: (text) => tap.instructions(text),
-			});
-			const agent = await service.createAgent({ agentId: sampleId, provider: 'opencode', model, reasoningEffort: effort, serviceTier: 'priority' }, { recoverySummary, controlProtocol: 'native_tools' });
-			await agent.setGoalRevision(GOAL_REVISION);
-			return { agent, close: () => service.stop() };
-		},
-		/** The first prompt OpenCode received: the encoded wake. */
-		sentInput(lines) {
-			for (const line of lines) {
-				let value;
-				try { value = JSON.parse(line); } catch { continue; }
-				if (value?.type === 'user' && typeof value.text === 'string') return value.text;
 			}
 			return null;
 		},
@@ -357,7 +298,6 @@ export async function runSample(adapter, { testCase, rendered, sample, sampleId,
 	};
 	const executeTool = async (request) => {
 		// Claude: the MCP tap recorded this call under its tool-use id (or, without one, as the newest unclaimed call).
-		// OpenCode names its call id only after the MCP request, so its raw call is the newest unclaimed one.
 		const unclaimed = () => calls.findLast((entry) => entry.normalized === null && entry.normalizeError === null);
 		let call = request.callId == null ? unclaimed() : byToolUse.get(request.callId) ?? unclaimed();
 		if (call === undefined) {
@@ -494,8 +434,7 @@ export function defaultRunRoot() { return path.join(os.tmpdir(), 'arena-decision
 export async function providerRuntime(provider, { executable, model = 'gpt-6.1-sol', effort = 'low', exec = execFileAsync, resolve = provider === 'claude' ? resolveClaudeLaunch : resolveCodexLaunchAsync } = {}) {
 	let launch;
 	try {
-		if (provider === 'opencode') launch = { command: executable ?? 'opencode', args: [], environment: process.env };
-		else if (provider === 'claude') launch = resolve({ ...(executable === undefined ? {} : { executable }) });
+		if (provider === 'claude') launch = resolve({ ...(executable === undefined ? {} : { executable }) });
 		else {
 			// The Codex launch carries the app-server arguments; only the CLI itself is asked for its version.
 			const config = { model, reasoningEffort: effort, serviceTier: 'default' };

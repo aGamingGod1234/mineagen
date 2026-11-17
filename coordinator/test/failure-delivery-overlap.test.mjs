@@ -142,11 +142,9 @@ test('a delivered failure steers once while quiet entity motion keeps it retaine
     assert.match(steers[0].input, /REACHED_FRONTIER/);
     for (let sequence = 3; sequence <= 22; sequence++) { observe(sequence, { lastResult: failed('action9') }); await settle(); }
     assert.equal(steers.length, 1, `twenty quiet snapshots retaining the delivered failure add no steers (saw ${steers.length - 1} extra; 20 before the fix)`);
-    // A different failed action is new information and still steers.
     observe(23, { lastResult: failed('action10') });
     await eventually(() => steers.length === 2);
     assert.match(steers[1].input, /FRONTIER_action10|REACHED_FRONTIER/);
-    // Genuine damage still steers with urgent priority.
     observe(24, { lastResult: failed('action10'), health: 14 });
     await eventually(() => steers.length === 3);
     assert.equal(rows.filter(row => row.event === 'native_event_ready' && row.mode === 'steer').at(-1).priority, 'urgent');

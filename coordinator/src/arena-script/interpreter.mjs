@@ -1040,7 +1040,7 @@ export class ArenaScriptInterpreter {
 
 const EXACT_TARGET_CALLS = Object.freeze({
 	'player.attack': [ACTION_FIELDS.attack, ['targetId', 'timeoutMs']],
-	'player.useRanged': [ACTION_FIELDS.use_ranged, ['targetId', 'drawDurationMs']], // timeoutMs: schema.mjs (optional with untilDead)
+	'player.useRanged': [ACTION_FIELDS.use_ranged, ['targetId', 'drawDurationMs']],
 	'player.fightTarget': [ACTION_FIELDS.fight_target, ['targetId', 'timeoutMs']],
 	'player.fleeFrom': [ACTION_FIELDS.flee_from, ['targetId', 'distance', 'timeoutMs']],
 });

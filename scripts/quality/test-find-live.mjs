@@ -47,7 +47,7 @@ const results = [];
 // Each spot gets its own server and world; the next one boots while this one plays, from the seed's cached world.
 const cases = [...spots.entries()].filter(([, spot]) => !only || only.has(spot.name));
 for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(cases, ([index, spot]) => ({ dir: path.join(out, `spot-${index}`),
-	options: { jar: path.resolve(jarArg ?? path.join(root, 'build/libs/arena-agents-0.2.0.jar')), template, port, world: null, seed: String(spot.seed), spawnMonsters: spot.monsters !== false, worldCache: true } }))) {
+	options: { jar: path.resolve(jarArg ?? path.join(root, 'build/libs/mineagen-0.2.0.jar')), template, port, world: null, seed: String(spot.seed), spawnMonsters: spot.monsters !== false, worldCache: true } }))) {
 	// A spot whose server failed to boot (ahead and again on demand) is recorded as invalid evidence below.
 	const s = server;
 	const pos = async () => String(await s.command(`data get entity ${AGENT} Pos`)).match(/\[\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?\]/)?.slice(1).map(Number) ?? null;
@@ -131,12 +131,11 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 			s.bridge.send('action_result_ack', record.agentId, { goalRevision: record.goalRevision, actionId: ev.payload.actionId }).catch(() => {});
 		});
 		await s.observe();
-		// The runtime re-sends its reflex book (the twelve defaults) when a sample shows the mod lacks it.
+		// The runtime resends its reflex rules when the mod reports they are missing.
 		for (let wait = 0; wait < 20 && !((await s.observe()).reflexes?.rules?.length >= 12); wait++) await sleep(500);
 		const reflexSample = (await s.observe()).reflexes;
 		row.reflexes = reflexSample?.rules?.length ?? 0;
 		console.log(`[${spot.name}] reflexes armed: ${row.reflexes} (${(reflexSample?.rules ?? []).map(rule => rule.id).join(',')}); sends ${JSON.stringify(row.reflexSends ?? [])}`);
-		// The fixture: built round the body's block at spawn, then the delayed commands.
 		if (Array.isArray(spot.setup)) {
 			const at = (await pos()).map(Math.floor), base = { x: at[0], y: at[1], z: at[2] };
 			for (const text of spot.setup) {
@@ -146,7 +145,6 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 			await sleep(spot.after?.ms ?? 1500);
 			for (const text of spot.after?.commands ?? []) await s.command(atBody(text, base));
 			row.fixtureAt = base;
-			// probe: commands whose replies are kept (where the fixture's mobs stand before the calls).
 			row.probe = [];
 			for (const text of spot.probe ?? []) row.probe.push(String(await s.command(atBody(text, base))).slice(0, 200));
 			if (row.probe.length) console.log(`[${spot.name}] probe ${row.probe.join(' | ')}`);

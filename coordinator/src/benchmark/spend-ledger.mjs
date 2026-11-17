@@ -161,7 +161,6 @@ export class SpendLedger {
 		});
 	}
 	async totals() { return this.#update(entries => totalsOf(entries), false); }
-	/** The largest amount a new reservation could take right now. */
 	async available() { const t = await this.totals(); return Math.max(0, this.capUsd - t.committedUsd - t.reservedUsd); }
 	async #update(change, write = true) {
 		if (!this.#file) { this.#applySeed(this.#entries); this.#seed = null; return change(this.#entries); }

@@ -38,7 +38,6 @@ test('situation names armour, tool and weapon tiers from item ids, worn versus c
 		item('minecraft:bow', 4), item('minecraft:wooden_sword', 5)] });
 	// One entry per weapon kind, the highest material of that kind, in a fixed kind order: no ranking across kinds.
 	assert.equal(situationFacts(mixed), 'overworld; armor worn 2/4 diamond+iron, carried 1 leather; weapon iron sword, diamond axe, bow; pickaxe diamond; food none');
-	// Kinds of one material share it.
 	assert.match(situationFacts(observation({ items: [item('minecraft:diamond_sword', 0), item('minecraft:iron_spear', 1), item('minecraft:diamond_axe', 2)] })), /; weapon diamond sword\+axe, iron spear;/);
 	assert.match(situationFacts(observation({ items: [item('minecraft:netherite_leggings', 'legs')] })), /armor worn 1\/4 netherite;/);
 	assert.match(situationFacts(observation({ items: [item('minecraft:netherite_sword', 0), item('minecraft:mace', 1), item('minecraft:bow', 2), item('minecraft:crossbow', 3)] })),
@@ -96,7 +95,6 @@ test('situation leaves local time to HUD inspection and names skyless dimensions
 });
 
 test('the sky fact rides the player section on its own, so a roof never changes the situation line', () => {
-	// The adapter accepts the boolean and rejects anything else.
 	assert.equal(adaptObservation(wireOf({ player: { skyOpen: false } })).player.skyOpen, false);
 	assert.throws(() => adaptObservation(wireOf({ player: { skyOpen: 1 } })));
 	assert.equal(situationFacts(observation({ player: { skyOpen: true } })), situationFacts(observation({ player: { skyOpen: false } })));
@@ -119,7 +117,6 @@ test('situation keeps every fact for a complete kit within 350 bytes and is byte
 	assert.ok(Buffer.byteLength(line) <= 350, `${Buffer.byteLength(line)} bytes: ${line}`);
 	for (const fact of ['netherite sword+axe+spear', 'mace', 'trident', 'crossbow', 'elytra carried', 'carried 2 golden', ...RISKY]) assert.ok(line.includes(fact), fact);
 	assert.equal(situationFacts(structuredClone(kit)), line);
-	// Inventory order does not change the line.
 	assert.equal(situationFacts({ ...kit, inventory: { ...kit.inventory, items: [...kit.inventory.items].reverse() } }), line);
 });
 
@@ -168,7 +165,6 @@ function nightRoofWire(index) {
 	return { ...wire, player: { ...wire.player, skyOpen: index % 2 === 0 }, world: { ...wire.world, gameTime: 14_000 + index * 220, dayTime: 14_000 + index * 220 } };
 }
 
-/** The night roof route carrying the complete kit. */
 function fullKitWire(index) {
 	const wire = nightRoofWire(index);
 	return { ...wire, world: { ...wire.world, biome: 'minecraft:old_growth_spruce_taiga' },
@@ -230,6 +226,10 @@ async function mainEventBuilder() {
 	try { source = execFileSync('git', ['show', `${BASE_COMMIT}:coordinator/src/dynamic-main.mjs`], { cwd: SOURCE_DIRECTORY, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] }); }
 	catch { return null; }
 	const file = path.join(SOURCE_DIRECTORY, `.situation-base-${process.pid}.mjs`);
+	// This comparison calls only the historical event builder, never its provider factory.
+	// Drop retired adapter/generator imports; the measured historical event builder is unchanged.
+	source = source.replace(/^import \{ AntigravityProviderService \} from '\.\/antigravity-service\.mjs';\r?\n/m, '');
+	source = source.replace(/^import \{ generateDirectorScript \} from '\.\/director-script-generator\.mjs';\r?\n/m, '');
 	fs.writeFileSync(file, source);
 	try { return (await import(pathToFileURL(file).href)).buildNativeEventInput; } finally { fs.rmSync(file, { force: true }); }
 }

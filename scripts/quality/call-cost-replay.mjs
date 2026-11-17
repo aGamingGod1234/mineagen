@@ -52,14 +52,12 @@ async function* jsonl(file, filter) {
 	}
 }
 
-/** Recorded UTF-8 length of a captured text, adding the bytes the capture truncated. */
 function recordedBytes(text) {
 	if (typeof text !== 'string') return 0;
 	const match = /\.\.\.\[truncated (\d+) bytes\]$/.exec(text);
 	return match === null ? bytes(text) : bytes(text) - bytes(match[0]) + Number(match[1]) + 3;
 }
 
-/** Ordered thread items: events (turn input, steer), tool results and model calls with usage. */
 async function readTurns(dir) {
 	const items = [], calls = [];
 	const names = new Map();
@@ -84,7 +82,6 @@ async function readTurns(dir) {
 	return { items, calls };
 }
 
-/** The newest raw server observation recorded at or before each wanted time. */
 async function observationsAt(dir, times) {
 	const file = ['quality-protocol.jsonl', 'protocol.jsonl'].map(name => path.join(dir, name)).find(existsSync);
 	if (file === undefined) return new Map();
@@ -117,7 +114,6 @@ async function loadCheckout(root) {
 	return { root, presentNativeToolResult, ModelObservationViews, encodeModelFacts };
 }
 
-/** Presents every replayable item through one checkout; returns the text per item index. */
 function replay(checkout, items, observations) {
 	const texts = new Map();
 	let views = null, thread = null, sequence = 0;

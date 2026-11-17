@@ -649,7 +649,6 @@ ${encoded}`);
 		return delivered;
 	}
 
-	/** One-shot structured decision used for goal translation and ArenaScript planning. */
 	async decide(input, {
 		goalRevision, signal, turnRecorder = null, attempt = 1, retry = false, queueWaitMs, onVerbose = null,
 		outputSchema = PLANNER_OUTPUT_SCHEMA, parseOutput = parseDecision, systemPrompt,

@@ -203,7 +203,7 @@ export async function runComprehensionComparison({
 			} catch (error) { failure = error.code ?? error.name; }
 			finally { clearTimeout(timer); controller = null; }
 			let factsMatch = false;
-			try { assert.deepEqual(answers, [scenario.expected]); factsMatch = true; } catch { /* Report a factual failure without another model attempt. */ }
+			try { assert.deepEqual(answers, [scenario.expected]); factsMatch = true; } catch {}
 			const nativeCallsValid = calls.filter(name => name === 'observe').length === 1 && calls.filter(name => name === 'say').length === 1
 				&& calls.every(name => ['observe', 'say', 'capabilities'].includes(name));
 			const row = { scenario: scenario.name, arm, status: result && factsMatch && nativeCallsValid ? 'PASSED' : 'FAILED',

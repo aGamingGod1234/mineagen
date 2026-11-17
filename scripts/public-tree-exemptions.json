@@ -7,24 +7,17 @@
     "reason": "Operating-system folder/file or GUI terminology, not a named machine."
   },
   {
-    "file": "runtime/README.md",
-    "line": 39,
-    "rule": "device-word context",
-    "sha256": "eea5f8ce35d7cad450a5be515c83f605ed2e34014419c4e3328486734fa7a6c7",
-    "reason": "Operating-system folder/file or GUI terminology, not a named machine."
-  },
-  {
     "file": "scripts/check-public-tree.mjs",
-    "line": 20,
+    "line": 27,
     "rule": "personal name",
     "sha256": "9124ab82197767e191698fe0b71ec6e2e738aadbdcf17ca7e495da9660c01d06",
     "reason": "Scanner signature or assembled negative fixture, not a person or host reference."
   },
   {
     "file": "scripts/check-public-tree.mjs",
-    "line": 44,
+    "line": 59,
     "rule": "device-word context",
-    "sha256": "2519d0d11a3a1befeab50a13b36dc93212ace7061576c9608e6a82f5f87e476d",
+    "sha256": "ba8cdb72e8b86dfd13988cd7658b986f119c2914649db12f35d6d20fdceca7d9",
     "reason": "Scanner signature or assembled negative fixture, not a person or host reference."
   },
   {
@@ -70,21 +63,21 @@
     "reason": "Scanner signature or assembled negative fixture, not a person or host reference."
   },
   {
-    "file": "src/client/java/dev/agaminggod/arenaagents/client/gui/AgentControlScreen.java",
-    "line": 1238,
+    "file": "src/client/java/dev/agaminggod/mineagen/client/gui/AgentControlScreen.java",
+    "line": 805,
     "rule": "device-word context",
-    "sha256": "0e0c30e7864c534bcbc55cc988e1d5e5aa0fb864755b6ec55bf5feefa62f6560",
+    "sha256": "ff9e5b07270d08a6847cc153bb72cb1452fb0feff29b9478529c949ed7ea1d02",
     "reason": "Operating-system folder/file or GUI terminology, not a named machine."
   },
   {
-    "file": "src/client/java/dev/agaminggod/arenaagents/client/gui/AgentControlScreen.java",
-    "line": 1247,
+    "file": "src/client/java/dev/agaminggod/mineagen/client/gui/AgentControlScreen.java",
+    "line": 814,
     "rule": "device-word context",
-    "sha256": "37046c03926eb7bf57d4dc059c8fe0ddfe251a890235931ac72a2e4e2d3f80ba",
+    "sha256": "ea160865ac233fcbfe62221729362dfb2960f1814c644883b152711b22b35941",
     "reason": "Operating-system folder/file or GUI terminology, not a named machine."
   },
   {
-    "file": "src/test/java/dev/agaminggod/arenaagents/control/ClientAwtInitializationVerification.java",
+    "file": "src/test/java/dev/agaminggod/mineagen/control/ClientAwtInitializationVerification.java",
     "line": 23,
     "rule": "device-word context",
     "sha256": "5937856e6bdd2d9a28a19c987abfefe57883d802e1a70598598719745a98e1fa",
@@ -96,64 +89,136 @@
     "reason": "Reviewed executable contract table, not recordings or a dump."
   },
   {
-    "file": "maps/registries/minecraft-26.3-block-states.json",
-    "rule": "file exceeds 2 MB",
-    "reason": "Pinned generated Minecraft block-state catalog required by map validation, not gameplay recordings."
-  },
-  {
-    "file": "src/test/java/dev/agaminggod/arenaagents/client/control/UsageCardsRenderVerification.java",
+    "file": "src/test/java/dev/agaminggod/mineagen/client/control/UsageCardsRenderVerification.java",
     "line": 23,
     "rule": "recorded usage",
     "sha256": "b158247eec23658a648e02a16b605d6d818a21dac8fbc9bf811b82f5c30fd305",
     "reason": "Authored test inputs: replaced ambiguous captured totals/costs with invented values; 93 assertions and headless rendering pass. No account observation."
   },
   {
-    "file": "src/test/java/dev/agaminggod/arenaagents/client/control/UsageCardsRenderVerification.java",
+    "file": "src/test/java/dev/agaminggod/mineagen/client/control/UsageCardsRenderVerification.java",
     "line": 24,
     "rule": "recorded usage",
     "sha256": "fe8a8c866f8fe0743aaf37e49e7c864f6b9ad18bf525666bd5983d2be5e71d31",
     "reason": "Authored test inputs: replaced ambiguous captured totals/costs with invented values; 93 assertions and headless rendering pass. No account observation."
   },
   {
-    "file": "src/test/java/dev/agaminggod/arenaagents/client/control/UsageCardsRenderVerification.java",
+    "file": "src/test/java/dev/agaminggod/mineagen/client/control/UsageCardsRenderVerification.java",
     "line": 38,
     "rule": "recorded usage",
     "sha256": "a0ce58fa12ede5e373fa07994028a73049403ce7e07b8356f18030e15ea37bdc",
     "reason": "Authored test inputs: replaced ambiguous captured totals/costs with invented values; 93 assertions and headless rendering pass. No account observation."
   },
   {
-    "file": "src/test/java/dev/agaminggod/arenaagents/client/control/UsageCardsRenderVerification.java",
+    "file": "src/test/java/dev/agaminggod/mineagen/client/control/UsageCardsRenderVerification.java",
     "line": 39,
     "rule": "recorded usage",
     "sha256": "e36921997401a6dda8287422ab6d09d340dcb1cbfc5e8e53d2a03b35de701962",
     "reason": "Authored test inputs: replaced ambiguous captured totals/costs with invented values; 93 assertions and headless rendering pass. No account observation."
   },
   {
-    "file": "src/test/java/dev/agaminggod/arenaagents/control/LiveTaskUsageVerification.java",
+    "file": "src/test/java/dev/agaminggod/mineagen/control/LiveTaskUsageVerification.java",
     "line": 16,
     "rule": "recorded usage",
     "sha256": "3f24a82b6abdbe0715c14cdfb29eda2d4cab615845fe02bff86cabebfff923ef",
     "reason": "Authored test inputs: replaced ambiguous captured totals/costs with invented values; 93 assertions and headless rendering pass. No account observation."
   },
   {
-    "file": "src/test/java/dev/agaminggod/arenaagents/control/LiveTaskViewVerification.java",
+    "file": "src/test/java/dev/agaminggod/mineagen/control/LiveTaskViewVerification.java",
     "line": 34,
     "rule": "recorded usage",
     "sha256": "6532d727d268702884a0fc9d83d58fa1d71050d1fa03e3b2183a08dbf426ba4e",
     "reason": "Authored test inputs: replaced ambiguous captured totals/costs with invented values; 93 assertions and headless rendering pass. No account observation."
   },
   {
-    "file": "src/test/java/dev/agaminggod/arenaagents/control/LiveTaskViewVerification.java",
+    "file": "src/test/java/dev/agaminggod/mineagen/control/LiveTaskViewVerification.java",
     "line": 35,
     "rule": "recorded usage",
     "sha256": "ee63629381c65418d0c4db259cd61abe5bd1b537b2d06a5b6276df1f158c86db",
     "reason": "Authored test inputs: replaced ambiguous captured totals/costs with invented values; 93 assertions and headless rendering pass. No account observation."
   },
   {
-    "file": "src/test/java/dev/agaminggod/arenaagents/control/LiveTaskWindowRenderVerification.java",
+    "file": "src/test/java/dev/agaminggod/mineagen/control/LiveTaskWindowRenderVerification.java",
     "line": 41,
     "rule": "recorded usage",
     "sha256": "3fe77880c3d68e38292d42673ee9c1d45595c4b171cdd61e6e673b57b3042fa4",
     "reason": "Authored test inputs: replaced ambiguous captured totals/costs with invented values; 93 assertions and headless rendering pass. No account observation."
+  },
+  {
+    "file": "coordinator/test/benchmark-recorder.test.mjs",
+    "line": 89,
+    "rule": "credential",
+    "sha256": "f67d4a893aa6cbb81ac4429f8d2923ef00d5d833f0b41339d0166dcbc5d023d7",
+    "reason": "Invented key shape in a redaction, sanitizer or environment test; not a real credential."
+  },
+  {
+    "file": "coordinator/test/benchmark-recorder.test.mjs",
+    "line": 90,
+    "rule": "credential",
+    "sha256": "eb9ba7e6ae07fc01aaee3f176a2d5125cf9c909218f5d877bbf8a10b4c2c7fb9",
+    "reason": "Invented key shape in a redaction, sanitizer or environment test; not a real credential."
+  },
+  {
+    "file": "coordinator/test/benchmark-recorder.test.mjs",
+    "line": 102,
+    "rule": "credential",
+    "sha256": "b85cb6f69a7dd08b21c558974889be01fe8258c2145b61f89c2beecd041505f0",
+    "reason": "Invented key shape in a redaction, sanitizer or environment test; not a real credential."
+  },
+  {
+    "file": "coordinator/test/benchmark-recorder.test.mjs",
+    "line": 103,
+    "rule": "credential",
+    "sha256": "eb8984c854e5c7a9ff5e52a6afacbb738f22cf74df34cc6c21c45ced96067e4a",
+    "reason": "Invented key shape in a redaction, sanitizer or environment test; not a real credential."
+  },
+  {
+    "file": "coordinator/test/control-latency-registry.test.mjs",
+    "line": 120,
+    "rule": "credential",
+    "sha256": "2c9291c68a47d35a630e2fd57c141ae00789d90afb294b6b8b31d16d33a6e862",
+    "reason": "Invented key shape in a redaction, sanitizer or environment test; not a real credential."
+  },
+  {
+    "file": "coordinator/test/diagnostic-sanitizer.test.mjs",
+    "line": 41,
+    "rule": "credential",
+    "sha256": "c9fffa32afb664aa82d4bc26c5bfae814f6a64a8fa6f5c760c664b25f0e636f8",
+    "reason": "Invented key shape in a redaction, sanitizer or environment test; not a real credential."
+  },
+  {
+    "file": "coordinator/test/dynamic-main.test.mjs",
+    "line": 634,
+    "rule": "credential",
+    "sha256": "006b5a391d895135c57c2d7deedc564fda178f7449a7f0f9a53ab84f20d4b83d",
+    "reason": "Invented key shape in a redaction, sanitizer or environment test; not a real credential."
+  },
+  {
+    "file": "coordinator/test/owned-process-job.test.mjs",
+    "line": 210,
+    "rule": "credential",
+    "sha256": "210770f82d5ec38cb1fdfbf34c07edabf1bd5dfc5a2bd78acbaf14443e3d964f",
+    "reason": "Invented key shape in a redaction, sanitizer or environment test; not a real credential."
+  },
+  {
+    "file": "src/test/java/dev/agaminggod/mineagen/server/AgentControlSyncVerification.java",
+    "line": 82,
+    "rule": "credential",
+    "sha256": "56a26178cc89261a44b3190253d73b90c41db7bfdec883fb88edefaa5ae54d69",
+    "reason": "Invented key shape in a redaction, sanitizer or environment test; not a real credential."
+  },
+  {
+    "file": "src/test/java/dev/agaminggod/mineagen/server/AgentControlSyncVerification.java",
+    "line": 83,
+    "rule": "credential",
+    "sha256": "7561dc4ce0a5d0dea6fce3c4ab3d2b71e462a833660885770aa48f7099d31482",
+    "reason": "Invented key shape in a redaction, sanitizer or environment test; not a real credential."
+  },
+  {
+    "file": "src/test/java/dev/agaminggod/mineagen/server/AgentControlSyncVerification.java",
+    "line": 104,
+    "rule": "credential",
+    "sha256": "15bcd2e7172aa532ecbd0ba103ba29e6ef0860b2134a1245be6c5d69d1a82e7f",
+    "reason": "Invented key shape in a redaction, sanitizer or environment test; not a real credential."
   }
 ]

@@ -1,5 +1,5 @@
 {
-	"name": "arena-agents-coordinator",
+	"name": "mineagen-coordinator",
 	"private": true,
 	"type": "module",
 	"engines": {

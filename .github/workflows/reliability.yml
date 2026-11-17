@@ -2,9 +2,10 @@ name: Reliability
 
 on:
   pull_request:
-    # Drafts run only the Linux coordinator job; marking one ready adds the Boat and Windows jobs.
+    # Drafts skip every job here; marking one ready runs the mod build and Windows jobs. Coordinator (Linux) is in coordinator.yml.
     types: [opened, synchronize, reopened, ready_for_review]
     # Changes only to docs, eval records or ops notes test nothing. Windows minutes bill at twice the Linux rate.
+    # coordinator.yml's Detect code changes step uses the same paths; keep them in step.
     paths-ignore: ['docs/**', 'evals/**', 'ops/**', 'README.md']
   push:
     branches: [main]
@@ -13,68 +14,11 @@ on:
 permissions:
   contents: read
 
-# Concurrency is per job, not per workflow: a draft run must not cancel the Boat jobs of a ready run.
+# Concurrency is per job, not per workflow: a draft run must not cancel the mod build jobs of a ready run.
 # A newer push to the same pull request cancels the older run of the same job; main pushes always finish.
 
 jobs:
-  # Runner labels can be configured per repository; drafts run this job too.
-  coordinator-linux:
-    name: Coordinator (Linux)
-    runs-on: ${{ fromJSON(vars.COORDINATOR_RUNS_ON || '["ubuntu-latest"]') }}
-    # The gameplay stake writes one sticky PR comment and a gameplay-stake commit status.
-    permissions:
-      contents: read
-      pull-requests: write
-      statuses: write
-    # One runner serves every pull request, so a hung test must not hold it for the 6 hour default.
-    timeout-minutes: 30
-    concurrency:
-      group: ${{ github.workflow }}-coordinator-linux-${{ github.event.pull_request.number || github.sha }}
-      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-    steps:
-      - uses: actions/checkout@v4
-      # No Actions cache here: the runner keeps ~/.npm and ~/.gradle between jobs, and saving the cache took 2m41s per run.
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      # Match the explicit Python runtime used by Windows packaging tests.
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
-      - name: Install locked coordinator dependencies
-        working-directory: coordinator
-        run: npm ci --ignore-scripts --omit=dev
-      # Evaluates the checked-out merge and publishes to the PR head SHA from the event. continue-on-error keeps a
-      # stake failure or crash from skipping the tests below; the gameplay-stake status carries its result. The stake
-      # takes under 2 s, so a 5-minute limit stops a hang from using up the job's 30 minutes before the tests run.
-      - name: Gameplay stake headlines and sticky PR comment
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-        continue-on-error: true
-        timeout-minutes: 5
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: node scripts/quality/stake-ci.mjs --post-status
-      - name: Check model-facing contracts
-        working-directory: coordinator
-        run: npm run test:contracts
-      # The whole suite, as boat-ci ran it. It covers every file the portable, process-group and reviewed-regression
-      # steps listed before; Windows-only tests skip themselves on Linux. The slowest test takes about 40 s here, so a
-      # 2-minute limit per test fails a hung test quickly instead of holding the only runner for the job's 30 minutes.
-      - name: Test coordinator (full suite)
-        working-directory: coordinator
-        run: npm test -- --test-timeout=120000
-
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '25'
-      # Idempotent: a tree that already carries the default-target JARs in libs/ only re-verifies their checksums.
-      - name: Fetch third-party mod JARs
-        run: ./scripts/fetch-libs.sh
-      - name: Test Java POSIX coordinator ownership
-        run: ./gradlew verifyCore --no-daemon --console=plain
-
-  # Off until GitHub billing is fixed or Windows moves to another provider: set the repository variable WINDOWS_CI to "on".
+  # Off unless the repository variable WINDOWS_CI is "on".
   coordinator-windows:
     name: Coordinator (Windows)
     if: vars.WINDOWS_CI == 'on' && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
@@ -104,10 +48,11 @@ jobs:
 
   java-targets:
     name: Mod on Minecraft ${{ matrix.mc }}
-    # Each leg takes one Boat VM start (200 a day), so drafts skip it. No path filter: the JAR embeds the coordinator and
-    # the 26.3 leg runs the script tests.
+    # Drafts skip it. No path filter: the JAR embeds the coordinator and the 26.3 leg runs the script tests.
+    # Boat is a rented VM runner that takes only the owner's runs. In the public repository a pull request from a fork
+    # runs this job on GitHub's runner instead.
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
-    runs-on: boat
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'boat' || 'ubuntu-latest' }}
     # The draft state is part of the group, so a draft run's skipped leg cannot cancel a ready run's leg.
     concurrency:
       group: ${{ github.workflow }}-mod-${{ matrix.mc }}-${{ github.event.pull_request.number || github.sha }}-${{ github.event.pull_request.draft }}
@@ -150,9 +95,9 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
-          name: arena-agents-mc${{ matrix.mc }}
+          name: mineagen-mc${{ matrix.mc }}
           path: |
-            build/libs/arena-agents-*.jar
+            build/libs/mineagen-*.jar
             !build/libs/*-sources.jar
             voice-addon/build/libs/*.jar
             !voice-addon/build/libs/*-sources.jar
@@ -188,7 +133,7 @@ jobs:
         run: |
           $properties = ConvertFrom-StringData (Get-Content -LiteralPath .\gradle.properties -Raw)
           "MOD_VERSION=$($properties.mod_version)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "DISTRIBUTION_NAME=arena-agents-modpack-$($properties.mod_version)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "DISTRIBUTION_NAME=mineagen-modpack-$($properties.mod_version)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Assemble pinned standalone Node runtime
         shell: powershell
         run: |
@@ -207,20 +152,16 @@ jobs:
           if ($env:GITHUB_EVENT_NAME -eq 'push') { $tasks = @('clean', 'check', 'build', 'packageWindowsDistribution') }
           .\gradlew.bat @tasks --no-daemon --console=plain
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python -m unittest scripts.maps.tests.test_map_tools
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python .\scripts\maps\verify_map_modules.py
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $builtMod = ".\build\libs\arena-agents-$env:MOD_VERSION.jar"
+          $builtMod = ".\build\libs\mineagen-$env:MOD_VERSION.jar"
           $archive = ".\build\distributions\$env:DISTRIBUTION_NAME.zip"
           .\scripts\verify-coordinator-packaging.ps1 -JarPath $builtMod
           .\scripts\verify-distribution-runtime.ps1
           .\scripts\test-install-normal-profile-update.ps1 -ProjectRoot .
-          $unpacked = Join-Path $env:RUNNER_TEMP 'arena-agents-standalone'
+          $unpacked = Join-Path $env:RUNNER_TEMP 'mineagen-standalone'
           Expand-Archive -LiteralPath $archive -DestinationPath $unpacked
-          $packagedMod = Join-Path $unpacked "mods\arena-agents-$env:MOD_VERSION.jar"
+          $packagedMod = Join-Path $unpacked "mods\mineagen-$env:MOD_VERSION.jar"
           if ((Get-FileHash -LiteralPath $packagedMod).Hash -ne (Get-FileHash -LiteralPath $builtMod).Hash) {
-            throw 'The standalone archive does not contain the built Arena Agents mod.'
+            throw 'The standalone archive does not contain the built Mineagen mod.'
           }
           .\scripts\verify-coordinator-packaging.ps1 -JarPath $packagedMod
           .\scripts\verify-startup-packaging.ps1 -PackageRoot $unpacked
@@ -231,7 +172,7 @@ jobs:
         run: |
           .\scripts\prepare-headless-server-template.ps1 -ProjectRoot . -SkipBuild -AcceptMinecraftEula
           .\scripts\verify-distribution-fabric-boot.ps1 `
-            -PackageRoot (Join-Path $env:RUNNER_TEMP 'arena-agents-standalone') `
+            -PackageRoot (Join-Path $env:RUNNER_TEMP 'mineagen-standalone') `
             -ServerTemplate .\runtime\server-template `
             -JavaPath (Join-Path $env:JAVA_HOME 'bin\java.exe')
       - name: Package and verify the 26.1 and 26.2 Windows ZIPs
@@ -245,7 +186,7 @@ jobs:
             .\gradlew.bat "-Pmc=$target" packageWindowsDistribution --no-daemon --console=plain
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             $version = "$env:MOD_VERSION+mc$target"
-            .\scripts\verify-windows-distribution.ps1 -ArchivePath ".\build\distributions\arena-agents-modpack-$version.zip" -BuiltJarPath ".\build\libs\arena-agents-$version.jar"
+            .\scripts\verify-windows-distribution.ps1 -ArchivePath ".\build\distributions\mineagen-modpack-$version.zip" -BuiltJarPath ".\build\libs\mineagen-$version.jar"
           }
       - name: Upload verified standalone distribution
         # Only main keeps a ZIP. Artifact storage can run out, and that must not fail a tested build.

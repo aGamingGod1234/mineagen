@@ -2573,7 +2573,7 @@ export class NativeToolRuntime {
 	/**
 	 * gather: break seen blocks of the asked ids, the one nearest the last broken first (a whole tree, then the next),
 	 * walking into reach and picking up the drops, until the body holds the asked count. Each step is an ordinary body
-	 * action (moveTo, mine, pick_up_item) chosen from a fresh observation; no model turn between them. the recorded Oct 29
+	 * action (moveTo, mine, pick_up_item) chosen from a fresh observation; no model turn between them. The recorded Oct 29
 	 * Terra game took 6 calls for 4 logs (chop 2, craft, chop 1, craft...) and fiddled with the camera at each tree.
 	 */
 	async #executeGather(request, record, tool, executionEpoch, blockingRun) {
@@ -2794,7 +2794,7 @@ export class NativeToolRuntime {
 
 	/**
 	 * A look-around asking the same as one finished under a minute ago, within 8 blocks of where it ran and with no
-	 * threat in view now, returns that sweep without turning the camera again. the recorded Oct 29 Terra game swept 9 times
+	 * threat in view now, returns that sweep without turning the camera again. The recorded Oct 29 Terra game swept 9 times
 	 * in 5 minutes, mostly a few blocks apart; the camera spinning was what he saw. A threat in view always sweeps.
 	 */
 	#recentSweep(record, tool) {

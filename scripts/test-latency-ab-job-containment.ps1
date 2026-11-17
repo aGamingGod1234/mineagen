@@ -1,14 +1,11 @@
 [CmdletBinding()]
 param(
-    # Which orchestrator's runner helper to test; the default is this checkout's.
     [string] $OrchestratorPath
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-# AUTO-004: a runner attempt must not leave a detached descendant alive, even one started by a runner that exits (or
-# is killed at its timeout) before any process snapshot could discover it. Drives the real Invoke-RunnerProcess.
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 if ([string]::IsNullOrWhiteSpace($OrchestratorPath)) { $OrchestratorPath = Join-Path $repositoryRoot 'scripts\run-latency-ab-experiment.ps1' }
 $fixtureRunner = Join-Path $repositoryRoot 'scripts\fixtures\latency-ab\fixture-runner-detached-child.mjs'

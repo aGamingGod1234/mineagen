@@ -105,7 +105,6 @@ function validateTotals(row) {
 	}
 }
 
-/** Rebuild the allowlist before both public and private persistence. */
 export function normalizeToolResponseSummary(value) {
 	const { version, scope, rows: sourceRows, captureFailures } = value ?? {};
 	if (version !== 1 || scope !== 'serialized_tool_response_transport_boundary' || !Array.isArray(sourceRows)) throw new TypeError('invalid tool response summary');

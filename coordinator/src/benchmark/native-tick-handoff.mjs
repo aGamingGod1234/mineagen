@@ -48,7 +48,6 @@ async function createArm(modulePath, name) {
 	const observation = () => ({ observedAtEpochMs: Date.now(), world: { worldId: 'tick-world', dimension: 'minecraft:overworld' },
 		player: { x: 0, y: 64, z: 0, yaw, health: 20 }, entities: sightings ? [{ uuid: `pig-${Math.round(yaw)}`, type: 'minecraft:pig' }] : [], blocks: [], items: [], inventory: { items: [], tagCounts: {} } });
 	const tick = () => {
-		// Start phase: admit queued work in arrival order, then advance actions.
 		for (const task of inbound.splice(0)) task();
 		const finished = [];
 		for (const action of [...running]) {
@@ -57,7 +56,6 @@ async function createArm(modulePath, name) {
 			if (action.remaining <= 0) { running.splice(running.indexOf(action), 1); finished.push(action); }
 		}
 		for (const action of finished) deliver(() => runtime.onActionResult(record, { goalRevision: 1, actionId: action.actionId, state: 'SUCCEEDED', reasonCode: 'COMPLETED', executionStarted: true, physicalAttempted: true }));
-		// End phase: every result forces one attention observation after physics.
 		if (finished.length > 0) {
 			const sample = observation();
 			const sequence = ++eventSequence;

@@ -10,7 +10,7 @@ import { sanitizeDiagnosticErrorStack, sanitizeDiagnosticText, sanitizeDiagnosti
 import { claimNaturalWorld, classifyHeadlessFailure, normalizeHeadlessWorld, parsePlayerPosition, parseServerSeed, summarizeProviderAttestation, validateNaturalWorldManifest } from './headless-world.mjs';
 import { defaultServiceTier } from './constants.mjs';
 
-const PROVIDERS = new Set(['codex', 'claude', 'opencode']);
+const PROVIDERS = new Set(['codex', 'claude']);
 const MAX_TIMEOUT_MS = 900_000;
 const MAX_NATURAL_TIMEOUT_MS = 21_600_000;
 const MAX_DIAGNOSTICS = 4096;
@@ -220,14 +220,12 @@ function publicCommandRecords(value) {
 	});
 }
 
-/** Evaluate only evidence that was observed from the server/protocol path. */
 export function evaluateHeadlessAssertions(assertions, evidence = {}) {
 	if (!Array.isArray(assertions)) throw new TypeError('assertions must be an array');
 	const results = assertions.map((assertion, index) => evaluateAssertion(assertion, evidence, index));
 	return { passed: results.every((result) => result.passed), results };
 }
 
-/** Drive one summoned agent through the normal RCON and protocol lifecycle. */
 export async function runHeadlessScenario({
 	scenario,
 	runDirectory,
@@ -476,7 +474,7 @@ export async function runHeadlessScenario({
 		if (classification === null && terminalState === 'ERROR') classification = 'ERROR';
 		if (classification === null && terminalState === 'DEAD') classification = 'DEAD';
 		if (classification === null && terminalState === null) classification = 'TIMEOUT';
-		try { minecraftMspt = parseMinecraftMspt((await command('tick query', { attempt: 0 })).text); } catch { /* optional server metric */ }
+		try { minecraftMspt = parseMinecraftMspt((await command('tick query', { attempt: 0 })).text); } catch {}
 		const taskElapsedMs = Math.max(0, Number(now()) - startedAt);
 		await enterCleanup({ classification: classification ?? 'PENDING_EVIDENCE', taskElapsedMs });
 		const postRunStartedAt = Number(now());
@@ -719,7 +717,7 @@ async function runConcurrentHeadlessScenario({
 			else if (member.lifecycle === null) member.classification = 'TIMEOUT';
 		}
 		let minecraftMspt = null;
-		try { minecraftMspt = parseMinecraftMspt((await command('tick query')).text); } catch { /* optional server metric */ }
+		try { minecraftMspt = parseMinecraftMspt((await command('tick query')).text); } catch {}
 		const evidenceResult = await collectConcurrentHeadlessEvidence({
 			members, directory, readFile, tailReader, protocolAudit, providerTurnsPath, evidenceOffsets, protocolAuditOffset,
 			assertions, readOnlyCommand: (value) => command(value, { readOnly: true }), deadline, now, startedAt, poll,
@@ -845,7 +843,6 @@ export function parseHeadlessCliArguments(args) {
 	return result;
 }
 
-/** Render a small, secret-free handoff suitable for terminals and CI logs. */
 export function formatHeadlessCliOutput(report) {
 	if (!report || typeof report !== 'object') throw new TypeError('matrix report must be an object');
 	const lines = [`Report: ${String(report.reportPath ?? '')}`, `Matrix: ${String(report.status ?? 'UNKNOWN')}`];

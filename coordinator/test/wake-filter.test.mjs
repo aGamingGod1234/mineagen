@@ -16,7 +16,6 @@ const skeletonRow = { uuid: SKELETON, type: 'minecraft:skeleton', distance: 9, s
 
 test('hits by a kind the model was shown are summed into the next wake; a new kind, low health or lava wakes at once', () => {
 	const filter = new WakeFilter();
-	// The model's last wake showed a zombie.
 	assert.equal(filter.take('a', sample({ threats: [zombieRow] })), null);
 	assert.deepEqual(filter.decide('a', { attention: urgent('damage'), observation: sample({ health: 17, attacker: 'minecraft:zombie', threats: [zombieRow] }) }), { verdict: 'hold', reason: 'hit absorbed' });
 	assert.equal(filter.decide('a', { attention: urgent('damage'), observation: sample({ health: 14, attacker: 'minecraft:zombie', threats: [zombieRow] }) }).verdict, 'hold');
@@ -63,7 +62,6 @@ test('discoveries wake: a fortress or portal sighted, an enderman in range while
 	assert.deepEqual([...shownKinds(sample({ attacker: 'minecraft:blaze' }))], ['minecraft:blaze']);
 });
 
-// ---- Through the coordinator: a running action, hits from a known kind, and the wake it owes. ----
 
 const CONFIG = { bridge: { port: 25570, secret: 's'.repeat(32) }, codex: { controlProtocol: 'native_tools' } };
 const tick = () => new Promise((resolve) => setImmediate(resolve));

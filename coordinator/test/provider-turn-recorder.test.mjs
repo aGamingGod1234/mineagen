@@ -439,7 +439,7 @@ test('tool response summaries persist to disk and public rows without inventing 
 		serializedResponse: JSON.stringify({ success: true, contentItems: [{ text: 'PRIVATE_TOOL_PAYLOAD_\u79d8\u5bc6' }] }) };
 	summary.begin(fields).finish(true, 1);
 	summary.begin(fields).finish(false, 2);
-	summary.begin(fields); // A shutdown snapshot must not claim this was delivered.
+	summary.begin(fields);
 	const toolResponses = summary.snapshot();
 	toolResponses.raw = 'PRIVATE_TOOL_PAYLOAD';
 	toolResponses.receiptAcknowledged = true;
@@ -520,7 +520,7 @@ test('observational recorder wrapper contains synchronous and asynchronous failu
 		{ record() { return { then(_resolve, reject) { reject(error); } }; } }]) {
 		assert.doesNotThrow(() => recordProviderTurn(recorder, {}));
 	}
-	await new Promise(setImmediate); // An unhandled rejection would fail this test.
+	await new Promise(setImmediate);
 });
 
 function readinessGate() {

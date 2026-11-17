@@ -9,10 +9,6 @@ import { NO_TASK_HEAL_INSTRUCTION, TASK_HEAL_INSTRUCTION, buildNativeEventInput,
 import { threatFacts } from '../src/observation-adapter.mjs';
 import { FakeBridge, FakePlanner, immutableGoalSpec, eventually, start, resolveNativeSteerInput } from './fixtures/dynamic-main-fixture.mjs';
 
-// Play-test 2026-10-08 (play-session-3-trace.jsonl). Sonnet, with no task, was targeted by a creeper. The first threat
-// edge said risk 4 at 16 blocks; risk only reached 100-200 at about 3 blocks, and the model's first move came then
-// (5.5 s decision). Later, at 6.1 HP and foodLevel 17 with a cow beside it, its one heal turn made no call; the raw
-// beef ExamplePlayer then dropped never woke it again, and it died without eating.
 const CREEPER = '00000000-0000-0000-0000-0000000000cc';
 const COW = '00000000-0000-0000-0000-0000000000c1';
 const BEEF = '00000000-0000-0000-0000-0000000000d1';

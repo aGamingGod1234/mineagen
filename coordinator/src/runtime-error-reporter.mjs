@@ -20,7 +20,6 @@ const CONTEXT_FIELDS = Object.freeze([
 	'phase',
 ]);
 
-/** Writes bounded, secret-free diagnostics for coordinator runtime failures. */
 export class RuntimeErrorReporter {
 	#refused = 0;
 	#write;

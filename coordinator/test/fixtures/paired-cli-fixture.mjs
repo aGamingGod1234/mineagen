@@ -108,7 +108,7 @@ function Get-ProcessSnapshot {
  return $result
 }
 function Start-RedirectedProcess($FileName,$Arguments,$WorkingDirectory,$StdoutPath,$StderrPath,$Environment) {
- if ($Arguments.StartsWith('-Darenaagents')) { $Arguments = '"' + ${quotePS(server)} + '"' }
+ if ($Arguments.StartsWith('-Dmineagen')) { $Arguments = '"' + ${quotePS(server)} + '"' }
  $handle = & $script:ActualStart $FileName $Arguments $WorkingDirectory $StdoutPath $StderrPath $Environment
  $script:FixtureHandles.Add($handle)
  return $handle

@@ -113,7 +113,6 @@ test('B-2 and B-4: underground, a remembered ore further than a short dig is lef
 		assert.equal(body.calls.filter((row) => row.actionType === 'travel_to').length, 0, `no trip from y${start.y} to y${place.y}`);
 		assert.equal(result.reasonCode, 'FIND_SEEN');
 	}
-	// A near one is still a trip.
 	const near = scriptedBody({ start: sample({ x: 451.5, y: 47, z: -146.5, skyOpen: false }), known: { sightings: [{ what: 'minecraft:iron_ore', kind: 'vein', x: 467, y: 45, z: -150 }], blocks: [] },
 		acts: { travel_to: [{ result: { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:iron_ore seen at 467,45,-150' } }] } });
 	await searchFor({ block: 'minecraft:iron_ore' }, near);

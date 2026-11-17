@@ -1,3 +1,4 @@
+import { privateInputUrl } from '../scripts/private-inputs.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
@@ -344,7 +345,7 @@ test('the wake header states only known absence of a persistent guard', () => {
 });
 
 test('recorded full-game route failures keep obstruction and drop evidence in the next wake', async () => {
- const cases = JSON.parse(await readFile(new URL('./fixtures/decision-eval/train/fullgame-route-repair.json', import.meta.url), 'utf8')).cases;
+ const cases = JSON.parse(await readFile(privateInputUrl('coordinator/test/fixtures/decision-eval/train/fullgame-route-repair.json'), 'utf8')).cases;
  for (const c of cases) {
   const views = new LiveTaskViews(), r = record();
   await views.observe(r, c.state.observation);

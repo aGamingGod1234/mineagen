@@ -81,7 +81,7 @@ if ([string]::IsNullOrWhiteSpace($JavaPath)) {
 }
 $template = [IO.Path]::GetFullPath($ServerTemplate)
 $java = [IO.Path]::GetFullPath($JavaPath)
-$builtJar = Join-Path $project 'build\libs\arena-agents-0.2.0.jar'
+$builtJar = Join-Path $project 'build\libs\mineagen-0.2.0.jar'
 foreach ($required in @($template, $java, $builtJar)) {
 	if (-not (Test-Path -LiteralPath $required)) { throw "Missing managed-death smoke prerequisite: $required" }
 }
@@ -97,7 +97,7 @@ $failure = $null
 try {
 	New-Item -ItemType Directory -Path $run | Out-Null
 	Copy-Item -LiteralPath $template -Destination $server -Recurse
-	Copy-Item -LiteralPath $builtJar -Destination (Join-Path $server 'mods\arena-agents-0.2.0.jar') -Force
+	Copy-Item -LiteralPath $builtJar -Destination (Join-Path $server 'mods\mineagen-0.2.0.jar') -Force
 	$serverPort = Reserve-Port
 	$bridgePort = Reserve-Port @($serverPort)
 	$propertiesPath = Join-Path $server 'server.properties'
@@ -131,10 +131,10 @@ try {
 	$start.RedirectStandardOutput = $true
 	$start.RedirectStandardError = $true
 	$start.Arguments = @(
-		(Quote-Argument "-Darenaagents.bridgeSecretFile=$secretPath"),
-		(Quote-Argument "-Darenaagents.bridgePort=$bridgePort"),
+		(Quote-Argument "-Dmineagen.bridgeSecretFile=$secretPath"),
+		(Quote-Argument "-Dmineagen.bridgePort=$bridgePort"),
 		# Provider-free: no bundled coordinator should start alongside the scripted bridge client.
-		'-Darenaagents.coordinatorAutoStart=false',
+		'-Dmineagen.coordinatorAutoStart=false',
 		'-Xms512M', '-Xmx2G', '-jar',
 		(Quote-Argument (Join-Path $server 'fabric-server-launch.jar')),
 		'nogui'

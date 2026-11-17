@@ -69,7 +69,6 @@ export function seriesRates(samples, now) {
 	return { perMinute: shortPerMs === null ? null : shortPerMs * MINUTE, perHour: hourPerMs === null ? (shortPerMs === null ? null : shortPerMs * HOUR) : hourPerMs * HOUR };
 }
 
-/** Hours until `remaining` is used up at `perHour`; null when nothing is being used. */
 export function hoursUntil(remaining, perHour) {
 	if (!Number.isFinite(remaining) || !Number.isFinite(perHour)) return null;
 	if (remaining <= 0) return 0;
@@ -183,7 +182,6 @@ export class UsageLedger {
 		this.#evaluate(provider);
 	}
 
-	/** A request the provider refused for rate (HTTP 429 or the provider's equivalent). */
 	recordRateLimited(provider, at = this.#now()) {
 		if (!Object.hasOwn(PROVIDER_REGISTRY, provider)) return;
 		const account = this.#account(provider);
@@ -193,7 +191,6 @@ export class UsageLedger {
 		this.#evaluate(provider);
 	}
 
-	/** Account identity from discovery (already redacted). */
 	setAccount(provider, info) {
 		if (!Object.hasOwn(PROVIDER_REGISTRY, provider) || info === null || typeof info !== 'object') return;
 		const account = this.#account(provider);
@@ -350,7 +347,6 @@ export class UsageLedger {
 		return out;
 	}
 
-	/** Every agent's usage plus one row per account, in one snapshot. */
 	roster(records = null) {
 		const ids = records === null ? [...this.#agents.keys()] : records.map((record) => { this.#agent(record); return record.agentId; });
 		const agents = ids.map((id) => this.agentRow(id)).filter((row) => row !== null);

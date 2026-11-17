@@ -67,7 +67,6 @@ test('an invalid action argument ends the program with the validator text', asyn
 	assert.equal(run.commands.length, 0);
 });
 
-// Audit 2026-11-01 #6: a fault after the first receipt reached the model as a bare code, and optional facts crashed guards.
 test('a script fault after an action reaches the model with its code, line:column and cause', async () => {
 	const run = setup();
 	const result = await run.executor.run(record, { source: `${prefix}

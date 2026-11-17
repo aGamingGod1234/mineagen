@@ -1,10 +1,11 @@
+import { privateInputUrl } from '../scripts/private-inputs.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { renderWake } from '../src/decision-eval/render.mjs';
 import { validateCaseFile } from '../src/decision-eval/schema.mjs';
 
-const cases = validateCaseFile(JSON.parse(await readFile(new URL('./fixtures/decision-eval/extra/work-safety.json', import.meta.url))));
+const cases = validateCaseFile(JSON.parse(await readFile(privateInputUrl('coordinator/test/fixtures/decision-eval/extra/work-safety.json'))));
 
 test('recorded work hazards render with their existing authored protection and escape facts', async () => {
  for (const c of cases) {

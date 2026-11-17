@@ -73,7 +73,6 @@ export async function gradeSamples(caseById, samples, { judge = null } = {}) {
 	return { graded, judgeRuns };
 }
 
-// Per-case counts for stats.compareCases.
 export function caseCounts(caseDef, gradedRows) {
 	const rows = gradedRows.filter(row => row.sample.caseId === caseDef.id);
 	const verdicts = {};
@@ -95,7 +94,6 @@ export function buildCaseRows(cases, candidateRows, baselineRows = null) {
 	}));
 }
 
-// ---------- loading ----------
 
 async function readJsonOrJsonl(file) {
 	const text = await readFile(file, 'utf8');

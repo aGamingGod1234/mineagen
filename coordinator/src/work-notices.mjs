@@ -35,20 +35,15 @@ export function workNotices(o, receipt = o?.lastResult) {
   && ['minecraft:crafting_table', 'minecraft:furnace', 'minecraft:blast_furnace', 'minecraft:smoker'].includes(r.blockId))
   .filter(r => !items.some(i => i.itemId === r.blockId && i.count > 0)).slice(0, 2);
  if (own.length) {
-  // the recorded Terra game walked back 46-155 blocks to a surface table/furnace four times and never carried one; the
-  // cheaper player move is often a new one here, so the materials it holds for that are named beside the old one.
   const held = (test) => items.filter(i => test(String(i.itemId ?? ''))).reduce((sum, i) => sum + (i.count ?? 0), 0);
   const planks = held(id => /_planks$/.test(id)), stone = held(id => ['minecraft:cobblestone', 'minecraft:cobbled_deepslate', 'minecraft:blackstone'].includes(id));
   const fresh = [own.some(r => r.blockId === 'minecraft:crafting_table') && planks >= 4 ? `crafting_table from 4 planks (you hold ${planks})` : null,
    own.some(r => r.blockId === 'minecraft:furnace') && stone >= 8 ? `furnace from 8 cobblestone (you hold ${stone})` : null].filter(Boolean);
   notices.push(`Your placed ${own.map(r => `${short(r.blockId)} @${xyz(r)} (${Math.round(distance(p, r))} blocks away)`).join('; ')}; remembered, not checked now. Can mine and carry; furnaces need a pickaxe, contents drop too${fresh.length ? `; or craft a new one here: ${fresh.join(', ')}` : ''}.`);
  }
- // the recorded Oct 29 game: back at the top for a table, Sol dug a second staircase beside its own 40-level one.
  const stairs = (Array.isArray(o.ownStairs) ? o.ownStairs : []).filter(positioned).slice(0, 1);
  if (stairs.length && (!receipt || receipt.actionType !== 'dig_to' || receipt.state !== 'RUNNING'))
   notices.push(`Your staircase from here goes down ${stairs[0].levels} levels to ${xyz(stairs[0])}; travel_to ${xyz(stairs[0])} with retrace:true walks it down.`);
- // Going down the first levels of its own staircase from the surface: what it carries for the work down there. Shown
- // only when a table or food is missing; The policy requires surface work done first and one trip underground (Oct 29).
  const down = o.descent, kind0 = receipt?.actionType;
  if (down && down.levels >= 4 && down.levels <= 40 && kind0 === 'dig_to') {
   const count = (test) => items.filter(i => test(String(i.itemId ?? ''))).reduce((sum, i) => sum + (i.count ?? 0), 0);

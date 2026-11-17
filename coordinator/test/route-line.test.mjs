@@ -56,7 +56,6 @@ test('ten carried obsidian and a lighter reach build without buckets, water, lav
 		assert.ok(Buffer.byteLength(line) <= ROUTE_BYTES);
 	}
 	assert.equal(route([...kit, ['obsidian', 9]]), 'usual next step: obtain bucket count 2 (iron 0 held, 6 needed for 2 buckets)');
-	// Counts are current inventory facts, even when split over stacks.
 	assert.equal(route([...kit, ['obsidian', 4], ['obsidian', 6]]), 'usual next step: build nether_portal (10 obsidian held)');
 });
 
@@ -175,7 +174,6 @@ test('urgent spawn food gives way to tools, then cooked stock precedes iron', ()
 	lit.frames.push({ dimension: 'minecraft:overworld', x: 0, y: 60, z: 0, obsidian: 10, lit: true });
 	assert.doesNotMatch(route([], {}, lit), /beef/);
 	assert.equal(route([], {}, visitedNether()), 'usual next step: obtain wooden_pickaxe (no tools yet; rebuild after the Nether visit)');
-	// The hunger restock note does not double the food step.
 	assert.doesNotMatch(route([], { foodLevel: 6 }), /cooked_beef on the way/);
 	// Raw meat is cooked before another hunt; it does not satisfy the cooked stock.
 	const hungry = route([['stone_pickaxe', 1], ['furnace', 1], ['beef', 4]], { foodLevel: 10 });

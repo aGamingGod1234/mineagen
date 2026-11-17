@@ -1,10 +1,11 @@
+import { privateInputUrl } from '../scripts/private-inputs.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { validateCaseFile } from '../src/decision-eval/schema.mjs';
 import { observationSha256 } from '../src/decision-eval/capture.mjs';
 import { renderWake } from '../src/decision-eval/render.mjs';
-const corpus=JSON.parse(fs.readFileSync(new URL('./fixtures/decision-eval/portal-casting.json',import.meta.url)));
+const corpus=JSON.parse(fs.readFileSync(privateInputUrl('coordinator/test/fixtures/decision-eval/portal-casting.json')));
 
 test('captured portal decisions preserve raw observations and render conditional knowledge through production', async () => {
  validateCaseFile(corpus);

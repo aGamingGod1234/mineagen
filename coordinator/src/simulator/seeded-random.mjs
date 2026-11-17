@@ -1,6 +1,5 @@
 const UINT32_RANGE = 0x1_0000_0000;
 
-/** Small deterministic PRNG used only by scenario-declared random events. */
 export class SeededRandom {
 	#state;
 

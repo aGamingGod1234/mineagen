@@ -1,33 +1,4 @@
 #!/usr/bin/env node
-// Provider-free check of an outnumbered body: node scripts/quality/test-crowd-live.mjs OUT_DIR
-// This script stands in for the coordinator (no model call). It arms the coordinator's 12 default reflexes, at most sends
-// one production action as the model did in the Nov 8 Overworld gate, then sends nothing for WATCH_S seconds, as the
-// model thinking. The gate's 16 games had 10 deaths; in 6 of them the body traded hits with 2-4 zombies at once and went
-// from full health to under 7 in about 3 s, before default-retreat fired. Cases (night, normal difficulty, no armour, no
-// food, no natural regeneration as at the gate's food 17, stone axe and stone pickaxe, 32 cobblestone):
-//   open:    a flat stone floor with a stone rim 40 blocks out; three zombies walk up from 6 blocks east (gate A7, first death).
-//   bailout: the same floor; the model's fight_target on the first zombie with fleeAtHealth 10, as gate B7 sent, then
-//            nothing (B3, B7 and B8: the fight stopped at its bailout health beside the pack and defend fought on).
-//   cave:    a 3-wide, 3-high tunnel in solid stone running 28 blocks west into an 11x11 chamber, three zombies 3-5 blocks
-//            east (gate A1: a dig broke into a cave of zombies).
-//   grass-archer: grass blocks under short grass, a skeleton with a bow 10 blocks east, no shield (gate A6: defend's
-//            wall-in placed 0 of 8 blocks in 2.8 s, the crosshair stopping on the grass in the wall cell, while the
-//            skeleton shot the body from 7.2 to 3.2; gate B8 placed 0 of 9 the same way on leaf litter).
-// Cases from the review of PR #169 (whether backing out costs the body more than fighting where it stands):
-//   pillar:    the body on a 1x1 cobblestone pillar 5 blocks up, two spiders at its foot that climb it (a refuge the
-//              model chose; the back-out's last resort jumped off it into the pack).
-//   tower:     the same with a 3x3 top, so a spider's knockback does not push the body off as it does the 1x1 top.
-//   phantoms:  two phantoms 8 blocks up (flyers: a run on foot never leaves them behind).
-//   babies:    two baby zombies 6 blocks east (faster than a sprinting body).
-//   silverfish: four silverfish 4 blocks east (each hit costs 1: running only gives up the hits back).
-//   hungry:    the open case at food 6 or less, where a body cannot sprint and adult zombies keep pace.
-//   armoured:  the open case with an iron chestplate and leggings (11 armour), where each zombie hit costs 1.9 after armour
-//              (second review of PR #169: a pack test after armour stopped counting the zombies).
-// Each run also reports the hits back and back-outs from defend's detail, and the lowest feet height.
-// Per run: alive and lowest health at SCORE_S (20 s: the gate's first hit to next model command was 3-10 s, a model round
-// 5-17 s) and at WATCH_S (40 s), final health, hostiles left, the reflex events and a 0.5 s track.
-// ARENA_JAR picks the jar; CASES, REPEATS and WATCH_S narrow the runs. Launch under slot.sh live with
-// ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME set; operator commands only build the fixture and set the body up.
 import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -39,7 +10,7 @@ const root = fileURLToPath(new URL('../..', import.meta.url));
 const out = path.resolve(process.argv[2] ?? 'runtime/crowd-live');
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port = Number(process.env.SLOT_PORT_BASE);
 if (!template || !port || !process.env.JAVA_HOME) throw new Error('Launch under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME');
-const jar = path.resolve(process.env.ARENA_JAR ?? path.join(root, 'build/libs/arena-agents-0.2.0.jar'));
+const jar = path.resolve(process.env.ARENA_JAR ?? path.join(root, 'build/libs/mineagen-0.2.0.jar'));
 const WATCH_S = Number(process.env.WATCH_S ?? 40), REPEATS = Number(process.env.REPEATS ?? 3), SCORE_S = Number(process.env.SCORE_S ?? 20);
 const CASES = (process.env.CASES ?? 'open,bailout,cave,grass-archer').split(',');
 await mkdir(out, { recursive: true });
@@ -98,7 +69,6 @@ async function register() {
 	await s.command(`gamemode survival ${AGENT}`);
 }
 
-/** Exactly the default rule set the coordinator's ReflexBook arms at spawn and after each respawn. */
 async function armDefaults() {
 	const book = new ReflexBook();
 	const sample = await s.observe();
@@ -263,7 +233,6 @@ try {
 			await kit();
 			for (const [slot, item] of c.armour ?? []) await s.command(`item replace entity ${AGENT} ${slot} with minecraft:${item}`);
 			const food = c.hungry ? await starve() : null;
-			// The defaults re-arm after a respawn; wait for the twelve before the pack arrives.
 			for (const until = Date.now() + 10000; Date.now() < until;) { const o = await look(); if ((o?.reflexes?.rules ?? []).filter(r => String(r.id).startsWith('default-')).length === 12) break; await sleep(250); }
 			await sleep(1500);
 			// The run starts at the summon: an archer shoots at once, before the fixture has seen it in an observation.

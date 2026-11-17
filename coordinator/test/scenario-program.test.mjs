@@ -178,7 +178,6 @@ test('the virtual bridge delivers a direct message only to a hosted recipient, a
 	hosted.stop();
 	world.recordDirectMessage('sender', recipient, 'after stop');
 	assert.equal(delivered.length, 1);
-	// A world player the bridge was not told to host receives nothing.
 	const plainWorld = new VirtualWorld({ seed: 1, agents: { sender: { position: { x: 0, y: 1, z: 0 }, onGround: true }, [recipient]: { position: { x: 1, y: 1, z: 0 }, onGround: true } }, blocks: [{ x: 0, y: 0, z: 0, blockId: 'minecraft:stone' }] });
 	const senderOnly = new VirtualMinecraftBridge({ world: plainWorld, agentRecords: { sender: { goalRevision: 1 } } });
 	let plainDeliveries = 0;

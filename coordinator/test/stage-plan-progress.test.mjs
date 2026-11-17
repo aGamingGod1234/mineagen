@@ -9,7 +9,6 @@ import { composeContinuityHeader } from '../src/continuity-header.mjs';
 const T0 = 1_800_000_000_000;
 const record = { agentId: 'a1', goalRevision: 1, currentGoal: 'Beat the game', currentGoalSpec: { originalRequest: 'Beat the game', fingerprint: 'f1' } };
 const step = (id, check, dependsOn = [], kind = 'milestone') => ({ id, label: id.replace('_', ' '), kind, status: 'pending', dependsOn, detail: '', evidence: null, check });
-// The Nether stage as the translator now writes it.
 const stagePlan = { steps: [
  step('kit', 'tool:pickaxe:iron+ & has:minecraft:bucket|minecraft:water_bucket|minecraft:lava_bucket*1'),
  step('floors', 'y<=-50', ['kit'], 'world'), step('pool', 'lava:10', ['floors'], 'world'), step('water', 'has:minecraft:water_bucket*1', ['kit'], 'inventory'),
@@ -42,7 +41,6 @@ test('stage terms parse, stay bounded and read observed depth, lava, frames and 
  assert.equal(evaluatePlanCheck('lava:4', o, known).ok, true);
  // A depth or a sighting is presence: it can hold before the earlier steps.
  assert.equal(evaluatePlanCheck('y<=-50 & lava:4', o, known).presenceOnly, true);
- // The End tally as last seen, caged ones named.
  const end = sample(T0 + 2, { dimension: 'minecraft:the_end', endCrystals: { standing: [{ x: 1, y: 90, z: 1, caged: true }, { x: 2, y: 80, z: 2 }], broken: 6 } });
  rememberPlanFacts(known, end);
  assert.deepEqual(evaluatePlanCheck('crystals<=0', end, known).terms.map(t => [t.ok, t.reason]), [[false, 'crystals 2 standing (1 caged) of 8 seen']]);
@@ -63,12 +61,9 @@ test('spawn:bed reads the bed-use message, the death screen target and a lost be
  assert.equal(rememberPlanFacts(known, used), true);
  assert.deepEqual(read(used), [true, 'respawn set 2,60,1']);
  assert.deepEqual(restoreKnown(JSON.parse(JSON.stringify(known))).spawn, known.spawn);
- // The same event seen again changes nothing.
  assert.equal(rememberPlanFacts(known, used), false);
- // The bed broken: the next respawn message says so.
  rememberPlanFacts(known, { ...sample(T0 + 5), perception: { events: [{ type: 'system_message', text: 'You have no home bed or charged respawn anchor, or it was obstructed', observedAtEpochMs: T0 + 5 }] } });
  assert.deepEqual(read(sample(T0 + 6)), [false, 'respawn: world spawn']);
- // The death screen names the respawn target.
  rememberPlanFacts(known, { ready: false, player: { dead: true }, death: { cause: 'a slain', diedAtEpochMs: T0 + 9, respawnDimensionId: 'minecraft:overworld', respawnX: -18, respawnY: -54, respawnZ: 94 } });
  assert.deepEqual(read(sample(T0 + 10)), [true, 'respawn set -18,-54,94']);
  rememberPlanFacts(known, { ready: false, player: { dead: true }, death: { cause: 'a slain', diedAtEpochMs: T0 + 20, respawnDimensionId: null, respawnX: null, respawnY: null, respawnZ: null } });
@@ -88,7 +83,6 @@ test('no progress for the threshold states the focus step, its numbers and where
  await views.observe(record, sample(now, { y: 60 }));
  // Staircasing down is progress on the depth step: each new low resets the clock.
  for (let i = 1; i <= 8; i++) { now += 60_000; await views.observe(record, sample(now, { y: 60 - i * 8 })); assert.equal(views.progressWake(record), null); }
- // Then a trip back to the surface for food: no step closer.
  await views.operate(record, { operation: 'intent', intent: { step: 'floors', why: 'No food left; resupply mutton on the surface' } });
  const food = [...kit, { itemId: 'minecraft:cooked_mutton', count: 3 }, { itemId: 'minecraft:cobblestone', count: 40 }];
  for (let t = 1; t * 60_000 < NO_PROGRESS_MS; t++) { now += 60_000; await views.observe(record, sample(now, { y: Math.min(70, -4 + t * 10), items: food })); assert.equal(views.progressWake(record), null); }
@@ -117,7 +111,6 @@ test('a long climb back toward the step after the fact is stated is not stated a
  // Back down a staircase for the next window: closer than when stated, still above the depth step.
  for (let t = 1; t * 60_000 <= NO_PROGRESS_MS; t++) { now += 60_000; await views.observe(record, sample(now, { y: 80 - t * 9 })); }
  assert.equal(views.progressWake(record), null);
- // The header keeps current numbers.
  assert.match(views.continuity(record).progress, /for 20 min \(y -10 \(<=-50\)/);
 });
 
@@ -147,7 +140,6 @@ test('the same no-effect result repeated wakes once with the action, the result 
  const shot = i => ({ actionId: `shot-${i}`, goalRevision: 1, worldId: 'w1', dimension: 'minecraft:the_end', actionType: 'use_ranged', state: 'SUCCEEDED', reasonCode: 'OWNED_PROJECTILE_CONFIRMED', arguments: { targetId: 'crystal-1' }, observedAtEpochMs: now,
   message: `Arrow loosed (aim point 41.9,121.0,-0.0: 18.3 blocks above the target's visible point for drop over 62 blocks); missed: stuck in minecraft:iron_bars at 40,${91 + (i % 2)},1; closest pass 1.${i} blocks from the target's box` });
  for (let i = 0; i < REPEAT_COUNT - 1; i++) { now += 20_000; await views.actionReceipt(record, shot(i)); await views.observe(record, sample(now, { dimension: 'minecraft:the_end', endCrystals: crystals })); assert.equal(views.progressWake(record), null); }
- // A different outcome is another key and does not add up.
  await views.actionReceipt(record, { ...shot(99), message: 'Arrow loosed (aim); it struck the target, which broke or died' });
  now += 20_000; await views.actionReceipt(record, shot(REPEAT_COUNT));
  await views.observe(record, sample(now, { dimension: 'minecraft:the_end', endCrystals: crystals }));

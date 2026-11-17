@@ -22,7 +22,7 @@ import { sanitizeDiagnosticErrorCode, sanitizeDiagnosticErrorMessage, sanitizeDi
 
 const LOADS = Object.freeze([1, 4, 8, 16]);
 const MODES = new Set(['instant', 'replay', 'live']);
-const PROVIDERS = new Set(['codex', 'gemini', 'instant', 'replay']);
+const PROVIDERS = new Set(['codex', 'instant', 'replay']);
 const MAX_TRIALS = 4_096;
 const MAX_REPETITIONS = 1_024;
 const MAX_METRIC_SAMPLES = 4_096;
@@ -237,7 +237,7 @@ async function runTrial({ matrix, trial, repetition, scenarioResolver, providerF
 
 		const goal = scenario.goal ?? `Complete ${trial.scenarioId}`;
 		const goalSpec = benchmarkGoalSpec(goal);
-		records = scenario.agentIds.map((agentId) => ({ agentId, provider: internalProvider(trial.providerProfile.provider), model: trial.providerProfile.model, reasoningEffort: trial.providerProfile.reasoningEffort, serviceTier: trial.providerProfile.serviceTier, state: DynamicAgentState.IDLE, currentGoal: null, currentGoalSpec: null, goalRevision: 0, queue: [] }));
+		records = scenario.agentIds.map((agentId) => ({ agentId, provider: 'codex', model: trial.providerProfile.model, reasoningEffort: trial.providerProfile.reasoningEffort, serviceTier: trial.providerProfile.serviceTier, state: DynamicAgentState.IDLE, currentGoal: null, currentGoalSpec: null, goalRevision: 0, queue: [] }));
 		const virtualRecords = records.map((record) => ({ ...record, state: DynamicAgentState.STARTING, currentGoal: goal, currentGoalSpec: goalSpec, goalRevision: 1 }));
 		const fixtureId = `fixture-${hash({ trialId: trial.id, repetition, scenarioId: trial.scenarioId, seed: trial.seed, agentLoad: trial.agentLoad, providerProfile: trial.providerProfile }).slice(7, 35)}`;
 		world = new VirtualWorld({ ...scenario.world, worldId: scenario.world.worldId ?? fixtureId }, { scheduler: manualScheduler() });
@@ -1296,7 +1296,6 @@ function validateProviderIdentity(provider, trial) {
 	return { provider: expected.provider, synthetic: provider.synthetic === true };
 }
 function isTimeoutErrorCode(code) { return typeof code === 'string' && (code === 'TURN_CAP' || code.includes('TIMEOUT')); }
-function internalProvider(provider) { return PROVIDERS.has(provider) && ['codex', 'gemini'].includes(provider) ? provider : 'codex'; }
 function manualScheduler() { const handles = new Set(); return { setInterval(callback) { const handle = { callback }; handles.add(handle); return handle; }, clearInterval(handle) { handles.delete(handle); } }; }
 function authoritativeCommands(virtual, agentId) {
 	// Whole-trial parity must retain inter-agent dispatch order and each command's owner.

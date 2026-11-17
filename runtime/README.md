@@ -13,40 +13,18 @@ This layout belongs to a source checkout. The Windows release ZIP uses its own
 - `server-offline-smoke/`: optional, clearly labeled offline smoke server; never authenticated evidence.
 - `downloads/`: cached SHA-256-verified Fabric installer and Fabric API downloads used by the materializer.
 - `evidence/`: world-copy, build, log, screenshot, and live-test summaries with credentials excluded.
-- `agent55/traces/agent-55.jsonl` and `agent56/traces/agent-56.jsonl`: separate append-only coordinator traces.
 - `bridge-secret.txt`: generated local bridge secret shared by the summonable-NPC server and dynamic coordinator; ignored by Git.
 - `toolchains/temurin-25/jdk-25.0.3+9`: project-local Java runtime.
 
-The isolated client directories are outside the project:
+The legacy preparation script creates isolated client directories at `%APPDATA%\.minecraft-agent-55` and `%APPDATA%\.minecraft-agent-56`. Those names identify a development layout, not the currently selected agent model. `scripts/install-launcher-profiles.ps1` installs the corresponding profiles.
 
-- `%APPDATA%\.minecraft-agent-55`
-- `%APPDATA%\.minecraft-agent-56`
+## Prepare the copied world
 
-Fabric API, Fabric Carpet, and the final Arena Agents JAR are copied into their `mods` directories.
+`prepare-runtime.ps1` accepts only `%APPDATA%\.minecraft\saves\New World (76)` as its source world. It requires the project-local Java 25 runtime and an existing Fabric API JAR, and copies the world into `runtime/server`. Versions come from `gradle.properties`, with optional target overrides. Preparation rejects a runtime prepared for a different target.
 
-## Official launcher installations
+Preparation and the default `start-test-server.ps1` command require `online-mode=true`. Joining players need an authenticated Minecraft account. Existing offline state is rejected without conversion; authenticated and offline player UUIDs differ. Preparation does not migrate player data.
 
-`prepare-runtime.ps1` accepts only `%APPDATA%\.minecraft\saves\New World (76)` as its source world. It requires the project-local Java 25 runtime and an existing Fabric API JAR, installs `fabric-loader-0.20.1-26.3`, and copies the world into `runtime/server`. After it completes, create two installations through the official launcher UI:
-
-Preparation and the default `start-test-server.ps1` command both require `online-mode=true`. Joining players need an authenticated Minecraft account. Repeated preparation validates the existing mode and loopback listener before updating properties. An older offline `runtime/server` is rejected without changing its settings. With the server stopped, review the copied world's player-data migration before deliberately changing its single `online-mode` setting to `true`: authenticated player UUIDs differ from offline UUIDs. Preparation does not migrate player data.
-
-Offline smoke remains a separate, explicitly prepared `runtime/server-offline-smoke` directory with `online-mode=false` and `server-ip=127.0.0.1`, launched using `start-test-server.ps1 -OfflineSmoke`. That switch does not use or prepare `runtime/server`, and smoke results are not authenticated-player evidence.
-
-### Arena Agent 55 (GPT-5.5 xhigh Fast)
-
-- Version: `fabric-loader-0.20.1-26.3`
-- Game directory: `C:\Users\player\AppData\Roaming\.minecraft-agent-55`
-- Java executable: `C:\Users\player\Desktop\minecraft\5.5 vs 5.6\runtime\toolchains\temurin-25\jdk-25.0.3+9\bin\javaw.exe`
-- JVM arguments: `-Xms1G -Xmx4G`
-
-### Arena Agent 56 (GPT-5.6-Sol high Fast)
-
-- Version: `fabric-loader-0.20.1-26.3`
-- Game directory: `C:\Users\player\AppData\Roaming\.minecraft-agent-56`
-- Java executable: same project-local `javaw.exe`
-- JVM arguments: `-Xms1G -Xmx4G`
-
-Do not add account identifiers or copy launcher credential files. Both installations share launcher-managed assets/libraries but isolate mods, config, logs, saves, and options.
+Offline smoke uses the separately prepared `runtime/server-offline-smoke` directory with `online-mode=false` and a loopback listener, launched using `start-test-server.ps1 -OfflineSmoke`. That switch does not prepare the directory. Its results are not authenticated-player evidence.
 
 ## Summonable NPC mode
 
@@ -59,7 +37,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\start-dynamic-coordinator.ps1
 
 Both scripts use `runtime\bridge-secret.txt`. `start-test-server.ps1` starts only the prepared Fabric server. `start-dynamic-coordinator.ps1` starts the manual development coordinator and requires the Codex CLI to be authenticated. The packaged launcher profile uses the bundled coordinator supervisor and must not run this second coordinator. Keep the secret file local and never attach it to evidence.
 
-The Fabric mod must be present on both the server and joining client because the custom NPC entity and renderer are mod-defined. All summoned NPCs share one authenticated server bridge. Each provider uses a stable per-agent directory under `runtime/agent-workspaces`. Codex keeps separate threads, and Claude keeps one Claude Code process per NPC in the shared Minecraft agent workspace. Gemini identities remain readable for saved-profile compatibility, but production planning fails closed because Antigravity cannot enforce the required no-tool boundary. Provider credentials remain in their normal CLI locations.
+The Fabric mod must be present on both the server and joining client to provide the agent controls and client rendering. All summoned NPCs share one authenticated server bridge. Each provider uses a stable per-agent directory under `runtime/agent-workspaces`. Codex keeps separate threads, and Claude keeps one Claude Code process per NPC in the shared Minecraft agent workspace. Removed providers are rejected rather than started. Provider credentials remain in their normal CLI locations.
 
 ## Evidence classes
 

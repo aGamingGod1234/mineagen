@@ -1,3 +1,4 @@
+import { privateInput } from '../scripts/private-inputs.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -9,16 +10,10 @@ import { validateClosedGoods, exactGood } from './helpers/closed-progression-goo
 import { gradeSample } from '../src/decision-eval/grade.mjs';
 import { candidateActions, concreteCounterexample } from './helpers/decision-sequence-universe.mjs';
 
-// Expectation validators (q9 progression review r1). Rendering and provenance prove the recorded state; these prove
-// the expectations are consistent with it, one check per class of mistake the review found:
-//   1. a hard "good" predicate may only credit an action the recorded inventory, surroundings and recipes allow;
-//   2. a rubric may only cite carried items the inventory holds;
-//   3. a rubric's Good section may only offer actions of the case's own stage;
-//   4. a rubric may not assert absence or geometry the view does not establish.
 // DECISION_EVAL_FIXTURE_DIR points the checks at another train directory.
 
 const trainDir = process.env.DECISION_EVAL_FIXTURE_DIR
-	?? path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'decision-eval', 'train');
+	?? privateInput('coordinator/test/fixtures/decision-eval/train');
 const cases = fs.readdirSync(trainDir).filter((name) => name.endsWith('.json')).sort()
 	.flatMap((name) => JSON.parse(fs.readFileSync(path.join(trainDir, name), 'utf8')).cases);
 

@@ -26,7 +26,6 @@ test('long-run definition is a fresh random-seed survival world at the vanilla w
 	assert.equal(built.task, 'Beat the game', 'the model sees only the goal');
 	assert.throws(() => buildLongRunDefinition({ windowMs: 13 * 3600000, spendCapUsd: 1 }), /windowMs/);
 	assert.throws(() => buildLongRunDefinition({ windowMs: 600000 }), /spendCapUsd/);
-	// Other scenarios keep the one-hour ceiling.
 	assert.throws(() => resolveQualityScenarios(scenarios, { scenarios: ['S7'], budget: 7200000 }, () => {}), /1000\.\.3600000/);
 });
 

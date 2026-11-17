@@ -44,7 +44,6 @@ test('a Nether save point rebuilds both portals of the last crossing, off the st
 	// The Nether portal is 3 blocks off the start column, which the 8-block start search can never pick.
 	assert.ok(cp.setup.commands.includes('execute in minecraft:the_nether run fill 14 62 89 15 64 89 minecraft:nether_portal[axis=x]'));
 	assert.deepEqual(cp.setup.loadChunks.map(c => c.dimension), [OW, NE]);
-	// A game that began in the Nether gets its starting portal back.
 	const fortress = buildCheckpoint([at(0, NE, [68.5, 42, 64.5]), at(3, NE, [200.5, 50, 10.5], '[]', { advancements: ['nether/find_fortress'] })], { milestone: 'fortress', seed: 7 });
 	assert.ok(fortress.setup.commands.includes('execute in minecraft:the_nether run fill 68 42 64 69 44 64 minecraft:nether_portal[axis=x]'));
 });

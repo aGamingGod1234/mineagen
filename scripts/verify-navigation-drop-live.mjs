@@ -1,5 +1,5 @@
 // Live regression probe: time lost crossing a 1-3 block drop, walking and sprinting, against the speed held on the flat run-up.
-// Needs a server started with -Darenaagents.navigation.debugTicks=true.
+// Needs a server started with -Dmineagen.navigation.debugTicks=true.
 // Usage: node scripts/verify-navigation-drop-live.mjs <coordinator-src> <rcon-port> <bridge-port> <secret-file> <server-log> <result-file>
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
