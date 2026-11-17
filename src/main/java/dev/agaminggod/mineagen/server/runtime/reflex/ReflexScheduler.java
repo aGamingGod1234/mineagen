@@ -139,8 +139,8 @@ public final class ReflexScheduler {
 	private boolean settledHold;
 	/**
 	 * The floor rule whose firing a model command's yield was kept through: it yields in {@link #step} once out of its hazard
-	 * or settled. Kept per rule while the hazard holds, so a firing that hits its maxS or fails in the hazard and fires again
-	 * still owes the waiting command its yield.
+	 * or settled. Kept per rule while the hazard holds, so a firing that hits its maxS, fails or is preempted in the hazard
+	 * and fires again (another rule may hold the body between) still owes the waiting command its yield.
 	 */
 	private String deferredYield;
 	/** The last step ended a firing for a deferred yield (read by the engine, which then follows the command). */
@@ -285,15 +285,15 @@ public final class ReflexScheduler {
 			}
 			if (!truth) state.heldBack = false;
 		}
-		if (deferredYield != null && !(current != null ? current.ruleId().equals(deferredYield)
-				: states.containsKey(deferredYield) && states.get(deferredYield).lastTruth)) deferredYield = null;
+		State owed = deferredYield == null ? null : states.get(deferredYield);
+		if (owed == null || !owed.lastTruth && (current == null || !current.ruleId().equals(deferredYield))) deferredYield = null;
 		deferredYielded = false;
 		if (current != null) {
 			State state = states.get(current.ruleId());
 			Outcome outcome = null;
 			String reason = detail == null ? "" : detail;
 			String held = heldBack.get(current.ruleId());
-			if (deferredYield != null && (!state.lastTruth || settledHold) && status == ActionStatus.RUNNING) {
+			if (current.ruleId().equals(deferredYield) && (!state.lastTruth || settledHold) && status == ActionStatus.RUNNING) {
 				outcome = Outcome.YIELDED;
 				reason = "model command";
 				if (state.rule.kind() == ReflexSpec.Kind.STANCE) state.suppressed = true;
@@ -320,8 +320,9 @@ public final class ReflexScheduler {
 				ended = current;
 				endOutcome = outcome;
 				current = null;
-				// A floor firing that ran out or failed in its hazard fires again: the command still waits for its yield.
-				if (!(state.lastTruth && (outcome == Outcome.TIMEOUT || outcome == Outcome.FAILED))) deferredYield = null;
+				// A floor firing that ran out, failed or was preempted in its hazard fires again: the command still waits for its yield.
+				boolean refires = state.lastTruth && (outcome == Outcome.TIMEOUT || outcome == Outcome.FAILED || outcome == Outcome.PREEMPTED);
+				if (ended.ruleId().equals(deferredYield) && !refires) deferredYield = null;
 				recordEnd(state, outcome, now, reason);
 				rearmSwallowedEdges(ended, now);
 			}

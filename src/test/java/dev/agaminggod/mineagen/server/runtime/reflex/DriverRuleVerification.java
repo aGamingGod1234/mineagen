@@ -238,6 +238,22 @@ public final class DriverRuleVerification {
 			check(out.endOutcome() == ReflexScheduler.Outcome.YIELDED && scheduler.deferredYielded() && scheduler.anySuppressed(),
 					"the refired firing still yields to the waiting command after " + first.endOutcome());
 		}
+		// Attacked in the lava: defend takes the body in the cooldown gap, lava preempts it again, and still owes the yield.
+		ReflexScheduler both = new ReflexScheduler();
+		both.replace(List.of(named(defaults, "default-lava"), rules("[" + DEFEND + "]").getFirst()), 0L);
+		Map<String, ReflexScheduler.Sense> inLava = Map.of("default-lava", new ReflexScheduler.Sense(true, false),
+				"default-defend", new ReflexScheduler.Sense(true, false));
+		both.step(1L, inLava, RUNNING, "", false);
+		check("default-lava".equals(both.current().ruleId()) && both.yield(2L).ended() == null, "lava keeps the body through the yield");
+		both.step(3L, inLava, ReflexScheduler.ActionStatus.FAILED, "no exit", false);
+		check(both.current() != null && "default-defend".equals(both.current().ruleId()), "defend takes the body in lava's cooldown");
+		long tick = 4L;
+		for (; !"default-lava".equals(both.current() == null ? null : both.current().ruleId()) && tick < 200L; tick++) both.step(tick, inLava, RUNNING, "", false);
+		check(both.current() != null && "default-lava".equals(both.current().ruleId()), "lava takes the body back");
+		ReflexScheduler.Decision out = both.step(tick, Map.of("default-lava", new ReflexScheduler.Sense(false, false),
+				"default-defend", new ReflexScheduler.Sense(true, false)), RUNNING, "", false);
+		check(out.endOutcome() == ReflexScheduler.Outcome.YIELDED && "default-lava".equals(out.ended().ruleId()) && both.deferredYielded(),
+				"lava yields to the waiting command once out, after defend held the body between");
 	}
 
 	/** A floor trigger fires again after its cooldown while the hazard holds; a model trigger on the same condition fires once. */
