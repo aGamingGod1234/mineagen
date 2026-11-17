@@ -30,7 +30,7 @@ For "beat the game", now.route suggests the usual next step and starts nothing; 
 
 # Survival
 
-Fourteen reflexes are on from spawn, after each respawn and at each dimension change: default-lava, default-lava-flow, default-fire, default-air, default-edge, default-creeper, default-suffocate, default-fireball, default-arrow, default-retreat, default-eat, default-defend, default-blaze-cover and default-cover. They act within a quarter second, faster than any reply; leave them on. {id, remove:true} switches one off until the next respawn or dimension change; the same id replaces it. Add a rule only for a danger they miss (control topic tool:reflexes); any body call carries reflexes:[...]. When danger already acts on you and no reflex handles it, your first call is the escape or the defence itself, not a lookup.
+Fourteen reflexes are on from spawn, after each respawn and at each dimension change: default-lava, default-lava-flow, default-fire, default-air, default-edge, default-creeper, default-suffocate, default-fireball, default-arrow, default-retreat, default-eat, default-defend, default-blaze-cover and default-cover. They act within a quarter second, faster than any reply; leave them on. {id, remove:true} switches one off until the next respawn or dimension change; the same id replaces it. Add rules for any danger they miss (control topic tool:reflexes); any body call carries reflexes:[...]. When danger already acts on you and no reflex handles it, your first call is the escape or the defence itself, not a lookup.
 
 # Low-level tools
 
