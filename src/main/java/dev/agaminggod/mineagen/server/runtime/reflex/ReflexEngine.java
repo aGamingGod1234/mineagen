@@ -357,6 +357,8 @@ public final class ReflexEngine {
 		ReflexScheduler.Decision decision = agent.scheduler.step(now, senses, status, agent.detail,
 				agent.behaviour != null && agent.behaviour.holdsWhileTrue(), harmed,
 				agent.behaviour == null ? 0L : agent.behaviour.releaseGraceTicks(), heldBack(player, agent));
+		// A floor firing kept through a command's yield has just yielded to it: follow the command as a yield does.
+		if (agent.scheduler.deferredYielded() && agent.scheduler.anySuppressed()) agent.command.yielded(now);
 		// Handing the body straight to the next firing keeps the lease: releasing it would drop a raised shield for a
 		// tick and restart its 5-tick raise, the window a trigger exists to cover.
 		end(agentId, agent, decision, decision.started() != null);

@@ -133,6 +133,10 @@ public final class ReflexScheduler {
 	private boolean harmed;
 	/** Whether the running firing has met its goal and only holds on (set each step by the engine; see {@link #settled}). */
 	private boolean settledHold;
+	/** A floor firing kept through a model command's yield: it yields in {@link #step} once out of its hazard or settled. */
+	private Firing deferredYield;
+	/** The last step ended a firing for a deferred yield (read by the engine, which then follows the command). */
+	private boolean deferredYielded;
 
 	/**
 	 * Installs a complete rule set. A rule whose definition is unchanged keeps its state (cooldown, counters, edges);
@@ -272,12 +276,20 @@ public final class ReflexScheduler {
 			}
 			if (!truth) state.heldBack = false;
 		}
+		if (deferredYield != current) deferredYield = null;
+		deferredYielded = false;
 		if (current != null) {
 			State state = states.get(current.ruleId());
 			Outcome outcome = null;
 			String reason = detail == null ? "" : detail;
 			String held = heldBack.get(current.ruleId());
-			if (held != null && status == ActionStatus.RUNNING) {
+			if (deferredYield != null && (!state.lastTruth || settledHold) && status == ActionStatus.RUNNING) {
+				outcome = Outcome.YIELDED;
+				reason = "model command";
+				if (state.rule.kind() == ReflexSpec.Kind.STANCE) state.suppressed = true;
+				else state.yieldedTrigger = true;
+				deferredYielded = true;
+			} else if (held != null && status == ActionStatus.RUNNING) {
 				outcome = Outcome.YIELDED;
 				reason = (reason.isEmpty() ? "" : reason + "; ") + held;
 				state.heldBack = state.lastTruth;
@@ -298,6 +310,7 @@ public final class ReflexScheduler {
 				ended = current;
 				endOutcome = outcome;
 				current = null;
+				deferredYield = null;
 				recordEnd(state, outcome, now, reason);
 				rearmSwallowedEdges(ended, now);
 			}
@@ -347,12 +360,20 @@ public final class ReflexScheduler {
 		if (current == null) return Decision.NONE;
 		Firing ended = current;
 		State state = states.get(ended.ruleId());
-		if (state.floor && state.lastTruth && !settledHold) return Decision.NONE;
+		if (state.floor && state.lastTruth && !settledHold) {
+			deferredYield = current;
+			return Decision.NONE;
+		}
 		current = null;
 		recordEnd(state, Outcome.YIELDED, now, "model command");
 		if (state.rule.kind() == ReflexSpec.Kind.STANCE) state.suppressed = true;
 		else state.yieldedTrigger = true;
 		return new Decision(ended, Outcome.YIELDED, null);
+	}
+
+	/** Whether the last {@link #step} ended a floor firing for a model command it had been kept through. */
+	public boolean deferredYielded() {
+		return deferredYielded;
 	}
 
 	/** A shield stance guards idle time; it cannot seize a model command in the gap before its first firing. */

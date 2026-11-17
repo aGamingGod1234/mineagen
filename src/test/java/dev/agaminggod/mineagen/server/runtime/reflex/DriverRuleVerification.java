@@ -173,14 +173,38 @@ public final class DriverRuleVerification {
 				check(scheduler.yield(tick).ended() == null && scheduler.current() != null, id + " keeps the body through a command while in its hazard");
 				check(!step(scheduler, tick, id, true, RUNNING).changed(), id + " keeps running");
 			}
-			step(scheduler, 6L, id, false, RUNNING);
-			check(scheduler.yield(7L).endOutcome() == ReflexScheduler.Outcome.YIELDED, id + " yields once out of its hazard");
+			// The command's one yield is remembered: the firing yields to it on the first tick out, with no second yield.
+			ReflexScheduler.Decision out = step(scheduler, 6L, id, false, RUNNING);
+			check(out.endOutcome() == ReflexScheduler.Outcome.YIELDED && scheduler.deferredYielded()
+					&& scheduler.events().getLast().detail().equals("model command"), id + " yields to the waiting command once out of its hazard");
+			for (long tick = 7L; tick < 60L; tick++) check(step(scheduler, tick, id, tick >= 30L, RUNNING).started() == null || tick == 30L,
+					id + " waits for a fresh hazard after yielding");
+
+			ReflexScheduler settles = new ReflexScheduler();
+			settles.replace(List.of(named(defaults, id)), 0L);
+			step(settles, 1L, id, true, RUNNING);
+			check(settles.yield(2L).ended() == null, id + " is kept while unsettled");
+			settles.settled(true);
+			check(settles.step(3L, Map.of(id, new ReflexScheduler.Sense(true, false)), RUNNING, "holding until the burn is out", false).endOutcome()
+					== ReflexScheduler.Outcome.YIELDED, id + " yields to the waiting command once it settles");
+			settles.settled(false);
 
 			ReflexScheduler settled = new ReflexScheduler();
 			settled.replace(List.of(named(defaults, id)), 0L);
 			step(settled, 1L, id, true, RUNNING);
 			settled.settled(true);
-			check(settled.yield(2L).endOutcome() == ReflexScheduler.Outcome.YIELDED, id + " yields once settled");
+			check(settled.yield(2L).endOutcome() == ReflexScheduler.Outcome.YIELDED, id + " yields at once when already settled");
+
+			// A kept yield is forgotten when its firing ends any other way; the next firing is not yielded by it.
+			ReflexScheduler stale = new ReflexScheduler();
+			stale.replace(List.of(named(defaults, id)), 0L);
+			step(stale, 1L, id, true, RUNNING);
+			stale.yield(2L);
+			check(step(stale, 3L, id, true, ReflexScheduler.ActionStatus.DONE, "out").endOutcome() == ReflexScheduler.Outcome.DONE && !stale.deferredYielded(),
+					id + " finishing on its own is DONE, not yielded");
+			step(stale, 4L, id, false, RUNNING);
+			check(id.equals(step(stale, 30L, id, true, RUNNING).started()), id + " fires for a new hazard");
+			check(step(stale, 31L, id, false, RUNNING).ended() == null, "the old command's yield does not end the new firing");
 		}
 		ReflexScheduler model = new ReflexScheduler();
 		model.replace(List.of(rule("{\"id\":\"default-lava\",\"priority\":9,\"when\":{\"type\":\"in_lava\"},\"do\":{\"type\":\"leave_lava\"}}")), 0L);
