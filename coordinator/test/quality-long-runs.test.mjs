@@ -216,6 +216,16 @@ test('PowerShell packaging uses the same artifact writer and keeps scenario summ
 	} finally { await rm(dir, { recursive: true, force: true }); }
 });
 
+test('PowerShell reads an arm\'s server JVM flags as single strings (Windows PowerShell 5.1 and 7)', { skip: process.platform !== 'win32' }, async () => {
+	const script = fileURLToPath(new URL('../../scripts/run-headless-provider-matrix.ps1', import.meta.url));
+	const quote = s => `'${s.replaceAll("'", "''")}'`;
+	const flags = async (value) => (await execute('powershell.exe', ['-NoProfile', '-Command', `. ${quote(script)} -ProjectRoot ${quote(path.dirname(path.dirname(script)))} -FunctionsOnly; Write-Output (Get-ServerJvmArgs)`],
+		{ windowsHide: true, timeout: 30000, env: { ...process.env, ARENA_HEADLESS_SERVER_JVM_ARGS: value } })).stdout.trim();
+	assert.equal(await flags('["-XX:+UseG1GC","-Dmineagen.arm=b"]'), '"-XX:+UseG1GC" "-Dmineagen.arm=b"');
+	assert.equal(await flags('["-Xss4m"]'), '"-Xss4m"');
+	await assert.rejects(flags('["not a flag"]'));
+});
+
 test('PowerShell read and rewrite of an artifact summary keeps non-ASCII text exact', { skip: process.platform !== 'win32' }, async () => {
 	const dir = await mkdtemp(path.join(tmpdir(), 'quality-powershell-utf8-'));
 	try {

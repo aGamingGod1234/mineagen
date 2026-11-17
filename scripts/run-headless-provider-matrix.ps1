@@ -52,7 +52,8 @@ function Quote-Argument([string] $Value) {
 function Get-ServerJvmArgs {
 	$value = [Environment]::GetEnvironmentVariable('ARENA_HEADLESS_SERVER_JVM_ARGS')
 	if ([string]::IsNullOrWhiteSpace($value)) { return '' }
-	$flags = @($value | ConvertFrom-Json)
+	# Windows PowerShell 5.1 emits a JSON array as one Object[]; @() would wrap it again. The cast keeps it flat on 5.1 and 7.
+	$flags = [object[]]($value | ConvertFrom-Json)
 	foreach ($flag in $flags) { if ($flag -isnot [string] -or $flag -notmatch '^-\S+$') { throw 'ARENA_HEADLESS_SERVER_JVM_ARGS must be a JSON array of single-token flags' } }
 	return ($flags | ForEach-Object { ' ' + (Quote-Argument $_) }) -join ''
 }
