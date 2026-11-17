@@ -75,12 +75,27 @@ test('reconciliation tolerates rounding per hit, an edge hit, and a lethal hit r
 	assert.equal(reconcileDamage(lethal, [counter(START, 0), counter(end, 10)]).status, 'invalid');
 });
 
+test('a capture that stops before the room window ends is unknown, never a clean room', () => {
+	const truncated = scoreRun({ scenario: 'R-SKELETON', goalStartedAtMs: START, samples: [counter(START, 0, 0)], dangerRows: [] });
+	assert.equal(truncated.status, 'unknown');
+	assert.equal(truncated.damage, null);
+	assert.equal(truncated.deaths, null);
+	assert.match(truncated.reconciliation.reason, /do not cover the room window/);
+	const lateStart = scoreRun({ scenario: 'R-SKELETON', goalStartedAtMs: START, samples: [counter(START + 60_000, 0, 0), counter(START + 300_000, 0, 0)], dangerRows: [] });
+	assert.equal(lateStart.status, 'unknown', 'samples must reach the window start too');
+	const full = scoreRun({ scenario: 'R-SKELETON', goalStartedAtMs: START, samples: [counter(START, 0, 0), counter(START + 299_000, 0, 0)], dangerRows: [] });
+	assert.equal(full.status, 'valid');
+	assert.equal(full.damage, 0);
+	const [a] = [scored('R-SKELETON', 1, 4)];
+	assert.equal(pairRuns([a], [{ ...truncated, pairId: 'R-SKELETON-r1' }])[0].deltas.damage, null, 'the pair is incomplete');
+});
+
 test('each room is scored over its own window; deaths come from the death counter', () => {
 	assert.equal(roomWindowMs('R-FLOOD'), 360_000);
 	assert.equal(roomWindowMs('R-TOOLBREAK'), 180_000);
 	assert.equal(roomWindowMs('R-CREEPER'), 300_000);
 	const rows = [damage(START + 100_000, 2), damage(START + 200_000, 4)];
-	const samples = [counter(START, 0, 0), counter(START + 250_000, 60, 1)];
+	const samples = [counter(START, 0, 0), counter(START + 250_000, 60, 1), counter(START + 300_000, 60, 1)];
 	const toolbreak = scoreRun({ scenario: 'R-TOOLBREAK', goalStartedAtMs: START, samples, dangerRows: rows });
 	assert.equal(toolbreak.damage, 2, 'a hit after 180 s is outside R-TOOLBREAK');
 	const creeper = scoreRun({ scenario: 'R-CREEPER', goalStartedAtMs: START, samples, dangerRows: rows });

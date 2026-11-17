@@ -11,6 +11,8 @@ export const DEFAULT_ROOM_WINDOW_MS = 300000;
 export const HIT_TOLERANCE_HP = 0.05;
 /** The sampler and the Watcher use different clocks; a hit this close to the final sample may fall on either side. */
 export const EDGE_SLACK_MS = 2000;
+/** Counter samples must reach this close to both ends of the room window, or a truncated capture would score as clean. */
+export const COVERAGE_SLACK_MS = 5000;
 /** Margin = z x per-pair SD x sqrt(complete pairs), per room and metric (see scripts/quality/README.md). */
 export const DEFAULT_MARGIN_Z = 2;
 /** Deaths and room success move in whole events, so one event is never beyond the margin, even when the A/A SD is 0. */
@@ -99,13 +101,16 @@ export function scoreRun({ scenario, goalStartedAtMs, samples = [], dangerRows =
 	if (start === null) return { scenario, windowMs, status: 'unknown', reason: 'no goal start', damage: null, deaths: null, success, otherSchemaRows: split.otherSchema };
 	const end = start + windowMs;
 	const damageRows = rows?.filter(row => row.type === 'damage') ?? null;
-	const reconciliation = reconcileDamage(damageRows, samples);
+	const counted = samples.filter(s => finite(s?.at) && finite(s?.damageTakenCounter));
+	const covered = counted.length > 0 && counted[0].at <= start + COVERAGE_SLACK_MS && counted.at(-1).at >= end - COVERAGE_SLACK_MS;
+	const reconciliation = covered ? reconcileDamage(damageRows, samples)
+		: { status: 'unknown', reason: `counter samples do not cover the room window (${counted.length ? `${counted[0].at - start}..${counted.at(-1).at - start} ms of 0..${windowMs} ms` : 'none'})` };
 	const inWindow = damageRows?.filter(row => row.atMs >= start && row.atMs <= end) ?? [];
 	const damage = reconciliation.status === 'valid' ? round(inWindow.reduce((total, row) => total + (row.healthDrop ?? 0), 0)) : null;
 	const windowSamples = samples.filter(s => finite(s?.at) && s.at >= start - EDGE_SLACK_MS && s.at <= end + EDGE_SLACK_MS && finite(s.deathCounter));
 	const counterDeaths = windowSamples.length > 1 ? windowSamples.at(-1).deathCounter - windowSamples[0].deathCounter : null;
 	const lethalRows = inWindow.filter(row => row.lethal === true).length;
-	const deaths = counterDeaths !== null && counterDeaths >= 0 ? Math.max(counterDeaths, lethalRows) : rows === null ? null : lethalRows;
+	const deaths = !covered ? null : counterDeaths !== null && counterDeaths >= 0 ? Math.max(counterDeaths, lethalRows) : rows === null ? null : lethalRows;
 	const threat = rows === null ? null : threatTime(rows, start, end);
 	const result = { scenario, windowMs, goalStartedAtMs: start, status: reconciliation.status, damage, deaths, success, reconciliation,
 		hits: inWindow.length, absorbedHp: round(inWindow.reduce((total, row) => total + (row.absorbed ?? 0), 0)), blockedHits: inWindow.filter(row => row.blocked === true).length,
