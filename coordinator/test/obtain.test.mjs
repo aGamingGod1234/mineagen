@@ -1376,6 +1376,21 @@ test('a non-food obtain that ends holding its item at health 5 hands back LOW_HE
 	assert.match(result.message, /^Obtained oak_planks, but health is 5, at or under 6; recover/);
 });
 
+test('a leg\'s own low-health stop at health 7 hands back LOW_HEALTH with its line; other damage stops stay danger', async () => {
+	for (const reasonCode of ['LOW_HEALTH', 'DAMAGE_TAKEN']) {
+		const body = lowHealth(simulatedBody(), 7);
+		body.gather = async (args) => { body.calls.push(['gather', args]); return { state: 'FAILED', reasonCode, message: 'Health 7: stopped gathering' }; };
+		const result = await runObtain({ item: 'oak_planks', count: 4 }, body, { now: clock() });
+		assert.equal(body.calls.filter(([type]) => type === 'gather').length, 1, `${reasonCode}: nothing more is dispatched`);
+		assert.equal(result.state, 'INTERRUPTED', `${reasonCode}: ${result.message}`);
+		assert.equal(result.reasonCode, reasonCode === 'LOW_HEALTH' ? 'LOW_HEALTH' : 'DANGER', `${reasonCode}: ${result.message}`);
+		if (reasonCode === 'LOW_HEALTH') {
+			assert.match(result.message, /^Stopped at low health \(LOW_HEALTH: Health 7: stopped gathering\); recover/);
+			assert.doesNotMatch(result.message, /danger/i);
+		}
+	}
+});
+
 test('a fork stop ends obtain with its own code: the leg it cut short is not read as danger, and real danger still wins', async () => {
 	for (const scenario of ['fork', 'fork in lava', 'no fork reader']) {
 		const body = simulatedBody();

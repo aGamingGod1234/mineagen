@@ -620,10 +620,12 @@ export class NativeToolRuntime {
 	 * interruptedBy 'fork' and obtain ends with the stop's own code and line instead of DANGER.
 	 */
 	interruptBlockingTool(agentId, { armNext = false, forkStop = null } = {}) {
-		this.#wakeProgramWaits(agentId, 'danger');
-		// Advice must yield to danger before the asynchronous action interruption marker catches up.
-		const action = this.#actions.get(agentId);
-		if (action?.actionType === 'cast_obsidian') action.suppressCastResumeAdvice = true;
+		if (forkStop === null) {
+			this.#wakeProgramWaits(agentId, 'danger');
+			// Advice must yield to danger before the asynchronous action interruption marker catches up.
+			const action = this.#actions.get(agentId);
+			if (action?.actionType === 'cast_obsidian') action.suppressCastResumeAdvice = true;
+		}
 		const run = this.#blockingToolRuns.get(agentId);
 		if (run === undefined) {
 			if (armNext && forkStop === null) this.#armedDangerInterrupts.add(agentId);

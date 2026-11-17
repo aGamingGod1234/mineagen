@@ -315,12 +315,15 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 	// The fork the coordinator stopped this run for ({reasonCode, message}), unless obtain found danger of its own: the
 	// run then ends with the fork's code, and the legs it cut short are not read as danger.
 	const forkStop = () => (danger === null ? rawBody.forkStop?.() ?? null : null);
+	// danger came from a leg's own LOW_HEALTH stop: it halts the run like danger but is handed back as LOW_HEALTH.
+	let lowLeg = false;
 	let materialsKeep = new Set();
 	const seen = async (promise) => {
 		const result = await promise;
 		if (result?.state === 'RUNNING' && typeof result.actionId === 'string') running = result;
 		if (danger === null && forkStop() === null && isDanger(result, result?.reasonCode === 'HOSTILE_NEAR' ? await rawBody.observe().catch(() => null) : null)) {
 			danger = `${result.reasonCode}: ${String(result.message ?? '').slice(0, 160)}`;
+			lowLeg = result.reasonCode === 'LOW_HEALTH';
 		}
 		return result;
 	};
@@ -458,7 +461,7 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		// The ending is decided after cleanup, from what is true now: danger, damage or death during cleanup, health at or
 		// under the low-health line, or the item lost, is never reported as obtained.
 		const health = o?.player?.health;
-		const hurt = danger ?? bodyDanger(o) ?? (o?.player?.dead || Number.isFinite(health) && health <= 0 ? 'died'
+		const hurt = (lowLeg ? null : danger) ?? bodyDanger(o) ?? (o?.player?.dead || Number.isFinite(health) && health <= 0 ? 'died'
 			: Number.isFinite(health) && Number.isFinite(before) && health < before ? `health ${before} -> ${health} while picking up the stations` : null);
 		const fork = hurt === null ? forkStop() : null;
 		if (rawBody.stopped()) {
@@ -1342,6 +1345,7 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 	// The action danger left running (a body leg, or find's leg inside a search) goes back with every danger ending.
 	const handle = () => (running === null ? {} : { running: { actionId: running.actionId, ...(running.recoveryHint ? { recoveryHint: running.recoveryHint } : {}) } });
 	while (true) {
+		if (danger !== null && lowLeg) return end('INTERRUPTED', 'LOW_HEALTH', `Stopped at low health (${danger}); recover, then call obtain again to continue`, handle());
 		if (danger !== null) return end('INTERRUPTED', 'DANGER', `Stopped for danger (${danger}); decide, then call obtain again to continue`, handle());
 		if (rawBody.interrupted()) {
 			const fork = forkStop();
