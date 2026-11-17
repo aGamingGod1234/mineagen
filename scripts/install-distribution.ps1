@@ -2,7 +2,7 @@
 param(
     [string] $JavaPath,
     [string] $LauncherProfiles = (Join-Path $env:APPDATA '.minecraft\launcher_profiles.json'),
-    [string] $GameDirectory = (Join-Path $env:APPDATA '.minecraft-arena-agents'),
+    [string] $GameDirectory = (Join-Path $env:APPDATA '.minecraft-mineagen'),
 	[ValidateSet('None', 'AfterRuntimePromotion', 'AfterModRemoval', 'AfterModsPromotion', 'AfterProfilePromotion')]
 	[string] $FailurePoint = 'None'
 )
@@ -33,13 +33,13 @@ $ModVersion = [string] $PackageMetadata.mod_version
 $MinecraftVersion = [string] $PackageMetadata.minecraft_version
 $LoaderVersion = [string] $PackageMetadata.loader_version
 $VersionId = "fabric-loader-$LoaderVersion-$MinecraftVersion"
-$ProfileId = 'arena-agents-modpack'
-$ProfileName = 'Arena Agents'
+$ProfileId = 'mineagen-modpack'
+$ProfileName = 'Mineagen'
 $MinimumSecretLength = 32
 $SecretByteCount = 32
 $ExpectedModNames = @(
-	"arena-agents-$ModVersion.jar"
-	"arena-agents-voice-$($PackageMetadata.voice_addon_version).jar"
+	"mineagen-$ModVersion.jar"
+	"mineagen-voice-$($PackageMetadata.voice_addon_version).jar"
 	"fabric-api-$($PackageMetadata.fabric_api_version).jar"
 	"fabric-carpet-$($PackageMetadata.carpet_version).jar"
 	"voicechat-fabric-$($PackageMetadata.voicechat_version).jar"
@@ -49,7 +49,7 @@ $ModsSource = Join-Path $PackageRoot 'mods'
 $RuntimeDeploymentHelper = Join-Path $PSScriptRoot 'distribution-runtime.ps1'
 $StartupPackagingPreflight = Join-Path $PSScriptRoot 'verify-startup-packaging.ps1'
 $ResolvedGameDirectory = [IO.Path]::GetFullPath($GameDirectory)
-$InstalledPackageRoot = Join-Path $ResolvedGameDirectory 'arena-agents-runtime'
+$InstalledPackageRoot = Join-Path $ResolvedGameDirectory 'mineagen-runtime'
 $InstalledRuntimeDirectory = Join-Path $InstalledPackageRoot 'runtime'
 $SecretPath = Join-Path $InstalledRuntimeDirectory 'bridge-secret.txt'
 $VoiceSecretPath = Join-Path $InstalledRuntimeDirectory 'voice-secret.txt'
@@ -105,13 +105,13 @@ function Test-UnsafeJavaProcess([string] $Name, [string] $CommandLine) {
 }
 
 if (Get-Process -Name MinecraftLauncher,Minecraft -ErrorAction SilentlyContinue) {
-    throw 'Close Minecraft and Minecraft Launcher before installing Arena Agents.'
+    throw 'Close Minecraft and Minecraft Launcher before installing Mineagen.'
 }
 try { $javaProcesses = @(Get-CimInstance Win32_Process -Filter "Name = 'java.exe' OR Name = 'javaw.exe'" -ErrorAction Stop) }
 catch { throw "Unable to inspect Java process command lines; refusing to install: $($_.Exception.Message)" }
 foreach ($process in $javaProcesses) {
     if (Test-UnsafeJavaProcess ([string] $process.Name) ([string] $process.CommandLine)) {
-        throw "A Minecraft/Fabric Java process is active (PID $($process.ProcessId)); close it before installing Arena Agents."
+        throw "A Minecraft/Fabric Java process is active (PID $($process.ProcessId)); close it before installing Mineagen."
     }
 }
 if ([string]::IsNullOrWhiteSpace($JavaPath)) {
@@ -135,7 +135,7 @@ try {
 }
 if ($LASTEXITCODE -ne 0) { throw "Java version check failed with code $LASTEXITCODE." }
 if ($javaVersion -notmatch 'version "25(\.|")') {
-    throw "Arena Agents requires Java 25. Detected: $($javaVersion.Trim())"
+    throw "Mineagen requires Java 25. Detected: $($javaVersion.Trim())"
 }
 foreach ($required in @($LauncherProfiles, $VersionMetadata, $ModsSource, $PackageMetadataPath, $RuntimeDeploymentHelper, $StartupPackagingPreflight)) {
 	if (-not (Test-Path -LiteralPath $required)) { throw "Missing installation prerequisite: $required" }
@@ -155,7 +155,7 @@ $document = Get-Content -LiteralPath $resolvedProfiles -Raw | ConvertFrom-Json
 if ($null -eq $document.profiles) {
     $document | Add-Member -MemberType NoteProperty -Name profiles -Value ([pscustomobject]@{})
 }
-$javaArguments = "-Xms1G -Xmx4G -Darenaagents.bridgeSecretFile=`"$SecretPath`" -Darenaagents.voiceSecretFile=`"$VoiceSecretPath`" -Darenaagents.packageRoot=`"$InstalledPackageRoot`""
+$javaArguments = "-Xms1G -Xmx4G -Dmineagen.bridgeSecretFile=`"$SecretPath`" -Dmineagen.voiceSecretFile=`"$VoiceSecretPath`" -Dmineagen.packageRoot=`"$InstalledPackageRoot`""
 $expected = [ordered]@{
     gameDir = $ResolvedGameDirectory
     javaArgs = $javaArguments
@@ -199,8 +199,8 @@ if ($null -ne $existing) {
 
 function Test-PackageOwnedModName([string] $Name) {
 	if ($Name -match '^(?i:fabric-api|fabric-carpet|voicechat-fabric)-.+\.jar$') { return $true }
-	if ($Name -match '^(?i:arena-agents-voice)-.+\.jar$') { return $true }
-	return $Name -match '^(?i:arena-agents)-(?!voice-).+\.jar$'
+	if ($Name -match '^(?i:mineagen-voice)-.+\.jar$') { return $true }
+	return $Name -match '^(?i:mineagen)-(?!voice-).+\.jar$'
 }
 
 $modsDirectory = Join-Path $ResolvedGameDirectory 'mods'
@@ -211,7 +211,7 @@ $stagingMods = Join-Path $stagingRoot 'mods'
 $backupRoot = Join-Path $backupRootParent "distribution-$transactionId"
 $backupMods = Join-Path $backupRoot 'mods'
 $backupProfiles = Join-Path $backupRoot 'launcher_profiles.json'
-$profileTemporary = "$resolvedProfiles.arena-agents-$transactionId.tmp"
+$profileTemporary = "$resolvedProfiles.mineagen-$transactionId.tmp"
 $installLock = $null
 $runtimeDeployment = $null
 $modsMutationStarted = $false
@@ -223,7 +223,7 @@ try {
 	try {
 		$installLock = [IO.File]::Open($lockPath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
 	} catch {
-		throw "Another Arena Agents package installation is already in progress: $($_.Exception.Message)"
+		throw "Another Mineagen package installation is already in progress: $($_.Exception.Message)"
 	}
 
 	New-Item -ItemType Directory -Force -Path $stagingMods, $backupMods | Out-Null
@@ -277,13 +277,13 @@ try {
 		Move-Item -LiteralPath $profileTemporary -Destination $resolvedProfiles -Force
 		$profileReplaced = $true
 		if ($FailurePoint -eq 'AfterProfilePromotion') { throw 'Injected failure after launcher profile promotion.' }
-		Copy-Item -LiteralPath $backupProfiles -Destination "$resolvedProfiles.arena-agents.backup" -Force
+		Copy-Item -LiteralPath $backupProfiles -Destination "$resolvedProfiles.mineagen.backup" -Force
 	}
 
 	foreach ($oldBackup in Get-ChildItem -LiteralPath $backupRootParent -Directory -Force) {
 		if ($oldBackup.FullName -ne $backupRoot) { Remove-Item -LiteralPath $oldBackup.FullName -Recurse -Force }
 	}
-	Write-Host "Arena Agents $ModVersion installed to $ResolvedGameDirectory"
+	Write-Host "Mineagen $ModVersion installed to $ResolvedGameDirectory"
 	Write-Host "Launcher profile: $ProfileName"
 	if ($null -ne $runtimeDeployment.BackupPath) { Write-Host "Previous coordinator backup: $($runtimeDeployment.BackupPath)" }
 	Write-Host "Previous package-owned files: $backupRoot"
@@ -311,7 +311,7 @@ try {
 		catch { $rollbackFailures.Add("runtime: $($_.Exception.Message)") }
 	}
 	if ($rollbackFailures.Count -ne 0) {
-		throw "Arena Agents install failed: $($installationFailure.Exception.Message). Rollback was incomplete: $($rollbackFailures -join '; '). Backup: $backupRoot"
+		throw "Mineagen install failed: $($installationFailure.Exception.Message). Rollback was incomplete: $($rollbackFailures -join '; '). Backup: $backupRoot"
 	}
 	throw $installationFailure
 } finally {

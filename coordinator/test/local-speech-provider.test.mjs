@@ -7,7 +7,8 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import test from 'node:test';
 
-import { builtInVoiceProfiles } from '../src/voice/voice-profile-store.mjs';
+import { builtInVoiceProfiles, VoiceProfileStore } from '../src/voice/voice-profile-store.mjs';
+import { createVoiceHttpServer, createVoiceRequestHeaders } from '../src/voice/voice-http-server.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -41,6 +42,67 @@ function observeBlockedWorkers(context) {
 		} finally { clearTimeout(timer); }
 	};
 }
+
+test('interrupted local speech reloads a cold worker within its configured HTTP deadline', async context => {
+	const blocked = observeBlockedWorkers(context);
+	const { LocalSpeechProvider } = await import('../src/voice/local-speech-provider.mjs');
+	const provider = new LocalSpeechProvider({ executable: process.execPath,
+		scriptPath: fileURLToPath(new URL('../test-support/local-speech-rpc-fixture.mjs', import.meta.url)), timeoutMs: 5_000 });
+	const secret = 'local-reload-loopback-secret';
+	const worker = createVoiceHttpServer({ provider, profileStore: new VoiceProfileStore(), secret, port: 0, requestTimeoutMs: 5_000 });
+	try {
+		await provider.warmup();
+		const address = await worker.start();
+		const send = (text, signal) => {
+			const body = JSON.stringify({ agentId: '00000000-0000-4000-8000-000000000001', profileId: 'voice.auto.v1',
+				text, radius: 48, conversationSequence: 1 });
+			return fetch(`http://127.0.0.1:${address.port}/v1/tts`, { method: 'POST', body, signal,
+				headers: { ...createVoiceRequestHeaders({ secret, path: '/v1/tts', contentType: 'application/json', body }), 'Content-Type': 'application/json' } });
+		};
+		assert.equal((await send('initial warm line')).status, 200);
+		const controller = new AbortController();
+		const interrupted = send('block-worker', controller.signal);
+		await blocked(1);
+		controller.abort();
+		await assert.rejects(interrupted, { name: 'AbortError' });
+		assert.equal((await send('cold-reload after interruption')).status, 200,
+			'a cold 2.5-second model reload must use the configured five-second local deadline');
+		assert.equal((await send('cold-reload subsequent short line')).status, 200);
+		assert.equal(worker.statusSnapshots().find(status => status.component === 'voice:tts').state, 'ready');
+	} finally { await worker.close(); await provider.close(); }
+});
+
+test('a crashed local worker recovers through a cold warmup probe bounded by the local deadline', async () => {
+	const { LocalSpeechProvider } = await import('../src/voice/local-speech-provider.mjs');
+	const provider = new LocalSpeechProvider({ executable: process.execPath,
+		scriptPath: fileURLToPath(new URL('../test-support/local-speech-cold-warmup-fixture.mjs', import.meta.url)), timeoutMs: 5_000 });
+	const secret = 'local-cold-probe-loopback-secret';
+	// Scaled bootstrap shape: the probe deadline equals the local deadline, so a 1.5-second cold load fits.
+	const worker = createVoiceHttpServer({ provider, profileStore: new VoiceProfileStore(), secret, port: 0,
+		requestTimeoutMs: 5_000, probeTimeoutMs: 5_000, initialProbeDelayMs: 50, maxProbeDelayMs: 1_500 });
+	try {
+		const address = await worker.start();
+		let sequence = 0;
+		const send = async text => {
+			const body = JSON.stringify({ agentId: '00000000-0000-4000-8000-000000000001', profileId: 'voice.auto.v1',
+				text, radius: 48, conversationSequence: sequence++ });
+			const response = await fetch(`http://127.0.0.1:${address.port}/v1/tts`, { method: 'POST', body,
+				headers: { ...createVoiceRequestHeaders({ secret, path: '/v1/tts', contentType: 'application/json', body }), 'Content-Type': 'application/json' } });
+			await response.arrayBuffer();
+			return response.status;
+		};
+		assert.equal(await send('initial cold line'), 200);
+		assert.notEqual(await send('crash-worker'), 200);
+		assert.equal(worker.statusSnapshots().find(status => status.component === 'voice:tts').state, 'degraded');
+		const started = Date.now();
+		let status;
+		while ((status = await send(`after crash ${sequence}`)) !== 200 && Date.now() - started < 8_000) {
+			await new Promise(resolve => setTimeout(resolve, 100));
+		}
+		assert.equal(status, 200, 'the warmup probe must be allowed to finish a cold model load');
+		assert.equal(worker.statusSnapshots().find(status => status.component === 'voice:tts').state, 'ready');
+	} finally { await worker.close(); await provider.close(); }
+});
 
 test('local speech RPC responses use the original stdout outside global redirects', async () => {
 	const source = await readFile(fileURLToPath(new URL('../src/voice/local-speech-worker.py', import.meta.url)), 'utf8');

@@ -144,7 +144,6 @@ test('per-agent control reserve is bounded and rejects without evicting accepted
 	await Promise.all(pending);
 	assert.equal(socket.writes.length, 37);
 	assert.equal(socket.writes.some(({ payload }) => payload.actionId === 'cancel-overflow'), false);
-	// Draining releases both ordinary and reserved capacity.
 	await inspect(bridge, agent, 'after-drain');
 });
 

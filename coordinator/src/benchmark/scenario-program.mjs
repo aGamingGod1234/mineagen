@@ -38,12 +38,10 @@ export function compileScenarioProgram(manifest, { limits = DEFAULT_ARENA_SCRIPT
 	return deepFreeze({ source, decision, compiled, commands });
 }
 
-/** Return only the provider-compatible decision envelope. */
 export function compileScenarioDecision(manifest, options = {}) {
 	return compileScenarioProgram(manifest, options).decision;
 }
 
-/** Return only deterministic ArenaScript source for callers that do not need an envelope. */
 export function compileScenarioSource(manifest, options = {}) {
 	return compileScenarioProgram(manifest, options).source;
 }

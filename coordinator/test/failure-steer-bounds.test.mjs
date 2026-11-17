@@ -1,5 +1,3 @@
-// Production-path regressions for bounded failure steering (PR #72 review rounds 3-4): attempt bounds, successor
-// delivery, held/program/cooldown wakes, and envelope coalescing that keeps every attention envelope.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { AgentRegistry } from '../src/agent-registry.mjs';

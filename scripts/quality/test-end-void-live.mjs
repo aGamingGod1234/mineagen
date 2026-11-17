@@ -1,10 +1,4 @@
 #!/usr/bin/env node
-// Provider-free check of End void edges. Live End runs died by "fell out of the world": d6-end-a (build 5694ee19) had a
-// dragon-fireball sprint_away reflex run the body 8.4 blocks east to an island rim, then the model's raw 20-tick sprint,
-// authored from the old position, ran it over the rim. Checks: 1) rim: the same fireball, reflex and stale sprint on a
-// 21x21 end-stone island; 2) platform: the same on the vanilla 5x5 spawn platform at 100,48,0; 3) a raw sprint and a
-// control_sequence frame off the platform stop with VOID_EDGE, a sneaking walk stays on (vanilla) and a stale sprint
-// after the reflex never falls. ARENA_JAR selects the jar (old vs new). Launch under slot.sh live.
 import { readFile, writeFile, mkdir, cp, readdir, unlink, open } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,7 +9,7 @@ import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
-const jarPath = resolve(process.env.ARENA_JAR ?? join(root, 'build/libs/arena-agents-0.2.0.jar'));
+const jarPath = resolve(process.env.ARENA_JAR ?? join(root, 'build/libs/mineagen-0.2.0.jar'));
 const out = resolve(process.argv[2] ?? 'runtime/end-void-live');
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE;
 if (!template || !process.env.SLOT_PORT_BASE) throw new Error('Set ARENA_HEADLESS_SERVER_TEMPLATE and launch under slot.sh live');
@@ -24,13 +18,13 @@ await mkdir(out, { recursive: true });
 if ((await readdir(out)).length) throw new Error('Use a fresh output directory');
 await writeFile(join(out, 'manifest.json'), JSON.stringify({ kind: 'provider-free live mechanics', aiPerformanceMeasured: false, fixtureSetupUsesOperatorCommands: true, jarSha256: createHash('sha256').update(await readFile(jarPath)).digest('hex'), node: process.version }, null, 2));
 await cp(template, server, { recursive: true });
-for (const name of await readdir(join(server, 'mods'))) if (name.startsWith('arena-agents-')) await unlink(join(server, 'mods', name));
-await cp(jarPath, join(server, 'mods/arena-agents-0.2.0.jar'));
+for (const name of await readdir(join(server, 'mods'))) if (name.startsWith('mineagen-')) await unlink(join(server, 'mods', name));
+await cp(jarPath, join(server, 'mods/mineagen-0.2.0.jar'));
 const secret = randomBytes(32).toString('hex');
 await writeFile(join(out, 'secret.txt'), secret, { mode: 0o600 });
 await writeFile(join(server, 'server.properties'), `online-mode=false\nserver-ip=127.0.0.1\nserver-port=${port + 2}\nenable-rcon=true\nrcon.ip=127.0.0.1\nrcon.port=${port + 1}\nrcon.password=${secret}\nlevel-name=world\nlevel-seed=20261017\nlevel-type=minecraft:flat\ngenerator-settings={"layers":[{"block":"minecraft:bedrock","height":1},{"block":"minecraft:stone","height":3}],"biome":"minecraft:plains"}\nspawn-protection=0\nview-distance=6\nsimulation-distance=6\npause-when-empty-seconds=-1\nmax-players=4\ndifficulty=normal\n`);
 const log = await open(join(out, 'server.log'), 'a');
-const child = spawn(`${process.env.JAVA_HOME}/bin/java`, [`-Darenaagents.bridgePort=${port}`, '-Darenaagents.coordinatorAutoStart=false', `-Darenaagents.bridgeSecretFile=${join(out, 'secret.txt')}`, '-Xms512M', '-Xmx2G', '-jar', 'fabric-server-launch.jar', 'nogui'], { cwd: server, stdio: ['ignore', log.fd, log.fd] });
+const child = spawn(`${process.env.JAVA_HOME}/bin/java`, [`-Dmineagen.bridgePort=${port}`, '-Dmineagen.coordinatorAutoStart=false', `-Dmineagen.bridgeSecretFile=${join(out, 'secret.txt')}`, '-Xms512M', '-Xmx2G', '-jar', 'fabric-server-launch.jar', 'nogui'], { cwd: server, stdio: ['ignore', log.fd, log.fd] });
 await writeFile(join(out, 'server.pid'), String(child.pid));
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 class Inbox {
@@ -115,11 +109,9 @@ try {
 	const onRim = p => p.y >= 56.9 && p.x > -10.3 && p.x < 11.3 && p.z > 289.7 && p.z < 311.3;
 	const back = async () => { await end(`tp ${agent} 100.5 49 0.5 90 10`); await sleep(1200); };
 
-	// 1. Rim (d6-end-a replica): the body 8 blocks from the east rim, the fireball from the west.
 	results.rim = await fireballThenSprint([2.5, 57, 300.5], [-12.5, 58.6, 300.5]);
 	results.rim.onIsland = onRim(results.rim.final);
 	await back();
-	// 2. The same on the vanilla spawn platform.
 	results.platform = await fireballThenSprint([100.5, 49, 0.5], [88.5, 50.6, 0.5]);
 	results.platform.onPlatform = onPlatform(results.platform.final);
 	await back();

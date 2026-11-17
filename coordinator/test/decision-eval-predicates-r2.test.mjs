@@ -1,3 +1,4 @@
+import { privateInput } from '../scripts/private-inputs.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -9,11 +10,8 @@ import { callMatches, buildContext } from '../src/decision-eval/match.mjs';
 import { blockDrop, canonicalCall, collectsWithoutRoom, inventoryHasRoom } from '../src/decision-eval/predicates.mjs';
 import { validatePredicate } from '../src/decision-eval/schema.mjs';
 
-// Review r2 (P1-1): predicates decide only unambiguous outcomes; everything else is undecided and goes to the judge
-// (verdict needs_judge, every train case carries a rubric). The calls below are the reviewer's exact reproductions
-// (q8-r2-predicate-repro.mjs / q8-r2-predicate-audit.jsonl), graded on the real train fixtures.
 
-const trainDir = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'decision-eval', 'train');
+const trainDir = privateInput('coordinator/test/fixtures/decision-eval/train');
 const cases = new Map(fs.readdirSync(trainDir).filter((name) => name.endsWith('.json'))
 	.flatMap((name) => JSON.parse(fs.readFileSync(path.join(trainDir, name), 'utf8')).cases).map((c) => [c.id, c]));
 const byId = (id) => { const c = cases.get(id); assert.ok(c, `fixture ${id}`); return c; };

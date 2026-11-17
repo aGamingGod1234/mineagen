@@ -208,7 +208,6 @@ test('recorded Nether memory: default result stays small and holds no under-foot
 	assert.ok(result.candidates.every((entry) => entry.distance >= 8));
 });
 
-// Review round 1, defect 1: a survey is an attempt at one pose and range, not a searched cone.
 test('survey attempts count for a heading only when the pitched view cone included it', () => {
 	const headingsAfter = (pitch) => {
 		const occupancy = new ExplorationOccupancy();
@@ -262,13 +261,11 @@ test('a survey attempt without an explicit pose and range is not recorded', () =
 	assert.equal(coverage.sightings[0].what, 'minecraft:fortress', 'rows a survey returned are still sightings');
 });
 
-// Review round 1, defect 2: a seen block is a surface, not proven footing.
 test('seen surfaces exclude roofed blocks and non-full collision shapes, and a side face below the eye stays unverified', () => {
 	const occupancy = new ExplorationOccupancy();
 	occupancy.ingest('a', observation({ gameTime: 20, blocks: [{ blockId: 'minecraft:netherrack', x: 40, y: 62, z: 0 }], landmarks: [
 		// Side face of a block whose top is just below the eye: still listed, but only as a seen surface.
 		{ blockId: 'minecraft:netherrack', x: 0, y: 64, z: -12 },
-		// Roofed two blocks above: no headroom.
 		{ blockId: 'minecraft:netherrack', x: 40, y: 60, z: 0 },
 		{ blockId: 'minecraft:nether_brick_fence', x: -40, y: 60, z: 0 },
 		{ blockId: 'minecraft:nether_brick_slab', x: 0, y: 60, z: 40 },
@@ -278,7 +275,6 @@ test('seen surfaces exclude roofed blocks and non-full collision shapes, and a s
 	assert.deepEqual(rows.map(({ x, y, z, footing }) => [x, y, z, footing]), [[0, 65, -12, 'seen_surface']]);
 });
 
-// Review round 1, defect 3: each surface keeps its own observation tick.
 test('an unrelated sighting in the same sector does not refresh an old surface (stone then lava)', () => {
 	const occupancy = new ExplorationOccupancy();
 	occupancy.ingest('a', observation({ gameTime: 20, landmarks: [{ blockId: 'minecraft:stone', x: 20, y: 50, z: 0 }] }));
@@ -309,7 +305,6 @@ test('known footing near a target carries age and recent blocked failures', () =
 	assert.equal(footing.find((spot) => spot.x === 20).blocked, true);
 });
 
-// Review round 1, defect 4: one reconciled terminal sample, start-state evidence, lower bounds.
 test('travel with no intermediate sample reconciles the terminal sample once', () => {
 	const occupancy = new ExplorationOccupancy();
 	const tick = walk(occupancy, [[0.5, 64, 0.5]]);
@@ -346,7 +341,6 @@ test('a short dip and climb is reported even when the net feet change is zero', 
 	assert.deepEqual(occupancy.endTravel('a'), { feetDy: 0, descendedAtLeast: 1, climbedAtLeast: 1, lowestGroundY: 63 });
 });
 
-// Review round 1, defect 5: lifecycle and teleports break motion continuity, never coverage.
 test('death and respawn are not travel or climb, and keep the places already stood on', () => {
 	const occupancy = new ExplorationOccupancy();
 	const tick = walk(occupancy, [[0.5, 64, 0.5]]);
@@ -396,7 +390,6 @@ test('leaving a dimension and coming back far away is not travel', () => {
 	assert.equal(occupancy.candidates('a', observation({ x: 3.5, y: 64, gameTime: tick + 401 })).coverage.travelled, 0);
 });
 
-// Round 2 review cases (reviews/exploration-r2-artifacts/review-r2.mjs), with the behaviour the review asked for.
 
 test('a disproven surface stays gone after its contradicting block record is evicted, and after a restart', async () => {
 	const directory = await mkdtemp(join(tmpdir(), 'frontier-'));
@@ -466,7 +459,6 @@ test('a teleport the player saw ends the journey, even within walking distance',
 	terminal.beginTravel('a');
 	assert.equal(terminal.endTravel('a', { position: { x: 2.5, y: 64, z: 0.5 }, worldTick: 110, onGround: true, teleportTick: 105 }), null, 'an action result carries the mark too');
 
-	// Review round 3: the jar reports a second teleport in the same tick as the next mark (PlayerTeleports.Teleport).
 	const sameTick = new ExplorationOccupancy();
 	sameTick.ingest('a', observation({ gameTime: 90 }));
 	sameTick.ingest('a', observation({ x: 3.5, gameTime: 100, player: { teleportTick: 100 } }));

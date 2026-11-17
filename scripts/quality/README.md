@@ -11,15 +11,15 @@ Investigate one recorded failure before rerunning a matrix. Use the selected cas
 - `damageTaken` uses vanilla `damage_taken` in HP. `netHealthChange` is separate; a healed hit still counts. Missing/decreasing counters invalidate a no-damage claim. A missing optional report is absent; a broken report sidecar is invalid.
 - Use `node scripts/quality/run-incident.mjs --incident lava-gate-seed-2 --out FRESH_DIR --jar MAIN_JAR` under the live slot for acceptance through the production coordinator. It asserts seed-kit start state, logs decisions by actor, counts unique terminal receipts, verifies source lava and damage, and confirms server exit before cleanup. `--help` needs no server. No model is called.
 - Build/find/find-spot remain body mechanics tools until a product lane migrates its chain. Their results cannot certify coordinator behavior. The removed `steer:true` emulation now exits 2 with the production-runner pointer; it never silently falls back. Repeated-stop headings in the build diagnostic are fixed (`retry.heading`, default east).
-- Finish the lane with three lines in your PR's own file under [docs/gameplay-friction/](../../docs/gameplay-friction/README.md). The orchestrating thread ranks the backlog at lane end.
+- Finish the lane with three lines in `$ARENA_PRIVATE_INPUTS/docs/gameplay-friction/<pr>-<slug>.md`, using the [friction format](../../docs/gameplay-friction/README.md). Store per-run evidence under `$ARENA_PRIVATE_INPUTS/docs/verification/<pr>-<slug>/`.
 
 ## Gate report and product funnel
 
-Every PR's sticky stake comment shows the product funnel: seeds that reached the iron pickaxe, bucket, flint and steel, lava seen, portal lit and the Nether, with median minutes, deaths and cost. It comes from the newest `docs/gates/gate-N.json` on the PR base, or from one the PR adds. No game runs for it.
+Every PR's sticky stake comment shows the product funnel: seeds that reached the iron pickaxe, bucket, flint and steel, lava seen, portal lit and the Nether, with median minutes, deaths and cost. It comes from the newest `docs/gates/gate-N.json` on the PR base, or from one the PR adds. No game runs for it. A tree with no gate file gets a comment without product numbers; gate files record usage, so a public copy of this repository ships none.
 
 - Build a gate file from saved run folders: `node scripts/quality/gate-report.mjs --gate N --title T --out docs/gates/gate-N.json --cohort NAME LABEL DIR... [--cohort NAME LABEL DIR...]`. A long-run folder (`sub/long/<tag>-codex`) gives its commit (from the runner log beside it), seed, model, deaths and cost. A scripted obtain folder (`sub/farm/<round>/<seed>-r<n>`) measures only its item. Lava seen is the first lava shown to the model; portal lit is the first `PORTAL_LIT` result, or the Nether entry when no result was logged.
 - Two cohorts on the same seeds are a pair (before and after); the comment adds a before → after column, using each seed's first run on both sides. A gate one commit ran pairs with the previous gate file when both ran the same seeds with the same model and window (gate 3 → gate 4 is #179 on 8 seeds). The report names every seed without a pair, and the comment says "no pair" when there is none.
-- The same seed run more than once on one commit is a repeat. `docs/gates/repeats-178.json` holds the three #178 rounds; round 1 ran each seed twice on one commit and 3 of 8 seeds flipped pass/fail on the iron pickaxe.
+- The same seed run more than once on one commit is a repeat. In the three #178 rounds (`repeats-178.json`, kept beside the gate files), round 1 ran each seed twice on one commit and 3 of 8 seeds flipped pass/fail on the iron pickaxe.
 - **Rule of thumb: a difference under 2 seeds is "no change".** The repeats above show one seed's result can flip with no code change.
 - The comment also runs `search-danger-replay.mjs` and `portal-route-replay.mjs` over the gate 3 logs on the coordinator host with the base tree's modules, then the head's, and prints base → head. With no logs it says "no corpus"; a base that lacks a replay's module reads "not comparable". `ARENA_GATE_LOGS` points at another `sub/long` folder.
 
@@ -60,7 +60,7 @@ Every `boot()` from `watch-replay.mjs` (the shared start of most provider-free f
 
 `test-cornered-live.mjs` plays every case on one server, so it uses only the seed world cache. Its first summon after boot is often refused at once with `MODEL_CATALOG_UNAVAILABLE` (the mod applies boot's model catalog at the start of a later tick); it now asks again after 250 ms instead of waiting 30 s for a registration that cannot come.
 
-Prepared servers and cached worlds live under `ARENA_FIXTURE_CACHE` (default `~/.cache/arena-agents/fixtures`: ~135 MB per template, a few MB per seed). To move another fixture script over, replace its `for (...) { const s = await boot(dir, options); ... }` loop with:
+Prepared servers and cached worlds live under `ARENA_FIXTURE_CACHE` (default `~/.cache/mineagen/fixtures`: ~135 MB per template, a few MB per seed). To move another fixture script over, replace its `for (...) { const s = await boot(dir, options); ... }` loop with:
 
 ```js
 import { warmBoots } from './fixture-servers.mjs';
@@ -135,9 +135,9 @@ node scripts/quality/run-ladder.mjs --report runtime/ladder-subset/results.json 
 
 Build with `JAVA_HOME=/usr/lib/jvm/temurin-25-jdk-amd64 ./gradlew build`, then run `npm ci` in `coordinator/`. The single-arm quality runner selects the Node POSIX launcher on Linux and keeps the existing PowerShell launcher on Windows. The POSIX launcher supports fresh natural worlds with one repetition per matrix scenario (the ladder expands `--runs` into independent attempts); it uses the same scenario runner, spawn validation, observer, evaluator and capture closeout. Paired acceptance runs still require the Windows launcher.
 
-Use a clean prepared template at `runtime/server-template`: `fabric-server-launch.jar`, `server.jar`, its `libraries/`, `mods/fabric-api-*.jar`, `mods/fabric-carpet-*.jar`, `eula.txt` and `server.properties`. A template prepared on Windows is reusable on Linux; copy it without saved worlds, symlinks, logs or its old `arena-agents-*.jar`. Check its `template-manifest.json` against this checkout's `gradle.properties`. The launcher installs the `--jar` candidate into each isolated copy and binds the offline game and bridge to loopback.
+Use a clean prepared template at `runtime/server-template`: `fabric-server-launch.jar`, `server.jar`, its `libraries/`, `mods/fabric-api-*.jar`, `mods/fabric-carpet-*.jar`, `eula.txt` and `server.properties`. A template prepared on Windows is reusable on Linux; copy it without saved worlds, symlinks, logs or its old `mineagen-*.jar`. Check its `template-manifest.json` against this checkout's `gradle.properties`. The launcher installs the `--jar` candidate into each isolated copy and binds the offline game and bridge to loopback.
 
-On the shared coordinator host, **every server must hold its own machine-wide slot**. Use one ladder lane per wrapped process; run separate wrapped processes for concurrency. The slot's port variable must expand inside the wrapper:
+The commands in this guide start with `slot.sh live`. `slot.sh` is a wrapper kept outside this repository on the shared coordinator host: it takes a machine-wide lock and exports `SLOT_PORT_BASE` (28000 plus 100 per slot), the only slot variable the fixtures read. Without it, drop the `slot.sh live` prefix, set `SLOT_PORT_BASE` yourself to the first of three free ports, and run one server at a time. On the shared coordinator host, **every server must hold its own machine-wide slot**. Use one ladder lane per wrapped process; run separate wrapped processes for concurrency. The slot's port variable must expand inside the wrapper:
 
 ```bash
 export JAVA_HOME=/usr/lib/jvm/temurin-25-jdk-amd64
@@ -145,7 +145,7 @@ export JAVA_HOME=/usr/lib/jvm/temurin-25-jdk-amd64
   exec node scripts/quality/run-ladder.mjs \
     --scenarios L-A2 --runs 1 --parallel 1 \
     --provider codex --model gpt-6.1-sol --effort low --service-tier default \
-    --port-base "$SLOT_PORT_BASE" --jar build/libs/arena-agents-0.2.0.jar \
+    --port-base "$SLOT_PORT_BASE" --jar build/libs/mineagen-0.2.0.jar \
     --server-template runtime/server-template --out runtime/ladder-L-A2
 '
 ```
@@ -165,7 +165,7 @@ The setup-only check verifies locate receipts, dimension, inventory, each armour
 For unattended measured runs, `launch-scenarios.ps1 -Runner run-ladder.mjs` supports the same arguments-file and on-disk status/log contract as other quality runners.
 
 ```powershell
-node scripts/quality/run-scenarios.mjs --scenarios S1,S5 --provider claude --model claude-opus-5-5 --effort low --runs 2 --jar build/libs/arena-agents-0.2.0.jar --out runtime/quality-baseline
+node scripts/quality/run-scenarios.mjs --scenarios S1,S5 --provider claude --model claude-opus-5-5 --effort low --runs 2 --jar build/libs/mineagen-0.2.0.jar --out runtime/quality-baseline
 node scripts/quality/compare-scenarios.mjs runtime/quality-baseline/results.json runtime/quality-after/results.json
 ```
 
@@ -297,14 +297,14 @@ Prepare two checkouts, one per arm, each with its own built JAR and installed co
   "A": {
     "commit": "A_CHECKOUT_COMMIT",
     "coordinatorRoot": "../arm-a",
-    "jar": "../arm-a/build/libs/arena-agents-0.2.0.jar",
+    "jar": "../arm-a/build/libs/mineagen-0.2.0.jar",
     "expectedJarSha256": "A_JAR_SHA256",
     "expectedCoordinatorSha256": "A_COORDINATOR_SHA256"
   },
   "B": {
     "commit": "B_CHECKOUT_COMMIT",
     "coordinatorRoot": "../arm-b",
-    "jar": "../arm-b/build/libs/arena-agents-0.2.0.jar",
+    "jar": "../arm-b/build/libs/mineagen-0.2.0.jar",
     "expectedJarSha256": "B_JAR_SHA256",
     "expectedCoordinatorSha256": "B_COORDINATOR_SHA256"
   }
@@ -373,7 +373,6 @@ The Observer activates first-decision hazards using the outer protocol row's `ob
 
 Held-out definitions and traces belong in the evaluator-only research folder, never shared notes or public archives. Held-out runs require an explicit private fixture file and `--expect-fixture-sha256`; a different hash fails before launch. On the shared test host, stage private definitions and evidence temporarily, copy them back to the evaluator-only folder, then delete every staged private definition, trace, world and report after each evaluator run. Preserve train-only evidence separately. The setup validator is an unpaid setup check and does not prove the real Observer or provider pipeline.
 
-
 ## Supervised strict cap-and-stop smoke
 
 After live execution is authorized, use the committed driver instead of the plain long-run command. From the project root:
@@ -387,7 +386,6 @@ Output and ledger paths must be fresh. The Windows-only driver uses the real lau
 Immediately before termination, a smoke-only witness suspends members validated against the owned job, retaining the same process handles. It repeats the census until every member is frozen, closes its query-only job handle, and lets the ordinary retained launcher handle perform termination. The witness confirms every captured process has exited. It cannot terminate processes and resumes surviving members on failure. A sentinel started outside the job must survive; the driver then stops that sentinel through its retained handle.
 
 `strict-smoke.json` reports PASS, FAIL, or INCOMPLETE, with each acceptance check and its evidence. Missing goal/gameplay/refusal sequence never passes. Exit codes are 0, 1, and 2 respectively. Admission reserves the one-hour cache-write ceiling; exact settlement and reconciliation distinguish five-minute and one-hour usage. Unknown duration cannot pass reconciliation. A pass confirms this supervised integration only, not multi-hour progression or a dragon win. Live model execution remains prohibited while NO CLAUDE applies.
-
 
 Round 8 requires a provider-side census before PASS. The gateway journal and coordinator rows cannot prove absence of opaque direct calls. Without an independent provider export, collection reports INCOMPLETE. No provider account export integration or OS egress confinement is assumed. Do not manufacture an audit by copying the gateway journal.
 

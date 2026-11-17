@@ -5,7 +5,7 @@ import { resolve, join } from 'node:path';
 import { boot } from './watch-replay.mjs';
 const out=resolve(process.argv[2]);
 const only=process.argv[3];
-const jar=resolve(process.env.RECOVERY_JAR ?? 'build/libs/arena-agents-0.2.0.jar');
+const jar=resolve(process.env.RECOVERY_JAR ?? 'build/libs/mineagen-0.2.0.jar');
 const template=process.env.ARENA_HEADLESS_SERVER_TEMPLATE,port=Number(process.env.SLOT_PORT_BASE);
 if(!template||!port||!process.env.JAVA_HOME) throw Error('Use slot.sh live with template and JAVA_HOME');
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));

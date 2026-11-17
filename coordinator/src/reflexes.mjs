@@ -1,22 +1,9 @@
 import { RULE_LIFETIMES, lifetimeEnded, lifetimeStart } from './danger-contexts.mjs';
 
-/**
- * Model-authored reflexes: small rules the mod evaluates every server tick, because a model round (5 to 17 s) is slower
- * than a blaze volley, a creeper fuse or drowning. The model writes every rule; nothing here chooses one. This module
- * validates the model's entries (the mod validates again), keeps each agent's authoritative rule set across goal
- * revisions, sends the whole set to the mod, and turns the mod's firing reports into short wake lines.
- *
- * Vocabulary: mirrors ReflexSpec.java (a test keeps the two tables equal). To add a condition or action, register its
- * parameters in both tables, then its sensing (ReflexSensors.java) or behaviour (ReflexActions.java).
- */
+/** Reflex rules run in the mod between model turns, so hazards can be handled before the model responds.
+ * Model-authored rules and the default survival rules share one authoritative set across goal revisions. */
 
 export const MAX_REFLEXES = 12;
-/**
- * Default survival rules (the recorded ruling 16, Oct 28: survival reflexes are on by default from spawn and the model can
- * switch any off). Armed at the first live sample, after each respawn and at each dimension change; a default the
- * model removes by id stays off until the next respawn or dimension change; one it replaces by id becomes its own rule.
- * They do not count toward the model's MAX_REFLEXES (the mod holds MAX_REFLEXES + DEFAULT_REFLEXES.length).
- */
 export const DEFAULT_REFLEXES = Object.freeze([
 	{ id: 'default-lava', kind: 'trigger', priority: 9, when: [{ type: 'in_lava' }], do: { type: 'leave_lava' }, ttlMs: 3_600_000 },
 	// A tunnel flow can reach the body before the model answers; the existing escape also handles pre-contact lava.
@@ -31,19 +18,11 @@ export const DEFAULT_REFLEXES = Object.freeze([
 	{ id: 'default-fireball', kind: 'trigger', priority: 8, when: [{ type: 'fireball_incoming', withinS: 1.5, deflectable: true }], do: { type: 'deflect' }, ttlMs: 3_600_000 },
 	// Item-dependent defaults sleep while the item is missing (ReflexEngine), so they never fire empty-handed.
 	{ id: 'default-arrow', kind: 'trigger', priority: 7, when: [{ type: 'incoming_projectile', withinS: 0.6 }], do: { type: 'shield' }, ttlMs: 3_600_000 },
-	// A fight with no fleeAtHealth fights to the death, and LOW_HEALTH_BAILOUT used to leave the body idle beside its
-	// attackers: at 3 hearts with a hostile in reach, run. Rules that hold fire at once when an action bails out.
-	// Air and fire must interrupt a retreat already in progress: only a strictly higher priority preempts.
+	// Air and fire must interrupt a retreat already in progress; only a strictly higher priority preempts.
 	{ id: 'default-retreat', kind: 'trigger', priority: 7, when: [{ type: 'health_below', value: 7 }, { type: 'hostile_near', within: 6 }], do: { type: 'sprint_away', blocks: 10 }, cooldownMs: 5_000, ttlMs: 3_600_000 },
 	// Each firing eats one item. A stance retries after cooldown while hungry and releases if a hostile comes within 8 blocks.
 	{ id: 'default-eat', kind: 'stance', priority: 3, when: [{ type: 'hunger_below', value: 14 }, { type: 'hostile_near', within: 8, not: true }], do: { type: 'eat' }, cooldownMs: 20_000, ttlMs: 3_600_000 },
-	// d41 platform: 14/21 deaths came 10-46 s into the run, the first hits landing before the model's first command; a
-	// player shields and hits back meanwhile. defend fires only while no action of the agent's runs (ReflexEngine).
 	{ id: 'default-defend', kind: 'stance', priority: 5, when: [{ type: 'attacked', withinS: 4 }], do: { type: 'defend' }, ttlMs: 3_600_000 },
-	// d41 big6: 5 of 7 deaths were 'burned to a crisp while fighting Blaze' after a low-health stop handed back an idle
-	// body; the model's next command came 10-16 s later. Below 3 hearts under fire a player gets out of the line of fire.
-	// 6 health sits under the fleeAtHealth values models chose live (10-12), so a deliberate fight-on choice still holds.
-	// health_below is strict: 11 catches the usual 10-HP half-health hit before another volley.
 	{ id: 'default-blaze-cover', kind: 'trigger', priority: 6, when: [{ type: 'health_below', value: 11 }, { type: 'exposed', within: 12, mobs: ['minecraft:blaze'] }], do: { type: 'take_cover', within: 8 }, cooldownMs: 5_000, ttlMs: 3_600_000 },
 	{ id: 'default-cover', kind: 'trigger', priority: 6, when: [{ type: 'health_below', value: 6 }, { type: 'attacked', withinS: 3 }], do: { type: 'take_cover', within: 8 }, ttlMs: 3_600_000 },
 ].map((rule) => Object.freeze(rule)));
@@ -91,7 +70,6 @@ export const REFLEX_CONDITIONS = Object.freeze({
 	saturation_empty: {},
 	night: {},
 	stack_used_up: { item: item() },
-	// Combat and hazard senses (rx-combat).
 	fireball_incoming: { withinS: number(0.05, 3), deflectable: bool() },
 	creeper_fusing: { within: number(1, 16) },
 	enderman_gaze: { within: number(1, 64) },
@@ -302,7 +280,6 @@ export class ReflexBook {
 	#now;
 	#defaults;
 
-	/** `defaults`: the rules armed by default (tests of the model's own rules pass []). */
 	constructor({ now = Date.now, defaults = DEFAULT_REFLEXES } = {}) { this.#now = now; this.#defaults = defaults; }
 
 	#agent(agentId) {
@@ -407,7 +384,6 @@ export class ReflexBook {
 		return true;
 	}
 
-	/** Whether the rule with this id is a default rule the model has not replaced. */
 	isDefault(agentId, id) { return this.#agents.get(agentId)?.defaults.has(id) === true; }
 
 	/** The installed rule definitions with the mod's live state (disabled rules say so), for coverage checks. */
@@ -426,7 +402,6 @@ export class ReflexBook {
 	/** The mod's latest firing reports as it sent them ({seq, id, outcome, ...}); not consumed. */
 	events(agentId) { return this.#agents.get(agentId)?.status?.events ?? []; }
 
-	/** The bridge payload for the agent's complete set. */
 	payload(agentId, { yieldFiring = false } = {}) {
 		const agent = this.#agent(agentId);
 		agent.sentAtMs = this.#now();

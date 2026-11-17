@@ -19,7 +19,7 @@ test('strict runtime rejects absent or non-loopback gateways before construction
 
 test('strict authority counts every mocked outbound and blocks forbidden create, replace, reconcile, catalog and repeated startup', async () => {
     const calls = [];
-    const services = Object.fromEntries(['codex', 'gemini', 'claude'].map(provider => [provider, {
+    const services = Object.fromEntries(['codex', 'claude'].map(provider => [provider, {
         start: async () => calls.push([provider, 'start']), stop: async () => {},
         createAgent: async () => { calls.push([provider, 'create']); return { decide: async () => calls.push([provider, 'decide']) }; },
         replaceAgent: async () => { calls.push([provider, 'replace']); return {}; },
@@ -29,14 +29,14 @@ test('strict authority counts every mocked outbound and blocks forbidden create,
     const router = new ProviderService(services, { strictSpendGate: true });
     try {
         for (let attempt = 0; attempt < 3; attempt++) {
-            const started = await router.start(['codex', 'gemini']);
+            const started = await router.start(['codex']);
             assert.ok(started.every(result => result.status === 'rejected' && result.reason.code === 'STRICT_SPEND_PROVIDER_DISABLED'));
-            for (const provider of ['codex', 'gemini']) {
+            for (const provider of ['codex']) {
                 await assert.rejects(router.createAgent(profile(provider)), { code: 'STRICT_SPEND_PROVIDER_DISABLED' });
                 await assert.rejects(router.replaceAgent(profile(provider)), { code: 'STRICT_SPEND_PROVIDER_DISABLED' });
             }
-            await router.reconcile([profile('codex'), profile('gemini')]);
-            await router.catalog.refresh({ providers: ['codex', 'gemini'] });
+            await router.reconcile([profile('codex')]);
+            await router.catalog.refresh({ providers: ['codex'] });
         }
         assert.deepEqual(calls, []);
         const player = await router.createAgent(profile('claude'));
@@ -83,13 +83,12 @@ test('strict voice supervisor and direct worker cannot invoke any paid voice fac
 });
 
 
-test('production coordinator router disables Codex transport, Gemini launch and health probes for an untrusted roster', async () => {
+test('production coordinator router disables Codex transport, Claude launch and health probes for an untrusted roster', async () => {
     const calls = [];
     const bridge = new FakeBridge();
     const coordinator = createDynamicCoordinator(config, {
         env, bridge, memoryDirectory: null,
         codexTransport: { start: async () => { calls.push('codex-start'); throw new Error('unexpected transport'); }, stop: async () => {}, request: async () => calls.push('codex-request') },
-        antigravitySpawn: () => { calls.push('gemini-spawn'); throw new Error('unexpected spawn'); },
         claudeSpawn: () => { calls.push('claude-spawn'); throw new Error('unexpected spawn'); },
         providerCliHealth: { enabled: true, configure() {}, check: async () => calls.push('health-probe') },
     });
@@ -97,9 +96,6 @@ test('production coordinator router disables Codex transport, Gemini launch and 
     try {
         bridge.emit('ready', { serverInstanceId: 'test', registry: [record()] });
         await eventually(() => bridge.sent.some(message => message.type === 'agent_error'));
-        bridge.emit('director_script_request', { agentId: 'server', payload: { requestId: 'strict-director', actorName: 'Astra', description: 'Jump once' } });
-        await eventually(() => bridge.sent.some(message => message.type === 'director_script_result'));
-        assert.match(bridge.sent.find(message => message.type === 'director_script_result').payload.error, /disabled in strict spend mode/);
         assert.deepEqual(calls, []);
     } finally { await coordinator.stop(); }
 });

@@ -9,7 +9,7 @@ import { AgentWorkspaceManager } from '../src/agent-workspace.mjs';
 import { MinecraftAgentWorkspace } from '../src/minecraft-agent-workspace.mjs';
 
 test('creates a stable provider-scoped directory for each agent', async () => {
-	const root = await mkdtemp(path.join(os.tmpdir(), 'arena-agent-workspaces-'));
+	const root = await mkdtemp(path.join(os.tmpdir(), 'mineagen-workspaces-'));
 	try {
 		const manager = new AgentWorkspaceManager(root);
 		const first = await manager.prepare('codex', 'agent-1');
@@ -27,7 +27,7 @@ test('creates a stable provider-scoped directory for each agent', async () => {
 });
 
 test('rejects traversal and unsafe workspace segments', async () => {
-	const manager = new AgentWorkspaceManager(path.join(os.tmpdir(), 'arena-agent-workspaces-safe'));
+	const manager = new AgentWorkspaceManager(path.join(os.tmpdir(), 'mineagen-workspaces-safe'));
 	await assert.rejects(() => manager.prepare('../codex', 'agent-1'), /safe path segment/);
 	await assert.rejects(() => manager.prepare('codex', '..'), /safe path segment/);
 	await assert.rejects(() => manager.prepare('codex', 'agent/escape'), /safe path segment/);

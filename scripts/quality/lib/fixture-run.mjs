@@ -48,7 +48,7 @@ export async function finishRun(rows, { file, planned = rows.length, strict = tr
 
 export const EDIT_LOOP_HELP = `Edit loop: select the recorded failing case; use its report for counts.
 Run only the affected incident while editing; reserve the full matrix for the product gate.
-Finish with a three-line entry in docs/gameplay-friction/<pr>-<slug>.md (longest, untrusted, guessed).`;
+Finish with a three-line entry in $ARENA_PRIVATE_INPUTS/docs/gameplay-friction/<pr>-<slug>.md (longest, untrusted, guessed).`;
 
 export const FIXTURE_OUTCOME_HELP = `These body fixtures diagnose mechanics; they do not prove production coordinator steering.
 Strict mode is the default: exit 1 = unmet acceptance, exit 2 = invalid evidence.

@@ -136,7 +136,6 @@ test('plan reads return the whole chain the wake line abbreviates', async () => 
  assert.ok(views.progress(record).includes(result.prerequisites.chain[0]));
 });
 
-// Review r1 finding 1: the wake itself carries the chain from the open step down to what can be done now.
 test('the open step line carries its prerequisite chain down to sources and gates', async () => {
 	const views = new LiveTaskViews();
 	views.suggest(record.agentId, record.currentGoal, { steps: [step('eyes', 'has:minecraft:ender_eye*12')] });
@@ -153,7 +152,6 @@ test('the open step line carries its prerequisite chain down to sources and gate
 	assert.doesNotMatch(views.progress(other), /<-/, 'nothing left to gather leaves no chain');
 });
 
-// Review r1 finding 2: partial ingredients count against the whole checked quantity.
 test('chain quantities net held partial ingredients against the whole requirement', async () => {
 	const views = new LiveTaskViews();
 	views.suggest(record.agentId, record.currentGoal, { steps: [step('eyes', 'has:minecraft:ender_eye*12')] });
@@ -168,7 +166,6 @@ test('chain quantities net held partial ingredients against the whole requiremen
 	assert.match(index.key, /iron_ingot 0\/27/, 'shared ingredients are counted once across needs');
 });
 
-// Review r1 finding 3: progress anywhere on the chain resets the unchanged clock.
 test('the unchanged clock counts partial ingredients, mining tools, stations and fuel as progress', async () => {
 	let now = 0;
 	const views = new LiveTaskViews({ now: () => now });
@@ -212,7 +209,6 @@ test('full game: Nether access names deep lava, the dig cost, aquifer water, and
  options = views.continuity(record).options;
  assert.match(options, /obsidian: est\. minutes to 10 more frame obsidian from here, cheapest first/, 'the held water bucket casts');
  assert.doesNotMatch(options, /flint:/, 'a held flint and steel lights the frame');
- // Without a known position the vanilla ways stay.
  await views.observe(record, sample(2, [['iron_pickaxe'], ['bucket']]));
  assert.match(views.continuity(record).options, /obsidian: seen none remembered; ways \(typical\): water on a lava source makes 1 obsidian in place \(frame 10\); lava lies in caves/);
 });
@@ -395,7 +391,6 @@ test('full game: pearls partly gathered keep their place on the plan line, and a
  assert.ok(Buffer.byteLength(shown.plan) <= 260, shown.plan);
  assert.match(shown.options, /^ender_pearl: 6 more needed \(pearls and eyes held 6\/12: 5 pearls, 1 eyes; 3 gold; .*est\. options: primary Nether pearl route: find a warped forest through visible exploration; mine seen ore and barter held gold as secondary supply; barter the 3 held gold: ~0\.2 pearls expected, 94% chance of none, <1 min with the 1 calm piglin in view/);
  assert.match(shown.options, /6 pearls by barter take ~94 gold \(~11 gold blocks\)/);
- // Gold spent: still the open need, ahead of the route line.
  const spent = { ...after, observedAtEpochMs: 1, inventory: sample(1, [['iron_pickaxe'], ['ender_pearl', 6]]).inventory };
  await views.observe(record, spent);
  assert.match(views.continuity(record).options, /^ender_pearl: 6 more needed .* \| Nether route/);

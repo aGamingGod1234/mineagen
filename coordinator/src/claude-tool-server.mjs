@@ -5,9 +5,8 @@ import { MINECRAFT_DYNAMIC_TOOLS } from './native-minecraft-tools.mjs';
 
 const MCP_PATH = '/mcp';
 const MAX_REQUEST_BYTES = 1_024 * 1_024;
-const SERVER_INFO = Object.freeze({ name: 'minecraft', title: 'Arena Agents Minecraft tools', version: '1.0.0' });
+const SERVER_INFO = Object.freeze({ name: 'minecraft', title: 'Mineagen Minecraft tools', version: '1.0.0' });
 const FALLBACK_PROTOCOL_VERSION = '2025-06-18';
-// JSON-RPC 2.0 error codes.
 const PARSE_ERROR = -32700;
 const INVALID_REQUEST = -32600;
 const METHOD_NOT_FOUND = -32601;
@@ -157,7 +156,6 @@ function bearerToken(header) {
 	return match === null ? null : match[1];
 }
 
-/** Returns the request body as text, or null when it exceeds the size limit. */
 async function readBody(request) {
 	const chunks = [];
 	let size = 0;

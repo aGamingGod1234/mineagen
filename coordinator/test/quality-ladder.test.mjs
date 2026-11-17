@@ -181,7 +181,7 @@ test('samples without gameTime take their tick from the protocol observation clo
 	const rows = [0, 60000].map(at => ({ envelope: { type: 'observation', payload: { observedAtEpochMs: at, world: { gameTime: at / 100 } } } }));
 	const samples = Array.from({ length: 61 }, (_, i) => sample(i * 1000, undefined));
 	const slow = evaluateSamples(samples, { successCheck: 'survive_duration: 1000 ticks', durationBudgetMs: 600000, goalStartAt: 0, protocolRows: rows });
-	assert.equal(slow.pass, false); // 60 s of wall time is only 600 ticks on this clock
+	assert.equal(slow.pass, false);
 });
 
 test('a later death never overwrites a recorded pass', async () => {
@@ -220,7 +220,7 @@ test('EVALUATOR_PASS requests runner closeout before any owned-process hard stop
 	p.agent = 'player'; p.rcon = { command: async () => ({ text: 'Stopped player' }) };
 	await p.requestStop('ADVANCEMENT');
 	await p.progressStop();
-	assert.equal(kills, 0); // other reasons keep waiting for the goal to end
+	assert.equal(kills, 0);
 });
 
 test('server completion of a different predicate cannot replace the requested advancement', async () => {

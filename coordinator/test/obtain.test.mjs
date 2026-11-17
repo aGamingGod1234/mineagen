@@ -198,7 +198,6 @@ for (const [item, extra] of [['iron_pickaxe'], ['bucket'], ['cooked_beef'], ['be
 		const result = await runObtain({ item, count: 1 }, body, { now: (() => { let t = 0; return () => (t += 100); })() });
 		assert.equal(result.state, 'SUCCEEDED', JSON.stringify(result));
 		assert.equal(result.stations.left, 0);
-		// Never chop-craft-chop: each raw item is gathered in one go.
 		const gathered = body.calls.filter(([type]) => type === 'gather').map(([, args]) => args.itemIds[0]);
 		assert.equal(new Set(gathered).size, gathered.length, `gathered twice: ${gathered.join(', ')}`);
 		for (const [type, args] of body.calls) if (type === 'place_block' && /crafting_table|furnace/.test(args.itemId)) assert.ok(body.calls.some(([t, a]) => t === 'break_block' && a.x === args.x && a.y === args.y && a.z === args.z));
@@ -438,7 +437,6 @@ test('re-check P1 1: damage while picking up the stations, or ending under the l
 		const observe = body.observe;
 		body.observe = async () => { const o = await observe(); o.player.health = health; return o; };
 		const act = body.act;
-		// The station pick-up itself "succeeds" while a mob hits the body.
 		body.act = async (type, args) => { const result = await act(type, args); if (type === 'break_block') health = after; return result; };
 		const result = await runObtain({ item: 'wooden_pickaxe', count: 1 }, body, { now: ticking() });
 		assert.equal(result.state, 'INTERRUPTED', `health 20 -> ${after}: ${result.message}`);
@@ -494,7 +492,6 @@ test('re-check P2 3: a gather step inside obtain never runs past what is left of
 	assert.equal(gatherStepTimeout(20_000, 105_000, 100_000), 5_000, 'a 20 s walk with 5 s left gets 5 s');
 	assert.equal(gatherStepTimeout(15_000, 200_000, 100_000), 15_000);
 	assert.equal(gatherStepTimeout(15_000, 100_000, 100_400), 1_000, 'past the deadline: the shortest step, then gather ends');
-	// obtain hands gather only what is left of its own time.
 	let t = 0;
 	const body = simulatedBody();
 	const gather = body.gather;
@@ -591,7 +588,6 @@ test('review: coal ore remembered but out of reach: once coal is out of tries, t
 	assert.ok(body.calls.some(([type, args]) => type === 'gather' && args.itemIds.some((item) => /_log$/.test(item))), 'then a log');
 });
 
-/** r5 batch 1 (Mini 8, Boat 4-r3): down at y28 under cover, iron to smelt for the bucket, the last wood gone to the shield. */
 function bucketMine({ coal }) {
 	const body = simulatedBody({ iron: false, start: { raw_iron: 3, iron_pickaxe: 1, shield: 1, furnace: 1, crafting_table: 1 } });
 	underground(body, { startY: 28, perLeg: 24 });
@@ -798,7 +794,6 @@ test('scripted gate seed 1: a vein\'s drops left in its pocket out of view: walk
 	body.mine = async (args) => { body.calls.push(['mine', args]); if (args.vein) pocket = args; return { state: 'SUCCEEDED', reasonCode: 'VEIN_MINED', message: 'mined: 6 minecraft:iron_ore in 7.8 s; no seen block of it is left' }; };
 	const act = body.act;
 	body.act = async (type, args) => {
-		// Walking into the mined cells collects what lies there.
 		if (type === 'travel_to' && pocket && args.x === pocket.x + 0.5 && args.z === pocket.z + 0.5 && args.tolerance === 1) { body.calls.push([type, args]); body.inv.set('raw_iron', 6); return { state: 'SUCCEEDED' }; }
 		return act(type, args);
 	};
@@ -998,7 +993,6 @@ test('batch 2: a water search stopped by a worn pickaxe ends the call with the t
 		assert.equal(searches, 1, 'one search, then the tool stop goes back');
 		assert.match(result.message, /replace or equip a usable tool/);
 	}
-	// Blocked for another reason: the rounds go on as before.
 	const body = simulatedBody({ start: { bucket: 1 } });
 	let searches = 0;
 	body.search = async () => { searches += 1; return { state: 'FAILED', reasonCode: 'FIND_BLOCKED', message: 'No way on from here: water under this spot stops every dig down' }; };
@@ -1600,7 +1594,6 @@ test('review of #225: only plain stone at hand speed reads as a missing pickaxe;
 	assert.ok(searches > 1);
 });
 
-// Batch 18 Boat 8-r3: INVENTORY_FULL is capacity, even when the receipt also says "out of reach".
 for (const scenario of ['ore', 'approach', 'moveOff', 'no junk', 'rejected', 'still full', 'danger', 'cancel', 'deadline', 'drop danger', 'approach blocked', 'moveOff blocked']) {
 	test(`materials capacity recovery: ${scenario}`, async () => {
 		const body = simulatedBody({ start: { stone_pickaxe: 1, cobblestone: 16, coal: 4, oak_planks: 8, dirt: 12, granite: 5 } });

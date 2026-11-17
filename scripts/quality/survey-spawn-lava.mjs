@@ -20,7 +20,7 @@ const radius = Number(radiusArg ?? 112);
 const out = path.resolve(outArg);
 await mkdir(out, { recursive: true });
 const sleep = ms => new Promise(done => setTimeout(done, ms));
-const s = await boot(out, { jar: path.resolve(jarArg ?? path.join(root, 'build/libs/arena-agents-0.2.0.jar')), template, port, world: null, seed: String(seed) });
+const s = await boot(out, { jar: path.resolve(jarArg ?? path.join(root, 'build/libs/mineagen-0.2.0.jar')), template, port, world: null, seed: String(seed) });
 let spawn;
 try {
 	await s.command('save-all flush');

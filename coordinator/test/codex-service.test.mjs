@@ -1730,19 +1730,6 @@ test('a real native event starts cleanly after a conversation wake supersedes pr
 	assert.deepEqual(executed, [{ kind: 'action', actionType: 'chat', arguments: { message: 'Hi ExamplePlayer!', audience: 'public' } }]);
 });
 
-test('Director draft sessions expose no Minecraft tools and use their own instructions', async () => {
- const transport=new FakeSharedTransport();
- const service=new CodexService({cwd:'C:\\workspace'},{transport});
- await service.createAgent(profile('director-draft'),{controlProtocol:'director_script'});
- const start=transport.calls.find(call=>call.method==='thread/start').params;
- assert.deepEqual(start.dynamicTools,[]);
- assert.deepEqual(start.environments,[]);
- assert.equal(start.sandbox,'read-only');
- assert.equal(start.allowProviderModelFallback,false);
- assert.match(start.baseInstructions,/animation draft/);
- assert.match(start.developerInstructions,/Never call tools/);
- await service.stop();
-});
 test('interruption retires queued native calls and drops late execution failures', async t => {
  const transport = new FakeSharedTransport(); transport.autoComplete = false;
  const service = new CodexService({ cwd: 'C:\\workspace' }, { transport });
@@ -2045,7 +2032,6 @@ test('rejected Codex tool calls trace the name and return the validation reason'
  } finally { await service.stop(); }
 });
 
-// Review r1 P2-2: an interrupted turn whose counter never reached its collector left the next turn baseline_unknown.
 test('an interrupted native turn is billed to the next turn, not lost to an unknown baseline', async (t) => {
 	const transport = new FakeSharedTransport();
 	transport.autoComplete = false;
@@ -2074,7 +2060,6 @@ test('an interrupted native turn is billed to the next turn, not lost to an unkn
 	assert.equal(laterEvidence.usage.includesInterruptedTurns, undefined);
 });
 
-// Review r2 P2-3: two cancelled generations whose counters land late are counted once, then the next turn starts clean.
 test('repeated interrupted native turns carry their late counters once', async (t) => {
 	const transport = new FakeSharedTransport();
 	transport.autoComplete = false;
@@ -2102,7 +2087,6 @@ test('repeated interrupted native turns carry their late counters once', async (
 	assert.equal(nextEvidence.usage.includesInterruptedTurns, undefined);
 });
 
-// Review r2 P2-2: an IN_LAVA tool result is the turn's contact; the lava observation after it steers, never cancels.
 test('a Codex turn that received an IN_LAVA result is not cancelled by the next lava observation', async () => {
 	const transport = new FakeSharedTransport();
 	transport.autoComplete = false;

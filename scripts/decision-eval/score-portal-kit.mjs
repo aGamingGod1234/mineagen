@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 // Strict first accepted-call rates. Reads and errors earn no kit credit; no probe replies or judge are used.
+import { privateInput, skipWithoutPrivateInputs } from '../../coordinator/scripts/private-inputs.mjs';
 import fs from 'node:fs';
 import { parseArgs } from 'node:util';
-const {values:a,positionals:files}=parseArgs({allowPositionals:true,options:{cases:{type:'string',default:'coordinator/test/fixtures/decision-eval/extra/portal-kit-continuity.json'},out:{type:'string'}}});
+const {values:a,positionals:files}=parseArgs({allowPositionals:true,options:{cases:{type:'string',default:undefined},out:{type:'string'}}});
 if(!files.length) throw new Error('Usage: node scripts/decision-eval/score-portal-kit.mjs [--cases corpus.json] [--out report.json] run.json ...');
-const cases=new Map(JSON.parse(fs.readFileSync(a.cases)).cases.map(c=>[c.id,c]));
+if (!a.cases) skipWithoutPrivateInputs('decision-eval score-portal-kit');
+const cases=new Map(JSON.parse(fs.readFileSync(a.cases ?? privateInput('coordinator/test/fixtures/decision-eval/extra/portal-kit-continuity.json'))).cases.map(c=>[c.id,c]));
 const reports=[];
 for(const file of files){
  const run=JSON.parse(fs.readFileSync(file));

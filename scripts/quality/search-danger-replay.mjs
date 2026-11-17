@@ -66,7 +66,6 @@ function mechanism(head, message) {
 	return 'obtain-stop';
 }
 
-/** What the hand-back was about: a mob, water, a fall, lava, a flood. */
 function topic(head, wake, message, samples) {
 	const first = wake[0] ?? '';
 	if (/^drowning|eyes above water/.test(first)) return 'water';
@@ -80,13 +79,11 @@ function topic(head, wake, message, samples) {
 	return 'other';
 }
 
-/** Each run's decision log, parsed once (a rotated log's older half first). */
 export function loadDangerCorpus(runs) {
 	return runs.map((run) => ({ run: path.basename(run), lines: decisionFiles(path.join(run, 'raw'))
 		.flatMap((file) => readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map((line) => JSON.parse(line))) }));
 }
 
-/** Judges every danger hand-back in the corpus with one tree's rule (searchDanger) and fact decoder. */
 export function replaySearchDanger(corpus, { searchDanger, decodeModelFacts }) {
 	const rows = [];
 	for (const { run, lines } of corpus) {

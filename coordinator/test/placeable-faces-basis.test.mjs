@@ -1,4 +1,3 @@
-// Review of PR #94: placeableFaces depends on the held item, so the item basis must reach every model input.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { validateProtocolV2Payload, validateProtocolV2Envelope } from "../src/protocol-v2.mjs";

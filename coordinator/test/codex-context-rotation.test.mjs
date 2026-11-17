@@ -4,8 +4,6 @@ import test from 'node:test';
 import { CodexService } from '../src/codex-service.mjs';
 import { ContextCarryOver } from '../src/context-carry-over.mjs';
 
-// The 2026-10-08 Sol session re-read a growing Codex thread on every call: 17k context tokens on the first call,
-// 242k by the 68th. Claude already starts a fresh session past 64k tokens; Codex now does the same.
 const MODEL = { id: 'gpt-6.1-sol', model: 'gpt-6.1-sol', supportedReasoningEfforts: [{ reasoningEffort: 'low' }], serviceTiers: [{ id: 'priority' }] };
 const profile = { agentId: 'rotating', model: 'gpt-6.1-sol', reasoningEffort: 'low', serviceTier: 'priority' };
 const turn = () => new Promise((resolve) => setImmediate(resolve));

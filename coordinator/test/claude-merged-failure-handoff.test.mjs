@@ -3,7 +3,6 @@ import test from 'node:test';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { harness, profile } from './fixtures/claude-service-fixture.mjs';
 import { encodeNativeEventInput } from '../src/model-fact-encoding.mjs';
-// Captured by Sol's r3 probe using the actual merged q6 runtime and event builder.
 const inputs = JSON.parse(readFileSync(new URL('./fixtures/merged-failure-handoff.json', import.meta.url)));
 const evidence = [];
 const done = child => child.emitLine({ type: 'result', subtype: 'success', is_error: false, result: 'done', session_id: 'fixture' });

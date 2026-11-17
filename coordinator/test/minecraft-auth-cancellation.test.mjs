@@ -124,9 +124,6 @@ for (const entrypoint of ['prepare', 'startup deadline', 'service stop']) {
         assert.equal(queuedSettled, false);
         assert.equal(f.calls.length, before, 'successor cannot race the held auth mutation');
         authRelease.resolve();
-        // Ownership must commit even with an already-aborted preparation signal.
-        // Race against preparation settlement so the old implementation fails
-        // with an assertion instead of waiting forever for a missing marker write.
         const phase = await Promise.race([markerEntered.promise.then(() => 'marker'), outcome(preparation)]);
         assert.equal(phase, 'marker');
         await tick();

@@ -1,28 +1,4 @@
 #!/usr/bin/env node
-// Provider-free check that default-defend is unchanged where the PR #164 re-check fix must not touch it:
-// node scripts/quality/test-defend-live.mjs OUT_DIR
-// This script stands in for the coordinator (no model call): the default reflexes are armed and no action is sent.
-//   zombie: an open stone floor, a stone sword, no shield; a zombie walks up and hits the body. defend should hit back
-//           (its detail counts "hit(s) back") and never take cover (the attacker is in reach).
-//   shield: the same floor, a shield in the offhand; a skeleton shoots from 10 blocks. defend should raise the shield
-//           (detail "shield up") and never take cover (a shield is held).
-//   water:   the body at the bottom of a 2-deep pool, a skeleton on a pillar above: defend must not wall in (cobblestone
-//           counted round the body from the real block state).
-//   creeper: open floor, a skeleton at 10 blocks; once the first wall is up a creeper comes from 5 blocks (the skeleton
-//           removed): walling in must stop, and the blast damage is measured.
-//   command: open floor, a skeleton at 10 blocks; once the first wall is up a model command (wait 500 ms) arrives: its
-//           own result must come at once, and the placed walls stay as blocks.
-//   approach: gate2A-2 and gate2A-8 (Nov 8 Overworld gate): an idle body at 8 health with no natural regeneration and an
-//           iron pickaxe, a zombie walking up from 9 blocks while the model thinks. Before any hit nothing used to act.
-//   shallow: gate2A-4: the body standing in still water one deep (eyes in air) at 12 health with a stone sword and
-//           cobblestone, a skeleton 10 blocks off on dry floor; walls are refused for any water, so the body faces the
-//           archer (still open: walling from water one deep did not hold the skeleton off in this fixture).
-//   approach-hungry: approach at food 6 or less, so the body cannot sprint (gate2A-2 went in at food 7). An adult zombie
-//           chases at about half a walking body's speed, so backing away at a walk still leaves it behind.
-//   approach-fast: approach with a stone sword and a baby zombie, which keeps pace with a sprinting body: backing away
-//           only turns the body's back on it (review of PR #176), so defend must fight it.
-// Per run: hits back, shield seconds, walling seen in defend's live detail, walls counted from the world, health lost.
-// ARENA_JAR picks the jar; REPEATS (default 2). Launch under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME.
 import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -34,7 +10,7 @@ const root = fileURLToPath(new URL('../..', import.meta.url));
 const out = path.resolve(process.argv[2] ?? 'runtime/defend-live');
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port = Number(process.env.SLOT_PORT_BASE);
 if (!template || !port || !process.env.JAVA_HOME) throw new Error('Launch under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME');
-const jar = path.resolve(process.env.ARENA_JAR ?? path.join(root, 'build/libs/arena-agents-0.2.0.jar'));
+const jar = path.resolve(process.env.ARENA_JAR ?? path.join(root, 'build/libs/mineagen-0.2.0.jar'));
 const REPEATS = Number(process.env.REPEATS ?? 2);
 await mkdir(out, { recursive: true });
 if ((await readdir(out)).length) throw new Error('Use a fresh output directory');
@@ -90,13 +66,11 @@ try {
 	await s.command('forceload add -330 -20 -270 40');
 	await s.command('fill -320 99 -10 -280 99 30 minecraft:stone');
 	await s.command('fill -320 100 -10 -280 110 30 minecraft:air');
-	// Real block state through a scoreboard (command feedback is off): is the cell at x,y,z this block?
 	await s.command('scoreboard objectives add chk dummy').catch(() => {});
 	// "#b has 1 [chk]": the score sits before the objective name, not at the end of the reply.
 	const score = text => Number(/has (-?\d+)/.exec(String(text))?.[1]);
 	const isBlock = async (x, y, z, id) => { await s.command(`execute store success score #b chk if block ${x} ${y} ${z} ${id}`); return score(await s.command('scoreboard players get #b chk')) === 1; };
 	const pos = async () => (String(await s.command(`data get entity ${AGENT} Pos`)).match(/\[\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?\]/)?.slice(1).map(Number) ?? null);
-	/** Cobblestone in the eight wall cells and the roof cell round the body's cell. */
 	const walls = async () => {
 		const at = await pos();
 		if (!at) return null;
@@ -160,9 +134,7 @@ try {
 			while (Date.now() - t0 < 25000) {
 				await sleep(250);
 				const o = await s.observeOrNull();
-				// The firing's live detail (not the session's event history): what defend is doing now.
 				const detail = o?.reflexes?.firing?.id === 'default-defend' ? String(o.reflexes.firing.detail ?? '') : '';
-				// Each new step of any firing once (numbers stripped), so a run shows what the reflexes went through.
 				if (o?.reflexes?.firing?.id) {
 					const step = `${o.reflexes.firing.id}: ${String(o.reflexes.firing.detail ?? '').replace(/-?[\d.]+/g, '#').slice(0, 160)}`;
 					if (!steps.includes(step) && steps.length < 24) steps.push(step);
@@ -200,7 +172,6 @@ try {
 					creeperAt = Date.now(); healthAtCreeper = await health();
 				}
 				if (creeperAt !== null && !creeperExploded && score(await s.command('execute store result score #c chk if entity @e[type=minecraft:creeper]').then(() => s.command('scoreboard players get #c chk'))) === 0) creeperExploded = true;
-				// command: once the first wall is up, a model command arrives; its own result says when it ran.
 				if (name === 'command' && commandSentAt === null && (w ?? 0) >= 1) {
 					wallsAtCommand = w;
 					commandSentAt = Date.now();

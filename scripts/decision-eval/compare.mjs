@@ -3,7 +3,7 @@
 //
 //   node scripts/decision-eval/compare.mjs --cases <file|dir> --candidate <run.json> [--baseline <run.json>]
 //        [--confirm-candidate <run.json> --confirm-baseline <run.json>] [--out <dir>] [--judge auto|off]
-//        [--judge-provider claude|codex|opencode] [--judge-model <id>] [--judge-effort <level>] [--judge-cache <file>]
+//        [--judge-provider claude|codex] [--judge-model <id>] [--judge-effort <level>] [--judge-cache <file>]
 //        [--judge-max-usd 5] [--spot-check 12] [--no-validate] [--confirm-manifest <file>] [--confirm-samples 3]
 //        [--screen-manifest <file>]
 //
@@ -21,7 +21,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { evidenceCaseRows, evidenceSamples, validateEvidence } from '../../coordinator/src/decision-eval/evidence.mjs';
 import { gradeSamples, loadCases, loadRun, summarizeArm } from '../../coordinator/src/decision-eval/grade.mjs';
-import { closeOpenCodeJudgeServer, createJudge } from '../../coordinator/src/decision-eval/judge.mjs';
+import { createJudge } from '../../coordinator/src/decision-eval/judge.mjs';
 import { buildReport, renderMarkdown, selectSpotChecks, writeSpotChecks } from '../../coordinator/src/decision-eval/report.mjs';
 import { absoluteVerdict, compareCases, confirmVerdict, sampleCoverage, screenVerdict } from '../../coordinator/src/decision-eval/stats.mjs';
 
@@ -29,7 +29,6 @@ const EXIT = { PASS: 0, FAIL: 1, INCONCLUSIVE: 3 };
 const REPEATABLE = new Set(['cases', 'candidate', 'baseline', 'confirm-candidate', 'confirm-baseline']);
 
 const INPUT_FILES = ['candidate', 'baseline', 'confirm-candidate', 'confirm-baseline', 'screen-manifest', 'confirm-manifest'];
-/** SHA-256 of every input file by option, in the order given: { candidate: [hex, ...], ... }. */
 export async function inputDigests(options) {
 	const digests = {};
 	for (const option of INPUT_FILES) {
@@ -59,18 +58,17 @@ async function gradeEvidence(caseById, evidence, options, judges) {
 	// One judge per player family; answers of both arms for a case go to one judge call when they share a family.
 	const tagged = Object.entries(samplesByArm).flatMap(([name, samples]) => samples.map(sample => ({ ...sample, __arm: name })));
 	const byProvider = new Map();
-	// OpenCode hosts two free model families, so its players are told apart by model.
 	for (const sample of tagged) {
 		const provider = sample.provider ?? 'claude';
-		const family = provider === 'opencode' ? `${provider}:${sample.model ?? ''}` : provider;
-		if (!byProvider.has(family)) byProvider.set(family, { provider, model: sample.model ?? null, samples: [] });
+		const family = provider;
+		if (!byProvider.has(family)) byProvider.set(family, { provider, samples: [] });
 		byProvider.get(family).samples.push(sample);
 	}
 	const rows = [];
-	for (const [family, { provider, model, samples }] of byProvider) {
+	for (const [family, { provider, samples }] of byProvider) {
 		let judge = null;
 		if (options.judge !== 'off') {
-			if (!judges.has(family)) judges.set(family, createJudge({ playerProvider: provider, playerModel: model, cacheFile: options['judge-cache'],
+			if (!judges.has(family)) judges.set(family, createJudge({ playerProvider: provider, cacheFile: options['judge-cache'],
 				maxSpendUsd: Number(options['judge-max-usd']),
 				overrides: { ...(options['judge-provider'] ? { provider: options['judge-provider'] } : {}), ...(options['judge-model'] ? { model: options['judge-model'] } : {}),
 					...(options['judge-effort'] ? { effort: options['judge-effort'] } : {}),
@@ -189,6 +187,5 @@ export async function main(argv = process.argv.slice(2)) {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-	main().then(code => { process.exitCode = code; }, error => { process.stderr.write(`${error.stack ?? error}\n`); process.exitCode = 2; })
-		.finally(() => closeOpenCodeJudgeServer());
+	main().then(code => { process.exitCode = code; }, error => { process.stderr.write(`${error.stack ?? error}\n`); process.exitCode = 2; });
 }

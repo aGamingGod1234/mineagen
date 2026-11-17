@@ -123,7 +123,6 @@ function milestonesOf(observation) {
 	return MILESTONES.filter(([, re]) => ids.some((id) => re.test(id))).map(([name]) => name);
 }
 
-/** Structure blocks in sight (blocks and landmarks), each with its nearest distance. */
 function structuresOf(observation) {
 	const found = new Map();
 	for (const block of [...(Array.isArray(observation.blocks) ? observation.blocks : []), ...(Array.isArray(observation.landmarks) ? observation.landmarks : [])]) {
@@ -391,7 +390,6 @@ export class MomentCapture {
 	}
 }
 
-/** Moment counts by trigger. */
 export function summarizeMoments(moments) {
 	const byTrigger = {};
 	for (const moment of moments) byTrigger[moment.trigger] = (byTrigger[moment.trigger] ?? 0) + 1;

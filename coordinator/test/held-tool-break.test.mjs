@@ -27,23 +27,19 @@ const BROKEN = { itemId: 'minecraft:stone_pickaxe', hand: 'mainhand', slot: 7,
 
 test('a held tool at its last uses gone from the hand and the inventory is a break, with the same-kind tools still held', () => {
 	assert.deepEqual(heldToolBreak(inventory(), inventory({ held: null })), BROKEN);
-	// An offhand tool too.
 	const offhand = { selectedSlot: 0, items: [tool('offhand', 'minecraft:shears', 237, 238)] };
 	assert.deepEqual(heldToolBreak(offhand, { selectedSlot: 0, items: [] }), { itemId: 'minecraft:shears', hand: 'offhand', sameKind: [] });
 });
 
 test('a tool that leaves the hand without breaking is not a break', () => {
-	// Plenty of uses left: moved, dropped or stored, not broken.
 	assert.equal(heldToolBreak(inventory({ held: tool('mainhand', 'minecraft:stone_pickaxe', 20, 131) }), inventory({ held: null })), null);
 	// Another hotbar slot selected: the worn pickaxe is still in slot 7.
 	const moved = inventory({ held: tool('mainhand', 'minecraft:iron_pickaxe', 126, 250), selectedSlot: 5 });
 	moved.items = moved.items.filter((row) => row.slot !== 5).concat(tool(7, 'minecraft:stone_pickaxe', 130, 131));
 	assert.equal(heldToolBreak(inventory(), moved), null);
-	// Same count after (the stack was moved within the inventory).
 	const shuffled = inventory({ held: null });
 	shuffled.items.push(tool(20, 'minecraft:stone_pickaxe', 130, 131));
 	assert.equal(heldToolBreak(inventory(), shuffled), null);
-	// Still held, one more use spent.
 	assert.equal(heldToolBreak(inventory({ held: tool('mainhand', 'minecraft:stone_pickaxe', 129, 131) }), inventory()), null);
 	assert.equal(heldToolBreak(null, inventory({ held: null })), null);
 });
@@ -108,7 +104,6 @@ test('a background mining program reaches the model when its held pickaxe breaks
 		run.bridge.emit('goal_control', { agentId: 'agent-a', payload: { operation: 'start', goalRevision: 1, goal: 'Mine iron.' } });
 		run.bridge.emit('observation', observation(1, inventory()));
 		await eventually(() => run.bridge.sent.some((message) => message.type === 'action_command'));
-		// Ordinary progress inside the waiver does not wake the model.
 		run.bridge.emit('observation', observation(2, inventory()));
 		await tick(); await tick();
 		assert.equal(planner.requests.length, 1);

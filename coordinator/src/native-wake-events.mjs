@@ -1,5 +1,3 @@
-// A dimension change is protected too: the arrival facts must reach a turn that keeps calling tools (d14-iron-e walked
-// 55 s in the Nether, into lava, while its queued arrival wake waited for the turn to end).
 const PROTECTED_TRIGGERS = new Set(['damage', 'threat', 'fire', 'lava', 'lava_flow', 'drowning', 'suffocation', 'fall', 'projectile', 'action_failure', 'dimension_changed']);
 const FAILURES = new Set(['FAILED', 'TIMED_OUT', 'REJECTED', 'CANCELLED']);
 const snapshots = new WeakMap();

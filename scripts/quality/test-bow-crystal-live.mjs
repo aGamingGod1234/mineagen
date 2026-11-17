@@ -1,8 +1,4 @@
 #!/usr/bin/env node
-// Provider-free check of use_ranged against stationary end crystals: hit rate of default (no aim field) shots on crystals
-// 20-45 blocks away and 10-35 blocks up, a crystal behind the archer, and a crystal caged in iron bars.
-// End runs 2026-10-20 hand-aimed 40-52 shots per game. ARENA_JAR overrides the jar (old vs new comparison).
-// Always launch under slot.sh live; ports come from SLOT_PORT_BASE. Operator commands build/reset fixtures only.
 import { readFile, writeFile, mkdir, cp, readdir } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,7 +8,7 @@ import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 
 const root=fileURLToPath(new URL('../..',import.meta.url));
-const jarPath=resolve(process.env.ARENA_JAR ?? join(root,'build/libs/arena-agents-0.2.0.jar'));
+const jarPath=resolve(process.env.ARENA_JAR ?? join(root,'build/libs/mineagen-0.2.0.jar'));
 const out=resolve(process.argv[2] ?? 'runtime/bow-crystal-live');
 const template=process.env.ARENA_HEADLESS_SERVER_TEMPLATE;
 if(!template || !process.env.SLOT_PORT_BASE) throw new Error('Set ARENA_HEADLESS_SERVER_TEMPLATE and launch under slot.sh live');
@@ -21,16 +17,16 @@ await mkdir(out,{recursive:true});
 if((await readdir(out)).length)throw new Error('Use a fresh output directory');
 await writeFile(join(out,'manifest.json'),JSON.stringify({kind:'provider-free live mechanics',aiPerformanceMeasured:false,fixtureSetupUsesOperatorCommands:true,jarSha256:createHash('sha256').update(await readFile(jarPath)).digest('hex'),node:process.version},null,2));
 await cp(template,server,{recursive:true});
-for(const name of await readdir(join(server,'mods'))) if(name.startsWith('arena-agents-')) {
+for(const name of await readdir(join(server,'mods'))) if(name.startsWith('mineagen-')) {
   const {unlink}=await import('node:fs/promises'); await unlink(join(server,'mods',name));
 }
-await cp(jarPath,join(server,'mods/arena-agents-0.2.0.jar'));
+await cp(jarPath,join(server,'mods/mineagen-0.2.0.jar'));
 const secret=randomBytes(32).toString('hex');
 await writeFile(join(out,'secret.txt'),secret,{mode:0o600});
 await writeFile(join(server,'server.properties'),`online-mode=false\nserver-ip=127.0.0.1\nserver-port=${port+2}\nenable-rcon=true\nrcon.ip=127.0.0.1\nrcon.port=${port+1}\nrcon.password=${secret}\nlevel-name=world\nlevel-seed=20261017\nlevel-type=minecraft:flat\ngenerator-settings={"layers":[{"block":"minecraft:bedrock","height":1},{"block":"minecraft:stone","height":3}],"biome":"minecraft:plains"}\nspawn-protection=0\nview-distance=5\nsimulation-distance=5\npause-when-empty-seconds=-1\nmax-players=4\n`);
 const {open}=await import('node:fs/promises');
 const log=await open(join(out,'server.log'),'a');
-const child=spawn(`${process.env.JAVA_HOME}/bin/java`,[`-Darenaagents.bridgePort=${port}`,'-Darenaagents.coordinatorAutoStart=false',`-Darenaagents.bridgeSecretFile=${join(out,'secret.txt')}`,'-Xms512M','-Xmx2G','-jar','fabric-server-launch.jar','nogui'],{cwd:server,stdio:['ignore',log.fd,log.fd]});
+const child=spawn(`${process.env.JAVA_HOME}/bin/java`,[`-Dmineagen.bridgePort=${port}`,'-Dmineagen.coordinatorAutoStart=false',`-Dmineagen.bridgeSecretFile=${join(out,'secret.txt')}`,'-Xms512M','-Xmx2G','-jar','fabric-server-launch.jar','nogui'],{cwd:server,stdio:['ignore',log.fd,log.fd]});
 await writeFile(join(out,'server.pid'),String(child.pid));
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 class Inbox {
@@ -105,10 +101,8 @@ try {
     results.open.push({at:[x,y,z],state:r.state,reasonCode:r.reasonCode,broke,message:r.message});
     await command(`kill @e[type=minecraft:end_crystal]`);await command(`fill ${x} 80 ${z} ${x} ${y+3} ${z} minecraft:air`);await command('kill @e[type=minecraft:arrow]');
   }
-  // A crystal behind the archer with a clear line: a player turns round to shoot it.
   { const id=++n; await crystal(0,95,-25,id); await face(0,95,-25);
     let seen=null; for(let i=0;i<10&&!seen;i++){await sleep(300);const o=await observe();if((o.entities??[]).some(x=>x.uuid===uuid(id)))seen=o.eventSequence;}
-    // Seen a moment ago, then turned away: the bow turns back to it.
     await command(`tp ${agent} 0.5 81 0.5 0 0`); await sleep(500); await observe();
     const r=await act('use_ranged',{targetId:uuid(id),drawDurationMs:1100,timeoutMs:6000},seen??observation.eventSequence); results.behind={state:r.state,reasonCode:r.reasonCode,broke:/broke/.test(r.message??''),message:r.message};
     await command(`kill @e[type=minecraft:end_crystal]`);await command('fill 0 80 -25 0 98 -25 minecraft:air'); }

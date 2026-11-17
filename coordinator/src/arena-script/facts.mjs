@@ -25,7 +25,6 @@ const CONTEXT_FREE = new WeakMap();
 const TRUST_LIMITS = Object.freeze({ depth: 256, nodes: MAX_LINE_BYTES * 2, keys: MAX_LINE_BYTES * 2, stringBytes: 16_384, factBytes: MAX_LINE_BYTES * 2, arrayLength: 256 });
 const EMPTY_FACT_STATS = Object.freeze({ nodes: 0, keys: 0, bytes: 0, depth: -1 });
 
-/** Builds an immutable, observation-only fact view. */
 export function createFactView(observation) {
 	const data = createInterpreterFacts(observation);
 	const candidates = new WeakSet([data.world.items, data.world.entities, data.world.blocks]);
@@ -54,7 +53,6 @@ export function createFactView(observation) {
 	});
 }
 
-/** Serializable frozen facts used by the interpreter. */
 export function createInterpreterFacts(observation = {}, previousFacts = null) {
 	const previous = INTERPRETER_FACTS.has(previousFacts) ? previousFacts : null;
 	const before = PROJECTIONS.get(previous)?.input;
@@ -282,7 +280,6 @@ function projectValidatedData(value, context, kind = '') {
 	return record === built ? Object.freeze(record) : freezeRecord(record);
 }
 
-/** Returns true only for fact trees fully validated and frozen by this module. */
 export function isTrustedInterpreterFacts(value) {
 	return INTERPRETER_FACTS.has(value);
 }

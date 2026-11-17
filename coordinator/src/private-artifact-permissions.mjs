@@ -84,7 +84,6 @@ export async function applyWindowsOwnerOnlyDacl(target, directory, dependencies 
 	}
 }
 
-/** Returns whether a read-back ACL contains exactly one explicit full-control owner ACE. */
 export function isOwnerOnlyWindowsAcl(report, sid, directory) {
 	if (report === null || typeof report !== 'object' || report.protected !== true || !Array.isArray(report.entries)) return false;
 	if (report.entries.length !== 1) return false;

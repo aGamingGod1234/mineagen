@@ -1,12 +1,4 @@
 #!/usr/bin/env node
-// Provider-free check of knockback at a bridge edge. Runs d6/d7 2026-10-20 died five times to falls off high edges
-// (fortress bridges 22 blocks over the floor, a pillared stair over a 32-block drop to lava, the dragon on flat
-// ground): every footing fact said "drop 1-4, atLeast" over a 20+ block drop, and a cancelled sneaking control frame
-// released shift while the body hung over a bridge end. Checks on a 1-wide bridge 22 blocks over stone:
-// 1) footing facts beside the bridge (move result and the attention observation after a hit);
-// 2) a small fireball (blaze shot) from the side: displacement and fall standing, sneaking, and with a block on the
-//    open side; 3) a sneak-walk to the bridge end cancelled mid-frame keeps the body on the bridge.
-// ARENA_JAR selects the jar (old vs new). Launch under slot.sh live; operator commands build fixtures only.
 import { readFile, writeFile, mkdir, cp, readdir, unlink, open } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,7 +8,7 @@ import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
-const jarPath = resolve(process.env.ARENA_JAR ?? join(root, 'build/libs/arena-agents-0.2.0.jar'));
+const jarPath = resolve(process.env.ARENA_JAR ?? join(root, 'build/libs/mineagen-0.2.0.jar'));
 const out = resolve(process.argv[2] ?? 'runtime/knockback-edge-live');
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE;
 if (!template || !process.env.SLOT_PORT_BASE) throw new Error('Set ARENA_HEADLESS_SERVER_TEMPLATE and launch under slot.sh live');
@@ -25,13 +17,13 @@ await mkdir(out, { recursive: true });
 if ((await readdir(out)).length) throw new Error('Use a fresh output directory');
 await writeFile(join(out, 'manifest.json'), JSON.stringify({ kind: 'provider-free live mechanics', aiPerformanceMeasured: false, fixtureSetupUsesOperatorCommands: true, jarSha256: createHash('sha256').update(await readFile(jarPath)).digest('hex'), node: process.version }, null, 2));
 await cp(template, server, { recursive: true });
-for (const name of await readdir(join(server, 'mods'))) if (name.startsWith('arena-agents-')) await unlink(join(server, 'mods', name));
-await cp(jarPath, join(server, 'mods/arena-agents-0.2.0.jar'));
+for (const name of await readdir(join(server, 'mods'))) if (name.startsWith('mineagen-')) await unlink(join(server, 'mods', name));
+await cp(jarPath, join(server, 'mods/mineagen-0.2.0.jar'));
 const secret = randomBytes(32).toString('hex');
 await writeFile(join(out, 'secret.txt'), secret, { mode: 0o600 });
 await writeFile(join(server, 'server.properties'), `online-mode=false\nserver-ip=127.0.0.1\nserver-port=${port + 2}\nenable-rcon=true\nrcon.ip=127.0.0.1\nrcon.port=${port + 1}\nrcon.password=${secret}\nlevel-name=world\nlevel-seed=20261021\nlevel-type=minecraft:flat\ngenerator-settings={"layers":[{"block":"minecraft:bedrock","height":1},{"block":"minecraft:stone","height":3}],"biome":"minecraft:plains"}\nspawn-protection=0\nview-distance=6\nsimulation-distance=6\npause-when-empty-seconds=-1\nmax-players=4\ndifficulty=normal\n`);
 const log = await open(join(out, 'server.log'), 'a');
-const child = spawn(`${process.env.JAVA_HOME}/bin/java`, [`-Darenaagents.bridgePort=${port}`, '-Darenaagents.coordinatorAutoStart=false', `-Darenaagents.bridgeSecretFile=${join(out, 'secret.txt')}`, '-Xms512M', '-Xmx2G', '-jar', 'fabric-server-launch.jar', 'nogui'], { cwd: server, stdio: ['ignore', log.fd, log.fd] });
+const child = spawn(`${process.env.JAVA_HOME}/bin/java`, [`-Dmineagen.bridgePort=${port}`, '-Dmineagen.coordinatorAutoStart=false', `-Dmineagen.bridgeSecretFile=${join(out, 'secret.txt')}`, '-Xms512M', '-Xmx2G', '-jar', 'fabric-server-launch.jar', 'nogui'], { cwd: server, stdio: ['ignore', log.fd, log.fd] });
 await writeFile(join(out, 'server.pid'), String(child.pid));
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 class Inbox {
@@ -127,13 +119,11 @@ try {
 	const moved = await act('move_to', { x: 0.5, y: 81, z: 0.5, tolerance: 0.3, sprint: false });
 	results.footing.moveResult = /footing \{[^}]*\}/.exec(moved.message ?? '')?.[0] ?? null;
 
-	// 2. Blaze-style shots from the side.
 	results.shots.push(await shot('standing'));
 	results.shots.push(await shot('sneaking', { sneak: true }));
 	results.shots.push(await shot('block on the open side', { wall: true }));
 	results.footing.afterHits = footings.filter(f => f.attention).map(f => f.footing).slice(0, 4);
 
-	// 3. A sneak-walk to the bridge end, cancelled while the body hangs over the edge.
 	for (const ms of [2500, 3000, 3500]) results.cancel.push(await cancelledSneak(ms));
 
 	results.summary = {

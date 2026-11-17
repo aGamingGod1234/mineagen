@@ -66,7 +66,7 @@ const stepMsOf = spot => spot.expect === 'nether' ? Number(process.env.CHAIN_STE
 const goalSecondsOf = spot => Math.max(1200, Math.ceil((totalMsOf(spot) ?? 0) / 1000) + 600);
 const cases = [...spots.entries()].filter(([, spot]) => !only || only.has(spot.name));
 for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(cases, ([index, spot]) => ({ dir: path.join(out, `spot-${index}`),
-	options: { jar: path.resolve(jarArg ?? path.join(root, 'build/libs/arena-agents-0.2.0.jar')), template, port, world: null, seed: String(spot.seed), spawnMonsters: spot.monsters !== false, goalTicks: goalSecondsOf(spot) * 20, worldCache: true } }),
+	options: { jar: path.resolve(jarArg ?? path.join(root, 'build/libs/mineagen-0.2.0.jar')), template, port, world: null, seed: String(spot.seed), spawnMonsters: spot.monsters !== false, goalTicks: goalSecondsOf(spot) * 20, worldCache: true } }),
 	// BUILD_KEEP keeps each world, saved at stop, to inspect what was built; otherwise stopping deletes the ~150 MB world.
 	{ keepWorld: process.env.BUILD_KEEP ? true : undefined })) {
 	const goalSeconds = goalSecondsOf(spot);
@@ -150,12 +150,11 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 			s.bridge.send('action_result_ack', record.agentId, { goalRevision: record.goalRevision, actionId: ev.payload.actionId }).catch(() => {});
 		});
 		await s.observe();
-		// The runtime re-sends its reflex book (the twelve defaults) when a sample shows the mod lacks it.
+		// The runtime resends its reflex rules when the mod reports they are missing.
 		for (let wait = 0; wait < 20 && !((await s.observe()).reflexes?.rules?.length >= 12); wait++) await sleep(500);
 		const reflexSample = (await s.observe()).reflexes;
 		row.reflexes = reflexSample?.rules?.length ?? 0;
 		if (spot.startAt?.y !== undefined) {
-			// An exact standing cell (a cave start from cave-start.py).
 			const { x, y, z } = spot.startAt;
 			await s.command(`forceload add ${x} ${z}`);
 			for (let wait = 0; wait < 60 && !/time is/i.test(await s.command(`execute if loaded ${x} 0 ${z} run time query gametime`)); wait++) await sleep(1000);
@@ -182,7 +181,6 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		row.start = await pos();
 		row.kit = (runtime.latestObservation?.(record)?.inventory?.items ?? adaptObservation(await s.observe()).inventory?.items ?? []).map(item => `${item.itemId.replace('minecraft:', '')}x${item.count}@${item.slot}`);
 		console.log(`[${spot.name}] kit ${row.kit.join(' ')}`);
-		// (locate/skipBeyond kept from the find harness; unused by build spots.)
 		if (spot.locate) row.located = String(await s.command(`execute positioned ${row.start.map(Math.floor).join(' ')} run locate ${spot.locate}`)).slice(0, 300);
 		// skipBeyond: a target vanilla puts farther than this from the start is out of the search's reach; no search runs.
 		const locatedAt = Number(/\((\d+) blocks? away\)/.exec(row.located ?? '')?.[1]);
@@ -258,9 +256,6 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		const FOOD = /^minecraft:(cooked_[a-z]+|beef|porkchop|mutton|chicken|rabbit|bread|apple|baked_potato|carrot|sweet_berries)$/;
 		const WALL = /^minecraft:(cobblestone|cobbled_deepslate|stone|deepslate|andesite|diorite|granite|tuff|netherrack|dirt|[a-z_]+_planks|[a-z_]+_log)$/;
 		const wallRank = (id) => /_(planks|log)$/.test(id) ? 2 : id === 'minecraft:dirt' ? 1 : 0;
-		// Food goes on the hotbar, where a player keeps it: select_item and the default-eat reflex use only the hotbar and the
-		// off hand (batch 5 chain-gate-5-r3: 25 eats refused ITEM_NOT_IN_HOTBAR with porkchops in inventory slot 9). It takes
-		// an empty hotbar slot, else slot 8.
 		const foodToHotbar = async (tag) => {
 			const inv = adaptObservation(await s.observe()).inventory ?? {}, items = inv.items ?? [];
 			const held = (slot) => slot === 'mainhand' || slot === 'offhand' || slot === 40 || Number.isInteger(slot) && slot <= 8;
@@ -273,9 +268,6 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 			const moved = await run('act', { actionType: 'select_tool', arguments: { sourceSlot: one.slot, hotbarSlot: free, expectedItemId: one.itemId, minRemainingDurability: 0 } }, `${tag}-hotbar`);
 			return `${one.itemId.slice(10)} to hotbar ${free}: ${moved?.state} ${moved?.reasonCode ?? ''}`;
 		};
-		// cover (round 4): a mob is near and health is 8 or less, or a flee did not get away. No beef run: wall in with
-		// carried stone and wait up to 60 s (food 18+ heals; eat when food is under 18 and food is carried). cover is the
-		// mob's id: the shelter's doorway and window face away from it (round 4 check: facing it, arrows came through).
 		const heal = async (tag, cover = false) => {
 			// A dead body sends no ready observation (s.observe throws TIMEOUT): read it as no sample.
 			const started = Date.now(), body = async () => { try { return adaptObservation(await s.observe()); } catch { return {}; } };
@@ -303,17 +295,12 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 					return Math.abs(dx) > Math.abs(dz) ? (dx > 0 ? 'west' : 'east') : (dz > 0 ? 'north' : 'south');
 				};
 				let opening = away();
-				// Round 5: no walling in beside a creeper (r4-8 was blown up in its shelter): flee it first, then wall in where the flee ended.
 				const creeper = (o.entities ?? []).find((one) => one?.type === 'minecraft:creeper' && one.alive !== false && typeof one.stableId === 'string' && Math.hypot(one.x - o.player.x, one.y - o.player.y, one.z - o.player.z) <= 10);
 				if (creeper) {
 					const fled = await run('act', { actionType: 'flee_from', arguments: { targetId: creeper.stableId, distance: 16, timeoutMs: 12_000 } }, `${tag}-creeper`);
 					entry.steps.push(`flee creeper first: ${fled?.state} ${fled?.reasonCode ?? ''}`);
 					o = await body();
-					// No sample (dead or gone) or the creeper still within 7 blocks: no walls beside it (r4-8). The cover
-					// counts as failed, so a body left at 8 or less does not go back to work.
 					const still = o.player && (o.entities ?? []).find((one) => one?.stableId === creeper.stableId && one.alive !== false && Math.hypot(one.x - o.player.x, one.y - o.player.y, one.z - o.player.z) <= 7);
-					// The flee walled the body in itself (it could not get away): it is under cover already; wait there
-					// (batch 2 chain-gate-6-r1 was ended as a failed cover inside its own walls). The step digs out after.
 					walledIn = fled?.reasonCode === 'WALLED_IN' && Boolean(o.player);
 					if (!walledIn && (!o.player || still)) {
 						Object.assign(entry, { after: o.player?.health, healed: o.player?.health > 8, seconds: Math.round((Date.now() - started) / 1000) });
@@ -327,8 +314,6 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 				}
 				let walled = walledIn ? { state: 'SUCCEEDED', reasonCode: 'WALLED_IN' } : await run('act', { actionType: 'build_shelter', arguments: { x, y, z, opening, itemId: stone.itemId, timeoutMs: 30_000 } }, `${tag}-wall`);
 				entry.steps.push(`build_shelter ${opening}: ${walled?.state} ${walled?.reasonCode ?? ''}`);
-				// NO_STANDABLE_PATH with the body beside the cell: it was mid-jump or knocked off its footing when sampled
-				// (round 5: 5 of 10 covers, 0 blocks walked). Once it lands, wall in where it stands then.
 				if (walled?.reasonCode === 'NO_STANDABLE_PATH') {
 					await sleep(1_000);
 					o = await body();
@@ -341,8 +326,6 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 				}
 				// Walled in, the step's walks go nowhere: open the sill of the doorway again once healed (never natural stone).
 				if (walled?.state === 'SUCCEEDED' && !walledIn) sill = { x: x + ({ east: 1, west: -1 }[opening] ?? 0), y, z: z + ({ south: 1, north: -1 }[opening] ?? 0), expectedBlockId: stone.itemId };
-				// A player resting to heal closes the eye-height window too: build_shelter leaves it open to fight through, and
-				// arrows came through it (batch 3 chain-gate-1-r1: walled in at 8 health, 4 after 48 s). Reopened on leaving.
 				if (sill) {
 					const shut = await run('act', { actionType: 'place_block', arguments: { x: sill.x, y: sill.y + 1, z: sill.z, face: 'up', itemId: stone.itemId } }, `${tag}-shut`);
 					entry.steps.push(`close window: ${shut?.state} ${shut?.reasonCode ?? ''}`);
@@ -387,7 +370,6 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		const shield = async (tag) => {
 			const items = async () => adaptObservation(await s.observe()).inventory;
 			let inv = await items();
-			// The off hand is inventory slot 40 in observations.
 			if ((inv?.items ?? []).some((item) => (item.slot === 40 || item.slot === 'offhand') && item.itemId === 'minecraft:shield')) { shieldHeld = true; return null; }
 			if (shieldHeld) shieldHeld = shieldTried = false;
 			const said = [];
@@ -434,8 +416,6 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 			if (mob) {
 				const hp = await health(), archer = !mob.many && ARCHER.test(mob.type);
 				if (!(hp > 8)) return `${mob.type} near at health ${hp}: ${await heal(tag, mob.id)}`;
-				// Round 5: no fight with nothing to fight with (r4-5 fought a zombie bare-handed), and no chase of an archer
-				// past 8 blocks (r4-8 chased one 20 blocks into a creeper): flee (cover follows below if it does not get away).
 				const unarmed = /nothing to fight/i.test(String(message ?? '')) || !(o?.inventory?.items ?? []).some((item) => /_(sword|axe|pickaxe|shovel)$/.test(item.itemId));
 				// An archer named but not in the sample is out of sight: not chased either.
 				const far = archer && !(away(mob.id) <= 8);
@@ -527,7 +507,6 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 					args = { ...args, target: { ...args.target, item: `minecraft:${MEAT[animal.type]}`, timeoutMs: Math.min(args.target.timeoutMs ?? 75_000, 75_000) } };
 					row.meat = { item: args.target.item, from: animal.type, distance: Math.round(Math.hypot(animal.x - at.x, animal.z - at.z)) };
 				}
-				// Within the chain's time: obtain, find and build take what is left of it.
 				if (Number.isFinite(totalEnd) && args?.target && typeof args.target === 'object' && ['obtain', 'find', 'build'].includes(args.verb)) {
 					const cap = { obtain: [60_000, 1_800_000], find: [5_000, 570_000], build: [30_000, 600_000] }[args.verb];
 					const want = Math.min(args.target.timeoutMs ?? cap[1], cap[1], left());
@@ -539,7 +518,6 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 				row.sent = [...(row.sent ?? []), args];
 				result = await runtime.execute({ agentId: record.agentId, goalRevision: record.goalRevision, turnId: `build-live-${callIndex}-${attempt}`, callId: `build-${callIndex}-${attempt}`,
 					tool: normalizeMinecraftToolCall(call.name, args) }, record);
-				// A background step returns its handle: wait for that action to end.
 				const handle = result?.actionId ?? result?.handle?.actionId;
 				if (typeof handle === 'string' && ['RUNNING', 'PREPARING', 'ACCEPTED', 'STARTED'].includes(String(result?.state))) {
 					const until = Math.min(Date.now() + (spot.budgetMs ?? 420_000), totalEnd, stepEnd);
@@ -576,8 +554,6 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 			const answerSaidTool = row.retries?.at(-1)?.call === callIndex && /FAILED (NO_TOOL|TOOL_WORN)\b/.test(String(row.retries.at(-1).answered ?? ''));
 			if ((answerSaidTool || ['NO_TOOL', 'TOOL_WORN'].includes(entry.reasonCode) || /\b(TOOL_WORN|NO_TOOL)\b|\bpickaxe (is |was )?(worn|missing)|\b(worn[- ]out|missing|no usable) ([a-z_:]+ )?pickaxe/i.test(entry.message) || HAND_SPEED_STONE.test(entry.message))
 				&& (row.toolFixes ?? []).filter((fix) => stepOf(fix.call) === step).length < 6) {
-				// Two at once (batch 2): one stone pickaxe lasts 131 blocks, and a lava descent from the surface digs 140-250, so a
-				// single one stopped r4-1's find lava three times (about 8 min). A worn one does not count (heldCounts).
 				const sound = heldCounts(adaptObservation(await s.observe())).get('stone_pickaxe') ?? 0;
 				const make = (count, tag) => run('do_step', { verb: 'obtain', target: { item: 'minecraft:stone_pickaxe', count, timeoutMs: Math.floor(Math.max(60_000, Math.min(300_000, left() - 60_000))) }, why: count > sound + 1 ? 'two pickaxes to dig on with' : 'a pickaxe to dig on with' }, tag);
 				let made = await make(sound + 2, `${callIndex}-${attempt}-tool`);
@@ -600,9 +576,6 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 				const answered = spot.retry.answer ? await answer(entry.message, `${callIndex}-${attempt}`).catch(async (error) => { if ((await deaths()) > deathsBefore) return `died during the answer (${error.message})`; throw error; }) : null;
 				row.retries = [...(row.retries ?? []), { call: callIndex, code: entry.reasonCode, ...(answered ? { answered } : {}) }];
 				if ((await deaths()) > deathsBefore) { row.ended = 'death'; break calls; }
-				// A stop whose heal or cover ran and left health at 8 or less ends the run (r4-3 went back to work at 1.67): a
-				// body still at 8 or less does not go back to work. With no heal tried (a mob was near and was fled or fought,
-				// and health was above 8 by then) the step runs again, LOW_HEALTH included (review of #203, round 2).
 				let healFailed = row.heals?.length > heals && !row.heals.at(-1).healed;
 				// A cover that stalled only for want of food (none carried, food under 18: vanilla heals only at 18+) with no
 				// hostile within 16 blocks: go and get some once per step, as row 12's heal does (batch 3: 3 of 3 'could not
@@ -707,7 +680,6 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 	} finally {
 		sampling = false; await sampler?.catch(() => {});
 		if (s) row.tick = { rate: s.tickRate, held: await s.tickReport() };
-		// Stopping deletes the world unless BUILD_KEEP is set (warmBoots).
 		try { if (s) await s.stop(); } catch (error) { (row.integrity ??= []).push({ file: 'cleanup', error: error.message }); }
 		await finishRun(results, { file: path.join(out, 'result.json'), planned: spots.filter(spot => !only || only.has(spot.name)).length, strict });
 	}

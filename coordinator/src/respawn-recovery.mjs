@@ -1,12 +1,3 @@
-/**
- * What a player knows after a death about getting the dropped items back: whether the death destroyed them (the void,
- * lava), how long they last, and the way back through a portal when the death was in another dimension. Facts from
- * the death screen, the remembered portal crossing and the current sample only; the model decides whether to go.
- *
- * Oct 23 2026, 108 Sol games: after 35 End deaths the body respawned at a bed by the stronghold and never re-entered
- * the End for its kit (the wake said only "death is in another dimension; route distance unknown"); Nether deaths
- * respawned beside the portal and the kit, gold helmet included, stayed behind.
- */
 import { headingOf } from './search-coverage.mjs';
 
 const MIN_Y = { 'minecraft:overworld': -64, 'minecraft:the_nether': 0, 'minecraft:the_end': 0 };
@@ -30,7 +21,6 @@ export function dropLoss(death) {
 	return null;
 }
 
-/** The death message without the player's name (vanilla messages begin with it). */
 export function deathCause(death) {
 	const cause = typeof death?.cause === 'string' ? death.cause.trim() : '';
 	return cause.replace(/^\S+ (was )?/, '') || 'unknown cause';

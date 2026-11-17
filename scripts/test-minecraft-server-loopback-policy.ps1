@@ -72,12 +72,11 @@ try {
 	& (Join-Path $PSScriptRoot 'start-test-server.ps1') -ProjectRoot $fixture | Out-Null
 
 	New-Item -ItemType Directory -Path (Join-Path $fixture 'build\libs'), (Join-Path $fixture 'coordinator\src'), (Join-Path $fixture 'coordinator\config') -Force | Out-Null
-	Write-Properties (Join-Path $fixture 'build\libs\arena-agents-0.2.0.jar') 'fixture'
+	Write-Properties (Join-Path $fixture 'build\libs\mineagen-0.2.0.jar') 'fixture'
 	Write-Properties (Join-Path $fixture 'coordinator\src\dynamic-main.mjs') 'fixture'
 	Write-Properties (Join-Path $fixture 'coordinator\config\dynamic-agents.json') '{}'
 	Write-Properties (Join-Path $fixture 'runtime\bridge-secret.txt') ('x' * 48)
 	Write-Properties $onlineProperties "online-mode=false`nserver-ip=0.0.0.0`n"
-	Assert-Fails { & (Join-Path $PSScriptRoot 'run-antigravity-headless-smoke.ps1') -ProjectRoot $fixture } 'server-ip=127\.0\.0\.1'
 
 	Write-Output 'PASS offline Minecraft launchers reject unsafe listeners before process startup while online mode remains unchanged'
 } finally {

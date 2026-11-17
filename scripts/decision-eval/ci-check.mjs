@@ -9,6 +9,7 @@
 // --pr reads base and head commits with `gh pr view` (read only). --fetch fetches missing commits from origin.
 // --post-status (off by default) sets a commit status on the head through `gh api` with the verdict; it needs a gh
 // login allowed to write statuses. Nothing else is written to GitHub. Exit code: eval.mjs's (0 PASS, 1 FAIL, 2 error).
+import { skipWithoutPrivateInputs } from '../../coordinator/scripts/private-inputs.mjs';
 import { execFile, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
@@ -37,6 +38,7 @@ if (argv.includes('--help') || (!own.pr && !(own.base && own.head))) {
 	process.stderr.write(`${(await readFile(fileURLToPath(import.meta.url), 'utf8')).split('\n').slice(1, 11).map((line) => line.replace(/^\/\/ ?/, '')).join('\n')}\n`);
 	process.exit(argv.includes('--help') ? 0 : 2);
 }
+if (!forward.some(arg => arg === '--cases' || arg.startsWith('--cases=')) && !forward.includes('heldout') && !forward.includes('--split=heldout')) skipWithoutPrivateInputs('decision-eval CI');
 const context = own['status-context'] ?? 'decision-eval';
 const git = async (...gitArgs) => (await execFileAsync('git', gitArgs, { cwd: repositoryRoot, maxBuffer: 64 * 1024 * 1024 })).stdout.trim();
 const gh = async (...ghArgs) => (await execFileAsync('gh', ghArgs, { cwd: repositoryRoot, maxBuffer: 16 * 1024 * 1024 })).stdout.trim();

@@ -1,15 +1,4 @@
 #!/usr/bin/env node
-// Provider-free check (d41 review 3, round 2) that count mode keeps the model's stance outside sword engagements: a
-// fight_target with untilItem/untilCount, pursue:false and sneak:true fights from where the body stands, crouched the
-// whole call, and hands back (ON_FIRE) instead of stepping off a fire block it was told not to move from. A control run
-// without pursue:false steps off the same fire. Operator commands build fixtures only. Launch under fix-slot.sh.
-// Round 3 adds controller-level targeting and stance runs: 'no-switch' (continueWithAttackers:false, a blaze hovering out
-// of reach, an attacking piglin in sword reach: the fight never touches the piglin) with its control 'switch-default' (the
-// engine's own sword turn still swings at it), 'no-creeper' (follow-through on, an attacking creeper beside the named
-// blaze: never selected after the kill) and 'bow-crouch' (sneak:true count fight with a bow at hovering blazes, rods
-// falling to the floor and onto a ledge: crouched every sample, handing back when a return needs releasing sneak).
-// Round 4 adds roof-crouch (approach, obstruction clearing and roof placement) and stationary-retarget (a new
-// out-of-reach policy target gets its own 20-second wait, even after the previous target used almost all of its wait).
 import { readFile, writeFile, mkdir, cp, readdir, unlink, open } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,20 +12,20 @@ const root = fileURLToPath(new URL('../..', import.meta.url));
 const out = resolve(process.argv[2] ?? 'runtime/count-stance-live');
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE;
 if (!template || !process.env.SLOT_PORT_BASE) throw new Error('Set ARENA_HEADLESS_SERVER_TEMPLATE and launch under slot.sh live');
-const jar = resolve(process.env.ARENA_JAR ?? join(root, 'build/libs/arena-agents-0.2.0.jar'));
+const jar = resolve(process.env.ARENA_JAR ?? join(root, 'build/libs/mineagen-0.2.0.jar'));
 const port = Number(process.env.SLOT_PORT_BASE), server = join(out, 'server');
 await mkdir(out, { recursive: true });
 if ((await readdir(out)).length) throw new Error('Use a fresh output directory');
 await writeFile(join(out, 'manifest.json'), JSON.stringify({ kind: 'provider-free live mechanics', aiPerformanceMeasured: false, fixtureSetupUsesOperatorCommands: true,
 	jarSha256: createHash('sha256').update(await readFile(jar)).digest('hex'), node: process.version }, null, 2));
 await cp(template, server, { recursive: true });
-for (const name of await readdir(join(server, 'mods'))) if (name.startsWith('arena-agents-')) await unlink(join(server, 'mods', name));
-await cp(jar, join(server, 'mods/arena-agents-0.2.0.jar'));
+for (const name of await readdir(join(server, 'mods'))) if (name.startsWith('mineagen-')) await unlink(join(server, 'mods', name));
+await cp(jar, join(server, 'mods/mineagen-0.2.0.jar'));
 const secret = randomBytes(32).toString('hex');
 await writeFile(join(out, 'secret.txt'), secret, { mode: 0o600 });
 await writeFile(join(server, 'server.properties'), `online-mode=false\nserver-ip=127.0.0.1\nserver-port=${port + 2}\nenable-rcon=true\nrcon.ip=127.0.0.1\nrcon.port=${port + 1}\nrcon.password=${secret}\nlevel-name=world\nlevel-seed=20261018\nlevel-type=minecraft:flat\ngenerator-settings={"layers":[{"block":"minecraft:bedrock","height":1},{"block":"minecraft:stone","height":3}],"biome":"minecraft:plains"}\nspawn-protection=0\nview-distance=5\nsimulation-distance=5\npause-when-empty-seconds=-1\nmax-players=4\nspawn-monsters=false\n`);
 const log = await open(join(out, 'server.log'), 'a');
-const child = spawn(`${process.env.JAVA_HOME}/bin/java`, [`-Darenaagents.bridgePort=${port}`, '-Darenaagents.coordinatorAutoStart=false', `-Darenaagents.bridgeSecretFile=${join(out, 'secret.txt')}`, '-Xms512M', '-Xmx2G', '-jar', 'fabric-server-launch.jar', 'nogui'], { cwd: server, stdio: ['ignore', log.fd, log.fd] });
+const child = spawn(`${process.env.JAVA_HOME}/bin/java`, [`-Dmineagen.bridgePort=${port}`, '-Dmineagen.coordinatorAutoStart=false', `-Dmineagen.bridgeSecretFile=${join(out, 'secret.txt')}`, '-Xms512M', '-Xmx2G', '-jar', 'fabric-server-launch.jar', 'nogui'], { cwd: server, stdio: ['ignore', log.fd, log.fd] });
 await writeFile(join(out, 'server.pid'), String(child.pid));
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 
@@ -187,10 +176,8 @@ try {
 			seconds: (Date.now() - start.at) / 1000,
 			bowSamples: active.filter((r) => r.using && r.mainHand === 'minecraft:bow').length,
 			moved: Math.round(moved * 100) / 100, samples: active.length, crouched: active.filter((r) => r.crouching).length,
-			// The first second covers the call's start (the first tick crouches the body).
 			lateSamples: active.filter((r) => r.at - start.at >= 1000).length, lateCrouched: active.filter((r) => r.at - start.at >= 1000 && r.crouching).length, rows: rows.filter((r, i) => i % 5 === 0 || !r.crouching) };
 	};
-	// Fire on netherrack in the cell the body stands in now (netherrack keeps it lit).
 	const fireUnderfoot = async () => { const x = Math.floor(o.position.x), z = Math.floor(o.position.z); await command(`setblock ${x} 79 ${z} minecraft:netherrack`); await command(`setblock ${x} 80 ${z} minecraft:fire`); };
 	const healthOf = async (n) => { const reply = await command(`data get entity ${uuid(n)} Health`); const m = /(-?[\d.]+)f/.exec(reply); return m ? Number(m[1]) : null; };
 	const alive = async (n) => (await command(`execute if entity ${uuid(n)}`)).includes('passed');
@@ -198,7 +185,6 @@ try {
 	/** A blaze that hovers where it is put and never shoots (NoAI); out of sword reach when 4+ blocks above the feet. */
 	const blaze = async (n, x, y, z) => command(`summon minecraft:blaze ${x} ${y} ${z} {NoAI:1b,NoGravity:1b,UUID:[I;0,0,0,${n}]}`);
 	const husks = async () => {
-		// One in sword reach ahead, one 6 blocks off that a pursuing fight would walk to.
 		await command('summon minecraft:husk 0.5 80 2.3 {NoAI:1b,UUID:[I;0,0,0,1]}');
 		await command('summon minecraft:husk 0.5 80 7.5 {NoAI:1b,UUID:[I;0,0,0,2]}');
 		await sleep(1500);
@@ -215,7 +201,6 @@ try {
 			await settle('still');
 		} catch (error) { await settle('still', error); }
 	}
-	// pursue:false in fire: hands back ON_FIRE where it stands.
 	if (want('fire-still')) {
 		try {
 			await reset(); await kit(); await husks();
@@ -225,7 +210,6 @@ try {
 			await settle('fire-still');
 		} catch (error) { await settle('fire-still', error); }
 	}
-	// Control: the default stance steps off the same fire and fights on.
 	if (want('fire-default')) {
 		try {
 			await reset(); await kit(); await husks();
@@ -258,7 +242,6 @@ try {
 			await settle('no-switch');
 		} catch (error) { await settle('no-switch', error); }
 	}
-	// Positive control: follow-through on allows the count engine to turn to the same attacking piglin.
 	if (want('switch-default')) {
 		try {
 			const before = await reachSetup();
@@ -270,8 +253,6 @@ try {
 			await settle('switch-default');
 		} catch (error) { await settle('switch-default', error); }
 	}
-	// (b) follow-through on (continueWithAttackers:true): after the named blaze dies, an attacking creeper (fuse never
-	// completes, no blast) is never selected (round 3 MUST 2).
 	if (want('no-creeper')) {
 		try {
 			await reset(); await kit(); await tough();
@@ -380,7 +361,6 @@ try {
 			await settle('stationary-retarget');
 		} catch (error) { await settle('stationary-retarget', error); }
 	}
-	// pursue:false, no bow, the named blaze hovering out of sword reach: hands back TARGET_OUT_OF_REACH early (round 3 NOTE).
 	if (want('still-unreachable')) {
 		try {
 			await reset(); await kit(); await tough();

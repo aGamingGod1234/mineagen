@@ -98,7 +98,6 @@ const gateReport = (gate, iron) => ({ schema: SCHEMA, gate, title: `Gate ${gate}
 const repeatsReport = { schema: SCHEMA, gate: 'repeats-178', title: 'rounds', cohorts: [{ name: 'round1', label: '#178 round 1', repeats: [
 	{ seed: '1', flipped: ['ironPickaxe'] }, { seed: '2', flipped: [] }, { seed: '3', flipped: ['ironPickaxe'] }] }] };
 
-/** git as findGateFunnel calls it, over two fake trees. */
 const fakeGit = (trees, touched = []) => async (command, ...args) => {
 	if (command === 'diff') return touched.join('\n');
 	if (command === 'ls-tree') return Object.keys(trees[args.at(-2)] ?? {}).join('\n');
@@ -165,7 +164,6 @@ test('a gate one commit ran pairs with the previous gate on the same seeds, mode
 	assert.match(text, /\| Milestone \| Seeds \| Median \| gate3 → gate4 \|/);
 	assert.match(text, /\| 7 → 8 no change \|/);
 	assert.match(text, /Noise: 8 paired seeds with gate 3;/);
-	// Another model or window is not a like-for-like pair.
 	const other = { ...base, 'docs/gates/gate-3.json': JSON.stringify({ ...gate3, cohorts: [{ ...gate3.cohorts[0], windowMin: 20 }] }) };
 	assert.equal((await findGateFunnel({ base: 'base', evaluated: 'merge' }, fakeGit({ base: other, merge: other }))).gate.comparison, null);
 });

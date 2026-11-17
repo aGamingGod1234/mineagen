@@ -17,18 +17,18 @@ if(!template || !process.env.SLOT_PORT_BASE) throw new Error('Set ARENA_HEADLESS
 const port=Number(process.env.SLOT_PORT_BASE), server=join(out,'server');
 await mkdir(out,{recursive:true});
 if((await readdir(out)).length)throw new Error('Use a fresh output directory');
-await writeFile(join(out,'manifest.json'),JSON.stringify({kind:'provider-free live mechanics',aiPerformanceMeasured:false,fixtureSetupUsesOperatorCommands:true,jarSha256:createHash('sha256').update(await readFile(join(root,'build/libs/arena-agents-0.2.0.jar'))).digest('hex'),node:process.version},null,2));
+await writeFile(join(out,'manifest.json'),JSON.stringify({kind:'provider-free live mechanics',aiPerformanceMeasured:false,fixtureSetupUsesOperatorCommands:true,jarSha256:createHash('sha256').update(await readFile(join(root,'build/libs/mineagen-0.2.0.jar'))).digest('hex'),node:process.version},null,2));
 await cp(template,server,{recursive:true});
-for(const name of await readdir(join(server,'mods'))) if(name.startsWith('arena-agents-')) {
+for(const name of await readdir(join(server,'mods'))) if(name.startsWith('mineagen-')) {
   const {unlink}=await import('node:fs/promises'); await unlink(join(server,'mods',name));
 }
-await cp(join(root,'build/libs/arena-agents-0.2.0.jar'),join(server,'mods/arena-agents-0.2.0.jar'));
+await cp(join(root,'build/libs/mineagen-0.2.0.jar'),join(server,'mods/mineagen-0.2.0.jar'));
 const secret=randomBytes(32).toString('hex');
 await writeFile(join(out,'secret.txt'),secret,{mode:0o600});
 await writeFile(join(server,'server.properties'),`online-mode=false\nserver-ip=127.0.0.1\nserver-port=${port+2}\nenable-rcon=true\nrcon.ip=127.0.0.1\nrcon.port=${port+1}\nrcon.password=${secret}\nlevel-name=world\nlevel-seed=20261017\nlevel-type=minecraft:flat\ngenerator-settings={"layers":[{"block":"minecraft:bedrock","height":1},{"block":"minecraft:stone","height":3}],"biome":"minecraft:plains"}\nspawn-protection=0\nview-distance=5\nsimulation-distance=5\npause-when-empty-seconds=-1\nmax-players=4\n`);
 const {open}=await import('node:fs/promises');
 const log=await open(join(out,'server.log'),'a');
-const child=spawn(`${process.env.JAVA_HOME}/bin/java`,[`-Darenaagents.bridgePort=${port}`,'-Darenaagents.coordinatorAutoStart=false',`-Darenaagents.bridgeSecretFile=${join(out,'secret.txt')}`,'-Xms512M','-Xmx2G','-jar','fabric-server-launch.jar','nogui'],{cwd:server,stdio:['ignore',log.fd,log.fd]});
+const child=spawn(`${process.env.JAVA_HOME}/bin/java`,[`-Dmineagen.bridgePort=${port}`,'-Dmineagen.coordinatorAutoStart=false',`-Dmineagen.bridgeSecretFile=${join(out,'secret.txt')}`,'-Xms512M','-Xmx2G','-jar','fabric-server-launch.jar','nogui'],{cwd:server,stdio:['ignore',log.fd,log.fd]});
 await writeFile(join(out,'server.pid'),String(child.pid));
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 class Inbox {
@@ -87,20 +87,17 @@ try {
   const at=async(x,y,z,yaw,pitch)=>{await command(`tp ${agent} ${x} ${y} ${z} ${yaw} ${pitch}`);await sleep(600);await observe();};
   const uuid=n=>`00000000-0000-0000-0000-${String(n).padStart(12,'0')}`;
   const fight=async(n)=>{await sleep(400);await observe();return act('fight_target',{targetId:uuid(n),pursue:false,timeoutMs:8000});};
-  // A: a chicken on the floor in front of the body; raw chicken is a guaranteed drop.
   await at(0.5,80,0.5,0,20);
   await command('summon minecraft:chicken 0.5 80 2.5 {NoAI:1b,UUID:[I;0,0,0,1]}');
   let r=await fight(1);
   results.floor={state:r.state,reasonCode:r.reasonCode,message:r.message};
   await command('kill @e[type=minecraft:item]');
-  // B: the same kill over a lava pool: the drop falls into lava and burns.
   await command('fill 2 77 -1 4 79 1 minecraft:lava');
   await at(0.5,80,0.5,-90,0);
   await command('summon minecraft:chicken 3.0 80.4 0.5 {NoAI:1b,NoGravity:1b,UUID:[I;0,0,0,2]}');
   r=await fight(2);
   results.overLava={state:r.state,reasonCode:r.reasonCode,message:r.message};
   await command('fill 2 77 -1 4 79 1 minecraft:stone');await command('kill @e[type=minecraft:item]');
-  // C: a blaze shot down over the floor: its rod (0-1 per player kill) is reported either way.
   await at(0.5,80,0.5,0,-10);
   await command('summon minecraft:blaze 0.5 80.5 2.5 {NoAI:1b,NoGravity:1b,Health:1f,UUID:[I;0,0,0,3]}');
   r=await fight(3);

@@ -103,7 +103,6 @@ export function truthOf(line, kind) {
 	}
 }
 
-// ---- Reading a run ----
 
 /** Artifact dirs (holding quality-protocol.jsonl) under the given paths; a long-run output dir names its artifacts. */
 export async function findArtifactDirs(dir, depth = 5) {
@@ -127,7 +126,6 @@ async function* lines(file, filter = null) {
 	}
 }
 
-/** Progress truth lines for the run, from its artifact copy or its server dir. */
 export async function readProgress(dir) {
 	const out = [];
 	for (const watchDir of await findWatchDirs(dir, 1)) {
@@ -148,7 +146,6 @@ export async function readWakes(dir) {
 	return out;
 }
 
-/** The model's tool calls (name and time) and stated intents, from provider-turns. */
 export async function readToolCalls(dir) {
 	const calls = [], intents = [];
 	for await (const row of lines(path.join(dir, 'provider-turns.private.jsonl'), line => line.includes('"toolCalls"'))) {
@@ -168,7 +165,6 @@ function positionOf(o) {
 	return at && [at.x, at.y, at.z].every(Number.isFinite) ? { x: at.x, y: at.y, z: at.z } : null;
 }
 
-/** Rows naming a target kind with a position, anywhere in an observation. */
 export function observedTargets(element, out = [], depth = 0) {
 	if (element === null || typeof element !== 'object' || depth > 12) return out;
 	if (Array.isArray(element)) { for (const item of element) { if (item === null || typeof item !== 'object') return out; observedTargets(item, out, depth + 1); } return out; }
@@ -238,7 +234,6 @@ export async function collectRun(dir) {
 		samples, commands, results, wakes, calls: tools.calls, intents: tools.intents, progress: truth, deaths };
 }
 
-// ---- Episodes ----
 
 function nearestLine(progress, at, toleranceMs = SAMPLE_MS * 1.5) {
 	let lo = 0, hi = progress.length - 1;
@@ -298,7 +293,6 @@ const top = (counts, n = 6) => Object.entries(counts).sort((a, b) => b[1] - a[1]
 const inc = (counts, key, by = 1) => { counts[key] = (counts[key] ?? 0) + by; };
 const minutes = ms => Math.round(ms / 6_000) / 10;
 
-/** Features of one stretch [from, to] that the rules read. */
 export function features(run, from, to) {
 	const samples = run.samples.filter(s => s.at >= from && s.at <= to);
 	const focusCount = {}, actions = {}, tools = {}, results = {}, failures = {}, byType = {};
@@ -322,7 +316,6 @@ export function features(run, from, to) {
 		const a = samples[i - 1].pos, b = samples[i].pos;
 		if (a && b && samples[i - 1].dim === samples[i].dim) { const step = Math.hypot(b.x - a.x, b.z - a.z); if (step < 200) walked += step; }
 	}
-	// Truth: per sample, the focus step's targets in the joined progress line.
 	let truthSamples = 0, unseen = 0, far = 0, hidden = 0, firstDist = null, lastDist = null, unseenExample = null;
 	let knownSamples = 0, knownMin = null, knownExample = null;
 	for (const s of samples) {
@@ -402,7 +395,6 @@ export function labelEpisode(f) {
 		: { label: 'UNKNOWN_TRUTH', evidence: `no progress lines; ${searched(f) ? `searched (walked ${f.walked}, broke ${f.broken})` : 'no search'}, target ${f.knownShare > 0 ? `known in ${pct(f.knownShare)} of samples` : 'never in the observation'}; did ${did(f)}` };
 }
 
-/** Time episodes of one run: stretches of minMinutes or more between progress marks, each labelled. */
 export function timeEpisodes(run, { minMinutes = EPISODE_MIN } = {}) {
 	const marks = progressMarks(run), out = [];
 	for (let i = 1; i < marks.length; i++) {
@@ -417,7 +409,6 @@ export function timeEpisodes(run, { minMinutes = EPISODE_MIN } = {}) {
 	return out;
 }
 
-/** Minutes lost by label and the top system fixes (label and what it was about), ranked by minutes. */
 export function summarizeTime(episodes, runMinutes = 0, { topFixes = 8 } = {}) {
 	const byLabel = Object.fromEntries(LABELS.map(l => [l, { episodes: 0, minutes: 0 }]));
 	const fixes = new Map();
@@ -481,7 +472,6 @@ export function compactTimeLine(report) {
 	return `${report.runs.length} run(s): ${t.minutesLost} of ${t.runMinutes} min lost in ${t.episodes} episodes; ${Object.entries(t.byLabel).filter(([, r]) => r.episodes).map(([l, r]) => `${l} ${r.minutes}`).join(', ')}${f ? `; top fix ${f.name} (${f.minutes} min)` : ''}`;
 }
 
-/** Builds the report for the given dirs and writes watch-time.json and watch-time.md into out. */
 export async function writeTimeReport(dirs, out, options = {}) {
 	const report = await buildTimeReport(dirs, options);
 	await writeFile(path.join(out, 'watch-time.json'), JSON.stringify(report, null, 2) + '\n');
@@ -497,7 +487,6 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
 	const single = dirs.length === 1 ? await findArtifactDirs(path.resolve(dirs[0])) : [];
 	out = path.resolve(out ?? (single.length === 1 ? single[0] : '.'));
 	const report = await writeTimeReport(dirs, out, { minMinutes });
-	// --per-run: each artifact dir also gets its own watch-time.json/md (what the dashboard reads).
 	if (perRun) for (const run of report.runs) {
 		const own = { ...report, inputs: [run.run], runs: [run], total: summarizeTime(run.episodeList, run.runMinutes) };
 		await writeFile(path.join(run.run, 'watch-time.json'), JSON.stringify(own, null, 2) + '\n');

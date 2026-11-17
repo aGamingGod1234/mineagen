@@ -1,8 +1,5 @@
 import { redactCredentialText } from './provider-key-redaction.mjs';
 import { execFile as nodeExecFile } from 'node:child_process';
-import { readFile as nodeReadFile } from 'node:fs/promises';
-import os from 'node:os';
-import path from 'node:path';
 
 import { PROVIDER_REGISTRY } from './provider-registry.mjs';
 
@@ -10,7 +7,7 @@ import { PROVIDER_REGISTRY } from './provider-registry.mjs';
  * Finds which provider CLIs this machine has, which account each is signed in to, and which models, reasoning
  * levels and speed tiers each offers. Installed/version/signed-in come from the provider CLI health probe; the
  * account comes from each CLI's own status command; models come from the provider catalogs (Codex model/list,
- * `opencode models`, `agy models`, Claude's stored list). Nothing here starts a model call.
+ * Claude's stored list). Nothing here starts a model call.
  */
 
 export const DEFAULT_DISCOVERY_INTERVAL_MS = 10 * 60_000;
@@ -120,80 +117,6 @@ export function parseClaudeRateLimitEvent(message) {
 }
 const CLAUDE_WINDOW_MINS = Object.freeze({ five_hour: 300, seven_day: 10_080, seven_day_opus: 10_080, seven_day_sonnet: 10_080, seven_day_overage_included: 10_080 });
 
-/** `opencode auth list` names saved credentials ("OpenCode api") and never prints a key. */
-export function parseOpenCodeAuthList(text) {
-	const value = clean(text);
-	const count = /\b(\d+)\s+credentials?\b/i.exec(value);
-	const names = [];
-	for (const line of value.split(/\r?\n/)) {
-		const match = /^[\s│]*[●•*]\s+(.+?)\s*$/.exec(line);
-		if (match !== null) names.push(match[1].replace(/\s+/g, ' ').slice(0, 48));
-	}
-	const total = count === null ? names.length : Number(count[1]);
-	return { signedIn: total > 0 ? true : count === null ? null : false, credentials: names };
-}
-
-/**
- * `opencode models --verbose` prints `provider/model` followed by that model's JSON. Only active models that can
- * call tools are playable; a model whose every price is zero is free. Variants are the reasoning levels.
- */
-export function parseOpenCodeModels(text) {
-	const value = clean(text);
-	const models = [];
-	const header = /^([a-z0-9][\w.-]*\/[^\s{}]+)\s*$/gm;
-	const starts = [];
-	for (let match = header.exec(value); match !== null; match = header.exec(value)) starts.push({ id: match[1], at: match.index, end: header.lastIndex });
-	for (let index = 0; index < starts.length; index += 1) {
-		const body = value.slice(starts[index].end, index + 1 < starts.length ? starts[index + 1].at : value.length).trim();
-		let info = null;
-		if (body.startsWith('{')) { try { info = JSON.parse(body); } catch { info = null; } }
-		const id = starts[index].id;
-		if (info === null) { models.push({ id, label: id.split('/').pop(), efforts: ['default'], free: /-free$/.test(id), toolcall: null, active: null, cost: null }); continue; }
-		const cost = info.cost ?? null;
-		const prices = cost === null ? [] : [cost.input, cost.output, cost.cache?.read, cost.cache?.write].filter((price) => price !== undefined);
-		const variants = info.variants !== null && typeof info.variants === 'object' ? Object.keys(info.variants) : [];
-		models.push({
-			id,
-			label: typeof info.name === 'string' && info.name.trim() ? info.name.trim().slice(0, 96) : id.split('/').pop(),
-			efforts: variants.length === 0 ? ['default'] : variants,
-			free: prices.length > 0 && prices.every((price) => price === 0),
-			toolcall: info.capabilities?.toolcall ?? null,
-			active: info.status === undefined ? null : info.status === 'active',
-			cost: cost === null ? null : { input: cost.input ?? null, output: cost.output ?? null, cacheRead: cost.cache?.read ?? null, cacheWrite: cost.cache?.write ?? null },
-		});
-	}
-	return models;
-}
-
-/** Models OpenCode can play: the account can use them (they are listed), they are active and they call tools. */
-export function playableOpenCodeModels(models) {
-	return models.filter((model) => model.toolcall !== false && model.active !== false);
-}
-
-/**
- * A free OpenCode model's list-price equivalent: the paid model of the same name in OpenCode's own models.dev
- * cache (`opencode/glm-5.3-flash-free` -> `opencode/glm-5.3-flash`). Prices are USD per million tokens.
- */
-export function openCodeListPrices(modelsDocument, ids) {
-	const prices = {};
-	if (modelsDocument === null || typeof modelsDocument !== 'object') return prices;
-	for (const id of ids) {
-		const [provider, ...rest] = id.split('/');
-		const name = rest.join('/');
-		if (!/-free$/.test(name)) continue;
-		const paid = modelsDocument[provider]?.models?.[name.replace(/-free$/, '')]?.cost;
-		if (paid === undefined || paid === null || !Number.isFinite(paid.input) || !Number.isFinite(paid.output)) continue;
-		if (paid.input === 0 && paid.output === 0) continue;
-		prices[id] = Object.freeze({ input: paid.input, output: paid.output, cacheRead: Number.isFinite(paid.cache_read) ? paid.cache_read : paid.input, cacheWrite: Number.isFinite(paid.cache_write) ? paid.cache_write : paid.input });
-	}
-	return prices;
-}
-
-export function openCodeModelsCachePath(environment = process.env) {
-	const base = typeof environment.XDG_CACHE_HOME === 'string' && environment.XDG_CACHE_HOME.length > 0 ? environment.XDG_CACHE_HOME : path.join(environment.HOME ?? environment.USERPROFILE ?? os.homedir(), '.cache');
-	return path.join(base, 'opencode', 'models.json');
-}
-
 /**
  * Builds the catalog's providers section from CLI health, accounts and the combined model catalog.
  * A provider whose CLI is known to be missing or signed out keeps its row (so the table can say so) but no models.
@@ -267,7 +190,6 @@ export class ProviderDiscovery {
 		this.enabled = cliHealth !== null && cliHealth.enabled === true;
 	}
 
-	/** Called with the fresh rows' inputs after every completed scan. */
 	onChange(listener) { this.#listeners.add(listener); return () => this.#listeners.delete(listener); }
 
 	start() {
@@ -313,7 +235,6 @@ export class ProviderDiscovery {
 	}
 }
 
-/** Runs a read-only CLI status command with the agent's child environment. */
 export function runStatusCommand(command, args, { environment, execFile = nodeExecFile, timeoutMs = ACCOUNT_TIMEOUT_MS } = {}) {
 	return new Promise((resolve) => {
 		try {
@@ -341,20 +262,5 @@ export function createAccountReaders({ environments = {}, executables = {}, code
 			const status = await run('claude', ['auth', 'status', '--json']);
 			return parseClaudeAuthStatus(status.stdout || status.stderr);
 		},
-		opencode: async () => {
-			const status = await run('opencode', ['auth', 'list']);
-			const parsed = parseOpenCodeAuthList(`${status.stdout}\n${status.stderr}`);
-			return { signedIn: parsed.signedIn, name: null, plan: parsed.credentials.some((name) => /opencode/i.test(name)) ? 'Zen' : null, method: parsed.credentials[0] ?? null, credentials: parsed.credentials };
-		},
 	};
-}
-
-/** Reads `opencode models --verbose` and the models.dev cache for list-price equivalents of free models. */
-export async function discoverOpenCodeModels({ executable = 'opencode', environment = process.env, execFile = nodeExecFile, readFile = nodeReadFile, timeoutMs = ACCOUNT_TIMEOUT_MS } = {}) {
-	const result = await runStatusCommand(executable, ['models', '--verbose'], { environment, execFile, timeoutMs });
-	if (!result.ok) throw Object.assign(new Error('opencode models failed'), { code: 'OPENCODE_MODELS_FAILED' });
-	const models = playableOpenCodeModels(parseOpenCodeModels(result.stdout));
-	let listPrices = {};
-	try { listPrices = openCodeListPrices(JSON.parse(await readFile(openCodeModelsCachePath(environment), 'utf8')), models.map((model) => model.id)); } catch { listPrices = {}; }
-	return { models, listPrices };
 }

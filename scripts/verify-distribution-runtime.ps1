@@ -34,7 +34,7 @@ function Assert-CurrentUserFullControl {
 
 function Write-TestCoordinatorManifest {
 	param([string] $CoordinatorRoot)
-	$manifestPath = Join-Path $CoordinatorRoot '.arena-agents-bundle-manifest'
+	$manifestPath = Join-Path $CoordinatorRoot '.mineagen-bundle-manifest'
 	$lines = @(
 		Get-ChildItem -LiteralPath $CoordinatorRoot -Recurse -File -Force | Where-Object {
 			$_.FullName -ne $manifestPath
@@ -47,7 +47,7 @@ function Write-TestCoordinatorManifest {
 	[IO.File]::WriteAllText($manifestPath, (($lines -join "`n") + "`n"), [Text.UTF8Encoding]::new($false))
 }
 
-$testRoot = Join-Path ([IO.Path]::GetTempPath()) ("arena-agents-runtime-test-" + [Guid]::NewGuid().ToString('N'))
+$testRoot = Join-Path ([IO.Path]::GetTempPath()) ("mineagen-runtime-test-" + [Guid]::NewGuid().ToString('N'))
 try {
 	$sourceRoot = Join-Path $testRoot 'source'
 	$installedRoot = Join-Path $testRoot 'installed'
@@ -58,7 +58,7 @@ try {
 	New-Item -ItemType Directory -Force -Path (Join-Path $sourceCoordinator 'src'), (Join-Path $sourceCoordinator 'config'), $activeCoordinator, (Split-Path -Parent $sourceNode) | Out-Null
 	[IO.File]::WriteAllText((Join-Path $sourceCoordinator 'src\dynamic-main.mjs'), 'new-runtime')
 	[IO.File]::WriteAllText((Join-Path $sourceCoordinator 'config\dynamic-agents.json'), '{"version":"new"}')
-	[IO.File]::WriteAllText((Join-Path $sourceCoordinator 'package.json'), '{"name":"arena-agents-test"}')
+	[IO.File]::WriteAllText((Join-Path $sourceCoordinator 'package.json'), '{"name":"mineagen-test"}')
 	Write-TestCoordinatorManifest $sourceCoordinator
 	[IO.File]::WriteAllText($sourceNode, 'node-runtime-v1')
 	[IO.File]::WriteAllText((Join-Path $activeCoordinator 'legacy.txt'), 'old-runtime')
@@ -82,16 +82,16 @@ try {
 		throw 'The replaced coordinator was not retained in a backup.'
 	}
 	Assert-Equal 'node-runtime-v1' ([IO.File]::ReadAllText($activeNode)) 'The bundled Node.js runtime must be installed with the coordinator'
-	if (-not (Test-Path -LiteralPath (Join-Path $activeCoordinator '.arena-agents-bundle-manifest') -PathType Leaf)) {
+	if (-not (Test-Path -LiteralPath (Join-Path $activeCoordinator '.mineagen-bundle-manifest') -PathType Leaf)) {
 		throw 'Runtime promotion dropped the Java coordinator generation manifest.'
 	}
 	$generationStatePath = Join-Path $installedRoot 'runtime\coordinator-generation.properties'
-	$installedGeneration = (Get-FileHash -LiteralPath (Join-Path $activeCoordinator '.arena-agents-bundle-manifest') -Algorithm SHA256).Hash.ToLowerInvariant()
+	$installedGeneration = (Get-FileHash -LiteralPath (Join-Path $activeCoordinator '.mineagen-bundle-manifest') -Algorithm SHA256).Hash.ToLowerInvariant()
 	$generationState = ConvertFrom-StringData (Get-Content -LiteralPath $generationStatePath -Raw)
 	Assert-Equal $installedGeneration $generationState.activeGeneration 'Runtime promotion must commit the matching Java active generation'
 	Assert-Equal $installedGeneration $generationState.candidateGeneration 'A newly deployed coordinator remains a candidate until startup verification'
 	$verifiedState = @(
-		'# Arena Agents coordinator generation state',
+		'# Mineagen coordinator generation state',
 		'phase=ready',
 		"activeGeneration=$installedGeneration",
 		"verifiedGeneration=$installedGeneration",
@@ -104,7 +104,7 @@ try {
 	[IO.File]::WriteAllText($generationStatePath, (($verifiedState -join "`n") + "`n"), [Text.UTF8Encoding]::new($false))
 	Assert-CurrentUserFullControl $activeNode 'Runtime promotion imported a foreign Node ACL that excludes the interactive Windows user.'
 	$activeBeforeMissingManifestProbe = @(Get-ChildItem -LiteralPath $activeCoordinator -Recurse -File -Force | Sort-Object FullName | ForEach-Object { $_.FullName + ':' + (Get-FileHash $_.FullName -Algorithm SHA256).Hash })
-	Remove-Item -LiteralPath (Join-Path $sourceCoordinator '.arena-agents-bundle-manifest') -Force
+	Remove-Item -LiteralPath (Join-Path $sourceCoordinator '.mineagen-bundle-manifest') -Force
 	$missingManifestRejected = $false
 	try { Install-ArenaCoordinatorRuntime -SourceRoot $sourceRoot -InstalledPackageRoot $installedRoot | Out-Null } catch {
 		$missingManifestRejected = $_.Exception.Message -match 'manifest'
@@ -209,7 +209,7 @@ try {
 	Undo-ArenaCoordinatorRuntimeInstall -InstalledPackageRoot $installedRoot -Deployment $deploymentToUndo
 	Assert-Equal 'new-runtime-v5' ([IO.File]::ReadAllText((Join-Path $activeCoordinator 'src\dynamic-main.mjs'))) 'Outer package rollback must restore the previous coordinator'
 	Assert-Equal 'node-runtime-v5' ([IO.File]::ReadAllText($activeNode)) 'Outer package rollback must restore the previous Node.js runtime'
-	$restoredGeneration = (Get-FileHash -LiteralPath (Join-Path $activeCoordinator '.arena-agents-bundle-manifest') -Algorithm SHA256).Hash.ToLowerInvariant()
+	$restoredGeneration = (Get-FileHash -LiteralPath (Join-Path $activeCoordinator '.mineagen-bundle-manifest') -Algorithm SHA256).Hash.ToLowerInvariant()
 	$restoredState = ConvertFrom-StringData (Get-Content -LiteralPath $generationStatePath -Raw)
 	Assert-Equal $restoredGeneration $restoredState.activeGeneration 'Outer package rollback must restore generation state with the previous coordinator'
 	Write-Host 'PASS: an outer package transaction can roll back a completed runtime promotion'

@@ -34,7 +34,6 @@ function traceFile(root, trace, protocolFile) {
 	return trace.endsWith('.jsonl') ? path.join(root, trace) : path.join(root, trace, protocolFile ?? 'quality-protocol.jsonl');
 }
 
-/** Reads the requested 1-based lines of a file in one pass. */
 async function readLines(file, wanted) {
 	const found = new Map();
 	const max = Math.max(...wanted);
@@ -50,7 +49,7 @@ async function readLines(file, wanted) {
 }
 
 export async function verifyProvenance(cases, root) {
-	const needs = new Map(); // file -> Set(line)
+	const needs = new Map();
 	const want = (file, line) => { if (!needs.has(file)) needs.set(file, new Set()); needs.get(file).add(line); };
 	const checks = [];
 	for (const { testCase } of cases) {

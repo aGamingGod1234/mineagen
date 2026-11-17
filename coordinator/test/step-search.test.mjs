@@ -7,7 +7,6 @@ const state = () => ({ progress: { lastGain: 0 }, alarms: {}, observation: {} })
 const receipt = (actionType, ok = true) => ({ actionType, state: ok ? 'SUCCEEDED' : 'FAILED' });
 
 test('three minutes of looking and short moves with no plan progress is stated once, with the ways to get the resource', () => {
-	// the recorded Oct 29 Terra game: 9 look-arounds and 15 hops (9 failed) over 3.6 min looking for an iron cave, 0 iron.
 	const s = state();
 	let at = 10_000, fired = 0;
 	for (let i = 0; i < 14; i++) {

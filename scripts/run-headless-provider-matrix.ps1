@@ -621,7 +621,6 @@ function Read-Matrix([string] $Path, [string] $Node, [string] $Project) {
 function Get-ProviderCommand([string] $Provider) {
 	switch ($Provider.ToLowerInvariant()) {
 		'codex' { return 'codex' }
-		'gemini' { return 'agy' }
 		'claude' { return 'claude' }
 		default { throw "Unsupported provider '$Provider'" }
 	}
@@ -819,7 +818,7 @@ function Invoke-Scenario($Scenario, [string] $Project, [string] $RunDirectory, [
 		$serverReady = $false
 		while (-not $serverReady) {
 			$serverAttempt += 1
-			$serverArgs = "-Darenaagents.bridgePort=$bridgePort -Darenaagents.coordinatorAutoStart=false -Darenaagents.bridgeSecretFile=$(Quote-Argument $secretPath) -Darenaagents.watch=true -Xms1G -Xmx2G -jar $(Quote-Argument (Join-Path $serverDirectory 'fabric-server-launch.jar')) nogui"
+			$serverArgs = "-Dmineagen.bridgePort=$bridgePort -Dmineagen.coordinatorAutoStart=false -Dmineagen.bridgeSecretFile=$(Quote-Argument $secretPath) -Dmineagen.watch=true -Xms1G -Xmx2G -jar $(Quote-Argument (Join-Path $serverDirectory 'fabric-server-launch.jar')) nogui"
 			$serverHandle = Start-RedirectedProcess $Java $serverArgs $serverDirectory $serverStdoutPath $serverStderrPath @{}
 			try {
 				Wait-Condition { (Test-Port $serverPort) -and ((Read-Text $serverLog).Contains('Done (')) } $StartupTimeoutSeconds 'Fabric server did not become ready'
@@ -889,7 +888,7 @@ function Invoke-Scenario($Scenario, [string] $Project, [string] $RunDirectory, [
 				Assert-ArenaOfflineServerLoopback $propertiesPath -RequireOffline
 				Protect-LocalFile $propertiesPath
 				New-ScenarioConfig $sourceConfig $coordinatorConfig $bridgePort $providerWorkspace
-				$serverArgs = "-Darenaagents.bridgePort=$bridgePort -Darenaagents.coordinatorAutoStart=false -Darenaagents.bridgeSecretFile=$(Quote-Argument $secretPath) -Darenaagents.watch=true -Xms1G -Xmx2G -jar $(Quote-Argument (Join-Path $serverDirectory 'fabric-server-launch.jar')) nogui"
+				$serverArgs = "-Dmineagen.bridgePort=$bridgePort -Dmineagen.coordinatorAutoStart=false -Dmineagen.bridgeSecretFile=$(Quote-Argument $secretPath) -Dmineagen.watch=true -Xms1G -Xmx2G -jar $(Quote-Argument (Join-Path $serverDirectory 'fabric-server-launch.jar')) nogui"
 				$serverHandle = Start-RedirectedProcess $Java $serverArgs $serverDirectory $serverStdoutPath $serverStderrPath @{}
 				Wait-Condition { (Test-Port $serverPort) -and ((Read-Text $serverLog).Contains('Done (')) } $StartupTimeoutSeconds 'Fabric server did not become ready after coordinator bind retry'
 				Wait-Condition { Test-Port $rconPort } $StartupTimeoutSeconds 'RCON did not become ready after coordinator bind retry'

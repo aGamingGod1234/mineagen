@@ -653,7 +653,7 @@ export async function runPlayerCapabilityProbe(config) {
 		stage = 'cleanup_fixture';
 		if (record) { try { if (!rconResponsive) throw new Error('RCON_UNRESPONSIVE'); await command(`codex stop ${config.agentName}`); report.cleanup.agentStopped = true; } catch { report.cleanup.agentStopped = false; } }
 		try { if (!rconResponsive) throw new Error('RCON_UNRESPONSIVE'); await command('forceload remove -16 -16 48 32'); report.cleanup.fixtureChunksReleased = true; } catch { report.cleanup.fixtureChunksReleased = false; }
-		try { if (rconResponsive) await command('execute in minecraft:the_nether run forceload remove 0 0'); } catch { /* Isolated world teardown also releases this fixture. */ }
+		try { if (rconResponsive) await command('execute in minecraft:the_nether run forceload remove 0 0'); } catch {}
 		bridge.stop(); inbox.close(); await rcon.close();
 		report.cleanup.bridgeClosed = true; report.cleanup.rconClosed = true;
 		report.elapsedMs = Date.now() - startedAt;

@@ -5,7 +5,6 @@
 const COMPASS = ['S', 'SW', 'W', 'NW', 'N', 'NE', 'E', 'SE'];
 const MAX_THREATS = 3;
 
-/** Minecraft yaw (0 faces +z south, 90 faces -x west) as an 8-way compass name. */
 export function yawCompass(yaw) {
 	if (!Number.isFinite(yaw)) return null;
 	return COMPASS[((Math.round(yaw / 45) % 8) + 8) % 8];

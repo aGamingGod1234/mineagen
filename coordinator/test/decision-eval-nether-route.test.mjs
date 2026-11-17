@@ -1,3 +1,4 @@
+import { privateInputUrl } from '../scripts/private-inputs.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -6,7 +7,7 @@ import { observationSha256 } from '../src/decision-eval/capture.mjs';
 import { validateCaseFile } from '../src/decision-eval/schema.mjs';
 import { renderWake } from '../src/decision-eval/render.mjs';
 
-const corpus = JSON.parse(fs.readFileSync(new URL('./fixtures/decision-eval/extra/nether-route.json', import.meta.url)));
+const corpus = JSON.parse(fs.readFileSync(privateInputUrl('coordinator/test/fixtures/decision-eval/extra/nether-route.json')));
 
 test('nether-route cases keep recorded moments from four 2026-10-19 games and the 2026-10-18 success', () => {
  validateCaseFile(corpus);

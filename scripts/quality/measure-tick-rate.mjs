@@ -19,7 +19,7 @@ const root = fileURLToPath(new URL('../..', import.meta.url));
 const out = path.resolve(process.argv[2] ?? 'runtime/tick-rate');
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port = Number(process.env.SLOT_PORT_BASE);
 if (!template || !port || !process.env.JAVA_HOME) throw new Error('Launch under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME');
-const jar = path.resolve(process.env.ARENA_JAR ?? path.join(root, 'build/libs/arena-agents-0.2.0.jar'));
+const jar = path.resolve(process.env.ARENA_JAR ?? path.join(root, 'build/libs/mineagen-0.2.0.jar'));
 const BODIES = (process.env.BODIES ?? '1,2,3,4').split(',').map(Number);
 const RATES = (process.env.RATES ?? '20,40,60,80,100,120').split(',').map(Number);
 const SAMPLE_S = Number(process.env.SAMPLE_S ?? 20);
@@ -55,7 +55,6 @@ s.bridge.on('message', (event) => {
 	s.bridge.send('agent_ready', record.agentId, { goalRevision: revision, reconciled: false }).catch(() => {});
 });
 let ordinal = 0, running = true;
-// Per body: wall intervals of actions that ran at least 2 s, and the action in flight.
 const work = new Map();
 const busyShare = (from, to) => {
 	if (work.size === 0) return null;

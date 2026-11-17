@@ -115,7 +115,6 @@ test('goal revision replacement keeps lastDeath and what it cost but drops prior
 	assert.equal(nextGoal.lastDeath.cause, DEATH.cause);
 	assert.deepEqual(nextGoal.lastLostInventory, [{ itemId: 'minecraft:stone_pickaxe', count: 1 }, { itemId: 'minecraft:cobblestone', count: 12 }]);
 	assert.equal(nextGoal.alreadyHave.includes('minecraft:stone_pickaxe'), false);
-	// Regained stacks still reconcile the loss in the new revision.
 	const regained = store.remember('exampleplayer', 3, { player: { dead: false }, inventory: { items: [{ itemId: 'minecraft:cobblestone', count: 5 }] }, blocks: [] });
 	assert.deepEqual(regained.lastLostInventory, [{ itemId: 'minecraft:stone_pickaxe', count: 1 }, { itemId: 'minecraft:cobblestone', count: 7 }]);
 });

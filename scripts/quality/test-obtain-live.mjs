@@ -66,7 +66,7 @@ for (const [seedIndex, seed] of plan.seeds.entries()) {
 		// Each seed on its own ports (a crashed server can hold the last ones); no watchdog, as generating far chunks on a
 		// shared machine can hold one tick past its 60 s.
 		const seedPort = port + (seedIndex % 20) * 4;
-		s = current = await boot(dir, { jar: path.resolve(jarArg ?? path.join(root, 'build/libs/arena-agents-0.2.0.jar')), template, port: seedPort, world: null, seed: String(seed), spawnMonsters: true, goalTicks: 2_000_000, extraProperties: 'max-tick-time=-1\n' });
+		s = current = await boot(dir, { jar: path.resolve(jarArg ?? path.join(root, 'build/libs/mineagen-0.2.0.jar')), template, port: seedPort, world: null, seed: String(seed), spawnMonsters: true, goalTicks: 2_000_000, extraProperties: 'max-tick-time=-1\n' });
 		// One RCON connection serves four lanes; a slow command (a far chunk generating) can time the queue out and leave
 		// the client unusable. Any failure rebuilds the client and retries.
 		const secret = (await readFile(path.join(dir, 'secret.txt'), 'utf8')).trim();
@@ -132,7 +132,6 @@ async function surfaceAt(s, x, z) {
 
 async function joinAgent(s, lane, nextSpot) {
 	const name = `Ob${lane}`;
-	// Summon the body where its first run starts.
 	const spot = await landSpot(s, nextSpot);
 	const registered = s.inbox.wait('agent_registered', () => true, 60_000);
 	await s.command(`execute positioned ${spot[0]} 0 ${spot[1]} positioned over motion_blocking_no_leaves run codex summon gpt-6.1-sol low ${name}`);
@@ -145,11 +144,9 @@ async function joinAgent(s, lane, nextSpot) {
 	await s.bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false });
 	let latest = null;
 	const commands = new Map();
-	// Every body action with its stop and time, for diagnosing where a run's minutes went.
 	const actions = [];
 	const inspections = new InspectionClient({ send: (type, agentId, payload) => s.bridge.send(type, agentId, payload) });
 	s.bridge.on('inspection_result', message => { if (message.agentId === record.agentId) inspections.accept(message); });
-	// Every obtain move with its time, for the run record.
 	const log = [];
 	let logStart = Date.now();
 	const runtime = new NativeToolRuntime({
@@ -174,7 +171,6 @@ async function joinAgent(s, lane, nextSpot) {
 		if (Number.isSafeInteger(ev.payload.goalRevision)) record.goalRevision = ev.payload.goalRevision;
 		s.bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false }).catch(() => {});
 	});
-	// Where the body was and the biome it stood in when an action ended (from the latest sample).
 	const where = () => {
 		const o = latest === null ? null : adaptObservation(latest), p = o?.player;
 		return p && [p.x, p.y, p.z].every(Number.isFinite) ? ` @${Math.floor(p.x)},${Math.floor(p.y)},${Math.floor(p.z)} ${o?.world?.biome ?? ''}` : '';
@@ -186,7 +182,6 @@ async function joinAgent(s, lane, nextSpot) {
 		runtime.onActionResult(record, ev.payload);
 		s.bridge.send('action_result_ack', record.agentId, { goalRevision: record.goalRevision, actionId: ev.payload.actionId }).catch(() => {});
 	});
-	// The coordinator's default reflexes, as a live game arms them.
 	await s.bridge.send('reflex_update', record.agentId, { revision: 1, rules: DEFAULT_REFLEXES.map(rule => ({ ...structuredClone(rule), coordinatorDefault: true })), yield: false });
 	return { name, record, runtime, spot, latest: () => latest, log, actions, resetLog: () => { log.length = 0; actions.length = 0; logStart = Date.now(); } };
 }
@@ -253,9 +248,6 @@ async function runLane(s, agent, queue, seed, seedIndex, nextSpot) {
 			const sampler = (async () => { while (sampling) { const h = await health().catch(() => NaN); if (Number.isFinite(h)) minHealth = Math.min(minHealth, h); await sleep(2000); } })();
 			agent.resetLog();
 			const call = normalizeMinecraftToolCall('do_step', { verb: 'obtain', target: { item: entry.item, count: entry.count ?? 1, timeoutMs: entry.budgetMs }, why: `obtain ${entry.item}` });
-			// A danger hand-back ends the run: what happens next is the model's to decide, and this harness measures obtain,
-			// not a stand-in model (14 of 16 matrix deaths came from the old stand-in's fights). OBTAIN_HANDBACK=answer
-			// restores it: let the reflexes act, fight or flee the named mob, then call obtain again.
 			const ran = await callObtain({ mode: process.env.OBTAIN_HANDBACK, budgetMs: entry.budgetMs, started: t0,
 				execute: async (attempt, left) => {
 					const again = attempt === 0 ? call : normalizeMinecraftToolCall('do_step', { verb: 'obtain', target: { item: entry.item, count: entry.count ?? 1, timeoutMs: Math.max(60_000, left) }, why: `obtain ${entry.item}` });
@@ -290,7 +282,6 @@ async function runLane(s, agent, queue, seed, seedIndex, nextSpot) {
 			row.deaths = Math.max((await deaths()) - deathsBefore, minHealth <= 0 ? 1 : 0);
 			row.healthLost = Math.max(0, healthBefore - minHealth);
 			row.end = await pos();
-			// Every workstation the run placed: still standing in the world?
 			row.stationsLeft = 0;
 			for (const station of result?.stations?.placed ?? []) {
 				const standing = /passed/i.test(await s.command(`execute if block ${station.x} ${station.y} ${station.z} minecraft:${station.kind}`).catch(() => ''));
@@ -298,14 +289,12 @@ async function runLane(s, agent, queue, seed, seedIndex, nextSpot) {
 			}
 			row.inventory = String(await s.command(`data get entity ${name} Inventory`)).slice(0, 900);
 			row.pass = result?.state === 'SUCCEEDED' && row.seconds * 1000 <= entry.budgetMs + 15_000 && row.deaths === 0 && row.stationsLeft === 0;
-			// What obtain did: held the item, handed back for danger (the model's turn), or failed on its own.
 			row.outcome = row.pass ? 'held' : result?.state === 'INTERRUPTED' && row.deaths === 0 ? 'handed_back' : 'failed';
 			row.firstCall = row.handBacks.length === 0 ? row.result.state : 'INTERRUPTED';
 			row.finishedAt = Date.now();
 			console.log(`[${seed} L${lane}] ${entry.item}: ${row.result.state} ${row.result.reasonCode} held=${row.result.held} ${row.seconds}s deaths=${row.deaths} hpLost=${row.healthLost} placed=${result?.stations?.placed?.length ?? 0} left=${row.stationsLeft} pass=${row.pass}`);
 			if (!row.pass) {
 				console.log(`   ${row.result.message}`);
-				// The body's last sample, for diagnosing a failure offline.
 				await writeFile(path.join(out, `fail-${seedIndex}-${lane}-${index}-${entry.item}.json`), JSON.stringify({ row, observation: agent.latest() })).catch(() => {});
 			}
 		} catch (error) {

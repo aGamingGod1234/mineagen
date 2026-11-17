@@ -133,8 +133,6 @@ test('a planning advisory never carries the assessment, so it cannot consume it'
 });
 
 test('a same-dimension death whose respawn arrives as a new revision still re-reads the situation once', async () => {
-	// B/S1-r4 control updatedAtEpochMs values span 4,219 ms, with 94 ms from respawn to resume.
-	// This synthetic sequence waits for the death turn; the cancellation tests below replay the recorded spacing.
 	const { run, planner, rows } = await coordinator();
 	try {
 		run.bridge.emit('goal_control', { agentId: 'agent-a', payload: { operation: 'dead', goalRevision: 1, updatedAtEpochMs: 2, death: { ...DEATH, dimensionId: OVERWORLD } } });

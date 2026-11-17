@@ -58,7 +58,7 @@ class ConstantTargetsTest(unittest.TestCase):
         root = pathlib.Path(SPEC.origin).resolve().parent.parent
         for target, method in [('26.1', 'renderArmWithItem'), ('26.2', 'submitArmWithItem')]:
             with self.subTest(target=target):
-                path = root / 'src/compat' / target / 'clientJava/dev/agaminggod/arenaagents/client/compat/mixin/ItemInHandRendererPovMixin.java'
+                path = root / 'src/compat' / target / 'clientJava/dev/agaminggod/mineagen/client/compat/mixin/ItemInHandRendererPovMixin.java'
                 values = list(checker.at_target_values(path.read_text()))
                 self.assertFalse([error for _, error in values if error])
                 self.assertTrue(any(value and ';' + method + '(' in value for value, _ in values))
@@ -116,7 +116,7 @@ class Renderer { void draw() {} void arm() {} }
             subprocess.run(['jar', '--create', '--file', str(jar), '-C', str(root / 'classes'), '.'], check=True, capture_output=True)
             resources = root / 'src/main/resources'
             resources.mkdir(parents=True)
-            (resources / 'arenaagents.mixins.json').write_text(json.dumps({'package': 'fixture', 'mixins': ['Hands']}))
+            (resources / 'mineagen.mixins.json').write_text(json.dumps({'package': 'fixture', 'mixins': ['Hands']}))
             source = root / 'src/main/java/fixture/Hands.java'
             source.parent.mkdir(parents=True)
             for method, expression, expected, diagnostic in [

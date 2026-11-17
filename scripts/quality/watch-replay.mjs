@@ -35,7 +35,6 @@ const OVERWORLD = 'minecraft:overworld', END = 'minecraft:the_end';
 // How far from the body a re-created mob starts when the episode does not say where it was (blocks).
 const START_DISTANCE = { creeper: 4, skeleton: 10, stray: 10, bogged: 10, pillager: 10, blaze: 9, ghast: 18, witch: 8, enderman: 5, piglin: 5, piglin_brute: 5, hoglin: 5, zoglin: 5, wither_skeleton: 4 };
 
-/** Every incident.json under the library, sorted by id. */
 export async function listIncidents(library) {
 	const found = [];
 	for (const run of await readdir(library, { withFileTypes: true }).catch(() => [])) {
@@ -206,7 +205,6 @@ export async function boot(dir, { jar, template, port, world, seed, goalTicks = 
 	tickRate = bootTickRate(tickRate);
 	const server = path.join(dir, 'server');
 	await stageServer(template, server, jar);
-	// worldCache: a seed's world is generated once and copied after (fixture-servers.mjs).
 	let cacheEntry = null;
 	if (!world && worldCache && worldCacheEnabled()) {
 		cacheEntry = await lookupWorld({ template, jar, properties: worldProperties({ world, seed, spawnMonsters, extraProperties }) });
@@ -219,7 +217,7 @@ export async function boot(dir, { jar, template, port, world, seed, goalTicks = 
 	await writeFile(path.join(server, 'server.properties'), `online-mode=false\nserver-ip=127.0.0.1\nserver-port=${port + 2}\nenable-rcon=true\nrcon.ip=127.0.0.1\nrcon.port=${port + 1}\nrcon.password=${secret}\n${worldProperties({ world, seed, spawnMonsters, extraProperties })}`);
 	const log = await open(path.join(dir, 'server.log'), 'a');
 	const java = path.join(process.env.JAVA_HOME, 'bin', process.platform === 'win32' ? 'java.exe' : 'java');
-	const child = spawn(java, [`-Darenaagents.bridgePort=${port}`, '-Darenaagents.coordinatorAutoStart=false', `-Darenaagents.bridgeSecretFile=${path.join(dir, 'secret.txt')}`, '-Xms512M', '-Xmx2G', ...(process.env.REPLAY_JAVA_OPTS ?? '').split(' ').filter(Boolean), '-jar', 'fabric-server-launch.jar', 'nogui'], { cwd: server, stdio: ['ignore', log.fd, log.fd], windowsHide: true });
+	const child = spawn(java, [`-Dmineagen.bridgePort=${port}`, '-Dmineagen.coordinatorAutoStart=false', `-Dmineagen.bridgeSecretFile=${path.join(dir, 'secret.txt')}`, '-Xms512M', '-Xmx2G', ...(process.env.REPLAY_JAVA_OPTS ?? '').split(' ').filter(Boolean), '-jar', 'fabric-server-launch.jar', 'nogui'], { cwd: server, stdio: ['ignore', log.fd, log.fd], windowsHide: true });
 	const s = { child, log, record: null, observation: null, ordinal: 0, revision: 0 };
 	s.stop = () => s.stopping ??= stopReplayServer(s);
 	liveServer = child;
@@ -417,7 +415,6 @@ async function replayOne(s, { incident, savepoint }, { windowMs }) {
 	return { armedStatus, survived: !died, died, ...(cancelled ? { cancelled } : {}), healthBefore: round(before), healthAfter: round(after), minHealth: round(Math.min(minHealth, after)), events, recreated, bodyAction: bodyAction ? { state: bodyAction.state, reasonCode: bodyAction.reasonCode ?? null, message: bodyAction.message ?? null, error: bodyAction.error ?? null } : null, track: (process.env.REPLAY_TRACK_ALL || process.env.REPLAY_FULL_TRACK === '1') ? track : track.filter((_, i) => i % 4 === 0) };
 }
 
-/** "[I; a, b, c, d]" (an entity's UUID data) as the usual dashed hex string, or null. */
 export function uuidOf(text) {
 	const m = String(text).match(/\[I;\s*(-?\d+),\s*(-?\d+),\s*(-?\d+),\s*(-?\d+)\]/);
 	if (!m) return null;
@@ -446,7 +443,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
 	const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port = Number(process.env.SLOT_PORT_BASE);
 	if (!template || !port || !process.env.JAVA_HOME) throw new Error('Set ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME, and launch under slot.sh live (SLOT_PORT_BASE)');
 	library = path.resolve(library);
-	const jar = path.resolve(opts.jar ?? process.env.ARENA_JAR ?? path.join(root, 'build/libs/arena-agents-0.2.0.jar'));
+	const jar = path.resolve(opts.jar ?? process.env.ARENA_JAR ?? path.join(root, 'build/libs/mineagen-0.2.0.jar'));
 	const jarHash = createHash('sha256');
 	for await (const chunk of createReadStream(jar)) jarHash.update(chunk);
 	const jarSha256 = jarHash.digest('hex');

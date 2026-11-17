@@ -1,3 +1,4 @@
+import { privateInputUrl } from '../scripts/private-inputs.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import fs from 'node:fs';
@@ -7,7 +8,7 @@ import { observationSha256 } from '../src/decision-eval/capture.mjs';
 import { renderWake } from '../src/decision-eval/render.mjs';
 import { validateCaseFile } from '../src/decision-eval/schema.mjs';
 
-const fixture = JSON.parse(fs.readFileSync(new URL('./fixtures/decision-eval/fullgame-deaths.json', import.meta.url)));
+const fixture = JSON.parse(fs.readFileSync(privateInputUrl('coordinator/test/fixtures/decision-eval/fullgame-deaths.json')));
 const cases = fixture.cases;
 const byId = suffix => cases.find(c => c.id === `deaths-${suffix}`);
 const header = (player, trigger = 'damage') => buildNativeEventInput({ agentId: 'death-test', goalRevision: 1, currentGoal: 'Beat the game' }, {
@@ -98,17 +99,14 @@ test('danger lines name an open drop beside the body and what a hit does there',
 test('threat lines name the nearest push-safe and roofed stands the mod found in seen terrain', async () => {
 	const { edgeNote, standNote } = await import('../src/dynamic-main.mjs');
 	const blaze = [{ type: 'minecraft:blaze', distance: 7 }];
-	// Live 2026-10-21 at d9-nether-d's knock-off spot (59.6,69,92.7 on seed 20261009): a fall of 19 beside the feet.
 	const exposed = { here: { pushSafe: false, roof: false, walls: 0 }, pushSafe: { x: 64, y: 69, z: 95, steps: 8, roof: false, walls: 0, open: 'N,E,S,W' },
 		covered: { x: 83, y: 70, z: 83, steps: 14, roof: true, walls: 2, open: 'S,W' }, searchedSteps: 16 };
 	const note = edgeNote({ health: 20, threats: blaze, footing: { drop: 19, yaw: 175 }, stand: exposed });
 	assert.match(note, /Open drop 19 blocks beside you.* Nearest push-safe stand \(no open drop within 3 blocks\): 64,69,95, 8 steps \(no roof, 0 walls, open N,E,S,W\)\. Nearest roofed push-safe stand: 83,70,83, 14 steps \(roof, 2 walls, open S,W\); shots reach it only through open sides\.$/);
 	assert.equal(standNote({ threats: blaze, stand: { here: { pushSafe: false }, searchedSteps: 16 } }), ' No push-safe stand within 16 steps of seen footing.');
-	// Push-safe here: a roofed stand is news against shooters only.
 	const safeHere = { here: { pushSafe: true, roof: false, walls: 0 }, covered: { x: 1, y: 64, z: 2, steps: 3, roof: true, walls: 3, open: 'S' } };
 	assert.match(standNote({ threats: blaze, stand: safeHere }), /^ Nearest roofed push-safe stand: 1,64,2, 3 steps \(roof, 3 walls, open S\)/);
 	assert.equal(standNote({ threats: [{ type: 'minecraft:zombie' }], stand: safeHere }), '');
-	// The same cell is named once.
 	assert.doesNotMatch(standNote({ threats: blaze, stand: { here: { pushSafe: false }, pushSafe: { x: 1, y: 2, z: 3, steps: 1, roof: true, walls: 2 }, covered: { x: 1, y: 2, z: 3, steps: 1, roof: true, walls: 2 } } }), /roofed/);
 	assert.equal(standNote({}), '');
 });

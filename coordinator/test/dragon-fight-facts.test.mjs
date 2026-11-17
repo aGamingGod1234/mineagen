@@ -18,15 +18,12 @@ test('a fountain landing is one urgent wake with the head and the vanilla perch 
 	// Rows that drop out of view, or more perched samples, belong to the same landing.
 	assert.equal(dragonPerchEdge(state, end([]), 3_000), null);
 	assert.equal(dragonPerchEdge(state, end([dragon('perched')]), 6_000), null);
-	// Seen flying again, the next landing wakes again.
 	assert.equal(dragonPerchEdge(state, end([dragon('ascending')]), 9_000), null);
 	assert.notEqual(dragonPerchEdge(state, end([dragon('perched')]), 40_000), null);
-	// A landing heard only, or a dead dragon, is no sight of a perch.
 	assert.equal(dragonPerchEdge({}, end([dragon('perched', { perceivedBy: 'sound' })]), 0), null);
 
 	assert.deepEqual(classifyObservationTrigger({ attention: false, changedFacts: [] }, end([dragon('perched'), head]), { dragonPerch: perch }),
 		{ attention: true, priority: 'urgent', trigger: 'dragon_perched' });
-	// Damage in the same sample keeps its own wake.
 	assert.equal(classifyObservationTrigger({ attention: true, changedFacts: ['player.health'] }, end([]), { dragonPerch: perch }).trigger, 'damage');
 
 	const record = { currentGoal: 'Defeat the Ender Dragon', goalRevision: 1 };
@@ -73,7 +70,6 @@ test('End crystals seen stay remembered, and a crystal broken by your own shot i
 	noteCombatDispatch(state, 'shot-2', 'use_ranged', { targetId: 'west' });
 	settleCombatResult(state, { actionId: 'shot-1', state: 'SUCCEEDED', message: 'Arrow loosed (aim point -12.9,87.9,-39.0); it struck the target, which broke or died' });
 	settleCombatResult(state, { actionId: 'shot-2', state: 'SUCCEEDED', message: 'Arrow loosed; missed: stuck in minecraft:iron_bars at -40,80,0' });
-	// Out of sight later: memory, not this sample, answers.
 	const tally = rememberEndCrystals(state, end([]));
 	assert.deepEqual(tally, { standing: [{ x: -42, y: 80, z: -1, caged: true }], broken: 1 });
 	assert.match(endCrystalFact(tally), /^End crystals you have seen: 1 standing when last seen \(-42,80,-1 caged \(beside it feet y=80\)\), 1 broken by your own hits\. The 10 obsidian pillars/);
@@ -96,7 +92,6 @@ test('A caged crystal remembers the gaps last seen in its cage', () => {
 	let tally = rememberEndCrystals(state, seen({ caged: true, cageOpen: ['-40,80,-1', '-40,81,-1'] }));
 	assert.deepEqual(tally.standing, [{ x: -42, y: 80, z: -1, caged: true, open: ['-40,80,-1', '-40,81,-1'] }]);
 	assert.match(endCrystalFact(tally, { y: 61.5 }), /-42,80,-1 caged \(beside it feet y=80, 19 above you; open bars -40,80,-1 -40,81,-1\)/);
-	// Out of sight the last seen gaps stay.
 	tally = rememberEndCrystals(state, end([]));
 	assert.deepEqual(tally.standing[0].open, ['-40,80,-1', '-40,81,-1']);
 });

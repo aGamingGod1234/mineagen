@@ -1,3 +1,4 @@
+import { privateInputUrl } from '../scripts/private-inputs.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -18,7 +19,6 @@ test('the void and lava destroy drops; other deaths leave them', () => {
 	assert.equal(dropLoss({ cause: 'a fell out of the world', dimensionId: END, y: -229 }), 'void');
 	assert.equal(dropLoss({ cause: 'a was slain by Enderman', dimensionId: END, y: -70 }), 'void');
 	assert.equal(dropLoss({ cause: 'a tried to swim in lava', dimensionId: NETHER, y: 31 }), 'lava');
-	// A magma block floor is not lava.
 	assert.equal(dropLoss({ cause: 'a discovered the floor was lava', dimensionId: NETHER, y: 34 }), null);
 	assert.equal(dropLoss({ cause: 'a was slain by Piglin', dimensionId: NETHER, y: 93 }), null);
 	assert.equal(lostItemsText(kit), 'iron_pickaxe, golden_helmet, flint_and_steel, cobblestone x64');
@@ -32,10 +32,8 @@ test('the way back names the portal in view or remembered and where its far side
 	assert.match(recoveryRoute(end, here(OW, 256.5, 69, 2543.5)), /no End portal location remembered/);
 	const nether = { cause: 'a slain', dimensionId: NETHER, x: -6, y: 42, z: 47, portal: { from: { dimension: OW, x: -13, y: -54, z: 99 }, to: { dimension: NETHER, x: 9, y: 37, z: 24 } } };
 	assert.equal(recoveryRoute(nether, here(OW, -4.5, -53, 96.5)), 'Way back: the portal you entered by @-13,-54,99, 9 blocks from you; it led to @9,37,24 in the Nether, 27 blocks from the drops.');
-	// Without the far side, the 1/8 link rule.
 	const { portal: _, ...unlinked } = nether;
 	assert.match(recoveryRoute(unlinked, here(OW, -4.5, -53, 96.5, [{ blockId: 'minecraft:nether_portal', x: -9, y: -52, z: 101 }])), /links to the Nether portal nearest -2,12 \(1\/8 of its x,z\)/);
-	// Same dimension: the existing distance facts say it.
 	assert.equal(recoveryRoute({ ...nether, dimensionId: OW }, here(OW, 0, 64, 0)), null);
 });
 
@@ -47,7 +45,6 @@ test('the respawn lead states the drops, their clock and the way back, or that t
 	const fell = { ...recovery, lastDeath: { ...recovery.lastDeath, cause: 'a fell out of the world', dimensionId: END, y: -229 } };
 	assert.ok(respawnLead(fell, here(OW, 0, 64, 0)).startsWith('Respawned. Everything carried fell into the void with you (fell out of the world) and is gone: nothing to recover.'));
 	assert.equal(respawnLead({ ...recovery, lastLostInventory: [] }, here(OW, 0, 64, 0)), null);
-	// Once the drop time is spent there is nothing to say.
 	const spent = { ...recovery };
 	Object.defineProperty(spent, 'dropTicking', { value: { simulationDistance: 6, tickedSeconds: 300, tickingNow: true } });
 	assert.equal(respawnLead(spent, here(OW, 0, 64, 0)), null);
@@ -79,9 +76,9 @@ test('by day the bed line says where the next death respawns and what sets it', 
 	assert.equal(spawnLine({ ...day([{ itemId: 'minecraft:white_bed', count: 1 }]), world: { dimension: NETHER } }), null);
 });
 
-const recover = JSON.parse(fs.readFileSync(new URL('./fixtures/decision-eval/extra/d31-respawn-recovery.json', import.meta.url)));
-const beds = JSON.parse(fs.readFileSync(new URL('./fixtures/decision-eval/extra/d31-bed-spawn.json', import.meta.url)));
-const lava = JSON.parse(fs.readFileSync(new URL('./fixtures/decision-eval/extra/d31-nether-lava-recovery.json', import.meta.url)));
+const recover = JSON.parse(fs.readFileSync(privateInputUrl('coordinator/test/fixtures/decision-eval/extra/d31-respawn-recovery.json')));
+const beds = JSON.parse(fs.readFileSync(privateInputUrl('coordinator/test/fixtures/decision-eval/extra/d31-bed-spawn.json')));
+const lava = JSON.parse(fs.readFileSync(privateInputUrl('coordinator/test/fixtures/decision-eval/extra/d31-nether-lava-recovery.json')));
 
 test('respawn and bed cases keep provenance and their wakes carry the new facts', async () => {
 	for (const file of [recover, beds, lava]) {
@@ -92,7 +89,7 @@ test('respawn and bed cases keep provenance and their wakes carry the new facts'
 		}
 	}
 	const wake = async (file, id) => {
-		const { encodedInput } = await renderWake(file.cases.find(c => c.id === id), { provider: 'opencode', model: 'opencode-go/deepseek-v4.1-flash' });
+		const { encodedInput } = await renderWake(file.cases.find(c => c.id === id), { provider: 'claude', model: 'claude-opus-5-5' });
 		return { head: encodedInput.slice(0, encodedInput.indexOf('\n')), data: JSON.parse(encodedInput.slice(encodedInput.indexOf('\n') + 1)).data };
 	};
 	const end = await wake(recover, 'respawn-kit-end-01');
@@ -105,7 +102,7 @@ test('respawn and bed cases keep provenance and their wakes carry the new facts'
 });
 
 test('Nether lava deaths say what burned without claiming which, whichever way the drops went', async () => {
-	const head = async (id) => { const { encodedInput } = await renderWake(lava.cases.find(c => c.id === id), { provider: 'opencode', model: 'opencode-go/deepseek-v4.1-flash' }); return encodedInput.slice(0, encodedInput.indexOf('\n')); };
+	const head = async (id) => { const { encodedInput } = await renderWake(lava.cases.find(c => c.id === id), { provider: 'claude', model: 'claude-opus-5-5' }); return encodedInput.slice(0, encodedInput.indexOf('\n')); };
 	const lead = /Respawned\. You died in lava in the Nether @-?\d+,\d+,-?\d+ \(tried to swim in lava[^)]*\): drops that fell into it burned; any that landed beside it wait there \(~4 of 5 min left; .*?, paused now\)\. Carried then: [^.]*iron_pickaxe/;
 	// 01: stacks (the iron pickaxe among them) waited beside the lava; 02: everything burned. The wake is the same claim.
 	for (const id of ['respawn-nether-lava-01', 'respawn-nether-lava-02']) {

@@ -1,20 +1,20 @@
 # Local dependency provenance
 
-The default 26.3 JARs below are committed here. The JARs for the other Minecraft targets are not: run `scripts/fetch-libs.sh 26.2` or `scripts/fetch-libs.sh 26.1` (Git Bash on Windows) to download that pair and check it against `checksums-26.2.sha256` or `checksums-26.1.sha256`. Their URLs and Modrinth version ids are in `gradle/mc/<target>.properties`.
+The build expects two third-party JARs per Minecraft target in this folder. A checkout may not carry them: run `scripts/fetch-libs.sh` for the default 26.3 pair, or `scripts/fetch-libs.sh 26.2` or `scripts/fetch-libs.sh 26.1` for another target (Git Bash on Windows). The script downloads the pair and checks it against `checksums.sha256`, `checksums-26.2.sha256` or `checksums-26.1.sha256`; a JAR that is already present is only re-verified. The URLs and Modrinth version ids are in `gradle.properties` and `gradle/mc/<target>.properties`.
 
 `fabric-carpet-26.3+v260915.jar` comes from the upstream Fabric Carpet `v26.3` GitHub release:
 
 https://github.com/gnembon/fabric-carpet/releases/download/v26.3/fabric-carpet-26.3%2Bv260915.jar
 
-GitHub published the asset with SHA-256 digest `7c40b93e807ed914064176898037117097446c6cc76e6a80a856c8bf7f7659f9`. The tracked file matches that digest.
+GitHub published the asset with SHA-256 digest `7c40b93e807ed914064176898037117097446c6cc76e6a80a856c8bf7f7659f9`, the digest `checksums.sha256` records.
 
 `voicechat-fabric-2.6.27+26.3.jar` comes from the Modrinth Simple Voice Chat release for Minecraft 26.3 / SVC 2.6.27 (version id `x9jLR94Q`):
 
 https://cdn.modrinth.com/data/9eGKb6K1/versions/x9jLR94Q/voicechat-fabric-2.6.27%2B26.3.jar
 
-The tracked file SHA-256 digest is `9e1c93144a3f7498e546102f6786aea6e4992866c4c5d21bd2e0edb702399153`. The voice add-on already depends on the same Modrinth version as `maven.modrinth:9eGKb6K1:x9jLR94Q`. `checksums.sha256` is the build-enforced record for every tracked local JAR.
+Its SHA-256 digest is `9e1c93144a3f7498e546102f6786aea6e4992866c4c5d21bd2e0edb702399153`. The voice add-on already depends on the same Modrinth version as `maven.modrinth:9eGKb6K1:x9jLR94Q`. `checksums.sha256` is the build-enforced record for the default-target JARs.
 
-Verify both files from PowerShell at the repository root:
+Once the JARs are in place, verify both files from PowerShell at the repository root:
 
 ```powershell
 Get-FileHash -Algorithm SHA256 -LiteralPath .\libs\fabric-carpet-26.3+v260915.jar

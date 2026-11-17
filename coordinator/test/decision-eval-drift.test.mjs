@@ -1,3 +1,4 @@
+import { privateInputUrl } from '../scripts/private-inputs.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -7,7 +8,7 @@ import { renderWake } from '../src/decision-eval/render.mjs';
 
 // Recorded d13/d14 iron games: the wake before a detour off the Nether route (drift-0x) and 10+ minutes into one
 // (drift-1x). drift.json carries the recorded plan; drift-fine.json the same moments with a translator stage plan.
-const load = name => JSON.parse(fs.readFileSync(new URL(`./fixtures/decision-eval/extra/${name}`, import.meta.url)));
+const load = name => JSON.parse(fs.readFileSync(privateInputUrl(`coordinator/test/fixtures/decision-eval/extra/${name}`)));
 const recorded = load('drift.json'), fine = load('drift-fine.json');
 
 test('drift cases pair recorded moments with the recorded plan and with a stage plan', () => {

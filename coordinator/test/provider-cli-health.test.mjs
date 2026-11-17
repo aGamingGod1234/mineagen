@@ -2,17 +2,14 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import test from 'node:test';
 
-import { resolveAntigravityLaunch } from '../src/antigravity-service.mjs';
 import { resolveClaudeLaunch } from '../src/claude-service.mjs';
 import { ProviderCliHealthMonitor, createDisabledProviderCliHealthMonitor, probeProviderCli } from '../src/provider-cli-health.mjs';
 import { findExecutableOnPath } from '../src/provider-environment.mjs';
 
 const CLAUDE_VERSION = '2.1.288 (Claude Code)';
 const CODEX_VERSION = 'codex-cli 0.160.0';
-const AGY_VERSION = '1.2.8';
 const CLAUDE_LOGGED_IN = '{\n  "loggedIn": true,\n  "authMethod": "claude.ai",\n  "email": "player@example.invalid"\n}';
 const CLAUDE_LOGGED_OUT = '{\n  "loggedIn": false\n}';
-const AGY_SIGNED_OUT = 'Fetching available models...\nError: Please sign in to view available models. Launch the CLI without arguments to sign in.';
 const TOOLS = 'C:\\tools';
 // Codex launch resolution scans real Windows install locations, so Codex probes use a POSIX fixture.
 const POSIX_BIN = '/usr/bin';
@@ -60,13 +57,10 @@ test('reports a missing Claude CLI without spawning anything', async () => {
 	assert.ok(Object.isFrozen(health));
 });
 
-test('reports a missing Codex and Antigravity CLI with provider-specific install hints', async () => {
+test('reports a missing Codex CLI with provider-specific install hints', async () => {
 	const codex = await probe('codex', { files: [], platform: 'linux', environment: POSIX_ENVIRONMENT });
 	assert.equal(codex.health.code, 'PROVIDER_CLI_MISSING');
 	assert.match(codex.health.message, /Codex CLI is not installed .*no 'codex' found on PATH.*sign in with 'codex login'/);
-	const gemini = await probe('gemini', { files: [] });
-	assert.equal(gemini.health.code, 'PROVIDER_CLI_MISSING');
-	assert.match(gemini.health.message, /Antigravity CLI is not installed .*no 'agy' found on PATH.*run 'agy' once to sign in/);
 });
 
 test('reports a configured executable path that does not exist', async () => {
@@ -99,11 +93,6 @@ test('reports a broken CLI when --version times out or cannot start', async () =
 	assert.equal(slow.health.code, 'PROVIDER_CLI_BROKEN');
 	assert.match(slow.health.message, /'codex --version' timed out after 10s\./);
 	assert.equal(slow.calls[0].options.timeout, 10_000);
-
-	const agyExe = path.join(TOOLS, 'agy.exe');
-	const cannotStart = await probe('gemini', { files: [agyExe], script: () => spawnFailure('EACCES') });
-	assert.equal(cannotStart.health.code, 'PROVIDER_CLI_BROKEN');
-	assert.match(cannotStart.health.message, new RegExp(`Antigravity CLI is installed at ${escapeRegExp(agyExe)} but is not working: 'agy --version' could not start \\(EACCES\\)\\.`));
 
 	const throwing = fakeExecFile(() => ({}));
 	const shim = await probeProviderCli('claude', {
@@ -206,38 +195,12 @@ test('detects a signed-out Codex CLI from login status', async () => {
 	assert.equal(health.message, "Codex CLI is not signed in. Run 'codex login' on the server machine, or set OPENAI_API_KEY, then relaunch this agent. This agent cannot think until that is fixed.");
 });
 
-test('detects a signed-out Antigravity CLI from the models command with its longer deadline', async () => {
-	const agyExe = path.join(TOOLS, 'agy.exe');
-	const { health, calls } = await probe('gemini', {
-		files: [agyExe],
-		script: (_command, args) => args[0] === 'models' ? exit(1, AGY_SIGNED_OUT) : { stdout: AGY_VERSION },
-	});
-	assert.equal(health.code, 'PROVIDER_CLI_UNAUTHENTICATED');
-	assert.equal(health.version, '1.2.8');
-	assert.deepEqual(calls[1].args, ['models']);
-	assert.equal(calls[1].options.timeout, 25_000);
-	assert.equal(health.message, "Antigravity CLI is not signed in. Run 'agy' once and sign in on the server machine, or set GEMINI_API_KEY, then relaunch this agent. This agent cannot think until that is fixed.");
-	assert.match(health.details, /Please sign in/);
-});
-
-test('an Antigravity models failure that is not a sign-in problem is reported as broken', async () => {
-	const agyExe = path.join(TOOLS, 'agy.exe');
-	const { health } = await probe('gemini', {
-		files: [agyExe],
-		script: (_command, args) => args[0] === 'models' ? exit(2, '', 'panic: network unreachable') : { stdout: AGY_VERSION },
-	});
-	assert.equal(health.code, 'PROVIDER_CLI_BROKEN');
-	assert.match(health.message, /'agy models' failed with exit code 2: panic: network unreachable/);
-});
-
 test('reports ok for each signed-in provider with the parsed version', async () => {
 	const claude = await probe('claude', { files: [path.join(TOOLS, 'claude.exe')], script: (_c, args) => args[0] === 'auth' ? { stdout: CLAUDE_LOGGED_IN } : { stdout: CLAUDE_VERSION } });
 	assert.deepEqual([claude.health.status, claude.health.code, claude.health.message, claude.health.version], ['ok', null, null, '2.1.288']);
 	assert.doesNotMatch(claude.health.details, /player@example/);
 	const codex = await probe('codex', { files: [path.join(POSIX_BIN, 'codex')], platform: 'linux', environment: POSIX_ENVIRONMENT, script: (_c, args) => args[0] === 'login' ? { stdout: 'Logged in using ChatGPT' } : { stdout: CODEX_VERSION } });
 	assert.deepEqual([codex.health.status, codex.health.version], ['ok', '0.160.0']);
-	const gemini = await probe('gemini', { files: [path.join(TOOLS, 'agy.exe')], script: (_c, args) => args[0] === 'models' ? { stdout: 'Gemini 3.6 Flash (High)\n' } : { stdout: AGY_VERSION } });
-	assert.deepEqual([gemini.health.status, gemini.health.version], ['ok', '1.2.8']);
 });
 
 test('an older Claude CLI without auth status yields unknown rather than a false alarm', async () => {
@@ -400,19 +363,6 @@ test('resolveClaudeLaunch prefers a native claude.exe, then the npm entrypoint, 
 
 	const posix = resolveClaudeLaunch(config, { platform: 'linux', existsSync: () => { throw new Error('PATH lookup is left to the OS outside Windows'); } });
 	assert.deepEqual([posix.command, posix.source], ['claude', 'bare']);
-});
-
-test('resolveAntigravityLaunch prefers agy.exe on PATH, then the installer location on Windows', () => {
-	const config = { environment: WINDOWS_ENVIRONMENT };
-	const onPath = resolveAntigravityLaunch(config, { platform: 'win32', existsSync: existsIn(path.join(TOOLS, 'agy.exe')) });
-	assert.deepEqual([onPath.command, onPath.source], [path.join(TOOLS, 'agy.exe'), 'path']);
-	const installer = path.join(WINDOWS_ENVIRONMENT.LOCALAPPDATA, 'agy', 'bin', 'agy.exe');
-	const installed = resolveAntigravityLaunch(config, { platform: 'win32', existsSync: existsIn(installer) });
-	assert.deepEqual([installed.command, installed.source], [installer, 'installer']);
-	const bare = resolveAntigravityLaunch(config, { platform: 'win32', existsSync: () => false });
-	assert.deepEqual([bare.command, bare.source], ['agy', 'bare']);
-	const configured = resolveAntigravityLaunch({ ...config, executable: 'D:\\agy\\agy.exe' }, { platform: 'win32', existsSync: existsIn('D:\\agy\\agy.exe') });
-	assert.equal(configured.source, 'configured');
 });
 
 test('findExecutableOnPath honours PATHEXT on Windows and plain names elsewhere', () => {

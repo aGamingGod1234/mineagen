@@ -13,7 +13,7 @@ function clock(start = 1_800_000_000_000) {
 }
 
 const sol = { agentId: 'sol-1', provider: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'low', serviceTier: 'default', goalRevision: 1 };
-const deep = { agentId: 'deep-1', provider: 'opencode', model: 'opencode/deepseek-v4.1-flash-free', reasoningEffort: 'low', serviceTier: 'priority', goalRevision: 1 };
+const deep = { agentId: 'deep-1', provider: 'claude', model: 'future-free-model', reasoningEffort: 'low', serviceTier: 'priority', goalRevision: 1 };
 const opus = { agentId: 'opus-1', provider: 'claude', model: 'claude-opus-5-5', reasoningEffort: 'low', serviceTier: 'priority', goalRevision: 3 };
 
 test('warning thresholds: yellow under 3 h, red under 1 h', () => {
@@ -58,7 +58,7 @@ test('Codex cumulative thread totals: repeated reports are not double counted an
 	assert.equal(row.last.input, 1_500);
 });
 
-test('per-call reports (Claude, OpenCode) count each call; a new session thread uses the call figures', () => {
+test('per-call reports (Claude) count each call; a new session thread uses the call figures', () => {
 	const time = clock();
 	const ledger = new UsageLedger({ now: time.now });
 	const report = (totals, last, ms) => ({ threadId: 'claude:opus-1:1', ...totals, last, call: { provider: 'claude', totalMs: ms, endedAt: time.state.now } });
@@ -77,14 +77,14 @@ test('per-call reports (Claude, OpenCode) count each call; a new session thread 
 });
 
 test('free models cost $0 and show a list-price equivalent when one is known', () => {
-	registerDiscoveredPrice('opencode', 'opencode/deepseek-v4.1-flash-free', { free: true, listPrice: { input: 0.3, cacheRead: 0.006, cacheWrite: 0.3, output: 1.2 } });
-	registerDiscoveredPrice('opencode', 'opencode/big-pickle', { free: true });
-	assert.deepEqual(callCostUsd({ input: 1_000_000, cacheRead: 0, cacheWrite: 0, output: 1_000_000 }, { provider: 'opencode', model: 'opencode/deepseek-v4.1-flash-free' }), { costUsd: 0, listCostUsd: 1.5, free: true });
-	assert.deepEqual(callCostUsd({ input: 5, cacheRead: 0, cacheWrite: 0, output: 5 }, { provider: 'opencode', model: 'opencode/big-pickle' }), { costUsd: 0, listCostUsd: null, free: true });
+	registerDiscoveredPrice('claude', 'future-free-model', { free: true, listPrice: { input: 0.3, cacheRead: 0.006, cacheWrite: 0.3, output: 1.2 } });
+	registerDiscoveredPrice('claude', 'future-free-unknown-price', { free: true });
+	assert.deepEqual(callCostUsd({ input: 1_000_000, cacheRead: 0, cacheWrite: 0, output: 1_000_000 }, { provider: 'claude', model: 'future-free-model' }), { costUsd: 0, listCostUsd: 1.5, free: true });
+	assert.deepEqual(callCostUsd({ input: 5, cacheRead: 0, cacheWrite: 0, output: 5 }, { provider: 'claude', model: 'future-free-unknown-price' }), { costUsd: 0, listCostUsd: null, free: true });
 	assert.deepEqual(callCostUsd({ input: 5, cacheRead: 0, cacheWrite: 0, output: 5 }, { provider: 'codex', model: 'gpt-9-unknown' }), { costUsd: null, listCostUsd: null, free: false });
 	const time = clock();
 	const ledger = new UsageLedger({ now: time.now });
-	ledger.recordUsage(deep, { threadId: 'opencode:deep-1:1', inputTokens: 1_000_000, cachedInputTokens: 0, outputTokens: 1_000_000, last: { inputTokens: 1_000_000, cachedInputTokens: 0, outputTokens: 1_000_000 }, call: { totalMs: 500 } });
+	ledger.recordUsage(deep, { threadId: 'claude:deep-1:1', inputTokens: 1_000_000, cachedInputTokens: 0, outputTokens: 1_000_000, last: { inputTokens: 1_000_000, cachedInputTokens: 0, outputTokens: 1_000_000 }, call: { totalMs: 500 } });
 	const row = ledger.agentRow('deep-1');
 	assert.deepEqual([row.costUsd, row.listCostUsd, row.free], [0, 1.5, true]);
 });
@@ -133,7 +133,6 @@ test('plan-percent windows: rate, projection, reset-first and one warning per le
 	assert.deepEqual(account.agents, ['sol-1'], 'account rows name their agents instead of being copied into them');
 	assert.equal(warnings.length, 1);
 	assert.match(warnings[0].message, /Codex \(some...\) usage warning: weekly window 84% used, about 2 h to the limit/);
-	// Same level again: no repeat.
 	ledger.recordAllowance('codex', { primary: { usedPercent: 84, windowDurationMins: 10080, resetsAt }, secondary: null });
 	assert.equal(warnings.length, 1);
 	time.advance(30 * MINUTE);
@@ -141,7 +140,6 @@ test('plan-percent windows: rate, projection, reset-first and one warning per le
 	account = ledger.accountRow('codex');
 	assert.equal(account.warning, 'red');
 	assert.deepEqual(warnings.map((warning) => warning.level), ['yellow', 'red']);
-	// A window that resets before the projected limit does not warn.
 	const soon = Math.floor((time.state.now + 10 * MINUTE) / 1000);
 	const other = new UsageLedger({ now: time.now });
 	other.recordAllowance('codex', { primary: { usedPercent: 50, windowDurationMins: 300, resetsAt: soon } });
@@ -171,25 +169,6 @@ test('Claude windows from rate_limit_event and the provider status', () => {
 	assert.equal(ledger.limitSummaries().claude, '5-hour 91% used');
 });
 
-test('request-limited accounts (OpenCode free): request rates and 429s', () => {
-	const time = clock();
-	const warnings = [];
-	const ledger = new UsageLedger({ now: time.now, onWarning: (warning) => warnings.push(warning) });
-	for (let index = 0; index < 20; index += 1) {
-		time.advance(30_000);
-		ledger.recordUsage(deep, { threadId: 'opencode:deep-1:1', inputTokens: (index + 1) * 100, cachedInputTokens: 0, outputTokens: index + 1, call: { totalMs: 1_000 } });
-	}
-	let row = ledger.accountRow('opencode');
-	assert.deepEqual([row.limitKind, row.requests.perMinute, row.requests.perHour, row.warning], ['requests', 2, 20, 'none']);
-	ledger.recordRateLimited('opencode');
-	row = ledger.accountRow('opencode');
-	assert.deepEqual([row.requests.rateLimited.total, row.warning], [1, 'red']);
-	time.advance(20 * MINUTE);
-	ledger.evaluateAll();
-	assert.equal(ledger.accountRow('opencode').warning, 'yellow', 'a 429 within the hour stays a caution');
-	assert.deepEqual(warnings.map((warning) => warning.level), ['red', 'yellow']);
-});
-
 test('the roster covers every agent at once plus one row per account', () => {
 	const time = clock();
 	const ledger = new UsageLedger({ now: time.now });
@@ -198,7 +177,7 @@ test('the roster covers every agent at once plus one row per account', () => {
 	ledger.recordAllowance('codex', { primary: { usedPercent: 10, windowDurationMins: 10080 } });
 	const roster = ledger.roster([sol, deep, opus]);
 	assert.deepEqual(roster.agents.map((row) => [row.agentId, row.calls]), [['sol-1', 1], ['deep-1', 1], ['opus-1', 0]]);
-	assert.deepEqual(roster.accounts.map((row) => row.provider).sort(), ['claude', 'codex', 'opencode']);
+	assert.deepEqual(roster.accounts.map((row) => row.provider).sort(), ['claude', 'codex']);
 	assert.equal(roster.agents.some((row) => 'windows' in row || 'credits' in row), false, 'agents never carry account data');
 	ledger.removeAgent('deep-1');
 	assert.deepEqual(ledger.roster().agents.map((row) => row.agentId), ['sol-1', 'opus-1']);

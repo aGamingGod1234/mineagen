@@ -1,12 +1,4 @@
 #!/usr/bin/env node
-// Provider-free check of a vanilla caged End crystal (EndSpikeFeature guarded spike, generated in the End). End runs
-// 2026-10-21 lost 297 arrows in cage walls and 20-30 minutes a game on the two caged crystals. Checks: 1) the facts
-// (appearance caged, the coordinator's crystal fact with the cage, method and height above the player); 2) the inspect
-// row's arrowFromHere and the use_ranged refusals name the bars and what makes it hittable; 3) through the body: pillar
-// up beside the cage, break the two wall bars, then a default bow shot from the ground on that side breaks it;
-// 4) an open crystal hidden by its own pillar's top edge names how far out it shows, and a shot from there hits.
-// Operator commands only build the fixture (items, teleports to fixture spots, dragon removal). ARENA_JAR selects the
-// jar. Launch under slot.sh live.
 import { readFile, writeFile, mkdir, cp, readdir, unlink, open } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,7 +9,7 @@ import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { rememberEndCrystals, endCrystalFact } from '../../coordinator/src/dragon-fight-facts.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
-const jarPath = resolve(process.env.ARENA_JAR ?? join(root, 'build/libs/arena-agents-0.2.0.jar'));
+const jarPath = resolve(process.env.ARENA_JAR ?? join(root, 'build/libs/mineagen-0.2.0.jar'));
 const out = resolve(process.argv[2] ?? 'runtime/caged-crystal-live');
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE;
 if (!template || !process.env.SLOT_PORT_BASE) throw new Error('Set ARENA_HEADLESS_SERVER_TEMPLATE and launch under slot.sh live');
@@ -26,13 +18,13 @@ await mkdir(out, { recursive: true });
 if ((await readdir(out)).length) throw new Error('Use a fresh output directory');
 await writeFile(join(out, 'manifest.json'), JSON.stringify({ kind: 'provider-free live mechanics', aiPerformanceMeasured: false, fixtureSetupUsesOperatorCommands: true, jarSha256: createHash('sha256').update(await readFile(jarPath)).digest('hex'), node: process.version }, null, 2));
 await cp(template, server, { recursive: true });
-for (const name of await readdir(join(server, 'mods'))) if (name.startsWith('arena-agents-')) await unlink(join(server, 'mods', name));
-await cp(jarPath, join(server, 'mods/arena-agents-0.2.0.jar'));
+for (const name of await readdir(join(server, 'mods'))) if (name.startsWith('mineagen-')) await unlink(join(server, 'mods', name));
+await cp(jarPath, join(server, 'mods/mineagen-0.2.0.jar'));
 const secret = randomBytes(32).toString('hex');
 await writeFile(join(out, 'secret.txt'), secret, { mode: 0o600 });
 await writeFile(join(server, 'server.properties'), `online-mode=false\nserver-ip=127.0.0.1\nserver-port=${port + 2}\nenable-rcon=true\nrcon.ip=127.0.0.1\nrcon.port=${port + 1}\nrcon.password=${secret}\nlevel-name=world\nlevel-seed=20261017\nlevel-type=minecraft:flat\ngenerator-settings={"layers":[{"block":"minecraft:bedrock","height":1},{"block":"minecraft:stone","height":3}],"biome":"minecraft:plains"}\nspawn-protection=0\nview-distance=8\nsimulation-distance=6\npause-when-empty-seconds=-1\nmax-players=4\ndifficulty=peaceful\n`);
 const log = await open(join(out, 'server.log'), 'a');
-const child = spawn(`${process.env.JAVA_HOME}/bin/java`, [`-Darenaagents.bridgePort=${port}`, '-Darenaagents.coordinatorAutoStart=false', `-Darenaagents.bridgeSecretFile=${join(out, 'secret.txt')}`, '-Xms512M', '-Xmx2G', '-jar', 'fabric-server-launch.jar', 'nogui'], { cwd: server, stdio: ['ignore', log.fd, log.fd] });
+const child = spawn(`${process.env.JAVA_HOME}/bin/java`, [`-Dmineagen.bridgePort=${port}`, '-Dmineagen.coordinatorAutoStart=false', `-Dmineagen.bridgeSecretFile=${join(out, 'secret.txt')}`, '-Xms512M', '-Xmx2G', '-jar', 'fabric-server-launch.jar', 'nogui'], { cwd: server, stdio: ['ignore', log.fd, log.fd] });
 await writeFile(join(out, 'server.pid'), String(child.pid));
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 class Inbox {
@@ -126,7 +118,6 @@ try {
 		if (gy !== null) { groundSpot = { x: gx + 0.5, y: gy, z: gz + 0.5, outward }; break; }
 	}
 	results.groundSpot = groundSpot;
-	// 1. Facts from the ground.
 	let o = await seen(await stand(groundSpot.x, groundSpot.y, groundSpot.z, centre.x, centre.y, centre.z), cage);
 	const row = nearestCrystal(o, cage);
 	results.appearance = row?.appearance ?? null;
@@ -134,7 +125,6 @@ try {
 	const state = {};
 	results.factFromGround = facts(o, state);
 	check('crystal fact names the cage, the method and the height above the player', /caged \(beside it feet y=\d+, \d+ above you\)/.test(results.factFromGround) && /arrows stick in the side walls/.test(results.factFromGround) && /break the 2 wall bars/.test(results.factFromGround), results.factFromGround);
-	// 2. Tool messages: inspect, default shot, a hand-chosen aim over the cage.
 	const inspected = await inspect({ section: 'entities', entityType: 'minecraft:end_crystal', limit: 16 });
 	const inspectRow = (inspected.entities ?? inspected.rows ?? inspected.candidates ?? []).find?.(r => r.uuid === row.uuid) ?? JSON.stringify(inspected).match(/"arrowFromHere":"[^"]*"/g);
 	results.inspectFromGround = inspectRow?.arrowFromHere ?? inspectRow;
@@ -145,7 +135,6 @@ try {
 	const aimed = await act('use_ranged', { targetId: row.uuid, drawDurationMs: 1100, timeoutMs: 6000, aimX: centre.x, aimY: centre.y + 3, aimZ: centre.z });
 	results.aimedShotFromGround = aimed;
 	check('hand-chosen aim into the wall is refused before loosing', aimed.state === 'FAILED' && /iron_bars/.test(aimed.message ?? ''), aimed.message);
-	// 3. Through the body: pillar beside the cage, break the two wall bars at the crystal's height.
 	const standX = cage.x + sx * 3, standZ = cage.z + sz * 3;
 	const baseY = await groundAt(standX, standZ);
 	results.pillarBase = baseY;
@@ -173,7 +162,6 @@ try {
 	check('appearance and fact list the opened bars', (results.appearanceOpened?.cageOpen ?? []).length === 2 && /open bars/.test(results.factOpened), { appearance: results.appearanceOpened, fact: results.factOpened });
 	const inspectOpen = await inspect({ section: 'entities', entityType: 'minecraft:end_crystal', limit: 16 });
 	results.inspectFromPillarAfterBreak = JSON.stringify(inspectOpen).match(/"arrowFromHere":"[^"]*"/g);
-	// Back to the ground on that side (fixture teleport), then a default shot through the gap.
 	await act('select_item', { itemId: 'minecraft:bow' });
 	results.gapShots = [];
 	for (const outward of [groundSpot.outward, groundSpot.outward + 6, groundSpot.outward - 4]) {
@@ -203,7 +191,6 @@ try {
 		results.gapRate = { hits, shots, misses };
 	}
 	check('a default bow shot from the ground through the gap breaks the caged crystal', results.gapShots.some(s => s.state === 'SUCCEEDED' && /broke/.test(s.message ?? '')), results.gapShots);
-	// 4. An open crystal hidden by its own pillar's top edge from close below.
 	const open = spikes.filter(s => !caged.some(c => c.x === s.x && c.z === s.z)).map(s => ({ ...s, out: Math.abs(s.x) >= Math.abs(s.z) ? [Math.sign(s.x), 0] : [0, Math.sign(s.z)] }));
 	results.pillarEdge = null;
 	// Walk in from far out until the crystal's own pillar top hides it from the eye (seen first from farther out).

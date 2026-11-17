@@ -87,7 +87,6 @@ export class ArenaScriptEngine {
 		return this.snapshot();
 	}
 
-	/** Queues an external attention trigger against the current factual snapshot. */
 	notifyAttention({ priority = URGENT_PRIORITY, trigger = DEFAULT_ATTENTION_TRIGGER } = {}) {
 		if (!this.#isLive() || this.#facts === null) return this.snapshot();
 		this.#requestModel(null, { priority, trigger });
@@ -259,7 +258,6 @@ export class ArenaScriptEngine {
 		return latest;
 	}
 
-	/** Checks decision identity independently of harmless publication advances. */
 	isCurrentDirectiveRequest(request) {
 		return this.#pendingRequest !== null && sameRequest(request, this.#coalescedRequest ?? this.#pendingRequest);
 	}

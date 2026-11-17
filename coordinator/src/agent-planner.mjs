@@ -242,7 +242,7 @@ export class AgentPlanner {
 
 	requestNativeTurn({ agentId, input, goalRevision, executeTool, normalizeTool = null, recoverySummary = null, preserveState = false, priority = 'ordinary', traceId: requestedTraceId = null, onVerbose = null, onProgress = null }) {
 		const record = this.#registry.assertCurrentRevision(agentId, goalRevision);
-		if (!NATIVE_TOOL_PROVIDERS.includes(record.provider)) throw codedError('NATIVE_TOOLS_UNAVAILABLE', 'Native Minecraft tools are currently available for Codex, Claude and OpenCode agents only');
+		if (!NATIVE_TOOL_PROVIDERS.includes(record.provider)) throw codedError('NATIVE_TOOLS_UNAVAILABLE', 'Native Minecraft tools are currently available for Codex and Claude agents only');
 		if (typeof input !== 'string' || input.trim().length === 0) throw new TypeError('native turn input must be nonblank');
 		if (typeof executeTool !== 'function') throw new TypeError('executeTool must be a function');
 		if (normalizeTool !== null && typeof normalizeTool !== 'function') throw new TypeError('normalizeTool must be a function or null');
@@ -465,7 +465,7 @@ export class AgentPlanner {
 
 	async steerNativeTurn({ agentId, input, goalRevision, onInterrupt = null, onDiscard = null }) {
 		const record = this.#registry.assertCurrentRevision(agentId, goalRevision);
-		if (!NATIVE_TOOL_PROVIDERS.includes(record.provider)) throw codedError('NATIVE_TOOLS_UNAVAILABLE', 'Native Minecraft tools are currently available for Codex, Claude and OpenCode agents only');
+		if (!NATIVE_TOOL_PROVIDERS.includes(record.provider)) throw codedError('NATIVE_TOOLS_UNAVAILABLE', 'Native Minecraft tools are currently available for Codex and Claude agents only');
 		if (!(typeof input === 'function' || typeof input === 'string' && input.trim().length > 0)) throw new TypeError('native steer input must be nonblank or a builder');
 		if (onInterrupt !== null && typeof onInterrupt !== 'function') throw new TypeError('onInterrupt must be a function or null');
 		if (onDiscard !== null && typeof onDiscard !== 'function') throw new TypeError('onDiscard must be a function or null');
@@ -948,8 +948,6 @@ export function goalSpecTranslatorProfile(record, translatorId, lowEffortSupport
 	if (record.provider === 'claude') {
 		return { ...record, agentId: translatorId, provider: 'claude', model: 'claude-sonnet-5-5', reasoningEffort: 'medium', serviceTier: 'priority' };
 	}
-	// Free OpenCode agents translate on their own model, so a free game never spends paid compute.
-	if (record.provider === 'opencode') return { ...record, agentId: translatorId, provider: 'opencode', serviceTier: 'priority' };
 	let model = record.provider === 'codex' && typeof record.model === 'string' && record.model ? record.model : 'gpt-6-sol';
 	// A player model the catalog lists without low effort would fail translator creation; translate on gpt-6-sol low instead.
 	if (model !== 'gpt-6-sol' && typeof lowEffortSupported === 'function' && lowEffortSupported(model) === false) model = 'gpt-6-sol';

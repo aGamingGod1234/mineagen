@@ -7,7 +7,7 @@ import path from 'node:path';
 // T3 Code's usage page never sees them. The mirror appends usage-only rollout records (session_meta, turn_context,
 // thread_settings_applied, token_count) where T3 scans: no prompts, game content, paths or credentials.
 // One file holds every thread of the process, so thousands of eval threads do not crowd T3's session import scan.
-export const USAGE_MIRROR_SOURCE = 'arena-agents-usage-mirror';
+export const USAGE_MIRROR_SOURCE = 'mineagen-usage-mirror';
 const MAX_THREADS = 256;
 const ROTATE_BYTES = 50 * 1024 * 1024;
 

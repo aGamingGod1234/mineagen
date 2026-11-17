@@ -71,7 +71,7 @@ input.on('line', (line) => {
     } catch {}
 });
 '@ | Set-Content -LiteralPath $fakeCodex -NoNewline
-	Set-Content -LiteralPath (Join-Path $Root 'build\libs\arena-agents-0.2.0.jar') -Value 'fixture' -NoNewline
+	Set-Content -LiteralPath (Join-Path $Root 'build\libs\mineagen-0.2.0.jar') -Value 'fixture' -NoNewline
 	Set-Content -LiteralPath (Join-Path $Root 'runtime\server-template\fabric-server-launch.jar') -Value 'not-a-real-jar' -NoNewline
 	Set-Content -LiteralPath (Join-Path $Root 'runtime\server-template\server.properties') -Value "online-mode=false`nserver-ip=127.0.0.1`nserver\-ip:0.0.0.0`n" -NoNewline
 	Set-Content -LiteralPath (Join-Path $Root 'runtime\server-template\world\stale.dat') -Value 'must not be copied' -NoNewline
@@ -196,7 +196,7 @@ public final class FakeServer {
 
     private static String authenticationProof(String secret, String role, String clientNonce,
                                                String serverNonce, String serverInstanceId, String launchId) throws Exception {
-        String context = String.join("\0", "arena-agents-v2", role, clientNonce, serverNonce, serverInstanceId)
+        String context = String.join("\0", "mineagen-v2", role, clientNonce, serverNonce, serverInstanceId)
             + ("coordinator".equals(role) ? "\0" + (launchId == null ? "" : launchId) : "");
         Mac mac = Mac.getInstance("HmacSHA256");
         mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
@@ -212,7 +212,7 @@ public final class FakeServer {
             String serverNonce = Base64.getUrlEncoder().withoutPadding().encodeToString(
                 MessageDigest.getInstance("SHA-256").digest("fake-server".getBytes(StandardCharsets.UTF_8))
             );
-            String secret = Files.readString(Path.of(System.getProperty("arenaagents.bridgeSecretFile"))).trim();
+            String secret = Files.readString(Path.of(System.getProperty("mineagen.bridgeSecretFile"))).trim();
             String serverProof = authenticationProof(secret, "server", clientNonce, serverNonce, "fake-server", null);
             String authResponse = "{\"protocolVersion\":2,\"serverInstanceId\":\"fake-server\",\"agentId\":\"server\",\"type\":\"auth_response\",\"messageId\":\"fake-auth\",\"payload\":{\"replyTo\":\"" + challengeId + "\",\"clientNonce\":\"" + clientNonce + "\",\"serverNonce\":\"" + serverNonce + "\",\"proof\":\"" + serverProof + "\"}}\n";
             output.write(authResponse.getBytes(StandardCharsets.UTF_8));
@@ -243,10 +243,10 @@ public final class FakeServer {
         int serverPort = Integer.parseInt(properties.getProperty("server-port"));
         int rconPort = Integer.parseInt(properties.getProperty("rcon.port"));
         int bridgePort = bridgePort();
-        if (!Integer.toString(bridgePort).equals(System.getProperty("arenaagents.bridgePort"))) {
+        if (!Integer.toString(bridgePort).equals(System.getProperty("mineagen.bridgePort"))) {
             throw new IOException("headless bridge port JVM property did not match coordinator config");
         }
-        if (!"false".equals(System.getProperty("arenaagents.coordinatorAutoStart"))) {
+        if (!"false".equals(System.getProperty("mineagen.coordinatorAutoStart"))) {
             throw new IOException("headless coordinator auto-start was not disabled");
         }
         AtomicBoolean running = new AtomicBoolean(true);
@@ -254,7 +254,7 @@ public final class FakeServer {
         ServerSocket rcon = new ServerSocket(rconPort, 16, InetAddress.getLoopbackAddress());
         ServerSocket bridge = new ServerSocket(bridgePort, 16, InetAddress.getLoopbackAddress());
         Files.createDirectories(Path.of("logs"));
-        Files.createDirectories(Path.of(properties.getProperty("level-name"), "dimensions", "minecraft", "overworld", "data", "arenaagents"));
+        Files.createDirectories(Path.of(properties.getProperty("level-name"), "dimensions", "minecraft", "overworld", "data", "mineagen"));
         OutputStream latestLog = Files.newOutputStream(Path.of("logs", "latest.log"), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
         latestLog.write("Done (0.1s)!\n".getBytes(StandardCharsets.UTF_8));
         latestLog.flush();

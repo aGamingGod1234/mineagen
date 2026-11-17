@@ -61,7 +61,6 @@ test('an overworld log below y 50 is no tree to walk to (a cave azalea or a mine
 	// A body already down in a cave: a log at its own level is its way to planks (review of #314).
 	assert.equal(sightingOf(logs, sample({ player: { x: 0.5, y: 34, z: 0.5, yaw: 0, health: 20 }, blocks: [{ blockId: 'minecraft:oak_log', x: 3, y: 33, z: 0 }] })).via, 'sight');
 	assert.equal(sightingOf(logs, sample({ player: { x: 0.5, y: 45, z: 0.5, yaw: 0, health: 20 } }), { blocks: [{ blockId: 'minecraft:oak_log', x: 20, y: 33, z: 0 }] }), null);
-	// Not a log, or not the overworld: depth is no bar.
 	assert.equal(sightingOf(findProfile({ block: 'minecraft:lava' }), sample(), { blocks: [{ blockId: 'minecraft:lava', x: 40, y: 20, z: 0 }] }).id, 'minecraft:lava');
 	assert.equal(sightingOf(findProfile({ block: 'minecraft:crimson_stem' }, 'minecraft:the_nether'), sample({ world: { dimension: 'minecraft:the_nether' } }), { blocks: [{ blockId: 'minecraft:crimson_stem', x: 10, y: 35, z: 0 }] }).id, 'minecraft:crimson_stem');
 });
@@ -387,9 +386,6 @@ test('a surface search with every heading blocked from here hands back blocked w
 	assert.match(result.message, /8 heading\(s\) blocked \(last: NO_ROUTE: minecraft:stone takes 7.5 s per block\)/);
 });
 
-// Script-first round 3, seed 8: at y15 every walk for gravel stopped NO_ROUTE, and the build legs tunnelled 80 then 46
-// blocks of stone, wearing out the iron pickaxe before the water step. (Gravel itself now tunnels at its level first,
-// below; sand keeps the walk legs and their building budget.)
 test('a surface search walled in by stone tunnels short legs and hands back blocked once its building budget is spent', async () => {
 	let building = false;
 	const leg = {
@@ -411,9 +407,6 @@ test('a surface search walled in by stone tunnels short legs and hands back bloc
 	assert.match(result.message, /building legs already covered 64 of 64 blocks this search, so no more digging blind/);
 });
 
-// Script-first batch 4, laptop seed 5 r2: the flint step at y10 in the body's own iron tunnels (sky shut) walked 80-block
-// legs for gravel that failed NO_ROUTE in 3-4 s each, 43 of them between capped build legs, for 9 min; the gravel was in
-// the rock 21 blocks away at y11. Batches 4-6: every gravel found by a flint step was in the rock, 2-44 blocks off.
 const noRoute = () => ({ ms: 3_000, result: { state: 'FAILED', reasonCode: 'NO_ROUTE', message: 'No seen standing spot ahead gets closer, and build is false' } });
 const covered = (y, extra = {}) => sample({ player: { x: 611.5, y, z: 86.5, yaw: 0, health: 20, skyOpen: false, ...extra } });
 test('b4 laptop seed 5: gravel sought from under cover tunnels at the body\'s own level and stops at the first sight, no 80-block walks', async () => {
@@ -458,9 +451,6 @@ test('digs that go nowhere move the body off the spot, and a spot it cannot leav
 		'one dig down, a walk off the water and a tunnel sideways that both went nowhere, then the move off');
 });
 
-// Scripted round 1 seed 1 (iron pickaxe): steep_down north from y51 met an aquifer at y45; the retrace up and the walk
-// south off the water both went back up the steep stair and failed "Could not pillar up", and the search handed back
-// "water under this spot stops every dig down" 7 times in a row, the body never moving.
 const pillarFailed = (left) => ({ result: { state: 'FAILED', reasonCode: 'BUILD_FAILED',
 	message: `No seen way on toward the target, and building cannot continue: Could not pillar up at -9,45,-45; at -8.5,45.0,-44.3; ${left} blocks left to the target` } });
 const seedOneBody = ({ waterX, tunnel }) => fakeBody({
@@ -795,7 +785,6 @@ test('round-2 P1 1: an air, flooding or drowning stop hands back at once and nev
 		assert.equal(result.reasonCode, 'FIND_DANGER', `${stop.reasonCode}: ${result.message}`);
 		assert.ok(!body.calls.some((call) => call.actionType === 'build_shelter'), `${stop.reasonCode}: no building on the last breath`);
 	}
-	// Lava ahead underground still walls the body in.
 	const lava = fakeBody({
 		start: sample({ inventory: { items: [{ itemId: 'minecraft:cobblestone', count: 32 }] } }),
 		frontier: { candidates: [], coverage: { headings: { N: [50, 50], E: [0, 0] } } },
@@ -817,7 +806,6 @@ test('round-2 P1 3: a dig that stopped for lava with iron in view hands back the
 	assert.equal(result.reasonCode, 'FIND_DANGER', result.message);
 	assert.deepEqual([result.find.seen.x, result.find.seen.y, result.find.seen.z], [4, 15, 1]);
 	assert.match(result.message, /LAVA_AHEAD.*also seen: iron_ore seen at 4,15,1/);
-	// obtain sees it as danger and hands back.
 	const { isDanger } = await import('../src/obtain-runner.mjs');
 	assert.ok(isDanger({ reasonCode: 'LAVA_AHEAD' }));
 });
@@ -908,7 +896,6 @@ test('scripted gate seed 6: a lone cave zombie is fought with the pickaxe at ful
 	assert.equal(result.reasonCode, 'FIND_SEEN', result.message);
 	assert.equal(body.calls.some((call) => call.actionType === 'build_shelter'), false);
 	assert.equal(body.calls.find((call) => call.actionType === 'fight_target').args.pursue, false);
-	// Two zombies, or hurt: no pickaxe fight.
 	const crowd = fakeBody({
 		start: sample({ player: { x: 0.5, y: 30, z: 0.5, yaw: 0, health: 20, skyOpen: false },
 			inventory: { items: [{ itemId: 'minecraft:stone_pickaxe', count: 1 }] }, entities: [zombie, { ...zombie, stableId: 'z2', x: 4.5 }] }),
@@ -1013,7 +1000,6 @@ test('scripted gate seed 7: bobbing in a flooded chamber with no bank in reach: 
 	const travels = body.calls.filter((call) => call.actionType === 'travel_to').map((call) => call.args);
 	assert.deepEqual(travels.map((args) => args.retrace === true), [false, true], 'the swim out, then the retrace up');
 	assert.deepEqual([travels[1].x, travels[1].y, travels[1].z], [-7.5, 63, 29.5]);
-	// No open sky remembered above it: handed back as before.
 	const lost = fakeBody({ start: sample({ player: bobbing }), frontier: { candidates: [], coverage: { headings: {} } },
 		acts: { control: Array.from({ length: 6 }, () => ({ result: { state: 'SUCCEEDED' } })), travel_to: [{ result: { state: 'FAILED', reasonCode: 'NO_ROUTE' } }] } });
 	assert.match((await searchFor({ block: 'minecraft:iron_ore' }, lost)).message, /Under water with no way up to air here \(air 290\/300\)/);
@@ -1072,7 +1058,6 @@ test('local scripted seeds 2 and 7: a retrace that refuses the flooded stair: sw
 	const swims = body.calls.filter((call) => call.actionType === 'control' && call.args.forward === 1);
 	assert.equal(swims.length, 8, 'pulses until out of the water');
 	assert.ok(swims.every((call) => call.args.jump === true && Math.abs(call.args.yaw - Math.atan2(-13, 13) * 180 / Math.PI) < 1), 'toward the way in');
-	// Pulses that gain nothing stop after two.
 	const stuck = fakeBody({ start: sample({ player: bobbing }), frontier: { candidates: [], coverage: { headings: {} } },
 		acts: { control: Array.from({ length: 40 }, () => ({ result: { state: 'SUCCEEDED' } })), travel_to: [{ result: { state: 'FAILED', reasonCode: 'NO_ROUTE' } }, refused] } });
 	stuck.openSky = () => ({ x: -530.5, y: 72, z: -100.5 });
@@ -1396,7 +1381,6 @@ test('water spot exclusion leaves remembered nearby iron eligible for an approac
 	assert.equal(body.calls.find(row => row.actionType).args.x, 2.5);
 });
 
-// Round 5 chain-gate-8-r3: the dig stopped for a creeper 7.8 blocks away, the body walled in beside it and was blown up.
 const creeperUuid = '5f0c1a2b-3c4d-4e5f-8a9b-0c1d2e3f4a5b';
 const creeperStop = { result: { state: 'FAILED', reasonCode: 'HOSTILE_NEAR', message: `HOSTILE_NEAR minecraft:creeper ${creeperUuid} 7.8 blocks away at 0,50,-7` } };
 const underground = (items, extra = {}) => sample({ player: { x: 0.5, y: 50, z: 0.5, yaw: 0, health: 20, skyOpen: false }, inventory: { items: [...items, { itemId: 'minecraft:cobblestone', count: 20 }] }, ...extra });
@@ -1520,12 +1504,10 @@ test('batches 1-2: a lava shaft starts with the water bucket in the hotbar, so t
 		{ itemId: 'minecraft:water_bucket', count: 1, slot: 14 }]);
 	assert.deepEqual(off.order, ['select_tool', 'dig_to'], 'into the hotbar before the shaft');
 	assert.deepEqual([off.select.sourceSlot, off.select.hotbarSlot, off.select.expectedItemId], [14, 2, 'minecraft:water_bucket'], 'an empty hotbar slot, never the held pickaxe');
-	// Already in the hotbar: nothing to move.
 	const on = await run([{ itemId: 'minecraft:iron_pickaxe', count: 1, slot: 'mainhand' }, { itemId: 'minecraft:water_bucket', count: 1, slot: 3 }]);
 	assert.deepEqual(on.order, ['dig_to']);
 });
 
-// Minimal step-out prerequisite coverage from reviewed #310 base.
 function pinnedInFlood({ freedBy = null, breaks = [] } = {}) {
 	const afloat = { x: -414.3, y: 59.7, z: -27.7, yaw: 180, health: 20, inWater: true, underWater: true, air: 298, maxAir: 300, skyOpen: false };
 	const missed = [];

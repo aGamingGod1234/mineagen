@@ -107,10 +107,6 @@ const bodyAt = (observation) => {
 };
 const within = (a, b, horizontal, vertical) => Math.hypot(a.x - b.x, a.z - b.z) <= horizontal && Math.abs(a.y - b.y) <= vertical;
 
-/**
- * Ways down this agent dug with dig_to, top to bottom; a leg that starts at the bottom of an earlier one extends it.
- * the recorded Oct 29 game: Sol climbed its own staircase back to a table, then dug a new one beside it from the top.
- */
 export class DugStairs {
 	#agents = new Map();
 

@@ -5,9 +5,6 @@ import { LiveTaskViews } from '../src/live-task-view.mjs';
 import { goalSpecFingerprint, parseGoalSpec } from '../src/goal-spec.mjs';
 import { createBridgeAuthenticationProof, MultiplexedServerBridge, validateProtocolV2Payload } from '../src/protocol-v2.mjs';
 
-// Regression adapted from the verified f070 in-memory send probe.
-// In-memory socket handshake pattern adapted from protocol-v2.test.mjs.
-// The producer, goal-spec parser, payload validators and bridge.send are real code.
 // No OS socket, provider, game or directory-backed LiveTaskViews is started.
 test('long task goals remain deliverable without changing task identity or tool results', async () => {
   const secret = 'f070-fixture-only-'.repeat(3);

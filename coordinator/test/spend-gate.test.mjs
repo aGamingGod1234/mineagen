@@ -70,7 +70,6 @@ test('r4 finding 1: in-flight calls are reserved before they spend, cut-off stre
 		close(g2.totals().chargeUsd, cutCharge); assert.equal(gateway.calls[0].metered, false);
 		await post(gateway, 2000, 1000);
 		close(g2.totals().chargeUsd, cutCharge); assert.equal(gateway.calls[1].usd, 0);
-		// Started without any usage: the full worst case stays charged.
 		await post(gateway, 2000, 1000);
 		const worst = worstCallUsd({ inputTokens: gateway.calls[2].requestBytes + 64, outputTokens: 1000, profile: opus });
 		close(g2.totals().chargeUsd, cutCharge + worst);
@@ -148,7 +147,6 @@ test('r4 finding 2: a failed stop closes the gate, is retried, and escalates to 
 	await observer.progressStop();
 	assert.deepEqual(hardStops, ['SPEND_CAP']); assert.equal(observer.stopRequest.state, 'escalated');
 	await observer.progressStop(); assert.equal(hardStops.length, 1);
-	// A rejected answer is not an acknowledgement.
 	const rejected = stoppingObserver({ responses: ['Unknown agent player', 'Unknown agent player', 'Unknown agent player'] });
 	for (let i = 0; i < 4; i++) i ? await rejected.observer.progressStop() : await rejected.observer.requestStop('ADVANCEMENT');
 	assert.deepEqual(rejected.hardStops, ['ADVANCEMENT']);
@@ -156,13 +154,11 @@ test('r4 finding 2: a failed stop closes the gate, is retried, and escalates to 
 	const silent = stoppingObserver({ responses: ['Stopped player', 'Stopped player'], options: { stopConfirmMs: 0 } });
 	await silent.observer.requestStop('SPEND_CAP'); await silent.observer.progressStop();
 	assert.deepEqual(silent.hardStops, ['SPEND_CAP']);
-	// The protocol's goal stop confirms it and nothing is killed.
 	const confirmed = stoppingObserver({ responses: ['Stopped player'], protocolRows: [] });
 	await confirmed.observer.requestStop('SPEND_CAP');
 	confirmed.observer.protocol.rows.push({ type: 'goal_control', agentId: 'a', payload: { operation: 'start', updatedAtEpochMs: 1 } }, { type: 'goal_control', agentId: 'a', payload: { operation: 'stop', updatedAtEpochMs: 2 } });
 	await confirmed.observer.progressStop();
 	assert.equal(confirmed.observer.stopRequest.state, 'confirmed'); assert.deepEqual(confirmed.hardStops, []);
-	// A gate refusal ends gateway-metered play through the same path.
 	const refused = stoppingObserver({ responses: ['Stopped player'] });
 	refused.gate.admit('too-big', 5);
 	await refused.observer.enforceSpendCap();

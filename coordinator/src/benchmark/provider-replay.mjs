@@ -35,7 +35,6 @@ export function projectScenarioIdentity(value) {
 	return projectScenarioValue(value, { nodes: 0, stack: new WeakSet() }, 0, 'scenario');
 }
 
-/** Normalize and validate the trusted planner decision envelope. */
 export function normalizeDecision(value) {
 	const parsed = typeof value === 'string' ? parseDecision(value) : parseDecision(canonicalJson(value));
 	return deepFreeze(structuredClone(parsed));

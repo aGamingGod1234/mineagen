@@ -58,7 +58,6 @@ export class NativeCallLog {
 		}
 	}
 
-	/** Completed text replaces any streamed fallback for the same item. */
 	output(text, key = null, itemId = null) { this.#completeText('output', text, itemId, key); }
 
 	reasoning(text, itemId = null, key = null) { this.#completeText('reasoning', text, itemId, key); }
@@ -128,7 +127,6 @@ export class NativeCallLog {
 		call.toolCalls.push({ callId: callId === null ? null : String(callId), name: clip(String(name ?? ''), 128), arguments: this.#take(args), at: this.#now() });
 	}
 
-	/** Token usage for the call in flight (or the latest call). */
 	usage(tokens, key = null) {
 		const call = key !== null ? this.#calls.findLast((entry) => entry.key === key) : this.#current ?? this.#calls.at(-1);
 		if (call !== undefined) { if (tokens != null) call.usage = tokens; }

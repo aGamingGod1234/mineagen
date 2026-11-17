@@ -131,9 +131,9 @@ try {
 
 	$arguments = @(
 		'-Xms512M', '-Xmx1G',
-		"-Darenaagents.bridgeSecretFile=$bridgeSecret",
-		"-Darenaagents.voiceSecretFile=$voiceSecret",
-		"-Darenaagents.packageRoot=$package",
+		"-Dmineagen.bridgeSecretFile=$bridgeSecret",
+		"-Dmineagen.voiceSecretFile=$voiceSecret",
+		"-Dmineagen.packageRoot=$package",
 		'-jar', 'fabric-server-launch.jar', 'nogui'
 	) | ForEach-Object { Quote-Argument $_ }
 	$start = [Diagnostics.ProcessStartInfo]::new()
@@ -195,7 +195,7 @@ try {
 		if ($log -match 'Coordinator generation state does not match|COORDINATOR_RUNTIME_INVALID') {
 			throw 'The packaged coordinator runtime failed its generation integrity check.'
 		}
-		if ($log -match 'Started the Arena Agents coordinator') { $coordinatorStarted = $true; break }
+		if ($log -match 'Started the Mineagen coordinator') { $coordinatorStarted = $true; break }
 		if ($process.HasExited) { throw 'Fabric server exited before the packaged coordinator started.' }
 		Start-Sleep -Milliseconds 100
 	}

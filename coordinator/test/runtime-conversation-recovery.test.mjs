@@ -58,7 +58,6 @@ for (const state of ['IDLE', 'PAUSED', 'COMPLETED']) test(`reconciliation delive
 		assert.deepEqual(second.calls.flatMap(c => c.conversation.entries), [seen(1, false, restored.goalRevision)]);
 		assert.equal(second.registry.get('agent-a').state, state);
 		assert.deepEqual(second.errors, []);
-		// Consumed recovery stays suppressed when another message arrives.
 		await second.bridge.deliver('conversation_event', message(2));
 		await until(() => second.traces.filter(t => t.event === 'native_turn_completed').length === 4, 'new-event control and visible-reply correction');
 		assert.deepEqual(second.calls.flatMap(c => c.conversation.entries), [seen(1, false, restored.goalRevision), seen(2, false, restored.goalRevision)]);

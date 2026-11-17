@@ -234,7 +234,6 @@ test('stopping or removing retires pending and retained replay sessions', async 
 	assert.deepEqual(await fresh, DECISION);
 	assert.equal(ignoring.calls, 1);
 
-	// A caller abort still cancels an active replay.
 	const active = new ReplayProvider({ recording, trialId: 'trial-1', prompt: 'prompt-v1', providerProfile: PROFILE, scenario: SCENARIO });
 	const controller = new AbortController();
 	const aborted = (await active.createAgent({ agentId: 'a', ...PROFILE })).decide('prompt-v1', { signal: controller.signal });

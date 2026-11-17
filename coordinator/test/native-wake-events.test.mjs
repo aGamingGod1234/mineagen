@@ -144,8 +144,6 @@ test('shared historical context reconstructs exactly and every failed receipt su
 	assert.equal(history.program.result.omittedReceipts, 11);
 });
 
-// PR #91 review: an urgent threat fact must name a threat whose row is delivered (the server promotes it), so the
-// equal-rank case of eight attacked rows plus a newly aiming skeleton interrupts and shows its cause to the model.
 test('a promoted aiming threat row interrupts and reaches model input', () => {
 	const skeleton = '00000000-0000-4000-8000-000000000009';
 	const entries = Array.from({ length: 7 }, (_, index) => ({ uuid: `00000000-0000-4000-8000-00000000000${index}`, type: 'minecraft:zombie', distance: 6, signals: ['attacked'] }));

@@ -92,7 +92,6 @@ for (let run = 0; run < runs; run++) {
 			runtime.onActionResult(record, ev.payload);
 			s.bridge.send('action_result_ack', record.agentId, { goalRevision: record.goalRevision, actionId: ev.payload.actionId }).catch(() => {});
 		});
-		// The cell the body stood in (a dug stair end), the body in it with the run's tools, full health.
 		await s.command(`fill ${cx} ${cy} ${cz} ${cx} ${cy + 1} ${cz} minecraft:air`);
 		await s.command(`clear ${name}`);
 		for (const [item, count] of fixture.items) await s.command(`give ${name} ${item} ${count}`);

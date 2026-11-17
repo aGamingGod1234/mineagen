@@ -54,7 +54,6 @@ test('lean observation keeps decision facts and drops tables, far rows and dupli
 	assert.deepEqual(lean.entities[0], { stableId: 'b-1', type: 'minecraft:blaze', x: 20.1, y: 58, z: -3.9 });
 	assert.equal(lean.entities.length, 6);
 	assert.equal(lean.entitiesOmitted, 4);
-	// Terrain is counted; hazards stay as rows.
 	assert.deepEqual(lean.blocks.map(row => row.blockId), ['minecraft:magma_block', 'minecraft:lava']);
 	assert.deepEqual(lean.blocks[0], { x: 15, y: 57, z: -7, blockId: 'minecraft:magma_block' });
 	assert.deepEqual(lean.terrainCounts, { 'minecraft:basalt': 1 });

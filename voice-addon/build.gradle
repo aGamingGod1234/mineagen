@@ -6,7 +6,7 @@ version = project.mc_compat == '26.3' ? project.mod_version : "${project.mod_ver
 group = project.maven_group
 
 base {
-	archivesName = 'arena-agents-voice'
+	archivesName = 'mineagen-voice'
 }
 
 repositories {
@@ -27,6 +27,8 @@ dependencies {
 	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
 	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
 	implementation project(':')
+	testImplementation files(rootProject.sourceSets.test.output)
+	testRuntimeOnly files(rootProject.file("libs/fabric-carpet-${project.carpet_version}.jar"))
 	implementation "de.maxhenkel.voicechat:voicechat-api:2.6.20"
 	runtimeOnly "maven.modrinth:9eGKb6K1:${project.voicechat_modrinth_version}"
 	runtimeOnly "de.maxhenkel.voicechat:voicechat-api:2.6.20:fabric-stub"
@@ -66,7 +68,7 @@ tasks.named('compileTestJava') {
 	options.compilerArgs += ['--add-modules', 'jdk.httpserver']
 }
 
-def voiceAddonVerificationMainClass = 'dev.agaminggod.arenaagents.voiceaddon.VoiceAddonVerificationMain'
+def voiceAddonVerificationMainClass = 'dev.agaminggod.mineagen.voiceaddon.VoiceAddonVerificationMain'
 def voiceAddonVerificationClassFile = layout.buildDirectory.file(
 	"classes/java/test/${voiceAddonVerificationMainClass.replace('.', '/')}.class"
 )
@@ -81,7 +83,7 @@ tasks.register('verifyVoiceAddon', JavaExec) {
 	workingDir rootProject.projectDir
 
 	doFirst {
-		systemProperty 'arenaagents.legacyCoreClasses',
+		systemProperty 'mineagen.legacyCoreClasses',
 				sourceSets.legacyCoreTest.output.classesDirs.singleFile.absolutePath
 		def verificationMain = voiceAddonVerificationClassFile.get().asFile
 		if (!verificationMain.isFile()) {

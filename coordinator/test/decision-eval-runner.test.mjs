@@ -1,3 +1,4 @@
+import { privateInputUrl } from '../scripts/private-inputs.mjs';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { readFileSync } from 'node:fs';
@@ -12,7 +13,7 @@ import { renderPrefix, renderWake, sha256 } from '../src/decision-eval/render.mj
 import { buildFingerprint, createClaudeAdapter, runPool, runSample } from '../src/decision-eval/runner.mjs';
 import { validateSampleResult } from '../src/decision-eval/schema.mjs';
 
-const replay = JSON.parse(await readFile(new URL('./fixtures/decision-eval/g1-replay-sample.json', import.meta.url), 'utf8'));
+const replay = JSON.parse(await readFile(privateInputUrl('coordinator/test/fixtures/decision-eval/g1-replay-sample.json'), 'utf8'));
 const baseCase = (extra = {}) => ({
 	id: 'runner-case', family: 'runner', causeClass: 'runner', split: 'train',
 	state: { observation: replay.observations[0], agent: { goal: replay.goal, goalSpec: replay.goalSpec } },
@@ -311,19 +312,17 @@ test('a canned reply fires only for the recorded command itself, never for a mat
 	const { cannedChoice, commandMatches } = await import('../src/decision-eval/match.mjs');
 	const { buildContext } = await import('../src/decision-eval/predicates.mjs');
 	const { normalizeMinecraftToolCall } = await import('../src/native-minecraft-tools.mjs');
-	const load = async (family, id) => JSON.parse(await readFile(new URL(`./fixtures/decision-eval/train/${family}.json`, import.meta.url), 'utf8')).cases.find((c) => c.id === id);
+	const load = async (family, id) => JSON.parse(await readFile(privateInputUrl(`coordinator/test/fixtures/decision-eval/train/${family}.json`), 'utf8')).cases.find((c) => c.id === id);
 	const call = (tool, args) => ({ name: tool, args, normalized: normalizeMinecraftToolCall(tool, args) });
 	const retry = await load('failed-interaction-retry', 'failed-interaction-retry-01');
 	const recordedRetry = retry.steps[0].canned[0].recorded.command;
 	const at = { x: recordedRetry.arguments.x, y: recordedRetry.arguments.y, z: recordedRetry.arguments.z };
 	assert.equal(cannedChoice(retry.steps[0], call('act', { actionType: recordedRetry.actionType, arguments: recordedRetry.arguments }), buildContext(retry)), 0, 'the recorded command gets its reply');
-	// Review r2: break_block at the recorded spot but expecting birch_log matched a reply recorded for oak_log.
 	const birch = call('act', { actionType: 'break_block', arguments: { ...at, expectedBlockId: 'minecraft:birch_log', timeoutMs: 15000 } });
 	assert.notEqual(recordedRetry.arguments.expectedBlockId, 'minecraft:birch_log');
 	assert.equal(cannedChoice(retry.steps[0], birch, buildContext(retry)), -1, 'a different expected block is a different command');
 	const contrast = await load('failure-reason-contrast', 'failure-reason-contrast-04');
 	const recordedPlace = contrast.steps[0].canned[0].recorded.command;
-	// Review r2: placing dirt face down matched the reply recorded for a crafting table face up.
 	const dirt = call('act', { actionType: 'place_block', arguments: { x: recordedPlace.arguments.x, y: recordedPlace.arguments.y, z: recordedPlace.arguments.z, face: 'down', itemId: 'minecraft:dirt' } });
 	assert.equal(cannedChoice(contrast.steps[0], dirt, buildContext(contrast)), -1);
 	assert.equal(commandMatches(recordedPlace, { kind: 'action', actionType: 'place_block', arguments: { ...recordedPlace.arguments, timeoutMs: 9999 } }), true, 'only the time budget is non-semantic');

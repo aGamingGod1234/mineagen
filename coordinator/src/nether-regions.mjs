@@ -12,13 +12,11 @@ import { headingOf, sightingKind } from './search-coverage.mjs';
 
 export const REGION_BLOCKS = 432;
 export const START_BLOCKS = 368;
-// Vanilla walking speed (blocks per second); sprinting is 5.6.
 const WALK_SPEED = 4.3;
 const SEARCH_ROWS = 3;
 const WINDOW = 2;
 // Start ground within this of where the player stood counts as seen: the 96-block fog plus a structure's spread.
 export const CHECKED_BLOCKS = 140;
-// Start ground is weighed on a 32-block grid (11.5 x 11.5 points per region).
 const GROUND_STEP = 32;
 // Blocks only these structures generate in the Nether: nether bricks only in fortresses (no bastion, ruined portal or
 // fossil template holds them); gilded blackstone only in bastions. Polished blackstone bricks also come from nether
@@ -31,7 +29,6 @@ const BLAZE_NEEDS = /\b(blaze_rod|blaze_powder|ender_eye|blaze rods?|blaze powde
 
 const floorDiv = (value, size) => Math.floor(value / size);
 
-/** The region a position lies in. */
 export function regionOf(x, z) {
 	return { rx: floorDiv(x, REGION_BLOCKS), rz: floorDiv(z, REGION_BLOCKS) };
 }

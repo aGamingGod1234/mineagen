@@ -14,14 +14,14 @@ import javax.imageio.ImageIO;
 /** Regenerates locator-bar face sprites and styles from the authoritative visual manifest. */
 public final class GenerateAgentWaypointIcons {
 	private static final Pattern VARIANT = Pattern.compile(
-			"\\\"texturePath\\\"\\s*:\\s*\\\"arenaagents:textures/entity/([^\\\"]+)\\.png\\\"\\s*,\\s*"
+			"\\\"texturePath\\\"\\s*:\\s*\\\"mineagen:textures/entity/([^\\\"]+)\\.png\\\"\\s*,\\s*"
 					+ "\\\"transportCode\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"");
 
 	private GenerateAgentWaypointIcons() { }
 
 	public static void main(String[] arguments) throws Exception {
 		Path project = arguments.length == 0 ? Path.of("").toAbsolutePath() : Path.of(arguments[0]).toAbsolutePath();
-		Path resources = project.resolve("src/main/resources/assets/arenaagents");
+		Path resources = project.resolve("src/main/resources/assets/mineagen");
 		String manifest = Files.readString(resources.resolve("identity/agent_visual_manifest.json"), StandardCharsets.UTF_8);
 		Path spriteRoot = resources.resolve("textures/gui/sprites/hud/locator_bar_dot/agent");
 		Path styleRoot = resources.resolve("waypoint_style/agent");
@@ -47,22 +47,11 @@ public final class GenerateAgentWaypointIcons {
 			graphics.dispose();
 			ImageIO.write(head, "png", spriteRoot.resolve(code + ".png").toFile());
 			Files.writeString(styleRoot.resolve(code + ".json"),
-					"{\n  \"sprites\": [\"arenaagents:agent/" + code + "\"]\n}\n", StandardCharsets.UTF_8);
+					"{\n  \"sprites\": [\"mineagen:agent/" + code + "\"]\n}\n", StandardCharsets.UTF_8);
 		}
-		if (codes.size() != 48) throw new IllegalStateException("Expected 48 variants, found " + codes.size());
-		// Retired providers leave sprites and styles behind; the manifest is the only source of truth.
-		removeStale(spriteRoot, ".png", codes);
-		removeStale(styleRoot, ".json", codes);
+		if (codes.isEmpty()) throw new IllegalStateException("No manifest variants found");
+		System.out.println("Generated " + codes.size() + " locator icons and styles from retained brand skins");
+
 	}
 
-	private static void removeStale(Path root, String extension, Set<String> codes) throws java.io.IOException {
-		try (var files = Files.list(root)) {
-			for (Path file : files.toList()) {
-				String name = file.getFileName().toString();
-				if (name.endsWith(extension) && !codes.contains(name.substring(0, name.length() - extension.length()))) {
-					Files.delete(file);
-				}
-			}
-		}
-	}
 }

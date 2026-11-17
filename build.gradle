@@ -5,7 +5,6 @@ plugins {
 	id 'maven-publish'
 }
 
-// A non-default Minecraft target says so in its version (arena-agents-0.2.0+mc26.2.jar); 26.3 keeps its historical name.
 def defaultTarget = project.mc_compat == '26.3'
 version = defaultTarget ? project.mod_version : "${project.mod_version}+mc${project.mc_compat}"
 group = project.maven_group
@@ -23,7 +22,6 @@ allprojects {
 	dependencyLocking {
 		lockAllConfigurations()
 		lockMode = LockMode.STRICT
-		// Each Minecraft target resolves its own dependency graph; the default keeps the historical lockfile path.
 		def lockTarget = rootProject.findProperty('mc_compat')
 		if (lockTarget != '26.3') {
 			lockFile = rootProject.file("gradle/locks/${lockTarget}/${project.name}.lockfile")
@@ -48,7 +46,7 @@ loom {
 	def developmentBridgeSecret = layout.projectDirectory.file('runtime/bridge-secret.txt').asFile.absolutePath
 	runs {
 		server {
-			vmArg "-Darenaagents.bridgeSecretFile=${developmentBridgeSecret}"
+			vmArg "-Dmineagen.bridgeSecretFile=${developmentBridgeSecret}"
 			// scripts/live-server.py boots each target's server in its own directory, with its own JVM properties.
 			runDir = project.findProperty('serverRunDir') ?: 'run'
 			def extraServerJvmArgs = project.findProperty('serverJvmArgs')
@@ -58,7 +56,7 @@ loom {
 	}
 
 	mods {
-		"arenaagents" {
+		"mineagen" {
 			sourceSet sourceSets.main
 			sourceSet sourceSets.client
 		}
@@ -293,20 +291,18 @@ jar {
 		rename { "${it}_${archiveName}" }
 	}
 	from("NOTICE-FONTS.md")
-	// Keep the retained source attribution byte-for-byte with the derived arena modules.
-	from('maps/licenses/re-structured-MIT.txt') { into 'META-INF/licenses' }
 	from("coordinator") {
-		into "arena-agents/coordinator"
+		into "mineagen/coordinator"
 		coordinatorRuntimeIncludes.each { include it }
 		coordinatorRuntimeExcludes.each { exclude it }
 	}
 	from(coordinatorManifest) {
-		into "arena-agents/coordinator"
+		into "mineagen/coordinator"
 		rename { 'coordinator-manifest.txt' }
 	}
 }
 
-def standaloneDistributionName = "arena-agents-modpack-${project.version}"
+def standaloneDistributionName = "mineagen-modpack-${project.version}"
 def stagedStandaloneDistribution = layout.buildDirectory.dir("standalone/${standaloneDistributionName}")
 def distributionMetadata = layout.buildDirectory.file('generated/distribution/distribution.properties')
 
@@ -346,11 +342,11 @@ tasks.register('stageWindowsDistribution', Sync) {
 
 	from(tasks.named('jar').flatMap { it.archiveFile }) {
 		into 'mods'
-		rename { "arena-agents-${project.version}.jar" }
+		rename { "mineagen-${project.version}.jar" }
 	}
 	from(project(':voice-addon').tasks.named('jar').flatMap { it.archiveFile }) {
 		into 'mods'
-		rename { "arena-agents-voice-${project.version}.jar" }
+		rename { "mineagen-voice-${project.version}.jar" }
 	}
 	from(configurations.standaloneFabricApi) { into 'mods' }
 	from(carpetDependency) { into 'mods' }
@@ -362,7 +358,7 @@ tasks.register('stageWindowsDistribution', Sync) {
 	}
 	from(coordinatorManifest) {
 		into 'coordinator'
-		rename { '.arena-agents-bundle-manifest' }
+		rename { '.mineagen-bundle-manifest' }
 	}
 	from(bundledNodeRuntime) { into 'runtime/toolchains/node' }
 	from('scripts') {
@@ -372,7 +368,6 @@ tasks.register('stageWindowsDistribution', Sync) {
 	from(distributionMetadata)
 	from('docs/distribution/README.md') {
 		rename { 'README.md' }
-		// The install guide names the exact Minecraft and Fabric Loader this package was built for.
 		def guideVersions = ['@MINECRAFT_VERSION@': project.minecraft_version, '@LOADER_VERSION@': project.loader_version]
 		inputs.property 'distributionGuideVersions', guideVersions
 		filter { String line -> guideVersions.inject(line) { text, token, value -> text.replace(token, value) } }
@@ -393,8 +388,8 @@ tasks.register('packageWindowsDistribution', Zip) {
 }
 
 def entrypointClassFiles = [
-	layout.buildDirectory.file('classes/java/main/dev/agaminggod/arenaagents/ArenaAgents.class'),
-	layout.buildDirectory.file('classes/java/client/dev/agaminggod/arenaagents/client/ArenaAgentsClient.class')
+	layout.buildDirectory.file('classes/java/main/dev/agaminggod/mineagen/Mineagen.class'),
+	layout.buildDirectory.file('classes/java/client/dev/agaminggod/mineagen/client/MineagenClient.class')
 ]
 
 tasks.register('verifyEntrypoints') {
@@ -414,7 +409,7 @@ tasks.register('verifyEntrypoints') {
 	}
 }
 
-def coreVerificationMainClass = 'dev.agaminggod.arenaagents.verification.VerificationMain'
+def coreVerificationMainClass = 'dev.agaminggod.mineagen.verification.VerificationMain'
 def coreVerificationClassFile = layout.buildDirectory.file(
 	"classes/java/test/${coreVerificationMainClass.replace('.', '/')}.class"
 )
@@ -424,10 +419,10 @@ tasks.register('verifyShippingCore', JavaExec) {
 	description = 'Runs controller/reflex contracts with production classes loaded from the shipping jar.'
 	dependsOn tasks.named('jar'), tasks.named('testClasses')
 	classpath = files(tasks.named('jar').flatMap { it.archiveFile }) + (sourceSets.test.runtimeClasspath - sourceSets.main.output)
-	mainClass.set('dev.agaminggod.arenaagents.server.runtime.reflex.ReflexVerification')
+	mainClass.set('dev.agaminggod.mineagen.server.runtime.reflex.ReflexVerification')
 	jvmArgs '--enable-native-access=ALL-UNNAMED'
 	doFirst {
-		systemProperty 'arenaagents.verification.jar', tasks.named('jar').get().archiveFile.get().asFile.absolutePath
+		systemProperty 'mineagen.verification.jar', tasks.named('jar').get().archiveFile.get().asFile.absolutePath
 	}
 }
 
@@ -459,17 +454,8 @@ if (!defaultTarget) {
 		description = 'Checks subtype-specific furnace fuel duration on older Minecraft targets.'
 		dependsOn tasks.named('testClasses')
 		classpath = sourceSets.test.runtimeClasspath
-		mainClass.set('dev.agaminggod.arenaagents.compat.FurnaceFuelDurationVerification')
+		mainClass.set('dev.agaminggod.mineagen.compat.FurnaceFuelDurationVerification')
 	}
-}
-
-tasks.register('verifyDirector', JavaExec) {
-	group = 'verification'
-	description = 'Checks Director authoring, speech sequencing, camera persistence and command contracts.'
-	dependsOn tasks.named('testClasses')
-	classpath = sourceSets.test.runtimeClasspath
-	mainClass.set('dev.agaminggod.arenaagents.verification.DirectorVerificationMain')
-	jvmArgs '--enable-native-access=ALL-UNNAMED'
 }
 
 tasks.register('verifyCameraMixin', JavaExec) {
@@ -477,11 +463,10 @@ tasks.register('verifyCameraMixin', JavaExec) {
 	description = 'Verifies camera accessor transformation in Fabric without starting client main or a world.'
 	dependsOn tasks.named('testClasses'), tasks.named('clientClasses'), tasks.named('processResources'), tasks.named('processClientResources')
 	classpath = sourceSets.test.runtimeClasspath
-	// Optional local compatibility probe against the same Facebar JAR as the installed client.
 	if (project.hasProperty('facebarVerificationJar')) {
 		classpath += files(project.property('facebarVerificationJar'))
 	}
-	mainClass.set('dev.agaminggod.arenaagents.client.camera.CameraMixinVerification')
+	mainClass.set('dev.agaminggod.mineagen.client.camera.CameraMixinVerification')
 	systemProperty 'java.awt.headless', 'true'
 	systemProperty 'fabric.development', 'true'
 	systemProperty 'fabric.defaultModDistributionNamespace', 'official'
@@ -507,7 +492,7 @@ tasks.register('verifyCameraMixin', JavaExec) {
 		description = "Verifies desktop AWT initialization after Minecraft Main forces headless (${mode})."
 		dependsOn tasks.named('testClasses')
 		classpath = sourceSets.test.runtimeClasspath
-		mainClass.set('dev.agaminggod.arenaagents.control.ClientAwtInitializationVerification')
+		mainClass.set('dev.agaminggod.mineagen.control.ClientAwtInitializationVerification')
 		setArgs([mode, '--minecraft-main'])
 		if (mode != 'auto') systemProperty 'java.awt.headless', mode
 	}
@@ -518,7 +503,7 @@ tasks.register('verifyLiveWindows', JavaExec) {
 	description = 'Renders the Minecraft-styled live plan and terminal windows headlessly to build/reports/live-task-windows.'
 	dependsOn tasks.named('testClasses')
 	classpath = sourceSets.test.runtimeClasspath
-	mainClass.set('dev.agaminggod.arenaagents.control.LiveTaskWindowRenderVerification')
+	mainClass.set('dev.agaminggod.mineagen.control.LiveTaskWindowRenderVerification')
 	systemProperty 'java.awt.headless', 'true'
 }
 
@@ -527,7 +512,7 @@ tasks.register('verifyPovMixins', JavaExec) {
 	description = 'Verifies that every POV mixin applies under Fabric without starting client main or a world.'
 	dependsOn tasks.named('testClasses'), tasks.named('clientClasses'), tasks.named('processResources'), tasks.named('processClientResources')
 	classpath = sourceSets.test.runtimeClasspath
-	mainClass.set('dev.agaminggod.arenaagents.pov.PovMixinVerification')
+	mainClass.set('dev.agaminggod.mineagen.pov.PovMixinVerification')
 	systemProperty 'java.awt.headless', 'true'
 	systemProperty 'fabric.development', 'true'
 	systemProperty 'fabric.defaultModDistributionNamespace', 'official'
@@ -546,42 +531,12 @@ tasks.register('verifyPovMixins', JavaExec) {
 	}
 }
 
-def mapBlockStateCatalog = layout.projectDirectory.file('maps/registries/minecraft-26.3-block-states.json')
-def mapCatalogExporterClasses = layout.buildDirectory.dir('classes/java/mapCatalogExporter')
-def mapStructureDataFixerClasses = layout.buildDirectory.dir('classes/java/mapStructureDataFixer')
-
-tasks.register('compileMapBlockStateCatalogExporter', JavaCompile) {
-	dependsOn tasks.named('classes')
-	source = files('src/test/java/dev/agaminggod/arenaagents/scenario/MapBlockStateCatalogExporter.java')
-	classpath = sourceSets.test.compileClasspath + sourceSets.main.output
-	destinationDirectory.set(mapCatalogExporterClasses)
-	options.release = 25
-}
-
-tasks.register('exportMapBlockStateCatalog', JavaExec) {
-	group = 'verification'
-	description = 'Exports the exact Minecraft 26.3 vanilla block-state catalog.'
-	dependsOn tasks.named('compileMapBlockStateCatalogExporter')
-	classpath = files(mapCatalogExporterClasses) + sourceSets.main.runtimeClasspath + configurations.testRuntimeClasspath
-	mainClass.set('dev.agaminggod.arenaagents.scenario.MapBlockStateCatalogExporter')
-	args mapBlockStateCatalog.asFile.absolutePath
-}
-
-tasks.register('verifyMapBlockStateCatalog', JavaExec) {
-	group = 'verification'
-	description = 'Checks the pinned map block-state catalog against Minecraft 26.3.'
-	dependsOn tasks.named('compileMapBlockStateCatalogExporter')
-	classpath = files(mapCatalogExporterClasses) + sourceSets.main.runtimeClasspath + configurations.testRuntimeClasspath
-	mainClass.set('dev.agaminggod.arenaagents.scenario.MapBlockStateCatalogExporter')
-	args mapBlockStateCatalog.asFile.absolutePath, '--check'
-}
-
 def howtoIndex = layout.projectDirectory.file('coordinator/config/howto-index.json')
 def howtoIndexExporterClasses = layout.buildDirectory.dir('classes/java/howtoIndexExporter')
 
 tasks.register('compileHowtoIndexExporter', JavaCompile) {
 	dependsOn tasks.named('classes')
-	source = files('src/test/java/dev/agaminggod/arenaagents/howto/HowtoIndexExporter.java')
+	source = files('src/test/java/dev/agaminggod/mineagen/howto/HowtoIndexExporter.java')
 	classpath = sourceSets.test.compileClasspath + sourceSets.main.output
 	destinationDirectory.set(howtoIndexExporterClasses)
 	options.release = 25
@@ -592,7 +547,7 @@ tasks.register('exportHowtoIndex', JavaExec) {
 	description = 'Regenerates the coordinator howto index from Minecraft 26.3 registries and its vanilla datapack.'
 	dependsOn tasks.named('compileHowtoIndexExporter')
 	classpath = files(howtoIndexExporterClasses) + sourceSets.main.runtimeClasspath + configurations.testRuntimeClasspath
-	mainClass.set('dev.agaminggod.arenaagents.howto.HowtoIndexExporter')
+	mainClass.set('dev.agaminggod.mineagen.howto.HowtoIndexExporter')
 	args howtoIndex.asFile.absolutePath
 }
 
@@ -601,45 +556,8 @@ tasks.register('verifyHowtoIndex', JavaExec) {
 	description = 'Checks the committed coordinator howto index against Minecraft 26.3 data.'
 	dependsOn tasks.named('compileHowtoIndexExporter')
 	classpath = files(howtoIndexExporterClasses) + sourceSets.main.runtimeClasspath + configurations.testRuntimeClasspath
-	mainClass.set('dev.agaminggod.arenaagents.howto.HowtoIndexExporter')
+	mainClass.set('dev.agaminggod.mineagen.howto.HowtoIndexExporter')
 	args howtoIndex.asFile.absolutePath, '--check'
-}
-
-tasks.register('exportOwnedMapFixture', JavaExec) {
-	group = 'verification'
-	description = 'Exports the deterministic project-owned structure-template fixture.'
-	dependsOn tasks.named('compileMapBlockStateCatalogExporter')
-	classpath = files(mapCatalogExporterClasses) + sourceSets.main.runtimeClasspath + configurations.testRuntimeClasspath
-	mainClass.set('dev.agaminggod.arenaagents.scenario.MapBlockStateCatalogExporter')
-	args '--owned-fixture', layout.projectDirectory.file('maps/selections/fixtures/tiny-owned-room.nbt').asFile.absolutePath
-}
-
-tasks.register('compileMapStructureDataFixer', JavaCompile) {
-	dependsOn tasks.named('classes')
-	source = files('src/test/java/dev/agaminggod/arenaagents/scenario/MapStructureDataFixer.java')
-	classpath = sourceSets.test.compileClasspath + sourceSets.main.output
-	destinationDirectory.set(mapStructureDataFixerClasses)
-	options.release = 25
-}
-
-tasks.register('verifyMapStructureDataFixer', JavaExec) {
-	group = 'verification'
-	description = 'Verifies the bounded Minecraft structure-template DataFixer seam.'
-	dependsOn tasks.named('compileMapStructureDataFixer')
-	classpath = files(mapStructureDataFixerClasses) + sourceSets.main.runtimeClasspath + configurations.testRuntimeClasspath
-	mainClass.set('dev.agaminggod.arenaagents.scenario.MapStructureDataFixer')
-	args '--self-test'
-}
-
-tasks.register('upgradeMapStructure', JavaExec) {
-	group = 'verification'
-	description = 'Upgrades one ignored structure-template NBT with Minecraft STRUCTURE DataFixerUpper.'
-	dependsOn tasks.named('compileMapStructureDataFixer')
-	classpath = files(mapStructureDataFixerClasses) + sourceSets.main.runtimeClasspath + configurations.testRuntimeClasspath
-	mainClass.set('dev.agaminggod.arenaagents.scenario.MapStructureDataFixer')
-	if (project.hasProperty('mapInput') && project.hasProperty('mapOutput')) {
-		args project.property('mapInput'), project.property('mapOutput')
-	}
 }
 
 def strategyGuide = layout.projectDirectory.file('coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/strategy-guide.md')
@@ -649,7 +567,7 @@ def strategyGuide = layout.projectDirectory.file('coordinator/config/minecraft-a
 		description = 'Checks or exports the strategy pickaxe table from the resolved Minecraft tags, registry and loot.'
 		dependsOn tasks.named('testClasses')
 		classpath = sourceSets.test.runtimeClasspath
-		mainClass.set('dev.agaminggod.arenaagents.verification.StrategyKnowledgeVerification')
+		mainClass.set('dev.agaminggod.mineagen.verification.StrategyKnowledgeVerification')
 		doFirst {
 			def jars = classpath.files.findAll { it.name.startsWith('minecraft-common-') && it.name.endsWith('.jar') }
 			if (jars.size() != 1) throw new GradleException('Strategy knowledge requires exactly one resolved Minecraft common jar.')
@@ -666,7 +584,7 @@ tasks.register('verifyMixinTargets', Exec) {
 	description = 'Checks every mixin target against the resolved Minecraft jars of this 26.x target.'
 	def target = project.mc_compat
 	def classpath = sourceSets.test.runtimeClasspath
-	def javap = new File(System.getProperty('java.home'), 'bin/javap').absolutePath // the JDK running Gradle (Java 25)
+	def javap = new File(System.getProperty('java.home'), 'bin/javap').absolutePath
 	doFirst {
 		def jars = classpath.files.findAll { it.name ==~ /minecraft-(common|clientOnly)-.*\.jar/ || it.name.startsWith('fabric-carpet-') || it.name ==~ /brigadier-[0-9.]+\.jar/ }
 		if (jars.count { it.name.startsWith('minecraft-') } != 2) throw new GradleException("Expected the split Minecraft common and clientOnly jars, found ${jars*.name}")
@@ -677,10 +595,7 @@ tasks.register('verifyMixinTargets', Exec) {
 tasks.named('check') {
 	if (!defaultTarget) dependsOn tasks.named('verifyFurnaceFuelDuration')
 	dependsOn tasks.named('verifyStrategyKnowledge')
-	dependsOn tasks.named('verifyCore'), tasks.named('verifyCameraMixin'), tasks.named('verifyPovMixins'), tasks.named('verifyEntrypoints'), tasks.named('verifyMapStructureDataFixer'), ':voice-addon:check'
-	// Map modules are authored against the pinned 26.3 block-state catalog; older drops lack some of its states
-	// (26.2 lacks 3,357, all from blocks added in 26.3), so the byte-for-byte catalog check runs on 26.3 only.
-	if (defaultTarget) dependsOn tasks.named('verifyMapBlockStateCatalog')
+	dependsOn tasks.named('verifyCore'), tasks.named('verifyCameraMixin'), tasks.named('verifyPovMixins'), tasks.named('verifyEntrypoints'), ':voice-addon:check'
 	dependsOn tasks.named('verifyClientAwtTrue'), tasks.named('verifyClientAwtFalse'), tasks.named('verifyClientAwtAuto')
 }
 

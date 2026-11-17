@@ -45,7 +45,7 @@ if (-not (Test-Path -LiteralPath $SecretPath -PathType Leaf)) {
 }
 $secret = [IO.File]::ReadAllText($SecretPath).Trim()
 if ($secret.Length -lt 32) { throw "Bridge secret must contain at least 32 characters: $SecretPath" }
-$bridgeSecretProperty = "-Darenaagents.bridgeSecretFile=$([IO.Path]::GetFullPath($SecretPath))"
+$bridgeSecretProperty = "-Dmineagen.bridgeSecretFile=$([IO.Path]::GetFullPath($SecretPath))"
 
 Push-Location $Server
 try {

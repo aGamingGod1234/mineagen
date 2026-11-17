@@ -1,3 +1,4 @@
+import { privateInputUrl } from '../scripts/private-inputs.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
@@ -5,7 +6,6 @@ import { buildNativeEventInput, isLeanDangerWake, LEAN_DANGER_NOTE } from '../sr
 import { decodeModelFacts, encodeNativeEventInput } from '../src/model-fact-encoding.mjs';
 import { renderWake } from '../src/decision-eval/render.mjs';
 
-// Audit 2026-11-01 #9: a danger wake leads with its summary and carries only what the decision needs.
 
 const ZOMBIE = '00000000-0000-0000-0000-0000000000aa';
 const GRASS_TAGS = ['#minecraft:animals_spawnable_on', '#minecraft:azalea_grows_on', '#minecraft:dirt', '#minecraft:enderman_holdable', '#minecraft:mineable/shovel',
@@ -97,10 +97,9 @@ test('lean wakes are the survival decisions: danger triggers, low health, hazard
 });
 
 test('the recorded 9 HP zombie bail-out wake is about 30% smaller and still carries the whole decision', async () => {
-	const fixture = JSON.parse(fs.readFileSync(new URL('./fixtures/decision-eval/train/melee-threat-low-health.json', import.meta.url)));
+	const fixture = JSON.parse(fs.readFileSync(privateInputUrl('coordinator/test/fixtures/decision-eval/train/melee-threat-low-health.json')));
 	const rendered = await renderWake(fixture.cases.find((entry) => entry.id === 'melee-threat-low-health-fullgame-zombie'), { provider: 'codex', model: 'gpt-6.1-sol' });
 	const wake = facts(rendered.encodedInput);
-	// Measured before this change: 17,164 encoded bytes (docs/audits/2026-11-01-agent-performance-audit.md section C).
 	assert.ok(rendered.encodedBytes <= 12_500, `lean bail-out wake is ${rendered.encodedBytes} bytes`);
 	assert.match(rendered.encodedInput.slice(0, rendered.encodedInput.indexOf('\n')), /bailout health/);
 	const keys = Object.keys(wake);

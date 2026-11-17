@@ -51,7 +51,7 @@ function rolloutFiles(home) {
 			else files.push(child);
 		}
 	};
-	try { walk(path.join(home, 'sessions')); } catch { /* no sessions written */ }
+	try { walk(path.join(home, 'sessions')); } catch {}
 	return files;
 }
 

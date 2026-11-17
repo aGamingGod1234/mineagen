@@ -34,7 +34,7 @@ if ((await readdir(out)).length) throw new Error('Use a fresh output directory')
 const sleep = ms => new Promise(done => setTimeout(done, ms));
 const AGENT = 'Probe';
 const result = { mode, fixture: path.basename(fixtureFile), salt: process.env.RANDOM_SALT ?? null };
-const s = await boot(out, { jar: path.resolve(jarArg ?? path.join(root, 'build/libs/arena-agents-0.2.0.jar')), template, port, world: null, seed: fixture.seed, readyTimeoutMs: 90000 });
+const s = await boot(out, { jar: path.resolve(jarArg ?? path.join(root, 'build/libs/mineagen-0.2.0.jar')), template, port, world: null, seed: fixture.seed, readyTimeoutMs: 90000 });
 const count = text => Number(/count: (\d+)/i.exec(String(text))?.[1] ?? 0);
 const held = async item => count(await s.command(`execute if items entity ${AGENT} container.* ${item}`));
 const isBlock = async (dim, [x, y, z], block) => /passed/i.test(String(await s.command(`execute in ${dim} if block ${x} ${y} ${z} ${block}`)));

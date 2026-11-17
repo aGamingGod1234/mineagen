@@ -18,9 +18,6 @@ export const VERDICT_RULE = Object.freeze({
 	familyScreenAlpha: 0.20,
 	overallScreenAlpha: 0.05,
 	minEffect: 0.10,
-	// The overall unit needs the ESTIMATED drop to reach this floor, so a true drop of exactly the floor fails only about
-	// half the time. 0.03 lets a real 5-point drop clear it: with 6 samples per case the DeepSeek train suite detects it 92%
-	// of the time at 1% false FAILs (simulation on the d21 per-case rates); at 0.05 detection stayed near 50% at any n.
 	overallMinEffect: 0.03,
 	confirmAlpha: 0.05,
 	maxErrorFraction: 0.10,
@@ -372,7 +369,6 @@ export function absoluteVerdict(comparison, rule = VERDICT_RULE) {
 
 function fmt(delta) { return `${delta >= 0 ? '+' : ''}${(delta * 100).toFixed(1)} pts`; }
 
-// Deterministic PRNG for simulations and stable sampling.
 export function mulberry32(seed) {
 	let a = seed >>> 0;
 	return () => {

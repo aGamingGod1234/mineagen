@@ -1,12 +1,4 @@
 #!/usr/bin/env node
-// Provider-free check of enderman provocation and defence (End deaths d9-end-b and end-r2, 2026-10-21: a look_at at a
-// pearl landing 2.5 blocks behind a calm enderman stared at it; the pearl then landed beside it and it killed the agent
-// in five seconds, faster than a model turn). This script stands in for the coordinator (operator commands build
-// fixtures only) and checks: look_at past a calm enderman settles off its eyes and leaves it calm, while a look at its
-// head provokes it (the fixture's control); the pearl preview marks an angry enderman near the landing; and an angry
-// enderman against no defence, an armed shield stance and an armed water-at-feet reflex; pearl hunting with fight_target
-// on open ground and from inside 2-high tunnels with thin and thick walls (ENDER_FIGHTS each), and the drop rate over salted kills
-// (ENDER_KILLS). REFLEX_ONLY=a,b runs named scenarios only. Launch under slot.sh live.
 import { readFile, writeFile, mkdir, cp, readdir, unlink, open } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,20 +12,20 @@ const root = fileURLToPath(new URL('../..', import.meta.url));
 const out = resolve(process.argv[2] ?? 'runtime/enderman-live');
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE;
 if (!template || !process.env.SLOT_PORT_BASE) throw new Error('Set ARENA_HEADLESS_SERVER_TEMPLATE and launch under slot.sh live');
-const jar = resolve(process.env.ARENA_JAR ?? join(root, 'build/libs/arena-agents-0.2.0.jar'));
+const jar = resolve(process.env.ARENA_JAR ?? join(root, 'build/libs/mineagen-0.2.0.jar'));
 const port = Number(process.env.SLOT_PORT_BASE), server = join(out, 'server');
 await mkdir(out, { recursive: true });
 if ((await readdir(out)).length) throw new Error('Use a fresh output directory');
 await writeFile(join(out, 'manifest.json'), JSON.stringify({ kind: 'provider-free live mechanics', aiPerformanceMeasured: false, fixtureSetupUsesOperatorCommands: true,
 	jarSha256: createHash('sha256').update(await readFile(jar)).digest('hex'), node: process.version }, null, 2));
 await cp(template, server, { recursive: true });
-for (const name of await readdir(join(server, 'mods'))) if (name.startsWith('arena-agents-')) await unlink(join(server, 'mods', name));
-await cp(jar, join(server, 'mods/arena-agents-0.2.0.jar'));
+for (const name of await readdir(join(server, 'mods'))) if (name.startsWith('mineagen-')) await unlink(join(server, 'mods', name));
+await cp(jar, join(server, 'mods/mineagen-0.2.0.jar'));
 const secret = randomBytes(32).toString('hex');
 await writeFile(join(out, 'secret.txt'), secret, { mode: 0o600 });
 await writeFile(join(server, 'server.properties'), `online-mode=false\nserver-ip=127.0.0.1\nserver-port=${port + 2}\nenable-rcon=true\nrcon.ip=127.0.0.1\nrcon.port=${port + 1}\nrcon.password=${secret}\nlevel-name=world\nlevel-seed=20261018\nlevel-type=minecraft:flat\ngenerator-settings={"layers":[{"block":"minecraft:bedrock","height":1},{"block":"minecraft:stone","height":3}],"biome":"minecraft:plains"}\nspawn-protection=0\nview-distance=5\nsimulation-distance=5\npause-when-empty-seconds=-1\nmax-players=4\nspawn-monsters=false\n`);
 const log = await open(join(out, 'server.log'), 'a');
-const child = spawn(`${process.env.JAVA_HOME}/bin/java`, [`-Darenaagents.bridgePort=${port}`, '-Darenaagents.coordinatorAutoStart=false', `-Darenaagents.bridgeSecretFile=${join(out, 'secret.txt')}`, '-Xms512M', '-Xmx2G', '-jar', 'fabric-server-launch.jar', 'nogui'], { cwd: server, stdio: ['ignore', log.fd, log.fd] });
+const child = spawn(`${process.env.JAVA_HOME}/bin/java`, [`-Dmineagen.bridgePort=${port}`, '-Dmineagen.coordinatorAutoStart=false', `-Dmineagen.bridgeSecretFile=${join(out, 'secret.txt')}`, '-Xms512M', '-Xmx2G', '-jar', 'fabric-server-launch.jar', 'nogui'], { cwd: server, stdio: ['ignore', log.fd, log.fd] });
 await writeFile(join(out, 'server.pid'), String(child.pid));
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 
@@ -182,7 +174,6 @@ try {
 			await settle('look-at-head');
 		} catch (error) { await settle('look-at-head', error); }
 	}
-	// The pearl preview names who waits at the landing and whether it is after you.
 	if (want('pearl-preview')) {
 		try {
 			await reset(); await pen(20);
@@ -196,14 +187,12 @@ try {
 			await settle('pearl-preview');
 		} catch (error) { await settle('pearl-preview', error); }
 	}
-	// An angry enderman 6 blocks away against each defence, 12 s each; health is topped up first.
 	const defend = async (name, rules, kit) => {
 		try {
 			await reset();
 			for (const line of kit) await command(line);
 			await command('summon minecraft:enderman 0.5 80 6.5'); await sleep(1500);
 			if (rules.length) o = await setReflexes(rules);
-			// The agent provokes it on purpose (a look at its head), as in the runs.
 			await (await startAction('look_at', { x: 0.5, y: 82.55, z: 6.5 })).result;
 			const provoked = await until(6000, angry);
 			// Then look away, as the agents did: a provoked enderman freezes while stared at and attacks once you look off.

@@ -1,7 +1,3 @@
-// Dragon fight facts a player sees or remembers: the dragon landing on the exit fountain, and the End crystals seen
-// standing or broken by the player's own shots. End runs 2026-10-21 (d11-end-f, d7-end-b): every fountain perch came and
-// went unannounced (about 5 s with nobody within 20 blocks), and after a session refresh d11-end-f spent its last
-// 4 minutes looking for a caged crystal its own arrow had broken 23 minutes earlier.
 
 export const DRAGON_PERCHED_TRIGGER = 'dragon_perched';
 // One wake per landing: perched samples within this gap belong to the same perch (rows drop out while out of view).
@@ -44,15 +40,6 @@ export function perchedDragon(observation) {
 	};
 }
 
-// EnderDragon.hurt: parts other than the head take damage / 4 + min(damage, 1); a sitting dragon that has taken more
-// than a quarter of its max health (50) since it landed takes off. AbstractDragonSittingPhase.onHurt: a sitting dragon
-// takes no arrow damage. DragonSittingScanningPhase: a player within 20 blocks (10 up or down) is turned to for 1.25 s,
-// then roared at for 2 s (DragonSittingAttackingPhase); DragonSittingFlamingPhase puts a radius-5 Instant Damage cloud
-// 2.5 blocks beyond the head 0.5 s in and removes it at 10 s, up to 4 breaths; with nobody near it takes off after 5 s.
-// EnderDragon.aiStep, while its hurtTime is 0, perched too: bodies in each wing's box grown 4 sideways and 2 up/down
-// (moved 2 down) are pushed 4 away (damage only in flight), and the head and neck boxes grown 1 hurt for 10.
-// End runs 2026-10-21 (617e2d5d, 10 games): 85 of 115 perches lasted about 4.5 s, all with the player 16-88 blocks out;
-// 30 lasted 31-56 s, all with the player within 26. Every breath cloud sat 2.5 blocks beyond the head.
 export const PERCH_FACTS = 'Perched, arrows bounce off it; its head takes full melee damage, other parts about a quarter. With no player within 20 blocks (10 up or down) it takes off after about 5 s. With one, it turns to them (about 1 s), roars (2 s), then breathes: a cloud of radius 5 centred 2.5 blocks beyond its head for about 10 s, 6 damage a second through armour; up to 4 breaths, so it stays about 50 s. Even perched, its wings throw anyone within about 6 blocks of either wing (its sides and back, past the sides of its head), and its head and neck hurt 10 on contact; both pause for half a second after each hit it takes. Straight out in front of its head is clear of the wings; its breath lands there. 50 damage in one perch makes it take off.';
 
 // These are useful before the landing wake: a distant player's reply often outlasts the whole empty perch.
@@ -132,7 +119,6 @@ export function rememberEndCrystals(state, observation) {
 		if (![row.x, row.y, row.z].every(Number.isFinite)) continue;
 		const known = state.endCrystals.get(row.stableId);
 		const caged = row.appearance?.caged === true || known?.caged === true;
-		// Gaps in its cage as last seen: broken bars beside or above it.
 		const open = Array.isArray(row.appearance?.cageOpen) ? row.appearance.cageOpen.filter(cell => typeof cell === 'string').slice(0, 6) : row.appearance?.caged === true ? [] : known?.open ?? [];
 		state.endCrystals.set(row.stableId, { x: Math.floor(row.x), y: Math.floor(row.y), z: Math.floor(row.z), caged, ...(caged && open.length ? { open } : {}),
 			broken: state.brokenTargets?.has(row.stableId) === true, external: state.externallyBrokenTargets?.has(row.stableId) === true });
@@ -143,12 +129,6 @@ export function rememberEndCrystals(state, observation) {
 	return { standing: rows.filter(row => !row.broken && !row.external).map(({ x, y, z, caged, open }) => ({ x, y, z, ...(caged ? { caged } : {}), ...(open ? { open } : {}) })), broken: rows.filter(row => row.broken).length, ...(rows.some(row => row.external && !row.broken) ? { external: rows.filter(row => row.external && !row.broken).length } : {}) };
 }
 
-// EndSpikeFeature: the two guarded spikes put bars on the 5x5 ring 2 blocks out from the bedrock row (crystal y - 1) to
-// crystal y + 2 and over the whole top at y + 2. Side walls are solid panes to arrows; the top is a bar grid with holes
-// about 0.9 blocks square. IronBarsBlock strength 5 needs a pickaxe (iron about 1.3 s; a bare hand 1/100 speed, 25 s).
-// EndCrystal.hurtServer: a power-6 blast at the crystal (ThreatDamage.explosionDamage, full exposure: 56 at 3 blocks,
-// 33 at 6, 14 at 9) that breaks blocks round it. End runs 2026-10-21 (617e2d5d, a2985f4a): 297 arrows stuck in these
-// walls and 318 shots refused at them; d11-end-f spent 30 of 45 min on the two caged crystals.
 export const CAGED_CRYSTAL_FACTS = 'Caged: iron bars form side walls 2 blocks out, from crystal y-1 (lowest row) through y+2, and a barred roof. Side walls stop arrows. CAGE ACCESS: use a whole end_stone column: dragon block clearing spares it, unlike cobblestone. It is not blast-proof. Record column x/z and ground feet y. Stock one end_stone per block of rise; mine nearby end stone for a shortfall. Within pick reach, open a ground-shot window including the LOWEST side-bar row at crystal y-1; upper holes can leave the rising shot blocked. Angle and terrain matter: two bars or a fixed distance do not guarantee clearance. A pick takes about 1.3 s/bar, bare hand 25 s. Leave the crystal intact while adjacent: the blast is unsafe on the access pillar. DESCENT before shooting: avoid separate break-and-wait turns on the exposed pillar. First confirm a water_bucket in hotbar or offhand; inventory slots 9-35 do not count. If it is there, use select_tool to move that observed sourceSlot to a hotbarSlot, expectedItemId:"minecraft:water_bucket", minRemainingDurability:0, then confirm the slot in fresh inventory. Until confirmed, do not start this descent. With that bucket accessible and feet centred on the recorded complete end_stone column, and no evidence of blast damage or missing support, one existing act dig_to can descend continuously: pattern:"shaft", y:BASE_Y, maxShaftY:BASE_Y, throughCaves:true, where BASE_Y is the recorded ground FEET y, not a support-block y. This deliberately accepts the open sides of your own above-ground column; never use it to dig into unknown island ground. Keeping maxShaftY equal to y prevents an early change to sideways steep_down. Without a water bucket in hotbar/offhand, shaft changes to two-column digging, unsuitable for this one-block pillar: do not use this method. The lower support is INFERRED from confirmed whole-column placements minus prior breaks, not fresh sight; the floor occludes it. Missing history or contradictory evidence makes support UNKNOWN: stop and choose another evidenced descent. Keep the crystal intact. Let the action run; on failure, damage, displacement or a reflex interruption inspect current feet/support before choosing the next action. A receipt is not a safe landing: verify fresh onGround at the recorded base, with the island floor intact. Walking/jumping off or an armed water reflex is no safe descent guarantee. Only once grounded, choose a shot through the window with blast separation and a clear arc; obstruction may require repositioning or a wider/lower opening. A crystal blast deals about 56 at 3 blocks, 33 at 6, 14 at 9 before armour and can destroy nearby ordinary blocks.';
 
 /** One remembered crystal; a caged one adds where a player stands beside it to break its wall bars. */

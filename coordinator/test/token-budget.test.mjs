@@ -28,30 +28,6 @@ test('a representative program wake stays inside its byte budget for every provi
 	assert.ok(sizes.eventEncodedRepeatBytes <= 7_500, `repeat encoded event ${sizes.eventEncodedRepeatBytes} bytes`);
 	assert.ok(sizes.eventEncodedRepeatBytes < sizes.eventEncodedFirstBytes / 2,
 		`repeated wake event delta ${sizes.eventEncodedRepeatBytes} bytes vs full ${sizes.eventEncodedFirstBytes} bytes`);
-	// 27,965 -> 29,106 bytes: the survey tool and lookAround's survey option (far sight) added 1,141 bytes.
-	// 29,106 -> 30,073 bytes: travelTo, one call for a whole trip instead of a decision every few blocks.
-	// 30,073 -> 30,364 bytes: digTo (claude/d31-dig) merged beside travelTo.
-	// 30,364 -> 30,389 bytes: shaft and maxShaftY in the merged digTo signature (+25 B).
-	// 30,822 -> 30,854 bytes: use_item and interact_block accept acceptLavaRisk (d41-portal LAVA_POUR_AT_BODY, +32 B).
-	// 30,854 -> 30,898 bytes: use_ranged untilDead?/fleeAtHealth?/collect? and fight_target collect? (d41-ranged-loop, +44 B).
-	// 30,898 -> 31,124 bytes: travel_to fightThrough (d41-resume, +226 B).
-	// 31,124 -> 31,277 bytes: the fight_until action (d41-fight-until, +153 B).
-	// 31,277 -> 31,950 bytes: cast_obsidian and barter_until (d41-cast-barter, +673 B).
-	// 31,950 -> 32,195 bytes: fight_target/use_ranged count mode and fight_until roof (d41-fight-count, +245 B).
-	// 32,195 -> 32,323 bytes: fight_target/use_ranged single and the plan-count act sentence (d41-blaze-survive, +128 B).
-	// 32,323 -> 32,868 bytes: act/startAction after and keepGoing (2026-11-01 overlap, +545 B).
-	// 32,868 -> 33,533 bytes: 2026-11-01 body skills (mine tool choice +97, mine_vein +276, travel stops +128, travel descent +102, doors +62).
-	// d41-continue: visible continuation choices add 1,037 bytes. d41-dig: the gather tool (a whole tree in one call) and the
-	// lookAround reuse note. claude/one-main merges both lines: 35,348 bytes.
-	// 35,348 -> 36,666 bytes: do_step, the primary step tool (rw-loop, +1,318 B); AGENTS.md shrank 20,888 -> 4,933 B in the same change.
-	// 36,666 -> 37,025 bytes: do_step carries reflexes and states what until does (rw-loop review, +359 B).
-	// +56 B: the rest action (verb-survive-rest).
-	// 37,025 -> 37,160 bytes: the find verb (verb-find, +135 B).
-	// 37,160 -> 37,517 bytes: the obtain verb, an item's whole chain in one step (verb-obtain); +11 B: pick_up_item timeoutMs? (obtain re-check).
-	// verb-obtain merged with verb-survive-rest (the rest action and verb): 37,585.
-	// main's build verb merged in (verb-build, +176 B): 37,761.
-	// Inventory repair: the reviewed 39,476-byte full-tool cap is 38,900 without the tool type fields.
-	// Accepted repair base measured 38,884 here; direct-frame help reduces it to 38,883.
 	assert.ok(sizes.toolSchemaBytes <= 38_900, `tool schemas ${sizes.toolSchemaBytes} bytes`);
 });
 

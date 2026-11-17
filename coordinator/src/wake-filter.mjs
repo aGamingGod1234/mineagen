@@ -25,12 +25,6 @@ const ABSORBABLE = new Set(['damage', 'threat', 'projectile', 'fire']);
 // A creeper about to blow is a new danger whatever kinds the model has seen.
 const WAKING_SIGNALS = new Set(['swelling', 'creeper_close']);
 
-// A step (do_step, or the same long body action started another way) runs on autopilot: while it runs, only surprises
-// wake the model. The step's end or the body stopping it arrives as its result (never this filter); unhandled danger is
-// judged by decide(); chat, death, a dimension change, a goal change and the coordinator's own stuck alarm keep their
-// wakes. Everything below is ordinary news the step does not need answered, folded into the next wake's whileActing.
-// In the 4 baseline games (obi2, Nov 7) these woke the model 61 times by the 15 s hold deadline and steered it 120 times
-// during travel_to/dig_to (movement_loop alone 98), with no call made on most of those wakes.
 export const STEP_ACTIONS = new Set(['travel_to', 'dig_to', 'mine_vein', 'cast_obsidian', 'fight_until', 'build_shelter', 'barter_until', 'rest', 'build']);
 export const STEP_FOLDED_TRIGGERS = new Set(['attention', 'observation', 'resource_discovery', 'structure_sighted', 'lava_heard', 'heal_opportunity',
 	'furnace_ready', 'context_entry', 'no_progress', 'repeated_result', 'movement_loop']);
@@ -88,7 +82,6 @@ function itemCounts(observation) {
 	return counts;
 }
 
-/** Whether the goal names pearls or eyes and fewer than 12 pearls plus eyes are held. */
 export function pearlsOpen(goalText, observation) {
 	if (typeof goalText !== 'string' || !PEARL_GOAL.test(goalText)) return false;
 	const counts = itemCounts(observation);

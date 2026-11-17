@@ -94,7 +94,6 @@ test('complete fresh confirmation decides; a manifest pins which samples count',
 		assert.equal(final.confirm.verdict, 'PASS');
 		assert.deepEqual(final.confirm.units.map((u) => [u.coverage.have, u.coverage.wanted, u.complete]), [[60, 60, true]]);
 		assert.equal(final.families.find((f) => f.name === 'f3').candidate.n, 30, 'screen families keep describing the screen samples');
-		// A confirmation sample outside the manifest is refused.
 		const extra = await write('cc-extra.json', [...fresh('candidate'), row(id(3, 0), 9)]);
 		const refused = await run(['--cases', casesFile, '--candidate', candidate, '--baseline', baseline, '--confirm-candidate', extra,
 			'--confirm-baseline', await write('cb2.json', fresh('baseline')), '--confirm-manifest', manifest, '--out', path.join(root, 'x'), '--judge', 'off', '--spot-check', '0']);
@@ -136,7 +135,6 @@ test('P1-2: JSONL or array rows without a declaring plan are refused; a screen m
 		const manifest = await write('screen-manifest.json', { required });
 		const known = await run(args(c, b, 'known', ['--screen-manifest', manifest]));
 		assert.equal(known.code, 0, known.stdout);
-		// The manifest also catches missing rows in JSONL input.
 		const short = path.join(root, 'short.jsonl');
 		await writeFile(short, clean('candidate').filter((r) => r.sample === 0).map((r) => JSON.stringify(r)).join('\n'));
 		const missing = await run(args(short, b, 'missing', ['--screen-manifest', manifest]));
@@ -185,7 +183,6 @@ test('Sol r4 P1: rows outside the declared plan never count; mixed native and JS
 		const viaManifest = await compare([extra], [extra], 'manifest', ['--screen-manifest', manifest]);
 		assert.equal(viaManifest.code, 2, viaManifest.stdout);
 		assert.match(viaManifest.stderr, /unplanned sample/);
-		// Candidate-only with the same native file: refused.
 		const absolute = await compare([unplanned], null, 'absolute');
 		assert.equal(absolute.code, 2, absolute.stdout);
 		// A complete native file plus undeclared JSONL rows in the same arm: refused, whatever the file order.
@@ -317,7 +314,6 @@ test('random mixes of declared, undeclared and empty inputs never PASS or FAIL u
 			let refused = false;
 			let known = true;
 			const declaredBy = {};
-			// Identities are `case|sample`; the corpus holds only a0.
 			const ids = (f) => f.plan === null ? [] : f.caseIds.flatMap((c) => f.plan.map((s) => `${c}|${s}`));
 			const rowKey = (r) => `${r.caseId}|${r.sample}`;
 			const inCorpus = (k) => k.startsWith('a0|');
@@ -368,7 +364,6 @@ test('random mixes of declared, undeclared and empty inputs never PASS or FAIL u
 			assert.notEqual(result.code, 2, `${label} was refused: ${result.stderr}`);
 			if (!known) {
 				assert.equal(result.code, 3, `${label} has an unknown plan and must be INCONCLUSIVE`);
-				// Missing declared evidence stays in the INCONCLUSIVE output too.
 				const r = JSON.parse(await readFile(path.join(out, 'report.json'), 'utf8'));
 				for (const arm of baseline === null ? ['candidate'] : ['candidate', 'baseline']) {
 					const c = r.cases.find((x) => x.id === 'a0')?.[arm];
@@ -440,7 +435,6 @@ test('Sol r6 P1-2: confirmation inputs pass the same plan validation; unplanned 
 		};
 		const rowsFor = (samples, good) => f3.flatMap((caseId) => samples.map((s) => confirmRow(caseId, s, good)));
 		const range = (from, to) => Array.from({ length: to - from + 1 }, (_, i) => from + i);
-		// Control: declared 3-5, supplied 3-5, all good: PASS.
 		const valid = (arm) => write(`valid-${arm}.json`, nativeAt(rowsFor(range(3, 5), true), f3, 3, 3));
 		const control = await confirm([await valid('c')], [await valid('b')]);
 		assert.equal(control.code, 0, control.stdout);

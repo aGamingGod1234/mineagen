@@ -46,8 +46,6 @@ function observation(sequence, playerChanges = {}, changedFacts = []) {
 }
 const occupancy = () => ({ ingest() {}, candidates() { return []; }, async load() {}, async flush() {}, clear() {} });
 
-// Authenticated in-memory transport and real native executor regressions adapted
-// from verified f032/f033 probes. No providers, sockets, game, or persistent memory.
 const nextTurn = () => new Promise(setImmediate);
 async function runCase({ name, hazard = null, combined = true, reassessFalse = false, watcher = false, repeatedDelta = false }) {
   const f = fixture();
@@ -77,7 +75,7 @@ async function runCase({ name, hazard = null, combined = true, reassessFalse = f
     const changes = hazard ? [hazard.path] : [];
     const first = observation(2, hazard?.player ?? {}, changes);
     const last = observation(3, hazard?.player ?? {}, repeatedDelta ? changes : []);
-    if (!hazard) first.attention = true; // Real receipt/sample administrative wake shape.
+    if (!hazard) first.attention = true;
     const frames = [envelope('observation', 'first', first), envelope('observation', 'last', last)];
     if (combined) f.emit(frames); else for (const frame of frames) f.emit([frame]);
     await nextTurn();

@@ -182,7 +182,6 @@ test('default changes return to a full snapshot after eight in a row, without a 
  assert.equal(action(), 'changes');
  views.reset();
  assert.equal(action(), 'full');
- // An undelivered reply never becomes a baseline.
  const sample = reply();
  presentNativeToolResult({ state: 'SUCCEEDED', postAction: sample }, { kind: 'action' }, views);
  assert.equal(action(), 'changes');

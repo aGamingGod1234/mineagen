@@ -79,7 +79,6 @@ test('workload certification needs the expected body commands and successful rec
 	assert.equal(dropped.status, 'failed');
 	assert.ok(dropped.failedChecks.includes('firstCommandsMatchWorkload'));
 	assert.ok(dropped.failedChecks.includes('controllerFollowed'));
-	// Dispatches the action but its receipt failed.
 	class FailedReceiptExecutor {
 		async run(record, options, context) {
 			await context.executeAction({ action: { type: 'wait', arguments: { durationMs: 1 } } });
@@ -96,11 +95,9 @@ test('workload certification needs the expected body commands and successful rec
 	assert.equal(wrongShape.status, 'failed');
 	assert.ok(wrongShape.failedChecks.includes('firstCommandsMatchWorkload'));
 
-	// Two equally empty arms are not factual parity.
 	const droppedBaseline = await trial(DroppingExecutor, NATIVE_REALTIME_WORKLOAD, 'baseline');
 	const summary = summarizeComparison([droppedBaseline, { ...dropped, pairingKey: 'pair-1' }]);
 	assert.equal(summary.factualParity.pairedOutcomeParityCount, 0);
-	// The real default workload in both arms is parity.
 	const realBaseline = await trial(NativeProgramExecutor, { ...NATIVE_REALTIME_WORKLOAD, planningLeadMs: undefined }, 'baseline');
 	const realOptimized = await trial(NativeProgramExecutor);
 	assert.equal(realBaseline.status, 'passed');
@@ -119,7 +116,6 @@ test('a declared two-action workload certifies in both arms through the real exe
 	assert.equal(baseline.observed.controllerFollowed, true);
 	assert.ok(baseline.metrics.decisionGapMs >= 0);
 	assert.equal(summarizeComparison([baseline, optimized]).factualParity.pairedOutcomeParityCount, 1);
-	// Declaring two actions but running one still fails.
 	const short = await trial('optimized', { source: 'program.onUnhandledAttention("continue_and_notify"); await player.wait(1);' });
 	assert.equal(short.status, 'failed');
 });

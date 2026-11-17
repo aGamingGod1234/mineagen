@@ -65,7 +65,6 @@ test('bailout and attacked-only threats lead with immediate defense, not another
 	o.player.health = 20;
 	o.entities = [{ type: 'minecraft:piglin', hostile: false, distance: 1 }];
 	assert.match(wake().split('\n')[0], /attacker beside a calm piglin.*Sword sweeps/);
-	// Run d9-nether-e: a calm zombified piglin beside a blaze fight.
 	o.entities = [{ type: 'minecraft:zombified_piglin', hostile: false, targetingAgent: false, distance: 1.34 }];
 	assert.match(wake().split('\n')[0], /attacker beside a calm zombified piglin 1\.3m away\. A sword sweep or stray hit makes it and every zombified piglin within 35 blocks hostile/);
 	o.entities[0].targetingAgent = true;

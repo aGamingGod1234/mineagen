@@ -1,18 +1,13 @@
-import { createHash } from 'node:crypto';
 import { readBoundedResponseBody } from './bounded-response-body.mjs';
+import { openAiVoiceForProfile } from './openai-voice-catalog.mjs';
+import { MAX_TTS_AUDIO_SECONDS } from './pcm-audio.mjs';
+
+export { OPENAI_PROFILE_VOICES, OPENAI_SHARED_PROFILE_VOICES, openAiVoiceForProfile } from './openai-voice-catalog.mjs';
 
 export const DEFAULT_OPENAI_TTS_MODEL = 'gpt-4o-mini-tts';
 export const DEFAULT_OPENAI_STT_MODEL = 'gpt-transcribe';
-const VOICES = Object.freeze(['cedar', 'marin', 'alloy', 'ash', 'ballad', 'coral', 'echo', 'fable', 'nova', 'onyx', 'sage', 'shimmer', 'verse']);
 const TONES = Object.freeze({ neutral: 'Speak clearly and naturally.', warm: 'Speak warmly.', excited: 'Sound excited.',
 	serious: 'Use a serious tone.', dramatic: 'Use a dramatic tone.', whisper: 'Speak in a whisper.', robotic: 'Use a robotic delivery.', angry: 'Sound angry.' });
-
-/** Stable existing profile IDs map to built-in voices; speech never generates or rewrites the agent's words. */
-export function openAiVoiceForProfile(voiceId) {
-	if (typeof voiceId !== 'string' || voiceId.trim() === '') throw new TypeError('voiceId must not be blank');
-	if (VOICES.includes(voiceId)) return voiceId;
-	return VOICES[createHash('sha256').update(voiceId).digest().readUInt32BE(0) % VOICES.length];
-}
 
 export class OpenAiTtsProvider {
 	#client;
@@ -21,7 +16,8 @@ export class OpenAiTtsProvider {
 		this.#client = new SpeechClient(options);
 		this.#model = requireModel(model);
 	}
-	cacheNamespace() { return `openai/${this.#model}/profiles-v1`; }
+	// v2: profiles moved to explicit voices, so audio cached under the hashed v1 voices must not replay.
+	cacheNamespace() { return `openai/${this.#model}/profiles-v2`; }
 	supportsTone(tone) { return Object.hasOwn(TONES, tone); }
 
 	async synthesize({ text, voiceId, speed = 1, tone = 'neutral', signal } = {}) {
@@ -32,7 +28,7 @@ export class OpenAiTtsProvider {
 		const pcm = await this.#client.request('speech', {
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ model: this.#model, input: text, voice, speed, instructions: TONES[tone], response_format: 'pcm' }),
-		}, { signal, maxBytes: 24_000 * 2 * 20, prefix: 'TTS' });
+		}, { signal, maxBytes: 24_000 * 2 * MAX_TTS_AUDIO_SECONDS, prefix: 'TTS' });
 		if (pcm.length === 0 || pcm.length % 2 !== 0) throw failure('TTS_MALFORMED_AUDIO', 'OpenAI returned invalid mono PCM');
 		return Object.freeze({ sampleRateHz: 24_000, channels: 1, sampleFormat: 's16le', pcm });
 	}
@@ -91,6 +87,7 @@ class SpeechClient {
 		}
 		if (!response.ok) {
 			const code = response.status === 401 || response.status === 403 ? `${prefix}_AUTHENTICATION_FAILED`
+				: response.status === 404 ? `${prefix}_CONFIGURATION_FAILED`
 				: response.status === 429 ? `${prefix}_RATE_LIMITED` : `${prefix}_PROVIDER_ERROR`;
 			const error = failure(code, `OpenAI speech failed with HTTP ${response.status}`);
 			error.retryAfter = response.headers?.get?.('retry-after');

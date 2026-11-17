@@ -92,7 +92,6 @@ test('a fresh turn after an unrelated wake retains an unanswered program decisio
 	h.observe(18, true);
 	await eventually(() => h.planner.requests.length === 2);
 	const decision = payload(h.planner.requests[1]).program.decision;
-	// Conversation is another real entry point that used to omit the pending program entirely.
 	h.bridge.emit('conversation_event', { agentId: 'agent-a', payload: { sequence: 1, goalRevision: 1,
 		kind: 'player_message', scope: 'direct', recipientId: 'agent-a', observedAtEpochMs: 2,
 		sourceId: '00000000-0000-4000-8000-000000000001', sourceName: 'ExamplePlayer', operator: false, text: 'How is it going?' } });

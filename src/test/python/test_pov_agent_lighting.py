@@ -18,8 +18,8 @@ class PovAgentLightingRegression(unittest.TestCase):
         for version in ("26.1", "26.2"):
             with self.subTest(version=version):
                 source = (ROOT / f"src/compat/{version}/clientJava/dev/agaminggod/"
-                          "arenaagents/client/compat/mixin/ItemInHandRendererPovMixin.java").read_text()
-                handler = re.search(r'private void arenaagents\$povArm\(.*?\n\t\}', source, re.S)[0]
+                          "mineagen/client/compat/mixin/ItemInHandRendererPovMixin.java").read_text()
+                handler = re.search(r'private void mineagen\$povArm\(.*?\n\t\}', source, re.S)[0]
                 fixture = r'''
 public class AgentLightingFixture {
     static class AbstractClientPlayer { int light; }
@@ -85,7 +85,7 @@ public class AgentLightingFixture {
                         + ", actual=" + values[10] + ", active=" + active);
                 return null;
             };
-            fixture.arenaagents$povArm(renderer, operator, .375F, 13F, hand, .6F,
+            fixture.mineagen$povArm(renderer, operator, .375F, 13F, hand, .6F,
                 stack, .2F, pose, collector, operatorLight, original);
             if (draws[0] != (!active || useAgent ? 1 : 0))
                 throw new AssertionError("Wrong arm draw count");

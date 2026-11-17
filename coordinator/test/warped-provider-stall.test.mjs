@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {ProviderStall} from '../../evals/d39-warped4/provider-stall.mjs';
+import {ProviderStall} from './helpers/provider-stall.mjs';
 test('retries, physical program dispatches and RPC acknowledgements cannot conceal a ten-minute provider outage',()=>{
  const s=new ProviderStall();s.accept({event:'native_provider_turn_sent',at:1000});
  for(let at=121000;at<=601000;at+=120000){s.accept({event:'native_turn_failed',errorCode:'PLANNING_TIMEOUT',at});s.accept({event:'native_provider_turn_sent',at:at+1});s.accept({event:'native_provider_turn_acked',at:at+2});s.accept({event:'native_tool_dispatch_started',at:at+3});s.accept({event:'native_token_usage',at:at+4});}

@@ -2,6 +2,6 @@
 # optionally ": handler, handler" for injected handlers that must be present.
 net.minecraft.client.player.FirstPersonHandsAndItems
 net.minecraft.client.renderer.FirstPersonHandsAndItemsRenderer
-net.minecraft.client.renderer.extract.LevelExtractor: arenaagents$povAvatar, arenaagents$povViewBlockingState, arenaagents$povEyeInFluid, arenaagents$povOnFire
+net.minecraft.client.renderer.extract.LevelExtractor: mineagen$povAvatar, mineagen$povViewBlockingState, mineagen$povEyeInFluid, mineagen$povOnFire
 net.minecraft.client.gui.Hud
 net.minecraft.client.gui.contextualbar.ExperienceBar

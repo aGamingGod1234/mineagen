@@ -179,7 +179,7 @@ function Grant-ArenaRuntimeCurrentUserAccess {
 function Assert-ArenaCoordinatorGeneration {
 	param([Parameter(Mandatory)] [string] $CoordinatorRoot)
 	$root = [IO.Path]::GetFullPath($CoordinatorRoot)
-	$manifestPath = Join-Path $root '.arena-agents-bundle-manifest'
+	$manifestPath = Join-Path $root '.mineagen-bundle-manifest'
 	if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
 		throw 'Coordinator generation manifest is missing.'
 	}
@@ -225,7 +225,7 @@ function Assert-ArenaCoordinatorGeneration {
 function Get-ArenaCoordinatorGenerationId {
 	param([Parameter(Mandatory)] [string] $CoordinatorRoot)
 	Assert-ArenaCoordinatorGeneration -CoordinatorRoot $CoordinatorRoot
-	return (Get-FileHash -LiteralPath (Join-Path $CoordinatorRoot '.arena-agents-bundle-manifest') -Algorithm SHA256).Hash.ToLowerInvariant()
+	return (Get-FileHash -LiteralPath (Join-Path $CoordinatorRoot '.mineagen-bundle-manifest') -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 
 function Write-ArenaCoordinatorGenerationState {
@@ -248,7 +248,7 @@ function Write-ArenaCoordinatorGenerationState {
 	}
 	$candidate = if ($generation -ceq $verified) { '' } else { $generation }
 	$lines = @(
-		'# Arena Agents coordinator generation state',
+		'# Mineagen coordinator generation state',
 		'phase=ready',
 		"activeGeneration=$generation",
 		"verifiedGeneration=$verified",
@@ -276,7 +276,7 @@ function Install-ArenaCoordinatorRuntime {
 	$sourceCoordinator = Join-Path $resolvedSourceRoot 'coordinator'
 	$sourceNodeDirectory = Join-Path $resolvedSourceRoot 'runtime\toolchains\node'
 	$sourceNode = Join-Path $sourceNodeDirectory $(if ($env:OS -eq 'Windows_NT') { 'node.exe' } else { 'bin/node' })
-	foreach ($requiredRelativePath in @('.arena-agents-bundle-manifest', 'src\dynamic-main.mjs', 'config\dynamic-agents.json', 'package.json')) {
+	foreach ($requiredRelativePath in @('.mineagen-bundle-manifest', 'src\dynamic-main.mjs', 'config\dynamic-agents.json', 'package.json')) {
 		if (-not (Test-Path -LiteralPath (Join-Path $sourceCoordinator $requiredRelativePath) -PathType Leaf)) {
 			throw "Coordinator source is missing required file '$requiredRelativePath'."
 		}
@@ -296,7 +296,7 @@ function Install-ArenaCoordinatorRuntime {
 		try {
 			$lock = [IO.File]::Open($lockPath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
 		} catch {
-			throw "Another Arena Agents runtime installation is already in progress: $($_.Exception.Message)"
+			throw "Another Mineagen runtime installation is already in progress: $($_.Exception.Message)"
 		}
 		Restore-ArenaRuntimeTransaction -InstalledRoot $resolvedInstalledRoot -JournalPath $journalPath
 		if (Test-Path -LiteralPath $journalTempPath) {
@@ -363,7 +363,7 @@ function Install-ArenaCoordinatorRuntime {
 			}
 			New-Item -ItemType Directory -Force -Path (Split-Path -Parent $activeNodeDirectory) | Out-Null
 			Copy-Item -LiteralPath $sourceNodeDirectory -Destination $stagingNodeDirectory -Recurse -Force
-			foreach ($requiredRelativePath in @('.arena-agents-bundle-manifest', 'src\dynamic-main.mjs', 'config\dynamic-agents.json', 'package.json')) {
+			foreach ($requiredRelativePath in @('.mineagen-bundle-manifest', 'src\dynamic-main.mjs', 'config\dynamic-agents.json', 'package.json')) {
 				if (-not (Test-Path -LiteralPath (Join-Path $stagingCoordinator $requiredRelativePath) -PathType Leaf)) {
 					throw "Coordinator staging is missing required file '$requiredRelativePath'."
 				}
@@ -485,7 +485,7 @@ function Undo-ArenaCoordinatorRuntimeInstall {
 		try {
 			$lock = [IO.File]::Open($lockPath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
 		} catch {
-			throw "Another Arena Agents runtime installation is already in progress: $($_.Exception.Message)"
+			throw "Another Mineagen runtime installation is already in progress: $($_.Exception.Message)"
 		}
 		$journalPath = Join-Path $resolvedInstalledRoot '.arena-runtime-transaction.json'
 		$journalTempPath = "$journalPath.tmp"

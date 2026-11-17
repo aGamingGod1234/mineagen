@@ -81,7 +81,6 @@ export class BenchmarkRecorder {
 		return frozen;
 	}
 
-	/** Returns a frozen copy that can also be passed directly to summarizeBenchmark. */
 	snapshot() {
 		const events = this.#events.slice();
 		Object.defineProperties(events, {

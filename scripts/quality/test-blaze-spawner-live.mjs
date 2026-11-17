@@ -25,7 +25,7 @@ import { DEFAULT_REFLEXES } from '../../coordinator/src/reflexes.mjs';
 import { planCountDefault } from '../../coordinator/src/plan-count.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
-const jarPath = resolve(process.env.ARENA_JAR ?? join(root, 'build/libs/arena-agents-0.2.0.jar'));
+const jarPath = resolve(process.env.ARENA_JAR ?? join(root, 'build/libs/mineagen-0.2.0.jar'));
 const out = resolve(process.argv[2] ?? 'runtime/blaze-spawner-live');
 const REPEATS = Number(process.env.REPEATS ?? 3), RUN_S = Number(process.env.RUN_S ?? 240);
 const VARIANTS = (process.env.VARIANTS ?? 'gap0,gap5,cover').split(',');
@@ -87,13 +87,13 @@ const jarSha = await sha256(jarPath);
 const harnessSha = await sha256(fileURLToPath(import.meta.url));
 await writeFile(join(out, 'manifest.json'), JSON.stringify({ kind: 'provider-free live mechanics', aiPerformanceMeasured: false, fixtureSetupUsesOperatorCommands: true, jarSha256: jarSha, harnessSha256: harnessSha, shelter: SHELTER, roof: ROOF, ranged: RANGED, kitExtra: { bow: 1, arrows: 64, snowballs: 16 }, primaryScore: 'rods held in last observation inside window; zero on death', opening: OPENING, shieldStance: SHIELD_STANCE, incomingProjectileGuard: SHIELD_STANCE, terrainReset: 'original 3x3 shell and spawner restored by clone before each trial', freshBodyPerTrial: true, previousProjectilesCleared: true, gapBeforeEveryBodyCall: true, startMode: START_MODE, naturalMobSpawning: false, seed: '20261009', spawner: SPAWNER, variants: VARIANTS, repeats: REPEATS, runS: RUN_S, pursue: PURSUE }, null, 2));
 await cp(template, server, { recursive: true });
-for (const name of await readdir(join(server, 'mods'))) if (name.startsWith('arena-agents-')) await unlink(join(server, 'mods', name));
-await cp(jarPath, join(server, 'mods/arena-agents-0.2.0.jar'));
+for (const name of await readdir(join(server, 'mods'))) if (name.startsWith('mineagen-')) await unlink(join(server, 'mods', name));
+await cp(jarPath, join(server, 'mods/mineagen-0.2.0.jar'));
 const secret = randomBytes(32).toString('hex');
 await writeFile(join(out, 'secret.txt'), secret, { mode: 0o600 });
 await writeFile(join(server, 'server.properties'), `online-mode=false\nserver-ip=127.0.0.1\nserver-port=${port + 2}\nenable-rcon=true\nrcon.ip=127.0.0.1\nrcon.port=${port + 1}\nrcon.password=${secret}\nlevel-name=world\nlevel-seed=20261009\nspawn-protection=0\nview-distance=6\nsimulation-distance=6\npause-when-empty-seconds=-1\nmax-players=4\ndifficulty=normal\n`);
 const log = await open(join(out, 'server.log'), 'a');
-const child = spawn(join(process.env.JAVA_HOME, 'bin', process.platform === 'win32' ? 'java.exe' : 'java'), [`-Darenaagents.bridgePort=${port}`, '-Darenaagents.coordinatorAutoStart=false', `-Darenaagents.bridgeSecretFile=${join(out, 'secret.txt')}`, '-Xms512M', '-Xmx2G', '-jar', 'fabric-server-launch.jar', 'nogui'], { cwd: server, stdio: ['ignore', log.fd, log.fd], windowsHide: true });
+const child = spawn(join(process.env.JAVA_HOME, 'bin', process.platform === 'win32' ? 'java.exe' : 'java'), [`-Dmineagen.bridgePort=${port}`, '-Dmineagen.coordinatorAutoStart=false', `-Dmineagen.bridgeSecretFile=${join(out, 'secret.txt')}`, '-Xms512M', '-Xmx2G', '-jar', 'fabric-server-launch.jar', 'nogui'], { cwd: server, stdio: ['ignore', log.fd, log.fd], windowsHide: true });
 await writeFile(join(out, 'server.pid'), String(child.pid));
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 class Inbox {
@@ -166,8 +166,6 @@ async function act(type, args, ms = 65000, retried = false) {
 	}).then(async res=>{ await traceRow({at:Date.now(),command:type,args,result:res});return res; });
 }
 const passed = text => /Test passed/i.test(text);
-// The acceptance start is on the broad deck; START_MODE=rim preserves the old outside-rim hard case.
-// A standing cell near the spawner: air at feet and head, solid non-lava floor, at the spawner's level or one below.
 async function standCell() {
 	const [sx, sy, sz] = SPAWNER, cells = [];
 	if (FIXED_STARTS[START_MODE]) {
@@ -195,7 +193,6 @@ async function standCell() {
 async function kit() {
 	await command(`clear ${agent}`);
 	if (SAVE_POINT) {
-		// The micro save points' kit (checkpoint setup.inventory/armour), shield already in the offhand.
 		await command(`effect clear ${agent}`);
 		await command(`effect give ${agent} minecraft:instant_health 1 10 true`);
 		await command(`effect give ${agent} minecraft:saturation 1 10 true`);
@@ -225,7 +222,6 @@ async function kit() {
 	await command(`item replace entity ${agent} weapon.offhand with minecraft:shield`);
 	for (const [slot, item] of [['armor.head', 'iron_helmet'], ['armor.chest', 'iron_chestplate'], ['armor.legs', 'iron_leggings'], ['armor.feet', 'iron_boots']]) await command(`item replace entity ${agent} ${slot} with minecraft:${item}`);
 }
-// After a death: respawn as a player does, then wait until the body is alive and observed again.
 async function recover() {
 	for (let i = 0; i < 20; i++) {
 		await bridge.send('catalog_snapshot', 'server', catalog()).catch(() => {});
@@ -244,7 +240,6 @@ try {
 	for (let i = 0; i < 240; i++) { try { rcon = new HeadlessRconClient({ host: '127.0.0.1', port: port + 1, password: secret, connectTimeoutMs: 500, commandTimeoutMs: 30000 }); await rcon.connect(); break; } catch (e) { await rcon?.close(); if (i === 239) throw e; await sleep(1000); } }
 	bridge = new MultiplexedServerBridge({ port, secret }, {}); inbox = new Inbox(bridge);
 	bridge.on('observation', e => { if (e.agentId === record?.agentId && e.payload.ready) { observation = e.payload; if (Number.isFinite(runDeadline) && Date.now() <= runDeadline) { windowRods = Math.max(windowRods,rodsHeld(e.payload)); lastWindowObservation = e.payload; lastWindowObservationAt = Date.now();
-		// 1 Hz body samples (position, health, fire, blazes) for reading deaths; fixture evidence only.
 		if (Date.now() - lastSampleAt >= 1000) { lastSampleAt = Date.now(); const p = e.payload; traceRow({ sample: true, at: lastSampleAt, s: Math.round((lastSampleAt - (runDeadline - RUN_S*1000))/100)/10, position: p.position, health: p.player?.health, onFire: p.player?.onFire, fireTicks: p.player?.fireTicks, onGround: p.player?.onGround, action: p.currentAction?.actionType ?? p.action?.actionType, blazes: (p.entities ?? []).filter(x => x.type === 'minecraft:blaze' || x.type === 'minecraft:small_fireball').map(x => [x.type.slice(10,15), Math.round(x.position.x*10)/10, Math.round(x.position.y*10)/10, Math.round(x.position.z*10)/10]) }).catch(() => {}); } } } });
 	bridge.on('message', e => {
 		if (e.type === 'entity_killed') kills.push({ at: Date.now(), type: e.payload?.entityType });

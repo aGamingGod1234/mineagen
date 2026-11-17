@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { parse } from 'acorn';
 
-const JAVA = new URL('../../src/main/java/dev/agaminggod/arenaagents/', import.meta.url);
+const JAVA = new URL('../../src/main/java/dev/agaminggod/mineagen/', import.meta.url);
 
 // Pair serializer objects with their actual exactKeys call, rather than a second copy of the allowlist.
 const CONTRACTS = {

@@ -1,3 +1,4 @@
+import { privateInputUrl } from '../scripts/private-inputs.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -6,7 +7,7 @@ import { validateCaseFile } from '../src/decision-eval/schema.mjs';
 import { observationSha256 } from '../src/decision-eval/capture.mjs';
 import { renderWake } from '../src/decision-eval/render.mjs';
 
-const { cases } = JSON.parse(fs.readFileSync(new URL('./fixtures/decision-eval/extra/n18-respawn.json', import.meta.url)));
+const { cases } = JSON.parse(fs.readFileSync(privateInputUrl('coordinator/test/fixtures/decision-eval/extra/n18-respawn.json')));
 
 test('respawn drop cases keep capture provenance and replay the recorded death', () => {
 	validateCaseFile(cases);

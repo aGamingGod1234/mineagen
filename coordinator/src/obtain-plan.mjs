@@ -36,10 +36,6 @@ const RARE_VARIANT = { sheep: (id) => id.endsWith('_wool') && id !== 'white_wool
 const SEEN_FACTOR = 0.4;
 // ServerDigController.WORN_USES (2) plus one: the last use before the body refuses the tool.
 const WORN_USES = 3;
-// Sticks for two pickaxes: one spare was not enough (r5 seed 7 made one and was stranded when it wore out too).
-// Batch 4: two were not enough either. The first worn-tool answer makes two pickaxes at once and spent all of it, and a
-// long search at the lava level wore both out (boat seed 4 rep 3 at y-29, desktop seed 4 at y-54): four pickaxes' worth,
-// at most one more log from the surface.
 const SPARE_STICKS = 8;
 const STATION_COST = { crafting_table: 1.5, furnace: 9 };
 
@@ -67,7 +63,6 @@ export function resolveObtainItem(name, index = howtoIndex()) {
 	return { ids: [], candidates: resolved.candidates ?? [] };
 }
 
-/** Item counts the body holds (worn armour excluded), keyed by short id. */
 export function heldCounts(observation) {
 	const counts = new Map();
 	for (const row of observation?.inventory?.items ?? []) {
@@ -80,13 +75,6 @@ export function heldCounts(observation) {
 	return counts;
 }
 
-/**
- * The counts with the sticks for two more pickaxes held back (2 sticks, then 2 planks, then a log), while the body has a
- * sound pickaxe and is not making one: the next pickaxe is made from them when this one wears out. Down a mine there is
- * no wood, and with no pickaxe there is no way up to it (scripted chain r5 seed 7: the bucket's smelt burned the last
- * planks, three pickaxes wore out at y28, and five obtains of a stone pickaxe ended NO_SOURCE holding 317 cobblestone and
- * no stick). Less than one pickaxe's sticks is not held back: it makes nothing.
- */
 export function keepPickaxeMakings(held, ids = [], index = howtoIndex()) {
 	const pickaxe = (id) => /_pickaxe$/.test(short(id));
 	if (ids.length > 0 && ids.every(pickaxe)) return held;
@@ -119,7 +107,6 @@ class Costs {
 		return spec.split('|');
 	}
 
-	/** The cheapest way to one `id`: { cost, way } or { cost: Infinity }. */
 	of(id, path = []) {
 		if (this.memo.has(id)) return this.memo.get(id);
 		if (path.includes(id)) return { cost: Infinity, cycle: true };
@@ -128,9 +115,6 @@ class Costs {
 		const consider = (way, cost) => { if (cost < best.cost) best = { cost, way }; };
 		for (const [station, yieldCount, inputs, recipeName] of this.index.recipes[id] ?? []) {
 			if (!STATIONS.has(station)) continue;
-			// Tools and armour are never smelted down for nuggets: a held iron pickaxe made that recycle look free, so the
-			// plan for iron ingots went through 18 iron tools and ended NO_WAY (obtain bucket count 2 right after the iron
-			// pickaxe: gate2A-2, gate2A-8, gate2B-6, and the scripted chain on gate seed 6).
 			if (station === 'furnace' && inputs.every(([spec]) => this.members(spec).every((member) => EQUIPMENT.test(member)))) continue;
 			let cost = station === 'inventory' ? 0.1 : 0.2;
 			if (station === 'furnace') cost += 0.4;
@@ -160,9 +144,6 @@ class Costs {
 		}
 		mined.sort((a, b) => a.cost - b.cost);
 		if (mined.length > 0) consider({ kind: 'mine', blocks: mined.map((row) => row.block), tool: mined[0].tool }, mined[0].cost);
-		// A chance drop only a player kill gives, of an item that can also be mined or made, is a mob's rare drop. Priced
-		// at three kills, a seen zombie beat mining and smelting, and obtain iron_pickaxe hunted zombies for iron ingots
-		// (r5 Boat gate 5-r3: 0 kills, LOW_HEALTH_BAILOUT). A mob's usual chance drop (spider eyes, blaze rods) has no other way.
 		const otherWay = best.cost < Infinity;
 		for (const [mob, flags] of this.index.mobDrops[id] ?? []) {
 			if (!(this.index.mobSpawns?.[mob] ?? []).some((place) => place.startsWith('overworld'))) continue;
@@ -177,11 +158,6 @@ class Costs {
 		return cycle && best.cost === Infinity ? { cost: Infinity, cycle: true } : best;
 	}
 
-	/**
-	 * A recipe input, `count` of it per craft: free when held in full; else the held part is free and the rest costs the
-	 * cheapest member's way. A few held nuggets are not nine (gate B-3: 3 nuggets held made the nugget recipe "free",
-	 * and obtain iron_pickaxe failed NO_WAY on the other 24).
-	 */
 	spec(spec, path, count = 1) {
 		// A member already on the path is a cycle (raw iron from a block of raw iron), even when one is held.
 		const members = this.members(spec).filter((member) => !path.includes(member));
@@ -323,9 +299,6 @@ export function planObtain({ ids, count }, { held = new Map(), seen = new Set(),
 		const coalTicks = (Math.ceil(smelts / 8) - coalUsed) * 1600;
 		const remaining = Math.max(0, smelts * SMELT_TICKS - coalTicks);
 		const planks = Math.ceil(remaining / PLANK_FUEL_TICKS);
-		// Wood in hand burns first. With too little and coal in view (a mine's walls), coal is the near fuel: the logs
-		// are back up on the surface (gate B-2: 1 plank and 3 raw iron at y63, a climb up for one spruce log). coalFirst
-		// (the body under cover): coal is searched for before a climb, as a player mining iron takes the coal beside it.
 		const wood = (index.tags['#planks'] ?? []).reduce((sum, id) => sum + (pool.get(id) ?? 0), 0)
 			+ 4 * (index.tags['#logs_that_burn'] ?? []).reduce((sum, id) => sum + (pool.get(id) ?? 0), 0);
 		if (planks > wood && (coalFirst || seen.has('coal_ore') || seen.has('deepslate_coal_ore'))) demand('coal', Math.ceil(remaining / COAL_FUEL_TICKS), []);
@@ -344,7 +317,6 @@ export function planObtain({ ids, count }, { held = new Map(), seen = new Set(),
 	return { ops: [...ops.values()], needs: [...needs.values()], fuel, unreachable: [...unreachable], tools: [...tools] };
 }
 
-/** How many of `spec` (an id, '#tag' or 'a|b' list) the counts hold. */
 export function heldOf(spec, held, index = howtoIndex()) {
 	const members = spec.startsWith('#') ? index.tags[spec] ?? [] : spec.split('|');
 	return members.reduce((sum, member) => sum + (held.get(member) ?? 0), 0);

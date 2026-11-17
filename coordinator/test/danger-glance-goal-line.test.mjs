@@ -74,7 +74,6 @@ test('danger line falls back to the brink, then the footing drop, for bodies wit
 	assert.equal(dangerGlance({ brink: { dir: 'W', at: 0.35, below: 'lava', drop: 27 } }), 'drop W 27 to lava 0.35m away');
 	assert.equal(dangerGlance({ footing: { drop: 20, yaw: 45, distance: 1.8 } }), 'drop SW 20 1.8m away');
 	assert.equal(dangerGlance({ footing: { drop: 23, into: 'lava', yaw: -90 } }), 'drop E 23 to lava beside you');
-	// A short step is no drop.
 	assert.equal(dangerGlance({ footing: { drop: 2, yaw: 0 } }), null);
 	assert.deepEqual([0, 90, 180, -90, -135].map(yawCompass), ['S', 'W', 'N', 'E', 'NE']);
 });
@@ -87,7 +86,6 @@ test('danger line leads the wake and the raw side glance is not repeated in the 
 	assert.equal(payload.observation.player.edges, undefined);
 	const keys = Object.keys(payload);
 	assert.ok(keys.indexOf('danger') < keys.indexOf('observation'));
-	// Program planning wakes carry neither line.
 	const planning = buildNativeEventInput(record(), { event: 'program_planning_due', trigger: 'program_planning_due', observation, goalNow: 'x 0/2' });
 	const planned = JSON.parse(planning.slice(planning.indexOf('\n') + 1));
 	assert.equal(planned.danger, undefined);

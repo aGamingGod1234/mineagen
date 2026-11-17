@@ -75,27 +75,27 @@ println groovy.json.JsonOutput.toJson(captured)
         return json.loads(result.stdout)
 
     def test_argument_boundaries_through_java(self):
-        with tempfile.TemporaryDirectory(prefix='Arena Agents ') as directory:
+        with tempfile.TemporaryDirectory(prefix='Mineagen ') as directory:
             root = Path(directory)
             secret = root / 'build/live-server/26.3-bridge-secret.txt'
-            expected = ['-Darenaagents.bridgePort=12345',
-                        '-Darenaagents.coordinatorAutoStart=false',
-                        f'-Darenaagents.bridgeSecretFile={secret}',
-                        '-Darenaagents.argumentProbe=C:\\Arena Agents\\"quoted"\\雪\tvalue']
+            expected = ['-Dmineagen.bridgePort=12345',
+                        '-Dmineagen.coordinatorAutoStart=false',
+                        f'-Dmineagen.bridgeSecretFile={secret}',
+                        '-Dmineagen.argumentProbe=C:\\Mineagen\\"quoted"\\雪\tvalue']
             command = self.capture_launch(root, expected)
             actual = self.parse_with_build(root, command)
             self.assertEqual(expected, actual[1:])
             result = subprocess.run([self.java, *actual, '-XshowSettings:properties', '-version'],
                                     capture_output=True, text=True)
             self.assertEqual(0, result.returncode, result.stderr)
-            self.assertIn(f'arenaagents.bridgeSecretFile = {secret}', result.stderr)
+            self.assertIn(f'mineagen.bridgeSecretFile = {secret}', result.stderr)
 
     def test_no_extra_arguments(self):
-        with tempfile.TemporaryDirectory(prefix='Arena Agents ') as directory:
+        with tempfile.TemporaryDirectory(prefix='Mineagen ') as directory:
             root = Path(directory)
             command = self.capture_launch(root, [])
             self.assertFalse(any(arg.startswith('-PserverJvmArgs=') for arg in command))
-            self.assertEqual(['-Darenaagents.bridgeSecretFile=/development/bridge-secret.txt'],
+            self.assertEqual(['-Dmineagen.bridgeSecretFile=/development/bridge-secret.txt'],
                              self.parse_with_build(root, command))
 
 

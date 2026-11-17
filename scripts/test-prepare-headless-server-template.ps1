@@ -31,7 +31,7 @@ try {
 	$source = Join-Path $fixture 'server-template'
 	$target = Join-Path $fixture 'runtime\server-template'
 	$downloads = Join-Path $fixture 'runtime\downloads'
-	$buildJar = Join-Path $fixture 'build\libs\arena-agents-0.2.0.jar'
+	$buildJar = Join-Path $fixture 'build\libs\mineagen-0.2.0.jar'
 	$carpetJar = Join-Path $fixture 'libs\fabric-carpet-26.3+v260915.jar'
 	$installer = Join-Path $downloads 'fabric-installer.jar'
 	$fabricApi = Join-Path $downloads 'fabric-api.jar'
@@ -93,7 +93,7 @@ throw 'Java 21 candidate must not run the installer'
 
 	foreach ($relative in @(
 		'fabric-server-launch.jar', 'server.jar', 'libraries\fixture\library.jar',
-		'mods\arena-agents-0.2.0.jar', 'mods\fabric-api.jar', 'mods\fabric-carpet-26.3+v260915.jar', 'server.properties',
+		'mods\mineagen-0.2.0.jar', 'mods\fabric-api.jar', 'mods\fabric-carpet-26.3+v260915.jar', 'server.properties',
 		'eula.txt', 'template-manifest.json', 'README.md'
 	)) {
 		Assert-True (Test-Path -LiteralPath (Join-Path $target $relative) -PathType Leaf) "materialized template contains $relative"

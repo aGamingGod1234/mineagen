@@ -23,7 +23,7 @@ await mkdir(out, { recursive: true });
 if ((await readdir(out)).length) throw new Error('Use a fresh output directory');
 await cp(template, server, { recursive: true });
 // Vanilla mechanics only: the arena mod is not loaded.
-for (const name of await readdir(join(server, 'mods'))) if (name.startsWith('arena-agents-')) await unlink(join(server, 'mods', name));
+for (const name of await readdir(join(server, 'mods'))) if (name.startsWith('mineagen-')) await unlink(join(server, 'mods', name));
 const secret = randomBytes(32).toString('hex');
 await writeFile(join(server, 'server.properties'), `online-mode=false\nserver-ip=127.0.0.1\nserver-port=${port + 2}\nenable-rcon=true\nrcon.ip=127.0.0.1\nrcon.port=${port + 1}\nrcon.password=${secret}\nlevel-name=world\nlevel-seed=20261024\nlevel-type=minecraft:flat\ngenerator-settings={"layers":[{"block":"minecraft:bedrock","height":1},{"block":"minecraft:stone","height":3}],"biome":"minecraft:plains"}\nspawn-protection=0\nview-distance=4\nsimulation-distance=4\npause-when-empty-seconds=-1\nspawn-monsters=false\nspawn-animals=false\n`);
 const log = await open(join(out, 'server.log'), 'a');
@@ -35,7 +35,6 @@ const command = async text => {
 	return String((await rcon.command(text)).text);
 };
 const PIGLINS = 8;
-// Flat world: bedrock at y-64, stone up to y-61, so pens stand on y-61.
 const cell = index => ({ x: index * 4 + 0.5, y: -60, z: 0.5 });
 const score = async (objective, holder = 'Total') => Number(/has (-?\d+)/.exec(await command(`scoreboard players get ${holder} ${objective}`))?.[1] ?? NaN);
 // Item stacks merge on the ground, so counts are summed from each item entity's stack size.
@@ -91,7 +90,6 @@ try {
 	await sleep(1500);
 	result.armed = Number(/count: (\d+)/i.exec(await command('execute if items entity @e[type=minecraft:piglin] weapon.mainhand minecraft:golden_sword'))?.[1] ?? 0);
 	result.piglinCount = Number(/count: (\d+)/i.exec(await command('execute if entity @e[type=minecraft:piglin]'))?.[1] ?? 0);
-	// Controls: the world-default sequence (an unsalted save point) and one salt, each twice.
 	result.controls.worldDefault = [await trial(10, null), await trial(10, null)];
 	result.controls.sameSalt = [await trial(10, 777), await trial(10, 777)];
 	// Game time per ingot at the normal tick rate (sprinted trials poll too coarsely to time).

@@ -1,10 +1,11 @@
+import { privateInputUrl } from '../scripts/private-inputs.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { gradeSample } from '../src/decision-eval/grade.mjs';
 import { renderWake } from '../src/decision-eval/render.mjs';
 
-const { cases } = JSON.parse(fs.readFileSync(new URL('./fixtures/decision-eval/train/iron-sourcing.json', import.meta.url)));
+const { cases } = JSON.parse(fs.readFileSync(privateInputUrl('coordinator/test/fixtures/decision-eval/train/iron-sourcing.json')));
 const call = (name, args) => ({ name, args });
 const verdict = (c, ...calls) => gradeSample(c, { calls }).verdict;
 const move = (p) => call('moveTo', { ...p, tolerance: 1, timeoutMs: 5000 });

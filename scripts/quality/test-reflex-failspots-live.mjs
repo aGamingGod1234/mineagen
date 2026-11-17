@@ -1,16 +1,4 @@
 #!/usr/bin/env node
-// Provider-free replay of spots where an armed reflex failed when it fired (research page i7r72tvssr4t, Oct 22: 236
-// "no safe heading away", 54 take_cover "no cell out of sight", water clutches that died mid-fall). A spot builds its
-// own terrain in a fresh world from a fixed seed, puts a new agent at the spot, arms the rule the game had armed, makes
-// the same threat with vanilla means and records what the body did. ARENA_JAR selects the jar, so the old and new builds
-// replay the same spots. Always launch under slot.sh live; ports come from SLOT_PORT_BASE. SPOTS=a,b selects spots.
-// No model calls.
-// The 11 spots that loaded saved run worlds (5 End breath clouds, 3 night-cover variants, 3 End water clutches) were
-// deleted on Nov 10 (platform fix plan step 8): their run worlds were deleted with the aa-run-* runtime folders, so
-// each could only error. Their pass rules stay in lib/reflex-failspot-pass.mjs for a spot rebuilt in a fresh world.
-// A spot passes when the body lived and the armed rule did what the spot tests (lib/reflex-failspot-pass.mjs): the
-// tunnel when the body escaped the way it came. Exit code (strict, the default): 0 all passed, 1 a spot failed, 2
-// invalid evidence (a spot errored). --descriptive reports without an acceptance exit code.
 import { readFile, writeFile, mkdir, cp, readdir, unlink, open, rm } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,7 +11,7 @@ import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-r
 import { spotPassed } from './lib/reflex-failspot-pass.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
-const jarPath = resolve(process.env.ARENA_JAR ?? join(root, 'build/libs/arena-agents-0.2.0.jar'));
+const jarPath = resolve(process.env.ARENA_JAR ?? join(root, 'build/libs/mineagen-0.2.0.jar'));
 const USAGE = 'Usage: test-reflex-failspots-live.mjs [OUT_DIR] [--strict|--descriptive] under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE (SPOTS=a,b, ARENA_JAR)';
 const cli = process.argv.slice(2);
 if (cli.includes('--help')) { console.log(USAGE + '\n' + EDIT_LOOP_HELP + '\n' + FIXTURE_OUTCOME_HELP); process.exit(0); }
@@ -62,17 +50,16 @@ class Inbox {
 	wait(type, match = () => true, ms = 30000) { const i = this.events.findIndex(e => e.type === type && match(e)); if (i >= 0) return Promise.resolve(this.events.splice(i, 1)[0]); return new Promise((res, rej) => { const w = { type, match, done: e => { clearTimeout(t); res(e); } }; const t = setTimeout(() => { this.waiters = this.waiters.filter(x => x !== w); rej(new Error(`TIMEOUT ${type}`)); }, ms); this.waiters.push(w); }); }
 }
 
-/** One server on a fresh world from a fixed seed; returns the helpers a spot needs. */
 async function boot(dir) {
 	const server = join(dir, 'server');
 	await cp(template, server, { recursive: true });
-	for (const name of await readdir(join(server, 'mods'))) if (name.startsWith('arena-agents-')) await unlink(join(server, 'mods', name));
-	await cp(jarPath, join(server, 'mods/arena-agents-0.2.0.jar'));
+	for (const name of await readdir(join(server, 'mods'))) if (name.startsWith('mineagen-')) await unlink(join(server, 'mods', name));
+	await cp(jarPath, join(server, 'mods/mineagen-0.2.0.jar'));
 	const secret = randomBytes(32).toString('hex');
 	await writeFile(join(dir, 'secret.txt'), secret, { mode: 0o600 });
 	await writeFile(join(server, 'server.properties'), `online-mode=false\nserver-ip=127.0.0.1\nserver-port=${port + 2}\nenable-rcon=true\nrcon.ip=127.0.0.1\nrcon.port=${port + 1}\nrcon.password=${secret}\nlevel-name=world\nlevel-seed=20261029\nspawn-protection=0\nview-distance=6\nsimulation-distance=6\npause-when-empty-seconds=-1\nmax-players=4\nspawn-monsters=false\ndifficulty=normal\n`);
 	const log = await open(join(dir, 'server.log'), 'a');
-	const child = spawn(`${process.env.JAVA_HOME}/bin/java`, [`-Darenaagents.bridgePort=${port}`, '-Darenaagents.coordinatorAutoStart=false', `-Darenaagents.bridgeSecretFile=${join(dir, 'secret.txt')}`, '-Xms512M', '-Xmx2G', '-jar', 'fabric-server-launch.jar', 'nogui'], { cwd: server, stdio: ['ignore', log.fd, log.fd] });
+	const child = spawn(`${process.env.JAVA_HOME}/bin/java`, [`-Dmineagen.bridgePort=${port}`, '-Dmineagen.coordinatorAutoStart=false', `-Dmineagen.bridgeSecretFile=${join(dir, 'secret.txt')}`, '-Xms512M', '-Xmx2G', '-jar', 'fabric-server-launch.jar', 'nogui'], { cwd: server, stdio: ['ignore', log.fd, log.fd] });
 	const s = { child, log, secret, record: null, observation: null, ordinal: 0, revision: 0 };
 	liveServer = child;
 	for (let i = 0; i < 150; i++) { try { s.rcon = new HeadlessRconClient({ host: '127.0.0.1', port: port + 1, password: secret, connectTimeoutMs: 500, commandTimeoutMs: 30000 }); await s.rcon.connect(); break; } catch (e) { await s.rcon?.close(); if (i === 149) throw e; await sleep(1000); } }
@@ -171,7 +158,6 @@ async function tunnelSpot(s, spot) {
 	const since = Math.max(0, ...(o.reflexes?.events ?? []).map(e => e.seq ?? 0));
 	const start0 = [o.position.x, o.position.z];
 	const deathsBefore = await deaths(s);
-	// A zombie that stands where it is summoned: the threat stays in the east leg.
 	await s.command(`execute in ${spot.dim} run summon minecraft:zombie ${world(6, 0).join(' ')} {NoAI:1b,PersistenceRequired:1b}`);
 	const track = [];
 	const start = Date.now();

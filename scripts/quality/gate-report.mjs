@@ -39,7 +39,6 @@ const median = (values) => {
 	return Math.round((sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2) * 10) / 10;
 };
 
-/** The decision log, oldest first (a rotated log keeps its older half in .jsonl.1). */
 export function decisionFiles(raw) {
 	if (!existsSync(raw)) return [];
 	return readdirSync(raw).filter((name) => name.startsWith('decision-') && !name.includes('goal-spec'))
@@ -68,7 +67,6 @@ function logMilestones(raw) {
 	return { lavaSeen, portalLit };
 }
 
-/** The commit a long run played: the runner's checkout root in its log, else the jar's tag. */
 function longRunCommit(dir, longRun) {
 	const log = `${dir.replace(/\/+$/, '')}.log`;
 	if (existsSync(log)) {
@@ -116,7 +114,6 @@ function readScripted(dir) {
 	});
 }
 
-/** One row per run in the folder (a scripted folder can hold several seeds). */
 export function readRun(dir) {
 	if (existsSync(path.join(dir, 'stage-score.json'))) return readLongRun(dir);
 	if (existsSync(path.join(dir, 'run', 'result.json'))) return readScripted(dir);
@@ -142,7 +139,6 @@ export function funnel(runs) {
 	return out;
 }
 
-/** Seeds run more than once in one cohort: does each run agree on every measured milestone? */
 export function repeatsOf(runs) {
 	const out = [];
 	for (const seed of [...new Set(runs.map((run) => run.seed))]) {
@@ -197,7 +193,6 @@ export function buildGate({ gate, title, cohorts }) {
 		milestones: MILESTONES, cohorts: built, comparisons, notes };
 }
 
-/** --gate N --title T --out FILE --cohort NAME LABEL DIR... (repeatable) */
 export function parseCli(argv) {
 	const options = { cohorts: [] };
 	for (let i = 0; i < argv.length; i++) {

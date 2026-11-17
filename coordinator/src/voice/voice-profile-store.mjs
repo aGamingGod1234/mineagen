@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { openAiVoiceForProfile } from './openai-voice-catalog.mjs';
 
 const PERSISTENT_FILES = new Map();
 const PERSIST_RETRY_BASE_MS = 10;
@@ -26,6 +27,7 @@ const VOICE_PROFILES = Object.freeze([
 	profile('ash', 'f48d143a59a946ab87c0130fd081f349', ['youthful', 'light', 'direct'], ['old', 'gravelly'], 1.0),
 	profile('piper', '802e3bc2b27e49c2995d23ef70e6ac89', ['energetic', 'clear', 'enthusiastic'], ['slow', 'soft'], 1.06),
 ]);
+const OPENAI_PROFILE_VOICES = Object.freeze(VOICE_PROFILES.map(({ voiceId }) => openAiVoiceForProfile(voiceId)));
 
 // Fish Official AI-designed voices. Names, gender and tags verified on their public
 // pages at https://fish.audio/app/m/<voiceId>/ on 2026-09-08.
@@ -88,7 +90,7 @@ export class VoiceProfileStore {
 		return VOICE_PROFILES[index];
 	}
 
-	/** Resolves an explicit director-selected profile without changing automatic assignments. */
+	/** Resolves an explicit explicitly selected voice profile without changing automatic assignments. */
 	resolveRequested(agentId, profileId) {
 		if (profileId === 'voice.auto.v1') return this.resolve(agentId);
 		if (!isUuid(agentId)) throw new TypeError('agentId must be a UUID');
@@ -313,13 +315,19 @@ function stableHash(value) {
 	return hash;
 }
 
+// OpenAI has thirteen voices for sixteen profiles, so an unused profile whose OpenAI voice is also unused comes first.
+// Every profile has its own Fish voice, so this only reorders new allocations there.
 function selectProfileIndex(agentId, usedProfileIndexes) {
 	const start = stableHash(agentId) % VOICE_PROFILES.length;
+	const usedVoices = new Set([...usedProfileIndexes].map((index) => OPENAI_PROFILE_VOICES[index]));
+	let firstUnusedProfile = -1;
 	for (let offset = 0; offset < VOICE_PROFILES.length; offset++) {
 		const candidate = (start + offset) % VOICE_PROFILES.length;
-		if (!usedProfileIndexes.has(candidate)) return candidate;
+		if (usedProfileIndexes.has(candidate)) continue;
+		if (!usedVoices.has(OPENAI_PROFILE_VOICES[candidate])) return candidate;
+		if (firstUnusedProfile < 0) firstUnusedProfile = candidate;
 	}
-	return start;
+	return firstUnusedProfile >= 0 ? firstUnusedProfile : start;
 }
 
 function isUuid(value) {

@@ -1,3 +1,4 @@
+import { privateInputUrl } from '../scripts/private-inputs.mjs';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -96,7 +97,6 @@ test('targetsEntity resolves targetId through observed entities; usesItem covers
 	const eat = { name: 'sequence', args: { actions: [{ actionType: 'select_item', arguments: { itemId: 'minecraft:bread' } }, { actionType: 'use_item', arguments: { durationMs: 1800 } }] } };
 	assert.ok(holds({ usesItem: 'minecraft:bread' }, [eat]));
 	assert.ok(holds({ usesItem: 'food' }, [eat]));
-	// An unqualified use_item uses the held sword, which is not food.
 	assert.ok(!holds({ usesItem: 'food' }, [act('use_item', { durationMs: 1800 })]));
 	assert.ok(holds({ usesItem: 'minecraft:stone_sword' }, [act('use_item', { durationMs: 1800 })]));
 	assert.ok(holds({ placesBlock: 'minecraft:cobblestone' }, [act('place_block', { x: 1, y: 64, z: 0, face: 'up', itemId: 'minecraft:cobblestone' })]));
@@ -180,7 +180,6 @@ test('gradeSamples sends only undecided samples to the judge and counts rates wi
 	assert.equal(unjudged[1].grade.source, 'judge-off');
 });
 
-// ---------- v1.3 helpers ----------
 
 function caseWith(payloadEdit) {
 	const base = synthCase();
@@ -300,7 +299,7 @@ test('v1.3 keys validate in the schema and the engine', () => {
 // there may be no bow or arrows. Committed safety and planning cases must leave those choices to their rubric instead
 // of a deterministic good grade.
 const committedCase = async (family, id) => {
-	const cases = await loadCases(fileURLToPath(new URL(`./fixtures/decision-eval/train/${family}.json`, import.meta.url)));
+	const cases = await loadCases(fileURLToPath(privateInputUrl(`coordinator/test/fixtures/decision-eval/train/${family}.json`)));
 	return cases.find(c => c.id === id);
 };
 

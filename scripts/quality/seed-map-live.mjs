@@ -16,13 +16,12 @@ if (!seed || !outArg || !template || !port) throw new Error('Usage: SEED OUT_DIR
 const out = path.resolve(outArg), radius = Number(radiusArg), step = Number(stepArg);
 await mkdir(out, { recursive: true });
 if ((await readdir(out)).length) throw new Error('Use a fresh output directory');
-const s = await boot(out, { jar: path.resolve(jarArg ?? path.join(root, 'build/libs/arena-agents-0.2.0.jar')), template, port, world: null, seed, extraProperties: 'max-tick-time=-1\n' });
+const s = await boot(out, { jar: path.resolve(jarArg ?? path.join(root, 'build/libs/mineagen-0.2.0.jar')), template, port, world: null, seed, extraProperties: 'max-tick-time=-1\n' });
 try {
 	await s.command('save-all flush');
 	const { x: sx, z: sz } = parseSavedWorldSpawn(await readFile(path.join(out, 'server', 'world', 'level.dat')));
 	const top = async (x, z, test) => /passed/i.test(await s.command(`execute positioned ${x} 0 ${z} positioned over motion_blocking if block ~ ~-1 ~ ${test}`).catch(() => ''));
 	const rows = [];
-	// Strips of 16 x (2 radius) blocks: forceload one, read its columns, release it.
 	for (let x0 = sx - radius; x0 < sx + radius; x0 += 16) {
 		await s.command(`forceload add ${x0} ${sz - radius} ${x0 + 15} ${sz + radius}`);
 		for (let x = x0; x < x0 + 16; x += step) {

@@ -1,8 +1,3 @@
-// Dangerous contexts a player sets up for on entry (dusk on the surface, a respawn, lava nearby, a Nether or End arrival,
-// a fortress, low health with hostiles near), the dangers each holds, and which of the model's own armed reflexes senses
-// each danger. Facts only: nothing here arms, picks or ranks a rule; the model writes every rule.
-// Recorded deaths, Oct 20-22: 37% came within 4.5 s of the first damage, faster than a ~6 s danger reply, so survival
-// rests on rules armed before the danger; 43 deaths had none armed where one was expressible, 83 had lost an earlier one.
 
 import { dayPhase } from './situation-facts.mjs';
 
@@ -25,14 +20,12 @@ export const DANGERS = Object.freeze({
 	flow: { label: 'lava flow before contact', senses: ['lava_flowing'], filtered: [], actions: ['leave_lava', 'place_block'] },
 	burning: { label: 'burning', senses: ['on_fire', 'in_fire'], filtered: [], actions: ['leave_fire', 'place'] },
 	falls: { label: 'falls and knockback off edges', senses: ['falling', 'edge_near'], filtered: [], actions: ['place', 'sneak', 'step_back', 'away_from_edge'] },
-	// 18 of the 2026-10-23 End deaths were bodies the dragon threw off towers, the arrival platform and island edges.
 	throw: { label: 'dragon throws off edges', senses: ['dragon_charging'], filtered: [], actions: ['away_from_edge'], mobs: ['ender_dragon'] },
 	enderman: { label: 'enderman', senses: ['enderman_gaze', 'enderman_provoked'], filtered: ['hostile_near', 'target_in_reach'], actions: ['look_away', 'shield', 'attack'], mobs: ['enderman'] },
 	breath: { label: 'dragon breath', senses: ['cloud_near'], filtered: [], actions: ['sprint_away', 'move_to_cell'] },
 	low_health: { label: 'low health', senses: ['health_below'], filtered: [], actions: ['sprint_away', 'take_cover', 'eat'] },
 });
 
-// Mob -> danger kind, for mobs actually present.
 const MOB_DANGER = new Map([
 	...['zombie', 'husk', 'drowned', 'zombie_villager', 'spider', 'cave_spider', 'vindicator', 'silverfish', 'slime', 'magma_cube', 'hoglin', 'zoglin', 'piglin', 'piglin_brute', 'zombified_piglin', 'wither_skeleton', 'endermite', 'ravager', 'warden'].map((mob) => [mob, 'melee']),
 	['creeper', 'creeper'],
@@ -154,7 +147,6 @@ function filterMatches(condition, danger) {
 	return null;
 }
 
-/** The id of an armed rule that senses this danger, or null. */
 export function coveringRule(danger, rules) {
 	const spec = DANGERS[danger.kind];
 	if (spec === undefined) return null;
@@ -175,7 +167,6 @@ function dangerName(danger) {
 	return danger.mobs.length === 0 || danger.kind === 'creeper' || danger.kind === 'enderman' ? label : `${label} (${danger.mobs.join(', ')})`;
 }
 
-/** {name: "rule <id>" | "no rule: senses -> actions"} for each danger. */
 export function dangerCoverage(dangers, rules) {
 	const rows = {};
 	for (const danger of dangers) {
@@ -241,10 +232,8 @@ export class ContextEntryTracker {
 		return first ? [] : entered;
 	}
 
-	/** Whether entries are owed (the caller makes sure a wake carries them). */
 	owed() { return this.#owed.size > 0; }
 
-	/** The wake section for owed entries: [{entered, dangers, lasts?}], or null. */
 	line(observation, rules) {
 		const token = ++this.#sequence;
 		const contexts = [...this.#owed.keys()];
@@ -277,7 +266,6 @@ export class ContextEntryTracker {
 export const RULE_LIFETIMES = Object.freeze(['night', 'dimension', 'lava']);
 const LAVA_LEFT_MS = 60_000;
 
-/** Lifetime state captured when a rule is armed. */
 export function lifetimeStart(lasts, observation, at = Date.now()) {
 	const world = observation?.world ?? {};
 	return { lasts, dimension: typeof world.dimension === 'string' ? world.dimension : null, sawNight: isNightTime(world.dayTime) === true, sawLava: lavaNear(observation), lavaAt: lavaNear(observation) ? at : null };

@@ -125,8 +125,6 @@ test('landmark defaults appear only when stableId or tags were removed', () => {
  }
 });
 
-// Synthetic lava-contact variant of the B/S1-r4 death (recorded inLava was false): the sparse death notice is merged with the last live sample, so a corpse
-// arrived with 20 armour, hunger 17, burning and a historical 4.6 KB inventory. The recorded main hand was a diamond sword.
 const corpse = () => ({
  world: { worldId: 'w', dimension: 'minecraft:the_nether' }, ready: false, status: 'PLAYER_DEAD',
  death: { cause: 'burned to death', dimensionId: 'minecraft:the_nether', x: 65.59, y: 42, z: 69.53, diedAtEpochMs: 1 },
@@ -146,12 +144,10 @@ test('a dead body keeps only where it died and that it is dead; stale live facts
  assert.deepEqual(projected.player, { x: 65.59, y: 42, z: 69.53, yaw: -168, pitch: 13, dead: true, health: 0, maxHealth: 20, gameMode: 'survival' });
  assert.equal(projected.lastLiveInventory, undefined);
  assert.deepEqual(projected.perception.events.map(row => row.type), ['system_message']);
- // Death, the lost stacks and the continuity facts stay.
  assert.equal(projected.death.cause, 'burned to death');
  assert.deepEqual(projected.recovery, before.recovery);
  assert.equal(projected.continuity.phase, 'dead');
  assert.deepEqual(source, before, 'the runtime observation is untouched');
- // The dead flag may arrive through continuity alone.
  const byPhase = presentEventObservation({ ...corpse(), player: { ...corpse().player, dead: undefined } });
  assert.equal(byPhase.player.armor, undefined);
 });

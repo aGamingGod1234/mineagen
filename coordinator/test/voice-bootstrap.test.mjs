@@ -222,6 +222,7 @@ test('voice bootstrap reads Fish and optional STT credentials from environment o
 	assert.equal(captured.serverOptions.secret, VOICE_SECRET);
 	assert.equal(captured.serverOptions.port, 8766);
 	assert.equal(captured.serverOptions.maxConcurrent, 2);
+	assert.equal(captured.serverOptions.interactiveTtsTimeoutMs, undefined, 'legacy routing keeps its own request deadline');
 	assert.equal(captured.started, true);
 	assert.equal(captured.profilePath, 'test-profile-assignments.json');
 	assert.doesNotMatch(JSON.stringify(captured.serverOptions), /fish-from-environment|deepgram-from-environment/);
@@ -885,6 +886,36 @@ test('voice bootstrap applies the configured local inference deadline to live HT
 	try {
 		assert.equal(localOptions.timeoutMs, 91_234);
 		assert.equal(serverOptions.requestTimeoutMs, 91_234);
+		assert.equal(serverOptions.probeTimeoutMs, 91_234, 'a cold local reload during a health probe gets the local deadline');
+	} finally {
+		await worker.close();
+	}
+});
+
+test('voice bootstrap gives the local health probe the whole configured local deadline', async () => {
+	let serverOptions;
+	const worker = await startVoiceWorker({
+		bridge: { secret: SECRET },
+		voice: { secret: VOICE_SECRET, port: 8_766, localSpeechTimeoutMs: 300_000 },
+	}, { DEEPGRAM_API_KEY: 'deepgram-only-key' }, {
+		platform: 'linux',
+		createLocalSpeechProvider: async () => ({
+			async synthesize() { return {}; },
+			async transcribe() { return { transcript: '', confidence: 0 }; },
+			async warmup() {},
+			async close() {},
+		}),
+		createSttProvider: () => ({ async transcribe() { return { transcript: '', confidence: 0 }; } }),
+		loadProfileStore: async () => ({ store: { resolve() {} } }),
+		createVoiceServer: (options) => {
+			serverOptions = options;
+			return { async start() {}, async close() {} };
+		},
+	});
+	try {
+		assert.equal(serverOptions.requestTimeoutMs, 300_000);
+		assert.equal(typeof serverOptions.provider.warmup, 'function', 'with only a Deepgram key, speech is the raw local provider, which the server probes through warmup');
+		assert.equal(serverOptions.probeTimeoutMs, 300_000, 'a reload slower than 120 s still finishes inside the configured local deadline');
 	} finally {
 		await worker.close();
 	}

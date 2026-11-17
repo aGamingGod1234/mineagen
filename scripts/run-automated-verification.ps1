@@ -47,7 +47,7 @@ try {
 
 $launcherInstaller = Get-Content -LiteralPath (Join-Path $Project 'scripts\install-launcher-profiles.ps1') -Raw
 foreach ($requiredContract in @(
-    'arenaagents.bridgeSecretFile',
+    'mineagen.bridgeSecretFile',
     'runtime\bridge-secret.txt',
     'RandomNumberGenerator',
     'LegacyJavaArgs'

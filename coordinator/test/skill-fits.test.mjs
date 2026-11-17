@@ -27,7 +27,6 @@ test('fight_until blaze: rods open, in the Nether, a spawner or blaze within 24 
 	// A remembered blaze spawner counts; a blaze in view is the fact when no spawner is near.
 	assert.match(skillFitsLine({ observation: sample({ items: gear }), needs: [rods], sightings: [{ kind: 'spawner', mob: 'minecraft:blaze', x: 0, y: 70, z: 10 }] }), /\(spawner 12 m,/);
 	assert.match(skillFitsLine({ observation: sample({ items: [item('diamond_sword')], entities: [mob('blaze', 4.2)] }), needs: [rods] }), /\(blaze 4 m, diamond_sword, rods 1\/6\)$/);
-	// Each precondition alone keeps the line off.
 	assert.equal(skillFitsLine({ observation: sample({ items: gear, entities: [mob('blaze', 30)] }), needs: [rods] }), null, 'too far');
 	assert.equal(skillFitsLine({ observation: sample({ items: [item('cobblestone', 64)], entities: [mob('blaze', 5)] }), needs: [rods] }), null, 'no weapon');
 	assert.equal(skillFitsLine({ observation: sample({ dimension: OVERWORLD, items: gear, entities: [mob('blaze', 5)] }), needs: [rods] }), null, 'not in the Nether');

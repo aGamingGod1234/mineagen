@@ -31,7 +31,7 @@ if (Test-PinnedNodeRuntime $node) {
 }
 
 $transactionId = [Guid]::NewGuid().ToString('N')
-$temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) "arena-agents-node-$transactionId"
+$temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) "mineagen-node-$transactionId"
 $downloadedNode = Join-Path $temporaryRoot 'node.exe'
 $staging = "$runtime.staging-$transactionId"
 $backup = "$runtime.backup-$transactionId"

@@ -31,13 +31,7 @@ const SMELT_MS = 10_000;
 const WAIT_SLICE_MS = 5_000;
 // fight_until's radius: a herd further than this from where the walk ended is out of the hunt's reach.
 const HUNT_RADIUS = 24;
-// Logs come by the tree: a trip for logs takes at least this many, so the sticks and furnace fuel a later step needs
-// do not send the body back up from a mine for one log (gate B-1, B-4, B-7: "up toward the surface for oak_log").
-// Eight covers the shield's 6 planks and the bucket smelt's fuel (r5 batch 1: the shield took the last wood).
 const LOGS_PER_TRIP = 8;
-// Furnace fuel under cover with too little wood: coal is searched for first, this many tries of at most COAL_SEARCH_MS
-// each while no coal ore is seen, before a climb for logs. r5 batch 1 (Mini 8, Boat 4-r3): climbs for logs from y28 and
-// y41 met aquifers and ended 2 blocks lower on each retry.
 const COAL_FUEL_TRIES = 2;
 const COAL_SEARCH_MS = 90_000;
 // Leaves under the feet (a spawn on a tree canopy) are broken one at a time until the body stands on the ground.
@@ -52,24 +46,16 @@ const DROP_DIG = 4;
 // find's sightings. A worn or missing tool, or danger, says nothing about reach: a new tool mines the same vein.
 const OUT_OF_REACH = new Set(['NOTHING_MINED', 'INVALID_VEIN_TARGET', 'NO_STANCE', 'PATH_BLOCKED', 'NO_STANDABLE_PATH', 'NO_ROUTE', 'NO_PROGRESS', 'NO_SEEN_ROUTE']);
 const TOOL_STOPS = new Set(['TOOL_WORN', 'NO_TOOL']);
-// travel's refusal to tunnel plain stone at hand speed: no pickaxe carried, said without NO_TOOL. Plain stone only: an ore a
-// stone pickaxe cannot take, a cobweb or planks also "take N s" and need no pickaxe answer. One rule for obtain and the
-// scripted chain's tool answer (review of #210/#225).
 export const HAND_SPEED_STONE = /building cannot continue: minecraft:(?:stone|deepslate|andesite|diorite|granite|tuff|cobblestone|cobbled_deepslate|calcite|dripstone_block)(?: at -?\d+,-?\d+,-?\d+)? takes \d/;
-// Stops on the way to an ore that say nothing about whether it can be reached: the tool, or a mob or damage that ended
-// the walk or tunnel. Farm seed 6 (721d9afd): tunnels stopped TOOL_WORN and HOSTILE_NEAR marked 5 veins out of reach.
 const NOT_REACH = new Set([...TOOL_STOPS, 'HOSTILE_NEAR', 'DANGER', 'LOW_FOOD', 'INVENTORY_FULL', 'CANCELLED', 'NATIVE_ACTION_CANCELLED', ...DAMAGE_STOPS]);
-// A vein's cells passed on to find as out of reach, at most.
 const VEIN_MISSES = 8;
 // A pickaxe with fewer uses left than this is about to break: one tunnel or vein more wears it out.
 const LOW_USES = 16;
-// Six-block digs down for stone before gathering it where the body stands.
 const STONE_DIG_LEGS = 3;
 // A dig for stone that meets water: walk this far away from it and dig again, at most this many times a round.
 const WET_STONE_WALK = 16;
 const WET_STONE_MOVES = 3;
 const UNREACHED_DROP = new Set(['PATH_BLOCKED', 'NO_STANDABLE_PATH', 'NO_ROUTE', 'NO_PROGRESS', 'ITEM_PICKUP_TIMED_OUT', 'NO_SEEN_ROUTE']);
-// Natural soil and rock: ground the body digs down through to reach stone.
 const PLAIN_GROUND = /^(grass_block|dirt|coarse_dirt|podzol|mycelium|rooted_dirt|mud|moss_block|pale_moss_block|clay|sand|red_sand|gravel|snow_block|snow|stone|andesite|diorite|granite|tuff|deepslate|calcite|dripstone_block|sandstone|red_sandstone|terracotta|[a-z_]+_terracotta|packed_ice)$/;
 // Furnace fuel a body burns, in smelts per item from the game's burn times (coal 8, a plank or log 1.5); never a tool
 // or a workstation, which burn too.
@@ -87,21 +73,15 @@ const FILLS = Object.freeze({ water_bucket: 'water' });
 const FILL_TRIES = 4;
 // The rest of a smelt's input in view this near: the held part smelts while the body mines it (one furnace, one trip).
 const OVERLAP_WALK = 12;
-// A search handed back by water where the body stands (find-search's wet hand-backs).
 const WET_STOP = /water under this spot|the body is under water here|out of the water|TUNNEL_FLOODED|flooded/i;
 // A plant a bucket's ray met (use_item's or interact's message names it): soft, broken at once, nothing behind it.
 const PLANT_HIT = /(?:ray met|meets) (minecraft:(?:short_grass|tall_grass|grass|fern|large_fern|[a-z_]*vines?(?:_plant)?|glow_lichen|[a-z_]*roots|[a-z_]*sprouts|small_dripleaf|big_dripleaf(?:_stem)?|azalea|flowering_azalea|moss_carpet|pale_moss_carpet|[a-z_]*bush|dead_bush|seagrass|tall_seagrass|kelp(?:_plant)?|hanging_roots|spore_blossom|[a-z_]*_sapling|[a-z_]*tulip|dandelion|poppy|[a-z_]*orchid|allium|azure_bluet|oxeye_daisy|cornflower|lily_of_the_valley|leaf_litter)) at (-?\d+),(-?\d+),(-?\d+)/;
-// Sources in reach one scoop round tries (each a use_item of about a second).
 const SCOOPS = 8;
 // Plain blocks a cast frame's mould and its crossings take: a walk to water builds only with more than these carried.
 const PLAIN_BLOCKS = /^(cobblestone|cobbled_deepslate|dirt|stone|deepslate|andesite|diorite|granite|tuff|blackstone|basalt)$/;
 const SPARE_BLOCKS = 24;
 // After a fill, a walk back out of the water to a dry spot from before a find search goes only this many blocks.
 const DRY_WALK = 32;
-// A craft with no room for its result drops junk stacks (find's DISCARD kinds) and tries once more, as a player would:
-// soil and stone variants first, smallest stack first, then cobblestone and cobbled deepslate, never below this many of
-// the two together (the portal mould and shelters take them). b2 chain-gate-1: a full inventory failed every
-// replacement pickaxe with DESTINATION_FULL and ended the lava search at 57 min.
 const KEEP_COBBLE = 16;
 const ROOM_STACKS = 2;
 const COBBLE = new Set(['cobblestone', 'cobbled_deepslate']);
@@ -113,7 +93,6 @@ function bodyAt(o) {
 const eyeDistance = (body, b) => Math.hypot(b.x + 0.5 - body.x, b.y + 0.5 - (body.y + 1.62), b.z + 0.5 - body.z);
 const flatDistance = (body, b) => Math.hypot(b.x + 0.5 - body.x, b.z + 0.5 - body.z);
 
-/** Block rows the body knows: in view, landmarks and remembered resource sightings. */
 function knownBlocks(o) {
 	return [...(o.blocks ?? []), ...(o.world?.landmarks ?? o.landmarks ?? []), ...(o.routeMemory?.seenResources ?? [])]
 		.filter((row) => row && typeof row.blockId === 'string' && [row.x, row.y, row.z].every(Number.isSafeInteger));
@@ -302,8 +281,6 @@ export async function locate(need, body, { budget, timeoutMs }) {
 		return null;
 	}
 	if (typeof body.search !== 'function' || timeoutMs < 5_000) return null;
-	// Any log will do: find watches for the biome's own and the other kinds too (gate B-6: an acacia search walked past
-	// trees for 7 min from a savanna pit; B-5's beach searched for oak alone).
 	const main = need.kind === 'kill' ? null : searchBlock(need, o);
 	const target = need.kind === 'kill' ? { mob: id(need.mobs[0]) }
 		: { block: id(main), ...(need.blocks.length > 1 && need.blocks.every((block) => /_(log|stem)$/.test(block)) ? { also: need.blocks.filter((block) => block !== main).slice(0, 8).map(id) } : {}) };
@@ -312,7 +289,6 @@ export async function locate(need, body, { budget, timeoutMs }) {
 	const at = result?.find?.seen;
 	if (result?.reasonCode !== 'FIND_SEEN' || !at || ![at.x, at.y, at.z].every(Number.isFinite) || budget.failed.has(`${at.x},${at.y},${at.z}`)) return null;
 	if (need.kind === 'kill') return unreachedHerd(budget, at) ? null : { x: at.x + 0.5, y: at.y, z: at.z + 0.5, mob: at.id };
-	// Seen from afar: the cell itself, or (a vein, a tree) whatever of it is in view now.
 	const fresh = await body.observe();
 	const source = { x: at.x, y: at.y, z: at.z, blockId: at.id };
 	return inView(need, fresh, budget) ?? (floodedApproach(budget, source) ? null : source);
@@ -450,7 +426,6 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 	let lastFailure = null, fuelDiagnostic = null, approachStop = null;
 	const fuelMembers = (group) => (typeof group === 'string' ? index.tags[group] ?? [] : group);
 	const smeltsPer = (itemId) => (index.fuels?.[bare(itemId)] ?? 0) / 200;
-	// Smelts the held fuel covers in one load (one stack kind per load).
 	const fuelCover = (counts) => Math.max(0, ...FUEL_GROUPS.map((group) => Math.max(0, ...fuelMembers(group).map((member) => Math.floor(Math.min(64, counts.get(member) ?? 0) * smeltsPer(member))))));
 	const act = async (type, args) => {
 		const result = await body.act(type, args);
@@ -493,7 +468,6 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			state = 'FAILED'; reasonCode = 'OBTAIN_LOST';
 			why = `${why}, but the inventory now holds ${o === null ? 'an unknown number' : have} (a sample after cleanup)`;
 		}
-		// A fill that left the body in the water says so: find and dig_to refuse every leg from there (kit chain, gate seed 4).
 		const swimming = fluid !== null && (o?.player?.inWater === true || o?.player?.underWater === true);
 		const at = swimming ? bodyAt(o) : null;
 		if (state === 'SUCCEEDED' && swimming) why = `${why}, but the body is still in the ${fluid}${at ? ` at ${Math.floor(at.x)},${Math.floor(at.y)},${Math.floor(at.z)}` : ''}`
@@ -536,8 +510,6 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 						continue;
 					}
 				}
-				// A replacement tool can fill the slot the table occupied. Keep the table placed until its drop fits
-				// (ROUND2 G2: cleanup broke it into a full inventory, then later replacements needed table wood).
 				const fits = (sample) => {
 					if (!Array.isArray(sample.inventory?.items) || sample.continuity?.rememberedSections?.includes('inventory')) return null;
 					const rows = (sample.inventory?.items ?? []).filter((row) => row.count > 0 &&
@@ -609,9 +581,6 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			const wanted = new Set(ids.map(id));
 			const drop = (o.items ?? []).filter((row) => (any || wanted.has(row.itemId)) && typeof row.stableId === 'string' && Math.hypot(row.x - center.x - 0.5, row.z - center.z - 0.5) <= radius
 				&& Math.abs(row.y - center.y) <= 4 && !budget.failed.has(row.stableId))[0];
-			// Drops show only in view: none seen yet, look where they fell, as a player turns to the spot it mined. Scripted
-			// gate seed 8: an 8-ore vein's raw iron was never seen from the last ore's angle, so the body tunnelled on for 75 s
-			// and picked it up only by walking back over it.
 			if (!drop && !looked && pass === 0 && !body.interrupted() && !body.stopped()) {
 				looked = true;
 				await act('look_at', { x: center.x + 0.5, y: center.y + 0.5, z: center.z + 0.5 });
@@ -620,9 +589,6 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			if (!drop) return;
 			if (room !== null && !await room()) return;
 			let result = await act('pick_up_item', { targetSelector: drop.stableId, timeoutMs: 30_000 });
-			// Underground, a drop a few blocks off with no standing spot beside it lies past the end of the tunnel or in
-			// the ore's own pocket: mine the way to it, as a player does, and pick it up from there. Scripted gate seed 5:
-			// two raw iron drops 2-3 blocks away failed PATH_BLOCKED (35 s), and a second vein was dug for the iron left.
 			const at = bodyAt(o);
 			if (result?.state !== 'SUCCEEDED' && UNREACHED_DROP.has(result?.reasonCode) && o.player?.skyOpen === false && at !== null
 				&& Math.hypot(drop.x - at.x, drop.z - at.z) <= DROP_DIG && Math.abs(drop.y - at.y) <= 2 && !body.interrupted() && !body.stopped()) {
@@ -643,17 +609,10 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			.filter((row) => row.x !== cell.x || row.y !== cell.y || row.z !== cell.z);
 		for (const row of [cell, ...vein].slice(0, VEIN_MISSES)) body.missPlace?.({ x: row.x, y: row.y, z: row.z }, 'unreachable');
 	};
-	// A block gather could not take: out of find's sightings of that block (and the cells joined to it) for later obtain
-	// calls too, as obtain's own failed list lasts one call. Script-first r2 seed 8: four flint calls each searched, saw
-	// the same gravel in a pocket the body could not walk into, failed gather, and walked off (13 min). A danger, worn
-	// tool or interruption says nothing of the block. The block id keeps the mark off other targets' sightings.
 	const gaveUp = (where, result) => {
 		if (where.dug || typeof where.blockId !== 'string' || result?.state === 'INTERRUPTED' || NOT_REACH.has(result?.reasonCode) || body.interrupted() || body.stopped()) return;
 		body.missPlace?.({ x: where.x, y: where.y, z: where.z, blockId: id(where.blockId) }, UNREACHED);
 	};
-	// A mined vein's drops that fell in its pocket out of view: walk into the pocket for them, as a player steps in to
-	// collect. Scripted gate seed 1: 6 iron ore mined, the raw iron left in the pocket, and the body tunnelled on 270 s
-	// for another vein.
 	const veinRest = async (need, where, total, heldBefore, mined) => {
 		const count = () => body.observe().then((o) => heldOf(need.accept.join('|'), heldCounts(o), index));
 		const have = await count();
@@ -695,7 +654,6 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 				if (body.stopped() || body.interrupted()) return null;
 			}
 			if (round === 1) break;
-			// Nowhere here takes it: step aside a few blocks and try once more there.
 			step(`no cell here takes the ${kind}; step aside`);
 			await act('travel_to', { yaw: Math.round((((o.player?.yaw ?? 0) + 180) % 360 + 360) % 360 - 180), distance: 3, tolerance: 1, timeoutMs: 15_000 });
 			o = await body.observe();
@@ -768,9 +726,6 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		const input = slotOf(o, members);
 		if (!input) return false;
 		const wanted = Math.min(times, input.count, 64);
-		// One fuel stack per load: the first that covers the batch (coal, then planks, then logs), else the one that
-		// covers most, and the batch cut to what it burns. Gate B-2 loaded 3 raw iron with 1 plank and waited 40 s for 1.
-		// Never the planks or log kept back for the next pickaxe's sticks.
 		const stacks = FUEL_GROUPS.map((group) => slotOf(o, fuelMembers(group), input.slotIndex)).filter(Boolean)
 			.map((row) => ({ row: { ...row, count: Math.min(row.count, held.get(bare(row.itemId)) ?? 0) }, per: smeltsPer(row.itemId) })).filter((fuel) => fuel.per > 0 && fuel.row.count > 0);
 		const fuel = stacks.find((one) => Math.floor(one.row.count * one.per) >= wanted) ?? stacks.sort((a, b) => b.row.count * b.per - a.row.count * a.per)[0];
@@ -804,9 +759,6 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		if (load.want <= 0 || danger === null && !body.interrupted() && !body.stopped()) loads.splice(loads.indexOf(load), 1);
 		return collected;
 	};
-	// Loads an earlier call left in a furnace: walk back to each in walking reach and take its output, as a player goes
-	// back for the iron it left smelting. Review of the smelt wait: an arrow during the wait ended obtain with 3 raw iron
-	// in the furnace, and the next call planned from the inventory (no iron) and dug for the ore again.
 	const collectLoads = async () => {
 		for (const load of [...loads]) {
 			if (body.interrupted() || body.stopped()) return;
@@ -831,8 +783,6 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			await collect(load);
 		}
 	};
-	// A wait (a smelt) in short slices that ends as danger on any health lost: a plain wait runs on under fire. Scripted
-	// chain, gate seed 1: a skeleton shot the body dead during the 61 s wait for 6 raw iron; the reflexes paused it twice.
 	const waitWatching = async (ms) => {
 		const before = (await body.observe()).player?.health;
 		for (let done = 0; done < ms && !body.interrupted() && !body.stopped(); done += WAIT_SLICE_MS) {
@@ -857,8 +807,6 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			.sort((a, b) => (b.uses >= LOW_USES) - (a.uses >= LOW_USES) || b.rank - a.rank || (b.uses === a.uses ? 0 : b.uses - a.uses) || (b.slotIndex === selected) - (a.slotIndex === selected));
 		const best = rows[0];
 		if (!best || best.slotIndex === selected) return;
-		// In the hotbar but not in hand: select it. dig_to digs with the pickaxe in hand; farm seed 3 (4b5a7088) dug from
-		// y79 to y17 with the wooden one in hand and the stone one in slot 5, 141 blocks in 170 s.
 		step(best.slotIndex < 9 ? `take the ${bare(best.itemId)} in hand` : `move the ${bare(best.itemId)} to the hotbar`);
 		const into = best.slotIndex < 9 ? best.slotIndex : Number.isSafeInteger(selected) ? selected : 0;
 		await act('select_tool', { sourceSlot: best.slotIndex, hotbarSlot: into, expectedItemId: best.itemId, minRemainingDurability: 3 });
@@ -879,7 +827,6 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			o = await body.observe();
 			if (up(o)) return null;
 		} else step(`up toward the surface for ${need.accept[0]}`);
-		// Stairs straight up, a leg at a time, until the sky is open over the body.
 		for (let legs = 0; legs < CLIMB_LEGS; legs++) {
 			const from = bodyAt(o);
 			const climbed = await act('dig_to', { pattern: 'stairs_up', y: Math.floor(from.y) + CLIMB_LEG, maxBlocks: 80, throughCaves: 'small', timeoutMs: 120_000 });
@@ -894,8 +841,6 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 	// New ground before the next search: a tunnel leg underground (ore), a walk on the surface (trees, animals, gravel).
 	const moveOff = async (need) => {
 		const ore = need.blocks?.some((block) => ORE_BLOCKS.test(block));
-		// In water a dig refuses at once (WATER_AHEAD): out of it first, back up the way the body came. Scripted gate seed
-		// 2: four tunnels refused in 6 s in a flooded stair, each a try at the ore, while the air ran down to 144/300.
 		const o = await body.observe();
 		danger ??= bodyDanger(o) ?? hostileOn(o);
 		if (body.interrupted() || body.stopped()) return;
@@ -912,10 +857,6 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		if (moved?.state !== 'SUCCEEDED') body.note(`move stopped: ${moved?.reasonCode ?? moved?.state}`);
 		return moved;
 	};
-	// A body standing on leaves (a spawn on a tree canopy) cannot walk to the trunks below it: every path ends at the
-	// canopy's edge (gate B-1: 4.5 min of gather and fell attempts from the leaves). A player punches down through the
-	// leaves; so does the body, one leaf block under its feet at a time, until it stands on something else.
-	// The block under the body's feet (a sample lists few blocks; the inspected cube lists every visible one), or null.
 	const groundUnder = async () => {
 		if (typeof body.blocksNear !== 'function') return null;
 		const o = await body.observe();
@@ -925,9 +866,6 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		const under = (await body.blocksNear()).find((row) => row?.x === feet.x && row?.y === feet.y && row?.z === feet.z);
 		return under ? { ...feet, blockId: under.blockId } : null;
 	};
-	// The lowest ground top (block y + 1) seen within CANOPY_REACH of the body and below its feet, looking out over each
-	// side of the tree; null when none is seen or lava is. Review of gate B-1's fix: a body on a jungle giant's canopy
-	// edge broke leaf after leaf and could fall 10 to 30 blocks from the last one.
 	const groundRound = async (feet) => {
 		const rows = [];
 		for (const [dx, dz] of [[1, 0], [0, 1], [-1, 0], [0, -1]]) {
@@ -1047,9 +985,6 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			where = await find(need, body, { budget, timeoutMs: left() });
 		}
 		if (!where && stoneOnly) {
-			// Down through the ground as it lies: never from a block that is not natural soil or rock (a ruined portal's
-			// magma and netherrack, a structure's floor). Scripted gate seed 3: dug down on a ruined portal, hot floor
-			// damage stopped every dig, 13 health lost in 40 s. Step aside onto plain ground first.
 			for (let aside = 0; aside < 3; aside++) {
 				const ground = (await groundUnder())?.blockId;
 				if (ground === undefined || PLAIN_GROUND.test(bare(ground))) break;
@@ -1057,8 +992,6 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 				await act('travel_to', { yaw: Math.round(Math.random() * 360 - 180), distance: 8, timeoutMs: 20_000 });
 				if (body.interrupted() || body.stopped()) return 'stopped';
 			}
-			// Six blocks at a time until stone shows: soil can lie deeper than one leg (scripted gate seed 1: six blocks of
-			// dirt, then a 24-block walk tunnelling with the wooden pickaxe wore it out before any stone).
 			for (let legs = 0, wet = 0; legs < STONE_DIG_LEGS; legs++) {
 				const here = bodyAt(await body.observe());
 				if (!here) break;
@@ -1069,9 +1002,6 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 				const after = bodyAt(o);
 				if (after) where = { ...after, blockId: id(need.blocks[0]), dug: true };
 				if (inView(need, o, budget)) break;
-				// Water a block or two under the soil by a river or lake: walk away from it and dig again, as a player moves
-				// off the bank. Local scripted seed 4: three digs by a river each stopped WATER_AHEAD at y62, each followed
-				// by a random 24-block walk, and obtain gave up on stone at 183 s of 900.
 				const water = after && wet < WET_STONE_MOVES && /^(WATER_AHEAD|TUNNEL_FLOODED)$/.test(dug?.reasonCode ?? '')
 					? /(?:Water|tunnel) at (-?\d+),(-?\d+),(-?\d+)/.exec(String(dug.message ?? '')) : null;
 				if (water) {
@@ -1087,10 +1017,6 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			}
 		}
 		if (!where) {
-			// A search stopped by its own pickaxe wearing out (a stone pickaxe lasts about one dig from the surface to iron's
-			// depth) is not a source that failed: the next round crafts another and searches on. Scripted gate seed 2: two
-			// worn pickaxes used two of the ore's five tries.
-			// (Only a dig for stone or ore wears a pickaxe; a log search stopped NO_TOOL is blocked, not worn.)
 			if (need.blocks.some((block) => ORE_BLOCKS.test(block) || STONE_BLOCKS.test(block))
 				&& budget.lastSearch?.reasonCode === 'FIND_BLOCKED' && /\b(TOOL_WORN|NO_TOOL)\b/.test(String(budget.lastSearch.message ?? '')) && !(failures.get('worn') >= 6)) {
 				fail('worn');
@@ -1100,9 +1026,6 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			// find stops at its first sighting, which can be one obtain already failed at (out of reach inside rock, or a
 			// vein it already took that a survey still lists): search again from new ground, not from here.
 			if (budget.lastSearch?.reasonCode === 'FIND_SEEN') await moveOff(need);
-			// Water stopped the search where it stands (a flooded stair, an aquifer under the spot): the next search from this
-			// cell meets the same water. Move off first. b9 test host seed 8 r1/r2, b10 test host seed 8 r1: 5-6 searches in a row
-			// from one wet spot, about 2 min each, 'water under this spot stops every dig down' every time.
 			else if (budget.lastSearch?.reasonCode === 'FIND_BLOCKED' && WET_STOP.test(String(budget.lastSearch.message ?? ''))) {
 				await moveOff(need);
 			}
@@ -1112,7 +1035,6 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		const at = bodyAt(o);
 		// Ores and stone: go to the block, then take the whole vein; the body collects what drops beside it.
 		if (ORE_BLOCKS.test(bare(where.blockId)) || STONE_BLOCKS.test(bare(where.blockId)) && need.blocks.length > 0 && !need.chance) {
-			// Why the way to it stopped, when the body did not get there.
 			const stops = [];
 			if (at && eyeDistance(at, where) > REACH) {
 				step(`go to the ${bare(where.blockId)} at ${where.x},${where.y},${where.z}`);
@@ -1126,7 +1048,6 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			if (ORE_BLOCKS.test(bare(where.blockId)) && here && eyeDistance(here, where) > REACH) {
 				// Ore in the rock the walk could not reach: tunnel straight to it, as a player digs toward an ore in the wall.
 				step(`tunnel to the ${bare(where.blockId)} at ${where.x},${where.y},${where.z}`);
-				// Another depth first (a staircase to the ore's y), then straight across to it.
 				if (Math.abs(here.y - where.y) > 2) {
 					const stair = await act('dig_to', { pattern: where.y < here.y ? 'stairs_down' : 'stairs_up', y: where.y, maxBlocks: 48, throughCaves: 'small', timeoutMs: 120_000 });
 					stops.push(stair?.reasonCode);
@@ -1153,8 +1074,6 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 				step(`mine the ${bare(where.blockId)} vein at ${where.x},${where.y},${where.z}`);
 				const heldBefore = heldOf(need.accept.join('|'), heldCounts(await body.observe()), index);
 				let mined = await body.mine({ x: where.x, y: where.y, z: where.z, vein: true, maxBlocks: 24, timeoutMs: 90_000 });
-				// In reach but behind a block (a survey sees through rock): dig toward it until it shows, then mine it. Gate
-				// seed 1 scripted: three searches and three 16-block tunnels (80 s) went past one hidden ore a block away.
 				if (['INVALID_VEIN_TARGET', 'NOTHING_MINED'].includes(mined?.reasonCode) && !body.interrupted() && !body.stopped()) {
 					step(`dig to the hidden ${bare(where.blockId)} at ${where.x},${where.y},${where.z}`);
 					await act('dig_to', { pattern: 'tunnel', x: where.x, z: where.z, maxBlocks: 6, stopWhenSeen: id(where.blockId), throughCaves: 'small', timeoutMs: 30_000 });
@@ -1162,9 +1081,6 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 				}
 				if (body.interrupted() || body.stopped()) return 'stopped';
 				if (mined?.state !== 'SUCCEEDED') {
-					// Mined nothing in reach (local scripted seed 2: NOTHING_MINED 1 block away): the vein goes out of the
-					// searches as an unreachable one does, or the next three searches point straight back at it. A worn
-					// pickaxe (TOOL_WORN) marks nothing: the vein is the nearest again once a new one is made.
 					if (!TOOL_STOPS.has(mined?.reasonCode)) budget.failed.add(`${where.x},${where.y},${where.z}`);
 					if (OUT_OF_REACH.has(mined?.reasonCode)) await outOfReach(need, where);
 				}
@@ -1173,7 +1089,6 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 				return mined?.state === 'SUCCEEDED' ? null : `mine ${bare(where.blockId)}: ${mined?.reasonCode ?? 'failed'}`;
 			}
 		} else if (at && !where.dug && flatDistance(at, where) > 8) {
-			// Go to what was found, so gather starts with it in view and in reach.
 			step(`walk to the ${bare(where.blockId)} at ${where.x},${where.y},${where.z}`);
 			await act('travel_to', { x: where.x + 0.5, z: where.z + 0.5, tolerance: 3, timeoutMs: 120_000 });
 		}
@@ -1205,10 +1120,6 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		}
 		budget.failed.add(`${where.x},${where.y},${where.z}`);
 		gaveUp(where, gathered);
-		// Nothing here could be reached (tall jungle trunks, a cliff): try from somewhere else, not the same spot again.
-		// For trees the next search chooses where (it keeps to the surface for trees, and this spot is marked failed): a
-		// random walk on savanna led down to stone-walled banks at y62-65 with no pickaxe, where every later call ended
-		// 'no way up to the surface' (b17a seed 3-r1, b17b seed 5-r1).
 		if (!/_(log|stem)$/.test(bare(where.blockId))) {
 			const yaw = Math.round(Math.random() * 360 - 180);
 			step(`nothing in reach here: walk 24 at yaw ${yaw}`);
@@ -1222,9 +1133,6 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		for (let attempt = 0; attempt < 24; attempt++) {
 			if (danger !== null || body.interrupted() || body.stopped()) return 'stopped';
 			const o = await body.observe();
-			// A player stops breaking gravel when a mob is on them or health runs low (round 4, seed 2: 24 rounds beside a
-			// skeleton, each paused by the defend reflex, handed back at 1.67 health). Danger hands back DANGER; low health
-			// returns to the main loop, which hands back LOW_HEALTH from this same sample's health.
 			danger ??= bodyDanger(o) ?? hostileOn(o);
 			if (danger !== null) return 'stopped';
 			const health = o?.player?.health;
@@ -1264,14 +1172,7 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			const levels = rows.filter((row) => row.blockId === id(fluid) && row.x === at.x && row.y === at.y && row.z === at.z && row.state?.level !== undefined);
 			return levels.length === 0 ? null : levels.every((row) => String(row.state.level) === '0');
 		};
-		// Back out of the water once the bucket is full, to the last place the body stood dry (the bank, or where the walk
-		// to the water started): find and dig_to refuse every leg from the water (kit chain, gate seed 4: walks of 40-46
-		// blocks ended in the lake). Still in it after: wet says why, and the result says so.
 		const inside = (row) => row?.player?.inWater === true || row?.player?.underWater === true;
-		// wasIn: the body was in the water when it filled. The cell it emptied can be the only one it touched (gate seed 4,
-		// review runs: feet in the source it took, or afloat over it), and the sample just after shows it dry until the water
-		// beside that cell flows back in a few ticks later: still in the water, then.
-		// way: lastDry as it stood before the scoop; a sample after it, dry only for those few ticks, is no way out.
 		const outOfWater = async (wasIn, emptied, way) => {
 			const here = await body.observe();
 			const refills = async () => {
@@ -1281,12 +1182,8 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			};
 			if (!inside(here) && !(wasIn && await refills())) { wet = null; return; }
 			const from = bodyAt(here);
-			// The way back is the last dry spot however far a walk carried the body (kit chain, gate seed 4: 40-46 blocks to
-			// the lake), but one from before a find search only when near: the search can have ended far from it.
 			const near = way.dry !== null && from !== null && Math.hypot(way.dry.x - from.x, way.dry.y - from.y, way.dry.z - from.z) <= DRY_WALK;
 			const dry = way.dry !== null && (!way.searched || near) ? way.dry : null;
-			// None stood on: back along the walked route to the last open-sky spot (a fill from the flooded stair a call began
-			// in; local scripted seed 7 from y54: filled in 2 s, then left in the aquifer with "no known way back out").
 			const sky = dry === null && typeof rawBody.openSky === 'function' ? rawBody.openSky() : null;
 			if (dry === null && sky === null) {
 				wet = way.dry === null ? 'it has not stood on dry ground during this obtain, so there was no known way back out'
@@ -1299,12 +1196,6 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			const out = await act('travel_to', { x: to.x, y: to.y, z: to.z, tolerance: 2, ...(dry === null ? { retrace: true } : { build: false }), timeoutMs: 60_000 });
 			wet = inside(await body.observe()) ? `the walk back to dry ground at ${where} ended ${out?.reasonCode ?? out?.state ?? 'with no move'}` : null;
 		};
-		// The cells the body is in, when it is in the water: from inside a source the bucket's ray meets that source first.
-		// Farm runs 628183eb and fb2bfeb3 (gate seeds 4 and 7): climbs from y5-48 met aquifers, the body stood in the
-		// water, and every fill aimed at a source beside it was TARGET_OBSTRUCTED, 19 calls in all.
-		// Never one the rows show flowing, and where the rows show this water's levels at all, only one shown as a source or
-		// with a source beside it: a body in a stream or a fall stands in flowing water, and a bucket aimed at its own feet
-		// there meets the floor (boat batch 3, seed 5: clicks that met the floor under the feet at 1-2 m, 14 of 35).
 		const ownCells = (o, rows) => {
 			const at = bodyAt(o);
 			if (at === null || !inside(o)) return [];
@@ -1314,11 +1205,6 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			return [{ x, y: Math.floor(at.y + 1.62), z }, { x, y: Math.floor(at.y + 0.01), z }]
 				.filter((row) => !budget.failed.has(cell(row)) && (sourceAt(rows, row) ?? fed(row)));
 		};
-		// One scoop at each source in reach, nearest the eye first: use_item aimed at the source, which the server turns
-		// into a point of that source the bucket's ray meets first (any face, as a player aims at the part of the water they
-		// see), else refuses it unreached. Returns true once the bucket filled, null when none was in reach, else why not.
-		// Local scripted seed 7 (main 0c689437, start y16): six clicks at two sources, each on one named face, all
-		// TARGET_OBSTRUCTED by the stair's own blocks, then a walk that flooded the stair.
 		const scoop = async (o, also = null) => {
 			const fresh = async () => {
 				const sample = await body.observe();
@@ -1349,9 +1235,6 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 				step(`fill a bucket at the ${fluid} at ${cell(source)}`);
 				const use = () => act('use_item', { durationMs: 1000, mode: 'once', expectedItemId: 'minecraft:bucket', aimX: source.x + 0.5, aimY: source.y + 0.5, aimZ: source.z + 0.5 });
 				last = await use();
-				// A plant the bucket's ray meets first (grass round the eye in a lush cave): broken, as a player clears it,
-				// and the same source tried again. Local scripted seed 1 (39e0dbe8): the eye stood in tall grass by a cave
-				// pool, and 8 of 16 scoops met that grass at 0.0 m.
 				const plant = PLANT_HIT.exec(String(last?.message ?? ''));
 				let afterUse = await fresh();
 				if (body.interrupted() || body.stopped()) return 'stopped';
@@ -1368,8 +1251,6 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 				if (body.interrupted() || body.stopped()) return 'stopped';
 				if ((heldCounts(after).get(asked) ?? 0) > before) { await outOfWater(inside(o), source, way); return true; }
 				budget.failed.add(cell(source));
-				// The ray passed the cell to what lay behind it: no source there, so find's next search does not stop at it again
-				// (laptop batch 4, seed 3: one flowing cell found and clicked at in five calls running).
 				if (fluid === 'water' && last?.reasonCode === 'USE_NOT_ACCEPTED') body.missPlace?.({ x: source.x, y: source.y, z: source.z }, UNREACHED_SPOT);
 				at = source;
 				if (body.interrupted() || body.stopped()) return 'stopped';
@@ -1391,10 +1272,6 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			budget.lastSearch = result;
 			if (body.interrupted() || body.stopped()) return 'stopped';
 			const seenAt = result?.find?.seen;
-			// A search stopped by a worn or missing pickaxe (or stone at hand speed: none carried) ends the call with that stop,
-			// as the approach's own tool stop does: another round runs the same climb out with the same tool. Batch 2, all 3
-			// kit runs that filled: one water call each spent 10-12 min re-running a 60 s retrace and a stair up that stopped
-			// TOOL_WORN, then filled within about 3 min of a new pickaxe.
 			const tool = result?.reasonCode === 'FIND_BLOCKED' ? (String(result?.message ?? '').match(/\b(TOOL_WORN|NO_TOOL)\b/) ?? (HAND_SPEED_STONE.test(String(result?.message ?? '')) ? [null, 'NO_TOOL'] : null)) : null;
 			if (tool) { fillToolStop = { reasonCode: tool[1] ?? 'NO_TOOL', message: result.message }; return 'stopped'; }
 			if (result?.reasonCode !== 'FIND_SEEN' || !seenAt || ![seenAt.x, seenAt.y, seenAt.z].every(Number.isFinite))
@@ -1410,9 +1287,6 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		const at = bodyAt(o);
 		if (at !== null && eyeDistance(at, source) > REACH) {
 			step(`walk to the ${fluid} at ${cell(source)}`);
-			// To its bank, built across only with blocks to spare: blocks are what the portal's mould is cast against (kit
-			// chain, gate seed 4: the walk to water 50 blocks off bridged the lake with all 16 cobblestone, and find lava then
-			// had none to cross). Close enough to reach it from the bank (gate seed 6: tolerance 3 ended on a bank 5 above it).
 			const plain = (o.inventory?.items ?? []).filter((row) => PLAIN_BLOCKS.test(bare(row.itemId))).reduce((sum, row) => sum + row.count, 0);
 			const walked = await act('travel_to', { x: source.x + 0.5, y: source.y + 1, z: source.z + 0.5, tolerance: 2, build: plain > SPARE_BLOCKS, timeoutMs: 90_000 });
 			if (body.interrupted() || body.stopped()) return 'stopped';
@@ -1426,9 +1300,6 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 				const rows = await seenRows(o);
 				return (await sources(o, rows)).some((row) => row.d <= REACH + 0.5) || ownCells(o, rows).length > 0 || eyeDistance(after, source) <= REACH + 0.5;
 			};
-			// Travel takes a target up to 3 blocks under the feet as reached, so a walk can end on a bank or bridge too high to
-			// reach the water from. A player digs down beside it to stand just above it. Boat batch 4, seed 8: 26 walks to a
-			// lake ended ARRIVED 3 above it, and none came within reach.
 			if (after !== null && Math.floor(after.y) - source.y >= 3 && flatDistance(after, source) <= REACH && !(await reaches())) {
 				step(`dig down to the ${fluid} at ${cell(source)}`);
 				await act('dig_to', { pattern: 'shaft', y: source.y + 2, maxBlocks: 8, throughCaves: 'small', timeoutMs: 20_000 });
@@ -1509,10 +1380,6 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 				const full = planObtain(goal, { held: counts, seen, stations, index, coalFirst, dimension: o.world?.dimension });
 				if (!full.needs.some(woodNeed)) { plan = full; held = counts; }
 			}
-			// Under cover with no sound pickaxe (worn out or gone), a stone pickaxe made from what is held comes first, as a
-			// player makes one before the wood runs out: with none, a worn pickaxe left the body with no way to dig or climb
-			// out (b11 test host seed 4-r1: the bucket's smelt burned the last planks at y15; b17a Boat seed 6-r3: TOOL_WORN at
-			// y28, no wood; each run lost). Only when nothing has to be gathered for it, and not when a pickaxe is the target.
 			const sound = [...counts].some(([item, n]) => /_pickaxe$/.test(item) && n > 0);
 			// Not once its own craft has failed twice (no table spot underground, #319's case): then the goal goes on as before.
 			if (goal !== null && !sound && o.player?.skyOpen === false && !target.ids.some((one) => /_pickaxe$/.test(one))
@@ -1542,9 +1409,6 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		// Every craft and smelt possible now, crafts first (planks for fuel before the load), each in dependency order;
 		// stations count as ready when held or near.
 		const stationReady = (op) => op.station === 'inventory' || stations[op.station] || (held.get(op.station) ?? 0) > 0;
-		// A smelt waits for its whole batch while more of its input is still to gather: one furnace, one load and one wait,
-		// not one per ore found (gate seed 1: three single raw irons, three furnaces placed and picked up, 12 s each). It
-		// needs fuel in hand that covers the batch, unless no more fuel is coming (live game: raw iron held, no planks).
 		const smeltReady = (op) => {
 			const n = readyTimes(op, held, index);
 			const input = op.inputs[0].spec.startsWith('#') ? index.tags[op.inputs[0].spec] ?? [] : op.inputs[0].spec.split('|');
@@ -1554,9 +1418,6 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		};
 		const ready = plan.ops.filter((candidate) => !(failures.get(`op:${candidate.outputs[0]}`) >= 2) && stationReady(candidate) && readyTimes(candidate, held, index) > 0);
 		const op = ready.find((candidate) => candidate.kind !== 'smelt') ?? ready.find((candidate) => candidate.kind === 'smelt' && smeltReady(candidate));
-		// The held part of a smelt waiting on more input, while that input is in view close by: load it, mine the rest, and
-		// collect on the way back, as a player puts the iron in hand on before mining the next vein. The furnace waits were
-		// 1.9 min of a complete kit (b9-13), the bucket's 6 raw iron smelted after its vein was mined (82 of 89 runs).
 		if (!op) {
 			const early = ready.find((candidate) => candidate.kind === 'smelt' && !overlapped.has(candidate.outputs[0]) && readyTimes(candidate, held, index) >= 2 && !smeltReady(candidate));
 			const input = early ? (early.inputs[0].spec.startsWith('#') ? index.tags[early.inputs[0].spec] ?? [] : early.inputs[0].spec.split('|')) : [];
@@ -1605,7 +1466,6 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 				plan: { needs: plan.needs, ops: plan.ops, fuel: plan.fuel } })}`;
 			body.note(fuelDiagnostic);
 		}
-		// Leaving for a source: take placed workstations along first.
 		if (placed.length > 0) await cleanup();
 		// Needs over the same blocks (any log for planks, oak log for a boat) are one trip: gather them together.
 		const together = plan.needs.filter((other) => other.kind === need.kind && !other.tool && (other.blocks.some((block) => need.blocks.includes(block)) || other.mobs.some((mob) => need.mobs.includes(mob))));

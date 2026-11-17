@@ -153,7 +153,6 @@ test('body idle is goal time with no body action running: overlapping chat is no
  assert.equal(idle([span('b1', 'break_block', 0, 400), span('b2', 'break_block', 600, 1000)]).bodyIdleTimeMs, 200);
  // Initial and final idle count; overlapping body actions are merged; a repeated completion row is one action.
  assert.equal(idle([span('b1', 'break_block', 100, 500), span('b2', 'navigate_to', 300, 700), [t('native_tool_action_completed', 'b1', 'break_block', 500)]]).bodyIdleTimeMs, 400);
- // Clipped to the goal window.
  assert.equal(idle([span('b1', 'break_block', -500, 100), span('b2', 'break_block', 800, 1500)]).bodyIdleTimeMs, 700);
  // A missing completion is missing evidence: the figure is unknown, not shortened by assuming the action ran on.
  assert.equal(idle([span('b1', 'break_block', 100, 200), span('b2', 'break_block', 800, 900)]).bodyIdleTimeMs, 800);

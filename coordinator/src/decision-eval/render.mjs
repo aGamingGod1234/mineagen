@@ -62,7 +62,6 @@ function observedAt(raw) {
 	return Number.isFinite(value) ? value : null;
 }
 
-/** Event sequences as recorded when they increase; otherwise a dense 1..n numbering. */
 function eventSequences(observations) {
 	const recorded = observations.map((raw) => raw?.eventSequence ?? raw?.observation?.eventSequence);
 	const increasing = recorded.every((value, index) => Number.isSafeInteger(value) && value > 0 && (index === 0 || value > recorded[index - 1]));
@@ -168,7 +167,6 @@ export function setupOutcome(tool, result) {
 	return { operation: tool.operation, state, reasonCode: result?.reasonCode ?? null, valid: result?.valid ?? null, ...(steps === null ? {} : { steps, revision: result.revision ?? null }) };
 }
 
-/** The registry record the replay registers: an idle agent of the run's play profile. */
 export function replayAgentRecord(testCase, { provider = 'claude', model = 'claude-opus-5-5', reasoningEffort = 'low' } = {}) {
 	const agent = testCase.state.agent;
 	return {
@@ -191,19 +189,7 @@ function payloadOf(input) {
  * `input` is the string the coordinator passes to agent.act(); `encodedInput` is what a fresh provider session
  * writes to the model (encodeNativeEventInput with fresh observation views), byte for byte.
  */
-export async function renderWake(testCase, options = {}) {
-	try { return await renderWakeAs(testCase, options); }
-	catch (error) {
-		// A build from before the OpenCode provider rejects an OpenCode agent record. The wake the coordinator writes does
-		// not depend on the provider, so that build's wake is rendered for a Claude record and sent through OpenCode.
-		if (options.provider !== 'opencode' || error.code !== 'RENDER_FAILED' || !/did not accept the replay agent/.test(error.message)) throw error;
-		const result = await renderWakeAs(testCase, { ...options, provider: 'claude' });
-		result.replay.agentProvider = 'claude (build predates the OpenCode provider)';
-		return result;
-	}
-}
-
-async function renderWakeAs(testCase, { provider = 'claude', model = 'claude-opus-5-5', reasoningEffort = 'low' } = {}) {
+export async function renderWake(testCase, { provider = 'claude', model = 'claude-opus-5-5', reasoningEffort = 'low' } = {}) {
 	validateCase(testCase);
 	const agent = testCase.state.agent;
 	if (testCase.state.wake?.conversation?.length > 0) throw new DecisionEvalRenderError('RENDER_UNSUPPORTED', `case ${testCase.id}: unread conversation replay is not supported yet`);
@@ -239,8 +225,6 @@ async function renderWakeAs(testCase, { provider = 'claude', model = 'claude-opu
 			goalSchedule: clock.schedule, cancelGoalSchedule: clock.cancel, goalStuckSchedule: clock.schedule, cancelGoalStuckSchedule: clock.cancel,
 			setSteerTimeout: clock.schedule, clearSteerTimeout: clock.cancel, setWakeHoldTimeout: clock.schedule, clearWakeHoldTimeout: clock.cancel,
 			setGoalSpecTimeout: clock.schedule, clearGoalSpecTimeout: clock.cancel, setStatusInterval: () => ({ decisionEval: true }), clearStatusInterval: () => {},
-			// Recorded cases predate the default survival rules (ruling 16, Oct 28): their mod reflex status and wakes were
-			// captured without them, so a replay arms only the case's own rules.
 			reflexDefaults: [],
 		});
 		const memory = taskMemorySetup(testCase);
@@ -441,18 +425,6 @@ export async function renderPrefix({ provider = 'claude', model = 'claude-opus-5
 			finally { await service.stop(); }
 			instructions = { baseInstructions: transmitted.baseInstructions, developerInstructions: transmitted.developerInstructions };
 			tools = transmitted.dynamicTools;
-		} else if (provider === 'opencode') {
-			// The agent prompt OpenCode receives and the same MCP tools Claude lists; creating the agent starts no server.
-			let systemPrompt = null;
-			// Loaded only for OpenCode players, so the harness still runs on builds from before the OpenCode provider.
-			const { OpenCodeProviderService } = await import('../opencode-service.mjs');
-			const service = new OpenCodeProviderService({ models: [model], reasoningEfforts: [reasoningEffort] }, {
-				minecraftWorkspace, toolServer: { stop: async () => {} }, onSystemPrompt: (text) => { systemPrompt = text; },
-			});
-			try { await service.createAgent({ agentId: AGENT_ID, provider: 'opencode', model, reasoningEffort, serviceTier: 'priority' }, { recoverySummary, controlProtocol: 'native_tools' }); }
-			finally { await service.stop(); }
-			instructions = { systemPrompt };
-			tools = await claudeToolsList();
 		} else {
 			throw new DecisionEvalRenderError('RENDER_UNSUPPORTED', `provider ${provider} is not supported`);
 		}

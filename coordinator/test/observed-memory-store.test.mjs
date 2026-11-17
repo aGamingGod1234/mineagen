@@ -234,7 +234,6 @@ test('durable reads wait for already queued writes before rehydrating memory', a
 });
 
 test('a record write that starts while the same record is being read still replaces it', async (t) => {
-	// Windows refuses to rename over a file another handle has open; such overlaps used to fail with EPERM.
 	const directory = await mkdtemp(join(tmpdir(), 'memory-read-write-'));
 	t.after(() => rm(directory, { recursive: true, force: true }));
 	const store = new AtomicAgentStore({ directory, namespace: 'overlap' });

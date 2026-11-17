@@ -1,8 +1,9 @@
 import { readBoundedResponseBody } from './bounded-response-body.mjs';
+import { MAX_TTS_AUDIO_SECONDS } from './pcm-audio.mjs';
 
 const DEFAULT_ENDPOINT = 'https://api.fish.audio/v1/tts';
 const DEFAULT_MODEL = 's2.1-pro-free';
-const MAX_PCM_BYTES = 44_100 * 2 * 20;
+const MAX_PCM_BYTES = 44_100 * 2 * MAX_TTS_AUDIO_SECONDS;
 // S2 uses natural-language bracket cues: https://docs.fish.audio/developer-guide/core-features/emotions
 const TONE_CUES = Object.freeze({ neutral: '', warm: 'warm', excited: 'excited', serious: 'serious',
 	dramatic: 'dramatic', whisper: 'whispering', robotic: 'robotic', angry: 'angry' });
@@ -79,7 +80,7 @@ export class FishTtsProvider {
 		const pcm = await readBoundedResponseBody(
 			response,
 			MAX_PCM_BYTES,
-			() => typedError('TTS_AUDIO_TOO_LONG', 'Fish TTS response exceeds the 20 second PCM limit'),
+			() => typedError('TTS_AUDIO_TOO_LONG', `Fish TTS response exceeds the ${MAX_TTS_AUDIO_SECONDS} second PCM limit`),
 			{ onLimit: (error) => responseController.abort(error) },
 		);
 		if (pcm.length === 0 || pcm.length % 2 !== 0 || pcm.length > MAX_PCM_BYTES) {

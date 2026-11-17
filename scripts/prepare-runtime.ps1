@@ -97,7 +97,7 @@ function Get-WorldManifest([string] $Root) {
 function Write-AgentConfig([string] $GameDirectory, [string] $AgentId, [int] $Port) {
     $configDirectory = Join-Path $GameDirectory 'config'
     New-Item -ItemType Directory -Force -Path (Join-Path $GameDirectory 'mods'),$configDirectory | Out-Null
-    $path = Join-Path $configDirectory 'arenaagents.json'
+    $path = Join-Path $configDirectory 'mineagen.json'
     $expected = [ordered]@{ agentId=$AgentId; bridgePort=$Port; observationRadius=12; enabled=$false }
     if (Test-Path -LiteralPath $path -PathType Leaf) {
         $existing = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json

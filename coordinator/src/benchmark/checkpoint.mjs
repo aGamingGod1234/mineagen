@@ -57,7 +57,6 @@ export function milestoneTest(spec) {
 const withDamage = (id, damage) => damage ? `${id}[minecraft:damage=${damage}]` : id;
 const block = (p) => p.map(Math.floor);
 
-// An x-axis portal whose two lower portal blocks start at the given cell.
 function portalCommands(dimension, [x, y, z]) {
 	return [
 		`execute in ${dimension} run fill ${x - 1} ${y - 1} ${z} ${x + 2} ${y + 3} ${z} minecraft:obsidian`,

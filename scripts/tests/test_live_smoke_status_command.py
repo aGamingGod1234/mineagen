@@ -19,7 +19,7 @@ class LiveSmokeStatusCommandTest(unittest.TestCase):
         server.props = {'minecraft_version': '26.3'}
         server.target = '26.3'
         server.read_log.return_value = (
-            'Loading 5 mods:\n - arenaagents 1\n - carpet 1\n - voicechat 1\n'
+            'Loading 5 mods:\n - mineagen 1\n - carpet 1\n - voicechat 1\n'
             ' - fabric-api 1\n - minecraft 26.3\nStopping server\n'
         )
         server.process.poll.return_value = None

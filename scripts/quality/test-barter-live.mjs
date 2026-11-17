@@ -18,21 +18,21 @@ const template=process.env.ARENA_HEADLESS_SERVER_TEMPLATE;
 if(!template || !process.env.SLOT_PORT_BASE) throw new Error('Set ARENA_HEADLESS_SERVER_TEMPLATE and launch under slot.sh live');
 const port=Number(process.env.SLOT_PORT_BASE), server=join(out,'server');
 // BARTER_JAR compares another build (the base jar) on the same fixture.
-const jar=resolve(process.env.BARTER_JAR ?? join(root,'build/libs/arena-agents-0.2.0.jar'));
+const jar=resolve(process.env.BARTER_JAR ?? join(root,'build/libs/mineagen-0.2.0.jar'));
 await mkdir(out,{recursive:true});
 if((await readdir(out)).length)throw new Error('Use a fresh output directory');
 await writeFile(join(out,'manifest.json'),JSON.stringify({kind:'provider-free live mechanics',aiPerformanceMeasured:false,fixtureSetupUsesOperatorCommands:true,jarSha256:createHash('sha256').update(await readFile(jar)).digest('hex'),jar,node:process.version},null,2));
 await cp(template,server,{recursive:true});
-for(const name of await readdir(join(server,'mods'))) if(name.startsWith('arena-agents-')) {
+for(const name of await readdir(join(server,'mods'))) if(name.startsWith('mineagen-')) {
   const {unlink}=await import('node:fs/promises'); await unlink(join(server,'mods',name));
 }
-await cp(jar,join(server,'mods/arena-agents-0.2.0.jar'));
+await cp(jar,join(server,'mods/mineagen-0.2.0.jar'));
 const secret=randomBytes(32).toString('hex');
 await writeFile(join(out,'secret.txt'),secret,{mode:0o600});
 await writeFile(join(server,'server.properties'),`online-mode=false\nserver-ip=127.0.0.1\nserver-port=${port+2}\nenable-rcon=true\nrcon.ip=127.0.0.1\nrcon.port=${port+1}\nrcon.password=${secret}\nlevel-name=world\nlevel-seed=20261021\nlevel-type=minecraft:flat\ngenerator-settings={"layers":[{"block":"minecraft:bedrock","height":1},{"block":"minecraft:stone","height":3}],"biome":"minecraft:plains"}\nspawn-protection=0\nview-distance=5\nsimulation-distance=5\npause-when-empty-seconds=-1\nmax-players=4\n`);
 const {open}=await import('node:fs/promises');
 const log=await open(join(out,'server.log'),'a');
-const child=spawn(`${process.env.JAVA_HOME}/bin/java`,[`-Darenaagents.bridgePort=${port}`,'-Darenaagents.coordinatorAutoStart=false',`-Darenaagents.bridgeSecretFile=${join(out,'secret.txt')}`,'-Xms512M','-Xmx2G','-jar','fabric-server-launch.jar','nogui'],{cwd:server,stdio:['ignore',log.fd,log.fd]});
+const child=spawn(`${process.env.JAVA_HOME}/bin/java`,[`-Dmineagen.bridgePort=${port}`,'-Dmineagen.coordinatorAutoStart=false',`-Dmineagen.bridgeSecretFile=${join(out,'secret.txt')}`,'-Xms512M','-Xmx2G','-jar','fabric-server-launch.jar','nogui'],{cwd:server,stdio:['ignore',log.fd,log.fd]});
 await writeFile(join(out,'server.pid'),String(child.pid));
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 class Inbox {
@@ -94,19 +94,16 @@ try {
   const carried=()=>(observation.inventory?.items??[]).filter(i=>!['head','chest','legs','feet','offhand'].includes(i.slot));
   const inventoryIds=()=>{const counts=new Map();for(const i of carried())counts.set(i.itemId,(counts.get(i.itemId)??0)+i.count);return counts;};
   const results={};
-  // A: drop_item keeps the owner like a vanilla Q drop.
   await at(0.5,80,0.5,0,30);
   let r=await act('drop_item',{slot:1,count:1});
   await sleep(300);
   const thrower=await command('data get entity @e[type=minecraft:item,limit=1,sort=nearest,x=0,y=80,z=1] Thrower');
   results.dropOwner={state:r.state,reasonCode:r.reasonCode,thrower};
   await command('kill @e[type=minecraft:item]');
-  // The piglin: adult, immune to Overworld zombification, persistent.
   await command('summon minecraft:piglin 0.5 80 2.5 {IsImmuneToZombification:1b,PersistenceRequired:1b,UUID:[I;0,0,0,7]}');
   const piglin='00000000-0000-0000-0000-000000000007';
   await at(0.5,80,0.5,0,10);
   await sleep(1500);
-  // B: hand one ingot over with interact_entity.
   await command(`tp @e[type=minecraft:piglin] 0.5 80 2.0`);
   observation=await observe();
   r=await act('select_item',{itemId:'minecraft:gold_ingot'});
@@ -114,7 +111,6 @@ try {
   r=await act('interact_entity',{targetId:piglin,hand:'main',expectedItemId:'minecraft:gold_ingot'});
   observation=await observe();
   results.handOver={state:r.state,reasonCode:r.reasonCode,message:r.message,goldAfter:gold()};
-  // Barter answer after about 6 s of admiring.
   const returns=async()=>{
     for(let i=0;i<20;i++){
       await sleep(1000);observation=await observe();
@@ -125,13 +121,11 @@ try {
   };
   let drops=await returns();
   results.handReturn=drops.map(d=>({itemId:d.itemId,count:d.count,distance:Math.round(d.distance??-1)}));
-  // Collect what was thrown with pick_up_item.
   results.handPickups=[];
   for(const d of drops){r=await act("pick_up_item",{targetSelector:d.stableId??d.uuid});results.handPickups.push({itemId:d.itemId,state:r.state,reasonCode:r.reasonCode});}
   observation=await observe();
   results.inventoryAfterHand=Object.fromEntries(inventoryIds());
   await command('kill @e[type=minecraft:item]');
-  // C: drop one ingot ahead toward the piglin with drop_item.
   await at(0.5,80,0.5,0,25);
   const slot=carried().find(i=>i.itemId==='minecraft:gold_ingot');
   r=await act('drop_item',{slot:typeof slot?.slot==='number'?slot.slot:0,count:1});

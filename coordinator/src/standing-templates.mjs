@@ -32,14 +32,12 @@ const SURVIVAL_SOURCE = [
 	`else if(c.air && p.underWater && p.airSecondsLeft<c.airBelowS){if(p.breathable!==null){const b=p.breathable; const r=await tryResult(player.moveTo({x:b.x,y:b.y,z:b.z,tolerance:0.5})); if(r.succeeded && c.airHoldTicks>0 && player.state().inWater){await tryResult(${frame({ jump: true, pitch: 0, ticks: 'c.airHoldTicks' })});}} else {await tryResult(${frame({ jump: true, pitch: -60, ticks: 20 })});}}`,
 	// Fire/lava: a reported exit, then the model's water (never in the Nether, where it evaporates), then its escape.
 	`else if((c.lava && p.inLava) || (c.fire && p.fire)){const wet=c.water!==null && (world.state().dimension==="minecraft:overworld" || world.state().dimension==="minecraft:the_end"); let d=exit; if(wet && (d===null || !p.inLava)){d=c.water;} if(d===null){d=c.escape;} if(d!==null){${moveTo('d')}} else if(p.inLava){await tryResult(${frame({ jump: true, pitch: 0, ticks: 10 })});}}`,
-	// Harmful cloud: the cloud's reported nearest exit.
 	`else if(c.clouds && p.cloudDanger){if(p.cloudExit!==null && (p.cloudExit.route==="verified" || p.cloudExit.route==="walkable")){const d=p.cloudExit; ${moveTo('d')}} else if(c.escape!==null){const d=c.escape; ${moveTo('d')}} else {program.checkpoint("cloud exit route unverified; choose escape");}}`,
 	// Incoming damaging projectile: a held shield if one blocks, else a sideways sprint step.
 	`else if(c.projectiles && p.incomingProjectiles.length>0){let hit=null; for(const r of p.incomingProjectiles){if(hit===null && r.damaging){hit=r;}} if(hit!==null){let held=false; if(hit.shieldBlockable===true && inventory.count("minecraft:shield")>0){const b=await tryResult(player.blockWithShield({durationMs:math.ceil(hit.etaSeconds*20+6)*50})); held=b.succeeded;} if(!held){await tryResult(${frame({ strafe: 'hit.bearing>=0?1:-1', sprint: true, ticks: 8 })});}}}`,
 	// Combat bails at <= fleeAtHealth, so this authored template must engage strictly above that shared threshold.
 	// Threat: only a visible, targetable mob is actionable. Use reported safe exits or the model's own escape.
 	`else if(c.threats && t!==null && t.visible && t.targetable){if(t.type!=="minecraft:creeper" && t.distance<=3 && p.health>c.fightAtHealth){await tryResult(player.fightTarget({targetId:t.uuid,timeoutMs:6000,fleeAtHealth:c.fightAtHealth}));} if(player.state().threat!==null){let d=player.state().safeExit; if(d===null){d=c.escape;} if(d!==null){${moveTo('d')}} else {program.checkpoint("threat escape skipped: no reported safe exit or model escape; route reachability unverified");}}}`,
-	// Low health without a threat: retreat to the model's escape.
 	`else if(p.health<c.healBelow && t===null && c.escape!==null){const d=c.escape; ${moveTo('d')}}`,
 	'const f=player.state().bestFood; if(player.state().health<c.healBelow && player.state().canHealNow && f!==null){await player.selectItem({itemId:f.itemId}); await player.useItem({durationMs:2000});}',
 ].join(' ');

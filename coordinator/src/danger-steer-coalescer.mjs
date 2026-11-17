@@ -1,12 +1,3 @@
-// Coalesces repeated damage/threat steering into one in-flight native turn.
-//
-// Every hit used to steer the running provider turn with a full event payload (5-8k tokens each). Steering does
-// not restart the turn (Codex turn/steer keeps the turn id; Claude appends the steer to the next tool result),
-// but each one grows the context the model must read before it can act: in the live trace 13 per-hit steers
-// grew the turn from 79k to 191k input tokens in 15 seconds while the model kept re-deciding. Here the first
-// danger steer goes out at once; further hits fold into one summary delivered at most every interval, or at
-// once when something materially new happens (a new trigger kind, a new threat type, a threat escalating to
-// imminent, close or swelling, or health crossing a low threshold). The model still receives every fact; it just gets time to decide.
 
 import { carryNativeWakeEvents } from './native-wake-events.mjs';
 

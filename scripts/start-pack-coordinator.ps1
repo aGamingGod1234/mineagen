@@ -18,7 +18,7 @@ $ConfigPath = Join-Path $PackageRoot 'coordinator\config\dynamic-agents.json'
 
 foreach ($required in @($SecretPath, $VoiceSecretPath, $CoordinatorPath, $ConfigPath)) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
-        throw "Missing Arena Agents runtime file: $required"
+        throw "Missing Mineagen runtime file: $required"
     }
 }
 
@@ -45,16 +45,16 @@ if ($nodeVersion -notmatch '^v(\d+)') { throw "Could not parse Node.js version '
 if ([int]$Matches[1] -lt 22) { throw "Node.js 22 or newer is required; detected $nodeVersion." }
 
 $secret = [IO.File]::ReadAllText($SecretPath).Trim()
-if ($secret.Length -lt 32) { throw 'Arena Agents bridge secret is missing or invalid.' }
+if ($secret.Length -lt 32) { throw 'Mineagen bridge secret is missing or invalid.' }
 $voiceSecret = [IO.File]::ReadAllText($VoiceSecretPath).Trim()
-if ($voiceSecret.Length -lt 16 -or $voiceSecret.Length -gt 512) { throw 'Arena Agents voice secret is missing or invalid.' }
-if ($voiceSecret -ceq $secret) { throw 'Arena Agents bridge and voice secrets must be distinct.' }
+if ($voiceSecret.Length -lt 16 -or $voiceSecret.Length -gt 512) { throw 'Mineagen voice secret is missing or invalid.' }
+if ($voiceSecret -ceq $secret) { throw 'Mineagen bridge and voice secrets must be distinct.' }
 $env:ARENA_AGENT_BRIDGE_SECRET = $secret
 $env:ARENA_AGENT_VOICE_SECRET_FILE = $VoiceSecretPath
 Remove-Item Env:\ARENA_AGENT_VOICE_SECRET -ErrorAction SilentlyContinue
 try {
     & $resolvedNode $CoordinatorPath --config $ConfigPath
-    if ($LASTEXITCODE -ne 0) { throw "Arena Agents coordinator exited with code $LASTEXITCODE." }
+    if ($LASTEXITCODE -ne 0) { throw "Mineagen coordinator exited with code $LASTEXITCODE." }
 } finally {
     Remove-Item Env:\ARENA_AGENT_BRIDGE_SECRET -ErrorAction SilentlyContinue
     Remove-Item Env:\ARENA_AGENT_VOICE_SECRET -ErrorAction SilentlyContinue

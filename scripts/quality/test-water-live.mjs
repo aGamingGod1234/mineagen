@@ -114,7 +114,6 @@ try {
 			await s.command(`fill ${X + 1} ${F - 11} ${Z} ${X + 1} ${F - 1} ${Z} minecraft:water`);
 			start = [X + 0.5, F - 11, Z + 0.5]; target = { x: X + 20.5, z: Z + 0.5 }; drain = 8_750; facing = -90; afterMs = 6_000;
 		} else if (fixture === 'waterfall' || fixture === 'narrowfall') {
-			// The hole east of the pool, 25 deep, then the pool walled two blocks above its water on three sides.
 			await s.command(`fill ${X + 4} ${F - 26} ${Z - 12} ${X + 24} ${F - 26} ${Z + 12} minecraft:stone`);
 			await s.command(`fill ${X + 4} ${F - 25} ${Z - 12} ${X + 24} ${F + 6} ${Z + 12} minecraft:air`);
 			await s.command(`fill ${X - 7} ${F} ${Z - 4} ${X + 3} ${F + 1} ${Z + 4} minecraft:stone`);
@@ -128,7 +127,6 @@ try {
 			await sleep(3000);
 			start = [X - 2.5, F - 1, Z + 0.5]; target = { x: X + 20.5, z: Z + 0.5 }; facing = -90;
 		} else if (fixture === 'widelake') {
-			// 37 blocks of water east to west, the body near the west bank, the target just past the far one.
 			await s.command(`fill ${X - 16} ${F - 5} ${Z - 10} ${X + 20} ${F - 1} ${Z + 10} minecraft:water`);
 			start = [X - 10.5, F - 5, Z + 0.5]; target = { x: X + 22.5, z: Z + 0.5 };
 		} else {

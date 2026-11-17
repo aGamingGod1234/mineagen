@@ -609,7 +609,6 @@ test('pending Claude steers are superseded and built at the next tool boundary',
 	} finally { await close(); }
 });
 
-// --- Token efficiency: usage, rotation, restarts and fact views ---
 const { buildNativeEventInput } = await import('../src/dynamic-main.mjs');
 const { representativeProgramWake, representativeRecord } = await import('../src/benchmark/token-budget.mjs');
 const nativeEvent = (sequence, change = (wake) => wake) => {
@@ -728,7 +727,6 @@ test('the Claude tool server answers JSON-RPC errors with the request id and the
 		assert.deepEqual(error(await rpc({ id: 7, method: 'tools/list', params: 'all' })), { id: 7, code: -32602 });
 		assert.deepEqual(error(await rpc({ id: 8, method: 'tools/call', params: { arguments: {} } })), { id: 8, code: -32602 });
 		assert.deepEqual(error(await rpc({ id: 9, method: 'tools/call', params: { name: 'say', arguments: 'hello' } })), { id: 9, code: -32602 });
-		// A tool that throws used to come back as a null-id parse error, which Claude Code cannot match to its call.
 		const failed = await rpc({ id: 'call-10', method: 'tools/call', params: { name: 'say', arguments: { message: 'hi' } } });
 		assert.deepEqual(error(failed), { id: 'call-10', code: -32603 });
 		assert.match(failed.body.error.message, /body lost while running say/);
@@ -1789,7 +1787,6 @@ test('rejected Claude tool calls trace the name and return the validation reason
  } finally { await close(); }
 });
 
-// Review r1 P2-2, with the counters measured live (cancelled call: 2 input, 14,938 cache reads, 1,275 cache writes, 3 output).
 test('an interrupted Claude turn is billed to the next turn and itemised as interrupted', async () => {
 	let turns = 0;
 	const { service, close } = await harness({
@@ -1822,7 +1819,6 @@ test('an interrupted Claude turn is billed to the next turn and itemised as inte
 	} finally { await close(); }
 });
 
-// Review r2 P2-3: the interrupted call's closing result reports its real output after the turn was rejected.
 test('an interrupted Claude turn carries the output and cost its closing result reports', async () => {
 	let turns = 0;
 	const { service, children, close } = await harness({
@@ -1887,7 +1883,6 @@ test('a replacement that is itself interrupted carries every call and dollar onc
 	} finally { await close(); }
 });
 
-// Review r2 P2-2: an IN_LAVA tool result is the turn's contact; the lava observation after it steers, never cancels.
 test('a Claude turn that received an IN_LAVA result is not cancelled by the next lava observation', async () => {
 	let response;
 	let users = 0;

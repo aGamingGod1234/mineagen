@@ -220,7 +220,6 @@ test('per-wake progress points at the current dimension strategy', async () => {
 });
 
 test('plan saves survive restarts reading the same file while another view still saves it',async t=>{
- // Windows refuses to rename over a file another handle has open, so overlapping reads and saves used to fail with EPERM.
  const directory=await mkdtemp(path.join(os.tmpdir(),'arena-plan-overlap-'));t.after(()=>rm(directory,{recursive:true,force:true}));
  const writer=new LiveTaskViews({directory});await writer.observe(record,observation());await writer.operate(record,{operation:'replace',plan:plan()});await writer.flush();
  const views=[writer];
@@ -318,7 +317,6 @@ test('a step intent starts with its admitted action and ends with it; a rejected
  runtime.onActionResult(record,{actionId:b.actionId,goalRevision:1,state:'FAILED',reasonCode:'NO_ROUTE'});await settle();
  assert.equal(intent(),undefined,'a finished step no longer advertises itself');
  assert.equal(runtime.runningStep(record),null);
- // An authored intent is the model's own and outlives steps.
  await views.operate(record,{kind:'task_plan',operation:'intent',intent:{step:'iron',why:'pickaxe first'}});
  const c=await runtime.execute(step('dig_to',{y:16},'dig again'),record);await settle();
  runtime.onActionResult(record,{actionId:c.actionId,goalRevision:1,state:'SUCCEEDED',reasonCode:'DIG_GOAL_REACHED'});await settle();

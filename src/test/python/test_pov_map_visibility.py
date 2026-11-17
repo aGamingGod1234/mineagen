@@ -21,7 +21,7 @@ class PovMapVisibilityRegression(unittest.TestCase):
         for version in ("26.1", "26.2"):
             with self.subTest(version=version):
                 source = (ROOT / f"src/compat/{version}/clientJava/dev/agaminggod/"
-                          "arenaagents/client/compat/mixin/ItemInHandRendererPovMixin.java").read_text()
+                          "mineagen/client/compat/mixin/ItemInHandRendererPovMixin.java").read_text()
                 match = re.search(
                     r'@WrapOperation\(method\s*=\s*\{([^}]+)\},\s*at\s*=\s*'
                     r'@At\(value\s*=\s*"INVOKE",\s*target\s*=\s*"' + re.escape(TARGET)

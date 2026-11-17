@@ -435,7 +435,6 @@ export class ObservedMemoryStore {
 		if (attempt !== null) recordLook(scope.search, { ...attempt, tick: Number.isSafeInteger(attempt.tick) ? attempt.tick : scope.tick });
 		if (survey && typeof survey === 'object') recordSightings(scope.search, survey, scope.tick, blockLookup(scope), { dimension: observationDimension(observation) });
 	}
-	/** Starts measuring one move from the latest sample of the current scope. */
 	beginTravel(agentId) {
 		const agent = this.#agents.get(agentId);
 		if (!agent) return;

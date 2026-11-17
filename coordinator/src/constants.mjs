@@ -35,7 +35,7 @@ export const DEFAULT_GOAL_QUEUE_CAP = 16;
 export const DEFAULT_PLANNING_CONCURRENCY = DEFAULT_AGENT_CAP;
 // Codex 'default' is the standard tier; 'priority'/'fast' use the 2x-usage Fast tier and must be chosen explicitly.
 export const DEFAULT_SERVICE_TIER = 'default';
-/** Claude and Gemini profiles only accept 'priority', which for them is normal speed (Claude fast mode is a separate opt-in). */
+/** Claude profiles only accept 'priority', which for them is normal speed (Claude fast mode is a separate opt-in). */
 export function defaultServiceTier(provider) {
 	return (provider ?? 'codex') === 'codex' ? DEFAULT_SERVICE_TIER : 'priority';
 }

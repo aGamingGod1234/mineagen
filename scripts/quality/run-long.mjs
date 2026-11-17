@@ -17,9 +17,9 @@ import { recordOperatorStop } from './operator-stop.mjs';
 import { writeTimeReport } from './watch-time.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const USAGE = 'Regenerate: node scripts/quality/run-long.mjs --report RAW_RUN_DIR --out REPORT_DIR\nRun: node scripts/quality/run-long.mjs --budget-minutes 180 --max-total-cost-usd 80 --ledger FILE --port-base 26900 --out DIR [--prior-spend-usd P] [--run-reserve-usd R] [--provider claude|codex|opencode --model M --effort low --service-tier priority] [--codex-observer-cap yes] [--seed N] [--goal "Beat the game"] [--arms arms.json --arm B | --jar PATH --coordinator-root PATH] [--checkpoint SAVE_POINT.json [--random-salt N|none]] [--codex-mid-turn-rotation-tokens N] [--java PATH --server-template PATH]';
+const USAGE = 'Regenerate: node scripts/quality/run-long.mjs --report RAW_RUN_DIR --out REPORT_DIR\nRun: node scripts/quality/run-long.mjs --budget-minutes 180 --max-total-cost-usd 80 --ledger FILE --port-base 26900 --out DIR [--prior-spend-usd P] [--run-reserve-usd R] [--provider claude|codex --model M --effort low --service-tier priority] [--codex-observer-cap yes] [--seed N] [--goal "Beat the game"] [--arms arms.json --arm B | --jar PATH --coordinator-root PATH] [--checkpoint SAVE_POINT.json [--random-salt N|none]] [--codex-mid-turn-rotation-tokens N] [--java PATH --server-template PATH]';
 
-const DEFAULT_MODELS = Object.freeze({ claude: 'claude-opus-5-5', codex: 'gpt-6.1-sol', opencode: 'opencode/deepseek-v4.1-flash-free' });
+const DEFAULT_MODELS = Object.freeze({ claude: 'claude-opus-5-5', codex: 'gpt-6.1-sol' });
 
 export function parseLongArgs(argv) {
 	if (argv[0] === '--report') {
@@ -42,7 +42,7 @@ export function parseLongArgs(argv) {
 	if (values['run-reserve-usd'] !== undefined && !(Number(values['run-reserve-usd']) >= 1)) throw new Error('--run-reserve-usd must be at least 1');
 	if (!Number.isInteger(portBase) || portBase < 1024 || portBase > 65533) throw new Error('--port-base must be 1024..65533');
 	const provider = values.provider ?? 'claude';
-	if (!['claude', 'codex', 'opencode'].includes(provider)) throw new Error('--provider must be claude, codex or opencode');
+	if (!['claude', 'codex'].includes(provider)) throw new Error('--provider must be claude or codex');
 	if (values['codex-observer-cap'] !== undefined && values['codex-observer-cap'] !== 'yes') throw new Error('--codex-observer-cap takes yes');
 	if (provider === 'codex' && values['codex-observer-cap'] !== 'yes') throw new Error('Codex play cannot be metered per call; pass --codex-observer-cap yes to accept an observer estimate that may exceed the cap');
 	const serviceTier = values['service-tier'] ?? (provider === 'codex' ? 'default' : 'priority');
@@ -53,8 +53,7 @@ export function parseLongArgs(argv) {
 	if (values['random-salt'] !== undefined && (!values.checkpoint || values['random-salt'] !== 'none' && !/^-?\d{1,10}$/.test(values['random-salt']) || Math.abs(Number(values['random-salt'])) > 2147483647)) throw new Error('--random-salt takes a 32-bit integer or none, with --checkpoint');
 	if (values.arms && !['A', 'B'].includes(values.arm ?? '')) throw new Error('--arms needs --arm A or B');
 	if (values.arms && (values.jar || values['coordinator-root'])) throw new Error('Use --arms or --jar/--coordinator-root, not both');
-	// OpenCode's free models cost nothing, so their play is observer-metered at $0 without the Codex opt-in.
-	return { windowMs: Math.round(minutes * 60000), capUsd: cap, priorSpendUsd: prior, codexObserverCap: values['codex-observer-cap'] === 'yes' || provider === 'opencode', ledger: values.ledger ? path.resolve(values.ledger) : null,
+	return { windowMs: Math.round(minutes * 60000), capUsd: cap, priorSpendUsd: prior, codexObserverCap: values['codex-observer-cap'] === 'yes', ledger: values.ledger ? path.resolve(values.ledger) : null,
 		runReserveUsd: values['run-reserve-usd'] === undefined ? null : Number(values['run-reserve-usd']), provider, model: values.model ?? DEFAULT_MODELS[provider],
 		effort: values.effort ?? 'low', serviceTier, midTurnRotationTokens, seed: values.seed ?? randomSeed(), goal: values.goal ?? 'Beat the game', arms: values.arms ? path.resolve(values.arms) : null, arm: values.arm ?? null,
 		checkpoint: values.checkpoint ? path.resolve(values.checkpoint) : null,
@@ -148,7 +147,6 @@ export async function runLong(options, { execute = runScenarios } = {}) {
 	return report;
 }
 
-/** Read-only reconstruction of raw evidence; never launches Minecraft or changes a spend ledger. */
 export async function regenerateLongReport(directory, out) {
 	await mkdir(out, { recursive: true });
 	const prior = await readArtifactReport(path.join(out, 'long-run.json')).catch(() => null);

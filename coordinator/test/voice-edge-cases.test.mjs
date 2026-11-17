@@ -10,6 +10,7 @@ import { promisify } from 'node:util';
 import { DeepgramSttProvider } from '../src/voice/deepgram-stt-provider.mjs';
 import { NoSttProvider } from '../src/voice/deepgram-stt-provider.mjs';
 import { FishTtsProvider } from '../src/voice/fish-tts-provider.mjs';
+import { OpenAiSttProvider, OpenAiTtsProvider } from '../src/voice/openai-speech-provider.mjs';
 import { TtsCache } from '../src/voice/tts-cache.mjs';
 import { createVoiceHttpServer, createVoiceRequestHeaders } from '../src/voice/voice-http-server.mjs';
 import { loadPersistentVoiceProfileStore, VoiceProfileStore } from '../src/voice/voice-profile-store.mjs';
@@ -40,6 +41,395 @@ function fetch(input, init = {}) {
 	}
 	return globalThis.fetch(input, init);
 }
+
+test('known authentication failures suppress real requests and synthetic paid probes', async () => {
+	let clock = 0;
+	let ttsCalls = 0;
+	let sttCalls = 0;
+	const scheduled = [];
+	await withWorker({
+		now: () => clock,
+		scheduleProbe: (callback, delay) => { const timer = { callback, delay, cancelled: false }; scheduled.push(timer); return timer; },
+		cancelProbe: timer => { timer.cancelled = true; },
+		provider: { async synthesize() { ttsCalls++; throw Object.assign(new Error('invalid credential'), { code: 'TTS_AUTHENTICATION_FAILED' }); } },
+		sttProvider: { async transcribe() { sttCalls++; throw Object.assign(new Error('invalid credential'), { code: 'STT_AUTHENTICATION_FAILED' }); } },
+	}, async ({ baseUrl }) => {
+		const speak = () => fetch(`${baseUrl}/v1/tts`, { method: 'POST', headers: ttsHeaders(), body: JSON.stringify(ttsPayload()) });
+		const hear = player => fetch(`${baseUrl}/v1/stt`, { method: 'POST', headers: sttHeaders({ 'X-Player-Id': player }), body: Buffer.alloc(2) });
+		await speak(); await hear(PLAYER);
+		clock = 60_000;
+		for (const timer of [...scheduled]) if (!timer.cancelled) timer.callback();
+		await new Promise(resolve => setImmediate(resolve));
+		await speak(); await hear(PLAYER_TWO);
+		assert.equal(ttsCalls, 1, 'invalid TTS credentials make no further paid request or synthetic probe');
+		assert.equal(sttCalls, 1, 'invalid STT credentials make no further paid request or synthetic probe');
+		assert.ok(scheduled.every(timer => timer.cancelled), 'permanent failures schedule no recovery probe');
+	});
+});
+
+test('transient outages use one real recovery request after Retry-After and close on success', async () => {
+	let clock = 0;
+	let calls = 0;
+	let release;
+	const gate = new Promise(resolve => { release = resolve; });
+	await withWorker({ now: () => clock,
+		provider: { async synthesize() {
+			calls++;
+			if (calls === 1) throw Object.assign(new Error('busy'), { code: 'TTS_RATE_LIMITED', retryAfter: '2' });
+			await gate; return validSynthesis();
+		} },
+	}, async ({ worker, baseUrl }) => {
+		const speak = text => fetch(`${baseUrl}/v1/tts`, { method: 'POST', headers: ttsHeaders(), body: JSON.stringify({ ...ttsPayload(), text }) });
+		await speak('initial');
+		assert.equal((await speak('during outage')).status, 503);
+		assert.equal(calls, 1);
+		clock = 1_999;
+		assert.equal((await speak('before retry')).status, 503);
+		clock = 2_000;
+		const recovery = speak('recover');
+		await eventually(() => calls === 2);
+		assert.equal((await speak('parallel recovery')).status, 503);
+		assert.equal(calls, 2, 'only one paid recovery attempt is in flight');
+		release();
+		assert.equal((await recovery).status, 200);
+		assert.equal(worker.statusSnapshots().find(status => status.component === 'voice:tts').state, 'ready');
+		assert.equal((await speak('healthy again')).status, 200);
+		assert.equal(calls, 3);
+	});
+});
+
+for (const channel of ['tts', 'stt']) {
+	test(`older ${channel} success cannot clear a newer Retry-After outage`, async () => {
+		let clock = 0;
+		let calls = 0;
+		let release;
+		const held = new Promise(resolve => { release = resolve; });
+		const operation = async () => {
+			const call = ++calls;
+			if (call === 1) await held;
+			if (call === 2) throw Object.assign(new Error('busy'), { code: `${channel.toUpperCase()}_RATE_LIMITED`, retryAfter: '30' });
+			return channel === 'tts' ? validSynthesis() : { transcript: 'heard', confidence: 1 };
+		};
+		await withWorker({ now: () => clock,
+			...(channel === 'tts' ? { provider: { synthesize: operation } } : { sttProvider: { transcribe: operation } }),
+		}, async ({ worker, baseUrl }) => {
+			let sequence = 0;
+			const send = () => {
+				sequence++;
+				return fetch(`${baseUrl}/v1/${channel}`, { method: 'POST',
+					headers: channel === 'tts' ? ttsHeaders() : sttHeaders({ 'X-Player-Id': `10000000-0000-4000-8000-${String(sequence).padStart(12, '0')}` }),
+					body: channel === 'tts' ? JSON.stringify({ ...ttsPayload(), text: `out-of-order ${sequence}` }) : Buffer.alloc(2),
+				});
+			};
+			const status = () => worker.statusSnapshots().find(value => value.component === `voice:${channel}`);
+			const older = send();
+			try {
+				await eventually(() => calls === 1);
+				assert.equal((await send()).status, 429);
+				assert.equal(status().nextProbeAtEpochMs, 30_000);
+				release();
+				assert.equal((await older).status, 200, 'the older caller still receives its successful result');
+				assert.equal(status().state, 'degraded', 'an older success cannot erase a newer failure');
+				assert.equal(status().nextProbeAtEpochMs, 30_000);
+				assert.equal((await send()).status, 503);
+				assert.equal(calls, 2, 'new work does not contact the provider during Retry-After');
+				clock = 29_999;
+				assert.equal((await send()).status, 503);
+				clock = 30_000;
+				assert.equal((await send()).status, 200, 'the current recovery can close the circuit');
+				assert.equal(status().state, 'ready');
+				assert.equal(calls, 3);
+			} finally { release(); await older; }
+		});
+	});
+}
+
+for (const channel of ['tts', 'stt']) {
+	test(`older ${channel} probe success preserves a newer Retry-After and schedules current recovery`, async () => {
+		let clock = 0, calls = 0, probes = 0;
+		let releaseProbe;
+		const probeGate = new Promise(resolve => { releaseProbe = resolve; });
+		const failures = [], timers = [];
+		const operation = () => {
+			if (++calls <= 2) return new Promise((resolve, reject) => failures.push(reject));
+			return channel === 'tts' ? validSynthesis() : { transcript: 'heard', confidence: 1 };
+		};
+		const probe = async () => { probes++; await probeGate; };
+		await withWorker({ now: () => clock,
+			scheduleProbe: (callback, delay) => { const timer = { callback, at: clock + delay, cancelled: false }; timers.push(timer); return timer; },
+			cancelProbe: timer => { timer.cancelled = true; },
+			...(channel === 'tts' ? { provider: { synthesize: operation, probe } } : { sttProvider: { transcribe: operation, probe } }),
+		}, async ({ worker, baseUrl }) => {
+			let sequence = 0;
+			const send = () => {
+				sequence++;
+				return fetch(`${baseUrl}/v1/${channel}`, { method: 'POST',
+					headers: channel === 'tts' ? ttsHeaders() : sttHeaders({ 'X-Player-Id': `10000000-0000-4000-8000-${String(sequence).padStart(12, '0')}` }),
+					body: channel === 'tts' ? JSON.stringify({ ...ttsPayload(), text: `probe ordering ${sequence}` }) : Buffer.alloc(2),
+				});
+			};
+			const status = () => worker.statusSnapshots().find(value => value.component === `voice:${channel}`);
+			const first = send(); await eventually(() => calls === 1);
+			const second = send(); await eventually(() => calls === 2);
+			try {
+				failures[0](Object.assign(new Error('offline'), { code: `${channel.toUpperCase()}_PROVIDER_ERROR` }));
+				assert.equal((await first).status, 502);
+				clock = 1_000;
+				timers.find(timer => !timer.cancelled && timer.at === clock).callback();
+				await eventually(() => probes === 1);
+				failures[1](Object.assign(new Error('busy'), { code: `${channel.toUpperCase()}_RATE_LIMITED`, retryAfter: '30' }));
+				assert.equal((await second).status, 429);
+				releaseProbe();
+				await new Promise(resolve => setImmediate(resolve));
+				assert.equal(status().state, 'degraded', 'an older probe cannot erase a newer rate limit');
+				assert.equal(status().nextProbeAtEpochMs, 31_000, 'stale success schedules the current degraded retry');
+				assert.equal((await send()).status, 503);
+				clock = 30_999;
+				assert.equal((await send()).status, 503);
+				assert.equal(calls, 2, 'no provider work before Retry-After');
+				clock = 31_000;
+				timers.find(timer => !timer.cancelled && timer.at === clock).callback();
+				await eventually(() => probes === 2 && status().state === 'ready');
+				assert.equal((await send()).status, 200, 'the current successful probe restores service');
+				assert.equal(calls, 3);
+			} finally { releaseProbe(); failures.forEach(reject => reject(new Error('fixture cleanup'))); await Promise.allSettled([first, second]); }
+		});
+	});
+}
+
+test('named Fish authentication outage is isolated from the primary speech provider', async () => {
+	let fishCalls = 0;
+	await withWorker({ fishProvider: { async synthesize() {
+		fishCalls++; throw Object.assign(new Error('invalid credential'), { code: 'TTS_AUTHENTICATION_FAILED' });
+	} } }, async ({ baseUrl }) => {
+		const speak = profileId => fetch(`${baseUrl}/v1/tts`, { method: 'POST', headers: ttsHeaders(),
+			body: JSON.stringify({ ...ttsPayload(), profileId }) });
+		assert.equal((await speak('voice.ethan.v1')).status, 502);
+		assert.equal((await speak('voice.ethan.v1')).status, 503);
+		assert.equal(fishCalls, 1);
+		assert.equal((await speak('voice.auto.v1')).status, 200);
+	});
+});
+
+for (const channel of ['tts', 'stt']) {
+	test(`OpenAI ${channel} HTTP 400 does not permanently disable later valid requests`, async () => {
+		let clock = 0;
+		let calls = 0;
+		const options = { apiKey: 'offline-fake-key', fetchImpl: async () => {
+			if (++calls === 1) return new Response('invalid request body', { status: 400 });
+			return channel === 'tts' ? new Response(Buffer.alloc(4800)) : Response.json({ text: 'heard' });
+		} };
+		await withWorker({ now: () => clock,
+			...(channel === 'tts' ? { provider: new OpenAiTtsProvider(options) } : { sttProvider: new OpenAiSttProvider(options) }),
+		}, async ({ baseUrl }) => {
+			let sequence = 0;
+			const send = () => {
+				sequence++;
+				return fetch(`${baseUrl}/v1/${channel}`, { method: 'POST',
+					headers: channel === 'tts' ? ttsHeaders() : sttHeaders({ 'X-Player-Id': `10000000-0000-4000-8000-${String(sequence).padStart(12, '0')}` }),
+					body: channel === 'tts' ? JSON.stringify({ ...ttsPayload(), text: `valid retry ${sequence}` }) : Buffer.alloc(1920),
+				});
+			};
+			const invalid = await send();
+			assert.equal(invalid.status, 502);
+			assert.equal((await invalid.json()).code, `${channel.toUpperCase()}_PROVIDER_ERROR`);
+			assert.equal((await send()).status, 503, 'ordinary transient backoff still applies');
+			clock = 1_000;
+			assert.equal((await send()).status, 200, 'a later valid request can recover without restart');
+			assert.equal((await send()).status, 200);
+			assert.equal(calls, 3);
+		});
+	});
+}
+
+test('interactive TTS deadline falls back per line without disabling healthy speech', async () => {
+	for (const delay of [50, 10_000]) {
+		let calls = 0;
+		await withWorker({ requestTimeoutMs: 120_000,
+			provider: { synthesize: ({ signal, text }) => new Promise((resolve, reject) => {
+				calls++;
+				const timer = setTimeout(() => resolve(validSynthesis()), text === 'healthy followup' ? 50 : delay);
+				signal.addEventListener('abort', () => { clearTimeout(timer); reject(signal.reason); }, { once: true });
+			}) },
+		}, async ({ worker, baseUrl }) => {
+			const before = Date.now();
+			const response = await fetch(`${baseUrl}/v1/tts`, { method: 'POST', headers: ttsHeaders(), body: JSON.stringify(ttsPayload()) });
+			assert.equal(response.status, delay === 50 ? 200 : 504);
+			assert.ok(Date.now() - before < 5_000, 'slow speech returns a text-fallback receipt before the fake ten-second response');
+			assert.equal(calls, 1);
+			if (delay !== 50) {
+				assert.equal(worker.statusSnapshots().find(status => status.component === 'voice:tts').state, 'ready');
+				const retry = await fetch(`${baseUrl}/v1/tts`, { method: 'POST', headers: ttsHeaders(), body: JSON.stringify({ ...ttsPayload(), text: 'healthy followup' }) });
+				assert.equal(retry.status, 200, 'one slow line does not suppress healthy speech from the provider');
+				assert.equal(calls, 2);
+			}
+		});
+	}
+});
+
+for (const channel of ['tts', 'stt']) {
+	test(`cancelled transient ${channel} recovery releases its circuit reservation`, async () => {
+		let clock = 0;
+		let calls = 0;
+		const operation = ({ signal }) => {
+			calls++;
+			if (calls === 1) throw Object.assign(new Error('offline'), { code: `${channel.toUpperCase()}_UNAVAILABLE` });
+			if (calls === 2) return new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+			return channel === 'tts' ? validSynthesis() : { transcript: 'heard', confidence: 1 };
+		};
+		await withWorker({ now: () => clock,
+			...(channel === 'tts' ? { provider: { synthesize: operation } } : { sttProvider: { transcribe: operation } }),
+		}, async ({ baseUrl }) => {
+			let sequence = 0;
+			const send = signal => {
+				sequence++;
+				return fetch(`${baseUrl}/v1/${channel}`, { method: 'POST', signal,
+					headers: channel === 'tts' ? ttsHeaders() : sttHeaders({ 'X-Player-Id': `10000000-0000-4000-8000-${String(sequence).padStart(12, '0')}` }),
+					body: channel === 'tts' ? JSON.stringify({ ...ttsPayload(), text: `recovery ${sequence}` }) : Buffer.alloc(2),
+				});
+			};
+			assert.equal((await send()).status, channel === 'tts' ? 502 : 503);
+			clock = 1_000;
+			const controller = new AbortController();
+			const recovering = send(controller.signal);
+			await eventually(() => calls === 2);
+			controller.abort();
+			await assert.rejects(recovering, { name: 'AbortError' });
+			await eventuallyActive(baseUrl, 0);
+			clock = 2_000;
+			assert.equal((await send()).status, 200, 'a cancelled recovery cannot wedge the next authored utterance');
+			assert.equal(calls, 3);
+		});
+	});
+}
+
+test('cached speech bypasses saturated provider work and a fifth distinct miss waits briefly', async () => {
+	let calls = 0;
+	let release;
+	const gate = new Promise(resolve => { release = resolve; });
+	await withWorker({ queueWaitMs: 250,
+		provider: { async synthesize({ text }) { calls++; if (text !== 'cached line') await gate; return validSynthesis(); } },
+		sttProvider: { async transcribe() { return { transcript: '', confidence: 1 }; } },
+	}, async ({ baseUrl }) => {
+		const speak = (text, index = 0, signal) => fetch(`${baseUrl}/v1/tts`, { method: 'POST', headers: ttsHeaders(), signal,
+			body: JSON.stringify({ ...ttsPayload(), agentId: agentUuid(8_000 + index), text, conversationSequence: index + 1 }) });
+		assert.equal((await speak('cached line')).status, 200);
+		const held = [1, 2, 3, 4].map(index => speak(`hold ${index}`, index));
+		try {
+			await eventually(() => calls === 5);
+			const cached = await speak('cached line');
+			assert.equal(cached.status, 200, 'a cache hit requires no provider-work slot');
+			assert.equal(calls, 5, 'cache hit makes no paid request');
+			const waiting = speak('fifth distinct', 5);
+			await eventuallyActive(baseUrl, 5);
+			assert.equal(calls, 5, 'the fifth distinct request is queued, preserving the STT reserve');
+			const stt = await fetch(`${baseUrl}/v1/stt`, { method: 'POST', headers: sttHeaders(), body: Buffer.alloc(2) });
+			assert.equal(stt.status, 200);
+			release();
+			assert.equal((await waiting).status, 200);
+			assert.deepEqual((await Promise.all(held)).map(response => response.status), [200, 200, 200, 200]);
+			assert.equal(calls, 6);
+		} finally { release(); await Promise.allSettled(held); }
+	});
+});
+
+test('TTS admission gives each waiting agent one fair turn with bounded expiry and cancellation', async () => {
+	const { TtsAdmissionQueue } = await import('../src/voice/tts-admission-queue.mjs');
+	const queue = new TtsAdmissionQueue({ canStart: active => active < 1, maxQueued: 2, waitMs: 30 });
+	const signal = () => new AbortController().signal;
+	let release = await queue.acquire('owner', signal());
+	try {
+		const first = queue.acquire('first', signal());
+		const second = queue.acquire('second', signal());
+		await assert.rejects(queue.acquire('FIRST', signal()), { code: 'TTS_CAPACITY' });
+		await assert.rejects(queue.acquire('third', signal()), { code: 'TTS_CAPACITY' });
+		release();
+		release = await first;
+		assert.equal(queue.active, 1);
+		assert.equal(queue.waiting, 1, 'the second agent keeps its FIFO turn');
+		release(); release = await second; release();
+		assert.equal(queue.active, 0);
+		release = await queue.acquire('owner', signal());
+		const cancelled = new AbortController();
+		const waiting = queue.acquire('cancelled', cancelled.signal);
+		cancelled.abort();
+		await assert.rejects(waiting, { name: 'AbortError' });
+		assert.equal(queue.waiting, 0);
+		await assert.rejects(queue.acquire('expires', signal()), { code: 'TTS_CAPACITY' });
+		assert.equal(queue.waiting, 0);
+	} finally { release(); queue.close(); }
+});
+
+test('cancelled queued TTS makes no additional provider request', async () => {
+	let calls = 0;
+	let release;
+	const gate = new Promise(resolve => { release = resolve; });
+	await withWorker({ maxConcurrent: 1, queueWaitMs: 250,
+		provider: { async synthesize() { calls++; await gate; return validSynthesis(); } },
+	}, async ({ baseUrl }) => {
+		const speak = (text, signal) => fetch(`${baseUrl}/v1/tts`, { method: 'POST', headers: ttsHeaders(), signal,
+			body: JSON.stringify({ ...ttsPayload(), text }) });
+		const first = speak('active');
+		try {
+			await eventually(() => calls === 1);
+			const cancellation = new AbortController();
+			const queued = speak('queued', cancellation.signal);
+			await eventually(async () => (await health(baseUrl)).queuedTts === 1);
+			cancellation.abort();
+			await assert.rejects(queued, { name: 'AbortError' });
+			await eventually(async () => (await health(baseUrl)).queuedTts === 0);
+			release();
+			assert.equal((await first).status, 200);
+			assert.equal(calls, 1);
+		} finally { release(); }
+	});
+});
+
+test('queued speech does not start a paid request after authentication failure opens the circuit', async () => {
+	let calls = 0;
+	let release;
+	const gate = new Promise(resolve => { release = resolve; });
+	await withWorker({ maxConcurrent: 1, queueWaitMs: 250,
+		provider: { async synthesize() { calls++; await gate; throw Object.assign(new Error('invalid key'), { code: 'TTS_AUTHENTICATION_FAILED' }); } },
+	}, async ({ baseUrl }) => {
+		const speak = text => fetch(`${baseUrl}/v1/tts`, { method: 'POST', headers: ttsHeaders(), body: JSON.stringify({ ...ttsPayload(), text }) });
+		const first = speak('first');
+		try {
+			await eventually(() => calls === 1);
+			const queued = speak('queued');
+			await eventually(async () => (await health(baseUrl)).queuedTts === 1);
+			release();
+			assert.equal((await first).status, 502);
+			assert.equal((await queued).status, 503);
+			assert.equal(calls, 1);
+		} finally { release(); }
+	});
+});
+
+test('expired queued recovery releases its circuit reservation without a provider call', async () => {
+	let clock = 0;
+	let calls = 0;
+	let release;
+	const gate = new Promise(resolve => { release = resolve; });
+	await withWorker({ maxConcurrent: 1, queueWaitMs: 30, now: () => clock,
+		provider: { async synthesize() { calls++; if (calls === 1) throw Object.assign(new Error('offline'), { code: 'TTS_UNAVAILABLE' }); return validSynthesis(); } },
+		sttProvider: { async transcribe() { await gate; return { transcript: '', confidence: 1 }; } },
+	}, async ({ baseUrl }) => {
+		const speak = text => fetch(`${baseUrl}/v1/tts`, { method: 'POST', headers: ttsHeaders(), body: JSON.stringify({ ...ttsPayload(), text }) });
+		assert.equal((await speak('first')).status, 502);
+		const speech = fetch(`${baseUrl}/v1/stt`, { method: 'POST', headers: sttHeaders(), body: Buffer.alloc(2) });
+		try {
+			await eventually(async () => (await health(baseUrl)).activeStt === 1);
+			clock = 1_000;
+			assert.equal((await speak('queued recovery')).status, 429);
+			assert.equal(calls, 1);
+			release(); await speech;
+			clock = 2_000;
+			assert.equal((await speak('retry after queue expiry')).status, 200);
+			assert.equal(calls, 2);
+		} finally { release(); }
+	});
+});
 
 test('local speech worker pipe failure rejects requests without crashing the coordinator', async () => {
 	const providerUrl = new URL('../src/voice/local-speech-provider.mjs', import.meta.url).href;
@@ -100,7 +490,7 @@ test('TTS lifecycle automatically probes and recovers while STT remains independ
 	});
 });
 
-test('fallback TTS health probes never allocate or persist a synthetic agent voice', async () => {
+test('providers without lightweight probes recover on real speech without synthetic voice allocation', async () => {
 	let syntheses = 0;
 	let profileResolutions = 0;
 	const profileStore = {
@@ -130,9 +520,16 @@ test('fallback TTS health probes never allocate or persist a synthetic agent voi
 			method: 'POST', headers: ttsHeaders(), body: JSON.stringify(ttsPayload()),
 		});
 		assert.equal(response.status, 502);
-		await eventually(() => worker.statusSnapshots().find(({ component }) => component === 'voice:tts').state === 'ready');
-		assert.equal(syntheses, 2, 'the provider receives one real request and one non-persisting probe');
-		assert.equal(profileResolutions, 1, 'only the real agent request consumes a stored profile');
+		await new Promise(resolve => setTimeout(resolve, 10));
+		assert.equal(syntheses, 1, 'idle recovery never synthesizes paid probe audio');
+		assert.equal(profileResolutions, 1, 'only authored speech resolves a stored profile');
+		const retry = await fetch(`http://127.0.0.1:${address.port}/v1/tts`, {
+			method: 'POST', headers: ttsHeaders(), body: JSON.stringify({ ...ttsPayload(), conversationSequence: 2 }),
+		});
+		assert.equal(retry.status, 200);
+		assert.equal(syntheses, 2, 'one controlled real request recovers the provider');
+		assert.equal(profileResolutions, 2);
+		assert.equal(worker.statusSnapshots().find(({ component }) => component === 'voice:tts').state, 'ready');
 	} finally {
 		await worker.close();
 	}
@@ -250,7 +647,7 @@ test('abort-ignoring provider probe never accumulates a replacement call', async
 	});
 });
 
-test('new real success recovers logically but a later failure replaces the generation with a hung probe', async () => {
+test('open circuit refuses real synthesis while a lightweight probe is in flight', async () => {
 	let synthesisCalls = 0;
 	let probes = 0;
 	let oldProbeAborted = false;
@@ -275,7 +672,7 @@ test('new real success recovers logically but a later failure replaces the gener
 		},
 		initialProbeDelayMs: 5,
 		maxProbeDelayMs: 5,
-		probeTimeoutMs: 500,
+		probeTimeoutMs: 20,
 	}, async ({ worker, baseUrl }) => {
 		worker.onFailure((error) => { terminalFailure = error; });
 		const first = await fetch(`${baseUrl}/v1/tts`, {
@@ -286,12 +683,8 @@ test('new real success recovers logically but a later failure replaces the gener
 		const success = await fetch(`${baseUrl}/v1/tts`, {
 			method: 'POST', headers: ttsHeaders(), body: JSON.stringify({ ...ttsPayload(), text: 'real success', conversationSequence: 2 }),
 		});
-		assert.equal(success.status, 200);
-		assert.equal(oldProbeAborted, true);
-		const secondFailure = await fetch(`${baseUrl}/v1/tts`, {
-			method: 'POST', headers: ttsHeaders(), body: JSON.stringify({ ...ttsPayload(), text: 'second failure', conversationSequence: 3 }),
-		});
-		assert.equal(secondFailure.status, 502);
+		assert.equal(success.status, 503);
+		assert.equal(synthesisCalls, 1, 'real traffic cannot overlap an unresolved health probe');
 		await eventually(() => terminalFailure !== null);
 		assert.equal(terminalFailure.code, 'TTS_PROVIDER_STALLED');
 		assert.equal(probes, 1, 'the unresolved physical probe prevents another call on this provider generation');
@@ -301,14 +694,16 @@ test('new real success recovers logically but a later failure replaces the gener
 	});
 });
 
-test('repeated real recovery cannot accumulate abort-ignoring physical probes', async () => {
+test('repeated real traffic cannot accumulate synthesis or abort-ignoring health probes while open', async () => {
 	let probes = 0;
+	let synthesisCalls = 0;
 	let terminalFailures = 0;
 	let releaseProbe;
 	const hungProbe = new Promise((resolve) => { releaseProbe = resolve; });
 	const worker = createVoiceHttpServer({
 		provider: {
 			async synthesize({ text }) {
+				synthesisCalls++;
 				if (text.startsWith('failure')) throw Object.assign(new Error('temporary TTS failure'), { code: 'TTS_UNAVAILABLE' });
 				return validSynthesis();
 			},
@@ -322,7 +717,7 @@ test('repeated real recovery cannot accumulate abort-ignoring physical probes', 
 		secret: SECRET,
 		initialProbeDelayMs: 5,
 		maxProbeDelayMs: 5,
-		probeTimeoutMs: 500,
+		probeTimeoutMs: 20,
 		port: 0,
 	});
 	worker.onFailure((error) => {
@@ -340,21 +735,23 @@ test('repeated real recovery cannot accumulate abort-ignoring physical probes', 
 		const recovered = await fetch(`${baseUrl}/v1/tts`, {
 			method: 'POST', headers: ttsHeaders(), body: JSON.stringify({ ...ttsPayload(), text: 'success-0', conversationSequence: 2 }),
 		});
-		assert.equal(recovered.status, 200);
-		assert.equal(worker.statusSnapshots().find(({ component }) => component === 'voice:tts').state, 'ready');
+		assert.equal(recovered.status, 503);
+		assert.equal(worker.statusSnapshots().find(({ component }) => component === 'voice:tts').state, 'degraded');
 
 		for (let cycle = 1; cycle <= 110; cycle += 1) {
 			const failed = await fetch(`${baseUrl}/v1/tts`, {
 				method: 'POST', headers: ttsHeaders(),
 				body: JSON.stringify({ ...ttsPayload(), text: `failure-${cycle}`, conversationSequence: cycle * 2 + 1 }),
 			});
-			assert.equal(failed.status, 502);
+			assert.equal(failed.status, 503);
 			const success = await fetch(`${baseUrl}/v1/tts`, {
 				method: 'POST', headers: ttsHeaders(),
 				body: JSON.stringify({ ...ttsPayload(), text: `success-${cycle}`, conversationSequence: cycle * 2 + 2 }),
 			});
-			assert.equal(success.status, 200);
+			assert.equal(success.status, 503);
 		}
+		assert.equal(synthesisCalls, 1, 'only the initial authored request invokes synthesis');
+		await eventually(() => terminalFailures === 1);
 		assert.equal(probes, 1, 'one exact provider generation owns at most one unsettled probe');
 		assert.equal(terminalFailures, 1, 'the stalled generation requests one worker replacement');
 		assert.equal(worker.statusSnapshots().find(({ component }) => component === 'voice:tts').state, 'degraded');
@@ -676,7 +1073,7 @@ test('voice worker enforces its shared TTS and STT concurrency limit', async () 
 		});
 		await started;
 		const second = await fetch(`${baseUrl}/v1/tts`, {
-			method: 'POST', headers: ttsHeaders(), body: JSON.stringify({ ...ttsPayload(), conversationSequence: 2 }),
+			method: 'POST', headers: ttsHeaders(), body: JSON.stringify({ ...ttsPayload(), text: 'A distinct capacity miss.', conversationSequence: 2 }),
 		});
 		assert.equal(second.status, 429);
 		assert.equal((await second.json()).code, 'TTS_CAPACITY');
@@ -1065,10 +1462,12 @@ test('abort-ignoring TTS exhausts physical capacity once and fences the worker g
 });
 
 test('STT timeout retains its shared slot until abort-ignoring transcription settles', async () => {
+	let recoveryClock = 0;
 	let releaseLate;
 	const late = new Promise((resolve) => { releaseLate = resolve; });
 	let first = true;
 	await withWorker({
+		now: () => recoveryClock,
 		maxConcurrent: 1,
 		requestTimeoutMs: 20,
 		sttPlayerMinIntervalMs: 1,
@@ -1089,6 +1488,7 @@ test('STT timeout retains its shared slot until abort-ignoring transcription set
 		releaseLate({ transcript: 'late', confidence: 1 });
 		await eventuallyActive(baseUrl, 0);
 		await new Promise((resolve) => setTimeout(resolve, 2));
+		recoveryClock = 1_000;
 		const recovered = await fetch(`${baseUrl}/v1/stt`, {
 			method: 'POST', headers: sttHeaders({ 'X-Utterance-Sequence': '2' }), body: Buffer.alloc(2),
 		});
@@ -1097,10 +1497,12 @@ test('STT timeout retains its shared slot until abort-ignoring transcription set
 });
 
 test('TTS timeout releases its slot and fences a late synthesis result from cache', async () => {
+	let recoveryClock = 0;
 	let calls = 0;
 	let releaseLate;
 	const late = new Promise((resolve) => { releaseLate = resolve; });
 	await withWorker({
+		now: () => recoveryClock,
 		maxConcurrent: 1,
 		sttPlayerMinIntervalMs: 1,
 		requestTimeoutMs: 20,
@@ -1124,6 +1526,7 @@ test('TTS timeout releases its slot and fences a late synthesis result from cach
 		assert.equal(timedOut.status, 504);
 		await eventuallyActive(baseUrl, 0);
 
+		recoveryClock = 1_000;
 		const healthy = await fetch(`${baseUrl}/v1/tts`, {
 			method: 'POST', headers: ttsHeaders(), body: JSON.stringify({ ...ttsPayload(), text: 'healthy' }),
 		});
@@ -1138,8 +1541,10 @@ test('TTS timeout releases its slot and fences a late synthesis result from cach
 });
 
 test('STT provider errors release the shared slot exactly once', async () => {
+	let recoveryClock = 0;
 	let calls = 0;
 	await withWorker({
+		now: () => recoveryClock,
 		maxConcurrent: 1,
 		sttProvider: { async transcribe() {
 			calls += 1;
@@ -1150,6 +1555,7 @@ test('STT provider errors release the shared slot exactly once', async () => {
 		const failed = await fetch(`${baseUrl}/v1/stt`, { method: 'POST', headers: sttHeaders(), body: Buffer.alloc(2) });
 		assert.equal(failed.status, 503);
 		assert.equal((await health(baseUrl)).active, 0);
+		recoveryClock = 1_000;
 		const recovered = await fetch(`${baseUrl}/v1/stt`, { method: 'POST', headers: sttHeaders({
 			'X-Player-Id': PLAYER_TWO, 'X-Utterance-Sequence': '2',
 		}), body: Buffer.alloc(2) });
@@ -1629,6 +2035,15 @@ test('Fish provider rejects odd-length PCM from the remote service', async () =>
 	});
 });
 
+test('Fish provider keeps a paid 42 second line instead of discarding it at 20 seconds', async () => {
+	const provider = new FishTtsProvider({
+		apiKey: 'fish-test-token',
+		fetchImpl: async () => new Response(Buffer.alloc(44_100 * 2 * 42), { status: 200 }),
+	});
+	const audio = await provider.synthesize({ text: 'a'.repeat(280), voiceId: 'voice-id', speed: 0.5 });
+	assert.equal(audio.pcm.length, 44_100 * 2 * 42);
+});
+
 test('Fish provider preserves rate-limit retry metadata', async () => {
 	const provider = new FishTtsProvider({
 		apiKey: 'fish-test-token',
@@ -1740,6 +2155,12 @@ async function withWorker(options, verification) {
 	const worker = createVoiceHttpServer({
 		provider: options.provider ?? { async synthesize() { return validSynthesis(); } },
 		sttProvider: options.sttProvider,
+		fishProvider: options.fishProvider,
+		now: options.now,
+		scheduleProbe: options.scheduleProbe,
+		cancelProbe: options.cancelProbe,
+		interactiveTtsTimeoutMs: options.interactiveTtsTimeoutMs ?? 2_000,
+		queueWaitMs: options.queueWaitMs ?? 0,
 		profileStore: new VoiceProfileStore(),
 		secret: SECRET,
 		maxConcurrent: options.maxConcurrent,
@@ -1926,4 +2347,16 @@ test('a signed voice request cannot be replayed while its timestamp is still val
 	} finally {
 		Date.now = realNow;
 	}
+});
+
+test('a probe deadline may be as long as a request deadline, so a slow local reload can finish', () => {
+	const options = probeTimeoutMs => ({
+		provider: { async synthesize() { return validSynthesis(); } },
+		sttProvider: { async transcribe() { return { transcript: '', confidence: 1 }; } },
+		profileStore: { resolve() { return builtInProbeProfile(); } },
+		secret: SECRET,
+		probeTimeoutMs,
+	});
+	assert.doesNotThrow(() => createVoiceHttpServer(options(600_000)));
+	assert.throws(() => createVoiceHttpServer(options(600_001)), /probeTimeoutMs must be between 1 and 600000/);
 });

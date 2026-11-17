@@ -36,11 +36,9 @@ export function adaptObservation(value) {
 	copyBoolean(playerSource, player, 'onGround');
 	copyBoolean(playerSource, player, 'inWater');
 	copyBoolean(playerSource, player, 'suffocating');
-	// Eyes under water and the seconds of breath left before drowning damage starts.
 	copyBoolean(playerSource, player, 'underWater');
 	copyNumber(playerSource, player, 'airSecondsLeft');
 	copyExtensions(playerSource, player, ['waterMotion', 'waterAbove', 'breathable']);
-	// Present (true) only while an operator's /takeover owns the body.
 	copyBoolean(playerSource, player, 'operatorControlled');
 	copyNumber(playerSource, player, 'fallDistance');
 	copyBoolean(playerSource, player, 'skyOpen');
@@ -118,7 +116,6 @@ export function adaptObservation(value) {
 		...(Object.hasOwn(source, 'interaction') ? { interaction: interactionFacts(source.interaction) } : {}),
 		// Structures, caves and ore veins in line of sight; the protocol already bounded and validated each row.
 		...(Object.hasOwn(source, 'sighted') ? { sighted: extensionValue(source.sighted, 'sighted') } : {}),
-		// The model's reflex rules as the mod runs them (state, firing, recent reports).
 		...(Object.hasOwn(source, 'reflexes') ? { reflexes: extensionValue(source.reflexes, 'reflexes') } : {}),
 	};
 }

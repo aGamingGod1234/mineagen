@@ -5,7 +5,6 @@ import { repairActionArguments } from '../src/action-argument-repairs.mjs';
 import { normalizeMinecraftToolCall } from '../src/native-minecraft-tools.mjs';
 
 test('dig_to reads "staircase" as stairs_down and a numeric heading as a yaw, and says so', () => {
-	// the recorded Oct 29 game: Sol sent pattern "staircase" and heading 180 twice each, and lost a turn to every rejection.
 	const repaired = repairActionArguments('dig_to', { pattern: 'staircase', y: 16, heading: 180 });
 	assert.equal(repaired.arguments.pattern, 'stairs_down');
 	assert.equal(repaired.arguments.heading, 'north');

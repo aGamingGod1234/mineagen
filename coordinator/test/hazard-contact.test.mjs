@@ -20,7 +20,6 @@ test('hazard contact means lava or touching fire, never fire resistance, a hot f
 	assert.equal(inHazardContact({ inLava: true }), true);
 	assert.equal(inHazardContact({ hazard: 'lava' }), true);
 	assert.equal(inHazardContact({ onFire: true, hazard: 'fire', exits: EXITS }), true, 'Minecraft names the fire block the body touches');
-	// Review r1 P2-3, measured live: magma gave inLava:false, onFire:false, hurtBy hot_floor and four exits.
 	assert.equal(inHazardContact({ inLava: false, onFire: false, hazard: 'hot_floor', hurtBy: 'hot_floor', exits: EXITS }), false,
 		'exits on magma are not proof of lava or fire');
 	assert.equal(inHazardContact({ onFire: true, exits: EXITS }), false, 'exits alone prove nothing');
@@ -255,7 +254,6 @@ test('lava contact while a tool runs is steered with that tool, never reissued',
 	}
 });
 
-// Review r1 P3-1 fixture: with a fixed control clock the turn starts with lava and exits already in its input.
 test('a call whose input already names the lava contact is steered, never cancelled', async () => {
 	const { planner, traces, run } = await launch({ initialLava: true, fixedClock: true });
 	try {
@@ -271,7 +269,6 @@ test('a call whose input already names the lava contact is steered, never cancel
 	}
 });
 
-// Review r1 P2-2 fixture: leaving and re-entering a pool three times used to cancel three generations.
 test('stepping in and out of a pool while escaping cancels one generation, then steers', async () => {
 	const { planner, run } = await launch();
 	try {
@@ -331,7 +328,6 @@ test('a folded lava hit flushed at a tool boundary steers and never cancels', as
 	}
 });
 
-// Review r2 P2-2: the contact can reach the turn as a tool result first, or only as one after the body left the lava.
 for (const observedFirst of [true, false]) {
 	test(`an IN_LAVA tool result makes the turn aware, observed first: ${observedFirst}`, async () => {
 		const { planner, run } = await launch({ holdToolInFirstTurn: true });

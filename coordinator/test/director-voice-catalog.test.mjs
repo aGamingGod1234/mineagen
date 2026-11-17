@@ -4,11 +4,11 @@ import test from 'node:test';
 import { directorVoiceProfiles, VoiceProfileStore } from '../src/voice/voice-profile-store.mjs';
 
 const ACTOR = '00000000-0000-4000-8000-000000000001';
-test('Director offers named Fish voices with distinct reference voices and descriptive labels', async () => {
+test('Voice catalog offers named Fish voices with distinct reference voices and descriptive labels', async () => {
   const choices = directorVoiceProfiles();
   assert.equal(choices.length, 6);
   assert.equal(new Set(choices.map(choice => choice.voiceId)).size, choices.length);
-  const java = await readFile(new URL('../../src/main/java/dev/agaminggod/arenaagents/server/voice/VoiceCatalog.java', import.meta.url), 'utf8');
+  const java = await readFile(new URL('../../src/main/java/dev/agaminggod/mineagen/server/voice/VoiceCatalog.java', import.meta.url), 'utf8');
   const store = new VoiceProfileStore();
   for (const choice of choices) {
     assert.match(choice.label, /^[A-Z][a-z]+ - .+, (male|female)$/);
@@ -22,7 +22,7 @@ test('Director offers named Fish voices with distinct reference voices and descr
 });
 
 
-test('every new Director choice crosses HTTP validation and reaches synthesis', async () => {
+test('every named voice choice crosses HTTP validation and reaches synthesis', async () => {
   const { createVoiceHttpServer, createVoiceRequestHeaders } = await import('../src/voice/voice-http-server.mjs');
   const references = [];
   const secret = 'director-catalog-fixture';
@@ -46,7 +46,7 @@ test('every new Director choice crosses HTTP validation and reaches synthesis', 
 });
 
 for (const mode of ['configured', 'missing', 'rejected']) {
- test(`Director Fish selection never substitutes Windows speech: ${mode}`, async () => {
+ test(`Named voice selection never substitutes Windows speech: ${mode}`, async () => {
   const { createVoiceHttpServer, createVoiceRequestHeaders } = await import('../src/voice/voice-http-server.mjs');
   let windowsCalls = 0, fishCalls = 0;
   const pcm = { sampleRateHz: 48000, channels: 1, sampleFormat: 's16le', pcm: Buffer.alloc(960) };

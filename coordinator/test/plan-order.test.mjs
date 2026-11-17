@@ -70,7 +70,6 @@ test('an unprovable manual step does not hold back the rods once the spawner is 
  const line = views.progress(record);
  assert.equal(opened(line)[0], 'blaze', line);
  assert.ok(planProgress(views.snapshot(record).plan).open.includes('cover'));
- // Without the spawner the rods stay closed behind it.
  assert.deepEqual(planProgress({ steps: [step('spawner', 'world', 'seen:minecraft:spawner'), step('cover', 'manual', null, ['spawner']), step('blaze', 'inventory', 'has:minecraft:blaze_rod*6', ['cover'])] }).open, ['spawner']);
 });
 

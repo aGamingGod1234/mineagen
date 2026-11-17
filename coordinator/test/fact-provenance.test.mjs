@@ -271,7 +271,6 @@ test('task-memory replay: a death in another dimension is still recalled after t
 	await restarted.flush();
 });
 
-// Review r1 findings: each replay failed on 41c248e1.
 const R1_CELL = { x: 20, y: 64, z: 0 };
 const r1Receipt = tick => ({ actionId: `place-${tick}`, actionType: 'place_block', arguments: { ...R1_CELL, itemId: table }, state: 'SUCCEEDED', reasonCode: 'BLOCK_PLACED',
 	observedAtEpochMs: tick * 50, actionObservation: { worldTick: tick, observedAtEpochMs: tick * 50 } });
@@ -375,7 +374,6 @@ test('r1-6 src names the evidence that supports the fact now, and death losses a
 	assert.deepEqual([death.src, death.lostSrc], ['seen 0s', 'inferred']);
 });
 
-// Review r2: one invariant per area, each over every consumer of that class. Each failed on 53474c6c.
 const R2 = { x: 20, y: 64, z: 0 };
 const r2Row = (blockId, clock = {}) => ({ ...R2, blockId, ...clock });
 const r2Scope = { agentId: 'a', goalRevision: 1, worldId: WORLD, dimension: OVERWORLD };
@@ -412,7 +410,6 @@ const CELL_CONSUMERS = {
 		holds: async () => (r.snapshot('a', live(1000))?.alreadyHaveFacts ?? []).some(e => e.kind === 'placed') } },
 };
 
-// A row may carry either clock or both, and they may disagree; any clock older than the fact keeps it (r3 #1).
 const OLDER_ROW_CLOCKS = [dated(10), { lastSeenTick: 10 }, { lastSeenTick: 10, observedAtEpochMs: 1500 }, { observedAtEpochMs: 500 }];
 
 test('r2 invariant: in every store, evidence dated before a fact cannot change it, while newer evidence can', async () => {
@@ -552,7 +549,6 @@ test('r2 invariant: what a restarted coordinator reads equals what the live one 
 	}
 });
 
-// Review r3: the four fixes in scope. Each failed on 3895983d.
 test('r3 a revival boundary is saved, so late death details are charged correctly on both sides of a restart', async t => {
 	for (const restart of [false, true]) for (const [label, diedAt, expected] of [['a later death', 7 * 50, []], ['the earlier death', 3 * 50, [{ itemId: table, count: 3 }]]]) {
 		const directory = await mkdtemp(join(tmpdir(), 'fact-revival-')); t.after(() => rm(directory, { recursive: true, force: true }));
@@ -612,7 +608,6 @@ test('r3 death counts merge exactly past any size: overlapping copies add nothin
 	for (const world of ['A', 'B', 'A', 'B']) { await views.observe(record, inWorld(world, 600)); await views.flush(); assert.equal(views.lifecycle(record).deaths, 257, `back in ${world}`); }
 });
 
-// Review r4: the two blockers. Each failed on 8d93d492.
 test('r4 legacy death records keep their identities when migrated, so overlapping copies from different runs add nothing', async t => {
 	// Records as the per-death-id format saved them: run 1 saved world A after death 1; run 2 restored it and saved B after death 2.
 	const savedA = { deaths: 1, deathIds: ['death-1'], dead: true, dimension: OVERWORLD, worldId: 'A', session: 'old-run-1' };
@@ -661,8 +656,6 @@ test('r4 a workstation receipt never takes a tick from another world; without it
 	}
 });
 
-// Follow-ups (pre-existing on base, documented in REPORT-r4): known failures kept visible instead of silently passing,
-// one case per test so each runs.
 const followupHolds = recovery => (recovery.snapshot('a', live(1000))?.alreadyHaveFacts ?? []).some(entry => entry.kind === 'placed');
 test('F2a a later air sighting raises the recovery disproof', () => {
 	const recovery = new RecoveryProgressStore();
@@ -904,7 +897,6 @@ test('F5 r4: a heartbeat during every lifecycle write cannot keep flush from ret
 		if (value?.book === undefined) return original.call(this, key, value);
 		bookWrites++;
 		const snapshot = structuredClone(value);
-		// The observation stream keeps going while the write is on disk; capped so the old drain loop also ends.
 		if (bookWrites < 50) await memory.observe(r2Scope, live(++tick, tables(2)));
 		return original.call(this, key, snapshot);
 	});

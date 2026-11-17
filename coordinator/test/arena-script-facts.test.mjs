@@ -1,3 +1,4 @@
+import { privateInputUrl } from '../scripts/private-inputs.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import test from 'node:test';
@@ -230,12 +231,10 @@ test('programs read the seen portal frame from world.state().portalFrames, empty
 	assert.deepEqual(createFactView(observation({ world: { dimension: 'minecraft:overworld' } })).world.state().portalFrames, []);
 });
 
-// Fact-copy cost (agent performance audit 2026-11-01): the trees are copied once and unchanged domains keep their
-// projection. These pin that the shortcuts give the same facts a fresh, unshared build gives.
 function recordedObservations() {
 	const files = (dir) => readdirSync(dir, { withFileTypes: true }).flatMap((entry) => entry.isDirectory()
 		? files(new URL(`${entry.name}/`, dir)) : entry.name.endsWith('.json') ? [new URL(entry.name, dir)] : []);
-	return files(new URL('fixtures/decision-eval/', import.meta.url))
+	return files(privateInputUrl('coordinator/test/fixtures/decision-eval/'))
 		.flatMap((file) => (JSON.parse(readFileSync(file, 'utf8')).cases ?? []).map((entry) => entry.state?.observation))
 		.filter((wire) => wire?.ready === true)
 		.flatMap((wire) => { try { return [adaptObservation(wire)]; } catch { return []; } });
@@ -261,7 +260,6 @@ test('facts chained to the previous sample equal a fresh build for every recorde
 		assert.deepStrictEqual(withoutClock(chained), withoutClock(fresh), `sample ${index}`);
 		assert.equal(isTrustedInterpreterFacts(chained), true);
 		if (index % 50 === 0) assertDeepFrozen(chained);
-		// An unchanged heartbeat in new objects is the same facts.
 		assert.equal(createInterpreterFacts(structuredClone(sample), chained), chained, `heartbeat ${index}`);
 		previous = chained;
 	}

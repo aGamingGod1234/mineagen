@@ -15,12 +15,6 @@ export const TOKEN_PRICES_PER_MILLION = Object.freeze({
 	'codex:gpt-6.1-sol': Object.freeze({ input: 2, cacheRead: 0.1, cacheWrite: 2.5, output: 10, tierMultiplier: 2 }),
 	'codex:gpt-6-sol': Object.freeze({ input: 2, cacheRead: 0.1, cacheWrite: 2.5, output: 10, tierMultiplier: 2 }),
 	'codex:gpt-6-luna': Object.freeze({ input: 0.1, cacheRead: 0.01, cacheWrite: 0.125, output: 0.5, tierMultiplier: 2 }),
-	'opencode:opencode/deepseek-v4.1-flash-free': Object.freeze({ input: 0, cacheRead: 0, cacheWrite: 0, output: 0, tierMultiplier: 1 }),
-	'opencode:opencode/glm-5.3-flash-free': Object.freeze({ input: 0, cacheRead: 0, cacheWrite: 0, output: 0, tierMultiplier: 1 }),
-	// OpenCode Go is a subscription with usage limits; these are the models.dev list prices of its models (2026-10-23), so a
-	// report shows how much of the Go allowance a suite used, in list-price dollars.
-	'opencode:opencode-go/deepseek-v4.1-flash': Object.freeze({ input: 0.15, cacheRead: 0.003, cacheWrite: 0.15, output: 0.6, tierMultiplier: 1 }),
-	'opencode:opencode-go/glm-5.3-flash': Object.freeze({ input: 0.15, cacheRead: 0.03, cacheWrite: 0.15, output: 0.5, tierMultiplier: 1 }),
 });
 
 const TOKEN_KEYS = Object.freeze(['input', 'cacheRead', 'cacheWrite', 'output']);

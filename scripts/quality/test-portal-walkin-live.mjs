@@ -26,7 +26,7 @@ if ((await readdir(out)).length) throw new Error('Use a fresh output directory')
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 const AGENT = 'Portal';
 const result = { cases: {} };
-const s = await boot(out, { jar: path.resolve(jarArg ?? path.join(root, 'build/libs/arena-agents-0.2.0.jar')), template, port, world: null, seed: '20261024' });
+const s = await boot(out, { jar: path.resolve(jarArg ?? path.join(root, 'build/libs/mineagen-0.2.0.jar')), template, port, world: null, seed: '20261024' });
 const ow = 'execute in minecraft:overworld run';
 const dimension = async () => String(await s.command(`data get entity ${AGENT} Dimension`)).match(/"([^"]+)"/)?.[1] ?? null;
 const pos = async () => String(await s.command(`data get entity ${AGENT} Pos`)).match(/\[\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?\]/)?.slice(1).map((v) => Math.round(Number(v) * 10) / 10) ?? null;
@@ -52,7 +52,6 @@ async function walkIn(name, start, target, expect) {
 	let entered = false;
 	for (let i = 0; i < 40 && !entered; i++) { entered = (await dimension()) === expect; if (!entered) await sleep(250); }
 	result.cases[name] = { move: r, dimension: await dimension(), at: await pos(), ok: entered };
-	// Back to the Overworld deck for the next case.
 	await s.command(`${ow} tp ${AGENT} 0.5 150 0.5`); await sleep(2500);
 }
 try {
@@ -82,7 +81,6 @@ try {
 	// End portal over lava: frame ring at y150, the agent on the deck 5 blocks west, targets the pool centre cell.
 	await endPool(20, 0, 'minecraft:lava');
 	await walkIn('end-lava', [14, 150, 1], { x: 21.5, y: 150, z: 1.5 }, 'minecraft:the_end');
-	// A model naming the portal block's integer cell.
 	await endPool(20, 0, 'minecraft:lava');
 	await walkIn('end-lava-cell', [14, 150, 1], { x: 21, y: 150, z: 1 }, 'minecraft:the_end');
 	await endPool(-30, 0, 'minecraft:air');
@@ -114,7 +112,6 @@ try {
 	await place(14, 150, 1);
 	result.cases.across = { move: brief(await s.act('move_to', { x: 27.5, y: 150, z: 1.5, tolerance: 0.6, sprint: false })), dimension: await dimension(), at: await pos() };
 	result.cases.across.ok = result.cases.across.dimension === 'minecraft:overworld';
-	// Lava: a target in a lava cell beside the deck is still refused.
 	await s.command(`${ow} setblock 16 149 6 minecraft:lava`);
 	await place(14, 150, 1);
 	result.cases.lava = { move: brief(await s.act('move_to', { x: 16.5, y: 149, z: 6.5, tolerance: 0.6, sprint: false })), dimension: await dimension(), at: await pos() };

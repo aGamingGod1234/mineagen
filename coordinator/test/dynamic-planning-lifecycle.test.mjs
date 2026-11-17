@@ -582,7 +582,7 @@ test('publishes a bootstrap catalog before slower full reconciliation completes'
 			providers: {
 				valid: reconciledRegistry.records,
 				invalid: [],
-				catalog: { refreshedAtEpochMs: 2, models: [{ provider: 'gemini', id: 'gemini-3.1-pro' }] },
+				catalog: { refreshedAtEpochMs: 2, models: [{ provider: 'claude', id: 'claude-opus-5-5' }] },
 			},
 		})) };
 	};
@@ -605,7 +605,7 @@ test('publishes a bootstrap catalog before slower full reconciliation completes'
 		);
 		// Every catalog carries one discovery row per registered provider, models grouped under their provider.
 		const firstProviders = bridge.sent.find((message) => message.type === 'catalog_snapshot').payload.providers;
-		assert.deepEqual(firstProviders.map((row) => row.id), ['codex', 'gemini', 'claude', 'opencode']);
+		assert.deepEqual(firstProviders.map((row) => row.id), ['codex', 'claude']);
 		assert.deepEqual(firstProviders.find((row) => row.id === 'codex').models.map((model) => model.id), ['gpt-5.6-luna']);
 		bridge.emit('conversation_wake', {
 			agentId: 'agent-a',
@@ -626,7 +626,7 @@ test('publishes a bootstrap catalog before slower full reconciliation completes'
 		await eventually(() => bridge.sent.filter((message) => message.type === 'catalog_snapshot').length === 2);
 		assert.deepEqual(
 			(({ providers, ...payload }) => payload)(bridge.sent.filter((message) => message.type === 'catalog_snapshot').at(-1).payload),
-			{ refreshedAtEpochMs: 2, models: [{ provider: 'gemini', id: 'gemini-3.1-pro' }] },
+			{ refreshedAtEpochMs: 2, models: [{ provider: 'claude', id: 'claude-opus-5-5' }] },
 		);
 	} finally {
 		releaseReconciliation();

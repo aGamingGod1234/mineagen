@@ -2,20 +2,7 @@ import { evaluatePlanCheck, planProgress } from './plan-checks.mjs';
 import { codePointLength } from './text-length.mjs';
 import { namedResources, resourceWays } from './need-sources.mjs';
 
-/**
- * Whether the plan is moving: facts for the model, never a choice. A plan step completing, or an unmet check term's
- * measurable value reaching a new best (a lower y on a y<= step, more held items, more frame obsidian, fewer standing
- * crystals), is progress. When none happens for NO_PROGRESS_MS, or one action keeps returning the same no-effect
- * result REPEAT_COUNT times, the task view states it once and asks for a wake.
- *
- * Thresholds are from recorded games (scripts/quality/progress-replay.mjs); the measured numbers are beside each.
- * The clock lives with the task view, not its saved file: a coordinator restart starts it again.
- */
-// 21 d13-d15 iron games (37 h) with a translator stage plan: 95% of the gaps between plan progress end within 4.8 min,
-// yet 59% of game time sits in gaps of 10+ min. 10 min gives 2.5 wakes/h (every game); 5 min 7.7/h, 15 min 1.6/h.
 export const NO_PROGRESS_MS = 10 * 60_000;
-// Same games: 8 identical no-effect results give 1.9 wakes/h (iron) and 1.3/h in 19 End games, including the two
-// caged-crystal episodes (shots into iron bars, d12-end-c and d12-end-f); 4 gives 13/h.
 export const REPEAT_COUNT = 8;
 const REPEAT_WINDOW_MS = 10 * 60_000;
 // A live check flickering at its threshold (y-50 / y-49 on a cave floor) is not a new completion each time.
@@ -202,7 +189,6 @@ function progressLine(state, focus, at) {
  return bound(`${head}; since then: ${since.join('; ')}`);
 }
 
-// Blocks every dig yields; summed so the items the time went to stay visible.
 const BULK = /^minecraft:(cobblestone|cobbled_deepslate|stone|deepslate|andesite|diorite|granite|tuff|calcite|dirt|coarse_dirt|gravel|sand|red_sand|sandstone|netherrack|basalt|blackstone|soul_sand|soul_soil|end_stone)$/;
 function inventoryDelta(before, after) {
  const totals = new Map();

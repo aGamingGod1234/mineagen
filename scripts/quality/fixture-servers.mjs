@@ -18,7 +18,7 @@
 //   discard       a case's world is thrown away unless kept (keepWorld, ARENA_FIXTURE_KEEP=1): its server is killed
 //                 without a save and its server folder deleted, so a world whose play never reached disk is never left
 //                 to inspect. A kept world is saved at stop. server.log next to the folder stays either way.
-// Prepared servers and worlds live under ARENA_FIXTURE_CACHE (default ~/.cache/arena-agents/fixtures).
+// Prepared servers and worlds live under ARENA_FIXTURE_CACHE (default ~/.cache/mineagen/fixtures).
 import { cp, mkdir, readdir, readFile, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
@@ -29,7 +29,7 @@ import path from 'node:path';
 /** Files a case may change stay copies; everything else is a link into the prepared server. */
 const COPIED = new Set(['server.properties', 'eula.txt']);
 
-export const fixtureCacheRoot = () => path.resolve(process.env.ARENA_FIXTURE_CACHE ?? path.join(homedir(), '.cache/arena-agents/fixtures'));
+export const fixtureCacheRoot = () => path.resolve(process.env.ARENA_FIXTURE_CACHE ?? path.join(homedir(), '.cache/mineagen/fixtures'));
 
 async function walk(dir, prefix = '') {
 	const files = [];
@@ -57,7 +57,7 @@ for kind in ('libraries', 'versions'):
 
 const prepared = new Map();
 export async function preparedServer(template) {
-	const files = (await walk(template)).filter(rel => !rel.split(path.sep).includes('world') && !rel.startsWith(`mods${path.sep}arena-agents-`)).sort();
+	const files = (await walk(template)).filter(rel => !rel.split(path.sep).includes('world') && !rel.startsWith(`mods${path.sep}mineagen-`)).sort();
 	const ids = [];
 	for (const rel of files) { const info = await stat(path.join(template, rel)); ids.push(`${rel}:${info.size}:${info.mtimeMs}`); }
 	const key = createHash('sha256').update(`${path.resolve(template)}\n${ids.join('\n')}`).digest('hex').slice(0, 24);
@@ -84,7 +84,7 @@ export async function stageServer(template, server, jar) {
 	if (process.env.ARENA_FIXTURE_COPY_TEMPLATE !== '1') ready = await preparedServer(template).catch(error => { console.log(`[fixture] template copied (${error.message})`); return null; });
 	if (!ready) {
 		await cp(template, server, { recursive: true });
-		for (const name of await readdir(path.join(server, 'mods'))) if (name.startsWith('arena-agents-')) await rm(path.join(server, 'mods', name));
+		for (const name of await readdir(path.join(server, 'mods'))) if (name.startsWith('mineagen-')) await rm(path.join(server, 'mods', name));
 	} else {
 		const dirs = new Set(ready.files.map(rel => path.dirname(rel)));
 		for (const rel of [...dirs].sort()) await mkdir(path.join(server, rel), { recursive: true });
@@ -94,7 +94,7 @@ export async function stageServer(template, server, jar) {
 			else await symlink(path.join(ready.dir, rel), path.join(server, rel));
 		}
 	}
-	await cp(jar, path.join(server, 'mods/arena-agents-0.2.0.jar'));
+	await cp(jar, path.join(server, 'mods/mineagen-0.2.0.jar'));
 }
 
 /** server.properties without the per-run ports and secret; the world cache keys on exactly this text. */
@@ -115,13 +115,12 @@ async function fileFingerprint(file) {
 
 /** The cache key: the Minecraft server, its mods, the arena jar and the generating properties (seed included). */
 export async function worldCacheKey({ template, jar, properties }) {
-	const mods = (await readdir(path.join(template, 'mods'))).filter(name => !name.startsWith('arena-agents-')).sort();
+	const mods = (await readdir(path.join(template, 'mods'))).filter(name => !name.startsWith('mineagen-')).sort();
 	const parts = { format: 1, server: await fileFingerprint(path.join(template, 'server.jar')), mods: {}, jar: await fileFingerprint(jar), properties };
 	for (const name of mods) parts.mods[name] = await fileFingerprint(path.join(template, 'mods', name));
 	return createHash('sha256').update(JSON.stringify(parts)).digest('hex').slice(0, 32);
 }
 
-/** The cached world for these settings, or where a fresh one should be saved. */
 export async function lookupWorld(settings) {
 	const key = await worldCacheKey(settings);
 	const dir = path.join(worldCacheRoot(), key);

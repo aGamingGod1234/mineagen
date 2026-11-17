@@ -54,7 +54,6 @@ function initialPlan(dir) {
 // onCommand(payload) for each dispatched action and onResult(payload, command) for each terminal result.
 export async function replay(dir, { plan = 'recorded', fromMin = 0, noProgressMin = null, repeatCount = null, onObservation = null, onCommand = null, onResult = null } = {}) {
 	let clock = 0;
-	// Every gap between plan progress and every no-effect repeat run, for choosing the thresholds.
 	const gaps = [], runs = new Map();
 	const progressTiming = { ...(noProgressMin === null ? {} : { noProgressMs: noProgressMin * 60_000 }), ...(repeatCount === null ? {} : { repeatCount }),
 		onGain: ({ at, from, step }) => gaps.push({ from, to: at, step }),
@@ -108,7 +107,7 @@ export async function replay(dir, { plan = 'recorded', fromMin = 0, noProgressMi
 			const event = turnEvents.shift();
 			// Recorded intents name the recorded plan's steps; against another plan they keep their words but no step id.
 			const intent = event.kind === 'intent' && fixed !== null ? { ...event.intent, step: `recorded-${event.intent.step}`.slice(0, 48) } : event.intent;
-			try { await views.operate(record, event.kind === 'intent' ? { operation: 'intent', intent } : { operation: 'replace', plan: event.plan }); } catch { /* an intent the build rejects is skipped */ }
+			try { await views.operate(record, event.kind === 'intent' ? { operation: 'intent', intent } : { operation: 'replace', plan: event.plan }); } catch {}
 		}
 		await views.observe(record, observation, wire);
 		observations++;

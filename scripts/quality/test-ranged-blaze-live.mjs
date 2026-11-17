@@ -1,13 +1,4 @@
 #!/usr/bin/env node
-// d41 ranged bar (bars/d41-ranged-1.json): use_ranged against natural AI blazes, 0 model calls.
-// Setup W: blaze on a 3x3 platform 3 above the feet, ~10 out, seen through build_shelter's 1x2 window.
-// Setup O: blaze on open ground 15 out. Each trial: fresh blaze, up to CALLS use_ranged calls with the deck-c6 model
-// arguments, the deck-c6-1 model reflex set armed, stop at kill. Hits are blaze health drops, not the bow's message.
-// MODE=volley (d41 ranged-loop): ONE use_ranged untilDead:true collect:true call per trial instead (bar: kill within 20 s
-// in >= 4/5 per setup; a dropped rod is picked up when reachable). Setup H (volley only): a NoAI blaze in the open, a
-// stone wall raised between after WALL_MS; the volley must stop about 3 s after the wall.
-// MODE=fight: one fight_target collect:true call with a diamond sword at a NoAI blaze on the open floor (setup F);
-// a dropped rod must be picked up.
 import { mkdir, writeFile } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -22,7 +13,6 @@ const MODE = process.env.MODE ?? 'single', WALL_MS = Number(process.env.WALL_MS 
 const hash = createHash('sha256'); for await (const chunk of createReadStream(jar)) hash.update(chunk);
 await mkdir(out, { recursive: true });
 const results = { kind: 'provider-free use_ranged vs AI blazes', mode: MODE, jar, jarSha256: hash.digest('hex'), trials: [] };
-// deck-c6-1 model rules (protocol reflex_update revision 1), lava rules dropped (no lava here).
 const RULES = [
  { id: 'blaze_shield', kind: 'stance', priority: 7, when: [{ type: 'hostile_near', within: 24, mobs: ['minecraft:blaze'] }], do: { type: 'shield' }, ttlS: 1200, wake: true },
  { id: 'incoming_shield', kind: 'trigger', priority: 8, when: [{ type: 'incoming_projectile', withinS: 2 }], do: { type: 'shield' }, ttlS: 1200, wake: true },

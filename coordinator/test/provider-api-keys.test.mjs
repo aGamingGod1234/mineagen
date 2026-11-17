@@ -1,7 +1,7 @@
 import { createCredentialLineRedactor, rememberCredential } from '../src/provider-key-redaction.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createProviderChildEnvironment } from '../src/provider-environment.mjs';
@@ -11,12 +11,10 @@ import { CodexService } from '../src/codex-service.mjs';
 import { FakeSharedTransport } from './fixtures/codex-service-fixture.mjs';
 import { resolveCodexLaunch } from '../src/codex-app-server.mjs';
 import { resolveClaudeLaunch } from '../src/claude-service.mjs';
-import { buildOpenCodeLaunch } from '../src/opencode-service.mjs';
-import { resolveAntigravityLaunch } from '../src/antigravity-service.mjs';
 import { sanitizeDiagnosticText, sanitizeDiagnosticErrorStack, sanitizeDiagnosticValue } from '../src/diagnostic-sanitizer.mjs';
 
 const key = 'synthetic-provider-key-9xYz';
-const variables = { codex: 'OPENAI_API_KEY', claude: 'ANTHROPIC_API_KEY', gemini: 'GEMINI_API_KEY', opencode: 'OPENCODE_API_KEY' };
+const variables = { codex: 'OPENAI_API_KEY', claude: 'ANTHROPIC_API_KEY' };
 const profile = { model: 'test-model', reasoningEffort: 'low', serviceTier: 'default' };
 
 test('API-key scan readiness requires a working installed CLI for every known provider', async () => {
@@ -45,10 +43,10 @@ test('stored-key launch environments reach only their CLI and Codex selects API 
 	const environment = { OPENAI_API_KEY: key, ANTHROPIC_API_KEY: key, OPENCODE_API_KEY: key, FISH_API_KEY: 'unrelated-key' };
 	const codex = resolveCodexLaunch({ ...profile, environment }, { platform: 'linux' });
 	const claude = resolveClaudeLaunch({ environment }, { platform: 'linux' });
-	const zen = buildOpenCodeLaunch({ executable: 'opencode', environment }, { directory: '/fake/work', configFile: '/fake/config', password: 'fake-password' });
-	for (const [provider, child] of [['codex', codex.environment], ['claude', claude.environment], ['opencode', zen.options.env]]) {
+	for (const [provider, child] of [['codex', codex.environment], ['claude', claude.environment]]) {
 		assert.equal(child[variables[provider]], key);
 		assert.equal(child.FISH_API_KEY, undefined);
+		assert.equal(child.OPENCODE_API_KEY, undefined);
 		for (const [other, variable] of Object.entries(variables)) if (other !== provider) assert.equal(child[variable], undefined);
 	}
 	assert.ok(codex.args.includes('cli_auth_credentials_store="ephemeral"'));
@@ -56,21 +54,6 @@ test('stored-key launch environments reach only their CLI and Codex selects API 
 	assert.equal(codex.args.join(' ').includes(key), false);
 	assert.equal(resolveCodexLaunch({ ...profile, environment: {} }, { platform: 'linux' }).args.includes('cli_auth_credentials_store="ephemeral"'), false);
 	assert.equal(createProviderChildEnvironment('codex', { CODEX_API_KEY: key }).OPENAI_API_KEY, key);
-});
-
-test('Antigravity uses a private Gemini API profile and removal restores original home', () => {
-	const root = mkdtempSync(path.join(os.tmpdir(), 'arena-key-agy-'));
-	try {
-		const source = { HOME: '/original-home', USERPROFILE: '/original-home', GEMINI_API_KEY: key, ARENA_PROVIDER_CREDENTIAL_ROOT: path.join(root, 'keys') };
-		const launch = resolveAntigravityLaunch({ environment: source }, { platform: 'linux' });
-		assert.notEqual(launch.environment.HOME, source.HOME);
-		const settings = readFileSync(path.join(launch.environment.HOME, '.gemini/antigravity-cli/settings.json'), 'utf8');
-		assert.deepEqual(JSON.parse(settings), { modelProvider: 'gemini' });
-		assert.equal(settings.includes(key), false);
-		assert.equal(launch.environment.GEMINI_API_KEY, key);
-		delete source.GEMINI_API_KEY;
-		assert.equal(resolveAntigravityLaunch({ environment: source }, { platform: 'linux' }).environment.HOME, '/original-home');
-	} finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test('raw API keys are redacted from scan output, diagnostic stacks and nested diagnostics', async () => {

@@ -1,0 +1,265 @@
+name: Release
+
+# Pushing the tag v<mod_version> to the public repository publishes a GitHub Release with the mod JARs for every
+# Minecraft target. The Windows package is attached later by its own job if it builds and passes its checks.
+# Run it by hand with a tag name for a dry run: everything builds and the files are kept as run artifacts, but no
+# release is created. The tag does not need to exist for a dry run.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to check against mod_version, for example v0.2.0. A dry run creates no release.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# One run per tag at a time; a second run waits instead of cancelling a release halfway.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+# Every job checks the repository, so the private source repository never builds or publishes a release.
+# Only the two jobs that call gh hold a write token, and they run no build code. In a dry run they only write
+# checksums and skip their gh step.
+# Release builds use no Actions cache, so nothing saved by another run ends up in a published file.
+# Tag pushes and manual runs only ever come from the repository itself, so the Linux jobs run on Boat, the rented
+# VM runner; the Windows job runs on GitHub's runner.
+jobs:
+  check-tag:
+    name: Check the tag
+    if: github.repository == 'aGamingGod1234/mineagen'
+    runs-on: boat
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check that the tag is v plus mod_version
+        id: version
+        env:
+          TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          version=$(sed -n 's/^mod_version=//p' gradle.properties | tr -d '\r')
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::mod_version '$version' in gradle.properties is not a release version"
+            exit 1
+          fi
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error::Tag '$TAG' does not match mod_version $version in gradle.properties; expected v$version"
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Release $TAG for mod_version $version"
+
+  jars:
+    name: Mod JARs for Minecraft ${{ matrix.mc }}
+    needs: check-tag
+    if: github.repository == 'aGamingGod1234/mineagen'
+    runs-on: boat
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        mc: ['26.1', '26.2', '26.3']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install locked coordinator dependencies
+        working-directory: coordinator
+        run: npm ci --ignore-scripts --omit=dev
+      - name: Fetch third-party mod JARs for ${{ matrix.mc }}
+        run: ./scripts/fetch-libs.sh ${{ matrix.mc }}
+      - name: Check, build and check mixin targets for ${{ matrix.mc }}
+        run: ./gradlew -Pmc=${{ matrix.mc }} check build verifyMixinTargets --no-daemon --console=plain
+      # The default target builds mineagen-<version>.jar and the others mineagen-<version>+mc<target>.jar. Every
+      # release file names its target, so a player can tell the three versions apart.
+      - name: Name the ${{ matrix.mc }} JARs for the release
+        env:
+          MC: ${{ matrix.mc }}
+          VERSION: ${{ needs.check-tag.outputs.version }}
+        run: |
+          default_mc=$(sed -n 's/^mc_compat=//p' gradle.properties | tr -d '\r')
+          built=$VERSION
+          if [ "$MC" != "$default_mc" ]; then built=$VERSION+mc$MC; fi
+          mkdir -p release
+          for jar in build/libs/mineagen voice-addon/build/libs/mineagen-voice; do
+            dir=${jar%/*}
+            base=${jar##*/}
+            others=$(find "$dir" -maxdepth 1 -name '*.jar' ! -name '*-sources.jar' ! -name "$base-$built.jar")
+            if [ -n "$others" ]; then
+              echo "::error::Unexpected JARs in $dir: $others"
+              exit 1
+            fi
+            cp "$dir/$base-$built.jar" "release/$base-$VERSION+mc$MC.jar"
+          done
+          ls -l release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jars-mc${{ matrix.mc }}
+          path: release/*.jar
+          if-no-files-found: error
+          retention-days: 3
+
+  release:
+    name: Publish the release
+    needs: [check-tag, jars]
+    if: github.repository == 'aGamingGod1234/mineagen'
+    runs-on: boat
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: jars-mc*
+          path: release
+          merge-multiple: true
+      - name: Write SHA256SUMS.txt
+        working-directory: release
+        run: |
+          sha256sum -- *.jar > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      # A dry run stops here. Tags cannot be moved, so a rerun must finish the same release: it replaces the files of
+      # an existing release instead of failing.
+      - name: Create the release and attach the JARs
+        if: github.event_name == 'push'
+        working-directory: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.check-tag.outputs.tag }}
+          VERSION: ${{ needs.check-tag.outputs.version }}
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" --clobber ./*.jar SHA256SUMS.txt
+            exit 0
+          fi
+          notes=$RUNNER_TEMP/release-notes.md
+          {
+            echo "## Which file to download"
+            echo
+            echo "- Windows: \`mineagen-modpack-$VERSION.zip\` for Minecraft 26.3, with an installer. A later job attaches it a few minutes after the release; if that build failed, it is missing and the JARs below still work."
+            echo "- Other systems or a manual install: the mod JAR for your Minecraft version. \`mineagen-$VERSION+mc26.3.jar\` is for 26.3, \`+mc26.2\` for 26.2 and \`+mc26.1\` for 26.1 to 26.1.2."
+            echo "- Optional voice add-on: \`mineagen-voice-$VERSION+mc<version>.jar\` for the same Minecraft version. It needs Simple Voice Chat."
+            echo "- \`SHA256SUMS.txt\` lists the SHA-256 checksum of each JAR."
+            echo
+          } > "$notes"
+          gh release create "$TAG" --verify-tag --generate-notes --title "Mineagen $VERSION" --notes-file "$notes" \
+            ./*.jar SHA256SUMS.txt
+
+  # Best effort: the release does not wait for this job. If it fails, the release keeps only the JARs.
+  windows-package:
+    name: Windows package
+    needs: check-tag
+    if: github.repository == 'aGamingGod1234/mineagen'
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Read release version
+        shell: powershell
+        run: |
+          $properties = ConvertFrom-StringData (Get-Content -LiteralPath .\gradle.properties -Raw)
+          "MOD_VERSION=$($properties.mod_version)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "DISTRIBUTION_NAME=mineagen-modpack-$($properties.mod_version)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Assemble pinned standalone Node runtime
+        shell: powershell
+        run: |
+          .\scripts\install-node-runtime.ps1 -ProjectRoot .
+          .\scripts\verify-startup-packaging.ps1 -PackageRoot .
+      - name: Fetch third-party mod JARs
+        shell: bash
+        run: ./scripts/fetch-libs.sh
+      # The Linux 26.3 JAR job runs check, so this job only assembles and packages before it verifies the ZIP.
+      - name: Package and verify the Windows ZIP
+        shell: powershell
+        run: |
+          .\scripts\test-minecraft-server-loopback-policy.ps1
+          .\scripts\test-runtime-target-isolation.ps1
+          .\gradlew.bat clean assemble packageWindowsDistribution --no-daemon --console=plain
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $builtMod = ".\build\libs\mineagen-$env:MOD_VERSION.jar"
+          $archive = ".\build\distributions\$env:DISTRIBUTION_NAME.zip"
+          .\scripts\verify-coordinator-packaging.ps1 -JarPath $builtMod
+          .\scripts\verify-distribution-runtime.ps1
+          .\scripts\test-install-normal-profile-update.ps1 -ProjectRoot .
+          $unpacked = Join-Path $env:RUNNER_TEMP 'mineagen-standalone'
+          Expand-Archive -LiteralPath $archive -DestinationPath $unpacked
+          $packagedMod = Join-Path $unpacked "mods\mineagen-$env:MOD_VERSION.jar"
+          if ((Get-FileHash -LiteralPath $packagedMod).Hash -ne (Get-FileHash -LiteralPath $builtMod).Hash) {
+            throw 'The standalone archive does not contain the built Mineagen mod.'
+          }
+          .\scripts\verify-coordinator-packaging.ps1 -JarPath $packagedMod
+          .\scripts\verify-startup-packaging.ps1 -PackageRoot $unpacked
+          .\scripts\verify-windows-distribution.ps1 -ArchivePath $archive -BuiltJarPath $builtMod
+          .\scripts\test-install-distribution.ps1 -PackageRoot $unpacked -JavaPath (Join-Path $env:JAVA_HOME 'bin\javaw.exe')
+      - name: Boot exact staged Fabric mod set
+        shell: powershell
+        run: |
+          .\scripts\prepare-headless-server-template.ps1 -ProjectRoot . -SkipBuild -AcceptMinecraftEula
+          .\scripts\verify-distribution-fabric-boot.ps1 `
+            -PackageRoot (Join-Path $env:RUNNER_TEMP 'mineagen-standalone') `
+            -ServerTemplate .\runtime\server-template `
+            -JavaPath (Join-Path $env:JAVA_HOME 'bin\java.exe')
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-package
+          path: build/distributions/${{ env.DISTRIBUTION_NAME }}.zip
+          if-no-files-found: error
+          retention-days: 3
+
+  attach-windows:
+    name: Attach the Windows package
+    needs: [check-tag, release, windows-package]
+    if: github.repository == 'aGamingGod1234/mineagen'
+    runs-on: boat
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-package
+          path: release
+      - name: Write the ZIP checksum
+        working-directory: release
+        env:
+          VERSION: ${{ needs.check-tag.outputs.version }}
+        run: |
+          zip=mineagen-modpack-$VERSION.zip
+          sha256sum "$zip" > "$zip.sha256"
+          cat "$zip.sha256"
+      # A dry run stops here.
+      - name: Attach the ZIP and its checksum
+        if: github.event_name == 'push'
+        working-directory: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.check-tag.outputs.tag }}
+          VERSION: ${{ needs.check-tag.outputs.version }}
+        run: |
+          zip=mineagen-modpack-$VERSION.zip
+          gh release upload "$TAG" --clobber "$zip" "$zip.sha256"

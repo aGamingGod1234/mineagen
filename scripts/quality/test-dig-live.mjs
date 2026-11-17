@@ -64,7 +64,7 @@ const results = [];
 const cases = [];
 for (const [index, raw] of spots.entries()) cases.push([index, raw, raw.checkpoint ? JSON.parse(await readFile(raw.checkpoint, 'utf8')) : null]);
 for await (const { item: [, raw, checkpoint], server: s, error: bootError } of warmBoots(cases, ([index, raw, checkpoint]) => ({ dir: path.join(out, `spot-${index}`),
-	options: { jar: path.resolve(jarArg ?? path.join(root, 'build/libs/arena-agents-0.2.0.jar')), template, port, world: null, seed: String(raw.seed ?? checkpoint?.seed), tickRate: fixtureTickRate(), worldCache: true } }))) {
+	options: { jar: path.resolve(jarArg ?? path.join(root, 'build/libs/mineagen-0.2.0.jar')), template, port, world: null, seed: String(raw.seed ?? checkpoint?.seed), tickRate: fixtureTickRate(), worldCache: true } }))) {
 	const seed = String(raw.seed ?? checkpoint?.seed);
 	const seedSpots = [{ ...raw, checkpointData: checkpoint }];
 	const startedAt = Date.now();
@@ -113,7 +113,6 @@ for await (const { item: [, raw, checkpoint], server: s, error: bootError } of w
 			results.push(row);
 			try {
 				if (spot.y !== undefined) {
-					// A start underground: carve a standing pocket (feet and head) on solid ground first.
 					const [cx, cz] = [Math.floor(setup.position[0]), Math.floor(setup.position[2])];
 					await s.command(`forceload add ${cx} ${cz}`);
 					for (let wait = 0; wait < 600 && !/time is/i.test(await s.command(`execute if loaded ${cx} 0 ${cz} run time query gametime`)); wait++) await sleep(100);
@@ -160,7 +159,6 @@ for await (const { item: [, raw, checkpoint], server: s, error: bootError } of w
 						actionType = 'travel_to';
 						args = { x: walkTo.x, y: walkTo.y, z: walkTo.z, tolerance: walkTo.tolerance, stopWhenSeen: 'minecraft:lava', timeoutMs: 180_000 };
 					} else if (variant && away) {
-						// Stuck over the same obstacle (a lava lake, an aquifer): tunnel 8 blocks off sideways first.
 						args = { pattern: 'tunnel', heading, maxBlocks: 16, timeoutMs: 600_000 };
 					} else if (variant && detour) {
 						args = { pattern: 'steep_down', y: Math.max(targetY, Math.floor(before.at?.[1] ?? 0) - 8), heading, timeoutMs: 600_000 };
@@ -205,7 +203,6 @@ for await (const { item: [, raw, checkpoint], server: s, error: bootError } of w
 						stuck = progressed || wasWalk || wasAway ? 0 : stuck + 1;
 						const reachedY = Math.floor(after.at?.[1] ?? 999) <= targetY;
 						if (variant === 'cave' && r.reasonCode === 'CAVE_OPENING' && !wasWalk) {
-							// The look round the cave: walk to lava seen there, else down to the lowest floor seen.
 							const floor = /lowest floor seen (-?\d+),(-?\d+),(-?\d+)/.exec(r.message ?? '');
 							if (lookLava) {
 								row.lavaTarget = lookLava.slice(1, 4).map(Number);
@@ -226,7 +223,6 @@ for await (const { item: [, raw, checkpoint], server: s, error: bootError } of w
 							continue;
 						}
 						if (r.reasonCode === 'TOOL_WORN' && /tool for minecraft:\w+_ore has/.test(r.message ?? '')) {
-							// An ore only the worn pickaxe harvests: kept for later, a short leg round it.
 							heading = TURN[heading];
 							detour = true;
 							continue;
@@ -243,11 +239,9 @@ for await (const { item: [, raw, checkpoint], server: s, error: bootError } of w
 							continue;
 						}
 						if (/under water|\(drown\)/.test(r.message ?? '')) { row.decision = r.reasonCode; break; }
-						// A lake or aquifer in the way: go round it.
 						if (/body of water/.test(r.message ?? '') && !wasAway) { heading = TURN[heading]; away = true; stuck = 0; continue; }
 						if (wasWalk || wasAway || ['DAMAGE_TAKEN', 'ACTION_TIMED_OUT', 'DIG_LIMIT_REACHED'].includes(r.reasonCode)) continue;
 						if (stuck >= 2) { heading = TURN[heading]; away = true; stuck = 0; continue; }
-						// A detour done, or a drop into a cave: the shaft goes on from here.
 						if (wasDetour && r.reasonCode === 'DIG_GOAL_REACHED' || r.reasonCode === 'CAVE_OPENING' && progressed && !wasDetour) continue;
 						// A stop with no way on down here: one short steep_down leg on a turned heading, then the shaft again.
 						heading = TURN[heading];

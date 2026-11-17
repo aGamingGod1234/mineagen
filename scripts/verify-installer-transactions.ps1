@@ -199,7 +199,7 @@ function New-RuntimeBundle([string] $Root, [string] $Version) {
 	$manifest = foreach ($relative in @('src/dynamic-main.mjs', 'config/dynamic-agents.json', 'package.json')) {
 		"$((Get-FileHash -LiteralPath (Join-Path $coordinator $relative) -Algorithm SHA256).Hash.ToLowerInvariant()) $relative"
 	}
-	Write-FixtureFile (Join-Path $coordinator '.arena-agents-bundle-manifest') (($manifest -join "`n") + "`n")
+	Write-FixtureFile (Join-Path $coordinator '.mineagen-bundle-manifest') (($manifest -join "`n") + "`n")
 }
 
 function Verify-OuterUndo([string] $Fault, [bool] $RetryViaUndo = $true) {

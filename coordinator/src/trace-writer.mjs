@@ -93,7 +93,6 @@ export class TraceWriter {
 		return Promise.resolve();
 	}
 
-	/** Writes bounded source for the agent-private diagnostic trace only. */
 	writeDiagnostic(eventOrRow, fields = {}) {
 		if (this.#closed) return Promise.resolve();
 		if (this.#diagnosticFilePath === null) return Promise.resolve();

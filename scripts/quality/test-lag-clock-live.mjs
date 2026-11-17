@@ -28,7 +28,7 @@ const strict = !cli.includes('--descriptive');
 const out = path.resolve(cli.filter(arg => !['--strict', '--descriptive'].includes(arg))[0] ?? 'runtime/lag-clock');
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port = Number(process.env.SLOT_PORT_BASE);
 if (!template || !port || !process.env.JAVA_HOME) { console.error(USAGE); process.exit(2); }
-const jar = path.resolve(process.env.ARENA_JAR ?? path.join(root, 'build/libs/arena-agents-0.2.0.jar'));
+const jar = path.resolve(process.env.ARENA_JAR ?? path.join(root, 'build/libs/mineagen-0.2.0.jar'));
 if (!existsSync(jar)) { console.error(`no jar at ${jar}`); process.exit(2); }
 const CASES = (process.env.CASES ?? 'travel,dig').split(',');
 const LAG = process.env.LAG ?? 'rate:10';
@@ -152,7 +152,6 @@ try {
 			console.log(`[lag] ${name} at 20 TPS: ${calibrate.reasonCode} in ${calibrate.gameMs} game ms (${calibrate.wallMs} wall ms), ${calibrate.progressBlocks} blocks`);
 			if (['TIMED_OUT', 'ERROR'].includes(calibrate.state) || !calibrate.gameMs) continue;
 			const lagged = await run(name, Math.round(calibrate.gameMs * 1.5), 'lagging');
-			// Finished as at 20 TPS: the same result code and as far.
 			lagged.sameAsNormal = lagged.reasonCode === calibrate.reasonCode && Math.abs((lagged.progressBlocks ?? 0) - (calibrate.progressBlocks ?? 0)) <= 1;
 			lagged.pass = lagged.sameAsNormal;
 			rows.push({ repeat, ...lagged });

@@ -123,7 +123,6 @@ function fmtP(p) {
 	return p < 0.001 ? p.toExponential(1) : p.toFixed(3);
 }
 
-// ---------- spot-check sampler ----------
 
 // Picks graded answers for human review: judge-graded and non-good answers first, spread across families, then good ones.
 export function selectSpotChecks(gradedRows, count = 12, seed = 11) {

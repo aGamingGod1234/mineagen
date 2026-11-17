@@ -11,8 +11,6 @@ import { runLong, parseLongArgs } from '../../scripts/quality/run-long.mjs';
 import { gatedSuiteRun } from '../../scripts/quality/run-generality.mjs';
 import { runScenarios } from '../../scripts/quality/run-scenarios.mjs';
 
-// This used to exit before launch even for the exact server-verifiable dragon goal.
-// Exercise real long owner, file ledger, scenario owner, gateway and settlement, with only the matrix/provider mocked.
 test('r6: strict long runner launches with no auxiliary allowance and counts every upstream request', async () => {
  const dir = await mkdtemp(path.join(os.tmpdir(), 'strict-launch-'));
  let scenarioReport;

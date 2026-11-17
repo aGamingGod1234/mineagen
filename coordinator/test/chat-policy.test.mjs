@@ -4,8 +4,6 @@ import { conversationWakes, canonicalConversationEntry } from '../src/conversati
 import { validateProtocolV2Payload } from '../src/protocol-v2.mjs';
 import { buildNativeEventInput, routinePerceptionChange } from '../src/dynamic-main.mjs';
 
-// the recorded chat policy (2026-10-11): all public chat is context only; a DM from anyone wakes the agent so it can
-// answer; only the operator's messages become tasks (Minecraft and takeTask enforce that part).
 const PLAYER = '11111111-1111-4111-8111-111111111111';
 const event = (kind, scope, extra = {}) => ({ sequence: 1, kind, sourceId: PLAYER, recipientId: 'agent-a', scope, text: 'hello',
 	goalRevision: 0, observedAtEpochMs: 1, ...extra });

@@ -92,7 +92,6 @@ export function deriveRecoveryFacts(record, observation = {}) {
 	return deriveRecovery(record, observation);
 }
 
-/** True when the payload carries world facts worth ingesting into recovery memory. */
 export function hasDurableObservationFacts(observation) {
 	if (observation === null || typeof observation !== 'object') return false;
 	return observation.death != null
@@ -105,7 +104,6 @@ export function hasDurableObservationFacts(observation) {
 		|| observation.world !== undefined;
 }
 
-/** Compatibility field only. Crafting decisions belong to the selected model. */
 export function doNotRedoFor() { return []; }
 
 function ingestObservation(record, observation) {

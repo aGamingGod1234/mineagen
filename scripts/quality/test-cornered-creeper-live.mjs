@@ -1,13 +1,4 @@
 #!/usr/bin/env node
-// Provider-free check that a cornered stand still flinches from a fusing creeper (PR #164 review, P1):
-// node scripts/quality/test-cornered-creeper-live.mjs OUT_DIR
-// This script stands in for the coordinator (no model call). It arms the coordinator's default reflexes and sends one
-// flee_from on an open stone floor. Slowness (fixture only) keeps the body from outrunning a 200-health zombie, so the
-// flee is pinned and turns into a stand. Once the stand is running, the slowness is cleared, the zombie's attack is set
-// to 0 and the body healed, so every point of health lost afterwards is the creeper's. A creeper is then summoned 10
-// blocks away; it walks up and fuses. A body that keeps fighting beside it takes the blast; default-creeper (sprint 8
-// blocks from a fusing creeper within 5) should take it out of range. Per run: blast damage, death, the flee result.
-// ARENA_JAR picks the jar; REPEATS (default 3). Launch under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME.
 import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,7 +10,7 @@ const root = fileURLToPath(new URL('../..', import.meta.url));
 const out = path.resolve(process.argv[2] ?? 'runtime/cornered-creeper-live');
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port = Number(process.env.SLOT_PORT_BASE);
 if (!template || !port || !process.env.JAVA_HOME) throw new Error('Launch under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME');
-const jar = path.resolve(process.env.ARENA_JAR ?? path.join(root, 'build/libs/arena-agents-0.2.0.jar'));
+const jar = path.resolve(process.env.ARENA_JAR ?? path.join(root, 'build/libs/mineagen-0.2.0.jar'));
 const REPEATS = Number(process.env.REPEATS ?? 3);
 await mkdir(out, { recursive: true });
 if ((await readdir(out)).length) throw new Error('Use a fresh output directory');
@@ -63,7 +54,6 @@ try {
 	const payload = book.payload(s.record.agentId);
 	await s.bridge.send('reflex_update', s.record.agentId, payload);
 	for (let i = 0; i < 50 && (await s.observe()).reflexes?.revision !== payload.revision; i++) await sleep(200);
-	// An open stone floor 41x41 at y100 with nothing above it.
 	await s.command('forceload add -330 -20 -270 40');
 	await s.command('fill -320 99 -10 -280 99 30 minecraft:stone');
 	await s.command('fill -320 100 -10 -280 110 30 minecraft:air');
