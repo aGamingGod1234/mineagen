@@ -3424,3 +3424,19 @@ test('provenance.issuer is sent only to a server that echoed actionIssuer in hel
 		assert.equal(sent.payload.provenance.issuer, echoed ? 'model' : undefined, echoed ? 'a server that echoed gets the issuer' : 'an older server never sees it');
 	}
 });
+
+test('the actionIssuer echo survives a fragmented registry snapshot', async (t) => {
+	const socket = new FakeSocket();
+	const bridge = new MultiplexedServerBridge({ port: 25570, secret: SECRET }, { socketFactory: () => socket, schedule: () => 1, cancelSchedule: () => {}, currentRevision: () => 4 });
+	t.after(() => bridge.stop());
+	bridge.start(); socket.emit('connect');
+	const hello = JSON.parse(socket.writes[0]);
+	const emit = (frames) => socket.emit('data', Buffer.from(frames.map((frame) => JSON.stringify(frame)).join('\n') + '\n'));
+	const completed = once(bridge, 'ready');
+	emit([serverEnvelope('hello_ack', 'server', 'registry-begin', { replyTo: hello.messageId, authenticated: true, registry: [], registryCount: 1, actionIssuer: true })]);
+	emit([serverEnvelope('registry_entry', 'agent-a', 'entry-1', registeredRecord())]);
+	emit([serverEnvelope('registry_complete', 'server', 'registry-end', { replyTo: 'registry-begin', count: 1 })]);
+	await completed;
+	await bridge.send('action_command', 'agent-a', { ...actionCommand('issuer-fragmented'), provenance: { ...PROVENANCE, issuer: 'guard' } });
+	assert.equal(JSON.parse(socket.writes.at(-1)).payload.provenance.issuer, 'guard');
+});

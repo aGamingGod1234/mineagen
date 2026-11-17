@@ -1638,9 +1638,11 @@ test('the dispatch chain is traced per call: journal, bridge send and the Java a
 	const actionId = sent[0][2].actionId;
 	assert.equal(runtime.onActionProgress(record(), { actionId, progress: 0.5, elapsedMs: 40, serverTick: 4_012 }), true);
 	const timing = { acceptedAtEpochMs: 1_760_000_000_010, startedAtEpochMs: 1_760_000_000_050, startedTick: 4_001, endedTick: 4_020 };
-	assert.equal(runtime.onActionResult(record(), { actionId, goalRevision: 3, state: 'SUCCEEDED', reasonCode: 'DONE', elapsedMs: 900, observedAtEpochMs: 1_760_000_000_950, timing }), true);
+	const pausedBy = { rules: [{ id: 'default-defend', times: 1 }], ms: 600, resumes: 1, endedPaused: false };
+	assert.equal(runtime.onActionResult(record(), { actionId, goalRevision: 3, state: 'SUCCEEDED', reasonCode: 'DONE', elapsedMs: 900, observedAtEpochMs: 1_760_000_000_950, timing, pausedBy }), true);
 	const modelResult = await pending;
 	assert.equal(modelResult.state, 'SUCCEEDED');
+	assert.equal(JSON.stringify(modelResult).includes('pausedBy'), false, 'pausedBy is for audits; the model result is unchanged');
 	assert.equal(Object.keys(modelResult).some((key) => key.startsWith('java') || key === 'timing'), false, 'the model never sees the latency clocks');
 	const by = (event) => traces.find(([name]) => name === event)[1];
 	for (const event of ['native_tool_dispatch_started', 'native_tool_journal_written', 'native_tool_command_sent']) assert.equal(by(event).callId, 'call-new', event);
