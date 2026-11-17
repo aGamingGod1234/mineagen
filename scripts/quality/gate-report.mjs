@@ -276,19 +276,25 @@ const firstRuns = (runs) => runs.filter((run, i) => runs.findIndex((other) => ot
 
 /**
  * Before → after on the seeds both cohorts ran, one run per seed on each side (its first); repeats are reported apart.
- * Seeds only one side ran are named as missing pairs.
+ * Seeds only one side ran are named as missing pairs. Each milestone pairs only the seeds whose first run measured it on
+ * both sides (a save-point game measures none), and names the paired seeds left out as unmeasured.
  */
 export function compare(before, after) {
 	const seedsA = new Set(before.runs.map((run) => run.seed)), seedsB = new Set(after.runs.map((run) => run.seed));
 	const paired = [...seedsA].filter((seed) => seedsB.has(seed));
 	const missingPairs = [...[...seedsA].filter((seed) => !seedsB.has(seed)).map((seed) => ({ seed, only: before.name })),
 		...[...seedsB].filter((seed) => !seedsA.has(seed)).map((seed) => ({ seed, only: after.name }))];
-	const a = funnel(firstRuns(before.runs).filter((run) => paired.includes(run.seed))), b = funnel(firstRuns(after.runs).filter((run) => paired.includes(run.seed)));
+	const firstA = firstRuns(before.runs).filter((run) => paired.includes(run.seed)), firstB = firstRuns(after.runs).filter((run) => paired.includes(run.seed));
 	const milestones = {};
 	for (const { key } of MILESTONES) {
-		if (!a[key] || !b[key]) continue;
-		const diff = b[key].reached - a[key].reached;
-		milestones[key] = { before: a[key].reached, after: b[key].reached, total: paired.length, diff, verdict: verdict(diff), beforeMedianMin: a[key].medianMin, afterMedianMin: b[key].medianMin };
+		const measured = (runs, seed) => runs.some((run) => run.seed === seed && key in run.milestones);
+		const both = paired.filter((seed) => measured(firstA, seed) && measured(firstB, seed));
+		if (both.length === 0) continue;
+		const a = funnel(firstA.filter((run) => both.includes(run.seed)))[key], b = funnel(firstB.filter((run) => both.includes(run.seed)))[key];
+		const diff = b.reached - a.reached;
+		const unmeasured = paired.filter((seed) => !both.includes(seed));
+		milestones[key] = { before: a.reached, after: b.reached, total: both.length, diff, verdict: verdict(diff), beforeMedianMin: a.medianMin, afterMedianMin: b.medianMin,
+			...(unmeasured.length ? { unmeasured } : {}) };
 	}
 	return { before: before.name, after: after.name, pairedSeeds: paired.length, missingPairs, milestones };
 }

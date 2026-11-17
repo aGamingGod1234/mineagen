@@ -175,6 +175,15 @@ test('a pair uses each seed\'s first run, so a cohort run twice gets no second c
 	assert.equal(compare(twice, once).milestones.ironPickaxe.before, 1);
 });
 
+test('a milestone pairs only seeds measured on both sides; a save-point game is left out, not counted as never reached', () => {
+	const fresh = (seed, iron) => ({ seed, milestones: { ironPickaxe: iron } });
+	const savePoint = (seed) => ({ seed, milestones: {} });
+	const before = { name: 'fresh', runs: ['1', '2', '3', '4'].map((seed) => fresh(seed, 10)) };
+	const after = { name: 'mixed', runs: [savePoint('1'), savePoint('2'), savePoint('3'), fresh('4', 12)] };
+	const result = compare(before, after);
+	assert.deepEqual(result.milestones.ironPickaxe, { before: 1, after: 1, total: 1, diff: 0, verdict: 'no change', beforeMedianMin: 10, afterMedianMin: 12, unmeasured: ['1', '2', '3'] });
+});
+
 test('scripted repeats are labelled scripted, and an unknown commit is not "mixed"', () => {
 	const product = { gate: { gate: 5, source: 'base', comparison: null, cohort: { label: 'x', commit: null, seeds: 8, mode: 'model', funnel: {}, deaths: 0, costUsd: 0 } },
 		repeats: { cohorts: [{ label: '#178 round 1', mode: 'scripted', windowMin: 15, seeds: 8, flipped: 3, milestones: ['ironPickaxe'] }] } };
