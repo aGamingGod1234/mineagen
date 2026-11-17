@@ -20,6 +20,7 @@ public final class TravelStallWatchVerification {
 		verifyStandingStill();
 		verifyWorkIsNotStanding();
 		verifyResets();
+		verifyBuildFirst();
 		return assertions;
 	}
 
@@ -60,6 +61,20 @@ public final class TravelStallWatchVerification {
 		check(watch.observe(351L, 0, 64, 0, 1L) == TravelStallWatch.Verdict.MOVED, "a fight, the portal wait or a reflex pause restarts the window");
 		check(watch.stillTicks(400L) == 49L, "still time counts from the restart");
 		check(watch.observe(352L, 0, 65.2D, 0, 1L) == TravelStallWatch.Verdict.MOVED, "a block up or down is movement");
+	}
+
+	/** With build on, the first stall at a spot turns the trip to building before it would have; a second one stops it. */
+	private static void verifyBuildFirst() {
+		check(TravelStallWatch.buildFirst(true, false, false, true, Double.POSITIVE_INFINITY), "first stall while walking legs: build on from here");
+		check(!TravelStallWatch.buildFirst(false, false, false, true, Double.POSITIVE_INFINITY), "build:false: stop with the reason");
+		check(!TravelStallWatch.buildFirst(true, true, false, true, Double.POSITIVE_INFINITY), "building refused here: stop");
+		check(!TravelStallWatch.buildFirst(true, false, true, true, Double.POSITIVE_INFINITY), "building was already due: stop");
+		check(!TravelStallWatch.buildFirst(true, false, false, false, Double.POSITIVE_INFINITY), "a build move that places nothing: stop");
+		check(!TravelStallWatch.buildFirst(true, false, false, true, 0.4D), "a second stall at the same spot: stop");
+		check(TravelStallWatch.buildFirst(true, false, false, true, 3.0D), "a new spot a few blocks on gets its own turn");
+		long turnThenStop = 2L * TravelStallWatch.WINDOW_TICKS;
+		System.out.printf("K4 metric: with build on and the build going nowhere either, the trip reports after %.1f s%n", turnThenStop / 20.0D);
+		check(turnThenStop * 50L < ServerTravelController.STALL_MS, "a turn to building and a second stall still report before the 60 s limit");
 	}
 
 	private interface Body { void at(long tick, double[] position); }

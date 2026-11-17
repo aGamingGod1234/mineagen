@@ -6,7 +6,10 @@ package dev.agaminggod.mineagen.server.runtime.controller;
  * trip's 60 s no-closer limit. Digging and building count apart from standing still: a body tunnelling, bridging or
  * pillaring moves slowly between blocks, and a hard block can take longer than the window to mine, so a placed block or
  * a tick of mining restarts the window. The window counts the trip's own ticks, so a reflex pause or server lag does
- * not trip it; {@link #reset} restarts it where the trip lets the body stand on purpose (a fight, the portal wait).
+ * not trip it; {@link #reset} restarts it where the trip lets the body stand on purpose (a fight, the portal wait) or
+ * hands the body to a dig_to staircase, which has its own stuck stops. The first stall at a spot, with build on and
+ * walking legs still to fail before the trip would build, turns the trip to building there instead of stopping
+ * ({@link #buildFirst}); a second stall stops it.
  */
 final class TravelStallWatch {
 	/** Feet this far from where the window started (any direction: a pillar or a staircase moves up or down) are moving. */
@@ -21,6 +24,15 @@ final class TravelStallWatch {
 	private long anchorTick;
 	private long lastWork;
 	private long workHolds;
+
+	/**
+	 * Whether a stall turns the trip to building instead of stopping it: building is allowed and not refused, the trip
+	 * has not reached its failed-leg count for building, it is walking legs or looking (not already building), and the
+	 * body is at least a block from where an earlier stall did the same.
+	 */
+	static boolean buildFirst(boolean build, boolean buildRefused, boolean buildingDue, boolean walking, double fromLastTurn) {
+		return build && !buildRefused && !buildingDue && walking && fromLastTurn >= MOVE_BLOCKS;
+	}
 
 	void reset() {
 		anchored = false;

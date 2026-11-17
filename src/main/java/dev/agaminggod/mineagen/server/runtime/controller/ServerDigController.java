@@ -267,8 +267,6 @@ public final class ServerDigController implements ServerController {
 	private final java.util.Map<java.util.UUID, double[]> hostileDistances = new java.util.HashMap<>();
 	private float startHealth = Float.NaN;
 	private int blocksMined;
-	/** Ticks spent with the attack held on the cell being mined. */
-	private int attackTicks;
 	private int steps;
 	private final Map<String, Integer> minedCounts = new LinkedHashMap<>();
 	private final Map<String, BlockPos> oresSeen = new LinkedHashMap<>();
@@ -701,7 +699,6 @@ public final class ServerDigController implements ServerController {
 				&& hit.getType() == HitResult.Type.BLOCK && hit.getBlockPos().equals(cell);
 		if (!onTarget && ++aimTicks > AIM_TICKS * 3) return stop(player, "DIG_STUCK", "The view did not settle on " + cell(cell));
 		applyInput(player, 0.0F, false, false, onTarget, yaw, pitch, selected);
-		if (onTarget) attackTicks++;
 		if (onTarget && ++miningTicks > 600) return stop(player, "DIG_STUCK", blockId(state) + " at " + cell(cell) + " did not break in 30 s");
 		return TickResult.running(progress(player));
 	}
@@ -1953,11 +1950,6 @@ public final class ServerDigController implements ServerController {
 			case TUNNEL -> maxBlocks <= 0 ? 0.0D : (double) blocksMined / maxBlocks;
 		};
 		return Math.max(0.0D, Math.min(0.99D, value));
-	}
-
-	/** Blocks mined plus ticks spent mining: rises while the dig works, even while the feet stay on one block. */
-	public int workDone() {
-		return blocksMined + attackTicks;
 	}
 
 	public Pattern pattern() {

@@ -153,10 +153,11 @@ public final class ServerTravelController implements ServerController {
 	private Set<GridPosition> portalCells;
 	private GridPosition portalCell;
 	private boolean portalLeg;
-	/** The stall watchdog, and the count it reads as work: blocks placed and ticks spent mining (the trip's or its staircase's). */
+	/** The stall watchdog, and the count it reads as work: blocks placed and ticks spent mining. */
 	private final TravelStallWatch stallWatch = new TravelStallWatch();
 	private long work;
-	private int digWork;
+	/** Where the first stall turned the trip to building (one turn per spot), or null. */
+	private Vec3 stallBuildAt;
 	private int portalTicks;
 	/** Ticks spent walking straight into the opening after the step in ended short of it. */
 	private int portalNudge;
@@ -304,8 +305,9 @@ public final class ServerTravelController implements ServerController {
 				if (trail.size() > TRAIL_CELLS) trail.removeFirst();
 			}
 		}
-		// A fight, the retreat watch and the portal wait stand still on purpose; each has its own limit.
-		boolean standsOnPurpose = phase == Phase.FIGHT || phase == Phase.WATCH || portalLeg;
+		// A fight, the retreat watch and the portal wait stand still on purpose, and a dig_to staircase has its own
+		// DIG_STUCK stops; each has its own limit.
+		boolean standsOnPurpose = phase == Phase.FIGHT || phase == Phase.WATCH || phase == Phase.DIG || portalLeg;
 		if (standsOnPurpose) stallWatch.reset();
 		TravelStallWatch.Verdict still = standsOnPurpose ? null : stallWatch.observe(ticks, position.x, position.y, position.z, work);
 		if (phase == Phase.FIGHT) return fightTick(player, nowEpochMs);
@@ -320,9 +322,21 @@ public final class ServerTravelController implements ServerController {
 		if (stop != null) return stop;
 		if (nowEpochMs - bestAt >= STALL_MS) return fail(player, buildRefusal == null ? "NO_ROUTE" : buildRefusalCode, "No closer to the target for " + STALL_MS / 1000 + " s"
 				+ (buildRefusal == null ? "" : "; building cannot continue: " + buildRefusal) + lastFailureText());
-		if (still == TravelStallWatch.Verdict.STALLED) return fail(player, "STALLED_IN_PLACE", String.format(Locale.ROOT,
-				"Feet moved %.1f blocks in %.0f s with no block placed or mined", stallWatch.moved(position.x, position.y, position.z),
-				TravelStallWatch.WINDOW_TICKS / 20.0D) + lastFailureText());
+		if (still == TravelStallWatch.Verdict.STALLED) {
+			if (TravelStallWatch.buildFirst(build, buildRefusal != null, failedLegs >= FAILED_LEGS_BEFORE_BUILD,
+					phase == Phase.PLAN || phase == Phase.LEG || phase == Phase.LOOK, stallBuildAt == null ? Double.POSITIVE_INFINITY : stallBuildAt.distanceTo(position))) {
+				// Legs and looks going nowhere before the failed legs that start building ran out: build on from here now.
+				stallBuildAt = position;
+				if (leg != null) leg.cancel(player);
+				leg = null;
+				releaseInput();
+				failedLegs = FAILED_LEGS_BEFORE_BUILD;
+				phase = Phase.PLAN;
+				stallWatch.reset();
+			} else return fail(player, "STALLED_IN_PLACE", String.format(Locale.ROOT,
+					"Feet moved %.1f blocks in %.0f s with no block placed or mined", stallWatch.moved(position.x, position.y, position.z),
+					TravelStallWatch.WINDOW_TICKS / 20.0D) + lastFailureText());
+		}
 		// The staircase has its own lava, water and cave rules; the walking lava guard would fight its keys.
 		if (phase == Phase.DIG) return digTick(player, nowEpochMs);
 		TickResult lava = lavaGuard(player, nowEpochMs);
@@ -890,10 +904,6 @@ public final class ServerTravelController implements ServerController {
 
 	private TickResult digTick(ServerPlayer player, long nowEpochMs) {
 		TickResult result = dig.tick(player, nowEpochMs);
-		if (dig instanceof ServerDigController staircase && staircase.workDone() != digWork) {
-			digWork = staircase.workDone();
-			work++;
-		}
 		if (result.state() == State.RUNNING) return TickResult.running(progress(player));
 		dig = null;
 		dugDown++;
