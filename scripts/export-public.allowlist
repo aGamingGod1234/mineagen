@@ -889,6 +889,7 @@ docs/agent-logo-skins.md
 docs/architecture.md
 docs/distribution/README.md
 docs/gameplay-friction/README.md
+docs/goal-progress.md
 docs/technical-catalogue/437-pov-reliability.md
 gradle.properties
 gradle/locks/26.1/mineagen.lockfile
