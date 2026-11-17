@@ -357,6 +357,8 @@ export const FAILURE_CODES = Object.freeze({
 	UNSAFE_MEMBER_ACCESS: ['rule', null],
 	UNSUPPORTED_SYNTAX: ['rule', null],
 	WATCHER_UNAUTHORIZED: ['rule', 'watcher handlers do not chat, finish or pause', ['this.#watcherExecution']],
+	// travel_to's stall watchdog: feet moved under a block in 10 s with no block placed or mined.
+	STALLED_IN_PLACE: ['cell', null],
 	TRAVEL_TIMEOUT: ['handle', 'the trip arrives before its timeoutMs', ['nowEpochMs - startedAt >= timeoutMs', 'result.reasonCode().equals("TRAVEL_TIMEOUT")']],
 	STANDING_ORDER_BODY_BUSY: ['handle', 'no other program owns the body', ['this.#programRuns.has(agentId)']],
 	ACTION_ALREADY_ACTIVE: ['handle', 'no other action of yours is in flight', ['actionInFlight']],
