@@ -152,7 +152,8 @@ test('water-5 fixture: a leg left in water with no bank in sight walks back out 
 	const body = fakeBody({ frontier: { candidates: [], coverage: { headings: {} } },
 		acts: { travel_to: [stuck, { result: { state: 'SUCCEEDED', reasonCode: 'ARRIVED' }, move: () => ({ x: 0.5, z: 0.5, inWater: false }) },
 			{ result: { state: 'SUCCEEDED', reasonCode: 'ARRIVED' }, move: (player) => ({ z: player.z + 80 }) }] },
-		looks: [{ survey: {} }, { survey: {} }, { survey: {} }, { survey: { blocks: [{ blockId: 'minecraft:oak_log', x: 3, y: 70, z: 90 }] } }] });
+		// Back at the start's cell the view is the one the first look took: no second look there (K1). The walk's look sees it.
+		looks: [{ survey: {} }, { survey: { blocks: [{ blockId: 'minecraft:oak_log', x: 3, y: 70, z: 90 }] } }] });
 	const result = await searchFor({ block: 'minecraft:oak_log' }, body);
 	const travels = body.calls.filter((call) => call.actionType === 'travel_to').map((call) => call.args);
 	assert.equal(travels[1].retrace, true, JSON.stringify(travels));
