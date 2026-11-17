@@ -939,6 +939,8 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 		const sky = body.openSky?.() ?? null, at = bodyAt(observation);
 		return sky !== null && at !== null && at.y >= sky.y - 2 && Math.hypot(sky.x - at.x, sky.z - at.z) <= 6;
 	};
+	// A mob search (no block id to stop at) also climbs out; its legs carry no stopWhenSeen and the watch sees for them.
+	const stopWhen = profile.stopId === undefined ? {} : { stopWhenSeen: profile.stopId };
 	const climbOut = async () => {
 		let retraces = MAX_RETRACE_TRIES, detour = false, stalls = 0, rosePastStop = false;
 		for (let climbs = 0; climbs < MAX_CLIMBS && stalls < 2 && left() >= MIN_LEG_MS && !outside(); climbs += 1) {
@@ -948,9 +950,9 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 			const rise = Math.min(detour ? DETOUR_RISE : CLIMB_LEG, Math.floor(withinReach()) - 2);
 			if (!back && rise < 1) return handBack('FAILED', 'FIND_NOT_FOUND', `Searched to ${within} blocks from the start`);
 			const outcome = back
-				? await leg('back up the way it came', 'travel_to', { x: sky.x, y: sky.y, z: sky.z, retrace: true, tolerance: 3, stopWhenSeen: profile.stopId })
+				? await leg('back up the way it came', 'travel_to', { x: sky.x, y: sky.y, z: sky.z, retrace: true, tolerance: 3, ...stopWhen })
 				: await leg(detour ? 'stairs up past where the way back stopped' : 'stairs up to the surface', 'dig_to', { pattern: 'stairs_up', y: Math.floor(at.y) + rise,
-					maxBlocks: 80, throughCaves: 'small', stopWhenSeen: profile.stopId, discard: DISCARD });
+					maxBlocks: 80, throughCaves: 'small', ...stopWhen, discard: DISCARD });
 			const ended = await settle(outcome);
 			if (ended !== null) return ended;
 			const after = bodyAt(observation);
@@ -991,10 +993,11 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 	// program made 140 NO_ROUTE legs looking for oak logs in the Nether. A block the game data does not place is unknown.
 	{
 		const here = bare(String(observation?.world?.dimension ?? ''));
-		const rows = profile.kind === 'block' && here !== '' ? [...profile.ids].map((one) => howtoIndex().worldgen[bare(one)]) : [];
+		const named = (name) => (name.startsWith('the_') ? name : `the_${name}`).replace(/_/g, ' ');
+		const rows = profile.kind === 'block' && ['overworld', 'the_nether', 'the_end'].includes(here) ? [...profile.ids].map((one) => howtoIndex().worldgen[bare(one)]) : [];
 		if (rows.length > 0 && rows.every((row) => Array.isArray(row?.d)) && !rows.some((row) => row.d.includes(here))) {
-			const where = [...new Set(rows.flatMap((row) => row.d))].map((name) => name.replace(/_/g, ' ')).join(' or ');
-			return handBack('FAILED', 'FIND_NOT_FOUND', `${profile.label} does not generate in the ${here.replace(/_/g, ' ')} (only in the ${where}), so no search here turns one up`);
+			const where = [...new Set(rows.flatMap((row) => row.d))].map(named).join(' or ');
+			return handBack('FAILED', 'FIND_NOT_FOUND', `${profile.label} does not generate in ${named(here)} (only in ${where}), so no search here turns one up`);
 		}
 	}
 	{

@@ -63,7 +63,7 @@ test('K1: a block that never generates in this dimension is refused at once, wit
 	const fake = body({ player: { x: 0.5, y: 70, z: 0.5 }, dimension: 'minecraft:the_nether' });
 	const result = await searchFor({ block: 'minecraft:oak_log' }, fake);
 	assert.equal(result.reasonCode, 'FIND_NOT_FOUND');
-	assert.match(result.message, /^oak_log does not generate in the the nether \(only in the overworld\)/);
+	assert.match(result.message, /^oak_log does not generate in the nether \(only in the overworld\), so no search here turns one up/);
 	assert.equal(fake.calls.length, 0, 'no look and no leg');
 	// Lava generates in the Nether; a block the game data does not place (a spawner) is never refused.
 	for (const block of ['minecraft:lava', 'minecraft:spawner']) {
@@ -71,6 +71,10 @@ test('K1: a block that never generates in this dimension is refused at once, wit
 		const outcome = await searchFor({ block }, other, { timeoutMs: 30_000 });
 		assert.ok(other.calls.length > 0, `${block}: ${outcome.message}`);
 	}
+	// A dimension the game data does not know (a datapack's) refuses nothing.
+	const modded = body({ player: { x: 0.5, y: 70, z: 0.5 }, dimension: 'example:mining', travel: () => ({ result: noRoute }) });
+	await searchFor({ block: 'minecraft:oak_log' }, modded, { timeoutMs: 30_000 });
+	assert.ok(modded.calls.length > 0, 'searched in an unknown dimension');
 	// Water in the End, a log the caller also accepts: refused only when none of the ids can be here.
 	assert.equal((await searchFor({ block: 'minecraft:water' }, body({ player: { x: 0.5, y: 70, z: 0.5 }, dimension: 'minecraft:the_end' }))).reasonCode, 'FIND_NOT_FOUND');
 	const stems = body({ player: { x: 0.5, y: 70, z: 0.5 }, dimension: 'minecraft:the_nether', travel: () => ({ result: noRoute }) });
@@ -87,6 +91,7 @@ test('K1: a tree or animal search under a roof climbs out before the surface leg
 		const moves = fake.calls.filter((call) => call.actionType);
 		assert.deepEqual([moves[0].actionType, moves[0].args.pattern], ['dig_to', 'stairs_up'], `${JSON.stringify(target)}: ${JSON.stringify(moves[0])}`);
 		assert.ok(moves.slice(1).some((call) => call.actionType === 'travel_to' && call.args.yaw !== undefined), 'then the surface legs');
+		assert.equal(Object.hasOwn(moves[0].args, 'stopWhenSeen'), target.block !== undefined, 'a mob climb names no block to stop at');
 	}
 	// The way the body came first, when the runtime knows the open sky it left.
 	const back = body({ player: { x: 0.5, y: 30, z: 0.5, skyOpen: false }, openSky: { x: 4.5, y: 68, z: 0.5 },
