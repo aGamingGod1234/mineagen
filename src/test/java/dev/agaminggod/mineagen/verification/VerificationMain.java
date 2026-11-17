@@ -273,6 +273,7 @@ public final class VerificationMain {
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.VeinSelectedToolInventoryVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.TravelStopsVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.TravelStallWatchVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.TravelStallTickVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.SwimOutVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.DoorNavigationVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.DigContinuationVerification.verify();

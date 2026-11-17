@@ -335,7 +335,7 @@ public final class ServerTravelController implements ServerController {
 				stallWatch.reset();
 			} else return fail(player, "STALLED_IN_PLACE", String.format(Locale.ROOT,
 					"Feet moved %.1f blocks in %.0f s with no block placed or mined", stallWatch.moved(position.x, position.y, position.z),
-					TravelStallWatch.WINDOW_TICKS / 20.0D) + lastFailureText());
+					TravelStallWatch.WINDOW_TICKS / 20.0D) + (buildRefusal == null ? "" : "; building cannot continue: " + buildRefusal) + lastFailureText());
 		}
 		// The staircase has its own lava, water and cave rules; the walking lava guard would fight its keys.
 		if (phase == Phase.DIG) return digTick(player, nowEpochMs);
