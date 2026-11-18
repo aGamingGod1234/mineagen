@@ -76,9 +76,11 @@ test('a death in one game reaches its respawn wake and the next game\'s wake as 
 	} finally { await rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }); }
 });
 
-test('a flee sent through the native tools is running when a skeleton kills the agent, and the review sees it', async () => {
+const SKELETON = { uuid: '00000000-0000-4000-8000-0000000000bb', type: 'minecraft:skeleton', name: 'Skeleton', distance: 9, position: { x: 9.5, y: 64, z: 0.5 }, hostile: true };
+
+/** A skeleton kills the agent while a flee it sent is outstanding; `between(run, flee, t0)` runs after the dispatch, `after` after the review. */
+async function fleeDeath({ between = async () => {}, after = async () => {} } = {}) {
 	const directory = await mkdtemp(join(tmpdir(), 'experience-coordinator-'));
-	const SKELETON = { uuid: '00000000-0000-4000-8000-0000000000bb', type: 'minecraft:skeleton', name: 'Skeleton', distance: 9, position: { x: 9.5, y: 64, z: 0.5 }, hostile: true };
 	try {
 		const t0 = Date.now(), registry = new AgentRegistry(), planner = new FakePlanner(registry), events = [];
 		planner.requestNativeTurn = async (request) => {
@@ -98,20 +100,51 @@ test('a flee sent through the native tools is running when a skeleton kills the 
 			observation.entities = [...observation.entities, SKELETON];
 			run.bridge.emit('observation', { agentId: 'agent-a', payload: observation });
 			await eventually(() => run.bridge.sent.some((m) => m.type === 'action_command' && m.payload.actionType === 'flee_from'));
+			const flee = run.bridge.sent.find((m) => m.type === 'action_command' && m.payload.actionType === 'flee_from');
+			await between(run, flee, t0);
 			// The skeleton kills the agent before the flee reports a result.
 			const death = { ...DEATH, cause: 'Probe was shot by Skeleton', gameMode: 'survival', diedAtEpochMs: Date.now() + 1 };
 			run.bridge.emit('goal_control', { agentId: 'agent-a', payload: { operation: 'dead', goalRevision: 1, updatedAtEpochMs: death.diedAtEpochMs, death } });
 			await eventually(() => events.some((e) => e.event === 'experience_death_reviewed'));
+			await after(run, flee, death.diedAtEpochMs);
+			await new Promise((resolve) => setTimeout(resolve, 50));
 		} finally { await run.coordinator.stop?.(); }
-		const reviewed = events.find((e) => e.event === 'experience_death_reviewed');
-		assert.ok(reviewed.running.includes('flee_from'), JSON.stringify(reviewed));
-		assert.ok(reviewed.lessons.includes('ranged-fled-in-open:mob=skeleton'), JSON.stringify(reviewed));
+		return { reviewed: events.find((e) => e.event === 'experience_death_reviewed'), recorded: events.filter((e) => e.event === 'experience_lesson_recorded').map((e) => e.lessonId) };
 	} finally { await rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }); }
+}
+
+test('a flee the body reported progress on is running when a skeleton kills the agent, and the review sees it', async () => {
+	const { reviewed } = await fleeDeath({ between: async (run, flee) => {
+		run.bridge.emit('action_progress', { agentId: 'agent-a', payload: { goalRevision: 1, actionId: flee.payload.actionId, commandId: flee.payload.actionId, actionType: 'flee_from', state: 'RUNNING', progress: 0.1, elapsedMs: 200, observedAtEpochMs: Date.now(), eventSequence: 2 } });
+		await new Promise((resolve) => setTimeout(resolve, 20));
+	} });
+	assert.ok(reviewed.running.includes('flee_from'), JSON.stringify(reviewed));
+	assert.ok(reviewed.lessons.includes('ranged-fled-in-open:mob=skeleton'), JSON.stringify(reviewed));
+});
+
+test('a flee the body shows as its current action is running when a skeleton kills the agent', async () => {
+	const { reviewed } = await fleeDeath({ between: async (run, flee, t0) => {
+		const observation = wire('game-one', t0 + 500, 2, { health: 10, zombie: false });
+		observation.entities = [...observation.entities, SKELETON];
+		observation.currentAction = { active: true, actionId: flee.payload.actionId, actionType: 'flee_from' };
+		run.bridge.emit('observation', { agentId: 'agent-a', payload: observation });
+		await new Promise((resolve) => setTimeout(resolve, 20));
+	} });
+	assert.ok(reviewed.running.includes('flee_from'), JSON.stringify(reviewed));
+	assert.ok(reviewed.lessons.includes('ranged-fled-in-open:mob=skeleton'), JSON.stringify(reviewed));
+});
+
+test('a flee with no start evidence, rejected by the server after the death review, never makes a "while fleeing" lesson', async () => {
+	const { reviewed, recorded } = await fleeDeath({ after: async (run, flee, diedAt) => {
+		run.bridge.emit('action_result', { agentId: 'agent-a', payload: { goalRevision: 1, actionId: flee.payload.actionId, commandId: flee.payload.actionId, actionType: 'flee_from', state: 'FAILED', reasonCode: 'AGENT_PLAYER_MISSING', message: 'rejected', elapsedMs: 0, executionStarted: false, physicalAttempted: false, observedAtEpochMs: diedAt + 50, eventSequence: 3 } });
+	} });
+	assert.deepEqual(reviewed.running, [], JSON.stringify(reviewed));
+	assert.deepEqual(reviewed.lessons, ['ranged-death:mob=skeleton'], JSON.stringify(reviewed));
+	assert.equal(recorded.some((id) => id.startsWith('ranged-fled-in-open')), false, JSON.stringify(recorded));
 });
 
 test('a flee that succeeded just before the death is not counted as running at it', async () => {
 	const directory = await mkdtemp(join(tmpdir(), 'experience-coordinator-'));
-	const SKELETON = { uuid: '00000000-0000-4000-8000-0000000000bb', type: 'minecraft:skeleton', name: 'Skeleton', distance: 9, position: { x: 9.5, y: 64, z: 0.5 }, hostile: true };
 	try {
 		const t0 = Date.now(), registry = new AgentRegistry(), planner = new FakePlanner(registry), events = [];
 		planner.requestNativeTurn = async (request) => {

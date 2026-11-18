@@ -32,6 +32,7 @@ async function playSkeletonDeath(directory, { worldId = 'world-one', seed = 'see
 	const memory = new RuntimeMemoryContext({ taskMemory: new TaskMemoryStore({ directory: null }), experience: experience(directory, { MINEAGEN_WORLD_SEED_HASH: seed }) });
 	memory.observe(record, observation(worldId, T0, { hostiles: ['skeleton'], health: 14, edible: 2 }));
 	await memory.recordDispatch(record, { actionId: 'flee-1', actionType: 'flee_from', goalRevision: 1, arguments: { targetId: '00000000-0000-4000-8000-000000000001', distance: 16, timeoutMs: 10000 } });
+	memory.noteProgress(record.agentId, { actionId: 'flee-1' });
 	memory.observe(record, observation(worldId, T0 + 3_000, { hostiles: ['skeleton'], health: 6, edible: 2 }));
 	memory.observe(record, { death: { cause: 'agent_name was shot by Skeleton', dimensionId: 'minecraft:overworld', x: 11, y: 64, z: -21, diedAtEpochMs: T0 + 6_000 } });
 	// A supervised retry replays the same death; it is reviewed once.
@@ -101,6 +102,7 @@ test('at most three lessons are shown, and carried lessons are trimmed first', (
 	const memory = new RuntimeMemoryContext({ taskMemory: new TaskMemoryStore({ directory: null }), experience: runtime });
 	memory.observe(record, observation('world-one', T0, { hostiles: ['skeleton', 'zombie', 'stray'], health: 6, edible: 0 }));
 	await memory.recordDispatch(record, { actionId: 'flee-1', actionType: 'flee_from', goalRevision: 1, arguments: { targetId: '00000000-0000-4000-8000-000000000001', distance: 16, timeoutMs: 10000 } });
+	memory.noteProgress(record.agentId, { actionId: 'flee-1' });
 	for (const [index, cause] of ['was shot by Skeleton', 'was slain by Zombie', 'was shot by Stray'].entries()) {
 		memory.observe(record, observation('world-one', T0 + 30_000 * index + 1_000, { hostiles: ['skeleton', 'zombie', 'stray'], health: 6, edible: 0 }));
 		memory.observe(record, { death: { cause: `x ${cause}`, dimensionId: 'minecraft:overworld', diedAtEpochMs: T0 + 30_000 * index + 16_000 } });
@@ -173,6 +175,7 @@ test('live observations that still name the last death keep feeding the history'
 	for (let index = 0; index < 3; index++) memory.observe(record, { ...observation('world-one', T0 + 40_000 + index * 1_000, { hostiles: ['skeleton'], health: 6, edible: 0 }), death });
 	await memory.flush();
 	await memory.recordDispatch(record, { actionId: 'flee-9', actionType: 'flee_from', goalRevision: 1, arguments: { targetId: '00000000-0000-4000-8000-000000000001', distance: 16, timeoutMs: 10000 } });
+	memory.noteProgress(record.agentId, { actionId: 'flee-9' });
 	memory.observe(record, { death: { cause: 'x was shot by Skeleton', dimensionId: 'minecraft:overworld', diedAtEpochMs: T0 + 64_000 } });
 	await memory.flush();
 	memory.observe(record, observation('world-one', T0 + 90_000, { hostiles: ['skeleton'], health: 6, edible: 0 }));
@@ -188,6 +191,7 @@ test('a long action counts as running for its own lease, and a death-caused resu
 	runtime.observe('agent-a', 'world-one', observation('world-one', T0, { dimension: 'minecraft:the_nether' }), T0);
 	// travel_to with no timeout runs up to 600 s; a lava death 150 s in still finds it running.
 	runtime.noteDispatch('agent-a', { actionId: 'travel-1', actionType: 'travel_to', arguments: { x: 100, y: 64, z: 100 } });
+	runtime.noteProgress('agent-a', { actionId: 'travel-1' });
 	await runtime.observe('agent-a', 'world-one', { death: { cause: 'x tried to swim in lava', dimensionId: 'minecraft:the_nether', diedAtEpochMs: T0 + 150_000 } }, T0 + 150_000);
 	// A flee the first death ended reports AGENT_DEAD after that review; it must not make the next death "while fleeing".
 	runtime.observe('agent-a', 'world-one', observation('world-one', T0 + 151_000, { hostiles: ['skeleton'] }), T0 + 151_000);
@@ -199,6 +203,7 @@ test('a long action counts as running for its own lease, and a death-caused resu
 	assert.deepEqual(reviewed[1].lessons, ['ranged-death:mob=skeleton']);
 	// An action with no result at all stops counting once its lease would have ended.
 	runtime.noteDispatch('agent-a', { actionId: 'flee-2', actionType: 'flee_from', arguments: { timeoutMs: 10_000 } });
+	runtime.noteProgress('agent-a', { actionId: 'flee-2' });
 	await runtime.observe('agent-a', 'world-one', { death: { cause: 'x was shot by Skeleton', dimensionId: 'minecraft:the_nether', diedAtEpochMs: T0 + 360_000 } }, T0 + 360_000);
 	assert.deepEqual(events.filter((event) => event.event === 'experience_death_reviewed')[2].running, []);
 }));
@@ -290,6 +295,7 @@ test('a replayed death keeps the recording on its own clock', () => withDirector
 	memory.observe(record, { death: { cause: 'x was slain by Zombie', dimensionId: 'minecraft:overworld', diedAtEpochMs: past + 5_000 } });
 	memory.observe(record, observation('world-one', past + 10_000, { hostiles: ['skeleton'] }));
 	await memory.recordDispatch(record, { actionId: 'flee-2', actionType: 'flee_from', goalRevision: 1, arguments: { targetId: '00000000-0000-4000-8000-000000000001', distance: 16, timeoutMs: 10000 } });
+	memory.noteProgress(record.agentId, { actionId: 'flee-2' });
 	memory.observe(record, { death: { cause: 'x was shot by Skeleton', dimensionId: 'minecraft:overworld', diedAtEpochMs: past + 15_000 } });
 	await memory.flush();
 	assert.ok(events.some((event) => event.event === 'experience_lesson_recorded' && event.rule === 'ranged-fled-in-open'), JSON.stringify(events.map((event) => event.rule)));
@@ -322,6 +328,7 @@ test('under byte pressure the summary keeps the best lesson, and only named less
 	const runtime = createExperience(experienceSettings({ MINEAGEN_EXPERIENCE: 'lessons', MINEAGEN_EXPERIENCE_DIR: directory, MINEAGEN_EXPERIENCE_PROFILE: 'p' }), { trace: (event, fields) => events.push({ event, ...fields }) });
 	runtime.observe('agent-a', 'world-one', observation('world-one', T0, { hostiles: ['skeleton', 'zombie'], health: 6, edible: 0 }), T0);
 	runtime.noteDispatch('agent-a', { actionId: 'flee-1', actionType: 'flee_from' });
+	runtime.noteProgress('agent-a', { actionId: 'flee-1' });
 	await runtime.observe('agent-a', 'world-one', { death: { cause: 'x was shot by Skeleton', dimensionId: 'minecraft:overworld', diedAtEpochMs: T0 + 15_000 } }, T0 + 15_000);
 	runtime.observe('agent-a', 'world-one', observation('world-one', T0 + 20_000, { hostiles: ['skeleton'], health: 6, edible: 0 }), T0 + 20_000);
 	const { ids, entries } = await runtime.lessonsFor('agent-a');
@@ -441,6 +448,7 @@ test('a flee that finished before the death, or a late result from an ended life
 	runtime.observe('agent-a', 'world-one', observation('world-one', T0, { hostiles: ['skeleton'] }), T0);
 	// Life one: a flee is running when a zombie kills the agent.
 	runtime.noteDispatch('agent-a', { actionId: 'flee-1', actionType: 'flee_from', arguments: { timeoutMs: 10_000 } });
+	runtime.noteProgress('agent-a', { actionId: 'flee-1' });
 	await runtime.observe('agent-a', 'world-one', { death: { cause: 'x was slain by Zombie', dimensionId: 'minecraft:overworld', diedAtEpochMs: T0 + 5_000 } }, T0 + 5_000);
 	// Its AGENT_DEAD arrives late (2.1 s after that death) and must stay with life one.
 	await runtime.noteResult('agent-a', { actionId: 'flee-1', actionType: 'flee_from', state: 'FAILED', reasonCode: 'AGENT_DEAD', executionStarted: true }, T0 + 7_100);
@@ -464,7 +472,31 @@ test('an observation with no time of its own leaves the review on the recording 
 	memory.observe(record, { ready: false, player: { dead: true } });
 	memory.observe(record, observation('world-one', past + 10_000, { hostiles: ['skeleton'] }));
 	await memory.recordDispatch(record, { actionId: 'flee-3', actionType: 'flee_from', goalRevision: 1, arguments: { targetId: '00000000-0000-4000-8000-000000000001', distance: 16, timeoutMs: 10000 } });
+	memory.noteProgress(record.agentId, { actionId: 'flee-3' });
 	memory.observe(record, { death: { cause: 'x was shot by Skeleton', dimensionId: 'minecraft:overworld', diedAtEpochMs: past + 15_000 } });
 	await memory.flush();
 	assert.ok(events.filter((event) => event.event === 'experience_death_reviewed')[1].lessons.includes('ranged-fled-in-open:mob=skeleton'));
+}));
+
+test('only body evidence for the same action id makes a dispatch count as running at a death', () => withDirectory(async (directory) => {
+	const events = [];
+	const runtime = createExperience(experienceSettings({ MINEAGEN_EXPERIENCE: 'lessons', MINEAGEN_EXPERIENCE_DIR: directory, MINEAGEN_EXPERIENCE_PROFILE: 'p' }), { trace: (event, fields) => events.push({ event, ...fields }) });
+	const reviewed = () => events.filter((event) => event.event === 'experience_death_reviewed').at(-1);
+	runtime.observe('agent-a', 'world-one', observation('world-one', T0, { hostiles: ['skeleton'] }), T0);
+	// Sent, never shown started: the server may still reject it after the review.
+	runtime.noteDispatch('agent-a', { actionId: 'flee-1', actionType: 'flee_from', arguments: { timeoutMs: 10_000 } });
+	// The body is running some other action: no evidence for this flee.
+	runtime.observe('agent-a', 'world-one', { ...observation('world-one', T0 + 1_000, { hostiles: ['skeleton'] }), currentAction: { active: true, actionId: 'dig-0', actionType: 'flee_from' } }, T0 + 1_000);
+	runtime.noteProgress('agent-a', { actionId: 'other' });
+	await runtime.observe('agent-a', 'world-one', { death: { cause: 'x was shot by Skeleton', dimensionId: 'minecraft:overworld', diedAtEpochMs: T0 + 3_000 } }, T0 + 3_000);
+	assert.deepEqual(reviewed().running, []);
+	assert.deepEqual(reviewed().lessons, ['ranged-death:mob=skeleton']);
+	// The observed current action names this flee: it started.
+	runtime.observe('agent-a', 'world-one', observation('world-one', T0 + 10_000, { hostiles: ['skeleton'] }), T0 + 10_000);
+	runtime.noteDispatch('agent-a', { actionId: 'flee-2', actionType: 'flee_from', arguments: { timeoutMs: 10_000 } });
+	runtime.observe('agent-a', 'world-one', { ...observation('world-one', T0 + 11_000, { hostiles: ['skeleton'] }), currentAction: { active: true, actionId: 'flee-2', actionType: 'flee_from' } }, T0 + 11_000);
+	await runtime.observe('agent-a', 'world-one', { death: { cause: 'x was shot by Skeleton', dimensionId: 'minecraft:overworld', diedAtEpochMs: T0 + 13_000 } }, T0 + 13_000);
+	assert.deepEqual(reviewed().running, ['flee_from']);
+	assert.deepEqual(reviewed().lessons, ['ranged-fled-in-open:mob=skeleton']);
+	await runtime.flush();
 }));

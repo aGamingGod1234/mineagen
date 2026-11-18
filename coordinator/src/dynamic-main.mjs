@@ -1303,6 +1303,11 @@ export class DynamicCoordinator extends EventEmitter {
 		});
 		this.#listen('action_progress', (message, connectionEpoch) => {
 			const lifecycleGeneration = this.#lifecycleGeneration(message.agentId);
+			// Progress for the live dispatch is the experience review's evidence that the body started it.
+			const admitted = this.#latestActionDispatches.get(message.agentId);
+			if (admitted?.connectionEpoch === connectionEpoch && admitted.actionId === message.payload?.actionId && admitted.goalRevision === message.payload?.goalRevision) {
+				this.#playerMemory.noteProgress(message.agentId, { actionId: admitted.actionId });
+			}
 			return this.#enqueueAgent(message.agentId, async () => {
 				const record = this.#registry.assertCurrentRevision(message.agentId, message.payload.goalRevision);
 				if (this.#usesNativeTools(record) && message.payload.actionObservation?.position !== undefined

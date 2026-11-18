@@ -106,6 +106,8 @@ for (const [index, gameDirectory] of positionals.entries()) {
 			} else if (envelope.type === 'action_command') {
 				await memory.recordDispatch(record, { actionId: payload.actionId, actionType: payload.actionType, goalRevision, arguments: payload.arguments ?? {} });
 				stats.dispatches += 1;
+			} else if (envelope.type === 'action_progress') {
+				memory.noteProgress(record.agentId, payload);
 			} else if (envelope.type === 'action_result') {
 				if (await memory.recordResult(record, payload)) stats.results += 1;
 			} else if (envelope.type === 'goal_control' && payload.operation === 'dead' && payload.death) {

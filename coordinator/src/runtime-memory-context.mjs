@@ -30,7 +30,7 @@ export class RuntimeMemoryContext {
 		for (const method of ['observe', 'summary', 'query', 'remember', 'flush']) if (typeof taskMemory?.[method] !== 'function') throw new TypeError(`taskMemory.${method} is required`);
 		this.#tasks = taskMemory;
 		this.#sessionId = boundedText(sessionId, 'sessionId', 128);
-		for (const method of ['observe', 'noteDispatch', 'noteResult', 'lessonsFor', 'markShown', 'flush']) if (experience !== null && typeof experience?.[method] !== 'function') throw new TypeError(`experience.${method} is required`);
+		for (const method of ['observe', 'noteDispatch', 'noteProgress', 'noteResult', 'lessonsFor', 'markShown', 'flush']) if (experience !== null && typeof experience?.[method] !== 'function') throw new TypeError(`experience.${method} is required`);
 		this.#experience = experience;
 	}
 	/** Summary options with this agent's matching lessons; without experience, exactly today's options. */
@@ -39,6 +39,8 @@ export class RuntimeMemoryContext {
 		const { entries } = await this.#experience.lessonsFor(agentId);
 		return { recoveryDeath, extraLessons: entries };
 	}
+	/** A body progress event: the dispatched action has started, so the death review may attribute a death to it. */
+	noteProgress(agentId, { actionId } = {}) { this.#experience?.noteProgress(agentId, { actionId }); }
 	/** An action sent outside recordDispatch (native tools journal straight to the notebook) still reaches the review. */
 	noteDispatch(agentId, { actionId, actionType, arguments: args } = {}) { this.#experience?.noteDispatch(agentId, { actionId, actionType, arguments: args }); }
 	/**
