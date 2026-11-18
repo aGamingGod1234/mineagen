@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { AtomicAgentStore } from './observed-memory-store.mjs';
-import { validSlots } from './experience-lessons.mjs';
+import { lessonId, validLesson } from './experience-lessons.mjs';
 
 // Experience that outlives one world: one player profile's lessons, written by the coordinator's own review of
 // deaths and failures (never by the model), and read back in later games by situation.
@@ -62,9 +62,12 @@ export function normalizeSeedHash(value) {
 export class ExperienceStore {
 	#settings; #directory; #disk; #loaded = null; #games = new Map(); #snapshotSha256 = null; #writeErrors = 0; #pendingWrites = new Set();
 	#current = new Map(); // gameHash -> this game's record (in memory; persisted unless frozen)
-	constructor(settings) {
+	#onError;
+	/** `onError(stage, error)` hears failed writes, so a lesson that never reached disk is not reported as learned. */
+	constructor(settings, { onError = null } = {}) {
 		if (settings === null || typeof settings !== 'object') throw new TypeError('experience settings are required');
 		this.#settings = settings;
+		this.#onError = typeof onError === 'function' ? onError : null;
 		this.#directory = join(settings.directory, `profile-${experienceHash(`profile:${settings.profile}`)}`);
 		this.#disk = new AtomicAgentStore({ directory: this.#directory, namespace: 'game', sync: false });
 	}
@@ -120,7 +123,7 @@ export class ExperienceStore {
 		requireHash(gameHash);
 		if (typeof id !== 'string' || id.length > 160 || typeof rule !== 'string' || !SLOT.test(rule)) throw new TypeError('lesson id and rule are required');
 		for (const value of Object.values(slots)) if (typeof value !== 'string' || !SLOT.test(value)) throw new TypeError('lesson slots must be vocabulary ids');
-		if (!validSlots(slots)) throw new TypeError('lesson slots must be vocabulary ids');
+		if (!validLesson(rule, slots) || id !== lessonId(rule, slots)) throw new TypeError('lesson slots must be vocabulary ids');
 		const game = this.#game(gameHash);
 		const existing = game.lessons[id];
 		if (existing === undefined && Object.keys(game.lessons).length >= MAX_LESSONS_PER_GAME) return 0;
@@ -158,17 +161,17 @@ export class ExperienceStore {
 		const carried = new Map();
 		// Earlier games: the snapshot read at load, plus games this process played before a world change.
 		for (const game of [...this.#games.values(), ...this.#current.values()]) {
-			if (game.game === gameHash) continue;
+			// A seedless or blocked game lends no evidence, and does not hide other games' evidence for the same lesson.
+			if (game.game === gameHash || !carryAllowed || game.seedHash === null || blocked.has(game.seedHash)) continue;
 			for (const [id, lesson] of Object.entries(game.lessons)) {
-				const entry = carried.get(id) ?? { id, rule: lesson.rule, slots: lesson.slots, games: 0, count: 0, shownGames: 0, repeatsAfterShown: 0, blocked: false };
+				const entry = carried.get(id) ?? { id, rule: lesson.rule, slots: lesson.slots, games: 0, count: 0, shownGames: 0, repeatsAfterShown: 0 };
 				entry.games += 1; entry.count += lesson.count; entry.repeatsAfterShown += lesson.repeatsAfterShown ?? 0;
-				if (!carryAllowed || game.seedHash === null || blocked.has(game.seedHash)) entry.blocked = true;
 				carried.set(id, entry);
 			}
 			for (const id of Object.keys(game.shown)) { const entry = carried.get(id); if (entry) entry.shownGames += 1; }
 		}
 		const own = this.#current.get(gameHash) ?? this.#games.get(gameHash);
-		const result = [...carried.values()].filter((entry) => !entry.blocked).map(({ blocked, ...entry }) => ({ ...entry, thisGame: own?.lessons[entry.id]?.count ?? 0 }));
+		const result = [...carried.values()].map((entry) => ({ ...entry, thisGame: own?.lessons[entry.id]?.count ?? 0 }));
 		// A lesson whose carried evidence is blocked (same or excluded seed) still stands on this game's own evidence.
 		const shown = new Set(result.map((entry) => entry.id));
 		for (const [id, lesson] of Object.entries(own?.lessons ?? {})) {
@@ -179,7 +182,7 @@ export class ExperienceStore {
 
 	#persist(game) {
 		if (this.#settings.frozen) return;
-		const pending = this.#disk.write(game.game, game).catch(() => { this.#writeErrors += 1; });
+		const pending = this.#disk.write(game.game, game).catch((error) => { this.#writeErrors += 1; try { this.#onError?.('write', error); } catch { /* reporting never throws */ } });
 		this.#pendingWrites.add(pending);
 		pending.finally(() => this.#pendingWrites.delete(pending));
 	}
@@ -194,9 +197,9 @@ function validGame(value) {
 	const lessons = {}, shown = {};
 	for (const [id, lesson] of Object.entries(value.lessons ?? {}).slice(0, MAX_LESSONS_PER_GAME)) {
 		if (id.length > 160 || typeof lesson?.rule !== 'string' || !SLOT.test(lesson.rule) || !Number.isSafeInteger(lesson.count) || lesson.count < 1) continue;
-		const slots = Object.fromEntries(Object.entries(lesson.slots ?? {}).filter(([key, slot]) => typeof slot === 'string' && SLOT.test(slot)));
-		// A slot outside its vocabulary (a player or name-tagged mob from an older file) drops the lesson.
-		if (!validSlots(slots)) continue;
+		const slots = lesson.slots && typeof lesson.slots === 'object' && !Array.isArray(lesson.slots) ? { ...lesson.slots } : {};
+		// The rule's exact slots from their vocabularies, and the key rebuilt from them; anything else drops the lesson.
+		if (!validLesson(lesson.rule, slots) || id !== lessonId(lesson.rule, slots)) continue;
 		lessons[id] = { rule: lesson.rule, slots, count: lesson.count, firstAtMs: lesson.firstAtMs ?? null, lastAtMs: lesson.lastAtMs ?? null,
 			...(Number.isSafeInteger(lesson.repeatsAfterShown) && lesson.repeatsAfterShown > 0 ? { repeatsAfterShown: lesson.repeatsAfterShown } : {}) };
 	}

@@ -1341,6 +1341,8 @@ export class DynamicCoordinator extends EventEmitter {
 				// Live correlation must not wait for disk. The retained server result is
 				// acknowledged separately, only after authoritative storage succeeds.
 				receipt = this.#queueReceiptReconciliation(message, connectionEpoch);
+				// The experience review sees the result now, not after the receipt is persisted, so a death right after it counts it.
+				this.#playerMemory.noteLiveResult(message.agentId, { ...message.payload, actionType: message.payload.actionType ?? dispatch?.actionType });
 				this.#decisionLog?.actionResult(message.agentId, message.payload);
 				try {
 					if (admittedRespawn) { this.emit('actionResult', message); return; }
@@ -3700,8 +3702,6 @@ export class DynamicCoordinator extends EventEmitter {
 			await this.#playerMemory.recordDispatch(this.#registry.assertCurrentRevision(agentId, payload.goalRevision), payload);
 		}
 		if (kind === 'native' && type === 'action_command') {
-			// Native actions journal straight to the notebook; the experience review still needs to see them start.
-			this.#playerMemory.noteDispatch(agentId, payload);
 			if (!this.#isConnectionEpochCurrent(connectionEpoch)) throw codedRuntimeError('STALE_SESSION', 'Action belongs to an obsolete connection');
 			const record = this.#registry.assertCurrentRevision(agentId, payload.goalRevision);
 			if (!this.#nativeRuntime.hasCurrent(record)) {
@@ -3726,6 +3726,8 @@ export class DynamicCoordinator extends EventEmitter {
 			if (target !== null && this.#usesNativeTools(record)) {
 				this.#trackOwnBreak(record, this.#lifecycleGeneration(agentId), connectionEpoch, (state) => startOwnBreak(state, payload.actionId, target));
 			}
+			// Native actions journal straight to the notebook; the experience review sees each one as it is sent.
+			this.#playerMemory.noteDispatch(agentId, payload);
 		}
 		return this.#sendForEpoch(connectionEpoch, type, agentId, payload);
 	}

@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { ExperienceStore, experienceHash, experienceSettings, normalizeSeedHash } from '../src/experience-store.mjs';
 
 const GAME_A = experienceHash('world:a'), GAME_B = experienceHash('world:b'), GAME_C = experienceHash('world:c');
-const lesson = { id: 'death:shot:skeleton:fleeing', rule: 'ranged-fled-in-open', slots: { mob: 'skeleton' } };
+const lesson = { id: 'ranged-fled-in-open:mob=skeleton', rule: 'ranged-fled-in-open', slots: { mob: 'skeleton' } };
 
 async function withDirectory(run) {
 	const directory = await mkdtemp(join(tmpdir(), 'experience-store-'));
@@ -179,6 +179,35 @@ test('a slot outside its vocabulary is refused on record and dropped on load', (
 	const [file] = await readdir(join(directory, folder));
 	const saved = JSON.parse(await readFile(join(directory, folder, file), 'utf8'));
 	saved.lessons['melee-at-low-health:mob=steve'] = { rule: 'melee-at-low-health', slots: { mob: 'steve' }, count: 1 };
+	await writeFile(join(directory, folder, file), JSON.stringify(saved));
+	const reloaded = new ExperienceStore(settings(directory, { MINEAGEN_WORLD_SEED_HASH: 'seed-b' }));
+	await reloaded.load();
+	assert.deepEqual(reloaded.candidates(GAME_B).map((entry) => entry.id), [lesson.id]);
+}));
+
+test('a seedless or excluded game does not hide the same lesson from other games', () => withDirectory(async (directory) => {
+	for (const [seed, game] of [['seed-a', GAME_A], [null, GAME_B], ['seed-x', experienceHash('world:x')]]) {
+		const store = new ExperienceStore(settings(directory, seed ? { MINEAGEN_WORLD_SEED_HASH: seed } : {}));
+		await store.load();
+		store.record(game, { ...lesson, atEpochMs: 1 });
+		await store.flush();
+	}
+	const later = new ExperienceStore(settings(directory, { MINEAGEN_WORLD_SEED_HASH: 'seed-c', MINEAGEN_EXPERIENCE_EXCLUDE_SEEDS: 'seed-x' }));
+	await later.load();
+	assert.deepEqual(later.candidates(GAME_C).map(({ id, games, count }) => ({ id, games, count })), [{ id: lesson.id, games: 1, count: 1 }]);
+}));
+
+test('a row missing the slots of its rule, or with a key that does not match them, is dropped on load', () => withDirectory(async (directory) => {
+	const store = new ExperienceStore(settings(directory, { MINEAGEN_WORLD_SEED_HASH: 'seed-a' }));
+	await store.load();
+	store.record(GAME_A, { ...lesson, atEpochMs: 1 });
+	await store.flush();
+	const [folder] = await readdir(directory);
+	const [file] = await readdir(join(directory, folder));
+	const saved = JSON.parse(await readFile(join(directory, folder, file), 'utf8'));
+	saved.lessons['bailout-then-death:mob=wither skeleton'] = { rule: 'bailout-then-death', slots: { mob: 'wither skeleton' }, count: 1 };
+	saved.lessons['bailout-then-death'] = { rule: 'bailout-then-death', slots: {}, count: 1 };
+	saved.lessons['free text key'] = { rule: 'ranged-fled-in-open', slots: { mob: 'skeleton' }, count: 1 };
 	await writeFile(join(directory, folder, file), JSON.stringify(saved));
 	const reloaded = new ExperienceStore(settings(directory, { MINEAGEN_WORLD_SEED_HASH: 'seed-b' }));
 	await reloaded.load();

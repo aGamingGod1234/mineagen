@@ -13,12 +13,16 @@ const MAX_RESULTS = 24;
 const NEAR_BLOCKS = 16;
 // A dispatch with no result for this long no longer counts as running (results can go missing).
 const RUNNING_MS = 120_000;
+const DEATH_RESULT_MS = 2_000;
 export const MAX_SHOWN_LESSONS = 3;
 
 /** Builds the experience runtime from settings (experienceSettings(env)), or null when experience is off. */
 export function createExperience(settings, { trace = null, store = null } = {}) {
 	if (settings === null || settings === undefined) return null;
-	return new ExperienceRuntime({ store: store ?? new ExperienceStore(settings), trace });
+	let runtime = null;
+	const owned = store ?? new ExperienceStore(settings, { onError: (stage, error) => runtime?.reportError(stage, error) });
+	runtime = new ExperienceRuntime({ store: owned, trace });
+	return runtime;
 }
 
 /** Normalises a vanilla death message to a cause without keeping the message, which starts with the player's name. */
@@ -81,10 +85,17 @@ export function sampleOf(observation, at) {
 		...(edible === null ? {} : { edible }),
 		...(player.inLava === true ? { inLava: true } : {}),
 		// Lava touched, seen within a few blocks lately, or heard close by.
-		...(player.inLava === true || player.lavaSeen != null || Number.isFinite(player.heardLava?.distance) && player.heardLava.distance <= 12 ? { lavaNear: true } : {}),
+		...(player.inLava === true || player.lavaSeen != null || Number.isFinite(player.heardLava?.distance) && player.heardLava.distance <= 12 || lavaInView(observation, player) ? { lavaNear: true } : {}),
 		...(typeof player.lastAttacker?.type === 'string' ? { attacker: player.lastAttacker.type.replace(/^minecraft:/, '') } : {}),
 		hostiles: Object.fromEntries([...hostiles].sort((a, b) => a[1] - b[1]).slice(0, 4)),
 	};
+}
+
+const LAVA_VIEW_BLOCKS = 6;
+function lavaInView(observation, player) {
+	if (![player.x, player.y, player.z].every(Number.isFinite) || !Array.isArray(observation?.blocks)) return false;
+	return observation.blocks.some((block) => (block?.blockId === 'minecraft:lava' || block?.blockId === 'minecraft:flowing_lava')
+		&& Math.hypot(block.x - player.x, block.y - player.y, block.z - player.z) <= LAVA_VIEW_BLOCKS);
 }
 
 export class ExperienceRuntime {
@@ -98,6 +109,8 @@ export class ExperienceRuntime {
 			this.#emit('experience_state', { ...this.#state, skippedFiles: loaded.skipped });
 		}, (error) => this.#fail('load', error));
 	}
+	/** A path-free error report from the store, such as a failed write. */
+	reportError(stage, error) { this.#fail(stage, error); }
 	#fail(stage, error) {
 		// Trace-only: the error class, never a result code the model sees.
 		const code = typeof error?.code === 'string' ? error.code : 'unknown';
@@ -151,7 +164,7 @@ export class ExperienceRuntime {
 	async noteResult(agentId, result, at = undefined) {
 		try { await this.#noteResult(agentId, result, at); } catch (error) { this.#fail('result', error); }
 	}
-	async #noteResult(agentId, { actionId, actionType, state, reasonCode, dimension, worldId }, at = undefined) {
+	async #noteResult(agentId, { actionId, actionType, state, reasonCode, dimension, worldId, executionStarted }, at = undefined) {
 		const agent = this.#agent(agentId);
 		// A late result from a world the agent has left is not evidence about this game.
 		if (typeof worldId === 'string' && !worldId.startsWith('session:') && agent.game !== null && experienceHash(`world:${worldId}`) !== agent.game) return;
@@ -166,7 +179,7 @@ export class ExperienceRuntime {
 		agent.running.delete(actionId);
 		const type = actionType ?? started?.actionType;
 		if (typeof type !== 'string') return;
-		const row = { actionType: type, state, reasonCode, at, elapsedMs: started ? Math.max(0, at - started.at) : null,
+		const row = { actionType: type, state, reasonCode, at, elapsedMs: started ? Math.max(0, at - started.at) : null, ...(executionStarted === false ? { executionStarted: false } : {}),
 			...(typeof dimension === 'string' ? { dimension: dimension.replace(/^minecraft:/, '') } : {}) };
 		agent.results.push(row);
 		while (agent.results.length > MAX_RESULTS || agent.results.length && at - agent.results[0].at > HISTORY_MS) agent.results.shift();
@@ -187,7 +200,8 @@ export class ExperienceRuntime {
 		const running = [...agent.running.values()].filter((entry) => entry.at <= when && when - entry.at <= RUNNING_MS).map((entry) => entry.actionType);
 		const history = agent.latest && agent.latest !== agent.samples.at(-1) ? [...agent.samples, agent.latest] : agent.samples;
 		const context = { cause, dimension: typeof death.dimensionId === 'string' ? death.dimensionId.replace(/^minecraft:/, '') : agent.latest?.dimension,
-			running, samples: history.filter((sample) => sample.at <= when), results: agent.results.filter((result) => result.at <= when), at: when };
+			// A running action the death ended reports AGENT_DEAD a moment after it: still evidence of what was running.
+			running, samples: history.filter((sample) => sample.at <= when), results: agent.results.filter((result) => result.at <= when + DEATH_RESULT_MS), at: when };
 		const lessons = deathLessons(context);
 		this.#emit('experience_death_reviewed', { cause: cause.cause, kind: cause.kind, ...(cause.escaping ? { escaping: cause.escaping } : {}), dimension: context.dimension ?? null,
 			running, lessons: lessons.map((lesson) => lesson.id) });
@@ -208,32 +222,30 @@ export class ExperienceRuntime {
 		this.#emit('experience_lesson_recorded', { lessonId: lesson.id, rule: lesson.rule, countThisGame: count });
 	}
 
-	/**
-	 * Counts exposure for the last `count` lessons returned by lessonsFor: the summary's byte trim drops lessons from
-	 * the front, so these are the ones that reached the model. Call only where the summary goes to the model.
-	 */
-	markShown(agentId, count, at = undefined) {
+	/** Counts exposure for these lesson ids (from lessonsFor). Call only where the summary goes to the model. */
+	markShown(agentId, ids, at = undefined) {
 		try {
 			const agent = this.#agents.get(agentId);
-			if (!agent?.game || this.#failed !== null || !(count > 0)) return;
+			if (!agent?.game || this.#failed !== null || !Array.isArray(ids) || !ids.length) return;
 			at ??= agent.clock ?? Date.now();
-			const ranked = (agent.lastRanked ?? []).slice(-count);
-			if (!ranked.length) return;
-			const first = this.#store.markShown(agent.game, ranked.map((entry) => entry.id), at);
-			const fresh = ranked.filter((entry) => !agent.shown.has(entry.id));
-			for (const entry of fresh) agent.shown.add(entry.id);
-			if (fresh.length) this.#emit('experience_lessons_shown', { lessonIds: fresh.map((entry) => entry.id), carried: fresh.filter((entry) => entry.games > 0).length, firstInGame: first.length });
+			const first = this.#store.markShown(agent.game, ids, at);
+			const fresh = ids.filter((id) => !agent.shown.has(id));
+			for (const id of fresh) agent.shown.add(id);
+			if (fresh.length) this.#emit('experience_lessons_shown', { lessonIds: fresh, carried: fresh.filter((id) => agent.carriedIds?.has(id)).length, firstInGame: first.length });
 		} catch (error) { this.#fail('shown', error); }
 	}
 
-	/** The lessons to show now, as task memory lesson entries, best match first, at most MAX_SHOWN_LESSONS. Side-effect free. */
+	/**
+	 * The lessons to show now, at most MAX_SHOWN_LESSONS: `ids` best match first, and `entries` (task memory lesson
+	 * entries) worst first, because the summary's byte trim drops lessons from the front. Side-effect free.
+	 */
 	async lessonsFor(agentId, options = {}) {
-		try { return await this.#lessonsFor(agentId, options); } catch (error) { this.#fail('read', error); return []; }
+		try { return await this.#lessonsFor(agentId, options); } catch (error) { this.#fail('read', error); return { entries: [], ids: [] }; }
 	}
 	async #lessonsFor(agentId, { at = undefined } = {}) {
 		await this.#ready;
 		const agent = this.#agents.get(agentId);
-		if (agent?.game == null || this.#failed !== null) return [];
+		if (agent?.game == null || this.#failed !== null) return { entries: [], ids: [] };
 		at ??= agent.clock ?? Date.now();
 		const situation = situationOf(agent, at);
 		const ranked = this.#store.candidates(agent.game)
@@ -244,8 +256,8 @@ export class ExperienceRuntime {
 			// One lesson per mob: the best supported one says enough.
 			.filter((candidate, index, all) => candidate.slots.mob === undefined || all.findIndex((other) => other.slots.mob === candidate.slots.mob) === index)
 			.slice(0, MAX_SHOWN_LESSONS);
-		agent.lastRanked = ranked;
-		return ranked.map(lessonEntry);
+		agent.carriedIds = new Set([...(agent.carriedIds ?? []), ...ranked.filter((entry) => entry.games > 0).map((entry) => entry.id)]);
+		return { ids: ranked.map((entry) => entry.id), entries: ranked.map(lessonEntry).reverse() };
 	}
 
 	async flush() { await this.#ready; try { await this.#store.flush(); } catch (error) { this.#fail('flush', error); } }

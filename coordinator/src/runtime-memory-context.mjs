@@ -34,10 +34,18 @@ export class RuntimeMemoryContext {
 	/** Summary options with this agent's matching lessons; without experience, exactly today's options. */
 	async #summaryOptions(agentId, recoveryDeath) {
 		if (this.#experience === null) return { recoveryDeath };
-		return { recoveryDeath, extraLessons: await this.#experience.lessonsFor(agentId) };
+		const { entries } = await this.#experience.lessonsFor(agentId);
+		return { recoveryDeath, extraLessons: entries };
 	}
 	/** An action sent outside recordDispatch (native tools journal straight to the notebook) still reaches the review. */
 	noteDispatch(agentId, { actionId, actionType } = {}) { this.#experience?.noteDispatch(agentId, { actionId, actionType }); }
+	/** A live terminal result, before its receipt is persisted; the later persisted copy counts once (deduplicated by action id). */
+	noteLiveResult(agentId, { actionId, actionType, state, reasonCode, executionStarted, observedAtEpochMs } = {}) {
+		if (this.#experience === null || !TERMINAL_STATES.has(state) || typeof actionId !== 'string') return;
+		const context = this.#contexts.get(agentId);
+		void this.#experience.noteResult(agentId, { actionId, actionType, state, reasonCode, executionStarted, dimension: context?.dimension, worldId: context?.worldId },
+			Number.isFinite(observedAtEpochMs) ? observedAtEpochMs : undefined);
+	}
 	get notebook() { return this.#notebook; }
 	get sessionId() { return this.#sessionId; }
 
@@ -80,13 +88,17 @@ export class RuntimeMemoryContext {
 		const context = this.#contexts.get(record.agentId), summary = this.#taskContexts.get(record.agentId);
 		return summary?.worldId === context?.worldId && summary?.dimension === context?.dimension ? structuredClone(summary) : null;
 	}
-	async taskContext(record) {
+	/** The summary for a model turn: the review lessons that survive the byte trim count as shown. */
+	async taskContext(record) { return this.#refreshTaskContext(record, true); }
+	async #refreshTaskContext(record, countShown) {
 		await this.#taskPending.get(record.agentId);
 		const context = this.#contexts.get(record.agentId);
 		if (context?.goalRevision !== record.goalRevision || !context?.dimension || context.worldId.startsWith('session:')) return null;
-		const summary = await this.#tasks.summary({ agentId: record.agentId, ...context }, await this.#summaryOptions(record.agentId, this.#recoveryDeaths.get(record.agentId)));
-		// This summary goes into a model turn: the review lessons that survived the byte trim count as shown.
-		if (this.#experience !== null) this.#experience.markShown(record.agentId, summary.lessons.filter((lesson) => typeof lesson?.src === 'string' && lesson.src.startsWith(LESSON_SRC_PREFIX)).length);
+		const ranked = this.#experience === null ? null : await this.#experience.lessonsFor(record.agentId);
+		const summary = await this.#tasks.summary({ agentId: record.agentId, ...context }, ranked === null ? { recoveryDeath: this.#recoveryDeaths.get(record.agentId) }
+			: { recoveryDeath: this.#recoveryDeaths.get(record.agentId), extraLessons: ranked.entries });
+		// The trim drops lessons from the front and they are passed worst first, so the survivors are the best ones.
+		if (ranked !== null && countShown) this.#experience.markShown(record.agentId, ranked.ids.slice(0, summary.lessons.filter((lesson) => typeof lesson?.src === 'string' && lesson.src.startsWith(LESSON_SRC_PREFIX)).length));
 		this.#taskContexts.set(record.agentId, summary);
 		return summary;
 	}
@@ -112,7 +124,8 @@ export class RuntimeMemoryContext {
 			const tool = normalizeMinecraftToolCall('taskMemory', source.arguments);
 			if (tool.operation === 'query') return { state: 'SUCCEEDED', reasonCode: 'TASK_MEMORY_QUERIED', ...await this.#tasks.query(scope, tool.query) };
 			const entry = await this.#tasks.remember(scope, tool.entry);
-			await this.taskContext(record);
+			// A cache refresh: nothing reaches the model here, so no lesson counts as shown.
+			await this.#refreshTaskContext(record, false);
 			return { state: 'SUCCEEDED', reasonCode: 'TASK_MEMORY_WRITTEN', entry };
 		}
 		if (!['write', 'query', 'find_note'].includes(source.operation)) throw codedError('INVALID_MEMORY_OPERATION', 'Memory operation must be write, query, or find_note');
@@ -197,7 +210,7 @@ export class RuntimeMemoryContext {
 			...(Number.isSafeInteger(observation.worldTick) && observation.worldTick >= 0 ? { tick: observation.worldTick } : {}),
 		};
 		await this.#notebook.recordReceipt(agentId, terminal);
-		await this.#experience?.noteResult(agentId, { actionId, actionType: previous.actionType, state: source.state, reasonCode: source.reasonCode, dimension: previous.dimension, worldId: previous.worldId },
+		await this.#experience?.noteResult(agentId, { actionId, actionType: previous.actionType, state: source.state, reasonCode: source.reasonCode, dimension: previous.dimension, worldId: previous.worldId, executionStarted: source.executionStarted },
 			Number.isFinite(source.observedAtEpochMs) ? source.observedAtEpochMs : undefined);
 		// The break tally of a held-attack control is not persisted with the receipt, but the task view counts it.
 		const breakOutcome = Number.isSafeInteger(source.breakOutcome?.blocks) ? { breakOutcome: { blocks: source.breakOutcome.blocks } } : {};

@@ -89,7 +89,7 @@ for (const [index, gameDirectory] of positionals.entries()) {
 				memory.observe(record, observation);
 				stats.observations += 1;
 				if (stats.observations % sampleEvery === 0) {
-					const lessons = await experience.lessonsFor(record.agentId, { at: observation.observedAtEpochMs ?? Date.now() });
+					const { entries: lessons } = await experience.lessonsFor(record.agentId, { at: observation.observedAtEpochMs ?? Date.now() });
 					stats.sampled += 1;
 					if (lessons.length) stats.sampledWithAny += 1;
 					const carried = lessons.filter((lesson) => /earlier game/.test(lesson.src));

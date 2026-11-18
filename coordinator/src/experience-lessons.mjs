@@ -14,9 +14,13 @@ export const MOBS = new Set(['zombie', 'husk', 'drowned', 'zombie_villager', 'sk
 	'warden', 'breeze', 'creaking', 'iron_golem', 'wolf', 'polar_bear', 'bee', 'llama', 'trader_llama', 'panda', 'goat', 'dolphin', 'pufferfish']);
 const DIMENSIONS = new Set(['overworld', 'the_nether', 'the_end']);
 const HAZARDS = new Set(['lava', 'fall', 'drown', 'fire']);
-/** Every slot must come from its vocabulary; checked when a lesson is recorded and when a file is loaded. */
-export function validSlots(slots) {
-	return Object.entries(slots).every(([key, value]) => key === 'mob' ? MOBS.has(value) : key === 'dimension' ? DIMENSIONS.has(value) : key === 'hazard' ? HAZARDS.has(value) : false);
+const VOCABULARY = { mob: MOBS, dimension: DIMENSIONS, hazard: HAZARDS };
+/** A known rule with exactly its declared slots, each from its vocabulary; checked when recorded and when loaded. */
+export function validLesson(rule, slots) {
+	const spec = Object.hasOwn(LESSON_RULES, rule) ? LESSON_RULES[rule] : null;
+	if (!spec || slots === null || typeof slots !== 'object') return false;
+	const keys = Object.keys(slots).sort();
+	return keys.join(',') === [...spec.slots].sort().join(',') && keys.every((key) => VOCABULARY[key]?.has(slots[key]));
 }
 /** Marks a lesson the runtime review wrote, in the entry the model reads. */
 export const LESSON_SRC_PREFIX = 'from your past play: ';
@@ -31,9 +35,10 @@ function pretty(id) { return String(id).replace(/_/g, ' '); }
 /** "a skeleton", "an enderman". */
 function cap(text) { return text[0].toUpperCase() + text.slice(1); }
 function a(id) { const name = pretty(id); return `${/^[aeiou]/.test(name) ? 'an' : 'a'} ${name}`; }
+// A result whose action never started is no evidence that the body did it.
 function recentlyRan(context, types, withinMs = 15_000) {
 	return context.running.some((type) => types.has(type))
-		|| context.results.some((result) => types.has(result.actionType) && context.at - result.at <= withinMs);
+		|| context.results.some((result) => types.has(result.actionType) && result.executionStarted !== false && context.at - result.at <= withinMs);
 }
 function healthBefore(context, ms) {
 	const sample = [...context.samples].reverse().find((entry) => context.at - entry.at >= ms && Number.isFinite(entry.health));
@@ -57,57 +62,68 @@ function lastKnown(context, field) {
 /** Rules by id. `death(context)` or `failure(row, tally)` returns slots when the rule applies, else null. */
 export const LESSON_RULES = Object.freeze({
 	'ranged-fled-in-open': {
+		slots: ['mob'],
 		death: (context) => RANGED.has(context.cause.cause) && context.cause.kind !== 'melee' && recentlyRan(context, FLEE_ACTIONS) ? { mob: context.cause.cause } : null,
 		trigger: ({ mob }) => ({ mobs: [mob] }),
-		text: ({ mob }) => `Running from ${a(mob)} in the open kept you in its range until you died. Put a solid block between you and it, or dig into a hole with a roof and wait until it loses you.`,
+		text: ({ mob }) => `${cap(a(mob))} shot you dead while you were fleeing. Running rarely gets out of its range: put a solid block between you and it, or dig into a hole with a roof and wait until it loses you.`,
 	},
 	'ranged-death': {
+		slots: ['mob'],
 		death: (context) => RANGED.has(context.cause.cause) && context.cause.kind === 'shot' && !recentlyRan(context, FLEE_ACTIONS) ? { mob: context.cause.cause } : null,
 		trigger: ({ mob }) => ({ mobs: [mob] }),
 		text: ({ mob }) => `${cap(a(mob))} shot you to death. When one is in view, act on it first: take cover out of its line of sight or close the distance and kill it, and heal before moving on.`,
 	},
 	'lava-while-moving': {
+		slots: ['dimension'],
 		death: (context) => context.cause.cause === 'lava' && recentlyRan(context, MOVE_ACTIONS) ? { dimension: context.dimension ?? 'overworld' } : null,
 		trigger: ({ dimension }) => ({ dimension, lavaNear: true }),
 		text: ({ dimension }) => `You died in lava while walking to a target in the ${PLACE[dimension] ?? pretty(dimension)}. Near lava, deal with hostiles before moving, keep a block between you and the lava, and avoid long routes along its edge.`,
 	},
 	'escaped-into-hazard': {
-		death: (context) => ['lava', 'fall', 'drown', 'fire'].includes(context.cause.cause) && context.cause.escaping ? { hazard: context.cause.cause, mob: context.cause.escaping } : null,
+		slots: ['hazard', 'mob'],
+		death: (context) => ['lava', 'fall', 'drown', 'fire'].includes(context.cause.cause) && MOBS.has(context.cause.escaping) ? { hazard: context.cause.cause, mob: context.cause.escaping } : null,
 		trigger: ({ mob }) => ({ mobs: [mob] }),
 		text: ({ hazard, mob }) => `Escaping ${a(mob)} killed you by ${hazard === 'fall' ? 'a fall' : hazard === 'drown' ? 'drowning' : hazard}. Before you run from one, look where the escape leads; fighting it on safe ground is often safer.`,
 	},
 	'died-without-food': {
+		slots: [],
 		death: (context) => lastKnown(context, 'edible') === 0 && ['melee', 'shot', 'explosion', 'fireball'].includes(context.cause.kind) && (healthBefore(context, 10_000) ?? 20) <= 14 ? {} : null,
 		// No food alone is most of the early game; it is a death risk together with low health.
 		trigger: () => ({ noFood: true, lowHealth: true }),
 		text: () => 'You died carrying no food while already hurt. Keep cooked food in the hotbar: get some before mining trips, long travel or a dimension change, and eat to heal before the next fight.',
 	},
 	'bailout-then-death': {
+		slots: ['mob'],
 		death: (context) => MOBS.has(context.cause.cause) && resultWithin(context, FIGHTS, ['LOW_HEALTH_BAILOUT'], 30_000) ? { mob: context.cause.cause } : null,
 		trigger: () => ({ recentResult: { types: [...FIGHTS], codes: ['LOW_HEALTH_BAILOUT'], withinMs: 30_000 } }),
 		text: ({ mob }) => `Right after a fight stopped at low health, ${a(mob)} finished you. Do not restart that fight or switch between moves: wall yourself in (a hole or pillar with a roof) and eat first.`,
 	},
 	'resumed-near-hostile': {
+		slots: ['mob'],
 		death: (context) => MOBS.has(context.cause.cause) && resultWithin(context, TRIPS, ['HOSTILE_NEAR'], 60_000) ? { mob: context.cause.cause } : null,
 		trigger: ({ mob }) => ({ mobs: [mob], recentResult: { types: [...TRIPS], codes: ['HOSTILE_NEAR'], withinMs: 60_000 } }),
 		text: ({ mob }) => `A trip stopped for a nearby hostile, and within a minute ${a(mob)} killed you. When a trip stops for a hostile, kill it or wall it off before you go on.`,
 	},
 	'dig-into-water': {
+		slots: [],
 		failure: (row, tally) => row.actionType === 'dig_to' && row.reasonCode === 'WATER_AHEAD' && repeated(row, tally, 'dig_to:WATER_AHEAD', 2, 300_000) ? {} : null,
 		trigger: () => ({ recentResult: { types: ['dig_to'], codes: ['WATER_AHEAD'], withinMs: 60_000 } }),
 		text: () => 'Digs kept stopping for water ahead. After the first stop, change heading or block the water off before digging on; retrying the same dig wastes minutes.',
 	},
 	'tool-worn-mid-task': {
+		slots: [],
 		failure: (row, tally) => ['dig_to', 'travel_to'].includes(row.actionType) && row.reasonCode === 'TOOL_WORN' && repeated(row, tally, 'TOOL_WORN', 1, 600_000) ? {} : null,
 		trigger: () => ({ recentResult: { types: ['dig_to', 'travel_to'], codes: ['TOOL_WORN'], withinMs: 120_000 } }),
 		text: () => 'A worn pickaxe stopped a dig or trip partway. Craft a spare pickaxe before long digs and trips, so a worn one does not end the task.',
 	},
 	'hunt-without-target': {
+		slots: [],
 		failure: (row, tally) => row.actionType === 'fight_until' && row.reasonCode === 'NO_TARGET_SEEN' && repeated(row, tally, 'fight_until:NO_TARGET_SEEN', 2, 600_000) ? {} : null,
 		trigger: () => ({ recentResult: { types: ['fight_until'], codes: ['NO_TARGET_SEEN'], withinMs: 60_000 } }),
 		text: () => 'Hunts for a mob that was not in view kept ending with nothing found. Hunt only mobs you can see, or go where they spawn first.',
 	},
 	'melee-at-low-health': {
+		slots: ['mob'],
 		death: (context) => context.cause.kind === 'melee' && MOBS.has(context.cause.cause) && (healthBefore(context, 10_000) ?? 20) <= LOW_HEALTH ? { mob: context.cause.cause } : null,
 		trigger: ({ mob }) => ({ mobs: [mob], lowHealth: true }),
 		text: ({ mob }) => `${cap(a(mob))} killed you after you stayed at low health. At low health, eat or retreat out of reach first; take the fight only after healing.`,

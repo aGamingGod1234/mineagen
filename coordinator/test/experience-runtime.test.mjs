@@ -70,7 +70,7 @@ test('a death review in one game becomes a lesson the model sees in a later game
 	const lessons = (await later.taskContext(record)).lessons;
 	assert.deepEqual(peeked, lessons);
 	assert.equal(lessons.length, 1);
-	assert.match(lessons[0].summary, /Running from a skeleton in the open/);
+	assert.match(lessons[0].summary, /shot you dead while you were fleeing/);
 	assert.equal(lessons[0].src, 'from your past play: 1 time in 1 earlier game');
 	assert.doesNotMatch(JSON.stringify(lessons), /world-one|agent_name|-21|seed-one/);
 	assert.ok(Buffer.byteLength(JSON.stringify(lessons)) < 400);
@@ -176,7 +176,7 @@ test('live observations that still name the last death keep feeding the history'
 	await memory.flush();
 	memory.observe(record, observation('world-one', T0 + 90_000, { hostiles: ['skeleton'], health: 6, edible: 0 }));
 	const lessons = (await memory.taskContext(record)).lessons.map((lesson) => lesson.summary);
-	assert.ok(lessons.some((text) => /Running from a skeleton/.test(text)), JSON.stringify(lessons));
+	assert.ok(lessons.some((text) => /shot you dead while you were fleeing/.test(text)), JSON.stringify(lessons));
 	assert.ok(lessons.some((text) => /no food/.test(text)), JSON.stringify(lessons));
 	await memory.flush();
 }));
@@ -276,20 +276,29 @@ test('a player or name-tagged killer is never stored or named, and vanilla phras
 	assert.match(lessonEntry({ rule: 'lava-while-moving', slots: { dimension: 'the_nether' }, games: 1, count: 1, thisGame: 0 }).summary, /in the Nether\./);
 });
 
-test('only lessons that survive the summary trim count as shown', () => withDirectory(async (directory) => {
+test('under byte pressure the summary keeps the best lesson, and only named lessons count as shown', () => withDirectory(async (directory) => {
+	// The summary trim drops lessons from the front; lessonsFor passes them worst first.
+	const store = new TaskMemoryStore({ directory: null });
+	const scope = { agentId: 'agent-a', worldId: 'world-one', dimension: 'minecraft:overworld', goalRevision: 1 };
+	await store.observe(scope, observation('world-one', T0));
+	const big = (name) => ({ kind: 'lesson', summary: `${name} ${'x'.repeat(2_500)}`, src: 'from your past play: 1 this game' });
+	const trimmed = await store.summary(scope, { extraLessons: [big('worst'), big('middle'), big('best')] });
+	assert.ok(trimmed.lessons.length < 3);
+	assert.match(trimmed.lessons.at(-1).summary, /^best /);
+	assert.equal(trimmed.lessons.some((lesson) => /^worst /.test(lesson.summary)), false);
+
 	const events = [];
 	const runtime = createExperience(experienceSettings({ MINEAGEN_EXPERIENCE: 'lessons', MINEAGEN_EXPERIENCE_DIR: directory, MINEAGEN_EXPERIENCE_PROFILE: 'p' }), { trace: (event, fields) => events.push({ event, ...fields }) });
 	runtime.observe('agent-a', 'world-one', observation('world-one', T0, { hostiles: ['skeleton', 'zombie'], health: 6, edible: 0 }), T0);
 	runtime.noteDispatch('agent-a', { actionId: 'flee-1', actionType: 'flee_from' });
 	await runtime.observe('agent-a', 'world-one', { death: { cause: 'x was shot by Skeleton', dimensionId: 'minecraft:overworld', diedAtEpochMs: T0 + 15_000 } }, T0 + 15_000);
 	runtime.observe('agent-a', 'world-one', observation('world-one', T0 + 20_000, { hostiles: ['skeleton'], health: 6, edible: 0 }), T0 + 20_000);
-	const shown = await runtime.lessonsFor('agent-a');
-	assert.ok(shown.length >= 2);
-	// The byte trim kept only the last lesson: only that one counts.
-	runtime.markShown('agent-a', 1);
+	const { ids, entries } = await runtime.lessonsFor('agent-a');
+	assert.ok(ids.length >= 2 && entries.length === ids.length);
+	assert.equal(events.some((event) => event.event === 'experience_lessons_shown'), false, 'reading lessons counts nothing');
+	runtime.markShown('agent-a', ids.slice(0, 1));
 	await runtime.flush();
-	const counted = events.filter((event) => event.event === 'experience_lessons_shown').flatMap((event) => event.lessonIds);
-	assert.equal(counted.length, 1);
+	assert.deepEqual(events.filter((event) => event.event === 'experience_lessons_shown').flatMap((event) => event.lessonIds), [ids[0]]);
 }));
 
 test('the receipt refresh after a death builds the same summary with experience off, and only adds lessons with it on', () => withDirectory(async (directory) => {
@@ -320,3 +329,60 @@ test('long-run reports keep what the coordinator actually loaded', async () => {
 	assert.deepEqual(observedExperience(rows), { loaded: true, mode: 'lessons', frozen: true, games: 3, lessons: 5, snapshotSha256: 'a'.repeat(64), seedHashKnown: true, skippedFiles: 0, errors: [{ stage: 'flush', code: 'EACCES' }] });
 	assert.equal(observedExperience([{ event: 'native_model_call' }]), null);
 });
+
+test('results the review hears before the death count, including a flee the death ended', () => withDirectory(async (directory) => {
+	const events = [];
+	const runtime = createExperience(experienceSettings({ MINEAGEN_EXPERIENCE: 'lessons', MINEAGEN_EXPERIENCE_DIR: directory, MINEAGEN_EXPERIENCE_PROFILE: 'p' }), { trace: (event, fields) => events.push({ event, ...fields }) });
+	const memory = new RuntimeMemoryContext({ taskMemory: new TaskMemoryStore({ directory: null }), experience: runtime });
+	memory.observe(record, observation('world-one', T0, { hostiles: ['skeleton'], health: 12 }));
+	// A live bailout result, its receipt not yet persisted, then a flee the death ends (AGENT_DEAD a moment after it).
+	memory.noteLiveResult(record.agentId, { actionId: 'fight-1', actionType: 'fight_target', state: 'FAILED', reasonCode: 'LOW_HEALTH_BAILOUT', executionStarted: true, observedAtEpochMs: T0 + 5_000 });
+	memory.noteDispatch(record.agentId, { actionId: 'flee-1', actionType: 'flee_from' });
+	memory.noteLiveResult(record.agentId, { actionId: 'flee-1', actionType: 'flee_from', state: 'FAILED', reasonCode: 'AGENT_DEAD', executionStarted: true, observedAtEpochMs: T0 + 10_500 });
+	memory.observe(record, { death: { cause: 'x was shot by Skeleton', dimensionId: 'minecraft:overworld', diedAtEpochMs: T0 + 10_000 } });
+	// The persisted copy of the bailout arrives later and is not counted again.
+	await memory.flush();
+	const reviewed = events.find((event) => event.event === 'experience_death_reviewed');
+	assert.ok(reviewed.lessons.includes('bailout-then-death:mob=skeleton'), JSON.stringify(reviewed));
+	assert.ok(reviewed.lessons.includes('ranged-fled-in-open:mob=skeleton'), JSON.stringify(reviewed));
+	// A flee that never started is no evidence of fleeing.
+	const context = { cause: classifyDeath('x was shot by Skeleton'), dimension: 'overworld', running: [], at: 20_000, samples: [],
+		results: [{ actionType: 'flee_from', state: 'FAILED', reasonCode: 'NO_STANDABLE_PATH', executionStarted: false, at: 15_000 }] };
+	assert.equal(deathLessons(context).some((lesson) => lesson.rule === 'ranged-fled-in-open'), false);
+}));
+
+test('a failed store write is reported, so a lost lesson does not look learned', () => withDirectory(async (directory) => {
+	const events = [];
+	const settingsValue = experienceSettings({ MINEAGEN_EXPERIENCE: 'lessons', MINEAGEN_EXPERIENCE_DIR: directory, MINEAGEN_EXPERIENCE_PROFILE: 'p' });
+	const runtime = createExperience(settingsValue, { trace: (event, fields) => events.push({ event, ...fields }) });
+	await runtime.ready;
+	// The profile folder's path is taken by a file, so the write cannot create it.
+	await (await import('node:fs/promises')).writeFile(join(directory, `profile-${experienceHash('profile:p')}`), 'x');
+	runtime.observe('agent-a', 'world-one', observation('world-one', T0, { health: 6, edible: 0 }), T0);
+	await runtime.observe('agent-a', 'world-one', { death: { cause: 'x was slain by Zombie', dimensionId: 'minecraft:overworld', diedAtEpochMs: T0 + 15_000 } }, T0 + 15_000);
+	await runtime.flush();
+	assert.ok(events.some((event) => event.event === 'experience_lesson_recorded'));
+	assert.ok(events.some((event) => event.event === 'experience_error' && event.stage === 'write'), JSON.stringify(events.map((event) => event.event)));
+}));
+
+test('lava in plain view counts as lava near', async () => {
+	const { sampleOf } = await import('../src/experience-runtime.mjs');
+	const base = observation('world-one', T0);
+	assert.equal(sampleOf({ ...base, blocks: [{ blockId: 'minecraft:lava', x: 13, y: 64, z: -20 }] }, T0).lavaNear, true);
+	assert.equal(sampleOf({ ...base, blocks: [{ blockId: 'minecraft:lava', x: 30, y: 64, z: -20 }] }, T0).lavaNear, undefined);
+});
+
+test('a task memory write refreshes the cache without counting lessons as shown', () => withDirectory(async (directory) => {
+	const events = [];
+	const runtime = createExperience(experienceSettings({ MINEAGEN_EXPERIENCE: 'lessons', MINEAGEN_EXPERIENCE_DIR: directory, MINEAGEN_EXPERIENCE_PROFILE: 'p' }), { trace: (event, fields) => events.push({ event, ...fields }) });
+	const memory = new RuntimeMemoryContext({ taskMemory: new TaskMemoryStore({ directory: null }), experience: runtime });
+	memory.observe(record, observation('world-one', T0, { hostiles: ['zombie'], health: 6, edible: 0 }));
+	memory.observe(record, { death: { cause: 'x was slain by Zombie', dimensionId: 'minecraft:overworld', diedAtEpochMs: T0 + 15_000 } });
+	memory.observe(record, observation('world-one', T0 + 20_000, { hostiles: ['zombie'], health: 6, edible: 0 }));
+	await memory.flush();
+	await memory.execute(record, { operation: 'task', arguments: { operation: 'remember', entry: { kind: 'place', key: 'camp', label: 'Camp', summary: 'Shelter by the hill.', position: { x: 1, y: 64, z: 2 } } } });
+	assert.equal(events.some((event) => event.event === 'experience_lessons_shown'), false);
+	assert.ok((await memory.taskContext(record)).lessons.length > 0);
+	assert.ok(events.some((event) => event.event === 'experience_lessons_shown'));
+	await memory.flush();
+}));
