@@ -253,6 +253,11 @@ test('deaths come from counter samples at both room boundaries; a missing bounda
 	// the start, after a base sample 4 s before it.
 	assert.equal(windowDeaths(deathsAt([0, 0], [296, 0], [304, 1]), START, START + 300_000, [{ operation: 'dead', at: START + 303_000 }]), 0);
 	assert.equal(windowDeaths(deathsAt([-4, 0], [1, 1], [300, 1]), START, START + 300_000, [{ operation: 'dead', at: START - 2_000 }]), 0);
+	// The only sample near the end is after it (290 s is 10 s early): the death between the end and that sample is outside.
+	assert.equal(windowDeaths(deathsAt([0, 0], [290, 0], [304, 1]), START, START + 300_000, [{ operation: 'dead', at: START + 303_000 }]), 0);
+	assert.equal(windowDeaths(deathsAt([0, 0], [290, 0], [304, 1]), START, START + 300_000, [{ operation: 'dead', at: START + 297_000 }]), 1,
+		'a death inside the window still counts when the closing sample is after the end');
+	assert.equal(windowDeaths(deathsAt([0, 0], [290, 0], [304, 1]), START, START + 300_000), null, 'a rise no dead event places is unknown');
 	// An earlier death and respawn plus a final death with no respawn: two.
 	assert.equal(windowDeaths(deathsAt([0, 0], [100, 1], [279, 1]), START, START + 300_000,
 		[{ operation: 'dead', at: START + 99_500 }, { operation: 'respawn', at: START + 102_000 }, { operation: 'dead', at: START + 280_000 }]), 2);
@@ -306,6 +311,13 @@ test('the CLI reads run directories and paired results, and reports the noise fl
 		assert.equal(corruptRun.status, 'unknown');
 		assert.equal(corruptRun.damage, null);
 		assert.match(corruptRun.reconciliation.reason, /malformed danger row/);
+		// A watched run with no danger rows leaves the Watcher's empty file: a clean capture, not missing instrumentation.
+		const empty = await runDir(root, 'empty-watch', { scenario: 'R-SKELETON', rows: [], samples: [counter(START, 0), counter(START + 300_000, 0)] });
+		await writeFile(path.join(empty.artifacts, 'arena-watch', 'agent-danger.jsonl'), '');
+		const emptyRun = (await buildReport(parseReportArgs(['--run', empty.artifacts]))).runs[0];
+		assert.equal(emptyRun.status, 'valid', emptyRun.reconciliation.reason);
+		assert.equal(emptyRun.damage, 0);
+		assert.equal(emptyRun.deaths, 0);
 		const noWatch = await runDir(root, 'no-watch', { scenario: 'R-SKELETON', rows: null, samples });
 		assert.equal((await buildReport(parseReportArgs(['--run', noWatch.artifacts]))).runs[0].status, 'unknown');
 		const arms = { A: { runs: [] }, B: { runs: [] } };
@@ -343,5 +355,50 @@ test('the CLI reads run directories and paired results, and reports the noise fl
 		assert.equal((await buildReport(parseReportArgs(['--run', single.artifacts]))).runs[0].success, true);
 		assert.throws(() => parseReportArgs([]), /Pass --run or --paired/);
 		assert.throws(() => parseReportArgs(['--run', 'a', '--paired', 'b']), /Pass --run or --paired/);
+	} finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('retries never erase first-attempt failures: excess B failures fail the step, missing first attempts leave it unjudged', async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), 'reflex-retry-'));
+	try {
+		const profile = { provider: 'claude', model: 'claude-opus-5-5', reasoningEffort: 'low', serviceTier: 'priority' };
+		// A run record the paired runner counts as eligible (isEligibleQualityRun), so only the failure below is one.
+		const eligible = { profile, termination: 'TIMEOUT', measurementStatus: 'MEASURED', providerAttestation: { requested: profile, effective: profile },
+			metrics: { perCallCoverageComplete: true, tokenReconciliation: { complete: true }, partialMessagesAccepted: true, modelCallsPerMinute: 10, deaths: 0,
+				steadyState: { chargedTokensPerCall: 100, chargedTokensPerMinute: 1000 } } };
+		const arms = { A: { runs: [] }, B: { runs: [] } };
+		for (const arm of ['A', 'B']) for (const n of [1, 2, 3]) {
+			const hurt = arm === 'A';
+			const run = await runDir(root, `${arm}-${n}`, { scenario: 'R-SKELETON', pairId: `R-SKELETON-r${n}`, rows: hurt ? [damage(START + 100_000, 4)] : [],
+				samples: [counter(START, 0), counter(START + 300_000, hurt ? 40 : 0)] });
+			arms[arm].runs.push({ ...run, ...eligible, arm, executionOrder: 2 * n - (arm === 'A' ? 1 : 0), retryAttempt: 0, retry: false });
+		}
+		const margin = path.join(root, 'margin.json');
+		await writeFile(margin, JSON.stringify({ z: 2, rooms: { 'R-SKELETON': { damage: { perPairSd: 0.5 }, deaths: { perPairSd: 0.5 }, success: { perPairSd: 0.5 } } } }));
+		const judge = async results => {
+			const file = path.join(root, `results-${Math.random().toString(36).slice(2)}.json`);
+			await writeFile(file, JSON.stringify({ configuration: {}, ...results }));
+			return (await buildReport(parseReportArgs(['--paired', file, '--margin', margin]))).judgement;
+		};
+		const clean = await judge({ arms });
+		assert.equal(clean.overall, 'PASS', 'B takes less damage and no first attempt failed');
+		assert.equal(clean.firstAttemptFailures.status, 'NO_DETECTED_REGRESSION');
+		// Pair r1 was retried: B's first attempt died on a provider error, and both arms reran it cleanly.
+		const retried = arm => arms[arm].runs.map(run => run.pairId === 'R-SKELETON-r1' ? { ...run, retry: true, retryAttempt: 1 } : run);
+		const original = arm => arms[arm].runs.map(run => run.pairId === 'R-SKELETON-r1' && arm === 'B' ? { ...run, termination: 'ERROR', measurementStatus: 'INCOMPLETE' } : run);
+		const withRetry = { A: { runs: retried('A'), firstAttemptRuns: original('A') }, B: { runs: retried('B'), firstAttemptRuns: original('B') } };
+		const failed = await judge({ arms: withRetry });
+		assert.equal(failed.firstAttemptFailures.status, 'REGRESSED');
+		assert.equal(failed.firstAttemptFailures.B.failures, 1);
+		assert.equal(failed.overall, 'FAIL', 'the retry that replaced the failed B run does not erase it');
+		// An older checkpoint without firstAttemptRuns: the originals come back from history and sequence.
+		const sequence = ['A', 'B'].flatMap(arm => arms[arm].runs.map(run => ({ arm, executionOrder: run.executionOrder, retryAttempt: 0 })));
+		const history = original('B').filter(run => run.pairId === 'R-SKELETON-r1').concat(original('A').filter(run => run.pairId === 'R-SKELETON-r1'));
+		assert.equal((await judge({ arms: { A: { runs: retried('A') }, B: { runs: retried('B') } }, history, sequence })).overall, 'FAIL');
+		// Retried runs with no first-attempt evidence left: the superseded runs are unassessed, so no PASS.
+		const unassessed = await judge({ arms: { A: { runs: retried('A') }, B: { runs: retried('B') } } });
+		assert.equal(unassessed.firstAttemptFailures.status, 'INCOMPLETE');
+		assert.equal(unassessed.overall, 'INCOMPLETE');
+		assert.equal(unassessed.rooms['R-SKELETON'].damage.verdict, 'BETTER', 'the room verdicts stay as diagnostics');
 	} finally { await rm(root, { recursive: true, force: true }); }
 });

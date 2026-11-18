@@ -40,6 +40,7 @@ public final class WatchVerification {
 		dangerClearAndDeath();
 		dangerEventCursor();
 		dangerDeathFiring();
+		dangerFileStartsEmpty();
 		dangerGoldenRows();
 		return assertions;
 	}
@@ -233,6 +234,28 @@ public final class WatchVerification {
 			int gone = source.indexOf("AgentWatch gone = agents.get(agentId);");
 			check(gone >= 0 && source.indexOf("drainEvents(gone, reflexes, epochMs);", gone) > gone
 					&& source.indexOf("drainEvents(gone, reflexes, epochMs);", gone) < source.indexOf("gone.danger.stop(", gone), "a leaving agent drains before its log closes");
+		} catch (IOException failure) {
+			throw new UncheckedIOException(failure);
+		}
+	}
+
+	/**
+	 * A watched agent's danger file exists from the start, empty, so a run with no damage, threat or scheduler event reads
+	 * as a clean capture, not as missing instrumentation; starting again keeps the rows already there.
+	 */
+	private static void dangerFileStartsEmpty() {
+		try {
+			Path directory = Files.createTempDirectory("watch-danger-").resolve("arena-watch");
+			Path file = directory.resolve(AGENT + "-danger.jsonl");
+			Watcher.startDanger(directory, AGENT);
+			check(Files.exists(file) && Files.size(file) == 0L, "starting the watch creates an empty danger file");
+			Files.writeString(file, "{\"type\":\"damage\"}\n");
+			Watcher.startDanger(directory, AGENT);
+			check("{\"type\":\"damage\"}\n".equals(Files.readString(file)), "starting again keeps the rows already written");
+			String source = Files.readString(Path.of("src/main/java/dev/agaminggod/mineagen/server/watch/Watcher.java"));
+			int start = source.indexOf("agents.computeIfAbsent(agentId, id -> {");
+			check(start >= 0 && source.indexOf("startDanger(directory, fresh.idText);", start) > start
+					&& source.indexOf("startDanger(directory, fresh.idText);", start) < source.indexOf("});", start), "the tick creates the file when it starts watching an agent");
 		} catch (IOException failure) {
 			throw new UncheckedIOException(failure);
 		}

@@ -7,7 +7,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { findWatchDirs, readWatchDir } from './watch-files.mjs';
-import { epoch, resolveGoalWindow } from '../../coordinator/src/benchmark/quality-metrics.mjs';
+import { epoch, firstAttemptFailures, firstAttemptQualityRuns, resolveGoalWindow } from '../../coordinator/src/benchmark/quality-metrics.mjs';
 import { readArtifactReport } from '../../coordinator/src/benchmark/report-artifacts.mjs';
 import { judgeRooms, noiseFloor, pairRuns, scoreRun } from './lib/reflex-round.mjs';
 
@@ -80,7 +80,13 @@ export async function buildReport(options) {
 		for (const arm of ['A', 'B']) arms[arm] = await Promise.all((paired.arms?.[arm]?.runs ?? []).map(loadRun));
 		const pairs = pairRuns(arms.A, arms.B);
 		const aa = paired.configuration?.design === 'A/A';
-		return { report: 'reflex-round', design: aa ? 'A/A' : 'A/B', runs: arms, pairs, judgement: judgeRooms(pairs, margin),
+		// Retries replace a pair's runs; the originals stay in firstAttemptRuns and history, which the rooms never score.
+		// The paired runner's own guard keeps excess B failures among them from being erased (see judgeRooms).
+		const raw = arm => paired.arms?.[arm]?.runs ?? [];
+		const firstAttempts = arm => paired.arms?.[arm]?.firstAttemptRuns ?? firstAttemptQualityRuns(raw(arm),
+			(paired.history ?? []).filter(run => run.arm === arm), (paired.sequence ?? []).filter(row => row.arm === arm));
+		const guard = firstAttemptFailures(raw('A'), raw('B'), firstAttempts('A'), firstAttempts('B'));
+		return { report: 'reflex-round', design: aa ? 'A/A' : 'A/B', runs: arms, pairs, judgement: judgeRooms(pairs, margin, guard),
 			// From an A/A run, this block is the margin file for later steps (pass it back with --margin).
 			noiseFloor: { z: margin?.z ?? 2, ...noiseFloor(pairs) } };
 	}
