@@ -344,10 +344,10 @@ test('a long run stopped short of its budget ends where the scorer saw it end, f
 			sample(50, OVER, 100, 50, 1), sample(60, OVER, 90, 50, 1)];
 		const dir = await longRun(root, 'stopped', { seed: '9', nether: 40, windowMin: 180, endMin: 60, samples });
 		const [run] = readRun(dir);
+		assert.deepEqual(run.nether.deaths, [{ minute: 50, respawnBlocks: 50, returned: false, backMin: 10 }]);
 		assert.equal(run.windowMin, 180);
 		assert.equal(run.playedMin, 60);
-		assert.deepEqual(run.nether.deaths, [{ minute: 50, respawnBlocks: 50, returned: false, backMin: 10 }]);
-		// It never found a fortress: censored at the 60 minutes it played, flagged early.
+		// It never made flint and steel: censored at the 60 minutes it played, flagged early.
 		const [cohort] = buildGate({ gate: 'x', title: 'x', cohorts: [{ name: 'x', label: 'x', dirs: [dir] }] }).cohorts;
 		assert.equal(cohort.funnel.flintAndSteel.censoredEarly, 1);
 		// A score that names no observed end keeps the planned end and leaves the minutes played unknown.
