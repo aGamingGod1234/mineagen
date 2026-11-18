@@ -20,6 +20,10 @@ public final class BridgeTap {
 
 		default void actionResult(AgentId agentId, String actionType, String state, String reasonCode) {
 		}
+
+		/** An action command the bridge admitted (never one rejected during admission); {@code issuer} is the coordinator's explicit field, null from one that predates it. */
+		default void actionAccepted(AgentId agentId, String actionId, String actionType, String programId, String sourceStepId, String issuer) {
+		}
 	}
 
 	private static volatile Listener listener;
@@ -55,6 +59,16 @@ public final class BridgeTap {
 		if (current == null) return;
 		try {
 			current.actionResult(agentId, actionType, state, reasonCode);
+		} catch (RuntimeException ignored) {
+			// An audit must never disturb the bridge.
+		}
+	}
+
+	static void accepted(AgentId agentId, String actionId, String actionType, String programId, String sourceStepId, String issuer) {
+		Listener current = listener;
+		if (current == null) return;
+		try {
+			current.actionAccepted(agentId, actionId, actionType, programId, sourceStepId, issuer);
 		} catch (RuntimeException ignored) {
 			// An audit must never disturb the bridge.
 		}

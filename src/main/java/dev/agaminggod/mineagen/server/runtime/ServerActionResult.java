@@ -19,8 +19,24 @@ public record ServerActionResult(
 	boolean physicalAttempted,
 	ServerActionObservation actionObservation,
 	BreakOutcomeEvidence.Summary breakOutcome,
-	String cause
+	String cause,
+	PausedBy pausedBy
 ) {
+	/** Reflex firings that paused this action: each rule with how often, total paused game time, resumes, and whether it ended paused. */
+	public record PausedBy(java.util.List<Rule> rules, long ms, int resumes, boolean endedPaused) {
+		public record Rule(String id, int times) {
+			public Rule {
+				Objects.requireNonNull(id, "id must not be null");
+				if (id.isBlank() || id.length() > 128 || times < 1) throw new IllegalArgumentException("pausedBy rule must be named and paused at least once");
+			}
+		}
+
+		public PausedBy {
+			rules = java.util.List.copyOf(rules);
+			if (rules.isEmpty() || rules.size() > 32 || ms < 0L || resumes < 0) throw new IllegalArgumentException("pausedBy needs 1..32 rules and nonnegative counts");
+		}
+	}
+
 	public ServerActionResult {
 		Objects.requireNonNull(agentId, "agentId must not be null");
 		Objects.requireNonNull(actionId, "actionId must not be null");
@@ -47,6 +63,19 @@ public record ServerActionResult(
 		}
 	}
 
+	public ServerActionResult(AgentId agentId, long goalRevision, String actionId, ActionType actionType, String traceId,
+			ServerActionState state, String reasonCode, String message, long elapsedMs, long observedAtEpochMs,
+			boolean executionStarted, boolean physicalAttempted, ServerActionObservation actionObservation,
+			BreakOutcomeEvidence.Summary breakOutcome, String cause) {
+		this(agentId, goalRevision, actionId, actionType, traceId, state, reasonCode, message, elapsedMs, observedAtEpochMs,
+				executionStarted, physicalAttempted, actionObservation, breakOutcome, cause, null);
+	}
+
+	public ServerActionResult withPausedBy(PausedBy value) {
+		return new ServerActionResult(agentId, goalRevision, actionId, actionType, traceId, state, reasonCode, message,
+				elapsedMs, observedAtEpochMs, executionStarted, physicalAttempted, actionObservation, breakOutcome, cause, value);
+	}
+
 	/** Preserve callers without a placement cause. */
 	public ServerActionResult(AgentId agentId, long goalRevision, String actionId, ActionType actionType, String traceId,
 			ServerActionState state, String reasonCode, String message, long elapsedMs, long observedAtEpochMs,
@@ -58,7 +87,7 @@ public record ServerActionResult(
 
 	public ServerActionResult withCause(String cause) {
 		return new ServerActionResult(agentId, goalRevision, actionId, actionType, traceId, state, reasonCode, message,
-				elapsedMs, observedAtEpochMs, executionStarted, physicalAttempted, actionObservation, breakOutcome, cause);
+				elapsedMs, observedAtEpochMs, executionStarted, physicalAttempted, actionObservation, breakOutcome, cause, pausedBy);
 	}
 
 	/** Results without break evidence. */

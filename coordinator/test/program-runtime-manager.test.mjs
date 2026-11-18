@@ -173,6 +173,7 @@ test('focused entity inspection retains its causal target authority while newer 
 	assert.equal(action.payload.provenance.eventSequence, 2);
 	assert.equal(action.payload.provenance.provider, 'codex');
 	assert.match(action.payload.provenance.sourceStepId, /^step-/);
+	assert.equal(action.payload.provenance.issuer, 'program', 'the older program runtime names its commands as program steps');
 	assert.deepEqual(run.errors, []);
 });
 

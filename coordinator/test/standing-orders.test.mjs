@@ -204,6 +204,8 @@ test('burning: an eat order preempts the model wait the moment health crosses it
 	await until(() => events.some(({ event }) => event === 'program_ended'), 'the order result');
 	const latencyMs = performance.now() - crossedAt;
 	assert.deepEqual(commands(sent).slice(1).map(({ actionType }) => actionType), ['select_item', 'use_item']);
+	assert.deepEqual(commands(sent).map(({ provenance }) => provenance.issuer), ['model', 'standing_order', 'standing_order'],
+		'the order\'s commands name it as the issuer, not the model, though both programIds start native-');
 	const ended = events.find(({ event }) => event === 'program_ended').result;
 	assert.equal(ended.reasonCode, 'PROGRAM_EXHAUSTED');
 	assert.equal(ended.standingOrder.id, 'eat');

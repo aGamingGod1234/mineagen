@@ -521,6 +521,21 @@ public final class DurableActionJournalVerification {
 			assertEntry(journal, DurableActionJournal.Phase.TERMINAL, legacyRequest, legacy);
 			journal.terminal(legacy);
 		}
+		// pausedBy is journaled so a replayed result is the same result; records without it recover as unpaused.
+		ServerActionRequest pausedRequest = request(agentId, 17L, "paused", "paused-step", 13L);
+		ServerActionResult pausedPlain = result(pausedRequest, "ARRIVED");
+		ServerActionResult paused = pausedPlain.withPausedBy(new ServerActionResult.PausedBy(
+				java.util.List.of(new ServerActionResult.PausedBy.Rule("default-defend", 1)), 1_200L, 1, false));
+		Path pausedPath = directory.resolve("paused-by.journal");
+		try (DurableActionJournal journal = DurableActionJournal.open(pausedPath)) {
+			journal.accept(pausedRequest, goalId);
+			journal.terminal(paused);
+		}
+		try (DurableActionJournal journal = DurableActionJournal.open(pausedPath)) {
+			assertEntry(journal, DurableActionJournal.Phase.TERMINAL, pausedRequest, paused);
+			journal.terminal(paused);
+		}
+		if (DurableActionJournal.encodeResult(pausedPlain).has("pausedBy")) throw new AssertionError("an unpaused result has no pausedBy");
 	}
 
 	static ServerActionResult withObservation(ServerActionResult result, ServerActionObservation observation) {

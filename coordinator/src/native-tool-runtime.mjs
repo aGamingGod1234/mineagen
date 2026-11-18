@@ -1297,7 +1297,7 @@ export class NativeToolRuntime {
 		if (this.#registry !== null && current?.goalRevision !== chain.goalRevision) return stop('STALE_PLAN');
 		this.#pendingLegChains.set(agentId, chain);
 		try {
-			await this.#executeAction({ ...chain.request, callId: `${chain.request.callId ?? 'keep-going'}-leg${chain.legs + 1}` }, chain.record, chain.request.tool, null, false);
+			await this.#executeAction({ ...chain.request, callId: `${chain.request.callId ?? 'keep-going'}-leg${chain.legs + 1}` }, chain.record, chain.request.tool, null, false, null, null, { issuer: 'skill_leg' });
 			this.#trace('native_keep_going_leg_started', { agentId, goalRevision: chain.goalRevision, actionId: chain.currentId, leg: chain.legs });
 		} catch (error) { stop(error?.code ?? 'LEG_NOT_STARTED'); }
 		finally { if (this.#pendingLegChains.get(agentId) === chain) this.#pendingLegChains.delete(agentId); }
@@ -1667,7 +1667,8 @@ export class NativeToolRuntime {
 			if (!order.truth) return;
 			this.#standing.markFired(agentId, order.id);
 		}
-		const request = { agentId, goalRevision: record.goalRevision, turnId: `standing-${order.id}`, callId: `standing-${order.id}-${order.fired}`,
+		// issuer: the order's commands are its own, not the model's (C17); its first command dispatches before run.standingOrder is set.
+		const request = { agentId, goalRevision: record.goalRevision, turnId: `standing-${order.id}`, callId: `standing-${order.id}-${order.fired}`, issuer: order.guard ? 'guard' : 'standing_order',
 			tool: { kind: 'run_program', source: order.source, background: true, maxActions: order.maxActions, timeoutMs: order.timeoutMs,
 				...(order.parameters === undefined ? {} : { parameters: order.parameters }) } };
 		const started = this.#runProgram(request, record);
@@ -2110,7 +2111,8 @@ export class NativeToolRuntime {
 				if (this.#programRuns.get(record.agentId) !== run || this.#executionEpoch(record.agentId) !== run.epoch) throw codedError('NATIVE_PROGRAM_CANCELLED', 'Program no longer has execution authority');
 				run.postResultSample = undefined;
 				run.lastActionResult = null;
-				const result = await this.#executeAction(request, record, { kind: 'action', actionType: command.action.type, arguments: command.action.arguments }, null, true, command);
+				const result = await this.#executeAction(request, record, { kind: 'action', actionType: command.action.type, arguments: command.action.arguments }, null, true, command, null,
+					{ issuer: request.issuer ?? 'program' });
 				if (run.standingGuard) this.#standing.recordGuardAction(run.guardOrder, command.action.type, result);
 				lastActionResult = result;
 				run.lastActionResult = result;
@@ -2829,7 +2831,8 @@ export class NativeToolRuntime {
 				// later use_item takes the sample rather than trusting the cached hand.
 				hasPostActionFacts ||= index > 0 && action.actionType === 'use_item' || this.#needsPostActionFacts(record, action);
 				blockingRun.sequence = { runningStep: index + 1, completedSteps: results.length, remainingSteps: request.tool.actions.length - index - 1 };
-				lastResult = await this.#executeAction(request, record, { kind: 'action', ...action }, index, true, null, finishToken);
+				// The first step is the model's own choice (its response); later steps carry out the plan it already made.
+				lastResult = await this.#executeAction(request, record, { kind: 'action', ...action }, index, true, null, finishToken, index === 0 ? { issuer: 'model' } : undefined);
 				if (lastResult.state === 'RUNNING') return { ...lastResult,
 					sequence: blockingRun.sequence, ...(results.length === 0 ? {} : { results }) };
 				results.push({ actionType: action.actionType, ...lastResult });
@@ -2880,7 +2883,7 @@ export class NativeToolRuntime {
 		return planCountDefault(tool, { needs, entities });
 	}
 
-	async #executeAction(request, record, tool, sequenceIndex = null, waitForCompletion = true, programCommand = null, sequenceFinishToken = null, { pausedProgram = false, issued = null } = {}) {
+	async #executeAction(request, record, tool, sequenceIndex = null, waitForCompletion = true, programCommand = null, sequenceFinishToken = null, { pausedProgram = false, issued = null, issuer = null } = {}) {
 		// All native routes, including replacement and authored programs, meet here.
 		tool = constrainNavigationAction(tool, record.currentGoalSpec);
 		// A fight the model called directly on a mob whose drop its plan counts runs to that count (plan-count.mjs).
@@ -2943,10 +2946,13 @@ export class NativeToolRuntime {
 				eventSequence,
 			},
 		};
+		// Explicit issuer for audits (C17): never inferred from the programId prefix, which programs and legs share.
+		const commandIssuer = issuer ?? (programCommand !== null ? 'program' : sequenceIndex !== null ? 'skill_leg' : 'model');
 		if (programCommand !== null) {
 			const provenance = programCommand.provenance;
 			payload.provenance = { provider: provenance.provider, model: provenance.model ?? provenance.modelIdentity, reasoningEffort: provenance.reasoningEffort, serviceTier: provenance.serviceTier, traceId: provenance.traceId, programId: provenance.programId, programVersion: provenance.version, sourceStepId: provenance.stepId, eventSequence: inspected?.goalRevision === record.goalRevision ? inspected.eventSequence : provenance.authorizingEventSequence ?? provenance.eventSequence, ...(provenance.watcherId == null ? {} : { watcherId: provenance.watcherId }) };
 		}
+		payload.provenance.issuer = commandIssuer;
 		let resolveAction;
 		let rejectAction;
 		const result = new Promise((resolve, reject) => { resolveAction = resolve; rejectAction = reject; });
@@ -3008,6 +3014,7 @@ export class NativeToolRuntime {
 			publication = Promise.resolve(this.#bridge.send('action_command', record.agentId, payload)).then(() => {
 				active.dispatchPending = false;
 				this.#trace('native_tool_command_sent', { agentId: record.agentId, goalRevision: record.goalRevision, traceId, actionId, actionType: payload.actionType, callId,
+					eventSequence: payload.provenance.eventSequence, programId: payload.provenance.programId, issuer: commandIssuer,
 					dispatchMs: Math.round((performance.now() - dispatchStartedAt) * 10) / 10, sendMs: Math.round((performance.now() - sendStartedAt) * 10) / 10 });
 			}, failPublication);
 		} catch (error) {

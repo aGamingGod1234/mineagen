@@ -1086,6 +1086,8 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		source.placementFacts = announcedCapability(envelope.payload(), "placementFacts");
 		source.breakOutcomeFacts = announcedCapability(envelope.payload(), "breakOutcomeFacts");
 		source.dropAheadFacts = announcedCapability(envelope.payload(), "dropAheadFacts");
+		source.pausedByFacts = announcedCapability(envelope.payload(), "pausedByFacts");
+		source.actionIssuer = announcedCapability(envelope.payload(), "actionIssuer");
 
 		while (true) {
 			ensureHandshakeTimeRemaining(source);
@@ -1098,6 +1100,8 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 			payload.addProperty("replyTo", envelope.messageId());
 			payload.addProperty("authenticated", true);
 			if (suppliedLaunchId != null) payload.addProperty("launchId", suppliedLaunchId);
+			// Echoed only to a coordinator that announced it: it may then add provenance.issuer, which an older server rejects.
+			if (source.actionIssuer) payload.addProperty("actionIssuer", true);
 			JsonArray registry = new JsonArray();
 			Set<AgentId> handshakeKnownAgentIds = new HashSet<>();
 			// Preflight one immutable record at a time before committing the session. The
@@ -2342,10 +2346,12 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 			BridgeTap.model(request.agentId(), "action_command", request.provenance().programId(), request.provenance().programVersion());
 			if (shouldRouteConcurrentChat(request, actionExecutor.activeRequest(request.agentId()))) {
 				actionExecutor.submitConcurrentChat(request);
+				tapAccepted(request, envelope);
 				return;
 			}
 			if (isDetachedConversationReply(record, request)) {
 				actionExecutor.submitConversationReply(request);
+				tapAccepted(request, envelope);
 			} else {
 				actionJournal.acceptForTick(request, logicalGoalId(record));
 				durableAccepted = true;
@@ -2359,12 +2365,22 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 					}
 					throw exception;
 				}
+				tapAccepted(request, envelope);
 			}
 		} catch (BridgeProtocolException | AgentDomainException exception) {
 			if (durableAccepted) throw exception;
 			if (sendRejectedAction(envelope, exception)) return;
 			throw exception;
 		}
+	}
+
+	/**
+	 * The audit tap's accepted command, only once admission returned: a command rejected during admission (already active,
+	 * quarantined, journal rolled back) never reaches the danger log as a response.
+	 */
+	private static void tapAccepted(ServerActionRequest request, BridgeEnvelope envelope) {
+		BridgeTap.accepted(request.agentId(), request.actionId(), request.type().wireName(), request.provenance().programId(),
+				request.provenance().sourceStepId(), actionIssuer(envelope.payload()));
 	}
 
 	private void acceptActionCancel(BridgeEnvelope envelope) {
@@ -2574,7 +2590,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 	private static ActionProvenance decodeActionProvenance(JsonObject payload) {
 		JsonObject provenance = requiredObject(payload, "provenance");
 		Set<String> expected = Set.of(
-				"provider", "model", "reasoningEffort", "serviceTier", "programId", "programVersion", "sourceStepId", "eventSequence", "traceId", "watcherId"
+				"provider", "model", "reasoningEffort", "serviceTier", "programId", "programVersion", "sourceStepId", "eventSequence", "traceId", "watcherId", "issuer"
 		);
 		for (String field : provenance.keySet()) if (!expected.contains(field)) throw new BridgeProtocolException("INVALID_FIELD", "provenance");
 		for (String field : Set.of("provider", "model", "reasoningEffort", "serviceTier", "programId", "programVersion", "sourceStepId", "eventSequence")) {
@@ -2583,6 +2599,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		if (provenance.has("watcherId") && !provenance.has("traceId")) {
 			throw new BridgeProtocolException("MISSING_FIELD", "provenance.traceId");
 		}
+		actionIssuer(payload);
 		try {
 			return new ActionProvenance(
 					requiredProvenanceString(provenance, "provider"),
@@ -2599,6 +2616,19 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		} catch (IllegalArgumentException exception) {
 			throw new BridgeProtocolException("INVALID_PROVENANCE", exception.getMessage(), exception);
 		}
+	}
+
+	/** Who issued a command, for audits only: model, skill_leg, program, standing_order or guard; null from an older coordinator. */
+	static final Set<String> ACTION_ISSUERS = Set.of("model", "skill_leg", "program", "standing_order", "guard");
+
+	static String actionIssuer(JsonObject payload) {
+		JsonElement provenance = payload.get("provenance");
+		if (provenance == null || !provenance.isJsonObject() || !provenance.getAsJsonObject().has("issuer")) return null;
+		JsonElement issuer = provenance.getAsJsonObject().get("issuer");
+		if (!issuer.isJsonPrimitive() || !issuer.getAsJsonPrimitive().isString() || !ACTION_ISSUERS.contains(issuer.getAsString())) {
+			throw new BridgeProtocolException("INVALID_PROVENANCE", "provenance.issuer must be one of " + ACTION_ISSUERS);
+		}
+		return issuer.getAsString();
 	}
 
 	private void sendActionResult(ServerActionResult result) {
@@ -2873,6 +2903,8 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 				&& result.actionType() == ActionType.BREAK_BLOCK && result.state() == ServerActionState.SUCCEEDED));
 		// An older coordinator rejects unknown action_result keys, so only one that announced breakOutcomeFacts gets them.
 		if (target.breakOutcomeFacts && result.breakOutcome() != null) payload.add("breakOutcome", DurableActionJournal.encodeBreakOutcome(result.breakOutcome()));
+		// Same for pausedBy: only a coordinator that announced pausedByFacts accepts the key.
+		if (target.pausedByFacts && result.pausedBy() != null) payload.add("pausedBy", DurableActionJournal.encodePausedBy(result.pausedBy()));
 		payload.addProperty("replayProof", actionResultReplayProof(
 				secret, target.clientNonce, target.serverNonce, serverInstanceId,
 				result.agentId().toString(), result.goalRevision(), result.actionId()
@@ -4368,6 +4400,8 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		private volatile boolean breakOutcomeFacts;
 		private volatile boolean placementFacts;
 		private volatile boolean dropAheadFacts;
+		private volatile boolean pausedByFacts;
+		private volatile boolean actionIssuer;
 		private volatile String clientNonce;
 		private volatile String serverNonce;
 		private volatile String authResponseMessageId;

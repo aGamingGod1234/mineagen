@@ -4580,7 +4580,18 @@ public final class ServerActionExecutor {
 				physicalAttempted,
 				lastObservation,
 				breakSummary
-			);
+			).withPausedBy(pausedBy());
+		}
+
+		/** The structured form of {@link #pauseNote()} for action_result.pausedBy, or null when no firing paused this action. */
+		ServerActionResult.PausedBy pausedBy() {
+			if (pausedBy.isEmpty()) return null;
+			java.util.List<ServerActionResult.PausedBy.Rule> rules = new java.util.ArrayList<>();
+			for (Map.Entry<String, Integer> entry : pausedBy.entrySet()) {
+				if (rules.size() == 32) break;
+				rules.add(new ServerActionResult.PausedBy.Rule(entry.getKey().length() > 128 ? entry.getKey().substring(0, 128) : entry.getKey(), entry.getValue()));
+			}
+			return new ServerActionResult.PausedBy(rules, pausedMs, resumes, pausedNow);
 		}
 
 		/** Held attack can break blocks; each new removal receipt is one break, at most one per player tick. */

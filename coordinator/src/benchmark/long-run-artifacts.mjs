@@ -14,7 +14,7 @@ export function longProtocolRow(row) {
 	if (e.type === 'observation') return { ...row, envelope: { type: e.type, agentId: e.agentId, payload: {
 		observedAtEpochMs: p.observedAtEpochMs, dimension: p.dimension ?? p.world?.dimension, inventory: p.inventory,
 	} } };
-	if (['goal_control', 'goal_completion_result', 'advancement_granted', 'agent_registered', 'agent_removed'].includes(e.type)) return row;
+	if (['goal_control', 'goal_completion_result', 'advancement_granted', 'entity_killed', 'agent_registered', 'agent_removed'].includes(e.type)) return row;
 	return null;
 }
 export const longTraceRow = row => ['native_model_call', 'native_decision_timing', 'native_token_usage'].includes(row.event) ? row : null;
