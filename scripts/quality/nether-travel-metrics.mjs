@@ -24,6 +24,8 @@ export function netherTravel({ windowStart = null, windowEnd = null } = {}) {
 	let last = null, last10 = null, entry = null, netherMs = 0, pathBlocks = 0, path10Blocks = 0, gaps = 0, excludedJumps = 0, deaths = 0, dead = false;
 	let firstFortress = null, maxFromEntry = 0, activeMs = 0, travelGain = 0, travelCalls = 0;
 	let counter = null, alive = null, lastTime = null, portal = null, firstEntry = null, deathsAfterFirstEntry = 0, respawning = null;
+	// Deaths recorded from health while the sample's counter read was missing; a later counter rise already counts them.
+	let fallbackDeaths = 0;
 	const calls = new Map(), reasons = {}, results = new Set(), netherDeaths = [];
 	let tickSpan = 0, tickWallMs = 0;
 	const died = (time) => {
@@ -46,13 +48,16 @@ export function netherTravel({ windowStart = null, windowEnd = null } = {}) {
 			lastTime = time;
 			if (Number.isFinite(o.deathCounter)) {
 				if (counter !== null && o.deathCounter > counter) {
-					for (let i = counter; i < o.deathCounter; i++) died(time);
+					const rise = o.deathCounter - counter, already = Math.min(rise, fallbackDeaths);
+					fallbackDeaths -= already;
+					for (let i = already; i < rise; i++) died(time);
 					last = null; last10 = null;
 				}
+				if (counter === null) fallbackDeaths = 0;
 				counter = o.deathCounter;
 				dead = isDead;
 			} else {
-				if (isDead && !dead) died(time);
+				if (isDead && !dead) { died(time); if (counter !== null) fallbackDeaths++; }
 				if (isDead !== dead) { dead = isDead; last = null; last10 = null; }
 			}
 			if (!at) return;
@@ -61,6 +66,8 @@ export function netherTravel({ windowStart = null, windowEnd = null } = {}) {
 					portal = { ...alive.at };
 					firstEntry ??= { atMs: time, portal: { ...portal } };
 				}
+				// A window or capture that starts in the Nether: the first entry is the first live Nether sample, its portal unknown.
+				if (dimension === NETHER && alive === null) firstEntry ??= { atMs: time, portal: null };
 				if (respawning) {
 					respawning.respawn = { dimension, ...at };
 					respawning.respawnBlocks = respawning.portal && dimension === OVERWORLD ? flat(at, respawning.portal) : null;
