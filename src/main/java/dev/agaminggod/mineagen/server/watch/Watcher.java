@@ -333,7 +333,11 @@ public final class Watcher {
 			} catch (RuntimeException missing) {
 				continue;
 			}
-			AgentWatch watch = agents.computeIfAbsent(agentId, id -> new AgentWatch(id, agents.size()));
+			AgentWatch watch = agents.computeIfAbsent(agentId, id -> {
+				AgentWatch fresh = new AgentWatch(id, agents.size());
+				startDanger(directory, fresh.idText);
+				return fresh;
+			});
 			if (player == null || !player.isAlive() || player.isSpectator()) {
 				// The engine ends a dead body's firing ("body unavailable") on its first tick after the death, after died() ran.
 				drainEvents(watch, reflexes, epochMs);
@@ -810,6 +814,14 @@ public final class Watcher {
 		appendRaw(watch.idText + "-danger.jsonl", lines.toString());
 	}
 
+	/**
+	 * Creates an agent's danger file, empty, when the watch starts observing it, so a watched run with no danger rows reads
+	 * as clean, not as missing instrumentation. Appends nothing: rows already there (a rejoin, a restart) are kept.
+	 */
+	static void startDanger(Path directory, String idText) {
+		appendRaw(directory, idText + "-danger.jsonl", "");
+	}
+
 
 	private void write(AgentWatch watch, List<Episode> closed, ReflexEngine reflexes) {
 		if (closed.isEmpty()) return;
@@ -827,6 +839,10 @@ public final class Watcher {
 	}
 
 	private void appendRaw(String file, String text) {
+		appendRaw(directory, file, text);
+	}
+
+	private static void appendRaw(Path directory, String file, String text) {
 		try {
 			Files.createDirectories(directory);
 			Files.writeString(directory.resolve(file), text, StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);

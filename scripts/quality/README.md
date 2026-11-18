@@ -352,7 +352,7 @@ The reflex rooms (`scripts/quality/reflex-rooms.json`) are a fast regression che
 
 ### Danger rows
 
-With `-Dmineagen.watch=true` (every harness launcher passes it) the Watcher also writes `arena-watch/<agentId>-danger.jsonl`. With the watch off nothing is written and observations are unchanged. Every row has `type`, `schema` (currently 1), `agentId`, `atMs` (epoch ms) and `gameTime`. Onset and clear rows also carry `rules` (`onset-1`); a change to an onset, close or response rule bumps it, because it moves the gate's denominator. Rows of another schema are counted apart, never mixed in.
+With `-Dmineagen.watch=true` (every harness launcher passes it) the Watcher also writes `arena-watch/<agentId>-danger.jsonl`, created empty when it starts watching the agent, so a watched run with no danger rows reads as a clean capture rather than missing evidence. With the watch off nothing is written and observations are unchanged. Every row has `type`, `schema` (currently 1), `agentId`, `atMs` (epoch ms) and `gameTime`. Onset and clear rows also carry `rules` (`onset-1`); a change to an onset, close or response rule bumps it, because it moves the gate's denominator. Rows of another schema are counted apart, never mixed in.
 
 | Row | What it records |
 |---|---|

@@ -306,6 +306,13 @@ test('the CLI reads run directories and paired results, and reports the noise fl
 		assert.equal(corruptRun.status, 'unknown');
 		assert.equal(corruptRun.damage, null);
 		assert.match(corruptRun.reconciliation.reason, /malformed danger row/);
+		// A watched run with no danger rows leaves the Watcher's empty file: a clean capture, not missing instrumentation.
+		const empty = await runDir(root, 'empty-watch', { scenario: 'R-SKELETON', rows: [], samples: [counter(START, 0), counter(START + 300_000, 0)] });
+		await writeFile(path.join(empty.artifacts, 'arena-watch', 'agent-danger.jsonl'), '');
+		const emptyRun = (await buildReport(parseReportArgs(['--run', empty.artifacts]))).runs[0];
+		assert.equal(emptyRun.status, 'valid', emptyRun.reconciliation.reason);
+		assert.equal(emptyRun.damage, 0);
+		assert.equal(emptyRun.deaths, 0);
 		const noWatch = await runDir(root, 'no-watch', { scenario: 'R-SKELETON', rows: null, samples });
 		assert.equal((await buildReport(parseReportArgs(['--run', noWatch.artifacts]))).runs[0].status, 'unknown');
 		const arms = { A: { runs: [] }, B: { runs: [] } };
