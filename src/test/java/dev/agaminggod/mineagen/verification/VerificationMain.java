@@ -277,6 +277,7 @@ public final class VerificationMain {
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.TravelStallTickVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.SwimOutVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.DoorNavigationVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.NavigationKnockbackVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.DigContinuationVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.perception.HearingPerceptionVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.perception.SightedFeaturesVerification.verify();

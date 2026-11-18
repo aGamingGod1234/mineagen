@@ -848,7 +848,7 @@ public final class ServerActionExecutor {
 								GameClock.nowMs(),
 								arguments.has("timeoutMs") ? integer(arguments, "timeoutMs") : DEFAULT_TIMEOUT_MS,
 								true
-						)
+						).keepsKnockbackMargin(new dev.agaminggod.mineagen.server.runtime.controller.KnockbackHolds())
 				);
 				if (standing != null) action.destinationNote = String.format(java.util.Locale.ROOT,
 						"; requested %s is %s, so the target became the standing spot %.1f,%.0f,%.1f", cell(BlockPos.containing(requested)),
@@ -882,6 +882,7 @@ public final class ServerActionExecutor {
 						arguments.has("minHealth") ? (float) number(arguments, "minHealth") : null,
 						(body, cell) -> protection.mayModifyBlock(body, body.level(), cell),
 						GameClock.nowMs()).fightThrough(arguments.has("fightThrough") && bool(arguments, "fightThrough"))
+						.keepsKnockbackMargin()
 						.descend((y, x, z, digTimeoutMs) -> digController(dev.agaminggod.mineagen.server.runtime.controller.ServerTravelController.staircase(
 								arguments, y, x, z, digTimeoutMs, player.blockPosition().getY()))));
 			}
@@ -1090,8 +1091,8 @@ public final class ServerActionExecutor {
 				}
 				requireResult(advancedInteractions.validatePickUp(player, item));
 				yield ActiveAction.controller(request, player,
-						arguments.has("timeoutMs") ? new ServerItemPickupController(player, item, GameClock.nowMs(), integer(arguments, "timeoutMs"))
-								: new ServerItemPickupController(player, item, GameClock.nowMs()));
+						(arguments.has("timeoutMs") ? new ServerItemPickupController(player, item, GameClock.nowMs(), integer(arguments, "timeoutMs"))
+								: new ServerItemPickupController(player, item, GameClock.nowMs())).keepsKnockbackMargin());
 			}
 			case DROP_ITEM -> ActiveAction.immediate(request, player, () -> requireResult(
 					advancedInteractions.drop(player, integer(arguments, "slot"), integer(arguments, "count"))

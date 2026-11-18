@@ -43,6 +43,11 @@ public final class ServerItemPickupController implements ServerController {
 	/** Walks crouched (the model's sneak:true held through a fight's drop pickup). */
 	private boolean crouched;
 	private final double startingY;
+	/**
+	 * pick_up_item's own walks keep the knockback margin (issue 2, K9) and share these holds; null on a fight's or barter's
+	 * drop pickup, which does not hold.
+	 */
+	private KnockbackHolds knockbackHolds;
 
 	public ServerItemPickupController(ServerPlayer player, ItemEntity item, long startedAt) {
 		this(player, item, startedAt, DEFAULT_TIMEOUT_MS);
@@ -65,6 +70,11 @@ public final class ServerItemPickupController implements ServerController {
 		this.startingDimension = player.level().dimension();
 	}
 
+	public ServerItemPickupController keepsKnockbackMargin() {
+		this.knockbackHolds = new KnockbackHolds();
+		return this;
+	}
+
 	public ServerItemPickupController crouched(boolean crouched) {
 		this.crouched = crouched;
 		return this;
@@ -85,7 +95,7 @@ public final class ServerItemPickupController implements ServerController {
 		boolean alive = item.isAlive() && !item.isRemoved() && !item.getItem().isEmpty();
 		ItemPickupProgress.Decision decision = ItemPickupProgress.evaluate(initialInventoryCount, currentCount, initialReceipt,
 				dev.agaminggod.mineagen.server.perception.PickupReceipts.collected(player, item.getUUID()), alive,
-				elapsedMs >= walkLimitMs);
+				elapsedMs - PickupBudget.heldCreditMs(knockbackHolds == null ? 0L : knockbackHolds.heldMs(), walkLimitMs, timeoutMs) >= walkLimitMs);
 		return switch (decision) {
 			case SUCCEEDED -> succeed(player);
 			case ITEM_UNAVAILABLE -> fail(player, "ITEM_UNAVAILABLE", ActionResultFacts.unavailableDrop(player, lastSeenPosition(player), identity));
@@ -135,7 +145,7 @@ public final class ServerItemPickupController implements ServerController {
 					// The walk limit is checked before every step and may grow once a route is planned, so the walk itself runs
 					// to the call's timeout.
 					() -> walk(currentTarget, pickupRegion, nowEpochMs, remainingNavigationTimeout(timeoutMs, elapsedMs), replansSpent, crouched,
-							keepLevel, startingY)
+							keepLevel, startingY, knockbackHolds)
 			);
 			navigationTarget = currentTarget;
 		}
@@ -168,9 +178,16 @@ public final class ServerItemPickupController implements ServerController {
 	/** One walk toward the drop, on pick_up_item's own stall budget and over seen cells only. */
 	static ServerNavigationController walk(Vec3 target, AABB region, long nowEpochMs, long timeoutMs, int replansSpent, boolean crouched,
 			boolean keepLevel, double startingY) {
+		return walk(target, region, nowEpochMs, timeoutMs, replansSpent, crouched, keepLevel, startingY, null);
+	}
+
+	/** As above; pick_up_item's own walk passes the pickup's {@code knockbackHolds}, every other pickup null. */
+	static ServerNavigationController walk(Vec3 target, AABB region, long nowEpochMs, long timeoutMs, int replansSpent, boolean crouched,
+			boolean keepLevel, double startingY, KnockbackHolds knockbackHolds) {
 		ServerNavigationController move = new ServerNavigationController(target, 0.2D, true, nowEpochMs, timeoutMs, region)
 				.stallBudget(PickupBudget.STALL_MS, PickupBudget.replansLeft(replansSpent))
 				.seenRouteOnly();
+		if (knockbackHolds != null) move.keepsKnockbackMargin(knockbackHolds);
 		move.crouched(crouched);
 		return keepLevel ? move.onLevel(net.minecraft.util.Mth.floor(startingY + 0.2D)) : move;
 	}
