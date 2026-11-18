@@ -147,7 +147,8 @@ export class ExperienceStore {
 		const blocked = new Set(this.#settings.excludedSeedHashes);
 		if (this.#settings.seedHash !== null) blocked.add(this.#settings.seedHash);
 		const carried = new Map();
-		for (const game of this.#games.values()) {
+		// Earlier games: the snapshot read at load, plus games this process played before a world change.
+		for (const game of [...this.#games.values(), ...this.#current.values()]) {
 			if (game.game === gameHash) continue;
 			for (const [id, lesson] of Object.entries(game.lessons)) {
 				const entry = carried.get(id) ?? { id, rule: lesson.rule, slots: lesson.slots, games: 0, count: 0, shownGames: 0, repeatsAfterShown: 0, blocked: false };

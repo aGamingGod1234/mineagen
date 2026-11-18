@@ -24,7 +24,7 @@ function experience(directory, env = {}) {
 }
 async function withDirectory(run) {
 	const directory = await mkdtemp(join(tmpdir(), 'experience-runtime-'));
-	try { await run(directory); } finally { await rm(directory, { recursive: true, force: true }); }
+	try { await run(directory); } finally { await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }); }
 }
 
 /** Game one: a skeleton shoots the agent dead while it flees across open ground. */
@@ -101,7 +101,7 @@ test('at most three lessons are shown, and carried lessons are trimmed first', (
 	await memory.recordDispatch(record, { actionId: 'flee-1', actionType: 'flee_from', goalRevision: 1, arguments: { targetId: '00000000-0000-4000-8000-000000000001', distance: 16, timeoutMs: 10000 } });
 	for (const [index, cause] of ['was shot by Skeleton', 'was slain by Zombie', 'was shot by Stray'].entries()) {
 		memory.observe(record, observation('world-one', T0 + 30_000 * index + 1_000, { hostiles: ['skeleton', 'zombie', 'stray'], health: 6, edible: 0 }));
-		memory.observe(record, { death: { cause: `x ${cause}`, dimensionId: 'minecraft:overworld', diedAtEpochMs: T0 + 30_000 * index + 2_000 } });
+		memory.observe(record, { death: { cause: `x ${cause}`, dimensionId: 'minecraft:overworld', diedAtEpochMs: T0 + 30_000 * index + 16_000 } });
 	}
 	memory.observe(record, observation('world-one', T0 + 100_000, { hostiles: ['skeleton', 'zombie', 'stray'], health: 6, edible: 0 }));
 	await memory.flush();
@@ -203,4 +203,30 @@ test('a death reviewed while the store loads is recorded against its own game af
 	await runtime.flush();
 	assert.ok(real.candidates(experienceHash('world:world-one')).some((entry) => entry.thisGame > 0));
 	assert.equal(real.candidates(experienceHash('world:world-two')).some((entry) => entry.thisGame > 0), false);
+}));
+
+test('observations every 100 ms still keep the ten-second health lookback', () => withDirectory(async (directory) => {
+	const events = [];
+	const runtime = createExperience(experienceSettings({ MINEAGEN_EXPERIENCE: 'lessons', MINEAGEN_EXPERIENCE_DIR: directory, MINEAGEN_EXPERIENCE_PROFILE: 'p' }), { trace: (event, fields) => events.push({ event, ...fields }) });
+	for (let at = T0; at <= T0 + 20_000; at += 100) runtime.observe('agent-a', 'world-one', observation('world-one', at, { hostiles: ['zombie'], health: 6, edible: 0 }), at);
+	await runtime.observe('agent-a', 'world-one', { death: { cause: 'x was slain by Zombie', dimensionId: 'minecraft:overworld', diedAtEpochMs: T0 + 20_100 } }, T0 + 20_100);
+	await runtime.flush();
+	const recorded = events.filter((event) => event.event === 'experience_lesson_recorded').map((event) => event.rule);
+	assert.ok(recorded.includes('melee-at-low-health') && recorded.includes('died-without-food'), JSON.stringify(recorded));
+}));
+
+test('history gathered while a death review waits for the store is kept', () => withDirectory(async (directory) => {
+	const settingsValue = experienceSettings({ MINEAGEN_EXPERIENCE: 'lessons', MINEAGEN_EXPERIENCE_DIR: directory, MINEAGEN_EXPERIENCE_PROFILE: 'p' });
+	const real = new ExperienceStore(settingsValue), gate = Promise.withResolvers(), events = [];
+	const store = { load: async () => { await gate.promise; return real.load(); }, state: () => real.state(), record: (...args) => real.record(...args),
+		markShown: (...args) => real.markShown(...args), candidates: (...args) => real.candidates(...args), flush: () => real.flush() };
+	const runtime = createExperience(settingsValue, { store, trace: (event, fields) => events.push({ event, ...fields }) });
+	runtime.observe('agent-a', 'world-one', observation('world-one', T0, { hostiles: ['skeleton'] }), T0);
+	const first = runtime.observe('agent-a', 'world-one', { death: { cause: 'x was shot by Skeleton', dimensionId: 'minecraft:overworld', diedAtEpochMs: T0 + 1_000 } }, T0 + 1_000);
+	runtime.observe('agent-a', 'world-two', observation('world-two', T0 + 5_000, { hostiles: ['zombie'], health: 6, edible: 0 }), T0 + 5_000);
+	gate.resolve();
+	await first;
+	await runtime.observe('agent-a', 'world-two', { death: { cause: 'x was slain by Zombie', dimensionId: 'minecraft:overworld', diedAtEpochMs: T0 + 20_000 } }, T0 + 20_000);
+	await runtime.flush();
+	assert.ok(events.some((event) => event.event === 'experience_lesson_recorded' && event.rule === 'melee-at-low-health'));
 }));

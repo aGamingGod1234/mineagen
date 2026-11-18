@@ -67,5 +67,5 @@ test('a death in one game reaches its respawn wake and the next game\'s wake as 
 		assert.match(wake, /review: 1 time in 1 earlier game/);
 		assert.doesNotMatch(wake, /game-one|Probe/);
 		assert.ok(second.events.some((e) => e.event === 'experience_lessons_shown' && e.carried >= 1));
-	} finally { await rm(directory, { recursive: true, force: true }); }
+	} finally { await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }); }
 });

@@ -10,7 +10,7 @@ const lesson = { id: 'death:shot:skeleton:fleeing', rule: 'ranged-fled-in-open',
 
 async function withDirectory(run) {
 	const directory = await mkdtemp(join(tmpdir(), 'experience-store-'));
-	try { await run(directory); } finally { await rm(directory, { recursive: true, force: true }); }
+	try { await run(directory); } finally { await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }); }
 }
 function settings(directory, overrides = {}) {
 	return experienceSettings({ MINEAGEN_EXPERIENCE: 'lessons', MINEAGEN_EXPERIENCE_DIR: directory, MINEAGEN_EXPERIENCE_PROFILE: 'profile-one', ...overrides });
@@ -129,4 +129,14 @@ test('a lesson blocked from carrying by its seed still shows on this game\'s own
 	assert.deepEqual(replayed.candidates(GAME_B), []);
 	replayed.record(GAME_B, { ...lesson, atEpochMs: 2 });
 	assert.deepEqual(replayed.candidates(GAME_B).map(({ id, games, thisGame }) => ({ id, games, thisGame })), [{ id: lesson.id, games: 0, thisGame: 1 }]);
+	await replayed.flush();
+}));
+
+test('a game played earlier by the same process carries into the next world', () => withDirectory(async (directory) => {
+	// One process has one seed hash, which blocks carry between its own games; without one, worlds carry.
+	const store = new ExperienceStore(settings(directory));
+	await store.load();
+	store.record(GAME_A, { ...lesson, atEpochMs: 1 });
+	assert.deepEqual(store.candidates(GAME_B).map(({ id, games, thisGame }) => ({ id, games, thisGame })), [{ id: lesson.id, games: 1, thisGame: 0 }]);
+	await store.flush();
 }));

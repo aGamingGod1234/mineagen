@@ -38,11 +38,12 @@ async function healthSamples(gameDirectory) {
 	return rows;
 }
 /** The full observation when the recording has one; otherwise the trimmed row with the nearest earlier health sample. */
-function observationOf(payload, health, gameIndex) {
+function observationOf(payload, health, recording) {
 	try { return { observation: adaptObservation(payload.observation ?? payload), trimmed: false }; } catch { /* trimmed recording */ }
 	const { goalRevision, dimension, ...rest } = payload;
 	// Long-run rows may keep only the dimension: give each recording its own stable world identity.
-	const world = { worldId: rest.world?.worldId ?? `replay-game-${gameIndex}`, ...(rest.world ?? {}) };
+	// The recording folder names the game (hashed before it is stored), so separate invocations agree on identities.
+	const world = { worldId: rest.world?.worldId ?? `replay:${recording}`, ...(rest.world ?? {}) };
 	world.dimension ??= world.dimensionId ?? dimension;
 	rest.world = world;
 	const at = rest.observedAtEpochMs;
@@ -83,7 +84,7 @@ for (const [index, gameDirectory] of positionals.entries()) {
 		const record = { agentId: envelope.agentId, goalRevision };
 		try {
 			if (envelope.type === 'observation') {
-				const { observation, trimmed } = observationOf(payload, health, index);
+				const { observation, trimmed } = observationOf(payload, health, path.resolve(gameDirectory));
 				if (trimmed) stats.trimmedObservations += 1;
 				memory.observe(record, observation);
 				stats.observations += 1;
@@ -109,7 +110,9 @@ for (const [index, gameDirectory] of positionals.entries()) {
 	const recorded = events.filter((event) => event.event === 'experience_lesson_recorded');
 	const reviewed = events.filter((event) => event.event === 'experience_death_reviewed');
 	const bytes = stats.carriedBytes.sort((a, b) => a - b);
-	report.push({ ...stats, carriedBytes: undefined,
+	// LONG captures drop action rows: without them the failure rules and the action-dependent death rules cannot fire.
+	if (stats.dispatches === 0 && stats.results === 0) console.warn(`game ${index + 1}: no action rows in this recording; failure and action-dependent death lessons were not reviewed`);
+	report.push({ ...stats, actionEvidence: stats.dispatches + stats.results > 0, carriedBytes: undefined,
 		carriedBytesMedian: bytes.length ? bytes[Math.floor(bytes.length / 2)] : 0, carriedBytesMax: bytes.at(-1) ?? 0,
 		deathsReviewed: reviewed.length, deathCauses: reviewed.map((event) => event.escaping ? `${event.cause}<-${event.escaping}` : event.cause),
 		lessonsRecorded: recorded.map((event) => event.lessonId), state: experience.state() });
