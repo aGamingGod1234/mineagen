@@ -31,6 +31,10 @@ export const DEFAULT_REFLEXES = Object.freeze([
 	{ id: 'default-cover', kind: 'trigger', priority: 6, when: [{ type: 'health_below', value: 6 }, { type: 'attacked', withinS: 3 }], do: { type: 'take_cover', within: 8 }, maxMs: 8_000, ttlMs: 3_600_000 },
 ].map((rule) => Object.freeze(rule)));
 export const DEFAULT_REFLEX_IDS = Object.freeze(new Set(DEFAULT_REFLEXES.map((rule) => rule.id)));
+// The mod runs at most this many rules (ReflexSpec.MAX_RULES): the cap of every rule-set bound on the wire (C24). The
+// model's own rules plus the defaults must fit it, so a new default needs a raise on both sides first.
+export const MAX_REFLEX_RULES = 26;
+if (MAX_REFLEXES + DEFAULT_REFLEXES.length > MAX_REFLEX_RULES) throw new Error(`reflex rules ${MAX_REFLEXES} + ${DEFAULT_REFLEXES.length} exceed the mod's ${MAX_REFLEX_RULES}`);
 
 /**
  * Issue 2 Step 2: the instincts arm. MINEAGEN_INSTINCTS lists `instincts` (comma list) to turn it on; the mod reads the
