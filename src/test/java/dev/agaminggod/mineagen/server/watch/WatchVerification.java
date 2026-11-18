@@ -39,6 +39,7 @@ public final class WatchVerification {
 		dangerDamageRows();
 		dangerClearAndDeath();
 		dangerEventCursor();
+		dangerDeathFiring();
 		dangerGoldenRows();
 		return assertions;
 	}
@@ -196,6 +197,45 @@ public final class WatchVerification {
 		EventCursor cursor = new EventCursor();
 		check(cursor.fresh(7L, List.of(first, second)).size() == 2 && cursor.fresh(7L, List.of(first, second)).isEmpty(), "the same scheduler's events are read once");
 		check(cursor.fresh(8L, List.of(first, second)).size() == 2, "the Watcher's firing cursor follows the scheduler generation");
+	}
+
+	/**
+	 * A firing a death ends: the engine writes its "body unavailable" event on its tick after the death, so the Watcher
+	 * drains each skipped (dead, leaving or stopping) agent's events, and the firing row reaches the danger file once.
+	 */
+	private static void dangerDeathFiring() {
+		var scheduler = new dev.agaminggod.mineagen.server.runtime.reflex.ReflexScheduler();
+		scheduler.replace(dev.agaminggod.mineagen.server.runtime.reflex.ReflexSpec.parseRules(JsonParser.parseString(
+				"[{\"id\":\"swap\",\"when\":{\"type\":\"tool_broke\"},\"do\":{\"type\":\"select\",\"tool\":\"any\"},\"maxMs\":1000}]").getAsJsonArray()), 0);
+		var sense = java.util.Map.of("swap", new dev.agaminggod.mineagen.server.runtime.reflex.ReflexScheduler.Sense(true, false));
+		scheduler.step(1, sense, dev.agaminggod.mineagen.server.runtime.reflex.ReflexScheduler.ActionStatus.RUNNING, "", false);
+		DangerLog log = new DangerLog(AGENT);
+		java.util.function.Supplier<dev.agaminggod.mineagen.server.runtime.reflex.ReflexEngine.View> view = () ->
+				new dev.agaminggod.mineagen.server.runtime.reflex.ReflexEngine.View(List.of(), scheduler.current(), scheduler.events(), scheduler.generation(), 6L);
+		Watcher.schedulerEvents(log, view.get(), 1000L, 1005L, 500L);
+		check(scheduler.current() != null && rows(log.take(), "firing").isEmpty(), "at the death the firing is still running: no firing row yet");
+		scheduler.interrupt(6, "body unavailable");
+		Watcher.schedulerEvents(log, view.get(), 1000L, 1006L, 550L);
+		List<JsonObject> firings = rows(log.take(), "firing");
+		check(firings.size() == 1 && "swap".equals(text(firings.getFirst(), "rule")) && firings.getFirst().get("endGameTime").getAsLong() == 1006L,
+				"the drain after the engine's tick writes the firing the death ended: " + firings);
+		Watcher.schedulerEvents(log, view.get(), 1000L, 1007L, 600L);
+		check(log.take().isEmpty(), "a later drain writes it only once");
+		// The per-body tick skips dead players and stop() closes the log: both must drain first, or the firing never lands.
+		try {
+			String source = Files.readString(Path.of("src/main/java/dev/agaminggod/mineagen/server/watch/Watcher.java"));
+			int skip = source.indexOf("player.isSpectator()) {");
+			check(skip >= 0 && source.indexOf("drainEvents(watch, reflexes, epochMs);", skip) > skip
+					&& source.indexOf("drainEvents(watch, reflexes, epochMs);", skip) < source.indexOf("continue;", skip), "the tick drains a skipped agent's events");
+			int stop = source.indexOf("private void stop() {");
+			check(stop >= 0 && source.indexOf("drainEvents(watch, reflexes, epochMs);", stop) > stop
+					&& source.indexOf("drainEvents(watch, reflexes, epochMs);", stop) < source.indexOf("watch.danger.stop(", stop), "stop() drains before it closes the log");
+			int gone = source.indexOf("AgentWatch gone = agents.get(agentId);");
+			check(gone >= 0 && source.indexOf("drainEvents(gone, reflexes, epochMs);", gone) > gone
+					&& source.indexOf("drainEvents(gone, reflexes, epochMs);", gone) < source.indexOf("gone.danger.stop(", gone), "a leaving agent drains before its log closes");
+		} catch (IOException failure) {
+			throw new UncheckedIOException(failure);
+		}
 	}
 
 	private static dev.agaminggod.mineagen.server.runtime.reflex.ReflexScheduler.Event event(long sequence, long duration, long end, boolean firing) {

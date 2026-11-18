@@ -334,7 +334,11 @@ public final class Watcher {
 				continue;
 			}
 			AgentWatch watch = agents.computeIfAbsent(agentId, id -> new AgentWatch(id, agents.size()));
-			if (player == null || !player.isAlive() || player.isSpectator()) continue;
+			if (player == null || !player.isAlive() || player.isSpectator()) {
+				// The engine ends a dead body's firing ("body unavailable") on its first tick after the death, after died() ran.
+				drainEvents(watch, reflexes, epochMs);
+				continue;
+			}
 			byPlayer.put(player.getUUID(), agentId);
 			try {
 				tickAgent(watch, player, executor, reflexes, tick, epochMs);
@@ -346,6 +350,7 @@ public final class Watcher {
 		agents.keySet().removeIf(agentId -> {
 			if (present.contains(agentId)) return false;
 			AgentWatch gone = agents.get(agentId);
+			drainEvents(gone, reflexes, epochMs);
 			write(gone, gone.tracker.closeAll(serverGameTime(), epochMs), reflexes);
 			gone.danger.stop(serverGameTime(), epochMs);
 			writeDanger(gone);
@@ -753,7 +758,7 @@ public final class Watcher {
 			ReflexEngine.View view = reflexes.view(agentId);
 			firings(watch, view, epochMs);
 			// Dead players are skipped by tick(); the firing the death ended is written now.
-			watch.danger.events(view.events(), view.generation(), player.level().getGameTime() - server.getTickCount(), player.level().getGameTime(), epochMs);
+			schedulerEvents(watch.danger, view, player.level().getGameTime() - server.getTickCount(), player.level().getGameTime(), epochMs);
 		}
 		watch.danger.death(player.level().getGameTime(), epochMs);
 		writeDanger(watch);
@@ -772,8 +777,21 @@ public final class Watcher {
 				active.provenance() == null ? null : active.provenance().programId(), active.provenance() == null ? null : active.provenance().sourceStepId(),
 				watch.issuers.get(active.actionId()));
 		watch.danger.observe(dangers, gameTime, epochMs, view == null ? null : firingNow(view, offset), running);
-		if (view != null) watch.danger.events(view.events(), view.generation(), offset, gameTime, epochMs);
+		schedulerEvents(watch.danger, view, offset, gameTime, epochMs);
 		writeDanger(watch);
+	}
+
+	/** New scheduler events for an agent the per-body tick skips (dead, absent, leaving, or the server stopping). */
+	private void drainEvents(AgentWatch watch, ReflexEngine reflexes, long epochMs) {
+		if (reflexes == null) return;
+		long gameTime = serverGameTime();
+		schedulerEvents(watch.danger, reflexes.view(watch.id), gameTime - server.getTickCount(), gameTime, epochMs);
+		writeDanger(watch);
+	}
+
+	/** The scheduler's events the danger log has not taken yet; each event becomes one row, once. */
+	static void schedulerEvents(DangerLog danger, ReflexEngine.View view, long tickOffset, long gameTime, long epochMs) {
+		if (view != null) danger.events(view.events(), view.generation(), tickOffset, gameTime, epochMs);
 	}
 
 	static DangerLog.FiringNow firingNow(ReflexEngine.View view, long tickOffset) {
@@ -819,7 +837,9 @@ public final class Watcher {
 
 	private void stop() {
 		long epochMs = System.currentTimeMillis();
+		ReflexEngine reflexes = ReflexEngine.existing(server).orElse(null);
 		for (AgentWatch watch : agents.values()) {
+			drainEvents(watch, reflexes, epochMs);
 			write(watch, watch.tracker.closeAll(serverGameTime(), epochMs), null);
 			watch.danger.stop(serverGameTime(), epochMs);
 			writeDanger(watch);
