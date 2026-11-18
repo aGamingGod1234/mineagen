@@ -169,6 +169,9 @@ const FACES = [['up', 0, -1, 0], ['down', 0, 1, 0], ['north', 0, 0, 1], ['south'
  * wall or ceiling. A sample lists few blocks underground (six in a dug pit), so a cell not seen as solid is a candidate
  * too; place_block's preferred face lets the server click whichever seen support face the cell has.
  */
+// Full-cube block items: faces judged for one hold for a crafting table, furnace or sand placed the same way.
+const FULL_CUBE_BASIS = /^(cobblestone|cobbled_deepslate|stone|deepslate|andesite|diorite|granite|tuff|blackstone|dirt|netherrack|end_stone|crafting_table|furnace|sand|red_sand|gravel|[a-z_]+_(planks|log|wood|stem|hyphae))$/;
+
 export function placementCells(o, tried = new Set(), { ground = false, trail = [] } = {}) {
 	const body = bodyAt(o);
 	if (body === null) return [];
@@ -180,6 +183,29 @@ export function placementCells(o, tried = new Set(), { ground = false, trail = [
 		.map((cell) => ({ ...cell, face: 'up', score: -1 + Math.abs(Math.hypot(cell.x + 0.5 - body.x, cell.z + 0.5 - body.z) - 1.6) * 0.1 }));
 	const at = new Map((o.blocks ?? []).map((row) => [`${row.x},${row.y},${row.z}`, row]));
 	const solid = (row) => row !== undefined && row.replaceable !== true && !/(water|lava|air)$/.test(row.blockId);
+	// Each seen block row lists the faces the body can click now to place into the cell beside it (placeableFaces, the
+	// server's own reach and sight check). A cell whose seen supports all list no face toward it fails
+	// NO_PLACEMENT_SUPPORT: 453 of 646 such failures placed a crafting table. A support row without the list says nothing.
+	// A replaceable plant in the cell is clicked directly and needs no support face. Remembered rows' lists are from where
+	// the body stood then, so they say nothing either.
+	// The lists are judged for the held block item (cobblestone stands in when the hand holds none): a held sapling or
+	// seeds list no face on stone, which says nothing about a full-cube station. Only a full-cube basis counts.
+	const basis = o.coverage?.sections?.blocks;
+	const fullCube = basis?.placeableFacesStandIn === true || FULL_CUBE_BASIS.test(bare(basis?.placeableFacesFor));
+	const lists = fullCube && !(o.continuity?.rememberedSections ?? []).includes('blocks');
+	const plant = (row) => row?.replaceable === true && !/(water|lava|air)$/.test(row.blockId);
+	const support = (x, y, z) => {
+		let seen = 0, unknown = false;
+		const faces = [];
+		for (const [name, ox, oy, oz] of FACES) {
+			const row = at.get(`${x + ox},${y + oy},${z + oz}`);
+			if (!solid(row)) continue;
+			seen += 1;
+			if (!lists || !Array.isArray(row.placeableFaces)) unknown = true;
+			else if (row.placeableFaces.includes(name)) faces.push(name);
+		}
+		return { faces, shut: seen > 0 && !unknown && faces.length === 0 && !plant(at.get(`${x},${y},${z}`)) };
+	};
 	const feet = { x: Math.floor(body.x), y: Math.floor(body.y + 0.01), z: Math.floor(body.z) };
 	const cells = [];
 	for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) for (let dy = -1; dy <= 2; dy++) {
@@ -188,15 +214,18 @@ export function placementCells(o, tried = new Set(), { ground = false, trail = [
 		const row = at.get(`${x},${y},${z}`);
 		if (tried.has(`${x},${y},${z}`) || solid(row) || /(water|lava)$/.test(row?.blockId ?? '')) continue;
 		if (eyeDistance(body, { x, y, z }) > REACH - 0.4) continue;
+		const clicks = support(x, y, z);
+		if (clicks.shut) continue;
 		const seen = FACES.map(([name, ox, oy, oz]) => ({ name, support: at.get(`${x + ox},${y + oy},${z + oz}`) })).find(({ support }) => solid(support));
 		const below = solid(at.get(`${x},${y - 1},${z}`));
 		if (ground && !below) continue;
 		const d = Math.hypot(x + 0.5 - body.x, z + 0.5 - body.z);
 		const score = (below ? 0 : seen ? 2 : 4) + Math.abs(dy) * 0.7 + Math.abs(d - 1.6) * 0.5 + (row === undefined ? 0.5 : 0);
-		cells.push({ x, y, z, face: below ? 'up' : seen?.name ?? 'up', score });
+		cells.push({ x, y, z, face: clicks.faces[0] ?? (below ? 'up' : seen?.name ?? 'up'), score });
 	}
 	const stoodKeys = new Set(stood.map((cell) => `${cell.x},${cell.y},${cell.z}`));
-	return [...stood, ...cells.filter((cell) => !stoodKeys.has(`${cell.x},${cell.y},${cell.z}`))].sort((a, b) => a.score - b.score);
+	const stoodOpen = stood.flatMap((cell) => { const clicks = support(cell.x, cell.y, cell.z); return clicks.shut ? [] : [{ ...cell, face: clicks.faces[0] ?? cell.face }]; });
+	return [...stoodOpen, ...cells.filter((cell) => !stoodKeys.has(`${cell.x},${cell.y},${cell.z}`))].sort((a, b) => a.score - b.score);
 }
 
 export function placementCell(o, tried = new Set(), options = {}) {
