@@ -1327,6 +1327,14 @@ export class DynamicCoordinator extends EventEmitter {
 		});
 		this.#listen('action_result', (message, connectionEpoch) => {
 			const lifecycleGeneration = this.#lifecycleGeneration(message.agentId);
+			// The experience review hears a result that matches the live dispatch when it is admitted, before the queue and
+			// its persistence, so a death admitted right after it (which clears the live dispatch) still sees it.
+			// Anything unmatched waits for durable reconciliation.
+			const admitted = this.#latestActionDispatches.get(message.agentId);
+			if (admitted?.connectionEpoch === connectionEpoch && admitted.actionId === message.payload?.actionId && admitted.goalRevision === message.payload?.goalRevision
+				&& (message.payload.actionType === undefined || message.payload.actionType === admitted.actionType)) {
+				this.#playerMemory.noteLiveResult(message.agentId, { ...message.payload, actionType: admitted.actionType });
+			}
 			let receipt, admittedRespawn = false;
 			return this.#enqueueAgent(message.agentId, async () => {
 				const dispatch = this.#latestActionDispatches.get(message.agentId);
@@ -1341,11 +1349,6 @@ export class DynamicCoordinator extends EventEmitter {
 				// Live correlation must not wait for disk. The retained server result is
 				// acknowledged separately, only after authoritative storage succeeds.
 				receipt = this.#queueReceiptReconciliation(message, connectionEpoch);
-				// The experience review sees a result that matches the live dispatch now, not after its receipt persists, so a
-				// death right after it counts it. Anything unmatched waits for durable reconciliation.
-				if (dispatch?.connectionEpoch === connectionEpoch && dispatch.actionId === message.payload.actionId && dispatch.goalRevision === message.payload.goalRevision) {
-					this.#playerMemory.noteLiveResult(message.agentId, { ...message.payload, actionType: message.payload.actionType ?? dispatch.actionType });
-				}
 				this.#decisionLog?.actionResult(message.agentId, message.payload);
 				try {
 					if (admittedRespawn) { this.emit('actionResult', message); return; }

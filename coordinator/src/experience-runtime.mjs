@@ -29,12 +29,13 @@ export function createExperience(settings, { trace = null, store = null } = {}) 
 /** Normalises a vanilla death message to a cause without keeping the message, which starts with the player's name. */
 export function classifyDeath(message) {
 	const text = typeof message === 'string' ? message : '';
-	// "whilst trying to escape X", "whilst fighting X" and lava's "to escape X"; "was doomed to fall by X" is a fall.
+	// "whilst trying to escape X", "whilst fighting X" and lava's "to escape X" name the mob that was attacking (the
+	// game uses them whenever a mob hit you lately, not only when you ran); "was doomed to fall by X" is a fall.
 	const suffix = / (?:(?:while|whilst) (?:trying to escape|fighting)|to escape) ([A-Z][A-Za-z ]{1,40}?)(?: using .*)?$/.exec(text)
 		?? / was doomed to fall by ([A-Z][A-Za-z ]{1,40}?)(?: using .*)?$/.exec(text);
-	const escaping = suffix ? mobId(suffix[1]) : null;
+	const attacker = suffix ? mobId(suffix[1]) : null;
 	const base = suffix ? text.slice(0, suffix.index) + (suffix[0].includes('doomed to fall') ? ' fell from a high place' : '') : text;
-	if (/ using magic$/.test(base)) return { cause: 'magic', kind: 'hazard', ...(escaping ? { escaping } : {}) };
+	if (/ using magic$/.test(base)) return { cause: 'magic', kind: 'hazard', ...(attacker ? { attacker } : {}) };
 	const rules = [
 		[/was shot by ([A-Z][A-Za-z ]{1,40}?)(?: using .*)?$/, 'shot'],
 		[/was fireballed by ([A-Z][A-Za-z ]{1,40}?)(?: using .*)?$/, 'fireball'],
@@ -44,7 +45,7 @@ export function classifyDeath(message) {
 	for (const [pattern, kind] of rules) {
 		const found = pattern.exec(base);
 		const killer = found ? mobId(found[1]) : null;
-		if (killer) return { cause: killer, kind, ...(escaping ? { escaping } : {}) };
+		if (killer) return { cause: killer, kind, ...(attacker ? { attacker } : {}) };
 	}
 	const hazards = [
 		[/tried to swim in lava/, 'lava'], [/(?:burned to death|went up in flames|walked into fire|was burned to a crisp)/, 'fire'],
@@ -53,8 +54,8 @@ export function classifyDeath(message) {
 		[/blew up|was blown up/, 'explosion'], [/was killed by magic|was killed by .*using magic/, 'magic'],
 		[/withered away/, 'wither'], [/froze to death/, 'freeze'], [/experienced kinetic energy/, 'kinetic'],
 	];
-	for (const [pattern, cause] of hazards) if (pattern.test(text)) return { cause, kind: 'hazard', ...(escaping ? { escaping } : {}) };
-	return { cause: 'unknown', kind: 'unknown', ...(escaping ? { escaping } : {}) };
+	for (const [pattern, cause] of hazards) if (pattern.test(text)) return { cause, kind: 'hazard', ...(attacker ? { attacker } : {}) };
+	return { cause: 'unknown', kind: 'unknown', ...(attacker ? { attacker } : {}) };
 }
 
 /** A vanilla mob id, or null for anything else (a player or a name-tagged mob). */
@@ -124,7 +125,7 @@ export class ExperienceRuntime {
 
 	#agent(agentId) {
 		let agent = this.#agents.get(agentId);
-		if (agent === undefined) { agent = { game: null, samples: [], results: [], running: new Map(), deaths: new Set(), failures: new Map(), shown: new Set(), recent: [], clock: null, terminal: new Set(), latest: null }; this.#agents.set(agentId, agent); }
+		if (agent === undefined) { agent = { game: null, samples: [], results: [], running: new Map(), deaths: new Set(), failures: new Map(), shown: new Set(), recent: [], clock: null, terminal: new Set(), latest: null, ended: new Set() }; this.#agents.set(agentId, agent); }
 		return agent;
 	}
 	#emit(event, fields) { try { this.#trace?.(event, fields); } catch { /* tracing never blocks play */ } }
@@ -135,6 +136,7 @@ export class ExperienceRuntime {
 	}
 	#observe(agentId, worldId, observation, at) {
 		const agent = this.#agent(agentId);
+		at ??= agent.clock ?? Date.now();
 		if (typeof worldId === 'string' && !worldId.startsWith('session:')) {
 			const game = experienceHash(`world:${worldId}`);
 			if (agent.game !== game) { agent.game = game; agent.samples = []; agent.latest = null; agent.results = []; agent.running.clear(); agent.failures.clear(); agent.shown.clear(); agent.recent = []; agent.carriedIds = new Set(); agent.lastDeathAt = null; }
@@ -178,8 +180,10 @@ export class ExperienceRuntime {
 		at ??= agent.clock ?? Date.now();
 		const started = agent.running.get(actionId);
 		agent.running.delete(actionId);
-		// A result the last death caused, arriving after its review, belongs to that life, not this one.
-		if (agent.lastDeathAt !== null && at <= agent.lastDeathAt + DEATH_RESULT_MS && !(started && started.at > agent.lastDeathAt)) return;
+		// A result for an action the last death ended belongs to that life, whenever it arrives; so does any other result
+		// stamped within moments of that death that was not sent after it.
+		if (typeof actionId === 'string' && agent.ended.has(actionId)) return;
+		if (agent.lastDeathAt !== null && at <= agent.lastDeathAt + DEATH_RESULT_MS && !(started && started.at >= agent.lastDeathAt)) return;
 		const type = actionType ?? started?.actionType;
 		if (typeof type !== 'string') return;
 		const row = { actionType: type, state, reasonCode, at, elapsedMs: started ? Math.max(0, at - started.at) : null, ...(executionStarted === false ? { executionStarted: false } : {}),
@@ -210,11 +214,12 @@ export class ExperienceRuntime {
 		const game = agent.game;
 		// History before a death does not describe the next life. Cleared before any await, so history gathered while the
 		// store loads (possibly in another world) survives.
+		agent.ended = new Set([...agent.ended, ...agent.running.keys()].slice(-64));
 		agent.samples = []; agent.latest = null; agent.results = []; agent.running.clear(); agent.lastDeathAt = when;
 		await this.#ready;
 		// A coordinator restart inside the game sees the last death again with empty history: the saved game remembers it.
 		if (this.#failed === null && diedAt !== null && !this.#store.noteDeathReviewed(game, diedAt)) return;
-		this.#emit('experience_death_reviewed', { cause: cause.cause, kind: cause.kind, ...(cause.escaping ? { escaping: cause.escaping } : {}), dimension: context.dimension ?? null,
+		this.#emit('experience_death_reviewed', { cause: cause.cause, kind: cause.kind, ...(cause.attacker ? { attacker: cause.attacker } : {}), dimension: context.dimension ?? null,
 			running, lessons: lessons.map((lesson) => lesson.id) });
 		for (const lesson of lessons) await this.#record(agent, game, lesson, when);
 	}

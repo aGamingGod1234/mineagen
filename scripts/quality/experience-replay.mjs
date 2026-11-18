@@ -42,7 +42,12 @@ async function healthSamples(gameDirectory) {
 }
 /** The full observation when the recording has one; otherwise the trimmed row with the nearest earlier health sample. */
 function observationOf(payload, health, recording) {
-	try { return { observation: adaptObservation(payload.observation ?? payload), trimmed: false }; } catch { /* trimmed recording */ }
+	try {
+		const observation = adaptObservation(payload.observation ?? payload);
+		// A dead or not-ready observation loses its time in the adapter; keep the wire time so replay stays on the recording's clock.
+		const wireAt = (payload.observation ?? payload).observedAtEpochMs;
+		return { observation: Number.isFinite(observation.observedAtEpochMs) || !Number.isFinite(wireAt) ? observation : { ...observation, observedAtEpochMs: wireAt }, trimmed: false };
+	} catch { /* trimmed recording */ }
 	const { goalRevision, dimension, ...rest } = payload;
 	// Long-run rows may keep only the dimension: give each recording its own stable world identity.
 	// The recording folder names the game (hashed before it is stored), so separate invocations agree on identities.

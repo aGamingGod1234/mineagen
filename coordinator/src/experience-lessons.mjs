@@ -25,21 +25,25 @@ export function validLesson(rule, slots) {
 /** Marks a lesson the runtime review wrote, in the entry the model reads. */
 export const LESSON_SRC_PREFIX = 'from your past play: ';
 const FLEE_ACTIONS = new Set(['flee_from']);
-const MOVE_ACTIONS = new Set(['travel_to', 'move_to', 'pick_up_item', 'find', 'obtain']);
+const MOVE_ACTIONS = new Set(['travel_to', 'move_to', 'pick_up_item', 'navigate_to']);
 const LOW_HEALTH = 8;
 const FIGHTS = new Set(['fight_target', 'fight_until']);
 const TRIPS = new Set(['travel_to', 'dig_to', 'build', 'mine_vein', 'navigate_to']);
 
 const PLACE = { overworld: 'Overworld', the_nether: 'Nether', the_end: 'End' };
+const HAZARD_DEATH = { lava: 'in lava', fall: 'from a fall', drown: 'by drowning', fire: 'by fire' };
+const HAZARD_PLACE = { lava: 'lava', fall: 'drops', drown: 'deep water', fire: 'fire' };
 function pretty(id) { return String(id).replace(/_/g, ' '); }
 /** "a skeleton", "an enderman". */
 function cap(text) { return text[0].toUpperCase() + text.slice(1); }
 function a(id) { const name = pretty(id); return `${/^[aeiou]/.test(name) ? 'an' : 'a'} ${name}`; }
 // Active at the death: still running, or ended by the death itself (AGENT_DEAD). A result whose action never started
 // is no evidence that the body did it.
+const DEATH_RESULT_MS = 2_000;
 function activeAtDeath(context, types) {
 	return context.running.some((type) => types.has(type))
-		|| context.results.some((result) => types.has(result.actionType) && result.reasonCode === 'AGENT_DEAD' && result.executionStarted !== false);
+		|| context.results.some((result) => types.has(result.actionType) && result.reasonCode === 'AGENT_DEAD' && result.executionStarted !== false
+			&& Math.abs(result.at - context.at) <= DEATH_RESULT_MS);
 }
 function healthBefore(context, ms) {
 	const sample = [...context.samples].reverse().find((entry) => context.at - entry.at >= ms && Number.isFinite(entry.health));
@@ -72,7 +76,7 @@ export const LESSON_RULES = Object.freeze({
 		slots: ['mob'],
 		death: (context) => RANGED.has(context.cause.cause) && context.cause.kind === 'shot' && !activeAtDeath(context, FLEE_ACTIONS) ? { mob: context.cause.cause } : null,
 		trigger: ({ mob }) => ({ mobs: [mob] }),
-		text: ({ mob }) => `${cap(a(mob))} shot you to death. When one is in view, act on it first: take cover out of its line of sight or close the distance and kill it, and heal before moving on.`,
+		text: ({ mob }) => `${cap(a(mob))} shot you to death. Running away keeps you in its range: put a solid block between you and it, or dig into a hole with a roof, and heal before moving on.`,
 	},
 	'lava-while-moving': {
 		slots: ['dimension'],
@@ -80,11 +84,11 @@ export const LESSON_RULES = Object.freeze({
 		trigger: ({ dimension }) => ({ dimension, lavaNear: true }),
 		text: ({ dimension }) => `You died in lava while walking to a target in the ${PLACE[dimension] ?? pretty(dimension)}. Near lava, deal with hostiles before moving, keep a block between you and the lava, and avoid long routes along its edge.`,
 	},
-	'escaped-into-hazard': {
+	'hazard-under-attack': {
 		slots: ['hazard', 'mob'],
-		death: (context) => ['lava', 'fall', 'drown', 'fire'].includes(context.cause.cause) && MOBS.has(context.cause.escaping) ? { hazard: context.cause.cause, mob: context.cause.escaping } : null,
+		death: (context) => ['lava', 'fall', 'drown', 'fire'].includes(context.cause.cause) && MOBS.has(context.cause.attacker) ? { hazard: context.cause.cause, mob: context.cause.attacker } : null,
 		trigger: ({ mob }) => ({ mobs: [mob] }),
-		text: ({ hazard, mob }) => `Escaping ${a(mob)} killed you by ${hazard === 'fall' ? 'a fall' : hazard === 'drown' ? 'drowning' : hazard}. Before you run from one, look where the escape leads; fighting it on safe ground is often safer.`,
+		text: ({ hazard, mob }) => `You died ${HAZARD_DEATH[hazard]} while ${a(mob)} was attacking you. In a fight, check where each step leads and fight on safe ground away from ${HAZARD_PLACE[hazard]}.`,
 	},
 	'died-without-food': {
 		slots: [],

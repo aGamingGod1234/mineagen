@@ -42,9 +42,9 @@ async function playSkeletonDeath(directory, { worldId = 'world-one', seed = 'see
 
 test('death messages normalise to a cause without the player name', () => {
 	assert.deepEqual(classifyDeath('Some_Player was shot by Skeleton'), { cause: 'skeleton', kind: 'shot' });
-	assert.deepEqual(classifyDeath('Some_Player tried to swim in lava while trying to escape Zombified Piglin'), { cause: 'lava', kind: 'hazard', escaping: 'zombified_piglin' });
+	assert.deepEqual(classifyDeath('Some_Player tried to swim in lava while trying to escape Zombified Piglin'), { cause: 'lava', kind: 'hazard', attacker: 'zombified_piglin' });
 	assert.deepEqual(classifyDeath('Some_Player was slain by Wither Skeleton'), { cause: 'wither_skeleton', kind: 'melee' });
-	assert.deepEqual(classifyDeath('Some_Player hit the ground too hard while trying to escape Skeleton'), { cause: 'fall', kind: 'hazard', escaping: 'skeleton' });
+	assert.deepEqual(classifyDeath('Some_Player hit the ground too hard while trying to escape Skeleton'), { cause: 'fall', kind: 'hazard', attacker: 'skeleton' });
 	assert.equal(JSON.stringify(classifyDeath('Some_Player drowned')).includes('Some_Player'), false);
 });
 
@@ -298,8 +298,8 @@ test('a replayed death keeps the recording on its own clock', () => withDirector
 test('a player or name-tagged killer is never stored or named, and vanilla phrasings classify', () => {
 	assert.deepEqual(classifyDeath('Agent was slain by Steve'), { cause: 'unknown', kind: 'unknown' });
 	assert.deepEqual(classifyDeath('Agent was shot by Bob using Bow'), { cause: 'unknown', kind: 'unknown' });
-	assert.deepEqual(classifyDeath('Agent tried to swim in lava to escape Zombified Piglin'), { cause: 'lava', kind: 'hazard', escaping: 'zombified_piglin' });
-	assert.deepEqual(classifyDeath('Agent was doomed to fall by Skeleton'), { cause: 'fall', kind: 'hazard', escaping: 'skeleton' });
+	assert.deepEqual(classifyDeath('Agent tried to swim in lava to escape Zombified Piglin'), { cause: 'lava', kind: 'hazard', attacker: 'zombified_piglin' });
+	assert.deepEqual(classifyDeath('Agent was doomed to fall by Skeleton'), { cause: 'fall', kind: 'hazard', attacker: 'skeleton' });
 	assert.deepEqual(classifyDeath('Agent was killed by Witch using magic'), { cause: 'magic', kind: 'hazard' });
 	const context = { cause: classifyDeath('Agent was slain by Steve'), dimension: 'overworld', running: [], at: 20_000,
 		samples: [{ at: 0, health: 4, edible: 0, hostiles: {} }], results: [{ actionType: 'fight_target', reasonCode: 'LOW_HEALTH_BAILOUT', state: 'FAILED', at: 15_000 }] };
@@ -423,4 +423,48 @@ test('a task memory write refreshes the cache without counting lessons as shown'
 	memory.confirmShown(record.agentId, JSON.stringify({ taskMemory: summary }));
 	assert.ok(events.some((event) => event.event === 'experience_lessons_shown'));
 	await memory.flush();
+}));
+
+test('a hazard death during a fight names the attacker without claiming an escape', () => {
+	const cause = classifyDeath('Probe was burned to a crisp whilst fighting Blaze');
+	assert.deepEqual(cause, { cause: 'fire', kind: 'hazard', attacker: 'blaze' });
+	const [lesson] = deathLessons({ cause, dimension: 'the_nether', running: [], at: 10_000, samples: [], results: [] });
+	assert.equal(lesson.id, 'hazard-under-attack:hazard=fire:mob=blaze');
+	const text = lessonEntry({ ...lesson, games: 1, count: 1, thisGame: 0 }).summary;
+	assert.match(text, /^You died by fire while a blaze was attacking you\./);
+	assert.doesNotMatch(text, /escap|run from/i);
+});
+
+test('a flee that finished before the death, or a late result from an ended life, never makes a "while fleeing" lesson', () => withDirectory(async (directory) => {
+	const events = [];
+	const runtime = createExperience(experienceSettings({ MINEAGEN_EXPERIENCE: 'lessons', MINEAGEN_EXPERIENCE_DIR: directory, MINEAGEN_EXPERIENCE_PROFILE: 'p' }), { trace: (event, fields) => events.push({ event, ...fields }) });
+	runtime.observe('agent-a', 'world-one', observation('world-one', T0, { hostiles: ['skeleton'] }), T0);
+	// Life one: a flee is running when a zombie kills the agent.
+	runtime.noteDispatch('agent-a', { actionId: 'flee-1', actionType: 'flee_from', arguments: { timeoutMs: 10_000 } });
+	await runtime.observe('agent-a', 'world-one', { death: { cause: 'x was slain by Zombie', dimensionId: 'minecraft:overworld', diedAtEpochMs: T0 + 5_000 } }, T0 + 5_000);
+	// Its AGENT_DEAD arrives late (2.1 s after that death) and must stay with life one.
+	await runtime.noteResult('agent-a', { actionId: 'flee-1', actionType: 'flee_from', state: 'FAILED', reasonCode: 'AGENT_DEAD', executionStarted: true }, T0 + 7_100);
+	// Life two: a skeleton kills the agent 8 s later with no flee running.
+	runtime.observe('agent-a', 'world-one', observation('world-one', T0 + 9_000, { hostiles: ['skeleton'] }), T0 + 9_000);
+	await runtime.observe('agent-a', 'world-one', { death: { cause: 'x was shot by Skeleton', dimensionId: 'minecraft:overworld', diedAtEpochMs: T0 + 13_000 } }, T0 + 13_000);
+	await runtime.flush();
+	assert.deepEqual(events.filter((event) => event.event === 'experience_death_reviewed')[1].lessons, ['ranged-death:mob=skeleton']);
+	// An AGENT_DEAD older than two seconds before the reviewed death is not evidence of activity at it.
+	const context = { cause: classifyDeath('x was shot by Skeleton'), dimension: 'overworld', running: [], at: 20_000, samples: [],
+		results: [{ actionType: 'flee_from', state: 'FAILED', reasonCode: 'AGENT_DEAD', executionStarted: true, at: 15_000 }] };
+	assert.deepEqual(deathLessons(context).map((lesson) => lesson.rule), ['ranged-death']);
+}));
+
+test('an observation with no time of its own leaves the review on the recording clock', () => withDirectory(async (directory) => {
+	const past = 1_600_000_000_000, events = [];
+	const runtime = createExperience(experienceSettings({ MINEAGEN_EXPERIENCE: 'lessons', MINEAGEN_EXPERIENCE_DIR: directory, MINEAGEN_EXPERIENCE_PROFILE: 'p' }), { trace: (event, fields) => events.push({ event, ...fields }) });
+	const memory = new RuntimeMemoryContext({ taskMemory: new TaskMemoryStore({ directory: null }), experience: runtime });
+	memory.observe(record, observation('world-one', past, { hostiles: ['skeleton'] }));
+	memory.observe(record, { death: { cause: 'x was slain by Zombie', dimensionId: 'minecraft:overworld', diedAtEpochMs: past + 5_000 } });
+	memory.observe(record, { ready: false, player: { dead: true } });
+	memory.observe(record, observation('world-one', past + 10_000, { hostiles: ['skeleton'] }));
+	await memory.recordDispatch(record, { actionId: 'flee-3', actionType: 'flee_from', goalRevision: 1, arguments: { targetId: '00000000-0000-4000-8000-000000000001', distance: 16, timeoutMs: 10000 } });
+	memory.observe(record, { death: { cause: 'x was shot by Skeleton', dimensionId: 'minecraft:overworld', diedAtEpochMs: past + 15_000 } });
+	await memory.flush();
+	assert.ok(events.filter((event) => event.event === 'experience_death_reviewed')[1].lessons.includes('ranged-fled-in-open:mob=skeleton'));
 }));

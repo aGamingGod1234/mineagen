@@ -108,3 +108,39 @@ test('a flee sent through the native tools is running when a skeleton kills the 
 		assert.ok(reviewed.lessons.includes('ranged-fled-in-open:mob=skeleton'), JSON.stringify(reviewed));
 	} finally { await rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }); }
 });
+
+test('a flee that succeeded just before the death is not counted as running at it', async () => {
+	const directory = await mkdtemp(join(tmpdir(), 'experience-coordinator-'));
+	const SKELETON = { uuid: '00000000-0000-4000-8000-0000000000bb', type: 'minecraft:skeleton', name: 'Skeleton', distance: 9, position: { x: 9.5, y: 64, z: 0.5 }, hostile: true };
+	try {
+		const t0 = Date.now(), registry = new AgentRegistry(), planner = new FakePlanner(registry), events = [];
+		planner.requestNativeTurn = async (request) => {
+			planner.requests.push(request);
+			const dead = request.input.includes('player_death');
+			const call = dead ? { name: 'act', arguments: { actionType: 'respawn', arguments: {} } }
+				: { name: 'act', arguments: { actionType: 'flee_from', arguments: { targetId: SKELETON.uuid, distance: 16, timeoutMs: 10000 } } };
+			try { await request.executeTool({ agentId: request.agentId, goalRevision: request.goalRevision, turnId: `t-${planner.requests.length}`, callId: `c-${planner.requests.length}`, tool: normalizeMinecraftToolCall(call.name, call.arguments) }); } catch { /* the turn ends either way */ }
+			return { status: 'completed', toolCalls: 1 };
+		};
+		const env = { ...process.env, MINEAGEN_EXPERIENCE: 'lessons', MINEAGEN_EXPERIENCE_DIR: directory, MINEAGEN_EXPERIENCE_PROFILE: 'fixture', MINEAGEN_WORLD_SEED_HASH: 'seed-one' };
+		const run = await start({ registry, planner, env, memoryDirectory: null, traceWriter: { write: (event, fields) => { events.push({ event, ...fields }); } },
+			config: { bridge: { port: 25570, secret: 's'.repeat(32) }, codex: { controlProtocol: 'native_tools' } } });
+		try {
+			run.bridge.emit('goal_control', { agentId: 'agent-a', payload: { operation: 'start', goalRevision: 1, goal: 'Beat the game.', updatedAtEpochMs: t0 } });
+			const observation = wire('game-one', t0, 1, { health: 14, zombie: false });
+			observation.entities = [...observation.entities, SKELETON];
+			run.bridge.emit('observation', { agentId: 'agent-a', payload: observation });
+			await eventually(() => run.bridge.sent.some((m) => m.type === 'action_command' && m.payload.actionType === 'flee_from'));
+			// The flee succeeds, and the skeleton kills the agent right after: the death clears the live dispatch.
+			const flee = run.bridge.sent.find((m) => m.type === 'action_command' && m.payload.actionType === 'flee_from');
+			const doneAt = Date.now();
+			run.bridge.emit('action_result', { agentId: 'agent-a', payload: { goalRevision: 1, actionId: flee.payload.actionId, commandId: flee.payload.actionId, actionType: 'flee_from', state: 'SUCCEEDED', reasonCode: 'ESCAPED', message: 'escaped', elapsedMs: 1, executionStarted: true, observedAtEpochMs: doneAt, eventSequence: 2 } });
+			const death = { ...DEATH, cause: 'Probe was shot by Skeleton', gameMode: 'survival', diedAtEpochMs: doneAt + 1 };
+			run.bridge.emit('goal_control', { agentId: 'agent-a', payload: { operation: 'dead', goalRevision: 1, updatedAtEpochMs: death.diedAtEpochMs, death } });
+			await eventually(() => events.some((e) => e.event === 'experience_death_reviewed'));
+		} finally { await run.coordinator.stop?.(); }
+		const reviewed = events.find((e) => e.event === 'experience_death_reviewed');
+		assert.deepEqual(reviewed.running, [], JSON.stringify(reviewed));
+		assert.deepEqual(reviewed.lessons, ['ranged-death:mob=skeleton'], JSON.stringify(reviewed));
+	} finally { await rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }); }
+});

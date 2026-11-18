@@ -80,9 +80,10 @@ export class RuntimeMemoryContext {
 		if (previous?.goalRevision !== goalRevision || previous?.worldId !== worldId || previous?.dimension !== context.dimension) this.#lookupScopes.set(agentId, {});
 		this.#contexts.set(agentId, context);
 		this.#recoveryDeaths.set(agentId, recoveryDeath);
-		// A death-only observation keeps the death's own time, so a replayed recording stays on its clock.
+		// A death-only observation keeps the death's own time; one with no time at all leaves the review on its own clock,
+		// so a replayed recording never jumps to today.
 		const reviewed = this.#experience?.observe(agentId, worldId, source, Number.isFinite(source.observedAtEpochMs) ? source.observedAtEpochMs
-			: Number.isFinite(source.death?.diedAtEpochMs) ? source.death.diedAtEpochMs : Date.now());
+			: Number.isFinite(source.death?.diedAtEpochMs) ? source.death.diedAtEpochMs : undefined);
 		if (!worldId.startsWith('session:') && context.dimension !== undefined) {
 			const scope = { agentId, ...context };
 			const picked = pick(source, ['world', 'worldTick', 'observedAtEpochMs', 'position', 'player', 'ready', 'death', 'inventory', 'lastLiveInventory', 'blocks', 'landmarks', 'nearbyContainers', 'interaction', 'continuity']);
@@ -201,7 +202,7 @@ export class RuntimeMemoryContext {
 		}
 		if (dispatches.size >= 256) throw codedError('RECEIPT_LIMIT', 'Too many unreconciled actions');
 		const pending = this.#notebook.recordDispatch(agentId, entry);
-		this.#experience?.noteDispatch(agentId, { actionId, actionType });
+		this.#experience?.noteDispatch(agentId, { actionId, actionType, arguments: argumentsValue });
 		dispatches.set(actionId, { entry, pending });
 		this.#dispatches.set(agentId, dispatches);
 		try { return await pending; }
