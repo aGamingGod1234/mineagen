@@ -26,7 +26,7 @@ test('experience is off by default and on only with a directory', () => {
 	// A raw seed is hashed before it is kept.
 	assert.equal(on.seedHash, normalizeSeedHash('12345'));
 	assert.notEqual(on.seedHash, '12345');
-	assert.deepEqual(on.excludedSeedHashes, [normalizeSeedHash('12345'), 'abcdef0123456789']);
+	assert.deepEqual(on.excludedSeedHashes, [normalizeSeedHash('12345'), normalizeSeedHash('abcdef0123456789')]);
 });
 
 test('a lesson recorded in one game is a candidate in a later game of the same profile, with its evidence', () => withDirectory(async (directory) => {
@@ -55,7 +55,7 @@ test('nothing stored names a world, profile, seed or coordinate', () => withDire
 	assert.doesNotMatch(folder, /profile-one/);
 	const [file] = await readdir(join(directory, folder));
 	const text = await readFile(join(directory, folder, file), 'utf8');
-	for (const secret of ['world:a', 'profile-one', '-4172144997902289642', '4172144997902289642']) assert.equal(text.includes(secret), false, secret);
+	for (const secret of ['world:a', 'profile-one', '-4172144997902289642', '4172144997902289642', '41721449979']) assert.equal(text.includes(secret), false, secret);
 	assert.throws(() => store.record(GAME_A, { ...lesson, slots: { where: 'base at 120, 64, -40' }, atEpochMs: 6 }), /vocabulary/);
 }));
 
@@ -109,3 +109,12 @@ test('a repeat after the lesson was shown counts against it, and a restart conti
 	await later.load();
 	assert.deepEqual(later.candidates(GAME_B).map(({ shownGames, repeatsAfterShown }) => ({ shownGames, repeatsAfterShown })), [{ shownGames: 1, repeatsAfterShown: 1 }]);
 }));
+
+test('a positive decimal seed is hashed too, and hashing twice changes nothing', () => {
+	const raw = '4172144997902289642';
+	const hashed = normalizeSeedHash(raw);
+	assert.match(hashed, /^s1-[0-9a-f]{16}$/);
+	assert.equal(hashed.includes(raw.slice(0, 8)), false);
+	assert.equal(normalizeSeedHash(hashed), hashed);
+	assert.equal(experienceSettings({ MINEAGEN_EXPERIENCE: 'lessons', MINEAGEN_EXPERIENCE_DIR: '/x', MINEAGEN_WORLD_SEED_HASH: hashed }).seedHash, hashed);
+});

@@ -9,6 +9,8 @@ const HISTORY_MS = 60_000;
 const MAX_SAMPLES = 90;
 const MAX_RESULTS = 24;
 const NEAR_BLOCKS = 16;
+// A dispatch with no result for this long no longer counts as running (results can go missing).
+const RUNNING_MS = 120_000;
 export const MAX_SHOWN_LESSONS = 3;
 
 /** Builds the experience runtime from settings (experienceSettings(env)), or null when experience is off. */
@@ -80,18 +82,24 @@ export function sampleOf(observation, at) {
 }
 
 export class ExperienceRuntime {
-	#store; #trace; #agents = new Map(); #ready; #state = null;
+	#store; #trace; #agents = new Map(); #ready; #state = null; #failed = null;
 	constructor({ store, trace = null }) {
 		this.#store = store;
 		this.#trace = typeof trace === 'function' ? trace : null;
-		this.#ready = store.load().then((loaded) => {
+		// Experience never blocks play: a store that cannot load turns lessons off for this run, and says so.
+		this.#ready = Promise.resolve().then(() => store.load()).then((loaded) => {
 			this.#state = store.state();
 			this.#emit('experience_state', { ...this.#state, skippedFiles: loaded.skipped });
-		});
-		this.#ready.catch(() => {});
+		}, (error) => this.#fail('load', error));
+	}
+	#fail(stage, error) {
+		const code = typeof error?.code === 'string' ? error.code : 'EXPERIENCE_ERROR';
+		if (stage === 'load') this.#failed = code;
+		this.#emit('experience_error', { stage, code });
 	}
 	get ready() { return this.#ready; }
 	state() { return this.#state === null ? null : { ...this.#store.state() }; }
+	get failed() { return this.#failed; }
 
 	#agent(agentId) {
 		let agent = this.#agents.get(agentId);
@@ -100,24 +108,31 @@ export class ExperienceRuntime {
 	}
 	#emit(event, fields) { try { this.#trace?.(event, fields); } catch { /* tracing never blocks play */ } }
 
-	/** Feeds one accepted observation. Returns a promise that settles once any death it carries has been reviewed. */
+	/** Feeds one accepted observation. Returns a promise that settles once any death it carries has been reviewed; never rejects. */
 	observe(agentId, worldId, observation, at) {
+		try { return this.#observe(agentId, worldId, observation, at); } catch (error) { this.#fail('observe', error); return Promise.resolve(); }
+	}
+	#observe(agentId, worldId, observation, at) {
 		const agent = this.#agent(agentId);
 		if (typeof worldId === 'string' && !worldId.startsWith('session:')) {
 			const game = experienceHash(`world:${worldId}`);
 			if (agent.game !== game) { agent.game = game; agent.samples = []; agent.results = []; agent.running.clear(); agent.failures.clear(); agent.shown.clear(); agent.recent = []; }
 		}
-		const death = observation?.death;
-		if (death && typeof death === 'object') return this.#reviewDeath(agentId, agent, death, at);
-		if (observation?.player?.dead === true || observation?.ready === false) return Promise.resolve();
 		agent.clock = Math.max(agent.clock ?? at, at);
+		const death = observation?.death;
+		// Reviewed once per death (deduplicated); a live observation that still names the last death keeps sampling.
+		const reviewed = death && typeof death === 'object' ? this.#reviewDeath(agentId, agent, death, at).catch((error) => this.#fail('review', error)) : Promise.resolve();
+		if (observation?.player?.dead === true || observation?.ready === false || observation?.player === undefined) return reviewed;
 		agent.samples.push(sampleOf(observation, at));
 		while (agent.samples.length > MAX_SAMPLES || agent.samples.length && at - agent.samples[0].at > HISTORY_MS) agent.samples.shift();
-		return Promise.resolve();
+		return reviewed;
 	}
 
 	/** `at` defaults to the agent's latest observation time, so a replayed recording keeps its own clock. */
-	noteDispatch(agentId, { actionId, actionType }, at = undefined) {
+	noteDispatch(agentId, dispatch, at = undefined) {
+		try { this.#noteDispatch(agentId, dispatch, at); } catch (error) { this.#fail('dispatch', error); }
+	}
+	#noteDispatch(agentId, { actionId, actionType }, at) {
 		const agent = this.#agent(agentId);
 		at ??= agent.clock ?? Date.now();
 		if (typeof actionId === 'string' && typeof actionType === 'string') agent.running.set(actionId, { actionType, at });
@@ -125,7 +140,10 @@ export class ExperienceRuntime {
 	}
 
 	/** Feeds one terminal action result; a failure pattern that crosses its rule's bar records a lesson. */
-	async noteResult(agentId, { actionId, actionType, state, reasonCode, dimension }, at = undefined) {
+	async noteResult(agentId, result, at = undefined) {
+		try { await this.#noteResult(agentId, result, at); } catch (error) { this.#fail('result', error); }
+	}
+	async #noteResult(agentId, { actionId, actionType, state, reasonCode, dimension }, at = undefined) {
 		const agent = this.#agent(agentId);
 		at ??= agent.clock ?? Date.now();
 		const started = agent.running.get(actionId);
@@ -149,7 +167,7 @@ export class ExperienceRuntime {
 		if (agent.game === null) return;
 		const when = diedAt ?? at;
 		const cause = classifyDeath(death.cause);
-		const running = [...agent.running.values()].filter((entry) => entry.at <= when).map((entry) => entry.actionType);
+		const running = [...agent.running.values()].filter((entry) => entry.at <= when && when - entry.at <= RUNNING_MS).map((entry) => entry.actionType);
 		const context = { cause, dimension: typeof death.dimensionId === 'string' ? death.dimensionId.replace(/^minecraft:/, '') : agent.samples.at(-1)?.dimension,
 			running, samples: agent.samples.filter((sample) => sample.at <= when), results: agent.results.filter((result) => result.at <= when), at: when };
 		const lessons = deathLessons(context);
@@ -162,6 +180,7 @@ export class ExperienceRuntime {
 
 	async #record(agent, lesson, at) {
 		await this.#ready;
+		if (this.#failed !== null) return;
 		const count = this.#store.record(agent.game, { ...lesson, atEpochMs: at });
 		// A lesson just learned is shown on the next wakes (the respawn decision) even before its situation returns.
 		agent.recent = [...agent.recent.filter((entry) => entry.id !== lesson.id), { id: lesson.id, at }].slice(-4);
@@ -172,10 +191,13 @@ export class ExperienceRuntime {
 	 * The lessons to show now, as task memory lesson entries, best match first, at most MAX_SHOWN_LESSONS.
 	 * `markShown` counts their exposure; pass it only where the summary goes to the model.
 	 */
-	async lessonsFor(agentId, { markShown = false, at = undefined } = {}) {
+	async lessonsFor(agentId, options = {}) {
+		try { return await this.#lessonsFor(agentId, options); } catch (error) { this.#fail('read', error); return []; }
+	}
+	async #lessonsFor(agentId, { markShown = false, at = undefined } = {}) {
 		await this.#ready;
 		const agent = this.#agents.get(agentId);
-		if (agent?.game == null) return [];
+		if (agent?.game == null || this.#failed !== null) return [];
 		at ??= agent.clock ?? Date.now();
 		const situation = situationOf(agent, at);
 		const ranked = this.#store.candidates(agent.game)
@@ -195,13 +217,13 @@ export class ExperienceRuntime {
 		return ranked.map(lessonEntry);
 	}
 
-	async flush() { await this.#ready.catch(() => {}); await this.#store.flush(); }
+	async flush() { await this.#ready; try { await this.#store.flush(); } catch (error) { this.#fail('flush', error); } }
 }
 
 const RECENT_LESSON_MS = 180_000;
 function situationOf(agent, at) {
 	const sample = agent.samples.at(-1) ?? { hostiles: {} };
-	const running = [...agent.running.values()].map((entry) => entry.actionType);
+	const running = [...agent.running.values()].filter((entry) => at - entry.at <= RUNNING_MS).map((entry) => entry.actionType);
 	return { ...sample, at, running, results: agent.results, recentLessons: agent.recent.filter((entry) => at - entry.at <= RECENT_LESSON_MS).map((entry) => entry.id) };
 }
 

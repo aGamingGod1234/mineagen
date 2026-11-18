@@ -17,6 +17,7 @@ const MAX_GAME_FILES = 200;
 const MAX_LESSONS_PER_GAME = 32;
 const HASH_SALT = 'mineagen-experience-v1';
 const SLOT = /^[a-z0-9_:.-]{1,64}$/;
+const SEED_HASH = /^s1-[0-9a-f]{16}$/;
 
 export function experienceHash(value) {
 	return createHash('sha256').update(`${HASH_SALT}\0${value}`).digest('hex').slice(0, 16);
@@ -42,11 +43,14 @@ export function experienceSettings(environment = process.env) {
 		excludedSeedHashes: Object.freeze([...new Set(excludedSeedHashes)]) });
 }
 
-/** A seed hash is opaque text; a raw numeric seed is hashed so it is never stored. */
+/**
+ * Every seed becomes `s1-` plus a salted hash, so a raw seed is never stored. A value already in that form passes
+ * through unchanged, which makes the step idempotent: a harness may hash before setting the env.
+ */
 export function normalizeSeedHash(value) {
 	if (typeof value !== 'string' || value.trim().length === 0) return null;
 	const text = value.trim();
-	return /^[0-9a-f]{16,64}$/.test(text) ? text.slice(0, 16) : experienceHash(`seed:${text}`);
+	return SEED_HASH.test(text) ? text : `s1-${experienceHash(`seed:${text}`)}`;
 }
 
 export class ExperienceStore {
@@ -174,7 +178,7 @@ function requireHash(value) { if (typeof value !== 'string' || !/^[0-9a-f]{16}$/
 
 function validGame(value) {
 	if (value === null || typeof value !== 'object' || value.version !== VERSION || typeof value.game !== 'string' || !/^[0-9a-f]{16}$/.test(value.game)) return null;
-	if (value.seedHash !== null && (typeof value.seedHash !== 'string' || !/^[0-9a-f]{16}$/.test(value.seedHash))) return null;
+	if (value.seedHash !== null && (typeof value.seedHash !== 'string' || !SEED_HASH.test(value.seedHash))) return null;
 	const lessons = {}, shown = {};
 	for (const [id, lesson] of Object.entries(value.lessons ?? {}).slice(0, MAX_LESSONS_PER_GAME)) {
 		if (id.length > 160 || typeof lesson?.rule !== 'string' || !SLOT.test(lesson.rule) || !Number.isSafeInteger(lesson.count) || lesson.count < 1) continue;

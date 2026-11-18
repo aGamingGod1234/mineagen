@@ -16,7 +16,8 @@ function observation(worldId, at, { hostiles = [], health = 20, edible = 3, dime
 	return { observedAtEpochMs: at, world: { worldId, dimension }, worldTick: Math.floor((at - T0) / 50),
 		player: { x: 10.5, y: 64, z: -20.5, health, armor: 0 },
 		entities: hostiles.map((type, index) => ({ stableId: `mob-${index}`, type: `minecraft:${type}`, x: 20, y: 64, z: -20, distance: 9, hostile: true })),
-		inventory: { items: [], food: { items: edible > 0 ? [{ itemId: 'minecraft:bread', count: edible, nutrition: 5 }] : [], nutrition: edible * 5 } } };
+		// The adapter's shape: food.items is the count of edible items carried.
+		inventory: { items: [], food: { items: edible, nutrition: edible * 5 } } };
 }
 function experience(directory, env = {}) {
 	return createExperience(experienceSettings({ MINEAGEN_EXPERIENCE: 'lessons', MINEAGEN_EXPERIENCE_DIR: directory, MINEAGEN_EXPERIENCE_PROFILE: 'p', ...env }));
@@ -139,4 +140,41 @@ test('a death right after a low-health bailout teaches the bailout lesson, shown
 	const context = { cause: classifyDeath('x was shot by Skeleton'), dimension: 'overworld', running: [], at: 20_000,
 		samples: [{ at: 0, health: 18, edible: 4, hostiles: { skeleton: 8 } }], results: [{ actionType: 'fight_target', reasonCode: 'LOW_HEALTH_BAILOUT', state: 'FAILED', at: 12_000 }] };
 	assert.ok(deathLessons(context).some((lesson) => lesson.id === 'bailout-then-death:mob=skeleton'));
+});
+
+test('a store that cannot load turns lessons off for the run without breaking memory', () => withDirectory(async (directory) => {
+	const file = join(directory, 'not-a-folder');
+	await (await import('node:fs/promises')).writeFile(file, 'x');
+	const events = [];
+	const runtime = createExperience(experienceSettings({ MINEAGEN_EXPERIENCE: 'lessons', MINEAGEN_EXPERIENCE_DIR: join(file, 'below'), MINEAGEN_EXPERIENCE_PROFILE: 'p' }), { trace: (event, fields) => events.push({ event, ...fields }) });
+	const memory = new RuntimeMemoryContext({ taskMemory: new TaskMemoryStore({ directory: null }), experience: runtime });
+	memory.observe(record, observation('world-one', T0, { hostiles: ['skeleton'] }));
+	memory.observe(record, { death: { cause: 'x was shot by Skeleton', dimensionId: 'minecraft:overworld', diedAtEpochMs: T0 + 1_000 } });
+	assert.deepEqual((await memory.taskContext(record)).lessons, []);
+	await memory.flush();
+	assert.ok(events.some((event) => event.event === 'experience_error' && event.stage === 'load'));
+	assert.equal(events.some((event) => event.event === 'experience_lesson_recorded'), false);
+}));
+
+test('live observations that still name the last death keep feeding the history', () => withDirectory(async (directory) => {
+	const runtime = experience(directory);
+	const memory = new RuntimeMemoryContext({ taskMemory: new TaskMemoryStore({ directory: null }), experience: runtime });
+	const death = { cause: 'x was slain by Zombie', dimensionId: 'minecraft:overworld', diedAtEpochMs: T0 + 1_000 };
+	memory.observe(record, observation('world-one', T0));
+	memory.observe(record, { death });
+	// After respawn the body is alive again but the observation still carries the death record.
+	for (let index = 0; index < 3; index++) memory.observe(record, { ...observation('world-one', T0 + 40_000 + index * 1_000, { hostiles: ['skeleton'], health: 6, edible: 0 }), death });
+	await memory.flush();
+	await memory.recordDispatch(record, { actionId: 'flee-9', actionType: 'flee_from', goalRevision: 1, arguments: { targetId: '00000000-0000-4000-8000-000000000001', distance: 16, timeoutMs: 10000 } });
+	memory.observe(record, { death: { cause: 'x was shot by Skeleton', dimensionId: 'minecraft:overworld', diedAtEpochMs: T0 + 64_000 } });
+	await memory.flush();
+	memory.observe(record, observation('world-one', T0 + 90_000, { hostiles: ['skeleton'], health: 6, edible: 0 }));
+	const lessons = (await memory.taskContext(record)).lessons.map((lesson) => lesson.summary);
+	assert.ok(lessons.some((text) => /Running from a skeleton/.test(text)), JSON.stringify(lessons));
+	assert.ok(lessons.some((text) => /no food/.test(text)), JSON.stringify(lessons));
+}));
+
+test('a dispatch that never got a result stops counting as running after two minutes', () => {
+	const context = { cause: classifyDeath('x was shot by Skeleton'), dimension: 'overworld', running: [], at: 300_000, samples: [], results: [] };
+	assert.equal(deathLessons(context).some((lesson) => lesson.rule === 'ranged-fled-in-open'), false);
 });
