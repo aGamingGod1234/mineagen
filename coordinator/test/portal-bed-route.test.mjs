@@ -46,6 +46,9 @@ test('a bed in view: use it when it is by the portal, otherwise move it there', 
 		'usual next step: interact_block the blue_bed at 5,60,4 until "Respawn point set" (by day too), keep it (bed by the portal)');
 	assert.match(route(sample([], { blocks: [{ blockId: 'minecraft:blue_bed', x: 90, y: 66, z: 4 }] })),
 		/^usual next step: break_block the blue_bed at 90,66,4, then place_block it by the portal at 3,60,4, interact_block it/);
+	// A bed straight above the portal but 40 blocks up is moved, not used.
+	assert.match(route(sample([], { blocks: [{ blockId: 'minecraft:blue_bed', x: 3, y: 100, z: 4 }] })),
+		/^usual next step: break_block the blue_bed at 3,100,4, then place_block it by the portal at 3,60,4/);
 });
 
 test('nothing in reach: enter now and say why the bed is skipped; never a wool search', () => {
@@ -59,6 +62,9 @@ test('a respawn already set by the portal needs no step; one set far away does n
 	assert.equal(route(sample([['red_bed', 1]]), litKnown({ spawn: near })), `${ENTRY} (respawn set by the portal; food stocks are optional unless health or hunger is low)`);
 	assert.match(route(sample([['red_bed', 1]]), litKnown({ spawn: { ...near, x: 300 } })), /^usual next step: place_block red_bed/);
 	assert.match(route(sample([['red_bed', 1]]), litKnown({ spawn: { kind: 'world', at: 1, source: 'missing' } })), /^usual next step: place_block red_bed/);
+	// Height counts: a surface respawn straight above an underground portal is not by it.
+	const deep = known => { known.frames[0].y = -55; return known; };
+	assert.match(route(sample([['red_bed', 1]], { position: { x: 3, y: -55, z: 4 } }), deep(litKnown({ spawn: { ...near, x: 3, y: 70, z: 4 } }))), /^usual next step: place_block red_bed by the portal at 3,-55,4/);
 });
 
 test('after the first entry, and in the Nether, the route has no portal bed step', () => {

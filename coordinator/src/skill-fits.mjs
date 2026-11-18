@@ -101,6 +101,8 @@ const ENTRY_FOOD = 'food stocks are optional unless health or hunger is low';
 export const PORTAL_ENTRY_PREP = `place and use a bed by the portal first if a bed, 3 matching wool or sheep are in reach; ${ENTRY_FOOD}`;
 // A respawn set this close to the portal already brings a Nether death back to it.
 const BED_NEAR = 24;
+// Height counts: a surface bed above an underground portal is still a long way back from a Nether death.
+const byPortal = (a, near) => Math.hypot(a.x - near.x, Number.isFinite(a.y) && Number.isFinite(near.y) ? a.y - near.y : 0, a.z - near.z) <= BED_NEAR;
 const USE_BED = 'interact_block it until "Respawn point set" (by day too), keep it';
 
 /**
@@ -116,7 +118,7 @@ function portalBed(o, known, { lit, frame = null }) {
 	const near = frame ?? at;
 	const spawn = known.spawn;
 	if (spawn?.kind === 'set' && spawn.dimension === 'minecraft:overworld' && [near?.x, near?.z].every(Number.isFinite)
-		&& Math.hypot(spawn.x - near.x, spawn.z - near.z) <= BED_NEAR) return { skip: 'respawn set by the portal' };
+		&& byPortal(spawn, near)) return { skip: 'respawn set by the portal' };
 	const source = portalBedSource(o);
 	if (source === null) return { skip: 'no bed, 3 matching wool or sheep in reach: no portal bed' };
 	const by = frame ? `the portal at ${frame.x},${frame.y},${frame.z}` : 'the portal';
@@ -124,7 +126,7 @@ function portalBed(o, known, { lit, frame = null }) {
 	if (source.kind === 'held') return lit ? { step: [`place_block ${source.itemId.slice(10)} by ${by}, ${USE_BED}`, 'bed held; a Nether death then respawns here'] } : { skip: 'bed held' };
 	if (source.kind === 'seen') {
 		const b = source.block, id = b.blockId.slice(10), cell = `${b.x},${b.y},${b.z}`;
-		if (lit && Math.hypot(b.x - near.x, b.z - near.z) <= BED_NEAR) return { step: [`interact_block the ${id} at ${cell} until "Respawn point set" (by day too), keep it`, 'bed by the portal'] };
+		if (lit && byPortal(b, near)) return { step: [`interact_block the ${id} at ${cell} until "Respawn point set" (by day too), keep it`, 'bed by the portal'] };
 		return { step: [`break_block the ${id} at ${cell}, then ${place}`, 'bed in view'] };
 	}
 	const bed = `${source.colour}_bed`;
