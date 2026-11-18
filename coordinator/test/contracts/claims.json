@@ -47714,7 +47714,7 @@
       ]
     },
     {
-      "predicate": "The route is advisory and starts nothing. The casting kit still counts two bucket forms and flint and steel, with obtain bucket counts meaning total empties to hold. The urgent food cue requires observed hunger or health <=14/20. Separately, before mineral gathering the route stocks eight cooked meat even while healthy, totals mixed meats, and selects held raw meat or a currently seen nearby adult animal; while health and hunger are above 14 it releases that stock for the rest of the life after a cooked-meat obtain or meat-animal find hands back without a source, and at four cooked meat with no raw meat held and no animal in view. Post-Nether recovery keeps priority. Before any Nether entry while the respawn is not set by the portal, at a lit Overworld portal the route asks to place and use a bed by it, ahead of entry, only from a bed held or in view, 3 wool of one colour held, or one colour reaching 3 from held wool, wool blocks in view and adult unsheared sheep of a known colour in view; it names no wool search, gives the skip reason with entry otherwise, and drops the step once a respawn is set within 24 blocks of the lit frame or the Nether was visited. Before lighting it only makes such a bed ready. Other bed advice requires a fresh local opportunity, follows an available stage and is suppressed at an open portal. These presentations neither dispatch nor refuse a model action.",
+      "predicate": "The route is advisory and starts nothing. The casting kit still counts two bucket forms and flint and steel, with obtain bucket counts meaning total empties to hold. The urgent food cue requires observed hunger or health <=14/20. Separately, before mineral gathering the route stocks eight cooked meat even while healthy, totals mixed meats, and selects held raw meat or a currently seen nearby adult animal; it releases that stock for the rest of the life after a cooked-meat obtain or meat-animal find hands back without a source, at any hunger or health (later stages then carry the low hunger/health restock cue), and, while health and hunger are above 14, at four cooked meat with no raw meat held and no animal in view. Post-Nether recovery keeps priority. Before any Nether entry while the respawn is not set by the portal, at a lit Overworld portal the route asks to place and use a bed by it, ahead of entry, only from a bed held or in view, 3 wool of one colour held, or one colour reaching 3 from held wool, wool blocks in view and adult unsheared sheep of a known colour in view; it names no wool search, gives the skip reason with entry otherwise, and drops the step once a respawn is set within 24 blocks of the lit frame or the Nether was visited. Before lighting it only makes such a bed ready. Other bed advice requires a fresh local opportunity, follows an available stage and is suppressed at an open portal. These presentations neither dispatch nor refuse a model action.",
       "checks": [
         {
           "file": "coordinator/test/route-line.test.mjs",
@@ -47769,6 +47769,11 @@
         {
           "file": "coordinator/test/food-stock-release.test.mjs",
           "test": "four cooked meat with no animal in view and nothing to cook releases the stock",
+          "type": "node-behavior"
+        },
+        {
+          "file": "coordinator/test/food-stock-release.test.mjs",
+          "test": "a food hand-back releases the stock at any hunger or health, with the restock suffix when low",
           "type": "node-behavior"
         },
         {

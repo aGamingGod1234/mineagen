@@ -195,11 +195,12 @@ const ROUTE = [
 		next: f => [`obtain beef count ${MEAT} (or porkchop, mutton or chicken from the nearest animal; skip if none in view)`, 'no food held, health regrows only at hunger 18+'] },
 	{ id: 'wood', done: 'tool:pickaxe:wooden+', next: f => [`obtain wooden_pickaxe`, f.wood ? `${f.wood} logs/planks held` : 'no tools yet'] },
 	// R6G5: food after casting meant a 95-block climb. Bite before stone/furnace acquisition can enter a mine.
-	// Released, while health and hunger are above 14, by a food obtain or animal find that came back without a source this
-	// life, or by half the stock held with nothing to cook and no animal in view: held as a hard quota it headed the route
-	// for 31 minutes of one game and hid the stone, iron and kit steps.
+	// Released by a food obtain or animal find that came back without a source this life, or, while health and hunger are
+	// above 14, by half the stock held with nothing to cook and no animal in view: held as a hard quota it headed the route
+	// for 31 minutes of one game and hid the stone, iron and kit steps. A hand-back releases it at any hunger: with no food
+	// to eat, hunger only falls, and the later rows carry the low-hunger restock suffix instead.
 	{ id: 'food_stock', done: 'visited:minecraft:the_nether', next: stockFoodNext,
-		held: f => f.cookedMeat >= MEAT_STOCK || !f.foodNeeded && (f.foodHandedBack || f.cookedMeat >= MEAT && f.rawMeat === 0 && f.nearbyMeat === null) },
+		held: f => f.cookedMeat >= MEAT_STOCK || f.foodHandedBack || !f.foodNeeded && f.cookedMeat >= MEAT && f.rawMeat === 0 && f.nearbyMeat === null },
 	{ id: 'stone', done: 'tool:pickaxe:stone+', next: () => ['obtain stone_pickaxe', 'wooden pickaxe, no stone tools'] },
 	{ id: 'furnace', done: 'has:minecraft:furnace*1 | has:minecraft:iron_ingot*3 | tool:pickaxe:iron+', next: f => ['obtain furnace', `stone tools, ${f.count(/^minecraft:cobblestone$/)} cobblestone`] },
 	{ id: 'iron_pickaxe', done: 'tool:pickaxe:iron+', next: f => ['obtain iron_pickaxe', f.iron ? `stone tools, ${f.iron}/3 iron held` : 'stone tools, no iron yet'] },

@@ -39,10 +39,14 @@ test('four cooked meat with no animal in view and nothing to cook releases the s
 	assert.match(route(sample([...TOOLS, item('cooked_beef', 4)], { health: 12 })), /cooked meat 4\/8/);
 });
 
-test('a food hand-back releases the stock while health and hunger are above 14', () => {
-	assert.match(route(sample(), { foodHandedBack: true }), /^usual next step: obtain iron_pickaxe/);
+test('a food hand-back releases the stock at any hunger or health, with the restock suffix when low', () => {
+	assert.match(route(sample(), { foodHandedBack: true }), /^usual next step: obtain iron_pickaxe \(/);
 	assert.match(route(sample([item('wooden_pickaxe')], { entities: [COW] }), { foodHandedBack: true }), /^usual next step: obtain stone_pickaxe/);
-	assert.match(route(sample(TOOLS, { foodLevel: 12 }), { foodHandedBack: true }), /cooked meat 0\/8/);
+	// With no food held hunger only falls, so a release gated on hunger above 14 would pin the stock again for the life.
+	const restock = /^usual next step: obtain iron_pickaxe; low hunger\/health, food 0 held: obtain cooked_beef on the way/;
+	assert.match(route(sample(TOOLS, { foodLevel: 12 }), { foodHandedBack: true }), restock);
+	assert.match(route(sample(TOOLS, { health: 10 }), { foodHandedBack: true }), restock);
+	assert.match(route(sample(TOOLS, { foodLevel: 6, entities: [COW] }), { foodHandedBack: true }), restock);
 });
 
 test('the stock stays done in the Nether and after a visit, even with an animal in view', () => {
