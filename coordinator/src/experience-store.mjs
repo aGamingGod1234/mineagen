@@ -13,7 +13,8 @@ import { AtomicAgentStore } from './observed-memory-store.mjs';
 
 export const EXPERIENCE_MODES = Object.freeze(['off', 'lessons']);
 const VERSION = 1;
-const MAX_GAME_FILES = 200;
+// A bound on what one load reads, not a carry window: every game up to it is read, so a resumed game is always found.
+const MAX_GAME_FILES = 2000;
 const MAX_LESSONS_PER_GAME = 32;
 const HASH_SALT = 'mineagen-experience-v1';
 const SLOT = /^[a-z0-9_:.-]{1,64}$/;

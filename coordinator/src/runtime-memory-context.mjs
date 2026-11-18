@@ -56,7 +56,9 @@ export class RuntimeMemoryContext {
 		if (previous?.goalRevision !== goalRevision || previous?.worldId !== worldId || previous?.dimension !== context.dimension) this.#lookupScopes.set(agentId, {});
 		this.#contexts.set(agentId, context);
 		this.#recoveryDeaths.set(agentId, recoveryDeath);
-		const reviewed = this.#experience?.observe(agentId, worldId, source, Number.isFinite(source.observedAtEpochMs) ? source.observedAtEpochMs : Date.now());
+		// A death-only observation keeps the death's own time, so a replayed recording stays on its clock.
+		const reviewed = this.#experience?.observe(agentId, worldId, source, Number.isFinite(source.observedAtEpochMs) ? source.observedAtEpochMs
+			: Number.isFinite(source.death?.diedAtEpochMs) ? source.death.diedAtEpochMs : Date.now());
 		if (!worldId.startsWith('session:') && context.dimension !== undefined) {
 			const scope = { agentId, ...context };
 			const picked = pick(source, ['world', 'worldTick', 'observedAtEpochMs', 'position', 'player', 'ready', 'death', 'inventory', 'lastLiveInventory', 'blocks', 'landmarks', 'nearbyContainers', 'interaction', 'continuity']);
@@ -191,7 +193,7 @@ export class RuntimeMemoryContext {
 			...(Number.isSafeInteger(observation.worldTick) && observation.worldTick >= 0 ? { tick: observation.worldTick } : {}),
 		};
 		await this.#notebook.recordReceipt(agentId, terminal);
-		await this.#experience?.noteResult(agentId, { actionId, actionType: previous.actionType, state: source.state, reasonCode: source.reasonCode, dimension: previous.dimension },
+		await this.#experience?.noteResult(agentId, { actionId, actionType: previous.actionType, state: source.state, reasonCode: source.reasonCode, dimension: previous.dimension, worldId: previous.worldId },
 			Number.isFinite(source.observedAtEpochMs) ? source.observedAtEpochMs : undefined);
 		// The break tally of a held-attack control is not persisted with the receipt, but the task view counts it.
 		const breakOutcome = Number.isSafeInteger(source.breakOutcome?.blocks) ? { breakOutcome: { blocks: source.breakOutcome.blocks } } : {};

@@ -147,8 +147,10 @@ export class ExperienceRuntime {
 	async noteResult(agentId, result, at = undefined) {
 		try { await this.#noteResult(agentId, result, at); } catch (error) { this.#fail('result', error); }
 	}
-	async #noteResult(agentId, { actionId, actionType, state, reasonCode, dimension }, at = undefined) {
+	async #noteResult(agentId, { actionId, actionType, state, reasonCode, dimension, worldId }, at = undefined) {
 		const agent = this.#agent(agentId);
+		// A late result from a world the agent has left is not evidence about this game.
+		if (typeof worldId === 'string' && !worldId.startsWith('session:') && agent.game !== null && experienceHash(`world:${worldId}`) !== agent.game) return;
 		// A replayed terminal receipt is acknowledged again upstream but counts here once.
 		if (typeof actionId === 'string') {
 			if (agent.terminal.has(actionId)) return;

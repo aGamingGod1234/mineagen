@@ -140,3 +140,15 @@ test('a game played earlier by the same process carries into the next world', ()
 	assert.deepEqual(store.candidates(GAME_B).map(({ id, games, thisGame }) => ({ id, games, thisGame })), [{ id: lesson.id, games: 1, thisGame: 0 }]);
 	await store.flush();
 }));
+
+test('more than two hundred earlier games still load, so a resumed game keeps its record', () => withDirectory(async (directory) => {
+	const writer = new ExperienceStore(settings(directory));
+	await writer.load();
+	for (let index = 0; index < 205; index++) writer.record(experienceHash(`world:${index}`), { ...lesson, atEpochMs: index });
+	writer.record(experienceHash('world:7'), { ...lesson, atEpochMs: 999 });
+	await writer.flush();
+	const resumed = new ExperienceStore(settings(directory));
+	await resumed.load();
+	assert.equal(resumed.state().games, 205);
+	assert.equal(resumed.candidates(experienceHash('world:7')).find((entry) => entry.id === lesson.id).thisGame, 2);
+}));

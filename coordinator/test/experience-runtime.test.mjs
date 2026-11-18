@@ -237,3 +237,29 @@ test('history gathered while a death review waits for the store is kept', () => 
 	await runtime.flush();
 	assert.ok(events.some((event) => event.event === 'experience_lesson_recorded' && event.rule === 'melee-at-low-health'));
 }));
+
+test('a late result from a world the agent has left is not reviewed as part of the new game', () => withDirectory(async (directory) => {
+	const events = [];
+	const runtime = createExperience(experienceSettings({ MINEAGEN_EXPERIENCE: 'lessons', MINEAGEN_EXPERIENCE_DIR: directory, MINEAGEN_EXPERIENCE_PROFILE: 'p' }), { trace: (event, fields) => events.push({ event, ...fields }) });
+	const memory = new RuntimeMemoryContext({ taskMemory: new TaskMemoryStore({ directory: null }), experience: runtime });
+	memory.observe(record, observation('world-one', T0));
+	await memory.recordDispatch(record, { actionId: 'dig-1', actionType: 'dig_to', goalRevision: 1, arguments: { x: 1, y: 60, z: 1, timeoutMs: 60000 } });
+	memory.observe(record, observation('world-two', T0 + 5_000));
+	await memory.recordResult(record, { actionId: 'dig-1', goalRevision: 1, state: 'FAILED', reasonCode: 'TOOL_WORN', observedAtEpochMs: T0 + 6_000 });
+	await memory.flush();
+	assert.equal(events.some((event) => event.event === 'experience_lesson_recorded'), false);
+}));
+
+test('a replayed death keeps the recording on its own clock', () => withDirectory(async (directory) => {
+	// A recording from the past: wall time is later than every recorded time.
+	const past = 1_600_000_000_000, events = [];
+	const runtime = createExperience(experienceSettings({ MINEAGEN_EXPERIENCE: 'lessons', MINEAGEN_EXPERIENCE_DIR: directory, MINEAGEN_EXPERIENCE_PROFILE: 'p' }), { trace: (event, fields) => events.push({ event, ...fields }) });
+	const memory = new RuntimeMemoryContext({ taskMemory: new TaskMemoryStore({ directory: null }), experience: runtime });
+	memory.observe(record, observation('world-one', past, { hostiles: ['zombie'] }));
+	memory.observe(record, { death: { cause: 'x was slain by Zombie', dimensionId: 'minecraft:overworld', diedAtEpochMs: past + 5_000 } });
+	memory.observe(record, observation('world-one', past + 10_000, { hostiles: ['skeleton'] }));
+	await memory.recordDispatch(record, { actionId: 'flee-2', actionType: 'flee_from', goalRevision: 1, arguments: { targetId: '00000000-0000-4000-8000-000000000001', distance: 16, timeoutMs: 10000 } });
+	memory.observe(record, { death: { cause: 'x was shot by Skeleton', dimensionId: 'minecraft:overworld', diedAtEpochMs: past + 15_000 } });
+	await memory.flush();
+	assert.ok(events.some((event) => event.event === 'experience_lesson_recorded' && event.rule === 'ranged-fled-in-open'), JSON.stringify(events.map((event) => event.rule)));
+}));
