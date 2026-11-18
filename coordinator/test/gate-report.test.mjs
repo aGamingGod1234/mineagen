@@ -12,13 +12,16 @@ const milestone = (at) => ({ firstObservedAt: at === null ? null : T0 + at * MIN
 const SHA = 'e62adcea2c08e42973c9e1a928358ab19b043ccc';
 
 /** A long-run folder as the farm saves it: stage-score, long-run, the runner's log beside it, and a decision log. */
-async function longRun(root, name, { seed, iron = null, bucket = null, flint = null, nether = null, afterDeathIron = null, deaths = 0, usd = 1.5, log = [] }) {
+async function longRun(root, name, { seed, iron = null, bucket = null, flint = null, nether = null, afterDeathIron = null, deaths = 0, usd = 1.5, log = [], windowMin = 40, endMin = null, samples = null }) {
 	const dir = path.join(root, name);
 	await mkdir(path.join(dir, 'raw'), { recursive: true });
 	const lives = { firstLife: { milestones: { iron_pickaxe: milestone(iron), bucket: milestone(bucket), flint_and_steel: milestone(flint), nether: milestone(nether) } },
 		afterDeath: { milestones: { iron_pickaxe: milestone(afterDeathIron) } } };
-	await writeFile(path.join(dir, 'stage-score.json'), JSON.stringify({ window: { startedAt: T0, windowMs: 40 * MIN }, identity: { seed }, observedDeaths: deaths, ...lives }));
-	await writeFile(path.join(dir, 'long-run.json'), JSON.stringify({ seed, windowMs: 40 * MIN, profile: { provider: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'low' }, spend: { usd } }));
+	// endMin: the scorer's observed end (last sample and the stop it recorded); older scores leave both out.
+	const window = { startedAt: T0, windowMs: windowMin * MIN, ...(endMin === null ? {} : { observedThrough: T0 + endMin * MIN, plannedEndAt: T0 + windowMin * MIN }) };
+	await writeFile(path.join(dir, 'stage-score.json'), JSON.stringify({ window, ...(endMin === null ? {} : { ending: { kind: 'stopped', at: T0 + endMin * MIN } }), identity: { seed }, observedDeaths: deaths, ...lives }));
+	await writeFile(path.join(dir, 'long-run.json'), JSON.stringify({ seed, windowMs: windowMin * MIN, profile: { provider: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'low' }, spend: { usd } }));
+	if (samples) await writeFile(path.join(dir, 'raw', 'quality-samples.jsonl'), samples.map((row) => JSON.stringify(row)).join('\n') + '\n');
 	await writeFile(`${dir}.log`, `Running q-1: /home/user/micro/roots/${SHA}/runtime/headless-runs/x\n`);
 	await writeFile(path.join(dir, 'raw', 'decision-1-agent.jsonl'), log.map((row) => JSON.stringify(row)).join('\n') + '\n');
 	return dir;
@@ -330,5 +333,25 @@ test('a long run scored before stage-score tracked the fortress leaves the late 
 		const report = buildGate({ gate: 'old', title: 'old', cohorts: [{ name: 'a', label: 'a', dirs: [dir] }] });
 		assert.equal(report.cohorts[0].funnel.fortress, undefined);
 		assert.equal(report.cohorts[0].nether, null);
+	} finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('a long run stopped short of its budget ends where the scorer saw it end, for recovery and censoring', async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), 'gate-report-'));
+	try {
+		// A 180-minute run stopped at 60: in the Nether at 40, died there at 50, never back before the stop.
+		const samples = [sample(0, OVER, 0, 0, 0), sample(39, OVER, 100, 0, 0), sample(40, NETHER, 12, 0, 0), sample(49, NETHER, 30, 0, 0),
+			sample(50, OVER, 100, 50, 1), sample(60, OVER, 90, 50, 1)];
+		const dir = await longRun(root, 'stopped', { seed: '9', nether: 40, windowMin: 180, endMin: 60, samples });
+		const [run] = readRun(dir);
+		assert.equal(run.windowMin, 180);
+		assert.equal(run.playedMin, 60);
+		assert.deepEqual(run.nether.deaths, [{ minute: 50, respawnBlocks: 50, returned: false, backMin: 10 }]);
+		// It never found a fortress: censored at the 60 minutes it played, flagged early.
+		const [cohort] = buildGate({ gate: 'x', title: 'x', cohorts: [{ name: 'x', label: 'x', dirs: [dir] }] }).cohorts;
+		assert.equal(cohort.funnel.flintAndSteel.censoredEarly, 1);
+		// A score that names no observed end keeps the planned end and leaves the minutes played unknown.
+		const old = await longRun(root, 'old', { seed: '9', windowMin: 180 });
+		assert.equal('playedMin' in readRun(old)[0], false);
 	} finally { await rm(root, { recursive: true, force: true }); }
 });

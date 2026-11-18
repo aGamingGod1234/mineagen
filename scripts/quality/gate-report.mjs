@@ -102,14 +102,19 @@ function readLongRun(dir) {
 	// Entering the Nether needs a lit portal, so a Nether entry with no PORTAL_LIT result bounds it from above.
 	ms.portalLit = log.portalLit ?? ms.nether ?? null;
 	const profile = longRun?.profile ?? stage.identity?.profile;
+	// A run that stopped short of its budget ends where the scorer last observed it or recorded its end, not at the plan.
+	// Older scores name neither: the planned end stands, and the minutes played stay unknown.
+	const plannedEnd = t0 + (longRun?.windowMs ?? stage.window.windowMs);
+	const observed = [stage.window.observedThrough, stage.ending?.at].filter((at) => Number.isFinite(at) && at > t0);
+	const end = observed.length ? Math.min(plannedEnd, ...observed) : plannedEnd;
 	return [{
 		run: path.basename(dir), seed: String(stage.identity?.seed ?? longRun?.seed), commit: longRunCommit(dir, longRun),
 		ranAt: new Date(stage.window.startedAt).toISOString().slice(0, 10), mode: 'model', model: profile ? `${profile.provider} ${profile.model} ${profile.reasoningEffort ?? ''}`.trim() : null,
-		windowMin: minutes(longRun?.windowMs ?? stage.window.windowMs),
+		windowMin: minutes(longRun?.windowMs ?? stage.window.windowMs), ...(observed.length ? { playedMin: minutes(end - t0) } : {}),
 		milestones: Object.fromEntries(MILESTONES.filter(({ key }) => key in ms).map(({ key }) => [key, ms[key] === null ? null : minutes(ms[key] - t0)])),
 		deaths: stage.observedDeaths ?? 0, costUsd: Math.round((longRun?.spend?.usd ?? 0) * 1000) / 1000,
 		decisionLog: decisionFiles(raw).length > 0,
-		...samplesOf(raw, t0, t0 + (longRun?.windowMs ?? stage.window.windowMs)).nether,
+		...samplesOf(raw, t0, end).nether,
 	}];
 }
 
