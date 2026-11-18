@@ -170,7 +170,7 @@ try{
    result.untilCalls.push({atSeconds:(Date.now()-started)/1000,type,pearlsBefore:held,state:r.state,reason:r.reasonCode,message:String(r.message??'').slice(0,1800)});await save();
    if(r.reasonCode==='AGENT_DEAD')break;
    if(['ROOF_BLOCKS_MISSING','ROOF_NOT_BUILT'].includes(r.reasonCode)&&(result.roofStops=(result.roofStops??0)+1)>=3)break;
-   if(r.reasonCode==='NO_TARGET_SEEN')await scan();
+   if(['NO_TARGET_SEEN','AREA_CLEARED'].includes(r.reasonCode))await scan();
   }
  }
  if(STANDIN==='count'){
@@ -191,7 +191,7 @@ try{
    const r=await act(type,args);
    result.untilCalls.push({atSeconds:(Date.now()-started)/1000,type,pearlsBefore:held,health:facts.player.health,state:r.state,reason:r.reasonCode,message:String(r.message??'').slice(0,1800)});await save();
    if(r.reasonCode==='AGENT_DEAD')break;
-   if(r.reasonCode==='NO_TARGET_SEEN')await scan();
+   if(['NO_TARGET_SEEN','AREA_CLEARED'].includes(r.reasonCode))await scan();
   }
  }
  if(STANDIN!=='until'&&STANDIN!=='roof'&&STANDIN!=='count'){await setRules([gaze]);startTicks=await gameTicks();started=Date.now();active=true;result.startedAt=new Date(started).toISOString();result.startGameTicks=startTicks;await canopy();}
