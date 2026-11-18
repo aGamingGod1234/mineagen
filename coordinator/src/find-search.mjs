@@ -76,6 +76,10 @@ const BREATH_STOPS = new Set(['AIR_RESERVE_REACHED', 'BREATH_NOT_COVERED', 'TUNN
 // Stops a search cannot work round by itself: the model decides (craft a pickaxe, empty the inventory...).
 const BLOCKED = new Set(['NO_TOOL', 'TOOL_WORN', 'INVENTORY_FULL']);
 const CARDINALS = Object.freeze([{ name: 'south', yaw: 0 }, { name: 'west', yaw: 90 }, { name: 'north', yaw: 180 }, { name: 'east', yaw: -90 }]);
+// The index's worldgen rows come from biome features and noise settings only (HowtoIndexExporter.readWorldgen). Structures
+// and carvers it does not walk place these blocks in other dimensions too: netherrack and magma in ruined portals and
+// magma under the oceans (Overworld), bedrock in the End's exit portal and gateways. A find for one there is never refused.
+const ALSO_PLACED = Object.freeze({ magma_block: ['overworld'], netherrack: ['overworld'], bedrock: ['the_end'] });
 const HEADING_YAW = Object.freeze({ S: 0, SW: 45, W: 90, NW: 135, N: 180, NE: -135, E: -90, SE: -45 });
 const BUCKET_FLUIDS = new Set(['minecraft:lava', 'minecraft:water']);
 // Far sight's own near range (FarSight.SMALL_SIGHT): within it a survey marks a fluid's flow, past it only landmarks see.
@@ -559,7 +563,8 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 		}
 	};
 	// What the last look around showed of the ground each way (the runtime's per-heading landmarks), and where it was taken.
-	let ground = null;
+	let ground = null, lookedFrom = null;
+	const cellOfBody = (at) => (at === null ? null : `${Math.floor(at.x)},${Math.floor(at.y + 0.01)},${Math.floor(at.z)}`);
 	const look = async (pitch) => {
 		// A mob the search fights, close and coming: met before the look turns the body's back on it. Fixture zombie
 		// tunnel: it landed 4 hits during the first look (20 -> 10.8 health) while nothing answered it.
@@ -569,6 +574,7 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 		progress('look around');
 		const result = await body.look({ pitch, survey: { include: profile.sections.slice(0, 8), limit: 8 } });
 		if (result?.interruptedBy !== undefined) return { interrupted: result };
+		lookedFrom = bodyAt(observation);
 		ground = Array.isArray(result?.ground) ? { at: bodyAt(observation), views: result.ground } : null;
 		noteCaves(null, result?.survey);
 		noteWoods(result?.survey);
@@ -928,11 +934,17 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 		}
 		return null;
 	};
+	const canopy = () => {
+		const at = bodyAt(observation);
+		return at !== null && (observation?.blocks ?? []).some((row) => /_leaves$/.test(String(row?.blockId)) && row.x === Math.floor(at.x) && row.z === Math.floor(at.z) && row.y > at.y);
+	};
 	const outside = () => {
 		if (observation?.player?.skyOpen !== false) return true;
 		const sky = body.openSky?.() ?? null, at = bodyAt(observation);
 		return sky !== null && at !== null && at.y >= sky.y - 2 && Math.hypot(sky.x - at.x, sky.z - at.z) <= 6;
 	};
+	// A mob search (no block id to stop at) also climbs out; its legs carry no stopWhenSeen and the watch sees for them.
+	const stopWhen = profile.stopId === undefined ? {} : { stopWhenSeen: profile.stopId };
 	const climbOut = async () => {
 		let retraces = MAX_RETRACE_TRIES, detour = false, stalls = 0, rosePastStop = false;
 		for (let climbs = 0; climbs < MAX_CLIMBS && stalls < 2 && left() >= MIN_LEG_MS && !outside(); climbs += 1) {
@@ -942,9 +954,9 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 			const rise = Math.min(detour ? DETOUR_RISE : CLIMB_LEG, Math.floor(withinReach()) - 2);
 			if (!back && rise < 1) return handBack('FAILED', 'FIND_NOT_FOUND', `Searched to ${within} blocks from the start`);
 			const outcome = back
-				? await leg('back up the way it came', 'travel_to', { x: sky.x, y: sky.y, z: sky.z, retrace: true, tolerance: 3, stopWhenSeen: profile.stopId })
+				? await leg('back up the way it came', 'travel_to', { x: sky.x, y: sky.y, z: sky.z, retrace: true, tolerance: 3, ...stopWhen })
 				: await leg(detour ? 'stairs up past where the way back stopped' : 'stairs up to the surface', 'dig_to', { pattern: 'stairs_up', y: Math.floor(at.y) + rise,
-					maxBlocks: 80, throughCaves: 'small', stopWhenSeen: profile.stopId, discard: DISCARD });
+					maxBlocks: 80, throughCaves: 'small', ...stopWhen, discard: DISCARD });
 			const ended = await settle(outcome);
 			if (ended !== null) return ended;
 			const after = bodyAt(observation);
@@ -981,6 +993,18 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 
 	let seen = check();
 	if (seen !== null) return found(seen);
+	// A block that never generates in this dimension (an oak log in the Nether): no search here turns one up. One
+	// program made 140 NO_ROUTE legs looking for oak logs in the Nether. A block the game data does not place is unknown.
+	{
+		const here = bare(String(observation?.world?.dimension ?? ''));
+		const named = (name) => (name.startsWith('the_') ? name : `the_${name}`).replace(/_/g, ' ');
+		const rows = profile.kind === 'block' && ['overworld', 'the_nether', 'the_end'].includes(here)
+			? [...profile.ids].map((one) => { const row = howtoIndex().worldgen[bare(one)]; return row && { d: [...row.d, ...(ALSO_PLACED[bare(one)] ?? [])] }; }) : [];
+		if (rows.length > 0 && rows.every((row) => Array.isArray(row?.d)) && !rows.some((row) => row.d.includes(here))) {
+			const where = [...new Set(rows.flatMap((row) => row.d))].map(named).join(' or ');
+			return handBack('FAILED', 'FIND_NOT_FOUND', `${profile.label} does not generate in ${named(here)} (only in ${where}), so no search here turns one up`);
+		}
+	}
 	{
 		const first = await look(profile.surface ? 0 : 15);
 		if (first.interrupted || first.seen || first.ended) return settle(first);
@@ -1014,6 +1038,16 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 	{
 		const up = await waterToSurface({ initial: true });
 		if (up !== null) return up;
+	}
+	// Trees and animals are seen from the surface (obtain climbs out for the same ones first): from under cover, back up
+	// the way the body came or stairs up before the surface legs. Searching sideways underground finds neither. Leaves
+	// overhead are no cover to climb through.
+	if (profile.surface && (profile.trees || profile.kind === 'mob') && observation?.world?.dimension === 'minecraft:overworld' && !outside() && !canopy()) {
+		const up = await climbOut();
+		if (up !== null) return up;
+		if (!outside()) return left() < MIN_LEG_MS
+			? handBack('TIMED_OUT', 'FIND_BUDGET', 'The search time ran out during the ascent')
+			: handBack('FAILED', 'FIND_BLOCKED', 'Still under cover after trying the way back and stairs: no way to the surface found here');
 	}
 
 	// A block that shows in the rock, sought from under cover: the tunnel legs at the body's own level come first (IN_ROCK).
@@ -1416,8 +1450,11 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 			+ `Requested ${built} of ${BUILD_BUDGET} construction-travel blocks this search. Choose another route, or request travel_to {yaw:${yaw},distance:${BUILD_LEG},build:true} for another short building attempt`);
 	};
 	while (left() >= MIN_LEG_MS) {
+		const before = cellOfBody(bodyAt(observation));
 		const up = await waterToSurface();
 		if (up !== null) return up;
+		// An ascent carried the body off the heading it was building along: walking legs again from where it came up.
+		if (building && cellOfBody(bodyAt(observation)) !== before) { blocked.clear(); building = false; }
 		if (left() < MIN_LEG_MS) break;
 		const at = bodyAt(observation);
 		if (!building && ground !== null && at !== null && Math.hypot(ground.at.x - at.x, ground.at.z - at.z) <= 4) {
@@ -1493,9 +1530,19 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 				if (out !== null) return out;
 			}
 		}
-		else { blocked.clear(); visited.push(after); building = false; }
-		const view = await look(0);
-		if (view.interrupted || view.seen || view.ended) return settle(view);
+		else {
+			visited.push(after);
+			// A build leg that got through builds on that heading while the budget lasts: walking legs from the far side of
+			// what it bridged or tunnelled ended NO_ROUTE again, several per spot, before the next build (K1). Headings ruled
+			// out at the spot it left say nothing about this one: each is tried again from here.
+			blocked.clear();
+			if (!building || BUILD_BUDGET - built < MIN_SURFACE_LEG) building = false;
+		}
+		// One look per new cell: a leg that left the body in the cell it last looked from shows the same view (about 2 s).
+		if (cellOfBody(bodyAt(observation)) !== cellOfBody(lookedFrom)) {
+			const view = await look(0);
+			if (view.interrupted || view.seen || view.ended) return settle(view);
+		}
 	}
 	return handBack('TIMED_OUT', 'FIND_BUDGET', 'The search time ran out');
 }

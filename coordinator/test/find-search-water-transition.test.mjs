@@ -115,8 +115,10 @@ test('open sky and unknown sky facts retain the surface route without speculativ
 	for (const skyOpen of [true, undefined]) {
 		const body = transitionBody(() => ({ result: ok(), blocks: [source] }), { skyOpen, unknownSky: skyOpen === undefined });
 		assert.equal((await run(body)).reasonCode, 'FIND_SEEN');
-		assert.equal(body.calls[9].args.distance, 80);
-		assert.equal(body.calls[9].args.build, false);
+		// K1: the build leg got through, so the next surface leg builds on along the same heading (no ascent, no retrace).
+		assert.equal(body.calls[9].actionType, 'travel_to');
+		assert.equal(body.calls[9].args.retrace, undefined);
+		assert.deepEqual([body.calls[9].args.build, body.calls[9].args.yaw, body.calls[9].args.distance], [true, body.calls[8].args.yaw, 16]);
 	}
 });
 
@@ -138,7 +140,8 @@ test('the remembered open-sky spot under cover still counts as outside after asc
 });
 
 test('successful ascent with too little time left returns budget before another surface leg', async () => {
-	for (const ms of [98_000, 100_000]) {
+	// Without a look after each refused walk from the same cell (K1), 7 s more ascent leaves the same too-little time.
+	for (const ms of [105_000, 107_000]) {
 		const body = transitionBody(({ args }) => args.retrace
 			? { result: ok(), player: { x: 0.5, y: 67, z: 0.5, skyOpen: true }, ms }
 			: { result: stop('NO_TOOL') });
