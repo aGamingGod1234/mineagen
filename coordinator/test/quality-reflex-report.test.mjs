@@ -6,6 +6,7 @@ import path from 'node:path';
 import { DANGER_SCHEMA, judgeRooms, noiseFloor, pairRuns, reconcileDamage, roomWindowMs, scoreRun, windowDeaths } from '../../scripts/quality/lib/reflex-round.mjs';
 import { buildReport, parseReportArgs } from '../../scripts/quality/reflex-round-report.mjs';
 import { readWatchDir } from '../../scripts/quality/watch-files.mjs';
+import { writeArtifactReport } from '../src/benchmark/report-artifacts.mjs';
 
 // The same lines src/test/java/dev/agaminggod/mineagen/server/watch/WatchVerification.java generates from DangerLog.
 const FIXTURE = new URL('./fixtures/reflex-danger-rows.jsonl', import.meta.url);
@@ -321,6 +322,25 @@ test('the CLI reads run directories and paired results, and reports the noise fl
 		assert.ok(paired.pairs.every(pair => pair.deltas.damage === 0));
 		assert.equal(paired.judgement.rooms['R-SKELETON'].damage.verdict, 'INCONCLUSIVE');
 		assert.equal(paired.noiseFloor.rooms['R-SKELETON'].damage.perPairSd, 0);
+		// Results over the summary size limit keep their arms and runs in report-artifacts/: the reader restores them.
+		const pad = (n, length = 6000) => Object.fromEntries(Array.from({ length }, (_, i) => [`f${i}`, `v${n}`]));
+		const big = Object.fromEntries(['A', 'B'].map(arm => [arm, { runs: arms[arm].runs.map((run, n) => ({ ...run, ...pad(n) })) }]));
+		const bigFile = path.join(root, 'big', 'results.json');
+		await mkdir(path.dirname(bigFile), { recursive: true });
+		await writeArtifactReport(bigFile, { configuration: { design: 'A/A' }, arms: big });
+		assert.ok(JSON.parse(await readFile(bigFile, 'utf8')).arms.reportArtifact, 'the fixture really holds its arms in an artifact');
+		const bigPaired = await buildReport(parseReportArgs(['--paired', bigFile, '--margin', marginFile]));
+		assert.equal(bigPaired.pairs.length, 3, 'externalized arms still give every pair');
+		assert.equal(bigPaired.judgement.rooms['R-SKELETON'].damage.verdict, 'INCONCLUSIVE');
+		const bigRuns = path.join(root, 'big', 'runs.json');
+		await writeArtifactReport(bigRuns, { runs: [...big.A.runs, ...big.B.runs] });
+		assert.ok(JSON.parse(await readFile(bigRuns, 'utf8')).runs.reportArtifact, 'the fixture really holds its runs in an artifact');
+		assert.deepEqual((await buildReport(parseReportArgs(['--run', bigRuns]))).runs.map(run => run.damage), [2, 2, 2, 2, 2, 2]);
+		// A run record whose evaluation sits in an artifact keeps its success.
+		const bigRecord = path.join(single.artifacts, 'quality-run.json');
+		await writeArtifactReport(bigRecord, { ...JSON.parse(await readFile(bigRecord, 'utf8')), evaluation: { status: 'EVALUATED', pass: true, ...pad(0, 25_000) } });
+		assert.ok(JSON.parse(await readFile(bigRecord, 'utf8')).evaluation.reportArtifact, 'the fixture really holds its evaluation in an artifact');
+		assert.equal((await buildReport(parseReportArgs(['--run', single.artifacts]))).runs[0].success, true);
 		assert.throws(() => parseReportArgs([]), /Pass --run or --paired/);
 		assert.throws(() => parseReportArgs(['--run', 'a', '--paired', 'b']), /Pass --run or --paired/);
 	} finally { await rm(root, { recursive: true, force: true }); }

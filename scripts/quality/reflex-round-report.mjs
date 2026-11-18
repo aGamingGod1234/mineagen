@@ -8,6 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { findWatchDirs, readWatchDir } from './watch-files.mjs';
 import { epoch, resolveGoalWindow } from '../../coordinator/src/benchmark/quality-metrics.mjs';
+import { readArtifactReport } from '../../coordinator/src/benchmark/report-artifacts.mjs';
 import { judgeRooms, noiseFloor, pairRuns, scoreRun } from './lib/reflex-round.mjs';
 
 const USAGE = 'node scripts/quality/reflex-round-report.mjs (--run RUN_DIR|results.json ... | --paired PAIRED_RESULTS.json) [--margin MARGIN.json] [--out REPORT.json]';
@@ -28,6 +29,11 @@ export function parseReportArgs(argv) {
 
 const readJson = async file => JSON.parse(await readFile(file, 'utf8'));
 const maybeJson = async file => { try { return await readJson(file); } catch (error) { if (error.code === 'ENOENT') return null; throw error; } };
+// Results files and run records go through writeArtifactReport: over the summary size limit their details sit in
+// report-artifacts/ and must be restored. Only the record itself may be missing; a missing referenced artifact fails.
+const maybeReport = async file => {
+	try { return await readArtifactReport(file); } catch (error) { if (error.code === 'ENOENT' && path.resolve(error.path ?? '') === path.resolve(file)) return null; throw error; }
+};
 const maybeJsonl = async file => { try { return (await readFile(file, 'utf8')).split('\n').filter(line => line.trim()).flatMap(line => { try { return [JSON.parse(line)]; } catch { return []; } }); } catch (error) { if (error.code === 'ENOENT') return []; throw error; } };
 
 /** The run record's goal start; runs recorded before it was stored fall back to the protocol journal's goal start. */
@@ -48,7 +54,7 @@ async function lifecycle(directory) {
 /** One run's inputs from its artifact directory: quality-run.json, quality-samples.json and the arena-watch danger rows. */
 export async function loadRun(run) {
 	const directory = run.artifacts;
-	const record = run.metrics || run.goalStartedAtMs !== undefined || !directory ? run : { ...run, ...(await maybeJson(path.join(directory, 'quality-run.json')) ?? {}) };
+	const record = run.metrics || run.goalStartedAtMs !== undefined || !directory ? run : { ...run, ...(await maybeReport(path.join(directory, 'quality-run.json')) ?? {}) };
 	const samples = directory ? (await maybeJson(path.join(directory, 'quality-samples.json')))?.samples ?? [] : [];
 	let dangerRows = null, dangerDropped = 0;
 	for (const watchDir of directory ? await findWatchDirs(directory) : []) {
@@ -62,14 +68,14 @@ export async function loadRun(run) {
 
 /** --run takes a run artifact directory (holding quality-run.json) or a run-scenarios results.json. */
 async function runsFrom(target) {
-	if (target.endsWith('.json')) return (await readJson(target)).runs ?? [];
-	return [{ ...(await readJson(path.join(target, 'quality-run.json'))), artifacts: target }];
+	if (target.endsWith('.json')) return (await readArtifactReport(target)).runs ?? [];
+	return [{ ...(await readArtifactReport(path.join(target, 'quality-run.json'))), artifacts: target }];
 }
 
 export async function buildReport(options) {
 	const margin = options.margin ? await readJson(options.margin) : null;
 	if (options.paired) {
-		const paired = await readJson(options.paired);
+		const paired = await readArtifactReport(options.paired);
 		const arms = {};
 		for (const arm of ['A', 'B']) arms[arm] = await Promise.all((paired.arms?.[arm]?.runs ?? []).map(loadRun));
 		const pairs = pairRuns(arms.A, arms.B);
