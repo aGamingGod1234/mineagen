@@ -1356,14 +1356,147 @@ test('food at health 5: the low-health line does not stop the obtain, and the hu
 	assert.ok(hunts.length > 0 && hunts.every(([, args]) => args.fleeAtHealth === 4), JSON.stringify(hunts));
 });
 
-test('a non-food item at health 5 still stops at the low-health line (handed back as LOW_HEALTH, not danger), and a full-health hunt keeps fight_until\'s own flee line', async () => {
+/**
+ * simulatedBody with the survival facts obtain's recovery reads: health, food bar and saturation, canHealNow and
+ * bestFood from the carried food (foodSlot moves it to that slot), the regeneration gamerule, and eating and
+ * regeneration as the game does them in outline: use_item on held food fills the bar, a wait at food 18+ heals 1 a second.
+ */
+const FOOD_NUTRITION = { bread: 5, cooked_beef: 8, apple: 4, golden_apple: 4 };
+function survivalBody({ start = {}, health = 5, foodLevel = 10, saturation = 0, foodSlot = null, regen = true, threats = [], usingItem = false, waitHurts = 0, noHeal = false, fail = null } = {}) {
+	const body = simulatedBody({ start });
+	const state = { health, foodLevel, saturation, held: null, usingItem };
+	const observe = body.observe;
+	body.state = state;
+	body.recoveringStates = [];
+	body.recovering = (value) => body.recoveringStates.push(value);
+	body.observe = async () => {
+		const o = await observe();
+		const items = o.inventory.items.map((row) => (foodSlot !== null && bare(row.itemId) in FOOD_NUTRITION ? { ...row, slot: foodSlot } : row));
+		const food = items.find((row) => bare(row.itemId) in FOOD_NUTRITION);
+		const bestFood = food ? { slot: food.slot, itemId: food.itemId, nutrition: FOOD_NUTRITION[bare(food.itemId)], ...(bare(food.itemId) === 'golden_apple' ? { alwaysEdible: true } : {}) } : null;
+		const safe = threats.length === 0;
+		return { ...o, inventory: { ...o.inventory, items }, interaction: { usingItem: state.usingItem },
+			player: { ...o.player, health: state.health, foodLevel: state.foodLevel, saturation: state.saturation, threats,
+				bestFood, safe, canHealNow: state.health < 20 && bestFood !== null && safe && (state.foodLevel < 20 || bestFood.alwaysEdible === true) },
+			world: { dimension: 'minecraft:overworld', difficulty: 'normal', naturalRegeneration: regen } };
+	};
+	const act = body.act;
+	body.act = async (type, args) => {
+		if (type === fail) { body.calls.push([type, args]); return { state: 'FAILED', reasonCode: 'ACTION_FAILED', message: `${type} failed` }; }
+		if (type === 'select_item') { body.calls.push([type, args]); state.held = bare(args.itemId); return { state: 'SUCCEEDED' }; }
+		if (type === 'select_tool') { body.calls.push([type, args]); state.held = bare(args.expectedItemId); return { state: 'SUCCEEDED' }; }
+		if (type === 'use_item') {
+			body.calls.push([type, args]);
+			const item = state.held;
+			if (!(item in FOOD_NUTRITION) || !(body.inv.get(item) > 0) || bare(args.expectedItemId) !== item) return { state: 'FAILED', reasonCode: 'NOT_FOOD' };
+			body.inv.set(item, body.inv.get(item) - 1);
+			state.foodLevel = Math.min(20, state.foodLevel + FOOD_NUTRITION[item]);
+			state.saturation = Math.min(state.foodLevel, state.saturation + FOOD_NUTRITION[item] * 1.2);
+			return { state: 'SUCCEEDED' };
+		}
+		if (type === 'wait') {
+			body.calls.push([type, args]);
+			state.usingItem = false;
+			if (waitHurts > 0) { state.health -= waitHurts; return { state: 'SUCCEEDED' }; }
+			if (regen && !noHeal && state.foodLevel >= 18) {
+				const healed = Math.min(Math.floor(args.durationMs / 1000), 20 - state.health, Math.floor((state.saturation + state.foodLevel - 17) / 1.5));
+				state.health += healed; state.saturation = Math.max(0, state.saturation - healed * 1.5);
+			}
+			return { state: 'SUCCEEDED' };
+		}
+		return act(type, args);
+	};
+	// Eating heals by regeneration over the next waits; obtain's own legs take no time here, so a gather after eating
+	// sees the health the waits gave.
+	return body;
+}
+const typesOf = (body) => body.calls.map(([type]) => type);
+
+test('a non-food obtain at health 5 with hotbar food eats it, regenerates to 12 and goes on', async () => {
+	const body = survivalBody({ start: { bread: 3 } });
+	const result = await runObtain({ item: 'oak_planks', count: 4 }, body, { now: clock() });
+	assert.equal(result.state, 'SUCCEEDED', result.message);
+	const types = typesOf(body);
+	assert.deepEqual(types.slice(0, 2), ['select_item', 'use_item'], types.join(','));
+	assert.deepEqual(body.calls[1][1], { durationMs: 2000, expectedItemId: 'minecraft:bread' });
+	assert.ok(types.indexOf('gather') > types.lastIndexOf('wait'), 'work resumes only after the recovery');
+	assert.ok(body.state.health >= 12, `health ${body.state.health}`);
+	assert.deepEqual(body.recoveringStates.slice(0, 2), ['armed', 'active']);
+	assert.equal(body.recoveringStates.at(-1), 'armed');
+});
+
+test('food in slots 9-35 is brought to the selected hotbar slot with select_tool, then eaten', async () => {
+	const body = survivalBody({ start: { bread: 3 }, foodSlot: 14 });
+	const result = await runObtain({ item: 'oak_planks', count: 4 }, body, { now: clock() });
+	assert.equal(result.state, 'SUCCEEDED', result.message);
+	const select = body.calls.find(([type]) => type === 'select_tool');
+	assert.deepEqual(select?.[1], { sourceSlot: 14, hotbarSlot: 0, expectedItemId: 'minecraft:bread', minRemainingDurability: 0 });
+	assert.ok(!body.calls.some(([type]) => type === 'select_item'));
+});
+
+test('with no food, regeneration at food 18 or more is waited out to 10 and the obtain goes on', async () => {
+	const body = survivalBody({ health: 7, foodLevel: 20, saturation: 6 });
+	const result = await runObtain({ item: 'oak_planks', count: 4 }, body, { now: clock() });
+	assert.equal(result.state, 'SUCCEEDED', result.message);
+	assert.ok(typesOf(body).includes('wait') && !typesOf(body).includes('use_item'), typesOf(body).join(','));
+	assert.ok(body.calls.filter(([type]) => type === 'wait').every(([, args]) => args.durationMs <= 5000));
+	assert.ok(body.state.health >= 10);
+});
+
+for (const [name, options, said] of [
+	['no food and no regeneration (food 17, saturation 20)', { foodLevel: 17, saturation: 20 }, /^Health 5: stopped to recover, then health 5, food 17, saturation 20: no food to eat, and regeneration \(food 18 or more\) cannot pay/],
+	['no food and the regeneration gamerule off', { foodLevel: 20, saturation: 20, regen: false }, /natural regeneration is off/],
+	['food carried but a zombie after the body', { start: { bread: 3 }, threats: [{ uuid: 'z', type: 'minecraft:zombie', distance: 5, targeting: true, lineOfSight: true, signals: ['targeting'] }] }, /health 5 with a zombie 5 blocks away/],
+	['health falling while it waits', { foodLevel: 20, saturation: 20, waitHurts: 1 }, /health fell 5 -> 4 while recovering/],
+]) {
+	test(`a non-food obtain at health 5 hands back LOW_HEALTH, not danger, on ${name}`, async () => {
+		const body = survivalBody(options);
+		const result = await runObtain({ item: 'oak_planks', count: 4 }, body, { now: clock() });
+		assert.equal(result.state, 'INTERRUPTED', result.message);
+		assert.equal(result.reasonCode, 'LOW_HEALTH', result.message);
+		assert.match(result.message, said);
+		assert.doesNotMatch(result.message, /danger/i);
+		assert.ok(!typesOf(body).includes('gather'), 'no work while low');
+		assert.ok(!typesOf(body).includes('use_item'), 'nothing eaten');
+	});
+}
+
+test('a body already using an item (the eat reflex mid-bite) is left to finish: obtain waits, then eats', async () => {
+	const body = survivalBody({ start: { bread: 3 }, usingItem: true });
+	const result = await runObtain({ item: 'oak_planks', count: 4 }, body, { now: clock() });
+	assert.equal(result.state, 'SUCCEEDED', result.message);
+	assert.deepEqual(typesOf(body).slice(0, 3), ['wait', 'select_item', 'use_item']);
+});
+
+test('food edible at any hunger (a golden apple) is not eaten again once the bar can regenerate', async () => {
+	const body = survivalBody({ start: { golden_apple: 5 }, noHeal: true });
+	await runObtain({ item: 'oak_planks', count: 4 }, body, { now: clock() });
+	// Food 10 -> 14 -> 18: two bites, then only waits.
+	assert.equal(body.calls.filter(([type]) => type === 'use_item').length, 2, typesOf(body).join(','));
+});
+
+for (const [name, options, said] of [
+	['regeneration that never lifts health', { foodLevel: 20, saturation: 20, noHeal: true }, /health 5 after 9\d s of recovering/],
+	['a failed bite', { start: { bread: 3 }, fail: 'use_item' }, /eating bread failed \(use_item ACTION_FAILED: use_item failed\)/],
+	['a failed wait', { foodLevel: 20, saturation: 20, fail: 'wait' }, /waiting to recover failed \(wait ACTION_FAILED/],
+]) {
+	test(`recovery is bounded: ${name} hands back LOW_HEALTH`, async () => {
+		const body = survivalBody(options);
+		const result = await runObtain({ item: 'oak_planks', count: 4 }, body, { now: clock() });
+		assert.equal(result.reasonCode, 'LOW_HEALTH', result.message);
+		assert.match(result.message, said);
+		assert.ok(!typesOf(body).includes('gather'));
+	});
+}
+
+test('without survival facts a non-food obtain at health 5 hands back at once (no wait), and a full-health hunt keeps fight_until\'s own flee line', async () => {
 	const body = lowHealth(simulatedBody());
 	const result = await runObtain({ item: 'oak_planks', count: 4 }, body, { now: clock() });
 	assert.equal(result.state, 'INTERRUPTED', result.message);
 	assert.equal(result.reasonCode, 'LOW_HEALTH', result.message);
-	assert.match(result.message, /^Health 5: stopped to recover\. Holding/);
+	assert.match(result.message, /^Health 5: stopped to recover, then health 5, food \?, saturation \?: no food to eat/);
 	assert.doesNotMatch(result.message, /danger/);
-	assert.ok(!body.calls.some(([type]) => type === 'gather'), 'no work at health 5');
+	assert.deepEqual(body.calls, [], 'no wait, no work at health 5 with nothing known to recover by');
 	const healthy = simulatedBody();
 	assert.equal((await runObtain({ item: 'minecraft:beef', count: 2 }, healthy, { now: clock() })).state, 'SUCCEEDED');
 	assert.ok(healthy.calls.filter(([type]) => type === 'fight_until').every(([, args]) => !('fleeAtHealth' in args)));
@@ -1376,16 +1509,43 @@ test('a non-food obtain that ends holding its item at health 5 hands back LOW_HE
 	assert.match(result.message, /^Obtained oak_planks, but health is 5, at or under 6; recover/);
 });
 
-test('a leg\'s own low-health stop at health 7 hands back LOW_HEALTH with its line; other damage stops stay danger', async () => {
+test('an obtain that ends holding its item at health 7 or 8 reports OBTAINED', async () => {
+	for (const health of [7, 8]) {
+		const result = await runObtain({ item: 'oak_planks', count: 4 }, lowHealth(simulatedBody({ start: { oak_planks: 4 } }), health), { now: clock() });
+		assert.equal(result.reasonCode, 'OBTAINED', `${health}: ${result.message}`);
+	}
+});
+
+test('a gather leg stopping LOW_HEALTH at 7 is recovered from once, then the gather goes on', async () => {
+	const body = survivalBody({ start: { bread: 3 }, health: 12 });
+	const gather = body.gather;
+	let stops = 0;
+	body.gather = async (args) => {
+		if (stops++ === 0) { body.calls.push(['gather', args]); body.state.health = 7; return { state: 'FAILED', reasonCode: 'LOW_HEALTH', message: 'Health 7: stopped gathering' }; }
+		return gather(args);
+	};
+	const result = await runObtain({ item: 'oak_planks', count: 4 }, body, { now: clock() });
+	assert.equal(result.state, 'SUCCEEDED', result.message);
+	assert.equal(body.calls.filter(([type]) => type === 'gather').length, 2);
+	// Bread at food 10 gives 15: it eats again toward the regeneration line of 18.
+	assert.equal(body.calls.filter(([type]) => type === 'use_item').length, 2);
+	assert.ok(body.state.foodLevel >= 18 && body.state.health >= 12, JSON.stringify(body.state));
+});
+
+// The leg tests start above the recovery line, so the leg runs; the leg's stop drops health to 7.
+const dropsTo = (body, health) => { let low = false; const observe = body.observe; body.observe = async () => { const o = await observe(); return low ? { ...o, player: { ...o.player, health } } : o; }; return () => { low = true; }; };
+
+test('a leg stopping LOW_HEALTH at 7 with nothing to recover by hands back LOW_HEALTH with its line and numbers; other damage stops stay danger', async () => {
 	for (const reasonCode of ['LOW_HEALTH', 'DAMAGE_TAKEN']) {
-		const body = lowHealth(simulatedBody(), 7);
-		body.gather = async (args) => { body.calls.push(['gather', args]); return { state: 'FAILED', reasonCode, message: 'Health 7: stopped gathering' }; };
+		const body = simulatedBody();
+		const low = dropsTo(body, 7);
+		body.gather = async (args) => { body.calls.push(['gather', args]); low(); return { state: 'FAILED', reasonCode, message: 'Health 7: stopped gathering' }; };
 		const result = await runObtain({ item: 'oak_planks', count: 4 }, body, { now: clock() });
 		assert.equal(body.calls.filter(([type]) => type === 'gather').length, 1, `${reasonCode}: nothing more is dispatched`);
 		assert.equal(result.state, 'INTERRUPTED', `${reasonCode}: ${result.message}`);
 		assert.equal(result.reasonCode, reasonCode === 'LOW_HEALTH' ? 'LOW_HEALTH' : 'DANGER', `${reasonCode}: ${result.message}`);
 		if (reasonCode === 'LOW_HEALTH') {
-			assert.match(result.message, /^Stopped at low health \(LOW_HEALTH: Health 7: stopped gathering\); recover/);
+			assert.match(result.message, /^Stopped at low health \(LOW_HEALTH: Health 7: stopped gathering\), then health 7, food \?/);
 			assert.doesNotMatch(result.message, /danger/i);
 		}
 	}
@@ -1393,10 +1553,12 @@ test('a leg\'s own low-health stop at health 7 hands back LOW_HEALTH with its li
 
 test('a find leg\'s own low-health stop reaches obtain as LOW_HEALTH; a find danger stop stays danger', async () => {
 	for (const stopCode of ['LOW_HEALTH', 'IN_LAVA']) {
-		const body = lowHealth(simulatedBody({ iron: false, start: { stone_pickaxe: 1, furnace: 1, crafting_table: 1, stick: 2, oak_planks: 6 } }), 7);
+		const body = simulatedBody({ iron: false, start: { stone_pickaxe: 1, furnace: 1, crafting_table: 1, stick: 2, oak_planks: 6 } });
+		const low = dropsTo(body, 7);
 		let searches = 0;
 		body.search = async () => {
 			searches += 1;
+			low();
 			return { state: 'FAILED', reasonCode: 'FIND_DANGER', message: `Stopped for danger: ${stopCode} (Health 7: stopped digging). Covered in 9 s`, find: { covered: {}, stopCode } };
 		};
 		const result = await runObtain({ item: 'iron_pickaxe', count: 1 }, body, { now: clock() });

@@ -11,6 +11,7 @@ import { encodeModelFacts, hasHeardSection, withoutHeardSoundEvents } from './mo
 import { NEW_CONTEXT_EVENT_INSTRUCTION, ROUTINE_NEW_CONTEXT_EVENT_INSTRUCTION, isNewContextEventInput } from './native-event-instructions.mjs';
 import { respawnLead } from './respawn-recovery.mjs';
 export { NEW_CONTEXT_EVENT_INSTRUCTION } from './native-event-instructions.mjs';
+export { carriedFoodToEat, naturalRegeneration } from './fork-rule.mjs';
 import { EventEmitter } from 'node:events';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile } from 'node:fs/promises';
@@ -95,6 +96,7 @@ import { SITUATION_CHANGED_FIELD, STRATEGY_POINTER_FIELD, SituationChangeTracker
 import { ContextEntryTracker, uncoveredDangers } from './danger-contexts.mjs';
 import { WakeFilter, countSkillKinds, stepFolds } from './wake-filter.mjs';
 import { searchHoldsSteer } from './search-danger.mjs';
+import { carriedFoodToEat, eatCalls, naturalRegeneration } from './fork-rule.mjs';
 // Danger triggers a running count skill handles itself when they come from its own mob (see countSkillKinds).
 const COUNT_SKILL_HELD = new Set(['damage', 'threat', 'projectile', 'fire']);
 import { DEFAULT_REFLEXES, ReflexBook } from './reflexes.mjs';
@@ -1201,6 +1203,17 @@ export class DynamicCoordinator extends EventEmitter {
 						this.#wakeFilter.fold(record.agentId, attention.trigger, observation, this.#nativeRuntime.reflexEvents(record));
 						this.#writeTrace('native_wake_filtered', { agentId: record.agentId, goalRevision: record.goalRevision, trigger: attention.trigger, verdict: 'fold', reason: `step ${step} running` });
 						this.#holdWakeForModelAction(record, wakeRequest, { step: true });
+						return;
+					}
+					// obtain recovers at low health itself (fork-rule.mjs: eat carried food, or wait for regeneration): a low-health
+					// wake is folded while it recovers. Only then: an obtain that is merely running may end or search on without
+					// recovering, and the heal nudge's latch would keep that wake from coming back. A fork, a mob, lava or any other
+					// trigger still wakes, and a recovery that forks ends obtain LOW_HEALTH, which brings the one wake.
+					const recovery = !forcedContinuation && pendingAttention?.goalRevision !== record.goalRevision && LOW_HEALTH_RECOVERY_TRIGGERS.has(attention.trigger)
+						? this.#nativeRuntime.recovering?.(record) ?? null : null;
+					if (recovery === 'active') {
+						this.#wakeFilter.fold(record.agentId, attention.trigger, observation, this.#nativeRuntime.reflexEvents(record));
+						this.#writeTrace('native_wake_filtered', { agentId: record.agentId, goalRevision: record.goalRevision, trigger: attention.trigger, verdict: 'hold', reason: `obtain recovers (${recovery})`, steer: true });
 						return;
 					}
 					// A search (find, or obtain's search for a source) answers a hit or threat edge it can handle as a player keeps
@@ -7363,11 +7376,12 @@ const LOW_HEALTH_POINTS = 6;
 const RECOVERED_FRACTION = 0.7;
 // Starving on Hard drains one point at a time; only a real further drop wakes again.
 const FURTHER_DROP_POINTS = 2;
-const REGENERATING_FOOD_LEVEL = 18;
 // With a task, low health and food in reach gets one urgent nudge at 4 hearts (or 40%), then again only after 2+ more
 // health is lost or new food comes into reach, never more often than every 10 s.
 const HEAL_NUDGE_POINTS = 8;
 const HEAL_NUDGE_FRACTION = 0.4;
+// Low-health wakes obtain's own recovery answers (see the fold at the step-fold point).
+const LOW_HEALTH_RECOVERY_TRIGGERS = new Set(['low_health_food', 'low_health']);
 const HEAL_NUDGE_INTERVAL_MS = 10_000;
 const MAX_SEEN_FOOD = 64;
 // Events that carry healing facts (and options) even when the caller passed none.
@@ -7411,17 +7425,6 @@ export function foodSourceKeys(facts) {
 		...(sources.animals ?? []).map((animal) => `animal:${animal.stableId}`),
 		...(sources.plants ?? []).filter((plant) => plant.ripe !== false).map((plant) => `plant:${plant.x},${plant.y},${plant.z}`),
 	];
-}
-
-/**
- * The carried food that can be eaten right now: the server's healFood (best safe food edible at this hunger, sent when it
- * differs from bestFood), else bestFood when it is edible now. Steak at full hunger cannot start eating; a golden apple can.
- */
-export function carriedFoodToEat(facts) {
-	if (facts?.healFood?.itemId) return facts.healFood;
-	const food = facts?.bestFood;
-	if (!food?.itemId) return null;
-	return food.alwaysEdible === true || !(Number.isFinite(facts.foodLevel) && facts.foodLevel >= 20) ? food : null;
 }
 
 function canEatNow(facts) {
@@ -7480,9 +7483,11 @@ export function healingOptions(facts) {
 	const options = [];
 	const away = (distance) => (Number.isFinite(distance) ? ` ${distance} blocks away` : '');
 	const carried = carriedFoodToEat(facts);
-	if (carried) options.push(carried.slot <= 8
-		? `eat carried ${carried.itemId}: control use:true,ticks:40,selectedSlot:${carried.slot}`
-		: `eat carried ${carried.itemId}: select_item, then use_item durationMs:2000`);
+	// The same calls obtain's recovery makes (fork-rule.mjs eatCalls): the one eat path.
+	// use_item's optional expectedItemId is left out of the text (the item is named once already); select_tool needs its own.
+	const calls = carried ? eatCalls(carried) : null;
+	if (calls) options.push(`eat carried ${carried.itemId}: ${calls.map(({ actionType, arguments: args }) => `${actionType} ${Object.entries(args)
+		.filter(([key]) => actionType !== 'use_item' || key !== 'expectedItemId').map(([key, value]) => `${key}:${value}`).join(',')}`).join(', then ')}`);
 	for (const drop of facts.foodSources.drops.slice(0, 2)) options.push(`pick up ${drop.count ?? 1}x ${drop.itemId}${away(drop.distance)}: pick_up_item targetSelector ${drop.stableId}, then eat it`);
 	for (const animal of facts.foodSources.animals.slice(0, 1)) options.push(`hunt ${animal.type}${away(animal.distance)}: fight_target targetId ${animal.stableId}, pick_up_item its drop, eat it`);
 	for (const plant of facts.foodSources.plants.filter((row) => row.ripe !== false).slice(0, 1)) {
@@ -7503,16 +7508,6 @@ export function threatOutlook(observation) {
 	if (typeof soonest.uuid === 'string' && soonest.uuid.length > 0) return { soonestContact: soonest.uuid };
 	const then = Number.isFinite(soonest.contactRisk) ? `, about ${soonest.contactRisk} there` : '';
 	return `${soonest.type} ${soonest.uuid} is ${soonest.distance} blocks away closing at ${soonest.closingSpeed} blocks/s: contact range in ${soonest.etaSeconds} s (risk ${soonest.risk} now${then}).`;
-}
-
-/**
- * Whether health regenerates on its own, as vanilla decides it: never with the naturalRegeneration gamerule off; in
- * Peaceful at any food level; otherwise only while the food bar is 18 or more. Null when the food level is unknown.
- */
-export function naturalRegeneration(player, world) {
-	if (world?.naturalRegeneration === false) return false;
-	if (world?.difficulty === 'peaceful') return true;
-	return Number.isFinite(player?.foodLevel) ? player.foodLevel >= REGENERATING_FOOD_LEVEL : null;
 }
 
 // Upper bound at the current food/saturation, not promised recovery: saturation is spent by healing and damage can

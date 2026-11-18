@@ -31,7 +31,7 @@ test('eatability is independent of nearby threats and honest about full or unkno
 	assert.equal(healingFacts(observation({ foodLevel: undefined })).canEat, null);
 	assert.equal(healingFacts(observation({ bestFood: null })).canEat, false);
 	assert.equal(healingFacts(observation({ foodLevel: 20, bestFood: { ...food, itemId: 'minecraft:golden_apple', alwaysEdible: true } })).canEat, true);
-	assert.match(healingFacts(observation({ bestFood: { ...food, slot: 12 } })).options[0], /select_item, then use_item durationMs:2000/);
+	assert.match(healingFacts(observation({ bestFood: { ...food, slot: 12 } })).options[0], /select_tool sourceSlot:12,hotbarSlot:0,expectedItemId:minecraft:cooked_beef,minRemainingDurability:0, then use_item durationMs:2000$/);
 });
 
 test('wire eatability includes full-hunger alternatives and component-based always-edible food', () => {
@@ -54,7 +54,7 @@ test('burning events expose eligibility and eatability without repeating empty f
 	assert.equal(payload.healing.regenHPPerSecondMax, undefined, 'a hidden saturation-dependent rate is not a HUD fact');
 	assert.equal(payload.healing.canEat, true);
 	assert.equal(payload.healing.foodSources, undefined);
-	assert.match(payload.healing.options[0], /control use:true,ticks:40,selectedSlot:2/);
+	assert.match(payload.healing.options[0], /select_item itemId:minecraft:cooked_beef, then use_item durationMs:2000$/);
 	const contact = event(observation({ onFire: true, hazard: 'fire', fireTicks: 139 }));
 	assert.equal(contact.healing.canEat, true);
 	assert.equal(contact.healing.options, undefined, 'contact retains the exit-focused policy');

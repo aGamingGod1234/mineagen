@@ -338,7 +338,7 @@ test('survival facts lead even when a fresh context has no pending program decis
   assert.match(input.split('\n')[0], expected);
   assert.doesNotMatch(input.split('\n')[0], /program decision|program awaits/);
   assert.deepEqual(observation, before, 'presentation never changes runtime facts or chooses a body action');
-  if (player.foodLevel === 4) assert.match(payloadOf(input).healing.options[0], /selectedSlot:2/);
+  if (player.foodLevel === 4) assert.match(payloadOf(input).healing.options[0], /^eat carried minecraft:bread: select_item itemId:minecraft:bread, then use_item durationMs:2000$/);
  }
 });
 
