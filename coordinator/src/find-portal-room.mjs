@@ -78,9 +78,9 @@ export async function findPortalRoom(body, { observation, deadline, within, dang
 		const { end, result, before } = await act({ x: dest.x, y: dest.y, z: dest.z, build: false, tolerance: dest.frame ? 3 : 1,
 			boundaryX: s.origin.x, boundaryZ: s.origin.z, boundaryRadius: within });
 		if (end) return end;
-		if (result?.state !== 'SUCCEEDED' && !['NO_ROUTE', 'TRAVEL_TIMEOUT', 'TRAVEL_STALLED'].includes(result?.reasonCode)) return finish('FIND_BLOCKED', result?.reasonCode ?? 'Walking stopped');
+		if (result?.state !== 'SUCCEEDED' && !['NO_ROUTE', 'TRAVEL_TIMEOUT', 'TRAVEL_STALLED', 'STALLED_IN_PLACE'].includes(result?.reasonCode)) return finish('FIND_BLOCKED', result?.reasonCode ?? 'Walking stopped');
 		// Another nearby target does not resolve a missing passage from this same standing spot.
-		const noProgress = result?.reasonCode === 'NO_ROUTE' && distance(before, o.player) < 0.5;
+		const noProgress = ['NO_ROUTE', 'STALLED_IN_PLACE'].includes(result?.reasonCode) && distance(before, o.player) < 0.5;
 		if (noProgress) {
 			const actual = { x: o.player.x, y: o.player.y, z: o.player.z };
 			return finish('FIND_BLOCKED', `Walking made no progress from this standing spot. Requested floor feet y${dest.y}, stopped at y${actual.y}; inspect the observed doorway, stairs or obstruction before resuming`, null,

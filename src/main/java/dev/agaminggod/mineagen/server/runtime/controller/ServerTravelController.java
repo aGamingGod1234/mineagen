@@ -153,6 +153,11 @@ public final class ServerTravelController implements ServerController {
 	private Set<GridPosition> portalCells;
 	private GridPosition portalCell;
 	private boolean portalLeg;
+	/** The stall watchdog, and the count it reads as work: blocks placed and ticks spent mining. */
+	private final TravelStallWatch stallWatch = new TravelStallWatch();
+	private long work;
+	/** Where the first stall turned the trip to building (one turn per spot), or null. */
+	private Vec3 stallBuildAt;
 	private int portalTicks;
 	/** Ticks spent walking straight into the opening after the step in ended short of it. */
 	private int portalNudge;
@@ -300,6 +305,12 @@ public final class ServerTravelController implements ServerController {
 				if (trail.size() > TRAIL_CELLS) trail.removeFirst();
 			}
 		}
+		// A fight, the retreat watch and the portal wait stand still on purpose, and a dig_to staircase has its own
+		// DIG_STUCK stops; each has its own limit. A retreat (its leg or step has its own limit, then the watch) is never
+		// read as stalled forward travel: building on toward the target would send the body back at the hazard.
+		boolean standsOnPurpose = retreatCode != null || phase == Phase.FIGHT || phase == Phase.WATCH || phase == Phase.DIG || portalLeg;
+		if (standsOnPurpose) stallWatch.reset();
+		TravelStallWatch.Verdict still = standsOnPurpose ? null : stallWatch.observe(ticks, position.x, position.y, position.z, work);
 		if (phase == Phase.FIGHT) return fightTick(player, nowEpochMs);
 		double left = left(position);
 		if (left < bestLeft - PROGRESS_STEP || bestLeft == Double.POSITIVE_INFINITY) { bestLeft = left; bestAt = nowEpochMs; }
@@ -312,6 +323,21 @@ public final class ServerTravelController implements ServerController {
 		if (stop != null) return stop;
 		if (nowEpochMs - bestAt >= STALL_MS) return fail(player, buildRefusal == null ? "NO_ROUTE" : buildRefusalCode, "No closer to the target for " + STALL_MS / 1000 + " s"
 				+ (buildRefusal == null ? "" : "; building cannot continue: " + buildRefusal) + lastFailureText());
+		if (still == TravelStallWatch.Verdict.STALLED) {
+			if (TravelStallWatch.buildFirst(build, buildRefusal != null, failedLegs >= FAILED_LEGS_BEFORE_BUILD,
+					phase == Phase.PLAN || phase == Phase.LEG || phase == Phase.LOOK, stallBuildAt == null ? Double.POSITIVE_INFINITY : stallBuildAt.distanceTo(position))) {
+				// Legs and looks going nowhere before the failed legs that start building ran out: build on from here now.
+				stallBuildAt = position;
+				if (leg != null) leg.cancel(player);
+				leg = null;
+				releaseInput();
+				failedLegs = FAILED_LEGS_BEFORE_BUILD;
+				phase = Phase.PLAN;
+				stallWatch.reset();
+			} else return fail(player, "STALLED_IN_PLACE", String.format(Locale.ROOT,
+					"Feet moved %.1f blocks in %.0f s with no block placed or mined", stallWatch.moved(position.x, position.y, position.z),
+					TravelStallWatch.WINDOW_TICKS / 20.0D) + (buildRefusal == null ? "" : "; building cannot continue: " + buildRefusal) + lastFailureText());
+		}
 		// The staircase has its own lava, water and cave rules; the walking lava guard would fight its keys.
 		if (phase == Phase.DIG) return digTick(player, nowEpochMs);
 		TickResult lava = lavaGuard(player, nowEpochMs);
@@ -1409,7 +1435,7 @@ public final class ServerTravelController implements ServerController {
 				boolean onFace = hit != null && hit.getBlockPos().equals(bridgeAttachment.getBlockPos())
 						&& hit.getDirection() == bridgeAttachment.getDirection();
 				if (onFace && player.onGround() && !player.getBoundingBox().intersects(new AABB(placed))) {
-					TravelBuilder.click(player, hit);
+					click(player, hit);
 					if (solid(player, placed)) { bridged++; moveStage = 2; }
 				}
 				apply(player, new AgentInputStates.MotorTarget(bridgeViewYaw, bridgeViewPitch, false, false, false), true, false, false, nowEpochMs);
@@ -1417,7 +1443,7 @@ public final class ServerTravelController implements ServerController {
 			}
 			boolean onFace = hit != null && hit.getBlockPos().equals(support) && hit.getDirection() == direction;
 			if (onFace && player.onGround() && !player.getBoundingBox().intersects(new AABB(placed))) {
-				TravelBuilder.click(player, hit);
+				click(player, hit);
 				if (solid(player, placed)) { bridged++; moveStage = 2; }
 				apply(player, new AgentInputStates.MotorTarget(back, bridgePitch(), false, false, false), true, false, false, nowEpochMs);
 				return null;
@@ -1487,7 +1513,7 @@ public final class ServerTravelController implements ServerController {
 			boolean overlaps = player.getBoundingBox().intersects(new AABB(hole));
 			BlockHitResult hit = TravelBuilder.crosshair(player);
 			if (!overlaps && hit != null && hit.getBlockPos().equals(hole.below()) && hit.getDirection() == Direction.UP && player.onGround()) {
-				TravelBuilder.click(player, hit);
+				click(player, hit);
 				if (solid(player, hole)) { bridged++; moveStage = 2; }
 			}
 			// Back off the hole's edge while the body still dips into it; otherwise hold still and aim.
@@ -1543,7 +1569,7 @@ public final class ServerTravelController implements ServerController {
 		BlockHitResult hit = TravelBuilder.crosshair(player);
 		if (high && hit != null && hit.getDirection() == Direction.UP && hit.getBlockPos().equals(cellBelow.below())
 				&& mayModify.test(player, cellBelow)) {
-			TravelBuilder.click(player, hit);
+			click(player, hit);
 		}
 		apply(player, new AgentInputStates.MotorTarget(player.getYRot(), 90.0F, false, player.onGround() && player.getXRot() > 85.0F, false), true, false, false, nowEpochMs);
 		return null;
@@ -1619,6 +1645,7 @@ public final class ServerTravelController implements ServerController {
 		float[] look = TravelBuilder.lookAt(player.getEyePosition(), TravelBuilder.miningAim(player.getEyePosition(), target));
 		BlockHitResult hit = TravelBuilder.crosshair(player);
 		boolean aimed = hit != null && hit.getBlockPos().equals(target);
+		if (aimed) work++;
 		apply(player, new AgentInputStates.MotorTarget(look[0], look[1], false, false, false), true, aimed, false, nowEpochMs);
 		return null;
 	}
@@ -1644,6 +1671,7 @@ public final class ServerTravelController implements ServerController {
 		if (perTick <= 0.0F || 1.0F / perTick > TravelBuilder.MAX_MINE_TICKS || moveTicks > 200) return moveFailed(player, "Could not mine the block over the head at " + cell(over));
 		BlockHitResult hit = TravelBuilder.crosshair(player);
 		boolean aimed = hit != null && hit.getBlockPos().equals(over);
+		if (aimed) work++;
 		apply(player, new AgentInputStates.MotorTarget(player.getYRot(), -90.0F, false, false, false), true, aimed, false, nowEpochMs);
 		return null;
 	}
@@ -1659,12 +1687,20 @@ public final class ServerTravelController implements ServerController {
 		float[] look = TravelBuilder.lookAt(player.getEyePosition(), new Vec3(flame.getX() + 0.5D, flame.getY() + 0.03D, flame.getZ() + 0.5D));
 		BlockHitResult hit = TravelBuilder.crosshair(player);
 		boolean aimed = hit != null && hit.getBlockPos().equals(flame);
+		if (aimed) work++;
 		apply(player, new AgentInputStates.MotorTarget(look[0], look[1], false, false, false), true, aimed, false, nowEpochMs);
 		return null;
 	}
 
 	private static java.util.function.Function<GridPosition, BlockState> states(MinecraftNavigationWorld world) {
 		return cell -> world.stateAt(new BlockPos(cell.x(), cell.y(), cell.z()));
+	}
+
+	/** One placing click; a block that appears counts as work for the stall watchdog. */
+	private boolean click(ServerPlayer player, BlockHitResult hit) {
+		boolean placed = TravelBuilder.click(player, hit);
+		if (placed) work++;
+		return placed;
 	}
 
 	private static boolean solid(ServerPlayer player, BlockPos cell) {
@@ -1748,6 +1784,7 @@ public final class ServerTravelController implements ServerController {
 	@Override
 	public void resumed(ServerPlayer player) {
 		reflexResumes++;
+		stallWatch.reset();
 		lastHealth = player.getHealth();
 		bestAt = dev.agaminggod.mineagen.server.runtime.GameClock.nowMs();
 		if (phase == Phase.LEG || phase == Phase.BUILD || phase == Phase.LOOK) {
