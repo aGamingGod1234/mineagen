@@ -473,7 +473,12 @@ export class NativeToolRuntime {
 		if (observation?.ready === false) return;
 		// Rules scoped to a context (lasts) end with it, and the default rules arm at spawn, respawn and a dimension change;
 		// the new set goes to the mod at once.
-		if (this.#reflexes.observeContext(agentId, observation)) {
+		const stanceBefore = this.#reflexes.stance(agentId);
+		const contextChanged = this.#reflexes.observeContext(agentId, observation);
+		// A first stance (spawn) is not a change; a change with every stance rule replaced by the model still is one.
+		const stance = this.#reflexes.stance(agentId);
+		if (stanceBefore !== null && stance !== null && stance !== stanceBefore) this.#trace('stance_changed', { agentId, goalRevision: record.goalRevision, from: stanceBefore, stance, source: 'auto' });
+		if (contextChanged) {
 			this.#trace('reflexes_context_changed', { agentId, goalRevision: record.goalRevision, rules: this.#reflexes.list(agentId).map((row) => row.id) });
 			void this.#sendReflexes(record).catch((error) => this.#trace('reflexes_send_failed', { agentId, reasonCode: error?.code ?? 'REFLEX_SEND_FAILED' }));
 		}
