@@ -178,6 +178,38 @@ test('survival guidance: always-loaded first-call rule and default reflexes, det
 	assert.match(eyes, /Keep 12 eyes minus pre-filled frames/);
 });
 
+test('reflex guidance does not limit authoring to rules the defaults miss', async () => {
+	const agent = await readFile(new URL('../config/minecraft-agent/AGENTS.md', import.meta.url), 'utf8');
+	const skill = await readFile(new URL('../config/minecraft-agent/.codex/skills/minecraft-control/SKILL.md', import.meta.url), 'utf8');
+	// Whole topics: one call returns only the first page of tool:reflexes.
+	const topic = (name) => {
+		let text = '', offset = 0;
+		for (;;) {
+			const page = minecraftCapabilities({ section: 'control', topic: name, offset });
+			text += page.reference;
+			if (page.nextOffset === undefined) return text;
+			assert.ok(page.nextOffset > offset);
+			offset = page.nextOffset;
+		}
+	};
+	const survival = topic('survival'), reflexes = topic('tool:reflexes');
+	for (const text of [agent, skill, survival, reflexes]) {
+		assert.doesNotMatch(text, /Add a rule only for a danger/);
+		assert.doesNotMatch(text, /only missing (live-authored reflexes|protection|rules)/);
+		assert.doesNotMatch(text, /needs only missing protection/);
+	}
+	assert.match(agent, /Add rules for any danger they miss \(control topic tool:reflexes\)/);
+	assert.match(skill, /Arm live-authored reflexes on the first body call/);
+	// The cues against churn and re-arming stay.
+	assert.match(skill, /Keep working rules, and revise failed rules by the same id/);
+	assert.match(survival, /Keep working definitions unchanged; add missing protection/);
+	assert.match(survival, /A new program keeps the rules already armed/);
+	assert.match(reflexes, /Keep working rules across programs/);
+	// The real limits stay.
+	assert.match(skill, /standing\.template guards are outside/);
+	assert.match(reflexes, /Author every rule live; no saved or named sets/);
+});
+
 test('the always-loaded player instructions stay a few KB: the role, steps, the route, seven rules and reflexes on', async () => {
 	const agent = await readFile(new URL('../config/minecraft-agent/AGENTS.md', import.meta.url), 'utf8');
 	// 20,888 B before rw-loop (rules added one past death at a time); the facts moved to the on-demand references.
