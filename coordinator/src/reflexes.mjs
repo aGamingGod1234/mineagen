@@ -43,14 +43,16 @@ export function instinctsEnabled(environment = {}) {
 
 /**
  * The automatic stance (D3): the brain need not set one. It is only numbers in the default rules below, so the wire and
- * older mods see ordinary rules (C23). steady equals DEFAULT_REFLEXES.
+ * older mods see ordinary rules (C23). steady equals DEFAULT_REFLEXES apart from the eat line.
  */
 export const STANCES = Object.freeze(['steady', 'fight', 'cautious']);
 export const STANCE_SETTINGS = Object.freeze({
 	'default-retreat': Object.freeze({ condition: 'health_below', steady: 7, fight: 4, cautious: 10 }),
 	'default-cover': Object.freeze({ condition: 'health_below', steady: 6, fight: 4, cautious: 9 }),
 	'default-blaze-cover': Object.freeze({ condition: 'health_below', steady: 11, fight: 8, cautious: 14 }),
-	'default-eat': Object.freeze({ condition: 'hunger_below', steady: 14, fight: 14, cautious: 16 }),
+	// Heal (Step 2 item 2): health regrows only at hunger 18+, so eat below 18 in every stance. Hazard floor rules (8-9),
+	// retreat (7), cover (6) and defend (5) outrank eat (3), and it holds off with a hostile within 8 (any fight in reach).
+	'default-eat': Object.freeze({ condition: 'hunger_below', steady: 18, fight: 18, cautious: 18 }),
 });
 // A new stance takes effect once it has held this long, so a flicker does not resend the set.
 export const STANCE_DWELL_MS = 3_000;

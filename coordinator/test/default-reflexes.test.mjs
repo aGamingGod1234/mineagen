@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { DEFAULT_REFLEXES, MAX_REFLEXES, ReflexBook, STANCE_SETTINGS, instinctsEnabled, materializeDefault, normalizeReflexEntries, resolveAutoStance } from '../src/reflexes.mjs';
+import { DEFAULT_REFLEXES, MAX_REFLEXES, ReflexBook, STANCES, STANCE_SETTINGS, instinctsEnabled, materializeDefault, normalizeReflexEntries, resolveAutoStance } from '../src/reflexes.mjs';
 
 const OVERWORLD = 'minecraft:overworld', NETHER = 'minecraft:the_nether';
 const live = (dimension = OVERWORLD) => ({ world: { dimension }, player: { health: 20 } });
@@ -93,7 +93,7 @@ test('auto stance: fight while a fight verb runs, cautious at low health or in t
 });
 
 test('steady equals the default set; each stance changes only its numbers', () => {
-	for (const rule of DEFAULT_REFLEXES) assert.deepEqual(materializeDefault(rule, 'steady'), rule, rule.id);
+	for (const rule of DEFAULT_REFLEXES) if (rule.id !== 'default-eat') assert.deepEqual(materializeDefault(rule, 'steady'), rule, rule.id);
 	const fight = Object.fromEntries(DEFAULT_REFLEXES.map((rule) => [rule.id, materializeDefault(rule, 'fight')]));
 	const cautious = Object.fromEntries(DEFAULT_REFLEXES.map((rule) => [rule.id, materializeDefault(rule, 'cautious')]));
 	for (const [id, setting] of Object.entries(STANCE_SETTINGS)) {
@@ -155,4 +155,39 @@ test('flag on with no injected defaults: nothing arms and there is no stance lin
 	const book = new ReflexBook({ defaults: [], instincts: true });
 	assert.equal(book.observeContext('a', live()), false);
 	assert.equal(book.takeReport('a'), null);
+});
+
+test('heal: with the flag on the default eat rule fires below hunger 18 in every stance; flag off it stays at 14', () => {
+	const eat = DEFAULT_REFLEXES.find((rule) => rule.id === 'default-eat');
+	for (const stance of STANCES) assert.equal(materializeDefault(eat, stance).when.find((c) => c.type === 'hunger_below').value, 18, stance);
+	const off = new ReflexBook();
+	off.observeContext('a', live());
+	assert.equal(valueOf(off, 'default-eat', 'hunger_below'), 14);
+	const on = new ReflexBook({ instincts: true });
+	on.observeContext('a', live());
+	assert.equal(valueOf(on, 'default-eat', 'hunger_below'), 18);
+	assert.ok(on.payload('a').rules.length + MAX_REFLEXES <= 26, 'still one rule: 12 own + 14 defaults fit the mod cap');
+});
+
+test('safe eating precedence: hazards, retreat, cover and defend outrank eat, and eat holds off with a hostile within 8', () => {
+	const book = new ReflexBook({ instincts: true });
+	book.observeContext('a', live());
+	const rules = book.payload('a').rules;
+	const eat = rules.find((rule) => rule.id === 'default-eat');
+	for (const id of ['default-lava', 'default-lava-flow', 'default-fire', 'default-air', 'default-suffocate', 'default-creeper', 'default-fireball', 'default-retreat', 'default-cover', 'default-blaze-cover', 'default-defend'])
+		assert.ok(rules.find((rule) => rule.id === id).priority > eat.priority, `${id} outranks eat`);
+	assert.deepEqual(eat.when.find((c) => c.type === 'hostile_near'), { type: 'hostile_near', not: true, within: 8 }, 'any fight in reach (under 8 blocks) holds eat off');
+});
+
+test('flag on: a respawn sets the stance at once from the new sample', () => {
+	let now = 0;
+	const book = new ReflexBook({ now: () => now, instincts: true });
+	book.observeContext('a', live());
+	now = 1_000; book.observeContext('a', fighting());
+	now = 5_000; book.observeContext('a', fighting());
+	assert.equal(book.stance('a'), 'fight');
+	book.observeContext('a', dead());
+	now = 5_100; assert.equal(book.observeContext('a', live()), true, 'respawn: no dwell');
+	assert.equal(book.stance('a'), 'steady');
+	assert.equal(valueOf(book, 'default-retreat', 'health_below'), 7);
 });

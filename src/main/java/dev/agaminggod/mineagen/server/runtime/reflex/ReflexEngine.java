@@ -369,7 +369,7 @@ public final class ReflexEngine {
 			}
 			// A default rule sleeps while its action needs an item the body does not hold (no shield, no food), so a
 			// default shield or eat rule costs nothing and reports no failure until the item is there.
-			if (truth && sleepsWithoutItem(rule, ReflexActions.lacks(player, rule.action()))) truth = false;
+			if (truth && sleepsWithoutItem(rule, ReflexActions.lacks(player, rule.action(), rule.coordinatorDefault()))) truth = false;
 			if (deferFlowDuringCast(rule, activeType)) {
 				truth = false;
 				agent.scheduler.discardPendingStart(rule.id());
@@ -597,7 +597,7 @@ public final class ReflexEngine {
 			rule.addProperty("expiresInS", (row.expiresInTicks() + 19L) / 20L);
 			if (row.disabledReason() != null) rule.addProperty("disabled", row.disabledReason());
 			ReflexSpec.Rule spec = agent.scheduler.rule(row.id());
-			String lacks = player == null || spec == null ? null : ReflexActions.lacks(player, spec.action());
+			String lacks = player == null || spec == null ? null : ReflexActions.lacks(player, spec.action(), spec.coordinatorDefault());
 			if (lacks != null) rule.addProperty("lacks", lacks);
 			rules.add(rule);
 		}
