@@ -15,7 +15,9 @@ export class RuntimeMemoryContext {
 	#tasks; #taskPending = new Map(); #taskContexts = new Map();
 	#lookupScopes = new Map();
 	#recoveryDeaths = new Map();
-	constructor({ notebook = new ModelNotebook(), taskMemory = new TaskMemoryStore(), sessionId = randomUUID(), onReceipt = null } = {}) {
+	// Lessons carried from earlier games and this game's own death and failure review (experience-runtime.mjs); null when off.
+	#experience;
+	constructor({ notebook = new ModelNotebook(), taskMemory = new TaskMemoryStore(), sessionId = randomUUID(), onReceipt = null, experience = null } = {}) {
 		for (const method of ['writeNote', 'query', 'recordDispatch', 'recordUnknown', 'recordReceipt', 'findReceipt']) {
 			if (typeof notebook?.[method] !== 'function') throw new TypeError(`notebook.${method} is required`);
 		}
@@ -25,6 +27,13 @@ export class RuntimeMemoryContext {
 		for (const method of ['observe', 'summary', 'query', 'remember', 'flush']) if (typeof taskMemory?.[method] !== 'function') throw new TypeError(`taskMemory.${method} is required`);
 		this.#tasks = taskMemory;
 		this.#sessionId = boundedText(sessionId, 'sessionId', 128);
+		for (const method of ['observe', 'noteDispatch', 'noteResult', 'lessonsFor', 'flush']) if (experience !== null && typeof experience?.[method] !== 'function') throw new TypeError(`experience.${method} is required`);
+		this.#experience = experience;
+	}
+	/** Summary options with this agent's matching lessons; without experience, exactly today's options. */
+	async #summaryOptions(agentId, recoveryDeath, markShown = false) {
+		if (this.#experience === null) return { recoveryDeath };
+		return { recoveryDeath, extraLessons: await this.#experience.lessonsFor(agentId, { markShown }) };
 	}
 	get notebook() { return this.#notebook; }
 	get sessionId() { return this.#sessionId; }
@@ -47,13 +56,15 @@ export class RuntimeMemoryContext {
 		if (previous?.goalRevision !== goalRevision || previous?.worldId !== worldId || previous?.dimension !== context.dimension) this.#lookupScopes.set(agentId, {});
 		this.#contexts.set(agentId, context);
 		this.#recoveryDeaths.set(agentId, recoveryDeath);
+		const reviewed = this.#experience?.observe(agentId, worldId, source, Number.isFinite(source.observedAtEpochMs) ? source.observedAtEpochMs : Date.now());
 		if (!worldId.startsWith('session:') && context.dimension !== undefined) {
 			const scope = { agentId, ...context };
 			const picked = pick(source, ['world', 'worldTick', 'observedAtEpochMs', 'position', 'player', 'ready', 'death', 'inventory', 'lastLiveInventory', 'blocks', 'landmarks', 'nearbyContainers', 'interaction', 'continuity']);
 			const snapshot = owned ? picked : structuredClone(picked);
 			const pending = Promise.resolve(this.#taskPending.get(agentId)).catch(() => {}).then(async () => {
 				await this.#tasks.observe(scope, snapshot);
-				this.#taskContexts.set(agentId, await this.#tasks.summary(scope, { recoveryDeath }));
+				await reviewed;
+				this.#taskContexts.set(agentId, await this.#tasks.summary(scope, await this.#summaryOptions(agentId, recoveryDeath)));
 			});
 			this.#taskPending.set(agentId, pending);
 			pending.catch(() => {}); // taskContext/flush surface failures; observation delivery stays synchronous.
@@ -68,11 +79,12 @@ export class RuntimeMemoryContext {
 		await this.#taskPending.get(record.agentId);
 		const context = this.#contexts.get(record.agentId);
 		if (context?.goalRevision !== record.goalRevision || !context?.dimension || context.worldId.startsWith('session:')) return null;
-		const summary = await this.#tasks.summary({ agentId: record.agentId, ...context }, { recoveryDeath: this.#recoveryDeaths.get(record.agentId) });
+		// This summary goes into a model turn, so the lessons in it count as shown.
+		const summary = await this.#tasks.summary({ agentId: record.agentId, ...context }, await this.#summaryOptions(record.agentId, this.#recoveryDeaths.get(record.agentId), true));
 		this.#taskContexts.set(record.agentId, summary);
 		return summary;
 	}
-	async flush() { await Promise.all(this.#taskPending.values()); await this.#tasks.flush(); }
+	async flush() { await Promise.all(this.#taskPending.values()); await this.#tasks.flush(); await this.#experience?.flush(); }
 	worldId(record) {
 		const { agentId, goalRevision } = recordIdentity(record);
 		const context = this.#contexts.get(agentId);
@@ -153,6 +165,7 @@ export class RuntimeMemoryContext {
 		}
 		if (dispatches.size >= 256) throw codedError('RECEIPT_LIMIT', 'Too many unreconciled actions');
 		const pending = this.#notebook.recordDispatch(agentId, entry);
+		this.#experience?.noteDispatch(agentId, { actionId, actionType });
 		dispatches.set(actionId, { entry, pending });
 		this.#dispatches.set(agentId, dispatches);
 		try { return await pending; }
@@ -178,6 +191,8 @@ export class RuntimeMemoryContext {
 			...(Number.isSafeInteger(observation.worldTick) && observation.worldTick >= 0 ? { tick: observation.worldTick } : {}),
 		};
 		await this.#notebook.recordReceipt(agentId, terminal);
+		await this.#experience?.noteResult(agentId, { actionId, actionType: previous.actionType, state: source.state, reasonCode: source.reasonCode, dimension: previous.dimension },
+			Number.isFinite(source.observedAtEpochMs) ? source.observedAtEpochMs : undefined);
 		// The break tally of a held-attack control is not persisted with the receipt, but the task view counts it.
 		const breakOutcome = Number.isSafeInteger(source.breakOutcome?.blocks) ? { breakOutcome: { blocks: source.breakOutcome.blocks } } : {};
 		// The result text (a missed shot, a blocked line) is read by the task view's repeat count, not persisted.
@@ -189,7 +204,7 @@ export class RuntimeMemoryContext {
 			const pending = Promise.resolve(this.#taskPending.get(agentId)).catch(() => {}).then(async () => {
 				const changed = await this.#tasks.recordReceipt(scope, { ...terminal, observedAtEpochMs: source.observedAtEpochMs });
 				const current = this.#contexts.get(agentId);
-				if (changed && current?.worldId === scope.worldId && current?.dimension === scope.dimension) this.#taskContexts.set(agentId, await this.#tasks.summary({ agentId, ...current }));
+				if (changed && current?.worldId === scope.worldId && current?.dimension === scope.dimension) this.#taskContexts.set(agentId, await this.#tasks.summary({ agentId, ...current }, await this.#summaryOptions(agentId, this.#recoveryDeaths.get(agentId))));
 			});
 			this.#taskPending.set(agentId, pending);
 			await pending;

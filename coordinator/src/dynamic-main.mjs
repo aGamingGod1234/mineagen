@@ -34,6 +34,8 @@ import { InspectionClient } from './inspection-client.mjs';
 import { ModelNotebook } from './model-notebook.mjs';
 import { RuntimeMemoryContext } from './runtime-memory-context.mjs';
 import { TaskMemoryStore } from './task-memory-store.mjs';
+import { experienceSettings } from './experience-store.mjs';
+import { createExperience } from './experience-runtime.mjs';
 import { LiveTaskViews, updateUsage } from './live-task-view.mjs';
 import { withToolWear } from './resource-facts.mjs';
 import { ObservedMemoryStore } from './observed-memory-store.mjs';
@@ -301,7 +303,7 @@ export class DynamicCoordinator extends EventEmitter {
 	#lastCatalog = null;
 	#lastRosterTraceAt = 0;
 
-	constructor({ registry, scheduler, codexService, planner, bridge, healthRegistry, latencyRegistry, goalSupervisor, codexControlProtocol = 'native_tools', memoryDirectory = null, runtimeSessionId, traceWriter = null, providerTurnRecorder = null, decisionLog = null, bodyPace = null, runtimeGeneration = null, runtimeHooks = {}, benchmarkRecorder = null, providerCliHealth = null, providerDiscovery = null, controlNow = () => performance.now(), epochNow = Date.now, setStatusInterval = defaultStatusInterval, clearStatusInterval = clearInterval, setGoalSpecTimeout = defaultGoalSpecTimeout, clearGoalSpecTimeout = clearTimeout, setSteerTimeout = setTimeout, clearSteerTimeout = clearTimeout, setWakeHoldTimeout = defaultGoalSpecTimeout, clearWakeHoldTimeout = clearTimeout, reflexDefaults = DEFAULT_REFLEXES, taskRequestTimeoutMs = DEFAULT_TASK_REQUEST_TIMEOUT_MS, connectionOperationCap = DEFAULT_CONNECTION_OPERATION_CAP, agentOperationCap = DEFAULT_AGENT_OPERATION_CAP, goalSpecRequestCap = connectionOperationCap, maxPendingAgentOperations = DEFAULT_MAX_PENDING_AGENT_OPERATIONS, maxPendingAgentTransactions = DEFAULT_MAX_PENDING_AGENT_TRANSACTIONS }) {
+	constructor({ registry, scheduler, codexService, planner, bridge, healthRegistry, latencyRegistry, goalSupervisor, codexControlProtocol = 'native_tools', memoryDirectory = null, experience = null, runtimeSessionId, traceWriter = null, providerTurnRecorder = null, decisionLog = null, bodyPace = null, runtimeGeneration = null, runtimeHooks = {}, benchmarkRecorder = null, providerCliHealth = null, providerDiscovery = null, controlNow = () => performance.now(), epochNow = Date.now, setStatusInterval = defaultStatusInterval, clearStatusInterval = clearInterval, setGoalSpecTimeout = defaultGoalSpecTimeout, clearGoalSpecTimeout = clearTimeout, setSteerTimeout = setTimeout, clearSteerTimeout = clearTimeout, setWakeHoldTimeout = defaultGoalSpecTimeout, clearWakeHoldTimeout = clearTimeout, reflexDefaults = DEFAULT_REFLEXES, taskRequestTimeoutMs = DEFAULT_TASK_REQUEST_TIMEOUT_MS, connectionOperationCap = DEFAULT_CONNECTION_OPERATION_CAP, agentOperationCap = DEFAULT_AGENT_OPERATION_CAP, goalSpecRequestCap = connectionOperationCap, maxPendingAgentOperations = DEFAULT_MAX_PENDING_AGENT_OPERATIONS, maxPendingAgentTransactions = DEFAULT_MAX_PENDING_AGENT_TRANSACTIONS }) {
 		super();
 		this.#memoryDirectory = memoryDirectory;
 		this.#decisionLog = decisionLog;
@@ -317,6 +319,8 @@ export class DynamicCoordinator extends EventEmitter {
 		this.#bridge = requireDependency(bridge, 'bridge');
 		this.#inspections = new InspectionClient({ send: (type, agentId, payload, options) => this.#sendForEpoch(options.connectionEpoch, type, agentId, payload) });
 		this.#playerMemory = new RuntimeMemoryContext({ notebook: new ModelNotebook({ directory: memoryDirectory }), taskMemory: new TaskMemoryStore({ directory: memoryDirectory }), sessionId: runtimeSessionId,
+			// MINEAGEN_EXPERIENCE (default off): lessons from this profile's earlier games and this game's own death review.
+			experience: createExperience(experience, { trace: (event, fields) => this.#writeTrace(event, fields) }),
 			onReceipt: async (identity, receipt) => {
 				const record = this.#registry.get(identity.agentId);
 				if (record?.goalRevision === identity.goalRevision) {
@@ -4692,6 +4696,7 @@ export function createDynamicCoordinator(configValue, dependencies = {}) {
 		goalSupervisor,
 		codexControlProtocol: config.codex.controlProtocol,
 		memoryDirectory: Object.hasOwn(dependencies, 'memoryDirectory') ? dependencies.memoryDirectory : path.join(config.workspaceRoot, 'player-memory'),
+		experience: experienceSettings(coordinatorEnvironment),
 		runtimeSessionId: dependencies.runtimeSessionId,
 		traceWriter: dependencies.traceWriter,
 		providerTurnRecorder,

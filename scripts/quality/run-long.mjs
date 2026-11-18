@@ -15,9 +15,10 @@ import { collectWatchFiles } from './watch-files.mjs';
 import { scoreStageRun } from './stage-score.mjs';
 import { recordOperatorStop } from './operator-stop.mjs';
 import { writeTimeReport } from './watch-time.mjs';
+import { experienceHash, normalizeSeedHash } from '../../coordinator/src/experience-store.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const USAGE = 'Regenerate: node scripts/quality/run-long.mjs --report RAW_RUN_DIR --out REPORT_DIR\nRun: node scripts/quality/run-long.mjs --budget-minutes 180 --max-total-cost-usd 80 --ledger FILE --port-base 26900 --out DIR [--prior-spend-usd P] [--run-reserve-usd R] [--provider claude|codex --model M --effort low --service-tier priority] [--codex-observer-cap yes] [--seed N] [--goal "Beat the game"] [--arms arms.json --arm B | --jar PATH --coordinator-root PATH] [--checkpoint SAVE_POINT.json [--random-salt N|none]] [--codex-mid-turn-rotation-tokens N] [--java PATH --server-template PATH]';
+const USAGE = 'Regenerate: node scripts/quality/run-long.mjs --report RAW_RUN_DIR --out REPORT_DIR\nRun: node scripts/quality/run-long.mjs --budget-minutes 180 --max-total-cost-usd 80 --ledger FILE --port-base 26900 --out DIR [--prior-spend-usd P] [--run-reserve-usd R] [--provider claude|codex --model M --effort low --service-tier priority] [--codex-observer-cap yes] [--seed N] [--goal "Beat the game"] [--arms arms.json --arm B | --jar PATH --coordinator-root PATH] [--checkpoint SAVE_POINT.json [--random-salt N|none]] [--codex-mid-turn-rotation-tokens N] [--experience lessons --experience-dir DIR_OUTSIDE_CHECKOUT [--experience-profile NAME] [--experience-frozen yes] [--exclude-seeds S1,S2]] [--java PATH --server-template PATH]';
 
 const DEFAULT_MODELS = Object.freeze({ claude: 'claude-opus-5-5', codex: 'gpt-6.1-sol' });
 
@@ -26,7 +27,7 @@ export function parseLongArgs(argv) {
 		if (argv.length !== 4 || argv[2] !== '--out') throw new Error('Usage: --report RAW_RUN_DIR --out REPORT_DIR');
 		return { report: path.resolve(argv[1]), out: path.resolve(argv[3]) };
 	}
-	const accepted = new Set(['budget-minutes', 'max-total-cost-usd', 'ledger', 'prior-spend-usd', 'run-reserve-usd', 'provider', 'model', 'effort', 'service-tier', 'seed', 'goal', 'arms', 'arm', 'jar', 'coordinator-root', 'port-base', 'codex-observer-cap', 'java', 'server-template', 'checkpoint', 'random-salt', 'codex-mid-turn-rotation-tokens', 'out']);
+	const accepted = new Set(['budget-minutes', 'max-total-cost-usd', 'ledger', 'prior-spend-usd', 'run-reserve-usd', 'provider', 'model', 'effort', 'service-tier', 'seed', 'goal', 'arms', 'arm', 'jar', 'coordinator-root', 'port-base', 'codex-observer-cap', 'java', 'server-template', 'checkpoint', 'random-salt', 'codex-mid-turn-rotation-tokens', 'experience', 'experience-dir', 'experience-profile', 'experience-frozen', 'exclude-seeds', 'out']);
 	const values = {};
 	for (let i = 0; i < argv.length; i++) {
 		if (argv[i] === '--help') return { help: true };
@@ -53,15 +54,34 @@ export function parseLongArgs(argv) {
 	if (values['random-salt'] !== undefined && (!values.checkpoint || values['random-salt'] !== 'none' && !/^-?\d{1,10}$/.test(values['random-salt']) || Math.abs(Number(values['random-salt'])) > 2147483647)) throw new Error('--random-salt takes a 32-bit integer or none, with --checkpoint');
 	if (values.arms && !['A', 'B'].includes(values.arm ?? '')) throw new Error('--arms needs --arm A or B');
 	if (values.arms && (values.jar || values['coordinator-root'])) throw new Error('Use --arms or --jar/--coordinator-root, not both');
+	const experience = values.experience ?? 'off';
+	if (!['off', 'lessons'].includes(experience)) throw new Error('--experience takes off or lessons');
+	if (experience === 'off' && ['experience-dir', 'experience-profile', 'experience-frozen', 'exclude-seeds'].some((key) => values[key] !== undefined)) throw new Error('--experience-dir, --experience-profile, --experience-frozen and --exclude-seeds need --experience lessons');
+	if (experience !== 'off' && !values['experience-dir']) throw new Error('--experience lessons needs --experience-dir outside the checkout');
+	if (values['experience-dir'] && !path.relative(ROOT, path.resolve(values['experience-dir'])).startsWith('..')) throw new Error('--experience-dir must be outside the checkout');
+	if (values['experience-frozen'] !== undefined && values['experience-frozen'] !== 'yes') throw new Error('--experience-frozen takes yes');
 	return { windowMs: Math.round(minutes * 60000), capUsd: cap, priorSpendUsd: prior, codexObserverCap: values['codex-observer-cap'] === 'yes', ledger: values.ledger ? path.resolve(values.ledger) : null,
 		runReserveUsd: values['run-reserve-usd'] === undefined ? null : Number(values['run-reserve-usd']), provider, model: values.model ?? DEFAULT_MODELS[provider],
 		effort: values.effort ?? 'low', serviceTier, midTurnRotationTokens, seed: values.seed ?? randomSeed(), goal: values.goal ?? 'Beat the game', arms: values.arms ? path.resolve(values.arms) : null, arm: values.arm ?? null,
 		checkpoint: values.checkpoint ? path.resolve(values.checkpoint) : null,
+		experience: experience === 'off' ? null : { mode: experience, directory: path.resolve(values['experience-dir']), profile: values['experience-profile'] ?? 'default',
+			frozen: values['experience-frozen'] === 'yes', excludeSeeds: (values['exclude-seeds'] ?? '').split(',').map((seed) => seed.trim()).filter(Boolean) },
 		// A save point replays the same loot rolls (barters, mob drops) each game unless reseeded: a fresh salt by default.
 		randomSalt: !values.checkpoint || values['random-salt'] === 'none' ? null : values['random-salt'] !== undefined ? Number(values['random-salt']) : randomInt(-2147483648, 2147483647),
 		jar: values.jar ? path.resolve(values.jar) : null, coordinatorRoot: values['coordinator-root'] ? path.resolve(values['coordinator-root']) : null, portBase, out: path.resolve(values.out),
 		java: values.java ?? process.env.ARENA_HEADLESS_JAVA ?? path.join(process.env.JAVA_HOME ?? path.join(ROOT, 'runtime/toolchains/temurin-25/jdk-25.0.3+9'), 'bin', process.platform === 'win32' ? 'java.exe' : 'java'),
 		template: path.resolve(values['server-template'] ?? process.env.ARENA_HEADLESS_SERVER_TEMPLATE ?? path.join(ROOT, 'runtime/server-template')) };
+}
+
+export function experienceEnvironment(experience, seed) {
+	if (!experience) return null;
+	return { MINEAGEN_EXPERIENCE: experience.mode, MINEAGEN_EXPERIENCE_DIR: experience.directory, MINEAGEN_EXPERIENCE_PROFILE: experience.profile,
+		MINEAGEN_WORLD_SEED_HASH: normalizeSeedHash(String(seed)), MINEAGEN_EXPERIENCE_EXCLUDE_SEEDS: experience.excludeSeeds.map((value) => normalizeSeedHash(value)).join(','),
+		...(experience.frozen ? { MINEAGEN_EXPERIENCE_FROZEN: '1' } : {}) };
+}
+export function experienceRow(experience, seed) {
+	if (!experience) return { mode: 'off' };
+	return { mode: experience.mode, profile: experienceHash(`profile:${experience.profile}`), frozen: experience.frozen, seedHash: normalizeSeedHash(String(seed)), excludedSeeds: experience.excludeSeeds.length };
 }
 
 /** The cap is the run's budget: reserve what it leaves (or --run-reserve-usd), stopping early enough for one in-flight call. */
@@ -100,6 +120,8 @@ export async function runLong(options, { execute = runScenarios } = {}) {
 	const profile = { provider: options.provider, model: options.model, reasoningEffort: options.effort, serviceTier: options.serviceTier };
 	// The scenario runner copies this into the run's coordinator config (codex.midTurnContextRotationTokens).
 	if (options.midTurnRotationTokens !== null) process.env.ARENA_CODEX_MID_TURN_ROTATION_TOKENS = String(options.midTurnRotationTokens);
+	// Experience reaches the coordinator as env. The seed goes only as a salted hash, so a lesson never loads on its origin seed.
+	const experienceEnv = experienceEnvironment(options.experience, definition.seed);
 	console.log(`${runId}: seed ${definition.seed}${definition.setup.randomSalt === undefined ? '' : ` (loot salt ${definition.setup.randomSalt})`}, window ${options.windowMs / 60000} min, reserved $${reserveUsd.toFixed(2)}, play stops at $${stopAtUsd.toFixed(2)}`);
 	await writeFile(path.join(options.out, 'long-run-start.json'), JSON.stringify({ schemaVersion: 1, runId, definition, profile, windowMs: options.windowMs, launchedAt: Date.now() }) + '\n');
 	let signalRecord = null;
@@ -113,7 +135,7 @@ export async function runLong(options, { execute = runScenarios } = {}) {
 	let results = null, failure = null, discoveredArtifacts = null;
 	try {
 		results = await execute({ ...build, definitions: [definition], scenarios: [definition.id], runs: 1, repetition: 1, provider: options.provider, model: options.model, effort: options.effort,
-			serviceTier: options.serviceTier, budget: null, goalStartClock: true, spendGate: gate, codexObserverCap: options.codexObserverCap, portBase: options.portBase, out: path.join(options.out, 'run'), sourceCommit: build.commit ?? null, template: options.template, java: options.java }, { onObserver: observer => { discoveredArtifacts = observer.directory; } });
+			serviceTier: options.serviceTier, budget: null, goalStartClock: true, ...(experienceEnv ? { env: { ...(build.env ?? {}), ...experienceEnv } } : {}), spendGate: gate, codexObserverCap: options.codexObserverCap, portBase: options.portBase, out: path.join(options.out, 'run'), sourceCommit: build.commit ?? null, template: options.template, java: options.java }, { onObserver: observer => { discoveredArtifacts = observer.directory; } });
 	} catch (error) { failure = error; }
 	finally { process.off('SIGTERM', onTerm); process.off('SIGINT', onInt); }
 	if (signalRecord) await signalRecord;
@@ -134,6 +156,8 @@ export async function runLong(options, { execute = runScenarios } = {}) {
 	const timeline = evidence?.timeline ?? extractLongRunTimeline({ profile, windowMs: options.windowMs, termination: failure?.code ?? failure?.message ?? run?.termination ?? 'NO_ARTIFACTS' });
 	const report = { schemaVersion: 1, benchmark: 'long-run', budgetPolicy: isStrictBudget(options) ? STRICT_BUDGET_POLICY : OBSERVER_BUDGET_POLICY, runId, seed: definition.seed, goal: definition.goal, windowMs: options.windowMs, profile, build: { commit: build.commit ?? null, jar: results?.jar ?? null, coordinatorSha256: results?.coordinatorSha256 ?? null },
 		definition, termination: run?.termination ?? null, measurementStatus: run?.measurementStatus ?? 'UNAVAILABLE', observerErrors: [...(run?.observerErrors ?? []), ...(evidence?.errors ?? [])], diagnostics: run?.diagnostics ?? null, stopRequest: run?.stopRequest ?? null, failure: failure?.message ?? null,
+		// Memory state on every round row: off, or the profile hash, frozen flag and this game's seed hash.
+		experience: experienceRow(options.experience, definition.seed),
 		spend, ledger: { file: options.ledger, capUsd: options.capUsd, reservedForRunUsd: reserveUsd, stopAtUsd, ...totals }, timeline, artifacts: run?.artifacts ?? null, capturedAt: new Date().toISOString() };
 	await writeArtifactReport(path.join(options.out, 'long-run.json'), report);
 	report.stageScore = await scoreStageRun(options.out, { rawDirectory: run?.artifacts }).catch(error => ({ error: error.message }));
