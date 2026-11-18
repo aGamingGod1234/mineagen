@@ -254,5 +254,22 @@
 		"maxMs": 8000,
 		"ttlMs": 3600000,
 		"coordinatorDefault": true
+	},
+	{
+		"id": "default-owed-drops",
+		"kind": "trigger",
+		"priority": 2,
+		"when": [
+			{
+				"type": "drops_owed"
+			}
+		],
+		"do": {
+			"type": "collect_drops"
+		},
+		"maxMs": 20000,
+		"cooldownMs": 5000,
+		"ttlMs": 3600000,
+		"coordinatorDefault": true
 	}
 ]

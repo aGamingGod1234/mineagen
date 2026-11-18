@@ -138,6 +138,7 @@ final class ReflexActions {
 			case "select" -> new Select(action.text("tool"), action.text("item"));
 			case "swim_up" -> new SwimUp();
 			case "pickup" -> new Pickup(action.number("within", 4.0D));
+			case "collect_drops" -> new CollectDrops();
 			case "place" -> new Place(action.text("item"), action.text("where"));
 			case "stop" -> new Stop();
 			case "deflect" -> new Deflect();
@@ -1089,6 +1090,79 @@ final class ReflexActions {
 				if (!stack.isEmpty() && ItemStack.isSameItemSameComponents(stack, identity)) count += stack.getCount();
 			}
 			return count;
+		}
+	}
+
+	/**
+	 * The owed-drops habit (issue #2, 1b): walk to the drops a kill left behind (a hostile was near when the fight ended,
+	 * or the model moved on) by pick_up_item's own route, throwing junk for room, for at most {@link #COLLECT_MS}, then
+	 * walk back to where the body stood. Each drop is tried once. A hostile coming near stops the collecting and the body
+	 * walks back. It always ends DONE with what it picked up and left: an empty pass is not a failure, so a run of them
+	 * never switches the rule off. drops_owed holds only for an idle body, so it never pauses the agent's own action.
+	 */
+	static final class CollectDrops implements Behaviour {
+		static final long COLLECT_MS = 12_000L;
+		static final long BACK_MS = 7_000L;
+		private dev.agaminggod.mineagen.server.runtime.controller.KillDropCollector collector;
+		private ServerNavigationController back;
+		private Vec3 start;
+		private String summary;
+		private boolean underFire;
+
+		@Override
+		public Step tick(Context context, Consumer<AgentInputState> input) {
+			ServerPlayer player = context.player();
+			long now = dev.agaminggod.mineagen.server.runtime.GameClock.nowMs();
+			if (start == null) {
+				List<java.util.UUID> owed = dev.agaminggod.mineagen.server.perception.ObservedDrops.owed(player, ReflexSensors.OWED_WITHIN);
+				if (owed.isEmpty()) return Step.done("no owed drop left");
+				dev.agaminggod.mineagen.server.perception.ObservedDrops.tried(player, owed);
+				start = player.position();
+				// The body's own kill loot, as the pickup reflex takes items; room is made from junk only.
+				collector = new dev.agaminggod.mineagen.server.runtime.controller.KillDropCollector(owed, null, now, COLLECT_MS)
+						.makingRoom(ignored -> true);
+			}
+			if (collector != null) {
+				String blocker = dev.agaminggod.mineagen.server.runtime.controller.KillDropCollector.hostileNear(player);
+				String done = blocker != null ? "stopped, " + blocker : collector.tick(player, now);
+				if (done == null) return Step.running("collecting owed drops");
+				if (blocker != null) { collector.cancel(player); underFire = true; }
+				collector = null;
+				summary = tally(done);
+				if (player.position().distanceTo(start) <= 1.0D) return Step.done("owed drops: " + summary);
+				back = new ServerNavigationController(start, 0.6D, false, now, BACK_MS, false);
+			}
+			var walked = back.tick(player, now);
+			if (walked.state() == dev.agaminggod.mineagen.server.runtime.controller.ServerController.State.RUNNING) return Step.running("walking back from owed drops");
+			back.cancel(player);
+			back = null;
+			return Step.done("owed drops: " + summary + (walked.state() == dev.agaminggod.mineagen.server.runtime.controller.ServerController.State.SUCCEEDED
+					? (underFire ? "; walked back under fire" : "; walked back") : "; walk back " + walked.reasonCode()));
+		}
+
+		/**
+		 * The collector's notes as counts, so the firing detail (cut at 160 characters) keeps its outcome: "picked up 2,
+		 * left 1, made room" with the first reason a drop was left, or the collector's own line when it has no notes.
+		 */
+		static String tally(String notes) {
+			int picked = 0, left = 0;
+			boolean room = false;
+			String firstLeft = null;
+			for (String note : notes.split("; ")) {
+				if (note.startsWith("picked up")) picked++;
+				else if (note.startsWith("left ")) { left++; if (firstLeft == null) firstLeft = note.substring(note.lastIndexOf(':') + 1).trim(); }
+				else if (note.startsWith("made room")) room = true;
+			}
+			if (picked == 0 && left == 0) return notes.length() > 80 ? notes.substring(0, 80) : notes;
+			return "picked up " + picked + ", left " + left + (room ? ", made room" : "") + (firstLeft == null ? "" : " (" + (firstLeft.length() > 50 ? firstLeft.substring(0, 50) : firstLeft) + ")");
+		}
+
+		@Override
+		public void end(ServerPlayer player) {
+			if (collector != null) collector.cancel(player);
+			collector = null;
+			if (back != null) back.cancel(player);
+			back = null;
 		}
 	}
 

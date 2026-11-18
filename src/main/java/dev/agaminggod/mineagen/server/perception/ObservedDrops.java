@@ -81,6 +81,34 @@ public final class ObservedDrops {
 		return ids;
 	}
 
+	/** Kill drops the owed pass already went for, per player: each is tried once, whatever came of it (D8). */
+	private static final Map<ServerPlayer, java.util.Set<UUID>> TRIED = new WeakHashMap<>();
+
+	/** The owed-drops rule (1b): a kill's drop, not tried yet, remembered in this dimension, last seen within reach. */
+	public static boolean owed(Drop drop, boolean tried, String dimension, double distance, double within) {
+		return drop != null && drop.source() == Source.KILL && !tried && drop.dimension().equals(dimension) && distance <= within;
+	}
+
+	/** Kill drops still in the world that the body left behind, last seen within {@code within} blocks, oldest first. */
+	public static java.util.List<UUID> owed(ServerPlayer player, double within) {
+		java.util.Set<UUID> tried = TRIED.getOrDefault(player, java.util.Set.of());
+		String dimension = player.level().dimension().identifier().toString();
+		java.util.List<UUID> ids = new java.util.ArrayList<>();
+		for (UUID id : remembered(player)) {
+			Drop drop = recall(player, id);
+			if (drop == null || !owed(drop, tried.contains(id), dimension, drop.position().distanceTo(player.position()), within)) continue;
+			if (((net.minecraft.server.level.ServerLevel) player.level()).getEntity(id) instanceof ItemEntity item && item.isAlive() && !item.getItem().isEmpty())
+				ids.add(id);
+		}
+		return ids;
+	}
+
+	public static void tried(ServerPlayer player, java.util.Collection<UUID> ids) {
+		java.util.Set<UUID> tried = TRIED.computeIfAbsent(player, ignored -> new java.util.LinkedHashSet<>());
+		tried.addAll(ids);
+		while (tried.size() > 4 * CAPACITY) tried.remove(tried.iterator().next());
+	}
+
 	/** Read current coordinates only when the item is visible; a hidden item keeps its last seen coordinates. */
 	public static Vec3 position(ServerPlayer player, ItemEntity item) {
 		if (ObservationVisibility.canSeeEntity(player, item)) {

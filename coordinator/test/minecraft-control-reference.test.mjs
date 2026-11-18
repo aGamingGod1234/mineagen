@@ -153,7 +153,7 @@ function parseFieldDeclaration(line) {
 test('survival guidance: always-loaded first-call rule and default reflexes, details in the survival topic; eye contracts explain landing and reserves', async () => {
 	const agent = await readFile(new URL('../config/minecraft-agent/AGENTS.md', import.meta.url), 'utf8');
 	const skill = await readFile(new URL('../config/minecraft-agent/.codex/skills/minecraft-control/SKILL.md', import.meta.url), 'utf8');
-	assert.match(agent, /Fourteen reflexes are on from spawn, after each respawn and at each dimension change/);
+	assert.match(agent, /Fifteen reflexes are on from spawn, each respawn and dimension change/);
 	assert.match(agent, /When danger already acts on you and no reflex handles it, your first call is the escape or the defence itself, not a lookup\./);
 	// The full teaching moved from AGENTS.md into the control reference survival topic.
 	const survival = minecraftCapabilities({ section: 'control', topic: 'survival' }).reference;

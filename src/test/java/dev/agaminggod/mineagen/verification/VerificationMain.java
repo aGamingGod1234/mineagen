@@ -140,6 +140,7 @@ public final class VerificationMain {
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.reflex.ReflexBodyVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.reflex.ReflexShieldVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.watch.WatchVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.watch.KillRowVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.NetherCostsVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.TravelVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.perception.WalkedRouteVerification.verify();
@@ -237,6 +238,8 @@ public final class VerificationMain {
 		passedAssertions += BreakSpeedAdvisorVerification.verify();
 		passedAssertions += BreakOutcomeEvidenceVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.perception.ObservedDropsVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.KillDropRoomVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.reflex.OwedDropsVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.OreHarvestFactsVerification.verify();
 		passedAssertions += DesiredBlockStateVerification.verify();
 		passedAssertions += ResourceLeaseManagerVerification.verify();

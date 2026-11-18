@@ -208,6 +208,7 @@ public final class ServerFightController implements ServerController {
 	/** collect:false or unset (ExamplePlayer, Oct 29): after the fight, walk to its seen drops only with no hostile within 16 blocks, then back. */
 	private java.util.function.BiPredicate<ServerPlayer, net.minecraft.world.entity.Entity> clearFilter;
 	private Vec3 clearReturn;
+	private java.util.function.Predicate<ServerPlayer> mayDrop;
 	private ServerNavigationController clearWalk;
 	private boolean clearBackUnderFire;
 	/** The knockback margin the probe used last; a stall report names what it refused. */
@@ -217,6 +218,8 @@ public final class ServerFightController implements ServerController {
 	private Vec3 fireExit;
 	private int blazeWaitTicks;
 	private long lastVisibleTargetTick = Long.MIN_VALUE / 2L;
+	/** The last tick this fight saw its target alive; a reflex pause can hide the death tick (1b diagnosis). */
+	private long targetAliveTick = Long.MIN_VALUE / 2L;
 	private final java.util.Set<UUID> witnessedDrops = new java.util.LinkedHashSet<>();
 	private final ObservedProgress observedProgress = new ObservedProgress();
 
@@ -346,6 +349,7 @@ public final class ServerFightController implements ServerController {
 		}
 		if (dev.agaminggod.mineagen.server.perception.ObservationVisibility.canSeeEntity(player, target)) lastVisibleTargetTick = player.level().getGameTime();
 		boolean killed = target.isDeadOrDying();
+		if (!killed && target.isAlive()) targetAliveTick = player.level().getGameTime();
 		if (killed || !target.isAlive() || target.isRemoved() || target.level() != player.level()) {
 			if (killed) {
 				kills.merge(targetType, 1, Integer::sum);
@@ -362,7 +366,7 @@ public final class ServerFightController implements ServerController {
 					BrinkGuard.keepLevel(player, this, false);
 					input.release();
 					collectEnd = end;
-					collector = new KillDropCollector(witnessedDrops, collectFilter, nowEpochMs).crouched(sneak);
+					collector = new KillDropCollector(witnessedDrops, collectFilter, nowEpochMs).crouched(sneak).makingRoom(mayDrop);
 					return TickResult.running(0.99D);
 				}
 				if (collectFilter == null && clearFilter != null && !witnessedDrops.isEmpty()) {
@@ -374,7 +378,7 @@ public final class ServerFightController implements ServerController {
 					collectEnd = new TickResult(end.state(), end.reasonCode(), end.message() + "; collect:false: no hostile within "
 							+ (int) KillDropCollector.CLEAR_RANGE + " blocks, walked out for the drops", end.progress());
 					clearReturn = player.position();
-					collector = new KillDropCollector(witnessedDrops, clearFilter, nowEpochMs);
+					collector = new KillDropCollector(witnessedDrops, clearFilter, nowEpochMs).makingRoom(mayDrop);
 					return TickResult.running(0.99D);
 				}
 				return finish(player, collectFilter == null ? end
@@ -1087,6 +1091,7 @@ public final class ServerFightController implements ServerController {
 	private void switchTo(LivingEntity next, String reason) {
 		target = next;
 		lastVisibleTargetTick = Long.MIN_VALUE / 2L;
+		targetAliveTick = Long.MIN_VALUE / 2L;
 		strike = next;
 		targetType = typeOf(next);
 		switchedBy = reason;
@@ -1160,8 +1165,9 @@ public final class ServerFightController implements ServerController {
 		dev.agaminggod.mineagen.server.perception.ObservationVisibility.Frame sight =
 				dev.agaminggod.mineagen.server.perception.ObservationVisibility.frame(player.level(), player);
 		List<String> seen = new ArrayList<>();
+		int maxAge = dropAgeLimit(player.level().getGameTime(), targetAliveTick);
 		for (net.minecraft.world.entity.item.ItemEntity item : player.level().getEntitiesOfClass(net.minecraft.world.entity.item.ItemEntity.class,
-				dead.getBoundingBox().inflate(DROP_SEARCH_BLOCKS), item -> item.isAlive() && !item.getItem().isEmpty() && item.getAge() <= DROP_AGE_TICKS)) {
+				dead.getBoundingBox().inflate(DROP_SEARCH_BLOCKS), item -> item.isAlive() && !item.getItem().isEmpty() && item.getAge() <= maxAge)) {
 			boolean witnessed = player.level().getGameTime() - lastVisibleTargetTick <= 2L && sight.hasLineOfSight(item);
 			if (!sight.canSeeEntity(item) && !witnessed) continue;
 			dev.agaminggod.mineagen.server.perception.ObservedDrops.remember(player, item, dev.agaminggod.mineagen.server.perception.ObservedDrops.Source.KILL);
@@ -1171,6 +1177,18 @@ public final class ServerFightController implements ServerController {
 					+ " at " + at.getX() + "," + at.getY() + "," + at.getZ() + " uuid=" + item.getUUID() + " (falling, last seen)" + burnsBelow(player, item.position()));
 		}
 		drops.add(seen.isEmpty() ? "none from " + typeOf(dead) : String.join(", ", seen));
+	}
+
+	/**
+	 * How old a drop at the corpse may be and still be this kill's: {@link #DROP_AGE_TICKS}, plus the ticks since the
+	 * fight last saw the target alive. A reflex pause (default-defend took the body while the target died) delays the
+	 * fight's next look, and a fixed 5-tick age then dropped the kill's own loot as old (rounds 4-6: 8 "none from" in
+	 * paused kills against 4.6 expected from loot rolls). Capped at 3 s, so a long pause does not pass off older items
+	 * at the corpse (blast debris, thrown junk) as its loot; unknown (died before the first look) keeps 5.
+	 */
+	static int dropAgeLimit(long now, long aliveTick) {
+		if (aliveTick < 0L || now < aliveTick) return DROP_AGE_TICKS;
+		return (int) Math.min(60L, DROP_AGE_TICKS + (now - aliveTick));
 	}
 
 	/** " (over lava N below: burns)" when the drop falls into lava or fire before any solid footing; otherwise "". */
@@ -1379,6 +1397,12 @@ public final class ServerFightController implements ServerController {
 	/** The model's collect:true: after the kill, walk to its witnessed drops (null filter: leave them). */
 	public ServerFightController collectDrops(java.util.function.BiPredicate<ServerPlayer, net.minecraft.world.entity.Entity> mayTake) {
 		this.collectFilter = mayTake;
+		return this;
+	}
+
+	/** Who may Q-drop junk so a drop fits (1b); null leaves a drop the inventory has no room for. */
+	public ServerFightController makingRoom(java.util.function.Predicate<ServerPlayer> mayDrop) {
+		this.mayDrop = mayDrop;
 		return this;
 	}
 

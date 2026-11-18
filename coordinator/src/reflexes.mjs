@@ -29,6 +29,10 @@ export const DEFAULT_REFLEXES = Object.freeze([
 	{ id: 'default-blaze-cover', kind: 'trigger', priority: 6, when: [{ type: 'health_below', value: 11 }, { type: 'exposed', within: 12, mobs: ['minecraft:blaze', 'minecraft:skeleton', 'minecraft:stray', 'minecraft:bogged'] }], do: { type: 'take_cover', within: 8 }, maxMs: 8_000, cooldownMs: 5_000, ttlMs: 3_600_000 },
 	// 8 s for the same reason: it runs the same take_cover, stops to block included.
 	{ id: 'default-cover', kind: 'trigger', priority: 6, when: [{ type: 'health_below', value: 6 }, { type: 'attacked', withinS: 3 }], do: { type: 'take_cover', within: 8 }, maxMs: 8_000, ttlMs: 3_600_000 },
+	// Owed drops (issue 2, 1b): a fight leaves its drops while a hostile is within 16 blocks and nothing went back for them.
+	// Its own rule, not part of defend, whose 4 s hold would cut a 12 s collect short. Lowest priority: every other
+	// instinct and any command pre-empt it. 20 s covers the collect and the walk back.
+	{ id: 'default-owed-drops', kind: 'trigger', priority: 2, when: [{ type: 'drops_owed' }], do: { type: 'collect_drops' }, maxMs: 20_000, cooldownMs: 5_000, ttlMs: 3_600_000 },
 ].map((rule) => Object.freeze(rule)));
 export const DEFAULT_REFLEX_IDS = Object.freeze(new Set(DEFAULT_REFLEXES.map((rule) => rule.id)));
 // The mod runs at most this many rules (ReflexSpec.MAX_RULES): the cap of every rule-set bound on the wire (C24). The
@@ -122,6 +126,8 @@ export const REFLEX_CONDITIONS = Object.freeze({
 	on_hot_floor: {},
 	inventory_full: {},
 	item_nearby: { within: number(1, 8), items: ids() },
+	// A kill's drop you left behind, last seen within 16 blocks: only after 3 s idle, no hostile near, health 10+, not sheltered.
+	drops_owed: {},
 	tool_low: { uses: number(1, 256, true), tool: tool() },
 	falling: { blocks: number(1, 64, true) },
 	saturation_empty: {},
@@ -154,6 +160,8 @@ export const REFLEX_ACTIONS = Object.freeze({
 	select: { tool: tool(), item: item() },
 	swim_up: {},
 	pickup: { within: number(1, 8) },
+	// Walks to the owed kill drops (12 s, junk thrown for room), then back to where you stood; each drop is tried once.
+	collect_drops: {},
 	place: { item: item(true), where: where() },
 	stop: {},
 	deflect: {},

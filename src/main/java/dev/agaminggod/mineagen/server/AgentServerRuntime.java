@@ -662,7 +662,10 @@ public final class AgentServerRuntime {
 			}
 			String type = BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType()).toString();
 			runtime.recordKill(record.agentId(), type);
-			publishVerifiedKill(server, record.agentId(), type);
+			// 1b: the position goes on the wire only for a kill the body saw (the Watcher writes its own kill row).
+			net.minecraft.core.BlockPos seenAt = dev.agaminggod.mineagen.server.perception.KillSighting.seenAt(responsible, entity);
+			publishVerifiedKill(server, record.agentId(), type,
+					dev.agaminggod.mineagen.server.perception.KillSighting.enabled() ? seenAt : null);
 			return;
 		}
 	}
@@ -792,8 +795,14 @@ public final class AgentServerRuntime {
 	}
 
 	private static void publishVerifiedKill(MinecraftServer server, dev.agaminggod.mineagen.agent.AgentId id, String entityType) {
+		publishVerifiedKill(server, id, entityType, null);
+	}
+
+	/** {@code at} is the block the body saw the mob die on, or null (unseen, the dragon, or the position switched off). */
+	private static void publishVerifiedKill(MinecraftServer server, dev.agaminggod.mineagen.agent.AgentId id, String entityType,
+			net.minecraft.core.BlockPos at) {
 		MultiplexedServerBridge active = bridge(server);
-		if (active != null) active.publishProgressReceipt(id, "entity_killed", "entityType", entityType);
+		if (active != null) active.publishKill(id, entityType, at);
 	}
 
 	public static boolean requestTaskView(MinecraftServer server, dev.agaminggod.mineagen.agent.AgentId agentId) {

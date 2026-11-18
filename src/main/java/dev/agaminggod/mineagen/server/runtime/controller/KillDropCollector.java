@@ -27,6 +27,7 @@ public final class KillDropCollector {
 	private final BiPredicate<ServerPlayer, Entity> mayTake;
 	private final List<String> notes = new ArrayList<>();
 	private final long deadline;
+	private final long budgetMs;
 	private ServerItemPickupController current;
 	private String currentLabel;
 	private UUID currentId;
@@ -36,15 +37,30 @@ public final class KillDropCollector {
 	private long routeTick;
 	private final java.util.Set<UUID> built = new java.util.HashSet<>();
 	private boolean crouched;
+	/** Set by {@link #makingRoom}: who may Q-drop junk to make room for a drop; null leaves a drop with no room behind. */
+	private java.util.function.Predicate<ServerPlayer> mayDrop;
+	private int roomStacks;
 
 	public KillDropCollector(Collection<UUID> drops, BiPredicate<ServerPlayer, Entity> mayTake, long nowEpochMs) {
+		this(drops, mayTake, nowEpochMs, COLLECT_BUDGET_MS);
+	}
+
+	/** A shorter collect time, for the owed pass that must also walk back inside its rule's limit. */
+	public KillDropCollector(Collection<UUID> drops, BiPredicate<ServerPlayer, Entity> mayTake, long nowEpochMs, long budgetMs) {
 		this.pending = new ArrayDeque<>(drops);
 		this.mayTake = mayTake;
-		this.deadline = nowEpochMs + COLLECT_BUDGET_MS;
+		this.deadline = nowEpochMs + budgetMs;
+		this.budgetMs = budgetMs;
 	}
 
 	public KillDropCollector crouched(boolean crouched) {
 		this.crouched = crouched;
+		return this;
+	}
+
+	/** Q-drop up to {@link #ROOM_STACKS} junk stacks when a drop does not fit (1b): a full inventory left most lost loot. */
+	public KillDropCollector makingRoom(java.util.function.Predicate<ServerPlayer> mayDrop) {
+		this.mayDrop = mayDrop;
 		return this;
 	}
 
@@ -104,13 +120,73 @@ public final class KillDropCollector {
 			String below = ServerFightController.burnsBelow(player, item.position());
 			if (below.contains("burns")) { notes.add("left " + label + ":" + below); continue; }
 			if (mayTake != null && !mayTake.test(player, item)) { notes.add("left " + label + ": PROTECTION_DENIED"); continue; }
-			if (!InventoryRoom.canTake(player, item.getItem())) { notes.add("left " + label + ": INVENTORY_FULL"); continue; }
 			long left = deadline - nowEpochMs;
-			if (left <= 0L) { notes.add("left " + label + ": the " + COLLECT_BUDGET_MS / 1000 + " s collect time ran out"); continue; }
+			if (left <= 0L) { notes.add("left " + label + ": the " + budgetMs / 1000 + " s collect time ran out"); continue; }
+			if (!InventoryRoom.canTake(player, item.getItem())) {
+				String room = makeRoom(player, item.getItem());
+				if (room != null) notes.add(room);
+				if (!InventoryRoom.canTake(player, item.getItem())) { notes.add("left " + label + ": INVENTORY_FULL"); continue; }
+			}
 			current = new ServerItemPickupController(player, item, nowEpochMs, left).crouched(crouched);
 			currentLabel = label;
 			currentId = id;
 		}
+	}
+
+	/** Junk a player throws away for loot, the dig_to discard list (ServerDigController's hints). */
+	static final java.util.Set<String> JUNK = java.util.Set.of("minecraft:cobblestone", "minecraft:cobbled_deepslate", "minecraft:diorite",
+			"minecraft:andesite", "minecraft:granite", "minecraft:tuff", "minecraft:dirt", "minecraft:gravel");
+	/** Junk blocks kept for pillars, bridges and shelters, all kinds together (obtain keeps 16 cobble the same way). */
+	static final int KEEP_BLOCKS = 16;
+	/** Stacks one collector run may throw away. */
+	static final int ROOM_STACKS = 2;
+
+	/**
+	 * The main-inventory slot (0..35) to Q-drop for room, or -1: a junk stack, only while {@link #KEEP_BLOCKS} junk
+	 * blocks of any kind stay for building, and never to take junk (one block kind for another is no gain); the
+	 * smallest such stack, then the lowest slot.
+	 */
+	static int junkSlot(String[] ids, int[] counts, String collecting) {
+		if (collecting == null || JUNK.contains(collecting)) return -1;
+		int junk = 0;
+		for (int slot = 0; slot < Math.min(36, ids.length); slot++) if (ids[slot] != null && JUNK.contains(ids[slot])) junk += counts[slot];
+		int best = -1;
+		for (int slot = 0; slot < Math.min(36, ids.length); slot++) {
+			String id = ids[slot];
+			if (id == null || counts[slot] <= 0 || !JUNK.contains(id) || junk - counts[slot] < KEEP_BLOCKS) continue;
+			if (best < 0 || counts[slot] < counts[best]) best = slot;
+		}
+		return best;
+	}
+
+	/** Throws junk stacks until the drop fits, at most {@link #ROOM_STACKS} a run; the note says what went, or null. */
+	private String makeRoom(ServerPlayer player, net.minecraft.world.item.ItemStack wanted) {
+		if (mayDrop == null || !mayDrop.test(player)) return null;
+		List<String> dropped = new ArrayList<>();
+		String wantedId = BuiltInRegistries.ITEM.getKey(wanted.getItem()).toString();
+		var inventory = player.getInventory();
+		while (roomStacks < ROOM_STACKS && !InventoryRoom.canTake(player, wanted)) {
+			String[] ids = new String[36];
+			int[] counts = new int[36];
+			for (int slot = 0; slot < 36; slot++) {
+				var stack = inventory.getItem(slot);
+				if (stack.isEmpty()) continue;
+				ids[slot] = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+				counts[slot] = stack.getCount();
+			}
+			int slot = junkSlot(ids, counts, wantedId);
+			if (slot < 0) break;
+			var removed = inventory.removeItem(slot, counts[slot]);
+			if (removed.isEmpty()) break;
+			// As a Q drop: thrown ahead, owned by the body (AdvancedInteractionService.drop does the same).
+			if (dev.agaminggod.mineagen.compat.McCompat.drop(player, removed, true, true) == null) {
+				inventory.setItem(slot, removed);
+				break;
+			}
+			roomStacks++;
+			dropped.add(counts[slot] + "x " + ids[slot]);
+		}
+		return dropped.isEmpty() ? null : "made room: dropped " + String.join(", ", dropped);
 	}
 
 	/** collect:false (ExamplePlayer, Oct 29): the body does not leave to collect while a hostile is within this many blocks. */

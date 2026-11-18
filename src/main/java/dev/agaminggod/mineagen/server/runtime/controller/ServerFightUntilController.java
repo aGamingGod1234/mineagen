@@ -1201,7 +1201,8 @@ public final class ServerFightUntilController implements ServerController {
 		melee = new ServerFightController(target, choices.desiredRange(), fleeAtHealth, false, CombatPlanning.TargetPolicy.NAMED, choices.includePlayers(),
 				choices.meleePursue(roofed), choices.sneak(), shield, Math.min(segment, left), now)
 				.engineTargets()
-				.collectDrops(collect && !roofed ? protection::mayTakeEntity : null);
+				.collectDrops(collect && !roofed ? protection::mayTakeEntity : null)
+				.makingRoom(protection::mayDropItem);
 		meleeEngagements++;
 	}
 
@@ -1678,7 +1679,7 @@ public final class ServerFightUntilController implements ServerController {
 	}
 
 	private KillDropCollector countCollector(List<UUID> drops, long now) {
-		KillDropCollector pickup = new KillDropCollector(drops, protection::mayTakeEntity, now).crouched(choices.sneak());
+		KillDropCollector pickup = new KillDropCollector(drops, protection::mayTakeEntity, now).crouched(choices.sneak()).makingRoom(protection::mayDropItem);
 		return choices.mayMove() && !choices.sneak() ? pickup.buildingRoutes(this::mayModify, fleeAtHealth) : pickup;
 	}
 

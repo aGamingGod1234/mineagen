@@ -179,7 +179,7 @@ public final class ServerRangedVolleyController implements ServerTransactionAdap
 		if (!collect || drops.isEmpty()) {
 			return stop(TickResult.succeeded("TARGET_KILLED", killNote + (collect ? "; collect: no drop was seen to collect" : "")));
 		}
-		collector = new KillDropCollector(drops, protection::mayTakeEntity, nowEpochMs);
+		collector = new KillDropCollector(drops, protection::mayTakeEntity, nowEpochMs).makingRoom(protection::mayDropItem);
 		String collected = collector.tick(player, nowEpochMs);
 		return collected == null ? TickResult.running() : stop(TickResult.succeeded("TARGET_KILLED", killNote + "; collect: " + collected));
 	}
