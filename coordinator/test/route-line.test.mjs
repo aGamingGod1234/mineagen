@@ -20,6 +20,8 @@ const route = (items, options = {}, known = emptyKnown()) => routeLine({ observa
 const COOKED = [['cooked_beef', 24]];
 const SHIELD = ['shield', 1, 'offhand'];
 const MEAT = [['beef', 4]];
+// Nothing for a bed in reach at a lit portal: entry, with the reason the portal bed is skipped.
+const ENTRY_NO_BED = 'usual next step: enter the Nether through the lit portal now (no bed, 3 matching wool or sheep in reach: no portal bed; food stocks are optional unless health or hunger is low)';
 
 test('the route walks the usual Overworld order from nothing to a lit portal', () => {
 	assert.equal(route([]), 'usual next step: obtain wooden_pickaxe (no tools yet)');
@@ -107,10 +109,12 @@ test('a lit portal suggests entering with optional preparation; the Nether and t
 	const known = emptyKnown();
 	known.frames.push({ dimension: 'minecraft:overworld', x: 0, y: 60, z: 0, obsidian: 10, lit: true });
 	const kit = [['iron_pickaxe', 1], ['water_bucket', 1], ['bucket', 1], SHIELD, ['flint_and_steel', 1]];
+	// Three matching wool held: the portal bed comes first (C33), crafted from them, with no search.
 	assert.equal(route([...kit, ['cooked_beef', 8], ['cobblestone', 30], ['white_wool', 3]], { health: 15 }, known),
-		'usual next step: enter the Nether through the lit portal now (food stocks and a bed are optional unless health or hunger is low)');
-	assert.equal(route([...kit, ['cooked_beef', 10], ['cobblestone', 64]], {}, known), 'usual next step: enter the Nether through the lit portal now (food stocks and a bed are optional unless health or hunger is low)');
-	assert.equal(route([...kit, ['cooked_beef', 22], ['cobblestone', 64]], {}, known), 'usual next step: enter the Nether through the lit portal now (food stocks and a bed are optional unless health or hunger is low)');
+		'usual next step: obtain white_bed, then place_block it by the portal at 0,60,0, interact_block it until "Respawn point set" (by day too), keep it (3 white_wool held)');
+	assert.equal(route([...kit, ['cooked_beef', 8], ['cobblestone', 30], ['white_wool', 2]], { health: 15 }, known), ENTRY_NO_BED);
+	assert.equal(route([...kit, ['cooked_beef', 10], ['cobblestone', 64]], {}, known), ENTRY_NO_BED);
+	assert.equal(route([...kit, ['cooked_beef', 22], ['cobblestone', 64]], {}, known), ENTRY_NO_BED);
 	const nether = { dimension: 'minecraft:the_nether' };
 	assert.match(route([['blaze_rod', 2]], nether), /find a fortress and fight_until 7 blaze_rods \(no gold worn; rods 2\/7, pearls 0\/12, eyes 0 held \+ 0 set of 12\)/);
 	assert.match(route([['blaze_rod', 7], ['ender_pearl', 5]], nether), /get 12-14 ender_pearls/);
@@ -216,7 +220,7 @@ test('review: a shield lost after the portal is lit or the Nether visited does n
 	const known = emptyKnown();
 	known.frames.push({ dimension: 'minecraft:overworld', x: 0, y: 60, z: 0, obsidian: 10, lit: true });
 	const kit = [['iron_pickaxe', 1], ['bucket', 2], ['flint_and_steel', 1]];
-	assert.equal(route([...kit, ['cooked_beef', 10], ['cobblestone', 64]], {}, known), 'usual next step: enter the Nether through the lit portal now (food stocks and a bed are optional unless health or hunger is low)');
+	assert.equal(route([...kit, ['cooked_beef', 10], ['cobblestone', 64]], {}, known), ENTRY_NO_BED);
 	assert.doesNotMatch(route([...kit, ['totem_of_undying', 1, 'offhand'], ['cooked_beef', 10], ['cobblestone', 64]], {}, known), /shield/);
 });
 

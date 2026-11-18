@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { routeLine, ROUTE_BYTES, PORTAL_ENTRY_NEXT, PORTAL_ENTRY_PREP } from '../src/skill-fits.mjs';
+import { routeLine, ROUTE_BYTES, PORTAL_ENTRY_NEXT } from '../src/skill-fits.mjs';
 import { emptyKnown, evaluatePlanCheck } from '../src/plan-checks.mjs';
 import { LiveTaskViews } from '../src/live-task-view.mjs';
 import { buildNativeEventInput } from '../src/dynamic-main.mjs';
@@ -43,7 +43,7 @@ test('food choice rejects hidden, dead, baby, distant and remembered animals', (
 
 test('lit portal entry and post-Nether rebuild never acquire a new food quota', () => {
 	const known = emptyKnown(); known.frames.push({ dimension: 'minecraft:overworld', x: 0, y: 60, z: 0, obsidian: 10, lit: true });
-	assert.equal(line(observation(), known), `usual next step: ${PORTAL_ENTRY_NEXT} (${PORTAL_ENTRY_PREP})`);
+	assert.equal(line(observation(), known), `usual next step: ${PORTAL_ENTRY_NEXT} (no bed, 3 matching wool or sheep in reach: no portal bed; food stocks are optional unless health or hunger is low)`);
 	for (const advanced of [false, true]) {
 	 const k = emptyKnown(), o = observation();
 	 if (advanced) o.advancements = ['minecraft:story/enter_the_nether']; else k.visitedDimensions.push('minecraft:the_nether');
