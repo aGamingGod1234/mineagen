@@ -65,8 +65,12 @@ final class TruthScan {
 	}
 
 	private static Danger entityDanger(String kind, Entity source, double eta, double distance) {
+		return entityDanger(kind, source, eta, distance, false);
+	}
+
+	private static Danger entityDanger(String kind, Entity source, double eta, double distance, boolean targeting) {
 		String uuid = source.getUUID().toString();
-		return new Danger(uuid, kind, typeId(source), uuid, null, eta, distance);
+		return new Danger(uuid, kind, typeId(source), uuid, null, eta, distance, targeting);
 	}
 
 	private static double meleeEta(double distance, double speed) {
@@ -89,7 +93,7 @@ final class TruthScan {
 				player.getBoundingBox().inflate(GHAST_RADIUS), Ghast::isAlive)) {
 			if (ghast.getTarget() != player) continue;
 			double distance = player.distanceTo(ghast);
-			out.add(entityDanger("ghast", ghast, (ghast.isCharging() ? 0.5D : 2.5D) + distance / 30.0D, distance));
+			out.add(entityDanger("ghast", ghast, (ghast.isCharging() ? 0.5D : 2.5D) + distance / 30.0D, distance, true));
 		}
 		for (EnderDragon dragon : level.getDragons()) dragon(player, dragon, out);
 	}
@@ -100,30 +104,30 @@ final class TruthScan {
 		if (mob instanceof Creeper creeper) {
 			float swelling = creeper.getSwelling(1.0F);
 			if ((creeper.getSwellDir() > 0 || swelling > 0.0F) && distance <= 7.0D) {
-				out.add(entityDanger("creeper", creeper, (1.0D - swelling) * 1.5D, distance));
+				out.add(entityDanger("creeper", creeper, (1.0D - swelling) * 1.5D, distance, targeting));
 			} else if (targeting) {
-				out.add(entityDanger("creeper", creeper, Math.max(0.0D, distance - 3.0D) / CHASE_SPEED + 1.5D, distance));
+				out.add(entityDanger("creeper", creeper, Math.max(0.0D, distance - 3.0D) / CHASE_SPEED + 1.5D, distance, true));
 			}
 			return;
 		}
 		if (!targeting) return;
 		if (mob instanceof WitherSkeleton) {
-			out.add(entityDanger("wither_skeleton", mob, meleeEta(distance, CHASE_SPEED), distance));
+			out.add(entityDanger("wither_skeleton", mob, meleeEta(distance, CHASE_SPEED), distance, true));
 		} else if (mob instanceof AbstractSkeleton) {
 			double draw = mob.isUsingItem() ? Math.max(0.0D, 20.0D - mob.getTicksUsingItem()) / 20.0D : 1.5D;
-			out.add(entityDanger("ranged_mob", mob, draw + distance / 50.0D, distance));
+			out.add(entityDanger("ranged_mob", mob, draw + distance / 50.0D, distance, true));
 		} else if (mob instanceof Blaze blaze) {
-			out.add(entityDanger("blaze", blaze, (blaze.isOnFire() ? 0.3D : 2.5D) + distance / 20.0D, distance));
+			out.add(entityDanger("blaze", blaze, (blaze.isOnFire() ? 0.3D : 2.5D) + distance / 20.0D, distance, true));
 		} else if (mob instanceof AbstractPiglin) {
 			double eta = mob.isUsingItem() ? 1.0D + distance / 50.0D : meleeEta(distance, CHASE_SPEED);
-			out.add(entityDanger("piglin", mob, eta, distance));
+			out.add(entityDanger("piglin", mob, eta, distance, true));
 		} else if (McCompat.isEnderman(mob)) {
-			out.add(entityDanger("enderman", mob, Math.max(0.0D, distance - 3.0D) / 8.0D, distance));
+			out.add(entityDanger("enderman", mob, Math.max(0.0D, distance - 3.0D) / 8.0D, distance, true));
 		} else if (mob instanceof Enemy) {
-			out.add(entityDanger("mob", mob, meleeEta(distance, CHASE_SPEED), distance));
+			out.add(entityDanger("mob", mob, meleeEta(distance, CHASE_SPEED), distance, true));
 		} else {
 			// A provoked neutral mob (wolf, golem, bee, polar bear) after this agent.
-			out.add(entityDanger("mob", mob, meleeEta(distance, CHASE_SPEED), distance));
+			out.add(entityDanger("mob", mob, meleeEta(distance, CHASE_SPEED), distance, true));
 		}
 	}
 

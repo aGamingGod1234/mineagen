@@ -102,3 +102,12 @@ test('long measurement reconciles corrected call usage and rejects missing or mi
  assert.equal(status([call,{...total,outputTokens:200}]), 'INCOMPLETE', 'mismatched counter');
  assert.equal(status([{...call,partialMessagesAccepted:false},total]), 'INCOMPLETE', 'partial-message attestation still required');
 });
+
+test('the long-run projection keeps kills next to advancements and drops bulky rows', async () => {
+	const { longProtocolRow } = await import('../src/benchmark/long-run-artifacts.mjs');
+	const kill = { direction: 'server_to_coordinator', envelope: { type: 'entity_killed', agentId: 'agent-a', payload: { entityType: 'minecraft:blaze', goalRevision: 1 } } };
+	assert.deepEqual(longProtocolRow(kill), kill, 'entity_killed is published during play and must reach the long-run report');
+	const advancement = { envelope: { type: 'advancement_granted', agentId: 'agent-a', payload: {} } };
+	assert.deepEqual(longProtocolRow(advancement), advancement);
+	assert.equal(longProtocolRow({ envelope: { type: 'action_progress', agentId: 'agent-a', payload: {} } }), null);
+});

@@ -1240,6 +1240,7 @@ function wireActionCommand(record, actionId, command, traceId, inspectedSequence
 			sourceStepId: provenance.stepId,
 			eventSequence: inspectedSequence ?? provenance.authorizingEventSequence ?? provenance.eventSequence,
 			...(provenance.watcherId === null || provenance.watcherId === undefined ? {} : { watcherId: provenance.watcherId }),
+			issuer: 'program',
 		}),
 	});
 }

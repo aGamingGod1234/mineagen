@@ -20,7 +20,7 @@ import { activateQualitySetup, sampleQualityShelter } from '../../coordinator/sr
 import { initialPlanEvidence } from '../../coordinator/src/benchmark/quality-metrics-v2.mjs';
 import { liveSpendUsd, unmeteredProviderCalls } from '../../coordinator/src/benchmark/spend-ledger.mjs';
 import { startAnthropicGateway, PREPARATION_ALLOWANCE_USD } from '../../coordinator/src/benchmark/spend-gate.mjs';
-import { LadderEvaluator, evaluateSamples, parseSuccessCheck } from './ladder-evaluator.mjs';
+import { LadderEvaluator, checkAdvancements, evaluateSamples, parseSuccessCheck } from './ladder-evaluator.mjs';
 import { spawnOwnedProcess, terminateChildProcess } from '../../coordinator/src/child-process-lifecycle.mjs';
 import { collectWatchFiles } from './watch-files.mjs';
 
@@ -49,11 +49,12 @@ export async function coordinatorFingerprint(root) {
 }
 
 export function parseArgs(argv) {
-	const accepted = new Set(['--scenarios', '--provider', '--model', '--effort', '--runs', '--jar', '--out', '--budget-ms', '--server-template', '--java', '--port-base', '--source-commit', '--coordinator-root', '--arms', '--harness-commit', '--play-window-ms', '--service-tier', '--seed', '--spawn']);
+	const accepted = new Set(['--scenarios', '--provider', '--model', '--effort', '--runs', '--jar', '--out', '--budget-ms', '--server-template', '--java', '--port-base', '--source-commit', '--coordinator-root', '--arms', '--harness-commit', '--play-window-ms', '--service-tier', '--seed', '--spawn', '--scenario-file']);
 	const values = {};
 	for (let i = 0; i < argv.length; i++) {
 		if (argv[i] === '--help') return { help: true };
 		if (argv[i] === '--retry-failed') { values['retry-failed'] = true; continue; }
+		if (argv[i] === '--allow-identical-arms') { values['allow-identical-arms'] = true; continue; }
 		if (!accepted.has(argv[i]) || !argv[i + 1] || argv[i + 1].startsWith('--')) throw new Error(`Invalid argument ${argv[i]}`);
 		values[argv[i].slice(2)] = argv[++i];
 	}
@@ -76,7 +77,9 @@ export function parseArgs(argv) {
 	if (!Number.isInteger(runs) || runs < 1 || runs > 32 || budget !== null && !validBudget(budget)) throw new Error('--runs must be 1..32; play window must be 1000..3600000 ms');
 	if (scenarios.length * runs > 40) throw new Error('At most 40 scenario/repetition pairs per invocation');
 	if (values['retry-failed'] && !values.arms) throw new Error('--retry-failed requires --arms');
-	return { serviceTier, seed: values.seed ?? null, spawnPosition: spawnPosition ?? null, goalStartClock: Boolean(values['play-window-ms']), retryFailed: Boolean(values['retry-failed']), harnessCommit, arms: values.arms && path.resolve(values.arms), coordinatorRoot: path.resolve(values['coordinator-root'] ?? ROOT), sourceCommit: values['source-commit'] ?? null, provider, model: values.model ?? ({ claude: 'claude-opus-5-5', codex: 'gpt-6.1-sol' })[provider], effort: values.effort ?? 'low', runs, budget,
+	if (values['allow-identical-arms'] && !values.arms) throw new Error('--allow-identical-arms requires --arms');
+	if (values['scenario-file'] && !values.scenarios) throw new Error('--scenario-file requires --scenarios');
+	return { scenarioFile: values['scenario-file'] ? path.resolve(values['scenario-file']) : null, allowIdenticalArms: Boolean(values['allow-identical-arms']), serviceTier, seed: values.seed ?? null, spawnPosition: spawnPosition ?? null, goalStartClock: Boolean(values['play-window-ms']), retryFailed: Boolean(values['retry-failed']), harnessCommit, arms: values.arms && path.resolve(values.arms), coordinatorRoot: path.resolve(values['coordinator-root'] ?? ROOT), sourceCommit: values['source-commit'] ?? null, provider, model: values.model ?? ({ claude: 'claude-opus-5-5', codex: 'gpt-6.1-sol' })[provider], effort: values.effort ?? 'low', runs, budget,
 		scenarios, jar: values.jar && path.resolve(values.jar),
 		portBase, out: path.resolve(values.out ?? path.join(ROOT, 'runtime/quality-results', `quality-${Date.now()}`)),
 		template: path.resolve(values['server-template'] ?? process.env.ARENA_HEADLESS_SERVER_TEMPLATE ?? DEFAULT_TEMPLATE), java: values.java ?? process.env.ARENA_HEADLESS_JAVA ?? (process.env.JAVA_HOME ? path.join(process.env.JAVA_HOME, 'bin', JAVA_EXE) : DEFAULT_JAVA) };
@@ -100,6 +103,28 @@ export function resolveQualityScenarios(all, { scenarios, budget = null, seed = 
 		if (budget !== null && budget !== s.durationBudgetMs) warn(`${id}: explicit window ${budget} ms replaces scenario durationBudgetMs ${s.durationBudgetMs} ms`);
 		return { ...s, durationBudgetMs: resolved, ...(seed === null ? {} : { seed }), ...(spawnPosition === null ? {} : { setup: { ...s.setup, position: spawnPosition } }) };
 	});
+}
+
+/**
+ * --scenario-file: the whole file's scenarios become options.definitions once, so every paired run hashes the same data.
+ * Room success is evaluated at the end of the window, never as an early stop (an undefined evaluatorEarlyStop skips evaluation).
+ */
+export async function loadScenarioFile(file) {
+	const bytes = await readFile(file);
+	const data = JSON.parse(bytes.toString('utf8'));
+	if (!Array.isArray(data?.scenarios) || !data.scenarios.length) throw new Error(`${file} has no scenarios`);
+	const definitions = data.scenarios.map(s => ({ ...s,
+		sampledAdvancements: [...new Set([...DEFAULT_SAMPLED_ADVANCEMENTS, ...(s.successCheck ? checkAdvancements(parseSuccessCheck(s.successCheck)) : [])])],
+		evaluatorEarlyStop: typeof s.evaluatorEarlyStop === 'boolean' ? s.evaluatorEarlyStop : false }));
+	return { definitions, scenarioDataSha256: createHash('sha256').update(bytes).digest('hex') };
+}
+
+/** JVM and environment flags an arm may add; arms that share a JAR and coordinator may differ only by these. */
+export function armFlags(build, arm) {
+	const jvmArgs = build?.jvmArgs ?? [], env = build?.env ?? {};
+	if (!Array.isArray(jvmArgs) || jvmArgs.some(a => typeof a !== 'string' || !/^-\S+$/.test(a)) || jvmArgs.length > 32) throw new Error(`Arm ${arm} jvmArgs must be up to 32 single-token flags starting with -`);
+	if (!env || typeof env !== 'object' || Array.isArray(env) || Object.entries(env).some(([k, v]) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(k) || typeof v !== 'string')) throw new Error(`Arm ${arm} env must map variable names to strings`);
+	return { jvmArgs: [...jvmArgs], env: Object.fromEntries(Object.entries(env).sort(([a], [b]) => a.localeCompare(b))) };
 }
 
 export function isTerminalRconClosure(error) {
@@ -448,9 +473,10 @@ export class Observer {
 		const evaluation = this.definition.successCheck && typeof this.definition.evaluatorEarlyStop === 'boolean'
 			? (() => { try { return evaluateSamples(this.samples, { ...this.definition, goalStartAt: window.startedAt, protocolRows: this.protocol.rows }); } catch (error) { return { status: 'ERROR', pass: false, error: error.message }; } })() : null;
 		const runnerTermination = runner?.classification ?? report?.diagnostics ?? 'NO_REPORT';
-		const run = { scenario: this.definition.id, name: this.definition.name, profile: this.profile, goalCompleted: window.goalCompleted, measurementStatus: measurementStatus(metrics, this.samples, this.errors, jsonlDroppedLines, this.profile.provider),
+		const run = { scenario: this.definition.id, name: this.definition.name, profile: this.profile, goalStartedAtMs: window.startedAt ?? null, goalCompleted: window.goalCompleted, measurementStatus: measurementStatus(metrics, this.samples, this.errors, jsonlDroppedLines, this.profile.provider),
 			diagnostics: runner?.diagnostics ?? null, errorCode: runner?.errorCode ?? null,
-			termination: evaluation?.pass && evaluation.source === 'samples' ? 'EVALUATOR_PASS' : runnerTermination, runnerStatus: runner?.status ?? report?.status ?? null,
+			// A room played to the end of its window (evaluatorEarlyStop false) keeps its runner termination, so a pass stays eligible for pairing.
+			termination: evaluation?.pass && evaluation.source === 'samples' && this.definition.evaluatorEarlyStop !== false ? 'EVALUATOR_PASS' : runnerTermination, runnerStatus: runner?.status ?? report?.status ?? null,
 			metrics, definition: this.definition, setup: this.setup ?? null, artifacts: this.directory, observerErrors: this.errors, terminalObserverErrors: this.terminalObserverErrors,
 			samplingGaps: this.samplingGaps, providerAttestation: runner?.settings ?? null, stopRequest: this.stopRequest ?? null, liveSpend: this.liveSpend ?? null,
 			...(evaluation ? { evaluation, runnerTermination } : {}),
@@ -565,7 +591,7 @@ export async function runScenarios(options, { spawnLauncher = spawnOwnedProcess,
 				: [path.join(ROOT, 'scripts/run-headless-provider-matrix.mjs')];
 			const child = launcher = spawnLauncher(launcherCommand, [...launcherArgs,
 				'-ProjectRoot', ROOT, '-CoordinatorRoot', options.coordinatorRoot ?? ROOT, '-MatrixPath', matrixFile, '-ServerTemplate', template, '-ModJar', jar, '-KeepArtifacts', '-RequireAll'],
-				{ cwd: ROOT, windowsHide: true, env: { ...process.env, ...(gateway ? { ANTHROPIC_BASE_URL: gateway.url } : {}), ARENA_STRICT_SPEND_GATE: strict ? '1' : '0', ARENA_HEADLESS_JAVA: options.java, ARENA_HEADLESS_STARTUP_TIMEOUT_SECONDS: '300', ...(options.portBase ? { ARENA_HEADLESS_BRIDGE_PORT: String(options.portBase), ARENA_HEADLESS_RCON_PORT: String(options.portBase + 1), ARENA_HEADLESS_MINECRAFT_PORT: String(options.portBase + 2) } : {}) }, stdio: ['ignore', 'pipe', 'pipe'] });
+				{ cwd: ROOT, windowsHide: true, env: { ...process.env, ...(options.env ?? {}), ...(options.jvmArgs?.length ? { ARENA_HEADLESS_SERVER_JVM_ARGS: JSON.stringify(options.jvmArgs) } : {}), ...(gateway ? { ANTHROPIC_BASE_URL: gateway.url } : {}), ARENA_STRICT_SPEND_GATE: strict ? '1' : '0', ARENA_HEADLESS_JAVA: options.java, ARENA_HEADLESS_STARTUP_TIMEOUT_SECONDS: '300', ...(options.portBase ? { ARENA_HEADLESS_BRIDGE_PORT: String(options.portBase), ARENA_HEADLESS_RCON_PORT: String(options.portBase + 1), ARENA_HEADLESS_MINECRAFT_PORT: String(options.portBase + 2) } : {}) }, stdio: ['ignore', 'pipe', 'pipe'] });
 			child.stdout.on('data', c => { stdout.write(c); process.stdout.write(c); }); child.stderr.on('data', c => { stderr.write(c); process.stderr.write(c); });
 			child.once('error', reject); child.once('close', async (code, signal) => { await Promise.all([new Promise(r => stdout.end(r)), new Promise(r => stderr.end(r))]); resolve({ code, signal }); });
 		});
@@ -595,7 +621,7 @@ export async function runScenarios(options, { spawnLauncher = spawnOwnedProcess,
 		await writeArtifactReport(path.join(options.out, `${run.scenario}-r${run.repetition}.json`), run);
 		await writeFile(path.join(options.out, `${run.scenario}-r${run.repetition}-timeline.txt`), formatTimeline(run));
 	}
-	const report = { schemaVersion: 2, benchmark: 'live-scenario-quality', capturedAt: new Date().toISOString(), harnessCommit: commit || options.harnessCommit || null, instrumentationSha256: await instrumentationFingerprint(), sourceCommit: options.sourceCommit, coordinatorSha256, scenarioDataSha256: createHash('sha256').update(options.definitions ? JSON.stringify(options.definitions) : await readFile(path.join(ROOT, 'scripts/quality/scenarios.json'))).digest('hex'),
+	const report = { schemaVersion: 2, benchmark: 'live-scenario-quality', capturedAt: new Date().toISOString(), harnessCommit: commit || options.harnessCommit || null, instrumentationSha256: await instrumentationFingerprint(), sourceCommit: options.sourceCommit, coordinatorSha256, scenarioDataSha256: options.scenarioDataSha256 ?? createHash('sha256').update(options.definitions ? JSON.stringify(options.definitions) : await readFile(path.join(ROOT, 'scripts/quality/scenarios.json'))).digest('hex'),
 		jar: { path: jar, sha256: jarSha256 }, sourceChangedDuringRun, qualityCapture,
 		method: { server: 'fresh fixed-seed Fabric worlds, one owned headless server at a time, -Xmx2G, existing matrix launcher', coordinator: options.coordinatorRoot ?? ROOT,
 			cost: 'Shared repository token-cost comparison proxy for play and preparation; provider-reported preparation USD retained separately; not subscription billing', rates: SPEED_TOKEN_PRICES_PER_MILLION, sampling: 'RCON entity NBT and vanilla scoreboard stats approximately once per second; trace epoch timestamps and audit append observation time' },
@@ -613,7 +639,7 @@ export function pairedSchedule(scenarios, repetitions) {
 	return Array.from({ length: repetitions }, (_, i) => scenarios.flatMap(scenario => (i % 2 ? ['B', 'A'] : ['A', 'B']).map((arm, position) => ({ scenario, repetition: i + 1, arm, armOrderPosition: position + 1 })))).flat();
 }
 
-export const INSTRUMENTATION_FILES = ['scripts/quality/run-scenarios.mjs', 'scripts/quality/scenarios.json', 'scripts/quality/launch-scenarios.ps1', 'scripts/run-headless-provider-matrix.ps1', 'scripts/run-headless-provider-matrix.mjs', 'scripts/offline-server-policy.ps1', 'scripts/project-metadata.ps1', 'coordinator/src/headless-rcon.mjs', 'coordinator/src/provider-turn-recorder.mjs', 'coordinator/src/headless-matrix.mjs', 'coordinator/src/benchmark/report-artifacts.mjs', 'coordinator/src/benchmark/jsonl-stream.mjs', 'coordinator/src/benchmark/long-run-artifacts.mjs', 'coordinator/src/benchmark/long-run.mjs', 'scripts/quality/run-long.mjs', 'coordinator/src/benchmark/quality-scenarios.mjs', 'coordinator/src/benchmark/quality-metrics.mjs', 'coordinator/src/benchmark/quality-metrics-v2.mjs', 'coordinator/src/benchmark/quality-progress.mjs', 'coordinator/src/benchmark/live-speed-benchmark.mjs', 'coordinator/src/call-cost.mjs', 'coordinator/src/benchmark/spend-ledger.mjs', 'coordinator/src/benchmark/spend-gate.mjs'];
+export const INSTRUMENTATION_FILES = ['scripts/quality/run-scenarios.mjs', 'scripts/quality/scenarios.json', 'scripts/quality/launch-scenarios.ps1', 'scripts/run-headless-provider-matrix.ps1', 'scripts/run-headless-provider-matrix.mjs', 'scripts/offline-server-policy.ps1', 'scripts/project-metadata.ps1', 'coordinator/src/headless-rcon.mjs', 'coordinator/src/provider-turn-recorder.mjs', 'coordinator/src/headless-matrix.mjs', 'coordinator/src/benchmark/report-artifacts.mjs', 'coordinator/src/benchmark/jsonl-stream.mjs', 'coordinator/src/benchmark/long-run-artifacts.mjs', 'coordinator/src/benchmark/long-run.mjs', 'scripts/quality/run-long.mjs', 'coordinator/src/benchmark/quality-scenarios.mjs', 'coordinator/src/benchmark/quality-metrics.mjs', 'coordinator/src/benchmark/quality-metrics-v2.mjs', 'coordinator/src/benchmark/quality-progress.mjs', 'coordinator/src/benchmark/live-speed-benchmark.mjs', 'coordinator/src/call-cost.mjs', 'coordinator/src/benchmark/spend-ledger.mjs', 'coordinator/src/benchmark/spend-gate.mjs', 'scripts/quality/reflex-rooms.json', 'scripts/quality/watch-files.mjs', 'scripts/quality/lib/reflex-round.mjs'];
 export async function instrumentationFingerprint(root = ROOT) {
 	const hash = createHash('sha256');
 	for (const file of INSTRUMENTATION_FILES) hash.update(file + '\0').update(await readFile(path.join(root, file)));
@@ -657,13 +683,21 @@ export async function validateArmBuild(build, arm, provider = 'claude', { requir
 
 export async function runPairedScenarios(options, execute = runScenarios, timing = {}) {
 	const arms = await json(options.arms), pinned = {};
-	for (const arm of ['A', 'B']) pinned[arm] = await validateArmBuild(arms[arm], arm, options.provider);
-	if (pinned.A.jarSha256 === pinned.B.jarSha256 && pinned.A.coordinatorSha256 === pinned.B.coordinatorSha256) throw new Error('A and B must not have identical JAR and coordinator hashes');
+	for (const arm of ['A', 'B']) {
+		const flags = armFlags(arms[arm], arm);
+		pinned[arm] = { ...await validateArmBuild(arms[arm], arm, options.provider), ...(flags.jvmArgs.length ? { jvmArgs: flags.jvmArgs } : {}), ...(Object.keys(flags.env).length ? { env: flags.env } : {}) };
+	}
+	const identical = pinned.A.jarSha256 === pinned.B.jarSha256 && pinned.A.coordinatorSha256 === pinned.B.coordinatorSha256
+		&& JSON.stringify(armFlags(arms.A, 'A')) === JSON.stringify(armFlags(arms.B, 'B'));
+	// An A/A run (one build in both arms) measures the noise floor; anywhere else identical arms are a configuration mistake.
+	if (identical && !options.allowIdenticalArms) throw new Error('A and B must not have identical JAR and coordinator hashes and flags; pass --allow-identical-arms for an A/A run');
+	if (!identical && options.allowIdenticalArms) throw new Error('--allow-identical-arms needs identical arms: the same JAR, coordinator and flags');
 	const schedule = pairedSchedule(options.scenarios, options.runs).map((entry, i) => ({ ...entry, executionOrder: i + 1 }));
 	const checkpoint = path.join(options.out, 'results.json');
 	if (!options.retryFailed && (await directories(options.out)).length + (await readdir(options.out).catch(e => { if (e.code === 'ENOENT') return []; throw e; })).length) throw new Error('Use a fresh output directory, or --retry-failed for ineligible pairs');
 	const saved = options.retryFailed ? await readArtifactReport(checkpoint) : null;
-	const configuration = { scenarios: options.scenarios, runs: options.runs, provider: options.provider, model: options.model, effort: options.effort, budget: options.budget ?? null, serviceTier: options.serviceTier ?? null, seed: options.seed ?? null, spawnPosition: options.spawnPosition ?? null, goalStartClock: Boolean(options.goalStartClock), harnessCommit: options.harnessCommit ?? null };
+	const configuration = { scenarios: options.scenarios, runs: options.runs, provider: options.provider, model: options.model, effort: options.effort, budget: options.budget ?? null, serviceTier: options.serviceTier ?? null, seed: options.seed ?? null, spawnPosition: options.spawnPosition ?? null, goalStartClock: Boolean(options.goalStartClock), harnessCommit: options.harnessCommit ?? null,
+		...(options.scenarioFile ? { scenarioFile: path.basename(options.scenarioFile), scenarioDataSha256: options.scenarioDataSha256 ?? null } : {}), ...(options.allowIdenticalArms ? { design: 'A/A' } : {}) };
 	const currentInstrumentation = await instrumentationFingerprint();
 	if (saved && (JSON.stringify(saved.configuration) !== JSON.stringify(configuration) || saved.instrumentationSha256 !== currentInstrumentation || JSON.stringify(saved.pinnedArms) !== JSON.stringify(pinned))) throw new Error('Retry configuration, instrumentation or pinned arms differ from original benchmark');
 	const reports = saved?.arms ?? {}, sequence = saved?.sequence ?? [], history = saved?.history ?? [];
@@ -691,7 +725,7 @@ export async function runPairedScenarios(options, execute = runScenarios, timing
 		const out = path.join(options.out, entry.arm, pairId, `attempt-${retryAttempt + 1}`);
 		const gapStartedAtMs = now(); await wait(60000); const gapEndedAtMs = now();
 		await validateArmBuild(build, entry.arm, options.provider);
-		const report = await execute({ ...options, ...build, sourceCommit: build.commit, runs: 1, repetition: entry.repetition, scenarios: [entry.scenario], out });
+		const report = await execute({ ...options, ...build, ...armFlags(build, entry.arm), sourceCommit: build.commit, runs: 1, repetition: entry.repetition, scenarios: [entry.scenario], out });
 		if (report.coordinatorSha256 !== pinned[entry.arm].coordinatorSha256 || report.jar?.sha256 !== pinned[entry.arm].jarSha256) throw new Error(`Arm ${entry.arm} differs from pinned artifacts during benchmark`);
 		const prior = reports[entry.arm];
 		if (prior) for (const field of ['instrumentationSha256', 'scenarioDataSha256']) if (prior[field] !== report[field]) throw new Error(`Arm ${entry.arm} changed ${field} during benchmark`);
@@ -713,7 +747,7 @@ export function formatTimeline(run) {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-	try { const options = parseArgs(process.argv.slice(2)); if (options.help) console.log('node scripts/quality/run-scenarios.mjs --scenarios S1,S1-deltas,S5 --provider claude|codex --model claude-opus-5-5 --effort low --runs 8 --arms arms.json --out DIR [--retry-failed] [--budget-ms MS | --play-window-ms MS (default: scenario durationBudgetMs)] [--service-tier priority] [--seed INTEGER --spawn X,Y,Z] [--coordinator-root PATH --jar PATH]; acceptance gate is Claude only'); else if (options.arms) await runPairedScenarios(options); else await runScenarios(options); }
+	try { const options = parseArgs(process.argv.slice(2)); if (options.help) console.log('node scripts/quality/run-scenarios.mjs --scenarios S1,S1-deltas,S5 --provider claude|codex --model claude-opus-5-5 --effort low --runs 8 --arms arms.json --out DIR [--retry-failed] [--allow-identical-arms (A/A run)] [--scenario-file reflex-rooms.json] [--budget-ms MS | --play-window-ms MS (default: scenario durationBudgetMs)] [--service-tier priority] [--seed INTEGER --spawn X,Y,Z] [--coordinator-root PATH --jar PATH]; acceptance gate is Claude only'); else { if (options.scenarioFile) Object.assign(options, await loadScenarioFile(options.scenarioFile)); if (options.arms) await runPairedScenarios(options); else await runScenarios(options); } }
 	catch (e) { console.error(e.stack); process.exitCode = 1; }
 }
 

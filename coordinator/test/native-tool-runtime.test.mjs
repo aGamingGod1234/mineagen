@@ -329,6 +329,7 @@ test('an interrupted sequence reports its active step and leaves later actions u
 	}, record());
 	for (let attempt = 0; attempt < 8 && sent.length === 0; attempt += 1) await new Promise((resolve) => setImmediate(resolve));
 	assert.equal(sent.length, 1, 'only the current sequence step has started');
+	assert.equal(sent[0][2].provenance.issuer, 'model', 'the first step of the model\'s own sequence is the model\'s response');
 	const actionId = sent[0][2].actionId;
 	assert.equal(runtime.interruptBlockingTool('agent-a'), true);
 	const early = await Promise.race([
@@ -363,6 +364,7 @@ test('an armed danger interrupt lets quick authored sequence steps finish and re
 	}
 	const early = await Promise.race([pending, new Promise((resolve) => setTimeout(() => resolve({ state: 'STILL_BLOCKED' }), 10_000).unref())]);
 	assert.deepEqual(sent.map(([, , payload]) => payload.actionType), ['equip_item', 'select_item', 'fight_target']);
+	assert.deepEqual(sent.map(([, , payload]) => payload.provenance.issuer), ['model', 'skill_leg', 'skill_leg'], 'only the first step is the model\'s response');
 	assert.equal(early.state, 'RUNNING');
 	assert.equal(early.actionType, 'fight_target');
 	assert.equal(early.interruptedBy, 'danger');
@@ -1637,14 +1639,21 @@ test('the dispatch chain is traced per call: journal, bridge send and the Java a
 	const actionId = sent[0][2].actionId;
 	assert.equal(runtime.onActionProgress(record(), { actionId, progress: 0.5, elapsedMs: 40, serverTick: 4_012 }), true);
 	const timing = { acceptedAtEpochMs: 1_760_000_000_010, startedAtEpochMs: 1_760_000_000_050, startedTick: 4_001, endedTick: 4_020 };
-	assert.equal(runtime.onActionResult(record(), { actionId, goalRevision: 3, state: 'SUCCEEDED', reasonCode: 'DONE', elapsedMs: 900, observedAtEpochMs: 1_760_000_000_950, timing }), true);
+	const pausedBy = { rules: [{ id: 'default-defend', times: 1 }], ms: 600, resumes: 1, endedPaused: false };
+	assert.equal(runtime.onActionResult(record(), { actionId, goalRevision: 3, state: 'SUCCEEDED', reasonCode: 'DONE', elapsedMs: 900, observedAtEpochMs: 1_760_000_000_950, timing, pausedBy }), true);
 	const modelResult = await pending;
 	assert.equal(modelResult.state, 'SUCCEEDED');
+	assert.equal(JSON.stringify(modelResult).includes('pausedBy'), false, 'pausedBy is for audits; the model result is unchanged');
 	assert.equal(Object.keys(modelResult).some((key) => key.startsWith('java') || key === 'timing'), false, 'the model never sees the latency clocks');
 	const by = (event) => traces.find(([name]) => name === event)[1];
 	for (const event of ['native_tool_dispatch_started', 'native_tool_journal_written', 'native_tool_command_sent']) assert.equal(by(event).callId, 'call-new', event);
 	assert.ok(by('native_tool_journal_written').journalMs >= 0);
 	assert.ok(by('native_tool_command_sent').sendMs >= 0 && by('native_tool_command_sent').dispatchMs >= by('native_tool_command_sent').sendMs);
+	// The sent row names the observation the command was chosen on, its program and its explicit issuer (C17).
+	assert.equal(by('native_tool_command_sent').eventSequence, 1);
+	assert.equal(by('native_tool_command_sent').programId, sent[0][2].provenance.programId);
+	assert.equal(by('native_tool_command_sent').issuer, 'model');
+	assert.equal(sent[0][2].provenance.issuer, 'model', 'a direct model call is issued by the model');
 	assert.equal(by('native_tool_action_progress').serverTick, 4_012);
 	const completed = by('native_tool_action_completed');
 	assert.deepEqual(

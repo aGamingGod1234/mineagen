@@ -939,7 +939,43 @@ final class DurableActionJournal implements AutoCloseable {
 			encoded.add("actionObservation", OBSERVATION_CODEC.toJsonTree(result.actionObservation()));
 		}
 		if (result.breakOutcome() != null) encoded.add("breakOutcome", encodeBreakOutcome(result.breakOutcome()));
+		if (result.pausedBy() != null) encoded.add("pausedBy", encodePausedBy(result.pausedBy()));
 		return encoded;
+	}
+
+	/** The wire and journal form of the reflex firings that paused an action. */
+	public static JsonObject encodePausedBy(ServerActionResult.PausedBy pausedBy) {
+		JsonObject encoded = new JsonObject();
+		com.google.gson.JsonArray rules = new com.google.gson.JsonArray();
+		for (ServerActionResult.PausedBy.Rule rule : pausedBy.rules()) {
+			JsonObject row = new JsonObject();
+			row.addProperty("id", rule.id());
+			row.addProperty("times", rule.times());
+			rules.add(row);
+		}
+		encoded.add("rules", rules);
+		encoded.addProperty("ms", pausedBy.ms());
+		encoded.addProperty("resumes", pausedBy.resumes());
+		encoded.addProperty("endedPaused", pausedBy.endedPaused());
+		return encoded;
+	}
+
+	private static ServerActionResult.PausedBy decodePausedBy(JsonObject encoded) {
+		ServerActionResult.PausedBy pausedBy;
+		try {
+			java.util.List<ServerActionResult.PausedBy.Rule> rules = new java.util.ArrayList<>();
+			JsonElement array = encoded.get("rules");
+			if (array == null || !array.isJsonArray()) throw corrupt("pausedBy.rules must be an array");
+			for (JsonElement element : array.getAsJsonArray()) {
+				if (!element.isJsonObject()) throw corrupt("pausedBy rule must be an object");
+				rules.add(new ServerActionResult.PausedBy.Rule(requiredString(element.getAsJsonObject(), "id"), requiredInt(element.getAsJsonObject(), "times")));
+			}
+			pausedBy = new ServerActionResult.PausedBy(rules, requiredLong(encoded, "ms"), requiredInt(encoded, "resumes"), requiredBoolean(encoded, "endedPaused"));
+		} catch (IllegalArgumentException invalid) {
+			throw corrupt("pausedBy is invalid", invalid);
+		}
+		if (!encodePausedBy(pausedBy).equals(encoded)) throw corrupt("pausedBy must contain only its typed fields");
+		return pausedBy;
 	}
 
 	/** The wire and journal form of a result's structured break evidence; an empty hand has no held item. */
@@ -966,7 +1002,9 @@ final class DurableActionJournal implements AutoCloseable {
 				requiredBoolean(encoded, "physicalAttempted"),
 				encoded.has("actionObservation") ? decodeObservation(requiredObject(encoded, "actionObservation")) : null,
 				encoded.has("breakOutcome") ? decodeBreakOutcome(requiredObject(encoded, "breakOutcome")) : null,
-				encoded.has("cause") ? requiredString(encoded, "cause") : null
+				encoded.has("cause") ? requiredString(encoded, "cause") : null,
+				// Records written before pausedBy existed decode as unpaused.
+				encoded.has("pausedBy") ? decodePausedBy(requiredObject(encoded, "pausedBy")) : null
 		);
 	}
 

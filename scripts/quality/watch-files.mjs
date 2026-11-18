@@ -1,4 +1,5 @@
-// Watcher files (arena-watch/<agentId>-episodes.jsonl and -forecasts.jsonl, schema v1) written by the mod into the
+// Watcher files (arena-watch/<agentId>-episodes.jsonl and -forecasts.jsonl, schema v1; -danger.jsonl rows carry their own
+// schema field, see scripts/quality/README.md) written by the mod into the
 // Minecraft server run directory. The runner copies them into the run's artifact directory during and after play,
 // because finished runs lose their server directory to pruning.
 import { cp, readdir, readFile, stat } from 'node:fs/promises';
@@ -48,14 +49,19 @@ export function parseWatchLines(text) {
 	return { rows, dropped };
 }
 
-/** Episodes and forecasts of one arena-watch directory; the run is the directory that holds it. */
+/**
+ * Episodes, forecasts and danger rows (damage, onset, clear, firing, reflex_event) of one arena-watch directory; the run is
+ * the directory that holds it. dangerFiles counts the -danger.jsonl files, so no file (watch off, older mod) reads as unknown;
+ * dangerDropped counts their malformed lines, so a corrupt file reads as unknown too.
+ */
 export async function readWatchDir(watchDir) {
-	const episodes = [], forecasts = [];
-	let dropped = 0;
+	const episodes = [], forecasts = [], danger = [];
+	let dropped = 0, dangerFiles = 0, dangerDropped = 0;
 	for (const name of (await readdir(watchDir).catch(() => [])).sort()) {
 		if (!name.endsWith('.jsonl')) continue;
 		const parsed = parseWatchLines(await readFile(path.join(watchDir, name), 'utf8'));
 		dropped += parsed.dropped;
+		if (name.endsWith('-danger.jsonl')) { dangerFiles++; dangerDropped += parsed.dropped; danger.push(...parsed.rows); continue; }
 		for (const row of parsed.rows) {
 			if (row.type === 'episode' || name.endsWith('-episodes.jsonl') && row.type === undefined) episodes.push(row);
 			else if (row.type === 'forecast' || name.endsWith('-forecasts.jsonl') && row.type === undefined) forecasts.push(row);
@@ -63,5 +69,5 @@ export async function readWatchDir(watchDir) {
 	}
 	let run = path.dirname(watchDir);
 	if (path.basename(run) === 'server') run = path.dirname(run);
-	return { run, watchDir, episodes, forecasts, dropped };
+	return { run, watchDir, episodes, forecasts, danger, dangerFiles, dangerDropped, dropped };
 }

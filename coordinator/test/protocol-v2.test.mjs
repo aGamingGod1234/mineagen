@@ -3381,3 +3381,62 @@ test('retired director script messages are rejected at the protocol boundary', (
 		assert.throws(() => validateProtocolV2Payload(type, {}), { code: 'INVALID_MESSAGE_TYPE' });
 	}
 });
+
+test('pausedBy is an optional typed action_result field behind the pausedByFacts hello capability', () => {
+	const hello = { replyTo: 'auth', clientNonce: 'a'.repeat(43), serverNonce: 'b'.repeat(43), proof: 'c'.repeat(43) };
+	assert.equal(validateProtocolV2Payload('hello', { ...hello, pausedByFacts: true }).pausedByFacts, true);
+	assert.equal(validateProtocolV2Payload('hello', hello).pausedByFacts, undefined, 'an older coordinator announces nothing');
+	assert.throws(() => validateProtocolV2Payload('hello', { ...hello, pausedByFacts: 'yes' }), ProtocolV2Error);
+	const pausedBy = { rules: [{ id: 'default-defend', times: 2 }, { id: 'leave-lava', times: 1 }], ms: 3_400, resumes: 2, endedPaused: false };
+	assert.deepEqual(validateProtocolV2Payload('action_result', { ...actionResult('paused-1'), pausedBy }).pausedBy, pausedBy);
+	assert.equal(validateProtocolV2Payload('action_result', actionResult('paused-2')).pausedBy, undefined, 'an older server sends none');
+	for (const bad of [{ ...pausedBy, rules: [] }, { ...pausedBy, rules: [{ id: 'x', times: 0 }] }, { ...pausedBy, ms: -1 }, { ...pausedBy, extra: 1 },
+		{ ...pausedBy, rules: [{ id: 'x', times: 1, extra: true }] }, { rules: pausedBy.rules, ms: 1, resumes: 0 }]) {
+		assert.throws(() => validateProtocolV2Payload('action_result', { ...actionResult('paused-bad'), pausedBy: bad }), ProtocolV2Error);
+	}
+});
+
+test('provenance.issuer is sent only to a server that echoed actionIssuer in hello_ack', async (t) => {
+	const hello = { replyTo: 'auth', clientNonce: 'a'.repeat(43), serverNonce: 'b'.repeat(43), proof: 'c'.repeat(43) };
+	assert.equal(validateProtocolV2Payload('hello', { ...hello, actionIssuer: true }).actionIssuer, true);
+	assert.equal(validateProtocolV2Payload('hello_ack', { replyTo: 'hello', authenticated: true, registry: [], actionIssuer: true }).actionIssuer, true);
+	assert.throws(() => validateProtocolV2Payload('hello_ack', { replyTo: 'hello', authenticated: true, registry: [], actionIssuer: 1 }), ProtocolV2Error);
+	const command = { ...actionCommand('issuer-1'), provenance: { ...PROVENANCE, issuer: 'skill_leg' } };
+	assert.equal(validateProtocolV2Payload('action_command', command).provenance.issuer, 'skill_leg');
+	assert.throws(() => validateProtocolV2Payload('action_command', { ...command, provenance: { ...PROVENANCE, issuer: 'native-' } }), /issuer/);
+	for (const echoed of [true, false]) {
+		const socket = new FakeSocket();
+		const bridge = new MultiplexedServerBridge({ port: 25570, secret: SECRET }, { socketFactory: () => socket, schedule: () => 1, cancelSchedule: () => {}, currentRevision: () => 4 });
+		t.after(() => bridge.stop());
+		bridge.start();
+		socket.emit('connect');
+		const sentHello = JSON.parse(socket.writes[0]);
+		assert.equal(sentHello.payload.actionIssuer, true);
+		assert.equal(sentHello.payload.pausedByFacts, true);
+		const ready = once(bridge, 'ready');
+		socket.emit('data', `${JSON.stringify(serverEnvelope('hello_ack', 'server', `server-ack-issuer-${echoed}`, {
+			replyTo: sentHello.messageId, authenticated: true, registry: [registeredRecord()], ...(echoed ? { actionIssuer: true } : {}),
+		}))}\n`);
+		await ready;
+		await bridge.send('action_command', 'agent-a', { ...actionCommand(`issuer-${echoed}`), provenance: { ...PROVENANCE, issuer: 'model' } });
+		const sent = JSON.parse(socket.writes.at(-1));
+		assert.equal(sent.type, 'action_command');
+		assert.equal(sent.payload.provenance.issuer, echoed ? 'model' : undefined, echoed ? 'a server that echoed gets the issuer' : 'an older server never sees it');
+	}
+});
+
+test('the actionIssuer echo survives a fragmented registry snapshot', async (t) => {
+	const socket = new FakeSocket();
+	const bridge = new MultiplexedServerBridge({ port: 25570, secret: SECRET }, { socketFactory: () => socket, schedule: () => 1, cancelSchedule: () => {}, currentRevision: () => 4 });
+	t.after(() => bridge.stop());
+	bridge.start(); socket.emit('connect');
+	const hello = JSON.parse(socket.writes[0]);
+	const emit = (frames) => socket.emit('data', Buffer.from(frames.map((frame) => JSON.stringify(frame)).join('\n') + '\n'));
+	const completed = once(bridge, 'ready');
+	emit([serverEnvelope('hello_ack', 'server', 'registry-begin', { replyTo: hello.messageId, authenticated: true, registry: [], registryCount: 1, actionIssuer: true })]);
+	emit([serverEnvelope('registry_entry', 'agent-a', 'entry-1', registeredRecord())]);
+	emit([serverEnvelope('registry_complete', 'server', 'registry-end', { replyTo: 'registry-begin', count: 1 })]);
+	await completed;
+	await bridge.send('action_command', 'agent-a', { ...actionCommand('issuer-fragmented'), provenance: { ...PROVENANCE, issuer: 'guard' } });
+	assert.equal(JSON.parse(socket.writes.at(-1)).payload.provenance.issuer, 'guard');
+});

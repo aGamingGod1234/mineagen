@@ -48,6 +48,16 @@ function Quote-Argument([string] $Value) {
 	return '"' + $Value.Replace('"', '\"') + '"'
 }
 
+# Extra server JVM flags for one quality arm (run-scenarios armFlags): a JSON array of single-token flags.
+function Get-ServerJvmArgs {
+	$value = [Environment]::GetEnvironmentVariable('ARENA_HEADLESS_SERVER_JVM_ARGS')
+	if ([string]::IsNullOrWhiteSpace($value)) { return '' }
+	# Windows PowerShell 5.1 emits a JSON array as one Object[]; @() would wrap it again. The cast keeps it flat on 5.1 and 7.
+	$flags = [object[]]($value | ConvertFrom-Json)
+	foreach ($flag in $flags) { if ($flag -isnot [string] -or $flag -notmatch '^-\S+$') { throw 'ARENA_HEADLESS_SERVER_JVM_ARGS must be a JSON array of single-token flags' } }
+	return ($flags | ForEach-Object { ' ' + (Quote-Argument $_) }) -join ''
+}
+
 function Read-Text([string] $Path) {
 	if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return '' }
 	try {
@@ -818,7 +828,7 @@ function Invoke-Scenario($Scenario, [string] $Project, [string] $RunDirectory, [
 		$serverReady = $false
 		while (-not $serverReady) {
 			$serverAttempt += 1
-			$serverArgs = "-Dmineagen.bridgePort=$bridgePort -Dmineagen.coordinatorAutoStart=false -Dmineagen.bridgeSecretFile=$(Quote-Argument $secretPath) -Dmineagen.watch=true -Xms1G -Xmx2G -jar $(Quote-Argument (Join-Path $serverDirectory 'fabric-server-launch.jar')) nogui"
+			$serverArgs = "-Dmineagen.bridgePort=$bridgePort -Dmineagen.coordinatorAutoStart=false -Dmineagen.bridgeSecretFile=$(Quote-Argument $secretPath) -Dmineagen.watch=true -Xms1G -Xmx2G$(Get-ServerJvmArgs) -jar $(Quote-Argument (Join-Path $serverDirectory 'fabric-server-launch.jar')) nogui"
 			$serverHandle = Start-RedirectedProcess $Java $serverArgs $serverDirectory $serverStdoutPath $serverStderrPath @{}
 			try {
 				Wait-Condition { (Test-Port $serverPort) -and ((Read-Text $serverLog).Contains('Done (')) } $StartupTimeoutSeconds 'Fabric server did not become ready'
@@ -888,7 +898,7 @@ function Invoke-Scenario($Scenario, [string] $Project, [string] $RunDirectory, [
 				Assert-ArenaOfflineServerLoopback $propertiesPath -RequireOffline
 				Protect-LocalFile $propertiesPath
 				New-ScenarioConfig $sourceConfig $coordinatorConfig $bridgePort $providerWorkspace
-				$serverArgs = "-Dmineagen.bridgePort=$bridgePort -Dmineagen.coordinatorAutoStart=false -Dmineagen.bridgeSecretFile=$(Quote-Argument $secretPath) -Dmineagen.watch=true -Xms1G -Xmx2G -jar $(Quote-Argument (Join-Path $serverDirectory 'fabric-server-launch.jar')) nogui"
+				$serverArgs = "-Dmineagen.bridgePort=$bridgePort -Dmineagen.coordinatorAutoStart=false -Dmineagen.bridgeSecretFile=$(Quote-Argument $secretPath) -Dmineagen.watch=true -Xms1G -Xmx2G$(Get-ServerJvmArgs) -jar $(Quote-Argument (Join-Path $serverDirectory 'fabric-server-launch.jar')) nogui"
 				$serverHandle = Start-RedirectedProcess $Java $serverArgs $serverDirectory $serverStdoutPath $serverStderrPath @{}
 				Wait-Condition { (Test-Port $serverPort) -and ((Read-Text $serverLog).Contains('Done (')) } $StartupTimeoutSeconds 'Fabric server did not become ready after coordinator bind retry'
 				Wait-Condition { Test-Port $rconPort } $StartupTimeoutSeconds 'RCON did not become ready after coordinator bind retry'

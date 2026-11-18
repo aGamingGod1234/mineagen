@@ -13,6 +13,14 @@ import { HeadlessRconClient } from '../coordinator/src/headless-rcon.mjs';
 import { requestCaptureShutdown } from '../coordinator/src/capture-shutdown.mjs';
 import { readArtifactReport, writeArtifactReport } from '../coordinator/src/benchmark/report-artifacts.mjs';
 
+/** Extra server JVM flags for one quality arm (run-scenarios armFlags), as a JSON array of single-token flags. */
+export function serverJvmArgs(value = process.env.ARENA_HEADLESS_SERVER_JVM_ARGS) {
+	if (!value) return [];
+	const args = JSON.parse(value);
+	if (!Array.isArray(args) || args.some(a => typeof a !== 'string' || !/^-\S+$/.test(a))) throw new Error('ARENA_HEADLESS_SERVER_JVM_ARGS must be a JSON array of single-token flags');
+	return args;
+}
+
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const text = file => readFile(file, 'utf8').catch(e => { if (e.code === 'ENOENT') return ''; throw e; });
 const json = (file, value) => writeFile(file, JSON.stringify(value, null, 2));
@@ -136,7 +144,7 @@ export async function runMatrix(options) {
 				const world = { version: 1, scenarioId: scenario.id, worldId, fresh: true, world: scenario.world, modSha256: createHash('sha256').update(await readFile(jar)).digest('hex') };
 				await json(worldFile, world);
 				// The Watcher is off by default; quality reports (stage-score, watch-report, watch-time) read its arena-watch files.
-				server = start(process.env.ARENA_HEADLESS_JAVA ?? 'java', [`-Dmineagen.bridgePort=${ports.bridge}`, '-Dmineagen.coordinatorAutoStart=false', `-Dmineagen.bridgeSecretFile=${passwordFile}`, '-Dmineagen.watch=true', '-Xms1G', '-Xmx2G', '-jar', path.join(serverDirectory, 'fabric-server-launch.jar'), 'nogui'], serverDirectory, path.join(directory, 'logs/fabric'));
+				server = start(process.env.ARENA_HEADLESS_JAVA ?? 'java', [`-Dmineagen.bridgePort=${ports.bridge}`, '-Dmineagen.coordinatorAutoStart=false', `-Dmineagen.bridgeSecretFile=${passwordFile}`, '-Dmineagen.watch=true', '-Xms1G', '-Xmx2G', ...serverJvmArgs(), '-jar', path.join(serverDirectory, 'fabric-server-launch.jar'), 'nogui'], serverDirectory, path.join(directory, 'logs/fabric'));
 				const startupMs = Number(process.env.ARENA_HEADLESS_STARTUP_TIMEOUT_SECONDS ?? 300) * 1000;
 				await waitFor(async () => (await text(path.join(serverDirectory, 'logs/latest.log'))).includes('Done ('), startupMs, 'Fabric readiness', server);
 				const env = { ARENA_AGENT_BRIDGE_SECRET: secret, ARENA_HEADLESS_RUN_ID: runId, ARENA_HEADLESS_SCENARIO_ID: scenario.id, ARENA_PROTOCOL_AUDIT_PATH: protocol, ARENA_PROVIDER_TURNS_PATH: turns, ARENA_HEADLESS_TRACE_PATH: path.join(directory, 'coordinator.jsonl'), ARENA_HEADLESS_PRIVATE_TRACE_PATH: path.join(directory, 'coordinator-private.jsonl'), ARENA_CAPTURE_SHUTDOWN_PATH: capture, ARENA_QUALITY_CAPTURE: scenario.qualitySetup ? '1' : '0', ARENA_HEADLESS_BRIDGE_PORT: String(ports.bridge), ARENA_HEADLESS_RCON_PORT: String(ports.rcon), ARENA_HEADLESS_MINECRAFT_PORT: String(ports.minecraft) };

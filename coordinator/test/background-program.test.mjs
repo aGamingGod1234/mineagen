@@ -85,6 +85,7 @@ test('background watcher reacts after returning control to the model and waits f
 	assert.equal(run.commands().length, 2);
 	assert.equal(run.commands()[1].payload.arguments.durationMs, 9);
 	assert.equal(run.commands()[1].payload.provenance.programId, handle.programId);
+	assert.equal(run.commands()[1].payload.provenance.issuer, 'program', 'a program step names the program as its issuer');
 	run.finish(run.commands()[1]);
 	await tick();
 	const result = await run.call('programStatus', { programId: handle.programId });
