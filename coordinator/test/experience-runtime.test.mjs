@@ -24,7 +24,7 @@ function experience(directory, env = {}) {
 }
 async function withDirectory(run) {
 	const directory = await mkdtemp(join(tmpdir(), 'experience-runtime-'));
-	try { await run(directory); } finally { await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }); }
+	try { await run(directory); } finally { await rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }); }
 }
 
 /** Game one: a skeleton shoots the agent dead while it flees across open ground. */
@@ -74,6 +74,7 @@ test('a death review in one game becomes a lesson the model sees in a later game
 	assert.equal(lessons[0].src, 'review: 1 time in 1 earlier game');
 	assert.doesNotMatch(JSON.stringify(lessons), /world-one|agent_name|-21|seed-one/);
 	assert.ok(Buffer.byteLength(JSON.stringify(lessons)) < 400);
+	await later.flush();
 }));
 
 test('the lesson is shown on the respawn wake of the game that learned it, and never on its origin seed later', () => withDirectory(async (directory) => {
@@ -85,6 +86,7 @@ test('the lesson is shown on the respawn wake of the game that learned it, and n
 	const sameSeed = new RuntimeMemoryContext({ taskMemory: new TaskMemoryStore({ directory: null }), experience: experience(directory, { MINEAGEN_WORLD_SEED_HASH: 'seed-one' }) });
 	sameSeed.observe(record, observation('world-three', T0 + 200_000, { hostiles: ['skeleton'] }));
 	assert.deepEqual((await sameSeed.taskContext(record)).lessons, []);
+	await Promise.all([memory.flush(), sameSeed.flush()]);
 }));
 
 test('with experience off the summary is exactly what it was', async () => {
@@ -108,6 +110,7 @@ test('at most three lessons are shown, and carried lessons are trimmed first', (
 	const summary = await memory.taskContext(record);
 	assert.equal(summary.lessons.length, MAX_SHOWN_LESSONS);
 	assert.ok(Buffer.byteLength(JSON.stringify(summary)) <= 6000);
+	await memory.flush();
 }));
 
 test('the death review reads only what the coordinator saw before the death', () => {
@@ -134,6 +137,7 @@ test('a repeated failure becomes a lesson that is shown right after the same fai
 	assert.equal(lessons.length, 1);
 	assert.match(lessons[0].summary, /water ahead/);
 	assert.equal(lessons[0].src, 'review: 1 time in 1 earlier game');
+	await later.flush();
 }));
 
 test('a death right after a low-health bailout teaches the bailout lesson, shown after the next bailout', () => {
@@ -143,10 +147,12 @@ test('a death right after a low-health bailout teaches the bailout lesson, shown
 });
 
 test('a store that cannot load turns lessons off for the run without breaking memory', () => withDirectory(async (directory) => {
-	const file = join(directory, 'not-a-folder');
-	await (await import('node:fs/promises')).writeFile(file, 'x');
-	const events = [];
-	const runtime = createExperience(experienceSettings({ MINEAGEN_EXPERIENCE: 'lessons', MINEAGEN_EXPERIENCE_DIR: join(file, 'below'), MINEAGEN_EXPERIENCE_PROFILE: 'p' }), { trace: (event, fields) => events.push({ event, ...fields }) });
+	// An injected failing load: an unreadable folder fails differently on each OS (ENOTDIR here, ENOENT on Windows).
+	const settingsValue = experienceSettings({ MINEAGEN_EXPERIENCE: 'lessons', MINEAGEN_EXPERIENCE_DIR: directory, MINEAGEN_EXPERIENCE_PROFILE: 'p' });
+	const real = new ExperienceStore(settingsValue), events = [];
+	const store = { load: async () => { throw Object.assign(new Error('unreadable'), { code: 'EACCES' }); }, state: () => real.state(), record: (...args) => real.record(...args),
+		markShown: (...args) => real.markShown(...args), candidates: (...args) => real.candidates(...args), flush: () => real.flush() };
+	const runtime = createExperience(settingsValue, { store, trace: (event, fields) => events.push({ event, ...fields }) });
 	const memory = new RuntimeMemoryContext({ taskMemory: new TaskMemoryStore({ directory: null }), experience: runtime });
 	memory.observe(record, observation('world-one', T0, { hostiles: ['skeleton'] }));
 	memory.observe(record, { death: { cause: 'x was shot by Skeleton', dimensionId: 'minecraft:overworld', diedAtEpochMs: T0 + 1_000 } });
@@ -172,6 +178,7 @@ test('live observations that still name the last death keep feeding the history'
 	const lessons = (await memory.taskContext(record)).lessons.map((lesson) => lesson.summary);
 	assert.ok(lessons.some((text) => /Running from a skeleton/.test(text)), JSON.stringify(lessons));
 	assert.ok(lessons.some((text) => /no food/.test(text)), JSON.stringify(lessons));
+	await memory.flush();
 }));
 
 test('a dispatch that never got a result stops counting as running after two minutes', () => {

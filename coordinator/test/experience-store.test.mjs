@@ -10,7 +10,7 @@ const lesson = { id: 'death:shot:skeleton:fleeing', rule: 'ranged-fled-in-open',
 
 async function withDirectory(run) {
 	const directory = await mkdtemp(join(tmpdir(), 'experience-store-'));
-	try { await run(directory); } finally { await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }); }
+	try { await run(directory); } finally { await rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }); }
 }
 function settings(directory, overrides = {}) {
 	return experienceSettings({ MINEAGEN_EXPERIENCE: 'lessons', MINEAGEN_EXPERIENCE_DIR: directory, MINEAGEN_EXPERIENCE_PROFILE: 'profile-one', ...overrides });
