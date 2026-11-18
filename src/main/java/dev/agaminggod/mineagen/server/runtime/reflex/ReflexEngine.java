@@ -66,6 +66,63 @@ public final class ReflexEngine {
 		return weaker;
 	}
 
+	/**
+	 * Actions that are the body's own fight or flight. A defend rule stands aside for them: it does not fire while one runs,
+	 * and a defend firing ends on the tick one starts (a program's fight or flee that no model command yielded it to).
+	 * Defend covers every other action, as it covers the idle body.
+	 */
+	static final Set<ActionType> DEFEND_STANDS_ASIDE = Set.copyOf(java.util.EnumSet.of(ActionType.FIGHT_TARGET, ActionType.FIGHT_UNTIL,
+			ActionType.USE_RANGED, ActionType.FLEE_FROM));
+
+	static boolean defendStandsAside(ActionType activeType) {
+		return activeType != null && DEFEND_STANDS_ASIDE.contains(activeType);
+	}
+
+	/** A rule's sensed truth after the engine's gates: defend reads false while the body's own fight or flight runs. */
+	static boolean gatedTruth(ReflexSpec.Rule rule, boolean truth, ActionType activeType) {
+		return truth && !("defend".equals(rule.action().type()) && defendStandsAside(activeType));
+	}
+
+	/** The running firing's status and detail for the scheduler, after the engine's own exits. */
+	record FiringStep(ReflexScheduler.ActionStatus status, String detail) {
+	}
+
+	/**
+	 * The engine's own exits for a running firing whose behaviour reports {@code status}: defend hands the body to a fight
+	 * or flee the tick one starts (not after its release grace, up to 10 s when chased); a firing that only holds on after
+	 * reaching its goal ends done at its maxS; an action that yields to a fight ends done under a paused one.
+	 */
+	static FiringStep firingStep(ReflexSpec.Rule rule, ReflexScheduler.ActionStatus status, String detail, ActionType activeType, boolean settled,
+			long elapsedTicks, long maxTicks, boolean yieldsToFight) {
+		if (status == ReflexScheduler.ActionStatus.RUNNING && rule != null && "defend".equals(rule.action().type()) && defendStandsAside(activeType)) {
+			status = ReflexScheduler.ActionStatus.DONE;
+			detail = (detail == null || detail.isEmpty() ? "" : detail + "; ") + "handed to " + activeType.wireName();
+		}
+		status = ReflexScheduler.settledStatus(status, settled, elapsedTicks, maxTicks);
+		if (status == ReflexScheduler.ActionStatus.RUNNING && yieldsToFight && pausedFight(activeType)) status = ReflexScheduler.ActionStatus.DONE;
+		return new FiringStep(status, detail);
+	}
+
+	/**
+	 * A direct model command asks for the body: a held shield that only moves waits to see the command; anything else yields
+	 * now (a floor firing in its hazard keeps the body and yields later). Returns the firing it ended, if any.
+	 */
+	static ReflexScheduler.Decision commandYield(ReflexScheduler scheduler, CommandFollower command, boolean holdsMoving, long now) {
+		return command.requestYield(holdsMoving, now) ? yieldTo(scheduler, command, now) : ReflexScheduler.Decision.NONE;
+	}
+
+	/** Ends the firing for the model's command; a yielded rule then follows the command (see {@link CommandFollower}). */
+	static ReflexScheduler.Decision yieldTo(ReflexScheduler scheduler, CommandFollower command, long now) {
+		ReflexScheduler.Decision decision = scheduler.yield(now);
+		if (scheduler.anySuppressed()) command.yielded(now);
+		return decision;
+	}
+
+	/** A floor firing kept through a command's yield has just yielded to it: follow the command as a yield does. */
+	static void followDeferredYield(ReflexScheduler scheduler, CommandFollower command, long now) {
+		if (scheduler.deferredYielded() && scheduler.anySuppressed()) command.yielded(now);
+	}
+
 	/** The cast hand manages its own pour and cooling; the separate lava-contact rule still interrupts it. */
 	static boolean deferFlowDuringCast(ReflexSpec.Rule rule, ActionType activeType) {
 		return activeType == ActionType.CAST_OBSIDIAN && rule.coordinatorDefault() && "default-lava-flow".equals(rule.id());
@@ -142,7 +199,7 @@ public final class ReflexEngine {
 		long now = now();
 		agent.revision = revision;
 		// A held shield composes with a command that only moves; that is decided once the command has started.
-		if (yield && !clutching(agent) && agent.command.requestYield(holdsMoving(agent), now)) yieldNow(agentId, agent, now);
+		if (yield && !clutching(agent)) end(agentId, agent, commandYield(agent.scheduler, agent.command, holdsMoving(agent), now));
 		end(agentId, agent, agent.scheduler.replace(parsed, now));
 		changed.add(agentId);
 	}
@@ -191,9 +248,7 @@ public final class ReflexEngine {
 	}
 
 	private void yieldNow(AgentId agentId, AgentReflexes agent, long now) {
-		ReflexScheduler.Decision decision = agent.scheduler.yield(now);
-		if (decision.ended() != null) end(agentId, agent, decision);
-		if (agent.scheduler.anySuppressed()) agent.command.yielded(now);
+		end(agentId, agent, yieldTo(agent.scheduler, agent.command, now));
 	}
 
 	private static boolean clutching(AgentReflexes agent) {
@@ -235,17 +290,15 @@ public final class ReflexEngine {
 	private void followCommand(AgentId agentId, AgentReflexes agent, ServerActionRequest active, Body body, long now) {
 		ServerActionResult last = body.last(agentId);
 		CommandFollower.Result result = agent.command.observe(agent.scheduler, holdsMoving(agent), active == null ? null : active.actionId(),
-				CommandFollower.movesUnderHold(active) ? active.type() : null, last == null ? null : last.actionId(), last == null ? null : last.reasonCode(), now);
+				CommandFollower.movesUnderHold(active) ? active.type() : null, last == null ? null : last.actionId(), last == null ? null : last.actionType(),
+				last == null ? null : last.reasonCode(), now);
 		if (result.handedOff()) changed.add(agentId);
 		if (result.yieldNow()) yieldNow(agentId, agent, now);
 	}
 
 	/** The agent's paused action is a fight (melee, bow volley or count fight) that handles fire footing itself. */
-	static boolean pausedFight(ServerActionRequest active) {
-		if (active == null) return false;
-		var type = active.type();
-		return type == dev.agaminggod.mineagen.protocol.ActionType.FIGHT_TARGET || type == dev.agaminggod.mineagen.protocol.ActionType.FIGHT_UNTIL
-				|| type == dev.agaminggod.mineagen.protocol.ActionType.USE_RANGED;
+	static boolean pausedFight(ActionType type) {
+		return type == ActionType.FIGHT_TARGET || type == ActionType.FIGHT_UNTIL || type == ActionType.USE_RANGED;
 	}
 
 	private static boolean passesThrough(AgentReflexes agent, ServerActionRequest active) {
@@ -266,6 +319,7 @@ public final class ReflexEngine {
 		agent.falling = !player.onGround() && !player.isInWater() && player.getDeltaMovement().y < -0.1D;
 		agent.memory.actionActive(actionProbe.test(agentId));
 		ServerActionRequest active = body.active(agentId);
+		ActionType activeType = active == null ? null : active.type();
 		followCommand(agentId, agent, active, body, now);
 		ObservationVisibility.Frame frame = ObservationVisibility.frame(player.level(), player);
 		boolean cornered = active != null && active.type() == ActionType.FLEE_FROM
@@ -277,7 +331,8 @@ public final class ReflexEngine {
 			boolean truth = true;
 			Entity found = null;
 			Vec3 point = null;
-			boolean guards = "defend".equals(rule.action().type()) && !agent.memory.actionActive();
+			boolean defend = "defend".equals(rule.action().type());
+			boolean guards = defend && !defendStandsAside(activeType);
 			for (ReflexSpec.Condition condition : rule.when()) {
 				ReflexSensors.Reading reading = ReflexSensors.sense(player, condition, frame, agent.memory, now);
 				// For defend, "attacked" also reads a melee hit about to land, as it does a shot about to land.
@@ -292,7 +347,7 @@ public final class ReflexEngine {
 			// A default rule sleeps while its action needs an item the body does not hold (no shield, no food), so a
 			// default shield or eat rule costs nothing and reports no failure until the item is there.
 			if (truth && sleepsWithoutItem(rule, ReflexActions.lacks(player, rule.action()))) truth = false;
-			if (deferFlowDuringCast(rule, active == null ? null : active.type())) {
+			if (deferFlowDuringCast(rule, activeType)) {
 				truth = false;
 				agent.scheduler.discardPendingStart(rule.id());
 			}
@@ -301,7 +356,7 @@ public final class ReflexEngine {
 				if (!until) break;
 				until = ReflexSensors.sense(player, condition, frame, agent.memory, now).truth();
 			}
-			if (truth && "defend".equals(rule.action().type()) && agent.memory.actionActive()) truth = false;
+			truth = gatedTruth(rule, truth, activeType);
 			// A default "back off when weaker" rule does not pause a flee that has already found no way out and stands its
 			// ground: running or taking cover there only hands the attackers free hits (cornered fixture: 4.6 s paused
 			// mid-fight). Hazard flinches (a fusing creeper, fire, lava, air, an edge, suffocation) still interrupt it.
@@ -324,11 +379,10 @@ public final class ReflexEngine {
 		if (firing != null && agent.behaviour != null) {
 			ReflexSpec.Rule rule = agent.scheduler.rule(firing.ruleId());
 			ReflexActions.Step step = agent.behaviour.tick(context(agentId, player, agent, firing.ruleId(), rule, active), state -> apply(agentId, agent, player, state));
-			status = step.status();
-			// A firing that only holds on after reaching its goal (out of lava, burn running out) ends done at its maxS.
-			status = ReflexScheduler.settledStatus(status, agent.behaviour.settled(), now - firing.startTick(), firing.maxTicks());
-			if (status == ReflexScheduler.ActionStatus.RUNNING && agent.behaviour.yieldsToFight() && pausedFight(active)) status = ReflexScheduler.ActionStatus.DONE;
-			agent.detail = withHealth(step.detail(), agent.startHealth - player.getHealth());
+			FiringStep exit = firingStep(rule, step.status(), step.detail(), activeType, agent.behaviour.settled(), now - firing.startTick(), firing.maxTicks(),
+					agent.behaviour.yieldsToFight());
+			status = exit.status();
+			agent.detail = withHealth(exit.detail(), agent.startHealth - player.getHealth());
 		}
 		// A firing that has cost 2+ health is not making progress, whatever its action reports.
 		boolean harmed = firing != null && agent.startHealth - player.getHealth() >= HARM_HEALTH;
@@ -336,6 +390,7 @@ public final class ReflexEngine {
 		ReflexScheduler.Decision decision = agent.scheduler.step(now, senses, status, agent.detail,
 				agent.behaviour != null && agent.behaviour.holdsWhileTrue(), harmed,
 				agent.behaviour == null ? 0L : agent.behaviour.releaseGraceTicks(), heldBack(player, agent));
+		followDeferredYield(agent.scheduler, agent.command, now);
 		// Handing the body straight to the next firing keeps the lease: releasing it would drop a raised shield for a
 		// tick and restart its 5-tick raise, the window a trigger exists to cover.
 		end(agentId, agent, decision, decision.started() != null);

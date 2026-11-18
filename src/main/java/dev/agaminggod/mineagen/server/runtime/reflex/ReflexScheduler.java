@@ -22,6 +22,9 @@ import java.util.Set;
  * stance held for three maxS spans in a row without its condition clearing wakes the model once (it may need to flee
  * instead of holding).</li>
  * <li>Rules expire after ttlMs, when an until condition holds, or after maxFirings.</li>
+ * <li>The hazard floor ({@link #floor}): a coordinator default for lava, fire, air or suffocation fires while its condition
+ * holds, not only on its edge; a model command does not end its firing while the hazard holds and it has not settled; and
+ * at the loop limits it stays armed and wakes the model once per crossing instead of being disabled.</li>
  * </ul>
  */
 public final class ReflexScheduler {
@@ -33,6 +36,18 @@ public final class ReflexScheduler {
 	public static final int MAX_EVENTS = 16;
 	/** Consecutive maxS spans a stance may hold, its condition never clearing, before the model is told. */
 	public static final int HELD_SPANS_BEFORE_WAKE = 3;
+	/** Conditions whose coordinator default is the hazard floor: the body must leave them whatever it was told. */
+	public static final Set<String> FLOOR_HAZARDS = Set.of("in_lava", "in_fire", "air_below", "suffocating");
+
+	/**
+	 * A hazard-floor rule: a coordinator default with a non-negated lava, fire, air or suffocation condition. A model-written
+	 * rule never is, even one that replaces a default by id. (The falling clutch is the engine's own exception to yield.)
+	 */
+	public static boolean floor(ReflexSpec.Rule rule) {
+		if (!rule.coordinatorDefault()) return false;
+		for (ReflexSpec.Condition condition : rule.when()) if (!condition.negated() && FLOOR_HAZARDS.contains(condition.type())) return true;
+		return false;
+	}
 
 	public enum ActionStatus { RUNNING, DONE, FAILED }
 
@@ -74,6 +89,9 @@ public final class ReflexScheduler {
 	private static final class State {
 		final ReflexSpec.Rule rule;
 		final long installedTick;
+		final boolean floor;
+		/** A floor rule is over the firings-a-minute limit; it wakes the model again only after dropping back under it. */
+		boolean overRate;
 		boolean lastTruth;
 		long pendingUntil = -1L;
 		long cooldownUntil;
@@ -96,6 +114,7 @@ public final class ReflexScheduler {
 		State(ReflexSpec.Rule rule, long installedTick) {
 			this.rule = rule;
 			this.installedTick = installedTick;
+			this.floor = ReflexScheduler.floor(rule);
 		}
 
 		long expiresAt() {
@@ -118,6 +137,14 @@ public final class ReflexScheduler {
 	private boolean harmed;
 	/** Whether the running firing has met its goal and only holds on (set each step by the engine; see {@link #settled}). */
 	private boolean settledHold;
+	/**
+	 * The floor rule whose firing a model command's yield was kept through: it yields in {@link #step} once out of its hazard
+	 * or settled. Kept per rule while the hazard holds, so a firing that hits its maxS, fails or is preempted in the hazard
+	 * and fires again (another rule may hold the body between) still owes the waiting command its yield.
+	 */
+	private String deferredYield;
+	/** The last step ended a firing for a deferred yield (read by the engine, which then follows the command). */
+	private boolean deferredYielded;
 
 	/**
 	 * Installs a complete rule set. A rule whose definition is unchanged keeps its state (cooldown, counters, edges);
@@ -139,8 +166,10 @@ public final class ReflexScheduler {
 				decision = new Decision(current, Outcome.REMOVED, null);
 				recordEnd(states.get(current.ruleId()), Outcome.REMOVED, now, "");
 				current = null;
+				settledHold = false;
 			}
 		}
+		if (deferredYield != null && next.get(deferredYield) != states.get(deferredYield)) deferredYield = null;
 		states.clear();
 		states.putAll(next);
 		return decision;
@@ -257,12 +286,22 @@ public final class ReflexScheduler {
 			}
 			if (!truth) state.heldBack = false;
 		}
+		State owed = deferredYield == null ? null : states.get(deferredYield);
+		if (owed == null || !owed.lastTruth && (current == null || !current.ruleId().equals(deferredYield))) deferredYield = null;
+		deferredYielded = false;
 		if (current != null) {
 			State state = states.get(current.ruleId());
 			Outcome outcome = null;
 			String reason = detail == null ? "" : detail;
 			String held = heldBack.get(current.ruleId());
-			if (held != null && status == ActionStatus.RUNNING) {
+			if (current.ruleId().equals(deferredYield) && (!state.lastTruth || settledHold) && status == ActionStatus.RUNNING) {
+				outcome = Outcome.YIELDED;
+				reason = "model command";
+				if (state.rule.kind() == ReflexSpec.Kind.STANCE) state.suppressed = true;
+				else state.yieldedTrigger = true;
+				deferredYielded = true;
+				yieldStancesTo(state);
+			} else if (held != null && status == ActionStatus.RUNNING) {
 				outcome = Outcome.YIELDED;
 				reason = (reason.isEmpty() ? "" : reason + "; ") + held;
 				state.heldBack = state.lastTruth;
@@ -283,6 +322,9 @@ public final class ReflexScheduler {
 				ended = current;
 				endOutcome = outcome;
 				current = null;
+				// A floor firing that ran out, failed or was preempted in its hazard fires again: the command still waits for its yield.
+				boolean refires = state.lastTruth && (outcome == Outcome.TIMEOUT || outcome == Outcome.FAILED || outcome == Outcome.PREEMPTED);
+				if (ended.ruleId().equals(deferredYield) && !refires) deferredYield = null;
 				recordEnd(state, outcome, now, reason);
 				rearmSwallowedEdges(ended, now);
 			}
@@ -299,6 +341,8 @@ public final class ReflexScheduler {
 				started = next.rule.id();
 			}
 		}
+		// The engine's settled flag described the firing it was set for; a new firing is unsettled until the engine says so.
+		if (ended != null || started != null) settledHold = false;
 		return ended == null && started == null ? Decision.NONE : new Decision(ended, endOutcome, started);
 	}
 
@@ -323,17 +367,41 @@ public final class ReflexScheduler {
 		return status == ActionStatus.RUNNING && settled && elapsedTicks >= maxTicks ? ActionStatus.DONE : status;
 	}
 
-	/** A direct model command took the body: end the firing; a stance waits until its condition clears once or {@link #resume}. */
+	/**
+	 * A direct model command took the body: end the firing; a stance waits until its condition clears once or {@link #resume}.
+	 * A hazard-floor firing is kept while its hazard holds and it has not settled; the command waits under it.
+	 */
 	public Decision yield(long now) {
 		suppressIdleShields();
 		if (current == null) return Decision.NONE;
 		Firing ended = current;
 		State state = states.get(ended.ruleId());
+		if (state.floor && state.lastTruth && !settledHold) {
+			deferredYield = current.ruleId();
+			return Decision.NONE;
+		}
 		current = null;
+		settledHold = false;
 		recordEnd(state, Outcome.YIELDED, now, "model command");
 		if (state.rule.kind() == ReflexSpec.Kind.STANCE) state.suppressed = true;
 		else state.yieldedTrigger = true;
+		if (state.floor) yieldStancesTo(state);
 		return new Decision(ended, Outcome.YIELDED, null);
+	}
+
+	/**
+	 * A command asked for the body a floor firing held, so the stances that would take it now (default-defend under attack)
+	 * yield to it too, as they would have had they held the body when it came. Floor rules still fire.
+	 */
+	private void yieldStancesTo(State floor) {
+		for (State other : states.values()) {
+			if (other != floor && !other.floor && other.rule.kind() == ReflexSpec.Kind.STANCE && other.lastTruth) other.suppressed = true;
+		}
+	}
+
+	/** Whether the last {@link #step} ended a floor firing for a model command it had been kept through. */
+	public boolean deferredYielded() {
+		return deferredYielded;
 	}
 
 	/** A shield stance guards idle time; it cannot seize a model command in the gap before its first firing. */
@@ -365,6 +433,7 @@ public final class ReflexScheduler {
 		if (current == null) return Decision.NONE;
 		Firing ended = current;
 		current = null;
+		settledHold = false;
 		addEvent(ended.ruleId(), Outcome.YIELDED, now - ended.startTick(), why, false, now, true);
 		State state = states.get(ended.ruleId());
 		if (state != null) state.cooldownUntil = now + Math.max(1L, state.rule.cooldownMs() / 50L);
@@ -384,7 +453,9 @@ public final class ReflexScheduler {
 		if (state.disabledReason != null || now < state.cooldownUntil || state.heldBack || heldNow.containsKey(state.rule.id())) return false;
 		if (current != null && current.ruleId().equals(state.rule.id())) return false;
 		if (state.rule.maxFirings() > 0 && state.fired >= state.rule.maxFirings()) return false;
-		return state.rule.kind() == ReflexSpec.Kind.TRIGGER ? state.pendingUntil >= now : state.lastTruth && !state.suppressed;
+		// A floor trigger is level-triggered: ready whenever its hazard holds, unless a settled firing of it yielded.
+		if (state.rule.kind() == ReflexSpec.Kind.TRIGGER) return state.pendingUntil >= now || state.floor && state.lastTruth && !state.yieldedTrigger;
+		return state.lastTruth && !state.suppressed;
 	}
 
 	private void recordEnd(State state, Outcome outcome, long now, String detail) {
@@ -408,6 +479,20 @@ public final class ReflexScheduler {
 			state.lastFailure = detail;
 		} else if (progress) {
 			state.failuresInARow = 0;
+		}
+		if (state.floor) {
+			// The floor is never switched off: crossing a loop limit marks this firing's report as a wake, once per crossing.
+			String crossed = null;
+			if (failure && state.failuresInARow == MAX_FAILURES_IN_A_ROW) crossed = "fired " + state.failuresInARow + "x in a row without progress";
+			boolean over = state.recentFirings.size() > MAX_FIRINGS_PER_MINUTE;
+			if (crossed == null && over && !state.overRate) crossed = "fired " + state.recentFirings.size() + "x within 60 s";
+			state.overRate = over;
+			if (crossed != null) {
+				wake = true;
+				detail = crossed + ", still armed" + (detail == null || detail.isEmpty() ? "" : "; last: " + detail);
+			}
+			addEvent(state.rule.id(), outcome, duration, detail, wake, now, true);
+			return;
 		}
 		addEvent(state.rule.id(), outcome, duration, detail, wake, now, true);
 		String disabled = null;

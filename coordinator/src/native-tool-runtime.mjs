@@ -57,6 +57,7 @@ const PAUSED_PROGRAM_DANGER_ACTIONS = new Set(['fight_target', 'flee_from']);
 const GUARD_DEFENSIVE_ACTIONS = new Set(['fight_target', 'flee_from', 'block_with_shield', 'use_item', 'respawn']);
 const GUARD_OVERRIDE_KINDS = new Set(['action', 'start_action', 'run_program', 'sequence', 'lookAround', 'gather', 'find', 'obtain', 'repair_inventory', 'finish']);
 // A direct model body command takes the body from a firing reflex. Starting a program does not: the program pauses under it.
+// replace_action is one too; it yields in its own branch, once the replacement is accepted and before the old action is cancelled.
 const REFLEX_YIELD_KINDS = new Set(['action', 'start_action', 'sequence', 'lookAround', 'gather', 'find', 'obtain', 'repair_inventory']);
 const STOOD_STILL_KINDS = new Set(['action', 'start_action', 'run_program', 'sequence', 'lookAround', 'gather', 'find', 'obtain', 'repair_inventory']);
 const BODY_SEEN_VERBS = new Set(['travel_to', 'dig_to']);
@@ -961,13 +962,21 @@ export class NativeToolRuntime {
 		if (request.tool.kind === 'replace_action') {
 			const rejected = this.#operationRejection(record, request.tool);
 			if (rejected !== null) throw codedError(rejected.code, rejected.message);
+			// Yield before the cancel: otherwise the reflex holding the body keeps it, or default defend takes the body in the
+			// idle gap the cancel leaves, and the replacement starts paused under it. Each path yields only once the replace
+			// is certain to go on (past every refusal), so a refused replace ends no firing.
+			// A failed yield is traced, never thrown: the old action may already be cancelled, and the replacement must still run.
+			const yieldFiring = request.tool.actionType === 'chat' ? null
+				: () => (this.#reflexes.firing(record.agentId) ? this.#sendReflexes(record, { yieldFiring: true })
+					.catch((error) => this.#trace('reflexes_send_failed', { agentId: record.agentId, path: 'replace_action', reasonCode: error?.code ?? 'REFLEX_SEND_FAILED' }))
+					: Promise.resolve());
 			this.#answerLegChain(record, request.tool.actionId);
 			const pausedProgram = this.#programRuns.has(record.agentId);
 			const interrupted = pausedProgram ? this.#interruptedPausedDangerAction(record) : null;
-			if (interrupted !== null) return this.#withBlockingToolRun(record, run => this.#replaceInterruptedDangerAction(request, record, { ...request.tool, kind: 'action' }, interrupted, run, { pausedProgram }));
+			if (interrupted !== null) return this.#withBlockingToolRun(record, run => this.#replaceInterruptedDangerAction(request, record, { ...request.tool, kind: 'action' }, interrupted, run, { pausedProgram, yieldFiring }));
 			const previous = this.#actions.has(record.agentId) ? null : this.#terminalActionReceipt(record, request.tool.actionId, request.tool.goalRevision);
-			if (previous !== null) return this.#startReplacementAsNewAction(request, record, previous, { pausedProgram });
-			return this.#withBlockingToolRun(record, run => this.#replaceAction(request, record, run));
+			if (previous !== null) return this.#startReplacementAsNewAction(request, record, previous, { pausedProgram, yieldFiring });
+			return this.#withBlockingToolRun(record, run => this.#replaceAction(request, record, run, yieldFiring));
 		}
 		// keepGoing runs until the model's reply: its next body call stops the running leg first, then runs as asked.
 		// Only an unanswered leg awaits here, so every other call keeps its exact dispatch timing.
@@ -1311,9 +1320,21 @@ export class NativeToolRuntime {
 		finally { if (this.#pendingLegChains.get(agentId) === chain) this.#pendingLegChains.delete(agentId); }
 	}
 
-	async #replaceAction(request, record, blockingRun) {
+	/**
+	 * Runs cancel, handing it beforeCancel: the yield starts once the cancel passes its own check, its reflex update sent
+	 * ahead of the cancel on the bridge, and is awaited once the cancel settles.
+	 */
+	async #cancelWithYield(record, tool, yieldFiring, options) {
+		let yielded = null;
+		const beforeCancel = yieldFiring === null ? null : () => { yielded = yieldFiring(); yielded.catch(() => {}); };
+		const cancelled = await this.#cancelAction(record, tool, { ...options, beforeCancel });
+		if (yielded !== null) await yielded;
+		return cancelled;
+	}
+
+	async #replaceAction(request, record, blockingRun, yieldFiring = null) {
 		const expectedEpoch = this.#actionCancellationEpoch(record, this.#actions.get(record.agentId));
-		const cancelled = await this.#cancelAction(record, request.tool, { blockingRun });
+		const cancelled = await this.#cancelWithYield(record, request.tool, yieldFiring, { blockingRun });
 		if (cancelled.interruptedBy !== undefined) return cancelled;
 		if (this.#executionEpoch(record.agentId) !== expectedEpoch) throw codedError('STALE_NATIVE_TOOL', 'Lifecycle changed while cancelling the replaced action');
 		// Any authoritative terminal result releases the old action, even if it beat the cancel to the server.
@@ -1330,9 +1351,9 @@ export class NativeToolRuntime {
 		}
 	}
 
-	async #replaceInterruptedDangerAction(request, record, tool, interrupted, blockingRun, { pausedProgram = false } = {}) {
+	async #replaceInterruptedDangerAction(request, record, tool, interrupted, blockingRun, { pausedProgram = false, yieldFiring = null } = {}) {
 		const expectedEpoch = this.#actionCancellationEpoch(record, interrupted);
-		const cancelled = await this.#cancelAction(record, { actionId: interrupted.actionId, goalRevision: record.goalRevision }, { blockingRun });
+		const cancelled = await this.#cancelWithYield(record, { actionId: interrupted.actionId, goalRevision: record.goalRevision }, yieldFiring, { blockingRun });
 		if (cancelled.interruptedBy !== undefined) return cancelled;
 		if (this.#executionEpoch(record.agentId) !== expectedEpoch) throw codedError('STALE_NATIVE_TOOL', 'Lifecycle changed while replacing the interrupted action');
 		if (!TERMINAL_ACTION_STATES.has(cancelled.state)) throw codedError('CANCEL_ACK_UNCONFIRMED', 'Replacement needs the previous action to be terminal');
@@ -1419,8 +1440,10 @@ export class NativeToolRuntime {
 		return latest !== undefined && latest.actionId === actionId && TERMINAL_ACTION_STATES.has(latest.state) ? latest : null;
 	}
 
-	async #startReplacementAsNewAction(request, record, previous, { pausedProgram = false } = {}) {
+	async #startReplacementAsNewAction(request, record, previous, { pausedProgram = false, yieldFiring = null } = {}) {
 		try {
+			// Nothing to cancel: the predecessor already ended, so the yield goes just before the replacement starts.
+			if (yieldFiring !== null) await yieldFiring();
 			const started = await this.#executeAction(request, record, { ...request.tool, kind: 'action' }, null, false, null, null, { pausedProgram });
 			return { ...started, startedAs: 'start_action', replacedAction: replacementReceipt(previous, previous.actionId) };
 		} catch (error) {
@@ -1628,7 +1651,7 @@ export class NativeToolRuntime {
 		if (active !== undefined && (active.cancelling || !active.dispatched || active.dispatchPending === true || (!order.guard && active.engineActionId !== undefined) || active.goalRevision !== record.goalRevision)) return 'ACTION_SETTLING';
 		if (order.guard && GUARD_DEFENSIVE_ACTIONS.has(active?.actionType)) return 'MODEL_DEFENSE';
 		// A firing reflex is the faster answer to the same danger; the guard waits for it to end and then fires only if
-		// its condition still holds (reconsidered when the firing ends). Default defend is not one: it holds the idle body
+		// its condition still holds (reconsidered when the firing ends). Default defend is not one: it holds the body
 		// until the model's command, and an order is that command written ahead (it fires before contact and holds while
 		// a mob chases, so waiting for it kept the model's own escape off for the whole chase; review of PR #176).
 		if (this.#reflexes.firing(agentId) && !this.#reflexes.firingStandsIn(agentId)) return 'REFLEX_FIRING';
@@ -2309,11 +2332,13 @@ export class NativeToolRuntime {
 		return preservesProgram ? epoch : epoch + 1;
 	}
 
-	async #cancelAction(record, tool, { invalidateProgram = true, blockingRun = null } = {}) {
+	async #cancelAction(record, tool, { invalidateProgram = true, blockingRun = null, beforeCancel = null } = {}) {
 		const actionMap = [this.#actions, this.#communications].find((actions) => actions.get(record.agentId)?.actionId === tool.actionId);
 		const active = actionMap?.get(record.agentId);
 		const rejected = this.#operationRejection(record, { ...tool, kind: 'cancel_action' });
 		if (rejected !== null) throw codedError(rejected.code, rejected.message);
+		// The cancel goes on from here, with no await before it is sent: a replace's yield starts now and reaches the bridge first.
+		beforeCancel?.();
 		this.#answerLegChain(record, tool.actionId);
 		active.cancelling = true;
 		active.cancellationUncertain = false;

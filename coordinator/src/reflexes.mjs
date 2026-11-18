@@ -112,7 +112,8 @@ export const REFLEX_ACTIONS = Object.freeze({
 	leave_lava: {},
 	// Never takes the body: while its condition holds, a hit's shove toward a drop is walked back in any stance.
 	brace: {},
-	// Only while no action of yours runs: shield toward shots and attackers, the best hotbar weapon at one in reach.
+	// Idle or over any action but fight_target, fight_until, use_ranged and flee_from (it ends when one starts): shield
+	// toward shots and attackers, the best hotbar weapon at one in reach.
 	defend: {},
 });
 
@@ -420,7 +421,7 @@ export class ReflexBook {
 	firing(agentId) { return this.#agents.get(agentId)?.status?.firing != null; }
 
 	/**
-	 * Whether the firing now is the default defend rule: it holds the idle body only until the model's command arrives,
+	 * Whether the firing now is the default defend rule: it holds the body only until the model's command arrives,
 	 * so a standing order (a command the model wrote ahead) takes the body from it as a direct command does.
 	 */
 	firingStandsIn(agentId) {
