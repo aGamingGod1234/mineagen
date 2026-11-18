@@ -166,6 +166,7 @@ public final class ReflexScheduler {
 				decision = new Decision(current, Outcome.REMOVED, null);
 				recordEnd(states.get(current.ruleId()), Outcome.REMOVED, now, "");
 				current = null;
+				settledHold = false;
 			}
 		}
 		if (deferredYield != null && next.get(deferredYield) != states.get(deferredYield)) deferredYield = null;
@@ -339,6 +340,8 @@ public final class ReflexScheduler {
 				started = next.rule.id();
 			}
 		}
+		// The engine's settled flag described the firing it was set for; a new firing is unsettled until the engine says so.
+		if (ended != null || started != null) settledHold = false;
 		return ended == null && started == null ? Decision.NONE : new Decision(ended, endOutcome, started);
 	}
 
@@ -377,6 +380,7 @@ public final class ReflexScheduler {
 			return Decision.NONE;
 		}
 		current = null;
+		settledHold = false;
 		recordEnd(state, Outcome.YIELDED, now, "model command");
 		if (state.rule.kind() == ReflexSpec.Kind.STANCE) state.suppressed = true;
 		else state.yieldedTrigger = true;
@@ -417,6 +421,7 @@ public final class ReflexScheduler {
 		if (current == null) return Decision.NONE;
 		Firing ended = current;
 		current = null;
+		settledHold = false;
 		addEvent(ended.ruleId(), Outcome.YIELDED, now - ended.startTick(), why, false, now, true);
 		State state = states.get(ended.ruleId());
 		if (state != null) state.cooldownUntil = now + Math.max(1L, state.rule.cooldownMs() / 50L);

@@ -35,6 +35,7 @@ public final class DriverRuleVerification {
 		deferredYieldHandsTheCommandItsYield(defaults);
 		floorTriggerIsLevelTriggered(defaults);
 		settledFloorYieldWaitsForAFreshHazard(defaults);
+		replacedSettledFiringIsUnsettled(defaults);
 		floorStaysArmedAtTheFailureLimit(defaults);
 		floorStaysArmedAtTheRateLimit(defaults);
 		yieldableHazardsStillYield(defaults);
@@ -306,6 +307,29 @@ public final class DriverRuleVerification {
 		for (long tick = 3L; tick < 60L; tick++) check(step(scheduler, tick, "default-air", true, RUNNING).started() == null, "the command keeps the body");
 		step(scheduler, 60L, "default-air", false, RUNNING);
 		check("default-air".equals(step(scheduler, 61L, "default-air", true, RUNNING).started()), "a fresh hazard fires it again");
+	}
+
+	/**
+	 * The engine's settled flag describes the firing it was set for. When that firing is replaced (a settled fire afterburn
+	 * preempted by suffocation), the new firing is unsettled until the engine says otherwise: a command arriving before the
+	 * engine's next tick waits under the suffocation escape instead of ending it.
+	 */
+	private static void replacedSettledFiringIsUnsettled(List<ReflexSpec.Rule> defaults) {
+		ReflexScheduler scheduler = new ReflexScheduler();
+		scheduler.replace(List.of(named(defaults, "default-fire"), named(defaults, "default-suffocate")), 0L);
+		scheduler.step(1L, Map.of("default-fire", new ReflexScheduler.Sense(true, false), "default-suffocate", new ReflexScheduler.Sense(false, false)), RUNNING, "", false);
+		check("default-fire".equals(scheduler.current().ruleId()), "fire fires");
+		scheduler.settled(true);
+		ReflexScheduler.Decision replaced = scheduler.step(2L, Map.of("default-fire", new ReflexScheduler.Sense(true, false),
+				"default-suffocate", new ReflexScheduler.Sense(true, false)), RUNNING, "holding until the burn is out", false);
+		check(replaced.endOutcome() == ReflexScheduler.Outcome.PREEMPTED && "default-suffocate".equals(replaced.started()), "suffocation takes the body from the settled burn");
+		check(scheduler.yield(3L).ended() == null && "default-suffocate".equals(scheduler.current().ruleId()),
+				"a command before the engine's next tick waits under the suffocation escape");
+		check(scheduler.step(4L, Map.of("default-fire", new ReflexScheduler.Sense(true, false), "default-suffocate", new ReflexScheduler.Sense(true, false)),
+				RUNNING, "", false).ended() == null, "the escape keeps the body while suffocating");
+		ReflexScheduler.Decision out = scheduler.step(5L, Map.of("default-fire", new ReflexScheduler.Sense(false, false),
+				"default-suffocate", new ReflexScheduler.Sense(false, false)), RUNNING, "", false);
+		check(out.endOutcome() == ReflexScheduler.Outcome.YIELDED && scheduler.deferredYielded(), "and yields to the waiting command once out");
 	}
 
 	/** At four failures in a row a floor rule stays armed and writes one wake row; the next crossing needs progress first. */
