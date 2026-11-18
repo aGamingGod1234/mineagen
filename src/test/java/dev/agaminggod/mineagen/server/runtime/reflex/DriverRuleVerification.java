@@ -33,6 +33,7 @@ public final class DriverRuleVerification {
 		floorFiringOutlastsACommandWhileTheHazardHolds(defaults);
 		keptYieldOutlastsARefireInTheHazard(defaults);
 		deferredYieldHandsTheCommandItsYield(defaults);
+		deferredYieldHoldsDefendForTheCommand(defaults);
 		floorTriggerIsLevelTriggered(defaults);
 		settledFloorYieldWaitsForAFreshHazard(defaults);
 		replacedSettledFiringIsUnsettled(defaults);
@@ -521,6 +522,61 @@ public final class DriverRuleVerification {
 		check(scheduler.anySuppressed(), "the rule stays yielded while the command runs");
 		for (long end = tick + CommandFollower.IDLE_RESUME_TICKS + 1L; tick < end; tick++) follower.observe(scheduler, false, null, null, "cmd", "DONE", tick);
 		check(!scheduler.anySuppressed(), "the follower brings the rule back once the command has ended");
+	}
+
+	/**
+	 * A non-fight command (build_shelter) asked for the body while lava held it and the body was attacked: when lava yields
+	 * to it, default-defend stays down for that command too, as it would had it held the body when the command came. Another
+	 * floor hazard still fires; defend comes back once the command ends, or after the replacement wait if it never starts.
+	 */
+	private static void deferredYieldHoldsDefendForTheCommand(List<ReflexSpec.Rule> defaults) {
+		for (boolean commandStarts : new boolean[] {true, false}) {
+			ReflexScheduler scheduler = new ReflexScheduler();
+			scheduler.replace(List.of(named(defaults, "default-lava"), named(defaults, "default-fire"), rules("[" + DEFEND + "]").getFirst()), 0L);
+			CommandFollower follower = new CommandFollower();
+			follower.observe(scheduler, false, null, null, null, null, 0L);
+			check("default-lava".equals(hazardTick(scheduler, 1L, true, false, true, null).started()), "lava takes the body under attack");
+			check(follower.requestYield(false, 2L) && scheduler.yield(2L).ended() == null, "the command's yield is kept in lava");
+			ActionType command = commandStarts ? ActionType.BUILD_SHELTER : null;
+			String commandId = commandStarts ? "cmd" : null;
+			follower.observe(scheduler, false, commandId, command, null, null, 3L);
+			hazardTick(scheduler, 3L, true, false, true, command);
+			ReflexScheduler.Decision out = hazardTick(scheduler, 4L, false, false, true, command);
+			check(out.endOutcome() == ReflexScheduler.Outcome.YIELDED && out.started() == null, "lava yields to the command and defend does not take the body");
+			ReflexEngine.followDeferredYield(scheduler, follower, 4L);
+			long tick = 5L;
+			if (commandStarts) {
+				for (; tick < 40L; tick++) {
+					follower.observe(scheduler, false, commandId, command, null, null, tick);
+					check(hazardTick(scheduler, tick, false, false, true, command).started() == null, "defend stays down while the command runs");
+				}
+				ReflexScheduler fire = new ReflexScheduler();
+				fire.replace(List.of(named(defaults, "default-lava"), named(defaults, "default-fire"), rules("[" + DEFEND + "]").getFirst()), 0L);
+				hazardTick(fire, 1L, true, false, true, command);
+				fire.yield(2L);
+				check("default-fire".equals(hazardTick(fire, 3L, false, true, true, command).started()), "another floor hazard still takes the body");
+				long ended = tick;
+				for (; scheduler.anySuppressed() && tick < ended + 100L; tick++) {
+					follower.observe(scheduler, false, null, null, commandId, "SHELTER_BUILT", tick);
+					if (scheduler.anySuppressed()) check(hazardTick(scheduler, tick, false, false, true, null).started() == null, "defend waits out the idle resume");
+				}
+				check(tick - ended == CommandFollower.IDLE_RESUME_TICKS + 1L, "defend is back " + (tick - ended) + " ticks after the command ends");
+			} else {
+				long waited = tick;
+				for (; scheduler.anySuppressed() && tick < waited + 100L; tick++) {
+					follower.observe(scheduler, false, null, null, null, null, tick);
+					if (scheduler.anySuppressed()) hazardTick(scheduler, tick, false, false, true, null);
+				}
+				check(tick - waited <= CommandFollower.REPLACEMENT_WAIT_TICKS + 1L && !scheduler.anySuppressed(), "with no command, defend is back after the replacement wait");
+			}
+			check("default-defend".equals(hazardTick(scheduler, tick, false, false, true, null).started()), "defend guards the body again");
+		}
+	}
+
+	/** One tick with lava, fire and defend sensed (defend gated by the running action). */
+	private static ReflexScheduler.Decision hazardTick(ReflexScheduler scheduler, long now, boolean lava, boolean fire, boolean attacked, ActionType active) {
+		return scheduler.step(now, Map.of("default-lava", new ReflexScheduler.Sense(lava, false), "default-fire", new ReflexScheduler.Sense(fire, false),
+				"default-defend", new ReflexScheduler.Sense(ReflexEngine.gatedTruth(scheduler.rule("default-defend"), attacked, active), false)), RUNNING, "", false);
 	}
 
 	private static List<ReflexSpec.Rule> rules(String json) {

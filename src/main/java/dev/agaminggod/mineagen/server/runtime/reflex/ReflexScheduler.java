@@ -300,6 +300,11 @@ public final class ReflexScheduler {
 				if (state.rule.kind() == ReflexSpec.Kind.STANCE) state.suppressed = true;
 				else state.yieldedTrigger = true;
 				deferredYielded = true;
+				// The command asked for the body while the floor held it, so the stances that would take it now (default-defend
+				// under attack) yield to it too, as they would have had they held the body when it came. The floor still fires.
+				for (State other : states.values()) {
+					if (other != state && !other.floor && other.rule.kind() == ReflexSpec.Kind.STANCE && other.lastTruth) other.suppressed = true;
+				}
 			} else if (held != null && status == ActionStatus.RUNNING) {
 				outcome = Outcome.YIELDED;
 				reason = (reason.isEmpty() ? "" : reason + "; ") + held;
