@@ -1164,7 +1164,7 @@ public final class ServerFightController implements ServerController {
 				dead.getBoundingBox().inflate(DROP_SEARCH_BLOCKS), item -> item.isAlive() && !item.getItem().isEmpty() && item.getAge() <= DROP_AGE_TICKS)) {
 			boolean witnessed = player.level().getGameTime() - lastVisibleTargetTick <= 2L && sight.hasLineOfSight(item);
 			if (!sight.canSeeEntity(item) && !witnessed) continue;
-			dev.agaminggod.mineagen.server.perception.ObservedDrops.remember(player, item);
+			dev.agaminggod.mineagen.server.perception.ObservedDrops.remember(player, item, dev.agaminggod.mineagen.server.perception.ObservedDrops.Source.KILL);
 			witnessedDrops.add(item.getUUID());
 			net.minecraft.core.BlockPos at = item.blockPosition();
 			seen.add(item.getItem().getCount() + "x " + BuiltInRegistries.ITEM.getKey(item.getItem().getItem())

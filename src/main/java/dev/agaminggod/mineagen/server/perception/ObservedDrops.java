@@ -8,19 +8,55 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.phys.Vec3;
 
-/** Drops witnessed at a kill, retained at their last seen position, never followed through walls. */
+/** Drops witnessed at a kill or a break, retained at their last seen position, never followed through walls. */
 public final class ObservedDrops {
 	private static final long KEEP_TICKS = 1200L;
+	static final int CAPACITY = 32;
 	private static final Map<ServerPlayer, Map<UUID, Drop>> MEMORY = new WeakHashMap<>();
-	public record Drop(Vec3 position, String dimension, long tick, String item, int count, boolean landed) { }
+	/** Where a drop came from: a mob the body killed, a block it broke, or a drop it only saw (a pickup's own target). */
+	public enum Source { KILL, BREAK, OTHER }
+	public record Drop(Vec3 position, String dimension, long tick, String item, int count, boolean landed, Source source) { }
 	private ObservedDrops() { }
 
+	/** A re-sighting: keeps the source the drop was first remembered with, else {@link Source#OTHER}. */
 	public static void remember(ServerPlayer player, ItemEntity item) {
+		remember(player, item, null);
+	}
+
+	/** {@code source} null keeps the remembered one; a kill or break source replaces an OTHER sighting. */
+	public static void remember(ServerPlayer player, ItemEntity item, Source source) {
 		Map<UUID, Drop> drops = MEMORY.computeIfAbsent(player, ignored -> new LinkedHashMap<>());
+		Drop known = drops.get(item.getUUID());
+		Source kept = keptSource(known == null ? null : known.source(), source);
 		drops.put(item.getUUID(), new Drop(item.position(), player.level().dimension().identifier().toString(),
 				player.level().getGameTime(), net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(item.getItem().getItem()).toString(),
-				item.getItem().getCount(), item.onGround()));
-		while (drops.size() > 32) drops.remove(drops.keySet().iterator().next());
+				item.getItem().getCount(), item.onGround(), kept));
+		long now = player.level().getGameTime();
+		var level = (net.minecraft.server.level.ServerLevel) player.level();
+		evict(drops, now, id -> !(level.getEntity(id) instanceof ItemEntity live) || !live.isAlive());
+	}
+
+	/** The source a sighting stores: a known kill or break keeps its own; an OTHER sighting takes a kill or break source. */
+	static Source keptSource(Source known, Source given) {
+		if (known != null && (given == null || known != Source.OTHER)) return known;
+		return given == null ? Source.OTHER : given;
+	}
+
+	/**
+	 * Over capacity: first every sighting that expired or whose drop is gone (picked up, burnt, merged, despawned), then
+	 * the oldest drop that is not a kill's, so a dig never pushes out the loot a fight left, and old kill entries never
+	 * crowd out a new break drop.
+	 */
+	static <K> void evict(Map<K, Drop> drops, long now, java.util.function.Predicate<K> gone) {
+		if (drops.size() <= CAPACITY) return;
+		drops.entrySet().removeIf(entry -> now < entry.getValue().tick() || now - entry.getValue().tick() > KEEP_TICKS || gone.test(entry.getKey()));
+		while (drops.size() > CAPACITY) {
+			K victim = null;
+			for (Map.Entry<K, Drop> entry : drops.entrySet()) {
+				if (entry.getValue().source() != Source.KILL) { victim = entry.getKey(); break; }
+			}
+			drops.remove(victim != null ? victim : drops.keySet().iterator().next());
+		}
 	}
 
 	public static Drop recall(ServerPlayer player, UUID id) {

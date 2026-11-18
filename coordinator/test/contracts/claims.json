@@ -40266,7 +40266,7 @@
       "status": "checked"
     },
     {
-      "predicate": "Without acceptLavaRisk, the exact block beside lava produces LAVA_BEHIND before physical execution or swinging; acceptLavaRisk:true admits the break. The refusal names whether the lava is above, beside or below the block (above: it falls through the opening), and a break that opens onto lava in view reports `lava now open` with its side, cell and spread delay. The spread delay is the dimension's: about 1.5 s in the Overworld, 0.5 s in the Nether. Added: where water evaporates, breaking the only block under the feet is refused with UNSEEN_BELOW when the drop under it has an unseen bottom or ends in lava, fire, the void or a killing fall (BrinkGuard.fall over observed terrain); a seen survivable floor is broken; acceptLavaRisk:true overrides.",
+      "predicate": "Without acceptLavaRisk, the exact block beside lava produces LAVA_BEHIND before physical execution or swinging; acceptLavaRisk:true admits the break. The refusal names whether the lava is above, beside or below the block (above: it falls through the opening), and a break that opens onto lava in view reports `lava now open` with its side, cell and spread delay. The spread delay is the dimension's: about 1.5 s in the Overworld, 0.5 s in the Nether. Added: where water evaporates, breaking the only block under the feet is refused with UNSEEN_BELOW when the drop under it has an unseen bottom or ends in lava, fire, the void or a killing fall (BrinkGuard.fall over observed terrain); a seen survivable floor is broken; acceptLavaRisk:true overrides. Added (K10): a break whose new drops are seen names up to 3 of them by uuid in the result ('drops seen: 1x id uuid=...', '+N more' after 3) and remembers each in ObservedDrops with source BREAK for 60 s, so pick_up_item resolves the uuid out of view (findItem accepts a remembered drop).",
       "checks": [
         {
           "type": "live-behavior",
@@ -40297,12 +40297,18 @@
           "test": "edge.watch-replay",
           "command": "fix-slot.sh node scripts/quality/watch-replay.mjs evals/d41-lava/library-c2 (h-sol9-dig) --jar JAR --window-s 30 --out OUT.json",
           "predicate": "break_block twice down through a Nether fortress deck is refused with UNSEEN_BELOW before the fall"
+        },
+        {
+          "file": "src/test/java/dev/agaminggod/mineagen/server/runtime/BreakOutcomeEvidenceVerification.java",
+          "test": "note + dropIds",
+          "type": "java-behavior",
+          "command": "gradlew verifyCore"
         }
       ],
-      "id": "control:e268c9fbf74bdb87:8618208aa7e07469",
+      "id": "control:e268c9fbf74bdb87:fbe4f044e6049033",
       "contract": {
-        "id": "control:e268c9fbf74bdb87:8618208aa7e07469",
-        "claim": "A block with lava beside it is refused with LAVA_BEHIND before any swing, since breaking it may let lava flow in; the failure says whether the lava is above, beside or below. `acceptLavaRisk:true` breaks it anyway. Where water evaporates (the Nether), breaking the only block you stand on is refused with UNSEEN_BELOW when the bottom of the drop under it is unseen, or the drop ends in lava, fire, the void or a fall that kills at your health; a seen floor within a survivable fall is broken. `acceptLavaRisk:true` breaks it anyway. A break that opens onto lava in view says `lava now open` with its side and spread delay (about 1.5 s in the Overworld, 0.5 s in the Nether).",
+        "id": "control:e268c9fbf74bdb87:fbe4f044e6049033",
+        "claim": "A block with lava beside it is refused with LAVA_BEHIND before any swing, since breaking it may let lava flow in; the failure says whether the lava is above, beside or below. `acceptLavaRisk:true` breaks it anyway. Where water evaporates (the Nether), breaking the only block you stand on is refused with UNSEEN_BELOW when the bottom of the drop under it is unseen, or the drop ends in lava, fire, the void or a fall that kills at your health; a seen floor within a survivable fall is broken. `acceptLavaRisk:true` breaks it anyway. A break that opens onto lava in view says `lava now open` with its side and spread delay (about 1.5 s in the Overworld, 0.5 s in the Nether). A break that shows new drops says `drops seen` and names up to 3 of them by uuid (`+N more` after that); pick_up_item accepts those uuids for 60 s, even out of view, at their last-seen position.",
         "kind": "control-reference",
         "topic": "break_block"
       },
@@ -53081,14 +53087,14 @@
           "command": "headless Minecraft production bridge fixture: hazard.lava-behind"
         }
       ],
-      "id": "control:e268c9fbf74bdb87:8618208aa7e07469:result:LAVA_BEHIND",
+      "id": "control:e268c9fbf74bdb87:fbe4f044e6049033:result:LAVA_BEHIND",
       "contract": {
-        "id": "control:e268c9fbf74bdb87:8618208aa7e07469:result:LAVA_BEHIND",
-        "claim": "A block with lava beside it is refused with LAVA_BEHIND before any swing, since breaking it may let lava flow in; the failure says whether the lava is above, beside or below. `acceptLavaRisk:true` breaks it anyway. Where water evaporates (the Nether), breaking the only block you stand on is refused with UNSEEN_BELOW when the bottom of the drop under it is unseen, or the drop ends in lava, fire, the void or a fall that kills at your health; a seen floor within a survivable fall is broken. `acceptLavaRisk:true` breaks it anyway. A break that opens onto lava in view says `lava now open` with its side and spread delay (about 1.5 s in the Overworld, 0.5 s in the Nether).",
+        "id": "control:e268c9fbf74bdb87:fbe4f044e6049033:result:LAVA_BEHIND",
+        "claim": "A block with lava beside it is refused with LAVA_BEHIND before any swing, since breaking it may let lava flow in; the failure says whether the lava is above, beside or below. `acceptLavaRisk:true` breaks it anyway. Where water evaporates (the Nether), breaking the only block you stand on is refused with UNSEEN_BELOW when the bottom of the drop under it is unseen, or the drop ends in lava, fire, the void or a fall that kills at your health; a seen floor within a survivable fall is broken. `acceptLavaRisk:true` breaks it anyway. A break that opens onto lava in view says `lava now open` with its side and spread delay (about 1.5 s in the Overworld, 0.5 s in the Nether). A break that shows new drops says `drops seen` and names up to 3 of them by uuid (`+N more` after that); pick_up_item accepts those uuids for 60 s, even out of view, at their last-seen position.",
         "kind": "result-code",
         "topic": "break_block",
         "code": "LAVA_BEHIND",
-        "parent": "control:e268c9fbf74bdb87:8618208aa7e07469"
+        "parent": "control:e268c9fbf74bdb87:fbe4f044e6049033"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -53107,14 +53113,14 @@
           "predicate": "break_block under the feet on a Nether deck returns UNSEEN_BELOW and the body stays on the deck"
         }
       ],
-      "id": "control:e268c9fbf74bdb87:8618208aa7e07469:result:UNSEEN_BELOW",
+      "id": "control:e268c9fbf74bdb87:fbe4f044e6049033:result:UNSEEN_BELOW",
       "contract": {
-        "id": "control:e268c9fbf74bdb87:8618208aa7e07469:result:UNSEEN_BELOW",
-        "claim": "A block with lava beside it is refused with LAVA_BEHIND before any swing, since breaking it may let lava flow in; the failure says whether the lava is above, beside or below. `acceptLavaRisk:true` breaks it anyway. Where water evaporates (the Nether), breaking the only block you stand on is refused with UNSEEN_BELOW when the bottom of the drop under it is unseen, or the drop ends in lava, fire, the void or a fall that kills at your health; a seen floor within a survivable fall is broken. `acceptLavaRisk:true` breaks it anyway. A break that opens onto lava in view says `lava now open` with its side and spread delay (about 1.5 s in the Overworld, 0.5 s in the Nether).",
+        "id": "control:e268c9fbf74bdb87:fbe4f044e6049033:result:UNSEEN_BELOW",
+        "claim": "A block with lava beside it is refused with LAVA_BEHIND before any swing, since breaking it may let lava flow in; the failure says whether the lava is above, beside or below. `acceptLavaRisk:true` breaks it anyway. Where water evaporates (the Nether), breaking the only block you stand on is refused with UNSEEN_BELOW when the bottom of the drop under it is unseen, or the drop ends in lava, fire, the void or a fall that kills at your health; a seen floor within a survivable fall is broken. `acceptLavaRisk:true` breaks it anyway. A break that opens onto lava in view says `lava now open` with its side and spread delay (about 1.5 s in the Overworld, 0.5 s in the Nether). A break that shows new drops says `drops seen` and names up to 3 of them by uuid (`+N more` after that); pick_up_item accepts those uuids for 60 s, even out of view, at their last-seen position.",
         "kind": "result-code",
         "topic": "break_block",
         "code": "UNSEEN_BELOW",
-        "parent": "control:e268c9fbf74bdb87:8618208aa7e07469"
+        "parent": "control:e268c9fbf74bdb87:fbe4f044e6049033"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",

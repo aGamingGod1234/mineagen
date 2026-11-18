@@ -191,7 +191,7 @@ public final class ServerRangedVolleyController implements ServerTransactionAdap
 				item -> item.isAlive() && !item.getItem().isEmpty() && item.getAge() <= ServerFightController.DROP_AGE_TICKS)) {
 			boolean witnessed = player.level().getGameTime() - lastVisibleTick <= 2L && sight.hasLineOfSight(item);
 			if (!sight.canSeeEntity(item) && !witnessed) continue;
-			ObservedDrops.remember(player, item);
+			ObservedDrops.remember(player, item, ObservedDrops.Source.KILL);
 			drops.add(item.getUUID());
 		}
 	}
