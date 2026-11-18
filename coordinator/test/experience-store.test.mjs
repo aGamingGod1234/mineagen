@@ -226,6 +226,14 @@ test('the experience folder must be outside the checkout, by whole path componen
 	await symlink(join(root, 'private'), join(directory, 'link'), 'dir');
 	assert.equal(isInsideDirectory(join(directory, 'link'), root), true);
 	assert.equal(isInsideDirectory(join(directory, 'link', 'new', 'deeper'), root), true);
+	// A dangling link that points at a checkout folder not created yet is inside, and a link loop cannot be checked.
+	await symlink(join(root, 'later'), join(directory, 'dangling'), 'dir');
+	assert.equal(isInsideDirectory(join(directory, 'dangling'), root), true);
+	assert.equal(isInsideDirectory(join(directory, 'dangling', 'store'), root), true);
+	await symlink(join(directory, 'loop-b'), join(directory, 'loop-a'), 'dir');
+	await symlink(join(directory, 'loop-a'), join(directory, 'loop-b'), 'dir');
+	assert.throws(() => experienceSettings({ MINEAGEN_EXPERIENCE: 'lessons', MINEAGEN_EXPERIENCE_DIR: join(directory, 'loop-a', 'x') }, { checkoutRoot: root }),
+		(error) => /could not be checked: ELOOP/.test(error.message) && !error.message.includes(directory));
 	// A checkout reached through a link still contains its own folders.
 	await symlink(root, join(directory, 'root-link'), 'dir');
 	assert.equal(isInsideDirectory(join(root, 'private'), join(directory, 'root-link')), true);

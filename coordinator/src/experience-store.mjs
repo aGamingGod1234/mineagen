@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { realpathSync } from 'node:fs';
+import { lstatSync, readlinkSync, realpathSync } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -28,18 +28,28 @@ const SEED_HASH = /^s1-[0-9a-f]{16}$/;
 /** The checkout that holds this coordinator (coordinator/src/../..). */
 export const CHECKOUT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
-/** The real path of `target`, resolving symlinks in its longest existing prefix; the rest (not created yet) is appended. */
+/**
+ * The real path of `target`, resolving symlinks in its longest existing prefix; the rest (not created yet) is appended.
+ * A dangling link is followed to where it points, so a link to a checkout folder not created yet still counts as it.
+ */
 function realPathOf(target) {
-	const missing = [];
+	let missing = [];
 	let current = resolve(target);
-	for (;;) {
+	for (let links = 0; ;) {
 		try { return join(realpathSync.native(current), ...missing); } catch (error) {
 			if (error?.code !== 'ENOENT') throw error;
-			const parent = dirname(current);
-			if (parent === current) return resolve(target);
-			missing.unshift(basename(current));
-			current = parent;
 		}
+		let link = null;
+		try { if (lstatSync(current).isSymbolicLink()) link = readlinkSync(current); } catch (error) { if (error?.code !== 'ENOENT') throw error; }
+		if (link !== null) {
+			if (++links > 40) throw Object.assign(new Error('too many symbolic links'), { code: 'ELOOP' });
+			current = resolve(dirname(current), link);
+			continue;
+		}
+		const parent = dirname(current);
+		if (parent === current) return join(current, ...missing);
+		missing = [basename(current), ...missing];
+		current = parent;
 	}
 }
 
@@ -70,7 +80,10 @@ export function experienceSettings(environment = process.env, { checkoutRoot = C
 	const directory = environment.MINEAGEN_EXPERIENCE_DIR?.trim();
 	if (!directory) throw new TypeError('MINEAGEN_EXPERIENCE_DIR is required when MINEAGEN_EXPERIENCE is on');
 	// Lessons are private run data: they never land in the checkout, which is public.
-	if (isInsideDirectory(directory, checkoutRoot)) throw new TypeError('MINEAGEN_EXPERIENCE_DIR must be outside the checkout');
+	let inside;
+	// A folder that cannot be checked refuses to start, with the error code only: the message would name the path.
+	try { inside = isInsideDirectory(directory, checkoutRoot); } catch (error) { throw new TypeError(`MINEAGEN_EXPERIENCE_DIR could not be checked: ${typeof error?.code === 'string' ? error.code : 'unknown'}`); }
+	if (inside) throw new TypeError('MINEAGEN_EXPERIENCE_DIR must be outside the checkout');
 	const profile = environment.MINEAGEN_EXPERIENCE_PROFILE?.trim() || 'default';
 	const seedHash = normalizeSeedHash(environment.MINEAGEN_WORLD_SEED_HASH);
 	const excludedSeedHashes = (environment.MINEAGEN_EXPERIENCE_EXCLUDE_SEEDS ?? '').split(',').map(normalizeSeedHash).filter(Boolean);
