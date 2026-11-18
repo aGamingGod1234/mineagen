@@ -104,7 +104,7 @@ test('a zombie after the body but not in reach: the body stands for it, and one 
 	assert.equal(result.reasonCode, 'FIND_SEEN', result.message);
 	const fight = body.calls.find((call) => call.actionType === 'fight_target').args;
 	assert.equal(fight.pursue, false);
-	assert.equal(fight.timeoutMs, 20_000);
+	assert.equal(fight.timeoutMs, 8_000);
 });
 
 test('fixture skeleton behind a wall and spider not hunting: the dig goes on, no wall, no fight, no hand-back', async () => {
