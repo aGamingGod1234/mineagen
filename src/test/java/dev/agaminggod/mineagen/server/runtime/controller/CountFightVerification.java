@@ -23,7 +23,19 @@ public final class CountFightVerification {
 		verifyTargetingChoicesSurvive();
 		verifyStationaryStance();
 		verifyRound3Gates();
+		verifyRoofFallback();
 		return assertions;
+	}
+
+	/** K11: a failed roof falls back to the open-ground hunt; missing blocks, sneak failures and the spot walk-back still stop. */
+	private static void verifyRoofFallback() {
+		check(ServerFightUntilController.roofFallback("ROOF_NOT_BUILT", true), "a failed shelter or lintel falls back");
+		check(ServerFightUntilController.roofFallback("SPOT_UNREACHABLE", true), "failed walks inside the roof site fall back");
+		check(!ServerFightUntilController.roofFallback("SPOT_UNREACHABLE", false), "two failed walks back to a model spot still stop");
+		check(!ServerFightUntilController.roofFallback("ROOF_BLOCKS_MISSING", true), "missing blocks still stop at once");
+		check(!ServerFightUntilController.roofFallback("SNEAK_NOT_HELD", true), "a sneak failure still stops");
+		check(ServerFightUntilController.roams(dev.agaminggod.mineagen.compat.McEntityTypes.ENDERMAN, false, null),
+				"after the fallback an enderman hunt with no spot roams as the open-ground fight");
 	}
 
 	private static void verifyExplicitChoicesSurvive() {
