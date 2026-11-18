@@ -705,7 +705,10 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 			// Underground, the body is handed back walled in rather than idle in a cave's line of fire; never on a stop for
 			// air, drowning or flooding, or under water, where building spends the breath it has left.
 			const walled = BREATH_STOPS.has(code) || /drown/i.test(String(result?.message ?? '')) || observation?.player?.underWater === true ? false : await cover();
-			return handBack('FAILED', 'FIND_DANGER', `Stopped for danger: ${code}${result?.message ? ` (${String(result.message).slice(0, 200)})` : ''}${walled ? '; walled in where it stands' : ''}`);
+			const back = handBack('FAILED', 'FIND_DANGER', `Stopped for danger: ${code}${result?.message ? ` (${String(result.message).slice(0, 200)})` : ''}${walled ? '; walled in where it stands' : ''}`);
+			// The leg's own stop code, so a caller (obtain) can tell a low-health stop from danger.
+			back.find.stopCode = code;
+			return back;
 		}
 		// A worn pickaxe with a sound one carried off the hotbar: a player swaps it in and digs on. Kit chain, 5 of 8 gate
 		// seeds: the iron pickaxe wore out on the way down to the lava level and every find after it handed back TOOL_WORN

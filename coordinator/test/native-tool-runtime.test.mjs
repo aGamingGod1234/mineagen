@@ -1345,6 +1345,35 @@ for (const [state, reasonCode] of [['SUCCEEDED', 'TARGET_KILLED'], ['FAILED', 'N
 	});
 }
 
+// Rounds 4 to 6: a danger steer hands a blocking action back still running, and the model's replaceAction often reaches
+// it only after it ended (205 of 494 replaces). That replacement starts as a new action instead of failing.
+for (const [state, reasonCode] of [['SUCCEEDED', 'ARRIVED'], ['FAILED', 'NO_PATH']]) {
+	test(`replaceAction of a danger-interrupted action that then ended ${state} starts the replacement as a new action`, async t => {
+		const sent = [];
+		const runtime = new NativeToolRuntime({ registry: testRegistry, bridge: { send: async (...args) => sent.push(args) } });
+		t.after(() => runtime.disposeAll());
+		const body = runtime.execute(nativeCall({ kind: 'action', actionType: 'navigate_to', arguments: { x: 20, y: 64, z: 20, timeoutMs: 30_000 } }), record());
+		for (let attempt = 0; attempt < 8 && sent.length === 0; attempt += 1) await new Promise((resolve) => setImmediate(resolve));
+		const originalId = sent[0][2].actionId;
+		assert.equal(runtime.interruptBlockingTool('agent-a'), true);
+		const handedBack = await body;
+		assert.equal(handedBack.state, 'RUNNING');
+		assert.equal(handedBack.actionId, originalId);
+		assert.equal(handedBack.interruptedBy, 'danger');
+		assert.equal(runtime.onActionResult(record(), { actionId: originalId, goalRevision: 3, state, reasonCode }), true);
+		const replacement = await runtime.execute(nativeCall({ kind: 'replace_action', actionId: originalId, goalRevision: 3,
+			actionType: 'flee_from', arguments: { targetId: '00000000-0000-0000-0000-0000000000a1', distance: 12, timeoutMs: 8_000 } }), record());
+		assert.equal(replacement.state, 'RUNNING');
+		assert.equal(replacement.startedAs, 'start_action');
+		assert.deepEqual(replacement.replacedAction, { actionId: originalId, state, reasonCode });
+		assert.equal(sent.filter(([type]) => type === 'action_cancel').length, 0, 'an ended action is not cancelled');
+		const command = sent.filter(([type]) => type === 'action_command').at(-1)[2];
+		assert.equal(command.actionType, 'flee_from');
+		assert.notEqual(command.actionId, originalId);
+		runtime.onActionResult(record(), { actionId: command.actionId, goalRevision: 3, state: 'SUCCEEDED', reasonCode: 'ESCAPED' });
+	});
+}
+
 test('replacement refuses unknown and old-goal handles and cannot displace a newer body action', async t => {
 	const sent = [];
 	const runtime = new NativeToolRuntime({ bridge: { send: async (...args) => sent.push(args) } });

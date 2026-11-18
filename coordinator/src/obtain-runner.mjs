@@ -341,12 +341,18 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 	};
 	// An action still running when danger interrupted (the runtime keeps it for the model) is handed back with its handle.
 	let running = null, danger = null, fillToolStop = null, capacityStop = null;
+	// The fork the coordinator stopped this run for ({reasonCode, message}), unless obtain found danger of its own: the
+	// run then ends with the fork's code, and the legs it cut short are not read as danger.
+	const forkStop = () => (danger === null ? rawBody.forkStop?.() ?? null : null);
+	// danger came from a leg's own LOW_HEALTH stop: it halts the run like danger but is handed back as LOW_HEALTH.
+	let lowLeg = false;
 	let materialsKeep = new Set();
 	const seen = async (promise) => {
 		const result = await promise;
 		if (result?.state === 'RUNNING' && typeof result.actionId === 'string') running = result;
-		if (danger === null && isDanger(result, result?.reasonCode === 'HOSTILE_NEAR' ? await rawBody.observe().catch(() => null) : null)) {
+		if (danger === null && forkStop() === null && isDanger(result, result?.reasonCode === 'HOSTILE_NEAR' ? await rawBody.observe().catch(() => null) : null)) {
 			danger = `${result.reasonCode}: ${String(result.message ?? '').slice(0, 160)}`;
+			lowLeg = result.reasonCode === 'LOW_HEALTH';
 		}
 		return result;
 	};
@@ -374,8 +380,9 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		}
 		return o;
 	};
-	// Once danger stopped the body, nothing more is dispatched: every loop (search legs, digging) ends at its next move.
-	const halted = { state: 'INTERRUPTED', reasonCode: 'DANGER' };
+	// Once danger (or a fork) stopped the body, nothing more is dispatched: every loop (search legs, digging) ends at its
+	// next move.
+	const halted = () => ({ state: 'INTERRUPTED', reasonCode: forkStop()?.reasonCode ?? 'DANGER' });
 	const expired = { state: 'TIMED_OUT', reasonCode: 'OBTAIN_TIMEOUT' };
 	const unavailable = { state: 'FAILED', reasonCode: 'OBSERVATION_UNAVAILABLE' };
 	const cleanupStopped = (o) => {
@@ -386,15 +393,15 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 	const errandStop = async () => {
 		const o = await observe();
 		// A fresh observation yields: preserve cancellation and the deadline before dispatching after it.
-		if (danger !== null || rawBody.interrupted() || rawBody.stopped()) return halted;
+		if (danger !== null || rawBody.interrupted() || rawBody.stopped()) return halted();
 		if (left() <= 0) return expired;
 		if (blazeBlocksErrand(o) === null) return null;
 		danger = 'blaze exposure: stay in cover or choose combat before resource travel';
-		return halted;
+		return halted();
 	};
 	const guard = async (call, errand = false) => {
-		if (checkingCleanup && cleanupStopped(await observe().catch(() => null))) return halted;
-		if (danger !== null || rawBody.interrupted() || rawBody.stopped()) return halted;
+		if (checkingCleanup && cleanupStopped(await observe().catch(() => null))) return halted();
+		if (danger !== null || rawBody.interrupted() || rawBody.stopped()) return halted();
 		if (capacityStop !== null && !cleaning) return { state: 'FAILED', reasonCode: 'INVENTORY_FULL' };
 		if (cleanupObservationFailed) return unavailable;
 		if (left() <= 0) return expired;
@@ -409,14 +416,20 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		moveTo: (args) => guard(() => rawBody.moveTo(cap(args)), true), gather: (args) => guard(() => rawBody.gather(cap(args)), true),
 		// find's search, inside obtain's time; its danger stop is obtain's danger, its leg still running is handed back.
 		search: rawBody.search && (async (target, options) => {
-			if (danger !== null) return halted;
+			if (danger !== null) return halted();
 			if (cleanupObservationFailed) return unavailable;
 			if (left() <= 0) return expired;
 			{ const stopped = await errandStop(); if (stopped !== null) return stopped; }
 			const result = await rawBody.search(target, { ...options, timeoutMs: Math.max(5_000, Math.min(options.timeoutMs, left())) });
 			dryBeforeSearch = lastDry !== null;
-			if (result?.reasonCode === 'FIND_DANGER') danger ??= `find: ${String(result.message ?? '').slice(0, 160)}`;
-			if (result?.state === 'RUNNING' && typeof result.actionId === 'string') { running = result; danger ??= 'find: danger stopped the search'; }
+			// A search a fork stopped ends with the fork's code (the loop top), not as danger.
+			const fork = forkStop() !== null;
+			if (!fork && result?.reasonCode === 'FIND_DANGER' && danger === null) {
+				// A find leg's own LOW_HEALTH stop is handed back as LOW_HEALTH, as a gather leg's is (seen()).
+				lowLeg = result.find?.stopCode === 'LOW_HEALTH';
+				danger = `find: ${String(result.message ?? '').replace(lowLeg ? /^Stopped for danger: / : /^$/, '').slice(0, 160)}`;
+			}
+			if (result?.state === 'RUNNING' && typeof result.actionId === 'string') { running = result; if (!fork) danger ??= 'find: danger stopped the search'; }
 			return result;
 		}) };
 	const asked = shortId(String(item).trim().toLowerCase().replace(/[\s-]+/g, '_'));
@@ -481,14 +494,21 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		// The ending is decided after cleanup, from what is true now: danger, damage or death during cleanup, health at or
 		// under the low-health line, or the item lost, is never reported as obtained.
 		const health = o?.player?.health;
-		const hurt = danger ?? bodyDanger(o) ?? (o?.player?.dead || Number.isFinite(health) && health <= 0 ? 'died'
-			: Number.isFinite(health) && Number.isFinite(before) && health < before ? `health ${before} -> ${health} while picking up the stations`
-			: !food && Number.isFinite(health) && health <= LOW_HEALTH ? `health ${health}` : null);
+		const hurt = (lowLeg ? null : danger) ?? bodyDanger(o) ?? (o?.player?.dead || Number.isFinite(health) && health <= 0 ? 'died'
+			: Number.isFinite(health) && Number.isFinite(before) && health < before ? `health ${before} -> ${health} while picking up the stations` : null);
+		const fork = hurt === null ? forkStop() : null;
 		if (rawBody.stopped()) {
 			state = 'CANCELLED'; reasonCode = 'CANCELLED'; why = 'Cancelled';
-		} else if (rawBody.interrupted() || hurt !== null) {
+		} else if (hurt !== null || rawBody.interrupted() && fork === null) {
 			state = 'INTERRUPTED'; reasonCode = 'DANGER';
 			why = `${why}, then danger while picking up the stations (${hurt ?? 'raw interruption'}); decide, then call obtain again`;
+		} else if (fork !== null) {
+			if (reasonCode !== fork.reasonCode) why = `${why}, then stopped (${fork.message ?? fork.reasonCode}); decide, then call obtain again`;
+			state = 'INTERRUPTED'; reasonCode = fork.reasonCode;
+		} else if (reasonCode === 'LOW_HEALTH' || !food && Number.isFinite(health) && health <= LOW_HEALTH) {
+			// Low health alone is obtain's own hand-back to recover, not danger: a low-health stop keeps its code and line.
+			if (reasonCode !== 'LOW_HEALTH') why = `${why}, but health is ${health}, at or under ${LOW_HEALTH}; recover, then call obtain again`;
+			state = 'INTERRUPTED'; reasonCode = 'LOW_HEALTH';
 		} else if (cleanupObservationFailed) {
 			state = 'FAILED'; reasonCode = 'OBSERVATION_UNAVAILABLE';
 			why = 'Stopped station cleanup because a fresh safety observation was unavailable; decide, then call obtain again';
@@ -1358,8 +1378,13 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 	// The action danger left running (a body leg, or find's leg inside a search) goes back with every danger ending.
 	const handle = () => (running === null ? {} : { running: { actionId: running.actionId, ...(running.recoveryHint ? { recoveryHint: running.recoveryHint } : {}) } });
 	while (true) {
+		if (danger !== null && lowLeg) return end('INTERRUPTED', 'LOW_HEALTH', `Stopped at low health (${danger}); recover, then call obtain again to continue`, handle());
 		if (danger !== null) return end('INTERRUPTED', 'DANGER', `Stopped for danger (${danger}); decide, then call obtain again to continue`, handle());
-		if (rawBody.interrupted()) return end('INTERRUPTED', 'DANGER', 'Stopped for danger the reflexes did not handle; decide, then call obtain again to continue', handle());
+		if (rawBody.interrupted()) {
+			const fork = forkStop();
+			return fork === null ? end('INTERRUPTED', 'DANGER', 'Stopped for danger the reflexes did not handle; decide, then call obtain again to continue', handle())
+				: end('INTERRUPTED', fork.reasonCode, `${fork.message ?? `Stopped: ${fork.reasonCode}`}; decide, then call obtain again to continue`, handle());
+		}
 		if (rawBody.stopped()) return end('CANCELLED', 'CANCELLED', 'Cancelled');
 		if (cleanupObservationFailed) return end('FAILED', 'OBSERVATION_UNAVAILABLE', 'Fresh station cleanup observation unavailable');
 		const o = await body.observe();

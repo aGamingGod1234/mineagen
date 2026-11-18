@@ -6486,6 +6486,19 @@ function steerInterruption(request, countHits) {
 const FIGHT_ACTION_TYPES = new Set(['fight_target', 'fight_until']);
 // The same bands the danger coalescer reports at: crossing one changes what a sensible choice is.
 const FIGHT_STEER_HEALTH_BANDS = Object.freeze([14, 10, 6]);
+// fight_until bails out at 6 when no fleeAtHealth is given (ServerFightUntilController.DEFAULT_FLEE_AT_HEALTH).
+const FIGHT_UNTIL_DEFAULT_FLEE_AT_HEALTH = 6;
+
+/**
+ * The health bands that cut a running fight. A fight with a bail-out line hands back by itself there, so its hits are
+ * absorbed down to max(line, 6), and only that line cuts. fight_target without fleeAtHealth never bails out
+ * (CombatPlanning.shouldBailOut), so it keeps every band.
+ */
+function fightSteerBands(running) {
+	const given = running.arguments?.fleeAtHealth;
+	const line = Number.isFinite(given) ? given : running.actionType === 'fight_until' ? FIGHT_UNTIL_DEFAULT_FLEE_AT_HEALTH : null;
+	return line === null ? FIGHT_STEER_HEALTH_BANDS : [Math.max(line, 6)];
+}
 
 function steerAttackers(request) {
 	const attackers = [], types = new Set();
@@ -6520,7 +6533,8 @@ function steerHealth(request) {
  * Whether a danger steer should cut the agent's running fight short. A fight the model chose already answers hits
  * from the mob it is fighting, so those hits reach the model with the next steer instead of interrupting the fight
  * every two seconds. Anything new still interrupts: hazards, projectiles, escalating threats, an attacker outside the
- * fight, an unknown attacker, or health falling into a lower band (14, 10, 6) since the fight started or last cut.
+ * fight, an unknown attacker, or health falling into a lower band (14, 10, 6) since the fight started or last cut. A
+ * fight with a bail-out line absorbs those bands down to max(fleeAtHealth, 6), and only that line cuts (fightSteerBands).
  * Pure: returns { interruption, absorbed, cut }. The caller stores `cut` as the new reference only when it actually
  * interrupts, so evaluating the same steer twice gives the same answer.
  */
@@ -6534,7 +6548,8 @@ export function fightSteerDecision(request, running, state = null) {
 	// Standing in lava or fire, or burning, is never the fight's business, whatever trigger carried it.
 	const player = (request?.nativeEvent?.observation ?? request?.observation)?.player ?? {};
 	if (player.inLava === true || player.onFire === true || player.hazard != null) return cut;
-	const band = (value) => FIGHT_STEER_HEALTH_BANDS.filter(threshold => value <= threshold).length;
+	const bands = fightSteerBands(running);
+	const band = (value) => bands.filter(threshold => value <= threshold).length;
 	if (health === null || reference == null || band(health) > band(reference)) return cut;
 	const { attackers, types, identitiesComplete } = steerAttackers(request);
 	if (types.size === 0) return cut;
