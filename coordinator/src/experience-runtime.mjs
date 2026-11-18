@@ -181,9 +181,11 @@ export class ExperienceRuntime {
 		const ranked = this.#store.candidates(agent.game)
 			.map((candidate) => ({ candidate, score: situationScore(candidate, situation) }))
 			.filter(({ score }) => score > 0)
-			.sort((a, b) => b.score - a.score || (b.candidate.games + b.candidate.thisGame) - (a.candidate.games + a.candidate.thisGame) || a.candidate.id.localeCompare(b.candidate.id))
-			.slice(0, MAX_SHOWN_LESSONS)
-			.map(({ candidate }) => candidate);
+			.sort((a, b) => b.score - a.score || (b.candidate.count + b.candidate.thisGame) - (a.candidate.count + a.candidate.thisGame) || a.candidate.id.localeCompare(b.candidate.id))
+			.map(({ candidate }) => candidate)
+			// One lesson per mob: the best supported one says enough.
+			.filter((candidate, index, all) => candidate.slots.mob === undefined || all.findIndex((other) => other.slots.mob === candidate.slots.mob) === index)
+			.slice(0, MAX_SHOWN_LESSONS);
 		if (markShown && ranked.length) {
 			const first = this.#store.markShown(agent.game, ranked.map((entry) => entry.id), at);
 			const fresh = ranked.filter((entry) => !agent.shown.has(entry.id));

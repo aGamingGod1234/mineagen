@@ -93,7 +93,7 @@ test('with experience off the summary is exactly what it was', async () => {
 	assert.deepEqual(await none.taskContext(record), await plain.taskContext(record));
 });
 
-test('at most three lessons are shown, and they are trimmed before this world\'s own notes', () => withDirectory(async (directory) => {
+test('at most three lessons are shown, and carried lessons are trimmed first', () => withDirectory(async (directory) => {
 	const runtime = experience(directory, { MINEAGEN_WORLD_SEED_HASH: 'seed-one' });
 	const memory = new RuntimeMemoryContext({ taskMemory: new TaskMemoryStore({ directory: null }), experience: runtime });
 	memory.observe(record, observation('world-one', T0, { hostiles: ['skeleton', 'zombie', 'stray'], health: 6, edible: 0 }));
