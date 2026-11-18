@@ -38,9 +38,11 @@ export function splitDangerRows(rows) {
 /**
  * Reconciles the Watcher's per-hit health drop with the vanilla damage_taken counter (tenths of HP, after armour and
  * absorption) over the whole run up to the final sample. A lethal hit's row stops at 0 health while the counter counts
- * the hit in full, so with a lethal hit the counter may only read higher. Missing counter or rows = unknown, never 0.
+ * the hit in full, so with a lethal hit the counter may only read higher. Missing counter or rows, or a counter sample that
+ * is not a non-negative whole number, = unknown, never 0.
  */
 export function reconcileDamage(damageRows, samples) {
+	if (damageCounterCorrupt(samples)) return { status: 'unknown', reason: 'a vanilla damage counter sample is not a non-negative whole number' };
 	const counted = (samples ?? []).filter(s => finite(s?.damageTakenCounter) && finite(s?.at));
 	if (!counted.length) return { status: 'unknown', reason: 'no vanilla damage counter samples' };
 	if (damageRows === null) return { status: 'unknown', reason: 'no danger rows' };
@@ -58,6 +60,12 @@ export function reconcileDamage(damageRows, samples) {
 	const status = counter >= low && counter <= high ? 'valid' : 'invalid';
 	return { status, counterHp: round(counter), rowsHp: round(sum(upTo(last.at))), hits: upTo(last.at).length, lethal, toleranceHp: round(tolerance, 3),
 		firstSampleAt: first.at, finalSampleAt: last.at, ...(status === 'invalid' ? { reason: `counter ${round(counter)} HP outside rows ${round(low)}..${round(high)} HP` } : {}) };
+}
+
+/** A damage counter sample is present but malformed: not a non-negative whole number (tenths of HP). */
+export function damageCounterCorrupt(samples) {
+	return (samples ?? []).some(s => s?.damageTakenCounter !== undefined && s?.damageTakenCounter !== null
+		&& !(Number.isSafeInteger(s.damageTakenCounter) && s.damageTakenCounter >= 0));
 }
 
 /** Threat spans from onset and clear rows, clipped to the window; a span still open at the window end runs to it. */

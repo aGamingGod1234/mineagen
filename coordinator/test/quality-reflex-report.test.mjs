@@ -60,6 +60,17 @@ test('a counter that disagrees is invalid, a missing counter or Watcher file is 
 	assert.equal(decreasing.status, 'unknown');
 });
 
+test('a negative or fractional damage counter sample is corrupt: unknown damage, never a clean 0', () => {
+	for (const bad of [-100, 1.5, '0']) {
+		const samples = [counter(START, bad), counter(START + 150_000, 0), counter(START + 300_000, 0)];
+		assert.equal(reconcileDamage([], samples).status, 'unknown', `counter ${bad}`);
+		const run = scoreRun({ scenario: 'R-SKELETON', goalStartedAtMs: START, samples, dangerRows: [] });
+		assert.equal(run.status, 'unknown', `counter ${bad} through scoreRun`);
+		assert.equal(run.damage, null);
+	}
+	assert.equal(reconcileDamage([], [counter(START, null), counter(START + 300_000, 0)]).status, 'valid', 'a sample with no reading is missing, not corrupt');
+});
+
 test('reconciliation tolerates rounding per hit, an edge hit, and a lethal hit read in full by the counter', () => {
 	const end = START + 300_000;
 	const samples = [counter(START, 0), counter(end, 31)];
