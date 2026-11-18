@@ -193,6 +193,17 @@ test('an invalid, unknown or missing run leaves its pair incomplete, never a zer
 	assert.equal(judged.rooms['R-BLAZE'].damage.incomplete, 2);
 	assert.equal(judged.rooms['R-BLAZE'].damage.sum, 2);
 	assert.equal(judged.rooms['R-BLAZE'].pairs, 3);
+	// A complete pair that is better plus a pair with no evidence at all: the overall result waits for that pair.
+	const unknown = { pairId: 'R-BLAZE-r2', scenario: 'R-BLAZE', status: 'unknown', damage: null, deaths: null, success: null };
+	const margin = { rooms: { 'R-BLAZE': { damage: { perPairSd: 1 }, deaths: { perPairSd: 0 }, success: { perPairSd: 0 } } } };
+	const mixed = judgeRooms(pairRuns([scored('R-BLAZE', 1, 10), scored('R-BLAZE', 2, 4)], [scored('R-BLAZE', 1, 5), unknown]), margin);
+	assert.equal(mixed.rooms['R-BLAZE'].damage.verdict, 'BETTER', 'the per-metric verdict stays as a diagnostic');
+	assert.equal(mixed.rooms['R-BLAZE'].damage.incomplete, 1);
+	assert.equal(mixed.overall, 'INCOMPLETE');
+	const complete = judgeRooms(pairRuns([scored('R-BLAZE', 1, 10)], [scored('R-BLAZE', 1, 5)]), margin);
+	assert.equal(complete.overall, 'PASS', 'the same complete pair alone passes');
+	const worse = judgeRooms(pairRuns([scored('R-BLAZE', 1, 0), scored('R-BLAZE', 2, 4)], [scored('R-BLAZE', 1, 5), unknown]), margin);
+	assert.equal(worse.overall, 'FAIL', 'a WORSE metric still fails with a pair unknown');
 });
 
 test('deaths come from counter samples at both room boundaries; a missing boundary or a falling counter is unknown', () => {

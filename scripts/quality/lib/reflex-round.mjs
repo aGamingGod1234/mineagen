@@ -245,7 +245,8 @@ export function noiseFloor(pairs) {
 
 /**
  * Room-stratified sums of per-pair deltas judged against a margin set in advance: margin = z x perPairSd x sqrt(n). Beyond
- * it the step is WORSE or BETTER on that room; inside it INCONCLUSIVE; with no margin for the room, NO_MARGIN.
+ * it the step is WORSE or BETTER on that room; inside it INCONCLUSIVE; with no margin for the room, NO_MARGIN. Overall:
+ * FAIL on any WORSE, else INCOMPLETE while any pair lacks a metric, else PASS (some BETTER) or INCONCLUSIVE.
  */
 export function judgeRooms(pairs, margin = null) {
 	const z = finite(margin?.z) ? margin.z : DEFAULT_MARGIN_Z;
@@ -269,6 +270,9 @@ export function judgeRooms(pairs, margin = null) {
 		}
 	}
 	const verdicts = Object.values(rooms).flatMap(room => METRICS.map(metric => room[metric].verdict));
-	const overall = verdicts.includes('WORSE') ? 'FAIL' : verdicts.every(v => v === 'BETTER' || v === 'INCONCLUSIVE') && verdicts.length ? (verdicts.includes('BETTER') ? 'PASS' : 'INCONCLUSIVE') : 'INCOMPLETE';
+	// A pair with unknown evidence for any metric leaves the step unjudged, whatever its complete pairs say; the per-metric
+	// verdicts above stay as diagnostics. A WORSE metric still fails the step.
+	const unknown = Object.values(rooms).some(room => METRICS.some(metric => room[metric].incomplete > 0));
+	const overall = verdicts.includes('WORSE') ? 'FAIL' : !unknown && verdicts.every(v => v === 'BETTER' || v === 'INCONCLUSIVE') && verdicts.length ? (verdicts.includes('BETTER') ? 'PASS' : 'INCONCLUSIVE') : 'INCOMPLETE';
 	return { z, rooms, overall };
 }
