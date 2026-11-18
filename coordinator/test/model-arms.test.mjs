@@ -97,6 +97,8 @@ test('a stop reason maps to window, cap, stall, goal or other, and an unrecorded
 	assert.equal(stopKind('Stalled: no new stage in 45 minutes'), 'stall');
 	assert.equal(stopKind('DRAGON_KILLED'), 'goal');
 	assert.equal(stopKind('ENDED_EARLY:RUNNER_ERROR'), 'other');
+	assert.equal(stopKind('ENDED_EARLY:VERIFIER_NOT_INSTALLED'), 'other', 'INSTALLED is not a stall');
+	assert.equal(stopKind('operator: reinstall the server'), 'other');
 	for (const reason of [null, undefined, '', 'UNKNOWN_TERMINATION', 'ENDED_EARLY:UNKNOWN_TERMINATION']) assert.equal(stopKind(reason), null);
 });
 
@@ -133,4 +135,15 @@ test('the mod summons the same default model the scripts use, and gpt-6.2-sol is
 	const manifest = JSON.parse(await source('src/main/resources/assets/mineagen/identity/agent_visual_manifest.json'));
 	const families = manifest.providers.find((provider) => provider.key === 'codex').families;
 	assert.ok(families.find((family) => family.key === 'sol').models.includes('gpt-6.2-sol'));
+});
+
+test('a gpt-6.2-sol long run builds a valid headless scenario, and log mode reaches the observer definition', async () => {
+	const { buildLongRunDefinition } = await import('../src/benchmark/long-run.mjs');
+	const { normalizeHeadlessScenario } = await import('../src/headless-matrix.mjs');
+	const { buildQualityScenario, resolveQualityScenarios } = await import('../../scripts/quality/run-scenarios.mjs');
+	const definition = { ...buildLongRunDefinition({ seed: '1', windowMs: 10_800_000, spendCapUsd: 4 }), spendCapMode: 'log' };
+	const [resolved] = resolveQualityScenarios([definition], { scenarios: ['LONG'] });
+	assert.equal(resolved.spendCapMode, 'log');
+	const built = normalizeHeadlessScenario(buildQualityScenario(resolved, { id: 'long-62', profile: sol }));
+	assert.deepEqual([built.provider, built.model, built.reasoningEffort], ['codex', 'gpt-6.2-sol', 'low']);
 });
