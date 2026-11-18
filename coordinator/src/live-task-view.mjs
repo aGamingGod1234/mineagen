@@ -14,7 +14,7 @@ import { armorMaterialNeed, chainText, howtoChain, howtoHeldRecipe, howtoHolding
 import { fortressSearchOption } from './nether-regions.mjs';
 import { NETHER_OPTIONS_BYTES, SOURCE_BLOCKS, bedSpawnOption, descentRespawnFact, knownLine, needOptions, netherReadiness, netherRouteOption, pearlHuntLine, pearlOptions, pearlSourceInView, pearlsWanted, pickaxeTier, portalAtHand, progressionGoal, textResources } from './need-sources.mjs';
 import { VILLAGE_POI, headingOf, sightingKind } from './search-coverage.mjs';
-import { routeLine, skillFitsLine } from './skill-fits.mjs';
+import { foodStockHandback, routeLine, skillFitsLine } from './skill-fits.mjs';
 import { beatsTheGame } from './goal-spec-translator.mjs';
 import { dropLoss, recoveryRoute } from './respawn-recovery.mjs';
 import { lightLine, toolsLine, picksLine, sleepLine, spawnLine, castingLine, frameLine } from './wake-body-facts.mjs';
@@ -108,7 +108,7 @@ export class LiveTaskViews {
  }
  #newState(record, fresh = false) {
   // Steering changes the planner prompt, not the immutable task or its saved scope.
-  return { taskIdentity: taskIdentity(record), goal: record.currentGoalSpec?.originalRequest ?? record.currentGoal ?? '', goalRevision: record.goalRevision, plan: null, revision: 0, events: [], sequence: 0, usage: null, usageSample: null, allowance: null, worldId: null, observation: null, scope: null, loading: null, lastObserved: {}, worldProof: {}, presenceProof: {}, deathLosses: {}, known: emptyKnown(), verified: false, fresh, intent: null, planFocus: null, workHeading: null, stall: null, broken: 0, counted: [], breaks: [], gains: [], ownPoi: [], dimensionSince: null, deaths: 0, wasDead: false, results: [], effect: null, liveInventory: null, liveDimension: null, samples: [], lifecycle: new FactLifecycle(), progress: null, alarms: {}, repeats: [], repeatAlarmed: {}, intentLog: [] };
+  return { taskIdentity: taskIdentity(record), goal: record.currentGoalSpec?.originalRequest ?? record.currentGoal ?? '', goalRevision: record.goalRevision, plan: null, revision: 0, events: [], sequence: 0, usage: null, usageSample: null, allowance: null, worldId: null, observation: null, scope: null, loading: null, lastObserved: {}, worldProof: {}, presenceProof: {}, deathLosses: {}, known: emptyKnown(), verified: false, fresh, intent: null, planFocus: null, workHeading: null, stall: null, broken: 0, counted: [], breaks: [], gains: [], ownPoi: [], dimensionSince: null, deaths: 0, wasDead: false, results: [], foodHandback: null, effect: null, liveInventory: null, liveDimension: null, samples: [], lifecycle: new FactLifecycle(), progress: null, alarms: {}, repeats: [], repeatAlarmed: {}, intentLog: [] };
  }
  async #load(record, state) {
   if (!state.worldId) return;
@@ -172,7 +172,7 @@ export class LiveTaskViews {
   // evidence). An unready or bodiless sample, even one naming another world, only makes current facts unknown.
   if (!currentSample(observation)) { this.#state(record).observation = { ready: false }; return; }
   const state = this.#state(record), world = observation.world?.worldId ?? null;
-  if (world && state.worldId && world !== state.worldId) { state.plan = null; state.revision = 0; state.scope = null; state.lastObserved={}; state.worldProof = {}; state.presenceProof = {}; state.deathLosses = {}; state.known=emptyKnown(); state.verified=false; state.usage=null; state.usageSample=null; state.intent = null; state.planFocus = null; state.workHeading = null; state.deaths = 0; state.results = []; state.effect = null; state.liveInventory = null; state.liveDimension = null; state.samples = []; state.ownPoi = []; state.breaks = []; state.gains = []; state.intentLog = []; resetProgress(state); }
+  if (world && state.worldId && world !== state.worldId) { state.plan = null; state.revision = 0; state.scope = null; state.lastObserved={}; state.worldProof = {}; state.presenceProof = {}; state.deathLosses = {}; state.known=emptyKnown(); state.verified=false; state.usage=null; state.usageSample=null; state.intent = null; state.planFocus = null; state.workHeading = null; state.deaths = 0; state.results = []; state.foodHandback = null; state.effect = null; state.liveInventory = null; state.liveDimension = null; state.samples = []; state.ownPoi = []; state.breaks = []; state.gains = []; state.intentLog = []; resetProgress(state); }
   if (world) state.worldId = world;
   state.observation = observation;
   await this.#load(record, state);
@@ -180,7 +180,7 @@ export class LiveTaskViews {
   const dead = observation.player?.dead === true || observation.continuity?.phase === 'dead';
   const died = dead && !state.wasDead, revived = !dead && state.wasDead;
   // A corpse sample may lack the world; the last live dimension is where the death happened.
-  if (died) { state.deaths++; state.effect = `died in ${String(observation.world?.dimension ?? state.liveDimension ?? 'this world').replace(/^minecraft:/, '')}`; state.liveInventory = null; }
+  if (died) { state.foodHandback = null; state.deaths++; state.effect = `died in ${String(observation.world?.dimension ?? state.liveDimension ?? 'this world').replace(/^minecraft:/, '')}`; state.liveInventory = null; }
   if (!dead && identifier(observation.world?.dimension)) {
    // The first dimension seen is no change; a later one is.
    if (state.liveDimension !== null && state.liveDimension !== observation.world.dimension) state.dimensionSince = Number.isFinite(observation.observedAtEpochMs) ? observation.observedAtEpochMs : this.#now();
@@ -241,6 +241,17 @@ export class LiveTaskViews {
    delete state.worldProof[step.id]; delete state.presenceProof[step.id];
    if (step.status === 'complete') step.status = 'lost';
   }
+  return true;
+ }
+ /**
+  * A food obtain or animal find that came back without a source (foodStockHandback) releases the route's cooked-meat
+  * stock for this life in this world. Not saved: after a restart the stock heads the route again until the next one.
+  */
+ noteFoodHandback(record, tool, result) {
+  if (!beatsTheGame(record.currentGoalSpec) || !foodStockHandback(tool, result)) return false;
+  const state = this.#state(record), o = state.observation;
+  if (!currentSample(o) || deadSample(o) || !state.worldId || !Number.isFinite(o.observedAtEpochMs)) return false;
+  state.foodHandback = { at: o.observedAtEpochMs, worldId: state.worldId, deaths: state.deaths };
   return true;
  }
  async actionReceipt(record, receipt) {
@@ -687,7 +698,10 @@ export class LiveTaskViews {
   const stepProgress = progressFacts(current, Number.isFinite(current.observation?.observedAtEpochMs) ? current.observation.observedAtEpochMs : this.#now(), progressFocus(current));
   // The route reads the sample the plan line reads: a queued observation evicted from the sample cache would name a
   // step the plan already counts as met (an older inventory before a craft).
-  const route = beatsTheGame(record.currentGoalSpec) ? routeLine({ observation: state.observation, known: state.known, memory: this.#memory(record, state, ROUTE_SOURCE_BLOCKS), evaluate: evaluatePlanCheck }) : null;
+  // A queued sample from before the hand-back still shows the stock it saw.
+  const handback = current.foodHandback, foodHandedBack = handback !== null && handback.worldId === current.worldId && handback.deaths === state.deaths
+   && handback.at <= state.observation?.observedAtEpochMs;
+  const route = beatsTheGame(record.currentGoalSpec) ? routeLine({ observation: state.observation, known: state.known, memory: this.#memory(record, state, ROUTE_SOURCE_BLOCKS), foodHandedBack, evaluate: evaluatePlanCheck }) : null;
   return composeContinuityHeader({ goal: record.currentGoal, intent: state.intent, evidence: intentEvidence(state), since, progress: this.#progressLine(state), route, stepProgress: stepProgress.progress ?? null, repeats: stepProgress.repeats ?? null, search: stepProgress.search ?? null, ...this.#memoryFacts(record, state, shown, observation?.recovery ?? null), results: state.results, running, effect: state.effect, orders, guardInstalled, guardCoverage, guardThreatsNear, guardThreatsTargeting, annotate });
  }
  /** The trigger for a no-progress or repeated-result fact not yet woken for ('no_progress' | 'repeated_result'), once. */

@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { AgentPlanner } from './agent-planner.mjs';
 import { AgentRegistry, AgentRegistryError, DynamicAgentState } from './agent-registry.mjs';
 import { ActiveGoalSupervisor } from './active-goal-supervisor.mjs';
-import { MAX_LEASE_TIMEOUT_MS } from './work-lease-supervisor.mjs';
+import { MAX_LEASE_TIMEOUT_MS, actionLeaseTimeoutMs, requestedActionTimeoutMs } from './work-lease-supervisor.mjs';
 import { AgentWorkspaceManager } from './agent-workspace.mjs';
 import { MinecraftAgentWorkspace } from './minecraft-agent-workspace.mjs';
 import { ClaudeProviderService } from './claude-service.mjs';
@@ -2733,7 +2733,8 @@ export class DynamicCoordinator extends EventEmitter {
 			// the body must still act at once, so it runs unsupervised instead of failing to acquire a lease.
 			const awaitingConfirmation = sameSupervisionKey(this.#nativeConfirmationWaits.get(work.agentId), work.supervisionKey);
 			const supervised = supervisionKind !== null && !awaitingConfirmation;
-			supervisionToken = supervised ? this.#goalSupervisor.begin(work.supervisionKey, supervisionKind) : null;
+			const leaseOptions = supervisionKind === 'action' ? { timeoutMs: actionLeaseTimeoutMs(requestedActionTimeoutMs(toolRequest.tool)) } : undefined;
+			supervisionToken = supervised ? this.#goalSupervisor.begin(work.supervisionKey, supervisionKind, leaseOptions) : null;
 			if (awaitingConfirmation && executesBody && !['chat', 'wait'].includes(toolRequest.tool.actionType)) {
 				// Work begun while waiting (defending, a player's extra request) may need follow-up wakes, such as its
 				// own action result; let those through until a turn ends without new body work (see completion).
@@ -2759,6 +2760,7 @@ export class DynamicCoordinator extends EventEmitter {
 			if (current?.goalRevision === work.goalRevision
 				&& this.#isConnectionEpochCurrent(work.connectionEpoch)
 				&& this.#isLifecycleGenerationCurrent(work.agentId, work.lifecycleGeneration)) {
+				this.#taskViews.noteFoodHandback(current, toolRequest.tool, result);
 				if (toolRequest.tool.kind === 'task_plan' && toolRequest.tool.operation === 'intent' && result?.state === 'SUCCEEDED') {
 					const intent = toolRequest.tool.intent;
 					const label = this.#taskViews.snapshot(current).plan?.steps.find(step => step.id === intent.step)?.label ?? intent.step;

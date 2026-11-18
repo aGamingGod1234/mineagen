@@ -1,3 +1,5 @@
+import { MAX_DURATION_MS, OPTIONAL_ACTION_FIELDS } from './constants.mjs';
+
 export const LEASE_TIMEOUTS_MS = Object.freeze({
 	provider: 45_000,
 	action: 125_000,
@@ -10,6 +12,30 @@ export const LEASE_TIMEOUTS_MS = Object.freeze({
 
 export const FACTUAL_PROGRESS_TIMEOUT_MS = 30_000;
 export const MAX_LEASE_TIMEOUT_MS = 900_000;
+const MIN_ACTION_LEASE_GRACE_MS = 30_000;
+
+/**
+ * The work lease for a body action that asked for {@code requestedMs}: never shorter than the default action lease and
+ * never ending before the action's own timeout. The mod times actions in game time, which a lagging server stretches
+ * past the wall-clock lease, so the grace grows with the timeout (half of it, at least 30 s): a 600 s action keeps
+ * running down to two-thirds tick rate. The cap still ends an action whose result never comes.
+ */
+export function actionLeaseTimeoutMs(requestedMs) {
+	if (!Number.isSafeInteger(requestedMs) || requestedMs <= 0) return LEASE_TIMEOUTS_MS.action;
+	const grace = Math.max(MIN_ACTION_LEASE_GRACE_MS, Math.ceil(requestedMs / 2));
+	return Math.min(MAX_LEASE_TIMEOUT_MS, Math.max(LEASE_TIMEOUTS_MS.action, requestedMs + grace));
+}
+
+/**
+ * How long a body tool asked to run: its timeoutMs, a wait's durationMs, or, for an action whose timeout the mod
+ * defaults when left out (travel_to defaults to 600 s), the longest action timeout. Undefined when it names none.
+ */
+export function requestedActionTimeoutMs(tool) {
+	const args = tool?.arguments;
+	if (Number.isSafeInteger(args?.timeoutMs)) return args.timeoutMs;
+	if (Number.isSafeInteger(args?.durationMs)) return args.durationMs;
+	return OPTIONAL_ACTION_FIELDS[tool?.actionType]?.includes('timeoutMs') ? MAX_DURATION_MS : undefined;
+}
 
 const AUTOMATED_KINDS = new Set(['scheduled', 'recovery']);
 const MAX_HISTORY = 8;
