@@ -9,6 +9,7 @@ import { readLongArtifacts } from '../../coordinator/src/benchmark/long-run-arti
 import { readArtifactReport, writeArtifactReport } from '../../coordinator/src/benchmark/report-artifacts.mjs';
 import { SpendGate } from '../../coordinator/src/benchmark/spend-gate.mjs';
 import { SpendLedger, runSpendUsd } from '../../coordinator/src/benchmark/spend-ledger.mjs';
+import { requireTokenPrice } from '../../coordinator/src/call-cost.mjs';
 import { buildLongRunDefinition, extractLongRunTimeline, formatLongRunTimeline, randomSeed, MAX_LONG_RUN_WINDOW_MS } from '../../coordinator/src/benchmark/long-run.mjs';
 import { runScenarios, validateArmBuild } from './run-scenarios.mjs';
 import { collectWatchFiles } from './watch-files.mjs';
@@ -73,6 +74,8 @@ export function longRunAllowance({ runReserveUsd = null }, availableUsd) {
 export async function runLong(options, { execute = runScenarios } = {}) {
 	requireRunBudgetPolicy(options);
 	if (isStrictBudget(options)) requireStrictGoal(options.goal ?? 'Beat the game');
+	// Live spend adds up priced calls only: an unpriced model would read as free and never reach its cap.
+	requireTokenPrice({ provider: options.provider, model: options.model });
 	await mkdir(options.out, { recursive: true });
 	if (existsSync(path.join(options.out, 'long-run.json'))) throw new Error('Use a fresh output directory');
 	let build = { jar: options.jar ?? undefined, coordinatorRoot: options.coordinatorRoot ?? undefined, commit: null };

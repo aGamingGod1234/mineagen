@@ -19,6 +19,7 @@ import { findGeneralityInputLeaks } from '../../coordinator/src/benchmark/genera
 import { activateQualitySetup, sampleQualityShelter } from '../../coordinator/src/benchmark/quality-scenarios.mjs';
 import { initialPlanEvidence } from '../../coordinator/src/benchmark/quality-metrics-v2.mjs';
 import { liveSpendUsd, unmeteredProviderCalls } from '../../coordinator/src/benchmark/spend-ledger.mjs';
+import { requireTokenPrice } from '../../coordinator/src/call-cost.mjs';
 import { startAnthropicGateway, PREPARATION_ALLOWANCE_USD } from '../../coordinator/src/benchmark/spend-gate.mjs';
 import { LadderEvaluator, checkAdvancements, evaluateSamples, parseSuccessCheck } from './ladder-evaluator.mjs';
 import { spawnOwnedProcess, terminateChildProcess } from '../../coordinator/src/child-process-lifecycle.mjs';
@@ -506,6 +507,8 @@ export async function runScenarios(options, { spawnLauncher = spawnOwnedProcess,
 	if (strict) for (const scenario of selected) requireStrictGoal(scenario.goal);
 	if (new Set(options.scenarios).size !== selected.length || selected.length * options.runs > 24) throw new Error('Select unique scenarios, at most 24 attempts per invocation');
 	const profile = { provider: options.provider, model: options.model, reasoningEffort: options.effort, serviceTier: options.serviceTier ?? (options.provider === 'codex' ? 'default' : 'priority') };
+	// A cap adds up priced calls only: an unpriced model would read as free and never reach it.
+	if (options.spendGate || selected.some(s => Number.isFinite(s.spendCapUsd))) requireTokenPrice(profile);
 	const version = (await readFile(path.join(ROOT, 'gradle.properties'), 'utf8')).match(/^mod_version=(.+)$/m)[1].trim();
 	const jar = options.jar ?? path.join(ROOT, 'build/libs', `mineagen-${version}.jar`);
 	if (!existsSync(jar)) throw new Error(`Missing JAR ${jar}; build first or pass --jar`);
