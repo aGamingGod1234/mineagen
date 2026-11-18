@@ -122,7 +122,7 @@ for (const [index, gameDirectory] of positionals.entries()) {
 	if (stats.dispatches === 0 && stats.results === 0) console.warn(`game ${index + 1}: no action rows in this recording; failure and action-dependent death lessons were not reviewed`);
 	report.push({ ...stats, actionEvidence: stats.dispatches + stats.results > 0, carriedBytes: undefined,
 		carriedBytesMedian: bytes.length ? bytes[Math.floor(bytes.length / 2)] : 0, carriedBytesMax: bytes.at(-1) ?? 0,
-		deathsReviewed: reviewed.length, deathCauses: reviewed.map((event) => event.escaping ? `${event.cause}<-${event.escaping}` : event.cause),
+		deathsReviewed: reviewed.length, deathCauses: reviewed.map((event) => event.attacker ? `${event.cause}<-${event.attacker}` : event.cause),
 		lessonsRecorded: recorded.map((event) => event.lessonId), state: experience.state() });
 	console.log(JSON.stringify(report.at(-1)));
 }

@@ -228,7 +228,7 @@ export class RuntimeMemoryContext {
 			...(Number.isSafeInteger(observation.worldTick) && observation.worldTick >= 0 ? { tick: observation.worldTick } : {}),
 		};
 		await this.#notebook.recordReceipt(agentId, terminal);
-		await this.#experience?.noteResult(agentId, { actionId, actionType: previous.actionType, state: source.state, reasonCode: source.reasonCode, dimension: previous.dimension, worldId: previous.worldId, executionStarted: source.executionStarted },
+		if (this.#experience !== null) await this.#experience.noteResult(agentId, { actionId, actionType: previous.actionType, state: source.state, reasonCode: source.reasonCode, dimension: previous.dimension, worldId: previous.worldId, executionStarted: source.executionStarted },
 			Number.isFinite(source.observedAtEpochMs) ? source.observedAtEpochMs : undefined);
 		// The break tally of a held-attack control is not persisted with the receipt, but the task view counts it.
 		const breakOutcome = Number.isSafeInteger(source.breakOutcome?.blocks) ? { breakOutcome: { blocks: source.breakOutcome.blocks } } : {};
