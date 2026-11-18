@@ -20,7 +20,8 @@ import net.minecraft.world.phys.Vec3;
 /**
  * travel_to's stall watchdog through the controller's own tick (issue #2 K4), with a stub body and level and no physics:
  * the window the trip feeds runs out on this tick, and the trip stops STALLED_IN_PLACE, naming why building cannot continue
- * when it cannot.
+ * when it cannot. A retreat from lava whose window runs out mid-leg is not a stall: the leg finishes into the watch,
+ * with build on or off.
  */
 public final class TravelStallTickVerification {
 	private static final Vec3 HERE = new Vec3(0.5D, 64.0D, 0.5D);
@@ -50,12 +51,54 @@ public final class TravelStallTickVerification {
 		ServerController.TickResult refused = stalledTick(true, "OUT_OF_BLOCKS", "no plain block to bridge with");
 		check("STALLED_IN_PLACE".equals(refused.reasonCode()) && refused.message().contains("; building cannot continue: no plain block to bridge with"),
 				"a stall after building was refused says why building cannot continue: " + refused.message());
+
+		for (boolean build : new boolean[] {false, true}) {
+			ServerTravelController trip = trip(build);
+			// A lava retreat leg is under way as the window runs out; its leg ends on this tick (timed out) without planning.
+			set(trip, "retreatCode", "LAVA_INCOMING");
+			set(trip, "retreatWhy", "Seen lava was flowing into 0,64,0");
+			set(trip, "phase", phase("LEG"));
+			set(trip, "legTarget", new dev.agaminggod.mineagen.client.navigation.GridPosition(-3, 64, 0));
+			set(trip, "legFinal", true);
+			set(trip, "leg", new ServerNavigationController(new Vec3(-2.5D, 64.0D, 0.5D), ServerTravelController.RETREAT_TOLERANCE, true, 0L, 1L, true));
+			ServerController.TickResult retreating;
+			try {
+				retreating = trip.tick(player(), 10_000L);
+			} catch (RuntimeException planned) {
+				// Turned to planning toward the target on the stub level: the assertions below name what went wrong.
+				retreating = null;
+			}
+			Object phase = get(trip, "phase");
+			check(retreating != null && retreating.state() == ServerController.State.RUNNING && phase == phase("WATCH")
+					&& get(trip, "stallBuildAt") == null,
+					"build " + build + ": a retreat whose stall window ran out finishes its leg into the watch: " + retreating + ", phase " + phase
+							+ ", stall turn at " + get(trip, "stallBuildAt"));
+		}
 		return assertions;
+	}
+
+	private static Object phase(String name) throws ReflectiveOperationException {
+		for (Class<?> nested : ServerTravelController.class.getDeclaredClasses()) {
+			if (nested.isEnum() && nested.getSimpleName().equals("Phase")) {
+				for (Object constant : nested.getEnumConstants()) if (((Enum<?>) constant).name().equals(name)) return constant;
+			}
+		}
+		throw new IllegalStateException("no phase " + name);
 	}
 
 	/** One tick of a trip whose stall window started 10 s ago at the body's spot. */
 	private static ServerController.TickResult stalledTick(boolean build, String refusalCode, String refusal) throws Exception {
 		StallPlayer player = player();
+		ServerTravelController trip = trip(build);
+		if (refusal != null) {
+			set(trip, "buildRefusal", refusal);
+			set(trip, "buildRefusalCode", refusalCode);
+		}
+		return trip.tick(player, 10_000L);
+	}
+
+	/** A trip toward 40 blocks east whose stall window started 10 s ago at the body's spot; the next tick is the 200th. */
+	private static ServerTravelController trip(boolean build) throws Exception {
 		ServerTravelController trip = new ServerTravelController(40.5D, Double.NaN, 0.5D, 3.0D, 600_000L, build, null, null, (body, at) -> true, 0L);
 		set(trip, "start", HERE);
 		set(trip, "lastPosition", HERE);
@@ -67,11 +110,7 @@ public final class TravelStallTickVerification {
 		// The tick about to run is the 200th: the trip's own tick count, which a reflex pause or server lag does not move.
 		set(trip, "ticks", TravelStallWatch.WINDOW_TICKS - 1);
 		((TravelStallWatch) get(trip, "stallWatch")).observe(0L, HERE.x, HERE.y, HERE.z, 0L);
-		if (refusal != null) {
-			set(trip, "buildRefusal", refusal);
-			set(trip, "buildRefusalCode", refusalCode);
-		}
-		return trip.tick(player, 10_000L);
+		return trip;
 	}
 
 	private static StallPlayer player() throws Exception {

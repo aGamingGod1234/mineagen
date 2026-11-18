@@ -306,8 +306,9 @@ public final class ServerTravelController implements ServerController {
 			}
 		}
 		// A fight, the retreat watch and the portal wait stand still on purpose, and a dig_to staircase has its own
-		// DIG_STUCK stops; each has its own limit.
-		boolean standsOnPurpose = phase == Phase.FIGHT || phase == Phase.WATCH || phase == Phase.DIG || portalLeg;
+		// DIG_STUCK stops; each has its own limit. A retreat (its leg or step has its own limit, then the watch) is never
+		// read as stalled forward travel: building on toward the target would send the body back at the hazard.
+		boolean standsOnPurpose = retreatCode != null || phase == Phase.FIGHT || phase == Phase.WATCH || phase == Phase.DIG || portalLeg;
 		if (standsOnPurpose) stallWatch.reset();
 		TravelStallWatch.Verdict still = standsOnPurpose ? null : stallWatch.observe(ticks, position.x, position.y, position.z, work);
 		if (phase == Phase.FIGHT) return fightTick(player, nowEpochMs);
