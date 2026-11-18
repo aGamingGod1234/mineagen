@@ -38,9 +38,13 @@ async function healthSamples(gameDirectory) {
 	return rows;
 }
 /** The full observation when the recording has one; otherwise the trimmed row with the nearest earlier health sample. */
-function observationOf(payload, health) {
+function observationOf(payload, health, gameIndex) {
 	try { return { observation: adaptObservation(payload.observation ?? payload), trimmed: false }; } catch { /* trimmed recording */ }
 	const { goalRevision, dimension, ...rest } = payload;
+	// Long-run rows may keep only the dimension: give each recording its own stable world identity.
+	const world = { worldId: rest.world?.worldId ?? `replay-game-${gameIndex}`, ...(rest.world ?? {}) };
+	world.dimension ??= world.dimensionId ?? dimension;
+	rest.world = world;
 	const at = rest.observedAtEpochMs;
 	while (health.index + 1 < health.rows.length && health.rows[health.index + 1].at <= at) health.index += 1;
 	const sample = health.rows[health.index];
@@ -79,7 +83,7 @@ for (const [index, gameDirectory] of positionals.entries()) {
 		const record = { agentId: envelope.agentId, goalRevision };
 		try {
 			if (envelope.type === 'observation') {
-				const { observation, trimmed } = observationOf(payload, health);
+				const { observation, trimmed } = observationOf(payload, health, index);
 				if (trimmed) stats.trimmedObservations += 1;
 				memory.observe(record, observation);
 				stats.observations += 1;

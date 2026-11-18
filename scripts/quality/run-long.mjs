@@ -73,11 +73,12 @@ export function parseLongArgs(argv) {
 		template: path.resolve(values['server-template'] ?? process.env.ARENA_HEADLESS_SERVER_TEMPLATE ?? path.join(ROOT, 'runtime/server-template')) };
 }
 
+/** Every run sets each experience variable explicitly, so an inherited value can never relabel an arm. */
 export function experienceEnvironment(experience, seed) {
-	if (!experience) return null;
+	if (!experience) return { MINEAGEN_EXPERIENCE: 'off', MINEAGEN_EXPERIENCE_FROZEN: '0', MINEAGEN_WORLD_SEED_HASH: '', MINEAGEN_EXPERIENCE_EXCLUDE_SEEDS: '' };
 	return { MINEAGEN_EXPERIENCE: experience.mode, MINEAGEN_EXPERIENCE_DIR: experience.directory, MINEAGEN_EXPERIENCE_PROFILE: experience.profile,
 		MINEAGEN_WORLD_SEED_HASH: normalizeSeedHash(String(seed)), MINEAGEN_EXPERIENCE_EXCLUDE_SEEDS: experience.excludeSeeds.map((value) => normalizeSeedHash(value)).join(','),
-		...(experience.frozen ? { MINEAGEN_EXPERIENCE_FROZEN: '1' } : {}) };
+		MINEAGEN_EXPERIENCE_FROZEN: experience.frozen ? '1' : '0' };
 }
 export function experienceRow(experience, seed) {
 	if (!experience) return { mode: 'off' };
@@ -135,7 +136,7 @@ export async function runLong(options, { execute = runScenarios } = {}) {
 	let results = null, failure = null, discoveredArtifacts = null;
 	try {
 		results = await execute({ ...build, definitions: [definition], scenarios: [definition.id], runs: 1, repetition: 1, provider: options.provider, model: options.model, effort: options.effort,
-			serviceTier: options.serviceTier, budget: null, goalStartClock: true, ...(experienceEnv ? { env: { ...(build.env ?? {}), ...experienceEnv } } : {}), spendGate: gate, codexObserverCap: options.codexObserverCap, portBase: options.portBase, out: path.join(options.out, 'run'), sourceCommit: build.commit ?? null, template: options.template, java: options.java }, { onObserver: observer => { discoveredArtifacts = observer.directory; } });
+			serviceTier: options.serviceTier, budget: null, goalStartClock: true, env: { ...(build.env ?? {}), ...experienceEnv }, spendGate: gate, codexObserverCap: options.codexObserverCap, portBase: options.portBase, out: path.join(options.out, 'run'), sourceCommit: build.commit ?? null, template: options.template, java: options.java }, { onObserver: observer => { discoveredArtifacts = observer.directory; } });
 	} catch (error) { failure = error; }
 	finally { process.off('SIGTERM', onTerm); process.off('SIGINT', onInt); }
 	if (signalRecord) await signalRecord;

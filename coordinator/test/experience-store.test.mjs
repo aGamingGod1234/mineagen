@@ -118,3 +118,15 @@ test('a positive decimal seed is hashed too, and hashing twice changes nothing',
 	assert.equal(normalizeSeedHash(hashed), hashed);
 	assert.equal(experienceSettings({ MINEAGEN_EXPERIENCE: 'lessons', MINEAGEN_EXPERIENCE_DIR: '/x', MINEAGEN_WORLD_SEED_HASH: hashed }).seedHash, hashed);
 });
+
+test('a lesson blocked from carrying by its seed still shows on this game\'s own evidence', () => withDirectory(async (directory) => {
+	const earlier = new ExperienceStore(settings(directory, { MINEAGEN_WORLD_SEED_HASH: 'seed-a' }));
+	await earlier.load();
+	earlier.record(GAME_A, { ...lesson, atEpochMs: 1 });
+	await earlier.flush();
+	const replayed = new ExperienceStore(settings(directory, { MINEAGEN_WORLD_SEED_HASH: 'seed-a' }));
+	await replayed.load();
+	assert.deepEqual(replayed.candidates(GAME_B), []);
+	replayed.record(GAME_B, { ...lesson, atEpochMs: 2 });
+	assert.deepEqual(replayed.candidates(GAME_B).map(({ id, games, thisGame }) => ({ id, games, thisGame })), [{ id: lesson.id, games: 0, thisGame: 1 }]);
+}));

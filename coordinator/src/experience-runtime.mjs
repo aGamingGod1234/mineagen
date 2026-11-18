@@ -104,7 +104,7 @@ export class ExperienceRuntime {
 
 	#agent(agentId) {
 		let agent = this.#agents.get(agentId);
-		if (agent === undefined) { agent = { game: null, samples: [], results: [], running: new Map(), deaths: new Set(), failures: new Map(), shown: new Set(), recent: [], clock: null }; this.#agents.set(agentId, agent); }
+		if (agent === undefined) { agent = { game: null, samples: [], results: [], running: new Map(), deaths: new Set(), failures: new Map(), shown: new Set(), recent: [], clock: null, terminal: new Set() }; this.#agents.set(agentId, agent); }
 		return agent;
 	}
 	#emit(event, fields) { try { this.#trace?.(event, fields); } catch { /* tracing never blocks play */ } }
@@ -146,6 +146,12 @@ export class ExperienceRuntime {
 	}
 	async #noteResult(agentId, { actionId, actionType, state, reasonCode, dimension }, at = undefined) {
 		const agent = this.#agent(agentId);
+		// A replayed terminal receipt is acknowledged again upstream but counts here once.
+		if (typeof actionId === 'string') {
+			if (agent.terminal.has(actionId)) return;
+			agent.terminal.add(actionId);
+			if (agent.terminal.size > 512) agent.terminal.delete(agent.terminal.values().next().value);
+		}
 		at ??= agent.clock ?? Date.now();
 		const started = agent.running.get(actionId);
 		agent.running.delete(actionId);
@@ -156,7 +162,8 @@ export class ExperienceRuntime {
 		agent.results.push(row);
 		while (agent.results.length > MAX_RESULTS || agent.results.length && at - agent.results[0].at > HISTORY_MS) agent.results.shift();
 		if (agent.game === null || !['FAILED', 'TIMED_OUT', 'CANCELLED'].includes(state)) return;
-		for (const lesson of failureLessons(row, agent.failures, agent.samples.at(-1) ?? null)) await this.#record(agent, lesson, at);
+		const game = agent.game;
+		for (const lesson of failureLessons(row, agent.failures, agent.samples.at(-1) ?? null)) await this.#record(agent, game, lesson, at);
 	}
 
 	async #reviewDeath(agentId, agent, death, at) {
@@ -174,17 +181,19 @@ export class ExperienceRuntime {
 		const lessons = deathLessons(context);
 		this.#emit('experience_death_reviewed', { cause: cause.cause, kind: cause.kind, ...(cause.escaping ? { escaping: cause.escaping } : {}), dimension: context.dimension ?? null,
 			running, lessons: lessons.map((lesson) => lesson.id) });
-		for (const lesson of lessons) await this.#record(agent, lesson, when);
+		const game = agent.game;
+		for (const lesson of lessons) await this.#record(agent, game, lesson, when);
 		// History before a death does not describe the next life.
 		agent.samples = []; agent.results = []; agent.running.clear();
 	}
 
-	async #record(agent, lesson, at) {
+	/** Records against the game the evidence came from, even if the agent changed worlds while the store loaded. */
+	async #record(agent, game, lesson, at) {
 		await this.#ready;
 		if (this.#failed !== null) return;
-		const count = this.#store.record(agent.game, { ...lesson, atEpochMs: at });
+		const count = this.#store.record(game, { ...lesson, atEpochMs: at });
 		// A lesson just learned is shown on the next wakes (the respawn decision) even before its situation returns.
-		agent.recent = [...agent.recent.filter((entry) => entry.id !== lesson.id), { id: lesson.id, at }].slice(-4);
+		if (agent.game === game) agent.recent = [...agent.recent.filter((entry) => entry.id !== lesson.id), { id: lesson.id, at }].slice(-4);
 		this.#emit('experience_lesson_recorded', { lessonId: lesson.id, rule: lesson.rule, countThisGame: count });
 	}
 

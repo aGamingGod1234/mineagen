@@ -159,8 +159,10 @@ export class ExperienceStore {
 		}
 		const own = this.#current.get(gameHash) ?? this.#games.get(gameHash);
 		const result = [...carried.values()].filter((entry) => !entry.blocked).map(({ blocked, ...entry }) => ({ ...entry, thisGame: own?.lessons[entry.id]?.count ?? 0 }));
+		// A lesson whose carried evidence is blocked (same or excluded seed) still stands on this game's own evidence.
+		const shown = new Set(result.map((entry) => entry.id));
 		for (const [id, lesson] of Object.entries(own?.lessons ?? {})) {
-			if (!carried.has(id)) result.push({ id, rule: lesson.rule, slots: lesson.slots, games: 0, count: 0, shownGames: 0, repeatsAfterShown: 0, thisGame: lesson.count });
+			if (!shown.has(id)) result.push({ id, rule: lesson.rule, slots: lesson.slots, games: 0, count: 0, shownGames: 0, repeatsAfterShown: 0, thisGame: lesson.count });
 		}
 		return result;
 	}

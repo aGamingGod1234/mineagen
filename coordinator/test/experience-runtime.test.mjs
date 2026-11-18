@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RuntimeMemoryContext } from '../src/runtime-memory-context.mjs';
 import { TaskMemoryStore } from '../src/task-memory-store.mjs';
-import { experienceSettings } from '../src/experience-store.mjs';
+import { ExperienceStore, experienceHash, experienceSettings } from '../src/experience-store.mjs';
 import { classifyDeath, createExperience, MAX_SHOWN_LESSONS } from '../src/experience-runtime.mjs';
 import { deathLessons, LESSON_RULES, lessonEntry } from '../src/experience-lessons.mjs';
 
@@ -178,3 +178,29 @@ test('a dispatch that never got a result stops counting as running after two min
 	const context = { cause: classifyDeath('x was shot by Skeleton'), dimension: 'overworld', running: [], at: 300_000, samples: [], results: [] };
 	assert.equal(deathLessons(context).some((lesson) => lesson.rule === 'ranged-fled-in-open'), false);
 });
+
+test('a replayed terminal receipt feeds the failure review once', () => withDirectory(async (directory) => {
+	const events = [];
+	const runtime = createExperience(experienceSettings({ MINEAGEN_EXPERIENCE: 'lessons', MINEAGEN_EXPERIENCE_DIR: directory, MINEAGEN_EXPERIENCE_PROFILE: 'p' }), { trace: (event, fields) => events.push({ event, ...fields }) });
+	runtime.observe('agent-a', 'world-one', observation('world-one', T0), T0);
+	runtime.noteDispatch('agent-a', { actionId: 'dig-1', actionType: 'dig_to' });
+	for (let replay = 0; replay < 3; replay++) await runtime.noteResult('agent-a', { actionId: 'dig-1', actionType: 'dig_to', state: 'FAILED', reasonCode: 'WATER_AHEAD' }, T0 + 1_000);
+	await runtime.flush();
+	assert.equal(events.some((event) => event.event === 'experience_lesson_recorded'), false);
+}));
+
+test('a death reviewed while the store loads is recorded against its own game after a world change', () => withDirectory(async (directory) => {
+	const settingsValue = experienceSettings({ MINEAGEN_EXPERIENCE: 'lessons', MINEAGEN_EXPERIENCE_DIR: directory, MINEAGEN_EXPERIENCE_PROFILE: 'p' });
+	const real = new ExperienceStore(settingsValue), gate = Promise.withResolvers();
+	const store = { load: async () => { await gate.promise; return real.load(); }, state: () => real.state(), record: (...args) => real.record(...args),
+		markShown: (...args) => real.markShown(...args), candidates: (...args) => real.candidates(...args), flush: () => real.flush() };
+	const runtime = createExperience(settingsValue, { store });
+	runtime.observe('agent-a', 'world-one', observation('world-one', T0, { health: 6, edible: 0 }), T0);
+	const reviewed = runtime.observe('agent-a', 'world-one', { death: { cause: 'x was slain by Zombie', dimensionId: 'minecraft:overworld', diedAtEpochMs: T0 + 15_000 } }, T0 + 15_000);
+	runtime.observe('agent-a', 'world-two', observation('world-two', T0 + 20_000), T0 + 20_000);
+	gate.resolve();
+	await reviewed;
+	await runtime.flush();
+	assert.ok(real.candidates(experienceHash('world:world-one')).some((entry) => entry.thisGame > 0));
+	assert.equal(real.candidates(experienceHash('world:world-two')).some((entry) => entry.thisGame > 0), false);
+}));
