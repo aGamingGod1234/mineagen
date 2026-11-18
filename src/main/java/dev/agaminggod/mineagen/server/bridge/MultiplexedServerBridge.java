@@ -2344,14 +2344,14 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 			ServerActionRequest request = decodeActionRequest(envelope);
 			AgentRecord record = validateActionProvenance(request);
 			BridgeTap.model(request.agentId(), "action_command", request.provenance().programId(), request.provenance().programVersion());
-			BridgeTap.accepted(request.agentId(), request.actionId(), request.type().wireName(), request.provenance().programId(),
-					request.provenance().sourceStepId(), actionIssuer(envelope.payload()));
 			if (shouldRouteConcurrentChat(request, actionExecutor.activeRequest(request.agentId()))) {
 				actionExecutor.submitConcurrentChat(request);
+				tapAccepted(request, envelope);
 				return;
 			}
 			if (isDetachedConversationReply(record, request)) {
 				actionExecutor.submitConversationReply(request);
+				tapAccepted(request, envelope);
 			} else {
 				actionJournal.acceptForTick(request, logicalGoalId(record));
 				durableAccepted = true;
@@ -2365,12 +2365,22 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 					}
 					throw exception;
 				}
+				tapAccepted(request, envelope);
 			}
 		} catch (BridgeProtocolException | AgentDomainException exception) {
 			if (durableAccepted) throw exception;
 			if (sendRejectedAction(envelope, exception)) return;
 			throw exception;
 		}
+	}
+
+	/**
+	 * The audit tap's accepted command, only once admission returned: a command rejected during admission (already active,
+	 * quarantined, journal rolled back) never reaches the danger log as a response.
+	 */
+	private static void tapAccepted(ServerActionRequest request, BridgeEnvelope envelope) {
+		BridgeTap.accepted(request.agentId(), request.actionId(), request.type().wireName(), request.provenance().programId(),
+				request.provenance().sourceStepId(), actionIssuer(envelope.payload()));
 	}
 
 	private void acceptActionCancel(BridgeEnvelope envelope) {

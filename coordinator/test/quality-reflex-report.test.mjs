@@ -6,6 +6,7 @@ import path from 'node:path';
 import { DANGER_SCHEMA, judgeRooms, noiseFloor, pairRuns, reconcileDamage, roomWindowMs, scoreRun, windowDeaths } from '../../scripts/quality/lib/reflex-round.mjs';
 import { buildReport, parseReportArgs } from '../../scripts/quality/reflex-round-report.mjs';
 import { readWatchDir } from '../../scripts/quality/watch-files.mjs';
+import { writeArtifactReport } from '../src/benchmark/report-artifacts.mjs';
 
 // The same lines src/test/java/dev/agaminggod/mineagen/server/watch/WatchVerification.java generates from DangerLog.
 const FIXTURE = new URL('./fixtures/reflex-danger-rows.jsonl', import.meta.url);
@@ -60,6 +61,17 @@ test('a counter that disagrees is invalid, a missing counter or Watcher file is 
 	assert.equal(decreasing.status, 'unknown');
 });
 
+test('a negative or fractional damage counter sample is corrupt: unknown damage, never a clean 0', () => {
+	for (const bad of [-100, 1.5, '0']) {
+		const samples = [counter(START, bad), counter(START + 150_000, 0), counter(START + 300_000, 0)];
+		assert.equal(reconcileDamage([], samples).status, 'unknown', `counter ${bad}`);
+		const run = scoreRun({ scenario: 'R-SKELETON', goalStartedAtMs: START, samples, dangerRows: [] });
+		assert.equal(run.status, 'unknown', `counter ${bad} through scoreRun`);
+		assert.equal(run.damage, null);
+	}
+	assert.equal(reconcileDamage([], [counter(START, null), counter(START + 300_000, 0)]).status, 'valid', 'a sample with no reading is missing, not corrupt');
+});
+
 test('reconciliation tolerates rounding per hit, an edge hit, and a lethal hit read in full by the counter', () => {
 	const end = START + 300_000;
 	const samples = [counter(START, 0), counter(end, 31)];
@@ -88,6 +100,20 @@ test('a capture that stops before the room window ends is unknown, never a clean
 	assert.equal(full.damage, 0);
 	const [a] = [scored('R-SKELETON', 1, 4)];
 	assert.equal(pairRuns([a], [{ ...truncated, pairId: 'R-SKELETON-r1' }])[0].deltas.damage, null, 'the pair is incomplete');
+});
+
+test('room success counts only a pass inside the room window, whatever the run went on to do', () => {
+	const samples = [counter(START, 0), counter(START + 150_000, 0), counter(START + 300_000, 0)];
+	const run = (evaluation, extra = {}) => scoreRun({ scenario: 'R-TOOLBREAK', goalStartedAtMs: START, samples, dangerRows: [], evaluation: { status: 'EVALUATED', ...evaluation }, ...extra }).success;
+	// R-TOOLBREAK is scored over 180 s; --play-window-ms ran it for 300 s.
+	assert.equal(run({ pass: true, passAt: START + 200_000, timeToPassMs: 200_000 }), false, 'a pass at 200 s is after the window');
+	assert.equal(run({ pass: true, passAt: START + 120_000, timeToPassMs: 120_000 }), true);
+	assert.equal(run({ pass: true, passAt: START + 181_000 }), true, 'inside the 2 s clock slack at the window end');
+	assert.equal(run({ pass: true, timeToPassMs: 250_000 }), false, 'the time to pass stands in for a missing passAt');
+	assert.equal(run({ pass: true }), null, 'no pass time and samples past the window: unknown');
+	assert.equal(run({ pass: true }, { samples: samples.slice(0, 2), runBudgetMs: 300_000 }), null, 'no pass time and a budget past the window: unknown');
+	assert.equal(run({ pass: true }, { samples: [counter(START, 0), counter(START + 180_000, 0)], runBudgetMs: 180_000 }), true, 'a run that ended with its window');
+	assert.equal(run({ pass: false, passAt: null }), false);
 });
 
 test('each room is scored over its own window; deaths come from the death counter', () => {
@@ -182,6 +208,17 @@ test('an invalid, unknown or missing run leaves its pair incomplete, never a zer
 	assert.equal(judged.rooms['R-BLAZE'].damage.incomplete, 2);
 	assert.equal(judged.rooms['R-BLAZE'].damage.sum, 2);
 	assert.equal(judged.rooms['R-BLAZE'].pairs, 3);
+	// A complete pair that is better plus a pair with no evidence at all: the overall result waits for that pair.
+	const unknown = { pairId: 'R-BLAZE-r2', scenario: 'R-BLAZE', status: 'unknown', damage: null, deaths: null, success: null };
+	const margin = { rooms: { 'R-BLAZE': { damage: { perPairSd: 1 }, deaths: { perPairSd: 0 }, success: { perPairSd: 0 } } } };
+	const mixed = judgeRooms(pairRuns([scored('R-BLAZE', 1, 10), scored('R-BLAZE', 2, 4)], [scored('R-BLAZE', 1, 5), unknown]), margin);
+	assert.equal(mixed.rooms['R-BLAZE'].damage.verdict, 'BETTER', 'the per-metric verdict stays as a diagnostic');
+	assert.equal(mixed.rooms['R-BLAZE'].damage.incomplete, 1);
+	assert.equal(mixed.overall, 'INCOMPLETE');
+	const complete = judgeRooms(pairRuns([scored('R-BLAZE', 1, 10)], [scored('R-BLAZE', 1, 5)]), margin);
+	assert.equal(complete.overall, 'PASS', 'the same complete pair alone passes');
+	const worse = judgeRooms(pairRuns([scored('R-BLAZE', 1, 0), scored('R-BLAZE', 2, 4)], [scored('R-BLAZE', 1, 5), unknown]), margin);
+	assert.equal(worse.overall, 'FAIL', 'a WORSE metric still fails with a pair unknown');
 });
 
 test('deaths come from counter samples at both room boundaries; a missing boundary or a falling counter is unknown', () => {
@@ -285,6 +322,25 @@ test('the CLI reads run directories and paired results, and reports the noise fl
 		assert.ok(paired.pairs.every(pair => pair.deltas.damage === 0));
 		assert.equal(paired.judgement.rooms['R-SKELETON'].damage.verdict, 'INCONCLUSIVE');
 		assert.equal(paired.noiseFloor.rooms['R-SKELETON'].damage.perPairSd, 0);
+		// Results over the summary size limit keep their arms and runs in report-artifacts/: the reader restores them.
+		const pad = (n, length = 6000) => Object.fromEntries(Array.from({ length }, (_, i) => [`f${i}`, `v${n}`]));
+		const big = Object.fromEntries(['A', 'B'].map(arm => [arm, { runs: arms[arm].runs.map((run, n) => ({ ...run, ...pad(n) })) }]));
+		const bigFile = path.join(root, 'big', 'results.json');
+		await mkdir(path.dirname(bigFile), { recursive: true });
+		await writeArtifactReport(bigFile, { configuration: { design: 'A/A' }, arms: big });
+		assert.ok(JSON.parse(await readFile(bigFile, 'utf8')).arms.reportArtifact, 'the fixture really holds its arms in an artifact');
+		const bigPaired = await buildReport(parseReportArgs(['--paired', bigFile, '--margin', marginFile]));
+		assert.equal(bigPaired.pairs.length, 3, 'externalized arms still give every pair');
+		assert.equal(bigPaired.judgement.rooms['R-SKELETON'].damage.verdict, 'INCONCLUSIVE');
+		const bigRuns = path.join(root, 'big', 'runs.json');
+		await writeArtifactReport(bigRuns, { runs: [...big.A.runs, ...big.B.runs] });
+		assert.ok(JSON.parse(await readFile(bigRuns, 'utf8')).runs.reportArtifact, 'the fixture really holds its runs in an artifact');
+		assert.deepEqual((await buildReport(parseReportArgs(['--run', bigRuns]))).runs.map(run => run.damage), [2, 2, 2, 2, 2, 2]);
+		// A run record whose evaluation sits in an artifact keeps its success.
+		const bigRecord = path.join(single.artifacts, 'quality-run.json');
+		await writeArtifactReport(bigRecord, { ...JSON.parse(await readFile(bigRecord, 'utf8')), evaluation: { status: 'EVALUATED', pass: true, ...pad(0, 25_000) } });
+		assert.ok(JSON.parse(await readFile(bigRecord, 'utf8')).evaluation.reportArtifact, 'the fixture really holds its evaluation in an artifact');
+		assert.equal((await buildReport(parseReportArgs(['--run', single.artifacts]))).runs[0].success, true);
 		assert.throws(() => parseReportArgs([]), /Pass --run or --paired/);
 		assert.throws(() => parseReportArgs(['--run', 'a', '--paired', 'b']), /Pass --run or --paired/);
 	} finally { await rm(root, { recursive: true, force: true }); }

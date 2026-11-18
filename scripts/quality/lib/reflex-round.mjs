@@ -38,9 +38,11 @@ export function splitDangerRows(rows) {
 /**
  * Reconciles the Watcher's per-hit health drop with the vanilla damage_taken counter (tenths of HP, after armour and
  * absorption) over the whole run up to the final sample. A lethal hit's row stops at 0 health while the counter counts
- * the hit in full, so with a lethal hit the counter may only read higher. Missing counter or rows = unknown, never 0.
+ * the hit in full, so with a lethal hit the counter may only read higher. Missing counter or rows, or a counter sample that
+ * is not a non-negative whole number, = unknown, never 0.
  */
 export function reconcileDamage(damageRows, samples) {
+	if (damageCounterCorrupt(samples)) return { status: 'unknown', reason: 'a vanilla damage counter sample is not a non-negative whole number' };
 	const counted = (samples ?? []).filter(s => finite(s?.damageTakenCounter) && finite(s?.at));
 	if (!counted.length) return { status: 'unknown', reason: 'no vanilla damage counter samples' };
 	if (damageRows === null) return { status: 'unknown', reason: 'no danger rows' };
@@ -58,6 +60,12 @@ export function reconcileDamage(damageRows, samples) {
 	const status = counter >= low && counter <= high ? 'valid' : 'invalid';
 	return { status, counterHp: round(counter), rowsHp: round(sum(upTo(last.at))), hits: upTo(last.at).length, lethal, toleranceHp: round(tolerance, 3),
 		firstSampleAt: first.at, finalSampleAt: last.at, ...(status === 'invalid' ? { reason: `counter ${round(counter)} HP outside rows ${round(low)}..${round(high)} HP` } : {}) };
+}
+
+/** A damage counter sample is present but malformed: not a non-negative whole number (tenths of HP). */
+export function damageCounterCorrupt(samples) {
+	return (samples ?? []).some(s => s?.damageTakenCounter !== undefined && s?.damageTakenCounter !== null
+		&& !(Number.isSafeInteger(s.damageTakenCounter) && s.damageTakenCounter >= 0));
 }
 
 /** Threat spans from onset and clear rows, clipped to the window; a span still open at the window end runs to it. */
@@ -95,12 +103,12 @@ export function responses(rows, start, end) {
  * One room run. dangerRows null = no Watcher file (unknown). Returns window damage, deaths and success, each null when
  * unknown, with the damage status: valid, invalid (rows and counter disagree) or unknown (either is missing).
  */
-export function scoreRun({ scenario, goalStartedAtMs, samples = [], dangerRows = null, dangerDropped = 0, lifecycle = [], evaluation = null }) {
+export function scoreRun({ scenario, goalStartedAtMs, samples = [], dangerRows = null, dangerDropped = 0, lifecycle = [], evaluation = null, runBudgetMs = null }) {
 	const windowMs = roomWindowMs(scenario);
 	const split = dangerRows === null ? { rows: null, otherSchema: 0 } : splitDangerRows(dangerRows);
 	const rows = split.rows;
 	const start = finite(goalStartedAtMs) ? goalStartedAtMs : null;
-	const success = evaluation?.status === 'EVALUATED' ? evaluation.pass === true : null;
+	const success = roomSuccess(evaluation, start, windowMs, samples, runBudgetMs);
 	if (start === null) return { scenario, windowMs, status: 'unknown', reason: 'no goal start', damage: null, deaths: null, success, otherSchemaRows: split.otherSchema };
 	const end = start + windowMs;
 	const damageRows = rows?.filter(row => row.type === 'damage') ?? null;
@@ -131,6 +139,21 @@ export function scoreRun({ scenario, goalStartedAtMs, samples = [], dangerRows =
 			firings: firingSummary(rows, start, end) };
 	}
 	return result;
+}
+
+/**
+ * Room success inside the room's own window: the whole-run evaluation's pass counts only when its pass time (passAt, or
+ * timeToPassMs from goal start) falls by the window end, within the clock slack. A pass with no recorded time counts only
+ * when the run did not outlast the window (its budget and its samples end by then); otherwise it is unknown.
+ */
+export function roomSuccess(evaluation, start, windowMs, samples = [], runBudgetMs = null) {
+	if (evaluation?.status !== 'EVALUATED') return null;
+	if (evaluation.pass !== true) return false;
+	const passMs = finite(evaluation.passAt) && start !== null ? evaluation.passAt - start : finite(evaluation.timeToPassMs) ? evaluation.timeToPassMs : null;
+	if (passMs !== null) return passMs <= windowMs + EDGE_SLACK_MS;
+	const lastAt = (samples ?? []).filter(s => finite(s?.at)).at(-1)?.at;
+	const outlasted = (finite(runBudgetMs) && runBudgetMs > windowMs) || (start !== null && finite(lastAt) && lastAt > start + windowMs + EDGE_SLACK_MS);
+	return outlasted ? null : true;
 }
 
 /**
@@ -237,7 +260,8 @@ export function noiseFloor(pairs) {
 
 /**
  * Room-stratified sums of per-pair deltas judged against a margin set in advance: margin = z x perPairSd x sqrt(n). Beyond
- * it the step is WORSE or BETTER on that room; inside it INCONCLUSIVE; with no margin for the room, NO_MARGIN.
+ * it the step is WORSE or BETTER on that room; inside it INCONCLUSIVE; with no margin for the room, NO_MARGIN. Overall:
+ * FAIL on any WORSE, else INCOMPLETE while any pair lacks a metric, else PASS (some BETTER) or INCONCLUSIVE.
  */
 export function judgeRooms(pairs, margin = null) {
 	const z = finite(margin?.z) ? margin.z : DEFAULT_MARGIN_Z;
@@ -261,6 +285,9 @@ export function judgeRooms(pairs, margin = null) {
 		}
 	}
 	const verdicts = Object.values(rooms).flatMap(room => METRICS.map(metric => room[metric].verdict));
-	const overall = verdicts.includes('WORSE') ? 'FAIL' : verdicts.every(v => v === 'BETTER' || v === 'INCONCLUSIVE') && verdicts.length ? (verdicts.includes('BETTER') ? 'PASS' : 'INCONCLUSIVE') : 'INCOMPLETE';
+	// A pair with unknown evidence for any metric leaves the step unjudged, whatever its complete pairs say; the per-metric
+	// verdicts above stay as diagnostics. A WORSE metric still fails the step.
+	const unknown = Object.values(rooms).some(room => METRICS.some(metric => room[metric].incomplete > 0));
+	const overall = verdicts.includes('WORSE') ? 'FAIL' : !unknown && verdicts.every(v => v === 'BETTER' || v === 'INCONCLUSIVE') && verdicts.length ? (verdicts.includes('BETTER') ? 'PASS' : 'INCONCLUSIVE') : 'INCOMPLETE';
 	return { z, rooms, overall };
 }
