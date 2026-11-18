@@ -3,7 +3,7 @@ import test from 'node:test';
 import { ROUTE_BYTES, routeLine } from '../src/skill-fits.mjs';
 import { emptyKnown, evaluatePlanCheck } from '../src/plan-checks.mjs';
 
-// Issue 2 Step 2 item 5: the weapon habit, a route step of the instincts arm only.
+// Issue 2 Step 2 items 5 and 6: the weapon habit and food in every dimension, route steps of the instincts arm only.
 
 const sample = (items, { dimension = 'minecraft:overworld', health = 20, foodLevel = 20, entities = [] } = {}) => ({ ready: true, observedAtEpochMs: 10,
 	position: { x: 0, y: 64, z: 0 }, player: { health, foodLevel }, world: { dimension }, entities,
@@ -21,5 +21,39 @@ test('weapon habit: after the stone pickaxe, obtain a stone sword while no stone
 	assert.match(route([['wooden_pickaxe', 1, 0, true], ...COOKED]), /cooked meat|stone_pickaxe/, 'not before the stone pickaxe');
 	const lit = { ...emptyKnown(), frames: [{ dimension: 'minecraft:overworld', x: 1, y: 64, z: 1, lit: true }] };
 	assert.doesNotMatch(route([...STONE, ...COOKED], {}, true, lit) ?? '', /stone_sword/, 'a lit portal ends it');
+	const visited = { ...emptyKnown(), visitedDimensions: ['minecraft:the_nether'] };
+	assert.doesNotMatch(route([...STONE, ...COOKED], {}, true, visited) ?? '', /stone_sword/, 'a Nether visit ends it');
 	assert.match(route([...STONE, ...COOKED], {}, false), /^usual next step: obtain furnace/, 'flag off: no weapon step');
+});
+
+test('food in reach: food only in the main inventory is moved into the hotbar first, in any dimension', () => {
+	const stored = [['iron_pickaxe', 1, 0, true], ['cooked_beef', 10, 20, false]];
+	const line = route(stored, { foodLevel: 17 });
+	assert.equal(line, 'usual next step: select_tool sourceSlot:20 hotbarSlot:8 expectedItemId:minecraft:cooked_beef minRemainingDurability:0 (food only in the main inventory; the eat reflex reads the hotbar and offhand)');
+	assert.match(route([...stored, ['torch', 5, 8, true]], { foodLevel: 17 }), /hotbarSlot:7 /, 'an empty hotbar slot is named');
+	assert.doesNotMatch(route(stored, { foodLevel: 20 }), /select_tool/, 'full and unhurt: no move line to crowd out the route');
+	assert.match(route(stored, { foodLevel: 20, health: 12 }), /select_tool/, 'hurt: the move line comes first');
+	assert.ok(Buffer.byteLength(line) <= ROUTE_BYTES);
+	assert.match(route(stored, { dimension: 'minecraft:the_nether', foodLevel: 17 }), /^usual next step: select_tool sourceSlot:20/);
+	assert.match(route(stored, { dimension: 'minecraft:the_end', foodLevel: 17 }), /^usual next step: select_tool sourceSlot:20/);
+	assert.doesNotMatch(route([['iron_pickaxe', 1, 0, true], ['cooked_beef', 10, 'offhand']], { foodLevel: 17 }), /select_tool/, 'offhand food is in reach');
+	assert.doesNotMatch(route([['iron_pickaxe', 1, 0, true], ['cooked_beef', 10, 20, false], ['bread', 2, 4, true]], { foodLevel: 17 }), /select_tool/, 'some food in the hotbar is enough');
+	assert.doesNotMatch(route([['iron_pickaxe', 1], ['cooked_beef', 10]], { foodLevel: 17 }), /select_tool/, 'rows without slot facts count as in reach');
+	assert.equal(route(stored, { foodLevel: 17 }, false), routeLine({ observation: sample(stored, { foodLevel: 17 }), known: emptyKnown(), evaluate: evaluatePlanCheck }), 'flag off: byte for byte the old line');
+});
+
+test('food in every dimension: with none carried and hungry, a source in view first, else a note before more travel', () => {
+	const hog = [{ type: 'minecraft:hoglin', distance: 12, x: 12, y: 64, z: 0 }];
+	const kit = [['iron_pickaxe', 1, 0, true], ['blaze_rod', 0, 1, true]];
+	assert.equal(route(kit, { dimension: 'minecraft:the_nether', foodLevel: 10, entities: hog }),
+		'usual next step: fight_target the hoglin in view for porkchop (cook it or eat it raw) (no food held; health regrows only at hunger 18+)');
+	assert.match(route(kit, { dimension: 'minecraft:the_nether', foodLevel: 10 }), /^usual next step: no food source in view, take one when seen; .*fortress/);
+	assert.match(route(kit, { dimension: 'minecraft:the_nether', foodLevel: 10, health: 8, entities: hog }), /^usual next step: no food source in view, take one when seen; /, 'at health 10 or less a hoglin is not a food source');
+	assert.match(route(kit, { dimension: 'minecraft:the_end', health: 12 }), /^usual next step: no food source in view, take one when seen; /);
+	const cow = [{ type: 'minecraft:cow', distance: 8, x: 8, y: 64, z: 0 }];
+	assert.equal(route([['iron_pickaxe', 1, 0, true]], { foodLevel: 12, entities: cow }), 'usual next step: obtain beef count 4 from the animal in view (no food held; health regrows only at hunger 18+)');
+	assert.doesNotMatch(route(kit, { dimension: 'minecraft:the_nether', foodLevel: 20 }), /food source/, 'not hungry or hurt: no food line');
+	assert.doesNotMatch(route(kit, { dimension: 'minecraft:the_nether', foodLevel: 10, entities: hog }, false), /hoglin|food source/, 'flag off: the Nether line has no food line');
+	for (const line of [route(kit, { dimension: 'minecraft:the_nether', foodLevel: 10 }), route(kit, { dimension: 'minecraft:the_end', health: 12 })])
+		assert.ok(Buffer.byteLength(line) <= ROUTE_BYTES, line);
 });

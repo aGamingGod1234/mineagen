@@ -238,6 +238,28 @@ const WEAPON = { id: 'weapon', done: 'tool:sword:stone+ | tool:axe:stone+ | fram
 	next: () => ['obtain stone_sword', 'no stone-or-better sword or axe; defend and fights swing the best one held'] };
 const INSTINCT_ROUTE = ROUTE.flatMap(row => row.id === 'stone' ? [row, WEAPON] : [row]);
 
+// Step 2 item 6 (instincts arm): the eat reflex reads only the hotbar and offhand (ReflexActions.lacks), so food in the
+// main inventory is food the body cannot eat in a fight. Rows with no slot facts count as in reach.
+const outOfReach = item => item.slot !== 'mainhand' && item.slot !== 'offhand'
+	&& (item.hotbar === false || Number.isInteger(item.slot) && item.slot >= 9 && item.hotbar !== true);
+
+const HOGLIN_HEALTH = 10;
+
+// A food source each dimension has, in view now; null when none is.
+function foodSource(o) {
+	const dimension = o.world?.dimension;
+	if (dimension === 'minecraft:the_nether') {
+		if (remembered(o, 'entities')) return null;
+		const hoglin = (o.entities ?? []).find(row => row?.alive !== false && row.visible !== false && row.perceivedBy !== 'sound' && row.type === 'minecraft:hoglin'
+			&& row.baby !== true && row.appearance?.baby !== true && (!Number.isFinite(row.distance) || row.distance <= 32));
+		// A hoglin hits hard: at low health it is not a food source but a reason to recover first.
+		return hoglin && !(o.player?.health <= HOGLIN_HEALTH) ? 'fight_target the hoglin in view for porkchop (cook it or eat it raw)' : null;
+	}
+	if (dimension === 'minecraft:the_end') return null;
+	const meat = nearbyMeat(o);
+	return meat ? `obtain ${meat} count ${MEAT} from the animal in view` : null;
+}
+
 /**
  * The usual next step toward beating the game from the player's state, or null without a live sample. observation: the
  * newest live sample; known: plan-checks facts (visited dimensions, lit frames, lava pools, placements); evaluate: the
@@ -266,8 +288,29 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 	const eyeFacts = `rods ${rods}/${rodsNeeded}, pearls ${pearls}/${eyesNeeded}, eyes ${eyesHeld} held + ${filled} set of ${EYES}`;
 	const facts = { count, foodNeeded: foodAdviceNeeded(o), foodHandedBack: foodHandedBack === true, food: count(EDIBLE), cookedMeat: count(COOKED_MEAT), rawMeat: count(RAW_FOOD), nearbyMeat: nearbyMeat(o), blocks: count(MOULD), wood: count(/^minecraft:([a-z_]+_(log|planks|stem))$/), iron: count(/^minecraft:(iron_ingot|raw_iron)$/),
 		buckets: count(/^minecraft:(bucket|water_bucket|lava_bucket)$/), pools: (known.lavaPools ?? []).filter(p => p?.dimension === dimension).length };
+	// Instincts arm: food first in every dimension (C27), before more resource travel.
+	let foodNote = '';
+	if (instincts === true) {
+		const food = items.filter(i => EDIBLE.test(i.itemId ?? ''));
+		const stored = food.filter(outOfReach);
+		// Only while eating is due soon (the eat reflex fires below 18) or the body is hurt: at full hunger it would only
+		// crowd out the step that matters.
+		const eatingDue = !Number.isFinite(o.player?.foodLevel) || o.player.foodLevel < 18 || o.player?.health <= 14;
+		const best = stored.find(i => FOOD.test(i.itemId) && Number.isInteger(i.slot)) ?? stored.find(i => Number.isInteger(i.slot));
+		if (eatingDue && food.length > 0 && stored.length === food.length && best !== undefined) {
+			const taken = new Set(items.filter(i => Number.isInteger(i.slot) && i.slot >= 0 && i.slot <= 8).map(i => i.slot));
+			const hotbarSlot = [8, 7, 6, 5, 4, 3, 2, 1, 0].find(slot => !taken.has(slot)) ?? 8;
+			return line(`select_tool sourceSlot:${best.slot} hotbarSlot:${hotbarSlot} expectedItemId:${best.itemId} minRemainingDurability:0`,
+				'food only in the main inventory; the eat reflex reads the hotbar and offhand');
+		}
+		if (food.length === 0 && foodAdviceNeeded(o)) {
+			const source = foodSource(o);
+			if (source) return line(source, 'no food held; health regrows only at hunger 18+');
+			foodNote = 'no food source in view, take one when seen; ';
+		}
+	}
 	function line(next, why) {
-		const text = `usual next step: ${next} (${why})`;
+		const text = `usual next step: ${foodNote}${next} (${why})`;
 		if (Buffer.byteLength(text) <= ROUTE_BYTES) return text;
 		let clipped = '', used = 0;
 		for (const char of text) {
@@ -332,7 +375,7 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 		const bed = stage.id === 'portal' ? portalBed(o, known, { lit: false }) : null;
 		const [next, why] = bed?.step ? [`before lighting the portal, ${bed.step[0]}`, bed.step[1]] : stage.next(facts);
 		// Food on the way when hungry, once the stone tools are made: a full hunger bar needs no hunt.
-		const restock = !['food', 'food_stock', 'wood', 'stone'].includes(stage.id) && food < 10 && foodAdviceNeeded(o) ? `; low hunger/health, food ${food} held: obtain cooked_beef on the way` : '';
+		const restock = !['food', 'food_stock', 'wood', 'stone'].includes(stage.id) && foodNote === '' && food < 10 && foodAdviceNeeded(o) ? `; low hunger/health, food ${food} held: obtain cooked_beef on the way` : '';
 		return line(`${next}${restock}`, why);
 	}
 	return null;
