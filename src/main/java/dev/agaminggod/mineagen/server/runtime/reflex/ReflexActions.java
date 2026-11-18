@@ -124,6 +124,9 @@ final class ReflexActions {
 
 		/** Only holds on now in a way the agent's paused fight handles itself (out of a fire block, still burning). */
 		default boolean yieldsToFight() { return false; }
+
+		/** Answers shots with a held shield itself this firing, so a shield rule for shots need not take the body. */
+		default boolean blocksShots() { return false; }
 	}
 
 	static Behaviour create(ReflexSpec.Action action) {
@@ -144,7 +147,7 @@ final class ReflexActions {
 			case "sneak" -> new Sneak();
 			case "look_away" -> new LookAway();
 			case "place_block" -> new PlaceBlock(action.text("item"), (int) action.number("count", 2.0D));
-			case "take_cover" -> new TakeCover((int) action.number("within", 6.0D));
+			case "take_cover" -> new TakeCover((int) action.number("within", 6.0D), true);
 			case "away_from_edge" -> new AwayFromEdge(action.number("blocks", 6.0D));
 			case "dig_out" -> new DigOut();
 			case "defend" -> new Defend();
@@ -610,7 +613,7 @@ final class ReflexActions {
 				if (built.status() == ReflexScheduler.ActionStatus.DONE) return Step.done(done + "; " + built.detail());
 			}
 			if (shooter != null && PlaceBlock.blockSlot(player, null) < 0 && (cover != null || player.tickCount >= coverRetryTick)) {
-				if (cover == null) cover = new TakeCover(COVER_WITHIN);
+				if (cover == null) cover = new TakeCover(COVER_WITHIN, false);
 				Step hidden = cover.tick(new Context(player, shooter, context.stance(), context.memory(), context.point(), context.below(),
 						context.fightShields()), input);
 				if (hidden.status() == ReflexScheduler.ActionStatus.RUNNING) return Step.running(done + "; taking cover from " + type(shooter) + ": " + hidden.detail());
@@ -2303,14 +2306,56 @@ final class ReflexActions {
 		private PlaceBlock wall;
 		private LivingEntity shooter;
 		private String why;
+		/**
+		 * A rule's firing: with no cell that hides and no block to build cover, it ends done and says so instead of failing,
+		 * since four failures in a row would switch the rule off (blaze cover with it) for nothing it could have done.
+		 * Defend's own cover step keeps the failure, which paces its retries.
+		 */
+		private final boolean openGroundDone;
+		/** Where the last shot due within {@link #SHIELD_SHOT_SECONDS} came from, and when it was seen. */
+		private Vec3 shotFrom;
+		private long shotTick;
+		private int shieldTicks;
+		/**
+		 * A shield in hand: this firing answers shots itself (see {@link #blocksShots}), in every phase and still once
+		 * {@link #MAX_SHIELD_TICKS} ends its stops, since a shield rule taking the body then would end cover for good.
+		 */
+		private boolean blocking;
+		/** Ticks the shield stays up after the last shot was seen coming: the 5-tick raise, so a shot just past is not missed. */
+		static final long BLOCK_AFTER_SHOT_TICKS = 5L;
+		/**
+		 * Shield-up ticks a firing spends at most: steady fire from several shooters would otherwise hold the body in the
+		 * open until the firing times out; past them it goes on without stopping.
+		 */
+		static final int MAX_SHIELD_TICKS = 40;
 
-		TakeCover(int within) {
+		TakeCover(int within, boolean openGroundDone) {
 			this.within = within;
+			this.openGroundDone = openGroundDone;
+		}
+
+		boolean endsDoneInOpenGround() {
+			return openGroundDone;
+		}
+
+		@Override
+		public boolean blocksShots() {
+			return blocking;
+		}
+
+		/**
+		 * Whether this tick stops to block: a shield in hand, a shot seen coming within the last few ticks and fewer than
+		 * {@link #MAX_SHIELD_TICKS} ticks of shield already spent this firing.
+		 */
+		static boolean blocksNow(boolean shieldInHand, long ticksSinceShot, int shieldTicks) {
+			return shieldInHand && ticksSinceShot >= 0L && ticksSinceShot <= BLOCK_AFTER_SHOT_TICKS && shieldTicks < MAX_SHIELD_TICKS;
 		}
 
 		@Override
 		public Step tick(Context context, Consumer<AgentInputState> input) {
 			ServerPlayer player = context.player();
+			Step blocked = blockShot(player, input);
+			if (blocked != null) return blocked;
 			if (wall != null) return buildCover(context, input);
 			if (walk == null) {
 				// The condition's mob; when it names none (low health), the hostiles that see the player and can shoot it,
@@ -2346,7 +2391,10 @@ final class ReflexActions {
 					why = "no cell within " + within + " steps hides from " + who + " (" + reach.size() + " cells reachable over seen ground)";
 					// In the open a player with blocks makes the cover: two blocks between it and the nearest shooter.
 					shooter = from.getFirst();
-					if (PlaceBlock.blockSlot(player, null) < 0) return Step.failed(why + "; no solid block in the hotbar to build cover");
+					if (PlaceBlock.blockSlot(player, null) < 0) {
+						String open = why + "; no solid block in the hotbar to build cover";
+						return openGroundDone ? Step.done(open + "; stayed in the open") : Step.failed(open);
+					}
 					wall = new PlaceBlock(null, 2);
 					return buildCover(context, input);
 				}
@@ -2357,14 +2405,52 @@ final class ReflexActions {
 				return Step.running("lava flows beside the way to cover at " + flow.x() + "," + flow.y() + "," + flow.z() + "; choosing cover again");
 			}
 			Step step = walk.tick(player, input, true);
-			return step.status() == ReflexScheduler.ActionStatus.DONE
-					? Step.done("in cover at " + cover.x() + "," + cover.y() + "," + cover.z()) : step;
+			return switch (step.status()) {
+				case DONE -> Step.done("in cover at " + cover.x() + "," + cover.y() + "," + cover.z() + shielded());
+				case RUNNING -> Step.running(step.detail() + shielded());
+				case FAILED -> Step.failed(step.detail() + shielded());
+			};
+		}
+
+		/**
+		 * A player taking cover under fire stops and turns the shield to a shot about to land, then goes on: walking behind
+		 * a raised shield moves at a fifth of the speed, and the walk, the look around and the wall each aim the view the
+		 * shield turns away. The blocking step, or null when this tick goes on with cover.
+		 */
+		private Step blockShot(ServerPlayer player, Consumer<AgentInputState> input) {
+			InteractionHand hand = shieldHand(player);
+			blocking = hand != null;
+			if (hand == null) return null;
+			long now = player.level().getGameTime();
+			Entity shot = ReflexSensors.incomingShot(player, SHIELD_SHOT_SECONDS);
+			if (shot != null) {
+				shotFrom = ReflexSensors.aimPoint(shot);
+				shotTick = now;
+			}
+			if (shotFrom == null || !blocksNow(true, now - shotTick, shieldTicks)) return null;
+			shieldTicks++;
+			input.accept(look(player, shotFrom, 0.0F, 0.0F, false, true, player.getInventory().getSelectedSlot(), hand));
+			String phase = wall != null ? "while building cover toward " + type(shooter)
+					: walk != null ? "on the way to cover at " + cover.x() + "," + cover.y() + "," + cover.z() : "while looking for cover";
+			return Step.running("blocking a shot " + phase + shielded());
+		}
+
+		private String shielded() {
+			if (shieldTicks == 0) return "";
+			return String.format(Locale.ROOT, "; shield up %.1f s", shieldTicks / 20.0D)
+					+ (shieldTicks >= MAX_SHIELD_TICKS ? ", the most one firing blocks" : "");
+		}
+
+		/** The hand holding a shield, the offhand first, or null. */
+		private static InteractionHand shieldHand(ServerPlayer player) {
+			return player.getOffhandItem().is(Items.SHIELD) ? InteractionHand.OFF_HAND
+					: player.getMainHandItem().is(Items.SHIELD) ? InteractionHand.MAIN_HAND : null;
 		}
 
 		private Step buildCover(Context context, Consumer<AgentInputState> input) {
 			Context toward = new Context(context.player(), shooter, context.stance(), context.memory(), shooter.position(), context.below(), context.fightShields());
 			Step step = wall.tick(toward, input);
-			String detail = why + "; " + step.detail() + " toward " + type(shooter);
+			String detail = why + "; " + step.detail() + " toward " + type(shooter) + shielded();
 			return switch (step.status()) {
 				case RUNNING -> Step.running(step.detail());
 				case DONE -> Step.done(detail);
