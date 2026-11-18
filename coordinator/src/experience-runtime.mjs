@@ -93,7 +93,8 @@ export class ExperienceRuntime {
 		}, (error) => this.#fail('load', error));
 	}
 	#fail(stage, error) {
-		const code = typeof error?.code === 'string' ? error.code : 'EXPERIENCE_ERROR';
+		// Trace-only: the error class, never a result code the model sees.
+		const code = typeof error?.code === 'string' ? error.code : 'unknown';
 		if (stage === 'load') this.#failed = code;
 		this.#emit('experience_error', { stage, code });
 	}
