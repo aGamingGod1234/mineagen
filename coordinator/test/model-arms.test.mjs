@@ -122,3 +122,15 @@ test('run-long takes --spend-cap-mode log for Codex only and records the cap mod
 		assert.deepEqual(stopOf({ timeline: { stopReason: 'SPEND_CAP' } }), { kind: 'cap', reason: 'SPEND_CAP' });
 	} finally { await remove(dir, { recursive: true, force: true }); }
 });
+
+test('the mod summons the same default model the scripts use, and gpt-6.2-sol is a known Sol model', async () => {
+	const { readFile: read } = await import('node:fs/promises');
+	const { DEFAULT_CODEX_MODEL } = await import('../src/default-models.mjs');
+	const source = (relative) => read(new URL(`../../${relative}`, import.meta.url), 'utf8');
+	const java = await source('src/main/java/dev/agaminggod/mineagen/server/AgentCommands.java');
+	assert.equal(/private static final String DEFAULT_MODEL = "([^"]+)";/.exec(java)?.[1], DEFAULT_CODEX_MODEL);
+	assert.match(await source('src/main/java/dev/agaminggod/mineagen/agent/AgentModelNames.java'), /entry\("codex", "gpt-6\.2-sol", "GPT-6\.2 Sol", "Sol"\)/);
+	const manifest = JSON.parse(await source('src/main/resources/assets/mineagen/identity/agent_visual_manifest.json'));
+	const families = manifest.providers.find((provider) => provider.key === 'codex').families;
+	assert.ok(families.find((family) => family.key === 'sol').models.includes('gpt-6.2-sol'));
+});

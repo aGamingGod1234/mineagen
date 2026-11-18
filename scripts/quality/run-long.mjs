@@ -10,6 +10,7 @@ import { readArtifactReport, writeArtifactReport } from '../../coordinator/src/b
 import { SpendGate } from '../../coordinator/src/benchmark/spend-gate.mjs';
 import { SpendLedger, runSpendUsd } from '../../coordinator/src/benchmark/spend-ledger.mjs';
 import { requireTokenPrice } from '../../coordinator/src/call-cost.mjs';
+import { defaultModel } from '../../coordinator/src/default-models.mjs';
 import { buildLongRunDefinition, extractLongRunTimeline, formatLongRunTimeline, randomSeed, stopKind, MAX_LONG_RUN_WINDOW_MS } from '../../coordinator/src/benchmark/long-run.mjs';
 import { runScenarios, validateArmBuild } from './run-scenarios.mjs';
 import { collectWatchFiles } from './watch-files.mjs';
@@ -19,8 +20,6 @@ import { writeTimeReport } from './watch-time.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const USAGE = 'Regenerate: node scripts/quality/run-long.mjs --report RAW_RUN_DIR --out REPORT_DIR\nRun: node scripts/quality/run-long.mjs --budget-minutes 180 --max-total-cost-usd 80 --ledger FILE --port-base 26900 --out DIR [--prior-spend-usd P] [--run-reserve-usd R] [--provider claude|codex --model M --effort low --service-tier priority] [--codex-observer-cap yes [--spend-cap-mode stop|log]] [--seed N] [--goal "Beat the game"] [--arms arms.json --arm B | --jar PATH --coordinator-root PATH] [--checkpoint SAVE_POINT.json [--random-salt N|none]] [--codex-mid-turn-rotation-tokens N] [--java PATH --server-template PATH]';
-
-const DEFAULT_MODELS = Object.freeze({ claude: 'claude-opus-5-5', codex: 'gpt-6.1-sol' });
 
 export function parseLongArgs(argv) {
 	if (argv[0] === '--report') {
@@ -60,7 +59,7 @@ export function parseLongArgs(argv) {
 	if (values.arms && !['A', 'B'].includes(values.arm ?? '')) throw new Error('--arms needs --arm A or B');
 	if (values.arms && (values.jar || values['coordinator-root'])) throw new Error('Use --arms or --jar/--coordinator-root, not both');
 	return { windowMs: Math.round(minutes * 60000), capUsd: cap, priorSpendUsd: prior, codexObserverCap: values['codex-observer-cap'] === 'yes', ledger: values.ledger ? path.resolve(values.ledger) : null,
-		runReserveUsd: values['run-reserve-usd'] === undefined ? null : Number(values['run-reserve-usd']), spendCapMode, provider, model: values.model ?? DEFAULT_MODELS[provider],
+		runReserveUsd: values['run-reserve-usd'] === undefined ? null : Number(values['run-reserve-usd']), spendCapMode, provider, model: values.model ?? defaultModel(provider),
 		effort: values.effort ?? 'low', serviceTier, midTurnRotationTokens, seed: values.seed ?? randomSeed(), goal: values.goal ?? 'Beat the game', arms: values.arms ? path.resolve(values.arms) : null, arm: values.arm ?? null,
 		checkpoint: values.checkpoint ? path.resolve(values.checkpoint) : null,
 		// A save point replays the same loot rolls (barters, mob drops) each game unless reseeded: a fresh salt by default.

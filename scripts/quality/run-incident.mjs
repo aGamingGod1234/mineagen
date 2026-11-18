@@ -15,6 +15,7 @@ import { ScriptedPlanner } from './lib/scripted-planner.mjs';
 import { finishRun, terminalCounter, EDIT_LOOP_HELP } from './lib/fixture-run.mjs';
 import { damageCounter, damageEvidence } from './lib/damage-counter.mjs';
 import { boot } from './watch-replay.mjs';
+import { defaultModel } from '../../coordinator/src/default-models.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -58,7 +59,7 @@ async function main() {
 					});
 					bridge.on('action_result', event => { receipts.accept(event); log('minecraft', 'action_result', { agentId: event.agentId, ...event.payload }); });
 					coordinator = createDynamicCoordinator({ bridge: connection,
-						codex: { controlProtocol: 'native_tools', launchProfile: { agentId: 'coordinator', model: 'gpt-6.1-sol', reasoningEffort: 'low', serviceTier: 'default' } } }, {
+						codex: { controlProtocol: 'native_tools', launchProfile: { agentId: 'coordinator', model: defaultModel('codex'), reasoningEffort: 'low', serviceTier: 'default' } } }, {
 						bridge, registry, planner, scheduler: new PlanningScheduler(), codexService: idleProvider, memoryDirectory: null,
 						traceWriter: { write: (event, fields) => log('coordinator', event, fields) },
 					});
@@ -71,7 +72,7 @@ async function main() {
 			await s.command(`forceload add ${spawn.x} ${spawn.z}`);
 			for (let i = 0; i < 60 && !/time is/i.test(await s.command(`execute if loaded ${spawn.x} 0 ${spawn.z} run time query gametime`)); i++) await sleep(500);
 			const registered = s.inbox.wait('agent_registered', () => true, 45000);
-			await s.command(`execute positioned ${spawn.x} 0 ${spawn.z} positioned over motion_blocking_no_leaves run mineagen summon gpt-6.1-sol low ${AGENT}`);
+			await s.command(`execute positioned ${spawn.x} 0 ${spawn.z} positioned over motion_blocking_no_leaves run mineagen summon ${defaultModel('codex')} low ${AGENT}`);
 			const e = await registered; s.record = { ...(e.payload.record ?? e.payload), agentId: e.agentId };
 			const command = async text => ({ text: await s.command(text) });
 			const setup = await applyQualitySetup({ dimension: 'minecraft:overworld', startAt: 'world_spawn', inventory: incident.spot.inventory, mobs: [], commands: [], freezeUntilGoalStart: true }, command, AGENT);

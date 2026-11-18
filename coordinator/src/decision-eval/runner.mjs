@@ -12,6 +12,7 @@ import { canonicalEncodedInput, evalMinecraftWorkspace, sha256 } from './render.
 import { buildContext, cannedChoice } from './match.mjs';
 import { codexTokens, estimateTokenCostUsd } from './pricing.mjs';
 import { DECISION_EVAL_SCHEMA_VERSION } from './schema.mjs';
+import { defaultModel } from '../default-models.mjs';
 
 /**
  * Sends rendered wakes to the play model through the production provider services and captures the tool calls it
@@ -24,7 +25,7 @@ import { DECISION_EVAL_SCHEMA_VERSION } from './schema.mjs';
  * production normaliser rejects gets the production rejection and does not advance the script.
  */
 
-export const DEFAULT_PLAY_PROFILE = Object.freeze({ provider: 'claude', model: 'claude-opus-5-5', effort: 'low' });
+export const DEFAULT_PLAY_PROFILE = Object.freeze({ provider: 'claude', model: defaultModel('claude'), effort: 'low' });
 /**
  * Every eval session names its observation views with this id instead of a random one, so samples of a case (and a
  * baseline whose wake bytes are unchanged) send identical bytes and read the wake from the prompt cache. Pass
@@ -431,7 +432,7 @@ export function defaultRunRoot() { return path.join(os.tmpdir(), 'arena-decision
  * The provider runtime the samples ran on: the resolved CLI and the version it reports. The CLI adds its own system
  * prompt and tool handling around the rendered prefix, so a CLI upgrade can change answers with no repository change.
  */
-export async function providerRuntime(provider, { executable, model = 'gpt-6.1-sol', effort = 'low', exec = execFileAsync, resolve = provider === 'claude' ? resolveClaudeLaunch : resolveCodexLaunchAsync } = {}) {
+export async function providerRuntime(provider, { executable, model = defaultModel('codex'), effort = 'low', exec = execFileAsync, resolve = provider === 'claude' ? resolveClaudeLaunch : resolveCodexLaunchAsync } = {}) {
 	let launch;
 	try {
 		if (provider === 'claude') launch = resolve({ ...(executable === undefined ? {} : { executable }) });

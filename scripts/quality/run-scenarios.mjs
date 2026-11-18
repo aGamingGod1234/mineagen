@@ -20,6 +20,7 @@ import { activateQualitySetup, sampleQualityShelter } from '../../coordinator/sr
 import { initialPlanEvidence } from '../../coordinator/src/benchmark/quality-metrics-v2.mjs';
 import { liveSpendUsd, unmeteredProviderCalls } from '../../coordinator/src/benchmark/spend-ledger.mjs';
 import { requireTokenPrice } from '../../coordinator/src/call-cost.mjs';
+import { defaultModel } from '../../coordinator/src/default-models.mjs';
 import { startAnthropicGateway, PREPARATION_ALLOWANCE_USD } from '../../coordinator/src/benchmark/spend-gate.mjs';
 import { LadderEvaluator, checkAdvancements, evaluateSamples, parseSuccessCheck } from './ladder-evaluator.mjs';
 import { spawnOwnedProcess, terminateChildProcess } from '../../coordinator/src/child-process-lifecycle.mjs';
@@ -80,7 +81,7 @@ export function parseArgs(argv) {
 	if (values['retry-failed'] && !values.arms) throw new Error('--retry-failed requires --arms');
 	if (values['allow-identical-arms'] && !values.arms) throw new Error('--allow-identical-arms requires --arms');
 	if (values['scenario-file'] && !values.scenarios) throw new Error('--scenario-file requires --scenarios');
-	return { scenarioFile: values['scenario-file'] ? path.resolve(values['scenario-file']) : null, allowIdenticalArms: Boolean(values['allow-identical-arms']), serviceTier, seed: values.seed ?? null, spawnPosition: spawnPosition ?? null, goalStartClock: Boolean(values['play-window-ms']), retryFailed: Boolean(values['retry-failed']), harnessCommit, arms: values.arms && path.resolve(values.arms), coordinatorRoot: path.resolve(values['coordinator-root'] ?? ROOT), sourceCommit: values['source-commit'] ?? null, provider, model: values.model ?? ({ claude: 'claude-opus-5-5', codex: 'gpt-6.1-sol' })[provider], effort: values.effort ?? 'low', runs, budget,
+	return { scenarioFile: values['scenario-file'] ? path.resolve(values['scenario-file']) : null, allowIdenticalArms: Boolean(values['allow-identical-arms']), serviceTier, seed: values.seed ?? null, spawnPosition: spawnPosition ?? null, goalStartClock: Boolean(values['play-window-ms']), retryFailed: Boolean(values['retry-failed']), harnessCommit, arms: values.arms && path.resolve(values.arms), coordinatorRoot: path.resolve(values['coordinator-root'] ?? ROOT), sourceCommit: values['source-commit'] ?? null, provider, model: values.model ?? defaultModel(provider), effort: values.effort ?? 'low', runs, budget,
 		scenarios, jar: values.jar && path.resolve(values.jar),
 		portBase, out: path.resolve(values.out ?? path.join(ROOT, 'runtime/quality-results', `quality-${Date.now()}`)),
 		template: path.resolve(values['server-template'] ?? process.env.ARENA_HEADLESS_SERVER_TEMPLATE ?? DEFAULT_TEMPLATE), java: values.java ?? process.env.ARENA_HEADLESS_JAVA ?? (process.env.JAVA_HOME ? path.join(process.env.JAVA_HOME, 'bin', JAVA_EXE) : DEFAULT_JAVA) };
