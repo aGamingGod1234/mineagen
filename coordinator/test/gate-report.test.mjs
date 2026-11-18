@@ -256,6 +256,30 @@ test('a standard round folder gives each game, with the first bucket and Nether 
 	} finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test('a samples file with no usable sample in the window leaves the Nether unknown, not zero', async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), 'gate-report-'));
+	try {
+		const stages = { 'iron pickaxe': 5 };
+		const dir = await standardRound(root, [
+			{ id: 'game-1', seed: '1', stages },
+			{ id: 'game-2', seed: '2', stages },
+			{ id: 'game-3', seed: '3', stages, samples: [sample(-5, NETHER, 0, 0, 0), sample(70, NETHER, 0, 0, 0)] },
+			{ id: 'game-4', seed: '4', stages, samples: [sample(0, OVER, 0, 0, 0), sample(30, OVER, 10, 0, 0)] },
+		]);
+		await writeFile(path.join(dir, 'game-1', 'raw', 'quality-samples.jsonl'), '');
+		await writeFile(path.join(dir, 'game-2', 'raw', 'quality-samples.jsonl'), '{"at": 17941\nnot json\n');
+		const runs = readRun(dir);
+		assert.deepEqual(runs.map((run) => 'nether' in run), [false, false, false, true]);
+		assert.match(runs[1].netherUnmeasured, /no usable sample in the playing window \(2 malformed line\(s\)\)/);
+		const report = buildGate({ gate: 'r9', title: 'round 9', cohorts: [{ name: 'r9', label: 'round 9', dirs: [dir] }] });
+		// Only the game with valid samples counts: it never entered, which is a measured zero.
+		assert.equal(report.cohorts[0].nether.games, 1);
+		assert.equal(report.cohorts[0].nether.entered, 0);
+		assert.equal(report.cohorts[0].nether.minutes, 0);
+		assert.ok(report.notes.some((note) => /r9: 3 game\(s\) left out of the Nether totals as unknown \(r9-1: .*; r9-2: .*; r9-3: /.test(note)), report.notes.join('\n'));
+	} finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test('a seed that never reached a milestone stays in the median as censored', () => {
 	const run = (seed, nether) => ({ seed, milestones: { nether } });
 	assert.deepEqual(funnel([run('1', 30), run('2', 50), run('3', null)]).nether, { reached: 2, total: 3, censored: 1, medianMin: 50, runs: { reached: 2, total: 3 } });

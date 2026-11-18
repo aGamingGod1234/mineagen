@@ -128,20 +128,24 @@ function readScripted(dir) {
 const BUCKET = /:(water_|lava_)?bucket$/;
 /**
  * One pass over raw/quality-samples.jsonl inside [start, end]: the first sample holding any bucket, and the game's Nether
- * numbers. No samples file: neither (a missing nether key means not measured).
+ * numbers. No samples file: neither (a missing nether key means not measured). A file with no usable sample in the window
+ * (empty, malformed, or all outside it) is unknown evidence, never zero Nether minutes: no nether key, and a reason.
  */
 function samplesOf(raw, start, end) {
 	const file = path.join(raw, 'quality-samples.jsonl');
 	if (!existsSync(file)) return { bucketAt: null };
 	const travel = netherTravel({ windowStart: start, windowEnd: end });
-	let bucketAt = null;
+	let bucketAt = null, usable = 0, malformed = 0;
 	for (const line of readFileSync(file, 'utf8').split('\n')) {
 		if (!line) continue;
-		let row; try { row = JSON.parse(line); } catch { continue; }
-		if (!Number.isFinite(row.at) || row.at < start || row.at > end) continue;
+		let row; try { row = JSON.parse(line); } catch { malformed++; continue; }
+		if (!Number.isFinite(row?.at) || row.at < start || row.at > end) continue;
 		if (bucketAt === null && itemCount(`${row.inventoryNbt ?? ''}${row.equipmentNbt ?? ''}`, BUCKET) > 0) bucketAt = row.at;
 		travel.observation(sampleObservation(row));
+		// A row with no dimension cannot show the game stayed out of the Nether.
+		if (typeof row.dimension === 'string') usable++;
 	}
+	if (usable === 0) return { bucketAt, nether: { netherUnmeasured: `quality-samples.jsonl has no usable sample in the playing window${malformed ? ` (${malformed} malformed line(s))` : ''}` } };
 	return { bucketAt, nether: { nether: netherSummary(travel.report(), start) } };
 }
 
@@ -335,6 +339,8 @@ export function buildGate({ gate, title, cohorts }) {
 	for (const cohort of built) {
 		const unmeasured = cohort.runs.filter((run) => run.unmeasured);
 		if (unmeasured.length) notes.push(`${cohort.name}: ${unmeasured.length} game(s) measure no milestone (${unmeasured.map((run) => `${run.run}: ${run.unmeasured}`).join('; ')}).`);
+		const netherUnknown = cohort.runs.filter((run) => run.netherUnmeasured);
+		if (netherUnknown.length) notes.push(`${cohort.name}: ${netherUnknown.length} game(s) left out of the Nether totals as unknown (${netherUnknown.map((run) => `${run.run}: ${run.netherUnmeasured}`).join('; ')}).`);
 	}
 	return { schema: SCHEMA, gate, title, generatedBy: 'scripts/quality/gate-report.mjs', rule: `A difference under ${NO_CHANGE_SEEDS} seeds is "no change" (rule of thumb).`,
 		milestones: MILESTONES, cohorts: built, comparisons, notes };
