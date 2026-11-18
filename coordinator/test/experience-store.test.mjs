@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ExperienceStore, experienceHash, experienceSettings, normalizeSeedHash } from '../src/experience-store.mjs';
+import { CHECKOUT_ROOT, ExperienceStore, experienceHash, experienceSettings, isInsideDirectory, normalizeSeedHash } from '../src/experience-store.mjs';
 
 const GAME_A = experienceHash('world:a'), GAME_B = experienceHash('world:b'), GAME_C = experienceHash('world:c');
 const lesson = { id: 'ranged-fled-in-open:mob=skeleton', rule: 'ranged-fled-in-open', slots: { mob: 'skeleton' } };
@@ -212,4 +212,30 @@ test('a row missing the slots of its rule, or with a key that does not match the
 	const reloaded = new ExperienceStore(settings(directory, { MINEAGEN_WORLD_SEED_HASH: 'seed-b' }));
 	await reloaded.load();
 	assert.deepEqual(reloaded.candidates(GAME_B).map((entry) => entry.id), [lesson.id]);
+}));
+
+test('the experience folder must be outside the checkout, by whole path components and through symlinks', () => withDirectory(async (directory) => {
+	const root = join(directory, 'checkout');
+	await mkdir(join(root, 'private'), { recursive: true });
+	await mkdir(join(directory, 'checkout-x'));
+	// A child named like ".." is inside; a sibling sharing the prefix is outside.
+	assert.equal(isInsideDirectory(join(root, '..data'), root), true);
+	assert.equal(isInsideDirectory(join(directory, 'checkout-x'), root), false);
+	assert.equal(isInsideDirectory(root, root), true);
+	// A link outside the checkout that leads into it, also to a folder that does not exist yet, is inside.
+	await symlink(join(root, 'private'), join(directory, 'link'), 'dir');
+	assert.equal(isInsideDirectory(join(directory, 'link'), root), true);
+	assert.equal(isInsideDirectory(join(directory, 'link', 'new', 'deeper'), root), true);
+	// A checkout reached through a link still contains its own folders.
+	await symlink(root, join(directory, 'root-link'), 'dir');
+	assert.equal(isInsideDirectory(join(root, 'private'), join(directory, 'root-link')), true);
+	assert.equal(isInsideDirectory(join(directory, 'elsewhere', 'store'), root), false);
+	// The coordinator applies the same check to its own environment, so a harness other than run-long cannot skip it.
+	const settings = (dir) => experienceSettings({ MINEAGEN_EXPERIENCE: 'lessons', MINEAGEN_EXPERIENCE_DIR: dir }, { checkoutRoot: root });
+	assert.throws(() => settings(join(root, '..data')), /must be outside the checkout/);
+	assert.throws(() => settings(join(directory, 'link', 'new')), /must be outside the checkout/);
+	assert.equal(settings(join(directory, 'checkout-x')).directory, join(directory, 'checkout-x'));
+	assert.throws(() => experienceSettings({ MINEAGEN_EXPERIENCE: 'lessons', MINEAGEN_EXPERIENCE_DIR: join(CHECKOUT_ROOT, 'player-lessons') }), /must be outside the checkout/);
+	// Off stays off without touching the path.
+	assert.equal(experienceSettings({ MINEAGEN_EXPERIENCE: 'off', MINEAGEN_EXPERIENCE_DIR: join(CHECKOUT_ROOT, 'x') }), null);
 }));

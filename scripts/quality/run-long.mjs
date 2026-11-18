@@ -15,7 +15,7 @@ import { collectWatchFiles } from './watch-files.mjs';
 import { scoreStageRun } from './stage-score.mjs';
 import { recordOperatorStop } from './operator-stop.mjs';
 import { writeTimeReport } from './watch-time.mjs';
-import { experienceHash, normalizeSeedHash } from '../../coordinator/src/experience-store.mjs';
+import { experienceHash, isInsideDirectory, normalizeSeedHash } from '../../coordinator/src/experience-store.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const USAGE = 'Regenerate: node scripts/quality/run-long.mjs --report RAW_RUN_DIR --out REPORT_DIR\nRun: node scripts/quality/run-long.mjs --budget-minutes 180 --max-total-cost-usd 80 --ledger FILE --port-base 26900 --out DIR [--prior-spend-usd P] [--run-reserve-usd R] [--provider claude|codex --model M --effort low --service-tier priority] [--codex-observer-cap yes] [--seed N] [--goal "Beat the game"] [--arms arms.json --arm B | --jar PATH --coordinator-root PATH] [--checkpoint SAVE_POINT.json [--random-salt N|none]] [--codex-mid-turn-rotation-tokens N] [--experience lessons --experience-dir DIR_OUTSIDE_CHECKOUT [--experience-profile NAME] [--experience-frozen yes] [--exclude-seeds S1,S2]] [--java PATH --server-template PATH]';
@@ -58,7 +58,7 @@ export function parseLongArgs(argv) {
 	if (!['off', 'lessons'].includes(experience)) throw new Error('--experience takes off or lessons');
 	if (experience === 'off' && ['experience-dir', 'experience-profile', 'experience-frozen', 'exclude-seeds'].some((key) => values[key] !== undefined)) throw new Error('--experience-dir, --experience-profile, --experience-frozen and --exclude-seeds need --experience lessons');
 	if (experience !== 'off' && !values['experience-dir']) throw new Error('--experience lessons needs --experience-dir outside the checkout');
-	if (values['experience-dir'] && !path.relative(ROOT, path.resolve(values['experience-dir'])).startsWith('..')) throw new Error('--experience-dir must be outside the checkout');
+	if (values['experience-dir'] && isInsideDirectory(values['experience-dir'], ROOT)) throw new Error('--experience-dir must be outside the checkout');
 	if (values['experience-frozen'] !== undefined && values['experience-frozen'] !== 'yes') throw new Error('--experience-frozen takes yes');
 	return { windowMs: Math.round(minutes * 60000), capUsd: cap, priorSpendUsd: prior, codexObserverCap: values['codex-observer-cap'] === 'yes', ledger: values.ledger ? path.resolve(values.ledger) : null,
 		runReserveUsd: values['run-reserve-usd'] === undefined ? null : Number(values['run-reserve-usd']), provider, model: values.model ?? DEFAULT_MODELS[provider],

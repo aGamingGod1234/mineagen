@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
+import { realpathSync } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { AtomicAgentStore } from './observed-memory-store.mjs';
 import { lessonId, validLesson } from './experience-lessons.mjs';
 
@@ -23,6 +25,33 @@ const HASH_SALT = 'mineagen-experience-v1';
 const SLOT = /^[a-z0-9_:.-]{1,64}$/;
 const SEED_HASH = /^s1-[0-9a-f]{16}$/;
 
+/** The checkout that holds this coordinator (coordinator/src/../..). */
+export const CHECKOUT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+
+/** The real path of `target`, resolving symlinks in its longest existing prefix; the rest (not created yet) is appended. */
+function realPathOf(target) {
+	const missing = [];
+	let current = resolve(target);
+	for (;;) {
+		try { return join(realpathSync.native(current), ...missing); } catch (error) {
+			if (error?.code !== 'ENOENT') throw error;
+			const parent = dirname(current);
+			if (parent === current) return resolve(target);
+			missing.unshift(basename(current));
+			current = parent;
+		}
+	}
+}
+
+/**
+ * Whether `target` is `root` or inside it, compared by whole path components after resolving symlinks, so a sibling
+ * named like a prefix (`root-x`, `..data`) is outside and a link that leads into the root is inside.
+ */
+export function isInsideDirectory(target, root) {
+	const path = relative(realPathOf(root), realPathOf(target));
+	return path === '' || !(path === '..' || path.startsWith(`..${sep}`) || isAbsolute(path));
+}
+
 export function experienceHash(value) {
 	return createHash('sha256').update(`${HASH_SALT}\0${value}`).digest('hex').slice(0, 16);
 }
@@ -34,12 +63,14 @@ export function experienceHash(value) {
  * MINEAGEN_EXPERIENCE_FROZEN=1 makes the store read-only; MINEAGEN_WORLD_SEED_HASH is this game's seed hash, and
  * MINEAGEN_EXPERIENCE_EXCLUDE_SEEDS a comma list of seed hashes whose lessons never load (the evaluation pool).
  */
-export function experienceSettings(environment = process.env) {
+export function experienceSettings(environment = process.env, { checkoutRoot = CHECKOUT_ROOT } = {}) {
 	const mode = (environment.MINEAGEN_EXPERIENCE ?? 'off').trim().toLowerCase() || 'off';
 	if (!EXPERIENCE_MODES.includes(mode)) throw new TypeError(`MINEAGEN_EXPERIENCE must be one of ${EXPERIENCE_MODES.join(', ')}`);
 	if (mode === 'off') return null;
 	const directory = environment.MINEAGEN_EXPERIENCE_DIR?.trim();
 	if (!directory) throw new TypeError('MINEAGEN_EXPERIENCE_DIR is required when MINEAGEN_EXPERIENCE is on');
+	// Lessons are private run data: they never land in the checkout, which is public.
+	if (isInsideDirectory(directory, checkoutRoot)) throw new TypeError('MINEAGEN_EXPERIENCE_DIR must be outside the checkout');
 	const profile = environment.MINEAGEN_EXPERIENCE_PROFILE?.trim() || 'default';
 	const seedHash = normalizeSeedHash(environment.MINEAGEN_WORLD_SEED_HASH);
 	const excludedSeedHashes = (environment.MINEAGEN_EXPERIENCE_EXCLUDE_SEEDS ?? '').split(',').map(normalizeSeedHash).filter(Boolean);

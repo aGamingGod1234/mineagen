@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import os from 'node:os';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { buildLongRunDefinition, extractLongRunTimeline, formatLongRunTimeline, randomSeed, LONG_RUN_MILESTONES } from '../src/benchmark/long-run.mjs';
 import { applyQualitySetup } from '../src/benchmark/quality-scenarios.mjs';
 import { normalizeHeadlessScenario } from '../src/headless-matrix.mjs';
@@ -98,6 +98,14 @@ test('runLong reserves from the shared ledger, caps live play inside the reserva
 		const ledger = path.join(dir, 'ledger.json');
 		assert.throws(() => parseLongArgs(['--budget-minutes', '10', '--port-base', '26900', '--out', dir]), /max-total-cost-usd is required/);
 		assert.throws(() => parseLongArgs(['--budget-minutes', '800', '--max-total-cost-usd', '4', '--port-base', '26900', '--out', dir]), /budget-minutes/);
+		// The experience folder is checked by whole path components: a checkout child named "..data" is inside it.
+		const checkout = path.resolve(import.meta.dirname, '../..');
+		const longArgs = (folder) => parseLongArgs(['--budget-minutes', '10', '--max-total-cost-usd', '4', '--port-base', '26900', '--out', dir, '--experience', 'lessons', '--experience-dir', folder]);
+		assert.throws(() => longArgs(path.join(checkout, '..data')), /must be outside the checkout/);
+		// A link outside the checkout that leads into it does not get the folder out.
+		await symlink(checkout, path.join(dir, 'checkout-link'), 'dir');
+		assert.throws(() => longArgs(path.join(dir, 'checkout-link', 'lessons')), /must be outside the checkout/);
+		assert.equal(longArgs(path.join(dir, 'experience')).experience.directory, path.join(dir, 'experience'));
 		const options = parseLongArgs(['--budget-minutes', '10', '--max-total-cost-usd', '4', '--ledger', ledger, '--port-base', '26900', '--out', path.join(dir, 'out'), '--seed', '42', '--jar', 'x.jar']);
 		assert.deepEqual(longRunAllowance(options, 4), { reserveUsd: 4, stopAtUsd: 3.6 });
 		assert.deepEqual(longRunAllowance({}, 80), { reserveUsd: 80, stopAtUsd: 79.5 });
