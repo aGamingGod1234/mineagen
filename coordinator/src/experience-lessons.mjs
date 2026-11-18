@@ -14,6 +14,9 @@ const FIGHTS = new Set(['fight_target', 'fight_until']);
 const TRIPS = new Set(['travel_to', 'dig_to', 'build', 'mine_vein', 'navigate_to']);
 
 function pretty(id) { return String(id).replace(/_/g, ' '); }
+/** "a skeleton", "an enderman". */
+function cap(text) { return text[0].toUpperCase() + text.slice(1); }
+function a(id) { const name = pretty(id); return `${/^[aeiou]/.test(name) ? 'an' : 'a'} ${name}`; }
 function recentlyRan(context, types, withinMs = 15_000) {
 	return context.running.some((type) => types.has(type))
 		|| context.results.some((result) => types.has(result.actionType) && context.at - result.at <= withinMs);
@@ -42,12 +45,12 @@ export const LESSON_RULES = Object.freeze({
 	'ranged-fled-in-open': {
 		death: (context) => RANGED.has(context.cause.cause) && context.cause.kind !== 'melee' && recentlyRan(context, FLEE_ACTIONS) ? { mob: context.cause.cause } : null,
 		trigger: ({ mob }) => ({ mobs: [mob] }),
-		text: ({ mob }) => `Running from a ${pretty(mob)} in the open kept you in its range until you died. Put a solid block between you and it, or dig into a hole with a roof and wait until it loses you.`,
+		text: ({ mob }) => `Running from ${a(mob)} in the open kept you in its range until you died. Put a solid block between you and it, or dig into a hole with a roof and wait until it loses you.`,
 	},
 	'ranged-death': {
 		death: (context) => RANGED.has(context.cause.cause) && context.cause.kind === 'shot' && !recentlyRan(context, FLEE_ACTIONS) ? { mob: context.cause.cause } : null,
 		trigger: ({ mob }) => ({ mobs: [mob] }),
-		text: ({ mob }) => `A ${pretty(mob)} shot you to death. When one is in view, act on it first: take cover out of its line of sight or close the distance and kill it, and heal before moving on.`,
+		text: ({ mob }) => `${cap(a(mob))} shot you to death. When one is in view, act on it first: take cover out of its line of sight or close the distance and kill it, and heal before moving on.`,
 	},
 	'lava-while-moving': {
 		death: (context) => context.cause.cause === 'lava' && recentlyRan(context, MOVE_ACTIONS) ? { dimension: context.dimension ?? 'overworld' } : null,
@@ -57,7 +60,7 @@ export const LESSON_RULES = Object.freeze({
 	'escaped-into-hazard': {
 		death: (context) => ['lava', 'fall', 'drown', 'fire'].includes(context.cause.cause) && context.cause.escaping ? { hazard: context.cause.cause, mob: context.cause.escaping } : null,
 		trigger: ({ mob }) => ({ mobs: [mob] }),
-		text: ({ hazard, mob }) => `Escaping a ${pretty(mob)} killed you by ${hazard === 'fall' ? 'a fall' : hazard === 'drown' ? 'drowning' : hazard}. Before you run from one, look where the escape leads; fighting it on safe ground is often safer.`,
+		text: ({ hazard, mob }) => `Escaping ${a(mob)} killed you by ${hazard === 'fall' ? 'a fall' : hazard === 'drown' ? 'drowning' : hazard}. Before you run from one, look where the escape leads; fighting it on safe ground is often safer.`,
 	},
 	'died-without-food': {
 		death: (context) => lastKnown(context, 'edible') === 0 && ['melee', 'shot', 'explosion', 'fireball'].includes(context.cause.kind) && (healthBefore(context, 10_000) ?? 20) <= 14 ? {} : null,
@@ -68,12 +71,12 @@ export const LESSON_RULES = Object.freeze({
 	'bailout-then-death': {
 		death: (context) => context.cause.kind !== 'hazard' && resultWithin(context, FIGHTS, ['LOW_HEALTH_BAILOUT'], 30_000) ? { mob: context.cause.cause } : null,
 		trigger: () => ({ recentResult: { types: [...FIGHTS], codes: ['LOW_HEALTH_BAILOUT'], withinMs: 30_000 } }),
-		text: ({ mob }) => `Right after a fight stopped at low health, a ${pretty(mob)} finished you. Do not restart that fight or switch between moves: wall yourself in (a hole or pillar with a roof) and eat first.`,
+		text: ({ mob }) => `Right after a fight stopped at low health, ${a(mob)} finished you. Do not restart that fight or switch between moves: wall yourself in (a hole or pillar with a roof) and eat first.`,
 	},
 	'resumed-near-hostile': {
 		death: (context) => context.cause.kind !== 'hazard' && context.cause.kind !== 'unknown' && resultWithin(context, TRIPS, ['HOSTILE_NEAR'], 60_000) ? { mob: context.cause.cause } : null,
 		trigger: ({ mob }) => ({ mobs: [mob], recentResult: { types: [...TRIPS], codes: ['HOSTILE_NEAR'], withinMs: 60_000 } }),
-		text: ({ mob }) => `A trip stopped because a ${pretty(mob)} was near, and going on with it still there got you killed. Kill it or wall it off before you resume.`,
+		text: ({ mob }) => `A trip stopped because ${a(mob)} was near, and going on with it still there got you killed. Kill it or wall it off before you resume.`,
 	},
 	'dig-into-water': {
 		failure: (row, tally) => row.actionType === 'dig_to' && row.reasonCode === 'WATER_AHEAD' && repeated(row, tally, 'dig_to:WATER_AHEAD', 2, 300_000) ? {} : null,
@@ -93,7 +96,7 @@ export const LESSON_RULES = Object.freeze({
 	'melee-at-low-health': {
 		death: (context) => context.cause.kind === 'melee' && (healthBefore(context, 10_000) ?? 20) <= LOW_HEALTH ? { mob: context.cause.cause } : null,
 		trigger: ({ mob }) => ({ mobs: [mob], lowHealth: true }),
-		text: ({ mob }) => `A ${pretty(mob)} killed you after you stayed at low health. At low health, eat or retreat out of reach first; take the fight only after healing.`,
+		text: ({ mob }) => `${cap(a(mob))} killed you after you stayed at low health. At low health, eat or retreat out of reach first; take the fight only after healing.`,
 	},
 });
 
