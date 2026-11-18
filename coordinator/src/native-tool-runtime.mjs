@@ -22,6 +22,7 @@ import { searchFor } from './find-search.mjs';
 import { STEP_ACTIONS } from './wake-filter.mjs';
 import { CONTEXT_TRIGGERS, SURVIVAL_TRIGGERS } from './arena-script/program-engine.mjs';
 import { defaultServiceTier } from './constants.mjs';
+import { actionLeaseTimeoutMs, requestedActionTimeoutMs } from './work-lease-supervisor.mjs';
 import { PLAN_COUNT_ACTIONS, countSkillDurationMs, planCountDefault } from './plan-count.mjs';
 
 const FORGET_REASONS = /agent_removed|server_replaced|coordinator_stopped/;
@@ -1375,8 +1376,8 @@ export class NativeToolRuntime {
 		const run = {
 			interruption, resolveInterruption, interruptedBy: null, forkStop: null, sequence: null, lookAround: null, searching: false,
 			settleBudgetMs: this.#sequenceStepSettleMs, activeActions: 0, finished: false, released: false,
-			retainAction: () => {
-				if (releaseWork === null) releaseWork = this.#onWorkStarted(record, 'action');
+			retainAction: (timeoutMs) => {
+				if (releaseWork === null) releaseWork = this.#onWorkStarted(record, 'action', { timeoutMs });
 			},
 			trackAction: (result) => {
 				run.activeActions += 1;
@@ -3004,7 +3005,9 @@ export class NativeToolRuntime {
 			blockingRun.trackAction(result);
 		}
 		if (!waitForCompletion) {
-			const releaseWork = this.#onWorkStarted(record, 'action');
+			// The action's own timeout ends it; the lease only catches a result that never comes (a fixed 125 s lease
+			// cancelled long travel, digging and portal builds mid-way).
+			const releaseWork = this.#onWorkStarted(record, 'action', { timeoutMs: actionLeaseTimeoutMs(requestedActionTimeoutMs(tool)) });
 			void result.then(releaseWork, releaseWork);
 		}
 		actionMap.set(record.agentId, active);
@@ -3081,7 +3084,7 @@ export class NativeToolRuntime {
 			if (settled.type === 'interruption') {
 				const status = this.#actionStatus(record, actionId);
 				if (status.state === 'RUNNING' || status.state === 'PREPARING') {
-					blockingRun?.retainAction();
+					blockingRun?.retainAction(actionLeaseTimeoutMs(requestedActionTimeoutMs(tool)));
 					active.interruptedBy = blockingRun.interruptedBy ?? 'danger';
 					return { ...status, interruptedBy: active.interruptedBy,
 						recoveryHint: `replaceAction with actionId ${actionId} and your authored fight_target/flee_from switches now; cancelAction with the same actionId stops it.${blockingRun.sequence === null && blockingRun.lookAround === null ? '' : ' Later steps were not started.'}` };
