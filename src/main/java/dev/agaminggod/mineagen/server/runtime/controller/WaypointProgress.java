@@ -79,6 +79,11 @@ public final class WaypointProgress {
 		timeWithoutProgress = new ElapsedTimeAccumulator(nowEpochMs);
 	}
 
+	/** Replans used so far (stall and recovery). */
+	public int replans() {
+		return replans;
+	}
+
 	public enum Decision {
 		CONTINUE,
 		REPLAN,

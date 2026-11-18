@@ -24,6 +24,17 @@ public final class ServerItemPickupController implements ServerController {
 	private final int initialInventoryCount;
 	private final int initialReceipt;
 	private final long timeoutMs;
+	/**
+	 * The walk's own limit ({@link PickupBudget}), within timeoutMs: from the drop's distance at the start, then from the
+	 * first planned route's length or estimated walking time when that is longer.
+	 */
+	private long walkLimitMs;
+	private boolean routeKnown;
+	/** The first planned route's length and estimated walking time when it raised walkLimitMs, else NaN. */
+	private double limitRouteBlocks = Double.NaN, limitRouteSeconds = Double.NaN;
+	private final double startDistance;
+	/** Replans the walks of this pickup have used; a walk planned again for a moved drop gets only what is left. */
+	private int replansSpent;
 	private final ElapsedTimeAccumulator elapsedTime;
 	private final ResourceKey<Level> startingDimension;
 	private ServerNavigationController navigation;
@@ -48,6 +59,8 @@ public final class ServerItemPickupController implements ServerController {
 		this.initialInventoryCount = countMatching(player, identity);
 		this.initialReceipt = dev.agaminggod.mineagen.server.perception.PickupReceipts.collected(player, item.getUUID());
 		this.timeoutMs = timeoutMs;
+		this.startDistance = player.position().distanceTo(item.position());
+		this.walkLimitMs = PickupBudget.walkLimitMs(startDistance, timeoutMs);
 		this.elapsedTime = new ElapsedTimeAccumulator(startedAt);
 		this.startingDimension = player.level().dimension();
 	}
@@ -72,11 +85,20 @@ public final class ServerItemPickupController implements ServerController {
 		boolean alive = item.isAlive() && !item.isRemoved() && !item.getItem().isEmpty();
 		ItemPickupProgress.Decision decision = ItemPickupProgress.evaluate(initialInventoryCount, currentCount, initialReceipt,
 				dev.agaminggod.mineagen.server.perception.PickupReceipts.collected(player, item.getUUID()), alive,
-				elapsedMs >= timeoutMs);
+				elapsedMs >= walkLimitMs);
 		return switch (decision) {
 			case SUCCEEDED -> succeed(player);
 			case ITEM_UNAVAILABLE -> fail(player, "ITEM_UNAVAILABLE", ActionResultFacts.unavailableDrop(player, lastSeenPosition(player), identity));
-			case TIMED_OUT -> fail(player, "ITEM_PICKUP_TIMED_OUT", "The player could not physically reach the dropped item");
+			case TIMED_OUT -> fail(player, "ITEM_PICKUP_TIMED_OUT", walkLimitMs >= timeoutMs
+					? "The player could not physically reach the dropped item"
+					: Double.isNaN(limitRouteBlocks)
+							? String.format(java.util.Locale.ROOT, "The player could not physically reach the dropped item %.1f blocks away within the %.1f s pickup walk limit",
+									startDistance, walkLimitMs / 1000.0D)
+							: String.format(java.util.Locale.ROOT,
+									"The player could not physically reach the dropped item %.1f blocks away by its %.1f-block planned route%s within the %.1f s pickup walk limit",
+									startDistance, limitRouteBlocks, Double.isNaN(limitRouteSeconds) ? ""
+											: String.format(java.util.Locale.ROOT, " (about %.1f s to walk over its ground)", limitRouteSeconds),
+									walkLimitMs / 1000.0D));
 			case RUNNING -> approach(player, nowEpochMs, elapsedMs);
 		};
 	}
@@ -106,17 +128,29 @@ public final class ServerItemPickupController implements ServerController {
 		if (navigation == null || navigationTarget.distanceToSqr(currentTarget) > REPLAN_DISTANCE_SQUARED) {
 			navigation = replaceNavigation(
 					navigation,
-					existing -> existing.cancel(player),
-					() -> {
-						ServerNavigationController move = new ServerNavigationController(currentTarget, 0.2D, true, nowEpochMs,
-								remainingNavigationTimeout(timeoutMs, elapsedMs), pickupRegion);
-						move.crouched(crouched);
-						return keepLevel ? move.onLevel(net.minecraft.util.Mth.floor(startingY + 0.2D)) : move;
-					}
+					existing -> {
+						replansSpent += existing.stallReplans();
+						existing.cancel(player);
+					},
+					// The walk limit is checked before every step and may grow once a route is planned, so the walk itself runs
+					// to the call's timeout.
+					() -> walk(currentTarget, pickupRegion, nowEpochMs, remainingNavigationTimeout(timeoutMs, elapsedMs), replansSpent, crouched,
+							keepLevel, startingY)
 			);
 			navigationTarget = currentTarget;
 		}
 		TickResult result = navigation.tick(player, nowEpochMs);
+		if (!routeKnown && !navigation.plannedRoute().isEmpty()) {
+			routeKnown = true;
+			double routeBlocks = PickupBudget.routeBlocks(player.getX(), player.getY(), player.getZ(), navigation.plannedRoute());
+			double routeSeconds = navigation.plannedTravelSeconds();
+			long routeLimitMs = PickupBudget.routeLimitMs(walkLimitMs, routeBlocks, routeSeconds, timeoutMs);
+			if (routeLimitMs > walkLimitMs) {
+				limitRouteBlocks = routeBlocks;
+				limitRouteSeconds = routeLimitMs > PickupBudget.walkLimitMs(routeBlocks, timeoutMs) ? routeSeconds : Double.NaN;
+			}
+			walkLimitMs = routeLimitMs;
+		}
 		if (awaitingDropLanding(result, item.onGround(), item.isNoGravity(), item.isInWater() || item.isInLava())) {
 			// A fresh mining drop has no standing position while airborne. Let vanilla
 			// gravity move it, then plan from its new position within the original deadline.
@@ -129,6 +163,16 @@ public final class ServerItemPickupController implements ServerController {
 			stopNavigation(player);
 		}
 		return result;
+	}
+
+	/** One walk toward the drop, on pick_up_item's own stall budget and over seen cells only. */
+	static ServerNavigationController walk(Vec3 target, AABB region, long nowEpochMs, long timeoutMs, int replansSpent, boolean crouched,
+			boolean keepLevel, double startingY) {
+		ServerNavigationController move = new ServerNavigationController(target, 0.2D, true, nowEpochMs, timeoutMs, region)
+				.stallBudget(PickupBudget.STALL_MS, PickupBudget.replansLeft(replansSpent))
+				.seenRouteOnly();
+		move.crouched(crouched);
+		return keepLevel ? move.onLevel(net.minecraft.util.Mth.floor(startingY + 0.2D)) : move;
 	}
 
 	/**
@@ -156,7 +200,10 @@ public final class ServerItemPickupController implements ServerController {
 	}
 
 	private void stopNavigation(ServerPlayer player) {
-		if (navigation != null) navigation.cancel(player);
+		if (navigation != null) {
+			replansSpent += navigation.stallReplans();
+			navigation.cancel(player);
+		}
 		navigation = null;
 		navigationTarget = null;
 	}

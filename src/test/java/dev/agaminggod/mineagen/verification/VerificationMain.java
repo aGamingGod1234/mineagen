@@ -321,6 +321,8 @@ public final class VerificationMain {
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.NavigationMotionVerification.verify();
 		passedAssertions += SurvivalReflexVerification.verify();
 		passedAssertions += ItemPickupProgressVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.PickupBudgetVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.PickupRouteLimitTickVerification.verify();
 		passedAssertions += AgentRosterGridLayoutVerification.verify();
 		passedAssertions += AgentRosterGridVerification.verify();
 		passedAssertions += ConsoleThemeVerification.verify();

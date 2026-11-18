@@ -137,6 +137,10 @@ public final class ServerNavigationController implements ServerController {
 	private final LandingCheck landingCheck = new LandingCheck();
 	private boolean lineUpForJump;
 	private boolean crouched;
+	/** The stall budget: the shared defaults unless one caller sets its own ({@link #stallBudget}). */
+	private long stallTimeoutMs = STALL_TIMEOUT_MS;
+	private int maxReplans = MAX_REPLANS;
+	private boolean seenRouteOnly;
 
 	public ServerNavigationController(
 			Vec3 destination,
@@ -185,6 +189,32 @@ public final class ServerNavigationController implements ServerController {
 	public ServerNavigationController crouched(boolean crouched) {
 		this.crouched = crouched;
 		return this;
+	}
+
+	/**
+	 * One caller's own stall budget (pick_up_item): navigation is shared, so the defaults ({@value #STALL_TIMEOUT_MS} ms,
+	 * {@value #MAX_REPLANS} replans) stay for every other walk.
+	 */
+	ServerNavigationController stallBudget(long stallMs, int replans) {
+		if (stallMs <= 0L || replans < 0) throw new IllegalArgumentException("stall budget must be positive and replans non-negative");
+		this.stallTimeoutMs = stallMs;
+		this.maxReplans = replans;
+		return this;
+	}
+
+	/**
+	 * Walk only a route that reaches the destination over seen cells: a route ending at the edge of what the body has
+	 * seen is never walked. The body looks toward the destination for more as any walk does (the bounded observation
+	 * replans) and hands back NO_SEEN_ROUTE when that shows no seen way, instead of walking to the edge first.
+	 */
+	ServerNavigationController seenRouteOnly() {
+		this.seenRouteOnly = true;
+		return this;
+	}
+
+	/** Stall and recovery replans this walk has used. */
+	int stallReplans() {
+		return progress == null ? 0 : progress.replans();
 	}
 
 	@Override
@@ -441,6 +471,14 @@ public final class ServerNavigationController implements ServerController {
 		List<GridPosition> route = new java.util.ArrayList<>(Math.max(0, nodes.size() - waypointIndex));
 		for (int index = Math.max(0, waypointIndex); index < nodes.size(); index++) route.add(nodes.get(index).position());
 		return route;
+	}
+
+	/**
+	 * The planned route's estimated walking time over the ground it plans on (cobwebs and soul sand are slow), without
+	 * sprinting and at crouch speed when the walk is held crouched, NaN before a plan exists. Read-only.
+	 */
+	public double plannedTravelSeconds() {
+		return plan == null || navigationWorld == null ? Double.NaN : plan.estimatedTravelSeconds(navigationWorld, false, crouched);
 	}
 
 	@Override
@@ -882,6 +920,11 @@ public final class ServerNavigationController implements ServerController {
 		}
 		GridPosition endpoint = candidate.nodes().getLast().position();
 		boolean finalSegment = searchGoals.contains(endpoint);
+		if (seenRouteOnly && !finalSegment && unknownEndpoint) {
+			// Never walked: the body looks toward the destination for more (the bounded observation replans), then hands back.
+			return retrySeenRoute(player, world, nowEpochMs, elapsedMs, "The seen route ends at " + endpoint.x() + "," + endpoint.y() + "," + endpoint.z()
+					+ ", short of the destination");
+		}
 		if (!finalSegment && (endpoint.equals(searchOrigin) || endpoint.equals(reachedUnknownFrontier))) {
 			return retrySeenRoute(player, world, nowEpochMs, elapsedMs, "No seen continuation");
 		}
@@ -944,7 +987,7 @@ public final class ServerNavigationController implements ServerController {
 		}
 		route.beginPlan(routeRemaining(player.position()));
 		if (progress == null) {
-			progress = new WaypointProgress(activeWaypointDistance, nowEpochMs, STALL_TIMEOUT_MS, MAX_REPLANS);
+			progress = new WaypointProgress(activeWaypointDistance, nowEpochMs, stallTimeoutMs, maxReplans);
 		} else if (searchRecovery) {
 			progress.replanned(activeWaypointDistance, nowEpochMs);
 		} else {

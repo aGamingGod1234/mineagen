@@ -21,6 +21,11 @@ public record PathPlan(List<PathNode> nodes, PathOutcome outcome, int expandedNo
 
 	/** Estimate travel only, excluding exposure penalties and server planning time. */
 	public double estimatedTravelSeconds(WalkabilityView view, boolean sprint) {
+		return estimatedTravelSeconds(view, sprint, false);
+	}
+
+	/** As above; a walk held crouched throughout (sneak:true) prices its WALK nodes at crouch speed, as CROUCH nodes are. */
+	public double estimatedTravelSeconds(WalkabilityView view, boolean sprint, boolean crouched) {
 		double seconds = 0.0D;
 		for (int index = 1; index < nodes.size(); index++) {
 			GridPosition from = nodes.get(index - 1).position();
@@ -29,7 +34,8 @@ public record PathPlan(List<PathNode> nodes, PathOutcome outcome, int expandedNo
 			double distance = Math.sqrt(Math.pow((double) to.x() - from.x(), 2)
 					+ Math.pow((double) to.z() - from.z(), 2));
 			double inverseSpeed = (1.0D / view.movementSpeedMultiplier(from) + 1.0D / view.movementSpeedMultiplier(to)) / 2.0D;
-			seconds += switch (next.traversal()) {
+			TraversalType traversal = crouched && next.traversal() == TraversalType.WALK ? TraversalType.CROUCH : next.traversal();
+			seconds += switch (traversal) {
 				case CLIMB -> Math.abs(to.y() - from.y()) / 2.0D + distance / 2.0D;
 				case SWIM -> Math.sqrt(distance * distance + Math.pow((double) to.y() - from.y(), 2)) / 2.0D;
 				case CROUCH -> MovementCosts.seconds(distance, 0.3D / inverseSpeed, false);
