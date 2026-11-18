@@ -103,7 +103,7 @@ test('runLong reserves from the shared ledger, caps live play inside the reserva
 		const longArgs = (folder) => parseLongArgs(['--budget-minutes', '10', '--max-total-cost-usd', '4', '--port-base', '26900', '--out', dir, '--experience', 'lessons', '--experience-dir', folder]);
 		assert.throws(() => longArgs(path.join(checkout, '..data')), /must be outside the checkout/);
 		// A link outside the checkout that leads into it does not get the folder out.
-		await symlink(checkout, path.join(dir, 'checkout-link'), 'dir');
+		await symlink(checkout, path.join(dir, 'checkout-link'), 'junction');
 		assert.throws(() => longArgs(path.join(dir, 'checkout-link', 'lessons')), /must be outside the checkout/);
 		assert.equal(longArgs(path.join(dir, 'experience')).experience.directory, path.join(dir, 'experience'));
 		const options = parseLongArgs(['--budget-minutes', '10', '--max-total-cost-usd', '4', '--ledger', ledger, '--port-base', '26900', '--out', path.join(dir, 'out'), '--seed', '42', '--jar', 'x.jar']);

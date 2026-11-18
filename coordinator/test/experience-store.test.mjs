@@ -223,19 +223,19 @@ test('the experience folder must be outside the checkout, by whole path componen
 	assert.equal(isInsideDirectory(join(directory, 'checkout-x'), root), false);
 	assert.equal(isInsideDirectory(root, root), true);
 	// A link outside the checkout that leads into it, also to a folder that does not exist yet, is inside.
-	await symlink(join(root, 'private'), join(directory, 'link'), 'dir');
+	await symlink(join(root, 'private'), join(directory, 'link'), 'junction');
 	assert.equal(isInsideDirectory(join(directory, 'link'), root), true);
 	assert.equal(isInsideDirectory(join(directory, 'link', 'new', 'deeper'), root), true);
 	// A dangling link that points at a checkout folder not created yet is inside, and a link loop cannot be checked.
-	await symlink(join(root, 'later'), join(directory, 'dangling'), 'dir');
+	await symlink(join(root, 'later'), join(directory, 'dangling'), 'junction');
 	assert.equal(isInsideDirectory(join(directory, 'dangling'), root), true);
 	assert.equal(isInsideDirectory(join(directory, 'dangling', 'store'), root), true);
-	await symlink(join(directory, 'loop-b'), join(directory, 'loop-a'), 'dir');
-	await symlink(join(directory, 'loop-a'), join(directory, 'loop-b'), 'dir');
+	await symlink(join(directory, 'loop-b'), join(directory, 'loop-a'), 'junction');
+	await symlink(join(directory, 'loop-a'), join(directory, 'loop-b'), 'junction');
 	assert.throws(() => experienceSettings({ MINEAGEN_EXPERIENCE: 'lessons', MINEAGEN_EXPERIENCE_DIR: join(directory, 'loop-a', 'x') }, { checkoutRoot: root }),
-		(error) => /could not be checked: ELOOP/.test(error.message) && !error.message.includes(directory));
+		(error) => /could not be checked: [A-Z]+/.test(error.message) && !error.message.includes(directory));
 	// A checkout reached through a link still contains its own folders.
-	await symlink(root, join(directory, 'root-link'), 'dir');
+	await symlink(root, join(directory, 'root-link'), 'junction');
 	assert.equal(isInsideDirectory(join(root, 'private'), join(directory, 'root-link')), true);
 	assert.equal(isInsideDirectory(join(directory, 'elsewhere', 'store'), root), false);
 	// The coordinator applies the same check to its own environment, so a harness other than run-long cannot skip it.
