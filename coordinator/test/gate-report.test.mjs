@@ -390,7 +390,8 @@ test('games censored early split into cap, stall, other and unrecorded stops', a
 	const root = await mkdtemp(path.join(os.tmpdir(), 'gate-report-'));
 	try {
 		const dir = await standardRound(root, [
-			{ id: 'game-1', seed: '1', minute: 120, stages: { 'iron pickaxe': 5 }, reason: 'SPEND_CAP' },
+			// The round runner's own wording for a round-wide cap stop.
+			{ id: 'game-1', seed: '1', minute: 120, stages: { 'iron pickaxe': 5 }, reason: 'round hard spend cap reached' },
 			{ id: 'game-2', seed: '2', minute: 130, stages: { 'iron pickaxe': 6 }, reason: 'OPERATOR_STALL_45MIN' },
 			{ id: 'game-3', seed: '3', minute: 90, stages: { 'iron pickaxe': 7 }, reason: 'ENDED_EARLY:RUNNER_ERROR' },
 			{ id: 'game-4', seed: '4', minute: 100, stages: { 'iron pickaxe': 8 } },

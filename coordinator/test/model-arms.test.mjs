@@ -57,6 +57,26 @@ test('the default model comes from one module, and one setting moves a whole ses
 	assert.throws(() => defaultModel('other', {}), /No default model/);
 });
 
+test('a session that plays another model keeps the project default judges', async () => {
+	const { defaultModel, defaultJudgeModel, DEFAULT_MODELS } = await import('../src/default-models.mjs');
+	const { crossFamilyJudge } = await import('../src/decision-eval/judge.mjs');
+	const { judgeTimeline } = await import('../src/benchmark/generality-judge.mjs');
+	const saved = { codex: process.env.ARENA_CODEX_MODEL, claude: process.env.ARENA_CLAUDE_MODEL };
+	process.env.ARENA_CODEX_MODEL = 'gpt-6.2-sol';
+	process.env.ARENA_CLAUDE_MODEL = 'claude-sonnet-5-5';
+	try {
+		assert.equal(defaultModel('codex'), 'gpt-6.2-sol', 'play follows the session');
+		assert.equal(defaultJudgeModel('codex'), DEFAULT_MODELS.codex);
+		assert.equal(crossFamilyJudge('claude').model, DEFAULT_MODELS.codex);
+		assert.equal(crossFamilyJudge('codex').model, DEFAULT_MODELS.claude);
+		let seen;
+		await judgeTimeline({ goal: 'Gather wood.', timeline: [{ elapsedMs: 0, tool: 'survey', argsSummary: { radius: 16 }, resultCode: 'OK', health: 20 }], armProvider: 'claude', invoke: async request => { seen = request; throw new Error('stop after the request'); } }).catch(() => {});
+		assert.equal(seen?.model, DEFAULT_MODELS.codex);
+	} finally {
+		for (const [key, value] of [['ARENA_CODEX_MODEL', saved.codex], ['ARENA_CLAUDE_MODEL', saved.claude]]) if (value === undefined) delete process.env[key]; else process.env[key] = value;
+	}
+});
+
 const sol = { provider: 'codex', model: 'gpt-6.2-sol', reasoningEffort: 'low', serviceTier: 'default' };
 // Two play calls at $0.50 each: $1.00 spent, and the largest call adds $0.50 of headroom.
 const callRows = [1, 2].map((id) => ({ event: 'native_model_call', modelCallId: `c${id}`, goalRevision: 1, inputTokens: 200_000, outputTokens: 10_000 }));
@@ -96,6 +116,11 @@ test('a stop reason maps to window, cap, stall, goal or other, and an unrecorded
 	assert.equal(stopKind('OPERATOR_STALL_45MIN'), 'stall');
 	assert.equal(stopKind('Stalled: no new stage in 45 minutes'), 'stall');
 	assert.equal(stopKind('DRAGON_KILLED'), 'goal');
+	// The round runner's own wording.
+	assert.equal(stopKind('round hard spend cap reached'), 'cap');
+	assert.equal(stopKind('dragon dead'), 'goal');
+	assert.equal(stopKind('stalled: no new stage in 45 minutes'), 'stall');
+	assert.equal(stopKind('No token price for codex/gpt-7; add it to TOKEN_PRICES_PER_MILLION before running with a spend cap or budget'), 'other', 'naming the cap is not reaching it');
 	assert.equal(stopKind('ENDED_EARLY:RUNNER_ERROR'), 'other');
 	assert.equal(stopKind('ENDED_EARLY:VERIFIER_NOT_INSTALLED'), 'other', 'INSTALLED is not a stall');
 	assert.equal(stopKind('operator: reinstall the server'), 'other');
@@ -122,6 +147,8 @@ test('run-long takes --spend-cap-mode log for Codex only and records the cap mod
 		assert.deepEqual(report.stop, { kind: 'other', reason: report.timeline.stopReason });
 		assert.deepEqual(stopOf({ operatorStop: { reason: 'OPERATOR_STALL_45MIN' }, timeline: { stopReason: 'ENDED_EARLY:INTERRUPTED_SIGTERM' } }), { kind: 'stall', reason: 'OPERATOR_STALL_45MIN' });
 		assert.deepEqual(stopOf({ timeline: { stopReason: 'SPEND_CAP' } }), { kind: 'cap', reason: 'SPEND_CAP' });
+		assert.deepEqual(stopOf({ operatorStop: { reason: 'dragon dead' }, timeline: { stopReason: 'DRAGON_KILLED' } }), { kind: 'goal', reason: 'dragon dead' });
+		assert.deepEqual(stopOf({ operatorStop: { reason: 'round hard spend cap reached' }, timeline: { stopReason: 'ENDED_EARLY:INTERRUPTED_SIGTERM' } }), { kind: 'cap', reason: 'round hard spend cap reached' });
 	} finally { await remove(dir, { recursive: true, force: true }); }
 });
 

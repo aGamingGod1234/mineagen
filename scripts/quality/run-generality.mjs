@@ -12,7 +12,7 @@ import { SpendGate, startAnthropicGateway, codexJudgeWorstUsd } from '../../coor
 import { readArtifactReport, writeArtifactReport } from '../../coordinator/src/benchmark/report-artifacts.mjs';
 import { runScenarios, validateArmBuild, instrumentationFingerprint } from './run-scenarios.mjs';
 import { SpendLedger, runSpendUsd, defaultRunReserveUsd, JUDGE_ALLOWANCE_USD, MIN_SUITE_RESERVE_USD } from '../../coordinator/src/benchmark/spend-ledger.mjs';
-import { defaultModel } from '../../coordinator/src/default-models.mjs';
+import { defaultJudgeModel, defaultModel } from '../../coordinator/src/default-models.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 export function parseSuiteArgs(argv) {
 	const values = {}, accepted = new Set(['fixtures','split','scenarios','runs','arms','arm','concurrency','port-base','out','provider','model','effort','service-tier','judge-provider','judge-model','judge-effort','judge-executable','server-template','java','worker-job','max-play-cost-usd','max-total-cost-usd','expect-fixture-sha256','smoke-window-ms','run-reserve-usd','prior-spend-usd','ledger','codex-observer-cap']);
@@ -83,7 +83,7 @@ export async function gatedSuiteRun(job,{execute=runScenarios,judge=judgeTimelin
 		const spentBeforeJudging=runSpendUsd(run,{reserveUsd}).usd;
 		const judgeGate=new SpendGate({budgetUsd:Math.max(1e-9,reserveUsd-spentBeforeJudging)});
 		if(gateway) { gateway.gate=judgeGate; process.env.ANTHROPIC_BASE_URL=gateway.url; }
-		const judgeProfile={provider:judgeProvider,model:job.judge.model??defaultModel(judgeProvider),reasoningEffort:job.judge.effort,serviceTier:job.judge.serviceTier??(judgeProvider==='codex'?'default':'priority')};
+		const judgeProfile={provider:judgeProvider,model:job.judge.model??defaultJudgeModel(judgeProvider),reasoningEffort:job.judge.effort,serviceTier:job.judge.serviceTier??(judgeProvider==='codex'?'default':'priority')};
 		// Codex attempts reserve an estimate only. Strict owners are refused above before play or judging launches.
 		const invoke=judgeProvider==='claude'?invokeJudge:async args=>{
 			const id=`judge-${args.round}-${args.attempt}`;

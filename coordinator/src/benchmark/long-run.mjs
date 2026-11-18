@@ -147,11 +147,12 @@ const GOAL_STOPS = new Set(['DRAGON_KILLED', 'GOAL_COMPLETED_CLAIM', 'EVALUATOR_
 export function stopKind(reason) {
 	if (typeof reason !== 'string' || !reason.trim() || reason === 'UNKNOWN_TERMINATION' || reason === 'ENDED_EARLY:UNKNOWN_TERMINATION') return null;
 	const own = reason.replace(/^ENDED_EARLY:/, '');
-	if (own === 'SPEND_CAP') return 'cap';
+	// The round runner writes its own words (a round-wide cap reached, the dragon dead), not the long runner's codes.
+	if (own === 'SPEND_CAP' || /spend cap (?:reached|hit|crossed)/i.test(own)) return 'cap';
 	// A word that starts with "stall" (STALL, Stalled), not one that only contains it (VERIFIER_NOT_INSTALLED).
 	if (/(?:^|[^a-z])stall/i.test(own)) return 'stall';
 	if (own === 'WALL_CLOCK_BUDGET') return 'window';
-	if (GOAL_STOPS.has(own)) return 'goal';
+	if (GOAL_STOPS.has(own) || /dragon[ _](?:dead|killed)/i.test(own)) return 'goal';
 	return 'other';
 }
 
