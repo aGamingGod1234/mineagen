@@ -3,7 +3,8 @@ const bar = (n, total) => '█'.repeat(n) + '░'.repeat(Math.max(0, total - n))
 const safe = value => String(value).replace(/[|\r\n]/g, ' ');
 
 // Funnel order and labels match scripts/quality/gate-report.mjs MILESTONES.
-const FUNNEL = [['ironPickaxe', 'Iron pickaxe'], ['bucket', 'Bucket'], ['flintAndSteel', 'Flint and steel'], ['lavaSeen', 'Lava seen'], ['portalLit', 'Portal lit'], ['nether', 'Nether']];
+const FUNNEL = [['ironPickaxe', 'Iron pickaxe'], ['bucket', 'Bucket'], ['flintAndSteel', 'Flint and steel'], ['lavaSeen', 'Lava seen'], ['portalLit', 'Portal lit'], ['nether', 'Nether'],
+	['fortress', 'Fortress found'], ['blazeRods', 'Blaze rods'], ['enderPearls', 'Ender pearls']];
 const short = sha => typeof sha === 'string' ? sha.slice(0, 8) : Array.isArray(sha) ? 'mixed commits' : 'unknown commit';
 const seedBar = (n, total) => total > 10 ? bar(Math.round(n / total * 10), 10) : bar(n, total);
 

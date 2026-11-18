@@ -29,3 +29,28 @@ test('the real metrics CLI excludes setup movement and deaths after the playing 
   assert.equal(deadResult.pathBlocks, 5);
  } finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+import { netherTravel, sampleObservation, NETHER } from '../../scripts/quality/nether-travel-metrics.mjs';
+
+const OW = 'minecraft:overworld';
+const feed = (rows) => { const t = netherTravel(); for (const row of rows) t.observation(sampleObservation(row)); return t.report().recovery; };
+const row = (s, dimension, deathCounter, health = 20, x = 0) => ({ at: 1_000_000 + s * 1000, position: { x, y: 64, z: 0 }, dimension, health, deathCounter });
+
+test('a capture that starts in the Nether records its first entry there, with the portal unknown', () => {
+	const recovery = feed([row(0, NETHER, 0), row(10, NETHER, 0), row(11, NETHER, 0, 0), row(20, OW, 1)]);
+	assert.ok(recovery.firstEntry !== null, 'entered the Nether');
+	assert.equal(recovery.firstEntry.portal, null);
+	assert.equal(recovery.deathsAfterFirstEntry, 1);
+	assert.equal(recovery.netherDeaths.length, 1);
+	assert.equal(recovery.netherDeaths[0].respawnBlocks, null, 'no portal, so no respawn distance');
+});
+
+test('a death seen by health while the counter read was missing is not counted again when the counter catches up', () => {
+	const recovery = feed([row(0, OW, 0, 20, 0), row(1, NETHER, 0, 20, 5), row(2, NETHER, null, 0, 5), row(10, OW, 1, 20, 40)]);
+	assert.equal(recovery.deathsAfterFirstEntry, 1);
+	assert.equal(recovery.netherDeaths.length, 1);
+	assert.ok(recovery.netherDeaths[0].respawn, 'the respawn stays on the one death');
+	// Two deaths, one seen only by the counter: both count once.
+	const two = feed([row(0, OW, 0, 20, 0), row(1, NETHER, 0, 20, 5), row(2, NETHER, null, 0, 5), row(10, NETHER, 2, 20, 5)]);
+	assert.equal(two.deathsAfterFirstEntry, 2);
+});

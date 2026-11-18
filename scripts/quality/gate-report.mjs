@@ -5,13 +5,17 @@
 //   node scripts/quality/gate-report.mjs --gate 3 --title "..." --out docs/gates/gate-3.json \
 //     --cohort gate3 "#178 merged into main" DIR... [--cohort NAME LABEL DIR...]
 //
-// A DIR is a long-run folder (sub/long/<tag>-codex: stage-score.json, long-run.json, raw/decision-*.jsonl) or a
-// scripted obtain folder (sub/farm/<round>/<seed>-r<n>: run/result.json, with plan.json one level up).
+// A DIR is a long-run folder (sub/long/<tag>-codex: stage-score.json, long-run.json, raw/decision-*.jsonl), a
+// scripted obtain folder (sub/farm/<round>/<seed>-r<n>: run/result.json, with plan.json one level up), or a standard
+// round: its folder (manifest.json listing games) or one game-N folder (timeline.json, spend.json, raw/manifest.json,
+// raw/quality-samples.jsonl). Games with per-second samples also report Nether minutes, deaths and recovery.
 // Two cohorts on the same seeds make a pair (before and after); the same seed run more than once in one cohort is a
 // repeat. Both are reported, and so is every seed that lacks its pair. Rule of thumb: under 2 seeds is "no change".
 import { readFileSync, readdirSync, existsSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { itemCount } from '../../coordinator/src/benchmark/quality-metrics.mjs';
+import { netherTravel, sampleObservation } from './nether-travel-metrics.mjs';
 
 export const SCHEMA = 'arena-gate-report/v1';
 // Funnel order. null in a run = not reached in its window; a missing key = this kind of run does not measure it.
@@ -22,21 +26,26 @@ export const MILESTONES = [
 	{ key: 'lavaSeen', label: 'Lava seen' },
 	{ key: 'portalLit', label: 'Portal lit' },
 	{ key: 'nether', label: 'Nether' },
+	{ key: 'fortress', label: 'Fortress found' },
+	{ key: 'blazeRods', label: 'Blaze rods' },
+	{ key: 'enderPearls', label: 'Ender pearls' },
 ];
 // Rule of thumb (scripts/quality/README.md): a difference under this many seeds is "no change".
 export const NO_CHANGE_SEEDS = 2;
 
-const STAGE_KEYS = { ironPickaxe: 'iron_pickaxe', bucket: 'bucket', flintAndSteel: 'flint_and_steel', nether: 'nether' };
+const STAGE_KEYS = { ironPickaxe: 'iron_pickaxe', bucket: 'bucket', flintAndSteel: 'flint_and_steel', nether: 'nether', fortress: 'fortress', blazeRods: 'blaze_rod', enderPearls: 'ender_pearl' };
 const BOUNDARY = '\nNewer coordinator events for this turn (treat them exactly like the turn input):\n';
 // Lava the model was shown: the body's lavaSeen cells, a known-lava fact, a cave flagged for lava, or a counted pool.
 // Contract text names lava too, but never in these shapes.
 const LAVA = /lavaSeen\\*":\[\\*"|lava: lava \d|lava seen nearby|lava pools seen [1-9]/;
 const minutes = (ms) => Math.round(ms / 6000) / 10;
 const readJson = (file) => JSON.parse(readFileSync(file, 'utf8'));
+// Infinity stands for a censored value (never reached); a median that lands on one is unknown, so null.
 const median = (values) => {
 	if (values.length === 0) return null;
 	const sorted = [...values].sort((a, b) => a - b), mid = sorted.length >> 1;
-	return Math.round((sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2) * 10) / 10;
+	const value = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+	return Number.isFinite(value) ? Math.round(value * 10) / 10 : null;
 };
 
 export function decisionFiles(raw) {
@@ -87,18 +96,25 @@ function readLongRun(dir) {
 	};
 	const raw = path.join(dir, 'raw');
 	const log = logMilestones(raw);
-	const ms = Object.fromEntries(Object.entries(STAGE_KEYS).map(([key, name]) => [key, at(name)]));
+	// Folders scored before stage-score tracked a milestone leave its key out: not measured, rather than not reached.
+	const ms = Object.fromEntries(Object.entries(STAGE_KEYS).filter(([, name]) => lives.some((life) => name in life.milestones)).map(([key, name]) => [key, at(name)]));
 	ms.lavaSeen = log.lavaSeen;
 	// Entering the Nether needs a lit portal, so a Nether entry with no PORTAL_LIT result bounds it from above.
-	ms.portalLit = log.portalLit ?? ms.nether;
+	ms.portalLit = log.portalLit ?? ms.nether ?? null;
 	const profile = longRun?.profile ?? stage.identity?.profile;
+	// A run that stopped short of its budget ends where the scorer last observed it or recorded its end, not at the plan.
+	// Older scores name neither: the planned end stands, and the minutes played stay unknown.
+	const plannedEnd = t0 + (longRun?.windowMs ?? stage.window.windowMs);
+	const observed = [stage.window.observedThrough, stage.ending?.at].filter((at) => Number.isFinite(at) && at > t0);
+	const end = observed.length ? Math.min(plannedEnd, ...observed) : plannedEnd;
 	return [{
 		run: path.basename(dir), seed: String(stage.identity?.seed ?? longRun?.seed), commit: longRunCommit(dir, longRun),
 		ranAt: new Date(stage.window.startedAt).toISOString().slice(0, 10), mode: 'model', model: profile ? `${profile.provider} ${profile.model} ${profile.reasoningEffort ?? ''}`.trim() : null,
-		windowMin: minutes(longRun?.windowMs ?? stage.window.windowMs),
-		milestones: Object.fromEntries(MILESTONES.map(({ key }) => [key, ms[key] === null ? null : minutes(ms[key] - t0)])),
+		windowMin: minutes(longRun?.windowMs ?? stage.window.windowMs), ...(observed.length ? { playedMin: minutes(end - t0) } : {}),
+		milestones: Object.fromEntries(MILESTONES.filter(({ key }) => key in ms).map(({ key }) => [key, ms[key] === null ? null : minutes(ms[key] - t0)])),
 		deaths: stage.observedDeaths ?? 0, costUsd: Math.round((longRun?.spend?.usd ?? 0) * 1000) / 1000,
 		decisionLog: decisionFiles(raw).length > 0,
+		...samplesOf(raw, t0, end).nether,
 	}];
 }
 
@@ -114,13 +130,115 @@ function readScripted(dir) {
 	});
 }
 
+const BUCKET = /:(water_|lava_)?bucket$/;
+/**
+ * One pass over raw/quality-samples.jsonl inside [start, end]: the first sample holding any bucket, and the game's Nether
+ * numbers. No samples file: neither (a missing nether key means not measured). A file with no usable sample in the window
+ * (empty, malformed, or all outside it) is unknown evidence, never zero Nether minutes: no nether key, and a reason.
+ */
+function samplesOf(raw, start, end) {
+	const file = path.join(raw, 'quality-samples.jsonl');
+	if (!existsSync(file)) return { bucketAt: null };
+	const travel = netherTravel({ windowStart: start, windowEnd: end });
+	let bucketAt = null, usable = 0, malformed = 0;
+	for (const line of readFileSync(file, 'utf8').split('\n')) {
+		if (!line) continue;
+		let row; try { row = JSON.parse(line); } catch { malformed++; continue; }
+		if (!Number.isFinite(row?.at) || row.at < start || row.at > end) continue;
+		if (bucketAt === null && itemCount(`${row.inventoryNbt ?? ''}${row.equipmentNbt ?? ''}`, BUCKET) > 0) bucketAt = row.at;
+		travel.observation(sampleObservation(row));
+		// A row with no dimension cannot show the game stayed out of the Nether.
+		if (typeof row.dimension === 'string') usable++;
+	}
+	if (usable === 0) return { bucketAt, nether: { netherUnmeasured: `quality-samples.jsonl has no usable sample in the playing window${malformed ? ` (${malformed} malformed line(s))` : ''}` } };
+	return { bucketAt, nether: { nether: netherSummary(travel.report(), start) } };
+}
+
+/** Per game: Nether minutes, deaths after the first entry, and per Nether death the respawn distance and minutes back. */
+function netherSummary(report, start) {
+	const { firstEntry, deathsAfterFirstEntry, netherDeaths } = report.recovery;
+	const round = (value) => value === null ? null : Math.round(value * 10) / 10;
+	return { minutes: round(report.netherMinutes), firstEntryMin: firstEntry ? minutes(firstEntry.atMs - start) : null, deathsAfterFirstEntry,
+		deaths: netherDeaths.map((death) => ({ minute: minutes(death.atMs - start), respawnBlocks: death.respawnBlocks === null ? null : Math.round(death.respawnBlocks),
+			returned: death.backAtMs !== null, backMin: round(death.backMinutes ?? death.untilEndMinutes) })) };
+}
+
+// The standard round's stage names (the round runner's stage list), by funnel key. "buckets" means two buckets, so the
+// first bucket comes from the samples; without them the earlier of two buckets and a water bucket bounds it.
+const ROUND_STAGES = { ironPickaxe: ['iron pickaxe'], bucket: ['buckets', 'water bucket'], flintAndSteel: ['flint and steel'], lavaSeen: ['lava found'],
+	portalLit: ['portal lit'], nether: ['in the Nether'], fortress: ['fortress found'], blazeRods: ['blaze rods'], enderPearls: ['ender pearls'] };
+const isRoundGame = (dir) => {
+	if (!existsSync(path.join(dir, 'timeline.json'))) return false;
+	const timeline = readJson(path.join(dir, 'timeline.json'));
+	return Array.isArray(timeline.stageOrder) && Number.isFinite(timeline.startedAt);
+};
+
+function readRoundGame(dir) {
+	const timeline = readJson(path.join(dir, 'timeline.json'));
+	const file = (name) => existsSync(path.join(dir, name)) ? readJson(path.join(dir, name)) : null;
+	const manifest = file('raw/manifest.json'), spend = file('spend.json');
+	const roundManifest = path.join(dir, '..', 'manifest.json');
+	const game = existsSync(roundManifest) ? readJson(roundManifest).games?.find((entry) => entry.id === path.basename(dir)) : null;
+	const t0 = timeline.startedAt;
+	// Older timelines name no start kind; inherited (snapshot baseline) stages still mark a save point.
+	const savePoint = timeline.startKind != null ? timeline.startKind !== 'fresh' : timeline.stages.some((stage) => stage.source === 'snapshot baseline');
+	// Some games stopped without a stop time; the timeline's own minute count still gives the end.
+	const end = Number.isFinite(timeline.stoppedAt) && timeline.stoppedAt > t0 ? timeline.stoppedAt : t0 + timeline.minute * 60_000;
+	const samples = samplesOf(path.join(dir, 'raw'), t0, end);
+	const first = (names) => {
+		const times = timeline.stages.filter((stage) => names.includes(stage.stage) && stage.source !== 'snapshot baseline').map((stage) => stage.at);
+		return times.length ? Math.min(...times) : null;
+	};
+	const ms = Object.fromEntries(Object.entries(ROUND_STAGES).map(([key, names]) => [key, first(names)]));
+	ms.bucket = samples.bucketAt ?? ms.bucket;
+	// Entering the Nether needs a lit portal, so a Nether entry bounds it from above.
+	if (ms.nether !== null) ms.portalLit = Math.min(ms.portalLit ?? Infinity, ms.nether);
+	const profile = manifest ? `${manifest.provider} ${manifest.model} ${manifest.reasoningEffort ?? ''}`.trim() : null;
+	return [{
+		run: game?.tag ?? path.basename(dir), seed: String(manifest?.world?.seed ?? timeline.spawnCheck?.seed), commit: /-([0-9a-f]{7,40})\.jar$/.exec(game?.jar ?? '')?.[1] ?? null,
+		ranAt: new Date(t0).toISOString().slice(0, 10), mode: 'model', model: profile, windowMin: game?.minutes ?? minutes(end - t0), playedMin: minutes(end - t0),
+		startKind: timeline.startKind ?? null,
+		// A game started from a save point inherits stages (snapshot baseline) and items (a bucket in the first sample):
+		// its milestones are not its own, so it measures none.
+		...(savePoint ? { milestones: {}, unmeasured: `start ${timeline.startKind ?? 'from a snapshot'}: inherited stages are not this game's` } : {
+			milestones: Object.fromEntries(MILESTONES.map(({ key }) => [key, ms[key] === null ? null : minutes(ms[key] - t0)])), ...samples.nether }),
+		deaths: timeline.deaths?.length ?? 0, costUsd: Math.round((spend?.usd ?? 0) * 1000) / 1000, decisionLog: false,
+	}];
+}
+
 export function readRun(dir) {
 	if (existsSync(path.join(dir, 'stage-score.json'))) return readLongRun(dir);
 	if (existsSync(path.join(dir, 'run', 'result.json'))) return readScripted(dir);
-	throw new Error(`${dir}: neither stage-score.json nor run/result.json`);
+	if (isRoundGame(dir)) return readRoundGame(dir);
+	const manifest = path.join(dir, 'manifest.json');
+	const games = existsSync(manifest) ? readJson(manifest).games : null;
+	if (Array.isArray(games)) {
+		const found = games.map((game) => path.join(dir, String(game.id))).filter(isRoundGame);
+		if (found.length) return found.flatMap(readRoundGame);
+	}
+	throw new Error(`${dir}: not a long run (stage-score.json), a scripted run (run/result.json) or a standard round (timeline.json)`);
 }
 
 const one = (values) => { const set = [...new Set(values)]; return set.length === 1 ? set[0] : set.length ? set : null; };
+
+/**
+ * Kaplan-Meier median minutes over seeds: { t, reached } rows, an unreached one censored at t (the minutes it played).
+ * A game that stopped early leaves the risk set at its stop, so it never ranks behind a longer game that reached the
+ * milestone. Where the survival curve sits at exactly one half the median is the midpoint to the next reached time (an
+ * ordinary median with no censoring); a curve that never falls to one half leaves the median unknown (null).
+ */
+export function censoredMedian(rows) {
+	const reachedAt = [...new Set(rows.filter((row) => row.reached).map((row) => row.t))].sort((a, b) => a - b);
+	let survival = 1;
+	for (let i = 0; i < reachedAt.length; i++) {
+		const t = reachedAt[i];
+		const atRisk = rows.filter((row) => row.t >= t).length, reached = rows.filter((row) => row.reached && row.t === t).length;
+		survival *= 1 - reached / atRisk;
+		if (Math.abs(survival - 0.5) < 1e-9) return i + 1 < reachedAt.length ? Math.round((t + reachedAt[i + 1]) / 2 * 10) / 10 : null;
+		if (survival < 0.5) return Math.round(t * 10) / 10;
+	}
+	return null;
+}
 
 /**
  * Per milestone, over seeds (a repeated seed counts once: reached if any of its runs reached it; its time is the median
@@ -132,9 +250,18 @@ export function funnel(runs) {
 	for (const { key } of MILESTONES) {
 		const measured = seeds.filter((seed) => runs.some((run) => run.seed === seed && key in run.milestones));
 		if (measured.length === 0) continue;
-		const times = measured.map((seed) => median(runs.filter((run) => run.seed === seed && run.milestones[key] !== null && key in run.milestones).map((run) => run.milestones[key]))).filter((value) => value !== null);
+		const rows = measured.map((seed) => {
+			const own = runs.filter((run) => run.seed === seed && key in run.milestones);
+			const t = median(own.filter((run) => run.milestones[key] !== null).map((run) => run.milestones[key]));
+			// Never reached: censored at the longest it played, else at the window. Early: stopped over a minute short of it.
+			return t !== null ? { t, reached: true } : { t: Math.max(...own.map((run) => run.playedMin ?? run.windowMin ?? Infinity)), reached: false,
+				early: own.every((run) => Number.isFinite(run.playedMin) && Number.isFinite(run.windowMin) && run.playedMin < run.windowMin - 1) };
+		});
 		const tried = runs.filter((run) => key in run.milestones);
-		out[key] = { reached: times.length, total: measured.length, medianMin: median(times), runs: { reached: tried.filter((run) => run.milestones[key] !== null).length, total: tried.length } };
+		const censored = rows.filter((row) => !row.reached);
+		out[key] = { reached: rows.length - censored.length, total: measured.length, censored: censored.length,
+			...(censored.some((row) => row.early) ? { censoredEarly: censored.filter((row) => row.early).length } : {}),
+			medianMin: censoredMedian(rows), runs: { reached: tried.filter((run) => run.milestones[key] !== null).length, total: tried.length } };
 	}
 	return out;
 }
@@ -158,21 +285,46 @@ const firstRuns = (runs) => runs.filter((run, i) => runs.findIndex((other) => ot
 
 /**
  * Before → after on the seeds both cohorts ran, one run per seed on each side (its first); repeats are reported apart.
- * Seeds only one side ran are named as missing pairs.
+ * Seeds only one side ran are named as missing pairs. Each milestone pairs only the seeds whose first run measured it on
+ * both sides (a save-point game measures none), and names the paired seeds left out as unmeasured.
  */
 export function compare(before, after) {
 	const seedsA = new Set(before.runs.map((run) => run.seed)), seedsB = new Set(after.runs.map((run) => run.seed));
 	const paired = [...seedsA].filter((seed) => seedsB.has(seed));
 	const missingPairs = [...[...seedsA].filter((seed) => !seedsB.has(seed)).map((seed) => ({ seed, only: before.name })),
 		...[...seedsB].filter((seed) => !seedsA.has(seed)).map((seed) => ({ seed, only: after.name }))];
-	const a = funnel(firstRuns(before.runs).filter((run) => paired.includes(run.seed))), b = funnel(firstRuns(after.runs).filter((run) => paired.includes(run.seed)));
+	const firstA = firstRuns(before.runs).filter((run) => paired.includes(run.seed)), firstB = firstRuns(after.runs).filter((run) => paired.includes(run.seed));
 	const milestones = {};
 	for (const { key } of MILESTONES) {
-		if (!a[key] || !b[key]) continue;
-		const diff = b[key].reached - a[key].reached;
-		milestones[key] = { before: a[key].reached, after: b[key].reached, total: paired.length, diff, verdict: verdict(diff), beforeMedianMin: a[key].medianMin, afterMedianMin: b[key].medianMin };
+		const measured = (runs, seed) => runs.some((run) => run.seed === seed && key in run.milestones);
+		const both = paired.filter((seed) => measured(firstA, seed) && measured(firstB, seed));
+		if (both.length === 0) continue;
+		const a = funnel(firstA.filter((run) => both.includes(run.seed)))[key], b = funnel(firstB.filter((run) => both.includes(run.seed)))[key];
+		const diff = b.reached - a.reached;
+		const unmeasured = paired.filter((seed) => !both.includes(seed));
+		milestones[key] = { before: a.reached, after: b.reached, total: both.length, diff, verdict: verdict(diff), beforeMedianMin: a.medianMin, afterMedianMin: b.medianMin,
+			...(unmeasured.length ? { unmeasured } : {}) };
 	}
 	return { before: before.name, after: after.name, pairedSeeds: paired.length, missingPairs, milestones };
+}
+
+/**
+ * Over the runs that measured the Nether: games that entered, minutes there, deaths after the first entry, Nether deaths
+ * and the games they hit, respawn distance from the entry portal, and the minutes back (returned, and never returned
+ * before the game ended). null when no run had samples.
+ */
+export function netherTotals(runs) {
+	const measured = runs.filter((run) => run.nether);
+	if (!measured.length) return null;
+	const deaths = measured.flatMap((run) => run.nether.deaths), back = deaths.filter((death) => death.returned), lost = deaths.filter((death) => !death.returned);
+	const blocks = deaths.map((death) => death.respawnBlocks).filter((value) => value !== null);
+	const sum = (values) => Math.round(values.reduce((total, value) => total + value, 0) * 10) / 10;
+	return { games: measured.length, entered: measured.filter((run) => run.nether.firstEntryMin !== null).length, minutes: sum(measured.map((run) => run.nether.minutes)),
+		deathsAfterFirstEntry: measured.reduce((total, run) => total + run.nether.deathsAfterFirstEntry, 0), deaths: deaths.length,
+		gamesWithDeaths: measured.filter((run) => run.nether.deaths.length).length,
+		respawnBlocks: blocks.length ? { min: Math.min(...blocks), median: median(blocks), max: Math.max(...blocks) } : null,
+		back: { returned: back.length, returnedMin: sum(back.map((death) => death.backMin)), neverReturned: lost.length, neverReturnedMin: sum(lost.map((death) => death.backMin)),
+			totalMin: sum(deaths.map((death) => death.backMin)) } };
 }
 
 export function buildGate({ gate, title, cohorts }) {
@@ -180,7 +332,7 @@ export function buildGate({ gate, title, cohorts }) {
 		const runs = dirs.flatMap(readRun);
 		return { name, label, commit: one(runs.map((run) => run.commit)), mode: one(runs.map((run) => run.mode)), model: one(runs.map((run) => run.model)),
 			windowMin: one(runs.map((run) => run.windowMin)), ranAt: runs.map((run) => run.ranAt).filter(Boolean).sort()[0] ?? null, seeds: [...new Set(runs.map((run) => run.seed))], runs,
-			funnel: funnel(runs), deaths: runs.reduce((sum, run) => sum + run.deaths, 0),
+			funnel: funnel(runs), deaths: runs.reduce((sum, run) => sum + run.deaths, 0), nether: netherTotals(runs),
 			costUsd: Math.round(runs.reduce((sum, run) => sum + run.costUsd, 0) * 100) / 100, repeats: repeatsOf(runs) };
 	});
 	const notes = [];
@@ -189,6 +341,12 @@ export function buildGate({ gate, title, cohorts }) {
 	if (built.length === 1) notes.push('No pair in this file: one commit ran this gate. The PR comment pairs it with the previous gate when both ran the same seeds with the same model and window.');
 	for (const comparison of comparisons) if (comparison.missingPairs.length) notes.push(`${comparison.before} → ${comparison.after}: ${comparison.missingPairs.length} seed(s) without a pair.`);
 	if (!built.some((cohort) => cohort.repeats.length)) notes.push('No repeats: each seed ran once per commit, so run-to-run noise is not measured here.');
+	for (const cohort of built) {
+		const unmeasured = cohort.runs.filter((run) => run.unmeasured);
+		if (unmeasured.length) notes.push(`${cohort.name}: ${unmeasured.length} game(s) measure no milestone (${unmeasured.map((run) => `${run.run}: ${run.unmeasured}`).join('; ')}).`);
+		const netherUnknown = cohort.runs.filter((run) => run.netherUnmeasured);
+		if (netherUnknown.length) notes.push(`${cohort.name}: ${netherUnknown.length} game(s) left out of the Nether totals as unknown (${netherUnknown.map((run) => `${run.run}: ${run.netherUnmeasured}`).join('; ')}).`);
+	}
 	return { schema: SCHEMA, gate, title, generatedBy: 'scripts/quality/gate-report.mjs', rule: `A difference under ${NO_CHANGE_SEEDS} seeds is "no change" (rule of thumb).`,
 		milestones: MILESTONES, cohorts: built, comparisons, notes };
 }
@@ -219,5 +377,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 	for (const cohort of report.cohorts) {
 		console.error(`${cohort.name} @ ${String(cohort.commit).slice(0, 8)}: ${cohort.seeds.length} seeds, ${cohort.runs.length} runs, deaths ${cohort.deaths}, $${cohort.costUsd}`);
 		for (const { key, label } of MILESTONES) if (cohort.funnel[key]) console.error(`  ${label.padEnd(16)} ${cohort.funnel[key].reached}/${cohort.funnel[key].total}  median ${cohort.funnel[key].medianMin ?? '-'} min`);
+		const n = cohort.nether;
+		if (n) console.error(`  Nether: ${n.entered}/${n.games} games entered, ${n.minutes} min there, ${n.deaths} Nether deaths in ${n.gamesWithDeaths} games (${n.deathsAfterFirstEntry} deaths after first entry), respawn ${n.respawnBlocks ? `${n.respawnBlocks.min}-${n.respawnBlocks.max} blocks, median ${n.respawnBlocks.median}` : '-'}, back ${n.back.returned} in ${n.back.returnedMin} min + ${n.back.neverReturned} never in ${n.back.neverReturnedMin} min`);
 	}
 }
