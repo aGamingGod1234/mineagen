@@ -57,7 +57,7 @@ export async function loadRun(run) {
 		dangerDropped += watch.dangerDropped ?? 0;
 	}
 	return { pairId: record.pairId ?? `${record.scenario}-r${record.repetition ?? 1}`, ...scoreRun({ scenario: record.scenario ?? record.definition?.id,
-		goalStartedAtMs: await goalStart(record, directory), samples, dangerRows, dangerDropped, lifecycle: await lifecycle(directory), evaluation: record.evaluation ?? null }) };
+		goalStartedAtMs: await goalStart(record, directory), samples, dangerRows, dangerDropped, lifecycle: await lifecycle(directory), evaluation: record.evaluation ?? null, runBudgetMs: record.definition?.durationBudgetMs ?? null }) };
 }
 
 /** --run takes a run artifact directory (holding quality-run.json) or a run-scenarios results.json. */

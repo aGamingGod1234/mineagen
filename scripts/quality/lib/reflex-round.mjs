@@ -103,12 +103,12 @@ export function responses(rows, start, end) {
  * One room run. dangerRows null = no Watcher file (unknown). Returns window damage, deaths and success, each null when
  * unknown, with the damage status: valid, invalid (rows and counter disagree) or unknown (either is missing).
  */
-export function scoreRun({ scenario, goalStartedAtMs, samples = [], dangerRows = null, dangerDropped = 0, lifecycle = [], evaluation = null }) {
+export function scoreRun({ scenario, goalStartedAtMs, samples = [], dangerRows = null, dangerDropped = 0, lifecycle = [], evaluation = null, runBudgetMs = null }) {
 	const windowMs = roomWindowMs(scenario);
 	const split = dangerRows === null ? { rows: null, otherSchema: 0 } : splitDangerRows(dangerRows);
 	const rows = split.rows;
 	const start = finite(goalStartedAtMs) ? goalStartedAtMs : null;
-	const success = evaluation?.status === 'EVALUATED' ? evaluation.pass === true : null;
+	const success = roomSuccess(evaluation, start, windowMs, samples, runBudgetMs);
 	if (start === null) return { scenario, windowMs, status: 'unknown', reason: 'no goal start', damage: null, deaths: null, success, otherSchemaRows: split.otherSchema };
 	const end = start + windowMs;
 	const damageRows = rows?.filter(row => row.type === 'damage') ?? null;
@@ -139,6 +139,21 @@ export function scoreRun({ scenario, goalStartedAtMs, samples = [], dangerRows =
 			firings: firingSummary(rows, start, end) };
 	}
 	return result;
+}
+
+/**
+ * Room success inside the room's own window: the whole-run evaluation's pass counts only when its pass time (passAt, or
+ * timeToPassMs from goal start) falls by the window end, within the clock slack. A pass with no recorded time counts only
+ * when the run did not outlast the window (its budget and its samples end by then); otherwise it is unknown.
+ */
+export function roomSuccess(evaluation, start, windowMs, samples = [], runBudgetMs = null) {
+	if (evaluation?.status !== 'EVALUATED') return null;
+	if (evaluation.pass !== true) return false;
+	const passMs = finite(evaluation.passAt) && start !== null ? evaluation.passAt - start : finite(evaluation.timeToPassMs) ? evaluation.timeToPassMs : null;
+	if (passMs !== null) return passMs <= windowMs + EDGE_SLACK_MS;
+	const lastAt = (samples ?? []).filter(s => finite(s?.at)).at(-1)?.at;
+	const outlasted = (finite(runBudgetMs) && runBudgetMs > windowMs) || (start !== null && finite(lastAt) && lastAt > start + windowMs + EDGE_SLACK_MS);
+	return outlasted ? null : true;
 }
 
 /**

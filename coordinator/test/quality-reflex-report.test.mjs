@@ -101,6 +101,20 @@ test('a capture that stops before the room window ends is unknown, never a clean
 	assert.equal(pairRuns([a], [{ ...truncated, pairId: 'R-SKELETON-r1' }])[0].deltas.damage, null, 'the pair is incomplete');
 });
 
+test('room success counts only a pass inside the room window, whatever the run went on to do', () => {
+	const samples = [counter(START, 0), counter(START + 150_000, 0), counter(START + 300_000, 0)];
+	const run = (evaluation, extra = {}) => scoreRun({ scenario: 'R-TOOLBREAK', goalStartedAtMs: START, samples, dangerRows: [], evaluation: { status: 'EVALUATED', ...evaluation }, ...extra }).success;
+	// R-TOOLBREAK is scored over 180 s; --play-window-ms ran it for 300 s.
+	assert.equal(run({ pass: true, passAt: START + 200_000, timeToPassMs: 200_000 }), false, 'a pass at 200 s is after the window');
+	assert.equal(run({ pass: true, passAt: START + 120_000, timeToPassMs: 120_000 }), true);
+	assert.equal(run({ pass: true, passAt: START + 181_000 }), true, 'inside the 2 s clock slack at the window end');
+	assert.equal(run({ pass: true, timeToPassMs: 250_000 }), false, 'the time to pass stands in for a missing passAt');
+	assert.equal(run({ pass: true }), null, 'no pass time and samples past the window: unknown');
+	assert.equal(run({ pass: true }, { samples: samples.slice(0, 2), runBudgetMs: 300_000 }), null, 'no pass time and a budget past the window: unknown');
+	assert.equal(run({ pass: true }, { samples: [counter(START, 0), counter(START + 180_000, 0)], runBudgetMs: 180_000 }), true, 'a run that ended with its window');
+	assert.equal(run({ pass: false, passAt: null }), false);
+});
+
 test('each room is scored over its own window; deaths come from the death counter', () => {
 	assert.equal(roomWindowMs('R-FLOOD'), 360_000);
 	assert.equal(roomWindowMs('R-TOOLBREAK'), 180_000);
