@@ -152,6 +152,18 @@ const MEATS = ['beef', 'porkchop', 'mutton', 'chicken', 'rabbit', 'cod', 'salmon
 const COOKED_MEAT = /^minecraft:cooked_(beef|porkchop|mutton|chicken|rabbit|cod|salmon)$/;
 const ANIMAL_MEAT = { cow: 'beef', pig: 'porkchop', sheep: 'mutton', chicken: 'chicken', rabbit: 'rabbit' };
 
+/**
+ * Whether a finished obtain or find says the food stock has no source here: an obtain of cooked meat that failed or ran
+ * out of time, or a find for a meat animal that searched its whole range or budget. A danger, low-health or cancelled
+ * stop is not one (the source may still be there), nor a failed observation.
+ */
+export function foodStockHandback(tool, result) {
+	if (!['FAILED', 'TIMED_OUT'].includes(result?.state) || result.reasonCode === 'OBSERVATION_UNAVAILABLE') return false;
+	const id = value => String(value ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_').replace(/^minecraft:/, '');
+	if (tool?.kind === 'obtain') return COOKED_MEAT.test(`minecraft:${id(typeof result.item === 'string' ? result.item : tool.arguments?.item)}`);
+	return tool?.kind === 'find' && Object.hasOwn(ANIMAL_MEAT, id(tool.arguments?.mob)) && (result.reasonCode === 'FIND_NOT_FOUND' || result.state === 'TIMED_OUT');
+}
+
 function nearbyMeat(o) {
 	if (remembered(o, 'entities')) return null;
 	const at = o.position ?? o.player;
@@ -183,7 +195,12 @@ const ROUTE = [
 		next: f => [`obtain beef count ${MEAT} (or porkchop, mutton or chicken from the nearest animal; skip if none in view)`, 'no food held, health regrows only at hunger 18+'] },
 	{ id: 'wood', done: 'tool:pickaxe:wooden+', next: f => [`obtain wooden_pickaxe`, f.wood ? `${f.wood} logs/planks held` : 'no tools yet'] },
 	// R6G5: food after casting meant a 95-block climb. Bite before stone/furnace acquisition can enter a mine.
-	{ id: 'food_stock', done: 'visited:minecraft:the_nether', held: f => f.cookedMeat >= MEAT_STOCK, next: stockFoodNext },
+	// Released by a food obtain or animal find that came back without a source this life, or, while health and hunger are
+	// above 14, by half the stock held with nothing to cook and no animal in view: held as a hard quota it headed the route
+	// for 31 minutes of one game and hid the stone, iron and kit steps. A hand-back releases it at any hunger: with no food
+	// to eat, hunger only falls, and the later rows carry the low-hunger restock suffix instead.
+	{ id: 'food_stock', done: 'visited:minecraft:the_nether', next: stockFoodNext,
+		held: f => f.cookedMeat >= MEAT_STOCK || f.foodHandedBack || !f.foodNeeded && f.cookedMeat >= MEAT && f.rawMeat === 0 && f.nearbyMeat === null },
 	{ id: 'stone', done: 'tool:pickaxe:stone+', next: () => ['obtain stone_pickaxe', 'wooden pickaxe, no stone tools'] },
 	{ id: 'furnace', done: 'has:minecraft:furnace*1 | has:minecraft:iron_ingot*3 | tool:pickaxe:iron+', next: f => ['obtain furnace', `stone tools, ${f.count(/^minecraft:cobblestone$/)} cobblestone`] },
 	{ id: 'iron_pickaxe', done: 'tool:pickaxe:iron+', next: f => ['obtain iron_pickaxe', f.iron ? `stone tools, ${f.iron}/3 iron held` : 'stone tools, no iron yet'] },
@@ -218,9 +235,10 @@ const ROUTE = [
 /**
  * The usual next step toward beating the game from the player's state, or null without a live sample. observation: the
  * newest live sample; known: plan-checks facts (visited dimensions, lit frames, lava pools, placements); evaluate: the
- * plan-check evaluator (evaluatePlanCheck); memory: scoped, contradiction-aware source facts from LiveTaskViews.
+ * plan-check evaluator (evaluatePlanCheck); memory: scoped, contradiction-aware source facts from LiveTaskViews;
+ * foodHandedBack: a food hand-back this life (foodStockHandback) released the cooked-meat stock.
  */
-export function routeLine({ observation: o = null, known = null, memory = null, evaluate } = {}) {
+export function routeLine({ observation: o = null, known = null, memory = null, foodHandedBack = false, evaluate } = {}) {
 	if (!live(o) || !Array.isArray(o.inventory?.items) || remembered(o, 'inventory') || known === null || typeof evaluate !== 'function') return null;
 	const items = o.inventory.items.filter(i => i?.count > 0);
 	const count = re => items.filter(i => re.test(i.itemId ?? '')).reduce((n, i) => n + i.count, 0);
@@ -240,7 +258,7 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 	const rods = count(/^minecraft:blaze_rod$/), pearls = count(/^minecraft:ender_pearl$/);
 	const rodsMissing = Math.max(0, rodsNeeded - rods), pearlsMissing = Math.max(0, eyesNeeded - pearls);
 	const eyeFacts = `rods ${rods}/${rodsNeeded}, pearls ${pearls}/${eyesNeeded}, eyes ${eyesHeld} held + ${filled} set of ${EYES}`;
-	const facts = { count, foodNeeded: foodAdviceNeeded(o), food: count(EDIBLE), cookedMeat: count(COOKED_MEAT), nearbyMeat: nearbyMeat(o), blocks: count(MOULD), wood: count(/^minecraft:([a-z_]+_(log|planks|stem))$/), iron: count(/^minecraft:(iron_ingot|raw_iron)$/),
+	const facts = { count, foodNeeded: foodAdviceNeeded(o), foodHandedBack: foodHandedBack === true, food: count(EDIBLE), cookedMeat: count(COOKED_MEAT), rawMeat: count(RAW_FOOD), nearbyMeat: nearbyMeat(o), blocks: count(MOULD), wood: count(/^minecraft:([a-z_]+_(log|planks|stem))$/), iron: count(/^minecraft:(iron_ingot|raw_iron)$/),
 		buckets: count(/^minecraft:(bucket|water_bucket|lava_bucket)$/), pools: (known.lavaPools ?? []).filter(p => p?.dimension === dimension).length };
 	const line = (next, why) => {
 		const text = `usual next step: ${next} (${why})`;

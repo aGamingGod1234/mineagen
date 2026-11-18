@@ -2753,6 +2753,7 @@ export class DynamicCoordinator extends EventEmitter {
 			if (current?.goalRevision === work.goalRevision
 				&& this.#isConnectionEpochCurrent(work.connectionEpoch)
 				&& this.#isLifecycleGenerationCurrent(work.agentId, work.lifecycleGeneration)) {
+				this.#taskViews.noteFoodHandback(current, toolRequest.tool, result);
 				if (toolRequest.tool.kind === 'task_plan' && toolRequest.tool.operation === 'intent' && result?.state === 'SUCCEEDED') {
 					const intent = toolRequest.tool.intent;
 					const label = this.#taskViews.snapshot(current).plan?.steps.find(step => step.id === intent.step)?.label ?? intent.step;
