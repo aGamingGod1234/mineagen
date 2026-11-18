@@ -66,6 +66,29 @@ public final class ReflexEngine {
 		return weaker;
 	}
 
+	/** How near a chasing melee mob must be for the retreat's pace check to count it: default-retreat's hostile_near. */
+	static final double PACE_RANGE = 6.0D;
+
+	/**
+	 * Issue 2 Step 2 (instincts arm): whether a run at {@code bodySpeed} would be caught by any of these chasers' movement
+	 * speeds ({@link ReflexActions.Defend#outpaces}). Then default-retreat does not fire: running from a baby zombie (or a spider when
+	 * the body cannot sprint) only turns the body's back, and defend and cover still answer the hits.
+	 */
+	static boolean retreatOutpaced(double bodySpeed, List<Double> chaserSpeeds) {
+		for (double speed : chaserSpeeds) if (!ReflexActions.Defend.outpaces(bodySpeed, speed)) return true;
+		return false;
+	}
+
+	/** {@link #retreatOutpaced} for the coordinator's default-retreat over the melee mobs targeting the body within 6 blocks. */
+	static boolean paceHoldsRetreat(ReflexSpec.Rule rule, ServerPlayer player) {
+		if (!rule.coordinatorDefault() || !"default-retreat".equals(rule.id())) return false;
+		List<Double> speeds = player.level().getEntitiesOfClass(net.minecraft.world.entity.Mob.class, player.getBoundingBox().inflate(PACE_RANGE),
+						mob -> mob.isAlive() && mob.getTarget() == player && !(mob instanceof net.minecraft.world.entity.monster.Creeper)
+								&& player.distanceTo(mob) <= PACE_RANGE && ReflexActions.packMember(mob, player))
+				.stream().map(mob -> mob.getAttributeValue(net.minecraft.world.entity.ai.attributes.Attributes.MOVEMENT_SPEED)).toList();
+		return retreatOutpaced(ReflexActions.Defend.runSpeed(player), speeds);
+	}
+
 	/**
 	 * Actions that are the body's own fight or flight. A defend rule stands aside for them: it does not fire while one runs,
 	 * and a defend firing ends on the tick one starts (a program's fight or flee that no model command yielded it to).
@@ -370,6 +393,7 @@ public final class ReflexEngine {
 			// A default rule sleeps while its action needs an item the body does not hold (no shield, no food), so a
 			// default shield or eat rule costs nothing and reports no failure until the item is there.
 			if (truth && sleepsWithoutItem(rule, ReflexActions.lacks(player, rule.action(), rule.coordinatorDefault()))) truth = false;
+			if (truth && Instincts.enabled() && paceHoldsRetreat(rule, player)) truth = false;
 			if (deferFlowDuringCast(rule, activeType)) {
 				truth = false;
 				agent.scheduler.discardPendingStart(rule.id());

@@ -43,6 +43,7 @@ public final class ReflexVerification {
 		yieldSuppressesStanceUntilConditionClears();
 		replaceKeepsUnchangedState();
 		stanceFlipKeepsTheFiring();
+		retreatPaceCheck();
 		leasesRenewAndRebase();
 		workVocabulary();
 		pausedTimeIsNotActionTime();
@@ -416,6 +417,19 @@ public final class ReflexVerification {
 				"a model rule's number change still ends its firing REMOVED");
 		check(!ReflexScheduler.numbersOnly(rules("[" + retreat.apply(7) + "]").getFirst(), rules("[" + changedAction + "]").getFirst()),
 				"an action change is not a number change");
+	}
+
+	/** Issue 2 Step 2: default-retreat stands aside only for a melee chaser the body's run would not leave behind. */
+	private static void retreatPaceCheck() {
+		double sprint = 0.13D, walk = 0.1D;
+		check(!ReflexEngine.retreatOutpaced(sprint, List.of()), "nothing chasing: the retreat runs");
+		check(!ReflexEngine.retreatOutpaced(sprint, List.of(0.23D)), "a sprint leaves a zombie behind: the retreat runs");
+		check(!ReflexEngine.retreatOutpaced(sprint, List.of(0.3D)), "a sprint leaves a spider behind too");
+		check(ReflexEngine.retreatOutpaced(sprint, List.of(0.345D)), "a baby zombie keeps pace: the retreat stands aside");
+		check(ReflexEngine.retreatOutpaced(sprint, List.of(0.23D, 0.345D)), "a baby zombie in the pack keeps pace");
+		check(ReflexEngine.retreatOutpaced(walk, List.of(0.3D)), "too hungry to sprint, a spider keeps pace");
+		check(!ReflexEngine.retreatOutpaced(walk, List.of(0.23D)), "too hungry to sprint, a zombie is still left behind");
+		check(ReflexEngine.PACE_RANGE == 6.0D, "the check counts mobs within default-retreat's 6 blocks");
 	}
 
 	private static void leasesRenewAndRebase() {
