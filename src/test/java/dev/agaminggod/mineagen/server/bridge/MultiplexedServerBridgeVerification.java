@@ -118,6 +118,7 @@ public final class MultiplexedServerBridgeVerification {
 		verifyAcceptedActionRecoversWithoutReplay();
 		verifyRebindPersistsCancellationBeforeClosingJournal();
 		verifyStaleCancellationOutcome();
+		verifyAcceptedTapFollowsAdmission();
 		verifyObsoletePlannerReadinessIsIgnored();
 		verifyAgentErrorRevisionGate();
 		verifyRespawnContinuationPayload();
@@ -247,6 +248,91 @@ public final class MultiplexedServerBridgeVerification {
 			if (bridge != null) bridge.close();
 			deleteIfExists(secretFile);
 		}
+	}
+
+	/** The audit tap's accepted command fires only after admission: a command the executor rejects is never a response. */
+	@SuppressWarnings("unchecked")
+	private static void verifyAcceptedTapFollowsAdmission() {
+		MultiplexedServerBridge bridge = null;
+		Path secretFile = null;
+		Path journalFile = null;
+		Field listenerField = null;
+		Object previousListener = null;
+		try {
+			secretFile = Files.createTempFile("mineagen-tap-secret-", ".txt");
+			Files.writeString(secretFile, "0123456789abcdef0123456789abcdef");
+			journalFile = Files.createTempFile("mineagen-tap-journal-", ".json");
+			Files.delete(journalFile);
+			AgentManager manager = uninitializedManager();
+			AgentRecord created = manager.registry().create("gpt-5.6-sol", "high", Optional.of("Tap"), 4_000L);
+			AgentRecord agent = manager.registry().start(created.agentId(), "wait", 4_001L).after();
+			bridge = new MultiplexedServerBridge(manager, 0, secretFile, ServerSocket::new, System::nanoTime, DurableActionJournal.open(journalFile));
+			listenerField = BridgeTap.class.getDeclaredField("listener");
+			listenerField.setAccessible(true);
+			previousListener = listenerField.get(null);
+			List<String> tapped = new java.util.concurrent.CopyOnWriteArrayList<>();
+			BridgeTap.listen(new BridgeTap.Listener() {
+				@Override public void observationDelivered(AgentId agentId, JsonObject delivery) { }
+				@Override public void modelMessage(AgentId agentId, String type, String programId, long programVersion) { }
+				@Override public void actionAccepted(AgentId agentId, String actionId, String actionType, String programId, String sourceStepId, String issuer) {
+					tapped.add(actionId);
+				}
+			});
+			Method accept = MultiplexedServerBridge.class.getDeclaredMethod("acceptAction", BridgeEnvelope.class);
+			accept.setAccessible(true);
+			ServerActionExecutor executor = (ServerActionExecutor) readPrivateField(bridge, "actionExecutor");
+			Class<?> actionClass = Class.forName(ServerActionExecutor.class.getName() + "$ActiveAction");
+			Method waitFor = actionClass.getDeclaredMethod("waitFor", ServerActionRequest.class, ServerPlayer.class, long.class);
+			waitFor.setAccessible(true);
+			JsonObject arguments = new JsonObject();
+			arguments.addProperty("durationMs", 1000L);
+			var profile = agent.profile();
+			ServerActionRequest running = new ServerActionRequest(agent.agentId(), agent.goalRevision(), "running", ActionType.WAIT, arguments,
+					new ActionProvenance(profile.provider(), profile.model(), profile.reasoning(), profile.serviceTier(), "tap-test", 1L, "wait", 1L));
+			Map<AgentId, Object> active = (Map<AgentId, Object>) readPrivateField(executor, "active");
+			active.put(agent.agentId(), waitFor.invoke(null, running, null, 1000L));
+			accept.invoke(bridge, tapCommand(agent, "rejected-while-active"));
+			assertTrue(tapped.isEmpty(), "a command rejected as ACTION_ALREADY_ACTIVE never reaches the tap: " + tapped);
+			assertTrue(((DurableActionJournal) readPrivateField(bridge, "actionJournal")).snapshot().isEmpty(), "the rejected command's acceptance is rolled back");
+			active.clear();
+			accept.invoke(bridge, tapCommand(agent, "admitted"));
+			assertEquals(List.of("admitted"), tapped, "an admitted command reaches the tap once");
+		} catch (ReflectiveOperationException | IOException exception) {
+			throw new AssertionError("accepted tap verification failed", exception);
+		} finally {
+			if (listenerField != null) {
+				try { listenerField.set(null, previousListener); } catch (IllegalAccessException ignored) { }
+			}
+			if (bridge != null) bridge.close();
+			deleteIfExists(secretFile);
+			deleteIfExists(journalFile);
+		}
+	}
+
+	private static BridgeEnvelope tapCommand(AgentRecord agent, String actionId) {
+		var profile = agent.profile();
+		String traceId = "trace-" + actionId;
+		JsonObject payload = new JsonObject();
+		payload.addProperty("traceId", traceId);
+		payload.addProperty("goalRevision", agent.goalRevision());
+		payload.addProperty("actionId", actionId);
+		payload.addProperty("actionType", "wait");
+		JsonObject arguments = new JsonObject();
+		arguments.addProperty("durationMs", 50L);
+		payload.add("arguments", arguments);
+		JsonObject provenance = new JsonObject();
+		provenance.addProperty("provider", profile.provider());
+		provenance.addProperty("model", profile.model());
+		provenance.addProperty("reasoningEffort", profile.reasoning());
+		provenance.addProperty("serviceTier", profile.serviceTier());
+		provenance.addProperty("programId", "tap-" + actionId);
+		provenance.addProperty("programVersion", 1L);
+		provenance.addProperty("sourceStepId", "step-1");
+		provenance.addProperty("eventSequence", 1L);
+		provenance.addProperty("traceId", traceId);
+		provenance.addProperty("issuer", "model");
+		payload.add("provenance", provenance);
+		return new BridgeEnvelope(2, "server-instance", agent.agentId().toString(), "action_command", "message-" + actionId, payload);
 	}
 
 	@SuppressWarnings("unchecked")

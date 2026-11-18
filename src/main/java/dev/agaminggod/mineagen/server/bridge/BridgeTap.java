@@ -21,7 +21,7 @@ public final class BridgeTap {
 		default void actionResult(AgentId agentId, String actionType, String state, String reasonCode) {
 		}
 
-		/** A validated action command; {@code issuer} is the coordinator's explicit field, null from one that predates it. */
+		/** An action command the bridge admitted (never one rejected during admission); {@code issuer} is the coordinator's explicit field, null from one that predates it. */
 		default void actionAccepted(AgentId agentId, String actionId, String actionType, String programId, String sourceStepId, String issuer) {
 		}
 	}
