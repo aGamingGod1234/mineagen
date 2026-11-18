@@ -32528,7 +32528,7 @@
       }
     },
     {
-      "predicate": "With MINEAGEN_EXPERIENCE=lessons, the runtime review records lessons from deaths it saw; task memory summaries carry at most three matching lessons with src 'review: ...' counts, only while their situation (mob in view, lava near, no food while hurt or threatened) holds or just after the teaching death, never on the origin seed, and the advice text holds no coordinates.",
+      "predicate": "With MINEAGEN_EXPERIENCE=lessons, the runtime review records lessons from deaths it saw; task memory summaries carry at most three matching lessons with src 'review: ...' counts, only while their situation (mob in view, lava near, no food at low health, or right after a failure it already cost) holds or just after the teaching death, never on the origin seed, and the advice text holds no coordinates.",
       "checks": [
         {
           "file": "coordinator/test/experience-runtime.test.mjs",
@@ -32549,12 +32549,17 @@
           "file": "coordinator/test/experience-runtime.test.mjs",
           "test": "at most three lessons are shown, and carried lessons are trimmed first",
           "type": "node-behavior"
+        },
+        {
+          "file": "coordinator/test/experience-runtime.test.mjs",
+          "test": "a repeated failure becomes a lesson that is shown right after the same failure in a later game",
+          "type": "node-behavior"
         }
       ],
-      "id": "control:d152b9a98f8eec0f:67127795a74b3c73",
+      "id": "control:d152b9a98f8eec0f:bfc7972d0c9539f3",
       "contract": {
-        "id": "control:d152b9a98f8eec0f:67127795a74b3c73",
-        "claim": "A taskMemory lesson whose src begins `review:` comes from the runtime's own review of this player's earlier deaths, not from you. Its src says how often that happened in earlier games or in this game. It names no places or coordinates and appears only while its situation is present (that mob in view, lava near, no food while hurt or threatened) and just after the death that taught it. Treat it as your own past experience: it should change how you handle this situation, while live facts still decide the details.",
+        "id": "control:d152b9a98f8eec0f:bfc7972d0c9539f3",
+        "claim": "A taskMemory lesson whose src begins `review:` comes from the runtime's own review of this player's earlier deaths and repeated failures, not from you. Its src says how often that happened in earlier games or in this game. It names no places or coordinates and appears only while its situation is present (that mob in view, lava near, no food at low health, a failure it already cost you) and just after the death that taught it. Treat it as your own past experience: it should change how you handle this situation, while live facts still decide the details.",
         "kind": "control-reference",
         "topic": "Survival and recovery"
       },

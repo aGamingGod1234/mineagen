@@ -69,7 +69,7 @@ test('a death review in one game becomes a lesson the model sees in a later game
 	const lessons = (await later.taskContext(record)).lessons;
 	assert.deepEqual(peeked, lessons);
 	assert.equal(lessons.length, 1);
-	assert.match(lessons[0].summary, /Running from a skeleton across open ground/);
+	assert.match(lessons[0].summary, /Running from a skeleton in the open/);
 	assert.equal(lessons[0].src, 'review: 1 time in 1 earlier game');
 	assert.doesNotMatch(JSON.stringify(lessons), /world-one|agent_name|-21|seed-one/);
 	assert.ok(Buffer.byteLength(JSON.stringify(lessons)) < 400);
@@ -112,5 +112,31 @@ test('at most three lessons are shown, and carried lessons are trimmed first', (
 test('the death review reads only what the coordinator saw before the death', () => {
 	const context = { cause: classifyDeath('x was shot by Skeleton'), dimension: 'overworld', running: [], at: 10_000,
 		samples: [{ at: 0, health: 12, edible: 0, hostiles: { skeleton: 8 } }], results: [{ actionType: 'flee_from', state: 'CANCELLED', at: 5_000 }] };
+	// No food alone does not make a lesson show; no food at low health does.
 	assert.deepEqual(deathLessons(context).map((lesson) => lesson.rule), ['ranged-fled-in-open', 'died-without-food']);
+});
+
+test('a repeated failure becomes a lesson that is shown right after the same failure in a later game', () => withDirectory(async (directory) => {
+	const dig = (memory, actionId, at) => memory.recordDispatch(record, { actionId, actionType: 'dig_to', goalRevision: 1, arguments: { x: 1, y: 60, z: 1, timeoutMs: 60000 } })
+		.then(() => memory.recordResult(record, { actionId, goalRevision: 1, state: 'FAILED', reasonCode: 'WATER_AHEAD', observedAtEpochMs: at }));
+	const first = new RuntimeMemoryContext({ taskMemory: new TaskMemoryStore({ directory: null }), experience: experience(directory, { MINEAGEN_WORLD_SEED_HASH: 'seed-one' }) });
+	first.observe(record, observation('world-one', T0));
+	await dig(first, 'dig-1', T0 + 1_000);
+	await dig(first, 'dig-2', T0 + 60_000);
+	await first.flush();
+	const later = new RuntimeMemoryContext({ taskMemory: new TaskMemoryStore({ directory: null }), experience: experience(directory, { MINEAGEN_WORLD_SEED_HASH: 'seed-two' }) });
+	later.observe(record, observation('world-two', T0 + 500_000));
+	assert.deepEqual((await later.taskContext(record)).lessons, []);
+	await dig(later, 'dig-3', T0 + 501_000);
+	later.observe(record, observation('world-two', T0 + 502_000));
+	const lessons = (await later.taskContext(record)).lessons;
+	assert.equal(lessons.length, 1);
+	assert.match(lessons[0].summary, /water ahead/);
+	assert.equal(lessons[0].src, 'review: 1 time in 1 earlier game');
+}));
+
+test('a death right after a low-health bailout teaches the bailout lesson, shown after the next bailout', () => {
+	const context = { cause: classifyDeath('x was shot by Skeleton'), dimension: 'overworld', running: [], at: 20_000,
+		samples: [{ at: 0, health: 18, edible: 4, hostiles: { skeleton: 8 } }], results: [{ actionType: 'fight_target', reasonCode: 'LOW_HEALTH_BAILOUT', state: 'FAILED', at: 12_000 }] };
+	assert.ok(deathLessons(context).some((lesson) => lesson.id === 'bailout-then-death:mob=skeleton'));
 });

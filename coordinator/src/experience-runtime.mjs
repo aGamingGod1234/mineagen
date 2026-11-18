@@ -202,7 +202,7 @@ const RECENT_LESSON_MS = 180_000;
 function situationOf(agent, at) {
 	const sample = agent.samples.at(-1) ?? { hostiles: {} };
 	const running = [...agent.running.values()].map((entry) => entry.actionType);
-	return { ...sample, running, recentLessons: agent.recent.filter((entry) => at - entry.at <= RECENT_LESSON_MS).map((entry) => entry.id) };
+	return { ...sample, at, running, results: agent.results, recentLessons: agent.recent.filter((entry) => at - entry.at <= RECENT_LESSON_MS).map((entry) => entry.id) };
 }
 
 export { LESSON_RULES };
