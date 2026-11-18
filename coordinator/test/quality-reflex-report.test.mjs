@@ -253,6 +253,11 @@ test('deaths come from counter samples at both room boundaries; a missing bounda
 	// the start, after a base sample 4 s before it.
 	assert.equal(windowDeaths(deathsAt([0, 0], [296, 0], [304, 1]), START, START + 300_000, [{ operation: 'dead', at: START + 303_000 }]), 0);
 	assert.equal(windowDeaths(deathsAt([-4, 0], [1, 1], [300, 1]), START, START + 300_000, [{ operation: 'dead', at: START - 2_000 }]), 0);
+	// The only sample near the end is after it (290 s is 10 s early): the death between the end and that sample is outside.
+	assert.equal(windowDeaths(deathsAt([0, 0], [290, 0], [304, 1]), START, START + 300_000, [{ operation: 'dead', at: START + 303_000 }]), 0);
+	assert.equal(windowDeaths(deathsAt([0, 0], [290, 0], [304, 1]), START, START + 300_000, [{ operation: 'dead', at: START + 297_000 }]), 1,
+		'a death inside the window still counts when the closing sample is after the end');
+	assert.equal(windowDeaths(deathsAt([0, 0], [290, 0], [304, 1]), START, START + 300_000), null, 'a rise no dead event places is unknown');
 	// An earlier death and respawn plus a final death with no respawn: two.
 	assert.equal(windowDeaths(deathsAt([0, 0], [100, 1], [279, 1]), START, START + 300_000,
 		[{ operation: 'dead', at: START + 99_500 }, { operation: 'respawn', at: START + 102_000 }, { operation: 'dead', at: START + 280_000 }]), 2);

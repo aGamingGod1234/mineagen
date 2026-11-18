@@ -181,8 +181,9 @@ export function deathCounterCorrupt(samples) {
  * Deaths in the window: the larger of the death counter's rise and the goal_control dead events since the base sample,
  * the base within COVERAGE_SLACK_MS of the window start and the closing sample within it of the window end, the counter a
  * non-decreasing whole number throughout. A body that died after its last sample and stayed dead to the end
- * (deadThroughEnd) needs no closing sample: its dead event covers the end. Null
- * (unknown) when either boundary is uncovered or the counter is malformed or goes down.
+ * (deadThroughEnd) needs no closing sample: its dead event covers the end. A closing sample after the end has the dead
+ * events between the end and it taken off its rise. Null (unknown) when either boundary is uncovered, the counter is
+ * malformed or goes down, or such a rise has deaths no dead event places.
  */
 export function windowDeaths(samples, start, end, lifecycle = []) {
 	const rows = deathRows(samples);
@@ -204,7 +205,13 @@ export function windowDeaths(samples, start, end, lifecycle = []) {
 	}
 	const last = atEnd.filter(s => s.at <= end).at(-1) ?? atEnd[0];
 	if (last.at <= base.at) return null;
-	return Math.max(last.deathCounter - base.deathCounter, deadSince);
+	const rise = last.deathCounter - base.deathCounter;
+	if (last.at <= end) return Math.max(rise, deadSince);
+	// The only closing sample is after the end: its rise takes in the deaths between the end and it, so their dead events
+	// come off. A rise left over beyond the in-window dead events has no event to place it on either side: unknown.
+	const deadAfter = (lifecycle ?? []).filter(e => e?.operation === 'dead' && finite(e.at) && e.at > end && e.at <= last.at).length;
+	const inside = Math.max(0, rise - deadAfter);
+	return inside > deadSince ? null : deadSince;
 }
 
 /** Firing rows that ended in the window, by outcome (diagnostic); start must never follow end. */
