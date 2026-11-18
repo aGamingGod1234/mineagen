@@ -57,6 +57,8 @@ export const DISCARD = Object.freeze(['minecraft:cobblestone', 'minecraft:cobble
 // Body stops that are danger to answer now, shared with obtain (one list): damage, and every life-safety stop (lava,
 // fire, falling blocks, a void edge, air running out, a flooding tunnel).
 export const DAMAGE_STOPS = Object.freeze(new Set(['TRAVEL_DAMAGED', 'NAVIGATION_DAMAGED', 'DAMAGE_TAKEN', 'LOW_HEALTH', 'LOW_HEALTH_BAILOUT']));
+// A travel_to leg that fought a mob on the way (issue 2 Step 2's instincts arm) ends with the fight's code: the mob, not the place.
+export const FIGHT_STOPS = Object.freeze(new Set(['TARGET_ESCAPED', 'TARGET_UNREACHABLE', 'APPROACH_BLOCKED', 'NO_SEEN_ROUTE', 'FIGHT_TIMED_OUT']));
 export const LIFE_SAFETY_STOPS = Object.freeze(new Set(['IN_LAVA', 'LAVA_AHEAD', 'LAVA_BEHIND', 'LAVA_INCOMING', 'LAVA_FLOW', 'LAVA_OPENED', 'LAVA_POUR_AT_BODY',
 	'ON_FIRE', 'BURNING', 'FALLING_BLOCKS', 'VOID_EDGE', 'AIR_RESERVE_REACHED', 'BREATH_NOT_COVERED', 'TUNNEL_FLOODED']));
 const DANGER = new Set(['HOSTILE_NEAR', 'LOW_FOOD', ...DAMAGE_STOPS, ...LIFE_SAFETY_STOPS]);
@@ -754,8 +756,9 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 		return walled.result?.reasonCode === 'SHELTER_BUILT';
 	};
 
-	// Out of a hostile's sight: 8 blocks straight away from it, then the search goes on from there. Travel legs never
-	// fight through on their own (fightThrough engages creepers and pursues); find's fight() keeps its limits.
+	// Out of a hostile's sight: 8 blocks straight away from it, then the search goes on from there. Travel legs do not set
+	// fightThrough (it engages creepers and pursues); find's fight() keeps its limits. Under the instincts arm the mod
+	// still fights a lone beatable melee mob on any leg without the key (TravelStops.beatable).
 	let sidesteps = 0, awayFrom = null;
 	const passes = new Map();
 	const sidestep = async (message) => {
@@ -1040,7 +1043,7 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 		const code = trip.result?.reasonCode;
 		// Stopped short (water, no route, a flooded tunnel): the way there is shut. A hostile or a worn tool says nothing
 		// about the place.
-		if (!trip.seen && !trip.interrupted && code !== 'ARRIVED' && code !== 'HOSTILE_NEAR' && !BLOCKED.has(code)) miss(place, code ?? trip.result?.state);
+		if (!trip.seen && !trip.interrupted && code !== 'ARRIVED' && code !== 'HOSTILE_NEAR' && !BLOCKED.has(code) && !FIGHT_STOPS.has(code)) miss(place, code ?? trip.result?.state);
 		const ended = await settle(trip);
 		if (ended !== null) return ended;
 		const there = await look(10);
