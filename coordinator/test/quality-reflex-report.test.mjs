@@ -357,3 +357,48 @@ test('the CLI reads run directories and paired results, and reports the noise fl
 		assert.throws(() => parseReportArgs(['--run', 'a', '--paired', 'b']), /Pass --run or --paired/);
 	} finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test('retries never erase first-attempt failures: excess B failures fail the step, missing first attempts leave it unjudged', async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), 'reflex-retry-'));
+	try {
+		const profile = { provider: 'claude', model: 'claude-opus-5-5', reasoningEffort: 'low', serviceTier: 'priority' };
+		// A run record the paired runner counts as eligible (isEligibleQualityRun), so only the failure below is one.
+		const eligible = { profile, termination: 'TIMEOUT', measurementStatus: 'MEASURED', providerAttestation: { requested: profile, effective: profile },
+			metrics: { perCallCoverageComplete: true, tokenReconciliation: { complete: true }, partialMessagesAccepted: true, modelCallsPerMinute: 10, deaths: 0,
+				steadyState: { chargedTokensPerCall: 100, chargedTokensPerMinute: 1000 } } };
+		const arms = { A: { runs: [] }, B: { runs: [] } };
+		for (const arm of ['A', 'B']) for (const n of [1, 2, 3]) {
+			const hurt = arm === 'A';
+			const run = await runDir(root, `${arm}-${n}`, { scenario: 'R-SKELETON', pairId: `R-SKELETON-r${n}`, rows: hurt ? [damage(START + 100_000, 4)] : [],
+				samples: [counter(START, 0), counter(START + 300_000, hurt ? 40 : 0)] });
+			arms[arm].runs.push({ ...run, ...eligible, arm, executionOrder: 2 * n - (arm === 'A' ? 1 : 0), retryAttempt: 0, retry: false });
+		}
+		const margin = path.join(root, 'margin.json');
+		await writeFile(margin, JSON.stringify({ z: 2, rooms: { 'R-SKELETON': { damage: { perPairSd: 0.5 }, deaths: { perPairSd: 0.5 }, success: { perPairSd: 0.5 } } } }));
+		const judge = async results => {
+			const file = path.join(root, `results-${Math.random().toString(36).slice(2)}.json`);
+			await writeFile(file, JSON.stringify({ configuration: {}, ...results }));
+			return (await buildReport(parseReportArgs(['--paired', file, '--margin', margin]))).judgement;
+		};
+		const clean = await judge({ arms });
+		assert.equal(clean.overall, 'PASS', 'B takes less damage and no first attempt failed');
+		assert.equal(clean.firstAttemptFailures.status, 'NO_DETECTED_REGRESSION');
+		// Pair r1 was retried: B's first attempt died on a provider error, and both arms reran it cleanly.
+		const retried = arm => arms[arm].runs.map(run => run.pairId === 'R-SKELETON-r1' ? { ...run, retry: true, retryAttempt: 1 } : run);
+		const original = arm => arms[arm].runs.map(run => run.pairId === 'R-SKELETON-r1' && arm === 'B' ? { ...run, termination: 'ERROR', measurementStatus: 'INCOMPLETE' } : run);
+		const withRetry = { A: { runs: retried('A'), firstAttemptRuns: original('A') }, B: { runs: retried('B'), firstAttemptRuns: original('B') } };
+		const failed = await judge({ arms: withRetry });
+		assert.equal(failed.firstAttemptFailures.status, 'REGRESSED');
+		assert.equal(failed.firstAttemptFailures.B.failures, 1);
+		assert.equal(failed.overall, 'FAIL', 'the retry that replaced the failed B run does not erase it');
+		// An older checkpoint without firstAttemptRuns: the originals come back from history and sequence.
+		const sequence = ['A', 'B'].flatMap(arm => arms[arm].runs.map(run => ({ arm, executionOrder: run.executionOrder, retryAttempt: 0 })));
+		const history = original('B').filter(run => run.pairId === 'R-SKELETON-r1').concat(original('A').filter(run => run.pairId === 'R-SKELETON-r1'));
+		assert.equal((await judge({ arms: { A: { runs: retried('A') }, B: { runs: retried('B') } }, history, sequence })).overall, 'FAIL');
+		// Retried runs with no first-attempt evidence left: the superseded runs are unassessed, so no PASS.
+		const unassessed = await judge({ arms: { A: { runs: retried('A') }, B: { runs: retried('B') } } });
+		assert.equal(unassessed.firstAttemptFailures.status, 'INCOMPLETE');
+		assert.equal(unassessed.overall, 'INCOMPLETE');
+		assert.equal(unassessed.rooms['R-SKELETON'].damage.verdict, 'BETTER', 'the room verdicts stay as diagnostics');
+	} finally { await rm(root, { recursive: true, force: true }); }
+});

@@ -423,7 +423,7 @@ export function firstAttemptQualityRuns(runs, history = [], sequence = []) {
 	return [...originals.values()];
 }
 
-function firstAttemptFailures(before, after, firstBefore, firstAfter) {
+export function firstAttemptFailures(before, after, firstBefore, firstAfter) {
 	const original = (runs, expected) => {
 		const ids = new Set(expected.map(run => run.pairId));
 		return firstAttemptQualityRuns(runs).filter(run => ids.has(run.pairId));
