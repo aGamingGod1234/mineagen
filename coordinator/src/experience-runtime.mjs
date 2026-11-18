@@ -142,9 +142,6 @@ export class ExperienceRuntime {
 			if (agent.game !== game) { agent.game = game; agent.samples = []; agent.latest = null; agent.results = []; agent.running.clear(); agent.failures.clear(); agent.shown.clear(); agent.recent = []; agent.carriedIds = new Set(); agent.lastDeathAt = null; }
 		}
 		agent.clock = Math.max(agent.clock ?? at, at);
-		// The body reports the action it is running: start evidence for that dispatch, read before any death it carries.
-		const current = observation?.currentAction;
-		if (current?.active === true && typeof current.actionId === 'string') this.#markStarted(agent, current.actionId);
 		const death = observation?.death;
 		// Reviewed once per death (deduplicated); a live observation that still names the last death keeps sampling.
 		const reviewed = death && typeof death === 'object' ? this.#reviewDeath(agentId, agent, death, at).catch((error) => this.#fail('review', error)) : Promise.resolve();
@@ -166,11 +163,14 @@ export class ExperienceRuntime {
 		while (agent.running.size > 16) agent.running.delete(agent.running.keys().next().value);
 	}
 
-	/** A body progress event for a dispatched action: evidence that the body started it. */
+	/**
+	 * A body progress event for a dispatched action: evidence that the body started it. The body sends progress only
+	 * after its first tick has set executionStarted. An observed currentAction is not enough: an accepted action can
+	 * still end before that tick (a death, a hazard stop) and report executionStarted false.
+	 */
 	noteProgress(agentId, { actionId } = {}) {
-		try { const agent = this.#agents.get(agentId); if (agent && typeof actionId === 'string') this.#markStarted(agent, actionId); } catch (error) { this.#fail('progress', error); }
+		try { const entry = typeof actionId === 'string' ? this.#agents.get(agentId)?.running.get(actionId) : undefined; if (entry) entry.started = true; } catch (error) { this.#fail('progress', error); }
 	}
-	#markStarted(agent, actionId) { const entry = agent.running.get(actionId); if (entry) entry.started = true; }
 
 	/** Feeds one terminal action result; a failure pattern that crosses its rule's bar records a lesson. */
 	async noteResult(agentId, result, at = undefined) {
@@ -213,8 +213,8 @@ export class ExperienceRuntime {
 		if (agent.game === null) return;
 		const when = diedAt ?? at;
 		const cause = classifyDeath(death.cause);
-		// A dispatch counts as running only once the body showed it started (a progress event or the observed current
-		// action): the server can still reject it, with executionStarted false, after this review.
+		// A dispatch counts as running only once the body reported progress on it: the server can still reject it, with
+		// executionStarted false, after this review.
 		const running = [...agent.running.values()].filter((entry) => entry.started && entry.at <= when && entry.until >= when).map((entry) => entry.actionType);
 		const history = agent.latest && agent.latest !== agent.samples.at(-1) ? [...agent.samples, agent.latest] : agent.samples;
 		const context = { cause, dimension: typeof death.dimensionId === 'string' ? death.dimensionId.replace(/^minecraft:/, '') : agent.latest?.dimension,

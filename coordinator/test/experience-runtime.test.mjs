@@ -478,23 +478,24 @@ test('an observation with no time of its own leaves the review on the recording 
 	assert.ok(events.filter((event) => event.event === 'experience_death_reviewed')[1].lessons.includes('ranged-fled-in-open:mob=skeleton'));
 }));
 
-test('only body evidence for the same action id makes a dispatch count as running at a death', () => withDirectory(async (directory) => {
+test('only body progress for the same action id makes a dispatch count as running at a death', () => withDirectory(async (directory) => {
 	const events = [];
 	const runtime = createExperience(experienceSettings({ MINEAGEN_EXPERIENCE: 'lessons', MINEAGEN_EXPERIENCE_DIR: directory, MINEAGEN_EXPERIENCE_PROFILE: 'p' }), { trace: (event, fields) => events.push({ event, ...fields }) });
 	const reviewed = () => events.filter((event) => event.event === 'experience_death_reviewed').at(-1);
 	runtime.observe('agent-a', 'world-one', observation('world-one', T0, { hostiles: ['skeleton'] }), T0);
 	// Sent, never shown started: the server may still reject it after the review.
 	runtime.noteDispatch('agent-a', { actionId: 'flee-1', actionType: 'flee_from', arguments: { timeoutMs: 10_000 } });
-	// The body is running some other action: no evidence for this flee.
-	runtime.observe('agent-a', 'world-one', { ...observation('world-one', T0 + 1_000, { hostiles: ['skeleton'] }), currentAction: { active: true, actionId: 'dig-0', actionType: 'flee_from' } }, T0 + 1_000);
+	// The body reports progress on some other action, or shows this flee as accepted: no evidence that it started.
+	runtime.observe('agent-a', 'world-one', { ...observation('world-one', T0 + 1_000, { hostiles: ['skeleton'] }), currentAction: { active: true, actionId: 'flee-1', actionType: 'flee_from' } }, T0 + 1_000);
 	runtime.noteProgress('agent-a', { actionId: 'other' });
 	await runtime.observe('agent-a', 'world-one', { death: { cause: 'x was shot by Skeleton', dimensionId: 'minecraft:overworld', diedAtEpochMs: T0 + 3_000 } }, T0 + 3_000);
 	assert.deepEqual(reviewed().running, []);
 	assert.deepEqual(reviewed().lessons, ['ranged-death:mob=skeleton']);
-	// The observed current action names this flee: it started.
+	// Shown as the current action (accepted, maybe not started): still no evidence. Progress for this flee is.
 	runtime.observe('agent-a', 'world-one', observation('world-one', T0 + 10_000, { hostiles: ['skeleton'] }), T0 + 10_000);
 	runtime.noteDispatch('agent-a', { actionId: 'flee-2', actionType: 'flee_from', arguments: { timeoutMs: 10_000 } });
 	runtime.observe('agent-a', 'world-one', { ...observation('world-one', T0 + 11_000, { hostiles: ['skeleton'] }), currentAction: { active: true, actionId: 'flee-2', actionType: 'flee_from' } }, T0 + 11_000);
+	runtime.noteProgress('agent-a', { actionId: 'flee-2' });
 	await runtime.observe('agent-a', 'world-one', { death: { cause: 'x was shot by Skeleton', dimensionId: 'minecraft:overworld', diedAtEpochMs: T0 + 13_000 } }, T0 + 13_000);
 	assert.deepEqual(reviewed().running, ['flee_from']);
 	assert.deepEqual(reviewed().lessons, ['ranged-fled-in-open:mob=skeleton']);

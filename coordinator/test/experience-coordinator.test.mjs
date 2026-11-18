@@ -122,7 +122,7 @@ test('a flee the body reported progress on is running when a skeleton kills the 
 	assert.ok(reviewed.lessons.includes('ranged-fled-in-open:mob=skeleton'), JSON.stringify(reviewed));
 });
 
-test('a flee the body shows as its current action is running when a skeleton kills the agent', async () => {
+test('a flee the body shows only as its current action is not counted as running: it may still end before its first tick', async () => {
 	const { reviewed } = await fleeDeath({ between: async (run, flee, t0) => {
 		const observation = wire('game-one', t0 + 500, 2, { health: 10, zombie: false });
 		observation.entities = [...observation.entities, SKELETON];
@@ -130,8 +130,8 @@ test('a flee the body shows as its current action is running when a skeleton kil
 		run.bridge.emit('observation', { agentId: 'agent-a', payload: observation });
 		await new Promise((resolve) => setTimeout(resolve, 20));
 	} });
-	assert.ok(reviewed.running.includes('flee_from'), JSON.stringify(reviewed));
-	assert.ok(reviewed.lessons.includes('ranged-fled-in-open:mob=skeleton'), JSON.stringify(reviewed));
+	assert.deepEqual(reviewed.running, [], JSON.stringify(reviewed));
+	assert.deepEqual(reviewed.lessons, ['ranged-death:mob=skeleton'], JSON.stringify(reviewed));
 });
 
 test('a flee with no start evidence, rejected by the server after the death review, never makes a "while fleeing" lesson', async () => {

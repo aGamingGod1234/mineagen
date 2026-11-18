@@ -80,7 +80,7 @@ for (const [index, gameDirectory] of positionals.entries()) {
 	const memory = new RuntimeMemoryContext({ taskMemory: new TaskMemoryStore({ directory: null }), experience });
 	const agents = new Map();
 	const health = { rows: await healthSamples(gameDirectory), index: 0 };
-	const stats = { trimmedObservations: 0, game: index + 1, seedKnown: seed !== null, observations: 0, dispatches: 0, results: 0, deaths: 0, rejected: 0, sampled: 0, sampledWithCarried: 0, sampledWithAny: 0, carriedBytes: [], shownRules: {} };
+	const stats = { trimmedObservations: 0, game: index + 1, seedKnown: seed !== null, observations: 0, dispatches: 0, progress: 0, results: 0, deaths: 0, rejected: 0, sampled: 0, sampledWithCarried: 0, sampledWithAny: 0, carriedBytes: [], shownRules: {} };
 	const lines = createInterface({ input: createReadStream(path.join(gameDirectory, 'raw/quality-protocol.jsonl')), crlfDelay: Infinity });
 	for await (const line of lines) {
 		let row; try { row = JSON.parse(line); } catch { continue; }
@@ -108,6 +108,7 @@ for (const [index, gameDirectory] of positionals.entries()) {
 				stats.dispatches += 1;
 			} else if (envelope.type === 'action_progress') {
 				memory.noteProgress(record.agentId, payload);
+				stats.progress += 1;
 			} else if (envelope.type === 'action_result') {
 				if (await memory.recordResult(record, payload)) stats.results += 1;
 			} else if (envelope.type === 'goal_control' && payload.operation === 'dead' && payload.death) {
@@ -122,7 +123,9 @@ for (const [index, gameDirectory] of positionals.entries()) {
 	const bytes = stats.carriedBytes.sort((a, b) => a - b);
 	// LONG captures drop action rows: without them the failure rules and the action-dependent death rules cannot fire.
 	if (stats.dispatches === 0 && stats.results === 0) console.warn(`game ${index + 1}: no action rows in this recording; failure and action-dependent death lessons were not reviewed`);
-	report.push({ ...stats, actionEvidence: stats.dispatches + stats.results > 0, carriedBytes: undefined,
+	// A death is attributed to an action only after body progress on it; without progress rows those rules cannot fire.
+	else if (stats.progress === 0) console.warn(`game ${index + 1}: no action_progress rows in this recording; the "while fleeing" and "while walking" death lessons were not reviewed`);
+	report.push({ ...stats, actionEvidence: stats.dispatches + stats.results > 0, startEvidence: stats.progress > 0, carriedBytes: undefined,
 		carriedBytesMedian: bytes.length ? bytes[Math.floor(bytes.length / 2)] : 0, carriedBytesMax: bytes.at(-1) ?? 0,
 		deathsReviewed: reviewed.length, deathCauses: reviewed.map((event) => event.attacker ? `${event.cause}<-${event.attacker}` : event.cause),
 		lessonsRecorded: recorded.map((event) => event.lessonId), state: experience.state() });
