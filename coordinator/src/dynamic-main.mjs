@@ -1341,8 +1341,11 @@ export class DynamicCoordinator extends EventEmitter {
 				// Live correlation must not wait for disk. The retained server result is
 				// acknowledged separately, only after authoritative storage succeeds.
 				receipt = this.#queueReceiptReconciliation(message, connectionEpoch);
-				// The experience review sees the result now, not after the receipt is persisted, so a death right after it counts it.
-				this.#playerMemory.noteLiveResult(message.agentId, { ...message.payload, actionType: message.payload.actionType ?? dispatch?.actionType });
+				// The experience review sees a result that matches the live dispatch now, not after its receipt persists, so a
+				// death right after it counts it. Anything unmatched waits for durable reconciliation.
+				if (dispatch?.connectionEpoch === connectionEpoch && dispatch.actionId === message.payload.actionId && dispatch.goalRevision === message.payload.goalRevision) {
+					this.#playerMemory.noteLiveResult(message.agentId, { ...message.payload, actionType: message.payload.actionType ?? dispatch.actionType });
+				}
 				this.#decisionLog?.actionResult(message.agentId, message.payload);
 				try {
 					if (admittedRespawn) { this.emit('actionResult', message); return; }
@@ -2114,6 +2117,7 @@ export class DynamicCoordinator extends EventEmitter {
 				goalRevision: record.goalRevision,
 				input: await this.#nativeTurnInput(record, request).then((input) => {
 					this.#noteHazardDelivered(work);
+					this.#playerMemory.confirmShown(record.agentId, input);
 					this.#noteSurvivalDelivered(work, request, request.survivalFacts);
 					work.modelCallStartedAt = safeClockRead(this.#controlNow);
 					work.callStreamingTool = false;
@@ -2492,12 +2496,14 @@ export class DynamicCoordinator extends EventEmitter {
 					|| work.pending?.priority === 'urgent'
 					|| work.steerPromise !== null) return;
 			work.preparingProgram = { programId: request.nativeEvent.programId, programVersion: request.nativeEvent.status?.programVersion };
+			const preparedInput = await this.#nativeTurnInput(record, request, { deliverConversation: false });
 			await this.#planner.steerNativeTurn({
 				agentId: work.agentId,
 				goalRevision: work.goalRevision,
-				input: await this.#nativeTurnInput(record, request, { deliverConversation: false }),
+				input: preparedInput,
 			});
 			this.#noteSurvivalDelivered(work, request, request.survivalFacts);
+			this.#playerMemory.confirmShown(record.agentId, preparedInput);
 			this.#writeTrace('native_turn_prepared', {
 				agentId: work.agentId,
 				goalRevision: work.goalRevision,
@@ -2552,6 +2558,7 @@ export class DynamicCoordinator extends EventEmitter {
 						}
 						if (work.steerQueued === null) {
 							this.#noteSurvivalDelivered(work, deliveryRequest, deliveryRequest.survivalFacts);
+							this.#playerMemory.confirmShown(record.agentId, input);
 							return input;
 						}
 						this.#restoreNativeConversation(deliveryRequest);

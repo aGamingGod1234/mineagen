@@ -43,6 +43,11 @@ test('a death in one game reaches its respawn wake and the next game\'s wake as 
 			run.bridge.emit('goal_control', { agentId: 'agent-a', payload: { operation: 'start', goalRevision: 1, goal: 'Beat the game.', updatedAtEpochMs: t0 } });
 			run.bridge.emit('observation', { agentId: 'agent-a', payload: wire('game-one', t0, 1) });
 			await eventually(() => run.bridge.sent.some((m) => m.type === 'action_command' && m.payload.actionType === 'wait'));
+			// A receipt that matches no live dispatch (an older goal's dig) must not teach this game anything.
+			for (const actionId of ['stale-dig-1', 'stale-dig-2']) {
+				run.bridge.emit('action_result', { agentId: 'agent-a', payload: { goalRevision: 1, actionId, commandId: actionId, actionType: 'dig_to', state: 'FAILED', reasonCode: 'TOOL_WORN', message: 'worn', elapsedMs: 1, observedAtEpochMs: t0 + 1_000, eventSequence: 2 } });
+			}
+			await new Promise((resolve) => setTimeout(resolve, 50));
 			const death = { ...DEATH, cause: 'Probe was slain by Zombie', gameMode: 'survival', diedAtEpochMs: t0 + 15_000 };
 			run.bridge.emit('goal_control', { agentId: 'agent-a', payload: { operation: 'dead', goalRevision: 1, updatedAtEpochMs: t0 + 15_000, death } });
 			await eventually(() => planner.requests.some((r) => r.input.includes('player_death')));
@@ -56,6 +61,7 @@ test('a death in one game reaches its respawn wake and the next game\'s wake as 
 		assert.ok(reviewed.lessons.includes('melee-at-low-health:mob=zombie'));
 		const [profile] = await readdir(directory);
 		assert.equal((await readdir(join(directory, profile))).length, 1);
+		assert.equal(first.events.some((e) => e.event === 'experience_lesson_recorded' && e.rule === 'tool-worn-mid-task'), false);
 
 		const second = await game(directory, 'game-two', 'seed-two', async (run, planner) => {
 			run.bridge.emit('goal_control', { agentId: 'agent-a', payload: { operation: 'start', goalRevision: 1, goal: 'Beat the game.', updatedAtEpochMs: t0 + 100_000 } });

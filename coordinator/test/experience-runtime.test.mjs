@@ -117,7 +117,8 @@ test('the death review reads only what the coordinator saw before the death', ()
 	const context = { cause: classifyDeath('x was shot by Skeleton'), dimension: 'overworld', running: [], at: 10_000,
 		samples: [{ at: 0, health: 12, edible: 0, hostiles: { skeleton: 8 } }], results: [{ actionType: 'flee_from', state: 'CANCELLED', at: 5_000 }] };
 	// No food alone does not make a lesson show; no food at low health does.
-	assert.deepEqual(deathLessons(context).map((lesson) => lesson.rule), ['ranged-fled-in-open', 'died-without-food']);
+	// The flee ended 5 s before the death, so it was not fleeing when shot: the plain archer lesson, not the fled one.
+	assert.deepEqual(deathLessons(context).map((lesson) => lesson.rule), ['ranged-death', 'died-without-food']);
 });
 
 test('a repeated failure becomes a lesson that is shown right after the same failure in a later game', () => withDirectory(async (directory) => {
@@ -151,7 +152,7 @@ test('a store that cannot load turns lessons off for the run without breaking me
 	const settingsValue = experienceSettings({ MINEAGEN_EXPERIENCE: 'lessons', MINEAGEN_EXPERIENCE_DIR: directory, MINEAGEN_EXPERIENCE_PROFILE: 'p' });
 	const real = new ExperienceStore(settingsValue), events = [];
 	const store = { load: async () => { throw Object.assign(new Error('unreadable'), { code: 'EACCES' }); }, state: () => real.state(), record: (...args) => real.record(...args),
-		markShown: (...args) => real.markShown(...args), candidates: (...args) => real.candidates(...args), flush: () => real.flush() };
+		markShown: (...args) => real.markShown(...args), candidates: (...args) => real.candidates(...args), flush: () => real.flush(), noteDeathReviewed: (...args) => real.noteDeathReviewed(...args) };
 	const runtime = createExperience(settingsValue, { store, trace: (event, fields) => events.push({ event, ...fields }) });
 	const memory = new RuntimeMemoryContext({ taskMemory: new TaskMemoryStore({ directory: null }), experience: runtime });
 	memory.observe(record, observation('world-one', T0, { hostiles: ['skeleton'] }));
@@ -181,10 +182,40 @@ test('live observations that still name the last death keep feeding the history'
 	await memory.flush();
 }));
 
-test('a dispatch that never got a result stops counting as running after two minutes', () => {
-	const context = { cause: classifyDeath('x was shot by Skeleton'), dimension: 'overworld', running: [], at: 300_000, samples: [], results: [] };
-	assert.equal(deathLessons(context).some((lesson) => lesson.rule === 'ranged-fled-in-open'), false);
-});
+test('a long action counts as running for its own lease, and a death-caused result after the review stays with that life', () => withDirectory(async (directory) => {
+	const events = [];
+	const runtime = createExperience(experienceSettings({ MINEAGEN_EXPERIENCE: 'lessons', MINEAGEN_EXPERIENCE_DIR: directory, MINEAGEN_EXPERIENCE_PROFILE: 'p' }), { trace: (event, fields) => events.push({ event, ...fields }) });
+	runtime.observe('agent-a', 'world-one', observation('world-one', T0, { dimension: 'minecraft:the_nether' }), T0);
+	// travel_to with no timeout runs up to 600 s; a lava death 150 s in still finds it running.
+	runtime.noteDispatch('agent-a', { actionId: 'travel-1', actionType: 'travel_to', arguments: { x: 100, y: 64, z: 100 } });
+	await runtime.observe('agent-a', 'world-one', { death: { cause: 'x tried to swim in lava', dimensionId: 'minecraft:the_nether', diedAtEpochMs: T0 + 150_000 } }, T0 + 150_000);
+	// A flee the first death ended reports AGENT_DEAD after that review; it must not make the next death "while fleeing".
+	runtime.observe('agent-a', 'world-one', observation('world-one', T0 + 151_000, { hostiles: ['skeleton'] }), T0 + 151_000);
+	await runtime.noteResult('agent-a', { actionId: 'flee-old', actionType: 'flee_from', state: 'FAILED', reasonCode: 'AGENT_DEAD', executionStarted: true }, T0 + 150_500);
+	await runtime.observe('agent-a', 'world-one', { death: { cause: 'x was shot by Skeleton', dimensionId: 'minecraft:the_nether', diedAtEpochMs: T0 + 160_000 } }, T0 + 160_000);
+	await runtime.flush();
+	const reviewed = events.filter((event) => event.event === 'experience_death_reviewed');
+	assert.ok(reviewed[0].lessons.includes('lava-while-moving:dimension=the_nether'), JSON.stringify(reviewed[0]));
+	assert.deepEqual(reviewed[1].lessons, ['ranged-death:mob=skeleton']);
+	// An action with no result at all stops counting once its lease would have ended.
+	runtime.noteDispatch('agent-a', { actionId: 'flee-2', actionType: 'flee_from', arguments: { timeoutMs: 10_000 } });
+	await runtime.observe('agent-a', 'world-one', { death: { cause: 'x was shot by Skeleton', dimensionId: 'minecraft:the_nether', diedAtEpochMs: T0 + 360_000 } }, T0 + 360_000);
+	assert.deepEqual(events.filter((event) => event.event === 'experience_death_reviewed')[2].running, []);
+}));
+
+test('a coordinator restart inside a game does not review its last death twice', () => withDirectory(async (directory) => {
+	const counts = [];
+	for (let run = 0; run < 2; run++) {
+		const events = [];
+		const runtime = createExperience(experienceSettings({ MINEAGEN_EXPERIENCE: 'lessons', MINEAGEN_EXPERIENCE_DIR: directory, MINEAGEN_EXPERIENCE_PROFILE: 'p' }), { trace: (event, fields) => events.push({ event, ...fields }) });
+		runtime.observe('agent-a', 'world-one', observation('world-one', T0, { health: 6, edible: 0 }), T0);
+		await runtime.observe('agent-a', 'world-one', { death: { cause: 'x was slain by Zombie', dimensionId: 'minecraft:overworld', diedAtEpochMs: T0 + 15_000 } }, T0 + 15_000);
+		await runtime.flush();
+		counts.push(events.filter((event) => event.event === 'experience_lesson_recorded').map((event) => event.countThisGame));
+	}
+	assert.ok(counts[0].length > 0);
+	assert.deepEqual(counts[1], []);
+}));
 
 test('a replayed terminal receipt feeds the failure review once', () => withDirectory(async (directory) => {
 	const events = [];
@@ -200,7 +231,7 @@ test('a death reviewed while the store loads is recorded against its own game af
 	const settingsValue = experienceSettings({ MINEAGEN_EXPERIENCE: 'lessons', MINEAGEN_EXPERIENCE_DIR: directory, MINEAGEN_EXPERIENCE_PROFILE: 'p' });
 	const real = new ExperienceStore(settingsValue), gate = Promise.withResolvers();
 	const store = { load: async () => { await gate.promise; return real.load(); }, state: () => real.state(), record: (...args) => real.record(...args),
-		markShown: (...args) => real.markShown(...args), candidates: (...args) => real.candidates(...args), flush: () => real.flush() };
+		markShown: (...args) => real.markShown(...args), candidates: (...args) => real.candidates(...args), flush: () => real.flush(), noteDeathReviewed: (...args) => real.noteDeathReviewed(...args) };
 	const runtime = createExperience(settingsValue, { store });
 	runtime.observe('agent-a', 'world-one', observation('world-one', T0, { health: 6, edible: 0 }), T0);
 	const reviewed = runtime.observe('agent-a', 'world-one', { death: { cause: 'x was slain by Zombie', dimensionId: 'minecraft:overworld', diedAtEpochMs: T0 + 15_000 } }, T0 + 15_000);
@@ -226,7 +257,7 @@ test('history gathered while a death review waits for the store is kept', () => 
 	const settingsValue = experienceSettings({ MINEAGEN_EXPERIENCE: 'lessons', MINEAGEN_EXPERIENCE_DIR: directory, MINEAGEN_EXPERIENCE_PROFILE: 'p' });
 	const real = new ExperienceStore(settingsValue), gate = Promise.withResolvers(), events = [];
 	const store = { load: async () => { await gate.promise; return real.load(); }, state: () => real.state(), record: (...args) => real.record(...args),
-		markShown: (...args) => real.markShown(...args), candidates: (...args) => real.candidates(...args), flush: () => real.flush() };
+		markShown: (...args) => real.markShown(...args), candidates: (...args) => real.candidates(...args), flush: () => real.flush(), noteDeathReviewed: (...args) => real.noteDeathReviewed(...args) };
 	const runtime = createExperience(settingsValue, { store, trace: (event, fields) => events.push({ event, ...fields }) });
 	runtime.observe('agent-a', 'world-one', observation('world-one', T0, { hostiles: ['skeleton'] }), T0);
 	const first = runtime.observe('agent-a', 'world-one', { death: { cause: 'x was shot by Skeleton', dimensionId: 'minecraft:overworld', diedAtEpochMs: T0 + 1_000 } }, T0 + 1_000);
@@ -382,7 +413,14 @@ test('a task memory write refreshes the cache without counting lessons as shown'
 	await memory.flush();
 	await memory.execute(record, { operation: 'task', arguments: { operation: 'remember', entry: { kind: 'place', key: 'camp', label: 'Camp', summary: 'Shelter by the hill.', position: { x: 1, y: 64, z: 2 } } } });
 	assert.equal(events.some((event) => event.event === 'experience_lessons_shown'), false);
-	assert.ok((await memory.taskContext(record)).lessons.length > 0);
+	const summary = await memory.taskContext(record);
+	assert.ok(summary.lessons.length > 0);
+	// Building a turn summary counts nothing; the built input that carries the lesson does.
+	assert.equal(events.some((event) => event.event === 'experience_lessons_shown'), false);
+	memory.confirmShown(record.agentId, 'unrelated input');
+	assert.equal(events.some((event) => event.event === 'experience_lessons_shown'), false);
+	await memory.taskContext(record);
+	memory.confirmShown(record.agentId, JSON.stringify({ taskMemory: summary }));
 	assert.ok(events.some((event) => event.event === 'experience_lessons_shown'));
 	await memory.flush();
 }));

@@ -18,6 +18,7 @@ const VERSION = 1;
 // Past it, load reads an arbitrary subset (names are hashes) and a resumed game may restart empty.
 const MAX_GAME_FILES = 2000;
 const MAX_LESSONS_PER_GAME = 32;
+const MAX_DEATHS_PER_GAME = 64;
 const HASH_SALT = 'mineagen-experience-v1';
 const SLOT = /^[a-z0-9_:.-]{1,64}$/;
 const SEED_HASH = /^s1-[0-9a-f]{16}$/;
@@ -118,7 +119,24 @@ export class ExperienceStore {
 		return record;
 	}
 
-	/** Records one occurrence of a lesson in this game. Returns the lesson's count in this game. */
+	/**
+	 * Notes that the death at this time was reviewed in this game. Returns false when it already was (a coordinator
+	 * restart inside the game sees the last death again), so it is not counted twice. Persisted with the game.
+	 */
+	noteDeathReviewed(gameHash, diedAtEpochMs) {
+		requireHash(gameHash);
+		const game = this.#game(gameHash);
+		game.deaths ??= [];
+		if (game.deaths.includes(diedAtEpochMs)) return false;
+		game.deaths = [...game.deaths, diedAtEpochMs].slice(-MAX_DEATHS_PER_GAME);
+		this.#persist(game);
+		return true;
+	}
+
+	/**
+	 * Records one occurrence of a lesson in this game: one death, or one time a failure crossed its rule's bar (not
+	 * every failure). Returns the lesson's count in this game.
+	 */
 	record(gameHash, { id, rule, slots = {}, atEpochMs }) {
 		requireHash(gameHash);
 		if (typeof id !== 'string' || id.length > 160 || typeof rule !== 'string' || !SLOT.test(rule)) throw new TypeError('lesson id and rule are required');
@@ -204,5 +222,6 @@ function validGame(value) {
 			...(Number.isSafeInteger(lesson.repeatsAfterShown) && lesson.repeatsAfterShown > 0 ? { repeatsAfterShown: lesson.repeatsAfterShown } : {}) };
 	}
 	for (const [id, entry] of Object.entries(value.shown ?? {})) if (Number.isSafeInteger(entry?.wakes) && entry.wakes > 0) shown[id] = { wakes: entry.wakes, firstAtMs: entry.firstAtMs ?? null };
-	return { version: VERSION, game: value.game, seedHash: value.seedHash, lessons, shown };
+	const deaths = Array.isArray(value.deaths) ? value.deaths.filter(Number.isFinite).slice(-MAX_DEATHS_PER_GAME) : [];
+	return { version: VERSION, game: value.game, seedHash: value.seedHash, lessons, shown, deaths };
 }

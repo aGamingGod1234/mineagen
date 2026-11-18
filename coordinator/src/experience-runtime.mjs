@@ -1,5 +1,6 @@
 import { ExperienceStore, experienceHash } from './experience-store.mjs';
 import { LESSON_RULES, MOBS, deathLessons, failureLessons, lessonEntry, situationScore } from './experience-lessons.mjs';
+import { actionLeaseTimeoutMs, requestedActionTimeoutMs } from './work-lease-supervisor.mjs';
 
 // The coordinator's own review of deaths and failures, and the read path back into the model's task memory summary.
 // No model call: the review reads a short recent history kept from observations and action results the coordinator
@@ -11,8 +12,8 @@ const SAMPLE_SPACING_MS = 500;
 const MAX_SAMPLES = 130;
 const MAX_RESULTS = 24;
 const NEAR_BLOCKS = 16;
-// A dispatch with no result for this long no longer counts as running (results can go missing).
-const RUNNING_MS = 120_000;
+// A dispatch with no result stops counting as running when its own work lease would end (results can go missing).
+const runningUntil = (actionType, args, at) => at + actionLeaseTimeoutMs(requestedActionTimeoutMs({ actionType, arguments: args }));
 const DEATH_RESULT_MS = 2_000;
 export const MAX_SHOWN_LESSONS = 3;
 
@@ -136,7 +137,7 @@ export class ExperienceRuntime {
 		const agent = this.#agent(agentId);
 		if (typeof worldId === 'string' && !worldId.startsWith('session:')) {
 			const game = experienceHash(`world:${worldId}`);
-			if (agent.game !== game) { agent.game = game; agent.samples = []; agent.latest = null; agent.results = []; agent.running.clear(); agent.failures.clear(); agent.shown.clear(); agent.recent = []; }
+			if (agent.game !== game) { agent.game = game; agent.samples = []; agent.latest = null; agent.results = []; agent.running.clear(); agent.failures.clear(); agent.shown.clear(); agent.recent = []; agent.carriedIds = new Set(); agent.lastDeathAt = null; }
 		}
 		agent.clock = Math.max(agent.clock ?? at, at);
 		const death = observation?.death;
@@ -153,10 +154,10 @@ export class ExperienceRuntime {
 	noteDispatch(agentId, dispatch, at = undefined) {
 		try { this.#noteDispatch(agentId, dispatch, at); } catch (error) { this.#fail('dispatch', error); }
 	}
-	#noteDispatch(agentId, { actionId, actionType }, at) {
+	#noteDispatch(agentId, { actionId, actionType, arguments: args }, at) {
 		const agent = this.#agent(agentId);
 		at ??= agent.clock ?? Date.now();
-		if (typeof actionId === 'string' && typeof actionType === 'string') agent.running.set(actionId, { actionType, at });
+		if (typeof actionId === 'string' && typeof actionType === 'string') agent.running.set(actionId, { actionType, at, until: runningUntil(actionType, args, at) });
 		while (agent.running.size > 16) agent.running.delete(agent.running.keys().next().value);
 	}
 
@@ -177,6 +178,8 @@ export class ExperienceRuntime {
 		at ??= agent.clock ?? Date.now();
 		const started = agent.running.get(actionId);
 		agent.running.delete(actionId);
+		// A result the last death caused, arriving after its review, belongs to that life, not this one.
+		if (agent.lastDeathAt !== null && at <= agent.lastDeathAt + DEATH_RESULT_MS && !(started && started.at > agent.lastDeathAt)) return;
 		const type = actionType ?? started?.actionType;
 		if (typeof type !== 'string') return;
 		const row = { actionType: type, state, reasonCode, at, elapsedMs: started ? Math.max(0, at - started.at) : null, ...(executionStarted === false ? { executionStarted: false } : {}),
@@ -197,18 +200,22 @@ export class ExperienceRuntime {
 		if (agent.game === null) return;
 		const when = diedAt ?? at;
 		const cause = classifyDeath(death.cause);
-		const running = [...agent.running.values()].filter((entry) => entry.at <= when && when - entry.at <= RUNNING_MS).map((entry) => entry.actionType);
+		const running = [...agent.running.values()].filter((entry) => entry.at <= when && entry.until >= when).map((entry) => entry.actionType);
 		const history = agent.latest && agent.latest !== agent.samples.at(-1) ? [...agent.samples, agent.latest] : agent.samples;
 		const context = { cause, dimension: typeof death.dimensionId === 'string' ? death.dimensionId.replace(/^minecraft:/, '') : agent.latest?.dimension,
-			// A running action the death ended reports AGENT_DEAD a moment after it: still evidence of what was running.
-			running, samples: history.filter((sample) => sample.at <= when), results: agent.results.filter((result) => result.at <= when + DEATH_RESULT_MS), at: when };
+			running, samples: history.filter((sample) => sample.at <= when),
+			// A started action the death ended reports AGENT_DEAD a moment after it: evidence of what was running. Nothing else after the death counts.
+			results: agent.results.filter((result) => result.at <= when || result.reasonCode === 'AGENT_DEAD' && result.executionStarted !== false && result.at <= when + DEATH_RESULT_MS), at: when };
 		const lessons = deathLessons(context);
-		this.#emit('experience_death_reviewed', { cause: cause.cause, kind: cause.kind, ...(cause.escaping ? { escaping: cause.escaping } : {}), dimension: context.dimension ?? null,
-			running, lessons: lessons.map((lesson) => lesson.id) });
 		const game = agent.game;
 		// History before a death does not describe the next life. Cleared before any await, so history gathered while the
 		// store loads (possibly in another world) survives.
-		agent.samples = []; agent.latest = null; agent.results = []; agent.running.clear();
+		agent.samples = []; agent.latest = null; agent.results = []; agent.running.clear(); agent.lastDeathAt = when;
+		await this.#ready;
+		// A coordinator restart inside the game sees the last death again with empty history: the saved game remembers it.
+		if (this.#failed === null && diedAt !== null && !this.#store.noteDeathReviewed(game, diedAt)) return;
+		this.#emit('experience_death_reviewed', { cause: cause.cause, kind: cause.kind, ...(cause.escaping ? { escaping: cause.escaping } : {}), dimension: context.dimension ?? null,
+			running, lessons: lessons.map((lesson) => lesson.id) });
 		for (const lesson of lessons) await this.#record(agent, game, lesson, when);
 	}
 
@@ -256,7 +263,7 @@ export class ExperienceRuntime {
 			// One lesson per mob: the best supported one says enough.
 			.filter((candidate, index, all) => candidate.slots.mob === undefined || all.findIndex((other) => other.slots.mob === candidate.slots.mob) === index)
 			.slice(0, MAX_SHOWN_LESSONS);
-		agent.carriedIds = new Set([...(agent.carriedIds ?? []), ...ranked.filter((entry) => entry.games > 0).map((entry) => entry.id)]);
+		agent.carriedIds = new Set([...(agent.carriedIds ?? []), ...ranked.filter((entry) => entry.games > 0).map((entry) => entry.id)]); // reset per game
 		return { ids: ranked.map((entry) => entry.id), entries: ranked.map(lessonEntry).reverse() };
 	}
 
@@ -266,7 +273,7 @@ export class ExperienceRuntime {
 const RECENT_LESSON_MS = 180_000;
 function situationOf(agent, at) {
 	const sample = agent.latest ?? { hostiles: {} };
-	const running = [...agent.running.values()].filter((entry) => at - entry.at <= RUNNING_MS).map((entry) => entry.actionType);
+	const running = [...agent.running.values()].filter((entry) => entry.until >= at).map((entry) => entry.actionType);
 	return { ...sample, at, running, results: agent.results, recentLessons: agent.recent.filter((entry) => at - entry.at <= RECENT_LESSON_MS).map((entry) => entry.id) };
 }
 

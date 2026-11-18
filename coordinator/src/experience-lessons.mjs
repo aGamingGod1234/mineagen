@@ -35,10 +35,11 @@ function pretty(id) { return String(id).replace(/_/g, ' '); }
 /** "a skeleton", "an enderman". */
 function cap(text) { return text[0].toUpperCase() + text.slice(1); }
 function a(id) { const name = pretty(id); return `${/^[aeiou]/.test(name) ? 'an' : 'a'} ${name}`; }
-// A result whose action never started is no evidence that the body did it.
-function recentlyRan(context, types, withinMs = 15_000) {
+// Active at the death: still running, or ended by the death itself (AGENT_DEAD). A result whose action never started
+// is no evidence that the body did it.
+function activeAtDeath(context, types) {
 	return context.running.some((type) => types.has(type))
-		|| context.results.some((result) => types.has(result.actionType) && result.executionStarted !== false && context.at - result.at <= withinMs);
+		|| context.results.some((result) => types.has(result.actionType) && result.reasonCode === 'AGENT_DEAD' && result.executionStarted !== false);
 }
 function healthBefore(context, ms) {
 	const sample = [...context.samples].reverse().find((entry) => context.at - entry.at >= ms && Number.isFinite(entry.health));
@@ -63,19 +64,19 @@ function lastKnown(context, field) {
 export const LESSON_RULES = Object.freeze({
 	'ranged-fled-in-open': {
 		slots: ['mob'],
-		death: (context) => RANGED.has(context.cause.cause) && context.cause.kind !== 'melee' && recentlyRan(context, FLEE_ACTIONS) ? { mob: context.cause.cause } : null,
+		death: (context) => RANGED.has(context.cause.cause) && context.cause.kind !== 'melee' && activeAtDeath(context, FLEE_ACTIONS) ? { mob: context.cause.cause } : null,
 		trigger: ({ mob }) => ({ mobs: [mob] }),
 		text: ({ mob }) => `${cap(a(mob))} shot you dead while you were fleeing. Running rarely gets out of its range: put a solid block between you and it, or dig into a hole with a roof and wait until it loses you.`,
 	},
 	'ranged-death': {
 		slots: ['mob'],
-		death: (context) => RANGED.has(context.cause.cause) && context.cause.kind === 'shot' && !recentlyRan(context, FLEE_ACTIONS) ? { mob: context.cause.cause } : null,
+		death: (context) => RANGED.has(context.cause.cause) && context.cause.kind === 'shot' && !activeAtDeath(context, FLEE_ACTIONS) ? { mob: context.cause.cause } : null,
 		trigger: ({ mob }) => ({ mobs: [mob] }),
 		text: ({ mob }) => `${cap(a(mob))} shot you to death. When one is in view, act on it first: take cover out of its line of sight or close the distance and kill it, and heal before moving on.`,
 	},
 	'lava-while-moving': {
 		slots: ['dimension'],
-		death: (context) => context.cause.cause === 'lava' && recentlyRan(context, MOVE_ACTIONS) ? { dimension: context.dimension ?? 'overworld' } : null,
+		death: (context) => context.cause.cause === 'lava' && activeAtDeath(context, MOVE_ACTIONS) ? { dimension: context.dimension ?? 'overworld' } : null,
 		trigger: ({ dimension }) => ({ dimension, lavaNear: true }),
 		text: ({ dimension }) => `You died in lava while walking to a target in the ${PLACE[dimension] ?? pretty(dimension)}. Near lava, deal with hostiles before moving, keep a block between you and the lava, and avoid long routes along its edge.`,
 	},

@@ -11,7 +11,7 @@
 // they carry no entities, so lessons that need a mob in view are recorded but never match a sampled situation.
 import path from 'node:path';
 import { createReadStream, existsSync } from 'node:fs';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
@@ -27,6 +27,9 @@ if (!values['experience-dir'] || positionals.length === 0) { console.error('Usag
 const directory = path.resolve(values['experience-dir']);
 if (!path.relative(ROOT, directory).startsWith('..')) { console.error('--experience-dir must be outside the checkout'); process.exit(2); }
 const sampleEvery = Number(values['sample-every']);
+// A replay is one profile's history from empty: reusing a profile or a recording would count the same games twice.
+if (new Set(positionals.map((game) => path.resolve(game))).size !== positionals.length) { console.error('Each recording may appear once'); process.exit(2); }
+if (existsSync(directory) && (await readdir(directory)).length > 0) { console.error('--experience-dir must be empty or missing'); process.exit(2); }
 
 async function healthSamples(gameDirectory) {
 	const file = path.join(gameDirectory, 'raw/quality-samples.jsonl');

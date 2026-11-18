@@ -18,6 +18,8 @@ export class RuntimeMemoryContext {
 	#recoveryDeaths = new Map();
 	// Lessons carried from earlier games and this game's own death and failure review (experience-runtime.mjs); null when off.
 	#experience;
+	// Per agent: the review lessons in the last model-turn summary, until the built input confirms which reached the model.
+	#pendingShown = new Map();
 	constructor({ notebook = new ModelNotebook(), taskMemory = new TaskMemoryStore(), sessionId = randomUUID(), onReceipt = null, experience = null } = {}) {
 		for (const method of ['writeNote', 'query', 'recordDispatch', 'recordUnknown', 'recordReceipt', 'findReceipt']) {
 			if (typeof notebook?.[method] !== 'function') throw new TypeError(`notebook.${method} is required`);
@@ -38,7 +40,18 @@ export class RuntimeMemoryContext {
 		return { recoveryDeath, extraLessons: entries };
 	}
 	/** An action sent outside recordDispatch (native tools journal straight to the notebook) still reaches the review. */
-	noteDispatch(agentId, { actionId, actionType } = {}) { this.#experience?.noteDispatch(agentId, { actionId, actionType }); }
+	noteDispatch(agentId, { actionId, actionType, arguments: args } = {}) { this.#experience?.noteDispatch(agentId, { actionId, actionType, arguments: args }); }
+	/**
+	 * Counts as shown the pending review lessons whose text is in this model input, once it is built and about to be
+	 * delivered. A lesson trimmed from the summary, cut from an excerpt or left in a discarded steer is not counted.
+	 */
+	confirmShown(agentId, input) {
+		const pending = this.#pendingShown.get(agentId);
+		this.#pendingShown.delete(agentId);
+		if (this.#experience === null || !pending || typeof input !== 'string') return;
+		const ids = pending.filter(({ summary }) => input.includes(JSON.stringify(summary).slice(1, -1))).map(({ id }) => id);
+		if (ids.length) this.#experience.markShown(agentId, ids);
+	}
 	/** A live terminal result, before its receipt is persisted; the later persisted copy counts once (deduplicated by action id). */
 	noteLiveResult(agentId, { actionId, actionType, state, reasonCode, executionStarted, observedAtEpochMs } = {}) {
 		if (this.#experience === null || !TERMINAL_STATES.has(state) || typeof actionId !== 'string') return;
@@ -88,7 +101,7 @@ export class RuntimeMemoryContext {
 		const context = this.#contexts.get(record.agentId), summary = this.#taskContexts.get(record.agentId);
 		return summary?.worldId === context?.worldId && summary?.dimension === context?.dimension ? structuredClone(summary) : null;
 	}
-	/** The summary for a model turn: the review lessons that survive the byte trim count as shown. */
+	/** The summary for a model turn; its surviving review lessons wait for confirmShown with the built input. */
 	async taskContext(record) { return this.#refreshTaskContext(record, true); }
 	async #refreshTaskContext(record, countShown) {
 		await this.#taskPending.get(record.agentId);
@@ -98,7 +111,11 @@ export class RuntimeMemoryContext {
 		const summary = await this.#tasks.summary({ agentId: record.agentId, ...context }, ranked === null ? { recoveryDeath: this.#recoveryDeaths.get(record.agentId) }
 			: { recoveryDeath: this.#recoveryDeaths.get(record.agentId), extraLessons: ranked.entries });
 		// The trim drops lessons from the front and they are passed worst first, so the survivors are the best ones.
-		if (ranked !== null && countShown) this.#experience.markShown(record.agentId, ranked.ids.slice(0, summary.lessons.filter((lesson) => typeof lesson?.src === 'string' && lesson.src.startsWith(LESSON_SRC_PREFIX)).length));
+		if (ranked !== null && countShown) {
+			const survivors = summary.lessons.filter((lesson) => typeof lesson?.src === 'string' && lesson.src.startsWith(LESSON_SRC_PREFIX));
+			// survivors are worst first; ranked.ids best first.
+			this.#pendingShown.set(record.agentId, survivors.map((lesson, index) => ({ id: ranked.ids[survivors.length - 1 - index], summary: lesson.summary })));
+		}
 		this.#taskContexts.set(record.agentId, summary);
 		return summary;
 	}
