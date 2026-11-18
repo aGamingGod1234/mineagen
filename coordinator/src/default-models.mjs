@@ -28,3 +28,11 @@ export function defaultJudgeModel(provider) {
 	if (!(provider in DEFAULT_MODELS)) throw new TypeError(`No default model for provider ${provider}`);
 	return DEFAULT_MODELS[provider];
 }
+
+/**
+ * Codex models a provider-free fixture catalog must list: the project default, which pinned fixture summons use,
+ * and the session's play model, so a runner that summons defaultModel('codex') passes the bridge's profile check.
+ */
+export function fixtureCatalogCodexModels(env = process.env) {
+	return [...new Set([DEFAULT_MODELS.codex, defaultModel('codex', env)])];
+}

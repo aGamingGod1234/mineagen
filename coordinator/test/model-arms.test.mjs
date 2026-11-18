@@ -57,6 +57,15 @@ test('the default model comes from one module, and one setting moves a whole ses
 	assert.throws(() => defaultModel('other', {}), /No default model/);
 });
 
+test('the provider-free fixture catalog lists the session model beside the pinned default', async () => {
+	const { fixtureCatalogCodexModels } = await import('../src/default-models.mjs');
+	assert.deepEqual(fixtureCatalogCodexModels({}), ['gpt-6.1-sol']);
+	assert.deepEqual(fixtureCatalogCodexModels({ ARENA_CODEX_MODEL: 'gpt-6.1-sol' }), ['gpt-6.1-sol']);
+	assert.deepEqual(fixtureCatalogCodexModels({ ARENA_CODEX_MODEL: 'gpt-6.2-sol' }), ['gpt-6.1-sol', 'gpt-6.2-sol']);
+	const replay = await readFile(new URL('../../scripts/quality/watch-replay.mjs', import.meta.url), 'utf8');
+	assert.match(replay, /models: fixtureCatalogCodexModels\(\)\.map/, 'incident replay catalog follows the session model');
+});
+
 test('a session that plays another model keeps the project default judges', async () => {
 	const { defaultModel, defaultJudgeModel, DEFAULT_MODELS } = await import('../src/default-models.mjs');
 	const { crossFamilyJudge } = await import('../src/decision-eval/judge.mjs');
