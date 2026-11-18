@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ExperienceStore, experienceHash, experienceSettings, normalizeSeedHash } from '../src/experience-store.mjs';
@@ -95,7 +95,7 @@ test('a frozen store reads but never writes, and candidates are side-effect free
 }));
 
 test('a repeat after the lesson was shown counts against it, and a restart continues the same game', () => withDirectory(async (directory) => {
-	const store = new ExperienceStore(settings(directory));
+	const store = new ExperienceStore(settings(directory, { MINEAGEN_WORLD_SEED_HASH: 'seed-a' }));
 	await store.load();
 	store.record(GAME_A, { ...lesson, atEpochMs: 1 });
 	store.markShown(GAME_A, [lesson.id], 2);
@@ -105,7 +105,7 @@ test('a repeat after the lesson was shown counts against it, and a restart conti
 	await restarted.load();
 	// The same game after a coordinator restart: its own lessons, not carried ones.
 	assert.deepEqual(restarted.candidates(GAME_A).map(({ games, thisGame }) => ({ games, thisGame })), [{ games: 0, thisGame: 2 }]);
-	const later = new ExperienceStore(settings(directory));
+	const later = new ExperienceStore(settings(directory, { MINEAGEN_WORLD_SEED_HASH: 'seed-b' }));
 	await later.load();
 	assert.deepEqual(later.candidates(GAME_B).map(({ shownGames, repeatsAfterShown }) => ({ shownGames, repeatsAfterShown })), [{ shownGames: 1, repeatsAfterShown: 1 }]);
 }));
@@ -132,12 +132,21 @@ test('a lesson blocked from carrying by its seed still shows on this game\'s own
 	await replayed.flush();
 }));
 
-test('a game played earlier by the same process carries into the next world', () => withDirectory(async (directory) => {
-	// One process has one seed hash, which blocks carry between its own games; without one, worlds carry.
+test('games without a known seed neither receive nor lend carried lessons', () => withDirectory(async (directory) => {
+	// One process has one seed hash, so its own earlier games share it and stay blocked; with no seed, nothing carries.
 	const store = new ExperienceStore(settings(directory));
 	await store.load();
 	store.record(GAME_A, { ...lesson, atEpochMs: 1 });
-	assert.deepEqual(store.candidates(GAME_B).map(({ id, games, thisGame }) => ({ id, games, thisGame })), [{ id: lesson.id, games: 1, thisGame: 0 }]);
+	assert.deepEqual(store.candidates(GAME_B), []);
+	await store.flush();
+	const known = new ExperienceStore(settings(directory, { MINEAGEN_WORLD_SEED_HASH: 'seed-b' }));
+	await known.load();
+	// The earlier game's seed is unknown, so it could be this seed: it does not carry.
+	assert.deepEqual(known.candidates(GAME_C), []);
+	const sameProcess = new ExperienceStore(settings(directory, { MINEAGEN_WORLD_SEED_HASH: 'seed-b' }));
+	await sameProcess.load();
+	sameProcess.record(GAME_B, { ...lesson, atEpochMs: 2 });
+	assert.deepEqual(sameProcess.candidates(GAME_C), []);
 	await store.flush();
 }));
 
@@ -151,4 +160,27 @@ test('more than two hundred earlier games still load, so a resumed game keeps it
 	await resumed.load();
 	assert.equal(resumed.state().games, 205);
 	assert.equal(resumed.candidates(experienceHash('world:7')).find((entry) => entry.id === lesson.id).thisGame, 2);
+}));
+
+test('decimal seeds that name the same number hash alike', () => {
+	assert.equal(normalizeSeedHash('00042'), normalizeSeedHash('42'));
+	assert.equal(normalizeSeedHash('+42'), normalizeSeedHash('42'));
+	assert.notEqual(normalizeSeedHash('-42'), normalizeSeedHash('42'));
+});
+
+test('a slot outside its vocabulary is refused on record and dropped on load', () => withDirectory(async (directory) => {
+	const store = new ExperienceStore(settings(directory, { MINEAGEN_WORLD_SEED_HASH: 'seed-a' }));
+	await store.load();
+	assert.throws(() => store.record(GAME_A, { id: 'melee-at-low-health:mob=steve', rule: 'melee-at-low-health', slots: { mob: 'steve' }, atEpochMs: 1 }), /vocabulary/);
+	store.record(GAME_A, { ...lesson, atEpochMs: 1 });
+	await store.flush();
+	// An older file naming a player: rewrite the saved game with a forged slot, then reload.
+	const [folder] = await readdir(directory);
+	const [file] = await readdir(join(directory, folder));
+	const saved = JSON.parse(await readFile(join(directory, folder, file), 'utf8'));
+	saved.lessons['melee-at-low-health:mob=steve'] = { rule: 'melee-at-low-health', slots: { mob: 'steve' }, count: 1 };
+	await writeFile(join(directory, folder, file), JSON.stringify(saved));
+	const reloaded = new ExperienceStore(settings(directory, { MINEAGEN_WORLD_SEED_HASH: 'seed-b' }));
+	await reloaded.load();
+	assert.deepEqual(reloaded.candidates(GAME_B).map((entry) => entry.id), [lesson.id]);
 }));

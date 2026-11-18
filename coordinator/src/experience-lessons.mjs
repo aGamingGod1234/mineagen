@@ -7,12 +7,26 @@
 // (see docs/technical-catalogue for the counts). A rule whose cause a skill fix removes should be retired with it.
 
 const RANGED = new Set(['skeleton', 'stray', 'bogged', 'pillager', 'piglin', 'blaze', 'ghast', 'drowned']);
+// The only killers a lesson may name: vanilla mobs. A player or a name-tagged mob is never stored or shown.
+export const MOBS = new Set(['zombie', 'husk', 'drowned', 'zombie_villager', 'skeleton', 'stray', 'bogged', 'wither_skeleton', 'creeper', 'spider',
+	'cave_spider', 'enderman', 'endermite', 'silverfish', 'slime', 'magma_cube', 'blaze', 'ghast', 'piglin', 'piglin_brute', 'zombified_piglin', 'hoglin',
+	'zoglin', 'witch', 'pillager', 'vindicator', 'evoker', 'ravager', 'vex', 'guardian', 'elder_guardian', 'shulker', 'phantom', 'wither', 'ender_dragon',
+	'warden', 'breeze', 'creaking', 'iron_golem', 'wolf', 'polar_bear', 'bee', 'llama', 'trader_llama', 'panda', 'goat', 'dolphin', 'pufferfish']);
+const DIMENSIONS = new Set(['overworld', 'the_nether', 'the_end']);
+const HAZARDS = new Set(['lava', 'fall', 'drown', 'fire']);
+/** Every slot must come from its vocabulary; checked when a lesson is recorded and when a file is loaded. */
+export function validSlots(slots) {
+	return Object.entries(slots).every(([key, value]) => key === 'mob' ? MOBS.has(value) : key === 'dimension' ? DIMENSIONS.has(value) : key === 'hazard' ? HAZARDS.has(value) : false);
+}
+/** Marks a lesson the runtime review wrote, in the entry the model reads. */
+export const LESSON_SRC_PREFIX = 'from your past play: ';
 const FLEE_ACTIONS = new Set(['flee_from']);
 const MOVE_ACTIONS = new Set(['travel_to', 'move_to', 'pick_up_item', 'find', 'obtain']);
 const LOW_HEALTH = 8;
 const FIGHTS = new Set(['fight_target', 'fight_until']);
 const TRIPS = new Set(['travel_to', 'dig_to', 'build', 'mine_vein', 'navigate_to']);
 
+const PLACE = { overworld: 'Overworld', the_nether: 'Nether', the_end: 'End' };
 function pretty(id) { return String(id).replace(/_/g, ' '); }
 /** "a skeleton", "an enderman". */
 function cap(text) { return text[0].toUpperCase() + text.slice(1); }
@@ -55,7 +69,7 @@ export const LESSON_RULES = Object.freeze({
 	'lava-while-moving': {
 		death: (context) => context.cause.cause === 'lava' && recentlyRan(context, MOVE_ACTIONS) ? { dimension: context.dimension ?? 'overworld' } : null,
 		trigger: ({ dimension }) => ({ dimension, lavaNear: true }),
-		text: ({ dimension }) => `You died in lava while walking to a target in the ${pretty(dimension)}. Near lava, deal with hostiles before moving, keep a block between you and the lava, and avoid long routes along its edge.`,
+		text: ({ dimension }) => `You died in lava while walking to a target in the ${PLACE[dimension] ?? pretty(dimension)}. Near lava, deal with hostiles before moving, keep a block between you and the lava, and avoid long routes along its edge.`,
 	},
 	'escaped-into-hazard': {
 		death: (context) => ['lava', 'fall', 'drown', 'fire'].includes(context.cause.cause) && context.cause.escaping ? { hazard: context.cause.cause, mob: context.cause.escaping } : null,
@@ -69,14 +83,14 @@ export const LESSON_RULES = Object.freeze({
 		text: () => 'You died carrying no food while already hurt. Keep cooked food in the hotbar: get some before mining trips, long travel or a dimension change, and eat to heal before the next fight.',
 	},
 	'bailout-then-death': {
-		death: (context) => context.cause.kind !== 'hazard' && resultWithin(context, FIGHTS, ['LOW_HEALTH_BAILOUT'], 30_000) ? { mob: context.cause.cause } : null,
+		death: (context) => MOBS.has(context.cause.cause) && resultWithin(context, FIGHTS, ['LOW_HEALTH_BAILOUT'], 30_000) ? { mob: context.cause.cause } : null,
 		trigger: () => ({ recentResult: { types: [...FIGHTS], codes: ['LOW_HEALTH_BAILOUT'], withinMs: 30_000 } }),
 		text: ({ mob }) => `Right after a fight stopped at low health, ${a(mob)} finished you. Do not restart that fight or switch between moves: wall yourself in (a hole or pillar with a roof) and eat first.`,
 	},
 	'resumed-near-hostile': {
-		death: (context) => context.cause.kind !== 'hazard' && context.cause.kind !== 'unknown' && resultWithin(context, TRIPS, ['HOSTILE_NEAR'], 60_000) ? { mob: context.cause.cause } : null,
+		death: (context) => MOBS.has(context.cause.cause) && resultWithin(context, TRIPS, ['HOSTILE_NEAR'], 60_000) ? { mob: context.cause.cause } : null,
 		trigger: ({ mob }) => ({ mobs: [mob], recentResult: { types: [...TRIPS], codes: ['HOSTILE_NEAR'], withinMs: 60_000 } }),
-		text: ({ mob }) => `A trip stopped because ${a(mob)} was near, and going on with it still there got you killed. Kill it or wall it off before you resume.`,
+		text: ({ mob }) => `A trip stopped for a nearby hostile, and within a minute ${a(mob)} killed you. When a trip stops for a hostile, kill it or wall it off before you go on.`,
 	},
 	'dig-into-water': {
 		failure: (row, tally) => row.actionType === 'dig_to' && row.reasonCode === 'WATER_AHEAD' && repeated(row, tally, 'dig_to:WATER_AHEAD', 2, 300_000) ? {} : null,
@@ -94,7 +108,7 @@ export const LESSON_RULES = Object.freeze({
 		text: () => 'Hunts for a mob that was not in view kept ending with nothing found. Hunt only mobs you can see, or go where they spawn first.',
 	},
 	'melee-at-low-health': {
-		death: (context) => context.cause.kind === 'melee' && (healthBefore(context, 10_000) ?? 20) <= LOW_HEALTH ? { mob: context.cause.cause } : null,
+		death: (context) => context.cause.kind === 'melee' && MOBS.has(context.cause.cause) && (healthBefore(context, 10_000) ?? 20) <= LOW_HEALTH ? { mob: context.cause.cause } : null,
 		trigger: ({ mob }) => ({ mobs: [mob], lowHealth: true }),
 		text: ({ mob }) => `${cap(a(mob))} killed you after you stayed at low health. At low health, eat or retreat out of reach first; take the fight only after healing.`,
 	},
@@ -156,5 +170,5 @@ export function lessonEntry(candidate) {
 	const seen = [];
 	if (candidate.games > 0) seen.push(`${candidate.count} time${candidate.count === 1 ? '' : 's'} in ${candidate.games} earlier game${candidate.games === 1 ? '' : 's'}`);
 	if (candidate.thisGame > 0) seen.push(`${candidate.thisGame} this game`);
-	return { kind: 'lesson', summary: spec.text(candidate.slots), src: `review: ${seen.join(', ')}` };
+	return { kind: 'lesson', summary: spec.text(candidate.slots), src: `${LESSON_SRC_PREFIX}${seen.join(', ')}` };
 }

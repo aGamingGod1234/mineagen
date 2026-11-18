@@ -17,7 +17,16 @@ export function longProtocolRow(row) {
 	if (['goal_control', 'goal_completion_result', 'advancement_granted', 'entity_killed', 'agent_registered', 'agent_removed'].includes(e.type)) return row;
 	return null;
 }
-export const longTraceRow = row => ['native_model_call', 'native_decision_timing', 'native_token_usage'].includes(row.event) ? row : null;
+export const longTraceRow = row => ['native_model_call', 'native_decision_timing', 'native_token_usage', 'experience_state', 'experience_error'].includes(row.event) ? row : null;
+
+/** What the coordinator actually loaded (experience_state) and any experience error stage, or null when the run had none. */
+export function observedExperience(traceRows) {
+	const state = traceRows.find((row) => row.event === 'experience_state');
+	const errors = traceRows.filter((row) => row.event === 'experience_error').map((row) => ({ stage: row.stage ?? null, code: row.code ?? null }));
+	if (!state && !errors.length) return null;
+	return { loaded: Boolean(state), ...(state ? { mode: state.mode ?? null, frozen: state.frozen ?? null, games: state.games ?? null, lessons: state.lessons ?? null,
+		snapshotSha256: state.snapshotSha256 ?? null, seedHashKnown: state.seedHashKnown ?? null, skippedFiles: state.skippedFiles ?? null } : {}), errors };
+}
 
 export function longMetrics({ traceRows, protocolRows, profile, providerRows = [] }) {
 	const total = spendSeries(traceRows, profile).events.at(-1);
@@ -88,5 +97,5 @@ export async function readLongArtifacts(directory, { profile, windowMs, terminat
 	const metrics = longMetrics({ traceRows, protocolRows, profile, providerRows });
 	const timeline = extractLongRunTimeline({ samples, protocolRows, traceRows, metrics, profile, stopRequest, windowMs,
 		startedAt, authoritativeDragon, termination: outcome?.errorCode ?? runner?.errorCode ?? termination ?? outcome?.termination ?? runner?.classification ?? 'NO_RUNNER_REPORT' });
-	return { timeline, metrics, profile, windowMs, errors, metadata, manifest, runner, outcome };
+	return { timeline, metrics, profile, windowMs, errors, metadata, manifest, runner, outcome, experience: observedExperience(traceRows) };
 }

@@ -71,7 +71,7 @@ test('a death review in one game becomes a lesson the model sees in a later game
 	assert.deepEqual(peeked, lessons);
 	assert.equal(lessons.length, 1);
 	assert.match(lessons[0].summary, /Running from a skeleton in the open/);
-	assert.equal(lessons[0].src, 'review: 1 time in 1 earlier game');
+	assert.equal(lessons[0].src, 'from your past play: 1 time in 1 earlier game');
 	assert.doesNotMatch(JSON.stringify(lessons), /world-one|agent_name|-21|seed-one/);
 	assert.ok(Buffer.byteLength(JSON.stringify(lessons)) < 400);
 	await later.flush();
@@ -82,7 +82,7 @@ test('the lesson is shown on the respawn wake of the game that learned it, and n
 	memory.observe(record, observation('world-one', T0 + 20_000, { hostiles: [] }));
 	const own = (await memory.taskContext(record)).lessons;
 	assert.equal(own.length, 1);
-	assert.equal(own[0].src, 'review: 1 this game');
+	assert.equal(own[0].src, 'from your past play: 1 this game');
 	const sameSeed = new RuntimeMemoryContext({ taskMemory: new TaskMemoryStore({ directory: null }), experience: experience(directory, { MINEAGEN_WORLD_SEED_HASH: 'seed-one' }) });
 	sameSeed.observe(record, observation('world-three', T0 + 200_000, { hostiles: ['skeleton'] }));
 	assert.deepEqual((await sameSeed.taskContext(record)).lessons, []);
@@ -136,7 +136,7 @@ test('a repeated failure becomes a lesson that is shown right after the same fai
 	const lessons = (await later.taskContext(record)).lessons;
 	assert.equal(lessons.length, 1);
 	assert.match(lessons[0].summary, /water ahead/);
-	assert.equal(lessons[0].src, 'review: 1 time in 1 earlier game');
+	assert.equal(lessons[0].src, 'from your past play: 1 time in 1 earlier game');
 	await later.flush();
 }));
 
@@ -263,3 +263,60 @@ test('a replayed death keeps the recording on its own clock', () => withDirector
 	await memory.flush();
 	assert.ok(events.some((event) => event.event === 'experience_lesson_recorded' && event.rule === 'ranged-fled-in-open'), JSON.stringify(events.map((event) => event.rule)));
 }));
+
+test('a player or name-tagged killer is never stored or named, and vanilla phrasings classify', () => {
+	assert.deepEqual(classifyDeath('Agent was slain by Steve'), { cause: 'unknown', kind: 'unknown' });
+	assert.deepEqual(classifyDeath('Agent was shot by Bob using Bow'), { cause: 'unknown', kind: 'unknown' });
+	assert.deepEqual(classifyDeath('Agent tried to swim in lava to escape Zombified Piglin'), { cause: 'lava', kind: 'hazard', escaping: 'zombified_piglin' });
+	assert.deepEqual(classifyDeath('Agent was doomed to fall by Skeleton'), { cause: 'fall', kind: 'hazard', escaping: 'skeleton' });
+	assert.deepEqual(classifyDeath('Agent was killed by Witch using magic'), { cause: 'magic', kind: 'hazard' });
+	const context = { cause: classifyDeath('Agent was slain by Steve'), dimension: 'overworld', running: [], at: 20_000,
+		samples: [{ at: 0, health: 4, edible: 0, hostiles: {} }], results: [{ actionType: 'fight_target', reasonCode: 'LOW_HEALTH_BAILOUT', state: 'FAILED', at: 15_000 }] };
+	assert.doesNotMatch(JSON.stringify(deathLessons(context)), /steve/);
+	assert.match(lessonEntry({ rule: 'lava-while-moving', slots: { dimension: 'the_nether' }, games: 1, count: 1, thisGame: 0 }).summary, /in the Nether\./);
+});
+
+test('only lessons that survive the summary trim count as shown', () => withDirectory(async (directory) => {
+	const events = [];
+	const runtime = createExperience(experienceSettings({ MINEAGEN_EXPERIENCE: 'lessons', MINEAGEN_EXPERIENCE_DIR: directory, MINEAGEN_EXPERIENCE_PROFILE: 'p' }), { trace: (event, fields) => events.push({ event, ...fields }) });
+	runtime.observe('agent-a', 'world-one', observation('world-one', T0, { hostiles: ['skeleton', 'zombie'], health: 6, edible: 0 }), T0);
+	runtime.noteDispatch('agent-a', { actionId: 'flee-1', actionType: 'flee_from' });
+	await runtime.observe('agent-a', 'world-one', { death: { cause: 'x was shot by Skeleton', dimensionId: 'minecraft:overworld', diedAtEpochMs: T0 + 15_000 } }, T0 + 15_000);
+	runtime.observe('agent-a', 'world-one', observation('world-one', T0 + 20_000, { hostiles: ['skeleton'], health: 6, edible: 0 }), T0 + 20_000);
+	const shown = await runtime.lessonsFor('agent-a');
+	assert.ok(shown.length >= 2);
+	// The byte trim kept only the last lesson: only that one counts.
+	runtime.markShown('agent-a', 1);
+	await runtime.flush();
+	const counted = events.filter((event) => event.event === 'experience_lessons_shown').flatMap((event) => event.lessonIds);
+	assert.equal(counted.length, 1);
+}));
+
+test('the receipt refresh after a death builds the same summary with experience off, and only adds lessons with it on', () => withDirectory(async (directory) => {
+	const build = async (memory) => {
+		const death = { cause: 'x was slain by Zombie', dimensionId: 'minecraft:overworld', x: 10, y: 64, z: -20, diedAtEpochMs: T0 + 1_000 };
+		memory.observe(record, observation('world-one', T0));
+		memory.observe(record, { death }, { recoveryDeath: death });
+		memory.observe(record, observation('world-one', T0 + 5_000), { recoveryDeath: death });
+		await memory.recordDispatch(record, { actionId: 'place-1', actionType: 'place_block', goalRevision: 1, arguments: { x: 11, y: 64, z: -20, face: 'up', itemId: 'minecraft:crafting_table' } });
+		await memory.recordResult(record, { actionId: 'place-1', goalRevision: 1, state: 'SUCCEEDED', reasonCode: 'BLOCK_PLACED', observedAtEpochMs: T0 + 6_000 });
+		await memory.flush();
+		return memory.peekTaskContext(record);
+	};
+	const plain = await build(new RuntimeMemoryContext({ taskMemory: new TaskMemoryStore({ directory: null }) }));
+	const off = await build(new RuntimeMemoryContext({ taskMemory: new TaskMemoryStore({ directory: null }), experience: createExperience(experienceSettings({})) }));
+	const on = await build(new RuntimeMemoryContext({ taskMemory: new TaskMemoryStore({ directory: null }), experience: experience(directory) }));
+	assert.equal(plain.assets.length, 1, 'the receipt refresh ran');
+	assert.deepEqual(off, plain);
+	const withoutLessons = ({ lessons, ...rest }) => rest;
+	assert.deepEqual(withoutLessons(on), withoutLessons(plain));
+}));
+
+test('long-run reports keep what the coordinator actually loaded', async () => {
+	const { longTraceRow, observedExperience } = await import('../src/benchmark/long-run-artifacts.mjs');
+	const rows = [{ event: 'experience_state', mode: 'lessons', frozen: true, games: 3, lessons: 5, snapshotSha256: 'a'.repeat(64), seedHashKnown: true, skippedFiles: 0 },
+		{ event: 'experience_error', stage: 'flush', code: 'EACCES' }, { event: 'native_model_call' }, { event: 'something_else' }].map(longTraceRow).filter(Boolean);
+	assert.equal(rows.length, 3);
+	assert.deepEqual(observedExperience(rows), { loaded: true, mode: 'lessons', frozen: true, games: 3, lessons: 5, snapshotSha256: 'a'.repeat(64), seedHashKnown: true, skippedFiles: 0, errors: [{ stage: 'flush', code: 'EACCES' }] });
+	assert.equal(observedExperience([{ event: 'native_model_call' }]), null);
+});

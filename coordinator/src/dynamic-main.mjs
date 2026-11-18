@@ -3700,6 +3700,8 @@ export class DynamicCoordinator extends EventEmitter {
 			await this.#playerMemory.recordDispatch(this.#registry.assertCurrentRevision(agentId, payload.goalRevision), payload);
 		}
 		if (kind === 'native' && type === 'action_command') {
+			// Native actions journal straight to the notebook; the experience review still needs to see them start.
+			this.#playerMemory.noteDispatch(agentId, payload);
 			if (!this.#isConnectionEpochCurrent(connectionEpoch)) throw codedRuntimeError('STALE_SESSION', 'Action belongs to an obsolete connection');
 			const record = this.#registry.assertCurrentRevision(agentId, payload.goalRevision);
 			if (!this.#nativeRuntime.hasCurrent(record)) {

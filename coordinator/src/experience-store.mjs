@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { AtomicAgentStore } from './observed-memory-store.mjs';
+import { validSlots } from './experience-lessons.mjs';
 
 // Experience that outlives one world: one player profile's lessons, written by the coordinator's own review of
 // deaths and failures (never by the model), and read back in later games by situation.
@@ -13,7 +14,8 @@ import { AtomicAgentStore } from './observed-memory-store.mjs';
 
 export const EXPERIENCE_MODES = Object.freeze(['off', 'lessons']);
 const VERSION = 1;
-// A bound on what one load reads, not a carry window: every game up to it is read, so a resumed game is always found.
+// A bound on what one load reads, not a carry window: below it every game is read, so a resumed game is found.
+// Past it, load reads an arbitrary subset (names are hashes) and a resumed game may restart empty.
 const MAX_GAME_FILES = 2000;
 const MAX_LESSONS_PER_GAME = 32;
 const HASH_SALT = 'mineagen-experience-v1';
@@ -50,8 +52,11 @@ export function experienceSettings(environment = process.env) {
  */
 export function normalizeSeedHash(value) {
 	if (typeof value !== 'string' || value.trim().length === 0) return null;
-	const text = value.trim();
-	return SEED_HASH.test(text) ? text : `s1-${experienceHash(`seed:${text}`)}`;
+	let text = value.trim();
+	if (SEED_HASH.test(text)) return text;
+	// One seed, one hash: "00042", "+42" and "42" name the same numeric seed.
+	if (/^[-+]?\d+$/.test(text)) text = BigInt(text).toString();
+	return `s1-${experienceHash(`seed:${text}`)}`;
 }
 
 export class ExperienceStore {
@@ -115,6 +120,7 @@ export class ExperienceStore {
 		requireHash(gameHash);
 		if (typeof id !== 'string' || id.length > 160 || typeof rule !== 'string' || !SLOT.test(rule)) throw new TypeError('lesson id and rule are required');
 		for (const value of Object.values(slots)) if (typeof value !== 'string' || !SLOT.test(value)) throw new TypeError('lesson slots must be vocabulary ids');
+		if (!validSlots(slots)) throw new TypeError('lesson slots must be vocabulary ids');
 		const game = this.#game(gameHash);
 		const existing = game.lessons[id];
 		if (existing === undefined && Object.keys(game.lessons).length >= MAX_LESSONS_PER_GAME) return 0;
@@ -140,13 +146,15 @@ export class ExperienceStore {
 	}
 
 	/**
-	 * Lessons available in this game: earlier games' lessons (never from an excluded or the current seed) and this
-	 * game's own. Each comes with its evidence counts. Side-effect free.
+	 * Lessons available in this game: earlier games' lessons and this game's own, each with its evidence counts.
+	 * Carry needs both seeds known: a game with no seed hash neither receives carried lessons nor lends its own, so a
+	 * lesson can never load on its origin seed or an excluded seed unnoticed. Side-effect free.
 	 */
 	candidates(gameHash) {
 		requireHash(gameHash);
 		const blocked = new Set(this.#settings.excludedSeedHashes);
-		if (this.#settings.seedHash !== null) blocked.add(this.#settings.seedHash);
+		const carryAllowed = this.#settings.seedHash !== null;
+		if (carryAllowed) blocked.add(this.#settings.seedHash);
 		const carried = new Map();
 		// Earlier games: the snapshot read at load, plus games this process played before a world change.
 		for (const game of [...this.#games.values(), ...this.#current.values()]) {
@@ -154,7 +162,7 @@ export class ExperienceStore {
 			for (const [id, lesson] of Object.entries(game.lessons)) {
 				const entry = carried.get(id) ?? { id, rule: lesson.rule, slots: lesson.slots, games: 0, count: 0, shownGames: 0, repeatsAfterShown: 0, blocked: false };
 				entry.games += 1; entry.count += lesson.count; entry.repeatsAfterShown += lesson.repeatsAfterShown ?? 0;
-				if (game.seedHash !== null && blocked.has(game.seedHash)) entry.blocked = true;
+				if (!carryAllowed || game.seedHash === null || blocked.has(game.seedHash)) entry.blocked = true;
 				carried.set(id, entry);
 			}
 			for (const id of Object.keys(game.shown)) { const entry = carried.get(id); if (entry) entry.shownGames += 1; }
@@ -186,7 +194,9 @@ function validGame(value) {
 	const lessons = {}, shown = {};
 	for (const [id, lesson] of Object.entries(value.lessons ?? {}).slice(0, MAX_LESSONS_PER_GAME)) {
 		if (id.length > 160 || typeof lesson?.rule !== 'string' || !SLOT.test(lesson.rule) || !Number.isSafeInteger(lesson.count) || lesson.count < 1) continue;
-		const slots = Object.fromEntries(Object.entries(lesson.slots ?? {}).filter(([, slot]) => typeof slot === 'string' && SLOT.test(slot)));
+		const slots = Object.fromEntries(Object.entries(lesson.slots ?? {}).filter(([key, slot]) => typeof slot === 'string' && SLOT.test(slot)));
+		// A slot outside its vocabulary (a player or name-tagged mob from an older file) drops the lesson.
+		if (!validSlots(slots)) continue;
 		lessons[id] = { rule: lesson.rule, slots, count: lesson.count, firstAtMs: lesson.firstAtMs ?? null, lastAtMs: lesson.lastAtMs ?? null,
 			...(Number.isSafeInteger(lesson.repeatsAfterShown) && lesson.repeatsAfterShown > 0 ? { repeatsAfterShown: lesson.repeatsAfterShown } : {}) };
 	}

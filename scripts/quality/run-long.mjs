@@ -158,7 +158,7 @@ export async function runLong(options, { execute = runScenarios } = {}) {
 	const report = { schemaVersion: 1, benchmark: 'long-run', budgetPolicy: isStrictBudget(options) ? STRICT_BUDGET_POLICY : OBSERVER_BUDGET_POLICY, runId, seed: definition.seed, goal: definition.goal, windowMs: options.windowMs, profile, build: { commit: build.commit ?? null, jar: results?.jar ?? null, coordinatorSha256: results?.coordinatorSha256 ?? null },
 		definition, termination: run?.termination ?? null, measurementStatus: run?.measurementStatus ?? 'UNAVAILABLE', observerErrors: [...(run?.observerErrors ?? []), ...(evidence?.errors ?? [])], diagnostics: run?.diagnostics ?? null, stopRequest: run?.stopRequest ?? null, failure: failure?.message ?? null,
 		// Memory state on every round row: off, or the profile hash, frozen flag and this game's seed hash.
-		experience: experienceRow(options.experience, definition.seed),
+		experience: { ...experienceRow(options.experience, definition.seed), observed: evidence?.experience ?? null },
 		spend, ledger: { file: options.ledger, capUsd: options.capUsd, reservedForRunUsd: reserveUsd, stopAtUsd, ...totals }, timeline, artifacts: run?.artifacts ?? null, capturedAt: new Date().toISOString() };
 	await writeArtifactReport(path.join(options.out, 'long-run.json'), report);
 	report.stageScore = await scoreStageRun(options.out, { rawDirectory: run?.artifacts }).catch(error => ({ error: error.message }));
@@ -183,7 +183,8 @@ export async function regenerateLongReport(directory, out) {
 		termination: outcome?.errorCode ?? runner?.errorCode ?? outcome?.termination ?? runner?.classification ?? 'NO_RUNNER_REPORT', diagnostics: outcome?.diagnostics ?? runner?.diagnostics ?? null, failure: null,
 		measurementStatus: evidence.errors.length ? 'INCOMPLETE' : 'OBSERVER_ESTIMATE', observerErrors: evidence.errors,
 		spend: prior?.spend ?? { usd: metrics.costEstimateUsd, meteredUsd: null, reservedUsd: null }, ledger: prior?.ledger ?? { committedUsd: null, capUsd: null },
-		artifacts: directory, budgetPolicy: prior?.budgetPolicy ?? OBSERVER_BUDGET_POLICY };
+		artifacts: directory, budgetPolicy: prior?.budgetPolicy ?? OBSERVER_BUDGET_POLICY,
+		experience: { ...(prior?.experience ?? { mode: 'unknown' }), observed: evidence.experience } };
 	report.stageScore = await scoreStageRun(out, { rawDirectory: directory });
 	report.ending = report.stageScore.ending;
 	report.operatorStop = report.ending?.operatorStop ?? null;

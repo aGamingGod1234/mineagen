@@ -5,6 +5,7 @@ import { TaskMemoryStore } from './task-memory-store.mjs';
 import { normalizeMinecraftToolCall } from './native-minecraft-tools.mjs';
 import { validateAction } from './schema.mjs';
 import { defaultServiceTier } from './constants.mjs';
+import { LESSON_SRC_PREFIX } from './experience-lessons.mjs';
 
 const TERMINAL_STATES = new Set(['SUCCEEDED', 'FAILED', 'CANCELLED', 'TIMED_OUT']);
 const AUTHOR_FIELDS = ['provider', 'model', 'reasoningEffort', 'serviceTier'];
@@ -27,14 +28,16 @@ export class RuntimeMemoryContext {
 		for (const method of ['observe', 'summary', 'query', 'remember', 'flush']) if (typeof taskMemory?.[method] !== 'function') throw new TypeError(`taskMemory.${method} is required`);
 		this.#tasks = taskMemory;
 		this.#sessionId = boundedText(sessionId, 'sessionId', 128);
-		for (const method of ['observe', 'noteDispatch', 'noteResult', 'lessonsFor', 'flush']) if (experience !== null && typeof experience?.[method] !== 'function') throw new TypeError(`experience.${method} is required`);
+		for (const method of ['observe', 'noteDispatch', 'noteResult', 'lessonsFor', 'markShown', 'flush']) if (experience !== null && typeof experience?.[method] !== 'function') throw new TypeError(`experience.${method} is required`);
 		this.#experience = experience;
 	}
 	/** Summary options with this agent's matching lessons; without experience, exactly today's options. */
-	async #summaryOptions(agentId, recoveryDeath, markShown = false) {
+	async #summaryOptions(agentId, recoveryDeath) {
 		if (this.#experience === null) return { recoveryDeath };
-		return { recoveryDeath, extraLessons: await this.#experience.lessonsFor(agentId, { markShown }) };
+		return { recoveryDeath, extraLessons: await this.#experience.lessonsFor(agentId) };
 	}
+	/** An action sent outside recordDispatch (native tools journal straight to the notebook) still reaches the review. */
+	noteDispatch(agentId, { actionId, actionType } = {}) { this.#experience?.noteDispatch(agentId, { actionId, actionType }); }
 	get notebook() { return this.#notebook; }
 	get sessionId() { return this.#sessionId; }
 
@@ -81,8 +84,9 @@ export class RuntimeMemoryContext {
 		await this.#taskPending.get(record.agentId);
 		const context = this.#contexts.get(record.agentId);
 		if (context?.goalRevision !== record.goalRevision || !context?.dimension || context.worldId.startsWith('session:')) return null;
-		// This summary goes into a model turn, so the lessons in it count as shown.
-		const summary = await this.#tasks.summary({ agentId: record.agentId, ...context }, await this.#summaryOptions(record.agentId, this.#recoveryDeaths.get(record.agentId), true));
+		const summary = await this.#tasks.summary({ agentId: record.agentId, ...context }, await this.#summaryOptions(record.agentId, this.#recoveryDeaths.get(record.agentId)));
+		// This summary goes into a model turn: the review lessons that survived the byte trim count as shown.
+		if (this.#experience !== null) this.#experience.markShown(record.agentId, summary.lessons.filter((lesson) => typeof lesson?.src === 'string' && lesson.src.startsWith(LESSON_SRC_PREFIX)).length);
 		this.#taskContexts.set(record.agentId, summary);
 		return summary;
 	}
@@ -206,7 +210,9 @@ export class RuntimeMemoryContext {
 			const pending = Promise.resolve(this.#taskPending.get(agentId)).catch(() => {}).then(async () => {
 				const changed = await this.#tasks.recordReceipt(scope, { ...terminal, observedAtEpochMs: source.observedAtEpochMs });
 				const current = this.#contexts.get(agentId);
-				if (changed && current?.worldId === scope.worldId && current?.dimension === scope.dimension) this.#taskContexts.set(agentId, await this.#tasks.summary({ agentId, ...current }, await this.#summaryOptions(agentId, this.#recoveryDeaths.get(agentId))));
+				// As on main, this refresh passes no recovery death; experience adds only its lessons.
+				if (changed && current?.worldId === scope.worldId && current?.dimension === scope.dimension) this.#taskContexts.set(agentId, this.#experience === null
+					? await this.#tasks.summary({ agentId, ...current }) : await this.#tasks.summary({ agentId, ...current }, await this.#summaryOptions(agentId, null)));
 			});
 			this.#taskPending.set(agentId, pending);
 			await pending;

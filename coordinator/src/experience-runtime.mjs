@@ -1,5 +1,5 @@
 import { ExperienceStore, experienceHash } from './experience-store.mjs';
-import { LESSON_RULES, deathLessons, failureLessons, lessonEntry, situationScore } from './experience-lessons.mjs';
+import { LESSON_RULES, MOBS, deathLessons, failureLessons, lessonEntry, situationScore } from './experience-lessons.mjs';
 
 // The coordinator's own review of deaths and failures, and the read path back into the model's task memory summary.
 // No model call: the review reads a short recent history kept from observations and action results the coordinator
@@ -24,9 +24,12 @@ export function createExperience(settings, { trace = null, store = null } = {}) 
 /** Normalises a vanilla death message to a cause without keeping the message, which starts with the player's name. */
 export function classifyDeath(message) {
 	const text = typeof message === 'string' ? message : '';
-	const suffix = / (?:while|whilst) (?:trying to escape|fighting) ([A-Z][A-Za-z ]{1,40}?)(?: using .*)?$/.exec(text);
+	// "whilst trying to escape X", "whilst fighting X" and lava's "to escape X"; "was doomed to fall by X" is a fall.
+	const suffix = / (?:(?:while|whilst) (?:trying to escape|fighting)|to escape) ([A-Z][A-Za-z ]{1,40}?)(?: using .*)?$/.exec(text)
+		?? / was doomed to fall by ([A-Z][A-Za-z ]{1,40}?)(?: using .*)?$/.exec(text);
 	const escaping = suffix ? mobId(suffix[1]) : null;
-	const base = suffix ? text.slice(0, suffix.index) : text;
+	const base = suffix ? text.slice(0, suffix.index) + (suffix[0].includes('doomed to fall') ? ' fell from a high place' : '') : text;
+	if (/ using magic$/.test(base)) return { cause: 'magic', kind: 'hazard', ...(escaping ? { escaping } : {}) };
 	const rules = [
 		[/was shot by ([A-Z][A-Za-z ]{1,40}?)(?: using .*)?$/, 'shot'],
 		[/was fireballed by ([A-Z][A-Za-z ]{1,40}?)(?: using .*)?$/, 'fireball'],
@@ -49,9 +52,10 @@ export function classifyDeath(message) {
 	return { cause: 'unknown', kind: 'unknown', ...(escaping ? { escaping } : {}) };
 }
 
+/** A vanilla mob id, or null for anything else (a player or a name-tagged mob). */
 function mobId(name) {
 	const id = name.trim().toLowerCase().replace(/\s+/g, '_');
-	return /^[a-z_]{2,40}$/.test(id) ? id : null;
+	return MOBS.has(id) ? id : null;
 }
 
 /** A compact, coordinate-free sample of what the body perceived. */
@@ -205,13 +209,28 @@ export class ExperienceRuntime {
 	}
 
 	/**
-	 * The lessons to show now, as task memory lesson entries, best match first, at most MAX_SHOWN_LESSONS.
-	 * `markShown` counts their exposure; pass it only where the summary goes to the model.
+	 * Counts exposure for the last `count` lessons returned by lessonsFor: the summary's byte trim drops lessons from
+	 * the front, so these are the ones that reached the model. Call only where the summary goes to the model.
 	 */
+	markShown(agentId, count, at = undefined) {
+		try {
+			const agent = this.#agents.get(agentId);
+			if (!agent?.game || this.#failed !== null || !(count > 0)) return;
+			at ??= agent.clock ?? Date.now();
+			const ranked = (agent.lastRanked ?? []).slice(-count);
+			if (!ranked.length) return;
+			const first = this.#store.markShown(agent.game, ranked.map((entry) => entry.id), at);
+			const fresh = ranked.filter((entry) => !agent.shown.has(entry.id));
+			for (const entry of fresh) agent.shown.add(entry.id);
+			if (fresh.length) this.#emit('experience_lessons_shown', { lessonIds: fresh.map((entry) => entry.id), carried: fresh.filter((entry) => entry.games > 0).length, firstInGame: first.length });
+		} catch (error) { this.#fail('shown', error); }
+	}
+
+	/** The lessons to show now, as task memory lesson entries, best match first, at most MAX_SHOWN_LESSONS. Side-effect free. */
 	async lessonsFor(agentId, options = {}) {
 		try { return await this.#lessonsFor(agentId, options); } catch (error) { this.#fail('read', error); return []; }
 	}
-	async #lessonsFor(agentId, { markShown = false, at = undefined } = {}) {
+	async #lessonsFor(agentId, { at = undefined } = {}) {
 		await this.#ready;
 		const agent = this.#agents.get(agentId);
 		if (agent?.game == null || this.#failed !== null) return [];
@@ -225,12 +244,7 @@ export class ExperienceRuntime {
 			// One lesson per mob: the best supported one says enough.
 			.filter((candidate, index, all) => candidate.slots.mob === undefined || all.findIndex((other) => other.slots.mob === candidate.slots.mob) === index)
 			.slice(0, MAX_SHOWN_LESSONS);
-		if (markShown && ranked.length) {
-			const first = this.#store.markShown(agent.game, ranked.map((entry) => entry.id), at);
-			const fresh = ranked.filter((entry) => !agent.shown.has(entry.id));
-			for (const entry of fresh) agent.shown.add(entry.id);
-			if (fresh.length) this.#emit('experience_lessons_shown', { lessonIds: fresh.map((entry) => entry.id), carried: fresh.filter((entry) => entry.games > 0).length, firstInGame: first.length });
-		}
+		agent.lastRanked = ranked;
 		return ranked.map(lessonEntry);
 	}
 
