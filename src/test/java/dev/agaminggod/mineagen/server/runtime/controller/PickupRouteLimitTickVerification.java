@@ -32,7 +32,8 @@ import net.minecraft.world.phys.Vec3;
  * pick_up_item's walk limit through the controller's own tick (issue #2 K3), with a stub body, level and drop and no
  * physics. The walk is handed a planned route and hands back at its first check, so the stub level never plans; what is
  * under test is the pickup's budget: a route longer than the straight line raises the walk limit, the walk keeps going
- * past the straight line's limit, and the timeout names the route it was given time for.
+ * past the straight line's limit, and the timeout names the route it was given time for. A straight route through
+ * cobwebs, read through a real navigation world, gets its walking time over that ground instead of the length limit.
  */
 public final class PickupRouteLimitTickVerification {
 	private static final long TIMEOUT_MS = 30_000L;
@@ -65,6 +66,7 @@ public final class PickupRouteLimitTickVerification {
 		try {
 			verifyLedgeRoute();
 			verifyStraightRoute();
+			verifyCobwebRoute();
 		} finally {
 			components.set(holder, original);
 		}
@@ -118,11 +120,76 @@ public final class PickupRouteLimitTickVerification {
 				"the straight line's timeout names only the distance: " + late.message());
 	}
 
+	/** A drop 8 blocks off along a straight row of cobwebs: well under a block a second, so the length limit runs out first. */
+	private static void verifyCobwebRoute() throws Exception {
+		Vec3 drop = new Vec3(8.5D, 64.0D, 0.5D);
+		List<GridPosition> row = new ArrayList<>();
+		for (int x = 1; x <= 8; x++) row.add(new GridPosition(x, 64, 0));
+		long lengthLimit = PickupBudget.walkLimitMs(8.0D, TIMEOUT_MS);
+
+		Fixture fixture = cobwebFixture(drop, row, TIMEOUT_MS);
+		ServerNavigationController walk = (ServerNavigationController) get(fixture.pickup, "navigation");
+		double seconds = walk.plannedTravelSeconds();
+		check(seconds > 10.0D, "the walk's own estimate reads the cobwebs as slow ground: " + seconds + " s for 8 blocks");
+		ServerController.TickResult first = fixture.pickup.tick(fixture.player, 50L);
+		check("UNSUPPORTED_NAVIGATION_MODE".equals(first.reasonCode()), "the walk got its tick and handed back at its first check: " + first);
+		long limit = (Long) get(fixture.pickup, "walkLimitMs");
+		System.out.printf("K3 tick metric: 8 blocks of cobweb, %.1f s to walk: controller walk limit %.1f s (length alone %.1f s)%n",
+				seconds, limit / 1000.0D, lengthLimit / 1000.0D);
+		check(limit == PickupBudget.BASE_MS + Math.round(seconds * 1_000.0D), "the controller's walk limit is the route's walking time plus the base: " + limit + " ms");
+
+		ServerController.TickResult past = fixture.pickup.tick(fixture.player, lengthLimit + 50L);
+		check("UNSUPPORTED_NAVIGATION_MODE".equals(past.reasonCode()), "past the length limit an uninterrupted cobweb walk still runs: " + past);
+
+		ServerController.TickResult late = fixture.pickup.tick(fixture.player, limit + 50L);
+		check("ITEM_PICKUP_TIMED_OUT".equals(late.reasonCode()) && late.message().contains(String.format(java.util.Locale.ROOT,
+				"by its 8.0-block planned route (about %.1f s to walk over its ground) within the %.1f s pickup walk limit", seconds, limit / 1000.0D)),
+				"past the route's walking time the pickup times out naming it: " + late.message());
+
+		Fixture capped = cobwebFixture(drop, row, 10_000L);
+		capped.pickup.tick(capped.player, 50L);
+		check((Long) get(capped.pickup, "walkLimitMs") == 10_000L, "a slow route never passes the call's own timeout");
+	}
+
+	/** {@link #fixture} with cobwebs along the route, seen, as the walk's navigation world reads them. */
+	private static Fixture cobwebFixture(Vec3 dropAt, List<GridPosition> route, long timeoutMs) throws Exception {
+		Fixture fixture = fixture(dropAt, route, timeoutMs);
+		CobwebTerrain terrain = new CobwebTerrain(route);
+		set(get(fixture.pickup, "navigation"), "navigationWorld", new MinecraftNavigationWorld(terrain,
+				new dev.agaminggod.mineagen.server.perception.SeenTerrain.Reader<>(new dev.agaminggod.mineagen.server.perception.SeenTerrain.Memory<>(), terrain, 1L, null)));
+		return fixture;
+	}
+
+	/** Stone floor, cobweb in each route cell, air above; all of it in sight. */
+	private static final class CobwebTerrain implements net.minecraft.world.level.BlockGetter,
+			dev.agaminggod.mineagen.server.perception.SeenTerrain.Source<BlockState> {
+		private final java.util.Set<BlockPos> webs = new java.util.HashSet<>();
+
+		CobwebTerrain(List<GridPosition> route) {
+			for (GridPosition cell : route) webs.add(new BlockPos(cell.x(), cell.y(), cell.z()));
+		}
+
+		@Override public net.minecraft.world.level.block.entity.BlockEntity getBlockEntity(BlockPos position) { return null; }
+		@Override public BlockState getBlockState(BlockPos position) {
+			if (position.getY() < 64) return Blocks.STONE.defaultBlockState();
+			return webs.contains(position) ? Blocks.COBWEB.defaultBlockState() : Blocks.AIR.defaultBlockState();
+		}
+		@Override public FluidState getFluidState(BlockPos position) { return getBlockState(position).getFluidState(); }
+		@Override public int getHeight() { return 384; }
+		@Override public int getMinY() { return -64; }
+		@Override public BlockState live(int x, int y, int z) { return getBlockState(new BlockPos(x, y, z)); }
+		@Override public boolean sees(int x, int y, int z) { return true; }
+	}
+
 	private record Fixture(PickupPlayer player, ServerItemPickupController pickup) {
 	}
 
 	/** A pickup whose walk already has this route planned toward the drop. */
 	private static Fixture fixture(Vec3 dropAt, List<GridPosition> route) throws Exception {
+		return fixture(dropAt, route, TIMEOUT_MS);
+	}
+
+	private static Fixture fixture(Vec3 dropAt, List<GridPosition> route, long timeoutMs) throws Exception {
 		PickupPlayer player = player();
 		Drop drop = (Drop) unsafe.allocateInstance(Drop.class);
 		drop.fixtureLevel = player.fixtureLevel;
@@ -131,9 +198,9 @@ public final class PickupRouteLimitTickVerification {
 		put(drop, Entity.class, "position", dropAt);
 		put(drop, Entity.class, "bb", new AABB(dropAt.x - 0.125D, dropAt.y, dropAt.z - 0.125D, dropAt.x + 0.125D, dropAt.y + 0.25D, dropAt.z + 0.125D));
 		dev.agaminggod.mineagen.server.perception.ObservedDrops.remember(player, drop);
-		ServerItemPickupController pickup = new ServerItemPickupController(player, drop, 0L, TIMEOUT_MS);
+		ServerItemPickupController pickup = new ServerItemPickupController(player, drop, 0L, timeoutMs);
 
-		ServerNavigationController walk = ServerItemPickupController.walk(dropAt, new AABB(dropAt, dropAt).inflate(1.0D), 0L, TIMEOUT_MS, 0, false,
+		ServerNavigationController walk = ServerItemPickupController.walk(dropAt, new AABB(dropAt, dropAt).inflate(1.0D), 0L, timeoutMs, 0, false,
 				false, HERE.y);
 		// A found plan starts at the body's own cell, as the planner's do; it adds nothing to the route's length.
 		List<PathNode> nodes = new ArrayList<>();

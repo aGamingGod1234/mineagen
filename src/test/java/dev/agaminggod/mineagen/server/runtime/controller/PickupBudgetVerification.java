@@ -10,7 +10,8 @@ import net.minecraft.world.phys.Vec3;
  * pick_up_item's walk budget (issue #2 K3), server-free. Metric: worst-case seconds a doomed pickup walk runs before it
  * hands back. A walk that stalls, gains a little after each replan and stalls again ran four 4 s stall windows on the
  * shared budget (16 s, recorded PATH_BLOCKED p50 17.8 s); pass bar 7 s or less. A walk that keeps creeping without
- * arriving is capped by distance (was the call's 30 s); pass bar 10 s or less for a drop within 10 blocks.
+ * arriving is capped by distance (was the call's 30 s); pass bar 10 s or less for a drop within 10 blocks. A route over
+ * slow ground (cobwebs) gets at least its estimated walking time plus the base, within the call's timeout.
  */
 public final class PickupBudgetVerification {
 	private static final long TICK_MS = 50L;
@@ -77,14 +78,28 @@ public final class PickupBudgetVerification {
 		for (int z = 11; z >= 0; z--) ledge.add(new GridPosition(8, 67, z));
 		double blocks = PickupBudget.routeBlocks(0.5D, 64.0D, 0.5D, ledge);
 		long start = PickupBudget.walkLimitMs(8.0D, 30_000L);
-		long limit = PickupBudget.routeLimitMs(start, blocks, 30_000L);
+		long limit = PickupBudget.routeLimitMs(start, blocks, Double.NaN, 30_000L);
 		System.out.printf("K3 metric: ledge drop 8 blocks off, %.0f blocks of route: walk limit %.1f s (straight line gave %.1f s)%n", blocks, limit / 1000.0D,
 				start / 1000.0D);
 		check(blocks > 30.0D && limit == PickupBudget.walkLimitMs(blocks, 30_000L) && limit > blocks / 4.3D * 1_000L * 2.0D,
 				"the route's length sets the limit, with room for a detour: " + limit);
-		check(PickupBudget.routeLimitMs(start, 3.0D, 30_000L) == start, "a route shorter than the straight line never shortens the limit");
-		check(PickupBudget.routeLimitMs(start, 200.0D, 30_000L) == 30_000L, "never past the call's own timeout");
+		check(PickupBudget.routeLimitMs(start, 3.0D, Double.NaN, 30_000L) == start, "a route shorter than the straight line never shortens the limit");
+		check(PickupBudget.routeLimitMs(start, 200.0D, Double.NaN, 30_000L) == 30_000L, "never past the call's own timeout");
 		check(PickupBudget.routeBlocks(0.5D, 64.0D, 0.5D, List.of()) == 0.0D, "no route, no length");
+
+		// Ground speed: open ground walks well inside 0.6 s a block, so a doomed walk there still hands back by length;
+		// 8 blocks of cobweb take longer than the whole length limit, so the route's walking time gives the walk its time.
+		double open = dev.agaminggod.mineagen.client.navigation.MovementCosts.seconds(8.0D, 1.0D, false);
+		check(PickupBudget.routeLimitMs(start, 8.0D, open, 30_000L) == start, "open ground keeps the length limit: " + open + " s to walk");
+		double cobweb = dev.agaminggod.mineagen.client.navigation.MovementCosts.seconds(8.0D,
+				dev.agaminggod.mineagen.client.navigation.MovementCosts.cobwebSpeedMultiplier(false), false);
+		long webLimit = PickupBudget.routeLimitMs(start, 8.0D, cobweb, 30_000L);
+		System.out.printf("K3 metric: 8 blocks of cobweb, %.1f s to walk: walk limit %.1f s (length alone gave %.1f s)%n", cobweb, webLimit / 1000.0D,
+				start / 1000.0D);
+		check(cobweb * 1_000.0D > start && webLimit == PickupBudget.BASE_MS + Math.round(cobweb * 1_000.0D),
+				"a slow route's walking time plus the base sets the limit: " + webLimit + " ms for " + cobweb + " s");
+		check(PickupBudget.routeLimitMs(start, 8.0D, cobweb, 10_000L) == 10_000L, "a slow route never passes the call's own timeout");
+		check(PickupBudget.routeLimitMs(start, 8.0D, 0.0D, 30_000L) == start, "a route with no walking time keeps the limit");
 	}
 
 	/** The walk the controller starts runs on the pickup's stall budget, over seen cells only (not the shared 4 s and three replans). */

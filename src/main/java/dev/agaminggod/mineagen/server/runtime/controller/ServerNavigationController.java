@@ -473,6 +473,14 @@ public final class ServerNavigationController implements ServerController {
 		return route;
 	}
 
+	/**
+	 * The planned route's estimated walking time over the ground it plans on (cobwebs and soul sand are slow), without
+	 * sprinting, NaN before a plan exists. Read-only.
+	 */
+	public double plannedTravelSeconds() {
+		return plan == null || navigationWorld == null ? Double.NaN : plan.estimatedTravelSeconds(navigationWorld, false);
+	}
+
 	@Override
 	public void cancel(ServerPlayer player) {
 		discardPlanning();

@@ -26,12 +26,12 @@ public final class ServerItemPickupController implements ServerController {
 	private final long timeoutMs;
 	/**
 	 * The walk's own limit ({@link PickupBudget}), within timeoutMs: from the drop's distance at the start, then from the
-	 * first planned route's length when that is longer.
+	 * first planned route's length or estimated walking time when that is longer.
 	 */
 	private long walkLimitMs;
 	private boolean routeKnown;
-	/** The first planned route's length when it raised walkLimitMs, else NaN. */
-	private double limitRouteBlocks = Double.NaN;
+	/** The first planned route's length and estimated walking time when it raised walkLimitMs, else NaN. */
+	private double limitRouteBlocks = Double.NaN, limitRouteSeconds = Double.NaN;
 	private final double startDistance;
 	/** Replans the walks of this pickup have used; a walk planned again for a moved drop gets only what is left. */
 	private int replansSpent;
@@ -95,8 +95,10 @@ public final class ServerItemPickupController implements ServerController {
 							? String.format(java.util.Locale.ROOT, "The player could not physically reach the dropped item %.1f blocks away within the %.1f s pickup walk limit",
 									startDistance, walkLimitMs / 1000.0D)
 							: String.format(java.util.Locale.ROOT,
-									"The player could not physically reach the dropped item %.1f blocks away by its %.1f-block planned route within the %.1f s pickup walk limit",
-									startDistance, limitRouteBlocks, walkLimitMs / 1000.0D));
+									"The player could not physically reach the dropped item %.1f blocks away by its %.1f-block planned route%s within the %.1f s pickup walk limit",
+									startDistance, limitRouteBlocks, Double.isNaN(limitRouteSeconds) ? ""
+											: String.format(java.util.Locale.ROOT, " (about %.1f s to walk over its ground)", limitRouteSeconds),
+									walkLimitMs / 1000.0D));
 			case RUNNING -> approach(player, nowEpochMs, elapsedMs);
 		};
 	}
@@ -141,8 +143,12 @@ public final class ServerItemPickupController implements ServerController {
 		if (!routeKnown && !navigation.plannedRoute().isEmpty()) {
 			routeKnown = true;
 			double routeBlocks = PickupBudget.routeBlocks(player.getX(), player.getY(), player.getZ(), navigation.plannedRoute());
-			long routeLimitMs = PickupBudget.routeLimitMs(walkLimitMs, routeBlocks, timeoutMs);
-			if (routeLimitMs > walkLimitMs) limitRouteBlocks = routeBlocks;
+			double routeSeconds = navigation.plannedTravelSeconds();
+			long routeLimitMs = PickupBudget.routeLimitMs(walkLimitMs, routeBlocks, routeSeconds, timeoutMs);
+			if (routeLimitMs > walkLimitMs) {
+				limitRouteBlocks = routeBlocks;
+				limitRouteSeconds = routeLimitMs > PickupBudget.walkLimitMs(routeBlocks, timeoutMs) ? routeSeconds : Double.NaN;
+			}
 			walkLimitMs = routeLimitMs;
 		}
 		if (awaitingDropLanding(result, item.onGround(), item.isNoGravity(), item.isInWater() || item.isInLava())) {

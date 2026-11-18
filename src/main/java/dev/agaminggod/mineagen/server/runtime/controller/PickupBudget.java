@@ -27,10 +27,14 @@ final class PickupBudget {
 
 	/**
 	 * The walk's limit once its first route is planned: the limit for the route's length when that is longer than the
-	 * straight line (a ledge drop 8 blocks off but 30 blocks round by the stairs), never shorter than the limit it had.
+	 * straight line (a ledge drop 8 blocks off but 30 blocks round by the stairs), or the base plus the route's estimated
+	 * walking time over its ground when that is longer still (cobwebs: under a block a second), never shorter than the
+	 * limit it had and never past the call's own timeout.
 	 */
-	static long routeLimitMs(long limitMs, double routeBlocks, long timeoutMs) {
-		return Math.max(limitMs, walkLimitMs(routeBlocks, timeoutMs));
+	static long routeLimitMs(long limitMs, double routeBlocks, double travelSeconds, long timeoutMs) {
+		long byLength = walkLimitMs(routeBlocks, timeoutMs);
+		long byTime = Double.isFinite(travelSeconds) && travelSeconds > 0.0D ? Math.min(timeoutMs, BASE_MS + Math.round(travelSeconds * 1_000.0D)) : 0L;
+		return Math.max(limitMs, Math.max(byLength, byTime));
 	}
 
 	/** Blocks along a planned route of standing cells, from the body's position through each cell's middle. */
