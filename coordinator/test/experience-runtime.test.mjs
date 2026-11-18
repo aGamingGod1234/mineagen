@@ -500,3 +500,16 @@ test('only body evidence for the same action id makes a dispatch count as runnin
 	assert.deepEqual(reviewed().lessons, ['ranged-fled-in-open:mob=skeleton']);
 	await runtime.flush();
 }));
+
+test('a low-health death lesson needs the health to stay low until the death, not to heal in between', () => {
+	const melee = (samples) => deathLessons({ cause: classifyDeath('x was slain by Zombie'), dimension: 'overworld', running: [], results: [], at: 30_000, samples });
+	// Hurt 20 s before the death, healed to full 8 s before it and taken down again by a fresh fight: no low-health lesson.
+	const healed = [{ at: 10_000, health: 6, edible: 0, hostiles: {} }, { at: 22_000, health: 20, edible: 0, hostiles: {} }, { at: 28_000, health: 3, edible: 0, hostiles: {} }];
+	assert.deepEqual(melee(healed).map((lesson) => lesson.rule), []);
+	// Healed only up to the line (8 for melee, 14 for no food): still low the whole time.
+	const stayed = [{ at: 10_000, health: 6, edible: 0, hostiles: {} }, { at: 22_000, health: 8, edible: 0, hostiles: {} }, { at: 28_000, health: 3, edible: 0, hostiles: {} }];
+	assert.deepEqual(melee(stayed).map((lesson) => lesson.rule).sort(), ['died-without-food', 'melee-at-low-health']);
+	// Healed above the melee line but not above the no-food line: only the no-food lesson.
+	const partly = [{ at: 10_000, health: 6, edible: 0, hostiles: {} }, { at: 22_000, health: 12, edible: 0, hostiles: {} }, { at: 28_000, health: 3, edible: 0, hostiles: {} }];
+	assert.deepEqual(melee(partly).map((lesson) => lesson.rule), ['died-without-food']);
+});

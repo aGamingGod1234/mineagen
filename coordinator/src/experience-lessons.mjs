@@ -45,9 +45,12 @@ function activeAtDeath(context, types) {
 		|| context.results.some((result) => types.has(result.actionType) && result.reasonCode === 'AGENT_DEAD' && result.executionStarted !== false
 			&& Math.abs(result.at - context.at) <= DEATH_RESULT_MS);
 }
-function healthBefore(context, ms) {
-	const sample = [...context.samples].reverse().find((entry) => context.at - entry.at >= ms && Number.isFinite(entry.health));
-	return sample?.health ?? null;
+// Hurt to at most `threshold` at least `ms` before the death and never healed back above it before the death. A fight
+// begun after healing is not one taken at low health. With no sample that old, not low.
+function stayedLowBefore(context, ms, threshold) {
+	const index = context.samples.findLastIndex((entry) => context.at - entry.at >= ms && Number.isFinite(entry.health));
+	if (index < 0 || context.samples[index].health > threshold) return false;
+	return !context.samples.slice(index + 1).some((entry) => entry.at <= context.at && Number.isFinite(entry.health) && entry.health > threshold);
 }
 function resultWithin(context, types, codes, withinMs) {
 	return context.results.some((result) => types.has(result.actionType) && codes.includes(result.reasonCode) && context.at - result.at <= withinMs);
@@ -92,7 +95,7 @@ export const LESSON_RULES = Object.freeze({
 	},
 	'died-without-food': {
 		slots: [],
-		death: (context) => lastKnown(context, 'edible') === 0 && ['melee', 'shot', 'explosion', 'fireball'].includes(context.cause.kind) && (healthBefore(context, 10_000) ?? 20) <= 14 ? {} : null,
+		death: (context) => lastKnown(context, 'edible') === 0 && ['melee', 'shot', 'explosion', 'fireball'].includes(context.cause.kind) && stayedLowBefore(context, 10_000, 14) ? {} : null,
 		// No food alone is most of the early game; it is a death risk together with low health.
 		trigger: () => ({ noFood: true, lowHealth: true }),
 		text: () => 'You died carrying no food while already hurt. Keep cooked food in the hotbar: get some before mining trips, long travel or a dimension change, and eat to heal before the next fight.',
@@ -129,7 +132,7 @@ export const LESSON_RULES = Object.freeze({
 	},
 	'melee-at-low-health': {
 		slots: ['mob'],
-		death: (context) => context.cause.kind === 'melee' && MOBS.has(context.cause.cause) && (healthBefore(context, 10_000) ?? 20) <= LOW_HEALTH ? { mob: context.cause.cause } : null,
+		death: (context) => context.cause.kind === 'melee' && MOBS.has(context.cause.cause) && stayedLowBefore(context, 10_000, LOW_HEALTH) ? { mob: context.cause.cause } : null,
 		trigger: ({ mob }) => ({ mobs: [mob], lowHealth: true }),
 		text: ({ mob }) => `${cap(a(mob))} killed you after you stayed at low health. At low health, eat or retreat out of reach first; take the fight only after healing.`,
 	},
