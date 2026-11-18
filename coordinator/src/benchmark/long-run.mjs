@@ -139,6 +139,21 @@ export function extractLongRunTimeline({ samples = [], protocolRows = [], traceR
 		milestones: reached, deaths, unexplainedDeaths, totals: { calls: metrics?.modelCalls ?? total.calls, tokens: total.tokens, playCostUsd: total.costUsd, costEstimateUsd: metrics?.costEstimateUsd ?? null } };
 }
 
+const GOAL_STOPS = new Set(['DRAGON_KILLED', 'GOAL_COMPLETED_CLAIM', 'EVALUATOR_PASS', 'ADVANCEMENT', 'verified goal completion']);
+/**
+ * Which rule ended a game, from its recorded stop reason: window (played its whole window), cap (the spend cap),
+ * stall (an operator stop for no progress), goal (the goal ended it) or other. null when no reason was recorded.
+ */
+export function stopKind(reason) {
+	if (typeof reason !== 'string' || !reason.trim() || reason === 'UNKNOWN_TERMINATION' || reason === 'ENDED_EARLY:UNKNOWN_TERMINATION') return null;
+	const own = reason.replace(/^ENDED_EARLY:/, '');
+	if (own === 'SPEND_CAP') return 'cap';
+	if (/stall/i.test(own)) return 'stall';
+	if (own === 'WALL_CLOCK_BUDGET') return 'window';
+	if (GOAL_STOPS.has(own)) return 'goal';
+	return 'other';
+}
+
 const minutes = ms => Number.isFinite(ms) ? `${(ms / 60000).toFixed(1)} min` : '?';
 const usd = value => Number.isFinite(value) ? `$${value.toFixed(3)}` : '?';
 const charged = t => t ? t.input + t.cacheWrite + t.output : null;
@@ -155,6 +170,8 @@ export function formatLongRunTimeline(report) {
 		lines.push(m.reached ? `| ${m.label} | ${minutes(m.elapsedMs)} | ${held == null ? 'unobserved/event' : held ? 'yes' : 'no'} | ${m.via} | ${minutes(m.segment.durationMs)} | ${m.segment.calls} | ${charged(m.segment.tokens)} | ${usd(m.segment.costUsd)} | ${usd(m.cumulative.costUsd)} |` : `| ${m.label} | not observed | unobserved | | | | | | |`);
 	}
 	if (report.ending) lines.push('', `Ending: ${report.ending.kind}; reason: ${report.ending.reason}. Unobserved continuation ${report.ending.censored ? 'is censored' : 'after completion is outside the stage'}.`);
+	if (report.stop) lines.push('', `Stop rule: ${report.stop.kind ?? 'unrecorded'} (${report.stop.reason ?? 'no reason recorded'}).`);
+	if (report.spendCap?.crossed) lines.push('', `Spend cap ${report.spendCap.mode === 'log' ? 'logged, not enforced' : 'enforced'}: crossed at ${usd(report.spendCap.crossed.spentUsd)} of ${usd(report.spendCap.crossed.capUsd)}, ${minutes(report.spendCap.crossed.atMs)} into play.`);
 	if (report.stageScore?.firstLife) lines.push('', `First life: ${report.stageScore.firstLife.status}; after death: ${report.stageScore.afterDeath.status}. See stage-score.json for resource accounting and death trace.`);
 	lines.push('', `Deaths: ${t.deaths.length + t.unexplainedDeaths}`);
 	if (t.deaths.length) lines.push('', '| At | Cause | Cumulative cost |', '|---:|---|---:|', ...t.deaths.map(d => `| ${minutes(d.elapsedMs)} | ${d.cause} | ${usd(d.cumulative.costUsd)} |`));

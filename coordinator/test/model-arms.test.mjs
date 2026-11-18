@@ -56,3 +56,69 @@ test('the default model comes from one module, and one setting moves a whole ses
 	assert.throws(() => defaultModel('codex', { ARENA_CODEX_MODEL: 'gpt 6.2; rm' }), /must be a model id/);
 	assert.throws(() => defaultModel('other', {}), /No default model/);
 });
+
+const sol = { provider: 'codex', model: 'gpt-6.2-sol', reasoningEffort: 'low', serviceTier: 'default' };
+// Two play calls at $0.50 each: $1.00 spent, and the largest call adds $0.50 of headroom.
+const callRows = [1, 2].map((id) => ({ event: 'native_model_call', modelCallId: `c${id}`, goalRevision: 1, inputTokens: 200_000, outputTokens: 10_000 }));
+async function capObserver(definition) {
+	const { Observer } = await import('../../scripts/quality/run-scenarios.mjs');
+	const observer = new Observer('.', { protocolAudit: '', providerTurns: '' }, { playMetering: 'observer', runReserveUsd: 10, ...definition }, sol, { stopRetryMs: 0 });
+	observer.trace = { rows: callRows }; observer.provider = { rows: [] }; observer.startedAt = Date.now() - 60_000;
+	return observer;
+}
+
+test('the observer spend cap still stops play by default at spend plus the largest call, and only logs in log mode', async () => {
+	const under = await capObserver({ spendCapUsd: 1.6 });
+	await under.enforceSpendCap();
+	assert.equal(under.stopRequest ?? null, null, '$1.50 with headroom stays under a $1.60 cap');
+	const stopping = await capObserver({ spendCapUsd: 1.4 });
+	await stopping.enforceSpendCap();
+	assert.equal(stopping.stopRequest.reason, 'SPEND_CAP');
+	assert.equal(stopping.stopRequest.capUsd, 1.4);
+	assert.ok(Math.abs(stopping.spendCapCrossed.spentUsd - 1) < 1e-9);
+	const logging = await capObserver({ spendCapUsd: 1.4, spendCapMode: 'log' });
+	await logging.enforceSpendCap();
+	assert.equal(logging.stopRequest ?? null, null, 'log mode never asks the game to stop');
+	const crossed = logging.spendCapCrossed;
+	assert.equal(crossed.capUsd, 1.4); assert.ok(Math.abs(crossed.spentUsd - 1) < 1e-9); assert.ok(Math.abs(crossed.perCallUsd - 0.5) < 1e-9);
+	assert.ok(crossed.atMs >= 60_000);
+	logging.nextSpendCheck = 0; logging.trace = { rows: [...callRows, { ...callRows[0], modelCallId: 'c3' }] };
+	await logging.enforceSpendCap();
+	assert.equal(logging.spendCapCrossed, crossed, 'the first crossing is kept');
+	assert.equal(logging.stopRequest ?? null, null);
+});
+
+test('a stop reason maps to window, cap, stall, goal or other, and an unrecorded one stays unknown', async () => {
+	const { stopKind } = await import('../src/benchmark/long-run.mjs');
+	assert.equal(stopKind('WALL_CLOCK_BUDGET'), 'window');
+	assert.equal(stopKind('SPEND_CAP'), 'cap');
+	assert.equal(stopKind('ENDED_EARLY:SPEND_CAP'), 'cap');
+	assert.equal(stopKind('OPERATOR_STALL_45MIN'), 'stall');
+	assert.equal(stopKind('Stalled: no new stage in 45 minutes'), 'stall');
+	assert.equal(stopKind('DRAGON_KILLED'), 'goal');
+	assert.equal(stopKind('ENDED_EARLY:RUNNER_ERROR'), 'other');
+	for (const reason of [null, undefined, '', 'UNKNOWN_TERMINATION', 'ENDED_EARLY:UNKNOWN_TERMINATION']) assert.equal(stopKind(reason), null);
+});
+
+test('run-long takes --spend-cap-mode log for Codex only and records the cap mode, the crossing and the stop rule', async () => {
+	const { mkdtemp: temp, rm: remove } = await import('node:fs/promises');
+	const { parseLongArgs, runLong, stopOf } = await import('../../scripts/quality/run-long.mjs');
+	const dir = await temp(path.join(os.tmpdir(), 'cap-mode-'));
+	try {
+		const base = ['--budget-minutes', '10', '--max-total-cost-usd', '4', '--port-base', '26900', '--jar', 'x.jar'];
+		assert.equal(parseLongArgs([...base, '--out', dir]).spendCapMode, 'stop', 'the cap binds unless asked otherwise');
+		assert.throws(() => parseLongArgs([...base, '--out', dir, '--spend-cap-mode', 'log']), /Codex play only/);
+		assert.throws(() => parseLongArgs([...base, '--out', dir, '--provider', 'codex', '--codex-observer-cap', 'yes', '--spend-cap-mode', 'maybe']), /stop or log/);
+		const options = parseLongArgs([...base, '--out', path.join(dir, 'out'), '--ledger', path.join(dir, 'ledger.json'), '--provider', 'codex', '--model', 'gpt-6.2-sol', '--codex-observer-cap', 'yes', '--spend-cap-mode', 'log']);
+		let seen;
+		const crossed = { at: 1, atMs: 300_000, capUsd: 3.6, spentUsd: 3.2, perCallUsd: 0.5 };
+		const report = await runLong(options, { execute: async (o) => { seen = o; return { jar: null, runs: [{ termination: 'PASSED', measurementStatus: 'MEASURED', observerErrors: [], metrics: { modelCalls: 1, costEstimateUsd: 3.9 }, unmeteredProviderCalls: 0, spendCap: { mode: 'log', capUsd: 3.6, crossed } }] }; } });
+		assert.equal(seen.definitions[0].spendCapMode, 'log');
+		assert.equal(seen.definitions[0].spendCapUsd, 3.6);
+		assert.equal(seen.model, 'gpt-6.2-sol');
+		assert.deepEqual(report.spendCap, { mode: 'log', stopAtUsd: 3.6, crossed });
+		assert.deepEqual(report.stop, { kind: 'other', reason: report.timeline.stopReason });
+		assert.deepEqual(stopOf({ operatorStop: { reason: 'OPERATOR_STALL_45MIN' }, timeline: { stopReason: 'ENDED_EARLY:INTERRUPTED_SIGTERM' } }), { kind: 'stall', reason: 'OPERATOR_STALL_45MIN' });
+		assert.deepEqual(stopOf({ timeline: { stopReason: 'SPEND_CAP' } }), { kind: 'cap', reason: 'SPEND_CAP' });
+	} finally { await remove(dir, { recursive: true, force: true }); }
+});

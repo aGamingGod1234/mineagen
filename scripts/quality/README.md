@@ -209,6 +209,8 @@ Every supported text Messages request reserves its maximum token charge before f
 
 The run reserves everything the shared ledger leaves, or `--run-reserve-usd` if smaller. `--ledger` persists spend and outstanding reservations across invocations; `--prior-spend-usd` seeds a new ledger once. Abandoned locks fail closed. Adding `--codex-observer-cap yes` opts into estimates that can overspend, including auxiliary calls, and is not strict mode.
 
+Observer-metered Codex play stops when its spend plus its largest call so far reaches the cap (the reserve minus the smaller of $0.50 and 10%), so a model with bigger calls stops earlier under the same cap. Two ways keep a model comparison fair. Size the cap per arm with `--run-reserve-usd`, since each arm is its own invocation. Or pass `--spend-cap-mode log`: the observer records the first crossing (`spendCap.crossed` in `long-run.json` and `quality-run.json`) and play runs to its window, so spend can pass the reservation. The default, `stop`, binds as before, and Claude's gateway always binds. A model with no entry in `coordinator/src/call-cost.mjs` is refused before launch, because its calls would count as free. `long-run.json` names the rule that ended the game in `stop`: `kind` is `window`, `cap`, `stall` (an operator stop for no progress), `goal` or `other`, and `reason` is the raw stop reason.
+
 ```powershell
 node scripts/quality/run-long.mjs --arms arms.json --arm B --provider claude --model claude-opus-5-5 --effort low --service-tier priority --budget-minutes 180 --max-total-cost-usd 85 --ledger LEDGER.json --port-base 26900 --java JDK/bin/java.exe --server-template TEMPLATE --out runtime/long-run-1
 ```

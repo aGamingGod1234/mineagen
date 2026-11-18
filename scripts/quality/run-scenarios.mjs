@@ -362,6 +362,8 @@ export class Observer {
 	/**
 	 * Gateway-metered runs: the gate already refuses any call that could overrun, so a refusal (or a closed gate) ends play.
 	 * Observer-metered Codex play: stop once metered spend plus one more call at the settlement's per-call charge reaches the cap.
+	 * With spendCapMode 'log' the observer only records the first crossing and play runs to its window: the largest call so
+	 * far sets the headroom, so a model with bigger calls would otherwise stop earlier than another under the same cap.
 	 */
 	async enforceSpendCap() {
 		if (this.stopRequest) return;
@@ -373,7 +375,13 @@ export class Observer {
 		if (!Number.isFinite(cap) || Date.now() < (this.nextSpendCheck ?? 0)) return;
 		this.nextSpendCheck = Date.now() + 2000;
 		this.liveSpend = liveSpendUsd({ traceRows: this.trace.rows, providerRows: this.provider.rows, profile: this.profile, reserveUsd: this.definition.runReserveUsd ?? 0 });
-		if (this.liveSpend.usd + this.liveSpend.perCallUsd >= cap) await this.requestStop('SPEND_CAP', { capUsd: cap, spentUsd: this.liveSpend.usd });
+		if (this.liveSpend.usd + this.liveSpend.perCallUsd < cap) return;
+		if (!this.spendCapCrossed) {
+			const at = Date.now();
+			this.spendCapCrossed = { at, atMs: this.startedAt === null ? null : at - this.startedAt, capUsd: cap, spentUsd: this.liveSpend.usd, perCallUsd: this.liveSpend.perCallUsd };
+			if (this.definition.spendCapMode === 'log') console.log(`Spend cap crossed, logged only: ${JSON.stringify(this.spendCapCrossed)}`);
+		}
+		if (this.definition.spendCapMode !== 'log') await this.requestStop('SPEND_CAP', { capUsd: cap, spentUsd: this.liveSpend.usd });
 	}
 	/** A stop is pending until the protocol shows the goal ended; until then it is retried, and escalated to a process-tree stop. */
 	async requestStop(reason, detail = {}) {
@@ -480,6 +488,7 @@ export class Observer {
 			termination: evaluation?.pass && evaluation.source === 'samples' && this.definition.evaluatorEarlyStop !== false ? 'EVALUATOR_PASS' : runnerTermination, runnerStatus: runner?.status ?? report?.status ?? null,
 			metrics, definition: this.definition, setup: this.setup ?? null, artifacts: this.directory, observerErrors: this.errors, terminalObserverErrors: this.terminalObserverErrors,
 			samplingGaps: this.samplingGaps, providerAttestation: runner?.settings ?? null, stopRequest: this.stopRequest ?? null, liveSpend: this.liveSpend ?? null,
+			...(Number.isFinite(this.definition.spendCapUsd) ? { spendCap: { mode: this.definition.spendCapMode === 'log' ? 'log' : 'stop', capUsd: this.definition.spendCapUsd, crossed: this.spendCapCrossed ?? null } } : {}),
 			...(evaluation ? { evaluation, runnerTermination } : {}),
 			unmeteredProviderCalls: unmeteredProviderCalls(this.trace.rows, this.provider.rows), capturedAt: new Date().toISOString() };
 		// Protocol and samples are journaled during play, before any report extraction can fail.

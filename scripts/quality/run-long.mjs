@@ -10,7 +10,7 @@ import { readArtifactReport, writeArtifactReport } from '../../coordinator/src/b
 import { SpendGate } from '../../coordinator/src/benchmark/spend-gate.mjs';
 import { SpendLedger, runSpendUsd } from '../../coordinator/src/benchmark/spend-ledger.mjs';
 import { requireTokenPrice } from '../../coordinator/src/call-cost.mjs';
-import { buildLongRunDefinition, extractLongRunTimeline, formatLongRunTimeline, randomSeed, MAX_LONG_RUN_WINDOW_MS } from '../../coordinator/src/benchmark/long-run.mjs';
+import { buildLongRunDefinition, extractLongRunTimeline, formatLongRunTimeline, randomSeed, stopKind, MAX_LONG_RUN_WINDOW_MS } from '../../coordinator/src/benchmark/long-run.mjs';
 import { runScenarios, validateArmBuild } from './run-scenarios.mjs';
 import { collectWatchFiles } from './watch-files.mjs';
 import { scoreStageRun } from './stage-score.mjs';
@@ -18,7 +18,7 @@ import { recordOperatorStop } from './operator-stop.mjs';
 import { writeTimeReport } from './watch-time.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const USAGE = 'Regenerate: node scripts/quality/run-long.mjs --report RAW_RUN_DIR --out REPORT_DIR\nRun: node scripts/quality/run-long.mjs --budget-minutes 180 --max-total-cost-usd 80 --ledger FILE --port-base 26900 --out DIR [--prior-spend-usd P] [--run-reserve-usd R] [--provider claude|codex --model M --effort low --service-tier priority] [--codex-observer-cap yes] [--seed N] [--goal "Beat the game"] [--arms arms.json --arm B | --jar PATH --coordinator-root PATH] [--checkpoint SAVE_POINT.json [--random-salt N|none]] [--codex-mid-turn-rotation-tokens N] [--java PATH --server-template PATH]';
+const USAGE = 'Regenerate: node scripts/quality/run-long.mjs --report RAW_RUN_DIR --out REPORT_DIR\nRun: node scripts/quality/run-long.mjs --budget-minutes 180 --max-total-cost-usd 80 --ledger FILE --port-base 26900 --out DIR [--prior-spend-usd P] [--run-reserve-usd R] [--provider claude|codex --model M --effort low --service-tier priority] [--codex-observer-cap yes [--spend-cap-mode stop|log]] [--seed N] [--goal "Beat the game"] [--arms arms.json --arm B | --jar PATH --coordinator-root PATH] [--checkpoint SAVE_POINT.json [--random-salt N|none]] [--codex-mid-turn-rotation-tokens N] [--java PATH --server-template PATH]';
 
 const DEFAULT_MODELS = Object.freeze({ claude: 'claude-opus-5-5', codex: 'gpt-6.1-sol' });
 
@@ -27,7 +27,7 @@ export function parseLongArgs(argv) {
 		if (argv.length !== 4 || argv[2] !== '--out') throw new Error('Usage: --report RAW_RUN_DIR --out REPORT_DIR');
 		return { report: path.resolve(argv[1]), out: path.resolve(argv[3]) };
 	}
-	const accepted = new Set(['budget-minutes', 'max-total-cost-usd', 'ledger', 'prior-spend-usd', 'run-reserve-usd', 'provider', 'model', 'effort', 'service-tier', 'seed', 'goal', 'arms', 'arm', 'jar', 'coordinator-root', 'port-base', 'codex-observer-cap', 'java', 'server-template', 'checkpoint', 'random-salt', 'codex-mid-turn-rotation-tokens', 'out']);
+	const accepted = new Set(['budget-minutes', 'max-total-cost-usd', 'ledger', 'prior-spend-usd', 'run-reserve-usd', 'provider', 'model', 'effort', 'service-tier', 'seed', 'goal', 'arms', 'arm', 'jar', 'coordinator-root', 'port-base', 'codex-observer-cap', 'java', 'server-template', 'checkpoint', 'random-salt', 'codex-mid-turn-rotation-tokens', 'spend-cap-mode', 'out']);
 	const values = {};
 	for (let i = 0; i < argv.length; i++) {
 		if (argv[i] === '--help') return { help: true };
@@ -46,6 +46,11 @@ export function parseLongArgs(argv) {
 	if (!['claude', 'codex'].includes(provider)) throw new Error('--provider must be claude or codex');
 	if (values['codex-observer-cap'] !== undefined && values['codex-observer-cap'] !== 'yes') throw new Error('--codex-observer-cap takes yes');
 	if (provider === 'codex' && values['codex-observer-cap'] !== 'yes') throw new Error('Codex play cannot be metered per call; pass --codex-observer-cap yes to accept an observer estimate that may exceed the cap');
+	// log: the observer records when play crosses the cap but never stops the game before its window. Only Codex play is
+	// observer-metered; Claude's gateway refuses each call that would overrun, so its cap always binds.
+	const spendCapMode = values['spend-cap-mode'] ?? 'stop';
+	if (!['stop', 'log'].includes(spendCapMode)) throw new Error('--spend-cap-mode takes stop or log');
+	if (spendCapMode === 'log' && provider !== 'codex') throw new Error('--spend-cap-mode log applies to observer-metered Codex play only');
 	const serviceTier = values['service-tier'] ?? (provider === 'codex' ? 'default' : 'priority');
 	if (!(provider === 'codex' ? ['default', 'priority', 'fast', 'flex'] : ['default', 'priority']).includes(serviceTier)) throw new Error('Unsupported --service-tier for provider');
 	const midTurnRotationTokens = values['codex-mid-turn-rotation-tokens'] === undefined ? null : Number(values['codex-mid-turn-rotation-tokens']);
@@ -55,7 +60,7 @@ export function parseLongArgs(argv) {
 	if (values.arms && !['A', 'B'].includes(values.arm ?? '')) throw new Error('--arms needs --arm A or B');
 	if (values.arms && (values.jar || values['coordinator-root'])) throw new Error('Use --arms or --jar/--coordinator-root, not both');
 	return { windowMs: Math.round(minutes * 60000), capUsd: cap, priorSpendUsd: prior, codexObserverCap: values['codex-observer-cap'] === 'yes', ledger: values.ledger ? path.resolve(values.ledger) : null,
-		runReserveUsd: values['run-reserve-usd'] === undefined ? null : Number(values['run-reserve-usd']), provider, model: values.model ?? DEFAULT_MODELS[provider],
+		runReserveUsd: values['run-reserve-usd'] === undefined ? null : Number(values['run-reserve-usd']), spendCapMode, provider, model: values.model ?? DEFAULT_MODELS[provider],
 		effort: values.effort ?? 'low', serviceTier, midTurnRotationTokens, seed: values.seed ?? randomSeed(), goal: values.goal ?? 'Beat the game', arms: values.arms ? path.resolve(values.arms) : null, arm: values.arm ?? null,
 		checkpoint: values.checkpoint ? path.resolve(values.checkpoint) : null,
 		// A save point replays the same loot rolls (barters, mob drops) each game unless reseeded: a fresh salt by default.
@@ -94,7 +99,8 @@ export async function runLong(options, { execute = runScenarios } = {}) {
 	if (!await ledger.reserve(runId, reserveUsd, `long run ${options.provider} ${options.model} seed ${options.seed}`)) throw new Error('Spend cap reached before launch');
 	// Claude calls share a gateway gate; Codex preparation and play remain observer estimates under the explicit opt-in.
 	const gate = new SpendGate({ budgetUsd: reserveUsd });
-	const definition = { ...buildLongRunDefinition({ seed: options.seed, windowMs: options.windowMs, goal: options.goal, spendCapUsd: stopAtUsd }), runReserveUsd: reserveUsd };
+	const spendCapMode = options.spendCapMode ?? 'stop';
+	const definition = { ...buildLongRunDefinition({ seed: options.seed, windowMs: options.windowMs, goal: options.goal, spendCapUsd: stopAtUsd }), runReserveUsd: reserveUsd, spendCapMode };
 	if (checkpoint) {
 		const { startAt, ...base } = definition.setup;
 		Object.assign(definition, { name: `checkpoint-${checkpoint.milestone}`, setup: { ...base, ...checkpoint.setup, ...(options.randomSalt === null || options.randomSalt === undefined ? {} : { randomSalt: options.randomSalt }) }, checkpoint: { milestone: checkpoint.milestone, minute: checkpoint.minute, source: checkpoint.source, priorAdvancements: checkpoint.priorAdvancements } });
@@ -103,7 +109,7 @@ export async function runLong(options, { execute = runScenarios } = {}) {
 	const profile = { provider: options.provider, model: options.model, reasoningEffort: options.effort, serviceTier: options.serviceTier };
 	// The scenario runner copies this into the run's coordinator config (codex.midTurnContextRotationTokens).
 	if (options.midTurnRotationTokens !== null) process.env.ARENA_CODEX_MID_TURN_ROTATION_TOKENS = String(options.midTurnRotationTokens);
-	console.log(`${runId}: seed ${definition.seed}${definition.setup.randomSalt === undefined ? '' : ` (loot salt ${definition.setup.randomSalt})`}, window ${options.windowMs / 60000} min, reserved $${reserveUsd.toFixed(2)}, play stops at $${stopAtUsd.toFixed(2)}`);
+	console.log(`${runId}: seed ${definition.seed}${definition.setup.randomSalt === undefined ? '' : ` (loot salt ${definition.setup.randomSalt})`}, window ${options.windowMs / 60000} min, reserved $${reserveUsd.toFixed(2)}, ${spendCapMode === 'log' ? 'cap logged at' : 'play stops at'} $${stopAtUsd.toFixed(2)}`);
 	await writeFile(path.join(options.out, 'long-run-start.json'), JSON.stringify({ schemaVersion: 1, runId, definition, profile, windowMs: options.windowMs, launchedAt: Date.now() }) + '\n');
 	let signalRecord = null;
 	const onSignal = signal => {
@@ -137,17 +143,24 @@ export async function runLong(options, { execute = runScenarios } = {}) {
 	const timeline = evidence?.timeline ?? extractLongRunTimeline({ profile, windowMs: options.windowMs, termination: failure?.code ?? failure?.message ?? run?.termination ?? 'NO_ARTIFACTS' });
 	const report = { schemaVersion: 1, benchmark: 'long-run', budgetPolicy: isStrictBudget(options) ? STRICT_BUDGET_POLICY : OBSERVER_BUDGET_POLICY, runId, seed: definition.seed, goal: definition.goal, windowMs: options.windowMs, profile, build: { commit: build.commit ?? null, jar: results?.jar ?? null, coordinatorSha256: results?.coordinatorSha256 ?? null },
 		definition, termination: run?.termination ?? null, measurementStatus: run?.measurementStatus ?? 'UNAVAILABLE', observerErrors: [...(run?.observerErrors ?? []), ...(evidence?.errors ?? [])], diagnostics: run?.diagnostics ?? null, stopRequest: run?.stopRequest ?? null, failure: failure?.message ?? null,
-		spend, ledger: { file: options.ledger, capUsd: options.capUsd, reservedForRunUsd: reserveUsd, stopAtUsd, ...totals }, timeline, artifacts: run?.artifacts ?? null, capturedAt: new Date().toISOString() };
+		spend, ledger: { file: options.ledger, capUsd: options.capUsd, reservedForRunUsd: reserveUsd, stopAtUsd, ...totals }, spendCap: { mode: spendCapMode, stopAtUsd, crossed: run?.spendCap?.crossed ?? null }, timeline, artifacts: run?.artifacts ?? null, capturedAt: new Date().toISOString() };
 	await writeArtifactReport(path.join(options.out, 'long-run.json'), report);
 	report.stageScore = await scoreStageRun(options.out, { rawDirectory: run?.artifacts }).catch(error => ({ error: error.message }));
 	report.ending = report.stageScore.ending ?? null;
 	report.operatorStop = report.ending?.operatorStop ?? null;
+	report.stop = stopOf(report);
 	await writeFile(path.join(options.out, 'stage-score.json'), JSON.stringify(report.stageScore, null, 2) + '\n');
 	await writeFile(path.join(options.out, 'long-run.md'), formatLongRunTimeline(report));
 	await writeArtifactReport(path.join(options.out, 'long-run.json'), report);
 	console.log(`Long run ${runId}: ${timeline.stopReason}, furthest ${timeline.furthestMilestone ?? 'none'}, $${spend.usd.toFixed(3)}; ${path.join(options.out, 'long-run.md')}`);
 	if (failure) throw failure;
 	return report;
+}
+
+/** The rule that ended the game: an operator stop (such as a stall stop) first, else the timeline's own stop reason. */
+export function stopOf(report) {
+	const reason = report.operatorStop?.reason ?? report.timeline?.stopReason ?? null;
+	return { kind: stopKind(reason), reason };
 }
 
 export async function regenerateLongReport(directory, out) {
@@ -165,6 +178,7 @@ export async function regenerateLongReport(directory, out) {
 	report.stageScore = await scoreStageRun(out, { rawDirectory: directory });
 	report.ending = report.stageScore.ending;
 	report.operatorStop = report.ending?.operatorStop ?? null;
+	report.stop = stopOf(report);
 	await writeFile(path.join(out, 'stage-score.json'), JSON.stringify(report.stageScore, null, 2) + '\n');
 	await writeFile(path.join(out, 'long-run.md'), formatLongRunTimeline(report));
 	await writeArtifactReport(path.join(out, 'long-run.json'), report);
