@@ -33,7 +33,8 @@ import net.minecraft.world.phys.Vec3;
  * physics. The walk is handed a planned route and hands back at its first check, so the stub level never plans; what is
  * under test is the pickup's budget: a route longer than the straight line raises the walk limit, the walk keeps going
  * past the straight line's limit, and the timeout names the route it was given time for. A straight route through
- * cobwebs, read through a real navigation world, gets its walking time over that ground instead of the length limit.
+ * cobwebs, read through a real navigation world, gets its walking time over that ground instead of the length limit,
+ * at crouch speed when a fight's sneak:true holds the walk crouched.
  */
 public final class PickupRouteLimitTickVerification {
 	private static final long TIMEOUT_MS = 30_000L;
@@ -67,6 +68,7 @@ public final class PickupRouteLimitTickVerification {
 			verifyLedgeRoute();
 			verifyStraightRoute();
 			verifyCobwebRoute();
+			verifyCrouchedCobwebRoute();
 		} finally {
 			components.set(holder, original);
 		}
@@ -149,6 +151,35 @@ public final class PickupRouteLimitTickVerification {
 		Fixture capped = cobwebFixture(drop, row, 10_000L);
 		capped.pickup.tick(capped.player, 50L);
 		check((Long) get(capped.pickup, "walkLimitMs") == 10_000L, "a slow route never passes the call's own timeout");
+	}
+
+	/**
+	 * A fight's sneak:true holds the pickup walk crouched the whole way: a drop 3 blocks off past two cobwebs walks at crouch
+	 * speed, so the limit is the crouched walking time plus the base, not the upright one.
+	 */
+	private static void verifyCrouchedCobwebRoute() throws Exception {
+		Vec3 drop = new Vec3(3.5D, 64.0D, 0.5D);
+		List<GridPosition> row = List.of(new GridPosition(1, 64, 0), new GridPosition(2, 64, 0));
+		double upright = ((ServerNavigationController) get(cobwebFixture(drop, row, TIMEOUT_MS).pickup, "navigation")).plannedTravelSeconds();
+
+		Fixture fixture = cobwebFixture(drop, row, TIMEOUT_MS);
+		fixture.pickup.crouched(true);
+		ServerNavigationController walk = (ServerNavigationController) get(fixture.pickup, "navigation");
+		walk.crouched(true);
+		double seconds = walk.plannedTravelSeconds();
+		check(Math.abs(seconds * 0.3D - upright) < 1.0E-9, "a crouched walk prices its ground at crouch speed: " + seconds + " s against " + upright + " s upright");
+		ServerController.TickResult first = fixture.pickup.tick(fixture.player, 50L);
+		check("UNSUPPORTED_NAVIGATION_MODE".equals(first.reasonCode()), "the crouched walk got its tick and handed back at its first check: " + first);
+		long limit = (Long) get(fixture.pickup, "walkLimitMs");
+		long uprightLimit = PickupBudget.BASE_MS + Math.round(upright * 1_000.0D);
+		System.out.printf("K3 tick metric: 2 blocks of cobweb crouched, %.1f s to walk: controller walk limit %.1f s (upright estimate gave %.1f s)%n",
+				seconds, limit / 1000.0D, uprightLimit / 1000.0D);
+		check(limit == PickupBudget.BASE_MS + Math.round(seconds * 1_000.0D), "the crouched walking time plus the base sets the limit: " + limit + " ms");
+
+		ServerController.TickResult past = fixture.pickup.tick(fixture.player, uprightLimit + 50L);
+		check("UNSUPPORTED_NAVIGATION_MODE".equals(past.reasonCode()), "past the upright estimate's limit a crouched cobweb walk still runs: " + past);
+		ServerController.TickResult late = fixture.pickup.tick(fixture.player, limit + 50L);
+		check("ITEM_PICKUP_TIMED_OUT".equals(late.reasonCode()), "past the crouched walking time the pickup times out: " + late);
 	}
 
 	/** {@link #fixture} with cobwebs along the route, seen, as the walk's navigation world reads them. */
