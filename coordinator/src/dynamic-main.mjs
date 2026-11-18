@@ -330,7 +330,7 @@ export class DynamicCoordinator extends EventEmitter {
 		const occupancy = new ExplorationOccupancy({ memoryStore: new ObservedMemoryStore({ directory: memoryDirectory }) });
 		this.#observedMemory = occupancy;
 		this.#taskViews = new LiveTaskViews({ directory: memoryDirectory ? path.join(memoryDirectory, 'plans') : null,
-			sources: (record, observation, blockPattern) => occupancy.knownSources(record.agentId, observation, blockPattern) });
+			sources: (record, observation, blockPattern) => occupancy.knownSources(record.agentId, observation, blockPattern), instincts: reflexInstincts });
 		this.#healthRegistry = requireDependency(healthRegistry, 'healthRegistry');
 		this.#latencyRegistry = requireDependency(latencyRegistry, 'latencyRegistry');
 		this.#goalSupervisor = requireDependency(goalSupervisor, 'goalSupervisor');

@@ -232,13 +232,19 @@ const ROUTE = [
 	} },
 ];
 
+// Step 2 item 5 (instincts arm): the weapon habit is a route step, because a reflex cannot craft. Wooden and golden do not
+// count; a lit portal or a Nether visit ends it, as it does the shield.
+const WEAPON = { id: 'weapon', done: 'tool:sword:stone+ | tool:axe:stone+ | frame:lit | visited:minecraft:the_nether',
+	next: () => ['obtain stone_sword', 'no stone-or-better sword or axe; defend and fights swing the best one held'] };
+const INSTINCT_ROUTE = ROUTE.flatMap(row => row.id === 'stone' ? [row, WEAPON] : [row]);
+
 /**
  * The usual next step toward beating the game from the player's state, or null without a live sample. observation: the
  * newest live sample; known: plan-checks facts (visited dimensions, lit frames, lava pools, placements); evaluate: the
  * plan-check evaluator (evaluatePlanCheck); memory: scoped, contradiction-aware source facts from LiveTaskViews;
  * foodHandedBack: a food hand-back this life (foodStockHandback) released the cooked-meat stock.
  */
-export function routeLine({ observation: o = null, known = null, memory = null, foodHandedBack = false, evaluate } = {}) {
+export function routeLine({ observation: o = null, known = null, memory = null, foodHandedBack = false, evaluate, instincts = false } = {}) {
 	if (!live(o) || !Array.isArray(o.inventory?.items) || remembered(o, 'inventory') || known === null || typeof evaluate !== 'function') return null;
 	const items = o.inventory.items.filter(i => i?.count > 0);
 	const count = re => items.filter(i => re.test(i.itemId ?? '')).reduce((n, i) => n + i.count, 0);
@@ -260,7 +266,7 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 	const eyeFacts = `rods ${rods}/${rodsNeeded}, pearls ${pearls}/${eyesNeeded}, eyes ${eyesHeld} held + ${filled} set of ${EYES}`;
 	const facts = { count, foodNeeded: foodAdviceNeeded(o), foodHandedBack: foodHandedBack === true, food: count(EDIBLE), cookedMeat: count(COOKED_MEAT), rawMeat: count(RAW_FOOD), nearbyMeat: nearbyMeat(o), blocks: count(MOULD), wood: count(/^minecraft:([a-z_]+_(log|planks|stem))$/), iron: count(/^minecraft:(iron_ingot|raw_iron)$/),
 		buckets: count(/^minecraft:(bucket|water_bucket|lava_bucket)$/), pools: (known.lavaPools ?? []).filter(p => p?.dimension === dimension).length };
-	const line = (next, why) => {
+	function line(next, why) {
 		const text = `usual next step: ${next} (${why})`;
 		if (Buffer.byteLength(text) <= ROUTE_BYTES) return text;
 		let clipped = '', used = 0;
@@ -270,7 +276,7 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 			clipped += char; used += bytes;
 		}
 		return `${clipped}…`;
-	};
+	}
 	if (dimension === 'minecraft:the_end') {
 		// A queued wake can render an older sample after the live tally has changed.
 		const seen = o.endCrystals;
@@ -320,7 +326,7 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 		const bed = portalBed(o, known, { lit: true, frame: litFrame(o, known) });
 		return bed.step ? line(...bed.step) : line(PORTAL_ENTRY_NEXT, `${bed.skip}; ${ENTRY_FOOD}`);
 	}
-	const stage = ROUTE.find(row => !done(row));
+	const stage = (instincts === true ? INSTINCT_ROUTE : ROUTE).find(row => !done(row));
 	if (stage !== undefined) {
 		// Checked before lighting too: the sheep or wool in view now may be gone once the portal is lit.
 		const bed = stage.id === 'portal' ? portalBed(o, known, { lit: false }) : null;
