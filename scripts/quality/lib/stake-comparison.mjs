@@ -6,7 +6,7 @@ import { tmpdir, homedir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { runStake, expectedDecisions } from '../../../coordinator/src/decision-eval/decision-stake.mjs';
-import { SCHEMA, decisionFiles, compare } from '../gate-report.mjs';
+import { SCHEMA, decisionFiles, compare, profileMismatch } from '../gate-report.mjs';
 import { loadDangerCorpus, replaySearchDanger } from '../search-danger-replay.mjs';
 import { loadPortalCorpus, replayPortalRoute } from '../portal-route-replay.mjs';
 const exec = promisify(execFile);
@@ -71,6 +71,8 @@ export function pairAcross(previous, report) {
 	const before = previous?.cohorts?.at(-1), after = report.cohorts.at(-1);
 	if (!before?.runs?.length || !after?.runs?.length || before.commit === after.commit) return null;
 	if (['mode', 'model', 'windowMin'].some(key => JSON.stringify(before[key]) !== JSON.stringify(after[key]))) return null;
+	// Games of different models or efforts never pair across gates, even when the cohort labels agree.
+	if (profileMismatch(before, after)) return null;
 	const comparison = compare(before, after);
 	return comparison.pairedSeeds ? { ...comparison, acrossGate: previous.gate } : null;
 }
