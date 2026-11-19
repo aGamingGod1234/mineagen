@@ -247,6 +247,9 @@ const outOfReach = item => item.slot !== 'mainhand' && item.slot !== 'offhand'
 // arm (ReflexActions.topUpLacks), so food like this in the hotbar does not put food in its reach.
 const TOP_UP_SKIPPED = /^minecraft:(rotten_flesh|spider_eye|poisonous_potato|pufferfish|suspicious_stew|chorus_fruit|chicken)$/;
 const HEALING_FOOD = /^minecraft:(enchanted_)?golden_apple$/;
+// Every vanilla item with a food component, as the eat reflex reads them (ReflexActions.Held.food): EDIBLE plus the foods
+// the route never counts as a stock (last-resort food, golden apples, honey).
+const REFLEX_FOOD = new RegExp(`${EDIBLE.source}|^minecraft:(golden_apple|enchanted_golden_apple|rotten_flesh|spider_eye|poisonous_potato|pufferfish|tropical_fish|suspicious_stew|chorus_fruit|honey_bottle)$`);
 const reflexEats = (item, o) => !(o.player?.foodLevel >= 14
 	&& (TOP_UP_SKIPPED.test(item.itemId ?? '') || HEALING_FOOD.test(item.itemId ?? '') && !(o.player?.health <= 8)));
 
@@ -299,7 +302,7 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 	let foodNote = '';
 	if (instincts === true) {
 		const food = items.filter(i => EDIBLE.test(i.itemId ?? ''));
-		const eats = food.filter(i => reflexEats(i, o));
+		const eats = items.filter(i => REFLEX_FOOD.test(i.itemId ?? '') && reflexEats(i, o));
 		const stored = eats.filter(outOfReach);
 		// Only while eating is due soon (the eat reflex fires below 18) or the body is hurt: at full hunger it would only
 		// crowd out the step that matters.

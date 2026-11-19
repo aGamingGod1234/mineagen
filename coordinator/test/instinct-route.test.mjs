@@ -51,6 +51,17 @@ test('food in reach: food the eat reflex will not top up on does not count as in
 		'only top-up-skipped food carried: no move line that would not help');
 });
 
+test('food in reach: any food the eat reflex accepts is moved when it is the only food it would eat', () => {
+	const apple = [['iron_pickaxe', 1, 0, true], ['golden_apple', 1, 20, false]];
+	assert.match(route(apple, { foodLevel: 17, health: 6 }), /^usual next step: select_tool sourceSlot:20 hotbarSlot:8 expectedItemId:minecraft:golden_apple /,
+		'health 6: the reflex would eat a golden apple, so it is moved into reach');
+	assert.doesNotMatch(route(apple, { foodLevel: 17, health: 12 }) ?? '', /select_tool/, 'health 12 at hunger 17: the reflex keeps the apple, no move');
+	assert.match(route([['iron_pickaxe', 1, 0, true], ['rotten_flesh', 4, 20, false]], { foodLevel: 8 }), /^usual next step: select_tool sourceSlot:20 .*rotten_flesh/,
+		'hunger 8: rotten flesh is eaten, so it is moved into reach');
+	assert.match(route([['iron_pickaxe', 1, 0, true], ['bread', 2, 4, true], ['cooked_beef', 10, 20, false]], { foodLevel: 17, health: 6 }) ?? '', /^(?!.*select_tool)/,
+		'food the reflex eats already in the hotbar: no move');
+});
+
 test('food in every dimension: with none carried and hungry, a source in view first, else a note before more travel', () => {
 	const hog = [{ type: 'minecraft:hoglin', distance: 12, x: 12, y: 64, z: 0 }];
 	const kit = [['iron_pickaxe', 1, 0, true], ['blaze_rod', 0, 1, true]];
