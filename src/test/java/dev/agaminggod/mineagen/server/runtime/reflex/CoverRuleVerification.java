@@ -33,6 +33,7 @@ public final class CoverRuleVerification {
 		shieldRulesStandAsideForABlockingCover(defaults);
 		preemptedCoverStaysOffWhileTheShooterSees(defaults);
 		gatedShieldLetsCoverFinish(defaults);
+		queuedArrowDuringCooldownDoesNotPreemptCover(defaults);
 		coverBlocksOnlyAroundAShot();
 		openGroundEndingsDoNotDisableCover(defaults);
 		finishedCoverWaitsForAFreshSighting(defaults);
@@ -127,6 +128,27 @@ public final class CoverRuleVerification {
 		}
 		ReflexScheduler.Decision hidden = scheduler.step(++tick, Map.of(COVER, off(), ARROW, off()), DONE, "in cover", false);
 		check(hidden.endOutcome() == ReflexScheduler.Outcome.DONE && hidden.ended().ruleId().equals(COVER), "cover reaches its cell");
+	}
+
+	/** An arrow seen during the shield's cooldown on the tick cover starts must not pre-empt cover when the cooldown ends. */
+	private static void queuedArrowDuringCooldownDoesNotPreemptCover(List<ReflexSpec.Rule> defaults) {
+		ReflexSpec.Rule arrow = rule(defaults, ARROW);
+		ReflexScheduler scheduler = new ReflexScheduler();
+		scheduler.replace(List.of(arrow, rule(defaults, COVER)), 0);
+		long tick = 1;
+		check(ARROW.equals(scheduler.step(tick, Map.of(COVER, off(), ARROW, on()), RUNNING, "", false).started()), "the shield blocks a first shot");
+		scheduler.step(++tick, Map.of(COVER, off(), ARROW, off()), DONE, "shield lowered", false);
+		// Cover starts on the tick a second arrow shows, while the shield is still cooling down: the arrow edge queues.
+		ReflexScheduler.Decision start = scheduler.step(++tick, Map.of(COVER, on(), ARROW, on()), RUNNING, "", false);
+		check(COVER.equals(start.started()), "cover fires on the sighting while the shield cools down");
+		boolean preempted = false;
+		for (int i = 0; i < 140; i++) {
+			boolean arrowTruth = ReflexEngine.shieldGate(scheduler, arrow, false, scheduler.current() != null);
+			ReflexScheduler.Decision next = scheduler.step(++tick, Map.of(COVER, on(), ARROW, new ReflexScheduler.Sense(arrowTruth, false)),
+					RUNNING, "walking to cover", false);
+			if (ARROW.equals(next.started())) preempted = true;
+		}
+		check(!preempted, "a queued arrow edge does not pre-empt cover after the shield's cooldown (7 s, inside cover's 8 s)");
 	}
 
 	private static void coverBlocksOnlyAroundAShot() {

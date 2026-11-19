@@ -95,6 +95,16 @@ public final class ReflexEngine {
 				&& rule.when().stream().anyMatch(condition -> "incoming_projectile".equals(condition.type()) && !condition.negated());
 	}
 
+	/**
+	 * Apply the shield's stand-aside gate. Forcing truth false alone leaves a queued arrow edge (seen during the shield's
+	 * cooldown on the tick cover starts) to pre-empt cover once the cooldown ends, so the queued start goes too.
+	 */
+	static boolean shieldGate(ReflexScheduler scheduler, ReflexSpec.Rule rule, boolean truth, boolean firingBlocksShots) {
+		if (!shieldStandsAsideFor(rule, firingBlocksShots)) return truth;
+		scheduler.discardPendingStart(rule.id());
+		return false;
+	}
+
 	/** The running firing's status and detail for the scheduler, after the engine's own exits. */
 	record FiringStep(ReflexScheduler.ActionStatus status, String detail) {
 	}
@@ -370,7 +380,7 @@ public final class ReflexEngine {
 				until = ReflexSensors.sense(player, condition, frame, agent.memory, now).truth();
 			}
 			truth = gatedTruth(rule, truth, activeType);
-			if (truth && shieldStandsAsideFor(rule, firingBlocksShots)) truth = false;
+			truth = shieldGate(agent.scheduler, rule, truth, firingBlocksShots);
 			// A default "back off when weaker" rule does not pause a flee that has already found no way out and stands its
 			// ground: running or taking cover there only hands the attackers free hits (cornered fixture: 4.6 s paused
 			// mid-fight). Hazard flinches (a fusing creeper, fire, lava, air, an edge, suffocation) still interrupt it.
