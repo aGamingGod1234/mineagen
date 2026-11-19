@@ -42,6 +42,15 @@ test('food in reach: food only in the main inventory is moved into the hotbar fi
 	assert.equal(route(stored, { foodLevel: 17 }, false), routeLine({ observation: sample(stored, { foodLevel: 17 }), known: emptyKnown(), evaluate: evaluatePlanCheck }), 'flag off: byte for byte the old line');
 });
 
+test('food in reach: food the eat reflex will not top up on does not count as in reach', () => {
+	const mixed = [['iron_pickaxe', 1, 0, true], ['chicken', 3, 1, true], ['cooked_beef', 10, 20, false]];
+	assert.match(route(mixed, { foodLevel: 17, health: 12 }), /^usual next step: select_tool sourceSlot:20 hotbarSlot:8 expectedItemId:minecraft:cooked_beef /,
+		'raw chicken in the hotbar at hunger 17: the reflex sleeps, so the cooked beef is moved into reach');
+	assert.doesNotMatch(route(mixed, { foodLevel: 12, health: 12 }) ?? '', /select_tool/, 'below hunger 14 the reflex eats the chicken: no move');
+	assert.doesNotMatch(route([['iron_pickaxe', 1, 0, true], ['chicken', 3, 1, true], ['chicken', 5, 20, false]], { foodLevel: 17 }) ?? '', /select_tool/,
+		'only top-up-skipped food carried: no move line that would not help');
+});
+
 test('food in every dimension: with none carried and hungry, a source in view first, else a note before more travel', () => {
 	const hog = [{ type: 'minecraft:hoglin', distance: 12, x: 12, y: 64, z: 0 }];
 	const kit = [['iron_pickaxe', 1, 0, true], ['blaze_rod', 0, 1, true]];

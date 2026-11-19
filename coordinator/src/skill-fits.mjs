@@ -243,6 +243,13 @@ const INSTINCT_ROUTE = ROUTE.flatMap(row => row.id === 'stone' ? [row, WEAPON] :
 const outOfReach = item => item.slot !== 'mainhand' && item.slot !== 'offhand'
 	&& (item.hotbar === false || Number.isInteger(item.slot) && item.slot >= 9 && item.hotbar !== true);
 
+// The default eat reflex does not top up (hunger 14+) on these, or on a golden apple above health 8, under the instincts
+// arm (ReflexActions.topUpLacks), so food like this in the hotbar does not put food in its reach.
+const TOP_UP_SKIPPED = /^minecraft:(rotten_flesh|spider_eye|poisonous_potato|pufferfish|suspicious_stew|chorus_fruit|chicken)$/;
+const HEALING_FOOD = /^minecraft:(enchanted_)?golden_apple$/;
+const reflexEats = (item, o) => !(o.player?.foodLevel >= 14
+	&& (TOP_UP_SKIPPED.test(item.itemId ?? '') || HEALING_FOOD.test(item.itemId ?? '') && !(o.player?.health <= 8)));
+
 const HOGLIN_HEALTH = 10;
 
 // A food source each dimension has, in view now; null when none is.
@@ -292,12 +299,13 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 	let foodNote = '';
 	if (instincts === true) {
 		const food = items.filter(i => EDIBLE.test(i.itemId ?? ''));
-		const stored = food.filter(outOfReach);
+		const eats = food.filter(i => reflexEats(i, o));
+		const stored = eats.filter(outOfReach);
 		// Only while eating is due soon (the eat reflex fires below 18) or the body is hurt: at full hunger it would only
 		// crowd out the step that matters.
 		const eatingDue = !Number.isFinite(o.player?.foodLevel) || o.player.foodLevel < 18 || o.player?.health <= 14;
 		const best = stored.find(i => FOOD.test(i.itemId) && Number.isInteger(i.slot)) ?? stored.find(i => Number.isInteger(i.slot));
-		if (eatingDue && food.length > 0 && stored.length === food.length && best !== undefined) {
+		if (eatingDue && stored.length > 0 && stored.length === eats.length && best !== undefined) {
 			const taken = new Set(items.filter(i => Number.isInteger(i.slot) && i.slot >= 0 && i.slot <= 8).map(i => i.slot));
 			const hotbarSlot = [8, 7, 6, 5, 4, 3, 2, 1, 0].find(slot => !taken.has(slot)) ?? 8;
 			return line(`select_tool sourceSlot:${best.slot} hotbarSlot:${hotbarSlot} expectedItemId:${best.itemId} minRemainingDurability:0`,

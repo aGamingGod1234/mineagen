@@ -119,6 +119,16 @@ public final class ReflexEngine {
 	}
 
 	/**
+	 * Apply the retreat pace check. Forcing truth false alone leaves a retreat edge queued before the outpacing chaser came
+	 * (while a higher-priority firing held the body) to start within its pending window, so the queued start goes too.
+	 */
+	static boolean paceGate(ReflexScheduler scheduler, ReflexSpec.Rule rule, boolean truth, boolean paceHolds) {
+		if (!paceHolds) return truth;
+		scheduler.discardPendingStart(rule.id());
+		return false;
+	}
+
+	/**
 	 * Apply the shield's stand-aside gate. Forcing truth false alone leaves a queued arrow edge (seen during the shield's
 	 * cooldown on the tick cover starts) to pre-empt cover once the cooldown ends, so the queued start goes too.
 	 */
@@ -393,7 +403,7 @@ public final class ReflexEngine {
 			// A default rule sleeps while its action needs an item the body does not hold (no shield, no food), so a
 			// default shield or eat rule costs nothing and reports no failure until the item is there.
 			if (truth && sleepsWithoutItem(rule, ReflexActions.lacks(player, rule.action(), rule.coordinatorDefault()))) truth = false;
-			if (truth && Instincts.enabled() && paceHoldsRetreat(rule, player)) truth = false;
+			truth = paceGate(agent.scheduler, rule, truth, Instincts.enabled() && paceHoldsRetreat(rule, player));
 			if (deferFlowDuringCast(rule, activeType)) {
 				truth = false;
 				agent.scheduler.discardPendingStart(rule.id());

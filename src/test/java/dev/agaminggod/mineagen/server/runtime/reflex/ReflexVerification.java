@@ -44,6 +44,7 @@ public final class ReflexVerification {
 		replaceKeepsUnchangedState();
 		stanceFlipKeepsTheFiring();
 		retreatPaceCheck();
+		paceCheckDropsAQueuedRetreat();
 		leasesRenewAndRebase();
 		workVocabulary();
 		pausedTimeIsNotActionTime();
@@ -430,6 +431,31 @@ public final class ReflexVerification {
 		check(ReflexEngine.retreatOutpaced(walk, List.of(0.3D)), "too hungry to sprint, a spider keeps pace");
 		check(!ReflexEngine.retreatOutpaced(walk, List.of(0.23D)), "too hungry to sprint, a zombie is still left behind");
 		check(ReflexEngine.PACE_RANGE == 6.0D, "the check counts mobs within default-retreat's 6 blocks");
+	}
+
+	/**
+	 * A retreat edge queued while a higher-priority firing holds the body must not start once the pace check holds the
+	 * retreat back (a baby zombie came in range meanwhile): the gate drops the queued start, as the shield gate does.
+	 */
+	private static void paceCheckDropsAQueuedRetreat() {
+		List<ReflexSpec.Rule> set = rules("""
+				[{"id":"default-fire","priority":9,"when":{"type":"on_fire"},"do":{"type":"eat"},"coordinatorDefault":true},
+				 {"id":"default-retreat","priority":7,"when":[{"type":"health_below","value":7},{"type":"hostile_near","within":6}],"do":{"type":"sprint_away","blocks":10},"coordinatorDefault":true}]""");
+		ReflexSpec.Rule retreat = set.get(1);
+		ReflexScheduler scheduler = new ReflexScheduler();
+		scheduler.replace(set, 0);
+		long tick = 1;
+		check("default-fire".equals(scheduler.step(tick, sense("default-fire", true, "default-retreat", false), RUNNING, "", false).started()), "the hazard fires first");
+		ReflexScheduler.Decision queued = scheduler.step(++tick, sense("default-fire", true, "default-retreat", true), RUNNING, "", false);
+		check(queued.started() == null, "low health near an adult zombie queues the retreat behind the hazard");
+		boolean started = false;
+		for (int i = 0; i < ReflexScheduler.PENDING_TICKS + 5; i++) {
+			boolean truth = ReflexEngine.paceGate(scheduler, retreat, true, true);
+			ReflexScheduler.Decision next = scheduler.step(++tick, sense("default-fire", i == 0, "default-retreat", truth), i == 0 ? RUNNING : ReflexScheduler.ActionStatus.DONE, "", false);
+			if ("default-retreat".equals(next.started())) started = true;
+		}
+		check(!started, "a baby zombie came in range: the queued retreat does not start");
+		check(ReflexEngine.paceGate(scheduler, retreat, true, false), "with nothing keeping pace the retreat's truth passes through");
 	}
 
 	private static void leasesRenewAndRebase() {
