@@ -190,6 +190,18 @@ public final class DangerLog {
 		if (!known) open(new Onset("hit", key, kind, attacker == null ? damageType : attacker, attackerId, 0.0D, gameTime, epochMs, active), firing);
 	}
 
+	/** A mob the agent killed (1b): whether the body saw it die, and the drops at the corpse it could and could not see. */
+	public void kill(String entityType, boolean seen, int dropsSeen, int dropsUnseen, long gameTime, long epochMs) {
+		rows.add(killRow(entityType, seen, dropsSeen, dropsUnseen, gameTime, epochMs));
+	}
+
+	JsonObject killRow(String entityType, boolean seen, int dropsSeen, int dropsUnseen, long gameTime, long epochMs) {
+		JsonObject row = header("kill", gameTime, epochMs);
+		for (var field : dev.agaminggod.mineagen.server.perception.KillSighting.row(entityType, seen, dropsSeen, dropsUnseen).entrySet())
+			row.add(field.getKey(), field.getValue());
+		return row;
+	}
+
 	/** The agent died: every onset closes and resolves now, marked truncated when its window had not run out. */
 	public void death(long gameTime, long epochMs) {
 		closeAll(gameTime, epochMs, "death");

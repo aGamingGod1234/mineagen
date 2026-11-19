@@ -124,6 +124,15 @@ final class ReflexActions {
 
 		/** Only holds on now in a way the agent's paused fight handles itself (out of a fire block, still burning). */
 		default boolean yieldsToFight() { return false; }
+
+		/** Answers shots with a held shield itself this firing, so a shield rule for shots need not take the body. */
+		default boolean blocksShots() { return false; }
+
+		/**
+		 * Moves the body through controllers with their own navigation leases, never through the reflex input: a reflex
+		 * lease kept from the firing before it would outrank them and hold the body still.
+		 */
+		default boolean drivesOwnNavigation() { return false; }
 	}
 
 	static Behaviour create(ReflexSpec.Action action) {
@@ -135,6 +144,7 @@ final class ReflexActions {
 			case "select" -> new Select(action.text("tool"), action.text("item"));
 			case "swim_up" -> new SwimUp();
 			case "pickup" -> new Pickup(action.number("within", 4.0D));
+			case "collect_drops" -> new CollectDrops();
 			case "place" -> new Place(action.text("item"), action.text("where"));
 			case "stop" -> new Stop();
 			case "deflect" -> new Deflect();
@@ -144,7 +154,7 @@ final class ReflexActions {
 			case "sneak" -> new Sneak();
 			case "look_away" -> new LookAway();
 			case "place_block" -> new PlaceBlock(action.text("item"), (int) action.number("count", 2.0D));
-			case "take_cover" -> new TakeCover((int) action.number("within", 6.0D));
+			case "take_cover" -> new TakeCover((int) action.number("within", 6.0D), true);
 			case "away_from_edge" -> new AwayFromEdge(action.number("blocks", 6.0D));
 			case "dig_out" -> new DigOut();
 			case "defend" -> new Defend();
@@ -156,7 +166,29 @@ final class ReflexActions {
 	}
 
 	static String lacks(ServerPlayer player, ReflexSpec.Action action) {
-		return lacks(action, index -> Held.of(player.getInventory().getItem(index)), player.getInventory().getSelectedSlot(), Held.of(player.getOffhandItem()));
+		return lacks(player, action, false);
+	}
+
+	/** As above; for a coordinator default eat rule under the instincts arm, also {@link #topUpLacks}. */
+	static String lacks(ServerPlayer player, ReflexSpec.Action action, boolean coordinatorDefault) {
+		String lacks = lacks(action, index -> Held.of(player.getInventory().getItem(index)), player.getInventory().getSelectedSlot(), Held.of(player.getOffhandItem()));
+		if (lacks != null || !coordinatorDefault || !"eat".equals(action.type()) || !Instincts.enabled()) return lacks;
+		return topUpLacks(index -> Held.of(player.getInventory().getItem(index)), Held.of(player.getOffhandItem()), player.getFoodData().getFoodLevel(), player.getHealth());
+	}
+
+	/** At this hunger or more, eating only tops the bar up toward 18 for healing (issue 2 Step 2, instincts arm). */
+	static final int TOP_UP_HUNGER = 14;
+
+	/**
+	 * The instincts arm eats from hunger 17 to heal (health regrows only at 18+). Topping up is not worth a harmful food
+	 * (rotten flesh, raw chicken) or a golden apple above {@link Eat#HEALING_FOOD_HEALTH}, so at {@link #TOP_UP_HUNGER} or more
+	 * with only those in reach the default eat rule sleeps and says why, instead of eating them or failing each cooldown.
+	 */
+	static String topUpLacks(java.util.function.IntFunction<Held> slots, Held offhand, int foodLevel, float health) {
+		if (foodLevel < TOP_UP_HUNGER) return null;
+		return holds(slots, offhand, 9, held -> held.food() && !Eat.LAST_RESORT_FOODS.contains(held.id())
+				&& (!Eat.HEALING_FOODS.contains(held.id()) || health <= Eat.HEALING_FOOD_HEALTH)) ? null
+				: "only last-resort food in hotbar or offhand while hunger is " + TOP_UP_HUNGER + "+";
 	}
 
 	/** One inventory slot as {@link #lacks} reads it: the item id (null when empty), and whether it is food or a cover block. */
@@ -610,7 +642,7 @@ final class ReflexActions {
 				if (built.status() == ReflexScheduler.ActionStatus.DONE) return Step.done(done + "; " + built.detail());
 			}
 			if (shooter != null && PlaceBlock.blockSlot(player, null) < 0 && (cover != null || player.tickCount >= coverRetryTick)) {
-				if (cover == null) cover = new TakeCover(COVER_WITHIN);
+				if (cover == null) cover = new TakeCover(COVER_WITHIN, false);
 				Step hidden = cover.tick(new Context(player, shooter, context.stance(), context.memory(), context.point(), context.below(),
 						context.fightShields()), input);
 				if (hidden.status() == ReflexScheduler.ActionStatus.RUNNING) return Step.running(done + "; taking cover from " + type(shooter) + ": " + hidden.detail());
@@ -1065,6 +1097,106 @@ final class ReflexActions {
 			}
 			return count;
 		}
+	}
+
+	/**
+	 * The owed-drops habit (issue #2, 1b): walk to the drops a kill left behind (a hostile was near when the fight ended,
+	 * or the model moved on) by pick_up_item's own route, throwing junk for room, for at most {@link #COLLECT_MS}, then
+	 * walk back to where the body stood. Each drop is tried once. A hostile coming near stops the collecting and the body
+	 * walks back. It always ends DONE with what it picked up and left: an empty pass is not a failure, so a run of them
+	 * never switches the rule off. drops_owed holds only for an idle body, so it never pauses the agent's own action.
+	 */
+	static final class CollectDrops implements Behaviour {
+		static final long COLLECT_MS = 12_000L;
+		static final long BACK_MS = 7_000L;
+		private dev.agaminggod.mineagen.server.runtime.controller.KillDropCollector collector;
+		private ServerNavigationController back;
+		private Vec3 start;
+		private String summary;
+		private String finished;
+		private boolean underFire;
+
+		@Override
+		public Step tick(Context context, Consumer<AgentInputState> input) {
+			ServerPlayer player = context.player();
+			long now = dev.agaminggod.mineagen.server.runtime.GameClock.nowMs();
+			if (start == null) {
+				List<java.util.UUID> owed = dev.agaminggod.mineagen.server.perception.ObservedDrops.owed(player, ReflexSensors.OWED_WITHIN);
+				if (owed.isEmpty()) return Step.done("no owed drop left");
+				dev.agaminggod.mineagen.server.perception.ObservedDrops.tried(player, owed);
+				start = player.position();
+				// The body's own kill loot, as the pickup reflex takes items; room is made from junk only.
+				collector = new dev.agaminggod.mineagen.server.runtime.controller.KillDropCollector(owed, null, now, COLLECT_MS)
+						.makingRoom(ignored -> true);
+			}
+			if (collector != null) {
+				String blocker = dev.agaminggod.mineagen.server.runtime.controller.KillDropCollector.hostileNear(player);
+				String done = blocker != null ? "stopped, " + blocker : collector.tick(player, now);
+				if (done == null) return Step.running("collecting owed drops");
+				if (blocker != null) { collector.cancel(player); underFire = true; }
+				collector = null;
+				summary = tally(done);
+				if (player.position().distanceTo(start) <= 1.0D) return finish("owed drops: " + summary);
+				back = new ServerNavigationController(start, 0.6D, false, now, BACK_MS, false);
+			}
+			return walkBack(player, now);
+		}
+
+		/**
+		 * The walk back to where the pass started. The engine reads a new firing's first-tick status only on its next
+		 * tick, so a pass that already finished (at its start, nothing to walk) gives its done step again.
+		 */
+		Step walkBack(ServerPlayer player, long now) {
+			if (back == null) return Step.done(finished == null ? "owed drops: " + summary : finished);
+			var walked = back.tick(player, now);
+			if (walked.state() == dev.agaminggod.mineagen.server.runtime.controller.ServerController.State.RUNNING) return Step.running("walking back from owed drops");
+			back.cancel(player);
+			back = null;
+			return finish("owed drops: " + summary + (walked.state() == dev.agaminggod.mineagen.server.runtime.controller.ServerController.State.SUCCEEDED
+					? (underFire ? "; walked back under fire" : "; walked back") : "; walk back " + walked.reasonCode()));
+		}
+
+		private Step finish(String detail) {
+			finished = detail;
+			return Step.done(detail);
+		}
+
+		/** A pass whose collection already finished where it started, as after its first tick (for tests). */
+		static CollectDrops finishedInPlace(String summary) {
+			CollectDrops pass = new CollectDrops();
+			pass.start = Vec3.ZERO;
+			pass.summary = summary;
+			pass.finished = "owed drops: " + summary;
+			return pass;
+		}
+
+		/**
+		 * The collector's notes as counts, so the firing detail (cut at 160 characters) keeps its outcome: "picked up 2,
+		 * left 1, made room" with the first reason a drop was left, or the collector's own line when it has no notes.
+		 */
+		static String tally(String notes) {
+			int picked = 0, left = 0;
+			boolean room = false;
+			String firstLeft = null;
+			for (String note : notes.split("; ")) {
+				if (note.startsWith("picked up")) picked++;
+				else if (note.startsWith("left ")) { left++; if (firstLeft == null) firstLeft = note.substring(note.lastIndexOf(':') + 1).trim(); }
+				else if (note.startsWith("made room")) room = true;
+			}
+			if (picked == 0 && left == 0) return notes.length() > 80 ? notes.substring(0, 80) : notes;
+			return "picked up " + picked + ", left " + left + (room ? ", made room" : "") + (firstLeft == null ? "" : " (" + (firstLeft.length() > 50 ? firstLeft.substring(0, 50) : firstLeft) + ")");
+		}
+
+		@Override
+		public void end(ServerPlayer player) {
+			if (collector != null) collector.cancel(player);
+			collector = null;
+			if (back != null) back.cancel(player);
+			back = null;
+		}
+
+		@Override
+		public boolean drivesOwnNavigation() { return true; }
 	}
 
 	/**
@@ -2303,14 +2435,56 @@ final class ReflexActions {
 		private PlaceBlock wall;
 		private LivingEntity shooter;
 		private String why;
+		/**
+		 * A rule's firing: with no cell that hides and no block to build cover, it ends done and says so instead of failing,
+		 * since four failures in a row would switch the rule off (blaze cover with it) for nothing it could have done.
+		 * Defend's own cover step keeps the failure, which paces its retries.
+		 */
+		private final boolean openGroundDone;
+		/** Where the last shot due within {@link #SHIELD_SHOT_SECONDS} came from, and when it was seen. */
+		private Vec3 shotFrom;
+		private long shotTick;
+		private int shieldTicks;
+		/**
+		 * A shield in hand: this firing answers shots itself (see {@link #blocksShots}), in every phase and still once
+		 * {@link #MAX_SHIELD_TICKS} ends its stops, since a shield rule taking the body then would end cover for good.
+		 */
+		private boolean blocking;
+		/** Ticks the shield stays up after the last shot was seen coming: the 5-tick raise, so a shot just past is not missed. */
+		static final long BLOCK_AFTER_SHOT_TICKS = 5L;
+		/**
+		 * Shield-up ticks a firing spends at most: steady fire from several shooters would otherwise hold the body in the
+		 * open until the firing times out; past them it goes on without stopping.
+		 */
+		static final int MAX_SHIELD_TICKS = 40;
 
-		TakeCover(int within) {
+		TakeCover(int within, boolean openGroundDone) {
 			this.within = within;
+			this.openGroundDone = openGroundDone;
+		}
+
+		boolean endsDoneInOpenGround() {
+			return openGroundDone;
+		}
+
+		@Override
+		public boolean blocksShots() {
+			return blocking;
+		}
+
+		/**
+		 * Whether this tick stops to block: a shield in hand, a shot seen coming within the last few ticks and fewer than
+		 * {@link #MAX_SHIELD_TICKS} ticks of shield already spent this firing.
+		 */
+		static boolean blocksNow(boolean shieldInHand, long ticksSinceShot, int shieldTicks) {
+			return shieldInHand && ticksSinceShot >= 0L && ticksSinceShot <= BLOCK_AFTER_SHOT_TICKS && shieldTicks < MAX_SHIELD_TICKS;
 		}
 
 		@Override
 		public Step tick(Context context, Consumer<AgentInputState> input) {
 			ServerPlayer player = context.player();
+			Step blocked = blockShot(player, input);
+			if (blocked != null) return blocked;
 			if (wall != null) return buildCover(context, input);
 			if (walk == null) {
 				// The condition's mob; when it names none (low health), the hostiles that see the player and can shoot it,
@@ -2346,7 +2520,10 @@ final class ReflexActions {
 					why = "no cell within " + within + " steps hides from " + who + " (" + reach.size() + " cells reachable over seen ground)";
 					// In the open a player with blocks makes the cover: two blocks between it and the nearest shooter.
 					shooter = from.getFirst();
-					if (PlaceBlock.blockSlot(player, null) < 0) return Step.failed(why + "; no solid block in the hotbar to build cover");
+					if (PlaceBlock.blockSlot(player, null) < 0) {
+						String open = why + "; no solid block in the hotbar to build cover";
+						return openGroundDone ? Step.done(open + "; stayed in the open") : Step.failed(open);
+					}
 					wall = new PlaceBlock(null, 2);
 					return buildCover(context, input);
 				}
@@ -2357,14 +2534,52 @@ final class ReflexActions {
 				return Step.running("lava flows beside the way to cover at " + flow.x() + "," + flow.y() + "," + flow.z() + "; choosing cover again");
 			}
 			Step step = walk.tick(player, input, true);
-			return step.status() == ReflexScheduler.ActionStatus.DONE
-					? Step.done("in cover at " + cover.x() + "," + cover.y() + "," + cover.z()) : step;
+			return switch (step.status()) {
+				case DONE -> Step.done("in cover at " + cover.x() + "," + cover.y() + "," + cover.z() + shielded());
+				case RUNNING -> Step.running(step.detail() + shielded());
+				case FAILED -> Step.failed(step.detail() + shielded());
+			};
+		}
+
+		/**
+		 * A player taking cover under fire stops and turns the shield to a shot about to land, then goes on: walking behind
+		 * a raised shield moves at a fifth of the speed, and the walk, the look around and the wall each aim the view the
+		 * shield turns away. The blocking step, or null when this tick goes on with cover.
+		 */
+		private Step blockShot(ServerPlayer player, Consumer<AgentInputState> input) {
+			InteractionHand hand = shieldHand(player);
+			blocking = hand != null;
+			if (hand == null) return null;
+			long now = player.level().getGameTime();
+			Entity shot = ReflexSensors.incomingShot(player, SHIELD_SHOT_SECONDS);
+			if (shot != null) {
+				shotFrom = ReflexSensors.aimPoint(shot);
+				shotTick = now;
+			}
+			if (shotFrom == null || !blocksNow(true, now - shotTick, shieldTicks)) return null;
+			shieldTicks++;
+			input.accept(look(player, shotFrom, 0.0F, 0.0F, false, true, player.getInventory().getSelectedSlot(), hand));
+			String phase = wall != null ? "while building cover toward " + type(shooter)
+					: walk != null ? "on the way to cover at " + cover.x() + "," + cover.y() + "," + cover.z() : "while looking for cover";
+			return Step.running("blocking a shot " + phase + shielded());
+		}
+
+		private String shielded() {
+			if (shieldTicks == 0) return "";
+			return String.format(Locale.ROOT, "; shield up %.1f s", shieldTicks / 20.0D)
+					+ (shieldTicks >= MAX_SHIELD_TICKS ? ", the most one firing blocks" : "");
+		}
+
+		/** The hand holding a shield, the offhand first, or null. */
+		private static InteractionHand shieldHand(ServerPlayer player) {
+			return player.getOffhandItem().is(Items.SHIELD) ? InteractionHand.OFF_HAND
+					: player.getMainHandItem().is(Items.SHIELD) ? InteractionHand.MAIN_HAND : null;
 		}
 
 		private Step buildCover(Context context, Consumer<AgentInputState> input) {
 			Context toward = new Context(context.player(), shooter, context.stance(), context.memory(), shooter.position(), context.below(), context.fightShields());
 			Step step = wall.tick(toward, input);
-			String detail = why + "; " + step.detail() + " toward " + type(shooter);
+			String detail = why + "; " + step.detail() + " toward " + type(shooter) + shielded();
 			return switch (step.status()) {
 				case RUNNING -> Step.running(step.detail());
 				case DONE -> Step.done(detail);

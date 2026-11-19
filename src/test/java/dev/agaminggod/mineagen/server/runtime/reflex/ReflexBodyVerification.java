@@ -213,6 +213,21 @@ public final class ReflexBodyVerification {
 				"a bucket in the offhand serves the clutch");
 		slots.put(4, held("minecraft:bucket"));
 		check(ReflexActions.lacks(parsed.get(0).action(), inventory, 0, none) != null, "an emptied bucket is a lost clutch");
+		// Issue 2 Step 2 (instincts arm): topping hunger up toward 18 skips harmful food and a golden apple above health 8.
+		Map<Integer, ReflexActions.Held> food = new HashMap<>();
+		java.util.function.IntFunction<ReflexActions.Held> pack = index -> food.getOrDefault(index, ReflexActions.Held.EMPTY);
+		food.put(2, new ReflexActions.Held("minecraft:rotten_flesh", true, false));
+		food.put(3, new ReflexActions.Held("minecraft:golden_apple", true, false));
+		check(ReflexActions.topUpLacks(pack, none, 13, 20.0F) == null, "under hunger 14 the choice is as before");
+		check(ReflexActions.topUpLacks(pack, none, 16, 20.0F) != null, "at 16 rotten flesh and a golden apple are not eaten to top up");
+		check(ReflexActions.topUpLacks(pack, none, 16, 6.0F) == null, "at health 8 or less the golden apple is the right food");
+		check(ReflexActions.topUpLacks(pack, new ReflexActions.Held("minecraft:bread", true, false), 17, 20.0F) == null, "bread in the offhand tops up");
+		food.put(5, new ReflexActions.Held("minecraft:cooked_beef", true, false));
+		check(ReflexActions.topUpLacks(pack, none, 17, 20.0F) == null, "cooked beef in the hotbar tops up");
+		food.put(5, ReflexActions.Held.EMPTY);
+		food.put(12, new ReflexActions.Held("minecraft:cooked_beef", true, false));
+		check(ReflexActions.topUpLacks(pack, none, 17, 20.0F) != null, "beef in the main inventory is out of reach of the eat rule");
+		check(Instincts.listed("aim, instincts") && !Instincts.listed("") && !Instincts.listed(null) && !Instincts.listed("instinct"), "the flag reads a comma list");
 		slots.put(20, none);
 		slots.put(30, held("minecraft:torch"));
 		check(ReflexActions.lacks(parsed.get(4).action(), inventory, 0, none) == null, "select reaches the main inventory");
@@ -236,7 +251,7 @@ public final class ReflexBodyVerification {
 		check(!ReflexEngine.sleepsWithoutItem(parsed.get(0), ReflexActions.lacks(parsed.get(0).action(), empty, 0, held("minecraft:shield"))), "an offhand shield wakes it");
 		java.util.function.IntFunction<ReflexActions.Held> bread = index -> index == 2 ? new ReflexActions.Held("minecraft:bread", true, false) : none;
 		check(!ReflexEngine.sleepsWithoutItem(parsed.get(1), ReflexActions.lacks(parsed.get(1).action(), bread, 0, none)), "hotbar food wakes it");
-		check(ReflexSpec.MAX_RULES == 26, "the mod holds the model's 12 rules plus the 14 defaults");
+		check(ReflexSpec.MAX_RULES == 27, "the mod holds the model's 12 rules plus the 15 defaults");
 	}
 
 	/** Vanilla food values (nutrition, saturation) for the choice below. */

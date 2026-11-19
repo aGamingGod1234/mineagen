@@ -5,10 +5,14 @@ import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import { parseArgs } from 'node:util';
+import { defaultModel } from '../../coordinator/src/default-models.mjs';
 import { StandingOrderBook } from '../../coordinator/src/standing-orders.mjs';
 import { normalizeMinecraftToolCall } from '../../coordinator/src/native-minecraft-tools.mjs';
-const [directory, out] = process.argv.slice(2);
-if (!directory || !out) throw new Error('analyze-reflex.mjs RUN_DIRECTORY OUTPUT_DIRECTORY');
+const { values: options, positionals: [directory, out] } = parseArgs({ allowPositionals: true, options: { model: { type: 'string' } } });
+if (!directory || !out) throw new Error('analyze-reflex.mjs RUN_DIRECTORY OUTPUT_DIRECTORY [--model ID]');
+// Only the play model's turns count; the default is the project's (coordinator/src/default-models.mjs).
+const model = options.model ?? defaultModel('codex');
 await mkdir(out, { recursive: true });
 async function* rows(file) {
   let line = 0;
@@ -19,7 +23,7 @@ async function* rows(file) {
 }
 const tools = [], calls = [], wakes = [];
 for await (const { row: r, ref } of rows('provider-turns.private.jsonl')) {
-  if (r.model !== 'gpt-6.1-sol') continue;
+  if (r.model !== model) continue;
   calls.push({ at: r.timestamp, durationMs: r.timing?.durationMs, outcome: r.outcome, ref });
   for (const c of r.capture?.calls ?? []) {
     for (const t of c.toolCalls ?? []) {
@@ -101,7 +105,7 @@ const guardDispatches = firings.map((f, i) => {
   const action = events.find(e => e.at >= f.at && e.at < next && e.event === 'native_tool_command_sent' && e.callId?.startsWith(`standing-${f.id}-`));
   return { at: f.at, id: f.id, elapsedMs: action ? action.at - f.at : null, actionType: action?.actionType ?? null, ref: f.ref, commandRef: action?.ref ?? null };
 });
-const summary = { directory, clock:'Epoch milliseconds; display in UTC+08. First threat means earliest retained player observation, not spawn time. Guard conditions replayed from hash-verified source; true does not prove body admission. No artificial history or hidden server state used.', observationWindow: { first: observations[0]?.at, last: observations.at(-1)?.at }, counts, deathCount:deaths.length, deaths, installs:setEvents.map(({ normalized, ...e })=>e), firings:edits.filter(e=>e.event==='standing_order_fired'), wakeGuards:{ total:wakes.length, absent:wakes.filter(w=>w.guard==='none installed').length }, dispatchMs:{ n:latency.length, p50:latency[Math.floor(latency.length*.5)], p95:latency[Math.floor(latency.length*.95)], max:latency.at(-1) } };
+const summary = { directory, model, clock:'Epoch milliseconds; display in UTC+08. First threat means earliest retained player observation, not spawn time. Guard conditions replayed from hash-verified source; true does not prove body admission. No artificial history or hidden server state used.', observationWindow: { first: observations[0]?.at, last: observations.at(-1)?.at }, counts, deathCount:deaths.length, deaths, installs:setEvents.map(({ normalized, ...e })=>e), firings:edits.filter(e=>e.event==='standing_order_fired'), wakeGuards:{ total:wakes.length, absent:wakes.filter(w=>w.guard==='none installed').length }, dispatchMs:{ n:latency.length, p50:latency[Math.floor(latency.length*.5)], p95:latency[Math.floor(latency.length*.95)], max:latency.at(-1) } };
 summary.guardDispatches = guardDispatches;
 summary.authorship = { sourceCalls: tools.filter(t => ['runProgram', 'queueProgram'].includes(t.name) && typeof t.args?.source === 'string').length, savedCalls: tools.filter(t => ['runProgram', 'queueProgram'].includes(t.name) && t.args?.noteKey).length, templateCalls: tools.filter(t => t.args?.standing?.template).length };
 await writeFile(path.join(out,'summary.json'), JSON.stringify(summary,null,2));

@@ -39,6 +39,10 @@ const files = requested.filter(arg => arg.endsWith('.test.mjs'));
 const selected = (files.length ? files : discovered).filter(file => !skippedModules.has(file));
 if (!selected.length) process.exit(0);
 args.push(...requested.filter(arg => !files.includes(arg)), ...selected);
-const child = spawn(process.execPath, args, { cwd: root, stdio: 'inherit' });
+// A session's model override (coordinator/src/default-models.mjs) must not change the defaults tests pin.
+const env = { ...process.env };
+delete env.ARENA_CODEX_MODEL;
+delete env.ARENA_CLAUDE_MODEL;
+const child = spawn(process.execPath, args, { cwd: root, stdio: 'inherit', env });
 child.on('error', error => { console.error(error); process.exitCode = 1; });
 child.on('exit', (code, signal) => { process.exitCode = signal ? 1 : code ?? 1; });

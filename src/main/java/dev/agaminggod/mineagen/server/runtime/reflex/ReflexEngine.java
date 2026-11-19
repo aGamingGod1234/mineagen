@@ -66,6 +66,29 @@ public final class ReflexEngine {
 		return weaker;
 	}
 
+	/** How near a chasing melee mob must be for the retreat's pace check to count it: default-retreat's hostile_near. */
+	static final double PACE_RANGE = 6.0D;
+
+	/**
+	 * Issue 2 Step 2 (instincts arm): whether a run at {@code bodySpeed} would be caught by any of these chasers' movement
+	 * speeds ({@link ReflexActions.Defend#outpaces}). Then default-retreat does not fire: running from a baby zombie (or a spider when
+	 * the body cannot sprint) only turns the body's back, and defend and cover still answer the hits.
+	 */
+	static boolean retreatOutpaced(double bodySpeed, List<Double> chaserSpeeds) {
+		for (double speed : chaserSpeeds) if (!ReflexActions.Defend.outpaces(bodySpeed, speed)) return true;
+		return false;
+	}
+
+	/** {@link #retreatOutpaced} for the coordinator's default-retreat over the melee mobs targeting the body within 6 blocks. */
+	static boolean paceHoldsRetreat(ReflexSpec.Rule rule, ServerPlayer player) {
+		if (!rule.coordinatorDefault() || !"default-retreat".equals(rule.id())) return false;
+		List<Double> speeds = player.level().getEntitiesOfClass(net.minecraft.world.entity.Mob.class, player.getBoundingBox().inflate(PACE_RANGE),
+						mob -> mob.isAlive() && mob.getTarget() == player && !(mob instanceof net.minecraft.world.entity.monster.Creeper)
+								&& player.distanceTo(mob) <= PACE_RANGE && ReflexActions.packMember(mob, player))
+				.stream().map(mob -> mob.getAttributeValue(net.minecraft.world.entity.ai.attributes.Attributes.MOVEMENT_SPEED)).toList();
+		return retreatOutpaced(ReflexActions.Defend.runSpeed(player), speeds);
+	}
+
 	/**
 	 * Actions that are the body's own fight or flight. A defend rule stands aside for them: it does not fire while one runs,
 	 * and a defend firing ends on the tick one starts (a program's fight or flee that no model command yielded it to).
@@ -81,6 +104,57 @@ public final class ReflexEngine {
 	/** A rule's sensed truth after the engine's gates: defend reads false while the body's own fight or flight runs. */
 	static boolean gatedTruth(ReflexSpec.Rule rule, boolean truth, ActionType activeType) {
 		return truth && !("defend".equals(rule.action().type()) && defendStandsAside(activeType));
+	}
+
+	/**
+	 * A shield rule that answers shots ({@code incoming_projectile}, not negated) does not take the body from a firing that
+	 * blocks shots itself (cover with a shield in hand). Taken, the cover would end and, its shooter still in sight, not
+	 * fire again (a pre-empted trigger is not re-armed), leaving the body shielding in the open. A shield for melee keeps
+	 * its priority, as cover does not guard against a swing; so does one on {@code fireball_incoming}, which also senses
+	 * ghast and dragon fireballs, wither skulls and wind charges that cover does not turn its shield to.
+	 */
+	static boolean shieldStandsAsideFor(ReflexSpec.Rule rule, boolean firingBlocksShots) {
+		return firingBlocksShots && "shield".equals(rule.action().type())
+				&& rule.when().stream().anyMatch(condition -> "incoming_projectile".equals(condition.type()) && !condition.negated());
+	}
+
+	/**
+	 * Apply the retreat pace check. Forcing truth false alone leaves a retreat edge queued before the outpacing chaser came
+	 * (while a higher-priority firing held the body) to start within its pending window, so the queued start goes too.
+	 */
+	static boolean paceGate(ReflexScheduler scheduler, ReflexSpec.Rule rule, boolean truth, boolean paceHolds) {
+		if (!paceHolds) return truth;
+		scheduler.discardPendingStart(rule.id());
+		return false;
+	}
+
+	/**
+	 * Whether the firing that ends hands its reflex input lease straight to {@code next}. Keeping it avoids dropping a
+	 * raised shield for a tick and restarting its 5-tick raise, the window a trigger exists to cover. A behaviour that
+	 * drives its own navigation (owed-drops collection) gets a released lease instead: the kept one, renewed every tick,
+	 * would outrank its navigation leases and hold the body still until the pass timed out.
+	 */
+	static boolean handsOverLease(ReflexActions.Behaviour next) {
+		return next != null && !next.drivesOwnNavigation();
+	}
+
+	/**
+	 * Owed-drop collection runs only on an idle body. Its edge, queued while a higher-priority firing held the body, would
+	 * otherwise start within its pending window after a model command arrived and pause that command for the pass, so a
+	 * false condition (the body no longer idle, or nothing owed) drops the queued start.
+	 */
+	static void owedDropsGate(ReflexScheduler scheduler, ReflexSpec.Rule rule, boolean truth) {
+		if (!truth && "collect_drops".equals(rule.action().type())) scheduler.discardPendingStart(rule.id());
+	}
+
+	/**
+	 * Apply the shield's stand-aside gate. Forcing truth false alone leaves a queued arrow edge (seen during the shield's
+	 * cooldown on the tick cover starts) to pre-empt cover once the cooldown ends, so the queued start goes too.
+	 */
+	static boolean shieldGate(ReflexScheduler scheduler, ReflexSpec.Rule rule, boolean truth, boolean firingBlocksShots) {
+		if (!shieldStandsAsideFor(rule, firingBlocksShots)) return truth;
+		scheduler.discardPendingStart(rule.id());
+		return false;
 	}
 
 	/** The running firing's status and detail for the scheduler, after the engine's own exits. */
@@ -324,6 +398,7 @@ public final class ReflexEngine {
 		ObservationVisibility.Frame frame = ObservationVisibility.frame(player.level(), player);
 		boolean cornered = active != null && active.type() == ActionType.FLEE_FROM
 				&& dev.agaminggod.mineagen.server.runtime.controller.CorneredStand.standing(player);
+		boolean firingBlocksShots = agent.scheduler.current() != null && agent.behaviour != null && agent.behaviour.blocksShots();
 		Map<String, ReflexScheduler.Sense> senses = new HashMap<>();
 		Map<String, Entity> focus = new HashMap<>();
 		Map<String, Vec3> points = new HashMap<>();
@@ -346,7 +421,8 @@ public final class ReflexEngine {
 			}
 			// A default rule sleeps while its action needs an item the body does not hold (no shield, no food), so a
 			// default shield or eat rule costs nothing and reports no failure until the item is there.
-			if (truth && sleepsWithoutItem(rule, ReflexActions.lacks(player, rule.action()))) truth = false;
+			if (truth && sleepsWithoutItem(rule, ReflexActions.lacks(player, rule.action(), rule.coordinatorDefault()))) truth = false;
+			truth = paceGate(agent.scheduler, rule, truth, Instincts.enabled() && paceHoldsRetreat(rule, player));
 			if (deferFlowDuringCast(rule, activeType)) {
 				truth = false;
 				agent.scheduler.discardPendingStart(rule.id());
@@ -357,6 +433,8 @@ public final class ReflexEngine {
 				until = ReflexSensors.sense(player, condition, frame, agent.memory, now).truth();
 			}
 			truth = gatedTruth(rule, truth, activeType);
+			truth = shieldGate(agent.scheduler, rule, truth, firingBlocksShots);
+			owedDropsGate(agent.scheduler, rule, truth);
 			// A default "back off when weaker" rule does not pause a flee that has already found no way out and stands its
 			// ground: running or taking cover there only hands the attackers free hits (cornered fixture: 4.6 s paused
 			// mid-fight). Hazard flinches (a fusing creeper, fire, lava, air, an edge, suffocation) still interrupt it.
@@ -391,12 +469,11 @@ public final class ReflexEngine {
 				agent.behaviour != null && agent.behaviour.holdsWhileTrue(), harmed,
 				agent.behaviour == null ? 0L : agent.behaviour.releaseGraceTicks(), heldBack(player, agent));
 		followDeferredYield(agent.scheduler, agent.command, now);
-		// Handing the body straight to the next firing keeps the lease: releasing it would drop a raised shield for a
-		// tick and restart its 5-tick raise, the window a trigger exists to cover.
-		end(agentId, agent, decision, decision.started() != null);
+		ReflexActions.Behaviour next = decision.started() == null ? null : ReflexActions.create(agent.scheduler.rule(decision.started()).action());
+		end(agentId, agent, decision, handsOverLease(next));
 		if (decision.started() != null) {
 			ReflexSpec.Rule rule = agent.scheduler.rule(decision.started());
-			agent.behaviour = ReflexActions.create(rule.action());
+			agent.behaviour = next;
 			agent.startHealth = player.getHealth();
 			agent.firingFocus = agent.focus.get(rule.id());
 			agent.firingPoint = agent.points.get(rule.id());
@@ -573,7 +650,7 @@ public final class ReflexEngine {
 			rule.addProperty("expiresInS", (row.expiresInTicks() + 19L) / 20L);
 			if (row.disabledReason() != null) rule.addProperty("disabled", row.disabledReason());
 			ReflexSpec.Rule spec = agent.scheduler.rule(row.id());
-			String lacks = player == null || spec == null ? null : ReflexActions.lacks(player, spec.action());
+			String lacks = player == null || spec == null ? null : ReflexActions.lacks(player, spec.action(), spec.coordinatorDefault());
 			if (lacks != null) rule.addProperty("lacks", lacks);
 			rules.add(rule);
 		}

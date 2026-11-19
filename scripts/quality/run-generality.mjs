@@ -12,6 +12,7 @@ import { SpendGate, startAnthropicGateway, codexJudgeWorstUsd } from '../../coor
 import { readArtifactReport, writeArtifactReport } from '../../coordinator/src/benchmark/report-artifacts.mjs';
 import { runScenarios, validateArmBuild, instrumentationFingerprint } from './run-scenarios.mjs';
 import { SpendLedger, runSpendUsd, defaultRunReserveUsd, JUDGE_ALLOWANCE_USD, MIN_SUITE_RESERVE_USD } from '../../coordinator/src/benchmark/spend-ledger.mjs';
+import { defaultJudgeModel, defaultModel } from '../../coordinator/src/default-models.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 export function parseSuiteArgs(argv) {
 	const values = {}, accepted = new Set(['fixtures','split','scenarios','runs','arms','arm','concurrency','port-base','out','provider','model','effort','service-tier','judge-provider','judge-model','judge-effort','judge-executable','server-template','java','worker-job','max-play-cost-usd','max-total-cost-usd','expect-fixture-sha256','smoke-window-ms','run-reserve-usd','prior-spend-usd','ledger','codex-observer-cap']);
@@ -36,7 +37,7 @@ export function parseSuiteArgs(argv) {
 	const provider=values.provider??'claude'; if(!['claude','codex'].includes(provider)) throw new Error('provider claude or codex');
 	const effectiveJudgeProvider=judgeProvider??(provider==='claude'?'codex':'claude');
 	if(effectiveJudgeProvider==='claude'&&values['judge-effort']==='xhigh') throw new Error('Unsupported claude judge effort');
-	return { ...values, runs, concurrency, portBase, split, arm, provider, model:values.model??(provider==='claude'?'claude-opus-5-5':'gpt-6.1-sol'), effort:values.effort??'low', serviceTier:values['service-tier']??(provider==='codex'?'default':'priority'), fixtures:path.resolve(values.fixtures??path.join(ROOT,'scripts/quality/scenarios-train.json')), out:path.resolve(values.out), arms:path.resolve(values.arms), maxPlayCostUsd:Number(values['max-total-cost-usd']??values['max-play-cost-usd']??Infinity), runReserveUsd:values['run-reserve-usd']===undefined?null:Number(values['run-reserve-usd']), priorSpendUsd:values['prior-spend-usd']===undefined?null:Number(values['prior-spend-usd']), ledger:values.ledger?path.resolve(values.ledger):null, codexObserverCap:values['codex-observer-cap']==='yes' };
+	return { ...values, runs, concurrency, portBase, split, arm, provider, model:values.model??defaultModel(provider), effort:values.effort??'low', serviceTier:values['service-tier']??(provider==='codex'?'default':'priority'), fixtures:path.resolve(values.fixtures??path.join(ROOT,'scripts/quality/scenarios-train.json')), out:path.resolve(values.out), arms:path.resolve(values.arms), maxPlayCostUsd:Number(values['max-total-cost-usd']??values['max-play-cost-usd']??Infinity), runReserveUsd:values['run-reserve-usd']===undefined?null:Number(values['run-reserve-usd']), priorSpendUsd:values['prior-spend-usd']===undefined?null:Number(values['prior-spend-usd']), ledger:values.ledger?path.resolve(values.ledger):null, codexObserverCap:values['codex-observer-cap']==='yes' };
 }
 export function suiteSchedule(ids,runs,arm='paired') {
 	return Array.from({length:runs},(_,i)=>ids.map((id,j)=>({id,repetition:i+1,arms:arm==='paired'?((i+j)%2?['B','A']:['A','B']):[arm]}))).flat();
@@ -82,7 +83,7 @@ export async function gatedSuiteRun(job,{execute=runScenarios,judge=judgeTimelin
 		const spentBeforeJudging=runSpendUsd(run,{reserveUsd}).usd;
 		const judgeGate=new SpendGate({budgetUsd:Math.max(1e-9,reserveUsd-spentBeforeJudging)});
 		if(gateway) { gateway.gate=judgeGate; process.env.ANTHROPIC_BASE_URL=gateway.url; }
-		const judgeProfile={provider:judgeProvider,model:job.judge.model??(judgeProvider==='claude'?'claude-opus-5-5':'gpt-6.1-sol'),reasoningEffort:job.judge.effort,serviceTier:job.judge.serviceTier??(judgeProvider==='codex'?'default':'priority')};
+		const judgeProfile={provider:judgeProvider,model:job.judge.model??defaultJudgeModel(judgeProvider),reasoningEffort:job.judge.effort,serviceTier:job.judge.serviceTier??(judgeProvider==='codex'?'default':'priority')};
 		// Codex attempts reserve an estimate only. Strict owners are refused above before play or judging launches.
 		const invoke=judgeProvider==='claude'?invokeJudge:async args=>{
 			const id=`judge-${args.round}-${args.attempt}`;

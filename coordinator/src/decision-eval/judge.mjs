@@ -19,6 +19,7 @@ import { createProviderChildEnvironment, findNpmEntrypointBesideShim } from '../
 import { buildContext, canonicalCalls } from './predicates.mjs';
 import { estimateTokenCostUsd as estimateJudgeCostUsd } from './pricing.mjs';
 import { mulberry32 } from './stats.mjs';
+import { defaultJudgeModel } from '../default-models.mjs';
 
 export const JUDGE_VERDICTS = Object.freeze(['good', 'bad', 'neutral']);
 const MAX_OUTPUT_BYTES = 64 * 1024;
@@ -32,7 +33,7 @@ export { estimateJudgeCostUsd };
 export function crossFamilyJudge(playerProvider, overrides = {}) {
 	const provider = overrides.provider ?? (playerProvider === 'codex' ? 'claude' : 'codex');
 	if (!['claude', 'codex'].includes(provider)) throw new TypeError('judge provider must be claude or codex');
-	const model = overrides.model ?? (provider === 'claude' ? 'claude-opus-5-5' : 'gpt-6.1-sol');
+	const model = overrides.model ?? defaultJudgeModel(provider);
 	const effort = overrides.effort ?? 'medium';
 	if (provider === playerProvider && !overrides.allowSameFamily) throw new TypeError('judge must come from the other model family than the player');
 	return { provider, model, effort };

@@ -25,6 +25,7 @@ import { tmpdir } from 'node:os';
 import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
+import { fixtureCatalogCodexModels } from '../../coordinator/src/default-models.mjs';
 import { stageServer, worldProperties, lookupWorld, snapshotWorld, worldCacheEnabled } from './fixture-servers.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
@@ -237,7 +238,7 @@ export async function boot(dir, { jar, template, port, world, seed, goalTicks = 
 		const ready = s.inbox.wait('ready', () => true, bridgeReadyMs); ready.catch(() => {});
 		if (onBridge) await onBridge(s, { port, secret });
 		s.bridge.start(); s.ready = await ready;
-		await s.bridge.send('catalog_snapshot', 'server', { refreshedAtEpochMs: Date.now(), models: [{ provider: 'codex', model: 'gpt-6.1-sol', id: 'gpt-6.1-sol', displayName: 'Provider-free incident replay', reasoningEfforts: ['low'], serviceTiers: ['default'] }] });
+		await s.bridge.send('catalog_snapshot', 'server', { refreshedAtEpochMs: Date.now(), models: fixtureCatalogCodexModels().map(model => ({ provider: 'codex', model, id: model, displayName: 'Provider-free incident replay', reasoningEfforts: ['low'], serviceTiers: ['default'] })) });
 		await s.command('gamerule minecraft:send_command_feedback false');
 		await s.command('scoreboard objectives add deaths deathCount');
 		// The fixture tick rate (test only); see installTickRate. The server stays at 20 here: setup runs at 20 and the

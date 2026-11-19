@@ -117,6 +117,30 @@ public final class ReflexScheduler {
 			this.floor = ReflexScheduler.floor(rule);
 		}
 
+		/**
+		 * The same rule with new numbers (an automatic stance flip): {@code rule} stays final, so a new state takes over
+		 * every counter, cooldown, edge and limit of the old one.
+		 */
+		State carriedTo(ReflexSpec.Rule next) {
+			State state = new State(next, installedTick);
+			state.overRate = overRate;
+			state.lastTruth = lastTruth;
+			state.pendingUntil = pendingUntil;
+			state.cooldownUntil = cooldownUntil;
+			state.suppressed = suppressed;
+			state.yieldedTrigger = yieldedTrigger;
+			state.fired = fired;
+			state.failuresInARow = failuresInARow;
+			state.lastFailure = lastFailure;
+			state.disabledReason = disabledReason;
+			state.heldSpans = heldSpans;
+			state.falseSince = falseSince;
+			state.heldBack = heldBack;
+			state.edgeTick = edgeTick;
+			state.recentFirings.addAll(recentFirings);
+			return state;
+		}
+
 		long expiresAt() {
 			return installedTick + Math.max(1L, rule.ttlMs() / 50L);
 		}
@@ -155,24 +179,55 @@ public final class ReflexScheduler {
 		if (rules.size() > ReflexSpec.MAX_RULES) throw new IllegalArgumentException("too many reflex rules");
 		lastTick = Math.max(lastTick, now);
 		Map<String, State> next = new LinkedHashMap<>();
+		// Rules kept through a number-only change: the same rule for the running firing and a deferred yield.
+		java.util.Set<String> carried = new java.util.HashSet<>();
 		for (ReflexSpec.Rule rule : rules) {
 			State previous = states.get(rule.id());
-			next.put(rule.id(), previous != null && previous.rule.equals(rule) ? previous : new State(rule, now));
+			State state;
+			if (previous != null && previous.rule.equals(rule)) state = previous;
+			else if (previous != null && numbersOnly(previous.rule, rule)) {
+				state = previous.carriedTo(rule);
+				carried.add(rule.id());
+			} else state = new State(rule, now);
+			next.put(rule.id(), state);
 		}
 		Decision decision = Decision.NONE;
 		if (current != null) {
 			State kept = next.get(current.ruleId());
-			if (kept == null || kept != states.get(current.ruleId())) {
+			if (kept == null || kept != states.get(current.ruleId()) && !carried.contains(current.ruleId())) {
 				decision = new Decision(current, Outcome.REMOVED, null);
 				recordEnd(states.get(current.ruleId()), Outcome.REMOVED, now, "");
 				current = null;
 				settledHold = false;
 			}
 		}
-		if (deferredYield != null && next.get(deferredYield) != states.get(deferredYield)) deferredYield = null;
+		if (deferredYield != null && next.get(deferredYield) != states.get(deferredYield) && !carried.contains(deferredYield)) deferredYield = null;
 		states.clear();
 		states.putAll(next);
 		return decision;
+	}
+
+	/**
+	 * Whether {@code next} is {@code previous} with only condition numbers changed, both coordinator defaults: the
+	 * coordinator's automatic stance moves a default's health or hunger line this way (issue 2 Step 2). The running
+	 * behaviour keeps its action's numbers (the action is unchanged); sensing reads the new conditions from the next tick.
+	 */
+	static boolean numbersOnly(ReflexSpec.Rule previous, ReflexSpec.Rule next) {
+		if (!previous.coordinatorDefault() || !next.coordinatorDefault() || !previous.id().equals(next.id()) || previous.kind() != next.kind()
+				|| previous.priority() != next.priority() || !previous.action().equals(next.action()) || !previous.until().equals(next.until())
+				|| previous.maxMs() != next.maxMs() || previous.cooldownMs() != next.cooldownMs() || previous.ttlMs() != next.ttlMs()
+				|| previous.maxFirings() != next.maxFirings() || previous.wake() != next.wake() || previous.when().size() != next.when().size()) return false;
+		for (int index = 0; index < previous.when().size(); index++) {
+			ReflexSpec.Condition before = previous.when().get(index), after = next.when().get(index);
+			if (!before.type().equals(after.type()) || before.negated() != after.negated() || !before.params().keySet().equals(after.params().keySet())) return false;
+			for (String key : before.params().keySet()) {
+				var a = before.params().get(key);
+				var b = after.params().get(key);
+				boolean numbers = a.isJsonPrimitive() && a.getAsJsonPrimitive().isNumber() && b.isJsonPrimitive() && b.getAsJsonPrimitive().isNumber();
+				if (!numbers && !a.equals(b)) return false;
+			}
+		}
+		return true;
 	}
 
 	public boolean isEmpty() {

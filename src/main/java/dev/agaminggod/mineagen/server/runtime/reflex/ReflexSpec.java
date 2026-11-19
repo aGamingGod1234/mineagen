@@ -21,8 +21,8 @@ import java.util.regex.Pattern;
  * {@link ReflexSensors} / {@link ReflexActions}.
  */
 public final class ReflexSpec {
-	/** The model's own 12 rules plus the coordinator's 13 default survival rules (including pre-contact lava flow). */
-	public static final int MAX_RULES = 26;
+	/** The model's own 12 rules plus the coordinator's 15 default rules (14 survival rules and the owed-drops habit). */
+	public static final int MAX_RULES = 27;
 	/** Ids the coordinator's default survival rules carry (reflexes.mjs DEFAULT_REFLEXES). */
 	public static final String DEFAULT_RULE_PREFIX = "default-";
 	public static final int MAX_CONDITIONS = 4;
@@ -108,6 +108,8 @@ public final class ReflexSpec {
 		condition("inventory_full", false);
 		condition("item_nearby", true, new Param("within", ParamKind.NUMBER, 1.0D, 8.0D, false),
 				new Param("items", ParamKind.IDS, 0, 0, false));
+		// A kill's drop the body left behind (1b): idle, area clear, not sheltered; see ReflexSensors.dropsOwed.
+		condition("drops_owed", true);
 		condition("tool_low", false, new Param("uses", ParamKind.NUMBER, 1.0D, 256.0D, true),
 				new Param("tool", ParamKind.TOOL_KIND, 0, 0, false));
 		condition("falling", false, new Param("blocks", ParamKind.NUMBER, 1.0D, 64.0D, true));
@@ -141,6 +143,7 @@ public final class ReflexSpec {
 		action("select", new Param("tool", ParamKind.TOOL_KIND, 0, 0, false), new Param("item", ParamKind.ITEM_ID, 0, 0, false));
 		action("swim_up");
 		action("pickup", new Param("within", ParamKind.NUMBER, 1.0D, 8.0D, false));
+		action("collect_drops");
 		action("place", new Param("item", ParamKind.ITEM_ID, 0, 0, true), new Param("where", ParamKind.PLACE_WHERE, 0, 0, true));
 		action("stop");
 		action("deflect");

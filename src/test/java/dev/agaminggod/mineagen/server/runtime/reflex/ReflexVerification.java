@@ -42,6 +42,9 @@ public final class ReflexVerification {
 		expiry();
 		yieldSuppressesStanceUntilConditionClears();
 		replaceKeepsUnchangedState();
+		stanceFlipKeepsTheFiring();
+		retreatPaceCheck();
+		paceCheckDropsAQueuedRetreat();
 		leasesRenewAndRebase();
 		workVocabulary();
 		pausedTimeIsNotActionTime();
@@ -385,6 +388,74 @@ public final class ReflexVerification {
 				"adding a rule keeps an unchanged firing");
 		check(scheduler.replace(rules("[{\"id\":\"e\",\"when\":{\"type\":\"on_fire\"},\"do\":{\"type\":\"eat\"}}]"), 3).endOutcome()
 				== ReflexScheduler.Outcome.REMOVED, "removing the firing rule ends it");
+	}
+
+	/**
+	 * Issue 2 Step 2: the coordinator's automatic stance moves a default's health line (default-retreat 7 to 4, steady to
+	 * fight). The running retreat keeps running, and its state (fired count) carries into a new State holding the new rule.
+	 * A changed action, or the same number change on a model rule, still ends the firing REMOVED.
+	 */
+	private static void stanceFlipKeepsTheFiring() {
+		java.util.function.IntFunction<String> retreat = health -> "{\"id\":\"default-retreat\",\"priority\":7,\"when\":[{\"type\":\"health_below\",\"value\":" + health
+				+ "},{\"type\":\"hostile_near\",\"within\":6}],\"do\":{\"type\":\"sprint_away\",\"blocks\":10},\"cooldownMs\":5000,\"ttlMs\":3600000,\"coordinatorDefault\":true}";
+		ReflexScheduler scheduler = new ReflexScheduler();
+		scheduler.replace(rules("[" + retreat.apply(7) + "]"), 0);
+		scheduler.step(1, sense("default-retreat", true), RUNNING, "", false);
+		check(scheduler.current() != null && "default-retreat".equals(scheduler.current().ruleId()), "the retreat fires");
+		check(!scheduler.replace(rules("[" + retreat.apply(4) + "]"), 2).changed(), "a stance flip keeps the running retreat");
+		check(scheduler.current() != null && "default-retreat".equals(scheduler.current().ruleId()), "the retreat still holds the body");
+		check(scheduler.rule("default-retreat").when().getFirst().number("value", 0) == 4.0D, "its State holds the new rule");
+		check(scheduler.statuses(3).getFirst().fired() == 1, "its firing count carried over");
+		scheduler.step(3, sense("default-retreat", true), RUNNING, "", false);
+		check(scheduler.current() != null, "it keeps running after the flip");
+		String changedAction = retreat.apply(4).replace("\"sprint_away\",\"blocks\":10", "\"take_cover\",\"within\":8");
+		check(scheduler.replace(rules("[" + changedAction + "]"), 4).endOutcome() == ReflexScheduler.Outcome.REMOVED, "a changed action still ends it REMOVED");
+		ReflexScheduler model = new ReflexScheduler();
+		String own = retreat.apply(7).replace(",\"coordinatorDefault\":true", "");
+		model.replace(rules("[" + own + "]"), 0);
+		model.step(1, sense("default-retreat", true), RUNNING, "", false);
+		check(model.replace(rules("[" + own.replace("\"value\":7", "\"value\":4") + "]"), 2).endOutcome() == ReflexScheduler.Outcome.REMOVED,
+				"a model rule's number change still ends its firing REMOVED");
+		check(!ReflexScheduler.numbersOnly(rules("[" + retreat.apply(7) + "]").getFirst(), rules("[" + changedAction + "]").getFirst()),
+				"an action change is not a number change");
+	}
+
+	/** Issue 2 Step 2: default-retreat stands aside only for a melee chaser the body's run would not leave behind. */
+	private static void retreatPaceCheck() {
+		double sprint = 0.13D, walk = 0.1D;
+		check(!ReflexEngine.retreatOutpaced(sprint, List.of()), "nothing chasing: the retreat runs");
+		check(!ReflexEngine.retreatOutpaced(sprint, List.of(0.23D)), "a sprint leaves a zombie behind: the retreat runs");
+		check(!ReflexEngine.retreatOutpaced(sprint, List.of(0.3D)), "a sprint leaves a spider behind too");
+		check(ReflexEngine.retreatOutpaced(sprint, List.of(0.345D)), "a baby zombie keeps pace: the retreat stands aside");
+		check(ReflexEngine.retreatOutpaced(sprint, List.of(0.23D, 0.345D)), "a baby zombie in the pack keeps pace");
+		check(ReflexEngine.retreatOutpaced(walk, List.of(0.3D)), "too hungry to sprint, a spider keeps pace");
+		check(!ReflexEngine.retreatOutpaced(walk, List.of(0.23D)), "too hungry to sprint, a zombie is still left behind");
+		check(ReflexEngine.PACE_RANGE == 6.0D, "the check counts mobs within default-retreat's 6 blocks");
+	}
+
+	/**
+	 * A retreat edge queued while a higher-priority firing holds the body must not start once the pace check holds the
+	 * retreat back (a baby zombie came in range meanwhile): the gate drops the queued start, as the shield gate does.
+	 */
+	private static void paceCheckDropsAQueuedRetreat() {
+		List<ReflexSpec.Rule> set = rules("""
+				[{"id":"default-fire","priority":9,"when":{"type":"on_fire"},"do":{"type":"eat"},"coordinatorDefault":true},
+				 {"id":"default-retreat","priority":7,"when":[{"type":"health_below","value":7},{"type":"hostile_near","within":6}],"do":{"type":"sprint_away","blocks":10},"coordinatorDefault":true}]""");
+		ReflexSpec.Rule retreat = set.get(1);
+		ReflexScheduler scheduler = new ReflexScheduler();
+		scheduler.replace(set, 0);
+		long tick = 1;
+		check("default-fire".equals(scheduler.step(tick, sense("default-fire", true, "default-retreat", false), RUNNING, "", false).started()), "the hazard fires first");
+		ReflexScheduler.Decision queued = scheduler.step(++tick, sense("default-fire", true, "default-retreat", true), RUNNING, "", false);
+		check(queued.started() == null, "low health near an adult zombie queues the retreat behind the hazard");
+		boolean started = false;
+		for (int i = 0; i < ReflexScheduler.PENDING_TICKS + 5; i++) {
+			boolean truth = ReflexEngine.paceGate(scheduler, retreat, true, true);
+			ReflexScheduler.Decision next = scheduler.step(++tick, sense("default-fire", i == 0, "default-retreat", truth), i == 0 ? RUNNING : ReflexScheduler.ActionStatus.DONE, "", false);
+			if ("default-retreat".equals(next.started())) started = true;
+		}
+		check(!started, "a baby zombie came in range: the queued retreat does not start");
+		check(ReflexEngine.paceGate(scheduler, retreat, true, false), "with nothing keeping pace the retreat's truth passes through");
 	}
 
 	private static void leasesRenewAndRebase() {

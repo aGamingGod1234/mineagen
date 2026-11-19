@@ -14,8 +14,9 @@ import { classifyObservationTrigger } from '../dynamic-main.mjs';
 import { RuntimeMemoryContext } from '../runtime-memory-context.mjs';
 import { TaskMemoryStore } from '../task-memory-store.mjs';
 import { parseProbeArguments, probeFailureMessage } from '../player-capability-probe.mjs';
+import { defaultModel } from '../default-models.mjs';
 
-const PROFILE = Object.freeze({ provider: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'medium', serviceTier: 'default' });
+const PROFILE = Object.freeze({ provider: 'codex', model: defaultModel('codex'), reasoningEffort: 'medium', serviceTier: 'default' });
 const prefix = 'program.onUnhandledAttention("continue_and_notify");';
 const routine = `${prefix} const args = program.parameters(); await player.wait(args.delay); await player.lookAt(args.target);`;
 const waitRoutine = `${prefix} await player.wait(program.parameters().delay);`;

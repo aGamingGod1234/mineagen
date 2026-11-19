@@ -68,15 +68,30 @@ public final class BreakOutcomeEvidence {
 	 * One completed break: the hand at removal time, whether a new visible drop appeared, and the items of new drops the
 	 * inventory had no room for at that moment (they stay on the ground, as a player sees).
 	 */
-	public record Outcome(Tool tool, boolean dropsSeen, List<String> noRoom) {
+	public record Outcome(Tool tool, boolean dropsSeen, List<String> noRoom, List<SeenDrop> drops) {
 		public Outcome {
 			noRoom = noRoom == null ? List.of() : List.copyOf(noRoom);
+			drops = drops == null ? List.of() : List.copyOf(drops);
+		}
+
+		public Outcome(Tool tool, boolean dropsSeen, List<String> noRoom) {
+			this(tool, dropsSeen, noRoom, List.of());
 		}
 
 		public Outcome(Tool tool, boolean dropsSeen) {
 			this(tool, dropsSeen, List.of());
 		}
 	}
+
+	/** A new drop the break showed, by id, so a later pick_up_item can name it once it is out of view. */
+	public record SeenDrop(UUID id, String itemId, int count) {
+		String text() {
+			return count + "x " + itemId + " uuid=" + id;
+		}
+	}
+
+	/** Drops named in one break's result; the rest are counted, so a shower of drops does not grow the text. */
+	static final int NAMED_DROPS = 3;
 
 	/**
 	 * The structured counterpart of the result text, for programs and scripts: blocks this action broke (0 when the break
@@ -112,14 +127,19 @@ public final class BreakOutcomeEvidence {
 		public Outcome after(ServerPlayer player, BlockPos position) {
 			Map<UUID, Integer> visible = new HashMap<>();
 			TreeSet<String> noRoom = new TreeSet<>();
+			List<SeenDrop> drops = new java.util.ArrayList<>();
 			var view = ObservationVisibility.frame(player.level(), player);
 			for (ItemEntity item : nearbyItems(player, position)) {
 				if (!view.canSeeEntity(item)) continue;
 				visible.put(item.getUUID(), item.getItem().getCount());
-				if (item.getItem().getCount() > before.getOrDefault(item.getUUID(), 0)
-						&& !InventoryRoom.canTake(player, item.getItem())) noRoom.add(InventoryRoom.itemName(item.getItem()));
+				if (item.getItem().getCount() <= before.getOrDefault(item.getUUID(), 0)) continue;
+				// K10: remembered where it lies, so a pickup by id still finds it after the body turns away.
+				dev.agaminggod.mineagen.server.perception.ObservedDrops.remember(player, item,
+						dev.agaminggod.mineagen.server.perception.ObservedDrops.Source.BREAK);
+				drops.add(new SeenDrop(item.getUUID(), BuiltInRegistries.ITEM.getKey(item.getItem().getItem()).toString(), item.getItem().getCount()));
+				if (!InventoryRoom.canTake(player, item.getItem())) noRoom.add(InventoryRoom.itemName(item.getItem()));
 			}
-			return new Outcome(tool, dropsSeen(before, visible), List.copyOf(noRoom));
+			return new Outcome(tool, dropsSeen(before, visible), List.copyOf(noRoom), drops);
 		}
 	}
 
@@ -138,7 +158,16 @@ public final class BreakOutcomeEvidence {
 		StringBuilder text = new StringBuilder();
 		if (!heldNamedElsewhere) text.append("with ").append(outcome.tool().item()).append("; ");
 		if (outcome.tool().missingCorrectTool()) text.append(missingNote(outcome.tool().required())).append("; ");
-		return text.append(outcome.dropsSeen() ? "drops seen" : "no drops seen").append(noRoomNote(outcome.noRoom())).toString();
+		return text.append(outcome.dropsSeen() ? "drops seen" + dropIds(outcome.drops()) : "no drops seen").append(noRoomNote(outcome.noRoom())).toString();
+	}
+
+	/** ": 1x minecraft:cobblestone uuid=...", at most {@link #NAMED_DROPS} named and "+N more" after them; empty for none. */
+	static String dropIds(List<SeenDrop> drops) {
+		if (drops.isEmpty()) return "";
+		StringBuilder text = new StringBuilder(": ");
+		for (int i = 0; i < Math.min(NAMED_DROPS, drops.size()); i++) text.append(i == 0 ? "" : ", ").append(drops.get(i).text());
+		if (drops.size() > NAMED_DROPS) text.append(" +").append(drops.size() - NAMED_DROPS).append(" more");
+		return text.toString();
 	}
 
 	static String noRoomNote(java.util.Collection<String> items) {

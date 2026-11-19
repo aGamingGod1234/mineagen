@@ -124,6 +124,8 @@ public final class ServerTravelController implements ServerController {
 
 	private final double targetX, targetZ, targetY;
 	private boolean routeLeg;
+	/** travel_to's own trip keeps the knockback margin on its forward legs (issue 2, K9); null on every other trip. */
+	private KnockbackHolds knockbackHolds;
 	private final double tolerance;
 	private final long timeoutMs;
 	private final boolean build;
@@ -241,6 +243,12 @@ public final class ServerTravelController implements ServerController {
 	/** A remembered route leg needs its actual height, including a shaft's next standing level. */
  ServerTravelController routeLeg() { this.routeLeg=true; return this; }
 
+	/** One set of knockback holds for the whole trip, spent only by its forward legs (see {@link #startForwardLeg}). */
+	public ServerTravelController keepsKnockbackMargin() {
+		this.knockbackHolds = new KnockbackHolds();
+		return this;
+	}
+
 	/** Lets the trip dig a dig_to staircase when the target is below or above and no seen way there gets closer. */
 	public ServerTravelController descend(Descent descent) {
 		this.descent = descent;
@@ -280,6 +288,26 @@ public final class ServerTravelController implements ServerController {
 		this.fightThrough = enabled;
 		return this;
 	}
+
+	/** Instincts arm with fightThrough unset: a lone beatable melee mob ({@link TravelStops#beatable}) is fought, not a stop. */
+	private boolean fightsBeatable;
+
+	public ServerTravelController fightsBeatable(boolean enabled) {
+		this.fightsBeatable = enabled;
+		return this;
+	}
+
+	private boolean beatableNow(ServerPlayer player, Mob mob, List<Mob> seen) {
+		int others = (int) seen.stream().filter(other -> other != mob && other.distanceTo(player) <= TravelStops.LONE_RANGE).count();
+		boolean weapon = false;
+		for (int slot = 0; slot < 9 && !weapon; slot++) {
+			String id = BuiltInRegistries.ITEM.getKey(player.getInventory().getItem(slot).getItem()).getPath();
+			weapon = id.endsWith("_sword") || id.endsWith("_axe");
+		}
+		double hit = dev.agaminggod.mineagen.server.perception.ThreatDamage.expectedHit(mob, player).damage();
+		return TravelStops.beatable(BuiltInRegistries.ENTITY_TYPE.getKey(mob.getType()).toString(), others, weapon,
+				player.getHealth() + player.getAbsorptionAmount(), minHealth, hit);
+	}
  private double heightTolerance() {return routeLeg ? 0.6D : Math.max(3.0D,tolerance);}
 
  /** The target for a heading: {@code distance} blocks along {@code yaw} (Minecraft degrees) from the body. */
@@ -310,6 +338,7 @@ public final class ServerTravelController implements ServerController {
 		// read as stalled forward travel: building on toward the target would send the body back at the hazard.
 		boolean standsOnPurpose = retreatCode != null || phase == Phase.FIGHT || phase == Phase.WATCH || phase == Phase.DIG || portalLeg;
 		if (standsOnPurpose) stallWatch.reset();
+		else if (leg != null && leg.heldForKnockback()) stallWatch.excuse(1);
 		TravelStallWatch.Verdict still = standsOnPurpose ? null : stallWatch.observe(ticks, position.x, position.y, position.z, work);
 		if (phase == Phase.FIGHT) return fightTick(player, nowEpochMs);
 		double left = left(position);
@@ -461,7 +490,8 @@ public final class ServerTravelController implements ServerController {
 		int food = player.getFoodData().getFoodLevel();
 		if (food <= SPRINT_FOOD && startFood > SPRINT_FOOD) return fail(player, "LOW_FOOD", "Food fell to " + food + "; sprinting needs more than " + SPRINT_FOOD);
 		if (ticks % 5 == 0) {
-			for (Mob mob : hostiles(player)) {
+			List<Mob> seen = hostiles(player);
+			for (Mob mob : seen) {
 				double distance = mob.distanceTo(player);
 				boolean targeting = mob.getTarget() == player;
 				boolean known = knownHostiles.contains(mob.getUUID());
@@ -475,9 +505,10 @@ public final class ServerTravelController implements ServerController {
 					passedHostiles.add(mob.getUUID());
 					continue;
 				}
-				if (fightThrough) {
-					// Fought once it closes in or hits; until then it is only in view, as for one seen at the start.
-					if (distance > HOSTILE_CLOSE) { knownHostiles.add(mob.getUUID()); continue; }
+				if (fightThrough || fightsBeatable && beatableNow(player, mob, seen)) {
+					// Fought once it closes in or hits; until then it is only in view, as for one seen at the start. One that
+					// is only beatable is judged again each sample, so it still stops the trip once it is not (a pack).
+					if (distance > HOSTILE_CLOSE) { if (fightThrough) knownHostiles.add(mob.getUUID()); continue; }
 					return engage(player, mob, String.format(Locale.ROOT, "%.1f blocks away%s", distance, targeting ? ", targeting you" : ""), nowEpochMs);
 				}
 				return fail(player, "HOSTILE_NEAR", String.format(Locale.ROOT, "%s %s %.1f blocks away at %.1f,%.1f,%.1f%s",
@@ -847,7 +878,7 @@ public final class ServerTravelController implements ServerController {
 				format((System.nanoTime() - pickStarted) / 1.0E6D) + " columns=" + java.util.Arrays.toString(TravelCheckpoints.LAST_PICK.get()));
 		if (next != null) {
 			legFinal = next.finalApproach();
-			startLeg(player, next.feet(), nowEpochMs);
+			startForwardLeg(player, next.feet(), nowEpochMs);
 			legAllowedBacktrack += next.backtrack();
 			return leg(player, nowEpochMs);
 		}
@@ -865,7 +896,7 @@ public final class ServerTravelController implements ServerController {
 			if (detour != null) {
 				refused.add(detour);
 				legFinal = false;
-				startLeg(player, detour, nowEpochMs);
+				startForwardLeg(player, detour, nowEpochMs);
 				return leg(player, nowEpochMs);
 			}
 		}
@@ -930,6 +961,15 @@ public final class ServerTravelController implements ServerController {
 			phase = Phase.PLAN;
 		}
 		return TickResult.running(progress(player));
+	}
+
+	/**
+	 * A leg toward a picked checkpoint or detour: the only legs that keep the trip's knockback margin. A lava retreat
+	 * must not stand still with the flow coming, and a build step's drop leg is already at its lip.
+	 */
+	private void startForwardLeg(ServerPlayer player, GridPosition feet, long nowEpochMs) {
+		startLeg(player, feet, nowEpochMs, LEG_TOLERANCE);
+		if (knockbackHolds != null) leg.keepsKnockbackMargin(knockbackHolds);
 	}
 
 	private void startLeg(ServerPlayer player, GridPosition feet, long nowEpochMs) {

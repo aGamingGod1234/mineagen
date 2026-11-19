@@ -8,7 +8,7 @@ import { normalizeMinecraftToolCall } from '../src/native-minecraft-tools.mjs';
 import { NativeToolRuntime } from '../src/native-tool-runtime.mjs';
 import { adaptObservation } from '../src/observation-adapter.mjs';
 import { validateProtocolV2Payload } from '../src/protocol-v2.mjs';
-import { DEFAULT_REFLEXES, MAX_REFLEXES, MAX_REFLEX_REPORT_BYTES, REFLEX_ACTIONS, REFLEX_CONDITIONS, REFLEX_RESEND_MS, ReflexBook, normalizeReflexEntries } from '../src/reflexes.mjs';
+import { DEFAULT_REFLEXES, MAX_REFLEXES, MAX_REFLEX_REPORT_BYTES, REFLEX_ACTIONS, REFLEX_CONDITIONS, REFLEX_RESEND_MS, ReflexBook, normalizeReflexEntries, MAX_REFLEX_RULES } from '../src/reflexes.mjs';
 
 const SHIELD = { id: 'blaze-shield', kind: 'stance', priority: 7, when: [{ type: 'hostile_near', within: 12, mobs: ['blaze'] }], do: { type: 'shield' }, maxS: 8 };
 const SWAP = { id: 'tool-swap', when: { type: 'tool_broke', tool: 'pickaxe' }, do: { type: 'select', tool: 'pickaxe' }, wake: true };
@@ -93,7 +93,20 @@ test('protocol carries reflex_update and the observation reflex status', () => {
 	const full = normalizeReflexEntries(Array.from({ length: MAX_REFLEXES }, (_, index) => ({ ...SHIELD, id: `rule-${index}` }))).concat(DEFAULT_REFLEXES);
 	assert.equal(validateProtocolV2Payload('reflex_update', { revision: 3, rules: full, yield: false }).rules.length, MAX_REFLEXES + DEFAULT_REFLEXES.length);
 	assert.match(readFileSync(new URL('../../src/main/java/dev/agaminggod/mineagen/server/runtime/reflex/ReflexSpec.java', import.meta.url), 'utf8'),
-		new RegExp(`MAX_RULES = ${MAX_REFLEXES + DEFAULT_REFLEXES.length};`), 'the mod accepts the same full set');
+		new RegExp(`MAX_RULES = ${MAX_REFLEX_RULES};`), 'the mod accepts the same full set');
+	// C24: both wire bounds cap at the mod's 27, one more rule is refused, and the full set fits that cap.
+	assert.equal(MAX_REFLEX_RULES, 27);
+	assert.ok(MAX_REFLEXES + DEFAULT_REFLEXES.length <= MAX_REFLEX_RULES);
+	const over = Array.from({ length: MAX_REFLEX_RULES + 1 }, (_, index) => ({ ...full[0], id: `rule-${index}` }));
+	assert.throws(() => validateProtocolV2Payload('reflex_update', { revision: 4, rules: over, yield: false }), 'one rule over the cap is refused on the wire');
+	const statusRow = (index) => ({ id: `rule-${index}`, kind: 'stance', state: 'armed', fired: 0, expiresInS: 599 });
+	assert.throws(() => validateProtocolV2Payload('observation', { ...wire(), goalRevision: 3, observedAtEpochMs: 1, status: 'ready', eventSequence: 4, attention: false, changedFacts: [],
+		reflexes: { revision: 2, rules: Array.from({ length: MAX_REFLEX_RULES + 1 }, (_, index) => statusRow(index)), events: [] } }), 'a status with 27 rows is refused');
+	assert.equal(validateProtocolV2Payload('observation', { ...wire(), goalRevision: 3, observedAtEpochMs: 1, status: 'ready', eventSequence: 4, attention: false, changedFacts: [],
+		reflexes: { revision: 2, rules: Array.from({ length: MAX_REFLEX_RULES }, (_, index) => statusRow(index)), events: [] } }).reflexes.rules.length, MAX_REFLEX_RULES);
+	// State.rule stays final: a stance flip builds a new State instead of swapping the rule in place.
+	assert.match(readFileSync(new URL('../../src/main/java/dev/agaminggod/mineagen/server/runtime/reflex/ReflexScheduler.java', import.meta.url), 'utf8'),
+		/final ReflexSpec\.Rule rule;/, 'State.rule is final');
 	const observation = validateProtocolV2Payload('observation', { ...wire(), goalRevision: 3, observedAtEpochMs: 1, status: 'ready', eventSequence: 4, attention: false, changedFacts: [],
 		reflexes: { revision: 2, firing: { id: 'blaze-shield', ms: 900, detail: 'shield raised' }, rules: [{ id: 'blaze-shield', kind: 'stance', state: 'firing', fired: 1, expiresInS: 599 }], events: [] } });
 	assert.equal(observation.reflexes.firing.id, 'blaze-shield');

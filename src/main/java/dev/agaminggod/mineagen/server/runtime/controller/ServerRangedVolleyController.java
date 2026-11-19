@@ -179,7 +179,7 @@ public final class ServerRangedVolleyController implements ServerTransactionAdap
 		if (!collect || drops.isEmpty()) {
 			return stop(TickResult.succeeded("TARGET_KILLED", killNote + (collect ? "; collect: no drop was seen to collect" : "")));
 		}
-		collector = new KillDropCollector(drops, protection::mayTakeEntity, nowEpochMs);
+		collector = new KillDropCollector(drops, protection::mayTakeEntity, nowEpochMs).makingRoom(protection::mayDropItem);
 		String collected = collector.tick(player, nowEpochMs);
 		return collected == null ? TickResult.running() : stop(TickResult.succeeded("TARGET_KILLED", killNote + "; collect: " + collected));
 	}
@@ -191,7 +191,7 @@ public final class ServerRangedVolleyController implements ServerTransactionAdap
 				item -> item.isAlive() && !item.getItem().isEmpty() && item.getAge() <= ServerFightController.DROP_AGE_TICKS)) {
 			boolean witnessed = player.level().getGameTime() - lastVisibleTick <= 2L && sight.hasLineOfSight(item);
 			if (!sight.canSeeEntity(item) && !witnessed) continue;
-			ObservedDrops.remember(player, item);
+			ObservedDrops.remember(player, item, ObservedDrops.Source.KILL);
 			drops.add(item.getUUID());
 		}
 	}

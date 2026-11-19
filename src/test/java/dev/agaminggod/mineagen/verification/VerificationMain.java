@@ -140,6 +140,7 @@ public final class VerificationMain {
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.reflex.ReflexBodyVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.reflex.ReflexShieldVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.watch.WatchVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.watch.KillRowVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.NetherCostsVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.TravelVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.perception.WalkedRouteVerification.verify();
@@ -170,6 +171,7 @@ public final class VerificationMain {
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.reflex.DefaultEatRearmingVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.reflex.ModelOwnedDefaultRulesVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.reflex.DriverRuleVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.reflex.CoverRuleVerification.verify();
 		passedAssertions += CoordinatorProcessOwnershipVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.WindowsCoordinatorJobDrainVerification.verify();
 		passedAssertions += CoordinatorStartupSmokeVerification.verify();
@@ -235,6 +237,9 @@ public final class VerificationMain {
 		passedAssertions += dev.agaminggod.mineagen.server.perception.PlacementPerceptionAgreementVerification.verify();
 		passedAssertions += BreakSpeedAdvisorVerification.verify();
 		passedAssertions += BreakOutcomeEvidenceVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.perception.ObservedDropsVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.KillDropRoomVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.reflex.OwedDropsVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.OreHarvestFactsVerification.verify();
 		passedAssertions += DesiredBlockStateVerification.verify();
 		passedAssertions += ResourceLeaseManagerVerification.verify();
@@ -277,6 +282,7 @@ public final class VerificationMain {
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.TravelStallTickVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.SwimOutVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.DoorNavigationVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.NavigationKnockbackVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.DigContinuationVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.perception.HearingPerceptionVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.perception.SightedFeaturesVerification.verify();

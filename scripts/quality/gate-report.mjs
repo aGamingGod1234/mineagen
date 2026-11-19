@@ -3,7 +3,7 @@
 // running a game. Each run gives its commit, seed, the minutes to each milestone, deaths, cost, and model or scripted.
 //
 //   node scripts/quality/gate-report.mjs --gate 3 --title "..." --out docs/gates/gate-3.json \
-//     --cohort gate3 "#178 merged into main" DIR... [--cohort NAME LABEL DIR...]
+//     --cohort gate3 "#178 merged into main" DIR... [--cohort NAME LABEL DIR...] [--allow-model-mismatch]
 //
 // A DIR is a long-run folder (sub/long/<tag>-codex: stage-score.json, long-run.json, raw/decision-*.jsonl), a
 // scripted obtain folder (sub/farm/<round>/<seed>-r<n>: run/result.json, with plan.json one level up), or a standard
@@ -11,11 +11,14 @@
 // raw/quality-samples.jsonl). Games with per-second samples also report Nether minutes, deaths and recovery.
 // Two cohorts on the same seeds make a pair (before and after); the same seed run more than once in one cohort is a
 // repeat. Both are reported, and so is every seed that lacks its pair. Rule of thumb: under 2 seeds is "no change".
+// Each game carries its model and effort. Two cohorts that ran different models or efforts are not compared unless
+// --allow-model-mismatch says the comparison is meant to compare models (two model arms on the same seeds).
 import { readFileSync, readdirSync, existsSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { itemCount } from '../../coordinator/src/benchmark/quality-metrics.mjs';
 import { netherTravel, sampleObservation } from './nether-travel-metrics.mjs';
+import { stopKind } from '../../coordinator/src/benchmark/long-run.mjs';
 
 export const SCHEMA = 'arena-gate-report/v1';
 // Funnel order. null in a run = not reached in its window; a missing key = this kind of run does not measure it.
@@ -47,6 +50,11 @@ const median = (values) => {
 	const value = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 	return Number.isFinite(value) ? Math.round(value * 10) / 10 : null;
 };
+
+/** A game's play profile, field by field; null where the run did not record it. */
+const profileFields = (profile) => ({ provider: profile?.provider ?? null, modelId: profile?.model ?? null, effort: profile?.reasoningEffort ?? null });
+/** The rule that ended a game (stopKind in coordinator/src/benchmark/long-run.mjs) and the raw reason it came from. */
+const stopFields = (reason) => ({ stopReason: typeof reason === 'string' && reason.trim() ? reason : null, stopKind: stopKind(reason) });
 
 export function decisionFiles(raw) {
 	if (!existsSync(raw)) return [];
@@ -107,9 +115,12 @@ function readLongRun(dir) {
 	const plannedEnd = t0 + (longRun?.windowMs ?? stage.window.windowMs);
 	const observed = [stage.window.observedThrough, stage.ending?.at].filter((at) => Number.isFinite(at) && at > t0);
 	const end = observed.length ? Math.min(plannedEnd, ...observed) : plannedEnd;
+	// An operator stop (a stall stop among them) outranks the stop the runner saw; older folders keep only the scorer's ending.
+	const reason = longRun?.stop?.reason ?? stage.ending?.operatorStop?.reason ?? longRun?.timeline?.stopReason ?? longRun?.stopRequest?.reason ?? stage.ending?.reason;
 	return [{
 		run: path.basename(dir), seed: String(stage.identity?.seed ?? longRun?.seed), commit: longRunCommit(dir, longRun),
 		ranAt: new Date(stage.window.startedAt).toISOString().slice(0, 10), mode: 'model', model: profile ? `${profile.provider} ${profile.model} ${profile.reasoningEffort ?? ''}`.trim() : null,
+		...profileFields(profile), ...stopFields(reason),
 		windowMin: minutes(longRun?.windowMs ?? stage.window.windowMs), ...(observed.length ? { playedMin: minutes(end - t0) } : {}),
 		milestones: Object.fromEntries(MILESTONES.filter(({ key }) => key in ms).map(({ key }) => [key, ms[key] === null ? null : minutes(ms[key] - t0)])),
 		deaths: stage.observedDeaths ?? 0, costUsd: Math.round((longRun?.spend?.usd ?? 0) * 1000) / 1000,
@@ -125,7 +136,7 @@ function readScripted(dir) {
 	return readJson(path.join(dir, 'run', 'result.json')).map((row) => {
 		const key = SCRIPTED_KEYS[row.item];
 		if (!key) throw new Error(`${dir}: scripted item ${row.item} has no funnel milestone`);
-		return { run: path.basename(dir), seed: String(row.seed), commit, ranAt: null, mode: 'scripted', model: null, windowMin: minutes(row.budgetMs),
+		return { run: path.basename(dir), seed: String(row.seed), commit, ranAt: null, mode: 'scripted', model: null, ...profileFields(null), ...stopFields(null), windowMin: minutes(row.budgetMs),
 			milestones: { [key]: row.pass ? minutes(row.seconds * 1000) : null }, deaths: row.deaths ?? 0, costUsd: 0, decisionLog: false };
 	});
 }
@@ -176,7 +187,7 @@ const isRoundGame = (dir) => {
 function readRoundGame(dir) {
 	const timeline = readJson(path.join(dir, 'timeline.json'));
 	const file = (name) => existsSync(path.join(dir, name)) ? readJson(path.join(dir, name)) : null;
-	const manifest = file('raw/manifest.json'), spend = file('spend.json');
+	const manifest = file('raw/manifest.json'), spend = file('spend.json'), controller = file('controller.json');
 	const roundManifest = path.join(dir, '..', 'manifest.json');
 	const game = existsSync(roundManifest) ? readJson(roundManifest).games?.find((entry) => entry.id === path.basename(dir)) : null;
 	const t0 = timeline.startedAt;
@@ -196,7 +207,10 @@ function readRoundGame(dir) {
 	const profile = manifest ? `${manifest.provider} ${manifest.model} ${manifest.reasoningEffort ?? ''}`.trim() : null;
 	return [{
 		run: game?.tag ?? path.basename(dir), seed: String(manifest?.world?.seed ?? timeline.spawnCheck?.seed), commit: /-([0-9a-f]{7,40})\.jar$/.exec(game?.jar ?? '')?.[1] ?? null,
-		ranAt: new Date(t0).toISOString().slice(0, 10), mode: 'model', model: profile, windowMin: game?.minutes ?? minutes(end - t0), playedMin: minutes(end - t0),
+		ranAt: new Date(t0).toISOString().slice(0, 10), mode: 'model', model: profile, ...profileFields(manifest),
+		// The round runner records why a game ended in controller.json (or the timeline); older rounds name no reason.
+		...stopFields(controller?.reason ?? timeline.stopReason ?? null),
+		windowMin: game?.minutes ?? minutes(end - t0), playedMin: minutes(end - t0),
 		startKind: timeline.startKind ?? null,
 		// A game started from a save point inherits stages (snapshot baseline) and items (a bucket in the first sample):
 		// its milestones are not its own, so it measures none.
@@ -240,6 +254,10 @@ export function censoredMedian(rows) {
 	return null;
 }
 
+// A game that stopped early stopped on the spend cap, on a stall stop, on anything else, or for no recorded reason.
+const EARLY_STOPS = ['cap', 'stall', 'other', 'unrecorded'];
+const earlyStop = (kind) => kind === null || kind === undefined ? 'unrecorded' : ['cap', 'stall'].includes(kind) ? kind : 'other';
+
 /**
  * Per milestone, over seeds (a repeated seed counts once: reached if any of its runs reached it; its time is the median
  * of its runs that did). Repeats are reported separately, so a seed run twice cannot double its weight here.
@@ -253,14 +271,19 @@ export function funnel(runs) {
 		const rows = measured.map((seed) => {
 			const own = runs.filter((run) => run.seed === seed && key in run.milestones);
 			const t = median(own.filter((run) => run.milestones[key] !== null).map((run) => run.milestones[key]));
-			// Never reached: censored at the longest it played, else at the window. Early: stopped over a minute short of it.
-			return t !== null ? { t, reached: true } : { t: Math.max(...own.map((run) => run.playedMin ?? run.windowMin ?? Infinity)), reached: false,
+			// Never reached: censored at the longest it played, else at the window. Early: stopped over a minute short of it,
+			// split by the rule that stopped its longest game.
+			if (t !== null) return { t, reached: true };
+			const played = (run) => run.playedMin ?? run.windowMin ?? Infinity;
+			const longest = own.reduce((best, run) => played(run) > played(best) ? run : best);
+			return { t: played(longest), reached: false, stoppedBy: earlyStop(longest.stopKind),
 				early: own.every((run) => Number.isFinite(run.playedMin) && Number.isFinite(run.windowMin) && run.playedMin < run.windowMin - 1) };
 		});
 		const tried = runs.filter((run) => key in run.milestones);
 		const censored = rows.filter((row) => !row.reached);
 		out[key] = { reached: rows.length - censored.length, total: measured.length, censored: censored.length,
-			...(censored.some((row) => row.early) ? { censoredEarly: censored.filter((row) => row.early).length } : {}),
+			...(censored.some((row) => row.early) ? { censoredEarly: censored.filter((row) => row.early).length,
+				censoredEarlyBy: Object.fromEntries(EARLY_STOPS.map((kind) => [kind, censored.filter((row) => row.early && row.stoppedBy === kind).length])) } : {}),
 			medianMin: censoredMedian(rows), runs: { reached: tried.filter((run) => run.milestones[key] !== null).length, total: tried.length } };
 	}
 	return out;
@@ -288,7 +311,11 @@ const firstRuns = (runs) => runs.filter((run, i) => runs.findIndex((other) => ot
  * Seeds only one side ran are named as missing pairs. Each milestone pairs only the seeds whose first run measured it on
  * both sides (a save-point game measures none), and names the paired seeds left out as unmeasured.
  */
-export function compare(before, after) {
+export function compare(before, after, { allowModelMismatch = false } = {}) {
+	const mismatch = profileMismatch(before, after);
+	if (mismatch && !allowModelMismatch) {
+		throw new Error(`${before.name} → ${after.name}: the cohorts ran different models or efforts (${mismatch.before.join(', ')} against ${mismatch.after.join(', ')}); pass --allow-model-mismatch when the comparison is meant to compare models`);
+	}
 	const seedsA = new Set(before.runs.map((run) => run.seed)), seedsB = new Set(after.runs.map((run) => run.seed));
 	const paired = [...seedsA].filter((seed) => seedsB.has(seed));
 	const missingPairs = [...[...seedsA].filter((seed) => !seedsB.has(seed)).map((seed) => ({ seed, only: before.name })),
@@ -305,7 +332,24 @@ export function compare(before, after) {
 		milestones[key] = { before: a.reached, after: b.reached, total: both.length, diff, verdict: verdict(diff), beforeMedianMin: a.medianMin, afterMedianMin: b.medianMin,
 			...(unmeasured.length ? { unmeasured } : {}) };
 	}
-	return { before: before.name, after: after.name, pairedSeeds: paired.length, missingPairs, milestones };
+	return { before: before.name, after: after.name, pairedSeeds: paired.length, missingPairs, milestones, ...(mismatch ? { profileMismatch: mismatch } : {}) };
+}
+
+/**
+ * One play profile per game: provider, model and effort, or "scripted". A game that does not say its model or effort is
+ * "unknown", which matches nothing. Reports written before games carried these fields fall back to the model text.
+ */
+export function profileOf(run, cohort = null) {
+	if (run.mode === 'scripted') return 'scripted';
+	if (!('modelId' in run) && !('effort' in run)) return run.model ?? (typeof cohort?.model === 'string' ? cohort.model : 'unknown');
+	return run.provider && run.modelId && run.effort ? `${run.provider} ${run.modelId} ${run.effort}` : 'unknown';
+}
+
+/** null when both cohorts ran one and the same known profile; otherwise the profiles each side ran. */
+export function profileMismatch(before, after) {
+	const profiles = (cohort) => [...new Set(cohort.runs.map((run) => profileOf(run, cohort)))].sort();
+	const a = profiles(before), b = profiles(after);
+	return a.length === 1 && b.length === 1 && a[0] === b[0] && a[0] !== 'unknown' ? null : { before: a, after: b };
 }
 
 /**
@@ -327,17 +371,22 @@ export function netherTotals(runs) {
 			totalMin: sum(deaths.map((death) => death.backMin)) } };
 }
 
-export function buildGate({ gate, title, cohorts }) {
+export function buildGate({ gate, title, cohorts, allowModelMismatch = false }) {
 	const built = cohorts.map(({ name, label, dirs }) => {
 		const runs = dirs.flatMap(readRun);
 		return { name, label, commit: one(runs.map((run) => run.commit)), mode: one(runs.map((run) => run.mode)), model: one(runs.map((run) => run.model)),
+			provider: one(runs.map((run) => run.provider)), modelId: one(runs.map((run) => run.modelId)), effort: one(runs.map((run) => run.effort)),
+			stops: Object.fromEntries([...new Set(runs.map((run) => run.stopKind ?? 'unrecorded'))].sort().map((kind) => [kind, runs.filter((run) => (run.stopKind ?? 'unrecorded') === kind).length])),
 			windowMin: one(runs.map((run) => run.windowMin)), ranAt: runs.map((run) => run.ranAt).filter(Boolean).sort()[0] ?? null, seeds: [...new Set(runs.map((run) => run.seed))], runs,
 			funnel: funnel(runs), deaths: runs.reduce((sum, run) => sum + run.deaths, 0), nether: netherTotals(runs),
 			costUsd: Math.round(runs.reduce((sum, run) => sum + run.costUsd, 0) * 100) / 100, repeats: repeatsOf(runs) };
 	});
 	const notes = [];
 	const comparisons = [];
-	for (let i = 1; i < built.length; i++) comparisons.push(compare(built[i - 1], built[i]));
+	for (let i = 1; i < built.length; i++) comparisons.push(compare(built[i - 1], built[i], { allowModelMismatch }));
+	for (const comparison of comparisons) if (comparison.profileMismatch) {
+		notes.push(`${comparison.before} → ${comparison.after} compares different models or efforts on purpose (${comparison.profileMismatch.before.join(', ')} against ${comparison.profileMismatch.after.join(', ')}), so its differences include the model's effect.`);
+	}
 	if (built.length === 1) notes.push('No pair in this file: one commit ran this gate. The PR comment pairs it with the previous gate when both ran the same seeds with the same model and window.');
 	for (const comparison of comparisons) if (comparison.missingPairs.length) notes.push(`${comparison.before} → ${comparison.after}: ${comparison.missingPairs.length} seed(s) without a pair.`);
 	if (!built.some((cohort) => cohort.repeats.length)) notes.push('No repeats: each seed ran once per commit, so run-to-run noise is not measured here.');
@@ -359,11 +408,12 @@ export function parseCli(argv) {
 		else if (arg === '--title') options.title = argv[++i];
 		else if (arg === '--out') options.out = argv[++i];
 		else if (arg === '--cohort') options.cohorts.push({ name: argv[++i], label: argv[++i], dirs: [] });
+		else if (arg === '--allow-model-mismatch') options.allowModelMismatch = true;
 		else if (options.cohorts.length) options.cohorts.at(-1).dirs.push(arg);
 		else throw new Error(`Unexpected argument ${arg}`);
 	}
 	if (!options.gate || !options.cohorts.length || options.cohorts.some((cohort) => !cohort.dirs.length)) {
-		throw new Error('Usage: --gate N [--title T] [--out FILE] --cohort NAME LABEL DIR... [--cohort NAME LABEL DIR...]');
+		throw new Error('Usage: --gate N [--title T] [--out FILE] [--allow-model-mismatch] --cohort NAME LABEL DIR... [--cohort NAME LABEL DIR...]');
 	}
 	options.gate = /^\d+$/.test(options.gate) ? Number(options.gate) : options.gate;
 	return options;
@@ -376,7 +426,12 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 	if (options.out) writeFileSync(options.out, text); else process.stdout.write(text);
 	for (const cohort of report.cohorts) {
 		console.error(`${cohort.name} @ ${String(cohort.commit).slice(0, 8)}: ${cohort.seeds.length} seeds, ${cohort.runs.length} runs, deaths ${cohort.deaths}, $${cohort.costUsd}`);
-		for (const { key, label } of MILESTONES) if (cohort.funnel[key]) console.error(`  ${label.padEnd(16)} ${cohort.funnel[key].reached}/${cohort.funnel[key].total}  median ${cohort.funnel[key].medianMin ?? '-'} min`);
+		console.error(`  ${'Game'.padEnd(16)} ${'Seed'.padEnd(20)} ${'Model'.padEnd(24)} ${'Effort'.padEnd(7)} ${'Played'.padEnd(13)} Stop`);
+		for (const run of cohort.runs) console.error(`  ${String(run.run).padEnd(16)} ${String(run.seed).padEnd(20)} ${String(run.mode === 'scripted' ? 'scripted' : run.modelId ?? '?').padEnd(24)} ${String(run.effort ?? '-').padEnd(7)} ${`${run.playedMin ?? '?'}/${run.windowMin ?? '?'} min`.padEnd(13)} ${run.stopKind ?? 'unrecorded'}${run.stopReason ? ` (${run.stopReason})` : ''}`);
+		for (const { key, label } of MILESTONES) if (cohort.funnel[key]) {
+			const f = cohort.funnel[key], by = f.censoredEarlyBy;
+			console.error(`  ${label.padEnd(16)} ${f.reached}/${f.total}  median ${f.medianMin ?? '-'} min${by ? `  early ${f.censoredEarly}: ${EARLY_STOPS.filter((kind) => by[kind]).map((kind) => `${by[kind]} ${kind}`).join(', ')}` : ''}`);
+		}
 		const n = cohort.nether;
 		if (n) console.error(`  Nether: ${n.entered}/${n.games} games entered, ${n.minutes} min there, ${n.deaths} Nether deaths in ${n.gamesWithDeaths} games (${n.deathsAfterFirstEntry} deaths after first entry), respawn ${n.respawnBlocks ? `${n.respawnBlocks.min}-${n.respawnBlocks.max} blocks, median ${n.respawnBlocks.median}` : '-'}, back ${n.back.returned} in ${n.back.returnedMin} min + ${n.back.neverReturned} never in ${n.back.neverReturnedMin} min`);
 	}

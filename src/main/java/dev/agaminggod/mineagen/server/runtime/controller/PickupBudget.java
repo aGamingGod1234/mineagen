@@ -50,6 +50,15 @@ final class PickupBudget {
 		return blocks;
 	}
 
+	/**
+	 * Time the walks stood still for the knockback margin, which does not count against the walk limit, but never more
+	 * than the room between the limit and the call's timeout: past that the walk's own navigation would time out first
+	 * and the pickup would hand back ACTION_TIMEOUT instead of ITEM_PICKUP_TIMED_OUT.
+	 */
+	static long heldCreditMs(long heldMs, long walkLimitMs, long timeoutMs) {
+		return Math.max(0L, Math.min(heldMs, timeoutMs - walkLimitMs));
+	}
+
 	/** Replans a new walk may still use after the earlier walks of the same pickup used {@code spent}. */
 	static int replansLeft(int spent) {
 		return Math.max(0, REPLANS - Math.max(0, spent));

@@ -9,9 +9,10 @@ import { CodexStdioTransport, listCodexModels, verifyModelProfile } from '../cod
 import { SharedCodexAgent, nativeInstructions } from '../codex-service.mjs';
 import { minecraftCapabilities } from '../native-minecraft-tools.mjs';
 import { decodeModelFacts, MODEL_FACT_FORMAT } from '../model-fact-encoding.mjs';
+import { defaultModel } from '../default-models.mjs';
 
 const repositoryRoot = fileURLToPath(new URL('../../../', import.meta.url));
-const settings = Object.freeze({ model: 'gpt-6.1-sol', reasoningEffort: 'medium', serviceTier: 'default' });
+const settings = Object.freeze({ model: defaultModel('codex'), reasoningEffort: 'medium', serviceTier: 'default' });
 const hash = value => createHash('sha256').update(value).digest('hex');
 const limits = Object.freeze({ maxTurns: 4, maxUncachedInputTokens: 60_000, maxToolCallsPerTurn: 5, turnDeadlineMs: 90_000 });
 

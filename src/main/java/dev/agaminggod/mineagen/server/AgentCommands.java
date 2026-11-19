@@ -40,6 +40,7 @@ import org.slf4j.LoggerFactory;
 
 public final class AgentCommands {
 	private static final Logger LOGGER = LoggerFactory.getLogger(AgentCommands.class);
+	// Same default as coordinator/src/default-models.mjs (DEFAULT_CODEX_MODEL); a coordinator test keeps the two equal.
 	private static final String DEFAULT_MODEL = "gpt-6.1-sol";
 	private static final String DEFAULT_REASONING = "low";
 	private static final String DEFAULT_CODEX_SERVICE_TIER = "default";

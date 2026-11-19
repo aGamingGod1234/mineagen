@@ -848,7 +848,7 @@ public final class ServerActionExecutor {
 								GameClock.nowMs(),
 								arguments.has("timeoutMs") ? integer(arguments, "timeoutMs") : DEFAULT_TIMEOUT_MS,
 								true
-						)
+						).keepsKnockbackMargin(new dev.agaminggod.mineagen.server.runtime.controller.KnockbackHolds())
 				);
 				if (standing != null) action.destinationNote = String.format(java.util.Locale.ROOT,
 						"; requested %s is %s, so the target became the standing spot %.1f,%.0f,%.1f", cell(BlockPos.containing(requested)),
@@ -882,6 +882,9 @@ public final class ServerActionExecutor {
 						arguments.has("minHealth") ? (float) number(arguments, "minHealth") : null,
 						(body, cell) -> protection.mayModifyBlock(body, body.level(), cell),
 						GameClock.nowMs()).fightThrough(arguments.has("fightThrough") && bool(arguments, "fightThrough"))
+						// Issue 2 Step 2: an explicit fightThrough:false keeps every stop.
+						.fightsBeatable(!arguments.has("fightThrough") && dev.agaminggod.mineagen.server.runtime.reflex.Instincts.enabled())
+						.keepsKnockbackMargin()
 						.descend((y, x, z, digTimeoutMs) -> digController(dev.agaminggod.mineagen.server.runtime.controller.ServerTravelController.staircase(
 								arguments, y, x, z, digTimeoutMs, player.blockPosition().getY()))));
 			}
@@ -934,7 +937,8 @@ public final class ServerActionExecutor {
 					integer(arguments, "timeoutMs"), GameClock.nowMs())
 					.collectDrops(arguments.has("collect") && bool(arguments, "collect") ? protection::mayTakeEntity : null)
 					// collect false or unset: the drops are walked to only once no hostile is within 16 blocks (ExamplePlayer, Oct 29).
-					.collectWhenClear(arguments.has("collect") && bool(arguments, "collect") ? null : protection::mayTakeEntity)));
+					.collectWhenClear(arguments.has("collect") && bool(arguments, "collect") ? null : protection::mayTakeEntity)
+					.makingRoom(protection::mayDropItem)));
 			// Model-chosen goal skill (ExamplePlayer, Oct 28): fight one mob type until an item count, each engagement a fight_target or volley.
 			case FIGHT_UNTIL -> ActiveAction.controller(request, player, new dev.agaminggod.mineagen.server.runtime.controller.ServerFightUntilController(
 					player, arguments, protection, GameClock.nowMs(), "fight_until", null, roofing(request)));
@@ -1090,8 +1094,8 @@ public final class ServerActionExecutor {
 				}
 				requireResult(advancedInteractions.validatePickUp(player, item));
 				yield ActiveAction.controller(request, player,
-						arguments.has("timeoutMs") ? new ServerItemPickupController(player, item, GameClock.nowMs(), integer(arguments, "timeoutMs"))
-								: new ServerItemPickupController(player, item, GameClock.nowMs()));
+						(arguments.has("timeoutMs") ? new ServerItemPickupController(player, item, GameClock.nowMs(), integer(arguments, "timeoutMs"))
+								: new ServerItemPickupController(player, item, GameClock.nowMs())).keepsKnockbackMargin());
 			}
 			case DROP_ITEM -> ActiveAction.immediate(request, player, () -> requireResult(
 					advancedInteractions.drop(player, integer(arguments, "slot"), integer(arguments, "count"))

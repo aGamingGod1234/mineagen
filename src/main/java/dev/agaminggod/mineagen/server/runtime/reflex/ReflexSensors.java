@@ -96,6 +96,7 @@ public final class ReflexSensors {
 		private int lowUses = -1;
 		/** Whether the agent has an action running (paused under a firing or not); {@code stop} waits for it to end. */
 		private boolean actionActive;
+		private int idleTicks;
 		private net.minecraft.resources.ResourceKey<net.minecraft.world.level.Level> footingDimension;
 		private final java.util.ArrayDeque<GridPosition> dryFooting = new java.util.ArrayDeque<>();
 
@@ -170,6 +171,12 @@ public final class ReflexSensors {
 
 		void actionActive(boolean active) {
 			actionActive = active;
+			idleTicks = active ? 0 : Math.min(idleTicks + 1, Integer.MAX_VALUE - 1);
+		}
+
+		/** Engine ticks since an action of the agent's last ran (0 while one runs). */
+		int idleTicks() {
+			return idleTicks;
 		}
 
 		boolean actionActive() {
@@ -203,6 +210,7 @@ public final class ReflexSensors {
 			case "on_hot_floor" -> flag(HazardExits.contact(player) == HazardExits.Contact.HOT_FLOOR);
 			case "inventory_full" -> flag(player.getInventory().getFreeSlot() < 0);
 			case "item_nearby" -> itemNearby(player, condition.ids("items"), condition.number("within", 4.0D), frame);
+			case "drops_owed" -> dropsOwed(player, OWED_WITHIN, memory);
 			case "tool_low" -> toolLow(player, (int) condition.number("uses", 1.0D), condition.text("tool"), memory);
 			case "falling" -> flag(!player.onGround() && !player.isInWater() && !player.isFallFlying() && !player.getAbilities().flying
 					&& player.fallDistance >= condition.number("blocks", 3.0D));
@@ -250,6 +258,50 @@ public final class ReflexSensors {
 	}
 
 	/** The nearest dropped item in view within range that the inventory has room for; it is the focus a pickup walks to. */
+	/** How far from the body a left drop's last sighting may be for the owed-drops habit (fight_target's clear range). */
+	static final double OWED_WITHIN = 16.0D;
+	/** The owed pass waits under this health: a player heals before walking out for loot. */
+	static final float OWED_MIN_HEALTH = 10.0F;
+	/**
+	 * Idle ticks before the owed pass may take the body: between steps the body waits on the model a median 3.0 s, p90
+	 * 6.9 s (rounds 4-6), so the pass waits 7 s rather than start while the next command is being chosen from here; a
+	 * command that arrives mid-pass ends it, and its drops stay tried.
+	 */
+	static final int OWED_IDLE_TICKS = 140;
+
+	/**
+	 * A kill's drop the body left behind (1b) and may walk to now: no action of the agent's runs, health at least
+	 * {@link #OWED_MIN_HEALTH} and not burning, not sheltered or on a pillar (built on purpose), and no hostile within 16
+	 * blocks in sight or one that hurt the body in the last 3 s (fight_target's own blocker). The focus is the oldest such drop.
+	 */
+	private static Reading dropsOwed(ServerPlayer player, double within, Memory memory) {
+		if (memory.actionActive() || memory.idleTicks() < OWED_IDLE_TICKS || player.getHealth() < OWED_MIN_HEALTH || player.isOnFire()) return Reading.FALSE;
+		List<java.util.UUID> owed = dev.agaminggod.mineagen.server.perception.ObservedDrops.owed(player, within);
+		if (owed.isEmpty() || placedOnPurpose(player)) return Reading.FALSE;
+		if (dev.agaminggod.mineagen.server.runtime.controller.KillDropCollector.hostileNear(player) != null) return Reading.FALSE;
+		return new Reading(true, ((net.minecraft.server.level.ServerLevel) player.level()).getEntity(owed.get(0)));
+	}
+
+	/** Under a roof with three or four sides walled at the feet, or on a pillar with no floor beside three or four sides. */
+	static boolean placedOnPurpose(ServerPlayer player) {
+		var level = player.level();
+		BlockPos feet = player.blockPosition();
+		boolean roof = false;
+		for (int up = 2; up <= 4 && !roof; up++) roof = !level.getBlockState(feet.above(up)).getCollisionShape(level, feet.above(up)).isEmpty();
+		int walled = 0, open = 0;
+		for (net.minecraft.core.Direction side : net.minecraft.core.Direction.Plane.HORIZONTAL) {
+			BlockPos beside = feet.relative(side);
+			if (!level.getBlockState(beside).getCollisionShape(level, beside).isEmpty()) walled++;
+			BlockPos under = beside.below(), deeper = under.below();
+			if (level.getBlockState(under).getCollisionShape(level, under).isEmpty() && level.getBlockState(deeper).getCollisionShape(level, deeper).isEmpty()) open++;
+		}
+		return placedOnPurpose(roof, walled, open);
+	}
+
+	static boolean placedOnPurpose(boolean roof, int walledSides, int openSides) {
+		return roof && walledSides >= 3 || openSides >= 3;
+	}
+
 	private static Reading itemNearby(ServerPlayer player, Set<String> types, double within, ObservationVisibility.Frame frame) {
 		ItemEntity nearest = null;
 		double best = Double.POSITIVE_INFINITY;

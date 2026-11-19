@@ -34,6 +34,11 @@ final class TravelStallWatch {
 		return build && !buildRefused && !buildingDue && walking && fromLastTurn >= MOVE_BLOCKS;
 	}
 
+	/** Moves the window's start forward by {@code ticks} the leg held still for the knockback margin. */
+	void excuse(long ticks) {
+		if (anchored && ticks > 0L) anchorTick += ticks;
+	}
+
 	void reset() {
 		anchored = false;
 	}

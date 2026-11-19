@@ -15,6 +15,7 @@ import { parseArgs } from 'node:util';
 import { HeadlessRconClient } from '../src/headless-rcon.mjs';
 import { MultiplexedServerBridge } from '../src/protocol-v2.mjs';
 import { DEFAULT_REFLEXES } from '../src/reflexes.mjs';
+import { defaultModel } from '../src/default-models.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const { values: options } = parseArgs({ options: {
@@ -25,7 +26,7 @@ const { values: options } = parseArgs({ options: {
 const trials = Number(options.trials);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const AGENT = 'Bench';
-const MODEL = 'gpt-6.1-sol';
+const MODEL = defaultModel('codex');
 const X = 100.5, Y = -60, Z = 100.5;
 
 // The arms: the default set before the fast-danger reflexes were added, and the current one.

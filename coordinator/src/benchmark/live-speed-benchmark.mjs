@@ -1,13 +1,14 @@
 import { createHash } from 'node:crypto';
 import { TOKEN_PRICES_PER_MILLION, estimateTokenCostUsd } from '../call-cost.mjs';
+import { defaultModel } from '../default-models.mjs';
 
 export const SPEED_BENCHMARK_SCHEMA_VERSION = 1;
 export const SPEED_BENCHMARK_SEED = '20261008';
 export const SPEED_BENCHMARK_TIMEOUT_MS = 300_000;
 
 export const DEFAULT_SPEED_PROFILES = Object.freeze([
-	Object.freeze({ provider: 'claude', model: 'claude-opus-5-5', reasoningEffort: 'low', serviceTier: 'priority' }),
-	Object.freeze({ provider: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'low', serviceTier: 'default' }),
+	Object.freeze({ provider: 'claude', model: defaultModel('claude'), reasoningEffort: 'low', serviceTier: 'priority' }),
+	Object.freeze({ provider: 'codex', model: defaultModel('codex'), reasoningEffort: 'low', serviceTier: 'default' }),
 ]);
 
 export const SPEED_TOKEN_PRICES_PER_MILLION = TOKEN_PRICES_PER_MILLION;

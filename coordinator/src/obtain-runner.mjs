@@ -8,14 +8,20 @@
 // Finding a source is one function, locate(): what is in view or remembered, then a survey search, then exploring
 // (walking out for trees and animals, digging toward the ore's depth). A future find verb can replace it.
 import { howtoIndex } from './howto.mjs';
-import { DAMAGE_STOPS, DISCARD, LIFE_SAFETY_STOPS, MAX_FIND_TIMEOUT_MS, UNREACHED, UNREACHED_SPOT, caveLog, hostileIsDanger, sameVein } from './find-search.mjs';
+import { DAMAGE_STOPS, FIGHT_STOPS, DISCARD, LIFE_SAFETY_STOPS, MAX_FIND_TIMEOUT_MS, UNREACHED, UNREACHED_SPOT, caveLog, hostileIsDanger, sameVein } from './find-search.mjs';
 import { threatRows, blazeBlocksErrand } from './search-danger.mjs';
+import { REGEN_RESUME_HEALTH, bodyDanger, eatCalls, lowHealthFork } from './fork-rule.mjs';
 import { heldCounts, heldOf, keepPickaxeMakings, planObtain, readyTimes, resolveObtainItem, shortId, OBTAIN_STATIONS } from './obtain-plan.mjs';
 
 export const OBTAIN_DEFAULT_TIMEOUT_MS = 900_000;
 export const OBTAIN_MAX_TIMEOUT_MS = 1_800_000;
 const MAX_ROUNDS = 160;
 const LOW_HEALTH = 6;
+// At or under this a non-food obtain stops to recover (eat or regenerate, fork-rule.mjs) before its next move: the heal
+// nudge's line and gather's own floor. Recovery lasts at most RECOVER_MS and resumes at EAT_RESUME_HEALTH once it ate.
+const RECOVER_AT = 8;
+const RECOVER_MS = 90_000;
+const EAT_RESUME_HEALTH = 12;
 // Food is what a player at low health goes to get: the low-health line does not stop an obtain for one of these. Only
 // food taken straight from an animal or plant: a crafted or smelted food's chain mines, smelts and travels like any other.
 const FOODS = new Set(['beef', 'porkchop', 'mutton', 'chicken', 'rabbit', 'cod', 'salmon', 'apple', 'carrot', 'potato',
@@ -47,7 +53,7 @@ const DROP_DIG = 4;
 const OUT_OF_REACH = new Set(['NOTHING_MINED', 'INVALID_VEIN_TARGET', 'NO_STANCE', 'PATH_BLOCKED', 'NO_STANDABLE_PATH', 'NO_ROUTE', 'NO_PROGRESS', 'NO_SEEN_ROUTE']);
 const TOOL_STOPS = new Set(['TOOL_WORN', 'NO_TOOL']);
 export const HAND_SPEED_STONE = /building cannot continue: minecraft:(?:stone|deepslate|andesite|diorite|granite|tuff|cobblestone|cobbled_deepslate|calcite|dripstone_block)(?: at -?\d+,-?\d+,-?\d+)? takes \d/;
-const NOT_REACH = new Set([...TOOL_STOPS, 'HOSTILE_NEAR', 'DANGER', 'LOW_FOOD', 'INVENTORY_FULL', 'CANCELLED', 'NATIVE_ACTION_CANCELLED', ...DAMAGE_STOPS]);
+const NOT_REACH = new Set([...TOOL_STOPS, 'HOSTILE_NEAR', 'DANGER', 'LOW_FOOD', 'INVENTORY_FULL', 'CANCELLED', 'NATIVE_ACTION_CANCELLED', ...DAMAGE_STOPS, ...FIGHT_STOPS]);
 const VEIN_MISSES = 8;
 // A pickaxe with fewer uses left than this is about to break: one tunnel or vein more wears it out.
 const LOW_USES = 16;
@@ -132,17 +138,6 @@ export function isDanger(result, observation) {
 	const code = result?.reasonCode;
 	if (DAMAGE_STOPS.has(code) || LIFE_SAFETY_STOPS.has(code)) return true;
 	return code === 'HOSTILE_NEAR' && hostileIsDanger(observation);
-}
-
-/** What in the body's own state is danger now: in lava, burning, suffocating, air nearly gone, falling far. */
-function bodyDanger(o) {
-	const p = o?.player ?? {};
-	if (p.inLava) return 'in lava';
-	if (p.onFire) return 'on fire';
-	if (p.suffocating) return 'suffocating';
-	if (Number.isFinite(p.air) && Number.isFinite(p.maxAir) && p.air < p.maxAir / 3) return `air ${p.air}/${p.maxAir}`;
-	if (Number.isFinite(p.fallDistance) && p.fallDistance > 4) return `falling ${Math.round(p.fallDistance)} blocks`;
-	return null;
 }
 
 /**
@@ -463,6 +458,8 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 	let held = new Map(), counts = new Map(), have = 0, startHave = null, rounds = 0, origin = null, noSurface = null, coalShort = false;
 	const label = target.label;
 	const food = target.ids.length > 0 && target.ids.every((member) => FOODS.has(bare(member)));
+	// A non-food obtain recovers at low health itself; while it recovers (active) the coordinator folds the low-health wakes.
+	if (!food) rawBody.recovering?.('armed');
 	// The food hunt's flee line, set once from the health at the first hunt: later rounds never lower it.
 	let foodFlee = null;
 	let lastFailure = null, fuelDiagnostic = null, approachStop = null;
@@ -1146,6 +1143,8 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			const block = need.blocks[0];
 			step(`gather ${block} for ${need.accept[0]}`);
 			const taken = await body.gather({ itemIds: [id(block), ...need.accept.map(id)], blockIds: need.blocks.slice(0, 8).map(id), count: Math.min(64, heldOf(block, counts, index) + heldOf(need.accept.join('|'), counts, index) + 4), radius: SURFACE_RADIUS, timeoutMs: 120_000 });
+			// A gather danger or a low-health stop cut short says nothing about the block: obtain may recover and come back.
+			if (taken?.state !== 'SUCCEEDED' && (body.interrupted() || body.stopped())) return 'stopped';
 			if (taken?.state !== 'SUCCEEDED') {
 				budget.failed.add(`${where.x},${where.y},${where.z}`);
 				gaveUp(where, taken);
@@ -1158,6 +1157,7 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		const gathered = await body.gather({ itemIds: need.accept.map(id), blockIds, count: Math.min(64, total), radius: SURFACE_RADIUS, timeoutMs: 180_000 });
 		if (gathered?.state === 'SUCCEEDED') return null;
 		if ((gathered?.broken ?? 0) > 0) return null;
+		if (body.interrupted() || body.stopped()) return 'stopped';
 		// gather could not reach the trunk (tall spruce, jungle): walk up beside the tree found and fell it whole.
 		if (/_(log|stem)$/.test(bare(where.blockId))) {
 			step(`fell the ${bare(where.blockId)} at ${where.x},${where.y},${where.z} from beside it`);
@@ -1375,10 +1375,64 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		return filled ?? `no ${fluid} source in reach`;
 	};
 
+	// Low health on a non-food obtain: eat carried food or let health regenerate (fork-rule.mjs), in slices of at most
+	// WAIT_SLICE_MS for up to RECOVER_MS, judged again on each fresh sample. Returns null once health is back at the resume
+	// line, 'stopped' when danger, an interruption or cancellation ended it (the loop top ends the run with that code),
+	// else the fork that hands the choice back. A body already using an item (the eat reflex mid-bite) is left to finish.
+	const recover = async () => {
+		const began = now(), until = Math.min(deadline, began + RECOVER_MS);
+		let ate = false, last = null;
+		rawBody.recovering?.('active');
+		try {
+			while (true) {
+				if (danger !== null || rawBody.interrupted() || rawBody.stopped()) return 'stopped';
+				const o = await observe();
+				const unsafe = bodyDanger(o);
+				if (unsafe !== null) { danger ??= unsafe; return 'stopped'; }
+				const health = o?.player?.health;
+				if (!Number.isFinite(health)) return 'health unknown while recovering';
+				if (last !== null && health < last) return `health fell ${last} -> ${health} while recovering`;
+				if (health >= (ate ? EAT_RESUME_HEALTH : REGEN_RESUME_HEALTH)) return null;
+				if (now() >= until) return `health ${health} after ${Math.round((now() - began) / 1000)} s of recovering`;
+				last = health;
+				const judged = lowHealthFork(o);
+				if (judged.fork !== undefined) return judged.starved && health >= REGEN_RESUME_HEALTH ? null : judged.fork;
+				// Food edible at any hunger (a golden apple) is not eaten again once the bar can regenerate: its effect heals.
+				const fed = judged.food?.alwaysEdible === true && Number.isFinite(o.player?.foodLevel) && o.player.foodLevel >= 18;
+				if (judged.recover === 'eat' && o.interaction?.usingItem !== true && !(ate && fed)) {
+					step(`health ${health}: eat ${bare(judged.food.itemId)}`);
+					for (const { actionType, arguments: args } of eatCalls(judged.food, o.inventory?.selectedSlot)) {
+						const result = await act(actionType, args);
+						if (danger !== null || rawBody.interrupted() || rawBody.stopped()) return 'stopped';
+						if (result?.state !== 'SUCCEEDED') return `eating ${bare(judged.food.itemId)} failed (${lastFailure})`;
+					}
+					ate = true;
+				} else if (judged.recover === 'regen') step(`health ${health}: wait for regeneration`);
+				// One slice between bites as well: health climbs by regeneration (or the food's effect), not by the bite.
+				const waited = await act('wait', { durationMs: Math.min(WAIT_SLICE_MS, Math.max(1_000, until - now())) });
+				if (danger !== null || rawBody.interrupted() || rawBody.stopped()) return 'stopped';
+				if (waited?.state !== 'SUCCEEDED') return `waiting to recover failed (${lastFailure})`;
+			}
+		} finally { rawBody.recovering?.('armed'); }
+	};
+	// Recovery's answer at the loop top: go on, or hand the fork back as LOW_HEALTH (never as danger).
+	const recovered = async (stop) => {
+		const why = await recover();
+		if (why === null || why === 'stopped') return null;
+		return end('INTERRUPTED', 'LOW_HEALTH', `${stop}, then ${why}; decide, then call obtain again to continue`, handle());
+	};
 	// The action danger left running (a body leg, or find's leg inside a search) goes back with every danger ending.
 	const handle = () => (running === null ? {} : { running: { actionId: running.actionId, ...(running.recoveryHint ? { recoveryHint: running.recoveryHint } : {}) } });
 	while (true) {
-		if (danger !== null && lowLeg) return end('INTERRUPTED', 'LOW_HEALTH', `Stopped at low health (${danger}); recover, then call obtain again to continue`, handle());
+		if (danger !== null && lowLeg) {
+			if (food) return end('INTERRUPTED', 'LOW_HEALTH', `Stopped at low health (${danger}); recover, then call obtain again to continue`, handle());
+			// A leg's own low-health stop is recovered from here once, then the work goes on.
+			const stop = `Stopped at low health (${danger})`;
+			danger = null; lowLeg = false;
+			const ended = await recovered(stop);
+			if (ended !== null) return ended;
+			continue;
+		}
 		if (danger !== null) return end('INTERRUPTED', 'DANGER', `Stopped for danger (${danger}); decide, then call obtain again to continue`, handle());
 		if (rawBody.interrupted()) {
 			const fork = forkStop();
@@ -1402,7 +1456,11 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		if (approachStop !== null) return end('FAILED', approachStop.reasonCode, approachStop.message);
 		if (++rounds > MAX_ROUNDS) return end('FAILED', 'OBTAIN_STUCK', `${MAX_ROUNDS} rounds without finishing`);
 		const health = o.player?.health;
-		if (!food && Number.isFinite(health) && health <= LOW_HEALTH) return end('FAILED', 'LOW_HEALTH', `Health ${health}: stopped to recover`);
+		if (!food && Number.isFinite(health) && health <= RECOVER_AT) {
+			const ended = await recovered(`Health ${health}: stopped to recover`);
+			if (ended !== null) return ended;
+			continue;
+		}
 		if (fillToolStop !== null) return end('FAILED', fillToolStop.reasonCode,
 			`The approach to ${fluid} stopped (${fillToolStop.reasonCode}: ${String(fillToolStop.message ?? '').slice(0, 240)}); replace or equip a usable tool, then call obtain again. The source was not marked unreachable`, handle());
 		// Output an earlier call left in a furnace comes out first: the plan counts only the inventory.

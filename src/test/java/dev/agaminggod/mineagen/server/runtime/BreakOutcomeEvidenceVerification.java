@@ -17,6 +17,15 @@ public final class BreakOutcomeEvidenceVerification {
 				BreakOutcomeEvidence.note(new BreakOutcomeEvidence.Outcome(hand, false), true));
 		check("with stone_pickaxe; drops seen", BreakOutcomeEvidence.note(new BreakOutcomeEvidence.Outcome(pick, true), false));
 		check("drops seen", BreakOutcomeEvidence.note(new BreakOutcomeEvidence.Outcome(pick, true), true));
+		// K10: a break names its new drops by uuid, three at most.
+		UUID a = UUID.fromString("00000000-0000-0000-0000-00000000000a"), b = UUID.fromString("00000000-0000-0000-0000-00000000000b");
+		var one = new BreakOutcomeEvidence.SeenDrop(a, "minecraft:cobblestone", 1);
+		check("drops seen: 1x minecraft:cobblestone uuid=" + a, BreakOutcomeEvidence.note(new BreakOutcomeEvidence.Outcome(pick, true, java.util.List.of(), java.util.List.of(one)), true));
+		var four = java.util.List.of(one, new BreakOutcomeEvidence.SeenDrop(b, "minecraft:flint", 1), one, one);
+		check(": 1x minecraft:cobblestone uuid=" + a + ", 1x minecraft:flint uuid=" + b + ", 1x minecraft:cobblestone uuid=" + a + " +1 more",
+				BreakOutcomeEvidence.dropIds(four));
+		check("", BreakOutcomeEvidence.dropIds(java.util.List.of()));
+		check("no drops seen", BreakOutcomeEvidence.note(new BreakOutcomeEvidence.Outcome(pick, false, java.util.List.of(), java.util.List.of()), true));
 		check("with mod:custom_tool; no drops seen", BreakOutcomeEvidence.note(
 				new BreakOutcomeEvidence.Outcome(new BreakOutcomeEvidence.Tool("mod:custom_tool", false), false), false));
 		check("attempted with hand; no block drops without correct tool/tier", "attempted " + hand.note());
@@ -121,7 +130,7 @@ public final class BreakOutcomeEvidenceVerification {
 		check(true, InventoryRoom.canTake(false, none, () -> 12), "an empty main slot takes the pickup");
 		check(true, InventoryRoom.canTake(true, () -> { throw new AssertionError("creative needs no slot search"); },
 				() -> { throw new AssertionError("creative needs no slot search"); }), "a full creative inventory still accepts the pickup");
-		return 43;
+		return 47;
 	}
 
 	private static void check(String expected, String actual) {
