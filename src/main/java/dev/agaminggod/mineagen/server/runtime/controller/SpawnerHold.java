@@ -114,9 +114,10 @@ public final class SpawnerHold {
 	 * cell. The engine's danger stops hand back; its no-target, out-of-reach and failure stops restart it.
 	 */
 	static String engineEnd(String code) {
-		return switch (code) {
-			case "UNTIL_COUNT_REACHED", "AGENT_DEAD", "IN_LAVA", "LOW_HEALTH_BAILOUT", "FIGHT_UNTIL_TIMED_OUT" -> code;
-			default -> null;
-		};
+		return ENGINE_STOPS.contains(code) ? code : null;
 	}
+
+	/** The engine's own stops the hold passes on unchanged (each is produced and catalogued at the engine). */
+	private static final java.util.Set<String> ENGINE_STOPS = java.util.Set.of("UNTIL_COUNT_REACHED", "AGENT_DEAD", "IN_LAVA",
+			"LOW_HEALTH_BAILOUT", "FIGHT_UNTIL_TIMED_OUT");
 }

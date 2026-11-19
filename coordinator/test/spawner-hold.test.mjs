@@ -5,9 +5,9 @@ import { normalizeMinecraftToolCall } from '../src/native-minecraft-tools.mjs';
 import { NativeProgramExecutor } from '../src/native-program-executor.mjs';
 import { NativeToolRuntime } from '../src/native-tool-runtime.mjs';
 import { validateProtocolV2Payload } from '../src/protocol-v2.mjs';
-import { CANCEL_REASON_MAX, blazeHold, holdCancelRefusal } from '../src/spawner-hold.mjs';
+import { CONFIRM_MS, blazeHold, holdCancelRefusal } from '../src/spawner-hold.mjs';
 
-// Wall breaker rods, contract H11-H12: the model's own cancel or replace of a blaze spawner hold carries a reason.
+// Wall breaker rods, contract H11-H12: the model's own cancel or replace of a blaze spawner hold is confirmed by repeating it.
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const hold = { actionId: 'a1', actionType: 'fight_until', arguments: { mob: 'minecraft:blaze', untilItem: 'minecraft:blaze_rod', untilCount: 7 }, dimension: 'minecraft:the_nether' };
 
@@ -20,25 +20,17 @@ test('which running actions are a blaze hold', () => {
 	assert.equal(blazeHold({ ...hold, dimension: 'minecraft:overworld' }), false);
 });
 
-test('H11 a cancel without a reason is refused with the hold state; H12 one with a reason passes', () => {
-	const refused = holdCancelRefusal(hold, { kind: 'cancel_action', actionId: 'a1' });
-	assert.equal(refused.code, 'CANCEL_REASON_REQUIRED');
+test('H11 a first cancel is refused with the hold state; H12 the same call repeated within 60 s passes', () => {
+	const refused = holdCancelRefusal(hold, { kind: 'cancel_action', actionId: 'a1' }, null, 1_000);
+	assert.equal(refused.code, 'CANCEL_CONFIRM_REQUIRED');
 	assert.match(refused.message, /spawner hold/);
-	assert.match(refused.message, /cancelAction again with reason/);
-	assert.match(holdCancelRefusal(hold, { kind: 'replace_action', actionId: 'a1' }).message, /replaceAction again with reason/);
-	assert.equal(holdCancelRefusal(hold, { kind: 'cancel_action', actionId: 'a1', reason: '   ' }).code, 'CANCEL_REASON_REQUIRED', 'blank is no reason');
-	assert.equal(holdCancelRefusal(hold, { kind: 'cancel_action', actionId: 'a1', reason: 'need pearls first' }), null);
-	assert.equal(holdCancelRefusal({ ...hold, actionType: 'travel_to' }, { kind: 'cancel_action' }), null, 'other actions need no reason');
-	assert.equal(holdCancelRefusal(undefined, { kind: 'cancel_action' }), null);
-});
-
-test('the tool calls carry an optional reason, bounded', () => {
-	assert.equal(normalizeMinecraftToolCall('cancelAction', { actionId: 'a1', goalRevision: 1 }).reason, undefined);
-	assert.equal(normalizeMinecraftToolCall('cancelAction', { actionId: 'a1', goalRevision: 1, reason: 'portal first' }).reason, 'portal first');
-	assert.throws(() => normalizeMinecraftToolCall('cancelAction', { actionId: 'a1', goalRevision: 1, reason: 'x'.repeat(CANCEL_REASON_MAX + 1) }));
-	const replace = normalizeMinecraftToolCall('replaceAction', { actionId: 'a1', goalRevision: 1, actionType: 'wait', arguments: { durationMs: 5 }, reason: 'low food' });
-	assert.equal(replace.reason, 'low food');
-	assert.equal(replace.kind, 'replace_action');
+	assert.match(refused.message, /same cancelAction again within 60 s/);
+	assert.match(holdCancelRefusal(hold, { kind: 'replace_action', actionId: 'a1' }, null, 1_000).message, /same replaceAction again/);
+	assert.equal(holdCancelRefusal(hold, { kind: 'cancel_action' }, { actionId: 'a1', at: 1_000 }, 1_000 + CONFIRM_MS), null, 'repeated in time: passes');
+	assert.equal(holdCancelRefusal(hold, { kind: 'cancel_action' }, { actionId: 'a1', at: 1_000 }, 1_001 + CONFIRM_MS).code, 'CANCEL_CONFIRM_REQUIRED', 'too late: asked again');
+	assert.equal(holdCancelRefusal(hold, { kind: 'cancel_action' }, { actionId: 'other', at: 1_000 }, 2_000).code, 'CANCEL_CONFIRM_REQUIRED', 'a refusal of another action does not confirm this one');
+	assert.equal(holdCancelRefusal({ ...hold, actionType: 'travel_to' }, { kind: 'cancel_action' }, null, 0), null, 'other actions need no confirmation');
+	assert.equal(holdCancelRefusal(undefined, { kind: 'cancel_action' }, null, 0), null);
 });
 
 function harness(t) {
@@ -64,25 +56,21 @@ function harness(t) {
 
 const holdArgs = { mob: 'minecraft:blaze', untilItem: 'minecraft:blaze_rod', untilCount: 7, timeoutMs: 600_000 };
 
-test('runtime: cancelAction on a running blaze hold is refused without a reason and sends nothing; with one it cancels', async t => {
+test('runtime: the first cancelAction or replaceAction of a blaze hold is refused and sends nothing; the repeat cancels', async t => {
 	const h = harness(t);
 	const started = await h.call('startAction', { actionType: 'fight_until', arguments: holdArgs });
 	await tick();
 	assert.equal(h.commands().length, 1);
-	const refused = await h.call('cancelAction', { actionId: started.actionId, goalRevision: 1 }).catch(e => e);
-	assert.equal(refused.code, 'CANCEL_REASON_REQUIRED');
-	assert.equal(h.cancels().length, 0, 'the refused cancel reached no body');
-	const replaced = await h.call('replaceAction', { actionId: started.actionId, goalRevision: 1, actionType: 'wait', arguments: { durationMs: 5 } }).catch(e => e);
-	assert.equal(replaced.code, 'CANCEL_REASON_REQUIRED');
-	assert.equal(h.cancels().length, 0);
-	const cancelling = h.call('cancelAction', { actionId: started.actionId, goalRevision: 1, reason: 'health low, going home' });
+	const refused = await h.call('replaceAction', { actionId: started.actionId, goalRevision: 1, actionType: 'wait', arguments: { durationMs: 5 } }).catch(e => e);
+	assert.equal(refused.code, 'CANCEL_CONFIRM_REQUIRED');
+	assert.equal(h.cancels().length, 0, 'the refused call reached no body');
+	const cancelling = h.call('cancelAction', { actionId: started.actionId, goalRevision: 1 });
 	await tick();
-	assert.equal(h.cancels().length, 1, 'the cancel with a reason is sent');
+	assert.equal(h.cancels().length, 1, 'the repeat (as a cancel) goes through');
 	h.finish(started.actionId, 'CANCELLED', 'ACTION_CANCELLED');
-	const result = await cancelling;
-	assert.equal(result.cancelReason, 'health low, going home');
-	assert.ok(h.traces.some(row => row.event === 'native_hold_cancel' && row.reason === 'health low, going home'));
+	await cancelling;
 	assert.ok(h.traces.some(row => row.event === 'native_hold_cancel_refused'));
+	assert.ok(h.traces.some(row => row.event === 'native_hold_cancel_confirmed'));
 });
 
 test('runtime: a blaze fight_until with roof:false and other actions cancel without a reason', async t => {

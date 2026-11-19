@@ -1,11 +1,12 @@
 /**
  * Wall breaker rods (c): a running blaze fight_until in the Nether is the body's spawner hold (the mod builds a roofed cell
- * by the spawner and fights from it until the rod count). The model cancelled 26 of 65 staged blaze fights itself; a
- * cancel or replace of one now carries a short reason, so a stop is a decision the model states, not a reflex. Only the
- * model's own cancelAction and replaceAction are gated: the coordinator's internal cancels (danger, leg chains, programs)
- * never are. A refused call changes nothing and the same call with a reason always passes.
+ * by the spawner and fights from it until the rod count). The model cancelled 26 of 65 staged blaze fights itself; its
+ * first cancel or replace of a hold is refused with what the hold is doing and when it stops by itself, and the same call
+ * repeated within CONFIRM_MS goes through, so a stop is a decision the model makes twice, not a reflex. (A reason field
+ * would cost tool-schema bytes the pinned budget does not have.) Only the model's own cancelAction and replaceAction are
+ * gated: the coordinator's internal cancels (danger, leg chains, programs) never are.
  */
-export const CANCEL_REASON_MAX = 200;
+export const CONFIRM_MS = 60_000;
 
 /** True for a blaze fight_until the mod may run as a spawner hold (roof:false keeps the open fight). */
 export function blazeHold(active) {
@@ -13,10 +14,13 @@ export function blazeHold(active) {
 		&& active.arguments?.roof !== false && (active.dimension === undefined || active.dimension === null || active.dimension === 'minecraft:the_nether');
 }
 
-/** Null when the model may cancel or replace the running action, else the refusal { code, message }. */
-export function holdCancelRefusal(active, tool) {
+/**
+ * Null when the model may cancel or replace the running action, else the refusal { code, message }. `refused` is the
+ * earlier refusal for this agent ({ actionId, at }) or null; `now` is the wall clock in ms.
+ */
+export function holdCancelRefusal(active, tool, refused, now) {
 	if (!blazeHold(active)) return null;
-	if (typeof tool?.reason === 'string' && tool.reason.trim().length > 0) return null;
+	if (refused?.actionId === active.actionId && now - refused.at <= CONFIRM_MS) return null;
 	const verb = tool?.kind === 'replace_action' ? 'replaceAction' : 'cancelAction';
-	return { code: 'CANCEL_REASON_REQUIRED', message: `${active.actionId} is the blaze spawner hold; it keeps fighting from its cell until the rod count, a health or food floor, the time cap or the spawner is gone. To stop it anyway, send ${verb} again with reason (why, up to ${CANCEL_REASON_MAX} characters).` };
+	return { code: 'CANCEL_CONFIRM_REQUIRED', message: `${active.actionId} is the blaze spawner hold: it fights from a roofed cell by the spawner and stops by itself at the rod count, a health or food floor, the time cap, or a gone or quiet spawner. Send the same ${verb} again within ${CONFIRM_MS / 1000} s to stop it anyway.` };
 }

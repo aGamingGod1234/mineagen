@@ -21,12 +21,12 @@ import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { boot, fixtureTickRate } from './watch-replay.mjs';
 import { ReflexBook } from '../../coordinator/src/reflexes.mjs';
-import { finishRun } from './lib/fixture-run.mjs';
+import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const USAGE = 'Usage: test-spawner-hold-live.mjs OUT_DIR under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME (ARENA_JAR, SEEDS, VARIANTS, RUN_MIN, UNTIL, ARM, FIXTURE_TICK_RATE)';
 const cli = process.argv.slice(2);
-if (cli.includes('--help')) { console.log(USAGE); process.exit(0); }
+if (cli.includes('--help')) { console.log(USAGE + '\n' + EDIT_LOOP_HELP + '\n' + FIXTURE_OUTCOME_HELP); process.exit(0); }
 const out = path.resolve(cli[0] ?? 'runtime/spawner-hold-live');
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port = Number(process.env.SLOT_PORT_BASE);
 if (!template || !port || !process.env.JAVA_HOME) { console.error(USAGE); process.exit(2); }

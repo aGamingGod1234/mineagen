@@ -1,5 +1,4 @@
 import { DEFAULT_FIND_TIMEOUT_MS, DEFAULT_FIND_WITHIN, FIND_KINDS, MAX_FIND_TIMEOUT_MS, MAX_FIND_WITHIN, MIN_FIND_WITHIN } from './find-search.mjs';
-import { CANCEL_REASON_MAX } from './spawner-hold.mjs';
 import { isDeepStrictEqual } from 'node:util';
 import { repairActionArguments } from './action-argument-repairs.mjs';
 import { codePointLength } from './text-length.mjs';
@@ -49,7 +48,6 @@ const NATIVE_ACTION_TYPES = Object.freeze(Object.keys(ACTION_FIELDS));
 // Generated from the validated field table, so the first call can be well-formed without a reference read.
 // The same catalogue bounds every native actionType property, so a model cannot invent an action name.
 const ACTION_TYPE_SCHEMA = Object.freeze({ type: 'string', enum: NATIVE_ACTION_TYPES });
-const CANCEL_REASON_SCHEMA = Object.freeze({ type: 'string', minLength: 1, maxLength: CANCEL_REASON_MAX, description: 'Why you stop it; a running blaze fight_until (spawner hold) needs one.' });
 // Any body call may carry rules: arming them must not cost the call that answers the danger itself.
 const REFLEXES_SCHEMA = Object.freeze({ type: 'array', maxItems: MAX_REFLEXES, items: { type: 'object' }, description: 'Optional per-tick reflex rules installed before this call acts; see control topic tool:reflexes.' });
 // Overlap: the body keeps working while the model thinks (handles from startAction, chained successors, repeated legs).
@@ -139,10 +137,10 @@ export const MINECRAFT_DYNAMIC_TOOLS = Object.freeze([
 		include: { type: 'array', items: { type: 'string' } }, exclude: { type: 'array', items: { type: 'string' } },
 	}, ['section'])),
 	tool('actionStatus', objectSchema({ actionId: { type: 'string', minLength: 1, maxLength: 128 } })),
-	tool('cancelAction', objectSchema({ actionId: { type: 'string', minLength: 1, maxLength: 128 }, goalRevision: integerSchema(0, Number.MAX_SAFE_INTEGER), reason: CANCEL_REASON_SCHEMA }, ['actionId', 'goalRevision'])),
+	tool('cancelAction', objectSchema({ actionId: { type: 'string', minLength: 1, maxLength: 128 }, goalRevision: integerSchema(0, Number.MAX_SAFE_INTEGER) }, ['actionId', 'goalRevision'])),
 	tool('replaceAction', objectSchema({
 		actionId: { type: 'string', minLength: 1, maxLength: 128 }, goalRevision: integerSchema(0, Number.MAX_SAFE_INTEGER),
-		actionType: ACTION_TYPE_SCHEMA, arguments: { type: 'object' }, reason: CANCEL_REASON_SCHEMA,
+		actionType: ACTION_TYPE_SCHEMA, arguments: { type: 'object' },
 	}, ['actionId', 'goalRevision', 'actionType', 'arguments'])),
 	tool('startAction', objectSchema({ actionType: ACTION_TYPE_SCHEMA, arguments: { type: 'object' }, after: AFTER_SCHEMA, keepGoing: KEEP_GOING_SCHEMA }, ['actionType', 'arguments'])),
 	tool('notebook', objectSchema({ key: { type: 'string', minLength: 1, maxLength: 128 }, text: { type: 'string', minLength: 1, maxLength: 2048 } }, ['key', 'text'])),
@@ -564,14 +562,12 @@ function normalizeMinecraftToolArguments(name, value) {
 			requireExactKeys(args, ['actionId']);
 			return { kind: 'action_status', ...(args.actionId === undefined ? {} : { actionId: boundedText(args.actionId, 'actionId', 128) }) };
 		case 'cancelAction':
-			requireExactKeys(args, ['actionId', 'goalRevision', 'reason']);
-			return { kind: 'cancel_action', actionId: boundedText(args.actionId, 'actionId', 128), goalRevision: integer(args.goalRevision, 'goalRevision', 0, Number.MAX_SAFE_INTEGER),
-				...(args.reason === undefined ? {} : { reason: boundedText(args.reason, 'reason', CANCEL_REASON_MAX) }) };
+			requireExactKeys(args, ['actionId', 'goalRevision']);
+			return { kind: 'cancel_action', actionId: boundedText(args.actionId, 'actionId', 128), goalRevision: integer(args.goalRevision, 'goalRevision', 0, Number.MAX_SAFE_INTEGER) };
 		case 'replaceAction': {
-			requireExactKeys(args, ['actionId', 'goalRevision', 'actionType', 'arguments', 'reason']);
+			requireExactKeys(args, ['actionId', 'goalRevision', 'actionType', 'arguments']);
 			const action = normalizeMinecraftToolCall('act', { actionType: args.actionType, arguments: args.arguments });
-			return { ...action, kind: 'replace_action', actionId: boundedText(args.actionId, 'actionId', 128), goalRevision: integer(args.goalRevision, 'goalRevision', 0, Number.MAX_SAFE_INTEGER),
-				...(args.reason === undefined ? {} : { reason: boundedText(args.reason, 'reason', CANCEL_REASON_MAX) }) };
+			return { ...action, kind: 'replace_action', actionId: boundedText(args.actionId, 'actionId', 128), goalRevision: integer(args.goalRevision, 'goalRevision', 0, Number.MAX_SAFE_INTEGER) };
 		}
 		case 'startAction': {
 			const action = normalizeMinecraftToolArguments('act', args);
