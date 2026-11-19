@@ -104,12 +104,17 @@ public final class SpawnerHoldVerification {
 
 	private static void verifyCollect() {
 		double none = Double.POSITIVE_INFINITY;
-		check(SpawnerHold.mayCollect(20.0F, none, none, none), "no wither skeleton, no blaze over the rod: walk out");
-		check(SpawnerHold.mayCollect(12.0F, 10.5D, 11.0D, 4.5D), "blazes elsewhere do not hold a trip back (a live spawner never clears)");
-		check(!SpawnerHold.mayCollect(11.5F, none, none, none), "not below 12 health");
-		check(!SpawnerHold.mayCollect(20.0F, 9.0D, none, none), "not with a wither skeleton within 10 of the body");
-		check(!SpawnerHold.mayCollect(20.0F, none, 8.0D, none), "not with a wither skeleton within 10 of the rod");
-		check(!SpawnerHold.mayCollect(20.0F, none, none, 3.0D), "not with a blaze over the rod");
+		check(SpawnerHold.mayCollect(20.0F, none, none, none, 0L), "no wither skeleton, no blaze near: walk out");
+		check(SpawnerHold.mayCollect(12.0F, 10.5D, 11.0D, 10.5D, 0L), "blazes past 10 blocks do not hold a trip back");
+		check(!SpawnerHold.mayCollect(11.5F, none, none, none, 0L), "not below 12 health");
+		check(!SpawnerHold.mayCollect(20.0F, 9.0D, none, none, 0L), "not with a wither skeleton within 10 of the body");
+		check(!SpawnerHold.mayCollect(20.0F, none, 8.0D, none, 0L), "not with a wither skeleton within 10 of the rod");
+		check(!SpawnerHold.mayCollect(20.0F, none, none, 9.0D, 0L), "not mid-wave: a blaze within 10 of the body or the rod");
+		check(SpawnerHold.mayCollect(16.0F, none, none, 3.0D, SpawnerHold.LATE_ROD_TICKS), "a rod near despawn is fetched at 16+ health with blazes about");
+		check(!SpawnerHold.mayCollect(15.0F, none, none, 3.0D, SpawnerHold.LATE_ROD_TICKS), "but not below 16");
+		check(!SpawnerHold.mayCollect(20.0F, 5.0D, none, none, SpawnerHold.LATE_ROD_TICKS), "never with a wither skeleton near, however old the rod");
+		check(SpawnerHold.LATE_ROD_TICKS < 6_000L, "the late fetch comes before the 5-minute despawn");
+		check(!SpawnerHold.defendAgainst(true) && SpawnerHold.defendAgainst(false), "outside the cell blazes are not chased; other attackers are fought");
 	}
 
 	private static void verifyEat() {

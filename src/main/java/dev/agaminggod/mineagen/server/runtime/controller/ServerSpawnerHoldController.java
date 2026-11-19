@@ -70,6 +70,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 	private final CombatInputLease eatInput = new CombatInputLease();
 	private final List<BlockPos> triedSites = new ArrayList<>();
 	private final Map<String, Integer> engineEnds = new LinkedHashMap<>();
+	/** Hits taken, by damage kind and where the body was (in the cell, or the phase and a rod trip). */
+	private final Map<String, Integer> hurts = new LinkedHashMap<>();
 	private final List<String> log = new ArrayList<>();
 	private final long[] witherHits = new long[SpawnerHold.BREACH_HITS];
 	private Phase phase = Phase.SITE;
@@ -190,7 +192,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 			LivingEntity attacker = null;
 			double best = SpawnerHold.DEFEND_RANGE * SpawnerHold.DEFEND_RANGE;
 			for (LivingEntity mob : player.level().getEntitiesOfClass(LivingEntity.class, player.getBoundingBox().inflate(SpawnerHold.DEFEND_RANGE),
-					e -> e instanceof net.minecraft.world.entity.Mob m && m.getTarget() == player && e.isAlive() && !e.isDeadOrDying())) {
+					e -> e instanceof net.minecraft.world.entity.Mob m && m.getTarget() == player && e.isAlive() && !e.isDeadOrDying()
+							&& SpawnerHold.defendAgainst(e.getType() == McEntityTypes.BLAZE))) {
 				double distance = mob.distanceToSqr(player);
 				if (distance <= best && ObservationVisibility.canSeeEntity(player, mob) && protection.mayInteractWithEntity(player, mob)) { best = distance; attacker = mob; }
 			}
@@ -321,7 +324,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 		if (collector != null || returning) return collect(player, now);
 		if (eatTicks >= 0) return eat(player);
 		boolean shot = ReflexSensors.blockableShot(player, 1.5D) != null;
-		boolean blazeInReach = !player.level().getEntitiesOfClass(LivingEntity.class, player.getBoundingBox().inflate(6.0D),
+		boolean blazeInReach = !player.level().getEntitiesOfClass(LivingEntity.class, player.getBoundingBox().inflate(SpawnerHold.EAT_BLAZE_CLEAR),
 				e -> e.getType() == McEntityTypes.BLAZE && e.isAlive()).isEmpty();
 		int slot = foodSlot(player);
 		if (inCell && SpawnerHold.shouldEat(player.getFoodData().getFoodLevel(), player.getHealth(), shot, blazeInReach, slot >= 0)) {
@@ -353,6 +356,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 		engine.cancel(player);
 		engine = null;
 		engineEnds.merge(result.reasonCode(), 1, Integer::sum);
+		note("engine " + result.reasonCode() + ": " + result.message().substring(0, Math.min(240, result.message().length())));
 		String stop = SpawnerHold.engineEnd(result.reasonCode());
 		if (stop != null) return stop(player, handBackResult(player, stop, elapsed));
 		return TickResult.running(progress(player));
@@ -447,7 +451,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 		for (ItemEntity item : player.level().getEntitiesOfClass(ItemEntity.class, new AABB(middle, middle).inflate(SpawnerHold.COLLECT_RANGE),
 				e -> e.isAlive() && e.getItem().is(untilItem))) {
 			if (!ObservationVisibility.canSeeEntity(player, item) || !ServerFightUntilController.dropReachable(player, item.position())) continue;
-			if (!SpawnerHold.mayCollect(player.getHealth(), witherToBody, nearest(withers, item.position()), nearest(blazes, item.position()))) continue;
+			double blazeNear = Math.min(nearest(blazes, item.position()), nearest(blazes, player.position()));
+			if (!SpawnerHold.mayCollect(player.getHealth(), witherToBody, nearest(withers, item.position()), blazeNear, item.getAge())) continue;
 			ids.add(item.getUUID());
 		}
 		return ids;
@@ -468,6 +473,11 @@ public final class ServerSpawnerHoldController implements ServerController {
 	}
 
 	private void senseHits(ServerPlayer player, boolean inCell) {
+		if (player.hurtTime > lastHurtTime) {
+			var source = player.getLastDamageSource();
+			hurts.merge((source == null ? "unknown" : source.getMsgId()) + (inCell ? " cell" : " " + phase.name().toLowerCase(Locale.ROOT)
+					+ (collector != null || returning ? " trip" : "")), 1, Integer::sum);
+		}
 		if (player.hurtTime > lastHurtTime && inCell && player.getLastHurtByMob() != null
 				&& player.getLastHurtByMob().getType() == McEntityTypes.WITHER_SKELETON) {
 			System.arraycopy(witherHits, 0, witherHits, 1, witherHits.length - 1);
@@ -553,10 +563,10 @@ public final class ServerSpawnerHoldController implements ServerController {
 
 	private String summary(ServerPlayer player, long elapsed) {
 		int held = ServerFightUntilController.count(player, untilItem);
-		return String.format(Locale.ROOT, "spawner hold at %s: cell %s, %d site%s failed, %d build%s; %+d %s in %.0f s; %d engine run%s %s; %d rod trip%s; %d meal%s; %d defend%s%s",
+		return String.format(Locale.ROOT, "spawner hold at %s: cell %s, %d site%s failed, %d build%s; %+d %s in %.0f s; %d engine run%s %s; %d rod trip%s; %d meal%s; %d defend%s; hurts %s%s",
 				spawner.toShortString(), cell == null ? "none" : cell.toShortString(), sitesFailed, sitesFailed == 1 ? "" : "s", builds, builds == 1 ? "" : "s",
 				held - Math.max(0, startHeld), untilItemId, elapsed / 1000.0D, engineRuns, engineRuns == 1 ? "" : "s", engineEnds, trips, trips == 1 ? "" : "s",
-				meals, meals == 1 ? "" : "s", defends, defends == 1 ? "" : "s", log.isEmpty() ? "" : "; log: " + String.join(" | ", log.subList(Math.max(0, log.size() - 6), log.size())));
+				meals, meals == 1 ? "" : "s", defends, defends == 1 ? "" : "s", hurts, log.isEmpty() ? "" : "; log: " + String.join(" | ", log.subList(Math.max(0, log.size() - 6), log.size())));
 	}
 
 	private void note(String line) {

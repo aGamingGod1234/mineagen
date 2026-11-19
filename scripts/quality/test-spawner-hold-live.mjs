@@ -45,6 +45,8 @@ await writeFile(path.join(out, 'manifest.json'), JSON.stringify({ kind: 'provide
 const sleep = ms => new Promise(done => setTimeout(done, ms));
 const AGENT = 'Rods';
 const number = text => Number((/(-?\d+(?:\.\d+)?)[fdb]?\s*$/.exec(String(text).trim()) ?? [])[1]);
+// "Rods has 1 [deaths]": the score is the number after "has".
+const deathCount = async s => Number(/has (\d+)/.exec(String(await s.command(`scoreboard players get ${AGENT} deaths`)))?.[1] ?? 0);
 const NETHER = 'execute in minecraft:the_nether run';
 // The room: spawner at SX,SY,SZ; floor top at FLOOR (feet y); the bridge runs west from the room's open side.
 const SX = 1000, SZ = 1000, FLOOR = 80, SY = FLOOR + 1;
@@ -161,7 +163,7 @@ async function oneRun(s, seed, variant, keepStance) {
 	await kit(s);
 	if (variant === 'withers') for (const [x, y, z] of WITHERS) await s.command(`${NETHER} summon minecraft:wither_skeleton ${x} ${y} ${z} {PersistenceRequired:1b}`);
 	await keepStance(await s.observe());
-	const deathsBefore = number(await s.command(`scoreboard players get ${AGENT} deaths`)) || 0;
+	const deathsBefore = await deathCount(s);
 	// The coordinator re-reads the stance on every observation, also while a long fight_until runs.
 	const stanceTimer = setInterval(() => { if (s.observation) keepStance(s.observation).catch(() => {}); }, 500);
 	await s.fastRate();
@@ -178,13 +180,13 @@ async function oneRun(s, seed, variant, keepStance) {
 		row.stances[stance ?? 'none'] = (row.stances[stance ?? 'none'] ?? 0) + 1;
 		const h = o.player?.health ?? 20;
 		row.minHealth = Math.min(row.minHealth, h);
-		if ((number(await s.command(`scoreboard players get ${AGENT} deaths`)) || 0) > deathsBefore || h <= 0 || o.player?.dead) { dead = true; break; }
+		if ((await deathCount(s)) > deathsBefore || h <= 0 || o.player?.dead || (await health(s).catch(() => 1)) <= 0) { dead = true; break; }
 		const rods = rodsHeld(o);
 		row.maxRods = Math.max(row.maxRods, rods);
 		if (rods >= UNTIL) { row.reachedMin ??= +((await timer.elapsed()) / 60_000).toFixed(1); break; }
 		const left = window - (await timer.elapsed());
 		let type, args;
-		if (h < 10 && breadHeld(o) > 0) {
+		if (h < 10 && breadHeld(o) > 0 && (o.player?.food ?? o.player?.foodLevel ?? 0) < 20) {
 			await s.act('select_item', { itemId: 'minecraft:bread' }).catch(() => {});
 			type = 'use_item'; args = { durationMs: 1700, expectedItemId: 'minecraft:bread' };
 		} else {
@@ -204,7 +206,7 @@ async function oneRun(s, seed, variant, keepStance) {
 	row.tick = await timer.rates();
 	await s.normalRate();
 	if (s.observation?.currentAction?.active) await s.bridge.send('action_cancel', s.record.agentId, { goalRevision: s.record.goalRevision, actionId: s.lastActionId }).catch(() => {});
-	row.deaths = (number(await s.command(`scoreboard players get ${AGENT} deaths`)) || 0) - deathsBefore;
+	row.deaths = (await deathCount(s)) - deathsBefore;
 	if (dead && row.deaths === 0) row.deaths = 1;
 	const last = await s.observe().catch(() => null);
 	row.rodsAtEnd = row.deaths > 0 ? 0 : Math.max(rodsHeld(last), row.reachedMin !== null ? UNTIL : 0);
@@ -220,7 +222,7 @@ const health = async s => { const text = await s.command(`data get entity ${AGEN
 for (const seed of SEEDS) {
 	let s = null;
 	try {
-		s = await boot(path.join(out, `seed-${seed}`), { jar, template, port, world: null, seed, tickRate: fixtureTickRate(), worldCache: true });
+		s = await boot(path.join(out, `seed-${seed}`), { jar, template, port, world: null, seed, goalTicks: 72_000, tickRate: fixtureTickRate(), worldCache: true });
 		follow(s);
 		await s.command('difficulty normal');
 		await s.command('gamerule minecraft:spawn_mobs false');

@@ -24,10 +24,15 @@ public final class SpawnerHold {
 	static final double COLLECT_RANGE = 16.0D;
 	static final float COLLECT_HEALTH = 12.0F;
 	static final double WITHER_CLEAR = 10.0D;
-	static final double BLAZE_NEAR_ROD = 4.0D;
+	static final double BLAZE_CLEAR = 10.0D;
+	/** 3.5 minutes: a rod despawns at 5 (6000 ticks). */
+	static final long LATE_ROD_TICKS = 4_200L;
+	static final float LATE_ROD_HEALTH = 16.0F;
 	/** Health regrows only at hunger 18+; below 14 health a bite is worth the shield going down. */
 	static final int EAT_HUNGER = 18;
 	static final float EAT_HEALTH = 14.0F;
+	/** Eating waits only for a blaze in melee reach: at 6-12 blocks from a live spawner one is nearly always within 6. */
+	static final double EAT_BLAZE_CLEAR = 3.0D;
 	/** No blaze seen for this long with the body in the cell: the spawner is not making more (light, range, or broken). */
 	static final long QUIET_MS = 90_000L;
 	/** Wither skeleton hits taken inside the finished cell within this window that mean the cell does not hold. */
@@ -35,6 +40,11 @@ public final class SpawnerHold {
 	static final long BREACH_WINDOW_TICKS = 200L;
 	/** Outside the cell, a mob targeting the body this close is fought (sword and shield) for up to DEFEND_MS. */
 	static final double DEFEND_RANGE = 3.5D;
+
+	/** Blazes are not defended against outside the cell: they hover out of sword reach and the cell is where they are fought. */
+	public static boolean defendAgainst(boolean blaze) {
+		return !blaze;
+	}
 	static final long DEFEND_MS = 20_000L;
 
 	private SpawnerHold() {
@@ -68,11 +78,15 @@ public final class SpawnerHold {
 
 	/**
 	 * A walk out to a rod: health enough, no wither skeleton near the body or the rod (they are what kill on fortress
-	 * floors), no blaze over the rod. Distances are {@link Double#POSITIVE_INFINITY} when none is seen. Never "no hostile
-	 * within 16": at a live spawner that never clears and rods despawn after 5 minutes.
+	 * floors), and no blaze within {@link #BLAZE_CLEAR} of the body or the rod (a live spawner sends waves with lulls
+	 * between them; the smoke run died to fireballs on a trip mid-wave). A rod near its despawn (5 minutes, vanilla) is
+	 * fetched at {@link #LATE_ROD_HEALTH}+ health with blazes about. Distances are {@link Double#POSITIVE_INFINITY} when
+	 * none is seen.
 	 */
-	static boolean mayCollect(float health, double witherToBody, double witherToRod, double blazeToRod) {
-		return health >= COLLECT_HEALTH && witherToBody > WITHER_CLEAR && witherToRod > WITHER_CLEAR && blazeToRod > BLAZE_NEAR_ROD;
+	static boolean mayCollect(float health, double witherToBody, double witherToRod, double blazeNear, long rodAgeTicks) {
+		if (witherToBody <= WITHER_CLEAR || witherToRod <= WITHER_CLEAR) return false;
+		if (rodAgeTicks >= LATE_ROD_TICKS) return health >= LATE_ROD_HEALTH;
+		return health >= COLLECT_HEALTH && blazeNear > BLAZE_CLEAR;
 	}
 
 	/** Eat inside the cell: hungry enough to stop regrowing, or hurt with room to eat, and no shot about to land. */
