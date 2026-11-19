@@ -127,6 +127,12 @@ final class ReflexActions {
 
 		/** Answers shots with a held shield itself this firing, so a shield rule for shots need not take the body. */
 		default boolean blocksShots() { return false; }
+
+		/**
+		 * Moves the body through controllers with their own navigation leases, never through the reflex input: a reflex
+		 * lease kept from the firing before it would outrank them and hold the body still.
+		 */
+		default boolean drivesOwnNavigation() { return false; }
 	}
 
 	static Behaviour create(ReflexSpec.Action action) {
@@ -1164,6 +1170,9 @@ final class ReflexActions {
 			if (back != null) back.cancel(player);
 			back = null;
 		}
+
+		@Override
+		public boolean drivesOwnNavigation() { return true; }
 	}
 
 	/**

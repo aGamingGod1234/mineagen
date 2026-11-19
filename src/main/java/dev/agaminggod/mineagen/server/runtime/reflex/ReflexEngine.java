@@ -129,6 +129,16 @@ public final class ReflexEngine {
 	}
 
 	/**
+	 * Whether the firing that ends hands its reflex input lease straight to {@code next}. Keeping it avoids dropping a
+	 * raised shield for a tick and restarting its 5-tick raise, the window a trigger exists to cover. A behaviour that
+	 * drives its own navigation (owed-drops collection) gets a released lease instead: the kept one, renewed every tick,
+	 * would outrank its navigation leases and hold the body still until the pass timed out.
+	 */
+	static boolean handsOverLease(ReflexActions.Behaviour next) {
+		return next != null && !next.drivesOwnNavigation();
+	}
+
+	/**
 	 * Apply the shield's stand-aside gate. Forcing truth false alone leaves a queued arrow edge (seen during the shield's
 	 * cooldown on the tick cover starts) to pre-empt cover once the cooldown ends, so the queued start goes too.
 	 */
@@ -449,12 +459,11 @@ public final class ReflexEngine {
 				agent.behaviour != null && agent.behaviour.holdsWhileTrue(), harmed,
 				agent.behaviour == null ? 0L : agent.behaviour.releaseGraceTicks(), heldBack(player, agent));
 		followDeferredYield(agent.scheduler, agent.command, now);
-		// Handing the body straight to the next firing keeps the lease: releasing it would drop a raised shield for a
-		// tick and restart its 5-tick raise, the window a trigger exists to cover.
-		end(agentId, agent, decision, decision.started() != null);
+		ReflexActions.Behaviour next = decision.started() == null ? null : ReflexActions.create(agent.scheduler.rule(decision.started()).action());
+		end(agentId, agent, decision, handsOverLease(next));
 		if (decision.started() != null) {
 			ReflexSpec.Rule rule = agent.scheduler.rule(decision.started());
-			agent.behaviour = ReflexActions.create(rule.action());
+			agent.behaviour = next;
 			agent.startHealth = player.getHealth();
 			agent.firingFocus = agent.focus.get(rule.id());
 			agent.firingPoint = agent.points.get(rule.id());

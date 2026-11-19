@@ -34,8 +34,20 @@ public final class OwedDropsVerification {
 		checks += check(true, ReflexSensors.OWED_IDLE_TICKS >= 138, "the pass waits out the p90 wait for the next command (6.9 s)");
 		checks += check(true, ReflexActions.CollectDrops.tally("picked up 1x minecraft:bone uuid=a; made room: dropped 9x minecraft:dirt; left 2x minecraft:arrow uuid=b: INVENTORY_FULL")
 				.equals("picked up 1, left 1, made room (INVENTORY_FULL)"), "the done detail keeps counts within the 160-character cut");
+		// Review finding: owed-drop collection starting the tick another firing ends must not inherit that firing's reflex
+		// lease, which would outrank the collector's navigation leases until the pass timed out.
+		checks += check(false, ReflexEngine.handsOverLease(ReflexActions.create(rule("collect_drops").action())),
+				"a firing that ends into owed-drop collection releases its reflex lease");
+		checks += check(true, ReflexEngine.handsOverLease(ReflexActions.create(rule("shield").action())),
+				"a firing that ends into a shield keeps its lease, so the raised shield does not drop for a tick");
+		checks += check(false, ReflexEngine.handsOverLease(null), "a firing that ends with nothing after it releases its lease");
 		checks += check(true, ReflexActions.CollectDrops.tally("no drop was seen to collect").equals("no drop was seen to collect"), "a plain line passes through");
 		return checks;
+	}
+
+	private static ReflexSpec.Rule rule(String action) {
+		return ReflexSpec.parseRules(com.google.gson.JsonParser.parseString("[{\"id\":\"r\",\"when\":{\"type\":\"on_fire\"},\"do\":{\"type\":\""
+				+ action + "\"}}]").getAsJsonArray()).getFirst();
 	}
 
 	private static ObservedDrops.Drop drop(ObservedDrops.Source source, String dimension) {
