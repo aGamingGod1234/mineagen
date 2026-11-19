@@ -318,6 +318,7 @@ public final class ServerTravelController implements ServerController {
 		// read as stalled forward travel: building on toward the target would send the body back at the hazard.
 		boolean standsOnPurpose = retreatCode != null || phase == Phase.FIGHT || phase == Phase.WATCH || phase == Phase.DIG || portalLeg;
 		if (standsOnPurpose) stallWatch.reset();
+		else if (leg != null && leg.heldForKnockback()) stallWatch.excuse(1);
 		TravelStallWatch.Verdict still = standsOnPurpose ? null : stallWatch.observe(ticks, position.x, position.y, position.z, work);
 		if (phase == Phase.FIGHT) return fightTick(player, nowEpochMs);
 		double left = left(position);

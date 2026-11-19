@@ -46,6 +46,8 @@ public final class NavigationKnockbackVerification {
 		holdsAreSharedAcrossAnActionsWalks();
 		pickupCreditStaysWithinTheTimeout();
 		onlyTravelsForwardLegsOptIn();
+		holdTimeIsNotAStall();
+		airborneHoldTimeIsRecorded();
 		return assertions;
 	}
 
@@ -220,6 +222,51 @@ public final class NavigationKnockbackVerification {
 
 	private static PathNode walk(int x, int y, int z) {
 		return new PathNode(new GridPosition(x, y, z), TraversalType.WALK);
+	}
+
+	/** A hold that starts with most of a stall window spent does not end the walk, and wall contact while held is not blocked time. */
+	private static void holdTimeIsNotAStall() {
+		// Route progress: 7 s still, then a 2 s hold, then 0.5 s still. Without the excuse this stops at 8 s.
+		RouteProgress route = new RouteProgress(0.5D, 64.0D, 0.5D, 10.0D, 0L);
+		RouteProgress.Stop stop = null;
+		for (long ms = 50L; ms <= 7_000L && stop == null; ms += 50L) stop = route.observe(0.5D, 64.0D, 0.5D, 10.0D, ms, false);
+		for (long ms = 7_050L; ms <= 9_000L && stop == null; ms += 50L) {
+			route.excuse(50L);
+			stop = route.observe(0.5D, 64.0D, 0.5D, 10.0D, ms, false);
+		}
+		for (long ms = 9_050L; ms <= 9_500L && stop == null; ms += 50L) stop = route.observe(0.5D, 64.0D, 0.5D, 10.0D, ms, false);
+		check(stop == null, "a 2 s hold after 7 s without route gain does not stop the walk with NO_PROGRESS");
+		for (long ms = 9_550L; ms <= 10_100L && stop == null; ms += 50L) stop = route.observe(0.5D, 64.0D, 0.5D, 10.0D, ms, false);
+		check(stop != null, "the stall window still ends once 8 s of time outside holds passes");
+
+		// Blocked against a wall: 1 s pressed, a 3 s hold, then one more pressed tick. Without the pause it fails at 3 s.
+		BlockedMoveDetector blocked = new BlockedMoveDetector();
+		BlockedMoveDetector.Decision decision = BlockedMoveDetector.Decision.CONTINUE;
+		for (long ms = 0L; ms <= 1_000L; ms += 50L) decision = blocked.observe(true, true, false, false, 0.5D, 0.5D, ms);
+		check(decision == BlockedMoveDetector.Decision.REPLAN, "a second against a wall asks for a replan as before");
+		for (long ms = 1_050L; ms <= 4_000L; ms += 50L) blocked.pause(ms);
+		decision = blocked.observe(true, true, false, false, 0.5D, 0.5D, 4_050L);
+		check(decision != BlockedMoveDetector.Decision.FAIL, "wall contact while held does not fail the walk as blocked");
+
+		// Travel's stall watch: 150 ticks still, a 100-tick hold, 10 ticks still. Without the excuse it stalls at 200.
+		TravelStallWatch watch = new TravelStallWatch();
+		TravelStallWatch.Verdict verdict = watch.observe(0L, 0.5D, 64.0D, 0.5D, 0L);
+		for (long tick = 1L; tick < 150L; tick++) verdict = watch.observe(tick, 0.5D, 64.0D, 0.5D, 0L);
+		for (long tick = 150L; tick < 250L; tick++) {
+			watch.excuse(1L);
+			verdict = watch.observe(tick, 0.5D, 64.0D, 0.5D, 0L);
+		}
+		for (long tick = 250L; tick < 260L; tick++) verdict = watch.observe(tick, 0.5D, 64.0D, 0.5D, 0L);
+		check(verdict == TravelStallWatch.Verdict.STILL, "a held leg's ticks do not count toward travel's 10 s stall window");
+	}
+
+	/** Ticks a held body spends in the air after a hit count as held time, for the result text and the pickup credit. */
+	private static void airborneHoldTimeIsRecorded() {
+		KnockbackHolds holds = new KnockbackHolds();
+		for (int i = 0; i < 10; i++) holds.observe(true, true);
+		for (int i = 0; i < 6; i++) holds.heldAirborne();
+		check(holds.heldTicks() == 16 && holds.heldMs() == 800L, "airborne braking during a hold is recorded: " + holds.heldTicks());
+		check(holds.holds() == 1, "landing mid-hold is still one hold");
 	}
 
 	private static void check(boolean condition, String message) {

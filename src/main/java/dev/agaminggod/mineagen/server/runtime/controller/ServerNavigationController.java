@@ -144,6 +144,7 @@ public final class ServerNavigationController implements ServerController {
 	private KnockbackHolds knockbackHolds;
 	/** This tick held for the knockback margin; read once at the top of the next tick. */
 	private boolean heldForKnockback;
+	private long lastElapsedMs;
 	/** The stall budget: the shared defaults unless one caller sets its own ({@link #stallBudget}). */
 	private long stallTimeoutMs = STALL_TIMEOUT_MS;
 	private int maxReplans = MAX_REPLANS;
@@ -259,6 +260,8 @@ public final class ServerNavigationController implements ServerController {
 					"Agent player changed dimension during navigation", currentProgress());
 		}
 		long elapsedMs = elapsedTime.advance(nowEpochMs);
+		long tickMs = Math.max(0L, elapsedMs - lastElapsedMs);
+		lastElapsedMs = elapsedMs;
 		if (!player.isAlive()) {
 			return fail(player, "AGENT_DEAD", "Agent player died", currentProgress());
 		}
@@ -280,6 +283,8 @@ public final class ServerNavigationController implements ServerController {
 		if (breathingResult != null) return breathingResult;
 		double remaining = player.position().distanceTo(destination);
 		if (route == null) route = new RouteProgress(player.getX(), player.getY(), player.getZ(), remaining, elapsedMs);
+		// A knockback hold stands still on purpose (issue 2, K9): its time is not a stall.
+		if (heldLastTick) route.excuse(tickMs);
 		// Catching breath before a dive (air refilling with the eyes above water) is not standing still.
 		RouteProgress.Stop stop = route.observe(player.getX(), player.getY(), player.getZ(), remaining, routeRemaining(player.position()), elapsedMs,
 				!player.isUnderWater() && player.getAirSupply() < player.getMaxAirSupply());
@@ -402,7 +407,8 @@ public final class ServerNavigationController implements ServerController {
 			blockedMoveStepUp = stepUp;
 			blockedMoveTracking = player.horizontalCollision && groundedOnLand(player) && !jumpPending && !stepUp;
 		}
-		BlockedMoveDetector.Decision blockedDecision = reached ? BlockedMoveDetector.Decision.CONTINUE
+		if (heldLastTick) blockedMoveDetector.pause(nowEpochMs);
+		BlockedMoveDetector.Decision blockedDecision = reached || heldLastTick ? BlockedMoveDetector.Decision.CONTINUE
 				: blockedMoveDetector.observe(player.horizontalCollision, groundedOnLand(player), jumpPending, stepUp,
 						player.getX(), player.getZ(), nowEpochMs);
 		if (blockedDecision == BlockedMoveDetector.Decision.FAIL) {
@@ -500,7 +506,11 @@ public final class ServerNavigationController implements ServerController {
 	private boolean holdsForKnockback(ServerPlayer player, PathNode waypoint, CombatPlanning.Margin margin, boolean heldLastTick) {
 		if (knockbackHolds == null || player.isInWater() || player.onClimbable() || player.isInLava() || player.isOnFire()) return false;
 		GridPosition feet = CombatMoveText.feet(player);
-		if (!player.onGround()) return heldLastTick && !inHazardCell(ObservedTerrain.of(player), feet);
+		if (!player.onGround()) {
+			boolean braking = heldLastTick && !inHazardCell(ObservedTerrain.of(player), feet);
+			if (braking) knockbackHolds.heldAirborne();
+			return braking;
+		}
 		if (waypoint.traversal() != TraversalType.WALK) return false;
 		CombatPlanning.Refusal refusal = margin.active() && knockbackHolds.mayHold()
 				? knockbackRefusal(ObservedTerrain.of(player), feet, waypoint, margin) : null;
@@ -529,6 +539,11 @@ public final class ServerNavigationController implements ServerController {
 			if (CombatPlanning.unsafeColumn(world, new GridPosition(feet.x() + step[0], feet.y(), feet.z() + step[1])) != null) return true;
 		}
 		return false;
+	}
+
+	/** Whether the last tick held still for the knockback margin; travel's stall watch excuses that tick. */
+	boolean heldForKnockback() {
+		return heldForKnockback;
 	}
 
 	/** Stands still: presses against the body's sliding motion, scaled to it so a slow body is not walked backward. */

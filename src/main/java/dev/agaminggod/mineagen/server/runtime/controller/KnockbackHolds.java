@@ -45,6 +45,15 @@ public final class KnockbackHolds {
 		return true;
 	}
 
+	/**
+	 * One tick a held body spends in the air after a hit, still braking until it lands. It counts toward the reported
+	 * hold time and the pickup credit, and toward the action's total so airborne time cannot stretch the bound; the
+	 * landing decision itself is not limited by it.
+	 */
+	void heldAirborne() {
+		walkTicks++;
+	}
+
 	int holds() {
 		return holds;
 	}
