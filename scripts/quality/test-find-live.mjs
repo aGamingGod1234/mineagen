@@ -129,7 +129,7 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 				row.reachedDuring = row.currentCall ?? null;
 				if (Number.isFinite(observation.world?.gameTime) && Number.isFinite(row.startTicks)) row.reachedTicks = observation.world.gameTime - row.startTicks;
 				row.reachedAt = [observation.player?.x, observation.player?.y, observation.player?.z].map(n => Math.round(n));
-				if (row.reachedTicks === undefined) s.command('time query gametime').then(text => { row.reachedTicks = number(text) - row.startTicks; }).catch(() => {});
+				if (row.reachedTicks === undefined) s.command('time query gametime').then(text => { row.reachedTicks = Number(/time is (\d+)/i.exec(String(text))?.[1]) - row.startTicks; }).catch(() => {});
 				console.log(`[${spot.name}] in ${spot.reachBiome} at +${row.reachedAtS}s ${row.reachedAt.join(',')}`);
 			}
 		});
@@ -178,7 +178,8 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		const damageBefore = await readDamage();
 		const healthBefore = await health(), deathsBefore = await deaths(), t0 = Date.now();
 		row.playStartedAt = t0;
-		row.startTicks = number(await s.command('time query gametime'));
+		const gameTime = async () => Number(/time is (\d+)/i.exec(String(await s.command('time query gametime')))?.[1]);
+		row.startTicks = await gameTime();
 		row.t0 = t0;
 		const trail = [];
 		sampling = true;
