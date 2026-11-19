@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { searchFor } from '../src/find-search.mjs';
-import { MAX_FAILED_LEGS, MAX_WALK_FAILS, FORTRESS_LEG, BUILD_LEG, nextFortressTarget, yawToward } from '../src/find-fortress.mjs';
+import { MAX_FAILED_LEGS, TURNS, FORTRESS_LEG, BUILD_LEG, nextFortressTarget, yawToward } from '../src/find-fortress.mjs';
 import { REGION_BLOCKS, searchRegions } from '../src/nether-regions.mjs';
 
 // The wall-breaker contract's hand-back rules for find {structure: fortress} in the Nether, one test each.
@@ -57,14 +57,15 @@ test('the nether_fortress spelling takes the same loop', async () => {
 	assert.equal(body.calls[0].build, false);
 });
 
-test('a walking leg that gets nowhere is retried once on the same bearing as a short building leg', async () => {
+test('walking legs at every turn come first; a short building leg on the bearing only after all of them fail', async () => {
 	const body = bodyFor({ travel: (args) => (args.build ? { result: arrived, go: true } : { result: noRoute }),
 		onLook: (o, calls) => (calls.length >= 2 ? { structures: [fortressRow] } : null) });
 	const result = await searchFor({ structure: 'fortress' }, body, { timeoutMs: 300_000 });
 	assert.equal(result.reasonCode, 'FIND_SEEN');
-	assert.deepEqual(body.calls.map((call) => call.build), [false, true]);
-	assert.equal(body.calls[1].yaw, body.calls[0].yaw);
-	assert.equal(body.calls[1].distance, BUILD_LEG);
+	assert.deepEqual(body.calls.map((call) => call.build), [false, false, false, false, false, true]);
+	assert.equal(new Set(body.calls.slice(0, 5).map((call) => call.yaw)).size, 5, 'five walking headings');
+	assert.equal(body.calls[5].yaw, body.calls[0].yaw, 'the build goes on the bearing');
+	assert.equal(body.calls[5].distance, BUILD_LEG);
 });
 
 test('a mob stopping a walking leg is no reason to build', async () => {
@@ -110,7 +111,7 @@ test('out of blocks: walking legs that get nowhere hand back OUT_OF_BLOCKS', asy
 	const result = await searchFor({ structure: 'fortress' }, body, { timeoutMs: 300_000 });
 	assert.equal(result.reasonCode, 'FIND_BLOCKED');
 	assert.equal(result.find.stopCode, 'OUT_OF_BLOCKS');
-	assert.equal(body.calls.length, MAX_WALK_FAILS);
+	assert.equal(body.calls.length, TURNS.length, 'every walking heading, then no blocks to build with');
 	assert.ok(body.calls.every((call) => call.build === false));
 });
 
@@ -118,7 +119,7 @@ test('out of blocks mid-bridge hands back at once', async () => {
 	const body = bodyFor({ travel: (args) => (args.build ? { result: { state: 'FAILED', reasonCode: 'OUT_OF_BLOCKS', message: 'No plain block left' }, items: blocks(2) } : { result: noRoute }) });
 	const result = await searchFor({ structure: 'fortress' }, body, { timeoutMs: 300_000 });
 	assert.equal(result.find.stopCode, 'OUT_OF_BLOCKS');
-	assert.deepEqual(body.calls.map((call) => call.build), [false, true]);
+	assert.deepEqual(body.calls.map((call) => call.build), [false, false, false, false, false, true]);
 });
 
 test('no way on: building legs that keep failing turn, then hand back NO_WAY_ON', async () => {
@@ -126,7 +127,7 @@ test('no way on: building legs that keep failing turn, then hand back NO_WAY_ON'
 	const result = await searchFor({ structure: 'fortress' }, body, { timeoutMs: 300_000 });
 	assert.equal(result.reasonCode, 'FIND_BLOCKED');
 	assert.equal(result.find.stopCode, 'NO_WAY_ON');
-	assert.equal(body.calls.length, MAX_FAILED_LEGS * 2, 'each failed attempt is a walk then a build on the same bearing');
+	assert.equal(body.calls.length, MAX_FAILED_LEGS, 'five walks and a build at each of three targets');
 	assert.ok(new Set(body.calls.map((call) => call.yaw)).size >= 4, 'each failed leg turns further from the bearing');
 });
 
@@ -192,7 +193,7 @@ test('after every turn toward one target fails, that ground is ruled out and the
 	assert.equal(state.fortressUnreachable.length, 3);
 	const first = nextFortressTarget({ x: 100.5, z: 100.5 }, null, [{ x: 100, z: 100 }]);
 	assert.deepEqual(state.fortressUnreachable[0], { x: Math.round(first.x), z: Math.round(first.z) });
-	assert.notEqual(body.calls[10].yaw, body.calls[0].yaw, 'the sixth attempt (walk and build) heads for another target');
+	assert.notEqual(body.calls[TURNS.length + 1].yaw, body.calls[0].yaw, 'after five walks and a build, the next target');
 });
 
 test('a vantage is climbed only when it lies ahead toward the target and away from earlier look points', async () => {

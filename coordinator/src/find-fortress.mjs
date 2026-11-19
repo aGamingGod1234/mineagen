@@ -14,21 +14,19 @@ import { SEARCH_LOW_HEALTH } from './search-danger.mjs';
 /** Longest leg toward a region target: about the fog's half-depth, so each look covers new ground. */
 export const FORTRESS_LEG = 48;
 const MIN_LEG = 8;
-/** A building leg, tried only after a walking leg on the same bearing got less than half way. */
+/** A building leg on the bearing, tried only after walking legs at every turn got less than half way. */
 export const BUILD_LEG = 24;
 /** Building blocks a leg needs to be allowed to bridge or pillar. */
 export const MIN_BUILD_BLOCKS = 8;
-/** Route failures in a row (every turn at three targets) before the search hands back NO_WAY_ON. */
-export const MAX_FAILED_LEGS = 15;
+/** Route failures in a row (five walks and a build at each of three targets) before the search hands back NO_WAY_ON. */
+export const MAX_FAILED_LEGS = 18;
 // Stops that say nothing about the way: a mob met on the leg (settle fought or passed it), or a hit taken.
 const NOT_THE_WAY = new Set(['HOSTILE_NEAR', 'TARGET_ESCAPED', 'TARGET_UNREACHABLE', 'APPROACH_BLOCKED', 'NO_SEEN_ROUTE', 'FIGHT_TIMED_OUT',
 	'TRAVEL_DAMAGED', 'NAVIGATION_DAMAGED', 'DAMAGE_TAKEN']);
 /** A vantage counts only this far from every earlier look point. */
 const VANTAGE_NEW = 48;
-/** Turns tried from one spot when a leg toward the target gets nowhere: 45 degrees each way, then 90. */
-const TURNS = [0, 45, -45, 90, -90];
-/** Walking legs in a row that got nowhere, with too few blocks to build, before the search hands back OUT_OF_BLOCKS. */
-export const MAX_WALK_FAILS = 3;
+/** Walking headings tried toward one target, off its bearing: 45 degrees each way, then 90. */
+export const TURNS = Object.freeze([0, 45, -45, 90, -90]);
 const HIGH_GROUND_RISE = 5;
 const HIGH_GROUND_REACH = 32;
 // Look points kept across find calls in this dimension (the trail only keeps 128 16-block sectors).
@@ -96,46 +94,35 @@ export async function searchNetherFortress(ctx) {
 		const target = nextFortressTarget(here, body.known?.(observation) ?? null, [...looks, ...unreachable], sighted);
 		if (target === null) return stop('FAILED', 'FIND_NOT_FOUND', 'Every region within two of here has had its start ground seen, and no fortress was among them');
 		const bearing = yawToward(target.x - here.x, target.z - here.z);
-		// Legs toward one target that keep failing turn further from its bearing each time.
+		// Per target: walk at each turn (the bearing, 45 each way, 90 each way); only when all five walks get nowhere, build
+		// on the bearing; when that fails too, the target's ground is ruled out. Live round 2: building after one failed
+		// walk still tunnelled ~120 cells of netherrack in 3 minutes and wore out the only iron pickaxe.
 		const key = `${target.kind}:${Math.round(target.x)},${Math.round(target.z)}`;
 		if (key !== targetKey) { targetKey = key; targetFails = 0; }
-		const yaw = wrap(bearing + TURNS[targetFails % TURNS.length]);
-		const distance = Math.max(MIN_LEG, Math.min(FORTRESS_LEG, Math.round(target.distance)));
+		const build = targetFails >= TURNS.length;
+		const yaw = build ? bearing : wrap(bearing + TURNS[targetFails]);
+		const distance = build ? BUILD_LEG : Math.max(MIN_LEG, Math.min(FORTRESS_LEG, Math.round(target.distance)));
 		const toward = target.kind === 'remembered' ? `the fortress seen at ${Math.round(target.x)},${Math.round(target.z)}`
 			: `unseen start ground of region ${target.rx},${target.rz} (${Math.round(target.distance)} blocks)`;
-		// Walk first: building legs tunnel through every hill on the bearing, and a fixture seed wore out the only iron
-		// pickaxe in under 4 minutes of them. Bridge, pillar or tunnel only where walking gets nowhere (lava seas, cliffs).
-		let outcome = await leg(`walk toward ${toward}`, 'travel_to', { yaw, distance, build: false });
-		let ended = await settle(outcome);
-		if (ended !== null) return ended;
-		let build = false;
-		{
-			const walked = at() ?? here;
-			const code = outcome.result?.reasonCode;
-			if (code !== 'ARRIVED' && Math.hypot(walked.x - here.x, walked.z - here.z) < distance / 2 && !NOT_THE_WAY.has(code)
-				&& buildingBlocks(ctx.observation()) >= MIN_BUILD_BLOCKS && left() >= minLegMs) {
-				build = true;
-				outcome = await leg(`build toward ${toward}`, 'travel_to', { yaw, distance: Math.min(distance, BUILD_LEG), build: true });
-				ended = await settle(outcome);
-				if (ended !== null) return ended;
-			}
+		if (build && buildingBlocks(observation) < MIN_BUILD_BLOCKS) {
+			return stop('FAILED', 'FIND_BLOCKED', `Out of building blocks (${buildingBlocks(observation)} held) and walking has no way on toward ${Math.round(target.x)},${Math.round(target.z)} at any of ${TURNS.length} headings: mine netherrack or cobblestone, then find again`, 'OUT_OF_BLOCKS');
 		}
+		const outcome = await leg(`${build ? 'build' : 'walk'} toward ${toward}`, 'travel_to', { yaw, distance, build });
+		const ended = await settle(outcome);
+		if (ended !== null) return ended;
 		const after = at() ?? here;
 		const moved = Math.hypot(after.x - here.x, after.z - here.z);
 		const code = outcome.result?.reasonCode;
-		const short = build ? Math.min(distance, BUILD_LEG) / 2 : distance / 2;
-		if (code !== 'ARRIVED' && moved < short && NOT_THE_WAY.has(code)) {
+		if (code !== 'ARRIVED' && moved < distance / 2 && NOT_THE_WAY.has(code)) {
 			// A mob or a hit stopped the leg (settle answered it): neither progress nor a closed way.
 			if (moved < 2) continue;
-		} else if (code !== 'ARRIVED' && moved < short) {
+		} else if (code !== 'ARRIVED' && moved < distance / 2) {
 			failed += 1;
 			targetFails += 1;
-			// Without blocks to bridge with, a few walking legs that get nowhere mean the way on needs building.
-			const held = buildingBlocks(ctx.observation());
-			if ((code === 'OUT_OF_BLOCKS' || !build) && held < MIN_BUILD_BLOCKS && (code === 'OUT_OF_BLOCKS' || failed >= MAX_WALK_FAILS)) {
-				return stop('FAILED', 'FIND_BLOCKED', `Out of building blocks (${held} held) and walking has no way on toward ${Math.round(target.x)},${Math.round(target.z)}: mine netherrack or cobblestone, then find again`, 'OUT_OF_BLOCKS');
+			if (code === 'OUT_OF_BLOCKS' && buildingBlocks(ctx.observation()) < MIN_BUILD_BLOCKS) {
+				return stop('FAILED', 'FIND_BLOCKED', `Out of building blocks while bridging toward ${Math.round(target.x)},${Math.round(target.z)}: mine netherrack or cobblestone, then find again`, 'OUT_OF_BLOCKS');
 			}
-			if (targetFails >= TURNS.length) {
+			if (targetFails > TURNS.length) {
 				if (target.kind === 'remembered') {
 					return stop('FAILED', 'FIND_BLOCKED', `The fortress seen at ${Math.round(target.x)},${target.y ?? '?'},${Math.round(target.z)} could not be reached: ${targetFails} legs toward it got less than half way`, 'FORTRESS_UNREACHABLE');
 				}
