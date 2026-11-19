@@ -35,6 +35,8 @@ import { InspectionClient } from './inspection-client.mjs';
 import { ModelNotebook } from './model-notebook.mjs';
 import { RuntimeMemoryContext } from './runtime-memory-context.mjs';
 import { TaskMemoryStore } from './task-memory-store.mjs';
+import { experienceSettings } from './experience-store.mjs';
+import { createExperience } from './experience-runtime.mjs';
 import { LiveTaskViews, updateUsage } from './live-task-view.mjs';
 import { withToolWear } from './resource-facts.mjs';
 import { ObservedMemoryStore } from './observed-memory-store.mjs';
@@ -304,7 +306,7 @@ export class DynamicCoordinator extends EventEmitter {
 	#lastCatalog = null;
 	#lastRosterTraceAt = 0;
 
-	constructor({ registry, scheduler, codexService, planner, bridge, healthRegistry, latencyRegistry, goalSupervisor, codexControlProtocol = 'native_tools', memoryDirectory = null, runtimeSessionId, traceWriter = null, providerTurnRecorder = null, decisionLog = null, bodyPace = null, runtimeGeneration = null, runtimeHooks = {}, benchmarkRecorder = null, providerCliHealth = null, providerDiscovery = null, controlNow = () => performance.now(), epochNow = Date.now, setStatusInterval = defaultStatusInterval, clearStatusInterval = clearInterval, setGoalSpecTimeout = defaultGoalSpecTimeout, clearGoalSpecTimeout = clearTimeout, setSteerTimeout = setTimeout, clearSteerTimeout = clearTimeout, setWakeHoldTimeout = defaultGoalSpecTimeout, clearWakeHoldTimeout = clearTimeout, reflexDefaults = DEFAULT_REFLEXES, reflexInstincts = false, taskRequestTimeoutMs = DEFAULT_TASK_REQUEST_TIMEOUT_MS, connectionOperationCap = DEFAULT_CONNECTION_OPERATION_CAP, agentOperationCap = DEFAULT_AGENT_OPERATION_CAP, goalSpecRequestCap = connectionOperationCap, maxPendingAgentOperations = DEFAULT_MAX_PENDING_AGENT_OPERATIONS, maxPendingAgentTransactions = DEFAULT_MAX_PENDING_AGENT_TRANSACTIONS }) {
+	constructor({ registry, scheduler, codexService, planner, bridge, healthRegistry, latencyRegistry, goalSupervisor, codexControlProtocol = 'native_tools', memoryDirectory = null, experience = null, runtimeSessionId, traceWriter = null, providerTurnRecorder = null, decisionLog = null, bodyPace = null, runtimeGeneration = null, runtimeHooks = {}, benchmarkRecorder = null, providerCliHealth = null, providerDiscovery = null, controlNow = () => performance.now(), epochNow = Date.now, setStatusInterval = defaultStatusInterval, clearStatusInterval = clearInterval, setGoalSpecTimeout = defaultGoalSpecTimeout, clearGoalSpecTimeout = clearTimeout, setSteerTimeout = setTimeout, clearSteerTimeout = clearTimeout, setWakeHoldTimeout = defaultGoalSpecTimeout, clearWakeHoldTimeout = clearTimeout, reflexDefaults = DEFAULT_REFLEXES, reflexInstincts = false, taskRequestTimeoutMs = DEFAULT_TASK_REQUEST_TIMEOUT_MS, connectionOperationCap = DEFAULT_CONNECTION_OPERATION_CAP, agentOperationCap = DEFAULT_AGENT_OPERATION_CAP, goalSpecRequestCap = connectionOperationCap, maxPendingAgentOperations = DEFAULT_MAX_PENDING_AGENT_OPERATIONS, maxPendingAgentTransactions = DEFAULT_MAX_PENDING_AGENT_TRANSACTIONS }) {
 		super();
 		this.#memoryDirectory = memoryDirectory;
 		this.#decisionLog = decisionLog;
@@ -320,6 +322,8 @@ export class DynamicCoordinator extends EventEmitter {
 		this.#bridge = requireDependency(bridge, 'bridge');
 		this.#inspections = new InspectionClient({ send: (type, agentId, payload, options) => this.#sendForEpoch(options.connectionEpoch, type, agentId, payload) });
 		this.#playerMemory = new RuntimeMemoryContext({ notebook: new ModelNotebook({ directory: memoryDirectory }), taskMemory: new TaskMemoryStore({ directory: memoryDirectory }), sessionId: runtimeSessionId,
+			// MINEAGEN_EXPERIENCE (default off): lessons from this profile's earlier games and this game's own death review.
+			experience: createExperience(experience, { trace: (event, fields) => this.#writeTrace(event, fields) }),
 			onReceipt: async (identity, receipt) => {
 				const record = this.#registry.get(identity.agentId);
 				if (record?.goalRevision === identity.goalRevision) {
@@ -1315,6 +1319,11 @@ export class DynamicCoordinator extends EventEmitter {
 		});
 		this.#listen('action_progress', (message, connectionEpoch) => {
 			const lifecycleGeneration = this.#lifecycleGeneration(message.agentId);
+			// Progress for the live dispatch is the experience review's evidence that the body started it.
+			const admitted = this.#latestActionDispatches.get(message.agentId);
+			if (admitted?.connectionEpoch === connectionEpoch && admitted.actionId === message.payload?.actionId && admitted.goalRevision === message.payload?.goalRevision) {
+				this.#playerMemory.noteProgress(message.agentId, { actionId: admitted.actionId });
+			}
 			return this.#enqueueAgent(message.agentId, async () => {
 				const record = this.#registry.assertCurrentRevision(message.agentId, message.payload.goalRevision);
 				if (this.#usesNativeTools(record) && message.payload.actionObservation?.position !== undefined
@@ -1339,6 +1348,14 @@ export class DynamicCoordinator extends EventEmitter {
 		});
 		this.#listen('action_result', (message, connectionEpoch) => {
 			const lifecycleGeneration = this.#lifecycleGeneration(message.agentId);
+			// The experience review hears a result that matches the live dispatch when it is admitted, before the queue and
+			// its persistence, so a death admitted right after it (which clears the live dispatch) still sees it.
+			// Anything unmatched waits for durable reconciliation.
+			const admitted = this.#latestActionDispatches.get(message.agentId);
+			if (admitted?.connectionEpoch === connectionEpoch && admitted.actionId === message.payload?.actionId && admitted.goalRevision === message.payload?.goalRevision
+				&& (message.payload.actionType === undefined || message.payload.actionType === admitted.actionType)) {
+				this.#playerMemory.noteLiveResult(message.agentId, { ...message.payload, actionType: admitted.actionType });
+			}
 			let receipt, admittedRespawn = false;
 			return this.#enqueueAgent(message.agentId, async () => {
 				const dispatch = this.#latestActionDispatches.get(message.agentId);
@@ -2124,6 +2141,7 @@ export class DynamicCoordinator extends EventEmitter {
 				goalRevision: record.goalRevision,
 				input: await this.#nativeTurnInput(record, request).then((input) => {
 					this.#noteHazardDelivered(work);
+					this.#playerMemory.confirmShown(record.agentId, input);
 					this.#noteSurvivalDelivered(work, request, request.survivalFacts);
 					work.modelCallStartedAt = safeClockRead(this.#controlNow);
 					work.callStreamingTool = false;
@@ -2502,12 +2520,14 @@ export class DynamicCoordinator extends EventEmitter {
 					|| work.pending?.priority === 'urgent'
 					|| work.steerPromise !== null) return;
 			work.preparingProgram = { programId: request.nativeEvent.programId, programVersion: request.nativeEvent.status?.programVersion };
+			const preparedInput = await this.#nativeTurnInput(record, request, { deliverConversation: false });
 			await this.#planner.steerNativeTurn({
 				agentId: work.agentId,
 				goalRevision: work.goalRevision,
-				input: await this.#nativeTurnInput(record, request, { deliverConversation: false }),
+				input: preparedInput,
 			});
 			this.#noteSurvivalDelivered(work, request, request.survivalFacts);
+			this.#playerMemory.confirmShown(record.agentId, preparedInput);
 			this.#writeTrace('native_turn_prepared', {
 				agentId: work.agentId,
 				goalRevision: work.goalRevision,
@@ -2562,6 +2582,7 @@ export class DynamicCoordinator extends EventEmitter {
 						}
 						if (work.steerQueued === null) {
 							this.#noteSurvivalDelivered(work, deliveryRequest, deliveryRequest.survivalFacts);
+							this.#playerMemory.confirmShown(record.agentId, input);
 							return input;
 						}
 						this.#restoreNativeConversation(deliveryRequest);
@@ -3738,6 +3759,8 @@ export class DynamicCoordinator extends EventEmitter {
 			if (target !== null && this.#usesNativeTools(record)) {
 				this.#trackOwnBreak(record, this.#lifecycleGeneration(agentId), connectionEpoch, (state) => startOwnBreak(state, payload.actionId, target));
 			}
+			// Native actions journal straight to the notebook; the experience review sees each one as it is sent.
+			this.#playerMemory.noteDispatch(agentId, payload);
 		}
 		return this.#sendForEpoch(connectionEpoch, type, agentId, payload);
 	}
@@ -4710,6 +4733,7 @@ export function createDynamicCoordinator(configValue, dependencies = {}) {
 		goalSupervisor,
 		codexControlProtocol: config.codex.controlProtocol,
 		memoryDirectory: Object.hasOwn(dependencies, 'memoryDirectory') ? dependencies.memoryDirectory : path.join(config.workspaceRoot, 'player-memory'),
+		experience: experienceSettings(coordinatorEnvironment),
 		runtimeSessionId: dependencies.runtimeSessionId,
 		traceWriter: dependencies.traceWriter,
 		providerTurnRecorder,

@@ -395,7 +395,7 @@ export class TaskMemoryStore {
 			.filter((e) => (kind === 'all' || e.kind === kind) && JSON.stringify(e).toLowerCase().includes(text.toLowerCase()));
 		return { worldId: scope.worldId, dimension: scope.dimension, historical: true, offset, entries: structuredClone(records.slice(offset, offset + limit)), total: records.length, nextOffset: offset + limit < records.length ? offset + limit : null };
 	}
-	async summary(scope, { recoveryDeath = null } = {}) {
+	async summary(scope, { recoveryDeath = null, extraLessons = [] } = {}) {
 		requireAgent(scope);
 		const state = await this.#world(scope);
 		if (!this.#books.has(scope.agentId)) await this.#book(scope.agentId);
@@ -434,7 +434,8 @@ export class TaskMemoryStore {
 			progress: entries.filter((e) => e.kind === 'progress').sort((a,b) => Number(a.goalRevision === scope.goalRevision) - Number(b.goalRevision === scope.goalRevision)).slice(-2).map(entry),
 			routes: entries.filter((e) => e.kind === 'route').slice(-4).map(entry),
 			places: entries.filter((e) => e.kind === 'place').slice(-4).map(entry),
-			lessons: entries.filter((e) => e.kind === 'lesson').slice(-3).map(entry),
+			// Carried and reviewed lessons go first, so the byte trim below (which cuts from the front) drops them before this world's own.
+			lessons: [...extraLessons.slice(0, 3).map((lesson) => structuredClone(lesson)), ...entries.filter((e) => e.kind === 'lesson').slice(-3).map(entry)],
 			assets: rankedAssets.slice(0, 6).map(({ asset }) => compactAsset(asset, own?.lastLive, now)),
 			deaths: selectedDeaths.map(({ outboundTrail, lostInventory, key, source, diedAtEpochMs, ...d }) => ({ ...d, cause: d.cause.slice(0, 128), src: provenance('seen', { observedAtEpochMs: diedAtEpochMs }, now),
 				// What was lost is derived from the last live inventory, not seen dropping.

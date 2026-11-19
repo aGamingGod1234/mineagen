@@ -5,6 +5,7 @@ import { TaskMemoryStore } from './task-memory-store.mjs';
 import { normalizeMinecraftToolCall } from './native-minecraft-tools.mjs';
 import { validateAction } from './schema.mjs';
 import { defaultServiceTier } from './constants.mjs';
+import { LESSON_SRC_PREFIX } from './experience-lessons.mjs';
 
 const TERMINAL_STATES = new Set(['SUCCEEDED', 'FAILED', 'CANCELLED', 'TIMED_OUT']);
 const AUTHOR_FIELDS = ['provider', 'model', 'reasoningEffort', 'serviceTier'];
@@ -15,7 +16,11 @@ export class RuntimeMemoryContext {
 	#tasks; #taskPending = new Map(); #taskContexts = new Map();
 	#lookupScopes = new Map();
 	#recoveryDeaths = new Map();
-	constructor({ notebook = new ModelNotebook(), taskMemory = new TaskMemoryStore(), sessionId = randomUUID(), onReceipt = null } = {}) {
+	// Lessons carried from earlier games and this game's own death and failure review (experience-runtime.mjs); null when off.
+	#experience;
+	// Per agent: the review lessons in the last model-turn summary, until the built input confirms which reached the model.
+	#pendingShown = new Map();
+	constructor({ notebook = new ModelNotebook(), taskMemory = new TaskMemoryStore(), sessionId = randomUUID(), onReceipt = null, experience = null } = {}) {
 		for (const method of ['writeNote', 'query', 'recordDispatch', 'recordUnknown', 'recordReceipt', 'findReceipt']) {
 			if (typeof notebook?.[method] !== 'function') throw new TypeError(`notebook.${method} is required`);
 		}
@@ -25,6 +30,36 @@ export class RuntimeMemoryContext {
 		for (const method of ['observe', 'summary', 'query', 'remember', 'flush']) if (typeof taskMemory?.[method] !== 'function') throw new TypeError(`taskMemory.${method} is required`);
 		this.#tasks = taskMemory;
 		this.#sessionId = boundedText(sessionId, 'sessionId', 128);
+		for (const method of ['observe', 'noteDispatch', 'noteProgress', 'noteResult', 'lessonsFor', 'markShown', 'flush']) if (experience !== null && typeof experience?.[method] !== 'function') throw new TypeError(`experience.${method} is required`);
+		this.#experience = experience;
+	}
+	/** Summary options with this agent's matching lessons; without experience, exactly today's options. */
+	async #summaryOptions(agentId, recoveryDeath) {
+		if (this.#experience === null) return { recoveryDeath };
+		const { entries } = await this.#experience.lessonsFor(agentId);
+		return { recoveryDeath, extraLessons: entries };
+	}
+	/** A body progress event: the dispatched action has started, so the death review may attribute a death to it. */
+	noteProgress(agentId, { actionId } = {}) { this.#experience?.noteProgress(agentId, { actionId }); }
+	/** An action sent outside recordDispatch (native tools journal straight to the notebook) still reaches the review. */
+	noteDispatch(agentId, { actionId, actionType, arguments: args } = {}) { this.#experience?.noteDispatch(agentId, { actionId, actionType, arguments: args }); }
+	/**
+	 * Counts as shown the pending review lessons whose text is in this model input, once it is built and about to be
+	 * delivered. A lesson trimmed from the summary, cut from an excerpt or left in a discarded steer is not counted.
+	 */
+	confirmShown(agentId, input) {
+		const pending = this.#pendingShown.get(agentId);
+		this.#pendingShown.delete(agentId);
+		if (this.#experience === null || !pending || typeof input !== 'string') return;
+		const ids = pending.filter(({ summary }) => input.includes(JSON.stringify(summary).slice(1, -1))).map(({ id }) => id);
+		if (ids.length) this.#experience.markShown(agentId, ids);
+	}
+	/** A live terminal result, before its receipt is persisted; the later persisted copy counts once (deduplicated by action id). */
+	noteLiveResult(agentId, { actionId, actionType, state, reasonCode, executionStarted, observedAtEpochMs } = {}) {
+		if (this.#experience === null || !TERMINAL_STATES.has(state) || typeof actionId !== 'string') return;
+		const context = this.#contexts.get(agentId);
+		void this.#experience.noteResult(agentId, { actionId, actionType, state, reasonCode, executionStarted, dimension: context?.dimension, worldId: context?.worldId },
+			Number.isFinite(observedAtEpochMs) ? observedAtEpochMs : undefined);
 	}
 	get notebook() { return this.#notebook; }
 	get sessionId() { return this.#sessionId; }
@@ -47,13 +82,18 @@ export class RuntimeMemoryContext {
 		if (previous?.goalRevision !== goalRevision || previous?.worldId !== worldId || previous?.dimension !== context.dimension) this.#lookupScopes.set(agentId, {});
 		this.#contexts.set(agentId, context);
 		this.#recoveryDeaths.set(agentId, recoveryDeath);
+		// A death-only observation keeps the death's own time; one with no time at all leaves the review on its own clock,
+		// so a replayed recording never jumps to today.
+		const reviewed = this.#experience?.observe(agentId, worldId, source, Number.isFinite(source.observedAtEpochMs) ? source.observedAtEpochMs
+			: Number.isFinite(source.death?.diedAtEpochMs) ? source.death.diedAtEpochMs : undefined);
 		if (!worldId.startsWith('session:') && context.dimension !== undefined) {
 			const scope = { agentId, ...context };
 			const picked = pick(source, ['world', 'worldTick', 'observedAtEpochMs', 'position', 'player', 'ready', 'death', 'inventory', 'lastLiveInventory', 'blocks', 'landmarks', 'nearbyContainers', 'interaction', 'continuity']);
 			const snapshot = owned ? picked : structuredClone(picked);
 			const pending = Promise.resolve(this.#taskPending.get(agentId)).catch(() => {}).then(async () => {
 				await this.#tasks.observe(scope, snapshot);
-				this.#taskContexts.set(agentId, await this.#tasks.summary(scope, { recoveryDeath }));
+				await reviewed;
+				this.#taskContexts.set(agentId, await this.#tasks.summary(scope, await this.#summaryOptions(agentId, recoveryDeath)));
 			});
 			this.#taskPending.set(agentId, pending);
 			pending.catch(() => {}); // taskContext/flush surface failures; observation delivery stays synchronous.
@@ -64,15 +104,25 @@ export class RuntimeMemoryContext {
 		const context = this.#contexts.get(record.agentId), summary = this.#taskContexts.get(record.agentId);
 		return summary?.worldId === context?.worldId && summary?.dimension === context?.dimension ? structuredClone(summary) : null;
 	}
-	async taskContext(record) {
+	/** The summary for a model turn; its surviving review lessons wait for confirmShown with the built input. */
+	async taskContext(record) { return this.#refreshTaskContext(record, true); }
+	async #refreshTaskContext(record, countShown) {
 		await this.#taskPending.get(record.agentId);
 		const context = this.#contexts.get(record.agentId);
 		if (context?.goalRevision !== record.goalRevision || !context?.dimension || context.worldId.startsWith('session:')) return null;
-		const summary = await this.#tasks.summary({ agentId: record.agentId, ...context }, { recoveryDeath: this.#recoveryDeaths.get(record.agentId) });
+		const ranked = this.#experience === null ? null : await this.#experience.lessonsFor(record.agentId);
+		const summary = await this.#tasks.summary({ agentId: record.agentId, ...context }, ranked === null ? { recoveryDeath: this.#recoveryDeaths.get(record.agentId) }
+			: { recoveryDeath: this.#recoveryDeaths.get(record.agentId), extraLessons: ranked.entries });
+		// The trim drops lessons from the front and they are passed worst first, so the survivors are the best ones.
+		if (ranked !== null && countShown) {
+			const survivors = summary.lessons.filter((lesson) => typeof lesson?.src === 'string' && lesson.src.startsWith(LESSON_SRC_PREFIX));
+			// survivors are worst first; ranked.ids best first.
+			this.#pendingShown.set(record.agentId, survivors.map((lesson, index) => ({ id: ranked.ids[survivors.length - 1 - index], summary: lesson.summary })));
+		}
 		this.#taskContexts.set(record.agentId, summary);
 		return summary;
 	}
-	async flush() { await Promise.all(this.#taskPending.values()); await this.#tasks.flush(); }
+	async flush() { await Promise.all(this.#taskPending.values()); await this.#tasks.flush(); await this.#experience?.flush(); }
 	worldId(record) {
 		const { agentId, goalRevision } = recordIdentity(record);
 		const context = this.#contexts.get(agentId);
@@ -94,7 +144,8 @@ export class RuntimeMemoryContext {
 			const tool = normalizeMinecraftToolCall('taskMemory', source.arguments);
 			if (tool.operation === 'query') return { state: 'SUCCEEDED', reasonCode: 'TASK_MEMORY_QUERIED', ...await this.#tasks.query(scope, tool.query) };
 			const entry = await this.#tasks.remember(scope, tool.entry);
-			await this.taskContext(record);
+			// A cache refresh: nothing reaches the model here, so no lesson counts as shown.
+			await this.#refreshTaskContext(record, false);
 			return { state: 'SUCCEEDED', reasonCode: 'TASK_MEMORY_WRITTEN', entry };
 		}
 		if (!['write', 'query', 'find_note'].includes(source.operation)) throw codedError('INVALID_MEMORY_OPERATION', 'Memory operation must be write, query, or find_note');
@@ -153,6 +204,7 @@ export class RuntimeMemoryContext {
 		}
 		if (dispatches.size >= 256) throw codedError('RECEIPT_LIMIT', 'Too many unreconciled actions');
 		const pending = this.#notebook.recordDispatch(agentId, entry);
+		this.#experience?.noteDispatch(agentId, { actionId, actionType, arguments: argumentsValue });
 		dispatches.set(actionId, { entry, pending });
 		this.#dispatches.set(agentId, dispatches);
 		try { return await pending; }
@@ -178,6 +230,8 @@ export class RuntimeMemoryContext {
 			...(Number.isSafeInteger(observation.worldTick) && observation.worldTick >= 0 ? { tick: observation.worldTick } : {}),
 		};
 		await this.#notebook.recordReceipt(agentId, terminal);
+		if (this.#experience !== null) await this.#experience.noteResult(agentId, { actionId, actionType: previous.actionType, state: source.state, reasonCode: source.reasonCode, dimension: previous.dimension, worldId: previous.worldId, executionStarted: source.executionStarted },
+			Number.isFinite(source.observedAtEpochMs) ? source.observedAtEpochMs : undefined);
 		// The break tally of a held-attack control is not persisted with the receipt, but the task view counts it.
 		const breakOutcome = Number.isSafeInteger(source.breakOutcome?.blocks) ? { breakOutcome: { blocks: source.breakOutcome.blocks } } : {};
 		// The result text (a missed shot, a blocked line) is read by the task view's repeat count, not persisted.
@@ -189,7 +243,9 @@ export class RuntimeMemoryContext {
 			const pending = Promise.resolve(this.#taskPending.get(agentId)).catch(() => {}).then(async () => {
 				const changed = await this.#tasks.recordReceipt(scope, { ...terminal, observedAtEpochMs: source.observedAtEpochMs });
 				const current = this.#contexts.get(agentId);
-				if (changed && current?.worldId === scope.worldId && current?.dimension === scope.dimension) this.#taskContexts.set(agentId, await this.#tasks.summary({ agentId, ...current }));
+				// As on main, this refresh passes no recovery death; experience adds only its lessons.
+				if (changed && current?.worldId === scope.worldId && current?.dimension === scope.dimension) this.#taskContexts.set(agentId, this.#experience === null
+					? await this.#tasks.summary({ agentId, ...current }) : await this.#tasks.summary({ agentId, ...current }, await this.#summaryOptions(agentId, null)));
 			});
 			this.#taskPending.set(agentId, pending);
 			await pending;
