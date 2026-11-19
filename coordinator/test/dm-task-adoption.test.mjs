@@ -324,9 +324,12 @@ test("public chat and other players' nearby speech never wake the agent; they ri
 		await new Promise((resolve) => setTimeout(resolve, 100));
 		assert.equal(planner.requests.length, 0, 'context-only chat starts no turn');
 		run.bridge.emit('conversation_event', context(4, 'proximity_speech', 'proximity', { operator: true }));
-		await eventually(() => planner.requests.length === 1);
+		// The wake turn says nothing, so the say nudge follows it within milliseconds. Waiting for exactly one turn missed
+		// both whenever the poll timer ran late on a busy CI runner; the count settles at two.
+		await eventually(() => planner.requests.length === 2);
 		assert.deepEqual(inputOf(planner.requests[0]).conversation.entries.map(({ sequence }) => sequence), [1, 2, 3, 4],
 			"the operator's nearby speech wakes the agent and the earlier chat rides along");
+		assert.match(planner.requests[1].input, /made no visible reply/, 'the second turn is the say nudge, not a second wake');
 	} finally {
 		await run.coordinator.stop();
 	}
