@@ -172,7 +172,7 @@ async function oneRun(s, seed, variant, keepStance) {
 	const row = { seed, variant, arm: ARM, rodsAtEnd: 0, maxRods: 0, reachedMin: null, deaths: 0, minHealth: 20, calls: {}, codes: {}, messages: [], stances: {}, startedAt };
 	const look = await s.act('look_at', { x: SX + 0.5, y: SY + 0.5, z: SZ + 0.5 }).catch(e => ({ reasonCode: String(e.message) }));
 	row.look = look.reasonCode;
-	let dead = false;
+	let dead = false, stale = 0;
 	while ((await timer.elapsed()) < window) {
 		const o = await s.observe().catch(() => null);
 		if (o === null) { await sleep(200); continue; }
@@ -192,7 +192,19 @@ async function oneRun(s, seed, variant, keepStance) {
 		} else {
 			type = 'fight_until'; args = { mob: 'minecraft:blaze', untilItem: 'minecraft:blaze_rod', untilCount: UNTIL, fleeAtHealth: 6, timeoutMs: Math.max(1000, Math.min(600_000, left)) };
 		}
+		// The mod can move the goal revision on (a low-health hand-back) with no goal_control the fixture follows: adopt it.
+		if (Number.isSafeInteger(o.goalRevision) && o.goalRevision > s.record.goalRevision) {
+			s.record.goalRevision = o.goalRevision;
+			await s.bridge.send('agent_ready', s.record.agentId, { goalRevision: s.record.goalRevision, reconciled: false }).catch(() => {});
+		}
 		const result = await s.act(type, args, Math.max(65_000, left + 30_000)).catch(e => ({ state: 'ERROR', reasonCode: 'FIXTURE_ERROR', message: String(e.message) }));
+		if (result.reasonCode === 'STALE_REVISION') {
+			if (++stale > 20) throw new Error(`STALE_REVISION loop: fixture revision ${s.record.goalRevision}, observed ${o.goalRevision}`);
+			await s.bridge.send('agent_ready', s.record.agentId, { goalRevision: s.record.goalRevision, reconciled: false }).catch(() => {});
+			await s.gameSleep(500);
+			continue;
+		}
+		stale = 0;
 		row.calls[type] = (row.calls[type] ?? 0) + 1;
 		if (type === 'fight_until') {
 			row.codes[result.reasonCode] = (row.codes[result.reasonCode] ?? 0) + 1;

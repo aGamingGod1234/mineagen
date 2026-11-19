@@ -28,6 +28,7 @@ public final class SpawnerHoldVerification {
 		verifyCollect();
 		verifyEat();
 		verifyBreach();
+		verifyTurtle();
 		return assertions;
 	}
 
@@ -132,6 +133,16 @@ public final class SpawnerHoldVerification {
 		check(!SpawnerHold.breached(new long[] {900L, none}, 1_000L), "one hit: holds");
 		check(SpawnerHold.breached(new long[] {900L, 850L}, 1_000L), "two hits within 10 s: breached");
 		check(!SpawnerHold.breached(new long[] {900L, 700L}, 1_000L), "two hits 15 s apart: holds");
+	}
+
+	private static void verifyTurtle() {
+		check(SpawnerHold.turtle(true, 11.5F, -1L, 0L), "below 12 in the cell: shield up and heal");
+		check(!SpawnerHold.turtle(true, 12.0F, -1L, 0L), "at 12: fight on");
+		check(!SpawnerHold.turtle(false, 5.0F, -1L, 0L), "only in the cell (outside, the health floor and defend apply)");
+		check(SpawnerHold.turtle(true, 17.5F, 1_000L, 30_000L), "keeps healing until 18");
+		check(!SpawnerHold.turtle(true, 18.0F, 1_000L, 30_000L), "back to the fight at 18");
+		check(!SpawnerHold.turtle(true, 14.0F, 1_000L, 1_000L + SpawnerHold.TURTLE_MS), "and after 45 s whatever the health (blazes do not wait)");
+		check(SpawnerHold.TURTLE_HEALTH > 6.0F + 5.0F, "the shield goes up more than one fireball (5) above the default 6-health hand-back");
 	}
 
 	private static void check(boolean condition, String message) {

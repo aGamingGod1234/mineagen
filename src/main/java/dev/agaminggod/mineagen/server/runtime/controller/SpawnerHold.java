@@ -33,6 +33,13 @@ public final class SpawnerHold {
 	static final float EAT_HEALTH = 14.0F;
 	/** Eating waits only for a blaze in melee reach: at 6-12 blocks from a live spawner one is nearly always within 6. */
 	static final double EAT_BLAZE_CLEAR = 3.0D;
+	/**
+	 * Below TURTLE_HEALTH in the cell the body stops shooting, raises the shield toward the nearest blaze (or out of the
+	 * doorway) and eats, until TURTLE_DONE or TURTLE_MS: four of five live runs lost health in the cell to fireballs that
+	 * landed while the bow was drawn, then burning, down to the 6-health hand-back and one death after it.
+	 */
+	static final float TURTLE_HEALTH = 12.0F, TURTLE_DONE = 18.0F;
+	static final long TURTLE_MS = 45_000L;
 	/** No blaze seen for this long with the body in the cell: the spawner is not making more (light, range, or broken). */
 	static final long QUIET_MS = 90_000L;
 	/** Wither skeleton hits taken inside the finished cell within this window that mean the cell does not hold. */
@@ -93,6 +100,13 @@ public final class SpawnerHold {
 	static boolean shouldEat(int hunger, float health, boolean shotInbound, boolean blazeInReach, boolean hasFood) {
 		if (!hasFood || shotInbound || blazeInReach) return false;
 		return hunger < EAT_HUNGER || health < EAT_HEALTH && hunger < 20;
+	}
+
+	/** Whether the body takes cover behind its shield now, or (when turtling since sinceMs) keeps doing so. */
+	static boolean turtle(boolean inCell, float health, long sinceMs, long elapsedMs) {
+		if (!inCell) return false;
+		if (sinceMs < 0L) return health < TURTLE_HEALTH;
+		return health < TURTLE_DONE && elapsedMs - sinceMs < TURTLE_MS;
 	}
 
 	/** Two wither skeleton hits inside the cell within the window: the doorway does not keep them out here. */

@@ -87,6 +87,9 @@ public final class ServerSpawnerHoldController implements ServerController {
 	private KillDropCollector collector;
 	private boolean returning;
 	private int eatTicks = -1, eatSlot = -1, eatCount;
+	private final CombatInputLease shieldInput = new CombatInputLease();
+	private long turtleSinceMs = -1L;
+	private int turtles;
 	private String eatItem;
 	private int sitesFailed, builds, engineRuns, trips, rodsPicked, meals, lintelTicks, outOfCellTicks;
 	private boolean noSiteLeft;
@@ -324,6 +327,28 @@ public final class ServerSpawnerHoldController implements ServerController {
 		if (collector != null || returning) return collect(player, now);
 		if (eatTicks >= 0) return eat(player);
 		boolean shot = ReflexSensors.blockableShot(player, 1.5D) != null;
+		boolean turtling = SpawnerHold.turtle(inCell, player.getHealth(), turtleSinceMs, elapsed);
+		if (turtling) {
+			if (turtleSinceMs < 0L) {
+				stopEngine(player);
+				turtleSinceMs = elapsed;
+				turtles++;
+				note(String.format(Locale.ROOT, "health %.1f: shield up in the cell to heal", player.getHealth()));
+			}
+			int food = foodSlot(player);
+			if (food >= 0 && player.getFoodData().getFoodLevel() < 20 && ReflexSensors.blockableShot(player, 1.0D) == null) {
+				shieldInput.release();
+				startEat(player, food);
+				return eat(player);
+			}
+			shieldUp(player);
+			return TickResult.running(progress(player));
+		}
+		if (turtleSinceMs >= 0L) {
+			note(String.format(Locale.ROOT, "healed to %.1f in %.0f s", player.getHealth(), (elapsed - turtleSinceMs) / 1000.0D));
+			turtleSinceMs = -1L;
+			shieldInput.release();
+		}
 		boolean blazeInReach = !player.level().getEntitiesOfClass(LivingEntity.class, player.getBoundingBox().inflate(SpawnerHold.EAT_BLAZE_CLEAR),
 				e -> e.getType() == McEntityTypes.BLAZE && e.isAlive()).isEmpty();
 		int slot = foodSlot(player);
@@ -403,6 +428,24 @@ public final class ServerSpawnerHoldController implements ServerController {
 			return siteFailed(player, "walk back " + result.reasonCode());
 		}
 		return TickResult.running(progress(player));
+	}
+
+	/** The shield raised toward the nearest seen blaze, else out of the doorway at eye height. */
+	private void shieldUp(ServerPlayer player) {
+		Vec3 eye = player.getEyePosition();
+		Vec3 toward = Vec3.atCenterOf(cell.relative(opening, 3)).add(0.0D, 0.6D, 0.0D);
+		double best = Double.MAX_VALUE;
+		for (LivingEntity blaze : player.level().getEntitiesOfClass(LivingEntity.class, player.getBoundingBox().inflate(SpawnerHold.SCAN),
+				e -> e.getType() == McEntityTypes.BLAZE && e.isAlive())) {
+			if (!ObservationVisibility.canSeeEntity(player, blaze)) continue;
+			double d = blaze.distanceToSqr(player);
+			if (d < best) { best = d; toward = blaze.getEyePosition(); }
+		}
+		Vec3 delta = toward.subtract(eye);
+		float yaw = (float) (Math.toDegrees(Math.atan2(delta.z, delta.x)) - 90.0D);
+		float pitch = (float) -Math.toDegrees(Math.atan2(delta.y, Math.hypot(delta.x, delta.z)));
+		shieldInput.apply(player, new AgentInputState(0.0F, 0.0F, false, false, false, false, true, yaw, pitch,
+				player.getInventory().getSelectedSlot(), InteractionHand.OFF_HAND));
 	}
 
 	private void startEat(ServerPlayer player, int slot) {
@@ -563,10 +606,10 @@ public final class ServerSpawnerHoldController implements ServerController {
 
 	private String summary(ServerPlayer player, long elapsed) {
 		int held = ServerFightUntilController.count(player, untilItem);
-		return String.format(Locale.ROOT, "spawner hold at %s: cell %s, %d site%s failed, %d build%s; %+d %s in %.0f s; %d engine run%s %s; %d rod trip%s; %d meal%s; %d defend%s; hurts %s%s",
+		return String.format(Locale.ROOT, "spawner hold at %s: cell %s, %d site%s failed, %d build%s; %+d %s in %.0f s; %d engine run%s %s; %d rod trip%s; %d meal%s; %d defend%s; %d shield heal%s; hurts %s%s",
 				spawner.toShortString(), cell == null ? "none" : cell.toShortString(), sitesFailed, sitesFailed == 1 ? "" : "s", builds, builds == 1 ? "" : "s",
 				held - Math.max(0, startHeld), untilItemId, elapsed / 1000.0D, engineRuns, engineRuns == 1 ? "" : "s", engineEnds, trips, trips == 1 ? "" : "s",
-				meals, meals == 1 ? "" : "s", defends, defends == 1 ? "" : "s", hurts, log.isEmpty() ? "" : "; log: " + String.join(" | ", log.subList(Math.max(0, log.size() - 6), log.size())));
+				meals, meals == 1 ? "" : "s", defends, defends == 1 ? "" : "s", turtles, turtles == 1 ? "" : "s", hurts, log.isEmpty() ? "" : "; log: " + String.join(" | ", log.subList(Math.max(0, log.size() - 6), log.size())));
 	}
 
 	private void note(String line) {
@@ -599,6 +642,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 		returning = false;
 		eatTicks = -1;
 		eatInput.release();
+		shieldInput.release();
 	}
 
 	private TickResult stop(ServerPlayer player, TickResult result) {
