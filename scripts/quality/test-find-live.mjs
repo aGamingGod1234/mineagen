@@ -10,6 +10,9 @@
 // keeps it, saved. Launch under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME.
 // setup: operator commands that build a fixture before the calls, {x}, {y}, {z} (with +n or -n; {x+0.5} is a cell's
 // centre) standing for the body's block at spawn; after: { ms, commands } runs after setup.
+// reachBiome (e.g. "minecraft:warped_forest"): the spot passes when the body itself stands in that biome (its own sampled
+// biome, timed in game ticks from the start: row.reachedTicks), not on FIND_SEEN; a FIND_SEEN from afar is followed by
+// travel_to the seen cell and the call again, as a model does with a far sighting.
 // Production steering lives in run-incident.mjs; this body-only fixture cannot accept steer:true.
 import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -119,6 +122,12 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 			if (ev.agentId !== record.agentId || !ev.payload.ready) return;
 			const observation = adaptObservation(ev.payload);
 			runtime.updateObservation(record, observation, { eventSequence: ev.payload.eventSequence });
+			if (spot.reachBiome && row.t0 && row.reachedAtS === undefined && observation.world?.biome === spot.reachBiome) {
+				row.reachedAtS = Math.round((Date.now() - row.t0) / 1000);
+				row.reachedAt = [observation.player?.x, observation.player?.y, observation.player?.z].map(n => Math.round(n));
+				s.command('time query gametime').then(text => { row.reachedTicks = number(text) - row.startTicks; }).catch(() => {});
+				console.log(`[${spot.name}] in ${spot.reachBiome} at +${row.reachedAtS}s ${row.reachedAt.join(',')}`);
+			}
 		});
 		s.bridge.on('action_result', ev => {
 			if (ev.agentId !== record.agentId || !commands.has(ev.payload.actionId)) return;
@@ -165,6 +174,7 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		const damageBefore = await readDamage();
 		const healthBefore = await health(), deathsBefore = await deaths(), t0 = Date.now();
 		row.playStartedAt = t0;
+		row.startTicks = number(await s.command('time query gametime'));
 		row.t0 = t0;
 		const trail = [];
 		sampling = true;
@@ -191,6 +201,21 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 				// A dead body, or one the server no longer samples, ends the spot.
 				if ((await deaths()) > deathsBefore || /TIMEOUT observation/.test(entry.message)) { row.ended = 'death or lost observations'; break; }
 				const found = result?.state === 'SUCCEEDED' && result?.reasonCode === 'FIND_SEEN';
+				if (spot.reachBiome && row.reachedAtS !== undefined) break;
+				const seen = result?.find?.seen;
+				if (spot.reachBiome && found && seen && Date.now() - t0 < budgetMs - 10_000) {
+					// A far sighting: the model's next call walks there (travel_to with its defaults), then finds again.
+					const walkStarted = Date.now();
+					let walked;
+					try {
+						walked = await runtime.execute({ agentId: record.agentId, goalRevision: record.goalRevision, turnId: `find-live-go-${callIndex}-${attempt}`, callId: `go-${callIndex}-${attempt}`,
+							tool: normalizeMinecraftToolCall('act', { actionType: 'travel_to', arguments: { x: seen.x + 0.5, y: seen.y + 1, z: seen.z + 0.5, tolerance: 3,
+								timeoutMs: Math.max(10_000, Math.min(300_000, budgetMs - (Date.now() - t0))) } }) }, record);
+					} catch (error) { walked = { state: 'ERROR', reasonCode: error?.code ?? 'ERROR', message: String(error?.message ?? error).slice(0, 300) }; }
+					row.calls.push({ call: 'travel_to', attempt, atS: Math.round((walkStarted - t0) / 1000), seconds: Math.round((Date.now() - walkStarted) / 1000), state: walked?.state, reasonCode: walked?.reasonCode, message: String(walked?.message ?? '').slice(0, 400) });
+					if (row.reachedAtS !== undefined) break;
+					continue;
+				}
 				if (found || !spot.repeat || result?.reasonCode === 'FIND_BLOCKED' || Date.now() - t0 >= budgetMs - 10_000) break;
 				// The provider-free stand-in for a model: give the reflexes a moment with danger, then ask again.
 				if (['RUNNING', 'PREPARING'].includes(result?.state) && typeof result?.actionId === 'string') {
@@ -218,7 +243,8 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		Object.assign(row, damageEvidence(damageBefore, await readDamage(), healthBefore, healthAfter));
 		row.deaths = (await deaths()) - deathsBefore;
 		row.finishedAt = Date.now();
-		row.pass = (spot.expectCode ? last?.reasonCode === spot.expectCode : row.found) && row.deaths === 0;
+		row.pass = (spot.reachBiome ? row.reachedAtS !== undefined && row.reachedAtS * 1000 <= budgetMs
+			: spot.expectCode ? last?.reasonCode === spot.expectCode : row.found) && row.deaths === 0;
 		await writeFile(path.join(dir, 'trail.json'), JSON.stringify(trail));
 		console.log(`[${spot.name}] ${row.found ? 'FOUND' : 'NOT FOUND'} in ${row.foundAtS ?? row.seconds}s walked=${row.path.walked} net=${row.path.net} farthest=${row.path.farthest} descended=${row.path.descended} damageTaken=${row.damageTaken ?? "unknown"} deaths=${row.deaths} handBacks=${row.handBacks}`);
 	} catch (error) {

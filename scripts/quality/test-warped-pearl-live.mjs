@@ -31,6 +31,10 @@ async function observe(){
 // repeated after each hand-back, eating when hungry. Results go to result.untilCalls.
 // STANDIN=roof (d41 fight-count): one count-mode call with roof:true for the whole window: fight_target on the nearest
 // seen enderman (untilItem ender_pearl, untilCount held+16), else fight_until on endermen; re-called after a hand-back.
+// FLEE_AT (default 8; the live model passed 14 on every hunt), CALL_TIMEOUT_MS=none (the model's untimed call: fight_until
+// runs its own default, fight_target the coordinator's 30 s), THINK_MS (a model turn between calls, default 0) and
+// PEARL_CLAMP=1 (the call passes through the coordinator's pearl-hunt defaults, pearl-hunt.mjs, as a model call does;
+// leave it unset on a base checkout that has no such module). Every call is capped at the window left.
 const STANDIN=process.env.STANDIN??'script';
 const gaze={id:'gaze',kind:'trigger',priority:9,when:{type:'enderman_gaze',within:64},do:{type:'look_away'},maxS:2,ttlS:3600};
 async function setRules(next){rules=next;await s.setReflexes(rules);}
@@ -164,8 +168,12 @@ try{
    const held=facts.inventory.items.filter(i=>i.itemId==='minecraft:ender_pearl').reduce((n,i)=>n+i.count,0);
    const leftMs=Math.max(1000,Math.min(600000,(ticks-((await gameTicks())-startTicks))*50));
    const e=facts.entities.filter(x=>x.type==='minecraft:enderman'&&x.visible!==false&&x.perceivedBy!=='sound'&&x.distance<=24).sort((a,b)=>a.distance-b.distance)[0];
-   const common={untilItem:'minecraft:ender_pearl',untilCount:held+16,fleeAtHealth:8,roof:true,timeoutMs:leftMs};
-   const [type,args]=e?['fight_target',{targetId:e.stableId,...common}]:['fight_until',{mob:'minecraft:enderman',...common}];
+   const untimed=process.env.CALL_TIMEOUT_MS==='none';
+   const common={untilItem:'minecraft:ender_pearl',untilCount:held+16,fleeAtHealth:Number(process.env.FLEE_AT??8),roof:true,...(untimed?{}:{timeoutMs:leftMs})};
+   let [type,args]=e?['fight_target',{targetId:e.stableId,...common,...(untimed?{timeoutMs:30000}:{})}]:['fight_until',{mob:'minecraft:enderman',...common}];
+   if(process.env.PEARL_CLAMP==='1'){const {pearlHuntDefaults}=await import('../../coordinator/src/pearl-hunt.mjs');const d=pearlHuntDefaults({actionType:type,arguments:args},{stance:null,observation:facts});args=d.tool.arguments;if(d.note)(result.clampNotes??=[]).push(d.note);}
+   args={...args,timeoutMs:Math.min(args.timeoutMs??180000,leftMs)};
+   if(Number(process.env.THINK_MS??0)>0)await sleep(Number(process.env.THINK_MS));
    const r=await act(type,args);
    result.untilCalls.push({atSeconds:(Date.now()-started)/1000,type,pearlsBefore:held,state:r.state,reason:r.reasonCode,message:String(r.message??'').slice(0,1800)});await save();
    if(r.reasonCode==='AGENT_DEAD')break;

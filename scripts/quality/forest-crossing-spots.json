@@ -1,0 +1,30 @@
+[
+  {
+    "name": "seven-rods-forest",
+    "seed": "8196621077778941313",
+    "monsters": true,
+    "repeat": true,
+    "budgetMs": 600000,
+    "reachBiome": "minecraft:warped_forest",
+    "locate": "biome minecraft:warped_forest",
+    "inventory": [
+      { "item": "minecraft:iron_pickaxe" }, { "item": "minecraft:iron_sword" }, { "item": "minecraft:bow" }, { "item": "minecraft:arrow", "count": 64 },
+      { "item": "minecraft:cooked_beef", "count": 64 }, { "item": "minecraft:cobblestone", "count": 64 }, { "item": "minecraft:cobblestone", "count": 64 },
+      { "item": "minecraft:water_bucket" }, { "item": "minecraft:crafting_table" }, { "item": "minecraft:oak_planks", "count": 32 },
+      { "item": "minecraft:flint_and_steel" }, { "item": "minecraft:blaze_rod", "count": 7 }
+    ],
+    "setup": [
+      "item replace entity Probe armor.head with minecraft:iron_helmet",
+      "item replace entity Probe armor.chest with minecraft:iron_chestplate",
+      "item replace entity Probe armor.legs with minecraft:iron_leggings",
+      "item replace entity Probe armor.feet with minecraft:iron_boots",
+      "item replace entity Probe weapon.offhand with minecraft:shield",
+      "execute in minecraft:the_nether run forceload add 5 119",
+      "execute in minecraft:the_nether run tp Probe 5.94 65 119.5"
+    ],
+    "after": { "ms": 4000, "commands": [] },
+    "calls": [
+      { "name": "do_step", "arguments": { "verb": "find", "target": { "biome": "minecraft:warped_forest" }, "why": "warped forest endermen for ender pearls" } }
+    ]
+  }
+]
