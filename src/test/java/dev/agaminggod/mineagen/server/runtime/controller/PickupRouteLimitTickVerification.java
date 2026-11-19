@@ -114,6 +114,8 @@ public final class PickupRouteLimitTickVerification {
 		for (int x = 1; x <= 8; x++) straight.add(new GridPosition(x, 64, 0));
 		long straightLimit = PickupBudget.walkLimitMs(8.0D, TIMEOUT_MS);
 		Fixture fixture = fixture(drop, straight);
+		// Built as a fight's or barter's drop collection builds it, with no keepsKnockbackMargin().
+		check(get(fixture.pickup, "knockbackHolds") == null, "a pickup that does not opt in has no knockback holds");
 		fixture.pickup.tick(fixture.player, 50L);
 		check((Long) get(fixture.pickup, "walkLimitMs") == straightLimit, "a straight route keeps the straight line's limit");
 		ServerController.TickResult late = fixture.pickup.tick(fixture.player, straightLimit + 50L);

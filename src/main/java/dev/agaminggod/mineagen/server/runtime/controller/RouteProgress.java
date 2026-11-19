@@ -58,6 +58,14 @@ final class RouteProgress {
 		plannedBest = remaining;
 	}
 
+	/**
+	 * Moves the stall window's start forward by {@code ms} the body stood still on purpose (a knockback hold), so the
+	 * hold neither counts toward the window nor forgives the stall time before it.
+	 */
+	void excuse(long ms) {
+		if (ms > 0L) anchorMs += ms;
+	}
+
 	Stop observe(double x, double y, double z, double remaining, long elapsedMs, boolean breathing) {
 		return observe(x, y, z, remaining, Double.NaN, elapsedMs, breathing);
 	}

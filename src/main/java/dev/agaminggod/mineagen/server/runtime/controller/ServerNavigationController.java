@@ -137,6 +137,14 @@ public final class ServerNavigationController implements ServerController {
 	private final LandingCheck landingCheck = new LandingCheck();
 	private boolean lineUpForJump;
 	private boolean crouched;
+	/**
+	 * The action's knockback holds, set by travel_to's forward legs, move_to and pick_up_item (issue 2, K9); null for every
+	 * other walk (fights, flees, shelters, retreats, drop collection), which keeps moving.
+	 */
+	private KnockbackHolds knockbackHolds;
+	/** This tick held for the knockback margin; read once at the top of the next tick. */
+	private boolean heldForKnockback;
+	private long lastElapsedMs;
 	/** The stall budget: the shared defaults unless one caller sets its own ({@link #stallBudget}). */
 	private long stallTimeoutMs = STALL_TIMEOUT_MS;
 	private int maxReplans = MAX_REPLANS;
@@ -178,6 +186,15 @@ public final class ServerNavigationController implements ServerController {
 
 	ServerNavigationController onLevel(int y) {
 		movementLevel = y;
+		return this;
+	}
+
+	/**
+	 * Holds a walking step that the knockback margin refuses while a mob is that close, counting against {@code holds},
+	 * which every walk of one action shares (see {@link KnockbackHolds}).
+	 */
+	public ServerNavigationController keepsKnockbackMargin(KnockbackHolds holds) {
+		this.knockbackHolds = Objects.requireNonNull(holds, "knockback holds must not be null");
 		return this;
 	}
 
@@ -232,6 +249,9 @@ public final class ServerNavigationController implements ServerController {
 
 	private TickResult tickInternal(ServerPlayer player, long nowEpochMs) {
 		Objects.requireNonNull(player, "player must not be null");
+		// Cleared here, not where the hold ends: a tick that returns early must not leave a stale hold for a later jump.
+		boolean heldLastTick = heldForKnockback;
+		heldForKnockback = false;
 		ResourceKey<Level> currentDimension = player.level().dimension();
 		if (startingDimension == null) {
 			startingDimension = currentDimension;
@@ -240,6 +260,8 @@ public final class ServerNavigationController implements ServerController {
 					"Agent player changed dimension during navigation", currentProgress());
 		}
 		long elapsedMs = elapsedTime.advance(nowEpochMs);
+		long tickMs = Math.max(0L, elapsedMs - lastElapsedMs);
+		lastElapsedMs = elapsedMs;
 		if (!player.isAlive()) {
 			return fail(player, "AGENT_DEAD", "Agent player died", currentProgress());
 		}
@@ -261,6 +283,8 @@ public final class ServerNavigationController implements ServerController {
 		if (breathingResult != null) return breathingResult;
 		double remaining = player.position().distanceTo(destination);
 		if (route == null) route = new RouteProgress(player.getX(), player.getY(), player.getZ(), remaining, elapsedMs);
+		// A knockback hold stands still on purpose (issue 2, K9): its time is not a stall.
+		if (heldLastTick) route.excuse(tickMs);
 		// Catching breath before a dive (air refilling with the eyes above water) is not standing still.
 		RouteProgress.Stop stop = route.observe(player.getX(), player.getY(), player.getZ(), remaining, routeRemaining(player.position()), elapsedMs,
 				!player.isUnderWater() && player.getAirSupply() < player.getMaxAirSupply());
@@ -383,7 +407,8 @@ public final class ServerNavigationController implements ServerController {
 			blockedMoveStepUp = stepUp;
 			blockedMoveTracking = player.horizontalCollision && groundedOnLand(player) && !jumpPending && !stepUp;
 		}
-		BlockedMoveDetector.Decision blockedDecision = reached ? BlockedMoveDetector.Decision.CONTINUE
+		if (heldLastTick) blockedMoveDetector.pause(nowEpochMs);
+		BlockedMoveDetector.Decision blockedDecision = reached || heldLastTick ? BlockedMoveDetector.Decision.CONTINUE
 				: blockedMoveDetector.observe(player.horizontalCollision, groundedOnLand(player), jumpPending, stepUp,
 						player.getX(), player.getZ(), nowEpochMs);
 		if (blockedDecision == BlockedMoveDetector.Decision.FAIL) {
@@ -432,7 +457,12 @@ public final class ServerNavigationController implements ServerController {
 			target = targetFor(world, waypoint, waypointIndex == plan.nodes().size() - 1);
 		}
 		List<PathNode> active = plan.nodes();
-		int steerIndex = waypoint.traversal() == TraversalType.WALK && player.onGround()
+		CombatPlanning.Margin knockbackMargin = knockbackHolds != null && player.onGround()
+				? CombatMoveText.knockbackMargin(player) : CombatPlanning.Margin.NONE;
+		// With a mob in knockback range the body keeps to the route's cells: a cut corner crosses cells beside lava that the
+		// margin never checked. A planned jump still lines up (a misaligned jump is the worse risk there).
+		int steerIndex = knockbackMargin.active() ? waypointIndex
+				: waypoint.traversal() == TraversalType.WALK && player.onGround()
 				? steeringIndex(world, player.position(), active, waypointIndex)
 				: fallingSteerIndex(active, waypointIndex, player.onGround());
 		Vec3 steer = steerIndex == waypointIndex ? target
@@ -455,8 +485,71 @@ public final class ServerNavigationController implements ServerController {
 			progress.waypointAdvanced(player.position().distanceTo(target), nowEpochMs);
 			return TickResult.running(lastProgressValue);
 		}
+		if (holdsForKnockback(player, waypoint, knockbackMargin, heldLastTick)) {
+			// Route progress waits for the mob, as it does at a door.
+			progress.waypointAdvanced(player.position().distanceTo(target), nowEpochMs);
+			heldForKnockback = true;
+			holdStill(player);
+			return TickResult.running(lastProgressValue);
+		}
 		drive(player, world, waypoint, target, steer, steerIndex == active.size() - 1, steerIndex == waypointIndex, nowEpochMs);
 		return TickResult.running(lastProgressValue);
+	}
+
+	/**
+	 * Whether this tick's walking step waits (issue 2, K9): a mob that can hit the body is within knockback range and the
+	 * step would put lava, fire or a damaging drop beside the body (the fight's route margin). Only standing on ground
+	 * before a walking step; swimming or climbing the walk goes on. A body knocked off the ground while holding keeps
+	 * braking until it lands, rather than steering at the refused step in the air. Never in lava or fire, where walking on
+	 * gets out sooner.
+	 */
+	private boolean holdsForKnockback(ServerPlayer player, PathNode waypoint, CombatPlanning.Margin margin, boolean heldLastTick) {
+		if (knockbackHolds == null || player.isInWater() || player.onClimbable() || player.isInLava() || player.isOnFire()) return false;
+		GridPosition feet = CombatMoveText.feet(player);
+		if (!player.onGround()) {
+			boolean braking = heldLastTick && !inHazardCell(ObservedTerrain.of(player), feet);
+			if (braking) knockbackHolds.heldAirborne();
+			return braking;
+		}
+		if (waypoint.traversal() != TraversalType.WALK) return false;
+		CombatPlanning.Refusal refusal = margin.active() && knockbackHolds.mayHold()
+				? knockbackRefusal(ObservedTerrain.of(player), feet, waypoint, margin) : null;
+		return knockbackHolds.observe(margin.active(), refusal);
+	}
+
+	/**
+	 * The cell the knockback margin refuses on the walking step toward {@code next}, or null to walk on. Never where the
+	 * body already stands beside lava, fire or a damaging drop (walking on leaves the edge sooner than standing on it), nor
+	 * where it stands in or on a hazard (walking on gets it out).
+	 */
+	static CombatPlanning.Refusal knockbackRefusal(WalkabilityView world, GridPosition feet, PathNode next, CombatPlanning.Margin margin) {
+		if (margin == null || !margin.active() || next.traversal() != TraversalType.WALK || inHazardCell(world, feet)) return null;
+		CombatPlanning.Refusal refusal = CombatPlanning.routeMarginRefusal(world, feet, next.position(), next.traversal(), margin);
+		return refusal == null || exposedBeside(world, feet) ? null : refusal;
+	}
+
+	/** The feet cell or the block under it is a hazard (lava, fire, magma and the like). */
+	static boolean inHazardCell(WalkabilityView world, GridPosition feet) {
+		return world.cellAt(feet) == WalkabilityView.Cell.HAZARD || world.cellAt(feet.below()) == WalkabilityView.Cell.HAZARD;
+	}
+
+	/** Lava, fire or a damaging drop in one of the four cells beside the feet. */
+	static boolean exposedBeside(WalkabilityView world, GridPosition feet) {
+		for (int[] step : new int[][] {{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) {
+			if (CombatPlanning.unsafeColumn(world, new GridPosition(feet.x() + step[0], feet.y(), feet.z() + step[1])) != null) return true;
+		}
+		return false;
+	}
+
+	/** Whether the last tick held still for the knockback margin; travel's stall watch excuses that tick. */
+	boolean heldForKnockback() {
+		return heldForKnockback;
+	}
+
+	/** Stands still: presses against the body's sliding motion, scaled to it so a slow body is not walked backward. */
+	private void holdStill(ServerPlayer player) {
+		Vec3 motion = player.getDeltaMovement();
+		brake(player, motion, (float) Math.min(1.0D, motion.horizontalDistance() / 0.1D));
 	}
 
 	/** Whether the body is following a planned walking stretch now (no jump, drop, swim or climb under way). Read-only. */
@@ -762,7 +855,7 @@ public final class ServerNavigationController implements ServerController {
 			// until it stops (a navigate_to that stopped 0.2 past the middle of a cell with lava on two sides slid into it).
 			endpointStabilityPosition = null;
 			endpointStabilityConfirmed = false;
-			brake(player, motion);
+			brake(player, motion, 1.0F);
 			return TickResult.running(lastProgressValue);
 		}
 		if (endpointStabilityPosition != null
@@ -1078,7 +1171,8 @@ public final class ServerNavigationController implements ServerController {
 				step.state().yaw(), step.state().pitch(), player.getInventory().getSelectedSlot(), InteractionHand.MAIN_HAND));
 	}
 
-	private void brake(ServerPlayer player, Vec3 motion) {
+	/** Presses against {@code motion} at {@code amount} of full input; takes the lease if no walk input has yet. */
+	private void brake(ServerPlayer player, Vec3 motion, float amount) {
 		if (inputLease == null) {
 			inputController = AgentInputRuntime.controller(player);
 			inputLease = inputController.acquire(AgentInputRuntime.requireAgentId(player), InputOwner.NAVIGATION, 100);
@@ -1087,7 +1181,7 @@ public final class ServerNavigationController implements ServerController {
 		float[] keys = brakeInput(motion, yaw);
 		lastSprint = false;
 		inputController.apply(inputLease, new dev.agaminggod.mineagen.server.runtime.input.AgentInputState(
-				keys[0], keys[1], false, crouched, false, false, false, yaw, pitch,
+				keys[0] * amount, keys[1] * amount, false, crouched, false, false, false, yaw, pitch,
 				player.getInventory().getSelectedSlot(), InteractionHand.MAIN_HAND));
 	}
 
@@ -1992,7 +2086,17 @@ public final class ServerNavigationController implements ServerController {
 		return String.format(java.util.Locale.ROOT, "; replans %d; walked %.1f, left %.1f; stopped at %.2f,%.2f,%.2f",
 				continuation.replans(), route == null ? 0.0D : route.walked(), player.position().distanceTo(destination),
 				player.getX(), player.getY(), player.getZ())
-				+ (route == null ? "" : route.closestFacts());
+				+ (route == null ? "" : route.closestFacts()) + knockbackFacts();
+	}
+
+	/** The action's knockback holds so far (every walk of it shares them), or nothing when it held none. */
+	String knockbackFacts() {
+		CombatPlanning.Refusal last = knockbackHolds == null ? null : knockbackHolds.lastRefusal();
+		if (last == null) return "";
+		GridPosition at = last.at();
+		String what = last.kind() == CombatPlanning.RefusalKind.DROP ? "a " + last.drop() + "-block drop" : "lava or fire";
+		return String.format(java.util.Locale.ROOT, "; held %d time(s), %.1f s in all, with a mob within %.0f blocks and %s beside the next step (last at %d,%d,%d)",
+				knockbackHolds.holds(), knockbackHolds.heldTicks() / 20.0D, CombatPlanning.Margin.KNOCKBACK_RANGE, what, at.x(), at.y(), at.z());
 	}
 
 	private double currentProgress() {

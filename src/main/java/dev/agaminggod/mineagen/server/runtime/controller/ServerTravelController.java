@@ -124,6 +124,8 @@ public final class ServerTravelController implements ServerController {
 
 	private final double targetX, targetZ, targetY;
 	private boolean routeLeg;
+	/** travel_to's own trip keeps the knockback margin on its forward legs (issue 2, K9); null on every other trip. */
+	private KnockbackHolds knockbackHolds;
 	private final double tolerance;
 	private final long timeoutMs;
 	private final boolean build;
@@ -241,6 +243,12 @@ public final class ServerTravelController implements ServerController {
 	/** A remembered route leg needs its actual height, including a shaft's next standing level. */
  ServerTravelController routeLeg() { this.routeLeg=true; return this; }
 
+	/** One set of knockback holds for the whole trip, spent only by its forward legs (see {@link #startForwardLeg}). */
+	public ServerTravelController keepsKnockbackMargin() {
+		this.knockbackHolds = new KnockbackHolds();
+		return this;
+	}
+
 	/** Lets the trip dig a dig_to staircase when the target is below or above and no seen way there gets closer. */
 	public ServerTravelController descend(Descent descent) {
 		this.descent = descent;
@@ -310,6 +318,7 @@ public final class ServerTravelController implements ServerController {
 		// read as stalled forward travel: building on toward the target would send the body back at the hazard.
 		boolean standsOnPurpose = retreatCode != null || phase == Phase.FIGHT || phase == Phase.WATCH || phase == Phase.DIG || portalLeg;
 		if (standsOnPurpose) stallWatch.reset();
+		else if (leg != null && leg.heldForKnockback()) stallWatch.excuse(1);
 		TravelStallWatch.Verdict still = standsOnPurpose ? null : stallWatch.observe(ticks, position.x, position.y, position.z, work);
 		if (phase == Phase.FIGHT) return fightTick(player, nowEpochMs);
 		double left = left(position);
@@ -847,7 +856,7 @@ public final class ServerTravelController implements ServerController {
 				format((System.nanoTime() - pickStarted) / 1.0E6D) + " columns=" + java.util.Arrays.toString(TravelCheckpoints.LAST_PICK.get()));
 		if (next != null) {
 			legFinal = next.finalApproach();
-			startLeg(player, next.feet(), nowEpochMs);
+			startForwardLeg(player, next.feet(), nowEpochMs);
 			legAllowedBacktrack += next.backtrack();
 			return leg(player, nowEpochMs);
 		}
@@ -865,7 +874,7 @@ public final class ServerTravelController implements ServerController {
 			if (detour != null) {
 				refused.add(detour);
 				legFinal = false;
-				startLeg(player, detour, nowEpochMs);
+				startForwardLeg(player, detour, nowEpochMs);
 				return leg(player, nowEpochMs);
 			}
 		}
@@ -930,6 +939,15 @@ public final class ServerTravelController implements ServerController {
 			phase = Phase.PLAN;
 		}
 		return TickResult.running(progress(player));
+	}
+
+	/**
+	 * A leg toward a picked checkpoint or detour: the only legs that keep the trip's knockback margin. A lava retreat
+	 * must not stand still with the flow coming, and a build step's drop leg is already at its lip.
+	 */
+	private void startForwardLeg(ServerPlayer player, GridPosition feet, long nowEpochMs) {
+		startLeg(player, feet, nowEpochMs, LEG_TOLERANCE);
+		if (knockbackHolds != null) leg.keepsKnockbackMargin(knockbackHolds);
 	}
 
 	private void startLeg(ServerPlayer player, GridPosition feet, long nowEpochMs) {

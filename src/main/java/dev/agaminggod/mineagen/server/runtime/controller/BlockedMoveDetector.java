@@ -16,6 +16,11 @@ final class BlockedMoveDetector {
 	private boolean started;
 	private boolean replanned;
 
+	/** A tick the walk held still on purpose: its time does not count toward the blocked window, nor reset it. */
+	void pause(long nowMs) {
+		if (started) previousTimeMs = Math.max(previousTimeMs, nowMs);
+	}
+
 	Decision observe(
 			boolean horizontalCollision,
 			boolean onGround,
