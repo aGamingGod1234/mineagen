@@ -40,6 +40,9 @@ final class WarpedForestHunt {
 	private static final int HEADINGS = 16;
 	private static final int SCAN_UP = 6;
 	private static final int SCAN_DOWN = 8;
+	/** How often (game ticks) the body reads the rings in its view while it hunts. */
+	static final long LOOK_TICKS = 10L;
+	private static final int MAX_FLOORS = 256;
 
 	/** What a quiet spell leads to. */
 	enum Quiet { WAIT, RELOCATE }
@@ -47,6 +50,9 @@ final class WarpedForestHunt {
 	private final Vec3 start;
 	private final List<Vec3> searched = new ArrayList<>();
 	private final List<Vec3> refused = new ArrayList<>();
+	/** Standing points seen while hunting (look), and their columns, for the call. */
+	private final List<Vec3> floors = new ArrayList<>();
+	private final java.util.Set<Long> floorColumns = new java.util.HashSet<>();
 	private ServerNavigationController walk;
 	private Vec3 walkGoal;
 	private String walkVia;
@@ -69,7 +75,7 @@ final class WarpedForestHunt {
 	}
 
 	static String biomeAt(ServerPlayer player) {
-		return player.level().getBiome(player.blockPosition()).unwrapKey().map(key -> key.identifier().toString()).orElse(null);
+		return biomeAt(player, player.blockPosition());
 	}
 
 	/** A quiet spell: no enderman sensed for QUIET_MS, or the area cleared after a look around. */
@@ -134,32 +140,53 @@ final class WarpedForestHunt {
 		return Math.hypot(a.x - b.x, a.z - b.z);
 	}
 
-	/** Seen warped nylium with two seen free cells above it, on rings 16, 24 and 32 blocks out, as standing points. */
-	static List<Vec3> seenFloors(ServerPlayer player) {
-		List<Vec3> out = new ArrayList<>();
+	/**
+	 * What the eye sees now of standing points on rings 16, 24 and 32 blocks out, kept for the call: a seen block with a
+	 * full top face in the warped forest (its teal nylium and fungi show it) and two seen free cells above. Seen terrain is
+	 * remembered only for cells read while in view, so the body reads the rings in its view cone as it looks around
+	 * (every LOOK_TICKS), not once when it decides.
+	 */
+	void look(ServerPlayer player) {
 		var seen = SeenTerrain.of(player);
 		BlockPos feet = player.blockPosition();
+		Vec3 view = player.getViewVector(1.0F);
+		double viewFlat = Math.hypot(view.x, view.z);
 		for (double ring = STEP_MIN; ring <= STEP_MAX; ring += 8.0D) {
 			for (int heading = 0; heading < HEADINGS; heading++) {
 				double angle = heading * Math.PI * 2.0D / HEADINGS;
-				int x = feet.getX() + (int) Math.round(-Math.sin(angle) * ring), z = feet.getZ() + (int) Math.round(Math.cos(angle) * ring);
+				double dx = -Math.sin(angle), dz = Math.cos(angle);
+				// Only the columns in front of the eye can be seen now (ObservationVisibility's cone is wider than this).
+				if (viewFlat > 1.0E-3D && (dx * view.x + dz * view.z) / viewFlat < 0.3D) continue;
+				int x = feet.getX() + (int) Math.round(dx * ring), z = feet.getZ() + (int) Math.round(dz * ring);
+				long column = BlockPos.asLong(x, 0, z);
+				if (floorColumns.contains(column)) continue;
 				for (int y = feet.getY() + SCAN_UP; y >= feet.getY() - SCAN_DOWN; y--) {
+					BlockPos at = new BlockPos(x, y, z);
 					BlockState ground = seen.known(x, y, z);
-					if (ground == null || !"minecraft:warped_nylium".equals(BuiltInRegistries.BLOCK.getKey(ground.getBlock()).toString())) continue;
+					if (ground == null || ground.getCollisionShape(player.level(), at).isEmpty()) continue;
 					BlockState feetCell = seen.known(x, y + 1, z), headCell = seen.known(x, y + 2, z);
-					if (feetCell != null && headCell != null && feetCell.getCollisionShape(player.level(), new BlockPos(x, y + 1, z)).isEmpty()
-							&& headCell.getCollisionShape(player.level(), new BlockPos(x, y + 2, z)).isEmpty() && feetCell.getFluidState().isEmpty())
-						out.add(new Vec3(x + 0.5D, y + 1, z + 0.5D));
+					if (feetCell != null && headCell != null && ground.isFaceSturdy(player.level(), at, net.minecraft.core.Direction.UP)
+							&& feetCell.getCollisionShape(player.level(), at.above()).isEmpty() && feetCell.getFluidState().isEmpty()
+							&& headCell.getCollisionShape(player.level(), at.above(2)).isEmpty() && headCell.getFluidState().isEmpty()
+							&& BIOME.equals(biomeAt(player, at.above()))) {
+						floorColumns.add(column);
+						floors.add(new Vec3(x + 0.5D, y + 1, z + 0.5D));
+						if (floors.size() > MAX_FLOORS) floors.remove(0);
+					}
 					break;
 				}
 			}
 		}
-		return out;
+	}
+
+	static String biomeAt(ServerPlayer player, BlockPos at) {
+		return player.level().getBiome(at).unwrapKey().map(key -> key.identifier().toString()).orElse(null);
 	}
 
 	/** Starts a relocation walk toward the next destination; false when there is none (the forest is used up from here). */
 	boolean startWalk(ServerPlayer player, Vec3 outsideSighting, long now) {
-		Vec3 goal = choose(player.position(), start, searched, refused, outsideSighting, seenFloors(player));
+		look(player);
+		Vec3 goal = choose(player.position(), start, searched, refused, outsideSighting, floors);
 		if (goal == null) { emptyScans++; return false; }
 		emptyScans = 0;
 		cancel(player);

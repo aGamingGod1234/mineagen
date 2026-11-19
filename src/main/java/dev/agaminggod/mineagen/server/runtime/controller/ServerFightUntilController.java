@@ -476,6 +476,7 @@ public final class ServerFightUntilController implements ServerController {
 			rememberSeenDrops(player);
 			if (roams() || forest != null) rememberSightings(player, elapsed);
 		}
+		if (forest != null && !forest.walking() && gameTick % WarpedForestHunt.LOOK_TICKS == 0L) forest.look(player);
 		boolean fireContact = !immune && HazardExits.contact(player) == HazardExits.Contact.FIRE;
 		InteractionHand shieldHand = !immune && !roofed && choices.guardShield(player.getOffhandItem().getItem() instanceof ShieldItem) ? InteractionHand.OFF_HAND : null;
 		if (shieldHand != null) {
