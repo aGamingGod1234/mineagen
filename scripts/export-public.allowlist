@@ -983,6 +983,7 @@ scripts/quality/lib/scripted-planner.mjs
 scripts/quality/lib/stake-comparison.mjs
 scripts/quality/make-checkpoint.mjs
 scripts/quality/measure-tick-rate.mjs
+scripts/quality/mod-jar.mjs
 scripts/quality/nether-travel-metrics.mjs
 scripts/quality/obtain-handbacks.mjs
 scripts/quality/operator-stop.mjs
