@@ -2,6 +2,8 @@
 
 Mineagen lets an AI model play Minecraft Java through a real player body, using Codex or Claude Code as its brain.
 
+[ARCHITECTURE.md](ARCHITECTURE.md) draws out every system: the mod, the bridge, the coordinator, the model providers, the client UI and the test tooling.
+
 ## How it works
 
 Each agent is a player on the server. It has collision, gravity, health, hunger and an inventory, and it plays in Survival, Creative or Adventure. The world runs at normal speed and nothing is slowed down for the agent.
@@ -104,7 +106,8 @@ To build the package yourself, see [DEVELOPMENT.md](DEVELOPMENT.md).
 ## More
 
 - [DEVELOPMENT.md](DEVELOPMENT.md): building, Minecraft targets, tests, the Windows package and detailed behaviour.
-- [docs/architecture.md](docs/architecture.md): how the agent system and body loop work.
+- [ARCHITECTURE.md](ARCHITECTURE.md): a map of every system and how they connect.
+- [docs/architecture.md](docs/architecture.md): the body loop in detail, and where full-game runs get stuck.
 - [CONTRIBUTING.md](CONTRIBUTING.md): how to build, test and open a pull request.
 - Source: https://github.com/aGamingGod1234/mineagen
 

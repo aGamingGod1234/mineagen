@@ -18,6 +18,7 @@
 .github/workflows/release.yml
 .gitignore
 AGENTS.md
+ARCHITECTURE.md
 CLAUDE.md
 DESIGN.json
 DESIGN.md
