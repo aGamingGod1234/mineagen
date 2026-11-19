@@ -59,8 +59,11 @@ public final class ForestHuntVerification {
 	}
 
 	private static void verifyUnreachable() {
-		check(!WarpedForestHunt.unreachable(2), "two failed relocation walks: try another destination");
-		check(WarpedForestHunt.unreachable(3), "three failed relocation walks in a row: FOREST_UNREACHABLE");
+		check(!WarpedForestHunt.unreachable(7), "seven failed relocation walks: try another heading");
+		check(WarpedForestHunt.unreachable(8), "every heading failed in a row: FOREST_UNREACHABLE");
+		check(WarpedForestHunt.retryNow(2) && !WarpedForestHunt.retryNow(3), "after three quick failures the body looks around a quiet spell before the next walk");
+		check(WarpedForestHunt.QUIET_MS * (WarpedForestHunt.MAX_FAILED_WALKS - WarpedForestHunt.QUICK_RETRIES) >= ServerFightUntilController.NO_TARGET_MS,
+				"failed walks never hand back sooner than the old 30 s wait");
 		check(!WarpedForestHunt.nowhereLeft(2), "an empty scan looks around another quiet spell (no hand-back sooner than the old 30 s)");
 		check(WarpedForestHunt.nowhereLeft(3), "three empty scans in a row: the forest here is used up, FOREST_UNREACHABLE");
 		check(WarpedForestHunt.MAX_EMPTY_SCANS * WarpedForestHunt.QUIET_MS >= ServerFightUntilController.NO_TARGET_MS, "never hands back sooner than the old wait");

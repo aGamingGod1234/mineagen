@@ -856,8 +856,8 @@ public final class ServerFightUntilController implements ServerController {
 			note("relocation walk to " + cell(forest.goal()) + " did not arrive (" + forest.lastFailure() + ")");
 			if (WarpedForestHunt.unreachable(forest.failedInRow()))
 				return stop(player, TickResult.failed("FOREST_UNREACHABLE", forest.unreachableText(false), progress(player)));
-			// Another destination at once: the spell is still quiet.
-			lastTargetMs = elapsed - WarpedForestHunt.QUIET_MS;
+			// The next destination at once for the first few; then a look around through a quiet spell first.
+			lastTargetMs = WarpedForestHunt.retryNow(forest.failedInRow()) ? elapsed - WarpedForestHunt.QUIET_MS : elapsed;
 			return TickResult.running(progress(player));
 		}
 		if (WarpedForestHunt.quiet(elapsed, lastTargetMs, areaClear) == WarpedForestHunt.Quiet.WAIT) return null;

@@ -30,7 +30,10 @@ final class WarpedForestHunt {
 	static final double NEW_GROUND = 16.0D;
 	/** Destinations stay within this many blocks of where the call started. */
 	static final double FOREST_RANGE = 96.0D;
-	static final int MAX_FAILED_WALKS = 3;
+	/** Every compass heading from one spot: a lava-sea shore blocks most of them (live round 4: 3 NO_ROUTE in 14 s). */
+	static final int MAX_FAILED_WALKS = 8;
+	/** Failed walks retried at once; after these the body looks around through a quiet spell first (more ground seen). */
+	static final int QUICK_RETRIES = 3;
 	/** Quiet spells in a row whose scan found no destination before the forest counts as used up (seen terrain fades in 10 s). */
 	static final int MAX_EMPTY_SCANS = 3;
 	/** Shelters one call may build: each costs a shelter's blocks and a build's time, so contacts after these fight in the open. */
@@ -105,6 +108,11 @@ final class WarpedForestHunt {
 	/** In forest mode a shelter short of blocks drops the roof for the call; outside it K11's stop stands. */
 	static boolean dropsRoof(boolean forest, String code) {
 		return forest && "ROOF_BLOCKS_MISSING".equals(code);
+	}
+
+	/** After a failed walk: try the next destination now, or look around through a quiet spell first. */
+	static boolean retryNow(int failedInRow) {
+		return failedInRow < QUICK_RETRIES;
 	}
 
 	static boolean unreachable(int failedInRow) {
