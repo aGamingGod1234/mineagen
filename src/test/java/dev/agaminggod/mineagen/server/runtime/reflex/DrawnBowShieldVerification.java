@@ -33,6 +33,8 @@ public final class DrawnBowShieldVerification {
 		check("incoming_projectile".equals(incoming.type()) && incoming.flag("drawn"), "default-arrow senses a drawn bow");
 		check(incoming.number("withinS", 0.0D) == 0.6D && arrow.priority() == 7 && "shield".equals(arrow.action().type()),
 				"its arrow window, priority and action are unchanged");
+		check(arrow.maxMs() == 10_000L && arrow.maxMs() > ReflexSpec.DEFAULT_TRIGGER_MAX_MS,
+				"two skeletons drawing in turn do not time the shield out four times in a row and switch it off");
 	}
 
 	private static void modelRulesKeepTheArrowOnly() {

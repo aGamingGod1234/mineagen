@@ -142,6 +142,7 @@
 		"do": {
 			"type": "shield"
 		},
+		"maxMs": 10000,
 		"ttlMs": 3600000,
 		"coordinatorDefault": true
 	},
