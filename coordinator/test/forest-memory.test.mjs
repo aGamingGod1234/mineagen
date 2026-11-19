@@ -58,3 +58,12 @@ test('pearl options and find read the remembered forest', () => {
 	assert.equal(places[0].via, 'remembered sighting');
 	assert.equal(rememberedPlaces(findProfile({ biome: 'minecraft:crimson_forest' }, NETHER), known, [], { x: 0, y: 70, z: 0 }).length, 0);
 });
+
+test('a cell the body stood in keeps that verified point over a later far survey row of the same 32-block cell', () => {
+	const search = createSearch();
+	recordSightings(search, {}, 1, () => undefined, { dimension: NETHER, biome: 'minecraft:warped_forest', at: { x: 100, y: 70, z: 280 } });
+	recordSightings(search, { biomes: [{ biome: 'minecraft:warped_forest', x: 110, y: 90, z: 270 }] }, 2, () => undefined, { dimension: NETHER });
+	const rows = [...search.sightings.values()].filter((row) => row.kind === 'biome');
+	assert.equal(rows.length, 1);
+	assert.deepEqual([rows[0].x, rows[0].z, rows[0].standing], [100, 280, true]);
+});

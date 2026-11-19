@@ -658,7 +658,7 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 				message: `Stopped for danger: ${fork !== undefined ? `${fork} (${stop})` : stop}${outcome.result?.message ? ` (${String(outcome.result.message).slice(0, 200)})` : ''}; also seen: ${describe(outcome.seen)}` };
 		}
 		if (outcome.ended) return outcome.ended;
-		if (outcome.seen) return approaching || !netherBiome() || outcome.seen.via === 'standing in it' ? found(outcome.seen) : approachSeen(outcome.seen);
+		if (outcome.seen) return arrive(outcome.seen);
 		if (outcome.interrupted) {
 			// The steer that stopped it is the model's fork; its reason leads the message (obtain keeps the first 160 characters).
 			let why = '';
@@ -786,15 +786,19 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 				const at = bodyAt(observation);
 				const away = Math.hypot(goal.x + 0.5 - at.x, goal.z + 0.5 - at.z);
 				if (away <= APPROACH_ARRIVE) return { stuck: `reached ${goal.x},${goal.y},${goal.z} but the ground there is not ${profile.label}` };
+				// The caller's within holds for the approach too: no leg ends beyond it.
+				if (!insideBoundary({ x: goal.x + 0.5, z: goal.z + 0.5 })) return { stuck: `${goal.x},${goal.y},${goal.z} lies beyond within ${within} of the start` };
+				const room = Math.floor(withinReach());
+				if (room < MIN_SURFACE_LEG) return { stuck: `at the edge of within ${within} of the start; ${Math.round(away)} blocks left` };
 				if (stuck >= APPROACH_STUCK) return { stuck: `${stuck} approach legs in a row gained under ${APPROACH_GAIN} blocks; ${Math.round(away)} blocks left` };
 				const yaw = wrap(Math.round(Math.atan2(-(goal.x + 0.5 - at.x), goal.z + 0.5 - at.z) * 180 / Math.PI) + APPROACH_TURNS[stuck % APPROACH_TURNS.length]);
 				legsRun += 1;
-				const walkOut = await leg(`approach ${what} (${Math.round(away)} blocks)`, 'travel_to', { yaw, distance: Math.min(APPROACH_LEG, Math.ceil(away)), build: false }, standingIn);
+				const walkOut = await leg(`approach ${what} (${Math.round(away)} blocks)`, 'travel_to', { yaw, distance: Math.min(APPROACH_LEG, Math.ceil(away), room), build: false }, standingIn);
 				const walkEnd = lavaLip(walkOut) ? null : await settle(walkOut);
 				if (walkEnd !== null) return walkEnd;
 				let after = bodyAt(observation), gain = away - Math.hypot(goal.x + 0.5 - after.x, goal.z + 0.5 - after.z);
 				if (gain < APPROACH_GAIN && standingIn(observation) === null && budget >= MIN_SURFACE_LEG && left() >= MIN_LEG_MS) {
-					const distance = Math.min(BUILD_LEG, budget, Math.ceil(away));
+					const distance = Math.min(BUILD_LEG, budget, Math.ceil(away), Math.max(1, Math.floor(withinReach())));
 					budget -= distance;
 					const built = await leg(`build toward ${what}`, 'travel_to', { yaw, distance, build: true }, standingIn);
 					const buildEnd = lavaLip(built) ? null : await settle(built);
@@ -808,6 +812,8 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 			return handBack('TIMED_OUT', 'FIND_BUDGET', `The search time ran out approaching ${what}`);
 		} finally { approaching = false; }
 	};
+	// Every sighting ends here: a Nether biome is found only standing in it, anything else on sight.
+	const arrive = (seen) => (approaching || !netherBiome() || seen.via === 'standing in it' ? found(seen) : approachSeen(seen));
 	const approachSeen = async (seen) => {
 		const reached = await approach(seen, `the ${profile.label} seen at ${seen.x},${seen.y},${seen.z}`);
 		if (reached?.stuck === undefined) return reached;
@@ -975,7 +981,7 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 		if (!opened.seen) return null;
 		const away = bodyAt(observation);
 		await leg('step out of its flow', 'move_to', { x: Math.floor(away.x) - 2 * dir.x + 0.5, y: Math.floor(away.y + 1e-3), z: Math.floor(away.z) - 2 * dir.z + 0.5, tolerance: 0.5 });
-		return found(opened.seen);
+		return arrive(opened.seen);
 	};
 
 	// Water heard but not seen (behind the look's four headings, above or below the eye): a look toward it, as a player
@@ -1076,7 +1082,7 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 	};
 
 	let seen = check();
-	if (seen !== null) return found(seen);
+	if (seen !== null) return arrive(seen);
 	// A block that never generates in this dimension (an oak log in the Nether): no search here turns one up. One
 	// program made 140 NO_ROUTE legs looking for oak logs in the Nether. A block the game data does not place is unknown.
 	{

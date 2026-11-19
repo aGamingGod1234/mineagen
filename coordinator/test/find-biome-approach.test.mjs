@@ -11,11 +11,11 @@ const NETHERRACK = { itemId: 'minecraft:netherrack', count: 64 };
  * fail (NO_ROUTE, no movement); the biome follows the position. walls: how many walking legs in a row fail before one
  * gets through; buildWorks: whether a building leg moves.
  */
-function netherBody({ dimension = 'minecraft:the_nether', looks = [], walls = () => false, buildWorks = true, known = null, danger = null, dangerCode = 'LAVA_AHEAD', items = [NETHERRACK] } = {}) {
+function netherBody({ sighted = null, dimension = 'minecraft:the_nether', looks = [], walls = () => false, buildWorks = true, known = null, danger = null, dangerCode = 'LAVA_AHEAD', items = [NETHERRACK] } = {}) {
 	let at = { x: 0.5, y: 70, z: 0.5 }, clock = 0, walksTried = 0;
 	const calls = [], missed = [];
 	const biome = () => (at.z >= FOREST_Z ? 'minecraft:warped_forest' : dimension === 'minecraft:the_nether' ? 'minecraft:basalt_deltas' : 'minecraft:plains');
-	const sample = () => ({ player: { ...at, yaw: 0, health: 20 }, world: { dimension, biome: biome() }, inventory: { items: structuredClone(items) } });
+	const sample = () => ({ player: { ...at, yaw: 0, health: 20 }, world: { dimension, biome: biome() }, inventory: { items: structuredClone(items) }, ...(sighted && calls.length === 0 ? { sighted } : {}) });
 	return {
 		calls, missed,
 		now: () => clock,
@@ -109,4 +109,20 @@ test('an Overworld biome is still found on sight (no approach)', async () => {
 	assert.equal(result.reasonCode, 'FIND_SEEN');
 	assert.equal(result.find.seen.via, 'survey');
 	assert.equal(body.calls.filter((call) => call.actionType === 'travel_to').length, 0);
+});
+
+test('a forest already in the first sample (sighted.biomes) is approached too: found means standing in it', async () => {
+	const body = netherBody({ sighted: { biomes: [{ biome: 'minecraft:warped_forest', x: 0, y: 70, z: 90 }] } });
+	const result = await searchFor({ biome: 'minecraft:warped_forest' }, body, { timeoutMs: 540_000 });
+	assert.equal(result.reasonCode, 'FIND_SEEN');
+	assert.equal(result.find.seen.via, 'standing in it');
+	assert.ok(body.calls.some((call) => call.actionType === 'travel_to'), 'the body walked in');
+});
+
+test('the approach keeps to the caller within: a forest beyond it is not walked to', async () => {
+	const body = netherBody({ looks: [seenForest] });
+	const result = await searchFor({ biome: 'minecraft:warped_forest' }, body, { timeoutMs: 540_000, within: 60 });
+	assert.notEqual(result.reasonCode, 'FIND_SEEN');
+	for (const call of body.calls.filter((entry) => entry.actionType === 'travel_to')) assert.ok(call.args.distance <= 60);
+	assert.match(result.message, /beyond within 60|edge of within 60|Searched to 60/);
 });

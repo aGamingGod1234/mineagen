@@ -328,6 +328,7 @@ export const FAILURE_CODES = Object.freeze({
 	AREA_CLEARED: ['entity', null],
 	// fight_until forest mode (WarpedForestHunt): relocation walks kept failing, or no seen forest floor left to walk to.
 	FOREST_UNREACHABLE: ['cell', null],
+	FOREST_SEARCHED_OUT: ['cell', null],
 	BURNING: ['threat', null],
 	SPOT_UNREACHABLE: ['cell', null],
 	// roof:true against endermen: not enough carried blocks, the shelter build failed, the sill could not be aimed at.

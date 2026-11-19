@@ -15,7 +15,7 @@ const TRANSIENT = new Set(['cave', 'vein', 'lava', 'mob']);
 const SOURCE_MOBS = new Set(['minecraft:blaze', 'minecraft:enderman']);
 const SPAWNER = 'minecraft:spawner';
 // Biomes a need goes back to, from a survey row or the biome the body stands in: endermen are the warped forest's usual
-// mob (pearls). Seven-rods scouts lost a forest once it left the 96-block Nether view. One row per 64-block cell, at
+// mob (pearls). Seven-rods scouts lost a forest once it left the 96-block Nether view. One row per 32-block cell (as structures), at
 // most MAX_BIOME_SIGHTINGS (the oldest goes first), so a long walk through a forest cannot push out a fortress.
 export const REMEMBERED_BIOMES = new Set(['minecraft:warped_forest']);
 const MAX_BIOME_SIGHTINGS = 4;
@@ -230,6 +230,8 @@ export function recordSightings(search, sighted, tick, blockAt = () => undefined
 			search.withdrawn.delete(at);
 		}
 		const key = `${what}@${Math.floor(row.x / cell)},${TRANSIENT.has(kind) ? `${Math.floor(row.y / cell)},` : ''}${Math.floor(row.z / cell)}`;
+		// A cell where the body stood in the biome keeps that verified point over a far survey row of the same cell.
+		if (kind === 'biome' && extra.standing !== true && search.sightings.get(key)?.standing === true) return;
 		// A far row does not show the spawner's mob; a closer look that did stays known.
 		const mob = extra.mob ?? search.sightings.get(key)?.mob;
 		touchSighting(search.sightings, key,
@@ -249,10 +251,10 @@ export function recordSightings(search, sighted, tick, blockAt = () => undefined
 	for (const row of rows('caves')) if (Number.isFinite(row.air) && row.air >= CAVE_MIN_AIR) keep(row, 'cave', 'cave', 16, { air: row.air });
 	for (const row of rows('biomes')) {
 		const biome = typeof row.biome === 'string' ? (row.biome.includes(':') ? row.biome : `minecraft:${row.biome}`) : null;
-		if (REMEMBERED_BIOMES.has(biome)) keep(row, biome, 'biome', 64);
+		if (REMEMBERED_BIOMES.has(biome)) keep(row, biome, 'biome', 32);
 	}
 	if (REMEMBERED_BIOMES.has(seen.biome) && seen.at && [seen.at.x, seen.at.y, seen.at.z].every(Number.isFinite))
-		keep({ x: Math.floor(seen.at.x), y: Math.floor(seen.at.y), z: Math.floor(seen.at.z) }, seen.biome, 'biome', 64, { standing: true });
+		keep({ x: Math.floor(seen.at.x), y: Math.floor(seen.at.y), z: Math.floor(seen.at.z) }, seen.biome, 'biome', 32, { standing: true });
 	for (const row of rows('veins')) if (Number.isFinite(row.visible)) keep(row, row.blockId, 'vein', 8, { visible: row.visible });
 	for (const row of rows('blocks')) {
 		if (row.blockId === 'minecraft:lava') keep(row, row.blockId, 'lava', 16, Number.isFinite(row.count) ? { count: row.count } : {});

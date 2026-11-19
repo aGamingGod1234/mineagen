@@ -359,6 +359,14 @@ public final class ServerFightUntilController implements ServerController {
 	private WarpedForestHunt forest;
 	/** Forest mode with roof:true: a shelter is built at the next contact with a calm enderman, while blocks last. */
 	private boolean roofWanted;
+	/** Forest mode: the calm enderman in range the body has kept in view (ForestRoof), and the last shelter it left. */
+	private final ForestRoof contact = new ForestRoof();
+	private BlockPos shelterCenter;
+	private Direction shelterOpening;
+	private String shelterItem;
+	/** The perch: whether the body has stood centred on its column yet (only then can it be knocked off it). */
+	private boolean perchCentred;
+	private long perchNow;
 
 	public ServerFightUntilController(ServerPlayer player, JsonObject arguments, ServerProtectionPolicy protection, long now) {
 		this(player, arguments, protection, now, "fight_until", null, null);
@@ -395,7 +403,8 @@ public final class ServerFightUntilController implements ServerController {
 		if (roof && mob != McEntityTypes.ENDERMAN)
 			throw new AgentDomainException("INVALID_FIELD", "roof: only against endermen (a 2-high space keeps out a 3-tall enderman; " + mobId + " fits)");
 		if (roof && roofing == null) throw new AgentDomainException("INVALID_FIELD", "roof: no construction available here");
-		if (WarpedForestHunt.applies(mob == McEntityTypes.ENDERMAN, choices.mayMove(), choices.sneak(), WarpedForestHunt.biomeAt(player))) {
+		if (WarpedForestHunt.applies(mob == McEntityTypes.ENDERMAN, "minecraft:ender_pearl".equals(untilItemId), choices.mayMove(), choices.sneak(),
+				WarpedForestHunt.biomeAt(player))) {
 			// Open ground first; a requested roof waits for the first calm enderman (its spot named the shelter site, as in K11).
 			forest = new WarpedForestHunt(player.position());
 			forest.mayModify(this::mayModify);
@@ -455,14 +464,14 @@ public final class ServerFightUntilController implements ServerController {
 			if (coverGoal != null && coverGoal.equals(stepGoal)) coverGoal = null;
 		}
 		if (ledge != null && stepIdle(player.level().getGameTime(), ledgeTick)) ledge.suspend(player);
+		// New lava contact hands back before anything else this tick (low health, the perch, a roof or a forest walk).
+		String entered = hazard.observe(player);
+		if (HazardEntry.IN_LAVA.equals(entered))
+			return stop(player, TickResult.failed(entered, CombatMoveText.hazardStop(entered, player, "fight_until"), progress(player)));
 		if (perchBase != null) return perchTick(player, elapsed, nowEpochMs);
 		if (CombatPlanning.shouldBailOut(player.getHealth(), fleeAtHealth)) {
 			if (startPerch(player)) return perchTick(player, elapsed, nowEpochMs);
-			cancelParts(player);
-			bailout = CombatBailout.start(player, current, fleeAtHealth, choices.mayMove() && !roof,
-					timeoutMs - elapsed, nowEpochMs);
-			TickResult result = bailout.tick(player, nowEpochMs);
-			return result.state() == State.RUNNING ? result : stop(player, result);
+			return startBailout(player, elapsed, nowEpochMs);
 		}
 		boolean immune = HazardExits.fireResistant(player);
 		if (player.isOnFire() && !immune) burnTicks++;
@@ -601,12 +610,30 @@ public final class ServerFightUntilController implements ServerController {
 			hunt = null;
 			huntFinds++;
 		}
-		if (target != null && forest != null && forest.walking()) forest.interrupted(player);
-		if (forest != null && target != null && WarpedForestHunt.roofOnContact(roofWanted && !roof && WarpedForestHunt.mayBuildAgain(roofBuilds), roofed, building != null, true, attacking(player, target))) {
-			roof = true;
-			resetRoof();
-			note("roof on contact with " + mobId + " " + target.getUUID() + " at " + cell(target.position()));
-			return TickResult.running(progress(player));
+		if (target != null && forest != null && forest.walking()) {
+			// An enderman met on the way: the hunt goes on from here, as on arrival (outside the forest the walk back is next).
+			Vec3 here = forest.interrupted(player);
+			if (here != null) moveArea(here, elapsed);
+		}
+		if (forest != null) {
+			boolean calm = target != null && !attacking(player, target) && player.distanceTo(target) <= ForestRoof.CONTACT_RANGE;
+			long inView = contact.observe(target == null ? null : target.getUUID(), calm, elapsed);
+			if (target != null && ForestRoof.build(roofWanted && !roof, roofed, building != null, roofBuilds, player.distanceTo(target), inView, attacking(player, target))) {
+				roof = true;
+				resetRoof();
+				// The contact is the fight's first target through the build.
+				firstTarget = target;
+				if (shelterCenter != null && ForestRoof.reuse(shelterStands(player), Math.sqrt(player.blockPosition().distSqr(shelterCenter)))) {
+					roofCenter = shelterCenter;
+					roofOpening = shelterOpening;
+					roofItem = shelterItem;
+					roofed = true;
+					lintelPlaced = true;
+					center = Vec3.atBottomCenterOf(roofCenter);
+					note("back into the shelter at " + roofCenter.toShortString() + " on contact with " + mobId + " " + target.getUUID());
+				} else note("roof on contact with " + mobId + " " + target.getUUID() + " at " + cell(target.position()));
+				return TickResult.running(progress(player));
+			}
 		}
 		if (target == null && roams() && (forest == null || !forest.walking())) {
 			TickResult hunting = tickHunt(player, elapsed, nowEpochMs);
@@ -679,10 +706,10 @@ public final class ServerFightUntilController implements ServerController {
 			areaCleared.busy(elapsed);
 			return walkBack(player, nowEpochMs);
 		}
-		boolean waitsForMore = waitsForMore(mob, roof, spot);
+		// Forest mode waits its quiet spell like a roaming hunt, with or without a model spot.
+		boolean waitsForMore = forest != null || waitsForMore(mob, roof, spot);
 		long quietMs = areaCleared.observe(kills, waitsForMore, elapsed, lastTargetMs,
 				AreaCleared.applies(kills, waitsForMore) && (clearDropsWaiting || passedOverInView(player)), lookStep);
-		if (quietMs >= 0L && forest != null) return tickForest(player, elapsed, nowEpochMs, true);
 		if (quietMs >= 0L)
 			return stop(player, TickResult.failed("AREA_CLEARED", String.format(Locale.ROOT,
 					"No %s left in view within %.0f blocks of %s after %d kill%s (looked around %.1f s)%s", mobId, radius, cell(center),
@@ -726,7 +753,7 @@ public final class ServerFightUntilController implements ServerController {
 					if (spot == null) chooseSite(player);
 					roofItem = roofing.blockItem(player);
 				}
-				int needed = cellsToPlace(player);
+				int needed = ForestRoof.blocksNeeded(cellsToPlace(player), forest != null, PERCH_HEIGHT);
 				int carried = roofItem == null ? 0 : count(player, BuiltInRegistries.ITEM.getValue(Identifier.parse(roofItem)));
 				if ((roofItem == null || carried < needed) && WarpedForestHunt.dropsRoof(forest != null, "ROOF_BLOCKS_MISSING")) {
 					note(String.format(Locale.ROOT, "roof dropped: %d blocks needed, carries %s; hunting on open ground", needed, roofItem == null ? "none" : carried + " " + roofItem));
@@ -827,7 +854,12 @@ public final class ServerFightUntilController implements ServerController {
 	private void leaveRoof(ServerPlayer player, boolean built) {
 		if (building != null) { building.cancel(player); building = null; }
 		if (step != null) { step.cancel(player); step = null; }
-		if (built) forest.leftRoof();
+		if (built) {
+			forest.leftRoof();
+			shelterCenter = roofCenter;
+			shelterOpening = roofOpening;
+			shelterItem = roofItem;
+		}
 		roof = false;
 		resetRoof();
 	}
@@ -839,44 +871,65 @@ public final class ServerFightUntilController implements ServerController {
 	 */
 	private TickResult tickForest(ServerPlayer player, long elapsed, long now, boolean areaClear) {
 		if (forest.walking()) {
-			State walked = forest.tick(player, now);
-			if (walked == State.RUNNING) {
-				lastTargetMs = elapsed;
-				return TickResult.running(progress(player));
+			WarpedForestHunt.Walk walked = forest.tick(player, now);
+			switch (walked) {
+				case RUNNING -> {
+					lastTargetMs = elapsed;
+					return TickResult.running(progress(player));
+				}
+				case ARRIVED -> {
+					moveArea(forest.arrivedAt(), elapsed);
+					note("relocated to " + cell(center));
+					return TickResult.running(progress(player));
+				}
+				case STOPPED -> {
+					// A safety stop of the walk (damage, lava, a hostile): the engine and the hazard checks answer it; a fresh spell.
+					note("relocation walk to " + cell(forest.goal()) + " stopped for " + forest.lastFailure());
+					lastTargetMs = elapsed;
+					return TickResult.running(progress(player));
+				}
+				default -> {
+					note("relocation walk to " + cell(forest.goal()) + " did not arrive (" + forest.lastFailure() + ")");
+					if (WarpedForestHunt.unreachable(forest.headingsFailed(), forest.failedInRow()))
+						return stop(player, TickResult.failed("FOREST_UNREACHABLE", "Forest hunt cannot get on: " + forest.unreachableText(), progress(player)));
+					// The next destination at once for the first few; then a look around through a quiet spell first.
+					lastTargetMs = WarpedForestHunt.retryNow(forest.failedInRow()) ? elapsed - WarpedForestHunt.QUIET_MS : elapsed;
+					return TickResult.running(progress(player));
+				}
 			}
-			if (walked == State.SUCCEEDED) {
-				center = forest.arrivedAt();
-				spot = null;
-				leads = null;
-				lastTargetMs = elapsed;
-				areaCleared.busy(elapsed);
-				note("relocated to " + cell(center));
-				return TickResult.running(progress(player));
-			}
-			note("relocation walk to " + cell(forest.goal()) + " did not arrive (" + forest.lastFailure() + ")");
-			if (WarpedForestHunt.unreachable(forest.failedInRow()))
-				return stop(player, TickResult.failed("FOREST_UNREACHABLE", forest.unreachableText(false), progress(player)));
-			// The next destination at once for the first few; then a look around through a quiet spell first.
-			lastTargetMs = WarpedForestHunt.retryNow(forest.failedInRow()) ? elapsed - WarpedForestHunt.QUIET_MS : elapsed;
-			return TickResult.running(progress(player));
 		}
-		if (WarpedForestHunt.quiet(elapsed, lastTargetMs, areaClear) == WarpedForestHunt.Quiet.WAIT) return null;
+		forest.standing(player);
+		if (WarpedForestHunt.quiet(elapsed, lastTargetMs, areaClear, roofed) == WarpedForestHunt.Quiet.WAIT) return null;
 		if (roof || roofed) leaveRoof(player, roofed);
 		if (look != null) { look.cancel(player); look = null; }
 		if (walk != null) { walk.cancel(player); walk = null; }
 		Vec3 outside = leads == null ? null : leads.nearestOutside(player.position(), elapsed);
 		if (!forest.startWalk(player, outside, now)) {
-			if (WarpedForestHunt.nowhereLeft(forest.emptyScans()))
-				return stop(player, TickResult.failed("FOREST_UNREACHABLE", forest.unreachableText(true) + "; " + forest.lookCounts(), progress(player)));
-			// Nothing in sight to walk to yet: look around through another quiet spell (seen terrain fades in 10 s) and scan again.
+			if (WarpedForestHunt.searchedOut(forest.emptyScans()))
+				return stop(player, TickResult.failed("FOREST_SEARCHED_OUT", "Forest hunt searched out: " + forest.searchedOutText(), progress(player)));
 			lastTargetMs = elapsed;
-			note("quiet: no seen forest floor to walk to yet (" + forest.emptyScans() + " of " + WarpedForestHunt.MAX_EMPTY_SCANS + "; " + forest.lookCounts() + ")");
+			note("quiet: nothing new to walk to yet (" + forest.emptyScans() + " of " + WarpedForestHunt.MAX_EMPTY_SCANS + ")");
 			return TickResult.running(progress(player));
 		}
 		lastTargetMs = elapsed;
-		note("quiet " + (areaClear ? "(area cleared)" : String.format(Locale.ROOT, "%.0f s", WarpedForestHunt.QUIET_MS / 1000.0D))
-				+ ": walking to " + cell(forest.goal()) + " (" + forest.walkVia() + ")");
+		note("quiet: walking to " + cell(forest.goal()) + " (" + forest.walkVia() + ")");
 		return TickResult.running(progress(player));
+	}
+
+	/** Forest mode: the hunt's area moves to where the body now stands in the forest (arrival or a walk cut short by a contact). */
+	private void moveArea(Vec3 at, long elapsed) {
+		center = at;
+		spot = null;
+		leads = null;
+		lastTargetMs = elapsed;
+		areaCleared.busy(elapsed);
+	}
+
+	/** Whether the shelter the body left still stands: its roof block and its lintel. */
+	private boolean shelterStands(ServerPlayer player) {
+		BlockPos roofBlock = shelterCenter.above(2), lintel = shelterCenter.relative(shelterOpening).above(2);
+		return player.level().getBlockState(roofBlock).isCollisionShapeFullBlock(player.level(), roofBlock)
+				&& player.level().getBlockState(lintel).isCollisionShapeFullBlock(player.level(), lintel);
 	}
 
 	/** The open cell two steps out of the doorway. */
@@ -1082,6 +1135,8 @@ public final class ServerFightUntilController implements ServerController {
 			if (!player.level().getBlockState(feet.above(up)).getCollisionShape(player.level(), feet.above(up)).isEmpty()) return false;
 		for (int up = 0; up < PERCH_HEIGHT; up++) if (!protection.mayModifyBlock(player, player.level(), feet.above(up))) return false;
 		perchTried = true;
+		perchCentred = false;
+		if (forest != null) forest.cancel(player);
 		if (melee != null) { melee.cancel(player); melee = null; }
 		if (walk != null) { walk.cancel(player); walk = null; }
 		if (look != null) { look.cancel(player); look = null; }
@@ -1099,12 +1154,15 @@ public final class ServerFightUntilController implements ServerController {
 	/** One tick of the perch: centre over the column, look straight down, jump, place under the feet at the top. */
 	private TickResult perchTick(ServerPlayer player, long elapsed, long now) {
 		lastTargetMs = elapsed;
+		perchNow = now;
 		BlockPos next = perchBase.above(perchPlaced);
 		double off = Math.hypot(perchBase.getX() + 0.5D - player.getX(), perchBase.getZ() + 0.5D - player.getZ());
 		boolean standingTop = player.onGround() && player.getY() >= next.getY() - 1.0E-3D && player.getY() < next.getY() + 0.5D;
 		if (perchPlaced >= PERCH_HEIGHT && standingTop) return endPerch(player, true, null);
 		if (++perchTicks > PERCH_TICKS) return endPerch(player, false, "the column did not rise in " + PERCH_TICKS / 20 + " s");
-		if (off > 0.8D && player.onGround()) return endPerch(player, false, "knocked off the column");
+		if (off <= 0.3D) perchCentred = true;
+		// Knocked off only once it stood centred on the column: a start beside the column is the walk onto it.
+		if (perchCentred && off > 0.8D && player.onGround()) return endPerch(player, false, "knocked off the column");
 		if (!player.isAlive()) return stop(player, TickResult.failed("AGENT_DEAD", "Agent player died during fight_until", progress(player)));
 		if (player.getInventory().getItem(perchSlot).isEmpty() || !TravelBuilder.buildingBlock(player.getInventory().getItem(perchSlot)))
 			return endPerch(player, false, "no block left in the hotbar slot");
@@ -1130,12 +1188,22 @@ public final class ServerFightUntilController implements ServerController {
 		BlockPos base = perchBase;
 		perchBase = null;
 		releaseGuard();
-		String text = done
-				? String.format(Locale.ROOT, "Health %.1f reached fleeAtHealth %.1f; perched %d blocks up at %s, out of reach of the endermen below (a mob's melee does not reach above its own height); eat here before fighting on",
-						player.getHealth(), fleeAtHealth, perchPlaced, base.above(perchPlaced).toShortString())
-				: String.format(Locale.ROOT, "Health %.1f reached fleeAtHealth %.1f; pillar out of reach stopped after %d block%s: %s; body idle",
-						player.getHealth(), fleeAtHealth, perchPlaced, perchPlaced == 1 ? "" : "s", why);
+		if (!done) {
+			// A failed pillar does not leave the body idle beside an angry enderman: it backs off as when no pillar is possible.
+			note(String.format(Locale.ROOT, "pillar out of reach stopped after %d block%s: %s; backing off", perchPlaced, perchPlaced == 1 ? "" : "s", why));
+			return startBailout(player, elapsedTime.advance(perchNow), perchNow);
+		}
+		String text = String.format(Locale.ROOT, "Health %.1f reached fleeAtHealth %.1f; perched %d blocks up at %s, out of reach of the endermen below (a mob's melee does not reach above its own height); eat here before fighting on",
+				player.getHealth(), fleeAtHealth, perchPlaced, base.above(perchPlaced).toShortString());
 		return stop(player, TickResult.failed("LOW_HEALTH_BAILOUT", text, progress(player)));
+	}
+
+	/** The low-health bailout (CombatBailout): backs off from the fight when the model may move, and hands back with its code. */
+	private TickResult startBailout(ServerPlayer player, long elapsed, long nowEpochMs) {
+		cancelParts(player);
+		bailout = CombatBailout.start(player, current, fleeAtHealth, choices.mayMove() && !roof, Math.max(1L, timeoutMs - elapsed), nowEpochMs);
+		TickResult result = bailout.tick(player, nowEpochMs);
+		return result.state() == State.RUNNING ? result : stop(player, result);
 	}
 
 	private static Vec3 legs(LivingEntity target) {
