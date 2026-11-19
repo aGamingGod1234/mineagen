@@ -2262,7 +2262,7 @@ public final class ServerFightUntilController implements ServerController {
 		if (leads != null && leads.tried() > 0) text.append(String.format(Locale.ROOT,
 				"; hunt: walked toward %d enderm%s you saw in the area (%d walks reached the spot, %d found an enderman on the way, %d had no route)",
 				leads.tried(), leads.tried() == 1 ? "an" : "en", leads.reached(), huntFinds, leads.noRoute()));
-		if (forest != null) text.append("; ").append(forest.summary());
+		if (forest != null) text.append("; ").append(forest.summary()).append("; shelters built: ").append(roofBuilds);
 		if (!endings.isEmpty()) text.append("; endings: ").append(endings);
 		int from = Math.max(0, log.size() - 4);
 		if (!log.isEmpty()) text.append("; last: ").append(String.join(" | ", log.subList(from, log.size())));

@@ -24,6 +24,8 @@ async function observe(){
  await s.bridge.send('request_observation',s.record.agentId,{goalRevision:s.record.goalRevision});const raw=(await next).payload;s.observation=raw;
  if(!raw.ready){if(raw.status==='PLAYER_DEAD')dead=true;return facts;}
  facts=adaptObservation(raw);
+ const gt=facts.world?.gameTime;
+ if(startTicks!==undefined&&Number.isFinite(gt)&&gt-startTicks<=ticks&&!dead){result.pearlsInWindow=facts.inventory.items.filter(i=>i.itemId==='minecraft:ender_pearl').reduce((n,i)=>n+i.count,0);result.windowObservedTicks=gt-startTicks;}
  for(const e of facts.entities)if(e.type==='minecraft:enderman'&&e.visible!==false&&e.perceivedBy!=='sound')seen.add(e.stableId);
  return facts;
 }
@@ -33,8 +35,9 @@ async function observe(){
 // seen enderman (untilItem ender_pearl, untilCount held+16), else fight_until on endermen; re-called after a hand-back.
 // FLEE_AT (default 8; the live model passed 14 on every hunt), CALL_TIMEOUT_MS=none (the model's untimed call: fight_until
 // runs its own default, fight_target the coordinator's 30 s), THINK_MS (a model turn between calls, default 0) and
-// PEARL_CLAMP=1 (the call passes through the coordinator's pearl-hunt defaults, pearl-hunt.mjs, as a model call does;
-// leave it unset on a base checkout that has no such module). Every call is capped at the window left.
+// the untimed call takes the schema's own default (schema.mjs: 540 s for an enderman pearl fight_until on this branch,
+// 180 s on base). Every call is capped at the window left. Scoring is by game tick: pearlsInWindow is the count the last
+// observation inside startGameTicks+gameTicks showed; a death fails the run (pass false, pearlsInWindow 0).
 const STANDIN=process.env.STANDIN??'script';
 const gaze={id:'gaze',kind:'trigger',priority:9,when:{type:'enderman_gaze',within:64},do:{type:'look_away'},maxS:2,ttlS:3600};
 async function setRules(next){rules=next;await s.setReflexes(rules);}
@@ -171,7 +174,7 @@ try{
    const untimed=process.env.CALL_TIMEOUT_MS==='none';
    const common={untilItem:'minecraft:ender_pearl',untilCount:held+16,fleeAtHealth:Number(process.env.FLEE_AT??8),roof:true,...(untimed?{}:{timeoutMs:leftMs})};
    let [type,args]=e?['fight_target',{targetId:e.stableId,...common,...(untimed?{timeoutMs:30000}:{})}]:['fight_until',{mob:'minecraft:enderman',...common}];
-   if(process.env.PEARL_CLAMP==='1'){const {pearlHuntDefaults}=await import('../../coordinator/src/pearl-hunt.mjs');const d=pearlHuntDefaults({actionType:type,arguments:args},{stance:null,observation:facts});args=d.tool.arguments;if(d.note)(result.clampNotes??=[]).push(d.note);}
+   if(untimed&&type==='fight_until'){const normalized=validateAction({type,...args});args={...args,timeoutMs:normalized.timeoutMs};}
    args={...args,timeoutMs:Math.min(args.timeoutMs??180000,leftMs)};
    if(Number(process.env.THINK_MS??0)>0)await sleep(Number(process.env.THINK_MS));
    const r=await act(type,args);
@@ -215,7 +218,7 @@ try{
   if(next){await fight(next);continue;}
   await scan();await sleep(300);if(Date.now()-lastSave>10000){lastSave=Date.now();await save();}
  }
- result.elapsedGameTicks=(await gameTicks())-startTicks;result.completedWindow=result.elapsedGameTicks>=ticks||dead;result.endPearls=dead?0:facts.inventory.items.filter(i=>i.itemId==='minecraft:ender_pearl').reduce((n,i)=>n+i.count,0);await s.command('save-all flush');
+ result.elapsedGameTicks=(await gameTicks())-startTicks;result.completedWindow=result.elapsedGameTicks>=ticks&&!dead;result.endPearls=dead?0:facts.inventory.items.filter(i=>i.itemId==='minecraft:ender_pearl').reduce((n,i)=>n+i.count,0);await s.command('save-all flush');
 }catch(error){
  if(dead&&started){
   result.stoppedBecause='PLAYER_DEAD';result.endPearls=0;
@@ -227,4 +230,8 @@ for(const f of await readdir(path.join(out,'server/world/players/stats')).catch(
  const stats=JSON.parse(await readFile(path.join(out,'server/world/players/stats',f),'utf8')).stats??{};result.stats=stats;
  result.endermenKilled=stats['minecraft:killed']?.['minecraft:enderman']??0;result.pearlsPickedUp=stats['minecraft:picked_up']?.['minecraft:ender_pearl']??0;result.deaths=stats['minecraft:custom']?.['minecraft:deaths']??0;
 }
+if(dead)result.pearlsInWindow=0;
+// Shelters built and kills, from every hunt receipt (ServerFightUntilController: "shelters built: N", "N kill(s)").
+let shelters=0,kills=0;for(const c of result.untilCalls??[]){const m=String(c.message);shelters+=Number(/shelters built: (\d+)/.exec(m)?.[1]??0);kills+=Number(/: (\d+) kills?,/.exec(m)?.[1]??0);}
+Object.assign(result,{sheltersBuilt:shelters,receiptKills:kills,sheltersPerKill:kills?shelters/kills:null,pass:!dead&&!(result.deaths>0)&&!result.error&&(result.pearlsInWindow??0)>=Number(process.env.PEARL_BAR??6)});
 await save();console.log(JSON.stringify(result));process.exitCode=result.error?1:0;
