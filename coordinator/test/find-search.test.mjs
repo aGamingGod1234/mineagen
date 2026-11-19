@@ -1641,3 +1641,29 @@ test('Nether ore searches do not invent nonexistent deepslate variants', () => {
   for (const block of expected)assert.deepEqual([...findProfile({block}).ids].sort(),expected);
  }
 });
+
+test('cave first: on the surface, a cave seen in the first look is walked into before any dig down for iron', async () => {
+	const body = fakeBody({
+		frontier: { candidates: [], coverage: { headings: {} } },
+		looks: [{ survey: { caves: [{ x: 20, y: 52, z: 6, air: 60 }, { x: -30, y: 90, z: 0, air: 40 }] } },
+			{ survey: { veins: [{ blockId: 'minecraft:iron_ore', x: 24, y: 48, z: 9, visible: 3 }] } }],
+		acts: { travel_to: [{ move: () => ({ x: 20.5, y: 52, z: 6.5 }), result: { state: 'SUCCEEDED', reasonCode: 'ARRIVED' } }] },
+	});
+	const result = await searchFor({ block: 'minecraft:iron_ore' }, body);
+	assert.equal(result.reasonCode, 'FIND_SEEN', result.message);
+	const first = body.calls.find((call) => ['travel_to', 'dig_to'].includes(call.actionType));
+	assert.equal(first.actionType, 'travel_to', 'into the cave, not a staircase down');
+	assert.deepEqual([first.args.x, first.args.y, first.args.z], [20.5, 52, 6.5], 'the cave below the body, not the one on the hill above');
+	assert.equal(body.calls.filter((call) => call.actionType === 'dig_to').length, 0);
+});
+
+test('cave first: with no cave in sight the search digs down as before, and lava searches keep their own band', async () => {
+	const dig = { move: (player, args) => ({ y: args.y }), result: { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:iron_ore seen at 3,16,9, 3 blocks away' } };
+	let body = fakeBody({ frontier: { candidates: [], coverage: { headings: {} } }, looks: [{ survey: {} }], acts: { dig_to: [dig] } });
+	assert.equal((await searchFor({ block: 'minecraft:iron_ore' }, body)).reasonCode, 'FIND_SEEN');
+	assert.equal(body.calls.find((call) => ['travel_to', 'dig_to'].includes(call.actionType)).actionType, 'dig_to');
+	body = fakeBody({ frontier: { candidates: [], coverage: { headings: {} } }, looks: [{ survey: { caves: [{ x: 20, y: 52, z: 6, air: 60 }] } }],
+		acts: { dig_to: [{ ...dig, result: { ...dig.result, message: 'minecraft:lava seen at 3,-50,9, 3 blocks away' } }] } });
+	await searchFor({ block: 'minecraft:lava' }, body);
+	assert.notEqual(body.calls.find((call) => ['travel_to', 'dig_to'].includes(call.actionType))?.args?.y, 52, 'a lava search does not walk to a y52 cave');
+});

@@ -1158,6 +1158,22 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 		const cap = (pattern) => pattern === 'shaft' ? {} : { maxBlocks: Math.min(MAX_DIG_BLOCKS, STEP_CELLS[pattern] * stepsLeft(heading)) };
 		const tunnelBlocks = () => cap('tunnel').maxBlocks;
 		const descentCap = (pattern) => cap(pattern);
+		// The nearest unvisited cave the body knows of, within CAVE_REACH of it and inside within, that fits.
+		const nearestCave = (here, fits) => [...caves.values()].filter((row) => !row.visited && fits(row) && Math.hypot(row.x + 0.5 - here.x, row.z + 0.5 - here.z) <= CAVE_REACH
+			&& Math.hypot(row.x + 0.5 - origin.x, row.z + 0.5 - origin.z) <= within)
+			.sort((a, b) => Math.hypot(a.x - here.x, a.y - here.y, a.z - here.z) - Math.hypot(b.x - here.x, b.y - here.y, b.z - here.z))[0];
+		// Walk into it and look round; null to go on searching, else the search's end.
+		const enterCave = async (cave) => {
+			caveVisits += 1;
+			for (const row of caves.values()) if (Math.hypot(row.x - cave.x, row.y - cave.y, row.z - cave.z) <= 6) row.visited = true;
+			const walk = await leg('into a cave', 'travel_to', { x: cave.x + 0.5, y: cave.y, z: cave.z + 0.5, tolerance: 2, stopWhenSeen: profile.stopId });
+			const walked = await settle(walk);
+			if (walked !== null) return walked;
+			const inside = await look(20);
+			if (inside.interrupted || inside.seen || inside.ended) return settle(inside);
+			lookedAt = bodyAt(observation);
+			return null;
+		};
 		while (left() >= MIN_LEG_MS) {
 			const at = bodyAt(observation);
 			// Digs that go nowhere (the body under water, every way here wet or refused): move off this spot rather than
@@ -1303,6 +1319,17 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 				if (!['DIG_GOAL_REACHED', 'DIG_LIMIT_REACHED'].includes(outcome.result?.reasonCode)) { descentStops += 1; turn(); }
 				continue;
 			}
+			// Cave first: a player finds a cave for ore instead of strip mining. Above an ore's depth, a cave in
+			// sight at or below the body and not far under the band is the way down: ore and lava show on its walls with no
+			// digging (CP2r: dig_to took 400 of 1,440 game minutes). Lava keeps its own band; a dig that opens a cave notes it.
+			if (profile.depth !== null && !profile.ids.has('minecraft:lava') && !level && at.y > profile.depth + 3 && caveVisits < MAX_CAVE_VISITS) {
+				const cave = nearestCave(at, (row) => row.y <= at.y + 2 && row.y >= profile.depth - CAVE_BAND);
+				if (cave !== undefined) {
+					const walked = await enterCave(cave);
+					if (walked !== null) return walked;
+					continue;
+				}
+			}
 			if (profile.depth !== null && !level && at.y > profile.depth + 3 && descentStops < MAX_DESCENT_STOPS) {
 				const wetGround = wetSpots().some((spot) => Math.hypot(spot.x + 0.5 - at.x, spot.z + 0.5 - at.z) <= WET_REGION);
 				const pattern = water && descentStops === 0 && !wetGround ? 'shaft' : 'steep_down';
@@ -1344,18 +1371,10 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 			inward();
 			if (exhausted()) return handBack('FAILED', 'FIND_NOT_FOUND', `Searched to ${within} blocks from the start`);
 			// A cave in the target's band nearby comes before more tunnel: walk in and look round it.
-			const cave = [...caves.values()].filter((row) => !row.visited && inBand(row.y) && Math.hypot(row.x + 0.5 - here.x, row.z + 0.5 - here.z) <= CAVE_REACH
-				&& Math.hypot(row.x + 0.5 - origin.x, row.z + 0.5 - origin.z) <= within)
-				.sort((a, b) => Math.hypot(a.x - here.x, a.y - here.y, a.z - here.z) - Math.hypot(b.x - here.x, b.y - here.y, b.z - here.z))[0];
+			const cave = nearestCave(here, (row) => inBand(row.y));
 			if (cave !== undefined && caveVisits < MAX_CAVE_VISITS) {
-				caveVisits += 1;
-				for (const row of caves.values()) if (Math.hypot(row.x - cave.x, row.y - cave.y, row.z - cave.z) <= 6) row.visited = true;
-				const walk = await leg('into a cave', 'travel_to', { x: cave.x + 0.5, y: cave.y, z: cave.z + 0.5, tolerance: 2, stopWhenSeen: profile.stopId });
-				const walked = await settle(walk);
+				const walked = await enterCave(cave);
 				if (walked !== null) return walked;
-				const inside = await look(20);
-				if (inside.interrupted || inside.seen || inside.ended) return settle(inside);
-				lookedAt = bodyAt(observation);
 				continue;
 			}
 			// Heard lava is a direction: a player digs toward the sound, unless that way already stopped here.
