@@ -29,6 +29,7 @@ import { callObtain } from './obtain-handbacks.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { parseSavedWorldSpawn } from '../../coordinator/src/headless-world-spawn.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
+import { MOD_JAR } from './mod-jar.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const USAGE = 'Usage: test-obtain-live.mjs PLAN.json OUT_DIR [JAR] [--strict|--descriptive] under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME';
@@ -66,7 +67,7 @@ for (const [seedIndex, seed] of plan.seeds.entries()) {
 		// Each seed on its own ports (a crashed server can hold the last ones); no watchdog, as generating far chunks on a
 		// shared machine can hold one tick past its 60 s.
 		const seedPort = port + (seedIndex % 20) * 4;
-		s = current = await boot(dir, { jar: path.resolve(jarArg ?? path.join(root, 'build/libs/mineagen-0.2.0.jar')), template, port: seedPort, world: null, seed: String(seed), spawnMonsters: true, goalTicks: 2_000_000, extraProperties: 'max-tick-time=-1\n' });
+		s = current = await boot(dir, { jar: path.resolve(jarArg ?? path.join(root, MOD_JAR)), template, port: seedPort, world: null, seed: String(seed), spawnMonsters: true, goalTicks: 2_000_000, extraProperties: 'max-tick-time=-1\n' });
 		// One RCON connection serves four lanes; a slow command (a far chunk generating) can time the queue out and leave
 		// the client unusable. Any failure rebuilds the client and retries.
 		const secret = (await readFile(path.join(dir, 'secret.txt'), 'utf8')).trim();

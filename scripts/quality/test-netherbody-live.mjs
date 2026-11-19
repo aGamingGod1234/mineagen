@@ -8,11 +8,12 @@ import { spawn } from 'node:child_process';
 import { randomBytes, createHash } from 'node:crypto';
 import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
+import { MOD_JAR } from './mod-jar.mjs';
 
 const root=fileURLToPath(new URL('../..',import.meta.url));
 const out=resolve(process.argv[2] ?? 'runtime/routines/live');
 const template=process.env.ARENA_HEADLESS_SERVER_TEMPLATE;
-const jar=process.env.NETHERBODY_JAR ?? join(root,'build/libs/mineagen-0.2.0.jar');
+const jar=process.env.NETHERBODY_JAR ?? join(root,MOD_JAR);
 if(!template || !process.env.SLOT_PORT_BASE) throw new Error('Set ARENA_HEADLESS_SERVER_TEMPLATE and launch under slot.sh live');
 const port=Number(process.argv[process.argv.indexOf('--port-base')+1]), server=join(out,'server');
 if(port!==Number(process.env.SLOT_PORT_BASE))throw new Error('Use --port-base $SLOT_PORT_BASE');

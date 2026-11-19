@@ -19,6 +19,7 @@ import { adaptObservation } from '../../coordinator/src/observation-adapter.mjs'
 import { InspectionClient } from '../../coordinator/src/inspection-client.mjs';
 import { warmBoots } from './fixture-servers.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
+import { MOD_JAR } from './mod-jar.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const USAGE = 'Usage: test-gather-live.mjs SPOTS.json OUT_DIR [JAR] [--strict|--descriptive] under fix-slot.sh with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME';
@@ -39,7 +40,7 @@ const results = [];
 
 // Each spot gets its own server and world; the next one boots while this one plays, from the seed's cached world.
 for await (const { item: [, spot], server: s, error: bootError } of warmBoots([...spots.entries()], ([index, spot]) => ({ dir: path.join(out, `spot-${index}`),
-	options: { jar: path.resolve(jarArg ?? path.join(root, 'build/libs/mineagen-0.2.0.jar')), template, port, world: null, seed: String(spot.seed), worldCache: true } }))) {
+	options: { jar: path.resolve(jarArg ?? path.join(root, MOD_JAR)), template, port, world: null, seed: String(spot.seed), worldCache: true } }))) {
 	const pos = async () => String(await s.command(`data get entity ${AGENT} Pos`)).match(/\[\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?\]/)?.slice(1).map(Number) ?? null;
 	const health = async () => number(await s.command(`data get entity ${AGENT} Health`));
 	const deaths = async () => number(await s.command(`scoreboard players get ${AGENT} deaths`)) || 0;

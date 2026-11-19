@@ -81,7 +81,8 @@ if ([string]::IsNullOrWhiteSpace($JavaPath)) {
 }
 $template = [IO.Path]::GetFullPath($ServerTemplate)
 $java = [IO.Path]::GetFullPath($JavaPath)
-$builtJar = Join-Path $project 'build\libs\mineagen-0.2.0.jar'
+$modVersion = (Select-String -LiteralPath (Join-Path $project 'gradle.properties') -Pattern '^mod_version=(.+)$').Matches[0].Groups[1].Value.Trim()
+$builtJar = Join-Path $project "build\libs\mineagen-$modVersion.jar"
 foreach ($required in @($template, $java, $builtJar)) {
 	if (-not (Test-Path -LiteralPath $required)) { throw "Missing managed-death smoke prerequisite: $required" }
 }

@@ -23,9 +23,10 @@ import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { DEFAULT_REFLEXES } from '../../coordinator/src/reflexes.mjs';
 import { planCountDefault } from '../../coordinator/src/plan-count.mjs';
+import { MOD_JAR } from './mod-jar.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
-const jarPath = resolve(process.env.ARENA_JAR ?? join(root, 'build/libs/mineagen-0.2.0.jar'));
+const jarPath = resolve(process.env.ARENA_JAR ?? join(root, MOD_JAR));
 const out = resolve(process.argv[2] ?? 'runtime/blaze-spawner-live');
 const REPEATS = Number(process.env.REPEATS ?? 3), RUN_S = Number(process.env.RUN_S ?? 240);
 const VARIANTS = (process.env.VARIANTS ?? 'gap0,gap5,cover').split(',');

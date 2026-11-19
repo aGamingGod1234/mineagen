@@ -40,6 +40,7 @@ import { DEFAULT_REFLEXES, ReflexBook } from '../../coordinator/src/reflexes.mjs
 import { warmBoots } from './fixture-servers.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 import { damageCounter, damageEvidence, replyNumber, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
+import { MOD_JAR } from './mod-jar.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const cli = process.argv.slice(2);
@@ -66,7 +67,7 @@ const stepMsOf = spot => spot.expect === 'nether' ? Number(process.env.CHAIN_STE
 const goalSecondsOf = spot => Math.max(1200, Math.ceil((totalMsOf(spot) ?? 0) / 1000) + 600);
 const cases = [...spots.entries()].filter(([, spot]) => !only || only.has(spot.name));
 for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(cases, ([index, spot]) => ({ dir: path.join(out, `spot-${index}`),
-	options: { jar: path.resolve(jarArg ?? path.join(root, 'build/libs/mineagen-0.2.0.jar')), template, port, world: null, seed: String(spot.seed), spawnMonsters: spot.monsters !== false, goalTicks: goalSecondsOf(spot) * 20, worldCache: true } }),
+	options: { jar: path.resolve(jarArg ?? path.join(root, MOD_JAR)), template, port, world: null, seed: String(spot.seed), spawnMonsters: spot.monsters !== false, goalTicks: goalSecondsOf(spot) * 20, worldCache: true } }),
 	// BUILD_KEEP keeps each world, saved at stop, to inspect what was built; otherwise stopping deletes the ~150 MB world.
 	{ keepWorld: process.env.BUILD_KEEP ? true : undefined })) {
 	const goalSeconds = goalSecondsOf(spot);

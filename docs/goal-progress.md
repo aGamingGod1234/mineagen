@@ -32,7 +32,7 @@ Staged starts begin a game partway along the route, for example already in the E
 
 Counts come from each game's milestone timeline and death records. A missing record counts as unknown, not as a pass.
 
-## Status on 2026-11-15
+## Status on 2026-11-19
 
 Full games from a fresh world:
 
@@ -42,8 +42,12 @@ Full games from a fresh world:
 | 4 | 2026-11-14 | 8 | 3 | 74 | 1 | 1 | 0 | 2.6 |
 | 5 | 2026-11-14 | 8 | 6 | 54 | 1 | 0 | 0 | 2.5 |
 | 6 | 2026-11-15 | 6 | 4 | 122 | 1 | 1 | 0 | 2.2 |
+| CP2r, instincts off | 2026-11-19 | 8 | 2 | 60 | 0 | 0 | 0 | 1.4 |
+| CP2r, instincts on | 2026-11-19 | 8 | 3 | 56 | 1 | 1 | 0 | 1.4 |
 
 Round 3 changed the test tooling and played no games. Round 6 dropped the two seeds that had not reached the Nether in rounds 4 or 5. Every game in rounds 4 to 6 got the iron pickaxe and the shield. The median time to the iron pickaxe was 8 minutes in round 5. Single-seed experiments after round 6 and games started from a Nether save point are not in this table.
+
+The two CP2r rows (checkpoint 2, rerun) are one round in two arms on the same 8 seeds, with GPT-6.2 Sol at low reasoning and 90-minute games, so they are not comparable to the 180-minute rounds above. The arms differ only in the opt-in instincts (`MINEAGEN_INSTINCTS=instincts`). Every gap between them is under 2 seeds, which counts as no change. The instincts arm killed more hostile mobs (29 against 17) and made about 14% more model calls. Every game got the iron pickaxe.
 
 Where things stand:
 
