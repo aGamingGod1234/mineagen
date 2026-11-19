@@ -1,8 +1,8 @@
 // find {structure: fortress} in the Nether: the body owns the search loop. Fortresses and bastions share one grid of
 // 432-block regions (nether-regions.mjs), so instead of the generic sweep's straight legs on the least covered heading,
 // each leg heads for the nearest start ground no one has seen yet, re-read from observed memory before every leg, so a
-// search resumed after a respawn or a portal trip skips what was already seen. Legs may bridge, pillar and tunnel
-// (build), the way a player crosses a lava sea toward a fortress; a look round with a structure survey after each leg
+// search resumed after a respawn or a portal trip skips what was already seen. Legs walk first and bridge, pillar or
+// tunnel (build) only where walking gets nowhere, the way a player crosses a lava sea; a look round with a structure survey after each leg
 // names a fortress from its nether bricks out to the 96-block fog.
 //
 // Audit (2026-11-18): 3 of 13 Nether games found a fortress, none through find; each find structure fortress ran the
@@ -14,6 +14,8 @@ import { SEARCH_LOW_HEALTH } from './search-danger.mjs';
 /** Longest leg toward a region target: about the fog's half-depth, so each look covers new ground. */
 export const FORTRESS_LEG = 48;
 const MIN_LEG = 8;
+/** A building leg, tried only after a walking leg on the same bearing got less than half way. */
+export const BUILD_LEG = 24;
 /** Building blocks a leg needs to be allowed to bridge or pillar. */
 export const MIN_BUILD_BLOCKS = 8;
 /** Route failures in a row (every turn at three targets) before the search hands back NO_WAY_ON. */
@@ -98,21 +100,34 @@ export async function searchNetherFortress(ctx) {
 		const key = `${target.kind}:${Math.round(target.x)},${Math.round(target.z)}`;
 		if (key !== targetKey) { targetKey = key; targetFails = 0; }
 		const yaw = wrap(bearing + TURNS[targetFails % TURNS.length]);
-		const blocks = buildingBlocks(observation);
-		const build = blocks >= MIN_BUILD_BLOCKS;
 		const distance = Math.max(MIN_LEG, Math.min(FORTRESS_LEG, Math.round(target.distance)));
-		const how = target.kind === 'remembered' ? `to the fortress seen at ${Math.round(target.x)},${Math.round(target.z)}`
-			: `${build ? 'build' : 'walk'} toward unseen start ground of region ${target.rx},${target.rz} (${Math.round(target.distance)} blocks)`;
-		const outcome = await leg(how, 'travel_to', { yaw, distance, build });
-		const ended = await settle(outcome);
+		const toward = target.kind === 'remembered' ? `the fortress seen at ${Math.round(target.x)},${Math.round(target.z)}`
+			: `unseen start ground of region ${target.rx},${target.rz} (${Math.round(target.distance)} blocks)`;
+		// Walk first: building legs tunnel through every hill on the bearing, and a fixture seed wore out the only iron
+		// pickaxe in under 4 minutes of them. Bridge, pillar or tunnel only where walking gets nowhere (lava seas, cliffs).
+		let outcome = await leg(`walk toward ${toward}`, 'travel_to', { yaw, distance, build: false });
+		let ended = await settle(outcome);
 		if (ended !== null) return ended;
+		let build = false;
+		{
+			const walked = at() ?? here;
+			const code = outcome.result?.reasonCode;
+			if (code !== 'ARRIVED' && Math.hypot(walked.x - here.x, walked.z - here.z) < distance / 2 && !NOT_THE_WAY.has(code)
+				&& buildingBlocks(ctx.observation()) >= MIN_BUILD_BLOCKS && left() >= minLegMs) {
+				build = true;
+				outcome = await leg(`build toward ${toward}`, 'travel_to', { yaw, distance: Math.min(distance, BUILD_LEG), build: true });
+				ended = await settle(outcome);
+				if (ended !== null) return ended;
+			}
+		}
 		const after = at() ?? here;
 		const moved = Math.hypot(after.x - here.x, after.z - here.z);
 		const code = outcome.result?.reasonCode;
-		if (code !== 'ARRIVED' && moved < distance / 2 && NOT_THE_WAY.has(code)) {
+		const short = build ? Math.min(distance, BUILD_LEG) / 2 : distance / 2;
+		if (code !== 'ARRIVED' && moved < short && NOT_THE_WAY.has(code)) {
 			// A mob or a hit stopped the leg (settle answered it): neither progress nor a closed way.
 			if (moved < 2) continue;
-		} else if (code !== 'ARRIVED' && moved < distance / 2) {
+		} else if (code !== 'ARRIVED' && moved < short) {
 			failed += 1;
 			targetFails += 1;
 			// Without blocks to bridge with, a few walking legs that get nowhere mean the way on needs building.
