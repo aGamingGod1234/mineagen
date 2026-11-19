@@ -603,6 +603,14 @@ export class NativeToolRuntime {
 		return this.#blockingToolRuns.get(record.agentId)?.searching === true;
 	}
 
+	/**
+	 * Obtain's low-health recovery state for the running blocking tool: 'armed' while a non-food obtain runs (it will eat
+	 * or regenerate at low health itself), 'active' while it recovers, else null. dynamic-main folds the low-health wakes.
+	 */
+	recovering(record) {
+		return this.#blockingToolRuns.get(record.agentId)?.recovering ?? null;
+	}
+
 	/** The body action this coordinator started, with the arguments it was authored with, or null. */
 	runningAction(record) {
 		const active = this.#actions.get(record.agentId);
@@ -1374,7 +1382,7 @@ export class NativeToolRuntime {
 		const interruption = new Promise((resolve) => { resolveInterruption = resolve; });
 		let releaseWork = null;
 		const run = {
-			interruption, resolveInterruption, interruptedBy: null, forkStop: null, sequence: null, lookAround: null, searching: false,
+			interruption, resolveInterruption, interruptedBy: null, forkStop: null, sequence: null, lookAround: null, searching: false, recovering: null,
 			settleBudgetMs: this.#sequenceStepSettleMs, activeActions: 0, finished: false, released: false,
 			retainAction: (timeoutMs) => {
 				if (releaseWork === null) releaseWork = this.#onWorkStarted(record, 'action', { timeoutMs });
@@ -2597,6 +2605,7 @@ export class NativeToolRuntime {
 			interrupted,
 			// The fork that stopped this run ({reasonCode, message}), or null for danger: obtain ends with its code.
 			forkStop: () => blockingRun.forkStop,
+			recovering: (state) => { blockingRun.recovering = state; },
 			note: (text) => {
 				blockingRun.obtain = { step: steps, label: text };
 				this.#trace('native_obtain_step', { agentId: record.agentId, goalRevision: record.goalRevision, step: steps, text });

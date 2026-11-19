@@ -285,7 +285,7 @@ test('healing options offer the food that can be eaten now, not the uneatable be
 		healFood: { slot: 2, itemId: 'minecraft:golden_apple', nutrition: 4, alwaysEdible: true } } };
 	const facts = healingFacts(observation);
 	assert.equal(facts.healFood.itemId, 'minecraft:golden_apple');
-	assert.match(facts.options[0], /eat carried minecraft:golden_apple: control use:true,ticks:40,selectedSlot:2/);
+	assert.match(facts.options[0], /eat carried minecraft:golden_apple: select_item itemId:minecraft:golden_apple, then use_item durationMs:2000$/);
 	assert.ok(!facts.options.some(option => option.includes('cooked_beef')), 'steak cannot be eaten at full hunger');
 	const hungry = healingFacts({ player: { ...observation.player, foodLevel: 12, healFood: undefined } });
 	assert.match(hungry.options[0], /eat carried minecraft:cooked_beef/, 'below full hunger the best food is offered');

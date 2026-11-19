@@ -227,3 +227,19 @@ test('the always-loaded player instructions stay a few KB: the role, steps, the 
 	assert.equal([...agent.matchAll(/^[1-7]\. /gm)].length, 7, 'seven general rules');
 	for (const { id } of DEFAULT_REFLEXES) assert.ok(agent.includes(id), `the default reflex ${id} is named so the model can switch it off`);
 });
+
+// Issue #2 3c: the in-game text names no model and reads the same to any of them; a stop names its fork. The council
+// kept line 3 (until plan-continue ships) and line 37 as they are.
+test('the in-game instructions are model-neutral and name the forks the body stops at', async () => {
+	const agent = await readFile(new URL('../config/minecraft-agent/AGENTS.md', import.meta.url), 'utf8');
+	const skill = await readFile(new URL('../config/minecraft-agent/.codex/skills/minecraft-control/SKILL.md', import.meta.url), 'utf8');
+	const { NATIVE_AGENT_INSTRUCTIONS } = await import('../src/native-minecraft-tools.mjs');
+	for (const text of [agent, skill, NATIVE_AGENT_INSTRUCTIONS]) assert.doesNotMatch(text, /\b(claude|codex|gpt|openai|anthropic|opus|sonnet|haiku|gemini)\b/i);
+	const lines = agent.split('\n');
+	assert.match(lines[2], /^You control one persistent Minecraft player .* You pick every step yourself; nothing starts unless you name it\. /);
+	assert.equal(lines[36], 'do_step covers most play. Use the low-level tools (act, sequence, startAction, moveTo, mine, control, runProgram) only for what no verb does: one precise placement or click, a menu, eating or equipping, a short repair, or a conditional routine. Read the control topic before an unfamiliar call.');
+	assert.match(agent, /the body stops it \(stuck, or a fork such as low health\)/);
+	assert.match(agent, /When the body stopped it, answer its reason: recover, go around, change the way or the step/);
+	assert.doesNotMatch(skill, /Runtime and other models choose no gameplay/);
+	assert.match(skill, /Other models choose no gameplay; reflexes act for safety, and steps act only inside work you chose\./);
+});
