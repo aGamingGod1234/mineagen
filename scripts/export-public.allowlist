@@ -199,6 +199,7 @@ coordinator/src/intervention-audit.mjs
 coordinator/src/inventory-repair.mjs
 coordinator/src/job-gate.mjs
 coordinator/src/jsonl.mjs
+coordinator/src/kit-habit.mjs
 coordinator/src/lean-input.mjs
 coordinator/src/live-task-view.mjs
 coordinator/src/message-id.mjs
@@ -625,6 +626,8 @@ coordinator/test/java-wire-schema.test.mjs
 coordinator/test/jsonl-audit.test.mjs
 coordinator/test/jsonl-decoder-equivalence.test.mjs
 coordinator/test/jsonl.test.mjs
+coordinator/test/kit-habit-runtime.test.mjs
+coordinator/test/kit-habit.test.mjs
 coordinator/test/latency-acceptance.test.mjs
 coordinator/test/latency-runner-cli.test.mjs
 coordinator/test/latency-runner.test.mjs

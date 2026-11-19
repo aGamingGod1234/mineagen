@@ -9,6 +9,7 @@ import { DugStairs, PlacedWorkstations } from './resource-facts.mjs';
 import { howto, howtoHoldings } from './howto.mjs';
 import { minecraftCapabilities, normalizeMinecraftToolCall, toolAdjustments, toolResultContent, withAdjustments } from './native-minecraft-tools.mjs';
 import { runObtain } from './obtain-runner.mjs';
+import { KIT_CRAFT_TIMEOUT_MS, keepKit } from './kit-habit.mjs';
 import { runInventoryRepair } from './inventory-repair.mjs';
 import { PORTAL_ENTRY_NEXT, PORTAL_ENTRY_PREP } from './skill-fits.mjs';
 import { NativeProgramExecutor } from './native-program-executor.mjs';
@@ -182,6 +183,7 @@ export class NativeToolRuntime {
 	#stepRuns = new Map();
 	// Workstations obtain placed and has not picked up yet, per agent, across obtain calls.
 	#obtainPlaced = new Map();
+	#kitHabit = false;
 	// Agents whose next blocking body tool starts already interrupted: a danger steer is waiting for a tool boundary the
 	// model has not reached, so the tool it issues next was chosen without the danger (see interruptBlockingTool).
 	#armedDangerInterrupts = new Set();
@@ -223,6 +225,8 @@ export class NativeToolRuntime {
 		standingOrders = new StandingOrderBook(),
 		// The coordinator passes a book with the default survival rules; standalone runtimes (probes, tests) hold the model's rules only.
 		reflexBook = new ReflexBook({ defaults: [] }),
+		// After each obtain that succeeds, keep the kit from held items (kit-habit.mjs). Off for bare runtimes and tests.
+		kitHabit = false,
 	} = {}) {
 		if (typeof bridge?.send !== 'function') throw new TypeError('bridge.send must be a function');
 		if (registry !== null && typeof registry?.get !== 'function') throw new TypeError('registry.get must be a function');
@@ -238,6 +242,7 @@ export class NativeToolRuntime {
 		if (memoryObservation !== null && typeof memoryObservation !== 'function') throw new TypeError('memoryObservation must be a function');
 		if (programExecutor !== null && ['run', 'onObservation', 'cancel'].some((method) => typeof programExecutor?.[method] !== 'function')) throw new TypeError('programExecutor must support run, onObservation, and cancel');
 		if (typeof sessionId !== 'string' || !/^[a-zA-Z0-9._-]{1,128}$/.test(sessionId)) throw new TypeError('sessionId must be 1..128 safe identifier characters');
+		this.#kitHabit = kitHabit === true;
 		if (['ingest', 'candidates', 'load', 'flush', 'clear'].some((method) => typeof occupancy?.[method] !== 'function')) throw new TypeError('occupancy must support observed-memory lifecycle and candidate queries');
 		this.#bridge = bridge;
 		this.#registry = registry;
@@ -2620,7 +2625,21 @@ export class NativeToolRuntime {
 		// furnace loads it left smelting are this call's to take out. Flooded approaches share this per-agent ledger.
 		if (!this.#obtainPlaced.has(record.agentId)) this.#obtainPlaced.set(record.agentId, { placed: [], loads: [], approaches: [] });
 		const kept = this.#obtainPlaced.get(record.agentId);
-		return runObtain(tool.arguments, body, { placed: kept.placed, loads: kept.loads, approaches: kept.approaches });
+		const stations = { placed: kept.placed, loads: kept.loads, approaches: kept.approaches };
+		const result = await runObtain(tool.arguments, body, stations);
+		if (!this.#kitHabit || result?.state !== 'SUCCEEDED' || interrupted() || !current()) return result;
+		// The kit habit (kit-habit.mjs): from what is held, keep a shield, armour and food in reach before handing back.
+		let kit;
+		try {
+			kit = await keepKit(body, (item) => runObtain({ item, count: 1, timeoutMs: KIT_CRAFT_TIMEOUT_MS }, body, stations),
+				{ stopped: () => interrupted() || !current() });
+		} catch (error) {
+			if (!current()) throw error;
+			kit = [`stopped (${error?.code ?? 'error'})`];
+		}
+		if (kit.length === 0) return result;
+		this.#trace('native_obtain_step', { agentId: record.agentId, goalRevision: record.goalRevision, step: steps, text: `kit: ${kit.join(', ')}` });
+		return { ...result, kit, message: `${result.message ?? 'obtained'}; kit: ${kit.join(', ')}` };
 	}
 
 	/**
