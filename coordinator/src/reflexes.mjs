@@ -37,7 +37,7 @@ export const DEFAULT_REFLEXES = Object.freeze([
 export const DEFAULT_REFLEX_IDS = Object.freeze(new Set(DEFAULT_REFLEXES.map((rule) => rule.id)));
 // The mod runs at most this many rules (ReflexSpec.MAX_RULES): the cap of every rule-set bound on the wire (C24). The
 // model's own rules plus the defaults must fit it, so a new default needs a raise on both sides first.
-export const MAX_REFLEX_RULES = 26;
+export const MAX_REFLEX_RULES = 27;
 if (MAX_REFLEXES + DEFAULT_REFLEXES.length > MAX_REFLEX_RULES) throw new Error(`reflex rules ${MAX_REFLEXES} + ${DEFAULT_REFLEXES.length} exceed the mod's ${MAX_REFLEX_RULES}`);
 
 /**

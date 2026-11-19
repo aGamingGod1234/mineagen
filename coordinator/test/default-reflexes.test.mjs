@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { DEFAULT_REFLEXES, MAX_REFLEXES, ReflexBook, STANCES, STANCE_SETTINGS, instinctsEnabled, materializeDefault, normalizeReflexEntries, resolveAutoStance } from '../src/reflexes.mjs';
+import { DEFAULT_REFLEXES, MAX_REFLEXES, MAX_REFLEX_RULES, ReflexBook, STANCES, STANCE_SETTINGS, instinctsEnabled, materializeDefault, normalizeReflexEntries, resolveAutoStance } from '../src/reflexes.mjs';
 
 const OVERWORLD = 'minecraft:overworld', NETHER = 'minecraft:the_nether';
 const live = (dimension = OVERWORLD) => ({ world: { dimension }, player: { health: 20 } });
@@ -166,7 +166,7 @@ test('heal: with the flag on the default eat rule fires below hunger 18 in every
 	const on = new ReflexBook({ instincts: true });
 	on.observeContext('a', live());
 	assert.equal(valueOf(on, 'default-eat', 'hunger_below'), 18);
-	assert.ok(on.payload('a').rules.length + MAX_REFLEXES <= 26, 'still one rule: 12 own + 14 defaults fit the mod cap');
+	assert.ok(on.payload('a').rules.length + MAX_REFLEXES <= MAX_REFLEX_RULES, 'still one rule: 12 own + 15 defaults fit the mod cap');
 });
 
 test('safe eating precedence: hazards, retreat, cover and defend outrank eat, and eat holds off with a hostile within 8', () => {
