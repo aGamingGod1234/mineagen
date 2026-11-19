@@ -17,9 +17,12 @@ import { adaptObservation } from '../../coordinator/src/observation-adapter.mjs'
 import { ReflexBook, normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
 import { warmBoots } from './fixture-servers.mjs';
 import { damageCounter, replyNumber } from './lib/damage-counter.mjs';
+import { finishRun, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const cli = process.argv.slice(2);
+if (cli.includes('--help')) { console.log('Usage: test-end-breath-live.mjs OUT_DIR [JAR] [--old|--old-rule] [--descriptive]\n' + FIXTURE_OUTCOME_HELP); process.exit(0); }
+const strict = !cli.includes('--descriptive');
 const OLD = cli.includes('--old') || cli.includes('--old-rule'), OLD_RULE = cli.includes('--old-rule');
 const [outArg, jarArg] = cli.filter(arg => !arg.startsWith('--'));
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port = Number(process.env.SLOT_PORT_BASE);
@@ -108,7 +111,7 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'breath' 
 		const readDamage = await damageCounter(text => s.command(text), AGENT);
 		const pos = async () => { const o = await s.observe(); return { x: o.position?.x, y: o.position?.y, z: o.position?.z, dead: o.player?.dead === true || o.status === 'PLAYER_DEAD', health: o.player?.health }; };
 		for (const [index, room] of runs.entries()) {
-			const row = { run: index + 1, room: room.name };
+			const row = { run: index + 1, room: room.name, startedAt: Date.now() };
 			results.runs.push(row);
 			try {
 				await end(s, 'kill @e[type=minecraft:area_effect_cloud]'); await end(s, 'kill @e[type=minecraft:dragon_fireball]'); await end(s, 'kill @e[type=minecraft:item]');
@@ -175,6 +178,10 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'breath' 
 				row.voidFall = minY < TOP - 1;
 				row.reflexEvents = (latest?.reflexes?.events ?? []).filter(event => /breath|end-/.test(event.id)).slice(-6);
 				row.pass = !row.died && !row.voidFall;
+				// No cloud, or a body not on its cell, measures nothing: invalid evidence, not a pass.
+				if (!cloudAt) row.error = 'no breath cloud formed';
+				else if (!row.placed) row.error = 'body not placed on the room cell';
+				row.finishedAt = Date.now();
 				console.log(`[breath] run ${row.run} ${row.room}: ${row.pass ? 'PASS' : 'FAIL'} died=${row.died} voidFall=${row.voidFall} damage=${row.damageTaken} cloud=${cloudAt ? cloudAt.map(n => Math.round(n * 10) / 10).join(',') : 'none'} end=${after ? [after.x, after.y, after.z].map(n => Math.round(n * 10) / 10).join(',') : '?'} command=${JSON.stringify(commandResult)}`);
 				if (row.died) await sleep(3000);
 			} catch (error) {
@@ -195,4 +202,4 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'breath' 
 		try { if (s) await s.stop(); } catch { /* the server is gone */ }
 	}
 }
-process.exit(results.summary && results.summary.valid === results.summary.runs && results.summary.pass === results.summary.runs ? 0 : 1);
+console.log(JSON.stringify(await finishRun(results.runs.length ? results.runs : [{ error: results.error ?? 'no runs' }], { file: path.join(out, 'runs.json'), planned: runs.length, strict })));
