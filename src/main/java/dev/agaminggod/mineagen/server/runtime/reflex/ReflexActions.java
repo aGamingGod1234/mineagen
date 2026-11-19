@@ -1113,6 +1113,7 @@ final class ReflexActions {
 		private ServerNavigationController back;
 		private Vec3 start;
 		private String summary;
+		private String finished;
 		private boolean underFire;
 
 		@Override
@@ -1135,15 +1136,38 @@ final class ReflexActions {
 				if (blocker != null) { collector.cancel(player); underFire = true; }
 				collector = null;
 				summary = tally(done);
-				if (player.position().distanceTo(start) <= 1.0D) return Step.done("owed drops: " + summary);
+				if (player.position().distanceTo(start) <= 1.0D) return finish("owed drops: " + summary);
 				back = new ServerNavigationController(start, 0.6D, false, now, BACK_MS, false);
 			}
+			return walkBack(player, now);
+		}
+
+		/**
+		 * The walk back to where the pass started. The engine reads a new firing's first-tick status only on its next
+		 * tick, so a pass that already finished (at its start, nothing to walk) gives its done step again.
+		 */
+		Step walkBack(ServerPlayer player, long now) {
+			if (back == null) return Step.done(finished == null ? "owed drops: " + summary : finished);
 			var walked = back.tick(player, now);
 			if (walked.state() == dev.agaminggod.mineagen.server.runtime.controller.ServerController.State.RUNNING) return Step.running("walking back from owed drops");
 			back.cancel(player);
 			back = null;
-			return Step.done("owed drops: " + summary + (walked.state() == dev.agaminggod.mineagen.server.runtime.controller.ServerController.State.SUCCEEDED
+			return finish("owed drops: " + summary + (walked.state() == dev.agaminggod.mineagen.server.runtime.controller.ServerController.State.SUCCEEDED
 					? (underFire ? "; walked back under fire" : "; walked back") : "; walk back " + walked.reasonCode()));
+		}
+
+		private Step finish(String detail) {
+			finished = detail;
+			return Step.done(detail);
+		}
+
+		/** A pass whose collection already finished where it started, as after its first tick (for tests). */
+		static CollectDrops finishedInPlace(String summary) {
+			CollectDrops pass = new CollectDrops();
+			pass.start = Vec3.ZERO;
+			pass.summary = summary;
+			pass.finished = "owed drops: " + summary;
+			return pass;
 		}
 
 		/**

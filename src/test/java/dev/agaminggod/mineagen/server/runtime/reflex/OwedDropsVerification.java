@@ -42,6 +42,11 @@ public final class OwedDropsVerification {
 				"a firing that ends into a shield keeps its lease, so the raised shield does not drop for a tick");
 		checks += check(false, ReflexEngine.handsOverLease(null), "a firing that ends with nothing after it releases its lease");
 		checks += queuedPassDoesNotStartOverACommand();
+		// Review finding: a pass that finished on its first tick where it started (full inventory, no junk) is read by the
+		// engine on its next tick; that tick must give DONE with the summary, not fail on a walk back never made.
+		ReflexActions.Step again = ReflexActions.CollectDrops.finishedInPlace("left 2 (INVENTORY_FULL)").walkBack(null, 0L);
+		checks += check(true, again.status() == ReflexScheduler.ActionStatus.DONE && "owed drops: left 2 (INVENTORY_FULL)".equals(again.detail()),
+				"a pass finished in place gives DONE with its summary again on the next tick");
 		checks += check(true, ReflexActions.CollectDrops.tally("no drop was seen to collect").equals("no drop was seen to collect"), "a plain line passes through");
 		return checks;
 	}
