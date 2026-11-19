@@ -1667,3 +1667,14 @@ test('cave first: with no cave in sight the search digs down as before, and lava
 	await searchFor({ block: 'minecraft:lava' }, body);
 	assert.notEqual(body.calls.find((call) => ['travel_to', 'dig_to'].includes(call.actionType))?.args?.y, 52, 'a lava search does not walk to a y52 cave');
 });
+
+test('cave first: MINEAGEN_CAVE_FIRST=off digs down as before even with a cave in sight', async () => {
+	const before = process.env.MINEAGEN_CAVE_FIRST;
+	process.env.MINEAGEN_CAVE_FIRST = 'off';
+	try {
+		const body = fakeBody({ frontier: { candidates: [], coverage: { headings: {} } }, looks: [{ survey: { caves: [{ x: 20, y: 52, z: 6, air: 60 }] } }],
+			acts: { dig_to: [{ move: (player, args) => ({ y: args.y }), result: { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:iron_ore seen at 3,16,9, 3 blocks away' } }] } });
+		await searchFor({ block: 'minecraft:iron_ore' }, body);
+		assert.equal(body.calls.find((call) => ['travel_to', 'dig_to'].includes(call.actionType)).actionType, 'dig_to');
+	} finally { if (before === undefined) delete process.env.MINEAGEN_CAVE_FIRST; else process.env.MINEAGEN_CAVE_FIRST = before; }
+});

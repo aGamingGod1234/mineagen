@@ -130,6 +130,8 @@ const MAX_RELOCATIONS = 2;
 const RELOCATE = 12;
 const CLEAR_CAVE = 24;
 const MAX_CAVE_VISITS = 8;
+/** MINEAGEN_CAVE_FIRST=off keeps the old dig-down-first ore search (an A/B round's off arm); on otherwise. */
+export const caveFirst = (environment = process.env) => String(environment?.MINEAGEN_CAVE_FIRST ?? '').trim().toLowerCase() !== 'off';
 // Blocks a dig_to may be given (schema.mjs maxBlocks) and the cells one step cuts per pattern.
 const MAX_DIG_BLOCKS = 4_096;
 const STEP_CELLS = Object.freeze({ tunnel: 2, stairs_down: 3, stairs_up: 3, steep_down: 4 });
@@ -1322,7 +1324,7 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 			// Cave first: a player finds a cave for ore instead of strip mining. Above an ore's depth, a cave in
 			// sight at or below the body and not far under the band is the way down: ore and lava show on its walls with no
 			// digging (CP2r: dig_to took 400 of 1,440 game minutes). Lava keeps its own band; a dig that opens a cave notes it.
-			if (profile.depth !== null && !profile.ids.has('minecraft:lava') && !level && at.y > profile.depth + 3 && caveVisits < MAX_CAVE_VISITS) {
+			if (caveFirst() && profile.depth !== null && !profile.ids.has('minecraft:lava') && !level && at.y > profile.depth + 3 && caveVisits < MAX_CAVE_VISITS) {
 				const cave = nearestCave(at, (row) => row.y <= at.y + 2 && row.y >= profile.depth - CAVE_BAND);
 				if (cave !== undefined) {
 					const walked = await enterCave(cave);
