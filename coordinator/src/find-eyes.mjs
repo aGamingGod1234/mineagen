@@ -13,6 +13,20 @@ export function intersectEyes(a, b) {
 	const t = (dx * v.z - dz * v.x) / cross, s = (dx * u.z - dz * u.x) / cross;
 	return t > 0 && s > 0 ? { x: Math.round(a.from.x + t * u.x), z: Math.round(a.from.z + t * u.z) } : null;
 }
+// Two throws locate the stronghold well enough to stop throwing when they stood this far apart and their headings cross at
+// this angle or more: a 1 degree heading error then moves the crossing by a few blocks per 100, not hundreds.
+export const TRUSTED_BASE_BLOCKS = 24;
+export const TRUSTED_CROSS_DEGREES = 8;
+// Close enough to a trusted crossing to dig down there (the eye targets the stronghold's start, its rooms spread ~50 blocks).
+export const ESTIMATE_DIG_BLOCKS = 16;
+// A dropped eye out of view is searched for once, and only this near: the body walks to where it dropped and looks.
+export const DROP_SEARCH_BLOCKS = 24;
+export function trustedCross(a, b) {
+	if (!Number.isFinite(a?.yaw) || !Number.isFinite(b?.yaw) || !point(a.from) || !point(b.from)) return false;
+	if (Math.hypot(a.from.x - b.from.x, a.from.z - b.from.z) < TRUSTED_BASE_BLOCKS) return false;
+	const angle = Math.abs(((a.yaw - b.yaw) % 360 + 540) % 360 - 180);
+	return angle >= TRUSTED_CROSS_DEGREES && angle <= 180 - TRUSTED_CROSS_DEGREES && intersectEyes(a, b) !== null;
+}
 export function eyeLeg(flight, throwNumber = 1) {
 	if (flight.vertical === 'sank' || (flight.lostFromView !== true && Number.isFinite(flight.flewBlocks) && flight.flewBlocks < 3)) return 0;
 	// A rising eye says only "that way": the first leg is long, later ones shorter so a pass over the stronghold is small
@@ -63,11 +77,13 @@ export async function followEyes(target, body, { observation: initial, deadline,
 	// portal has a filled frame more often than not (each frame 1 in 10). Below 11 minus filled frames takes the flag.
 	const reserve = () => Math.max(0, 11 - Math.min(11, state.filled.length));
 	const finish = (reasonCode, stop, found = null) => {
+		const left = state.throws.filter(t => t.recovery === 'not_found').map(t => t.droppedAt).filter(point);
 		const facts = { throwsMade: state.throws.length, eyesLeft: eyesHeld(o), throws: structuredClone(state.throws), lastHeading: state.throws.at(-1)?.yaw ?? null,
+			...(left.length ? { eyesLeftBehind: left.map(at => ({ x: Math.floor(at.x), y: Math.floor(at.y), z: Math.floor(at.z) })) } : {}),
 			estimatedStronghold: state.estimate ?? null, travelled: Math.round(state.walked), stoppedBy: stop, reserve: reserve(), allowEyeReserveUse: target.allowEyeReserveUse === true, phase: state.phase };
 		const bearings = state.throws.map((t, i) => `#${i + 1} at ${['x', 'y', 'z'].map(k => Math.round(t.from[k])).join(',')}: ${t.yaw ?? '?'} degrees, ${t.eyesAfter ?? '?'} eyes after throw`).join('; ');
 		return { state: reasonCode === 'FIND_SEEN' ? 'SUCCEEDED' : 'FAILED', reasonCode,
-			message: `${stop}; throws ${facts.throwsMade}, eyes left ${facts.eyesLeft}; ${bearings || 'no headings yet'}; estimated stronghold ${state.estimate ? `${state.estimate.x},${state.estimate.z}` : 'unknown'}; travelled ${facts.travelled} blocks. Reserve ${reserve()} (11 minus known filled frames; the portal takes 12 minus its filled frames); throwing below reserve requires allowEyeReserveUse:true.`,
+			message: `${stop}; throws ${facts.throwsMade}, eyes left ${facts.eyesLeft}; ${bearings || 'no headings yet'}; estimated stronghold ${state.estimate ? `${state.estimate.x},${state.estimate.z}${state.estimateTrusted && !state.estimateRejected ? ' (two throws cross)' : ''}` : 'unknown'}; ${left.length ? `eye left at ${left.map(at => ['x', 'y', 'z'].map(k => Math.floor(at[k])).join(',')).join('; ')}; ` : ''}travelled ${facts.travelled} blocks. Reserve ${reserve()} (11 minus known filled frames; the portal takes 12 minus its filled frames); throwing below reserve requires allowEyeReserveUse:true.`,
 			find: { target: 'stronghold', eyes: facts, covered: { walked: facts.travelled }, ...(found ? { seen: { ...found, id: found.blockId, via: 'eye search' } } : {}) } };
 	};
 	const safety = () => {
@@ -104,7 +120,7 @@ export async function followEyes(target, body, { observation: initial, deadline,
 		Object.assign(t, flight);
 		for (const earlier of state.throws.slice(0, -1).reverse()) {
 			const cross = intersectEyes(earlier, t);
-			if (cross) { state.estimate = cross; break; }
+			if (cross) { state.estimate = cross; state.estimateTrusted = trustedCross(earlier, t); break; }
 		}
 		state.phase = flight.droppedAt ? 'recover' : 'leg';
 	};
@@ -156,22 +172,58 @@ export async function followEyes(target, body, { observation: initial, deadline,
 			// droppedAt may be an airborne end marker. Only a currently seen item justifies recovery travel.
 			const visibleDrop = () => (o.items ?? []).find(r => r.itemId === EYE && point(r) && r.stableId
 				&& (last.dropId ? r.stableId === last.dropId : Math.hypot(r.x - last.droppedAt.x, r.z - last.droppedAt.z) < 4));
-			const current = visibleDrop();
+			let current = visibleDrop();
+			// Out of view (it fell behind a rise or into grass): walk once to where it dropped and look, when that is near.
+			// A walk there that fails is not the end of the search: the eye is then named as left behind.
+			// Not for an item already tracked by id (gone from view means taken or despawned), nor from where it dropped.
+			const gap = point(last.droppedAt) ? Math.hypot(last.droppedAt.x - o.player.x, last.droppedAt.z - o.player.z) : Infinity;
+			if (!current && !last.dropId && !last.searchedDrop && gap > 4 && gap <= DROP_SEARCH_BLOCKS) {
+				last.searchedDrop = true;
+				const end = await act('travel_to', bounded({ x: last.droppedAt.x, z: last.droppedAt.z, tolerance: 2, build: true }));
+				if (end && end.reasonCode !== 'FIND_BLOCKED') return end;
+				if (Number.isFinite(last.eyesAfter) && eyesHeld(o) > last.eyesAfter) continue;
+				current = visibleDrop();
+			}
 			if (!current) {
-				last.recovery = 'not_visible';
+				last.recovery = last.searchedDrop ? 'not_found' : 'not_visible';
 				state.phase = 'leg';
 				continue;
 			}
 			last.dropId = current.stableId;
 			const end = await act('travel_to', bounded({ x: current.x, y: current.y, z: current.z, tolerance: 1, build: true }));
 			if (end) return end;
-			const drop = visibleDrop();
-			if (drop?.stableId && eyesHeld(o) <= last.eyesAfter) { const end = await act('pick_up_item', { targetSelector: drop.stableId }); if (end) return end; }
+			let drop = visibleDrop(), failed = null;
+			if (drop?.stableId && eyesHeld(o) <= last.eyesAfter) {
+				failed = await act('pick_up_item', { targetSelector: drop.stableId });
+				if (failed && failed.reasonCode !== 'FIND_BLOCKED') return failed;
+				drop = visibleDrop();
+			}
+			// The pickup failed with the eye still in view (it rolled or fell into a hole): walk to where it is now and try once more.
+			if (failed && drop?.stableId && eyesHeld(o) <= last.eyesAfter) {
+				const end = await act('travel_to', bounded({ x: drop.x, y: drop.y, z: drop.z, tolerance: 1, build: true }));
+				if (end) return end;
+				if (eyesHeld(o) <= last.eyesAfter && visibleDrop()) {
+					failed = await act('pick_up_item', { targetSelector: drop.stableId });
+					if (failed && failed.reasonCode !== 'FIND_BLOCKED') return failed;
+				}
+			}
+			// Still not regained after a failed pickup: hand back in the recovery phase, so the next find tries it again.
+			if (failed && eyesHeld(o) <= last.eyesAfter) return failed;
 			last.eyesAfterPickup = eyesHeld(o);
 			state.phase = 'leg';
 			continue;
 		}
 		if (state.phase === 'leg') {
+			// Two throws that cross well place the stronghold: stop throwing, walk to the crossing and dig down there.
+			if (state.estimateTrusted && !state.estimateRejected && point({ ...state.estimate, y: 0 }) && eyeLeg(last, state.throws.length) !== 0) {
+				const near = () => Math.hypot(state.estimate.x - o.player.x, state.estimate.z - o.player.z) <= ESTIMATE_DIG_BLOCKS;
+				if (!near()) {
+					const end = await act('travel_to', bounded({ x: state.estimate.x, z: state.estimate.z, build: true, tolerance: 3 }), { soft: true });
+					if (end) return end;
+				}
+				if (near()) { state.phase = 'dig'; state.digAt = { ...state.estimate }; }
+				continue;
+			}
 			state.bracket = eyeBracket(state.bracket, state.throws.at(-2), last) ?? state.bracket;
 			if (state.bracket && eyeLeg(last, state.throws.length) !== 0) {
 				const { a, b } = state.bracket, middle = { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 };
@@ -198,7 +250,11 @@ export async function followEyes(target, body, { observation: initial, deadline,
 			continue;
 		}
 		if (state.phase === 'dig') {
-			if (o.player.y <= -54) return finish('FIND_NOT_FOUND', 'Staircase reached y-54 without stronghold blocks');
+			if (o.player.y <= -54) {
+				// A crossing that led nowhere is dropped: the next find climbs to open sky and throws again.
+				if (state.digAt) { state.estimateRejected = true; delete state.digAt; state.phase = 'throw'; }
+				return finish('FIND_NOT_FOUND', 'Staircase reached y-54 without stronghold blocks');
+			}
 			const before = o.player.y;
 			const end = await act('dig_to', bounded({ pattern: 'stairs_down', heading: state.digWest ? 'west' : 'east', y: Math.max(-54, Math.floor(before) - 8), maxBlocks: 32,
 				throughCaves: 'small', stopWhenSeen: 'minecraft:stone_bricks', discard }));

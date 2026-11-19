@@ -116,9 +116,12 @@ test('a lit portal suggests entering with optional preparation; the Nether and t
 	assert.equal(route([...kit, ['cooked_beef', 10], ['cobblestone', 64]], {}, known), ENTRY_NO_BED);
 	assert.equal(route([...kit, ['cooked_beef', 22], ['cobblestone', 64]], {}, known), ENTRY_NO_BED);
 	const nether = { dimension: 'minecraft:the_nether' };
-	assert.match(route([['blaze_rod', 2]], nether), /find a fortress and fight_until 7 blaze_rods \(no gold worn; rods 2\/7, pearls 0\/12, eyes 0 held \+ 0 set of 12\)/);
-	assert.match(route([['blaze_rod', 7], ['ender_pearl', 5]], nether), /get 12-14 ender_pearls/);
-	assert.match(route([['blaze_rod', 7], ['ender_pearl', 13]], nether), /return home through the portal/);
+	assert.match(route([['blaze_rod', 2]], nether), /find a fortress and fight_until 8 blaze_rods \(no gold worn; rods 2\/8, pearls 0\/15, eyes 0 held \+ 0 set; plan 15 eyes, 12 fill the frame\)/);
+	// The eye plan's margin (eye-plan.mjs): 8 rods and 15 pearls before going home.
+	assert.match(route([['blaze_rod', 7], ['ender_pearl', 5]], nether), /fight_until 8 blaze_rods/);
+	assert.match(route([['blaze_rod', 8], ['ender_pearl', 5]], nether), /get 15 ender_pearls/);
+	assert.match(route([['blaze_rod', 8], ['ender_pearl', 13]], nether), /get 15 ender_pearls/);
+	assert.match(route([['blaze_rod', 8], ['ender_pearl', 15]], nether), /return home through the portal/);
 	assert.match(route([], { dimension: 'minecraft:the_end' }), /kill the ender_dragon/);
 });
 

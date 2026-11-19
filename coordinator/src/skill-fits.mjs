@@ -1,3 +1,4 @@
+import { EYE_PLAN } from './eye-plan.mjs';
 import { foodAdviceNeeded, portalBedSource } from './survival-advice.mjs';
 
 // One wake fact: a goal skill (fight_until, barter_until, build nether_portal by casting, cast_obsidian) whose preconditions hold right now, with the
@@ -296,6 +297,12 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 	const rods = count(/^minecraft:blaze_rod$/), pearls = count(/^minecraft:ender_pearl$/);
 	const rodsMissing = Math.max(0, rodsNeeded - rods), pearlsMissing = Math.max(0, eyesNeeded - pearls);
 	const eyeFacts = `rods ${rods}/${rodsNeeded}, pearls ${pearls}/${eyesNeeded}, eyes ${eyesHeld} held + ${filled} set of ${EYES}`;
+	// The Nether gathers to the eye plan (eye-plan.mjs): throws and lost drops cost eyes before the frame.
+	// Eyes already made to fill the frame are enough: the margin is for raw rods and pearls, never a trip back.
+	const eyesPlanned = portalOpen || eyesHeld + filled >= EYES ? 0 : Math.max(0, EYE_PLAN - eyesHeld - filled);
+	const rodsPlanned = Math.ceil(Math.max(0, eyesPlanned - count(/^minecraft:blaze_powder$/)) / 2);
+	const rodsShort = Math.max(0, rodsPlanned - rods), pearlsShort = Math.max(0, eyesPlanned - pearls);
+	const planFacts = `rods ${rods}/${rodsPlanned}, pearls ${pearls}/${eyesPlanned}, eyes ${eyesHeld} held + ${filled} set; plan ${EYE_PLAN} eyes, ${EYES} fill the frame`;
 	const facts = { count, foodNeeded: foodAdviceNeeded(o), foodHandedBack: foodHandedBack === true, food: count(EDIBLE), cookedMeat: count(COOKED_MEAT), rawMeat: count(RAW_FOOD), nearbyMeat: nearbyMeat(o), blocks: count(MOULD), wood: count(/^minecraft:([a-z_]+_(log|planks|stem))$/), iron: count(/^minecraft:(iron_ingot|raw_iron)$/),
 		buckets: count(/^minecraft:(bucket|water_bucket|lava_bucket)$/), pools: (known.lavaPools ?? []).filter(p => p?.dimension === dimension).length };
 	// Instincts arm: food first in every dimension (C27), before more resource travel.
@@ -341,15 +348,15 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 		return line('kill the ender_dragon: break the end crystals first', 'in the End');
 	}
 	if (dimension === 'minecraft:the_nether') {
-		if (rodsMissing > 0) {
-			const fortress = `find a fortress and fight_until ${rodsNeeded} blaze_rods`;
-			if (items.some(i => WORN.has(i.slot) && GOLD_ARMOUR.test(i.itemId))) return line(fortress, eyeFacts);
+		if (rodsShort > 0) {
+			const fortress = `find a fortress and fight_until ${rodsPlanned} blaze_rods`;
+			if (items.some(i => WORN.has(i.slot) && GOLD_ARMOUR.test(i.itemId))) return line(fortress, planFacts);
 			const gold = items.find(i => GOLD_ARMOUR.test(i.itemId));
 			const prep = gold ? `consider equip_item ${gold.itemId.slice(10)} before searching` : 'consider gold armour if safely nearby; skip a gold hunt';
-			return line(`${prep}; ${fortress}`, `no gold worn; ${eyeFacts}`);
+			return line(`${prep}; ${fortress}`, `no gold worn; ${planFacts}`);
 		}
-		if (pearlsMissing > 0) return line(`get ${eyesNeeded}-${eyesNeeded + 2} ender_pearls: warped-forest endermen, or barter_until with gold`, eyeFacts);
-		return line('return home through the portal', eyeFacts);
+		if (pearlsShort > 0) return line(`get ${eyesPlanned} ender_pearls: warped-forest endermen, or barter_until with gold`, planFacts);
+		return line('return home through the portal', planFacts);
 	}
 	const visitedNether = ok('visited:minecraft:the_nether') || [...(known.advancements ?? []), ...(o.advancements ?? [])]
 		.some(id => /^(minecraft:)?story\/enter_the_nether$/.test(id));

@@ -30,6 +30,8 @@ const MINE_COSTS = [
 const CHANCE_BREAKS = { flint: 10 };
 const HOSTILE = /^(zombie|husk|drowned|skeleton|stray|bogged|parched|spider|cave_spider|creeper|enderman|witch|slime|phantom|pillager|vindicator|evoker|ravager|silverfish|guardian|elder_guardian|warden|breeze|zombie_villager)$/;
 const PASSIVE_KILL = 4, HOSTILE_KILL = 12;
+// Kill ways outside the Overworld: blaze rods and ender pearls, the eye of ender's makings.
+const AWAY_KILLS = new Set(['blaze', 'enderman']);
 // Kills per item for a mob's rare drop (zombie iron, carrots and potatoes, drowned copper): about 1 in 40 in vanilla.
 const RARE_DROP_KILLS = 40;
 const RARE_VARIANT = { sheep: (id) => id.endsWith('_wool') && id !== 'white_wool' };
@@ -146,7 +148,10 @@ class Costs {
 		if (mined.length > 0) consider({ kind: 'mine', blocks: mined.map((row) => row.block), tool: mined[0].tool }, mined[0].cost);
 		const otherWay = best.cost < Infinity;
 		for (const [mob, flags] of this.index.mobDrops[id] ?? []) {
-			if (!(this.index.mobSpawns?.[mob] ?? []).some((place) => place.startsWith('overworld'))) continue;
+			// A mob is a way where it spawns (cows only in the Overworld). Outside the Overworld only the eye hunts count: a
+			// coal or gold plan must not send the body after wither skeletons, ghasts or piglins.
+			if (!(this.index.mobSpawns?.[mob] ?? []).some((place) => place.split(' ')[0] === this.dimension)) continue;
+			if (this.dimension !== 'overworld' && !AWAY_KILLS.has(mob)) continue;
 			let cost = HOSTILE.test(mob) ? HOSTILE_KILL : PASSIVE_KILL;
 			if (flags.includes('r')) cost *= otherWay && flags.includes('k') ? RARE_DROP_KILLS : 3;
 			// Most of a mob's kind look alike: dyed sheep are rare, so only white wool is a sheep's usual drop.
