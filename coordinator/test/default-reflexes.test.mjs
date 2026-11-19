@@ -15,7 +15,7 @@ test('the default survival rules arm at spawn as canonical rules the mod accepts
 	assert.deepEqual(ids(book), ['default-lava*', 'default-lava-flow*', 'default-fire*', 'default-air*', 'default-edge*', 'default-creeper*', 'default-suffocate*', 'default-fireball*', 'default-arrow*', 'default-retreat*', 'default-eat*', 'default-defend*', 'default-blaze-cover*', 'default-cover*']);
 	const sent = book.payload('a');
 	assert.equal(sent.revision, 1);
-	assert.deepEqual(sent.rules.map(({ coordinatorDefault, ...rule }) => rule), DEFAULT_REFLEXES.flatMap(({ ttlMs, cooldownMs, ...rule }) => normalizeReflexEntries([{ ...rule, ttlS: ttlMs / 1_000, ...(cooldownMs === undefined ? {} : { cooldownS: cooldownMs / 1_000 }) }])));
+	assert.deepEqual(sent.rules.map(({ coordinatorDefault, ...rule }) => rule), DEFAULT_REFLEXES.flatMap(({ ttlMs, cooldownMs, maxMs, ...rule }) => normalizeReflexEntries([{ ...rule, ttlS: ttlMs / 1_000, ...(cooldownMs === undefined ? {} : { cooldownS: cooldownMs / 1_000 }), ...(maxMs === undefined ? {} : { maxS: maxMs / 1_000 }) }])));
 	assert.equal(book.observeContext('a', live()), false, 'an unchanged context sends nothing');
 	assert.match(book.takeReport('a'), /^armed default-lava, default-lava-flow, default-fire, default-air, default-edge\(stance\), default-creeper, default-suffocate, default-fireball, default-arrow, default-retreat, default-eat\(stance\), default-defend\(stance\), default-blaze-cover, default-cover$/, 'the wake lists them by id, without their definitions');
 });

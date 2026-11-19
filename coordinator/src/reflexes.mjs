@@ -23,8 +23,12 @@ export const DEFAULT_REFLEXES = Object.freeze([
 	// Each firing eats one item. A stance retries after cooldown while hungry and releases if a hostile comes within 8 blocks.
 	{ id: 'default-eat', kind: 'stance', priority: 3, when: [{ type: 'hunger_below', value: 14 }, { type: 'hostile_near', within: 8, not: true }], do: { type: 'eat' }, cooldownMs: 20_000, ttlMs: 3_600_000 },
 	{ id: 'default-defend', kind: 'stance', priority: 5, when: [{ type: 'attacked', withinS: 4 }], do: { type: 'defend' }, ttlMs: 3_600_000 },
-	{ id: 'default-blaze-cover', kind: 'trigger', priority: 6, when: [{ type: 'health_below', value: 11 }, { type: 'exposed', within: 12, mobs: ['minecraft:blaze'] }], do: { type: 'take_cover', within: 8 }, cooldownMs: 5_000, ttlMs: 3_600_000 },
-	{ id: 'default-cover', kind: 'trigger', priority: 6, when: [{ type: 'health_below', value: 6 }, { type: 'attacked', withinS: 3 }], do: { type: 'take_cover', within: 8 }, ttlMs: 3_600_000 },
+	// Bow skeletons as well as blazes (issue 2, K8): skeleton arrows were 21 of 54 deaths, most with a flee running in the open.
+	// 8 s, not the 4 s trigger default: a walk of 8 steps, a look around and a stop to block each shot on the way (about 1.25 s
+	// a shot) can pass 4 s, and a timed-out trigger counts toward the four failures that switch it off.
+	{ id: 'default-blaze-cover', kind: 'trigger', priority: 6, when: [{ type: 'health_below', value: 11 }, { type: 'exposed', within: 12, mobs: ['minecraft:blaze', 'minecraft:skeleton', 'minecraft:stray', 'minecraft:bogged'] }], do: { type: 'take_cover', within: 8 }, maxMs: 8_000, cooldownMs: 5_000, ttlMs: 3_600_000 },
+	// 8 s for the same reason: it runs the same take_cover, stops to block included.
+	{ id: 'default-cover', kind: 'trigger', priority: 6, when: [{ type: 'health_below', value: 6 }, { type: 'attacked', withinS: 3 }], do: { type: 'take_cover', within: 8 }, maxMs: 8_000, ttlMs: 3_600_000 },
 ].map((rule) => Object.freeze(rule)));
 export const DEFAULT_REFLEX_IDS = Object.freeze(new Set(DEFAULT_REFLEXES.map((rule) => rule.id)));
 export const MAX_REFLEX_CONDITIONS = 4;

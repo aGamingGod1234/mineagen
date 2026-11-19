@@ -83,6 +83,28 @@ public final class ReflexEngine {
 		return truth && !("defend".equals(rule.action().type()) && defendStandsAside(activeType));
 	}
 
+	/**
+	 * A shield rule that answers shots ({@code incoming_projectile}, not negated) does not take the body from a firing that
+	 * blocks shots itself (cover with a shield in hand). Taken, the cover would end and, its shooter still in sight, not
+	 * fire again (a pre-empted trigger is not re-armed), leaving the body shielding in the open. A shield for melee keeps
+	 * its priority, as cover does not guard against a swing; so does one on {@code fireball_incoming}, which also senses
+	 * ghast and dragon fireballs, wither skulls and wind charges that cover does not turn its shield to.
+	 */
+	static boolean shieldStandsAsideFor(ReflexSpec.Rule rule, boolean firingBlocksShots) {
+		return firingBlocksShots && "shield".equals(rule.action().type())
+				&& rule.when().stream().anyMatch(condition -> "incoming_projectile".equals(condition.type()) && !condition.negated());
+	}
+
+	/**
+	 * Apply the shield's stand-aside gate. Forcing truth false alone leaves a queued arrow edge (seen during the shield's
+	 * cooldown on the tick cover starts) to pre-empt cover once the cooldown ends, so the queued start goes too.
+	 */
+	static boolean shieldGate(ReflexScheduler scheduler, ReflexSpec.Rule rule, boolean truth, boolean firingBlocksShots) {
+		if (!shieldStandsAsideFor(rule, firingBlocksShots)) return truth;
+		scheduler.discardPendingStart(rule.id());
+		return false;
+	}
+
 	/** The running firing's status and detail for the scheduler, after the engine's own exits. */
 	record FiringStep(ReflexScheduler.ActionStatus status, String detail) {
 	}
@@ -324,6 +346,7 @@ public final class ReflexEngine {
 		ObservationVisibility.Frame frame = ObservationVisibility.frame(player.level(), player);
 		boolean cornered = active != null && active.type() == ActionType.FLEE_FROM
 				&& dev.agaminggod.mineagen.server.runtime.controller.CorneredStand.standing(player);
+		boolean firingBlocksShots = agent.scheduler.current() != null && agent.behaviour != null && agent.behaviour.blocksShots();
 		Map<String, ReflexScheduler.Sense> senses = new HashMap<>();
 		Map<String, Entity> focus = new HashMap<>();
 		Map<String, Vec3> points = new HashMap<>();
@@ -357,6 +380,7 @@ public final class ReflexEngine {
 				until = ReflexSensors.sense(player, condition, frame, agent.memory, now).truth();
 			}
 			truth = gatedTruth(rule, truth, activeType);
+			truth = shieldGate(agent.scheduler, rule, truth, firingBlocksShots);
 			// A default "back off when weaker" rule does not pause a flee that has already found no way out and stands its
 			// ground: running or taking cover there only hands the attackers free hits (cornered fixture: 4.6 s paused
 			// mid-fight). Hazard flinches (a fusing creeper, fire, lava, air, an edge, suffocation) still interrupt it.
