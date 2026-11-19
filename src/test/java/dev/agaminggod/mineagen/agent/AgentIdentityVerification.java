@@ -183,6 +183,12 @@ public final class AgentIdentityVerification {
 				"GPT-6.1 Sol tag shows the current version");
 		assertEquals("sol", AgentVisualIdentity.resolve("codex", "gpt-6.1-sol", 0).modelFamilyKey(),
 				"GPT-6.1 Sol uses the Sol face and skin");
+		assertEquals("GPT-6.2 Sol", AgentModelNames.displayName("codex", "gpt-6.2-sol"),
+				"GPT-6.2 Sol has its own display name");
+		assertEquals("GPT-6.2 Sol", AgentModelNames.tagName("codex", "gpt-6.2-sol"),
+				"GPT-6.2 Sol tag shows its version");
+		assertEquals("sol", AgentVisualIdentity.resolve("codex", "gpt-6.2-sol", 0).modelFamilyKey(),
+				"GPT-6.2 Sol uses the Sol face and skin");
 		assertEquals("terra", AgentVisualIdentity.resolve("codex", "gpt-6-astra", 0).modelFamilyKey(),
 				"GPT-6 Astra uses its Astra family skin");
 		assertEquals("luna", AgentVisualIdentity.resolve("codex", "gpt-6-luna", 0).modelFamilyKey(),

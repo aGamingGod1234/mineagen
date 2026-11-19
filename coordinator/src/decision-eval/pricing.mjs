@@ -12,10 +12,17 @@ export const TOKEN_PRICES_PER_MILLION = Object.freeze({
 	'claude:claude-fable-5-1': Object.freeze({ input: 2, cacheRead: 0.2, cacheWrite: 8, output: 20, tierMultiplier: 1 }),
 	// Terra is charged against the same accounting proxy as Sol for paired decision gates (not invoice prices).
 	'codex:gpt-6.1-terra': Object.freeze({ input: 2, cacheRead: 0.1, cacheWrite: 2.5, output: 10, tierMultiplier: 2 }),
+	// Same Standard short-context rates as gpt-6.1-sol on the OpenAI API price list (checked 2026-11-18).
+	'codex:gpt-6.2-sol': Object.freeze({ input: 2, cacheRead: 0.1, cacheWrite: 2.5, output: 10, tierMultiplier: 2 }),
 	'codex:gpt-6.1-sol': Object.freeze({ input: 2, cacheRead: 0.1, cacheWrite: 2.5, output: 10, tierMultiplier: 2 }),
 	'codex:gpt-6-sol': Object.freeze({ input: 2, cacheRead: 0.1, cacheWrite: 2.5, output: 10, tierMultiplier: 2 }),
 	'codex:gpt-6-luna': Object.freeze({ input: 0.1, cacheRead: 0.01, cacheWrite: 0.125, output: 0.5, tierMultiplier: 2 }),
 });
+
+/** Refuses a play or judge profile with no price, so a budgeted run cannot count its calls as free. */
+export function requireTokenPrice({ provider, model } = {}) {
+	if (!TOKEN_PRICES_PER_MILLION[`${provider}:${model}`]) throw new Error(`No token price for ${provider}:${model}; add it to TOKEN_PRICES_PER_MILLION in coordinator/src/decision-eval/pricing.mjs before running with a budget`);
+}
 
 const TOKEN_KEYS = Object.freeze(['input', 'cacheRead', 'cacheWrite', 'output']);
 

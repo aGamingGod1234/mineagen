@@ -8,6 +8,7 @@ import { buildCodexArgs, resolveCodexLaunchAsync } from '../codex-app-server.mjs
 import { mirrorCodexExecUsage } from '../codex-usage-mirror.mjs';
 import { createProviderChildEnvironment, findNpmEntrypointBesideShim } from '../provider-environment.mjs';
 import { estimateTokenCostUsd } from '../call-cost.mjs';
+import { defaultJudgeModel } from '../default-models.mjs';
 
 export const JUDGE_DIMENSIONS = Object.freeze(['sensibleGoalPursuit', 'situationalAwareness', 'safety', 'efficiency', 'recovery']);
 export const JUDGE_MAX_OUTPUT_BYTES = 32 * 1024;
@@ -208,7 +209,7 @@ export async function judgeTimeline({ goal, timeline, armProvider, provider, mod
 	if (armProvider !== undefined && !['claude', 'codex'].includes(armProvider)) throw new TypeError('armProvider must be claude or codex');
 	provider ??= armProvider === 'claude' ? 'codex' : 'claude';
 	if (!['claude', 'codex'].includes(provider)) throw new TypeError('judge provider must be claude or codex');
-	model ??= provider === 'claude' ? 'claude-opus-5-5' : 'gpt-6.1-sol';
+	model ??= defaultJudgeModel(provider);
 	for (const [key, value] of [['model', model], ['effort', effort]]) if (typeof value !== 'string' || !/^[a-z0-9._-]+$/i.test(value)) throw new TypeError(`invalid judge ${key}`);
 	if (!(provider === 'claude' ? ['low', 'medium', 'high'] : ['low', 'medium', 'high', 'xhigh']).includes(effort)) throw new TypeError(`unsupported ${provider} judge effort`);
 	if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) throw new TypeError('judge timeoutMs must be positive');

@@ -3,14 +3,17 @@
 import { privateInput, skipWithoutPrivateInputs } from '../../coordinator/scripts/private-inputs.mjs';
 import fs from 'node:fs';
 import { parseArgs } from 'node:util';
-const {values:a,positionals:files}=parseArgs({allowPositionals:true,options:{cases:{type:'string',default:undefined},out:{type:'string'}}});
-if(!files.length) throw new Error('Usage: node scripts/decision-eval/score-portal-kit.mjs [--cases corpus.json] [--out report.json] run.json ...');
+import { defaultModel } from '../../coordinator/src/default-models.mjs';
+const {values:a,positionals:files}=parseArgs({allowPositionals:true,options:{cases:{type:'string',default:undefined},out:{type:'string'},model:{type:'string'}}});
+if(!files.length) throw new Error('Usage: node scripts/decision-eval/score-portal-kit.mjs [--cases corpus.json] [--model ID] [--out report.json] run.json ...');
+// One lane scores one Codex model at low effort; the default is the project's (coordinator/src/default-models.mjs).
+const model=a.model??defaultModel('codex');
 if (!a.cases) skipWithoutPrivateInputs('decision-eval score-portal-kit');
 const cases=new Map(JSON.parse(fs.readFileSync(a.cases ?? privateInput('coordinator/test/fixtures/decision-eval/extra/portal-kit-continuity.json'))).cases.map(c=>[c.id,c]));
 const reports=[];
 for(const file of files){
  const run=JSON.parse(fs.readFileSync(file));
- if(run.config.provider!=='codex'||run.config.model!=='gpt-6.1-sol'||run.config.effort!=='low'||run.config.probe)throw new Error('Lane scoring requires Codex gpt-6.1-sol low without probe replies');
+ if(run.config.provider!=='codex'||run.config.model!==model||run.config.effort!=='low'||run.config.probe)throw new Error(`Lane scoring requires Codex ${model} low without probe replies; pass --model for another model`);
  if(!Number.isSafeInteger(run.config.sampleOffset)||run.config.sampleOffset<0)throw new Error('A nonnegative sample offset is required');
  if(Object.keys(run.config.sampleCounts).length!==cases.size||Object.entries(run.config.sampleCounts).some(([id,n])=>!cases.has(id)||!Number.isSafeInteger(n)||n<3))throw new Error('Every corpus point needs at least three planned samples');
  const seen=new Set(), rows=[], groups={};

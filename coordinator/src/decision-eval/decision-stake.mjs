@@ -12,6 +12,7 @@ import { goalSpecFingerprint } from '../goal-spec.mjs';
 import { normalizeMinecraftToolCall } from '../native-minecraft-tools.mjs';
 import { replayAgentRecord, REPLAY_AGENT_ID } from './render.mjs';
 import { HarnessBridge, ReplayPlanner, TraceLog, withVirtualClock, idleProvider, settle } from './replay-harness.mjs';
+import { defaultModel } from '../default-models.mjs';
 
 export const STAKE_ROOT = fileURLToPath(new URL('../../test/fixtures/stake/', import.meta.url));
 // Bridge commands keep only what a decision is: which command, for which goal revision, of which action type.
@@ -50,7 +51,7 @@ export async function replayEpisode(episode, { createCoordinator = createDynamic
 			steers.push(request.goalRevision);
 		};
 		const coordinator = createCoordinator({ bridge: { port: 25570, secret: 's'.repeat(32) },
-			codex: { controlProtocol: 'native_tools', launchProfile: { agentId: 'coordinator', model: 'gpt-6.1-sol', reasoningEffort: 'low', serviceTier: 'default' } } }, {
+			codex: { controlProtocol: 'native_tools', launchProfile: { agentId: 'coordinator', model: defaultModel('codex'), reasoningEffort: 'low', serviceTier: 'default' } } }, {
 			bridge, registry, planner, scheduler: new PlanningScheduler(), codexService: idleProvider, memoryDirectory: null, traceWriter: traces,
 			controlNow: () => clock.now, epochNow: () => clock.now, goalSchedule: clock.schedule, cancelGoalSchedule: clock.cancel,
 			goalStuckSchedule: clock.schedule, cancelGoalStuckSchedule: clock.cancel, setSteerTimeout: clock.schedule, clearSteerTimeout: clock.cancel,
@@ -75,7 +76,7 @@ export async function replayEpisode(episode, { createCoordinator = createDynamic
 		};
 		try {
 			await coordinator.start();
-			await deliver('ready', { serverInstanceId: 'decision-stake', registry: [replayAgentRecord({ state: { agent: {} } }, { provider: 'codex', model: 'gpt-6.1-sol' })] });
+			await deliver('ready', { serverInstanceId: 'decision-stake', registry: [replayAgentRecord({ state: { agent: {} } }, { provider: 'codex', model: defaultModel('codex') })] });
 			await goal(1); await observe(episode.initial);
 			await traces.until(() => planner.turns.length > 0, 500);
 			if (!planner.turns.length) throw new Error('UNSUPPORTED: no planner admission');

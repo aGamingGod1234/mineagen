@@ -10,6 +10,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { pathToFileURL } from 'node:url';
+import { defaultModel } from '../default-models.mjs';
 
 const [srcDir, rconPortText, bridgePortText, secretFile, label, outFile, agentsText = '8', actionsText = '60', graceText] = process.argv.slice(2);
 const load = (name) => import(pathToFileURL(join(srcDir, name)).href);
@@ -22,7 +23,7 @@ const { classifyObservationTrigger } = await load('dynamic-main.mjs');
 
 const AGENTS = Number(agentsText);
 const ACTIONS = Number(actionsText);
-const PROFILE = { provider: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'medium', serviceTier: 'default' };
+const PROFILE = { provider: 'codex', model: defaultModel('codex'), reasoningEffort: 'medium', serviceTier: 'default' };
 const secret = (await readFile(secretFile, 'utf8')).trim();
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const now = () => performance.now();

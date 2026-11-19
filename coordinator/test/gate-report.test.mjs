@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { buildGate, readRun, compare, verdict, funnel, SCHEMA } from '../../scripts/quality/gate-report.mjs';
+import { buildGate, readRun, compare, verdict, funnel, parseCli, SCHEMA } from '../../scripts/quality/gate-report.mjs';
 import { findGateFunnel, collectReplays } from '../../scripts/quality/lib/stake-comparison.mjs';
 import { formatFunnel, formatReplays } from '../src/decision-eval/stake-summary.mjs';
 
@@ -12,7 +12,7 @@ const milestone = (at) => ({ firstObservedAt: at === null ? null : T0 + at * MIN
 const SHA = 'e62adcea2c08e42973c9e1a928358ab19b043ccc';
 
 /** A long-run folder as the farm saves it: stage-score, long-run, the runner's log beside it, and a decision log. */
-async function longRun(root, name, { seed, iron = null, bucket = null, flint = null, nether = null, afterDeathIron = null, deaths = 0, usd = 1.5, log = [], windowMin = 40, endMin = null, samples = null }) {
+async function longRun(root, name, { seed, iron = null, bucket = null, flint = null, nether = null, afterDeathIron = null, deaths = 0, usd = 1.5, log = [], windowMin = 40, endMin = null, samples = null, model = 'gpt-6.1-sol', effort = 'low', stop = undefined }) {
 	const dir = path.join(root, name);
 	await mkdir(path.join(dir, 'raw'), { recursive: true });
 	const lives = { firstLife: { milestones: { iron_pickaxe: milestone(iron), bucket: milestone(bucket), flint_and_steel: milestone(flint), nether: milestone(nether) } },
@@ -20,7 +20,7 @@ async function longRun(root, name, { seed, iron = null, bucket = null, flint = n
 	// endMin: the scorer's observed end (last sample and the stop it recorded); older scores leave both out.
 	const window = { startedAt: T0, windowMs: windowMin * MIN, ...(endMin === null ? {} : { observedThrough: T0 + endMin * MIN, plannedEndAt: T0 + windowMin * MIN }) };
 	await writeFile(path.join(dir, 'stage-score.json'), JSON.stringify({ window, ...(endMin === null ? {} : { ending: { kind: 'stopped', at: T0 + endMin * MIN } }), identity: { seed }, observedDeaths: deaths, ...lives }));
-	await writeFile(path.join(dir, 'long-run.json'), JSON.stringify({ seed, windowMs: windowMin * MIN, profile: { provider: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'low' }, spend: { usd } }));
+	await writeFile(path.join(dir, 'long-run.json'), JSON.stringify({ seed, windowMs: windowMin * MIN, profile: { provider: 'codex', model, reasoningEffort: effort }, spend: { usd }, ...(stop ? { stop } : {}) }));
 	if (samples) await writeFile(path.join(dir, 'raw', 'quality-samples.jsonl'), samples.map((row) => JSON.stringify(row)).join('\n') + '\n');
 	await writeFile(`${dir}.log`, `Running q-1: /home/user/micro/roots/${SHA}/runtime/headless-runs/x\n`);
 	await writeFile(path.join(dir, 'raw', 'decision-1-agent.jsonl'), log.map((row) => JSON.stringify(row)).join('\n') + '\n');
@@ -88,7 +88,7 @@ test('pairs: under 2 seeds is "no change", and seeds only one side ran are named
 	assert.equal(verdict(-1), 'no change');
 	assert.equal(verdict(2), 'better');
 	assert.equal(verdict(-2), 'worse');
-	const run = (seed, iron) => ({ seed, milestones: { ironPickaxe: iron } });
+	const run = (seed, iron) => ({ seed, model: 'codex gpt-6.1-sol low', milestones: { ironPickaxe: iron } });
 	const result = compare({ name: 'A', runs: [run('1', null), run('2', null), run('3', 5)] }, { name: 'B', runs: [run('1', 4), run('2', 6), run('4', 7)] });
 	assert.equal(result.pairedSeeds, 2);
 	assert.deepEqual(result.missingPairs, [{ seed: '3', only: 'A' }, { seed: '4', only: 'B' }]);
@@ -172,15 +172,15 @@ test('a gate one commit ran pairs with the previous gate on the same seeds, mode
 });
 
 test('a pair uses each seed\'s first run, so a cohort run twice gets no second chance', () => {
-	const run = (seed, iron) => ({ seed, milestones: { ironPickaxe: iron } });
+	const run = (seed, iron) => ({ seed, model: 'codex gpt-6.1-sol low', milestones: { ironPickaxe: iron } });
 	const twice = { name: 'round1', runs: [run('1', null), run('1', 5), run('2', 4), run('2', null)] };
 	const once = { name: 'round2', runs: [run('1', null), run('2', 4)] };
 	assert.equal(compare(twice, once).milestones.ironPickaxe.before, 1);
 });
 
 test('a milestone pairs only seeds measured on both sides; a save-point game is left out, not counted as never reached', () => {
-	const fresh = (seed, iron) => ({ seed, milestones: { ironPickaxe: iron } });
-	const savePoint = (seed) => ({ seed, milestones: {} });
+	const fresh = (seed, iron) => ({ seed, model: 'codex gpt-6.1-sol low', milestones: { ironPickaxe: iron } });
+	const savePoint = (seed) => ({ seed, model: 'codex gpt-6.1-sol low', milestones: {} });
 	const before = { name: 'fresh', runs: ['1', '2', '3', '4'].map((seed) => fresh(seed, 10)) };
 	const after = { name: 'mixed', runs: [savePoint('1'), savePoint('2'), savePoint('3'), fresh('4', 12)] };
 	const result = compare(before, after);
@@ -201,13 +201,14 @@ async function standardRound(root, games, { startKind = 'fresh', baseline = star
 	const dir = path.join(root, 'round9');
 	await mkdir(dir, { recursive: true });
 	await writeFile(path.join(dir, 'manifest.json'), JSON.stringify({ games: games.map(({ id }, i) => ({ id, tag: `r9-${i + 1}`, jar: `jars/route-${SHA.slice(0, 8)}.jar`, minutes: 180 })) }));
-	for (const { id, seed, stages, deaths = 0, minute = 60, samples } of games) {
+	for (const { id, seed, stages, deaths = 0, minute = 60, samples, model = 'gpt-6.1-sol', reason } of games) {
 		const game = path.join(dir, id);
 		await mkdir(path.join(game, 'raw'), { recursive: true });
 		await writeFile(path.join(game, 'timeline.json'), JSON.stringify({ stageOrder: ['iron pickaxe', 'in the Nether'], startedAt: T0, stoppedAt: T0 + minute * MIN, minute, startKind,
 			stages: Object.entries(stages).map(([stage, at]) => ({ stage, minute: at, at: T0 + at * MIN, source: at === 0 && baseline ? 'snapshot baseline' : 'observation' })), deaths: Array.from({ length: deaths }, () => ({ cause: 'x' })) }));
 		await writeFile(path.join(game, 'spend.json'), JSON.stringify({ usd: 2.5 }));
-		await writeFile(path.join(game, 'raw', 'manifest.json'), JSON.stringify({ provider: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'low', world: { seed } }));
+		await writeFile(path.join(game, 'raw', 'manifest.json'), JSON.stringify({ provider: 'codex', model, reasoningEffort: 'low', world: { seed } }));
+		await writeFile(path.join(game, 'controller.json'), JSON.stringify({ state: 'done', at: T0, ...(reason ? { reason } : {}) }));
 		if (samples) await writeFile(path.join(game, 'raw', 'quality-samples.jsonl'), samples.map((row) => JSON.stringify(row)).join('\n') + '\n');
 	}
 	return dir;
@@ -253,7 +254,7 @@ test('a standard round folder gives each game, with the first bucket and Nether 
 
 		const [cohort] = buildGate({ gate: 'r9', title: 'round 9', cohorts: [{ name: 'r9', label: 'round 9', dirs: [dir] }] }).cohorts;
 		// game-2 stopped at 40 of 180 minutes without the Nether: censored early, at 40.
-		assert.deepEqual(cohort.funnel.nether, { reached: 1, total: 2, censored: 1, censoredEarly: 1, medianMin: null, runs: { reached: 1, total: 2 } });
+		assert.deepEqual(cohort.funnel.nether, { reached: 1, total: 2, censored: 1, censoredEarly: 1, censoredEarlyBy: { cap: 0, stall: 0, other: 0, unrecorded: 1 }, medianMin: null, runs: { reached: 1, total: 2 } });
 		assert.deepEqual(cohort.nether, { games: 1, entered: 1, minutes: 22.5, deathsAfterFirstEntry: 2, deaths: 2, gamesWithDeaths: 1,
 			respawnBlocks: { min: 50, median: 77, max: 104 }, back: { returned: 1, returnedMin: 5, neverReturned: 1, neverReturnedMin: 10, totalMin: 15 } });
 	} finally { await rm(root, { recursive: true, force: true }); }
@@ -353,5 +354,54 @@ test('a long run stopped short of its budget ends where the scorer saw it end, f
 		// A score that names no observed end keeps the planned end and leaves the minutes played unknown.
 		const old = await longRun(root, 'old', { seed: '9', windowMin: 180 });
 		assert.equal('playedMin' in readRun(old)[0], false);
+	} finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('each game carries its model, effort and stop rule, and cohorts of different models are compared only on purpose', async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), 'gate-report-'));
+	try {
+		const arm = async (name, model, effort = 'low') => [
+			await longRun(root, `${name}-1`, { seed: '1', iron: 10, model, effort, stop: { kind: 'window', reason: 'WALL_CLOCK_BUDGET' } }),
+			await longRun(root, `${name}-2`, { seed: '2', iron: null, model, effort, endMin: 25, stop: { kind: 'cap', reason: 'SPEND_CAP' } }),
+		];
+		const sol61 = await arm('a', 'gpt-6.1-sol'), sol62 = await arm('b', 'gpt-6.2-sol'), medium = await arm('c', 'gpt-6.1-sol', 'medium');
+		const [game] = readRun(sol62[1]);
+		assert.equal(game.model, 'codex gpt-6.2-sol low');
+		assert.deepEqual([game.provider, game.modelId, game.effort, game.stopKind, game.stopReason], ['codex', 'gpt-6.2-sol', 'low', 'cap', 'SPEND_CAP']);
+		const cohorts = (second) => [{ name: 'sol61', label: '6.1 low', dirs: sol61 }, { name: 'other', label: 'other arm', dirs: second }];
+		assert.throws(() => buildGate({ gate: 'cp1', title: 't', cohorts: cohorts(sol62) }), /sol61 → other: the cohorts ran different models or efforts \(codex gpt-6\.1-sol low against codex gpt-6\.2-sol low\); pass --allow-model-mismatch/);
+		assert.throws(() => buildGate({ gate: 'cp1', title: 't', cohorts: cohorts(medium) }), /different models or efforts/, 'effort counts too');
+		assert.throws(() => buildGate({ gate: 'cp1', title: 't', cohorts: cohorts([...sol61, ...sol62]) }), /different models or efforts/, 'a cohort that mixes models matches nothing');
+		const report = buildGate({ gate: 'cp1', title: 't', cohorts: cohorts(sol62), allowModelMismatch: true });
+		assert.deepEqual(report.comparisons[0].profileMismatch, { before: ['codex gpt-6.1-sol low'], after: ['codex gpt-6.2-sol low'] });
+		assert.ok(report.notes.some((note) => /sol61 → other compares different models or efforts on purpose/.test(note)));
+		assert.deepEqual([report.cohorts[1].modelId, report.cohorts[1].effort], ['gpt-6.2-sol', 'low']);
+		assert.deepEqual(report.cohorts[1].stops, { cap: 1, window: 1 });
+		// The game that missed the iron pickaxe stopped 15 min short of its window on the spend cap.
+		assert.deepEqual(report.cohorts[1].funnel.ironPickaxe.censoredEarlyBy, { cap: 1, stall: 0, other: 0, unrecorded: 0 });
+		assert.deepEqual(buildGate({ gate: 'same', title: 't', cohorts: [{ name: 'x', label: 'x', dirs: [sol61[0]] }, { name: 'y', label: 'y', dirs: [sol61[1]] }] }).comparisons[0].profileMismatch, undefined);
+		const unknownEffort = await longRun(root, 'd-1', { seed: '1', iron: 10, effort: null });
+		assert.throws(() => buildGate({ gate: 'u', title: 't', cohorts: [{ name: 'x', label: 'x', dirs: [sol61[0]] }, { name: 'y', label: 'y', dirs: [unknownEffort] }] }), /unknown/, 'an unrecorded effort is not a match');
+		assert.equal(parseCli(['--gate', '1', '--allow-model-mismatch', '--cohort', 'a', 'A', 'dir']).allowModelMismatch, true);
+	} finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('games censored early split into cap, stall, other and unrecorded stops', async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), 'gate-report-'));
+	try {
+		const dir = await standardRound(root, [
+			// The round runner's own wording for a round-wide cap stop.
+			{ id: 'game-1', seed: '1', minute: 120, stages: { 'iron pickaxe': 5 }, reason: 'round hard spend cap reached' },
+			{ id: 'game-2', seed: '2', minute: 130, stages: { 'iron pickaxe': 6 }, reason: 'OPERATOR_STALL_45MIN' },
+			{ id: 'game-3', seed: '3', minute: 90, stages: { 'iron pickaxe': 7 }, reason: 'ENDED_EARLY:RUNNER_ERROR' },
+			{ id: 'game-4', seed: '4', minute: 100, stages: { 'iron pickaxe': 8 } },
+			{ id: 'game-5', seed: '5', minute: 180, stages: { 'iron pickaxe': 9 }, reason: 'WALL_CLOCK_BUDGET' },
+		]);
+		const runs = readRun(dir);
+		assert.deepEqual(runs.map((run) => run.stopKind), ['cap', 'stall', 'other', null, 'window']);
+		const [cohort] = buildGate({ gate: 'r9', title: 'round 9', cohorts: [{ name: 'r9', label: 'round 9', dirs: [dir] }] }).cohorts;
+		assert.equal(cohort.funnel.nether.censoredEarly, 4);
+		assert.deepEqual(cohort.funnel.nether.censoredEarlyBy, { cap: 1, stall: 1, other: 1, unrecorded: 1 });
+		assert.deepEqual(cohort.stops, { cap: 1, other: 1, stall: 1, unrecorded: 1, window: 1 });
 	} finally { await rm(root, { recursive: true, force: true }); }
 });

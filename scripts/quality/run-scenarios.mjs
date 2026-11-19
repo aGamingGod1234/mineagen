@@ -19,6 +19,8 @@ import { findGeneralityInputLeaks } from '../../coordinator/src/benchmark/genera
 import { activateQualitySetup, sampleQualityShelter } from '../../coordinator/src/benchmark/quality-scenarios.mjs';
 import { initialPlanEvidence } from '../../coordinator/src/benchmark/quality-metrics-v2.mjs';
 import { liveSpendUsd, unmeteredProviderCalls } from '../../coordinator/src/benchmark/spend-ledger.mjs';
+import { requireTokenPrice } from '../../coordinator/src/call-cost.mjs';
+import { defaultModel } from '../../coordinator/src/default-models.mjs';
 import { startAnthropicGateway, PREPARATION_ALLOWANCE_USD } from '../../coordinator/src/benchmark/spend-gate.mjs';
 import { LadderEvaluator, checkAdvancements, evaluateSamples, parseSuccessCheck } from './ladder-evaluator.mjs';
 import { spawnOwnedProcess, terminateChildProcess } from '../../coordinator/src/child-process-lifecycle.mjs';
@@ -79,7 +81,7 @@ export function parseArgs(argv) {
 	if (values['retry-failed'] && !values.arms) throw new Error('--retry-failed requires --arms');
 	if (values['allow-identical-arms'] && !values.arms) throw new Error('--allow-identical-arms requires --arms');
 	if (values['scenario-file'] && !values.scenarios) throw new Error('--scenario-file requires --scenarios');
-	return { scenarioFile: values['scenario-file'] ? path.resolve(values['scenario-file']) : null, allowIdenticalArms: Boolean(values['allow-identical-arms']), serviceTier, seed: values.seed ?? null, spawnPosition: spawnPosition ?? null, goalStartClock: Boolean(values['play-window-ms']), retryFailed: Boolean(values['retry-failed']), harnessCommit, arms: values.arms && path.resolve(values.arms), coordinatorRoot: path.resolve(values['coordinator-root'] ?? ROOT), sourceCommit: values['source-commit'] ?? null, provider, model: values.model ?? ({ claude: 'claude-opus-5-5', codex: 'gpt-6.1-sol' })[provider], effort: values.effort ?? 'low', runs, budget,
+	return { scenarioFile: values['scenario-file'] ? path.resolve(values['scenario-file']) : null, allowIdenticalArms: Boolean(values['allow-identical-arms']), serviceTier, seed: values.seed ?? null, spawnPosition: spawnPosition ?? null, goalStartClock: Boolean(values['play-window-ms']), retryFailed: Boolean(values['retry-failed']), harnessCommit, arms: values.arms && path.resolve(values.arms), coordinatorRoot: path.resolve(values['coordinator-root'] ?? ROOT), sourceCommit: values['source-commit'] ?? null, provider, model: values.model ?? defaultModel(provider), effort: values.effort ?? 'low', runs, budget,
 		scenarios, jar: values.jar && path.resolve(values.jar),
 		portBase, out: path.resolve(values.out ?? path.join(ROOT, 'runtime/quality-results', `quality-${Date.now()}`)),
 		template: path.resolve(values['server-template'] ?? process.env.ARENA_HEADLESS_SERVER_TEMPLATE ?? DEFAULT_TEMPLATE), java: values.java ?? process.env.ARENA_HEADLESS_JAVA ?? (process.env.JAVA_HOME ? path.join(process.env.JAVA_HOME, 'bin', JAVA_EXE) : DEFAULT_JAVA) };
@@ -361,6 +363,8 @@ export class Observer {
 	/**
 	 * Gateway-metered runs: the gate already refuses any call that could overrun, so a refusal (or a closed gate) ends play.
 	 * Observer-metered Codex play: stop once metered spend plus one more call at the settlement's per-call charge reaches the cap.
+	 * With spendCapMode 'log' the observer only records the first crossing and play runs to its window: the largest call so
+	 * far sets the headroom, so a model with bigger calls would otherwise stop earlier than another under the same cap.
 	 */
 	async enforceSpendCap() {
 		if (this.stopRequest) return;
@@ -372,7 +376,13 @@ export class Observer {
 		if (!Number.isFinite(cap) || Date.now() < (this.nextSpendCheck ?? 0)) return;
 		this.nextSpendCheck = Date.now() + 2000;
 		this.liveSpend = liveSpendUsd({ traceRows: this.trace.rows, providerRows: this.provider.rows, profile: this.profile, reserveUsd: this.definition.runReserveUsd ?? 0 });
-		if (this.liveSpend.usd + this.liveSpend.perCallUsd >= cap) await this.requestStop('SPEND_CAP', { capUsd: cap, spentUsd: this.liveSpend.usd });
+		if (this.liveSpend.usd + this.liveSpend.perCallUsd < cap) return;
+		if (!this.spendCapCrossed) {
+			const at = Date.now();
+			this.spendCapCrossed = { at, atMs: this.startedAt === null ? null : at - this.startedAt, capUsd: cap, spentUsd: this.liveSpend.usd, perCallUsd: this.liveSpend.perCallUsd };
+			if (this.definition.spendCapMode === 'log') console.log(`Spend cap crossed, logged only: ${JSON.stringify(this.spendCapCrossed)}`);
+		}
+		if (this.definition.spendCapMode !== 'log') await this.requestStop('SPEND_CAP', { capUsd: cap, spentUsd: this.liveSpend.usd });
 	}
 	/** A stop is pending until the protocol shows the goal ended; until then it is retried, and escalated to a process-tree stop. */
 	async requestStop(reason, detail = {}) {
@@ -479,6 +489,7 @@ export class Observer {
 			termination: evaluation?.pass && evaluation.source === 'samples' && this.definition.evaluatorEarlyStop !== false ? 'EVALUATOR_PASS' : runnerTermination, runnerStatus: runner?.status ?? report?.status ?? null,
 			metrics, definition: this.definition, setup: this.setup ?? null, artifacts: this.directory, observerErrors: this.errors, terminalObserverErrors: this.terminalObserverErrors,
 			samplingGaps: this.samplingGaps, providerAttestation: runner?.settings ?? null, stopRequest: this.stopRequest ?? null, liveSpend: this.liveSpend ?? null,
+			...(Number.isFinite(this.definition.spendCapUsd) ? { spendCap: { mode: this.definition.spendCapMode === 'log' ? 'log' : 'stop', capUsd: this.definition.spendCapUsd, crossed: this.spendCapCrossed ?? null } } : {}),
 			...(evaluation ? { evaluation, runnerTermination } : {}),
 			unmeteredProviderCalls: unmeteredProviderCalls(this.trace.rows, this.provider.rows), capturedAt: new Date().toISOString() };
 		// Protocol and samples are journaled during play, before any report extraction can fail.
@@ -506,6 +517,8 @@ export async function runScenarios(options, { spawnLauncher = spawnOwnedProcess,
 	if (strict) for (const scenario of selected) requireStrictGoal(scenario.goal);
 	if (new Set(options.scenarios).size !== selected.length || selected.length * options.runs > 24) throw new Error('Select unique scenarios, at most 24 attempts per invocation');
 	const profile = { provider: options.provider, model: options.model, reasoningEffort: options.effort, serviceTier: options.serviceTier ?? (options.provider === 'codex' ? 'default' : 'priority') };
+	// A cap adds up priced calls only: an unpriced model would read as free and never reach it.
+	if (options.spendGate || selected.some(s => Number.isFinite(s.spendCapUsd))) requireTokenPrice(profile);
 	const version = (await readFile(path.join(ROOT, 'gradle.properties'), 'utf8')).match(/^mod_version=(.+)$/m)[1].trim();
 	const jar = options.jar ?? path.join(ROOT, 'build/libs', `mineagen-${version}.jar`);
 	if (!existsSync(jar)) throw new Error(`Missing JAR ${jar}; build first or pass --jar`);

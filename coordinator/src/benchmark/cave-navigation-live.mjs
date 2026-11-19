@@ -11,8 +11,9 @@ import { normalizeMinecraftToolCall } from '../native-minecraft-tools.mjs';
 import { adaptObservation } from '../observation-adapter.mjs';
 import { classifyObservationTrigger } from '../dynamic-main.mjs';
 import { parseProbeArguments, probeFailureMessage } from '../player-capability-probe.mjs';
+import { defaultModel } from '../default-models.mjs';
 
-const PROFILE = Object.freeze({ provider: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'medium', serviceTier: 'default' });
+const PROFILE = Object.freeze({ provider: 'codex', model: defaultModel('codex'), reasoningEffort: 'medium', serviceTier: 'default' });
 const terminal = new Set(['SUCCEEDED', 'FAILED', 'TIMED_OUT', 'CANCELLED']);
 const hash = value => createHash('sha256').update(typeof value === 'string' || Buffer.isBuffer(value) ? value : JSON.stringify(value)).digest('hex');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));

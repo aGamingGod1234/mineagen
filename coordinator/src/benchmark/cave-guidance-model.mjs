@@ -6,10 +6,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defaultBaselineBundle } from './cave-navigation-attention.mjs';
+import { defaultModel } from '../default-models.mjs';
 
 const repositoryRoot = fileURLToPath(new URL('../../../', import.meta.url));
 const hash = value => createHash('sha256').update(value).digest('hex');
-const settings = Object.freeze({ model: 'gpt-6.1-sol', reasoningEffort: 'medium', serviceTier: 'default' });
+const settings = Object.freeze({ model: defaultModel('codex'), reasoningEffort: 'medium', serviceTier: 'default' });
 const agentFile = 'coordinator/config/minecraft-agent/AGENTS.md';
 const skillFile = 'coordinator/config/minecraft-agent/.codex/skills/minecraft-control/SKILL.md';
 const common = `This is a text-only guidance evaluation. The observations below are complete for this decision. Do not call tools, inspect files, execute commands, use a browser, or perform gameplay. The bundled guidance is supplied as text. Return exactly one JSON object with at most 180 words total in prose fields. Do not report reasoning traces. Make your own decision; no particular reserve quantity, route length or new API is required.`;

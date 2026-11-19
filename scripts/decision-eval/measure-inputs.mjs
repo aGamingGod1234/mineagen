@@ -5,6 +5,7 @@ import { readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
+import { defaultModel } from '../../coordinator/src/default-models.mjs';
 
 const [checkout = '.', output = '/tmp/decision-inputs.json'] = process.argv.slice(2);
 const root = path.resolve(checkout);
@@ -22,7 +23,7 @@ const texts = [];
 for (const name of (await readdir(directory)).filter(name => name.endsWith('.json')).sort()) {
  const fixture = JSON.parse(await readFile(path.join(directory, name), 'utf8'));
  for (const testCase of fixture.cases) {
-  const rendered = await renderWake(testCase, { provider: 'codex', model: 'gpt-6.1-sol' });
+  const rendered = await renderWake(testCase, { provider: 'codex', model: defaultModel('codex') });
   const payload = decodeModelFacts(JSON.parse(rendered.encodedInput.slice(rendered.encodedInput.indexOf('\n') + 1)));
   cases.push({ id: testCase.id, quick: testCase.quick === true, bytes: rendered.encodedBytes,
    // A reproducible size proxy, not a tokenizer or provider billing measurement.

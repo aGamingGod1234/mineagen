@@ -9,8 +9,8 @@ import { parseArgs } from 'node:util';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const source = (name) => import(pathToFileURL(path.join(repositoryRoot, 'coordinator', 'src', 'decision-eval', name)).href);
-const [{ validateCaseFile, DECISION_EVAL_SCHEMA_VERSION }, { renderPrefix, renderWake }, runner, { allocateSamples }] = await Promise.all([
-	source('schema.mjs'), source('render.mjs'), source('runner.mjs'), source('sources.mjs'),
+const [{ validateCaseFile, DECISION_EVAL_SCHEMA_VERSION }, { renderPrefix, renderWake }, runner, { allocateSamples }, { requireTokenPrice }] = await Promise.all([
+	source('schema.mjs'), source('render.mjs'), source('runner.mjs'), source('sources.mjs'), source('pricing.mjs'),
 ]);
 
 const USAGE = `Usage: node scripts/decision-eval/run.mjs --cases <file|dir> [options]
@@ -70,6 +70,8 @@ if (model === null) { console.error('--model is required for codex'); process.ex
 const effort = args.effort;
 const budgetUsd = args['budget-usd'] === undefined ? Infinity : Number(args['budget-usd']);
 if (!(budgetUsd > 0) || Number.isNaN(budgetUsd)) { console.error('--budget-usd must be a positive number'); process.exit(2); }
+// The budget adds up priced calls only: an unpriced model would read as free and never reach it.
+if (Number.isFinite(budgetUsd) && fakeProvider === null) try { requireTokenPrice({ provider, model }); } catch (error) { console.error(error.message); process.exit(2); }
 const maxCalls = args['max-calls'] === undefined ? null : positive(args['max-calls'], 'max-calls');
 const budgetLedger = args['budget-ledger'] === undefined ? null : path.resolve(args['budget-ledger']);
 // Spend recorded by every run sharing the ledger, this one included. Within one run, concurrent workers can start

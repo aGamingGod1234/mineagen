@@ -4,11 +4,24 @@ export const TOKEN_PRICES_PER_MILLION = Object.freeze({
 	'claude:claude-opus-5-5': Object.freeze({ input: 2, cacheRead: .2, cacheWrite: 8, output: 20, tierMultiplier: 1 }),
 	'claude:claude-sonnet-5-5': Object.freeze({ input: 2, cacheRead: .2, cacheWrite: 8, output: 20, tierMultiplier: 1 }),
 	'claude:claude-fable-5-1': Object.freeze({ input: 2, cacheRead: .2, cacheWrite: 8, output: 20, tierMultiplier: 1 }),
+	// gpt-6.2-sol: the OpenAI API price list gives it the same Standard short-context rates as gpt-6.1-sol, and Fast at
+	// twice Standard (checked 2026-11-18).
+	'codex:gpt-6.2-sol': Object.freeze({ input: 2, cacheRead: .1, cacheWrite: 2.5, output: 10, tierMultiplier: 2 }),
 	'codex:gpt-6.1-sol': Object.freeze({ input: 2, cacheRead: .1, cacheWrite: 2.5, output: 10, tierMultiplier: 2 }),
 	// gpt-6-sol: no separate proxy yet; weighted like gpt-6.1-sol so spend caps stay conservative.
 	'codex:gpt-6-sol': Object.freeze({ input: 2, cacheRead: .1, cacheWrite: 2.5, output: 10, tierMultiplier: 2 }),
 	'codex:gpt-6-luna': Object.freeze({ input: .1, cacheRead: .01, cacheWrite: .125, output: .5, tierMultiplier: 2 }),
 });
+
+/**
+ * Refuses a profile with no price. Spend caps add up priced calls only, so an unpriced model would read as free and
+ * its cap would never fire: a capped run must check this before it starts.
+ */
+export function requireTokenPrice(profile, prices = TOKEN_PRICES_PER_MILLION, table = 'coordinator/src/call-cost.mjs') {
+	const key = `${profile?.provider}:${profile?.model}`;
+	if (!prices[key]) throw new Error(`No token price for ${key}; add it to TOKEN_PRICES_PER_MILLION in ${table} before running with a spend cap or budget`);
+	return prices[key];
+}
 
 export function estimateTokenCostUsd(tokens, profile) {
 	const prices = TOKEN_PRICES_PER_MILLION[`${profile?.provider}:${profile?.model}`];
