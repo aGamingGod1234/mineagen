@@ -47,6 +47,15 @@ const FIGHT_MS = 30_000;
 // Damage stops a mob's hit ends (not a fall, lava or fire): the search fights that mob when it is one to fight.
 const HIT_STOPS = new Set(['TRAVEL_DAMAGED', 'NAVIGATION_DAMAGED', 'DAMAGE_TAKEN']);
 const MAX_MEMORY_TRIPS = 2;
+// A Nether biome approach (find biome): straight legs toward the cell, a building leg after one that gains under
+// APPROACH_GAIN blocks, at most APPROACH_BUILD_BUDGET blocks of building legs, and a hand-back after APPROACH_STUCK legs in
+// a row that gain under APPROACH_GAIN. 128 blocks of building is twice a surface search's: the closest seven-rods
+// approach stopped 103 blocks out.
+const APPROACH_LEG = 32;
+const APPROACH_GAIN = 4;
+const APPROACH_BUILD_BUDGET = 128;
+const APPROACH_STUCK = 3;
+const APPROACH_ARRIVE = 3;
 const MAX_DESCENT_STOPS = 6;
 const DEPTHS = Object.freeze({ lava: -54, iron_ore: 16, deepslate_iron_ore: 16, gold_ore: -16, deepslate_gold_ore: -16, diamond_ore: -58,
 	deepslate_diamond_ore: -58, redstone_ore: -58, deepslate_redstone_ore: -58, lapis_ore: 0, deepslate_lapis_ore: 0, copper_ore: 48,
@@ -341,6 +350,7 @@ export function rememberedPlaces(profile, known, places, from) {
 		if (profile.kind === 'block' && profile.ids.has(row.what) && ['lava', 'vein'].includes(row.kind)) add(row, row.what, 'remembered sighting');
 		if (profile.kind === 'mob' && row.kind === 'mob' && profile.ids.has(row.what)) add(row, row.what, 'remembered sighting');
 		if (profile.kind === 'structure' && row.kind === 'structure' && structureMatches(profile, row.what)) add(row, row.what, 'remembered sighting');
+		if (profile.kind === 'biome' && row.kind === 'biome' && profile.ids.has(row.what)) add(row, row.what, 'remembered sighting');
 		if (profile.kind === 'structure' && profile.label === 'village' && row.kind === 'poi' && row.what === 'minecraft:bell') add(row, 'village', 'remembered sighting');
 	}
 	if (profile.kind === 'block') for (const row of known?.blocks ?? []) if (profile.ids.has(row.blockId)) add(row, row.blockId, 'remembered block');
@@ -610,12 +620,13 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 	};
 
 	// One body action toward the search; a sighting during it (its own stopWhenSeen, or the watch) ends it.
-	const leg = async (how, actionType, args) => {
+	// sight: what ends this leg as seen (default: the target in view anywhere, as sightingOf reads it).
+	const leg = async (how, actionType, args, sight = null) => {
 		progress(how);
 		const timeout = Math.min(left(), 600_000, args.timeoutMs ?? Infinity);
 		// Controllers enforce the original circle on every tick, including retrace detours.
 		if (profile.ids.has('minecraft:water') && ['travel_to', 'dig_to'].includes(actionType)) args = { ...args, boundaryX: origin.x, boundaryZ: origin.z, boundaryRadius: within };
-		const result = await body.act(actionType, TIMED.has(actionType) ? { ...args, timeoutMs: Math.max(MIN_LEG_MS, Math.floor(timeout)) } : args, { watch: (sample) => sightingOf(profile, sample, null, excluded) });
+		const result = await body.act(actionType, TIMED.has(actionType) ? { ...args, timeoutMs: Math.max(MIN_LEG_MS, Math.floor(timeout)) } : args, { watch: sight ?? ((sample) => sightingOf(profile, sample, null, excluded)) });
 		const entry = { how, actionType, state: result?.state, reasonCode: result?.reasonCode, underWater: /body is under water/i.test(String(result?.message ?? '')),
 			waterAt: result?.reasonCode === 'WATER_AHEAD' ? waterOf(result?.message) : null };
 		legs.push(entry);
@@ -624,7 +635,7 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 		if (result?.seen != null) { observation = await body.observe(); walked += moved(); return { seen: result.seen, result }; }
 		// A dig stopped at lava is a sighting only when it names a pool (a source): a fall or spill it plugged is not.
 		const seenAt = result?.reasonCode === 'TARGET_SEEN' || (result?.reasonCode === 'LAVA_AHEAD' && profile.ids.has('minecraft:lava') && /target pool found/i.test(String(result.message ?? ''))) ? seenAtOf(result.message) : null;
-		const now = await refresh();
+		const now = sight === null ? await refresh() : (observation = await body.observe(), walked += moved(), sight(observation));
 		if (now !== null) return { seen: now, result };
 		if (seenAt !== null && !(excluded?.([seenAt]).size > 0)) {
 			const at = bodyAt(observation);
@@ -645,7 +656,7 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 				message: `Stopped for danger: ${fork !== undefined ? `${fork} (${stop})` : stop}${outcome.result?.message ? ` (${String(outcome.result.message).slice(0, 200)})` : ''}; also seen: ${describe(outcome.seen)}` };
 		}
 		if (outcome.ended) return outcome.ended;
-		if (outcome.seen) return found(outcome.seen);
+		if (outcome.seen) return approaching || !netherBiome() || outcome.seen.via === 'standing in it' ? found(outcome.seen) : approachSeen(outcome.seen);
 		if (outcome.interrupted) {
 			// The steer that stopped it is the model's fork; its reason leads the message (obtain keeps the first 160 characters).
 			let why = '';
@@ -745,6 +756,56 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 		if (into === undefined) return;
 		await body.act('select_tool', { sourceSlot: bucket.slot, hotbarSlot: into, expectedItemId: 'minecraft:water_bucket', minRemainingDurability: 0 });
 		observation = await body.observe();
+	};
+
+	// A Nether biome is found by standing in it, not by seeing it: seven-rods scouts saw no way across basalt deltas to a
+	// forest (travel_to NO_ROUTE 0-64 times a run, never nearer than 103 blocks), and a far sight handed back as found
+	// left the crossing to the model. The approach heads for the seen or remembered cell in legs; a leg that gains under
+	// APPROACH_GAIN blocks is followed by a building leg toward it, from the approach's own building budget.
+	const netherBiome = () => profile.kind === 'biome' && observation?.world?.dimension === 'minecraft:the_nether';
+	const standingIn = (sample) => {
+		const at = bodyAt(sample);
+		return at !== null && profile.ids.has(sample?.world?.biome)
+			? { x: Math.floor(at.x), y: Math.floor(at.y), z: Math.floor(at.z), id: sample.world.biome, via: 'standing in it', distance: 0 } : null;
+	};
+	let approaching = false;
+	// Returns a result to hand back (found, danger, budget), or { stuck } when this place cannot be reached from here.
+	const approach = async (goal, what) => {
+		approaching = true;
+		try {
+			let budget = APPROACH_BUILD_BUDGET, stuck = 0, legsRun = 0;
+			while (left() >= MIN_LEG_MS) {
+				const here = standingIn(observation);
+				if (here !== null) return found(here);
+				const at = bodyAt(observation);
+				const away = Math.hypot(goal.x + 0.5 - at.x, goal.z + 0.5 - at.z);
+				if (away <= APPROACH_ARRIVE) return { stuck: `reached ${goal.x},${goal.y},${goal.z} but the ground there is not ${profile.label}` };
+				if (stuck >= APPROACH_STUCK) return { stuck: `${stuck} approach legs in a row gained under ${APPROACH_GAIN} blocks; ${Math.round(away)} blocks left` };
+				const yaw = Math.round(Math.atan2(-(goal.x + 0.5 - at.x), goal.z + 0.5 - at.z) * 180 / Math.PI);
+				legsRun += 1;
+				const walkOut = await leg(`approach ${what} (${Math.round(away)} blocks)`, 'travel_to', { yaw, distance: Math.min(APPROACH_LEG, Math.ceil(away)), build: false }, standingIn);
+				const walkEnd = await settle(walkOut);
+				if (walkEnd !== null) return walkEnd;
+				let after = bodyAt(observation), gain = away - Math.hypot(goal.x + 0.5 - after.x, goal.z + 0.5 - after.z);
+				if (gain < APPROACH_GAIN && standingIn(observation) === null && budget >= MIN_SURFACE_LEG && left() >= MIN_LEG_MS) {
+					const distance = Math.min(BUILD_LEG, budget, Math.ceil(away));
+					budget -= distance;
+					const built = await leg(`build toward ${what}`, 'travel_to', { yaw, distance, build: true }, standingIn);
+					const buildEnd = await settle(built);
+					if (buildEnd !== null) return buildEnd;
+					after = bodyAt(observation);
+					gain = away - Math.hypot(goal.x + 0.5 - after.x, goal.z + 0.5 - after.z);
+				}
+				stuck = gain < APPROACH_GAIN ? stuck + 1 : 0;
+				if (stuck > 0 && budget < MIN_SURFACE_LEG) return { stuck: `the approach's ${APPROACH_BUILD_BUDGET}-block building budget is spent; ${Math.round(away - gain)} blocks left` };
+			}
+			return handBack('TIMED_OUT', 'FIND_BUDGET', `The search time ran out approaching ${what}`);
+		} finally { approaching = false; }
+	};
+	const approachSeen = async (seen) => {
+		const reached = await approach(seen, `the ${profile.label} seen at ${seen.x},${seen.y},${seen.z}`);
+		if (reached?.stuck === undefined) return reached;
+		return handBack('FAILED', 'FIND_BLOCKED', `${describe(seen)}, but no way there: ${reached.stuck}`);
 	};
 
 	const shelterBlock = () => (observation?.inventory?.items ?? []).find((item) => SHELTER_BLOCKS.has(item?.itemId) && item.count >= 8)?.itemId;
@@ -1038,6 +1099,14 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 		.filter((row) => row.distance <= within && !wasMissed(row) && !(underground && Math.hypot(row.x + 0.5 - origin.x, row.y - origin.y, row.z + 0.5 - origin.z) > UNDERGROUND_TRIP));
 	for (const place of known.slice(0, MAX_MEMORY_TRIPS)) {
 		if (left() < MIN_LEG_MS) break;
+		if (netherBiome()) {
+			// One failed leg in the deltas does not lose the forest: only a whole approach that gets nowhere marks it missed.
+			const reached = await approach(place, `the ${profile.label} remembered at ${place.x},${place.y},${place.z}`);
+			if (reached?.stuck === undefined) return reached;
+			progress(`remembered ${profile.label}: ${reached.stuck}`);
+			miss(place, 'approach stuck');
+			continue;
+		}
 		const trip = await leg(`to ${place.via}`, 'travel_to', { x: place.x + 0.5, y: place.y, z: place.z + 0.5, tolerance: 4,
 			...(profile.kind === 'block' ? { stopWhenSeen: profile.stopId } : {}) });
 		const code = trip.result?.reasonCode;

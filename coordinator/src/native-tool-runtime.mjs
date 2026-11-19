@@ -24,6 +24,7 @@ import { CONTEXT_TRIGGERS, SURVIVAL_TRIGGERS } from './arena-script/program-engi
 import { defaultServiceTier } from './constants.mjs';
 import { actionLeaseTimeoutMs, requestedActionTimeoutMs } from './work-lease-supervisor.mjs';
 import { PLAN_COUNT_ACTIONS, countSkillDurationMs, planCountDefault } from './plan-count.mjs';
+import { pearlHuntDefaults } from './pearl-hunt.mjs';
 
 const FORGET_REASONS = /agent_removed|server_replaced|coordinator_stopped/;
 const TERMINAL_ACTION_STATES = new Set(['SUCCEEDED', 'FAILED', 'CANCELLED', 'TIMED_OUT']);
@@ -2952,6 +2953,19 @@ export class NativeToolRuntime {
 				if (durationMs !== null) { try { request.extendLease?.(durationMs); } catch { /* the lease is the planner's */ } }
 			}
 		}
+		// An enderman pearl hunt bails at the stance's retreat line and runs hunt-length when untimed (pearl-hunt.mjs).
+		let pearlHunt = null;
+		if (tool.actionType === 'fight_until' || tool.actionType === 'fight_target') {
+			const seen = this.#observations.get(record.agentId);
+			const hunted = pearlHuntDefaults(tool, { stance: this.#reflexes?.stance?.(record.agentId) ?? null,
+				observation: seen?.goalRevision === record.goalRevision ? seen.observation : null });
+			tool = hunted.tool;
+			pearlHunt = hunted.note ?? null;
+			if (pearlHunt !== null && waitForCompletion) {
+				const durationMs = countSkillDurationMs(tool);
+				if (durationMs !== null) { try { request.extendLease?.(durationMs); } catch { /* the lease is the planner's */ } }
+			}
+		}
 		// Classified before dispatch: eating the last food removes the evidence that it was food.
 		const sampleAfter = sequenceIndex === null && programCommand === null && this.#needsPostActionFacts(record, tool);
 		const communication = tool.actionType === 'chat';
@@ -3107,6 +3121,7 @@ export class NativeToolRuntime {
 			} else outcome = settled.value;
 		}
 		if (planCount !== null && outcome !== null && typeof outcome === 'object') outcome = { ...outcome, countMode: planCount };
+		if (pearlHunt !== null && outcome !== null && typeof outcome === 'object') outcome = { ...outcome, pearlHunt };
 		// Intermediate turns/moves in an already authored batch need no decision sample.
 		// Sequences sample after their final step; programs still refresh before evaluating code.
 		if (sampleAfter && ['look_at', 'move_to'].includes(tool.actionType) && request.hasQueuedBodyAction?.() === true) {

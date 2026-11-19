@@ -355,6 +355,10 @@ public final class ServerFightUntilController implements ServerController {
 	private UUID dwellTarget;
 	private long dwellSinceTick;
 	private int breakOuts;
+	/** Forest mode (WarpedForestHunt): an enderman count fight started in a warped forest; null otherwise. */
+	private WarpedForestHunt forest;
+	/** Forest mode with roof:true: a shelter is built at the next contact with a calm enderman, while blocks last. */
+	private boolean roofWanted;
 
 	public ServerFightUntilController(ServerPlayer player, JsonObject arguments, ServerProtectionPolicy protection, long now) {
 		this(player, arguments, protection, now, "fight_until", null, null);
@@ -391,6 +395,14 @@ public final class ServerFightUntilController implements ServerController {
 		if (roof && mob != McEntityTypes.ENDERMAN)
 			throw new AgentDomainException("INVALID_FIELD", "roof: only against endermen (a 2-high space keeps out a 3-tall enderman; " + mobId + " fits)");
 		if (roof && roofing == null) throw new AgentDomainException("INVALID_FIELD", "roof: no construction available here");
+		if (WarpedForestHunt.applies(mob == McEntityTypes.ENDERMAN, choices.mayMove(), choices.sneak(), WarpedForestHunt.biomeAt(player))) {
+			// Open ground first; a requested roof waits for the first calm enderman (its spot named the shelter site, as in K11).
+			forest = new WarpedForestHunt(player.position());
+			roofWanted = roof;
+			if (roof) spot = null;
+			roof = false;
+			collectWhenClear = !collect && choices.mayMove();
+		}
 		this.elapsedTime = new ElapsedTimeAccumulator(now);
 	}
 
@@ -462,7 +474,7 @@ public final class ServerFightUntilController implements ServerController {
 		long gameTick = player.level().getGameTime();
 		if (gameTick % 5L == 0L) {
 			rememberSeenDrops(player);
-			if (roams()) rememberSightings(player, elapsed);
+			if (roams() || forest != null) rememberSightings(player, elapsed);
 		}
 		boolean fireContact = !immune && HazardExits.contact(player) == HazardExits.Contact.FIRE;
 		InteractionHand shieldHand = !immune && !roofed && choices.guardShield(player.getOffhandItem().getItem() instanceof ShieldItem) ? InteractionHand.OFF_HAND : null;
@@ -588,7 +600,14 @@ public final class ServerFightUntilController implements ServerController {
 			hunt = null;
 			huntFinds++;
 		}
-		if (target == null && roams()) {
+		if (target != null && forest != null && forest.walking()) forest.interrupted(player);
+		if (forest != null && target != null && WarpedForestHunt.roofOnContact(roofWanted && !roof, roofed, building != null, true, attacking(player, target))) {
+			roof = true;
+			resetRoof();
+			note("roof on contact with " + mobId + " " + target.getUUID() + " at " + cell(target.position()));
+			return TickResult.running(progress(player));
+		}
+		if (target == null && roams() && (forest == null || !forest.walking())) {
 			TickResult hunting = tickHunt(player, elapsed, nowEpochMs);
 			if (hunting != null) return hunting;
 		}
@@ -644,7 +663,11 @@ public final class ServerFightUntilController implements ServerController {
 			if (refused != null) return finished != null ? finished : TickResult.running(progress(player));
 			return TickResult.running(progress(player));
 		}
-		if (elapsed - lastTargetMs >= NO_TARGET_MS) {
+		if (forest != null) {
+			TickResult moving = tickForest(player, elapsed, nowEpochMs, false);
+			if (moving != null) return moving;
+		}
+		if (forest == null && elapsed - lastTargetMs >= NO_TARGET_MS) {
 			return stop(player, TickResult.failed("NO_TARGET_SEEN", String.format(Locale.ROOT,
 					"No %s seen within %.0f blocks of %s for %.0f s%s", mobId, radius, cell(center), NO_TARGET_MS / 1000.0D, seenOutside(player, elapsed)), progress(player)));
 		}
@@ -658,6 +681,7 @@ public final class ServerFightUntilController implements ServerController {
 		boolean waitsForMore = waitsForMore(mob, roof, spot);
 		long quietMs = areaCleared.observe(kills, waitsForMore, elapsed, lastTargetMs,
 				AreaCleared.applies(kills, waitsForMore) && (clearDropsWaiting || passedOverInView(player)), lookStep);
+		if (quietMs >= 0L && forest != null) return tickForest(player, elapsed, nowEpochMs, true);
 		if (quietMs >= 0L)
 			return stop(player, TickResult.failed("AREA_CLEARED", String.format(Locale.ROOT,
 					"No %s left in view within %.0f blocks of %s after %d kill%s (looked around %.1f s)%s", mobId, radius, cell(center),
@@ -703,6 +727,12 @@ public final class ServerFightUntilController implements ServerController {
 				}
 				int needed = cellsToPlace(player);
 				int carried = roofItem == null ? 0 : count(player, BuiltInRegistries.ITEM.getValue(Identifier.parse(roofItem)));
+				if ((roofItem == null || carried < needed) && WarpedForestHunt.dropsRoof(forest != null, "ROOF_BLOCKS_MISSING")) {
+					note(String.format(Locale.ROOT, "roof dropped: %d blocks needed, carries %s; hunting on open ground", needed, roofItem == null ? "none" : carried + " " + roofItem));
+					roofWanted = false;
+					leaveRoof(player, false);
+					return TickResult.running(progress(player));
+				}
 				if (roofItem == null || carried < needed)
 					return stop(player, TickResult.failed("ROOF_BLOCKS_MISSING", String.format(Locale.ROOT,
 							"roof:true needs %d more full solid blocks of one kind for the shelter at %s (two-high walls, roof, lintel); carries %s; nothing was built",
@@ -764,6 +794,7 @@ public final class ServerFightUntilController implements ServerController {
 		if (step != null) { step.cancel(player); step = null; }
 		roof = false;
 		roofed = false;
+		roofWanted = false;
 		provoking = null;
 		walkFailures = 0;
 		collectWhenClear = !collect && choices.mayMove();
@@ -775,6 +806,69 @@ public final class ServerFightUntilController implements ServerController {
 		// back into the shelter (its roof hides the body from a stare) or to the cell it could not reach.
 		spot = null;
 		note("roof fell back to the open-ground fight: " + why);
+		return TickResult.running(progress(player));
+	}
+
+	/** Clears every roof field so a later contact builds a new shelter from scratch (forest mode). */
+	private void resetRoof() {
+		roofed = false;
+		roofCenter = null;
+		roofOpening = null;
+		roofItem = null;
+		lintelPlaced = false;
+		lintelTicks = 0;
+		walkFailures = 0;
+		provoking = null;
+		settleUntilMs = -1L;
+	}
+
+	/** Forest mode: off the roof (and out of its shelter) until the next contact; open ground meanwhile. */
+	private void leaveRoof(ServerPlayer player, boolean built) {
+		if (building != null) { building.cancel(player); building = null; }
+		if (step != null) { step.cancel(player); step = null; }
+		if (built) forest.leftRoof();
+		roof = false;
+		resetRoof();
+	}
+
+	/**
+	 * Forest mode in place of NO_TARGET_SEEN and AREA_CLEARED: a quiet spell walks on to new ground (WarpedForestHunt);
+	 * arriving moves the area there. Null while the spell is not quiet yet. Hands back FOREST_UNREACHABLE when walks keep
+	 * failing or no destination is left.
+	 */
+	private TickResult tickForest(ServerPlayer player, long elapsed, long now, boolean areaClear) {
+		if (forest.walking()) {
+			State walked = forest.tick(player, now);
+			if (walked == State.RUNNING) {
+				lastTargetMs = elapsed;
+				return TickResult.running(progress(player));
+			}
+			if (walked == State.SUCCEEDED) {
+				center = forest.goal();
+				spot = null;
+				leads = null;
+				lastTargetMs = elapsed;
+				areaCleared.busy(elapsed);
+				note("relocated to " + cell(center));
+				return TickResult.running(progress(player));
+			}
+			note("relocation walk to " + cell(forest.goal()) + " did not arrive");
+			if (WarpedForestHunt.unreachable(forest.failedInRow()))
+				return stop(player, TickResult.failed("FOREST_UNREACHABLE", forest.unreachableText(false), progress(player)));
+			// Another destination at once: the spell is still quiet.
+			lastTargetMs = elapsed - WarpedForestHunt.QUIET_MS;
+			return TickResult.running(progress(player));
+		}
+		if (WarpedForestHunt.quiet(elapsed, lastTargetMs, areaClear) == WarpedForestHunt.Quiet.WAIT) return null;
+		if (roof || roofed) leaveRoof(player, roofed);
+		if (look != null) { look.cancel(player); look = null; }
+		if (walk != null) { walk.cancel(player); walk = null; }
+		Vec3 outside = leads == null ? null : leads.nearestOutside(player.position(), elapsed);
+		if (!forest.startWalk(player, outside, now))
+			return stop(player, TickResult.failed("FOREST_UNREACHABLE", forest.unreachableText(true), progress(player)));
+		lastTargetMs = elapsed;
+		note("quiet " + (areaClear ? "(area cleared)" : String.format(Locale.ROOT, "%.0f s", WarpedForestHunt.QUIET_MS / 1000.0D))
+				+ ": walking to " + cell(forest.goal()) + " (" + forest.walkVia() + ")");
 		return TickResult.running(progress(player));
 	}
 
@@ -2093,6 +2187,7 @@ public final class ServerFightUntilController implements ServerController {
 		if (leads != null && leads.tried() > 0) text.append(String.format(Locale.ROOT,
 				"; hunt: walked toward %d enderm%s you saw in the area (%d walks reached the spot, %d found an enderman on the way, %d had no route)",
 				leads.tried(), leads.tried() == 1 ? "an" : "en", leads.reached(), huntFinds, leads.noRoute()));
+		if (forest != null) text.append("; ").append(forest.summary());
 		if (!endings.isEmpty()) text.append("; endings: ").append(endings);
 		int from = Math.max(0, log.size() - 4);
 		if (!log.isEmpty()) text.append("; last: ").append(String.join(" | ", log.subList(from, log.size())));
@@ -2118,6 +2213,7 @@ public final class ServerFightUntilController implements ServerController {
 		clearWalk = null;
 		if (hunt != null) hunt.cancel(player);
 		hunt = null;
+		if (forest != null) forest.cancel(player);
 		ledge = null;
 		building = null;
 		step = null;
