@@ -39,7 +39,7 @@ import net.minecraft.world.phys.Vec3;
 
 /**
  * fight_until blaze at a seen fortress spawner, owned by the body (wall breaker "rods"): pick a seen cell 6-12 blocks from
- * the spawner, build a roofed one-cell shelter whose two-high doorway (a lintel over it) faces away from it, and fight from
+ * the spawner, build a roofed one-cell shelter whose two-high doorway (a lintel over it) faces the spawner, and fight from
  * its middle with the ordinary fight engine in place (pursue:false: bow through the doorway, sword at what comes in,
  * shield toward shots and charged blazes, heal in place). Rods are walked to and back when no wither skeleton is near;
  * the body eats inside. Hand-backs and their codes are {@link SpawnerHold#handBack} and {@link SpawnerHold#engineEnd}.
@@ -228,7 +228,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 			if (!SpawnerHold.siteInRange(horizontal, dy)) continue;
 			BlockPos center = spawner.offset(dx, dy, dz);
 			if (triedSites.contains(center) || !standable(player, seen, center)) continue;
-			Direction toward = SpawnerHold.doorway(-dx, -dz);
+			Direction toward = SpawnerHold.facing(-dx, -dz);
 			int blocks = 0;
 			boolean firm = true;
 			for (BlockPos at : shelterCells(center, toward)) {
