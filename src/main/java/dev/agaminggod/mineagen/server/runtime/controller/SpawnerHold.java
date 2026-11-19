@@ -34,11 +34,11 @@ public final class SpawnerHold {
 	/** Eating waits only for a blaze in melee reach: at 6-12 blocks from a live spawner one is nearly always within 6. */
 	static final double EAT_BLAZE_CLEAR = 3.0D;
 	/**
-	 * Below TURTLE_HEALTH in the cell the body stops shooting, raises the shield toward the nearest blaze (or out of the
+	 * Below TURTLE_HEALTH (14: three fireballs above the default 6-health hand-back) in the cell the body stops shooting, raises the shield toward the nearest blaze (or out of the
 	 * doorway) and eats, until TURTLE_DONE or TURTLE_MS: four of five live runs lost health in the cell to fireballs that
 	 * landed while the bow was drawn, then burning, down to the 6-health hand-back and one death after it.
 	 */
-	static final float TURTLE_HEALTH = 12.0F, TURTLE_DONE = 18.0F;
+	static final float TURTLE_HEALTH = 14.0F, TURTLE_DONE = 18.0F;
 	static final long TURTLE_MS = 45_000L;
 	/** No blaze seen for this long with the body in the cell: the spawner is not making more (light, range, or broken). */
 	static final long QUIET_MS = 90_000L;
@@ -77,7 +77,17 @@ public final class SpawnerHold {
 		return Math.abs(horizontal - SITE_IDEAL) + 0.15D * fromBody + 0.5D * blocksToPlace;
 	}
 
-	/** The doorway faces the spawner along the larger horizontal axis. */
+	/**
+	 * The doorway faces away from the spawner (dx, dz: from the cell to the spawner). A blaze shoots only with a line of
+	 * sight and otherwise flies to its target (vanilla BlazeAttackGoal), so with the door turned away blazes come round
+	 * to the doorway, into sword reach, and their rods drop at the door; fireballs come only from the cone in front of
+	 * it. With the door toward the spawner, live runs took 6-7 fireballs and 11-23 burning hits in the cell each.
+	 */
+	static Direction doorway(double dx, double dz) {
+		return facing(dx, dz).getOpposite();
+	}
+
+	/** The horizontal direction toward (dx, dz) along the larger axis. */
 	static Direction facing(double dx, double dz) {
 		if (Math.abs(dx) >= Math.abs(dz)) return dx >= 0.0D ? Direction.EAST : Direction.WEST;
 		return dz >= 0.0D ? Direction.SOUTH : Direction.NORTH;

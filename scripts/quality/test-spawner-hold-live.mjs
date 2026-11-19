@@ -189,6 +189,9 @@ async function oneRun(s, seed, variant, keepStance) {
 		if (h < 10 && breadHeld(o) > 0 && (o.player?.food ?? o.player?.foodLevel ?? 0) < 20) {
 			await s.act('select_item', { itemId: 'minecraft:bread' }).catch(() => {});
 			type = 'use_item'; args = { durationMs: 1700, expectedItemId: 'minecraft:bread' };
+		} else if (h <= 6) {
+			// Hurt and full: wait to regrow above the call's 6-health floor, as a model would, rather than reissue at once.
+			type = 'wait'; args = { durationMs: 2000 };
 		} else {
 			type = 'fight_until'; args = { mob: 'minecraft:blaze', untilItem: 'minecraft:blaze_rod', untilCount: UNTIL, fleeAtHealth: 6, timeoutMs: Math.max(1000, Math.min(600_000, left)) };
 		}
@@ -199,9 +202,11 @@ async function oneRun(s, seed, variant, keepStance) {
 		}
 		const result = await s.act(type, args, Math.max(65_000, left + 30_000)).catch(e => ({ state: 'ERROR', reasonCode: 'FIXTURE_ERROR', message: String(e.message) }));
 		if (result.reasonCode === 'STALE_REVISION') {
-			if (++stale > 20) throw new Error(`STALE_REVISION loop: fixture revision ${s.record.goalRevision}, observed ${o.goalRevision}`);
+			if (++stale > 60) throw new Error(`STALE_REVISION loop: fixture revision ${s.record.goalRevision}, observed ${o.goalRevision}`);
+			const fresh = await s.observe().catch(() => null);
+			if (Number.isSafeInteger(fresh?.goalRevision) && fresh.goalRevision > s.record.goalRevision) s.record.goalRevision = fresh.goalRevision;
 			await s.bridge.send('agent_ready', s.record.agentId, { goalRevision: s.record.goalRevision, reconciled: false }).catch(() => {});
-			await s.gameSleep(500);
+			await s.gameSleep(1000);
 			continue;
 		}
 		stale = 0;
