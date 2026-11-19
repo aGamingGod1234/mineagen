@@ -53,6 +53,9 @@ final class WarpedForestHunt {
 	/** Standing points seen while hunting (look), and their columns, for the call. */
 	private final List<Vec3> floors = new ArrayList<>();
 	private final java.util.Set<Long> floorColumns = new java.util.HashSet<>();
+	/** Diagnostics: columns read in view, seen ground found, free cells above not seen, ground outside the forest. */
+	private final int[] looked = new int[4];
+	private int looks;
 	private ServerNavigationController walk;
 	private Vec3 walkGoal;
 	private String walkVia;
@@ -147,6 +150,7 @@ final class WarpedForestHunt {
 	 * (every LOOK_TICKS), not once when it decides.
 	 */
 	void look(ServerPlayer player) {
+		looks++;
 		var seen = SeenTerrain.of(player);
 		BlockPos feet = player.blockPosition();
 		Vec3 view = player.getViewVector(1.0F);
@@ -158,13 +162,17 @@ final class WarpedForestHunt {
 				// Only the columns in front of the eye can be seen now (ObservationVisibility's cone is wider than this).
 				if (viewFlat > 1.0E-3D && (dx * view.x + dz * view.z) / viewFlat < 0.3D) continue;
 				int x = feet.getX() + (int) Math.round(dx * ring), z = feet.getZ() + (int) Math.round(dz * ring);
+				looked[0]++;
 				long column = BlockPos.asLong(x, 0, z);
 				if (floorColumns.contains(column)) continue;
 				for (int y = feet.getY() + SCAN_UP; y >= feet.getY() - SCAN_DOWN; y--) {
 					BlockPos at = new BlockPos(x, y, z);
 					BlockState ground = seen.known(x, y, z);
 					if (ground == null || ground.getCollisionShape(player.level(), at).isEmpty()) continue;
+					looked[1]++;
 					BlockState feetCell = seen.known(x, y + 1, z), headCell = seen.known(x, y + 2, z);
+					if (feetCell == null || headCell == null) looked[2]++;
+					else if (!BIOME.equals(biomeAt(player, at.above()))) looked[3]++;
 					if (feetCell != null && headCell != null && ground.isFaceSturdy(player.level(), at, net.minecraft.core.Direction.UP)
 							&& feetCell.getCollisionShape(player.level(), at.above()).isEmpty() && feetCell.getFluidState().isEmpty()
 							&& headCell.getCollisionShape(player.level(), at.above(2)).isEmpty() && headCell.getFluidState().isEmpty()
@@ -246,6 +254,12 @@ final class WarpedForestHunt {
 
 	void leftRoof() {
 		roofsLeft++;
+	}
+
+	/** What the looks so far read, for an empty scan's note. */
+	String lookCounts() {
+		return String.format(Locale.ROOT, "%d looks: %d columns in view, %d seen ground, %d with the cells above unseen, %d outside the forest, %d standing points kept",
+				looks, looked[0], looked[1], looked[2], looked[3], floors.size());
 	}
 
 	int emptyScans() {

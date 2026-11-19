@@ -867,10 +867,10 @@ public final class ServerFightUntilController implements ServerController {
 		Vec3 outside = leads == null ? null : leads.nearestOutside(player.position(), elapsed);
 		if (!forest.startWalk(player, outside, now)) {
 			if (WarpedForestHunt.nowhereLeft(forest.emptyScans()))
-				return stop(player, TickResult.failed("FOREST_UNREACHABLE", forest.unreachableText(true), progress(player)));
+				return stop(player, TickResult.failed("FOREST_UNREACHABLE", forest.unreachableText(true) + "; " + forest.lookCounts(), progress(player)));
 			// Nothing in sight to walk to yet: look around through another quiet spell (seen terrain fades in 10 s) and scan again.
 			lastTargetMs = elapsed;
-			note("quiet: no seen forest floor to walk to yet (" + forest.emptyScans() + " of " + WarpedForestHunt.MAX_EMPTY_SCANS + ")");
+			note("quiet: no seen forest floor to walk to yet (" + forest.emptyScans() + " of " + WarpedForestHunt.MAX_EMPTY_SCANS + "; " + forest.lookCounts() + ")");
 			return TickResult.running(progress(player));
 		}
 		lastTargetMs = elapsed;
