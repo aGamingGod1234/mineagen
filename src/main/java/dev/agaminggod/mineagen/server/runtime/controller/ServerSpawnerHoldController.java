@@ -79,6 +79,9 @@ public final class ServerSpawnerHoldController implements ServerController {
 	private ServerController work;
 	private ServerNavigationController walk;
 	private ServerFightUntilController engine;
+	/** Outside the finished cell (site walk, build, lintel, rod trips): an attacker in reach is fought before the work goes on. */
+	private ServerFightController defend;
+	private int defends;
 	private KillDropCollector collector;
 	private boolean returning;
 	private int eatTicks = -1, eatSlot = -1, eatCount;
@@ -164,6 +167,10 @@ public final class ServerSpawnerHoldController implements ServerController {
 				phase == Phase.HOLD ? elapsed - lastBlazeMs : 0L, phase == Phase.HOLD, sitesFailed, noSiteLeft,
 				phase == Phase.HOLD && SpawnerHold.breached(witherHits, player.level().getGameTime())));
 		if (code != null) return stop(player, handBackResult(player, code, elapsed));
+		if (!inCell || defend != null) {
+			TickResult defending = defend(player, now);
+			if (defending != null) return defending;
+		}
 		return switch (phase) {
 			case SITE -> chooseSite(player, now);
 			case WALK -> walkToSite(player, now);
@@ -171,6 +178,37 @@ public final class ServerSpawnerHoldController implements ServerController {
 			case LINTEL -> lintel(player, now);
 			case HOLD -> hold(player, now, elapsed, inCell);
 		};
+	}
+
+	/**
+	 * The defend reflex stands aside for fight_until, so outside the cell the hold defends itself: a mob that targets the
+	 * body from within 3.5 blocks (a wither skeleton on the walkway, a blaze come close) is fought with the sword and the
+	 * shield for up to 20 s; the interrupted walk, build or trip starts again after. Null when nothing needs fighting.
+	 */
+	private TickResult defend(ServerPlayer player, long now) {
+		if (defend == null) {
+			LivingEntity attacker = null;
+			double best = SpawnerHold.DEFEND_RANGE * SpawnerHold.DEFEND_RANGE;
+			for (LivingEntity mob : player.level().getEntitiesOfClass(LivingEntity.class, player.getBoundingBox().inflate(SpawnerHold.DEFEND_RANGE),
+					e -> e instanceof net.minecraft.world.entity.Mob m && m.getTarget() == player && e.isAlive() && !e.isDeadOrDying())) {
+				double distance = mob.distanceToSqr(player);
+				if (distance <= best && ObservationVisibility.canSeeEntity(player, mob) && protection.mayInteractWithEntity(player, mob)) { best = distance; attacker = mob; }
+			}
+			if (attacker == null) return null;
+			cancelWalk(player);
+			if (work != null) { work.cancel(player); work = null; }
+			if (collector != null) { collector.cancel(player); collector = null; returning = true; }
+			defend = new ServerFightController(attacker, null, fleeAtHealth, true, CombatPlanning.TargetPolicy.NAMED, false, true, false,
+					player.getOffhandItem().getItem() instanceof net.minecraft.world.item.ShieldItem, SpawnerHold.DEFEND_MS, now);
+			defends++;
+			note("defend against " + BuiltInRegistries.ENTITY_TYPE.getKey(attacker.getType()));
+		}
+		TickResult result = defend.tick(player, now);
+		if (result.state() == State.RUNNING) return TickResult.running(progress(player));
+		defend.cancel(player);
+		defend = null;
+		note("defend " + result.reasonCode());
+		return TickResult.running(progress(player));
 	}
 
 	private TickResult chooseSite(ServerPlayer player, long now) {
@@ -515,10 +553,10 @@ public final class ServerSpawnerHoldController implements ServerController {
 
 	private String summary(ServerPlayer player, long elapsed) {
 		int held = ServerFightUntilController.count(player, untilItem);
-		return String.format(Locale.ROOT, "spawner hold at %s: cell %s, %d site%s failed, %d build%s; %+d %s in %.0f s; %d engine run%s %s; %d rod trip%s; %d meal%s%s",
+		return String.format(Locale.ROOT, "spawner hold at %s: cell %s, %d site%s failed, %d build%s; %+d %s in %.0f s; %d engine run%s %s; %d rod trip%s; %d meal%s; %d defend%s%s",
 				spawner.toShortString(), cell == null ? "none" : cell.toShortString(), sitesFailed, sitesFailed == 1 ? "" : "s", builds, builds == 1 ? "" : "s",
 				held - Math.max(0, startHeld), untilItemId, elapsed / 1000.0D, engineRuns, engineRuns == 1 ? "" : "s", engineEnds, trips, trips == 1 ? "" : "s",
-				meals, meals == 1 ? "" : "s", log.isEmpty() ? "" : "; log: " + String.join(" | ", log.subList(Math.max(0, log.size() - 6), log.size())));
+				meals, meals == 1 ? "" : "s", defends, defends == 1 ? "" : "s", log.isEmpty() ? "" : "; log: " + String.join(" | ", log.subList(Math.max(0, log.size() - 6), log.size())));
 	}
 
 	private void note(String line) {
@@ -543,6 +581,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 
 	private void cancelParts(ServerPlayer player) {
 		HOLDING.remove(player.getUUID());
+		if (defend != null) { defend.cancel(player); defend = null; }
 		stopEngine(player);
 		cancelWalk(player);
 		if (work != null) { work.cancel(player); work = null; }

@@ -33,6 +33,9 @@ public final class SpawnerHold {
 	/** Wither skeleton hits taken inside the finished cell within this window that mean the cell does not hold. */
 	static final int BREACH_HITS = 2;
 	static final long BREACH_WINDOW_TICKS = 200L;
+	/** Outside the cell, a mob targeting the body this close is fought (sword and shield) for up to DEFEND_MS. */
+	static final double DEFEND_RANGE = 3.5D;
+	static final long DEFEND_MS = 20_000L;
 
 	private SpawnerHold() {
 	}
