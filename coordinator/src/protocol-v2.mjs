@@ -2,7 +2,7 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypt
 import { EventEmitter } from 'node:events';
 import net from 'node:net';
 
-import { DEFAULT_REFLEXES, MAX_REFLEXES } from './reflexes.mjs';
+import { MAX_REFLEX_RULES } from './reflexes.mjs';
 
 import {
 	DEFAULT_AGENT_MESSAGE_QUEUE_CAP,
@@ -462,7 +462,7 @@ function normalizeProtocolV2Payload(type, value) {
 			// The model's complete reflex rule set for one agent; reflexes.mjs validated each rule. Not revision guarded:
 			// rules outlive goal revisions.
 			exactKeys(value, ['revision', 'rules', 'yield'], ['revision', 'rules', 'yield'], type);
-			const rules = boundedArray(value.rules, 'rules', MAX_REFLEXES + DEFAULT_REFLEXES.length);
+			const rules = boundedArray(value.rules, 'rules', MAX_REFLEX_RULES);
 			if (!rules.every(isPlainObject) || Buffer.byteLength(JSON.stringify(rules)) > 16_384) throw new ProtocolV2Error('INVALID_PAYLOAD', 'Invalid reflex rules');
 			return { revision: nonnegativeInteger(value.revision, 'revision'), rules: structuredClone(rules), yield: boolean(value.yield, 'yield') };
 		}
@@ -2046,7 +2046,7 @@ function reflexStatusObservation(value) {
 	const text = (row, key, maximum) => row[key] === undefined ? {} : { [key]: boundedText(row[key], `reflexes.${key}`, maximum, 0) };
 	const result = {
 		revision: nonnegativeInteger(value.revision, 'reflexes.revision'),
-		rules: boundedArray(value.rules, 'reflexes.rules', MAX_REFLEXES + DEFAULT_REFLEXES.length).map((row) => {
+		rules: boundedArray(value.rules, 'reflexes.rules', MAX_REFLEX_RULES).map((row) => {
 			if (!isPlainObject(row)) throw new ProtocolV2Error('INVALID_PAYLOAD', 'reflex rule status must be an object');
 			exactKeys(row, ['id', 'kind', 'state', 'fired', 'expiresInS', 'disabled', 'lacks'], ['id', 'kind', 'state', 'fired', 'expiresInS'], 'reflexes.rules');
 			return { id: boundedText(row.id, 'reflexes.rules.id', 32), kind: boundedText(row.kind, 'reflexes.rules.kind', 16), state: boundedText(row.state, 'reflexes.rules.state', 16),

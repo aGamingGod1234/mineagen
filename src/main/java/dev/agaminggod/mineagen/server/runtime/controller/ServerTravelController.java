@@ -288,6 +288,26 @@ public final class ServerTravelController implements ServerController {
 		this.fightThrough = enabled;
 		return this;
 	}
+
+	/** Instincts arm with fightThrough unset: a lone beatable melee mob ({@link TravelStops#beatable}) is fought, not a stop. */
+	private boolean fightsBeatable;
+
+	public ServerTravelController fightsBeatable(boolean enabled) {
+		this.fightsBeatable = enabled;
+		return this;
+	}
+
+	private boolean beatableNow(ServerPlayer player, Mob mob, List<Mob> seen) {
+		int others = (int) seen.stream().filter(other -> other != mob && other.distanceTo(player) <= TravelStops.LONE_RANGE).count();
+		boolean weapon = false;
+		for (int slot = 0; slot < 9 && !weapon; slot++) {
+			String id = BuiltInRegistries.ITEM.getKey(player.getInventory().getItem(slot).getItem()).getPath();
+			weapon = id.endsWith("_sword") || id.endsWith("_axe");
+		}
+		double hit = dev.agaminggod.mineagen.server.perception.ThreatDamage.expectedHit(mob, player).damage();
+		return TravelStops.beatable(BuiltInRegistries.ENTITY_TYPE.getKey(mob.getType()).toString(), others, weapon,
+				player.getHealth() + player.getAbsorptionAmount(), minHealth, hit);
+	}
  private double heightTolerance() {return routeLeg ? 0.6D : Math.max(3.0D,tolerance);}
 
  /** The target for a heading: {@code distance} blocks along {@code yaw} (Minecraft degrees) from the body. */
@@ -470,7 +490,8 @@ public final class ServerTravelController implements ServerController {
 		int food = player.getFoodData().getFoodLevel();
 		if (food <= SPRINT_FOOD && startFood > SPRINT_FOOD) return fail(player, "LOW_FOOD", "Food fell to " + food + "; sprinting needs more than " + SPRINT_FOOD);
 		if (ticks % 5 == 0) {
-			for (Mob mob : hostiles(player)) {
+			List<Mob> seen = hostiles(player);
+			for (Mob mob : seen) {
 				double distance = mob.distanceTo(player);
 				boolean targeting = mob.getTarget() == player;
 				boolean known = knownHostiles.contains(mob.getUUID());
@@ -484,9 +505,10 @@ public final class ServerTravelController implements ServerController {
 					passedHostiles.add(mob.getUUID());
 					continue;
 				}
-				if (fightThrough) {
-					// Fought once it closes in or hits; until then it is only in view, as for one seen at the start.
-					if (distance > HOSTILE_CLOSE) { knownHostiles.add(mob.getUUID()); continue; }
+				if (fightThrough || fightsBeatable && beatableNow(player, mob, seen)) {
+					// Fought once it closes in or hits; until then it is only in view, as for one seen at the start. One that
+					// is only beatable is judged again each sample, so it still stops the trip once it is not (a pack).
+					if (distance > HOSTILE_CLOSE) { if (fightThrough) knownHostiles.add(mob.getUUID()); continue; }
 					return engage(player, mob, String.format(Locale.ROOT, "%.1f blocks away%s", distance, targeting ? ", targeting you" : ""), nowEpochMs);
 				}
 				return fail(player, "HOSTILE_NEAR", String.format(Locale.ROOT, "%s %s %.1f blocks away at %.1f,%.1f,%.1f%s",

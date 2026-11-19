@@ -882,6 +882,8 @@ public final class ServerActionExecutor {
 						arguments.has("minHealth") ? (float) number(arguments, "minHealth") : null,
 						(body, cell) -> protection.mayModifyBlock(body, body.level(), cell),
 						GameClock.nowMs()).fightThrough(arguments.has("fightThrough") && bool(arguments, "fightThrough"))
+						// Issue 2 Step 2: an explicit fightThrough:false keeps every stop.
+						.fightsBeatable(!arguments.has("fightThrough") && dev.agaminggod.mineagen.server.runtime.reflex.Instincts.enabled())
 						.keepsKnockbackMargin()
 						.descend((y, x, z, digTimeoutMs) -> digController(dev.agaminggod.mineagen.server.runtime.controller.ServerTravelController.staircase(
 								arguments, y, x, z, digTimeoutMs, player.blockPosition().getY()))));

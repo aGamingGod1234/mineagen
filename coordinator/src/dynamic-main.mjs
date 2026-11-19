@@ -99,7 +99,7 @@ import { searchHoldsSteer } from './search-danger.mjs';
 import { carriedFoodToEat, eatCalls, naturalRegeneration } from './fork-rule.mjs';
 // Danger triggers a running count skill handles itself when they come from its own mob (see countSkillKinds).
 const COUNT_SKILL_HELD = new Set(['damage', 'threat', 'projectile', 'fire']);
-import { DEFAULT_REFLEXES, ReflexBook } from './reflexes.mjs';
+import { DEFAULT_REFLEXES, ReflexBook, instinctsEnabled } from './reflexes.mjs';
 // Namespace import: situationStrategyTopic is optional, so the changed line works with or without it.
 import * as strategyReference from './minecraft-strategy-reference.mjs';
 import { provenance } from './fact-provenance.mjs';
@@ -303,7 +303,7 @@ export class DynamicCoordinator extends EventEmitter {
 	#lastCatalog = null;
 	#lastRosterTraceAt = 0;
 
-	constructor({ registry, scheduler, codexService, planner, bridge, healthRegistry, latencyRegistry, goalSupervisor, codexControlProtocol = 'native_tools', memoryDirectory = null, runtimeSessionId, traceWriter = null, providerTurnRecorder = null, decisionLog = null, bodyPace = null, runtimeGeneration = null, runtimeHooks = {}, benchmarkRecorder = null, providerCliHealth = null, providerDiscovery = null, controlNow = () => performance.now(), epochNow = Date.now, setStatusInterval = defaultStatusInterval, clearStatusInterval = clearInterval, setGoalSpecTimeout = defaultGoalSpecTimeout, clearGoalSpecTimeout = clearTimeout, setSteerTimeout = setTimeout, clearSteerTimeout = clearTimeout, setWakeHoldTimeout = defaultGoalSpecTimeout, clearWakeHoldTimeout = clearTimeout, reflexDefaults = DEFAULT_REFLEXES, taskRequestTimeoutMs = DEFAULT_TASK_REQUEST_TIMEOUT_MS, connectionOperationCap = DEFAULT_CONNECTION_OPERATION_CAP, agentOperationCap = DEFAULT_AGENT_OPERATION_CAP, goalSpecRequestCap = connectionOperationCap, maxPendingAgentOperations = DEFAULT_MAX_PENDING_AGENT_OPERATIONS, maxPendingAgentTransactions = DEFAULT_MAX_PENDING_AGENT_TRANSACTIONS }) {
+	constructor({ registry, scheduler, codexService, planner, bridge, healthRegistry, latencyRegistry, goalSupervisor, codexControlProtocol = 'native_tools', memoryDirectory = null, runtimeSessionId, traceWriter = null, providerTurnRecorder = null, decisionLog = null, bodyPace = null, runtimeGeneration = null, runtimeHooks = {}, benchmarkRecorder = null, providerCliHealth = null, providerDiscovery = null, controlNow = () => performance.now(), epochNow = Date.now, setStatusInterval = defaultStatusInterval, clearStatusInterval = clearInterval, setGoalSpecTimeout = defaultGoalSpecTimeout, clearGoalSpecTimeout = clearTimeout, setSteerTimeout = setTimeout, clearSteerTimeout = clearTimeout, setWakeHoldTimeout = defaultGoalSpecTimeout, clearWakeHoldTimeout = clearTimeout, reflexDefaults = DEFAULT_REFLEXES, reflexInstincts = false, taskRequestTimeoutMs = DEFAULT_TASK_REQUEST_TIMEOUT_MS, connectionOperationCap = DEFAULT_CONNECTION_OPERATION_CAP, agentOperationCap = DEFAULT_AGENT_OPERATION_CAP, goalSpecRequestCap = connectionOperationCap, maxPendingAgentOperations = DEFAULT_MAX_PENDING_AGENT_OPERATIONS, maxPendingAgentTransactions = DEFAULT_MAX_PENDING_AGENT_TRANSACTIONS }) {
 		super();
 		this.#memoryDirectory = memoryDirectory;
 		this.#decisionLog = decisionLog;
@@ -330,7 +330,7 @@ export class DynamicCoordinator extends EventEmitter {
 		const occupancy = new ExplorationOccupancy({ memoryStore: new ObservedMemoryStore({ directory: memoryDirectory }) });
 		this.#observedMemory = occupancy;
 		this.#taskViews = new LiveTaskViews({ directory: memoryDirectory ? path.join(memoryDirectory, 'plans') : null,
-			sources: (record, observation, blockPattern) => occupancy.knownSources(record.agentId, observation, blockPattern) });
+			sources: (record, observation, blockPattern) => occupancy.knownSources(record.agentId, observation, blockPattern), instincts: reflexInstincts });
 		this.#healthRegistry = requireDependency(healthRegistry, 'healthRegistry');
 		this.#latencyRegistry = requireDependency(latencyRegistry, 'latencyRegistry');
 		this.#goalSupervisor = requireDependency(goalSupervisor, 'goalSupervisor');
@@ -396,7 +396,7 @@ export class DynamicCoordinator extends EventEmitter {
 		});
 		this.#nativeRuntime = new NativeToolRuntime({
 			// The game's rule book arms the default survival rules (ruling 16); a bare runtime has the model's rules only.
-			reflexBook: new ReflexBook({ defaults: reflexDefaults }),
+			reflexBook: new ReflexBook({ defaults: reflexDefaults, instincts: reflexInstincts }),
 			taskPlan: (record, tool) => this.#taskViews.operate(record, tool),
 			knownStations: (record) => this.#taskViews.placedStations(record),
 			planNeeds: (record) => this.#taskViews.openNeeds(record),
@@ -4723,6 +4723,7 @@ export function createDynamicCoordinator(configValue, dependencies = {}) {
 		clearSteerTimeout: dependencies.clearSteerTimeout,
 		setWakeHoldTimeout: dependencies.setWakeHoldTimeout,
 		...(dependencies.reflexDefaults === undefined ? {} : { reflexDefaults: dependencies.reflexDefaults }),
+		reflexInstincts: instinctsEnabled(coordinatorEnvironment),
 		clearWakeHoldTimeout: dependencies.clearWakeHoldTimeout,
 		taskRequestTimeoutMs: dependencies.taskRequestTimeoutMs,
 		maxPendingAgentOperations: dependencies.maxPendingAgentOperations,

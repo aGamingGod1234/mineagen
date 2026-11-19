@@ -8,7 +8,7 @@
 // Finding a source is one function, locate(): what is in view or remembered, then a survey search, then exploring
 // (walking out for trees and animals, digging toward the ore's depth). A future find verb can replace it.
 import { howtoIndex } from './howto.mjs';
-import { DAMAGE_STOPS, DISCARD, LIFE_SAFETY_STOPS, MAX_FIND_TIMEOUT_MS, UNREACHED, UNREACHED_SPOT, caveLog, hostileIsDanger, sameVein } from './find-search.mjs';
+import { DAMAGE_STOPS, FIGHT_STOPS, DISCARD, LIFE_SAFETY_STOPS, MAX_FIND_TIMEOUT_MS, UNREACHED, UNREACHED_SPOT, caveLog, hostileIsDanger, sameVein } from './find-search.mjs';
 import { threatRows, blazeBlocksErrand } from './search-danger.mjs';
 import { REGEN_RESUME_HEALTH, bodyDanger, eatCalls, lowHealthFork } from './fork-rule.mjs';
 import { heldCounts, heldOf, keepPickaxeMakings, planObtain, readyTimes, resolveObtainItem, shortId, OBTAIN_STATIONS } from './obtain-plan.mjs';
@@ -53,7 +53,7 @@ const DROP_DIG = 4;
 const OUT_OF_REACH = new Set(['NOTHING_MINED', 'INVALID_VEIN_TARGET', 'NO_STANCE', 'PATH_BLOCKED', 'NO_STANDABLE_PATH', 'NO_ROUTE', 'NO_PROGRESS', 'NO_SEEN_ROUTE']);
 const TOOL_STOPS = new Set(['TOOL_WORN', 'NO_TOOL']);
 export const HAND_SPEED_STONE = /building cannot continue: minecraft:(?:stone|deepslate|andesite|diorite|granite|tuff|cobblestone|cobbled_deepslate|calcite|dripstone_block)(?: at -?\d+,-?\d+,-?\d+)? takes \d/;
-const NOT_REACH = new Set([...TOOL_STOPS, 'HOSTILE_NEAR', 'DANGER', 'LOW_FOOD', 'INVENTORY_FULL', 'CANCELLED', 'NATIVE_ACTION_CANCELLED', ...DAMAGE_STOPS]);
+const NOT_REACH = new Set([...TOOL_STOPS, 'HOSTILE_NEAR', 'DANGER', 'LOW_FOOD', 'INVENTORY_FULL', 'CANCELLED', 'NATIVE_ACTION_CANCELLED', ...DAMAGE_STOPS, ...FIGHT_STOPS]);
 const VEIN_MISSES = 8;
 // A pickaxe with fewer uses left than this is about to break: one tunnel or vein more wears it out.
 const LOW_USES = 16;

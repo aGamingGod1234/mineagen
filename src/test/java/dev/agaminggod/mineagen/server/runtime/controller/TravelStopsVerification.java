@@ -17,6 +17,7 @@ public final class TravelStopsVerification {
 		verifyHostiles();
 		verifyDamage();
 		verifyNightTrip();
+		verifyBeatable();
 		return assertions;
 	}
 
@@ -93,5 +94,20 @@ public final class TravelStopsVerification {
 	private static void check(boolean value, String reason) {
 		if (!value) throw new AssertionError(reason);
 		assertions++;
+	}
+
+	/** Issue 2 Step 2 (instincts arm): which mob that would stop a trip the body fights through instead. */
+	private static void verifyBeatable() {
+		check(TravelStops.beatable("minecraft:zombie", 0, true, 20.0F, 8.0F, 3.0D), "a lone zombie, sword held, full health: fought");
+		check(TravelStops.beatable("minecraft:spider", 0, true, 20.0F, 8.0F, 2.0D), "a lone spider: fought");
+		check(TravelStops.beatable("minecraft:husk", 0, true, 20.0F, 8.0F, 3.0D) && TravelStops.beatable("minecraft:zombie_villager", 0, true, 20.0F, 8.0F, 3.0D), "zombie kin: fought");
+		check(!TravelStops.beatable("minecraft:skeleton", 0, true, 20.0F, 8.0F, 3.0D), "a ranged mob still stops the trip");
+		check(!TravelStops.beatable("minecraft:creeper", 0, true, 20.0F, 8.0F, 3.0D), "a creeper still stops the trip");
+		check(!TravelStops.beatable("minecraft:drowned", 0, true, 20.0F, 8.0F, 3.0D), "a drowned (maybe a trident) still stops the trip");
+		check(!TravelStops.beatable("minecraft:zombie", 1, true, 20.0F, 8.0F, 3.0D), "a second hostile in view makes a pack: stop");
+		check(!TravelStops.beatable("minecraft:zombie", 0, false, 20.0F, 8.0F, 3.0D), "no sword or axe in the hotbar: stop");
+		check(!TravelStops.beatable("minecraft:zombie", 0, true, 8.0F, 8.0F, 2.0D), "health at minHealth: stop");
+		check(!TravelStops.beatable("minecraft:zombie", 0, true, 9.0F, 8.0F, 3.0D), "three of its hits would kill: stop");
+		check(!TravelStops.beatable("minecraft:zombie", 0, true, 20.0F, 8.0F, 0.0D), "no hit estimate: stop");
 	}
 }

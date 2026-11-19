@@ -28,6 +28,22 @@ public final class TravelStops {
 			"minecraft:blaze", "minecraft:ghast", "minecraft:witch", "minecraft:shulker", "minecraft:breeze", "minecraft:evoker",
 			"minecraft:illusioner", "minecraft:drowned", "minecraft:piglin");
 
+	/** Melee mobs a body with a sword or axe beats one at a time: the instincts arm fights them on the route (issue 2 Step 2). */
+	public static final Set<String> BEATABLE = Set.of("minecraft:zombie", "minecraft:husk", "minecraft:zombie_villager", "minecraft:spider");
+	/** Another hostile in view this close makes it a pack, not a lone mob. */
+	public static final double LONE_RANGE = 12.0D;
+	/** The body must outlast this many of the mob's hits (after armour); Defend backs away from a mob below it. */
+	public static final int SAFE_HITS = 3;
+
+	/**
+	 * Whether a hostile that would stop the trip is one the body fights through instead (instincts arm, the model left
+	 * fightThrough unset): a listed melee mob, alone in view within {@link #LONE_RANGE}, a sword or axe in the hotbar, and
+	 * health above minHealth and above {@link #SAFE_HITS} of its hits ({@code hit} 0 or less: no estimate, not beatable).
+	 */
+	public static boolean beatable(String typeId, int othersNear, boolean weapon, float health, float minHealth, double hit) {
+		return BEATABLE.contains(typeId) && othersNear == 0 && weapon && health > minHealth && hit > 0.0D && health > SAFE_HITS * hit;
+	}
+
 	/**
 	 * Whether a hostile in range stops the trip now. {@code known} was in view when the trip began; {@code previous} is
 	 * its distance at the last sample (null on its first).

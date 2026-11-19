@@ -159,7 +159,29 @@ final class ReflexActions {
 	}
 
 	static String lacks(ServerPlayer player, ReflexSpec.Action action) {
-		return lacks(action, index -> Held.of(player.getInventory().getItem(index)), player.getInventory().getSelectedSlot(), Held.of(player.getOffhandItem()));
+		return lacks(player, action, false);
+	}
+
+	/** As above; for a coordinator default eat rule under the instincts arm, also {@link #topUpLacks}. */
+	static String lacks(ServerPlayer player, ReflexSpec.Action action, boolean coordinatorDefault) {
+		String lacks = lacks(action, index -> Held.of(player.getInventory().getItem(index)), player.getInventory().getSelectedSlot(), Held.of(player.getOffhandItem()));
+		if (lacks != null || !coordinatorDefault || !"eat".equals(action.type()) || !Instincts.enabled()) return lacks;
+		return topUpLacks(index -> Held.of(player.getInventory().getItem(index)), Held.of(player.getOffhandItem()), player.getFoodData().getFoodLevel(), player.getHealth());
+	}
+
+	/** At this hunger or more, eating only tops the bar up toward 18 for healing (issue 2 Step 2, instincts arm). */
+	static final int TOP_UP_HUNGER = 14;
+
+	/**
+	 * The instincts arm eats from hunger 17 to heal (health regrows only at 18+). Topping up is not worth a harmful food
+	 * (rotten flesh, raw chicken) or a golden apple above {@link Eat#HEALING_FOOD_HEALTH}, so at {@link #TOP_UP_HUNGER} or more
+	 * with only those in reach the default eat rule sleeps and says why, instead of eating them or failing each cooldown.
+	 */
+	static String topUpLacks(java.util.function.IntFunction<Held> slots, Held offhand, int foodLevel, float health) {
+		if (foodLevel < TOP_UP_HUNGER) return null;
+		return holds(slots, offhand, 9, held -> held.food() && !Eat.LAST_RESORT_FOODS.contains(held.id())
+				&& (!Eat.HEALING_FOODS.contains(held.id()) || health <= Eat.HEALING_FOOD_HEALTH)) ? null
+				: "only last-resort food in hotbar or offhand while hunger is " + TOP_UP_HUNGER + "+";
 	}
 
 	/** One inventory slot as {@link #lacks} reads it: the item id (null when empty), and whether it is food or a cover block. */

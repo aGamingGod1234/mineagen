@@ -86,13 +86,14 @@ export function validateTaskStep(v) {
 
 /** A factual, persistent view of agent-authored plans; never chooses game actions. */
 export class LiveTaskViews {
- #directory; #states = new Map(); #advice = new Map(); #writes = Promise.resolve(); #now; #sources; #progressTiming;
+ #directory; #states = new Map(); #advice = new Map(); #writes = Promise.resolve(); #now; #sources; #progressTiming; #instincts;
  /** sources(record, observation, blockPattern) returns remembered { sightings, blocks } of that world and dimension, or null. */
  /** progressTiming ({ noProgressMs, repeatCount }) overrides the recorded-game defaults, for replays only. */
- constructor({ directory = null, now = Date.now, sources = null, progressTiming = {} } = {}) {
+ /** instincts: the instincts arm (MINEAGEN_INSTINCTS) adds the weapon and food-everywhere route steps. */
+ constructor({ directory = null, now = Date.now, sources = null, progressTiming = {}, instincts = false } = {}) {
   if (typeof now !== 'function') throw new TypeError('Live task view clock must be a function');
   if (sources !== null && typeof sources !== 'function') throw new TypeError('Live task view sources must be a function');
-  this.#directory = directory; this.#now = now; this.#sources = sources; this.#progressTiming = progressTiming;
+  this.#directory = directory; this.#now = now; this.#sources = sources; this.#progressTiming = progressTiming; this.#instincts = instincts === true;
  }
  suggest(agentId, goal, plan) { const checked=validateTaskPlan(plan); for(const step of checked.steps) step.status='pending'; this.#advice.set(`${agentId}:${goal}`, checked); }
  #state(record) {
@@ -701,7 +702,7 @@ export class LiveTaskViews {
   // A queued sample from before the hand-back still shows the stock it saw.
   const handback = current.foodHandback, foodHandedBack = handback !== null && handback.worldId === current.worldId && handback.deaths === state.deaths
    && handback.at <= state.observation?.observedAtEpochMs;
-  const route = beatsTheGame(record.currentGoalSpec) ? routeLine({ observation: state.observation, known: state.known, memory: this.#memory(record, state, ROUTE_SOURCE_BLOCKS), foodHandedBack, evaluate: evaluatePlanCheck }) : null;
+  const route = beatsTheGame(record.currentGoalSpec) ? routeLine({ observation: state.observation, known: state.known, memory: this.#memory(record, state, ROUTE_SOURCE_BLOCKS), foodHandedBack, evaluate: evaluatePlanCheck, instincts: this.#instincts }) : null;
   return composeContinuityHeader({ goal: record.currentGoal, intent: state.intent, evidence: intentEvidence(state), since, progress: this.#progressLine(state), route, stepProgress: stepProgress.progress ?? null, repeats: stepProgress.repeats ?? null, search: stepProgress.search ?? null, ...this.#memoryFacts(record, state, shown, observation?.recovery ?? null), results: state.results, running, effect: state.effect, orders, guardInstalled, guardCoverage, guardThreatsNear, guardThreatsTargeting, annotate });
  }
  /** The trigger for a no-progress or repeated-result fact not yet woken for ('no_progress' | 'repeated_result'), once. */

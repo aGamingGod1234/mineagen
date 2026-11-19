@@ -31,6 +31,59 @@ export const DEFAULT_REFLEXES = Object.freeze([
 	{ id: 'default-cover', kind: 'trigger', priority: 6, when: [{ type: 'health_below', value: 6 }, { type: 'attacked', withinS: 3 }], do: { type: 'take_cover', within: 8 }, maxMs: 8_000, ttlMs: 3_600_000 },
 ].map((rule) => Object.freeze(rule)));
 export const DEFAULT_REFLEX_IDS = Object.freeze(new Set(DEFAULT_REFLEXES.map((rule) => rule.id)));
+// The mod runs at most this many rules (ReflexSpec.MAX_RULES): the cap of every rule-set bound on the wire (C24). The
+// model's own rules plus the defaults must fit it, so a new default needs a raise on both sides first.
+export const MAX_REFLEX_RULES = 26;
+if (MAX_REFLEXES + DEFAULT_REFLEXES.length > MAX_REFLEX_RULES) throw new Error(`reflex rules ${MAX_REFLEXES} + ${DEFAULT_REFLEXES.length} exceed the mod's ${MAX_REFLEX_RULES}`);
+
+/**
+ * Issue 2 Step 2: the instincts arm. MINEAGEN_INSTINCTS lists `instincts` (comma list) to turn it on; the mod reads the
+ * same variable, and the coordinator runs with the mod's environment, so one variable defines the arm. Off, the rule set,
+ * the wake line and the route line are what they were before.
+ */
+export function instinctsEnabled(environment = {}) {
+	return String(environment?.MINEAGEN_INSTINCTS ?? '').split(',').map((word) => word.trim()).includes('instincts');
+}
+
+/**
+ * The automatic stance (D3): the brain need not set one. It is only numbers in the default rules below, so the wire and
+ * older mods see ordinary rules (C23). steady equals DEFAULT_REFLEXES apart from the eat line.
+ */
+export const STANCES = Object.freeze(['steady', 'fight', 'cautious']);
+export const STANCE_SETTINGS = Object.freeze({
+	'default-retreat': Object.freeze({ condition: 'health_below', steady: 7, fight: 4, cautious: 10 }),
+	'default-cover': Object.freeze({ condition: 'health_below', steady: 6, fight: 4, cautious: 9 }),
+	'default-blaze-cover': Object.freeze({ condition: 'health_below', steady: 11, fight: 8, cautious: 14 }),
+	// Heal (Step 2 item 2): health regrows only at hunger 18+, so eat below 18 in every stance. Hazard floor rules (8-9),
+	// retreat (7), cover (6) and defend (5) outrank eat (3), and it holds off with a hostile within 8 (any fight in reach).
+	'default-eat': Object.freeze({ condition: 'hunger_below', steady: 18, fight: 18, cautious: 18 }),
+});
+// A new stance takes effect once it has held this long, so a flicker does not resend the set.
+export const STANCE_DWELL_MS = 3_000;
+const STANCE_FIGHTS = new Set(['fight_target', 'fight_until', 'use_ranged']);
+const CAUTIOUS_HEALTH = 8;
+// Cautious from low health lasts until health is back to this, so regeneration around 8 does not flip it each second.
+const CAUTIOUS_CLEAR_HEALTH = 10;
+
+/** steady, fight or cautious from the running verb and what the body perceives; previous only adds hysteresis. */
+export function resolveAutoStance(observation, previous = 'steady') {
+	const action = observation?.currentAction;
+	if (action?.active === true && STANCE_FIGHTS.has(action.actionType)) return 'fight';
+	const dimension = observation?.world?.dimension;
+	if (dimension === 'minecraft:the_nether' || dimension === 'minecraft:the_end') return 'cautious';
+	const health = observation?.player?.health;
+	if (Number.isFinite(health) && (health <= CAUTIOUS_HEALTH || previous === 'cautious' && health < CAUTIOUS_CLEAR_HEALTH)) return 'cautious';
+	return 'steady';
+}
+
+/** A default rule with its stance numbers; any other rule is returned as a copy. */
+export function materializeDefault(rule, stance = 'steady') {
+	const copy = structuredClone(rule);
+	const setting = STANCE_SETTINGS[rule.id];
+	if (setting === undefined || !STANCES.includes(stance)) return copy;
+	for (const condition of copy.when) if (condition.type === setting.condition && condition.not !== true) condition.value = setting[stance];
+	return copy;
+}
 export const MAX_REFLEX_CONDITIONS = 4;
 export const REFLEX_ID = /^[A-Za-z0-9_-]{1,32}$/;
 const RESOURCE_ID = /^[a-z0-9_.-]+:[a-z0-9_./-]+$/;
@@ -284,15 +337,18 @@ export class ReflexBook {
 	#samples = new Map();
 	#now;
 	#defaults;
+	#instincts;
 
-	constructor({ now = Date.now, defaults = DEFAULT_REFLEXES } = {}) { this.#now = now; this.#defaults = defaults; }
+	constructor({ now = Date.now, defaults = DEFAULT_REFLEXES, instincts = false } = {}) { this.#now = now; this.#defaults = defaults; this.#instincts = instincts === true; }
 
 	#agent(agentId) {
 		let agent = this.#agents.get(agentId);
 		if (agent === undefined) {
 			agent = { rules: new Map(), revision: 0, sentAtMs: null, lastSeq: 0, pending: [], status: null, lifetimes: new Map(),
 				// Ids holding the default definition now, ids the model switched off, and the last live context seen.
-				defaults: new Set(), declined: new Set(), dimension: null, dead: false, seenLive: false };
+				defaults: new Set(), declined: new Set(), dimension: null, dead: false, seenLive: false,
+				// The automatic stance (instincts arm only) and a different one waiting out its dwell.
+				stance: 'steady', pendingStance: null, pendingSince: 0 };
 			this.#agents.set(agentId, agent);
 		}
 		return agent;
@@ -379,15 +435,40 @@ export class ReflexBook {
 		agent.dead = false;
 		agent.dimension = dimension;
 		if (event !== null) agent.declined.clear();
+		const restanced = this.#instincts && this.#settleStance(agent, observation, event !== null);
 		const missing = this.#defaults.filter((rule) => !agent.rules.has(rule.id) && !agent.declined.has(rule.id));
-		if (missing.length === 0) return false;
+		if (missing.length === 0 && !restanced) return false;
 		for (const rule of missing) {
-			agent.rules.set(rule.id, structuredClone(rule));
+			agent.rules.set(rule.id, this.#instincts ? materializeDefault(rule, agent.stance) : structuredClone(rule));
 			agent.defaults.add(rule.id);
 		}
 		agent.revision += 1;
 		return true;
 	}
+
+	/**
+	 * Moves the automatic stance after its dwell (at once at spawn, respawn or a dimension change) and rewrites the
+	 * defaults still held as defaults with its numbers. Returns whether a rule changed.
+	 */
+	#settleStance(agent, observation, now) {
+		const candidate = resolveAutoStance(observation, agent.stance);
+		if (candidate === agent.stance) agent.pendingStance = null;
+		else if (now) { agent.stance = candidate; agent.pendingStance = null; }
+		else if (agent.pendingStance !== candidate) { agent.pendingStance = candidate; agent.pendingSince = this.#now(); }
+		else if (this.#now() - agent.pendingSince >= STANCE_DWELL_MS) { agent.stance = candidate; agent.pendingStance = null; }
+		let changed = false;
+		for (const base of this.#defaults) {
+			if (!agent.defaults.has(base.id) || !agent.rules.has(base.id)) continue;
+			const next = materializeDefault(base, agent.stance);
+			if (JSON.stringify(next) === JSON.stringify(agent.rules.get(base.id))) continue;
+			agent.rules.set(base.id, next);
+			changed = true;
+		}
+		return changed;
+	}
+
+	/** The automatic stance (instincts arm), else null. */
+	stance(agentId) { return this.#instincts ? this.#agents.get(agentId)?.stance ?? null : null; }
 
 	isDefault(agentId, id) { return this.#agents.get(agentId)?.defaults.has(id) === true; }
 
@@ -503,7 +584,8 @@ export class ReflexBook {
 		const reports = agent.pending.filter((event) => event.outcome !== 'expired').map(eventLine);
 		agent.pending = [];
 		const error = agent.status?.error ? `; mod rejected the set: ${agent.status.error}` : '';
-		const head = `${armed.length > 0 ? `armed ${armed.join(', ')}` : 'none armed'}${expired.length > 0 ? `; expired: ${expired.join(', ')}` : ''}`;
+		const stance = this.#instincts && agent.defaults.size > 0 ? `; stance ${agent.stance} (auto)` : '';
+		const head = `${armed.length > 0 ? `armed ${armed.join(', ')}` : 'none armed'}${stance}${expired.length > 0 ? `; expired: ${expired.join(', ')}` : ''}`;
 		let line = `${head}${reports.length > 0 ? `; fired: ${reports.join('; ')}` : ''}${error}`;
 		while (Buffer.byteLength(line, 'utf8') > MAX_REFLEX_REPORT_BYTES && reports.length > 1) {
 			reports.shift();
