@@ -398,6 +398,7 @@ public final class ServerFightUntilController implements ServerController {
 		if (WarpedForestHunt.applies(mob == McEntityTypes.ENDERMAN, choices.mayMove(), choices.sneak(), WarpedForestHunt.biomeAt(player))) {
 			// Open ground first; a requested roof waits for the first calm enderman (its spot named the shelter site, as in K11).
 			forest = new WarpedForestHunt(player.position());
+			forest.mayModify(this::mayModify);
 			roofWanted = roof;
 			if (roof) spot = null;
 			roof = false;
@@ -476,7 +477,6 @@ public final class ServerFightUntilController implements ServerController {
 			rememberSeenDrops(player);
 			if (roams() || forest != null) rememberSightings(player, elapsed);
 		}
-		if (forest != null && !forest.walking() && gameTick % WarpedForestHunt.LOOK_TICKS == 0L) forest.look(player);
 		boolean fireContact = !immune && HazardExits.contact(player) == HazardExits.Contact.FIRE;
 		InteractionHand shieldHand = !immune && !roofed && choices.guardShield(player.getOffhandItem().getItem() instanceof ShieldItem) ? InteractionHand.OFF_HAND : null;
 		if (shieldHand != null) {
@@ -845,7 +845,7 @@ public final class ServerFightUntilController implements ServerController {
 				return TickResult.running(progress(player));
 			}
 			if (walked == State.SUCCEEDED) {
-				center = forest.goal();
+				center = forest.arrivedAt();
 				spot = null;
 				leads = null;
 				lastTargetMs = elapsed;
@@ -853,7 +853,7 @@ public final class ServerFightUntilController implements ServerController {
 				note("relocated to " + cell(center));
 				return TickResult.running(progress(player));
 			}
-			note("relocation walk to " + cell(forest.goal()) + " did not arrive");
+			note("relocation walk to " + cell(forest.goal()) + " did not arrive (" + forest.lastFailure() + ")");
 			if (WarpedForestHunt.unreachable(forest.failedInRow()))
 				return stop(player, TickResult.failed("FOREST_UNREACHABLE", forest.unreachableText(false), progress(player)));
 			// Another destination at once: the spell is still quiet.

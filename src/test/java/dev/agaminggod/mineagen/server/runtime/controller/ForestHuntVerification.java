@@ -81,6 +81,12 @@ public final class ForestHuntVerification {
 		check(WarpedForestHunt.choose(start, start, searched, List.of(far), null, List.of(far)) == null, "a destination whose walk failed is not tried again");
 		check(WarpedForestHunt.choose(start, start, List.of(start, far), List.of(), null, List.of(far)) == null, "searched ground is not new ground");
 		check(WarpedForestHunt.choose(start, start, searched, List.of(), null, List.of()) == null, "no seen floor: nowhere left (FOREST_UNREACHABLE)");
+		List<Vec3> headings = WarpedForestHunt.headingPoints(start);
+		check(headings.size() == 8 && WarpedForestHunt.choose(start, start, searched, List.of(), null, headings) != null,
+				"with no floor in sight a heading not searched yet is walked (a fungus forest hides its floor)");
+		check(WarpedForestHunt.arrived(true, 0.0D, true) && WarpedForestHunt.arrived(false, 9.0D, true), "got there, or moved 8+ blocks: arrived");
+		check(!WarpedForestHunt.arrived(false, 3.0D, true), "a walk that got nowhere did not arrive");
+		check(!WarpedForestHunt.arrived(true, 20.0D, false), "a walk that left the forest does not count (it walks back in next)");
 	}
 
 	private static void check(boolean condition, String message) {

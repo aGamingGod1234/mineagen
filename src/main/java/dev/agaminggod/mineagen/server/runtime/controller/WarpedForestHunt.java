@@ -40,6 +40,10 @@ final class WarpedForestHunt {
 	private static final int HEADINGS = 16;
 	private static final int SCAN_UP = 6;
 	private static final int SCAN_DOWN = 8;
+	/** Heading walks: 8 compass headings this far out, ended where the body gets to (height unknown until it is there). */
+	static final double HEADING_STEP = 20.0D;
+	/** A walk that moved at least this far counts as arrived where it stopped. */
+	static final double MOVED_ENOUGH = 8.0D;
 	/** How often (game ticks) the body reads the rings in its view while it hunts. */
 	static final long LOOK_TICKS = 10L;
 	private static final int MAX_FLOORS = 256;
@@ -56,7 +60,11 @@ final class WarpedForestHunt {
 	/** Diagnostics: columns read in view, seen ground found, free cells above not seen, ground outside the forest. */
 	private final int[] looked = new int[4];
 	private int looks;
-	private ServerNavigationController walk;
+	private ServerController walk;
+	private java.util.function.BiPredicate<ServerPlayer, BlockPos> mayModify;
+	private Vec3 walkFrom;
+	/** After a walk that ended outside the forest: the last searched spot inside it, walked to next. */
+	private Vec3 backTo;
 	private Vec3 walkGoal;
 	private String walkVia;
 	private long lastWalkTick;
@@ -193,16 +201,51 @@ final class WarpedForestHunt {
 
 	/** Starts a relocation walk toward the next destination; false when there is none (the forest is used up from here). */
 	boolean startWalk(ServerPlayer player, Vec3 outsideSighting, long now) {
-		look(player);
-		Vec3 goal = choose(player.position(), start, searched, refused, outsideSighting, floors);
-		if (goal == null) { emptyScans++; return false; }
+		Vec3 goal;
+		if (backTo != null) {
+			goal = backTo;
+			backTo = null;
+			walkVia = "back into the forest";
+		} else {
+			look(player);
+			List<Vec3> candidates = new ArrayList<>(floors);
+			candidates.addAll(headingPoints(player.position()));
+			goal = choose(player.position(), start, searched, refused, outsideSighting, candidates);
+			if (goal == null) { emptyScans++; return false; }
+			walkVia = goal == outsideSighting ? "an enderman seen there" : floors.contains(goal) ? "seen forest floor" : "a heading not searched yet";
+		}
 		emptyScans = 0;
 		cancel(player);
 		walkGoal = goal;
-		walkVia = goal == outsideSighting ? "an enderman seen there" : "seen forest floor";
-		walk = new ServerNavigationController(goal, ARRIVE, false, now, WALK_MS, true);
+		walkFrom = player.position();
+		walk = travel(goal, now);
 		relocations++;
 		return true;
+	}
+
+	/** The 8 compass points HEADING_STEP out: where a player walks on in a forest when nothing is in sight. */
+	static List<Vec3> headingPoints(Vec3 from) {
+		List<Vec3> out = new ArrayList<>();
+		for (int heading = 0; heading < 8; heading++) {
+			double angle = heading * Math.PI / 4.0D;
+			out.add(new Vec3(from.x - Math.sin(angle) * HEADING_STEP, from.y, from.z + Math.cos(angle) * HEADING_STEP));
+		}
+		return out;
+	}
+
+	void mayModify(java.util.function.BiPredicate<ServerPlayer, BlockPos> mayModify) {
+		this.mayModify = mayModify;
+	}
+
+	/** Lava-aware travel to the point's column at whatever height the ground there is; no building. */
+	private ServerController travel(Vec3 goal, long now) {
+		return new ServerTravelController(goal.x, Double.NaN, goal.z, ARRIVE, WALK_MS, false, null, null,
+				mayModify == null ? (body, at) -> false : mayModify, now);
+	}
+
+	/** A walk ends arrived when it got there or moved MOVED_ENOUGH; it counts only if the body is still in the forest. */
+	static boolean arrived(boolean succeeded, double moved, boolean inForest) {
+		return (succeeded || moved >= MOVED_ENOUGH) && inForest;
 	}
 
 	boolean walking() {
@@ -211,6 +254,13 @@ final class WarpedForestHunt {
 
 	Vec3 goal() {
 		return walkGoal;
+	}
+
+	private Vec3 arrivedAt;
+
+	/** Where the last walk that arrived ended (the new centre of the area). */
+	Vec3 arrivedAt() {
+		return arrivedAt;
 	}
 
 	/**
@@ -222,22 +272,26 @@ final class WarpedForestHunt {
 		if (EndermanHuntLeads.walkLeftUnticked(lastWalkTick, gameTick)) {
 			// Something else held the body (a collect or guard): plan the same walk afresh, as the lead walks do.
 			walk.cancel(player);
-			walk = new ServerNavigationController(walkGoal, ARRIVE, false, now, WALK_MS, true);
+			walk = travel(walkGoal, now);
 		}
 		lastWalkTick = gameTick;
 		ServerController.TickResult result = walk.tick(player, now);
 		if (result.state() == ServerController.State.RUNNING) return ServerController.State.RUNNING;
 		walk.cancel(player);
 		walk = null;
-		if (result.state() == ServerController.State.SUCCEEDED) {
+		Vec3 here = player.position();
+		boolean inForest = BIOME.equals(biomeAt(player));
+		if (arrived(result.state() == ServerController.State.SUCCEEDED, flat(walkFrom, here), inForest)) {
 			arrivals++;
 			failedInRow = 0;
-			searched.add(walkGoal);
+			searched.add(here);
+			arrivedAt = here;
 			return ServerController.State.SUCCEEDED;
 		}
 		failedInRow++;
 		refused.add(walkGoal);
-		lastFailure = result.reasonCode();
+		lastFailure = inForest ? result.reasonCode() : "left the forest at " + BlockPos.containing(here).toShortString();
+		if (!inForest) backTo = searched.get(searched.size() - 1);
 		return ServerController.State.FAILED;
 	}
 
@@ -264,6 +318,10 @@ final class WarpedForestHunt {
 
 	int emptyScans() {
 		return emptyScans;
+	}
+
+	String lastFailure() {
+		return lastFailure;
 	}
 
 	int failedInRow() {
