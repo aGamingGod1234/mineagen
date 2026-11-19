@@ -41,8 +41,37 @@ public final class OwedDropsVerification {
 		checks += check(true, ReflexEngine.handsOverLease(ReflexActions.create(rule("shield").action())),
 				"a firing that ends into a shield keeps its lease, so the raised shield does not drop for a tick");
 		checks += check(false, ReflexEngine.handsOverLease(null), "a firing that ends with nothing after it releases its lease");
+		checks += queuedPassDoesNotStartOverACommand();
 		checks += check(true, ReflexActions.CollectDrops.tally("no drop was seen to collect").equals("no drop was seen to collect"), "a plain line passes through");
 		return checks;
+	}
+
+	/**
+	 * Review finding: drops_owed turning true while a higher-priority firing (eat) holds the idle body queues the pass; a
+	 * model command then arrives, so drops_owed reads false. The queued pass must not start over the command.
+	 */
+	private static int queuedPassDoesNotStartOverACommand() {
+		java.util.List<ReflexSpec.Rule> set = ReflexSpec.parseRules(com.google.gson.JsonParser.parseString("""
+				[{"id":"default-eat","priority":3,"when":{"type":"on_fire"},"do":{"type":"eat"},"coordinatorDefault":true},
+				 {"id":"default-owed-drops","priority":2,"when":{"type":"drops_owed"},"do":{"type":"collect_drops"},"coordinatorDefault":true}]""").getAsJsonArray());
+		ReflexSpec.Rule owed = set.get(1);
+		ReflexScheduler scheduler = new ReflexScheduler();
+		scheduler.replace(set, 0);
+		long tick = 1;
+		int checks = check(true, "default-eat".equals(scheduler.step(tick, sense(true, false), ReflexScheduler.ActionStatus.RUNNING, "", false).started()), "eat holds the idle body");
+		checks += check(true, scheduler.step(++tick, sense(true, true), ReflexScheduler.ActionStatus.RUNNING, "", false).started() == null, "drops_owed turns true: the pass queues behind eat");
+		boolean started = false;
+		for (int i = 0; i < ReflexScheduler.PENDING_TICKS + 5; i++) {
+			// A model command arrived: the body is no longer idle, so drops_owed reads false; eat then finishes.
+			ReflexEngine.owedDropsGate(scheduler, owed, false);
+			ReflexScheduler.Decision next = scheduler.step(++tick, sense(i == 0, false), i == 0 ? ReflexScheduler.ActionStatus.RUNNING : ReflexScheduler.ActionStatus.DONE, "", false);
+			if ("default-owed-drops".equals(next.started())) started = true;
+		}
+		return checks + check(false, started, "the queued pass does not start over the model's command");
+	}
+
+	private static java.util.Map<String, ReflexScheduler.Sense> sense(boolean eat, boolean owed) {
+		return java.util.Map.of("default-eat", new ReflexScheduler.Sense(eat, false), "default-owed-drops", new ReflexScheduler.Sense(owed, false));
 	}
 
 	private static ReflexSpec.Rule rule(String action) {

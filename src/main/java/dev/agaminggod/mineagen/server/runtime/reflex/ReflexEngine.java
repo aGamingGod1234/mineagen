@@ -139,6 +139,15 @@ public final class ReflexEngine {
 	}
 
 	/**
+	 * Owed-drop collection runs only on an idle body. Its edge, queued while a higher-priority firing held the body, would
+	 * otherwise start within its pending window after a model command arrived and pause that command for the pass, so a
+	 * false condition (the body no longer idle, or nothing owed) drops the queued start.
+	 */
+	static void owedDropsGate(ReflexScheduler scheduler, ReflexSpec.Rule rule, boolean truth) {
+		if (!truth && "collect_drops".equals(rule.action().type())) scheduler.discardPendingStart(rule.id());
+	}
+
+	/**
 	 * Apply the shield's stand-aside gate. Forcing truth false alone leaves a queued arrow edge (seen during the shield's
 	 * cooldown on the tick cover starts) to pre-empt cover once the cooldown ends, so the queued start goes too.
 	 */
@@ -425,6 +434,7 @@ public final class ReflexEngine {
 			}
 			truth = gatedTruth(rule, truth, activeType);
 			truth = shieldGate(agent.scheduler, rule, truth, firingBlocksShots);
+			owedDropsGate(agent.scheduler, rule, truth);
 			// A default "back off when weaker" rule does not pause a flee that has already found no way out and stands its
 			// ground: running or taking cover there only hands the attackers free hits (cornered fixture: 4.6 s paused
 			// mid-fight). Hazard flinches (a fusing creeper, fire, lava, air, an edge, suffocation) still interrupt it.
