@@ -13,7 +13,11 @@ test('a shield in the main inventory goes to the off hand before anything is cra
 });
 
 test('after a respawn with iron and wood back in hand, the body crafts the shield it lost', () => {
-	assert.deepEqual(nextKitStep(sample([item('stone_pickaxe', 'mainhand'), item('iron_ingot', 1, 3), item('oak_log', 2, 2)])),
+	assert.deepEqual(nextKitStep(sample([item('stone_pickaxe', 'mainhand'), item('iron_ingot', 1, 4), item('oak_log', 2, 2)])),
+		{ kind: 'craft', itemId: 'minecraft:shield' });
+	assert.equal(nextKitStep(sample([item('stone_pickaxe', 'mainhand'), item('iron_ingot', 1, 3), item('oak_log', 2, 2)])), null,
+		'3 ingots without an iron pickaxe are the pickaxe\'s');
+	assert.deepEqual(nextKitStep(sample([item('iron_pickaxe', 'mainhand'), item('iron_ingot', 1, 1), item('oak_log', 2, 2)])),
 		{ kind: 'craft', itemId: 'minecraft:shield' });
 	assert.equal(nextKitStep(sample([item('iron_ingot', 1, 3), item('oak_planks', 2, 5)])), null, '5 planks are not enough for a shield');
 	assert.equal(nextKitStep(sample([item('oak_log', 2, 4)])), null, 'no iron, no shield craft (no mining for it)');
@@ -71,7 +75,7 @@ test('keepKit crafts, then wears, then stops; a failed step ends it; it never ru
 	const done = await keepKit(body, craft);
 	assert.deepEqual(done, ['crafted shield', 'wore shield (offhand)', 'crafted iron_chestplate', 'wore iron_chestplate (chest)']);
 	assert.ok(calls.length <= KIT_MAX_STEPS);
-	items = [item('stone_pickaxe', 'mainhand'), item('iron_ingot', 1, 1), item('oak_log', 2, 2)];
+	items = [item('iron_pickaxe', 'mainhand'), item('iron_ingot', 1, 1), item('oak_log', 2, 2)];
 	assert.deepEqual(await keepKit(body, async () => ({ state: 'FAILED', reasonCode: 'NO_TABLE_SPOT' })), ['craft shield stopped (NO_TABLE_SPOT)']);
 	let stop = false;
 	assert.deepEqual(await keepKit(body, async () => { stop = true; return { state: 'FAILED' }; }, { stopped: () => true }), []);
@@ -79,7 +83,7 @@ test('keepKit crafts, then wears, then stops; a failed step ends it; it never ru
 });
 
 test('a craft that leaves the item missing is not retried in the same run', async () => {
-	const items = [item('stone_pickaxe', 'mainhand'), item('iron_ingot', 1, 1), item('oak_log', 2, 2)];
+	const items = [item('iron_pickaxe', 'mainhand'), item('iron_ingot', 1, 1), item('oak_log', 2, 2)];
 	let crafts = 0;
 	const done = await keepKit({ observe: async () => sample(items), act: async () => ({ state: 'SUCCEEDED' }) }, async () => { crafts += 1; return { state: 'SUCCEEDED' }; });
 	assert.equal(crafts, 1);

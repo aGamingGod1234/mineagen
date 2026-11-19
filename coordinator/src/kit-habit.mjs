@@ -69,7 +69,9 @@ export function nextKitStep(o) {
 	const count = re => items.filter(item => re.test(item.itemId)).reduce((n, item) => n + item.count, 0);
 	const ingots = count(/^minecraft:iron_ingot$/);
 	const wood = count(PLANKS) + 4 * count(LOGS);
-	if (shields.length === 0 && ingots >= 1 && wood >= 6) return { kind: 'craft', itemId: 'minecraft:shield' };
+	// The iron pickaxe comes first: its 3 ingots are never spent on the shield (obtain iron_ingot count 3 for it would hand back 2).
+	const pickaxeOwed = items.some(item => /^minecraft:(iron|diamond|netherite)_pickaxe$/.test(item.itemId)) ? 0 : 3;
+	if (shields.length === 0 && ingots >= 1 + pickaxeOwed && wood >= 6) return { kind: 'craft', itemId: 'minecraft:shield' };
 	const spare = ingots - ironReserved(items);
 	for (const piece of ARMOUR) {
 		if (worn(piece.slot) || items.some(item => piece.part.test(item.itemId))) continue;
