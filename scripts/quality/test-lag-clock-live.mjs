@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { boot } from './watch-replay.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
+import { MOD_JAR } from './mod-jar.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const USAGE = 'Usage: test-lag-clock-live.mjs [OUT_DIR] [--strict|--descriptive] under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME (CASES, LAG, REPEATS, ARENA_JAR)';
@@ -28,7 +29,7 @@ const strict = !cli.includes('--descriptive');
 const out = path.resolve(cli.filter(arg => !['--strict', '--descriptive'].includes(arg))[0] ?? 'runtime/lag-clock');
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port = Number(process.env.SLOT_PORT_BASE);
 if (!template || !port || !process.env.JAVA_HOME) { console.error(USAGE); process.exit(2); }
-const jar = path.resolve(process.env.ARENA_JAR ?? path.join(root, 'build/libs/mineagen-0.2.0.jar'));
+const jar = path.resolve(process.env.ARENA_JAR ?? path.join(root, MOD_JAR));
 if (!existsSync(jar)) { console.error(`no jar at ${jar}`); process.exit(2); }
 const CASES = (process.env.CASES ?? 'travel,dig').split(',');
 const LAG = process.env.LAG ?? 'rate:10';

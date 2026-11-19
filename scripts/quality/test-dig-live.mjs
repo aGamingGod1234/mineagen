@@ -35,6 +35,7 @@ import { fileURLToPath } from 'node:url';
 import { applyQualitySetup, activateQualitySetup } from '../../coordinator/src/benchmark/quality-scenarios.mjs';
 import { fixtureTickRate } from './watch-replay.mjs';
 import { warmBoots } from './fixture-servers.mjs';
+import { MOD_JAR } from './mod-jar.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const USAGE = 'Usage: test-dig-live.mjs SPOTS.json OUT_DIR [JAR] [--strict|--descriptive] under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME';
@@ -64,7 +65,7 @@ const results = [];
 const cases = [];
 for (const [index, raw] of spots.entries()) cases.push([index, raw, raw.checkpoint ? JSON.parse(await readFile(raw.checkpoint, 'utf8')) : null]);
 for await (const { item: [, raw, checkpoint], server: s, error: bootError } of warmBoots(cases, ([index, raw, checkpoint]) => ({ dir: path.join(out, `spot-${index}`),
-	options: { jar: path.resolve(jarArg ?? path.join(root, 'build/libs/mineagen-0.2.0.jar')), template, port, world: null, seed: String(raw.seed ?? checkpoint?.seed), tickRate: fixtureTickRate(), worldCache: true } }))) {
+	options: { jar: path.resolve(jarArg ?? path.join(root, MOD_JAR)), template, port, world: null, seed: String(raw.seed ?? checkpoint?.seed), tickRate: fixtureTickRate(), worldCache: true } }))) {
 	const seed = String(raw.seed ?? checkpoint?.seed);
 	const seedSpots = [{ ...raw, checkpointData: checkpoint }];
 	const startedAt = Date.now();

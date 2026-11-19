@@ -17,13 +17,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { applyQualitySetup, activateQualitySetup, parseLocatedPosition } from '../../coordinator/src/benchmark/quality-scenarios.mjs';
 import { boot } from './watch-replay.mjs';
+import { MOD_JAR } from './mod-jar.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const argv = process.argv.slice(2);
 const flag = (name, fallback) => { const i = argv.indexOf(name); return i < 0 ? fallback : argv[i + 1]; };
 const [coursesFile, outArg] = argv.filter((value, i) => !value.startsWith('--') && !argv[i - 1]?.startsWith('--'));
 const mode = flag('--mode', 'travel');
-const jar = path.resolve(flag('--jar', path.join(root, 'build/libs/mineagen-0.2.0.jar')));
+const jar = path.resolve(flag('--jar', path.join(root, MOD_JAR)));
 const only = flag('--only', null)?.split(',');
 const checkpointDir = flag('--checkpoints', null);
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port = Number(process.env.SLOT_PORT_BASE);

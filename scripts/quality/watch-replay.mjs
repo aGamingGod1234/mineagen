@@ -27,6 +27,7 @@ import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
 import { fixtureCatalogCodexModels } from '../../coordinator/src/default-models.mjs';
 import { stageServer, worldProperties, lookupWorld, snapshotWorld, worldCacheEnabled } from './fixture-servers.mjs';
+import { MOD_JAR } from './mod-jar.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const sleep = ms => new Promise(done => setTimeout(done, ms));
@@ -444,7 +445,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
 	const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port = Number(process.env.SLOT_PORT_BASE);
 	if (!template || !port || !process.env.JAVA_HOME) throw new Error('Set ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME, and launch under slot.sh live (SLOT_PORT_BASE)');
 	library = path.resolve(library);
-	const jar = path.resolve(opts.jar ?? process.env.ARENA_JAR ?? path.join(root, 'build/libs/mineagen-0.2.0.jar'));
+	const jar = path.resolve(opts.jar ?? process.env.ARENA_JAR ?? path.join(root, MOD_JAR));
 	const jarHash = createHash('sha256');
 	for await (const chunk of createReadStream(jar)) jarHash.update(chunk);
 	const jarSha256 = jarHash.digest('hex');

@@ -9,9 +9,10 @@ import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 import { spotPassed } from './lib/reflex-failspot-pass.mjs';
+import { MOD_JAR } from './mod-jar.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
-const jarPath = resolve(process.env.ARENA_JAR ?? join(root, 'build/libs/mineagen-0.2.0.jar'));
+const jarPath = resolve(process.env.ARENA_JAR ?? join(root, MOD_JAR));
 const USAGE = 'Usage: test-reflex-failspots-live.mjs [OUT_DIR] [--strict|--descriptive] under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE (SPOTS=a,b, ARENA_JAR)';
 const cli = process.argv.slice(2);
 if (cli.includes('--help')) { console.log(USAGE + '\n' + EDIT_LOOP_HELP + '\n' + FIXTURE_OUTCOME_HELP); process.exit(0); }

@@ -16,12 +16,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { boot } from './watch-replay.mjs';
+import { MOD_JAR } from './mod-jar.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const out = path.resolve(process.argv[2] ?? 'runtime/rest-live');
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE, basePort = Number(process.env.SLOT_PORT_BASE);
 if (!template || !basePort || !process.env.JAVA_HOME) throw new Error('Launch under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME');
-const jar = path.resolve(process.env.ARENA_JAR ?? path.join(root, 'build/libs/mineagen-0.2.0.jar'));
+const jar = path.resolve(process.env.ARENA_JAR ?? path.join(root, MOD_JAR));
 const SEEDS = (process.env.SEEDS ?? '3315172112810107624,20261107,424242').split(',');
 const CASES = (process.env.CASES ?? 'wool,nowool').split(',');
 const EXTRAS = process.env.EXTRAS !== '0';
