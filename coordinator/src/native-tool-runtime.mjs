@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { holdCancelRefusal } from './spawner-hold.mjs';
 import { validateTraceId } from './control-latency-registry.mjs';
 import { ExplorationOccupancy, extractPosition as observationPosition, observationWorldId } from './explore-frontier.mjs';
 import { hasDurableObservationFacts, RecoveryProgressStore } from './recovery-progress-wrap.mjs';
@@ -969,13 +970,18 @@ export class NativeToolRuntime {
 			return { ...this.#programStatus(record, request.tool.programId),
 				...(answered?.resourceSightings?.length ? { resourceSightings: answered.resourceSightings } : {}) };
 		}
-		if (request.tool.kind === 'cancel_action') return this.#cancelAction(record, request.tool);
+		if (request.tool.kind === 'cancel_action') {
+			this.#holdCancelGate(record, request.tool);
+			return this.#withCancelReason(record, request.tool, await this.#cancelAction(record, request.tool));
+		}
 		if (request.tool.kind === 'notebook' || request.tool.kind === 'query_memory' || request.tool.kind === 'task_memory') return this.#memory(request, record);
 		if (request.tool.after !== undefined) return this.#executeAfter(request, record, lifecycleGeneration);
 		if (request.tool.kind === 'action' && request.tool.actionType === 'chat') return this.#executeAction(request, record, request.tool);
 		if (request.tool.kind === 'replace_action') {
 			const rejected = this.#operationRejection(record, request.tool);
 			if (rejected !== null) throw codedError(rejected.code, rejected.message);
+			this.#holdCancelGate(record, request.tool);
+			if (request.tool.reason !== undefined) this.#trace('native_hold_cancel', { agentId: record.agentId, goalRevision: record.goalRevision, actionId: request.tool.actionId, via: 'replace_action', reason: request.tool.reason });
 			// Yield before the cancel: otherwise the reflex holding the body keeps it, or default defend takes the body in the
 			// idle gap the cancel leaves, and the replacement starts paused under it. Each path yields only once the replace
 			// is certain to go on (past every refusal), so a refused replace ends no firing.
@@ -2344,6 +2350,23 @@ export class NativeToolRuntime {
 		const preservesProgram = active?.pausedProgram === true && active.goalRevision === record.goalRevision
 			&& run?.goalRevision === record.goalRevision && !run.settled && run.epoch === epoch;
 		return preservesProgram ? epoch : epoch + 1;
+	}
+
+	/** Wall breaker rods: the model's own cancel or replace of a blaze spawner hold carries a reason (spawner-hold.mjs). */
+	#holdCancelGate(record, tool) {
+		const active = this.#actions.get(record.agentId);
+		if (active?.actionId !== tool.actionId) return;
+		const refused = holdCancelRefusal(active, tool);
+		if (refused !== null) {
+			this.#trace('native_hold_cancel_refused', { agentId: record.agentId, goalRevision: record.goalRevision, actionId: tool.actionId, via: tool.kind });
+			throw codedError(refused.code, refused.message);
+		}
+	}
+
+	#withCancelReason(record, tool, result) {
+		if (tool.reason === undefined) return result;
+		this.#trace('native_hold_cancel', { agentId: record.agentId, goalRevision: record.goalRevision, actionId: tool.actionId, via: 'cancel_action', reason: tool.reason });
+		return result !== null && typeof result === 'object' ? { ...result, cancelReason: tool.reason } : result;
 	}
 
 	async #cancelAction(record, tool, { invalidateProgram = true, blockingRun = null, beforeCancel = null } = {}) {

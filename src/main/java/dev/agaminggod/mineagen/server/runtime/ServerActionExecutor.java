@@ -940,8 +940,7 @@ public final class ServerActionExecutor {
 					.collectWhenClear(arguments.has("collect") && bool(arguments, "collect") ? null : protection::mayTakeEntity)
 					.makingRoom(protection::mayDropItem)));
 			// Model-chosen goal skill (ExamplePlayer, Oct 28): fight one mob type until an item count, each engagement a fight_target or volley.
-			case FIGHT_UNTIL -> ActiveAction.controller(request, player, new dev.agaminggod.mineagen.server.runtime.controller.ServerFightUntilController(
-					player, arguments, protection, GameClock.nowMs(), "fight_until", null, roofing(request)));
+			case FIGHT_UNTIL -> ActiveAction.controller(request, player, fightUntil(request, player, arguments));
 			case FLEE_FROM -> ActiveAction.controller(request, player, new ServerFleeController(
 					resolveCombatTarget(player, string(arguments, "targetId")),
 					number(arguments, "distance"), integer(arguments, "timeoutMs"), GameClock.nowMs()).cornered(roofing(request)));
@@ -1868,6 +1867,19 @@ public final class ServerActionExecutor {
 		dev.agaminggod.mineagen.server.runtime.controller.CountFightChoices.copy(arguments, until);
 		return ActiveAction.controller(request, player, new dev.agaminggod.mineagen.server.runtime.controller.ServerFightUntilController(
 				player, until, protection, GameClock.nowMs(), request.type().wireName(), first, roofing(request)));
+	}
+
+	/** fight_until; blazes at a seen fortress spawner get the body-owned spawner hold (roof:false keeps the open fight). */
+	private dev.agaminggod.mineagen.server.runtime.controller.ServerController fightUntil(ServerActionRequest request, ServerPlayer player, JsonObject arguments) {
+		boolean blaze = "minecraft:blaze".equals(string(arguments, "mob")) && "minecraft:blaze_rod".equals(string(arguments, "untilItem"));
+		BlockPos spawner = blaze && dev.agaminggod.mineagen.server.runtime.controller.SpawnerHold.ENABLED
+				? dev.agaminggod.mineagen.server.runtime.controller.ServerSpawnerHoldController.seenFortressSpawner(player) : null;
+		Boolean roof = arguments.has("roof") ? bool(arguments, "roof") : null;
+		if (dev.agaminggod.mineagen.server.runtime.controller.SpawnerHold.applies(spawner != null, blaze, roof, spawner != null))
+			return new dev.agaminggod.mineagen.server.runtime.controller.ServerSpawnerHoldController(player, arguments, protection, spawner,
+					roofing(request), GameClock.nowMs());
+		return new dev.agaminggod.mineagen.server.runtime.controller.ServerFightUntilController(
+				player, arguments, protection, GameClock.nowMs(), "fight_until", null, roofing(request));
 	}
 
 	/** roof:true construction for the fight engine: build_shelter's placement and clearing with a carried block. */

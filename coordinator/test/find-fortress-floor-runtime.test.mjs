@@ -78,3 +78,22 @@ for (const code of ['LAVA_AHEAD', 'VOID_EDGE', 'LOW_HEALTH', 'TRAVEL_DAMAGED', '
 		assert.equal(result.reasonCode, ['NO_TOOL', 'TOOL_WORN'].includes(code) ? 'FIND_BLOCKED' : 'FIND_DANGER');
 	});
 }
+
+// Wall breaker rods (b): no floor leg past a seen wither skeleton.
+test('rods (b): a wither skeleton by the only visible floor stops the search with WITHER_ON_DECK and no leg', async () => {
+	const { result, moves } = await replay(1, 'NO_ROUTE', (observation) => {
+		observation.entities = [{ type: 'minecraft:wither_skeleton', stableId: 'w1', x: 9.5, y: 67, z: 110.5, distance: 12, alive: true, perceivedBy: 'sight' }];
+	});
+	assert.equal(moves.length, 0, 'no walk onto the deck');
+	assert.equal(result.reasonCode, 'WITHER_ON_DECK');
+	assert.match(result.message ?? JSON.stringify(result), /wither skeleton/);
+});
+
+test('rods (b): a wither skeleton far from the floor and its line does not stop the leg', async () => {
+	const { result, moves } = await replay(1, 'NO_ROUTE', (observation) => {
+		const p = observation.player;
+		observation.entities = [{ type: 'minecraft:wither_skeleton', stableId: 'w1', x: p.x - 30, y: p.y, z: p.z - 30, distance: 42, alive: true, perceivedBy: 'sight' }];
+	});
+	assert.equal(moves.length, 1);
+	assert.equal(result.reasonCode, 'FIND_BLOCKED');
+});
