@@ -31,6 +31,10 @@ final class WarpedForestHunt {
 	/** Destinations stay within this many blocks of where the call started. */
 	static final double FOREST_RANGE = 96.0D;
 	static final int MAX_FAILED_WALKS = 3;
+	/** Quiet spells in a row whose scan found no destination before the forest counts as used up (seen terrain fades in 10 s). */
+	static final int MAX_EMPTY_SCANS = 3;
+	/** Shelters one call may build: each costs a shelter's blocks and a build's time, so contacts after these fight in the open. */
+	static final int MAX_ROOFS = 3;
 	static final long WALK_MS = 30_000L;
 	static final double ARRIVE = 3.0D;
 	private static final int HEADINGS = 16;
@@ -50,6 +54,7 @@ final class WarpedForestHunt {
 	private int relocations;
 	private int arrivals;
 	private int failedInRow;
+	private int emptyScans;
 	private int roofsLeft;
 	private String lastFailure;
 
@@ -87,6 +92,15 @@ final class WarpedForestHunt {
 
 	static boolean unreachable(int failedInRow) {
 		return failedInRow >= MAX_FAILED_WALKS;
+	}
+
+	static boolean nowhereLeft(int emptyScans) {
+		return emptyScans >= MAX_EMPTY_SCANS;
+	}
+
+	/** roof:true builds again on contact only while the call has built fewer than MAX_ROOFS. */
+	static boolean mayBuildAgain(int roofBuilds) {
+		return roofBuilds < MAX_ROOFS;
 	}
 
 	/**
@@ -146,7 +160,8 @@ final class WarpedForestHunt {
 	/** Starts a relocation walk toward the next destination; false when there is none (the forest is used up from here). */
 	boolean startWalk(ServerPlayer player, Vec3 outsideSighting, long now) {
 		Vec3 goal = choose(player.position(), start, searched, refused, outsideSighting, seenFloors(player));
-		if (goal == null) return false;
+		if (goal == null) { emptyScans++; return false; }
+		emptyScans = 0;
 		cancel(player);
 		walkGoal = goal;
 		walkVia = goal == outsideSighting ? "an enderman seen there" : "seen forest floor";
@@ -206,14 +221,18 @@ final class WarpedForestHunt {
 		roofsLeft++;
 	}
 
+	int emptyScans() {
+		return emptyScans;
+	}
+
 	int failedInRow() {
 		return failedInRow;
 	}
 
 	String unreachableText(boolean nowhere) {
 		return nowhere
-				? String.format(Locale.ROOT, "No seen warped-forest floor left 16-32 blocks away on new ground within %.0f blocks of the start (%d relocations, %d arrived); the forest here is searched or out of sight",
-						FOREST_RANGE, relocations, arrivals)
+				? String.format(Locale.ROOT, "No seen warped-forest floor left 16-32 blocks away on new ground within %.0f blocks of the start after %d looks around (%d relocations, %d arrived); the forest here is searched or out of sight",
+						FOREST_RANGE, emptyScans, relocations, arrivals)
 				: String.format(Locale.ROOT, "%d relocation walks in a row did not arrive (last %s; %d relocations, %d arrived)",
 						failedInRow, lastFailure, relocations, arrivals);
 	}

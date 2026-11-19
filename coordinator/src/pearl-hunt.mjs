@@ -9,12 +9,15 @@ import { STANCE_SETTINGS, resolveAutoStance } from './reflexes.mjs';
 export const PEARL_HUNT_TIMEOUT_MS = 540_000;
 const ENDERMAN = 'minecraft:enderman';
 const PEARL = 'minecraft:ender_pearl';
+const BODY_FLEE_LINE = 6;
 
 /** The retreat line a stance bails out at (reflexes.mjs default-retreat); stance null resolves as the auto stance would. */
 export function huntFleeLine(stance, observation = null) {
 	const settings = STANCE_SETTINGS['default-retreat'];
 	const resolved = Object.hasOwn(settings, stance ?? '') && stance !== 'condition' ? stance : resolveAutoStance(observation);
-	return { stance: resolved, line: settings[resolved] };
+	// Never under the body's own default line (ServerFightUntilController.DEFAULT_FLEE_AT_HEALTH): the fight stance's 4
+	// is for a fight already running, not a hunt the model starts.
+	return { stance: resolved, line: Math.max(BODY_FLEE_LINE, settings[resolved]) };
 }
 
 /** Whether a native action is an enderman pearl count fight: fight_until on endermen, or a count fight_target on one. */

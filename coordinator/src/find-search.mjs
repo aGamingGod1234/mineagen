@@ -54,7 +54,9 @@ const MAX_MEMORY_TRIPS = 2;
 const APPROACH_LEG = 32;
 const APPROACH_GAIN = 4;
 const APPROACH_BUILD_BUDGET = 128;
-const APPROACH_STUCK = 3;
+const APPROACH_STUCK = 5;
+// A stuck leg turns the next one off the straight line: basalt columns and lava pools block one heading, not all.
+const APPROACH_TURNS = Object.freeze([0, 45, -45, 90, -90]);
 const APPROACH_ARRIVE = 3;
 const MAX_DESCENT_STOPS = 6;
 const DEPTHS = Object.freeze({ lava: -54, iron_ore: 16, deepslate_iron_ore: 16, gold_ore: -16, deepslate_gold_ore: -16, diamond_ore: -58,
@@ -769,6 +771,10 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 			? { x: Math.floor(at.x), y: Math.floor(at.y), z: Math.floor(at.z), id: sample.world.biome, via: 'standing in it', distance: 0 } : null;
 	};
 	let approaching = false;
+	// Lava ahead of a leg in the deltas is the ground, not danger, while the body is out of lava and not burning: the
+	// heading is blocked and the next leg turns. Anything else a leg stops for is settled as on every other leg.
+	const lavaLip = (outcome) => !outcome.seen && outcome.result?.reasonCode === 'LAVA_AHEAD'
+		&& observation?.player?.inLava !== true && observation?.player?.onFire !== true;
 	// Returns a result to hand back (found, danger, budget), or { stuck } when this place cannot be reached from here.
 	const approach = async (goal, what) => {
 		approaching = true;
@@ -781,17 +787,17 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 				const away = Math.hypot(goal.x + 0.5 - at.x, goal.z + 0.5 - at.z);
 				if (away <= APPROACH_ARRIVE) return { stuck: `reached ${goal.x},${goal.y},${goal.z} but the ground there is not ${profile.label}` };
 				if (stuck >= APPROACH_STUCK) return { stuck: `${stuck} approach legs in a row gained under ${APPROACH_GAIN} blocks; ${Math.round(away)} blocks left` };
-				const yaw = Math.round(Math.atan2(-(goal.x + 0.5 - at.x), goal.z + 0.5 - at.z) * 180 / Math.PI);
+				const yaw = wrap(Math.round(Math.atan2(-(goal.x + 0.5 - at.x), goal.z + 0.5 - at.z) * 180 / Math.PI) + APPROACH_TURNS[stuck % APPROACH_TURNS.length]);
 				legsRun += 1;
 				const walkOut = await leg(`approach ${what} (${Math.round(away)} blocks)`, 'travel_to', { yaw, distance: Math.min(APPROACH_LEG, Math.ceil(away)), build: false }, standingIn);
-				const walkEnd = await settle(walkOut);
+				const walkEnd = lavaLip(walkOut) ? null : await settle(walkOut);
 				if (walkEnd !== null) return walkEnd;
 				let after = bodyAt(observation), gain = away - Math.hypot(goal.x + 0.5 - after.x, goal.z + 0.5 - after.z);
 				if (gain < APPROACH_GAIN && standingIn(observation) === null && budget >= MIN_SURFACE_LEG && left() >= MIN_LEG_MS) {
 					const distance = Math.min(BUILD_LEG, budget, Math.ceil(away));
 					budget -= distance;
 					const built = await leg(`build toward ${what}`, 'travel_to', { yaw, distance, build: true }, standingIn);
-					const buildEnd = await settle(built);
+					const buildEnd = lavaLip(built) ? null : await settle(built);
 					if (buildEnd !== null) return buildEnd;
 					after = bodyAt(observation);
 					gain = away - Math.hypot(goal.x + 0.5 - after.x, goal.z + 0.5 - after.z);

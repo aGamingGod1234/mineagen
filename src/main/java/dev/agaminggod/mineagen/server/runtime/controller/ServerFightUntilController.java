@@ -601,7 +601,7 @@ public final class ServerFightUntilController implements ServerController {
 			huntFinds++;
 		}
 		if (target != null && forest != null && forest.walking()) forest.interrupted(player);
-		if (forest != null && target != null && WarpedForestHunt.roofOnContact(roofWanted && !roof, roofed, building != null, true, attacking(player, target))) {
+		if (forest != null && target != null && WarpedForestHunt.roofOnContact(roofWanted && !roof && WarpedForestHunt.mayBuildAgain(roofBuilds), roofed, building != null, true, attacking(player, target))) {
 			roof = true;
 			resetRoof();
 			note("roof on contact with " + mobId + " " + target.getUUID() + " at " + cell(target.position()));
@@ -864,8 +864,14 @@ public final class ServerFightUntilController implements ServerController {
 		if (look != null) { look.cancel(player); look = null; }
 		if (walk != null) { walk.cancel(player); walk = null; }
 		Vec3 outside = leads == null ? null : leads.nearestOutside(player.position(), elapsed);
-		if (!forest.startWalk(player, outside, now))
-			return stop(player, TickResult.failed("FOREST_UNREACHABLE", forest.unreachableText(true), progress(player)));
+		if (!forest.startWalk(player, outside, now)) {
+			if (WarpedForestHunt.nowhereLeft(forest.emptyScans()))
+				return stop(player, TickResult.failed("FOREST_UNREACHABLE", forest.unreachableText(true), progress(player)));
+			// Nothing in sight to walk to yet: look around through another quiet spell (seen terrain fades in 10 s) and scan again.
+			lastTargetMs = elapsed;
+			note("quiet: no seen forest floor to walk to yet (" + forest.emptyScans() + " of " + WarpedForestHunt.MAX_EMPTY_SCANS + ")");
+			return TickResult.running(progress(player));
+		}
 		lastTargetMs = elapsed;
 		note("quiet " + (areaClear ? "(area cleared)" : String.format(Locale.ROOT, "%.0f s", WarpedForestHunt.QUIET_MS / 1000.0D))
 				+ ": walking to " + cell(forest.goal()) + " (" + forest.walkVia() + ")");
@@ -2153,9 +2159,9 @@ public final class ServerFightUntilController implements ServerController {
 		cancelParts(player);
 		int held = count(player, untilItem);
 		StringBuilder text = new StringBuilder(result.message());
-		if (roofFellBack != null) text.append("; roof: ").append(roofBuilds > 0 ? roofBuilds + " build" + (roofBuilds == 1 ? "" : "s") + " at " + roofCenter.toShortString() : "not built")
+		if (roofFellBack != null) text.append("; roof: ").append(roofBuilds > 0 && roofCenter != null ? roofBuilds + " build" + (roofBuilds == 1 ? "" : "s") + " at " + roofCenter.toShortString() : "not built")
 				.append(" (").append(roofFellBack.length() > 160 ? roofFellBack.substring(0, 160) + "..." : roofFellBack).append("), fell back to the open-ground fight");
-		else if (roof) text.append(String.format(Locale.ROOT, "; roof: %s", roofed || roofBuilds > 0 ? roofBuilds + " build" + (roofBuilds == 1 ? "" : "s")
+		else if (roof) text.append(String.format(Locale.ROOT, "; roof: %s", (roofed || roofBuilds > 0) && roofCenter != null && roofOpening != null ? roofBuilds + " build" + (roofBuilds == 1 ? "" : "s")
 				+ " at " + roofCenter.toShortString() + " doorway " + roofOpening.getSerializedName() + " (" + roofItem + ")" + (lintelPlaced ? "" : ", lintel missing") + (breakOuts > 0 ? ", " + breakOuts + " walk" + (breakOuts == 1 ? "" : "s") + " out to collect" : "") : "not built"));
 		text.append(String.format(Locale.ROOT, "; %s %s: %d kill%s, %s %d -> %d (gained %d, asked %d), %d arrow%s used, %d bow and %d sword engagement%s",
 				via.equals("fight_until") ? "fight_until" : via + " count", mobId, kills, kills == 1 ? "" : "s", untilItemId, Math.max(0, startCount), held, held - Math.max(0, startCount), untilCount,

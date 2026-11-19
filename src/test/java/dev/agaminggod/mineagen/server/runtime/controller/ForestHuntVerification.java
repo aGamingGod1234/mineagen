@@ -48,6 +48,7 @@ public final class ForestHuntVerification {
 		check(!WarpedForestHunt.roofOnContact(true, true, false, true, false), "already roofed: no second shelter");
 		check(!WarpedForestHunt.roofOnContact(true, false, true, true, false), "a shelter under construction is not started again");
 		check(!WarpedForestHunt.roofOnContact(false, false, false, true, false), "roof not asked, or dropped: open ground only");
+		check(WarpedForestHunt.mayBuildAgain(2) && !WarpedForestHunt.mayBuildAgain(3), "at most three shelters a call; later contacts fight in the open");
 	}
 
 	private static void verifyBlocksMissing() {
@@ -60,6 +61,9 @@ public final class ForestHuntVerification {
 	private static void verifyUnreachable() {
 		check(!WarpedForestHunt.unreachable(2), "two failed relocation walks: try another destination");
 		check(WarpedForestHunt.unreachable(3), "three failed relocation walks in a row: FOREST_UNREACHABLE");
+		check(!WarpedForestHunt.nowhereLeft(2), "an empty scan looks around another quiet spell (no hand-back sooner than the old 30 s)");
+		check(WarpedForestHunt.nowhereLeft(3), "three empty scans in a row: the forest here is used up, FOREST_UNREACHABLE");
+		check(WarpedForestHunt.MAX_EMPTY_SCANS * WarpedForestHunt.QUIET_MS >= ServerFightUntilController.NO_TARGET_MS, "never hands back sooner than the old wait");
 	}
 
 	private static void verifyDestinations() {

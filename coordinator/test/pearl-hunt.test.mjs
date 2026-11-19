@@ -10,8 +10,8 @@ const nether = { world: { dimension: 'minecraft:the_nether' }, player: { health:
 const overworld = { world: { dimension: 'minecraft:overworld' }, player: { health: 20 }, entities: [] };
 const hunt = (extra = {}) => ({ actionType: 'fight_until', arguments: { mob: 'minecraft:enderman', untilItem: 'minecraft:ender_pearl', untilCount: 12, ...extra } });
 
-test('the model 14 is lowered to the stance retreat line (default-retreat: steady 7, fight 4, cautious 10)', () => {
-	for (const [stance, line] of [['steady', 7], ['fight', 4], ['cautious', 10]]) {
+test('the model 14 is lowered to the stance retreat line (default-retreat: steady 7, cautious 10; fight 4 floored at the body default 6)', () => {
+	for (const [stance, line] of [['steady', 7], ['fight', 6], ['cautious', 10]]) {
 		const { tool, note } = pearlHuntDefaults(hunt({ fleeAtHealth: 14, timeoutMs: 300_000 }), { stance, observation: nether });
 		assert.equal(tool.arguments.fleeAtHealth, line, stance);
 		assert.match(note, new RegExp(`fleeAtHealth 14 lowered to ${line} \\(${stance} stance`));

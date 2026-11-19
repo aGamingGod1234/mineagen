@@ -11,7 +11,7 @@ const NETHERRACK = { itemId: 'minecraft:netherrack', count: 64 };
  * fail (NO_ROUTE, no movement); the biome follows the position. walls: how many walking legs in a row fail before one
  * gets through; buildWorks: whether a building leg moves.
  */
-function netherBody({ dimension = 'minecraft:the_nether', looks = [], walls = () => false, buildWorks = true, known = null, danger = null, items = [NETHERRACK] } = {}) {
+function netherBody({ dimension = 'minecraft:the_nether', looks = [], walls = () => false, buildWorks = true, known = null, danger = null, dangerCode = 'LAVA_AHEAD', items = [NETHERRACK] } = {}) {
 	let at = { x: 0.5, y: 70, z: 0.5 }, clock = 0, walksTried = 0;
 	const calls = [], missed = [];
 	const biome = () => (at.z >= FOREST_Z ? 'minecraft:warped_forest' : dimension === 'minecraft:the_nether' ? 'minecraft:basalt_deltas' : 'minecraft:plains');
@@ -25,7 +25,7 @@ function netherBody({ dimension = 'minecraft:the_nether', looks = [], walls = ()
 		act: async (actionType, args) => {
 			calls.push({ actionType, args });
 			clock += 20_000;
-			if (danger !== null && calls.filter((call) => call.actionType).length === danger) return { state: 'FAILED', reasonCode: 'LAVA_AHEAD', message: 'Lava ahead at 0,69,40' };
+			if (danger !== null && calls.filter((call) => call.actionType).length === danger) return { state: 'FAILED', reasonCode: dangerCode, message: `${dangerCode} at 0,69,40` };
 			if (actionType !== 'travel_to' || !Number.isFinite(args.yaw)) return { state: 'SUCCEEDED', reasonCode: 'ARRIVED' };
 			const blocked = args.build ? !buildWorks : walls(walksTried++);
 			if (blocked) return { state: 'FAILED', reasonCode: 'NO_ROUTE', message: 'No seen standing spot ahead gets closer, and build is false' };
@@ -61,12 +61,14 @@ test('a walking leg the deltas stop (NO_ROUTE) is followed by a building leg tow
 	assert.ok(legs[1].args.distance <= 16);
 });
 
-test('three approach legs in a row that gain nothing hand back FIND_BLOCKED naming the forest and the distance left', async () => {
+test('five approach legs in a row that gain nothing (straight, then turned 45 and 90 each way) hand back FIND_BLOCKED naming the forest and the distance left', async () => {
 	const body = netherBody({ looks: [seenForest], walls: () => true, buildWorks: false });
 	const result = await searchFor({ biome: 'minecraft:warped_forest' }, body, { timeoutMs: 540_000 });
 	assert.equal(result.reasonCode, 'FIND_BLOCKED');
 	assert.match(result.message, /warped_forest seen at 0,70,90/);
-	assert.match(result.message, /3 approach legs in a row gained under 4 blocks; 90 blocks left/);
+	assert.match(result.message, /5 approach legs in a row gained under 4 blocks; 90 blocks left/);
+	const walks = body.calls.filter((call) => call.actionType === 'travel_to' && call.args.build === false).map((call) => call.args.yaw);
+	assert.deepEqual(walks.map((yaw) => ((yaw - walks[0] + 540) % 360) - 180), [0, 45, -45, 90, -90]);
 });
 
 test('a forest remembered from an earlier trip is approached, and one failed leg does not lose it', async () => {
@@ -81,17 +83,24 @@ test('a forest remembered from an earlier trip is approached, and one failed leg
 test('a remembered forest the approach cannot reach is marked missed and the search goes on', async () => {
 	const known = { sightings: [{ kind: 'biome', what: 'minecraft:warped_forest', x: 0, y: 70, z: 100 }] };
 	const body = netherBody({ known, walls: () => true, buildWorks: false });
-	const result = await searchFor({ biome: 'minecraft:warped_forest' }, body, { timeoutMs: 200_000 });
+	const result = await searchFor({ biome: 'minecraft:warped_forest' }, body, { timeoutMs: 540_000 });
 	assert.notEqual(result.reasonCode, 'FIND_SEEN');
 	assert.equal(body.missed.length, 1);
 	assert.equal(body.missed[0].why, 'approach stuck');
 });
 
-test('danger on an approach leg hands back as danger (the settle rules stand)', async () => {
+test('lava ahead of an approach leg is a blocked heading, not danger: the next leg turns and the forest is reached', async () => {
 	const body = netherBody({ looks: [seenForest], danger: 1 });
 	const result = await searchFor({ biome: 'minecraft:warped_forest' }, body, { timeoutMs: 540_000 });
-	assert.notEqual(result.reasonCode, 'FIND_SEEN');
-	assert.match(`${result.reasonCode} ${result.message}`, /LAVA_AHEAD|FIND_DANGER/);
+	assert.equal(result.reasonCode, 'FIND_SEEN');
+	assert.equal(result.find.seen.via, 'standing in it');
+});
+
+test('other danger on an approach leg hands back FIND_DANGER (the settle rules stand)', async () => {
+	const body = netherBody({ looks: [seenForest], danger: 1, dangerCode: 'IN_LAVA' });
+	const result = await searchFor({ biome: 'minecraft:warped_forest' }, body, { timeoutMs: 540_000 });
+	assert.equal(result.reasonCode, 'FIND_DANGER');
+	assert.match(result.message, /IN_LAVA/);
 });
 
 test('an Overworld biome is still found on sight (no approach)', async () => {
