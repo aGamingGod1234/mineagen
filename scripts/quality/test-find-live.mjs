@@ -14,6 +14,7 @@
 // biome, timed in game ticks from the start: row.reachedTicks) within reachTicks (default 12000), not on FIND_SEEN; a
 // FIND_SEEN from afar is followed by travel_to the seen cell and the call again, as a model does with a far sighting.
 // row.reachedDuring names the call that was running ("find" or the fallback "travel_to"); row.passFind needs "find".
+// locateDimension: run the ground-truth locate in that dimension (a Nether biome is located in the Nether).
 // Production steering lives in run-incident.mjs; this body-only fixture cannot accept steer:true.
 import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -165,7 +166,7 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		row.kit = (runtime.latestObservation?.(record)?.inventory?.items ?? adaptObservation(await s.observe()).inventory?.items ?? []).map(item => `${item.itemId.replace('minecraft:', '')}x${item.count}@${item.slot}`);
 		console.log(`[${spot.name}] kit ${row.kit.join(' ')}`);
 		// Ground truth for the report only (vanilla locate from the start; the search never sees it).
-		if (spot.locate) row.located = String(await s.command(`execute positioned ${row.start.map(Math.floor).join(' ')} run locate ${spot.locate}`)).slice(0, 300);
+		if (spot.locate) row.located = String(await s.command(`execute ${spot.locateDimension ? `in ${spot.locateDimension} ` : ''}positioned ${row.start.map(Math.floor).join(' ')} run locate ${spot.locate}`)).slice(0, 300);
 		// skipBeyond: a target vanilla puts farther than this from the start is out of the search's reach; no search runs.
 		const locatedAt = Number(/\((\d+) blocks? away\)/.exec(row.located ?? '')?.[1]);
 		if (spot.skipBeyond !== undefined && !(locatedAt <= spot.skipBeyond)) {
@@ -221,7 +222,8 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 					if (row.reachedAtS !== undefined) break;
 					continue;
 				}
-				if (found || !spot.repeat || result?.reasonCode === 'FIND_BLOCKED' || Date.now() - t0 >= budgetMs - 10_000) break;
+				// repeatBlocked: a model re-asks after FIND_BLOCKED too (seven-rods: 2-6 find calls a run); otherwise it stops there.
+				if (found || !spot.repeat || (result?.reasonCode === 'FIND_BLOCKED' && !spot.repeatBlocked) || Date.now() - t0 >= budgetMs - 10_000) break;
 				// The provider-free stand-in for a model: give the reflexes a moment with danger, then ask again.
 				if (['RUNNING', 'PREPARING'].includes(result?.state) && typeof result?.actionId === 'string') {
 					await runtime.execute({ agentId: record.agentId, goalRevision: record.goalRevision, turnId: `find-live-cancel-${callIndex}-${attempt}`, callId: `cancel-${callIndex}-${attempt}`,

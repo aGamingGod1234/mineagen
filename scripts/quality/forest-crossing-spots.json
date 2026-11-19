@@ -78,6 +78,8 @@
       }
     ],
     "reachTicks": 12000,
-    "note": "Seven-rods seed, Nether start moved ~70 blocks from the fortress toward the forest (blazes and wither skeletons there ended every round-1 find in FIND_DANGER); spreadplayers finds standing ground below the roof; mobs within 40 blocks cleared once at the start."
+    "note": "Seven-rods seed, Nether start moved ~70 blocks from the fortress toward the forest (blazes and wither skeletons there ended every round-1 find in FIND_DANGER); spreadplayers finds standing ground below the roof; mobs within 40 blocks cleared once at the start.",
+    "locateDimension": "minecraft:the_nether",
+    "repeatBlocked": true
   }
 ]
