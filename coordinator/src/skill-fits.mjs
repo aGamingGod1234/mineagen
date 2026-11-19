@@ -1,4 +1,5 @@
 import { EYE_PLAN } from './eye-plan.mjs';
+import { endKit } from './end-readiness.mjs';
 import { foodAdviceNeeded, portalBedSource } from './survival-advice.mjs';
 
 // One wake fact: a goal skill (fight_until, barter_until, build nether_portal by casting, cast_obsidian) whose preconditions hold right now, with the
@@ -277,7 +278,7 @@ function foodSource(o) {
  * plan-check evaluator (evaluatePlanCheck); memory: scoped, contradiction-aware source facts from LiveTaskViews;
  * foodHandedBack: a food hand-back this life (foodStockHandback) released the cooked-meat stock.
  */
-export function routeLine({ observation: o = null, known = null, memory = null, foodHandedBack = false, evaluate, instincts = false } = {}) {
+export function routeLine({ observation: o = null, known = null, memory = null, foodHandedBack = false, kitHandedBack = new Set(), evaluate, instincts = false } = {}) {
 	if (!live(o) || !Array.isArray(o.inventory?.items) || remembered(o, 'inventory') || known === null || typeof evaluate !== 'function') return null;
 	const items = o.inventory.items.filter(i => i?.count > 0);
 	const count = re => items.filter(i => re.test(i.itemId ?? '')).reduce((n, i) => n + i.count, 0);
@@ -361,10 +362,14 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 	const visitedNether = ok('visited:minecraft:the_nether') || [...(known.advancements ?? []), ...(o.advancements ?? [])]
 		.some(id => /^(minecraft:)?story\/enter_the_nether$/.test(id));
 	if (visitedNether) {
-		if (portalOpen) return line('enter the End portal', 'portal open');
+		// End readiness (end-readiness.mjs): a note behind the head, never the head; fixes only from what is in reach.
+		const kit = endKit(o, { handedBack: kitHandedBack });
+		const first = kit?.fixes.length ? `; in reach first: ${kit.fixes.join(', ')}` : '';
+		const lacks = kit?.missing.length ? `; End kit lacks ${kit.missing.join(', ')}` : '';
+		if (portalOpen) return line(`enter the End portal${first}`, `portal open${lacks}`);
 		// At the frames with eyes in hand, set them first: an observation lists at most 8 blocks of a kind, so the filled
 		// count seen here is a lower bound and must not send the agent back to the Nether while it still holds eyes.
-		if (eyesHeld > 0 && frames.some(b => b?.blockId === 'minecraft:end_portal_frame')) return line('set the ender_eyes in the empty End portal frames', eyeFacts);
+		if (eyesHeld > 0 && frames.some(b => b?.blockId === 'minecraft:end_portal_frame')) return line(`set the ender_eyes in the empty End portal frames${first}`, `${eyeFacts}${lacks}`);
 		const portal = overworldPortal(o, memory);
 		if ((rodsMissing > 0 || pearlsMissing > 0) && portal) {
 			const survival = foodAdviceNeeded(o) ? `low health/hunger, food ${food} held: recover first; ` : 'food stocking optional while healthy; ';
@@ -377,9 +382,9 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 		if (frames.some(b => /^minecraft:(?:(?:mossy_|cracked_)?stone_bricks|iron_bars)$/.test(b?.blockId ?? '')))
 			return line('find block end_portal_frame walks observed passages to the portal room; resume after handling danger or a blocked doorway', eyeFacts);
 		if (rodsMissing > 0 || pearlsMissing > 0) return line(`go back to the Nether for ${[rodsMissing ? `${rodsMissing} blaze_rods` : null, pearlsMissing ? `${pearlsMissing} ender_pearls` : null].filter(Boolean).join(' and ')}`, eyeFacts);
-		if (eyesNeeded > 0) return line(`craft ${eyesNeeded} ender_eyes from pearls and blaze powder`, eyeFacts);
-		if (filled > 0 || frames.some(b => b?.blockId === 'minecraft:end_portal_frame')) return line(`set the ender_eyes in the empty End portal frames`, eyeFacts);
-		return line('find structure stronghold follows thrown eyes and digs down; then find block end_portal_frame walks passages; resume after danger', eyeFacts);
+		if (eyesNeeded > 0) return line(`craft ${eyesNeeded} ender_eyes from pearls and blaze powder${first}`, `${eyeFacts}${lacks}`);
+		if (filled > 0 || frames.some(b => b?.blockId === 'minecraft:end_portal_frame')) return line(`set the ender_eyes in the empty End portal frames${first}`, `${eyeFacts}${lacks}`);
+		return line(`find structure stronghold follows thrown eyes and digs down; then find block end_portal_frame walks passages; resume after danger${first}`, eyeFacts);
 	}
 	// Round1 games6/8 lit portals, then spent the rest of the game on optional surface preparation; the portal bed is the
 	// one step allowed there, and only from what is in reach.

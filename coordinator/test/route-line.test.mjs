@@ -268,7 +268,8 @@ test('canonical or bare entry advancement recovers a lost visit flag without inv
 
 test('End portal and capped frames with a held eye take priority even with no kit and a remembered Nether portal', () => {
 	const open = { ...sample([], { health: 8 }), blocks: [{ blockId: 'minecraft:end_portal', x: 1, y: 30, z: 1 }] };
-	assert.equal(recoveryRoute(open), 'usual next step: enter the End portal (portal open)');
+	// The End kit note (end-readiness.mjs) rides behind the head; the head stays the portal.
+	assert.match(recoveryRoute(open), /^usual next step: enter the End portal \(portal open; End kit lacks /);
 	const capped = withFrames([['ender_eye', 1]], 8, 8);
 	assert.match(recoveryRoute(capped), /set the ender_eyes in the empty End portal frames/);
 	assert.doesNotMatch(recoveryRoute(capped), /Nether|rebuild/);
