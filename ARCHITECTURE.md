@@ -127,6 +127,8 @@ flowchart TD
 - `server/runtime/reflex/ReflexEngine.java` runs the rules. A firing takes the body through a reflex input lease; the paused action keeps its place and resumes afterwards.
 - `server/runtime/reflex/ReflexScheduler.java` decides which rule fires for each agent: one at a time, by priority, with a time limit and a cooldown. A rule that fires over and over without progress is switched off. The lava, fire, falling and suffocation defaults form a hazard floor that stays armed.
 - `ReflexSpec.java` checks the rule format, `ReflexSensors.java` reads the world, `ReflexActions.java` moves the body, and `CommandFollower.java` decides when a reflex yields to a fresh model command.
+- `default-owed-drops` goes back for kill drops a fight left behind, once the body has been idle 7 s with no hostile near. Fights make room for loot by throwing junk stacks.
+- **Flag-gated: `MINEAGEN_INSTINCTS`** (off by default). When it lists `instincts` (or with `-Dmineagen.instincts=true`), `Instincts.java` turns on the instincts arm in the mod: the retreat stands aside from a chaser it cannot outrun, the eat default does not top up on harmful food, and `travel_to` fights a lone beatable mob instead of stopping. A stance change that only moves a default's numbers keeps its running firing. With the flag unset the mod behaves as before.
 
 ### Danger log
 
@@ -191,6 +193,8 @@ Calling the model is slow and costs usage, so most observations do not wake it.
 4. Otherwise `agent-planner.mjs` asks `planning-scheduler.mjs` for a slot and starts a new turn. `native-wake-events.mjs` makes sure owed events, such as a failure, survive merges.
 5. `work-lease-supervisor.mjs` times each provider call and action, giving a long action at least its own timeout.
 
+While obtain recovers at low health, the low-health wakes are folded, so a steer the recovery has made stale does not reach the model.
+
 The wake input, built in `dynamic-main.mjs`, holds the event, the goal, a `now` header, the danger line, recent results, memory and the observation. **Flag-gated: `ARENA_LEAN_INPUT`** trims the wake input to the facts the model decides on (`lean-input.mjs`). It is off in the coordinator by default, but the mod's launcher sets it to `1`, so it is on in normal play.
 
 ### Model providers
@@ -209,7 +213,7 @@ Long Codex sessions rotate to a fresh session, and `context-carry-over.mjs` carr
 - `native-minecraft-tools.mjs` defines the tool list (`MINECRAFT_DYNAMIC_TOOLS`), such as `do_step`, `observe`, `inspect`, `replaceAction`, `runProgram`, `notebook` and `taskMemory`, and the verbs `do_step` accepts (`STEP_VERBS`), such as `obtain`, `find`, `travel_to`, `fight_until` and `cast_obsidian`.
 - `native-tool-runtime.mjs` runs every tool call and sends the resulting body work to the mod.
 - `tool-descriptions.json` holds the reviewed text of each tool's description, and the coordinator refuses to define a tool without one. `tool-schema-contract.mjs` checks arguments against the advertised schema. `npm run test:contracts` in `coordinator/` tests these contracts.
-- Compound helpers issue several body actions for one call. `obtain-runner.mjs` and `obtain-plan.mjs` get an item through its whole gather, craft and smelt chain using `coordinator/config/howto-index.json`. `find-search.mjs` searches for a block, biome or structure like a player would, and hands off to `find-eyes.mjs` and `find-portal-room.mjs` for the stronghold.
+- Compound helpers issue several body actions for one call. `obtain-runner.mjs` and `obtain-plan.mjs` get an item through its whole gather, craft and smelt chain using `coordinator/config/howto-index.json`. At low health, obtain recovers by itself (eats carried food or waits for natural regeneration, by the rule in `fork-rule.mjs`) and hands back `LOW_HEALTH` only at a real fork, with the reason. `find-search.mjs` searches for a block, biome or structure like a player would, and hands off to `find-eyes.mjs` and `find-portal-room.mjs` for the stronghold.
 - `arena-script/` is ArenaScript, a small JavaScript-like language the model can write to keep the body busy between calls. It is parsed with `acorn` and run by its own interpreter, never as real JavaScript. Programs start with `runProgram` and run in `program-runtime-manager.mjs`.
 - `standing-orders.mjs` holds short-lived rules the model sets up ("when X happens, do Y").
 
@@ -220,11 +224,15 @@ Long Codex sessions rotate to a fresh session, and `context-carry-over.mjs` carr
 - `routeLine` names the usual next step toward beating the game, for example "iron pickaxe" or "find a fortress". It appears in the wake input as `now.route`, and only when the goal is to beat the game. It is a suggestion; it issues no action.
 - `skillFitsLine` names the one long skill whose preconditions hold right now. It appears as `skillFits`.
 
+**Flag-gated: `MINEAGEN_INSTINCTS`.** With the instincts arm on, `routeLine` also asks for a stone sword after the stone pickaxe, moves food from the main inventory into the hotbar when eating is due, and names a food source in every dimension.
+
 ### Reflex book and default reflexes
 
 `reflexes.mjs` holds the `ReflexBook`: one rule set per agent, made of the model's own rules plus the defaults. The model sets rules through a `reflexes` field on its tool calls and can turn a default off by name. The runtime sends the whole set to the mod as one `reflex_update` and resends it if the mod has not confirmed it. What fired comes back in the wake input as `now.reflexes`.
 
-The 14 default reflexes in `DEFAULT_REFLEXES`: `default-lava`, `default-lava-flow`, `default-fire`, `default-air`, `default-edge`, `default-creeper`, `default-suffocate`, `default-fireball`, `default-arrow`, `default-retreat`, `default-eat`, `default-defend`, `default-blaze-cover`, `default-cover`.
+The 15 default reflexes in `DEFAULT_REFLEXES`: `default-lava`, `default-lava-flow`, `default-fire`, `default-air`, `default-edge`, `default-creeper`, `default-suffocate`, `default-fireball`, `default-arrow`, `default-retreat`, `default-eat`, `default-defend`, `default-blaze-cover`, `default-cover`, `default-owed-drops`. The model's 12 rules plus these fit the mod's cap of 27 (`MAX_REFLEX_RULES`, `ReflexSpec.MAX_RULES`).
+
+**Flag-gated: `MINEAGEN_INSTINCTS`** (read from the coordinator's environment; the mod starts the coordinator with its own, so one variable sets both). With it on, the book sets an automatic stance (`fight`, `cautious` or `steady`) from the running verb, health and dimension, and rewrites the health lines of the retreat and cover defaults the model has not replaced; the eat default fires below hunger 18. The wake input shows `stance <value> (auto)`. No stance key goes on the wire: it travels as the numbers in the default rules.
 
 ### Memory and notebook
 
@@ -237,10 +245,11 @@ Memory is kept per agent under the coordinator's workspace. It lets the model pi
 | Observed memory | `observed-memory-store.mjs` | Where things were seen, in 8-block cells |
 | Facts | `fact-ledger.mjs` | Revisioned facts about each agent |
 | Chat | `conversation-memory.mjs` | Chat history, and which messages wake the agent |
+| Experience | `experience-runtime.mjs`, `experience-lessons.mjs`, `experience-store.mjs` | **Flag-gated: `MINEAGEN_EXPERIENCE=lessons`**, off by default. Lessons from death and failure reviews, as rule ids with fixed-vocabulary slots, kept per player profile outside the checkout and carried into later games on other seeds |
 
 ### Live task view
 
-`live-task-view.mjs` keeps a factual view of each agent's plan: the goal, the plan steps, what is verified, and the latest decision. It never chooses actions. It builds the `now` header for the wake input (with `continuity-header.mjs`), sends the view to the mod as `task_view`, and saves it to disk. The mod passes it on through `server/LiveTaskViewSync.java` to the client's live windows.
+`live-task-view.mjs` keeps a factual view of each agent's plan: the goal, the plan steps, what is verified, and the latest decision. It never chooses actions. It passes the `MINEAGEN_INSTINCTS` arm to `routeLine`. It builds the `now` header for the wake input (with `continuity-header.mjs`), sends the view to the mod as `task_view`, and saves it to disk. The mod passes it on through `server/LiveTaskViewSync.java` to the client's live windows.
 
 ### Other coordinator parts
 
