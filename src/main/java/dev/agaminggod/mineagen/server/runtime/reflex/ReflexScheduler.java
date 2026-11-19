@@ -363,7 +363,9 @@ public final class ReflexScheduler {
 			Outcome outcome = null;
 			String reason = detail == null ? "" : detail;
 			String held = heldBack.get(current.ruleId());
-			if (current.ruleId().equals(deferredYield) && (!state.lastTruth || settledHold) && status == ActionStatus.RUNNING) {
+			// A breath floor keeps a waiting command until its run ends, not the first tick out: released 1 block clear, the
+			// command sprinted straight back into the cloud before the reflex could turn the body (live breath room).
+			if (current.ruleId().equals(deferredYield) && (!state.lastTruth && !state.releasesCornered || settledHold) && status == ActionStatus.RUNNING) {
 				outcome = Outcome.YIELDED;
 				reason = "model command";
 				if (state.rule.kind() == ReflexSpec.Kind.STANCE) state.suppressed = true;
@@ -393,9 +395,16 @@ public final class ReflexScheduler {
 				current = null;
 				// A floor firing that ran out, failed or was preempted in its hazard fires again: the command still waits for its yield.
 				boolean refires = state.lastTruth && (outcome == Outcome.TIMEOUT || outcome == Outcome.FAILED || outcome == Outcome.PREEMPTED);
-				if (ended.ruleId().equals(deferredYield) && !refires) deferredYield = null;
+				boolean kept = ended.ruleId().equals(deferredYield);
+				if (kept && !refires) deferredYield = null;
 				recordEnd(state, outcome, now, reason);
-				if (ended.ruleId().equals(deferredYield) && state.cornered()) {
+				if (kept && state.releasesCornered && !state.lastTruth && outcome != Outcome.YIELDED) {
+					// The breath run ended out of the cloud: the command it kept waiting takes the body now.
+					deferredYield = null;
+					deferredYielded = true;
+					state.yieldedTrigger = true;
+					yieldStancesTo(state);
+				} else if (kept && state.cornered()) {
 					// Cornered with a command waiting: the command takes the body; the floor waits until the body is out.
 					deferredYield = null;
 					deferredYielded = true;
@@ -543,6 +552,9 @@ public final class ReflexScheduler {
 		long duration = Math.max(0L, now - started);
 		boolean stance = state.rule.kind() == ReflexSpec.Kind.STANCE;
 		state.cooldownUntil = stance && outcome == Outcome.TIMEOUT && state.lastTruth ? now : now + Math.max(1L, state.rule.cooldownMs() / 50L);
+		// A breath floor that ends still in reach of the cloud runs again next tick: in its cooldown the paused command
+		// resumed and walked back into the cloud (live breath room, a run timed out at a small island's rim).
+		if (state.releasesCornered && state.lastTruth && outcome != Outcome.YIELDED) state.cooldownUntil = now + 1L;
 		boolean harmedHold = stance && outcome == Outcome.TIMEOUT && harmed;
 		boolean failure = outcome == Outcome.FAILED || outcome == Outcome.TIMEOUT && !stance || harmedHold;
 		boolean progress = !failure && (outcome == Outcome.DONE || outcome == Outcome.TIMEOUT && stance);

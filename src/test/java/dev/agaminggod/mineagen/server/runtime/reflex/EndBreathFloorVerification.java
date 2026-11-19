@@ -55,8 +55,27 @@ public final class EndBreathFloorVerification {
 			check(scheduler.yield(tick).ended() == null && scheduler.current() != null, "breath keeps the body through a command while in the cloud");
 			check(!step(scheduler, tick, true, RUNNING).changed(), "the run keeps going");
 		}
-		ReflexScheduler.Decision out = step(scheduler, 10L, false, RUNNING);
-		check(out.endOutcome() == ReflexScheduler.Outcome.YIELDED && scheduler.deferredYielded(), "out of the cloud, the waiting command takes the body");
+		// Out of the cloud but still running: the command keeps waiting (released at once, it sprinted back in).
+		for (long tick = 10L; tick < 20L; tick++) check(!step(scheduler, tick, false, RUNNING).changed() && !scheduler.deferredYielded(), "out but still running: the command still waits");
+		ReflexScheduler.Decision out = step(scheduler, 20L, false, ReflexScheduler.ActionStatus.DONE, "ran 10.0 blocks");
+		check(out.endOutcome() == ReflexScheduler.Outcome.DONE && scheduler.deferredYielded(), "the run done out of the cloud, the waiting command takes the body");
+		for (long tick = 21L; tick < 40L; tick++) check(step(scheduler, tick, false, RUNNING).started() == null, "and keeps it while out");
+
+		// Timed out at a rim, out of the cloud: the command gets the body too.
+		ReflexScheduler rim = new ReflexScheduler();
+		rim.replace(List.of(named(end, BREATH)), 0L);
+		step(rim, 1L, true, RUNNING);
+		rim.yield(2L);
+		long max = rim.current().maxTicks();
+		step(rim, 3L, false, RUNNING);
+		check(step(rim, 1L + max, false, RUNNING).endOutcome() == ReflexScheduler.Outcome.TIMEOUT && rim.deferredYielded(), "a run timed out out of the cloud hands the command the body");
+		// Done but still in the cloud: no hand-over, it fires again.
+		ReflexScheduler inside = new ReflexScheduler();
+		inside.replace(List.of(named(end, BREATH)), 0L);
+		step(inside, 1L, true, RUNNING);
+		inside.yield(2L);
+		step(inside, 3L, true, ReflexScheduler.ActionStatus.DONE, "ran 10.0 blocks");
+		check(!inside.deferredYielded(), "done but still in the cloud: the command still waits");
 	}
 
 	/** The 928b1 shape: a cloud trigger fired once for 0.4 s and never again while the body stood in the breath. */
@@ -66,8 +85,11 @@ public final class EndBreathFloorVerification {
 		long cooldown = Math.max(1L, named(end, BREATH).cooldownMs() / 50L);
 		step(scheduler, 1L, true, RUNNING);
 		step(scheduler, 9L, true, ReflexScheduler.ActionStatus.DONE, "ran 10.0 blocks");
-		long tick = 9L + cooldown + 1L;
-		check(BREATH.equals(step(scheduler, tick, true, RUNNING).started()), "still in the cloud after a finished run: it fires again, no new edge needed");
+		check(BREATH.equals(step(scheduler, 10L, true, RUNNING).started()), "still near the cloud after a finished run: it fires again the next tick, no new edge or cooldown");
+		long max = scheduler.current().maxTicks();
+		check(step(scheduler, 10L + max, true, RUNNING).endOutcome() == ReflexScheduler.Outcome.TIMEOUT, "a run that times out near the cloud");
+		check(BREATH.equals(step(scheduler, 11L + max, true, RUNNING).started()), "fires again the next tick: no cooldown gap for a paused command to walk back in");
+		check(cooldown >= 1L, "the rule's own cooldown is not what decides it");
 	}
 
 	/** No heading out (a pillar in the void): after four failures in a row the waiting command gets the body. */

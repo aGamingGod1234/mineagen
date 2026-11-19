@@ -6,7 +6,7 @@
 		"when": [
 			{
 				"type": "cloud_near",
-				"within": 1
+				"within": 2
 			}
 		],
 		"do": {

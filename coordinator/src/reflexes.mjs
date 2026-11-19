@@ -37,14 +37,14 @@ export const DEFAULT_REFLEXES = Object.freeze([
 /**
  * Defaults armed only in one dimension: on entering it (as at spawn or respawn) and removed on leaving. The End (late-game
  * wall, order 12): breath killed 5 of 6 staged End deaths, 3 with no rule at all. default-breath is a hazard floor in the
- * mod (ReflexScheduler.FLOOR_HAZARDS has cloud_near): it fires while the breath is within a block, a model command waits
- * under it until the body is out, and the loop limits never switch it off. Its run (sprint_away) refuses headings into a
+ * mod (ReflexScheduler.FLOOR_HAZARDS has cloud_near): it fires while the breath is within 2 blocks (a sprinting body
+ * overshoots 1), a model command waits under it until the run ends out of the cloud, and the loop limits never switch it off. Its run (sprint_away) refuses headings into a
  * cloud or toward the void and ends stepped back off a brink. default-end-throw steps inland when the dragon swoops at a
  * body standing near a deep drop, the throw that ends in the void.
  */
 export const DIMENSION_REFLEXES = Object.freeze({
 	'minecraft:the_end': Object.freeze([
-		{ id: 'default-breath', kind: 'trigger', priority: 9, when: [{ type: 'cloud_near', within: 1 }], do: { type: 'sprint_away', blocks: 10 }, maxMs: 6_000, ttlMs: 3_600_000 },
+		{ id: 'default-breath', kind: 'trigger', priority: 9, when: [{ type: 'cloud_near', within: 2 }], do: { type: 'sprint_away', blocks: 10 }, maxMs: 6_000, ttlMs: 3_600_000 },
 		{ id: 'default-end-throw', kind: 'trigger', priority: 8, when: [{ type: 'dragon_charging', within: 48 }, { type: 'edge_near', within: 3, direction: 'any', drop: 16 }], do: { type: 'away_from_edge', blocks: 6 }, maxMs: 6_000, cooldownMs: 3_000, ttlMs: 3_600_000 },
 	].map((rule) => Object.freeze(rule))),
 });
