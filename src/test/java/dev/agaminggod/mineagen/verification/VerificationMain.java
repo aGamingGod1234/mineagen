@@ -171,6 +171,7 @@ public final class VerificationMain {
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.reflex.DefaultEatRearmingVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.reflex.ModelOwnedDefaultRulesVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.reflex.DriverRuleVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.reflex.EndBreathFloorVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.reflex.CoverRuleVerification.verify();
 		passedAssertions += CoordinatorProcessOwnershipVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.WindowsCoordinatorJobDrainVerification.verify();

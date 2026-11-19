@@ -22,9 +22,11 @@ import java.util.Set;
  * stance held for three maxS spans in a row without its condition clearing wakes the model once (it may need to flee
  * instead of holding).</li>
  * <li>Rules expire after ttlMs, when an until condition holds, or after maxFirings.</li>
- * <li>The hazard floor ({@link #floor}): a coordinator default for lava, fire, air or suffocation fires while its condition
- * holds, not only on its edge; a model command does not end its firing while the hazard holds and it has not settled; and
- * at the loop limits it stays armed and wakes the model once per crossing instead of being disabled.</li>
+ * <li>The hazard floor ({@link #floor}): a coordinator default for lava, fire, air, suffocation or dragon breath fires while
+ * its condition holds, not only on its edge; a model command does not end its firing while the hazard holds and it has not
+ * settled; and at the loop limits it stays armed and wakes the model once per crossing instead of being disabled. A breath
+ * floor that failed {@link #MAX_FAILURES_IN_A_ROW} times in a row in the cloud is cornered: the model's command then takes
+ * the body (a pearl, a potion, a way the run could not see), and the floor fires again once the body is out.</li>
  * </ul>
  */
 public final class ReflexScheduler {
@@ -37,7 +39,9 @@ public final class ReflexScheduler {
 	/** Consecutive maxS spans a stance may hold, its condition never clearing, before the model is told. */
 	public static final int HELD_SPANS_BEFORE_WAKE = 3;
 	/** Conditions whose coordinator default is the hazard floor: the body must leave them whatever it was told. */
-	public static final Set<String> FLOOR_HAZARDS = Set.of("in_lava", "in_fire", "air_below", "suffocating");
+	public static final Set<String> FLOOR_HAZARDS = Set.of("in_lava", "in_fire", "air_below", "suffocating", "cloud_near");
+	/** Floor hazards whose firing gives way to a model command once it is cornered (see {@link State#cornered}). */
+	public static final Set<String> CORNERED_RELEASE = Set.of("cloud_near");
 
 	/**
 	 * A hazard-floor rule: a coordinator default with a non-negated lava, fire, air or suffocation condition. A model-written
@@ -110,11 +114,21 @@ public final class ReflexScheduler {
 		/** Tick of the condition's latest rising edge (triggers). */
 		long edgeTick = Long.MIN_VALUE;
 		final Deque<Long> recentFirings = new ArrayDeque<>();
+		/** A floor rule that gives way to a model command once cornered ({@link #CORNERED_RELEASE}). */
+		final boolean releasesCornered;
 
 		State(ReflexSpec.Rule rule, long installedTick) {
 			this.rule = rule;
 			this.installedTick = installedTick;
 			this.floor = ReflexScheduler.floor(rule);
+			boolean release = false;
+			if (floor) for (ReflexSpec.Condition condition : rule.when()) if (!condition.negated() && CORNERED_RELEASE.contains(condition.type())) release = true;
+			this.releasesCornered = release;
+		}
+
+		/** Out of options in its hazard: failed this many times in a row, so the model's command may try instead. */
+		boolean cornered() {
+			return releasesCornered && failuresInARow >= MAX_FAILURES_IN_A_ROW;
 		}
 
 		/**
@@ -381,6 +395,13 @@ public final class ReflexScheduler {
 				boolean refires = state.lastTruth && (outcome == Outcome.TIMEOUT || outcome == Outcome.FAILED || outcome == Outcome.PREEMPTED);
 				if (ended.ruleId().equals(deferredYield) && !refires) deferredYield = null;
 				recordEnd(state, outcome, now, reason);
+				if (ended.ruleId().equals(deferredYield) && state.cornered()) {
+					// Cornered with a command waiting: the command takes the body; the floor waits until the body is out.
+					deferredYield = null;
+					deferredYielded = true;
+					state.yieldedTrigger = true;
+					yieldStancesTo(state);
+				}
 				rearmSwallowedEdges(ended, now);
 			}
 		}
@@ -428,10 +449,12 @@ public final class ReflexScheduler {
 	 */
 	public Decision yield(long now) {
 		suppressIdleShields();
+		// A cornered breath floor between its refirings yields too, or it would take the body back from the command next tick.
+		for (State state : states.values()) if (state.cornered() && state.lastTruth) state.yieldedTrigger = true;
 		if (current == null) return Decision.NONE;
 		Firing ended = current;
 		State state = states.get(ended.ruleId());
-		if (state.floor && state.lastTruth && !settledHold) {
+		if (state.floor && state.lastTruth && !settledHold && !state.cornered()) {
 			deferredYield = current.ruleId();
 			return Decision.NONE;
 		}
