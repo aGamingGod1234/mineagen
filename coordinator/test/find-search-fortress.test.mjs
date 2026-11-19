@@ -60,7 +60,7 @@ for (const [name, change, sought] of [
 	['Nether without observed masonry', (s) => { s.blocks = []; }, target],
 	['remembered masonry', (s) => { s.continuity = { rememberedSections: ['blocks'] }; }, target],
 	['other Nether block', () => {}, { block: 'minecraft:glowstone' }],
-	['fortress structure search', () => {}, { structure: 'fortress' }],
+	['bastion structure search', () => {}, { structure: 'bastion' }],
 	['blaze mob search', () => {}, { mob: 'minecraft:blaze' }],
 ]) test(`${name} keeps its first nonbuilding search leg`, async () => {
 	const observation = sample(); change(observation);

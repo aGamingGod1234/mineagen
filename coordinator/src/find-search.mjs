@@ -8,6 +8,7 @@ import { howtoIndex } from './howto.mjs';
 import { eyeTarget, eyesHeld, followEyes } from './find-eyes.mjs';
 import { portalTarget, strongholdNearby, findPortalRoom } from './find-portal-room.mjs';
 import { ENGAGE_CLOSE, SEARCH_LOW_HEALTH, creeperNear, searchDanger, threatRows } from './search-danger.mjs';
+import { fortressSearch, searchNetherFortress } from './find-fortress.mjs';
 
 export const FIND_KINDS = Object.freeze(['block', 'biome', 'mob', 'structure']);
 export const DEFAULT_FIND_WITHIN = 512;
@@ -1050,6 +1051,11 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 		if (there.interrupted || there.seen || there.ended) return settle(there);
 		// There and looked round, and not in sight: mined, or never there.
 		if (code === 'ARRIVED') miss(place, 'not seen there');
+	}
+
+	// A Nether fortress: legs toward the unseen start ground of the structure grid's regions (find-fortress.mjs).
+	if (fortressSearch(profile, observation)) {
+		return searchNetherFortress({ body, observation: () => observation, leg, settle, look, handBack, left, minLegMs: MIN_LEG_MS });
 	}
 
 	{
