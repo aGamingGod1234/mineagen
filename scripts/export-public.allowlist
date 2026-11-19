@@ -1033,6 +1033,7 @@ scripts/quality/test-defend-live.mjs
 scripts/quality/test-dig-live.mjs
 scripts/quality/test-dig-options-live.mjs
 scripts/quality/test-dragon-live.mjs
+scripts/quality/test-drawn-bow-live.mjs
 scripts/quality/test-end-survive-live.mjs
 scripts/quality/test-end-void-live.mjs
 scripts/quality/test-enderman-live.mjs
@@ -2073,6 +2074,7 @@ src/test/java/dev/agaminggod/mineagen/server/runtime/input/UseTickPhaseVerificat
 src/test/java/dev/agaminggod/mineagen/server/runtime/input/VanillaMoveInputVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/menu/MenuCapabilityRegistryVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/reflex/DefaultEatRearmingVerification.java
+src/test/java/dev/agaminggod/mineagen/server/runtime/reflex/DrawnBowShieldVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/reflex/LeaveFireDouseRecoveryVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/reflex/ModelOwnedDefaultRulesVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/reflex/ReflexBodyVerification.java

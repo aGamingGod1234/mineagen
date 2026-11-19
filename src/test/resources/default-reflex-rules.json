@@ -135,7 +135,8 @@
 		"when": [
 			{
 				"type": "incoming_projectile",
-				"withinS": 0.6
+				"withinS": 0.6,
+				"drawn": true
 			}
 		],
 		"do": {
