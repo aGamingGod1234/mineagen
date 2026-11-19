@@ -95,7 +95,7 @@ test('observed goal-start state reaches the translator and check-bearing output 
  const translator = new GoalSpecTranslator({ generate: async ({ prompt }) => { assert.match(prompt, /carried:diamond_helmet/); return { requestId: request.requestId, summary: 'Find rods and pearls', predicate: { type: 'entity_killed_by_agent', entityType: 'minecraft:ender_dragon', afterGoalStart: true }, plan }; } });
  assert.deepEqual((await translator.translate(request)).plan, plan);
  assert.deepEqual(validateProtocolV2Payload('goal_spec_request', request), request);
- for (const [type, payload] of [['advancement_granted', { goalRevision: 1, advancementId: 'minecraft:story/enter_the_nether' }], ['entity_killed', { goalRevision: 1, entityType: 'minecraft:blaze' }], ['plan_facts', { goalRevision: 1, advancements: [], verifiedKills: [] }]]) assert.deepEqual(validateProtocolV2Payload(type, payload), payload);
+ for (const [type, payload] of [['advancement_granted', { goalRevision: 1, advancementId: 'minecraft:story/enter_the_nether' }], ['entity_killed', { goalRevision: 1, entityType: 'minecraft:blaze' }], ['entity_killed', { goalRevision: 1, entityType: 'minecraft:blaze', at: { x: 3, y: 70, z: -9 } }], ['plan_facts', { goalRevision: 1, advancements: [], verifiedKills: [] }]]) assert.deepEqual(validateProtocolV2Payload(type, payload), payload);
 });
 
  test('facts collected before a plan are saved and receipts merge across first world load', async t => {

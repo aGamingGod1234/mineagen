@@ -1087,6 +1087,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		source.breakOutcomeFacts = announcedCapability(envelope.payload(), "breakOutcomeFacts");
 		source.dropAheadFacts = announcedCapability(envelope.payload(), "dropAheadFacts");
 		source.pausedByFacts = announcedCapability(envelope.payload(), "pausedByFacts");
+		source.killFacts = announcedCapability(envelope.payload(), "killFacts");
 		source.actionIssuer = announcedCapability(envelope.payload(), "actionIssuer");
 
 		while (true) {
@@ -2692,6 +2693,27 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		payload.addProperty("goalRevision", manager.registry().require(id).goalRevision());
 		payload.addProperty(field, identifier);
 		publishPlanFacts(id, type, payload);
+	}
+
+	/** entity_killed, with {@code at} only for a coordinator that announced killFacts (an older one rejects the key). */
+	public void publishKill(AgentId id, String entityType, net.minecraft.core.BlockPos at) {
+		Session active = session;
+		publishPlanFacts(id, "entity_killed", killPayload(manager.registry().require(id).goalRevision(), entityType, at,
+				active != null && active.killFacts));
+	}
+
+	public static JsonObject killPayload(long goalRevision, String entityType, net.minecraft.core.BlockPos at, boolean killFacts) {
+		JsonObject payload = new JsonObject();
+		payload.addProperty("goalRevision", goalRevision);
+		payload.addProperty("entityType", entityType);
+		if (killFacts && at != null) {
+			JsonObject position = new JsonObject();
+			position.addProperty("x", at.getX());
+			position.addProperty("y", at.getY());
+			position.addProperty("z", at.getZ());
+			payload.add("at", position);
+		}
+		return payload;
 	}
 
 	private void publishPlanFacts(AgentId id, String type, JsonObject payload) {
@@ -4401,6 +4423,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		private volatile boolean placementFacts;
 		private volatile boolean dropAheadFacts;
 		private volatile boolean pausedByFacts;
+		private volatile boolean killFacts;
 		private volatile boolean actionIssuer;
 		private volatile String clientNonce;
 		private volatile String serverNonce;

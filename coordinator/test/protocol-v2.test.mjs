@@ -3440,3 +3440,28 @@ test('the actionIssuer echo survives a fragmented registry snapshot', async (t) 
 	await bridge.send('action_command', 'agent-a', { ...actionCommand('issuer-fragmented'), provenance: { ...PROVENANCE, issuer: 'guard' } });
 	assert.equal(JSON.parse(socket.writes.at(-1)).payload.provenance.issuer, 'guard');
 });
+
+test('entity_killed carries an optional strict at behind the killFacts hello capability (issue #2, 1b)', async (t) => {
+	const hello = { replyTo: 'auth', clientNonce: 'a'.repeat(43), serverNonce: 'b'.repeat(43), proof: 'c'.repeat(43) };
+	assert.equal(validateProtocolV2Payload('hello', { ...hello, killFacts: true }).killFacts, true);
+	assert.equal(validateProtocolV2Payload('hello', hello).killFacts, undefined, 'an older coordinator announces nothing');
+	assert.throws(() => validateProtocolV2Payload('hello', { ...hello, killFacts: 'yes' }), ProtocolV2Error);
+	const kill = { goalRevision: 2, entityType: 'minecraft:zombie' };
+	assert.deepEqual(validateProtocolV2Payload('entity_killed', kill), kill, 'no at gives unchanged output');
+	const at = { x: -12, y: 64, z: 30_000_000 };
+	assert.deepEqual(validateProtocolV2Payload('entity_killed', { ...kill, at }), { ...kill, at });
+	assert.throws(() => validateProtocolV2Payload('entity_killed', { ...kill, at: { ...at, w: 1 } }), { code: 'INVALID_PAYLOAD_FIELD' });
+	assert.throws(() => validateProtocolV2Payload('entity_killed', { ...kill, at: { x: 1, y: 2 } }), { code: 'MISSING_FIELD' });
+	for (const bad of [{ ...at, x: 1.5 }, { ...at, z: 30_000_001 }, { ...at, y: '64' }, [1, 2, 3], 7, null]) {
+		assert.throws(() => validateProtocolV2Payload('entity_killed', { ...kill, at: bad }), { code: 'INVALID_PAYLOAD' }, JSON.stringify(bad));
+	}
+	assert.throws(() => validateProtocolV2Payload('entity_killed', { ...kill, extra: 1 }), { code: 'INVALID_PAYLOAD_FIELD' });
+	assert.equal(validateProtocolV2Payload('advancement_granted', { goalRevision: 1, advancementId: 'minecraft:story/root' }).advancementId, 'minecraft:story/root');
+	assert.throws(() => validateProtocolV2Payload('advancement_granted', { goalRevision: 1, advancementId: 'minecraft:story/root', at }), { code: 'INVALID_PAYLOAD_FIELD' }, 'advancements take no at');
+	const socket = new FakeSocket();
+	const bridge = new MultiplexedServerBridge({ port: 25570, secret: SECRET }, { socketFactory: () => socket, schedule: () => 1, cancelSchedule: () => {}, currentRevision: () => 4 });
+	t.after(() => bridge.stop());
+	bridge.start();
+	socket.emit('connect');
+	assert.equal(JSON.parse(socket.writes[0]).payload.killFacts, true, 'our hello announces killFacts');
+});

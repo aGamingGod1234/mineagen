@@ -105,6 +105,7 @@ import * as strategyReference from './minecraft-strategy-reference.mjs';
 import { provenance } from './fact-provenance.mjs';
 import { BodyPace } from './body-pace.mjs';
 import { dangerGlance } from './danger-glance.mjs';
+import { killTraceFields } from './kill-trace.mjs';
 
 const SOURCE_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 const COORDINATOR_DIRECTORY = path.resolve(SOURCE_DIRECTORY, '..');
@@ -1064,6 +1065,8 @@ export class DynamicCoordinator extends EventEmitter {
 		for (const type of ['plan_facts', 'advancement_granted', 'entity_killed']) this.#listen(type, (message, connectionEpoch) => this.#enqueueAgent(message.agentId, async () => {
 			const record = this.#registry.assertCurrentRevision(message.agentId, message.payload.goalRevision);
 			await this.#taskViews.receipt(record, message.payload);
+			// 1b: every kill is traced; position (not at, which the trace keeps as its timestamp) only for a kill the body saw.
+			if (type === 'entity_killed') this.#writeTrace('entity_killed', killTraceFields(record, message.payload));
 		}, { connectionEpoch }));
 		this.#listen('observation', (message, connectionEpoch) => {
 			const receiptMonotonicMs = safeClockRead(this.#controlNow);

@@ -182,6 +182,9 @@ public final class Watcher {
 			if (entity instanceof ServerPlayer player) {
 				Watcher watcher = existing(player.level().getServer());
 				if (watcher != null) watcher.died(player, source);
+			} else if (entity.level() instanceof net.minecraft.server.level.ServerLevel level) {
+				Watcher watcher = existing(level.getServer());
+				if (watcher != null) watcher.killed(entity, source);
 			}
 		});
 		ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
@@ -741,6 +744,26 @@ public final class Watcher {
 		ServerActionRequest active = BridgeTap.executor(server) == null ? null : BridgeTap.executor(server).activeRequest(agentId);
 		if (harmed != null && harmed.firstHarmEpochMs == epochMs) harmedUnder(harmed, active);
 		for (Episode episode : watch.tracker.takeOpened()) opened(watch, episode, player, reflexes, active, epochMs);
+	}
+
+	/**
+	 * A kill row for the agent's danger file (1b): whether the body saw the mob die and the drops at the corpse it could
+	 * and could not see. The loot is already in the world here (vanilla drops it in die() before AFTER_DEATH fires).
+	 */
+	private void killed(net.minecraft.world.entity.LivingEntity entity, DamageSource source) {
+		ServerPlayer player = dev.agaminggod.mineagen.server.runtime.BlockUseAttribution.responsible(source);
+		if (player == null || player.level() != entity.level()) return;
+		String type = net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType()).toString();
+		int[] drops = dev.agaminggod.mineagen.server.perception.KillSighting.drops(player, entity);
+		kill(player, type, dev.agaminggod.mineagen.server.perception.KillSighting.seenAt(player, entity) != null, drops[0], drops[1]);
+	}
+
+	private void kill(ServerPlayer player, String entityType, boolean seen, int dropsSeen, int dropsUnseen) {
+		AgentId agentId = byPlayer.get(player.getUUID());
+		AgentWatch watch = agentId == null ? null : agents.get(agentId);
+		if (watch == null) return;
+		watch.danger.kill(entityType, seen, dropsSeen, dropsUnseen, player.level().getGameTime(), System.currentTimeMillis());
+		writeDanger(watch);
 	}
 
 	private void died(ServerPlayer player, DamageSource source) {

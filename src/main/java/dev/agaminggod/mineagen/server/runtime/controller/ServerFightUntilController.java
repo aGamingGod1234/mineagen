@@ -156,7 +156,8 @@ public final class ServerFightUntilController implements ServerController {
 	 * collect:false (ExamplePlayer, Oct 29): drops wait while a hostile is within {@link KillDropCollector#CLEAR_RANGE} blocks; once
 	 * none is, the body walks out to the seen counted drops (ledges too) and back to where it stood.
 	 */
-	private final boolean collectWhenClear;
+	/** Not final: a roof that falls back to the open-ground fight (K11) collects when clear as that fight does. */
+	private boolean collectWhenClear;
 	private KillDropCollector clearCollector;
 	private ServerNavigationController clearWalk;
 	private Vec3 clearReturn;
@@ -172,7 +173,8 @@ public final class ServerFightUntilController implements ServerController {
 	private long clearCheckedTick = -1L;
 	private String clearBlockerNow;
 	private final float fleeAtHealth;
-	private final Vec3 spot;
+	/** The model's spot; cleared when a roof falls back (K11), since with roof:true it was the shelter site. */
+	private Vec3 spot;
 	private final double radius;
 	private final long timeoutMs;
 	/** Count mode: the model's own fight_target / use_ranged options, kept for every engagement. */
@@ -282,7 +284,10 @@ public final class ServerFightUntilController implements ServerController {
 	/** Which call runs the engine: fight_until, or fight_target / use_ranged in count mode. */
 	private final String via;
 	private LivingEntity firstTarget;
-	private final boolean roof;
+	/** roof:true until the shelter fails with ROOF_NOT_BUILT or its site walks fail (K11); then the open-ground fight, for good. */
+	private boolean roof;
+	/** Why the roof fell back to the open-ground fight, or null. */
+	private String roofFellBack;
 	private final Roofing roofing;
 	private boolean roofed;
 	private int roofBuilds;
@@ -708,8 +713,11 @@ public final class ServerFightUntilController implements ServerController {
 			if (built.state() == State.RUNNING) return TickResult.running(progress(player));
 			building.cancel(player);
 			building = null;
-			if (built.state() != State.SUCCEEDED)
-				return stop(player, TickResult.failed(built.reasonCode().startsWith("SNEAK_") ? built.reasonCode() : "ROOF_NOT_BUILT", "Roof not built: " + built.reasonCode() + ": " + built.message(), progress(player)));
+			if (built.state() != State.SUCCEEDED) {
+				String code = built.reasonCode().startsWith("SNEAK_") ? built.reasonCode() : "ROOF_NOT_BUILT";
+				if (roofFallback(code, true)) return fallBackToOpenGround(player, code + ": " + built.reasonCode() + ": " + built.message(), now);
+				return stop(player, TickResult.failed(code, "Roof not built: " + built.reasonCode() + ": " + built.message(), progress(player)));
+			}
 			roofed = true;
 			roofBuilds++;
 			center = Vec3.atBottomCenterOf(roofCenter);
@@ -726,8 +734,8 @@ public final class ServerFightUntilController implements ServerController {
 		}
 		TickResult walking = walkTo(player, Vec3.atBottomCenterOf(outside()), now);
 		if (walking != null) return walking;
-		if (++lintelTicks > 60)
-			return stop(player, TickResult.failed("ROOF_NOT_BUILT", "Roof not built: the lintel over the doorway at " + lintel.toShortString() + " was not placed", progress(player)));
+		if (++lintelTicks > 60 && roofFallback("ROOF_NOT_BUILT", true))
+			return fallBackToOpenGround(player, "ROOF_NOT_BUILT: the lintel over the doorway at " + lintel.toShortString() + " was not placed", now);
 		Vec3 aim;
 		try { aim = roofing.aim(player, lintel, roofOpening, roofItem); }
 		catch (AgentDomainException refused) { aim = Vec3.atCenterOf(lintel); note("lintel aim " + refused.code()); }
@@ -738,6 +746,35 @@ public final class ServerFightUntilController implements ServerController {
 		} catch (AgentDomainException refused) {
 			if (lintelTicks % 20 == 0) note("lintel refused " + refused.code() + ": " + refused.getMessage());
 		}
+		return TickResult.running(progress(player));
+	}
+
+	/**
+	 * K11: whether a roof stop falls back to the open-ground fight instead of ending the hunt. A failed build or lintel
+	 * (ROOF_NOT_BUILT) and failed walks inside the roof site do; missing blocks (the model can fetch them), a sneak
+	 * failure and the walk back to a model spot still stop.
+	 */
+	static boolean roofFallback(String code, boolean roofSite) {
+		return "ROOF_NOT_BUILT".equals(code) || "SPOT_UNREACHABLE".equals(code) && roofSite;
+	}
+
+	/** Leaves the roof for the rest of the call and goes on as the hunt roof unset runs; the receipt names why. */
+	private TickResult fallBackToOpenGround(ServerPlayer player, String why, long now) {
+		if (building != null) { building.cancel(player); building = null; }
+		if (step != null) { step.cancel(player); step = null; }
+		roof = false;
+		roofed = false;
+		provoking = null;
+		walkFailures = 0;
+		collectWhenClear = !collect && choices.mayMove();
+		roofFellBack = why;
+		// The build or the site walks can take most of a minute with no target looked for; the open-ground hunt gets a
+		// fresh no-target wait instead of ending NO_TARGET_SEEN on its first tick.
+		lastTargetMs = elapsedTime.advance(now);
+		// With roof:true a spot names the shelter site, which just failed: the open-ground hunt roams instead of walking
+		// back into the shelter (its roof hides the body from a stare) or to the cell it could not reach.
+		spot = null;
+		note("roof fell back to the open-ground fight: " + why);
 		return TickResult.running(progress(player));
 	}
 
@@ -763,8 +800,9 @@ public final class ServerFightUntilController implements ServerController {
 		step = null;
 		if (result.state() != State.SUCCEEDED) {
 			note("walk to " + cell(goal) + " " + result.reasonCode());
-			if (++walkFailures >= 3)
-				return stop(player, TickResult.failed("SPOT_UNREACHABLE", "Three walks inside the roof site failed: " + result.reasonCode(), progress(player)));
+			// walkTo runs only at the roof site (outside the doorway, the cell's middle), so this is the roof's own stop.
+			if (++walkFailures >= 3 && roofFallback("SPOT_UNREACHABLE", true))
+				return fallBackToOpenGround(player, "SPOT_UNREACHABLE: three walks inside the roof site failed: " + result.reasonCode(), now);
 		}
 		return TickResult.running(progress(player));
 	}
@@ -1201,7 +1239,8 @@ public final class ServerFightUntilController implements ServerController {
 		melee = new ServerFightController(target, choices.desiredRange(), fleeAtHealth, false, CombatPlanning.TargetPolicy.NAMED, choices.includePlayers(),
 				choices.meleePursue(roofed), choices.sneak(), shield, Math.min(segment, left), now)
 				.engineTargets()
-				.collectDrops(collect && !roofed ? protection::mayTakeEntity : null);
+				.collectDrops(collect && !roofed ? protection::mayTakeEntity : null)
+				.makingRoom(protection::mayDropItem);
 		meleeEngagements++;
 	}
 
@@ -1678,7 +1717,7 @@ public final class ServerFightUntilController implements ServerController {
 	}
 
 	private KillDropCollector countCollector(List<UUID> drops, long now) {
-		KillDropCollector pickup = new KillDropCollector(drops, protection::mayTakeEntity, now).crouched(choices.sneak());
+		KillDropCollector pickup = new KillDropCollector(drops, protection::mayTakeEntity, now).crouched(choices.sneak()).makingRoom(protection::mayDropItem);
 		return choices.mayMove() && !choices.sneak() ? pickup.buildingRoutes(this::mayModify, fleeAtHealth) : pickup;
 	}
 
@@ -1998,7 +2037,8 @@ public final class ServerFightUntilController implements ServerController {
 		walk = null;
 		if (result.state() == State.SUCCEEDED) { walkFailures = 0; return TickResult.running(progress(player)); }
 		note("walk back to " + cell(spot) + " " + result.reasonCode() + ": " + result.message());
-		if (++walkFailures >= 2)
+		// The walk back to a model spot is not the roof's: it still stops (roofFallback with roofSite false).
+		if (++walkFailures >= 2 && !roofFallback("SPOT_UNREACHABLE", false))
 			return stop(player, TickResult.failed("SPOT_UNREACHABLE", "Two walks back to " + cell(spot) + " failed: " + result.reasonCode(), progress(player)));
 		return TickResult.running(progress(player));
 	}
@@ -2019,7 +2059,9 @@ public final class ServerFightUntilController implements ServerController {
 		cancelParts(player);
 		int held = count(player, untilItem);
 		StringBuilder text = new StringBuilder(result.message());
-		if (roof) text.append(String.format(Locale.ROOT, "; roof: %s", roofed || roofBuilds > 0 ? roofBuilds + " build" + (roofBuilds == 1 ? "" : "s")
+		if (roofFellBack != null) text.append("; roof: ").append(roofBuilds > 0 ? roofBuilds + " build" + (roofBuilds == 1 ? "" : "s") + " at " + roofCenter.toShortString() : "not built")
+				.append(" (").append(roofFellBack.length() > 160 ? roofFellBack.substring(0, 160) + "..." : roofFellBack).append("), fell back to the open-ground fight");
+		else if (roof) text.append(String.format(Locale.ROOT, "; roof: %s", roofed || roofBuilds > 0 ? roofBuilds + " build" + (roofBuilds == 1 ? "" : "s")
 				+ " at " + roofCenter.toShortString() + " doorway " + roofOpening.getSerializedName() + " (" + roofItem + ")" + (lintelPlaced ? "" : ", lintel missing") + (breakOuts > 0 ? ", " + breakOuts + " walk" + (breakOuts == 1 ? "" : "s") + " out to collect" : "") : "not built"));
 		text.append(String.format(Locale.ROOT, "; %s %s: %d kill%s, %s %d -> %d (gained %d, asked %d), %d arrow%s used, %d bow and %d sword engagement%s",
 				via.equals("fight_until") ? "fight_until" : via + " count", mobId, kills, kills == 1 ? "" : "s", untilItemId, Math.max(0, startCount), held, held - Math.max(0, startCount), untilCount,

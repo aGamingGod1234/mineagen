@@ -266,7 +266,7 @@ function normalizeProtocolV2Payload(type, value) {
 				proof: authenticationToken(value.proof, 'proof'),
 			};
 		case 'hello':
-			exactKeys(value, ['replyTo', 'clientNonce', 'serverNonce', 'proof', 'launchId', 'registryFragments', 'actionTiming', 'blockTags', 'planFacts', 'bodyFacts', 'breakExposureFacts', 'breakOutcomeFacts', 'placementFacts', 'dropAheadFacts', 'pausedByFacts', 'actionIssuer'], ['replyTo', 'clientNonce', 'serverNonce', 'proof'], type);
+			exactKeys(value, ['replyTo', 'clientNonce', 'serverNonce', 'proof', 'launchId', 'registryFragments', 'actionTiming', 'blockTags', 'planFacts', 'bodyFacts', 'breakExposureFacts', 'breakOutcomeFacts', 'placementFacts', 'dropAheadFacts', 'pausedByFacts', 'actionIssuer', 'killFacts'], ['replyTo', 'clientNonce', 'serverNonce', 'proof'], type);
 			return {
 				replyTo: boundedText(value.replyTo, 'replyTo', MAX_COMMAND_ID_LENGTH),
 				clientNonce: authenticationToken(value.clientNonce, 'clientNonce'),
@@ -283,6 +283,7 @@ function normalizeProtocolV2Payload(type, value) {
 				...(value.dropAheadFacts === undefined ? {} : { dropAheadFacts: boolean(value.dropAheadFacts, 'dropAheadFacts') }),
 				...(value.pausedByFacts === undefined ? {} : { pausedByFacts: boolean(value.pausedByFacts, 'pausedByFacts') }),
 				...(value.actionIssuer === undefined ? {} : { actionIssuer: boolean(value.actionIssuer, 'actionIssuer') }),
+				...(value.killFacts === undefined ? {} : { killFacts: boolean(value.killFacts, 'killFacts') }),
 				...(value.launchId === undefined ? {} : { launchId: launchIdentity(value.launchId) }),
 			};
 		case 'hello_ack':
@@ -368,13 +369,18 @@ function normalizeProtocolV2Payload(type, value) {
 			});
 			return { goalRevision: nonnegativeInteger(value.goalRevision, 'goalRevision'), advancements: ids('advancements'), verifiedKills: ids('verifiedKills') };
 		}
-		case 'advancement_granted':
+		case 'advancement_granted': {
+			exactKeys(value, ['goalRevision', 'advancementId'], ['goalRevision', 'advancementId'], type);
+			return { goalRevision: nonnegativeInteger(value.goalRevision, 'goalRevision'), advancementId: namespacedId(value.advancementId, 'advancementId') };
+		}
 		case 'entity_killed': {
-			const field = type === 'advancement_granted' ? 'advancementId' : 'entityType';
-			exactKeys(value, ['goalRevision', field], ['goalRevision', field], type);
-			const id = boundedText(value[field], field, 128);
-			if (!/^[a-z0-9_.-]+:[a-z0-9_./-]+$/.test(id)) throw new ProtocolV2Error('INVALID_PAYLOAD', `${field} must be namespaced`);
-			return { goalRevision: nonnegativeInteger(value.goalRevision, 'goalRevision'), [field]: id };
+			// at: the block the body saw the mob die on, sent only after this coordinator announced killFacts.
+			exactKeys(value, ['goalRevision', 'entityType', 'at'], ['goalRevision', 'entityType'], type);
+			return {
+				goalRevision: nonnegativeInteger(value.goalRevision, 'goalRevision'),
+				entityType: namespacedId(value.entityType, 'entityType'),
+				...(value.at === undefined ? {} : { at: killPosition(value.at) }),
+			};
 		}
 		case 'goal_spec_request':
 			return parseGoalSpecRequest(value);
@@ -968,6 +974,8 @@ export class MultiplexedServerBridge extends EventEmitter {
 				pausedByFacts: true,
 				// Asks the server to echo actionIssuer in hello_ack; only then is provenance.issuer sent (an older server rejects it).
 				actionIssuer: true,
+				// Lets the server add entity_killed.at (where the body saw the mob die); an older coordinator rejects the key.
+				killFacts: true,
 				...(this.#launchId === null ? {} : { launchId: this.#launchId }),
 			},
 		});
@@ -3109,6 +3117,24 @@ function nullableFiniteNumber(value, field) {
 function integer(value, field) {
 	if (!Number.isSafeInteger(value)) throw new ProtocolV2Error('INVALID_PAYLOAD', `${field} must be a safe integer`);
 	return value;
+}
+
+function namespacedId(value, field) {
+	const id = boundedText(value, field, 128);
+	if (!/^[a-z0-9_.-]+:[a-z0-9_./-]+$/.test(id)) throw new ProtocolV2Error('INVALID_PAYLOAD', `${field} must be namespaced`);
+	return id;
+}
+
+const KILL_COORDINATE = 30_000_000;
+
+function killPosition(value) {
+	exactKeys(value, ['x', 'y', 'z'], ['x', 'y', 'z'], 'entity_killed.at');
+	const axis = (name) => {
+		const n = integer(value[name], `at.${name}`);
+		if (Math.abs(n) > KILL_COORDINATE) throw new ProtocolV2Error('INVALID_PAYLOAD', `at.${name} must be within ${KILL_COORDINATE}`);
+		return n;
+	};
+	return { x: axis('x'), y: axis('y'), z: axis('z') };
 }
 
 function nonnegativeInteger(value, field) {

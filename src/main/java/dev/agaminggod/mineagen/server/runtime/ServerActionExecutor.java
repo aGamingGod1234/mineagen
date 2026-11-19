@@ -937,7 +937,8 @@ public final class ServerActionExecutor {
 					integer(arguments, "timeoutMs"), GameClock.nowMs())
 					.collectDrops(arguments.has("collect") && bool(arguments, "collect") ? protection::mayTakeEntity : null)
 					// collect false or unset: the drops are walked to only once no hostile is within 16 blocks (ExamplePlayer, Oct 29).
-					.collectWhenClear(arguments.has("collect") && bool(arguments, "collect") ? null : protection::mayTakeEntity)));
+					.collectWhenClear(arguments.has("collect") && bool(arguments, "collect") ? null : protection::mayTakeEntity)
+					.makingRoom(protection::mayDropItem)));
 			// Model-chosen goal skill (ExamplePlayer, Oct 28): fight one mob type until an item count, each engagement a fight_target or volley.
 			case FIGHT_UNTIL -> ActiveAction.controller(request, player, new dev.agaminggod.mineagen.server.runtime.controller.ServerFightUntilController(
 					player, arguments, protection, GameClock.nowMs(), "fight_until", null, roofing(request)));
