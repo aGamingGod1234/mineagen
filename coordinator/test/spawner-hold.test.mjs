@@ -31,6 +31,22 @@ test('H11 a first cancel is refused with the hold state; H12 the same call repea
 	assert.equal(holdCancelRefusal(hold, { kind: 'cancel_action' }, { actionId: 'other', at: 1_000 }, 2_000).code, 'CANCEL_CONFIRM_REQUIRED', 'a refusal of another action does not confirm this one');
 	assert.equal(holdCancelRefusal({ ...hold, actionType: 'travel_to' }, { kind: 'cancel_action' }, null, 0), null, 'other actions need no confirmation');
 	assert.equal(holdCancelRefusal(undefined, { kind: 'cancel_action' }, null, 0), null);
+	assert.equal(holdCancelRefusal(hold, { kind: 'replace_action', actionType: 'flee_from' }, null, 0), null, 'a replace to flee_from is never delayed');
+	assert.equal(holdCancelRefusal(hold, { kind: 'replace_action', actionType: 'wait' }, null, 0).code, 'CANCEL_CONFIRM_REQUIRED');
+});
+
+test('runtime: replaceAction to flee_from passes at once', async t => {
+	const h = harness(t);
+	const started = await h.call('startAction', { actionType: 'fight_until', arguments: holdArgs });
+	await tick();
+	const fleeing = h.call('replaceAction', { actionId: started.actionId, goalRevision: 1, actionType: 'flee_from', arguments: { targetId: '00000000-0000-0000-0000-0000000000b1', distance: 8, timeoutMs: 15_000 } });
+	await tick();
+	assert.equal(h.cancels().length, 1, 'the fight is cancelled for the flee without a confirmation');
+	h.finish(started.actionId, 'CANCELLED', 'ACTION_CANCELLED');
+	await tick();
+	const flee = h.commands().at(-1);
+	if (flee?.payload.actionType === 'flee_from') h.finish(flee.payload.actionId, 'SUCCEEDED', 'FLED');
+	await fleeing.catch(() => {});
 });
 
 function harness(t) {

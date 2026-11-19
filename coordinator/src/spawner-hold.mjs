@@ -20,6 +20,8 @@ export function blazeHold(active) {
  */
 export function holdCancelRefusal(active, tool, refused, now) {
 	if (!blazeHold(active)) return null;
+	// Running from danger is never delayed: the gate also matches open-ground blaze fights the mod did not hold.
+	if (tool?.kind === 'replace_action' && tool.actionType === 'flee_from') return null;
 	if (refused?.actionId === active.actionId && now - refused.at <= CONFIRM_MS) return null;
 	const verb = tool?.kind === 'replace_action' ? 'replaceAction' : 'cancelAction';
 	return { code: 'CANCEL_CONFIRM_REQUIRED', message: `${active.actionId} is the blaze spawner hold: it fights from a roofed cell by the spawner and stops by itself at the rod count, a health or food floor, the time cap, or a gone or quiet spawner. Send the same ${verb} again within ${CONFIRM_MS / 1000} s to stop it anyway.` };
