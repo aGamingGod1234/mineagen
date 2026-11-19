@@ -177,3 +177,27 @@ test('a pickup that fails twice hands back in the recovery phase, so the next fi
 	assert.equal(b.calls.filter(c => c.type === 'pick_up_item').length, 2);
 	assert.equal(b.eyeSearchState.phase, 'recover');
 });
+
+test('an eye lost from view is searched for 12 blocks along its heading, where vanilla drops it', async () => {
+	const b = body({ flight: () => ({ outcome: 'unseen', lostFromView: true, flewBlocks: undefined }), onAct: (type, args, o) => {
+		if (type === 'travel_to' && args.y === undefined && Math.abs(Math.hypot(args.x, args.z) - 12) < 0.01) {
+			o.player.x = args.x; o.player.z = args.z;
+			o.items = [{ itemId: 'minecraft:ender_eye', stableId: EYE_ID, x: args.x + 1, y: 66, z: args.z }];
+			return { state: 'SUCCEEDED', reasonCode: 'ARRIVED' };
+		}
+		if (type === 'pick_up_item') { o.items = []; o.inventory.items[0].count++; return { state: 'SUCCEEDED', reasonCode: 'PICKED_UP' }; }
+		return null;
+	} });
+	const r = await searchFor({ structure: 'stronghold', throwCap: 1 }, b);
+	const t = r.find.eyes.throws[0];
+	assert.ok(t.estimatedDrop, 'an estimated drop point');
+	assert.equal(t.eyesAfterPickup, 16);
+	assert.equal(b.calls.filter(c => c.type === 'pick_up_item').length, 1);
+});
+
+test('an eye lost from view and not found at its estimated drop is named as left behind', async () => {
+	const b = body({ flight: () => ({ outcome: 'unseen', lostFromView: true }) });
+	const r = await searchFor({ structure: 'stronghold', throwCap: 1 }, b);
+	assert.equal(r.find.eyes.throws[0].recovery, 'not_found');
+	assert.equal(r.find.eyes.eyesLeftBehind.length, 1);
+});

@@ -21,6 +21,8 @@ export const TRUSTED_CROSS_DEGREES = 8;
 export const ESTIMATE_DIG_BLOCKS = 16;
 // A dropped eye out of view is searched for once, and only this near: the body walks to where it dropped and looks.
 export const DROP_SEARCH_BLOCKS = 24;
+// How far a thrown eye flies along its heading before it drops or breaks (vanilla: about 12 blocks).
+export const EYE_FLIGHT_BLOCKS = 12;
 export function trustedCross(a, b) {
 	if (!Number.isFinite(a?.yaw) || !Number.isFinite(b?.yaw) || !point(a.from) || !point(b.from)) return false;
 	if (Math.hypot(a.from.x - b.from.x, a.from.z - b.from.z) < TRUSTED_BASE_BLOCKS) return false;
@@ -77,7 +79,7 @@ export async function followEyes(target, body, { observation: initial, deadline,
 	// portal has a filled frame more often than not (each frame 1 in 10). Below 11 minus filled frames takes the flag.
 	const reserve = () => Math.max(0, 11 - Math.min(11, state.filled.length));
 	const finish = (reasonCode, stop, found = null) => {
-		const left = state.throws.filter(t => t.recovery === 'not_found').map(t => t.droppedAt).filter(point);
+		const left = state.throws.filter(t => t.recovery === 'not_found').map(t => t.droppedAt ?? t.estimatedDrop).filter(point);
 		const facts = { throwsMade: state.throws.length, eyesLeft: eyesHeld(o), throws: structuredClone(state.throws), lastHeading: state.throws.at(-1)?.yaw ?? null,
 			...(left.length ? { eyesLeftBehind: left.map(at => ({ x: Math.floor(at.x), y: Math.floor(at.y), z: Math.floor(at.z) })) } : {}),
 			estimatedStronghold: state.estimate ?? null, travelled: Math.round(state.walked), stoppedBy: stop, reserve: reserve(), allowEyeReserveUse: target.allowEyeReserveUse === true, phase: state.phase };
@@ -122,7 +124,13 @@ export async function followEyes(target, body, { observation: initial, deadline,
 			const cross = intersectEyes(earlier, t);
 			if (cross) { state.estimate = cross; state.estimateTrusted = trustedCross(earlier, t); break; }
 		}
-		state.phase = flight.droppedAt ? 'recover' : 'leg';
+		// An eye lost from view still ends about 12 blocks along its heading and drops there 4 times in 5 (vanilla): it is
+		// searched for there (live eye fixture: 2 of 3 throws ended "unseen", and both eyes stayed on the ground).
+		if (!t.droppedAt && t.outcome === 'unseen' && Number.isFinite(t.yaw) && point(t.from)) {
+			const d = direction(t.yaw);
+			t.estimatedDrop = { x: t.from.x + d.x * EYE_FLIGHT_BLOCKS, y: t.from.y, z: t.from.z + d.z * EYE_FLIGHT_BLOCKS };
+		}
+		state.phase = flight.droppedAt || t.estimatedDrop ? 'recover' : 'leg';
 	};
 	await refresh();
 	if (!safety() && left() >= 2000 && body.look) {
@@ -170,16 +178,17 @@ export async function followEyes(target, body, { observation: initial, deadline,
 				continue;
 			}
 			// droppedAt may be an airborne end marker. Only a currently seen item justifies recovery travel.
+			const dropAt = last.droppedAt ?? last.estimatedDrop, near = last.droppedAt ? 4 : 6;
 			const visibleDrop = () => (o.items ?? []).find(r => r.itemId === EYE && point(r) && r.stableId
-				&& (last.dropId ? r.stableId === last.dropId : Math.hypot(r.x - last.droppedAt.x, r.z - last.droppedAt.z) < 4));
+				&& (last.dropId ? r.stableId === last.dropId : Math.hypot(r.x - dropAt.x, r.z - dropAt.z) < near));
 			let current = visibleDrop();
 			// Out of view (it fell behind a rise or into grass): walk once to where it dropped and look, when that is near.
 			// A walk there that fails is not the end of the search: the eye is then named as left behind.
 			// Not for an item already tracked by id (gone from view means taken or despawned), nor from where it dropped.
-			const gap = point(last.droppedAt) ? Math.hypot(last.droppedAt.x - o.player.x, last.droppedAt.z - o.player.z) : Infinity;
+			const gap = point(dropAt) ? Math.hypot(dropAt.x - o.player.x, dropAt.z - o.player.z) : Infinity;
 			if (!current && !last.dropId && !last.searchedDrop && gap > 4 && gap <= DROP_SEARCH_BLOCKS) {
 				last.searchedDrop = true;
-				const end = await act('travel_to', bounded({ x: last.droppedAt.x, z: last.droppedAt.z, tolerance: 2, build: true }));
+				const end = await act('travel_to', bounded({ x: dropAt.x, z: dropAt.z, tolerance: 2, build: true }));
 				if (end && end.reasonCode !== 'FIND_BLOCKED') return end;
 				if (Number.isFinite(last.eyesAfter) && eyesHeld(o) > last.eyesAfter) continue;
 				current = visibleDrop();
