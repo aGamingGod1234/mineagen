@@ -5,7 +5,7 @@
 // real dragon fireball (vanilla's cloud: Instant Damage II, radius 3 growing to 7) on or beside it; some runs then send a
 // model command (travel_to into the cloud) through runtime.execute, the path a model's command takes. Pass per run:
 // alive after 12 s, no fall into the void. No model call is made.
-// --old: the base arm, no End defaults (b56ab2f's coordinator had none); run it with that commit's jar.
+// --old: the base arm, no End defaults (the coordinator before this change had none); run it with that commit's jar.
 // --old-rule: the base arm plus the same breath rule installed as a model rule (what a model could install itself).
 // Launch under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME. REPEATS=n plays every room n times.
 import { writeFile, mkdir, readdir } from 'node:fs/promises';
@@ -16,6 +16,7 @@ import { normalizeMinecraftToolCall } from '../../coordinator/src/native-minecra
 import { adaptObservation } from '../../coordinator/src/observation-adapter.mjs';
 import { ReflexBook, normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
 import { warmBoots } from './fixture-servers.mjs';
+import { MOD_JAR } from './mod-jar.mjs';
 import { damageCounter, replyNumber } from './lib/damage-counter.mjs';
 import { finishRun, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 
@@ -49,7 +50,7 @@ const ROOMS = [
 ];
 const repeats = Math.max(1, Number(process.env.REPEATS ?? 1));
 const runs = Array.from({ length: repeats }, () => ROOMS).flat();
-const results = { arm: OLD_RULE ? 'old+model-rule' : OLD ? 'old' : 'new', jar: path.resolve(jarArg ?? path.join(root, 'build/libs/mineagen-0.2.0.jar')), runs: [] };
+const results = { arm: OLD_RULE ? 'old+model-rule' : OLD ? 'old' : 'new', jar: path.resolve(jarArg ?? path.join(root, MOD_JAR)), runs: [] };
 
 for await (const { server: s, error: bootError } of warmBoots([{ name: 'breath' }], () => ({ dir: path.join(out, 'server-0'),
 	options: { jar: results.jar, template, port, world: null, seed: '20261017', spawnMonsters: false, worldCache: true } }))) {
