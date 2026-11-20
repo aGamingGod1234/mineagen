@@ -3,8 +3,8 @@
 // 4-high pillar the body cannot reach, and a calm one on the open floor. Each trial runs one production fight_until
 // (enderman until one more ender pearl, 120 s) and counts the sword approaches that ended unreachable, the kills and the
 // time to the first pearl. SKIP_UNREACHABLE=1 starts the server with the switch on; run once off and once on.
-// A trial passes when the enderman was provoked, the call got its pearl, at most 3 approaches ended unreachable and the
-// body lived: the switch-on bar. Run the switch-off control with --descriptive (today it is pinned and fails the bar).
+// A trial passes when the pillar enderman was provoked, the reachable one was killed, at most 3 approaches ended
+// unreachable and the body lived: the switch-on bar. The pearl is recorded, not judged (a kill drops 0 or 1, vanilla). Run the switch-off control with --descriptive (today it is pinned and fails the bar).
 // Exit (strict, the default): 0 all passed, 1 a trial failed, 2 invalid evidence (an error or missing trials).
 import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -117,7 +117,7 @@ try {
 			pillarStillOnPillar: pillarLeft, keptOn: Number(/kept on (\d+) that left reach/.exec(message)?.[1] ?? 0),
 			passedOver: Number(/out of reach: passed over (\d+)/.exec(message)?.[1] ?? 0), healthEnd: await health().catch(() => null), message: message.slice(0, 1600) };
 		if (result.state === 'ERROR') row.error = `fight_until never returned: ${result.message}`;
-		row.pass = row.provoked && row.reasonCode === 'UNTIL_COUNT_REACHED' && row.unreachableApproaches <= 3 && row.healthEnd > 0;
+		row.pass = row.provoked && row.groundKilledS !== null && row.unreachableApproaches <= 3 && row.healthEnd > 0;
 		trials.push(row);
 		console.log(`[unreachable] ${on ? 'on' : 'off'} #${trial}: ${row.reasonCode} in ${seconds} s, unreachable approaches ${row.unreachableApproaches}, kills ${row.kills}, ground killed at ${groundKilledS} s, pearls ${gained}, first pearl ${row.firstPearlS} s`);
 		await writeFile(path.join(out, 'trials.json'), JSON.stringify(trials, null, 1));
