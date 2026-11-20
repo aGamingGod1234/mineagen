@@ -76,6 +76,9 @@ public final class ServerSpawnerHoldController implements ServerController {
 	private final Map<String, Float> lost = new LinkedHashMap<>();
 	private float lastHealth = -1.0F;
 	private int turtleTicks, blockingTicks;
+	private final CombatInputLease fireInput = new CombatInputLease();
+	private int fireTicks, firesPunched;
+	private static final int FIRE_TICKS = 60;
 	private final List<String> log = new ArrayList<>();
 	private final long[] witherHits = new long[SpawnerHold.BREACH_HITS];
 	private Phase phase = Phase.SITE;
@@ -336,6 +339,10 @@ public final class ServerSpawnerHoldController implements ServerController {
 			note(String.format(Locale.ROOT, "health %.1f on a rod trip: back to the cell", player.getHealth()));
 		}
 		if (collector != null || returning) return collect(player, now);
+		if (inCell) {
+			TickResult punching = punchOutFire(player);
+			if (punching != null) return punching;
+		}
 		if (eatTicks >= 0) return eat(player);
 		boolean shot = ReflexSensors.blockableShot(player, 1.5D) != null;
 		boolean turtling = SpawnerHold.turtle(inCell, player.getHealth(), turtleSinceMs, elapsed);
@@ -440,6 +447,40 @@ public final class ServerSpawnerHoldController implements ServerController {
 			// The cell could not be walked back into: choose a new site (it counts toward SPAWNER_UNREACHABLE).
 			return siteFailed(player, "walk back " + result.reasonCode());
 		}
+		return TickResult.running(progress(player));
+	}
+
+	/**
+	 * Fire standing in the cell (a fireball that missed lights the floor) is punched out: a hit on its flame breaks it at
+	 * once. The engine's own fire step is off under pursue:false, and the cell is where the body heals now, so without
+	 * this it sat in the flames (round 2 live: two of three runs burned to death in the hold). Null when no fire is there.
+	 */
+	private TickResult punchOutFire(ServerPlayer player) {
+		BlockPos flame = null;
+		for (BlockPos at : new BlockPos[] {cell, cell.above()})
+			if (TravelBuilder.fire(player.level().getBlockState(at)) && protection.mayModifyBlock(player, player.level(), at)) { flame = at; break; }
+		if (flame == null) {
+			fireTicks = 0;
+			fireInput.release();
+			return null;
+		}
+		if (fireTicks == 0) {
+			stopEngine(player);
+			shieldInput.release();
+			eatTicks = -1;
+			eatInput.release();
+			firesPunched++;
+		}
+		if (++fireTicks > FIRE_TICKS) {
+			if (fireTicks == FIRE_TICKS + 1) note("fire at " + flame.toShortString() + " not put out");
+			fireInput.release();
+			return null;
+		}
+		float[] look = TravelBuilder.lookAt(player.getEyePosition(), new Vec3(flame.getX() + 0.5D, flame.getY() + 0.03D, flame.getZ() + 0.5D));
+		var hit = TravelBuilder.crosshair(player);
+		boolean aimed = hit != null && hit.getBlockPos().equals(flame);
+		fireInput.apply(player, new AgentInputState(0.0F, 0.0F, false, false, false, aimed && fireTicks % 2 == 0, false, look[0], look[1],
+				player.getInventory().getSelectedSlot(), InteractionHand.MAIN_HAND));
 		return TickResult.running(progress(player));
 	}
 
@@ -625,10 +666,10 @@ public final class ServerSpawnerHoldController implements ServerController {
 
 	private String summary(ServerPlayer player, long elapsed) {
 		int held = ServerFightUntilController.count(player, untilItem);
-		return String.format(Locale.ROOT, "spawner hold at %s: cell %s, %d site%s failed, %d build%s; %+d %s in %.0f s; %d engine run%s %s; %d rod trip%s; %d meal%s; %d defend%s; %d shield heal%s (shield up %d of %d ticks); hurts %s; health lost %s%s",
+		return String.format(Locale.ROOT, "spawner hold at %s: cell %s, %d site%s failed, %d build%s; %+d %s in %.0f s; %d engine run%s %s; %d rod trip%s; %d meal%s; %d defend%s; %d shield heal%s (shield up %d of %d ticks); %d fire%s punched out; hurts %s; health lost %s%s",
 				spawner.toShortString(), cell == null ? "none" : cell.toShortString(), sitesFailed, sitesFailed == 1 ? "" : "s", builds, builds == 1 ? "" : "s",
 				held - Math.max(0, startHeld), untilItemId, elapsed / 1000.0D, engineRuns, engineRuns == 1 ? "" : "s", engineEnds, trips, trips == 1 ? "" : "s",
-				meals, meals == 1 ? "" : "s", defends, defends == 1 ? "" : "s", turtles, turtles == 1 ? "" : "s", blockingTicks, turtleTicks, hurts, lostText(), log.isEmpty() ? "" : "; log: " + String.join(" | ", log.subList(Math.max(0, log.size() - 6), log.size())));
+				meals, meals == 1 ? "" : "s", defends, defends == 1 ? "" : "s", turtles, turtles == 1 ? "" : "s", blockingTicks, turtleTicks, firesPunched, firesPunched == 1 ? "" : "s", hurts, lostText(), log.isEmpty() ? "" : "; log: " + String.join(" | ", log.subList(Math.max(0, log.size() - 6), log.size())));
 	}
 
 	private String lostText() {
@@ -667,6 +708,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 		eatTicks = -1;
 		eatInput.release();
 		shieldInput.release();
+		fireInput.release();
 	}
 
 	private TickResult stop(ServerPlayer player, TickResult result) {
