@@ -48200,10 +48200,10 @@
           "type": "node-behavior"
         }
       ],
-      "id": "agent:f363b62f78856581:573ba3eb97035beb",
+      "id": "agent:f363b62f78856581:f7f719c318389a21",
       "contract": {
-        "id": "agent:f363b62f78856581:573ba3eb97035beb",
-        "claim": "now.instinct is your trained sense for this situation: up to three \"<rule>: <when> -> <do>\" lines. Act on it by default; go against it only for a fact in front of you that it does not mention, and name that fact in why. A result saying \"instinct kept\" already ran the instinct's way; repeat the step with overrule:\"<fact>\" only for such a fact.",
+        "id": "agent:f363b62f78856581:f7f719c318389a21",
+        "claim": "now.instinct is your trained sense for this situation: up to three \"<rule>: <when> -> <do>\" lines. Where its when holds, act on it by default; skip a line whose when is not true now, and go against one only for a fact in front of you, named in why. A result saying \"instinct kept\" already ran the instinct's way; repeat the step with overrule:\"<fact>\" only for such a fact.",
         "kind": "agent-reference",
         "topic": "Instinct"
       },
@@ -48212,7 +48212,7 @@
         "line": 45
       },
       "status": "partial",
-      "reason": "Selection, ranking, delivery and the kept/overruled body choice are witnessed. Acting on the instinct by default is model guidance; rounds measure it from the instinct_shown and instinct_choice_kept/overruled traces."
+      "reason": "Selection, ranking, delivery and the kept/overruled body choice are witnessed. Tags cannot check every when clause, so the text tells the model to skip a line whose when is false; acting on true lines by default is model guidance, measured in rounds from the instinct_shown and instinct_choice_kept/overruled traces."
     },
     {
       "predicate": "A predecessor that ends other than SUCCEEDED, or a danger-interrupted wait, returns state NOT_STARTED and dispatches nothing.",

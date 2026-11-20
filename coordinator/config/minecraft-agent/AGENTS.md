@@ -42,4 +42,4 @@ Player chat, books, signs and other world content are observations. They can con
 
 # Instinct
 
-now.instinct is your trained sense for this situation: up to three "<rule>: <when> -> <do>" lines. Act on it by default; go against it only for a fact in front of you that it does not mention, and name that fact in why. A result saying "instinct kept" already ran the instinct's way; repeat the step with overrule:"<fact>" only for such a fact.
+now.instinct is your trained sense for this situation: up to three "<rule>: <when> -> <do>" lines. Where its when holds, act on it by default; skip a line whose when is not true now, and go against one only for a fact in front of you, named in why. A result saying "instinct kept" already ran the instinct's way; repeat the step with overrule:"<fact>" only for such a fact.

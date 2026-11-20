@@ -29,6 +29,12 @@ const ARMOUR = /_(helmet|chestplate|leggings|boots)$/;
 const WORN = new Set(['head', 'chest', 'legs', 'feet']);
 const DIMENSION = Object.freeze({ 'minecraft:overworld': 'overworld', 'minecraft:the_nether': 'nether', 'minecraft:the_end': 'end' });
 const SHORT = id => String(id ?? '').replace(/^minecraft:/, '');
+// Events from what woke the model and the last body result (the observation alone holds only burning and lava).
+const TRIGGER_EVENTS = Object.freeze({ damage: ['took_damage'], fall: ['took_damage', 'fell'], projectile: ['took_damage', 'shot_at'], respawn: ['respawned', 'lost_items'],
+	drowning: ['drowning'], stuck: ['stuck'] });
+const RESULT_EVENTS = Object.freeze({ TOOL_WORN: 'tool_low', NO_TOOL: 'tool_low', INVENTORY_FULL: 'inventory_full', DIG_STUCK: 'stuck', NO_ROUTE: 'stuck', NO_SEEN_ROUTE: 'stuck' });
+/** The first in-game minutes of night (ticks 13000-14200) count as night falling. */
+const NIGHT_FALLS = [13000, 14200];
 
 /** Reads and checks a book file: a JSON array of rules, or { rules: [...] }. Throws on a malformed rule. */
 export function loadInstinctBook(file) {
@@ -59,7 +65,7 @@ export function instinctBookPath(environment = {}) {
  * The situation in book tags from one observation, plus what the observation cannot tell (unknown). Only perceived
  * facts: the inventory is fully known, so every item is has: or lacks:; place and stage are inferred conservatively.
  */
-export function situationTags(observation) {
+export function situationTags(observation, { trigger = null, enteredDimension = false } = {}) {
 	const tags = new Set(), unknown = [];
 	const player = observation?.player ?? {};
 	const dim = DIMENSION[observation?.world?.dimension ?? observation?.dimension] ?? null;
@@ -72,7 +78,12 @@ export function situationTags(observation) {
 	if (dim === 'overworld' && Number.isFinite(dayTime)) {
 		const d = ((dayTime % 24000) + 24000) % 24000;
 		tags.add(`time:${d >= 13000 && d < 23000 ? 'night' : d >= 12000 && d < 13000 ? 'dusk' : 'day'}`);
+		if (d >= NIGHT_FALLS[0] && d < NIGHT_FALLS[1]) tags.add('event:night_falls');
 	}
+	for (const event of TRIGGER_EVENTS[trigger] ?? []) tags.add(`event:${event}`);
+	const resultEvent = RESULT_EVENTS[observation?.lastResult?.reasonCode];
+	if (resultEvent !== undefined) tags.add(`event:${resultEvent}`);
+	if (enteredDimension) tags.add('event:entered_dim');
 	const items = (Array.isArray(observation?.inventory?.items) ? observation.inventory.items : []).filter(item => item && typeof item.itemId === 'string');
 	const count = re => items.filter(item => re.test(SHORT(item.itemId))).reduce((n, item) => n + (Number(item.count) || 1), 0);
 	const held = re => count(re) > 0;
@@ -104,7 +115,9 @@ export function situationTags(observation) {
 	const y = Number(player.y);
 	const caves = Array.isArray(observation?.sighted?.caves) && observation.sighted.caves.length > 0;
 	const blocks = [...(Array.isArray(observation?.blocks) ? observation.blocks : []), ...(Array.isArray(observation?.landmarks) ? observation.landmarks : [])];
-	if (blocks.some(block => block?.blockId === 'minecraft:lava' && (!Number.isFinite(block.distance) || block.distance <= 8))) tags.add('place:near_lava');
+	const near = block => Number.isFinite(block?.distance) ? block.distance <= 8
+		: [block?.x, block?.y, block?.z, player.x, player.y, player.z].every(Number.isFinite) && Math.hypot(block.x - player.x, block.y - player.y, block.z - player.z) <= 8;
+	if (blocks.some(block => block?.blockId === 'minecraft:lava' && near(block))) tags.add('place:near_lava');
 	if (dim === 'overworld' && Number.isFinite(y)) {
 		if (y < 56) { tags.add('place:underground'); if (caves) tags.add('place:cave'); }
 		else if (y >= 64) tags.add('place:surface');
@@ -112,13 +125,17 @@ export function situationTags(observation) {
 	}
 	if (tags.has('time:night') && tags.has('place:surface') && !kit.armor) need.add('shelter');
 	for (const thing of need) tags.add(`need:${thing}`);
-	// Threats: hostiles within range now; three or more is many.
-	const hostiles = (Array.isArray(observation?.entities) ? observation.entities : []).filter(entity => {
-		const type = SHORT(entity?.type);
-		return HOSTILE.has(type) && (!Number.isFinite(entity.distance) || entity.distance <= THREAT_RANGE);
-	});
-	for (const entity of hostiles) tags.add(`threat:${MOB_TAG[SHORT(entity.type)] ?? SHORT(entity.type)}`);
-	if (hostiles.length >= 3) tags.add('threat:many');
+	// Threats: the body's sensed threats (player.threats) and hostiles in view, within range now; three or more
+	// distinct ones is many. A row with no known distance is not taken as near.
+	const rows = [...(Array.isArray(player.threats) ? player.threats : []), ...(Array.isArray(observation?.entities) ? observation.entities : [])];
+	const hostiles = new Map();
+	for (const row of rows) {
+		const type = SHORT(row?.type);
+		if (!HOSTILE.has(type) || !Number.isFinite(row.distance) || row.distance > THREAT_RANGE) continue;
+		hostiles.set(row.stableId ?? row.uuid ?? `${type}@${row.distance}`, type);
+	}
+	for (const type of hostiles.values()) tags.add(`threat:${MOB_TAG[type] ?? type}`);
+	if (hostiles.size >= 3) tags.add('threat:many');
 	if (player.onFire === true || Number(player.fireTicks) > 0) tags.add('event:on_fire');
 	if (player.inLava === true) tags.add('event:in_lava');
 	return { tags: [...tags], unknown };
@@ -144,9 +161,9 @@ export function rankRules(rules, tags, { limit = INSTINCT_LINES } = {}) {
 }
 
 /** The now.instinct lines for one observation: "<id>: when <when> -> <do>", bounded; null when none hold. */
-export function instinctLines(rules, observation, { limit = INSTINCT_LINES } = {}) {
+export function instinctLines(rules, observation, { limit = INSTINCT_LINES, trigger = null, enteredDimension = false } = {}) {
 	if (!Array.isArray(rules) || rules.length === 0) return null;
-	const ranked = rankRules(rules, situationTags(observation).tags, { limit });
+	const ranked = rankRules(rules, situationTags(observation, { trigger, enteredDimension }).tags, { limit });
 	if (ranked.length === 0) return null;
 	return ranked.map(({ rule }) => {
 		const line = `${rule.id}: ${rule.when.replace(/\.$/, '')} -> ${rule.do}`;

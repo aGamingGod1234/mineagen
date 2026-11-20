@@ -67,3 +67,30 @@ test('the book comes from MINEAGEN_INSTINCT_BOOK and is checked on load', () => 
 	writeFileSync(file, JSON.stringify([{ id: 'x', tags: ['lowhealth'], when: 'w', do: 'd' }]));
 	assert.throws(() => loadInstinctBook(file), /kind:value/);
 });
+
+test('events come from what woke the model, the last body result, a dimension change and nightfall', () => {
+	const tags = (o, context) => situationTags(o, context).tags;
+	assert.ok(tags(observation(), { trigger: 'projectile' }).includes('event:shot_at'));
+	assert.ok(['event:respawned', 'event:lost_items'].every(tag => tags(observation(), { trigger: 'respawn' }).includes(tag)));
+	assert.ok(tags({ ...observation(), lastResult: { reasonCode: 'TOOL_WORN' } }).includes('event:tool_low'));
+	assert.ok(tags(observation(), { enteredDimension: true }).includes('event:entered_dim'));
+	assert.ok(tags(observation({ dayTime: 13100 })).includes('event:night_falls'));
+	assert.ok(!tags(observation({ dayTime: 18000 })).includes('event:night_falls'), 'deep night is night, not nightfall');
+	assert.ok(!tags(observation()).some(tag => tag.startsWith('event:')), 'no event without a cause');
+});
+
+test('a hostile or lava with no known distance is not taken as near', () => {
+	const t = situationTags({ ...observation(), entities: [{ type: 'minecraft:skeleton' }], blocks: [{ blockId: 'minecraft:lava' }] }).tags;
+	assert.ok(!t.includes('threat:skeleton') && !t.includes('place:near_lava'));
+	// Adapter shapes: entities { stableId, type, x, y, z, distance }, sensed threats player.threats [{ uuid, type, distance }].
+	const far = { ...observation(), entities: [{ stableId: 'a', type: 'minecraft:zombie', x: 30, y: 70, z: 0, distance: 30 }] };
+	far.player.threats = [{ uuid: 'b', stableId: 'b', type: 'minecraft:skeleton', distance: 24 }];
+	assert.ok(!situationTags(far).tags.some(tag => tag.startsWith('threat:')), 'beyond 16 blocks is not a threat');
+	const close = { ...observation(), entities: [{ stableId: 'a', type: 'minecraft:zombie', x: 5, y: 70, z: 0, distance: 5 }] };
+	close.player.threats = [{ uuid: 'a', stableId: 'a', type: 'minecraft:zombie', distance: 5 }, { uuid: 'c', stableId: 'c', type: 'minecraft:bogged', distance: 9 }];
+	const closeTags = situationTags(close).tags;
+	assert.ok(closeTags.includes('threat:zombie') && closeTags.includes('threat:skeleton'), 'a bogged is a skeleton to the book');
+	assert.ok(!closeTags.includes('threat:many'), 'the same zombie in view and sensed counts once');
+	const near = situationTags({ ...observation({ y: 40 }), blocks: [{ blockId: 'minecraft:lava', x: 3, y: 40, z: 0 }] }).tags;
+	assert.ok(near.includes('place:near_lava'), 'block coordinates beside the player count');
+});

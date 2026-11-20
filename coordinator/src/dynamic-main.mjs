@@ -295,6 +295,7 @@ export class DynamicCoordinator extends EventEmitter {
 	#traceWriter;
 	#bodyPace;
 	#instinctBook;
+	#instinctDimensions = new Map();
 	#providerTurnRecorder;
 	#runtimeGeneration;
 	#verboseTransitions = new ReportingTransitionDeduper();
@@ -4402,7 +4403,11 @@ export class DynamicCoordinator extends EventEmitter {
 			const whileActing = this.#wakeFilter.take(record.agentId, observation);
 			const pace = continuity === null ? null : this.#bodyPace.line(record.agentId);
 			// System 1's voice: the book's rules that hold in this situation, as the model's own trained sense.
-			const instinct = isPlanning || this.#instinctBook === null ? null : instinctLines(this.#instinctBook, observation);
+			const instinctDimension = observation?.world?.dimension ?? null;
+			const enteredDimension = instinctDimension !== null && this.#instinctDimensions.has(record.agentId) && this.#instinctDimensions.get(record.agentId) !== instinctDimension;
+			if (instinctDimension !== null) this.#instinctDimensions.set(record.agentId, instinctDimension);
+			const instinct = isPlanning || this.#instinctBook === null ? null
+				: instinctLines(this.#instinctBook, observation, { trigger: nativeEvent.trigger ?? nativeEvent.status?.decision?.trigger ?? null, enteredDimension });
 			if (instinct !== null) this.#writeTrace('instinct_shown', { agentId: record.agentId, goalRevision: record.goalRevision, rules: instinct.map(line => line.slice(0, line.indexOf(':'))) });
 			const input = buildNativeEventInput(record, {
 				...nativeEvent, movementLoop, taskMemory, progress: this.#taskViews.progress(record), goalNow: this.#taskViews.goalLine(record), doing: this.#taskViews.doingLine(record), skillFits: this.#taskViews.skillLine?.(record) ?? null,
