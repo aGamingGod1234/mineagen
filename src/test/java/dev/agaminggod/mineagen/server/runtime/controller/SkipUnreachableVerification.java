@@ -84,6 +84,7 @@ public final class SkipUnreachableVerification {
 				verifyPicksReachable(on);
 				verifyQuietWithOnlyUnreachableInView(on);
 				verifyAreaClearedPastUnreachable(on);
+				verifyNamedTargetUnreachable(on);
 			}
 			verifyEligibleAfterMoving();
 		} finally {
@@ -206,6 +207,24 @@ public final class SkipUnreachableVerification {
 				check("NO_SEEN_ROUTE".equals(end.reasonCode()) && fixture.engaged.size() == 3,
 						"off (today): passed over 15 s, then tried again and two failures in a row end it: " + end.reasonCode() + " " + fixture.engaged.size());
 			}
+		}
+	}
+
+	/**
+	 * fight_target count mode names the pillar enderman as the first target (4 of the 5 pinned live calls came this way).
+	 * Off: the named one is re-engaged without end. On: tried once, then the reachable one.
+	 */
+	private static void verifyNamedTargetUnreachable(boolean on) throws Exception {
+		try (Fixture fixture = Fixture.create(on)) {
+			FixtureEnderman ground = fixture.enderman(new Vec3(-2.5D, 64.0D, 3.5D), fixture.player);
+			FixtureEnderman pillar = fixture.enderman(new Vec3(0.5D, 68.0D, 4.5D), fixture.player);
+			fixture.script(pillar, 3, UNREACHABLE);
+			ServerFightUntilController hunt = new ServerFightUntilController(fixture.player, hunt(60_000L), ServerProtectionPolicy.TRUSTED_LOCAL_OPERATOR,
+					fixture.now, "fight_target", pillar, null);
+			fixture.run(hunt, 400);
+			check(!fixture.engaged.isEmpty() && fixture.engaged.get(0) == pillar, (on ? "on" : "off") + ": the named pillar enderman is tried first: " + fixture.names());
+			if (on) check(fixture.engaged.size() == 2 && fixture.engaged.get(1) == ground, "on: the named one is not picked again; the reachable one is next: " + fixture.names());
+			else check(fixture.engaged.size() >= 20 && !fixture.engaged.contains(ground), "off (today): the named unreachable one is kept on: " + fixture.engaged.size());
 		}
 	}
 

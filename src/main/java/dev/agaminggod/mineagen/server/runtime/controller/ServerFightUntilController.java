@@ -1130,7 +1130,9 @@ public final class ServerFightUntilController implements ServerController {
 			if (killed) { failuresInRow = 0; lastFailure = null; }
 			return code;
 		}
-		if (endedTarget != null && unreachable.failed(id, code, wasMelee, mob == McEntityTypes.BLAZE || endedTarget.getType() == McEntityTypes.BLAZE,
+		// A call that can still shoot keeps the mob for the bow: out of sword reach is no reason to pass it over there.
+		boolean canShoot = weapon != Weapon.SWORD && mob != McEntityTypes.ENDERMAN && !bowSpent && bowReady(player);
+		if (endedTarget != null && unreachable.failed(id, code, wasMelee && !canShoot, mob == McEntityTypes.BLAZE || endedTarget.getType() == McEntityTypes.BLAZE,
 				endedTarget.position(), player.position(), player.tickCount)) {
 			note("passed over " + BuiltInRegistries.ENTITY_TYPE.getKey(endedTarget.getType()) + " " + id + " out of reach until it or you move "
 					+ (int) UnreachableTargets.MOVED + " blocks");
