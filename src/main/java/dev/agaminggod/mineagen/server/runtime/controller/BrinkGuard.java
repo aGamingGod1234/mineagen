@@ -110,6 +110,20 @@ public final class BrinkGuard {
 		return memory == null || memory.lavaCell == null || player.tickCount - memory.lavaTick > LavaStep.REFUSAL_TICKS ? null : memory.lavaCell;
 	}
 
+	/** The tick of this body's last lava refusal (see lavaRefusal), or -1000 when there was none. */
+	public static synchronized int lavaRefusalTick(ServerPlayer player) {
+		Memory memory = MEMORY.get(player);
+		return memory == null ? -1000 : memory.lavaTick;
+	}
+
+	/**
+	 * Whether a jump's landing is checked for same-level lava: every grounded take-off, a held jump's second and later
+	 * hops included (the jump key held refreshes the own-jump window, so that window cannot gate this check).
+	 */
+	static boolean checksJumpLanding(boolean jump, boolean brace, boolean onGround, boolean fireResistant) {
+		return jump && !brace && onGround && !fireResistant;
+	}
+
 	/** Forget a refusal once its walker sealed the cell or planned round it. */
 	public static synchronized void clearLavaRefusal(ServerPlayer player) {
 		Memory memory = MEMORY.get(player);
@@ -267,7 +281,7 @@ public final class BrinkGuard {
 		boolean refuseJump = refusedFall != null;
 		// Nether lava safety: a jump that would come down in lava at take-off height (the model's own keys too: a
 		// sprint jump out of a flooded tunnel ended in the flow) is refused like a jump over a lethal drop.
-		if (!refuseJump && jump && !brace && player.onGround() && memory.ownJump == 0 && !HazardExits.fireResistant(player)) {
+		if (!refuseJump && checksJumpLanding(jump, brace, player.onGround(), HazardExits.fireResistant(player))) {
 			double[] heading = worldHeading(player.getYRot(), forward, strafe);
 			Vec3 now = player.getDeltaMovement();
 			double[][] shifts = new double[JUMP_AIR_TICKS + 3 - JUMP_FIRST_LANDING_TICK][];

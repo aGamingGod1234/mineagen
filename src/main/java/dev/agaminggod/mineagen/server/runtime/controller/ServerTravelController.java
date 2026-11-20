@@ -976,6 +976,11 @@ public final class ServerTravelController implements ServerController {
 		startLeg(player, feet, nowEpochMs, LEG_TOLERANCE);
 	}
 
+	/** A leg may seal lava in its way only when this travel may build, and then only where it may modify blocks. */
+	static BiPredicate<ServerPlayer, BlockPos> legSealPermission(boolean build, BiPredicate<ServerPlayer, BlockPos> mayModify) {
+		return build ? mayModify : null;
+	}
+
 	private void startLeg(ServerPlayer player, GridPosition feet, long nowEpochMs, double tolerance) {
 		releaseInput();
 		legTarget = feet;
@@ -984,6 +989,8 @@ public final class ServerTravelController implements ServerController {
 		legAllowedBacktrack = BACKTRACK;
 		leg = new ServerNavigationController(new Vec3(feet.x() + 0.5D, feet.y(), feet.z() + 0.5D), tolerance, true,
 				nowEpochMs, LEG_TIMEOUT_MS, true);
+		BiPredicate<ServerPlayer, BlockPos> seal = legSealPermission(build, mayModify);
+		if (seal != null) leg.sealsLava(seal);
 		phase = Phase.LEG;
 	}
 
@@ -1757,25 +1764,45 @@ public final class ServerTravelController implements ServerController {
 	 * reach, protection, or 2 s spent).
 	 */
 	private Boolean plugLava(ServerPlayer player, BlockPos cell, long nowEpochMs) {
-		if (!cell.equals(plugCell)) { plugCell = cell.immutable(); plugTicks = 0; }
+		if (!cell.equals(plugCell)) { plugCell = cell.immutable(); plugTicks = 0; plugClicked = false; }
 		if (!LavaStep.lava(player.level().getBlockState(cell))) return true;
 		if (++plugTicks > 40) return false;
+		// Lava at the feet or head cells beside the body: standing still to aim is only worth it while a click lands soon.
+		BlockPos feet = player.blockPosition();
+		boolean beside = Math.abs(cell.getX() - feet.getX()) <= 1 && Math.abs(cell.getZ() - feet.getZ()) <= 1
+				&& cell.getY() - feet.getY() >= 0 && cell.getY() - feet.getY() <= 1;
+		if (plugGivesUp(beside, plugTicks, plugClicked)) return false;
 		int slot = -1;
 		for (int hotbar = 0; hotbar < 9 && slot < 0; hotbar++) if (TravelBuilder.buildingBlock(player.getInventory().getItem(hotbar))) slot = hotbar;
-		if (slot < 0) return false;
+		if (slot < 0 || !mayModify.test(player, cell)) return false;
 		var level = player.level();
-		Direction face = LavaStep.sealFace(cell, at -> level.getBlockState(at).isCollisionShapeFullBlock(level, at));
+		// The first face in preference order that is in reach.
+		Direction face = null;
+		Vec3 aim = null;
+		for (Direction option : LavaStep.sealFaces(cell, at -> level.getBlockState(at).isCollisionShapeFullBlock(level, at))) {
+			BlockPos at = cell.relative(option.getOpposite());
+			Vec3 point = Vec3.atCenterOf(at).add(option.getStepX() * 0.499D, option.getStepY() * 0.499D, option.getStepZ() * 0.499D);
+			if (point.distanceToSqr(player.getEyePosition()) <= LavaStep.SEAL_REACH_SQUARED) { face = option; aim = point; break; }
+		}
 		if (face == null) return false;
 		BlockPos support = cell.relative(face.getOpposite());
-		Vec3 aim = Vec3.atCenterOf(support).add(face.getStepX() * 0.499D, face.getStepY() * 0.499D, face.getStepZ() * 0.499D);
-		if (aim.distanceToSqr(player.getEyePosition()) > LavaStep.SEAL_REACH_SQUARED || !mayModify.test(player, cell)) return false;
 		if (player.getInventory().getSelectedSlot() != slot) { select(player, slot, nowEpochMs); return null; }
 		float[] look = TravelBuilder.lookAt(player.getEyePosition(), aim);
 		apply(player, new AgentInputStates.MotorTarget(look[0], look[1], false, false, false), true, false, false, nowEpochMs);
 		BlockHitResult hit = TravelBuilder.crosshair(player);
-		if (hit != null && hit.getBlockPos().equals(support) && hit.getDirection() == face) click(player, hit);
+		if (hit != null && hit.getBlockPos().equals(support) && hit.getDirection() == face) { click(player, hit); plugClicked = true; }
 		return LavaStep.lava(player.level().getBlockState(cell)) ? null : true;
 	}
+
+	/** Ticks a plug of lava beside the body may take before a click lands; past them the travel backs off instead. */
+	static final int PLUG_BESIDE_TICKS = 8;
+
+	/** Whether a tunnel plug gives up and backs off: lava beside the body and no click within {@link #PLUG_BESIDE_TICKS}. */
+	static boolean plugGivesUp(boolean beside, int ticks, boolean clicked) {
+		return beside && !clicked && ticks > PLUG_BESIDE_TICKS;
+	}
+
+	private boolean plugClicked;
 
 	private BlockPos plugCell;
 	private int plugTicks;

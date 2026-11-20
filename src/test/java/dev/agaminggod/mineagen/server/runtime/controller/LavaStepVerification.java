@@ -42,6 +42,15 @@ public final class LavaStepVerification {
 		verifySealFace();
 		verifyRouteRefusal();
 		verifyBridgeOverLavaSea();
+		verifyHeldJump();
+		verifySecondRefusal();
+		verifyFrameRereadsLava();
+		verifyFencePost();
+		verifyBrakingKeys();
+		verifySealPermission();
+		verifyTunnelPlugBackOff();
+		verifySealFaceOrder();
+		verifyWideFlowEscape();
 		return assertions;
 	}
 
@@ -178,6 +187,111 @@ public final class LavaStepVerification {
 		MinecraftNavigationWorld.StateRead read = (x, y, z) -> sea.getOrDefault(BlockPos.asLong(x, y, z), y <= 24 ? STONE : AIR);
 		check(!MinecraftNavigationWorld.lavaFills(read, 0, 32, 0), "a bridge cell over the sea is no cell lava fills next: the lava is below its support");
 		check(!MinecraftNavigationWorld.lavaContact(read, 0, 32, 0), "nor does lava flow into it");
+	}
+
+	/** Council r1 item 1: a held jump's second grounded take-off is judged like the first. */
+	private static void verifyHeldJump() {
+		check(BrinkGuard.checksJumpLanding(true, false, true, false), "every grounded take-off with jump held is checked, a held jump's second hop too");
+		check(!BrinkGuard.checksJumpLanding(true, false, false, false), "an airborne tick is no take-off");
+		check(!BrinkGuard.checksJumpLanding(true, false, true, true), "a fire-resistant body is not held");
+		check(!BrinkGuard.checksJumpLanding(false, false, true, false), "no jump, nothing to check");
+		// The first hop landed safely two cells short of the strip; the second take-off from there comes down in it.
+		Room strip = new Room();
+		for (int x = 5; x <= 7; x++) for (int z = -3; z <= 3; z++) strip.set(x, 64, z, LAVA);
+		double[] east = {1.0D, 0.0D};
+		check(LavaStep.jumpLands(strip::at, body(-1.5D, 0.5D), jumpShifts(east, true)) == null, "the first sprint hop lands on the floor");
+		check(new BlockPos(5, 64, 0).equals(LavaStep.jumpLands(strip::at, body(2.5D, 0.5D), jumpShifts(east, true))),
+				"the second take-off of the held jump toward the strip is refused");
+	}
+
+	/** Council r1 item 2: refusal, replan, then a second refusal counts only after the new plan's own keys. */
+	private static void verifySecondRefusal() {
+		int first = 100;
+		check(!ServerNavigationController.secondLavaRefusal(first + 1, -1), "the leased old keys refused on the next tick are no second refusal");
+		check(!ServerNavigationController.secondLavaRefusal(first + 3, -1), "nor is a refusal of the slide before the new plan applied keys");
+		int keys = first + 4;
+		check(!ServerNavigationController.secondLavaRefusal(keys, keys), "a refusal on the tick the new keys were applied may be of the old input");
+		check(ServerNavigationController.secondLavaRefusal(keys + 1, keys), "the new plan's keys refused at the same cell: the second refusal");
+	}
+
+	/** Council r1 item 3: the lava-fills cache is read again each frame (spread into a dry cell, then plugged). */
+	private static void verifyFrameRereadsLava() {
+		SeenNavigationVerification.World world = new SeenNavigationVerification.World();
+		var memory = new dev.agaminggod.mineagen.server.perception.SeenTerrain.Memory<BlockState>();
+		MinecraftNavigationWorld view = SeenNavigationVerification.view(world, memory, 1L);
+		GridPosition cell = new GridPosition(1, 64, 0);
+		check(!view.lavaFillsNext(cell), "a dry cell with no lava near is not filled next");
+		world.states.put(new BlockPos(2, 64, 0), LAVA);
+		view.nextFrame(new dev.agaminggod.mineagen.server.perception.SeenTerrain.Reader<>(memory, world, 2L, null));
+		check(view.lavaFillsNext(cell), "lava that spread beside it since the last frame is seen on the next");
+		world.states.put(new BlockPos(2, 64, 0), STONE);
+		view.nextFrame(new dev.agaminggod.mineagen.server.perception.SeenTerrain.Reader<>(memory, world, 3L, null));
+		check(!view.lavaFillsNext(cell), "a plugged source no longer marks the cell on the frame after");
+	}
+
+	/** Council r1 item 4: a fence post the box only clips the cell of is no wall in front of lava. */
+	private static void verifyFencePost() {
+		BlockState fence = Blocks.OAK_FENCE.defaultBlockState();
+		Room room = new Room().set(2, 64, 0, fence).set(2, 64, 1, LAVA);
+		double[] east = {1.0D, 0.0D};
+		check(new BlockPos(2, 64, 1).equals(LavaStep.refused(room::at, body(1.5D, 1.0D), WALK, 0.0D, east, ACCELERATION)),
+				"walking east past a post in the next lane's corner, into lava, is refused");
+		Room behind = new Room().set(2, 64, 0, fence).set(3, 64, 0, LAVA);
+		check(LavaStep.refused(behind::at, body(1.5D, 0.5D), WALK, 0.0D, east, ACCELERATION) == null,
+				"a post straight ahead still stops the body before lava past it");
+	}
+
+	/** Council r1 item 5: keys that brake toward lava the slide reaches anyway are kept. */
+	private static void verifyBrakingKeys() {
+		Room room = new Room().set(2, 64, 0, LAVA);
+		double fast = 0.4D;
+		double[] east = {1.0D, 0.0D}, west = {-1.0D, 0.0D};
+		check(LavaStep.refused(room::at, body(1.5D, 0.5D), fast, 0.0D, east, ACCELERATION) != null, "keys toward the lava at speed: refused");
+		check(LavaStep.refused(room::at, body(1.5D, 0.5D), fast, 0.0D, west, ACCELERATION) == null,
+				"keys braking away from the lava the slide reaches anyway are not zeroed");
+		check(LavaStep.refused(room::at, body(1.5D, 0.5D), WALK, 0.0D, new double[] {0.0D, 1.0D}, ACCELERATION) != null,
+				"a sideways key that does not brake is still refused");
+	}
+
+	/** Council r1 item 6: a walk places a seal only with its caller's permission; travel_to build:false never does. */
+	private static void verifySealPermission() {
+		java.util.function.BiPredicate<net.minecraft.server.level.ServerPlayer, BlockPos> any = (player, cell) -> true;
+		java.util.function.BiPredicate<net.minecraft.server.level.ServerPlayer, BlockPos> none = (player, cell) -> false;
+		BlockPos cell = new BlockPos(2, 64, 0);
+		check(ServerTravelController.legSealPermission(false, any) == null, "travel_to build:false gives its legs no seal permission");
+		check(ServerTravelController.legSealPermission(true, any) == any, "a building travel passes its own block policy to its legs");
+		check(ServerNavigationController.sealPermissionRefusal(null, null, cell) != null, "a walk with no permission stops with LAVA_STEP instead of placing");
+		check(ServerNavigationController.sealPermissionRefusal(none, null, cell) != null, "a protected cell is not sealed");
+		check(ServerNavigationController.sealPermissionRefusal(any, null, cell) == null, "a permitted cell may be sealed");
+	}
+
+	/** Council r1 item 7: a tunnel plug of lava beside the body backs off when no click lands within 8 ticks. */
+	private static void verifyTunnelPlugBackOff() {
+		int limit = ServerTravelController.PLUG_BESIDE_TICKS;
+		check(!ServerTravelController.plugGivesUp(true, limit, false), "lava beside the body: a few ticks to turn and click");
+		check(ServerTravelController.plugGivesUp(true, limit + 1, false), "no click by then: back off instead of standing in the flow's way");
+		check(!ServerTravelController.plugGivesUp(true, limit + 1, true), "a click landed: wait for it to take");
+		check(!ServerTravelController.plugGivesUp(false, limit + 1, false), "lava farther down the tunnel keeps the 2 s plug");
+	}
+
+	/** Council r1 item 8: every usable face in preference order (floor top, sides, ceiling). */
+	private static void verifySealFaceOrder() {
+		BlockPos lava = new BlockPos(2, 64, 0);
+		Predicate<BlockPos> floorAndWest = pos -> pos.getY() <= 63 || pos.equals(new BlockPos(1, 64, 0)) || pos.equals(new BlockPos(2, 65, 0));
+		java.util.List<Direction> faces = LavaStep.sealFaces(lava, floorAndWest);
+		check(faces.equals(java.util.List.of(Direction.UP, Direction.EAST, Direction.DOWN)), "faces in order: floor top, the side, the ceiling: " + faces);
+	}
+
+	/** Council r1 item 9: the exemption is the flow region the body stands in; a wide flow still lets it walk out. */
+	private static void verifyWideFlowEscape() {
+		Predicate<GridPosition> wide = p -> p.y() == 64 && Math.abs(p.x()) <= 3 && Math.abs(p.z()) <= 12;
+		GridPosition start = new GridPosition(0, 64, 0);
+		PathPlan out = new LocalPathfinder().findPath(flat(wide, true), start, new GridPosition(6, 64, 0));
+		check(found(out), "a body three cells deep in a flow's way walks out: " + out.outcome());
+		Predicate<GridPosition> band = p -> p.y() == 64 && p.x() == 3 && Math.abs(p.z()) <= 12;
+		Predicate<GridPosition> beyond = p -> p.y() == 64 && p.x() == 3;
+		PathPlan dry = new LocalPathfinder().findPath(flat(band, true), start, new GridPosition(6, 64, 0));
+		check(!found(dry) || !crosses(dry, beyond), "a body on dry ground never enters the flow: " + dry.outcome());
 	}
 
 	private static void check(boolean value, String reason) {

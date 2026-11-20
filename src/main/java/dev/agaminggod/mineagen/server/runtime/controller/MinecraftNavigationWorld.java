@@ -801,6 +801,8 @@ public final class MinecraftNavigationWorld implements WalkabilityView {
 		sweptJumps.clear();
 		movementSpeeds.clear();
 		exposureCosts.clear();
+		// Lava spreads and drains, and seals fill cells: what lava fills next is read again each frame.
+		lavaFillsCache.clear();
 		unknownRead = false;
 		blockedMagma = false;
 	}
