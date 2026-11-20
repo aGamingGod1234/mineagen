@@ -102,6 +102,7 @@ export class NativeToolRuntime {
 	// When each body last finished an action with nothing dispatched since: a body call arriving later reports how long
 	// the body stood still waiting for it (stoodStillMs), the cost of deciding one call at a time.
 	#bodyIdleSince = new Map();
+	#disposals = new Set();
 	#bodyDispatches = new Map();
 	#observations = new Map();
 	#portalSearches = new Map();
@@ -3311,7 +3312,14 @@ export class NativeToolRuntime {
 		return true;
 	}
 
-	async dispose(agentId, reason = 'disposed') {
+	dispose(agentId, reason = 'disposed') {
+		const disposal = this.#disposeOnce(agentId, reason);
+		this.#disposals.add(disposal);
+		disposal.then(() => this.#disposals.delete(disposal), () => this.#disposals.delete(disposal));
+		return disposal;
+	}
+
+	async #disposeOnce(agentId, reason) {
 		this.#obtainPlaced.get(agentId)?.approaches.splice(0);
 		this.#executionEpochs.set(agentId, this.#executionEpoch(agentId) + 1);
 		const spatialWrites = this.#spatialWrites.get(agentId) ?? 0;
@@ -3422,6 +3430,9 @@ export class NativeToolRuntime {
 			...this.#lastLive.keys(),
 		]);
 		await Promise.allSettled([...agentIds].map((agentId) => this.dispose(agentId, reason)));
+		// A dispose started earlier without a waiter (a lease expiry) has already cleared the maps above but may still be
+		// writing spatial memory; shutdown must not report done while it writes.
+		await Promise.allSettled([...this.#disposals]);
 		if (FORGET_REASONS.test(String(reason))) this.#recovery.clear();
 	}
 
