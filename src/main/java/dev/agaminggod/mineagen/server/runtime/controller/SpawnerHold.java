@@ -11,8 +11,8 @@ import net.minecraft.core.Direction;
  * of 28 deaths to wither skeletons on open decks, not to the blaze fight.
  */
 public final class SpawnerHold {
-	/** Fixture A/B switch (-Dmineagen.fight.spawnerHold=false); on by default. */
-	public static final boolean ENABLED = !"false".equals(System.getProperty("mineagen.fight.spawnerHold"));
+	/** Off until live runs pass the rods bar; fixtures turn it on with -Dmineagen.fight.spawnerHold=true. */
+	public static final boolean ENABLED = "true".equals(System.getProperty("mineagen.fight.spawnerHold"));
 	/** A seen fortress spawner within this many blocks of the body starts a hold. */
 	public static final double SCAN = 24.0D;
 	/** The cell stands this far (horizontal) from the spawner: a vanilla spawner runs only with a player within 16. */
