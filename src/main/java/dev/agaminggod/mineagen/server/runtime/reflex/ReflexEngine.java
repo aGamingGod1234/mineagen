@@ -398,8 +398,8 @@ public final class ReflexEngine {
 		ObservationVisibility.Frame frame = ObservationVisibility.frame(player.level(), player);
 		boolean cornered = active != null && active.type() == ActionType.FLEE_FROM
 				&& dev.agaminggod.mineagen.server.runtime.controller.CorneredStand.standing(player)
-				// A blaze spawner hold in its roofed cell is already the cover a retreat would look for: running out of it
-				// onto the fortress floor is what wither skeletons kill (the hold hands back at its own health floor).
+				// A blaze spawner hold owns the body for its whole run: its roofed cell is the cover a retreat would look for,
+				// it heals there, and rod trips turn back to it when hurt. Running out onto the fortress floor is what kills.
 				|| active != null && active.type() == ActionType.FIGHT_UNTIL
 				&& dev.agaminggod.mineagen.server.runtime.controller.ServerSpawnerHoldController.holding(player);
 		boolean firingBlocksShots = agent.scheduler.current() != null && agent.behaviour != null && agent.behaviour.blocksShots();

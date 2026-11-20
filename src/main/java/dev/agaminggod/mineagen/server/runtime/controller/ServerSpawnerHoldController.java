@@ -72,6 +72,10 @@ public final class ServerSpawnerHoldController implements ServerController {
 	private final Map<String, Integer> engineEnds = new LinkedHashMap<>();
 	/** Hits taken, by damage kind and where the body was (in the cell, or the phase and a rod trip). */
 	private final Map<String, Integer> hurts = new LinkedHashMap<>();
+	/** Health lost, by the last damage kind and where the body was: hit counts alone hid which hits cost health. */
+	private final Map<String, Float> lost = new LinkedHashMap<>();
+	private float lastHealth = -1.0F;
+	private int turtleTicks, blockingTicks;
 	private final List<String> log = new ArrayList<>();
 	private final long[] witherHits = new long[SpawnerHold.BREACH_HITS];
 	private Phase phase = Phase.SITE;
@@ -140,7 +144,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 		return best;
 	}
 
-	/** True while this body fights from its finished hold cell. */
+	/** True while a spawner hold owns this body (its whole run, not only in the cell): back-off reflexes stand aside. */
 	public static boolean holding(ServerPlayer player) {
 		return HOLDING.contains(player.getUUID());
 	}
@@ -161,8 +165,9 @@ public final class ServerSpawnerHoldController implements ServerController {
 		if (!HazardExits.fireResistant(player) && HazardExits.contact(player) == HazardExits.Contact.LAVA)
 			return stop(player, TickResult.failed("IN_LAVA", "Lava contact during the spawner hold", progress(player)));
 		boolean inCell = cell != null && phase == Phase.HOLD && player.blockPosition().equals(cell);
-		if (inCell && collector == null && !returning) HOLDING.add(player.getUUID());
-		else HOLDING.remove(player.getUUID());
+		// The hold owns the body from its first tick to its hand-back: site walk, build, rod trips and the walk back
+		// included. Round 1 lost 3 of 4 deaths to default take-cover pausing the hold outside the cell and walking off.
+		HOLDING.add(player.getUUID());
 		senseHits(player, inCell);
 		if (blazeSeen(player)) lastBlazeMs = elapsed;
 		var seenSpawner = SeenTerrain.of(player).known(spawner.getX(), spawner.getY(), spawner.getZ());
@@ -324,11 +329,19 @@ public final class ServerSpawnerHoldController implements ServerController {
 	}
 
 	private TickResult hold(ServerPlayer player, long now, long elapsed, boolean inCell) {
+		if (collector != null && SpawnerHold.backToCell(player.getHealth())) {
+			collector.cancel(player);
+			collector = null;
+			returning = true;
+			note(String.format(Locale.ROOT, "health %.1f on a rod trip: back to the cell", player.getHealth()));
+		}
 		if (collector != null || returning) return collect(player, now);
 		if (eatTicks >= 0) return eat(player);
 		boolean shot = ReflexSensors.blockableShot(player, 1.5D) != null;
 		boolean turtling = SpawnerHold.turtle(inCell, player.getHealth(), turtleSinceMs, elapsed);
 		if (turtling) {
+			turtleTicks++;
+			if (player.isBlocking()) blockingTicks++;
 			if (turtleSinceMs < 0L) {
 				stopEngine(player);
 				turtleSinceMs = elapsed;
@@ -367,7 +380,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 			}
 		}
 		outOfCellTicks = inCell ? 0 : outOfCellTicks + 1;
-		if (outOfCellTicks > OUT_OF_CELL_TICKS) {
+		if (outOfCellTicks > OUT_OF_CELL_TICKS || !inCell && SpawnerHold.backToCell(player.getHealth())) {
 			stopEngine(player);
 			returning = true;
 			return collect(player, now);
@@ -516,11 +529,17 @@ public final class ServerSpawnerHoldController implements ServerController {
 	}
 
 	private void senseHits(ServerPlayer player, boolean inCell) {
+		String where = inCell ? " cell" : " " + phase.name().toLowerCase(Locale.ROOT) + (collector != null || returning ? " trip" : "");
 		if (player.hurtTime > lastHurtTime) {
 			var source = player.getLastDamageSource();
-			hurts.merge((source == null ? "unknown" : source.getMsgId()) + (inCell ? " cell" : " " + phase.name().toLowerCase(Locale.ROOT)
-					+ (collector != null || returning ? " trip" : "")), 1, Integer::sum);
+			hurts.merge((source == null ? "unknown" : source.getMsgId()) + where, 1, Integer::sum);
 		}
+		float health = player.getHealth();
+		if (lastHealth >= 0.0F && health < lastHealth) {
+			var source = player.getLastDamageSource();
+			lost.merge((source == null ? "unknown" : source.getMsgId()) + where, lastHealth - health, Float::sum);
+		}
+		lastHealth = health;
 		if (player.hurtTime > lastHurtTime && inCell && player.getLastHurtByMob() != null
 				&& player.getLastHurtByMob().getType() == McEntityTypes.WITHER_SKELETON) {
 			System.arraycopy(witherHits, 0, witherHits, 1, witherHits.length - 1);
@@ -606,10 +625,16 @@ public final class ServerSpawnerHoldController implements ServerController {
 
 	private String summary(ServerPlayer player, long elapsed) {
 		int held = ServerFightUntilController.count(player, untilItem);
-		return String.format(Locale.ROOT, "spawner hold at %s: cell %s, %d site%s failed, %d build%s; %+d %s in %.0f s; %d engine run%s %s; %d rod trip%s; %d meal%s; %d defend%s; %d shield heal%s; hurts %s%s",
+		return String.format(Locale.ROOT, "spawner hold at %s: cell %s, %d site%s failed, %d build%s; %+d %s in %.0f s; %d engine run%s %s; %d rod trip%s; %d meal%s; %d defend%s; %d shield heal%s (shield up %d of %d ticks); hurts %s; health lost %s%s",
 				spawner.toShortString(), cell == null ? "none" : cell.toShortString(), sitesFailed, sitesFailed == 1 ? "" : "s", builds, builds == 1 ? "" : "s",
 				held - Math.max(0, startHeld), untilItemId, elapsed / 1000.0D, engineRuns, engineRuns == 1 ? "" : "s", engineEnds, trips, trips == 1 ? "" : "s",
-				meals, meals == 1 ? "" : "s", defends, defends == 1 ? "" : "s", turtles, turtles == 1 ? "" : "s", hurts, log.isEmpty() ? "" : "; log: " + String.join(" | ", log.subList(Math.max(0, log.size() - 6), log.size())));
+				meals, meals == 1 ? "" : "s", defends, defends == 1 ? "" : "s", turtles, turtles == 1 ? "" : "s", blockingTicks, turtleTicks, hurts, lostText(), log.isEmpty() ? "" : "; log: " + String.join(" | ", log.subList(Math.max(0, log.size() - 6), log.size())));
+	}
+
+	private String lostText() {
+		StringBuilder text = new StringBuilder("{");
+		lost.forEach((key, value) -> text.append(text.length() > 1 ? ", " : "").append(key).append('=').append(String.format(Locale.ROOT, "%.1f", value)));
+		return text.append('}').toString();
 	}
 
 	private void note(String line) {
@@ -633,7 +658,6 @@ public final class ServerSpawnerHoldController implements ServerController {
 	}
 
 	private void cancelParts(ServerPlayer player) {
-		HOLDING.remove(player.getUUID());
 		if (defend != null) { defend.cancel(player); defend = null; }
 		stopEngine(player);
 		cancelWalk(player);
@@ -646,6 +670,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 	}
 
 	private TickResult stop(ServerPlayer player, TickResult result) {
+		HOLDING.remove(player.getUUID());
 		cancelParts(player);
 		finished = result;
 		return result;
@@ -653,6 +678,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 
 	@Override
 	public void cancel(ServerPlayer player) {
+		HOLDING.remove(player.getUUID());
 		cancelParts(player);
 	}
 }

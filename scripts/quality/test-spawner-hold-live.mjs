@@ -20,6 +20,7 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { boot, fixtureTickRate } from './watch-replay.mjs';
+import { MOD_JAR } from './mod-jar.mjs';
 import { ReflexBook } from '../../coordinator/src/reflexes.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 
@@ -30,7 +31,7 @@ if (cli.includes('--help')) { console.log(USAGE + '\n' + EDIT_LOOP_HELP + '\n' +
 const out = path.resolve(cli[0] ?? 'runtime/spawner-hold-live');
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port = Number(process.env.SLOT_PORT_BASE);
 if (!template || !port || !process.env.JAVA_HOME) { console.error(USAGE); process.exit(2); }
-const jar = path.resolve(process.env.ARENA_JAR ?? path.join(root, 'build/libs/mineagen-0.2.0.jar'));
+const jar = path.resolve(process.env.ARENA_JAR ?? path.join(root, MOD_JAR));
 if (!existsSync(jar)) { console.error(`no jar at ${jar}`); process.exit(2); }
 const SEEDS = (process.env.SEEDS ?? '20261119,20261120,20261121,20261122').split(',');
 const VARIANTS = (process.env.VARIANTS ?? 'plain,withers').split(',');

@@ -65,8 +65,12 @@ public final class SpawnerHoldVerification {
 		check(SpawnerHold.handBack(calm()) == null, "a calm hold holds on");
 		check("UNTIL_COUNT_REACHED".equals(SpawnerHold.handBack(sense(7, 20.0F, 20, true, 60_000L, false, 0L, true, 0, false, false))), "H1 rod count reached");
 		check("UNTIL_COUNT_REACHED".equals(SpawnerHold.handBack(sense(7, 3.0F, 2, false, 700_000L, true, 999_999L, true, 3, true, true))), "H1 wins over every stop");
-		check("LOW_HEALTH_BAILOUT".equals(SpawnerHold.handBack(sense(2, 6.0F, 20, true, 60_000L, false, 0L, true, 0, false, false))), "H2 health floor");
-		check(SpawnerHold.handBack(sense(2, 6.5F, 20, true, 60_000L, false, 0L, true, 0, false, false)) == null, "H2 only at or below the floor");
+		check("LOW_HEALTH_BAILOUT".equals(SpawnerHold.handBack(sense(2, 6.0F, 20, true, 60_000L, false, 0L, false, 0, false, false))), "H2 health floor before the cell stands");
+		check(SpawnerHold.handBack(sense(2, 6.5F, 20, true, 60_000L, false, 0L, false, 0, false, false)) == null, "H2 only at or below the floor");
+		check(SpawnerHold.handBack(sense(2, 3.0F, 20, true, 60_000L, false, 0L, true, 0, false, false)) == null, "H2 once the cell stands the body heals in it, no hand-back");
+		check(SpawnerHold.turtle(true, 5.0F, 0L, SpawnerHold.TURTLE_MS * 3), "below the turtle health the shield heal does not stop for time");
+		check(!SpawnerHold.turtle(true, 15.0F, 0L, SpawnerHold.TURTLE_MS), "above it the shield heal stops at its time cap");
+		check(SpawnerHold.backToCell(11.0F) && !SpawnerHold.backToCell(12.0F), "a rod trip turns back to the cell below 12 health");
 		check("OUT_OF_FOOD".equals(SpawnerHold.handBack(sense(2, 12.0F, 10, false, 60_000L, false, 0L, true, 0, false, false))), "H3 hurt, hungry, no food");
 		check(SpawnerHold.handBack(sense(2, 12.0F, 10, true, 60_000L, false, 0L, true, 0, false, false)) == null, "H3 not with food left (the hold eats)");
 		check(SpawnerHold.handBack(sense(2, 20.0F, 10, false, 60_000L, false, 0L, true, 0, false, false)) == null, "H3 not at full health");
@@ -79,13 +83,14 @@ public final class SpawnerHoldVerification {
 		check(SpawnerHold.handBack(sense(2, 20.0F, 20, true, 200_000L, false, SpawnerHold.QUIET_MS, false, 0, false, false)) == null, "H7 only counts in the cell (not while walking or building)");
 		check(SpawnerHold.QUIET_MS > 40_000L + ServerFightUntilController.NO_TARGET_MS, "H7 outlasts a vanilla spawner's longest delay (40 s) plus the engine's no-target wait");
 		check("HOLD_BREACHED".equals(SpawnerHold.handBack(sense(2, 20.0F, 20, true, 60_000L, false, 0L, true, 0, false, true))), "H10 wither hits inside the cell");
-		check("LOW_HEALTH_BAILOUT".equals(SpawnerHold.handBack(sense(2, 5.0F, 20, true, 60_000L, true, 0L, true, 0, false, true))), "the body's floor comes before the spawner and the breach");
+		check("LOW_HEALTH_BAILOUT".equals(SpawnerHold.handBack(sense(2, 5.0F, 20, true, 60_000L, true, 0L, false, 0, false, true))), "the body's floor comes before the spawner and the breach");
+		check("HOLD_BREACHED".equals(SpawnerHold.handBack(sense(2, 5.0F, 20, true, 60_000L, true, 0L, true, 0, false, true))), "in the cell a breach still hands back at low health");
 	}
 
 	private static void verifyEngineEnds() {
-		for (String stop : new String[] {"UNTIL_COUNT_REACHED", "AGENT_DEAD", "IN_LAVA", "LOW_HEALTH_BAILOUT", "FIGHT_UNTIL_TIMED_OUT"})
+		for (String stop : new String[] {"UNTIL_COUNT_REACHED", "AGENT_DEAD", "IN_LAVA", "FIGHT_UNTIL_TIMED_OUT"})
 			check(stop.equals(SpawnerHold.engineEnd(stop)), "H9 the engine's " + stop + " hands the hold back");
-		for (String restart : new String[] {"NO_TARGET_SEEN", "AREA_CLEARED", "TARGET_OUT_OF_REACH", "TARGET_NOT_VISIBLE", "PATH_BLOCKED"})
+		for (String restart : new String[] {"NO_TARGET_SEEN", "AREA_CLEARED", "TARGET_OUT_OF_REACH", "TARGET_NOT_VISIBLE", "PATH_BLOCKED", "LOW_HEALTH_BAILOUT"})
 			check(SpawnerHold.engineEnd(restart) == null, "the engine's " + restart + " restarts it in the cell");
 	}
 

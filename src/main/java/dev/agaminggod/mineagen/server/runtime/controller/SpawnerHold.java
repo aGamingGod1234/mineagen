@@ -102,11 +102,19 @@ public final class SpawnerHold {
 		return hunger < EAT_HUNGER || health < EAT_HEALTH && hunger < 20;
 	}
 
-	/** Whether the body takes cover behind its shield now, or (when turtling since sinceMs) keeps doing so. */
+	/**
+	 * Whether the body takes cover behind its shield now, or (when turtling since sinceMs) keeps doing so. Below
+	 * TURTLE_HEALTH it never stops for time: the cell is where it heals, with no hand-back at the health floor.
+	 */
 	static boolean turtle(boolean inCell, float health, long sinceMs, long elapsedMs) {
 		if (!inCell) return false;
 		if (sinceMs < 0L) return health < TURTLE_HEALTH;
-		return health < TURTLE_DONE && elapsedMs - sinceMs < TURTLE_MS;
+		return health < TURTLE_HEALTH || health < TURTLE_DONE && elapsedMs - sinceMs < TURTLE_MS;
+	}
+
+	/** A rod trip (or any step out of the cell) turns back to the cell below this health: the cell is where it heals. */
+	static boolean backToCell(float health) {
+		return health < TURTLE_HEALTH;
 	}
 
 	/** Two wither skeleton hits inside the cell within the window: the doorway does not keep them out here. */
@@ -123,11 +131,14 @@ public final class SpawnerHold {
 
 	/**
 	 * The hand-back code, or null to hold on. Order: success first, then the body's own safety, then the spawner, then
-	 * time. AGENT_DEAD and IN_LAVA are checked by the controller before this (they need no sensing).
+	 * time. AGENT_DEAD and IN_LAVA are checked by the controller before this (they need no sensing). The health floor
+	 * hands back only before the cell stands: once it does (inCell, the hold phase) the body heals in it behind its shield,
+	 * because after a hand-back no action holds the body and the back-off reflexes walked it out to die (round 1: 3 of 4
+	 * deaths).
 	 */
 	static String handBack(Sense s) {
 		if (s.held() >= s.untilCount()) return "UNTIL_COUNT_REACHED";
-		if (s.health() <= s.fleeAtHealth()) return "LOW_HEALTH_BAILOUT";
+		if (!s.inCell() && s.health() <= s.fleeAtHealth()) return "LOW_HEALTH_BAILOUT";
 		if (s.breached()) return "HOLD_BREACHED";
 		if (!s.hasFood() && s.hunger() < EAT_HUNGER && s.health() < EAT_HEALTH) return "OUT_OF_FOOD";
 		if (s.spawnerGone()) return "SPAWNER_GONE";
@@ -139,7 +150,8 @@ public final class SpawnerHold {
 
 	/**
 	 * What an engine hand-back inside the cell means: the hold's own stop (its code) or null to restart the engine in the
-	 * cell. The engine's danger stops hand back; its no-target, out-of-reach and failure stops restart it.
+	 * cell. The engine's danger stops hand back; its no-target, out-of-reach and failure stops restart it, and so does its
+	 * low-health stop (the hold heals in the cell instead).
 	 */
 	static String engineEnd(String code) {
 		return ENGINE_STOPS.contains(code) ? code : null;
@@ -147,5 +159,5 @@ public final class SpawnerHold {
 
 	/** The engine's own stops the hold passes on unchanged (each is produced and catalogued at the engine). */
 	private static final java.util.Set<String> ENGINE_STOPS = java.util.Set.of("UNTIL_COUNT_REACHED", "AGENT_DEAD", "IN_LAVA",
-			"LOW_HEALTH_BAILOUT", "FIGHT_UNTIL_TIMED_OUT");
+			"FIGHT_UNTIL_TIMED_OUT");
 }

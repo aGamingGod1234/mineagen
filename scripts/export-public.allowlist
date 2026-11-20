@@ -182,6 +182,7 @@ coordinator/src/file-turns.mjs
 coordinator/src/find-eyes.mjs
 coordinator/src/find-portal-room.mjs
 coordinator/src/find-search.mjs
+coordinator/src/fortress-approach.mjs
 coordinator/src/goal-spec-translator.mjs
 coordinator/src/goal-spec.mjs
 coordinator/src/gold-source-facts.mjs
@@ -284,6 +285,7 @@ coordinator/src/simulator/virtual-world.mjs
 coordinator/src/situation-changes.mjs
 coordinator/src/situation-facts.mjs
 coordinator/src/skill-fits.mjs
+coordinator/src/spawner-hold.mjs
 coordinator/src/standing-orders.mjs
 coordinator/src/standing-templates.mjs
 coordinator/src/step-progress.mjs
@@ -556,6 +558,7 @@ coordinator/test/fixtures/virtual-clock.mjs
 coordinator/test/fixtures/watch/run-a/arena-watch/agent-a-episodes.jsonl
 coordinator/test/fixtures/watch/run-a/arena-watch/agent-a-forecasts.jsonl
 coordinator/test/fixtures/watch/run-b/server/arena-watch/agent-b-episodes.jsonl
+coordinator/test/fortress-approach.test.mjs
 coordinator/test/fortress-gold-route.test.mjs
 coordinator/test/furnace-parity.test.mjs
 coordinator/test/g01-finding-regressions.test.mjs
@@ -1068,6 +1071,7 @@ scripts/quality/test-shelter-live.mjs
 scripts/quality/test-shelter-ranged-live.mjs
 scripts/quality/test-shelter-repair-live.mjs
 scripts/quality/test-shelter-terrain-live.mjs
+scripts/quality/test-spawner-hold-live.mjs
 scripts/quality/test-travel-live.mjs
 scripts/quality/test-travel-resume-live.mjs
 scripts/quality/test-warped-pearl-live.mjs
@@ -1686,8 +1690,10 @@ src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerRangedVoll
 src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerRestController.java
 src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerRetraceController.java
 src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerShelterController.java
+src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerSpawnerHoldController.java
 src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerTravelController.java
 src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerVeinController.java
+src/main/java/dev/agaminggod/mineagen/server/runtime/controller/SpawnerHold.java
 src/main/java/dev/agaminggod/mineagen/server/runtime/controller/SwimPlanning.java
 src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ThrowPreview.java
 src/main/java/dev/agaminggod/mineagen/server/runtime/controller/TravelBuilder.java
@@ -2055,6 +2061,7 @@ src/test/java/dev/agaminggod/mineagen/server/runtime/controller/ServerFlightCont
 src/test/java/dev/agaminggod/mineagen/server/runtime/controller/ServerPathPlannerVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/controller/ShelterPlanVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/controller/SnowNavigationVerification.java
+src/test/java/dev/agaminggod/mineagen/server/runtime/controller/SpawnerHoldVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/controller/SurvivalReflexVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/controller/SwimOutVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/controller/ThrowPreviewVerification.java
@@ -2152,6 +2159,7 @@ scripts/tests/public-test-scope.test.mjs
 # Export projection: public CI omits private Git-baseline fetches.
 coordinator/scripts/private-inputs.mjs
 coordinator/test/helpers/provider-stall.mjs
+coordinator/test/spawner-hold.test.mjs
 scripts/tests/private-inputs.test.mjs
 src/test/java/dev/agaminggod/mineagen/server/RemovedWorldDataVerification.java
 src/main/java/dev/agaminggod/mineagen/server/voice/VoiceAudienceDelivery.java
