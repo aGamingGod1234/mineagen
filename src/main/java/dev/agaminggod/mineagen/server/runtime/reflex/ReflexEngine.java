@@ -195,6 +195,25 @@ public final class ReflexEngine {
 	/** Coordinator defaults that exist only in the End (the coordinator arms them there; see reflexes.mjs DIMENSION_REFLEXES). */
 	static final Set<String> END_DEFAULTS = Set.of("default-breath", "default-end-throw");
 
+	/** The scheduler's End-only rules, blocked while the body is outside the End. */
+	static Set<String> endOnlyIds(ReflexScheduler scheduler) {
+		Set<String> ids = new LinkedHashSet<>();
+		for (String id : scheduler.ids()) if (endOnly(scheduler.rule(id))) ids.add(id);
+		return ids;
+	}
+
+	/** The reflex lease (taken if needed) holding still input over the body: no forward, strafe, sprint, jump or use. */
+	static InputLease holdStill(LeasedServerInputController controller, AgentId agentId, InputLease lease, float yaw, float pitch, int slot) {
+		InputLease held = lease != null ? lease : controller.acquire(agentId, InputOwner.REFLEX, INPUT_PRIORITY);
+		try {
+			controller.apply(held, AgentInputState.idle(yaw, pitch, slot));
+		} catch (LeasedServerInputController.StaleInputLeaseException cleared) {
+			held = controller.acquire(agentId, InputOwner.REFLEX, INPUT_PRIORITY);
+			controller.apply(held, AgentInputState.idle(yaw, pitch, slot));
+		}
+		return held;
+	}
+
 	/** An End-only coordinator default: it neither fires nor keeps running outside the End. */
 	static boolean endOnly(ReflexSpec.Rule rule) {
 		return rule != null && rule.coordinatorDefault() && END_DEFAULTS.contains(rule.id());
@@ -423,6 +442,7 @@ public final class ReflexEngine {
 		// The End's own defaults stop the tick the body leaves the End, before the coordinator's next rule update.
 		ReflexScheduler.Firing running = agent.scheduler.current();
 		if (running != null && !inEnd && endOnly(agent.scheduler.rule(running.ruleId()))) end(agentId, agent, agent.scheduler.interrupt(now, "left the End"));
+		agent.scheduler.block(inEnd ? Set.of() : endOnlyIds(agent.scheduler));
 		ObservationVisibility.Frame frame = ObservationVisibility.frame(player.level(), player);
 		boolean cornered = active != null && active.type() == ActionType.FLEE_FROM
 				&& dev.agaminggod.mineagen.server.runtime.controller.CorneredStand.standing(player);
@@ -511,7 +531,18 @@ public final class ReflexEngine {
 			changed.add(agentId);
 		}
 		end(agentId, agent, corneredHandBack(agent.scheduler, agent.command, active != null, now));
-		if (agent.scheduler.current() == null) return holdsCommandBetweenFirings(agent.scheduler, active != null);
+		if (agent.scheduler.current() == null) {
+			// Between two breath runs a waiting command stays paused and the reflex lease holds still input, so the command's
+			// last forward/sprint/jump does not replay into the cloud; with nothing owed the lease goes.
+			if (holdsCommandBetweenFirings(agent.scheduler, active != null)) {
+				if (agent.controller == null) agent.controller = AgentInputRuntime.controller(player);
+				agent.lease = holdStill(agent.controller, agentId, agent.lease, player.getYRot(), player.getXRot(), player.getInventory().getSelectedSlot());
+				agent.controller.renew(agentId);
+				return true;
+			}
+			release(agentId, agent, false);
+			return false;
+		}
 		boolean passes = passesThrough(agent, active);
 		if (passes && fightShield(player, active) && agent.behaviour.defersToFight()) {
 			// The fight raises the shield itself between swings; a reflex lease over it would block every swing.

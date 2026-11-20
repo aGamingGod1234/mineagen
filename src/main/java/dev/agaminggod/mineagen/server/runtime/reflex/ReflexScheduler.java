@@ -496,9 +496,30 @@ public final class ReflexScheduler {
 		}
 	}
 
-	/** A model command waits under a floor firing (kept through its yield), also in the gap between two of its firings. */
+	/**
+	 * A breath floor ({@link #CORNERED_RELEASE}) still in its hazard owes the next run: a command, however it arrived, waits in
+	 * the gap between two of its firings. Other floors (lava) keep main's behaviour: a waiting command runs in their cooldown.
+	 */
 	public boolean holdsWaitingCommand() {
-		return deferredYield != null;
+		for (State state : states.values()) {
+			if (state.releasesCornered && state.lastTruth && !state.yieldedTrigger && state.disabledReason == null && !blocked.contains(state.rule.id())) return true;
+		}
+		return false;
+	}
+
+	/** Rules that must not fire now whatever their condition (an End default outside the End); see {@link #block}. */
+	private Set<String> blocked = Set.of();
+
+	/**
+	 * Rules that must not fire from now on: their queued edges are dropped and they are left out of selection until the set
+	 * changes (the End's defaults the tick the body leaves the End, before the coordinator removes them).
+	 */
+	public void block(Set<String> ruleIds) {
+		blocked = Set.copyOf(ruleIds);
+		for (String id : blocked) {
+			State state = states.get(id);
+			if (state != null) state.pendingUntil = -1L;
+		}
 	}
 
 	/** A cornered floor rule, still in its hazard, that has not yet given the body to a command. */
@@ -561,7 +582,7 @@ public final class ReflexScheduler {
 	}
 
 	private boolean ready(State state, long now) {
-		if (state.disabledReason != null || now < state.cooldownUntil || state.heldBack || heldNow.containsKey(state.rule.id())) return false;
+		if (state.disabledReason != null || now < state.cooldownUntil || state.heldBack || heldNow.containsKey(state.rule.id()) || blocked.contains(state.rule.id())) return false;
 		if (current != null && current.ruleId().equals(state.rule.id())) return false;
 		if (state.rule.maxFirings() > 0 && state.fired >= state.rule.maxFirings()) return false;
 		// A floor trigger is level-triggered: ready whenever its hazard holds, unless a settled firing of it yielded.

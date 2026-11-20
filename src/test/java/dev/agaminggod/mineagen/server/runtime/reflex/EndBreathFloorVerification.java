@@ -36,6 +36,9 @@ public final class EndBreathFloorVerification {
 		failedRunWaitsItsCooldown(end);
 		corneredBreathHandsARunningCommandTheBody(end);
 		endDefaultsAreEndOnly(end);
+		gapHoldsStillInputOverTheCommand();
+		lavaFloorStillGivesACommandItsCooldown();
+		blockedEndDefaultsNeverFire(end);
 		breathStaysArmedAtTheLoopLimits(end);
 		return assertions;
 	}
@@ -270,6 +273,71 @@ public final class EndBreathFloorVerification {
 		ReflexSpec.Rule model = rule("{\"id\":\"default-breath\",\"priority\":9,\"when\":{\"type\":\"cloud_near\",\"within\":1},\"do\":{\"type\":\"sprint_away\",\"blocks\":10}}");
 		check(!ReflexEngine.endOnly(model), "a model rule with the same id is the model's: not gated by dimension");
 		check(!ReflexEngine.endOnly(null), "no rule is not End-only");
+	}
+
+	/** Council R2: in the gap the input that wins is the reflex lease's still input, not the command's last forward/sprint/jump. */
+	private static void gapHoldsStillInputOverTheCommand() {
+		dev.agaminggod.mineagen.agent.AgentId agent = new dev.agaminggod.mineagen.agent.AgentId(java.util.UUID.fromString("00000000-0000-0000-0000-00000000e2d2"));
+		dev.agaminggod.mineagen.server.runtime.input.LeasedServerInputController controller =
+				new dev.agaminggod.mineagen.server.runtime.input.LeasedServerInputController(new dev.agaminggod.mineagen.server.runtime.input.InputStateSink() {
+					@Override public void apply(dev.agaminggod.mineagen.agent.AgentId id, dev.agaminggod.mineagen.server.runtime.input.AgentInputState previous,
+							dev.agaminggod.mineagen.server.runtime.input.AgentInputState state) { }
+					@Override public void clear(dev.agaminggod.mineagen.agent.AgentId id, dev.agaminggod.mineagen.server.runtime.input.AgentInputState previous) { }
+				});
+		dev.agaminggod.mineagen.server.runtime.input.InputLease command = controller.acquire(agent, dev.agaminggod.mineagen.server.runtime.input.InputOwner.NAVIGATION, 100);
+		controller.apply(command, new dev.agaminggod.mineagen.server.runtime.input.AgentInputState(1.0F, 0.0F, true, false, true, false, false, 90.0F, 0.0F, 0, net.minecraft.world.InteractionHand.MAIN_HAND));
+		check(controller.currentState(agent).orElseThrow().forward() == 1.0F, "the command's travel input drives the body");
+		dev.agaminggod.mineagen.server.runtime.input.InputLease held = ReflexEngine.holdStill(controller, agent, null, 90.0F, 0.0F, 0);
+		var winning = controller.currentState(agent).orElseThrow();
+		check(winning.forward() == 0.0F && winning.strafe() == 0.0F && !winning.sprint() && !winning.jump() && !winning.use(), "in the gap the winning input is still");
+		check(ReflexEngine.holdStill(controller, agent, held, 90.0F, 0.0F, 0) == held, "the same lease holds through the gap");
+		controller.release(held);
+		check(controller.currentState(agent).orElseThrow().forward() == 1.0F, "released: the command's input drives again");
+	}
+
+	/** Council R2 (regression guard): only the breath floor holds a command in its gap; a failing lava floor does not, as on main. */
+	private static void lavaFloorStillGivesACommandItsCooldown() {
+		List<ReflexSpec.Rule> defaults;
+		try {
+			defaults = ReflexSpec.parseRules(JsonParser.parseString(java.nio.file.Files.readString(
+					java.nio.file.Path.of("src/test/resources/default-reflex-rules.json"))).getAsJsonArray());
+		} catch (java.io.IOException failure) {
+			throw new java.io.UncheckedIOException(failure);
+		}
+		ReflexSpec.Rule lava = named(defaults, "default-lava");
+		check(ReflexScheduler.floor(lava), "default-lava is a floor");
+		ReflexScheduler scheduler = new ReflexScheduler();
+		scheduler.replace(List.of(lava), 0L);
+		Map<String, ReflexScheduler.Sense> inLava = Map.of("default-lava", new ReflexScheduler.Sense(true, false));
+		check("default-lava".equals(scheduler.step(1L, inLava, RUNNING, "", false).started()), "lava fires");
+		check(scheduler.yield(2L).ended() == null, "a command waits under the lava floor");
+		ReflexScheduler.Decision failed = scheduler.step(3L, inLava, FAILED, "no way out", false);
+		check(failed.endOutcome() == ReflexScheduler.Outcome.FAILED && scheduler.current() == null, "the lava run failed and waits its cooldown");
+		check(!scheduler.holdsWaitingCommand() && !ReflexEngine.holdsCommandBetweenFirings(scheduler, true), "the command runs in the lava floor's cooldown, as on main");
+	}
+
+	/** Council R2: outside the End, a blocked End default never fires, even with a queued edge and the coordinator's removal late. */
+	private static void blockedEndDefaultsNeverFire(List<ReflexSpec.Rule> end) {
+		ReflexScheduler scheduler = new ReflexScheduler();
+		scheduler.replace(end, 0L);
+		check(BREATH.equals(step(scheduler, 1L, true, RUNNING).started()), "breath fires in the End");
+		// The body leaves the End mid-firing: the engine interrupts the firing and blocks the End's rules.
+		check(scheduler.interrupt(2L, "left the End").endOutcome() == ReflexScheduler.Outcome.YIELDED, "the running End default stops");
+		scheduler.block(ReflexEngine.endOnlyIds(scheduler));
+		check(ReflexEngine.endOnlyIds(scheduler).equals(java.util.Set.of(BREATH, "default-end-throw")), "both End defaults are blocked");
+		// The sense still reads true for a while (a cloud carried over, the coordinator's removal not here yet).
+		for (long tick = 3L; tick < 60L; tick++) check(step(scheduler, tick, true, RUNNING).started() == null, "blocked: no firing at tick " + tick);
+		check(!scheduler.holdsWaitingCommand(), "blocked: no command is held");
+		// A queued edge from before the block is dropped.
+		ReflexScheduler edged = new ReflexScheduler();
+		edged.replace(end, 0L);
+		step(edged, 1L, false, RUNNING);
+		edged.block(java.util.Set.of(BREATH));
+		check(step(edged, 2L, true, RUNNING).started() == null, "a new edge while blocked does not fire");
+		edged.block(ReflexEngine.endOnlyIds(edged));
+		for (long tick = 3L; tick < 30L; tick++) check(step(edged, tick, true, RUNNING).started() == null, "the queued edge never fires while blocked");
+		edged.block(java.util.Set.of());
+		check(BREATH.equals(step(edged, 30L, true, RUNNING).started()), "back in the End it fires again");
 	}
 
 	/** Loop limits wake the model once per crossing but never switch the breath floor off. */
