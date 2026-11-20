@@ -11,7 +11,7 @@ const measured = value => Number.isFinite(value) && value >= 0;
 
 function familyOf(kind, hasPostAction, success) {
 	if (success === false) return 'error';
-	if (kind === 'sequence' || kind === 'gather' || kind === 'find' || kind === 'obtain') return 'sequence';
+	if (kind === 'sequence' || kind === 'gather' || kind === 'find' || kind === 'obtain' || kind === 'surface') return 'sequence';
 	if (kind === 'observe') return 'observation';
 	if (['action', 'start_action', 'replace_action', 'action_status', 'cancel_action'].includes(kind)) return hasPostAction === true ? 'action_post_observation' : 'action';
 	if (PROGRAM_KINDS.has(kind)) return 'program';

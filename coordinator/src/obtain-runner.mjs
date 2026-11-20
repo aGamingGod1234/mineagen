@@ -12,6 +12,7 @@ import { DAMAGE_STOPS, FIGHT_STOPS, DISCARD, LIFE_SAFETY_STOPS, MAX_FIND_TIMEOUT
 import { threatRows, blazeBlocksErrand } from './search-danger.mjs';
 import { REGEN_RESUME_HEALTH, bodyDanger, eatCalls, lowHealthFork } from './fork-rule.mjs';
 import { heldCounts, heldOf, keepPickaxeMakings, planObtain, readyTimes, resolveObtainItem, shortId, OBTAIN_STATIONS } from './obtain-plan.mjs';
+import { CLIMB_LEG, CLIMB_LEGS, climbToSky } from './surface-climb.mjs';
 
 export const OBTAIN_DEFAULT_TIMEOUT_MS = 900_000;
 export const OBTAIN_MAX_TIMEOUT_MS = 1_800_000;
@@ -26,9 +27,6 @@ const EAT_RESUME_HEALTH = 12;
 // food taken straight from an animal or plant: a crafted or smelted food's chain mines, smelts and travels like any other.
 const FOODS = new Set(['beef', 'porkchop', 'mutton', 'chicken', 'rabbit', 'cod', 'salmon', 'apple', 'carrot', 'potato',
 	'sweet_berries', 'glow_berries', 'melon_slice', 'beetroot']);
-// Climbing out of a mine for logs or animals: stairs up a leg of 24 at a time, enough legs to reach the surface from y -58.
-const CLIMB_LEG = 24;
-const CLIMB_LEGS = 6;
 const REACH = 4.4;
 const STATION_WALK = 24;
 const SURFACE_RADIUS = 32;
@@ -864,24 +862,14 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 	const up = (o) => bodyAt(o) !== null && o.player?.skyOpen !== false;
 	const surfaceFirst = async (need) => {
 		if (!(need.kind === 'kill' || need.blocks.some((block) => /_(log|stem)$/.test(block)))) return null;
-		let o = await body.observe();
+		const o = await body.observe();
 		if (bodyAt(o) === null || up(o)) return null;
-		if (origin) {
-			step(`back up to the surface for ${need.accept[0]}`);
-			await act('travel_to', { x: origin.x, y: origin.y, z: origin.z, retrace: true, tolerance: 3, timeoutMs: 120_000 });
-			if (body.interrupted() || body.stopped()) return null;
-			o = await body.observe();
-			if (up(o)) return null;
-		} else step(`up toward the surface for ${need.accept[0]}`);
-		for (let legs = 0; legs < CLIMB_LEGS; legs++) {
-			const from = bodyAt(o);
-			const climbed = await act('dig_to', { pattern: 'stairs_up', y: Math.floor(from.y) + CLIMB_LEG, maxBlocks: 80, throughCaves: 'small', timeoutMs: 120_000 });
-			if (body.interrupted() || body.stopped()) return null;
-			o = await body.observe();
-			if (up(o)) return null;
-			const at = bodyAt(o);
-			if (at === null || at.y < from.y + 2) return `the climb to the surface stopped at y ${Math.floor(at?.y ?? from.y)} under cover (${climbed?.reasonCode ?? climbed?.state ?? 'no move'}${climbed?.message ? `: ${String(climbed.message).slice(0, 120)}` : ''})`;
-		}
+		step(origin ? `back up to the surface for ${need.accept[0]}` : `up toward the surface for ${need.accept[0]}`);
+		// The climb the surface step runs too (surface-climb.mjs): the same body calls in the same order.
+		const climb = await climbToSky({ act, observe: () => body.observe(), up, halted: () => body.interrupted() || body.stopped(), retraceTo: origin }, o);
+		if (climb.stop === null || climb.stop === 'halted') return null;
+		const { at, from, result: climbed } = climb;
+		if (climb.stop === 'stalled') return `the climb to the surface stopped at y ${Math.floor(at?.y ?? from.y)} under cover (${climbed?.reasonCode ?? climbed?.state ?? 'no move'}${climbed?.message ? `: ${String(climbed.message).slice(0, 120)}` : ''})`;
 		return `still under cover after climbing ${CLIMB_LEGS * CLIMB_LEG} blocks`;
 	};
 	// New ground before the next search: a tunnel leg underground (ore), a walk on the surface (trees, animals, gravel).

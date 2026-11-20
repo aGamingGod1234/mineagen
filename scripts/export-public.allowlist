@@ -288,6 +288,8 @@ coordinator/src/standing-orders.mjs
 coordinator/src/standing-templates.mjs
 coordinator/src/step-progress.mjs
 coordinator/src/strict-spend-runtime.mjs
+coordinator/src/surface-climb.mjs
+coordinator/src/surface-step.mjs
 coordinator/src/survival-advice.mjs
 coordinator/src/task-memory-store.mjs
 coordinator/src/text-length.mjs
@@ -839,6 +841,7 @@ coordinator/test/strict-smoke.test.mjs
 coordinator/test/strict-spend-runtime.test.mjs
 coordinator/test/stronghold-eye-runtime.test.mjs
 coordinator/test/surface-food-route.test.mjs
+coordinator/test/surface-step.test.mjs
 coordinator/test/survival-advice.test.mjs
 coordinator/test/survival-tooling.test.mjs
 coordinator/test/survival-wake-reissue.test.mjs

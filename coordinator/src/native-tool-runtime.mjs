@@ -19,6 +19,7 @@ import { compileProgramPrecondition, evaluateProgramPrecondition } from './progr
 import { MAX_STANDING_SOURCE_BYTES, StandingOrderBook, standingOrderCause, guardEpisodeFacts } from './standing-orders.mjs';
 import { ReflexBook } from './reflexes.mjs';
 import { searchFor } from './find-search.mjs';
+import { runSurfaceStep } from './surface-step.mjs';
 import { STEP_ACTIONS } from './wake-filter.mjs';
 import { CONTEXT_TRIGGERS, SURVIVAL_TRIGGERS } from './arena-script/program-engine.mjs';
 import { defaultServiceTier } from './constants.mjs';
@@ -56,11 +57,11 @@ const EXPIRED = Symbol('expired');
 // settling the program decision; the paused program keeps its decision for a later respondProgram.
 const PAUSED_PROGRAM_DANGER_ACTIONS = new Set(['fight_target', 'flee_from']);
 const GUARD_DEFENSIVE_ACTIONS = new Set(['fight_target', 'flee_from', 'block_with_shield', 'use_item', 'respawn']);
-const GUARD_OVERRIDE_KINDS = new Set(['action', 'start_action', 'run_program', 'sequence', 'lookAround', 'gather', 'find', 'obtain', 'repair_inventory', 'finish']);
+const GUARD_OVERRIDE_KINDS = new Set(['action', 'start_action', 'run_program', 'sequence', 'lookAround', 'gather', 'find', 'obtain', 'surface', 'repair_inventory', 'finish']);
 // A direct model body command takes the body from a firing reflex. Starting a program does not: the program pauses under it.
 // replace_action is one too; it yields in its own branch, once the replacement is accepted and before the old action is cancelled.
-const REFLEX_YIELD_KINDS = new Set(['action', 'start_action', 'sequence', 'lookAround', 'gather', 'find', 'obtain', 'repair_inventory']);
-const STOOD_STILL_KINDS = new Set(['action', 'start_action', 'run_program', 'sequence', 'lookAround', 'gather', 'find', 'obtain', 'repair_inventory']);
+const REFLEX_YIELD_KINDS = new Set(['action', 'start_action', 'sequence', 'lookAround', 'gather', 'find', 'obtain', 'surface', 'repair_inventory']);
+const STOOD_STILL_KINDS = new Set(['action', 'start_action', 'run_program', 'sequence', 'lookAround', 'gather', 'find', 'obtain', 'surface', 'repair_inventory']);
 const BODY_SEEN_VERBS = new Set(['travel_to', 'dig_to']);
 const STEP_RUNNING_NOTE = 'End your turn: the step runs on its own and you are woken when it ends or the body stops it, or for danger your reflexes did not handle, chat or death.';
 // keepGoing: at most this many legs in one chain, so a model that never replies still gets a completion wake.
@@ -69,7 +70,7 @@ export const MAX_KEEP_GOING_LEGS = 8;
 const KEEP_GOING_MIN_PROGRESS_BLOCKS = 1;
 const RUNNING_ACTION_STATES = new Set(['RUNNING', 'PREPARING', 'CANCELLING', 'CANCELLATION_UNCONFIRMED']);
 // Body calls that may carry reflex rules to install before they act (run_program installs its own).
-const REFLEX_CARRIER_KINDS = new Set(['action', 'sequence', 'gather', 'find', 'obtain', 'standing_order']);
+const REFLEX_CARRIER_KINDS = new Set(['action', 'sequence', 'gather', 'find', 'obtain', 'surface', 'standing_order']);
 // Firing outcomes during which the reflex held the body (a paused program's action was not running).
 const REFLEX_HELD_OUTCOMES = new Set(['done', 'timeout', 'failed', 'preempted', 'yielded']);
 // Game time per server tick (the body's GameClock), and the smallest server-lag shortfall worth moving a program deadline for.
@@ -1052,6 +1053,7 @@ export class NativeToolRuntime {
 		if (tool.kind === 'gather') return this.#withBlockingToolRun(record, (run) => this.#executeGather(request, record, tool, this.#executionEpoch(record.agentId), run));
 		if (tool.kind === 'find') return this.#withBlockingToolRun(record, (run) => this.#executeFind(request, record, tool, this.#executionEpoch(record.agentId), run));
 		if (tool.kind === 'obtain') return this.#withBlockingToolRun(record, (run) => this.#executeObtain(request, record, tool, this.#executionEpoch(record.agentId), run));
+		if (tool.kind === 'surface') return this.#withBlockingToolRun(record, (run) => runSurfaceStep(this.#searchBody(request, record, this.#executionEpoch(record.agentId), run, 'surface'), tool.arguments));
 		if (tool.kind === 'repair_inventory') return this.#withBlockingToolRun(record, async run => {
 			const epoch = this.#executionEpoch(record.agentId);
 			const current = () => this.#executionEpoch(record.agentId) === epoch;

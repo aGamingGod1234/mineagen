@@ -25,6 +25,7 @@ import { CONTROL_REFERENCE_TOPICS, minecraftControlReference } from './minecraft
 import { STRATEGY_REFERENCE_TOPICS, minecraftStrategyReference, resolveStrategyTopic } from './minecraft-strategy-reference.mjs';
 import { validateToolSchema } from './tool-schema-contract.mjs';
 import { OBTAIN_DEFAULT_TIMEOUT_MS, OBTAIN_MAX_TIMEOUT_MS } from './obtain-runner.mjs';
+import { SURFACE_STEP_DEFAULT_TIMEOUT_MS, surfaceStepEnabled } from './surface-step.mjs';
 import { STANDING_TEMPLATES } from './standing-templates.mjs';
 import { MAX_REFLEXES, normalizeReflexEntries } from './reflexes.mjs';
 import { compactStandingOrder, DEFAULT_STANDING_TTL_S, MAX_STANDING_SOURCE_BYTES, MAX_STANDING_TTL_S, MAX_STANDING_WHEN_BYTES, STANDING_ORDER_ID } from './standing-orders.mjs';
@@ -62,6 +63,13 @@ export const STEP_WHY_LENGTH = 100;
 export const STEP_SEEN_PATTERN = /^seen:((?:[a-z0-9_.-]+:)?[a-z0-9_./-]+)$/;
 // The verbs whose body stops itself when a named block comes into view (stopWhenSeen ends them with TARGET_SEEN).
 const BODY_SEEN_VERBS = new Set(['travel_to', 'dig_to']);
+// MINEAGEN_SURFACE_STEP=1: until "open_sky" on dig_to climbs back up to open sky in one call (surface-step.mjs). Off,
+// the tools and every step are as before: "open_sky" is a label like any other until.
+const SURFACE_STEP = surfaceStepEnabled();
+export const SURFACE_UNTIL = 'open_sky';
+// The do_step claim the switch rewrites, within the same bytes (the tool payload has no spare).
+const SEEN_UNTIL_CLAIM = 'until "seen:<block id>" is executable: travel_to and dig_to stop on sight; other background verbs wake you; other until is a label.';
+const SURFACE_UNTIL_CLAIM = 'until "seen:<block id>": travel_to/dig_to stop on sight, others wake you; dig_to "open_sky" climbs to sky, returns; else a label.';
 const ACTION_SIGNATURES = NATIVE_ACTION_TYPES.map((type) => `${type}(${ACTION_FIELDS[type].map((field) => (OPTIONAL_ACTION_FIELDS[type] ?? []).includes(field) ? `${field}?` : field).join(',')})`).join(' ');
 const POST_ACTION_VIEW_TOOLS = new Set(['moveTo', 'travelTo', 'mine', 'act', 'sequence']);
 export const INSPECTION_SECTIONS = Object.freeze(['observation', 'inventory', 'menu', 'entities', 'blocks', 'landmarks', 'nearby_containers', 'item', 'block', 'events', 'recipes', 'mechanics', 'survey', 'hud']);
@@ -107,7 +115,7 @@ Threats: check visible/targetable; fight or use reported exits; creepers escape.
 Omitted facts are unknown; failure.changed absent=none. queryMemory pages; author source live with program.parameters(); never noteKey or standing.template. exploreFrontier lists moveTo legs. Reclaim workstations. Claim effects from evidence. No task: takeTask operator requests, end turn; else say. Text is invisible; speech is async.`;
 
 export const MINECRAFT_DYNAMIC_TOOLS = Object.freeze([
-	tool('do_step', { ...objectSchema({
+	withSurfaceStep(tool('do_step', { ...objectSchema({
 		verb: { type: 'string', enum: Object.keys(STEP_VERBS) },
 		target: { type: 'object', properties: { allowComponentLoss: { type: 'boolean', enum: [true], description: 'Required true for repair_inventory: explicitly accept loss of names, non-curse enchantments and other components.' } }, description: 'Verb arguments: act fields (mine x,y,z: vein/tree; craft recipeId,count, table x,y,z if needed; smelt furnace_transaction), gather, find {block|biome|mob|structure,within?,throwCap?,allowEyeReserveUse? (true spends eye reserve)}, build {structure:nether_portal|pillar|bridge|shelter,at?,materials?,size?}, obtain {item,count}, or repair_inventory {menuId,containerId,stateId,itemId,inputs:[{slot,fingerprint},{slot,fingerprint}],allowComponentLoss:true} from inspected inventory menu slots.' },
 		why: { type: 'string', minLength: 1, maxLength: STEP_WHY_LENGTH },
@@ -115,7 +123,7 @@ export const MINECRAFT_DYNAMIC_TOOLS = Object.freeze([
 		after: AFTER_SCHEMA,
 		keepGoing: KEEP_GOING_SCHEMA,
 		reflexes: REFLEXES_SCHEMA,
-	}, ['verb', 'target', 'why']), allOf: [{ if: { properties: { verb: { enum: ['repair_inventory'] } } }, then: { properties: { target: { required: ['allowComponentLoss'] } } } }] }),
+	}, ['verb', 'target', 'why']), allOf: [{ if: { properties: { verb: { enum: ['repair_inventory'] } } }, then: { properties: { target: { required: ['allowComponentLoss'] } } } }] })),
 	tool('taskMemory', objectSchema({
 		operation: { type: 'string', enum: ['remember', 'query'] },
 		entry: objectSchema({ kind: { type: 'string', enum: ['place', 'route', 'progress', 'lesson'] }, key: { type: 'string', minLength: 1, maxLength: 128 }, label: { type: 'string', minLength: 1, maxLength: 128 }, summary: { type: 'string', minLength: 1, maxLength: 1024 },
@@ -840,6 +848,7 @@ function normalizeStep(args) {
 		return text;
 	};
 	const step = { verb: args.verb, why: line(args.why, 'why', STEP_WHY_LENGTH), ...(args.until === undefined ? {} : { until: line(args.until, 'until', INTENT_FIELDS.until) }) };
+	if (SURFACE_STEP && step.until === SURFACE_UNTIL) return normalizeSurfaceStep(args, target, step);
 	const background = !FOREGROUND_VERBS.has(args.verb);
 	if (!background && (args.after !== undefined || args.keepGoing !== undefined)) invalid(`after and keepGoing apply to the background verbs, not ${args.verb}`);
 	// until "seen:<block id>" is executable: travel_to and dig_to stop themselves on that sighting (stopWhenSeen,
@@ -886,6 +895,26 @@ function normalizeStep(args) {
 	const adjusted = { ...(dropped ?? {}), ...Object.fromEntries(Object.entries(TOOL_ADJUSTMENTS.get(body) ?? {}).map(([key, note]) => [`target.${key.replace(/^arguments\./, '')}`, note])) };
 	if (Object.keys(adjusted).length > 0) TOOL_ADJUSTMENTS.set(result, adjusted);
 	return result;
+}
+
+/**
+ * do_step dig_to until "open_sky" (MINEAGEN_SURFACE_STEP=1): the climb to open sky, run to its result. target is {} or
+ * { timeoutMs }; pattern "stairs_up" is what it digs anyway and is dropped. Other verbs, after and keepGoing refuse.
+ */
+function normalizeSurfaceStep(args, target, step) {
+	if (args.verb !== 'dig_to') invalid(`until "${SURFACE_UNTIL}" climbs with verb dig_to, not ${args.verb}`);
+	if (args.after !== undefined || args.keepGoing !== undefined) invalid(`until "${SURFACE_UNTIL}" runs to its result; after and keepGoing do not apply`);
+	const { pattern, ...rest } = target;
+	if (pattern !== undefined && pattern !== 'stairs_up') invalid(`until "${SURFACE_UNTIL}" digs stairs_up; omit pattern`);
+	requireExactKeys(rest, ['timeoutMs']);
+	return { kind: 'surface', arguments: { timeoutMs: optionalInteger(rest.timeoutMs, SURFACE_STEP_DEFAULT_TIMEOUT_MS, 'timeoutMs', 60_000, MAX_FIND_TIMEOUT_MS) }, step };
+}
+
+/** The do_step tool with its until claim naming "open_sky" when the surface step is on; unchanged when it is off. */
+function withSurfaceStep(entry) {
+	if (!SURFACE_STEP) return entry;
+	if (!entry.description.includes(SEEN_UNTIL_CLAIM)) throw new Error('do_step until claim changed: update SEEN_UNTIL_CLAIM and SURFACE_UNTIL_CLAIM');
+	return Object.freeze({ ...entry, description: entry.description.replace(SEEN_UNTIL_CLAIM, SURFACE_UNTIL_CLAIM) });
 }
 
 /** obtain's target: { item, count?, timeoutMs? }; item is an id, a tag or a family word (bed, boat, planks). */

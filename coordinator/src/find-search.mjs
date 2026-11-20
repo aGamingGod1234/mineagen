@@ -8,6 +8,7 @@ import { howtoIndex } from './howto.mjs';
 import { eyeTarget, eyesHeld, followEyes } from './find-eyes.mjs';
 import { portalTarget, strongholdNearby, findPortalRoom } from './find-portal-room.mjs';
 import { ENGAGE_CLOSE, SEARCH_LOW_HEALTH, creeperNear, searchDanger, threatRows } from './search-danger.mjs';
+import { CLIMB_LEG, stairsUpArgs } from './surface-climb.mjs';
 
 export const FIND_KINDS = Object.freeze(['block', 'biome', 'mob', 'structure']);
 export const DEFAULT_FIND_WITHIN = 512;
@@ -88,9 +89,8 @@ const BUCKET_FLUIDS = new Set(['minecraft:lava', 'minecraft:water']);
 // Far sight's own near range (FarSight.SMALL_SIGHT): within it a survey marks a fluid's flow, past it only landmarks see.
 const FLUID_LEVEL_SIGHT = 24;
 // A surface target sought from under cover: back up the way the body came, or stairs up when that way is shut, at most
-// this many legs, each stair leg up to CLIMB_LEG blocks higher.
+// this many legs, each stair leg up to CLIMB_LEG blocks higher (surface-climb.mjs).
 const MAX_CLIMBS = 8;
-const CLIMB_LEG = 24;
 // The retrace is tried this many times; between tries, a stair this many blocks up gets past where it stopped.
 const MAX_RETRACE_TRIES = 3;
 const DETOUR_RISE = 8;
@@ -972,8 +972,7 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 			if (!back && rise < 1) return handBack('FAILED', 'FIND_NOT_FOUND', `Searched to ${within} blocks from the start`);
 			const outcome = back
 				? await leg('back up the way it came', 'travel_to', { x: sky.x, y: sky.y, z: sky.z, retrace: true, tolerance: 3, ...stopWhen })
-				: await leg(detour ? 'stairs up past where the way back stopped' : 'stairs up to the surface', 'dig_to', { pattern: 'stairs_up', y: Math.floor(at.y) + rise,
-					maxBlocks: 80, throughCaves: 'small', ...stopWhen, discard: DISCARD });
+				: await leg(detour ? 'stairs up past where the way back stopped' : 'stairs up to the surface', 'dig_to', stairsUpArgs(at.y, rise, { ...stopWhen, discard: DISCARD }));
 			const ended = await settle(outcome);
 			if (ended !== null) return ended;
 			const after = bodyAt(observation);
