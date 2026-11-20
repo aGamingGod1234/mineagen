@@ -192,6 +192,30 @@ public final class ReflexEngine {
 		return decision;
 	}
 
+	/** Coordinator defaults that exist only in the End (the coordinator arms them there; see reflexes.mjs DIMENSION_REFLEXES). */
+	static final Set<String> END_DEFAULTS = Set.of("default-breath", "default-end-throw");
+
+	/** An End-only coordinator default: it neither fires nor keeps running outside the End. */
+	static boolean endOnly(ReflexSpec.Rule rule) {
+		return rule != null && rule.coordinatorDefault() && END_DEFAULTS.contains(rule.id());
+	}
+
+	/**
+	 * A command waiting under a floor firing stays paused in the gap between two of its firings (a failed run's cooldown):
+	 * one free tick let a paused travel_to step back toward the cloud.
+	 */
+	static boolean holdsCommandBetweenFirings(ReflexScheduler scheduler, boolean commandActive) {
+		return commandActive && scheduler.current() == null && scheduler.holdsWaitingCommand();
+	}
+
+	/**
+	 * A cornered breath floor gives the body to the running command, whether it asked for the body (a yield request) or was
+	 * already running when the cloud came, or was admitted between two firings.
+	 */
+	static ReflexScheduler.Decision corneredHandBack(ReflexScheduler scheduler, CommandFollower command, boolean commandActive, long now) {
+		return commandActive && scheduler.corneredUnyielded() ? yieldTo(scheduler, command, now) : ReflexScheduler.Decision.NONE;
+	}
+
 	/** A floor firing kept through a command's yield has just yielded to it: follow the command as a yield does. */
 	static void followDeferredYield(ReflexScheduler scheduler, CommandFollower command, long now) {
 		if (scheduler.deferredYielded() && scheduler.anySuppressed()) command.yielded(now);
@@ -395,6 +419,10 @@ public final class ReflexEngine {
 		ServerActionRequest active = body.active(agentId);
 		ActionType activeType = active == null ? null : active.type();
 		followCommand(agentId, agent, active, body, now);
+		boolean inEnd = player.level().dimension() == net.minecraft.world.level.Level.END;
+		// The End's own defaults stop the tick the body leaves the End, before the coordinator's next rule update.
+		ReflexScheduler.Firing running = agent.scheduler.current();
+		if (running != null && !inEnd && endOnly(agent.scheduler.rule(running.ruleId()))) end(agentId, agent, agent.scheduler.interrupt(now, "left the End"));
 		ObservationVisibility.Frame frame = ObservationVisibility.frame(player.level(), player);
 		boolean cornered = active != null && active.type() == ActionType.FLEE_FROM
 				&& dev.agaminggod.mineagen.server.runtime.controller.CorneredStand.standing(player);
@@ -433,6 +461,7 @@ public final class ReflexEngine {
 				until = ReflexSensors.sense(player, condition, frame, agent.memory, now).truth();
 			}
 			truth = gatedTruth(rule, truth, activeType);
+			if (!inEnd && endOnly(rule)) truth = false;
 			truth = shieldGate(agent.scheduler, rule, truth, firingBlocksShots);
 			owedDropsGate(agent.scheduler, rule, truth);
 			// A default "back off when weaker" rule does not pause a flee that has already found no way out and stands its
@@ -481,7 +510,8 @@ public final class ReflexEngine {
 			agent.detail = step.detail();
 			changed.add(agentId);
 		}
-		if (agent.scheduler.current() == null) return false;
+		end(agentId, agent, corneredHandBack(agent.scheduler, agent.command, active != null, now));
+		if (agent.scheduler.current() == null) return holdsCommandBetweenFirings(agent.scheduler, active != null);
 		boolean passes = passesThrough(agent, active);
 		if (passes && fightShield(player, active) && agent.behaviour.defersToFight()) {
 			// The fight raises the shield itself between swings; a reflex lease over it would block every swing.

@@ -398,7 +398,9 @@ public final class ReflexScheduler {
 				endOutcome = outcome;
 				current = null;
 				// A floor firing that ran out, failed or was preempted in its hazard fires again: the command still waits for its yield.
-				boolean refires = state.lastTruth && (outcome == Outcome.TIMEOUT || outcome == Outcome.FAILED || outcome == Outcome.PREEMPTED);
+				// A breath run that ends done still in reach of the cloud (no safe heading further) has not got the body out either.
+				boolean refires = state.lastTruth && (outcome == Outcome.TIMEOUT || outcome == Outcome.FAILED || outcome == Outcome.PREEMPTED
+						|| outcome == Outcome.DONE && state.releasesCornered);
 				boolean kept = ended.ruleId().equals(deferredYield);
 				if (kept && !refires) deferredYield = null;
 				recordEnd(state, outcome, now, reason);
@@ -463,7 +465,11 @@ public final class ReflexScheduler {
 	public Decision yield(long now) {
 		suppressIdleShields();
 		// A cornered breath floor between its refirings yields too, or it would take the body back from the command next tick.
-		for (State state : states.values()) if (state.cornered() && state.lastTruth) state.yieldedTrigger = true;
+		for (State state : states.values()) {
+			if (!state.cornered() || !state.lastTruth) continue;
+			state.yieldedTrigger = true;
+			if (state.rule.id().equals(deferredYield)) deferredYield = null;
+		}
 		if (current == null) return Decision.NONE;
 		Firing ended = current;
 		State state = states.get(ended.ruleId());
@@ -488,6 +494,20 @@ public final class ReflexScheduler {
 		for (State other : states.values()) {
 			if (other != floor && !other.floor && other.rule.kind() == ReflexSpec.Kind.STANCE && other.lastTruth) other.suppressed = true;
 		}
+	}
+
+	/** A model command waits under a floor firing (kept through its yield), also in the gap between two of its firings. */
+	public boolean holdsWaitingCommand() {
+		return deferredYield != null;
+	}
+
+	/** A cornered floor rule, still in its hazard, that has not yet given the body to a command. */
+	public boolean corneredUnyielded() {
+		for (State state : states.values()) {
+			if (!state.cornered() || !state.lastTruth || state.yieldedTrigger) continue;
+			if (current == null || current.ruleId().equals(state.rule.id())) return true;
+		}
+		return false;
 	}
 
 	/** Whether the last {@link #step} ended a floor firing for a model command it had been kept through. */
@@ -556,9 +576,10 @@ public final class ReflexScheduler {
 		long duration = Math.max(0L, now - started);
 		boolean stance = state.rule.kind() == ReflexSpec.Kind.STANCE;
 		state.cooldownUntil = stance && outcome == Outcome.TIMEOUT && state.lastTruth ? now : now + Math.max(1L, state.rule.cooldownMs() / 50L);
-		// A breath floor that ends still in reach of the cloud runs again next tick: in its cooldown the paused command
-		// resumed and walked back into the cloud (live breath room, a run timed out at a small island's rim).
-		if (state.releasesCornered && state.lastTruth && outcome != Outcome.YIELDED) state.cooldownUntil = now + 1L;
+		// A breath floor that times out or ends done still in reach of the cloud runs again in the same tick: in its cooldown
+		// the paused command resumed and walked back into the cloud (live breath room, a run timed out at a small island's
+		// rim). A failed run waits the rule's own cooldown (the engine keeps a waiting command paused through it).
+		if (state.releasesCornered && state.lastTruth && outcome != Outcome.YIELDED && outcome != Outcome.FAILED) state.cooldownUntil = now;
 		boolean harmedHold = stance && outcome == Outcome.TIMEOUT && harmed;
 		boolean failure = outcome == Outcome.FAILED || outcome == Outcome.TIMEOUT && !stance || harmedHold;
 		boolean progress = !failure && (outcome == Outcome.DONE || outcome == Outcome.TIMEOUT && stance);
@@ -569,8 +590,9 @@ public final class ReflexScheduler {
 					+ " s and the condition has not cleared";
 		}
 		if (state.releasesCornered) {
+			// Only a run that got the body out resets the count; a run done still in the cloud is like a timeout: neither.
 			if (outcome == Outcome.FAILED && state.lastTruth) state.cornerFailures++;
-			else if (outcome == Outcome.DONE) state.cornerFailures = 0;
+			else if (outcome == Outcome.DONE && !state.lastTruth) state.cornerFailures = 0;
 		}
 		if (failure) {
 			state.failuresInARow++;

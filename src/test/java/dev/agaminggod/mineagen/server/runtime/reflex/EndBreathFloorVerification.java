@@ -31,6 +31,11 @@ public final class EndBreathFloorVerification {
 		corneredBreathHandsTheWaitingCommandTheBody(end);
 		corneredBreathYieldsToALaterCommand(end);
 		timeoutsInTheCloudDoNotCorner(end);
+		commandNeverMovesBetweenFirings(end);
+		doneInTheCloudKeepsTheCountAndTheWaitingCommand(end);
+		failedRunWaitsItsCooldown(end);
+		corneredBreathHandsARunningCommandTheBody(end);
+		endDefaultsAreEndOnly(end);
 		breathStaysArmedAtTheLoopLimits(end);
 		return assertions;
 	}
@@ -85,11 +90,11 @@ public final class EndBreathFloorVerification {
 		scheduler.replace(List.of(named(end, BREATH)), 0L);
 		long cooldown = Math.max(1L, named(end, BREATH).cooldownMs() / 50L);
 		step(scheduler, 1L, true, RUNNING);
-		step(scheduler, 9L, true, ReflexScheduler.ActionStatus.DONE, "ran 10.0 blocks");
-		check(BREATH.equals(step(scheduler, 10L, true, RUNNING).started()), "still near the cloud after a finished run: it fires again the next tick, no new edge or cooldown");
+		ReflexScheduler.Decision done = step(scheduler, 9L, true, ReflexScheduler.ActionStatus.DONE, "ran 10.0 blocks");
+		check(done.endOutcome() == ReflexScheduler.Outcome.DONE && BREATH.equals(done.started()), "still near the cloud after a finished run: it fires again in the same tick, no new edge or cooldown");
 		long max = scheduler.current().maxTicks();
-		check(step(scheduler, 10L + max, true, RUNNING).endOutcome() == ReflexScheduler.Outcome.TIMEOUT, "a run that times out near the cloud");
-		check(BREATH.equals(step(scheduler, 11L + max, true, RUNNING).started()), "fires again the next tick: no cooldown gap for a paused command to walk back in");
+		ReflexScheduler.Decision timeout = step(scheduler, 9L + max, true, RUNNING);
+		check(timeout.endOutcome() == ReflexScheduler.Outcome.TIMEOUT && BREATH.equals(timeout.started()), "a run that times out near the cloud fires again in the same tick: no gap for a paused command to walk back in");
 		check(cooldown >= 1L, "the rule's own cooldown is not what decides it");
 	}
 
@@ -149,10 +154,122 @@ public final class EndBreathFloorVerification {
 		for (int timeout = 1; timeout <= ReflexScheduler.MAX_FAILURES_IN_A_ROW + 1; timeout++) {
 			long max = scheduler.current().maxTicks();
 			tick = scheduler.current().startTick() + max;
-			check(step(scheduler, tick, true, RUNNING).endOutcome() == ReflexScheduler.Outcome.TIMEOUT && !scheduler.deferredYielded(), "timeout " + timeout + " in the cloud: the command still waits");
-			check(BREATH.equals(step(scheduler, ++tick, true, RUNNING).started()), "timeout " + timeout + ": it runs again");
+			ReflexScheduler.Decision decision = step(scheduler, tick, true, RUNNING);
+			check(decision.endOutcome() == ReflexScheduler.Outcome.TIMEOUT && !scheduler.deferredYielded(), "timeout " + timeout + " in the cloud: the command still waits");
+			check(BREATH.equals(decision.started()), "timeout " + timeout + ": it runs again in the same tick");
 			check(scheduler.yield(++tick).ended() == null, "timeout " + timeout + ": a new command still waits");
 		}
+	}
+
+	/** Whether the engine lets a model command's action run this tick: neither a firing nor a kept command between firings. */
+	private static boolean commandRuns(ReflexScheduler scheduler) {
+		return scheduler.current() == null && !ReflexEngine.holdsCommandBetweenFirings(scheduler, true);
+	}
+
+	/** Council R1: a tick between two breath runs let a paused travel_to step back toward the cloud. It gets none now. */
+	private static void commandNeverMovesBetweenFirings(List<ReflexSpec.Rule> end) {
+		ReflexScheduler scheduler = new ReflexScheduler();
+		scheduler.replace(List.of(named(end, BREATH)), 0L);
+		long tick = 0L;
+		step(scheduler, ++tick, true, RUNNING);
+		scheduler.yield(++tick);
+		int freeTicks = 0;
+		ReflexScheduler.ActionStatus[] ends = { ReflexScheduler.ActionStatus.DONE, RUNNING, FAILED, ReflexScheduler.ActionStatus.DONE, RUNNING };
+		for (ReflexScheduler.ActionStatus ending : ends) {
+			// RUNNING here means: let the run reach its maxS (a timeout).
+			if (ending == RUNNING) tick = scheduler.current().startTick() + scheduler.current().maxTicks();
+			else tick++;
+			step(scheduler, tick, true, ending, "no safe heading further");
+			if (commandRuns(scheduler)) freeTicks++;
+			// A failed run waits its cooldown: walk through it a tick at a time.
+			while (scheduler.current() == null) {
+				step(scheduler, ++tick, true, RUNNING);
+				if (commandRuns(scheduler)) freeTicks++;
+			}
+		}
+		check(freeTicks == 0, "the waiting command got " + freeTicks + " executor ticks between breath runs in the cloud");
+	}
+
+	/** Council R1: a run done still in the cloud neither resets the corner count nor drops the waiting command. */
+	private static void doneInTheCloudKeepsTheCountAndTheWaitingCommand(List<ReflexSpec.Rule> end) {
+		ReflexScheduler scheduler = new ReflexScheduler();
+		scheduler.replace(List.of(named(end, BREATH)), 0L);
+		long cooldown = Math.max(1L, named(end, BREATH).cooldownMs() / 50L);
+		long tick = 0L;
+		step(scheduler, ++tick, true, RUNNING);
+		check(scheduler.yield(++tick).ended() == null, "a command waits");
+		ReflexScheduler.ActionStatus[] runs = { FAILED, ReflexScheduler.ActionStatus.DONE, FAILED, ReflexScheduler.ActionStatus.DONE, FAILED, FAILED };
+		boolean handed = false;
+		for (int run = 0; run < runs.length; run++) {
+			ReflexScheduler.Decision decision = step(scheduler, ++tick, true, runs[run], "no safe heading further");
+			check(scheduler.holdsWaitingCommand() || scheduler.deferredYielded(), "run " + run + ": the command is still owed the body");
+			if (run < runs.length - 1) {
+				check(!scheduler.deferredYielded(), "run " + run + ": not cornered yet (3 failures with done runs between)");
+				if (decision.started() == null) {
+					tick += cooldown;
+					check(BREATH.equals(step(scheduler, tick, true, RUNNING).started()), "run " + run + ": it fires again");
+				}
+			} else {
+				handed = scheduler.deferredYielded() && scheduler.anySuppressed();
+			}
+		}
+		check(handed, "the fourth failure corners it and the hand-over follows the command (command.yielded runs)");
+		CommandFollower follower = new CommandFollower();
+		ReflexEngine.followDeferredYield(scheduler, follower, tick);
+		check(!scheduler.holdsWaitingCommand(), "handed over: nothing kept");
+	}
+
+	/** Council R1: no-gap refire is for timeouts and runs done in the cloud; a failed run waits the rule's own cooldown. */
+	private static void failedRunWaitsItsCooldown(List<ReflexSpec.Rule> end) {
+		ReflexScheduler scheduler = new ReflexScheduler();
+		scheduler.replace(List.of(named(end, BREATH)), 0L);
+		long cooldown = Math.max(1L, named(end, BREATH).cooldownMs() / 50L);
+		check(cooldown > 1L, "the breath rule has a cooldown of more than a tick");
+		step(scheduler, 1L, true, RUNNING);
+		scheduler.yield(2L);
+		ReflexScheduler.Decision failed = step(scheduler, 3L, true, FAILED, "no safe heading away");
+		check(failed.endOutcome() == ReflexScheduler.Outcome.FAILED && failed.started() == null, "a failed run does not refire in the same tick");
+		check(step(scheduler, 4L, true, RUNNING).started() == null, "nor the next tick");
+		check(ReflexEngine.holdsCommandBetweenFirings(scheduler, true), "the waiting command stays paused through the cooldown");
+		check(BREATH.equals(step(scheduler, 3L + cooldown, true, RUNNING).started()), "it fires again once its cooldown is over");
+	}
+
+	/** Council R1: a command running before the cloud, or admitted between firings, also gets the body once cornered. */
+	private static void corneredBreathHandsARunningCommandTheBody(List<ReflexSpec.Rule> end) {
+		for (boolean betweenFirings : new boolean[] { false, true }) {
+			ReflexScheduler scheduler = new ReflexScheduler();
+			scheduler.replace(List.of(named(end, BREATH)), 0L);
+			CommandFollower follower = new CommandFollower();
+			long cooldown = Math.max(1L, named(end, BREATH).cooldownMs() / 50L);
+			long tick = 0L;
+			// The command predates the cloud: it asked for the body before, so no yield request comes now.
+			for (int failure = 1; failure <= ReflexScheduler.MAX_FAILURES_IN_A_ROW; failure++) {
+				check(BREATH.equals(step(scheduler, ++tick, true, RUNNING).started()), "try " + failure + " fires");
+				check(ReflexEngine.corneredHandBack(scheduler, follower, !betweenFirings, tick).ended() == null, "try " + failure + ": not cornered, no hand-back");
+				step(scheduler, ++tick, true, FAILED, "no safe heading away");
+				if (failure < ReflexScheduler.MAX_FAILURES_IN_A_ROW) tick += cooldown;
+			}
+			check(scheduler.corneredUnyielded(), "cornered in the cloud");
+			check(ReflexEngine.corneredHandBack(scheduler, follower, false, tick).ended() == null && scheduler.corneredUnyielded(), "with no command it keeps trying");
+			if (!betweenFirings) {
+				tick += cooldown;
+				check(BREATH.equals(step(scheduler, tick, true, RUNNING).started()), "the cornered floor fires again");
+				check(ReflexEngine.corneredHandBack(scheduler, follower, true, ++tick).endOutcome() == ReflexScheduler.Outcome.YIELDED, "the running command takes the body");
+			} else {
+				ReflexEngine.corneredHandBack(scheduler, follower, true, ++tick);
+				check(scheduler.current() == null && !scheduler.corneredUnyielded(), "a command admitted between firings takes the body");
+			}
+			check(scheduler.anySuppressed() && !scheduler.holdsWaitingCommand(), "the follower tracks the command and nothing keeps it paused");
+			for (int wait = 0; wait < 40; wait++) check(step(scheduler, ++tick, true, RUNNING).started() == null, "it does not take the body back in the cloud");
+		}
+	}
+
+	/** Council R1: the End's defaults are End-only in the mod too (the engine stops them the tick the body leaves). */
+	private static void endDefaultsAreEndOnly(List<ReflexSpec.Rule> end) {
+		check(ReflexEngine.endOnly(named(end, BREATH)) && ReflexEngine.endOnly(named(end, "default-end-throw")), "both End defaults are End-only");
+		ReflexSpec.Rule model = rule("{\"id\":\"default-breath\",\"priority\":9,\"when\":{\"type\":\"cloud_near\",\"within\":1},\"do\":{\"type\":\"sprint_away\",\"blocks\":10}}");
+		check(!ReflexEngine.endOnly(model), "a model rule with the same id is the model's: not gated by dimension");
+		check(!ReflexEngine.endOnly(null), "no rule is not End-only");
 	}
 
 	/** Loop limits wake the model once per crossing but never switch the breath floor off. */
