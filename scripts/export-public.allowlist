@@ -2222,3 +2222,4 @@ src/test/java/dev/agaminggod/mineagen/server/runtime/reflex/CoverRuleVerificatio
 src/test/java/dev/agaminggod/mineagen/server/runtime/reflex/DriverRuleVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/reflex/OwedDropsVerification.java
 src/test/java/dev/agaminggod/mineagen/server/watch/KillRowVerification.java
+docs/technical-catalogue/34-main-ci-green.md
