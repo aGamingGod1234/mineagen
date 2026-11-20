@@ -892,6 +892,7 @@ docs/distribution/README.md
 docs/gameplay-friction/README.md
 docs/goal-progress.md
 docs/technical-catalogue/437-pov-reliability.md
+docs/technical-catalogue/30-drawn-bow-shield.md
 gradle.properties
 gradle/locks/26.1/mineagen.lockfile
 gradle/locks/26.1/voice-addon.lockfile
