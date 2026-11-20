@@ -3,17 +3,25 @@
 // 4-high pillar the body cannot reach, and a calm one on the open floor. Each trial runs one production fight_until
 // (enderman until one more ender pearl, 120 s) and counts the sword approaches that ended unreachable, the kills and the
 // time to the first pearl. SKIP_UNREACHABLE=1 starts the server with the switch on; run once off and once on.
-// OUT [TRIALS=3], under slot.sh live with JAVA_HOME and ARENA_HEADLESS_SERVER_TEMPLATE set. No model calls.
+// A trial passes when the enderman was provoked, the call got its pearl, at most 3 approaches ended unreachable and the
+// body lived: the switch-on bar. Run the switch-off control with --descriptive (today it is pinned and fails the bar).
+// Exit (strict, the default): 0 all passed, 1 a trial failed, 2 invalid evidence (an error or missing trials).
 import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { MOD_JAR } from './mod-jar.mjs';
+import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 
+const USAGE = 'Usage: [SKIP_UNREACHABLE=1] [TRIALS=3] test-unreachable-enderman-live.mjs OUT_DIR [--strict|--descriptive] under slot.sh live, with JAVA_HOME and ARENA_HEADLESS_SERVER_TEMPLATE';
+const cli = process.argv.slice(2);
+if (cli.includes('--help')) { console.log(USAGE + '\n' + EDIT_LOOP_HELP + '\n' + FIXTURE_OUTCOME_HELP); process.exit(0); }
+const strict = !cli.includes('--descriptive');
+const [outArg] = cli.filter(arg => !['--strict', '--descriptive'].includes(arg));
 const root = fileURLToPath(new URL('../..', import.meta.url));
-const out = path.resolve(process.argv[2] ?? 'runtime/unreachable-enderman-live');
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port = Number(process.env.SLOT_PORT_BASE);
-if (!template || !port || !process.env.JAVA_HOME) throw new Error('Launch under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME');
+if (!outArg || !template || !port || !process.env.JAVA_HOME) { console.error(USAGE); process.exit(2); }
+const out = path.resolve(outArg);
 const jar = path.resolve(process.env.ARENA_JAR ?? path.join(root, MOD_JAR));
 const on = process.env.SKIP_UNREACHABLE === '1';
 const TRIALS = Number(process.env.TRIALS ?? 3), CALL_MS = Number(process.env.CALL_MS ?? 120000);
@@ -103,19 +111,24 @@ try {
 		const message = String(result.message ?? '');
 		const endings = Object.fromEntries([...(/endings: \{([^}]*)\}/.exec(message)?.[1] ?? '').matchAll(/(\w+)=(\d+)/g)].map(m => [m[1], Number(m[2])]));
 		const gained = Number(/gained (\d+)/.exec(message)?.[1] ?? 0);
-		const row = { trial, skipUnreachable: on, provoked, state: result.state, reasonCode: result.reasonCode, seconds,
+		const row = { trial, startedAt: t0, finishedAt: Date.now(), skipUnreachable: on, provoked, state: result.state, reasonCode: result.reasonCode, seconds,
 			unreachableApproaches: (endings.NO_SEEN_ROUTE ?? 0) + (endings.TARGET_UNREACHABLE ?? 0), endings,
 			kills: Number(/: (\d+) kills?,/.exec(message)?.[1] ?? 0), groundKilledS, pearlsGained: gained, firstPearlS: gained > 0 && result.reasonCode === 'UNTIL_COUNT_REACHED' ? seconds : null,
 			pillarStillOnPillar: pillarLeft, keptOn: Number(/kept on (\d+) that left reach/.exec(message)?.[1] ?? 0),
 			passedOver: Number(/out of reach: passed over (\d+)/.exec(message)?.[1] ?? 0), healthEnd: await health().catch(() => null), message: message.slice(0, 1600) };
+		if (result.state === 'ERROR') row.error = `fight_until never returned: ${result.message}`;
+		row.pass = row.provoked && row.reasonCode === 'UNTIL_COUNT_REACHED' && row.unreachableApproaches <= 3 && row.healthEnd > 0;
 		trials.push(row);
 		console.log(`[unreachable] ${on ? 'on' : 'off'} #${trial}: ${row.reasonCode} in ${seconds} s, unreachable approaches ${row.unreachableApproaches}, kills ${row.kills}, ground killed at ${groundKilledS} s, pearls ${gained}, first pearl ${row.firstPearlS} s`);
 		await writeFile(path.join(out, 'trials.json'), JSON.stringify(trials, null, 1));
 	}
 } catch (error) {
+	// Recorded as an invalid row: the trials it cut short are missing too.
 	console.error(error);
-	await writeFile(path.join(out, 'error.txt'), String(error?.stack ?? error));
-	process.exitCode = 1;
+	trials.push({ trial: 'harness', error: String(error?.stack ?? error).slice(0, 1200) });
 } finally {
-	await s.stop().catch(() => {});
+	try { await s.stop(); } catch (error) { trials.push({ trial: 'cleanup', error: String(error?.message ?? error) }); }
 }
+const report = await finishRun(trials, { file: path.join(out, 'result.json'), planned: TRIALS, strict });
+console.log(JSON.stringify(report));
+process.exit(report.exitCode);
