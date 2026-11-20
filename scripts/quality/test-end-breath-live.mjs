@@ -17,7 +17,7 @@ import { adaptObservation } from '../../coordinator/src/observation-adapter.mjs'
 import { ReflexBook, normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
 import { warmBoots } from './fixture-servers.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
-import { damageCounter, damageEvidence, replyNumber } from './lib/damage-counter.mjs';
+import { damageCounter, damageEvidence, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
 import { finishRun, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
@@ -112,9 +112,14 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'breath' 
 		results.armed = (latest?.reflexes?.rules ?? []).map(rule => rule.id);
 		console.log(`[breath] ${results.arm}: armed ${results.armed.join(',')}`);
 		const readDamage = await damageCounter(text => s.command(text), AGENT);
+		// Deaths come from a deathCount objective this fixture owns; an unreadable count is invalid evidence.
+		await s.command('scoreboard objectives add qo_death deathCount');
+		await s.command(`scoreboard players set ${AGENT} qo_death 0`);
+		const readDeaths = () => deathCounter(text => s.command(text), AGENT);
+		// The breath rule's own fired count (the mod's status row): a room counts only if it rose there.
+		const breathId = OLD_RULE ? 'end-breath' : 'default-breath';
+		const firedCount = async () => ((await s.observe()).reflexes?.rules ?? []).find(rule => rule.id === breathId)?.fired ?? null;
 		const pos = async () => { const o = await s.observe(); return { x: o.position?.x, y: o.position?.y, z: o.position?.z, dead: o.player?.dead === true || o.status === 'PLAYER_DEAD', health: o.player?.health }; };
-		// Reflex events carry a running sequence: a room's own breath firings are the ones past the last room's.
-		let seenSequence = Math.max(0, ...(latest?.reflexes?.events ?? []).map(event => event.seq ?? 0));
 		const armedBreath = !OLD || OLD_RULE;
 		for (const [index, room] of runs.entries()) {
 			const row = { run: index + 1, room: room.name, startedAt: Date.now() };
@@ -122,8 +127,6 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'breath' 
 			try {
 				await end(s, 'kill @e[type=minecraft:area_effect_cloud]'); await end(s, 'kill @e[type=minecraft:dragon_fireball]'); await end(s, 'kill @e[type=minecraft:item]');
 				await build();
-				const deathsBefore = replyNumber(await s.command(`scoreboard players get ${AGENT} deaths`)) || 0;
-				if (deathsBefore > (results.deaths ?? 0)) { results.deaths = deathsBefore; }
 				// The last run's firing (a run is bounded at 6 s) ends before the body is placed, or it would carry the body off.
 				for (let wait = 0; wait < 60 && (await s.observe()).reflexes?.firing; wait++) await sleep(250);
 				// Respawned (old arm deaths): back to the End island. Placed until it stands on the room's cell.
@@ -140,6 +143,9 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'breath' 
 				}
 				row.placed = Math.hypot(before.x - cell[0], before.z - cell[2]) < 0.8;
 				row.start = before;
+				// Baselines read right before the summon, after placement (placing can itself end a firing).
+				const deathsBefore = await readDeaths();
+				const firedBefore = armedBreath ? await firedCount() : null;
 				const damageBefore = await readDamage();
 				const [bx, bz] = room.ball;
 				// A dragon fireball dropped onto the cell: vanilla makes the breath cloud where it hits.
@@ -176,23 +182,27 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'breath' 
 				Object.assign(row, damageEvidence(damageBefore, await readDamage(), before.health, trail.at(-1)?.[4]));
 				if (pending) await Promise.race([pending, sleep(3000)]);
 				const after = await pos().catch(() => null);
-				const deathsAfter = replyNumber(await s.command(`scoreboard players get ${AGENT} deaths`)) || 0;
+				row.deathEvidence = deathEvidence(deathsBefore, await readDeaths());
 				row.end = after;
 				row.trail = trail;
 				row.command = commandResult;
-				row.died = dead || deathsAfter > deathsBefore || after?.dead === true;
+				row.died = dead || row.deathEvidence.deaths > 0 || after?.dead === true;
+				const firedAfter = armedBreath ? await firedCount().catch(() => null) : null;
+				row.breathFirings = armedBreath && Number.isInteger(firedBefore) && Number.isInteger(firedAfter) ? firedAfter - firedBefore : null;
+				// Missing evidence is invalid, never a pass: death count, trail, final observation, the breath rule's count.
+				const missing = [!row.deathEvidence.valid && 'death counter unreadable', !trail.length && 'no trail', !after && 'no final observation',
+					armedBreath && row.breathFirings === null && 'breath fired count unreadable'].filter(Boolean);
+				if (missing.length) row.integrity = [...(row.integrity ?? []), ...missing.map(error => ({ file: 'room', error }))];
 				row.voidFall = minY < TOP - 1;
 				const events = latest?.reflexes?.events ?? [];
 				row.reflexEvents = events.filter(event => /breath|end-/.test(event.id)).slice(-6);
-				row.breathFirings = events.filter(event => (event.seq ?? 0) > seenSequence && /breath/.test(event.id)).length;
-				seenSequence = Math.max(seenSequence, ...events.map(event => event.seq ?? 0));
 				// Exposure: the cloud landed within reach of the body (its 3-block radius plus the rule's 2) and, in an arm with a
 				// breath rule, that rule fired in this room. A room without it measured nothing (council R1: a fireball 4.8 blocks
 				// off, no firing, no move, counted as a pass).
 				row.cloudDistance = cloudAt && before ? Math.round(Math.hypot(before.x - cloudAt[0], before.z - cloudAt[2]) * 10) / 10 : null;
 				const notExercised = !cloudAt ? 'no breath cloud formed' : !row.placed ? 'body not placed on the room cell'
 					: !(row.cloudDistance <= CLOUD_REACH) ? `cloud ${row.cloudDistance} blocks from the body`
-					: armedBreath && !row.breathFirings ? 'no breath firing in this room' : null;
+					: armedBreath && row.breathFirings === 0 ? 'the breath rule did not fire in this room' : null;
 				row.exercised = notExercised === null;
 				row.pass = !row.died && !row.voidFall;
 				// A room that measured nothing is invalid evidence, not a pass.
