@@ -2172,3 +2172,4 @@ SECURITY.md
 scripts/hooks/commit-msg
 scripts/hooks/pre-commit
 scripts/pull-request-text.mjs
+docs/technical-catalogue/35-lava-step-guard.md
