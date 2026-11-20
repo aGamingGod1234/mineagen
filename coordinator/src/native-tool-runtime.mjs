@@ -3312,11 +3312,13 @@ export class NativeToolRuntime {
 		return true;
 	}
 
-	dispose(agentId, reason = 'disposed') {
-		const disposal = this.#disposeOnce(agentId, reason);
-		this.#disposals.add(disposal);
-		disposal.then(() => this.#disposals.delete(disposal), () => this.#disposals.delete(disposal));
-		return disposal;
+	async dispose(agentId, reason = 'disposed') {
+		// A latch that never rejects, so disposeAll can wait for this run without handling its failure for the caller.
+		let settle;
+		const settled = new Promise((resolve) => { settle = resolve; });
+		this.#disposals.add(settled);
+		try { return await this.#disposeOnce(agentId, reason); }
+		finally { this.#disposals.delete(settled); settle(); }
 	}
 
 	async #disposeOnce(agentId, reason) {
