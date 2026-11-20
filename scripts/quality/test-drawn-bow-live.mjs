@@ -7,6 +7,7 @@
 // DRAWN_MIN_SHARE of the damage and more than the arrow-only arm. CP2r baseline with a shield in hand: 41 of 77 hits blocked.
 // Always launch under slot.sh live; ports come from SLOT_PORT_BASE. Operator commands build the fixture and spawn mobs only.
 import { readFile, writeFile, mkdir, cp, readdir, unlink, open } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
@@ -15,15 +16,21 @@ import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
+import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
-const out = resolve(process.argv[2] ?? 'runtime/drawn-bow-live');
+const USAGE = 'Usage: test-drawn-bow-live.mjs [OUT_DIR] [--strict|--descriptive] under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME (DISTANCES, REPEATS, CASE_SECONDS, DRAWN_MIN_SHARE, ARENA_JAR)';
+const cli = process.argv.slice(2);
+if (cli.includes('--help')) { console.log(USAGE + '\n' + EDIT_LOOP_HELP + '\n' + FIXTURE_OUTCOME_HELP); process.exit(0); }
+const strict = !cli.includes('--descriptive');
+const out = resolve(cli.filter((arg) => !['--strict', '--descriptive'].includes(arg))[0] ?? 'runtime/drawn-bow-live');
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE;
-if (!template || !process.env.SLOT_PORT_BASE) throw new Error('Set ARENA_HEADLESS_SERVER_TEMPLATE and launch under slot.sh live');
+if (!template || !process.env.SLOT_PORT_BASE || !process.env.JAVA_HOME) { console.error(USAGE); process.exit(2); }
 const jar = resolve(process.env.ARENA_JAR ?? join(root, MOD_JAR));
+if (!existsSync(jar)) { console.error(`no jar at ${jar}`); process.exit(2); }
 const port = Number(process.env.SLOT_PORT_BASE), server = join(out, 'server');
 await mkdir(out, { recursive: true });
-if ((await readdir(out)).length) throw new Error('Use a fresh output directory');
+if ((await readdir(out)).length) { console.error('Use a fresh output directory'); process.exit(2); }
 await writeFile(join(out, 'manifest.json'), JSON.stringify({ kind: 'provider-free live mechanics', aiPerformanceMeasured: false, fixtureSetupUsesOperatorCommands: true,
 	jarSha256: createHash('sha256').update(await readFile(jar)).digest('hex'), node: process.version }, null, 2));
 await cp(template, server, { recursive: true });
@@ -80,6 +87,8 @@ const events = (o, id) => (o.reflexes?.events ?? []).filter((event) => event.id 
 const health = (o) => o.player?.health;
 
 const results = {};
+// One acceptance row: the drawn arm's blocked share against the floor and the arrow-only arm. A crash is invalid evidence.
+const acceptance = { startedAt: Date.now() };
 const only = (process.env.REFLEX_ONLY ?? '').split(',').filter(Boolean);
 let o;
 try {
@@ -160,9 +169,18 @@ try {
 	await writeFile(join(out, 'results.json'), JSON.stringify(results, null, 2));
 	await writeFile(join(out, 'timeline.json'), JSON.stringify(timeline, null, 1));
 	console.log(`blocked share: arrow-only ${share('arrowOnly')}, drawn ${share('drawn')}`);
-	if (!results.drawnBow.pass) process.exitCode = 1; else console.log('Drawn bow shield verified');
+	acceptance.pass = results.drawnBow.pass;
+	acceptance.shareArrowOnly = results.drawnBow.shareArrowOnly; acceptance.shareDrawn = results.drawnBow.shareDrawn;
+	if (acceptance.pass) console.log('Drawn bow shield verified');
+} catch (error) {
+	acceptance.error = String(error?.stack ?? error);
+	console.error(error);
 } finally {
 	if (rcon) await command('stop').catch(() => {});
 	bridge?.stop(); await rcon?.close();
 	await Promise.race([new Promise((done) => child.once('exit', done)), sleep(10000)]); if (child.exitCode === null) child.kill('SIGTERM'); await log.close();
 }
+acceptance.finishedAt = Date.now();
+const report = await finishRun([acceptance], { file: join(out, 'acceptance.json'), planned: 1, strict });
+console.log(JSON.stringify(report));
+process.exit(report.exitCode);
