@@ -170,3 +170,9 @@ test('a requested completion keeps its terminal inventory across the R to R+1 co
 		assert.equal(run([start, result, control, logs(203, 5)]).metrics.firstProgress, null);
 	}
 });
+
+test('quality samples record the hunger bar from the player NBT', () => {
+	const s = parseEntitySample('Agent has the following entity data: {Health: 8.0f, Pos: [1.5d, -40.0d, 3.2d], foodLevel: 14, foodSaturationLevel: 0.0f}', 0);
+	assert.equal(s.food, 14);
+	assert.equal(parseEntitySample('{Health: 3.0f, Pos: [0d, 0d, 0d]}', 0).food, null, 'absent is unknown, not 0');
+});

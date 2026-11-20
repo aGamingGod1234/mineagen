@@ -1,3 +1,4 @@
+import { OVERRULE_CHARS } from './instinct-choices.mjs';
 import { DEFAULT_FIND_TIMEOUT_MS, DEFAULT_FIND_WITHIN, FIND_KINDS, MAX_FIND_TIMEOUT_MS, MAX_FIND_WITHIN, MIN_FIND_WITHIN } from './find-search.mjs';
 import { isDeepStrictEqual } from 'node:util';
 import { repairActionArguments } from './action-argument-repairs.mjs';
@@ -112,6 +113,7 @@ export const MINECRAFT_DYNAMIC_TOOLS = Object.freeze([
 		target: { type: 'object', properties: { allowComponentLoss: { type: 'boolean', enum: [true], description: 'Required true for repair_inventory: explicitly accept loss of names, non-curse enchantments and other components.' } }, description: 'Verb arguments: act fields (mine x,y,z: vein/tree; craft recipeId,count, table x,y,z if needed; smelt furnace_transaction), gather, find {block|biome|mob|structure,within?,throwCap?,allowEyeReserveUse? (true spends eye reserve)}, build {structure:nether_portal|pillar|bridge|shelter,at?,materials?,size?}, obtain {item,count}, or repair_inventory {menuId,containerId,stateId,itemId,inputs:[{slot,fingerprint},{slot,fingerprint}],allowComponentLoss:true} from inspected inventory menu slots.' },
 		why: { type: 'string', minLength: 1, maxLength: STEP_WHY_LENGTH },
 		until: { type: 'string', minLength: 1, maxLength: INTENT_FIELDS.until },
+		overrule: { type: 'string', minLength: 1, maxLength: OVERRULE_CHARS },
 		after: AFTER_SCHEMA,
 		keepGoing: KEEP_GOING_SCHEMA,
 		reflexes: REFLEXES_SCHEMA,
@@ -827,7 +829,7 @@ export function keepGoingEligible(actionType, args = {}) {
  * model could call itself, so a step's target meets exactly that call's contract and repairs.
  */
 function normalizeStep(args) {
-	requireExactKeys(args, ['verb', 'target', 'why', 'until', 'after', 'keepGoing']);
+	requireExactKeys(args, ['verb', 'target', 'why', 'until', 'overrule', 'after', 'keepGoing']);
 	if (typeof args.verb !== 'string' || !Object.hasOwn(STEP_VERBS, args.verb)) invalid(`verb must be one of ${Object.keys(STEP_VERBS).join(', ')}`);
 	let target = requireObject(args.target);
 	// A vein mine takes whatever log or ore it starts on; naming that block is the natural way to ask for it (live rw-loop
@@ -839,7 +841,8 @@ function normalizeStep(args) {
 		if (text.length === 0 || /[\x00-\x1f\x7f]/.test(text)) invalid(`${field} must be one line of text up to ${maximum} characters`);
 		return text;
 	};
-	const step = { verb: args.verb, why: line(args.why, 'why', STEP_WHY_LENGTH), ...(args.until === undefined ? {} : { until: line(args.until, 'until', INTENT_FIELDS.until) }) };
+	const step = { verb: args.verb, why: line(args.why, 'why', STEP_WHY_LENGTH), ...(args.until === undefined ? {} : { until: line(args.until, 'until', INTENT_FIELDS.until) }),
+		...(args.overrule === undefined ? {} : { overrule: line(args.overrule, 'overrule', OVERRULE_CHARS) }) };
 	const background = !FOREGROUND_VERBS.has(args.verb);
 	if (!background && (args.after !== undefined || args.keepGoing !== undefined)) invalid(`after and keepGoing apply to the background verbs, not ${args.verb}`);
 	// until "seen:<block id>" is executable: travel_to and dig_to stop themselves on that sighting (stopWhenSeen,

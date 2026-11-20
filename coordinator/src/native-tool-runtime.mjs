@@ -24,6 +24,7 @@ import { CONTEXT_TRIGGERS, SURVIVAL_TRIGGERS } from './arena-script/program-engi
 import { defaultServiceTier } from './constants.mjs';
 import { actionLeaseTimeoutMs, requestedActionTimeoutMs } from './work-lease-supervisor.mjs';
 import { PLAN_COUNT_ACTIONS, countSkillDurationMs, planCountDefault } from './plan-count.mjs';
+import { applyInstinctChoices, keptNote } from './instinct-choices.mjs';
 
 const FORGET_REASONS = /agent_removed|server_replaced|coordinator_stopped/;
 const TERMINAL_ACTION_STATES = new Set(['SUCCEEDED', 'FAILED', 'CANCELLED', 'TIMED_OUT']);
@@ -190,6 +191,7 @@ export class NativeToolRuntime {
 	#standingFiring = new Map();
 	#standingYielding = new Map();
 	#reflexes;
+	#instinctChoices;
 	#sequence = 0;
 	#publicationGraceMs;
 	#sequenceStepSettleMs;
@@ -223,6 +225,8 @@ export class NativeToolRuntime {
 		standingOrders = new StandingOrderBook(),
 		// The coordinator passes a book with the default survival rules; standalone runtimes (probes, tests) hold the model's rules only.
 		reflexBook = new ReflexBook({ defaults: [] }),
+		// System 1 owns some body choices (instinct-choices.mjs); a bare runtime lets every model value stand.
+		instinctChoices = false,
 	} = {}) {
 		if (typeof bridge?.send !== 'function') throw new TypeError('bridge.send must be a function');
 		if (registry !== null && typeof registry?.get !== 'function') throw new TypeError('registry.get must be a function');
@@ -240,6 +244,7 @@ export class NativeToolRuntime {
 		if (typeof sessionId !== 'string' || !/^[a-zA-Z0-9._-]{1,128}$/.test(sessionId)) throw new TypeError('sessionId must be 1..128 safe identifier characters');
 		if (['ingest', 'candidates', 'load', 'flush', 'clear'].some((method) => typeof occupancy?.[method] !== 'function')) throw new TypeError('occupancy must support observed-memory lifecycle and candidate queries');
 		this.#bridge = bridge;
+		this.#instinctChoices = instinctChoices === true;
 		this.#registry = registry;
 		this.#onFinish = onFinish;
 		this.#trace = (event, fields) => {
@@ -1105,7 +1110,9 @@ export class NativeToolRuntime {
 	 * started after its predecessor, leaves the running step's intent alone. gather, craft and smelt end inside this call.
 	 */
 	async #executeStep(request, record, lifecycleGeneration) {
-		const { step, reflexes: entries, ...tool } = request.tool;
+		const { step, reflexes: entries, ...owned } = request.tool;
+		const instinct = this.#ownedChoices(record, owned, step);
+		const tool = instinct.tool;
 		const reflexes = entries === undefined ? null : await this.#setReflexes(record, entries);
 		const background = tool.kind === 'start_action';
 		const entry = { goalRevision: record.goalRevision, verb: step.verb, ...(step.seen === undefined ? {} : { seen: step.seen }), intentId: null, actionId: null, seenWoken: false };
@@ -1118,7 +1125,21 @@ export class NativeToolRuntime {
 		const admitted = background && RUNNING_ACTION_STATES.has(result.state) && typeof result.actionId === 'string';
 		if (admitted) await this.#beginStep(record, entry, result.actionId, step);
 		const { seen: _seen, ...shown } = step;
-		return { ...result, step: { ...shown, ...(admitted ? { started: true, next: STEP_RUNNING_NOTE } : {}) }, ...(reflexes === null ? {} : { reflexes }) };
+		return { ...result, step: { ...shown, ...(admitted ? { started: true, next: STEP_RUNNING_NOTE } : {}) }, ...(reflexes === null ? {} : { reflexes }),
+			...(instinct.note === null ? {} : { instinct: instinct.note }) };
+	}
+
+	/**
+	 * System 1's owned choices for one step: a value the model set against the instinct is replaced unless the step
+	 * carries overrule. Traced either way, so rounds can count acceptance; a bare runtime changes nothing.
+	 */
+	#ownedChoices(record, tool, step) {
+		if (!this.#instinctChoices || tool.kind !== 'start_action') return { tool, note: null };
+		const observation = this.#observations.get(record.agentId)?.observation ?? null;
+		const applied = applyInstinctChoices(tool.actionType, tool.arguments, observation, { overrule: step.overrule ?? null });
+		for (const row of applied.kept) this.#trace('instinct_choice_kept', { agentId: record.agentId, goalRevision: record.goalRevision, actionType: tool.actionType, ...row });
+		for (const row of applied.overruled) this.#trace('instinct_choice_overruled', { agentId: record.agentId, goalRevision: record.goalRevision, actionType: tool.actionType, ...row });
+		return { tool: applied.kept.length === 0 ? tool : { ...tool, arguments: applied.arguments }, note: keptNote(applied.kept) };
 	}
 
 	async #beginStep(record, entry, actionId, step) {

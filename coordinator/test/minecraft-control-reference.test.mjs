@@ -213,8 +213,8 @@ test('reflex guidance does not limit authoring to rules the defaults miss', asyn
 test('the always-loaded player instructions stay a few KB: the role, steps, the route, seven rules and reflexes on', async () => {
 	const agent = await readFile(new URL('../config/minecraft-agent/AGENTS.md', import.meta.url), 'utf8');
 	// 20,888 B before rw-loop (rules added one past death at a time); the facts moved to the on-demand references.
-	// Deliberately raised ceiling; never meet it by trimming text a measured round saw.
-	assert.ok(Buffer.byteLength(agent) <= 5_020, `AGENTS.md grew to ${Buffer.byteLength(agent)} bytes`);
+	// Deliberately raised ceiling; never meet it by trimming text a measured round saw. +350 for the Instinct section.
+	assert.ok(Buffer.byteLength(agent) <= 5_370, `AGENTS.md grew to ${Buffer.byteLength(agent)} bytes`);
 	assert.match(agent, /you decide what to do and why, and the body decides how/);
 	assert.match(agent, /nothing starts unless you name it/);
 	assert.match(agent, /do_step \{verb, target, why, until\?\}/);

@@ -195,6 +195,8 @@ coordinator/src/headless-world.mjs
 coordinator/src/held-tool-break.mjs
 coordinator/src/howto.mjs
 coordinator/src/inspection-client.mjs
+coordinator/src/instinct-book.mjs
+coordinator/src/instinct-choices.mjs
 coordinator/src/intervention-audit.mjs
 coordinator/src/inventory-repair.mjs
 coordinator/src/job-gate.mjs
@@ -618,6 +620,9 @@ coordinator/test/howto.test.mjs
 coordinator/test/hud-parity.test.mjs
 coordinator/test/idle-wake-signature.test.mjs
 coordinator/test/inspection-client.test.mjs
+coordinator/test/instinct-book.test.mjs
+coordinator/test/instinct-choices.test.mjs
+coordinator/test/instinct-wake.test.mjs
 coordinator/test/intent-wake.test.mjs
 coordinator/test/intervention-audit.test.mjs
 coordinator/test/inventory-repair.test.mjs
@@ -2143,7 +2148,6 @@ scripts/tests/public-export.test.mjs
 # Exact size exemptions cover the required contract table and pinned block-state catalog.
 # Java usage-format inputs were replaced with invented values and verified; exact line hashes are exempt.
 # Context exemptions are reviewed exact lines with reasons; LICENSE attribution is exempt.
-
 # Shared test runner and reviewed private-input manifest for both trees.
 coordinator/scripts/run-public-suite.mjs
 coordinator/test/private-inputs.json

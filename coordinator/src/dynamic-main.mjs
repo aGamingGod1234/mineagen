@@ -102,6 +102,8 @@ import { carriedFoodToEat, eatCalls, naturalRegeneration } from './fork-rule.mjs
 // Danger triggers a running count skill handles itself when they come from its own mob (see countSkillKinds).
 const COUNT_SKILL_HELD = new Set(['damage', 'threat', 'projectile', 'fire']);
 import { DEFAULT_REFLEXES, ReflexBook, instinctsEnabled } from './reflexes.mjs';
+import { instinctBookPath, instinctLines, loadInstinctBook } from './instinct-book.mjs';
+import { instinctChoicesEnabled } from './instinct-choices.mjs';
 // Namespace import: situationStrategyTopic is optional, so the changed line works with or without it.
 import * as strategyReference from './minecraft-strategy-reference.mjs';
 import { provenance } from './fact-provenance.mjs';
@@ -292,6 +294,7 @@ export class DynamicCoordinator extends EventEmitter {
 	#providerRecoveryPending = false;
 	#traceWriter;
 	#bodyPace;
+	#instinctBook;
 	#providerTurnRecorder;
 	#runtimeGeneration;
 	#verboseTransitions = new ReportingTransitionDeduper();
@@ -306,7 +309,7 @@ export class DynamicCoordinator extends EventEmitter {
 	#lastCatalog = null;
 	#lastRosterTraceAt = 0;
 
-	constructor({ registry, scheduler, codexService, planner, bridge, healthRegistry, latencyRegistry, goalSupervisor, codexControlProtocol = 'native_tools', memoryDirectory = null, experience = null, runtimeSessionId, traceWriter = null, providerTurnRecorder = null, decisionLog = null, bodyPace = null, runtimeGeneration = null, runtimeHooks = {}, benchmarkRecorder = null, providerCliHealth = null, providerDiscovery = null, controlNow = () => performance.now(), epochNow = Date.now, setStatusInterval = defaultStatusInterval, clearStatusInterval = clearInterval, setGoalSpecTimeout = defaultGoalSpecTimeout, clearGoalSpecTimeout = clearTimeout, setSteerTimeout = setTimeout, clearSteerTimeout = clearTimeout, setWakeHoldTimeout = defaultGoalSpecTimeout, clearWakeHoldTimeout = clearTimeout, reflexDefaults = DEFAULT_REFLEXES, reflexInstincts = false, taskRequestTimeoutMs = DEFAULT_TASK_REQUEST_TIMEOUT_MS, connectionOperationCap = DEFAULT_CONNECTION_OPERATION_CAP, agentOperationCap = DEFAULT_AGENT_OPERATION_CAP, goalSpecRequestCap = connectionOperationCap, maxPendingAgentOperations = DEFAULT_MAX_PENDING_AGENT_OPERATIONS, maxPendingAgentTransactions = DEFAULT_MAX_PENDING_AGENT_TRANSACTIONS }) {
+	constructor({ registry, scheduler, codexService, planner, bridge, healthRegistry, latencyRegistry, goalSupervisor, codexControlProtocol = 'native_tools', memoryDirectory = null, experience = null, runtimeSessionId, traceWriter = null, providerTurnRecorder = null, decisionLog = null, bodyPace = null, runtimeGeneration = null, runtimeHooks = {}, benchmarkRecorder = null, providerCliHealth = null, providerDiscovery = null, controlNow = () => performance.now(), epochNow = Date.now, setStatusInterval = defaultStatusInterval, clearStatusInterval = clearInterval, setGoalSpecTimeout = defaultGoalSpecTimeout, clearGoalSpecTimeout = clearTimeout, setSteerTimeout = setTimeout, clearSteerTimeout = clearTimeout, setWakeHoldTimeout = defaultGoalSpecTimeout, clearWakeHoldTimeout = clearTimeout, reflexDefaults = DEFAULT_REFLEXES, reflexInstincts = false, instinctBook = null, instinctChoices = false, taskRequestTimeoutMs = DEFAULT_TASK_REQUEST_TIMEOUT_MS, connectionOperationCap = DEFAULT_CONNECTION_OPERATION_CAP, agentOperationCap = DEFAULT_AGENT_OPERATION_CAP, goalSpecRequestCap = connectionOperationCap, maxPendingAgentOperations = DEFAULT_MAX_PENDING_AGENT_OPERATIONS, maxPendingAgentTransactions = DEFAULT_MAX_PENDING_AGENT_TRANSACTIONS }) {
 		super();
 		this.#memoryDirectory = memoryDirectory;
 		this.#decisionLog = decisionLog;
@@ -342,6 +345,7 @@ export class DynamicCoordinator extends EventEmitter {
 		if (traceWriter !== null && typeof traceWriter.write !== 'function') throw new TypeError('traceWriter.write must be a function');
 		this.#traceWriter = traceWriter;
 		this.#bodyPace = bodyPace ?? new BodyPace({ now: epochNow });
+		this.#instinctBook = Array.isArray(instinctBook) && instinctBook.length > 0 ? instinctBook : null;
 		if (providerTurnRecorder !== null && typeof providerTurnRecorder.close !== 'function') throw new TypeError('providerTurnRecorder.close must be a function');
 		this.#providerTurnRecorder = providerTurnRecorder;
 		this.#runtimeGeneration = runtimeGeneration;
@@ -402,6 +406,7 @@ export class DynamicCoordinator extends EventEmitter {
 		this.#nativeRuntime = new NativeToolRuntime({
 			// The game's rule book arms the default survival rules (ruling 16); a bare runtime has the model's rules only.
 			reflexBook: new ReflexBook({ defaults: reflexDefaults, instincts: reflexInstincts }),
+			instinctChoices,
 			taskPlan: (record, tool) => this.#taskViews.operate(record, tool),
 			knownStations: (record) => this.#taskViews.placedStations(record),
 			planNeeds: (record) => this.#taskViews.openNeeds(record),
@@ -4396,9 +4401,12 @@ export class DynamicCoordinator extends EventEmitter {
 			// Facts the wake filter held while the model's action ran (hits absorbed, items gained, routine updates).
 			const whileActing = this.#wakeFilter.take(record.agentId, observation);
 			const pace = continuity === null ? null : this.#bodyPace.line(record.agentId);
+			// System 1's voice: the book's rules that hold in this situation, as the model's own trained sense.
+			const instinct = isPlanning || this.#instinctBook === null ? null : instinctLines(this.#instinctBook, observation);
+			if (instinct !== null) this.#writeTrace('instinct_shown', { agentId: record.agentId, goalRevision: record.goalRevision, rules: instinct.map(line => line.slice(0, line.indexOf(':'))) });
 			const input = buildNativeEventInput(record, {
 				...nativeEvent, movementLoop, taskMemory, progress: this.#taskViews.progress(record), goalNow: this.#taskViews.goalLine(record), doing: this.#taskViews.doingLine(record), skillFits: this.#taskViews.skillLine?.(record) ?? null,
-				continuity: guardOutcome || reflexes || pace || whileActing ? { ...continuity, ...(guardOutcome ? { guardOutcome } : {}), ...(reflexes ? { reflexes } : {}), ...(whileActing ? { whileActing } : {}), ...(pace ? { pace } : {}) } : continuity, dangerSummary: request.dangerSummary,
+				continuity: guardOutcome || reflexes || pace || whileActing || instinct ? { ...continuity, ...(instinct ? { instinct } : {}), ...(guardOutcome ? { guardOutcome } : {}), ...(reflexes ? { reflexes } : {}), ...(whileActing ? { whileActing } : {}), ...(pace ? { pace } : {}) } : continuity, dangerSummary: request.dangerSummary,
 				awaitingConfirmation: this.#awaitingNativeConfirmation(record, request.lifecycleGeneration),
 				confirmationFacts: this.#nativeConfirmationWaits.get(record.agentId)?.facts ?? null,
 				observation, actionReceipt: request.nativeEvent.observation?.lastResult, newContext: this.#pendingAssessment(record, request, nativeEvent, observation), changed, strategy, contexts, uncovered,
@@ -4751,6 +4759,8 @@ export function createDynamicCoordinator(configValue, dependencies = {}) {
 		setWakeHoldTimeout: dependencies.setWakeHoldTimeout,
 		...(dependencies.reflexDefaults === undefined ? {} : { reflexDefaults: dependencies.reflexDefaults }),
 		reflexInstincts: instinctsEnabled(coordinatorEnvironment),
+		instinctBook: instinctBookPath(coordinatorEnvironment) === null ? null : loadInstinctBook(instinctBookPath(coordinatorEnvironment)),
+		instinctChoices: instinctChoicesEnabled(coordinatorEnvironment),
 		clearWakeHoldTimeout: dependencies.clearWakeHoldTimeout,
 		taskRequestTimeoutMs: dependencies.taskRequestTimeoutMs,
 		maxPendingAgentOperations: dependencies.maxPendingAgentOperations,

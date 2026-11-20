@@ -28,7 +28,7 @@ test('a representative program wake stays inside its byte budget for every provi
 	assert.ok(sizes.eventEncodedRepeatBytes <= 7_500, `repeat encoded event ${sizes.eventEncodedRepeatBytes} bytes`);
 	assert.ok(sizes.eventEncodedRepeatBytes < sizes.eventEncodedFirstBytes / 2,
 		`repeated wake event delta ${sizes.eventEncodedRepeatBytes} bytes vs full ${sizes.eventEncodedFirstBytes} bytes`);
-	assert.ok(sizes.toolSchemaBytes <= 38_900, `tool schemas ${sizes.toolSchemaBytes} bytes`);
+	assert.ok(sizes.toolSchemaBytes <= 39_030, `tool schemas ${sizes.toolSchemaBytes} bytes`);
 });
 
 test('unchanged goal, goalSpec and taskMemory are named instead of repeated within one provider context', () => {

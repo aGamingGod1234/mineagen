@@ -74,7 +74,8 @@ export function parseEntitySample(text, at = Date.now()) {
 	const numeric = name => { const m = text.match(new RegExp(`\\b${name}:\\s*(-?[\\d.]+)`)); return m ? Number(m[1]) : null; };
 	const pos = text.match(/\bPos:\s*\[\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?\]/);
 	return { at, position: pos ? { x: +pos[1], y: +pos[2], z: +pos[3] } : null,
-		health: numeric('Health'), fallDistance: numeric('fall_distance') ?? numeric('FallDistance'), onGround: numeric('OnGround') === 1,
+		// food: the hunger bar (0-20), so rounds can tell when food decisions mattered.
+		health: numeric('Health'), food: numeric('foodLevel'), fallDistance: numeric('fall_distance') ?? numeric('FallDistance'), onGround: numeric('OnGround') === 1,
 		dimension: text.match(/\bDimension:\s*"([^"]+)"/)?.[1] ?? null, entityNbt: text, equipmentNbt: wornArmourNbt(text), inventoryNbt: inventoryNbt(text) };
 }
 export function itemCount(text, pattern) {
