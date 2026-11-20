@@ -10,6 +10,11 @@
 export const OVERRULE_CHARS = 160;
 /** Health a cave drop must keep (the body's own floor for drops); below it the model's choice stands. */
 export const CAVE_MIN_HEALTH = 14;
+/**
+ * A food bar that stands in for carried food. The voice round (16 games) found the bar at 6 or lower in under 1.1% of
+ * samples, yet 204 of 348 asks to avoid caves came with no food carried, so a carried-food check alone rarely held.
+ */
+export const CAVE_MIN_FOOD = 14;
 
 const FOOD = /^minecraft:(cooked_\w+|bread|baked_potato|golden_carrot|golden_apple|pumpkin_pie|\w+_stew|beetroot_soup|beef|porkchop|mutton|chicken|rabbit|cod|salmon|apple|carrot|potato|sweet_berries|melon_slice|cookie|dried_kelp)$/;
 
@@ -23,9 +28,10 @@ export const INSTINCT_CHOICES = Object.freeze([
 		says: 'a player digs on into a cave it meets: cave walls show far more ore than a tunnel, and a drop is at most 4 blocks with health kept at 14+',
 		holds: (observation) => {
 			const health = Number(observation?.player?.health);
+			const foodLevel = observation?.player?.foodLevel;
 			const items = Array.isArray(observation?.inventory?.items) ? observation.inventory.items : [];
 			return (observation?.world?.dimension ?? observation?.dimension) === 'minecraft:overworld' && Number.isFinite(health) && health >= CAVE_MIN_HEALTH
-				&& items.some(item => FOOD.test(item?.itemId ?? ''));
+				&& ((Number.isFinite(foodLevel) && foodLevel >= CAVE_MIN_FOOD) || items.some(item => FOOD.test(item?.itemId ?? '')));
 		},
 	}),
 ]);

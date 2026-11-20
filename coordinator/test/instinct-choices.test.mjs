@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { CAVE_MIN_HEALTH, applyInstinctChoices, instinctChoicesEnabled, keptNote } from '../src/instinct-choices.mjs';
+import { CAVE_MIN_FOOD, CAVE_MIN_HEALTH, applyInstinctChoices, instinctChoicesEnabled, keptNote } from '../src/instinct-choices.mjs';
 import { NativeToolRuntime } from '../src/native-tool-runtime.mjs';
 import { normalizeMinecraftToolCall } from '../src/native-minecraft-tools.mjs';
 
@@ -8,8 +8,8 @@ const keepAlive = setInterval(() => {}, 1000);
 test.after(() => clearInterval(keepAlive));
 
 const fed = [{ itemId: 'minecraft:cooked_beef', slot: 9, count: 5 }, { itemId: 'minecraft:stone_pickaxe', slot: 'mainhand', count: 1 }];
-const body = ({ health = 20, dimension = 'minecraft:overworld', items = fed } = {}) =>
-	({ world: { dimension }, player: { x: 0.5, y: 40, z: 0.5, yaw: 0, health, air: 300, maxAir: 300, onGround: true }, inventory: { selectedSlot: 0, items }, blocks: [] });
+const body = ({ health = 20, dimension = 'minecraft:overworld', items = fed, foodLevel } = {}) =>
+	({ world: { dimension }, player: { x: 0.5, y: 40, z: 0.5, yaw: 0, health, air: 300, maxAir: 300, onGround: true, ...(foodLevel === undefined ? {} : { foodLevel }) }, inventory: { selectedSlot: 0, items }, blocks: [] });
 
 test('a dig or trip asking never to drop into a cave runs the instinct way while healthy and fed in the Overworld', () => {
 	const asked = { pattern: 'stairs_down', y: 16, throughCaves: false };
@@ -18,13 +18,14 @@ test('a dig or trip asking never to drop into a cave runs the instinct way while
 	assert.deepEqual(kept.kept.map(row => [row.id, row.rule, row.asked, row.instinct]), [['caves', 'ore-cave-first', false, 'small']]);
 	assert.equal(asked.throughCaves, false, 'the model\'s arguments are not mutated');
 	assert.equal(applyInstinctChoices('travel_to', { x: 1, z: 2, throughCaves: false }, body()).arguments.throughCaves, 'small');
+	assert.equal(applyInstinctChoices('dig_to', asked, body({ items: [], foodLevel: CAVE_MIN_FOOD })).arguments.throughCaves, 'small', 'a fed body needs no food carried');
 	assert.match(keptNote(kept.kept), /^instinct kept throughCaves:"small" \(you asked false; .*\)\. To go against it, repeat with overrule:/);
 	assert.equal(keptNote([]), null);
 });
 
 test('the model value stands where the instinct does not hold or the model names its reason', () => {
 	const asked = { pattern: 'tunnel', heading: 'north', throughCaves: false };
-	for (const [label, observation] of [['hurt', body({ health: CAVE_MIN_HEALTH - 1 })], ['no food', body({ items: [] })], ['Nether', body({ dimension: 'minecraft:the_nether' })], ['no observation', null]]) {
+	for (const [label, observation] of [['hurt', body({ health: CAVE_MIN_HEALTH - 1 })], ['no food', body({ items: [] })], ['no food, hungry', body({ items: [], foodLevel: CAVE_MIN_FOOD - 1 })], ['Nether', body({ dimension: 'minecraft:the_nether' })], ['no observation', null]]) {
 		const result = applyInstinctChoices('dig_to', asked, observation);
 		assert.equal(result.arguments.throughCaves, false, label);
 		assert.deepEqual(result.kept, [], label);
