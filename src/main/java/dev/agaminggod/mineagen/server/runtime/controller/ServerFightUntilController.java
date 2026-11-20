@@ -182,6 +182,8 @@ public final class ServerFightUntilController implements ServerController {
 	private final ElapsedTimeAccumulator elapsedTime;
 	private final HazardEntry hazard = new HazardEntry();
 	private final Map<UUID, Long> excluded = new HashMap<>();
+	/** Mobs a sword approach found out of reach, passed over until they or the body move (off by default; {@link UnreachableTargets}). */
+	private final UnreachableTargets unreachable = UnreachableTargets.fromProperty();
 	private final Map<String, Integer> endings = new LinkedHashMap<>();
 	/** Hurts the body took, by damage kind and what the body was doing (shield, sword, bow, move, idle). */
 	private final Map<String, Integer> hurts = new LinkedHashMap<>();
@@ -273,7 +275,8 @@ public final class ServerFightUntilController implements ServerController {
 	private int failuresInRow;
 	private CombatBailout bailout;
 	private LivingEntity current;
-	private ServerFightController melee;
+	/** A sword engagement: a {@link ServerFightController}, or a fixture's scripted one ({@link #scriptedMelee}). */
+	private ServerController melee;
 	private ServerTransactionAdapter.ActiveTransaction volley;
 	private ServerNavigationController walk;
 	/** The look-around turn while no target is seen: a player turns to find the next mob, it is never seen through the back of the head. */
@@ -1058,7 +1061,8 @@ public final class ServerFightUntilController implements ServerController {
 		if (excluded.isEmpty()) return false;
 		for (LivingEntity entity : player.level().getEntitiesOfClass(LivingEntity.class, new AABB(center, center).inflate(radius),
 				e -> e.getType() == mob && e.isAlive() && !e.isDeadOrDying() && excluded.containsKey(e.getUUID())))
-			if (entity.position().distanceTo(center) <= radius && sensed(player, entity)) return true;
+			// One a sword approach found out of reach does not hold the quiet spell off: the body cannot get at it from here.
+			if (entity.position().distanceTo(center) <= radius && sensed(player, entity) && !passedOver(player, entity)) return true;
 		return false;
 	}
 
@@ -1125,6 +1129,13 @@ public final class ServerFightUntilController implements ServerController {
 		if (killed || SOFT_ENDS.contains(code)) {
 			if (killed) { failuresInRow = 0; lastFailure = null; }
 			return code;
+		}
+		if (endedTarget != null && unreachable.failed(id, code, wasMelee, mob == McEntityTypes.BLAZE || endedTarget.getType() == McEntityTypes.BLAZE,
+				endedTarget.position(), player.position(), player.tickCount)) {
+			note("passed over " + BuiltInRegistries.ENTITY_TYPE.getKey(endedTarget.getType()) + " " + id + " out of reach until it or you move "
+					+ (int) UnreachableTargets.MOVED + " blocks");
+			// Out of reach and still hunting the body: not kept on, and not a failure in a row; the hunt looks for another.
+			if (attacking(player, endedTarget)) return code;
 		}
 		if (endedTarget != null && endedTarget.isAlive() && !endedTarget.isDeadOrDying() && attacking(player, endedTarget)) {
 			// It still hunts the body (an enderman that teleported off, out of reach or view): passing it over leaves the
@@ -1236,12 +1247,22 @@ public final class ServerFightUntilController implements ServerController {
 		// The engine owns every retarget with the model's targetPolicy, continueWithAttackers, includePlayers and protection
 		// (nextTarget, policySwitch, swordTurn), so each engagement stays on the one target whose kill and drop it counts and
 		// never switches by itself (engineTargets: no in-reach, follow-through or policy switch inside the fight).
-		melee = new ServerFightController(target, choices.desiredRange(), fleeAtHealth, false, CombatPlanning.TargetPolicy.NAMED, choices.includePlayers(),
+		melee = scriptedMelee != null ? scriptedMelee.apply(target)
+				: new ServerFightController(target, choices.desiredRange(), fleeAtHealth, false, CombatPlanning.TargetPolicy.NAMED, choices.includePlayers(),
 				choices.meleePursue(roofed), choices.sneak(), shield, Math.min(segment, left), now)
 				.engineTargets()
 				.collectDrops(collect && !roofed ? protection::mayTakeEntity : null)
 				.makingRoom(protection::mayDropItem);
 		meleeEngagements++;
+	}
+
+	/** Test seam: fixtures script each sword engagement's ending; null (always, outside fixtures) runs fight_target's engine. */
+	static java.util.function.Function<LivingEntity, ServerController> scriptedMelee;
+
+	/** A mob a sword approach found out of reach that has not moved, nor the body, nor hurt the body since ({@link UnreachableTargets}). */
+	private boolean passedOver(ServerPlayer player, LivingEntity entity) {
+		return unreachable.passedOver(entity.getUUID(), entity.position(), player.position(),
+				player.getLastHurtByMob() == entity ? player.getLastHurtByMobTimestamp() : Integer.MIN_VALUE);
 	}
 
 	/**
@@ -1318,7 +1339,7 @@ public final class ServerFightUntilController implements ServerController {
 			LivingEntity first = firstTarget;
 			if (!first.isAlive() || first.isDeadOrDying()) firstTarget = null;
 			else if (!mayEngage(player, first)) firstTarget = null;
-			else if ((!excluded.containsKey(first.getUUID()) || attacking(player, first)) && sensed(player, first)) return first;
+			else if ((!excluded.containsKey(first.getUUID()) || attacking(player, first)) && sensed(player, first) && !passedOver(player, first)) return first;
 		}
 		List<LivingEntity> candidates = candidates(player);
 		if (choices.targetPolicy() != CombatPlanning.TargetPolicy.NAMED) {
@@ -1349,7 +1370,7 @@ public final class ServerFightUntilController implements ServerController {
 			if (!choices.candidate(true, attacker, entity instanceof net.minecraft.world.entity.player.Player)) continue;
 			if (excluded.containsKey(entity.getUUID()) && !attacker) continue;
 			if (entity.position().distanceTo(center) > radius && !attacker) continue;
-			if (!sensed(player, entity) || !mayEngage(player, entity)) continue;
+			if (!sensed(player, entity) || !mayEngage(player, entity) || passedOver(player, entity)) continue;
 			out.add(entity);
 		}
 		if (!choices.followThrough()) return out;
@@ -1358,7 +1379,7 @@ public final class ServerFightUntilController implements ServerController {
 			boolean attacker = attacking(player, entity) || entity instanceof ServerPlayer && player.getLastHurtByMob() == entity;
 			if (!choices.candidate(false, attacker, entity instanceof net.minecraft.world.entity.player.Player)
 					|| !followable(false, entity instanceof net.minecraft.world.entity.monster.Creeper)) continue;
-			if (player.distanceTo(entity) > CombatPlanning.THREAT_RANGE || !sensed(player, entity) || !mayEngage(player, entity)) continue;
+			if (player.distanceTo(entity) > CombatPlanning.THREAT_RANGE || !sensed(player, entity) || !mayEngage(player, entity) || passedOver(player, entity)) continue;
 			out.add(entity);
 		}
 		return out;
@@ -1690,7 +1711,7 @@ public final class ServerFightUntilController implements ServerController {
 		if (leads == null) return null;
 		if (hunt == null) {
 			EndermanHuntLeads.Lead lead = leads.next(player.position(), elapsed, HUNT_ARRIVE,
-					id -> excluded.containsKey(id) || staredOut.contains(id));
+					id -> excluded.containsKey(id) || staredOut.contains(id) || unreachable.marked(id));
 			if (lead == null) return null;
 			if (look != null) { look.cancel(player); look = null; }
 			huntId = lead.id();
@@ -2087,6 +2108,9 @@ public final class ServerFightUntilController implements ServerController {
 				"; drops: %d bow shot%s held for a target over unwalkable ground, %d kill%s over unwalkable ground (drop lost)",
 				bowSkipsOverDrop, bowSkipsOverDrop == 1 ? "" : "s", killsOverDrop, killsOverDrop == 1 ? "" : "s"));
 		if (!hurts.isEmpty()) text.append("; hurt by (kind while doing): ").append(hurts);
+		if (unreachable.failures() > 0) text.append(String.format(Locale.ROOT,
+				"; out of reach: passed over %d time%s until the mob or you moved %d blocks (%d let back in)", unreachable.failures(),
+				unreachable.failures() == 1 ? "" : "s", (int) UnreachableTargets.MOVED, unreachable.readmitted()));
 		if (mob == McEntityTypes.ENDERMAN && !roofed && stares + holds + attackerSoftEnds > 0)
 			text.append(String.format(Locale.ROOT, "; endermen: stared at %d calm (%d provoked), waited %d time%s for an angry one to come, kept on %d that left reach still hunting you",
 					stares, staresProvoked, holds, holds == 1 ? "" : "s", attackerSoftEnds));
