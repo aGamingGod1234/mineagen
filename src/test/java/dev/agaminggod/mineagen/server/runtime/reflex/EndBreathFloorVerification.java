@@ -39,6 +39,10 @@ public final class EndBreathFloorVerification {
 		gapHoldsStillInputOverTheCommand();
 		lavaFloorStillGivesACommandItsCooldown();
 		blockedEndDefaultsNeverFire(end);
+		aYieldAfterTheCloudWaitsForTheRun(end);
+		shieldInTheBreathCooldownDoesNotPassTheCommandThrough(end);
+		gapStepTakesAndReleasesTheHold(end);
+		blockedEndThrowLosesItsQueuedEdge(end);
 		breathStaysArmedAtTheLoopLimits(end);
 		return assertions;
 	}
@@ -323,7 +327,7 @@ public final class EndBreathFloorVerification {
 		check(BREATH.equals(step(scheduler, 1L, true, RUNNING).started()), "breath fires in the End");
 		// The body leaves the End mid-firing: the engine interrupts the firing and blocks the End's rules.
 		check(scheduler.interrupt(2L, "left the End").endOutcome() == ReflexScheduler.Outcome.YIELDED, "the running End default stops");
-		scheduler.block(ReflexEngine.endOnlyIds(scheduler));
+		scheduler.blockWhere(ReflexEngine::endOnly);
 		check(ReflexEngine.endOnlyIds(scheduler).equals(java.util.Set.of(BREATH, "default-end-throw")), "both End defaults are blocked");
 		// The sense still reads true for a while (a cloud carried over, the coordinator's removal not here yet).
 		for (long tick = 3L; tick < 60L; tick++) check(step(scheduler, tick, true, RUNNING).started() == null, "blocked: no firing at tick " + tick);
@@ -332,12 +336,116 @@ public final class EndBreathFloorVerification {
 		ReflexScheduler edged = new ReflexScheduler();
 		edged.replace(end, 0L);
 		step(edged, 1L, false, RUNNING);
-		edged.block(java.util.Set.of(BREATH));
+		edged.blockWhere(rule -> BREATH.equals(rule.id()));
 		check(step(edged, 2L, true, RUNNING).started() == null, "a new edge while blocked does not fire");
-		edged.block(ReflexEngine.endOnlyIds(edged));
+		edged.blockWhere(ReflexEngine::endOnly);
 		for (long tick = 3L; tick < 30L; tick++) check(step(edged, tick, true, RUNNING).started() == null, "the queued edge never fires while blocked");
-		edged.block(java.util.Set.of());
+		edged.blockWhere(null);
 		check(BREATH.equals(step(edged, 30L, true, RUNNING).started()), "back in the End it fires again");
+	}
+
+	private static dev.agaminggod.mineagen.server.runtime.input.LeasedServerInputController controller() {
+		return new dev.agaminggod.mineagen.server.runtime.input.LeasedServerInputController(new dev.agaminggod.mineagen.server.runtime.input.InputStateSink() {
+			@Override public void apply(dev.agaminggod.mineagen.agent.AgentId id, dev.agaminggod.mineagen.server.runtime.input.AgentInputState previous,
+					dev.agaminggod.mineagen.server.runtime.input.AgentInputState state) { }
+			@Override public void clear(dev.agaminggod.mineagen.agent.AgentId id, dev.agaminggod.mineagen.server.runtime.input.AgentInputState previous) { }
+		});
+	}
+
+	private static final dev.agaminggod.mineagen.server.runtime.input.AgentInputState TRAVEL = new dev.agaminggod.mineagen.server.runtime.input.AgentInputState(
+			1.0F, 0.0F, true, false, true, false, false, 90.0F, 0.0F, 0, net.minecraft.world.InteractionHand.MAIN_HAND);
+
+	/** Council R3 (1): the first yield request arrives after cloud_near turned false while the sprint still runs: it waits. */
+	private static void aYieldAfterTheCloudWaitsForTheRun(List<ReflexSpec.Rule> end) {
+		ReflexScheduler scheduler = new ReflexScheduler();
+		scheduler.replace(List.of(named(end, BREATH)), 0L);
+		check(BREATH.equals(step(scheduler, 1L, true, RUNNING).started()), "breath fires");
+		check(!step(scheduler, 2L, false, RUNNING).changed(), "out of the cloud, the sprint still runs");
+		check(scheduler.yield(3L).ended() == null && BREATH.equals(scheduler.current().ruleId()), "a first command now waits: the run is not ended");
+		for (long tick = 4L; tick < 12L; tick++) check(!step(scheduler, tick, false, RUNNING).changed() && !scheduler.deferredYielded(), "the run keeps the body to its end");
+		ReflexScheduler.Decision done = step(scheduler, 12L, false, ReflexScheduler.ActionStatus.DONE, "ran 10.0 blocks");
+		check(done.endOutcome() == ReflexScheduler.Outcome.DONE && scheduler.deferredYielded(), "the run done out of the cloud hands the waiting command the body");
+		// A model rule (not floor) still yields at once, as before.
+		ReflexScheduler model = new ReflexScheduler();
+		model.replace(List.of(rule("{\"id\":\"default-breath\",\"priority\":9,\"when\":{\"type\":\"cloud_near\",\"within\":1},\"do\":{\"type\":\"sprint_away\",\"blocks\":10}}")), 0L);
+		step(model, 1L, true, RUNNING);
+		step(model, 2L, false, RUNNING);
+		check(model.yield(3L).endOutcome() == ReflexScheduler.Outcome.YIELDED, "the model's own breath rule yields at once");
+	}
+
+	/** Council R3 (2): a shield stance firing in the breath cooldown neither walks the command on nor lets it resume. */
+	private static void shieldInTheBreathCooldownDoesNotPassTheCommandThrough(List<ReflexSpec.Rule> end) {
+		ReflexSpec.Rule guard = rule("{\"id\":\"guard\",\"kind\":\"stance\",\"priority\":5,\"when\":{\"type\":\"hostile_near\",\"within\":4},\"do\":{\"type\":\"shield\"}}");
+		ReflexScheduler scheduler = new ReflexScheduler();
+		scheduler.replace(List.of(named(end, BREATH), guard), 0L);
+		Map<String, ReflexScheduler.Sense> both = Map.of(BREATH, new ReflexScheduler.Sense(true, false), "guard", new ReflexScheduler.Sense(true, false));
+		// The command predates the cloud (no yield request, which would also lower idle shields).
+		check(BREATH.equals(scheduler.step(1L, both, RUNNING, "", false).started()), "breath fires first");
+		ReflexScheduler.Decision failed = scheduler.step(3L, both, FAILED, "no safe heading away", false);
+		check(failed.endOutcome() == ReflexScheduler.Outcome.FAILED && "guard".equals(failed.started()), "in the breath cooldown the shield stance fires");
+		check(!ReflexEngine.passesThrough(true, true, scheduler), "a breath run is owed: the shield does not pass the command's movement");
+		// The engine pauses the action when nothing passes (tickAgent returns !passes), and builds the shield's context without the
+		// command's input below it, so the shield applies its aim only. The winning input is then still.
+		var input = controller();
+		var agent = new dev.agaminggod.mineagen.agent.AgentId(java.util.UUID.fromString("00000000-0000-0000-0000-00000000e2d3"));
+		input.apply(input.acquire(agent, dev.agaminggod.mineagen.server.runtime.input.InputOwner.NAVIGATION, 100), TRAVEL);
+		var reflex = input.acquire(agent, dev.agaminggod.mineagen.server.runtime.input.InputOwner.REFLEX, ReflexEngine.INPUT_PRIORITY);
+		input.apply(reflex, new dev.agaminggod.mineagen.server.runtime.input.AgentInputState(0.0F, 0.0F, false, false, false, false, true, 90.0F, 0.0F, 0,
+				net.minecraft.world.InteractionHand.OFF_HAND));
+		var winning = input.currentState(agent).orElseThrow();
+		check(winning.forward() == 0.0F && !winning.sprint() && !winning.jump() && winning.use(), "the shield's aim wins: shield up, no forward, sprint or jump");
+		// Contrast: with no breath owed, the same shield passes a walking command through, as on main.
+		ReflexScheduler plain = new ReflexScheduler();
+		plain.replace(List.of(guard), 0L);
+		plain.step(1L, Map.of("guard", new ReflexScheduler.Sense(true, false)), RUNNING, "", false);
+		check(ReflexEngine.passesThrough(true, true, plain), "no breath owed: a shield still lets a walking command move");
+		check(!ReflexEngine.passesThrough(true, false, plain), "and never a command that does not walk");
+	}
+
+	/** Council R3 (4): the engine's gap step takes the still-input hold while a run is owed and releases it once nothing is. */
+	private static void gapStepTakesAndReleasesTheHold(List<ReflexSpec.Rule> end) {
+		var input = controller();
+		var agent = new dev.agaminggod.mineagen.agent.AgentId(java.util.UUID.fromString("00000000-0000-0000-0000-00000000e2d4"));
+		input.apply(input.acquire(agent, dev.agaminggod.mineagen.server.runtime.input.InputOwner.NAVIGATION, 100), TRAVEL);
+		ReflexScheduler scheduler = new ReflexScheduler();
+		scheduler.replace(List.of(named(end, BREATH)), 0L);
+		step(scheduler, 1L, true, RUNNING);
+		scheduler.yield(2L);
+		step(scheduler, 3L, true, FAILED, "no safe heading away");
+		check(scheduler.current() == null, "in the failed run's cooldown");
+		var lease = ReflexEngine.gapStep(scheduler, input, agent, null, true, 90.0F, 0.0F, 0);
+		check(lease != null && input.currentState(agent).orElseThrow().forward() == 0.0F, "the gap step takes the hold: still input wins");
+		check(ReflexEngine.gapStep(scheduler, input, agent, lease, true, 90.0F, 0.0F, 0) == lease, "and keeps the same lease the next tick");
+		step(scheduler, 4L, false, RUNNING);
+		check(ReflexEngine.gapStep(scheduler, input, agent, lease, true, 90.0F, 0.0F, 0) == null, "out of the cloud: nothing owed, the hold is released");
+		var after = input.currentState(agent).orElseThrow();
+		check(after.forward() == 1.0F && after.sprint(), "the command's input drives again");
+		// No command: no hold, nothing taken.
+		ReflexScheduler idle = new ReflexScheduler();
+		idle.replace(List.of(named(end, BREATH)), 0L);
+		step(idle, 1L, true, RUNNING);
+		step(idle, 2L, true, FAILED, "no safe heading away");
+		check(ReflexEngine.gapStep(idle, input, agent, null, false, 90.0F, 0.0F, 0) == null && input.currentState(agent).orElseThrow().forward() == 1.0F,
+				"with no command active the gap takes nothing");
+	}
+
+	/** Council R3 (6): default-end-throw's edge, queued while the breath held the body, is dropped by the block and never fires. */
+	private static void blockedEndThrowLosesItsQueuedEdge(List<ReflexSpec.Rule> end) {
+		String throwId = "default-end-throw";
+		ReflexScheduler scheduler = new ReflexScheduler();
+		scheduler.replace(end, 0L);
+		java.util.function.BiFunction<Boolean, Boolean, Map<String, ReflexScheduler.Sense>> senses = (breath, swoop) -> Map.of(
+				BREATH, new ReflexScheduler.Sense(breath, false), throwId, new ReflexScheduler.Sense(swoop, false));
+		check(BREATH.equals(scheduler.step(1L, senses.apply(true, false), RUNNING, "", false).started()), "breath holds the body");
+		check(scheduler.step(2L, senses.apply(true, true), RUNNING, "", false).started() == null, "the swoop edge queues behind the higher breath firing");
+		check(!scheduler.statuses(2L).isEmpty(), "rules listed");
+		scheduler.interrupt(3L, "left the End");
+		scheduler.blockWhere(ReflexEngine::endOnly);
+		for (long tick = 4L; tick < 10L; tick++) check(scheduler.step(tick, senses.apply(false, true), RUNNING, "", false).started() == null, "blocked: the queued swoop edge does not fire at " + tick);
+		scheduler.blockWhere(null);
+		for (long tick = 10L; tick < 15L; tick++) check(scheduler.step(tick, senses.apply(false, true), RUNNING, "", false).started() == null, "unblocked inside the old pending window: the dropped edge stays dropped at " + tick);
+		scheduler.step(15L, senses.apply(false, false), RUNNING, "", false);
+		check(throwId.equals(scheduler.step(16L, senses.apply(false, true), RUNNING, "", false).started()), "a fresh swoop edge in the End fires it");
 	}
 
 	/** Loop limits wake the model once per crossing but never switch the breath floor off. */

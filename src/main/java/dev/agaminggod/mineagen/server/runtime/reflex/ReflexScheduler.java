@@ -473,7 +473,9 @@ public final class ReflexScheduler {
 		if (current == null) return Decision.NONE;
 		Firing ended = current;
 		State state = states.get(ended.ruleId());
-		if (state.floor && state.lastTruth && !settledHold && !state.cornered()) {
+		// A breath run keeps a new command waiting until the run ends, also once the body is just out of the cloud and still
+		// sprinting: released then, the command walked straight back in (council R3).
+		if (state.floor && (state.lastTruth || state.releasesCornered) && !settledHold && !state.cornered()) {
 			deferredYield = current.ruleId();
 			return Decision.NONE;
 		}
@@ -502,24 +504,27 @@ public final class ReflexScheduler {
 	 */
 	public boolean holdsWaitingCommand() {
 		for (State state : states.values()) {
-			if (state.releasesCornered && state.lastTruth && !state.yieldedTrigger && state.disabledReason == null && !blocked.contains(state.rule.id())) return true;
+			if (state.releasesCornered && state.lastTruth && !state.yieldedTrigger && state.disabledReason == null && !blocked(state)) return true;
 		}
 		return false;
 	}
 
-	/** Rules that must not fire now whatever their condition (an End default outside the End); see {@link #block}. */
-	private Set<String> blocked = Set.of();
+	/** Rules that must not fire now whatever their condition (an End default outside the End); see {@link #blockWhere}. */
+	private java.util.function.Predicate<ReflexSpec.Rule> blocked;
 
 	/**
-	 * Rules that must not fire from now on: their queued edges are dropped and they are left out of selection until the set
-	 * changes (the End's defaults the tick the body leaves the End, before the coordinator removes them).
+	 * Rules matching {@code rule} (null: none) must not fire from now on: their queued edges are dropped and they are left out
+	 * of selection until it changes (the End's defaults the tick the body leaves the End, before the coordinator removes them).
+	 * Called every tick: it allocates nothing.
 	 */
-	public void block(Set<String> ruleIds) {
-		blocked = Set.copyOf(ruleIds);
-		for (String id : blocked) {
-			State state = states.get(id);
-			if (state != null) state.pendingUntil = -1L;
-		}
+	public void blockWhere(java.util.function.Predicate<ReflexSpec.Rule> rule) {
+		blocked = rule;
+		if (rule == null) return;
+		for (State state : states.values()) if (rule.test(state.rule)) state.pendingUntil = -1L;
+	}
+
+	private boolean blocked(State state) {
+		return blocked != null && blocked.test(state.rule);
 	}
 
 	/** A cornered floor rule, still in its hazard, that has not yet given the body to a command. */
@@ -582,7 +587,7 @@ public final class ReflexScheduler {
 	}
 
 	private boolean ready(State state, long now) {
-		if (state.disabledReason != null || now < state.cooldownUntil || state.heldBack || heldNow.containsKey(state.rule.id()) || blocked.contains(state.rule.id())) return false;
+		if (state.disabledReason != null || now < state.cooldownUntil || state.heldBack || heldNow.containsKey(state.rule.id()) || blocked(state)) return false;
 		if (current != null && current.ruleId().equals(state.rule.id())) return false;
 		if (state.rule.maxFirings() > 0 && state.fired >= state.rule.maxFirings()) return false;
 		// A floor trigger is level-triggered: ready whenever its hazard holds, unless a settled firing of it yielded.
