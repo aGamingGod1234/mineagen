@@ -96,6 +96,24 @@ public final class BrinkGuard {
 		private int braceTick = -1000;
 		private final java.util.Set<Object> levelHolders = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
 		private final java.util.Set<Object> bracingHolders = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+		/** The lava cell the guard last refused a step into, and when (see lavaRefusal). */
+		private BlockPos lavaCell;
+		private int lavaTick = -1000;
+	}
+
+	/**
+	 * The lava cell this body's keys were last refused a step into, within {@link LavaStep#REFUSAL_TICKS}, or null: the
+	 * walker that sent the keys seals it or hands back.
+	 */
+	public static synchronized BlockPos lavaRefusal(ServerPlayer player) {
+		Memory memory = MEMORY.get(player);
+		return memory == null || memory.lavaCell == null || player.tickCount - memory.lavaTick > LavaStep.REFUSAL_TICKS ? null : memory.lavaCell;
+	}
+
+	/** Forget a refusal once its walker sealed the cell or planned round it. */
+	public static synchronized void clearLavaRefusal(ServerPlayer player) {
+		Memory memory = MEMORY.get(player);
+		if (memory != null) memory.lavaCell = null;
 	}
 
 	/** Keep a commanded fight/stance on its deck, including survivable drops; released by that action on exit. */
@@ -247,9 +265,25 @@ public final class BrinkGuard {
 				? jumpLandsLethal(player, worldHeading(player.getYRot(), forward, strafe), player.isSprinting()) : null;
 		if (refusedFall != null && refusedFall.unknown() && destinationBelow(player, memory)) refusedFall = null;
 		boolean refuseJump = refusedFall != null;
+		// Nether lava safety: a jump that would come down in lava at take-off height (the model's own keys too: a
+		// sprint jump out of a flooded tunnel ended in the flow) is refused like a jump over a lethal drop.
+		if (!refuseJump && jump && !brace && player.onGround() && memory.ownJump == 0 && !HazardExits.fireResistant(player)) {
+			double[] heading = worldHeading(player.getYRot(), forward, strafe);
+			Vec3 now = player.getDeltaMovement();
+			double[][] shifts = new double[JUMP_AIR_TICKS + 3 - JUMP_FIRST_LANDING_TICK][];
+			for (int ticks = JUMP_FIRST_LANDING_TICK; ticks <= JUMP_AIR_TICKS + 2; ticks++)
+				shifts[ticks - JUMP_FIRST_LANDING_TICK] = jumpDisplacement(now.x, now.z, heading, player.isSprinting(), ticks);
+			BlockPos lava = LavaStep.jumpLands((x, y, z) -> player.level().getBlockState(new BlockPos(x, y, z)), player.getBoundingBox(), shifts);
+			if (lava != null) {
+				refuseJump = true;
+				memory.lavaCell = lava;
+				memory.lavaTick = player.tickCount;
+				saved(player, memory, "refused a jump into lava at " + lava.getX() + "," + lava.getY() + "," + lava.getZ(), new Fall("lava", 0));
+			}
+		}
 		if (refuseJump) {
 			jump = false;
-			saved(player, memory, "jump refused", refusedFall);
+			if (refusedFall != null) saved(player, memory, "jump refused", refusedFall);
 		}
 		memory.ownJump = brace || refuseJump ? 0 : jump ? OWN_JUMP_TICKS : Math.max(0, memory.ownJump - 1);
 		// A shove: the body leaves the ground going up without its own jump (vanilla knockback lifts a grounded body 0.4).
@@ -353,6 +387,22 @@ public final class BrinkGuard {
 				AABB over = player.getBoundingBox().move(dx, 0.0D, dz);
 				Fall drop = fall(player, world, over);
 				hold = keepLevel || drop != null && (!drop.unknown() || !destinationBelow(player, memory));
+			}
+		}
+		// Nether lava safety: a supported step whose box would overlap lava at the feet or head within three ticks (a
+		// flow across the floor, a pool level with the walk) is not taken: the keys stop and the body crouches. The fall
+		// check above only sees lava below an unsupported box. Every input is judged, the model's own keys too: no one
+		// means to walk into lava, and 6 of 10 lava deaths were such walk-ins with no mob near.
+		if (moving && memory.ownJump == 0 && player.onGround() && !HazardExits.fireResistant(player)) {
+			double[] heading = worldHeading(player.getYRot(), keysForward, keysStrafe);
+			BlockPos lava = LavaStep.refused((x, y, z) -> player.level().getBlockState(new BlockPos(x, y, z)), player.getBoundingBox(),
+					motion.x, motion.z, heading, INPUT_ACCELERATION);
+			if (lava != null) {
+				memory.lavaCell = lava;
+				memory.lavaTick = player.tickCount;
+				saved(player, memory, "refused a step into lava at " + lava.getX() + "," + lava.getY() + "," + lava.getZ(), new Fall("lava", 0));
+				memory.sneakSet = !sneak;
+				return new Keys(0.0F, 0.0F, true, braced, refuseJump, false);
 			}
 		}
 		// A refused jump also holds sneak: the move was aimed over a real drop, and without it forward and sprint walked

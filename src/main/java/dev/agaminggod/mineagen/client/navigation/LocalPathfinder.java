@@ -514,6 +514,12 @@ public final class LocalPathfinder implements PathPlanner {
 				}
 			}
 		}
+		// Nether lava safety: a cell seen lava fills next is no route cell at all, so the plan goes round it
+		// rather than through it (it used to cost 200 and then fail the whole route with LAVA_FLOW); a body already in a
+		// flow's way may still cross such cells to get out.
+		if (view.refusesLavaFlowCells() && !neighbors.isEmpty() && !view.lavaFillsNext(current)) {
+			neighbors.removeIf(edge -> view.lavaFillsNext(edge.position()));
+		}
 		double sourceSpeed = neighbors.isEmpty() ? 1.0D : view.movementSpeedMultiplier(current);
 		for (int index = 0; index < neighbors.size(); index++) {
 			Neighbor edge = neighbors.get(index);

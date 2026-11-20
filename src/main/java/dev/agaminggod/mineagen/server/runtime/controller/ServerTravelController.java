@@ -1632,6 +1632,14 @@ public final class ServerTravelController implements ServerController {
 				BlockState known = world.stateAt(cell);
 				if (known == null) break;
 				if (!player.level().getBlockState(cell).getFluidState().isEmpty()) {
+					// Nether lava safety: lava pouring into the cut is plugged with a block, as a player does, before
+					// backing off; two of six lava deaths with no mob near followed TUNNEL_FLOODED.
+					if (LavaStep.lava(player.level().getBlockState(cell))) {
+						Boolean plugged = plugLava(player, cell, nowEpochMs);
+						if (plugged == null) return null;
+						if (plugged) return fail(player, "TUNNEL_LAVA_PLUGGED", "Lava flowed into the opened tunnel at " + cell(cell)
+								+ "; plugged it with a block and did not go on this way");
+					}
 					return retreat(player, nowEpochMs, "TUNNEL_FLOODED", "Fluid flowed into the opened tunnel at " + cell(cell) + "; not entered");
 				}
 				if (!known.getCollisionShape(player.level(), cell).isEmpty()) {
@@ -1742,6 +1750,35 @@ public final class ServerTravelController implements ServerController {
 		if (placed) work++;
 		return placed;
 	}
+
+	/**
+	 * Place a hotbar building block into a lava cell the tunnel let in: null while turning, selecting and clicking, true
+	 * once the cell holds a block, false when it cannot be done (no block on the hotbar, no solid face beside it in
+	 * reach, protection, or 2 s spent).
+	 */
+	private Boolean plugLava(ServerPlayer player, BlockPos cell, long nowEpochMs) {
+		if (!cell.equals(plugCell)) { plugCell = cell.immutable(); plugTicks = 0; }
+		if (!LavaStep.lava(player.level().getBlockState(cell))) return true;
+		if (++plugTicks > 40) return false;
+		int slot = -1;
+		for (int hotbar = 0; hotbar < 9 && slot < 0; hotbar++) if (TravelBuilder.buildingBlock(player.getInventory().getItem(hotbar))) slot = hotbar;
+		if (slot < 0) return false;
+		var level = player.level();
+		Direction face = LavaStep.sealFace(cell, at -> level.getBlockState(at).isCollisionShapeFullBlock(level, at));
+		if (face == null) return false;
+		BlockPos support = cell.relative(face.getOpposite());
+		Vec3 aim = Vec3.atCenterOf(support).add(face.getStepX() * 0.499D, face.getStepY() * 0.499D, face.getStepZ() * 0.499D);
+		if (aim.distanceToSqr(player.getEyePosition()) > LavaStep.SEAL_REACH_SQUARED || !mayModify.test(player, cell)) return false;
+		if (player.getInventory().getSelectedSlot() != slot) { select(player, slot, nowEpochMs); return null; }
+		float[] look = TravelBuilder.lookAt(player.getEyePosition(), aim);
+		apply(player, new AgentInputStates.MotorTarget(look[0], look[1], false, false, false), true, false, false, nowEpochMs);
+		BlockHitResult hit = TravelBuilder.crosshair(player);
+		if (hit != null && hit.getBlockPos().equals(support) && hit.getDirection() == face) click(player, hit);
+		return LavaStep.lava(player.level().getBlockState(cell)) ? null : true;
+	}
+
+	private BlockPos plugCell;
+	private int plugTicks;
 
 	private static boolean solid(ServerPlayer player, BlockPos cell) {
 		return !player.level().getBlockState(cell).getCollisionShape(player.level(), cell).isEmpty();
