@@ -490,9 +490,8 @@ export function createVoiceHttpServer({
 	};
 	// The mod's Java HttpClient keeps an idle connection for 30 s and Node closes one after 5 s, so a request sent about
 	// 5 s after the last could go out on a socket Node was closing and fail with a reset. Holding idle sockets longer
-	// than the client leaves the close to the client. The headers timeout must stay above the keep-alive timeout.
+	// than the client leaves the close to the client.
 	server.keepAliveTimeout = IDLE_KEEP_ALIVE_MS;
-	server.headersTimeout = IDLE_KEEP_ALIVE_MS + 1_000;
 	server.on('error', (error) => {
 		if (live) recordTerminalFailure(error);
 	});
