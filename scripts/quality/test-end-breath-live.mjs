@@ -17,7 +17,7 @@ import { adaptObservation } from '../../coordinator/src/observation-adapter.mjs'
 import { ReflexBook, normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
 import { warmBoots } from './fixture-servers.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
-import { damageCounter, replyNumber } from './lib/damage-counter.mjs';
+import { damageCounter, damageEvidence, replyNumber } from './lib/damage-counter.mjs';
 import { finishRun, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
@@ -49,6 +49,8 @@ const ROOMS = [
 	{ name: 'rim-command-into-cloud', body: [11, -3], ball: [10, -3], command: true },
 ];
 const repeats = Math.max(1, Number(process.env.REPEATS ?? 1));
+// A vanilla breath cloud starts at radius 3; default-breath fires within 2 of it.
+const CLOUD_REACH = 5;
 const runs = Array.from({ length: repeats }, () => ROOMS).flat();
 const results = { arm: OLD_RULE ? 'old+model-rule' : OLD ? 'old' : 'new', jar: path.resolve(jarArg ?? path.join(root, MOD_JAR)), runs: [] };
 
@@ -111,6 +113,9 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'breath' 
 		console.log(`[breath] ${results.arm}: armed ${results.armed.join(',')}`);
 		const readDamage = await damageCounter(text => s.command(text), AGENT);
 		const pos = async () => { const o = await s.observe(); return { x: o.position?.x, y: o.position?.y, z: o.position?.z, dead: o.player?.dead === true || o.status === 'PLAYER_DEAD', health: o.player?.health }; };
+		// Reflex events carry a running sequence: a room's own breath firings are the ones past the last room's.
+		let seenSequence = Math.max(0, ...(latest?.reflexes?.events ?? []).map(event => event.seq ?? 0));
+		const armedBreath = !OLD || OLD_RULE;
 		for (const [index, room] of runs.entries()) {
 			const row = { run: index + 1, room: room.name, startedAt: Date.now() };
 			results.runs.push(row);
@@ -167,8 +172,8 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'breath' 
 					}
 					await sleep(200);
 				}
-				// Damage within the window, before the wait for the command's result.
-				row.damageTaken = (await readDamage()) - damageBefore;
+				// Damage within the window, before the wait for the command's result (HP; a missing counter is INVALID).
+				Object.assign(row, damageEvidence(damageBefore, await readDamage(), before.health, trail.at(-1)?.[4]));
 				if (pending) await Promise.race([pending, sleep(3000)]);
 				const after = await pos().catch(() => null);
 				const deathsAfter = replyNumber(await s.command(`scoreboard players get ${AGENT} deaths`)) || 0;
@@ -177,13 +182,23 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'breath' 
 				row.command = commandResult;
 				row.died = dead || deathsAfter > deathsBefore || after?.dead === true;
 				row.voidFall = minY < TOP - 1;
-				row.reflexEvents = (latest?.reflexes?.events ?? []).filter(event => /breath|end-/.test(event.id)).slice(-6);
+				const events = latest?.reflexes?.events ?? [];
+				row.reflexEvents = events.filter(event => /breath|end-/.test(event.id)).slice(-6);
+				row.breathFirings = events.filter(event => (event.seq ?? 0) > seenSequence && /breath/.test(event.id)).length;
+				seenSequence = Math.max(seenSequence, ...events.map(event => event.seq ?? 0));
+				// Exposure: the cloud landed within reach of the body (its 3-block radius plus the rule's 2) and, in an arm with a
+				// breath rule, that rule fired in this room. A room without it measured nothing (council R1: a fireball 4.8 blocks
+				// off, no firing, no move, counted as a pass).
+				row.cloudDistance = cloudAt && before ? Math.round(Math.hypot(before.x - cloudAt[0], before.z - cloudAt[2]) * 10) / 10 : null;
+				const notExercised = !cloudAt ? 'no breath cloud formed' : !row.placed ? 'body not placed on the room cell'
+					: !(row.cloudDistance <= CLOUD_REACH) ? `cloud ${row.cloudDistance} blocks from the body`
+					: armedBreath && !row.breathFirings ? 'no breath firing in this room' : null;
+				row.exercised = notExercised === null;
 				row.pass = !row.died && !row.voidFall;
-				// No cloud, or a body not on its cell, measures nothing: invalid evidence, not a pass.
-				if (!cloudAt) row.error = 'no breath cloud formed';
-				else if (!row.placed) row.error = 'body not placed on the room cell';
+				// A room that measured nothing is invalid evidence, not a pass.
+				if (notExercised) row.error = `not exercised: ${notExercised}`;
 				row.finishedAt = Date.now();
-				console.log(`[breath] run ${row.run} ${row.room}: ${row.pass ? 'PASS' : 'FAIL'} died=${row.died} voidFall=${row.voidFall} damage=${row.damageTaken} cloud=${cloudAt ? cloudAt.map(n => Math.round(n * 10) / 10).join(',') : 'none'} end=${after ? [after.x, after.y, after.z].map(n => Math.round(n * 10) / 10).join(',') : '?'} command=${JSON.stringify(commandResult)}`);
+				console.log(`[breath] run ${row.run} ${row.room}: ${row.error ? "NOT EXERCISED" : row.pass ? "PASS" : "FAIL"} died=${row.died} voidFall=${row.voidFall} damageHp=${row.damageTaken} cloudDist=${row.cloudDistance} breathFirings=${row.breathFirings} cloud=${cloudAt ? cloudAt.map(n => Math.round(n * 10) / 10).join(',') : 'none'} end=${after ? [after.x, after.y, after.z].map(n => Math.round(n * 10) / 10).join(',') : '?'} command=${JSON.stringify(commandResult)}`);
 				if (row.died) await sleep(3000);
 			} catch (error) {
 				row.error = String(error?.stack ?? error).slice(0, 800);
@@ -191,8 +206,8 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'breath' 
 			}
 			await writeFile(path.join(out, 'result.json'), JSON.stringify(results, null, 2));
 		}
-		const valid = results.runs.filter(row => !row.error && row.cloudAt && row.placed);
-		results.summary = { arm: results.arm, runs: results.runs.length, valid: valid.length, survived: valid.filter(row => !row.died).length, voidFalls: valid.filter(row => row.voidFall).length,
+		const valid = results.runs.filter(row => !row.error && !row.integrity?.length && row.exercised);
+		results.summary = { arm: results.arm, runs: results.runs.length, valid: valid.length, notExercised: results.runs.filter(row => /^not exercised/.test(row.error ?? '')).length, survived: valid.filter(row => !row.died).length, voidFalls: valid.filter(row => row.voidFall).length,
 			deaths: valid.filter(row => row.died).length, pass: valid.filter(row => row.pass).length, damage: valid.map(row => row.damageTaken) };
 		console.log(JSON.stringify(results.summary));
 	} catch (error) {
