@@ -116,6 +116,8 @@ public final class ReflexScheduler {
 		final Deque<Long> recentFirings = new ArrayDeque<>();
 		/** A floor rule that gives way to a model command once cornered ({@link #CORNERED_RELEASE}). */
 		final boolean releasesCornered;
+		/** Runs in a row that failed still in the hazard (a timeout is not one: the run was still moving). */
+		int cornerFailures;
 
 		State(ReflexSpec.Rule rule, long installedTick) {
 			this.rule = rule;
@@ -128,7 +130,7 @@ public final class ReflexScheduler {
 
 		/** Out of options in its hazard: failed this many times in a row, so the model's command may try instead. */
 		boolean cornered() {
-			return releasesCornered && failuresInARow >= MAX_FAILURES_IN_A_ROW;
+			return releasesCornered && cornerFailures >= MAX_FAILURES_IN_A_ROW;
 		}
 
 		/**
@@ -145,6 +147,7 @@ public final class ReflexScheduler {
 			state.yieldedTrigger = yieldedTrigger;
 			state.fired = fired;
 			state.failuresInARow = failuresInARow;
+			state.cornerFailures = cornerFailures;
 			state.lastFailure = lastFailure;
 			state.disabledReason = disabledReason;
 			state.heldSpans = heldSpans;
@@ -337,6 +340,7 @@ public final class ReflexScheduler {
 			if (!truth) {
 				state.suppressed = false;
 				state.yieldedTrigger = false;
+				state.cornerFailures = 0;
 				state.heldSpans = 0;
 				if (state.lastTruth || state.falseSince == Long.MIN_VALUE) state.falseSince = now;
 			} else {
@@ -563,6 +567,10 @@ public final class ReflexScheduler {
 			wake = true;
 			detail = (detail == null || detail.isEmpty() ? "" : detail + "; ") + "held " + (duration * HELD_SPANS_BEFORE_WAKE / TICKS_PER_SECOND)
 					+ " s and the condition has not cleared";
+		}
+		if (state.releasesCornered) {
+			if (outcome == Outcome.FAILED && state.lastTruth) state.cornerFailures++;
+			else if (outcome == Outcome.DONE) state.cornerFailures = 0;
 		}
 		if (failure) {
 			state.failuresInARow++;

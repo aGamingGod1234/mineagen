@@ -101,7 +101,7 @@ import { searchHoldsSteer } from './search-danger.mjs';
 import { carriedFoodToEat, eatCalls, naturalRegeneration } from './fork-rule.mjs';
 // Danger triggers a running count skill handles itself when they come from its own mob (see countSkillKinds).
 const COUNT_SKILL_HELD = new Set(['damage', 'threat', 'projectile', 'fire']);
-import { DEFAULT_REFLEXES, ReflexBook, instinctsEnabled } from './reflexes.mjs';
+import { DEFAULT_REFLEXES, DIMENSION_REFLEXES, ReflexBook, instinctsEnabled } from './reflexes.mjs';
 // Namespace import: situationStrategyTopic is optional, so the changed line works with or without it.
 import * as strategyReference from './minecraft-strategy-reference.mjs';
 import { provenance } from './fact-provenance.mjs';
@@ -401,7 +401,8 @@ export class DynamicCoordinator extends EventEmitter {
 		});
 		this.#nativeRuntime = new NativeToolRuntime({
 			// The game's rule book arms the default survival rules (ruling 16); a bare runtime has the model's rules only.
-			reflexBook: new ReflexBook({ defaults: reflexDefaults, instincts: reflexInstincts }),
+			// The End's own defaults arm whenever the coordinator arms defaults at all (late-game wall, order 12).
+			reflexBook: new ReflexBook({ defaults: reflexDefaults, dimensionDefaults: reflexDefaults.length > 0 ? DIMENSION_REFLEXES : {}, instincts: reflexInstincts }),
 			taskPlan: (record, tool) => this.#taskViews.operate(record, tool),
 			knownStations: (record) => this.#taskViews.placedStations(record),
 			planNeeds: (record) => this.#taskViews.openNeeds(record),

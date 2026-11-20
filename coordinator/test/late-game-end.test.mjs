@@ -4,6 +4,8 @@ import { readFile } from 'node:fs/promises';
 import { DEFAULT_REFLEXES, DIMENSION_REFLEXES, MAX_REFLEXES, MAX_REFLEX_RULES, ReflexBook, normalizeReflexEntries } from '../src/reflexes.mjs';
 import { currentDangers, dangerCoverage } from '../src/danger-contexts.mjs';
 import { validateProtocolV2Payload } from '../src/protocol-v2.mjs';
+import { FakePlanner, eventually, factToWireObservation, start } from './fixtures/dynamic-main-fixture.mjs';
+import { AgentRegistry } from '../src/agent-registry.mjs';
 
 // The late-game contract, part C: End defaults armed by the dimension (wall-breakers late-game-contract.md).
 const END = 'minecraft:the_end', OVERWORLD = 'minecraft:overworld', NETHER = 'minecraft:the_nether';
@@ -93,4 +95,17 @@ test('a book with its own default list gets no End rules unless given them', () 
 	const book = new ReflexBook({ defaults: DEFAULT_REFLEXES.slice(0, 2) });
 	book.observeContext('a', live(END));
 	assert.deepEqual(ids(book), ['default-lava*', 'default-lava-flow*']);
+});
+
+test('the production coordinator arms the End defaults when a live sample arrives from the End', async () => {
+	const registry = new AgentRegistry(), planner = new FakePlanner(registry);
+	const run = await start({ registry, planner, config: { bridge: { port: 25570, secret: 's'.repeat(32) }, codex: { controlProtocol: 'native_tools' } } });
+	try {
+		run.bridge.emit('goal_control', { agentId: 'agent-a', payload: { operation: 'start', goalRevision: 1, goal: 'Kill the ender dragon.' } });
+		const observation = factToWireObservation({ player: { x: 0, y: 64, z: 0, health: 20 } }, 1, 1, false, 1);
+		run.bridge.emit('observation', { agentId: 'agent-a', payload: { ...observation, world: { ...observation.world, dimension: END } } });
+		await eventually(() => run.bridge.sent.some((m) => m.type === 'reflex_update' && m.payload.rules.some((rule) => rule.id === 'default-breath')));
+		const update = run.bridge.sent.filter((m) => m.type === 'reflex_update').at(-1).payload;
+		assert.equal(update.rules.find((rule) => rule.id === 'default-breath').coordinatorDefault, true);
+	} finally { await run.coordinator.stop?.(); }
 });

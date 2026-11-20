@@ -30,6 +30,7 @@ public final class EndBreathFloorVerification {
 		breathRefiresWhileInTheCloud(end);
 		corneredBreathHandsTheWaitingCommandTheBody(end);
 		corneredBreathYieldsToALaterCommand(end);
+		timeoutsInTheCloudDoNotCorner(end);
 		breathStaysArmedAtTheLoopLimits(end);
 		return assertions;
 	}
@@ -136,6 +137,22 @@ public final class EndBreathFloorVerification {
 		fresh.replace(List.of(named(end, BREATH)), 0L);
 		step(fresh, 1L, true, RUNNING);
 		check(fresh.yield(2L).ended() == null, "not cornered: the same command waits");
+	}
+
+	/** Runs that time out still moving are not out of options: four of them keep the command waiting. */
+	private static void timeoutsInTheCloudDoNotCorner(List<ReflexSpec.Rule> end) {
+		ReflexScheduler scheduler = new ReflexScheduler();
+		scheduler.replace(List.of(named(end, BREATH)), 0L);
+		long tick = 0L;
+		step(scheduler, ++tick, true, RUNNING);
+		check(scheduler.yield(++tick).ended() == null, "a command waits");
+		for (int timeout = 1; timeout <= ReflexScheduler.MAX_FAILURES_IN_A_ROW + 1; timeout++) {
+			long max = scheduler.current().maxTicks();
+			tick = scheduler.current().startTick() + max;
+			check(step(scheduler, tick, true, RUNNING).endOutcome() == ReflexScheduler.Outcome.TIMEOUT && !scheduler.deferredYielded(), "timeout " + timeout + " in the cloud: the command still waits");
+			check(BREATH.equals(step(scheduler, ++tick, true, RUNNING).started()), "timeout " + timeout + ": it runs again");
+			check(scheduler.yield(++tick).ended() == null, "timeout " + timeout + ": a new command still waits");
+		}
 	}
 
 	/** Loop limits wake the model once per crossing but never switch the breath floor off. */
