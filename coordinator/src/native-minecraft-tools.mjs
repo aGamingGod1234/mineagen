@@ -26,6 +26,7 @@ import { STRATEGY_REFERENCE_TOPICS, minecraftStrategyReference, resolveStrategyT
 import { validateToolSchema } from './tool-schema-contract.mjs';
 import { OBTAIN_DEFAULT_TIMEOUT_MS, OBTAIN_MAX_TIMEOUT_MS } from './obtain-runner.mjs';
 import { SURFACE_STEP_DEFAULT_TIMEOUT_MS, surfaceStepEnabled } from './surface-step.mjs';
+import { CLIMB_LEG } from './surface-climb.mjs';
 import { STANDING_TEMPLATES } from './standing-templates.mjs';
 import { MAX_REFLEXES, normalizeReflexEntries } from './reflexes.mjs';
 import { compactStandingOrder, DEFAULT_STANDING_TTL_S, MAX_STANDING_SOURCE_BYTES, MAX_STANDING_TTL_S, MAX_STANDING_WHEN_BYTES, STANDING_ORDER_ID } from './standing-orders.mjs';
@@ -897,17 +898,25 @@ function normalizeStep(args) {
 	return result;
 }
 
+// The stair fields a model sends with stairs_up out of habit: the climb picks its own legs, so they are dropped and named.
+const SURFACE_DROPPED_FIELDS = ['y', 'heading', 'maxBlocks', 'throughCaves'];
+
 /**
  * do_step dig_to until "open_sky" (MINEAGEN_SURFACE_STEP=1): the climb to open sky, run to its result. target is {} or
- * { timeoutMs }; pattern "stairs_up" is what it digs anyway and is dropped. Other verbs, after and keepGoing refuse.
+ * { timeoutMs }; pattern "stairs_up" (what it digs anyway), y, heading, maxBlocks and throughCaves are dropped and
+ * reported. Other verbs, other patterns, a destination x,z, after and keepGoing refuse.
  */
 function normalizeSurfaceStep(args, target, step) {
 	if (args.verb !== 'dig_to') invalid(`until "${SURFACE_UNTIL}" climbs with verb dig_to, not ${args.verb}`);
 	if (args.after !== undefined || args.keepGoing !== undefined) invalid(`until "${SURFACE_UNTIL}" runs to its result; after and keepGoing do not apply`);
 	const { pattern, ...rest } = target;
 	if (pattern !== undefined && pattern !== 'stairs_up') invalid(`until "${SURFACE_UNTIL}" digs stairs_up; omit pattern`);
+	const dropped = Object.fromEntries(SURFACE_DROPPED_FIELDS.filter((key) => rest[key] !== undefined).map((key) => [`target.${key}`, `ignored: until "${SURFACE_UNTIL}" climbs stair legs of ${CLIMB_LEG} until the sky is open`]));
+	for (const key of SURFACE_DROPPED_FIELDS) delete rest[key];
 	requireExactKeys(rest, ['timeoutMs']);
-	return { kind: 'surface', arguments: { timeoutMs: optionalInteger(rest.timeoutMs, SURFACE_STEP_DEFAULT_TIMEOUT_MS, 'timeoutMs', 60_000, MAX_FIND_TIMEOUT_MS) }, step };
+	const result = { kind: 'surface', arguments: { timeoutMs: optionalInteger(rest.timeoutMs, SURFACE_STEP_DEFAULT_TIMEOUT_MS, 'timeoutMs', 60_000, MAX_FIND_TIMEOUT_MS) }, step };
+	if (Object.keys(dropped).length > 0) TOOL_ADJUSTMENTS.set(result, dropped);
+	return result;
 }
 
 /** The do_step tool with its until claim naming "open_sky" when the surface step is on; unchanged when it is off. */

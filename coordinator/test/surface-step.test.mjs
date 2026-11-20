@@ -83,6 +83,19 @@ test('the surface step goes back the way the body came first, then stairs up whe
 	assert.deepEqual(world.calls.map(([type, args]) => [type, args.retrace ?? args.pattern]), [['travel_to', true], ['dig_to', 'stairs_up'], ['dig_to', 'stairs_up']]);
 	assert.deepEqual(world.calls[0][1], { x: 10.5, y: 64, z: -3.5, retrace: true, tolerance: 3, timeoutMs: 120_000 });
 	assert.match(result.message, /after 2 stair leg\(s\) after the way back/);
+	// The way back that ends under the sky is the whole climb: no stair leg.
+	const back = rock();
+	let home = false;
+	const walked = await runSurfaceStep({ ...stepBody(back), openSky: () => ({ x: 10.5, y: 64, z: -3.5 }),
+		observe: async () => { const o = back.sample(); return home ? { ...o, player: { ...o.player, y: 64, skyOpen: true } } : o; },
+		act: async (type, args) => {
+			if (type !== 'travel_to') return back.act(type, args);
+			back.calls.push([type, args]);
+			home = true;
+			return { state: 'SUCCEEDED', reasonCode: 'ARRIVED' };
+		} });
+	assert.deepEqual([walked.reasonCode, walked.surface.y, walked.legs, back.calls.map(([type]) => type)], ['OPEN_SKY', 64, 0, ['travel_to']]);
+	assert.match(walked.message, /Under open sky at y 64 \(from y 20\) after 0 stair leg\(s\) after the way back/);
 	// An open-sky spot no higher than the body is no way up: straight to the stairs.
 	const level = rock();
 	await runSurfaceStep(stepBody(level, { openSky: { x: 10.5, y: 21, z: -3.5 } }));
@@ -166,13 +179,17 @@ test('switch on: do_step dig_to until "open_sky" is the surface step; other verb
 	assert.equal(on.normalizeMinecraftToolCall('do_step', { verb: 'dig_to', target: { pattern: 'stairs_up', timeoutMs: 90_000 }, why: 'up', until: 'open_sky' }).arguments.timeoutMs, 90_000);
 	for (const [args, message] of [
 		[{ verb: 'travel_to', target: { x: 1, y: 70, z: 1 }, why: 'up', until: 'open_sky' }, /climbs with verb dig_to, not travel_to/],
-		[{ verb: 'dig_to', target: { y: 70 }, why: 'up', until: 'open_sky' }, /unexpected argument 'y'/],
+		[{ verb: 'dig_to', target: { x: 4, z: 9 }, why: 'up', until: 'open_sky' }, /unexpected argument 'x'/],
 		[{ verb: 'dig_to', target: { pattern: 'tunnel' }, why: 'up', until: 'open_sky' }, /digs stairs_up; omit pattern/],
 		[{ verb: 'dig_to', target: {}, why: 'up', until: 'open_sky', keepGoing: true }, /after and keepGoing do not apply/],
 		[{ verb: 'dig_to', target: {}, why: 'up', until: 'open_sky', after: 'native:a:1' }, /after and keepGoing do not apply/],
 		[{ verb: 'dig_to', target: { timeoutMs: 600_000 }, why: 'up', until: 'open_sky' }, /timeoutMs/],
 	]) assert.throws(() => on.normalizeMinecraftToolCall('do_step', args), message);
-	// Every other until reads as before.
+	// The stair fields a model habitually sends are dropped and named, not refused: a refusal would cost the call this saves.
+	const habit = on.normalizeMinecraftToolCall('do_step', { verb: 'dig_to', target: { pattern: 'stairs_up', y: 70, heading: 'north', maxBlocks: 80, throughCaves: 'small' }, why: 'up', until: 'open_sky' });
+	assert.deepEqual(habit.arguments, { timeoutMs: 540_000 });
+	assert.deepEqual(Object.keys(on.toolAdjustments(habit)).sort(), ['target.heading', 'target.maxBlocks', 'target.throughCaves', 'target.y']);
+		// Every other until reads as before.
 	const seen = on.normalizeMinecraftToolCall('do_step', { verb: 'dig_to', target: { pattern: 'stairs_up', y: 70 }, why: 'up', until: 'seen:oak_log' });
 	assert.equal(seen.arguments.stopWhenSeen, 'minecraft:oak_log');
 	assert.equal(on.normalizeMinecraftToolCall('do_step', { verb: 'dig_to', target: { pattern: 'stairs_up', y: 70 }, why: 'up', until: 'sky' }).kind, 'start_action');
