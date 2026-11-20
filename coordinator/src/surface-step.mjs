@@ -22,8 +22,10 @@ export function resultWhy(result) {
  * The surface step: from under cover, back up the way the body came (the last open-sky spot it stood on, when that is
  * higher) and stairs up until the sky is open over it. body: observe(), act(type, args) (a result with interruptedBy
  * when danger interrupted it), openSky() and now(). Ends SUCCEEDED OPEN_SKY with the height, or says why it stopped:
- * SURFACE_DANGER (an interrupt or a danger stop; the model decides), SURFACE_BLOCKED (a leg could not rise),
- * SURFACE_OUT_OF_LEGS, SURFACE_TIMED_OUT, or SURFACE_NO_SKY (the Nether).
+ * SURFACE_DANGER (a danger interrupt, or a leg that could not rise for a danger stop; the model decides),
+ * SURFACE_BLOCKED (a leg could not rise for anything else), SURFACE_OUT_OF_LEGS, SURFACE_TIMED_OUT, or SURFACE_NO_SKY
+ * (the Nether). Like obtain, a leg that rose goes on to the next one whatever stopped it (live: a zombie 11 blocks off
+ * stopped a leg at y 20; the next leg's dig judges it again), so the step makes the calls obtain makes.
  */
 export async function runSurfaceStep(body, { timeoutMs = SURFACE_STEP_DEFAULT_TIMEOUT_MS } = {}) {
 	const startedAt = body.now();
@@ -42,7 +44,7 @@ export async function runSurfaceStep(body, { timeoutMs = SURFACE_STEP_DEFAULT_TI
 	const sky = body.openSky?.() ?? null;
 	const retraceTo = sky !== null && [sky.x, sky.y, sky.z].every(Number.isFinite) && sky.y > start.y + 1 ? sky : null;
 	const climb = await climbToSky({ act: (type, args) => body.act(type, args), observe: () => body.observe(), up,
-		halted: (result) => result?.interruptedBy !== undefined || DANGER.has(result?.reasonCode),
+		halted: (result) => result?.interruptedBy !== undefined,
 		left: () => timeoutMs - (body.now() - startedAt), retraceTo }, o);
 	const legs = `${climb.legs} stair leg(s)${climb.retraced ? ' after the way back' : ''}`;
 	if (climb.stop === null) {
@@ -53,13 +55,13 @@ export async function runSurfaceStep(body, { timeoutMs = SURFACE_STEP_DEFAULT_TI
 		const result = climb.result;
 		let end = o;
 		try { end = await body.observe(); } catch { /* the last sample stands */ }
-		if (result?.interruptedBy !== undefined) {
-			return { ...result, ...report(result.state, 'SURFACE_DANGER', `Danger stopped the climb at y ${Math.floor((bodyAt(end) ?? start).y)}; the leg still runs (${result.actionId}): deal with it, then climb again`, end), legs: climb.legs };
-		}
-		return report('FAILED', 'SURFACE_DANGER', `Stopped for danger at y ${Math.floor((bodyAt(end) ?? start).y)} under cover (${resultWhy(result)})`, end, { legs: climb.legs });
+		return { ...result, ...report(result.state, 'SURFACE_DANGER', `Danger stopped the climb at y ${Math.floor((bodyAt(end) ?? start).y)}; the leg still runs (${result.actionId}): deal with it, then climb again`, end), legs: climb.legs };
 	}
 	const at = bodyAt(climb.o) ?? start;
-	if (climb.stop === 'stalled') return report('FAILED', 'SURFACE_BLOCKED', `The climb stopped at y ${Math.floor(at.y)} under cover after ${legs} (${resultWhy(climb.result)})`, climb.o, { legs: climb.legs });
+	if (climb.stop === 'stalled') {
+		const danger = DANGER.has(climb.result?.reasonCode);
+		return report('FAILED', danger ? 'SURFACE_DANGER' : 'SURFACE_BLOCKED', `${danger ? 'Stopped for danger' : 'The climb stopped'} at y ${Math.floor(at.y)} under cover after ${legs} (${resultWhy(climb.result)})`, climb.o, { legs: climb.legs });
+	}
 	if (climb.stop === 'time') return report('TIMED_OUT', 'SURFACE_TIMED_OUT', `Still under cover at y ${Math.floor(at.y)} when the step's ${Math.round(timeoutMs / 1000)} s ran out, after ${legs}`, climb.o, { legs: climb.legs });
 	return report('FAILED', 'SURFACE_OUT_OF_LEGS', `Still under cover at y ${Math.floor(at.y)} after ${legs} (up to ${CLIMB_LEGS * CLIMB_LEG} blocks)`, climb.o, { legs: climb.legs });
 }

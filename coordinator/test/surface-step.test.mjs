@@ -94,11 +94,15 @@ test('the surface step says why it stopped: blocked, danger, out of legs, out of
 	assert.deepEqual([blocked.state, blocked.reasonCode, blocked.surface.y], ['FAILED', 'SURFACE_BLOCKED', 20]);
 	assert.match(blocked.message, /stopped at y 20 under cover after 1 stair leg\(s\) \(NO_STANCE: no stance up from here\)/);
 
-	const lava = rock({ code: 'LAVA_AHEAD', perLeg: 3 });
+	const lava = rock({ code: 'LAVA_AHEAD', perLeg: 1 });
 	const danger = await runSurfaceStep(stepBody(lava));
-	assert.deepEqual([danger.state, danger.reasonCode, danger.surface.y], ['FAILED', 'SURFACE_DANGER', 23]);
-	assert.equal(lava.calls.length, 1, 'no second leg toward lava');
-	assert.match(danger.message, /Stopped for danger at y 23 under cover \(LAVA_AHEAD/);
+	assert.deepEqual([danger.state, danger.reasonCode, danger.surface.y], ['FAILED', 'SURFACE_DANGER', 21]);
+	assert.equal(lava.calls.length, 1, 'no second leg once a danger stop kept the body from rising');
+	assert.match(danger.message, /Stopped for danger at y 21 under cover after 1 stair leg\(s\) \(LAVA_AHEAD/);
+	// A leg a hostile stopped after it rose goes on, as obtain's climb does (live: a zombie 11 blocks off at y 20).
+	const zombie = rock({ code: 'HOSTILE_NEAR', perLeg: 24 });
+	const climbed = await runSurfaceStep(stepBody(zombie));
+	assert.deepEqual([climbed.reasonCode, zombie.calls.length], ['OPEN_SKY', 2]);
 
 	const legs = await runSurfaceStep(stepBody(rock({ startY: -58, perLeg: 3 })));
 	assert.deepEqual([legs.state, legs.reasonCode, legs.legs], ['FAILED', 'SURFACE_OUT_OF_LEGS', 6]);
