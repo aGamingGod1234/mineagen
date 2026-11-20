@@ -190,8 +190,10 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'breath' 
 				const firedAfter = armedBreath ? await firedCount().catch(() => null) : null;
 				row.breathFirings = armedBreath && Number.isInteger(firedBefore) && Number.isInteger(firedAfter) ? firedAfter - firedBefore : null;
 				// Missing evidence is invalid, never a pass: death count, trail, final observation, the breath rule's count.
+				// A count that went down (the rule replaced or reset mid-room) is not evidence of anything.
 				const missing = [!row.deathEvidence.valid && 'death counter unreadable', !trail.length && 'no trail', !after && 'no final observation',
-					armedBreath && row.breathFirings === null && 'breath fired count unreadable'].filter(Boolean);
+					armedBreath && row.breathFirings === null && 'breath fired count unreadable',
+					armedBreath && row.breathFirings < 0 && `breath fired count went down (${row.breathFirings})`].filter(Boolean);
 				if (missing.length) row.integrity = [...(row.integrity ?? []), ...missing.map(error => ({ file: 'room', error }))];
 				row.voidFall = minY < TOP - 1;
 				const events = latest?.reflexes?.events ?? [];
@@ -202,7 +204,7 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'breath' 
 				row.cloudDistance = cloudAt && before ? Math.round(Math.hypot(before.x - cloudAt[0], before.z - cloudAt[2]) * 10) / 10 : null;
 				const notExercised = !cloudAt ? 'no breath cloud formed' : !row.placed ? 'body not placed on the room cell'
 					: !(row.cloudDistance <= CLOUD_REACH) ? `cloud ${row.cloudDistance} blocks from the body`
-					: armedBreath && row.breathFirings === 0 ? 'the breath rule did not fire in this room' : null;
+					: armedBreath && !(row.breathFirings > 0) ? 'the breath rule did not fire in this room' : null;
 				row.exercised = notExercised === null;
 				row.pass = !row.died && !row.voidFall;
 				// A room that measured nothing is invalid evidence, not a pass.
