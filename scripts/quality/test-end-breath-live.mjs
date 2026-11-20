@@ -178,16 +178,19 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'breath' 
 					}
 					await sleep(200);
 				}
-				// Damage within the window, before the wait for the command's result (HP; a missing counter is INVALID).
+				// One cutoff for every piece of evidence: the window's end. Damage, deaths, the breath rule's fired count and the
+				// final position are all read here, before the wait for the command's receipt, so a firing (or a hit) during that
+				// wait cannot qualify or fail the room.
 				Object.assign(row, damageEvidence(damageBefore, await readDamage(), before.health, trail.at(-1)?.[4]));
-				if (pending) await Promise.race([pending, sleep(3000)]);
-				const after = await pos().catch(() => null);
 				row.deathEvidence = deathEvidence(deathsBefore, await readDeaths());
+				const firedAfter = armedBreath ? await firedCount().catch(() => null) : null;
+				const after = await pos().catch(() => null);
 				row.end = after;
 				row.trail = trail;
-				row.command = commandResult;
 				row.died = dead || row.deathEvidence.deaths > 0 || after?.dead === true;
-				const firedAfter = armedBreath ? await firedCount().catch(() => null) : null;
+				// The receipt wait is diagnostic only (did the held command return?).
+				if (pending) await Promise.race([pending, sleep(3000)]);
+				row.command = commandResult;
 				row.breathFirings = armedBreath && Number.isInteger(firedBefore) && Number.isInteger(firedAfter) ? firedAfter - firedBefore : null;
 				// Missing evidence is invalid, never a pass: death count, trail, final observation, the breath rule's count.
 				// A count that went down (the rule replaced or reset mid-room) is not evidence of anything.
