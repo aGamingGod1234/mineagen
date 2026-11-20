@@ -463,7 +463,7 @@ public final class ServerTravelController implements ServerController {
 	private TickResult stopOrTimeout(ServerPlayer player, long nowEpochMs) {
 		TickResult stop = stopCheck(player, nowEpochMs);
 		if (stop != null) return stop;
-		if (nowEpochMs - startedAt >= timeoutMs) return finish(player, ServerController.State.TIMED_OUT, "TRAVEL_TIMEOUT", "The trip's timeoutMs ran out before arrival");
+		if (nowEpochMs - startedAt >= timeoutMs) return finish(player, ServerController.State.TIMED_OUT, "TRAVEL_TIMEOUT", withLavaStep("The trip's timeoutMs ran out before arrival", lavaStepDetail));
 		return null;
 	}
 
@@ -1628,7 +1628,7 @@ public final class ServerTravelController implements ServerController {
 
 	/** Mine a short visible run within vanilla reach, then watch every opening before walking into the batch. */
 	private TickResult tunnelTick(ServerPlayer player, Direction direction, long nowEpochMs) {
-		if (moveTicks == 1) { tunnelWatch = 0; tunnelReach = 1; tunnelDug.clear(); }
+		if (moveTicks == 1) { tunnelWatch = 0; tunnelReach = 1; tunnelDug.clear(); besideTicks = 0; }
 		BlockPos body = new BlockPos(moveFeet.x() + direction.getStepX(), moveFeet.y(), moveFeet.z() + direction.getStepZ());
 		BlockPos target = null;
 		GridPosition diggingCell = moveFeet.offset(direction.getStepX(), 0, direction.getStepZ());
@@ -1649,10 +1649,11 @@ public final class ServerTravelController implements ServerController {
 						// The nearest lava around the body or in the cut is plugged first; the travel ends plugged only when
 						// every one of those cells is dry, otherwise it backs off.
 						java.util.function.Predicate<BlockPos> isLava = at -> LavaStep.lava(player.level().getBlockState(at));
-						BlockPos nearest = lavaToPlug(isLava, player.blockPosition(), direction);
+						BlockPos cutFeet = new BlockPos(moveFeet.x(), moveFeet.y(), moveFeet.z());
+						BlockPos nearest = lavaToPlug(isLava, player.getBoundingBox(), cutFeet, direction);
 						Boolean plugged = plugLava(player, nearest == null ? cell : nearest, nowEpochMs);
 						if (plugged == null) return null;
-						if (plugged && lavaToPlug(isLava, player.blockPosition(), direction) == null)
+						if (plugged && lavaToPlug(isLava, player.getBoundingBox(), cutFeet, direction) == null)
 							return fail(player, "TUNNEL_LAVA_PLUGGED", "Lava flowed into the opened tunnel at " + cell(cell)
 									+ "; plugged it with a block and did not go on this way");
 					}
@@ -1777,8 +1778,10 @@ public final class ServerTravelController implements ServerController {
 		if (!LavaStep.lava(player.level().getBlockState(cell))) return true;
 		if (++plugTicks > 40) return false;
 		// Lava in any feet or head cell beside the body: standing still to aim is only worth it while a block lands soon.
-		boolean beside = lavaBeside(at -> LavaStep.lava(player.level().getBlockState(at)), player.blockPosition());
-		if (plugGivesUp(beside, plugTicks, plugClicked)) return false;
+		// The beside clock runs across plug targets, so retargeting never restarts it while lava stays beside the body.
+		boolean beside = lavaBeside(at -> LavaStep.lava(player.level().getBlockState(at)), player.getBoundingBox());
+		besideTicks = besideTicks(besideTicks, beside);
+		if (plugGivesUp(beside, besideTicks, plugClicked)) return false;
 		int slot = -1;
 		for (int hotbar = 0; hotbar < 9 && slot < 0; hotbar++) if (TravelBuilder.buildingBlock(player.getInventory().getItem(hotbar))) slot = hotbar;
 		if (slot < 0 || !mayModify.test(player, cell)) return false;
@@ -1805,35 +1808,50 @@ public final class ServerTravelController implements ServerController {
 		return LavaStep.lava(player.level().getBlockState(cell)) ? null : true;
 	}
 
-	/** The feet and head cells around the body (the 8 beside it) and the cut ahead, 4 cells at both rows. */
-	private static java.util.List<BlockPos> tunnelLavaCells(BlockPos feet, Direction direction) {
+	/**
+	 * The cells beside the body: every cell one block out from its hitbox, at every height the hitbox spans (a body on a
+	 * slab reaches three rows), minus the cells the hitbox itself is in.
+	 */
+	private static java.util.List<BlockPos> besideCells(AABB body) {
+		AABB box = body.deflate(1.0E-3D);
 		java.util.List<BlockPos> cells = new java.util.ArrayList<>();
-		for (int row = 0; row <= 1; row++) {
-			for (int dx = -1; dx <= 1; dx++) for (int dz = -1; dz <= 1; dz++) if (dx != 0 || dz != 0) cells.add(feet.offset(dx, row, dz));
-			for (int distance = 2; distance <= 4; distance++) cells.add(feet.relative(direction, distance).above(row));
-		}
+		for (int y = net.minecraft.util.Mth.floor(box.minY); y <= net.minecraft.util.Mth.floor(box.maxY); y++)
+			for (int x = net.minecraft.util.Mth.floor(box.minX) - 1; x <= net.minecraft.util.Mth.floor(box.maxX) + 1; x++)
+				for (int z = net.minecraft.util.Mth.floor(box.minZ) - 1; z <= net.minecraft.util.Mth.floor(box.maxZ) + 1; z++) {
+					boolean inside = x >= net.minecraft.util.Mth.floor(box.minX) && x <= net.minecraft.util.Mth.floor(box.maxX)
+							&& z >= net.minecraft.util.Mth.floor(box.minZ) && z <= net.minecraft.util.Mth.floor(box.maxZ);
+					if (!inside) cells.add(new BlockPos(x, y, z));
+				}
 		return cells;
 	}
 
-	/** The lava cell nearest the body among the cells around it and the cut ahead, or null when all are dry. */
-	static BlockPos lavaToPlug(java.util.function.Predicate<BlockPos> lava, BlockPos feet, Direction direction) {
+	/** The lava cell nearest the body among the cells beside its hitbox and the cut ahead of {@code cutFeet}, or null. */
+	static BlockPos lavaToPlug(java.util.function.Predicate<BlockPos> lava, AABB body, BlockPos cutFeet, Direction direction) {
+		java.util.List<BlockPos> cells = besideCells(body);
+		for (int row = 0; row <= 1; row++) for (int distance = 1; distance <= 4; distance++) cells.add(cutFeet.relative(direction, distance).above(row));
 		BlockPos nearest = null;
 		double best = Double.MAX_VALUE;
-		Vec3 middle = new Vec3(feet.getX() + 0.5D, feet.getY() + 1.0D, feet.getZ() + 0.5D);
-		for (BlockPos cell : tunnelLavaCells(feet, direction)) {
+		Vec3 middle = body.getCenter();
+		for (BlockPos cell : cells) {
 			if (!lava.test(cell)) continue;
-			double distance = Vec3.atCenterOf(cell).distanceToSqr(middle) + (cell.getY() > feet.getY() ? 1.0E-3D : 0.0D);
+			double distance = Vec3.atCenterOf(cell).distanceToSqr(middle) + cell.getY() * 1.0E-6D;
 			if (distance < best) { best = distance; nearest = cell; }
 		}
 		return nearest;
 	}
 
-	/** Whether lava is in any of the 8 feet or head cells beside the body. */
-	static boolean lavaBeside(java.util.function.Predicate<BlockPos> lava, BlockPos feet) {
-		for (int row = 0; row <= 1; row++)
-			for (int dx = -1; dx <= 1; dx++) for (int dz = -1; dz <= 1; dz++) if ((dx != 0 || dz != 0) && lava.test(feet.offset(dx, row, dz))) return true;
+	/** Whether lava is in any cell beside the body's hitbox. */
+	static boolean lavaBeside(java.util.function.Predicate<BlockPos> lava, AABB body) {
+		for (BlockPos cell : besideCells(body)) if (lava.test(cell)) return true;
 		return false;
 	}
+
+	/** The beside clock: ticks in a row with lava beside the body, across plug targets; 0 once none is beside. */
+	static int besideTicks(int previous, boolean beside) {
+		return beside ? previous + 1 : 0;
+	}
+
+	private int besideTicks;
 
 	/** Ticks a plug of lava beside the body may take before a click lands; past them the travel backs off instead. */
 	static final int PLUG_BESIDE_TICKS = 8;
@@ -1961,7 +1979,7 @@ public final class ServerTravelController implements ServerController {
 
 	private TickResult fightTick(ServerPlayer player, long nowEpochMs) {
 		if (nowEpochMs - startedAt >= timeoutMs) {
-			return finish(player, ServerController.State.TIMED_OUT, "TRAVEL_TIMEOUT", "The trip's timeoutMs ran out while fighting " + fightLabel);
+			return finish(player, ServerController.State.TIMED_OUT, "TRAVEL_TIMEOUT", withLavaStep("The trip's timeoutMs ran out while fighting " + fightLabel, lavaStepDetail));
 		}
 		TickResult result = fight.tick(player, nowEpochMs);
 		if (result.state() == ServerController.State.RUNNING) return TickResult.running(progress(player));
@@ -2024,6 +2042,11 @@ public final class ServerTravelController implements ServerController {
 	}
 
 	private String lavaStepDetail;
+
+	/** A timeout's text with the pending LAVA_STEP stop, so the model still sees which lava cell held the trip up. */
+	static String withLavaStep(String message, String lavaStepDetail) {
+		return lavaStepDetail == null ? message : message + "; LAVA_STEP earlier: " + lavaStepDetail;
+	}
 
 	private static String firstClause(String message) {
 		if (message == null) return "";

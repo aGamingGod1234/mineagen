@@ -120,24 +120,43 @@ public final class LavaStep {
 	private static final double STEP_HEIGHT = 0.6D;
 
 	/**
-	 * A lava cell a jump would touch on its way, or null. {@code shifts[t]} and {@code heights[t]} are the jump's
-	 * horizontal displacement and rise after tick t+1 (rising, falling and landing ticks; the brink guard's jump model).
-	 * Under a low ceiling the rise is cut to what fits, never treated as safe: a body that bonks its head moves on at a
-	 * lower height. Only a wall the box cannot pass even at the lowest height stops the jump.
+	 * A lava cell a jump would touch on its way, or null when its whole path is clear. {@code shifts[t]} and
+	 * {@code heights[t]} are the jump's horizontal displacement and rise after tick t+1 (rising, falling and landing
+	 * ticks; the brink guard's jump model). A wall stops motion on its own axis only, from that tick on, as vanilla's
+	 * collide does (the larger axis first), and the check goes on: a jump angled into a tunnel wall slides along it.
+	 * Under a low ceiling the rise is cut to what fits and stays cut, never treated as safe.
 	 */
 	public static BlockPos jumpPath(Read read, AABB box, double[][] shifts, double[] heights) {
 		if (touched(read, box) != null) return null;
-		double ceiling = Double.MAX_VALUE;
+		double ceiling = Double.MAX_VALUE, x = 0.0D, z = 0.0D, lastX = 0.0D, lastZ = 0.0D;
+		boolean xStopped = false, zStopped = false;
 		for (int tick = 0; tick < shifts.length; tick++) {
-			double sx = shifts[tick][0], sz = shifts[tick][1];
-			double rise = Math.min(Math.max(0.0D, heights[tick]), ceiling);
-			while (rise > 0.0D && blocked(read, box.move(sx, rise, sz))) rise = Math.max(0.0D, rise - 0.05D);
-			if (rise < heights[tick]) ceiling = rise;
-			if (blocked(read, box.move(sx, rise, sz))) return null;
-			BlockPos cell = touched(read, box.move(sx, rise, sz));
+			double dx = xStopped ? 0.0D : shifts[tick][0] - lastX, dz = zStopped ? 0.0D : shifts[tick][1] - lastZ;
+			lastX = shifts[tick][0];
+			lastZ = shifts[tick][1];
+			double want = Math.min(Math.max(0.0D, heights[tick]), ceiling);
+			boolean zFirst = Math.abs(dx) < Math.abs(dz);
+			for (int axis = 0; axis < 2; axis++) {
+				if ((axis == 0) != zFirst) {
+					if (dx != 0.0D && clearRise(read, box, x + dx, z, want) < 0.0D) xStopped = true; else x += dx;
+				} else {
+					if (dz != 0.0D && clearRise(read, box, x, z + dz, want) < 0.0D) zStopped = true; else z += dz;
+				}
+			}
+			double rise = Math.max(0.0D, clearRise(read, box, x, z, want));
+			if (rise < want) ceiling = rise;
+			BlockPos cell = touched(read, box.move(x, rise, z));
 			if (cell != null) return cell;
 		}
 		return null;
+	}
+
+	/** The highest rise up to {@code want} at which the box shifted by (x, z) is not blocked, or -1 when none is. */
+	private static double clearRise(Read read, AABB box, double x, double z, double want) {
+		for (double rise = want; ; rise = Math.max(0.0D, rise - 0.05D)) {
+			if (!blocked(read, box.move(x, rise, z))) return rise;
+			if (rise <= 0.0D) return -1.0D;
+		}
 	}
 
 	/** A vanilla jump's rise above take-off after each of {@code ticks} ticks (0.42 up, then gravity 0.08 and drag 0.98). */

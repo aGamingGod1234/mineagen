@@ -55,6 +55,10 @@ public final class LavaStepVerification {
 		verifyJumpPath();
 		verifyTunnelLavaScan();
 		verifyPlacementGates();
+		verifyJumpAlongWall();
+		verifySlabFooting();
+		verifyBesideClock();
+		verifyTimeoutKeepsLavaStep();
 		return assertions;
 	}
 
@@ -327,21 +331,22 @@ public final class LavaStepVerification {
 
 	/** Council r2 items 1 and 2: plug the nearest lava cell first; end plugged only when every cell around is dry. */
 	private static void verifyTunnelLavaScan() {
+		AABB standing = body(0.5D, 0.5D);
 		BlockPos feet = new BlockPos(0, 64, 0);
 		Direction east = Direction.EAST;
 		java.util.Set<BlockPos> lava = new java.util.HashSet<>(java.util.List.of(new BlockPos(1, 65, 0), new BlockPos(1, 64, 0)));
-		BlockPos first = ServerTravelController.lavaToPlug(lava::contains, feet, east);
+		BlockPos first = ServerTravelController.lavaToPlug(lava::contains, standing, feet, east);
 		check(first != null && first.getX() == 1, "head d1 and feet d1: a cell beside the body is plugged first: " + first);
 		lava.remove(first);
-		check(ServerTravelController.lavaToPlug(lava::contains, feet, east) != null, "the other one is still lava: not plugged, back off");
+		check(ServerTravelController.lavaToPlug(lava::contains, standing, feet, east) != null, "the other one is still lava: not plugged, back off");
 		java.util.Set<BlockPos> far = new java.util.HashSet<>(java.util.List.of(new BlockPos(2, 65, 0), new BlockPos(1, 64, 0)));
-		check(new BlockPos(1, 64, 0).equals(ServerTravelController.lavaToPlug(far::contains, feet, east)), "head d2 and feet d1: feet d1 first");
+		check(new BlockPos(1, 64, 0).equals(ServerTravelController.lavaToPlug(far::contains, standing, feet, east)), "head d2 and feet d1: feet d1 first");
 		far.remove(new BlockPos(1, 64, 0));
-		check(new BlockPos(2, 65, 0).equals(ServerTravelController.lavaToPlug(far::contains, feet, east)), "then head d2, still lava: not done");
-		check(ServerTravelController.lavaToPlug(cell -> false, feet, east) == null, "all dry: TUNNEL_LAVA_PLUGGED may end the travel");
+		check(new BlockPos(2, 65, 0).equals(ServerTravelController.lavaToPlug(far::contains, standing, feet, east)), "then head d2, still lava: not done");
+		check(ServerTravelController.lavaToPlug(cell -> false, standing, feet, east) == null, "all dry: TUNNEL_LAVA_PLUGGED may end the travel");
 		java.util.Set<BlockPos> side = java.util.Set.of(new BlockPos(0, 65, -1));
-		check(ServerTravelController.lavaBeside(side::contains, feet), "lava in a head cell beside the body counts as beside it");
-		check(!ServerTravelController.lavaBeside(java.util.Set.of(new BlockPos(3, 64, 0))::contains, feet), "lava three cells down the tunnel is not beside");
+		check(ServerTravelController.lavaBeside(side::contains, standing), "lava in a head cell beside the body counts as beside it");
+		check(!ServerTravelController.lavaBeside(java.util.Set.of(new BlockPos(3, 64, 0))::contains, standing), "lava three cells down the tunnel is not beside");
 	}
 
 	/** Council r2 item 3: a seal or plug clears the same gates as a normal placement, for the lava cell and the support. */
@@ -354,6 +359,57 @@ public final class LavaStepVerification {
 		check(LavaStep.placementDenied(yes, cell -> cell.equals(target), yes, true, target, support) != null, "spawn protection is refused");
 		check(LavaStep.placementDenied(yes, no, cell -> !cell.equals(support), true, target, support) != null, "a support the body may not use is refused");
 		check(LavaStep.placementDenied(yes, no, yes, false, target, support) != null, "a support out of interaction range is refused");
+	}
+
+	/** Council r3 item 1: a jump angled into a wall slides along it and is judged the whole way. */
+	private static void verifyJumpAlongWall() {
+		// An east-west tunnel one wide and two high at z 0; the body flush against its north wall.
+		Room tunnel = new Room();
+		for (int x = -3; x <= 9; x++) {
+			for (int y = 64; y <= 65; y++) { tunnel.set(x, y, -1, STONE); tunnel.set(x, y, 1, STONE); }
+			tunnel.set(x, 66, 0, STONE);
+		}
+		for (int x = 2; x <= 4; x++) tunnel.set(x, 64, 0, LAVA);
+		double angle = Math.toRadians(8.0D);
+		double[] intoWall = {Math.cos(angle), -Math.sin(angle)};
+		check(jump(tunnel::at, new AABB(0.2D, 64.0D, 0.0D, 0.8D, 65.8D, 0.6D), intoWall, true) != null,
+				"a sprint jump angled 8 degrees into the tunnel wall slides along it into the lava: refused");
+		// Beside an east wall, a jump south-east toward a lava strip to the south.
+		Room corner = new Room();
+		for (int z = -3; z <= 6; z++) for (int y = 64; y <= 66; y++) corner.set(2, y, z, STONE);
+		for (int x = -3; x <= 1; x++) for (int z = 2; z <= 3; z++) corner.set(x, 64, z, LAVA);
+		double[] southEast = {Math.sqrt(0.5D), Math.sqrt(0.5D)};
+		check(jump(corner::at, body(1.5D, 0.5D), southEast, true) != null, "a jump into an east wall slides south into the lava strip: refused");
+		check(jump(new Room()::at, body(1.5D, 0.5D), southEast, true) == null, "the same jump on open floor passes");
+	}
+
+	/** Council r3 item 2: the cells beside the body come from its hitbox (a body on a bottom slab spans three rows). */
+	private static void verifySlabFooting() {
+		AABB onSlab = new AABB(0.2D, 64.5D, 0.2D, 0.8D, 66.3D, 0.8D);
+		BlockPos cutFeet = new BlockPos(0, 64, 0);
+		java.util.Set<BlockPos> lava = new java.util.HashSet<>(java.util.List.of(new BlockPos(1, 65, 0), new BlockPos(1, 66, 0)));
+		BlockPos first = ServerTravelController.lavaToPlug(lava::contains, onSlab, cutFeet, Direction.EAST);
+		check(first != null, "two flooded head cells beside a body on a slab are found");
+		lava.remove(first);
+		check(ServerTravelController.lavaToPlug(lava::contains, onSlab, cutFeet, Direction.EAST) != null,
+				"one still wet: no TUNNEL_LAVA_PLUGGED (the upper head cell is in the scan)");
+	}
+
+	/** Council r3 item 3: the 8-tick beside deadline is not restarted by a new plug target while lava stays beside. */
+	private static void verifyBesideClock() {
+		int ticks = 0;
+		for (int tick = 0; tick < 5; tick++) ticks = ServerTravelController.besideTicks(ticks, true);
+		// The plug retargets here (a new nearest cell); the clock is the body's, not the target's.
+		for (int tick = 0; tick < 4; tick++) ticks = ServerTravelController.besideTicks(ticks, true);
+		check(ServerTravelController.plugGivesUp(true, ticks, false), "5 + 4 ticks beside across a retarget with no block placed: back off");
+		check(ServerTravelController.besideTicks(ticks, false) == 0, "no lava beside: the clock starts over");
+	}
+
+	/** Council r3 item 4: a timeout keeps the pending LAVA_STEP detail. */
+	private static void verifyTimeoutKeepsLavaStep() {
+		String text = ServerTravelController.withLavaStep("The trip's timeoutMs ran out before arrival", "Stopped before stepping into lava at 3,64,0");
+		check(text.contains("LAVA_STEP") && text.contains("3,64,0"), "TRAVEL_TIMEOUT names the lava cell that stopped a leg: " + text);
+		check(ServerTravelController.withLavaStep("ran out", null).equals("ran out"), "no pending stop, no extra text");
 	}
 
 	private static void check(boolean value, String reason) {
