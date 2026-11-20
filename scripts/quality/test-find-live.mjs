@@ -9,7 +9,8 @@
 // point from the start, health lost and deaths. Each spot's world is deleted when it stops (server.log stays); ARENA_FIXTURE_KEEP=1
 // keeps it, saved. Launch under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME.
 // setup: operator commands that build a fixture before the calls, {x}, {y}, {z} (with +n or -n; {x+0.5} is a cell's
-// centre) standing for the body's block at spawn; after: { ms, commands } runs after setup.
+// centre) standing for the body's block at spawn; after: { ms, commands } runs after setup. A call argument that is
+// exactly such a placeholder becomes that number.
 // Production steering lives in run-incident.mjs; this body-only fixture cannot accept steer:true.
 import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -44,6 +45,12 @@ const sleep = ms => new Promise(done => setTimeout(done, ms));
 const AGENT = 'Probe';
 const number = text => Number((/(-?\d+(?:\.\d+)?)[fdb]?\s*$/.exec(String(text).trim()) ?? [])[1]);
 const results = [];
+const uuidOf = (text) => {
+	const ints = /\[I;\s*(-?\d+),\s*(-?\d+),\s*(-?\d+),\s*(-?\d+)\]/.exec(String(text))?.slice(1).map(Number);
+	if (!ints) return null;
+	const hex = ints.map((n) => (n >>> 0).toString(16).padStart(8, '0')).join('');
+	return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+};
 
 // Each spot gets its own server and world; the next one boots while this one plays, from the seed's cached world.
 const cases = [...spots.entries()].filter(([, spot]) => !only || only.has(spot.name));
@@ -174,11 +181,16 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		for (const [callIndex, call] of (spot.calls ?? []).entries()) {
 			for (let attempt = 0; ; attempt++) {
 				const callStarted = Date.now();
+				// "{item}": the UUID of the dropped item nearest the body now (pick_up_item takes a canonical UUID).
+				const itemUuid = JSON.stringify(call.arguments).includes('"{item}"') ? uuidOf(await s.command(`data get entity @e[type=item,sort=nearest,limit=1] UUID`)) : null;
 				let result;
 				try {
 					// A search never outruns the spot's budget: its timeoutMs is what is left of it (at most the 540 s default).
 					const args = call.name === 'do_step' && call.arguments.verb === 'find'
-						? { ...call.arguments, target: { ...call.arguments.target, timeoutMs: Math.max(10_000, Math.min(540_000, budgetMs - (Date.now() - t0))) } } : call.arguments;
+						? { ...call.arguments, target: { ...call.arguments.target, timeoutMs: Math.max(10_000, Math.min(540_000, budgetMs - (Date.now() - t0))) } }
+						// A call argument that is exactly "{x+n}" (y, z) is the fixture's cell at spawn plus n, as a number.
+						: row.fixtureAt ? JSON.parse(JSON.stringify(call.arguments).replace(/"(\{[xyz](?:[+-][\d.]+)?\})"/g, (_, text) => atBody(text, row.fixtureAt))
+							.replace(/"\{item\}"/g, () => JSON.stringify(itemUuid))) : call.arguments;
 					result = await runtime.execute({ agentId: record.agentId, goalRevision: record.goalRevision, turnId: `find-live-${callIndex}-${attempt}`, callId: `find-${callIndex}-${attempt}`,
 						tool: normalizeMinecraftToolCall(call.name, args) }, record);
 				} catch (error) {
