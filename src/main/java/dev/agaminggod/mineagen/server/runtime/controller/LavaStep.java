@@ -74,10 +74,17 @@ public final class LavaStep {
 	private static BlockPos coast(Read read, AABB box, double vx, double vz) {
 		double x = 0.0D, z = 0.0D;
 		for (int tick = 0; tick < COAST_TICKS && (tick == 0 || vx * vx + vz * vz > 1.0E-6D); tick++) {
-			x += vx;
-			z += vz;
-			// A wall in the way stops the body before any lava past it (or on top of it, at head height).
-			if (blocked(read, box.move(x, 0.0D, z))) return null;
+			// A wall stops motion on its own axis only, as vanilla's collide does (the larger axis first): a body sliding
+			// along a wall keeps its other component, which may carry it into lava beside the wall.
+			boolean zFirst = Math.abs(vx) < Math.abs(vz);
+			for (int axis = 0; axis < 2; axis++) {
+				if ((axis == 0) != zFirst) {
+					if (blocked(read, box.move(x + vx, 0.0D, z))) vx = 0.0D; else x += vx;
+				} else {
+					if (blocked(read, box.move(x, 0.0D, z + vz))) vz = 0.0D; else z += vz;
+				}
+			}
+			if (vx == 0.0D && vz == 0.0D) return null;
 			BlockPos cell = touched(read, box.move(x, 0.0D, z));
 			if (cell != null) return cell;
 			vx *= GROUND_DRAG;
@@ -113,21 +120,57 @@ public final class LavaStep {
 	private static final double STEP_HEIGHT = 0.6D;
 
 	/**
-	 * A lava cell a jump would come down in at take-off height, or null: {@code shifts} are the jump's horizontal
-	 * displacements at each tick it may land (the brink guard's jump model). A wall on the way stops the jump first.
+	 * A lava cell a jump would touch on its way, or null. {@code shifts[t]} and {@code heights[t]} are the jump's
+	 * horizontal displacement and rise after tick t+1 (rising, falling and landing ticks; the brink guard's jump model).
+	 * Under a low ceiling the rise is cut to what fits, never treated as safe: a body that bonks its head moves on at a
+	 * lower height. Only a wall the box cannot pass even at the lowest height stops the jump.
 	 */
-	public static BlockPos jumpLands(Read read, AABB box, double[][] shifts) {
+	public static BlockPos jumpPath(Read read, AABB box, double[][] shifts, double[] heights) {
 		if (touched(read, box) != null) return null;
-		for (double[] shift : shifts) {
-			double length = Math.hypot(shift[0], shift[1]);
-			for (double d = 0.25D; d <= length + 1.0E-6D; d += 0.25D) {
-				AABB at = box.move(shift[0] * d / length, 0.0D, shift[1] * d / length);
-				if (blocked(read, at.move(0.0D, 1.0D, 0.0D))) return null;
-			}
-			BlockPos cell = touched(read, box.move(shift[0], 0.0D, shift[1]));
+		double ceiling = Double.MAX_VALUE;
+		for (int tick = 0; tick < shifts.length; tick++) {
+			double sx = shifts[tick][0], sz = shifts[tick][1];
+			double rise = Math.min(Math.max(0.0D, heights[tick]), ceiling);
+			while (rise > 0.0D && blocked(read, box.move(sx, rise, sz))) rise = Math.max(0.0D, rise - 0.05D);
+			if (rise < heights[tick]) ceiling = rise;
+			if (blocked(read, box.move(sx, rise, sz))) return null;
+			BlockPos cell = touched(read, box.move(sx, rise, sz));
 			if (cell != null) return cell;
 		}
 		return null;
+	}
+
+	/** A vanilla jump's rise above take-off after each of {@code ticks} ticks (0.42 up, then gravity 0.08 and drag 0.98). */
+	public static double[] jumpHeights(int ticks) {
+		double[] heights = new double[ticks];
+		double y = 0.0D, vy = 0.42D;
+		for (int tick = 0; tick < ticks; tick++) {
+			y += vy;
+			vy = (vy - 0.08D) * 0.98D;
+			heights[tick] = Math.max(0.0D, y);
+		}
+		return heights;
+	}
+
+	/**
+	 * Why a seal or plug may not place a block into {@code target} against {@code support}, or null: the same gates as
+	 * a normal placement (ServerActionExecutor.requirePlacementGates): the caller's block policy for both cells, spawn
+	 * protection, vanilla interaction rights, and the support within interaction range.
+	 */
+	public static String placementDenied(java.util.function.Predicate<BlockPos> policy, java.util.function.Predicate<BlockPos> spawnProtected,
+			java.util.function.Predicate<BlockPos> mayInteract, boolean supportInReach, BlockPos target, BlockPos support) {
+		if (!policy.test(target) || !policy.test(support)) return "protection denies the lava cell or its support";
+		if (spawnProtected.test(target) || spawnProtected.test(support)) return "spawn protection covers the lava cell or its support";
+		if (!mayInteract.test(target) || !mayInteract.test(support)) return "the lava cell or its support may not be used";
+		return supportInReach ? null : "the support is out of reach";
+	}
+
+	/** The placement gates above for this body, with the caller's block policy. */
+	public static String placementDenied(net.minecraft.server.level.ServerPlayer player, BlockPos target, BlockPos support,
+			java.util.function.BiPredicate<net.minecraft.server.level.ServerPlayer, BlockPos> policy) {
+		var level = player.level();
+		return placementDenied(at -> policy.test(player, at), at -> level.getServer().isUnderSpawnProtection(level, at, player),
+				at -> level.mayInteract(player, at), player.isWithinBlockInteractionRange(support, 0.0D), target, support);
 	}
 
 	/** Vanilla horizontal drag per tick on ordinary ground: block slipperiness 0.6 times 0.91. */

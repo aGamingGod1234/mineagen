@@ -51,6 +51,10 @@ public final class LavaStepVerification {
 		verifyTunnelPlugBackOff();
 		verifySealFaceOrder();
 		verifyWideFlowEscape();
+		verifyWallSlide();
+		verifyJumpPath();
+		verifyTunnelLavaScan();
+		verifyPlacementGates();
 		return assertions;
 	}
 
@@ -105,24 +109,22 @@ public final class LavaStepVerification {
 		// way stops the jump first; a jump along the strip lands on the floor.
 		Room strip = new Room();
 		for (int x = 3; x <= 5; x++) for (int z = -3; z <= 3; z++) strip.set(x, 64, z, LAVA);
-		check(new BlockPos(3, 64, 0).equals(LavaStep.jumpLands(strip::at, body(0.5D, 0.5D), jumpShifts(east, true))),
+		check(new BlockPos(3, 64, 0).equals(jump(strip::at, body(0.5D, 0.5D), east, true)),
 				"a sprint jump that comes down in same-level lava is refused");
 		Room walled = new Room();
 		for (int x = 3; x <= 5; x++) for (int z = -3; z <= 3; z++) walled.set(x, 64, z, LAVA);
 		for (int z = -3; z <= 3; z++) { walled.set(2, 64, z, STONE); walled.set(2, 65, z, STONE); walled.set(2, 66, z, STONE); }
-		check(LavaStep.jumpLands(walled::at, body(0.5D, 0.5D), jumpShifts(east, true)) == null, "a wall in the way stops the jump before the lava");
-		check(LavaStep.jumpLands(strip::at, body(0.5D, -5.5D), jumpShifts(new double[] {-1.0D, 0.0D}, true)) == null,
+		check(jump(walled::at, body(0.5D, 0.5D), east, true) == null, "a wall in the way stops the jump before the lava");
+		check(jump(strip::at, body(0.5D, -5.5D), new double[] {-1.0D, 0.0D}, true) == null,
 				"a jump away from the lava lands on the floor");
 		// Lava a block below the walk (a pool beside a ledge) is the drop check's (BrinkGuard.fall), not this one's.
 		Room pool = new Room().set(2, 63, 0, LAVA);
 		check(LavaStep.touched(pool::at, body(2.5D, 0.5D)) == null, "a box standing over a lava pool does not touch it at its feet");
 	}
 
-	private static double[][] jumpShifts(double[] heading, boolean sprint) {
-		double[][] shifts = new double[BrinkGuard.JUMP_AIR_TICKS + 3 - BrinkGuard.JUMP_FIRST_LANDING_TICK][];
-		for (int ticks = BrinkGuard.JUMP_FIRST_LANDING_TICK; ticks <= BrinkGuard.JUMP_AIR_TICKS + 2; ticks++)
-			shifts[ticks - BrinkGuard.JUMP_FIRST_LANDING_TICK] = BrinkGuard.jumpDisplacement(0.0D, 0.0D, heading, sprint, ticks);
-		return shifts;
+	/** The cell the brink guard's jump model meets, from standing (rising, falling and landing ticks). */
+	private static BlockPos jump(LavaStep.Read read, AABB box, double[] heading, boolean sprint) {
+		return LavaStep.jumpPath(read, box, BrinkGuard.jumpShifts(0.0D, 0.0D, heading, sprint), LavaStep.jumpHeights(BrinkGuard.JUMP_AIR_TICKS + 2));
 	}
 
 	private static void verifySealFace() {
@@ -199,8 +201,8 @@ public final class LavaStepVerification {
 		Room strip = new Room();
 		for (int x = 5; x <= 7; x++) for (int z = -3; z <= 3; z++) strip.set(x, 64, z, LAVA);
 		double[] east = {1.0D, 0.0D};
-		check(LavaStep.jumpLands(strip::at, body(-1.5D, 0.5D), jumpShifts(east, true)) == null, "the first sprint hop lands on the floor");
-		check(new BlockPos(5, 64, 0).equals(LavaStep.jumpLands(strip::at, body(2.5D, 0.5D), jumpShifts(east, true))),
+		check(jump(strip::at, body(-1.5D, 0.5D), east, true) == null, "the first sprint hop lands on the floor");
+		check(new BlockPos(5, 64, 0).equals(jump(strip::at, body(2.5D, 0.5D), east, true)),
 				"the second take-off of the held jump toward the strip is refused");
 	}
 
@@ -292,6 +294,66 @@ public final class LavaStepVerification {
 		Predicate<GridPosition> beyond = p -> p.y() == 64 && p.x() == 3;
 		PathPlan dry = new LocalPathfinder().findPath(flat(band, true), start, new GridPosition(6, 64, 0));
 		check(!found(dry) || !crosses(dry, beyond), "a body on dry ground never enters the flow: " + dry.outcome());
+	}
+
+	/** Council r2 item 4: a body sliding along a wall keeps its other component and is refused lava beside the wall. */
+	private static void verifyWallSlide() {
+		Room room = new Room().set(1, 64, 1, LAVA);
+		for (int z = -3; z <= 3; z++) { room.set(2, 64, z, STONE); room.set(2, 65, z, STONE); }
+		double[] southEast = {Math.sqrt(0.5D), Math.sqrt(0.5D)};
+		check(new BlockPos(1, 64, 1).equals(LavaStep.refused(room::at, body(1.5D, 0.5D), WALK, WALK, southEast, ACCELERATION)),
+				"diagonal into an east wall slides south along it into lava: refused");
+		Room dry = new Room();
+		for (int z = -3; z <= 3; z++) { dry.set(2, 64, z, STONE); dry.set(2, 65, z, STONE); }
+		check(LavaStep.refused(dry::at, body(1.5D, 0.5D), WALK, WALK, southEast, ACCELERATION) == null, "the same slide on dry floor is allowed");
+	}
+
+	/** Council r2 item 5: the jump's whole path counts, under a low ceiling too, and ground ticks of a held jump are judged. */
+	private static void verifyJumpPath() {
+		double[] east = {1.0D, 0.0D};
+		Room strip = new Room();
+		for (int z = -3; z <= 3; z++) strip.set(2, 64, z, LAVA);
+		check(new BlockPos(2, 64, 0).equals(jump(strip::at, body(1.5D, 0.5D), east, true)),
+				"a 1-wide strip at the take-off edge burns on the rising ticks: refused");
+		Room low = new Room();
+		for (int x = 3; x <= 5; x++) for (int z = -3; z <= 3; z++) low.set(x, 64, z, LAVA);
+		for (int x = -3; x <= 8; x++) for (int z = -3; z <= 3; z++) low.set(x, 66, z, STONE);
+		check(jump(low::at, body(1.5D, 0.5D), east, true) != null,
+				"a jump under a two-high ceiling toward feet-level lava is refused, not taken as stopped by the ceiling");
+		check(BrinkGuard.stepCheckRuns(true, true, false, false), "a held jump's ground tick after a step-up gets the step check");
+		check(!BrinkGuard.stepCheckRuns(true, true, false, true), "a take-off whose path the jump check passed is not judged twice");
+		check(!BrinkGuard.stepCheckRuns(true, false, false, false), "airborne ticks are the jump's");
+	}
+
+	/** Council r2 items 1 and 2: plug the nearest lava cell first; end plugged only when every cell around is dry. */
+	private static void verifyTunnelLavaScan() {
+		BlockPos feet = new BlockPos(0, 64, 0);
+		Direction east = Direction.EAST;
+		java.util.Set<BlockPos> lava = new java.util.HashSet<>(java.util.List.of(new BlockPos(1, 65, 0), new BlockPos(1, 64, 0)));
+		BlockPos first = ServerTravelController.lavaToPlug(lava::contains, feet, east);
+		check(first != null && first.getX() == 1, "head d1 and feet d1: a cell beside the body is plugged first: " + first);
+		lava.remove(first);
+		check(ServerTravelController.lavaToPlug(lava::contains, feet, east) != null, "the other one is still lava: not plugged, back off");
+		java.util.Set<BlockPos> far = new java.util.HashSet<>(java.util.List.of(new BlockPos(2, 65, 0), new BlockPos(1, 64, 0)));
+		check(new BlockPos(1, 64, 0).equals(ServerTravelController.lavaToPlug(far::contains, feet, east)), "head d2 and feet d1: feet d1 first");
+		far.remove(new BlockPos(1, 64, 0));
+		check(new BlockPos(2, 65, 0).equals(ServerTravelController.lavaToPlug(far::contains, feet, east)), "then head d2, still lava: not done");
+		check(ServerTravelController.lavaToPlug(cell -> false, feet, east) == null, "all dry: TUNNEL_LAVA_PLUGGED may end the travel");
+		java.util.Set<BlockPos> side = java.util.Set.of(new BlockPos(0, 65, -1));
+		check(ServerTravelController.lavaBeside(side::contains, feet), "lava in a head cell beside the body counts as beside it");
+		check(!ServerTravelController.lavaBeside(java.util.Set.of(new BlockPos(3, 64, 0))::contains, feet), "lava three cells down the tunnel is not beside");
+	}
+
+	/** Council r2 item 3: a seal or plug clears the same gates as a normal placement, for the lava cell and the support. */
+	private static void verifyPlacementGates() {
+		BlockPos target = new BlockPos(2, 64, 0), support = new BlockPos(2, 63, 0);
+		java.util.function.Predicate<BlockPos> yes = cell -> true, no = cell -> false;
+		check(LavaStep.placementDenied(yes, no, yes, true, target, support) == null, "allowed, unprotected, interactable and in reach: placed");
+		check(LavaStep.placementDenied(cell -> !cell.equals(support), no, yes, true, target, support) != null, "a protected support is refused");
+		check(LavaStep.placementDenied(cell -> !cell.equals(target), no, yes, true, target, support) != null, "a protected lava cell is refused");
+		check(LavaStep.placementDenied(yes, cell -> cell.equals(target), yes, true, target, support) != null, "spawn protection is refused");
+		check(LavaStep.placementDenied(yes, no, cell -> !cell.equals(support), true, target, support) != null, "a support the body may not use is refused");
+		check(LavaStep.placementDenied(yes, no, yes, false, target, support) != null, "a support out of interaction range is refused");
 	}
 
 	private static void check(boolean value, String reason) {

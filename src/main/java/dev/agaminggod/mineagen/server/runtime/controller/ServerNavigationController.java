@@ -1852,6 +1852,13 @@ public final class ServerNavigationController implements ServerController {
 		if (player.getInventory().getSelectedSlot() != sealSlot || !TravelBuilder.buildingBlock(player.getMainHandItem())) return TickResult.running(currentProgress());
 		BlockHitResult hit = TravelBuilder.crosshair(player);
 		if (hit == null || !hit.getBlockPos().equals(support) || hit.getDirection() != sealFace) return TickResult.running(currentProgress());
+		// The same gates as a normal placement, for the lava cell and its support, right before the click.
+		String denied = LavaStep.placementDenied(player, cell, support, sealPermission);
+		if (denied != null) {
+			sealCell = null;
+			return fail(player, "LAVA_STEP", "Stopped before stepping into lava at " + cell.getX() + "," + cell.getY() + "," + cell.getZ()
+					+ "; " + denied + ". Go round", currentProgress());
+		}
 		TravelBuilder.click(player, hit);
 		return LavaStep.lava(player.level().getBlockState(cell)) ? TickResult.running(currentProgress()) : sealed(player);
 	}
