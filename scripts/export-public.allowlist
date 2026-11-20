@@ -2164,6 +2164,7 @@ src/test/java/dev/agaminggod/mineagen/server/voice/VoiceRelayFallbackVerificatio
 docs/technical-catalogue/436-agent-voice-delivery.md
 docs/technical-catalogue/439-voice-measured-cutoff.md
 docs/technical-catalogue/440-mineagen-rename.md
+docs/technical-catalogue/33-instinct-voice.md
 coordinator/src/voice/tts-admission-queue.mjs
 # Development happens in the public repository: contributor guides, the pull request template, the commit hooks and
 # the CI scan of pull request text.
