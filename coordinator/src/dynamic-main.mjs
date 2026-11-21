@@ -26,6 +26,7 @@ import { AgentWorkspaceManager } from './agent-workspace.mjs';
 import { MinecraftAgentWorkspace } from './minecraft-agent-workspace.mjs';
 import { ClaudeProviderService } from './claude-service.mjs';
 import { CodexService } from './codex-service.mjs';
+import { createHealthSampler } from './coordinator-health.mjs';
 import { ControlLatencyRegistry } from './control-latency-registry.mjs';
 import { buildCoordinatorStatus, providerRecoveryComponents } from './coordinator-status.mjs';
 import { ConversationMemory, conversationWakes } from './conversation-memory.mjs';
@@ -287,6 +288,8 @@ export class DynamicCoordinator extends EventEmitter {
 	#setStatusInterval;
 	#clearStatusInterval;
 	#statusHandle = null;
+	#healthSamplerFactory;
+	#health = null;
 	#serverInstanceId = null;
 	#connectionEpoch = 0;
 	#connected = false;
@@ -307,7 +310,7 @@ export class DynamicCoordinator extends EventEmitter {
 	#lastCatalog = null;
 	#lastRosterTraceAt = 0;
 
-	constructor({ registry, scheduler, codexService, planner, bridge, healthRegistry, latencyRegistry, goalSupervisor, codexControlProtocol = 'native_tools', memoryDirectory = null, experience = null, runtimeSessionId, traceWriter = null, providerTurnRecorder = null, decisionLog = null, bodyPace = null, runtimeGeneration = null, runtimeHooks = {}, benchmarkRecorder = null, providerCliHealth = null, providerDiscovery = null, controlNow = () => performance.now(), epochNow = Date.now, setStatusInterval = defaultStatusInterval, clearStatusInterval = clearInterval, setGoalSpecTimeout = defaultGoalSpecTimeout, clearGoalSpecTimeout = clearTimeout, setSteerTimeout = setTimeout, clearSteerTimeout = clearTimeout, setWakeHoldTimeout = defaultGoalSpecTimeout, clearWakeHoldTimeout = clearTimeout, reflexDefaults = DEFAULT_REFLEXES, reflexInstincts = false, kitHabit = false, taskRequestTimeoutMs = DEFAULT_TASK_REQUEST_TIMEOUT_MS, connectionOperationCap = DEFAULT_CONNECTION_OPERATION_CAP, agentOperationCap = DEFAULT_AGENT_OPERATION_CAP, goalSpecRequestCap = connectionOperationCap, maxPendingAgentOperations = DEFAULT_MAX_PENDING_AGENT_OPERATIONS, maxPendingAgentTransactions = DEFAULT_MAX_PENDING_AGENT_TRANSACTIONS }) {
+	constructor({ registry, scheduler, codexService, planner, bridge, healthRegistry, latencyRegistry, goalSupervisor, codexControlProtocol = 'native_tools', memoryDirectory = null, experience = null, runtimeSessionId, traceWriter = null, providerTurnRecorder = null, decisionLog = null, bodyPace = null, runtimeGeneration = null, runtimeHooks = {}, benchmarkRecorder = null, providerCliHealth = null, providerDiscovery = null, controlNow = () => performance.now(), epochNow = Date.now, setStatusInterval = defaultStatusInterval, clearStatusInterval = clearInterval, healthSampler = undefined, setGoalSpecTimeout = defaultGoalSpecTimeout, clearGoalSpecTimeout = clearTimeout, setSteerTimeout = setTimeout, clearSteerTimeout = clearTimeout, setWakeHoldTimeout = defaultGoalSpecTimeout, clearWakeHoldTimeout = clearTimeout, reflexDefaults = DEFAULT_REFLEXES, reflexInstincts = false, kitHabit = false, taskRequestTimeoutMs = DEFAULT_TASK_REQUEST_TIMEOUT_MS, connectionOperationCap = DEFAULT_CONNECTION_OPERATION_CAP, agentOperationCap = DEFAULT_AGENT_OPERATION_CAP, goalSpecRequestCap = connectionOperationCap, maxPendingAgentOperations = DEFAULT_MAX_PENDING_AGENT_OPERATIONS, maxPendingAgentTransactions = DEFAULT_MAX_PENDING_AGENT_TRANSACTIONS }) {
 		super();
 		this.#memoryDirectory = memoryDirectory;
 		this.#decisionLog = decisionLog;
@@ -497,6 +500,7 @@ export class DynamicCoordinator extends EventEmitter {
 			},
 		});
 		this.#setStatusInterval = requireDependency(setStatusInterval, 'setStatusInterval');
+		this.#healthSamplerFactory = healthSampler === undefined ? () => createHealthSampler() : () => healthSampler;
 		this.#clearStatusInterval = requireDependency(clearStatusInterval, 'clearStatusInterval');
 		this.#setGoalSpecTimeout = requireDependency(setGoalSpecTimeout, 'setGoalSpecTimeout');
 		this.#clearGoalSpecTimeout = requireDependency(clearGoalSpecTimeout, 'clearGoalSpecTimeout');
@@ -627,7 +631,12 @@ export class DynamicCoordinator extends EventEmitter {
 		try {
 			this.#bindBridge();
 			this.#bridge.start();
+			this.#health = this.#healthSamplerFactory();
 			this.#statusHandle = this.#setStatusInterval(() => {
+				try {
+					const health = this.#health?.sample({ inboundQueued: this.#bridge.inboundQueued ?? null, agentOperations: this.#totalAgentOperations });
+					if (health) this.#writeTrace('coordinator_health', health);
+				} catch { /* health rows are observational; status and recovery still run */ }
 				const connectionEpoch = this.#connectionEpoch;
 				this.#requestProviderRecovery(connectionEpoch);
 				this.#run(() => this.#publishStatus(connectionEpoch), connectionEpoch);
@@ -636,6 +645,8 @@ export class DynamicCoordinator extends EventEmitter {
 		} catch (error) {
 			if (this.#statusHandle !== null) this.#clearStatusInterval(this.#statusHandle);
 			this.#statusHandle = null;
+			this.#health?.close();
+			this.#health = null;
 			this.#bridge.stop();
 			this.#unbindBridge();
 			await this.#codexService.stop();
@@ -659,6 +670,8 @@ export class DynamicCoordinator extends EventEmitter {
 		this.#verboseTransitions.clearAll();
 		if (this.#statusHandle !== null) this.#clearStatusInterval(this.#statusHandle);
 		this.#statusHandle = null;
+		this.#health?.close();
+		this.#health = null;
 		this.#bridge.stop();
 		this.#unbindBridge();
 		this.#scheduler.close('Dynamic coordinator stopped');
@@ -1089,7 +1102,14 @@ export class DynamicCoordinator extends EventEmitter {
 				const supervisionKey = this.#supervisionKey(record, lifecycleGeneration);
 				this.#goalSupervisor.factualProgress(supervisionKey, factualProgressSignature(wireObservation), factualProgressDetails(wireObservation));
 				if (this.#usesNativeTools(record)) this.#nativeRuntimeEpochs.set(record.agentId, connectionEpoch);
-				const observation = adaptObservation(wireObservation);
+				let observation;
+				try { observation = adaptObservation(wireObservation); }
+				catch (error) {
+					// The sample is still dropped and reported as agent_error; the trace names the field that failed.
+					this.#writeTrace('observation_rejected', { agentId: record.agentId, goalRevision: record.goalRevision,
+						eventSequence: Number.isSafeInteger(wireObservation?.eventSequence) ? wireObservation.eventSequence : null, ...rejectionTraceFields(error, 'INVALID_OBSERVATION') });
+					throw error;
+				}
 				const refreshMemorySummary = () => {
 					const memoryKey = `${record.goalRevision}:${this.#playerMemory.worldId(record)}`;
 					if (this.#memorySummaries.get(record.agentId)?.key !== memoryKey) {
@@ -1488,9 +1508,19 @@ export class DynamicCoordinator extends EventEmitter {
 				finally { await this.stop(); }
 			});
 		});
-		this.#listen('protocolError', (error) => this.emit('runtimeError', error), { lifecycle: true });
-		this.#listen('messageRejected', (rejection) => this.emit('runtimeError', rejection.error), { lifecycle: true });
+		// Both drop inbound input: protocolError also resets the connection, messageRejected keeps it.
+		this.#listen('protocolError', (error) => {
+			this.#writeTrace('bridge_protocol_error', rejectionTraceFields(error, 'PROTOCOL_ERROR'));
+			this.emit('runtimeError', error);
+		}, { lifecycle: true });
+		this.#listen('messageRejected', (rejection) => {
+			this.#writeTrace('bridge_message_rejected', { type: typeof rejection?.type === 'string' ? rejection.type.slice(0, 64) : null,
+				agentId: typeof rejection?.agentId === 'string' ? rejection.agentId.slice(0, 128) : null,
+				count: Number.isSafeInteger(rejection?.count) ? rejection.count : null, ...rejectionTraceFields(rejection?.error, 'INBOUND_MESSAGE_REJECTED') });
+			this.emit('runtimeError', rejection.error);
+		}, { lifecycle: true });
 		this.#listen('transportError', (error) => this.emit('runtimeError', error), { lifecycle: true });
+		this.#listen('heartbeatLate', (event) => this.#writeTrace('bridge_heartbeat_late', { lateMs: event?.lateMs ?? null }), { lifecycle: true });
 	}
 
 	#beginReconciliation(registry, connectionEpoch, { providerOnly = false } = {}) {
@@ -4746,6 +4776,7 @@ export function createDynamicCoordinator(configValue, dependencies = {}) {
 		epochNow: dependencies.epochNow,
 		setStatusInterval: dependencies.setStatusInterval,
 		clearStatusInterval: dependencies.clearStatusInterval,
+		healthSampler: dependencies.healthSampler,
 		setGoalSpecTimeout: dependencies.setGoalSpecTimeout,
 		clearGoalSpecTimeout: dependencies.clearGoalSpecTimeout,
 		setSteerTimeout: dependencies.setSteerTimeout,
@@ -7608,6 +7639,11 @@ export function burnFacts(player) {
 	const protectedTicks = resistance == null ? 0 : Number.isFinite(resistance.duration) && resistance.duration >= 0 ? resistance.duration : Infinity;
 	return { seconds, rawDamage: Math.floor(Math.max(0, player.fireTicks - protectedTicks) / 20) };
 }
+/** Code and bounded reason of a rejected input, for its trace row. */
+function rejectionTraceFields(error, fallbackCode) {
+	return { code: sanitizeDiagnosticErrorCode(error, { fallback: fallbackCode }), reason: sanitizeDiagnosticErrorMessage(error, { maxBytes: 512 }) };
+}
+
 export const NO_TASK_HEAL_INSTRUCTION = 'Live Minecraft event: low health. You have no active task; any finished task stays finished, so do not redo it. Recovering is your call. healing.regenFoodReady reports hunger eligibility under vanilla rules; damage may outpace recovery. healing.options lists the food in reach as exact calls: eat carried food, pick_up_item a food drop, fight_target a passive animal and pick up its drop, mine fully grown crops or melon, or interact with ripe berries; then eat. Other work is a player request and needs takeTask.';
 export const TASK_HEAL_INSTRUCTION = 'Live Minecraft event: low health with food in reach. Whether to recover before continuing the task is your call. healing.regenFoodReady reports hunger eligibility under vanilla rules; damage may outpace recovery. healing.options lists the food in reach as exact calls (eat carried food; pick_up_item a food drop; fight_target a passive animal and pick up its drop). Respond explicitly to pending program decisions.';
 export const NO_TASK_DANGER_INSTRUCTION = 'Live Minecraft event: danger. You have no active task; any finished task stays finished, so do not redo it. Options include: fight_target, flee_from, eat or drink, shield or totem, equip armor and weapons, move away. Other work is a player request and needs takeTask.';

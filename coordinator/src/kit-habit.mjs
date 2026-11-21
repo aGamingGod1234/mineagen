@@ -79,20 +79,20 @@ export function nextKitStep(o, { reserved = null } = {}) {
 	const health = o?.player?.health;
 	if (!Number.isFinite(health) || health < KIT_MIN_HEALTH) return null;
 	const worn = slot => items.some(item => item.slot === slot);
+	// The selected hotbar slot is observed only as 'mainhand': shields and armour held there equip from its slot number.
+	const selected = o.inventory.selectedSlot;
+	const heldSlot = item => numbered(item) ? item.slot : item.slot === 'mainhand' && Number.isInteger(selected) && selected >= 0 && selected <= 8 ? selected : null;
 	const shields = items.filter(item => item.itemId === 'minecraft:shield');
 	// Another item in the off hand (torches) is the player's choice, and equip would not swap it: the shield waits.
 	const offhandFree = !items.some(item => item.slot === 'offhand' && item.itemId !== 'minecraft:shield');
-	if (offhandFree && !shields.some(item => item.slot === 'offhand' || item.slot === 'mainhand')) {
-		const stored = shields.find(numbered);
-		if (stored) return { kind: 'equip', sourceSlot: stored.slot, targetSlot: 'offhand', itemId: stored.itemId };
+	if (offhandFree && !shields.some(item => item.slot === 'offhand')) {
+		const stored = shields.find(item => heldSlot(item) !== null);
+		if (stored) return { kind: 'equip', sourceSlot: heldSlot(stored), targetSlot: 'offhand', itemId: stored.itemId };
 	}
-	// The selected hotbar slot is observed only as 'mainhand': armour held there is worn from its slot number.
-	const selected = o.inventory.selectedSlot;
-	const armourSlot = item => numbered(item) ? item.slot : item.slot === 'mainhand' && Number.isInteger(selected) && selected >= 0 && selected <= 8 ? selected : null;
 	for (const piece of ARMOUR) {
 		if (worn(piece.slot)) continue;
-		const stored = items.find(item => armourSlot(item) !== null && piece.part.test(item.itemId));
-		if (stored) return { kind: 'equip', sourceSlot: armourSlot(stored), targetSlot: piece.slot, itemId: stored.itemId };
+		const stored = items.find(item => heldSlot(item) !== null && piece.part.test(item.itemId));
+		if (stored) return { kind: 'equip', sourceSlot: heldSlot(stored), targetSlot: piece.slot, itemId: stored.itemId };
 	}
 	const food = items.filter(item => FOOD.test(item.itemId));
 	if (food.length > 0 && !food.some(inHotbar)) {

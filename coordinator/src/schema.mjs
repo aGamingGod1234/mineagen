@@ -336,7 +336,7 @@ export function validateAction(value) {
 			if (action.acceptLavaRisk !== undefined) requireBoolean(action.acceptLavaRisk, 'action.acceptLavaRisk');
 			break;
 		case 'pick_up_item':
-			requireTargetId(action.targetSelector, 'action.targetSelector');
+			requireTargetId(action.targetSelector, 'action.targetSelector', 'item');
 			if (action.timeoutMs !== undefined) requireDuration(action.timeoutMs, 'action.timeoutMs');
 			break;
 		case 'place_block':
@@ -354,7 +354,7 @@ export function validateAction(value) {
 				const audience = action.audience ?? 'public';
 				requireOneOf(audience, 'action.audience', ['public', 'direct', 'proximity']);
 				if (audience === 'proximity') requireCodePointText(action.message, 'action.message', MAX_VOICE_TEXT_LENGTH);
-				if (audience === 'direct') requireTargetId(action.recipientId, 'action.recipientId');
+				if (audience === 'direct') requireTargetId(action.recipientId, 'action.recipientId', 'player');
 				else if (action.recipientId !== undefined && action.recipientId !== null) {
 					throw invalid('INVALID_FIELD', 'action.recipientId is only valid for direct chat');
 				}
@@ -679,10 +679,11 @@ function requireObject(value, path) {
 	return value;
 }
 
-function requireTargetId(value, path) {
+/** Names like nearest_item are not targets; the message says what is (kind: entity, item or player). */
+function requireTargetId(value, path, kind = 'entity') {
 	requireText(value, path, MAX_TARGET_ID_LENGTH);
 	if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) {
-		throw invalid('INVALID_FIELD', `${path} must be a canonical UUID`);
+		throw invalid('INVALID_FIELD', `${path} must be a seen ${kind}'s stableId (a UUID), not ${JSON.stringify(value.slice(0, 48))}`);
 	}
 }
 

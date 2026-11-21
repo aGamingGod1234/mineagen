@@ -365,6 +365,7 @@ public final class ServerBuildController implements ServerController {
 		// From the first step of a cast build: the walks to open the pool cross the shore the fetches need later.
 		if (casting && player.onGround()) recordStep(player.blockPosition());
 		if (walk != null) {
+			if (casting) walk.keepLavaFlowRoutes();
 			TickResult moved = walk.tick(player, now);
 			if (moved.state() == State.RUNNING) return running();
 			walk.cancel(player);

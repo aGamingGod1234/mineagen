@@ -984,6 +984,7 @@ scripts/quality/ironpick2.json
 scripts/quality/ladder-evaluator.mjs
 scripts/quality/ladder.json
 scripts/quality/launch-scenarios.ps1
+scripts/quality/lava-room-spots.json
 scripts/quality/lava-survey.py
 scripts/quality/lib/damage-counter.mjs
 scripts/quality/lib/find-spot.mjs
@@ -1670,6 +1671,7 @@ src/main/java/dev/agaminggod/mineagen/server/runtime/controller/HazardExits.java
 src/main/java/dev/agaminggod/mineagen/server/runtime/controller/HotbarWeapons.java
 src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ItemPickupProgress.java
 src/main/java/dev/agaminggod/mineagen/server/runtime/controller/KillDropCollector.java
+src/main/java/dev/agaminggod/mineagen/server/runtime/controller/LavaStep.java
 src/main/java/dev/agaminggod/mineagen/server/runtime/controller/LedgeFetch.java
 src/main/java/dev/agaminggod/mineagen/server/runtime/controller/MeleeReach.java
 src/main/java/dev/agaminggod/mineagen/server/runtime/controller/MinecraftNavigationWorld.java
@@ -2049,6 +2051,7 @@ src/test/java/dev/agaminggod/mineagen/server/runtime/controller/HazardExitsVerif
 src/test/java/dev/agaminggod/mineagen/server/runtime/controller/ItemPickupProgressVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/controller/LavaFlowMovementVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/controller/LavaSpreadVerification.java
+src/test/java/dev/agaminggod/mineagen/server/runtime/controller/LavaStepVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/controller/MinecraftNavigationWorldVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/controller/MiningToolsVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/controller/NavigationBreathingVerification.java
@@ -2180,6 +2183,7 @@ SECURITY.md
 scripts/hooks/commit-msg
 scripts/hooks/pre-commit
 scripts/pull-request-text.mjs
+docs/technical-catalogue/35-lava-step-guard.md
 # Files the issue #2 pull requests (#4 to #28) added without listing them: coordinator sources and tests, mod
 # classes, quality scripts and catalogue pages. Each is already public, and an export without them does not build.
 coordinator/src/default-models.mjs

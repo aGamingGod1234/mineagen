@@ -127,9 +127,11 @@ test('what the obtain just handed back is never spent on kit', () => {
 	assert.deepEqual(nextKitStep(sample([...held, item('oak_log', 4, 3)]), { reserved: { ids: ['oak_planks'], count: 8 } }), { kind: 'craft', itemId: 'minecraft:shield' });
 });
 
-test('armour in the selected hotbar slot is worn from that slot', () => {
+test('armour and shields in the selected hotbar slot are equipped from that slot', () => {
 	assert.deepEqual(nextKitStep(sample([item('iron_boots', 'mainhand')], { selectedSlot: 4 })),
 		{ kind: 'equip', sourceSlot: 4, targetSlot: 'feet', itemId: 'minecraft:iron_boots' });
+	assert.deepEqual(nextKitStep(sample([item('shield', 'mainhand')], { selectedSlot: 2 })),
+		{ kind: 'equip', sourceSlot: 2, targetSlot: 'offhand', itemId: 'minecraft:shield' });
 });
 
 test('an off hand holding something else leaves the shield where it is and the rest of the kit goes on', () => {
