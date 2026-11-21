@@ -388,7 +388,7 @@ public final class ServerBuildController implements ServerController {
 	private boolean waterFirst, runOffMeetsLava, sureRunOffMeetsLava;
 	/** This cell has no spot whose water line misses the lava's cell: pour it from a spot where it crosses (main's way). */
 	private boolean crossAllowed;
-	private int lavaTakes;
+	private int lavaTakes, fetchRetries;
 	private int staleScoops;
 	private final java.util.ArrayDeque<BlockPos> wayBack = new java.util.ArrayDeque<>();
 
@@ -2243,6 +2243,17 @@ public final class ServerBuildController implements ServerController {
 			BlockPos toward = k < remembered.size() && k % 2 == 1 ? remembered.get(k) : k == 0 ? around : around.relative(Direction.from2DDataValue(k), 7);
 			BlockPos spot = nearestStand(player, toward, 5);
 			if (spot != null) { seekLooks = 0; triedSources.clear(); return walkTo(player, spot, now); }
+		}
+		// One walk that failed rules out the spots round its target (see the walk's failure), which on a narrow shore is
+		// every dry spot by the pool (away-pair-7: 8 sources in view, BUILD_SHORT after one failed walk in 4 of 10 runs on
+		// main, 10 of 10 on this branch): with lava still seen, forget them once and try the shore again.
+		if (!sources.isEmpty() && !triedSpots.isEmpty() && fetchRetries < 2 && walks < MAX_WALKS - 1) {
+			fetchRetries++;
+			triedSpots.clear();
+			triedSources.clear();
+			seekLooks = 0;
+			seekWalks = 0;
+			return running();
 		}
 		return fail(player, "BUILD_SHORT", "Short of material: no lava source in reach after " + castIndex + " of 10 cells (" + sources.size() + " seen within "
 				+ CAST_FETCH_RANGE + " blocks of the frame, none with a dry spot beside it) after looking round and walking the shore near " + xyz(around)

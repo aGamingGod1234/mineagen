@@ -136,6 +136,8 @@ const SHELTER_BLOCKS = new Set(['minecraft:cobblestone', 'minecraft:cobbled_deep
 const MAX_PEEKS = 2;
 // Shafts a lava find short of pickaxe uses may start: one, and one more after a stop (a cave, water) turned it.
 const MAX_SHORT_SHAFTS = 2;
+// Retreats up its own stairs from a mob cave a lava find makes before it fights on where it stands.
+const MAX_MOB_RETREATS = 1;
 // Falls or spills of the target fluid seen with no source (far sight's flowing rows) a search walks over to, and the
 // missed-place reason that keeps a later search from walking to one again.
 const MAX_SPILLS = 3;
@@ -1170,7 +1172,7 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 		// A descent stopped for a mob (stairs into a mob cave): later descents stop at cave openings, never walking or
 		// dropping across the cave floor (lava-gate-6: the next stair leg crossed 22 blocks of a zombie spawner room in
 		// 10 s with nothing mined, and the bot died there in 7 of 10 runs).
-		let mobCave = false;
+		let mobCave = false, mobRetreats = 0;
 		let descentStops = 0, shaftStops = 0, lookedAt = rock ? bodyAt(observation) : null;
 		// Turns after a stop: from the last heading that went its full leg, right, then left, then back; never to and fro.
 		let base = null, turns = 0;
@@ -1519,6 +1521,7 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 					if (stepsLeft(heading) < 1) return handBack('FAILED', 'FIND_NOT_FOUND', `Searched to ${within} blocks from the start`);
 				}
 				if (pattern === 'shaft' || (lava && water)) await bucketToHotbar();
+				const descentFrom = bodyAt(observation);
 				const limit = descentCap(pattern);
 				if (pattern === 'steep_down' && Number.isFinite(stairs) && stairs >= STEP_CELLS.steep_down * 2) limit.maxBlocks = Math.min(limit.maxBlocks ?? MAX_DIG_BLOCKS, stairs);
 				const outcome = await leg(`dig ${pattern} to y${profile.depth}`, 'dig_to', { pattern, y: profile.depth, heading: heading.name, ...limit, ...(mobCave ? { throughCaves: false } : {}), stopWhenSeen: profile.stopId, discard: DISCARD });
@@ -1528,7 +1531,22 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 				if (code === 'DIG_GOAL_REACHED') reversals = 0;
 				if (code === 'DIG_GOAL_REACHED' || code === 'DIG_LIMIT_REACHED') continue;
 				descentStops += 1;
-				if (code === 'HOSTILE_NEAR') mobCave = true;
+				if (code === 'HOSTILE_NEAR') {
+					mobCave = true;
+					// Stairs that opened into a mob cave (a spawner room keeps sending more): back up the stairs just dug, as a
+					// player does, and go down another way from there. lava-gate-6: fighting on at the cave's edge, the bot died in
+					// 9 of 10 runs, 7 of 10 with fight-or-flee's back-off.
+					const here = bodyAt(observation);
+					if (lava && pattern !== 'shaft' && descentFrom !== null && here !== null && descentFrom.y > here.y + 6 && mobRetreats < MAX_MOB_RETREATS) {
+						mobRetreats += 1;
+						const back = await leg('back up the stairs away from the mob cave', 'travel_to', { x: descentFrom.x, y: descentFrom.y, z: descentFrom.z, retrace: true, tolerance: 3, stopWhenSeen: profile.stopId });
+						const backEnded = await settle(back);
+						if (backEnded !== null) return backEnded;
+						heading = CARDINALS[(CARDINALS.indexOf(heading) + 2) % 4];
+						base = heading; turns = 0;
+						continue;
+					}
+				}
 				if (code === 'CAVE_OPENING') {
 					const cave = await look(25);
 					if (cave.interrupted || cave.seen || cave.ended) return settle(cave);

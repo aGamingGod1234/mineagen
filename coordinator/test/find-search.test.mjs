@@ -1921,4 +1921,7 @@ test('lava-gate-6: after stairs stop for a mob in the cave below, the next desce
 	assert.ok(digs.length >= 2, JSON.stringify(body.calls.map((call) => call.actionType)));
 	assert.equal(digs[0].throughCaves, undefined);
 	assert.equal(digs.at(-1).throughCaves, false);
+	const back = body.calls.find((call) => call.actionType === 'travel_to' && call.args.retrace === true);
+	assert.ok(back !== undefined && back.args.y === 71, 'backs up its own stairs to where that descent began');
+	assert.notEqual(digs.at(-1).heading, digs[0].heading, 'and goes down another way');
 });
