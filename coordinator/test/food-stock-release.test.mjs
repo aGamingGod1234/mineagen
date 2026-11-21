@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { routeLine } from '../src/skill-fits.mjs';
+import { routeLine, woodStockHandback } from '../src/skill-fits.mjs';
 import { emptyKnown, evaluatePlanCheck } from '../src/plan-checks.mjs';
 import { LiveTaskViews } from '../src/live-task-view.mjs';
 import { NativeToolRuntime } from '../src/native-tool-runtime.mjs';
@@ -16,7 +16,7 @@ const COW = { type: 'minecraft:cow', distance: 8, alive: true };
 const sample = (items = TOOLS, { entities = [], foodLevel = 20, health = 20, at = 1000, world = 'w1', dimension = 'minecraft:overworld', dead = false } = {}) => ({
 	ready: true, observedAtEpochMs: at, world: { worldId: world, dimension }, position: { x: 0, y: 64, z: 0 },
 	player: { x: 0, y: 64, z: 0, health, foodLevel, ...(dead ? { dead: true } : {}) }, inventory: { items }, entities });
-const route = (o, { known = emptyKnown(), foodHandedBack = false } = {}) => routeLine({ observation: o, known, foodHandedBack, evaluate: evaluatePlanCheck });
+const route = (o, { known = emptyKnown(), foodHandedBack = false, woodHandedBack = false } = {}) => routeLine({ observation: o, known, foodHandedBack, woodHandedBack, evaluate: evaluatePlanCheck });
 const spec = immutableGoalSpec('beat the game', { type: 'entity_killed_by_agent', entityType: 'minecraft:ender_dragon', afterGoalStart: true });
 const record = () => ({ agentId: 'food-stock', currentGoal: 'beat the game', currentGoalSpec: spec, goalRevision: 1 });
 const OBTAIN = { kind: 'obtain', arguments: { item: 'minecraft:cooked_porkchop', count: 8 } };
@@ -145,4 +145,32 @@ test('the production coordinator records a failed food obtain before the next wa
 		assert.ok(views, 'the coordinator passed the result to its task views');
 		assert.match(views.continuity(registry.get('agent-a')).route, /^usual next step: obtain log count \d+ before going down/);
 	} finally { await run.coordinator.stop(); }
+});
+
+test('a wood obtain that found no source lets the trip go down with the wood it has', () => {
+	const stocked = [...TOOLS, item('cooked_beef', 8)];
+	assert.match(route(sample(stocked)), /^usual next step: obtain log count \d+ before going down/);
+	// Room kit-1001: under cover at spawn the log obtain could not climb out, and the step held the route for 55 minutes.
+	assert.match(route(sample(stocked), { woodHandedBack: true }), /^usual next step: obtain iron_ingot count 11 in one trip/);
+	const obtain = item => ({ kind: 'obtain', arguments: { item, count: 4 } });
+	for (const id of ['log', 'oak_log', 'minecraft:spruce_log', 'planks', 'birch_planks', '#logs'])
+		assert.equal(woodStockHandback(obtain(id), { state: 'FAILED', reasonCode: 'NO_SOURCE' }), true, id);
+	assert.equal(woodStockHandback(obtain('log'), { state: 'TIMED_OUT', reasonCode: 'OBTAIN_TIMEOUT' }), true);
+	assert.equal(woodStockHandback(obtain('log'), { state: 'SUCCEEDED' }), false);
+	assert.equal(woodStockHandback(obtain('log'), { state: 'FAILED', reasonCode: 'OBSERVATION_UNAVAILABLE' }), false);
+	assert.equal(woodStockHandback(obtain('iron_ingot'), { state: 'FAILED', reasonCode: 'NO_SOURCE' }), false);
+	assert.equal(woodStockHandback({ kind: 'find', arguments: { block: 'minecraft:oak_log' } }, { state: 'FAILED' }), false);
+});
+
+test('the production view releases the trip wood after a failed wood obtain, until a death', async () => {
+	const views = new LiveTaskViews(), r = record();
+	const stocked = [...TOOLS, item('cooked_beef', 8)];
+	await views.observe(r, sample(stocked, { at: 1000 }));
+	assert.match(views.continuity(r).route, /obtain log count/);
+	assert.equal(views.noteFoodHandback(r, { kind: 'obtain', arguments: { item: 'log', count: 5 } }, { state: 'FAILED', reasonCode: 'NO_SOURCE' }), true);
+	await views.observe(r, sample(stocked, { at: 2000 }));
+	assert.match(views.continuity(r).route, /obtain iron_ingot count 11/);
+	await views.observe(r, sample([], { at: 3000, dead: true }));
+	await views.observe(r, sample(stocked, { at: 4000 }));
+	assert.match(views.continuity(r).route, /obtain log count/, 'a new life asks for the trip wood again');
 });

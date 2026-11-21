@@ -165,6 +165,17 @@ export function foodStockHandback(tool, result) {
 	return tool?.kind === 'find' && Object.hasOwn(ANIMAL_MEAT, id(tool.arguments?.mob)) && (result.reasonCode === 'FIND_NOT_FOUND' || result.state === 'TIMED_OUT');
 }
 
+/**
+ * Whether a finished obtain says the trip's wood has no source here: an obtain of logs or planks that failed or ran out
+ * of time (no tree in reach, or no way up to one from under cover). The trip then goes down with the wood it has, as a
+ * player who finds no tree nearby does; the obtain helper still fetches a log later if a craft needs one.
+ */
+export function woodStockHandback(tool, result) {
+	if (tool?.kind !== 'obtain' || !['FAILED', 'TIMED_OUT'].includes(result?.state) || result.reasonCode === 'OBSERVATION_UNAVAILABLE') return false;
+	const id = String(typeof result.item === 'string' ? result.item : tool.arguments?.item ?? '').trim().toLowerCase().replace(/^#?minecraft:/, '').replace(/^#/, '');
+	return /^(log|logs|planks|[a-z_]+_(log|planks|stem))$/.test(id);
+}
+
 function nearbyMeat(o) {
 	if (remembered(o, 'entities')) return null;
 	const at = o.position ?? o.player;
@@ -210,7 +221,7 @@ const ROUTE = [
 	// One trip down for the whole kit, as a player goes: the wood its crafts and smelting take is carried down first
 	// (the obtain helper climbs back to the surface for any log it lacks underground), then all of its iron in one
 	// obtain. Per item, each craft that ran out of planks underground was a climb, and each item's iron another descent.
-	{ id: 'trip_wood', done: 'frame:lit | visited:minecraft:the_nether', held: f => f.below || f.tripLogs === 0,
+	{ id: 'trip_wood', done: 'frame:lit | visited:minecraft:the_nether', held: f => f.below || f.woodHandedBack || f.tripLogs === 0,
 		next: f => [`obtain log count ${f.logs + f.tripLogs} before going down`, `wood for the kit's crafts and smelting, so the trip needs no climb back; ${f.wood} logs/planks held`] },
 	{ id: 'iron_trip', done: 'frame:lit | visited:minecraft:the_nether', held: f => f.kitIron <= f.ingots,
 		next: f => [`obtain iron_ingot count ${f.kitIron} in one trip, then craft the kit`, `kit iron ${f.kitIron}: ${f.kitParts}; ${f.iron} iron held`] },
@@ -285,9 +296,10 @@ function foodSource(o) {
  * The usual next step toward beating the game from the player's state, or null without a live sample. observation: the
  * newest live sample; known: plan-checks facts (visited dimensions, lit frames, lava pools, placements); evaluate: the
  * plan-check evaluator (evaluatePlanCheck); memory: scoped, contradiction-aware source facts from LiveTaskViews;
- * foodHandedBack: a food hand-back this life (foodStockHandback) released the cooked-meat stock.
+ * foodHandedBack: a food hand-back this life (foodStockHandback) released the cooked-meat stock; woodHandedBack: a wood
+ * hand-back this life (woodStockHandback) released the trip's wood step.
  */
-export function routeLine({ observation: o = null, known = null, memory = null, foodHandedBack = false, evaluate, instincts = false } = {}) {
+export function routeLine({ observation: o = null, known = null, memory = null, foodHandedBack = false, woodHandedBack = false, evaluate, instincts = false } = {}) {
 	if (!live(o) || !Array.isArray(o.inventory?.items) || remembered(o, 'inventory') || known === null || typeof evaluate !== 'function') return null;
 	const items = o.inventory.items.filter(i => i?.count > 0);
 	const count = re => items.filter(i => re.test(i.itemId ?? '')).reduce((n, i) => n + i.count, 0);
@@ -309,7 +321,7 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 	const eyeFacts = `rods ${rods}/${rodsNeeded}, pearls ${pearls}/${eyesNeeded}, eyes ${eyesHeld} held + ${filled} set of ${EYES}`;
 	const facts = { count, foodNeeded: foodAdviceNeeded(o), foodHandedBack: foodHandedBack === true, food: count(EDIBLE), cookedMeat: count(COOKED_MEAT), rawMeat: count(RAW_FOOD), nearbyMeat: nearbyMeat(o), blocks: count(MOULD), wood: count(/^minecraft:([a-z_]+_(log|planks|stem))$/), iron: count(/^minecraft:(iron_ingot|raw_iron)$/),
 		buckets: count(/^minecraft:(bucket|water_bucket|lava_bucket)$/), pools: (known.lavaPools ?? []).filter(p => p?.dimension === dimension).length,
-		below: belowGround(o), logs: count(/^minecraft:[a-z_]+_log$/), ingots: count(/^minecraft:iron_ingot$/) };
+		below: belowGround(o), woodHandedBack: woodHandedBack === true, logs: count(/^minecraft:[a-z_]+_log$/), ingots: count(/^minecraft:iron_ingot$/) };
 	const kit = kitLeft(count);
 	Object.assign(facts, { kitIron: kit.iron, kitParts: kit.parts });
 	// Planned only when the route reaches the step: a whole-kit obtain plan per wake is not free.

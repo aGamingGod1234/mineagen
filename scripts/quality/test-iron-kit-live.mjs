@@ -21,7 +21,7 @@ import { existsSync, statSync } from 'node:fs';
 import { appendFile, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { boot } from './watch-replay.mjs';
+import { boot, newerGoalRevision } from './watch-replay.mjs';
 import { callObtain } from './obtain-handbacks.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
@@ -60,7 +60,7 @@ async function coordinatorRoot(arg) {
 }
 const arm = await coordinatorRoot(coordinatorArg);
 const load = (file) => import(pathToFileURL(path.join(arm, 'src', file)).href);
-const [{ NativeToolRuntime }, { normalizeMinecraftToolCall }, { adaptObservation }, { InspectionClient }, { DEFAULT_REFLEXES }, { routeLine, foodStockHandback }, { emptyKnown, evaluatePlanCheck, rememberPlanFacts }, { HeadlessRconClient }, { parseSavedWorldSpawn }] = await Promise.all([
+const [{ NativeToolRuntime }, { normalizeMinecraftToolCall }, { adaptObservation }, { InspectionClient }, { DEFAULT_REFLEXES }, { routeLine, foodStockHandback, woodStockHandback = () => false }, { emptyKnown, evaluatePlanCheck, rememberPlanFacts }, { HeadlessRconClient }, { parseSavedWorldSpawn }] = await Promise.all([
 	load('native-tool-runtime.mjs'), load('native-minecraft-tools.mjs'), load('observation-adapter.mjs'), load('inspection-client.mjs'), load('reflexes.mjs'),
 	load('skill-fits.mjs'), load('plan-checks.mjs'), load('headless-rcon.mjs'), load('headless-world-spawn.mjs')]);
 const armId = coordinatorArg ? path.basename(coordinatorArg) : 'checkout';
@@ -196,9 +196,12 @@ async function joinAgent(s, lane, nextSpot) {
 		latest = ev.payload;
 		runtime.updateObservation(record, adaptObservation(ev.payload), { eventSequence: ev.payload.eventSequence });
 	});
+	// Every newer goal revision the server sends (a death, a respawn, a low-health hand-back), as the coordinator follows
+	// it: a revision left behind made every later call fail at once with STALE_GOAL_REVISION.
 	s.bridge.on('message', ev => {
-		if (ev.type !== 'goal_control' || ev.agentId !== record.agentId || !['dead', 'respawn'].includes(ev.payload?.operation)) return;
-		if (Number.isSafeInteger(ev.payload.goalRevision)) record.goalRevision = ev.payload.goalRevision;
+		const revision = newerGoalRevision(record, ev);
+		if (revision === null) return;
+		record.goalRevision = revision;
 		s.bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false }).catch(() => {});
 	});
 	s.bridge.on('action_result', ev => {
@@ -229,7 +232,7 @@ async function playLane(s, agent, seed, seedIndex, dir) {
 	const t0 = Date.now();
 	const minutes = () => Math.round((Date.now() - t0) / 600) / 100;
 	const known = emptyKnown();
-	let foodHandedBack = false;
+	let foodHandedBack = false, woodHandedBack = false;
 	// Climb and descent tracking on the harness's own clock: a death between going under and coming up is no climb.
 	let under = null, lastDeaths = 0, sampling = true, stepText = '';
 	const sampler = (async () => {
@@ -253,6 +256,11 @@ async function playLane(s, agent, seed, seedIndex, dir) {
 	const stepWatch = setInterval(() => { stepText = lastObtainStep().slice(0, 160); }, 1000);
 	const resting = new Map();
 	let failures = new Map();
+	// A call that keeps succeeding with the inventory unchanged and the same line shown is not progress (a find that
+	// sees an animal too far for the route to count it): rested like a failing one.
+	let same = { key: null, inventory: null, times: 0 };
+	// "look for ... animals, then obtain cooked meat": the animal a find saw is hunted next.
+	let hunt = null;
 	const execute = async (tool, tag) => {
 		try { return await runtime.execute({ agentId: record.agentId, goalRevision: record.goalRevision, turnId: `kit-${seedIndex}-${lane}-${tag}`, callId: `kit-${tag}`, tool }, record); }
 		catch (error) { return { state: 'ERROR', reasonCode: error?.code ?? 'ERROR', message: String(error?.message ?? error) }; }
@@ -272,7 +280,7 @@ async function playLane(s, agent, seed, seedIndex, dir) {
 		if (!(await health() > 0)) {
 			result.deathsAt.push(minutes());
 			lastDeaths += 1;
-			foodHandedBack = false;
+			foodHandedBack = false; woodHandedBack = false;
 			const started = s.inbox.wait('goal_control', g => g.agentId === record.agentId && g.payload.operation === 'start', 60_000).catch(() => null);
 			await s.command(`mineagen respawn ${name}`).catch(() => {});
 			for (let i = 0; i < 60 && !(await health() > 0); i++) await sleep(500);
@@ -288,8 +296,9 @@ async function playLane(s, agent, seed, seedIndex, dir) {
 		if (!o) { await sleep(1000); continue; }
 		rememberPlanFacts?.(known, o);
 		if (kitHeld(o)) { result.kitMinutes = minutes(); break; }
-		const line = routeLine({ observation: o, known, foodHandedBack, evaluate: evaluatePlanCheck });
-		let call = routeCall(line);
+		const line = routeLine({ observation: o, known, foodHandedBack, woodHandedBack, evaluate: evaluatePlanCheck });
+		let call = hunt ?? routeCall(line);
+		hunt = null;
 		const key = call ? JSON.stringify(call) : null;
 		if (call === null || resting.get(key) > Date.now()) {
 			result.calls.push({ at: minutes(), line, call: null, note: call === null ? 'no call in the line' : 'resting after two failures' });
@@ -327,6 +336,12 @@ async function playLane(s, agent, seed, seedIndex, dir) {
 		console.log(`[${seed} L${lane}] ${result.calls.at(-1).at} min ${call.kind}${call.item ? ` ${call.item} x${call.count}` : call.mob ? ` ${call.mob}` : ''}: ${done?.state} ${done?.reasonCode ?? ''} ${result.calls.at(-1).seconds}s, climbs ${result.climbs.length}`);
 		if (call.kind === 'obtain' && foodStockHandback({ kind: 'obtain', arguments: { item: call.item } }, done)) foodHandedBack = true;
 		if (call.kind === 'find_animal' && foodStockHandback({ kind: 'find', arguments: { mob: call.mob } }, done)) foodHandedBack = true;
+		if (call.kind === 'obtain' && woodStockHandback({ kind: 'obtain', arguments: { item: call.item } }, done)) woodHandedBack = true;
+		if (call.kind === 'find_animal' && done?.state === 'SUCCEEDED' && MEATS[call.mob]) hunt = { kind: 'obtain', item: `cooked_${MEATS[call.mob]}`, count: 8 };
+		const inventory = JSON.stringify((adaptObservation(agent.latest())?.inventory?.items ?? []).map(i => [i.itemId, i.count]).sort());
+		if (done?.state === 'SUCCEEDED' && key === same.key && inventory === same.inventory) same.times += 1;
+		else same = { key, inventory, times: 0 };
+		if (same.times >= 2) { resting.set(key, Date.now() + REST_MS); same = { key: null, inventory: null, times: 0 }; hunt = null; }
 		if (done?.state === 'SUCCEEDED') failures.delete(key);
 		else {
 			failures.set(key, (failures.get(key) ?? 0) + 1);
