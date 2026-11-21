@@ -213,8 +213,15 @@ const FLOODED_REACH = 96;
 // The way up a flooded 1-wide shaft open to the sky, in blocks above the water, when no spot under open sky is remembered
 // above the body: about the depth a shaft from the surface meets an aquifer or a flooded cave (lava-gate-1: 14).
 const SHAFT_UP = 12;
-/** MINEAGEN_LAVA_SHAFT=on: a lava find's first descent is the bucket shaft again, not stairs. */
-export const lavaShaft = () => process.env.MINEAGEN_LAVA_SHAFT === 'on';
+/**
+ * A lava find's first descent is the bucket shaft (main's way) unless MINEAGEN_LAVA_STAIRS=on. Stairs from the surface won
+ * lava-gate-8 (0 to 7 of 10, deaths 7 to 1) but lost lava-gate-3 (8 to 0 of 10: the room's two pickaxes wear out
+ * tunnelling at depth) and walked lava-gate-6 into a zombie spawner room (deaths 0 to 7 of 10, the defend reflex fighting
+ * in place), so stairs wait behind the switch until tool wear and the spawner fight are answered.
+ * MINEAGEN_LAVA_SHAFT=on keeps forcing the shaft.
+ */
+export const lavaStairs = () => process.env.MINEAGEN_LAVA_STAIRS === 'on' && process.env.MINEAGEN_LAVA_SHAFT !== 'on';
+export const lavaShaft = () => !lavaStairs();
 // Swimming up a flooded stair: pulses of this many ticks, at most this many (the stair from y16 to the surface is ~50 up).
 const STAIR_PULSE_TICKS = 40;
 const MAX_WATER_STEPS = 6;

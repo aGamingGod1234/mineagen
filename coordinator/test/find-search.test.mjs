@@ -1475,7 +1475,9 @@ test('batch 1 r5 seeds 3 and 6: the walk off water under a lava dig goes where t
 	assert.equal(await run([]), 0, 'no look ground: away from the water named, as before');
 });
 
-test('batch 1 r5 seed 3: a lava dig near water met under an earlier dig down takes the stair, not the 1-wide shaft it cannot climb out of when it floods', async () => {
+test('batch 1 r5 seed 3: a lava dig near water met under an earlier dig down takes the stair, not the 1-wide shaft it cannot climb out of when it floods', async (t) => {
+	process.env.MINEAGEN_LAVA_STAIRS = 'on';
+	t.after(() => { delete process.env.MINEAGEN_LAVA_STAIRS; });
 	const start = sample({ player: { x: 249.5, y: 67, z: -217.5, yaw: 0, health: 20, skyOpen: true },
 		inventory: { items: [{ itemId: 'minecraft:water_bucket', count: 1 }, { itemId: 'minecraft:iron_pickaxe', count: 1 }] } });
 	const run = async (wetSpots) => {
@@ -1496,7 +1498,9 @@ test('batch 1 r5 seed 3: a lava dig near water met under an earlier dig down tak
 	} finally { delete process.env.MINEAGEN_LAVA_SHAFT; }
 });
 
-test('lava-gate-1 and -8: a lava find from spawn digs stairs down, never the 1-wide shaft that flooded or dropped it into a mob cave', async () => {
+test('lava-gate-1 and -8: a lava find from spawn digs stairs down, never the 1-wide shaft that flooded or dropped it into a mob cave', async (t) => {
+	process.env.MINEAGEN_LAVA_STAIRS = 'on';
+	t.after(() => { delete process.env.MINEAGEN_LAVA_STAIRS; });
 	const start = sample({ player: { x: 16.5, y: 70, z: -47.5, yaw: 0, health: 20, skyOpen: true },
 		inventory: { items: [{ itemId: 'minecraft:iron_pickaxe', count: 1 }, { itemId: 'minecraft:water_bucket', count: 1 }, { itemId: 'minecraft:cobblestone', count: 16 }] } });
 	const body = fakeBody({ start, frontier: { candidates: [], coverage: { headings: {} } },
@@ -1888,7 +1892,9 @@ test('cave first: when no cave walk got in, the body walks back to where the wal
 	assert.deepEqual([body.calls[2].args.x, body.calls[2].args.y, body.calls[2].args.z], [0.5, 70, 0.5]);
 });
 
-test('lava-gate-3 kit: stairs only as far as the pickaxes also cover a shaft for the rest and the search at depth, then the bucket shaft', async () => {
+test('lava-gate-3 kit: stairs only as far as the pickaxes also cover a shaft for the rest and the search at depth, then the bucket shaft', async (t) => {
+	process.env.MINEAGEN_LAVA_STAIRS = 'on';
+	t.after(() => { delete process.env.MINEAGEN_LAVA_STAIRS; });
 	// An iron (250) and a stone (131) pickaxe, new: 377 uses past the 2 each dig keeps back.
 	const kit = [{ itemId: 'minecraft:iron_pickaxe', count: 1, maxDamage: 250, damage: 0 }, { itemId: 'minecraft:stone_pickaxe', count: 1, maxDamage: 131, damage: 0 },
 		{ itemId: 'minecraft:water_bucket', count: 1 }, { itemId: 'minecraft:cobblestone', count: 16 }];
@@ -1909,7 +1915,9 @@ test('lava-gate-3 kit: stairs only as far as the pickaxes also cover a shaft for
 	assert.ok(digs[0].maxBlocks <= stairBudget(377, 71 - findProfile({ block: 'minecraft:lava' }).depth), 'the stairs leg is capped at the budget');
 });
 
-test('lava-gate-6: after stairs stop for a mob in the cave below, the next descent stops at cave openings instead of crossing the cave', async () => {
+test('lava-gate-6: after stairs stop for a mob in the cave below, the next descent stops at cave openings instead of crossing the cave', async (t) => {
+	process.env.MINEAGEN_LAVA_STAIRS = 'on';
+	t.after(() => { delete process.env.MINEAGEN_LAVA_STAIRS; });
 	const start = sample({ player: { x: 0.5, y: 71, z: 0.5, yaw: 0, health: 20, skyOpen: true },
 		inventory: { items: [{ itemId: 'minecraft:iron_pickaxe', count: 1 }, { itemId: 'minecraft:water_bucket', count: 1 }, { itemId: 'minecraft:stone_sword', count: 1 }] } });
 	const body = fakeBody({ start, frontier: { candidates: [], coverage: { headings: {} } },
@@ -1924,4 +1932,19 @@ test('lava-gate-6: after stairs stop for a mob in the cave below, the next desce
 	const back = body.calls.find((call) => call.actionType === 'travel_to' && call.args.retrace === true);
 	assert.ok(back !== undefined && back.args.y === 71, 'backs up its own stairs to where that descent began');
 	assert.notEqual(digs.at(-1).heading, digs[0].heading, 'and goes down another way');
+});
+
+test('the default lava descent is the bucket shaft; MINEAGEN_LAVA_STAIRS=on digs stairs', async (t) => {
+	const start = sample({ player: { x: 16.5, y: 70, z: -47.5, yaw: 0, health: 20, skyOpen: true },
+		inventory: { items: [{ itemId: 'minecraft:iron_pickaxe', count: 1 }, { itemId: 'minecraft:water_bucket', count: 1 }] } });
+	const first = async () => {
+		const body = fakeBody({ start, frontier: { candidates: [], coverage: { headings: {} } },
+			acts: { dig_to: [{ result: { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:lava seen at 20,-54,-40, 6 blocks away' } }] } });
+		await searchFor({ block: 'minecraft:lava' }, body);
+		return body.calls.find((call) => call.actionType === 'dig_to').args.pattern;
+	};
+	assert.equal(await first(), 'shaft');
+	process.env.MINEAGEN_LAVA_STAIRS = 'on';
+	t.after(() => { delete process.env.MINEAGEN_LAVA_STAIRS; });
+	assert.equal(await first(), 'steep_down');
 });
