@@ -1509,3 +1509,26 @@ test('sixth review: a lock taken after a wait longer than the stale limit is sta
 		assert.equal(written.at, clock, 'the lock carries the time it was taken, not the time the wait began');
 	} finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test('keepalive --warm keeps the most recently used idle machines, deletes the rest longest idle first, and spares one with a room still running', { skip: process.platform === 'win32' }, async () => {
+	const fake = await fakeBoat();
+	try {
+		const store = leaseStore({ dir: fake.poolDir });
+		const pool = warmBoatPool({ snapshot: 'img', type: 'default', store, log: quiet, roomPorts: [1, 0], startsPerMinute: 600 });
+		const vms = [];
+		for (let i = 0; i < 4; i++) vms.push(await pool.startNew());
+		for (const vm of vms) { await pool.release(vm); await new Promise(done => setTimeout(done, 20)); }
+		// vms[0] was given back first (longest idle) but still has a room running: it must be spared.
+		const room = spawn('sleep', ['300'], { cwd: (await mkdir(path.join(fake.home(vms[0].id), 'batch/out/r'), { recursive: true }), path.join(fake.home(vms[0].id), 'batch/out/r')), stdio: 'ignore', detached: true });
+		try {
+			const cli = fileURLToPath(new URL('../../scripts/quality/boat-pool.mjs', import.meta.url));
+			const run = spawnSync(process.execPath, [cli, 'keepalive', '--warm', '2', '--grace', '0'], { env: { ...process.env, ROOM_BATCH_POOL_DIR: fake.poolDir }, encoding: 'utf8' });
+			assert.equal(run.status, 0, run.stdout + run.stderr);
+			assert.ok(fake.exists(vms[3].id) && fake.exists(vms[2].id), 'the two most recently used stay warm');
+			assert.equal(fake.exists(vms[1].id), false, 'an idle one beyond the warm two is deleted');
+			assert.ok(fake.exists(vms[0].id), 'the one with a room still running is spared');
+			assert.match(run.stdout, /1 deleted, 1 kept with work on them/);
+		} finally { room.kill('SIGKILL'); }
+		store.stop();
+	} finally { await fake.close(); }
+});

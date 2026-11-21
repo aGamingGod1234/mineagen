@@ -1,21 +1,24 @@
 // This computer's warm pool of boat machines for room-batch.mjs (see lib/boat-warm.mjs).
 //   node scripts/quality/boat-pool.mjs status [--json]
 //   node scripts/quality/boat-pool.mjs warm N --snapshot NAME [--type TYPE] [--idle-ttl MIN]
-//   node scripts/quality/boat-pool.mjs keepalive [--idle-ttl MIN] [--every MIN] [--include PREFIX,...]
+//   node scripts/quality/boat-pool.mjs keepalive [--warm N] [--grace MIN] [--keep PREFIX,...] [--idle-ttl MIN] [--every MIN]
 //   node scripts/quality/boat-pool.mjs drain [--snapshot NAME] [--type TYPE]
 //   node scripts/quality/boat-pool.mjs prune
 // status lists the pool's machines: busy (which batch holds it) or idle, the image, and the time to its auto-stop.
 // warm makes sure N machines of that image and size exist, starting only the shortfall (paced, one start each), and
-// leaves them idle. keepalive sets every pool machine's auto-stop to at least --idle-ttl from now (default 1440 min,
-// ROOM_BATCH_IDLE_TTL_MIN), never earlier, and leaves a machine with auto-stop off alone; --include also covers every
-// running machine whose name starts with one of the prefixes (machines a benchmark made for --machines). With --every
-// it repeats until stopped, so the pool stays up between batches. Without it a forgotten pool stops by itself. drain
+// leaves them idle. keepalive keeps the pool warm without paying for idle machines nobody needs: idle machines bill in
+// full. It sets the auto-stop of every busy pool machine, of the --warm N idle ones a batch gave back most recently,
+// and of every running machine whose name starts with a --keep prefix (machines a benchmark made for --machines) to at
+// least --idle-ttl from now (default 60 min, ROOM_BATCH_IDLE_TTL_MIN), never earlier, leaving a machine with auto-stop
+// off alone. Idle pool machines beyond the warm N, idle for --grace minutes (default 10), are deleted, longest idle
+// first, once their lease is taken and nothing runs there; any other machine is left to reach its auto-stop. Without
+// --warm every idle pool machine is kept warm. With --every it repeats until stopped. drain
 // deletes every idle machine (or those of one image and size); a busy one is left to its batch. prune deletes machines
 // that are not running, idle machines of an image that was rebuilt or deleted, and machines a batch set aside after a
-// failed cleaning check, and clears lease files of batches that are gone. Only drain and prune delete, when run.
+// failed cleaning check, and clears lease files of batches that are gone. Only drain, prune and keepalive --warm delete.
 // --snapshot defaults to ROOM_BATCH_SNAPSHOT and --type to ROOM_BATCH_TYPE or "default".
-import { LIVE, imageHash, listSandboxes, minutesLeft, poolMember, warmBoatPool } from './lib/boat-warm.mjs';
-import { boat, destroyMachine } from './lib/boat-pool.mjs';
+import { LIVE, busyScript, imageHash, listSandboxes, minutesLeft, poolMember, warmBoatPool } from './lib/boat-warm.mjs';
+import { boat, destroyMachine, execRemote } from './lib/boat-pool.mjs';
 import { leaseStore } from './lib/pool-leases.mjs';
 
 const USAGE = 'Usage: boat-pool.mjs status [--json] | warm N --snapshot NAME [--type TYPE] [--idle-ttl MIN] | keepalive [--idle-ttl MIN] [--every MIN] [--include PREFIX,...] | drain [--snapshot NAME] [--type TYPE] | prune';
@@ -29,7 +32,7 @@ for (let i = 0; i < argv.length; i++) {
 }
 const fail = message => { console.error(`${message}\n${USAGE}`); process.exit(2); };
 if (!command || command === '--help' || command === 'help') { console.log(USAGE); process.exit(command ? 0 : 2); }
-const idleTtlSeconds = Math.round(Number(flags.idleTtl ?? process.env.ROOM_BATCH_IDLE_TTL_MIN ?? 1440) * 60);
+const idleTtlSeconds = Math.round(Number(flags.idleTtl ?? process.env.ROOM_BATCH_IDLE_TTL_MIN ?? 60) * 60);
 if (!Number.isFinite(idleTtlSeconds) || idleTtlSeconds < 300) fail('--idle-ttl wants at least 5 minutes');
 const snapshot = flags.snapshot ?? process.env.ROOM_BATCH_SNAPSHOT ?? null;
 const type = flags.type ?? process.env.ROOM_BATCH_TYPE ?? 'default';
@@ -67,6 +70,7 @@ async function destroyIdle(member, why) {
 	try {
 		await destroyMachine(member.id).catch(error => { if (!/not.?found|404|no such/i.test(error.message)) throw error; });
 		await store.clearAside(member.name);
+		await store.forgetIdle(member.name);
 		log(`deleted ${member.id} (${why})`);
 		return true;
 	} catch (error) { log(`could not delete ${member.id}: ${error.message}`); return false; }
@@ -98,20 +102,42 @@ if (command === 'status') {
 } else if (command === 'keepalive') {
 	const every = flags.every === undefined ? null : Number(flags.every) * 60_000;
 	if (every !== null && !(every >= 60_000)) fail('--every wants at least 1 minute');
+	const warmCount = flags.warm === undefined ? null : Number(flags.warm);
+	if (warmCount !== null && !(Number.isInteger(warmCount) && warmCount >= 0)) fail('--warm wants a whole number of machines');
+	const graceMs = Number(flags.grace ?? 10) * 60_000;
+	if (!(graceMs >= 0)) fail('--grace wants minutes');
 	const pool = warmBoatPool({ snapshot: snapshot ?? 'any', type, idleTtlSeconds, log, store });
-	const prefixes = String(flags.include ?? '').split(',').map(item => item.trim()).filter(Boolean);
+	// --include is the old name of --keep.
+	const prefixes = String(flags.keep ?? flags.include ?? '').split(',').map(item => item.trim()).filter(Boolean);
 	do {
 		try {
-		// Busy machines too: holdFor only ever moves a deadline later, so it never cuts a batch's own.
 		const members = (await inventory({ all: false })).filter(item => item.live);
+		const since = await store.idleSince();
+		const idleFor = item => Date.now() - (since[item.name] ?? 0);
+		// Idle pool machines, most recently given back first. A machine with no record (given back before records were
+		// kept) counts as long idle for --grace, and ranks by when it was made, newest first, behind every recorded one.
+		const rank = item => since[item.name] ?? (Date.parse(item.createdAt ?? '') || 0) - 1e12;
+		const idle = members.filter(item => !item.busy && !item.aside).sort((a, b) => rank(b) - rank(a));
+		const warm = warmCount === null ? idle : idle.slice(0, warmCount);
+		const extra = warmCount === null ? [] : idle.slice(warmCount).filter(item => idleFor(item) >= graceMs).reverse();
+		let deleted = 0, skipped = 0;
+		for (const item of extra) {
+			// Nothing may be running there: a room or game left by a batch that lost track of it keeps the machine.
+			const running = await execRemote(item.id, busyScript(), { timeoutSeconds: 30 }).catch(() => 'unknown');
+			if (!/free/.test(running)) { skipped++; log(`${item.id} kept: ${/busy/.test(running) ? 'a room or game is still running there' : 'it did not answer'}`); continue; }
+			if (await destroyIdle(item, `beyond the warm ${warmCount}, idle ${since[item.name] ? `${Math.round(idleFor(item) / 60_000)} min` : 'since before idle times were kept'}`)) { deleted++; await store.forgetIdle(item.name); }
+		}
+		// Extended: busy pool machines (holdFor only moves a deadline later), the warm ones, and named machines to keep.
 		const named = prefixes.length ? (await listSandboxes()).filter(item => LIVE.has(item.state) && prefixes.some(prefix => String(item.name ?? '').startsWith(prefix)) && !members.some(member => member.id === item.id))
 			.map(item => ({ id: item.id, name: item.name, remainingMs: item.archiveAfter ? Date.parse(item.archiveAfter) - Date.now() : Infinity })) : [];
+		const hold = [...members.filter(item => item.busy), ...warm, ...named];
 		let extended = 0, failed = 0;
-		for (const item of [...members, ...named]) {
+		for (const item of hold) {
 			try { const before = item.remainingMs; await pool.holdFor(item, idleTtlSeconds); if (before < idleTtlSeconds * 1000 - 60_000) extended++; }
 			catch (error) { failed++; log(`could not extend ${item.id}: ${error.message}`); }
 		}
-		log(`${members.length} pool and ${named.length} named machines: ${extended} pushed to ${Math.round(idleTtlSeconds / 60)} min from now, ${failed} failed, the rest had longer or no auto-stop`);
+		const left = members.length - hold.length + named.length - deleted;
+		log(`pool ${members.length} (${members.filter(item => item.busy).length} busy, ${idle.length} idle, warm ${warm.length}), named ${named.length}: ${deleted} deleted, ${skipped} kept with work on them, ${extended} pushed to ${Math.round(idleTtlSeconds / 60)} min, ${failed} failed; ${Math.max(left, 0)} left to their auto-stop`);
 		} catch (error) {
 			// One failed boat call must not end a keepalive that runs all day; the next round tries again.
 			if (every === null) throw error;

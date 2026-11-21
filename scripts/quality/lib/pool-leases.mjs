@@ -5,6 +5,7 @@
 //   leases/NAME.json   { token, pid, batch, leasedAt, heartbeatAt }: the machine named NAME is in use
 //   starts.json        times of this computer's recent `boat new` calls, for pacing them under the start rate limit
 //   aside/NAME.json    { reason, at }: the machine failed its cleaning check; it stays running but no batch takes it
+//   idle/NAME.json     { at }: when a batch last gave the machine back (keepalive deletes the longest idle first)
 // A lease is stale when its process is gone or it has not been refreshed for leaseStaleMs (a hung or reused pid), and a
 // stale lease is broken only under the mutex, so two batches can never both take the same machine.
 import { randomBytes } from 'node:crypto';
@@ -30,10 +31,10 @@ async function writeJsonAtomic(file, value) {
 
 // onStale (tests only) runs after a lock is judged stale and before anything is done about it.
 export function leaseStore({ dir = defaultPoolDir(), leaseStaleMs = 5 * 60_000, mutexStaleMs = 30_000, heartbeatMs = 30_000, now = Date.now, log = () => {}, onStale = null } = {}) {
-	const leasesDir = path.join(dir, 'leases'), asideDir = path.join(dir, 'aside'), mutexFile = path.join(dir, 'mutex'), ledgerFile = path.join(dir, 'starts.json');
+	const leasesDir = path.join(dir, 'leases'), asideDir = path.join(dir, 'aside'), idleDir = path.join(dir, 'idle'), mutexFile = path.join(dir, 'mutex'), ledgerFile = path.join(dir, 'starts.json');
 	const held = new Map(); // name -> token, leases this process holds
 	let ready = null, beat = null;
-	const setup = () => ready ??= Promise.all([mkdir(leasesDir, { recursive: true }), mkdir(asideDir, { recursive: true })]);
+	const setup = () => ready ??= Promise.all([mkdir(leasesDir, { recursive: true }), mkdir(asideDir, { recursive: true }), mkdir(idleDir, { recursive: true })]);
 	const leaseFile = name => {
 		if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) throw new Error(`bad machine name for a lease: ${name}`);
 		return path.join(leasesDir, `${name}.json`);
@@ -179,9 +180,18 @@ export function leaseStore({ dir = defaultPoolDir(), leaseStaleMs = 5 * 60_000, 
 				const lease = await readJson(leaseFile(name));
 				if (lease?.token !== token) return false;
 				await rm(leaseFile(name), { force: true });
+				await writeJsonAtomic(path.join(idleDir, `${name}.json`), { at: now() });
 				return true;
 			});
 		},
+		/** When each machine was last given back: { name: ms }. A machine never given back since this was added has none. */
+		async idleSince() {
+			await setup();
+			const out = {};
+			for (const file of (await readdir(idleDir)).filter(item => item.endsWith('.json'))) { const record = await readJson(path.join(idleDir, file)); if (Number.isFinite(record?.at)) out[file.slice(0, -5)] = record.at; }
+			return out;
+		},
+		async forgetIdle(name) { leaseFile(name); await rm(path.join(idleDir, `${name}.json`), { force: true }); },
 		/** Sets a machine aside: it stays running, no batch leases it, and only an explicit prune or drain deletes it. */
 		async setAside(name, reason) { leaseFile(name); await setup(); await writeJsonAtomic(path.join(asideDir, `${name}.json`), { reason, at: now(), pid: process.pid }); },
 		async asideList() { await setup(); const out = []; for (const file of (await readdir(asideDir)).filter(item => item.endsWith('.json'))) out.push({ name: file.slice(0, -5), ...(await readJson(path.join(asideDir, file)) ?? {}) }); return out; },
