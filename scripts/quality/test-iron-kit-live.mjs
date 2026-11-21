@@ -26,7 +26,7 @@ import { callObtain } from './obtain-handbacks.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 import { deathCounter, deathEvidence } from './lib/damage-counter.mjs';
-import { kitHeld, routeCall } from './lib/iron-kit-route.mjs';
+import { kitMinutes, kitStatTotal, routeCall, routeToolTimeout } from './lib/iron-kit-route.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const USAGE = 'Usage: test-iron-kit-live.mjs SEEDS.json OUT_DIR [JAR] [--coordinator TGZ|DIR] [--strict|--descriptive] under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME';
@@ -232,6 +232,7 @@ async function playLane(s, agent, seed, seedIndex, dir) {
 	const deathsBefore = await deaths();
 	const t0 = Date.now();
 	const minutes = () => Math.round((Date.now() - t0) / 600) / 100;
+	const remaining = () => budgetMs - (Date.now() - t0);
 	const known = emptyKnown();
 	let foodHandedBack = false, woodHandedBack = false;
 	// Climb and descent tracking on the harness's own clock: a death between going under and coming up is no climb.
@@ -271,12 +272,15 @@ async function playLane(s, agent, seed, seedIndex, dir) {
 		const act = named === null ? null : named[1] === 'creeper'
 			? { actionType: 'flee_from', arguments: { targetId: named[2], distance: 12, timeoutMs: 10_000 } }
 			: { actionType: 'fight_target', arguments: { targetId: named[2], timeoutMs: 20_000 } };
-		if (!act) { await sleep(3000); return null; }
+		const left = remaining();
+		if (left <= 0) return null;
+		if (!act) { await sleep(Math.min(3000, left)); return null; }
+		act.arguments.timeoutMs = Math.min(act.arguments.timeoutMs, left);
 		const answered = await execute(normalizeMinecraftToolCall('act', act), `answer-${tag}`);
 		return `answered ${act.actionType} ${named[1]}: ${answered?.state} ${answered?.reasonCode ?? ''}`;
 	};
 	let turn = 0;
-	while (Date.now() - t0 < budgetMs) {
+	while (remaining() > 0) {
 		turn += 1;
 		if (!(await health() > 0)) {
 			result.deathsAt.push(minutes());
@@ -296,7 +300,8 @@ async function playLane(s, agent, seed, seedIndex, dir) {
 		const o = agent.latest() ? adaptObservation(agent.latest()) : null;
 		if (!o) { await sleep(1000); continue; }
 		rememberPlanFacts?.(known, o);
-		if (kitHeld(o)) { result.kitMinutes = minutes(); break; }
+		result.kitMinutes = kitMinutes(o, Date.now() - t0, budgetMs);
+		if (result.kitMinutes !== null || remaining() <= 0) break;
 		const line = routeLine({ observation: o, known, foodHandedBack, woodHandedBack, evaluate: evaluatePlanCheck });
 		let call = hunt ?? routeCall(line);
 		hunt = null;
@@ -306,7 +311,7 @@ async function playLane(s, agent, seed, seedIndex, dir) {
 			await sleep(5000);
 			continue;
 		}
-		let tool, why = line;
+		let tool;
 		if (call.kind === 'obtain') {
 			let item = call.item;
 			// "obtain beef ... (or porkchop, mutton or chicken from the nearest animal; skip if none in view)": the animal in view.
@@ -319,23 +324,34 @@ async function playLane(s, agent, seed, seedIndex, dir) {
 			const held = (o.inventory?.items ?? []).filter(i => i.itemId === `minecraft:${item}`).reduce((n, i) => n + i.count, 0);
 			const count = call.count ?? (call.restock ? Math.min(64, held + 4) : 1);
 			// Built per attempt: a retry after a hand-back gets only the lane's remaining budget.
-			tool = () => normalizeMinecraftToolCall('do_step', { verb: 'obtain', target: { item, count, timeoutMs: Math.max(60_000, Math.min(1_200_000, budgetMs - (Date.now() - t0))) }, why: `route: obtain ${item}` });
+			tool = (timeoutMs) => normalizeMinecraftToolCall('do_step', { verb: 'obtain', target: { item, count, timeoutMs }, why: `route: obtain ${item}` });
 			call = { ...call, item, count };
 		} else if (call.kind === 'find_animal') {
 			const near = (o.entities ?? []).find(e => MEATS[String(e.type).replace(/^minecraft:/, '')] && e.alive !== false);
 			const mob = near ? String(near.type).replace(/^minecraft:/, '') : ['cow', 'pig', 'sheep', 'chicken'][turn % 4];
-			tool = () => normalizeMinecraftToolCall('do_step', { verb: 'find', target: { mob, within: 96, timeoutMs: Math.max(60_000, Math.min(120_000, budgetMs - (Date.now() - t0))) }, why: 'route: look for an animal' });
+			tool = (timeoutMs) => normalizeMinecraftToolCall('do_step', { verb: 'find', target: { mob, within: 96, timeoutMs }, why: 'route: look for an animal' });
 			call = { ...call, mob };
 		} else if (call.kind === 'equip_shield') {
 			const shield = (o.inventory?.items ?? []).find(i => i.itemId === 'minecraft:shield' && Number.isInteger(i.slot));
 			if (!shield) { await sleep(1000); continue; }
-			tool = normalizeMinecraftToolCall('act', { actionType: 'equip_item', arguments: { sourceSlot: shield.slot, targetSlot: 'offhand', expectedItemId: 'minecraft:shield' } });
+			tool = () => normalizeMinecraftToolCall('act', { actionType: 'equip_item', arguments: { sourceSlot: shield.slot, targetSlot: 'offhand', expectedItemId: 'minecraft:shield' } });
 		}
 		const begun = Date.now();
-		const ran = await callObtain({ mode: 'answer', budgetMs: budgetMs - (begun - t0), started: begun, execute: async (attempt) => execute(typeof tool === 'function' ? tool() : tool, `${turn}-${attempt}`), alive: async () => await health() > 0, answer: (r, attempt) => answer(r, `${turn}-${attempt}`) });
+		const ran = await callObtain({
+			mode: 'answer', budgetMs: budgetMs - (begun - t0), started: begun,
+			execute: async (attempt, left) => {
+				const timeoutMs = routeToolTimeout(call.kind, left);
+				if (timeoutMs === null) return { state: 'TIMED_OUT', reasonCode: 'LANE_BUDGET' };
+				return execute(tool(timeoutMs), `${turn}-${attempt}`);
+			},
+			alive: async () => remaining() > 0 && await health() > 0,
+			answer: (r, attempt) => answer(r, `${turn}-${attempt}`),
+		});
 		const done = ran.result;
 		result.calls.push({ at: Math.round((begun - t0) / 600) / 100, seconds: Math.round((Date.now() - begun) / 1000), line, call, state: done?.state, code: done?.reasonCode ?? null, message: String(done?.message ?? '').slice(0, 300), handBacks: ran.handBacks });
 		console.log(`[${seed} L${lane}] ${result.calls.at(-1).at} min ${call.kind}${call.item ? ` ${call.item} x${call.count}` : call.mob ? ` ${call.mob}` : ''}: ${done?.state} ${done?.reasonCode ?? ''} ${result.calls.at(-1).seconds}s, climbs ${result.climbs.length}`);
+		result.kitMinutes = kitMinutes(adaptObservation(agent.latest()), Date.now() - t0, budgetMs);
+		if (result.kitMinutes !== null || remaining() <= 0 || done?.reasonCode === 'LANE_BUDGET') break;
 		if (call.kind === 'obtain' && foodStockHandback({ kind: 'obtain', arguments: { item: call.item } }, done)) foodHandedBack = true;
 		if (call.kind === 'find_animal' && foodStockHandback({ kind: 'find', arguments: { mob: call.mob } }, done)) foodHandedBack = true;
 		if (call.kind === 'obtain' && woodStockHandback({ kind: 'obtain', arguments: { item: call.item } }, done)) woodHandedBack = true;
@@ -355,7 +371,6 @@ async function playLane(s, agent, seed, seedIndex, dir) {
 			if (shield) await execute(normalizeMinecraftToolCall('act', { actionType: 'equip_item', arguments: { sourceSlot: shield.slot, targetSlot: 'offhand', expectedItemId: 'minecraft:shield' } }), `${turn}-equip`);
 		}
 	}
-	if (result.kitMinutes === null && agent.latest() && kitHeld(adaptObservation(agent.latest()))) result.kitMinutes = minutes();
 	sampling = false; clearInterval(stepWatch); await sampler;
 	result.minutes = minutes();
 	const deathResult = deathEvidence(deathsBefore, await deaths());
@@ -363,15 +378,8 @@ async function playLane(s, agent, seed, seedIndex, dir) {
 	result.end = await pos();
 	result.inventory = String(await s.command(`data get entity ${name} Inventory`)).slice(0, 1500);
 	// Blocks mined and pickaxe uses from the body's vanilla statistics (scores: a fake player's stats file is never saved).
-	// A score never set is 0 blocks; an answer that cannot be read is unknown, and makes the total unknown (null), never 0.
-	const score = async (objective) => {
-		const text = await s.command(`scoreboard players get ${name} ${objective}`).catch(() => null);
-		const n = Number(/has (-?\d+)/.exec(text ?? '')?.[1]);
-		return Number.isFinite(n) ? n : /none is set|can't get value/i.test(text ?? '') ? 0 : null;
-	};
-	const total = async (objectives) => { let n = 0; for (const objective of objectives) { const v = await score(objective); if (v === null) return null; n += v; } return n; };
-	result.mined = await total([...MINED.keys()].map(i => `km${i}`));
-	result.pickaxeUses = await total(PICKAXES.map(tier => `ku_${tier}`));
+	result.mined = await kitStatTotal(s.command, name, [...MINED.keys()].map(i => `km${i}`));
+	result.pickaxeUses = await kitStatTotal(s.command, name, PICKAXES.map(tier => `ku_${tier}`));
 	if (result.mined === null || result.pickaxeUses === null) (result.integrity ??= []).push({ file: 'scores', error: 'A mined or used score could not be read' });
 	// Blocks dug as the results report them, a cross-check on the statistics.
 	result.minedByResults = agent.actions.reduce((n, a) => n + Number(/(\d+) blocks? mined/.exec(a.message)?.[1] ?? 0) + (a.type === 'break_block' && a.state === 'SUCCEEDED' ? 1 : 0), 0);

@@ -1,4 +1,5 @@
-// The route room's stand-in (test-iron-kit-live.mjs): what counts as the full iron kit, and the call a route line names.
+// The route room's stand-in (test-iron-kit-live.mjs).
+import { scoreboardCounter } from './damage-counter.mjs';
 
 /** The full iron kit: an iron (or better) pickaxe, a shield, two buckets (any fill) and flint and steel. */
 export function kitHeld(o) {
@@ -6,6 +7,29 @@ export function kitHeld(o) {
 	const count = re => items.filter(i => re.test(i.itemId ?? '')).reduce((n, i) => n + i.count, 0);
 	return count(/^minecraft:(iron|diamond|netherite)_pickaxe$/) > 0 && count(/^minecraft:shield$/) > 0
 		&& count(/^minecraft:(bucket|water_bucket|lava_bucket)$/) >= 2 && count(/^minecraft:flint_and_steel$/) > 0;
+}
+
+/** Time in minutes when a full kit is seen within the lane's budget. */
+export function kitMinutes(o, elapsedMs, budgetMs) {
+	return elapsedMs <= budgetMs && kitHeld(o) ? Math.round(elapsedMs / 600) / 100 : null;
+}
+
+export function routeToolTimeout(kind, remainingMs) {
+	// The obtain tool requires at least one minute. Leave the call unstarted when it cannot fit.
+	const minimum = kind === 'obtain' ? 60_000 : 1;
+	const limit = kind === 'obtain' ? 1_200_000 : 120_000;
+	return remainingMs >= minimum ? Math.min(limit, remainingMs) : null;
+}
+
+/** Unset counters count as zero. Any unreadable counter makes the total unknown. */
+export async function kitStatTotal(command, agent, objectives) {
+	let total = 0;
+	for (const objective of objectives) {
+		const score = await scoreboardCounter(command, agent, objective, { unsetIsZero: true }).catch(() => null);
+		if (score === null) return null;
+		total += score;
+	}
+	return total;
 }
 
 /**
