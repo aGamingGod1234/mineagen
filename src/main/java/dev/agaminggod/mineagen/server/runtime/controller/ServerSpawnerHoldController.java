@@ -143,7 +143,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 	 * mined out and the fight goes on from the same cell.
 	 */
 	private ServerController sealWork, reopenWork;
-	private boolean sealed, sealTried, reopening;
+	private boolean sealed, sealTried, reopening, skipLintel;
+	private long sealRetryTick;
 	private int seals, reopens;
 	private static final long SEAL_MS = 8_000L, REOPEN_MS = 20_000L;
 	private String cancelFacts;
@@ -397,6 +398,11 @@ public final class ServerSpawnerHoldController implements ServerController {
 		builds++;
 		lintelTicks = 0;
 		phase = Phase.LINTEL;
+		// The lintel only keeps wither skeletons (2.4 tall) out, and placing it means a walk out of the cell under fire
+		// (real fortress spawner room: 12.5 health lost to a blaze there before the hold began). None in view: no lintel.
+		skipLintel = player.level().getEntitiesOfClass(LivingEntity.class, player.getBoundingBox().inflate(SpawnerHold.SCAN),
+				e -> e.getType() == McEntityTypes.WITHER_SKELETON && e.isAlive() && ObservationVisibility.canSeeEntity(player, e)).isEmpty();
+		if (skipLintel) note("no wither skeleton in view: no lintel");
 		return TickResult.running(progress(player));
 	}
 
@@ -404,7 +410,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 	private TickResult lintel(ServerPlayer player, long now) {
 		BlockPos lintel = cell.relative(opening).above(2);
 		var seen = SeenTerrain.of(player);
-		if (solid(player, seen, lintel)) {
+		if (skipLintel || solid(player, seen, lintel)) {
 			Vec3 middle = Vec3.atBottomCenterOf(cell);
 			if (player.blockPosition().equals(cell) && player.onGround()) { cancelWalk(player); return enterHold(player); }
 			return walkStep(player, middle, now, "into the cell");
@@ -486,7 +492,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 			}
 			// Walled in or behind the shield, the body is not watching for blazes: the spawner is not quiet for that.
 			lastBlazeMs = elapsed;
-			if (!sealed && !sealTried) {
+			if (!sealed && !sealTried && player.level().getGameTime() >= sealRetryTick) {
 				sealTried = true;
 				int carried = blockItem == null ? 0 : ServerFightUntilController.count(player, BuiltInRegistries.ITEM.getValue(Identifier.parse(blockItem)));
 				if (carried >= 2) {
@@ -502,6 +508,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 				sealWork = null;
 				sealed = built.state() == State.SUCCEEDED;
 				note(sealed ? "walled the doorway up to heal" : "walling the doorway up failed: " + built.reasonCode());
+				// A blaze in the doorway blocks the wall: try again in a second (the shield heal holds meanwhile).
+				if (!sealed) { sealTried = false; sealRetryTick = player.level().getGameTime() + 20L; }
 			}
 			int food = foodSlot(player);
 			if (sealed ? food >= 0 && player.getFoodData().getFoodLevel() < 20
