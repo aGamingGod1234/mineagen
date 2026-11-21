@@ -3,15 +3,16 @@
 // with a score per category, compared against a stored baseline. Any commit or checkout can be tested.
 //
 //   node scripts/decision-eval/tier1.mjs [--build <checkout|commit>] [--samples 3] [--sample-offset 0]
-//        [--wording production|fresh-question|fresh] [--out <dir>] [--baseline <file>] [--write-baseline]
+//        [--wording production|fresh-question|fresh|choose] [--out <dir>] [--baseline <file>] [--write-baseline]
 //        [--concurrency 24] [--cache-dir <dir>] [--judge-provider claude|codex] [--judge-model <id>]
 //        [--judge-effort <level>] [--judge-max-usd 20] [--keep-worktrees]
 //
 // The cases are the families named in tier1.json, read from the private archive (ARENA_PRIVATE_INPUTS). Each build
 // renders every case with its own production code (run.mjs), the play model answers --samples times per case, and
 // predicates or the cross-family rubric judge grade each answer. A case scores its share of good answers among graded
-// ones; a category is the mean of its cases; the score is the mean of the categories. Differences from the baseline
-// come with a 90% interval from a paired bootstrap over cases; "real" means the interval excludes zero.
+// ones; a category is the mean of its cases; the score is the mean of the categories. The score among answers that
+// acted leaves out answers whose first call only read. Differences from the baseline come with a 90% interval from a
+// paired two-level bootstrap (cases, then each case's answers); "real" means the interval excludes zero.
 // Writes <out>/tier1.json, <out>/tier1.md and <out>/graded-samples.jsonl. Exit 0 when scored, 2 on a setup or run error.
 import { privateInput, skipWithoutPrivateInputs } from '../../coordinator/scripts/private-inputs.mjs';
 import { spawn } from 'node:child_process';
@@ -145,7 +146,11 @@ function score(perCase) {
 	return { score: mean(Object.values(categories).map((c) => c.rate)), actingScore: mean(Object.values(categories).map((c) => c.actingRate)), categories };
 }
 
-/** Paired bootstrap over the cases both runs scored (resampled within each category), fixed seed. */
+/**
+ * Paired two-level bootstrap, fixed seed: cases are resampled within each category, and each drawn case's answers are
+ * redrawn from its own good rate (smoothed, so 0/3 and 3/3 cases still vary) in both runs, so the interval carries the noise of only 3-6 answers per case as well
+ * as the choice of cases (a cases-only bootstrap flagged a 14-point travel swing between two runs of one build).
+ */
 function compare(candidate, baseline) {
 	const notes = [];
 	for (const key of ['model', 'effort', 'provider']) if (candidate.profile[key] !== baseline.profile?.[key]) notes.push(`baseline ${key} ${baseline.profile?.[key]} differs from ${candidate.profile[key]}`);
@@ -154,18 +159,20 @@ function compare(candidate, baseline) {
 	for (const [id, row] of Object.entries(candidate.cases)) {
 		const base = baseline.cases?.[id];
 		if (!base || rate(row) === null || rate(base) === null) continue;
-		(pairs[row.category] ??= []).push([rate(row), rate(base)]);
+		(pairs[row.category] ??= []).push([row, base]);
 	}
 	const unpaired = Object.keys(candidate.cases).filter((id) => !baseline.cases?.[id]).length + Object.keys(baseline.cases ?? {}).filter((id) => !candidate.cases[id]).length;
 	if (unpaired) notes.push(`${unpaired} cases are in only one run and are left out of the deltas`);
 	let seed = 20261121;
 	const random = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 2 ** 32; };
-	const delta = (rows) => mean(rows.map(([a]) => a)) - mean(rows.map(([, b]) => b));
+	const binomialRate = ({ good, graded }) => { const p = (good + 0.5) / (graded + 1); let k = 0; for (let i = 0; i < graded; i++) if (random() < p) k += 1; return k / graded; };
+	const delta = (rows) => mean(rows.map(([a]) => rate(a))) - mean(rows.map(([, b]) => rate(b)));
+	const drawDelta = (rows) => { let a = 0; let b = 0; for (let i = 0; i < rows.length; i++) { const [x, y] = rows[Math.floor(random() * rows.length)]; a += binomialRate(x); b += binomialRate(y); } return (a - b) / rows.length; };
 	const categories = {};
 	const draws = [];
 	for (let i = 0; i < 2000; i++) {
 		const perCategory = {};
-		for (const [category, rows] of Object.entries(pairs)) perCategory[category] = delta(Array.from({ length: rows.length }, () => rows[Math.floor(random() * rows.length)]));
+		for (const [category, rows] of Object.entries(pairs)) perCategory[category] = drawDelta(rows);
 		draws.push(perCategory);
 	}
 	const interval = (values) => { const sorted = values.filter(Number.isFinite).sort((a, b) => a - b); return [sorted[Math.floor(0.05 * sorted.length)], sorted[Math.floor(0.95 * sorted.length)]]; };

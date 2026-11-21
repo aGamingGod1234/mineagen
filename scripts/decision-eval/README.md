@@ -198,10 +198,14 @@ npm run eval:tier1 -- --wording fresh
   player). Each `cp2r-*` rubric names the player move and the specific carry-on move that is wrong at that moment;
   reads alone are neutral.
 - **Score.** A case scores its good answers over graded answers; a category is the mean of its cases; the score is the
-  mean of the five categories. Ungraded answers (judge outage) are counted and left out.
+  mean of the five categories. Ungraded answers (judge outage) are counted and left out. A sample ends at its first
+  accepted call, so an answer that only reads first is not player-like; the report also gives the score among answers
+  that acted (first call not a read) and the count of read-first answers per category.
 - **Baseline.** `tier1-baseline.json` holds main's per-case counts (no case content). `--write-baseline` replaces it.
-  Deltas come with a 90% interval from a paired bootstrap over cases; a change marked **real** has an interval that
-  excludes zero. Two main runs at different `--sample-offset` give the noise floor (see the PR that added this).
+  Deltas come with a 90% interval from a paired two-level bootstrap: cases are resampled within each category and each
+  case's answers are redrawn from its smoothed good rate, so the interval carries the noise of 3-6 answers per case.
+  A change marked **real** has an interval that excludes zero. Measured noise floor: two runs of one build at 3 answers
+  per case differed by up to 14 points in one category and 3 overall, and neither pair flags as real.
 - **Output.** `<out>/tier1.md` (the table), `tier1.json` and `graded-samples.jsonl` (every answer and its grade).
 - **What it cannot see.** When the bot gets woken (each case is one wake that already happened), pathing and combat
   execution, and long-game memory older than the replayed observations.
@@ -218,6 +222,10 @@ It tests whether the wording pushes the model to carry on with its running step:
   "Make progress now;" are dropped.
 - `fresh`: the same first line, plus the running step shown as an option: "Doing: X" becomes "Current step (one option,
   you may switch): X" and "usual next step:" becomes "one usual next step:".
+- `choose`: the wake unchanged, ending with one line: "Before any tool call, say in one line what a skilled Minecraft
+  player would do right now and why; carrying on with the current step is one option, not the default. Then make the
+  tool call for it."
+
 
 ## Read a report
 
