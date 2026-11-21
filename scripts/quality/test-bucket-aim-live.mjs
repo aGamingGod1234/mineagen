@@ -9,7 +9,7 @@ import { randomBytes, createHash } from 'node:crypto';
 import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
-import { installTickRate, fixtureTickRate } from './watch-replay.mjs';
+import { installTickRate, unshownTickRate } from './watch-replay.mjs';
 import { damageCounter, damageEvidence } from './lib/damage-counter.mjs';
 
 const root=fileURLToPath(new URL('../..',import.meta.url));
@@ -75,7 +75,8 @@ async function endPlay(){
 try {
   for(let i=0;i<150;i++){try{rcon=new HeadlessRconClient({host:'127.0.0.1',port:port+1,password:secret,connectTimeoutMs:500,commandTimeoutMs:5000});await rcon.connect();break}catch(e){await rcon?.close();if(i===149)throw e;await sleep(1000)}}
   // FIXTURE_TICK_RATE: setup runs at 20; the bucket cases (with the pool resets between them) run at the fixture rate.
-  rate=installTickRate({command:text=>command(text)},fixtureTickRate());
+  // At 60 TPS 4 of 10 runs failed the final check (0 of 10 at 20, 21 Nov A/B): it stays at 20 until that is explained.
+  rate=installTickRate({command:text=>command(text)},unshownTickRate('4 of 10 runs failed at 60 TPS, 0 of 10 at 20'));
   bridge=new MultiplexedServerBridge({port,secret},{});inbox=new Inbox(bridge);
   bridge.on('observation',e=>{rate.clock.observe(e.payload?.world?.gameTime);if(e.agentId===record?.agentId&&e.payload.ready){observation=e.payload}});
   bridge.on('goal_spec_request',e=>{bridge.send('goal_spec_proposal',e.agentId,{requestId:e.payload.requestId,summary:'Controlled live mechanics fixture',predicate:{type:'survive_duration',ticks:12000}}).catch(()=>{});});

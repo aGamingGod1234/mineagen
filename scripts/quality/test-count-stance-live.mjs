@@ -8,7 +8,7 @@ import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
-import { installTickRate, fixtureTickRate } from './watch-replay.mjs';
+import { installTickRate, unshownTickRate } from './watch-replay.mjs';
 import { damageCounter, damageEvidence } from './lib/damage-counter.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
@@ -87,7 +87,9 @@ try {
 	for (let attempt = 0; attempt < 150; attempt += 1) { try { rcon = new HeadlessRconClient({ host: '127.0.0.1', port: port + 1, password: secret, connectTimeoutMs: 500, commandTimeoutMs: 5000 }); await rcon.connect(); break; } catch (error) { await rcon?.close(); if (attempt === 149) throw error; await sleep(1000); } }
 	// FIXTURE_TICK_RATE: every scenario is built at 20 (reset, kit, mobs; settle waits pass at the fixture rate) and the
 	// server runs at the fixture rate only for the count fight, timed on the fixture clock (seconds are game seconds).
-	rate = installTickRate({ command: text => command(text) }, fixtureTickRate());
+	// bow-crouch passed 0 of 10 at 60 TPS against 10 of 10 at 20 (21 Nov A/B): its pass counts samples (lateSamples >= 20),
+	// and fewer arrive per game second at a raised rate. It stays at 20 until that check counts game time.
+	rate = installTickRate({ command: text => command(text) }, unshownTickRate('bow-crouch counts samples, 0 of 10 passed at 60 TPS'));
 	bridge = new MultiplexedServerBridge({ port, secret }, {}); inbox = new Inbox(bridge);
 	bridge.on('observation', (event) => {
 		rate.clock.observe(event.payload?.world?.gameTime);

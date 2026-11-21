@@ -31,7 +31,7 @@ const jar = path.resolve(process.env.ARENA_JAR ?? path.join(root, MOD_JAR));
 const on = process.env.SKIP_UNREACHABLE === '1';
 const TRIALS = Number(process.env.TRIALS ?? 3), CALL_MS = Number(process.env.CALL_MS ?? 120000);
 if (on) process.env.REPLAY_JAVA_OPTS = `${process.env.REPLAY_JAVA_OPTS ?? ''} -Dmineagen.fight.skipUnreachable=true`.trim();
-const { boot, fixtureTickRate } = await import('./watch-replay.mjs');
+const { boot, unshownTickRate } = await import('./watch-replay.mjs');
 await mkdir(out, { recursive: true });
 if ((await readdir(out)).length) throw new Error('Use a fresh output directory');
 await writeFile(path.join(out, 'manifest.json'), JSON.stringify({ kind: 'provider-free live mechanics', aiPerformanceMeasured: false, fixtureSetupUsesOperatorCommands: true,
@@ -39,7 +39,9 @@ await writeFile(path.join(out, 'manifest.json'), JSON.stringify({ kind: 'provide
 const sleep = ms => new Promise(done => setTimeout(done, ms));
 const AGENT = 'Hunter';
 const number = text => Number((/(-?\d+(?:\.\d+)?)[fdb]?\s*$/.exec(String(text).trim()) ?? [])[1]);
-const s = await boot(out, { jar, template, port, world: null, seed: '3315172112810107624', tickRate: fixtureTickRate() });
+const s = await boot(out, { jar, template, port, world: null, seed: '3315172112810107624',
+	// 21 Nov A/B: the switch-off arm took damage in 1 of 10 runs at 60 TPS and 0 of 10 at 20 (switch on: 2 of 10 at 20, 0 at 60).
+	tickRate: unshownTickRate('switch-off arm hurt in 1 of 10 runs at 60 TPS, 0 of 10 at 20') });
 await s.normalRate();
 const now = () => s.clock.now();
 s.bridge.on('message', (event) => {
