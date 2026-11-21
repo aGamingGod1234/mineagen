@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { armTotals, formatSummary, mergeArms, parseCommands, plannedOf, runQueue, splitWords, stageRoom } from '../../scripts/quality/lib/room-batch-core.mjs';
 import { runBatch } from '../../scripts/quality/lib/room-batch-run.mjs';
 import { nextSlot, parseWindowsHosts, portClashes, slotPortBase, windowsPath } from '../../scripts/quality/lib/windows-pool.mjs';
@@ -168,19 +169,25 @@ test('the machine helper plays every arm side by side under the wrapper, each in
 	try {
 		const fixture = path.join(dir, 'fixture.mjs');
 		await writeFile(fixture, `import { mkdirSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 const [out, jar] = process.argv.slice(2);
 mkdirSync(out, { recursive: true });
-writeFileSync(out + '/result.json', JSON.stringify([{ jar, wrapped: process.env.ROOM_WRAPPED, port: process.env.SLOT_PORT_BASE, slot: process.env.SLOT, extra: process.env.ROOM_EXTRA, javaFirst: process.env.PATH.startsWith('/jdk/bin'), only: process.env.BUILD_ONLY }]));
+writeFileSync(out + '/result.json', JSON.stringify([{ jar, wrapped: process.env.ROOM_WRAPPED, port: process.env.SLOT_PORT_BASE, slot: process.env.SLOT, extra: process.env.ROOM_EXTRA, javaFirst: process.env.PATH.startsWith(path.join('/jdk', 'bin') + path.delimiter), only: process.env.BUILD_ONLY }]));
 process.exit(jar.endsWith('old.jar') ? 3 : 0);\n`);
-		const job = { room: 'r', code: dir, outDir: path.join(dir, 'out', 'r'), javaHome: '/jdk', template: '/t', timeoutMs: 60_000, wrapper: ['env', 'ROOM_WRAPPED=yes'], portBase: 28400, env: { ROOM_EXTRA: 'x' },
+		const wrapperScript = path.join(dir, 'wrap.mjs');
+		await writeFile(wrapperScript, `import { spawnSync } from 'node:child_process';
+const res = spawnSync(process.argv[2], process.argv.slice(3), { env: { ...process.env, ROOM_WRAPPED: 'yes' }, stdio: 'inherit' });
+process.exit(res.status ?? 1);\n`);
+		const wrapper = [process.execPath, wrapperScript];
+		const job = { room: 'r', code: dir, outDir: path.join(dir, 'out', 'r'), javaHome: '/jdk', template: '/t', timeoutMs: 60_000, wrapper, portBase: 28400, env: { ROOM_EXTRA: 'x' },
 			lines: ['new', 'old'].map(arm => ({ arm, jar: `/j/${arm}.jar`, env: { BUILD_ONLY: 'r' }, args: [fixture, '$OUT', '$JAR'] })) };
 		await writeFile(path.join(dir, 'job.json'), JSON.stringify(job));
-		const helper = new URL('../../scripts/quality/lib/room-batch-remote.mjs', import.meta.url).pathname;
+		const helper = fileURLToPath(new URL('../../scripts/quality/lib/room-batch-remote.mjs', import.meta.url));
 		const { spawnSync } = await import('node:child_process');
 		const run = spawnSync(process.execPath, [helper, path.join(dir, 'job.json')], { encoding: 'utf8' });
 		assert.equal(run.status, 0, run.stderr);
 		const done = JSON.parse(await readFile(path.join(job.outDir, 'done.json'), 'utf8'));
-		assert.deepEqual(done.wrapper, ['env', 'ROOM_WRAPPED=yes']);
+		assert.deepEqual(done.wrapper, wrapper);
 		assert.equal(done.arms.new.exit, 0);
 		assert.equal(done.arms.old.exit, 3);
 		const rows = await Promise.all(['new', 'old'].map(async arm => JSON.parse(await readFile(path.join(job.outDir, arm, 'result.json'), 'utf8'))[0]));
