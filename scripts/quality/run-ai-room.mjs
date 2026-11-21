@@ -57,15 +57,17 @@ export const SIGN_IN_REFRESHED_EXIT = 4;
 const runTool = (exec, platform) => (command, args, options) => platform === 'win32' ? exec(command, args, { ...options, shell: true }) : exec(command, args, options);
 
 /** Puts a signed-in codex CLI within reach of the coordinator; returns what to undo and what was found. */
-export async function prepareCodex(env = process.env, { exec = execFileSync, platform = process.platform } = {}) {
-	env.PATH = [path.join(os.homedir(), '.local', 'bin'), env.PATH].filter(Boolean).join(path.delimiter);
+export async function prepareCodex(env = process.env, { exec = execFileSync, platform = process.platform, userHome = os.homedir() } = {}) {
+	// npm links global commands into PREFIX/bin, except on Windows, where they go into PREFIX itself.
+	const prefix = path.join(userHome, '.local');
+	env.PATH = [platform === 'win32' ? prefix : path.join(prefix, 'bin'), env.PATH].filter(Boolean).join(platform === 'win32' ? ';' : ':');
 	const run = runTool(exec, platform);
 	const wanted = env.CODEX_CLI_VERSION ?? CODEX_CLI_VERSION;
 	if (!/^[0-9A-Za-z.+-]+$/.test(wanted)) throw new Error(`CODEX_CLI_VERSION must be a version, got ${wanted}`);
 	const version = () => { try { return run('codex', ['--version'], { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { return null; } };
 	let cli = version();
 	if (!cli || (env.CODEX_CLI_VERSION && !cli.endsWith(wanted))) {
-		run('npm', ['install', '-g', '--prefix', path.join(os.homedir(), '.local'), `@openai/codex@${wanted}`], { env, stdio: ['ignore', 'ignore', 'inherit'], timeout: 5 * 60_000 });
+		run('npm', ['install', '-g', '--prefix', prefix, `@openai/codex@${wanted}`], { env, stdio: ['ignore', 'ignore', 'inherit'], timeout: 5 * 60_000 });
 		cli = version();
 		if (!cli) throw new Error(`codex CLI ${wanted} did not install`);
 	}

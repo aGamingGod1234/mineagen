@@ -281,3 +281,12 @@ test('the skeleton stand-in faces the skeleton as long as the model must survive
 	const ticks = Number(/survive_duration:\s*(\d+)/.exec(skeleton.successCheck)[1]);
 	assert.equal(seconds * 20, ticks);
 });
+
+test('the npm prefix the CLI installs into is on PATH: PREFIX/bin, or PREFIX itself on Windows', async () => {
+	const exec = () => 'codex-cli 0.171.0';
+	const posix = { PATH: '/usr/bin' }, windows = { PATH: 'C:\\Windows' };
+	await prepareCodex(posix, { exec, platform: 'linux', userHome: '/h' });
+	await prepareCodex(windows, { exec, platform: 'win32', userHome: 'C:\\Users\\u' });
+	assert.equal(posix.PATH.split(':')[0], path.join('/h', '.local', 'bin'));
+	assert.equal(windows.PATH.split(';')[0], path.join('C:\\Users\\u', '.local'));
+});
