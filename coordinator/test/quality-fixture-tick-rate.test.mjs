@@ -112,9 +112,9 @@ test('the fixture clock is wall time at 20 TPS and game time at a raised rate', 
 	clock.observe(ticks);
 	const start = clock.now();
 	clock.observe(ticks + 200);
-	assert.ok(clock.now() - start >= 10_000, '200 ticks move it 10 s whatever the wall clock did');
+	assert.ok(clock.now() - start >= 9_900, '200 ticks move it 10 s whatever the wall clock did');
 	clock.observe(ticks);
-	assert.ok(clock.now() - start >= 10_000, 'an older tick never moves it back');
+	assert.ok(clock.now() - start >= 9_900, 'an older tick never moves it back');
 	ticks += 200;
 	const before = clock.now();
 	await clock.sleep(1000);

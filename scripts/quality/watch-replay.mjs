@@ -199,11 +199,12 @@ export function installTickRate(s, tickRate, { wait = sleep } = {}) {
  * rate the clock anchors on the world's game tick (s.clock.observe(ticks), fed from every observation and each
  * s.gameTicks() read) and extrapolates at most 1 s of wall time past the last anchor at the rate the server was asked
  * for, so a server that cannot hold the rate, or a frozen world, slows the clock instead of letting it run ahead. It
- * never goes backwards. Waits polled with sleep come up to 1 tick late, never early.
+ * never goes backwards. sleep ends on a reported tick, so it is never short.
  */
 export function fixtureClock(tickRate, currentRate = () => tickRate, wait = sleep, sync = null) {
 	if (tickRate === 20) return { rate: 20, now: Date.now, sleep: ms => wait(ms), observe: () => {} };
 	let epoch0 = null, game0 = null, anchorGame = null, anchorWall = 0, last = 0;
+	const anchored = () => game0 === null ? Date.now() : epoch0 + (anchorGame - game0);
 	const clock = {
 		rate: tickRate,
 		observe(ticks, wallMs = Date.now()) {
@@ -218,13 +219,15 @@ export function fixtureClock(tickRate, currentRate = () => tickRate, wait = slee
 			const ahead = Math.min(Math.max(0, Date.now() - anchorWall), 1000) * currentRate() / 20;
 			return (last = Math.max(last, epoch0 + (anchorGame - game0) + ahead));
 		},
+		// Ends on a tick the world reported, never on the extrapolation, so a wait is never short; it may run one poll long.
 		async sleep(ms) {
 			const until = clock.now() + ms;
-			for (let left = ms; left > 0; left = until - clock.now()) {
-				// An anchor older than half a second is refreshed from the world, so a quiet body never stalls a wait.
-				if (sync && Date.now() - anchorWall > 500) await sync().catch(() => null);
-				left = until - clock.now();
-				if (left > 0) await wait(Math.max(5, Math.min(250, left * 20 / Math.max(20, currentRate()))));
+			for (;;) {
+				if (anchored() >= until) return;
+				// A quiet body sends no samples: read the world's tick when the last anchor is older than 100 ms.
+				if (sync && Date.now() - anchorWall > 100) await sync().catch(() => null);
+				if (anchored() >= until) return;
+				await wait(Math.max(5, Math.min(250, (until - clock.now()) * 20 / Math.max(20, currentRate()))));
 			}
 		},
 	};

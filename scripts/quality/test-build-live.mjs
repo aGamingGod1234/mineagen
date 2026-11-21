@@ -214,6 +214,10 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		const trail = [];
 		sampling = true;
 		row.fireTicks = 0; row.lavaContact = 0; row.fireContact = 0; row.minAir = 300; row.airSamples = 0;
+		// Samples start every 500 ms of game time from t0, whatever their reads cost: a raised rate packs more ticks into
+		// the reads, and sleeping 500 ms after them spaced samples 11-12 ticks apart at 60 TPS, so the same drop read as a
+		// bigger fall (cast-obi-2's worst fall: 2.8-2.9 blocks at 20 TPS, up to 3.0 at 60).
+		let nextSample = t0;
 		sampler = (async () => { while (sampling) {
 			const p = await pos().catch(() => null); if (p) trail.push([...p, now() - t0]);
 			const air = number(await s.command(`data get entity ${AGENT} Air`).catch(() => ''));
@@ -223,7 +227,9 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 				if (/passed/i.test(String(await s.command(`execute as ${AGENT} at @s if block ~ ${dy} ~ minecraft:lava`).catch(() => '')))) row.lavaContact++;
 				if (/passed/i.test(String(await s.command(`execute as ${AGENT} at @s if block ~ ${dy} ~ #minecraft:fire`).catch(() => '')))) row.fireContact++;
 			}
-			await s.gameSleep(500);
+			nextSample += 500;
+			if (now() > nextSample) nextSample = now();
+			await s.clock.sleep(nextSample - now());
 		} })();
 		row.totalMs = totalMsOf(spot);
 		const totalEnd = row.totalMs === undefined ? Infinity : t0 + row.totalMs;
