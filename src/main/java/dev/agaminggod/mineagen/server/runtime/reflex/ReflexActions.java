@@ -169,18 +169,27 @@ final class ReflexActions {
 		return lacks(player, action, false);
 	}
 
-	/** As above; for a coordinator default eat rule under the instincts arm, also {@link #topUpLacks}. */
+	/** As above; for the coordinator's default eat rule, also {@link #topUpLacks}. */
 	static String lacks(ServerPlayer player, ReflexSpec.Action action, boolean coordinatorDefault) {
 		String lacks = lacks(action, index -> Held.of(player.getInventory().getItem(index)), player.getInventory().getSelectedSlot(), Held.of(player.getOffhandItem()));
-		if (lacks != null || !coordinatorDefault || !"eat".equals(action.type()) || !Instincts.enabled()) return lacks;
+		if (lacks != null || !topUpApplies(action, coordinatorDefault)) return lacks;
 		return topUpLacks(index -> Held.of(player.getInventory().getItem(index)), Held.of(player.getOffhandItem()), player.getFoodData().getFoodLevel(), player.getHealth());
 	}
 
-	/** At this hunger or more, eating only tops the bar up toward 18 for healing (issue 2 Step 2, instincts arm). */
+	/**
+	 * The coordinator's default eat rule tops up below 18 with or without the instincts arm (practice room: a hurt body at
+	 * hunger 16 with bread healed 12 to 20 in 10 of 10 runs at 18, and stayed at 12 in 10 of 10 at the old 14), so the
+	 * top-up food choice applies to it in both arms. A rule the model writes eats what it says.
+	 */
+	static boolean topUpApplies(ReflexSpec.Action action, boolean coordinatorDefault) {
+		return coordinatorDefault && "eat".equals(action.type());
+	}
+
+	/** At this hunger or more, eating only tops the bar up toward 18 for healing (issue 2 Step 2). */
 	static final int TOP_UP_HUNGER = 14;
 
 	/**
-	 * The instincts arm eats from hunger 17 to heal (health regrows only at 18+). Topping up is not worth a harmful food
+	 * The default eat rule eats from hunger 17 to heal (health regrows only at 18+). Topping up is not worth a harmful food
 	 * (rotten flesh, raw chicken) or a golden apple above {@link Eat#HEALING_FOOD_HEALTH}, so at {@link #TOP_UP_HUNGER} or more
 	 * with only those in reach the default eat rule sleeps and says why, instead of eating them or failing each cooldown.
 	 */
