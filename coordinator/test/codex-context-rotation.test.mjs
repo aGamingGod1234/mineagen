@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import test from 'node:test';
 import { CodexService } from '../src/codex-service.mjs';
-import { ContextCarryOver } from '../src/context-carry-over.mjs';
+import { CARRY_OVER_MANUAL_BYTES, ContextCarryOver } from '../src/context-carry-over.mjs';
+import { CONTROL_REFERENCE_TOPICS } from '../src/minecraft-control-reference.mjs';
+import { minecraftCapabilities } from '../src/native-minecraft-tools.mjs';
 
 const MODEL = { id: 'gpt-6.1-sol', model: 'gpt-6.1-sol', supportedReasoningEfforts: [{ reasoningEffort: 'low' }], serviceTiers: [{ id: 'priority' }] };
 const profile = { agentId: 'rotating', model: 'gpt-6.1-sol', reasoningEffort: 'low', serviceTier: 'priority' };
@@ -245,6 +247,53 @@ test('carry-over remembers recent tools, chat and program state in a bounded tex
 	assert.match(text, /inspect \{\} -> error INSPECTION_UNAVAILABLE/);
 	assert.match(text, /"programId":"p-1"/);
 	assert.match(text, /"ExamplePlayer": "find lava"/);
+});
+
+test('a manual topic read before a rotation reaches the fresh thread as its own Fields line', async () => {
+	const run = await setup({ midTurnContextRotation: undefined });
+	try {
+		const executeTool = async ({ tool }) => tool.kind === 'capabilities' ? minecraftCapabilities(tool) : { state: 'SUCCEEDED', reasonCode: 'BLOCK_BROKEN' };
+		run.transport.tool = { name: 'capabilities', arguments: { section: 'control', topic: 'action:dig_to' } };
+		run.transport.contextTokens = 70_000;
+		await run.agent.act(event('one'), { goalRevision: 1, executeTool });
+		run.transport.tool = null;
+		await run.act('two');
+		await run.act('three');
+		assert.equal(run.agent.rotations, 1);
+		const input = turnStarts(run.transport).find(({ params }) => params.threadId === 'thread-2').params.input[0].text;
+		const fields = minecraftCapabilities({ section: 'control', topic: 'action:dig_to' }).reference.match(/^Fields: [^\n]+/m)[0];
+		assert.match(input, /^Session refreshed to keep context small/);
+		assert.ok(input.includes(`- action:dig_to: ${fields}`), 'the dig_to Fields line is carried verbatim');
+		assert.doesNotMatch(input, /The fast choice for going deep/, 'the topic prose is not carried');
+	} finally { await run.service.stop(); }
+});
+
+test('carried manual Fields lines stay within their byte bound and keep the newest topic', () => {
+	const carry = new ContextCarryOver();
+	for (const topic of CONTROL_REFERENCE_TOPICS) carry.rememberTool({ kind: 'capabilities', section: 'control', topic }, minecraftCapabilities({ section: 'control', topic }));
+	carry.rememberTool({ kind: 'capabilities', section: 'control', topic: 'action:dig_to' }, minecraftCapabilities({ section: 'control', topic: 'action:dig_to' }));
+	const lines = carry.text('Session refreshed').split('\n');
+	const start = lines.findIndex((line) => line.startsWith('Manual you read earlier'));
+	assert.ok(start >= 0);
+	const block = [];
+	for (let index = start; index < lines.length && (index === start || lines[index].startsWith('- action:') || lines[index].startsWith('- tool:')); index++) block.push(lines[index]);
+	assert.ok(Buffer.byteLength(block.join('\n')) <= CARRY_OVER_MANUAL_BYTES, `manual block is ${Buffer.byteLength(block.join('\n'))} bytes`);
+	assert.match(block[1], /^- action:dig_to: Fields: /, 'the newest read comes first');
+	assert.ok(block.length > 3, 'several topics fit');
+	const failed = new ContextCarryOver();
+	failed.rememberTool({ kind: 'capabilities', section: 'control', topic: 'action:dig_to' }, null, Object.assign(new Error('no'), { code: 'TOOL_FAILED' }));
+	assert.doesNotMatch(failed.text('Session refreshed'), /Manual you read earlier/, 'nothing is carried without a delivered reference');
+});
+
+test('an aggregate manual page carries nothing under its own name', () => {
+	// The actions and all pages hold many actions' Fields lines and none of their own; carrying the first one would
+	// label move_to's fields as "actions".
+	const carry = new ContextCarryOver();
+	const tool = { kind: 'capabilities', section: 'control', topic: 'actions' };
+	const page = minecraftCapabilities(tool);
+	assert.ok((page.reference.match(/^Fields: /gm) ?? []).length > 1, 'the actions page lists several actions');
+	carry.rememberTool(tool, page);
+	assert.doesNotMatch(carry.text('Session refreshed'), /Manual you read earlier/);
 });
 
 async function rotateOnce(setupResult) {

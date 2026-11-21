@@ -2,7 +2,7 @@
 // the per-arm merge through finishRun. No machine, network or boat call happens here, so all of it is unit-tested.
 import { mkdir, readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
-import { finishRun } from './fixture-run.mjs';
+import { finishRun, roomVerdict } from './fixture-run.mjs';
 
 const ROOM_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
@@ -68,10 +68,10 @@ export function parseCommands(text, arms) {
 	});
 }
 
-/** Rows a room is expected to write: the count its selector names (BUILD_ONLY=a,b is 2), else 1. */
+/** Rows a room is expected to write: the count its selector names (BUILD_ONLY=a,b is 2), else 1 (an empty selector too). */
 export function plannedOf(env) {
 	const selector = Object.entries(env).find(([key]) => /(_ONLY|^SPOTS|^CASES)$/.test(key));
-	return selector ? selector[1].split(',').filter(Boolean).length : 1;
+	return Math.max(1, selector ? selector[1].split(',').filter(Boolean).length : 1);
 }
 
 /**
@@ -148,15 +148,28 @@ export async function mergeArms({ out, rooms, arms, outcomes }) {
 			const dir = path.join(out, 'rooms', room.room, arm);
 			// A lost room counts no rows, whatever a partial copy left behind; it is all notStarted.
 			const own = outcome.lost ? null : await readJson(path.join(dir, 'result-summary.json')).catch(() => null);
-			const roomPlanned = Number.isInteger(own?.planned) ? own.planned : (room.plannedByArm?.[arm] ?? room.planned);
+			const ownValid = Boolean(own && typeof own === 'object' && Number.isInteger(own.planned));
+			const roomInvalid = outcome.lost ? null
+				: !ownValid ? 'missing or corrupt room summary'
+				: own.status === 'INVALID' ? 'room summary INVALID'
+				: own.planned <= 0 ? 'room planned 0 rows'
+				: null;
+			const basePlanned = ownValid ? own.planned : (room.plannedByArm?.[arm] ?? room.planned);
+			// A lost or invalid room always plans at least one row, so it can never leave the arm reading as a clean PASS.
+			const roomPlanned = outcome.lost || roomInvalid ? Math.max(basePlanned, 1) : basePlanned;
 			planned += roomPlanned;
 			const run = outcome.arms?.[arm] ?? {};
 			const read = !outcome.lost && await exists(path.join(dir, 'result.json')) ? await readJson(path.join(dir, 'result.json')).catch(() => []) : [];
 			const roomRows = Array.isArray(read) ? read : [];
 			// Rows an arm wrote before the room timeout, a signal or a launch error killed it are not a finished run.
 			const killed = run.timedOut ? 'room timeout' : run.signal ? `signal ${run.signal}` : run.error ? `launch error: ${run.error}` : null;
-			for (const row of roomRows) rows.push({ ...row, ...(killed ? { integrity: [...(Array.isArray(row.integrity) ? row.integrity : []), `arm killed (${killed})`] } : {}),
+			const roomFlags = [...(killed ? [`arm killed (${killed})`] : []), ...(roomInvalid ? [roomInvalid] : [])];
+			for (const row of roomRows) rows.push({ ...row, ...(roomFlags.length ? { integrity: [...(Array.isArray(row.integrity) ? row.integrity : []), ...roomFlags] } : {}),
 				room: room.room, host: outcome.worker ?? null, attempts: outcome.attempts ?? 0, cantKeepUp: run.cantKeepUp ?? null });
+			if (roomInvalid && !roomRows.length) {
+				rows.push({ name: room.room, room: room.room, host: outcome.worker ?? null, attempts: outcome.attempts ?? 0, cantKeepUp: run.cantKeepUp ?? null,
+					pass: false, error: roomInvalid, integrity: roomFlags, startedAt: null, finishedAt: null, deaths: null, damageTaken: null });
+			}
 			perRoom.push({ room: room.room, lost: !!outcome.lost, reason: outcome.reason ?? null, rows: roomRows.length, planned: roomPlanned, exit: run.exit ?? null, seconds: run.seconds ?? null, timedOut: !!run.timedOut, cantKeepUp: run.cantKeepUp ?? null });
 		}
 		await mkdir(path.join(out, arm), { recursive: true });
@@ -173,7 +186,8 @@ export function armTotals({ summary, rows, perRoom }) {
 	// Unknown, never 0, when a row lacks the counter or a room wrote fewer rows than planned.
 	const missing = perRoom.some(room => room.rows < room.planned);
 	const known = key => !missing && ran.every(row => Number.isFinite(row[key])) ? sum(ran.map(row => row[key])) : null;
-	const passed = rows.filter(row => !row.skipped && row.pass === true && !row.error).length;
+	// The scorer's own predicate: a safe run that missed its bar (pass: true, bar: false) is a fail, not a pass.
+	const passed = rows.filter(row => roomVerdict(row).verdict === 'PASS').length;
 	return {
 		pass: passed, fail: summary.failed, invalid: summary.invalid, notStarted: summary.notStarted, status: summary.status,
 		lostRooms: perRoom.filter(room => room.lost).map(room => room.room),
@@ -198,7 +212,7 @@ export function formatSummary({ batch, merged, arms, wallSeconds, vms, rooms }) 
 			if (entry.lost) return `LOST (${entry.reason})`;
 			const rows = merged[arm].rows.filter(row => row.room === room.room);
 			if (!rows.length) return `no rows (exit ${entry.exit})`;
-			return rows.map(row => `${row.error || row.integrity?.length ? 'INVALID' : row.pass === true ? 'pass' : row.pass === false ? 'fail' : 'unknown'} d=${row.deaths ?? '?'} dmg=${row.damageTaken ?? '?'}`).join(', ') + ` ${clock(entry.seconds ?? 0)}`;
+			return rows.map(row => `${({ PASS: 'pass', FAIL: 'fail', INVALID: 'INVALID', SKIPPED: 'skipped' })[roomVerdict(row).verdict]} d=${row.deaths ?? '?'} dmg=${row.damageTaken ?? '?'}`).join(', ') + ` ${clock(entry.seconds ?? 0)}`;
 		});
 		lines.push(`${room.room}: ${cells.join(' | ')}`);
 	}

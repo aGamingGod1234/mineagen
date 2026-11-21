@@ -30,6 +30,27 @@ test('a room line runs once per arm, an arm line overrides it, and bad lines are
 	assert.deepEqual(splitWords(`a 'b c' "d \\"e\\"" f\\ g`), ['a', 'b c', 'd "e"', 'f g']);
 	assert.equal(plannedOf({ FIND_ONLY: 'x,y,z' }), 3);
 	assert.equal(plannedOf({ OTHER: '1' }), 1);
+	assert.equal(plannedOf({ BUILD_ONLY: '' }), 1, 'an empty selector still plans one row');
+});
+
+test('a lost room with an empty selector keeps the arm from reading as PASS', async () => {
+	const out = await mkdtemp(path.join(os.tmpdir(), 'room-batch-empty-selector-'));
+	try {
+		const rooms = parseCommands(`@a ${LINE}\n@b BUILD_ONLY= ${LINE}`, ['new']);
+		assert.equal(rooms[1].planned, 1);
+		await writeRoom(out, 'a', 'new', [row('spot-a')]);
+		const outcomes = [
+			{ room: 'a', lost: false, worker: 'vm1', attempts: 1, arms: { new: { exit: 0, seconds: 5 } } },
+			{ room: 'b', lost: true, reason: 'worker died', worker: 'vm2', attempts: 2, arms: {} },
+		];
+		// A stale plannedByArm of 0 (an older parse) is clamped too.
+		const merged = await mergeArms({ out, rooms: [rooms[0], { ...rooms[1], planned: 0, plannedByArm: { new: 0 } }], arms: ['new'], outcomes });
+		const totals = armTotals(merged.new);
+		assert.notEqual(totals.status, 'PASS', 'a lost room must never read as PASS');
+		assert.equal(totals.notStarted, 1);
+		assert.deepEqual(totals.lostRooms, ['b']);
+		assert.equal(totals.damage, null, 'damage is unknown, not 0, with a room missing');
+	} finally { await rm(out, { recursive: true, force: true }); }
 });
 
 const worker = id => ({ id });
@@ -532,4 +553,72 @@ if (args.includes('new')) {
 		assert.ok(calls.some(args => args.includes('new')), 'machine creation started');
 		assert.ok(calls.some(args => args.includes('delete') && args.includes('bx_cancel_test')), 'created machine was deleted before exit');
 	} finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('mergeArms marks an arm INVALID when a room summary is missing, corrupt, or INVALID with planned 0', async () => {
+	const out = await mkdtemp(path.join(os.tmpdir(), 'room-batch-invalid-summary-'));
+	try {
+		const rooms = parseCommands(`@a ${LINE}\n@b ${LINE}`, ['new']);
+		await writeRoom(out, 'a', 'new', [row('spot-a')]);
+		// Room b wrote a passing row without result-summary.json (e.g. crashed before writing summary).
+		const dirB = path.join(out, 'rooms', 'b', 'new');
+		await mkdir(dirB, { recursive: true });
+		await writeFile(path.join(dirB, 'result.json'), JSON.stringify([row('spot-b')]));
+		const outcomes = [
+			{ room: 'a', lost: false, worker: 'vm1', attempts: 1, arms: { new: { exit: 0, seconds: 5 } } },
+			{ room: 'b', lost: false, worker: 'vm1', attempts: 1, arms: { new: { exit: 1, seconds: 5 } } },
+		];
+		const missingSummary = await mergeArms({ out, rooms, arms: ['new'], outcomes });
+		assert.equal(missingSummary.new.summary.status, 'INVALID', 'missing room summary must never read as PASS');
+		// Now room b writes an explicit INVALID summary with planned 0 and 0 rows.
+		await writeFile(path.join(dirB, 'result.json'), '[]');
+		await writeFile(path.join(dirB, 'result-summary.json'), JSON.stringify({ status: 'INVALID', planned: 0 }));
+		const zeroPlanned = await mergeArms({ out, rooms, arms: ['new'], outcomes });
+		assert.equal(zeroPlanned.new.summary.status, 'INVALID', 'an INVALID planned:0 room summary must stay INVALID');
+	} finally { await rm(out, { recursive: true, force: true }); }
+});
+
+test('cancelling a batch while machines are preparing deletes them at once without waiting for prepare', async () => {
+	const out = await mkdtemp(path.join(os.tmpdir(), 'room-batch-cancel-prep-'));
+	try {
+		const controller = new AbortController();
+		const deleted = [];
+		const pool = {
+			async create() { return { id: 'vm-prep' }; },
+			async prepare() {
+				setTimeout(() => controller.abort(), 10);
+				return new Promise(() => {}); // Never resolves.
+			},
+			async start() { throw new Error('should not start'); },
+			async poll() { return 'running'; },
+			async alive() { return true; },
+			async fetch() { throw new Error('should not fetch'); },
+			async keepAlive() {},
+			async usage() { return { seconds: 1 }; },
+			async destroy(vm) { deleted.push(vm.id); },
+		};
+		const rooms = parseCommands(`@a ${LINE}`, ['new']);
+		const result = await runBatch({ batch: { name: 't', code: 'abc12345' }, rooms, arms: [{ name: 'new' }], pool, vms: 1, out, pollMs: 1, log: () => {}, signal: controller.signal });
+		assert.deepEqual(deleted, ['vm-prep']);
+		assert.equal(result.machines[0].destroyed, true);
+		assert.deepEqual(result.outcomes.map(outcome => [outcome.room, outcome.lost, outcome.reason]), [['a', true, 'batch stopped']]);
+	} finally { await rm(out, { recursive: true, force: true }); }
+});
+
+test('a row that ran safely but missed its bar counts and reads as a fail, as the scorer scores it', async () => {
+	const out = await mkdtemp(path.join(os.tmpdir(), 'room-batch-bar-'));
+	try {
+		const rooms = parseCommands(`@slow ${LINE}\n@bad ${LINE}`, ['new']);
+		await writeRoom(out, 'slow', 'new', [row('spot-slow', { bar: false })]);
+		await writeRoom(out, 'bad', 'new', [row('spot-bad', { measurementStatus: 'INVALID' })]);
+		const outcomes = ['slow', 'bad'].map(name => ({ room: name, lost: false, worker: 'vm1', attempts: 1, arms: { new: { exit: 0, seconds: 5 } } }));
+		const merged = await mergeArms({ out, rooms, arms: ['new'], outcomes });
+		const totals = armTotals(merged.new);
+		assert.equal(totals.pass, 0, 'neither row met acceptance');
+		assert.equal(totals.fail, 1);
+		assert.equal(totals.invalid, 1);
+		const text = formatSummary({ batch: { name: 'b', code: 'abc12345' }, merged, arms: ['new'], wallSeconds: 10, vms: 1, rooms });
+		assert.match(text, /^slow: fail /m);
+		assert.match(text, /^bad: INVALID /m);
+	} finally { await rm(out, { recursive: true, force: true }); }
 });
