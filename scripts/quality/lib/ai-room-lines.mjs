@@ -19,7 +19,7 @@ export function selectAiRooms(scenarios, select) {
 
 /**
  * The batch's room lines. roomsPath is how the machine finds the rooms file: a repository path, or an absolute local
- * path (copied there as an input). capMinutes overrides no room's cap; each room plays its own durationBudgetMs.
+ * path (copied there as an input). Each room plays its own durationBudgetMs as its time cap.
  */
 export function aiRoomCommands({ scenarios, roomsPath, repeats = 1, script = true, authFile, model = null }) {
 	if (!Number.isInteger(repeats) || repeats < 1 || repeats > 20) throw new Error('--repeats wants 1 to 20');
