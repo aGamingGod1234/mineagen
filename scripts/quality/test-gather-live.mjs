@@ -18,6 +18,7 @@ import { normalizeMinecraftToolCall } from '../../coordinator/src/native-minecra
 import { adaptObservation } from '../../coordinator/src/observation-adapter.mjs';
 import { InspectionClient } from '../../coordinator/src/inspection-client.mjs';
 import { warmBoots } from './fixture-servers.mjs';
+import { liveRecord } from './watch-replay.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 import { deathCounter, deathEvidence } from './lib/damage-counter.mjs';
@@ -93,7 +94,7 @@ for await (const { item: [, spot], server: s, error: bootError } of warmBoots([.
 			// Surveys go to the server as the coordinator sends them (InspectionClient over the bridge).
 			inspectObservation: async (rec, query) => ({ state: 'SUCCEEDED', reasonCode: 'INSPECTED', ...await inspections.request(rec, query) }),
 		});
-		const record = { ...s.record, provider: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'low', serviceTier: 'default' };
+		const record = liveRecord(s, { provider: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'low', serviceTier: 'default' });
 		s.bridge.on('observation', ev => { if (ev.agentId === record.agentId && ev.payload.ready) runtime.updateObservation(record, adaptObservation(ev.payload), { eventSequence: ev.payload.eventSequence }); });
 		s.bridge.on('action_result', ev => {
 			if (ev.agentId !== record.agentId || !commands.has(ev.payload.actionId)) return;

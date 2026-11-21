@@ -9,7 +9,7 @@ import { finishRun, fixtureSummary, roomVerdict, terminalCounter } from '../../s
 import { deathCounter, deathEvidence } from '../../scripts/quality/lib/damage-counter.mjs';
 import { healthFloor, startHealthWatch, reflexHold, refusedBeforeRunning } from '../../scripts/quality/lib/room-evidence.mjs';
 import { shouldRepeat, findSpotVerdict, findSpotLabel } from '../../scripts/quality/lib/find-spot.mjs';
-import { surviveTicks, proposedGoalTicks, newerGoalRevision } from '../../scripts/quality/watch-replay.mjs';
+import { surviveTicks, proposedGoalTicks, newerGoalRevision, liveRecord } from '../../scripts/quality/watch-replay.mjs';
 
 const quality = fileURLToPath(new URL('../../scripts/quality/', import.meta.url));
 const exitOf = async rows => (await finishRun(rows.map((row, i) => ({ startedAt: i, finishedAt: i + 1, ...row })), { setExitCode: false })).exitCode;
@@ -34,6 +34,32 @@ test('a room with no find call is judged on deaths and damage, not on a find it 
 	const missed = { ...seen, calls: [{ call: 'do_step', verb: 'find', state: 'FAILED', reasonCode: 'FIND_BUDGET' }] };
 	assert.equal(findSpotVerdict(search, missed).pass, false);
 	assert.match(findSpotVerdict(search, missed).failReason, /FIND_BUDGET/);
+	// A search sent some other way is still judged as a search, from its recorded find code.
+	const odd = { calls: [{ name: 'find', arguments: {} }] };
+	assert.deepEqual(Object.values((({ found, pass }) => ({ found, pass }))(findSpotVerdict(odd, { calls: [{ call: 'find', state: 'FAILED', reasonCode: 'FIND_BUDGET' }], deaths: 0, damageTaken: 0 }))), [false, false]);
+});
+
+test('a room with no find call that never played cannot pass on standing still', async () => {
+	const spot = { name: 'lava-room-1', calls: [{ name: 'act', arguments: {} }] };
+	const still = { deaths: 0, damageTaken: 0 };
+	// The harness threw (schema rejection), the server refused the command, nothing ran, or observations were lost.
+	for (const [row, reason] of [
+		[{ ...still, calls: [act('ERROR', 'INVALID_ARGUMENTS')] }, /act INVALID_ARGUMENTS never reached the body/],
+		[{ ...still, calls: [act('SUCCEEDED', 'ARRIVED'), act('FAILED', 'STALE_REVISION')] }, /STALE_REVISION never reached the body/],
+		[{ ...still, calls: [] }, /no call ran/],
+		[{ ...still, calls: [act('SUCCEEDED', 'ARRIVED')], ended: 'death or lost observations' }, /spot ended early/],
+	]) {
+		const verdict = findSpotVerdict(spot, row);
+		assert.match(verdict.notExercised, reason);
+		assert.equal(roomVerdict({ ...row, ...verdict }).verdict, 'INVALID');
+	}
+	// Nor can a search whose find threw before it reached the body be called "not found".
+	const search = { calls: [{ name: 'do_step', arguments: { verb: 'find' } }] };
+	const threw = { ...still, calls: [{ call: 'do_step', verb: 'find', state: 'ERROR', reasonCode: 'ERROR' }] };
+	assert.equal(roomVerdict({ ...threw, ...findSpotVerdict(search, threw) }).verdict, 'INVALID');
+	// A measured miss stays a FAIL even when a call errored.
+	const hurt = { deaths: 1, damageTaken: 20, calls: [act('ERROR', 'INVALID_ARGUMENTS')], ended: 'death or lost observations' };
+	assert.equal(roomVerdict({ ...hurt, ...findSpotVerdict(spot, hurt) }).verdict, 'FAIL');
 });
 
 test('find-live labels and repeats only find calls as searches', () => {
@@ -53,6 +79,9 @@ test('find-live labels and repeats only find calls as searches', () => {
 	assert.equal(shouldRepeat(find, { state: 'FAILED', reasonCode: 'FIND_DANGER' }, { repeat: true, expectCode: 'FIND_DANGER' }), false);
 	assert.equal(shouldRepeat(find, { state: 'INTERRUPTED', reasonCode: 'FIND_DANGER' }, spot, { budgetLeftMs: 5000 }), false);
 	assert.equal(shouldRepeat(find, { state: 'INTERRUPTED', reasonCode: 'FIND_DANGER' }, {}), false);
+	// A call that never reached the body is not re-asked at once until the budget ends.
+	assert.equal(shouldRepeat(find, { state: 'ERROR', reasonCode: 'ERROR' }, spot), false);
+	assert.equal(shouldRepeat(find, { state: 'FAILED', reasonCode: 'STALE_REVISION' }, spot), false);
 });
 
 test('one invalid room cannot hide 13 passing rooms: the arm reports pass, fail and invalid counts with reasons', async () => {
@@ -151,6 +180,14 @@ test('boot() proposes the survival the goal text asks for and follows a revision
 	assert.equal(newerGoalRevision(record, { type: 'goal_control', agentId: 'a', payload: { operation: 'queue', goalRevision: 9 } }), null);
 	assert.equal(newerGoalRevision(record, { type: 'action_result', agentId: 'a', payload: { goalRevision: 3 } }), null);
 	assert.equal(newerGoalRevision(record, { type: 'action_result', agentId: 'b', payload: { goalRevision: 8 } }), null);
+	// A fixture's copy of the record (with its model fields) sends the revision boot() followed, not the one it copied.
+	const s = { record: { agentId: 'a', goalRevision: 4 } };
+	const copy = liveRecord(s, { provider: 'codex' });
+	s.record.goalRevision = 5;
+	assert.deepEqual(JSON.parse(JSON.stringify(copy)), { agentId: 'a', goalRevision: 5, provider: 'codex' });
+	for (const name of ['test-find-live.mjs', 'test-gather-live.mjs', 'test-build-live.mjs']) {
+		assert.doesNotMatch(await readFile(path.join(quality, name), 'utf8'), /const record = \{ \.\.\.s\.record/, `${name} copies a stale revision`);
+	}
 	// The production coordinator owns run-incident's bridge, so boot() must not answer agent_ready beside it there.
 	assert.match(await readFile(path.join(quality, 'run-incident.mjs'), 'utf8'), /followRevision: false/);
 });

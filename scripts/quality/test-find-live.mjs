@@ -24,6 +24,7 @@ import { InspectionClient } from '../../coordinator/src/inspection-client.mjs';
 import { parseSavedWorldSpawn } from '../../coordinator/src/headless-world-spawn.mjs';
 import { DEFAULT_REFLEXES, ReflexBook } from '../../coordinator/src/reflexes.mjs';
 import { warmBoots } from './fixture-servers.mjs';
+import { liveRecord } from './watch-replay.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 import { damageCounter, damageEvidence, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
 import { isFindCall, shouldRepeat, findSpotVerdict, findSpotLabel } from './lib/find-spot.mjs';
@@ -112,7 +113,7 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 			// The twelve default reflexes, armed at the first live sample as the coordinator arms them (dynamic-main).
 			reflexBook: new ReflexBook({ defaults: DEFAULT_REFLEXES }),
 		});
-		const record = { ...s.record, provider: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'low', serviceTier: 'default' };
+		const record = liveRecord(s, { provider: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'low', serviceTier: 'default' });
 		s.bridge.on('observation', ev => {
 			if (ev.agentId !== record.agentId || !ev.payload.ready) return;
 			const observation = adaptObservation(ev.payload);

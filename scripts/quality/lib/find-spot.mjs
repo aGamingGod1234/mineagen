@@ -1,7 +1,12 @@
 // The verdict and repeat rule of scripts/quality/test-find-live.mjs, kept here so they can be tested without a live slot.
 // A spot's calls may be any tools, not only find: a lava-safety room acts and never searches.
+import { refusedBeforeRunning } from './room-evidence.mjs';
 
 export const isFindCall = call => call?.name === 'do_step' && call?.arguments?.verb === 'find';
+// A recorded call was a search however it was sent: its verb, a find payload or a FIND_* code.
+const searchedEntry = entry => entry?.verb === 'find' || (entry?.find !== undefined && entry?.find !== null) || /^FIND_/.test(String(entry?.reasonCode ?? ''));
+// A call that never reached the body: the harness threw (ERROR) or the server refused it before running it.
+const neverRan = entry => entry?.state === 'ERROR' || refusedBeforeRunning(entry);
 
 /** A call reached its target: it ended with the spot's expectCode, or a find saw its target, or another call succeeded. */
 export function callReached(call, result, spot = {}) {
@@ -17,7 +22,7 @@ export function callReached(call, result, spot = {}) {
  * repeatOn, so a stop such as OPEN_SKY never spins until the budget runs out.
  */
 export function shouldRepeat(call, result, spot = {}, { budgetLeftMs = Infinity } = {}) {
-	if (!spot.repeat || callReached(call, result, spot) || budgetLeftMs < 10_000) return false;
+	if (!spot.repeat || callReached(call, result, spot) || budgetLeftMs < 10_000 || neverRan(result)) return false;
 	if (isFindCall(call)) return result?.reasonCode !== 'FIND_BLOCKED';
 	return Array.isArray(spot.repeatOn) && spot.repeatOn.includes(result?.reasonCode);
 }
@@ -27,12 +32,13 @@ export function shouldRepeat(call, result, spot = {}, { budgetLeftMs = Infinity 
  * no failure). The expectation is the spot's expectCode on its last call, else the last find's sighting when it
  * searched, else, for a room that only acts (a lava-safety room whose wanted stop is a FAILED LAVA_AHEAD), no damage:
  * its call outcomes are reported, not judged. Every spot also needs no death. Deaths and damage are the vanilla
- * counters; unknown damage is missing evidence, which finishRun reports as invalid, and unknown deaths fail.
+ * counters; unknown damage is missing evidence, which finishRun reports as invalid, and unknown deaths fail. A spot
+ * that measured nothing also gets notExercised (notPlayed below), which finishRun reports as invalid.
  */
 export function findSpotVerdict(spot = {}, row = {}) {
 	const calls = row.calls ?? [];
-	const searched = (spot.calls ?? []).some(isFindCall);
-	const lastFind = searched ? [...calls].reverse().find(entry => entry.verb === 'find') ?? calls.at(-1) : null;
+	const searched = (spot.calls ?? []).some(isFindCall) || calls.some(searchedEntry);
+	const lastFind = searched ? [...calls].reverse().find(searchedEntry) ?? calls.at(-1) : null;
 	const found = searched ? lastFind?.state === 'SUCCEEDED' && lastFind?.reasonCode === 'FIND_SEEN' : null;
 	const last = calls.at(-1);
 	const misses = [];
@@ -45,12 +51,26 @@ export function findSpotVerdict(spot = {}, row = {}) {
 		if (!found) misses.push(`find ended ${lastFind?.reasonCode ?? lastFind?.state ?? 'never'}`);
 	} else {
 		expectation = 'no find call: no death and no damage';
-		if (!calls.length) misses.push('no call ran');
 		if (Number.isFinite(row.damageTaken) && row.damageTaken > 0) misses.push(`took ${row.damageTaken} HP damage`);
 	}
 	if (row.deaths !== 0) misses.push(Number.isFinite(row.deaths) ? `${row.deaths} deaths` : 'deaths unknown');
 	const pass = misses.length === 0;
-	return { found, pass, expectation, ...(pass ? { passReason: expectation } : { failReason: misses.join('; ') }) };
+	const stood = notPlayed({ searched, found, lastFind, pass, calls, spot, row });
+	return { found, pass, expectation, ...(stood ? { notExercised: stood } : {}), ...(pass ? { passReason: expectation } : { failReason: misses.join('; ') }) };
+}
+
+/**
+ * Why a spot measured nothing, else null. A search whose last find never reached the body (the harness threw, or the
+ * server refused it) is no "not found". A safety-only room cannot pass on standing still: no call ran, one never reached
+ * the body, or the spot ended on lost observations. A miss it did measure (damage, a death) stays a FAIL.
+ */
+function notPlayed({ searched, found, lastFind, pass, calls, spot, row }) {
+	if (searched) return !found && row.deaths === 0 && (!lastFind || neverRan(lastFind)) ? `find ${lastFind?.reasonCode ?? lastFind?.state ?? 'call'} never reached the body` : null;
+	if (spot.expectCode || !pass) return null;
+	if (!calls.length) return 'no call ran';
+	const lost = calls.filter(neverRan);
+	if (lost.length) return `${lost.map(entry => `${entry.call} ${entry.reasonCode ?? entry.state}`).join(', ')} never reached the body`;
+	return row.ended ? `spot ended early: ${row.ended}` : null;
 }
 
 /** The spot's console line: FOUND or NOT FOUND only for a search; a room that only acts reports its verdict. */

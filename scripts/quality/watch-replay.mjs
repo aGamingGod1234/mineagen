@@ -230,6 +230,14 @@ export function newerGoalRevision(record, event) {
 }
 
 /**
+ * A copy of s.record with extra fields whose goalRevision stays the live one: boot()'s follower moves s.record, and a
+ * plain { ...s.record } copy kept sending the old revision after a hand-back, so every later command was refused.
+ */
+export function liveRecord(s, extra = {}) {
+	return Object.defineProperty({ ...s.record, ...extra }, 'goalRevision', { get: () => s.record.goalRevision, set: value => { s.record.goalRevision = value; }, enumerable: true });
+}
+
+/**
  * One server on a copy of the incident's world (or the seed); mirrors test-reflex-failspots-live.mjs. followRevision
  * (default on) moves s.record.goalRevision with any newer revision the server sends and answers agent_ready, as the
  * coordinator does; a caller that runs the production coordinator on the bridge (run-incident.mjs) turns it off.
