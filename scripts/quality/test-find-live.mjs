@@ -1,10 +1,12 @@
 // Provider-free find check: node scripts/quality/test-find-live.mjs SPOTS.json OUT_DIR [JAR]
-// SPOTS.json: [{ name, seed, inventory?, calls: [{ name, arguments }], repeat?, budgetMs?, monsters?, time? }], one fresh
+// SPOTS.json: [{ name, seed, inventory?, calls: [{ name, arguments }], repeat?, repeatOn?, expectCode?, budgetMs?, monsters?, time? }], one fresh
 // server per spot. The body starts at the world's generated spawn (a fresh vanilla start) with the given kit and the
 // twelve default reflexes (the coordinator's ReflexBook). The real NativeToolRuntime runs each call against the server: the coordinator code a model
 // call reaches, fed by the wire adapter's live-shaped samples. No model call is made. repeat: while the last call ended
 // without its target (budget or danger handback) and budgetMs of the spot is left, the same call runs again, as a model
-// that only re-asks would. locate (e.g. "structure #minecraft:village") records vanilla's nearest one from the start as ground
+// that only re-asks would: a find unless FIND_BLOCKED, another tool only on a reason code listed in the spot's repeatOn.
+// Verdict per spot (lib/find-spot.mjs): expectCode on the last call, else the find's sighting, else (a room with no find
+// call) no damage; every spot needs no death, from vanilla's counters. locate (e.g. "structure #minecraft:village") records vanilla's nearest one from the start as ground
 // truth for the report; the search never sees it; skipBeyond skips a spot whose nearest one lies farther. Reports per spot: each result, seconds, path walked against net displacement, the farthest
 // point from the start, health lost and deaths. Each spot's world is deleted when it stops (server.log stays); ARENA_FIXTURE_KEEP=1
 // keeps it, saved. Launch under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME.
@@ -22,8 +24,10 @@ import { InspectionClient } from '../../coordinator/src/inspection-client.mjs';
 import { parseSavedWorldSpawn } from '../../coordinator/src/headless-world-spawn.mjs';
 import { DEFAULT_REFLEXES, ReflexBook } from '../../coordinator/src/reflexes.mjs';
 import { warmBoots } from './fixture-servers.mjs';
+import { liveRecord } from './watch-replay.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
-import { damageCounter, damageEvidence } from './lib/damage-counter.mjs';
+import { damageCounter, damageEvidence, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
+import { isFindCall, shouldRepeat, findSpotVerdict, findSpotLabel, callEntry, awaitActionReceipts } from './lib/find-spot.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 
 const atBody = (text, at) => String(text).replace(/\{([xyz])([+-][\d.]+)?\}/g, (_, axis, offset) => String(at[axis] + Number(offset ?? 0)));
@@ -53,14 +57,8 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 	const s = server;
 	const pos = async () => String(await s.command(`data get entity ${AGENT} Pos`)).match(/\[\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?\]/)?.slice(1).map(Number) ?? null;
 	const health = async () => number(await s.command(`data get entity ${AGENT} Health`));
-	// The scoreboard can miss a death; a dead (or respawning) player shows as no entity or zero health too.
-	let diedSeen = 0;
-	const deaths = async () => {
-		const counted = number(await s.command(`scoreboard players get ${AGENT} deaths`)) || 0;
-		const hp = number(await s.command(`data get entity ${AGENT} Health`));
-		if (!(hp > 0)) diedSeen = Math.max(diedSeen, 1);
-		return Math.max(counted, diedSeen);
-	};
+	// Vanilla's deathCount objective that the quality setup zeroes (qo_death); null when unreadable, never a guessed 0.
+	const deaths = () => deathCounter(text => s.command(text), AGENT);
 	const row = { name: spot.name, seed: spot.seed, calls: [] };
 	if (spot.steer === true) { console.error('steer:true was removed; use run-incident.mjs through the production coordinator'); process.exitCode = 2; break; }
 	results.push(row);
@@ -105,7 +103,7 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 				if (type === 'action_command') {
 					commands.add(payload.actionId);
 					const { timeoutMs: _t, discard: _d, ...args } = payload.arguments ?? {};
-					row.actions = [...(row.actions ?? []), { atS: Math.round((Date.now() - (row.t0 ?? Date.now())) / 1000), type: payload.actionType, args }];
+					row.actions = [...(row.actions ?? []), { atS: Math.round((Date.now() - (row.t0 ?? Date.now())) / 1000), actionId: payload.actionId, type: payload.actionType, args }];
 					console.log(`  [${spot.name}] +${row.actions.at(-1).atS}s ${payload.actionType} ${JSON.stringify(args)}`);
 				}
 				return s.bridge.send(type, agentId, payload);
@@ -115,7 +113,7 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 			// The twelve default reflexes, armed at the first live sample as the coordinator arms them (dynamic-main).
 			reflexBook: new ReflexBook({ defaults: DEFAULT_REFLEXES }),
 		});
-		const record = { ...s.record, provider: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'low', serviceTier: 'default' };
+		const record = liveRecord(s, { provider: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'low', serviceTier: 'default' });
 		s.bridge.on('observation', ev => {
 			if (ev.agentId !== record.agentId || !ev.payload.ready) return;
 			const observation = adaptObservation(ev.payload);
@@ -125,8 +123,12 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 			if (ev.agentId !== record.agentId || !commands.has(ev.payload.actionId)) return;
 			runtime.onActionResult(record, ev.payload);
 			if (['SUCCEEDED', 'FAILED', 'CANCELLED', 'TIMED_OUT'].includes(ev.payload.state)) {
-				const last = row.actions?.at(-1);
-				if (last) Object.assign(last, { state: ev.payload.state, reasonCode: ev.payload.reasonCode, message: String(ev.payload.message ?? '').slice(0, 400) });
+				// The receipt goes on its own command, with the body's execution evidence (an admission rejection reports both false).
+				const action = row.actions?.findLast(entry => entry.actionId === ev.payload.actionId);
+				if (action) Object.assign(action, { state: ev.payload.state, reasonCode: ev.payload.reasonCode,
+					...(typeof ev.payload.executionStarted === 'boolean' ? { executionStarted: ev.payload.executionStarted } : {}),
+					...(typeof ev.payload.physicalAttempted === 'boolean' ? { physicalAttempted: ev.payload.physicalAttempted } : {}),
+					message: String(ev.payload.message ?? '').slice(0, 400) });
 				console.log(`  [${spot.name}]   -> ${ev.payload.state} ${ev.payload.reasonCode ?? ''} ${String(ev.payload.message ?? '').slice(0, 220)}`);
 			}
 			s.bridge.send('action_result_ack', record.agentId, { goalRevision: record.goalRevision, actionId: ev.payload.actionId }).catch(() => {});
@@ -177,22 +179,20 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 				let result;
 				try {
 					// A search never outruns the spot's budget: its timeoutMs is what is left of it (at most the 540 s default).
-					const args = call.name === 'do_step' && call.arguments.verb === 'find'
+					const args = isFindCall(call)
 						? { ...call.arguments, target: { ...call.arguments.target, timeoutMs: Math.max(10_000, Math.min(540_000, budgetMs - (Date.now() - t0))) } } : call.arguments;
 					result = await runtime.execute({ agentId: record.agentId, goalRevision: record.goalRevision, turnId: `find-live-${callIndex}-${attempt}`, callId: `find-${callIndex}-${attempt}`,
 						tool: normalizeMinecraftToolCall(call.name, args) }, record);
 				} catch (error) {
 					result = { state: 'ERROR', reasonCode: error?.code ?? 'ERROR', message: String(error?.message ?? error).slice(0, 600) };
 				}
-				const entry = { call: call.name, attempt, atS: Math.round((callStarted - t0) / 1000), seconds: Math.round((Date.now() - callStarted) / 1000), state: result?.state, reasonCode: result?.reasonCode,
-					message: String(result?.message ?? '').slice(0, 900), find: result?.find };
+				const entry = callEntry(call, result, { attempt, atS: Math.round((callStarted - t0) / 1000), seconds: Math.round((Date.now() - callStarted) / 1000) });
 				row.calls.push(entry);
 				if (spot.dump) await writeFile(path.join(dir, `call-${callIndex}-${attempt}.json`), JSON.stringify(result, null, 2));
 				console.log(`[${spot.name}] +${entry.atS}s ${call.name}#${attempt} ${entry.state} ${entry.reasonCode} ${entry.seconds}s :: ${entry.message.slice(0, 300)}`);
 				// A dead body, or one the server no longer samples, ends the spot.
 				if ((await deaths()) > deathsBefore || /TIMEOUT observation/.test(entry.message)) { row.ended = 'death or lost observations'; break; }
-				const found = result?.state === 'SUCCEEDED' && result?.reasonCode === 'FIND_SEEN';
-				if (found || !spot.repeat || result?.reasonCode === 'FIND_BLOCKED' || Date.now() - t0 >= budgetMs - 10_000) break;
+				if (!shouldRepeat(call, result, spot, { budgetLeftMs: budgetMs - (Date.now() - t0) })) break;
 				// The provider-free stand-in for a model: give the reflexes a moment with danger, then ask again.
 				if (['RUNNING', 'PREPARING'].includes(result?.state) && typeof result?.actionId === 'string') {
 					await runtime.execute({ agentId: record.agentId, goalRevision: record.goalRevision, turnId: `find-live-cancel-${callIndex}-${attempt}`, callId: `cancel-${callIndex}-${attempt}`,
@@ -202,12 +202,14 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 				if (result?.reasonCode === 'FIND_DANGER') await sleep((await health()) < 12 ? 15000 : 4000);
 			}
 		}
+		// A background step (do_step build) returned RUNNING: take the readings only once each command has its receipt.
+		if (!row.ended) {
+			const pending = await awaitActionReceipts(row, { deadline: t0 + budgetMs, stopped: async () => (await deaths()) > deathsBefore });
+			if (pending.length) console.log(`[${spot.name}] no terminal receipt by the budget for ${pending.map(action => action.type).join(', ')}`);
+		}
 		sampling = false; await sampler;
 		row.handBacks = row.calls.filter((entry) => entry.reasonCode === 'FIND_DANGER').length;
-		const last = row.calls.at(-1);
-		row.found = last?.state === 'SUCCEEDED' && last?.reasonCode === 'FIND_SEEN';
 		row.seconds = Math.round((Date.now() - t0) / 1000);
-		row.foundAtS = row.found ? last.atS + last.seconds : null;
 		let walked = 0, farthest = 0;
 		for (let i = 1; i < trail.length; i++) walked += Math.hypot(trail[i][0] - trail[i - 1][0], trail[i][2] - trail[i - 1][2]);
 		for (const p of trail) farthest = Math.max(farthest, Math.hypot(p[0] - trail[0][0], p[2] - trail[0][2]));
@@ -217,11 +219,15 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		row.end = await pos();
 		const healthAfter = await health();
 		Object.assign(row, damageEvidence(damageBefore, await readDamage(), healthBefore, healthAfter));
-		row.deaths = (await deaths()) - deathsBefore;
+		const deathResult = deathEvidence(deathsBefore, await deaths());
+		row.deaths = deathResult.deaths;
+		if (!deathResult.valid) (row.integrity ??= []).push({ file: 'qo_death', error: 'Missing or decreasing vanilla death counter' });
 		row.finishedAt = Date.now();
-		row.pass = (spot.expectCode ? last?.reasonCode === spot.expectCode : row.found) && row.deaths === 0;
+		// found is null for a room with no find call; its verdict is then no death and no damage (lib/find-spot.mjs).
+		// foundAtS comes from the same find entry that decides found.
+		Object.assign(row, findSpotVerdict(spot, row));
 		await writeFile(path.join(dir, 'trail.json'), JSON.stringify(trail));
-		console.log(`[${spot.name}] ${row.found ? 'FOUND' : 'NOT FOUND'} in ${row.foundAtS ?? row.seconds}s walked=${row.path.walked} net=${row.path.net} farthest=${row.path.farthest} descended=${row.path.descended} damageTaken=${row.damageTaken ?? "unknown"} deaths=${row.deaths} handBacks=${row.handBacks}`);
+		console.log(`[${spot.name}] ${findSpotLabel(row)} in ${row.foundAtS ?? row.seconds}s walked=${row.path.walked} net=${row.path.net} farthest=${row.path.farthest} descended=${row.path.descended} damageTaken=${row.damageTaken ?? "unknown"} deaths=${row.deaths} handBacks=${row.handBacks}`);
 	} catch (error) {
 		row.error = String(error?.stack ?? error).slice(0, 1200);
 		console.log(`[${spot.name}] ERROR ${row.error.split('\n')[0]}`);
