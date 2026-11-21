@@ -213,6 +213,28 @@ public final class ServerTravelController implements ServerController {
 	private final Set<GridPosition> refusedShores = new HashSet<>();
 	private long nearShoreSince;
 	static final int MAX_CROSSINGS = 2;
+	/**
+	 * With build on, sideways walks round rock (a seen spot 5-8 blocks off the bearing, no closer, at most BACKTRACK
+	 * farther) tried in a row before the body builds or tunnels; getting closer than where the walks began, or a build or
+	 * dig, resets the count. A target this close horizontally is a way down or up, not round. 19 Nov round: travel dug
+	 * 1,590 blocks, 75% of Nether pickaxe wear, because it built as soon as no seen spot was 2 blocks closer.
+	 */
+	static final int MAX_WALK_AROUNDS = 2;
+	/**
+	 * Off unless -Dmineagen.travel.walkAround=true or MINEAGEN_TRAVEL_WALK_AROUND=on. Practice rooms 21 Nov (Nether courses,
+	 * 10 repeats per jar): pickaxe uses per 100 blocks gained 69.8 with it against 60.2 without (50 runs each), and 148.6
+	 * against 141.8 (34 each); a 5-8 block sidestep does not get round a netherrack hill.
+	 */
+	static boolean walkAroundEnabled() {
+		// Read into a local first: the result-code scanner (failure-code-sources.mjs) takes a capitalised string in the
+		// result expression for a result code.
+		String environment = System.getenv("MINEAGEN_TRAVEL_WALK_AROUND");
+		return Boolean.getBoolean("mineagen.travel.walkAround") || "on".equalsIgnoreCase(String.valueOf(environment).trim());
+	}
+	static final double WALK_AROUND_MIN_LEFT = 8.0D;
+	private int walkArounds, walkedAround;
+	/** How far from the target the body was when this run of walks round began: only getting past it resets the count. */
+	private double aroundFromLeft = Double.NaN;
 	static final long WADE_MS = 3_000L;
 	static final long CROSS_TIMEOUT_MS = 60_000L;
 	/** A far bank counts only when it leaves at least this much less of the trip than the bank swum from. */
@@ -914,6 +936,21 @@ public final class ServerTravelController implements ServerController {
 			nearShoreSince = 0L;
 			return swimTick(player, nowEpochMs);
 		}
+		if (build && walkAroundEnabled() && !buildNow && buildRefusal == null && !onMagma(player) && walkArounds < MAX_WALK_AROUNDS
+				&& Math.hypot(targetX - player.getX(), targetZ - player.getZ()) > WALK_AROUND_MIN_LEFT) {
+			GridPosition around = TravelCheckpoints.detour(legs, player.getX(), player.getY(), player.getZ(), targetX, targetZ, this::isRefused);
+			if (around != null) {
+				if (walkArounds == 0) aroundFromLeft = left(player.position());
+				walkArounds++;
+				walkedAround++;
+				refused.add(around);
+				// Never straight back: from the spot round the side, the cell it left can look closer again.
+				refused.add(feet(player));
+				legFinal = false;
+				startForwardLeg(player, around, nowEpochMs);
+				return leg(player, nowEpochMs);
+			}
+		}
 		if (!build) return fail(player, "NO_ROUTE", "No seen standing spot ahead gets closer, and build is false" + lastFailureText());
 		if (descent != null && digs < MAX_DIGS && (digsDown(player.getY(), targetY, heightTolerance()) || digsUp(player.getY(), targetY, heightTolerance())))
 			return startDig(player, nowEpochMs);
@@ -942,6 +979,7 @@ public final class ServerTravelController implements ServerController {
 		if (result.state() != State.SUCCEEDED) return fail(player, result.reasonCode(), "Digging down toward y " + (int) Math.floor(targetY) + ": " + result.message());
 		// At the target's level: walk or build the rest from here.
 		failedLegs = 0;
+		walkArounds = 0;
 		looks = 0;
 		refused.clear();
 		bestAt = nowEpochMs;
@@ -1008,6 +1046,7 @@ public final class ServerTravelController implements ServerController {
 				leg = null;
 				legs++;
 				failedLegs = 0;
+				if (walkArounds > 0 && left(player.position()) < aroundFromLeft - PROGRESS_STEP) walkArounds = 0;
 				looks = 0;
 				buildRefusal = null;
 				phase = Phase.PLAN;
@@ -1053,6 +1092,7 @@ public final class ServerTravelController implements ServerController {
 		boolean noGain = result.state() == ServerController.State.SUCCEEDED && gained < NO_GAIN;
 		if (!noGain && (result.state() == ServerController.State.SUCCEEDED || gained >= PROGRESS_STEP)) {
 			failedLegs = 0;
+			if (walkArounds > 0 && left(player.position()) < aroundFromLeft - PROGRESS_STEP) walkArounds = 0;
 			looks = 0;
 			buildRefusal = null;
 			if (result.state() != ServerController.State.SUCCEEDED) refused.add(legTarget);
@@ -1244,6 +1284,7 @@ public final class ServerTravelController implements ServerController {
 		buildRun = 0;
 		buildDirection = null;
 		failedLegs = 0;
+		walkArounds = 0;
 		// Looks are not repeated after a build run: where nothing seen got closer before, the march itself shows more.
 		// Refused legs stay refused: a leg back to where the march began was picked again after every run.
 		buildRefusal = null;
@@ -2033,7 +2074,8 @@ public final class ServerTravelController implements ServerController {
 				+ (reflexResumes == 0 ? "" : "; replanned after " + reflexResumes + " reflex firing(s)")
 				+ (passedHostiles.isEmpty() ? "" : "; passed " + passedHostiles.size() + " hostile(s) not coming for you")
 				+ (shrugNotes.isEmpty() ? "" : "; shrugged off " + String.join(", ", shrugNotes) + " damage")
-				+ (dugDown == 0 ? "" : "; dug " + dugDown + " dig_to staircase(s) toward the target's level");
+				+ (dugDown == 0 ? "" : "; dug " + dugDown + " dig_to staircase(s) toward the target's level")
+				+ (walkedAround == 0 ? "" : "; walked round " + walkedAround + " time(s) before building");
 	}
 
 	private String lastFailureText() {

@@ -42,6 +42,8 @@ const AGENT = 'Probe';
 const COURSE_BUDGET_MS = Number(flag('--budget', spec.budgetMinutes ?? 12)) * 60_000;
 const ARRIVAL = spec.arrivalBlocks ?? 16;
 // Plain building blocks a stand-in model would move to the hotbar (travel_to's own choice of blocks is the server's).
+const MINED = ['netherrack', 'soul_sand', 'soul_soil', 'basalt', 'smooth_basalt', 'blackstone', 'magma_block', 'nether_gold_ore', 'nether_quartz_ore', 'gravel', 'glowstone',
+	'crimson_nylium', 'warped_nylium', 'nether_wart_block', 'warped_wart_block', 'stone', 'deepslate', 'cobblestone', 'dirt', 'grass_block', 'andesite', 'diorite', 'granite', 'tuff', 'sand', 'sandstone'];
 const BLOCKS = /^minecraft:(netherrack|cobblestone|cobbled_deepslate|blackstone|basalt|smooth_basalt|dirt|stone|deepslate|andesite|diorite|granite|tuff|end_stone|[a-z_]+_planks)$/;
 
 const results = [];
@@ -54,7 +56,8 @@ process.on('SIGINT', () => { stopServer(); process.exit(130); });
 process.on('exit', stopServer);
 process.on('unhandledRejection', error => console.error(`unhandled: ${error?.message ?? error}`));
 for (const course of courses) {
-	const checkpoint = JSON.parse(await readFile(path.resolve(checkpointDir ?? spec.checkpointDir ?? path.dirname(coursesFile), course.checkpoint), 'utf8'));
+	// checkpointData: the save point inline, for a courses file that travels alone (a room batch copies one file).
+	const checkpoint = course.checkpointData ?? JSON.parse(await readFile(path.resolve(checkpointDir ?? spec.checkpointDir ?? path.dirname(coursesFile), course.checkpoint), 'utf8'));
 	course.loaded = checkpoint;
 	if (!bySeed.has(checkpoint.seed)) bySeed.set(checkpoint.seed, []);
 	bySeed.get(checkpoint.seed).push(course);
@@ -200,6 +203,19 @@ async function runCourse(s, course) {
 		};
 		damageScoreInitial = await damageScore();
 	}
+	// Pickaxe uses over the course (vanilla's used statistic per tier): the wear travel spends digging and building.
+	const PICKS = ['wooden', 'stone', 'golden', 'iron', 'diamond', 'netherite'];
+	// A counter that could not be zeroed or read leaves the totals unknown, never a partial total that reads as less wear.
+	const counterFailures = [];
+	for (const tier of PICKS) {
+		await s.command(`scoreboard objectives add tpk_${tier} minecraft.used:minecraft.${tier}_pickaxe`).catch(() => {});
+		await s.command(`scoreboard players set ${AGENT} tpk_${tier} 0`).catch(error => { counterFailures.push(`tpk_${tier} not zeroed: ${error?.message ?? error}`); });
+	}
+	// Blocks broken over the course, by the ground travel digs through in each dimension (vanilla's mined statistic).
+	for (const [i, block] of MINED.entries()) {
+		await s.command(`scoreboard objectives add tmb_${i} minecraft.mined:minecraft.${block}`).catch(() => {});
+		await s.command(`scoreboard players set ${AGENT} tmb_${i} 0`).catch(error => { counterFailures.push(`tmb_${i} not zeroed: ${error?.message ?? error}`); });
+	}
 	const clockObservation = await observe(s);
 	const startGameTick = clockObservation.world?.gameTime;
 	let lastGameTick = startGameTick;
@@ -313,6 +329,22 @@ async function runCourse(s, course) {
 		sampling = false;
 		await sampler;
 	}
+	const sumCounters = async objectives => {
+		let total = 0;
+		for (const objective of objectives) {
+			const text = String(await s.command(`scoreboard players get ${AGENT} ${objective}`).catch(error => { counterFailures.push(`${objective} not read: ${error?.message ?? error}`); return ''; }));
+			const value = /has (\d+) \[/.exec(text)?.[1];
+			if (value === undefined) { if (text) counterFailures.push(`${objective} read as: ${text.slice(0, 80)}`); total = null; continue; }
+			if (total !== null) total += Number(value);
+		}
+		return total;
+	};
+	run.blocksMined = await sumCounters([...MINED.keys()].map(i => `tmb_${i}`));
+	run.pickaxeUses = await sumCounters(PICKS.map(tier => `tpk_${tier}`));
+	if (counterFailures.length || run.blocksMined === null || run.pickaxeUses === null) {
+		run.blocksMined = null; run.pickaxeUses = null;
+		run.integrity = [...(Array.isArray(run.integrity) ? run.integrity : []), { file: 'scoreboard', error: `travel counters unknown: ${counterFailures.join('; ') || 'a counter read failed'}`.slice(0, 400) }];
+	}
 	const endObservation = s.dead ? null : await observe(s);
 	const end = s.dead ? last : positionOf(endObservation);
 	if (Number.isFinite(endObservation?.world?.gameTime)) lastGameTick = endObservation.world.gameTime;
@@ -368,7 +400,7 @@ for (const [seed, group] of bySeed) {
 			try {
 				const run = await runCourse(s, course);
 				results.push(run);
-				console.log(JSON.stringify({ id: run.id, arrived: run.arrived, wallSeconds: run.wallSeconds, blocksPerMinute: run.blocksPerMinute, startDistance: run.startDistance, endDistance: run.endDistance, failures: run.failures, actions: run.actions, deaths: run.deaths, damage: run.damage, fire: run.fireSamples, lava: run.lavaSamples }));
+				console.log(JSON.stringify({ id: run.id, arrived: run.arrived, wallSeconds: run.wallSeconds, blocksPerMinute: run.blocksPerMinute, startDistance: run.startDistance, endDistance: run.endDistance, failures: run.failures, actions: run.actions, deaths: run.deaths, damage: run.damage, fire: run.fireSamples, lava: run.lavaSamples, pickaxeUses: run.pickaxeUses, blocksMined: run.blocksMined, path: round(run.path) }));
 			} catch (error) {
 				results.push({ id: course.id, mode, error: String(error?.stack ?? error), lastObservations: s.seen.slice(-12), lastResults: s.results.slice(-6) });
 				console.log(JSON.stringify({ id: course.id, error: String(error?.message ?? error) }));
