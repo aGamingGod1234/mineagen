@@ -26,6 +26,7 @@ import { AgentWorkspaceManager } from './agent-workspace.mjs';
 import { MinecraftAgentWorkspace } from './minecraft-agent-workspace.mjs';
 import { ClaudeProviderService } from './claude-service.mjs';
 import { CodexService } from './codex-service.mjs';
+import { createHealthSampler } from './coordinator-health.mjs';
 import { ControlLatencyRegistry } from './control-latency-registry.mjs';
 import { buildCoordinatorStatus, providerRecoveryComponents } from './coordinator-status.mjs';
 import { ConversationMemory, conversationWakes } from './conversation-memory.mjs';
@@ -286,6 +287,8 @@ export class DynamicCoordinator extends EventEmitter {
 	#setStatusInterval;
 	#clearStatusInterval;
 	#statusHandle = null;
+	#healthSamplerFactory;
+	#health = null;
 	#serverInstanceId = null;
 	#connectionEpoch = 0;
 	#connected = false;
@@ -306,7 +309,7 @@ export class DynamicCoordinator extends EventEmitter {
 	#lastCatalog = null;
 	#lastRosterTraceAt = 0;
 
-	constructor({ registry, scheduler, codexService, planner, bridge, healthRegistry, latencyRegistry, goalSupervisor, codexControlProtocol = 'native_tools', memoryDirectory = null, experience = null, runtimeSessionId, traceWriter = null, providerTurnRecorder = null, decisionLog = null, bodyPace = null, runtimeGeneration = null, runtimeHooks = {}, benchmarkRecorder = null, providerCliHealth = null, providerDiscovery = null, controlNow = () => performance.now(), epochNow = Date.now, setStatusInterval = defaultStatusInterval, clearStatusInterval = clearInterval, setGoalSpecTimeout = defaultGoalSpecTimeout, clearGoalSpecTimeout = clearTimeout, setSteerTimeout = setTimeout, clearSteerTimeout = clearTimeout, setWakeHoldTimeout = defaultGoalSpecTimeout, clearWakeHoldTimeout = clearTimeout, reflexDefaults = DEFAULT_REFLEXES, reflexInstincts = false, taskRequestTimeoutMs = DEFAULT_TASK_REQUEST_TIMEOUT_MS, connectionOperationCap = DEFAULT_CONNECTION_OPERATION_CAP, agentOperationCap = DEFAULT_AGENT_OPERATION_CAP, goalSpecRequestCap = connectionOperationCap, maxPendingAgentOperations = DEFAULT_MAX_PENDING_AGENT_OPERATIONS, maxPendingAgentTransactions = DEFAULT_MAX_PENDING_AGENT_TRANSACTIONS }) {
+	constructor({ registry, scheduler, codexService, planner, bridge, healthRegistry, latencyRegistry, goalSupervisor, codexControlProtocol = 'native_tools', memoryDirectory = null, experience = null, runtimeSessionId, traceWriter = null, providerTurnRecorder = null, decisionLog = null, bodyPace = null, runtimeGeneration = null, runtimeHooks = {}, benchmarkRecorder = null, providerCliHealth = null, providerDiscovery = null, controlNow = () => performance.now(), epochNow = Date.now, setStatusInterval = defaultStatusInterval, clearStatusInterval = clearInterval, healthSampler = undefined, setGoalSpecTimeout = defaultGoalSpecTimeout, clearGoalSpecTimeout = clearTimeout, setSteerTimeout = setTimeout, clearSteerTimeout = clearTimeout, setWakeHoldTimeout = defaultGoalSpecTimeout, clearWakeHoldTimeout = clearTimeout, reflexDefaults = DEFAULT_REFLEXES, reflexInstincts = false, taskRequestTimeoutMs = DEFAULT_TASK_REQUEST_TIMEOUT_MS, connectionOperationCap = DEFAULT_CONNECTION_OPERATION_CAP, agentOperationCap = DEFAULT_AGENT_OPERATION_CAP, goalSpecRequestCap = connectionOperationCap, maxPendingAgentOperations = DEFAULT_MAX_PENDING_AGENT_OPERATIONS, maxPendingAgentTransactions = DEFAULT_MAX_PENDING_AGENT_TRANSACTIONS }) {
 		super();
 		this.#memoryDirectory = memoryDirectory;
 		this.#decisionLog = decisionLog;
@@ -495,6 +498,7 @@ export class DynamicCoordinator extends EventEmitter {
 			},
 		});
 		this.#setStatusInterval = requireDependency(setStatusInterval, 'setStatusInterval');
+		this.#healthSamplerFactory = healthSampler === undefined ? () => createHealthSampler() : () => healthSampler;
 		this.#clearStatusInterval = requireDependency(clearStatusInterval, 'clearStatusInterval');
 		this.#setGoalSpecTimeout = requireDependency(setGoalSpecTimeout, 'setGoalSpecTimeout');
 		this.#clearGoalSpecTimeout = requireDependency(clearGoalSpecTimeout, 'clearGoalSpecTimeout');
@@ -625,7 +629,10 @@ export class DynamicCoordinator extends EventEmitter {
 		try {
 			this.#bindBridge();
 			this.#bridge.start();
+			this.#health = this.#healthSamplerFactory();
 			this.#statusHandle = this.#setStatusInterval(() => {
+				const health = this.#health?.sample({ inboundQueued: this.#bridge.inboundQueued ?? null, agentOperations: this.#totalAgentOperations });
+				if (health) this.#writeTrace('coordinator_health', health);
 				const connectionEpoch = this.#connectionEpoch;
 				this.#requestProviderRecovery(connectionEpoch);
 				this.#run(() => this.#publishStatus(connectionEpoch), connectionEpoch);
@@ -657,6 +664,8 @@ export class DynamicCoordinator extends EventEmitter {
 		this.#verboseTransitions.clearAll();
 		if (this.#statusHandle !== null) this.#clearStatusInterval(this.#statusHandle);
 		this.#statusHandle = null;
+		this.#health?.close();
+		this.#health = null;
 		this.#bridge.stop();
 		this.#unbindBridge();
 		this.#scheduler.close('Dynamic coordinator stopped');
@@ -1489,6 +1498,7 @@ export class DynamicCoordinator extends EventEmitter {
 		this.#listen('protocolError', (error) => this.emit('runtimeError', error), { lifecycle: true });
 		this.#listen('messageRejected', (rejection) => this.emit('runtimeError', rejection.error), { lifecycle: true });
 		this.#listen('transportError', (error) => this.emit('runtimeError', error), { lifecycle: true });
+		this.#listen('heartbeatLate', (event) => this.#writeTrace('bridge_heartbeat_late', { lateMs: event?.lateMs ?? null }), { lifecycle: true });
 	}
 
 	#beginReconciliation(registry, connectionEpoch, { providerOnly = false } = {}) {
@@ -4744,6 +4754,7 @@ export function createDynamicCoordinator(configValue, dependencies = {}) {
 		epochNow: dependencies.epochNow,
 		setStatusInterval: dependencies.setStatusInterval,
 		clearStatusInterval: dependencies.clearStatusInterval,
+		healthSampler: dependencies.healthSampler,
 		setGoalSpecTimeout: dependencies.setGoalSpecTimeout,
 		clearGoalSpecTimeout: dependencies.clearGoalSpecTimeout,
 		setSteerTimeout: dependencies.setSteerTimeout,

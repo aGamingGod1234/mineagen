@@ -1419,6 +1419,48 @@ test('bridge probes an authenticated peer and reconnects when heartbeat silence 
 	assert.equal(typeof reconnect, 'function');
 });
 
+test('a heartbeat deadline that runs late after a coordinator stall probes again instead of reconnecting', async (t) => {
+	// A Windows test machine on battery starved this process's timers for minutes; when they ran again the overdue
+	// deadline fired before any probe went out or any buffered reply was read, and the bridge reconnected (18 times in
+	// one game, failing the model's turn each time). Lateness is the coordinator's silence, not the server's.
+	const socket = new FakeSocket();
+	const deadlines = new ManualTimerQueue();
+	let now = 0;
+	const bridge = new MultiplexedServerBridge({
+		port: 25570, secret: SECRET, handshakeTimeoutMs: 11, heartbeatIntervalMs: 13, heartbeatTimeoutMs: 29,
+	}, {
+		socketFactory: () => socket, schedule: () => 1, cancelSchedule: () => {},
+		scheduleDeadline: deadlines.schedule, cancelDeadline: deadlines.cancel, currentRevision: () => 0,
+		monotonicNow: () => now,
+	});
+	t.after(() => bridge.stop());
+	const errors = [], late = [];
+	bridge.on('protocolError', (error) => errors.push(error));
+	bridge.on('heartbeatLate', (event) => late.push(event));
+	bridge.start();
+	socket.emit('connect');
+	const hello = JSON.parse(socket.writes[0]);
+	const ready = once(bridge, 'ready');
+	socket.emit('data', `${JSON.stringify(serverEnvelope('hello_ack', 'server', 'server-late-ready', {
+		replyTo: hello.messageId, authenticated: true, registry: [registeredRecord()],
+	}))}\n`);
+	await ready;
+	const writesBefore = socket.writes.length;
+
+	now = 226_000;
+	await deadlines.runDelay(29);
+	assert.equal(socket.destroyed, false, 'a stalled coordinator does not blame the bridge');
+	assert.equal(errors.length, 0);
+	assert.deepEqual(late.map((event) => event.lateMs), [226_000 - 29]);
+	assert.equal(JSON.parse(socket.writes.at(-1)).type, 'heartbeat', 'the missed probe goes out at once');
+	assert.ok(socket.writes.length > writesBefore);
+
+	now += 29;
+	await deadlines.runDelay(29);
+	assert.equal(socket.destroyed, true, 'a bridge that stays silent through the fresh window still reconnects');
+	assert.equal(errors.at(-1)?.code, 'HEARTBEAT_TIMEOUT');
+});
+
 test('only a heartbeat response refreshes the authenticated peer deadline', async (t) => {
 	const socket = new FakeSocket();
 	const deadlines = new ManualTimerQueue();
