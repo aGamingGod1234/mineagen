@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { searchFor } from '../src/find-search.mjs';
-import { MAX_FAILED_LEGS, MAX_DIGS, OPEN_VIEW, LAVA_RIM_Y, TURNS, SEARCH_TURNS, FORTRESS_LEG, BUILD_LEG, AHEAD_MIN, openView, fortressSearch, footingAhead, nextFortressTarget, startHeading, yawToward } from '../src/find-fortress.mjs';
+import { MAX_FAILED_LEGS, MAX_DIGS, OPEN_VIEW, LAVA_RIM_Y, BRINK_DROP, brinkOf, towardBrink, viewHeading, TURNS, SEARCH_TURNS, FORTRESS_LEG, BUILD_LEG, AHEAD_MIN, openView, fortressSearch, footingAhead, nextFortressTarget, startHeading, yawToward } from '../src/find-fortress.mjs';
 import { REGION_BLOCKS, searchRegions } from '../src/nether-regions.mjs';
 
 // The wall-breaker contract's hand-back rules for find {structure: fortress} in the Nether, one test each.
@@ -291,7 +291,8 @@ test('openView: the farthest land seen within 90 degrees of the heading, not one
 });
 
 test('walled in ahead with open ground seen to the side: it walks there before any dig', async () => {
-	const body = bodyFor({ travel: (args, n) => (args.build ? { result: tunnel, go: true } : args.yaw === 90 ? { result: arrived, go: true } : { result: noRoute }),
+	// A kept heading (0): the open-side rule, not the opening look's heading choice.
+	const body = bodyFor({ state: { fortressHeading: 0 }, travel: (args, n) => (args.build ? { result: tunnel, go: true } : args.yaw === 90 ? { result: arrived, go: true } : { result: noRoute }),
 		ground: () => [{ yaw: 0, water: 0, land: 3, farthestLand: 5 }, { yaw: 90, water: 0, land: 8, farthestLand: 40 }, { yaw: 180, water: 0, land: 8, farthestLand: 60 }],
 		onLook: (o, calls) => (calls.length >= 5 ? { structures: [fortressRow] } : null) });
 	const result = await searchFor({ structure: 'fortress' }, body, { timeoutMs: 300_000 });
@@ -328,7 +329,7 @@ test('a body that starts inside rock with no open ground behind it digs on strai
 
 test('a side walk that only slides back down its own tunnel is no way on', async () => {
 	// Every open-side walk ends at an earlier look point (the start), never on new ground.
-	const body = bodyFor({ travel: (args, n, o) => {
+	const body = bodyFor({ state: { fortressHeading: 0 }, travel: (args, n, o) => {
 			if (args.build) return { result: tunnel, go: true };
 			if (args.yaw === 90) { Object.assign(o.player, { x: 100.5, z: 100.5 }); return { result: noRoute }; }
 			return { result: noRoute };
@@ -397,4 +398,102 @@ test('a wounded body hands back before the opening climb, not after it (Codex on
 	const result = await searchFor({ structure: 'fortress' }, body, { timeoutMs: 300_000 });
 	assert.equal(result.reasonCode, 'FIND_DANGER');
 	assert.equal(body.calls.filter((call) => call.type === 'travel_to').length, 0);
+});
+
+// Round 2 (22 Nov): the lava sea's rim, lava in the look, the opening look's heading, and brinks the walker reports.
+const withEnv = async (value, run) => {
+	const prior = process.env.MINEAGEN_FORTRESS_SEARCH;
+	if (value === undefined) delete process.env.MINEAGEN_FORTRESS_SEARCH; else process.env.MINEAGEN_FORTRESS_SEARCH = value;
+	try { return await run(); } finally { if (prior === undefined) delete process.env.MINEAGEN_FORTRESS_SEARCH; else process.env.MINEAGEN_FORTRESS_SEARCH = prior; }
+};
+
+test('groundOfView counts lava apart: a lava sea is no farthest dry ground', async () => {
+	const { groundOfView } = await import('../src/native-tool-runtime.mjs');
+	const row = (blockId, distance) => ({ compact: { blockId, distance } });
+	// Sweep sections: entities, blocks, items, landmarks.
+	const view = (rows) => ({ yaw: 0, sections: [[], [], [], rows] });
+	assert.deepEqual(groundOfView(view([row('minecraft:netherrack', 20), row('minecraft:lava', 30), row('minecraft:lava', 70)])),
+		{ yaw: 0, water: 0, land: 3, farthestLand: 70, lava: 2, farthestDry: 20 });
+	assert.deepEqual(groundOfView(view([row('minecraft:netherrack', 20)])), { yaw: 0, water: 0, land: 1, farthestLand: 20 }, 'no lava: the fields as before');
+});
+
+test('viewHeading: the view with the most dry ground, to 45 degrees; never the lava sea; null with nothing open', () => {
+	const views = [{ yaw: 3, water: 0, land: 20, farthestLand: 90, lava: 18, farthestDry: 30 }, { yaw: -88, water: 0, land: 12, farthestLand: 70 },
+		{ yaw: 92, water: 0, land: 6, farthestLand: 40 }];
+	assert.equal(viewHeading(views), -90);
+	assert.equal(viewHeading([{ yaw: 0, land: 20, farthestLand: 90, lava: 20, farthestDry: 0 }]), null, 'all lava sea');
+	assert.equal(viewHeading([{ yaw: 0, land: 3, farthestLand: OPEN_VIEW - 1 }]), null, 'walled in every way');
+	assert.equal(viewHeading(undefined), null);
+});
+
+test('a new search keeps the heading its opening look showed most open and dry; r1 keeps the z rule', async () => {
+	const ground = () => [{ yaw: 0, water: 0, land: 24, farthestLand: 96, lava: 22, farthestDry: 14 }, { yaw: -90, water: 0, land: 14, farthestLand: 60 }, { yaw: 90, water: 0, land: 4, farthestLand: 26 }];
+	const seen = (o, calls) => (calls.length >= 1 ? { structures: [fortressRow] } : null);
+	const body = bodyFor({ ground, onLook: seen });
+	await withEnv(undefined, () => searchFor({ structure: 'fortress' }, body, { timeoutMs: 300_000 }));
+	assert.equal(body.calls[0].yaw, -90, 'across the dry caverns, not onto the lava sea');
+	assert.equal(body.eyeSearchState.fortressHeading, -90, 'kept for the next call');
+	const old = bodyFor({ ground, onLook: seen });
+	await withEnv('r1', () => searchFor({ structure: 'fortress' }, old, { timeoutMs: 300_000 }));
+	const target = searchRegions({ x: 100.5, z: 100.5 }, new Map(), 1, [{ x: 100, z: 100 }])[0].target;
+	assert.equal(old.calls[0].yaw, startHeading({ x: 100.5, z: 100.5 }, target));
+});
+
+test('openView: a view mostly of lava sea is no open side; its far side counts only as far as dry ground', () => {
+	const views = [{ yaw: 90, land: 20, farthestLand: 90, lava: 15, farthestDry: 40 }, { yaw: -90, land: 9, farthestLand: 50 }];
+	assert.equal(openView(views, 0).yaw, 90, 'round 1 took the lava sea as the most open way');
+	assert.equal(openView(views, 0, new Set(), { dry: true }).yaw, -90);
+	assert.equal(openView([{ yaw: 90, land: 20, farthestLand: 90, lava: 4, farthestDry: 40 }], 0, new Set(), { dry: true }).farthestLand, 40);
+	assert.equal(openView(views, 0, new Set(), { dry: true, skip: (yaw) => yaw === -90 }), null, 'a skipped way');
+});
+
+test('footingAhead: with rim on, ground at the lava sea rim is never the way on, even from the rim itself', () => {
+	const here = { x: 0.5, y: 34, z: 0.5 };
+	const rows = [{ x: 0, y: 34, z: 40 }, { x: 0, y: 40, z: 24 }];
+	assert.equal(footingAhead(rows, here, 0).z, 40, 'round 1 walked the shore from the shore');
+	assert.equal(footingAhead(rows, here, 0, [], { rim: true }).z, 24);
+});
+
+test('from the lava sea rim the search first climbs to the nearest higher ground in sight, any way', async () => {
+	const body = bodyFor({ state: { fortressHeading: 0 }, onLook: (o, calls) => (calls.length >= 1 ? { structures: [fortressRow] } : null) });
+	body.observation.player.y = 34;
+	body.frontier = () => ({ candidates: [{ x: 100, y: 34, z: 140, distance: 40 }, { x: 90, y: 44, z: 80, distance: 22 }, { x: 110, y: 41, z: 92, distance: 13 }, { x: 100, y: 60, z: 60, distance: 40 }] });
+	const result = await withEnv(undefined, () => searchFor({ structure: 'fortress' }, body, { timeoutMs: 300_000 }));
+	assert.equal(result.reasonCode, 'FIND_SEEN');
+	assert.deepEqual([body.calls[0].x, body.calls[0].y, body.calls[0].z], [110.5, 41, 92.5], 'the nearest ground 4 or more above the rim, behind the heading too');
+	assert.equal(body.calls[0].build, false);
+	const old = bodyFor({ state: { fortressHeading: 0 }, onLook: (o, calls) => (calls.length >= 1 ? { structures: [fortressRow] } : null) });
+	old.observation.player.y = 34;
+	old.frontier = body.frontier;
+	await withEnv('r1', () => searchFor({ structure: 'fortress' }, old, { timeoutMs: 300_000 }));
+	assert.equal(old.calls[0].z, 140.5, 'r1: on along the shore');
+});
+
+test('a build leg from the lava sea rim aims up off it', async () => {
+	const body = bodyFor({ state: { fortressHeading: 0 }, travel: (args) => (args.build ? { result: arrived, go: true } : { result: noRoute }),
+		onLook: (o, calls) => (calls.some((call) => call.build) ? { structures: [fortressRow] } : null) });
+	body.observation.player.y = 33;
+	await withEnv(undefined, () => searchFor({ structure: 'fortress' }, body, { timeoutMs: 300_000 }));
+	const build = body.calls.find((call) => call.build);
+	assert.equal(build.y, LAVA_RIM_Y + 4);
+});
+
+test('brinkOf reads the walker footing fact; no walk sets off within 45 degrees of a reported drop from there', async () => {
+	assert.deepEqual(brinkOf('No seen standing spot ahead gets closer; footing {"drop":35,"yaw":-61}', { x: 18.3, z: 55.8 }), { x: 18.3, z: 55.8, yaw: -61, drop: 35 });
+	assert.equal(brinkOf('footing {"drop":2,"yaw":10}', { x: 0, z: 0 }), null, 'a step down is no brink');
+	assert.equal(brinkOf('footing {"drop":4,"into":"lava","yaw":-85,"distance":1.1}', { x: 0, z: 0 }).into, 'lava');
+	assert.equal(brinkOf('no footing fact', { x: 0, z: 0 }), null);
+	assert.ok(BRINK_DROP > 3, 'past fall damage');
+	assert.equal(towardBrink([{ x: 0, z: 0, yaw: -61 }], { x: 1, z: 1 }, -45), true);
+	assert.equal(towardBrink([{ x: 0, z: 0, yaw: -61 }], { x: 1, z: 1 }, 0), false);
+	assert.equal(towardBrink([{ x: 0, z: 0, yaw: -61 }], { x: 20, z: 1 }, -45), false, 'only from where it was seen');
+	const ridge = { state: 'FAILED', reasonCode: 'NO_ROUTE', message: 'No seen standing spot ahead gets closer, and build is false; footing {"drop":35,"yaw":-45}' };
+	const body = bodyFor({ state: { fortressHeading: 0 }, travel: (args) => (args.build ? { result: arrived, go: true } : { result: ridge }),
+		onLook: (o, calls) => (calls.some((call) => call.build) ? { structures: [fortressRow] } : null) });
+	await withEnv(undefined, () => searchFor({ structure: 'fortress' }, body, { timeoutMs: 300_000 }));
+	assert.deepEqual(body.calls.slice(0, 3).map((call) => [call.build, call.yaw]), [[false, 0], [false, 45], [true, undefined]], 'the -45 walk toward the drop is skipped');
+	const old = bodyFor({ state: { fortressHeading: 0 }, travel: (args) => (args.build ? { result: arrived, go: true } : { result: ridge }),
+		onLook: (o, calls) => (calls.some((call) => call.build) ? { structures: [fortressRow] } : null) });
+	await withEnv('r1', () => searchFor({ structure: 'fortress' }, old, { timeoutMs: 300_000 }));
+	assert.equal(old.calls[2].yaw, -45, 'r1 walks it');
 });

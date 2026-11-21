@@ -85,6 +85,9 @@ export const LAVA_RIM_Y = 36;
 /** Headings tried in turn when every walk and a build on one fail: the heading, then each side, then back. */
 export const HEADING_TURNS = Object.freeze([0, 90, -90, 180]);
 const MAX_TRIED = 256;
+const MAX_BRINKS = 32;
+/** Climbs off the lava sea's rim per find call, and how far off the higher ground may be. */
+const MAX_RIM_CLIMBS = 3, RIM_CLIMB_REACH = 32;
 /** Unreachable seen footings tried on one heading before walking it by compass. */
 const MAX_FOOTING_FAILS = 3;
 /** Blocks a leg must move the farthest point on along the heading to count as a way on. */
@@ -109,7 +112,7 @@ const footingKey = (row) => `${row.x},${row.y},${row.z}`;
  * heading, within 45 degrees of it, not far below or above the feet, and not tried already. A player looks along a lava
  * shore or a ridge and walks to the far end of what is in sight, rather than walking a compass line into a wall.
  */
-export function footingAhead(candidates, here, yaw, tried = []) {
+export function footingAhead(candidates, here, yaw, tried = [], { rim = false, brinks = [] } = {}) {
 	const u = unit(yaw), skip = new Set(tried);
 	let best = null;
 	for (const row of candidates ?? []) {
@@ -117,11 +120,55 @@ export function footingAhead(candidates, here, yaw, tried = []) {
 		const dx = row.x + 0.5 - here.x, dz = row.z + 0.5 - here.z, dy = row.y - here.y;
 		const along = dx * u.x + dz * u.z, side = Math.abs(dx * u.z - dz * u.x);
 		if (along < AHEAD_MIN || side > along || dy < -FOOTING_DROP || dy > FOOTING_RISE) continue;
-		if (row.y <= LAVA_RIM_Y && here.y > LAVA_RIM_Y + 4) continue;
+		// rim: ground at the lava sea's rim is never the way on, wherever the body stands (round 1: from y40 down, the search
+		// took shore footings at y33-36 and spent whole rooms there; 18 of its 35 death rooms were lava deaths).
+		if (row.y <= LAVA_RIM_Y && (rim || here.y > LAVA_RIM_Y + 4)) continue;
+		if (towardBrink(brinks, here, yawToward(dx, dz))) continue;
 		const score = along - side / 2 - Math.max(0, Math.abs(dy) - 4);
 		if (best === null || score > best.score) best = { ...row, along, score, distance: Math.hypot(dx, dz) };
 	}
 	return best;
+}
+
+/** A walk report of a drop at least this deep beside the feet (or any drop into lava) marks a brink. */
+export const BRINK_DROP = 6;
+/** A brink rules out headings within this many degrees of its own, from within BRINK_NEAR blocks of where it was seen. */
+const BRINK_SPREAD = 45, BRINK_NEAR = 4;
+/**
+ * The brink a travel result names: the walker's footing fact (`footing {"drop":35,"yaw":-61}`) at the body's feet. A player
+ * standing on a ridge with a 35-block drop one side does not walk that side (gate-8, round 1: 6 of 20 new-arm runs fell
+ * 30 blocks from one ridge after the walker had already reported the drop there).
+ */
+export function brinkOf(message, at) {
+	const text = /footing (\{[^}]*\})/.exec(String(message ?? ''))?.[1];
+	if (text === undefined || at === null) return null;
+	let fact;
+	try { fact = JSON.parse(text); } catch { return null; }
+	if (!Number.isFinite(fact?.yaw) || !(fact.drop >= BRINK_DROP || (fact.into === 'lava' && fact.drop >= 1))) return null;
+	return { x: at.x, z: at.z, yaw: fact.yaw, drop: fact.drop, ...(fact.into ? { into: fact.into } : {}) };
+}
+export function towardBrink(brinks, here, yaw) {
+	return (brinks ?? []).some((brink) => Math.hypot(brink.x - here.x, brink.z - here.z) <= BRINK_NEAR && Math.abs(wrap(yaw - brink.yaw)) < BRINK_SPREAD);
+}
+/** Dry ground a view showed: its land samples less its lava ones, and the farthest that was not lava. */
+const dryOf = (view) => ({ dry: (view?.land ?? 0) - (view?.lava ?? 0), farthest: view?.farthestDry ?? view?.farthestLand ?? 0 });
+
+/**
+ * The heading a new search keeps, read from the look over the caverns: the view with the most dry ground and the least
+ * lava, to the nearest 45 degrees. A player on high ground looks round and sets off across the open, lit caverns, not
+ * along a fixed compass line (round 1: the z rule decided finds per map, gate-7 0 of 20 against the generic sweep's 17,
+ * after it set off south onto the lava sea's shore). Null when no view showed OPEN_VIEW blocks of dry ground.
+ */
+export function viewHeading(views) {
+	let best = null;
+	for (const view of Array.isArray(views) ? views : []) {
+		if (!Number.isFinite(view?.yaw)) continue;
+		const { dry, farthest } = dryOf(view);
+		if (!(farthest >= OPEN_VIEW) || dry < 1) continue;
+		const score = dry - 2 * (view.lava ?? 0) + farthest / 12;
+		if (best === null || score > best.score) best = { yaw: wrap(Math.round(view.yaw / 45) * 45), score };
+	}
+	return best?.yaw ?? null;
 }
 
 /**
@@ -129,14 +176,16 @@ export function footingAhead(candidates, here, yaw, tried = []) {
  * OPEN_VIEW blocks, not tried from this front. A player walled in at a cavern's end turns along the open side rather than
  * digging on (smoke rooms 22 Nov: three walks failed at a tunnel face, then another 21-block tunnel, over and over).
  */
-export function openView(views, heading, tried = new Set()) {
+export function openView(views, heading, tried = new Set(), { dry = false, skip = () => false } = {}) {
 	let best = null;
 	for (const view of Array.isArray(views) ? views : []) {
-		if (!Number.isFinite(view?.yaw) || !(view.farthestLand >= OPEN_VIEW)) continue;
+		// dry: a view mostly of lava sea is no open ground, and its far side counts only as far as dry ground was seen.
+		const ground = dry ? dryOf(view) : { dry: 1, farthest: view?.farthestLand };
+		if (!Number.isFinite(view?.yaw) || !(ground.farthest >= OPEN_VIEW) || (dry && (view.lava ?? 0) > ground.dry)) continue;
 		const off = Math.abs(wrap(view.yaw - heading));
-		if (off > 90 || tried.has(viewKey(view.yaw))) continue;
-		const score = view.farthestLand - off / 6;
-		if (best === null || score > best.score) best = { yaw: Math.round(view.yaw), farthestLand: view.farthestLand, score };
+		if (off > 90 || tried.has(viewKey(view.yaw)) || skip(view.yaw)) continue;
+		const score = ground.farthest - off / 6;
+		if (best === null || score > best.score) best = { yaw: Math.round(view.yaw), farthestLand: ground.farthest, score };
 	}
 	return best;
 }
@@ -162,12 +211,21 @@ export async function searchNetherFortress(ctx, env = process.env) {
 	// MINEAGEN_FORTRESS_SEARCH=plain plays the loop without the walled-in rules (open side, dig cap, mobs that pin it),
 	// so a practice-room batch can play both side by side on the same code.
 	const walled = env.MINEAGEN_FORTRESS_SEARCH !== 'plain';
+	// MINEAGEN_FORTRESS_SEARCH=r1 plays round 1's loop: no rim climb, lava counted as open ground, the z heading, no brinks.
+	const r2 = walled && env.MINEAGEN_FORTRESS_SEARCH !== 'r1';
 	const state = body.eyeSearchState ?? {};
 	const looks = state.fortressLooks ??= [];
 	// Seen footings a walk failed to reach, kept across calls: never the next target again.
 	const tried = state.fortressTried ??= [];
+	// Brinks the walker reported (a long drop or lava beside the feet), kept across calls: no walk sets off over one.
+	const brinks = state.fortressBrinks ??= [];
 	const at = () => { const p = ctx.observation()?.player; return [p?.x, p?.y, p?.z].every(Number.isFinite) ? { x: p.x, y: p.y, z: p.z } : null; };
 	const noteLook = () => { const p = at(); if (p !== null) { looks.push({ x: Math.floor(p.x), z: Math.floor(p.z) }); if (looks.length > MAX_LOOKS) looks.shift(); } };
+	const noteBrink = (outcome) => {
+		if (!r2) return;
+		const brink = brinkOf(outcome?.result?.message, at());
+		if (brink !== null) { brinks.push(brink); if (brinks.length > MAX_BRINKS) brinks.shift(); }
+	};
 	const stop = (stateName, code, why, stopCode) => {
 		const back = handBack(stateName, code, why);
 		if (stopCode !== undefined) back.find.stopCode = stopCode;
@@ -201,7 +259,7 @@ export async function searchNetherFortress(ctx, env = process.env) {
 			}
 		}
 	}
-	let failed = 0, turn = 0, footFails = 0, headingTurn = 0, mobStops = 0;
+	let failed = 0, turn = 0, footFails = 0, headingTurn = 0, mobStops = 0, rimClimbs = 0;
 	let digs = 0;
 	// Open views walked from the current front, and the last place a walk (not a dig) made way: a walled-in search walks
 	// back there before it turns.
@@ -235,18 +293,47 @@ export async function searchNetherFortress(ctx, env = process.env) {
 		const target = nextFortressTarget(here, body.known?.(observation) ?? null, looks, sighted);
 		if (target === null) return stop('FAILED', 'FIND_NOT_FOUND', 'Every region within two of here has had its start ground seen, and no fortress was among them');
 		const remembered = target.kind === 'remembered';
-		state.fortressHeading ??= startHeading(here, target);
+		if (state.fortressHeading === undefined) {
+			// From the look just taken here (the opening climb's, or the call's first): the most open dry way; else along z.
+			const view = r2 ? ctx.ground?.() ?? null : null;
+			const fromLook = view !== null && Math.hypot(view.at.x - here.x, view.at.z - here.z) <= 4 ? viewHeading(view.views) : null;
+			state.fortressHeading = fromLook ?? startHeading(here, target);
+		}
+		// Off the lava sea's rim before anything else: up to the nearest higher ground in sight, any way, as a player
+		// climbs back from a lava shore rather than walking or tunnelling along it (round 1: gate-7's runs spent their
+		// rooms at y33-35 among hoglins, 5 of 20 dying in lava; gate-5's in 5 of 20).
+		if (r2 && here.y <= LAVA_RIM_Y + 1 && rimClimbs < MAX_RIM_CLIMBS) {
+			const away = (row) => Number.isFinite(row.distance) ? row.distance : Math.hypot(row.x + 0.5 - here.x, row.z + 0.5 - here.z);
+			const up = (body.frontier?.(observation)?.candidates ?? [])
+				.filter((row) => [row?.x, row?.y, row?.z].every(Number.isFinite) && row.y >= LAVA_RIM_Y + 4 && row.y - here.y <= FOOTING_DROP
+					&& row.blocked !== true && inside(row.x, row.z) && !tried.includes(footingKey(row)) && away(row) <= RIM_CLIMB_REACH
+					&& !towardBrink(brinks, here, yawToward(row.x + 0.5 - here.x, row.z + 0.5 - here.z)))
+				.sort((a, b) => away(a) - away(b))[0];
+			if (up !== undefined) {
+				rimClimbs += 1;
+				const climb = await leg(`up off the lava sea's rim to ${up.x},${up.y},${up.z}`, 'travel_to', { x: up.x + 0.5, y: up.y, z: up.z + 0.5, tolerance: 2, build: false });
+				const stopped = await settle(climb);
+				if (stopped !== null) return stopped;
+				noteBrink(climb);
+				if (climb.result?.reasonCode !== 'ARRIVED') { tried.push(footingKey(up)); if (tried.length > MAX_TRIED) tried.shift(); continue; }
+				const view = await look(-5);
+				noteLook();
+				if (view.interrupted || view.seen || view.ended) return settle(view);
+				continue;
+			}
+		}
 		// Toward a remembered fortress the bearing is its own; otherwise the kept heading.
 		const heading = remembered ? yawToward(target.x - here.x, target.z - here.z) : wrap(state.fortressHeading + HEADING_TURNS[headingTurn]);
 		if (front === null || front.heading !== heading) front = { heading, u: unit(heading), origin: here, point: here, along: 0 };
 		// Seen ground ahead of the farthest point, not just ahead of where a failed walk left the body.
-		const ahead = turn === 0 && footFails < MAX_FOOTING_FAILS ? footingAhead((body.frontier?.(observation)?.candidates ?? []).filter((row) => inside(row.x, row.z)), front.point, heading, tried) : null;
+		const ahead = turn === 0 && footFails < MAX_FOOTING_FAILS ? footingAhead((body.frontier?.(observation)?.candidates ?? []).filter((row) => inside(row.x, row.z)), front.point, heading, tried,
+			r2 ? { rim: true, brinks } : {}) : null;
 		const turns = remembered ? TURNS : SEARCH_TURNS;
 		let build = turn >= turns.length;
 		// Before a dig: the open side the last look showed from here, walked as a player turns along a cavern wall.
 		const seen = ctx.ground?.() ?? null;
 		const open = walled && build && !remembered && ahead === null && seen !== null && Math.hypot(seen.at.x - here.x, seen.at.z - here.z) <= 4
-			? openView(seen.views, heading, triedViews) : null;
+			? openView(seen.views, heading, triedViews, r2 ? { dry: true, skip: (yaw) => towardBrink(brinks, here, yaw) } : {}) : null;
 		if (open !== null) build = false;
 		// Walled in: two digs in a row never opened into walkable ground. Back to the last open ground, then the next heading.
 		if (walled && build && digs >= MAX_DIGS && !remembered && lastOpen?.walked === true) {
@@ -265,6 +352,13 @@ export async function searchNetherFortress(ctx, env = process.env) {
 			if (failed >= MAX_FAILED_LEGS) return stop('FAILED', 'FIND_BLOCKED', `No way on: ${failed} legs in a row got no farther, walled in by rock on every heading`, 'NO_WAY_ON');
 			continue;
 		}
+		// Not over a brink the walker reported here: that turn counts as tried.
+		if (r2 && !build && open === null && ahead === null && towardBrink(brinks, here, wrap(heading + turns[turn]))) {
+			turn += 1;
+			failed += 1;
+			if (failed >= MAX_FAILED_LEGS) return stop('FAILED', 'FIND_BLOCKED', `No way on: ${failed} legs in a row got no farther, with drops reported on the way on`, 'NO_WAY_ON');
+			continue;
+		}
 		let args, distance, how;
 		if (open !== null) {
 			distance = Math.max(MIN_LEG, Math.min(FORTRESS_LEG, open.farthestLand, Math.floor(reach())));
@@ -278,7 +372,9 @@ export async function searchNetherFortress(ctx, env = process.env) {
 			const yaw = build ? heading : wrap(heading + turns[turn]);
 			distance = Math.max(MIN_LEG, Math.min(build ? BUILD_LEG : remembered ? Math.min(FORTRESS_LEG, Math.round(target.distance)) : FORTRESS_LEG, Math.floor(reach())));
 			// A build leg aims past the farthest point: the way back to it is known ground, so only new rock is dug.
-			args = build ? { x: Math.floor(front.point.x + front.u.x * distance) + 0.5, y: Math.floor(front.point.y + 1e-3), z: Math.floor(front.point.z + front.u.z * distance) + 0.5, tolerance: 3, build }
+			// From the lava sea's rim, a build leg aims up off it: a tunnel at the sea's level is where lava breaks in.
+			const buildY = Math.floor(front.point.y + 1e-3);
+			args = build ? { x: Math.floor(front.point.x + front.u.x * distance) + 0.5, y: r2 && buildY <= LAVA_RIM_Y + 1 ? LAVA_RIM_Y + 4 : buildY, z: Math.floor(front.point.z + front.u.z * distance) + 0.5, tolerance: 3, build }
 				: { yaw, distance, build };
 			how = `${build ? 'build' : 'walk'} ${remembered ? `toward the fortress seen at ${Math.round(target.x)},${Math.round(target.z)}` : `on heading ${Math.round(yaw)}`}`;
 		}
@@ -288,6 +384,7 @@ export async function searchNetherFortress(ctx, env = process.env) {
 		const outcome = await leg(how, 'travel_to', args);
 		const ended = await settle(outcome);
 		if (ended !== null) return ended;
+		noteBrink(outcome);
 		const after = at() ?? here;
 		const moved = Math.hypot(after.x - here.x, after.z - here.z);
 		const gain = alongOf(after) - front.along;

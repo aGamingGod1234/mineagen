@@ -3875,18 +3875,25 @@ function gatherStand(observation, wanted, target, body) {
 /**
  * What one heading of a sweep showed of the ground ahead, from its surface samples (landmarks) past the ground at the
  * body's feet (GROUND_AHEAD blocks): how many were open water and how many anything else, and the farthest of those. A
- * search reads it as a player reads the view: all sea that way, or land.
+ * search reads it as a player reads the view: all sea that way, or land. A view with lava in it also says how many of its
+ * samples were lava and the farthest that was not (a lava sea is no ground to walk to).
  */
 const GROUND_AHEAD = 12;
 export function groundOfView(view) {
 	const landmarks = view.sections[SWEEP_SECTIONS.indexOf('landmarks')] ?? [];
-	let water = 0, land = 0, farthestLand = 0;
+	let water = 0, land = 0, farthestLand = 0, lava = 0, farthestDry = 0;
 	for (const { compact } of landmarks) {
 		if (typeof compact.blockId !== 'string' || !(compact.distance >= GROUND_AHEAD)) continue;
 		if (/(^|:)(water|bubble_column|kelp|kelp_plant|seagrass|tall_seagrass)$/.test(compact.blockId)) water += 1;
-		else { land += 1; if (Number.isFinite(compact.distance)) farthestLand = Math.max(farthestLand, compact.distance); }
+		else {
+			land += 1;
+			if (Number.isFinite(compact.distance)) farthestLand = Math.max(farthestLand, compact.distance);
+			// Sight rays stop on fluids, so a lava sea shows as surface samples: counted, and kept out of the farthest dry ground.
+			if (/(^|:)lava$/.test(compact.blockId)) lava += 1;
+			else if (Number.isFinite(compact.distance)) farthestDry = Math.max(farthestDry, compact.distance);
+		}
 	}
-	return { yaw: view.yaw, water, land, farthestLand: Math.round(farthestLand) };
+	return { yaw: view.yaw, water, land, farthestLand: Math.round(farthestLand), ...(lava > 0 ? { lava, farthestDry: Math.round(farthestDry) } : {}) };
 }
 
 function sweepView(facts, { yaw, pitch }) {
