@@ -11,8 +11,14 @@ import net.minecraft.core.Direction;
  * of 28 deaths to wither skeletons on open decks, not to the blaze fight.
  */
 public final class SpawnerHold {
-	/** Off until live runs pass the rods bar; fixtures turn it on with -Dmineagen.fight.spawnerHold=true. */
-	public static final boolean ENABLED = "true".equals(System.getProperty("mineagen.fight.spawnerHold"));
+	/** On by default; -Dmineagen.fight.spawnerHold=false turns it off (the old open fight_until and fight_target). */
+	public static final boolean ENABLED = !"false".equals(System.getProperty("mineagen.fight.spawnerHold"));
+	/**
+	 * On by default (-Dmineagen.fight.spawnerHoldOpen=false fights from the cell): fight the model's own fight (pursue, its drops) while healthy and go back
+	 * into the cell to wall in and heal below TURTLE_HEALTH, instead of fighting from the cell. Real fortress room: the open
+	 * fight kept 39 rods in 9 runs, the cell fight 7; the plain spawner room: the open fight died in 8 of 10, healing nowhere.
+	 */
+	public static final boolean OPEN_FIGHT = !"false".equals(System.getProperty("mineagen.fight.spawnerHoldOpen"));
 	/** A seen fortress spawner within this many blocks of the body starts a hold. */
 	public static final double SCAN = 24.0D;
 	/** The cell stands this far (horizontal) from the spawner: a vanilla spawner runs only with a player within 16. */
@@ -122,6 +128,21 @@ public final class SpawnerHold {
 	static boolean mayStepOut(float health, double witherToBody, double witherToRod, double fromCell, int blazesNearRod) {
 		if (witherToBody <= WITHER_CLEAR || witherToRod <= WITHER_CLEAR) return false;
 		return fromCell <= STEP_OUT && health >= COLLECT_HEALTH && blazesNearRod <= LEDGE_BLAZES;
+	}
+
+	/** A bold trip: this healthy, no blaze this near the rod, and the rod no farther from the cell. */
+	static final float BOLD_HEALTH = 16.0F;
+	static final double BOLD_BLAZE_CLEAR = 4.0D, BOLD_RANGE = 12.0D;
+
+	/**
+	 * A trip out for a rod at a busy spawner: BOLD_HEALTH, no wither skeleton near, no blaze within BOLD_BLAZE_CLEAR of the
+	 * rod, the rod within BOLD_RANGE of the cell. Real fortress room, 9 runs: the hold killed about 20 blazes a run from
+	 * its cell and kept 7 rods in all, against 39 for the open fight, because a blaze was always within 10 of the rods by
+	 * the spawner. The trip turns back below 12 health and the walled-in heal follows.
+	 */
+	static boolean mayFetchBold(float health, double witherToBody, double witherToRod, double blazeToRod, double fromCell) {
+		if (witherToBody <= WITHER_CLEAR || witherToRod <= WITHER_CLEAR) return false;
+		return health >= BOLD_HEALTH && blazeToRod > BOLD_BLAZE_CLEAR && fromCell <= BOLD_RANGE;
 	}
 
 	/** Eat inside the cell: hungry enough to stop regrowing, or hurt with room to eat, and a bite that ends before a volley. */

@@ -41,8 +41,8 @@ const TICK_RATE = unshownTickRate('not yet in a 20 vs 60 TPS A/B');
 const RUN_MIN = Number(process.env.RUN_MIN ?? 25), UNTIL = Number(process.env.UNTIL ?? 7), ARM = process.env.ARM ?? 'new';
 // The mod reads the instincts arm from its environment; the server inherits this process's.
 process.env.MINEAGEN_INSTINCTS = 'instincts';
-// The hold is off by default until it passes this fixture; the new arm turns it on.
-if (ARM === 'new') process.env.REPLAY_JAVA_OPTS = `${process.env.REPLAY_JAVA_OPTS ?? ''} -Dmineagen.fight.spawnerHold=true`.trim();
+// The hold is on by default; ARM=old turns it off (on an older jar the switch does nothing: it had no hold or had it off).
+process.env.REPLAY_JAVA_OPTS = `${process.env.REPLAY_JAVA_OPTS ?? ''} -Dmineagen.fight.spawnerHold=${ARM === 'new'}`.trim();
 await mkdir(out, { recursive: true });
 if ((await readdir(out)).length) { console.error('Use a fresh output directory'); process.exit(2); }
 await writeFile(path.join(out, 'manifest.json'), JSON.stringify({ kind: 'provider-free live mechanics', aiPerformanceMeasured: false, fixtureSetupUsesOperatorCommands: true,

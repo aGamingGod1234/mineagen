@@ -73,6 +73,9 @@ public final class SpawnerHoldVerification {
 		check(SpawnerHold.mayStepOut(12.0F, Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, 4.0D, 1), "a rod 4 blocks from the cell is stepped out for with one blaze near it");
 		check(!SpawnerHold.mayStepOut(12.0F, Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, 6.0D, 0), "not one 6 blocks off");
 		check(!SpawnerHold.mayStepOut(12.0F, Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, 2.0D, 2), "not with two blazes near it");
+		check(SpawnerHold.mayFetchBold(16.0F, Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, 4.5D, 12.0D), "a bold trip at 16 health, no blaze within 4 of a rod 12 from the cell");
+		check(!SpawnerHold.mayFetchBold(16.0F, Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, 3.5D, 6.0D), "not with a blaze within 4 of the rod");
+		check(!SpawnerHold.mayFetchBold(15.5F, Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, 9.0D, 6.0D), "not below 16 health");
 		check(SpawnerHold.mayFetchLedge(16.0F, Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, 1), "a ledge trip goes at 16 health with one blaze near the rod");
 		check(!SpawnerHold.mayFetchLedge(16.0F, Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, 2), "not with two blazes near the rod");
 		check(!SpawnerHold.mayFetchLedge(15.0F, Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, 0), "not below 16 health");

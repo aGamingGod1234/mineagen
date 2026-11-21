@@ -14,6 +14,7 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * The optional {@code collect:true} after a kill: walks to each drop the player saw fall, one at a time, by the same
@@ -48,6 +49,9 @@ public final class KillDropCollector {
 	 */
 	private UUID lookingDown;
 	private int lookTicks;
+	/** The step up to the brink before the look down: from 1.5 blocks back the edge hides the floor below. */
+	private ServerNavigationController brinkStep;
+	private boolean brinkTried;
 	private final java.util.Set<UUID> lookedDown = new java.util.HashSet<>();
 	static final int LOOK_DOWN_TICKS = 15;
 	/** A drop at least this far below the feet is "over an edge". */
@@ -86,6 +90,21 @@ public final class KillDropCollector {
 	/** Null while walking to a drop; the summary once every drop was taken or left. */
 	public String tick(ServerPlayer player, long nowEpochMs) {
 		while (true) {
+			if (lookingDown != null && !brinkTried) {
+				Entity seenDrop = ((net.minecraft.server.level.ServerLevel) player.level()).getEntity(lookingDown);
+				if (brinkStep == null) {
+					Vec3 brink = seenDrop instanceof ItemEntity drop && drop.isAlive() ? brink(player, drop.position()) : null;
+					if (brink == null) brinkTried = true;
+					else brinkStep = new ServerNavigationController(brink, 0.25D, false, nowEpochMs, 4_000L, false).crouched(true);
+				}
+				if (brinkStep != null) {
+					ServerController.TickResult stepped = brinkStep.tick(player, nowEpochMs);
+					if (stepped.state() == ServerController.State.RUNNING) return null;
+					brinkStep.cancel(player);
+					brinkStep = null;
+					brinkTried = true;
+				}
+			}
 			if (lookingDown != null) {
 				Entity entity = ((net.minecraft.server.level.ServerLevel) player.level()).getEntity(lookingDown);
 				if (entity instanceof ItemEntity item && item.isAlive() && nowEpochMs < deadline - 1000L && lookTicks++ < LOOK_DOWN_TICKS) {
@@ -133,6 +152,7 @@ public final class KillDropCollector {
 					notes.add("walk to " + currentLabel + " stopped: " + result.reasonCode());
 					lookingDown = currentId;
 					lookTicks = 0;
+					brinkTried = false;
 					current = null;
 					continue;
 				}
@@ -261,5 +281,30 @@ public final class KillDropCollector {
 		if (current != null) current.cancel(player);
 		current = null;
 		lookingDown = null;
+		if (brinkStep != null) { brinkStep.cancel(player); brinkStep = null; }
+	}
+
+	/**
+	 * The last spot on the body's own floor along the line toward a drop below it, 0.3 short of the edge: the column
+	 * under each step is checked in the world as the body has walked it (its own floor), or null when the drop is not
+	 * past an edge of that floor within 4 blocks.
+	 */
+	private static Vec3 brink(ServerPlayer player, Vec3 drop) {
+		double dx = drop.x - player.getX(), dz = drop.z - player.getZ();
+		double length = Math.hypot(dx, dz);
+		if (length < 0.5D) return null;
+		int floor = net.minecraft.util.Mth.floor(player.getY() - 0.5D);
+		var seen = dev.agaminggod.mineagen.server.perception.SeenTerrain.of(player);
+		Vec3 last = null;
+		for (double along = 0.25D; along <= Math.min(length, 4.0D); along += 0.25D) {
+			double x = player.getX() + dx / length * along, z = player.getZ() + dz / length * along;
+			var under = seen.known(net.minecraft.util.Mth.floor(x), floor, net.minecraft.util.Mth.floor(z));
+			if (under == null || under.getCollisionShape(player.level(), new net.minecraft.core.BlockPos(net.minecraft.util.Mth.floor(x), floor, net.minecraft.util.Mth.floor(z))).isEmpty()) {
+				if (last == null) return null;
+				return last;
+			}
+			last = new Vec3(x - dx / length * 0.3D, player.getY(), z - dz / length * 0.3D);
+		}
+		return null;
 	}
 }
