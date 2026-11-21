@@ -6,7 +6,8 @@ const NAME = /^[a-z0-9][a-z0-9-]{0,40}$/;
 /**
  * Checks a plan and expands it into games. Every repeat of a save point draws one loot salt shared by all arms, so the
  * arms of a repeat play the same world with the same loot rolls and differ only in their build. Games are ordered
- * repeat by repeat, with the arm listed first alternating, so both arms of a repeat start in the same wave.
+ * repeat by repeat, with the arm listed first alternating, so both arms of a repeat start in the same wave. A save point
+ * with `arms` plays only those arms.
  */
 export function expandPlan(plan, { salt = () => randomInt(-2147483648, 2147483647) } = {}) {
 	const errors = [];
@@ -28,6 +29,7 @@ export function expandPlan(plan, { salt = () => randomInt(-2147483648, 214748364
 		need(typeof point.file === 'string', `save point ${name} needs file`);
 		need(Number.isInteger(point.repeats) && point.repeats >= 1, `save point ${name} needs repeats >= 1`);
 		need(Array.isArray(point.targets) && point.targets.length >= 1, `save point ${name} needs targets (long-run milestone ids it should reach)`);
+		need(point.arms === undefined || (Array.isArray(point.arms) && point.arms.length >= 1 && point.arms.every(a => a in (plan.arms ?? {}))), `save point ${name}: arms must list arms of the plan`);
 	}
 	if (errors.length) throw new Error(`bad plan:\n  ${errors.join('\n  ')}`);
 	const armNames = arms.map(([name]) => name);
@@ -38,7 +40,8 @@ export function expandPlan(plan, { salt = () => randomInt(-2147483648, 214748364
 		for (const [name, point] of points) {
 			if (repeat > point.repeats) continue;
 			const shared = point.salt ?? salt();
-			const order = flip++ % 2 ? [...armNames].reverse() : armNames;
+			const mine = point.arms ? armNames.filter(a => point.arms.includes(a)) : armNames;
+			const order = flip++ % 2 ? [...mine].reverse() : mine;
 			for (const arm of order) games.push({ id: `${name}-r${repeat}-${arm}`, savepoint: name, repeat, arm, salt: shared, attempts: 0, state: 'queued' });
 		}
 	}
@@ -92,7 +95,7 @@ export function scoreGame(report, targets, { inheritedMs = 30_000 } = {}) {
 export function summarize(games, plan) {
 	const rows = [];
 	for (const [name, point] of Object.entries(plan.savepoints)) {
-		for (const arm of Object.keys(plan.arms)) {
+		for (const arm of point.arms ?? Object.keys(plan.arms)) {
 			const mine = games.filter(g => g.savepoint === name && g.arm === arm);
 			const known = mine.filter(g => g.score?.known);
 			const row = { savepoint: name, arm, games: mine.length, known: known.length, lost: mine.filter(g => g.state === 'lost').length, targets: {} };

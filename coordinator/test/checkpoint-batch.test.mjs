@@ -51,3 +51,12 @@ test('checkpoint batch scores earned targets only, keeps inherited and missing o
 	const row = summarize(games, plan()).find(r => r.savepoint === 'nether' && r.arm === 'main');
 	assert.deepEqual([row.games, row.known, row.lost, row.targets.fortress.reached, row.targets.fortress.of, row.deaths], [2, 1, 1, 1, 1, 2]);
 });
+
+test('checkpoint batch plays a save point only with the arms it lists', () => {
+	const p = plan(); p.savepoints.eyes.arms = ['main'];
+	const games = expandPlan(p, { salt: () => 1 });
+	assert.deepEqual(games.filter(g => g.savepoint === 'eyes').map(g => g.arm), ['main']);
+	assert.deepEqual(summarize(games, p).filter(r => r.savepoint === 'eyes').map(r => r.arm), ['main']);
+	p.savepoints.eyes.arms = ['nope'];
+	assert.throws(() => expandPlan(p), /arms must list arms of the plan/);
+});
