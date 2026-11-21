@@ -114,6 +114,13 @@ const save = async () => { await writeFile(path.join(out, 'state.json.tmp'), JSO
 let created = 0, spares = plan.spares ?? 0, stopped = false, signInChanged = false;
 process.on('SIGINT', () => { stopped = true; }); process.on('SIGTERM', () => { stopped = true; });
 
+// OUT/MAX_RUNNING holds a number: no new game starts while that many are running (lowers concurrency without a restart).
+function underCap() {
+	let cap;
+	try { cap = Number(readFileSync(path.join(out, 'MAX_RUNNING'), 'utf8').trim()); } catch { return true; }
+	return !Number.isFinite(cap) || games.filter(g => g.state === 'running').length < cap;
+}
+
 async function prepare(vm) {
 	await remote(vm.id, 'set -e; mkdir -p ~/ck/arms ~/ck/sp ~/ck/games; command -v eatmydata >/dev/null; test -x ~/rooms/jdk/bin/java');
 	const hash = await installCodex(vm.id, { authFile, version: codexVersion });
@@ -218,7 +225,7 @@ while (true) {
 					}
 				}
 			}
-			if (!vm.game && !stopped && !signInChanged && !existsSync(path.join(out, 'STOP')) && canStart(Date.now(), plan) && await meterOk()) {
+			if (!vm.game && !stopped && !signInChanged && !existsSync(path.join(out, 'STOP')) && canStart(Date.now(), plan) && underCap() && await meterOk()) {
 				const game = nextGame(games);
 				if (game) await start(vm, game);
 			}
