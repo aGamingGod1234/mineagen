@@ -44,6 +44,7 @@
 		"note": "wall fortress order 8: a Nether entry on safe ground near Nether 0,0 with a Nether-entry kit; find fortress repeated with the shared stand-in answering forks, 15 game-minutes at 20 TPS. Ground truth: vanilla locate in the Nether from the start.",
 		"setup": [
 			"item replace entity Probe weapon.offhand with minecraft:shield",
+			"item replace entity Probe armor.head with minecraft:golden_helmet",
 			"execute in minecraft:the_nether run spreadplayers 0 0 0 24 under 100 false Probe"
 		],
 		"after": {
@@ -150,6 +151,7 @@
 		"note": "wall fortress order 8: a Nether entry on safe ground near Nether 0,0 with a Nether-entry kit; find fortress repeated with the shared stand-in answering forks, 15 game-minutes at 20 TPS. Ground truth: vanilla locate in the Nether from the start.",
 		"setup": [
 			"item replace entity Probe weapon.offhand with minecraft:shield",
+			"item replace entity Probe armor.head with minecraft:golden_helmet",
 			"execute in minecraft:the_nether run spreadplayers 0 0 0 24 under 100 false Probe"
 		],
 		"after": {
@@ -256,6 +258,7 @@
 		"note": "wall fortress order 8: a Nether entry on safe ground near Nether 0,0 with a Nether-entry kit; find fortress repeated with the shared stand-in answering forks, 15 game-minutes at 20 TPS. Ground truth: vanilla locate in the Nether from the start.",
 		"setup": [
 			"item replace entity Probe weapon.offhand with minecraft:shield",
+			"item replace entity Probe armor.head with minecraft:golden_helmet",
 			"execute in minecraft:the_nether run spreadplayers 0 0 0 24 under 100 false Probe"
 		],
 		"after": {
@@ -362,6 +365,7 @@
 		"note": "wall fortress order 8: a Nether entry on safe ground near Nether 0,0 with a Nether-entry kit; find fortress repeated with the shared stand-in answering forks, 15 game-minutes at 20 TPS. Ground truth: vanilla locate in the Nether from the start.",
 		"setup": [
 			"item replace entity Probe weapon.offhand with minecraft:shield",
+			"item replace entity Probe armor.head with minecraft:golden_helmet",
 			"execute in minecraft:the_nether run spreadplayers 0 0 0 24 under 100 false Probe"
 		],
 		"after": {
