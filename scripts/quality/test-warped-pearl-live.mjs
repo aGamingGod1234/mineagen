@@ -253,7 +253,8 @@ finally{
  }
  await s?.stop().catch(()=>{});
 }
-for(const f of await readdir(path.join(out,'server/world/players/stats')).catch(()=>[])){
+let statsRead=false;
+for(const f of await readdir(path.join(out,'server/world/players/stats')).catch(()=>[])){statsRead=true;
  const stats=JSON.parse(await readFile(path.join(out,'server/world/players/stats',f),'utf8')).stats??{};result.stats=stats;
  result.endermenKilled=stats['minecraft:killed']?.['minecraft:enderman']??0;result.pearlsPickedUp=stats['minecraft:picked_up']?.['minecraft:ender_pearl']??0;result.deaths=stats['minecraft:custom']?.['minecraft:deaths']??0;
 }
