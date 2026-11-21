@@ -13,7 +13,8 @@
 // setup: operator commands that build a fixture before the calls, {x}, {y}, {z} (with +n or -n; {x+0.5} is a cell's
 // centre) standing for the body's block at spawn; after: { ms, commands } runs after setup. A call argument that is
 // exactly such a placeholder becomes that number. expectDamageTaken: a survival room, judged on no death and exactly that
-// damage (findSpotVerdict in lib/find-spot.mjs). locateIn: the dimension to run locate in (a Nether start).
+// damage (findSpotVerdict in lib/find-spot.mjs). locateIn: the dimension to run locate in (a Nether start). mining: blocks
+// mined, tool uses and blocks placed per spot from vanilla's stats (row.mining).
 // Production steering lives in run-incident.mjs; this body-only fixture cannot accept steer:true.
 import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -160,6 +161,15 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 			for (const text of spot.probe ?? []) row.probe.push(String(await s.command(atBody(text, base))).slice(0, 200));
 			if (row.probe.length) console.log(`[${spot.name}] probe ${row.probe.join(' | ')}`);
 		}
+		// mining: { mined: [block ids], used: [item ids], placed: [item ids] } counts each from vanilla's stats while the spot
+		// plays (minecraft.mined, and minecraft.used, which is a tool's uses or a block's placements), into row.mining.
+		const tally = spot.mining ? Object.entries({ mined: spot.mining.mined ?? [], used: spot.mining.used ?? [], placed: spot.mining.placed ?? [] })
+			.flatMap(([kind, ids]) => ids.map((id, index) => ({ kind, id, objective: `fm_${kind[0]}${index}`, stat: `minecraft.${kind === 'mined' ? 'mined' : 'used'}:minecraft.${id}` }))) : [];
+		for (const one of tally) {
+			await s.command(`scoreboard objectives remove ${one.objective}`);
+			const reply = String(await s.command(`scoreboard objectives add ${one.objective} ${one.stat}`));
+			if (!/added/i.test(reply)) console.log(`[${spot.name}] mining counter ${one.stat}: ${reply.slice(0, 160)}`);
+		}
 		row.start = await pos();
 		row.kit = (runtime.latestObservation?.(record)?.inventory?.items ?? adaptObservation(await s.observe()).inventory?.items ?? []).map(item => `${item.itemId.replace('minecraft:', '')}x${item.count}@${item.slot}`);
 		console.log(`[${spot.name}] kit ${row.kit.join(' ')}`);
@@ -222,6 +232,16 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 			if (pending.length) console.log(`[${spot.name}] no terminal receipt by the budget for ${pending.map(action => action.type).join(', ')}`);
 		}
 		sampling = false; await sampler;
+		if (tally.length) {
+			const read = async one => Number(/has (\d+)/.exec(String(await s.command(`scoreboard players get ${AGENT} ${one.objective}`)))?.[1] ?? 0);
+			row.mining = { mined: {}, used: {}, placed: {} };
+			for (const one of tally) { const n = await read(one); if (n > 0) row.mining[one.kind][one.id] = n; }
+			const sum = kind => Object.values(row.mining[kind]).reduce((a, b) => a + b, 0);
+			row.mining.minedTotal = sum('mined');
+			row.mining.pickaxeUses = Object.entries(row.mining.used).filter(([id]) => /_pickaxe$/.test(id)).reduce((a, [, n]) => a + n, 0);
+			row.mining.placedTotal = sum('placed');
+			console.log(`[${spot.name}] mining ${JSON.stringify(row.mining)}`);
+		}
 		row.handBacks = row.calls.filter((entry) => entry.reasonCode === 'FIND_DANGER').length;
 		row.seconds = Math.round((Date.now() - t0) / 1000);
 		let walked = 0, farthest = 0;

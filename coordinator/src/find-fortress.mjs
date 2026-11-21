@@ -34,8 +34,12 @@ const MAX_LOOKS = 256;
 const BUILD_BLOCKS = new Set(['minecraft:cobblestone', 'minecraft:cobbled_deepslate', 'minecraft:dirt', 'minecraft:stone', 'minecraft:deepslate',
 	'minecraft:andesite', 'minecraft:diorite', 'minecraft:granite', 'minecraft:tuff', 'minecraft:netherrack', 'minecraft:blackstone', 'minecraft:basalt']);
 
-/** Whether a find target is a Nether fortress sought in the Nether. */
-export function fortressSearch(profile, observation) {
+/**
+ * Whether a find target is a Nether fortress sought in the Nether. MINEAGEN_FORTRESS_SEARCH=off keeps the generic sweep
+ * instead, so a practice-room batch can play both side by side on the same code.
+ */
+export function fortressSearch(profile, observation, env = process.env) {
+	if (env.MINEAGEN_FORTRESS_SEARCH === 'off') return false;
 	return profile?.kind === 'structure' && /\bfortress\b/.test(profile.label ?? '') && observation?.world?.dimension === 'minecraft:the_nether';
 }
 

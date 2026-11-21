@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { searchFor } from '../src/find-search.mjs';
-import { MAX_FAILED_LEGS, TURNS, FORTRESS_LEG, BUILD_LEG, nextFortressTarget, yawToward } from '../src/find-fortress.mjs';
+import { MAX_FAILED_LEGS, TURNS, FORTRESS_LEG, BUILD_LEG, fortressSearch, nextFortressTarget, yawToward } from '../src/find-fortress.mjs';
 import { REGION_BLOCKS, searchRegions } from '../src/nether-regions.mjs';
 
 // The wall-breaker contract's hand-back rules for find {structure: fortress} in the Nether, one test each.
@@ -177,6 +177,12 @@ test('outside the Nether, or for another structure, the generic sweep runs', asy
 	const bastion = bodyFor();
 	await searchFor({ structure: 'bastion' }, bastion, { timeoutMs: 20_000 });
 	assert.equal(bastion.calls[0].build, false);
+});
+
+test('MINEAGEN_FORTRESS_SEARCH=off keeps the generic sweep for a fortress in the Nether', () => {
+	const profile = { kind: 'structure', label: 'fortress' }, observation = { world: { dimension: 'minecraft:the_nether' } };
+	assert.equal(fortressSearch(profile, observation, {}), true);
+	assert.equal(fortressSearch(profile, observation, { MINEAGEN_FORTRESS_SEARCH: 'off' }), false);
 });
 
 test('a mob stopping legs is neither progress nor a closed way: the search runs to its time cap, not NO_WAY_ON', async () => {

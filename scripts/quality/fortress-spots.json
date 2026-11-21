@@ -30,10 +30,18 @@
 			{
 				"item": "minecraft:flint_and_steel",
 				"count": 1
+			},
+			{
+				"item": "minecraft:stick",
+				"count": 8
+			},
+			{
+				"item": "minecraft:crafting_table",
+				"count": 1
 			}
 		],
 		"monsters": true,
-		"note": "wall fortress order 8: a Nether entry on safe ground near Nether 0,0 with a Nether-entry kit; find fortress repeated as a model that only re-asks would, 15 game-minutes at 20 TPS. Ground truth: vanilla locate in the Nether from the start.",
+		"note": "wall fortress order 8: a Nether entry on safe ground near Nether 0,0 with a Nether-entry kit; find fortress repeated with the shared stand-in answering forks, 15 game-minutes at 20 TPS. Ground truth: vanilla locate in the Nether from the start.",
 		"setup": [
 			"item replace entity Probe weapon.offhand with minecraft:shield",
 			"execute in minecraft:the_nether run spreadplayers 0 0 0 24 under 100 false Probe"
@@ -60,7 +68,42 @@
 		"probe": [
 			"data get entity Probe Dimension",
 			"data get entity Probe Pos"
-		]
+		],
+		"mining": {
+			"mined": [
+				"netherrack",
+				"blackstone",
+				"basalt",
+				"soul_sand",
+				"soul_soil",
+				"magma_block",
+				"nether_quartz_ore",
+				"nether_gold_ore",
+				"gravel",
+				"crimson_nylium",
+				"warped_nylium",
+				"glowstone",
+				"nether_wart_block",
+				"warped_wart_block",
+				"crimson_stem",
+				"warped_stem",
+				"bone_block",
+				"nether_bricks",
+				"cobblestone"
+			],
+			"used": [
+				"iron_pickaxe",
+				"stone_pickaxe",
+				"golden_pickaxe",
+				"diamond_pickaxe",
+				"wooden_pickaxe"
+			],
+			"placed": [
+				"cobblestone",
+				"netherrack",
+				"blackstone"
+			]
+		}
 	},
 	{
 		"name": "fortress-gate-2",
@@ -93,10 +136,18 @@
 			{
 				"item": "minecraft:flint_and_steel",
 				"count": 1
+			},
+			{
+				"item": "minecraft:stick",
+				"count": 8
+			},
+			{
+				"item": "minecraft:crafting_table",
+				"count": 1
 			}
 		],
 		"monsters": true,
-		"note": "wall fortress order 8: a Nether entry on safe ground near Nether 0,0 with a Nether-entry kit; find fortress repeated as a model that only re-asks would, 15 game-minutes at 20 TPS. Ground truth: vanilla locate in the Nether from the start.",
+		"note": "wall fortress order 8: a Nether entry on safe ground near Nether 0,0 with a Nether-entry kit; find fortress repeated with the shared stand-in answering forks, 15 game-minutes at 20 TPS. Ground truth: vanilla locate in the Nether from the start.",
 		"setup": [
 			"item replace entity Probe weapon.offhand with minecraft:shield",
 			"execute in minecraft:the_nether run spreadplayers 0 0 0 24 under 100 false Probe"
@@ -123,7 +174,42 @@
 		"probe": [
 			"data get entity Probe Dimension",
 			"data get entity Probe Pos"
-		]
+		],
+		"mining": {
+			"mined": [
+				"netherrack",
+				"blackstone",
+				"basalt",
+				"soul_sand",
+				"soul_soil",
+				"magma_block",
+				"nether_quartz_ore",
+				"nether_gold_ore",
+				"gravel",
+				"crimson_nylium",
+				"warped_nylium",
+				"glowstone",
+				"nether_wart_block",
+				"warped_wart_block",
+				"crimson_stem",
+				"warped_stem",
+				"bone_block",
+				"nether_bricks",
+				"cobblestone"
+			],
+			"used": [
+				"iron_pickaxe",
+				"stone_pickaxe",
+				"golden_pickaxe",
+				"diamond_pickaxe",
+				"wooden_pickaxe"
+			],
+			"placed": [
+				"cobblestone",
+				"netherrack",
+				"blackstone"
+			]
+		}
 	},
 	{
 		"name": "fortress-gate-3",
@@ -156,10 +242,18 @@
 			{
 				"item": "minecraft:flint_and_steel",
 				"count": 1
+			},
+			{
+				"item": "minecraft:stick",
+				"count": 8
+			},
+			{
+				"item": "minecraft:crafting_table",
+				"count": 1
 			}
 		],
 		"monsters": true,
-		"note": "wall fortress order 8: a Nether entry on safe ground near Nether 0,0 with a Nether-entry kit; find fortress repeated as a model that only re-asks would, 15 game-minutes at 20 TPS. Ground truth: vanilla locate in the Nether from the start.",
+		"note": "wall fortress order 8: a Nether entry on safe ground near Nether 0,0 with a Nether-entry kit; find fortress repeated with the shared stand-in answering forks, 15 game-minutes at 20 TPS. Ground truth: vanilla locate in the Nether from the start.",
 		"setup": [
 			"item replace entity Probe weapon.offhand with minecraft:shield",
 			"execute in minecraft:the_nether run spreadplayers 0 0 0 24 under 100 false Probe"
@@ -186,7 +280,42 @@
 		"probe": [
 			"data get entity Probe Dimension",
 			"data get entity Probe Pos"
-		]
+		],
+		"mining": {
+			"mined": [
+				"netherrack",
+				"blackstone",
+				"basalt",
+				"soul_sand",
+				"soul_soil",
+				"magma_block",
+				"nether_quartz_ore",
+				"nether_gold_ore",
+				"gravel",
+				"crimson_nylium",
+				"warped_nylium",
+				"glowstone",
+				"nether_wart_block",
+				"warped_wart_block",
+				"crimson_stem",
+				"warped_stem",
+				"bone_block",
+				"nether_bricks",
+				"cobblestone"
+			],
+			"used": [
+				"iron_pickaxe",
+				"stone_pickaxe",
+				"golden_pickaxe",
+				"diamond_pickaxe",
+				"wooden_pickaxe"
+			],
+			"placed": [
+				"cobblestone",
+				"netherrack",
+				"blackstone"
+			]
+		}
 	},
 	{
 		"name": "fortress-gate-4",
@@ -219,10 +348,18 @@
 			{
 				"item": "minecraft:flint_and_steel",
 				"count": 1
+			},
+			{
+				"item": "minecraft:stick",
+				"count": 8
+			},
+			{
+				"item": "minecraft:crafting_table",
+				"count": 1
 			}
 		],
 		"monsters": true,
-		"note": "wall fortress order 8: a Nether entry on safe ground near Nether 0,0 with a Nether-entry kit; find fortress repeated as a model that only re-asks would, 15 game-minutes at 20 TPS. Ground truth: vanilla locate in the Nether from the start.",
+		"note": "wall fortress order 8: a Nether entry on safe ground near Nether 0,0 with a Nether-entry kit; find fortress repeated with the shared stand-in answering forks, 15 game-minutes at 20 TPS. Ground truth: vanilla locate in the Nether from the start.",
 		"setup": [
 			"item replace entity Probe weapon.offhand with minecraft:shield",
 			"execute in minecraft:the_nether run spreadplayers 0 0 0 24 under 100 false Probe"
@@ -249,6 +386,41 @@
 		"probe": [
 			"data get entity Probe Dimension",
 			"data get entity Probe Pos"
-		]
+		],
+		"mining": {
+			"mined": [
+				"netherrack",
+				"blackstone",
+				"basalt",
+				"soul_sand",
+				"soul_soil",
+				"magma_block",
+				"nether_quartz_ore",
+				"nether_gold_ore",
+				"gravel",
+				"crimson_nylium",
+				"warped_nylium",
+				"glowstone",
+				"nether_wart_block",
+				"warped_wart_block",
+				"crimson_stem",
+				"warped_stem",
+				"bone_block",
+				"nether_bricks",
+				"cobblestone"
+			],
+			"used": [
+				"iron_pickaxe",
+				"stone_pickaxe",
+				"golden_pickaxe",
+				"diamond_pickaxe",
+				"wooden_pickaxe"
+			],
+			"placed": [
+				"cobblestone",
+				"netherrack",
+				"blackstone"
+			]
+		}
 	}
 ]
