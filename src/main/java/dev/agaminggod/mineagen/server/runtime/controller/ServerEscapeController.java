@@ -185,8 +185,8 @@ public final class ServerEscapeController implements ServerController {
 		int tries = bank == null ? 0 : bankTries.merge(bank, 1, Integer::sum);
 		boolean bankAbove = bank != null && bank.getY() > player.getBlockY();
 		String block = plainBlock(player);
-		boolean canFill = bank == null && fills < MAX_TRIES && block != null && connectedWater(player.level(), player.blockPosition()).size() <= FILL_POOL
-				&& fillTarget(player) != null;
+		Column column = bank == null && block != null && fills < MAX_TRIES ? fillColumn(player.level(), player.blockPosition()) : null;
+		boolean canFill = column != null && ServerBuildController.carried(player, block) >= column.depth();
 		BlockPos step = bank == null && !canFill && block != null && steps < MAX_TRIES ? stepSite(player) : null;
 		WaterMove next = waterMove(player.isUnderWater(), player.getAirSupply(), bank != null, tries, player.onGround(), bankAbove,
 				bank != null && stairedBanks.contains(bank), swims, canFill, step != null);
@@ -216,7 +216,7 @@ public final class ServerEscapeController implements ServerController {
 			}
 			case FILL -> {
 				fills++;
-				yield startMove(player, fillUnder(block), "fill the flooded hole under the body with " + block.replace("minecraft:", ""));
+				yield startMove(player, fillUnder(block, column.top().getX(), column.top().getZ()), "fill the " + column.depth() + " water cells under the body with " + block.replace("minecraft:", ""));
 			}
 			case TRAVEL -> {
 				travelBank = bank.immutable();
@@ -254,8 +254,11 @@ public final class ServerEscapeController implements ServerController {
 	 */
 	static BlockPos stepSite(ServerPlayer player) {
 		Level level = player.level();
-		BlockPos feet = player.blockPosition();
-		if (!level.getFluidState(feet.above()).isEmpty() && !level.getBlockState(feet.above()).isAir()) return null;
+		BlockPos body = player.blockPosition();
+		// Afloat, the feet are in the lake's top cell or just above it in the shaft: the step goes at the lake's top level.
+		BlockPos feet = level.getFluidState(body).is(net.minecraft.tags.FluidTags.WATER) && !level.getFluidState(body.above()).is(net.minecraft.tags.FluidTags.WATER) ? body
+				: level.getFluidState(body.below()).is(net.minecraft.tags.FluidTags.WATER) ? body.below() : null;
+		if (feet == null || !clear(level, feet.above())) return null;
 		BlockPos best = null;
 		for (Direction side : Direction.Plane.HORIZONTAL) {
 			BlockPos site = feet.relative(side);
@@ -283,16 +286,22 @@ public final class ServerEscapeController implements ServerController {
 		int[] ticks = {0};
 		return (player, input) -> {
 			if (solid(player.level(), at)) return new EscapeMoves.Result(EscapeMoves.Status.DONE, "placed " + item.replace("minecraft:", "") + " at " + at.toShortString());
-			if (++ticks[0] > 60) return new EscapeMoves.Result(EscapeMoves.Status.FAILED, "could not place into " + at.toShortString());
+			if (++ticks[0] > 100) return new EscapeMoves.Result(EscapeMoves.Status.FAILED, "could not place into " + at.toShortString());
 			net.minecraft.world.phys.Vec3 aim;
 			try { aim = environment.aim(player, at, face, item); }
 			catch (RuntimeException refused) { aim = net.minecraft.world.phys.Vec3.atCenterOf(at).add(-face.getStepX() * 0.499D, -face.getStepY() * 0.499D, -face.getStepZ() * 0.499D); }
-			boolean jump = player.isInWater();
-			var look = dev.agaminggod.mineagen.server.runtime.input.AgentInputStates.lookingAt(player, aim, 0, 0, jump, false, false, false, false, net.minecraft.world.InteractionHand.MAIN_HAND);
+			// A face that points down (a roof's underside) is seen only from below it: afloat with the eyes above it, sink
+			// (sneak) until they are under it, then hold there; any other face keeps the body afloat with jump.
+			double eye = player.getEyeY(), faceY = at.getY() + 1.0D;
+			boolean below = face != Direction.DOWN || eye < faceY - 0.15D;
+			boolean sneak = player.isInWater() && !below;
+			boolean jump = player.isInWater() && (face != Direction.DOWN || eye < faceY - 0.9D);
+			var look = dev.agaminggod.mineagen.server.runtime.input.AgentInputStates.lookingAt(player, aim, 0, 0, jump, sneak, false, false, false, net.minecraft.world.InteractionHand.MAIN_HAND);
 			float yaw = dev.agaminggod.mineagen.server.runtime.input.AgentInputStates.turnYaw(player.getYRot(), look.yaw());
 			float pitch = dev.agaminggod.mineagen.server.runtime.input.AgentInputStates.turnPitch(player.getXRot(), look.pitch());
-			input.accept(new dev.agaminggod.mineagen.server.runtime.input.AgentInputState(0.0F, 0.0F, jump, false, false, false, false, yaw, pitch,
+			input.accept(new dev.agaminggod.mineagen.server.runtime.input.AgentInputState(0.0F, 0.0F, jump, sneak, false, false, false, yaw, pitch,
 					player.getInventory().getSelectedSlot(), net.minecraft.world.InteractionHand.MAIN_HAND));
+			if (!below) return new EscapeMoves.Result(EscapeMoves.Status.RUNNING, "sinking under the roof to see " + at.toShortString() + "'s top");
 			if (Math.abs(dev.agaminggod.mineagen.server.runtime.input.AgentInputStates.shortestAngleDelta(yaw, look.yaw())) > 1.0F || Math.abs(pitch - look.pitch()) > 1.0F)
 				return new EscapeMoves.Result(EscapeMoves.Status.RUNNING, "looking at " + at.toShortString());
 			try { environment.place(player, at, face, item); } catch (RuntimeException refused) { /* not ready; try again next tick */ }
@@ -300,26 +309,36 @@ public final class ServerEscapeController implements ServerController {
 		};
 	}
 
-	/** A pool this small with no bank is a flooded hole or shaft that carried blocks can fill. */
-	static final int FILL_POOL = 48;
-	/** How far down the body's column a water cell to fill is looked for. */
+	/** How deep a water column under the body is filled at most. */
 	static final int FILL_DEPTH = 10;
 
-	/** The lowest water cell in the body's own column, resting on a block that holds a placement; null when there is none. */
-	static BlockPos fillTarget(ServerPlayer player) {
-		Level level = player.level();
-		BlockPos feet = player.blockPosition();
-		BlockPos lowest = null;
-		for (int dy = 0; dy <= FILL_DEPTH; dy++) {
-			BlockPos cell = feet.below(dy);
-			if (!level.getFluidState(cell).is(net.minecraft.tags.FluidTags.WATER)) {
-				if (lowest != null && level.getBlockState(cell).isFaceSturdy(level, cell, Direction.UP)) return lowest;
-				if (dy > 0) return null;
+	/** The water cells under the body: the lowest one (resting on a block that holds a placement) and the top one. */
+	record Column(BlockPos lowest, BlockPos top) {
+		int depth() { return top.getY() - lowest.getY() + 1; }
+	}
+
+	/**
+	 * The water column under the feet (or under the cell the feet float over) when filling it ends in air: the cell over
+	 * its top is open, so standing on the fill is dry footing (a flooded shaft, or a shaft into a flooded cave whose water
+	 * around the column cannot flow into placed blocks). Null when the column is deeper than {@link #FILL_DEPTH}, rests on
+	 * nothing solid, or ends under a roof.
+	 */
+	static Column fillColumn(Level level, BlockPos feet) {
+		BlockPos top = level.getFluidState(feet).is(net.minecraft.tags.FluidTags.WATER) ? feet
+				: level.getFluidState(feet.below()).is(net.minecraft.tags.FluidTags.WATER) ? feet.below() : null;
+		if (top == null) return null;
+		while (level.getFluidState(top.above()).is(net.minecraft.tags.FluidTags.WATER)) top = top.above();
+		if (!clear(level, top.above())) return null;
+		BlockPos lowest = top;
+		for (int depth = 1; ; depth++) {
+			BlockPos below = lowest.below();
+			if (level.getFluidState(below).is(net.minecraft.tags.FluidTags.WATER)) {
+				if (depth >= FILL_DEPTH) return null;
+				lowest = below;
 				continue;
 			}
-			lowest = cell;
+			return level.getBlockState(below).isFaceSturdy(level, below, Direction.UP) ? new Column(lowest.immutable(), top.immutable()) : null;
 		}
-		return null;
 	}
 
 	/**
@@ -328,11 +347,12 @@ public final class ServerEscapeController implements ServerController {
 	 * body sink while the cell is too deep to reach. Done standing on the fill with the eyes in air; failed when no
 	 * placement lands for 3 s, the blocks run out, or after 15 s.
 	 */
-	EscapeMoves.Move fillUnder(String item) {
+	EscapeMoves.Move fillUnder(String item, int x, int z) {
 		int[] ticks = {0, 0, 0};
 		return (player, input) -> {
 			ticks[0]++;
-			BlockPos target = fillTarget(player);
+			Column column = fillColumn(player.level(), new BlockPos(x, player.getBlockY(), z));
+			BlockPos target = column == null ? null : column.lowest();
 			if (target == null) {
 				if (!player.isUnderWater() && (player.onGround() || !player.isInWater())) return new EscapeMoves.Result(EscapeMoves.Status.DONE, "filled " + ticks[2] + " cells; standing dry at " + player.blockPosition().toShortString());
 				return new EscapeMoves.Result(EscapeMoves.Status.FAILED, "no water cell under the body to fill (" + ticks[2] + " filled)");
@@ -346,10 +366,13 @@ public final class ServerEscapeController implements ServerController {
 			double reach = player.blockInteractionRange() - 0.25D;
 			// Afloat (jump) while the cell is in reach or the body stands in it; sinking (no jump) toward a cell too deep.
 			boolean jump = inCell || player.getEyePosition().distanceTo(aim) <= reach;
+			// Stay over the column: in an open flooded cave the sinking body drifts, and the aim is the column's centre.
+			double off = Math.hypot(x + 0.5D - player.getX(), z + 0.5D - player.getZ());
+			float forward = off > 0.25D ? 0.3F : 0.0F;
 			var look = dev.agaminggod.mineagen.server.runtime.input.AgentInputStates.lookingAt(player, aim, 0, 0, jump, false, false, false, false, net.minecraft.world.InteractionHand.MAIN_HAND);
 			float yaw = dev.agaminggod.mineagen.server.runtime.input.AgentInputStates.turnYaw(player.getYRot(), look.yaw());
 			float pitch = dev.agaminggod.mineagen.server.runtime.input.AgentInputStates.turnPitch(player.getXRot(), look.pitch());
-			input.accept(new dev.agaminggod.mineagen.server.runtime.input.AgentInputState(0.0F, 0.0F, jump, false, false, false, false, yaw, pitch,
+			input.accept(new dev.agaminggod.mineagen.server.runtime.input.AgentInputState(forward, 0.0F, jump, false, false, false, false, yaw, pitch,
 					player.getInventory().getSelectedSlot(), net.minecraft.world.InteractionHand.MAIN_HAND));
 			ticks[1]++;
 			if (inCell || !jump) return new EscapeMoves.Result(EscapeMoves.Status.RUNNING, inCell ? "rising out of " + target.toShortString() : "sinking toward " + target.toShortString());
@@ -479,7 +502,14 @@ public final class ServerEscapeController implements ServerController {
 
 	static Rim trapped(ServerPlayer player) {
 		Level level = player.level();
-		BlockPos rim = rim(SafeStep.reachable(player, PIT_STEPS, PIT_CELLS), SafeStep.standing(player), new Cells() {
+		// Water is no way out of a hole: standing dry on a fill at the foot of a shaft into a flooded cave, the lake beside
+		// the feet leads nowhere dry, so the shaft is still the hole to climb.
+		ObservedTerrain seen = ObservedTerrain.of(player);
+		dev.agaminggod.mineagen.client.navigation.WalkabilityView dry = cell -> {
+			var kind = seen.cellAt(cell);
+			return kind == dev.agaminggod.mineagen.client.navigation.WalkabilityView.Cell.WATER ? dev.agaminggod.mineagen.client.navigation.WalkabilityView.Cell.BLOCKED : kind;
+		};
+		BlockPos rim = rim(SafeStep.reachable(dry, SafeStep.standing(player), PIT_STEPS, PIT_CELLS), SafeStep.standing(player), new Cells() {
 			public boolean solid(BlockPos cell) { return ServerEscapeController.solid(level, cell); }
 			public boolean standable(BlockPos feet) { return ServerEscapeController.standable(level, feet); }
 		});
