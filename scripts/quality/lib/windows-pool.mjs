@@ -92,16 +92,38 @@ const download = (host, remotePath, local) => run('scp', ['-q', ...SSH, `${host}
  * The pool room-batch-run.mjs drives. hosts from parseWindowsHosts; bundle: { codeTar, helper, jars: {arm: localPath},
  * inputs: [{ local, name }] }; batchName names the batch folder on each PC.
  */
-export function windowsPool({ hosts, batchName, bundle, root = 'C:/aa-runs', log = console.log }) {
+export function windowsPool({ hosts, batchName, bundle, root = 'C:/aa-runs', log = console.log, runPs = powershell, runUpload = upload, runDownload = download }) {
 	const arms = Object.keys(bundle.jars).length;
 	const batchDir = windowsBatchDir(root, batchName);
 	const batchesRoot = `${root}/batches`;
-	const busy = new Set(), machines = new Map(hosts.map(item => [item.host, { ...item, ready: null, workers: 0, claimedBatchDir: false }]));
+	const busy = new Set(), machines = new Map(hosts.map(item => [item.host, { ...item, ready: null, cleaning: null, workers: 0, claimedBatchDir: false }]));
 	let count = 0;
 
+	/**
+	 * Deletes this batch's folder on the PC (retried: Windows refuses to delete files a process held a moment ago). One
+	 * delete runs at a time per PC; a caller arriving while one runs shares it.
+	 */
+	function cleanBatchDir(pc) {
+		if (!pc.cleaning) {
+			const task = runPs(pc.host, `$baseFull = [System.IO.Path]::GetFullPath(${psQuote(windowsPath(batchesRoot))}).TrimEnd('\\') + '\\'
+$batchFull = [System.IO.Path]::GetFullPath(${psQuote(windowsPath(batchDir))})
+if (-not $batchFull.StartsWith($baseFull, [System.StringComparison]::OrdinalIgnoreCase)) { throw "refusing to delete outside batches root: $batchFull" }
+foreach ($i in 1..10) { if (-not (Test-Path -LiteralPath ${psQuote(batchDir)})) { break }; Remove-Item -Recurse -Force -LiteralPath ${psQuote(batchDir)} -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2 }
+if (Test-Path -LiteralPath ${psQuote(batchDir)}) { throw 'could not delete ${batchDir}' }`, { timeoutMs: 180_000 })
+				.then(() => { pc.claimedBatchDir = false; })
+				.finally(() => { if (pc.cleaning === task) pc.cleaning = null; });
+			pc.cleaning = task;
+		}
+		return pc.cleaning;
+	}
+
 	async function prepareHost(pc) {
+		while (pc.cleaning) await pc.cleaning.catch(() => {});
+		// A folder this pool claimed before (a prepare that failed after claiming it, or a cleanup that failed) is its own
+		// stale copy: delete it, or the check below refuses the batch as already there.
+		if (pc.claimedBatchDir) await cleanBatchDir(pc);
 		const first = slotPortBase(pc.slotBase, 0, arms), last = slotPortBase(pc.slotBase, pc.slots - 1, arms) + arms * 100 - 1;
-		const facts = JSON.parse((await powershell(pc.host, `
+		const facts = JSON.parse((await runPs(pc.host, `
 if (-not (Test-Path -LiteralPath ${psQuote(`${root}/jdk25/bin/java.exe`)})) { throw 'no Java at ${root}/jdk25' }
 if (-not (Test-Path -LiteralPath ${psQuote(`${root}/templates/26.3/server.jar`)})) { throw 'no server template at ${root}/templates/26.3' }
 New-Item -ItemType Directory -Force -Path ${psQuote(batchesRoot)} | Out-Null
@@ -116,13 +138,13 @@ foreach ($d in 'cache', 'tmp') { New-Item -ItemType Directory -Force -Path (Join
 		pc.claimedBatchDir = true;
 		const clashes = portClashes(facts.excluded, first, last);
 		if (clashes.length) throw new Error(`${pc.host}: ports ${first}-${last} overlap the reserved ranges ${clashes.map(range => range.join('-')).join(', ')}; raise its slot base`);
-		await upload(pc.host, bundle.codeTar, `${batchDir}/code.tgz`);
-		await upload(pc.host, bundle.helper, `${batchDir}/room-batch-remote.mjs`);
+		await runUpload(pc.host, bundle.codeTar, `${batchDir}/code.tgz`);
+		await runUpload(pc.host, bundle.helper, `${batchDir}/room-batch-remote.mjs`);
 		const jars = {};
-		for (const [arm, local] of Object.entries(bundle.jars)) { jars[arm] = `${batchDir}/jars/${arm}.jar`; await upload(pc.host, local, jars[arm]); }
+		for (const [arm, local] of Object.entries(bundle.jars)) { jars[arm] = `${batchDir}/jars/${arm}.jar`; await runUpload(pc.host, local, jars[arm]); }
 		const inputs = {};
-		for (const input of bundle.inputs) { inputs[input.local] = `${batchDir}/inputs/${input.name}`; await upload(pc.host, input.local, inputs[input.local]); }
-		await powershell(pc.host, `
+		for (const input of bundle.inputs) { inputs[input.local] = `${batchDir}/inputs/${input.name}`; await runUpload(pc.host, input.local, inputs[input.local]); }
+		await runPs(pc.host, `
 Set-Location -LiteralPath ${psQuote(`${batchDir}/code`)}
 tar -xzf ../code.tgz; if ($LASTEXITCODE -ne 0) { throw "tar exited $LASTEXITCODE" }
 Remove-Item -LiteralPath ../code.tgz
@@ -145,7 +167,7 @@ $major = [int]((& ${psQuote(facts.node)} -p 'process.versions.node') -split '\\.
 			pc.ready ??= prepareHost(pc).catch(error => { pc.ready = null; throw error; });
 			const shared = await pc.ready;
 			const dir = `${batchDir}/w${vm.slot}`;
-			await powershell(vm.host, `
+			await runPs(vm.host, `
 if (Test-Path -LiteralPath ${psQuote(dir)}) { Remove-Item -Recurse -Force -LiteralPath ${psQuote(dir)} }
 foreach ($d in 'jobs', 'out') { New-Item -ItemType Directory -Force -Path (Join-Path ${psQuote(dir)} $d) | Out-Null }`);
 			vm.dir = dir;
@@ -159,13 +181,13 @@ foreach ($d in 'jobs', 'out') { New-Item -ItemType Directory -Force -Path (Join-
 			const local = path.join(os.tmpdir(), `room-batch-${process.pid}-${vm.id}-${job.room}.json`);
 			await writeFile(local, JSON.stringify(job, null, 2));
 			const file = `${layout.jobs}/${job.room}.json`;
-			try { await upload(vm.host, local, file); } finally { await rm(local, { force: true }); }
+			try { await runUpload(vm.host, local, file); } finally { await rm(local, { force: true }); }
 			// The room's parent holds ES_CONTINUOUS | ES_SYSTEM_REQUIRED while it plays, so an idle PC does not sleep.
 			const launch = `Add-Type -Namespace W -Name P -MemberDefinition '[DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint f);'
 [W.P]::SetThreadExecutionState([uint32]2147483649) | Out-Null
 $p = Start-Process -FilePath ${psQuote(layout.node)} -ArgumentList '"${windowsPath(layout.helper)}"', '"${windowsPath(file)}"' -WorkingDirectory ${psQuote(windowsPath(layout.code))} -NoNewWindow -PassThru -Wait -RedirectStandardOutput ${psQuote(`${layout.jobs}/${job.room}.log`)} -RedirectStandardError ${psQuote(`${layout.jobs}/${job.room}.err`)}
 exit $p.ExitCode`;
-			const text = await powershell(vm.host, `
+			const text = await runPs(vm.host, `
 if (Test-Path -LiteralPath ${psQuote(job.outDir)}) { Remove-Item -Recurse -Force -LiteralPath ${psQuote(job.outDir)} }
 $r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = 'powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand ${encode(launch)}'; CurrentDirectory = ${psQuote(windowsPath(layout.code))} }
 if ($r.ReturnValue -ne 0) { throw "Win32_Process.Create returned $($r.ReturnValue)" }
@@ -176,41 +198,42 @@ $p = Get-CimInstance Win32_Process -Filter "ProcessId=$($r.ProcessId)"
 			vm.outDir = layout.out;
 		},
 		async poll(vm, room) {
-			const text = await powershell(vm.host, `if (Test-Path -LiteralPath ${psQuote(`${vm.outDir}/${room}/done.json`)}) { 'DONE' } else { 'RUNNING' }`, { timeoutMs: 120_000 });
+			const text = await runPs(vm.host, `if (Test-Path -LiteralPath ${psQuote(`${vm.outDir}/${room}/done.json`)}) { 'DONE' } else { 'RUNNING' }`, { timeoutMs: 120_000 });
 			return /DONE/.test(text) ? 'done' : 'running';
 		},
-		async alive(vm) { return /ok/.test(await powershell(vm.host, `'ok'`, { timeoutMs: 60_000 }).catch(() => '')); },
+		// Let SSH errors propagate so the runner keeps its silence grace period instead of treating a hiccup as a dead PC.
+		async alive(vm) { return /ok/.test(await runPs(vm.host, `'ok'`, { timeoutMs: 60_000 })) ? true : null; },
 		async fetch(vm, room, roomsDir) {
 			// secret.txt is a throwaway per-run RCON secret; worlds are already deleted unless kept.
-			await powershell(vm.host, `Set-Location -LiteralPath ${psQuote(vm.outDir)}; tar --exclude=secret.txt -czf ${psQuote(`${room}.tgz`)} ${psQuote(room)}; if ($LASTEXITCODE -ne 0) { throw "tar exited $LASTEXITCODE" }`);
-			return stageRoom({ roomsDir, room, download: local => download(vm.host, `${vm.outDir}/${room}.tgz`, local) });
+			await runPs(vm.host, `Set-Location -LiteralPath ${psQuote(vm.outDir)}; tar --exclude=secret.txt -czf ${psQuote(`${room}.tgz`)} ${psQuote(room)}; if ($LASTEXITCODE -ne 0) { throw "tar exited $LASTEXITCODE" }`);
+			return stageRoom({ roomsDir, room, download: local => runDownload(vm.host, `${vm.outDir}/${room}.tgz`, local) });
 		},
 		async keepAlive() {},
 		usage: vm => ({ host: vm.host, slot: vm.slot, portBase: vm.layout?.portBase ?? null }),
 		async destroy(vm) {
 			const pc = machines.get(vm.host);
 			const dir = vm.dir ?? `${batchDir}/w${vm.slot}`;
-			// Kill the room's tree first, then anything still running from this worker's folder, then delete the folder
-			// (retried: Windows refuses to delete files a process held a moment ago). Windows reuses a pid once its process
-			// exits, so the tree is killed only while that pid still has the room parent's start time.
-			await powershell(vm.host, `
+			// Kill the room's tree first, then anything still running from this worker's folder (trailing separator avoids w1 matching w10),
+			// then delete the folder (retried: Windows refuses to delete files a process held a moment ago). Windows reuses a pid
+			// once its process exits, so the tree is killed only while that pid still has the room parent's start time.
+			if (!vm.dirCleaned) {
+				await runPs(vm.host, `
 ${vm.pid ? `$p = Get-CimInstance Win32_Process -Filter "ProcessId=${vm.pid}"
 if ($p -and $p.CreationDate.ToFileTimeUtc() -eq ${vm.born}) { try { & taskkill /T /F /PID ${vm.pid} 2>&1 | Out-Null } catch {} }` : ''}
-$mark = @(${psQuote(dir)}, ${psQuote(windowsPath(dir))})
+$mark = @(${psQuote(`${dir}/`)}, ${psQuote(`${windowsPath(dir)}\\`)})
 Get-CimInstance Win32_Process | Where-Object { $c = $_.CommandLine; $c -and ($mark | Where-Object { $c.Contains($_) }) } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 foreach ($i in 1..10) { if (-not (Test-Path -LiteralPath ${psQuote(dir)})) { break }; Remove-Item -Recurse -Force -LiteralPath ${psQuote(dir)} -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2 }
 if (Test-Path -LiteralPath ${psQuote(dir)}) { throw 'could not delete ${dir}' }`, { timeoutMs: 180_000 });
-			busy.delete(`${vm.host}:${vm.slot}`);
-			if (--pc.workers === 0) {
+				vm.dirCleaned = true;
+			}
+			if (!vm.slotReleased) {
+				vm.slotReleased = true;
+				busy.delete(`${vm.host}:${vm.slot}`);
+				pc.workers--;
+			}
+			if (pc.workers === 0) {
 				pc.ready = null;
-				if (pc.claimedBatchDir) {
-					pc.claimedBatchDir = false;
-					await powershell(vm.host, `$baseFull = [System.IO.Path]::GetFullPath(${psQuote(windowsPath(batchesRoot))}).TrimEnd('\\') + '\\'
-$batchFull = [System.IO.Path]::GetFullPath(${psQuote(windowsPath(batchDir))})
-if (-not $batchFull.StartsWith($baseFull, [System.StringComparison]::OrdinalIgnoreCase)) { throw "refusing to delete outside batches root: $batchFull" }
-foreach ($i in 1..10) { if (-not (Test-Path -LiteralPath ${psQuote(batchDir)})) { break }; Remove-Item -Recurse -Force -LiteralPath ${psQuote(batchDir)} -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2 }
-if (Test-Path -LiteralPath ${psQuote(batchDir)}) { throw 'could not delete ${batchDir}' }`, { timeoutMs: 180_000 });
-				}
+				if (pc.claimedBatchDir) await cleanBatchDir(pc);
 			}
 		},
 	};

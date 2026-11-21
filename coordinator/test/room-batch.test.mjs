@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { armTotals, formatSummary, mergeArms, parseCommands, plannedOf, runQueue, splitWords, stageRoom } from '../../scripts/quality/lib/room-batch-core.mjs';
 import { runBatch } from '../../scripts/quality/lib/room-batch-run.mjs';
-import { nextSlot, parseWindowsHosts, portClashes, slotPortBase, windowsBatchDir, windowsPath } from '../../scripts/quality/lib/windows-pool.mjs';
+import { nextSlot, parseWindowsHosts, portClashes, slotPortBase, windowsBatchDir, windowsPath, windowsPool } from '../../scripts/quality/lib/windows-pool.mjs';
 import { launchScript } from '../../scripts/quality/lib/boat-pool.mjs';
 
 const LINE = 'node scripts/quality/test-build-live.mjs scripts/quality/carve-hidden-fluid-spots.json $OUT $JAR --descriptive';
@@ -478,4 +478,73 @@ test('cancelling a batch while machines are preparing deletes them at once witho
 		assert.equal(result.machines[0].destroyed, true);
 		assert.deepEqual(result.outcomes.map(outcome => [outcome.room, outcome.lost, outcome.reason]), [['a', true, 'batch stopped']]);
 	} finally { await rm(out, { recursive: true, force: true }); }
+});
+
+test('windowsPool isolates worker cleanup markers, propagates SSH errors in alive, retries batch cleanup, and serializes replacement prepare', async () => {
+	const scripts = [];
+	let batchDeletes = 0, releaseDelete = null;
+	const pool = windowsPool({
+		hosts: [{ host: 'pc-a', slots: 2, slotBase: 0 }],
+		batchName: 'win-test',
+		bundle: { codeTar: '/tmp/c.tgz', helper: '/tmp/h.mjs', jars: { new: '/tmp/n.jar' }, inputs: [] },
+		log: () => {},
+		runUpload: async () => {},
+		runDownload: async () => {},
+		runPs: async (host, script) => {
+			scripts.push(script);
+			if (script === `'ok'`) throw new Error('ssh timeout');
+			if (script.includes('ConvertTo-Json')) return JSON.stringify({ node: 'C:\\node.exe', excluded: '' });
+			if (script.includes('refusing to delete outside batches root')) {
+				batchDeletes++;
+				if (batchDeletes === 1) throw new Error('busy lock');
+				if (batchDeletes === 2) await new Promise(resolve => { releaseDelete = resolve; });
+			}
+			return '';
+		},
+	});
+	const vm1 = await pool.create();
+	await pool.prepare(vm1);
+	// SSH error propagates from alive() rather than returning false.
+	await assert.rejects(() => pool.alive(vm1), /ssh timeout/);
+	// First destroy fails on shared batch cleanup; retry must attempt shared batch cleanup again without underflowing workers.
+	await assert.rejects(() => pool.destroy(vm1), /busy lock/);
+	assert.equal(batchDeletes, 1);
+	// Worker cleanup script uses trailing path separators so w0/ never matches w00/.
+	const workerCleanup = scripts.find(s => s.includes('$mark ='));
+	assert.match(workerCleanup, /\/w0\/', '.*\\w0\\'/);
+	// Second destroy enters deferred batch cleanup; a concurrent replacement prepare must wait until it finishes.
+	const retryDestroy = pool.destroy(vm1);
+	while (!releaseDelete) await new Promise(done => setImmediate(done));
+	const vm2 = await pool.create();
+	let prepDone = false;
+	const prepPromise = pool.prepare(vm2).then(() => { prepDone = true; });
+	await new Promise(done => setTimeout(done, 20));
+	assert.equal(prepDone, false, 'replacement prepare must wait for in-flight shared cleanup');
+	releaseDelete();
+	await Promise.all([retryDestroy, prepPromise]);
+	assert.equal(batchDeletes, 2);
+	assert.equal(prepDone, true);
+});
+
+test('windowsPool deletes its own stale batch folder before a re-prepare claims it again', async () => {
+	const scripts = [];
+	let uploads = 0;
+	const pool = windowsPool({
+		hosts: [{ host: 'pc-a', slots: 1, slotBase: 0 }],
+		batchName: 'win-stale',
+		bundle: { codeTar: '/tmp/c.tgz', helper: '/tmp/h.mjs', jars: { new: '/tmp/n.jar' }, inputs: [] },
+		log: () => {},
+		runUpload: async () => { if (++uploads === 1) throw new Error('scp failed'); },
+		runDownload: async () => {},
+		runPs: async (host, script) => {
+			scripts.push(script.includes('ConvertTo-Json') ? 'claim' : script.includes('refusing to delete outside batches root') ? 'clean' : 'other');
+			return script.includes('ConvertTo-Json') ? JSON.stringify({ node: 'C:\\node.exe', excluded: '' }) : '';
+		},
+	});
+	const vm = await pool.create();
+	// The upload fails after the batch folder was claimed: the folder is left behind.
+	await assert.rejects(() => pool.prepare(vm), /scp failed/);
+	assert.deepEqual(scripts, ['claim']);
+	await pool.prepare(vm);
+	assert.deepEqual(scripts.slice(0, 3), ['claim', 'clean', 'claim'], 'the stale folder is deleted before it is claimed again');
 });
