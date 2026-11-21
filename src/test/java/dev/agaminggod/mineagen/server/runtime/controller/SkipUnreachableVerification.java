@@ -108,7 +108,17 @@ public final class SkipUnreachableVerification {
 		check(!off.failed(id, UNREACHABLE, true, false, mob, body, 10) && !off.passedOver(id, mob, body, Integer.MIN_VALUE) && !off.marked(id)
 				&& !off.skipsSighting(id, body),
 				"switch off: nothing is marked or passed over");
-		check(System.getProperty(UnreachableTargets.PROPERTY) != null || !UnreachableTargets.fromProperty().enabled(), "the switch is off by default");
+		check(System.getProperty(UnreachableTargets.PROPERTY) != null || UnreachableTargets.fromProperty().enabled(), "the switch is on by default");
+		String saved = System.getProperty(UnreachableTargets.PROPERTY);
+		try {
+			System.setProperty(UnreachableTargets.PROPERTY, "false");
+			check(!UnreachableTargets.fromProperty().enabled(), "-Dmineagen.fight.skipUnreachable=false turns it off");
+			System.clearProperty(UnreachableTargets.PROPERTY);
+			check(UnreachableTargets.fromProperty().enabled(), "with no property it is on");
+		} finally {
+			if (saved == null) System.clearProperty(UnreachableTargets.PROPERTY);
+			else System.setProperty(UnreachableTargets.PROPERTY, saved);
+		}
 
 		UnreachableTargets on = new UnreachableTargets(true);
 		check(!on.failed(id, "APPROACH_BLOCKED", true, false, mob, body, 10), "a blocked step is not an unreachable answer");
@@ -313,8 +323,7 @@ public final class SkipUnreachableVerification {
 		}
 
 		static Fixture create(boolean on) throws Exception {
-			if (on) System.setProperty(UnreachableTargets.PROPERTY, "true");
-			else System.clearProperty(UnreachableTargets.PROPERTY);
+			System.setProperty(UnreachableTargets.PROPERTY, Boolean.toString(on));
 			Field unsafeField = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
 			unsafeField.setAccessible(true);
 			sun.misc.Unsafe unsafe = (sun.misc.Unsafe) unsafeField.get(null);
