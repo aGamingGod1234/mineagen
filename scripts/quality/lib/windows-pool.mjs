@@ -1,0 +1,184 @@
+// Windows PCs for room-batch.mjs, over ssh and scp (OpenSSH on the PC, PowerShell for every remote command). One pool
+// worker is one room slot of one PC: ROOM_BATCH_WINDOWS=<sshHost>:<slots>:<slotBase>,... gives each PC its slot count
+// (rooms at once) and its slot base. A room plays every arm side by side, so room slot i of a PC uses one 100-port
+// range per arm from 28000 + (slotBase + i * arms) * 100; a slot base moves a PC's ports clear of the TCP ranges
+// Hyper-V reserves at boot, which prepare() checks against `netsh int ipv4 show excludedportrange`.
+// The PC already holds Java 25 and the server template under ROOT (C:/aa-runs: jdk25, templates/26.3). Each PC gets the
+// code, jars and inputs once per batch under ROOT/batches/BATCH, and each worker its own w<slot>/ folder for jobs and
+// output. A room starts through WMI (Win32_Process.Create), so it outlives the ssh session; its PowerShell parent asks
+// Windows to stay awake while the room plays. destroy() kills that room's process tree and deletes the worker's
+// folder, and the PC's last worker deletes the batch folder. Nothing is installed, and no PC is ever slept or shut down.
+import { execFile } from 'node:child_process';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+
+/** ROOM_BATCH_WINDOWS text -> [{ host, slots, slotBase }]. */
+export function parseWindowsHosts(text) {
+	const hosts = String(text ?? '').split(',').map(item => item.trim()).filter(Boolean).map(item => {
+		const [host, slots, slotBase = '0', extra] = item.split(':');
+		if (extra !== undefined || !/^[A-Za-z0-9._@-]+$/.test(host ?? '') || !/^\d+$/.test(slots ?? '') || !/^\d+$/.test(slotBase)) throw new Error(`a Windows PC is <sshHost>:<slots>:<slotBase>, got ${item}`);
+		if (Number(slots) < 1 || Number(slots) > 16) throw new Error(`${host}: slots wants 1 to 16`);
+		return { host, slots: Number(slots), slotBase: Number(slotBase) };
+	});
+	if (!hosts.length) throw new Error('ROOM_BATCH_WINDOWS names no PC (<sshHost>:<slots>:<slotBase>,...)');
+	if (new Set(hosts.map(item => item.host)).size !== hosts.length) throw new Error('a PC appears twice in ROOM_BATCH_WINDOWS');
+	return hosts;
+}
+
+/** The first port of room slot `slot` on a PC; the room's arms use one 100-port range each from there. */
+export const slotPortBase = (slotBase, slot, arms) => 28000 + (slotBase + slot * arms) * 100;
+
+/** The next free (host, slot), taking slot 0 of every PC before slot 1 of any, so rooms spread over the PCs. */
+export function nextSlot(hosts, busy) {
+	const most = Math.max(...hosts.map(item => item.slots));
+	for (let slot = 0; slot < most; slot++) for (const item of hosts) if (slot < item.slots && !busy.has(`${item.host}:${slot}`)) return { host: item.host, slot };
+	return null;
+}
+
+/** Excluded TCP ranges from `netsh int ipv4 show excludedportrange protocol=tcp` that overlap from..to. */
+export function portClashes(netshText, from, to) {
+	return String(netshText).split(/\r?\n/).map(line => /^\s*(\d+)\s+(\d+)\b/.exec(line)).filter(Boolean)
+		.map(match => [Number(match[1]), Number(match[2])]).filter(([start, end]) => start <= to && end >= from);
+}
+
+/** A forward-slash path as Windows writes it (C:/aa-runs/x -> C:\aa-runs\x), for a command line cmd or WMI reads. */
+export const windowsPath = text => String(text).replace(/\//g, '\\');
+const psQuote = text => `'${String(text).replace(/'/g, "''")}'`;
+const encode = script => Buffer.from(script, 'utf16le').toString('base64');
+
+function run(command, args, { timeoutMs = 10 * 60_000, label = args.at(-1) } = {}) {
+	return new Promise((resolve, reject) => {
+		execFile(command, args, { timeout: timeoutMs, maxBuffer: 64 * 2 ** 20, windowsHide: true }, (error, stdout, stderr) => {
+			if (error) reject(new Error(`${command} ${label} failed (${error.code ?? error.signal}): ${String(stderr || stdout).trim().split('\n').slice(-3).join(' ').slice(0, 400)}`));
+			else resolve(String(stdout).replace(/\r/g, ''));
+		});
+	});
+}
+const SSH = ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=20', '-o', 'ServerAliveInterval=30'];
+
+/** A PowerShell script on the PC; resolves to its output, rejects when it throws or exits non-zero. */
+export function powershell(host, script, options) {
+	// The default ssh shell differs between PCs (cmd or PowerShell); an encoded command reads the same under both.
+	const body = `$ProgressPreference = 'SilentlyContinue'; $ErrorActionPreference = 'Stop'\ntry {\n${script}\n} catch { [Console]::Error.WriteLine($_.Exception.Message); exit 1 }\nexit 0`;
+	return run('ssh', [...SSH, host, `powershell -NoProfile -NonInteractive -OutputFormat Text -EncodedCommand ${encode(body)}`], { label: host, ...options });
+}
+const upload = (host, local, remotePath) => run('scp', ['-q', ...SSH, local, `${host}:${remotePath}`], { timeoutMs: 15 * 60_000 });
+const download = (host, remotePath, local) => run('scp', ['-q', ...SSH, `${host}:${remotePath}`, local], { timeoutMs: 15 * 60_000 });
+
+/**
+ * The pool room-batch-run.mjs drives. hosts from parseWindowsHosts; bundle: { codeTar, helper, jars: {arm: localPath},
+ * inputs: [{ local, name }] }; batchName names the batch folder on each PC.
+ */
+export function windowsPool({ hosts, batchName, bundle, root = 'C:/aa-runs', log = console.log }) {
+	if (!/^[A-Za-z0-9._-]+$/.test(batchName)) throw new Error(`batch name must be letters, digits, ., _ or -: ${batchName}`);
+	const arms = Object.keys(bundle.jars).length;
+	const batchDir = `${root}/batches/${batchName}`;
+	const busy = new Set(), machines = new Map(hosts.map(item => [item.host, { ...item, ready: null, workers: 0 }]));
+	let count = 0;
+
+	async function prepareHost(pc) {
+		const first = slotPortBase(pc.slotBase, 0, arms), last = slotPortBase(pc.slotBase, pc.slots - 1, arms) + arms * 100 - 1;
+		const facts = JSON.parse((await powershell(pc.host, `
+if (-not (Test-Path -LiteralPath ${psQuote(`${root}/jdk25/bin/java.exe`)})) { throw 'no Java at ${root}/jdk25' }
+if (-not (Test-Path -LiteralPath ${psQuote(`${root}/templates/26.3/server.jar`)})) { throw 'no server template at ${root}/templates/26.3' }
+if (Test-Path -LiteralPath ${psQuote(batchDir)}) { Remove-Item -Recurse -Force -LiteralPath ${psQuote(batchDir)} }
+foreach ($d in 'jars', 'inputs', 'code') { New-Item -ItemType Directory -Force -Path (Join-Path ${psQuote(batchDir)} $d) | Out-Null }
+foreach ($d in 'cache', 'tmp') { New-Item -ItemType Directory -Force -Path (Join-Path ${psQuote(root)} $d) | Out-Null }
+@{ node = (Get-Command node.exe).Source; excluded = ((netsh int ipv4 show excludedportrange protocol=tcp) -join "\`n") } | ConvertTo-Json -Compress`)).trim().split('\n').at(-1));
+		const clashes = portClashes(facts.excluded, first, last);
+		if (clashes.length) throw new Error(`${pc.host}: ports ${first}-${last} overlap the reserved ranges ${clashes.map(range => range.join('-')).join(', ')}; raise its slot base`);
+		await upload(pc.host, bundle.codeTar, `${batchDir}/code.tgz`);
+		await upload(pc.host, bundle.helper, `${batchDir}/room-batch-remote.mjs`);
+		const jars = {};
+		for (const [arm, local] of Object.entries(bundle.jars)) { jars[arm] = `${batchDir}/jars/${arm}.jar`; await upload(pc.host, local, jars[arm]); }
+		const inputs = {};
+		for (const input of bundle.inputs) { inputs[input.local] = `${batchDir}/inputs/${input.name}`; await upload(pc.host, input.local, inputs[input.local]); }
+		await powershell(pc.host, `
+Set-Location -LiteralPath ${psQuote(`${batchDir}/code`)}
+tar -xzf ../code.tgz; if ($LASTEXITCODE -ne 0) { throw "tar exited $LASTEXITCODE" }
+Remove-Item -LiteralPath ../code.tgz
+$major = [int]((& ${psQuote(facts.node)} -p 'process.versions.node') -split '\\.')[0]; if ($major -lt 22) { throw "node $major is older than 22" }`);
+		log(`${pc.host}: code, ${arms} jars and ${bundle.inputs.length} inputs in place; ports ${first}-${last} clear`);
+		return { node: facts.node, jars, inputs };
+	}
+
+	return {
+		async create() {
+			const free = nextSlot(hosts, busy);
+			if (!free) throw new Error('every Windows slot is taken');
+			busy.add(`${free.host}:${free.slot}`);
+			machines.get(free.host).workers++;
+			// A fresh id per create, so a re-queued room never lands on a slot id it already failed on.
+			return { id: `${free.host}-s${free.slot}-${++count}`, host: free.host, slot: free.slot };
+		},
+		async prepare(vm) {
+			const pc = machines.get(vm.host);
+			pc.ready ??= prepareHost(pc).catch(error => { pc.ready = null; throw error; });
+			const shared = await pc.ready;
+			const dir = `${batchDir}/w${vm.slot}`;
+			await powershell(vm.host, `
+if (Test-Path -LiteralPath ${psQuote(dir)}) { Remove-Item -Recurse -Force -LiteralPath ${psQuote(dir)} }
+foreach ($d in 'jobs', 'out') { New-Item -ItemType Directory -Force -Path (Join-Path ${psQuote(dir)} $d) | Out-Null }`);
+			vm.dir = dir;
+			vm.layout = { wrapper: [], node: shared.node, code: `${batchDir}/code`, out: `${dir}/out`, jobs: `${dir}/jobs`, helper: `${batchDir}/room-batch-remote.mjs`,
+				jars: shared.jars, inputs: shared.inputs, javaHome: `${root}/jdk25`, template: `${root}/templates/26.3`, portBase: slotPortBase(pc.slotBase, vm.slot, arms),
+				env: { ARENA_FIXTURE_CACHE: `${root}/cache`, TEMP: windowsPath(`${root}/tmp`), TMP: windowsPath(`${root}/tmp`) } };
+			return vm.layout;
+		},
+		async start(vm, job) {
+			const { layout } = vm;
+			const local = path.join(os.tmpdir(), `room-batch-${process.pid}-${vm.id}-${job.room}.json`);
+			await writeFile(local, JSON.stringify(job, null, 2));
+			const file = `${layout.jobs}/${job.room}.json`;
+			try { await upload(vm.host, local, file); } finally { await rm(local, { force: true }); }
+			// The room's parent holds ES_CONTINUOUS | ES_SYSTEM_REQUIRED while it plays, so an idle PC does not sleep.
+			const launch = `Add-Type -Namespace W -Name P -MemberDefinition '[DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint f);'
+[W.P]::SetThreadExecutionState([uint32]2147483649) | Out-Null
+$p = Start-Process -FilePath ${psQuote(layout.node)} -ArgumentList '"${windowsPath(layout.helper)}"', '"${windowsPath(file)}"' -WorkingDirectory ${psQuote(windowsPath(layout.code))} -NoNewWindow -PassThru -Wait -RedirectStandardOutput ${psQuote(`${layout.jobs}/${job.room}.log`)} -RedirectStandardError ${psQuote(`${layout.jobs}/${job.room}.err`)}
+exit $p.ExitCode`;
+			const text = await powershell(vm.host, `
+if (Test-Path -LiteralPath ${psQuote(job.outDir)}) { Remove-Item -Recurse -Force -LiteralPath ${psQuote(job.outDir)} }
+$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = 'powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand ${encode(launch)}'; CurrentDirectory = ${psQuote(windowsPath(layout.code))} }
+if ($r.ReturnValue -ne 0) { throw "Win32_Process.Create returned $($r.ReturnValue)" }
+"pid=$($r.ProcessId)"`);
+			vm.pid = Number(/pid=(\d+)/.exec(text)?.[1]);
+			vm.outDir = layout.out;
+		},
+		async poll(vm, room) {
+			const text = await powershell(vm.host, `if (Test-Path -LiteralPath ${psQuote(`${vm.outDir}/${room}/done.json`)}) { 'DONE' } else { 'RUNNING' }`, { timeoutMs: 120_000 });
+			return /DONE/.test(text) ? 'done' : 'running';
+		},
+		async alive(vm) { return /ok/.test(await powershell(vm.host, `'ok'`, { timeoutMs: 60_000 }).catch(() => '')); },
+		async fetch(vm, room, roomsDir) {
+			// secret.txt is a throwaway per-run RCON secret; worlds are already deleted unless kept.
+			await powershell(vm.host, `Set-Location -LiteralPath ${psQuote(vm.outDir)}; tar --exclude=secret.txt -czf ${psQuote(`${room}.tgz`)} ${psQuote(room)}; if ($LASTEXITCODE -ne 0) { throw "tar exited $LASTEXITCODE" }`);
+			await mkdir(roomsDir, { recursive: true });
+			const local = path.join(roomsDir, `${room}.tgz`);
+			await download(vm.host, `${vm.outDir}/${room}.tgz`, local);
+			await run('tar', ['-xzf', local, '-C', roomsDir]);
+			await rm(local);
+			return JSON.parse(await readFile(path.join(roomsDir, room, 'done.json'), 'utf8'));
+		},
+		async keepAlive() {},
+		usage: vm => ({ host: vm.host, slot: vm.slot, portBase: vm.layout?.portBase ?? null }),
+		async destroy(vm) {
+			const pc = machines.get(vm.host);
+			const dir = vm.dir ?? `${batchDir}/w${vm.slot}`;
+			// Kill the room's tree first, then anything still running from this worker's folder, then delete the folder
+			// (retried: Windows refuses to delete files a process held a moment ago).
+			await powershell(vm.host, `
+${vm.pid ? `try { & taskkill /T /F /PID ${vm.pid} 2>&1 | Out-Null } catch {}` : ''}
+$mark = @(${psQuote(dir)}, ${psQuote(windowsPath(dir))})
+Get-CimInstance Win32_Process | Where-Object { $c = $_.CommandLine; $c -and ($mark | Where-Object { $c.Contains($_) }) } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+foreach ($i in 1..10) { if (-not (Test-Path -LiteralPath ${psQuote(dir)})) { break }; Remove-Item -Recurse -Force -LiteralPath ${psQuote(dir)} -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2 }
+if (Test-Path -LiteralPath ${psQuote(dir)}) { throw 'could not delete ${dir}' }`, { timeoutMs: 180_000 });
+			busy.delete(`${vm.host}:${vm.slot}`);
+			if (--pc.workers === 0) {
+				pc.ready = null;
+				await powershell(vm.host, `foreach ($i in 1..10) { if (-not (Test-Path -LiteralPath ${psQuote(batchDir)})) { break }; Remove-Item -Recurse -Force -LiteralPath ${psQuote(batchDir)} -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2 }
+if (Test-Path -LiteralPath ${psQuote(batchDir)}) { throw 'could not delete ${batchDir}' }`, { timeoutMs: 180_000 });
+			}
+		},
+	};
+}

@@ -1,13 +1,14 @@
-// Plays a batch of practice rooms x arms on cloud machines, split by room so both arms of a room play side by side on
-// one machine, and merges each arm's rows with finishRun.
-//   node scripts/quality/room-batch.mjs --commands ROOMS.txt --arm new=NEW.jar --arm old=OLD.jar --pool boat --vms N --out FRESH_DIR
+// Plays a batch of practice rooms x arms on cloud machines or Windows PCs, split by room so both arms of a room play side
+// by side on one machine, and merges each arm's rows with finishRun.
+//   node scripts/quality/room-batch.mjs --commands ROOMS.txt --arm new=NEW.jar --arm old=OLD.jar --pool boat|windows --vms N --out FRESH_DIR
 //     [--code REF] [--snapshot NAME] [--type TYPE] [--room-timeout MIN] [--name PREFIX] [--dry-run]
 // ROOMS.txt, one line per room (see parseCommands in lib/room-batch-core.mjs):
 //   @carve-hidden-lava BUILD_ONLY=carve-hidden-lava node scripts/quality/test-build-live.mjs scripts/quality/carve-hidden-fluid-spots.json $OUT $JAR --descriptive
 // The code is the commit REF (default HEAD) as git archive plus this checkout's coordinator/node_modules. A local file
 // named by absolute path in a line (a private spots file) is copied to every machine and the line points at the copy.
 // --snapshot (or ROOM_BATCH_SNAPSHOT) names the saved image room-image.mjs makes; --type (or ROOM_BATCH_TYPE, default
-// "default") the machine size. Output: OUT/rooms/ROOM/{ARM/,ARM.log,done.json}, OUT/ARM/result.json and
+// "default") the machine size. --pool windows plays on the PCs ROOM_BATCH_WINDOWS names (<sshHost>:<slots>:<slotBase>,...;
+// see lib/windows-pool.mjs), one room per slot; --vms defaults to every slot. Output: OUT/rooms/ROOM/{ARM/,ARM.log,done.json}, OUT/ARM/result.json and
 // result-summary.json from finishRun, OUT/batch.json (identity, outcomes, machine usage) and OUT/summary.txt.
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -19,9 +20,10 @@ import { fileURLToPath } from 'node:url';
 import { parseCommands } from './lib/room-batch-core.mjs';
 import { runBatch } from './lib/room-batch-run.mjs';
 import { boatPool } from './lib/boat-pool.mjs';
+import { parseWindowsHosts, windowsPool } from './lib/windows-pool.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
-const USAGE = 'Usage: room-batch.mjs --commands ROOMS.txt --arm NAME=JAR [--arm NAME=JAR] --pool boat --vms N --out FRESH_DIR [--code REF] [--snapshot NAME] [--type TYPE] [--room-timeout MIN] [--name PREFIX] [--dry-run]';
+const USAGE = 'Usage: room-batch.mjs --commands ROOMS.txt --arm NAME=JAR [--arm NAME=JAR] --pool boat|windows --vms N --out FRESH_DIR [--code REF] [--snapshot NAME] [--type TYPE] [--room-timeout MIN] [--name PREFIX] [--dry-run]';
 
 function parseFlags(argv) {
 	const flags = { arms: [] };
@@ -40,14 +42,18 @@ const flags = parseFlags(process.argv.slice(2));
 if (flags.help) { console.log(USAGE); process.exit(0); }
 const fail = message => { console.error(`${message}\n${USAGE}`); process.exit(2); };
 if (!flags.commands || !flags.out || !flags.arms.length) fail('--commands, --out and at least one --arm are required');
-if ((flags.pool ?? 'boat') !== 'boat') fail('only --pool boat exists');
+const poolName = flags.pool ?? 'boat';
+if (!['boat', 'windows'].includes(poolName)) fail('--pool is boat or windows');
+let windowsHosts = null;
+if (poolName === 'windows') { try { windowsHosts = parseWindowsHosts(process.env.ROOM_BATCH_WINDOWS); } catch (error) { fail(error.message); } }
+const slotCount = windowsHosts ? windowsHosts.reduce((total, item) => total + item.slots, 0) : 50;
 for (const arm of flags.arms) {
 	if (!/^[A-Za-z0-9_-]+$/.test(arm.name) || !arm.jar) fail(`--arm wants NAME=JAR, got ${arm.name}=${arm.jar}`);
 	if (!existsSync(arm.jar)) fail(`no jar at ${arm.jar}`);
 }
 if (new Set(flags.arms.map(arm => arm.name)).size !== flags.arms.length) fail('arm names repeat');
-const vms = Number(flags.vms ?? 1);
-if (!Number.isInteger(vms) || vms < 1 || vms > 50) fail('--vms wants 1 to 50');
+const vms = Number(flags.vms ?? (windowsHosts ? slotCount : 1));
+if (!Number.isInteger(vms) || vms < 1 || vms > slotCount) fail(`--vms wants 1 to ${slotCount}`);
 const snapshot = flags.snapshot ?? process.env.ROOM_BATCH_SNAPSHOT;
 const type = flags.type ?? process.env.ROOM_BATCH_TYPE ?? 'default';
 const roomTimeoutMs = Number(flags.roomTimeout ?? 40) * 60_000;
@@ -63,11 +69,12 @@ const rewrite = (value, layout) => layout.inputs[value] ?? value;
 
 const code = execFileSync('git', ['-C', root, 'rev-parse', flags.code ?? 'HEAD'], { encoding: 'utf8' }).trim();
 const sha256 = file => createHash('sha256').update(readFileSync(file)).digest('hex');
-const batch = { name: flags.name ?? `room-batch-${new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')}`, code, snapshot, type, vms, roomTimeoutMs,
+const batch = { name: flags.name ?? `room-batch-${new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')}`, pool: poolName, code, snapshot: windowsHosts ? null : snapshot, type: windowsHosts ? null : type, vms, roomTimeoutMs,
 	arms: flags.arms.map(arm => ({ name: arm.name, jar: path.basename(arm.jar), sha256: sha256(arm.jar) })), rooms: rooms.map(room => room.room), inputs: inputs.map(input => input.name) };
-console.log(`${batch.name}: ${rooms.length} rooms x ${flags.arms.length} arms, ${vms} ${type} machines from ${snapshot ?? '(no snapshot)'}, code ${code.slice(0, 8)}`);
+const where = windowsHosts ? `${vms} room slots on ${windowsHosts.length} Windows PCs` : `${vms} ${type} machines from ${snapshot ?? '(no snapshot)'}`;
+console.log(`${batch.name}: ${rooms.length} rooms x ${flags.arms.length} arms, ${where}, code ${code.slice(0, 8)}`);
 if (flags.dryRun) { for (const room of rooms) for (const line of room.lines) console.log(`  ${room.room} [${line.arm}] ${Object.entries(line.env).map(([k, v]) => `${k}=${v}`).join(' ')} node ${line.args.join(' ')}`); process.exit(0); }
-if (!snapshot) fail('--snapshot or ROOM_BATCH_SNAPSHOT names the saved image (make it with room-image.mjs)');
+if (!windowsHosts && !snapshot) fail('--snapshot or ROOM_BATCH_SNAPSHOT names the saved image (make it with room-image.mjs)');
 await mkdir(out, { recursive: true });
 if ((await readdir(out)).length) fail(`${out} is not empty: use a fresh output folder`);
 await writeFile(path.join(out, 'commands.txt'), await readFile(flags.commands, 'utf8'));
@@ -85,11 +92,12 @@ let stopping = false;
 for (const name of ['SIGINT', 'SIGTERM']) process.on(name, () => {
 	if (stopping) return;
 	stopping = true;
-	console.log(`${name}: stopping, deleting every machine of this batch`);
+	console.log(`${name}: stopping, ${windowsHosts ? 'killing every room' : 'deleting every machine'} of this batch`);
 	controller.abort();
 });
 
-const pool = boatPool({ snapshot, type, ttlSeconds: 7200, namePrefix: batch.name, bundle: { codeTar: `${codeTar}.gz`, helper, jars: Object.fromEntries(flags.arms.map(arm => [arm.name, path.resolve(arm.jar)])), inputs } });
+const bundle = { codeTar: `${codeTar}.gz`, helper, jars: Object.fromEntries(flags.arms.map(arm => [arm.name, path.resolve(arm.jar)])), inputs };
+const pool = windowsHosts ? windowsPool({ hosts: windowsHosts, batchName: batch.name, bundle }) : boatPool({ snapshot, type, ttlSeconds: 7200, namePrefix: batch.name, bundle });
 const logFile = path.join(out, 'batch.log');
 const log = async message => { const line = `${new Date().toISOString()} ${message}`; console.log(line); await writeFile(logFile, line + '\n', { flag: 'a' }); };
 const began = new Date().toISOString();
@@ -100,5 +108,5 @@ try {
 	console.log(result.text);
 	const leftover = result.machines.filter(vm => !vm.destroyed);
 	if (controller.signal.aborted) process.exitCode = 130;
-	if (leftover.length) { console.error(`NOT DELETED: ${leftover.map(vm => vm.id).join(', ')} (delete them with boat delete ID --yes)`); process.exitCode = 3; }
+	if (leftover.length) { console.error(`NOT DELETED: ${leftover.map(vm => vm.id).join(', ')} (${windowsHosts ? `kill its room and delete C:/aa-runs/batches/${batch.name} on that PC` : 'delete them with boat delete ID --yes'})`); process.exitCode = 3; }
 } finally { await rm(work, { recursive: true, force: true }); }

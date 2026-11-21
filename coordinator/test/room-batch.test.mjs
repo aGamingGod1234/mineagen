@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { armTotals, formatSummary, mergeArms, parseCommands, plannedOf, runQueue, splitWords } from '../../scripts/quality/lib/room-batch-core.mjs';
 import { runBatch } from '../../scripts/quality/lib/room-batch-run.mjs';
+import { nextSlot, parseWindowsHosts, portClashes, slotPortBase, windowsPath } from '../../scripts/quality/lib/windows-pool.mjs';
 
 const LINE = 'node scripts/quality/test-build-live.mjs scripts/quality/carve-hidden-fluid-spots.json $OUT $JAR --descriptive';
 const room = name => ({ room: name, lines: [{ arm: 'new', env: {}, args: [] }, { arm: 'old', env: {}, args: [] }], planned: 1 });
@@ -127,7 +128,7 @@ test('a batch over a fake pool re-queues the room of a machine that dies, delete
 		const machines = new Map();
 		const pool = {
 			async create() { const vm = { id: `vm${++made}` }; machines.set(vm.id, { alive: true, jobs: new Map() }); return vm; },
-			async prepare(vm) { return { wrapper: ['eatmydata'], code: '/c', out: '/o', jars: { new: '/j/new.jar', old: '/j/old.jar' }, inputs: {}, javaHome: '/jdk', template: '/t' }; },
+			async prepare(vm) { return { wrapper: ['eatmydata'], code: '/c', out: '/o', jars: { new: '/j/new.jar', old: '/j/old.jar' }, inputs: {}, javaHome: '/jdk', template: '/t', ...(vm.id === 'vm2' ? { portBase: 28400, env: { TMP: '/tmp2' } } : {}) }; },
 			async start(vm, job) { events.push(`start ${vm.id} ${job.room}`); machines.get(vm.id).jobs.set(job.room, job); if (vm.id === 'vm1') machines.get(vm.id).alive = false; },
 			async poll(vm, roomName) { if (!machines.get(vm.id).alive) throw new Error('no answer'); return 'done'; },
 			async alive(vm) { return machines.get(vm.id).alive; },
@@ -152,19 +153,22 @@ test('a batch over a fake pool re-queues the room of a machine that dies, delete
 		assert.deepEqual(job.lines.map(line => line.jar), ['/j/new.jar', '/j/old.jar']);
 		assert.ok(job.lines[0].args.includes('$OUT'), 'the machine fills in $OUT itself');
 		assert.deepEqual(job.wrapper, ['eatmydata'], 'the machine layout picks the command rooms run under');
+		assert.equal(job.portBase, 28400, 'the machine layout picks the room port base');
+		assert.deepEqual(job.env, { TMP: '/tmp2' });
+		assert.equal([...machines.get('vm1').jobs.values()][0].portBase, 28000, 'boat machines keep 28000');
 	} finally { await rm(out, { recursive: true, force: true }); }
 });
 
-test('the machine helper plays every arm side by side under the wrapper, each in its own folder and port range', async () => {
+test('the machine helper plays every arm side by side under the wrapper, each in its own folder and port range from the job port base', async () => {
 	const dir = await mkdtemp(path.join(os.tmpdir(), 'room-batch-remote-'));
 	try {
 		const fixture = path.join(dir, 'fixture.mjs');
 		await writeFile(fixture, `import { mkdirSync, writeFileSync } from 'node:fs';
 const [out, jar] = process.argv.slice(2);
 mkdirSync(out, { recursive: true });
-writeFileSync(out + '/result.json', JSON.stringify([{ jar, wrapped: process.env.ROOM_WRAPPED, port: process.env.SLOT_PORT_BASE, only: process.env.BUILD_ONLY }]));
+writeFileSync(out + '/result.json', JSON.stringify([{ jar, wrapped: process.env.ROOM_WRAPPED, port: process.env.SLOT_PORT_BASE, slot: process.env.SLOT, extra: process.env.ROOM_EXTRA, javaFirst: process.env.PATH.startsWith('/jdk/bin'), only: process.env.BUILD_ONLY }]));
 process.exit(jar.endsWith('old.jar') ? 3 : 0);\n`);
-		const job = { room: 'r', code: dir, outDir: path.join(dir, 'out', 'r'), javaHome: '/jdk', template: '/t', timeoutMs: 60_000, wrapper: ['env', 'ROOM_WRAPPED=yes'],
+		const job = { room: 'r', code: dir, outDir: path.join(dir, 'out', 'r'), javaHome: '/jdk', template: '/t', timeoutMs: 60_000, wrapper: ['env', 'ROOM_WRAPPED=yes'], portBase: 28400, env: { ROOM_EXTRA: 'x' },
 			lines: ['new', 'old'].map(arm => ({ arm, jar: `/j/${arm}.jar`, env: { BUILD_ONLY: 'r' }, args: [fixture, '$OUT', '$JAR'] })) };
 		await writeFile(path.join(dir, 'job.json'), JSON.stringify(job));
 		const helper = new URL('../../scripts/quality/lib/room-batch-remote.mjs', import.meta.url).pathname;
@@ -176,7 +180,8 @@ process.exit(jar.endsWith('old.jar') ? 3 : 0);\n`);
 		assert.equal(done.arms.new.exit, 0);
 		assert.equal(done.arms.old.exit, 3);
 		const rows = await Promise.all(['new', 'old'].map(async arm => JSON.parse(await readFile(path.join(job.outDir, arm, 'result.json'), 'utf8'))[0]));
-		assert.deepEqual(rows, [{ jar: '/j/new.jar', wrapped: 'yes', port: '28000', only: 'r' }, { jar: '/j/old.jar', wrapped: 'yes', port: '28100', only: 'r' }]);
+		assert.equal(done.portBase, 28400);
+		assert.deepEqual(rows, [{ jar: '/j/new.jar', wrapped: 'yes', port: '28400', slot: '4', extra: 'x', javaFirst: true, only: 'r' }, { jar: '/j/old.jar', wrapped: 'yes', port: '28500', slot: '5', extra: 'x', javaFirst: true, only: 'r' }]);
 	} finally { await rm(dir, { recursive: true, force: true }); }
 });
 
@@ -231,4 +236,26 @@ test('a machine that cannot start its room is deleted at once and the room plays
 		assert.equal(result.outcomes[0].attempts, 2);
 		assert.equal(result.merged.new.summary.status, 'PASS');
 	} finally { await rm(out, { recursive: true, force: true }); }
+});
+
+test('Windows PCs: the host list, one port range per arm from the slot base, slots spread over PCs, reserved ports and paths', () => {
+	assert.deepEqual(parseWindowsHosts('pc-a:4:0, pc-b:5:4'), [{ host: 'pc-a', slots: 4, slotBase: 0 }, { host: 'pc-b', slots: 5, slotBase: 4 }]);
+	assert.deepEqual(parseWindowsHosts('pc-a:2'), [{ host: 'pc-a', slots: 2, slotBase: 0 }]);
+	for (const bad of ['', 'pc-a', 'pc-a:0:0', 'pc-a:x:0', 'pc a:1:0', 'pc-a:1:0:9', 'pc-a:1:0,pc-a:2:0']) assert.throws(() => parseWindowsHosts(bad), undefined, bad);
+	assert.equal(slotPortBase(0, 0, 2), 28000);
+	assert.equal(slotPortBase(0, 1, 2), 28200, 'the second room starts after both arms of the first');
+	assert.equal(slotPortBase(4, 0, 2), 28400);
+	assert.equal(slotPortBase(4, 2, 3), 29000);
+	const hosts = [{ host: 'a', slots: 2 }, { host: 'b', slots: 1 }];
+	const busy = new Set();
+	const order = [];
+	for (let free; (free = nextSlot(hosts, busy)); ) { busy.add(`${free.host}:${free.slot}`); order.push(`${free.host}:${free.slot}`); }
+	assert.deepEqual(order, ['a:0', 'b:0', 'a:1']);
+	busy.delete('b:0');
+	assert.deepEqual(nextSlot(hosts, busy), { host: 'b', slot: 0 }, 'a freed slot is handed out again');
+	const netsh = 'Protocol tcp Port Exclusion Ranges\r\n\r\nStart Port    End Port\r\n----------    --------\r\n      5357        5357\r\n     28385       28385\r\n     50000       50059     *\r\n\r\n* - Administered port exclusions.\r\n';
+	assert.deepEqual(portClashes(netsh, 28000, 28399), [[28385, 28385]]);
+	assert.deepEqual(portClashes(netsh, 28400, 29399), []);
+	assert.deepEqual(portClashes(netsh, 50059, 50100), [[50000, 50059]]);
+	assert.equal(windowsPath('C:/aa-runs/batches/b/w0/jobs/r.json'), 'C:\\aa-runs\\batches\\b\\w0\\jobs\\r.json');
 });

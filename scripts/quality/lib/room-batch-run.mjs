@@ -1,5 +1,6 @@
-// The batch itself, over any pool of machines with this shape (boat-pool.mjs is the real one, tests use a fake):
-//   create() -> vm (vm.id)        prepare(vm) -> layout { code, out, jobs, helper, javaHome, template, jars: {arm: path}, inputs }
+// The batch itself, over any pool of machines with this shape (boat-pool.mjs and windows-pool.mjs are real, tests use a fake):
+//   create() -> vm (vm.id)        prepare(vm) -> layout { code, out, jobs, helper, javaHome, template, jars: {arm: path}, inputs,
+//                                   and optionally wrapper [cmd...], portBase (default 28000), env {name: value} }
 //   start(vm, job)                poll(vm, room) -> 'done' | 'running' (throws when the machine does not answer)
 //   alive(vm) -> boolean          fetch(vm, room, roomsDir) puts ROOM/ under roomsDir and returns its done.json
 //   keepAlive(vm)                 usage(vm) -> object         destroy(vm)
@@ -41,6 +42,7 @@ export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeout
 			if (signal?.aborted) return { lost: true, reason: 'batch stopped' };
 			const layout = layouts.get(vm.id);
 			const job = { room: room.room, code: layout.code, outDir: path.posix.join(layout.out, room.room), javaHome: layout.javaHome, template: layout.template, timeoutMs: roomTimeoutMs, wrapper: layout.wrapper ?? [],
+				portBase: layout.portBase ?? 28000, env: layout.env ?? {},
 				lines: room.lines.map(line => ({ arm: line.arm, jar: layout.jars[line.arm], env: Object.fromEntries(Object.entries(line.env).map(([key, value]) => [key, rewrite(value, layout)])), args: line.args.map(arg => rewrite(arg, layout)) })) };
 			log(`room ${room.room} -> ${vm.id} (try ${tries})`);
 			// A machine that cannot start a room is deleted now, not at the end of the batch; the room is re-queued.
