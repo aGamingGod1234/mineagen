@@ -65,6 +65,8 @@ Changes are tested in four tiers, from fastest to slowest:
 3. **Checkpoint runs**: games with the model from a save point partway along the route, run overnight. They test what rooms cannot, such as what the model decides.
 4. **Full games from scratch**: the status table above, the scoreboard for the goal.
 
+A room or a game can come out differently with no code change, so each result is a count over repeats: rooms play 10 times a side, and a games round plays 8 seeds. A gap of one or two passes in 10 rooms, or under 2 seeds in a round, counts as no change. A room that did not play properly is invalid and is played again, and a game with a missing record is unknown; neither counts as a pass. The commands for each tier are in [Which test to run](../scripts/quality/README.md#which-test-to-run).
+
 ## Practice rooms on 2026-11-21
 
 Four gameplay changes merged today, each measured in practice rooms against the code before it. These are rooms, not full games, so they do not count toward the status table.

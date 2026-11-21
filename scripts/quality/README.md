@@ -1,5 +1,50 @@
 # Live scenario quality harness
 
+## Which test to run
+
+Test a change in four tiers, fastest first. [How testing works](../../docs/goal-progress.md#how-testing-works) says what each tier is for. Set up the checkout with `node scripts/doctor.mjs` first ([AGENTS.md](../../AGENTS.md#set-up-a-checkout)).
+
+| Tier | Use it for | Command on main |
+|---|---|---|
+| 1. Decision tests | every change to what the model is shown or how its answers are graded; no server | `cd coordinator && npm run eval:decisions -- --baseline main --quick` ([decision evals](../decision-eval/README.md)). For one recorded incident: `node scripts/quality/check.mjs --incident ID` ([Edit loop](#edit-loop)). One score per category against a stored baseline, `npm run eval:tier1`, is coming in PR #62. |
+| 2. Practice rooms | every gameplay change: minutes of staged play, a script in the model's place, the change and main side by side | `room-batch.mjs` on boat machines or the Windows PCs ([below](#a-practice-room-batch)). Rooms played by the real model (`--player model`) are coming in PR #60. |
+| 3. Checkpoint games | several fixes together, and anything that depends on what the model decides; overnight | `run-long.mjs --checkpoint SAVE_POINT.json` plays one real-model game from a save point. Batches of them on boat machines (`checkpoint-batch.mjs`) are coming in PR #57. |
+| 4. Full games | the scoreboard, not a test of one change | Fresh worlds on the fixed seeds ([Long runs](#long-runs-beat-the-game-on-a-random-seed)); the round goes in the goal page's status table. |
+
+### A practice-room batch
+
+1. Build one jar per arm, such as your branch and main.
+2. Write a commands file ([Room batches](#room-batches-on-boat-and-windows-pcs) gives the format). A room name may appear only once, so give each repeat its own line and name: `@lava-gate-1-1`, `@lava-gate-1-2`, and so on. Put `FIXTURE_TICK_RATE=60` at the start of a line to play it at 3x where [Speed](#speed-which-rooms-play-at-3x) allows.
+3. Check the plan with `--dry-run`, then run it: `node scripts/quality/room-batch.mjs --commands ROOMS.txt --arm new=NEW.jar --arm old=OLD.jar --pool boat --vms N --out FRESH_DIR`. `--snapshot` (or `ROOM_BATCH_SNAPSHOT`) names the room image. `--pool windows` with `ROOM_BATCH_WINDOWS` plays on the Windows PCs instead.
+4. Read `OUT/summary.txt`: per arm, pass, fail, invalid and lost rooms, deaths and damage, then one line per room.
+
+Boat machines:
+
+- Machine hours are plentiful and starts are scarce: every create, fork or resume counts against boat's start limits, and ssh, exec and `boat extend` do not. A batch leases running machines from the warm pool, creates only the shortfall, and gives them back running.
+- Check the pool with `node scripts/quality/boat-pool.mjs status`. `boat-pool.mjs keepalive --every 60` keeps idle pool machines from reaching their auto-stop; stopping a machine erases it.
+- `drain`, `prune` and `--ephemeral` delete machines. Use them only when the project owner asks.
+- A new machine gets its first room only after boat reports it `hydrated`; the batch waits for that itself.
+
+### Speed: which rooms play at 3x
+
+`FIXTURE_TICK_RATE=60` plays a room at three times the game speed in the same game time. A fixture plays faster only if it opts in; the rest stay at 20 TPS and warn ([Faster provider-free fixtures](#faster-provider-free-fixtures-test-only) has the rules and measurements).
+
+| Fixture | At `FIXTURE_TICK_RATE=60` |
+|---|---|
+| `test-build-live.mjs` | Measured: 31 of 60 passes at 60 against 32 of 60 at 20, same deaths. Keep `cast-obi-3`, `lava-gate-2`, `lava-gate-4`, `lava-gate-5` and `lava-gate-8` at 20 until more repeats settle them. |
+| `test-cornered-live.mjs`, `test-dig-live.mjs` | Opt in; check a room at both rates before relying on it. |
+| `test-rest-live.mjs` | 20 only: at 80 some nights took damage that no run at 20 did. |
+| Every other fixture, and every model run | 20 only. Provider timeouts are wall time. |
+
+A fixture that relies on the runtime's 60 s repeated-failure window, or on the age of its start sample, body ends or dug stairs, is not yet rate-safe: those still read wall time.
+
+### Reading the result
+
+- Rooms vary from run to run with no code change (mob spawns, timing), so one run per room proves little. Play 10 repeats of each room per arm and report pass rates: "died in lava 3 of 10 before, 0 of 10 after".
+- Count only valid rooms. An INVALID or LOST room is a rerun, never a pass, and a missing damage or death counter is unknown, never 0 ([Edit loop](#edit-loop) has the verdict rules).
+- With 10 repeats a side, a gap of one or two passes is noise. An all-or-nothing gap (0 of 10 against 10 of 10) is safe to trust; anything between needs more repeats before you call it a change.
+- A script plays the model's part in a room, so a pass shows the body can do it, not that the model will choose to. Decisions belong to tiers 1 and 3.
+
 ## Edit loop
 
 Run `node scripts/quality/check.mjs --incident ID` for the offline decision stake; its headline block matches the sticky PR comment and `gameplay-stake` status in the existing Linux Node job. Add `--base REF` to select a base explicitly. See [the stake corpus](../../coordinator/test/fixtures/stake/README.md) for supported coverage and expectation updates.
