@@ -33,6 +33,9 @@ test('the server\'s damage type and attacker outrank the message, and only no ev
 	assert.equal(classifyDeath({ damageType: 'minecraft:in_wall' }).cause, 'suffocation');
 	assert.equal(classifyDeath({ damageType: 'minecraft:starve' }).cause, 'starvation');
 	assert.equal(classifyDeath({ damageType: 'minecraft:generic_kill' }).cause, 'kill_command');
+	assert.equal(classifyDeath({ damageType: 'minecraft:wither', attacker: null, message: 'x withered away while fighting Wither Skeleton' }).cause, 'wither_skeleton',
+		'an effect damage type with no attacker leaves the message to name the mob');
+	assert.equal(classifyDeath({ damageType: 'minecraft:magic' }).cause, 'other');
 	assert.equal(classifyDeath({ message: 'unknown (counter only)' }).cause, 'unknown');
 	assert.equal(classifyDeath({}).cause, 'unknown');
 	assert.deepEqual(countCauses([{ message: 'a was shot by Skeleton' }, { attacker: 'minecraft:skeleton' }, {}]), { skeleton_arrow: 2, unknown: 1 });

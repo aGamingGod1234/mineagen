@@ -54,9 +54,15 @@ export function classifyDeath(death) {
 	const attacker = mobCause(death?.attacker);
 	if (attacker) return { cause: attacker, basis: 'attacker' };
 	if (damageType && /explosion/.test(damageType)) return { cause: 'explosion', basis: 'damage type' };
-	if (damageType && damageType !== 'generic') return { cause: 'other', basis: 'damage type' };
+	// A damage type with no mapping and no attacker (wither, magic, generic) leaves the message to name the cause.
+	const known = damageType && damageType !== 'generic' ? { cause: 'other', basis: 'damage type' } : null;
 	const message = typeof death?.message === 'string' ? death.message : typeof death?.cause === 'string' ? death.cause : '';
-	if (!message || /^unknown/.test(message) || message === 'Agent died') return { cause: 'unknown', basis: 'none' };
+	if (!message || /^unknown/.test(message) || message === 'Agent died') return known ?? { cause: 'unknown', basis: 'none' };
+	const named = messageCause(message);
+	return named.cause === 'other' && known ? known : named;
+}
+
+function messageCause(message) {
 	for (const [pattern, cause] of MESSAGES) if (pattern.test(message)) return { cause, basis: 'death message' };
 	// Wither from a wither skeleton's hit names the mob only as the one being fought.
 	const fighting = / withered away (?:while|whilst) fighting ([A-Z][A-Za-z ]*)$/.exec(message);
