@@ -153,6 +153,11 @@ public final class ServerFightUntilController implements ServerController {
 	/** How far from an angry enderman the sword cannot reach the body backs off, so it teleports across to the body. */
 	static final double DRAW_DISTANCE = 19.0D;
 	static final int MAX_DRAW_OVERS = 4;
+
+	/** Test seam: the back-off walk for an angry enderman out of reach (navigation to the goal by default). */
+	interface DrawWalks { ServerController walk(Vec3 goal, long now); }
+
+	static DrawWalks drawWalks = (goal, now) -> new ServerNavigationController(goal, HUNT_ARRIVE, false, now, HUNT_WALK_MS, true);
 	static final long HUNT_WALK_MS = 25_000L;
 
 	private final ServerProtectionPolicy protection;
@@ -1505,7 +1510,7 @@ public final class ServerFightUntilController implements ServerController {
 			Vec3 goal = new Vec3(enderman.getX(), player.getY(), enderman.getZ()).add(away.normalize().scale(DRAW_DISTANCE));
 			if (look != null) { look.cancel(player); look = null; }
 			if (walk != null) { walk.cancel(player); walk = null; }
-			drawWalk = new ServerNavigationController(goal, HUNT_ARRIVE, false, now, HUNT_WALK_MS, true);
+			drawWalk = drawWalks.walk(goal, now);
 			drawOvers++;
 			lastTargetMs = elapsed;
 			note(String.format(Locale.ROOT, "angry %s %s out of reach %.1f blocks away: backing off to %s for it to teleport across", mobId,

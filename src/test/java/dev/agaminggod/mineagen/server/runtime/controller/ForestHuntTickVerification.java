@@ -82,8 +82,14 @@ public final class ForestHuntTickVerification {
 		long savedSweptAt = sweptAtField.getLong(null);
 		WarpedForestHunt.Probe savedProbe = WarpedForestHunt.probe;
 		WarpedForestHunt.Walks savedWalks = WarpedForestHunt.walks;
+		ServerFightUntilController.DrawWalks savedDraw = ServerFightUntilController.drawWalks;
 		seenPlayers.clear();
 		try {
+			// The back-off from an angry enderman out of reach ends at once (no terrain to walk in the fixture level).
+			ServerFightUntilController.drawWalks = (goal, now) -> new ServerController() {
+				@Override public TickResult tick(ServerPlayer body, long nowEpochMs) { return TickResult.failed("NO_ROUTE", "fixture: no terrain", 0.0D); }
+				@Override public void cancel(ServerPlayer body) { }
+			};
 			WarpedForestHunt.probe = (player, at) -> at.getX() < 200 ? FOREST : "minecraft:basalt_deltas";
 			verifyRelocatesAndArrives();
 			verifyEveryHeadingFails();
@@ -101,6 +107,7 @@ public final class ForestHuntTickVerification {
 		} finally {
 			WarpedForestHunt.probe = savedProbe;
 			WarpedForestHunt.walks = savedWalks;
+			ServerFightUntilController.drawWalks = savedDraw;
 			seenPlayers.clear();
 			seenPlayers.putAll(savedPlayers);
 			sweptAtField.setLong(null, savedSweptAt);
