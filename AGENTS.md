@@ -6,6 +6,17 @@ This file is for agents working on the codebase. The in-game agent's own instruc
 
 The goal right now is for one AI agent to beat Minecraft from scratch: start with an empty inventory in a new random world and kill the Ender Dragon on its own, in a reasonable time. Every change should move that forward or keep it from going backward. [docs/goal-progress.md](docs/goal-progress.md) says how progress is measured and has the latest numbers. Read it before you pick work, and add to its status table when a full-game round finishes.
 
+## Report to the owner in game terms
+
+Every status update, summary and result you give the project owner says, in plain words:
+
+- what the bot did wrong in the game;
+- what you changed, described as behaviour ("it now steps back from lava when a mob is near"), not as files or branches;
+- how it played before and after, as counts: "died in lava 3 of 3 times before, 0 of 3 after";
+- whether that difference is big enough to trust, or needs more runs.
+
+When you mention a project label, branch, commit, test or tool name, say what it means in the same sentence. Short labels such as round names belong in handoffs between agents.
+
 ## Private details stay off the repository
 
 This repository is public. Every push is public at once, and deleting a line later does not take it back.
