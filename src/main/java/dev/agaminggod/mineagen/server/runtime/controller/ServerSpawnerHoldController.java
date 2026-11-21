@@ -45,7 +45,19 @@ import net.minecraft.world.phys.Vec3;
  * the body eats inside. Hand-backs and their codes are {@link SpawnerHold#handBack} and {@link SpawnerHold#engineEnd}.
  */
 public final class ServerSpawnerHoldController implements ServerController {
-	private enum Phase { SITE, WALK, BUILD, LINTEL, HOLD }
+	private enum Phase { SCAN, SITE, WALK, BUILD, LINTEL, HOLD }
+
+	/**
+	 * Where this body last held a spawner: the spawner, its cell and doorway. A player knows the spawner it just fought at
+	 * after a hand-back (out of food, a time cap), also from inside a walled-up cell where it is out of sight; a fight_until
+	 * reissued there resumes the hold in the same cell (round 3 live: a reissued call found no spawner in view from the
+	 * walled-in cell and stood there for 6 minutes seeing no blaze).
+	 */
+	private record Held(BlockPos spawner, BlockPos cell, Direction opening) {
+	}
+	private static final Map<UUID, Held> LAST_HOLD = new java.util.concurrent.ConcurrentHashMap<>();
+	/** No spawner in view when the fight starts: look round for one this long before the ordinary fight takes over. */
+	private static final int SCAN_TICKS = 80;
 
 	private static final Set<String> POOR_FOODS = Set.of("minecraft:rotten_flesh", "minecraft:spider_eye", "minecraft:poisonous_potato",
 			"minecraft:pufferfish", "minecraft:suspicious_stew", "minecraft:chorus_fruit", "minecraft:chicken");
@@ -60,7 +72,11 @@ public final class ServerSpawnerHoldController implements ServerController {
 	private final ServerProtectionPolicy protection;
 	private final JsonObject model;
 	private final ServerFightUntilController.Roofing roofing;
-	private final BlockPos spawner;
+	private BlockPos spawner;
+	private int scanTicks;
+	/** No spawner found by looking round: the ordinary fight_until runs instead, under this controller. */
+	private ServerFightUntilController fallback;
+	private final long startedAt;
 	private final Item untilItem;
 	private final String untilItemId;
 	private final int untilCount;
@@ -81,7 +97,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 	private static final int FIRE_TICKS = 60;
 	private final List<String> log = new ArrayList<>();
 	private final long[] witherHits = new long[SpawnerHold.BREACH_HITS];
-	private Phase phase = Phase.SITE;
+	private Phase phase;
 	private BlockPos cell;
 	private Direction opening;
 	private String blockItem;
@@ -129,6 +145,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 		this.model = arguments.deepCopy();
 		this.roofing = roofing;
 		this.spawner = spawner;
+		this.phase = spawner == null ? Phase.SCAN : Phase.SITE;
+		this.startedAt = now;
 		this.untilItemId = arguments.get("untilItem").getAsString();
 		this.untilItem = BuiltInRegistries.ITEM.getOptional(Identifier.parse(untilItemId))
 				.orElseThrow(() -> new AgentDomainException("INVALID_FIELD", "untilItem: no item " + untilItemId));
@@ -162,7 +180,11 @@ public final class ServerSpawnerHoldController implements ServerController {
 			bestDistance = distance;
 			best = at.immutable();
 		}
-		return best;
+		if (best != null) return best;
+		Held held = LAST_HOLD.get(player.getUUID());
+		if (held != null && held.spawner().distSqr(feet) <= SpawnerHold.SCAN * SpawnerHold.SCAN
+				&& player.level().getBlockState(held.spawner()).is(Blocks.SPAWNER)) return held.spawner();
+		return null;
 	}
 
 	/** True while a spawner hold owns this body (its whole run, not only in the cell): back-off reflexes stand aside. */
@@ -179,6 +201,11 @@ public final class ServerSpawnerHoldController implements ServerController {
 	@Override
 	public TickResult tick(ServerPlayer player, long now) {
 		if (finished != null) return finished;
+		if (fallback != null) return fallback.tick(player, now);
+		if (phase == Phase.SCAN) {
+			TickResult scanning = scan(player, now);
+			if (scanning != null) return scanning;
+		}
 		long elapsed = elapsedTime.advance(now);
 		lastElapsed = elapsed;
 		if (startHeld < 0) { startHeld = ServerFightUntilController.count(player, untilItem); lastBlazeMs = elapsed; lastHurtTime = player.hurtTime; }
@@ -204,12 +231,42 @@ public final class ServerSpawnerHoldController implements ServerController {
 			if (defending != null) return defending;
 		}
 		return switch (phase) {
-			case SITE -> chooseSite(player, now);
+			case SCAN, SITE -> chooseSite(player, now);
 			case WALK -> walkToSite(player, now);
 			case BUILD -> build(player, now);
 			case LINTEL -> lintel(player, now);
 			case HOLD -> hold(player, now, elapsed, inCell);
 		};
+	}
+
+	/**
+	 * No fortress spawner in view at the start: look round (a full turn level, then one looking down, where a spawner
+	 * under a deck lies) and take the hold once one comes into view; otherwise the ordinary fight_until runs. Real games
+	 * (22 Nov): a spawner the body never saw lay 5 and 12 blocks away while blaze fights there found no blaze. Null once
+	 * a spawner is found (the hold goes on this tick).
+	 */
+	private TickResult scan(ServerPlayer player, long now) {
+		if (scanTicks % 5 == 0) {
+			BlockPos found = seenFortressSpawner(player);
+			if (found != null) {
+				spawner = found;
+				phase = Phase.SITE;
+				shieldInput.release();
+				note(String.format(Locale.ROOT, "looked round %d ticks: spawner at %s", scanTicks, found.toShortString()));
+				return null;
+			}
+		}
+		if (++scanTicks > SCAN_TICKS || player.level().dimension() != Level.NETHER) {
+			HOLDING.remove(player.getUUID());
+			shieldInput.release();
+			fallback = new ServerFightUntilController(player, model, protection, now, "fight_until", null, roofing);
+			return fallback.tick(player, now);
+		}
+		float yaw = player.getYRot() + 360.0F / (SCAN_TICKS / 2.0F);
+		float pitch = scanTicks <= SCAN_TICKS / 2 ? 0.0F : 35.0F;
+		shieldInput.apply(player, new AgentInputState(0.0F, 0.0F, false, false, false, false, false, yaw, pitch,
+				player.getInventory().getSelectedSlot(), InteractionHand.MAIN_HAND));
+		return TickResult.running(0.0D);
 	}
 
 	/**
@@ -245,6 +302,22 @@ public final class ServerSpawnerHoldController implements ServerController {
 	}
 
 	private TickResult chooseSite(ServerPlayer player, long now) {
+		Held held = LAST_HOLD.get(player.getUUID());
+		if (held != null && held.spawner().equals(spawner) && player.blockPosition().equals(held.cell()) && triedSites.isEmpty()) {
+			// Resumed where the last hold stood: the same cell, opened again first if it was walled up.
+			cell = held.cell();
+			opening = held.opening();
+			triedSites.add(cell);
+			blockItem = roofing.blockItem(player);
+			BlockPos doorway = cell.relative(opening);
+			if (!player.level().getBlockState(doorway).getCollisionShape(player.level(), doorway).isEmpty()
+					|| !player.level().getBlockState(doorway.above()).getCollisionShape(player.level(), doorway.above()).isEmpty()) {
+				sealed = true;
+				reopening = true;
+			}
+			note("resumed the hold in its cell " + cell.toShortString() + (reopening ? ", doorway walled up" : ""));
+			return enterHold(player);
+		}
 		var seen = SeenTerrain.of(player);
 		BlockPos bestCell = null;
 		Direction bestOpening = null;
@@ -345,6 +418,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 
 	private TickResult enterHold(ServerPlayer player) {
 		phase = Phase.HOLD;
+		LAST_HOLD.put(player.getUUID(), new Held(spawner, cell, opening));
 		lastBlazeMs = lastElapsed;
 		note("holding at " + cell.toShortString() + ", doorway " + opening.getSerializedName());
 		return TickResult.running(progress(player));
@@ -789,7 +863,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 		return switch (code) {
 			case "LOW_HEALTH_BAILOUT" -> String.format(Locale.ROOT, "health at or below fleeAtHealth %.1f", fleeAtHealth);
 			case "OUT_OF_FOOD" -> "hurt and hungry with no food in the hotbar: health cannot regrow";
-			case "SPAWNER_GONE" -> "the spawner at " + spawner.toShortString() + " is gone";
+			case "SPAWNER_GONE" -> "the spawner at " + (spawner == null ? "?" : spawner.toShortString()) + " is gone";
 			case "SPAWNER_UNREACHABLE" -> noSiteLeft ? "no seen cell 6-12 blocks from the spawner to build in" : sitesFailed + " hold sites failed";
 			case "SPAWNER_QUIET" -> String.format(Locale.ROOT, "no blaze seen for %.0f s from the cell", SpawnerHold.QUIET_MS / 1000.0D);
 			case "HOLD_BREACHED" -> "wither skeletons hit the body inside the cell";
@@ -802,7 +876,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 	private String summary(ServerPlayer player, long elapsed) {
 		int held = ServerFightUntilController.count(player, untilItem);
 		return String.format(Locale.ROOT, "spawner hold at %s: cell %s, %d site%s failed, %d build%s; %+d %s in %.0f s; %d engine run%s %s; %d rod trip%s; %d meal%s; %d defend%s; %d heal%s (%d walled in, %d reopened; shield up %d of %d ticks, asked %d, using %d %s, keys %s, %d bite%s stopped for a volley); %d fire%s punched out; hurts %s; health lost %s%s",
-				spawner.toShortString(), cell == null ? "none" : cell.toShortString(), sitesFailed, sitesFailed == 1 ? "" : "s", builds, builds == 1 ? "" : "s",
+				spawner == null ? "none seen" : spawner.toShortString(), cell == null ? "none" : cell.toShortString(), sitesFailed, sitesFailed == 1 ? "" : "s", builds, builds == 1 ? "" : "s",
 				held - Math.max(0, startHeld), untilItemId, elapsed / 1000.0D, engineRuns, engineRuns == 1 ? "" : "s", engineEnds, trips, trips == 1 ? "" : "s",
 				meals, meals == 1 ? "" : "s", defends, defends == 1 ? "" : "s", turtles, turtles == 1 ? "" : "s", seals, reopens, blockingTicks, turtleTicks, shieldAsks, usingTicks, usedInHeal, healWinners, bitesStopped, bitesStopped == 1 ? "" : "s", firesPunched, firesPunched == 1 ? "" : "s", hurts, lostText(), log.isEmpty() ? "" : "; log: " + String.join(" | ", log.subList(Math.max(0, log.size() - 6), log.size())));
 	}
@@ -860,6 +934,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 	 * and without this the phase, spot and health lost at death were known only from server death lines.
 	 */
 	public String stoppedBodyFacts(ServerPlayer player) {
+		if (fallback != null) return "; no fortress spawner seen after looking round, so the ordinary fight ran";
 		return cancelFacts != null ? cancelFacts : facts(player);
 	}
 
@@ -874,6 +949,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 
 	@Override
 	public void cancel(ServerPlayer player) {
+		if (fallback != null) { fallback.cancel(player); return; }
 		HOLDING.remove(player.getUUID());
 		if (cancelFacts == null) cancelFacts = facts(player);
 		cancelParts(player);
