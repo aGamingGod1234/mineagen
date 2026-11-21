@@ -99,7 +99,7 @@ export async function followEyes(target, body, { observation: initial, deadline,
 		const p = o.player;
 		return p.health <= 8 ? 'LOW_HEALTH' : p.inLava || p.hazard === 'lava' ? 'IN_LAVA' : p.onFire ? 'ON_FIRE' : p.underWater && (p.air < 60 || p.airSecondsLeft < 3) ? 'AIR_RESERVE_REACHED' : dangerNow(o);
 	};
-	const act = async (type, args, { soft = false } = {}) => {
+	const act = async (type, args, { soft = false, breathStop = false } = {}) => {
 		if (left() < 1000) return finish('FIND_BUDGET', 'timeoutMs exhausted');
 		const unsafe = safety();
 		if (unsafe) return finish('FIND_DANGER', unsafe);
@@ -113,6 +113,8 @@ export async function followEyes(target, body, { observation: initial, deadline,
 		state.walked += Math.hypot(o.player.x - before.x, o.player.z - before.z);
 		// Travel's tunnel through a hill flooded and the body backed out dry: the leg still covered its ground, so throw again
 		// from here as a player whose tunnel hits water steps back (eye rooms: 3 of 10 eyes-b finds ended FIND_DANGER so).
+		// A swim hop that surfaced to breathe reached air, as asked: it is a hop, not a danger.
+		if (breathStop && ['BREATH_NOT_COVERED', 'AIR_RESERVE_REACHED'].includes(result?.reasonCode) && !safety() && o.player.underWater !== true) return null;
 		if (soft && result?.reasonCode === 'TUNNEL_FLOODED' && !result?.interruptedBy && !safety() && o.player.underWater !== true
 			&& Math.hypot(o.player.x - before.x, o.player.z - before.z) >= 8) return null;
 		if (result?.interruptedBy || dangerCodes.has(result?.reasonCode) || safety()) return finish('FIND_DANGER', dangerCodes.has(result?.reasonCode) ? result.reasonCode : safety() ?? result?.interruptedBy ?? 'interrupted');
@@ -344,7 +346,12 @@ export async function followEyes(target, body, { observation: initial, deadline,
 				// hops until the far side is in reach of a walk (at most 12 hops, about 100 blocks), then walk the rest.
 				for (let hop = 0; hop < 12; hop++) {
 					const from = { x: o.player.x, z: o.player.z };
-					const swam = await act('move_to', { x: from.x + d.x * 8, y: Math.floor(o.player.y), z: from.z + d.z * 8, tolerance: 2, sprint: false });
+					// From the bank the water surface is a block or two below the feet; afloat it is where the body is.
+					let swam = null;
+					for (const dy of o.player.inWater === true ? [0, -1] : [-1, -2]) {
+						swam = await act('move_to', { x: from.x + d.x * 8, y: Math.floor(o.player.y) + dy, z: from.z + d.z * 8, tolerance: 2, sprint: false }, { breathStop: true });
+						if (!(swam?.find?.eyes?.stoppedBy === 'NO_STANDABLE_PATH')) break;
+					}
 					if (swam && swam.reasonCode !== 'FIND_BLOCKED') return swam;
 					if (Math.hypot(o.player.x - from.x, o.player.z - from.z) < 3) break;
 					if (o.player.underWater !== true && o.player.inWater !== true) break;
@@ -380,10 +387,13 @@ export async function followEyes(target, body, { observation: initial, deadline,
 		}
 		if (o.player.skyOpen !== true) {
 			const sky = body.openSky?.();
-			// No open sky seen yet (the body starts under a tree): step out from under the cover a few blocks each way before
+			// No open sky seen away from here (the body starts under a tree): step out from under the cover a few blocks each way before
 			// digging up through it, as a player walks out from under leaves to throw (eye rooms: stairs_up into a tree's
 			// canopy stopped CAVE_OPENING before any throw on 4 of 20 eyes-c starts).
-			if (!sky && !state.coverTried) {
+			const skyNear = sky && Math.hypot(sky.x - o.player.x, sky.z - o.player.z) <= 3;
+			// Also when the only open sky remembered is right here (seen before a fall or a teleport): it would dig up through
+			// the cover (eye rooms: 6 of 10 eyes-c starts remembered sky above the spawn spot and dug up into the canopy).
+			if ((!sky || skyNear) && !state.coverTried) {
 				state.coverTried = true;
 				const at = { x: o.player.x, z: o.player.z };
 				for (const [dx, dz] of [[6, 0], [0, 6], [-6, 0], [0, -6]]) {

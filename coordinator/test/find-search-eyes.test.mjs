@@ -160,6 +160,12 @@ test('with no open sky seen yet the body steps out from under cover before diggi
 	assert.deepEqual(moves, [[6, 0, false], [0, 6, false]]);
 	assert.equal(b.calls.some(c => c.type === 'dig_to' && c.args.pattern === 'stairs_up'), false);
 	assert.equal(b.calls.filter(c => c.type === 'use_item').length, 1);
+	// Open sky remembered only right here (seen before a teleport) still steps out first.
+	const here = fake({ skyOpen: false }); here.openSky = () => ({ x: 1, y: 75, z: 0 });
+	const plain = here.act;
+	here.act = async (...args) => { const r = await plain(...args); if (args[0] === 'travel_to' && args[1].x === 6) here.o.player.skyOpen = true; return r; };
+	await searchFor(target, here);
+	assert.equal(here.calls.some(c => c.type === 'dig_to' && c.args.pattern === 'stairs_up'), false);
 });
 test('a pickup with no way to the eye leaves it behind and the find goes on', async () => {
 	const b = fake({ event: flight({ outcome: 'dropped', droppedAt: { x: -12, y: 73, z: 0 } }) });
