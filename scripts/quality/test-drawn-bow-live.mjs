@@ -158,11 +158,15 @@ try {
 				// /summon gives a skeleton no bow (it then walks up and punches): hand it one, as a natural spawn has.
 				await command(`summon minecraft:skeleton 0.5 80 ${0.5 + distance} {PersistenceRequired:1b,equipment:{mainhand:{id:"minecraft:bow",count:1}}}`);
 				const seenEvents = new Map();
-				for (const end = rate.clock.now() + seconds * 1000; rate.clock.now() < end; await rate.clock.sleep(1000)) {
+				// DRAWN_TRACE=1: sample every 50 ms of game time (firing, shield in use, health, arrows due) into the case.
+				const trace = process.env.DRAWN_TRACE === '1' ? [] : null;
+				for (const end = rate.clock.now() + seconds * 1000; rate.clock.now() < end; await rate.clock.sleep(trace ? 50 : 1000)) {
 					// Observations come on request: read a fresh one, and top health up so no case ends in a death
 					// (damage_taken still counts every hit).
 					o = await observe();
 					for (const row of events(o, 'arrow-test')) seenEvents.set(row.seq, row);
+					if (trace) trace.push({ at: Math.round(rate.clock.now()), firing: o.reflexes?.firing?.detail ?? null, using: o.interaction?.usingItem ?? null, health: health(o),
+						incoming: (o.incomingProjectiles ?? []).map((row) => row.etaSeconds), yaw: o.view?.yaw });
 					if (process.env.DRAWN_DEBUG) console.log(`[tick] health ${health(o)} firing ${o.reflexes?.firing?.id ?? '-'} incoming ${JSON.stringify(o.incomingProjectiles ?? null)?.slice(0, 120)} mode ${o.player?.gameMode ?? o.gameMode ?? '?'}`);
 					if ((health(o) ?? 20) < 12) await command(`effect give ${agent} minecraft:instant_health 1 3 true`);
 				}
@@ -171,7 +175,7 @@ try {
 				await rate.normalRate();
 				const blocked1 = await score.blk(), taken1 = await score.dmg();
 				o = await observe();
-				cases.push({ arm, repeat, distance, blocked0, blocked1, taken0, taken1, events: [...seenEvents.values()], tick });
+				cases.push({ arm, repeat, distance, blocked0, blocked1, taken0, taken1, events: [...seenEvents.values()], tick, ...(trace ? { trace } : {}) });
 				const counter = (before, after) => before === null || after === null ? 'unreadable' : `${(after - before) / 10} HP`;
 				console.log(`[case] ${arm} ${distance} blocks: blocked ${counter(blocked0, blocked1)}, taken ${counter(taken0, taken1)}; firings ${seenEvents.size}: ${[...seenEvents.values()].slice(0, 4).map(row => `${row.outcome} ${row.detail}`).join(' | ')}`);
 				await setReflexes([]);
