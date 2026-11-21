@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { KIT_MAX_STEPS, ironReserved, keepKit, kitHabitEnabled, nextKitStep } from '../src/kit-habit.mjs';
+import { KIT_MAX_STEPS, craftsFromHeld, ironReserved, keepKit, kitHabitEnabled, nextKitStep } from '../src/kit-habit.mjs';
 
 const item = (itemId, slot, count = 1, extra = {}) => ({ itemId: `minecraft:${itemId}`, slot, count, ...extra });
 const sample = (items, { health = 20, selectedSlot = 0 } = {}) => ({ player: { health }, inventory: { items, selectedSlot } });
-const ironKit = [item('iron_pickaxe', 'mainhand'), item('bucket', 3, 2), item('flint_and_steel', 4)];
+const ironKit = [item('iron_pickaxe', 'mainhand'), item('bucket', 3, 2), item('flint_and_steel', 4), item('crafting_table', 5)];
 
 test('a shield in the main inventory goes to the off hand before anything is crafted', () => {
 	assert.deepEqual(nextKitStep(sample([item('shield', 20), item('iron_ingot', 9, 20)])),
@@ -13,11 +13,11 @@ test('a shield in the main inventory goes to the off hand before anything is cra
 });
 
 test('after a respawn with iron and wood back in hand, the body crafts the shield it lost', () => {
-	assert.deepEqual(nextKitStep(sample([item('stone_pickaxe', 'mainhand'), item('iron_ingot', 1, 4), item('oak_log', 2, 2)])),
+	assert.deepEqual(nextKitStep(sample([item('stone_pickaxe', 'mainhand'), item('iron_ingot', 1, 4), item('oak_log', 2, 3), item('crafting_table', 3)])),
 		{ kind: 'craft', itemId: 'minecraft:shield' });
 	assert.equal(nextKitStep(sample([item('stone_pickaxe', 'mainhand'), item('iron_ingot', 1, 3), item('oak_log', 2, 2)])), null,
 		'3 ingots without an iron pickaxe are the pickaxe\'s');
-	assert.deepEqual(nextKitStep(sample([item('iron_pickaxe', 'mainhand'), item('iron_ingot', 1, 1), item('oak_log', 2, 2)])),
+	assert.deepEqual(nextKitStep(sample([item('iron_pickaxe', 'mainhand'), item('iron_ingot', 1, 1), item('oak_log', 2, 3), item('crafting_table', 3)])),
 		{ kind: 'craft', itemId: 'minecraft:shield' });
 	assert.equal(nextKitStep(sample([item('iron_ingot', 1, 3), item('oak_planks', 2, 5)])), null, '5 planks are not enough for a shield');
 	assert.equal(nextKitStep(sample([item('oak_log', 2, 4)])), null, 'no iron, no shield craft (no mining for it)');
@@ -75,7 +75,7 @@ test('keepKit crafts, then wears, then stops; a failed step ends it; it never ru
 	const done = await keepKit(body, craft);
 	assert.deepEqual(done, ['crafted shield', 'wore shield (offhand)', 'crafted iron_chestplate', 'wore iron_chestplate (chest)']);
 	assert.ok(calls.length <= KIT_MAX_STEPS);
-	items = [item('iron_pickaxe', 'mainhand'), item('iron_ingot', 1, 1), item('oak_log', 2, 2)];
+	items = [item('iron_pickaxe', 'mainhand'), item('iron_ingot', 1, 1), item('oak_log', 2, 3), item('crafting_table', 3)];
 	assert.deepEqual(await keepKit(body, async () => ({ state: 'FAILED', reasonCode: 'NO_TABLE_SPOT' })), ['craft shield stopped (NO_TABLE_SPOT)']);
 	let stop = false;
 	assert.deepEqual(await keepKit(body, async () => { stop = true; return { state: 'FAILED' }; }, { stopped: () => true }), []);
@@ -83,11 +83,56 @@ test('keepKit crafts, then wears, then stops; a failed step ends it; it never ru
 });
 
 test('a craft that leaves the item missing is not retried in the same run', async () => {
-	const items = [item('iron_pickaxe', 'mainhand'), item('iron_ingot', 1, 1), item('oak_log', 2, 2)];
+	const items = [item('iron_pickaxe', 'mainhand'), item('iron_ingot', 1, 1), item('oak_log', 2, 3), item('crafting_table', 3)];
 	let crafts = 0;
 	const done = await keepKit({ observe: async () => sample(items), act: async () => ({ state: 'SUCCEEDED' }) }, async () => { crafts += 1; return { state: 'SUCCEEDED' }; });
 	assert.equal(crafts, 1);
 	assert.deepEqual(done, ['crafted shield']);
+});
+
+test('a kit craft that would need gathering (a table from logs not held, the pickaxe\'s sticks) is not chosen', () => {
+	const noTable = [item('iron_pickaxe', 'mainhand'), item('bucket', 3, 2), item('flint_and_steel', 4), item('shield', 'offhand')];
+	// Eight spare ingots but no table and no wood: the chestplate's plan would mine a log for the table.
+	assert.equal(nextKitStep(sample([...noTable, item('iron_ingot', 1, 8)])), null);
+	assert.ok(!craftsFromHeld(sample([...noTable, item('iron_ingot', 1, 8)]), 'minecraft:iron_chestplate'));
+	// Four planks are not enough while two are kept for the next pickaxe's sticks; six make the table from what is held.
+	assert.equal(nextKitStep(sample([...noTable, item('iron_ingot', 1, 8), item('oak_planks', 2, 4)])), null);
+	assert.deepEqual(nextKitStep(sample([...noTable, item('iron_ingot', 1, 8), item('oak_planks', 2, 6)])), { kind: 'craft', itemId: 'minecraft:iron_chestplate' });
+	// Six planks and a table, but two planks are the next pickaxe's sticks: the shield would send the body for a log.
+	assert.equal(nextKitStep(sample([item('iron_pickaxe', 'mainhand'), item('crafting_table', 3), item('iron_ingot', 1, 1), item('oak_planks', 2, 6)])), null);
+	assert.deepEqual(nextKitStep(sample([item('iron_pickaxe', 'mainhand'), item('crafting_table', 3), item('iron_ingot', 1, 1), item('oak_planks', 2, 8)])), { kind: 'craft', itemId: 'minecraft:shield' });
+});
+
+test('what the obtain just handed back is never spent on kit', () => {
+	const held = [item('iron_pickaxe', 'mainhand'), item('crafting_table', 3), item('oak_planks', 2, 8), item('iron_ingot', 1, 3)];
+	assert.deepEqual(nextKitStep(sample(held)), { kind: 'craft', itemId: 'minecraft:shield' });
+	// obtain iron_ingot count 3: the shield would hand back 2.
+	assert.equal(nextKitStep(sample(held), { reserved: { ids: ['iron_ingot'], count: 3 } }), null);
+	assert.deepEqual(nextKitStep(sample([...held.slice(0, 3), item('iron_ingot', 1, 4)]), { reserved: { ids: ['iron_ingot'], count: 3 } }), { kind: 'craft', itemId: 'minecraft:shield' });
+	// obtain planks count 8: the shield's planks are those planks.
+	assert.equal(nextKitStep(sample(held), { reserved: { ids: ['oak_planks', 'birch_planks'], count: 8 } }), null);
+	assert.deepEqual(nextKitStep(sample([...held, item('oak_log', 4, 3)]), { reserved: { ids: ['oak_planks'], count: 8 } }), { kind: 'craft', itemId: 'minecraft:shield' });
+});
+
+test('armour in the selected hotbar slot is worn from that slot', () => {
+	assert.deepEqual(nextKitStep(sample([item('iron_boots', 'mainhand')], { selectedSlot: 4 })),
+		{ kind: 'equip', sourceSlot: 4, targetSlot: 'feet', itemId: 'minecraft:iron_boots' });
+});
+
+test('an off hand holding something else leaves the shield where it is and the rest of the kit goes on', () => {
+	const step = nextKitStep(sample([item('torch', 'offhand', 16), item('shield', 20), item('iron_helmet', 12)]));
+	assert.deepEqual(step, { kind: 'equip', sourceSlot: 12, targetSlot: 'head', itemId: 'minecraft:iron_helmet' });
+	assert.deepEqual(nextKitStep(sample([item('torch', 'offhand', 16), item('shield', 20), item('stone_pickaxe', 0), item('bread', 30, 3)])),
+		{ kind: 'hotbar', sourceSlot: 30, hotbarSlot: 8, itemId: 'minecraft:bread' });
+	assert.equal(nextKitStep(sample([item('torch', 'offhand', 16), item('shield', 20)])), null);
+});
+
+test('keepKit hands back the result of the step that stopped it', async () => {
+	const running = { state: 'RUNNING', actionId: 'a-7', recoveryHint: 'replaceAction with actionId a-7' };
+	const stop = {};
+	const done = await keepKit({ observe: async () => sample([item('shield', 20)]), act: async () => running }, async () => ({ state: 'SUCCEEDED' }), { stop });
+	assert.deepEqual(done, ['equip shield stopped (RUNNING)']);
+	assert.equal(stop.result, running);
 });
 
 test('MINEAGEN_KIT_HABIT=off is the only way to turn it off', () => {

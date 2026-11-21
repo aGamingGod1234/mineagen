@@ -15,13 +15,13 @@ const RECIPES = {
 	'minecraft:iron_boots': { iron: 4, planks: 0, slot: 8 },
 };
 
-async function obtainBucket({ kitHabit, iron = 4, health = 20 }) {
+async function obtainBucket({ kitHabit, iron = 4, health = 20, items = null, selectedSlot = 0, target = { item: 'bucket', timeoutMs: 60000 }, onEquip = null }) {
 	const record = { agentId: 'kit-agent', goalRevision: 1, provider: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'low', serviceTier: 'default' };
 	let sequence = 1;
 	const commands = [];
 	const observation = { world: { dimension: 'minecraft:overworld' },
 		player: { x: 0.5, y: 64, z: 0.5, yaw: 0, health, air: 300, maxAir: 300, onGround: true },
-		inventory: { selectedSlot: 0, items: [{ itemId: 'minecraft:iron_pickaxe', slot: 'mainhand', count: 1 }, { itemId: 'minecraft:iron_ingot', slot: 10, count: iron },
+		inventory: { selectedSlot, items: items ?? [{ itemId: 'minecraft:iron_pickaxe', slot: 'mainhand', count: 1 }, { itemId: 'minecraft:iron_ingot', slot: 10, count: iron },
 			{ itemId: 'minecraft:oak_planks', slot: 11, count: 8 }, { itemId: 'minecraft:crafting_table', slot: 1, count: 1 }] }, blocks: [] };
 	for (let x = -3; x <= 3; x++) for (let z = -3; z <= 3; z++) observation.blocks.push({ blockId: 'minecraft:stone', x, y: 63, z, placeableFaces: ['up'] });
 	const take = (itemId, count) => {
@@ -50,7 +50,8 @@ async function obtainBucket({ kitHabit, iron = 4, health = 20 }) {
 				observation.inventory.items.push({ itemId: a.recipeId, slot: recipe.slot, count: 1 });
 			}
 			if (p.actionType === 'equip_item') {
-				const row = observation.inventory.items.find(item => item.slot === a.sourceSlot);
+				if (onEquip?.(runtime, record, p) === 'hold') return;
+				const row = observation.inventory.items.find(item => item.slot === a.sourceSlot || item.slot === 'mainhand' && a.sourceSlot === observation.inventory.selectedSlot);
 				assert.equal(row?.itemId, a.expectedItemId);
 				row.slot = a.targetSlot;
 			}
@@ -59,7 +60,7 @@ async function obtainBucket({ kitHabit, iron = 4, health = 20 }) {
 	runtime.updateObservation(record, structuredClone(observation), { eventSequence: sequence });
 	try {
 		const result = await runtime.execute({ agentId: record.agentId, goalRevision: 1, turnId: 't', callId: 'c',
-			tool: normalizeMinecraftToolCall('do_step', { verb: 'obtain', target: { item: 'bucket', timeoutMs: 60000 }, why: 'kit habit acceptance' }) }, record);
+			tool: normalizeMinecraftToolCall('do_step', { verb: 'obtain', target, why: 'kit habit acceptance' }) }, record);
 		return { result, commands, items: observation.inventory.items };
 	} finally { await runtime.dispose(record.agentId, 'test_complete'); }
 }
@@ -95,4 +96,46 @@ test('iron the route still needs is not spent on armour; spare iron is', async (
 	// 16 iron leaves 12 after the bucket and shield: 4 owed, 8 spare, enough for a chestplate.
 	({ result } = await obtainBucket({ kitHabit: true, iron: 16 }));
 	assert.deepEqual(result.kit, ['crafted shield', 'wore shield (offhand)', 'crafted iron_chestplate', 'wore iron_chestplate (chest)']);
+});
+
+const row = (itemId, slot, count = 1) => ({ itemId: `minecraft:${itemId}`, slot, count });
+// Every body call that would search, travel or mine: kit upkeep makes none of them.
+const ERRANDS = ['navigate_to', 'travel_to', 'dig_to', 'mine_vein', 'break_block', 'gather', 'mine', 'pick_up_item', 'fight_until'];
+const errands = commands => commands.filter(c => ERRANDS.includes(c.actionType) && c.arguments?.expectedBlockId !== 'minecraft:crafting_table');
+
+test('spare iron with no table and no wood held crafts nothing: kit never gathers a table\'s logs', async () => {
+	const { result, commands } = await obtainBucket({ kitHabit: true, items: [row('iron_pickaxe', 'mainhand'), row('bucket', 3, 2), row('flint_and_steel', 4),
+		row('shield', 'offhand'), row('iron_ingot', 10, 8)] });
+	assert.equal(result.state, 'SUCCEEDED', JSON.stringify(result));
+	assert.equal(result.kit, undefined, JSON.stringify(result.kit));
+	assert.deepEqual(errands(commands), []);
+	assert.deepEqual(commands.filter(c => c.actionType === 'craft_table' || c.actionType === 'craft_inventory'), []);
+});
+
+test('obtain iron_ingot count 3 hands back 3 ingots: kit does not spend them on a shield', async () => {
+	const { result, items } = await obtainBucket({ kitHabit: true, iron: 3, target: { item: 'iron_ingot', count: 3, timeoutMs: 60000 } });
+	assert.equal(result.state, 'SUCCEEDED', JSON.stringify(result));
+	assert.equal(result.kit, undefined);
+	assert.equal(items.find(item => item.itemId === 'minecraft:iron_ingot')?.count, 3);
+});
+
+test('armour in the selected hotbar slot is worn after obtain', async () => {
+	const { result, items, commands } = await obtainBucket({ kitHabit: true, selectedSlot: 4, items: [row('iron_boots', 'mainhand'), row('bucket', 3, 2), row('shield', 'offhand')] });
+	assert.equal(result.state, 'SUCCEEDED', JSON.stringify(result));
+	assert.deepEqual(result.kit, ['wore iron_boots (feet)']);
+	assert.equal(commands.find(c => c.actionType === 'equip_item')?.arguments.sourceSlot, 4);
+	assert.ok(items.some(item => item.itemId === 'minecraft:iron_boots' && item.slot === 'feet'));
+});
+
+test('danger during a kit equip hands back obtain interrupted, with the equip still running', async () => {
+	let actionId = null;
+	const { result } = await obtainBucket({ kitHabit: true, items: [row('iron_pickaxe', 'mainhand'), row('bucket', 3, 2), row('shield', 20)],
+		onEquip: (runtime, record, p) => { actionId = p.actionId; queueMicrotask(() => runtime.interruptBlockingTool(record.agentId)); return 'hold'; } });
+	assert.ok(actionId);
+	assert.equal(result.state, 'INTERRUPTED', JSON.stringify(result));
+	assert.equal(result.reasonCode, 'DANGER');
+	assert.equal(result.running?.actionId, actionId);
+	assert.match(result.running.recoveryHint, /replaceAction/);
+	assert.deepEqual(result.kit, ['equip shield stopped (RUNNING)']);
+	assert.match(result.message, /^Obtained bucket.*; kit: equip shield stopped \(RUNNING\); stopped for danger after the item was obtained/);
 });
