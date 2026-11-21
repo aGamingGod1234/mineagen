@@ -1382,7 +1382,8 @@ test('second review: a lost lease stops the batch touching the machine, named ma
 		await rm(leaseFile);
 
 		// A process on the image's Java survives cleaning a --machines machine, and is killed on a pool machine.
-		const java = path.join(fake.home(vm.id), 'rooms/jdk/bin/sleepy');
+		// Named sleep: a multi-call coreutils binary picks what to run from its name.
+		const java = path.join(fake.home(vm.id), 'rooms/jdk/bin/sleep');
 		const { copyFile } = await import('node:fs/promises');
 		await copyFile('/bin/sleep', java);
 		const service = spawn(java, ['300'], { cwd: fake.home(vm.id), stdio: 'ignore', detached: true });
@@ -1457,5 +1458,26 @@ test('third review: warm does not count a set-aside machine, and prune deletes o
 		assert.deepEqual(await store.asideList(), []);
 		assert.equal((await fake.calls('delete')).length, 1, 'only the set-aside machine was deleted');
 		store.stop();
+	} finally { await fake.close(); }
+});
+
+test('fourth review: a new machine whose drawn name is already reserved draws another before it is created', { skip: process.platform === 'win32' }, async () => {
+	const fake = await fakeBoat();
+	try {
+		const real = leaseStore({ dir: fake.poolDir });
+		const taken = [];
+		let refused = false;
+		const store = Object.assign(Object.create(real), real, { take: async (names, options) => {
+			taken.push(names[0]);
+			if (!refused) { refused = true; return null; }
+			return real.take(names, options);
+		} });
+		const vm = await warmBoatPool({ snapshot: 'img', type: 'default', store, log: quiet, roomPorts: [1, 0], startsPerMinute: 600 }).startNew();
+		assert.equal(taken.length, 2, 'a second name was drawn');
+		assert.equal(vm.name, taken[1]);
+		assert.ok(real.holds(vm.name), 'the machine was created under a lease this batch holds');
+		assert.equal((await fake.calls('new')).length, 1);
+		assert.ok((await fake.calls('new'))[0].includes(taken[1]));
+		real.stop();
 	} finally { await fake.close(); }
 });

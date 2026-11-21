@@ -27,7 +27,7 @@ export const LIVE = new Set(['provisioned', 'cloning', 'ready', 'idle', 'running
 export const MARKER = '.mineagen-pool.json';
 const slug = text => String(text).toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 24) || 'none';
 export const imageHash = (snapshot, snapshotId) => createHash('sha256').update(`${snapshot}\n${snapshotId ?? ''}`).digest('hex').slice(0, 8);
-export const machineName = ({ poolId, type, snapshot, snapshotId, rand = randomBytes(2).toString('hex') }) => `rbpool-${poolId}-${slug(type)}-${slug(snapshot)}-${imageHash(snapshot, snapshotId)}-${rand}`;
+export const machineName = ({ poolId, type, snapshot, snapshotId, rand = randomBytes(4).toString('hex') }) => `rbpool-${poolId}-${slug(type)}-${slug(snapshot)}-${imageHash(snapshot, snapshotId)}-${rand}`;
 
 /** A boat sandbox -> its pool fields when this pool made it, else null. */
 export function poolMember(sandbox, poolId, now = Date.now()) {
@@ -169,9 +169,11 @@ export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, id
 		await startBudget();
 		let started = false;
 		const settle = () => { if (!started) { started = true; pending--; } };
-		const name = machineName({ poolId: ident.poolId, type, snapshot, snapshotId: ident.snapshotId });
-		// The lease exists before the machine does, so no other batch can take it between ready and lease.
-		await store.take([name], { batch });
+		// The lease exists before the machine does, so no other batch can take it between ready and lease. A name another
+		// start already holds is drawn again: creating under a lease we do not hold would leave the machine unowned.
+		let name = null;
+		for (let draw = 0; draw < 5 && !name; draw++) name = await store.take([machineName({ poolId: ident.poolId, type, snapshot, snapshotId: ident.snapshotId })], { batch });
+		if (!name) { settle(); throw new Error('could not reserve a free machine name for a new machine'); }
 		try {
 			for (let attempt = 1; ; attempt++) {
 				const waited = await store.reserveStart({ perMinute: startsPerMinute, signal });
