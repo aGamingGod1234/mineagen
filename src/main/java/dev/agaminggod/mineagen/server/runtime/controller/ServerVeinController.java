@@ -236,7 +236,7 @@ public final class ServerVeinController implements ServerController {
 		if (!leaf && player.level().getBlockState(at).is(BlockTags.GUARDED_BY_PIGLINS)) {
 			double piglin = nearestCalmPiglin(player);
 			if (angersPiglins(true, piglin)) return stop(player, "PIGLINS_NEAR_GOLD", String.format(Locale.ROOT,
-					"a calm piglin is %.1f blocks away: breaking %s within %d blocks of piglins turns them on you (vanilla), gold armour or not; mine it once they are further off",
+					"a calm piglin is %.1f blocks away (seen or heard): breaking %s within %d blocks of piglins turns them on you (vanilla), gold armour or not; mine it once they are further off",
 					piglin, blockId(player.level().getBlockState(at)), (int) PIGLIN_GUARD_RANGE), false, now);
 		}
 		try {
@@ -272,11 +272,14 @@ public final class ServerVeinController implements ServerController {
 		return guardedBlock && nearestCalmPiglin <= PIGLIN_GUARD_RANGE;
 	}
 
-	/** The nearest seen calm adult piglin, as a player glances round before mining gold; infinity when none is seen. */
+	/**
+	 * The nearest calm adult piglin within the guard range, seen or heard (piglins grunt; vanilla angers them whether the
+	 * player sees them or not): a player listens and glances round before mining gold. Infinity when there is none.
+	 */
 	private static double nearestCalmPiglin(ServerPlayer player) {
 		double best = Double.POSITIVE_INFINITY;
 		for (var piglin : player.level().getEntitiesOfClass(net.minecraft.world.entity.monster.piglin.Piglin.class, player.getBoundingBox().inflate(PIGLIN_GUARD_RANGE + 1.0D),
-				p -> p.isAlive() && !p.isBaby() && p.getTarget() != player && dev.agaminggod.mineagen.server.perception.ObservationVisibility.canSeeEntity(player, p)))
+				p -> p.isAlive() && !p.isBaby() && p.getTarget() != player))
 			best = Math.min(best, player.distanceTo(piglin));
 		return best;
 	}
