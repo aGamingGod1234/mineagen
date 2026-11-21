@@ -122,3 +122,13 @@ test('a visible mob the body reports as calm is not a threat; a sensed one still
 	sensed.player.threats = [{ uuid: 'p0', stableId: 'p0', type: 'minecraft:zombified_piglin', distance: 5 }];
 	assert.ok(situationTags(sensed).tags.includes('threat:zombified_piglin'), 'a threat the body senses counts even if the view row says calm');
 });
+
+test('iron stays a need at the portal stage until the two-bucket kit and shield are held', () => {
+	const at = items => situationTags(observation({ items: [item('cooked_beef', 9), item('iron_pickaxe', 1, 0), item('flint_and_steel'), ...items] })).tags;
+	const oneBucket = at([item('bucket'), item('shield', 1, 40)]);
+	assert.ok(oneBucket.includes('stage:portal') && oneBucket.includes('need:iron') && oneBucket.includes('need:portal'), 'one bucket is half the casting kit');
+	const noShield = at([item('bucket', 2)]);
+	assert.ok(noShield.includes('stage:portal') && noShield.includes('need:iron'), 'no shield yet');
+	const kit = at([item('bucket'), item('water_bucket'), item('shield', 1, 40)]);
+	assert.ok(kit.includes('stage:portal') && !kit.includes('need:iron') && kit.includes('need:portal'), 'the full kit needs no more iron');
+});

@@ -111,7 +111,8 @@ export function situationTags(observation, { trigger = null, enteredDimension = 
 	tags.add(`stage:${stage}`);
 	const need = new Set();
 	if (stage === 'start') need.add(held(/^wooden_pickaxe$/) ? 'stone' : 'wood');
-	if (stage === 'stone' || (stage === 'iron' && (!kit.shield || buckets < 2 || !kit.flint_and_steel))) need.add('iron');
+	// The portal stage starts with one bucket; iron is still needed until the two-bucket casting kit and the shield are held.
+	if (stage === 'stone' || ((stage === 'iron' || stage === 'portal') && (!kit.shield || buckets < 2 || !kit.flint_and_steel))) need.add('iron');
 	if (stage === 'portal' && count(/^obsidian$/) < 10) need.add('portal').add('obsidian').add('lava');
 	if (stage === 'nether') { if (rodsShort) need.add('blaze_rods'); if (pearlsShort) need.add('ender_pearls'); }
 	if (stage === 'eyes') need.add('stronghold');
