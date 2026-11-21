@@ -265,6 +265,9 @@ public final class ServerDigController implements ServerController {
 	/** Times this call stepped back from falling gravel or sand and dug on once it landed (retreat). */
 	private int looseRetreats;
 	private int landingTicks;
+	/** Ticks spent knocking a snow layer or plant out of this step's cell (floor). */
+	private int clearTicks;
+	static final int CLEAR_TICKS = 40;
 	static final int MAX_LOOSE_RETREATS = 6;
 	/** How long the body waits, stepped back, for a falling block to land before it digs on (2 s). */
 	static final int LANDING_TICKS = 40;
@@ -530,6 +533,7 @@ public final class ServerDigController implements ServerController {
 			if (known != null && passable(player.level(), neighbour, known)) openBefore.add(neighbour);
 		}
 		refills = 0;
+		clearTicks = 0;
 		cellIndex = 0;
 		mining = null;
 		phaseTicks = 0;
@@ -866,6 +870,22 @@ public final class ServerDigController implements ServerController {
 		if (active == Pattern.STAIRS_UP) {
 			BlockPos step = next.below();
 			BlockState state = player.level().getBlockState(step);
+			// A snow layer or grass in the step's cell hides the faces a step block would go against: knock it away
+			// first, as a player does, then place the step on what is under it.
+			if (!standable(player.level(), step, state) && !state.isAir() && state.canBeReplaced() && state.getFluidState().isEmpty()
+					&& clearTicks < CLEAR_TICKS) {
+				Vec3 aim = dev.agaminggod.mineagen.server.runtime.TargetSightline.block(player.level(), net.minecraft.world.phys.shapes.CollisionContext.of(player),
+						player.getEyePosition(), step, player.blockInteractionRange(), null);
+				if (aim != null) {
+					clearTicks++;
+					AgentInputState look = AgentInputStates.lookingAt(player, aim, 0.0F, 0.0F, false, false, false, false, false, InteractionHand.MAIN_HAND);
+					boolean onTarget = Tracer.rayTrace(player, 1.0F, player.blockInteractionRange(), false) instanceof BlockHitResult hit
+							&& hit.getType() == HitResult.Type.BLOCK && hit.getBlockPos().equals(step);
+					applyInput(player, 0.0F, false, false, onTarget, AgentInputStates.turnYaw(player.getYRot(), look.yaw()),
+							AgentInputStates.turnPitch(player.getXRot(), look.pitch()), player.getInventory().getSelectedSlot());
+					return TickResult.running(progress(player));
+				}
+			}
 			if (!standable(player.level(), step, state)) {
 				String filler = filler(player);
 				Direction face = filler == null || !state.canBeReplaced() || !state.getFluidState().isEmpty() ? null : supportFace(player, step);
