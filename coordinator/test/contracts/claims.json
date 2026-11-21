@@ -42366,19 +42366,25 @@
       "status": "checked"
     },
     {
-      "predicate": "barter_until requires a worn gold armour piece, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin with an empty offhand, walks over seen returns within 8 blocks, counts the asked item by inventory change and stops with the listed codes; the measured outcomes come from the piglin-room runs.",
+      "predicate": "barter_until puts on a carried gold armour piece when none is worn (right-click use) and otherwise stops NO_GOLD_ARMOUR, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin within 32 blocks with an empty offhand, crafts carried gold blocks (inventory grid) and nuggets (a table in reach or a carried one placed) into ingots when the ingots run out, walks over seen returns within 8 blocks, counts the asked item by inventory change and the ingots traded by the gold gone, and stops with the listed codes; the measured outcomes come from the piglin-room and barter practice-room runs.",
       "checks": [
         {
           "type": "live-behavior",
           "test": "barter.piglin-room",
           "command": "slot.sh live node scripts/quality/test-cast-barter-live.mjs barter evals/d41-cast-barter/checkpoints/piglin-barter.json OUT_DIR",
           "predicate": "In a sealed Nether-wastes room with 3 summoned adult piglins, a worn golden helmet and 32 gold ingots, one barter_until call throws ingots one at a time, collects returns, and its reported gained count of the asked item equals the operator-read inventory change."
+        },
+        {
+          "type": "live-behavior",
+          "test": "barter.practice-room",
+          "command": "slot.sh live node scripts/quality/test-barter-room-live.mjs held|blocks|mine SALT OUT_DIR JAR",
+          "predicate": "In a sealed, lit Nether-wastes hall with summoned calm adult piglins, the held room (golden helmet carried, not worn; 192 ingots; piglins 28 blocks off) and the blocks room (20 gold blocks, 6 ingots) trade carried gold for pearls through repeated barter_until calls with no death; the mine room converts mined nuggets at a placed table."
         }
       ],
-      "id": "control:984c1c073e0c228d:c755e5635a98c819",
+      "id": "control:984c1c073e0c228d:5dba4d0fd3ba9814",
       "contract": {
-        "id": "control:984c1c073e0c228d:c755e5635a98c819",
-        "claim": "Barters with piglins until `count` of the item have been gained. It needs a gold armour piece worn (NO_GOLD_ARMOUR otherwise; vanilla piglins attack a player without one) and gold ingots carried. The body walks to the nearest calm adult piglin it sees within 16 blocks that is not already examining an item, turns to it and throws one gold ingot toward its feet (a vanilla Q drop from the selected stack), then turns to the next free piglin; with none free in view it turns on the spot in 60 degree steps to find one. A piglin examines an ingot for about 6 s and throws a random return toward you; the body walks to returned items it sees within 8 blocks and picks them up by touch, as vanilla does. Every returned item is kept; the count is the change in the carried amount of `itemId` since the call started.",
+        "id": "control:984c1c073e0c228d:5dba4d0fd3ba9814",
+        "claim": "Barters with piglins until `count` of the item have been gained. It needs a gold armour piece worn or carried (it puts a carried one on first; NO_GOLD_ARMOUR otherwise; vanilla piglins attack a player without one) and gold carried: ingots, or gold blocks and nuggets it crafts into ingots when the ingots run out (blocks in the inventory grid; nuggets at a crafting table within reach, or a carried one it places). The body walks to the nearest calm adult piglin it sees within 32 blocks that is not already examining an item, turns to it and throws one gold ingot toward its feet (a vanilla Q drop from the selected stack), then turns to the next free piglin; with none free in view it turns on the spot in 60 degree steps to find one. A piglin examines an ingot for about 6 s and throws a random return toward you; the body walks to returned items it sees within 8 blocks and picks them up by touch, as vanilla does. Every returned item is kept; the count is the change in the carried amount of `itemId` since the call started.",
         "kind": "control-reference",
         "topic": "barter_until"
       },
@@ -42390,7 +42396,7 @@
       "reason": "Piglin-room runs cover bartering, collection and the count; the anger, armour, hostile and danger stops are implemented in ServerBarterController but have no dedicated fixture."
     },
     {
-      "predicate": "barter_until requires a worn gold armour piece, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin with an empty offhand, walks over seen returns within 8 blocks, counts the asked item by inventory change and stops with the listed codes; the measured outcomes come from the piglin-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
+      "predicate": "barter_until puts on a carried gold armour piece when none is worn (right-click use) and otherwise stops NO_GOLD_ARMOUR, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin within 32 blocks with an empty offhand, crafts carried gold blocks (inventory grid) and nuggets (a table in reach or a carried one placed) into ingots when the ingots run out, walks over seen returns within 8 blocks, counts the asked item by inventory change and the ingots traded by the gold gone, and stops with the listed codes; the measured outcomes come from the piglin-room and barter practice-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
       "checks": [
         {
           "type": "live-behavior",
@@ -42403,12 +42409,18 @@
           "test": "verifyPiglinAnger",
           "type": "java-behavior",
           "command": "gradlew verifyCore"
+        },
+        {
+          "type": "live-behavior",
+          "test": "barter.practice-room",
+          "command": "slot.sh live node scripts/quality/test-barter-room-live.mjs held|blocks|mine SALT OUT_DIR JAR",
+          "predicate": "In a sealed, lit Nether-wastes hall with summoned calm adult piglins, the held room (golden helmet carried, not worn; 192 ingots; piglins 28 blocks off) and the blocks room (20 gold blocks, 6 ingots) trade carried gold for pearls through repeated barter_until calls with no death; the mine room converts mined nuggets at a placed table."
         }
       ],
-      "id": "control:984c1c073e0c228d:f98b196d79b224c2",
+      "id": "control:984c1c073e0c228d:6db2e962dcb8bd27",
       "contract": {
-        "id": "control:984c1c073e0c228d:f98b196d79b224c2",
-        "claim": "Stops with the counts (item gained and held, ingots thrown and left, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
+        "id": "control:984c1c073e0c228d:6db2e962dcb8bd27",
+        "claim": "Stops with the counts (item gained and held, ingots traded, thrown and crafted, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left or craftable here and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
         "kind": "control-reference",
         "topic": "barter_until"
       },
@@ -56959,23 +56971,29 @@
       "status": "checked"
     },
     {
-      "predicate": "barter_until requires a worn gold armour piece, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin with an empty offhand, walks over seen returns within 8 blocks, counts the asked item by inventory change and stops with the listed codes; the measured outcomes come from the piglin-room runs.",
+      "predicate": "barter_until puts on a carried gold armour piece when none is worn (right-click use) and otherwise stops NO_GOLD_ARMOUR, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin within 32 blocks with an empty offhand, crafts carried gold blocks (inventory grid) and nuggets (a table in reach or a carried one placed) into ingots when the ingots run out, walks over seen returns within 8 blocks, counts the asked item by inventory change and the ingots traded by the gold gone, and stops with the listed codes; the measured outcomes come from the piglin-room and barter practice-room runs.",
       "checks": [
         {
           "type": "live-behavior",
           "test": "barter.piglin-room",
           "command": "slot.sh live node scripts/quality/test-cast-barter-live.mjs barter evals/d41-cast-barter/checkpoints/piglin-barter.json OUT_DIR",
           "predicate": "In a sealed Nether-wastes room with 3 summoned adult piglins, a worn golden helmet and 32 gold ingots, one barter_until call throws ingots one at a time, collects returns, and its reported gained count of the asked item equals the operator-read inventory change."
+        },
+        {
+          "type": "live-behavior",
+          "test": "barter.practice-room",
+          "command": "slot.sh live node scripts/quality/test-barter-room-live.mjs held|blocks|mine SALT OUT_DIR JAR",
+          "predicate": "In a sealed, lit Nether-wastes hall with summoned calm adult piglins, the held room (golden helmet carried, not worn; 192 ingots; piglins 28 blocks off) and the blocks room (20 gold blocks, 6 ingots) trade carried gold for pearls through repeated barter_until calls with no death; the mine room converts mined nuggets at a placed table."
         }
       ],
-      "id": "control:984c1c073e0c228d:c755e5635a98c819:result:NO_GOLD_ARMOUR",
+      "id": "control:984c1c073e0c228d:5dba4d0fd3ba9814:result:NO_GOLD_ARMOUR",
       "contract": {
-        "id": "control:984c1c073e0c228d:c755e5635a98c819:result:NO_GOLD_ARMOUR",
-        "claim": "Barters with piglins until `count` of the item have been gained. It needs a gold armour piece worn (NO_GOLD_ARMOUR otherwise; vanilla piglins attack a player without one) and gold ingots carried. The body walks to the nearest calm adult piglin it sees within 16 blocks that is not already examining an item, turns to it and throws one gold ingot toward its feet (a vanilla Q drop from the selected stack), then turns to the next free piglin; with none free in view it turns on the spot in 60 degree steps to find one. A piglin examines an ingot for about 6 s and throws a random return toward you; the body walks to returned items it sees within 8 blocks and picks them up by touch, as vanilla does. Every returned item is kept; the count is the change in the carried amount of `itemId` since the call started.",
+        "id": "control:984c1c073e0c228d:5dba4d0fd3ba9814:result:NO_GOLD_ARMOUR",
+        "claim": "Barters with piglins until `count` of the item have been gained. It needs a gold armour piece worn or carried (it puts a carried one on first; NO_GOLD_ARMOUR otherwise; vanilla piglins attack a player without one) and gold carried: ingots, or gold blocks and nuggets it crafts into ingots when the ingots run out (blocks in the inventory grid; nuggets at a crafting table within reach, or a carried one it places). The body walks to the nearest calm adult piglin it sees within 32 blocks that is not already examining an item, turns to it and throws one gold ingot toward its feet (a vanilla Q drop from the selected stack), then turns to the next free piglin; with none free in view it turns on the spot in 60 degree steps to find one. A piglin examines an ingot for about 6 s and throws a random return toward you; the body walks to returned items it sees within 8 blocks and picks them up by touch, as vanilla does. Every returned item is kept; the count is the change in the carried amount of `itemId` since the call started.",
         "kind": "result-code",
         "topic": "barter_until",
         "code": "NO_GOLD_ARMOUR",
-        "parent": "control:984c1c073e0c228d:c755e5635a98c819"
+        "parent": "control:984c1c073e0c228d:5dba4d0fd3ba9814"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -56985,7 +57003,7 @@
       "reason": "Piglin-room runs cover bartering, collection and the count; the anger, armour, hostile and danger stops are implemented in ServerBarterController but have no dedicated fixture."
     },
     {
-      "predicate": "barter_until requires a worn gold armour piece, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin with an empty offhand, walks over seen returns within 8 blocks, counts the asked item by inventory change and stops with the listed codes; the measured outcomes come from the piglin-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
+      "predicate": "barter_until puts on a carried gold armour piece when none is worn (right-click use) and otherwise stops NO_GOLD_ARMOUR, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin within 32 blocks with an empty offhand, crafts carried gold blocks (inventory grid) and nuggets (a table in reach or a carried one placed) into ingots when the ingots run out, walks over seen returns within 8 blocks, counts the asked item by inventory change and the ingots traded by the gold gone, and stops with the listed codes; the measured outcomes come from the piglin-room and barter practice-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
       "checks": [
         {
           "type": "live-behavior",
@@ -56998,16 +57016,22 @@
           "test": "verifyPiglinAnger",
           "type": "java-behavior",
           "command": "gradlew verifyCore"
+        },
+        {
+          "type": "live-behavior",
+          "test": "barter.practice-room",
+          "command": "slot.sh live node scripts/quality/test-barter-room-live.mjs held|blocks|mine SALT OUT_DIR JAR",
+          "predicate": "In a sealed, lit Nether-wastes hall with summoned calm adult piglins, the held room (golden helmet carried, not worn; 192 ingots; piglins 28 blocks off) and the blocks room (20 gold blocks, 6 ingots) trade carried gold for pearls through repeated barter_until calls with no death; the mine room converts mined nuggets at a placed table."
         }
       ],
-      "id": "control:984c1c073e0c228d:f98b196d79b224c2:result:BARTER_COUNT_REACHED",
+      "id": "control:984c1c073e0c228d:6db2e962dcb8bd27:result:BARTER_COUNT_REACHED",
       "contract": {
-        "id": "control:984c1c073e0c228d:f98b196d79b224c2:result:BARTER_COUNT_REACHED",
-        "claim": "Stops with the counts (item gained and held, ingots thrown and left, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
+        "id": "control:984c1c073e0c228d:6db2e962dcb8bd27:result:BARTER_COUNT_REACHED",
+        "claim": "Stops with the counts (item gained and held, ingots traded, thrown and crafted, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left or craftable here and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
         "kind": "result-code",
         "topic": "barter_until",
         "code": "BARTER_COUNT_REACHED",
-        "parent": "control:984c1c073e0c228d:f98b196d79b224c2"
+        "parent": "control:984c1c073e0c228d:6db2e962dcb8bd27"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -57017,7 +57041,7 @@
       "reason": "Piglin-room runs cover bartering, collection and the count; the anger, armour, hostile and danger stops are implemented in ServerBarterController but have no dedicated fixture."
     },
     {
-      "predicate": "barter_until requires a worn gold armour piece, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin with an empty offhand, walks over seen returns within 8 blocks, counts the asked item by inventory change and stops with the listed codes; the measured outcomes come from the piglin-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
+      "predicate": "barter_until puts on a carried gold armour piece when none is worn (right-click use) and otherwise stops NO_GOLD_ARMOUR, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin within 32 blocks with an empty offhand, crafts carried gold blocks (inventory grid) and nuggets (a table in reach or a carried one placed) into ingots when the ingots run out, walks over seen returns within 8 blocks, counts the asked item by inventory change and the ingots traded by the gold gone, and stops with the listed codes; the measured outcomes come from the piglin-room and barter practice-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
       "checks": [
         {
           "type": "live-behavior",
@@ -57030,16 +57054,22 @@
           "test": "verifyPiglinAnger",
           "type": "java-behavior",
           "command": "gradlew verifyCore"
+        },
+        {
+          "type": "live-behavior",
+          "test": "barter.practice-room",
+          "command": "slot.sh live node scripts/quality/test-barter-room-live.mjs held|blocks|mine SALT OUT_DIR JAR",
+          "predicate": "In a sealed, lit Nether-wastes hall with summoned calm adult piglins, the held room (golden helmet carried, not worn; 192 ingots; piglins 28 blocks off) and the blocks room (20 gold blocks, 6 ingots) trade carried gold for pearls through repeated barter_until calls with no death; the mine room converts mined nuggets at a placed table."
         }
       ],
-      "id": "control:984c1c073e0c228d:f98b196d79b224c2:result:OUT_OF_GOLD",
+      "id": "control:984c1c073e0c228d:6db2e962dcb8bd27:result:OUT_OF_GOLD",
       "contract": {
-        "id": "control:984c1c073e0c228d:f98b196d79b224c2:result:OUT_OF_GOLD",
-        "claim": "Stops with the counts (item gained and held, ingots thrown and left, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
+        "id": "control:984c1c073e0c228d:6db2e962dcb8bd27:result:OUT_OF_GOLD",
+        "claim": "Stops with the counts (item gained and held, ingots traded, thrown and crafted, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left or craftable here and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
         "kind": "result-code",
         "topic": "barter_until",
         "code": "OUT_OF_GOLD",
-        "parent": "control:984c1c073e0c228d:f98b196d79b224c2"
+        "parent": "control:984c1c073e0c228d:6db2e962dcb8bd27"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -57049,7 +57079,7 @@
       "reason": "Piglin-room runs cover bartering, collection and the count; the anger, armour, hostile and danger stops are implemented in ServerBarterController but have no dedicated fixture."
     },
     {
-      "predicate": "barter_until requires a worn gold armour piece, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin with an empty offhand, walks over seen returns within 8 blocks, counts the asked item by inventory change and stops with the listed codes; the measured outcomes come from the piglin-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
+      "predicate": "barter_until puts on a carried gold armour piece when none is worn (right-click use) and otherwise stops NO_GOLD_ARMOUR, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin within 32 blocks with an empty offhand, crafts carried gold blocks (inventory grid) and nuggets (a table in reach or a carried one placed) into ingots when the ingots run out, walks over seen returns within 8 blocks, counts the asked item by inventory change and the ingots traded by the gold gone, and stops with the listed codes; the measured outcomes come from the piglin-room and barter practice-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
       "checks": [
         {
           "type": "live-behavior",
@@ -57062,16 +57092,22 @@
           "test": "verifyPiglinAnger",
           "type": "java-behavior",
           "command": "gradlew verifyCore"
+        },
+        {
+          "type": "live-behavior",
+          "test": "barter.practice-room",
+          "command": "slot.sh live node scripts/quality/test-barter-room-live.mjs held|blocks|mine SALT OUT_DIR JAR",
+          "predicate": "In a sealed, lit Nether-wastes hall with summoned calm adult piglins, the held room (golden helmet carried, not worn; 192 ingots; piglins 28 blocks off) and the blocks room (20 gold blocks, 6 ingots) trade carried gold for pearls through repeated barter_until calls with no death; the mine room converts mined nuggets at a placed table."
         }
       ],
-      "id": "control:984c1c073e0c228d:f98b196d79b224c2:result:NO_PIGLIN",
+      "id": "control:984c1c073e0c228d:6db2e962dcb8bd27:result:NO_PIGLIN",
       "contract": {
-        "id": "control:984c1c073e0c228d:f98b196d79b224c2:result:NO_PIGLIN",
-        "claim": "Stops with the counts (item gained and held, ingots thrown and left, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
+        "id": "control:984c1c073e0c228d:6db2e962dcb8bd27:result:NO_PIGLIN",
+        "claim": "Stops with the counts (item gained and held, ingots traded, thrown and crafted, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left or craftable here and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
         "kind": "result-code",
         "topic": "barter_until",
         "code": "NO_PIGLIN",
-        "parent": "control:984c1c073e0c228d:f98b196d79b224c2"
+        "parent": "control:984c1c073e0c228d:6db2e962dcb8bd27"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -57081,7 +57117,7 @@
       "reason": "Piglin-room runs cover bartering, collection and the count; the anger, armour, hostile and danger stops are implemented in ServerBarterController but have no dedicated fixture."
     },
     {
-      "predicate": "barter_until requires a worn gold armour piece, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin with an empty offhand, walks over seen returns within 8 blocks, counts the asked item by inventory change and stops with the listed codes; the measured outcomes come from the piglin-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
+      "predicate": "barter_until puts on a carried gold armour piece when none is worn (right-click use) and otherwise stops NO_GOLD_ARMOUR, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin within 32 blocks with an empty offhand, crafts carried gold blocks (inventory grid) and nuggets (a table in reach or a carried one placed) into ingots when the ingots run out, walks over seen returns within 8 blocks, counts the asked item by inventory change and the ingots traded by the gold gone, and stops with the listed codes; the measured outcomes come from the piglin-room and barter practice-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
       "checks": [
         {
           "type": "live-behavior",
@@ -57094,16 +57130,22 @@
           "test": "verifyPiglinAnger",
           "type": "java-behavior",
           "command": "gradlew verifyCore"
+        },
+        {
+          "type": "live-behavior",
+          "test": "barter.practice-room",
+          "command": "slot.sh live node scripts/quality/test-barter-room-live.mjs held|blocks|mine SALT OUT_DIR JAR",
+          "predicate": "In a sealed, lit Nether-wastes hall with summoned calm adult piglins, the held room (golden helmet carried, not worn; 192 ingots; piglins 28 blocks off) and the blocks room (20 gold blocks, 6 ingots) trade carried gold for pearls through repeated barter_until calls with no death; the mine room converts mined nuggets at a placed table."
         }
       ],
-      "id": "control:984c1c073e0c228d:f98b196d79b224c2:result:PIGLIN_ANGRY",
+      "id": "control:984c1c073e0c228d:6db2e962dcb8bd27:result:PIGLIN_ANGRY",
       "contract": {
-        "id": "control:984c1c073e0c228d:f98b196d79b224c2:result:PIGLIN_ANGRY",
-        "claim": "Stops with the counts (item gained and held, ingots thrown and left, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
+        "id": "control:984c1c073e0c228d:6db2e962dcb8bd27:result:PIGLIN_ANGRY",
+        "claim": "Stops with the counts (item gained and held, ingots traded, thrown and crafted, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left or craftable here and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
         "kind": "result-code",
         "topic": "barter_until",
         "code": "PIGLIN_ANGRY",
-        "parent": "control:984c1c073e0c228d:f98b196d79b224c2"
+        "parent": "control:984c1c073e0c228d:6db2e962dcb8bd27"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -57113,7 +57155,7 @@
       "reason": "Piglin-room runs cover bartering, collection and the count; the anger, armour, hostile and danger stops are implemented in ServerBarterController but have no dedicated fixture."
     },
     {
-      "predicate": "barter_until requires a worn gold armour piece, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin with an empty offhand, walks over seen returns within 8 blocks, counts the asked item by inventory change and stops with the listed codes; the measured outcomes come from the piglin-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
+      "predicate": "barter_until puts on a carried gold armour piece when none is worn (right-click use) and otherwise stops NO_GOLD_ARMOUR, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin within 32 blocks with an empty offhand, crafts carried gold blocks (inventory grid) and nuggets (a table in reach or a carried one placed) into ingots when the ingots run out, walks over seen returns within 8 blocks, counts the asked item by inventory change and the ingots traded by the gold gone, and stops with the listed codes; the measured outcomes come from the piglin-room and barter practice-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
       "checks": [
         {
           "type": "live-behavior",
@@ -57126,16 +57168,22 @@
           "test": "verifyPiglinAnger",
           "type": "java-behavior",
           "command": "gradlew verifyCore"
+        },
+        {
+          "type": "live-behavior",
+          "test": "barter.practice-room",
+          "command": "slot.sh live node scripts/quality/test-barter-room-live.mjs held|blocks|mine SALT OUT_DIR JAR",
+          "predicate": "In a sealed, lit Nether-wastes hall with summoned calm adult piglins, the held room (golden helmet carried, not worn; 192 ingots; piglins 28 blocks off) and the blocks room (20 gold blocks, 6 ingots) trade carried gold for pearls through repeated barter_until calls with no death; the mine room converts mined nuggets at a placed table."
         }
       ],
-      "id": "control:984c1c073e0c228d:f98b196d79b224c2:result:NO_GOLD_ARMOUR",
+      "id": "control:984c1c073e0c228d:6db2e962dcb8bd27:result:NO_GOLD_ARMOUR",
       "contract": {
-        "id": "control:984c1c073e0c228d:f98b196d79b224c2:result:NO_GOLD_ARMOUR",
-        "claim": "Stops with the counts (item gained and held, ingots thrown and left, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
+        "id": "control:984c1c073e0c228d:6db2e962dcb8bd27:result:NO_GOLD_ARMOUR",
+        "claim": "Stops with the counts (item gained and held, ingots traded, thrown and crafted, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left or craftable here and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
         "kind": "result-code",
         "topic": "barter_until",
         "code": "NO_GOLD_ARMOUR",
-        "parent": "control:984c1c073e0c228d:f98b196d79b224c2"
+        "parent": "control:984c1c073e0c228d:6db2e962dcb8bd27"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -57145,7 +57193,7 @@
       "reason": "Piglin-room runs cover bartering, collection and the count; the anger, armour, hostile and danger stops are implemented in ServerBarterController but have no dedicated fixture."
     },
     {
-      "predicate": "barter_until requires a worn gold armour piece, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin with an empty offhand, walks over seen returns within 8 blocks, counts the asked item by inventory change and stops with the listed codes; the measured outcomes come from the piglin-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
+      "predicate": "barter_until puts on a carried gold armour piece when none is worn (right-click use) and otherwise stops NO_GOLD_ARMOUR, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin within 32 blocks with an empty offhand, crafts carried gold blocks (inventory grid) and nuggets (a table in reach or a carried one placed) into ingots when the ingots run out, walks over seen returns within 8 blocks, counts the asked item by inventory change and the ingots traded by the gold gone, and stops with the listed codes; the measured outcomes come from the piglin-room and barter practice-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
       "checks": [
         {
           "type": "live-behavior",
@@ -57158,16 +57206,22 @@
           "test": "verifyPiglinAnger",
           "type": "java-behavior",
           "command": "gradlew verifyCore"
+        },
+        {
+          "type": "live-behavior",
+          "test": "barter.practice-room",
+          "command": "slot.sh live node scripts/quality/test-barter-room-live.mjs held|blocks|mine SALT OUT_DIR JAR",
+          "predicate": "In a sealed, lit Nether-wastes hall with summoned calm adult piglins, the held room (golden helmet carried, not worn; 192 ingots; piglins 28 blocks off) and the blocks room (20 gold blocks, 6 ingots) trade carried gold for pearls through repeated barter_until calls with no death; the mine room converts mined nuggets at a placed table."
         }
       ],
-      "id": "control:984c1c073e0c228d:f98b196d79b224c2:result:DAMAGE_TAKEN",
+      "id": "control:984c1c073e0c228d:6db2e962dcb8bd27:result:DAMAGE_TAKEN",
       "contract": {
-        "id": "control:984c1c073e0c228d:f98b196d79b224c2:result:DAMAGE_TAKEN",
-        "claim": "Stops with the counts (item gained and held, ingots thrown and left, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
+        "id": "control:984c1c073e0c228d:6db2e962dcb8bd27:result:DAMAGE_TAKEN",
+        "claim": "Stops with the counts (item gained and held, ingots traded, thrown and crafted, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left or craftable here and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
         "kind": "result-code",
         "topic": "barter_until",
         "code": "DAMAGE_TAKEN",
-        "parent": "control:984c1c073e0c228d:f98b196d79b224c2"
+        "parent": "control:984c1c073e0c228d:6db2e962dcb8bd27"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -57177,7 +57231,7 @@
       "reason": "Piglin-room runs cover bartering, collection and the count; the anger, armour, hostile and danger stops are implemented in ServerBarterController but have no dedicated fixture."
     },
     {
-      "predicate": "barter_until requires a worn gold armour piece, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin with an empty offhand, walks over seen returns within 8 blocks, counts the asked item by inventory change and stops with the listed codes; the measured outcomes come from the piglin-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
+      "predicate": "barter_until puts on a carried gold armour piece when none is worn (right-click use) and otherwise stops NO_GOLD_ARMOUR, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin within 32 blocks with an empty offhand, crafts carried gold blocks (inventory grid) and nuggets (a table in reach or a carried one placed) into ingots when the ingots run out, walks over seen returns within 8 blocks, counts the asked item by inventory change and the ingots traded by the gold gone, and stops with the listed codes; the measured outcomes come from the piglin-room and barter practice-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
       "checks": [
         {
           "type": "live-behavior",
@@ -57190,16 +57244,22 @@
           "test": "verifyPiglinAnger",
           "type": "java-behavior",
           "command": "gradlew verifyCore"
+        },
+        {
+          "type": "live-behavior",
+          "test": "barter.practice-room",
+          "command": "slot.sh live node scripts/quality/test-barter-room-live.mjs held|blocks|mine SALT OUT_DIR JAR",
+          "predicate": "In a sealed, lit Nether-wastes hall with summoned calm adult piglins, the held room (golden helmet carried, not worn; 192 ingots; piglins 28 blocks off) and the blocks room (20 gold blocks, 6 ingots) trade carried gold for pearls through repeated barter_until calls with no death; the mine room converts mined nuggets at a placed table."
         }
       ],
-      "id": "control:984c1c073e0c228d:f98b196d79b224c2:result:LOW_HEALTH",
+      "id": "control:984c1c073e0c228d:6db2e962dcb8bd27:result:LOW_HEALTH",
       "contract": {
-        "id": "control:984c1c073e0c228d:f98b196d79b224c2:result:LOW_HEALTH",
-        "claim": "Stops with the counts (item gained and held, ingots thrown and left, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
+        "id": "control:984c1c073e0c228d:6db2e962dcb8bd27:result:LOW_HEALTH",
+        "claim": "Stops with the counts (item gained and held, ingots traded, thrown and crafted, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left or craftable here and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
         "kind": "result-code",
         "topic": "barter_until",
         "code": "LOW_HEALTH",
-        "parent": "control:984c1c073e0c228d:f98b196d79b224c2"
+        "parent": "control:984c1c073e0c228d:6db2e962dcb8bd27"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -57209,7 +57269,7 @@
       "reason": "Piglin-room runs cover bartering, collection and the count; the anger, armour, hostile and danger stops are implemented in ServerBarterController but have no dedicated fixture."
     },
     {
-      "predicate": "barter_until requires a worn gold armour piece, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin with an empty offhand, walks over seen returns within 8 blocks, counts the asked item by inventory change and stops with the listed codes; the measured outcomes come from the piglin-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
+      "predicate": "barter_until puts on a carried gold armour piece when none is worn (right-click use) and otherwise stops NO_GOLD_ARMOUR, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin within 32 blocks with an empty offhand, crafts carried gold blocks (inventory grid) and nuggets (a table in reach or a carried one placed) into ingots when the ingots run out, walks over seen returns within 8 blocks, counts the asked item by inventory change and the ingots traded by the gold gone, and stops with the listed codes; the measured outcomes come from the piglin-room and barter practice-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
       "checks": [
         {
           "type": "live-behavior",
@@ -57222,16 +57282,22 @@
           "test": "verifyPiglinAnger",
           "type": "java-behavior",
           "command": "gradlew verifyCore"
+        },
+        {
+          "type": "live-behavior",
+          "test": "barter.practice-room",
+          "command": "slot.sh live node scripts/quality/test-barter-room-live.mjs held|blocks|mine SALT OUT_DIR JAR",
+          "predicate": "In a sealed, lit Nether-wastes hall with summoned calm adult piglins, the held room (golden helmet carried, not worn; 192 ingots; piglins 28 blocks off) and the blocks room (20 gold blocks, 6 ingots) trade carried gold for pearls through repeated barter_until calls with no death; the mine room converts mined nuggets at a placed table."
         }
       ],
-      "id": "control:984c1c073e0c228d:f98b196d79b224c2:result:IN_LAVA",
+      "id": "control:984c1c073e0c228d:6db2e962dcb8bd27:result:IN_LAVA",
       "contract": {
-        "id": "control:984c1c073e0c228d:f98b196d79b224c2:result:IN_LAVA",
-        "claim": "Stops with the counts (item gained and held, ingots thrown and left, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
+        "id": "control:984c1c073e0c228d:6db2e962dcb8bd27:result:IN_LAVA",
+        "claim": "Stops with the counts (item gained and held, ingots traded, thrown and crafted, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left or craftable here and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
         "kind": "result-code",
         "topic": "barter_until",
         "code": "IN_LAVA",
-        "parent": "control:984c1c073e0c228d:f98b196d79b224c2"
+        "parent": "control:984c1c073e0c228d:6db2e962dcb8bd27"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -57241,7 +57307,7 @@
       "reason": "Piglin-room runs cover bartering, collection and the count; the anger, armour, hostile and danger stops are implemented in ServerBarterController but have no dedicated fixture."
     },
     {
-      "predicate": "barter_until requires a worn gold armour piece, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin with an empty offhand, walks over seen returns within 8 blocks, counts the asked item by inventory change and stops with the listed codes; the measured outcomes come from the piglin-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
+      "predicate": "barter_until puts on a carried gold armour piece when none is worn (right-click use) and otherwise stops NO_GOLD_ARMOUR, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin within 32 blocks with an empty offhand, crafts carried gold blocks (inventory grid) and nuggets (a table in reach or a carried one placed) into ingots when the ingots run out, walks over seen returns within 8 blocks, counts the asked item by inventory change and the ingots traded by the gold gone, and stops with the listed codes; the measured outcomes come from the piglin-room and barter practice-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
       "checks": [
         {
           "type": "live-behavior",
@@ -57254,16 +57320,22 @@
           "test": "verifyPiglinAnger",
           "type": "java-behavior",
           "command": "gradlew verifyCore"
+        },
+        {
+          "type": "live-behavior",
+          "test": "barter.practice-room",
+          "command": "slot.sh live node scripts/quality/test-barter-room-live.mjs held|blocks|mine SALT OUT_DIR JAR",
+          "predicate": "In a sealed, lit Nether-wastes hall with summoned calm adult piglins, the held room (golden helmet carried, not worn; 192 ingots; piglins 28 blocks off) and the blocks room (20 gold blocks, 6 ingots) trade carried gold for pearls through repeated barter_until calls with no death; the mine room converts mined nuggets at a placed table."
         }
       ],
-      "id": "control:984c1c073e0c228d:f98b196d79b224c2:result:ON_FIRE",
+      "id": "control:984c1c073e0c228d:6db2e962dcb8bd27:result:ON_FIRE",
       "contract": {
-        "id": "control:984c1c073e0c228d:f98b196d79b224c2:result:ON_FIRE",
-        "claim": "Stops with the counts (item gained and held, ingots thrown and left, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
+        "id": "control:984c1c073e0c228d:6db2e962dcb8bd27:result:ON_FIRE",
+        "claim": "Stops with the counts (item gained and held, ingots traded, thrown and crafted, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left or craftable here and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
         "kind": "result-code",
         "topic": "barter_until",
         "code": "ON_FIRE",
-        "parent": "control:984c1c073e0c228d:f98b196d79b224c2"
+        "parent": "control:984c1c073e0c228d:6db2e962dcb8bd27"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -57273,7 +57345,7 @@
       "reason": "Piglin-room runs cover bartering, collection and the count; the anger, armour, hostile and danger stops are implemented in ServerBarterController but have no dedicated fixture."
     },
     {
-      "predicate": "barter_until requires a worn gold armour piece, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin with an empty offhand, walks over seen returns within 8 blocks, counts the asked item by inventory change and stops with the listed codes; the measured outcomes come from the piglin-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
+      "predicate": "barter_until puts on a carried gold armour piece when none is worn (right-click use) and otherwise stops NO_GOLD_ARMOUR, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin within 32 blocks with an empty offhand, crafts carried gold blocks (inventory grid) and nuggets (a table in reach or a carried one placed) into ingots when the ingots run out, walks over seen returns within 8 blocks, counts the asked item by inventory change and the ingots traded by the gold gone, and stops with the listed codes; the measured outcomes come from the piglin-room and barter practice-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
       "checks": [
         {
           "type": "live-behavior",
@@ -57286,16 +57358,22 @@
           "test": "verifyPiglinAnger",
           "type": "java-behavior",
           "command": "gradlew verifyCore"
+        },
+        {
+          "type": "live-behavior",
+          "test": "barter.practice-room",
+          "command": "slot.sh live node scripts/quality/test-barter-room-live.mjs held|blocks|mine SALT OUT_DIR JAR",
+          "predicate": "In a sealed, lit Nether-wastes hall with summoned calm adult piglins, the held room (golden helmet carried, not worn; 192 ingots; piglins 28 blocks off) and the blocks room (20 gold blocks, 6 ingots) trade carried gold for pearls through repeated barter_until calls with no death; the mine room converts mined nuggets at a placed table."
         }
       ],
-      "id": "control:984c1c073e0c228d:f98b196d79b224c2:result:HOSTILE_NEAR",
+      "id": "control:984c1c073e0c228d:6db2e962dcb8bd27:result:HOSTILE_NEAR",
       "contract": {
-        "id": "control:984c1c073e0c228d:f98b196d79b224c2:result:HOSTILE_NEAR",
-        "claim": "Stops with the counts (item gained and held, ingots thrown and left, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
+        "id": "control:984c1c073e0c228d:6db2e962dcb8bd27:result:HOSTILE_NEAR",
+        "claim": "Stops with the counts (item gained and held, ingots traded, thrown and crafted, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left or craftable here and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
         "kind": "result-code",
         "topic": "barter_until",
         "code": "HOSTILE_NEAR",
-        "parent": "control:984c1c073e0c228d:f98b196d79b224c2"
+        "parent": "control:984c1c073e0c228d:6db2e962dcb8bd27"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -57305,7 +57383,7 @@
       "reason": "Piglin-room runs cover bartering, collection and the count; the anger, armour, hostile and danger stops are implemented in ServerBarterController but have no dedicated fixture."
     },
     {
-      "predicate": "barter_until requires a worn gold armour piece, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin with an empty offhand, walks over seen returns within 8 blocks, counts the asked item by inventory change and stops with the listed codes; the measured outcomes come from the piglin-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
+      "predicate": "barter_until puts on a carried gold armour piece when none is worn (right-click use) and otherwise stops NO_GOLD_ARMOUR, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin within 32 blocks with an empty offhand, crafts carried gold blocks (inventory grid) and nuggets (a table in reach or a carried one placed) into ingots when the ingots run out, walks over seen returns within 8 blocks, counts the asked item by inventory change and the ingots traded by the gold gone, and stops with the listed codes; the measured outcomes come from the piglin-room and barter practice-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
       "checks": [
         {
           "type": "live-behavior",
@@ -57318,16 +57396,22 @@
           "test": "verifyPiglinAnger",
           "type": "java-behavior",
           "command": "gradlew verifyCore"
+        },
+        {
+          "type": "live-behavior",
+          "test": "barter.practice-room",
+          "command": "slot.sh live node scripts/quality/test-barter-room-live.mjs held|blocks|mine SALT OUT_DIR JAR",
+          "predicate": "In a sealed, lit Nether-wastes hall with summoned calm adult piglins, the held room (golden helmet carried, not worn; 192 ingots; piglins 28 blocks off) and the blocks room (20 gold blocks, 6 ingots) trade carried gold for pearls through repeated barter_until calls with no death; the mine room converts mined nuggets at a placed table."
         }
       ],
-      "id": "control:984c1c073e0c228d:f98b196d79b224c2:result:BARTER_TIMED_OUT",
+      "id": "control:984c1c073e0c228d:6db2e962dcb8bd27:result:BARTER_TIMED_OUT",
       "contract": {
-        "id": "control:984c1c073e0c228d:f98b196d79b224c2:result:BARTER_TIMED_OUT",
-        "claim": "Stops with the counts (item gained and held, ingots thrown and left, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
+        "id": "control:984c1c073e0c228d:6db2e962dcb8bd27:result:BARTER_TIMED_OUT",
+        "claim": "Stops with the counts (item gained and held, ingots traded, thrown and crafted, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left or craftable here and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
         "kind": "result-code",
         "topic": "barter_until",
         "code": "BARTER_TIMED_OUT",
-        "parent": "control:984c1c073e0c228d:f98b196d79b224c2"
+        "parent": "control:984c1c073e0c228d:6db2e962dcb8bd27"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
