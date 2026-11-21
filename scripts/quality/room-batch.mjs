@@ -51,7 +51,8 @@ for (const arm of flags.arms) {
 	if (!/^[A-Za-z0-9_-]+$/.test(arm.name) || !arm.jar) fail(`--arm wants NAME=JAR, got ${arm.name}=${arm.jar}`);
 	if (!existsSync(arm.jar)) fail(`no jar at ${arm.jar}`);
 }
-if (new Set(flags.arms.map(arm => arm.name)).size !== flags.arms.length) fail('arm names repeat');
+// Compared ignoring case: Windows folders do, so arms A and a would share one jar and one output folder.
+if (new Set(flags.arms.map(arm => arm.name.toLowerCase())).size !== flags.arms.length) fail('arm names repeat (ignoring case)');
 const vms = Number(flags.vms ?? (windowsHosts ? slotCount : 1));
 if (!Number.isInteger(vms) || vms < 1 || vms > slotCount) fail(`--vms wants 1 to ${slotCount}`);
 const snapshot = flags.snapshot ?? process.env.ROOM_BATCH_SNAPSHOT;

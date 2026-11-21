@@ -94,6 +94,8 @@ const download = (host, remotePath, local) => run('scp', ['-q', ...SSH, `${host}
  */
 export function windowsPool({ hosts, batchName, bundle, root = 'C:/aa-runs', log = console.log, runPs = powershell, runUpload = upload, runDownload = download }) {
 	const arms = Object.keys(bundle.jars).length;
+	// Windows folders ignore case: arms A and a would upload to one jar and write one output folder.
+	if (new Set(Object.keys(bundle.jars).map(arm => arm.toLowerCase())).size !== arms) throw new Error('arm names must differ in more than case on Windows');
 	const batchDir = windowsBatchDir(root, batchName);
 	const batchesRoot = `${root}/batches`;
 	const busy = new Set(), machines = new Map(hosts.map(item => [item.host, { ...item, ready: null, cleaning: null, workers: 0, claimedBatchDir: false }]));
@@ -117,7 +119,8 @@ if (Test-Path -LiteralPath ${psQuote(batchDir)}) { throw 'could not delete ${bat
 		return pc.cleaning;
 	}
 
-	async function prepareHost(pc) {
+	async function prepareHost(pc, signal) {
+		const stopped = () => { if (signal?.aborted) throw new Error('batch stopped'); };
 		while (pc.cleaning) await pc.cleaning.catch(() => {});
 		// A folder this pool claimed before (a prepare that failed after claiming it, or a cleanup that failed) is its own
 		// stale copy: delete it, or the check below refuses the batch as already there.
@@ -132,18 +135,31 @@ $batchFull = [System.IO.Path]::GetFullPath(${psQuote(windowsPath(batchDir))})
 if (-not $batchFull.StartsWith($baseFull, [System.StringComparison]::OrdinalIgnoreCase)) { throw "batch directory escapes batches root: $batchFull" }
 if (Test-Path -LiteralPath ${psQuote(batchDir)}) { throw "batch directory already exists: ${batchDir}" }
 New-Item -ItemType Directory -Path ${psQuote(batchDir)} -ErrorAction Stop | Out-Null
+@{ first = ${first}; last = ${last} } | ConvertTo-Json -Compress | Set-Content -LiteralPath (Join-Path ${psQuote(batchDir)} 'ports.json')
+$overlap = @(Get-ChildItem -LiteralPath ${psQuote(batchesRoot)} -Directory | Where-Object { $_.Name -ne ${psQuote(path.posix.basename(batchDir))} } | Where-Object {
+	$f = Join-Path $_.FullName 'ports.json'
+	if (-not (Test-Path -LiteralPath $f)) { $true } else { $r = Get-Content -Raw -LiteralPath $f | ConvertFrom-Json; $r.first -le ${last} -and $r.last -ge ${first} }
+} | ForEach-Object { $_.Name })
 foreach ($d in 'jars', 'inputs', 'code') { New-Item -ItemType Directory -Force -Path (Join-Path ${psQuote(batchDir)} $d) | Out-Null }
 foreach ($d in 'cache', 'tmp') { New-Item -ItemType Directory -Force -Path (Join-Path ${psQuote(root)} $d) | Out-Null }
-@{ node = (Get-Command node.exe).Source; excluded = ((netsh int ipv4 show excludedportrange protocol=tcp) -join "\`n") } | ConvertTo-Json -Compress`)).trim().split('\n').at(-1));
+@{ overlap = $overlap; node = (Get-Command node.exe).Source; excluded = ((netsh int ipv4 show excludedportrange protocol=tcp) -join "\`n") } | ConvertTo-Json -Compress`)).trim().split('\n').at(-1));
 		pc.claimedBatchDir = true;
+		// Another batch process on this PC (its own pool, its own slot set) holds an overlapping port range: claim first,
+		// then check, so two batches starting together both see each other and neither plays on shared ports. A folder
+		// without ports.json counts as overlapping (an older runner, or one still writing it).
+		const overlap = [facts.overlap ?? []].flat().filter(Boolean);
+		if (overlap.length) throw new Error(`${pc.host}: ports ${first}-${last} may be in use by another batch (${overlap.join(', ')} under ${batchesRoot}); wait for it, or delete a folder a crashed batch left`);
+		stopped();
 		const clashes = portClashes(facts.excluded, first, last);
 		if (clashes.length) throw new Error(`${pc.host}: ports ${first}-${last} overlap the reserved ranges ${clashes.map(range => range.join('-')).join(', ')}; raise its slot base`);
 		await runUpload(pc.host, bundle.codeTar, `${batchDir}/code.tgz`);
+		stopped();
 		await runUpload(pc.host, bundle.helper, `${batchDir}/room-batch-remote.mjs`);
 		const jars = {};
-		for (const [arm, local] of Object.entries(bundle.jars)) { jars[arm] = `${batchDir}/jars/${arm}.jar`; await runUpload(pc.host, local, jars[arm]); }
+		for (const [arm, local] of Object.entries(bundle.jars)) { stopped(); jars[arm] = `${batchDir}/jars/${arm}.jar`; await runUpload(pc.host, local, jars[arm]); }
 		const inputs = {};
-		for (const input of bundle.inputs) { inputs[input.local] = `${batchDir}/inputs/${input.name}`; await runUpload(pc.host, input.local, inputs[input.local]); }
+		for (const input of bundle.inputs) { stopped(); inputs[input.local] = `${batchDir}/inputs/${input.name}`; await runUpload(pc.host, input.local, inputs[input.local]); }
+		stopped();
 		await runPs(pc.host, `
 Set-Location -LiteralPath ${psQuote(`${batchDir}/code`)}
 tar -xzf ../code.tgz; if ($LASTEXITCODE -ne 0) { throw "tar exited $LASTEXITCODE" }
@@ -151,6 +167,22 @@ Remove-Item -LiteralPath ../code.tgz
 $major = [int]((& ${psQuote(facts.node)} -p 'process.versions.node') -split '\\.')[0]; if ($major -lt 22) { throw "node $major is older than 22" }`);
 		log(`${pc.host}: code, ${arms} jars and ${bundle.inputs.length} inputs in place; ports ${first}-${last} clear`);
 		return { node: facts.node, jars, inputs };
+	}
+
+	async function prepareWorker(vm, signal) {
+		const pc = machines.get(vm.host);
+		pc.ready ??= prepareHost(pc, signal).catch(error => { pc.ready = null; throw error; });
+		const shared = await pc.ready;
+		if (signal?.aborted) throw new Error('batch stopped');
+		const dir = `${batchDir}/w${vm.slot}`;
+		await runPs(vm.host, `
+if (Test-Path -LiteralPath ${psQuote(dir)}) { Remove-Item -Recurse -Force -LiteralPath ${psQuote(dir)} }
+foreach ($d in 'jobs', 'out') { New-Item -ItemType Directory -Force -Path (Join-Path ${psQuote(dir)} $d) | Out-Null }`);
+		vm.dir = dir;
+		vm.layout = { wrapper: [], node: shared.node, code: `${batchDir}/code`, out: `${dir}/out`, jobs: `${dir}/jobs`, helper: `${batchDir}/room-batch-remote.mjs`,
+			jars: shared.jars, inputs: shared.inputs, javaHome: `${root}/jdk25`, template: `${root}/templates/26.3`, portBase: slotPortBase(pc.slotBase, vm.slot, arms),
+			env: { ARENA_FIXTURE_CACHE: `${root}/cache`, TEMP: windowsPath(`${root}/tmp`), TMP: windowsPath(`${root}/tmp`) } };
+		return vm.layout;
 	}
 
 	return {
@@ -162,19 +194,11 @@ $major = [int]((& ${psQuote(facts.node)} -p 'process.versions.node') -split '\\.
 			// A fresh id per create, so a re-queued room never lands on a slot id it already failed on.
 			return { id: `${free.host}-s${free.slot}-${++count}`, host: free.host, slot: free.slot };
 		},
-		async prepare(vm) {
-			const pc = machines.get(vm.host);
-			pc.ready ??= prepareHost(pc).catch(error => { pc.ready = null; throw error; });
-			const shared = await pc.ready;
-			const dir = `${batchDir}/w${vm.slot}`;
-			await runPs(vm.host, `
-if (Test-Path -LiteralPath ${psQuote(dir)}) { Remove-Item -Recurse -Force -LiteralPath ${psQuote(dir)} }
-foreach ($d in 'jobs', 'out') { New-Item -ItemType Directory -Force -Path (Join-Path ${psQuote(dir)} $d) | Out-Null }`);
-			vm.dir = dir;
-			vm.layout = { wrapper: [], node: shared.node, code: `${batchDir}/code`, out: `${dir}/out`, jobs: `${dir}/jobs`, helper: `${batchDir}/room-batch-remote.mjs`,
-				jars: shared.jars, inputs: shared.inputs, javaHome: `${root}/jdk25`, template: `${root}/templates/26.3`, portBase: slotPortBase(pc.slotBase, vm.slot, arms),
-				env: { ARENA_FIXTURE_CACHE: `${root}/cache`, TEMP: windowsPath(`${root}/tmp`), TMP: windowsPath(`${root}/tmp`) } };
-			return vm.layout;
+		prepare(vm, { signal } = {}) {
+			// destroy() waits for this to settle: the runner stops waiting on Ctrl-C, and a prepare still running after the
+			// cleanup would upload and make folders nobody deletes.
+			vm.preparing = prepareWorker(vm, signal);
+			return vm.preparing;
 		},
 		async start(vm, job) {
 			const { layout } = vm;
@@ -212,6 +236,7 @@ $p = Get-CimInstance Win32_Process -Filter "ProcessId=$($r.ProcessId)"
 		usage: vm => ({ host: vm.host, slot: vm.slot, portBase: vm.layout?.portBase ?? null }),
 		async destroy(vm) {
 			const pc = machines.get(vm.host);
+			if (vm.preparing) await vm.preparing.catch(() => {});
 			const dir = vm.dir ?? `${batchDir}/w${vm.slot}`;
 			// Kill the room's tree first, then anything still running from this worker's folder (trailing separator avoids w1 matching w10),
 			// then delete the folder (retried: Windows refuses to delete files a process held a moment ago). Windows reuses a pid

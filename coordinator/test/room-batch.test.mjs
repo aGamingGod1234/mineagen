@@ -587,3 +587,54 @@ test('a row that ran safely but missed its bar counts and reads as a fail, as th
 		assert.match(text, /^bad: INVALID /m);
 	} finally { await rm(out, { recursive: true, force: true }); }
 });
+
+const fakeWindows = ({ claim = async () => JSON.stringify({ node: 'C:\\node.exe', excluded: '' }), uploads = [], scripts = [], jars = { new: '/tmp/n.jar' } } = {}) => windowsPool({
+	hosts: [{ host: 'pc-a', slots: 1, slotBase: 0 }],
+	batchName: 'win-case',
+	bundle: { codeTar: '/tmp/c.tgz', helper: '/tmp/h.mjs', jars, inputs: [] },
+	log: () => {},
+	runUpload: async (host, local) => { uploads.push(local); },
+	runDownload: async () => {},
+	runPs: async (host, script) => {
+		const kind = script.includes('ConvertTo-Json') ? 'claim' : script.includes('refusing to delete outside batches root') ? 'clean' : 'other';
+		scripts.push(kind);
+		return kind === 'claim' ? claim(script) : '';
+	},
+});
+
+test('windowsPool refuses arm names that differ only in case', () => {
+	assert.throws(() => fakeWindows({ jars: { A: '/tmp/a.jar', a: '/tmp/b.jar' } }), /differ in more than case/);
+});
+
+test('windowsPool refuses a port range another batch on the PC holds, and deletes the folder it claimed', async () => {
+	const scripts = [];
+	const pool = fakeWindows({ scripts, claim: async script => {
+		assert.match(script, /ports\.json/, 'the claim records its port range');
+		return JSON.stringify({ overlap: ['other-batch-1'], node: 'C:\\node.exe', excluded: '' });
+	} });
+	const vm = await pool.create();
+	await assert.rejects(() => pool.prepare(vm), /may be in use by another batch \(other-batch-1/);
+	await pool.destroy(vm);
+	assert.deepEqual(scripts, ['claim', 'other', 'clean'], 'the worker sweep, then its own claimed folder is deleted');
+});
+
+test('windowsPool cleanup after Ctrl-C waits for an in-flight prepare, which stops before uploading', async () => {
+	const scripts = [], uploads = [];
+	let answer;
+	const pool = fakeWindows({ scripts, uploads, claim: () => new Promise(resolve => { answer = resolve; }) });
+	const controller = new AbortController();
+	const vm = await pool.create();
+	const prep = pool.prepare(vm, { signal: controller.signal });
+	prep.catch(() => {});
+	while (!answer) await new Promise(done => setImmediate(done));
+	controller.abort();
+	let destroyed = false;
+	const destroy = pool.destroy(vm).then(() => { destroyed = true; });
+	await new Promise(done => setTimeout(done, 20));
+	assert.equal(destroyed, false, 'cleanup waits while the first ssh answer is still out');
+	answer(JSON.stringify({ node: 'C:\\node.exe', excluded: '' }));
+	await destroy;
+	await assert.rejects(prep, /batch stopped/);
+	assert.deepEqual(uploads, [], 'nothing is uploaded after the stop');
+	assert.deepEqual(scripts, ['claim', 'other', 'clean'], 'the folder the late claim made is deleted');
+});
