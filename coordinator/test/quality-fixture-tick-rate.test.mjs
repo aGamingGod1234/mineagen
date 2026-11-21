@@ -196,3 +196,27 @@ test('unshownTickRate keeps a fixture that missed the A/B bar at 20 unless an A/
 	assert.equal(unshownTickRate('passes differed', { FIXTURE_TICK_RATE: '60', FIXTURE_TICK_RATE_UNSHOWN: '1' }, warn), 60);
 	assert.equal(warnings.length, 1);
 });
+
+// The 21 Nov 20 vs 60 TPS A/B (10 runs a side, same jar): these fixtures played the same game at 60, so they take
+// FIXTURE_TICK_RATE. Every other converted fixture stays at 20 through unshownTickRate until an A/B shows it.
+const SHOWN_AT_60 = ['bed', 'bed-spawn', 'bow-crystal', 'build', 'caged-crystal', 'controller-contracts', 'cornered', 'crowd', 'default-reflex',
+	'defend', 'dig', 'dragon', 'drawn-bow', 'end-breath', 'enderman', 'end-survive', 'end-void', 'find', 'find-spot', 'fire', 'gather', 'gold-route',
+	'knockback-edge', 'nether-fight', 'nether-gather', 'portal-walkin', 'ranged-blaze', 'reflex-failspots', 'route-recovery', 'savepoints', 'shelter',
+	'shelter-forest', 'shelter-ranged', 'shelter-terrain', 'travel-resume', 'warped-pearl', 'water'];
+const NEVER_RAISED = ['barter-odds', 'lag-clock', 'rest'];
+test('only fixtures the A/B showed at 60 TPS take FIXTURE_TICK_RATE; the rest stay at 20', async () => {
+	const { readdir } = await import('node:fs/promises');
+	const dir = new URL('../../scripts/quality/', import.meta.url);
+	const fixtures = (await readdir(dir)).filter((name) => /^test-.+-live\.mjs$/.test(name)).map((name) => name.slice(5, -9));
+	for (const fixture of fixtures) {
+		const source = await readFile(new URL(`test-${fixture}-live.mjs`, dir), 'utf8');
+		if (SHOWN_AT_60.includes(fixture)) {
+			assert.doesNotMatch(source, /unshownTickRate\(/, `${fixture} was shown at 60 TPS`);
+			assert.match(source, /fixtureTickRate\(\)|handRolledTickRate\(/, `${fixture} takes FIXTURE_TICK_RATE`);
+		} else if (NEVER_RAISED.includes(fixture)) {
+			assert.doesNotMatch(source, /fixtureTickRate\(\)|handRolledTickRate\(/, `${fixture} must not take FIXTURE_TICK_RATE`);
+		} else {
+			assert.match(source, /unshownTickRate\(/, `${fixture} is not shown at 60 TPS: it must stay at 20 through unshownTickRate`);
+		}
+	}
+});
