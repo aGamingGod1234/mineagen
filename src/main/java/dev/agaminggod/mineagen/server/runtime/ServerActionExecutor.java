@@ -914,7 +914,7 @@ public final class ServerActionExecutor {
 			case ESCAPE -> ActiveAction.controller(request, player, new dev.agaminggod.mineagen.server.runtime.controller.ServerEscapeController(
 					integer(arguments, "timeoutMs"), GameClock.nowMs(), escapeEnvironment(request)));
 			case BARTER_UNTIL -> ActiveAction.controller(request, player, new ServerBarterController(
-					string(arguments, "itemId"), integer(arguments, "count"), integer(arguments, "timeoutMs"), GameClock.nowMs()));
+					string(arguments, "itemId"), integer(arguments, "count"), integer(arguments, "timeoutMs"), GameClock.nowMs(), barterEnvironment(request)));
 			// Turns over a few ticks like a player instead of snapping; finishes on the exact lookAt rotation.
 			case LOOK_AT -> ActiveAction.controller(request, player, new ServerLookController(new Vec3(
 					number(arguments, "x"),
@@ -1923,6 +1923,35 @@ public final class ServerActionExecutor {
 			}
 			public Vec3 aim(ServerPlayer body, BlockPos at, Direction face, String itemId) { return shelterEnvironment(parent, itemId).aim(body, at, face); }
 			public String place(ServerPlayer body, BlockPos at, Direction face, String itemId) { return shelterEnvironment(parent, itemId).place(body, at, face); }
+		};
+	}
+
+	/** barter_until's hands: the craft transaction (gold blocks or nuggets into ingots) and placing a carried table. */
+	private ServerBarterController.Environment barterEnvironment(ServerActionRequest parent) {
+		return new ServerBarterController.Environment() {
+			public dev.agaminggod.mineagen.server.runtime.controller.ServerController craft(ServerPlayer body, String recipeId, int count, BlockPos table, long timeoutMs) {
+				JsonObject args = new JsonObject();
+				args.addProperty("recipeId", recipeId); args.addProperty("count", count); args.addProperty("timeoutMs", timeoutMs);
+				if (table != null) { args.addProperty("x", table.getX()); args.addProperty("y", table.getY()); args.addProperty("z", table.getZ()); }
+				ServerActionRequest internal = new ServerActionRequest(parent.agentId(), parent.goalRevision(), parent.actionId(),
+						table == null ? ActionType.CRAFT_INVENTORY : ActionType.CRAFT_TABLE, args, parent.provenance(), parent.traceId());
+				ActiveAction craft = ActiveAction.transaction(internal, body, advancedInteractions.begin(body, internal, args));
+				if (table != null) craft.transactionAimTarget = () -> TargetSightline.block(body, table, null);
+				return new dev.agaminggod.mineagen.server.runtime.controller.ServerController() {
+					public TickResult tick(ServerPlayer player, long now) {
+						ServerActionResult result = craft.tick(now);
+						if (result == null) return TickResult.running(0.0D);
+						craft.cleanup();
+						return result.state() == ServerActionState.SUCCEEDED ? TickResult.succeeded(result.reasonCode(), result.message())
+								: TickResult.failed(result.reasonCode(), result.message(), 0.0D);
+					}
+					public void cancel(ServerPlayer player) { craft.cancel("Barter ended"); }
+				};
+			}
+			public String place(ServerPlayer body, BlockPos at, Direction face, String itemId) {
+				try { return shelterEnvironment(parent, itemId).place(body, at, face); }
+				catch (AgentDomainException refused) { return refused.getMessage(); }
+			}
 		};
 	}
 
