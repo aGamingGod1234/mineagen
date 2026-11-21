@@ -270,6 +270,7 @@ public final class VerificationMain {
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.input.SneakSettlingVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.BrinkGuardVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.EndermanHuntLeadsVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.SkipUnreachableVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.ShelterPlanVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.BuildPlanVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.DigPlanVerification.verify();
