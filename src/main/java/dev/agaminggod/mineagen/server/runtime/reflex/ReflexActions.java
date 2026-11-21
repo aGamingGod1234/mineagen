@@ -1787,8 +1787,12 @@ final class ReflexActions {
 		public Step tick(Context context, Consumer<AgentInputState> input) {
 			ServerPlayer player = context.player();
 			if (start == null) start = player.position();
+			if (context.focus() instanceof Creeper target && target != creeper
+					&& (creeper == null || ReflexSensors.fusing(target))) {
+				if (creeper != null || ending != null) retarget(player.position());
+				creeper = target;
+			}
 			if (ending != null) return settle(player, input);
-			if (creeper == null && context.focus() instanceof Creeper target) creeper = target;
 			double moved = Math.hypot(player.getX() - start.x, player.getZ() - start.z);
 			if (creeper != null && !creeper.isAlive()) {
 				return end(player, input, Step.done(String.format(Locale.ROOT, "ran %.1f blocks; creeper is gone", moved)));
@@ -1810,15 +1814,15 @@ final class ReflexActions {
 			else if (origin == null) origin = player.position().subtract(player.getViewVector(1.0F).multiply(1.0D, 0.0D, 1.0D));
 			double separation = Math.hypot(player.getX() - origin.x, player.getZ() - origin.z);
 			if (Double.isNaN(startSeparation)) startSeparation = separation;
-			boolean creeperClear = creeper != null && separation >= CREEPER_CLEAR
-					&& creeper.getSwellDir() <= 0 && creeper.getSwelling(1.0F) <= 0.0F;
+			boolean fusing = creeper != null && ReflexSensors.fusing(creeper);
+			boolean creeperClear = creeper != null && separation >= CREEPER_CLEAR && !fusing;
 			boolean ranFarEnough = separation - startSeparation >= blocks || moved >= blocks * 1.5D;
 			if (keepClearOfPack) {
 				double chaseGap = context.point() == null ? PACK_RANGE : Defend.CHASE_RANGE;
 				double nearest = Defend.nearestChaser(player, chaseGap);
 				ranFarEnough = nearest >= chaseGap && (ranFarEnough || context.point() != null && separation >= blocks);
 			}
-			if (creeperClear || ranFarEnough) {
+			if (creeperClear || ranFarEnough && (!fusing || separation >= CREEPER_CLEAR)) {
 				return end(player, input, Step.done(String.format(Locale.ROOT, "ran %.1f blocks, now %.1f away", moved, separation) + dropNote + walkNote));
 			}
 			if (dropHeading != null && player.onGround() && Mth.floor(player.getY() + 1.0E-4D) < dropFromY) dropHeading = null;
@@ -1868,7 +1872,7 @@ final class ReflexActions {
 				// can walk, as a player retraces the way it came.
 				Step back = walkBack(context, input, separation);
 				if (back != null) return back;
-				if (!keepClearOfPack && moved >= 1.0D) return end(player, input, Step.done(String.format(Locale.ROOT, "ran %.1f blocks; no safe heading further", moved) + dropNote + walkNote));
+				if (!keepClearOfPack && !fusing && moved >= 1.0D) return end(player, input, Step.done(String.format(Locale.ROOT, "ran %.1f blocks; no safe heading further", moved) + dropNote + walkNote));
 				List<SafeStep.Blocked> blocked = new ArrayList<>();
 				for (float offset : offsets) {
 					SafeStep.Blocked why = SafeStep.blocked(player, Mth.wrapDegrees(away + offset));
@@ -1953,6 +1957,26 @@ final class ReflexActions {
 					player.isInWater() || aligned && SafeStep.jumpAhead(player, heading), false, aligned && canSprint(player), false, false, yaw, pitch,
 					player.getInventory().getSelectedSlot(), InteractionHand.MAIN_HAND));
 			return Step.running(String.format(Locale.ROOT, "running %s, %.1f away", SafeStep.compass(heading), separation));
+		}
+
+		/** A second fuse invalidates the first creeper's route, separation and any move to settle at its end. */
+		private void retarget(Vec3 position) {
+			start = position;
+			startSeparation = Double.NaN;
+			ending = null;
+			settleTicks = 0;
+			walk = null;
+			walkNote = "";
+			dropHeading = null;
+			dropNote = "";
+			acrossCloud = false;
+			spentAcross = false;
+			lastHeading = null;
+			last = null;
+			stuck = 0;
+			repathed = false;
+			glanced = 0;
+			glancedAt.clear();
 		}
 
 		/** Ends the run with {@code result}, after a step back off the brink of a seen void or damaging drop when it stands on one. */

@@ -626,13 +626,17 @@ public final class ReflexSensors {
 		Creeper nearest = null;
 		double best = Double.POSITIVE_INFINITY;
 		for (Creeper creeper : player.level().getEntitiesOfClass(Creeper.class, player.getBoundingBox().inflate(within), Creeper::isAlive)) {
-			if (creeper.getSwellDir() <= 0 && creeper.getSwelling(1.0F) <= 0.0F) continue;
+			if (!fusing(creeper)) continue;
 			double distance = player.distanceTo(creeper);
 			if (distance > within || distance >= best) continue;
 			best = distance;
 			nearest = creeper;
 		}
 		return nearest == null ? Reading.FALSE : new Reading(true, nearest);
+	}
+
+	static boolean fusing(Creeper creeper) {
+		return creeper.getSwellDir() > 0 || creeper.getSwelling(1.0F) > 0.0F;
 	}
 
 	/** Twice vanilla's stare tolerance, so a reflex turns away before the stare provokes the enderman. */
