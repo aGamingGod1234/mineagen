@@ -1713,7 +1713,7 @@ public final class ServerFightUntilController implements ServerController {
 		if (leads == null) return null;
 		if (hunt == null) {
 			EndermanHuntLeads.Lead lead = leads.next(player.position(), elapsed, HUNT_ARRIVE,
-					id -> excluded.containsKey(id) || staredOut.contains(id) || unreachable.marked(id));
+					id -> excluded.containsKey(id) || staredOut.contains(id) || unreachable.skipsSighting(id, player.position()));
 			if (lead == null) return null;
 			if (look != null) { look.cancel(player); look = null; }
 			huntId = lead.id();

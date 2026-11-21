@@ -69,7 +69,24 @@ final class UnreachableTargets {
 		return true;
 	}
 
-	/** Whether a mark stands (no position check): for walks to remembered sightings of the mob. */
+	/**
+	 * Whether a remembered sighting of the mob is skipped: the mob is out of view, so only the body is checked. The
+	 * mark is dropped once the body is {@link #MOVED} blocks or more from where the approach failed, as in
+	 * {@link #passedOver}.
+	 */
+	boolean skipsSighting(UUID id, Vec3 body) {
+		if (!enabled) return false;
+		Mark mark = marks.get(id);
+		if (mark == null) return false;
+		if (body.distanceTo(mark.body()) >= MOVED) {
+			marks.remove(id);
+			readmitted++;
+			return false;
+		}
+		return true;
+	}
+
+	/** Whether a mark stands (no position check). */
 	boolean marked(UUID id) {
 		return enabled && marks.containsKey(id);
 	}

@@ -87,6 +87,7 @@ public final class SkipUnreachableVerification {
 				verifyNamedTargetUnreachable(on);
 			}
 			verifyEligibleAfterMoving();
+			verifyRememberedSightingAfterBodyMoves();
 		} finally {
 			ServerFightUntilController.scriptedMelee = null;
 			if (savedSwitch == null) System.clearProperty(UnreachableTargets.PROPERTY);
@@ -104,7 +105,8 @@ public final class SkipUnreachableVerification {
 		Vec3 mob = new Vec3(0.5D, 68.0D, 5.5D);
 		Vec3 body = new Vec3(0.5D, 64.0D, 0.5D);
 		UnreachableTargets off = new UnreachableTargets(false);
-		check(!off.failed(id, UNREACHABLE, true, false, mob, body, 10) && !off.passedOver(id, mob, body, Integer.MIN_VALUE) && !off.marked(id),
+		check(!off.failed(id, UNREACHABLE, true, false, mob, body, 10) && !off.passedOver(id, mob, body, Integer.MIN_VALUE) && !off.marked(id)
+				&& !off.skipsSighting(id, body),
 				"switch off: nothing is marked or passed over");
 		check(System.getProperty(UnreachableTargets.PROPERTY) != null || !UnreachableTargets.fromProperty().enabled(), "the switch is off by default");
 
@@ -124,7 +126,10 @@ public final class SkipUnreachableVerification {
 		check(!on.passedOver(id, mob, body.add(3.0D, 0.0D, 0.0D), Integer.MIN_VALUE), "the body 3 blocks from where it failed lets it back in");
 		on.failed(id, UNREACHABLE, true, false, mob, body, 30);
 		check(on.marked(id) && !on.passedOver(id, mob, body, 31), "a hit on the body after the failure lets it back in");
-		check(on.failures() == 3 && on.readmitted() == 3, "counts for the receipt");
+		on.failed(id, UNREACHABLE, true, false, mob, body, 40);
+		check(on.skipsSighting(id, body.add(2.9D, 0.0D, 0.0D)), "a remembered sighting stays skipped while the body is under 3 blocks away");
+		check(!on.skipsSighting(id, body.add(0.0D, 0.0D, 3.0D)) && !on.marked(id), "the body 3 blocks on lets its remembered sighting back in, the mob unseen");
+		check(on.failures() == 4 && on.readmitted() == 4, "counts for the receipt");
 	}
 
 	/**
@@ -246,6 +251,27 @@ public final class SkipUnreachableVerification {
 			fixture.move(pillar, at.add(3.0D, 0.0D, 0.0D));
 			fixture.run(hunt, 40);
 			check(fixture.engaged.size() == 2 && fixture.engaged.get(1) == pillar, "3 blocks on it is tried again: " + fixture.engaged.size());
+		}
+	}
+
+	/**
+	 * On: the passed-over enderman drops out of view and the body moves 3 blocks or more from where the approach failed.
+	 * Its remembered sighting is a walk target again; the mob need not be seen first to let it back in.
+	 */
+	private static void verifyRememberedSightingAfterBodyMoves() throws Exception {
+		try (Fixture fixture = Fixture.create(true)) {
+			FixtureEnderman pillar = fixture.enderman(new Vec3(0.5D, 68.0D, 4.5D), fixture.player);
+			fixture.script(pillar, 3, UNREACHABLE);
+			ServerFightUntilController hunt = fixture.hunt(hunt(120_000L));
+			fixture.run(hunt, 200);
+			check(fixture.engaged.size() == 1, "tried once, then passed over: " + fixture.engaged.size());
+			Field huntId = ServerFightUntilController.class.getDeclaredField("huntId");
+			huntId.setAccessible(true);
+			check(huntId.get(hunt) == null, "under 3 blocks from where it failed, its sighting is not walked to");
+			// The body now stands 4 blocks on, past the pillar, facing away from it: the enderman is out of view.
+			fixture.move(fixture.player, new Vec3(0.5D, 64.0D, 8.5D));
+			fixture.run(hunt, 20);
+			check(pillar.getUUID().equals(huntId.get(hunt)), "4 blocks on, the body walks back to its remembered sighting: " + huntId.get(hunt));
 		}
 	}
 
