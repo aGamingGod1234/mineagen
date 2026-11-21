@@ -95,11 +95,45 @@ test('eye collected during an interrupted recovery is recognized on the next fin
 		}
 		return r;
 	};
-	assert.equal((await searchFor(target, b)).reasonCode, 'FIND_BLOCKED');
-	const n = b.calls.length;
+	// The blocked walk collected the eye: the find goes on, counts it back and never walks to that drop again.
 	const r = await searchFor(target, b);
-	assert.equal(r.find.eyes.throws[0].eyesAfterPickup, 16);
-	assert.equal(b.calls.slice(n).some(c => c.type === 'travel_to' && c.args.x === -12), false);
+	assert.equal(r.reasonCode, 'FIND_BUDGET');
+	assert.equal(r.find.eyes.throws[0].eyesAfterPickup, 16); assert.equal(r.find.eyes.eyesLeft, 16);
+	assert.equal(b.calls.filter(c => c.type === 'travel_to' && c.args.x === -12).length, 1);
+	assert.equal(b.calls.some(c => c.type === 'pick_up_item'), false);
+});
+test('a drop the body cannot reach is left behind and the find goes on along the heading', async () => {
+	const b = fake({ event: flight({ outcome: 'dropped', droppedAt: { x: -12, y: 69, z: 0 } }) });
+	b.o.items = [{ itemId: 'minecraft:ender_eye', stableId: '00000000-0000-4000-8000-000000000001', x: -12, y: 69, z: 0 }];
+	const original = b.act;
+	b.act = async (...args) => {
+		if (args[0] === 'travel_to' && args[1].x === -12 && args[1].y === 69) { b.calls.push({ type: args[0], args: args[1] }); return { state: 'FAILED', reasonCode: 'NO_ROUTE' }; }
+		return original(...args);
+	};
+	const r = await searchFor(target, b);
+	assert.equal(r.reasonCode, 'FIND_BUDGET'); assert.equal(r.find.eyes.stoppedBy, 'Throw cap reached');
+	assert.equal(r.find.eyes.throws[0].recovery, 'not_reached'); assert.equal(r.find.eyes.eyesLeft, 15);
+	assert.equal(b.calls.some(c => c.type === 'pick_up_item'), false, 'no pickup from 12 blocks off');
+	assert.ok(b.calls.some(c => c.type === 'travel_to' && c.args.x < -50), 'walks the next leg');
+});
+test('a leg that covered ground before water it cannot bridge still counts as a leg', async () => {
+	const b = fake({ event: flight({ outcome: 'shattered' }) });
+	const original = b.act;
+	b.act = async (...args) => {
+		const from = b.o.player.x, result = await original(...args);
+		if (args[0] === 'wait') b.o.perception.events = [flight({ outcome: 'shattered', flightId: 17 + b.calls.filter(c => c.type === 'use_item').length, from: { x: from, y: 70, z: 0 }, to: { x: from - 12, y: 75, z: 0 } })];
+		// Every leg stops 40 blocks on, at the shore.
+		if (args[0] === 'travel_to' && Math.abs(args[1].x - from) > 50) { b.o.player.x = from - 40; return { state: 'FAILED', reasonCode: 'BUILD_FAILED' }; }
+		return result;
+	};
+	const r = await searchFor({ ...target, throwCap: 2 }, b);
+	assert.equal(r.reasonCode, 'FIND_BUDGET', r.message); assert.equal(r.find.eyes.throwsMade, 2);
+	assert.equal(r.find.eyes.throws[1].from.x, -40);
+	const stuck = fake({ event: flight({ outcome: 'shattered' }) });
+	stuck.act = async (type, args) => { stuck.calls.push({ type, args }); if (type === 'use_item') stuck.o.inventory.items[0].count--; if (type === 'wait') stuck.o.perception.events.push(flight({ outcome: 'shattered' }));
+		return type === 'travel_to' ? { state: 'FAILED', reasonCode: 'BUILD_FAILED' } : { state: 'SUCCEEDED', reasonCode: 'ARRIVED' }; };
+	const blocked = await searchFor({ ...target, throwCap: 2 }, stuck);
+	assert.equal(blocked.reasonCode, 'FIND_BLOCKED', 'a leg that went nowhere still hands back');
 });
 
 test('opposed bearings bracket the dig area and later rising legs shorten', () => {

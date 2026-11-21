@@ -26,6 +26,8 @@ export const EYE_FLIGHT_BLOCKS = 12;
 // Where the body looks while an eye flies: this far along its heading and a little above, so the end of the flight and the
 // drop below it stay inside the view cone.
 export const EYE_WATCH_BLOCKS = 10;
+// A leg that ends with one of these after covering ground still counts as a leg: the next eye is thrown from there.
+export const SOFT_LEG_CODES = new Set(['TRAVEL_TIMEOUT', 'NO_ROUTE', 'TRAVEL_STALLED', 'STALLED_IN_PLACE', 'BUILD_FAILED', 'OUT_OF_BLOCKS', 'NO_FLOOR', 'NO_STANDABLE_PATH']);
 export function trustedCross(a, b) {
 	if (!Number.isFinite(a?.yaw) || !Number.isFinite(b?.yaw) || !point(a.from) || !point(b.from)) return false;
 	if (Math.hypot(a.from.x - b.from.x, a.from.z - b.from.z) < TRUSTED_BASE_BLOCKS) return false;
@@ -115,7 +117,9 @@ export async function followEyes(target, body, { observation: initial, deadline,
 			if (at) return finish('FIND_SEEN', result.message, { ...at, blockId: 'minecraft:stone_bricks' });
 		}
 		// A leg cut short by its time or by water with ground covered is still a leg: throw again from here.
-		if (soft && ['TRAVEL_TIMEOUT', 'NO_ROUTE', 'TRAVEL_STALLED', 'STALLED_IN_PLACE'].includes(result?.reasonCode) && Math.hypot(o.player.x - before.x, o.player.z - before.z) >= 8) return null;
+		// So is one that covered ground and then stopped at water or a gap it could not bridge: a player throws again from the
+		// shore (eye rooms: legs ended BUILD_FAILED and OUT_OF_BLOCKS at the same lakes after 20-100 blocks walked).
+		if (soft && SOFT_LEG_CODES.has(result?.reasonCode) && Math.hypot(o.player.x - before.x, o.player.z - before.z) >= 8) return null;
 		if (result?.state !== 'SUCCEEDED') return finish('FIND_BLOCKED', result?.reasonCode ?? 'action did not complete');
 		return null;
 	};
@@ -249,7 +253,16 @@ export async function followEyes(target, body, { observation: initial, deadline,
 			last.dropId = current.stableId;
 			const end = await act('travel_to', bounded({ x: current.x, y: current.y, z: current.z, tolerance: 1, build: true }));
 			const reach = () => Math.hypot(current.x - o.player.x, current.z - o.player.z);
-			if (end && (end.reasonCode !== 'FIND_BLOCKED' || reach() > 4)) return end;
+			if (end && end.reasonCode !== 'FIND_BLOCKED') return end;
+			// A walk to the eye that stops short of it leaves the eye behind and the find goes on along its heading, as a
+			// player gives up on an eye that fell where they cannot get to (eye rooms: a walk to a seen drop a block down that
+			// found no route handed back the whole find). Within reach, a failed pickup still hands back so the next find retries.
+			if (end && reach() > 4) {
+				if (Number.isFinite(last.eyesAfter) && eyesHeld(o) > last.eyesAfter) last.eyesAfterPickup = eyesHeld(o);
+				else last.recovery = 'not_reached';
+				state.phase = 'leg';
+				continue;
+			}
 			let drop = visibleDrop(), failed = null;
 			// Arrived and the eye neither came to hand nor stays in view (it lies a block below the feet, in a dip or water):
 			// step onto it, as a player walks over an item (eye rooms: 5 of 13 lost eyes were walked to and left there).
