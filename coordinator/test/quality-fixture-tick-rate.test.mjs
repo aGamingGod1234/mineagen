@@ -83,9 +83,8 @@ test('boot runs a fixture at 20 unless it passes a rate, and says why when FIXTU
 });
 
 // rest: at 80, 2 of 6 walled-in nights took 3-4 damage and 1 of 6 bed nights could not place its bed; no run at 20 did
-// (cause not known). build: its pass needs no damage, fire or fall, and its sampler reads take wall time, so it has not
-// been shown to play the same at a raised rate. travel: its own waits are still wall time. None may pass a raised rate.
-for (const fixture of ['rest', 'build', 'travel']) {
+// (cause not known). travel: its own waits are still wall time. Neither may pass a raised rate.
+for (const fixture of ['rest', 'travel']) {
 	test(`the ${fixture} fixture boots at 20 TPS whatever FIXTURE_TICK_RATE says`, async () => {
 		const source = await readFile(new URL(`../../scripts/quality/test-${fixture}-live.mjs`, import.meta.url), 'utf8');
 		// A boot() call, or the boot options a fixture hands warmBoots (fixture-servers.mjs).
@@ -94,6 +93,34 @@ for (const fixture of ['rest', 'build', 'travel']) {
 		for (const call of boots) assert.doesNotMatch(call, /tickRate/, `${fixture} boots with a tick rate: ${call}`);
 	});
 }
+
+// build opts in: every deadline and wait during play runs on the fixture clock (s.clock), never on Date.now or a plain sleep.
+test('the build fixture times play on the fixture clock', async () => {
+	const source = await readFile(new URL('../../scripts/quality/test-build-live.mjs', import.meta.url), 'utf8');
+	assert.match(source, /tickRate: fixtureTickRate\(\)/);
+	const play = source.slice(source.indexOf('const now = () => s.clock.now();'), source.indexOf('row.finishedAt = Date.now();'));
+	assert.ok(play.length > 1000, 'the play section is found');
+	assert.deepEqual(play.match(/Date\.now\(\)(?! - wall0)(?!, timer)/g) ?? [], [], 'play reads wall time only for wallSeconds');
+	assert.doesNotMatch(play, /await sleep\(/, 'play waits on s.clock.sleep');
+});
+
+test('the fixture clock is wall time at 20 TPS and game time at a raised rate', async () => {
+	const { fixtureClock } = await import('../../scripts/quality/watch-replay.mjs');
+	assert.equal(fixtureClock(20).now, Date.now, 'at 20 TPS it is the wall clock');
+	let ticks = 1000, syncs = 0;
+	const clock = fixtureClock(60, () => 60, async () => { ticks += 3; clock.observe(ticks); }, async () => { syncs++; clock.observe(ticks); });
+	clock.observe(ticks);
+	const start = clock.now();
+	clock.observe(ticks + 200);
+	assert.ok(clock.now() - start >= 10_000, '200 ticks move it 10 s whatever the wall clock did');
+	clock.observe(ticks);
+	assert.ok(clock.now() - start >= 10_000, 'an older tick never moves it back');
+	ticks += 200;
+	const before = clock.now();
+	await clock.sleep(1000);
+	assert.ok(clock.now() - before >= 1000, 'sleep waits game time');
+	assert.ok(ticks - 1200 >= 20, `sleep returns once 20 game ticks passed (${ticks - 1200})`);
+});
 
 test('a game timer records the rate asked for and the rate the world clock reached', async () => {
 	// A fake world clock: 'time query gametime' answers a tick count set by the test.

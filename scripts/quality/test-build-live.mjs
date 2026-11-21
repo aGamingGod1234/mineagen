@@ -24,7 +24,9 @@
 // Launch under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME. BUILD_ONLY=a,b runs only those spots.
 // CHAIN_TOTAL_MS=5400000 gives each chain 90 minutes instead of its totalMs. CHAIN_STEP_MS (default 25 minutes for a
 // chain) ends a run whose one step, its retries and recovery calls included, runs longer: row.ended 'stuck at <step>'.
-// Build stays at 20 TPS even with FIXTURE_TICK_RATE set; its damage sampler is not validated at raised rates.
+// FIXTURE_TICK_RATE runs play faster: setup stays at 20 TPS (its idle waits pass at the fixture rate) and every deadline and
+// wait during play is game time on the fixture clock (s.clock), so a raised rate plays the same game. row.seconds is game
+// seconds, row.wallSeconds wall seconds, row.rates the rate asked for and reached.
 import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -85,15 +87,17 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		row.startedAt = Date.now();
 		if (!s) throw bootError;
 		await s.normalRate();
-		await s.command('save-all flush');
-		await sleep(1500);
+		// level.dat holds the spawn: a cached world (hit or just saved) already has it on disk; only a server without the
+		// cache must save first. The wait lets the world run as before, in less wall time at a raised fixture rate.
+		if (s.worldCache === 'off') await s.command('save-all flush');
+		await s.idleSleep(1500);
 		const spawn = parseSavedWorldSpawn(await readFile(path.join(dir, 'server/world/level.dat')));
 		row.spawn = spawn;
 		let e = null;
 		for (let attempt = 0; attempt < 3 && !e; attempt++) {
 			const registered = s.inbox.wait('agent_registered', () => true, 45000).catch(() => null);
 			await s.command(`forceload add ${spawn.x} ${spawn.z}`);
-			for (let wait = 0; wait < 60 && !/time is/i.test(await s.command(`execute if loaded ${spawn.x} 0 ${spawn.z} run time query gametime`)); wait++) await sleep(1000);
+			for (let wait = 0; wait < 600 && !/time is/i.test(await s.command(`execute if loaded ${spawn.x} 0 ${spawn.z} run time query gametime`)); wait++) await sleep(100);
 			await s.command(`execute positioned ${spawn.x} 0 ${spawn.z} positioned over motion_blocking_no_leaves run mineagen summon gpt-6.1-sol low ${AGENT}`);
 			e = await registered;
 		}
@@ -112,7 +116,7 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		await s.command('tick unfreeze').catch(() => {});
 		await s.command(`difficulty ${spot.difficulty ?? 'normal'}`);
 		if (spot.time !== undefined) await s.command(`time set ${spot.time}`);
-		await s.gameSleep(1500);
+		await s.idleSleep(1500);
 		const commands = new Set();
 		const inspections = new InspectionClient({ send: (type, agentId, payload) => s.bridge.send(type, agentId, payload) });
 		s.bridge.on('inspection_result', message => { inspections.accept(message); });
@@ -153,15 +157,15 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		});
 		await s.observe();
 		// The runtime resends its reflex rules when the mod reports they are missing.
-		for (let wait = 0; wait < 20 && !((await s.observe()).reflexes?.rules?.length >= 12); wait++) await sleep(500);
+		for (let wait = 0; wait < 100 && !((await s.observe()).reflexes?.rules?.length >= 12); wait++) await sleep(100);
 		const reflexSample = (await s.observe()).reflexes;
 		row.reflexes = reflexSample?.rules?.length ?? 0;
 		if (spot.startAt?.y !== undefined) {
 			const { x, y, z } = spot.startAt;
 			await s.command(`forceload add ${x} ${z}`);
-			for (let wait = 0; wait < 60 && !/time is/i.test(await s.command(`execute if loaded ${x} 0 ${z} run time query gametime`)); wait++) await sleep(1000);
+			for (let wait = 0; wait < 600 && !/time is/i.test(await s.command(`execute if loaded ${x} 0 ${z} run time query gametime`)); wait++) await sleep(100);
 			row.teleport = String(await s.command(`tp ${AGENT} ${x + 0.5} ${y} ${z + 0.5}`)).slice(0, 160);
-			await sleep(3000);
+			await s.idleSleep(3000);
 		} else if (spot.startAt) {
 			// The first dry surface cell from startAt, then round the pool at the same distance in 45 degree steps.
 			const r = spot.pool ? Math.hypot(spot.startAt.x - spot.pool.x, spot.startAt.z - spot.pool.z) : 0;
@@ -170,14 +174,14 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 				const x = k === 0 || !spot.pool ? spot.startAt.x : Math.round(spot.pool.x + r * Math.cos(a0 + k * Math.PI / 4));
 				const z = k === 0 || !spot.pool ? spot.startAt.z : Math.round(spot.pool.z + r * Math.sin(a0 + k * Math.PI / 4));
 				await s.command(`forceload add ${x} ${z}`);
-				for (let wait = 0; wait < 60 && !/time is/i.test(await s.command(`execute if loaded ${x} 0 ${z} run time query gametime`)); wait++) await sleep(1000);
+				for (let wait = 0; wait < 600 && !/time is/i.test(await s.command(`execute if loaded ${x} 0 ${z} run time query gametime`)); wait++) await sleep(100);
 				row.teleport = String(await s.command(`execute as ${AGENT} positioned ${x} 0 ${z} positioned over motion_blocking_no_leaves run tp @s ~ ~ ~`)).slice(0, 160);
-				await sleep(1500);
+				await s.idleSleep(1500);
 				const wet = !/passed/i.test(String(await s.command(`execute as ${AGENT} at @s unless block ~ ~ ~ water unless block ~ ~-1 ~ water unless block ~ ~-1 ~ lava unless block ~ ~-1 ~ ice`)));
 				row.startTried = [...(row.startTried ?? []), { x, z, wet }];
 				if (!wet || !spot.pool) break;
 			}
-			await sleep(1500);
+			await s.idleSleep(1500);
 		}
 		console.log(`[${spot.name}] reflexes armed: ${row.reflexes} (${(reflexSample?.rules ?? []).map(rule => rule.id).join(',')}); sends ${JSON.stringify(row.reflexSends ?? [])}`);
 		row.start = await pos();
@@ -192,7 +196,7 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 			continue;
 		}
 		for (const text of spot.commands ?? []) row.setup = [...(row.setup ?? []), String(await s.command(`execute as ${AGENT} at @s run ${text}`)).slice(0, 120)];
-		if (spot.commands?.length) await s.gameSleep(1500);
+		if (spot.commands?.length) await s.idleSleep(1500);
 		const startCell = row.start.map(Math.floor);
 		const resolveAt = at => at === undefined ? undefined : Object.fromEntries(['x', 'y', 'z'].map((k, i) => [k, typeof at[k] === 'string' && at[k].startsWith('~') ? startCell[i] + Number(at[k].slice(1) || 0) : at[k]]));
 		const readDamage = await damageCounter(text => s.command(text), AGENT);
@@ -645,6 +649,8 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		row.seconds = Math.round((now() - t0) / 1000);
 		row.wallSeconds = Math.round((Date.now() - wall0) / 1000);
 		row.gameSeconds = Math.round((await timer.elapsed()) / 1000);
+		// What the run really played at: the rate asked for and game ticks per wall second over play.
+		row.rates = await timer.rates().catch(() => null);
 		let walked = 0, farthest = 0;
 		for (let i = 1; i < trail.length; i++) walked += Math.hypot(trail[i][0] - trail[i - 1][0], trail[i][2] - trail[i - 1][2]);
 		for (const p of trail) farthest = Math.max(farthest, Math.hypot(p[0] - trail[0][0], p[2] - trail[0][2]));
