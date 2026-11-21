@@ -75,6 +75,8 @@ try {
 	const health = async () => number(await s.command(`data get entity ${NAME} Health`));
 	const airLeft = async () => number(await s.command(`data get entity ${NAME} Air`));
 	const onGround = async () => /1b\s*$/.test(String(await s.command(`data get entity ${NAME} OnGround`)).trim());
+	// The reader is made once (it creates the objective); each trial reads it before and after.
+	const readDamage = await damageCounter(text => s.command(text), NAME, 'es_damage');
 	const blockAt = async (x, y, z, id) => /passed/i.test(String(await s.command(`execute if block ${x} ${y} ${z} ${id}`)));
 	let n = 0;
 	for (const room of rooms) for (let run = 0; run < runs; run++) {
@@ -135,7 +137,7 @@ try {
 		await sleep(1000 + drain);
 		const before = await health(), airBefore = await airLeft();
 		// The vanilla damage counter: regeneration between hits cannot hide damage the way lowest health does.
-		const damageBefore = await damageCounter(s.command, NAME).catch(() => null);
+		const damageBefore = await readDamage().catch(() => null);
 		if (!Number.isFinite(before)) throw new Error(`${room} ${run}: health unreadable before the room`);
 		let minHealth = before, minAir = airBefore, sampling = true, hiddenSamples = 0, samples = 0, healthSamples = 0;
 		const skeletonEye = async () => {
@@ -214,7 +216,7 @@ try {
 		if (room !== 'skeleton' && safeAt !== null) { endSafe = true; for (let i = 0; i < 4 && endSafe; i++) { await sleep(500); endSafe = await safe(); } }
 		sampling = false; await sampler;
 		const end = await pos();
-		const damage = damageEvidence(damageBefore, await damageCounter(s.command, NAME).catch(() => null), before, await health().catch(() => NaN));
+		const damage = damageEvidence(damageBefore, await readDamage().catch(() => null), before, await health().catch(() => NaN));
 		const died = minHealth <= 0;
 		const row = { room, arm: arm === 'legacy' ? `legacy-${LEGACY}` : arm, run, calls, executed, endSafe, safeSeconds: safeAt === null ? null : Math.round(safeAt / 100) / 10, seconds: Math.round((Date.now() - t0) / 100) / 10,
 			healthLost: Math.round(Math.max(0, before - minHealth) * 10) / 10, damageTaken: damage.damageTaken, died,
