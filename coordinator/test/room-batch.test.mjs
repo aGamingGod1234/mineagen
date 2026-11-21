@@ -1494,3 +1494,18 @@ test('fifth review: two batches filling the pool at once share the hour budget',
 		a.store.stop(); b.store.stop();
 	} finally { await fake.close(); }
 });
+
+test('sixth review: a lock taken after a wait longer than the stale limit is stamped when it is taken', async () => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'pool-mutex-stamp-'));
+	try {
+		let clock = 1_000_000;
+		const store = leaseStore({ dir, mutexStaleMs: 1000, now: () => clock });
+		await store.poolId();
+		// A live holder keeps the mutex while the clock moves past the stale limit, then lets go.
+		await writeFile(path.join(dir, 'mutex'), JSON.stringify({ pid: process.pid, token: 'live', at: clock }));
+		setTimeout(() => { clock += 5000; rm(path.join(dir, 'mutex'), { force: true }); }, 100);
+		let written = null;
+		await store.withMutex(async () => { written = JSON.parse(await readFile(path.join(dir, 'mutex'), 'utf8')); });
+		assert.equal(written.at, clock, 'the lock carries the time it was taken, not the time the wait began');
+	} finally { await rm(dir, { recursive: true, force: true }); }
+});

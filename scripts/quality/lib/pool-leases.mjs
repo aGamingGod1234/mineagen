@@ -48,8 +48,10 @@ export function leaseStore({ dir = defaultPoolDir(), leaseStaleMs = 5 * 60_000, 
 	async function withLock(file, fn, staleMs = mutexStaleMs) {
 		await setup();
 		await mkdir(path.dirname(file), { recursive: true });
-		const mine = JSON.stringify({ pid: process.pid, token: randomBytes(8).toString('hex'), at: now() });
+		let mine = null;
 		for (let wait = 5; ; wait = Math.min(wait * 2, 100)) {
+			// Stamped at each attempt: a lock written after a long wait must not already read as stale.
+			mine = JSON.stringify({ pid: process.pid, token: randomBytes(8).toString('hex'), at: now() });
 			try {
 				const handle = await open(file, 'wx');
 				try { await handle.writeFile(mine); } finally { await handle.close(); }
