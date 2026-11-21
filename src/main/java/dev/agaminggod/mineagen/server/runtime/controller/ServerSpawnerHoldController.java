@@ -110,6 +110,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 	/** Heal ticks the shield was asked up, and ticks the body was using an item then (by hand and item): a heal that never blocked needs both. */
 	private int shieldAsks, usingTicks;
 	private final Map<String, Integer> usedInHeal = new LinkedHashMap<>();
+	private final Map<String, Integer> healWinners = new LinkedHashMap<>();
 	private String cancelFacts;
 
 	public ServerSpawnerHoldController(ServerPlayer player, JsonObject arguments, ServerProtectionPolicy protection, BlockPos spawner,
@@ -366,7 +367,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 				stopEngine(player);
 				turtleSinceMs = elapsed;
 				turtles++;
-				note(String.format(Locale.ROOT, "health %.1f: shield up in the cell to heal", player.getHealth()));
+				note(String.format(Locale.ROOT, "health %.1f: shield up in the cell to heal (offhand %s, main %s)", player.getHealth(),
+						BuiltInRegistries.ITEM.getKey(player.getOffhandItem().getItem()).getPath(), BuiltInRegistries.ITEM.getKey(player.getMainHandItem().getItem()).getPath()));
 			}
 			int food = foodSlot(player);
 			if (SpawnerHold.healBite(player.getFoodData().getFoodLevel(), biteSafe(player), food >= 0)) {
@@ -375,6 +377,12 @@ public final class ServerSpawnerHoldController implements ServerController {
 				return eat(player);
 			}
 			shieldUp(player);
+			// Who drives the body's keys in the heal, and whether the winning keys hold the shield (0 of 294 heal ticks blocked).
+			var inputs = dev.agaminggod.mineagen.server.runtime.input.AgentInputRuntime.controller(player);
+			var agentId = dev.agaminggod.mineagen.server.runtime.input.AgentInputRuntime.requireAgentId(player);
+			String winner = inputs.currentWinner(agentId).map(l -> l.owner().name().toLowerCase(Locale.ROOT) + "/" + l.priority()).orElse("none");
+			String keys = inputs.currentState(agentId).map(st -> st.use() ? "use " + st.hand().name().toLowerCase(Locale.ROOT) : "no use").orElse("no keys");
+			healWinners.merge(winner + " " + keys, 1, Integer::sum);
 			return TickResult.running(progress(player));
 		}
 		if (turtleSinceMs >= 0L) {
@@ -715,10 +723,10 @@ public final class ServerSpawnerHoldController implements ServerController {
 
 	private String summary(ServerPlayer player, long elapsed) {
 		int held = ServerFightUntilController.count(player, untilItem);
-		return String.format(Locale.ROOT, "spawner hold at %s: cell %s, %d site%s failed, %d build%s; %+d %s in %.0f s; %d engine run%s %s; %d rod trip%s; %d meal%s; %d defend%s; %d shield heal%s (shield up %d of %d ticks, asked %d, using %d %s, %d bite%s stopped for a volley); %d fire%s punched out; hurts %s; health lost %s%s",
+		return String.format(Locale.ROOT, "spawner hold at %s: cell %s, %d site%s failed, %d build%s; %+d %s in %.0f s; %d engine run%s %s; %d rod trip%s; %d meal%s; %d defend%s; %d shield heal%s (shield up %d of %d ticks, asked %d, using %d %s, keys %s, %d bite%s stopped for a volley); %d fire%s punched out; hurts %s; health lost %s%s",
 				spawner.toShortString(), cell == null ? "none" : cell.toShortString(), sitesFailed, sitesFailed == 1 ? "" : "s", builds, builds == 1 ? "" : "s",
 				held - Math.max(0, startHeld), untilItemId, elapsed / 1000.0D, engineRuns, engineRuns == 1 ? "" : "s", engineEnds, trips, trips == 1 ? "" : "s",
-				meals, meals == 1 ? "" : "s", defends, defends == 1 ? "" : "s", turtles, turtles == 1 ? "" : "s", blockingTicks, turtleTicks, shieldAsks, usingTicks, usedInHeal, bitesStopped, bitesStopped == 1 ? "" : "s", firesPunched, firesPunched == 1 ? "" : "s", hurts, lostText(), log.isEmpty() ? "" : "; log: " + String.join(" | ", log.subList(Math.max(0, log.size() - 6), log.size())));
+				meals, meals == 1 ? "" : "s", defends, defends == 1 ? "" : "s", turtles, turtles == 1 ? "" : "s", blockingTicks, turtleTicks, shieldAsks, usingTicks, usedInHeal, healWinners, bitesStopped, bitesStopped == 1 ? "" : "s", firesPunched, firesPunched == 1 ? "" : "s", hurts, lostText(), log.isEmpty() ? "" : "; log: " + String.join(" | ", log.subList(Math.max(0, log.size() - 6), log.size())));
 	}
 
 	private String lostText() {
