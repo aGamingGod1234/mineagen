@@ -274,7 +274,8 @@ public final class ForestHuntTickVerification {
 			ServerController.TickResult end = fixture.run(hunt, 400);
 			check(end.state() == ServerController.State.RUNNING, "the hunt goes on: " + end.reasonCode());
 			check(engaged.size() == 1, "the enderman out of reach is tried once, not every tick: " + engaged.size());
-			check(fixture.walksMade == 1, "with only it in view, the quiet spell starts a relocation walk: " + fixture.walksMade);
+			check(fixture.walksMade == 1, "with only it in view, the quiet spell starts a relocation walk: " + fixture.walksMade + " (failed at tick " + failedAt[0] + "; "
+					+ end.message() + ")");
 			check(fixture.firstWalkTick - failedAt[0] >= WarpedForestHunt.QUIET_MS / 50L - 2L && fixture.firstWalkTick - failedAt[0] <= WarpedForestHunt.QUIET_MS / 50L + 40L,
 					"the walk starts one quiet spell after the failed approach: " + (fixture.firstWalkTick - failedAt[0]) + " ticks");
 			check(fixture.cancelledWalks == 0, "the passed-over enderman does not end the walk");
