@@ -30,7 +30,7 @@ function bodyFor({ items = blocks(64), health = 20, travel = () => ({ result: ar
 			if (step.go && args.yaw !== undefined) {
 				observation.player.x -= Math.sin(args.yaw * Math.PI / 180) * args.distance;
 				observation.player.z += Math.cos(args.yaw * Math.PI / 180) * args.distance;
-			}
+			} else if (step.go && args.x !== undefined) Object.assign(observation.player, { x: args.x, z: args.z });
 			if (step.items) observation.inventory.items = step.items;
 			return step.result;
 		} };
@@ -65,8 +65,8 @@ test('walking legs at every turn come first; a short building leg on the bearing
 	assert.equal(result.reasonCode, 'FIND_SEEN');
 	assert.deepEqual(body.calls.map((call) => call.build), [false, false, false, false, false, true]);
 	assert.equal(new Set(body.calls.slice(0, 5).map((call) => call.yaw)).size, 5, 'five walking headings');
-	assert.equal(body.calls[5].yaw, body.calls[0].yaw, 'the build goes on the bearing');
-	assert.equal(body.calls[5].distance, BUILD_LEG);
+	const build = body.calls[5], u = { x: -Math.sin(body.calls[0].yaw * Math.PI / 180), z: Math.cos(body.calls[0].yaw * Math.PI / 180) };
+	assert.deepEqual([build.x, build.z], [Math.floor(100.5 + u.x * BUILD_LEG) + 0.5, Math.floor(100.5 + u.z * BUILD_LEG) + 0.5], 'the build aims a short way on along the heading');
 });
 
 test('a mob stopping a walking leg is no reason to build', async () => {
@@ -187,6 +187,22 @@ test('MINEAGEN_FORTRESS_SEARCH=off keeps the generic sweep for a fortress in the
 	assert.equal(fortressSearch(profile, observation, { MINEAGEN_FORTRESS_SEARCH: 'off' }), false);
 });
 
+test('a build leg aims past the farthest point reached, so a failed side walk that dragged the body back costs no new tunnel', async () => {
+	// Live round 1: side walks slid the body 20 blocks back down its own tunnel; the build leg then re-walked it and
+	// counted as progress, forever. Here every failed walk drags the body 20 blocks back; each build still goes on.
+	let sign = null;
+	const body = bodyFor({ travel: (args, n, observation) => {
+		if (args.build) return { result: arrived, go: true };
+		sign ??= Math.cos(args.yaw * Math.PI / 180) > 0 ? 1 : -1;
+		if (args.yaw !== undefined && n > 1) observation.player.z -= 20 * sign;
+		return { result: noRoute };
+	}, onLook: (o, calls) => (calls.filter((call) => call.build).length >= 3 ? { structures: [fortressRow] } : null) });
+	await searchFor({ structure: 'fortress' }, body, { timeoutMs: 570_000 });
+	const builds = body.calls.filter((call) => call.build);
+	assert.ok(builds.length >= 3);
+	assert.deepEqual(builds.map((call) => Math.round((call.z - builds[0].z) * sign)), [0, BUILD_LEG, 2 * BUILD_LEG], 'each build goes on from where the last one ended');
+});
+
 test('a mob stopping legs is neither progress nor a closed way: the search runs to its time cap, not NO_WAY_ON', async () => {
 	const body = bodyFor({ travel: () => ({ result: { state: 'FAILED', reasonCode: 'HOSTILE_NEAR', message: 'minecraft:zombified_piglin 6 blocks away' } }) });
 	const result = await searchFor({ structure: 'fortress' }, body, { timeoutMs: 570_000 });
@@ -212,7 +228,7 @@ test('seen ground ahead is walked to before any compass leg, and a footing that 
 	const state = {};
 	const far = { x: 104, y: 42, z: 160, dy: 2, distance: 60, footing: 'seen_surface' };
 	const near = { x: 98, y: 40, z: 125, dy: 0, distance: 25, footing: 'seen_surface' };
-	const body = bodyFor({ state, travel: (args, n) => (n === 1 ? { result: noRoute } : { result: arrived, go: args.yaw !== undefined }),
+	const body = bodyFor({ state, travel: (args, n) => (n === 1 ? { result: noRoute } : { result: arrived, go: true }),
 		onLook: (o, calls) => (calls.length >= 3 ? { structures: [fortressRow] } : null) });
 	state.fortressHeading = 0;
 	body.frontier = () => ({ candidates: [far, near, { x: 100, y: 40, z: 60, dy: 0, distance: 40, footing: 'seen_surface' }] });

@@ -74,6 +74,8 @@ export const HEADING_TURNS = Object.freeze([0, 90, -90, 180]);
 const MAX_TRIED = 256;
 /** Unreachable seen footings tried on one heading before walking it by compass. */
 const MAX_FOOTING_FAILS = 3;
+/** Blocks a leg must move the farthest point on along the heading to count as a way on. */
+export const MIN_GAIN = 8;
 const unit = (yaw) => ({ x: -Math.sin(yaw * Math.PI / 180), z: Math.cos(yaw * Math.PI / 180) });
 const footingKey = (row) => `${row.x},${row.y},${row.z}`;
 
@@ -127,6 +129,11 @@ export async function searchNetherFortress(ctx) {
 	// The first look of the call (searchFor's) already happened where the body stands.
 	noteLook();
 	let failed = 0, turn = 0, footFails = 0, headingTurn = 0;
+	// The farthest point reached along the current heading. A leg counts as progress only when it moves this forward:
+	// live round 1, a side walk that failed dragged the body 20 blocks back down its own tunnel, and the build leg after
+	// it walked the tunnel forward again and counted as a way on, over and over (1,032 blocks walked, 11 net).
+	let front = null;
+	const alongOf = (p) => (front === null ? 0 : (p.x - front.origin.x) * front.u.x + (p.z - front.origin.z) * front.u.z);
 	while (left() >= minLegMs) {
 		const observation = ctx.observation();
 		const here = at();
@@ -143,7 +150,9 @@ export async function searchNetherFortress(ctx) {
 		state.fortressHeading ??= startHeading(here, target);
 		// Toward a remembered fortress the bearing is its own; otherwise the kept heading.
 		const heading = remembered ? yawToward(target.x - here.x, target.z - here.z) : wrap(state.fortressHeading + HEADING_TURNS[headingTurn]);
-		const ahead = turn === 0 && footFails < MAX_FOOTING_FAILS ? footingAhead(body.frontier?.(observation)?.candidates, here, heading, tried) : null;
+		if (front === null || front.heading !== heading) front = { heading, u: unit(heading), origin: here, point: here, along: 0 };
+		// Seen ground ahead of the farthest point, not just ahead of where a failed walk left the body.
+		const ahead = turn === 0 && footFails < MAX_FOOTING_FAILS ? footingAhead(body.frontier?.(observation)?.candidates, front.point, heading, tried) : null;
 		const build = turn >= TURNS.length;
 		let args, distance, how;
 		if (ahead !== null) {
@@ -153,7 +162,9 @@ export async function searchNetherFortress(ctx) {
 		} else {
 			const yaw = build ? heading : wrap(heading + TURNS[turn]);
 			distance = build ? BUILD_LEG : remembered ? Math.max(MIN_LEG, Math.min(FORTRESS_LEG, Math.round(target.distance))) : FORTRESS_LEG;
-			args = { yaw, distance, build };
+			// A build leg aims past the farthest point: the way back to it is known ground, so only new rock is dug.
+			args = build ? { x: Math.floor(front.point.x + front.u.x * BUILD_LEG) + 0.5, y: Math.floor(front.point.y + 1e-3), z: Math.floor(front.point.z + front.u.z * BUILD_LEG) + 0.5, tolerance: 3, build }
+				: { yaw, distance, build };
 			how = `${build ? 'build' : 'walk'} ${remembered ? `toward the fortress seen at ${Math.round(target.x)},${Math.round(target.z)}` : `on heading ${Math.round(yaw)}`}`;
 		}
 		if (build && buildingBlocks(observation) < MIN_BUILD_BLOCKS) {
@@ -164,11 +175,14 @@ export async function searchNetherFortress(ctx) {
 		if (ended !== null) return ended;
 		const after = at() ?? here;
 		const moved = Math.hypot(after.x - here.x, after.z - here.z);
+		const gain = alongOf(after) - front.along;
+		if (gain > 0) { front.along += gain; front.point = after; }
 		const code = outcome.result?.reasonCode;
-		if (code !== 'ARRIVED' && moved < distance / 2 && NOT_THE_WAY.has(code)) {
+		const progress = gain >= Math.min(MIN_GAIN, distance / 2);
+		if (!progress && NOT_THE_WAY.has(code)) {
 			// A mob or a hit stopped the leg (settle answered it): neither progress nor a closed way.
 			if (moved < 2) continue;
-		} else if (code !== 'ARRIVED' && moved < distance / 2) {
+		} else if (!progress) {
 			failed += 1;
 			if (ahead !== null) { footFails += 1; tried.push(footingKey(ahead)); if (tried.length > MAX_TRIED) tried.shift(); }
 			else turn += 1;
@@ -178,7 +192,7 @@ export async function searchNetherFortress(ctx) {
 			if (turn > TURNS.length) {
 				// Walled in on this heading even building: turn to the side, then the other side, then back.
 				if (remembered) {
-					return stop('FAILED', 'FIND_BLOCKED', `The fortress seen at ${Math.round(target.x)},${target.y ?? '?'},${Math.round(target.z)} could not be reached: every walk and a build toward it got less than half way`, 'FORTRESS_UNREACHABLE');
+					return stop('FAILED', 'FIND_BLOCKED', `The fortress seen at ${Math.round(target.x)},${target.y ?? '?'},${Math.round(target.z)} could not be reached: no walk or build toward it got any farther`, 'FORTRESS_UNREACHABLE');
 				}
 				turn = 0;
 				footFails = 0;
@@ -186,7 +200,7 @@ export async function searchNetherFortress(ctx) {
 				if (headingTurn === 0) state.fortressHeading = wrap(state.fortressHeading + 90);
 			}
 			if (failed >= MAX_FAILED_LEGS) {
-				return stop('FAILED', 'FIND_BLOCKED', `No way on: ${failed} legs in a row got less than half way (last ${code ?? outcome.result?.state}: ${String(outcome.result?.message ?? '').slice(0, 160)})`, 'NO_WAY_ON');
+				return stop('FAILED', 'FIND_BLOCKED', `No way on: ${failed} legs in a row got no farther (last ${code ?? outcome.result?.state}: ${String(outcome.result?.message ?? '').slice(0, 160)})`, 'NO_WAY_ON');
 			}
 			if (moved < 2) continue;
 		} else {
