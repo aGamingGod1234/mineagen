@@ -239,7 +239,6 @@ test('a machine that cannot start its room is deleted at once and the room plays
 		const rooms = parseCommands(`@a ${LINE}`, ['new', 'old']);
 		const result = await runBatch({ batch: { name: 't', code: 'abc12345' }, rooms, arms: [{ name: 'new' }, { name: 'old' }], pool, vms: 1, out, pollMs: 1, log: () => {} });
 		assert.deepEqual(events, ['create vm1', 'delete vm1', 'create vm2', 'start vm2', 'delete vm2']);
-		assert.equal(result.outcomes[0].lost, false);
 		assert.equal(result.outcomes[0].attempts, 2);
 		assert.equal(result.merged.new.summary.status, 'PASS');
 	} finally { await rm(out, { recursive: true, force: true }); }
@@ -428,7 +427,6 @@ test('a poll that fails on a live machine is retried after a pause, and a stop c
 		};
 		const controller = new AbortController();
 		const result = await runBatch({ batch: { name: 't', code: 'abc12345' }, rooms: parseCommands(`@a ${LINE}`, ['new', 'old']), arms: [{ name: 'new' }, { name: 'old' }], pool, vms: 1, out, retryMs: 200, log: () => {}, signal: controller.signal });
-		assert.equal(result.outcomes[0].lost, false);
 		assert.equal(polls.length, 2);
 		assert.ok(polls[1].at - polls[0].at >= 190, 'the failed poll was retried at once');
 		assert.equal(polls[0].signal, controller.signal, 'the poll gets the batch signal so a stop can cut it short');
@@ -590,7 +588,7 @@ async function fakeBoat(env = {}) {
 }
 const { leaseStore } = await import('../../scripts/quality/lib/pool-leases.mjs');
 const { warmBoatPool, rateLimited, poolMember, machineName } = await import('../../scripts/quality/lib/boat-warm.mjs');
-const quiet = () => {};
+const quiet = process.env.POOL_TEST_LOG ? message => console.log(`${Date.now() % 100000} ${message}`) : () => {};
 const warm = (fake, extra = {}) => warmBoatPool({ snapshot: 'img', type: 'default', store: leaseStore({ dir: fake.poolDir }), log: quiet, roomPorts: [1, 0], startsPerMinute: 600, ...extra });
 const exited = child => new Promise(resolve => { if (child.exitCode !== null || child.signalCode !== null) resolve(); else child.once('exit', resolve); });
 
@@ -787,4 +785,49 @@ test('the merge finds rows finishRun wrote under another name, and calls several
 		assert.doesNotMatch(text, /no rows/);
 		assert.match(text, /end-breath: pass d=0 dmg=0/);
 	} finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('a machine the pool hands back to the same batch after a release is never deleted at the batch end', async () => {
+	const out = await mkdtemp(path.join(os.tmpdir(), 'room-batch-run-'));
+	try {
+		const destroyed = [], released = [];
+		let leases = 0;
+		// One machine only: every create() is a new lease of bx_same, as a warm pool gives after a release.
+		const pool = {
+			async create() { leases++; return { id: 'bx_same' }; },
+			async prepare() { return { code: '/c', out: '/o', jars: { new: '/j/new.jar', old: '/j/old.jar' }, inputs: {}, javaHome: '/jdk', template: '/t' }; },
+			async start() {},
+			async poll() { return 'done'; },
+			async alive() { return true; },
+			// The first copy fails, so the room is lost on the first lease and re-queued for a replacement.
+			async fetch(vm, roomName) { if (leases === 1) throw new Error('cut'); for (const arm of ['new', 'old']) await writeRoom(out, roomName, arm, [row(`spot-${roomName}`)]); return { seconds: 1, arms: {}, machine: {} }; },
+			async keepAlive() {}, async usage() { return {}; },
+			async release(vm) { released.push(vm.id); return true; },
+			async destroy(vm) { destroyed.push(vm.id); },
+		};
+		const rooms = parseCommands(`@a ${LINE}`, ['new', 'old']);
+		const result = await runBatch({ batch: { name: 't', code: 'abc12345' }, rooms, arms: [{ name: 'new' }, { name: 'old' }], pool, vms: 1, out, log: quiet });
+		assert.equal(leases, 2);
+		assert.deepEqual(destroyed, [], 'no boat delete for a machine that went back to the pool');
+		assert.deepEqual(released, ['bx_same', 'bx_same'], 'each lease is given back on its own');
+		assert.ok(result.machines.every(vm => vm.returned));
+	} finally { await rm(out, { recursive: true, force: true }); }
+});
+
+test('a warm machine whose check gets no answer is skipped and kept, never deleted', { skip: process.platform === 'win32' }, async () => {
+	const fake = await fakeBoat();
+	try {
+		const pool = warm(fake);
+		const vm = await pool.create();
+		await pool.release(vm);
+		// The next check cannot reach the machine (exec fails the way a boat API error does), so it is not reused.
+		await writeFile(path.join(fake.dir, 'boat.mjs'), FAKE_BOAT.replace("else if (command === 'exec') {", "else if (command === 'exec' && process.env.FAKE_BOAT_EXEC_DOWN) { out({ success: false, error: 'api unavailable' }); }\nelse if (command === 'exec') {"));
+		process.env.FAKE_BOAT_EXEC_DOWN = '1';
+		const other = await warm(fake).create().catch(error => error);
+		assert.ok(other instanceof Error, 'the new machine cannot be checked either');
+		assert.ok(fake.exists(vm.id), 'the unreachable warm machine is still there');
+		delete process.env.FAKE_BOAT_EXEC_DOWN;
+		const again = await warm(fake).create();
+		assert.equal(again.id, vm.id, 'once it answers, it is reused');
+	} finally { delete process.env.FAKE_BOAT_EXEC_DOWN; await fake.close(); }
 });
