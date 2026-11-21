@@ -341,6 +341,9 @@ public final class ReflexScheduler {
 				state.suppressed = false;
 				state.yieldedTrigger = false;
 				state.cornerFailures = 0;
+				// A breath edge queued behind another firing goes with the cloud: fired late, the run would start from a safe
+				// body with no cloud point and sprint from an unrelated mob or the body's facing.
+				if (state.releasesCornered) state.pendingUntil = -1L;
 				state.heldSpans = 0;
 				if (state.lastTruth || state.falseSince == Long.MIN_VALUE) state.falseSince = now;
 			} else {
@@ -503,8 +506,20 @@ public final class ReflexScheduler {
 	 * the gap between two of its firings. Other floors (lava) keep main's behaviour: a waiting command runs in their cooldown.
 	 */
 	public boolean holdsWaitingCommand() {
+		return holdsWaitingCommand(null);
+	}
+
+	/**
+	 * As {@link #holdsWaitingCommand()}, reading the breath condition from this tick's {@code senses} where they have it (null:
+	 * the last step's). The engine ticks a running firing before {@link #step}: the tick the cloud comes, the last step's
+	 * reading would still let a shield pass the command's forward input toward it.
+	 */
+	public boolean holdsWaitingCommand(Map<String, Sense> senses) {
 		for (State state : states.values()) {
-			if (state.releasesCornered && state.lastTruth && !state.yieldedTrigger && state.disabledReason == null && !blocked(state)) return true;
+			if (!state.releasesCornered || state.disabledReason != null || blocked(state)) continue;
+			Sense sense = senses == null ? null : senses.get(state.rule.id());
+			boolean truth = sense != null ? sense.truth() : state.lastTruth;
+			if (truth && !state.yieldedTrigger) return true;
 		}
 		return false;
 	}
@@ -590,7 +605,9 @@ public final class ReflexScheduler {
 		if (state.disabledReason != null || now < state.cooldownUntil || state.heldBack || heldNow.containsKey(state.rule.id()) || blocked(state)) return false;
 		if (current != null && current.ruleId().equals(state.rule.id())) return false;
 		if (state.rule.maxFirings() > 0 && state.fired >= state.rule.maxFirings()) return false;
-		// A floor trigger is level-triggered: ready whenever its hazard holds, unless a settled firing of it yielded.
+		// A floor trigger is level-triggered: ready whenever its hazard holds, unless a settled firing of it yielded. A breath
+		// floor is only level-triggered: a queued edge (a rearm after another firing) never starts it once the cloud has cleared.
+		if (state.rule.kind() == ReflexSpec.Kind.TRIGGER && state.releasesCornered) return state.lastTruth && !state.yieldedTrigger;
 		if (state.rule.kind() == ReflexSpec.Kind.TRIGGER) return state.pendingUntil >= now || state.floor && state.lastTruth && !state.yieldedTrigger;
 		return state.lastTruth && !state.suppressed;
 	}

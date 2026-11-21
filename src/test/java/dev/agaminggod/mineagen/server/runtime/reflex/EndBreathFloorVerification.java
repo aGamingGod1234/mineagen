@@ -44,6 +44,8 @@ public final class EndBreathFloorVerification {
 		gapStepTakesAndReleasesTheHold(end);
 		blockedEndThrowLosesItsQueuedEdge(end);
 		breathStaysArmedAtTheLoopLimits(end);
+		queuedBreathEdgeGoesWithTheCloud(end);
+		shieldReadsThisTicksCloud(end);
 		return assertions;
 	}
 
@@ -463,6 +465,45 @@ public final class EndBreathFloorVerification {
 		check(scheduler.events().stream().noneMatch(event -> event.outcome() == ReflexScheduler.Outcome.DISABLED), "never disabled at the rate limit");
 		check(!"disabled".equals(scheduler.statuses(tick).getFirst().state()), "still armed");
 		check(scheduler.events().stream().anyMatch(ReflexScheduler.Event::wake), "the model is woken at the crossing");
+	}
+
+	/**
+	 * Codex review: breath came while another priority-9 firing held the body and cleared before it ended. The queued edge must
+	 * not start a run from a safe body (no cloud point: SprintAway ran from the body's facing).
+	 */
+	private static void queuedBreathEdgeGoesWithTheCloud(List<ReflexSpec.Rule> end) {
+		ReflexSpec.Rule other = rule("{\"id\":\"other\",\"priority\":9,\"when\":{\"type\":\"hostile_near\",\"within\":4},\"do\":{\"type\":\"sprint_away\",\"blocks\":10}}");
+		ReflexScheduler scheduler = new ReflexScheduler();
+		scheduler.replace(List.of(other, named(end, BREATH)), 0L);
+		java.util.function.BiFunction<Boolean, Boolean, Map<String, ReflexScheduler.Sense>> senses = (cloud, mob) -> Map.of(
+				BREATH, new ReflexScheduler.Sense(cloud, false), "other", new ReflexScheduler.Sense(mob, false));
+		check("other".equals(scheduler.step(1L, senses.apply(false, true), RUNNING, "", false).started()), "the other priority-9 rule fires first");
+		check(scheduler.step(2L, senses.apply(true, true), RUNNING, "", false).started() == null, "breath at equal priority queues behind it");
+		check(scheduler.step(3L, senses.apply(false, true), RUNNING, "", false).started() == null, "the cloud clears while the other runs");
+		ReflexScheduler.Decision done = scheduler.step(4L, senses.apply(false, false), ReflexScheduler.ActionStatus.DONE, "ran 10.0 blocks", false);
+		check(done.endOutcome() == ReflexScheduler.Outcome.DONE && done.started() == null, "the other run ends: the queued breath edge does not start a run out of the cloud");
+		for (long tick = 5L; tick < 30L; tick++) check(scheduler.step(tick, senses.apply(false, false), RUNNING, "", false).started() == null, "still out of the cloud: no breath run at " + tick);
+		check(BREATH.equals(scheduler.step(30L, senses.apply(true, false), RUNNING, "", false).started()), "back in the cloud it fires");
+	}
+
+	/**
+	 * Codex review: a shield runs in a failed breath run's cooldown and the cloud returns. The engine ticks the shield before the
+	 * scheduler steps, so the shield must read this tick's cloud, or it passes the command's forward input toward the breath.
+	 */
+	private static void shieldReadsThisTicksCloud(List<ReflexSpec.Rule> end) {
+		ReflexSpec.Rule guard = rule("{\"id\":\"guard\",\"kind\":\"stance\",\"priority\":5,\"when\":{\"type\":\"hostile_near\",\"within\":4},\"do\":{\"type\":\"shield\"}}");
+		ReflexScheduler scheduler = new ReflexScheduler();
+		scheduler.replace(List.of(named(end, BREATH), guard), 0L);
+		java.util.function.Function<Boolean, Map<String, ReflexScheduler.Sense>> senses = cloud -> Map.of(
+				BREATH, new ReflexScheduler.Sense(cloud, false), "guard", new ReflexScheduler.Sense(true, false));
+		check(BREATH.equals(scheduler.step(1L, senses.apply(true), RUNNING, "", false).started()), "breath fires first");
+		check("guard".equals(scheduler.step(3L, senses.apply(true), FAILED, "no safe heading away", false).started()), "in the breath cooldown the shield fires");
+		check(scheduler.step(4L, senses.apply(false), RUNNING, "", false).started() == null && "guard".equals(scheduler.current().ruleId()), "the cloud clears, the shield keeps running");
+		check(ReflexEngine.passesThrough(true, true, scheduler, senses.apply(false)), "out of the cloud the shield lets a walking command move");
+		check(!ReflexEngine.passesThrough(true, true, scheduler, senses.apply(true)), "the tick the cloud comes back, before the scheduler steps, the shield already holds the command");
+		check(ReflexEngine.passesThrough(true, true, scheduler), "the last step's reading alone would still have passed it");
+		scheduler.step(5L, senses.apply(true), RUNNING, "", false);
+		check(!ReflexEngine.passesThrough(true, true, scheduler, senses.apply(true)) && !ReflexEngine.passesThrough(true, true, scheduler), "after the step both readings hold it");
 	}
 
 	private static List<ReflexSpec.Rule> endDefaults() {

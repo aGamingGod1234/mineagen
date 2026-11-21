@@ -448,8 +448,8 @@ public final class ReflexEngine {
 		return type == ActionType.FIGHT_TARGET || type == ActionType.FIGHT_UNTIL || type == ActionType.USE_RANGED;
 	}
 
-	private static boolean passesThrough(AgentReflexes agent, ServerActionRequest active) {
-		return passesThrough(agent.behaviour != null && agent.behaviour.passesMovement(), active != null && CommandFollower.movesUnderHold(active), agent.scheduler);
+	private static boolean passesThrough(AgentReflexes agent, ServerActionRequest active, Map<String, ReflexScheduler.Sense> senses) {
+		return passesThrough(agent.behaviour != null && agent.behaviour.passesMovement(), active != null && CommandFollower.movesUnderHold(active), agent.scheduler, senses);
 	}
 
 	/**
@@ -457,7 +457,12 @@ public final class ReflexEngine {
 	 * cooldown a shield stance composed the command's forward input and resumed it toward the cloud (council R3).
 	 */
 	static boolean passesThrough(boolean passesMovement, boolean commandMoves, ReflexScheduler scheduler) {
-		return passesMovement && commandMoves && !scheduler.holdsWaitingCommand();
+		return passesThrough(passesMovement, commandMoves, scheduler, null);
+	}
+
+	/** As above, with this tick's senses (null: the scheduler's last step), read before the scheduler steps on them. */
+	static boolean passesThrough(boolean passesMovement, boolean commandMoves, ReflexScheduler scheduler, Map<String, ReflexScheduler.Sense> senses) {
+		return passesMovement && commandMoves && !scheduler.holdsWaitingCommand(senses);
 	}
 
 	private boolean tickAgent(AgentId agentId, AgentReflexes agent, long now, Body body) {
@@ -545,7 +550,7 @@ public final class ReflexEngine {
 		ReflexScheduler.Firing firing = agent.scheduler.current();
 		if (firing != null && agent.behaviour != null) {
 			ReflexSpec.Rule rule = agent.scheduler.rule(firing.ruleId());
-			ReflexActions.Step step = agent.behaviour.tick(context(agentId, player, agent, firing.ruleId(), rule, active), state -> apply(agentId, agent, player, state));
+			ReflexActions.Step step = agent.behaviour.tick(context(agentId, player, agent, firing.ruleId(), rule, active, senses), state -> apply(agentId, agent, player, state));
 			FiringStep exit = firingStep(rule, step.status(), step.detail(), activeType, agent.behaviour.settled(), now - firing.startTick(), firing.maxTicks(),
 					agent.behaviour.yieldsToFight());
 			status = exit.status();
@@ -566,7 +571,7 @@ public final class ReflexEngine {
 			agent.startHealth = player.getHealth();
 			agent.firingFocus = agent.focus.get(rule.id());
 			agent.firingPoint = agent.points.get(rule.id());
-			ReflexActions.Step step = agent.behaviour.tick(context(agentId, player, agent, rule.id(), rule, active), state -> apply(agentId, agent, player, state));
+			ReflexActions.Step step = agent.behaviour.tick(context(agentId, player, agent, rule.id(), rule, active, senses), state -> apply(agentId, agent, player, state));
 			agent.detail = step.detail();
 			changed.add(agentId);
 		}
@@ -580,7 +585,7 @@ public final class ReflexEngine {
 					player.getYRot(), player.getXRot(), player.getInventory().getSelectedSlot());
 			return agent.lease != null;
 		}
-		boolean passes = passesThrough(agent, active);
+		boolean passes = passesThrough(agent, active, senses);
 		if (passes && fightShield(player, active) && agent.behaviour.defersToFight()) {
 			// The fight raises the shield itself between swings; a reflex lease over it would block every swing.
 			FIGHT_SHIELDS.add(player.getUUID());
@@ -611,7 +616,8 @@ public final class ReflexEngine {
 				&& player.getOffhandItem().getItem() instanceof net.minecraft.world.item.ShieldItem;
 	}
 
-	private ReflexActions.Context context(AgentId agentId, ServerPlayer player, AgentReflexes agent, String ruleId, ReflexSpec.Rule rule, ServerActionRequest active) {
+	private ReflexActions.Context context(AgentId agentId, ServerPlayer player, AgentReflexes agent, String ruleId, ReflexSpec.Rule rule, ServerActionRequest active,
+			Map<String, ReflexScheduler.Sense> senses) {
 		Entity focus = agent.focus.get(ruleId);
 		Vec3 point = agent.points.get(ruleId);
 		if (focus != null) agent.firingFocus = focus;
@@ -619,7 +625,7 @@ public final class ReflexEngine {
 		// While the condition no longer names it (the body turned to face the mob), the firing keeps what it started on.
 		if (focus == null && agent.firingFocus != null && agent.firingFocus.isAlive()) focus = agent.firingFocus;
 		if (point == null) point = agent.firingPoint;
-		boolean passes = passesThrough(agent, active);
+		boolean passes = passesThrough(agent, active, senses);
 		AgentInputState below = null;
 		if (passes) {
 			LeasedServerInputController controller = agent.controller != null ? agent.controller : AgentInputRuntime.controller(player);
