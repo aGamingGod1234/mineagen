@@ -81,6 +81,14 @@ const MAX_TRIED = 256;
 const MAX_FOOTING_FAILS = 3;
 /** Blocks a leg must move the farthest point on along the heading to count as a way on. */
 export const MIN_GAIN = 8;
+/** Land the last look saw at least this far one way counts as open ground to walk to before any dig. */
+export const OPEN_VIEW = 24;
+/** Tunnel legs in a row that never open into walkable ground before the search walks back and turns. */
+export const MAX_DIGS = 2;
+/** Blocks a build leg must have tunnelled to count as a dig. */
+const DIG_BLOCKS = 8;
+/** Mob stops in a row that left the body in place before that way counts as closed. */
+const MAX_MOB_STOPS = 3;
 const unit = (yaw) => ({ x: -Math.sin(yaw * Math.PI / 180), z: Math.cos(yaw * Math.PI / 180) });
 const footingKey = (row) => `${row.x},${row.y},${row.z}`;
 
@@ -102,6 +110,24 @@ export function footingAhead(candidates, here, yaw, tried = []) {
 	}
 	return best;
 }
+
+/**
+ * The most open way the last look showed, within 90 degrees of the heading: the view with land seen farthest, at least
+ * OPEN_VIEW blocks, not tried from this front. A player walled in at a cavern's end turns along the open side rather than
+ * digging on (smoke rooms 22 Nov: three walks failed at a tunnel face, then another 21-block tunnel, over and over).
+ */
+export function openView(views, heading, tried = new Set()) {
+	let best = null;
+	for (const view of Array.isArray(views) ? views : []) {
+		if (!Number.isFinite(view?.yaw) || !(view.farthestLand >= OPEN_VIEW)) continue;
+		const off = Math.abs(wrap(view.yaw - heading));
+		if (off > 90 || tried.has(viewKey(view.yaw))) continue;
+		const score = view.farthestLand - off / 6;
+		if (best === null || score > best.score) best = { yaw: Math.round(view.yaw), farthestLand: view.farthestLand, score };
+	}
+	return best;
+}
+const viewKey = (yaw) => Math.round(wrap(yaw) / 15);
 
 /** The heading a new search keeps: along z toward the first unseen region's start ground (fortresses string out in z). */
 export function startHeading(here, target) {
@@ -133,7 +159,12 @@ export async function searchNetherFortress(ctx) {
 	};
 	// The first look of the call (searchFor's) already happened where the body stands.
 	noteLook();
-	let failed = 0, turn = 0, footFails = 0, headingTurn = 0;
+	let failed = 0, turn = 0, footFails = 0, headingTurn = 0, digs = 0, mobStops = 0;
+	// Open views walked from the current front, and the last place a walk (not a dig) made way: a walled-in search walks
+	// back there before it turns.
+	const triedViews = new Set();
+	const start = at();
+	let lastOpen = start === null ? null : { x: start.x, y: Math.floor(start.y + 1e-3), z: start.z };
 	// The farthest point reached along the current heading. A leg counts as progress only when it moves this forward:
 	// live round 1, a side walk that failed dragged the body 20 blocks back down its own tunnel, and the build leg after
 	// it walked the tunnel forward again and counted as a way on, over and over (1,032 blocks walked, 11 net).
@@ -159,9 +190,34 @@ export async function searchNetherFortress(ctx) {
 		// Seen ground ahead of the farthest point, not just ahead of where a failed walk left the body.
 		const ahead = turn === 0 && footFails < MAX_FOOTING_FAILS ? footingAhead(body.frontier?.(observation)?.candidates, front.point, heading, tried) : null;
 		const turns = remembered ? TURNS : SEARCH_TURNS;
-		const build = turn >= turns.length;
+		let build = turn >= turns.length;
+		// Before a dig: the open side the last look showed from here, walked as a player turns along a cavern wall.
+		const seen = ctx.ground?.() ?? null;
+		const open = build && !remembered && ahead === null && seen !== null && Math.hypot(seen.at.x - here.x, seen.at.z - here.z) <= 4
+			? openView(seen.views, heading, triedViews) : null;
+		if (open !== null) build = false;
+		// Walled in: two digs in a row never opened into walkable ground. Back to the last open ground, then the next heading.
+		if (build && digs >= MAX_DIGS && !remembered) {
+			digs = 0; turn = 0; footFails = 0; failed += 1;
+			headingTurn = (headingTurn + 1) % HEADING_TURNS.length;
+			if (headingTurn === 0) state.fortressHeading = wrap(state.fortressHeading + 90);
+			front = null;
+			triedViews.clear();
+			if (lastOpen !== null && Math.hypot(lastOpen.x - here.x, lastOpen.z - here.z) > 4) {
+				const back = await leg(`back to open ground at ${Math.floor(lastOpen.x)},${Math.floor(lastOpen.y)},${Math.floor(lastOpen.z)}: rock all the way on`, 'travel_to',
+					{ x: lastOpen.x, y: lastOpen.y, z: lastOpen.z, tolerance: 2, build: false });
+				const stopped = await settle(back);
+				if (stopped !== null) return stopped;
+			}
+			if (failed >= MAX_FAILED_LEGS) return stop('FAILED', 'FIND_BLOCKED', `No way on: ${failed} legs in a row got no farther, walled in by rock on every heading`, 'NO_WAY_ON');
+			continue;
+		}
 		let args, distance, how;
-		if (ahead !== null) {
+		if (open !== null) {
+			distance = Math.min(FORTRESS_LEG, open.farthestLand);
+			args = { yaw: open.yaw, distance, build: false };
+			how = `walk toward open ground seen ${open.farthestLand} blocks off at yaw ${open.yaw}`;
+		} else if (ahead !== null) {
 			distance = ahead.distance;
 			args = { x: ahead.x + 0.5, y: ahead.y, z: ahead.z + 0.5, tolerance: 3, build: false };
 			how = `walk to seen ground ${Math.round(ahead.along)} blocks ahead at ${ahead.x},${ahead.y},${ahead.z}`;
@@ -184,13 +240,25 @@ export async function searchNetherFortress(ctx) {
 		const gain = alongOf(after) - front.along;
 		if (gain > 0) { front.along += gain; front.point = after; }
 		const code = outcome.result?.reasonCode;
-		const progress = gain >= Math.min(MIN_GAIN, distance / 2);
+		// A side walk toward open ground makes way by getting there, not by moving the front along the heading.
+		const progress = open !== null ? moved >= MIN_GAIN : gain >= Math.min(MIN_GAIN, distance / 2);
+		const tunnelled = Number(/tunnelled (\d+)/.exec(String(outcome.result?.message ?? ''))?.[1] ?? 0);
+		if (gain >= MIN_GAIN) triedViews.clear();
+		// A side walk that got there moves the front to it, and the way back the other side is not taken next.
+		if (progress && open !== null) { front.point = after; triedViews.add(viewKey(open.yaw + 180)); }
+		mobStops = !progress && NOT_THE_WAY.has(code) && moved < 2 ? mobStops + 1 : 0;
+		if (mobStops >= MAX_MOB_STOPS) {
+			// Mobs keep the body in place: deal with them first (smoke room 22 Nov: eight stops for magma cubes on one
+			// footing while they closed in, then death).
+			return stop('FAILED', 'FIND_DANGER', `Mobs stopped ${mobStops} legs in a row with the body in place (last ${code}: ${String(outcome.result?.message ?? '').slice(0, 120)}): fight or back away, then find again`, 'MOBS_IN_THE_WAY');
+		}
 		if (!progress && NOT_THE_WAY.has(code)) {
 			// A mob or a hit stopped the leg (settle answered it): neither progress nor a closed way.
 			if (moved < 2) continue;
 		} else if (!progress) {
 			failed += 1;
-			if (ahead !== null) { footFails += 1; tried.push(footingKey(ahead)); if (tried.length > MAX_TRIED) tried.shift(); }
+			if (open !== null) triedViews.add(viewKey(open.yaw));
+			else if (ahead !== null) { footFails += 1; tried.push(footingKey(ahead)); if (tried.length > MAX_TRIED) tried.shift(); }
 			else turn += 1;
 			if (code === 'OUT_OF_BLOCKS' && buildingBlocks(ctx.observation()) < MIN_BUILD_BLOCKS) {
 				return stop('FAILED', 'FIND_BLOCKED', `Out of building blocks while bridging on heading ${Math.round(heading)}: mine netherrack or cobblestone, then find again`, 'OUT_OF_BLOCKS');
@@ -213,6 +281,9 @@ export async function searchNetherFortress(ctx) {
 			failed = 0;
 			turn = 0;
 			footFails = 0;
+			// A dig that got through counts as a way on, but only walking proves open ground: digs in a row are capped.
+			if (build && tunnelled >= DIG_BLOCKS) digs += 1;
+			else { digs = 0; lastOpen = { x: Math.floor(after.x) + 0.5, y: Math.floor(after.y + 1e-3), z: Math.floor(after.z) + 0.5 }; }
 			// A side heading that went somewhere becomes the kept one.
 			if (headingTurn !== 0 && !remembered) { state.fortressHeading = heading; headingTurn = 0; }
 		}
