@@ -8,14 +8,23 @@ export function processGroupIsRunning(groupId, {
   signal = process.kill,
   readProcessTable = readPosixProcessTable,
 } = {}) {
+  if (!groupExists(groupId, signal)) return false;
+  const state = classifyProcessGroup(readProcessTable(), groupId);
+  if (state === "zombie-only") return false;
+  if (state === "running") return true;
+  // The table lists no member, or could not be read. A zombie answers signal 0 until its parent reaps it, and the reap
+  // can land between the signal and the ps read, so ask again: a group that is gone now was gone, not hiding.
+  return groupExists(groupId, signal);
+}
+
+function groupExists(groupId, signal) {
   try {
     signal(-groupId, 0);
+    return true;
   } catch (error) {
     if (error?.code === "ESRCH") return false;
     throw error;
   }
-
-  return classifyProcessGroup(readProcessTable(), groupId) !== "zombie-only";
 }
 
 export function classifyProcessGroup(processTable, groupId) {
