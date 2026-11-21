@@ -638,3 +638,12 @@ test('windowsPool cleanup after Ctrl-C waits for an in-flight prepare, which sto
 	assert.deepEqual(uploads, [], 'nothing is uploaded after the stop');
 	assert.deepEqual(scripts, ['claim', 'other', 'clean'], 'the folder the late claim made is deleted');
 });
+
+test('windowsPool deletes a batch folder whose claim made it but never answered', async () => {
+	const scripts = [];
+	const pool = fakeWindows({ scripts, claim: async () => { throw new Error('ssh connection closed'); } });
+	const vm = await pool.create();
+	await assert.rejects(() => pool.prepare(vm), /ssh connection closed/);
+	await pool.destroy(vm);
+	assert.deepEqual(scripts, ['claim', 'other', 'clean'], 'the folder the claim may have made is deleted');
+});

@@ -126,6 +126,10 @@ if (Test-Path -LiteralPath ${psQuote(batchDir)}) { throw 'could not delete ${bat
 		// stale copy: delete it, or the check below refuses the batch as already there.
 		if (pc.claimedBatchDir) await cleanBatchDir(pc);
 		const first = slotPortBase(pc.slotBase, 0, arms), last = slotPortBase(pc.slotBase, pc.slots - 1, arms) + arms * 100 - 1;
+		// Owned from before the claim is sent: if the ssh drops after the PC made the folder, or a later line of the script
+		// throws, the folder and its port range exist all the same. Its name carries this run's random id, so whatever is at
+		// that path is this run's to delete (the delete is a no-op when nothing was made).
+		pc.claimedBatchDir = true;
 		const facts = JSON.parse((await runPs(pc.host, `
 if (-not (Test-Path -LiteralPath ${psQuote(`${root}/jdk25/bin/java.exe`)})) { throw 'no Java at ${root}/jdk25' }
 if (-not (Test-Path -LiteralPath ${psQuote(`${root}/templates/26.3/server.jar`)})) { throw 'no server template at ${root}/templates/26.3' }
@@ -143,7 +147,6 @@ $overlap = @(Get-ChildItem -LiteralPath ${psQuote(batchesRoot)} -Directory | Whe
 foreach ($d in 'jars', 'inputs', 'code') { New-Item -ItemType Directory -Force -Path (Join-Path ${psQuote(batchDir)} $d) | Out-Null }
 foreach ($d in 'cache', 'tmp') { New-Item -ItemType Directory -Force -Path (Join-Path ${psQuote(root)} $d) | Out-Null }
 @{ overlap = $overlap; node = (Get-Command node.exe).Source; excluded = ((netsh int ipv4 show excludedportrange protocol=tcp) -join "\`n") } | ConvertTo-Json -Compress`)).trim().split('\n').at(-1));
-		pc.claimedBatchDir = true;
 		// Another batch process on this PC (its own pool, its own slot set) holds an overlapping port range: claim first,
 		// then check, so two batches starting together both see each other and neither plays on shared ports. A folder
 		// without ports.json counts as overlapping (an older runner, or one still writing it).
