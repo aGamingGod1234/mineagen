@@ -330,6 +330,7 @@ public final class ServerFightUntilController implements ServerController {
 	private ServerController drawWalk;
 	private LivingEntity drawn;
 	private Vec3 drawnAt;
+	private Vec3 holdAt;
 	private long drawHoldUntilMs = -1L;
 	private int holds;
 	private int attackerSoftEnds;
@@ -1505,13 +1506,14 @@ public final class ServerFightUntilController implements ServerController {
 			drawWalk.cancel(player);
 			drawWalk = null;
 			drawHoldUntilMs = elapsed + DRAW_HOLD_MS;
+			holdAt = player.position();
 			note("backed off for the angry enderman to come across: " + walked.reasonCode());
 			return TickResult.running(progress(player));
 		}
 		if (drawn != null && elapsed < drawHoldUntilMs) {
 			// Hold where the back-off ended until it comes within reach or moves (then the fight takes it), or the hold runs out.
 			if (drawn.isAlive() && !drawn.isDeadOrDying() && player.distanceTo(drawn) > ENDER_HOLD_RANGE
-					&& drawn.position().distanceTo(drawnAt) < UnreachableTargets.MOVED) {
+					&& drawn.position().distanceTo(drawnAt) < UnreachableTargets.MOVED && (holdAt == null || player.position().distanceTo(holdAt) < UnreachableTargets.MOVED)) {
 				lastTargetMs = elapsed;
 				if (look != null) { look.cancel(player); look = null; }
 				ServerLookController.turnToward(player, legs(drawn));
@@ -1523,7 +1525,7 @@ public final class ServerFightUntilController implements ServerController {
 		if (!mayStart || !choices.mayMove() || roofed || drawOvers >= MAX_DRAW_OVERS) return null;
 		for (Monster enderman : player.level().getEntitiesOfClass(McCompat.ENDERMAN, player.getBoundingBox().inflate(TELEPORT_RANGE),
 				e -> e.isAlive() && !e.isDeadOrDying() && attacking(player, e))) {
-			if (player.distanceTo(enderman) > TELEPORT_RANGE || !unreachable.marked(enderman.getUUID())) continue;
+			if (player.distanceTo(enderman) > TELEPORT_RANGE || !unreachable.marked(enderman.getUUID()) || !sensed(player, enderman)) continue;
 			Vec3 away = new Vec3(player.getX() - enderman.getX(), 0.0D, player.getZ() - enderman.getZ());
 			if (away.lengthSqr() < 1.0E-6) continue;
 			Vec3 goal = new Vec3(enderman.getX(), player.getY(), enderman.getZ()).add(away.normalize().scale(DRAW_DISTANCE));
