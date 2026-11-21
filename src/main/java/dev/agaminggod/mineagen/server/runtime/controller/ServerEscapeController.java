@@ -1,0 +1,455 @@
+package dev.agaminggod.mineagen.server.runtime.controller;
+
+import dev.agaminggod.mineagen.client.navigation.GridPosition;
+import dev.agaminggod.mineagen.server.runtime.reflex.EscapeMoves;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.Mob;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.state.BlockState;
+
+/**
+ * "Get me out of here safely": one body job for the moments the model used to answer with raw keys (jump pulses, single
+ * placements, single breaks). Each time it has nothing running it looks at where the body is and picks the move a
+ * player would make, then looks again once that move ends:
+ * <ul>
+ * <li>eyes under water with little air, or no dry footing in reach: swim to the nearest seen air (the swim-up reflex's move);</li>
+ * <li>in water with dry footing in reach: travel_to the nearest bank cell (travel swims, breathes and steps out); after
+ * two failed tries at one bank, dig a sealed staircase up to it (a flooded staircase re-cut dry);</li>
+ * <li>on the floor of a hole whose walls need climbing: pillar up to the rim with carried blocks when the sky over it is
+ * open, else dig stairs up to it, then step out onto the rim;</li>
+ * <li>a shooter in sight on open ground: walk into cover, the shield blocking shots on the way (the cover reflex's move).</li>
+ * </ul>
+ * It hands back once the body has stood safe for a second (footing, eyes in air, no hole to climb, no shooter in sight),
+ * and at once when it has no way out, naming what is missing. Sub-second reactions stay with the reflexes, which pause
+ * this job and hand the body back to it; it then looks again.
+ */
+public final class ServerEscapeController implements ServerController {
+	public interface Environment {
+		/** travel_to the cell (feet), building steps where needed. */
+		ServerController travel(ServerPlayer body, BlockPos to, long timeoutMs);
+		/** build pillar: {@code size} blocks up under the feet. */
+		ServerController pillar(ServerPlayer body, int size, long timeoutMs);
+		/** dig_to stairs_up to feet level {@code y}, heading {@code heading}, sealing fluids it opens. */
+		ServerController stairsUp(ServerPlayer body, int y, Direction heading, long timeoutMs);
+	}
+
+	public static final long DEFAULT_TIMEOUT_MS = 60_000L;
+	public static final long MAX_TIMEOUT_MS = 180_000L;
+	/** How far a bank cell is looked for around the body, and how far above and below its feet. */
+	static final int SHORE_RADIUS = 16;
+	static final int SHORE_BELOW = 3;
+	static final int SHORE_ABOVE = 12;
+	/** Air (ticks of 300) under which the body swims to air before anything else: about 7.5 s. */
+	static final int SWIM_FIRST_AIR = 150;
+	/** Steps a walk out of a hole is searched; reaching this far, or this far from the start, is out of the hole. */
+	static final int PIT_STEPS = 8;
+	static final int PIT_OPEN = 5;
+	static final int PIT_CELLS = 256;
+	/** The highest rim a climb out of a hole looks for. */
+	static final int RIM_SEARCH = 24;
+	/** A shooter this near and in sight keeps the body from counting as safe. */
+	static final double SHOOTER_RANGE = 16.0D;
+	static final int COVER_WITHIN = 8;
+	/** Ticks the body must stay safe before the job hands back. */
+	static final int SAFE_TICKS = 20;
+	static final int MAX_TRIES = 3;
+	static final long CHILD_MS = 45_000L;
+
+	enum Situation { WATER, PIT, SHOOTERS, LAVA, AIRBORNE, SAFE }
+
+	private final Environment environment;
+	private final long startedAt;
+	private final long deadline;
+	private final CombatInputLease input = new CombatInputLease();
+	private final List<String> log = new ArrayList<>();
+	private ServerController child;
+	private String childLabel;
+	private EscapeMoves.Move move;
+	private String moveLabel;
+	private int safeTicks;
+	private int swims;
+	private int covers;
+	private int pits;
+	private final Map<BlockPos, Integer> bankTries = new java.util.HashMap<>();
+	private final Set<BlockPos> stairedBanks = new HashSet<>();
+	private BlockPos travelBank;
+
+	public ServerEscapeController(long timeoutMs, long now, Environment environment) {
+		if (timeoutMs <= 0L) throw new IllegalArgumentException("escape needs a positive timeout");
+		this.environment = environment;
+		this.startedAt = now;
+		this.deadline = now + Math.min(timeoutMs, MAX_TIMEOUT_MS);
+	}
+
+	@Override
+	public TickResult tick(ServerPlayer player, long now) {
+		if (!player.isAlive()) return finish(player, TickResult.failed("AGENT_DEAD", "Body died while getting out" + done() + facts(player), 0.0D));
+		if (now >= deadline) return finish(player, TickResult.timedOut("ESCAPE_TIMEOUT", "timeoutMs ran out before the body was safe" + done() + facts(player), 0.5D));
+		if (child != null) return childTick(player, now);
+		if (move != null) return moveTick(player);
+		Situation situation = situation(player);
+		if (situation != Situation.SAFE) safeTicks = 0;
+		return switch (situation) {
+			case SAFE -> {
+				input.release();
+				if (++safeTicks < SAFE_TICKS) yield TickResult.running(0.9D);
+				yield finish(player, TickResult.succeeded("ESCAPED", (log.isEmpty() ? "Already safe: footing, eyes in air, no hole to climb, no shooter in sight"
+						: "Safe: footing, eyes in air, no hole to climb, no shooter in sight") + done() + facts(player)));
+			}
+			// Lava belongs to the lava reflex, which outranks this job; the job waits for the body back.
+			case LAVA -> { input.release(); yield TickResult.running(0.1D); }
+			// Mid-jump or falling: no footing to call safe yet, and nothing to choose until it lands.
+			case AIRBORNE -> { input.release(); yield TickResult.running(0.5D); }
+			case WATER -> water(player, now);
+			case PIT -> pit(player, now);
+			case SHOOTERS -> shooters(player);
+		};
+	}
+
+	static Situation situation(ServerPlayer player) {
+		if (player.isInLava()) return Situation.LAVA;
+		if (player.isUnderWater() || player.isInWater() && !player.onGround()) return Situation.WATER;
+		if (player.onGround() && trapped(player) != null) return Situation.PIT;
+		if (shooterNear(player) != null) return Situation.SHOOTERS;
+		return player.onGround() || player.onClimbable() || player.isInWater() ? Situation.SAFE : Situation.AIRBORNE;
+	}
+
+	/** The way out of water: swim to air, travel to a bank, cut stairs up to it, or stop with no way / no shore. */
+	enum WaterMove { SWIM, TRAVEL, STAIRS, NO_WAY, NO_SHORE }
+
+	/**
+	 * {@code tries} counts this pick of the bank too. Little air, or no bank in reach, swims first (at most
+	 * {@link #MAX_TRIES} swims); a bank tried twice and above the floor the body stands on gets stairs once.
+	 */
+	static WaterMove waterMove(boolean underwater, int air, boolean bank, int tries, boolean onGround, boolean bankAbove, boolean staired, int swims) {
+		if (underwater && (!bank || air < SWIM_FIRST_AIR) && swims < MAX_TRIES) return WaterMove.SWIM;
+		if (!bank) return underwater ? WaterMove.NO_WAY : WaterMove.NO_SHORE;
+		if (tries > 2 && onGround && bankAbove && !staired) return WaterMove.STAIRS;
+		if (tries > MAX_TRIES + 1) return WaterMove.NO_WAY;
+		return WaterMove.TRAVEL;
+	}
+
+	private TickResult water(ServerPlayer player, long now) {
+		BlockPos bank = bank(player, bankTries);
+		int tries = bank == null ? 0 : bankTries.merge(bank, 1, Integer::sum);
+		boolean bankAbove = bank != null && bank.getY() > player.getBlockY();
+		WaterMove next = waterMove(player.isUnderWater(), player.getAirSupply(), bank != null, tries, player.onGround(), bankAbove,
+				bank != null && stairedBanks.contains(bank), swims);
+		return switch (next) {
+			case SWIM -> {
+				if (bank != null) bankTries.merge(bank, -1, Integer::sum);
+				swims++;
+				yield startMove(player, EscapeMoves.swimUp(), "swim to air");
+			}
+			// Afloat and breathing with nowhere dry in reach: a safe stop, the way on is the model's choice.
+			case NO_SHORE -> finish(player, TickResult.failed("ESCAPE_NO_SHORE", "Afloat with air, but no dry footing within " + SHORE_RADIUS
+					+ " blocks; choose a direction or build (released input sinks)" + done() + facts(player), 0.4D));
+			case NO_WAY -> finish(player, TickResult.failed("ESCAPE_NO_WAY", (bank == null
+					? "Under water with no breathable air reached after " + swims + " swims and no dry footing within " + SHORE_RADIUS + " blocks"
+					: "Could not reach the bank at " + bank.toShortString() + " after " + (tries - 1) + " tries") + done() + facts(player), 0.3D));
+			// Two failed walks to one bank (a current, a flooded stair the swim cannot climb): cut a sealed staircase up to it.
+			case STAIRS -> {
+				stairedBanks.add(bank.immutable());
+				Direction heading = toward(player, bank);
+				yield startChild(player, environment.stairsUp(player, bank.getY(), heading, childMs(now)),
+						"re-cut the flooded way up as dry stairs to y" + bank.getY() + " heading " + heading.getName());
+			}
+			case TRAVEL -> {
+				travelBank = bank.immutable();
+				yield startChild(player, environment.travel(player, bank, childMs(now)), "out of the water to the bank at " + bank.toShortString());
+			}
+		};
+	}
+
+	/** The way out of a hole {@code climb} blocks deep: step out (level with the rim), pillar, dig stairs, or none. */
+	enum PitMove { STEP_OUT, PILLAR, STAIRS, NO_WAY }
+
+	/** A pillar needs the blocks and open cells over the head up to the rim; else stairs when the wall can be dug. */
+	static PitMove pitMove(int climb, int blocks, boolean headroom, boolean canDig) {
+		if (climb <= 0) return PitMove.STEP_OUT;
+		if (blocks >= climb && headroom) return PitMove.PILLAR;
+		return canDig ? PitMove.STAIRS : PitMove.NO_WAY;
+	}
+
+	private TickResult pit(ServerPlayer player, long now) {
+		Rim rim = trapped(player);
+		if (rim == null) return TickResult.running(0.5D);
+		if (++pits > MAX_TRIES) return finish(player, TickResult.failed("ESCAPE_NO_WAY", "Still in the hole after " + (pits - 1)
+				+ " climbs; the rim is at y" + rim.feet().getY() + done() + facts(player), 0.3D));
+		int climb = rim.feet().getY() - ServerTravelController.feet(player).y();
+		String block = plainBlock(player);
+		int blocks = block == null ? 0 : ServerBuildController.carried(player, block);
+		Direction heading = toward(player, rim.feet());
+		return switch (pitMove(climb, blocks, headroom(player, rim.feet().getY() + 1), canDig(player, heading))) {
+			// On top of a climb that ended level with the rim: step across onto it.
+			case STEP_OUT -> startChild(player, environment.travel(player, rim.feet(), childMs(now)), "step out onto the rim at " + rim.feet().toShortString());
+			case PILLAR -> startChild(player, environment.pillar(player, climb, childMs(now)), "pillar " + climb + " up to the rim at y" + rim.feet().getY());
+			case STAIRS -> startChild(player, environment.stairsUp(player, rim.feet().getY(), heading, childMs(now)),
+					"dig stairs " + climb + " up to the rim at y" + rim.feet().getY() + " heading " + heading.getName());
+			case NO_WAY -> finish(player, TickResult.failed("ESCAPE_NO_WAY", "In a hole " + climb + " blocks deep: climbing out needs " + climb
+					+ " plain blocks (" + blocks + " carried) or a tool for the walls" + done() + facts(player), 0.2D));
+		};
+	}
+
+	private TickResult shooters(ServerPlayer player) {
+		if (covers >= MAX_TRIES) return finish(player, TickResult.failed("ESCAPE_EXPOSED", "Still in sight of " + type(shooterNear(player))
+				+ " after " + covers + " cover moves" + done() + facts(player), 0.5D));
+		covers++;
+		return startMove(player, EscapeMoves.takeCover(COVER_WITHIN), "cover from " + type(shooterNear(player)));
+	}
+
+	private TickResult startMove(ServerPlayer player, EscapeMoves.Move next, String label) {
+		move = next;
+		moveLabel = label;
+		return moveTick(player);
+	}
+
+	private TickResult moveTick(ServerPlayer player) {
+		EscapeMoves.Result result = move.tick(player, state -> input.apply(player, state));
+		if (result.status() == EscapeMoves.Status.RUNNING) return TickResult.running(0.5D);
+		note(moveLabel + (result.status() == EscapeMoves.Status.DONE ? ": " : " failed: ") + result.detail());
+		input.release();
+		move = null;
+		// A cover move that found no cover and had no blocks to build one hands the choice back now.
+		if (result.status() == EscapeMoves.Status.FAILED && moveLabel.startsWith("cover") && situation(player) == Situation.SHOOTERS) {
+			return finish(player, TickResult.failed("ESCAPE_EXPOSED", "No cover from " + type(shooterNear(player)) + " here: " + result.detail() + done() + facts(player), 0.5D));
+		}
+		return TickResult.running(0.5D);
+	}
+
+	private TickResult startChild(ServerPlayer player, ServerController next, String label) {
+		input.release();
+		child = next;
+		childLabel = label;
+		return TickResult.running(0.5D);
+	}
+
+	private TickResult childTick(ServerPlayer player, long now) {
+		TickResult result;
+		try {
+			result = child.tick(player, now);
+		} catch (RuntimeException refused) {
+			result = TickResult.failed("ESCAPE_STEP_REFUSED", String.valueOf(refused.getMessage()), 0.0D);
+		}
+		if (result.state() == State.RUNNING) return TickResult.running(0.5D);
+		note(childLabel + (result.state() == State.SUCCEEDED ? ": " : " (" + result.reasonCode() + "): ") + shortMessage(result.message()));
+		// travel stopping to breathe is progress, not a missed bank: the swim to air comes next and the walk goes on.
+		if (travelBank != null && ("AIR_RESERVE_REACHED".equals(result.reasonCode()) || "BREATH_NOT_COVERED".equals(result.reasonCode()))) bankTries.merge(travelBank, -1, Integer::sum);
+		travelBank = null;
+		child = null;
+		return TickResult.running(0.5D);
+	}
+
+	private long childMs(long now) {
+		return Math.max(1_000L, Math.min(CHILD_MS, deadline - now));
+	}
+
+	@Override
+	public void cancel(ServerPlayer player) {
+		if (child != null) child.cancel(player);
+		child = null;
+		move = null;
+		input.release();
+	}
+
+	@Override
+	public void resumed(ServerPlayer player) {
+		// A reflex held the body (a raised shield, a swim up): the old move's picture is stale, so look again.
+		if (child != null) child.resumed(player);
+		move = null;
+		safeTicks = 0;
+		input.release();
+	}
+
+	private TickResult finish(ServerPlayer player, TickResult result) {
+		if (child != null) child.cancel(player);
+		child = null;
+		move = null;
+		input.release();
+		return result;
+	}
+
+	/** The rim of the hole the body stands in, or null when it can walk out (or cannot tell yet). */
+	record Rim(BlockPos feet) { }
+
+	static Rim trapped(ServerPlayer player) {
+		Level level = player.level();
+		BlockPos rim = rim(SafeStep.reachable(player, PIT_STEPS, PIT_CELLS), SafeStep.standing(player), new Cells() {
+			public boolean solid(BlockPos cell) { return ServerEscapeController.solid(level, cell); }
+			public boolean standable(BlockPos feet) { return ServerEscapeController.standable(level, feet); }
+		});
+		return rim == null ? null : new Rim(rim);
+	}
+
+	/** What the hole test reads of the world: a cell that blocks the body, and a cell a body can stand in. */
+	interface Cells {
+		boolean solid(BlockPos cell);
+		boolean standable(BlockPos feet);
+	}
+
+	/**
+	 * The lowest standable cell on top of the walls of a hole, or null when the walk out is open: a walk ({@code reach},
+	 * from {@code start}) that gets {@link #PIT_OPEN} blocks away, fills {@link #PIT_CELLS}, or meets a side that is open
+	 * (a drop, a ledge, a cell not yet seen) is out of the hole or cannot tell. Only walls two blocks high or more, all
+	 * round, make a hole.
+	 */
+	static BlockPos rim(Map<GridPosition, GridPosition> reach, GridPosition start, Cells cells) {
+		if (reach.size() >= PIT_CELLS) return null;
+		Set<Long> walls = new HashSet<>();
+		List<GridPosition> boundary = new ArrayList<>();
+		for (GridPosition cell : reach.keySet()) {
+			if (Math.abs(cell.x() - start.x()) >= PIT_OPEN || Math.abs(cell.z() - start.z()) >= PIT_OPEN) return null;
+			for (Direction side : Direction.Plane.HORIZONTAL) {
+				GridPosition next = new GridPosition(cell.x() + side.getStepX(), cell.y(), cell.z() + side.getStepZ());
+				if (reach.containsKey(next) || reach.containsKey(next.above()) || reach.containsKey(next.below())) continue;
+				BlockPos feet = new BlockPos(next.x(), next.y(), next.z());
+				boolean head = cells.solid(feet.above());
+				if (!head && !cells.solid(feet)) return null;
+				// A one-block step the walk refused (a fluid or a low ceiling above it) is no wall to climb either.
+				if (!head && !cells.solid(feet.above(2))) return null;
+				if (walls.add(BlockPos.asLong(next.x(), 0, next.z()))) boundary.add(next);
+			}
+		}
+		BlockPos best = null;
+		double bestScore = Double.POSITIVE_INFINITY;
+		for (GridPosition wall : boundary) {
+			for (int y = start.y() + 1; y <= start.y() + RIM_SEARCH; y++) {
+				BlockPos feet = new BlockPos(wall.x(), y, wall.z());
+				if (!cells.standable(feet)) continue;
+				double score = (y - start.y()) * 4.0D + Math.abs(wall.x() - start.x()) + Math.abs(wall.z() - start.z());
+				if (score < bestScore) { bestScore = score; best = feet; }
+				break;
+			}
+		}
+		return best;
+	}
+
+	/** The nearest dry cell beside the water to stand on, skipping banks tried too often; null when none is in reach. */
+	static BlockPos bank(ServerPlayer player, Map<BlockPos, Integer> tries) {
+		Level level = player.level();
+		BlockPos at = player.blockPosition();
+		BlockPos best = null;
+		double bestScore = Double.POSITIVE_INFINITY;
+		for (int dy = -SHORE_BELOW; dy <= SHORE_ABOVE; dy++) {
+			for (int dx = -SHORE_RADIUS; dx <= SHORE_RADIUS; dx++) {
+				for (int dz = -SHORE_RADIUS; dz <= SHORE_RADIUS; dz++) {
+					BlockPos feet = at.offset(dx, dy, dz);
+					if (!standable(level, feet) || !besideWater(level, feet)) continue;
+					if (tries.getOrDefault(feet, 0) > MAX_TRIES + 1) continue;
+					double score = Math.sqrt(dx * dx + dz * dz) + Math.max(0, dy) * 1.5D + Math.max(0, -dy);
+					if (score < bestScore) { bestScore = score; best = feet; }
+				}
+			}
+		}
+		return best;
+	}
+
+	private static boolean standable(Level level, BlockPos feet) {
+		if (!level.isLoaded(feet)) return false;
+		BlockPos floor = feet.below();
+		BlockState below = level.getBlockState(floor);
+		if (!below.getFluidState().isEmpty() || !below.isFaceSturdy(level, floor, Direction.UP) || below.is(net.minecraft.world.level.block.Blocks.MAGMA_BLOCK)) return false;
+		return clear(level, feet) && clear(level, feet.above());
+	}
+
+	private static boolean clear(Level level, BlockPos cell) {
+		BlockState state = level.getBlockState(cell);
+		return state.getFluidState().isEmpty() && state.getCollisionShape(level, cell).isEmpty() && !hazard(state);
+	}
+
+	private static boolean hazard(BlockState state) {
+		return state.is(net.minecraft.tags.BlockTags.FIRE) || state.is(net.minecraft.world.level.block.Blocks.CACTUS)
+				|| state.is(net.minecraft.world.level.block.Blocks.SWEET_BERRY_BUSH) || state.is(net.minecraft.world.level.block.Blocks.POWDER_SNOW)
+				|| state.is(net.minecraft.world.level.block.Blocks.COBWEB);
+	}
+
+	private static boolean solid(Level level, BlockPos cell) {
+		return !level.getBlockState(cell).getCollisionShape(level, cell).isEmpty();
+	}
+
+	private static boolean besideWater(Level level, BlockPos feet) {
+		for (Direction side : Direction.Plane.HORIZONTAL) {
+			for (int dy = -1; dy <= 0; dy++) {
+				if (level.getFluidState(feet.relative(side).above(dy)).is(net.minecraft.tags.FluidTags.WATER)) return true;
+			}
+		}
+		return false;
+	}
+
+	/** Open cells over the head up to feet level {@code toY} + 1: a pillar there meets no ceiling. */
+	private static boolean headroom(ServerPlayer player, int toY) {
+		BlockPos feet = player.blockPosition();
+		for (int y = feet.getY() + 2; y <= toY + 1; y++) {
+			if (!clear(player.level(), new BlockPos(feet.getX(), y, feet.getZ()))) return false;
+		}
+		return true;
+	}
+
+	/** A carried tool digs the wall toward the rim, or the wall breaks by hand (dirt, sand, gravel). */
+	private static boolean canDig(ServerPlayer player, Direction heading) {
+		BlockPos wall = player.blockPosition().relative(heading).above();
+		BlockState state = player.level().getBlockState(wall);
+		if (state.isAir() || !state.requiresCorrectToolForDrops() && state.getDestroySpeed(player.level(), wall) >= 0.0F
+				&& state.getDestroySpeed(player.level(), wall) <= 1.0F) return true;
+		return ServerDigController.toolSlot(player, state) >= 0;
+	}
+
+	private static Direction toward(ServerPlayer player, BlockPos cell) {
+		double dx = cell.getX() + 0.5D - player.getX(), dz = cell.getZ() + 0.5D - player.getZ();
+		if (dx * dx + dz * dz < 0.01D) return player.getDirection().getAxis().isHorizontal() ? player.getDirection() : Direction.NORTH;
+		return Math.abs(dx) >= Math.abs(dz) ? (dx > 0 ? Direction.EAST : Direction.WEST) : (dz > 0 ? Direction.SOUTH : Direction.NORTH);
+	}
+
+	private static String plainBlock(ServerPlayer player) {
+		String best = null;
+		int bestCount = 0;
+		for (int slot = 0; slot < 36; slot++) {
+			ItemStack stack = player.getInventory().getItem(slot);
+			if (!TravelBuilder.buildingBlock(stack)) continue;
+			String id = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+			int count = ServerBuildController.carried(player, id);
+			if (count > bestCount) { best = id; bestCount = count; }
+		}
+		return best;
+	}
+
+	static Mob shooterNear(ServerPlayer player) {
+		for (Mob mob : EscapeMoves.shooters(player)) if (player.distanceTo(mob) <= SHOOTER_RANGE) return mob;
+		return null;
+	}
+
+	private void note(String line) {
+		if (log.size() < 8) log.add(line);
+	}
+
+	private String done() {
+		return log.isEmpty() ? "" : "; did: " + String.join("; ", log);
+	}
+
+	private static String shortMessage(String message) {
+		String text = message == null ? "" : message;
+		return text.length() <= 160 ? text : text.substring(0, 157) + "...";
+	}
+
+	private static String type(Mob mob) {
+		return mob == null ? "the shooter" : BuiltInRegistries.ENTITY_TYPE.getKey(mob.getType()).getPath();
+	}
+
+	private String facts(ServerPlayer player) {
+		return String.format(Locale.ROOT, "; now at %d,%d,%d, health %.1f, air %.1f s, %s, %.1f s",
+				player.getBlockX(), player.getBlockY(), player.getBlockZ(), player.getHealth(),
+				Math.max(0, player.getAirSupply()) / (double) SwimPlanning.AIR_TICKS_PER_SECOND,
+				player.isUnderWater() ? "under water" : player.isInWater() ? "in water" : player.onGround() ? "on footing" : "in the air",
+				(dev.agaminggod.mineagen.server.runtime.GameClock.nowMs() - startedAt) / 1000.0D);
+	}
+}

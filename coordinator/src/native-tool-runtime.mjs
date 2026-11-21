@@ -1128,6 +1128,11 @@ export class NativeToolRuntime {
 		const background = tool.kind === 'start_action';
 		const entry = { goalRevision: record.goalRevision, verb: step.verb, ...(step.seen === undefined ? {} : { seen: step.seen }), intentId: null, actionId: null, seenWoken: false };
 		if (!background) this.#steps.set(record.agentId, entry);
+		// An emergency arrives mid-step (drowning under a dig, a skeleton during travel): escape stops the running body
+		// action itself instead of being refused as busy, which would cost the model a cancel call first.
+		const running = step.verb === 'escape' && !this.#programRuns.has(record.agentId) && !this.#legChainOwnsBody(record, tool) ? this.#actions.get(record.agentId) : undefined;
+		const replaced = running === undefined || running.goalRevision !== record.goalRevision || running.cancelling === true ? null
+			: replacementReceipt(await this.#cancelAction(record, { kind: 'cancel_action', actionId: running.actionId, goalRevision: running.goalRevision }), running.actionId);
 		let result;
 		try { result = await this.#executeTool({ ...request, tool }, record, lifecycleGeneration); }
 		catch (error) { throw reflexes === null ? error : Object.assign(error, { reflexes }); }
@@ -1136,7 +1141,7 @@ export class NativeToolRuntime {
 		const admitted = background && RUNNING_ACTION_STATES.has(result.state) && typeof result.actionId === 'string';
 		if (admitted) await this.#beginStep(record, entry, result.actionId, step);
 		const { seen: _seen, ...shown } = step;
-		return { ...result, step: { ...shown, ...(admitted ? { started: true, next: STEP_RUNNING_NOTE } : {}) }, ...(reflexes === null ? {} : { reflexes }) };
+		return { ...result, step: { ...shown, ...(admitted ? { started: true, next: STEP_RUNNING_NOTE } : {}) }, ...(reflexes === null ? {} : { reflexes }), ...(replaced === null ? {} : { replacedAction: replaced }) };
 	}
 
 	async #beginStep(record, entry, actionId, step) {

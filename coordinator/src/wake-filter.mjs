@@ -25,7 +25,7 @@ const ABSORBABLE = new Set(['damage', 'threat', 'projectile', 'fire']);
 // A creeper about to blow is a new danger whatever kinds the model has seen.
 const WAKING_SIGNALS = new Set(['swelling', 'creeper_close']);
 
-export const STEP_ACTIONS = new Set(['travel_to', 'dig_to', 'mine_vein', 'cast_obsidian', 'fight_until', 'build_shelter', 'barter_until', 'rest', 'build']);
+export const STEP_ACTIONS = new Set(['travel_to', 'dig_to', 'mine_vein', 'cast_obsidian', 'fight_until', 'build_shelter', 'barter_until', 'rest', 'build', 'escape']);
 export const STEP_FOLDED_TRIGGERS = new Set(['attention', 'observation', 'resource_discovery', 'structure_sighted', 'lava_heard', 'heal_opportunity',
 	'furnace_ready', 'context_entry', 'no_progress', 'repeated_result', 'movement_loop']);
 const FOLDED_LABELS = { resource_discovery: 'resource sighting', structure_sighted: 'structure sighting', lava_heard: 'lava heard', heal_opportunity: 'chance to eat',
@@ -38,8 +38,10 @@ const FOLDED_LABELS = { resource_discovery: 'resource sighting', structure_sight
  * ordinary news, so the caller asks decide() first.
  */
 export function stepFolds(step, attention) {
-	return typeof step === 'string' && step.length > 0 && STEP_FOLDED_TRIGGERS.has(attention?.trigger);
+	return typeof step === 'string' && step.length > 0 && (STEP_FOLDED_TRIGGERS.has(attention?.trigger) || step === 'escape' && ESCAPE_FOLDED_TRIGGERS.has(attention?.trigger));
 }
+// escape is already answering these (it swims to air and out of the water), so their edges join its end wake.
+export const ESCAPE_FOLDED_TRIGGERS = new Set(['drowning']);
 
 const typeOf = (value) => (typeof value === 'string' && value.length > 0 ? (value.includes(':') ? value : `minecraft:${value}`) : null);
 const short = (id) => String(id).replace(/^minecraft:/u, '');

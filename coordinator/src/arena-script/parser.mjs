@@ -21,6 +21,7 @@ const ACTION_TOOL_DEFAULTS = Object.freeze({
 	cast_obsidian: Object.freeze({ timeoutMs: 300_000 }),
 	build: Object.freeze({ timeoutMs: 300_000 }),
 	barter_until: Object.freeze({ timeoutMs: 300_000 }),
+	escape: Object.freeze({ timeoutMs: 60_000 }),
 });
 
 const ALLOWED_GLOBALS = new Set([

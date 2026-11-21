@@ -47,7 +47,9 @@ const COMPACT_ROW_FIELDS = ['uuid', 'stableId', 'type', 'typeId', 'name', 'slot'
 const NATIVE_ACTION_TYPES = Object.freeze(Object.keys(ACTION_FIELDS));
 // Generated from the validated field table, so the first call can be well-formed without a reference read.
 // The same catalogue bounds every native actionType property, so a model cannot invent an action name.
-const ACTION_TYPE_SCHEMA = Object.freeze({ type: 'string', enum: NATIVE_ACTION_TYPES });
+// escape runs only as do_step escape: one way in keeps the action enum (embedded four times in the tool list) short.
+export const STEP_ONLY_ACTIONS = Object.freeze(new Set(['escape']));
+const ACTION_TYPE_SCHEMA = Object.freeze({ type: 'string', enum: NATIVE_ACTION_TYPES.filter(type => !STEP_ONLY_ACTIONS.has(type)) });
 // Any body call may carry rules: arming them must not cost the call that answers the danger itself.
 const REFLEXES_SCHEMA = Object.freeze({ type: 'array', maxItems: MAX_REFLEXES, items: { type: 'object' }, description: 'Optional per-tick reflex rules installed before this call acts; see control topic tool:reflexes.' });
 // Overlap: the body keeps working while the model thinks (handles from startAction, chained successors, repeated legs).
@@ -56,13 +58,13 @@ const KEEP_GOING_SCHEMA = Object.freeze({ type: 'boolean' });
 // do_step verbs: the long body actions that run as one step on their own, plus crafting and smelting. Each maps to the
 // call it runs; the background ones return a handle at once, the rest their result.
 export const STEP_VERBS = Object.freeze({ travel_to: 'travel_to', dig_to: 'dig_to', mine: 'mine_vein', cast_obsidian: 'cast_obsidian', fight_until: 'fight_until',
-	build: 'build', build_shelter: 'build_shelter', barter_until: 'barter_until', rest: 'rest', gather: 'gather', find: 'find', craft: 'craft', smelt: 'furnace_transaction', obtain: 'obtain', repair_inventory: 'repair_inventory' });
+	build: 'build', build_shelter: 'build_shelter', barter_until: 'barter_until', rest: 'rest', gather: 'gather', find: 'find', craft: 'craft', smelt: 'furnace_transaction', obtain: 'obtain', repair_inventory: 'repair_inventory', escape: 'escape' });
 const FOREGROUND_VERBS = new Set(['gather', 'find', 'craft', 'smelt', 'obtain', 'repair_inventory']);
 export const STEP_WHY_LENGTH = 100;
 export const STEP_SEEN_PATTERN = /^seen:((?:[a-z0-9_.-]+:)?[a-z0-9_./-]+)$/;
 // The verbs whose body stops itself when a named block comes into view (stopWhenSeen ends them with TARGET_SEEN).
 const BODY_SEEN_VERBS = new Set(['travel_to', 'dig_to']);
-const ACTION_SIGNATURES = NATIVE_ACTION_TYPES.map((type) => `${type}(${ACTION_FIELDS[type].map((field) => (OPTIONAL_ACTION_FIELDS[type] ?? []).includes(field) ? `${field}?` : field).join(',')})`).join(' ');
+const ACTION_SIGNATURES = NATIVE_ACTION_TYPES.filter(type => !STEP_ONLY_ACTIONS.has(type)).map((type) => `${type}(${ACTION_FIELDS[type].map((field) => (OPTIONAL_ACTION_FIELDS[type] ?? []).includes(field) ? `${field}?` : field).join(',')})`).join(' ');
 const POST_ACTION_VIEW_TOOLS = new Set(['moveTo', 'travelTo', 'mine', 'act', 'sequence']);
 export const INSPECTION_SECTIONS = Object.freeze(['observation', 'inventory', 'menu', 'entities', 'blocks', 'landmarks', 'nearby_containers', 'item', 'block', 'events', 'recipes', 'mechanics', 'survey', 'hud']);
 const OBSERVATION_VIEW_PROPERTIES = {
@@ -355,6 +357,10 @@ function repairToolArguments(name, value) {
 	const done = (result) => ({ value: result, adjusted: Object.keys(adjusted).length === 0 ? undefined : adjusted });
 	switch (name) {
 		case 'survey': return done(survey(args, ''));
+		// An emergency step must not cost a rejected call: escape needs no target and no why.
+		case 'do_step':
+			if (args.verb === 'escape') { args.target ??= {}; args.why ??= 'get out safely'; }
+			break;
 		case 'lookAround':
 			if (args.survey !== undefined) args.survey = survey(args.survey, 'survey.');
 			break;
@@ -831,17 +837,27 @@ export function keepGoingEligible(actionType, args = {}) {
 function normalizeStep(args) {
 	requireExactKeys(args, ['verb', 'target', 'why', 'until', 'after', 'keepGoing']);
 	if (typeof args.verb !== 'string' || !Object.hasOwn(STEP_VERBS, args.verb)) invalid(`verb must be one of ${Object.keys(STEP_VERBS).join(', ')}`);
-	let target = requireObject(args.target);
+	let target = args.verb === 'escape' && args.target === undefined ? {} : requireObject(args.target);
+	// escape needs nothing: an emergency call must never be refused for its arguments, so anything but timeoutMs is
+	// dropped and reported instead.
+	let dropped = null;
+	if (args.verb === 'escape') {
+		const extra = Object.keys(target).filter(key => key !== 'timeoutMs' || !Number.isInteger(target.timeoutMs) || target.timeoutMs < 5_000 || target.timeoutMs > 180_000);
+		if (extra.length > 0) dropped = Object.fromEntries(extra.map(key => [`target.${key}`, key === 'timeoutMs' ? 'ignored: escape takes 5000-180000 ms; 60000 used' : 'ignored: escape takes no target']));
+		target = { timeoutMs: extra.includes('timeoutMs') || target.timeoutMs === undefined ? 60_000 : target.timeoutMs };
+	}
 	// A vein mine takes whatever log or ore it starts on; naming that block is the natural way to ask for it (live rw-loop
 	// game: the first step was rejected for it), so the name is dropped and reported instead of costing a call.
-	const dropped = args.verb === 'mine' && target.expectedBlockId !== undefined ? { 'target.expectedBlockId': 'ignored: a vein mine takes the log or ore at x,y,z' } : null;
-	if (dropped !== null) { const { expectedBlockId: _expected, ...rest } = target; target = rest; }
+	if (args.verb === 'mine' && target.expectedBlockId !== undefined) {
+		dropped = { 'target.expectedBlockId': 'ignored: a vein mine takes the log or ore at x,y,z' };
+		const { expectedBlockId: _expected, ...rest } = target; target = rest;
+	}
 	const line = (value, field, maximum) => {
 		const text = boundedText(value, field, maximum).trim();
 		if (text.length === 0 || /[\x00-\x1f\x7f]/.test(text)) invalid(`${field} must be one line of text up to ${maximum} characters`);
 		return text;
 	};
-	const step = { verb: args.verb, why: line(args.why, 'why', STEP_WHY_LENGTH), ...(args.until === undefined ? {} : { until: line(args.until, 'until', INTENT_FIELDS.until) }) };
+	const step = { verb: args.verb, why: args.verb === 'escape' && args.why === undefined ? 'get out safely' : line(args.why, 'why', STEP_WHY_LENGTH), ...(args.until === undefined ? {} : { until: line(args.until, 'until', INTENT_FIELDS.until) }) };
 	const background = !FOREGROUND_VERBS.has(args.verb);
 	if (!background && (args.after !== undefined || args.keepGoing !== undefined)) invalid(`after and keepGoing apply to the background verbs, not ${args.verb}`);
 	// until "seen:<block id>" is executable: travel_to and dig_to stop themselves on that sighting (stopWhenSeen,
@@ -877,6 +893,9 @@ function normalizeStep(args) {
 		if (target.inputs[0].slot === target.inputs[1].slot) invalid('repair_inventory needs two distinct source slots');
 		body = { kind: 'repair_inventory', arguments: structuredClone(target) };
 	}
+	// escape is kept out of the model-facing actionType enum, which the startAction argument repair enforces.
+	else if (args.verb === 'escape') body = normalizeMinecraftToolArguments('startAction', { actionType: 'escape', arguments: target,
+		...(args.after === undefined ? {} : { after: args.after }), ...(args.keepGoing === undefined ? {} : { keepGoing: args.keepGoing }) });
 	else if (background) {
 		body = normalizeMinecraftToolCall('startAction', { actionType: STEP_VERBS[args.verb], arguments: args.verb === 'build' ? buildArguments(target) : target,
 			...(args.after === undefined ? {} : { after: args.after }), ...(args.keepGoing === undefined ? {} : { keepGoing: args.keepGoing }) });

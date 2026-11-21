@@ -434,6 +434,7 @@ test('every production action type is implemented or terminates with an explicit
 		cast_obsidian: { x: 0, y: 1, z: 0, frame: true, timeoutMs: 1_000 },
 		barter_until: { itemId: 'minecraft:ender_pearl', count: 1, timeoutMs: 1_000 },
 		rest: { timeoutMs: 1_000 },
+		escape: { timeoutMs: 1_000 },
 		travel_to: { x: 1, z: 0, tolerance: 1, timeoutMs: 1_000 },
 		transfer_container: { x: 1, y: 1, z: 0, sourceKind: 'player', sourceSlot: 0, destinationKind: 'container', destinationSlot: 0, count: 1, expectedItemId: 'minecraft:stick', timeoutMs: 1_000 },
 		craft_inventory: { recipeId: 'minecraft:planks', count: 1, timeoutMs: 1_000 },

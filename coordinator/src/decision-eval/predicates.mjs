@@ -502,6 +502,7 @@ export function escapesHazard(call, context, spec = {}) {
 
 // rises: { minDy = 1, minTicks = 10 }. Upward progress toward air: a move whose destination is at least minDy higher,
 // or control frames that hold jump (swim up) or swim forward pitched up (pitch <= -30) for at least minTicks ticks.
+// The escape body job (do_step escape) swims to air before anything else, so it rises too.
 export function rises(call, context, spec = {}) {
 	const minDy = spec.minDy ?? 1;
 	const minTicks = spec.minTicks ?? 10;
@@ -509,6 +510,7 @@ export function rises(call, context, spec = {}) {
 	let ticks = 0;
 	for (const action of call.actions) {
 		const args = action.arguments;
+		if (action.actionType === 'escape') return true;
 		if (MOVE_ACTIONS.has(action.actionType) && Number.isFinite(args.y) && Number.isFinite(y) && args.y - y >= minDy) return true;
 		const frames = action.actionType === 'control' ? [args] : action.actionType === 'control_sequence' && Array.isArray(args.frames) ? args.frames.filter(object) : [];
 		for (const frame of frames) {
