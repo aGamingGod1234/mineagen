@@ -166,7 +166,7 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 				if (action) Object.assign(action, { state: ev.payload.state, reasonCode: ev.payload.reasonCode,
 					...(typeof ev.payload.executionStarted === 'boolean' ? { executionStarted: ev.payload.executionStarted } : {}),
 					...(typeof ev.payload.physicalAttempted === 'boolean' ? { physicalAttempted: ev.payload.physicalAttempted } : {}),
-					message: String(ev.payload.message ?? '').slice(0, 400) });
+					message: String(ev.payload.message ?? '').slice(0, 2000) });
 				console.log(`  [${spot.name}]   -> ${ev.payload.state} ${ev.payload.reasonCode ?? ''} ${String(ev.payload.message ?? '').slice(0, 220)}`);
 			}
 			s.bridge.send('action_result_ack', record.agentId, { goalRevision: record.goalRevision, actionId: ev.payload.actionId }).catch(() => {});
