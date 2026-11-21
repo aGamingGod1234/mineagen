@@ -215,3 +215,22 @@ test('file absolute URIs redact without changing network URLs or relative paths'
 	const safe = 'https://example.com/file:///docs http://127.0.0.1:8766/v1/tts relative/file.txt inputTokens=4';
 	assert.equal(sanitizeDiagnosticText(safe), safe);
 });
+
+test('a structured value reads the environment once, not once per string, and still redacts its credentials', () => {
+	// The protocol audit sanitized each 60 KB observation (about 1,250 strings) by scanning process.env per string:
+	// 0.3 s an observation, half the coordinator's event loop at the server's observation rate.
+	const original = process.env;
+	let scans = 0;
+	const secret = 'fresh-secret-value-1234567890';
+	process.env = new Proxy({ ...original, MINEAGEN_TEST_API_KEY: secret }, { ownKeys(target) { scans += 1; return Reflect.ownKeys(target); } });
+	try {
+		const observation = { blocks: Array.from({ length: 200 }, (_, index) => ({ id: `minecraft:stone_${index}`, note: index === 150 ? `key ${secret}` : 'plain' })) };
+		const sanitized = sanitizeDiagnosticValue(observation, { maxEntries: 512, maxNodes: 1024 });
+		assert.equal(scans, 1);
+		assert.equal(sanitized.blocks[150].note, 'key [REDACTED]');
+		assert.equal(sanitized.blocks[3].id, 'minecraft:stone_3');
+		scans = 0;
+		assert.equal(sanitizeDiagnosticText(`late ${secret}`), 'late [REDACTED]');
+		assert.equal(scans, 1);
+	} finally { process.env = original; }
+});

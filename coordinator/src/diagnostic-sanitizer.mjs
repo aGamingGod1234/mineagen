@@ -1,5 +1,5 @@
 import { types as nodeTypes } from 'node:util';
-import { redactCredentialText } from './provider-key-redaction.mjs';
+import { redactCredentialText, redactRememberedCredentials, rememberEnvironmentCredentials } from './provider-key-redaction.mjs';
 
 export const DIAGNOSTIC_REDACTED = '[REDACTED]';
 export const DIAGNOSTIC_UNSAFE = '[UNSAFE_OBJECT]';
@@ -30,11 +30,17 @@ export function isSensitiveDiagnosticKey(value) {
 		|| normalized === 'accountdata';
 }
 
-export function sanitizeDiagnosticText(value, { maxBytes = 2_048, redactPaths = true, preserveWhitespace = false, redactPrompts = true } = {}) {
+export function sanitizeDiagnosticText(value, options = {}) {
+	rememberEnvironmentCredentials();
+	return sanitizeText(value, options);
+}
+
+/** sanitizeDiagnosticText once the caller has remembered the environment's credentials. */
+function sanitizeText(value, { maxBytes = 2_048, redactPaths = true, preserveWhitespace = false, redactPrompts = true } = {}) {
 	if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) throw new TypeError('maxBytes must be a nonnegative safe integer');
 	let text;
 	try { text = String(value ?? ''); } catch { text = '[unavailable]'; }
-	text = redactCredentialText(text)
+	text = redactRememberedCredentials(text)
 		.replace(AUTHORIZATION, (_match, prefix, scheme) => `${prefix}${scheme} ${DIAGNOSTIC_REDACTED}`)
 		.replace(BEARER, (_match, scheme) => `${scheme} ${DIAGNOSTIC_REDACTED}`)
 		.replace(QUOTED_ASSIGNMENT, redactQuotedSensitiveAssignment)
@@ -62,11 +68,13 @@ export function sanitizeDiagnosticValue(value, {
 	preserveWhitespace = false,
 	redactPrompts = true,
 } = {}) {
+	// The environment cannot change during this walk, so scan it once rather than once per string.
+	rememberEnvironmentCredentials();
 	const seen = new WeakSet();
 	let nodes = 0;
 	const visit = (input, depth, key = null) => {
 		if (isSensitiveDiagnosticKey(key) && !isOperationalTokenMetric(key, input)) return DIAGNOSTIC_REDACTED;
-		if (typeof input === 'string') return sanitizeDiagnosticText(input, { maxBytes: maxStringBytes, redactPaths, preserveWhitespace, redactPrompts });
+		if (typeof input === 'string') return sanitizeText(input, { maxBytes: maxStringBytes, redactPaths, preserveWhitespace, redactPrompts });
 		if (input === null || ['boolean', 'number'].includes(typeof input)) return input;
 		if (['undefined', 'bigint', 'function', 'symbol'].includes(typeof input)) return DIAGNOSTIC_UNSAFE;
 		if (depth > maxDepth || nodes >= maxNodes) return '[BOUNDED]';
