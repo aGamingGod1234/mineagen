@@ -40,6 +40,7 @@ import { InspectionClient } from '../../coordinator/src/inspection-client.mjs';
 import { parseSavedWorldSpawn } from '../../coordinator/src/headless-world-spawn.mjs';
 import { DEFAULT_REFLEXES, ReflexBook } from '../../coordinator/src/reflexes.mjs';
 import { fixtureTickRate } from './watch-replay.mjs';
+import { gameClockFromObservations } from '../../coordinator/src/game-clock.mjs';
 import { warmBoots } from './fixture-servers.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 import { damageCounter, damageEvidence, replyNumber, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
@@ -135,6 +136,8 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 			inspectObservation: async (rec, query) => ({ state: 'SUCCEEDED', reasonCode: 'INSPECTED', ...await inspections.request(rec, query) }),
 			// The twelve default reflexes, armed at the first live sample as the coordinator arms them (dynamic-main).
 			reflexBook: new ReflexBook({ defaults: DEFAULT_REFLEXES, ...(s.clock.rate === 20 ? {} : { now: () => s.clock.now() }) }),
+			// At a raised rate the runtime times find, gather, obtain and wait in game time too (it feeds the clock its samples).
+			...(s.clock.rate === 20 ? {} : { clock: gameClockFromObservations({ tickRate: s.clock.rate }) }),
 		});
 		const record = { ...s.record, provider: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'low', serviceTier: 'default' };
 		s.bridge.on('observation', ev => { if (ev.agentId === record.agentId && ev.payload.ready) runtime.updateObservation(record, adaptObservation(ev.payload), { eventSequence: ev.payload.eventSequence }); });
