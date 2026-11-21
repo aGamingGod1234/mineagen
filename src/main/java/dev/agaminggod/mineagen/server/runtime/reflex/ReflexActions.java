@@ -1628,14 +1628,17 @@ final class ReflexActions {
 	}
 
 	/** Walk the body toward a cell centre: face it, press forward when facing it, jump a step up, sprint if asked. */
-	private static AgentInputState walkToward(ServerPlayer player, GridPosition cell, boolean sprint) {
+	private static AgentInputState walkToward(ServerPlayer player, GridPosition cell, boolean sprint, boolean separateAim) {
 		Vec3 centre = new Vec3(cell.x() + 0.5D, player.getEyeY(), cell.z() + 0.5D);
 		AgentInputState aim = look(player, centre, 0.0F, 0.0F, false, false, player.getInventory().getSelectedSlot(), InteractionHand.MAIN_HAND);
-		float error = AgentInputStates.shortestAngleDelta(aim.yaw(), (float) Math.toDegrees(Math.atan2(-(centre.x - player.getX()), centre.z - player.getZ())));
+		float heading = (float) Math.toDegrees(Math.atan2(-(centre.x - player.getX()), centre.z - player.getZ()));
+		// The shield owns the view and rotates these keys from the path heading into the final view.
+		float movementYaw = separateAim ? heading : aim.yaw();
+		float error = AgentInputStates.shortestAngleDelta(movementYaw, heading);
 		float forward = CombatPlanning.alignedForward(1.0F, error);
 		boolean jump = cell.y() > SafeStep.feet(player).y() && player.onGround() && Math.abs(error) < 30.0F;
 		boolean run = sprint && Math.abs(error) < 30.0F && canSprint(player);
-		return new AgentInputState(forward, 0.0F, jump, false, run, false, false, aim.yaw(), aim.pitch(), aim.selectedSlot(), aim.hand());
+		return new AgentInputState(forward, 0.0F, jump, false, run, false, false, movementYaw, aim.pitch(), aim.selectedSlot(), aim.hand());
 	}
 
 	/** Follows a short planned path cell by cell; fails when the body stops making ground. */
@@ -1702,10 +1705,10 @@ final class ReflexActions {
 
 		/** RUNNING while walking, DONE on the last cell, FAILED when blocked. */
 		Step tick(ServerPlayer player, Consumer<AgentInputState> input, boolean sprint) {
-			return tick(player, input, sprint, 0.0025D);
+			return tick(player, input, sprint, false, 0.0025D);
 		}
 
-		Step tick(ServerPlayer player, Consumer<AgentInputState> input, boolean sprint, double minProgressSqr) {
+		Step tick(ServerPlayer player, Consumer<AgentInputState> input, boolean sprint, boolean separateAim, double minProgressSqr) {
 			advance(player);
 			if (index >= path.size()) return Step.done("arrived");
 			Vec3 now = player.position();
@@ -1713,7 +1716,7 @@ final class ReflexActions {
 			last = now;
 			GridPosition cell = path.get(index);
 			if (stuck >= 30) return Step.failed("blocked on the way at " + cell.x() + "," + cell.y() + "," + cell.z());
-			input.accept(walkToward(player, cell, sprint));
+			input.accept(walkToward(player, cell, sprint, separateAim));
 			return Step.running("moving " + (path.size() - index) + " cell(s) left");
 		}
 	}
@@ -2693,7 +2696,7 @@ final class ReflexActions {
 					&& ThreatPerception.isRanged(mob) && mob.hasLineOfSight(player);
 			// A raised shield slows a step, so that walk uses a smaller threshold for physical progress.
 			Step step = walkingShielded ? walk.tick(player, state -> walkingGuard.tick(
-					new Context(player, shooter, context.stance(), context.memory(), null, state, false), input), false, 0.0001D)
+					new Context(player, shooter, context.stance(), context.memory(), null, state, false), input), false, true, 0.0001D)
 					: walk.tick(player, input, true);
 			return switch (step.status()) {
 				case DONE -> Step.done("in cover at " + cover.x() + "," + cover.y() + "," + cover.z() + shielded());
