@@ -17,19 +17,17 @@
 // with --no-confirm), 2 usage, setup or run error. The judge is the player's cross-family default unless --judge-provider and
 // --judge-model pick one (still from another family). Answers left ungraded (for example a judge outage) are graded again up to --judge-waits times, --judge-wait-minutes apart; the judge cache keeps every verdict given.
 import { privateInput, skipWithoutPrivateInputs } from '../../coordinator/scripts/private-inputs.mjs';
-import { execFile, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { createWriteStream, existsSync } from 'node:fs';
-import { copyFile, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { parseArgs, promisify } from 'node:util';
+import { parseArgs } from 'node:util';
+import { RUNNER_SCRIPT, resolveBuild as resolveBuildIn, removeWorktrees } from './builds.mjs';
 
-const execFileAsync = promisify(execFile);
 const harnessRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const HARNESS_DIR = path.join('coordinator', 'src', 'decision-eval');
-const RUNNER_SCRIPT = path.join('scripts', 'decision-eval', 'run.mjs');
 const EXIT = { PASS: 0, FAIL: 1, INCONCLUSIVE: 3 };
 
 const { values: args } = parseArgs({
@@ -98,54 +96,15 @@ const startedAt = performance.now();
 const phases = {};
 const timed = async (name, fn) => { const at = performance.now(); try { return await fn(); } finally { phases[name] = Math.round(performance.now() - at); } };
 
-async function git(cwd, ...gitArgs) { return (await execFileAsync('git', gitArgs, { cwd, maxBuffer: 64 * 1024 * 1024 })).stdout.trim(); }
-
-async function harnessFiles(root) {
-	const directory = path.join(root, HARNESS_DIR);
-	const names = existsSync(directory) ? (await readdir(directory)).filter((name) => name.endsWith('.mjs')).sort() : [];
-	return [...names.map((name) => path.join(HARNESS_DIR, name)), RUNNER_SCRIPT];
-}
-async function harnessDigest(root) {
-	const hash = createHash('sha256');
-	// Checkouts of one commit differ only in line endings (core.autocrlf), so those are not a different harness.
-	for (const file of await harnessFiles(root)) hash.update(`${file}\0`).update(existsSync(path.join(root, file)) ? (await readFile(path.join(root, file), 'utf8')).replace(/\r\n/g, '\n') : 'missing');
-	return hash.digest('hex');
-}
-
 /** A checkout is used in place when it carries this exact harness; a commit gets a temporary worktree with the harness overlaid. */
 const temporaryWorktrees = [];
 async function resolveBuild(spec, name) {
-	if (existsSync(spec)) {
-		const root = path.resolve(await git(path.resolve(spec), 'rev-parse', '--show-toplevel'));
-		if (root !== harnessRoot && await harnessDigest(root) !== await harnessDigest(harnessRoot)) {
-			abort(`${name} checkout ${root} carries a different decision-eval harness; pass a commit instead (it is checked out into a temporary worktree with this harness)`);
-		}
-		return { spec, root, commit: await git(root, 'rev-parse', 'HEAD'), temporary: false };
-	}
-	let commit;
-	try { commit = await git(harnessRoot, 'rev-parse', '--verify', `${spec}^{commit}`); } catch { abort(`${name}: ${spec} is neither a checkout nor a commit`); }
-	const root = path.join(os.tmpdir(), 'arena-decision-eval', 'worktrees', `${name}-${commit.slice(0, 10)}-${randomBytes(3).toString('hex')}`);
-	await mkdir(path.dirname(root), { recursive: true });
-	await git(harnessRoot, 'worktree', 'add', '--detach', root, commit);
-	temporaryWorktrees.push(root);
-	for (const file of await harnessFiles(harnessRoot)) {
-		await mkdir(path.dirname(path.join(root, file)), { recursive: true });
-		await copyFile(path.join(harnessRoot, file), path.join(root, file));
-	}
-	// Every worktree installs its own locked dependencies; node_modules is never shared.
-	await new Promise((resolve, reject) => {
-		const child = spawn('npm ci --ignore-scripts --omit=dev --no-audit --no-fund', { cwd: path.join(root, 'coordinator'), shell: true, stdio: ['ignore', 'ignore', 'pipe'] });
-		let errorText = '';
-		child.stderr.on('data', (chunk) => { errorText += chunk; });
-		child.on('error', reject);
-		child.on('close', (code) => code === 0 ? resolve() : reject(new Error(`npm ci failed in ${root}: ${errorText.slice(-2000)}`)));
-	});
-	return { spec, root, commit, temporary: true };
+	try { return await resolveBuildIn(spec, name, { harnessRoot, temporary: temporaryWorktrees }); } catch (error) { abort(error.message); }
 }
 
 async function cleanup() {
 	if (args['keep-worktrees']) return;
-	for (const root of temporaryWorktrees.splice(0)) await git(harnessRoot, 'worktree', 'remove', '--force', root).catch((error) => say(`could not remove worktree ${root}: ${error.message}`));
+	await removeWorktrees(temporaryWorktrees, { harnessRoot, say });
 }
 
 function runArm(build, { name, file, ids = null, count, offset = 0, cache, armConcurrency, extra = [] }) {

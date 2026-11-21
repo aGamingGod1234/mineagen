@@ -53,7 +53,7 @@ test('survival template normalizes to one bounded standing guard with optional p
 	assert.equal(install({}, { id: 'g1' }).id, 'g1');
 	assert.equal(new StandingOrderBook().evaluate('a', observation({ inLava: true })), null);
 	assert.ok(Buffer.byteLength(NATIVE_AGENT_INSTRUCTIONS) <= 1500);
-	assert.ok(Buffer.byteLength(ARENA_SCRIPT_API_REFERENCE) <= 15_710);
+	assert.ok(Buffer.byteLength(ARENA_SCRIPT_API_REFERENCE) <= 15_735);
 	assert.ok(Buffer.byteLength(JSON.stringify(MINECRAFT_DYNAMIC_TOOLS)) <= 39_476)
 });
 

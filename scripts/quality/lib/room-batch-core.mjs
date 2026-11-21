@@ -80,9 +80,11 @@ export function plannedOf(env) {
  * { lost: false, ... } when the room finished on that worker (whatever its verdict), or { lost: true, reason } when the
  * worker died under it. A lost worker takes no more rooms; its room goes back to the front of the queue once, for a
  * different worker, then is reported lost. replace(), when given, may bring up a new worker for a lost one; release(),
- * when given, is called for a worker that finds the queue empty, and that worker leaves.
+ * when given, is called for a worker that finds the queue empty, and that worker leaves. arrivals are promises of
+ * workers still coming up (null for one that never did): each starts pulling rooms the moment it resolves, so no room
+ * waits for the slowest machine.
  */
-export async function runQueue({ rooms, workers, attempt, maxAttempts = 2, replace = null, release = null, log = () => {} }) {
+export async function runQueue({ rooms, workers, arrivals = [], attempt, maxAttempts = 2, replace = null, release = null, log = () => {} }) {
 	const queue = rooms.map(room => ({ room, tries: 0, triedOn: new Set() }));
 	const results = new Map(), live = new Set(), running = [];
 	let waiting = [];
@@ -111,13 +113,17 @@ export async function runQueue({ rooms, workers, attempt, maxAttempts = 2, repla
 				catch (error) { outcome = { lost: true, reason: String(error?.message ?? error) }; }
 				worker.busy = false;
 				if (!outcome?.lost) { results.set(item.room.room, { ...outcome, lost: false, room: item.room.room, worker: worker.id, attempts: item.tries }); wake(); continue; }
-				log(`room ${item.room.room} lost on ${worker.id} (try ${item.tries}): ${outcome.reason}`);
-				if (item.tries < maxAttempts) queue.unshift(item);
-				else results.set(item.room.room, { lost: true, reason: outcome.reason, room: item.room.room, worker: worker.id, attempts: item.tries });
+				// requeue: the machine stopped the room for a planned reason (its cutoff), so the try does not count.
+				if (outcome.requeue) { item.tries--; log(`room ${item.room.room} back in the queue from ${worker.id}: ${outcome.reason}`); queue.unshift(item); }
+				else {
+					log(`room ${item.room.room} lost on ${worker.id} (try ${item.tries}): ${outcome.reason}`);
+					if (item.tries < maxAttempts) queue.unshift(item);
+					else results.set(item.room.room, { lost: true, reason: outcome.reason, room: item.room.room, worker: worker.id, attempts: item.tries });
+				}
 				live.delete(worker);
 				wake();
 				if (replace && queue.length) {
-					const fresh = await Promise.resolve().then(() => replace(worker)).catch(error => { log(`no replacement for ${worker.id}: ${error.message}`); return null; });
+					const fresh = await Promise.resolve().then(() => replace(worker, outcome)).catch(error => { log(`no replacement for ${worker.id}: ${error.message}`); return null; });
 					if (fresh) running.push(loop(fresh));
 				}
 				return;
@@ -125,6 +131,7 @@ export async function runQueue({ rooms, workers, attempt, maxAttempts = 2, repla
 		} finally { live.delete(worker); worker.busy = false; wake(); }
 	};
 	for (const worker of workers) running.push(loop(worker));
+	for (const arrival of arrivals) running.push(Promise.resolve(arrival).then(worker => { if (worker) running.push(loop(worker)); }, () => {}));
 	for (let i = 0; i < running.length; i++) await running[i];
 	// Rooms no worker could take (every machine that could was lost) are reported lost, never silently dropped.
 	for (const item of queue) results.set(item.room.room, { lost: true, reason: item.tries ? 'no other machine left' : 'no machine left', room: item.room.room, attempts: item.tries });
@@ -156,7 +163,30 @@ export async function stageRoom({ roomsDir, room, download }) {
 }
 
 async function readJson(file) { return JSON.parse(await readFile(file, 'utf8')); }
-const exists = file => readdir(path.dirname(file)).then(names => names.includes(path.basename(file)), () => false);
+
+/**
+ * An arm's rows: the NAME.json list finishRun wrote beside its NAME-summary.json. Most fixtures name it result, but some
+ * keep result.json for their own report (an object) and give finishRun another name (acceptance.json, runs.json), so the
+ * pair is found by its summary, preferring result. Several other pairs are a problem, never a silent pick.
+ */
+export async function armRows(dir) {
+	const names = await readdir(dir).catch(() => []);
+	const pairs = [];
+	for (const base of names.filter(name => name.endsWith('-summary.json')).map(name => name.slice(0, -'-summary.json'.length)).filter(base => names.includes(`${base}.json`)).sort()) {
+		const rows = await readJson(path.join(dir, `${base}.json`)).catch(() => null);
+		if (Array.isArray(rows)) pairs.push({ base, rows });
+	}
+	// A result.json row list without its summary is a rows file too (a fixture that died before finishRun wrote the
+	// summary); next to another pair it makes the pick ambiguous, so a failing result.json never loses to a passing pair.
+	const bare = !pairs.some(pair => pair.base === 'result') && names.includes('result.json') ? await readJson(path.join(dir, 'result.json')).catch(() => null) : null;
+	if (Array.isArray(bare)) {
+		if (pairs.length) return { rows: [], summary: null, file: null, problem: `several row files (result.json without its summary, ${pairs.map(pair => `${pair.base}.json`).join(', ')})` };
+		return { rows: bare, summary: null, file: 'result.json', problem: null };
+	}
+	const pick = pairs.find(pair => pair.base === 'result') ?? (pairs.length === 1 ? pairs[0] : null);
+	if (!pick) return { rows: [], summary: null, file: null, problem: pairs.length > 1 ? `several row files (${pairs.map(pair => `${pair.base}.json`).join(', ')}), none named result.json` : null };
+	return { rows: pick.rows, summary: await readJson(path.join(dir, `${pick.base}-summary.json`)).catch(() => null), file: `${pick.base}.json`, problem: null };
+}
 
 /**
  * Per arm, the rows of every room folder (OUT/rooms/ROOM/ARM/result.json) go through finishRun into OUT/ARM/result.json.
@@ -172,9 +202,12 @@ export async function mergeArms({ out, rooms, arms, outcomes }) {
 			const outcome = byRoom.get(room.room) ?? { lost: true, reason: 'not run' };
 			const dir = path.join(out, 'rooms', room.room, arm);
 			// A lost room counts no rows, whatever a partial copy left behind; it is all notStarted.
-			const own = outcome.lost ? null : await readJson(path.join(dir, 'result-summary.json')).catch(() => null);
+			// The rows and their summary are the NAME.json / NAME-summary.json pair finishRun wrote (armRows).
+			const found = outcome.lost ? { rows: [], summary: null, problem: null } : await armRows(dir);
+			const own = found.summary;
 			const ownValid = Boolean(own && typeof own === 'object' && Number.isInteger(own.planned));
 			const roomInvalid = outcome.lost ? null
+				: found.problem ? found.problem
 				: !ownValid ? 'missing or corrupt room summary'
 				: own.status === 'INVALID' ? 'room summary INVALID'
 				: own.planned <= 0 ? 'room planned 0 rows'
@@ -184,8 +217,7 @@ export async function mergeArms({ out, rooms, arms, outcomes }) {
 			const roomPlanned = outcome.lost || roomInvalid ? Math.max(basePlanned, 1) : basePlanned;
 			planned += roomPlanned;
 			const run = outcome.arms?.[arm] ?? {};
-			const read = !outcome.lost && await exists(path.join(dir, 'result.json')) ? await readJson(path.join(dir, 'result.json')).catch(() => []) : [];
-			const roomRows = Array.isArray(read) ? read : [];
+			const roomRows = found.rows;
 			// Rows an arm wrote before the room timeout, a signal or a launch error killed it are not a finished run.
 			const killed = run.timedOut ? 'room timeout' : run.signal ? `signal ${run.signal}` : run.error ? `launch error: ${run.error}` : null;
 			const roomFlags = [...(killed ? [`arm killed (${killed})`] : []), ...(roomInvalid ? [roomInvalid] : [])];

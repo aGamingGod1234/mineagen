@@ -5,7 +5,11 @@ import dev.agaminggod.mineagen.agent.AgentLifecycleState;
 import dev.agaminggod.mineagen.agent.AgentRecord;
 import dev.agaminggod.mineagen.agent.AgentRegistry;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.damagesource.DamageSource;
@@ -34,6 +38,21 @@ public final class AgentDeathCapture {
 			return true;
 		}
 		return false;
+	}
+
+	/** The damage that killed the body and its hunger and armour then: the death record's cause, from the server. */
+	public static AgentDeathSnapshot.Detail detail(ServerPlayer player, DamageSource source) {
+		Objects.requireNonNull(player, "player must not be null");
+		Objects.requireNonNull(source, "source must not be null");
+		Entity attacker = source.getEntity();
+		Entity direct = source.getDirectEntity();
+		return new AgentDeathSnapshot.Detail(source.typeHolder().getRegisteredName(), Optional.ofNullable(attacker).map(AgentDeathCapture::typeId),
+				Optional.ofNullable(direct).filter(entity -> entity != attacker).map(AgentDeathCapture::typeId),
+				player.getFoodData().getFoodLevel(), player.getFoodData().getSaturationLevel(), player.getArmorValue());
+	}
+
+	private static String typeId(Entity entity) {
+		return BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType()).toString();
 	}
 
 	/** How Entity.kill(ServerLevel) (the /kill command) treats a Carpet fake player. */
