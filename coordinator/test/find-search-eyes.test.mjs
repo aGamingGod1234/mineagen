@@ -116,6 +116,19 @@ test('a drop the body cannot reach is left behind and the find goes on along the
 	assert.equal(b.calls.some(c => c.type === 'pick_up_item'), false, 'no pickup from 12 blocks off');
 	assert.ok(b.calls.some(c => c.type === 'travel_to' && c.args.x < -50), 'walks the next leg');
 });
+test('an eye on leaves above that the walk under it cannot reach is left behind after one step onto the spot', async () => {
+	const b = fake({ event: flight({ outcome: 'dropped', droppedAt: { x: -12, y: 74, z: 0 } }) });
+	b.o.items = [{ itemId: 'minecraft:ender_eye', stableId: '00000000-0000-4000-8000-000000000001', x: -12, y: 74, z: 0 }];
+	const original = b.act;
+	b.act = async (...args) => {
+		if (args[0] === 'travel_to' && args[1].y === 74) { b.calls.push({ type: args[0], args: args[1] }); b.o.player.x = -12; return { state: 'FAILED', reasonCode: 'CAVE_OPENING' }; }
+		return original(...args);
+	};
+	const r = await searchFor(target, b);
+	assert.equal(r.reasonCode, 'FIND_BUDGET'); assert.equal(r.find.eyes.throws[0].recovery, 'not_reached');
+	assert.equal(b.calls.filter(c => c.type === 'move_to').length, 1, 'one step onto the spot');
+	assert.equal(b.calls.some(c => c.type === 'pick_up_item'), false);
+});
 test('a leg that covered ground before water it cannot bridge still counts as a leg', async () => {
 	const b = fake({ event: flight({ outcome: 'shattered' }) });
 	const original = b.act;

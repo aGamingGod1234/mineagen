@@ -254,15 +254,16 @@ export async function followEyes(target, body, { observation: initial, deadline,
 			const end = await act('travel_to', bounded({ x: current.x, y: current.y, z: current.z, tolerance: 1, build: true }));
 			const reach = () => Math.hypot(current.x - o.player.x, current.z - o.player.z);
 			if (end && end.reasonCode !== 'FIND_BLOCKED') return end;
-			// A walk to the eye that stops short of it leaves the eye behind and the find goes on along its heading, as a
-			// player gives up on an eye that fell where they cannot get to (eye rooms: a walk to a seen drop a block down that
-			// found no route handed back the whole find). Within reach, a failed pickup still hands back so the next find retries.
-			if (end && reach() > 4) {
-				if (Number.isFinite(last.eyesAfter) && eyesHeld(o) > last.eyesAfter) last.eyesAfterPickup = eyesHeld(o);
-				else last.recovery = 'not_reached';
+			// A walk to the eye that fails leaves the eye behind and the find goes on along its heading, as a player gives up
+			// on an eye that fell where they cannot get to (eye rooms: walks to a seen drop a block down or on leaves above
+			// ended NO_ROUTE and CAVE_OPENING and handed back the whole find). Close by, it first steps onto the spot once.
+			// A pickup that fails with the eye in view still hands back, so the next find retries it.
+			const leave = () => {
+				last.eyesAfterPickup = eyesHeld(o);
+				if (!(Number.isFinite(last.eyesAfter) && eyesHeld(o) > last.eyesAfter)) last.recovery = 'not_reached';
 				state.phase = 'leg';
-				continue;
-			}
+			};
+			if (end && reach() > 4) { leave(); continue; }
 			let drop = visibleDrop(), failed = null;
 			// Arrived and the eye neither came to hand nor stays in view (it lies a block below the feet, in a dip or water):
 			// step onto it, as a player walks over an item (eye rooms: 5 of 13 lost eyes were walked to and left there).
@@ -273,7 +274,7 @@ export async function followEyes(target, body, { observation: initial, deadline,
 				if (stepped && stepped.reasonCode !== 'FIND_BLOCKED') return stepped;
 				drop = visibleDrop();
 			}
-			if (end && eyesHeld(o) <= last.eyesAfter) return end;
+			if (end) { leave(); continue; }
 			if (drop?.stableId && eyesHeld(o) <= last.eyesAfter) {
 				failed = await act('pick_up_item', { targetSelector: drop.stableId });
 				if (failed && failed.reasonCode !== 'FIND_BLOCKED') return failed;
@@ -282,7 +283,8 @@ export async function followEyes(target, body, { observation: initial, deadline,
 			// The pickup failed with the eye still in view (it rolled or fell into a hole): walk to where it is now and try once more.
 			if (failed && drop?.stableId && eyesHeld(o) <= last.eyesAfter) {
 				const end = await act('travel_to', bounded({ x: drop.x, y: drop.y, z: drop.z, tolerance: 1, build: true }));
-				if (end) return end;
+				if (end && end.reasonCode !== 'FIND_BLOCKED') return end;
+				if (end) { leave(); continue; }
 				if (eyesHeld(o) <= last.eyesAfter && visibleDrop()) {
 					failed = await act('pick_up_item', { targetSelector: drop.stableId });
 					if (failed && failed.reasonCode !== 'FIND_BLOCKED') return failed;
