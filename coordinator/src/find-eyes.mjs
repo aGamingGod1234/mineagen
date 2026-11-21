@@ -339,7 +339,18 @@ export async function followEyes(target, body, { observation: initial, deadline,
 			let end = await act('travel_to', bounded({ ...state.destination, build: true, tolerance: 3 }), { soft: true });
 			// Out of blocks at the edge of water it was bridging: swim the rest, as a player with no blocks left does (eye rooms:
 			// eyes-a bridged 64 blocks of a lake and stopped OUT_OF_BLOCKS on 7 of 10 runs).
-			if (end?.find?.eyes?.stoppedBy === 'OUT_OF_BLOCKS') end = await act('travel_to', bounded({ ...state.destination, build: false, tolerance: 3 }), { soft: true });
+			if (end?.find?.eyes?.stoppedBy === 'OUT_OF_BLOCKS') {
+				// travel_to walks only on seen standing spots; move_to swims at the surface. Swim on along the heading in short
+				// hops until the far side is in reach of a walk (at most 12 hops, about 100 blocks), then walk the rest.
+				for (let hop = 0; hop < 12; hop++) {
+					const from = { x: o.player.x, z: o.player.z };
+					const swam = await act('move_to', { x: from.x + d.x * 8, y: Math.floor(o.player.y), z: from.z + d.z * 8, tolerance: 2, sprint: false });
+					if (swam && swam.reasonCode !== 'FIND_BLOCKED') return swam;
+					if (Math.hypot(o.player.x - from.x, o.player.z - from.z) < 3) break;
+					if (o.player.underWater !== true && o.player.inWater !== true) break;
+				}
+				end = await act('travel_to', bounded({ ...state.destination, build: true, tolerance: 3 }), { soft: true });
+			}
 			if (end) return end;
 			delete state.destination;
 			state.phase = 'throw';
@@ -360,7 +371,9 @@ export async function followEyes(target, body, { observation: initial, deadline,
 			// out at y-25 in 4 of 10 descents).
 			const end = await act('dig_to', bounded({ pattern: 'steep_down', heading: state.digWest ? 'west' : 'east', y: Math.max(-54, Math.floor(before) - 8), maxBlocks: 32,
 				throughCaves: 'small', stopWhenSeen: 'minecraft:stone_bricks', discard }));
-			if (end) return end;
+			// A flight slowed by gravel that ran out of time on the way down is still progress: dig the next one (eye rooms: a
+			// dig that took 60 s for 4 levels of gravel and deepslate handed back the find 3 blocks above the stronghold).
+			if (end && !(['ACTION_TIMED_OUT', 'DIG_LIMIT_REACHED'].includes(end.find?.eyes?.stoppedBy) && o.player.y < before - 1)) return end;
 			state.digWest = !state.digWest;
 			if (o.player.y >= before - 1) return finish('FIND_BLOCKED', 'Staircase made no downward progress');
 			continue;

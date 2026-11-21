@@ -132,13 +132,16 @@ test('an eye on leaves above that the walk under it cannot reach is left behind 
 test('a leg out of blocks at water swims the rest, and a flooded tunnel backed out of after ground covered is a leg', async () => {
 	const b = fake({ event: flight({ outcome: 'shattered' }) });
 	const original = b.act;
+	// A lake from x -1 to x -30: travel cannot bridge it with no blocks left; move_to swims across it at the surface.
 	b.act = async (...args) => {
-		if (args[0] === 'travel_to' && args[1].build === true && Math.abs(args[1].x) > 50) { b.calls.push({ type: args[0], args: args[1] }); return { state: 'FAILED', reasonCode: 'OUT_OF_BLOCKS' }; }
+		if (args[0] === 'travel_to' && Math.abs(args[1].x) > 50 && b.o.player.x > -30) { b.calls.push({ type: args[0], args: args[1] }); return { state: 'FAILED', reasonCode: 'OUT_OF_BLOCKS' }; }
+		if (args[0] === 'move_to') { b.calls.push({ type: args[0], args: args[1] }); b.o.player.x = args[1].x; b.o.player.inWater = b.o.player.x > -30; return { state: 'SUCCEEDED', reasonCode: 'DESTINATION_REACHED' }; }
 		return original(...args);
 	};
 	const r = await searchFor(target, b);
 	assert.equal(r.reasonCode, 'FIND_BUDGET', r.message);
-	assert.ok(b.calls.some(c => c.type === 'travel_to' && c.args.build === false && c.args.x === -120), 'swims the leg');
+	assert.equal(b.calls.filter(c => c.type === 'move_to').length, 4, 'swims 8-block hops until out of the water');
+	assert.equal(b.calls.at(-1).type === 'travel_to' || b.calls.some(c => c.type === 'travel_to' && c.args.x === -120 && b.calls.indexOf(c) > b.calls.findIndex(m => m.type === 'move_to')), true);
 	const flood = fake({ event: flight({ outcome: 'shattered' }) });
 	const plain = flood.act;
 	flood.act = async (...args) => {
