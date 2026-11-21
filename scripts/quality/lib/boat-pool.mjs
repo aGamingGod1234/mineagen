@@ -141,9 +141,9 @@ awk -v a="$t0" -v b="$t1" -v c="$t2" 'BEGIN { printf "STEPS=%.1f,%.1f\\n", b - a
 printf 'HOME=%s\\n' "$HOME"`;
 
 export async function createMachine({ from = null, type = 'default', ttlSeconds = 7200, name, snapshots = false, noAutoStop = false }) {
-	const args = ['new', '--no-env', '--type', type, '--ttl', String(ttlSeconds), '--name', name, '--json'];
+	// boat takes --no-auto-stop only without a --ttl.
+	const args = ['new', '--no-env', '--type', type, ...(noAutoStop ? ['--no-auto-stop'] : ['--ttl', String(ttlSeconds)]), '--name', name, '--json'];
 	if (from) args.push('--from', from);
-	if (noAutoStop) args.push('--no-auto-stop');
 	if (!snapshots) args.push('--no-snapshots');
 	let text;
 	try { text = await boat(args, { timeoutMs: 10 * 60_000 }); }
