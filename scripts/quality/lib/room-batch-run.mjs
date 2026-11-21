@@ -10,6 +10,19 @@ import { formatSummary, mergeArms, runQueue } from './room-batch-core.mjs';
 
 const sleep = ms => new Promise(done => setTimeout(done, ms));
 
+function raceAbort(promise, signal) {
+	if (!signal) return promise;
+	if (signal.aborted) { promise.catch(() => {}); return Promise.reject(new Error('batch stopped')); }
+	return new Promise((resolve, reject) => {
+		const onAbort = () => reject(new Error('batch stopped'));
+		signal.addEventListener('abort', onAbort, { once: true });
+		promise.then(
+			value => { signal.removeEventListener('abort', onAbort); resolve(value); },
+			error => { signal.removeEventListener('abort', onAbort); reject(error); },
+		);
+	});
+}
+
 export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeoutMs = 40 * 60_000, pollMs = 20_000, lostAfterMs = 5 * 60_000,
 	keepAliveMs = 15 * 60_000, replacements = vms, log = console.log, rewrite = (value) => value, signal = null }) {
 	await mkdir(path.join(out, 'rooms'), { recursive: true });
@@ -17,10 +30,15 @@ export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeout
 	const began = Date.now(), machines = [], layouts = new Map();
 	let replaced = 0;
 	const bringUp = async () => {
+		if (signal?.aborted) throw new Error('batch stopped');
 		const vm = await pool.create();
 		machines.push(vm);
-		try { layouts.set(vm.id, await pool.prepare(vm)); }
-		catch (error) { await retire(vm, `prepare failed: ${error.message}`); throw error; }
+		if (signal?.aborted) { await retire(vm, 'batch stopped'); throw new Error('batch stopped'); }
+		const prep = Promise.resolve().then(() => pool.prepare(vm, { signal }));
+		prep.catch(() => {});
+		try { layouts.set(vm.id, await raceAbort(prep, signal)); }
+		catch (error) { await retire(vm, signal?.aborted ? 'batch stopped' : `prepare failed: ${error.message}`); throw error; }
+		if (signal?.aborted) { await retire(vm, 'batch stopped'); throw new Error('batch stopped'); }
 		vm.keptAliveAt = Date.now();
 		log(`machine ${vm.id} ready`);
 		return vm;
@@ -41,7 +59,10 @@ export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeout
 	let outcomes = [];
 	try {
 		const workers = (await Promise.allSettled(Array.from({ length: vms }, bringUp))).filter(item => item.status === 'fulfilled').map(item => item.value);
-		if (!workers.length) throw new Error('no machine came up');
+		if (!workers.length && !signal?.aborted) throw new Error('no machine came up');
+		if (signal?.aborted) {
+			outcomes = rooms.map(room => ({ room: room.room, lost: true, reason: 'batch stopped', attempts: 0 }));
+		} else {
 		const attempt = async (vm, room, tries) => {
 			if (signal?.aborted) return { lost: true, reason: 'batch stopped' };
 			const layout = layouts.get(vm.id);
@@ -84,6 +105,7 @@ export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeout
 		outcomes = await runQueue({ rooms, workers, attempt, replace, release: vm => retire(vm, 'no rooms left'), log });
 		// A stopped batch leaves its unfinished rooms lost for that reason, not for want of a machine.
 		if (signal?.aborted) outcomes = outcomes.map(outcome => outcome?.lost ? { ...outcome, reason: 'batch stopped' } : outcome);
+		}
 	} finally {
 		await Promise.all(machines.map(vm => retire(vm, 'batch over')));
 		await Promise.all(machines.filter(vm => !vm.destroyed).map(vm => destroy(vm, 'retry at batch end')));

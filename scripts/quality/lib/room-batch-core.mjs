@@ -148,15 +148,27 @@ export async function mergeArms({ out, rooms, arms, outcomes }) {
 			const dir = path.join(out, 'rooms', room.room, arm);
 			// A lost room counts no rows, whatever a partial copy left behind; it is all notStarted.
 			const own = outcome.lost ? null : await readJson(path.join(dir, 'result-summary.json')).catch(() => null);
-			const roomPlanned = Number.isInteger(own?.planned) ? own.planned : (room.plannedByArm?.[arm] ?? room.planned);
+			const ownValid = Boolean(own && typeof own === 'object' && Number.isInteger(own.planned));
+			const roomInvalid = outcome.lost ? null
+				: !ownValid ? 'missing or corrupt room summary'
+				: own.status === 'INVALID' ? 'room summary INVALID'
+				: own.planned <= 0 ? 'room planned 0 rows'
+				: null;
+			const basePlanned = ownValid ? own.planned : (room.plannedByArm?.[arm] ?? room.planned);
+			const roomPlanned = roomInvalid ? Math.max(basePlanned, 1) : basePlanned;
 			planned += roomPlanned;
 			const run = outcome.arms?.[arm] ?? {};
 			const read = !outcome.lost && await exists(path.join(dir, 'result.json')) ? await readJson(path.join(dir, 'result.json')).catch(() => []) : [];
 			const roomRows = Array.isArray(read) ? read : [];
 			// Rows an arm wrote before the room timeout, a signal or a launch error killed it are not a finished run.
 			const killed = run.timedOut ? 'room timeout' : run.signal ? `signal ${run.signal}` : run.error ? `launch error: ${run.error}` : null;
-			for (const row of roomRows) rows.push({ ...row, ...(killed ? { integrity: [...(Array.isArray(row.integrity) ? row.integrity : []), `arm killed (${killed})`] } : {}),
+			const roomFlags = [...(killed ? [`arm killed (${killed})`] : []), ...(roomInvalid ? [roomInvalid] : [])];
+			for (const row of roomRows) rows.push({ ...row, ...(roomFlags.length ? { integrity: [...(Array.isArray(row.integrity) ? row.integrity : []), ...roomFlags] } : {}),
 				room: room.room, host: outcome.worker ?? null, attempts: outcome.attempts ?? 0, cantKeepUp: run.cantKeepUp ?? null });
+			if (roomInvalid && !roomRows.length) {
+				rows.push({ name: room.room, room: room.room, host: outcome.worker ?? null, attempts: outcome.attempts ?? 0, cantKeepUp: run.cantKeepUp ?? null,
+					pass: false, error: roomInvalid, integrity: roomFlags, startedAt: null, finishedAt: null, deaths: null, damageTaken: null });
+			}
 			perRoom.push({ room: room.room, lost: !!outcome.lost, reason: outcome.reason ?? null, rows: roomRows.length, planned: roomPlanned, exit: run.exit ?? null, seconds: run.seconds ?? null, timedOut: !!run.timedOut, cantKeepUp: run.cantKeepUp ?? null });
 		}
 		await mkdir(path.join(out, arm), { recursive: true });
