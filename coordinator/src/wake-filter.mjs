@@ -32,6 +32,47 @@ const FOLDED_LABELS = { resource_discovery: 'resource sighting', structure_sight
 	furnace_ready: 'furnace update', context_entry: 'context entered', no_progress: 'plan-stall note', repeated_result: 'repeated-result note', movement_loop: 'movement loop (the body kept going)',
 	search_danger: 'danger the search answered itself' };
 
+// A running dig_to or travel_to is woken once for a sighting the plan needs: the needed ore within 24 blocks, or a roomy
+// cave within 16 while an ore or lava is needed. Replayed over six 19 Nov games (698 dig and travel steps), 40 air and 24
+// blocks with no grace woke 134 steps, a median 2 s in (caves flicker into view as the body turns); these bounds, the
+// grace and the cooldown woke 35, a median 25 s in.
+export const SIGHTING_STEPS = new Set(['dig_to', 'travel_to']);
+export const SIGHTING_REACH = 24;
+const SIGHTING_CAVE_REACH = 16;
+const SIGHTING_CAVE_AIR = 60;
+// Rows that come into view in a step's first seconds are what the body saw while turning to it, not news.
+export const SIGHTING_GRACE_MS = 5_000;
+// At most one sighting wake per agent in this window, across steps.
+export const SIGHTING_COOLDOWN_MS = 120_000;
+// A row within this many blocks of one already known is the same place seen again.
+const SIGHTING_SAME = 8;
+
+/** Visible cave and vein rows of a sample with a position (what SightedFeatures shows on every update). */
+export function sightingRows(observation) {
+	const sighted = observation?.continuity?.rememberedSections?.includes('sighted') ? {} : observation?.sighted ?? {};
+	return [...rowsOf(sighted.caves).map((row) => ({ ...row, kind: 'cave' })), ...rowsOf(sighted.veins).map((row) => ({ ...row, kind: 'vein' }))]
+		.filter((row) => [row.x, row.y, row.z].every(Number.isFinite));
+}
+
+/**
+ * Why a running step's sample should wake the model at once, or null: a row in reach that is new against `known` (rows
+ * already seen during this step) and that `needed` accepts (needed(kind, row) from the plan's open needs). The 19 Nov
+ * games dug on past listed caves and ore: discovery wakes were folded while dig_to and travel_to ran.
+ */
+export function stepSightingReason({ step, observation, known = [], needed }) {
+	if (!SIGHTING_STEPS.has(step) || typeof needed !== 'function') return null;
+	const overworld = (observation?.world?.dimension ?? 'minecraft:overworld') === 'minecraft:overworld';
+	const fresh = sightingRows(observation).filter((row) => Number.isFinite(row.distance) && row.distance <= SIGHTING_REACH
+		&& (row.kind === 'vein' || overworld && Number.isFinite(row.air) && row.air >= SIGHTING_CAVE_AIR && row.distance <= SIGHTING_CAVE_REACH)
+		&& !known.some((other) => other.kind === row.kind && (row.kind !== 'vein' || other.blockId === row.blockId)
+			&& Math.hypot(other.x - row.x, other.y - row.y, other.z - row.z) < SIGHTING_SAME));
+	if (fresh.length === 0) return null;
+	const vein = fresh.find((row) => row.kind === 'vein' && needed('vein', row));
+	if (vein) return `${short(vein.blockId ?? 'ore')} in view ${Math.round(vein.distance)} blocks away`;
+	const cave = fresh.find((row) => row.kind === 'cave' && needed('cave', row));
+	return cave ? `cave in reach ${Math.round(cave.distance)} blocks away @${cave.x},${cave.y},${cave.z}` : null;
+}
+
 /**
  * Whether this attention is folded into the next wake because a step owns the body. step: the running step's verb
  * (or null), attention: the classified wake { trigger, priority }. A major discovery (decide() wakes for it) is not

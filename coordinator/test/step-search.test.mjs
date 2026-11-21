@@ -30,3 +30,12 @@ test('working (breaking, digging, crafting) or early minutes state nothing', () 
 	const early = state();
 	for (let i = 0; i < 20; i++) assert.equal(noteSearch(early, receipt('control'), 1_000 + i * 5_000, focus), false, 'under three minutes since progress');
 });
+
+test('a step result says what it gained, spent and wore, so no inventory inspect is needed after it', async () => {
+	const { stepChange } = await import('../src/step-progress.mjs');
+	const before = [{ itemId: 'minecraft:iron_pickaxe', count: 1, damage: 10, maxDamage: 250 }, { itemId: 'minecraft:coal', count: 5 }, { itemId: 'minecraft:stone_pickaxe', count: 1, damage: 120, maxDamage: 131 }];
+	const after = [{ itemId: 'minecraft:iron_pickaxe', count: 1, damage: 52, maxDamage: 250 }, { itemId: 'minecraft:coal', count: 3 }, { itemId: 'minecraft:raw_iron', count: 4 }, { itemId: 'minecraft:cobblestone', count: 30 }];
+	assert.equal(stepChange(before, after), 'held +4 raw_iron, -2 coal, -1 stone_pickaxe, +30 stone/dirt; tool uses iron_pickaxe -42 (198 left), stone_pickaxe -11 (broke)');
+	assert.equal(stepChange(after, after), 'inventory unchanged', 'a failed step that changed nothing says so');
+	assert.equal(stepChange(null, after), null, 'no starting inventory: unknown, not unchanged');
+});

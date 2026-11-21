@@ -132,7 +132,7 @@ test('plan reads return the whole chain the wake line abbreviates', async () => 
  views.suggest(record.agentId, record.currentGoal, { steps: [step('iron', 'has:minecraft:iron_ingot*3')] });
  await views.observe(record, sample(0, [['wooden_pickaxe']]));
  const result = await views.operate(record, { operation: 'read' });
- assert.deepEqual(result.prerequisites, { step: 'iron', chain: ['@furnace missing fuel 33%<-raw_iron 0/3 mine iron_ore needs stone_pickaxe+ y-24..56~16,80..319~232', 'stone_pickaxe 0/1 @crafting_table missing<-(#stone_tool_materials 0/3 + stick 0/2 (@inventory<-#planks 0/2 or @inventory<-bamboo 0/4 mine bamboo))'] });
+ assert.deepEqual(result.prerequisites, { step: 'iron', chain: ['@furnace missing fuel 33%<-raw_iron 0/3 mine iron_ore needs stone_pickaxe+ exposed/cave first, else y-24..56~16,80..319~232', 'stone_pickaxe 0/1 @crafting_table missing<-(#stone_tool_materials 0/3 + stick 0/2 (@inventory<-#planks 0/2 or @inventory<-bamboo 0/4 mine bamboo))'] });
  assert.ok(views.progress(record).includes(result.prerequisites.chain[0]));
 });
 
@@ -146,7 +146,7 @@ test('the open step line carries its prerequisite chain down to sources and gate
 	const other = { ...record, agentId: 'a2', currentGoal: 'Beat the dragon again' };
 	views.suggest(other.agentId, other.currentGoal, { steps: [step('pick', 'tool:pickaxe:iron+')] });
 	await views.observe(other, sample(0, [['wooden_pickaxe']]));
-	assert.match(views.progress(other), /raw_iron 0\/3 mine iron_ore needs stone_pickaxe\+ y-24\.\.56~16/);
+	assert.match(views.progress(other), /raw_iron 0\/3 mine iron_ore needs stone_pickaxe\+ exposed\/cave first, else y-24\.\.56~16/);
 	assert.match((await views.operate(other, { operation: 'read' })).prerequisites.chain.join(', '), /stone_pickaxe 0\/1/, 'the full chain retains the missing mining tool and its inputs');
 	await views.observe(other, sample(1, [['stone_pickaxe'], ['iron_ingot', 3], ['stick', 2]]));
 	assert.doesNotMatch(views.progress(other), /<-/, 'nothing left to gather leaves no chain');
@@ -200,7 +200,7 @@ test('full game: Nether access names deep lava, the dig cost, aquifer water, and
  surface.player = { ...surface.player, x: 0.5, y: 70, z: 0.5 };
  await views.observe(record, surface);
  let options = views.continuity(record).options;
- assert.match(options, /obsidian: est\. minutes to 10 more frame obsidian from here \(no water bucket held; casting needs one, any water fills a bucket\), cheapest first: dig to the y-55 lava floors ~40 \(125-level dig_to descent 8 in a few calls, then a search: 6 recorded descents, 2 saw a 64-source pool within 4 min, 4 climbed back after 1-16 min without one; 10 casts 13\); search caves and surface above y-20 ~1780/);
+ assert.match(options, /obsidian: est\. minutes to 10 more frame obsidian from here \(no water bucket held; casting needs one, any water fills a bucket\), cheapest first: dig to the y-55 lava floors ~40 \(125-level dig_to descent 8 in a few calls, then a search: 6 recorded descents, 2 saw a 64-source pool within 4 min, 4 climbed back after 1-16 min without one; 10 casts 13\); water on a lava source casts 1 obsidian in place/);
  assert.match(options, /6 recorded descents, 2 saw a 64-source pool within 4 min/);
  assert.match(options, /flint: .*gravel.*flint and steel = flint \+ iron ingot/, 'no light held: flint is named beside obsidian');
  const lit = sample(1, [['iron_pickaxe'], ['water_bucket'], ['flint_and_steel']]);
