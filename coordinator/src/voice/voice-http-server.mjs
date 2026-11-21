@@ -10,6 +10,7 @@ import { builtInVoiceProfiles, directorVoiceProfiles } from './voice-profile-sto
 
 const MAX_REQUEST_BYTES = 8 * 1024;
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+const IDLE_KEEP_ALIVE_MS = 65_000;
 const DEFAULT_INITIAL_PROBE_DELAY_MS = 1_000;
 const DEFAULT_MAX_PROBE_DELAY_MS = 30_000;
 const DEFAULT_PROBE_TIMEOUT_MS = 10_000;
@@ -487,6 +488,10 @@ export function createVoiceHttpServer({
 		live = false;
 		notifyFailure(error);
 	};
+	// The mod's Java HttpClient keeps an idle connection for 30 s and Node closes one after 5 s, so a request sent about
+	// 5 s after the last could go out on a socket Node was closing and fail with a reset. Holding idle sockets longer
+	// than the client leaves the close to the client.
+	server.keepAliveTimeout = IDLE_KEEP_ALIVE_MS;
 	server.on('error', (error) => {
 		if (live) recordTerminalFailure(error);
 	});
