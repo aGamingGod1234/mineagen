@@ -15,11 +15,11 @@ import {damageCounter,recordDamageEvidence} from './lib/damage-counter.mjs';
 import {applyQualitySetup,activateQualitySetup} from '../../coordinator/src/benchmark/quality-scenarios.mjs';
 import {adaptObservation} from '../../coordinator/src/observation-adapter.mjs';
 import {validateAction} from '../../coordinator/src/schema.mjs';
-import {normalizeReflexEntries} from '../../coordinator/src/reflexes.mjs';
+import {normalizeReflexEntries,DEFAULT_REFLEXES} from '../../coordinator/src/reflexes.mjs';
 import {finishRun,EDIT_LOOP_HELP,FIXTURE_OUTCOME_HELP} from './lib/fixture-run.mjs';
 // The room's verdict goes through finishRun into room.json and room-summary.json (one row); result.json stays the
 // detailed report. PASS: at least PEARL_BAR (6) pearls held inside the window, no death, no error.
-const USAGE='Usage: [STANDIN=roof|until|count] [PEARL_BAR=6] test-warped-pearl-live.mjs CHECKPOINT OUT JAR [salt=1] [gameTicks=24000] [--strict|--descriptive] under slot.sh live';
+const USAGE='Usage: [STANDIN=roof|until|count] [PEARL_BAR=6] [DEFAULTS=1] test-warped-pearl-live.mjs CHECKPOINT OUT JAR [salt=1] [gameTicks=24000] [--strict|--descriptive] under slot.sh live';
 const cli=process.argv.slice(2);
 if(cli.includes('--help')){console.log(USAGE+'\n'+EDIT_LOOP_HELP+'\n'+FIXTURE_OUTCOME_HELP);process.exit(0);}
 const strict=!cli.includes('--descriptive');
@@ -54,6 +54,9 @@ async function observe(){
 // 180 s on base). Every call is capped at the window left. Scoring is by game tick: pearlsInWindow is the count the last
 // observation inside startGameTicks+gameTicks showed; a death fails the run (pass false, pearlsInWindow 0).
 const STANDIN=process.env.STANDIN??'script';
+// DEFAULTS=1: the until, roof and count stand-ins play with the coordinator's default reflexes armed (leave lava, step off
+// fire, shield and the rest), as every model game does; without it they play with none.
+const DEFAULTS=process.env.DEFAULTS==='1';
 const gaze={id:'gaze',kind:'trigger',priority:9,when:{type:'enderman_gaze',within:64},do:{type:'look_away'},maxS:2,ttlS:3600};
 async function setRules(next){rules=next;await s.setReflexes(rules);}
 async function act(type,args){
@@ -166,6 +169,8 @@ try{
  // The window is play: raised to the fixture rate until it ends (see finally).
  readDamage=await damageCounter(text=>s.command(text),'Probe');damage0=await readDamage();
  await s.fastRate();wall0=Date.now();timer=await s.gameTimer();
+ if(DEFAULTS&&['until','roof','count'].includes(STANDIN))await setRules(DEFAULT_REFLEXES.map(rule=>({...structuredClone(rule),coordinatorDefault:true})));
+ result.defaultReflexes=DEFAULTS;
  if(STANDIN==='until'){
   startTicks=await gameTicks();started=now();active=true;result.startedAt=new Date(Date.now()).toISOString();result.startGameTicks=startTicks;result.untilCalls=[];
   await select('minecraft:iron_sword');
