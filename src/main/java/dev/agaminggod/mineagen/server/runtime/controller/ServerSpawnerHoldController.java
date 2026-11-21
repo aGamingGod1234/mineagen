@@ -76,6 +76,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 	private int scanTicks;
 	/** No spawner found by looking round: the ordinary fight_until runs instead, under this controller. */
 	private ServerFightUntilController fallback;
+	private String fallbackWhy = "";
 	private final long startedAt;
 	private final Item untilItem;
 	private final String untilItemId;
@@ -269,6 +270,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 		if (++scanTicks > SCAN_TICKS || player.level().dimension() != Level.NETHER) {
 			HOLDING.remove(player.getUUID());
 			shieldInput.release();
+			fallbackWhy = "no fortress spawner seen after looking round";
 			fallback = new ServerFightUntilController(player, model, protection, now, "fight_until", null, roofing);
 			return fallback.tick(player, now);
 		}
@@ -353,6 +355,16 @@ public final class ServerSpawnerHoldController implements ServerController {
 			if (score < best) { best = score; bestCell = center; bestOpening = toward; }
 		}
 		if (bestCell == null) {
+			if (sitesFailed == 0 && builds == 0) {
+				// No cell to build here at all: the ordinary fight runs instead of a hand-back (real fortress room: the
+				// hand-back left the body standing in the open by the spawner, where it died).
+				note("no seen cell 6-12 blocks from the spawner: the ordinary fight runs");
+				HOLDING.remove(player.getUUID());
+				cancelParts(player);
+				fallbackWhy = "no seen cell 6-12 blocks from the spawner";
+				fallback = new ServerFightUntilController(player, model, protection, now, "fight_until", null, roofing);
+				return fallback.tick(player, now);
+			}
 			noSiteLeft = true;
 			return TickResult.running(progress(player));
 		}
@@ -802,8 +814,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 				e -> e.isAlive() && e.getItem().is(untilItem))) {
 			if (ledgeTried.contains(item.getUUID()) || !aboveFeet(player, item) || !ObservationVisibility.canSeeEntity(player, item)) continue;
 			dev.agaminggod.mineagen.server.perception.ObservedDrops.remember(player, item);
-			double blazeNear = Math.min(nearest(blazes, item.position()), nearest(blazes, player.position()));
-			if (!SpawnerHold.mayCollect(player.getHealth(), witherToBody, nearest(withers, item.position()), blazeNear, item.getAge())) continue;
+			int blazesNear = (int) blazes.stream().filter(b -> b.position().distanceTo(item.position()) <= SpawnerHold.LEDGE_BLAZE_RANGE).count();
+			if (!SpawnerHold.mayFetchLedge(player.getHealth(), witherToBody, nearest(withers, item.position()), blazesNear)) continue;
 			ids.add(item.getUUID());
 		}
 		return ids;
@@ -1009,7 +1021,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 	 * and without this the phase, spot and health lost at death were known only from server death lines.
 	 */
 	public String stoppedBodyFacts(ServerPlayer player) {
-		if (fallback != null) return "; no fortress spawner seen after looking round, so the ordinary fight ran";
+		if (fallback != null) return "; the spawner hold handed over to the ordinary fight: " + fallbackWhy;
 		return cancelFacts != null ? cancelFacts : facts(player);
 	}
 

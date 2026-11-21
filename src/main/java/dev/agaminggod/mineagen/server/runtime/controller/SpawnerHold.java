@@ -96,6 +96,21 @@ public final class SpawnerHold {
 		return health >= COLLECT_HEALTH && blazeNear > BLAZE_CLEAR;
 	}
 
+	/** A ledge rod trip (the platform round the spawner) may go with this many blazes within LEDGE_BLAZE_RANGE of the rod. */
+	static final int LEDGE_BLAZES = 1;
+	static final double LEDGE_BLAZE_RANGE = 8.0D;
+	static final float LEDGE_HEALTH = 16.0F;
+
+	/**
+	 * A trip up to rods on the spawner's platform: no wither skeleton near, LEDGE_HEALTH, and at most LEDGE_BLAZES blazes
+	 * near the rod (a live spawner always has one within 10, so the floor trip's rule never let one go: real fortress room,
+	 * about 20 kills a run, the rods lay on the platform until they despawned). One trip sweeps every rod there.
+	 */
+	static boolean mayFetchLedge(float health, double witherToBody, double witherToRod, int blazesNearRod) {
+		if (witherToBody <= WITHER_CLEAR || witherToRod <= WITHER_CLEAR) return false;
+		return health >= LEDGE_HEALTH && blazesNearRod <= LEDGE_BLAZES;
+	}
+
 	/** Eat inside the cell: hungry enough to stop regrowing, or hurt with room to eat, and a bite that ends before a volley. */
 	static boolean shouldEat(int hunger, float health, boolean biteSafe, boolean blazeInReach, boolean hasFood) {
 		if (!hasFood || !biteSafe || blazeInReach) return false;

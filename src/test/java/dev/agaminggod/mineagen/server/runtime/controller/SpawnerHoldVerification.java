@@ -70,6 +70,10 @@ public final class SpawnerHoldVerification {
 		check(SpawnerHold.handBack(sense(2, 3.0F, 20, true, 60_000L, false, 0L, true, 0, false, false)) == null, "H2 once the cell stands the body heals in it, no hand-back");
 		check(SpawnerHold.turtle(true, 5.0F, 0L, SpawnerHold.TURTLE_MS * 3), "below the turtle health the shield heal does not stop for time");
 		check(!SpawnerHold.turtle(true, 15.0F, 0L, SpawnerHold.TURTLE_MS), "above it the shield heal stops at its time cap");
+		check(SpawnerHold.mayFetchLedge(16.0F, Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, 1), "a ledge trip goes at 16 health with one blaze near the rod");
+		check(!SpawnerHold.mayFetchLedge(16.0F, Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, 2), "not with two blazes near the rod");
+		check(!SpawnerHold.mayFetchLedge(15.0F, Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, 0), "not below 16 health");
+		check(!SpawnerHold.mayFetchLedge(20.0F, 5.0D, Double.POSITIVE_INFINITY, 0), "not with a wither skeleton near the body");
 		check(SpawnerHold.sealedHeal(15.0F, 0L, SpawnerHold.TURTLE_MS * 2), "walled in, the heal goes on past the shield heal's time cap below TURTLE_DONE");
 		check(!SpawnerHold.sealedHeal(SpawnerHold.TURTLE_DONE, 0L, 1_000L), "walled in, the heal ends at TURTLE_DONE");
 		check(!SpawnerHold.sealedHeal(5.0F, 0L, SpawnerHold.SEALED_MS), "walled in, the heal ends at SEALED_MS");
