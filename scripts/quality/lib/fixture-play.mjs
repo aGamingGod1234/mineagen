@@ -12,7 +12,7 @@ export function handRolledTickRate(command, bridge, agent, { tickRate = fixtureT
 	const rate = installTickRate({ command }, tickRate);
 	bridge.on('observation', e => rate.clock.observe(e.payload?.world?.gameTime));
 	let counters = null;
-	// Vanilla's cumulative damage and death counts, so healing during play cannot hide a hit. Recorded only: no verdict reads them.
+	// Vanilla's cumulative damage and death counts, so healing during play cannot hide a hit.
 	const read = async () => {
 		counters ??= Promise.all([
 			damageCounter(command, agent),
@@ -22,7 +22,7 @@ export function handRolledTickRate(command, bridge, agent, { tickRate = fixtureT
 		if (!pair) return { damage: null, deaths: null };
 		return { damage: await pair[0]().catch(() => null), deaths: await pair[1]().catch(() => null) };
 	};
-	/** Raises the rate for one case's play; end() returns { tickRate, rates, gameSeconds, wallSeconds, damageTaken, deaths } and goes back to 20. */
+	/** Raises the rate for one case's play; end() records timing and counter evidence and goes back to 20. */
 	rate.play = async () => {
 		const before = await read();
 		await rate.fastRate();
@@ -32,10 +32,27 @@ export function handRolledTickRate(command, bridge, agent, { tickRate = fixtureT
 				gameSeconds: Math.round((await timer.elapsed()) / 1000), wallSeconds: Math.round((Date.now() - wall0) / 1000) };
 			await rate.normalRate();
 			const after = await read();
-			return { ...tick, damageTaken: damageEvidence(before.damage, after.damage).damageTaken, deaths: deathEvidence(before.deaths, after.deaths).deaths };
+			const { damageTaken, integrity } = damageEvidence(before.damage, after.damage);
+			return { ...tick, damageTaken, ...(integrity ? { integrity } : {}), deaths: deathEvidence(before.deaths, after.deaths).deaths };
 		};
 	};
 	/** What the server held (tick query), for the run's output. */
 	rate.report = async () => ({ tickRate: rate.tickRate, held: await rate.tickReport() });
 	return rate;
+}
+
+/** Sample for a game-time window. Each observation has a wall-time deadline because losing the bridge can stop the clock. */
+export async function* watchObservations(clock, observe, durationMs, stopped) {
+	const end = clock.now() + durationMs;
+	while (clock.now() < end && !stopped()) {
+		let observation;
+		try {
+			observation = await observe(3000);
+		} catch (error) {
+			if (stopped()) return;
+			throw error;
+		}
+		yield observation;
+		if (!stopped()) await clock.sleep(250);
+	}
 }

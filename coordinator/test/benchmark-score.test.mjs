@@ -1,10 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { collectRuns, compareScores, fisher, foldReason, formatComparison, formatScoreboard, groupScores, planBenchmark, scoreRooms } from '../../scripts/quality/lib/benchmark-score.mjs';
+import { handRolledTickRate } from '../../scripts/quality/lib/fixture-play.mjs';
+import { roomVerdict } from '../../scripts/quality/lib/fixture-run.mjs';
 import { parseCommands } from '../../scripts/quality/lib/room-batch-core.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
@@ -120,6 +123,43 @@ test('a single result object counts its own deaths and a room passes only on its
 	assert.deepEqual([by('pearl', 'r1').verdict, by('pearl', 'r1').deaths], ['PASS', 0]);
 	assert.deepEqual([by('pearl', 'r2').verdict, by('pearl', 'r2').reason], ['FAIL', 'endPearls below 1']);
 	assert.deepEqual([by('rest', 'r1').deaths, by('rest', 'r1').damage], [1, 20]);
+});
+
+test('a fire room with missing or decreasing damage evidence is invalid even when its reflex passed', async t => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'bench-damage-'));
+	t.after(() => rm(dir, { recursive: true, force: true }));
+	const room = path.join(dir, 'rooms', 'fire.c1');
+	const afterByArm = { missing: null, decreased: 8, valid: 10 };
+	const reason = 'missing evidence: damage_taken Missing or decreasing vanilla damage counter';
+	await mkdir(room, { recursive: true });
+	await writeFile(path.join(room, 'done.json'), JSON.stringify({
+		arms: Object.fromEntries(Object.keys(afterByArm).map(arm => [arm, { exit: 0 }])),
+	}));
+	for (const [arm, after] of Object.entries(afterByArm)) {
+		let reads = 0;
+		const command = async text => {
+			if (text === 'scoreboard players get Body arena_damage') {
+				const score = reads++ === 0 ? 10 : after;
+				if (score === null) throw new Error('RCON read failed');
+				return `Body has ${score} [arena_damage]`;
+			}
+			if (text === 'scoreboard players get Body fixture_deaths') return 'Body has 0 [fixture_deaths]';
+			return '';
+		};
+		const rate = handRolledTickRate(command, new EventEmitter(), 'Body', { tickRate: 60 });
+		const end = await rate.play();
+		const armed = { pass: true, tick: await end() };
+		assert.equal(rate.rate, 20);
+		assert.equal(roomVerdict(armed).verdict, arm === 'valid' ? 'PASS' : 'INVALID');
+		await mkdir(path.join(room, arm));
+		await writeFile(path.join(room, arm, 'results.json'), JSON.stringify({ armed }));
+	}
+	const runs = await collectRuns(dir);
+	for (const { arm, verdict, reason: why, damage } of runs) {
+		assert.deepEqual([verdict, why, damage], arm === 'valid' ? ['PASS', null, 0] : ['INVALID', reason, null]);
+	}
+	const { pass, invalid } = scoreRooms(runs).fire;
+	assert.deepEqual({ pass, invalid }, { pass: 1, invalid: 2 });
 });
 
 test('a death repeated by a variant and its counter counts once, and an item wear is not health damage', async t => {

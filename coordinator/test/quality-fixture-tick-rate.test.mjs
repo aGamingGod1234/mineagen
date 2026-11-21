@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import { bootTickRate, installTickRate, frozenFixtureSetup } from '../../scripts/quality/watch-replay.mjs';
+import { watchObservations } from '../../scripts/quality/lib/fixture-play.mjs';
 
 // A fake server: records the commands a fixture sends and the tick rate it is left at.
 function server() {
@@ -15,6 +16,22 @@ function server() {
 	};
 	return s;
 }
+
+test('the 60 TPS enderman watch rejects on a lost observation even while game time is frozen', async () => {
+	const clock = {
+		now: () => 1000,
+		sleep: () => assert.fail('a lost observation must end the watch before it sleeps'),
+	};
+	let requests = 0;
+	const observe = async timeoutMs => {
+		assert.equal(++requests, 1, 'the watch must not retry with a frozen game clock');
+		assert.equal(timeoutMs, 3000);
+		throw new Error('TIMEOUT observation');
+	};
+	const watch = watchObservations(clock, observe, 12000, () => false);
+	await assert.rejects(watch.next(), /TIMEOUT observation/);
+	assert.deepEqual(await watch.next(), { done: true, value: undefined });
+});
 
 test('a rate the fixture raised itself is brought back to 20 by normalRate, at a fixture rate of 20', async () => {
 	// The rest fixture at its default (FIXTURE_TICK_RATE unset, TICK_RATE 60): it speeds up a walled-in night, and the

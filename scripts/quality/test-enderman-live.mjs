@@ -10,6 +10,7 @@ import { normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 import { installTickRate, fixtureTickRate } from './watch-replay.mjs';
 import { damageCounter, damageEvidence } from './lib/damage-counter.mjs';
+import { watchObservations } from './lib/fixture-play.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const out = resolve(process.argv[2] ?? 'runtime/enderman-live');
@@ -50,11 +51,12 @@ const command = async (text) => {
 	if (rcon.state === 'closed') { rcon = new HeadlessRconClient({ host: '127.0.0.1', port: port + 1, password: secret, commandTimeoutMs: 5000 }); await rcon.connect(); }
 	return (await rcon.command(text)).text;
 };
-async function observe() {
+async function observe(timeoutMs) {
 	const sequence = observation?.eventSequence ?? 0;
-	const next = inbox.wait('observation', (event) => event.agentId === record.agentId && event.payload.ready && event.payload.eventSequence > sequence);
-	await bridge.send('request_observation', record.agentId, { goalRevision: record.goalRevision });
-	return (await next).payload;
+	const next = inbox.wait('observation', (event) => event.agentId === record.agentId && event.payload.ready && event.payload.eventSequence > sequence, timeoutMs);
+	const sent = bridge.send('request_observation', record.agentId, { goalRevision: record.goalRevision });
+	// The inbox deadline also applies while the bridge is waiting to send the request.
+	return (await Promise.race([next, sent.then(() => next)])).payload;
 }
 /** As the coordinator sends a model's rules: normalized by reflexes.mjs, the complete set, a new revision. */
 async function setReflexes(rules) {
@@ -175,7 +177,12 @@ try {
 	};
 	let died = false;
 	bridge.on('message', (event) => { if (event.type === 'goal_control' && event.payload?.operation === 'dead') died = true; });
-	const stand = async (ms, rows) => { const end = rate.clock.now() + ms; while (rate.clock.now() < end && !died) { try { o = await Promise.race([observe(), sleep(3000).then(() => { throw new Error('no observation'); })]); } catch { if (died) break; continue; } rows.push({ t: rate.clock.now(), health: health(o), angry: angry(o), firing: o.reflexes?.firing?.id ?? null, using: o.interaction?.usingItem ?? null }); await rate.clock.sleep(250); } };
+	const stand = async (ms, rows) => {
+		for await (const sample of watchObservations(rate.clock, observe, ms, () => died)) {
+			o = sample;
+			rows.push({ t: rate.clock.now(), health: health(o), angry: angry(o), firing: o.reflexes?.firing?.id ?? null, using: o.interaction?.usingItem ?? null });
+		}
+	};
 
 	// look_at a point 2.5 blocks behind a calm enderman at its eye height (run d9-end-b's pearl aim): no provocation.
 	if (want('look-past')) {
@@ -279,13 +286,17 @@ try {
 		const before = health(o), started = rate.clock.now(), trail = [];
 		const action = await startAction('fight_target', { targetId: uuid, pursue: false, timeoutMs: 30000 });
 		let lowest = before, killedAfterMs = null;
-		const watch = (async () => { while (rate.clock.now() - started < 32000 && !died) { try { o = await Promise.race([observe(), sleep(3000).then(() => { throw new Error('no observation'); })]); } catch { continue; } lowest = Math.min(lowest, health(o) ?? lowest);
-			const at = /\[\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?\]/.exec(await command(`data get entity ${uuid} Pos`));
-			if (!at) { killedAfterMs = rate.clock.now() - started; return; }
-			const row = endermen(o).find((e) => e.uuid === uuid);
-			trail.push({ t: rate.clock.now() - started, at: at.slice(1).map((n) => Math.round(Number(n) * 10) / 10), inView: row !== undefined, angry: row?.appearance?.screaming === true || row?.targetingAgent === true, health: health(o) });
-			await rate.clock.sleep(250); } })();
-		const outcome = await action.result; await watch;
+		const watch = async () => {
+			for await (const sample of watchObservations(rate.clock, observe, 32000, () => died)) {
+				o = sample;
+				lowest = Math.min(lowest, health(o) ?? lowest);
+				const at = /\[\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?\]/.exec(await command(`data get entity ${uuid} Pos`));
+				if (!at) { killedAfterMs = rate.clock.now() - started; return; }
+				const row = endermen(o).find((e) => e.uuid === uuid);
+				trail.push({ t: rate.clock.now() - started, at: at.slice(1).map((n) => Math.round(Number(n) * 10) / 10), inView: row !== undefined, angry: row?.appearance?.screaming === true || row?.targetingAgent === true, health: health(o) });
+			}
+		};
+		const [outcome] = await Promise.all([action.result, watch()]);
 		await rate.clock.sleep(1500);
 		const pearls = await pearlsOnGround();
 		const tick = await playEnd(play);

@@ -9,6 +9,7 @@ import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 import { handRolledTickRate } from './lib/fixture-play.mjs';
+import { fixtureSummary, roomVerdict } from './lib/fixture-run.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const out = resolve(process.argv[2] ?? 'runtime/fire-live');
@@ -143,7 +144,7 @@ try {
 		if (error) results[name] = { ...(results[name] ?? {}), pass: false, error: String(error?.stack ?? error).slice(0, 400) };
 		await writeFile(join(out, 'results.json'), JSON.stringify(results, null, 2));
 		await writeFile(join(out, 'timeline.json'), JSON.stringify(timeline, null, 1));
-		console.log(`[scenario] ${name}: ${results[name]?.pass ? 'PASS' : 'FAIL'}`);
+		console.log(`[scenario] ${name}: ${roomVerdict(results[name]).verdict}`);
 	};
 	const debug = process.env.REFLEX_DEBUG === '1';
 	const until = async (ms, test) => { const end = now() + ms; while (now() < end) { o = await observe(); if (debug) console.log(`[debug] ${JSON.stringify({ rules: o.reflexes?.rules, firing: o.reflexes?.firing, error: o.reflexes?.error, pos: o.position })}`); if (test(o)) return true; await rate.clock.sleep(debug ? 1000 : 250); } return false; };
@@ -248,9 +249,9 @@ try {
 	await writeFile(join(out, 'tick.json'), JSON.stringify(await rate.report(), null, 2));
 	await writeFile(join(out, 'results.json'), JSON.stringify(results, null, 2));
 	await writeFile(join(out, 'timeline.json'), JSON.stringify(timeline, null, 1));
-	console.log(JSON.stringify(Object.fromEntries(Object.entries(results).filter(([key]) => key !== 'status').map(([key, value]) => [key, value.pass]))));
-	const failed = Object.entries(results).filter(([key, value]) => key !== 'status' && !value.pass).map(([key]) => key);
-	if (failed.length > 0) { console.log(JSON.stringify(results, null, 2)); process.exitCode = 1; }
+	const summary = fixtureSummary(scenarios.map(name => ({ ...results[name], name })));
+	console.log(summary.line);
+	if (summary.status !== 'PASS') { console.log(JSON.stringify(results, null, 2)); process.exitCode = summary.status === 'INVALID' ? 2 : 1; }
 	else console.log('Fire mechanics verified');
 } finally {
 	if (rcon) await command('stop').catch(() => {});
