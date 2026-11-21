@@ -301,3 +301,23 @@ test('an eye lost from view is looked for where it should drop before any walk, 
 	assert.equal(r.find.eyes.throws[0].eyesAfterPickup, 16);
 	assert.equal(r.find.eyes.throws[0].searchedDrop, undefined, 'no blind search walk was needed');
 });
+
+test('standing where a lost eye should lie and not seeing it, the body looks up into the leaves above before giving it up', async () => {
+	let shown = false;
+	const b = body({ flight: () => ({ outcome: 'unseen', lostFromView: true, flewBlocks: undefined }), onAct: (type, args, o) => {
+		// The eye rests on leaves 8 blocks above where it should have dropped: only a look up shows it.
+		if (type === 'look_at' && !shown && args.y >= o.player.y + 4 && Math.hypot(args.x - o.player.x, args.z - o.player.z) < 4) {
+			shown = true;
+			o.items = [{ itemId: 'minecraft:ender_eye', stableId: EYE_ID, x: args.x, y: 78, z: args.z }];
+			return { state: 'SUCCEEDED', reasonCode: 'ACTION_COMPLETED' };
+		}
+		if (type === 'pick_up_item') { o.items = []; o.inventory.items[0].count++; return { state: 'SUCCEEDED', reasonCode: 'PICKED_UP' }; }
+		return null;
+	} });
+	const r = await searchFor({ structure: 'stronghold', throwCap: 1 }, b);
+	assert.ok(shown, 'looked up at the drop point after the search walk');
+	assert.equal(r.find.eyes.throws[0].eyesAfterPickup, 16);
+	assert.notEqual(r.find.eyes.throws[0].recovery, 'not_found');
+	const climb = b.calls.find(c => c.type === 'travel_to' && c.args.y === 78);
+	assert.ok(climb, 'walks (and builds) up to where it lies');
+});

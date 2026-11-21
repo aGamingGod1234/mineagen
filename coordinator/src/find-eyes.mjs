@@ -220,6 +220,17 @@ export async function followEyes(target, body, { observation: initial, deadline,
 				if (Number.isFinite(last.eyesAfter) && eyesHeld(o) > last.eyesAfter) continue;
 				current = visibleDrop();
 			}
+			// Standing where it dropped and still not in view: look up (it came to rest on leaves or a ledge above the walk;
+			// live eye rooms: eyes lay 8 and 12 blocks above the search point), then down into a dip, as a player looks around.
+			if (!current && last.searchedDrop && !last.lookedAround && point(dropAt)) {
+				last.lookedAround = true;
+				for (const dy of [5, -2]) {
+					const end = await act('look_at', { x: dropAt.x, y: dropAt.y + dy, z: dropAt.z });
+					if (end) return end;
+					current = visibleDrop();
+					if (current) break;
+				}
+			}
 			if (!current) {
 				last.recovery = last.searchedDrop ? 'not_found' : 'not_visible';
 				state.phase = 'leg';
