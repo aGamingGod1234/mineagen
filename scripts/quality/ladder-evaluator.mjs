@@ -55,10 +55,12 @@ export function checkAdvancements(spec) {
 	return (spec.of ?? []).flatMap(checkAdvancements);
 }
 
-function inventoryHolds(spec, sample) {
-	const text = sample.inventoryNbt || '';
+function inventoryHeld(spec, text) {
 	const counts = spec.items.map(id => itemCount(text, new RegExp(`^${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`)));
-	return (spec.sum ? counts.reduce((a, b) => a + b, 0) : counts[0]) >= spec.count;
+	return spec.sum ? counts.reduce((a, b) => a + b, 0) : counts[0];
+}
+function inventoryHolds(spec, sample) {
+	return inventoryHeld(spec, sample.inventoryNbt || '') >= spec.count;
 }
 // Survival is judged on game ticks (sample.gameTime against the tick at goal start). The server can run below
 // 20 TPS, so wall time is only the fallback for samples that carry no game clock.
@@ -136,6 +138,82 @@ function spec_with_log(spec) {
 	return hasOnlyAdvancements(spec) ? spec : { type: 'all', of: [{ type: 'advancement', id: '__never__' }] };
 }
 
+const specLeaves = s => s.of ? s.of.flatMap(specLeaves) : [s];
+const readableInventory = s => typeof s.inventoryNbt === 'string' && s.inventoryNbt.trim().startsWith('[');
+const round1 = n => Math.round(n * 10) / 10;
+
+/**
+ * Partial credit for reports only; it never decides PASS or FAIL. For each clause of the check it records how far the run got
+ * inside the same budget window the verdict uses. Inventory counts are net of the starting kit (what the fixture handed the
+ * agent), so supplied items are not progress. Samples before a death keep their counts; a sample without a readable
+ * inventory is unknown, not zero. Counts reached between two samples are not seen, so best can read low.
+ */
+export function evaluateProgress(spec, samples, { goalStartAt = null, goalStartTick = null, budgetMs = Infinity, startingInventory = null, startingInventorySource = null, logAdvancements = [] } = {}) {
+	const start = goalStartAt ?? samples[0]?.at ?? null;
+	const window = samples.filter(s => Number.isFinite(start) && s.at >= start && s.at - start <= budgetMs);
+	let baseline = null, deathAt = null;
+	for (const s of window) {
+		if (!Number.isFinite(s.deathCounter)) continue;
+		baseline ??= s.deathCounter;
+		if (s.deathCounter > baseline) { deathAt = s.at; break; }
+	}
+	const startTick = Number.isFinite(goalStartTick) ? goalStartTick : window.find(s => Number.isFinite(s.gameTime))?.gameTime ?? null;
+	const kit = Array.isArray(startingInventory) ? `[${startingInventory.map(i => `{id: "${mc(String(i.item ?? i.itemId))}", count: ${Number(i.count ?? 1)}}`).join(', ')}]` : null;
+	const readable = window.filter(readableInventory);
+	const kitSource = kit !== null ? startingInventorySource ?? 'starting kit' : readable.length ? 'first sample' : null;
+	return specLeaves(spec).map(leaf => {
+		switch (leaf.type) {
+			case 'inventory': {
+				const supplied = kit !== null ? inventoryHeld(leaf, kit) : readable.length ? inventoryHeld(leaf, readable[0].inventoryNbt) : null;
+				const held = readable.map(s => inventoryHeld(leaf, s.inventoryNbt));
+				// The end count is the final in-budget sample's; when that inventory is unreadable the end is unknown, not an earlier count.
+				const final = window.at(-1), endHeld = final && readableInventory(final) ? inventoryHeld(leaf, final.inventoryNbt) : null;
+				const bestHeld = held.length ? held.reduce((a, b) => Math.max(a, b)) : null;
+				const net = n => n === null || supplied === null ? null : Math.max(0, n - supplied);
+				return { type: 'inventory', items: leaf.items.map(bare), target: leaf.count, supplied, kitSource, needed: supplied === null ? null : Math.max(0, leaf.count - supplied),
+					bestHeld, endHeld, bestEarned: net(bestHeld), endEarned: net(endHeld), samples: held.length };
+			}
+			case 'survive': {
+				const last = window.filter(s => deathAt === null || s.at < deathAt).at(-1);
+				const gameClock = Number.isFinite(last?.gameTime) && Number.isFinite(startTick);
+				const survived = last ? Math.max(0, gameClock ? last.gameTime - startTick : (last.at - start) / 50) : null;
+				return { type: 'survive', target: leaf.ticks, survivedTicks: survived === null ? null : Math.round(survived), died: deathAt !== null, clock: last ? gameClock ? 'game-ticks' : 'wall-fallback' : null };
+			}
+			case 'position': {
+				const distance = s => s?.position && s.dimension === leaf.dimension ? Math.hypot(s.position.x - leaf.center[0], s.position.y - leaf.center[1], s.position.z - leaf.center[2]) : null;
+				const seen = window.map(distance).filter(d => d !== null);
+				const closest = seen.length ? seen.reduce((a, b) => Math.min(a, b)) : null, end = distance(window.at(-1));
+				return { type: 'position', dimension: bare(leaf.dimension), center: leaf.center, radius: leaf.radius, closest: closest === null ? null : round1(closest),
+					end: end === null ? null : round1(end), reached: closest !== null && closest <= leaf.radius };
+			}
+			case 'advancement': {
+				const sampled = window.find(s => (s.advancements ?? []).includes(leaf.id)), logged = logAdvancements.find(e => e.id === leaf.id);
+				return { type: 'advancement', id: leaf.id, reached: Boolean(sampled || logged), at: sampled?.at ?? logged?.at ?? null, source: sampled ? 'samples' : logged ? 'server-log' : null };
+			}
+			default: throw new Error(`Unknown check type ${leaf.type}`);
+		}
+	});
+}
+
+/** One line per run for the ladder report, e.g. "blaze_rod best 3/7, end 1". */
+export function formatProgress(progress) {
+	if (!Array.isArray(progress) || !progress.length) return null;
+	return progress.map(p => {
+		switch (p.type) {
+			case 'inventory': {
+				const name = p.items.join('|');
+				if (p.bestEarned === null) return `${name} no readable inventory`;
+				const given = p.supplied > 0 ? ` (net of ${p.supplied} ${p.kitSource === 'first sample' ? 'held at start' : 'given'})` : '';
+				return `${name} best ${p.bestEarned}/${p.needed}, end ${p.endEarned ?? 'unknown'}${given}`;
+			}
+			case 'survive': return p.survivedTicks === null ? 'survival unobserved' : `survived ${p.survivedTicks}/${p.target} ticks${p.died ? ', died' : ''}${p.clock === 'wall-fallback' ? ' (wall clock)' : ''}`;
+			case 'position': return p.closest === null ? `${p.dimension} (${p.center.join(',')}) not reached` : `${p.dimension} (${p.center.join(',')}) closest ${p.closest}/${p.radius} blocks${p.end === null ? '' : `, end ${p.end}`}`;
+			case 'advancement': return `${p.id} ${p.reached ? 'reached' : 'not reached'}`;
+			default: return `${p.type} ?`;
+		}
+	}).join('; ');
+}
+
 export function parseLogAdvancements(logText, { agentName = null, goalStartAt = null, goalEndAt = null } = {}) {
 	// Vanilla's HH:mm:ss lines lack a date and timezone. They cannot prove an absolute run window.
 	if (!agentName || !Number.isFinite(goalStartAt) || !Number.isFinite(goalEndAt)) return [];
@@ -192,7 +270,8 @@ export function serverVerifiedPass(protocolRows, goalStartAt = null, budgetMs = 
 }
 
 /** Judge sampled evidence; samples without gameTime get one interpolated from the protocol clock when it is available. */
-export function evaluateSamples(samples, { successCheck, durationBudgetMs, goalStartAt = null, protocolRows = [], logAdvancements = [], agentName = null, requireSampledSuccess = false }) {
+export function evaluateSamples(samples, { successCheck, durationBudgetMs, goalStartAt = null, protocolRows = [], logAdvancements = [], agentName = null, requireSampledSuccess = false,
+	setup = null, startingInventory = null, startingInventorySource = null }) {
 	const spec = parseSuccessCheck(successCheck);
 	const clock = protocolClock(protocolRows);
 	const timed = clock.length ? samples.map(s => Number.isFinite(s.gameTime) ? s : { ...s, gameTime: tickAt(clock, s.at) }) : samples;
@@ -206,11 +285,14 @@ export function evaluateSamples(samples, { successCheck, durationBudgetMs, goalS
 		const dead = protocolRows.map(r => ({ ...(r.envelope ?? r), observedAtMs: r.observedAtMs })).find(e => e.type === 'goal_control' && e.payload?.operation === 'dead' && epoch(e) > result.passAt);
 		if (dead) result.postPass = { died: true, diedAt: epoch(dead), diedAfterPassMs: epoch(dead) - result.passAt, diedTick: null };
 	}
-	return { ...result, evaluatorVersion: 2, status: 'EVALUATED', check: successCheck, spec, samples: samples.length, clock: spec.type === 'survive' || JSON.stringify(spec).includes('"survive"') ? (Number.isFinite(timed[0]?.gameTime) ? 'game-ticks' : 'wall-fallback') : undefined };
+	const kit = startingInventory ?? setup?.inventory ?? null;
+	const progress = evaluateProgress(spec, timed, { goalStartAt: evaluator.goalStartAt, goalStartTick: evaluator.goalStartTick, budgetMs: durationBudgetMs, logAdvancements: evaluator.logAdvancements,
+		startingInventory: kit, startingInventorySource: startingInventory ? startingInventorySource ?? 'starting kit' : setup?.inventory ? 'scenario setup' : null });
+	return { ...result, evaluatorVersion: 3, status: 'EVALUATED', check: successCheck, spec, samples: samples.length, clock: spec.type === 'survive' || JSON.stringify(spec).includes('"survive"') ? (Number.isFinite(timed[0]?.gameTime) ? 'game-ticks' : 'wall-fallback') : undefined, progress };
 }
 
 /** Judge one run from its artifact directory (quality-samples.json, quality-protocol.jsonl, server log). */
-export async function evaluateArtifacts(directory, { successCheck, durationBudgetMs, requireSampledSuccess = false }) {
+export async function evaluateArtifacts(directory, { successCheck, durationBudgetMs, requireSampledSuccess = false, setup = null }) {
 	parseSuccessCheck(successCheck);
 	const samplesText = await readIf(path.join(directory, 'quality-samples.json'));
 	if (samplesText === null) return { pass: false, status: 'NO_SAMPLES', check: successCheck, timeToPassMs: null, source: null };
@@ -219,6 +301,9 @@ export async function evaluateArtifacts(directory, { successCheck, durationBudge
 	const runner = JSON.parse(await readIf(path.join(directory, 'report.json')) ?? '{}');
 	const agentName = runner.generatedName ?? null;
 	const goalStartAt = resolveGoalWindow(protocol).startedAt ?? runner.budget?.goalStartedAt ?? null;
-	return evaluateSamples(samples, { successCheck, durationBudgetMs, requireSampledSuccess, goalStartAt, protocolRows: protocol, agentName,
+	// The kit the fixture actually applied wins over today's ladder.json, which may have changed since the run.
+	const applied = await readIf(path.join(directory, 'quality-setup.json')).then(t => JSON.parse(t ?? '{}')?.definition?.inventory).catch(() => null);
+	return evaluateSamples(samples, { successCheck, durationBudgetMs, requireSampledSuccess, goalStartAt, protocolRows: protocol, agentName, setup,
+		...(Array.isArray(applied) ? { startingInventory: applied, startingInventorySource: 'applied setup' } : {}),
 		logAdvancements: parseLogAdvancements(await serverLogText(directory), { agentName, goalStartAt, goalEndAt: Number.isFinite(goalStartAt) ? goalStartAt + durationBudgetMs : null }) });
 }
