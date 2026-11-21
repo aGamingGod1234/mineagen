@@ -54,7 +54,7 @@ s.bridge.on('message', (event) => {
 	s.bridge.send('agent_ready', s.record.agentId, { goalRevision: s.record.goalRevision, reconciled: false }).catch(() => {});
 });
 const nc = text => s.command(`execute in ${NETHER} run ${text}`);
-const gameTicks = async () => replyNumber(await s.command('time query gametime'));
+const gameTicks = async () => { const m = /time is (\d+)/i.exec(String(await s.command('time query gametime'))); if (!m) throw new Error('GAME_CLOCK_UNAVAILABLE'); return Number(m[1]); };
 let facts = null, dead = false, startTicks = 0, startedAt = 0;
 async function observe() {
 	const raw = await s.observeOrNull();
@@ -74,7 +74,12 @@ async function act(type, args, waitMs = 65000) {
 	row.calls[type] = (row.calls[type] ?? 0) + 1;
 	const at = Date.now(), t0 = await gameTicks();
 	let r;
-	try { r = await s.act(type, args, waitMs); } catch (error) { r = { state: 'ERROR', reasonCode: 'HARNESS_TIMEOUT', message: String(error?.message ?? error) }; }
+	// A goal revision that moved on between the read and the send is refused unrun; send it once more on the new one.
+	for (let attempt = 0; attempt < 3; attempt++) {
+		try { r = await s.act(type, args, waitMs); } catch (error) { r = { state: 'ERROR', reasonCode: 'HARNESS_TIMEOUT', message: String(error?.message ?? error) }; }
+		if (r.reasonCode !== 'STALE_REVISION') break;
+		await sleep(500);
+	}
 	const code = r.reasonCode ?? r.state;
 	row.reasons[`${type}:${code}`] = (row.reasons[`${type}:${code}`] ?? 0) + 1;
 	const entry = { atTicks: t0 - startTicks, type, args, state: r.state, reason: code, ms: Date.now() - at, message: String(r.message ?? '').slice(0, 600) };
@@ -190,7 +195,9 @@ try {
 	const damage = await damageCounter(s.command, AGENT);
 	await s.command('scoreboard objectives add barter_deaths deathCount').catch(() => {});
 	const damage0 = await damage();
-	await observe();
+	// The first observations can predate the kit; wait until the inventory shows the sword the setup gave.
+	for (let i = 0; i < 20 && !items().some(x => x.itemId === 'minecraft:iron_sword'); i++) { await observe(); await sleep(500); }
+	if (!items().some(x => x.itemId === 'minecraft:iron_sword')) throw new Error('the kit never showed in an observation');
 	await act('look_at', { x: X + 10, y: Y + 1.6, z: Z + 0.5 });
 	row.piglinsSeenAtStart = seenEntities('minecraft:piglin').length;
 	if (row.piglinsSeenAtStart === 0) row.notExercised = 'no piglin seen from the start';
