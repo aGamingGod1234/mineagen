@@ -763,6 +763,7 @@ coordinator/test/provider-replay.test.mjs
 coordinator/test/provider-service.test.mjs
 coordinator/test/provider-turn-recorder.test.mjs
 coordinator/test/public-conversation-recovery.test.mjs
+coordinator/test/public-tree-tracked.test.mjs
 coordinator/test/quality-comparison-regressions.test.mjs
 coordinator/test/quality-fixture-exit.test.mjs
 coordinator/test/quality-fixture-tick-rate.test.mjs
@@ -813,6 +814,7 @@ coordinator/test/search-danger.test.mjs
 coordinator/test/search-steer.test.mjs
 coordinator/test/seen-memory-r3.test.mjs
 coordinator/test/seen-memory.test.mjs
+coordinator/test/setup-doctor.test.mjs
 coordinator/test/simulator-actions.test.mjs
 coordinator/test/simulator-scenarios.test.mjs
 coordinator/test/situation-assessment.test.mjs
@@ -926,6 +928,7 @@ scripts/decision-eval/score-portal-kit.mjs
 scripts/decision-eval/simulate-verdict.mjs
 scripts/decision-eval/verify-provenance.mjs
 scripts/distribution-runtime.ps1
+scripts/doctor.mjs
 scripts/estimate-navigation-continuation.mjs
 scripts/export-public.allowlist
 scripts/export-public.mjs
@@ -951,6 +954,7 @@ scripts/paired-job-supervisor.ps1
 scripts/paired-phase-worker.ps1
 scripts/prepare-headless-server-template.ps1
 scripts/prepare-runtime.ps1
+scripts/prepare-server-template.mjs
 scripts/project-metadata.ps1
 scripts/quality/GENERALITY.md
 scripts/quality/README.md
