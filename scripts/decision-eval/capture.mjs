@@ -1,7 +1,12 @@
 #!/usr/bin/env node
 // Scan recorded traces and extract raw decision moments for the decision-eval corpus.
 //
-//   node scripts/decision-eval/capture.mjs --root <dir> --out moments.jsonl [--cooldown-ms 30000] <trace dir>...
+//   node scripts/decision-eval/capture.mjs --root <dir> --out moments.jsonl [--cooldown-ms 30000] [--at <file.json>] <trace dir>...
+//
+// --at names a JSON array of { atMs, label, agentId? } pins: instead of the triggers, one moment is captured on the first live
+// observation at or after each pin (trigger "pinned", the pin in `detail`). Use it for moments chosen elsewhere,
+// such as a decision-log line; give one trace dir with it. --sightings N also keeps up to N earlier observations of the
+// same life that first sighted a cave, vein or lava, so remembered places reach the replayed wake.
 //
 // Each trace dir (searched recursively) is a folder holding quality-protocol.jsonl (preferred) or protocol.jsonl,
 // optionally provider-turns.private.jsonl and player-memory/plans/*.json. Trace paths in the output are relative
@@ -13,12 +18,14 @@ import { pathToFileURL } from 'node:url';
 import { MomentCapture, summarizeMoments } from '../../coordinator/src/decision-eval/capture.mjs';
 
 function parseArgs(argv) {
-	const args = { root: process.cwd(), out: null, cooldownMs: undefined, dirs: [] };
+	const args = { root: process.cwd(), out: null, cooldownMs: undefined, at: null, sightings: 0, dirs: [] };
 	for (let i = 0; i < argv.length; i++) {
 		const arg = argv[i];
 		if (arg === '--root') args.root = argv[++i];
 		else if (arg === '--out') args.out = argv[++i];
 		else if (arg === '--cooldown-ms') args.cooldownMs = Number(argv[++i]);
+		else if (arg === '--at') args.at = argv[++i];
+		else if (arg === '--sightings') args.sightings = Number(argv[++i]);
 		else if (arg === '--help' || arg === '-h') args.help = true;
 		else args.dirs.push(arg);
 	}
@@ -58,12 +65,12 @@ export function readRecordedPlan(dir) {
 	return { steps: plans[0].plan.steps.map((step) => ({ ...step, status: step.check || ['inventory', 'world'].includes(step.kind) ? 'pending' : step.status })) };
 }
 
-export async function captureTrace({ dir, protocol }, { root, cooldownMs } = {}) {
+export async function captureTrace({ dir, protocol }, { root, cooldownMs, pinned = [], sightings = 0 } = {}) {
 	const relative = path.relative(root, dir).split(path.sep).join('/') || '.';
 	const base = path.basename(protocol);
 	const trace = ['quality-protocol.jsonl', 'protocol.jsonl'].includes(base) ? relative : `${relative}/${base}`;
 	const turns = readJsonl(path.join(dir, 'provider-turns.private.jsonl'));
-	const capture = new MomentCapture({ trace, turns, options: cooldownMs ? { cooldownMs } : {} });
+	const capture = new MomentCapture({ trace, turns, options: { ...(cooldownMs ? { cooldownMs } : {}), ...(sightings > 0 ? { sightingObservations: sightings } : {}) }, pinned });
 	const lines = readline.createInterface({ input: fs.createReadStream(protocol), crlfDelay: Infinity });
 	let line = 0;
 	for await (const text of lines) {
@@ -88,11 +95,13 @@ async function main() {
 		process.exit(args.help ? 0 : 2);
 	}
 	const root = path.resolve(args.root);
+	const pinned = args.at === null ? [] : JSON.parse(fs.readFileSync(args.at, 'utf8'));
+	if (args.at !== null && args.dirs.length !== 1) { process.stderr.write('--at needs exactly one trace dir\n'); process.exit(2); }
 	const out = fs.createWriteStream(args.out);
 	const report = [];
 	for (const start of args.dirs) {
 		for (const trace of findTraceDirs(path.resolve(start))) {
-			const { trace: name, moments, stats } = await captureTrace(trace, { root, cooldownMs: args.cooldownMs });
+			const { trace: name, moments, stats } = await captureTrace(trace, { root, cooldownMs: args.cooldownMs, pinned, sightings: args.sightings });
 			for (const moment of moments) out.write(`${JSON.stringify(moment)}\n`);
 			report.push({ trace: name, ...summarizeMoments(moments), stats });
 			process.stderr.write(`${name}: ${moments.length} moments (${stats.observations} observations, ${stats.failures} failures, ${stats.deaths} deaths)\n`);

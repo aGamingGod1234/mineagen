@@ -4,11 +4,14 @@
 // activateQualitySetup, kills it with /kill, respawns it with the agent's own respawn action, and reports where vanilla
 // put it (the bed, or the world spawn). No model call is made.
 // Launch under slot.sh live (SLOT_PORT_BASE) with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME set.
+// FIXTURE_TICK_RATE only shortens the waits in which the fixture sends nothing (invulnerability, the kill, the respawn
+// screen) with s.idleSleep: the same game time at the raised rate. The rest runs at 20 TPS, the respawn included (it
+// loads the bed's chunk, which is wall-clock work), and the wait after forceload stays wall time for the same reason.
 import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { applyQualitySetup, activateQualitySetup } from '../../coordinator/src/benchmark/quality-scenarios.mjs';
-import { boot } from './watch-replay.mjs';
+import { boot, fixtureTickRate } from './watch-replay.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
@@ -23,8 +26,8 @@ await mkdir(out, { recursive: true });
 if ((await readdir(out)).length) throw new Error('Use a fresh output directory');
 const sleep = ms => new Promise(done => setTimeout(done, ms));
 const AGENT = 'Probe';
-const result = { checkpoint: path.basename(checkpointFile), bed };
-const s = await boot(out, { jar: path.resolve(jarArg ?? path.join(root, MOD_JAR)), template, port, world: null, seed: checkpoint.seed });
+const result = { checkpoint: path.basename(checkpointFile), bed, tickRate: fixtureTickRate() };
+const s = await boot(out, { jar: path.resolve(jarArg ?? path.join(root, MOD_JAR)), template, port, world: null, seed: checkpoint.seed, tickRate: fixtureTickRate() });
 const pos = async () => String(await s.command(`data get entity ${AGENT} Pos`)).match(/\[\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?\]/)?.slice(1).map(Number) ?? null;
 try {
 	let e = null;
@@ -52,13 +55,13 @@ try {
 	const dead = s.inbox.wait('goal_control', g => g.payload.operation === 'dead', 20000).catch(() => null);
 	// A body just placed in another dimension is invulnerable for 60 ticks (vanilla), which turned /kill into nothing.
 	result.gameMode = await s.command(`data get entity ${AGENT} playerGameType`);
-	await sleep(4000);
+	await s.idleSleep(4000);
 	result.kill = await s.command(`kill ${AGENT}`);
-	await sleep(500);
+	await s.idleSleep(500);
 	result.healthAfterKill = await s.command(`data get entity ${AGENT} Health`);
 	if (/: [1-9][\d.]*f/.test(result.healthAfterKill)) result.damage = await s.command(`damage ${AGENT} 1000 minecraft:out_of_world`);
 	result.deadSeen = (await dead) !== null;
-	await sleep(1500);
+	await s.idleSleep(1500);
 	result.respawnAction = await s.act('respawn', {}).then(r => ({ state: r.state, reasonCode: r.reasonCode ?? null, message: r.message ?? null })).catch(error => ({ error: error.message }));
 	let at = null, dimension = null;
 	for (let i = 0; i < 50; i++) {
@@ -71,6 +74,7 @@ try {
 	// The head is one block east of the foot; vanilla stands the body up beside the bed.
 	result.distanceToBed = at ? Math.round(Math.hypot(at[0] - (bed[0] + 1), at[2] - (bed[2] + 0.5)) * 10) / 10 : null;
 	result.atBed = /overworld/.test(dimension) && result.distanceToBed !== null && result.distanceToBed <= 3;
+	result.tick = { rate: s.tickRate, held: await s.tickReport() };
 } catch (error) {
 	result.error = String(error?.stack ?? error);
 } finally {

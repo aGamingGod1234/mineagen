@@ -11,6 +11,9 @@
 //   8. a full inventory fires a stop rule mid-walk: the body holds, the walk is cancelled (as the coordinator does), and
 //      the report asks to wake the model.
 // Always launch under slot.sh live; ports come from SLOT_PORT_BASE. Operator commands build fixtures and spawn mobs only.
+// FIXTURE_TICK_RATE (test only): each check's setup (building, items, rules) runs at 20 TPS; its play, from the summon,
+// teleport into water or first action to its last read, runs at the fixture rate with its windows in game time (now,
+// rate.clock.sleep). results[name].tick holds the rates.
 import { readFile, writeFile, mkdir, cp, readdir, unlink, open } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,6 +23,8 @@ import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
+import { handRolledTickRate } from './lib/fixture-play.mjs';
+import { unshownTickRate } from './watch-replay.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const out = resolve(process.argv[2] ?? 'runtime/reflex-core-live');
@@ -53,7 +58,8 @@ class Inbox {
 	}
 }
 
-let rcon, bridge, record, observation, inbox, revision = 0, ordinal = 0;
+let rcon, bridge, record, observation, inbox, revision = 0, ordinal = 0, rate;
+const now = () => rate.clock.now();
 const agent = 'Reflex';
 const timeline = [];
 const command = async (text) => {
@@ -90,11 +96,12 @@ let o;
 try {
 	for (let attempt = 0; attempt < 150; attempt += 1) { try { rcon = new HeadlessRconClient({ host: '127.0.0.1', port: port + 1, password: secret, connectTimeoutMs: 500, commandTimeoutMs: 5000 }); await rcon.connect(); break; } catch (error) { await rcon?.close(); if (attempt === 149) throw error; await sleep(1000); } }
 	bridge = new MultiplexedServerBridge({ port, secret }, {}); inbox = new Inbox(bridge);
+	rate = handRolledTickRate(text => command(text), bridge, agent, { tickRate: unshownTickRate('it already fails at 20 TPS, so an A/B cannot show the same game at 60') });
 	bridge.on('observation', (event) => {
 		if (event.agentId !== record?.agentId || !event.payload.ready) return;
 		observation = event.payload;
 		const firing = event.payload.reflexes?.firing;
-		timeline.push({ at: Date.now(), firing: firing?.id ?? null, action: event.payload.currentAction?.active ? event.payload.currentAction.actionId ?? true : false, health: event.payload.player?.health, incoming: (event.payload.incomingProjectiles ?? []).map((row) => `${row.type}@${row.etaSeconds}`), yaw: event.payload.view?.yaw, air: event.payload.player?.air, y: event.payload.position?.y });
+		timeline.push({ at: now(), firing: firing?.id ?? null, action: event.payload.currentAction?.active ? event.payload.currentAction.actionId ?? true : false, health: event.payload.player?.health, incoming: (event.payload.incomingProjectiles ?? []).map((row) => `${row.type}@${row.etaSeconds}`), yaw: event.payload.view?.yaw, air: event.payload.player?.air, y: event.payload.position?.y });
 	});
 	// Follow goal revisions (the accepted goal spec bumps it); reflex rules are not tied to a revision.
 	bridge.on('message', (event) => {
@@ -110,14 +117,14 @@ try {
 	const ready = inbox.wait('ready'); bridge.start(); await ready;
 	await bridge.send('catalog_snapshot', 'server', { refreshedAtEpochMs: Date.now(), models: [{ provider: 'codex', model: 'gpt-6.1-sol', id: 'gpt-6.1-sol', displayName: 'Provider-free reflex fixture', reasoningEfforts: ['low'], serviceTiers: ['default'] }] });
 	await command('difficulty normal'); await command('gamerule minecraft:send_command_feedback false'); await command('gamerule minecraft:spawn_mobs false');
-	await command('time set noon'); await command('forceload add -32 -32 48 48'); await sleep(2000);
+	await command('time set noon'); await command('forceload add -32 -32 48 48'); await rate.idleSleep(2000);
 	await command('fill -24 75 -24 40 95 40 minecraft:air'); await command('fill -24 79 -24 40 79 40 minecraft:stone');
 	const registered = inbox.wait('agent_registered'); console.log(await command(`execute positioned 0.5 80 0.5 run mineagen summon gpt-6.1-sol low ${agent}`));
 	const summoned = await registered; record = { ...(summoned.payload.record ?? summoned.payload), agentId: summoned.agentId };
 	await bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false });
 	const started = inbox.wait('goal_control', (event) => event.payload.operation === 'start'); await command(`mineagen start ${agent} Survive for 1200 seconds.`); record.goalRevision = (await started).payload.goalRevision;
 	await bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false });
-	await sleep(2000); await observe();
+	await rate.idleSleep(2000); await observe();
 	await command(`gamemode survival ${agent}`); await command(`clear ${agent}`);
 	await command(`effect give ${agent} minecraft:saturation 5 10 true`);
 
@@ -127,12 +134,14 @@ try {
 		await observe();
 		o = await setReflexes([{ id: 'blaze-shield', kind: 'stance', priority: 7, when: { type: 'hostile_near', within: 16, mobs: ['blaze'] }, do: { type: 'shield' }, maxS: 20 }]);
 		const healthBefore = health(o);
+		const played = await rate.play();
 		await command('summon minecraft:blaze 0.5 81 9.5');
-		await sleep(15000);
+		await rate.clock.sleep(15000);
 		o = await observe();
+		const tick = await played();
 		const shieldRows = events(o, 'blaze-shield');
-		results.blazeShield = { firingNow: o.reflexes?.firing ?? null, events: shieldRows, healthBefore, healthAfter: health(o) };
-		await command('kill @e[type=minecraft:blaze]'); await command('kill @e[type=minecraft:small_fireball]'); await sleep(1500);
+		results.blazeShield = { firingNow: o.reflexes?.firing ?? null, events: shieldRows, healthBefore, healthAfter: health(o), tick };
+		await command('kill @e[type=minecraft:blaze]'); await command('kill @e[type=minecraft:small_fireball]'); await rate.idleSleep(1500);
 		o = await observe();
 		const blazeReports = [...events(o, 'blaze-shield'), ...(o.reflexes?.firing?.id === 'blaze-shield' ? [o.reflexes.firing] : [])];
 		results.blazeShield.after = events(o, 'blaze-shield');
@@ -149,20 +158,22 @@ try {
 		const healthBefore = health(o);
 		const from = timeline.length;
 		const lastSeq = Math.max(0, ...(o.reflexes?.events ?? []).map((row) => row.seq ?? 0));
+		const played = await rate.play();
 		await command('summon minecraft:blaze 0.5 81 6.5 {NoAI:1b}');
 		await command('summon minecraft:blaze 0.5 81 -11.5');
 		// Prove the rear blaze fired: sample live fireballs north of the body (the side it shoots from).
 		let shotSamples = 0;
-		for (const end = Date.now() + 15000; Date.now() < end; await sleep(250)) {
+		for (const end = now() + 15000; now() < end; await rate.clock.sleep(250)) {
 			if (/passed/i.test(await command('execute if entity @e[type=minecraft:small_fireball,z=-16,dz=16.4,x=-8,dx=16,y=72,dy=16]'))) shotSamples += 1;
 		}
 		o = await observe();
+		const tick = await played();
 		const lowest = Math.min(healthBefore, ...timeline.slice(from).map((row) => row.health).filter(Number.isFinite));
 		const rows = [...events(o, 'blaze-shield').filter((row) => row.seq > lastSeq), ...(o.reflexes?.firing?.id === 'blaze-shield' ? [o.reflexes.firing] : [])];
 		const blocked = rows.reduce((sum, row) => sum + Number(/blocked (\d+)/.exec(row.detail ?? '')?.[1] ?? 0), 0);
-		results.blazeBehindShield = { rows, blocked, shotSamples, healthBefore, lowest, healthAfter: health(o) };
+		results.blazeBehindShield = { rows, blocked, shotSamples, healthBefore, lowest, healthAfter: health(o), tick };
 		results.blazeBehindShield.pass = shotSamples > 0 && blocked > 0 && lowest >= healthBefore;
-		await command('kill @e[type=minecraft:blaze]'); await command('kill @e[type=minecraft:small_fireball]'); await sleep(1500);
+		await command('kill @e[type=minecraft:blaze]'); await command('kill @e[type=minecraft:small_fireball]'); await rate.idleSleep(1500);
 		await command(`effect give ${agent} minecraft:instant_health 1 3 true`);
 		await setReflexes([]);
 	}
@@ -176,12 +187,14 @@ try {
 			{ id: 'arrow-shield', priority: 8, when: { type: 'incoming_projectile', withinS: 2, projectiles: ['arrow'] }, do: { type: 'shield' }, maxS: 3 },
 		]);
 		const before = health(o);
+		const played = await rate.play();
 		await command('summon minecraft:skeleton 0.5 80 14.5');
-		await sleep(15000);
+		await rate.clock.sleep(15000);
 		o = await observe();
+		const tick = await played();
 		const current = o.reflexes?.firing;
-		results.arrowShield = { firingNow: current ?? null, events: [...events(o, 'skeleton-shield'), ...events(o, 'arrow-shield')], healthBefore: before, health: health(o) };
-		await command('kill @e[type=minecraft:skeleton]'); await command('kill @e[type=minecraft:arrow]'); await sleep(1000);
+		results.arrowShield = { firingNow: current ?? null, events: [...events(o, 'skeleton-shield'), ...events(o, 'arrow-shield')], healthBefore: before, health: health(o), tick };
+		await command('kill @e[type=minecraft:skeleton]'); await command('kill @e[type=minecraft:arrow]'); await rate.idleSleep(1000);
 		o = await observe();
 		const rows = [...events(o, 'skeleton-shield'), ...events(o, 'arrow-shield'), ...(current ? [current] : [])];
 		results.arrowShield.after = rows;
@@ -200,13 +213,15 @@ try {
 		await command('setblock 0 80 2 minecraft:stone'); await command('setblock 0 81 2 minecraft:stone');
 		o = await setReflexes([{ id: 'tool-swap', when: { type: 'tool_broke', tool: 'pickaxe' }, do: { type: 'select', tool: 'pickaxe' } }]);
 		if (o.inventory?.selectedSlot !== 0) throw new Error(`expected hotbar 0 selected, got ${o.inventory?.selectedSlot}`);
+		const played = await rate.play();
 		const first = await (await startAction('break_block', { x: 0, y: 81, z: 2, timeoutMs: 15000 })).result;
-		await sleep(400);
+		await rate.clock.sleep(400);
 		o = await observe();
 		const afterBreak = o.inventory?.selectedSlot;
 		const second = await (await startAction('break_block', { x: 0, y: 80, z: 2, timeoutMs: 15000 })).result;
 		o = await observe();
-		results.toolSwap = { firstBreak: first.state, selectedAfterBreak: afterBreak, secondBreak: second.state, events: events(o, 'tool-swap'), held: o.inventory?.selectedItem };
+		const tick = await played();
+		results.toolSwap = { firstBreak: first.state, selectedAfterBreak: afterBreak, secondBreak: second.state, events: events(o, 'tool-swap'), held: o.inventory?.selectedItem, tick };
 		results.toolSwap.pass = first.state === 'SUCCEEDED' && afterBreak === 3 && second.state === 'SUCCEEDED' && events(o, 'tool-swap').some((row) => row.outcome === 'done');
 
 	}
@@ -215,17 +230,19 @@ try {
 		await command('fill 5 76 5 9 80 5 minecraft:stone'); await command('fill 5 76 9 9 80 9 minecraft:stone'); await command('fill 5 76 5 5 80 9 minecraft:stone'); await command('fill 9 76 5 9 80 9 minecraft:stone');
 		await command('fill 6 76 6 8 80 8 minecraft:water');
 		o = await setReflexes([{ id: 'air', priority: 9, when: { type: 'air_below', bubbles: 4 }, do: { type: 'swim_up' }, maxS: 8 }]);
+		const played = await rate.play();
 		await command(`tp ${agent} 7.5 76 7.5 0 0`);
-		const deadline = Date.now() + 25000;
+		const deadline = now() + 25000;
 		let lowestAir = 300;
-		while (Date.now() < deadline) {
+		while (now() < deadline) {
 			o = await observe();
 			lowestAir = Math.min(lowestAir, o.player?.air ?? 300);
 			if (events(o, 'air').some((row) => row.outcome === 'done')) break;
-			await sleep(500);
+			await rate.clock.sleep(500);
 		}
-		await sleep(1500); o = await observe();
-		results.swimUp = { events: events(o, 'air'), lowestAir, y: o.position?.y, air: o.player?.air, health: health(o) };
+		await rate.clock.sleep(1500); o = await observe();
+		const tick = await played();
+		results.swimUp = { events: events(o, 'air'), lowestAir, y: o.position?.y, air: o.player?.air, health: health(o), tick };
 		results.swimUp.pass = events(o, 'air').some((row) => row.outcome === 'done' && /surfaced/.test(row.detail ?? '')) && (o.player?.air ?? 0) > lowestAir;
 		await command(`tp ${agent} 0.5 80 0.5 0 0`); await command(`effect give ${agent} minecraft:instant_health 1 3 true`);
 
@@ -235,15 +252,17 @@ try {
 		await command('fill -2 80 -2 2 82 34 minecraft:air'); await command('fill -2 79 -2 2 79 34 minecraft:stone');
 		await command(`item replace entity ${agent} hotbar.2 with minecraft:bread 4`);
 		o = await setReflexes([{ id: 'snack', priority: 4, when: { type: 'hunger_below', value: 17 }, do: { type: 'eat' }, maxS: 4 }]);
-		await command(`tp ${agent} 0.5 80 0.5 0 0`); await sleep(500); await observe();
+		await command(`tp ${agent} 0.5 80 0.5 0 0`); await rate.idleSleep(500); await observe();
+		const played = await rate.play();
 		const walk = await startAction('move_to', { x: 0.5, y: 80, z: 32.5, tolerance: 0.8, sprint: false });
-		await sleep(1500);
+		await rate.clock.sleep(1500);
 		await command(`effect give ${agent} minecraft:hunger 6 255 true`);
 		const walked = await walk.result;
 		o = await observe();
+		const tick = await played();
 		const firingSamples = timeline.filter((row) => row.firing === 'snack');
 		results.resume = { moveResult: walked.state, reasonCode: walked.reasonCode, events: events(o, 'snack'), z: o.position?.z,
-			firingSamples: firingSamples.length, actionActiveWhileFiring: firingSamples.every((row) => row.action !== false) && firingSamples.length > 0 };
+			firingSamples: firingSamples.length, actionActiveWhileFiring: firingSamples.every((row) => row.action !== false) && firingSamples.length > 0, tick };
 		results.resume.pass = walked.state === 'SUCCEEDED' && events(o, 'snack').some((row) => row.outcome === 'done' && /ate minecraft:bread/.test(row.detail ?? '')) && results.resume.actionActiveWhileFiring;
 
 	}
@@ -261,10 +280,12 @@ try {
 		await command(`item replace entity ${agent} inventory.11 with minecraft:stone_pickaxe`);
 		o = await setReflexes([{ id: 'fresh-pick', priority: 4, when: { type: 'tool_low', uses: 3, tool: 'pickaxe' }, do: { type: 'select', tool: 'pickaxe' } }]);
 		const breaks = [];
+		const played = await rate.play();
 		for (const [x, y] of [[10, 81], [10, 80], [11, 81], [11, 80]]) breaks.push((await (await startAction('break_block', { x, y, z: 2, timeoutMs: 15000 })).result).state);
-		await sleep(500); o = await observe();
+		await rate.clock.sleep(500); o = await observe();
+		const tick = await played();
 		const wooden = (o.inventory?.items ?? []).find((row) => row.itemId === 'minecraft:wooden_pickaxe');
-		results.toolWear = { breaks, events: events(o, 'fresh-pick'), selectedSlot: o.inventory?.selectedSlot, held: o.inventory?.selectedItem, wooden, slot20: slotItem(o, 20) };
+		results.toolWear = { breaks, events: events(o, 'fresh-pick'), selectedSlot: o.inventory?.selectedSlot, held: o.inventory?.selectedItem, wooden, slot20: slotItem(o, 20), tick };
 		results.toolWear.pass = breaks.every((state) => state === 'SUCCEEDED') && o.inventory?.selectedItem === 'minecraft:stone_pickaxe'
 			&& wooden !== undefined && events(o, 'fresh-pick').some((row) => row.outcome === 'done' && /from inventory slot 20/.test(row.detail ?? ''));
 	}
@@ -277,11 +298,13 @@ try {
 		await command(`tp ${agent} -9.5 80 0.5 0 20`);
 		await command(`item replace entity ${agent} hotbar.${(await observe()).inventory?.selectedSlot ?? 0} with minecraft:stone_pickaxe`);
 		o = await setReflexes([{ id: 'loot', priority: 3, when: { type: 'item_nearby', within: 5, items: ['cobblestone'] }, do: { type: 'pickup', within: 5 }, cooldownS: 0.5 }]);
+		const played = await rate.play();
 		const first = await (await startAction('break_block', { x: -10, y: 80, z: 3, timeoutMs: 15000 })).result;
 		const second = await (await startAction('break_block', { x: -9, y: 80, z: 3, timeoutMs: 15000 })).result;
-		const deadline = Date.now() + 10000;
-		while (Date.now() < deadline) { o = await observe(); if (countOf(o, 'minecraft:cobblestone') >= 2 && !o.reflexes?.firing) break; await sleep(300); }
-		results.dropPickup = { first: first.state, second: second.state, cobblestone: countOf(o, 'minecraft:cobblestone'), events: events(o, 'loot'), position: o.position };
+		const deadline = now() + 10000;
+		while (now() < deadline) { o = await observe(); if (countOf(o, 'minecraft:cobblestone') >= 2 && !o.reflexes?.firing) break; await rate.clock.sleep(300); }
+		const tick = await played();
+		results.dropPickup = { first: first.state, second: second.state, cobblestone: countOf(o, 'minecraft:cobblestone'), events: events(o, 'loot'), position: o.position, tick };
 		results.dropPickup.pass = first.state === 'SUCCEEDED' && second.state === 'SUCCEEDED' && countOf(o, 'minecraft:cobblestone') >= 2
 			&& events(o, 'loot').some((row) => row.outcome === 'done' && /picked up/.test(row.detail ?? ''));
 	}
@@ -291,26 +314,29 @@ try {
 		await command('fill -2 80 -2 2 82 34 minecraft:air'); await command('fill -2 79 -2 2 79 34 minecraft:stone');
 		for (let slot = 0; slot < 35; slot += 1) await command(`item replace entity ${agent} ${slot < 9 ? `hotbar.${slot}` : `inventory.${slot - 9}`} with minecraft:dirt 64`);
 		o = await setReflexes([{ id: 'full-stop', priority: 6, when: { type: 'inventory_full' }, do: { type: 'stop' } }]);
-		await command(`tp ${agent} 0.5 80 0.5 0 0`); await sleep(500); await observe();
+		await command(`tp ${agent} 0.5 80 0.5 0 0`); await rate.idleSleep(500); await observe();
+		const played = await rate.play();
 		const walk = await startAction('move_to', { x: 0.5, y: 80, z: 32.5, tolerance: 0.8, sprint: false });
-		await sleep(1500);
+		await rate.clock.sleep(1500);
 		await command(`give ${agent} minecraft:cobblestone 1`);
 		// As the coordinator does for a firing stop rule: cancel the running action while the mod holds the body.
 		let cancelled = false;
-		const deadline = Date.now() + 8000;
-		while (Date.now() < deadline && !cancelled) {
+		const deadline = now() + 8000;
+		while (now() < deadline && !cancelled) {
 			o = await observe();
 			if (o.reflexes?.firing?.id === 'full-stop') { await bridge.send('action_cancel', record.agentId, { goalRevision: record.goalRevision, actionId: walk.id }); cancelled = true; }
-			else await sleep(100);
+			else await rate.clock.sleep(100);
 		}
 		const walked = await walk.result;
-		await sleep(800); o = await observe();
-		results.inventoryFull = { cancelSent: cancelled, moveResult: walked.state, reasonCode: walked.reasonCode, z: o.position?.z, events: events(o, 'full-stop') };
+		await rate.clock.sleep(800); o = await observe();
+		const tick = await played();
+		results.inventoryFull = { cancelSent: cancelled, moveResult: walked.state, reasonCode: walked.reasonCode, z: o.position?.z, events: events(o, 'full-stop'), tick };
 		results.inventoryFull.pass = cancelled && walked.state === 'CANCELLED' && (o.position?.z ?? 99) < 30
 			&& events(o, 'full-stop').some((row) => row.outcome === 'done' && row.wake === true && /stopped the running action/.test(row.detail ?? ''));
 		await command(`clear ${agent}`);
 	}
 	results.status = o?.reflexes;
+	await writeFile(join(out, 'tick.json'), JSON.stringify(await rate.report(), null, 2));
 	await writeFile(join(out, 'results.json'), JSON.stringify(results, null, 2));
 	await writeFile(join(out, 'timeline.json'), JSON.stringify(timeline, null, 1));
 	console.log(JSON.stringify(Object.fromEntries(Object.entries(results).filter(([key]) => key !== 'status').map(([key, value]) => [key, value.pass]))));

@@ -8,6 +8,8 @@ import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
+import { handRolledTickRate } from './lib/fixture-play.mjs';
+import { fixtureSummary, roomVerdict } from './lib/fixture-run.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const out = resolve(process.argv[2] ?? 'runtime/fire-live');
@@ -42,6 +44,10 @@ class Inbox {
 }
 
 let rcon, bridge, record, observation, inbox, revision = 0, ordinal = 0, armed = [];
+// FIXTURE_TICK_RATE (test only): setup runs at 20 TPS; each scenario's play runs at the fixture rate (rate.play) and its
+// windows are game time (now, rate.clock.sleep), so a raised rate plays the same game. results[name].tick holds the rates.
+let rate;
+const now = () => rate.clock.now();
 const agent = 'Fire';
 const timeline = [];
 const command = async (text) => {
@@ -84,11 +90,12 @@ let o;
 try {
 	for (let attempt = 0; attempt < 150; attempt += 1) { try { rcon = new HeadlessRconClient({ host: '127.0.0.1', port: port + 1, password: secret, connectTimeoutMs: 500, commandTimeoutMs: 5000 }); await rcon.connect(); break; } catch (error) { await rcon?.close(); if (attempt === 149) throw error; await sleep(1000); } }
 	bridge = new MultiplexedServerBridge({ port, secret }, {}); inbox = new Inbox(bridge);
+	rate = handRolledTickRate(text => command(text), bridge, agent);
 	bridge.on('observation', (event) => {
 		if (event.agentId !== record?.agentId || !event.payload.ready) return;
 		observation = event.payload;
 		const firing = event.payload.reflexes?.firing;
-		timeline.push({ at: Date.now(), firing: firing?.id ?? null, detail: firing?.detail ?? null, using: event.payload.interaction?.usingItem ?? null, x: event.payload.position?.x, action: event.payload.currentAction?.active ? event.payload.currentAction.actionId ?? true : false, health: event.payload.player?.health, incoming: (event.payload.incomingProjectiles ?? []).map((row) => `${row.type}@${row.etaSeconds}`), yaw: event.payload.view?.yaw, air: event.payload.player?.air, y: event.payload.position?.y });
+		timeline.push({ at: now(), firing: firing?.id ?? null, detail: firing?.detail ?? null, using: event.payload.interaction?.usingItem ?? null, x: event.payload.position?.x, action: event.payload.currentAction?.active ? event.payload.currentAction.actionId ?? true : false, health: event.payload.player?.health, incoming: (event.payload.incomingProjectiles ?? []).map((row) => `${row.type}@${row.etaSeconds}`), yaw: event.payload.view?.yaw, air: event.payload.player?.air, y: event.payload.position?.y });
 	});
 	// Follow goal revisions (the accepted goal spec bumps it); reflex rules are not tied to a revision.
 	bridge.on('message', (event) => {
@@ -104,19 +111,20 @@ try {
 	const ready = inbox.wait('ready'); bridge.start(); await ready;
 	await bridge.send('catalog_snapshot', 'server', { refreshedAtEpochMs: Date.now(), models: [{ provider: 'codex', model: 'gpt-6.1-sol', id: 'gpt-6.1-sol', displayName: 'Provider-free reflex fixture', reasoningEfforts: ['low'], serviceTiers: ['default'] }] });
 	await command('difficulty normal'); await command('gamerule minecraft:send_command_feedback false'); await command('gamerule minecraft:spawn_mobs false');
-	await command('time set noon'); await command('forceload add -32 -32 48 48'); await sleep(2000);
+	await command('time set noon'); await command('forceload add -32 -32 48 48'); await rate.idleSleep(2000);
 	await command('fill -24 75 -24 40 95 40 minecraft:air'); await command('fill -24 79 -24 40 79 40 minecraft:stone');
 	const registered = inbox.wait('agent_registered'); console.log(await command(`execute positioned 0.5 80 0.5 run mineagen summon gpt-6.1-sol low ${agent}`));
 	const summoned = await registered; record = { ...(summoned.payload.record ?? summoned.payload), agentId: summoned.agentId };
 	await bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false });
 	const started = inbox.wait('goal_control', (event) => event.payload.operation === 'start'); await command(`mineagen start ${agent} Survive for 1200 seconds.`); record.goalRevision = (await started).payload.goalRevision;
 	await bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false });
-	await sleep(2000); await observe();
+	await rate.idleSleep(2000); await observe();
 	await command(`gamemode survival ${agent}`); await command(`clear ${agent}`);
 	await command(`effect give ${agent} minecraft:saturation 5 10 true`);
 
 
 	const reset = async () => {
+		await rate.normalRate();
 		await command('kill @e[type=!minecraft:player]');
 		// Each fill stays under vanilla's 32,768-block limit (a larger one is refused and leaves the last fixture standing).
 		for (const fill of ['-12 80 -12 20 90 24 minecraft:air', '-12 79 -12 20 79 24 minecraft:stone', '-2 70 -1 2 78 6 minecraft:stone']) {
@@ -126,7 +134,7 @@ try {
 		await command(`effect give ${agent} minecraft:instant_health 1 5 true`); await command(`effect give ${agent} minecraft:saturation 2 10 true`);
 		await command(`clear ${agent}`); await command(`tp ${agent} 0.5 80 0.5 0 0`);
 		await setReflexes([]);
-		await sleep(1000);
+		await rate.idleSleep(1000);
 	};
 	const selected = (name) => only.length === 0 || only.includes(name);
 	// Each scenario runs on its own: a failure is recorded and the next one still runs; results are saved as they come.
@@ -136,10 +144,10 @@ try {
 		if (error) results[name] = { ...(results[name] ?? {}), pass: false, error: String(error?.stack ?? error).slice(0, 400) };
 		await writeFile(join(out, 'results.json'), JSON.stringify(results, null, 2));
 		await writeFile(join(out, 'timeline.json'), JSON.stringify(timeline, null, 1));
-		console.log(`[scenario] ${name}: ${results[name]?.pass ? 'PASS' : 'FAIL'}`);
+		console.log(`[scenario] ${name}: ${roomVerdict(results[name]).verdict}`);
 	};
 	const debug = process.env.REFLEX_DEBUG === '1';
-	const until = async (ms, test) => { const end = Date.now() + ms; while (Date.now() < end) { o = await observe(); if (debug) console.log(`[debug] ${JSON.stringify({ rules: o.reflexes?.rules, firing: o.reflexes?.firing, error: o.reflexes?.error, pos: o.position })}`); if (test(o)) return true; await sleep(debug ? 1000 : 250); } return false; };
+	const until = async (ms, test) => { const end = now() + ms; while (now() < end) { o = await observe(); if (debug) console.log(`[debug] ${JSON.stringify({ rules: o.reflexes?.rules, firing: o.reflexes?.firing, error: o.reflexes?.error, pos: o.position })}`); if (test(o)) return true; await rate.clock.sleep(debug ? 1000 : 250); } return false; };
 	const block = async (x, y, z) => (await command(`execute if block ${x} ${y} ${z} minecraft:air`)).includes('passed') ? 'air' : 'solid';
 	const firingSeen = (id) => timeline.some((row) => row.firing === id);
 	const fireCells = async (spec) => { const reply = await command(`fill ${spec} minecraft:fire replace minecraft:air`); if (/cannot|error|unknown/i.test(reply)) throw new Error(`fire fill refused: ${reply}`); };
@@ -148,7 +156,7 @@ try {
 	// Food below 18 stops natural regeneration, so the health a burn costs shows (reset tops food up to full).
 	const noRegen = async () => { await command(`effect clear ${agent}`); await command(`effect give ${agent} minecraft:hunger 30 255 true`); const drained = await until(20000, (now) => now.player?.foodLevel <= 16); await command(`effect clear ${agent}`); if (!drained) throw new Error(`food still ${o.player?.foodLevel}`); };
 	const fireAt = (now) => now.player?.hazard === 'fire' || now.player?.harm?.source === 'minecraft:in_fire';
-	const sample = (now) => ({ at: Date.now(), x: now.position?.x, z: now.position?.z, health: health(now), harm: now.player?.harm?.source ?? null, hazard: now.player?.hazard ?? null, onFire: now.player?.onFire ?? null, exits: now.player?.harm?.exits ?? now.player?.exits ?? null });
+	const sample = (now) => ({ at: rate.clock.now(), x: now.position?.x, z: now.position?.z, health: health(now), harm: now.player?.harm?.source ?? null, hazard: now.player?.hazard ?? null, onFire: now.player?.onFire ?? null, exits: now.player?.harm?.exits ?? now.player?.exits ?? null });
 
 	// No reflex: the body stays in the fire block and the facts must say so (in_fire, with fire-free exits).
 	if (want('unarmed')) {
@@ -156,12 +164,14 @@ try {
 			await reset(); await netherFloor(); await noRegen();
 			await command(`item replace entity ${agent} armor.chest with minecraft:iron_chestplate`);
 			o = await observe(); const before = health(o);
+			const played = await rate.play();
 			await fireCells('-1 80 -1 1 80 1');
 			const rows = [];
-			const end = Date.now() + 5000;
-			while (Date.now() < end) { o = await observe(); rows.push(sample(o)); await sleep(500); }
+			const end = now() + 5000;
+			while (now() < end) { o = await observe(); rows.push(sample(o)); await rate.clock.sleep(500); }
+			const tick = await played();
 			const inFire = rows.filter((row) => row.harm === 'minecraft:in_fire').length;
-			results.unarmed = { healthBefore: before, health: health(o), rows: rows.filter((_, index) => index % 2 === 0), inFireSamples: inFire, samples: rows.length };
+			results.unarmed = { healthBefore: before, health: health(o), rows: rows.filter((_, index) => index % 2 === 0), inFireSamples: inFire, samples: rows.length, tick };
 			results.unarmed.pass = inFire >= rows.length - 2 && health(o) < before && rows.at(-1).exits?.length > 0;
 			await settle('unarmed');
 		} catch (error) { await settle('unarmed', error); }
@@ -173,13 +183,15 @@ try {
 			o = await setReflexes([{ id: 'flames', priority: 9, when: { type: 'in_fire' }, do: { type: 'leave_fire' }, maxS: 3 }]);
 			const since = Math.max(0, ...(o.reflexes?.events ?? []).map((row) => row.seq ?? 0));
 			const before = health(o);
-			const lit = Date.now();
+			const played = await rate.play();
+			const lit = now();
 			await fireCells('-1 80 -1 1 80 1');
 			const left = await until(8000, (now) => events(now, 'flames').some((row) => (row.seq ?? 0) > since && row.outcome === 'done'));
-			const outAt = Date.now();
-			await sleep(Math.max(0, 5000 - (outAt - lit))); o = await observe();
+			const outAt = now();
+			await rate.clock.sleep(Math.max(0, 5000 - (outAt - lit))); o = await observe();
+			const tick = await played();
 			const mine = events(o, 'flames').filter((row) => (row.seq ?? 0) > since);
-			results.armed = { healthBefore: before, health: health(o), events: mine, outAfterMs: outAt - lit, final: sample(o) };
+			results.armed = { healthBefore: before, health: health(o), events: mine, outAfterMs: outAt - lit, final: sample(o), tick };
 			results.armed.pass = left && mine.some((row) => row.outcome === 'done' && /out of fire/.test(row.detail ?? '')) && !fireAt(o);
 			await setReflexes([]);
 			await settle('armed');
@@ -197,13 +209,15 @@ try {
 			o = await setReflexes([{ id: 'hot', priority: 9, when: { type: 'on_hot_floor' }, do: { type: 'leave_fire' }, maxS: 5 }]);
 			const since = Math.max(0, ...(o.reflexes?.events ?? []).map(row => row.seq ?? 0));
 			const before = health(o);
+			const played = await rate.play();
 			await command(`setblock 0 79 0 ${blockId}`);
-			const began = Date.now();
+			const began = now();
 			const completed = lit ? await until(8000, now => events(now, 'hot').some(row => (row.seq ?? 0) > since && row.outcome === 'done')) : false;
-			const elapsedMs = Date.now() - began;
-			await sleep(2000); o = await observe();
+			const elapsedMs = now() - began;
+			await rate.clock.sleep(2000); o = await observe();
+			const tick = await played();
 			const mine = events(o, 'hot').filter(row => (row.seq ?? 0) > since);
-			results[name] = { healthBefore: before, health: health(o), events: mine, elapsedMs, final: sample(o) };
+			results[name] = { healthBefore: before, health: health(o), events: mine, elapsedMs, final: sample(o), tick };
 			results[name].pass = lit
 				? completed && health(o) > 0 && !mine.some(row => ['failed', 'timeout'].includes(row.outcome))
 					&& o.player?.hazard !== 'hot_floor' && mine.some(row => /out of hot_floor/.test(row.detail ?? ''))
@@ -216,25 +230,28 @@ try {
 		try {
 			await reset(); await netherFloor();
 			await fireCells('0 80 2 0 80 2');
+			const played = await rate.play();
 			const ahead = await (await startAction('break_block', { x: 0, y: 80, z: 2, timeoutMs: 8000 })).result;
 			const aheadGone = (await command('execute if block 0 80 2 minecraft:air')).includes('passed');
 			await fireCells('0 80 0 0 80 0');
-			await sleep(500);
+			await rate.clock.sleep(500);
 			const feet = await (await startAction('break_block', { x: 0, y: 80, z: 0, timeoutMs: 8000 })).result;
 			const feetGone = (await command('execute if block 0 80 0 minecraft:air')).includes('passed');
 			o = await observe();
+			const tick = await played();
 			results.punch = { ahead: { state: ahead.state, reason: ahead.reasonCode, message: String(ahead.message ?? JSON.stringify(ahead.failure ?? '')).slice(0, 300), gone: aheadGone },
-				feet: { state: feet.state, reason: feet.reasonCode, message: String(feet.message ?? JSON.stringify(feet.failure ?? '')).slice(0, 300), gone: feetGone }, final: sample(o) };
+				feet: { state: feet.state, reason: feet.reasonCode, message: String(feet.message ?? JSON.stringify(feet.failure ?? '')).slice(0, 300), gone: feetGone }, final: sample(o), tick };
 			results.punch.pass = aheadGone && feetGone;
 			await settle('punch');
 		} catch (error) { await settle('punch', error); }
 	}
 	results.status = o?.reflexes;
+	await writeFile(join(out, 'tick.json'), JSON.stringify(await rate.report(), null, 2));
 	await writeFile(join(out, 'results.json'), JSON.stringify(results, null, 2));
 	await writeFile(join(out, 'timeline.json'), JSON.stringify(timeline, null, 1));
-	console.log(JSON.stringify(Object.fromEntries(Object.entries(results).filter(([key]) => key !== 'status').map(([key, value]) => [key, value.pass]))));
-	const failed = Object.entries(results).filter(([key, value]) => key !== 'status' && !value.pass).map(([key]) => key);
-	if (failed.length > 0) { console.log(JSON.stringify(results, null, 2)); process.exitCode = 1; }
+	const summary = fixtureSummary(scenarios.map(name => ({ ...results[name], name })));
+	console.log(summary.line);
+	if (summary.status !== 'PASS') { console.log(JSON.stringify(results, null, 2)); process.exitCode = summary.status === 'INVALID' ? 2 : 1; }
 	else console.log('Fire mechanics verified');
 } finally {
 	if (rcon) await command('stop').catch(() => {});

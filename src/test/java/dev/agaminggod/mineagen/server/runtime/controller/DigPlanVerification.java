@@ -83,6 +83,12 @@ public final class DigPlanVerification {
 		assertions++;
 		check(ServerDigController.Pattern.parse(null) == ServerDigController.Pattern.STAIRS_DOWN, "stairs_down is the default pattern");
 		assertions++;
+		check(ServerDigController.Pattern.parse(null, 56, -24) == ServerDigController.Pattern.STAIRS_UP
+				&& ServerDigController.Pattern.parse(null, -40, -24) == ServerDigController.Pattern.STAIRS_DOWN
+				&& ServerDigController.Pattern.parse(null, -24, -24) == ServerDigController.Pattern.STAIRS_DOWN
+				&& ServerDigController.Pattern.parse("stairs_down", 56, -24) == ServerDigController.Pattern.STAIRS_DOWN,
+				"with no pattern, a target y above the feet climbs stairs_up; a named pattern stays as named");
+		assertions++;
 		boolean rejected = false;
 		try {
 			new ServerDigController(ServerDigController.Pattern.STAIRS_DOWN, null, null, null, null, 10, 1000L, 0L, null);

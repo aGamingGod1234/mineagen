@@ -716,6 +716,20 @@ test('scripted gate seed 3: a log search blocked for want of a pickaxe is a fail
 	assert.ok(logSearches <= 3, `${logSearches} log searches`);
 });
 
+test('a whole kit plans as one: one iron need for every item, one table and the shared fuel', () => {
+	const held = new Map([['stone_pickaxe', 1], ['furnace', 1], ['crafting_table', 1]]);
+	const kit = planObtain({ ids: ['iron_pickaxe'], count: 1, also: [{ ids: ['shield'], count: 1 }, { ids: ['bucket'], count: 2 }, { ids: ['flint_and_steel'], count: 1 }] }, { held, seen: new Set() });
+	const iron = kit.needs.filter((need) => need.accept.includes('raw_iron'));
+	assert.equal(iron.length, 1);
+	assert.equal(iron[0].count, 11);
+	assert.equal(kit.fuel.smelts, 11);
+	// The table carried serves every craft; none is made.
+	assert.equal(kit.ops.some((op) => op.outputs.includes('crafting_table')), false);
+	// One item at a time, the same kit is four plans that each count only their own iron.
+	const alone = planObtain({ ids: ['bucket'], count: 2 }, { held, seen: new Set() });
+	assert.equal(alone.needs.find((need) => need.accept.includes('raw_iron')).count, 6);
+});
+
 test('scripted gate seed 2: in a flooded stair, the move off an ore out of reach is back up the way the body came, not tunnels refused in the water', async () => {
 	const body = simulatedBody({ start: { stone_pickaxe: 1, furnace: 1, crafting_table: 1, stick: 2, oak_planks: 8 } });
 	let water = false, searches = 0;

@@ -2,11 +2,16 @@
 // Test-only stand-in. All hunting/building decisions use production player observations.
 // No operator-spawned endermen, forced loot, hidden terrain, or routine exposed to Sol.
 // CHECKPOINT OUT JAR [repeat=1] [gameTicks=24000], under slot.sh live.
+// FIXTURE_TICK_RATE runs the window faster: setup stays at 20 TPS, and the window (already counted in game ticks), the
+// stand-in's waits (THINK_MS too: the body idles that much game time) and its cooldowns and seconds are game time on the
+// fixture clock (s.clock), so a raised rate plays the same game. wallSeconds is wall time; gameSeconds, rates, tick and
+// vanilla damageTaken are recorded beside it.
 import {readFile,writeFile,mkdir,readdir,appendFile} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
-import {boot} from './watch-replay.mjs';
+import {boot,fixtureTickRate} from './watch-replay.mjs';
+import {damageCounter,recordDamageEvidence} from './lib/damage-counter.mjs';
 import {applyQualitySetup,activateQualitySetup} from '../../coordinator/src/benchmark/quality-scenarios.mjs';
 import {adaptObservation} from '../../coordinator/src/observation-adapter.mjs';
 import {validateAction} from '../../coordinator/src/schema.mjs';
@@ -25,8 +30,10 @@ await mkdir(out,{recursive:true});if((await readdir(out)).length)throw Error('Fr
 if(cp.fixtureVersion!==2||cp.setup.expectedBiome!=='minecraft:warped_forest')throw Error('Prepared v2 forest checkpoint required');
 const result={checkpointSha256:createHash('sha256').update(await readFile(checkpointFile)).digest('hex'),seed:cp.seed,repeat,requestedGameTicks:ticks,providerCalls:0,naturalSpawns:true,controllerSha256:createHash('sha256').update(await readFile(fileURLToPath(import.meta.url))).digest('hex'),jarSha256:createHash('sha256').update(await readFile(jar)).digest('hex'),actions:{},refusals:{},fights:[],sightings:0};
 const sleep=ms=>new Promise(r=>setTimeout(r,ms)),seen=new Set(),cooldown=new Map();
-let s,facts,dead=false,active=false,started=0,center,rules=[],lastSave=0,startTicks;
-const save=()=>writeFile(path.join(out,'result.json'),JSON.stringify({...result,dead,wallSeconds:started?(Date.now()-started)/1000:0,sightings:seen.size},null,2)+'\n');
+let s,facts,dead=false,active=false,started=0,wall0=0,center,rules=[],lastSave=0,startTicks,timer=null,readDamage=null,damage0=null;
+// Game time on the fixture clock once the server is up (plain wall time at 20 TPS); started is on it, wall0 is wall time.
+const now=()=>s?.clock?s.clock.now():Date.now();
+const save=()=>writeFile(path.join(out,'result.json'),JSON.stringify({...result,dead,wallSeconds:wall0?(Date.now()-wall0)/1000:0,sightings:seen.size},null,2)+'\n');
 async function observe(){
  const at=Date.now(),next=s.inbox.wait('observation',e=>e.agentId===s.record.agentId&&(e.payload.observedAtEpochMs??0)>=at-50,15000);
  await s.bridge.send('request_observation',s.record.agentId,{goalRevision:s.record.goalRevision});const raw=(await next).payload;s.observation=raw;
@@ -51,13 +58,13 @@ const gaze={id:'gaze',kind:'trigger',priority:9,when:{type:'enderman_gaze',withi
 async function setRules(next){rules=next;await s.setReflexes(rules);}
 async function act(type,args){
  validateAction({type,...args});if(s.observation?.reflexes?.firing&&rules.length)await s.bridge.send('reflex_update',s.record.agentId,{revision:s.revision,rules:normalizeReflexEntries(rules),yield:true});
- result.actions[type]=(result.actions[type]??0)+1;const at=Date.now(),r=await s.act(type,args,type==='fight_until'||args.untilItem?Math.max(args.timeoutMs??0,180000)+20000:65000);
+ result.actions[type]=(result.actions[type]??0)+1;const at=now(),r=await s.act(type,args,type==='fight_until'||args.untilItem?Math.max(args.timeoutMs??0,180000)+20000:65000);
  if(r.state!=='SUCCEEDED')result.refusals[r.reasonCode]=(result.refusals[r.reasonCode]??0)+1;
- await appendFile(path.join(out,'actions.jsonl'),JSON.stringify({seconds:started?(at-started)/1000:0,type,args,state:r.state,reason:r.reasonCode,message:r.message,ms:Date.now()-at})+'\n');await observe();return r;
+ await appendFile(path.join(out,'actions.jsonl'),JSON.stringify({seconds:started?(at-started)/1000:0,type,args,state:r.state,reason:r.reasonCode,message:r.message,ms:now()-at})+'\n');await observe();return r;
 }
 async function select(itemId){const item=facts.inventory.items.find(i=>i.itemId===itemId&&i.count>0);if(!item)return false;
  if(item.slot>8)await act('select_tool',{sourceSlot:item.slot,hotbarSlot:8,expectedItemId:itemId,minRemainingDurability:0});await act('select_item',{itemId});return true;}
-async function scan(){const p=facts.player;for(let i=0;i<8&&!dead;i++){const a=i*Math.PI/4;await act('look_at',{x:p.x+24*Math.cos(a),y:p.y+.15,z:p.z+24*Math.sin(a)});await sleep(100);}}
+async function scan(){const p=facts.player;for(let i=0;i<8&&!dead;i++){const a=i*Math.PI/4;await act('look_at',{x:p.x+24*Math.cos(a),y:p.y+.15,z:p.z+24*Math.sin(a)});await s.clock.sleep(100);}}
 async function go(at){return act('navigate_to',{x:at.x+.5,y:at.y,z:at.z+.5,tolerance:.18,sprint:false,timeoutMs:5000});}
 function seenLava(feet){
  const rows=(facts.blocks??[]).filter(b=>b.blockId==='minecraft:lava').map(b=>({x:b.x,y:b.y,z:b.z}));
@@ -80,7 +87,7 @@ async function canopy(){
   const away=async(from)=>{const dx=feet.x-from.x,dz=feet.z-from.z,yaw=(dx||dz)?Math.atan2(-dx,dz)*180/Math.PI:Math.random()*360-180;
    await act('travel_to',{yaw:Math.max(-180,Math.min(180,yaw)),distance:8,tolerance:1,timeoutMs:20000});};
   if(lava.length){const c=all.reduce((a,b)=>({x:a.x+b.x/all.length,z:a.z+b.z/all.length}),{x:0,z:0});row.outcome='LAVA_NEAR';await away(c);continue;}
-  try{await buildPocket(feet,row);row.outcome='BUILT';result.site={...feet};result.coverBuilt=true;result.coverBuiltAfterSeconds=(Date.now()-started)/1000;await save();return;}
+  try{await buildPocket(feet,row);row.outcome='BUILT';result.site={...feet};result.coverBuilt=true;result.coverBuiltAfterSeconds=(now()-started)/1000;await save();return;}
   catch(error){row.outcome=error.message;const near=seenLava(feet).filter(b=>inFootprint(b,feet));await away(near.length?near[0]:{x:feet.x+Math.random()-.5,z:feet.z+Math.random()-.5});}
  }
  // No site took a pocket (a lava-sea crust refuses every dig): hunt in the open from here, as a player would.
@@ -109,7 +116,7 @@ async function buildPocket(feet,row){
  }
  if(cover.roof<8)throw Error(`ROOF_INCOMPLETE_${cover.roof}`);
  if(!await dig(feet.x,feet.y-1,feet.z))throw Error('POCKET_DIG_FAILED');
- await sleep(600);await observe();center={x:feet.x,y:feet.y-1,z:feet.z};await go(center);
+ await s.clock.sleep(600);await observe();center={x:feet.x,y:feet.y-1,z:feet.z};await go(center);
  if(!await place(feet.x,feet.y+1,feet.z))throw Error('POCKET_UNROOFED');cover.roof++;await select('minecraft:iron_sword');
 }
 // Leaving the pocket for a seen pearl: open the edge cell facing it (its roof and floor), so the body can step up and out
@@ -127,21 +134,22 @@ async function closeExit(e){
  await select('minecraft:iron_sword');
 }
 async function fight(e){
- await go(center);await select('minecraft:iron_sword');const row={atSeconds:(Date.now()-started)/1000,targetId:e.stableId,targetType:e.type,alreadyAngry:!!(e.targetingAgent||e.appearance?.screaming)};
+ await go(center);await select('minecraft:iron_sword');const row={atSeconds:(now()-started)/1000,targetId:e.stableId,targetType:e.type,alreadyAngry:!!(e.targetingAgent||e.appearance?.screaming)};
  if(!row.alreadyAngry){
   // This is the stand-in's explicit choice of exactly one target. Scans retain the higher-priority gaze rule.
-  await setRules([]);await act('look_at',{x:e.x,y:e.y+2.55,z:e.z});await sleep(1100);await observe();
+  await setRules([]);await act('look_at',{x:e.x,y:e.y+2.55,z:e.z});await s.clock.sleep(1100);await observe();
   await act('look_at',{x:facts.player.x,y:facts.player.y-.5,z:facts.player.z+1});await setRules([gaze]);
  }
  // Shield stance only with a shield in the offhand; re-equip a carried one first (a broken shield is gone).
  const shields=facts.inventory.items.filter(i=>i.itemId==='minecraft:shield');let held=shields.some(i=>i.slot==='offhand'||i.slot===40);
  if(!held&&shields.length){await act('equip_item',{sourceSlot:shields[0].slot,targetSlot:'offhand',expectedItemId:'minecraft:shield'});held=facts.inventory.items.some(i=>i.itemId==='minecraft:shield'&&(i.slot==='offhand'||i.slot===40));}
  const r=await act('fight_target',{targetId:e.stableId,pursue:false,shield:held,fleeAtHealth:10,timeoutMs:20000});
- Object.assign(row,{state:r.state,reason:r.reasonCode,message:r.message});result.fights.push(row);cooldown.set(e.stableId,Date.now()+45000);await save();
+ Object.assign(row,{state:r.state,reason:r.reasonCode,message:r.message});result.fights.push(row);cooldown.set(e.stableId,now()+45000);await save();
 }
 async function gameTicks(){const text=await s.command('time query gametime');const m=text.match(/time is (\d+)/i);if(!m)throw Error('GAME_CLOCK_UNAVAILABLE');return Number(m[1]);}
 try{
- s=await boot(out,{jar,template:process.env.ARENA_HEADLESS_SERVER_TEMPLATE,port:Number(process.env.SLOT_PORT_BASE),world:null,seed:cp.seed,spawnMonsters:true,goalTicks:150000});
+ s=await boot(out,{jar,template:process.env.ARENA_HEADLESS_SERVER_TEMPLATE,port:Number(process.env.SLOT_PORT_BASE),world:null,seed:cp.seed,spawnMonsters:true,goalTicks:150000,tickRate:fixtureTickRate()});
+ await s.normalRate();
  const registered=s.inbox.wait('agent_registered',()=>true,45000);
  let summon;for(let i=0;i<20;i++){
   summon=await s.command('execute positioned 0.5 200 0.5 run mineagen summon gpt-6.1-sol low Probe');if(!summon.includes('MODEL_CATALOG_UNAVAILABLE'))break;
@@ -155,8 +163,11 @@ try{
  s.bridge.on('observation',e=>{if(active&&e.agentId===s.record.agentId&&e.payload.status==='PLAYER_DEAD')dead=true;});
  await s.command('tick unfreeze');await s.command('difficulty normal');await observe();
  const shield=facts.inventory.items.find(i=>i.itemId==='minecraft:shield');if(shield)await act('equip_item',{sourceSlot:shield.slot,targetSlot:'offhand',expectedItemId:'minecraft:shield'});
+ // The window is play: raised to the fixture rate until it ends (see finally).
+ readDamage=await damageCounter(text=>s.command(text),'Probe');damage0=await readDamage();
+ await s.fastRate();wall0=Date.now();timer=await s.gameTimer();
  if(STANDIN==='until'){
-  startTicks=await gameTicks();started=Date.now();active=true;result.startedAt=new Date(started).toISOString();result.startGameTicks=startTicks;result.untilCalls=[];
+  startTicks=await gameTicks();started=now();active=true;result.startedAt=new Date(Date.now()).toISOString();result.startGameTicks=startTicks;result.untilCalls=[];
   await select('minecraft:iron_sword');
   while(!dead&&(await gameTicks())-startTicks<ticks){
    await observe();if(dead)break;
@@ -164,13 +175,13 @@ try{
    const held=facts.inventory.items.filter(i=>i.itemId==='minecraft:ender_pearl').reduce((n,i)=>n+i.count,0);
    const leftMs=Math.max(1000,Math.min(600000,(ticks-((await gameTicks())-startTicks))*50));
    const r=await act('fight_until',{mob:'minecraft:enderman',untilItem:'minecraft:ender_pearl',untilCount:held+1,weapon:'sword',fleeAtHealth:8,timeoutMs:leftMs});
-   result.untilCalls.push({atSeconds:(Date.now()-started)/1000,pearlsBefore:held,state:r.state,reason:r.reasonCode,message:String(r.message??'').slice(0,1500)});await save();
+   result.untilCalls.push({atSeconds:(now()-started)/1000,pearlsBefore:held,state:r.state,reason:r.reasonCode,message:String(r.message??'').slice(0,1500)});await save();
    if(r.reasonCode==='AGENT_DEAD')break;
    if(r.reasonCode==='LOW_HEALTH_BAILOUT'&&await select('minecraft:cooked_beef')){await act('use_item',{durationMs:1800,expectedItemId:'minecraft:cooked_beef'});await select('minecraft:iron_sword');}
   }
  }
  if(STANDIN==='roof'){
-  startTicks=await gameTicks();started=Date.now();active=true;result.startedAt=new Date(started).toISOString();result.startGameTicks=startTicks;result.untilCalls=[];
+  startTicks=await gameTicks();started=now();active=true;result.startedAt=new Date(Date.now()).toISOString();result.startGameTicks=startTicks;result.untilCalls=[];
   const food=()=>facts.inventory.items.find(i=>['minecraft:cooked_beef','minecraft:bread'].includes(i.itemId))?.itemId;
   await select('minecraft:iron_sword');
   while(!dead&&(await gameTicks())-startTicks<ticks){
@@ -184,9 +195,9 @@ try{
    let [type,args]=e?['fight_target',{targetId:e.stableId,...common,...(untimed?{timeoutMs:30000}:{})}]:['fight_until',{mob:'minecraft:enderman',...common}];
    if(untimed&&type==='fight_until'){const normalized=validateAction({type,...args});args={...args,timeoutMs:normalized.timeoutMs};}
    args={...args,timeoutMs:Math.min(args.timeoutMs??180000,leftMs)};
-   if(Number(process.env.THINK_MS??0)>0)await sleep(Number(process.env.THINK_MS));
+   if(Number(process.env.THINK_MS??0)>0)await s.clock.sleep(Number(process.env.THINK_MS));
    const r=await act(type,args);
-   result.untilCalls.push({atSeconds:(Date.now()-started)/1000,type,pearlsBefore:held,state:r.state,reason:r.reasonCode,message:String(r.message??'').slice(0,1800)});await save();
+   result.untilCalls.push({atSeconds:(now()-started)/1000,type,pearlsBefore:held,state:r.state,reason:r.reasonCode,message:String(r.message??'').slice(0,1800)});await save();
    if(r.reasonCode==='AGENT_DEAD')break;
    if(['ROOF_BLOCKS_MISSING','ROOF_NOT_BUILT'].includes(r.reasonCode)&&(result.roofStops=(result.roofStops??0)+1)>=3)break;
    if(['NO_TARGET_SEEN','AREA_CLEARED'].includes(r.reasonCode))await scan();
@@ -196,11 +207,11 @@ try{
   // d41-pearls-263: the live model's pattern. Each call waits THINK_MS first (a model turn: the body is idle), eats under
   // 12 health, then fight_target in count mode on the nearest seen enderman (pursue default, roof off), else fight_until.
   // CALL_TIMEOUT_MS / FLEE_AT (d41-big-pearls): the live model's short calls (15-30 s) and fleeAtHealth 10-12.
-  startTicks=await gameTicks();started=Date.now();active=true;result.startedAt=new Date(started).toISOString();result.startGameTicks=startTicks;result.untilCalls=[];
+  startTicks=await gameTicks();started=now();active=true;result.startedAt=new Date(Date.now()).toISOString();result.startGameTicks=startTicks;result.untilCalls=[];
   const think=Number(process.env.THINK_MS??5000),food=()=>facts.inventory.items.find(i=>['minecraft:cooked_beef','minecraft:bread'].includes(i.itemId))?.itemId;
   await select('minecraft:iron_sword');
   while(!dead&&(await gameTicks())-startTicks<ticks){
-   await sleep(think);await observe();if(dead)break;
+   await s.clock.sleep(think);await observe();if(dead)break;
    if((facts.player.foodLevel<18||facts.player.health<12)&&food()&&await select(food())){await act('use_item',{durationMs:1800,expectedItemId:food()});await select('minecraft:iron_sword');if(dead)break;}
    const held=facts.inventory.items.filter(i=>i.itemId==='minecraft:ender_pearl').reduce((n,i)=>n+i.count,0);
    const leftMs=Math.max(1000,Math.min(600000,(ticks-((await gameTicks())-startTicks))*50));
@@ -208,12 +219,12 @@ try{
    const callMs=Number(process.env.CALL_TIMEOUT_MS??0),common={untilItem:'minecraft:ender_pearl',untilCount:held+16,fleeAtHealth:Number(process.env.FLEE_AT??8),timeoutMs:callMs>0?Math.min(leftMs,callMs):leftMs};
    const [type,args]=e?['fight_target',{targetId:e.stableId,pursue:true,...common}]:['fight_until',{mob:'minecraft:enderman',...common}];
    const r=await act(type,args);
-   result.untilCalls.push({atSeconds:(Date.now()-started)/1000,type,pearlsBefore:held,health:facts.player.health,state:r.state,reason:r.reasonCode,message:String(r.message??'').slice(0,1800)});await save();
+   result.untilCalls.push({atSeconds:(now()-started)/1000,type,pearlsBefore:held,health:facts.player.health,state:r.state,reason:r.reasonCode,message:String(r.message??'').slice(0,1800)});await save();
    if(r.reasonCode==='AGENT_DEAD')break;
    if(['NO_TARGET_SEEN','AREA_CLEARED'].includes(r.reasonCode))await scan();
   }
  }
- if(STANDIN!=='until'&&STANDIN!=='roof'&&STANDIN!=='count'){await setRules([gaze]);startTicks=await gameTicks();started=Date.now();active=true;result.startedAt=new Date(started).toISOString();result.startGameTicks=startTicks;await canopy();}
+ if(STANDIN!=='until'&&STANDIN!=='roof'&&STANDIN!=='count'){await setRules([gaze]);startTicks=await gameTicks();started=now();active=true;result.startedAt=new Date(Date.now()).toISOString();result.startGameTicks=startTicks;await canopy();}
  while(STANDIN!=='until'&&STANDIN!=='roof'&&STANDIN!=='count'&&!dead&&(await gameTicks())-startTicks<ticks){
   await observe();if(dead)break;
   const pearl=facts.items.find(i=>i.itemId==='minecraft:ender_pearl'&&i.distance<8);
@@ -222,9 +233,9 @@ try{
   const angry=facts.entities.filter(e=>(e.type==='minecraft:enderman'&&(e.targetingAgent||e.appearance?.screaming))||(e.targetingAgent&&/^minecraft:(piglin|piglin_brute|hoglin|zombified_piglin|magma_cube|skeleton|wither_skeleton)$/.test(e.type)&&e.distance<8)).sort((a,b)=>a.distance-b.distance)[0];
   if(angry){await fight(angry);continue;}
   if(facts.player.foodLevel<18&&await select('minecraft:cooked_beef')){await act('use_item',{durationMs:1800,expectedItemId:'minecraft:cooked_beef'});await select('minecraft:iron_sword');}
-  const next=facts.entities.filter(e=>e.type==='minecraft:enderman'&&e.visible!==false&&e.perceivedBy!=='sound'&&[e.x,e.y,e.z].every(Number.isFinite)&&e.distance>=5&&e.distance<=48&&Math.abs(e.y-center.y)<3&&(cooldown.get(e.stableId)??0)<Date.now()).sort((a,b)=>a.distance-b.distance)[0];
+  const next=facts.entities.filter(e=>e.type==='minecraft:enderman'&&e.visible!==false&&e.perceivedBy!=='sound'&&[e.x,e.y,e.z].every(Number.isFinite)&&e.distance>=5&&e.distance<=48&&Math.abs(e.y-center.y)<3&&(cooldown.get(e.stableId)??0)<now()).sort((a,b)=>a.distance-b.distance)[0];
   if(next){await fight(next);continue;}
-  await scan();await sleep(300);if(Date.now()-lastSave>10000){lastSave=Date.now();await save();}
+  await scan();await s.clock.sleep(300);if(Date.now()-lastSave>10000){lastSave=Date.now();await save();}
  }
  result.elapsedGameTicks=(await gameTicks())-startTicks;result.completedWindow=result.elapsedGameTicks>=ticks&&!dead;result.endPearls=dead?0:facts.inventory.items.filter(i=>i.itemId==='minecraft:ender_pearl').reduce((n,i)=>n+i.count,0);await s.command('save-all flush');
 }catch(error){
@@ -233,9 +244,16 @@ try{
   try{result.elapsedGameTicks=(await gameTicks())-startTicks;result.completedWindow=true;}catch(clockError){result.error=String(clockError.stack??clockError);}
  }else result.error=String(error.stack??error);
 }
-finally{active=false;await s?.stop().catch(()=>{});}
-let statsRead=false;
-for(const f of await readdir(path.join(out,'server/world/players/stats')).catch(()=>[])){statsRead=true;
+finally{
+ active=false;
+ if(timer){
+  try{result.gameSeconds=Math.round((await timer.elapsed())/1000);result.rates=await timer.rates().catch(()=>null);await s.normalRate();
+   recordDamageEvidence(result, damage0,await readDamage());result.tick={rate:s.tickRate,held:await s.tickReport()};}
+  catch(error){result.tickError=String(error.message??error);}
+ }
+ await s?.stop().catch(()=>{});
+}
+for(const f of await readdir(path.join(out,'server/world/players/stats')).catch(()=>[])){
  const stats=JSON.parse(await readFile(path.join(out,'server/world/players/stats',f),'utf8')).stats??{};result.stats=stats;
  result.endermenKilled=stats['minecraft:killed']?.['minecraft:enderman']??0;result.pearlsPickedUp=stats['minecraft:picked_up']?.['minecraft:ender_pearl']??0;result.deaths=stats['minecraft:custom']?.['minecraft:deaths']??0;
 }

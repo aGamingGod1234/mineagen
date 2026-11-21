@@ -1,0 +1,16 @@
+{
+ "description": "Tier-1 decision test: recorded moments per category, graded for the player-like move. Case files live in the private archive at these repository-relative paths.",
+ "corpus": [
+  "coordinator/test/fixtures/decision-eval/train",
+  "coordinator/test/fixtures/decision-eval/tier1"
+ ],
+ "profile": { "provider": "codex", "model": "gpt-6.2-sol", "effort": "low" },
+ "samples": 3,
+ "categories": {
+  "ore-search": { "label": "ore search (first iron, caves)", "families": ["cp2r-ore-search", "iron-sourcing"] },
+  "lava": { "label": "lava (hazard and obsidian source)", "families": ["cp2r-lava", "lava-contact"] },
+  "travel": { "label": "travel and obstacles", "families": ["cp2r-travel", "unreachable-target", "fullgame-route-repair"] },
+  "combat": { "label": "combat (skeletons, creepers, melee)", "families": ["cp2r-combat", "melee-threat-low-health", "creeper-near"] },
+  "food-climb": { "label": "food and climbing out", "families": ["cp2r-food-climb", "hunger", "low-health-recovery"] }
+ }
+}
