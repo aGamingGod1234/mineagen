@@ -2,7 +2,8 @@
 // replaced by a fresh one (same instructions and tools) that starts with this short carry-over; each event already
 // restates the goal, task memory, facts and program state. The model's window is 500k; this is a cost setting. At 64k a
 // session lasted a median of 17 model calls (3.4 minutes of play, 23 resets a game). Replayed over 17 recorded games,
-// 128k gives about 9 resets a game for about 19% more model tokens and about 0.4 s more per decision.
+// 128k gives about 9 resets a game for about 53% more input tokens (nearly all cached), about 19% more cost at proxy
+// prices, and about 0.4 s more per decision.
 export const DEFAULT_CONTEXT_ROTATION_TOKENS = 128_000;
 // Overrides the default for both providers (a token count; 0 never rotates) when the config file sets none.
 export const CONTEXT_ROTATION_TOKENS_ENV = 'MINEAGEN_CONTEXT_ROTATION_TOKENS';
