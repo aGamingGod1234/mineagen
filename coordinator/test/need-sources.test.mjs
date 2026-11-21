@@ -157,10 +157,15 @@ test('the options line lists remembered sources nearest first, then typical ways
 		blocks: [{ blockId: 'minecraft:iron_ore', x: 39, y: 52, z: 3 }, { blockId: 'minecraft:iron_ore', x: -60, y: 10, z: 0 }, { blockId: 'minecraft:iron_ore', x: -61, y: 10, z: 0 }],
 	};
 	const line = needOptions({ ids: ['minecraft:iron_ingot'], position, known });
-	assert.match(line, /^iron: seen iron_ore x4 seen 38m E dy\+36 y52 @38,52,2, iron_ore x2 60m W dy-6 y10 @-60,10,0; possible cave\(air 60\/125\) 30m S dy\+4 y20 @0,20,30; ways \(typical\): exposed ore/);
+	// The nearest seen ore and cave each come with a ready step priced in minutes: a vein mine, a walk in and one look.
+	assert.match(line, /^iron: seen iron_ore x4 seen 38m E dy\+36 y52 @38,52,2, iron_ore x2 60m W dy-6 y10 @-60,10,0; possible cave\(air 60\/125\) 30m S dy\+4 y20 @0,20,30; ready: do_step mine @38,52,2 under 1 min, or travel_to cave @0,20,30 and look in under 1 min; ways \(typical\): exposed ore/);
 	assert.ok(Buffer.byteLength(line) <= OPTIONS_BYTES);
 	assert.doesNotMatch(line.split('; ways')[0], /coal_ore|shipwreck/, 'unrelated ore is not an iron source; the nearest three are shown');
 	assert.match(needOptions({ ids: ['minecraft:iron_ingot'], position, known: null }), /^iron: seen none remembered; ways \(typical\): /);
+	// do_step mine is a vein mine: remembered gravel is listed, never offered as a mine step.
+	const flint = needOptions({ ids: ['minecraft:flint'], position, known: { sightings: [], blocks: [{ blockId: 'minecraft:gravel', x: 3, y: 16, z: 0 }] } });
+	assert.match(flint, /^flint: seen gravel 3m E y16 @3,16,0; ways/);
+	assert.doesNotMatch(flint, /ready:/);
 	const tight = needOptions({ ids: ['minecraft:iron_ingot'], position, known, cap: 200 });
 	assert.ok(Buffer.byteLength(tight) <= 200 && tight.startsWith('iron: seen iron_ore x4 seen 38m E dy+36 y52 @38,52,2, iron_ore x2') && tight.endsWith('...'), 'keep observed alternatives and cut generic advice');
 	assert.doesNotMatch(tight, /none remembered/);
@@ -615,7 +620,10 @@ test('the known line ranks ores, shows cave air and stays within its cap', () =>
 	const line = knownLine({ known: { sightings, blocks: [] }, position: { x: 0, y: 40, z: 0 } });
 	assert.ok(Buffer.byteLength(line) <= KNOWN_BYTES);
 	assert.match(line, /^ores: diamond_ore x1 seen 200m E dy-98 y-58 @200,-58,0, /);
-	assert.match(line, /caves: cave\(air 41\/125\) 20m S dy-10 y30 @0,30,20; places: shipwreck 300m S dy\+20; lava: lava\(source unverified\) 5m N dy-30 y10$/);
+	assert.match(line, /caves: cave\(air 41\/125\) 20m S dy-10 y30 @0,30,20; places: shipwreck 300m S dy\+20; lava: lava\(source unverified\) 5m N dy-30 y10$/, 'a full line keeps its places before the walk time');
+	// With room, the nearest cave in walking reach says how long the walk in takes.
+	assert.equal(knownLine({ known: { sightings: [{ what: 'cave', kind: 'cave', air: 41, x: 0, y: 30, z: 20 }, { what: 'shipwreck', kind: 'structure', x: 0, y: 60, z: 300 }], blocks: [] }, position: { x: 0, y: 40, z: 0 } }),
+		'caves: cave(air 41/125) 20m S dy-10 y30 @0,30,20 walk in under 1 min; places: shipwreck 300m S dy+20');
 	assert.equal(knownLine({ known: { sightings: [], blocks: [] }, position: { x: 0, y: 0, z: 0 } }), null);
 });
 
@@ -779,7 +787,8 @@ const estimates = (line) => [...line.matchAll(/ ~(<1|\d+)(?= |;|$)/g)].map((matc
 
 test('the obsidian options state every way as expected minutes from here, cheapest first', () => {
 	const line = obsidianOptions({ position: { x: 0, y: 16, z: 0 }, items: held(['iron_pickaxe'], ['water_bucket']), cap: 2000 });
-	assert.match(line, /^obsidian: est\. minutes to 10 more frame obsidian from here, cheapest first: dig to the y-55 lava floors ~34 \(71-level dig_to shaft 2 in a few calls, then a search: 6 recorded descents, 2 saw a 64-source pool within 4 min, 4 climbed back after 1-16 min without one; 10 casts 13\); search caves and surface above y-20 ~1780 \(26 recorded games spent 1767 min up there and 1 usable pool came into view; vanilla lakes 1 per 200 chunks surface, 1 per 9 underground\)/);
+	assert.match(line, /^obsidian: est\. minutes to 10 more frame obsidian from here, cheapest first: dig to the y-55 lava floors ~34 \(71-level dig_to shaft 2 in a few calls, then a search: 6 recorded descents, 2 saw a 64-source pool within 4 min, 4 climbed back after 1-16 min without one; 10 casts 13\); water on a lava source casts 1 obsidian in place; vanilla lava lakes: about 1 per 9 chunks underground, 1 per 200 on the surface/);
+	assert.doesNotMatch(line, /1780|1767|search caves and surface/, 'no self-measured cave statistic: it measured our own bot, which rarely entered caves');
 	assert.match(line, /usable = enough still sources \(not flowing or filled\)/);
 	assert.match(line, /aquifer water met while digging refills the bucket(;|$)/);
 	assert.match(obsidianOptions({ position: { x: 0, y: -54, z: 0 }, items: held(['water_bucket']), cap: 2000 }), /cheapest first: lava-floor depth here ~32 \(search: 6 recorded descents, 2 saw a 64-source pool within 4 min, 4 climbed back after 1-16 min without one; 10 casts 13\)/);
@@ -840,27 +849,33 @@ test('the Nether access line keeps every obsidian option and the light within it
 	const line = needOptions({ resources: ['obsidian', 'flint'], basis: 'step nether: Nether access; casting needs no diamond pick', position, known: { sightings, blocks: [] }, items: held(['iron_pickaxe'], ['water_bucket']), cap: NETHER_OPTIONS_BYTES });
 	assert.ok(Buffer.byteLength(line) <= NETHER_OPTIONS_BYTES, `${Buffer.byteLength(line)} bytes`);
 	assert.match(line, / \| flint: /, 'the light still fits');
-	for (const option of ['dig to the y-55 lava floors', 'ruined portal 100m E', 'lit portal 900m S', 'search caves and surface above y-20']) assert.match(line, new RegExp(option), option);
+	for (const option of ['dig to the y-55 lava floors', 'ruined portal 100m E', 'lit portal 900m S']) assert.match(line, new RegExp(option), option);
 	assert.equal((line.match(/lava \d+m/g) ?? []).length, 6, 'every remembered pool stays listed');
 	const values = estimates(line.slice(0, line.indexOf(' | flint')));
 	assert.deepEqual(values, [...values].sort((left, right) => left - right));
 	assert.ok(Buffer.byteLength(needOptions({ ids: ['minecraft:obsidian'], position, known: { sightings, blocks: [] }, items: held(['water_bucket']) })) <= OPTIONS_BYTES);
 });
 
-test('remembered caves are listed beside the obsidian options as where lava lies', () => {
-	const line = obsidianOptions({ position: { x: 0, y: 64, z: 0 }, items: held(['iron_pickaxe'], ['water_bucket']), cap: 2000,
-		known: { sightings: [{ what: 'cave', kind: 'cave', air: 60, x: 30, y: 40, z: 0 }, { what: 'cave', kind: 'cave', air: 40, x: 0, y: 50, z: -90 }] } });
-	assert.match(line, /caves seen: 30m E dy-24 y40, 90m N dy-14 y50 \(lava pools sit in caves; dig_to's look round one names lava in sight\)/);
+test('a seen cave is a way down to lava, priced as a walk in plus the descent from its floor', () => {
+	const position = { x: 0, y: 64, z: 0 };
+	const caves = [{ what: 'cave', kind: 'cave', air: 60, x: 30, y: 40, z: 0 }, { what: 'cave', kind: 'cave', air: 40, x: 0, y: 50, z: -90 }];
+	const line = obsidianOptions({ position, items: held(['iron_pickaxe'], ['water_bucket']), cap: 2000, known: { sightings: caves } });
+	assert.match(line, /cheapest first: cave 30m E dy-24 y40 ~35 \(travel_to @30,40,0, look in <1, pools sit in caves; then dig_to from there 3; 10 casts 13\); dig to the y-55 lava floors ~36 /);
+	assert.doesNotMatch(line, /cave 90m/, 'only the nearest cave: a second crowded pools and portals out of the line');
+	const values = estimates(line);
+	assert.deepEqual(values, [...values].sort((left, right) => left - right));
+	// A cave already at the floors adds nothing to the floor option there.
+	assert.doesNotMatch(obsidianOptions({ position, items: held(['water_bucket']), cap: 2000, known: { sightings: [{ what: 'cave', kind: 'cave', air: 60, x: 5, y: -52, z: 0 }] } }), /cave 5m/);
 });
 
-test('above y-20 the measured search there is an option; at the floors the nearby-pool fact leads the notes', () => {
+test('above y-20 no surface search is priced; at the floors the nearby-pool fact leads the notes', () => {
 	const high = obsidianOptions({ position: { x: 0, y: 64, z: 0 }, items: held(['iron_pickaxe'], ['water_bucket']), cap: 2000 });
-	assert.match(high, /search caves and surface above y-20 ~1780 \(26 recorded games spent 1767 min up there and 1 usable pool came into view/);
-	assert.doesNotMatch(high, /unseen surface lava lake/, 'the measured search above y-20 includes the surface walk');
+	assert.doesNotMatch(high, /search caves and surface|unseen surface lava lake/);
+	assert.match(high, /vanilla lava lakes: about 1 per 9 chunks underground, 1 per 200 on the surface/);
 	assert.doesNotMatch(high, /below y-45 the recorded games/);
 	const deep = obsidianOptions({ position: { x: 0, y: -50, z: 0 }, items: held(['iron_pickaxe'], ['water_bucket']), cap: NETHER_OPTIONS_BYTES });
 	assert.match(deep, /lava-floor depth here ~32 .*below y-45 the recorded games had a 10\+ source pool within 32 blocks at every moment \(median 5\), behind rock until a cave opening or heard lava shows its side/);
-	assert.doesNotMatch(deep, /search caves and surface above/);
+	assert.match(deep, /unseen surface lava lake/, 'deep down the surface lake stays the far option');
 });
 
 test('before the trip down, the respawn fact shows only while a bed is at hand', () => {

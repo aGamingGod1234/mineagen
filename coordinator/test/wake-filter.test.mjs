@@ -150,3 +150,22 @@ test('a running count skill holds its own mob\'s hits, threats and shots; anothe
 	assert.equal(filter.decide('a', { attention: urgent('damage'), observation: sample({ health: 8, attacker: 'minecraft:blaze' }), ownKinds: kinds }).reason, 'health at or below the low floor');
 	assert.match(filter.take('a', sample()), /2 hit\(s\)|1 hit\(s\)/u);
 });
+
+test('a running dig_to or travel_to is woken for the ore or cave the plan needs, once it comes into reach', async () => {
+	const { stepSightingReason } = await import('../src/wake-filter.mjs');
+	const { sightingNeeded } = await import('../src/need-sources.mjs');
+	const iron = sightingNeeded(['iron']), flint = sightingNeeded(['flint']), lava = sightingNeeded(['obsidian']);
+	const view = (sighted, dimension = 'minecraft:overworld') => ({ world: { dimension }, sighted });
+	const vein = { x: 10, y: 20, z: 0, distance: 9, blockId: 'minecraft:iron_ore', visible: 2 };
+	const cave = { x: -12, y: 30, z: 4, distance: 13, air: 62 };
+	assert.equal(stepSightingReason({ step: 'dig_to', observation: view({ veins: [vein] }), needed: iron }), 'iron_ore in view 9 blocks away');
+	assert.equal(stepSightingReason({ step: 'travel_to', observation: view({ caves: [cave] }), needed: iron }), 'cave in reach 13 blocks away @-12,30,4');
+	assert.equal(stepSightingReason({ step: 'dig_to', observation: view({ caves: [cave] }), needed: lava }), 'cave in reach 13 blocks away @-12,30,4', 'lava pools sit in caves');
+	assert.equal(stepSightingReason({ step: 'dig_to', observation: view({ veins: [vein], caves: [cave] }), needed: flint }), null, 'nothing the plan needs');
+	assert.equal(stepSightingReason({ step: 'dig_to', observation: view({ veins: [vein] }), known: [{ ...vein, kind: 'vein', x: 12 }], needed: iron }), null, 'already seen during this step');
+	assert.equal(stepSightingReason({ step: 'dig_to', observation: view({ veins: [{ ...vein, distance: 40 }] }), needed: iron }), null, 'out of reach');
+	assert.equal(stepSightingReason({ step: 'dig_to', observation: view({ caves: [{ ...cave, air: 45 }] }), needed: iron }), null, 'a pocket, not a roomy cave');
+	assert.equal(stepSightingReason({ step: 'dig_to', observation: view({ caves: [{ ...cave, distance: 20 }] }), needed: iron }), null, 'a cave farther than 16 blocks stays news for the next wake');
+	assert.equal(stepSightingReason({ step: 'travel_to', observation: view({ caves: [cave] }, 'minecraft:the_nether'), needed: lava }), null, 'Nether air is no cave lead');
+	assert.equal(stepSightingReason({ step: 'mine_vein', observation: view({ veins: [vein] }), needed: iron }), null, 'only the long walking and digging steps');
+});
