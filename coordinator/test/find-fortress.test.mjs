@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { searchFor } from '../src/find-search.mjs';
-import { MAX_FAILED_LEGS, TURNS, FORTRESS_LEG, BUILD_LEG, AHEAD_MIN, fortressSearch, footingAhead, nextFortressTarget, startHeading, yawToward } from '../src/find-fortress.mjs';
+import { MAX_FAILED_LEGS, TURNS, SEARCH_TURNS, FORTRESS_LEG, BUILD_LEG, AHEAD_MIN, fortressSearch, footingAhead, nextFortressTarget, startHeading, yawToward } from '../src/find-fortress.mjs';
 import { REGION_BLOCKS, searchRegions } from '../src/nether-regions.mjs';
 
 // The wall-breaker contract's hand-back rules for find {structure: fortress} in the Nether, one test each.
@@ -63,9 +63,9 @@ test('walking legs at every turn come first; a short building leg on the bearing
 		onLook: (o, calls) => (calls.length >= 2 ? { structures: [fortressRow] } : null) });
 	const result = await searchFor({ structure: 'fortress' }, body, { timeoutMs: 300_000 });
 	assert.equal(result.reasonCode, 'FIND_SEEN');
-	assert.deepEqual(body.calls.map((call) => call.build), [false, false, false, false, false, true]);
-	assert.equal(new Set(body.calls.slice(0, 5).map((call) => call.yaw)).size, 5, 'five walking headings');
-	const build = body.calls[5], u = { x: -Math.sin(body.calls[0].yaw * Math.PI / 180), z: Math.cos(body.calls[0].yaw * Math.PI / 180) };
+	assert.deepEqual(body.calls.map((call) => call.build), [false, false, false, true]);
+	assert.equal(new Set(body.calls.slice(0, 3).map((call) => call.yaw)).size, 3, 'straight on and 45 each way');
+	const build = body.calls[3], u = { x: -Math.sin(body.calls[0].yaw * Math.PI / 180), z: Math.cos(body.calls[0].yaw * Math.PI / 180) };
 	assert.deepEqual([build.x, build.z], [Math.floor(100.5 + u.x * BUILD_LEG) + 0.5, Math.floor(100.5 + u.z * BUILD_LEG) + 0.5], 'the build aims a short way on along the heading');
 });
 
@@ -112,7 +112,7 @@ test('out of blocks: walking legs that get nowhere hand back OUT_OF_BLOCKS', asy
 	const result = await searchFor({ structure: 'fortress' }, body, { timeoutMs: 300_000 });
 	assert.equal(result.reasonCode, 'FIND_BLOCKED');
 	assert.equal(result.find.stopCode, 'OUT_OF_BLOCKS');
-	assert.equal(body.calls.length, TURNS.length, 'every walking heading, then no blocks to build with');
+	assert.equal(body.calls.length, SEARCH_TURNS.length, 'every walking heading, then no blocks to build with');
 	assert.ok(body.calls.every((call) => call.build === false));
 });
 
@@ -120,7 +120,7 @@ test('out of blocks mid-bridge hands back at once', async () => {
 	const body = bodyFor({ travel: (args) => (args.build ? { result: { state: 'FAILED', reasonCode: 'OUT_OF_BLOCKS', message: 'No plain block left' }, items: blocks(2) } : { result: noRoute }) });
 	const result = await searchFor({ structure: 'fortress' }, body, { timeoutMs: 300_000 });
 	assert.equal(result.find.stopCode, 'OUT_OF_BLOCKS');
-	assert.deepEqual(body.calls.map((call) => call.build), [false, false, false, false, false, true]);
+	assert.deepEqual(body.calls.map((call) => call.build), [false, false, false, true]);
 });
 
 test('no way on: building legs that keep failing turn, then hand back NO_WAY_ON', async () => {
@@ -212,16 +212,16 @@ test('a mob stopping legs is neither progress nor a closed way: the search runs 
 
 test('after five walks and a build on the heading fail, the next legs go to the side; a side that goes on becomes the heading', async () => {
 	const state = {};
-	const body = bodyFor({ state, travel: (args, n) => (n > TURNS.length + 1 ? { result: arrived, go: true } : { result: noRoute }),
-		onLook: (o, calls) => (calls.length >= TURNS.length + 3 ? { structures: [fortressRow] } : null) });
+	const body = bodyFor({ state, travel: (args, n) => (n > SEARCH_TURNS.length + 1 ? { result: arrived, go: true } : { result: noRoute }),
+		onLook: (o, calls) => (calls.length >= SEARCH_TURNS.length + 3 ? { structures: [fortressRow] } : null) });
 	await searchFor({ structure: 'fortress' }, body, { timeoutMs: 300_000 });
 	const first = body.calls[0].yaw;
-	assert.deepEqual(body.calls.slice(0, TURNS.length + 1).map((call) => call.build), [false, false, false, false, false, true]);
-	const side = body.calls[TURNS.length + 1];
+	assert.deepEqual(body.calls.slice(0, SEARCH_TURNS.length + 1).map((call) => call.build), [false, false, false, true]);
+	const side = body.calls[SEARCH_TURNS.length + 1];
 	assert.equal(side.build, false);
 	assert.equal(Math.abs(((side.yaw - first + 540) % 360) - 180), 90, 'a quarter turn');
 	assert.equal(state.fortressHeading, side.yaw);
-	assert.equal(body.calls[TURNS.length + 2].yaw, side.yaw, 'and it keeps going that way');
+	assert.equal(body.calls[SEARCH_TURNS.length + 2].yaw, side.yaw, 'and it keeps going that way');
 });
 
 test('seen ground ahead is walked to before any compass leg, and a footing that cannot be reached is not tried again', async () => {

@@ -28,6 +28,11 @@ const NOT_THE_WAY = new Set(['HOSTILE_NEAR', 'TARGET_ESCAPED', 'TARGET_UNREACHAB
 const VANTAGE_NEW = 48;
 /** Walking headings tried toward one target, off its bearing: 45 degrees each way, then 90. */
 export const TURNS = Object.freeze([0, 45, -45, 90, -90]);
+/**
+ * Walking headings tried on the kept heading before a build: straight on and 45 each way. A walk 90 off cannot move the
+ * farthest point on (live round 1: those took 20-50 s each and slid the body sideways or back down its own tunnel).
+ */
+export const SEARCH_TURNS = Object.freeze([0, 45, -45]);
 const HIGH_GROUND_RISE = 5;
 const HIGH_GROUND_REACH = 32;
 // Look points kept across find calls in this dimension (the trail only keeps 128 16-block sectors).
@@ -153,14 +158,15 @@ export async function searchNetherFortress(ctx) {
 		if (front === null || front.heading !== heading) front = { heading, u: unit(heading), origin: here, point: here, along: 0 };
 		// Seen ground ahead of the farthest point, not just ahead of where a failed walk left the body.
 		const ahead = turn === 0 && footFails < MAX_FOOTING_FAILS ? footingAhead(body.frontier?.(observation)?.candidates, front.point, heading, tried) : null;
-		const build = turn >= TURNS.length;
+		const turns = remembered ? TURNS : SEARCH_TURNS;
+		const build = turn >= turns.length;
 		let args, distance, how;
 		if (ahead !== null) {
 			distance = ahead.distance;
 			args = { x: ahead.x + 0.5, y: ahead.y, z: ahead.z + 0.5, tolerance: 3, build: false };
 			how = `walk to seen ground ${Math.round(ahead.along)} blocks ahead at ${ahead.x},${ahead.y},${ahead.z}`;
 		} else {
-			const yaw = build ? heading : wrap(heading + TURNS[turn]);
+			const yaw = build ? heading : wrap(heading + turns[turn]);
 			distance = build ? BUILD_LEG : remembered ? Math.max(MIN_LEG, Math.min(FORTRESS_LEG, Math.round(target.distance))) : FORTRESS_LEG;
 			// A build leg aims past the farthest point: the way back to it is known ground, so only new rock is dug.
 			args = build ? { x: Math.floor(front.point.x + front.u.x * BUILD_LEG) + 0.5, y: Math.floor(front.point.y + 1e-3), z: Math.floor(front.point.z + front.u.z * BUILD_LEG) + 0.5, tolerance: 3, build }
@@ -189,7 +195,7 @@ export async function searchNetherFortress(ctx) {
 			if (code === 'OUT_OF_BLOCKS' && buildingBlocks(ctx.observation()) < MIN_BUILD_BLOCKS) {
 				return stop('FAILED', 'FIND_BLOCKED', `Out of building blocks while bridging on heading ${Math.round(heading)}: mine netherrack or cobblestone, then find again`, 'OUT_OF_BLOCKS');
 			}
-			if (turn > TURNS.length) {
+			if (turn > turns.length) {
 				// Walled in on this heading even building: turn to the side, then the other side, then back.
 				if (remembered) {
 					return stop('FAILED', 'FIND_BLOCKED', `The fortress seen at ${Math.round(target.x)},${target.y ?? '?'},${Math.round(target.z)} could not be reached: no walk or build toward it got any farther`, 'FORTRESS_UNREACHABLE');
