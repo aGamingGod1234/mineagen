@@ -11,9 +11,9 @@
 // --coordinator names the coordinator to play (its src/ and config/ folders, or a .tgz of coordinator/src and
 // coordinator/config from another commit): the route, the obtain helper and the runtime all come from it, so two arms
 // on one jar compare two coordinators. Default: this checkout's coordinator.
-// Per lane: minutes to the full kit, climbs back to the surface (underground, 12+ blocks under the start, then open sky
-// again without a death between), descents, deaths, blocks mined (vanilla mined stats), every call and the line that
-// named it. One row per seed in result.json; the row passes when every lane held the kit with no death.
+// Per lane: minutes to the full kit, climbs back to the surface (down a mine, under y 50 with no open sky, then open sky
+// within 8 blocks of the start height again without a death between), descents, deaths, blocks mined (vanilla mined
+// scores for the usual blocks, and the dig results' own counts), pickaxe uses, every call and the line that named it. One row per seed in result.json; the row passes when every lane held the kit with no death.
 // Exit code (strict, the default): 0 every lane held the kit with no death, 1 one did not, 2 invalid evidence.
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
@@ -75,8 +75,11 @@ const only = new Set(String(process.env.KIT_SEEDS ?? '').split(',').map(s => s.t
 const seeds = plan.seeds.map(String).filter(seed => only.size === 0 || only.has(seed));
 const results = [];
 const rowsFile = path.join(out, 'runs.jsonl');
-// Underground: this far under the lane's start surface with no open sky above.
-const DEEP = 12;
+// Down a mine: under this height with no open sky above (the route's own test of being below ground).
+const MINE_Y = 50;
+// Vanilla mined scores the lanes are counted by: the blocks a mine or a staircase breaks.
+const MINED = ['stone', 'deepslate', 'cobblestone', 'dirt', 'grass_block', 'gravel', 'sand', 'granite', 'diorite', 'andesite', 'tuff', 'calcite', 'iron_ore', 'deepslate_iron_ore', 'coal_ore', 'deepslate_coal_ore', 'copper_ore', 'deepslate_copper_ore'];
+const PICKAXES = ['wooden', 'stone', 'iron', 'diamond'];
 const REST_MS = 180_000;
 const MEATS = { cow: 'beef', pig: 'porkchop', sheep: 'mutton', chicken: 'chicken' };
 
@@ -110,6 +113,8 @@ for (const [seedIndex, seed] of seeds.entries()) {
 		try { ({ x: sx, z: sz } = parseSavedWorldSpawn(await readFile(path.join(dir, 'server', 'world', 'level.dat')))); }
 		catch (error) { console.log(`[seed ${seed}] spawn unread (${error.message}); ringing 0,0`); }
 		await s.command('difficulty normal');
+		for (const [i, block] of MINED.entries()) await s.command(`scoreboard objectives add km${i} minecraft.mined:minecraft.${block}`);
+		for (const tier of PICKAXES) await s.command(`scoreboard objectives add ku_${tier} minecraft.used:minecraft.${tier}_pickaxe`);
 		await s.command('time set 0');
 		let spotIndex = 0;
 		const nextSpot = () => { const n = spotIndex++; if (n === 0) return [sx, sz]; const ring = Math.floor((n - 1) / 8) + 1, angle = ((n - 1) % 8) * Math.PI / 4 + ring * 0.4; return [Math.round(sx + Math.cos(angle) * SPACING * ring), Math.round(sz + Math.sin(angle) * SPACING * ring)]; };
@@ -232,7 +237,7 @@ async function playLane(s, agent, seed, seedIndex, dir) {
 			const o = agent.latest() ? adaptObservation(agent.latest()) : null;
 			const p = o?.player;
 			if (p && Number.isFinite(p.y) && !(p.health <= 0)) {
-				const deep = p.y < startY - DEEP && p.skyOpen === false;
+				const deep = p.y < MINE_Y && p.skyOpen === false;
 				const up = p.skyOpen === true && p.y >= startY - 8;
 				if (deep && under === null) { under = { at: minutes(), deepest: p.y, deaths: lastDeaths }; result.descents += 1; }
 				if (under !== null) under.deepest = Math.min(under.deepest, p.y);
@@ -340,17 +345,11 @@ async function playLane(s, agent, seed, seedIndex, dir) {
 	result.deaths = deathResult.valid ? Math.max(deathResult.deaths, result.deathsAt.length) : null;
 	result.end = await pos();
 	result.inventory = String(await s.command(`data get entity ${name} Inventory`)).slice(0, 1500);
-	// Blocks mined and pickaxe uses from the body's vanilla statistics, saved to disk.
-	try {
-		const uuid = await s.command(`data get entity ${name} UUID`);
-		const ints = (/\[I;\s*(-?\d+),\s*(-?\d+),\s*(-?\d+),\s*(-?\d+)\]/.exec(uuid) ?? []).slice(1).map(Number);
-		const hex = ints.map(n => (n >>> 0).toString(16).padStart(8, '0')).join('');
-		const id = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-		await s.command('save-all flush');
-		const stats = JSON.parse(await readFile(path.join(dir, 'server', 'world', 'stats', `${id}.json`), 'utf8')).stats ?? {};
-		result.mined = Object.values(stats['minecraft:mined'] ?? {}).reduce((n, v) => n + v, 0);
-		result.pickaxeUses = Object.entries(stats['minecraft:used'] ?? {}).filter(([k]) => /_pickaxe$/.test(k)).reduce((n, [, v]) => n + v, 0);
-	} catch (error) { result.mined = null; result.statsError = String(error?.message ?? error).slice(0, 200); }
+	// Blocks mined and pickaxe uses from the body's vanilla statistics (scores: a fake player's stats file is never saved).
+	const score = async (objective) => { const n = Number(/has (-?\d+)/.exec(await s.command(`scoreboard players get ${name} ${objective}`).catch(() => ''))?.[1]); return Number.isFinite(n) ? n : 0; };
+	result.mined = 0; result.pickaxeUses = 0;
+	for (const i of MINED.keys()) result.mined += await score(`km${i}`);
+	for (const tier of PICKAXES) result.pickaxeUses += await score(`ku_${tier}`);
 	// Blocks dug as the results report them, a cross-check on the statistics.
 	result.minedByResults = agent.actions.reduce((n, a) => n + Number(/(\d+) blocks? mined/.exec(a.message)?.[1] ?? 0) + (a.type === 'break_block' && a.state === 'SUCCEEDED' ? 1 : 0), 0);
 	result.obtainLog = agent.log.slice(-400);
