@@ -220,8 +220,8 @@ const SHOWN_AT_60 = ['bed', 'bed-spawn', 'bow-crystal', 'build', 'caged-crystal'
 	'defend', 'dig', 'drawn-bow', 'end-breath', 'enderman', 'end-survive', 'end-void', 'find', 'find-spot', 'fire', 'gather', 'gold-route',
 	'knockback-edge', 'nether-fight', 'nether-gather', 'portal-walkin', 'ranged-blaze', 'reflex-failspots', 'route-recovery', 'savepoints', 'shelter',
 	'shelter-forest', 'shelter-ranged', 'shelter-terrain', 'travel-resume', 'warped-pearl', 'water'];
-// escape arrived after the A/B and is not on the game clock yet; the others are never raised (see the README).
-const NEVER_RAISED = ['barter-odds', 'escape', 'lag-clock', 'rest'];
+// Escape and iron-kit use wall time for play. The other fixtures manage their own rates (see the README).
+const NEVER_RAISED = ['barter-odds', 'escape', 'iron-kit', 'lag-clock', 'rest'];
 test('only fixtures the A/B showed at 60 TPS take FIXTURE_TICK_RATE; the rest stay at 20', async () => {
 	const { readdir } = await import('node:fs/promises');
 	const dir = new URL('../../scripts/quality/', import.meta.url);
@@ -232,7 +232,7 @@ test('only fixtures the A/B showed at 60 TPS take FIXTURE_TICK_RATE; the rest st
 			assert.doesNotMatch(source, /unshownTickRate\(/, `${fixture} was shown at 60 TPS`);
 			assert.match(source, /fixtureTickRate\(\)|handRolledTickRate\(/, `${fixture} takes FIXTURE_TICK_RATE`);
 		} else if (NEVER_RAISED.includes(fixture)) {
-			assert.doesNotMatch(source, /fixtureTickRate\(\)|handRolledTickRate\(/, `${fixture} must not take FIXTURE_TICK_RATE`);
+			assert.doesNotMatch(source, /(?:fixtureTickRate|unshownTickRate|handRolledTickRate)\(/, `${fixture} must not take FIXTURE_TICK_RATE`);
 		} else {
 			assert.match(source, /unshownTickRate\(/, `${fixture} is not shown at 60 TPS: it must stay at 20 through unshownTickRate`);
 		}
