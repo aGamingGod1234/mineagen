@@ -324,11 +324,12 @@ final class WarpedForestHunt {
 
 	/**
 	 * One tick of the relocation walk. A body that has left the forest ends the walk that tick (FAILED, and the next walk
-	 * goes back to its last forest footing). ARRIVED moves the area; STOPPED is a safety stop of the walk (the engine and
+	 * goes back to its last forest footing); that walk back runs from outside and arrives only in the forest. ARRIVED moves the area; STOPPED is a safety stop of the walk (the engine and
 	 * the hazard checks take it from there); FAILED is a route that did not get there (that destination is not tried again).
 	 */
 	Walk tick(ServerPlayer player, long now) {
-		if (!inForest(player)) {
+		// The walk back in starts outside the forest: only the other walks end at its edge.
+		if (!inForest(player) && walkKind != Kind.BACK) {
 			cancel(player);
 			return leftForest(player);
 		}
@@ -357,7 +358,7 @@ final class WarpedForestHunt {
 		walk = null;
 		Vec3 here = player.position();
 		String code = result.reasonCode();
-		if (arrived(result.state() == ServerController.State.SUCCEEDED, code, flat(walkFrom, here), true)) {
+		if (arrived(result.state() == ServerController.State.SUCCEEDED, code, flat(walkFrom, here), inForest(player))) {
 			arrivals++;
 			failedInRow = 0;
 			headingsFailed.clear();

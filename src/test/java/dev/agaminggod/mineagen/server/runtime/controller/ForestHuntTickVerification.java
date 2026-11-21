@@ -152,6 +152,7 @@ public final class ForestHuntTickVerification {
 			fixture.run(hunt, 300);
 			check(fixture.cancelledWalks >= 1, "the walk that left the forest was ended that tick");
 			check(goals.size() >= 2 && goals.get(1).distanceTo(new Vec3(0.5D, 64.0D, 0.5D)) < 1.0E-6, "the next walk goes back to the last forest footing: " + goals);
+			check(fixture.player.getX() < 200.0D, "the walk back runs from outside the forest and brings the body back in: x " + fixture.player.getX());
 		}
 	}
 
