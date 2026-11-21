@@ -13,13 +13,6 @@ import net.minecraft.core.Direction;
 public final class SpawnerHold {
 	/** Off until live runs pass the rods bar; fixtures turn it on with -Dmineagen.fight.spawnerHold=true. */
 	public static final boolean ENABLED = "true".equals(System.getProperty("mineagen.fight.spawnerHold"));
-	/**
-	 * The doorway faces away from the spawner (-Dmineagen.fight.spawnerHoldDoor=toward faces it). Vanilla BlazeAttackGoal:
-	 * a blaze that sees its target hovers and shoots; one that has not seen it for 5 ticks flies toward it. A doorway
-	 * facing the spawner let every blaze shoot in (round 3 live: 36-45 blocked fireballs a run wore the shield out in about
-	 * 4 minutes); facing away, they come round to the doorway one at a time, into sword reach.
-	 */
-	public static final boolean DOOR_AWAY = !"toward".equals(System.getProperty("mineagen.fight.spawnerHoldDoor"));
 	/** A seen fortress spawner within this many blocks of the body starts a hold. */
 	public static final double SCAN = 24.0D;
 	/** The cell stands this far (horizontal) from the spawner: a vanilla spawner runs only with a player within 16. */
