@@ -8,6 +8,8 @@ import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
+import { installTickRate, fixtureTickRate } from './watch-replay.mjs';
+import { damageCounter, damageEvidence } from './lib/damage-counter.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const jarPath = resolve(process.env.ARENA_JAR ?? join(root, MOD_JAR));
@@ -34,7 +36,7 @@ class Inbox {
 	accept(e) { const i = this.waiters.findIndex(w => w.type === e.type && w.match(e)); if (i >= 0) this.waiters.splice(i, 1)[0].done(e); else { this.events.push(e); if (this.events.length > 1024) this.events.shift(); } }
 	wait(type, match = () => true, ms = 30000) { const i = this.events.findIndex(e => e.type === type && match(e)); if (i >= 0) return Promise.resolve(this.events.splice(i, 1)[0]); return new Promise((res, rej) => { const w = { type, match, done: e => { clearTimeout(t); res(e); } }; const t = setTimeout(() => { this.waiters = this.waiters.filter(x => x !== w); rej(new Error(`TIMEOUT ${type}`)); }, ms); this.waiters.push(w); }); }
 }
-let rcon, bridge, record, observation, inbox, ordinal = 0;
+let rcon, bridge, record, observation, inbox, ordinal = 0, rate, play = null;
 const agent = 'Slayer';
 const actions = [];
 const command = async s => {
@@ -70,10 +72,23 @@ async function parts() {
 const uuid = n => `00000000-0000-0000-0000-${n.toString(16).padStart(12, '0')}`;
 const uuidInts = n => `[I;0,0,0,${n}]`;
 const results = { hiddenCrystals: [], flying: [], perchedArrow: null, perchedMelee: null };
+/** The fast play's game and wall seconds, the rates the server held, and vanilla's damage counter over it. */
+async function endPlay() {
+	const p = play; p.done = true;
+	// elapsed() reads the world tick first, so the clock is anchored on it when seconds is read.
+	const gameMs = await p.timer.elapsed();
+	const tick = { tickRate: rate.tickRate, seconds: Math.round((rate.clock.now() - p.t0) / 1000), wallSeconds: Math.round((Date.now() - p.wall0) / 1000),
+		gameSeconds: Math.round(gameMs / 1000), rates: await p.timer.rates().catch(() => null) };
+	await rate.normalRate();
+	tick.held = await rate.tickReport();
+	tick.damageTaken = damageEvidence(p.damage0, await p.damage().catch(() => null)).damageTaken;
+	return tick;
+}
 try {
 	for (let i = 0; i < 150; i++) { try { rcon = new HeadlessRconClient({ host: '127.0.0.1', port: port + 1, password: secret, connectTimeoutMs: 500, commandTimeoutMs: 5000 }); await rcon.connect(); break; } catch (e) { await rcon?.close(); if (i === 149) throw e; await sleep(1000); } }
+	rate = installTickRate({ command: text => command(text) }, fixtureTickRate());
 	bridge = new MultiplexedServerBridge({ port, secret }, {}); inbox = new Inbox(bridge);
-	bridge.on('observation', e => { if (e.agentId === record?.agentId && e.payload.ready) observation = e.payload; });
+	bridge.on('observation', e => { rate.clock.observe(e.payload?.world?.gameTime); if (e.agentId === record?.agentId && e.payload.ready) observation = e.payload; });
 	bridge.on('goal_spec_request', e => { bridge.send('goal_spec_proposal', e.agentId, { requestId: e.payload.requestId, summary: 'Controlled live mechanics fixture', predicate: { type: 'survive_duration', ticks: 24000 } }).catch(() => {}); });
 	const ready = inbox.wait('ready'); bridge.start(); await ready;
 	await bridge.send('catalog_snapshot', 'server', { refreshedAtEpochMs: Date.now(), models: [{ provider: 'codex', model: 'gpt-6.1-sol', id: 'gpt-6.1-sol', displayName: 'Provider-free dragon fixture', reasoningEfforts: ['low'], serviceTiers: ['priority'] }] });
@@ -92,16 +107,23 @@ try {
 	await command(`item replace entity ${agent} hotbar.1 with minecraft:iron_sword`);
 	await command(`give ${agent} minecraft:arrow 64`);
 
+	// FIXTURE_TICK_RATE: setup runs at 20; the hidden-crystal shots, the wait for the dragon and the flying shots run at the
+	// fixture rate on its clock. The perch cases (2b-2d) stay at 20: each reads the dragon's phase, then teleports and
+	// reads its parts before the body acts, and at a raised rate those harness steps eat more of the perch.
+	const damage = await damageCounter(command, agent);
+	play = { damage0: await damage(), damage };
+	await rate.fastRate();
+	play.t0 = rate.clock.now(); play.wall0 = Date.now(); play.timer = await rate.gameTimer();
 	// 1. Crystals on 5x5 pillars 25-30 up and 38-52 out: the pillar top hides their middle, only the top shows.
 	let n = 100;
-	const face = async (x, y, z) => { const dx = x - 0.5, dz = z - 0.5, dy = y + 1 - 82.62; const yaw = Math.atan2(-dx, dz) * 180 / Math.PI; const pitch = -Math.atan2(dy, Math.hypot(dx, dz)) * 180 / Math.PI; await command(`tp ${agent} 0.5 81 0.5 ${yaw.toFixed(1)} ${pitch.toFixed(1)}`); await sleep(500); };
+	const face = async (x, y, z) => { const dx = x - 0.5, dz = z - 0.5, dy = y + 1 - 82.62; const yaw = Math.atan2(-dx, dz) * 180 / Math.PI; const pitch = -Math.atan2(dy, Math.hypot(dx, dz)) * 180 / Math.PI; await command(`tp ${agent} 0.5 81 0.5 ${yaw.toFixed(1)} ${pitch.toFixed(1)}`); await rate.clock.sleep(500); };
 	const spots = [[40, 106, 0], [0, 108, 44], [-36, 110, -20], [30, 105, -34], [-45, 107, 15], [20, 110, 46]];
 	for (const [x, y, z] of spots) {
 		const id = ++n;
 		await command(`fill ${x - 2} 80 ${z - 2} ${x + 2} ${y - 1} ${z + 2} minecraft:obsidian`);
-		await command(`summon minecraft:end_crystal ${x + 0.5} ${y} ${z + 0.5} {ShowBottom:0b,UUID:${uuidInts(id)}}`); await sleep(300);
+		await command(`summon minecraft:end_crystal ${x + 0.5} ${y} ${z + 0.5} {ShowBottom:0b,UUID:${uuidInts(id)}}`); await rate.clock.sleep(300);
 		await face(x, y, z);
-		for (let i = 0; i < 10; i++) { await sleep(300); const o = await observe(); if ((o.entities ?? []).some(x => x.uuid === uuid(id))) break; }
+		for (let i = 0; i < 10; i++) { await rate.clock.sleep(300); const o = await observe(); if ((o.entities ?? []).some(x => x.uuid === uuid(id))) break; }
 		const r = await act('use_ranged', { targetId: uuid(id), drawDurationMs: 1100, timeoutMs: 6000 });
 		const broke = r.state === 'SUCCEEDED' && /broke/.test(r.message) && !/something else/.test(r.message);
 		results.hiddenCrystals.push({ at: [x, y, z], state: r.state, reasonCode: r.reasonCode, broke, message: r.message });
@@ -112,28 +134,29 @@ try {
 	await end(`tp ${agent} 0.5 120 0.5`);
 	await command(`effect give ${agent} minecraft:slow_falling 30 0 true`);
 	let dragonSeen = false;
-	for (let i = 0; i < 60 && !dragonSeen; i++) { await sleep(1000); dragonSeen = Number.isFinite(await dragonHealth()); }
+	for (let i = 0; i < 60 && !dragonSeen; i++) { await rate.clock.sleep(1000); dragonSeen = Number.isFinite(await dragonHealth()); }
 	await end('kill @e[type=minecraft:end_crystal]');
-	await sleep(8000);
+	await rate.clock.sleep(8000);
 	const surfaceY = number(await end('data get entity @p Pos[1]'));
-	await end(`tp ${agent} 9.5 ${Math.floor(surfaceY) + 2} 0.5`); await sleep(1500);
+	await end(`tp ${agent} 9.5 ${Math.floor(surfaceY) + 2} 0.5`); await rate.clock.sleep(1500);
 	await command(`effect clear ${agent} minecraft:slow_falling`);
 	results.start = { dragonSeen, health: await dragonHealth(), phase: await dragonPhase(), surfaceY };
 
 	await end('data merge entity @e[type=minecraft:ender_dragon,limit=1] {DragonPhase:0}');
 	await command(`item replace entity ${agent} weapon.mainhand with minecraft:bow`);
 	for (let shot = 0; shot < 10; shot++) {
-		await sleep(1500);
+		await rate.clock.sleep(1500);
 		const rows = await parts();
 		const body = rows.body ?? rows.head;
 		if (!body) { results.flying.push({ shot, skipped: 'no visible part' }); continue; }
 		const before = await dragonHealth();
 		const r = await act('use_ranged', { targetId: body.uuid, drawDurationMs: 1100, timeoutMs: 6000 });
-		await sleep(400);
+		await rate.clock.sleep(400);
 		results.flying.push({ shot, part: body.partName, state: r.state, reasonCode: r.reasonCode, hurt: /flashed hurt/.test(r.message ?? ''), healthDrop: before - await dragonHealth(), message: r.message });
 		await command('kill @e[type=minecraft:arrow]');
 	}
 
+	results.tick = await endPlay();
 	await end('data merge entity @e[type=minecraft:ender_dragon,limit=1] {DragonPhase:3}');
 	let phase = -1;
 	for (let i = 0; i < 40 && ![5, 6, 7].includes(phase); i++) { await sleep(500); phase = await dragonPhase(); }
@@ -202,6 +225,7 @@ try {
 	await writeFile(join(out, 'dragon.json'), JSON.stringify(results, null, 2));
 	console.log(JSON.stringify(results, null, 2));
 } finally {
+	if (play && !play.done) results.tick = await endPlay().catch(() => null);
 	await writeFile(join(out, 'dragon.json'), JSON.stringify(results, null, 2)).catch(() => {});
 	if (rcon) await command('stop').catch(() => {});
 	bridge?.stop(); await rcon?.close();

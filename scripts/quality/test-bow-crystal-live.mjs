@@ -7,6 +7,8 @@ import { randomBytes, createHash } from 'node:crypto';
 import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
+import { installTickRate, fixtureTickRate } from './watch-replay.mjs';
+import { damageCounter, damageEvidence } from './lib/damage-counter.mjs';
 
 const root=fileURLToPath(new URL('../..',import.meta.url));
 const jarPath=resolve(process.env.ARENA_JAR ?? join(root,MOD_JAR));
@@ -36,7 +38,7 @@ class Inbox {
   accept(e){const i=this.waiters.findIndex(w=>w.type===e.type&&w.match(e));if(i>=0)this.waiters.splice(i,1)[0].done(e);else {this.events.push(e);if(this.events.length>1024)this.events.shift();}}
   wait(type,match=()=>true,ms=30000){const i=this.events.findIndex(e=>e.type===type&&match(e));if(i>=0)return Promise.resolve(this.events.splice(i,1)[0]);return new Promise((res,rej)=>{const w={type,match,done:e=>{clearTimeout(t);res(e)}};const t=setTimeout(()=>{this.waiters=this.waiters.filter(x=>x!==w);rej(new Error(`TIMEOUT ${type}`))},ms);this.waiters.push(w)});}
 }
-let rcon,bridge,record,observation;
+let rcon,bridge,record,observation,rate,play=null;
 const agent='Archer';
 const command=async s=>{
   if(rcon.state==='closed'){rcon=new HeadlessRconClient({host:'127.0.0.1',port:port+1,password:secret,commandTimeoutMs:5000});await rcon.connect();}
@@ -57,10 +59,24 @@ async function executeAction(c){
   await writeFile(join(out,'actions.json'),JSON.stringify(actions,null,2));
   return r;
 }
+// The play's game and wall seconds, the rates the server held, and vanilla's damage counter over it.
+async function endPlay(){
+  const p=play;p.done=true;
+  // elapsed() reads the world tick first, so the clock is anchored on it when seconds is read.
+  const gameMs=await p.timer.elapsed();
+  const tick={tickRate:rate.tickRate,seconds:Math.round((rate.clock.now()-p.t0)/1000),wallSeconds:Math.round((Date.now()-p.wall0)/1000),
+    gameSeconds:Math.round(gameMs/1000),rates:await p.timer.rates().catch(()=>null)};
+  await rate.normalRate();
+  tick.held=await rate.tickReport();
+  tick.damageTaken=damageEvidence(p.damage0,await p.damage().catch(()=>null)).damageTaken;
+  return tick;
+}
 try {
   for(let i=0;i<150;i++){try{rcon=new HeadlessRconClient({host:'127.0.0.1',port:port+1,password:secret,connectTimeoutMs:500,commandTimeoutMs:5000});await rcon.connect();break}catch(e){await rcon?.close();if(i===149)throw e;await sleep(1000)}}
+  // FIXTURE_TICK_RATE: setup runs at 20; the shots (with the crystal placing between them) run at the fixture rate.
+  rate=installTickRate({command:text=>command(text)},fixtureTickRate());
   bridge=new MultiplexedServerBridge({port,secret},{});inbox=new Inbox(bridge);
-  bridge.on('observation',e=>{if(e.agentId===record?.agentId&&e.payload.ready){observation=e.payload}});
+  bridge.on('observation',e=>{rate.clock.observe(e.payload?.world?.gameTime);if(e.agentId===record?.agentId&&e.payload.ready){observation=e.payload}});
   bridge.on('goal_spec_request',e=>{bridge.send('goal_spec_proposal',e.agentId,{requestId:e.payload.requestId,summary:'Controlled live mechanics fixture',predicate:{type:'survive_duration',ticks:12000}}).catch(()=>{});});
   const ready=inbox.wait('ready');bridge.start();await ready;
   await bridge.send('catalog_snapshot','server',{refreshedAtEpochMs:Date.now(),models:[{provider:'codex',model:'gpt-6.1-sol',id:'gpt-6.1-sol',displayName:'Provider-free bow fixture',reasoningEfforts:['low'],serviceTiers:['priority']}]});
@@ -84,16 +100,20 @@ try {
   const uuidInts=n=>`[I;0,0,0,${n}]`;
   let n=100;
   const face=async(x,y,z)=>{const dx=x-0.5,dz=z-0.5,dy=y+1-82.62;const yaw=Math.atan2(-dx,dz)*180/Math.PI;const pitch=-Math.atan2(dy,Math.hypot(dx,dz))*180/Math.PI;
-    await command(`tp ${agent} 0.5 81 0.5 ${yaw.toFixed(1)} ${pitch.toFixed(1)}`);await sleep(500);};
+    await command(`tp ${agent} 0.5 81 0.5 ${yaw.toFixed(1)} ${pitch.toFixed(1)}`);await rate.clock.sleep(500);};
   const crystal=async(x,y,z,id,pillar=true)=>{if(pillar)await command(`fill ${x} 80 ${z} ${x} ${y-1} ${z} minecraft:obsidian`);
-    await command(`summon minecraft:end_crystal ${x+0.5} ${y} ${z+0.5} {ShowBottom:0b,UUID:${uuidInts(id)}}`);await sleep(300);};
+    await command(`summon minecraft:end_crystal ${x+0.5} ${y} ${z+0.5} {ShowBottom:0b,UUID:${uuidInts(id)}}`);await rate.clock.sleep(300);};
   const shot=async(id,extra={})=>{
     // A ranged command names an entity from a delivered observation; wait until the crystal is in one.
-    for(let i=0;i<10;i++){await sleep(300);const o=await observe();if((o.entities??[]).some(x=>x.uuid===uuid(id)))break;
+    for(let i=0;i<10;i++){await rate.clock.sleep(300);const o=await observe();if((o.entities??[]).some(x=>x.uuid===uuid(id)))break;
       if(i===9)console.log('not observed',uuid(id),(o.entities??[]).map(x=>x.type+':'+x.uuid).join(' '));}
     return act('use_ranged',{targetId:uuid(id),drawDurationMs:1100,timeoutMs:6000,...extra});};
   const results={open:[],behind:null,caged:null,cagedAimed:null};
   // Open crystals in front, 20-45 blocks out and 10-35 up, as on End pillars seen from the island floor.
+  const damage=await damageCounter(command,agent);
+  play={damage0:await damage(),damage};
+  await rate.fastRate();
+  play.t0=rate.clock.now();play.wall0=Date.now();play.timer=await rate.gameTimer();
   const spots=[[20,95,0],[0,106,30],[-30,110,-15],[25,90,-35],[-40,100,20],[35,115,25],[-15,92,-40],[42,100,-5]];
   for(const [x,y,z] of spots){
     const id=++n; await crystal(x,y,z,id); await face(x,y,z);
@@ -103,8 +123,8 @@ try {
     await command(`kill @e[type=minecraft:end_crystal]`);await command(`fill ${x} 80 ${z} ${x} ${y+3} ${z} minecraft:air`);await command('kill @e[type=minecraft:arrow]');
   }
   { const id=++n; await crystal(0,95,-25,id); await face(0,95,-25);
-    let seen=null; for(let i=0;i<10&&!seen;i++){await sleep(300);const o=await observe();if((o.entities??[]).some(x=>x.uuid===uuid(id)))seen=o.eventSequence;}
-    await command(`tp ${agent} 0.5 81 0.5 0 0`); await sleep(500); await observe();
+    let seen=null; for(let i=0;i<10&&!seen;i++){await rate.clock.sleep(300);const o=await observe();if((o.entities??[]).some(x=>x.uuid===uuid(id)))seen=o.eventSequence;}
+    await command(`tp ${agent} 0.5 81 0.5 0 0`); await rate.clock.sleep(500); await observe();
     const r=await act('use_ranged',{targetId:uuid(id),drawDurationMs:1100,timeoutMs:6000},seen??observation.eventSequence); results.behind={state:r.state,reasonCode:r.reasonCode,broke:/broke/.test(r.message??''),message:r.message};
     await command(`kill @e[type=minecraft:end_crystal]`);await command('fill 0 80 -25 0 98 -25 minecraft:air'); }
   // A crystal inside an iron-bar cage (walls two blocks out and a roof), like the two guarded End spikes.
@@ -115,9 +135,11 @@ try {
     r=await shot(id,{aimX:x+0.5,aimY:y+4,aimZ:z+0.5}); results.cagedAimed={state:r.state,reasonCode:r.reasonCode,message:r.message}; }
   const hits=results.open.filter(x=>x.broke).length;
   results.summary={openHits:hits,openShots:results.open.length,jar:jarPath};
+  results.tick=await endPlay();
   await writeFile(join(out,'bow.json'),JSON.stringify(results,null,2));
   console.log(JSON.stringify(results,null,2));
 } finally {
+  if(play&&!play.done)await endPlay().then(tick=>writeFile(join(out,'tick.json'),JSON.stringify(tick,null,2))).catch(()=>{});
   if(rcon)await command('stop').catch(()=>{});
   bridge?.stop();await rcon?.close();
   await Promise.race([new Promise(r=>child.once('exit',r)),sleep(10000)]);if(child.exitCode===null)child.kill('SIGTERM');await log.close();

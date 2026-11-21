@@ -24,7 +24,8 @@ import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { DEFAULT_REFLEXES } from '../../coordinator/src/reflexes.mjs';
 import { planCountDefault } from '../../coordinator/src/plan-count.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
-import { deathCounter, deathEvidence } from './lib/damage-counter.mjs';
+import { deathCounter, deathEvidence, damageCounter, damageEvidence } from './lib/damage-counter.mjs';
+import { installTickRate, fixtureTickRate } from './watch-replay.mjs';
 import { refusedBeforeRunning } from './lib/room-evidence.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
@@ -99,11 +100,19 @@ const log = await open(join(out, 'server.log'), 'a');
 const child = spawn(join(process.env.JAVA_HOME, 'bin', process.platform === 'win32' ? 'java.exe' : 'java'), [`-Dmineagen.bridgePort=${port}`, '-Dmineagen.coordinatorAutoStart=false', `-Dmineagen.bridgeSecretFile=${join(out, 'secret.txt')}`, '-Xms512M', '-Xmx2G', '-jar', 'fabric-server-launch.jar', 'nogui'], { cwd: server, stdio: ['ignore', log.fd, log.fd], windowsHide: true });
 await writeFile(join(out, 'server.pid'), String(child.pid));
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+// FIXTURE_TICK_RATE: each trial is set up at 20 (fresh body, terrain restored, kit, shield primed). Once the start
+// state is checked the server runs at the fixture rate until the RUN_S window ends. The window, the call gap, CANCEL_S
+// and every time the run records (first blaze, kills, reached) are game time on the fixture clock (wall time at 20).
+// The stand-in's own observe-decide-act steps take wall time, so at a raised rate it answers a little later in game time.
+const FIXTURE_RATE = fixtureTickRate();
+let rate = null, windowEnd = null;
+const now = () => rate ? rate.clock.now() : Date.now();
 class Inbox {
 	events = []; waiters = [];
 	constructor(bridge) { bridge.on('message', e => this.accept(e)); bridge.on('ready', e => this.accept({ type: 'ready', ...e })); }
 	accept(e) { const i = this.waiters.findIndex(w => w.type === e.type && w.match(e)); if (i >= 0) this.waiters.splice(i, 1)[0].done(e); else { this.events.push(e); if (this.events.length > 1024) this.events.shift(); } }
-	wait(type, match = () => true, ms = 30000) { const i = this.events.findIndex(e => e.type === type && match(e)); if (i >= 0) return Promise.resolve(this.events.splice(i, 1)[0]); return new Promise((res, rej) => { const w = { type, match, done: e => { clearTimeout(t); res(e); } }; const t = setTimeout(() => { this.waiters = this.waiters.filter(x => x !== w); rej(new Error(`TIMEOUT ${type}`)); }, ms); this.waiters.push(w); }); }
+	// abort (a promise) ends the wait as a timeout does, removing the waiter: the measurement window's end on the game clock.
+	wait(type, match = () => true, ms = 30000, abort = null) { const i = this.events.findIndex(e => e.type === type && match(e)); if (i >= 0) return Promise.resolve(this.events.splice(i, 1)[0]); return new Promise((res, rej) => { let over = false; const expire = () => { if (over) return; over = true; clearTimeout(t); this.waiters = this.waiters.filter(x => x !== w); rej(new Error(`TIMEOUT ${type}`)); }; const w = { type, match, done: e => { over = true; clearTimeout(t); res(e); } }; const t = setTimeout(expire, ms); abort?.then(expire); this.waiters.push(w); }); }
 }
 let rcon, bridge, record, observation, inbox, ordinal = 0;
 let lastWindowObservation = null, lastWindowObservationAt = 0;
@@ -114,15 +123,15 @@ const traceRow = row => TRACE ? trace.write(JSON.stringify(row) + '\n') : Promis
 // d41 rods: ground truth for where rods lie (operator query, not the body's perception), every 3 s inside a window.
 let rodProbeBusy = false;
 setInterval(async () => {
-	if (!TRACE || rodProbeBusy || !Number.isFinite(runDeadline) || Date.now() > runDeadline) return;
+	if (!TRACE || rodProbeBusy || !Number.isFinite(runDeadline) || now() > runDeadline) return;
 	rodProbeBusy = true;
 	try {
 		const reply = await nether(`execute positioned ${SPAWNER.join(' ')} as @e[type=minecraft:item,distance=..32] run data get entity @s Pos`);
 		const rods = [...String(reply).matchAll(/\[(-?[\d.]+)d, (-?[\d.]+)d, (-?[\d.]+)d\]/g)].map(m => [1,2,3].map(i => Math.round(Number(m[i])*10)/10));
-		await traceRow({ items: true, at: Date.now(), s: Math.round((Date.now() - (runDeadline - RUN_S*1000))/100)/10, rods });
+		await traceRow({ items: true, at: now(), s: Math.round((now() - (runDeadline - RUN_S*1000))/100)/10, rods });
 	} catch {}
 	rodProbeBusy = false;
-}, 3000).unref?.();
+}, 3000 * 20 / FIXTURE_RATE).unref?.();
 async function armShield() {
 	armedRules = (DEFAULTS ? DEFAULT_REFLEXES.filter(rule => !DEFAULTS_EXCLUDE.includes(rule.id)).map(rule => ({ ...rule })) : []).concat(SHIELD_STANCE ? [{id:'guard',kind:'stance',priority:6,when:{type:'hostile_near',within:24,mobs:['minecraft:blaze']},do:{type:'shield'},ttlMs:600000},{id:'shot',kind:'trigger',priority:9,when:{type:'incoming_projectile',withinS:1},do:{type:'shield'},ttlMs:600000}] : []);
 	await bridge.send('reflex_update', record.agentId, {revision: ++reflexRevision, rules: armedRules,yield:false});
@@ -142,13 +151,13 @@ async function observe(ms = 30000) { const seq = observation?.eventSequence ?? 0
 // Health from the server; a dead player reads 0 (or the query fails while it is respawning).
 const serverHealth = async () => { const t = await command(`data get entity ${agent} Health`).catch(() => ''); const m = /(-?[\d.]+)f?\s*$/.exec(t.trim()); return m ? Number(m[1]) : 0; };
 async function act(type, args, ms = 65000, retried = false) {
-	if (!retried && callGap) await sleep(Math.min(callGap, Math.max(0, runDeadline - Date.now())));
-	if (Date.now() >= runDeadline) return {state:"CANCELLED",reasonCode:"FIXTURE_RUN_DEADLINE",message:"Four-minute measurement window ended"};
-	ms = Math.min(ms, Math.max(1,runDeadline-Date.now()));
+	if (!retried && callGap) await rate.clock.sleep(Math.min(callGap, Math.max(0, runDeadline - now())));
+	if (now() >= runDeadline) return {state:"CANCELLED",reasonCode:"FIXTURE_RUN_DEADLINE",message:"Four-minute measurement window ended"};
+	ms = Math.min(ms, Math.max(1,runDeadline-now()));
 	const id = `bz-${++ordinal}`;
 	const payload = { actionId: id, traceId: id, goalRevision: record.goalRevision, actionType: type, arguments: args,
 		provenance: { provider: record.provider, model: record.model, reasoningEffort: record.reasoningEffort, serviceTier: record.serviceTier, traceId: id, programId: 'bz-fixture', programVersion: 1, sourceStepId: id, eventSequence: observation?.eventSequence ?? 0 } };
-	const done = inbox.wait('action_result', e => e.payload.actionId === id && ['SUCCEEDED', 'FAILED', 'CANCELLED', 'TIMED_OUT'].includes(e.payload.state), ms)
+	const done = inbox.wait('action_result', e => e.payload.actionId === id && ['SUCCEEDED', 'FAILED', 'CANCELLED', 'TIMED_OUT'].includes(e.payload.state), ms, Number.isFinite(runDeadline) ? windowEnd : null)
 		.then(async e => { await bridge.send('action_result_ack', record.agentId, { actionId: id, goalRevision: record.goalRevision }); return e.payload; });
 	try {
 		// Match NativeToolRuntime: model body commands yield a held stance before publication (movement/fights compose).
@@ -166,7 +175,7 @@ async function act(type, args, ms = 65000, retried = false) {
 		await bridge.send('action_cancel',record.agentId,{actionId:id,goalRevision:record.goalRevision}).catch(()=>{});
 		await cancelled;
 		return {state:'ERROR',reasonCode:'FIXTURE_ACTION_DEADLINE',message:String(err)};
-	}).then(async res=>{ await traceRow({at:Date.now(),command:type,args,result:res});return res; });
+	}).then(async res=>{ await traceRow({at:now(),command:type,args,result:res});return res; });
 }
 const passed = text => /Test passed/i.test(text);
 async function standCell() {
@@ -241,13 +250,15 @@ const rodsHeld = o => (o.inventory?.items ?? []).filter(i => i.itemId === 'minec
 const results = { jar: jarPath, jarSha256: jarSha, variants: {} };
 try {
 	for (let i = 0; i < 240; i++) { try { rcon = new HeadlessRconClient({ host: '127.0.0.1', port: port + 1, password: secret, connectTimeoutMs: 500, commandTimeoutMs: 30000 }); await rcon.connect(); break; } catch (e) { await rcon?.close(); if (i === 239) throw e; await sleep(1000); } }
+	rate = installTickRate({ command: text => command(text) }, FIXTURE_RATE);
+	results.tickRate = rate.tickRate;
 	bridge = new MultiplexedServerBridge({ port, secret }, {}); inbox = new Inbox(bridge);
-	bridge.on('observation', e => { if (e.agentId === record?.agentId && e.payload.ready) { observation = e.payload; if (Number.isFinite(runDeadline) && Date.now() <= runDeadline) { windowRods = Math.max(windowRods,rodsHeld(e.payload)); lastWindowObservation = e.payload; lastWindowObservationAt = Date.now();
-		if (Date.now() - lastSampleAt >= 1000) { lastSampleAt = Date.now(); const p = e.payload; traceRow({ sample: true, at: lastSampleAt, s: Math.round((lastSampleAt - (runDeadline - RUN_S*1000))/100)/10, position: p.position, health: p.player?.health, onFire: p.player?.onFire, fireTicks: p.player?.fireTicks, onGround: p.player?.onGround, action: p.currentAction?.actionType ?? p.action?.actionType, blazes: (p.entities ?? []).filter(x => x.type === 'minecraft:blaze' || x.type === 'minecraft:small_fireball').map(x => [x.type.slice(10,15), Math.round(x.position.x*10)/10, Math.round(x.position.y*10)/10, Math.round(x.position.z*10)/10]) }).catch(() => {}); } } } });
+	bridge.on('observation', e => { rate.clock.observe(e.payload?.world?.gameTime); if (e.agentId === record?.agentId && e.payload.ready) { observation = e.payload; if (Number.isFinite(runDeadline) && now() <= runDeadline) { windowRods = Math.max(windowRods,rodsHeld(e.payload)); lastWindowObservation = e.payload; lastWindowObservationAt = now();
+		if (now() - lastSampleAt >= 1000) { lastSampleAt = now(); const p = e.payload; traceRow({ sample: true, at: lastSampleAt, s: Math.round((lastSampleAt - (runDeadline - RUN_S*1000))/100)/10, position: p.position, health: p.player?.health, onFire: p.player?.onFire, fireTicks: p.player?.fireTicks, onGround: p.player?.onGround, action: p.currentAction?.actionType ?? p.action?.actionType, blazes: (p.entities ?? []).filter(x => x.type === 'minecraft:blaze' || x.type === 'minecraft:small_fireball').map(x => [x.type.slice(10,15), Math.round(x.position.x*10)/10, Math.round(x.position.y*10)/10, Math.round(x.position.z*10)/10]) }).catch(() => {}); } } } });
 	bridge.on('message', e => {
-		if (e.type === 'entity_killed') kills.push({ at: Date.now(), type: e.payload?.entityType });
+		if (e.type === 'entity_killed') kills.push({ at: now(), type: e.payload?.entityType });
 		if (e.type === 'goal_control' && record && e.agentId === record.agentId && Number.isFinite(e.payload?.goalRevision)) record.goalRevision = e.payload.goalRevision;
-		if (e.type === 'goal_control') { goalEvents.push({ at: Date.now(), operation: e.payload?.operation, revision: e.payload?.goalRevision }); traceRow({at:Date.now(),event:'goal_control',payload:e.payload}).catch(()=>{}); }
+		if (e.type === 'goal_control') { goalEvents.push({ at: now(), operation: e.payload?.operation, revision: e.payload?.goalRevision }); traceRow({at:now(),event:'goal_control',payload:e.payload}).catch(()=>{}); }
 	});
 	bridge.on('goal_spec_request', e => { bridge.send('goal_spec_proposal', e.agentId, { requestId: e.payload.requestId, summary: 'Controlled live mechanics fixture', predicate: { type: 'survive_duration', ticks: survivalTicks } }).catch(() => {}); });
 	const ready = inbox.wait('ready', () => true, 240000); bridge.start(); await ready;
@@ -288,7 +299,8 @@ try {
 		callGap = gap;
 		const runs = [];
 		for (let repeat = 0; repeat < REPEATS; repeat++) {
-			runDeadline = Infinity; armedRules = [];
+			await rate.normalRate();
+			runDeadline = Infinity; armedRules = []; windowEnd = null;
 			if (record) {
 				// A surviving stance still owns input: end it while its registered body exists.
 				await bridge.send('reflex_update',record.agentId,{revision:++reflexRevision,rules:[],yield:true});
@@ -326,14 +338,16 @@ try {
 			console.log("trial task", variant, repeat, taskStart);
 			record.goalRevision = (await restart).payload.goalRevision;
 			await bridge.send('agent_ready',record.agentId,{goalRevision:record.goalRevision,reconciled:false});
-			await armShield(); await sleep(1500);
+			await armShield(); await rate.idleSleep(1500);
 			// Priming a shield stance can walk; the measured trial starts at the authored deck cell.
 			await nether(`tp ${agent} ${cell[0]} ${cell[1]} ${cell[2]} 0 0`);
 			if (SAVE_POINT) for (const [dx, dy, dz] of SAVE_POINT.blazes) await nether(`summon minecraft:blaze ${cell[0]+dx} ${cell[1]+dy} ${cell[2]+dz} {PersistenceRequired:1b}`);
+			const damage = await damageCounter(command, agent);
+			const damageAtStart = await damage().catch(() => null);
 			const startServerTick = await serverTick();
 			const deathsAtStart = await deathCounter(command, agent, { objective: 'bz_deaths', unsetIsZero: true }).catch(() => null);
 			const run = { startServerTick, variant, gap, deaths: 0, kills: 0, rodItemsSeen: 0, rodsPicked: 0, rodsAtEnd: 0, minHealth: 20, calls: {}, fightResults: {}, firstBlazeS: null, firstKillS: null, damageWhileIdleS: 0 };
-			const rodIds = new Set(), startedAt = Date.now(), killMark = kills.length;
+			const rodIds = new Set(), startedAt = now(), wallStartedAt = Date.now(), killMark = kills.length;
 			runDeadline = startedAt + RUN_S*1000; windowRods = 0; lastWindowObservation = null; lastWindowObservationAt = 0;
 			const knownRods = new Map();
 			const shelterArgs = { x: Math.floor(cell[0]), y: cell[1], z: Math.floor(cell[2]), opening: OPENING, itemId: 'minecraft:cobblestone', roof: ROOF, timeoutMs: 120000 };
@@ -346,11 +360,16 @@ try {
 			for (let i = 0; i < 3 && (o.player?.health !== 20 || Math.hypot(o.position.x-cell[0],o.position.y-cell[1],o.position.z-cell[2])>0.4); i++) {
 				for (const mob of ['blaze', 'small_fireball']) await nether(`kill @e[type=minecraft:${mob},distance=..40,x=${sx},y=${sy},z=${sz}]`);
 				await command(`extinguish ${agent}`).catch(() => {}); await command(`effect give ${agent} minecraft:instant_health 1 10 true`);
-				await nether(`tp ${agent} ${cell[0]} ${cell[1]} ${cell[2]} 0 0`); await sleep(1000); o = await observe();
+				await nether(`tp ${agent} ${cell[0]} ${cell[1]} ${cell[2]} 0 0`); await rate.clock.sleep(1000); o = await observe();
 			}
 			run.initialPosition = o.position; run.initialHealth = o.player?.health;
 			if (run.initialHealth !== 20 || Math.hypot(o.position.x-cell[0],o.position.y-cell[1],o.position.z-cell[2])>0.4)
 				throw new Error('Invalid initial trial state: '+JSON.stringify({position:o.position,health:run.initialHealth}));
+			await rate.fastRate();
+			const timer = await rate.gameTimer();
+			// One poller per trial ends every call still waiting when the window closes in game time (at 20 the calls' own
+			// wall timeouts already end there).
+			if (rate.clock.rate !== 20) windowEnd = (async () => { while (Number.isFinite(runDeadline) && now() < runDeadline) await rate.clock.sleep(Math.min(1000, Math.max(1, runDeadline - now()))); })().catch(() => {});
 			if (SHELTER) {
 				const args = shelterArgs;
 				run.shelterResult = await act('build_shelter', args, 125000);
@@ -367,31 +386,31 @@ try {
 				run.coverResults = [];
 				for (const [x,y,z] of run.coverCells) { await act('look_at',{x:x+0.5,y:y-0.5,z:z+0.5}); const r=await act('place_block',{x,y,z,face:'up',itemId:'minecraft:cobblestone'}); run.coverResults.push({state:r.state,reason:r.reasonCode,message:r.message}); }
 			}
-			while (Date.now() - startedAt < RUN_S * 1000) {
-				if (Date.now() >= runDeadline) break;
+			while (now() - startedAt < RUN_S * 1000) {
+				if (now() >= runDeadline) break;
 				try { o = await observe(8000); } catch { if ((await serverHealth()) <= 0) { run.deaths++; dead = true; break; } continue; }
-				if (Date.now() >= runDeadline) break;
+				if (now() >= runDeadline) break;
 				maxRods = Math.max(maxRods, rodsHeld(o));
-				await traceRow({variant,repeat,s:Math.round((Date.now()-startedAt)/100)/10,position:o.position,inventoryRods:rodsHeld(o),player:o.player,reflexes:o.reflexes,entities:o.entities});
+				await traceRow({variant,repeat,s:Math.round((now()-startedAt)/100)/10,position:o.position,inventoryRods:rodsHeld(o),player:o.player,reflexes:o.reflexes,entities:o.entities});
 				const hp = o.player?.health ?? 20; run.minHealth = Math.min(run.minHealth, hp);
 				if (hp <= 0 || o.status === 'DEAD' || o.player?.dead) { run.deaths++; dead = true; break; }
 				const ents = (o.entities ?? []).filter(x => x.alive !== false);
 				for (const r of ents.filter(x => x.type === 'minecraft:item' && x.itemId === 'minecraft:blaze_rod')) {
 					rodIds.add(r.uuid);
-					if (RANGED !== 'none') knownRods.set(r.uuid, { uuid:r.uuid, at:Date.now(), x:Math.floor(r.position.x), y:Math.floor(r.position.y), z:Math.floor(r.position.z) });
+					if (RANGED !== 'none') knownRods.set(r.uuid, { uuid:r.uuid, at:now(), x:Math.floor(r.position.x), y:Math.floor(r.position.y), z:Math.floor(r.position.z) });
 				}
-				const rod = ents.filter(x => x.type === 'minecraft:item' && x.itemId === 'minecraft:blaze_rod' && x.distance < 10 && (!SHELTER || RANGED !== 'none' && x.position.y >= cell[1]-0.5 || Math.hypot(x.position.x-cell[0],x.position.z-cell[2]) <= 1.8)).sort((a, b) => a.distance - b.distance)[0] ?? [...knownRods.values()].find(r=>Date.now()-r.at<60000 && (!SHELTER || RANGED !== 'none' && r.y >= cell[1]-0.5 || Math.hypot(r.x+0.5-cell[0],r.z+0.5-cell[2]) <= 1.8));
+				const rod = ents.filter(x => x.type === 'minecraft:item' && x.itemId === 'minecraft:blaze_rod' && x.distance < 10 && (!SHELTER || RANGED !== 'none' && x.position.y >= cell[1]-0.5 || Math.hypot(x.position.x-cell[0],x.position.z-cell[2]) <= 1.8)).sort((a, b) => a.distance - b.distance)[0] ?? [...knownRods.values()].find(r=>now()-r.at<60000 && (!SHELTER || RANGED !== 'none' && r.y >= cell[1]-0.5 || Math.hypot(r.x+0.5-cell[0],r.z+0.5-cell[2]) <= 1.8));
 				const blaze = ents.filter(x => x.type === 'minecraft:blaze' && (!SHELTER || x.perceivedBy !== 'sound')).sort((a, b) => a.distance - b.distance)[0];
 				const heard = ents.find(x => x.type === 'minecraft:blaze' && x.perceivedBy === 'sound');
-				if (blaze && run.firstBlazeS === null) run.firstBlazeS = Math.round((Date.now() - startedAt) / 1000);
+				if (blaze && run.firstBlazeS === null) run.firstBlazeS = Math.round((now() - startedAt) / 1000);
 				let type, args;
-				if (STANDIN === 'shelter' && !run.shelterSent && Date.now() - startedAt >= SHELTER_S * 1000) {
+				if (STANDIN === 'shelter' && !run.shelterSent && now() - startedAt >= SHELTER_S * 1000) {
 					run.shelterSent = true;
 					const at = o.position ?? o.player?.position ?? o.player;
 					const dx = blaze ? blaze.position.x - at.x : 1, dz = blaze ? blaze.position.z - at.z : 0;
 					const opening = Math.abs(dx) >= Math.abs(dz) ? (dx >= 0 ? 'east' : 'west') : (dz >= 0 ? 'south' : 'north');
 					const res = await act('build_shelter', { x: Math.floor(at.x), y: Math.floor(at.y), z: Math.floor(at.z), opening, itemId: 'minecraft:cobblestone', roof: true, timeoutMs: 20000 }, 30000);
-					run.shelter = { s: Math.round((Date.now() - startedAt) / 100) / 10, state: res.state, reason: res.reasonCode, message: String(res.message ?? '').slice(0, 300) };
+					run.shelter = { s: Math.round((now() - startedAt) / 100) / 10, state: res.state, reason: res.reasonCode, message: String(res.message ?? '').slice(0, 300) };
 					if (res.reasonCode === 'AGENT_DEAD') { run.deaths++; dead = true; break; }
 					continue;
 				}
@@ -399,22 +418,22 @@ try {
 					const defend = (o.reflexes?.rules ?? []).find(rule => rule.id === 'default-defend');
 					run.defendFired = Math.max(run.defendFired ?? 0, defend?.fired ?? 0);
 					if (defend?.state === 'firing') run.defendFiringSamples = (run.defendFiringSamples ?? 0) + 1;
-					await sleep(250);
+					await rate.clock.sleep(250);
 					continue;
 				}
 				if (STANDIN === 'live') {
-					if (rodsHeld(o) >= UNTIL) { run.reachedS ??= Math.round((Date.now() - startedAt) / 1000); break; }
+					if (rodsHeld(o) >= UNTIL) { run.reachedS ??= Math.round((now() - startedAt) / 1000); break; }
 					let res;
 					if (hp < 10) { await act('select_item', { itemId: FOOD }); type = 'use_item'; res = await act(type, { durationMs: 1700, expectedItemId: FOOD }); }
 					else if (blaze && blaze.perceivedBy !== 'sound' && blaze.distance <= 24) {
 						type = 'fight_target';
 						const args = { targetId: blaze.uuid, pursue: false, shield: true, collect: false, fleeAtHealth: 12, timeoutMs: 20000, untilItem: 'minecraft:blaze_rod', untilCount: UNTIL };
-						const pending = act(type, args, Math.max(1000, runDeadline - Date.now()) + 20000);
-						if (CANCEL_S > 0) { const actionId = `bz-${ordinal}`; const cut = setTimeout(() => { bridge.send('action_cancel', record.agentId, { goalRevision: record.goalRevision, actionId }).catch(() => {}); }, CANCEL_S * 1000); res = await pending; clearTimeout(cut); }
+						const pending = act(type, args, Math.max(1000, runDeadline - now()) + 20000);
+						if (CANCEL_S > 0) { const actionId = `bz-${ordinal}`; let answered = false; rate.clock.sleep(CANCEL_S * 1000).then(() => { if (!answered) bridge.send('action_cancel', record.agentId, { goalRevision: record.goalRevision, actionId }).catch(() => {}); }); res = await pending; answered = true; }
 						else res = await pending;
 						if (!refusedBeforeRunning(res)) run.fightResults[res.reasonCode] = (run.fightResults[res.reasonCode] ?? 0) + 1;
-						(run.untilMessages ??= []).push(`${Math.round((Date.now() - startedAt) / 1000)}s ${res.reasonCode}: ${String(res.message ?? '').slice(0, 1600)}`);
-						if (res.reasonCode === 'UNTIL_COUNT_REACHED') run.reachedS ??= Math.round((Date.now() - startedAt) / 1000);
+						(run.untilMessages ??= []).push(`${Math.round((now() - startedAt) / 1000)}s ${res.reasonCode}: ${String(res.message ?? '').slice(0, 1600)}`);
+						if (res.reasonCode === 'UNTIL_COUNT_REACHED') run.reachedS ??= Math.round((now() - startedAt) / 1000);
 					}
 					else if (heard) { type = 'look_at'; res = await act(type, { x: heard.position.x, y: heard.position.y + 1, z: heard.position.z }); }
 					else { type = 'wait'; res = await act(type, { durationMs: 1000 }); }
@@ -423,7 +442,7 @@ try {
 					continue;
 				}
 				if (STANDIN === 'until' || STANDIN === 'count' || STANDIN === 'plan') {
-					if (rodsHeld(o) >= (STANDIN === 'plan' ? PLAN_NEED : UNTIL)) { run.reachedS ??= Math.round((Date.now() - startedAt) / 1000); break; }
+					if (rodsHeld(o) >= (STANDIN === 'plan' ? PLAN_NEED : UNTIL)) { run.reachedS ??= Math.round((now() - startedAt) / 1000); break; }
 					if (hp < 10 && !LOW_HP) { await act('select_item', { itemId: FOOD }); type = 'use_item'; args = { durationMs: 1700, expectedItemId: FOOD }; }
 					else if (STANDIN === 'plan') {
 						if (OPENER === 'ranged' && !run.opened && blaze && blaze.perceivedBy !== 'sound') {
@@ -438,18 +457,18 @@ try {
 						} else if (heard) { type = 'look_at'; args = { x: heard.position.x, y: heard.position.y + 1, z: heard.position.z }; }
 						else { type = 'wait'; args = { durationMs: 1000 }; }
 					}
-					else if (STANDIN === 'count' && blaze && blaze.perceivedBy !== 'sound' && blaze.distance <= 24) { type = 'fight_target'; args = { targetId: blaze.uuid, untilItem: 'minecraft:blaze_rod', untilCount: UNTIL, fleeAtHealth: LOW_HP ? 14 : 6, timeoutMs: Math.max(1000, Math.min(600000, runDeadline - Date.now())) }; }
-					else { type = 'fight_until'; args = { mob: 'minecraft:blaze', untilItem: 'minecraft:blaze_rod', untilCount: UNTIL, weapon: WEAPON, fleeAtHealth: LOW_HP ? 14 : 6, timeoutMs: Math.max(1000, Math.min(600000, runDeadline - Date.now())) }; }
-					const res = await act(type, args, Math.max(1000, runDeadline - Date.now(), type === 'fight_target' ? 180000 : 0) + 20000);
+					else if (STANDIN === 'count' && blaze && blaze.perceivedBy !== 'sound' && blaze.distance <= 24) { type = 'fight_target'; args = { targetId: blaze.uuid, untilItem: 'minecraft:blaze_rod', untilCount: UNTIL, fleeAtHealth: LOW_HP ? 14 : 6, timeoutMs: Math.max(1000, Math.min(600000, runDeadline - now())) }; }
+					else { type = 'fight_until'; args = { mob: 'minecraft:blaze', untilItem: 'minecraft:blaze_rod', untilCount: UNTIL, weapon: WEAPON, fleeAtHealth: LOW_HP ? 14 : 6, timeoutMs: Math.max(1000, Math.min(600000, runDeadline - now())) }; }
+					const res = await act(type, args, Math.max(1000, runDeadline - now(), type === 'fight_target' ? 180000 : 0) + 20000);
 					if (refusedBeforeRunning(res)) run.refused = (run.refused ?? 0) + 1; else run.calls[type] = (run.calls[type] ?? 0) + 1;
-					if (type === 'use_ranged') (run.openerResults ??= []).push(`${Math.round((Date.now() - startedAt) / 1000)}s ${res.reasonCode}: ${String(res.message ?? '').slice(0, 900)}`);
+					if (type === 'use_ranged') (run.openerResults ??= []).push(`${Math.round((now() - startedAt) / 1000)}s ${res.reasonCode}: ${String(res.message ?? '').slice(0, 900)}`);
 					if (type === 'fight_until' || type === 'fight_target') {
 						const m = String(res.message ?? '');
 						const fire = m.match(/fire: ([0-9.]+) s burning, (\d+) steps? off fire; shield: raised (\d+) times? at shots, (\d+) blocked; cover: (\d+) moves?/);
 						if (fire) { run.fireS = (run.fireS ?? 0) + Number(fire[1]); run.fireSteps = (run.fireSteps ?? 0) + Number(fire[2]); run.shieldRaised = (run.shieldRaised ?? 0) + Number(fire[3]); run.shieldBlocks = (run.shieldBlocks ?? 0) + Number(fire[4]); run.coverMoves = (run.coverMoves ?? 0) + Number(fire[5]); }
 						if (!refusedBeforeRunning(res)) run.fightResults[res.reasonCode] = (run.fightResults[res.reasonCode] ?? 0) + 1;
-						(run.untilMessages ??= []).push(`${Math.round((Date.now() - startedAt) / 1000)}s ${res.reasonCode}: ${String(res.message ?? '').slice(0, 1200)}`);
-						if (res.reasonCode === 'UNTIL_COUNT_REACHED') run.reachedS ??= Math.round((Date.now() - startedAt) / 1000);
+						(run.untilMessages ??= []).push(`${Math.round((now() - startedAt) / 1000)}s ${res.reasonCode}: ${String(res.message ?? '').slice(0, 1200)}`);
+						if (res.reasonCode === 'UNTIL_COUNT_REACHED') run.reachedS ??= Math.round((now() - startedAt) / 1000);
 						if (LOW_HP && res.reasonCode === 'LOW_HEALTH_BAILOUT') { run.lowHealthStop = { hp: (await observe(5000).catch(() => o)).player?.health }; break; }
 					}
 					if (res.reasonCode === 'AGENT_DEAD') { run.deaths++; dead = true; break; }
@@ -493,14 +512,14 @@ try {
 				}
 				else { type = 'wait'; args = { durationMs: 1000 }; }
 				const res = await act(type, args);
-				await traceRow({variant,repeat,s:Math.round((Date.now()-startedAt)/100)/10,type,args,result:res});
-				for (const m of String(res.message ?? '').matchAll(/minecraft:blaze_rod at (-?\d+),(-?\d+),(-?\d+) uuid=([a-f0-9-]{36})/g)) { knownRods.set(m[4],{uuid:m[4],at:Date.now(),x:Number(m[1]),y:Number(m[2]),z:Number(m[3])}); rodIds.add(m[4]); }
+				await traceRow({variant,repeat,s:Math.round((now()-startedAt)/100)/10,type,args,result:res});
+				for (const m of String(res.message ?? '').matchAll(/minecraft:blaze_rod at (-?\d+),(-?\d+),(-?\d+) uuid=([a-f0-9-]{36})/g)) { knownRods.set(m[4],{uuid:m[4],at:now(),x:Number(m[1]),y:Number(m[2]),z:Number(m[3])}); rodIds.add(m[4]); }
 				if (type === 'pick_up_item') knownRods.delete(args.targetSelector);
 				if (refusedBeforeRunning(res)) run.refused = (run.refused ?? 0) + 1; else run.calls[type] = (run.calls[type] ?? 0) + 1;
-				if (type === 'fight_target') { if (!refusedBeforeRunning(res)) run.fightResults[res.reasonCode] = (run.fightResults[res.reasonCode] ?? 0) + 1; (run.fightMessages ??= []).length < 12 && run.fightMessages.push(`${Math.round((Date.now() - startedAt) / 1000)}s d=${blaze.distance.toFixed(1)} dy=${(blaze.position.y - o.position.y).toFixed(1)} hp=${hp.toFixed(1)} ${res.reasonCode}: ${String(res.message ?? '').slice(0, 260)}`); }
+				if (type === 'fight_target') { if (!refusedBeforeRunning(res)) run.fightResults[res.reasonCode] = (run.fightResults[res.reasonCode] ?? 0) + 1; (run.fightMessages ??= []).length < 12 && run.fightMessages.push(`${Math.round((now() - startedAt) / 1000)}s d=${blaze.distance.toFixed(1)} dy=${(blaze.position.y - o.position.y).toFixed(1)} hp=${hp.toFixed(1)} ${res.reasonCode}: ${String(res.message ?? '').slice(0, 260)}`); }
 				if (type === 'use_ranged') {
 					(run.rangedResults ??= {})[res.reasonCode] = (run.rangedResults[res.reasonCode] ?? 0) + 1;
-					(run.rangedMessages ??= []).push({ s: Math.round((Date.now()-startedAt)/1000), reason: res.reasonCode, message: res.message });
+					(run.rangedMessages ??= []).push({ s: Math.round((now()-startedAt)/1000), reason: res.reasonCode, message: res.message });
 					const block = /meets minecraft:cobblestone at (-?\d+),(-?\d+),(-?\d+) before the target/.exec(res.message ?? '');
 					if (SHELTER && res.reasonCode === 'TARGET_OBSTRUCTED' && block) {
 						const [x,y,z] = block.slice(1).map(Number);
@@ -520,13 +539,19 @@ try {
 				}
 				if (res.reasonCode === 'AGENT_DEAD') { run.deaths++; dead = true; break; }
 			}
-			runDeadline = Infinity;
+			runDeadline = Infinity; windowEnd = null;
+			// elapsed() reads the world tick first, so the clock is anchored on it when seconds is read below.
+			const gameMs = await timer.elapsed();
+			run.tick = { tickRate: rate.tickRate, gameSeconds: Math.round(gameMs / 1000), wallSeconds: Math.round((Date.now() - wallStartedAt) / 1000), rates: await timer.rates().catch(() => null) };
+			await rate.normalRate();
+			run.tick.held = await rate.tickReport();
+			run.damageTaken = damageEvidence(damageAtStart, await damage().catch(() => null)).damageTaken;
 			run.kills = kills.slice(killMark).filter(k => k.type === 'minecraft:blaze').length;
 			const firstKill = kills.slice(killMark).find(k => k.type === 'minecraft:blaze'); if (firstKill) run.firstKillS = Math.round((firstKill.at - startedAt) / 1000);
 			run.otherKills = kills.slice(killMark).filter(k => k.type !== 'minecraft:blaze').map(k => k.type);
-			run.rodItemsSeen = rodIds.size; run.seconds = Math.round((Date.now() - startedAt) / 1000);
+			run.rodItemsSeen = rodIds.size; run.seconds = Math.round((now() - startedAt) / 1000);
 			run.endServerTick = await serverTick();
-			run.approxTps = (run.endServerTick-startServerTick)/((Date.now()-startedAt)/1000);
+			run.approxTps = (run.endServerTick-startServerTick)/((Date.now()-wallStartedAt)/1000);
 			run.deathCounter = deathEvidence(deathsAtStart, await deathCounter(command, agent, { objective: 'bz_deaths', unsetIsZero: true }).catch(() => null));
 			if (run.deathCounter.valid && run.deathCounter.deaths > run.deaths) { run.deaths = run.deathCounter.deaths; dead = true; }
 			if (dead) { run.recovered = false; run.minHealth = 0; }

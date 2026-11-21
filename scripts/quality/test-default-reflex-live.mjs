@@ -8,6 +8,8 @@ import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { ReflexBook } from '../../coordinator/src/reflexes.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
+import { installTickRate, fixtureTickRate } from './watch-replay.mjs';
+import { damageCounter, damageEvidence } from './lib/damage-counter.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const jarPath = resolve(process.env.ARENA_JAR ?? join(root, MOD_JAR));
@@ -35,7 +37,7 @@ class Inbox {
 	accept(e) { const i = this.waiters.findIndex(w => w.type === e.type && w.match(e)); if (i >= 0) this.waiters.splice(i, 1)[0].done(e); else { this.events.push(e); if (this.events.length > 2048) this.events.shift(); } }
 	wait(type, match = () => true, ms = 30000) { const i = this.events.findIndex(e => e.type === type && match(e)); if (i >= 0) return Promise.resolve(this.events.splice(i, 1)[0]); return new Promise((res, rej) => { const w = { type, match, done: e => { clearTimeout(t); res(e); } }; const t = setTimeout(() => { this.waiters = this.waiters.filter(x => x !== w); rej(new Error(`TIMEOUT ${type}`)); }, ms); this.waiters.push(w); }); }
 }
-let rcon, bridge, inbox, ordinal = 0;
+let rcon, bridge, inbox, ordinal = 0, rate;
 const latest = new Map();
 const command = async s => {
 	if (rcon.state === 'closed') { rcon = new HeadlessRconClient({ host: '127.0.0.1', port: port + 1, password: secret, commandTimeoutMs: 5000 }); await rcon.connect(); }
@@ -61,10 +63,33 @@ async function register(agent) {
 	await bridge.send('agent_ready', agent.record.agentId, { goalRevision: agent.record.goalRevision, reconciled: false });
 	await command(`gamemode survival ${agent.name}`);
 	await command(`effect give ${agent.name} minecraft:saturation 1200 4 true`);
+	agent.damage = await damageCounter(command, agent.name);
+}
+
+/**
+ * FIXTURE_TICK_RATE: each case is built at 20 and the server runs at the fixture rate only from its trigger (the
+ * fireball, the drop over lava, the fire) to the end of its watch, which polls on the fixture clock. The watch is 50
+ * polls of three RCON reads each, not a fixed window: at a raised rate those reads take more game time, so it covers
+ * somewhat more game time than at 20 (never less).
+ */
+async function playStart(agent) {
+	const damage0 = await agent.damage().catch(() => null);
+	await rate.fastRate();
+	return { agent, damage0, t0: rate.clock.now(), wall0: Date.now(), timer: await rate.gameTimer() };
+}
+async function playEnd(p) {
+	// elapsed() reads the world tick first, so the clock is anchored on it when seconds is read.
+	const gameMs = await p.timer.elapsed();
+	const tick = { tickRate: rate.tickRate, seconds: Math.round((rate.clock.now() - p.t0) / 1000), wallSeconds: Math.round((Date.now() - p.wall0) / 1000),
+		gameSeconds: Math.round(gameMs / 1000), rates: await p.timer.rates().catch(() => null) };
+	await rate.normalRate();
+	tick.held = await rate.tickReport();
+	tick.damageTaken = damageEvidence(p.damage0, await p.agent.damage().catch(() => null)).damageTaken;
+	return tick;
 }
 
 async function armDefaults(agent) {
-	const book = new ReflexBook();
+	const book = new ReflexBook(rate.clock.rate === 20 ? {} : { now: () => rate.clock.now() });
 	const sample = latest.get(agent.record.agentId);
 	if (!book.observeContext(agent.record.agentId, sample)) throw new Error('defaults did not arm on a live sample');
 	const payload = book.payload(agent.record.agentId);
@@ -102,6 +127,8 @@ async function buildBridge(ox) {
 	await command(`fill ${ox - 6} 80 18 ${ox + 6} 80 18 minecraft:stone`);
 }
 async function revive(agent) {
+	// Every case is set up at 20, also after one that failed mid-watch.
+	await rate.normalRate();
 	await command(`effect clear ${agent.name}`);
 	await command(`extinguish ${agent.name}`).catch(() => {});
 	await command(`effect give ${agent.name} minecraft:instant_health 1 5 true`);
@@ -111,7 +138,7 @@ async function revive(agent) {
 async function watch(agent, start) {
 	let minY = start.y, entered = false, last = start, alive = true;
 	for (let i = 0; i < 50; i++) {
-		await sleep(200);
+		await rate.clock.sleep(200);
 		const h = await health(agent.name).catch(() => null);
 		if (h === null || h <= 0) { alive = false; break; }
 		last = await pos(agent.name);
@@ -125,29 +152,35 @@ async function watch(agent, start) {
 
 async function lavaKnock(agent) {
 	await buildLava(agent.ox); await revive(agent);
-	await command(`tp ${agent.name} ${agent.ox + 0.5} 81 0.75 0 10`); await sleep(1500);
+	await command(`tp ${agent.name} ${agent.ox + 0.5} 81 0.75 0 10`); await rate.idleSleep(1500);
 	const start = await pos(agent.name);
+	const play = await playStart(agent);
 	await command(`summon minecraft:small_fireball ${agent.ox + 0.5} 81.9 -2.5 {Motion:[0.0,0.0,0.6],acceleration_power:0.0}`);
-	return { case: 'lava-knock', agent: agent.name, mode: agent.mode, ...(await watch(agent, start)) };
+	const row = { case: 'lava-knock', agent: agent.name, mode: agent.mode, ...(await watch(agent, start)) };
+	return { ...row, tick: await playEnd(play) };
 }
 async function lavaDrop(agent) {
 	await buildLava(agent.ox); await revive(agent);
+	const play = await playStart(agent);
 	await command(`tp ${agent.name} ${agent.ox + 0.5} 81.6 2.5 0 10`);
 	const start = await pos(agent.name);
-	return { case: 'lava-drop', agent: agent.name, mode: agent.mode, ...(await watch(agent, start)) };
+	const row = { case: 'lava-drop', agent: agent.name, mode: agent.mode, ...(await watch(agent, start)) };
+	return { ...row, tick: await playEnd(play) };
 }
 async function edgeControl(agent) {
 	await buildBridge(agent.ox); await revive(agent);
 	await command(`effect give ${agent.name} minecraft:resistance 60 255 true`);
 	// A player on a bridge has seen the drop on both sides: look down each side, then along the bridge.
-	await command(`tp ${agent.name} ${agent.ox + 0.5} 81 18.5 0 70`); await sleep(1000);
-	await command(`tp ${agent.name} ${agent.ox + 0.5} 81 18.5 180 70`); await sleep(1000);
-	await command(`tp ${agent.name} ${agent.ox + 0.5} 81 18.5 -90 10`); await sleep(1000);
+	await command(`tp ${agent.name} ${agent.ox + 0.5} 81 18.5 0 70`); await rate.idleSleep(1000);
+	await command(`tp ${agent.name} ${agent.ox + 0.5} 81 18.5 180 70`); await rate.idleSleep(1000);
+	await command(`tp ${agent.name} ${agent.ox + 0.5} 81 18.5 -90 10`); await rate.idleSleep(1000);
+	const play = await playStart(agent);
 	const keys = control(agent, { forward: 0, strafe: 0, jump: false, sneak: false, sprint: false, attack: false, use: false, yaw: -90, pitch: 10, selectedSlot: 0, hand: 'main', ticks: 70 });
-	await keys.sent; await sleep(400);
+	await keys.sent; await rate.clock.sleep(400);
 	const start = await pos(agent.name);
 	await command(`summon minecraft:small_fireball ${agent.ox + 0.5} 81.9 15.5 {Motion:[0.0,0.0,0.6],acceleration_power:0.0}`);
 	const row = { case: 'edge-control', agent: agent.name, mode: agent.mode, ...(await watch(agent, start)) };
+	row.tick = await playEnd(play);
 	await keys.done.catch(() => null);
 	await command(`effect clear ${agent.name} minecraft:resistance`);
 	return { ...row, offBridge: row.fell > 3 };
@@ -161,21 +194,23 @@ async function shelterFire(agent) {
 	// Netherrack under the cell: fire on it never burns out by itself (vanilla), so only a punch puts it out.
 	await command(`setblock ${agent.ox} 80 30 minecraft:netherrack`);
 	await revive(agent);
-	await command(`tp ${agent.name} ${agent.ox + 0.5} 81 30.5 -90 30`); await sleep(1000);
+	await command(`tp ${agent.name} ${agent.ox + 0.5} 81 30.5 -90 30`); await rate.idleSleep(1000);
 	await command(`fill ${agent.ox - 1} 81 29 ${agent.ox + 1} 82 31 minecraft:cobblestone hollow`);
 	await command(`fill ${agent.ox - 1} 83 29 ${agent.ox + 1} 83 31 minecraft:cobblestone`);
 	await command(`setblock ${agent.ox + 1} 82 30 minecraft:air`);
 	// Look round the cell so its walls and floor are seen terrain, as a body that built it has seen them.
-	for (const yaw of [-90, 0, 90, 180]) { await command(`tp ${agent.name} ${agent.ox + 0.5} 81 30.5 ${yaw} 60`); await sleep(400); }
+	for (const yaw of [-90, 0, 90, 180]) { await command(`tp ${agent.name} ${agent.ox + 0.5} 81 30.5 ${yaw} 60`); await rate.idleSleep(400); }
 	// No saturation effect here: its regeneration would hide the burn.
 	await command(`effect clear ${agent.name}`);
 	const start = await pos(agent.name);
+	const play = await playStart(agent);
 	await command(`setblock ${agent.ox} 81 30 minecraft:fire`);
 	let fireOutS = null;
-	const t0 = Date.now();
-	const poll = (async () => { for (let i = 0; i < 50 && fireOutS === null; i++) { await sleep(200); if (!/passed/i.test(await command(`execute if block ${agent.ox} 81 30 minecraft:fire`).catch(() => 'passed'))) fireOutS = Math.round((Date.now() - t0) / 100) / 10; } })();
+	const t0 = rate.clock.now();
+	const poll = (async () => { for (let i = 0; i < 50 && fireOutS === null; i++) { await rate.clock.sleep(200); if (!/passed/i.test(await command(`execute if block ${agent.ox} 81 30 minecraft:fire`).catch(() => 'passed'))) fireOutS = Math.round((rate.clock.now() - t0) / 100) / 10; } })();
 	const row = { case: 'shelter-fire', agent: agent.name, mode: agent.mode, ...(await watch(agent, start)) };
 	await poll;
+	row.tick = await playEnd(play);
 	row.fireLeft = /passed/i.test(await command(`execute if block ${agent.ox} 81 30 minecraft:fire`).catch(() => ''));
 	row.fireOutS = fireOutS;
 	row.reflexes = (latest.get(agent.record.agentId)?.reflexes?.rules ?? []).map(r => `${r.id}:${r.state}:${r.fired}`).join(' ');
@@ -186,8 +221,9 @@ async function shelterFire(agent) {
 const results = { rules: {}, cases: [] };
 try {
 	for (let i = 0; i < 150; i++) { try { rcon = new HeadlessRconClient({ host: '127.0.0.1', port: port + 1, password: secret, connectTimeoutMs: 500, commandTimeoutMs: 5000 }); await rcon.connect(); break; } catch (e) { await rcon?.close(); if (i === 149) throw e; await sleep(1000); } }
+	rate = installTickRate({ command: text => command(text) }, fixtureTickRate());
 	bridge = new MultiplexedServerBridge({ port, secret }, {}); inbox = new Inbox(bridge);
-	bridge.on('observation', e => { if (e.payload.ready) latest.set(e.agentId, e.payload); });
+	bridge.on('observation', e => { rate.clock.observe(e.payload?.world?.gameTime); if (e.payload.ready) latest.set(e.agentId, e.payload); });
 	bridge.on('goal_spec_request', e => { bridge.send('goal_spec_proposal', e.agentId, { requestId: e.payload.requestId, summary: 'Controlled live mechanics fixture', predicate: { type: 'survive_duration', ticks: 24000 } }).catch(() => {}); });
 	const ready = inbox.wait('ready'); bridge.start(); await ready;
 	await bridge.send('catalog_snapshot', 'server', { refreshedAtEpochMs: Date.now(), models: [{ provider: 'codex', model: 'gpt-6.1-sol', id: 'gpt-6.1-sol', displayName: 'Provider-free default reflex fixture', reasoningEfforts: ['low'], serviceTiers: ['priority'] }] });
@@ -214,6 +250,7 @@ try {
 	const tally = (mode, name) => { const rows = results.cases.filter(c => c.mode === mode && c.case === name && !c.skipped); return `${rows.filter(c => name === 'edge-control' ? !c.offBridge : c.alive).length}/${rows.length}${name === 'edge-control' ? ' stayed on' : ' alive'}${name.startsWith('lava') ? `, entered lava ${rows.filter(c => c.entered).length}/${rows.length}` : ''}`; };
 	results.summary = Object.fromEntries(['defaults', 'none'].map(mode => [mode, Object.fromEntries(['edge-control', 'lava-knock', 'lava-drop'].map(name => [name, tally(mode, name)]))]));
 	results.summary.jar = jarPath;
+	results.tickRate = rate.tickRate;
 	console.log(JSON.stringify(results.summary, null, 2));
 } finally {
 	await writeFile(join(out, 'default-reflex.json'), JSON.stringify(results, null, 2)).catch(() => {});

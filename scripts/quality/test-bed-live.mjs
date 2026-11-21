@@ -9,6 +9,8 @@ import { randomBytes, createHash } from 'node:crypto';
 import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
+import { installTickRate, fixtureTickRate } from './watch-replay.mjs';
+import { damageCounter, damageEvidence } from './lib/damage-counter.mjs';
 
 const root=fileURLToPath(new URL('../..',import.meta.url));
 const out=resolve(process.argv[2] ?? 'runtime/bed-live');
@@ -37,7 +39,7 @@ class Inbox {
   accept(e){const i=this.waiters.findIndex(w=>w.type===e.type&&w.match(e));if(i>=0)this.waiters.splice(i,1)[0].done(e);else {this.events.push(e);if(this.events.length>1024)this.events.shift();}}
   wait(type,match=()=>true,ms=30000){const i=this.events.findIndex(e=>e.type===type&&match(e));if(i>=0)return Promise.resolve(this.events.splice(i,1)[0]);return new Promise((res,rej)=>{const w={type,match,done:e=>{clearTimeout(t);res(e)}};const t=setTimeout(()=>{this.waiters=this.waiters.filter(x=>x!==w);rej(new Error(`TIMEOUT ${type}`))},ms);this.waiters.push(w)});}
 }
-let rcon,bridge,record,observation;
+let rcon,bridge,record,observation,rate,play=null;
 const agent='Night';
 const command=async s=>{
   if(rcon.state==='closed'){rcon=new HeadlessRconClient({host:'127.0.0.1',port:port+1,password:secret,commandTimeoutMs:5000});await rcon.connect();}
@@ -58,10 +60,24 @@ async function executeAction(c){
   await writeFile(join(out,'actions.json'),JSON.stringify(actions,null,2));
   return r;
 }
+// The play's game and wall seconds, the rates the server held, and vanilla's damage counter over it (tick.json).
+async function endPlay(){
+  const p=play;
+  // elapsed() reads the world tick first, so the clock is anchored on it when seconds is read.
+  const gameMs=await p.timer.elapsed();
+  const tick={tickRate:rate.tickRate,seconds:Math.round((rate.clock.now()-p.t0)/1000),wallSeconds:Math.round((Date.now()-p.wall0)/1000),
+    gameSeconds:Math.round(gameMs/1000),rates:await p.timer.rates().catch(()=>null)};
+  await rate.normalRate();
+  tick.held=await rate.tickReport();
+  tick.damageTaken=damageEvidence(p.damage0,await p.damage().catch(()=>null)).damageTaken;
+  return tick;
+}
 try {
   for(let i=0;i<150;i++){try{rcon=new HeadlessRconClient({host:'127.0.0.1',port:port+1,password:secret,connectTimeoutMs:500,commandTimeoutMs:5000});await rcon.connect();break}catch(e){await rcon?.close();if(i===149)throw e;await sleep(1000)}}
+  // FIXTURE_TICK_RATE: setup runs at 20; from the first craft to the last bed use the server runs at the fixture rate.
+  rate=installTickRate({command:text=>command(text)},fixtureTickRate());
   bridge=new MultiplexedServerBridge({port,secret},{});inbox=new Inbox(bridge);
-  bridge.on('observation',e=>{if(e.agentId===record?.agentId&&e.payload.ready){observation=e.payload}});
+  bridge.on('observation',e=>{rate.clock.observe(e.payload?.world?.gameTime);if(e.agentId===record?.agentId&&e.payload.ready){observation=e.payload}});
   bridge.on('goal_spec_request',e=>{bridge.send('goal_spec_proposal',e.agentId,{requestId:e.payload.requestId,summary:'Controlled live mechanics fixture',predicate:{type:'survive_duration',ticks:12000}}).catch(()=>{});});
   const ready=inbox.wait('ready');bridge.start();await ready;
   await bridge.send('catalog_snapshot','server',{refreshedAtEpochMs:Date.now(),models:[{provider:'codex',model:'gpt-6.1-sol',id:'gpt-6.1-sol',displayName:'Provider-free bed fixture',reasoningEfforts:['low'],serviceTiers:['priority']}]});
@@ -87,6 +103,10 @@ try {
     return r;
   }
   await observe();
+  const damage=await damageCounter(command,agent);
+  play={damage0:await damage(),damage};
+  await rate.fastRate();
+  play.t0=rate.clock.now();play.wall0=Date.now();play.timer=await rate.gameTimer();
   await act('craft_table',{x:1,y:80,z:0,recipeId:'minecraft:white_bed',count:1,timeoutMs:10000});
   await act('place_block',{x:0,y:80,z:2,face:'up',itemId:'minecraft:white_bed'});
   const placed=await observe();
@@ -94,7 +114,7 @@ try {
   const bed=placed.blocks.find(b=>b.blockId==='minecraft:white_bed');
   if(!bed)throw new Error('Placed bed not observed');
   await act('interact_block',{x:bed.x,y:bed.y,z:bed.z,face:'up',hand:'main',expectedItemId:'minecraft:air'});
-  await sleep(6000);
+  await rate.clock.sleep(6000);
   const after=await observe();
   const spawn=await command(`data get entity ${agent} respawn`);
   await writeFile(join(out,'sleep-evidence.json'),JSON.stringify({before:placed.world,after:after.world,player:after.player,events:after.perception,spawn,actions},null,2));
@@ -103,7 +123,7 @@ try {
   // Vanilla daytime use sets spawn and reports why sleep cannot start.
   await command('time set noon');
   await act('interact_block',{x:bed.x,y:bed.y,z:bed.z,face:'up',hand:'main',expectedItemId:'minecraft:air'});
-  await sleep(250);
+  await rate.clock.sleep(250);
   const daytime=await observe();
   await writeFile(join(out,'daytime.json'),JSON.stringify(daytime,null,2));
   if(!daytime.perception.events.some(e=>e.text?.includes('only at night')))throw new Error('Missing daytime rejection');
@@ -111,13 +131,14 @@ try {
   await command('time set 14000');await command('difficulty normal');
   await command('summon minecraft:zombie 3.5 80 2.5 {NoAI:1b,PersistenceRequired:1b}');
   await act('interact_block',{x:bed.x,y:bed.y,z:bed.z,face:'up',hand:'main',expectedItemId:'minecraft:air'});
-  await sleep(250);
+  await rate.clock.sleep(250);
   const monster=await observe();
   await writeFile(join(out,'monster.json'),JSON.stringify(monster,null,2));
   if(!monster.perception.events.some(e=>e.text?.includes('monsters nearby')))throw new Error('Missing monster rejection');
   if(monster.world.dayTime%24000<12000)throw new Error('Monster failed to block night skip');
   console.log('Bed crafting, placement, sleep, spawn and rejection variants recorded');
 } finally {
+  if(play)await endPlay().then(tick=>writeFile(join(out,'tick.json'),JSON.stringify(tick,null,2))).catch(()=>{});
   if(rcon)await command('stop').catch(()=>{});
   bridge?.stop();await rcon?.close();
   await Promise.race([new Promise(r=>child.once('exit',r)),sleep(10000)]);if(child.exitCode===null)child.kill('SIGTERM');await log.close();
