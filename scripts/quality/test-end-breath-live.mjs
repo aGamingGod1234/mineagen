@@ -8,6 +8,9 @@
 // --old: the base arm, no End defaults (the coordinator before this change had none); run it with that commit's jar.
 // --old-rule: the base arm plus the same breath rule installed as a model rule (what a model could install itself).
 // Launch under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME. REPEATS=n plays every room n times.
+// FIXTURE_TICK_RATE runs each room's window faster: placement stays at 20 TPS, and from the fireball's summon the cloud
+// wait, the 12 s window, the command's 400 ms delay and the trail are game time (s.clock), as is the reflex book. Rows
+// record row.rates, row.gameSeconds and row.wallSeconds.
 import { writeFile, mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,6 +19,8 @@ import { normalizeMinecraftToolCall } from '../../coordinator/src/native-minecra
 import { adaptObservation } from '../../coordinator/src/observation-adapter.mjs';
 import { ReflexBook, normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
 import { warmBoots } from './fixture-servers.mjs';
+import { fixtureTickRate } from './watch-replay.mjs';
+import { gameClockFromObservations } from '../../coordinator/src/game-clock.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 import { damageCounter, damageEvidence, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
 import { finishRun, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
@@ -55,7 +60,7 @@ const runs = Array.from({ length: repeats }, () => ROOMS).flat();
 const results = { arm: OLD_RULE ? 'old+model-rule' : OLD ? 'old' : 'new', jar: path.resolve(jarArg ?? path.join(root, MOD_JAR)), runs: [] };
 
 for await (const { server: s, error: bootError } of warmBoots([{ name: 'breath' }], () => ({ dir: path.join(out, 'server-0'),
-	options: { jar: results.jar, template, port, world: null, seed: '20261017', spawnMonsters: false, worldCache: true } }))) {
+	options: { jar: results.jar, template, port, world: null, seed: '20261017', spawnMonsters: false, worldCache: true, tickRate: fixtureTickRate() } }))) {
 	try {
 		if (!s) throw bootError;
 		await s.command('time set noon');
@@ -72,7 +77,8 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'breath' 
 		await s.bridge.send('agent_ready', s.record.agentId, { goalRevision: s.record.goalRevision, reconciled: false });
 		await s.command(`gamemode survival ${AGENT}`);
 		await s.command(`effect give ${AGENT} minecraft:saturation 1200 4 true`);
-		const book = new ReflexBook(OLD ? { dimensionDefaults: {} } : {});
+		const fast = s.clock.rate !== 20;
+		const book = new ReflexBook({ ...(OLD ? { dimensionDefaults: {} } : {}), ...(fast ? { now: () => s.clock.now() } : {}) });
 		const commands = new Set();
 		const record = { ...s.record, provider: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'low', serviceTier: 'default' };
 		const runtime = new NativeToolRuntime({
@@ -80,6 +86,7 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'breath' 
 			requestObservation: async () => { const payload = await s.observe(); return { eventSequence: payload.eventSequence, observation: adaptObservation(payload) }; },
 			inspectObservation: async () => ({ state: 'SUCCEEDED', reasonCode: 'INSPECTED', survey: {} }),
 			reflexBook: book,
+			...(fast ? { clock: gameClockFromObservations({ tickRate: s.clock.rate }) } : {}),
 		});
 		let latest = null;
 		s.bridge.on('observation', ev => {
@@ -125,6 +132,7 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'breath' 
 			const row = { run: index + 1, room: room.name, startedAt: Date.now() };
 			results.runs.push(row);
 			try {
+				await s.normalRate();
 				await end(s, 'kill @e[type=minecraft:area_effect_cloud]'); await end(s, 'kill @e[type=minecraft:dragon_fireball]'); await end(s, 'kill @e[type=minecraft:item]');
 				await build();
 				// The last run's firing (a run is bounded at 6 s) ends before the body is placed, or it would carry the body off.
@@ -148,23 +156,26 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'breath' 
 				const firedBefore = armedBreath ? await firedCount() : null;
 				const damageBefore = await readDamage();
 				const [bx, bz] = room.ball;
+				// Play from the summon: game time on the fixture clock (wall time at 20 TPS).
+				await s.fastRate();
+				const now = () => s.clock.now(), wall0 = Date.now(), timer = await s.gameTimer();
 				// A dragon fireball dropped onto the cell: vanilla makes the breath cloud where it hits.
 				// Summoned just above the ground so it lands at once, before the fireball reflex could turn it aside.
 				await end(s, `summon minecraft:dragon_fireball ${CX + bx + 0.5} ${TOP + 1.3} ${CZ + bz + 0.5} {Motion:[0.0d,-1.0d,0.0d],acceleration_power:0.1d}`);
-				let cloudAt = null, t0 = Date.now(), commandResult = null, minY = before.y, dead = false;
+				let cloudAt = null, t0 = now(), commandResult = null, minY = before.y, dead = false;
 				for (let i = 0; i < 60 && !cloudAt; i++) {
 					const reply = String(await end(s, `execute as @e[type=minecraft:area_effect_cloud,limit=1] run data get entity @s Pos`));
 					const m = reply.match(/\[\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?\]/);
 					if (m) cloudAt = m.slice(1).map(Number);
-					else await sleep(100);
+					else await s.clock.sleep(100);
 				}
 				row.cloudAt = cloudAt;
 				row.cloud = cloudAt ? String(await end(s, 'execute as @e[type=minecraft:area_effect_cloud,limit=1] run data get entity @s')).slice(0, 600) : null;
-				t0 = Date.now();
+				t0 = now();
 				let pending = null;
 				const trail = [];
-				while (Date.now() - t0 < 12_000) {
-					if (room.command && !pending && Date.now() - t0 >= 400 && cloudAt) {
+				while (now() - t0 < 12_000) {
+					if (room.command && !pending && now() - t0 >= 400 && cloudAt) {
 						pending = runtime.execute({ agentId: record.agentId, goalRevision: record.goalRevision, turnId: `breath-${index}`, callId: `breath-${index}`,
 							tool: normalizeMinecraftToolCall('act', { actionType: 'travel_to', arguments: { x: Math.floor(cloudAt[0]) + 0.5, y: TOP + 1, z: Math.floor(cloudAt[2]) + 0.5, tolerance: 1 } }) }, record)
 							.then(r => { commandResult = { state: r?.state, reasonCode: r?.reasonCode, message: String(r?.message ?? '').slice(0, 300) }; })
@@ -172,11 +183,11 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'breath' 
 					}
 					const p = await pos().catch(() => null);
 					if (p) {
-						trail.push([Math.round((Date.now() - t0) / 100) / 10, Math.round(p.x * 10) / 10, Math.round(p.y * 10) / 10, Math.round(p.z * 10) / 10, p.health]);
+						trail.push([Math.round((now() - t0) / 100) / 10, Math.round(p.x * 10) / 10, Math.round(p.y * 10) / 10, Math.round(p.z * 10) / 10, p.health]);
 						minY = Math.min(minY, p.y);
 						if (p.dead) { dead = true; break; }
 					}
-					await sleep(200);
+					await s.clock.sleep(200);
 				}
 				// One cutoff for every piece of evidence: the window's end. Damage, deaths, the breath rule's fired count and the
 				// final position are all read here, before the wait for the command's receipt, so a firing (or a hit) during that
@@ -186,6 +197,11 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'breath' 
 				const firedAfter = armedBreath ? await firedCount().catch(() => null) : null;
 				const after = await pos().catch(() => null);
 				row.end = after;
+				// The window is over once its evidence is read: what it ran at, then back to 20 for the next room's setup.
+				row.wallSeconds = Math.round((Date.now() - wall0) / 100) / 10;
+				row.gameSeconds = Math.round((await timer.elapsed()) / 100) / 10;
+				row.rates = await timer.rates().catch(() => null);
+				await s.normalRate();
 				row.trail = trail;
 				row.died = dead || row.deathEvidence.deaths > 0 || after?.dead === true;
 				// The receipt wait is diagnostic only (did the held command return?).

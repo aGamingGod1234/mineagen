@@ -23,13 +23,16 @@ export const MIN_PLANNING_OVERLAP_MS = 4_000;
 
 /** Runs selected-model ArenaScript through native tools, returning every new decision to its caller. */
 export class NativeProgramExecutor {
-	#runs = new Map(); #agentDurations = new Map(); #setTimeout; #clearTimeout; #cancellationTimeoutMs; #sessionId; #sequence = 0; #now; #ordinaryAttentionIntervalMs;
-	constructor({ setTimeoutFn = setTimeout, clearTimeoutFn = clearTimeout, cancellationTimeoutMs = 5_000, sessionId = randomUUID(), now = Date.now, ordinaryAttentionIntervalMs = ORDINARY_ATTENTION_INTERVAL_MS } = {}) {
+	#runs = new Map(); #agentDurations = new Map(); #setTimeout; #clearTimeout; #ackSetTimeout; #ackClearTimeout; #cancellationTimeoutMs; #sessionId; #sequence = 0; #now; #ordinaryAttentionIntervalMs;
+	// acknowledgement*Fn time the cancel acknowledgement (a bridge round trip) apart from program time; default the same timers.
+	constructor({ setTimeoutFn = setTimeout, clearTimeoutFn = clearTimeout, acknowledgementSetTimeoutFn = setTimeoutFn, acknowledgementClearTimeoutFn = clearTimeoutFn, cancellationTimeoutMs = 5_000, sessionId = randomUUID(), now = Date.now, ordinaryAttentionIntervalMs = ORDINARY_ATTENTION_INTERVAL_MS } = {}) {
 		if (typeof setTimeoutFn !== 'function' || typeof clearTimeoutFn !== 'function') throw new TypeError('timer callbacks are required');
+		if (typeof acknowledgementSetTimeoutFn !== 'function' || typeof acknowledgementClearTimeoutFn !== 'function') throw new TypeError('acknowledgement timer callbacks are required');
 		if (typeof sessionId !== 'string' || !/^[A-Za-z0-9._:-]{1,128}$/.test(sessionId)) throw new TypeError('sessionId must be a bounded identifier');
 		this.#sessionId = createHash('sha256').update(sessionId).digest('hex').slice(0, 32);
 		integer(cancellationTimeoutMs, 'cancellationTimeoutMs', 1, 10_000);
 		this.#setTimeout = setTimeoutFn; this.#clearTimeout = clearTimeoutFn; this.#cancellationTimeoutMs = cancellationTimeoutMs;
+		this.#ackSetTimeout = acknowledgementSetTimeoutFn; this.#ackClearTimeout = acknowledgementClearTimeoutFn;
 		if (typeof now !== 'function') throw new TypeError('now must be a function');
 		integer(ordinaryAttentionIntervalMs, 'ordinaryAttentionIntervalMs', 0, 600_000);
 		this.#now = now; this.#ordinaryAttentionIntervalMs = ordinaryAttentionIntervalMs;
@@ -687,7 +690,7 @@ export class NativeProgramExecutor {
 		this.#clearPlanningDue(run);
 		if (cancel || !run.bodyPending) run.engine.suspend(run.stopping.reasonCode);
 		if (run.bodyPending && cancel && run.cancellationTimer === null) {
-			run.cancellationTimer = this.#setTimeout(() => this.#finish(run, { state: 'UNKNOWN', reasonCode: 'PROGRAM_CANCEL_ACK_TIMEOUT' }), this.#cancellationTimeoutMs);
+			run.cancellationTimer = this.#ackSetTimeout(() => this.#finish(run, { state: 'UNKNOWN', reasonCode: 'PROGRAM_CANCEL_ACK_TIMEOUT' }), this.#cancellationTimeoutMs);
 			run.cancellationTimer?.unref?.();
 		}
 		this.#check(run);
@@ -723,7 +726,7 @@ export class NativeProgramExecutor {
 		this.#clearPlanningDue(run);
 		this.#clearOrdinaryNotification(run);
 		if (run.observationTimer !== null) this.#clearTimeout(run.observationTimer);
-		if (run.cancellationTimer !== null) this.#clearTimeout(run.cancellationTimer);
+		if (run.cancellationTimer !== null) this.#ackClearTimeout(run.cancellationTimer);
 		this.#runs.delete(run.record.agentId);
 		const snapshot = run.engine.snapshot();
 		const budget = programBudget(run);
