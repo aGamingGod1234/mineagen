@@ -208,3 +208,41 @@ test('a room judged on survival whose fixture records no death count has no verd
 	const runs = await collectRuns(dir, null, { dragon: { bar: 'none' } });
 	assert.deepEqual([runs[0].verdict, runs[0].reason], ['INVALID', 'no death record']);
 });
+
+test('what a fixture wrote outranks its exit 0: caught errors, pass false, alive false, empty rows and cut-short files', async t => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'bench-score-'));
+	t.after(() => rm(dir, { recursive: true, force: true }));
+	const put = async (file, value) => { await mkdir(path.dirname(path.join(dir, file)), { recursive: true }); await writeFile(path.join(dir, file), typeof value === 'string' ? value : JSON.stringify(value)); };
+	const rooms = ['crowd', 'gather', 'reflex', 'reflexcontrol', 'edge', 'empty', 'cut', 'fine'];
+	const plan = planBenchmark(rooms.map(room => ({ room, line: LINE })), { repeats: 1, slots: 1 });
+	for (const room of rooms) await put(`rooms/${room}.c1/done.json`, { room: `${room}.c1`, arms: { r1: { exit: room === 'cut' ? 1 : 0 } } });
+	// Crowd: an observation timeout caught and written to error.txt, then exit 0.
+	await put('rooms/crowd.c1/r1/runs.json', [{ trial: 1, survived: true }]);
+	await put('rooms/crowd.c1/r1/error.txt', 'Error: observation timed out\n    at ...');
+	// Nether gather: a scenario-level pass false, exit 0, no survival bar.
+	await put('rooms/gather.c1/r1/results.json', { tunnel: { pass: false, error: 'never reached the gold' } });
+	// Default reflex: the armed body died in lava (a death), and in the control room only the rule-less body died (by design).
+	await put('rooms/reflex.c1/r1/default-reflex.json', { cases: [{ case: 'lavaKnock', mode: 'defaults', alive: false }, { case: 'lavaKnock', mode: 'none', alive: false }] });
+	await put('rooms/reflexcontrol.c1/r1/default-reflex.json', { cases: [{ case: 'lavaKnock', mode: 'defaults', alive: true }, { case: 'lavaKnock', mode: 'none', alive: false }] });
+	// Default-reflex edge room: the armed body lived but fell off the bridge, the room's own bar.
+	await put('rooms/edge.c1/r1/default-reflex.json', { cases: [{ case: 'edge-control', mode: 'defaults', alive: true, offBridge: true }, { case: 'edge-control', mode: 'none', alive: true, offBridge: true }] });
+	// finishRun wrote no rows but planned three.
+	await put('rooms/empty.c1/r1/result.json', []);
+	await put('rooms/empty.c1/r1/result-summary.json', { planned: 3, status: 'INVALID' });
+	// A rows file cut short by an interrupted write.
+	await put('rooms/cut.c1/r1/rows.json', '[{"trial": 1, "pass": tr');
+	await put('rooms/fine.c1/r1/runs.json', [{ trial: 1, survived: true }]);
+	const meta = { crowd: { bar: 'none' }, reflex: { bar: 'none' }, reflexcontrol: { bar: 'none' }, edge: { bar: 'none' }, fine: { bar: 'none' } };
+	const runs = await collectRuns(dir, plan, meta);
+	const of = room => runs.filter(run => run.room === room).map(run => run.verdict);
+	assert.deepEqual(of('crowd'), ['INVALID'], 'a caught error is no pass');
+	assert.match(runs.find(run => run.room === 'crowd').reason, /fixture error/);
+	assert.deepEqual(of('gather'), ['FAIL'], 'pass false counts without a survival bar');
+	assert.deepEqual(of('reflex'), ['FAIL'], 'the armed body\'s alive false is a death');
+	assert.equal(runs.find(run => run.room === 'reflex').deaths, 1, 'the control body is not counted');
+	assert.deepEqual(of('reflexcontrol'), ['PASS'], 'only the control died');
+	assert.deepEqual(of('edge'), ['FAIL'], 'alive but off the bridge');
+	assert.deepEqual(of('empty'), ['INVALID', 'INVALID', 'INVALID'], 'every planned row is INVALID');
+	assert.deepEqual(of('cut'), ['INVALID'], 'a cut-short file makes its run INVALID');
+	assert.deepEqual(of('fine'), ['PASS'], 'and the scoreboard goes on to the next room');
+});

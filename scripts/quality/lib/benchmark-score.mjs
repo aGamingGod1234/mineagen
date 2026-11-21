@@ -39,7 +39,9 @@ export const STAGES = ['early', 'iron-kit', 'portal-lava', 'nether-fortress', 'n
 export const SKILLS = ['combat', 'movement', 'building', 'survival'];
 const COPY = /^(.+)\.c(\d+)$/;
 
-const readJson = file => readFile(file, 'utf8').then(JSON.parse, () => null);
+/** A file that is there but does not parse (a write cut short): unknown evidence for its run, never a crash of the scoreboard. */
+const CORRUPT = Symbol('corrupt JSON');
+const readJson = file => readFile(file, 'utf8').then(text => { try { return JSON.parse(text); } catch { return CORRUPT; } }, () => null);
 const median = values => {
 	const sorted = values.filter(Number.isFinite).sort((a, b) => a - b);
 	if (!sorted.length) return null;
@@ -70,8 +72,8 @@ const meetsBar = (passWhen, fields) => Number.isFinite(fields?.[passWhen.field])
  * A field nobody wrote stays null (unknown), never 0.
  */
 export async function otherEvidence(dir) {
-	let failed = null;
-	const fields = {};
+	let failed = null, failedPass = false;
+	const fields = {}, corrupt = [];
 	// The deepest object that names a death or a hurt counts it; a parent (a variant, a summary, a deathCounter) that
 	// repeats its children's total adds nothing. A bare "damage" counts only beside died/deaths, since elsewhere it is
 	// often an item's wear, not health.
@@ -87,21 +89,31 @@ export async function otherEvidence(dir) {
 		}
 		if (Array.isArray(value)) return children;
 		if (depth === 0) for (const [key, child] of Object.entries(value)) if (Number.isFinite(child)) fields[key] = child;
+		// The default-reflex room's rule-less body (mode "none") is its control and dies on purpose: it never counts.
+		if (value.mode === 'none' && typeof value.alive === 'boolean') return { deaths: null, damage: null };
 		if (value.pass === false || value.ok === false) failed ??= value.pass === false ? 'pass' : 'ok';
+		if (value.pass === false) failedPass = true;
+		// The default-reflex edge room's bar is staying on the bridge (its own tally); resistance keeps both bodies alive.
+		if (value.offBridge === true) failed ??= 'offBridge';
 		// The crowd room writes survived: false per run and a died count in its summary.
 		const own = typeof value.died === 'boolean' ? (value.died ? 1 : 0) : Number.isFinite(value.died) ? value.died : Number.isFinite(value.deaths) ? value.deaths
-			: typeof value.survived === 'boolean' ? (value.survived ? 0 : 1) : null;
+			: typeof value.survived === 'boolean' ? (value.survived ? 0 : 1) : typeof value.alive === 'boolean' ? (value.alive ? 0 : 1) : null;
 		const hurt = [value.damageTaken, value.healthLost, own !== null ? value.damage : undefined].find(Number.isFinite) ?? null;
 		return { deaths: children.deaths ?? own, damage: children.damage ?? hurt };
 	};
 	let deaths = null, damage = null;
-	for (const file of (await readdir(dir).catch(() => [])).filter(file => file.endsWith('.json') && !SKIP_FILES.has(file))) {
-		const found = visit(await readJson(path.join(dir, file)), 0);
+	const names = await readdir(dir).catch(() => []);
+	for (const file of names.filter(file => file.endsWith('.json') && !SKIP_FILES.has(file))) {
+		const value = await readJson(path.join(dir, file));
+		if (value === CORRUPT) { corrupt.push(file); continue; }
+		const found = visit(value, 0);
 		// Two files saying the same thing (rows.json and summary.json) must not add up: keep the larger count.
 		if (found.deaths !== null) deaths = Math.max(deaths ?? 0, found.deaths);
 		if (found.damage !== null) damage = Math.max(damage ?? 0, found.damage);
 	}
-	return { deaths, damage: damage === null ? null : +damage.toFixed(1), failed, fields };
+	// A crowd, defend or rest room that caught an error writes error.txt and still exits 0.
+	const error = names.includes('error.txt') ? (await readFile(path.join(dir, 'error.txt'), 'utf8').catch(() => '')).split('\n')[0] || 'error.txt' : null;
+	return { deaths, damage: damage === null ? null : +damage.toFixed(1), failed, failedPass, fields, corrupt, error };
 }
 /** The thrown error of a fixture that failed by exception, from its log, folded to count. */
 async function failureLine(log) {
@@ -133,18 +145,21 @@ export async function collectRuns(batchDir, planned = null, meta = null) {
 	for (const name of names) {
 		const match = COPY.exec(name);
 		const room = match ? match[1] : name, copy = match ? Number(match[2]) : 1;
-		const done = await readJson(path.join(roomsDir, name, 'done.json'));
+		const doneRead = await readJson(path.join(roomsDir, name, 'done.json'));
+		const done = doneRead === CORRUPT ? null : doneRead;
 		const arms = planned?.arms ?? Object.keys(done?.arms ?? {});
 		for (const arm of arms) {
 			const run = done?.arms?.[arm];
 			const base = { room, copy, arm };
+			if (doneRead === CORRUPT) { runs.push({ ...base, verdict: 'INVALID', reason: 'corrupt done.json', deaths: null, damage: null, seconds: null }); continue; }
 			if (!done || !run) { runs.push({ ...base, verdict: 'LOST', reason: outcomes.get(name)?.reason ?? 'no done.json', deaths: null, damage: null, seconds: null }); continue; }
 			const killed = run.timedOut ? 'room timeout' : run.signal ? `killed by ${run.signal}` : run.error ? `launch error: ${run.error}` : null;
 			// finishRun's rows and their summary, under whatever name the fixture gave them (armRows, as the batch merger
 			// reads them); a missing or corrupt summary or one that planned more rows than came back is unknown evidence.
 			const found = await armRows(path.join(roomsDir, name, arm));
 			const rows = found.rows.filter(row => row && typeof row === 'object');
-			if (rows.length || found.problem) {
+			// A rows file finishRun wrote, even an empty one, is judged by its summary, never by the exit code.
+			if (rows.length || found.problem || found.file) {
 				const own = found.summary;
 				const ownValid = Boolean(own && typeof own === 'object' && Number.isInteger(own.planned));
 				// An INVALID summary needs no room-wide verdict: its invalid rows read INVALID themselves, its missing ones below.
@@ -166,7 +181,12 @@ export async function collectRuns(batchDir, planned = null, meta = null) {
 			let reason = verdict === 'PASS' ? null : killed ?? (await failureLine(path.join(roomsDir, name, `${arm}.log`))) ?? `exit ${run.exit ?? '?'}`;
 			const passWhen = meta?.[room]?.passWhen;
 			const survivalBar = meta?.[room]?.bar === 'none' || passWhen;
-			if (verdict === 'PASS' && survivalBar && (evidence.deaths > 0 || evidence.failed)) { verdict = 'FAIL'; reason = evidence.deaths > 0 ? 'died' : `${evidence.failed} false`; }
+			// What the fixture wrote outranks its exit code: an error it caught, a file cut short, or a pass: false it recorded.
+			if (verdict === 'PASS' && evidence.error) { verdict = 'INVALID'; reason = `fixture error: ${foldReason(evidence.error)}`; }
+			// A file cut short is unknown evidence whatever the exit code said.
+			if (verdict !== 'INVALID' && evidence.corrupt.length) { verdict = 'INVALID'; reason = `corrupt ${evidence.corrupt.join(', ')}`; }
+			if (verdict === 'PASS' && evidence.failedPass && !survivalBar) { verdict = 'FAIL'; reason = 'pass false'; }
+			if (verdict === 'PASS' && survivalBar && (evidence.deaths > 0 || evidence.failed)) { verdict = 'FAIL'; reason = evidence.deaths > 0 ? 'died' : evidence.failed === 'offBridge' ? 'off the bridge' : `${evidence.failed} false`; }
 			// A room judged on survival whose fixture recorded no death count is unknown, not a safe pass.
 			if (verdict === 'PASS' && survivalBar && evidence.deaths === null) { verdict = 'INVALID'; reason = 'no death record'; }
 			if (verdict === 'PASS' && passWhen && !meetsBar(passWhen, evidence.fields)) { verdict = 'FAIL'; reason = `${passWhen.field} below ${passWhen.min}`; }
