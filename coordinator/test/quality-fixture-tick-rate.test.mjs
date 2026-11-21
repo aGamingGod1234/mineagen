@@ -185,3 +185,14 @@ test('frozen setup releases the world when setup or the freeze acknowledgement f
 		assert.deepEqual(sent, ['tick freeze', 'tick unfreeze']);
 	}
 });
+
+test('unshownTickRate keeps a fixture that missed the A/B bar at 20 unless an A/B asks for it', async () => {
+	const { unshownTickRate } = await import('../../scripts/quality/watch-replay.mjs');
+	const warnings = [];
+	const warn = (text) => warnings.push(text);
+	assert.equal(unshownTickRate('passes differed', {}, warn), 20);
+	assert.equal(unshownTickRate('passes differed', { FIXTURE_TICK_RATE: '60' }, warn), 20);
+	assert.match(warnings[0], /FIXTURE_TICK_RATE=60 ignored: .*passes differed/);
+	assert.equal(unshownTickRate('passes differed', { FIXTURE_TICK_RATE: '60', FIXTURE_TICK_RATE_UNSHOWN: '1' }, warn), 60);
+	assert.equal(warnings.length, 1);
+});
