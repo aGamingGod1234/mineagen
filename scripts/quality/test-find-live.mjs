@@ -27,7 +27,7 @@ import { warmBoots } from './fixture-servers.mjs';
 import { liveRecord } from './watch-replay.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 import { damageCounter, damageEvidence, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
-import { isFindCall, shouldRepeat, findSpotVerdict, findSpotLabel } from './lib/find-spot.mjs';
+import { isFindCall, shouldRepeat, findSpotVerdict, findSpotLabel, callEntry } from './lib/find-spot.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 
 const atBody = (text, at) => String(text).replace(/\{([xyz])([+-][\d.]+)?\}/g, (_, axis, offset) => String(at[axis] + Number(offset ?? 0)));
@@ -182,8 +182,7 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 				} catch (error) {
 					result = { state: 'ERROR', reasonCode: error?.code ?? 'ERROR', message: String(error?.message ?? error).slice(0, 600) };
 				}
-				const entry = { call: call.name, ...(call.arguments?.verb ? { verb: call.arguments.verb } : {}), attempt, atS: Math.round((callStarted - t0) / 1000), seconds: Math.round((Date.now() - callStarted) / 1000), state: result?.state, reasonCode: result?.reasonCode,
-					message: String(result?.message ?? '').slice(0, 900), find: result?.find };
+				const entry = callEntry(call, result, { attempt, atS: Math.round((callStarted - t0) / 1000), seconds: Math.round((Date.now() - callStarted) / 1000) });
 				row.calls.push(entry);
 				if (spot.dump) await writeFile(path.join(dir, `call-${callIndex}-${attempt}.json`), JSON.stringify(result, null, 2));
 				console.log(`[${spot.name}] +${entry.atS}s ${call.name}#${attempt} ${entry.state} ${entry.reasonCode} ${entry.seconds}s :: ${entry.message.slice(0, 300)}`);
@@ -201,7 +200,6 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		}
 		sampling = false; await sampler;
 		row.handBacks = row.calls.filter((entry) => entry.reasonCode === 'FIND_DANGER').length;
-		const last = row.calls.at(-1);
 		row.seconds = Math.round((Date.now() - t0) / 1000);
 		let walked = 0, farthest = 0;
 		for (let i = 1; i < trail.length; i++) walked += Math.hypot(trail[i][0] - trail[i - 1][0], trail[i][2] - trail[i - 1][2]);
@@ -217,8 +215,8 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		if (!deathResult.valid) (row.integrity ??= []).push({ file: 'qo_death', error: 'Missing or decreasing vanilla death counter' });
 		row.finishedAt = Date.now();
 		// found is null for a room with no find call; its verdict is then no death and no damage (lib/find-spot.mjs).
+		// foundAtS comes from the same find entry that decides found.
 		Object.assign(row, findSpotVerdict(spot, row));
-		row.foundAtS = row.found ? last.atS + last.seconds : null;
 		await writeFile(path.join(dir, 'trail.json'), JSON.stringify(trail));
 		console.log(`[${spot.name}] ${findSpotLabel(row)} in ${row.foundAtS ?? row.seconds}s walked=${row.path.walked} net=${row.path.net} farthest=${row.path.farthest} descended=${row.path.descended} damageTaken=${row.damageTaken ?? "unknown"} deaths=${row.deaths} handBacks=${row.handBacks}`);
 	} catch (error) {

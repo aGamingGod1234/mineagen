@@ -6,6 +6,16 @@ const REFUSED = new Set(['STALE_REVISION', 'STALE_PROVENANCE']);
 export const refusedBeforeRunning = result => REFUSED.has(result?.reasonCode);
 
 /**
+ * A command the server turned away at admission (ServerActionExecutor, then MultiplexedServerBridge.sendRejectedAction):
+ * its action runtime was quarantined or the body's action slot was busy. The receipt is FAILED with executionStarted and
+ * physicalAttempted false. The code decides, not the flags alone: a hazard stop on the first tick (LAVA_AHEAD,
+ * VOID_EDGE) also reports both false, and that stop is the safety behaviour a room is there to see. A receipt that
+ * says the action did start is no rejection, whatever its code.
+ */
+const ADMISSION_REJECTED = new Set(['ACTION_RUNTIME_QUARANTINED', 'ACTION_ALREADY_ACTIVE']);
+export const rejectedAtAdmission = result => ADMISSION_REJECTED.has(result?.reasonCode) && result?.executionStarted !== true && result?.physicalAttempted !== true;
+
+/**
  * The lowest health over a room that also sees deaths: a death in the window makes it 0 whatever the samples say (a
  * body that died and respawned between two reads samples at full health). Unknown deaths or no samples give null, never
  * a healthy 20.

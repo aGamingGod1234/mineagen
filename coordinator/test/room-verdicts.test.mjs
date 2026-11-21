@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { finishRun, fixtureSummary, roomVerdict, terminalCounter } from '../../scripts/quality/lib/fixture-run.mjs';
 import { deathCounter, deathEvidence } from '../../scripts/quality/lib/damage-counter.mjs';
 import { healthFloor, startHealthWatch, reflexHold, refusedBeforeRunning } from '../../scripts/quality/lib/room-evidence.mjs';
-import { shouldRepeat, findSpotVerdict, findSpotLabel } from '../../scripts/quality/lib/find-spot.mjs';
+import { shouldRepeat, findSpotVerdict, findSpotLabel, callEntry } from '../../scripts/quality/lib/find-spot.mjs';
 import { surviveTicks, proposedGoalTicks, newerGoalRevision, liveRecord } from '../../scripts/quality/watch-replay.mjs';
 
 const quality = fileURLToPath(new URL('../../scripts/quality/', import.meta.url));
@@ -60,6 +60,53 @@ test('a room with no find call that never played cannot pass on standing still',
 	// A measured miss stays a FAIL even when a call errored.
 	const hurt = { deaths: 1, damageTaken: 20, calls: [act('ERROR', 'INVALID_ARGUMENTS')], ended: 'death or lost observations' };
 	assert.equal(roomVerdict({ ...hurt, ...findSpotVerdict(spot, hurt) }).verdict, 'FAIL');
+});
+
+test('a safety room whose calls the server rejected at admission is not exercised; a first-tick hazard stop still is', async () => {
+	const spot = { name: 'lava-room-1', calls: [{ name: 'act', arguments: {} }] };
+	const still = { deaths: 0, damageTaken: 0 };
+	// sendRejectedAction: a FAILED receipt with executionStarted and physicalAttempted false, for a quarantined runtime or
+	// a slot already in use. No safety behaviour ran, so standing still with no damage measures nothing.
+	const rejected = reasonCode => ({ ...act('FAILED', reasonCode), executionStarted: false, physicalAttempted: false });
+	for (const calls of [[rejected('ACTION_RUNTIME_QUARANTINED')], [rejected('ACTION_ALREADY_ACTIVE'), rejected('ACTION_ALREADY_ACTIVE')],
+		[act('FAILED', 'ACTION_RUNTIME_QUARANTINED')]]) {
+		const row = { ...still, calls };
+		const verdict = findSpotVerdict(spot, row);
+		assert.match(verdict.notExercised ?? '', /never reached the body/, JSON.stringify(calls));
+		assert.equal(roomVerdict({ ...row, ...verdict }).verdict, 'INVALID');
+	}
+	// A search whose last find was rejected at admission is no "not found" either.
+	const search = { calls: [{ name: 'do_step', arguments: { verb: 'find' } }] };
+	const busy = { ...still, calls: [{ call: 'do_step', verb: 'find', ...rejected('ACTION_ALREADY_ACTIVE') }] };
+	assert.equal(roomVerdict({ ...busy, ...findSpotVerdict(search, busy) }).verdict, 'INVALID');
+	// A hazard stop on the first tick also reports both flags false, and it is the stop a lava room wants: still a PASS.
+	const stopped = { ...still, calls: [{ ...act('FAILED', 'LAVA_AHEAD'), executionStarted: false, physicalAttempted: false }] };
+	const verdict = findSpotVerdict(spot, stopped);
+	assert.equal(verdict.notExercised, undefined);
+	assert.equal(roomVerdict({ ...stopped, ...verdict }).verdict, 'PASS');
+	// The stand-in still re-asks a find the busy slot refused: that race clears once the cancelled action ends.
+	assert.equal(shouldRepeat({ name: 'do_step', arguments: { verb: 'find' } }, rejected('ACTION_ALREADY_ACTIVE'), { repeat: true }), true);
+});
+
+test('find-live keeps the body\'s execution evidence on each call', () => {
+	const call = { name: 'act', arguments: {} };
+	const entry = callEntry(call, { state: 'FAILED', reasonCode: 'ACTION_ALREADY_ACTIVE', message: 'busy', executionStarted: false, physicalAttempted: false },
+		{ attempt: 0, atS: 3, seconds: 0 });
+	assert.deepEqual([entry.executionStarted, entry.physicalAttempted], [false, false]);
+	assert.equal('executionStarted' in callEntry(call, { state: 'ERROR', reasonCode: 'ERROR' }, { attempt: 0, atS: 0, seconds: 0 }), false, 'no flags reported, none invented');
+});
+
+test('find-live times a sighting by the find that saw it, not by the last call of the spot', () => {
+	const call = { name: 'act', arguments: {} };
+	// A find that saw its target at 10 s, then an 80 s act: the target was found at 10 s, not 90 s.
+	const spot = { calls: [{ name: 'do_step', arguments: { verb: 'find' } }, call] };
+	const row = { deaths: 0, damageTaken: 0, calls: [
+		{ call: 'do_step', verb: 'find', atS: 0, seconds: 10, state: 'SUCCEEDED', reasonCode: 'FIND_SEEN' },
+		{ call: 'act', atS: 10, seconds: 80, state: 'SUCCEEDED', reasonCode: 'ARRIVED' },
+	] };
+	assert.equal(findSpotVerdict(spot, row).foundAtS, 10);
+	assert.equal(findSpotVerdict(spot, { ...row, calls: [{ ...row.calls[0], state: 'FAILED', reasonCode: 'FIND_BUDGET' }] }).foundAtS, null);
+	assert.equal(findSpotVerdict({ calls: [call] }, { deaths: 0, damageTaken: 0, calls: [row.calls[1]] }).foundAtS, null, 'no search, no sighting time');
 });
 
 test('find-live labels and repeats only find calls as searches', () => {

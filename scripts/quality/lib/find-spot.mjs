@@ -1,12 +1,15 @@
 // The verdict and repeat rule of scripts/quality/test-find-live.mjs, kept here so they can be tested without a live slot.
 // A spot's calls may be any tools, not only find: a lava-safety room acts and never searches.
-import { refusedBeforeRunning } from './room-evidence.mjs';
+import { refusedBeforeRunning, rejectedAtAdmission } from './room-evidence.mjs';
 
 export const isFindCall = call => call?.name === 'do_step' && call?.arguments?.verb === 'find';
 // A recorded call was a search however it was sent: its verb, a find payload or a FIND_* code.
 const searchedEntry = entry => entry?.verb === 'find' || (entry?.find !== undefined && entry?.find !== null) || /^FIND_/.test(String(entry?.reasonCode ?? ''));
 // A call that never reached the body: the harness threw (ERROR) or the server refused it before running it.
 const neverRan = entry => entry?.state === 'ERROR' || refusedBeforeRunning(entry);
+// For the verdict, a call the server turned away at admission never reached the body either. The repeat rule keeps
+// neverRan: a busy slot right after the stand-in's cancel clears, so re-asking that find is still right.
+const unexercised = entry => neverRan(entry) || rejectedAtAdmission(entry);
 
 /** A call reached its target: it ended with the spot's expectCode, or a find saw its target, or another call succeeded. */
 export function callReached(call, result, spot = {}) {
@@ -56,7 +59,9 @@ export function findSpotVerdict(spot = {}, row = {}) {
 	if (row.deaths !== 0) misses.push(Number.isFinite(row.deaths) ? `${row.deaths} deaths` : 'deaths unknown');
 	const pass = misses.length === 0;
 	const stood = notPlayed({ searched, found, lastFind, pass, calls, spot, row });
-	return { found, pass, expectation, ...(stood ? { notExercised: stood } : {}), ...(pass ? { passReason: expectation } : { failReason: misses.join('; ') }) };
+	// When the target was seen: the end of the find that saw it, not of whatever call came after it.
+	const foundAtS = found && Number.isFinite(lastFind.atS) && Number.isFinite(lastFind.seconds) ? lastFind.atS + lastFind.seconds : null;
+	return { found, foundAtS, pass, expectation, ...(stood ? { notExercised: stood } : {}), ...(pass ? { passReason: expectation } : { failReason: misses.join('; ') }) };
 }
 
 /**
@@ -65,10 +70,10 @@ export function findSpotVerdict(spot = {}, row = {}) {
  * the body, or the spot ended on lost observations. A miss it did measure (damage, a death) stays a FAIL.
  */
 function notPlayed({ searched, found, lastFind, pass, calls, spot, row }) {
-	if (searched) return !found && row.deaths === 0 && (!lastFind || neverRan(lastFind)) ? `find ${lastFind?.reasonCode ?? lastFind?.state ?? 'call'} never reached the body` : null;
+	if (searched) return !found && row.deaths === 0 && (!lastFind || unexercised(lastFind)) ? `find ${lastFind?.reasonCode ?? lastFind?.state ?? 'call'} never reached the body` : null;
 	if (spot.expectCode || !pass) return null;
 	if (!calls.length) return 'no call ran';
-	const lost = calls.filter(neverRan);
+	const lost = calls.filter(unexercised);
 	if (lost.length) return `${lost.map(entry => `${entry.call} ${entry.reasonCode ?? entry.state}`).join(', ')} never reached the body`;
 	return row.ended ? `spot ended early: ${row.ended}` : null;
 }
@@ -78,4 +83,16 @@ export function findSpotLabel(row) {
 	if (row.found === true) return 'FOUND';
 	if (row.found === false) return 'NOT FOUND';
 	return row.pass ? 'PASS' : `FAIL (${row.failReason ?? 'no reason'})`;
+}
+
+/**
+ * One recorded call of a spot, as find-live saves it in row.calls. It keeps the body's execution evidence
+ * (executionStarted, physicalAttempted) when the result reports it, so a reader can tell a call that ran from one the
+ * server turned away; it never invents the flags.
+ */
+export function callEntry(call, result, { attempt, atS, seconds }) {
+	return { call: call.name, ...(call.arguments?.verb ? { verb: call.arguments.verb } : {}), attempt, atS, seconds, state: result?.state, reasonCode: result?.reasonCode,
+		...(typeof result?.executionStarted === 'boolean' ? { executionStarted: result.executionStarted } : {}),
+		...(typeof result?.physicalAttempted === 'boolean' ? { physicalAttempted: result.physicalAttempted } : {}),
+		message: String(result?.message ?? '').slice(0, 900), find: result?.find };
 }
