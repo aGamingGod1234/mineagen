@@ -1,6 +1,7 @@
 // Pure parts of room-batch.mjs: the commands file, the shared room queue with one re-queue after a lost machine, and
 // the per-arm merge through finishRun. No machine, network or boat call happens here, so all of it is unit-tested.
-import { mkdir, readFile, readdir } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
+import { mkdir, mkdtemp, readFile, readdir, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { finishRun, roomVerdict } from './fixture-run.mjs';
 
@@ -128,6 +129,30 @@ export async function runQueue({ rooms, workers, attempt, maxAttempts = 2, repla
 	// Rooms no worker could take (every machine that could was lost) are reported lost, never silently dropped.
 	for (const item of queue) results.set(item.room.room, { lost: true, reason: item.tries ? 'no other machine left' : 'no machine left', room: item.room.room, attempts: item.tries });
 	return rooms.map(room => results.get(room.room));
+}
+
+/**
+ * A pool's fetch: download(localTgz) copies the room's archive here; it is unpacked into a staging folder and moved into
+ * roomsDir/ROOM only once its done.json reads, so a failed copy never leaves rows the merge could count and a retry never
+ * inherits an earlier attempt's files. Returns the done.json.
+ */
+export async function stageRoom({ roomsDir, room, download }) {
+	await mkdir(roomsDir, { recursive: true });
+	const staging = await mkdtemp(path.join(roomsDir, `.staging-${room}-`));
+	try {
+		const local = path.join(staging, `${room}.tgz`);
+		await download(local);
+		await new Promise((resolve, reject) => {
+			const tar = spawn('tar', ['-xzf', local, '-C', staging], { stdio: 'inherit' });
+			tar.on('error', reject);
+			tar.on('close', code => code === 0 ? resolve() : reject(new Error(`tar exited ${code}`)));
+		});
+		const done = JSON.parse(await readFile(path.join(staging, room, 'done.json'), 'utf8'));
+		if (done.room !== room || typeof done.arms !== 'object') throw new Error(`done.json of ${room} does not describe it`);
+		await rm(path.join(roomsDir, room), { recursive: true, force: true });
+		await rename(path.join(staging, room), path.join(roomsDir, room));
+		return done;
+	} finally { await rm(staging, { recursive: true, force: true }); }
 }
 
 async function readJson(file) { return JSON.parse(await readFile(file, 'utf8')); }
