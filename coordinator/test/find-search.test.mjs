@@ -1908,3 +1908,17 @@ test('lava-gate-3 kit: stairs only as far as the pickaxes also cover a shaft for
 	assert.deepEqual(digs.map((args) => args.pattern), ['steep_down', 'shaft']);
 	assert.ok(digs[0].maxBlocks <= stairBudget(377, 71 - findProfile({ block: 'minecraft:lava' }).depth), 'the stairs leg is capped at the budget');
 });
+
+test('lava-gate-6: after stairs stop for a mob in the cave below, the next descent stops at cave openings instead of crossing the cave', async () => {
+	const start = sample({ player: { x: 0.5, y: 71, z: 0.5, yaw: 0, health: 20, skyOpen: true },
+		inventory: { items: [{ itemId: 'minecraft:iron_pickaxe', count: 1 }, { itemId: 'minecraft:water_bucket', count: 1 }, { itemId: 'minecraft:stone_sword', count: 1 }] } });
+	const body = fakeBody({ start, frontier: { candidates: [], coverage: { headings: {} } },
+		acts: { dig_to: [
+			{ move: () => ({ y: -5 }), result: { state: 'FAILED', reasonCode: 'HOSTILE_NEAR', message: 'Stopped: minecraft:zombie z1 at 3,-5,0, 3.3 blocks away. At 0,-5,0, steep_down heading south' } },
+			{ result: { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:lava seen at 4,-54,0, 4 blocks away' } }] } });
+	await searchFor({ block: 'minecraft:lava' }, body);
+	const digs = body.calls.filter((call) => call.actionType === 'dig_to' && call.args.pattern === 'steep_down').map((call) => call.args);
+	assert.ok(digs.length >= 2, JSON.stringify(body.calls.map((call) => call.actionType)));
+	assert.equal(digs[0].throughCaves, undefined);
+	assert.equal(digs.at(-1).throughCaves, false);
+});

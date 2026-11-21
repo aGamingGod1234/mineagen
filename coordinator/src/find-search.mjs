@@ -1167,6 +1167,10 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 		let rockLegs = 0;
 		const water = (observation?.inventory?.items ?? []).some((item) => item?.itemId === 'minecraft:water_bucket');
 		let heading = nearestCardinal(chooseHeading(body.frontier(observation)?.coverage?.headings));
+		// A descent stopped for a mob (stairs into a mob cave): later descents stop at cave openings, never walking or
+		// dropping across the cave floor (lava-gate-6: the next stair leg crossed 22 blocks of a zombie spawner room in
+		// 10 s with nothing mined, and the bot died there in 7 of 10 runs).
+		let mobCave = false;
 		let descentStops = 0, shaftStops = 0, lookedAt = rock ? bodyAt(observation) : null;
 		// Turns after a stop: from the last heading that went its full leg, right, then left, then back; never to and fro.
 		let base = null, turns = 0;
@@ -1517,19 +1521,25 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 				if (pattern === 'shaft' || (lava && water)) await bucketToHotbar();
 				const limit = descentCap(pattern);
 				if (pattern === 'steep_down' && Number.isFinite(stairs) && stairs >= STEP_CELLS.steep_down * 2) limit.maxBlocks = Math.min(limit.maxBlocks ?? MAX_DIG_BLOCKS, stairs);
-				const outcome = await leg(`dig ${pattern} to y${profile.depth}`, 'dig_to', { pattern, y: profile.depth, heading: heading.name, ...limit, stopWhenSeen: profile.stopId, discard: DISCARD });
+				const outcome = await leg(`dig ${pattern} to y${profile.depth}`, 'dig_to', { pattern, y: profile.depth, heading: heading.name, ...limit, ...(mobCave ? { throughCaves: false } : {}), stopWhenSeen: profile.stopId, discard: DISCARD });
 				const ended = await settle(outcome);
 				if (ended !== null) return ended;
 				const code = outcome.result?.reasonCode;
 				if (code === 'DIG_GOAL_REACHED') reversals = 0;
 				if (code === 'DIG_GOAL_REACHED' || code === 'DIG_LIMIT_REACHED') continue;
 				descentStops += 1;
+				if (code === 'HOSTILE_NEAR') mobCave = true;
 				if (code === 'CAVE_OPENING') {
 					const cave = await look(25);
 					if (cave.interrupted || cave.seen || cave.ended) return settle(cave);
 					// A cave going down is a way to the depth with no digging: its lowest seen floor.
 					const floor = String(outcome.result?.message ?? '').match(/lowest floor[^-\d]*(-?\d+),\s*(-?\d+),\s*(-?\d+)/i);
-					if (floor !== null && Number(floor[2]) < bodyAt(observation).y - 3) {
+					// Not to a floor with a hostile or water by it: the same rule a cave-first walk keeps.
+					const low = floor === null ? null : { x: Number(floor[1]), y: Number(floor[2]), z: Number(floor[3]) };
+					const hostiles = [...(observation?.entities ?? []).filter((row) => row?.hostile === true && row.alive !== false), ...sweepHostiles].filter((row) => [row?.x, row?.y, row?.z].every(Number.isFinite));
+					const fit = low !== null && !mobCave && !hostiles.some((mob) => Math.hypot(mob.x - low.x - 0.5, mob.y - low.y, mob.z - low.z - 0.5) <= CAVE_MOB_CLEAR)
+						&& !waterCells().some((cell) => Math.hypot(cell.x - low.x, cell.y - low.y, cell.z - low.z) <= CAVE_WATER_NEAR);
+					if (fit && Number(floor[2]) < bodyAt(observation).y - 3) {
 						const walk = await leg('down the cave', 'travel_to', { x: Number(floor[1]) + 0.5, y: Number(floor[2]), z: Number(floor[3]) + 0.5, tolerance: 2, stopWhenSeen: profile.stopId });
 						const walkEnded = await settle(walk);
 						if (walkEnded !== null) return walkEnded;
