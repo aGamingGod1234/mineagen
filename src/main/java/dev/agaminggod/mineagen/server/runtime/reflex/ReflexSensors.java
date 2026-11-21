@@ -500,7 +500,9 @@ public final class ReflexSensors {
 	/**
 	 * Where an arrow at {@code at} flying {@code velocity}, {@code age} ticks old, first touches {@code body} (moving with
 	 * {@code bodyVelocity}), or null when it misses within 2 s: vanilla's flight (move, then 0.99 drag and 0.05 gravity)
-	 * against the body box grown by vanilla's hit margin, which widens from 0 to 0.3 over the arrow's first 8 ticks.
+	 * against the body box grown by vanilla's hit margin, which widens from 0 to 0.3 over the arrow's first 8 ticks. The
+	 * point is on the body as it stands now: the body's travel until the hit is taken back out, so the facing it gives is
+	 * from the body to the hit, not from where the body was (a bot walking behind its shield turned to the wrong side).
 	 */
 	static Vec3 strikePoint(net.minecraft.world.phys.AABB body, Vec3 at, Vec3 velocity, Vec3 bodyVelocity, int age) {
 		Vec3 drift = new Vec3(bodyVelocity.x, 0.0D, bodyVelocity.z);
@@ -509,9 +511,10 @@ public final class ReflexSensors {
 			double margin = Math.max(0.0D, Math.min(0.3D, (age + tick + 1 - 2) / 20.0D));
 			net.minecraft.world.phys.AABB box = body.move(drift.scale(tick)).inflate(margin);
 			Vec3 next = point.add(velocity);
-			if (box.contains(point)) return point;
+			Vec3 travel = drift.scale(tick);
+			if (box.contains(point)) return point.subtract(travel);
 			var hit = box.clip(point, next);
-			if (hit.isPresent()) return hit.get();
+			if (hit.isPresent()) return hit.get().subtract(travel);
 			point = next;
 			velocity = velocity.scale(0.99D).add(0.0D, -0.05D, 0.0D);
 		}

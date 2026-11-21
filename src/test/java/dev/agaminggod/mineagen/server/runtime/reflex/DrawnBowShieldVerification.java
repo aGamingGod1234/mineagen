@@ -26,6 +26,7 @@ public final class DrawnBowShieldVerification {
 		headFacingIsHorizontal();
 		bouncedArrowIsNoShot();
 		grazingArrowIsMetWhereItStrikes();
+		strikeOnAMovingBodyIsWhereItLandsOnTheBody();
 		return assertions;
 	}
 
@@ -107,6 +108,20 @@ public final class DrawnBowShieldVerification {
 		check(blockAngle(feet, facing.subtract(eye), strike) < 1.0D, "facing the strike point puts it at the shield's centre");
 		check(ReflexSensors.strikePoint(body, new Vec3(3.779D, 81.64D, 8.594D), new Vec3(0.514D, 0.161D, 1.561D), Vec3.ZERO, 0) == null,
 				"an arrow flying away strikes nothing");
+	}
+
+	/**
+	 * Codex review: a body walking behind its shield. The arrow flies straight in 1.3 blocks to the body's side and meets
+	 * it only because the body walks under it (0.3 blocks a tick). The strike point is where it lands on the body as it
+	 * stands now, not that world point seen from where the body was, which put it outside the body, off to the side.
+	 */
+	private static void strikeOnAMovingBodyIsWhereItLandsOnTheBody() {
+		net.minecraft.world.phys.AABB body = new net.minecraft.world.phys.AABB(-0.3D, 0.0D, -0.3D, 0.3D, 1.8D, 0.3D);
+		Vec3 strike = ReflexSensors.strikePoint(body, new Vec3(1.3D, 1.0D, 3.5D), new Vec3(0.0D, 0.0D, -1.0D), new Vec3(0.3D, 0.0D, 0.0D), 8);
+		check(strike != null, "the walking body meets the arrow");
+		check(body.inflate(0.31D).contains(strike), "the strike point is on the body as it stands now, not 0.9 blocks past it");
+		check(strike.x > 0.0D && strike.z > 0.0D, "it lands on the front corner the body walks into");
+		check(ReflexSensors.strikePoint(body, new Vec3(1.3D, 1.0D, 3.5D), new Vec3(0.0D, 0.0D, -1.0D), Vec3.ZERO, 8) == null, "a body standing still is missed");
 	}
 
 	/** Vanilla's shield test: degrees between a horizontal view and the hit point as seen from the feet. */
