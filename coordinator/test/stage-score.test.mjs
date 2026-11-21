@@ -159,3 +159,115 @@ test('zero-good paired PASS and missing continuations are prominent in reports',
 	assert.match(md, /1\/1 cases have no continuation/);
 	assert.match(md, /both arms have zero good/);
 });
+
+test('deaths are counted by cause from the receipt, the Watcher\'s lethal hit and the coordinator\'s death row; only a bare counter step is unknown', async () => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'stage-causes-'));
+	try {
+		const rows = [
+			{ at: 1000, health: 20, deathCounter: 0, inventoryNbt: '[]' }, { at: 3000, health: 0, deathCounter: 1, inventoryNbt: '[]' },
+			{ at: 9000, health: 0, deathCounter: 2, inventoryNbt: '[]' }, { at: 20000, health: 0, deathCounter: 3, inventoryNbt: '[]' },
+		];
+		await writeFile(path.join(dir, 'quality-samples.jsonl'), rows.map(s => JSON.stringify(s)).join('\n') + '\n');
+		const dead = (at, revision, death) => ({ observedAtMs: at, envelope: { type: 'goal_control', agentId: 'a', payload: { operation: 'dead', goalRevision: revision, updatedAtEpochMs: at, death: { diedAtEpochMs: at, ...death } } } });
+		await writeFile(path.join(dir, 'quality-protocol.jsonl'), [
+			{ observedAtMs: 1000, envelope: { type: 'goal_control', agentId: 'a', payload: { operation: 'start', updatedAtEpochMs: 1000 } } },
+			dead(2900, 1, { cause: 'a was shot by Skeleton', damageType: 'minecraft:arrow', attacker: 'minecraft:skeleton' }),
+			// After a steer the revision is 2; an older server sent only the message.
+			dead(8900, 2, { cause: 'a burned to death' }),
+		].map(r => JSON.stringify(r)).join('\n') + '\n');
+		await mkdir(path.join(dir, 'arena-watch'));
+		await writeFile(path.join(dir, 'arena-watch', 'a-danger.jsonl'), JSON.stringify({ type: 'damage', agentId: 'a', atMs: 8901, damageType: 'minecraft:on_fire', attacker: null, lethal: true }) + '\n');
+		await writeFile(path.join(dir, 'coordinator.jsonl'), JSON.stringify({ event: 'agent_death', agentId: 'a', goalRevision: 2, at: 8950, diedAtEpochMs: 8900, cause: 'a burned to death', attacker: null }) + '\n');
+		const scored = await scoreStageRun(dir);
+		assert.equal(scored.observedDeaths, 3);
+		assert.deepEqual(scored.deathCauses, { skeleton_arrow: 1, fire: 1, unknown: 1 });
+		assert.equal(scored.deathRecords[1].damageType, 'minecraft:on_fire', 'the Watcher row fills the damage type an older receipt lacks');
+	} finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('a death seen only in the samples takes its cause from the Watcher\'s lethal hit before it', async () => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'stage-causes-'));
+	try {
+		const rows = [{ at: 1000, health: 20, deathCounter: 0, inventoryNbt: '[]' }, { at: 5000, health: 20, deathCounter: 1, inventoryNbt: '[]' },
+			{ at: 9000, health: 20, deathCounter: 2, inventoryNbt: '[]' }];
+		await writeFile(path.join(dir, 'quality-samples.jsonl'), rows.map(s => JSON.stringify(s)).join('\n') + '\n');
+		await mkdir(path.join(dir, 'arena-watch'));
+		// No receipt, episode or run-record death: only the counter steps and the Watcher's lethal hits.
+		await writeFile(path.join(dir, 'arena-watch', 'a-danger.jsonl'), [
+			{ type: 'damage', agentId: 'a', atMs: 4200, damageType: 'minecraft:lava', attacker: null, lethal: true },
+			{ type: 'damage', agentId: 'a', atMs: 8500, damageType: 'minecraft:arrow', attacker: 'minecraft:skeleton', lethal: true },
+		].map(r => JSON.stringify(r)).join('\n') + '\n');
+		const scored = await scoreStageRun(dir);
+		assert.equal(scored.observedDeaths, 2);
+		assert.deepEqual(scored.deathCauses, { lava: 1, skeleton_arrow: 1 }, 'both counter-only deaths are named, none is added');
+	} finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('a death seen only in the samples takes its cause from the coordinator\'s death row before it', async () => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'stage-causes-'));
+	try {
+		const rows = [{ at: 1000, health: 20, deathCounter: 0, inventoryNbt: '[]' }, { at: 5000, health: 20, deathCounter: 1, inventoryNbt: '[]' }];
+		await writeFile(path.join(dir, 'quality-samples.jsonl'), rows.map(s => JSON.stringify(s)).join('\n') + '\n');
+		await writeFile(path.join(dir, 'coordinator.jsonl'), JSON.stringify({ event: 'agent_death', agentId: 'a', goalRevision: 1, at: 2050, diedAtEpochMs: 2000, cause: 'a tried to swim in lava', damageType: 'minecraft:lava' }) + '\n');
+		const alone = await scoreStageRun(dir);
+		assert.equal(alone.observedDeaths, 1);
+		assert.deepEqual(alone.deathCauses, { lava: 1 }, 'the coordinator row alone names it');
+		await mkdir(path.join(dir, 'arena-watch'));
+		// The same death's lethal hit too: still one death.
+		await writeFile(path.join(dir, 'arena-watch', 'a-danger.jsonl'), JSON.stringify({ type: 'damage', agentId: 'a', atMs: 1990, damageType: 'minecraft:lava', attacker: null, lethal: true }) + '\n');
+		const both = await scoreStageRun(dir);
+		assert.equal(both.observedDeaths, 1);
+		assert.deepEqual(both.deathCauses, { lava: 1 }, 'a hit and a death row of one death stay one death');
+	} finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('a fatal Watcher episode with no receipt names its death from the episode\'s death message', async () => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'stage-causes-'));
+	try {
+		const rows = [{ at: 1000, health: 20, deathCounter: 0, inventoryNbt: '[]' }, { at: 5000, health: 20, deathCounter: 1, inventoryNbt: '[]' }];
+		await writeFile(path.join(dir, 'quality-samples.jsonl'), rows.map(s => JSON.stringify(s)).join('\n') + '\n');
+		await mkdir(path.join(dir, 'arena-watch'));
+		await writeFile(path.join(dir, 'arena-watch', 'a-episodes.jsonl'), JSON.stringify({ outcome: 'death', kind: 'mob', closedAt: { epochMs: 3000 }, deathMessage: 'Miner was shot by Skeleton' }) + '\n');
+		const scored = await scoreStageRun(dir);
+		assert.equal(scored.observedDeaths, 1);
+		assert.deepEqual(scored.deathCauses, { skeleton_arrow: 1 });
+	} finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('a run record\'s "unknown" for a counter-only death is no evidence: the lethal hit still names it', async () => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'stage-causes-'));
+	try {
+		const rows = [{ at: 1000, health: 20, deathCounter: 0, inventoryNbt: '[]' }, { at: 5000, health: 20, deathCounter: 1, inventoryNbt: '[]' }];
+		await writeFile(path.join(dir, 'quality-samples.jsonl'), rows.map(s => JSON.stringify(s)).join('\n') + '\n');
+		await writeFile(path.join(dir, 'long-run.json'), JSON.stringify({ timeline: { deaths: [{ at: 5000, cause: 'unknown' }] } }));
+		await mkdir(path.join(dir, 'arena-watch'));
+		await writeFile(path.join(dir, 'arena-watch', 'a-danger.jsonl'), JSON.stringify({ type: 'damage', agentId: 'a', atMs: 2000, damageType: 'minecraft:lava', attacker: null, lethal: true }) + '\n');
+		const scored = await scoreStageRun(dir);
+		assert.equal(scored.observedDeaths, 1);
+		assert.deepEqual(scored.deathCauses, { lava: 1 });
+	} finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('a lethal hit of a death a coordinator row already named does not take a second death\'s slot', async () => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'stage-causes-'));
+	try {
+		const rows = [{ at: 1000, health: 20, deathCounter: 0, inventoryNbt: '[]' }, { at: 5000, health: 20, deathCounter: 1, inventoryNbt: '[]' },
+			{ at: 9000, health: 20, deathCounter: 2, inventoryNbt: '[]' }];
+		await writeFile(path.join(dir, 'quality-samples.jsonl'), rows.map(s => JSON.stringify(s)).join('\n') + '\n');
+		await mkdir(path.join(dir, 'arena-watch'));
+		await writeFile(path.join(dir, 'arena-watch', 'a-danger.jsonl'), [
+			{ type: 'damage', agentId: 'a', atMs: 4200, damageType: 'minecraft:lava', attacker: null, lethal: true },
+			{ type: 'damage', agentId: 'a', atMs: 8500, damageType: 'minecraft:arrow', attacker: 'minecraft:skeleton', lethal: true },
+		].map(r => JSON.stringify(r)).join('\n') + '\n');
+		await writeFile(path.join(dir, 'coordinator.jsonl'), JSON.stringify({ event: 'agent_death', agentId: 'a', goalRevision: 1, at: 4250, diedAtEpochMs: 4200, cause: 'a tried to swim in lava', damageType: 'minecraft:lava' }) + '\n');
+		const scored = await scoreStageRun(dir);
+		assert.equal(scored.observedDeaths, 2);
+		assert.deepEqual(scored.deathCauses, { lava: 1, skeleton_arrow: 1 });
+	} finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('the long-run capture keeps agent_death rows, so a death\'s record survives trace rotation', async () => {
+	const { longTraceRow } = await import('../src/benchmark/long-run-artifacts.mjs');
+	const row = { event: 'agent_death', agentId: 'a', cause: 'a drowned' };
+	assert.equal(longTraceRow(row), row);
+});

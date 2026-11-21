@@ -110,6 +110,7 @@ import { provenance } from './fact-provenance.mjs';
 import { BodyPace } from './body-pace.mjs';
 import { dangerGlance } from './danger-glance.mjs';
 import { killTraceFields } from './kill-trace.mjs';
+import { DeathRecorder } from './death-record.mjs';
 
 const SOURCE_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 const COORDINATOR_DIRECTORY = path.resolve(SOURCE_DIRECTORY, '..');
@@ -210,6 +211,7 @@ export class DynamicCoordinator extends EventEmitter {
 	#actionDeferredWakes = new Map();
 	// While the model's own action runs: which wakes are absorbed into the next one, and what they carried.
 	#wakeFilter = new WakeFilter();
+	#deathRecorder = new DeathRecorder();
 	#attentionFlushes = new Map();
 	#lifecycleGenerations = new Map();
 	#providerRetryAfter = new Map();
@@ -980,6 +982,7 @@ export class DynamicCoordinator extends EventEmitter {
 					const previous = this.#registry.get(message.agentId);
 					record = this.#registry.applyGoalControl(message.agentId, message.payload);
 					if (['start','replace','steer'].includes(message.payload.operation)) this.#taskViews.begin(record, { fresh: ['start','replace'].includes(message.payload.operation) });
+					if (message.payload.operation === 'dead') this.#traceDeath(record, message.payload.death);
 					// The death screen's respawn target is where the next body appears: the plan's spawn:bed fact.
 					if (message.payload.operation === 'dead') void this.#taskViews.observe(record, { ready: false, player: { dead: true }, ...(message.payload.death ? { death: message.payload.death } : {}) }).catch(() => {});
 					const lifecycleChanged = previous !== null && !['queue', 'dequeue'].includes(message.payload.operation)
@@ -1089,6 +1092,8 @@ export class DynamicCoordinator extends EventEmitter {
 			if (type === 'entity_killed') this.#writeTrace('entity_killed', killTraceFields(record, message.payload));
 		}, { connectionEpoch }));
 		this.#listen('observation', (message, connectionEpoch) => {
+			// On arrival, before the agent's queue: a death's trace row carries the last 10 s of live samples, whatever the goal state.
+			this.#deathRecorder.observe(message.agentId, message.payload?.observation ?? message.payload);
 			const receiptMonotonicMs = safeClockRead(this.#controlNow);
 			const receiptEpochMs = safeClockRead(this.#epochNow);
 			const lifecycleGeneration = this.#lifecycleGeneration(message.agentId);
@@ -3837,6 +3842,14 @@ export class DynamicCoordinator extends EventEmitter {
 	#emitRuntimeError(error) {
 		try { this.emit('runtimeError', error); }
 		catch { /* reporting must never reject agent control work */ }
+	}
+
+	/** One agent_death row per death (death-record.mjs): the receipt, the last 10 s observed, and the plan's step. */
+	#traceDeath(record, death) {
+		let step = null, doing = null;
+		try { step = this.#taskViews.intent(record)?.step ?? null; doing = this.#taskViews.doingLine(record); }
+		catch { /* the row stands without the plan's view */ }
+		this.#writeTrace('agent_death', this.#deathRecorder.record(record, death, { step, doing }));
 	}
 
 	#writeTrace(event, fields) {

@@ -3544,6 +3544,27 @@ public final class MultiplexedServerBridgeVerification {
 		assertEquals(-12.25F, facts.get("respawnPitch").getAsFloat(), "death facts expose respawn pitch");
 		assertEquals(true, facts.get("respawnForced").getAsBoolean(), "death facts expose forced respawn flag");
 		assertEquals("spectator", facts.get("gameMode").getAsString(), "death facts expose game mode");
+		assertTrue(!facts.has("damageType") && !facts.has("attacker"), "a death with no recorded damage sends no cause fields");
+		AgentDeathSnapshot burned = new AgentDeathSnapshot(
+				"Miner burned to death", "minecraft:the_nether", 12.5D, 64.0D, -3.5D,
+				Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+				"survival", 2_000L, java.util.OptionalInt.empty(),
+				Optional.of(new AgentDeathSnapshot.Detail("minecraft:on_fire", Optional.empty(), Optional.empty(), 3, 0.0F, 7))
+		);
+		JsonObject burnedFacts = MultiplexedServerBridge.deathFacts(burned);
+		assertEquals("minecraft:on_fire", burnedFacts.get("damageType").getAsString(), "death facts name the vanilla damage type");
+		assertTrue(burnedFacts.get("attacker").isJsonNull() && burnedFacts.get("directAttacker").isJsonNull(), "a death with no killer sends null attackers");
+		assertEquals(3, burnedFacts.get("foodLevel").getAsInt(), "death facts carry hunger");
+		assertEquals(7, burnedFacts.get("armor").getAsInt(), "death facts carry armour");
+		AgentDeathSnapshot shot = new AgentDeathSnapshot(
+				"Miner was shot by Skeleton", "minecraft:overworld", 12.5D, 64.0D, -3.5D,
+				Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+				"survival", 2_000L, java.util.OptionalInt.empty(),
+				Optional.of(new AgentDeathSnapshot.Detail("minecraft:arrow", Optional.of("minecraft:skeleton"), Optional.of("minecraft:arrow"), 20, 5.0F, 0))
+		);
+		JsonObject shotFacts = MultiplexedServerBridge.deathFacts(shot);
+		assertEquals("minecraft:skeleton", shotFacts.get("attacker").getAsString(), "death facts name the killer's entity type");
+		assertEquals("minecraft:arrow", shotFacts.get("directAttacker").getAsString(), "death facts name what hit");
 		AgentDeathSnapshot noConfiguredRespawn = new AgentDeathSnapshot(
 				"fell from a high place", "minecraft:overworld", 12.5D, 64.0D, -3.5D,
 				Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
