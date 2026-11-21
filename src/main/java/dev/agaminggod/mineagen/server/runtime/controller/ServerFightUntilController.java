@@ -638,14 +638,11 @@ public final class ServerFightUntilController implements ServerController {
 			}
 		}
 		LivingEntity target = nextTarget(player, elapsed);
-		if (mob == McEntityTypes.ENDERMAN) {
-			// The back-off stays outside a warped forest (the forest hunt walks on instead). The stare from afar runs in a
-			// forest too, one enderman at a time and with health to spare: ungated, it provoked several at once there.
-			if (forest == null) {
-				// A back-off for an angry one out of reach, and the hold after it, are not cut short by re-engaging it.
-				TickResult drawing = tickDrawOver(player, elapsed, nowEpochMs, target == null);
-				if (drawing != null) return drawing;
-			}
+		if (mob == McEntityTypes.ENDERMAN && forest == null) {
+			// Outside a warped forest only: there, staring from afar provoked several at once (deaths 9 to 24 of 40 runs).
+			// A back-off for an angry one out of reach, and the hold after it, are not cut short by re-engaging it.
+			TickResult drawing = tickDrawOver(player, elapsed, nowEpochMs, target == null);
+			if (drawing != null) return drawing;
 			if (target == null) target = stareTarget(player);
 		}
 		if (target != null && hunt != null) {
