@@ -824,6 +824,11 @@ function normalizeMinecraftToolArguments(name, value) {
 				...(args.requesterId === undefined ? {} : { requesterId: args.requesterId.toLowerCase() }),
 			};
 		}
+		case 'choose_response':
+			// Offered only with MINEAGEN_CHOICE_TOOL=on (choice-moments.mjs); the coordinator checks the key against the open moment.
+			requireExactKeys(args, ['choice', 'why']);
+			if (typeof args.choice !== 'string' || !/^[a-z_]{1,40}$/.test(args.choice.trim())) invalid('choice must be one listed response key');
+			return { kind: 'choose_response', choice: args.choice.trim(), ...(args.why === undefined ? {} : { why: boundedText(args.why, 'why', 200) }) };
 		case 'finish':
 			requireExactKeys(args, ['summary']);
 			return {

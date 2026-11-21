@@ -8,6 +8,7 @@ import { DEFAULT_AGENT_CAP, DEFAULT_SERVICE_TIER } from './constants.mjs';
 import { parseDecision } from './decision-parser.mjs';
 import { ModelCatalogCache } from './model-catalog-cache.mjs';
 import { parseCodexAccount, parseCodexRateLimits } from './provider-discovery.mjs';
+import { CHOOSE_RESPONSE_TOOL } from './choice-moments.mjs';
 import { MAX_TOOL_RESULT_BYTES, MINECRAFT_DYNAMIC_TOOLS, NATIVE_AGENT_INSTRUCTIONS, annotateAdjustments, normalizeMinecraftToolCall, toolAdjustments, toolResultContent } from './native-minecraft-tools.mjs';
 import { encodeModelFacts, encodeNativeEventInput, ModelObservationViews, presentHeardSounds, roundModelNumbers } from './model-fact-encoding.mjs';
 import { presentToolWear } from './resource-facts.mjs';
@@ -54,10 +55,13 @@ export class CodexService {
 	#startupSchedule;
 	#startupCancelSchedule;
 	#observationViewSession;
+	#choiceTool = false;
 
 	constructor(config, dependencies = {}) {
 		// Evaluation only (decision-eval): a fixed observation-view session id; production leaves it random.
 		this.#observationViewSession = dependencies.observationViewSession ?? null;
+		// MINEAGEN_CHOICE_TOOL=on: the model also gets choose_response (choice-moments.mjs).
+		this.#choiceTool = dependencies.choiceTool === true;
 		this.#config = validateServiceConfig(config, { requireLaunchProfile: dependencies.transport === undefined });
 		this.#startupSchedule = dependencies.startupSchedule ?? setTimeout;
 		this.#startupCancelSchedule = dependencies.startupCancelSchedule ?? clearTimeout;
@@ -221,7 +225,7 @@ export class CodexService {
 			selectedCapabilityRoots,
 			approvalPolicy: 'never',
 			...(permissionProfile === null ? { sandbox: 'read-only' } : { permissions: permissionProfile }),
-			dynamicTools: controlProtocol === 'native_tools' ? MINECRAFT_DYNAMIC_TOOLS : [],
+			dynamicTools: controlProtocol === 'native_tools' ? (this.#choiceTool ? [...MINECRAFT_DYNAMIC_TOOLS, CHOOSE_RESPONSE_TOOL] : MINECRAFT_DYNAMIC_TOOLS) : [],
 			environments: [],
 			ephemeral: true,
 			baseInstructions: controlProtocol === 'native_tools'
@@ -1391,12 +1395,13 @@ export function nativeToolSchedulingClass(tool) {
 }
 
 export function isNativeBodyTool(tool) {
-	return ['sequence', 'lookAround', 'gather', 'find', 'obtain', 'run_program', 'start_action', 'replace_action'].includes(tool?.kind)
+	// choose_response runs the chosen body step in the model's place (choice-moments.mjs), so it is a body call too.
+	return ['sequence', 'choose_response', 'lookAround', 'gather', 'find', 'obtain', 'run_program', 'start_action', 'replace_action'].includes(tool?.kind)
 		|| tool?.kind === 'action' && tool.actionType !== 'chat';
 }
 
 function isBlockingNativeTool(tool) {
-	return tool?.kind === 'sequence' || tool?.kind === 'lookAround' || tool?.kind === 'gather' || tool?.kind === 'find' || tool?.kind === 'obtain'
+	return tool?.kind === 'sequence' || tool?.kind === 'choose_response' || tool?.kind === 'lookAround' || tool?.kind === 'gather' || tool?.kind === 'find' || tool?.kind === 'obtain'
 		|| tool?.kind === 'action' && tool.actionType !== 'chat';
 }
 

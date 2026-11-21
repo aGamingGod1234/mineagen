@@ -1,0 +1,7 @@
+# PR #63: Let the bot pick its response at key moments and have the body carry it out
+
+## A bot that knew the move but did not make it
+
+- **Problem:** At the moments that matter (a mob targeting it, low health, a cave while it needs iron, food outside the hotbar, nightfall) the bot kept doing its current job. Asked in words with a short list of choices, it named the player-like move 89% of the time. Answering with a game action, the way it really plays, it made that move only 60% of the time. More thinking time changed nothing (60%, 59% and 58% at low, medium and high effort), and neither did removing parts of what it is shown.
+- **Solution:** At a flagged moment the wake now lists the responses a player weighs, and the bot answers with one "choose a response" call. The game body then carries out the choice with a routine it already has, such as running from the mob, walling in, moving food to the hotbar, crafting a shield or walking into the cave.
+- **Result:** On 190 recorded game moments replayed through the real model, the player-like share rose from 60% to 81% when the moment is named, and to 65% with moments detected live by the built code (78% on the moments it detects as the right kind). When the bot had to carry out its own choice, it reached only 66%: it chose right and then did something else 30 times in 146. Measured offline on recorded game inputs, 1 to 3 repeats each, graded by the same rubric. Not yet measured in full games.

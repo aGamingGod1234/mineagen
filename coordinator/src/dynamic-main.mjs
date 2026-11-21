@@ -104,6 +104,8 @@ import { carriedFoodToEat, eatCalls, naturalRegeneration } from './fork-rule.mjs
 const COUNT_SKILL_HELD = new Set(['damage', 'threat', 'projectile', 'fire']);
 import { DEFAULT_REFLEXES, DIMENSION_REFLEXES, ReflexBook, instinctsEnabled } from './reflexes.mjs';
 import { kitHabitEnabled } from './kit-habit.mjs';
+import { ChoiceMoments, againstRunning, choiceResultText, choiceToolEnabled, momentSignals, planChoice } from './choice-moments.mjs';
+import { normalizeMinecraftToolCall } from './native-minecraft-tools.mjs';
 // Namespace import: situationStrategyTopic is optional, so the changed line works with or without it.
 import * as strategyReference from './minecraft-strategy-reference.mjs';
 import { provenance } from './fact-provenance.mjs';
@@ -211,6 +213,8 @@ export class DynamicCoordinator extends EventEmitter {
 	#actionDeferredWakes = new Map();
 	// While the model's own action runs: which wakes are absorbed into the next one, and what they carried.
 	#wakeFilter = new WakeFilter();
+	// MINEAGEN_CHOICE_TOOL=on: flagged moments list their responses and choose_response runs the body step (choice-moments.mjs).
+	#choiceMoments = null;
 	#deathRecorder = new DeathRecorder();
 	#attentionFlushes = new Map();
 	#lifecycleGenerations = new Map();
@@ -312,8 +316,9 @@ export class DynamicCoordinator extends EventEmitter {
 	#lastCatalog = null;
 	#lastRosterTraceAt = 0;
 
-	constructor({ registry, scheduler, codexService, planner, bridge, healthRegistry, latencyRegistry, goalSupervisor, codexControlProtocol = 'native_tools', memoryDirectory = null, experience = null, runtimeSessionId, traceWriter = null, providerTurnRecorder = null, decisionLog = null, bodyPace = null, runtimeGeneration = null, runtimeHooks = {}, benchmarkRecorder = null, providerCliHealth = null, providerDiscovery = null, controlNow = () => performance.now(), epochNow = Date.now, setStatusInterval = defaultStatusInterval, clearStatusInterval = clearInterval, healthSampler = undefined, setGoalSpecTimeout = defaultGoalSpecTimeout, clearGoalSpecTimeout = clearTimeout, setSteerTimeout = setTimeout, clearSteerTimeout = clearTimeout, setWakeHoldTimeout = defaultGoalSpecTimeout, clearWakeHoldTimeout = clearTimeout, reflexDefaults = DEFAULT_REFLEXES, reflexInstincts = false, kitHabit = false, taskRequestTimeoutMs = DEFAULT_TASK_REQUEST_TIMEOUT_MS, connectionOperationCap = DEFAULT_CONNECTION_OPERATION_CAP, agentOperationCap = DEFAULT_AGENT_OPERATION_CAP, goalSpecRequestCap = connectionOperationCap, maxPendingAgentOperations = DEFAULT_MAX_PENDING_AGENT_OPERATIONS, maxPendingAgentTransactions = DEFAULT_MAX_PENDING_AGENT_TRANSACTIONS }) {
+	constructor({ registry, scheduler, codexService, planner, bridge, healthRegistry, latencyRegistry, goalSupervisor, codexControlProtocol = 'native_tools', memoryDirectory = null, experience = null, runtimeSessionId, traceWriter = null, providerTurnRecorder = null, decisionLog = null, bodyPace = null, runtimeGeneration = null, runtimeHooks = {}, benchmarkRecorder = null, providerCliHealth = null, providerDiscovery = null, controlNow = () => performance.now(), epochNow = Date.now, setStatusInterval = defaultStatusInterval, clearStatusInterval = clearInterval, healthSampler = undefined, setGoalSpecTimeout = defaultGoalSpecTimeout, clearGoalSpecTimeout = clearTimeout, setSteerTimeout = setTimeout, clearSteerTimeout = clearTimeout, setWakeHoldTimeout = defaultGoalSpecTimeout, clearWakeHoldTimeout = clearTimeout, reflexDefaults = DEFAULT_REFLEXES, reflexInstincts = false, kitHabit = false, choiceTool = false, taskRequestTimeoutMs = DEFAULT_TASK_REQUEST_TIMEOUT_MS, connectionOperationCap = DEFAULT_CONNECTION_OPERATION_CAP, agentOperationCap = DEFAULT_AGENT_OPERATION_CAP, goalSpecRequestCap = connectionOperationCap, maxPendingAgentOperations = DEFAULT_MAX_PENDING_AGENT_OPERATIONS, maxPendingAgentTransactions = DEFAULT_MAX_PENDING_AGENT_TRANSACTIONS }) {
 		super();
+		this.#choiceMoments = choiceTool === true ? new ChoiceMoments({ now: epochNow }) : null;
 		this.#memoryDirectory = memoryDirectory;
 		this.#decisionLog = decisionLog;
 		if (providerCliHealth !== null && typeof providerCliHealth.check !== 'function') throw new TypeError('providerCliHealth.check must be a function');
@@ -2702,6 +2707,54 @@ export class DynamicCoordinator extends EventEmitter {
 		return this.#nativeRuntime.interruptBlockingTool(work.agentId, armNext ? { armNext } : undefined);
 	}
 
+	/** With the choice tool on, a flagged moment's responses lead the wake's first line (choice-moments.mjs). */
+	#offerChoiceMoment(record, input, facts) {
+		// Only Codex threads are given the choose_response tool (codex-service.mjs).
+		if (this.#choiceMoments === null || record?.provider !== 'codex') return input;
+		let offer = null;
+		try { offer = this.#choiceMoments.offer(record.agentId, momentSignals(facts)); } catch { return input; }
+		if (offer === null) return input;
+		this.#writeTrace('choice_moment_offered', { agentId: record.agentId, goalRevision: record.goalRevision, kind: offer.kind });
+		return `${offer.line} ${input}`;
+	}
+
+	/**
+	 * choose_response: the chosen key's body step runs as the model's own call would; other keys go back to the model.
+	 * Targets, position and food slots come from the latest observation; a running action is replaced or waited on.
+	 */
+	async #chooseResponse(work, toolRequest) {
+		const key = toolRequest.tool.choice;
+		const record = this.#registry.get(work.agentId);
+		const open = this.#choiceMoments?.offered(work.agentId) ?? null;
+		let signals = open?.signals ?? null;
+		const latest = record === null ? null : this.#nativeRuntime.latestObservation(record)?.observation ?? null;
+		if (open !== null && latest !== null) {
+			try {
+				const fresh = momentSignals({ observation: latest });
+				// No targeting hostile in the latest observation is a real update: fight or flee then goes back to the model.
+				signals = { ...signals, threats: fresh.threats, position: fresh.position ?? signals.position,
+					block: fresh.block ?? signals.block, facing: fresh.facing ?? signals.facing, foodToHotbar: open.kind === 'food_stored' ? fresh.foodToHotbar : signals.foodToHotbar };
+			} catch { /* the offer's own facts stand */ }
+		}
+		const planned = open === null ? { kind: 'invalid' } : planChoice(open.kind, key, signals);
+		const running = record === null ? null : this.#nativeRuntime.runningAction(record);
+		const { plan, cancel } = againstRunning(planned, running, work.goalRevision);
+		if (planned.kind !== 'invalid') this.#choiceMoments.clear(work.agentId);
+		const trace = (extra) => this.#writeTrace('choice_made', { agentId: work.agentId, goalRevision: work.goalRevision, kind: open?.kind ?? null, choice: key, plan: plan.kind,
+			...(plan.kind === 'call' ? { body: plan.name === 'do_step' ? plan.args.verb : plan.args.actionType, via: plan.name, replacedRunning: running !== null } : {}), ...extra });
+		if (plan.kind !== 'call') { trace({}); return { state: 'SUCCEEDED', choice: choiceResultText(open?.kind ?? null, key, plan) }; }
+		let result;
+		try {
+			if (cancel !== null) await this.#executeNativeTool(work, { ...toolRequest, callId: `${toolRequest.callId}:choice-cancel`, tool: normalizeMinecraftToolCall(cancel.name, cancel.args) }).catch(() => null);
+			result = await this.#executeNativeTool(work, { ...toolRequest, callId: `${toolRequest.callId}:choice`, tool: normalizeMinecraftToolCall(plan.name, plan.args) });
+		} catch (error) {
+			trace({ bodyState: 'ERROR', reasonCode: String(error?.code ?? 'ERROR').slice(0, 64) });
+			return { state: 'SUCCEEDED', choice: choiceResultText(open.kind, key, plan, { executed: false, reasonCode: error?.code ?? String(error?.message ?? error).slice(0, 120) }) };
+		}
+		trace({ bodyState: typeof result?.state === 'string' ? result.state : null });
+		return { choice: choiceResultText(open.kind, key, plan, result), ...result };
+	}
+
 	async #settleNativeSteering(work) {
 		while (work.steerPromise !== null) await work.steerPromise;
 	}
@@ -2747,6 +2800,7 @@ export class DynamicCoordinator extends EventEmitter {
 		// A model tool invocation proves this turn input was consumed, even if the provider fails later.
 		this.#settleFailureDelivery(work.request, true);
 		if (toolRequest.tool.kind === 'take_task') return this.#takeTask(work, toolRequest.tool);
+		if (toolRequest.tool.kind === 'choose_response') return this.#chooseResponse(work, toolRequest);
 		let deliveredConfirmationAuthority = false;
 		if (sameSupervisionKey(this.#nativeConfirmationWaits.get(work.agentId), work.supervisionKey)) {
 			const messages = [...(work.request.deliveredPlayerRequests ?? []), ...(work.steeredPlayerRequests ?? [])];
@@ -4473,7 +4527,8 @@ export class DynamicCoordinator extends EventEmitter {
 				request.nativeConversationDelivery.omittedEntries = delivered.omittedEntries + (reservation.more ? 1 : 0);
 				request.nativeConversationDelivery.sequences = delivered.entries.map((entry) => entry.sequence).filter(Number.isSafeInteger);
 			}
-			return request.retryInstruction === undefined ? input : `${input}\n${request.retryInstruction}`;
+			const offered = isPlanning ? input : this.#offerChoiceMoment(record, input, { observation, trigger: nativeEvent.trigger ?? null, changed, taskFacts: continuity === null ? null : JSON.stringify(continuity), goalNow: this.#taskViews.goalLine(record) });
+			return request.retryInstruction === undefined ? offered : `${offered}\n${request.retryInstruction}`;
 		} catch (error) { this.#restoreNativeConversation(request); throw error; }
 	}
 
@@ -4718,7 +4773,7 @@ export function createDynamicCoordinator(configValue, dependencies = {}) {
 	const discoveryEnabled = providerCliHealth.enabled === true;
 	const injectedProviders = dependencies.providerService ?? dependencies.codexService ?? null;
 	const codexProvider = injectedProviders !== null ? null
-		: new CodexService({ ...config.codex, environment: providerEnvironments.codex, bridgeSecretEnvironmentVariable: config.bridge.secretEnvironmentVariable }, { transport: dependencies.codexTransport, now: dependencies.now ?? Date.now, workspaceManager, minecraftWorkspace });
+		: new CodexService({ ...config.codex, environment: providerEnvironments.codex, bridgeSecretEnvironmentVariable: config.bridge.secretEnvironmentVariable }, { transport: dependencies.codexTransport, now: dependencies.now ?? Date.now, workspaceManager, minecraftWorkspace, choiceTool: choiceToolEnabled(coordinatorEnvironment) });
 	const codexService = injectedProviders ?? new ProviderService({
 		codex: codexProvider,
 		claude: new ClaudeProviderService({ ...config.claude, environment: providerEnvironments.claude, bridgeSecretEnvironmentVariable: config.bridge.secretEnvironmentVariable }, {
@@ -4799,6 +4854,7 @@ export function createDynamicCoordinator(configValue, dependencies = {}) {
 		...(dependencies.reflexDefaults === undefined ? {} : { reflexDefaults: dependencies.reflexDefaults }),
 		reflexInstincts: instinctsEnabled(coordinatorEnvironment),
 		kitHabit: kitHabitEnabled(coordinatorEnvironment),
+		choiceTool: choiceToolEnabled(coordinatorEnvironment),
 		clearWakeHoldTimeout: dependencies.clearWakeHoldTimeout,
 		taskRequestTimeoutMs: dependencies.taskRequestTimeoutMs,
 		maxPendingAgentOperations: dependencies.maxPendingAgentOperations,
