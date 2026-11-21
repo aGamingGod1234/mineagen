@@ -104,6 +104,9 @@ public final class ServerSpawnerHoldController implements ServerController {
 	private long lastBlazeMs, lastElapsed;
 	private int lastHurtTime;
 	private TickResult finished;
+	/** Game tick each blaze within SCAN was first seen charged (glowing) in its current charge. */
+	private final Map<UUID, Long> chargedSince = new java.util.HashMap<>();
+	private int bitesStopped;
 	private String cancelFacts;
 
 	public ServerSpawnerHoldController(ServerPlayer player, JsonObject arguments, ServerProtectionPolicy protection, BlockPos spawner,
@@ -173,6 +176,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 		// included. Round 1 lost 3 of 4 deaths to default take-cover pausing the hold outside the cell and walking off.
 		HOLDING.add(player.getUUID());
 		senseHits(player, inCell);
+		senseCharges(player);
 		if (blazeSeen(player)) lastBlazeMs = elapsed;
 		var seenSpawner = SeenTerrain.of(player).known(spawner.getX(), spawner.getY(), spawner.getZ());
 		boolean spawnerGone = seenSpawner != null && !seenSpawner.is(Blocks.SPAWNER);
@@ -357,7 +361,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 				note(String.format(Locale.ROOT, "health %.1f: shield up in the cell to heal", player.getHealth()));
 			}
 			int food = foodSlot(player);
-			if (food >= 0 && player.getFoodData().getFoodLevel() < 20 && ReflexSensors.blockableShot(player, 1.0D) == null) {
+			if (SpawnerHold.healBite(player.getFoodData().getFoodLevel(), biteSafe(player), food >= 0)) {
 				shieldInput.release();
 				startEat(player, food);
 				return eat(player);
@@ -373,7 +377,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 		boolean blazeInReach = !player.level().getEntitiesOfClass(LivingEntity.class, player.getBoundingBox().inflate(SpawnerHold.EAT_BLAZE_CLEAR),
 				e -> e.getType() == McEntityTypes.BLAZE && e.isAlive()).isEmpty();
 		int slot = foodSlot(player);
-		if (inCell && SpawnerHold.shouldEat(player.getFoodData().getFoodLevel(), player.getHealth(), shot, blazeInReach, slot >= 0)) {
+		if (inCell && SpawnerHold.shouldEat(player.getFoodData().getFoodLevel(), player.getHealth(), !shot && biteSafe(player), blazeInReach, slot >= 0)) {
 			stopEngine(player);
 			startEat(player, slot);
 			return eat(player);
@@ -490,10 +494,14 @@ public final class ServerSpawnerHoldController implements ServerController {
 		Vec3 eye = player.getEyePosition();
 		Vec3 toward = Vec3.atCenterOf(cell.relative(opening, 3)).add(0.0D, 0.6D, 0.0D);
 		double best = Double.MAX_VALUE;
+		boolean chargedFound = false;
 		for (LivingEntity blaze : player.level().getEntitiesOfClass(LivingEntity.class, player.getBoundingBox().inflate(SpawnerHold.SCAN),
 				e -> e.getType() == McEntityTypes.BLAZE && e.isAlive())) {
-			if (!ObservationVisibility.canSeeEntity(player, blaze)) continue;
+			// A charged blaze with a line to the body fires next: face it first, else the nearest one in view.
+			boolean charged = chargedSince.containsKey(blaze.getUUID()) && blaze.hasLineOfSight(player);
+			if (!charged && (chargedFound || !ObservationVisibility.canSeeEntity(player, blaze))) continue;
 			double d = blaze.distanceToSqr(player);
+			if (charged && !chargedFound) { chargedFound = true; best = Double.MAX_VALUE; }
 			if (d < best) { best = d; toward = blaze.getEyePosition(); }
 		}
 		Vec3 delta = toward.subtract(eye);
@@ -514,8 +522,10 @@ public final class ServerSpawnerHoldController implements ServerController {
 	private TickResult eat(ServerPlayer player) {
 		ItemStack now = player.getInventory().getItem(eatSlot);
 		boolean ate = now.isEmpty() || !eatItem.equals(BuiltInRegistries.ITEM.getKey(now.getItem()).toString()) || now.getCount() < eatCount;
-		if (ate || ++eatTicks > EAT_TICKS || ReflexSensors.blockableShot(player, 1.0D) != null) {
+		boolean stop = !ate && SpawnerHold.stopBite(oldestCharge(player), ReflexSensors.blockableShot(player, 1.0D) != null);
+		if (ate || ++eatTicks > EAT_TICKS || stop) {
 			if (ate) meals++;
+			if (stop) bitesStopped++;
 			eatTicks = -1;
 			eatInput.release();
 			return TickResult.running(progress(player));
@@ -560,6 +570,35 @@ public final class ServerSpawnerHoldController implements ServerController {
 		double best = Double.POSITIVE_INFINITY;
 		for (LivingEntity entity : entities) best = Math.min(best, entity.position().distanceTo(at));
 		return best;
+	}
+
+	private void senseCharges(ServerPlayer player) {
+		long tick = player.level().getGameTime();
+		Set<UUID> charged = new java.util.HashSet<>();
+		Vec3 at = player.position();
+		for (LivingEntity blaze : player.level().getEntitiesOfClass(LivingEntity.class, new AABB(at, at).inflate(SpawnerHold.SCAN),
+				e -> e.getType() == McEntityTypes.BLAZE && e.isAlive() && !e.isDeadOrDying() && e.isOnFire())) {
+			charged.add(blaze.getUUID());
+			chargedSince.putIfAbsent(blaze.getUUID(), tick);
+		}
+		chargedSince.keySet().retainAll(charged);
+	}
+
+	/** The longest charge, in ticks, of a blaze with a clear line to the body (it can shoot it), or -1. */
+	private int oldestCharge(ServerPlayer player) {
+		long tick = player.level().getGameTime();
+		int oldest = -1;
+		Vec3 at = player.position();
+		for (LivingEntity blaze : player.level().getEntitiesOfClass(LivingEntity.class, new AABB(at, at).inflate(SpawnerHold.SCAN),
+				e -> e.getType() == McEntityTypes.BLAZE && e.isAlive() && chargedSince.containsKey(e.getUUID()))) {
+			if (!blaze.hasLineOfSight(player)) continue;
+			oldest = (int) Math.max(oldest, Math.min(Integer.MAX_VALUE, tick - chargedSince.get(blaze.getUUID())));
+		}
+		return oldest;
+	}
+
+	private boolean biteSafe(ServerPlayer player) {
+		return SpawnerHold.biteSafe(oldestCharge(player), ReflexSensors.blockableShot(player, 1.0D) != null);
 	}
 
 	private boolean blazeSeen(ServerPlayer player) {
@@ -667,10 +706,10 @@ public final class ServerSpawnerHoldController implements ServerController {
 
 	private String summary(ServerPlayer player, long elapsed) {
 		int held = ServerFightUntilController.count(player, untilItem);
-		return String.format(Locale.ROOT, "spawner hold at %s: cell %s, %d site%s failed, %d build%s; %+d %s in %.0f s; %d engine run%s %s; %d rod trip%s; %d meal%s; %d defend%s; %d shield heal%s (shield up %d of %d ticks); %d fire%s punched out; hurts %s; health lost %s%s",
+		return String.format(Locale.ROOT, "spawner hold at %s: cell %s, %d site%s failed, %d build%s; %+d %s in %.0f s; %d engine run%s %s; %d rod trip%s; %d meal%s; %d defend%s; %d shield heal%s (shield up %d of %d ticks, %d bite%s stopped for a volley); %d fire%s punched out; hurts %s; health lost %s%s",
 				spawner.toShortString(), cell == null ? "none" : cell.toShortString(), sitesFailed, sitesFailed == 1 ? "" : "s", builds, builds == 1 ? "" : "s",
 				held - Math.max(0, startHeld), untilItemId, elapsed / 1000.0D, engineRuns, engineRuns == 1 ? "" : "s", engineEnds, trips, trips == 1 ? "" : "s",
-				meals, meals == 1 ? "" : "s", defends, defends == 1 ? "" : "s", turtles, turtles == 1 ? "" : "s", blockingTicks, turtleTicks, firesPunched, firesPunched == 1 ? "" : "s", hurts, lostText(), log.isEmpty() ? "" : "; log: " + String.join(" | ", log.subList(Math.max(0, log.size() - 6), log.size())));
+				meals, meals == 1 ? "" : "s", defends, defends == 1 ? "" : "s", turtles, turtles == 1 ? "" : "s", blockingTicks, turtleTicks, bitesStopped, bitesStopped == 1 ? "" : "s", firesPunched, firesPunched == 1 ? "" : "s", hurts, lostText(), log.isEmpty() ? "" : "; log: " + String.join(" | ", log.subList(Math.max(0, log.size() - 6), log.size())));
 	}
 
 	private String lostText() {

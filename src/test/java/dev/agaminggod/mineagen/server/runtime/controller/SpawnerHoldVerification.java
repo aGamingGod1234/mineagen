@@ -124,12 +124,21 @@ public final class SpawnerHoldVerification {
 	}
 
 	private static void verifyEat() {
-		check(SpawnerHold.shouldEat(17, 20.0F, false, false, true), "eat below 18 hunger (health stops regrowing)");
-		check(SpawnerHold.shouldEat(19, 13.0F, false, false, true), "eat when hurt with room to eat");
-		check(!SpawnerHold.shouldEat(20, 13.0F, false, false, true), "not when full");
-		check(!SpawnerHold.shouldEat(10, 10.0F, true, false, true), "not with a shot about to land (the shield comes first)");
-		check(!SpawnerHold.shouldEat(10, 10.0F, false, true, true), "not with a blaze within reach");
-		check(!SpawnerHold.shouldEat(10, 10.0F, false, false, false), "not without food");
+		check(SpawnerHold.shouldEat(17, 20.0F, true, false, true), "eat below 18 hunger (health stops regrowing)");
+		check(SpawnerHold.shouldEat(19, 13.0F, true, false, true), "eat when hurt with room to eat");
+		check(!SpawnerHold.shouldEat(20, 13.0F, true, false, true), "not when full");
+		check(!SpawnerHold.shouldEat(10, 10.0F, false, false, true), "not when a bite is unsafe (a shot or a volley due: the shield comes first)");
+		check(SpawnerHold.biteSafe(-1, false), "a bite with no charged blaze and no shot is safe");
+		check(!SpawnerHold.biteSafe(-1, true), "not with a shot inbound");
+		check(SpawnerHold.biteSafe(18, false), "a charge 18 ticks old leaves the bite and the shield's raise before its volley");
+		check(!SpawnerHold.biteSafe(19, false), "a charge 19 ticks old does not");
+		check(!SpawnerHold.stopBite(49, false) && SpawnerHold.stopBite(50, false) && SpawnerHold.stopBite(-1, true), "a bite stops 10 ticks before a volley, or for a shot");
+		check(!SpawnerHold.stopBite(18 + SpawnerHold.BITE_TICKS, false), "a bite started when safe is never stopped by that same charge");
+		check(SpawnerHold.healBite(19, true, true), "the heal bites at any hunger below full when it is safe");
+		check(!SpawnerHold.healBite(10, false, true), "the heal keeps the shield up when a bite is unsafe, however hungry");
+		check(!SpawnerHold.healBite(20, true, true) && !SpawnerHold.healBite(10, true, false), "not when full or without food");
+		check(!SpawnerHold.shouldEat(10, 10.0F, true, true, true), "not with a blaze within reach");
+		check(!SpawnerHold.shouldEat(10, 10.0F, true, false, false), "not without food");
 	}
 
 	private static void verifyBreach() {

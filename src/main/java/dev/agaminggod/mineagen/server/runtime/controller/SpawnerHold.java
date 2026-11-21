@@ -96,10 +96,36 @@ public final class SpawnerHold {
 		return health >= COLLECT_HEALTH && blazeNear > BLAZE_CLEAR;
 	}
 
-	/** Eat inside the cell: hungry enough to stop regrowing, or hurt with room to eat, and no shot about to land. */
-	static boolean shouldEat(int hunger, float health, boolean shotInbound, boolean blazeInReach, boolean hasFood) {
-		if (!hasFood || shotInbound || blazeInReach) return false;
+	/** Eat inside the cell: hungry enough to stop regrowing, or hurt with room to eat, and a bite that ends before a volley. */
+	static boolean shouldEat(int hunger, float health, boolean biteSafe, boolean blazeInReach, boolean hasFood) {
+		if (!hasFood || !biteSafe || blazeInReach) return false;
 		return hunger < EAT_HUNGER || health < EAT_HEALTH && hunger < 20;
+	}
+
+	/**
+	 * Vanilla BlazeAttackGoal: a blaze glows charged for 60 ticks before its three fireballs. A bite takes 32 ticks (bread)
+	 * and a shield blocks only after it has been up for 5 ticks; SHIELD_READY_TICKS leaves twice that.
+	 */
+	static final int CHARGE_TICKS = 60, BITE_TICKS = 32, SHIELD_READY_TICKS = 10;
+
+	/**
+	 * Whether a bite started now ends with the shield back up before any volley lands: no blockable shot inbound, and no
+	 * blaze with a line to the body charged longer than the bite leaves room for. oldestCharge is the longest such charge
+	 * in ticks, or -1 when none. Round 3 live: the shield heal lowered the shield for a bite on every tick with no shot in
+	 * the air, raised it too late when one came (0 of 299 heal ticks blocking), and both seeds died in the cell.
+	 */
+	static boolean biteSafe(int oldestCharge, boolean shotInbound) {
+		return !shotInbound && (oldestCharge < 0 || oldestCharge + BITE_TICKS <= CHARGE_TICKS - SHIELD_READY_TICKS);
+	}
+
+	/** A bite under way stops for a shot inbound or a volley due before the shield would be ready. */
+	static boolean stopBite(int oldestCharge, boolean shotInbound) {
+		return shotInbound || oldestCharge >= CHARGE_TICKS - SHIELD_READY_TICKS;
+	}
+
+	/** In the shield heal the shield stays up; it comes down only for a bite that is safe (any hunger below full). */
+	static boolean healBite(int hunger, boolean biteSafe, boolean hasFood) {
+		return hasFood && hunger < 20 && biteSafe;
 	}
 
 	/**
