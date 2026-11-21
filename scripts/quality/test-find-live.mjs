@@ -12,7 +12,8 @@
 // keeps it, saved. Launch under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME.
 // setup: operator commands that build a fixture before the calls, {x}, {y}, {z} (with +n or -n; {x+0.5} is a cell's
 // centre) standing for the body's block at spawn; after: { ms, commands } runs after setup. finish: operator commands run
-// when the calls end, their replies kept (scoreboard stats, inventory); callFinish: the same after every call. Every spot reports lavaSamples: trail samples with
+// when the calls end, their replies kept (scoreboard stats, inventory); callFinish: the same after every call. A call with
+// wait: true (a background do_step) holds the next call until its body actions end. Every spot reports lavaSamples: trail samples with
 // lava at the body's feet or head.
 // Production steering lives in run-incident.mjs; this body-only fixture cannot accept steer:true.
 import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
@@ -193,6 +194,8 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 				}
 				const entry = callEntry(call, result, { attempt, atS: Math.round((callStarted - t0) / 1000), seconds: Math.round((Date.now() - callStarted) / 1000) });
 				row.calls.push(entry);
+				// wait: a background step (do_step dig_to) finishes its body actions before the next call.
+				if (call.wait === true && ['RUNNING', 'PREPARING'].includes(result?.state)) await awaitActionReceipts(row, { deadline: t0 + budgetMs, stopped: async () => (await deaths()) > deathsBefore });
 				// callFinish: operator commands read after every call (a stat before the next call), replies kept on the entry.
 				if (Array.isArray(spot.callFinish)) { entry.finish = []; for (const text of spot.callFinish) entry.finish.push({ command: text, reply: String(await s.command(text)).slice(0, 400) }); }
 				if (spot.dump) await writeFile(path.join(dir, `call-${callIndex}-${attempt}.json`), JSON.stringify(result, null, 2));
