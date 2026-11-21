@@ -1,18 +1,22 @@
 #!/usr/bin/env node
 // Model-free body fixtures. Run under B/api/fix-slot.sh with JAVA_TOOL_OPTIONS=-XX:ActiveProcessorCount=2.
 // Operator commands create each room and kit; the actual skill owns every break, move, drop and placement.
+// FIXTURE_TICK_RATE runs each dig_to faster: the room, kit and the settle after the teleport stay at 20 TPS (that wait
+// follows forceload and a teleport, so it is chunk loading, wall-clock work), and only the action runs at the raised rate
+// (its timeoutMs is game time). Rows record seconds (game), wallSeconds and rates.
 import assert from 'node:assert/strict';
 import { mkdir, writeFile, rm, readFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { boot } from './watch-replay.mjs';
+import { boot, fixtureTickRate } from './watch-replay.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
+import { damageCounter, damageEvidence, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
 const out = resolve(process.argv[2]);
 const jar = resolve(process.argv[3] ?? MOD_JAR);
 assert.ok(process.env.SLOT_PORT_BASE && process.env.ARENA_HEADLESS_SERVER_TEMPLATE && process.env.JAVA_HOME);
 await mkdir(out, { recursive: false });
 const rows = [];
-const s = await boot(out, { jar, template: process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port: Number(process.env.SLOT_PORT_BASE), world: null, seed: '20261018' });
+const s = await boot(out, { jar, template: process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port: Number(process.env.SLOT_PORT_BASE), world: null, seed: '20261018', tickRate: fixtureTickRate() });
 const sleep = ms => new Promise(done => setTimeout(done, ms));
 const A = 'Probe';
 try {
@@ -29,6 +33,9 @@ try {
  s.record.goalRevision = (await started).payload.goalRevision;
  await s.bridge.send('agent_ready', s.record.agentId, { goalRevision: s.record.goalRevision, reconciled: false });
  await s.command('difficulty peaceful');
+ // Harm evidence for the lava and water rooms: vanilla's cumulative damage and death counters.
+ const readDamage = await damageCounter(text => s.command(text), A);
+ const deaths = () => deathCounter(text => s.command(text), A, { objective: 'deaths', unsetIsZero: true });
  const cases = [
   { name: 'cave-default-small', cave: 'small', args: {}, expect: 'DIG_GOAL_REACHED' },
   { name: 'cave-false', cave: 'small', args: { throughCaves: false }, expect: 'CAVE_OPENING' },
@@ -49,6 +56,7 @@ try {
   { name: 'lava-purpose', fluid: 'lava', args: { sealFluids: true, stopWhenSeen: 'minecraft:lava' }, expect: ['LAVA_AHEAD', 'TARGET_SEEN'] },
  ].filter(c => !process.env.DIG_OPTION_CASES || process.env.DIG_OPTION_CASES.split(',').includes(c.name));
  for (const [i, c] of cases.entries()) {
+  await s.normalRate();
   const z = i * 20;
   await s.command(`gamemode creative ${A}`);
   await s.command(`forceload add -4 ${z - 4} 14 ${z + 10}`);
@@ -75,10 +83,17 @@ try {
   if (c.hidden) await s.command(`playsound minecraft:block.lava.ambient master ${A} 2 60 ${z + 2} 1 1`);
   await s.observe();
   const args = { pattern: 'tunnel', x: 6, z, heading: 'east', timeoutMs: 30000, ...c.args };
+  const damageBefore = await readDamage(), deathsBefore = await deaths();
+  await s.fastRate();
+  const t0 = s.clock.now(), wall0 = Date.now(), timer = await s.gameTimer();
   const result = await s.act('dig_to', args);
+  const tick = { seconds: Math.round((s.clock.now() - t0) / 1000), wallSeconds: Math.round((Date.now() - wall0) / 1000), gameSeconds: Math.round((await timer.elapsed()) / 1000), rates: await timer.rates().catch(() => null) };
+  await s.normalRate();
+  const { damageTaken, integrity } = damageEvidence(damageBefore, await readDamage(), null, null);
+  Object.assign(tick, { damageTaken, ...(integrity ? { integrity } : {}), deaths: deathEvidence(deathsBefore, await deaths()).deaths });
   const inventory = await s.command(`data get entity ${A} Inventory`);
   const items = await s.command(`execute at ${A} as @e[type=minecraft:item,distance=..12] run data get entity @s Item`);
-  const row = { name: c.name, args, expect: c.expect, result, inventory, items, position: await s.command(`data get entity ${A} Pos`) };
+  const row = { name: c.name, args, expect: c.expect, result, inventory, items, position: await s.command(`data get entity ${A} Pos`), ...tick };
   row.pass = [c.expect].flat().includes(result.reasonCode);
   if (c.name === 'full-discard') row.pass &&= /Q-dropped cobblestone\*64/.test(result.message) && /cobblestone/.test(items);
   if (c.name === 'full-default') row.pass &&= /candidate junk stacks: cobblestone\*64 slot 1/.test(result.message) && /discard:/.test(result.message);
@@ -90,7 +105,7 @@ try {
   await writeFile(join(out, 'results.json'), JSON.stringify(rows, null, 2));
   console.log(`${row.pass ? 'PASS' : 'FAIL'} ${c.name}: ${result.reasonCode}`);
  }
- await writeFile(join(out, 'manifest.json'), JSON.stringify({ modelCalls: 0, fixtureSetupUsesOperatorCommands: true, jarSha256: createHash('sha256').update(await readFile(jar)).digest('hex'), passed: rows.filter(x => x.pass).length, total: rows.length }, null, 2));
+ await writeFile(join(out, 'manifest.json'), JSON.stringify({ modelCalls: 0, fixtureSetupUsesOperatorCommands: true, jarSha256: createHash('sha256').update(await readFile(jar)).digest('hex'), passed: rows.filter(x => x.pass).length, total: rows.length, tickRate: s.tickRate, held: await s.tickReport() }, null, 2));
  assert.ok(rows.every(x => x.pass), 'fixture failures; see results.json');
 } finally {
  await s.stop();

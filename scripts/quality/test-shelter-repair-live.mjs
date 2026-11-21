@@ -1,16 +1,20 @@
 #!/usr/bin/env node
 // Held-out body contracts: repair, visible firing choices, and an obstruction appearing DURING a draw.
 // Operator mutations below are fixture setup only; none are fed to the body as hidden knowledge.
+// FIXTURE_TICK_RATE runs the builds, repairs, pickup and the last two shots faster, the 11 s wait for terrain memory to
+// expire included (the body forgets in ticks, so it waits on the fixture clock, s.clock). The blocked-shot and
+// new-obstruction checks stay at 20 TPS: the glass is placed 350 ms into a draw and both must return within 200 ms of
+// wall time, "two ticks plus transport". report.tick records seconds (game), wallSeconds and rates.
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
-import { boot } from './watch-replay.mjs';
+import { boot, fixtureTickRate } from './watch-replay.mjs';
 const out=resolve(process.argv[2]); await mkdir(out,{recursive:true});
-const report={kind:'provider-free held-out mechanics',cases:[]};
+const report={kind:'provider-free held-out mechanics',tickRate:fixtureTickRate(),cases:[]};
 let s;
 const check=(ok,message)=>{ if(!ok) throw new Error(message); };
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 try {
- s=await boot(out,{jar:process.env.ARENA_JAR,template:process.env.ARENA_HEADLESS_SERVER_TEMPLATE,port:Number(process.env.SLOT_PORT_BASE),seed:20261009});
+ s=await boot(out,{jar:process.env.ARENA_JAR,template:process.env.ARENA_HEADLESS_SERVER_TEMPLATE,port:Number(process.env.SLOT_PORT_BASE),seed:20261009,tickRate:fixtureTickRate()});
  await s.command('gamerule minecraft:spawn_mobs false');
  await s.command('forceload add -32 -32 64 32');
  await s.command('fill -20 100 -20 60 100 20 minecraft:stone');
@@ -30,10 +34,12 @@ try {
  await s.command('item replace entity Probe weapon.offhand with minecraft:shield');
  await s.observe();
  const args={x:0,y:101,z:0,opening:'east',roof:true,itemId:'minecraft:cobblestone',timeoutMs:30000};
+ await s.fastRate();
+ const t0=s.clock.now(),wall0=Date.now(),timer=await s.gameTimer();
  const build=await s.act('build_shelter',args); check(build.state==='SUCCEEDED','initial shelter: '+JSON.stringify(build));
  report.cases.push({name:'initial shelter',result:build});
  // Let the hidden support's short terrain memory expire. Repair must inspect the ceiling underside.
- await delay(11000);
+ await s.clock.sleep(11000);
  const intact=await s.act('build_shelter',args); report.cases.push({name:'intact shelter after terrain memory expires',result:intact});
  check(intact.state==='SUCCEEDED'&&intact.message.includes('placed=0'),'intact repair: '+JSON.stringify(intact));
  await s.command('setblock -1 103 0 minecraft:air');
@@ -51,6 +57,8 @@ try {
  check(pickup.state==='SUCCEEDED'&&returned.state==='SUCCEEDED','pickup/reentry failed');
  check((o.inventory.items??[]).some(i=>i.itemId==='minecraft:blaze_rod'&&i.count===3),'three rods not retained');
  check(returned.message.includes('placed=1'),'repair should replace only exit sill: '+returned.message);
+ // Kept at 20 TPS through the new-obstruction check (see the header).
+ await s.normalRate();
  // Both a blocked and an open target are in the current view. The refusal must report the latter,
  // keep the model's chosen UUID, and consume no ammunition.
  await s.command('summon minecraft:blaze 6.5 101 0.5 {Tags:["open"],NoAI:1b,NoGravity:1b}');
@@ -77,6 +85,7 @@ try {
  check(dynamic.reasonCode==='TARGET_OBSTRUCTED'&&dynamic.message.includes('1,102,0'),'dynamic obstruction missing: '+JSON.stringify(dynamic));
  check(Date.now()-blockAt<=200,'dynamic obstruction did not return within two ticks plus transport');
  await s.command('setblock 1 102 0 minecraft:chest');
+ await s.fastRate();
  const protectedWindow=await s.act('build_shelter',args);
  report.cases.push({name:'precise block entity obstruction',result:protectedWindow});
  check(protectedWindow.reasonCode==='SHELTER_BLOCKED'&&protectedWindow.message.includes('minecraft:chest')&&protectedWindow.message.includes('1, 102, 0'),'repair did not name protected obstruction');
@@ -90,6 +99,9 @@ try {
  const throughSlot=await s.act('use_ranged',{targetId:low.uuid,drawDurationMs:1000,trackTarget:true,timeoutMs:10000});
  report.cases.push({name:'same lower target through eye-height slot over intact sill',result:throughSlot});
  check(throughSlot.state==='SUCCEEDED'&&throughSlot.message.includes('struck the target'),'upper-body arrow did not hit through the slot: '+JSON.stringify(throughSlot));
+ report.tick={rate:s.tickRate,seconds:Math.round((s.clock.now()-t0)/1000),wallSeconds:Math.round((Date.now()-wall0)/1000),gameSeconds:Math.round((await timer.elapsed())/1000),rates:await timer.rates().catch(()=>null)};
+ await s.normalRate();
+ report.tick.held=await s.tickReport();
  report.passed=true;
 } catch(error) {report.error=String(error.stack??error);process.exitCode=1;}
 finally {await s?.stop().catch(()=>{});await writeFile(join(out,'repair.json'),JSON.stringify(report,null,2));}
