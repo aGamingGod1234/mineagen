@@ -5946,7 +5946,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 114
+        "line": 116
       },
       "status": "partial",
       "reason": "Conditional repair acknowledgement is advertised in JSON Schema and enforced by semantic normalization; physical behavior remains unverified."
@@ -5973,7 +5973,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 114
+        "line": 116
       },
       "status": "checked"
     },
@@ -6002,7 +6002,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 114
+        "line": 116
       },
       "status": "checked"
     },
@@ -6031,7 +6031,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 114
+        "line": 116
       },
       "status": "checked"
     },
@@ -6060,7 +6060,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 114
+        "line": 116
       },
       "status": "checked"
     },
@@ -6089,7 +6089,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 114
+        "line": 116
       },
       "status": "checked"
     },
@@ -6118,7 +6118,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 114
+        "line": 116
       },
       "status": "checked"
     },
@@ -6147,7 +6147,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 114
+        "line": 116
       },
       "status": "checked"
     },
@@ -6176,7 +6176,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 114
+        "line": 116
       },
       "status": "checked"
     },
@@ -6205,7 +6205,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 114
+        "line": 116
       },
       "status": "checked"
     },
@@ -6239,7 +6239,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 114
+        "line": 116
       },
       "status": "checked"
     },
@@ -6268,7 +6268,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 114
+        "line": 116
       },
       "status": "checked"
     },
@@ -6292,7 +6292,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 114
+        "line": 116
       },
       "status": "checked"
     },
@@ -6321,7 +6321,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 114
+        "line": 116
       },
       "status": "checked"
     },
@@ -6350,7 +6350,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 114
+        "line": 116
       },
       "status": "checked"
     },
@@ -6394,7 +6394,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 114
+        "line": 116
       },
       "status": "checked"
     },
@@ -6423,7 +6423,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 114
+        "line": 116
       },
       "status": "partial",
       "reason": "Normalization and in-memory production runtime checked; no Minecraft acceptance or hidden-component preservation claim. Independent review belongs to the parent."
@@ -6458,7 +6458,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 114
+        "line": 116
       },
       "status": "checked"
     },
@@ -6484,7 +6484,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 114
+        "line": 116
       },
       "status": "checked"
     },
@@ -6532,7 +6532,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 114
+        "line": 116
       },
       "status": "partial",
       "reason": "Normalization and in-memory production runtime checked; no Minecraft acceptance or hidden-component preservation claim. Independent review belongs to the parent."
@@ -6564,7 +6564,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 114
+        "line": 116
       },
       "status": "partial",
       "reason": "Normalization and in-memory production runtime checked; no Minecraft acceptance or hidden-component preservation claim. Independent review belongs to the parent."
@@ -6593,7 +6593,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 114
+        "line": 116
       },
       "status": "partial",
       "reason": "Normalization and in-memory production runtime checked; no Minecraft acceptance or hidden-component preservation claim. Independent review belongs to the parent."
@@ -6623,7 +6623,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 114
+        "line": 116
       },
       "status": "partial",
       "reason": "Normalization and in-memory production runtime checked; no Minecraft acceptance or hidden-component preservation claim. Independent review belongs to the parent."
@@ -6652,7 +6652,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 114
+        "line": 116
       },
       "status": "checked"
     },
@@ -6680,7 +6680,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 114
+        "line": 116
       },
       "status": "checked"
     },
@@ -6708,7 +6708,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 114
+        "line": 116
       },
       "status": "checked"
     },
@@ -6734,7 +6734,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 114
+        "line": 116
       },
       "status": "checked"
     },
@@ -6761,7 +6761,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 114
+        "line": 116
       },
       "status": "checked",
       "reason": "Contract changed or added; inspect behavior and update its predicate and witnesses before approving."
@@ -6785,7 +6785,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 114
+        "line": 116
       },
       "status": "checked",
       "reason": "Contract changed or added; inspect behavior and update its predicate and witnesses before approving."
@@ -6812,7 +6812,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 114
+        "line": 116
       },
       "status": "checked",
       "reason": "Contract changed or added; inspect behavior and update its predicate and witnesses before approving."
@@ -7030,7 +7030,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 123
+        "line": 125
       }
     },
     {
@@ -7056,7 +7056,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 123
+        "line": 125
       }
     },
     {
@@ -7080,7 +7080,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 123
+        "line": 125
       }
     },
     {
@@ -7104,7 +7104,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 123
+        "line": 125
       }
     },
     {
@@ -7137,7 +7137,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 123
+        "line": 125
       }
     },
     {
@@ -7163,7 +7163,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 123
+        "line": 125
       }
     },
     {
@@ -7187,7 +7187,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 123
+        "line": 125
       }
     },
     {
@@ -7211,7 +7211,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 123
+        "line": 125
       }
     },
     {
@@ -7235,7 +7235,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 123
+        "line": 125
       }
     },
     {
@@ -7259,7 +7259,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 123
+        "line": 125
       }
     },
     {
@@ -7292,7 +7292,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 123
+        "line": 125
       }
     },
     {
@@ -7325,7 +7325,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 123
+        "line": 125
       }
     },
     {
@@ -7358,7 +7358,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 123
+        "line": 125
       }
     },
     {
@@ -7390,7 +7390,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 123
+        "line": 125
       }
     },
     {
@@ -7418,7 +7418,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 123
+        "line": 125
       }
     },
     {
@@ -7446,7 +7446,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 123
+        "line": 125
       }
     },
     {
@@ -7474,7 +7474,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 123
+        "line": 125
       }
     },
     {
@@ -7507,7 +7507,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 123
+        "line": 125
       }
     },
     {
@@ -7540,7 +7540,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 123
+        "line": 125
       }
     },
     {
@@ -7568,7 +7568,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 123
+        "line": 125
       }
     },
     {
@@ -7600,7 +7600,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 123
+        "line": 125
       }
     },
     {
@@ -7628,7 +7628,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 123
+        "line": 125
       }
     },
     {
@@ -7656,7 +7656,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 123
+        "line": 125
       }
     },
     {
@@ -7684,7 +7684,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 123
+        "line": 125
       }
     },
     {
@@ -7710,7 +7710,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 123
+        "line": 125
       }
     },
     {
@@ -7734,7 +7734,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 123
+        "line": 125
       }
     },
     {
@@ -7758,7 +7758,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 123
+        "line": 125
       }
     },
     {
@@ -7784,7 +7784,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 123
+        "line": 125
       }
     },
     {
@@ -7811,7 +7811,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 123
+        "line": 125
       }
     },
     {
@@ -7837,7 +7837,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 123
+        "line": 125
       }
     },
     {
@@ -7861,7 +7861,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 123
+        "line": 125
       }
     },
     {
@@ -7885,7 +7885,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 123
+        "line": 125
       }
     },
     {
@@ -7909,7 +7909,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 123
+        "line": 125
       }
     },
     {
@@ -7933,7 +7933,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 123
+        "line": 125
       }
     },
     {
@@ -7957,7 +7957,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 123
+        "line": 125
       }
     },
     {
@@ -7981,7 +7981,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 123
+        "line": 125
       }
     },
     {
@@ -8005,7 +8005,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 123
+        "line": 125
       }
     },
     {
@@ -8029,7 +8029,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 123
+        "line": 125
       }
     },
     {
@@ -8062,7 +8062,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 123
+        "line": 125
       }
     },
     {
@@ -8094,7 +8094,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 123
+        "line": 125
       }
     },
     {
@@ -8121,7 +8121,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 123
+        "line": 125
       }
     },
     {
@@ -8149,7 +8149,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 123
+        "line": 125
       }
     },
     {
@@ -8535,7 +8535,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 132
+        "line": 134
       }
     },
     {
@@ -8561,7 +8561,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 132
+        "line": 134
       }
     },
     {
@@ -8585,7 +8585,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 132
+        "line": 134
       }
     },
     {
@@ -8609,7 +8609,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 132
+        "line": 134
       }
     },
     {
@@ -8637,7 +8637,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 132
+        "line": 134
       }
     },
     {
@@ -8761,7 +8761,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 133
+        "line": 135
       }
     },
     {
@@ -8787,7 +8787,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 133
+        "line": 135
       }
     },
     {
@@ -8811,7 +8811,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 133
+        "line": 135
       }
     },
     {
@@ -8835,7 +8835,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 133
+        "line": 135
       }
     },
     {
@@ -8859,7 +8859,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 133
+        "line": 135
       }
     },
     {
@@ -8883,7 +8883,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 133
+        "line": 135
       }
     },
     {
@@ -8906,7 +8906,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 133
+        "line": 135
       },
       "status": "checked"
     },
@@ -8935,7 +8935,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 133
+        "line": 135
       }
     },
     {
@@ -8962,7 +8962,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 133
+        "line": 135
       }
     },
     {
@@ -9131,7 +9131,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 134
+        "line": 136
       }
     },
     {
@@ -9157,7 +9157,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 134
+        "line": 136
       }
     },
     {
@@ -9181,7 +9181,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 134
+        "line": 136
       }
     },
     {
@@ -9205,7 +9205,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 134
+        "line": 136
       }
     },
     {
@@ -9229,7 +9229,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 134
+        "line": 136
       }
     },
     {
@@ -9253,7 +9253,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 134
+        "line": 136
       }
     },
     {
@@ -9277,7 +9277,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 134
+        "line": 136
       }
     },
     {
@@ -9301,7 +9301,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 134
+        "line": 136
       }
     },
     {
@@ -9325,7 +9325,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 134
+        "line": 136
       }
     },
     {
@@ -9349,7 +9349,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 134
+        "line": 136
       }
     },
     {
@@ -9373,7 +9373,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 134
+        "line": 136
       }
     },
     {
@@ -9397,7 +9397,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 134
+        "line": 136
       }
     },
     {
@@ -9421,7 +9421,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 134
+        "line": 136
       }
     },
     {
@@ -9445,7 +9445,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 134
+        "line": 136
       }
     },
     {
@@ -9469,7 +9469,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 134
+        "line": 136
       }
     },
     {
@@ -9492,7 +9492,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 134
+        "line": 136
       },
       "status": "checked"
     },
@@ -9521,7 +9521,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 134
+        "line": 136
       }
     },
     {
@@ -9549,7 +9549,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 134
+        "line": 136
       }
     },
     {
@@ -9577,7 +9577,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 134
+        "line": 136
       }
     },
     {
@@ -9605,7 +9605,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 134
+        "line": 136
       }
     },
     {
@@ -9633,7 +9633,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 134
+        "line": 136
       }
     },
     {
@@ -9661,7 +9661,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 134
+        "line": 136
       }
     },
     {
@@ -9688,7 +9688,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 134
+        "line": 136
       }
     },
     {
@@ -9716,7 +9716,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 134
+        "line": 136
       }
     },
     {
@@ -9744,7 +9744,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 134
+        "line": 136
       }
     },
     {
@@ -9772,7 +9772,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 134
+        "line": 136
       }
     },
     {
@@ -9798,7 +9798,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 134
+        "line": 136
       }
     },
     {
@@ -9824,7 +9824,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 134
+        "line": 136
       }
     },
     {
@@ -9850,7 +9850,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 134
+        "line": 136
       }
     },
     {
@@ -9876,7 +9876,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 134
+        "line": 136
       }
     },
     {
@@ -9957,7 +9957,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 143
+        "line": 145
       }
     },
     {
@@ -9985,7 +9985,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 143
+        "line": 145
       }
     },
     {
@@ -10070,7 +10070,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 144
+        "line": 146
       }
     },
     {
@@ -10098,7 +10098,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 144
+        "line": 146
       }
     },
     {
@@ -10125,7 +10125,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 144
+        "line": 146
       }
     },
     {
@@ -10306,7 +10306,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       }
     },
     {
@@ -10334,7 +10334,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       }
     },
     {
@@ -10361,7 +10361,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       }
     },
     {
@@ -10387,7 +10387,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       }
     },
     {
@@ -10410,7 +10410,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -10434,7 +10434,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -10458,7 +10458,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -10482,7 +10482,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -10506,7 +10506,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -10530,7 +10530,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -10554,7 +10554,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -10578,7 +10578,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -10602,7 +10602,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -10626,7 +10626,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -10650,7 +10650,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -10674,7 +10674,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -10698,7 +10698,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -10722,7 +10722,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -10746,7 +10746,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -10770,7 +10770,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -10794,7 +10794,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -10818,7 +10818,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -10842,7 +10842,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -10866,7 +10866,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -10890,7 +10890,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -10914,7 +10914,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -10938,7 +10938,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -10967,7 +10967,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -10996,7 +10996,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -11020,7 +11020,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -11044,7 +11044,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -11068,7 +11068,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -11092,7 +11092,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -11116,7 +11116,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -11140,7 +11140,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -11164,7 +11164,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -11188,7 +11188,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -11212,7 +11212,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -11236,7 +11236,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -11260,7 +11260,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -11284,7 +11284,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -11308,7 +11308,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -11332,7 +11332,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -11356,7 +11356,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -11380,7 +11380,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -11404,7 +11404,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -11428,7 +11428,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -11452,7 +11452,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -11476,7 +11476,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -11500,7 +11500,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -11524,7 +11524,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -11548,7 +11548,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -11572,7 +11572,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       },
       "status": "checked"
     },
@@ -11599,7 +11599,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 145
+        "line": 147
       }
     },
     {
@@ -11800,7 +11800,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       }
     },
     {
@@ -11826,7 +11826,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       }
     },
     {
@@ -11849,7 +11849,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -11873,7 +11873,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -11897,7 +11897,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -11921,7 +11921,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -11945,7 +11945,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -11969,7 +11969,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -11993,7 +11993,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -12017,7 +12017,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -12041,7 +12041,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -12065,7 +12065,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -12089,7 +12089,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -12113,7 +12113,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -12137,7 +12137,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -12161,7 +12161,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -12185,7 +12185,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -12209,7 +12209,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -12233,7 +12233,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -12257,7 +12257,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -12281,7 +12281,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -12305,7 +12305,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -12329,7 +12329,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -12353,7 +12353,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -12377,7 +12377,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -12406,7 +12406,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -12435,7 +12435,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -12459,7 +12459,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -12483,7 +12483,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -12507,7 +12507,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -12531,7 +12531,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -12555,7 +12555,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -12579,7 +12579,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -12603,7 +12603,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -12627,7 +12627,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -12651,7 +12651,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -12675,7 +12675,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -12699,7 +12699,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -12723,7 +12723,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -12747,7 +12747,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -12771,7 +12771,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -12795,7 +12795,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -12819,7 +12819,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -12843,7 +12843,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -12867,7 +12867,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -12891,7 +12891,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -12915,7 +12915,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -12939,7 +12939,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -12963,7 +12963,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -12987,7 +12987,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -13011,7 +13011,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -13038,7 +13038,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       }
     },
     {
@@ -13065,7 +13065,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -13091,7 +13091,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 149
+        "line": 151
       },
       "status": "checked"
     },
@@ -13207,7 +13207,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 150
+        "line": 152
       }
     },
     {
@@ -13240,7 +13240,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 150
+        "line": 152
       }
     },
     {
@@ -13273,7 +13273,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 150
+        "line": 152
       }
     },
     {
@@ -13411,7 +13411,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 151
+        "line": 153
       }
     },
     {
@@ -13437,7 +13437,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 151
+        "line": 153
       }
     },
     {
@@ -13461,7 +13461,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 151
+        "line": 153
       }
     },
     {
@@ -13485,7 +13485,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 151
+        "line": 153
       }
     },
     {
@@ -13509,7 +13509,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 151
+        "line": 153
       }
     },
     {
@@ -13533,7 +13533,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 151
+        "line": 153
       }
     },
     {
@@ -13566,7 +13566,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 151
+        "line": 153
       }
     },
     {
@@ -13593,7 +13593,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 151
+        "line": 153
       }
     },
     {
@@ -13621,7 +13621,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 151
+        "line": 153
       }
     },
     {
@@ -14081,7 +14081,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 154
       }
     },
     {
@@ -14109,7 +14109,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 154
       }
     },
     {
@@ -14137,7 +14137,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 154
       }
     },
     {
@@ -14163,7 +14163,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 154
       }
     },
     {
@@ -14211,7 +14211,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 154
       }
     },
     {
@@ -14237,7 +14237,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 154
       }
     },
     {
@@ -14265,7 +14265,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 154
       }
     },
     {
@@ -14298,7 +14298,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 154
       }
     },
     {
@@ -14336,7 +14336,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 154
       }
     },
     {
@@ -14374,7 +14374,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 154
       }
     },
     {
@@ -14404,7 +14404,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 154
       },
       "status": "checked"
     },
@@ -14441,7 +14441,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 154
       },
       "status": "checked"
     },
@@ -14480,7 +14480,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 154
       },
       "status": "checked"
     },
@@ -14516,7 +14516,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 154
       },
       "status": "checked"
     },
@@ -14844,7 +14844,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 153
+        "line": 155
       }
     },
     {
@@ -14872,7 +14872,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 153
+        "line": 155
       }
     },
     {
@@ -14899,7 +14899,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 153
+        "line": 155
       }
     },
     {
@@ -14926,7 +14926,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 153
+        "line": 155
       }
     },
     {
@@ -14954,7 +14954,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 153
+        "line": 155
       }
     },
     {
@@ -14982,7 +14982,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 153
+        "line": 155
       }
     },
     {
@@ -15010,7 +15010,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 153
+        "line": 155
       }
     },
     {
@@ -15036,7 +15036,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 153
+        "line": 155
       }
     },
     {
@@ -15064,7 +15064,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 153
+        "line": 155
       }
     },
     {
@@ -15092,7 +15092,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 153
+        "line": 155
       }
     },
     {
@@ -15125,7 +15125,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 153
+        "line": 155
       }
     },
     {
@@ -15163,7 +15163,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 153
+        "line": 155
       }
     },
     {
@@ -15201,7 +15201,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 153
+        "line": 155
       }
     },
     {
@@ -15277,7 +15277,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 154
+        "line": 156
       }
     },
     {
@@ -15305,7 +15305,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 154
+        "line": 156
       }
     },
     {
@@ -15332,7 +15332,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 154
+        "line": 156
       }
     },
     {
@@ -15360,7 +15360,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 154
+        "line": 156
       }
     },
     {
@@ -15483,7 +15483,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 155
+        "line": 157
       }
     },
     {
@@ -15511,7 +15511,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 155
+        "line": 157
       }
     },
     {
@@ -15581,7 +15581,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 156
+        "line": 158
       }
     },
     {
@@ -15609,7 +15609,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 156
+        "line": 158
       }
     },
     {
@@ -15636,7 +15636,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 156
+        "line": 158
       }
     },
     {
@@ -15664,7 +15664,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 156
+        "line": 158
       }
     },
     {
@@ -15691,7 +15691,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 156
+        "line": 158
       }
     },
     {
@@ -15717,7 +15717,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 156
+        "line": 158
       }
     },
     {
@@ -15741,7 +15741,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 156
+        "line": 158
       }
     },
     {
@@ -15765,7 +15765,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 156
+        "line": 158
       }
     },
     {
@@ -15789,7 +15789,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 156
+        "line": 158
       }
     },
     {
@@ -15813,7 +15813,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 156
+        "line": 158
       }
     },
     {
@@ -15841,7 +15841,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 156
+        "line": 158
       }
     },
     {
@@ -15936,7 +15936,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 157
+        "line": 159
       }
     },
     {
@@ -15964,7 +15964,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 157
+        "line": 159
       }
     },
     {
@@ -15991,7 +15991,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 157
+        "line": 159
       }
     },
     {
@@ -16157,7 +16157,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 158
+        "line": 160
       }
     },
     {
@@ -16185,7 +16185,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 158
+        "line": 160
       }
     },
     {
@@ -16213,7 +16213,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 158
+        "line": 160
       }
     },
     {
@@ -16241,7 +16241,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 158
+        "line": 160
       }
     },
     {
@@ -16269,7 +16269,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 158
+        "line": 160
       }
     },
     {
@@ -16295,7 +16295,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 158
+        "line": 160
       }
     },
     {
@@ -16602,7 +16602,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 165
+        "line": 167
       }
     },
     {
@@ -16629,7 +16629,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 165
+        "line": 167
       }
     },
     {
@@ -16657,7 +16657,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 165
+        "line": 167
       }
     },
     {
@@ -16684,7 +16684,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 165
+        "line": 167
       }
     },
     {
@@ -16710,7 +16710,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 165
+        "line": 167
       }
     },
     {
@@ -16734,7 +16734,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 165
+        "line": 167
       }
     },
     {
@@ -16758,7 +16758,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 165
+        "line": 167
       }
     },
     {
@@ -16782,7 +16782,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 165
+        "line": 167
       }
     },
     {
@@ -16806,7 +16806,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 165
+        "line": 167
       }
     },
     {
@@ -16830,7 +16830,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 165
+        "line": 167
       }
     },
     {
@@ -16854,7 +16854,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 165
+        "line": 167
       }
     },
     {
@@ -16878,7 +16878,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 165
+        "line": 167
       }
     },
     {
@@ -16906,7 +16906,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 165
+        "line": 167
       }
     },
     {
@@ -17145,7 +17145,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 166
+        "line": 168
       }
     },
     {
@@ -17173,7 +17173,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 166
+        "line": 168
       }
     },
     {
@@ -17201,7 +17201,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 166
+        "line": 168
       }
     },
     {
@@ -17227,7 +17227,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 166
+        "line": 168
       }
     },
     {
@@ -17253,7 +17253,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 166
+        "line": 168
       }
     },
     {
@@ -17279,7 +17279,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 166
+        "line": 168
       }
     },
     {
@@ -17305,7 +17305,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 166
+        "line": 168
       }
     },
     {
@@ -17331,7 +17331,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 166
+        "line": 168
       }
     },
     {
@@ -17359,7 +17359,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 166
+        "line": 168
       }
     },
     {
@@ -17387,7 +17387,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 166
+        "line": 168
       }
     },
     {
@@ -17415,7 +17415,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 166
+        "line": 168
       }
     },
     {
@@ -17441,7 +17441,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 166
+        "line": 168
       }
     },
     {
@@ -17465,7 +17465,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 166
+        "line": 168
       }
     },
     {
@@ -17489,7 +17489,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 166
+        "line": 168
       }
     },
     {
@@ -17517,7 +17517,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 166
+        "line": 168
       }
     },
     {
@@ -17543,7 +17543,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 166
+        "line": 168
       }
     },
     {
@@ -17750,7 +17750,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 181
+        "line": 183
       }
     },
     {
@@ -17778,7 +17778,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 181
+        "line": 183
       }
     },
     {
@@ -17806,7 +17806,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 181
+        "line": 183
       }
     },
     {
@@ -17834,7 +17834,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 181
+        "line": 183
       }
     },
     {
@@ -17862,7 +17862,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 181
+        "line": 183
       }
     },
     {
@@ -17888,7 +17888,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 181
+        "line": 183
       }
     },
     {
@@ -17916,7 +17916,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 181
+        "line": 183
       }
     },
     {
@@ -17942,7 +17942,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 181
+        "line": 183
       }
     },
     {
@@ -17966,7 +17966,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 181
+        "line": 183
       }
     },
     {
@@ -17990,7 +17990,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 181
+        "line": 183
       }
     },
     {
@@ -18018,7 +18018,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 181
+        "line": 183
       }
     },
     {
@@ -18043,7 +18043,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 181
+        "line": 183
       },
       "status": "checked"
     },
@@ -18301,7 +18301,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 189
+        "line": 191
       },
       "status": "checked"
     },
@@ -18329,7 +18329,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 189
+        "line": 191
       },
       "status": "checked"
     },
@@ -18357,7 +18357,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 189
+        "line": 191
       },
       "status": "checked"
     },
@@ -18385,7 +18385,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 189
+        "line": 191
       },
       "status": "checked"
     },
@@ -18413,7 +18413,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 189
+        "line": 191
       },
       "status": "checked"
     },
@@ -18441,7 +18441,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 189
+        "line": 191
       },
       "status": "checked"
     },
@@ -18469,7 +18469,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 189
+        "line": 191
       },
       "status": "checked"
     },
@@ -18495,7 +18495,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 189
+        "line": 191
       },
       "status": "checked"
     },
@@ -18530,7 +18530,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 189
+        "line": 191
       },
       "status": "checked"
     },
@@ -18560,7 +18560,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 189
+        "line": 191
       },
       "status": "checked"
     },
@@ -18590,7 +18590,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 189
+        "line": 191
       },
       "status": "checked"
     },
@@ -18620,7 +18620,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 189
+        "line": 191
       },
       "status": "checked"
     },
@@ -18653,7 +18653,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 189
+        "line": 191
       },
       "status": "checked"
     },
@@ -18687,7 +18687,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 189
+        "line": 191
       },
       "status": "checked"
     },
@@ -18719,7 +18719,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 189
+        "line": 191
       },
       "status": "checked"
     },
@@ -18750,7 +18750,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 189
+        "line": 191
       },
       "status": "checked"
     },
@@ -18783,7 +18783,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 189
+        "line": 191
       },
       "status": "checked"
     },
@@ -18811,7 +18811,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 189
+        "line": 191
       },
       "status": "checked"
     },
@@ -18839,7 +18839,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 189
+        "line": 191
       },
       "status": "checked"
     },
@@ -18865,7 +18865,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 189
+        "line": 191
       },
       "status": "checked"
     },
@@ -18893,7 +18893,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 189
+        "line": 191
       },
       "status": "checked"
     },
@@ -18919,7 +18919,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 189
+        "line": 191
       },
       "status": "checked"
     },
@@ -18943,7 +18943,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 189
+        "line": 191
       },
       "status": "checked"
     },
@@ -18967,7 +18967,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 189
+        "line": 191
       },
       "status": "checked"
     },
@@ -18995,7 +18995,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 189
+        "line": 191
       },
       "status": "checked"
     },
@@ -19021,7 +19021,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 189
+        "line": 191
       },
       "status": "checked"
     },
@@ -19193,7 +19193,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 207
+        "line": 209
       }
     },
     {
@@ -19221,7 +19221,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 207
+        "line": 209
       }
     },
     {
@@ -19249,7 +19249,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 207
+        "line": 209
       }
     },
     {
@@ -19277,7 +19277,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 207
+        "line": 209
       }
     },
     {
@@ -19305,7 +19305,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 207
+        "line": 209
       }
     },
     {
@@ -19614,7 +19614,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 213
+        "line": 215
       }
     },
     {
@@ -19642,7 +19642,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 213
+        "line": 215
       }
     },
     {
@@ -19670,7 +19670,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 213
+        "line": 215
       }
     },
     {
@@ -19698,7 +19698,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 213
+        "line": 215
       }
     },
     {
@@ -19726,7 +19726,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 213
+        "line": 215
       }
     },
     {
@@ -19754,7 +19754,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 213
+        "line": 215
       }
     },
     {
@@ -19780,7 +19780,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 213
+        "line": 215
       }
     },
     {
@@ -19806,7 +19806,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 213
+        "line": 215
       }
     },
     {
@@ -19831,7 +19831,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 213
+        "line": 215
       },
       "status": "checked"
     },
@@ -19859,7 +19859,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 213
+        "line": 215
       },
       "status": "checked"
     },
@@ -19886,7 +19886,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 213
+        "line": 215
       }
     },
     {
@@ -19910,7 +19910,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 213
+        "line": 215
       }
     },
     {
@@ -19934,7 +19934,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 213
+        "line": 215
       }
     },
     {
@@ -19962,7 +19962,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 213
+        "line": 215
       }
     },
     {
@@ -20076,7 +20076,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 224
+        "line": 226
       },
       "status": "checked"
     },
@@ -20104,7 +20104,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 224
+        "line": 226
       },
       "status": "checked"
     },
@@ -20132,7 +20132,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 224
+        "line": 226
       },
       "status": "checked"
     },
@@ -20160,7 +20160,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 224
+        "line": 226
       },
       "status": "checked"
     },
@@ -20188,7 +20188,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 224
+        "line": 226
       },
       "status": "checked"
     },
@@ -20216,7 +20216,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 224
+        "line": 226
       },
       "status": "checked"
     },
@@ -20244,7 +20244,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 224
+        "line": 226
       },
       "status": "checked"
     },
@@ -20360,7 +20360,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 231
+        "line": 233
       }
     },
     {
@@ -20388,7 +20388,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 231
+        "line": 233
       }
     },
     {
@@ -20414,7 +20414,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 231
+        "line": 233
       }
     },
     {
@@ -20438,7 +20438,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 231
+        "line": 233
       }
     },
     {
@@ -20462,7 +20462,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 231
+        "line": 233
       }
     },
     {
@@ -20486,7 +20486,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 231
+        "line": 233
       }
     },
     {
@@ -20513,7 +20513,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 231
+        "line": 233
       }
     },
     {
@@ -20571,7 +20571,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 236
+        "line": 238
       }
     },
     {
@@ -20599,7 +20599,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 236
+        "line": 238
       }
     },
     {
@@ -21324,7 +21324,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       }
     },
     {
@@ -21350,7 +21350,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       }
     },
     {
@@ -21373,7 +21373,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -21397,7 +21397,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -21421,7 +21421,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -21445,7 +21445,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -21469,7 +21469,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -21493,7 +21493,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -21517,7 +21517,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -21541,7 +21541,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -21565,7 +21565,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -21589,7 +21589,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -21613,7 +21613,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -21637,7 +21637,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -21661,7 +21661,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -21685,7 +21685,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -21709,7 +21709,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -21733,7 +21733,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -21757,7 +21757,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -21781,7 +21781,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -21805,7 +21805,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -21829,7 +21829,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -21853,7 +21853,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -21877,7 +21877,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -21901,7 +21901,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -21930,7 +21930,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -21959,7 +21959,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -21983,7 +21983,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -22007,7 +22007,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -22031,7 +22031,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -22055,7 +22055,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -22079,7 +22079,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -22103,7 +22103,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -22127,7 +22127,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -22151,7 +22151,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -22175,7 +22175,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -22199,7 +22199,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -22223,7 +22223,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -22247,7 +22247,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -22271,7 +22271,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -22295,7 +22295,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -22319,7 +22319,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -22343,7 +22343,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -22367,7 +22367,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -22391,7 +22391,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -22415,7 +22415,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -22439,7 +22439,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -22463,7 +22463,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -22487,7 +22487,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -22511,7 +22511,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -22535,7 +22535,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -22562,7 +22562,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       }
     },
     {
@@ -22694,7 +22694,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "partial",
       "reason": "New search boundary admission is verified through production normalization; server braking geometry is tested in verifyCore. External forces and arbitrary terrain remain outside finite-fixture proof."
@@ -22727,7 +22727,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -22755,7 +22755,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -22786,7 +22786,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -22814,7 +22814,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -22840,7 +22840,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -22867,7 +22867,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       }
     },
     {
@@ -22891,7 +22891,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       }
     },
     {
@@ -22915,7 +22915,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       }
     },
     {
@@ -22943,7 +22943,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       }
     },
     {
@@ -22968,7 +22968,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 239
+        "line": 241
       },
       "status": "checked"
     },
@@ -23110,7 +23110,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       }
     },
     {
@@ -23138,7 +23138,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       }
     },
     {
@@ -23169,7 +23169,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       }
     },
     {
@@ -23195,7 +23195,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       }
     },
     {
@@ -23218,7 +23218,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -23242,7 +23242,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -23266,7 +23266,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -23290,7 +23290,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -23314,7 +23314,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -23338,7 +23338,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -23362,7 +23362,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -23386,7 +23386,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -23410,7 +23410,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -23434,7 +23434,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -23458,7 +23458,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -23482,7 +23482,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -23506,7 +23506,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -23530,7 +23530,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -23554,7 +23554,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -23578,7 +23578,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -23602,7 +23602,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -23626,7 +23626,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -23650,7 +23650,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -23674,7 +23674,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -23698,7 +23698,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -23722,7 +23722,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -23746,7 +23746,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -23770,7 +23770,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -23799,7 +23799,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -23823,7 +23823,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -23847,7 +23847,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -23871,7 +23871,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -23895,7 +23895,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -23919,7 +23919,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -23943,7 +23943,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -23967,7 +23967,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -23991,7 +23991,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -24015,7 +24015,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -24039,7 +24039,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -24063,7 +24063,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -24087,7 +24087,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -24111,7 +24111,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -24135,7 +24135,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -24159,7 +24159,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -24183,7 +24183,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -24207,7 +24207,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -24231,7 +24231,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -24255,7 +24255,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -24279,7 +24279,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -24303,7 +24303,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -24327,7 +24327,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -24351,7 +24351,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -24375,7 +24375,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -24402,7 +24402,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       }
     },
     {
@@ -24432,7 +24432,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       }
     },
     {
@@ -24460,7 +24460,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       }
     },
     {
@@ -24491,7 +24491,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -24519,7 +24519,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -24550,7 +24550,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -24577,7 +24577,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       }
     },
     {
@@ -24601,7 +24601,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       }
     },
     {
@@ -24625,7 +24625,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       }
     },
     {
@@ -24653,7 +24653,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       }
     },
     {
@@ -24678,7 +24678,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 246
+        "line": 248
       },
       "status": "checked"
     },
@@ -24819,7 +24819,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 254
+        "line": 256
       }
     },
     {
@@ -24845,7 +24845,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 254
+        "line": 256
       }
     },
     {
@@ -24869,7 +24869,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 254
+        "line": 256
       }
     },
     {
@@ -24893,7 +24893,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 254
+        "line": 256
       }
     },
     {
@@ -24916,7 +24916,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 254
+        "line": 256
       },
       "status": "checked"
     },
@@ -24947,7 +24947,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 254
+        "line": 256
       }
     },
     {
@@ -24974,7 +24974,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 254
+        "line": 256
       }
     },
     {
@@ -25010,7 +25010,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 254
+        "line": 256
       }
     },
     {
@@ -25037,7 +25037,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 254
+        "line": 256
       }
     },
     {
@@ -25070,7 +25070,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 254
+        "line": 256
       }
     },
     {
@@ -25096,7 +25096,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 254
+        "line": 256
       }
     },
     {
@@ -25120,7 +25120,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 254
+        "line": 256
       }
     },
     {
@@ -25144,7 +25144,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 254
+        "line": 256
       }
     },
     {
@@ -25168,7 +25168,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 254
+        "line": 256
       }
     },
     {
@@ -25192,7 +25192,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 254
+        "line": 256
       }
     },
     {
@@ -25218,7 +25218,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 254
+        "line": 256
       }
     },
     {
@@ -25242,7 +25242,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 254
+        "line": 256
       }
     },
     {
@@ -25266,7 +25266,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 254
+        "line": 256
       }
     },
     {
@@ -25290,7 +25290,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 254
+        "line": 256
       }
     },
     {
@@ -25314,7 +25314,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 254
+        "line": 256
       }
     },
     {
@@ -25341,7 +25341,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 254
+        "line": 256
       }
     },
     {
@@ -25373,7 +25373,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 254
+        "line": 256
       }
     },
     {
@@ -25405,7 +25405,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 254
+        "line": 256
       }
     },
     {
@@ -25441,7 +25441,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 254
+        "line": 256
       }
     },
     {
@@ -25499,7 +25499,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 254
+        "line": 256
       }
     },
     {
@@ -25538,7 +25538,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 254
+        "line": 256
       }
     },
     {
@@ -25565,7 +25565,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 254
+        "line": 256
       }
     },
     {
@@ -25597,7 +25597,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 254
+        "line": 256
       }
     },
     {
@@ -25625,7 +25625,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 254
+        "line": 256
       }
     },
     {
@@ -25660,7 +25660,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 254
+        "line": 256
       }
     },
     {
@@ -25689,7 +25689,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 254
+        "line": 256
       }
     },
     {
@@ -25718,7 +25718,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 254
+        "line": 256
       }
     },
     {
@@ -25747,7 +25747,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 254
+        "line": 256
       }
     },
     {
@@ -25782,7 +25782,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 254
+        "line": 256
       }
     },
     {
@@ -25812,7 +25812,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 254
+        "line": 256
       },
       "status": "checked"
     },
@@ -25839,7 +25839,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 254
+        "line": 256
       },
       "status": "checked"
     },
@@ -25866,7 +25866,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 254
+        "line": 256
       },
       "status": "checked"
     },
@@ -25893,7 +25893,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 254
+        "line": 256
       },
       "status": "checked"
     },
@@ -25920,7 +25920,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 254
+        "line": 256
       },
       "status": "checked"
     },
@@ -25947,7 +25947,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 254
+        "line": 256
       },
       "status": "checked"
     },
@@ -25974,7 +25974,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 254
+        "line": 256
       },
       "status": "checked"
     },
@@ -26086,7 +26086,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 256
+        "line": 258
       }
     },
     {
@@ -26114,7 +26114,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 256
+        "line": 258
       }
     },
     {
@@ -26140,7 +26140,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 256
+        "line": 258
       }
     },
     {
@@ -26167,7 +26167,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 256
+        "line": 258
       }
     },
     {
@@ -26326,7 +26326,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 261
+        "line": 263
       }
     },
     {
@@ -26354,7 +26354,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 261
+        "line": 263
       }
     },
     {
@@ -26394,7 +26394,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 101
+        "line": 103
       },
       "status": "checked",
       "documentationChecks": [
@@ -26446,7 +26446,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 103
+        "line": 105
       },
       "status": "partial",
       "reason": "Stable plan identities, the intent write path and the now header (including contradicted validity) are exercised. When to read the plan, the four questions (including which known way is fastest and safe for the gear), when to write intent and whether to decide again are model decisions; intent cadence is measured by the combined-stack benchmark gate."
@@ -26503,7 +26503,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 105
+        "line": 107
       },
       "status": "checked"
     },
@@ -26662,7 +26662,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 107
+        "line": 109
       },
       "status": "advisory",
       "reason": "Tactical advice remains a model choice. Deterministic tests verify the reported eligibility and opt-in template behavior; no new gameplay trial measures model uptake."
@@ -26724,7 +26724,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 109
+        "line": 111
       },
       "status": "checked"
     },
@@ -30003,7 +30003,7 @@
       "status": "checked"
     },
     {
-      "predicate": "Advertised escape field/required/optional shape matches validation: timeoutMs only, filled to 60 s by do_step, dispatched to the Java escape controller.",
+      "predicate": "Advertised escape field/required/optional shape matches validation: timeoutMs only, filled to 60 s by do_step; the entry names do_step {verb:\"escape\"} as its call since act does not take it; dispatched to the Java escape controller.",
       "checks": [
         {
           "file": "coordinator/test/program-contract-truth.test.mjs",
@@ -30024,7 +30024,7 @@
       "id": "capability:action:escape",
       "contract": {
         "id": "capability:action:escape",
-        "claim": "{\"actionType\":\"escape\",\"fields\":[\"timeoutMs\"],\"requiredFields\":[\"timeoutMs\"],\"optionalFields\":[]}",
+        "claim": "{\"actionType\":\"escape\",\"fields\":[\"timeoutMs\"],\"requiredFields\":[\"timeoutMs\"],\"optionalFields\":[],\"call\":\"do_step {verb:\\\"escape\\\",target:{}}\"}",
         "kind": "action-contract",
         "actionType": "escape"
       },
@@ -30728,7 +30728,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 97
+        "line": 99
       }
     },
     {
@@ -30751,7 +30751,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 97
+        "line": 99
       }
     },
     {
@@ -30774,7 +30774,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 97
+        "line": 99
       }
     },
     {
@@ -30797,7 +30797,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 97
+        "line": 99
       }
     },
     {
@@ -30820,7 +30820,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 97
+        "line": 99
       }
     },
     {
@@ -30843,7 +30843,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 97
+        "line": 99
       }
     },
     {
@@ -30866,7 +30866,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 97
+        "line": 99
       }
     },
     {
@@ -30889,7 +30889,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 97
+        "line": 99
       }
     },
     {
@@ -30922,7 +30922,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 97
+        "line": 99
       }
     },
     {
@@ -30959,7 +30959,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 97
+        "line": 99
       },
       "status": "checked"
     },
@@ -30987,7 +30987,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 97
+        "line": 99
       },
       "status": "checked"
     },
@@ -31021,7 +31021,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 97
+        "line": 99
       }
     },
     {
@@ -31045,7 +31045,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 92
+        "line": 94
       }
     },
     {
@@ -31069,7 +31069,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 92
+        "line": 94
       }
     },
     {
@@ -31093,7 +31093,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 92
+        "line": 94
       }
     },
     {
@@ -31117,7 +31117,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 92
+        "line": 94
       }
     },
     {
@@ -31141,7 +31141,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 92
+        "line": 94
       }
     },
     {
@@ -31165,7 +31165,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 92
+        "line": 94
       }
     },
     {
@@ -31189,7 +31189,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 92
+        "line": 94
       }
     },
     {
@@ -31213,7 +31213,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 92
+        "line": 94
       }
     },
     {
@@ -31237,7 +31237,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 92
+        "line": 94
       }
     },
     {

@@ -9,14 +9,16 @@
 //   pitdig   the same hole 4 deep, a stone pickaxe and no blocks.
 //   skeleton the body on open ground with an offhand shield, a skeleton 10 blocks east, a 3x3 stone wall 3 blocks west.
 // The arm is read from the jar: a jar with the escape body job plays "escape" (every decision is do_step escape); any
-// other jar plays "legacy", the decisions the wake text prescribed before it (fixed in advance, a stand-in, not a model):
-//   water rooms: under water, a raw control frame holding jump for 2 s ("hold jump to refill"), else travel_to the bank;
-//   pit: build pillar size 1 per decision (one placement per model call); pitdig: dig_to stairs_up to the rim;
-//   skeleton: flee_from the skeleton, 16 blocks.
+// other jar plays "legacy", fixed in advance (a stand-in, not a model). ESCAPE_LEGACY=strong (the default) gives it the
+// strongest single old call, handed the room's geometry: water rooms travel_to the bank, pit build pillar of the hole's
+// depth, pitdig dig_to stairs_up to the rim, skeleton flee_from 16 blocks. ESCAPE_LEGACY=wake plays what the old wake text
+// prescribed by hand: under water a raw control frame holding jump for 2 s ("hold jump to refill"), else travel_to the
+// bank; pit one pillar block per decision.
 // A trial passes: water rooms on dry footing out of the water, pit rooms standing at or above the rim, both alive in the
-// window; skeleton alive with at most 6 health lost over its 30 s window. Reports per trial: pass, decisions, seconds to
-// safe, health lost, death, the last result. A room that never put the body in danger (not under water, not in the hole,
-// no skeleton) is INVALID (notExercised). Exit code (strict, the default): 0 all passed, 1 a trial failed, 2 invalid evidence.
+// window and still safe 2 s later; skeleton alive with at most 6 health lost over its 30 s window. Reports per trial:
+// pass, decisions, seconds to safe, health lost, death, the results. A room is INVALID (notExercised) when the live body
+// did not start in danger (eyes not under water, not in the hole, no skeleton in sight) or reflexes alone made it safe
+// before the first decision; with no health sample it is INVALID too. Exit code (strict, the default): 0 all passed, 1 a trial failed, 2 invalid evidence.
 import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { boot } from './watch-replay.mjs';
@@ -33,6 +35,8 @@ if (!outArg || !jarArg || !template || !port) { console.error(USAGE); process.ex
 const runs = Number(runsArg ?? 3);
 const rooms = (roomsArg ?? 'deep;stair;pit;pitdig;skeleton').split(';');
 const THINK_MS = Number(process.env.ESCAPE_THINK_MS ?? 6_000);
+const PAD_Y = 150;
+const LEGACY = process.env.ESCAPE_LEGACY === 'wake' ? 'wake' : 'strong';
 const WINDOW_MS = { deep: 60_000, stair: 60_000, pit: 60_000, pitdig: 60_000, skeleton: 30_000 };
 const out = path.resolve(outArg);
 await mkdir(out, { recursive: true });
@@ -73,10 +77,12 @@ try {
 		await s.command('difficulty peaceful');
 		await s.command(`forceload add ${X - 24} ${Z - 24} ${X + 24} ${Z + 24}`);
 		for (let i = 0; i < 60 && !/time is/i.test(await s.command(`execute if loaded ${X} 0 ${Z} run time query gametime`)); i++) await sleep(1000);
-		await s.command(`execute positioned ${X} 0 ${Z} positioned over motion_blocking_no_leaves run tp ${NAME} ~0.5 ~ ~0.5`);
-		await sleep(1500);
-		const F = Math.floor((await pos())[1]);
+		// A pad in the air, the same in every trial whatever the seed's terrain (an ocean there once flooded a dry hole),
+		// ringed with barrier two high so no walk leaves it.
+		const F = PAD_Y;
+		await s.command(`fill ${X - 17} ${F - 14} ${Z - 17} ${X + 25} ${F + 8} ${Z + 17} minecraft:air`);
 		await s.command(`fill ${X - 16} ${F - 14} ${Z - 16} ${X + 24} ${F - 1} ${Z + 16} minecraft:stone`);
+		await s.command(`fill ${X - 17} ${F} ${Z - 17} ${X + 25} ${F + 1} ${Z + 17} minecraft:barrier hollow`);
 		await s.command(`fill ${X - 16} ${F} ${Z - 16} ${X + 24} ${F + 8} ${Z + 16} minecraft:air`);
 		await s.command(`kill @e[type=!minecraft:player,distance=..40,x=${X},y=${F},z=${Z}]`).catch(() => {});
 		await s.command(`clear ${NAME}`);
@@ -105,14 +111,14 @@ try {
 		let skeleton = null;
 		if (room === 'skeleton') {
 			await s.command('difficulty normal');
-			await s.command(`summon minecraft:skeleton ${X + 10.5} ${F} ${Z + 0.5} {PersistenceRequired:1b}`);
+			await s.command(`summon minecraft:skeleton ${X + 10.5} ${F} ${Z + 0.5} {PersistenceRequired:1b,equipment:{mainhand:{id:"minecraft:bow",count:1}}}`);
 			await sleep(1500);
 			skeleton = (await s.observe()).entities?.find(entity => entity.type === 'minecraft:skeleton' && entity.alive !== false) ?? null;
 		}
 		await sleep(1000 + drain);
 		const before = await health(), airBefore = await airLeft();
 		if (!Number.isFinite(before)) throw new Error(`${room} ${run}: health unreadable before the room`);
-		let minHealth = before, minAir = airBefore, sampling = true, hiddenSamples = 0, samples = 0;
+		let minHealth = before, minAir = airBefore, sampling = true, hiddenSamples = 0, samples = 0, healthSamples = 0;
 		const skeletonEye = async () => {
 			const text = String(await s.command('data get entity @e[type=minecraft:skeleton,limit=1,sort=nearest] Pos').catch(() => ''));
 			const p = text.match(/\[\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?\]/)?.slice(1).map(Number);
@@ -131,7 +137,7 @@ try {
 		};
 		const sampler = (async () => { while (sampling) {
 			const h = await health().catch(() => NaN), a = await airLeft().catch(() => NaN);
-			if (Number.isFinite(h)) minHealth = Math.min(minHealth, h);
+			if (Number.isFinite(h)) { minHealth = Math.min(minHealth, h); healthSamples++; }
 			if (Number.isFinite(a)) minAir = Math.min(minAir, a);
 			if (room === 'skeleton') { samples++; if (await hidden().catch(() => false)) hiddenSamples++; }
 			await sleep(250);
@@ -146,13 +152,14 @@ try {
 			if (room === 'pit' || room === 'pitdig') return p[1] >= F - 0.01 && await onGround();
 			return hidden();
 		};
-		const exposed = room === 'deep' || room === 'stair' ? await blockAt(Math.floor(start[0]), Math.floor(start[1]) + 1, Math.floor(start[2]), 'minecraft:water')
-			: room === 'skeleton' ? skeleton !== null : ((await pos())?.[1] ?? F) < F - 2;
+		const live = await pos();
+		const exposed = live === null ? false : room === 'deep' || room === 'stair' ? await blockAt(Math.floor(live[0]), Math.floor(live[1] + 1.62), Math.floor(live[2]), 'minecraft:water')
+			: room === 'skeleton' ? skeleton !== null && !(await hidden()) : live[1] < F - 2;
 		const t0 = Date.now(), window = WINDOW_MS[room];
 		let calls = 0, last = null, safeAt = null;
 		const results = [];
 		while (Date.now() - t0 < window) {
-			if (await safe()) { safeAt ??= Date.now() - t0; if (room !== 'skeleton') break; await sleep(500); continue; }
+			if (await safe()) { safeAt ??= Date.now() - t0; if (room !== 'skeleton' || calls === 0) break; await sleep(500); continue; }
 			safeAt = room === 'skeleton' ? null : safeAt;
 			await sleep(THINK_MS);
 			if (Date.now() - t0 >= window) break;
@@ -163,9 +170,9 @@ try {
 			if (arm === 'escape') call = ['escape', { timeoutMs: Math.min(60_000, left) }];
 			else if (room === 'deep' || room === 'stair') {
 				const under = await blockAt(Math.floor(p[0]), Math.floor(p[1] + 1.62), Math.floor(p[2]), 'minecraft:water');
-				call = under ? ['control', { forward: 0, strafe: 0, jump: true, sneak: false, sprint: false, attack: false, use: false, yaw: facing, pitch: -45, selectedSlot: 0, hand: 'main', ticks: 40 }]
+				call = under && LEGACY === 'wake' ? ['control', { forward: 0, strafe: 0, jump: true, sneak: false, sprint: false, attack: false, use: false, yaw: facing, pitch: -45, selectedSlot: 0, hand: 'main', ticks: 40 }]
 					: ['travel_to', { x: bank.x, z: bank.z, tolerance: 1, timeoutMs: Math.min(30_000, left) }];
-			} else if (room === 'pit') call = ['build', { structure: 'pillar', size: 1, timeoutMs: Math.min(20_000, left) }];
+			} else if (room === 'pit') call = ['build', { structure: 'pillar', size: LEGACY === 'wake' ? 1 : Math.max(1, F - Math.floor(p[1])), timeoutMs: Math.min(30_000, left) }];
 			else if (room === 'pitdig') call = ['dig_to', { pattern: 'stairs_up', y: F, heading: 'east', timeoutMs: Math.min(60_000, left) }];
 			else call = ['flee_from', { targetId: skeleton.uuid, distance: 16, timeoutMs: Math.min(10_000, left) }];
 			calls++;
@@ -174,21 +181,26 @@ try {
 			if (last.state === 'ERROR') break;
 			if ((await health().catch(() => NaN)) <= 0) break;
 		}
-		if (room === 'skeleton') await sleep(Math.max(0, window - (Date.now() - t0)));
+		if (room === 'skeleton' && calls > 0) await sleep(Math.max(0, window - (Date.now() - t0)));
+		// Safe has to hold: two seconds on, the body is still out (not slid back into the water or the hole).
+		let endSafe = null;
+		if (room !== 'skeleton' && safeAt !== null) { await sleep(2000); endSafe = await safe(); }
 		sampling = false; await sampler;
 		const end = await pos();
 		const died = minHealth <= 0;
-		const row = { room, arm, run, calls, safeSeconds: safeAt === null ? null : Math.round(safeAt / 100) / 10, seconds: Math.round((Date.now() - t0) / 100) / 10,
+		const row = { room, arm: arm === 'legacy' ? `legacy-${LEGACY}` : arm, run, calls, endSafe, safeSeconds: safeAt === null ? null : Math.round(safeAt / 100) / 10, seconds: Math.round((Date.now() - t0) / 100) / 10,
 			healthLost: Math.round(Math.max(0, before - minHealth) * 10) / 10, died, airBefore, minAir,
 			hiddenShare: room === 'skeleton' && samples > 0 ? Math.round(hiddenSamples / samples * 100) / 100 : undefined,
 			endDy: end ? Math.round((end[1] - F) * 10) / 10 : null, results, state: last?.state ?? null, reasonCode: last?.reasonCode ?? null,
 			message: String(last?.message ?? '').slice(0, 300), startedAt, finishedAt: Date.now() };
-		if (!exposed) row.notExercised = room === 'skeleton' ? 'no skeleton in the room' : 'the body did not start in danger';
+		if (!exposed) row.notExercised = room === 'skeleton' ? 'no skeleton in sight at the start' : 'the live body did not start in danger';
+		else if (calls === 0 && safeAt !== null) row.notExercised = 'safe before the first decision (reflexes alone)';
+		if (healthSamples === 0) row.error = 'no health sample in the window';
 		if (last?.state === 'ERROR') row.error = `call never returned: ${last.reasonCode}`;
-		row.pass = !died && (room === 'skeleton' ? row.healthLost <= 6 : safeAt !== null);
-		if (!row.pass) row.failReason = died ? 'died' : room === 'skeleton' ? `lost ${row.healthLost} health` : 'not safe within the window';
+		row.pass = !died && (room === 'skeleton' ? row.healthLost <= 6 : safeAt !== null && endSafe === true);
+		if (!row.pass) row.failReason = died ? 'died' : room === 'skeleton' ? `lost ${row.healthLost} health` : safeAt === null ? 'not safe within the window' : 'safe, then back in danger';
 		rows.push(row);
-		console.log(`[${room} ${arm} ${run}] ${row.pass ? 'PASS' : 'FAIL'} calls=${calls} safe=${row.safeSeconds}s hpLost=${row.healthLost}${died ? ' DIED' : ''} air ${airBefore}->${minAir}${row.hiddenShare !== undefined ? ` hidden=${row.hiddenShare}` : ''} | ${results.join(' ')} | ${row.message.slice(0, 160)}`);
+		console.log(`[${room} ${row.arm} ${run}] ${row.pass ? 'PASS' : 'FAIL'} calls=${calls} safe=${row.safeSeconds}s hpLost=${row.healthLost}${died ? ' DIED' : ''} air ${airBefore}->${minAir}${row.hiddenShare !== undefined ? ` hidden=${row.hiddenShare}` : ''} | ${results.join(' ')} | ${row.message.slice(0, 160)}`);
 		if (died) { await s.command(`mineagen respawn ${NAME}`).catch(() => {}); await sleep(3000); }
 		await s.command(`kill @e[type=minecraft:skeleton]`).catch(() => {});
 	}

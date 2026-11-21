@@ -1234,7 +1234,7 @@ export class DynamicCoordinator extends EventEmitter {
 						this.#scheduleNativeTurn(record, { ...wakeRequest, priority: 'urgent', trigger: STEP_UNTIL_TRIGGER, nativeEvent: { ...wakeRequest.nativeEvent, trigger: STEP_UNTIL_TRIGGER } });
 						return;
 					}
-					if (stepFolds(step, attention) && !failureSteerOwed && this.#wakeFilter.discovery(record.agentId, { attention, observation, goalText: record.currentGoal }) === null) {
+					if (stepFolds(step, attention, observation) && !failureSteerOwed && this.#wakeFilter.discovery(record.agentId, { attention, observation, goalText: record.currentGoal }) === null) {
 						this.#wakeFilter.fold(record.agentId, attention.trigger, observation, this.#nativeRuntime.reflexEvents(record));
 						this.#writeTrace('native_wake_filtered', { agentId: record.agentId, goalRevision: record.goalRevision, trigger: attention.trigger, verdict: 'fold', reason: `step ${step} running` });
 						this.#holdWakeForModelAction(record, wakeRequest, { step: true });

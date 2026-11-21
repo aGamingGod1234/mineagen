@@ -19,7 +19,13 @@ test('do_step escape runs the escape body action with a 60 s default and never r
 	assert.deepEqual(extra.arguments, { timeoutMs: 60_000 });
 	assert.deepEqual(Object.keys(toolAdjustments(extra)).sort(), ['target.timeoutMs', 'target.x', 'target.z']);
 	assert.equal(normalizeMinecraftToolCall('do_step', { verb: 'escape', target: { timeoutMs: 120_000 }, why: 'out' }).arguments.timeoutMs, 120_000);
-	assert.equal(normalizeMinecraftToolCall('do_step', { verb: 'escape', target: {}, why: 'out', after: 'act-1' }).after, 'act-1');
+	// Anything else is dropped and reported, never refused: after would cancel what it waits for.
+	for (const args of [{ verb: 'escape', target: 'shore', why: '' }, { verb: 'escape', x: 3, keepGoing: true, after: 'act-1', why: 'x'.repeat(150) }, { verb: 'escape', why: 7, until: '' }]) {
+		const step = normalizeMinecraftToolCall('do_step', args);
+		assert.deepEqual([step.actionType, step.arguments, step.after, step.keepGoing], ['escape', { timeoutMs: 60_000 }, undefined, undefined], JSON.stringify(args));
+		assert.ok(toolAdjustments(step), JSON.stringify(args));
+		assert.ok(step.step.why.length > 0 && step.step.why.length <= 100);
+	}
 });
 
 test('escape is a do_step verb and a program call, kept out of the raw action enums to save tool bytes', () => {
@@ -36,7 +42,10 @@ test('escape is a do_step verb and a program call, kept out of the raw action en
 
 test('a running escape folds the drowning edges it is already answering, and nothing it is not', () => {
 	assert.ok(ESCAPE_FOLDED_TRIGGERS.has('drowning'));
-	assert.equal(stepFolds('escape', { trigger: 'drowning' }), true);
+	const air = seconds => ({ player: { airSecondsLeft: seconds } });
+	assert.equal(stepFolds('escape', { trigger: 'drowning' }, air(9)), true);
+	assert.equal(stepFolds('escape', { trigger: 'drowning' }, air(3)), false, 'the last seconds of air always wake the model');
+	assert.equal(stepFolds('escape', { trigger: 'drowning' }), false, 'unknown air wakes');
 	assert.equal(stepFolds('travel_to', { trigger: 'drowning' }), false, 'other steps still wake for drowning');
 	for (const trigger of ['damage', 'threat', 'lava', 'fire', 'suffocation', 'projectile']) assert.equal(stepFolds('escape', { trigger }), false, trigger);
 	assert.equal(stepFolds('escape', { trigger: 'resource_discovery' }), true);

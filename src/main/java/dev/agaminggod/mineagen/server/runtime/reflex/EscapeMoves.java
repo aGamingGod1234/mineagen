@@ -27,8 +27,24 @@ public final class EscapeMoves {
 
 	/** Swim to the nearest breathable cell the player has seen; with none, rise holding jump with the view tilted up. */
 	public static Move swimUp() {
-		return adapt(new ReflexActions.SwimUp(), null);
+		Move swim = adapt(new ReflexActions.SwimUp(), null);
+		// The reflex's blind rise (no seen air) holds jump with no progress check; under a roof it would hold until the air
+		// ran out. Here the eyes must rise half a block in every 2 s, or the move hands the choice back.
+		double[] mark = {Double.NaN};
+		int[] ticks = {0};
+		return (player, input) -> {
+			double eye = player.getEyeY();
+			if (Double.isNaN(mark[0])) mark[0] = eye;
+			if (++ticks[0] % BLIND_WINDOW_TICKS == 0) {
+				if (eye - mark[0] < BLIND_MIN_RISE && ReflexActions.airRoute(player) == null) return new Result(Status.FAILED, "not rising toward air (no seen air route, under 0.5 blocks in 2 s)");
+				mark[0] = eye;
+			}
+			return swim.tick(player, input);
+		};
 	}
+
+	static final int BLIND_WINDOW_TICKS = 40;
+	static final double BLIND_MIN_RISE = 0.5D;
 
 	/** Walk to the nearest reachable cell that hides from every shooter in sight, blocking shots with a held shield. */
 	public static Move takeCover(int within) {

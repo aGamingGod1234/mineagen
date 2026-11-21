@@ -21,13 +21,14 @@ public final class EscapeVerification {
 		check(ServerEscapeController.waterMove(true, 300, false, 0, false, false, false, 0) == ServerEscapeController.WaterMove.SWIM, "no bank in reach swims to air");
 		check(ServerEscapeController.waterMove(true, 300, true, 1, true, true, false, 0) == ServerEscapeController.WaterMove.TRAVEL, "full air with a bank travels out");
 		check(ServerEscapeController.waterMove(false, 300, true, 1, false, false, false, 3) == ServerEscapeController.WaterMove.TRAVEL, "afloat with a bank travels out");
-		check(ServerEscapeController.waterMove(true, 300, true, 3, true, true, false, 0) == ServerEscapeController.WaterMove.STAIRS, "a bank missed twice from the floor gets sealed stairs");
-		check(ServerEscapeController.waterMove(true, 300, true, 3, true, true, true, 0) == ServerEscapeController.WaterMove.TRAVEL, "stairs are cut once per bank");
+		check(ServerEscapeController.waterMove(false, 300, true, 3, true, true, false, 0) == ServerEscapeController.WaterMove.STAIRS, "a bank missed twice from breathable footing gets sealed stairs");
+		check(ServerEscapeController.waterMove(true, 300, true, 3, true, true, false, 0) == ServerEscapeController.WaterMove.TRAVEL, "with the eyes under water no stairs are cut (dig_to would stop at once)");
+		check(ServerEscapeController.waterMove(false, 300, true, 3, true, true, true, 0) == ServerEscapeController.WaterMove.TRAVEL, "stairs are cut once per bank");
 		check(ServerEscapeController.waterMove(true, 300, true, 5, true, true, true, 0) == ServerEscapeController.WaterMove.NO_WAY, "a bank missed four times hands back");
 		check(ServerEscapeController.waterMove(false, 300, false, 0, false, false, false, 0) == ServerEscapeController.WaterMove.NO_SHORE, "afloat with no bank hands back breathing");
 		check(ServerEscapeController.waterMove(true, 40, false, 0, false, false, false, 3) == ServerEscapeController.WaterMove.NO_WAY, "three failed swims and no bank hand back");
 		check(ServerEscapeController.waterMove(true, 40, true, 1, false, true, false, 3) == ServerEscapeController.WaterMove.TRAVEL, "after three swims a known bank is travelled to");
-		assertions += 10;
+		assertions += 11;
 		// Hole: level with the rim steps out; blocks and headroom pillar; else dug stairs; else no way.
 		check(ServerEscapeController.pitMove(0, 0, false, false) == ServerEscapeController.PitMove.STEP_OUT, "level with the rim steps out");
 		check(ServerEscapeController.pitMove(4, 4, true, true) == ServerEscapeController.PitMove.PILLAR, "four blocks under open sky pillar a four-deep hole");
@@ -53,7 +54,14 @@ public final class EscapeVerification {
 		// A pit open to a ledge on one side (a drop into a lower cave): not a closed hole.
 		Solid ledge = (x, y, z) -> y <= 63 && !(x == 0 && z == 0 && y >= 60) && !(x == 1 && z == 0 && y >= 58 && y <= 61);
 		check(rim(ledge, new GridPosition(0, 60, 0)) == null, "a side open to a drop is a way on, not a wall to climb");
-		assertions += 6;
+		// A roofed 1x2 shelter dug into a hillside (a roof over the body): an enclosed space, never a hole to pillar out of.
+		Solid roofed = (x, y, z) -> !(x == 0 && z == 0 && (y == 64 || y == 65)) && (y <= 63 || y >= 66 || x != 0 || z != 0);
+		check(rim(roofed, new GridPosition(0, 64, 0)) == null, "a roofed cell is no pit");
+		// Banks: a dry cell beside the body's own water counts, one beside another pool across a wall does not.
+		java.util.Set<BlockPos> pool = java.util.Set.of(new BlockPos(0, 62, 0), new BlockPos(1, 62, 0));
+		check(ServerEscapeController.besideWater(pool, new BlockPos(2, 63, 0)), "the cell beside the pool, a block up, is its bank");
+		check(!ServerEscapeController.besideWater(pool, new BlockPos(5, 63, 0)), "a cell beside other water is no bank of this pool");
+		assertions += 9;
 		return assertions;
 	}
 

@@ -57,7 +57,8 @@ const SEQUENCE_STEP_SETTLE_MS = 800;
 const EXPIRED = Symbol('expired');
 // The model may answer danger with these while its program is paused for a decision, without first
 // settling the program decision; the paused program keeps its decision for a later respondProgram.
-const PAUSED_PROGRAM_DANGER_ACTIONS = new Set(['fight_target', 'flee_from']);
+// escape is the emergency step: like fight and flee it may borrow the body from a program paused for a danger decision.
+const PAUSED_PROGRAM_DANGER_ACTIONS = new Set(['fight_target', 'flee_from', 'escape']);
 const GUARD_DEFENSIVE_ACTIONS = new Set(['fight_target', 'flee_from', 'block_with_shield', 'use_item', 'respawn']);
 const GUARD_OVERRIDE_KINDS = new Set(['action', 'start_action', 'run_program', 'sequence', 'lookAround', 'gather', 'find', 'obtain', 'repair_inventory', 'finish']);
 // A direct model body command takes the body from a firing reflex. Starting a program does not: the program pauses under it.
@@ -1130,9 +1131,19 @@ export class NativeToolRuntime {
 		if (!background) this.#steps.set(record.agentId, entry);
 		// An emergency arrives mid-step (drowning under a dig, a skeleton during travel): escape stops the running body
 		// action itself instead of being refused as busy, which would cost the model a cancel call first.
+		// As replaceAction: a reflex holding the body yields first, the cancel must end the old action, and a lifecycle change
+		// during it (death, a new goal) stops the escape from starting on a body that is no longer this one.
 		const running = step.verb === 'escape' && !this.#programRuns.has(record.agentId) && !this.#legChainOwnsBody(record, tool) ? this.#actions.get(record.agentId) : undefined;
-		const replaced = running === undefined || running.goalRevision !== record.goalRevision || running.cancelling === true ? null
-			: replacementReceipt(await this.#cancelAction(record, { kind: 'cancel_action', actionId: running.actionId, goalRevision: running.goalRevision }), running.actionId);
+		let replaced = null;
+		if (running !== undefined && running.goalRevision === record.goalRevision && running.cancelling !== true && running.engineActionId === undefined) {
+			const expectedEpoch = this.#actionCancellationEpoch(record, running);
+			if (this.#reflexes.firing(record.agentId)) await this.#sendReflexes(record, { yieldFiring: true })
+				.catch((error) => this.#trace('reflexes_send_failed', { agentId: record.agentId, path: 'escape_step', reasonCode: error?.code ?? 'REFLEX_SEND_FAILED' }));
+			const cancelled = await this.#cancelAction(record, { kind: 'cancel_action', actionId: running.actionId, goalRevision: running.goalRevision });
+			if (this.#executionEpoch(record.agentId) !== expectedEpoch) throw codedError('STALE_NATIVE_TOOL', 'Lifecycle changed while stopping the step escape replaces');
+			if (!TERMINAL_ACTION_STATES.has(cancelled.state)) throw codedError('CANCEL_ACK_UNCONFIRMED', 'escape needs the running step to be stopped first');
+			replaced = replacementReceipt(cancelled, running.actionId);
+		}
 		let result;
 		try { result = await this.#executeTool({ ...request, tool }, record, lifecycleGeneration); }
 		catch (error) { throw reflexes === null ? error : Object.assign(error, { reflexes }); }

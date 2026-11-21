@@ -88,7 +88,9 @@ export function minecraftCapabilities({ section = 'all', topic, offset } = {}) {
 	if (section === 'strategy') return minecraftStrategyReference({ topic });
 	return {
 		version: 1,
-		actions: Object.entries(ACTION_FIELDS).map(([actionType, fields]) => ({ actionType, fields: [...fields], requiredFields: fields.filter((field) => !(OPTIONAL_ACTION_FIELDS[actionType] ?? []).includes(field)), optionalFields: [...(OPTIONAL_ACTION_FIELDS[actionType] ?? [])], ...conditionalActionFields(actionType) })),
+		actions: Object.entries(ACTION_FIELDS).map(([actionType, fields]) => ({ actionType, fields: [...fields], requiredFields: fields.filter((field) => !(OPTIONAL_ACTION_FIELDS[actionType] ?? []).includes(field)), optionalFields: [...(OPTIONAL_ACTION_FIELDS[actionType] ?? [])], ...conditionalActionFields(actionType),
+			// A step-only action is called as its do_step verb (defaults filled) or from a program, never through act.
+			...(STEP_ONLY_ACTIONS.has(actionType) ? { call: `do_step {verb:"${actionType}",target:{}}` } : {}) })),
 		controlConditions: { ...CONTROL_BRANCH_CONDITIONS },
 		inspectionSections: [...INSPECTION_SECTIONS],
 		programReference: { tool: 'capabilities', arguments: { section: 'program' } },
@@ -358,9 +360,18 @@ function repairToolArguments(name, value) {
 	switch (name) {
 		case 'survey': return done(survey(args, ''));
 		// An emergency step must not cost a rejected call: escape needs no target and no why.
+		// after/keepGoing are dropped too: escape stops the running step itself, so waiting on it would cancel what it waits for.
 		case 'do_step':
-			if (args.verb === 'escape') { args.target ??= {}; args.why ??= 'get out safely'; }
-			break;
+			if (args.verb === 'escape') {
+				for (const key of Object.keys(args)) if (!['verb', 'target', 'why', 'until', 'reflexes'].includes(key)) { adjusted[key] = 'ignored: escape stops the running step and takes no ' + key; delete args[key]; }
+				if (!isPlainObject(args.target)) { if (args.target !== undefined) adjusted.target = 'ignored: escape takes target {}'; args.target = {}; }
+				const why = typeof args.why === 'string' ? args.why.replace(/[\x00-\x1f\x7f]+/g, ' ').trim() : '';
+				if (why.length === 0) { if (args.why !== undefined) adjusted.why = 'empty; "get out safely" used'; args.why = 'get out safely'; }
+				else if (codePointLength(why) > STEP_WHY_LENGTH) { adjusted.why = `cut to ${STEP_WHY_LENGTH} characters`; args.why = [...why].slice(0, STEP_WHY_LENGTH).join(''); }
+				else args.why = why;
+				if (args.until !== undefined && (typeof args.until !== 'string' || args.until.trim().length === 0)) { adjusted.until = 'ignored: not one line of text'; delete args.until; }
+			}
+			return done(args);
 		case 'lookAround':
 			if (args.survey !== undefined) args.survey = survey(args.survey, 'survey.');
 			break;
@@ -894,8 +905,7 @@ function normalizeStep(args) {
 		body = { kind: 'repair_inventory', arguments: structuredClone(target) };
 	}
 	// escape is kept out of the model-facing actionType enum, which the startAction argument repair enforces.
-	else if (args.verb === 'escape') body = normalizeMinecraftToolArguments('startAction', { actionType: 'escape', arguments: target,
-		...(args.after === undefined ? {} : { after: args.after }), ...(args.keepGoing === undefined ? {} : { keepGoing: args.keepGoing }) });
+	else if (args.verb === 'escape') body = normalizeMinecraftToolArguments('startAction', { actionType: 'escape', arguments: target });
 	else if (background) {
 		body = normalizeMinecraftToolCall('startAction', { actionType: STEP_VERBS[args.verb], arguments: args.verb === 'build' ? buildArguments(target) : target,
 			...(args.after === undefined ? {} : { after: args.after }), ...(args.keepGoing === undefined ? {} : { keepGoing: args.keepGoing }) });

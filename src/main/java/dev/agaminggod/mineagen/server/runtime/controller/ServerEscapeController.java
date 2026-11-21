@@ -78,6 +78,7 @@ public final class ServerEscapeController implements ServerController {
 	private String moveLabel;
 	private int safeTicks;
 	private int swims;
+	private int climbs;
 	private int covers;
 	private int pits;
 	private final Map<BlockPos, Integer> bankTries = new java.util.HashMap<>();
@@ -129,18 +130,25 @@ public final class ServerEscapeController implements ServerController {
 
 	/**
 	 * {@code tries} counts this pick of the bank too. Little air, or no bank in reach, swims first (at most
-	 * {@link #MAX_TRIES} swims); a bank tried twice and above the floor the body stands on gets stairs once.
+	 * {@link #MAX_TRIES} swims); a bank tried twice and above the floor the body stands on, breathing, gets stairs once.
 	 */
 	static WaterMove waterMove(boolean underwater, int air, boolean bank, int tries, boolean onGround, boolean bankAbove, boolean staired, int swims) {
 		if (underwater && (!bank || air < SWIM_FIRST_AIR) && swims < MAX_TRIES) return WaterMove.SWIM;
 		if (!bank) return underwater ? WaterMove.NO_WAY : WaterMove.NO_SHORE;
-		if (tries > 2 && onGround && bankAbove && !staired) return WaterMove.STAIRS;
+		// dig_to stops at once with the eyes under water (WATER_AHEAD), so the stairs start only from breathable footing.
+		if (tries > 2 && onGround && !underwater && bankAbove && !staired) return WaterMove.STAIRS;
 		if (tries > MAX_TRIES + 1) return WaterMove.NO_WAY;
 		return WaterMove.TRAVEL;
 	}
 
 	private TickResult water(ServerPlayer player, long now) {
 		BlockPos bank = bank(player, bankTries);
+		// travel_to counts a stop within a block of the bank as arrived, often still treading water at its edge: a player
+		// holds forward and jump against the bank there.
+		if (bank != null && !player.isUnderWater() && besideBank(player, bank) && climbs < MAX_TRIES) {
+			climbs++;
+			return startMove(player, climbOut(bank), "climb out onto the bank at " + bank.toShortString());
+		}
 		int tries = bank == null ? 0 : bankTries.merge(bank, 1, Integer::sum);
 		boolean bankAbove = bank != null && bank.getY() > player.getBlockY();
 		WaterMove next = waterMove(player.isUnderWater(), player.getAirSupply(), bank != null, tries, player.onGround(), bankAbove,
@@ -168,6 +176,28 @@ public final class ServerEscapeController implements ServerController {
 				travelBank = bank.immutable();
 				yield startChild(player, environment.travel(player, bank, childMs(now)), "out of the water to the bank at " + bank.toShortString());
 			}
+		};
+	}
+
+	/** Within a block and a half of the bank, not more than a block below its floor: one push of forward and jump. */
+	static boolean besideBank(ServerPlayer player, BlockPos bank) {
+		double dx = bank.getX() + 0.5D - player.getX(), dz = bank.getZ() + 0.5D - player.getZ();
+		return dx * dx + dz * dz <= 2.25D && bank.getY() - player.getY() <= 1.3D;
+	}
+
+	/** Face the bank and hold forward and jump, as a player climbs out of water; done on dry footing, failed after 3 s. */
+	static EscapeMoves.Move climbOut(BlockPos bank) {
+		int[] ticks = {0};
+		return (player, input) -> {
+			if (player.onGround() && !player.isInWater()) return new EscapeMoves.Result(EscapeMoves.Status.DONE, "on the bank at " + player.blockPosition().toShortString());
+			if (++ticks[0] > 60) return new EscapeMoves.Result(EscapeMoves.Status.FAILED, "still in the water after 3 s pushing onto the bank");
+			double dx = bank.getX() + 0.5D - player.getX(), dz = bank.getZ() + 0.5D - player.getZ();
+			float heading = net.minecraft.util.Mth.wrapDegrees((float) Math.toDegrees(Math.atan2(-dx, dz)));
+			float yaw = dev.agaminggod.mineagen.server.runtime.input.AgentInputStates.turnYaw(player.getYRot(), heading);
+			float pitch = dev.agaminggod.mineagen.server.runtime.input.AgentInputStates.turnPitch(player.getXRot(), 0.0F);
+			input.accept(new dev.agaminggod.mineagen.server.runtime.input.AgentInputState(1.0F, 0.0F, true, false, false, false, false, yaw, pitch,
+					player.getInventory().getSelectedSlot(), net.minecraft.world.InteractionHand.MAIN_HAND));
+			return new EscapeMoves.Result(EscapeMoves.Status.RUNNING, "pushing onto the bank");
 		};
 	}
 
@@ -242,6 +272,10 @@ public final class ServerEscapeController implements ServerController {
 			result = TickResult.failed("ESCAPE_STEP_REFUSED", String.valueOf(refused.getMessage()), 0.0D);
 		}
 		if (result.state() == State.RUNNING) return TickResult.running(0.5D);
+		// A child that failed, timed out or threw may still hold keys under its own lease: release them before moving on.
+		if (result.state() != State.SUCCEEDED) {
+			try { child.cancel(player); } catch (RuntimeException ignored) { /* the child is done either way */ }
+		}
 		note(childLabel + (result.state() == State.SUCCEEDED ? ": " : " (" + result.reasonCode() + "): ") + shortMessage(result.message()));
 		// travel stopping to breathe is progress, not a missed bank: the swim to air comes next and the walk goes on.
 		if (travelBank != null && ("AIR_RESERVE_REACHED".equals(result.reasonCode()) || "BREATH_NOT_COVERED".equals(result.reasonCode()))) bankTries.merge(travelBank, -1, Integer::sum);
@@ -331,6 +365,9 @@ public final class ServerEscapeController implements ServerController {
 				break;
 			}
 		}
+		if (best == null) return null;
+		// A hole is open over the body up to the rim: a roof there (a shelter, a cave room) makes it no pit to climb out of.
+		for (int y = start.y() + 2; y <= best.getY() + 1; y++) if (cells.solid(new BlockPos(start.x(), y, start.z()))) return null;
 		return best;
 	}
 
@@ -338,13 +375,14 @@ public final class ServerEscapeController implements ServerController {
 	static BlockPos bank(ServerPlayer player, Map<BlockPos, Integer> tries) {
 		Level level = player.level();
 		BlockPos at = player.blockPosition();
+		Set<BlockPos> pool = connectedWater(level, at);
 		BlockPos best = null;
 		double bestScore = Double.POSITIVE_INFINITY;
 		for (int dy = -SHORE_BELOW; dy <= SHORE_ABOVE; dy++) {
 			for (int dx = -SHORE_RADIUS; dx <= SHORE_RADIUS; dx++) {
 				for (int dz = -SHORE_RADIUS; dz <= SHORE_RADIUS; dz++) {
 					BlockPos feet = at.offset(dx, dy, dz);
-					if (!standable(level, feet) || !besideWater(level, feet)) continue;
+					if (!standable(level, feet) || !besideWater(pool, feet)) continue;
 					if (tries.getOrDefault(feet, 0) > MAX_TRIES + 1) continue;
 					double score = Math.sqrt(dx * dx + dz * dz) + Math.max(0, dy) * 1.5D + Math.max(0, -dy);
 					if (score < bestScore) { bestScore = score; best = feet; }
@@ -377,13 +415,36 @@ public final class ServerEscapeController implements ServerController {
 		return !level.getBlockState(cell).getCollisionShape(level, cell).isEmpty();
 	}
 
-	private static boolean besideWater(Level level, BlockPos feet) {
+	/** A dry cell whose side touches the body's own water (at its feet or a block below): a bank that water leads to. */
+	static boolean besideWater(Set<BlockPos> pool, BlockPos feet) {
 		for (Direction side : Direction.Plane.HORIZONTAL) {
-			for (int dy = -1; dy <= 0; dy++) {
-				if (level.getFluidState(feet.relative(side).above(dy)).is(net.minecraft.tags.FluidTags.WATER)) return true;
-			}
+			for (int dy = -1; dy <= 0; dy++) if (pool.contains(feet.relative(side).above(dy))) return true;
 		}
 		return false;
+	}
+
+	static final int POOL_CELLS = 8192;
+
+	/** The water the body is in, joined face to face within the bank search box: a pool across a wall is another one. */
+	static Set<BlockPos> connectedWater(Level level, BlockPos at) {
+		Set<BlockPos> pool = new HashSet<>();
+		java.util.ArrayDeque<BlockPos> queue = new java.util.ArrayDeque<>();
+		for (BlockPos seed : List.of(at, at.above(), at.below())) {
+			if (level.getFluidState(seed).is(net.minecraft.tags.FluidTags.WATER) && pool.add(seed.immutable())) queue.add(seed.immutable());
+		}
+		while (!queue.isEmpty() && pool.size() < POOL_CELLS) {
+			BlockPos cell = queue.removeFirst();
+			for (Direction side : Direction.values()) {
+				BlockPos next = cell.relative(side);
+				if (Math.abs(next.getX() - at.getX()) > SHORE_RADIUS + 1 || Math.abs(next.getZ() - at.getZ()) > SHORE_RADIUS + 1
+						|| next.getY() < at.getY() - SHORE_BELOW - 1 || next.getY() > at.getY() + SHORE_ABOVE + 1) continue;
+				if (!pool.contains(next) && level.isLoaded(next) && level.getFluidState(next).is(net.minecraft.tags.FluidTags.WATER)) {
+					pool.add(next);
+					queue.add(next);
+				}
+			}
+		}
+		return pool;
 	}
 
 	/** Open cells over the head up to feet level {@code toY} + 1: a pillar there meets no ceiling. */
