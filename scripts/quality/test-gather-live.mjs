@@ -20,6 +20,7 @@ import { InspectionClient } from '../../coordinator/src/inspection-client.mjs';
 import { warmBoots } from './fixture-servers.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
+import { deathCounter, deathEvidence } from './lib/damage-counter.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const USAGE = 'Usage: test-gather-live.mjs SPOTS.json OUT_DIR [JAR] [--strict|--descriptive] under fix-slot.sh with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME';
@@ -43,7 +44,7 @@ for await (const { item: [, spot], server: s, error: bootError } of warmBoots([.
 	options: { jar: path.resolve(jarArg ?? path.join(root, MOD_JAR)), template, port, world: null, seed: String(spot.seed), worldCache: true } }))) {
 	const pos = async () => String(await s.command(`data get entity ${AGENT} Pos`)).match(/\[\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?\]/)?.slice(1).map(Number) ?? null;
 	const health = async () => number(await s.command(`data get entity ${AGENT} Health`));
-	const deaths = async () => number(await s.command(`scoreboard players get ${AGENT} deaths`)) || 0;
+	const deaths = () => deathCounter(text => s.command(text), AGENT, { objective: 'deaths', unsetIsZero: true });
 	const row = { name: spot.name, seed: spot.seed };
 	results.push(row);
 	try {
@@ -124,7 +125,9 @@ for await (const { item: [, spot], server: s, error: bootError } of warmBoots([.
 		row.result = { state: result?.state, reasonCode: result?.reasonCode, message: String(result?.message ?? '').slice(0, 400), held: result?.held, broken: result?.broken, picked: result?.picked, steps: result?.steps };
 		row.end = await pos();
 		row.healthLost = Math.max(0, healthBefore - (await health()));
-		row.deaths = (await deaths()) - deathsBefore;
+		const deathResult = deathEvidence(deathsBefore, await deaths());
+		row.deaths = deathResult.deaths;
+		if (!deathResult.valid) (row.integrity ??= []).push({ file: 'deaths', error: 'Missing or decreasing vanilla death counter' });
 		if (!Number.isFinite(row.healthLost)) throw new Error('health unreadable after the call');
 		row.inventory = String(await s.command(`data get entity ${AGENT} Inventory`)).slice(0, 600);
 		row.finishedAt = Date.now();

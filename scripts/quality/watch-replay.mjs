@@ -28,6 +28,7 @@ import { normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
 import { fixtureCatalogCodexModels } from '../../coordinator/src/default-models.mjs';
 import { stageServer, worldProperties, lookupWorld, snapshotWorld, worldCacheEnabled } from './fixture-servers.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
+import { deathCounter } from './lib/damage-counter.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const sleep = ms => new Promise(done => setTimeout(done, ms));
@@ -202,8 +203,38 @@ export async function frozenFixtureSetup(s, setup) {
 	}
 }
 
-/** One server on a copy of the incident's world (or the seed); mirrors test-reflex-failspots-live.mjs. */
-export async function boot(dir, { jar, template, port, world, seed, goalTicks = 24000, spawnMonsters = false, readyTimeoutMs = 30000, bridgeReadyMs = readyTimeoutMs, extraProperties = '', worldCache = false, onBridge = null, onSpawn = null, handleGoalSpec = true, tickRate }) {
+/**
+ * The ticks a "Survive for N seconds" goal asks for (GoalCompiler's survival duration, digits only), else null. The mod
+ * rejects a proposed survive_duration shorter than the goal text, and then no goal_control start ever arrives.
+ */
+export function surviveTicks(request) {
+	const match = /^survive(?: for)? (\d+) (ticks?|seconds?|minutes?)\.?$/i.exec(String(request ?? '').trim());
+	if (!match) return null;
+	return Number(match[1]) * (/^minute/i.test(match[2]) ? 1200 : /^second/i.test(match[2]) ? 20 : 1);
+}
+
+/** The survive_duration boot() proposes for a goal: at least what its text asks for, so a fixture's goalTicks cannot fall short. */
+export const proposedGoalTicks = (request, goalTicks = 24000) => Math.max(goalTicks, surviveTicks(request) ?? 0);
+
+/**
+ * The newer goal revision a server message carries for the fixture's agent, else null. A death, a respawn or a low-health
+ * hand-back moves the revision, the hand-back with no goal_control, so a fixture that only followed goal_control had its
+ * later commands refused STALE_REVISION. Queue and dequeue controls do not move the active task.
+ */
+export function newerGoalRevision(record, event) {
+	if (!record || event?.agentId !== record.agentId) return null;
+	if (event.type === 'goal_control' && ['queue', 'dequeue'].includes(event.payload?.operation)) return null;
+	const payload = event.payload ?? {};
+	const revision = payload.goalRevision ?? payload.record?.goalRevision ?? payload.control?.goalRevision ?? payload.observation?.goalRevision;
+	return Number.isSafeInteger(revision) && revision > (record.goalRevision ?? -1) ? revision : null;
+}
+
+/**
+ * One server on a copy of the incident's world (or the seed); mirrors test-reflex-failspots-live.mjs. followRevision
+ * (default on) moves s.record.goalRevision with any newer revision the server sends and answers agent_ready, as the
+ * coordinator does; a caller that runs the production coordinator on the bridge (run-incident.mjs) turns it off.
+ */
+export async function boot(dir, { jar, template, port, world, seed, goalTicks = 24000, spawnMonsters = false, readyTimeoutMs = 30000, bridgeReadyMs = readyTimeoutMs, extraProperties = '', worldCache = false, onBridge = null, onSpawn = null, handleGoalSpec = true, followRevision = true, tickRate }) {
 	tickRate = bootTickRate(tickRate);
 	const server = path.join(dir, 'server');
 	await stageServer(template, server, jar);
@@ -235,7 +266,13 @@ export async function boot(dir, { jar, template, port, world, seed, goalTicks = 
 		if (cacheEntry && !cacheEntry.hit) await snapshotWorld(cacheEntry, path.join(server, 'world'), s.command).catch(error => console.log(`[world cache] not saved: ${error.message}`));
 		s.bridge = new MultiplexedServerBridge({ port, secret }, {}); s.inbox = new Inbox(s.bridge);
 		s.bridge.on('observation', e => { if (e.agentId === s.record?.agentId && e.payload.ready) s.observation = e.payload; });
-		if (handleGoalSpec) s.bridge.on('goal_spec_request', e => { s.bridge.send('goal_spec_proposal', e.agentId, { requestId: e.payload.requestId, summary: 'Incident replay', predicate: { type: 'survive_duration', ticks: goalTicks } }).catch(() => {}); });
+		if (handleGoalSpec) s.bridge.on('goal_spec_request', e => { s.bridge.send('goal_spec_proposal', e.agentId, { requestId: e.payload.requestId, summary: 'Incident replay', predicate: { type: 'survive_duration', ticks: proposedGoalTicks(e.payload.originalRequest, goalTicks) } }).catch(() => {}); });
+		if (followRevision) s.bridge.on('message', event => {
+			const revision = newerGoalRevision(s.record, event);
+			if (revision === null) return;
+			s.record.goalRevision = revision;
+			s.bridge.send('agent_ready', s.record.agentId, { goalRevision: revision, reconciled: false }).catch(() => {});
+		});
 		const ready = s.inbox.wait('ready', () => true, bridgeReadyMs); ready.catch(() => {});
 		if (onBridge) await onBridge(s, { port, secret });
 		s.bridge.start(); s.ready = await ready;
@@ -277,7 +314,8 @@ export async function boot(dir, { jar, template, port, world, seed, goalTicks = 
 }
 
 const number = text => Number((/(-?\d+(?:\.\d+)?)[fdb]?\s*$/.exec(String(text).trim()) ?? [])[1]);
-const deaths = async s => number(await s.command(`scoreboard players get ${AGENT} deaths`)) || 0;
+// boot() adds the deathCount objective `deaths` before the body exists, so an unset score is 0; an unreadable one is null.
+const deaths = s => deathCounter(text => s.command(text), AGENT, { objective: 'deaths', unsetIsZero: true });
 const health = async s => { const text = await s.command(`data get entity ${AGENT} Health`); return /No entity|not found/i.test(text) ? 0 : number(text); };
 
 async function replayOne(s, { incident, savepoint }, { windowMs }) {
