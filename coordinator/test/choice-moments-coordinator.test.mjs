@@ -104,3 +104,15 @@ test('with a step already running, retreat_cover replaces it with flee_from inst
 	const made = traces.filter(x => x.event === 'choice_made');
 	assert.deepEqual(made.map(x => [x.choice, x.body, x.via, x.replacedRunning]), [['retreat_cover', 'flee_from', 'replaceAction', true]]);
 });
+
+test('if the hostile is gone by the time the bot answers, back off goes back to the bot instead of fleeing a stale target', async t => {
+	const { run, request } = await launch(t, { MINEAGEN_CHOICE_TOOL: 'on' });
+	run.bridge.emit('observation', { agentId: 'agent-a', payload: { ready: true, position: { x: 0, y: 64, z: 0 }, view: { yaw: 0, pitch: 0 },
+		inventory: { items: [] }, entities: [], blocks: [], world: { dimension: 'minecraft:overworld', gameTime: 40, dayTime: 1040, raining: false, thundering: false },
+		goalRevision: 1, eventSequence: 2, observedAtEpochMs: 2, attention: false, changedFacts: [], threats: { entries: [] },
+		player: { health: 20, maxHealth: 20, air: 300, maxAir: 300, foodLevel: 20, onGround: true } } });
+	await new Promise(resolve => setTimeout(resolve, 20));
+	const result = await choose(request, 'retreat_cover');
+	assert.match(result.choice, /make the tool call that does it now/, result.choice);
+	assert.equal(run.bridge.sent.some(x => x.type === 'action_command'), false);
+});

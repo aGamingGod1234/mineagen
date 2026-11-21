@@ -158,7 +158,10 @@ export function planChoice(kind, key, s) {
 		case 'threat.fight': case 'low_health.fight':
 			return nearest ? act('fight_target', { targetId: threatId(nearest), timeoutMs: 30_000 }) : { kind: 'hand_back' };
 		case 'threat.block_shield': return act('block_with_shield', { durationMs: 3000 });
-		case 'low_health.block_in': case 'night_falls.shelter': case 'respawned.shelter_first':
+		// Healing needs a sealed box; build_shelter leaves an eye-height window (the mod seals only its own recovery shelter),
+		// so walling in to heal goes back to the model (dig in, or place the blocks). Night and respawn shelters keep it.
+		case 'low_health.block_in': return { kind: 'hand_back' };
+		case 'night_falls.shelter': case 'respawned.shelter_first':
 			return s?.position && s.block ? step('build_shelter', { ...s.position, opening: s.facing ?? 'north', itemId: s.block, roof: true }, 'Wall in and wait it out safely.') : { kind: 'hand_back' };
 		case 'food_stored.food_to_hotbar': {
 			const f = s?.foodToHotbar;

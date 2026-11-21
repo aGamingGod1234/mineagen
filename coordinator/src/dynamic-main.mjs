@@ -2731,7 +2731,8 @@ export class DynamicCoordinator extends EventEmitter {
 		if (open !== null && latest !== null) {
 			try {
 				const fresh = momentSignals({ observation: latest });
-				signals = { ...signals, threats: fresh.threats.length > 0 ? fresh.threats : signals.threats, position: fresh.position ?? signals.position,
+				// No targeting hostile in the latest observation is a real update: fight or flee then goes back to the model.
+				signals = { ...signals, threats: fresh.threats, position: fresh.position ?? signals.position,
 					block: fresh.block ?? signals.block, facing: fresh.facing ?? signals.facing, foodToHotbar: open.kind === 'food_stored' ? fresh.foodToHotbar : signals.foodToHotbar };
 			} catch { /* the offer's own facts stand */ }
 		}
