@@ -437,7 +437,8 @@ test('a counter-only round death takes its killer from the Watcher danger file u
 			{ at: T0 + 20 * MIN, cause: 'unknown (counter only)', source: 'counter', counterOrdinal: 1 },
 			{ at: T0 + 40 * MIN, cause: 'unknown (counter only)', source: 'counter', counterOrdinal: 2 },
 		] }]);
-		const hit = (minute, agentId, damageType, attacker) => JSON.stringify({ type: 'damage', lethal: true, agentId, atMs: T0 + minute * MIN + 200, damageType, attacker });
+		// The hit comes before the sample that showed the death (a counter step's time is an upper bound).
+		const hit = (minute, agentId, damageType, attacker) => JSON.stringify({ type: 'damage', lethal: true, agentId, atMs: T0 + minute * MIN - 3000, damageType, attacker });
 		// Where the Watcher writes them: one file per agent, kept under raw/arena-watch or still under the server folder.
 		await mkdir(path.join(dir, 'game-1', 'raw', 'arena-watch'), { recursive: true });
 		await writeFile(path.join(dir, 'game-1', 'raw', 'arena-watch', 'agent-a-danger.jsonl'), hit(20, 'agent-a', 'arrow', 'minecraft:skeleton') + '\n');
@@ -461,5 +462,20 @@ test('a long run scored before stage-score counted causes reads death receipts f
 		await writeFile(path.join(dir, 'raw', 'protocol.jsonl.1'), JSON.stringify(receipt) + '\n');
 		const [run] = readRun(dir);
 		assert.deepEqual(run.deathCauses, { skeleton_arrow: 1 }, 'the receipt that rotated into protocol.jsonl.1 names the death');
+	} finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('a counter-only death takes only a receipt from before it, after the timed deaths took theirs', async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), 'gate-report-'));
+	try {
+		const dead = (ms, cause) => ({ observedAtMs: T0 + ms, envelope: { type: 'goal_control', agentId: 'agent-a',
+			payload: { operation: 'dead', goalRevision: 1, updatedAtEpochMs: T0 + ms, death: { cause, diedAtEpochMs: T0 + ms } } } });
+		const dir = await standardRound(root, [{ id: 'game-1', seed: '780', stages: {}, agentId: 'agent-a', deaths: [
+			{ at: T0 + 6000, cause: 'unknown (counter only)', source: 'counter', counterOrdinal: 1 },
+			{ at: T0 + 7000, cause: 'ha_x was slain by Zombie', source: 'goal_control' },
+		], raw: { 'quality-protocol.jsonl': [dead(2000, 'ha_x tried to swim in lava'), dead(7000, 'ha_x was slain by Zombie')] } }]);
+		const [game] = readRun(dir);
+		assert.equal(game.deaths, 2);
+		assert.deepEqual(game.deathCauses, { lava: 1, zombie: 1 }, 'the zombie receipt stays with the zombie death');
 	} finally { await rm(root, { recursive: true, force: true }); }
 });

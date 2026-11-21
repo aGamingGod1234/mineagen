@@ -163,7 +163,8 @@ export async function scoreStageRun(directory, { rawDirectory = null } = {}) {
 		if (add) deathRows.push({ at: d.at, ...Object.fromEntries(DEATH_EVIDENCE.map(key => [key, d[key] ?? null])) });
 		return add;
 	};
-	// Lethal hits no counted death matched when read: a death seen only in the samples comes later (see below).
+	// Lethal hits and coordinator death rows no counted death matched when read: a death seen only in the samples comes
+	// later (see below).
 	const pendingHits = [];
 	const acceptDeath = d => { if (operatorStop && d.at > operatorStop.at || finite(startedAt) && finite(windowMs) && d.at > startedAt + windowMs) return; if (finite(d.at) && (!finite(startedAt) || d.at >= startedAt)) { if (!deathTimes.some(at => Math.abs(at - d.at) < 1500)) deathTimes.push(d.at); deathRow(d, true); if (!firstDeath || d.at < firstDeath.at) firstDeath = d; } };
 	const protocolName = raw && existsSync(path.join(raw, 'quality-protocol.jsonl')) ? 'quality-protocol.jsonl' : 'protocol.jsonl';
@@ -276,7 +277,7 @@ export async function scoreStageRun(directory, { rawDirectory = null } = {}) {
 		if (!finite(at) || finite(startedAt) && at < startedAt || finite(lastAt) && at > lastAt || operatorStop && at > operatorStop.at) return;
 		if (row.event === 'native_decision_timing' && row.outcome === 'completed' && finite(row.segmentDurationMs)) latencies.push(row.segmentDurationMs);
 		if (row.event === 'native_model_call' && finite(row.totalMs)) usageLatencies.push(row.totalMs);
-		if (row.event === 'agent_death') deathRow(deathEvidence(row), false);
+		if (row.event === 'agent_death') { const d = deathEvidence(row); if (d && !deathRow(d, false)) pendingHits.push(d); }
 		if (deathTrace && at >= traceStart && at <= traceEnd) {
 			if (row.event === 'native_tool_dispatch_started') deathTrace.dispatchedCommands.push({ at, actionId: row.actionId, actionType: row.actionType, source: 'coordinator' });
 			if (/reflexes_|action_completed/.test(row.event)) (deathTrace.coordinatorEvents ??= []).push(row);
@@ -297,10 +298,15 @@ export async function scoreStageRun(directory, { rawDirectory = null } = {}) {
 	const firstLife = cleanStage(first, firstDeath ? 'observed_death' : !first.samples ? 'unobserved' : ending.censored ? 'censored_alive' : 'completed', firstDeath?.at ?? lastAt);
 	recovery.deaths = Math.max(0, Math.max(sampleDeaths, deathTimes.length) - (firstDeath ? 1 : 0));
 	// A death seen only in the samples has no evidence row, or an empty one at the sample that showed it (an upper time
-	// bound). A lethal hit the Watcher recorded before it names that death: it fills the empty row the sample made, else
+	// bound). A lethal hit or coordinator death row recorded before it names that death: it fills the empty row the sample made, else
 	// takes one of the deaths that have no row, never adding a death the counts do not have.
 	const totalDeaths = Math.max(sampleDeaths, deathTimes.length);
-	for (const hit of pendingHits.filter(h => (!finite(startedAt) || h.at >= startedAt) && (!finite(lastAt) || h.at <= lastAt) && (!operatorStop || h.at <= operatorStop.at)).sort((a, b) => a.at - b.at)) {
+	const pendingDeaths = [];
+	for (const hit of pendingHits.sort((a, b) => a.at - b.at)) {
+		const same = pendingDeaths.find(other => Math.abs(other.at - hit.at) < 1500);
+		if (same) { for (const key of DEATH_EVIDENCE) same[key] ??= hit[key] ?? null; } else pendingDeaths.push({ ...hit });
+	}
+	for (const hit of pendingDeaths.filter(h => (!finite(startedAt) || h.at >= startedAt) && (!finite(lastAt) || h.at <= lastAt) && (!operatorStop || h.at <= operatorStop.at)).sort((a, b) => a.at - b.at)) {
 		const bare = deathRows.find(row => row.at >= hit.at && row.at - hit.at <= SAMPLE_DEATH_BOUND_MS && DEATH_EVIDENCE.every(key => row[key] == null));
 		if (bare) { for (const key of DEATH_EVIDENCE) bare[key] = hit[key] ?? null; continue; }
 		if (deathRows.length < totalDeaths) deathRows.push({ at: hit.at, ...Object.fromEntries(DEATH_EVIDENCE.map(key => [key, hit[key] ?? null])) });

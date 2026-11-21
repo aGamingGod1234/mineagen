@@ -94,13 +94,16 @@ const EVIDENCE = ['message', 'damageType', 'attacker', 'directAttacker'];
 /**
  * Merges death evidence by time. Each base death takes the fields it lacks from the nearest unused extra row within
  * toleranceMs; an extra row no base death took is a death of its own (the base list missed it). Sorted by at.
+ * Deaths with a time of their own choose first. A counter-only death's time is the sample that showed it, an upper
+ * bound, so it takes only a row from before that time, and never one a timed death is nearer to.
  */
 export function mergeDeaths(base, extra, { toleranceMs = 30_000 } = {}) {
 	const deaths = base.map((death) => ({ ...death })), used = new Set();
-	for (const death of deaths) {
+	for (const death of [...deaths.filter((d) => !d.counterOnly), ...deaths.filter((d) => d.counterOnly)]) {
 		let best = -1;
 		extra.forEach((row, i) => {
 			if (used.has(i) || !Number.isFinite(row.at) || !Number.isFinite(death.at) || Math.abs(row.at - death.at) > toleranceMs) return;
+			if (death.counterOnly && row.at > death.at) return;
 			if (best < 0 || Math.abs(row.at - death.at) < Math.abs(extra[best].at - death.at)) best = i;
 		});
 		if (best < 0) continue;

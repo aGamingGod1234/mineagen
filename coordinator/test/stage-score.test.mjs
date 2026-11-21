@@ -202,3 +202,21 @@ test('a death seen only in the samples takes its cause from the Watcher\'s letha
 		assert.deepEqual(scored.deathCauses, { lava: 1, skeleton_arrow: 1 }, 'both counter-only deaths are named, none is added');
 	} finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test('a death seen only in the samples takes its cause from the coordinator\'s death row before it', async () => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'stage-causes-'));
+	try {
+		const rows = [{ at: 1000, health: 20, deathCounter: 0, inventoryNbt: '[]' }, { at: 5000, health: 20, deathCounter: 1, inventoryNbt: '[]' }];
+		await writeFile(path.join(dir, 'quality-samples.jsonl'), rows.map(s => JSON.stringify(s)).join('\n') + '\n');
+		await writeFile(path.join(dir, 'coordinator.jsonl'), JSON.stringify({ event: 'agent_death', agentId: 'a', goalRevision: 1, at: 2050, diedAtEpochMs: 2000, cause: 'a tried to swim in lava', damageType: 'minecraft:lava' }) + '\n');
+		const alone = await scoreStageRun(dir);
+		assert.equal(alone.observedDeaths, 1);
+		assert.deepEqual(alone.deathCauses, { lava: 1 }, 'the coordinator row alone names it');
+		await mkdir(path.join(dir, 'arena-watch'));
+		// The same death's lethal hit too: still one death.
+		await writeFile(path.join(dir, 'arena-watch', 'a-danger.jsonl'), JSON.stringify({ type: 'damage', agentId: 'a', atMs: 1990, damageType: 'minecraft:lava', attacker: null, lethal: true }) + '\n');
+		const both = await scoreStageRun(dir);
+		assert.equal(both.observedDeaths, 1);
+		assert.deepEqual(both.deathCauses, { lava: 1 }, 'a hit and a death row of one death stay one death');
+	} finally { await rm(dir, { recursive: true, force: true }); }
+});
