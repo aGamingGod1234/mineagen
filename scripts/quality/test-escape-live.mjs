@@ -22,7 +22,7 @@
 // prescribed by hand: under water a raw control frame holding jump for 2 s ("hold jump to refill"), else travel_to the
 // bank; pit one pillar block per decision.
 // A trial passes: water rooms on dry footing out of the water, pit rooms standing at or above the rim, both alive in the
-// window and still safe 2 s later; skeleton alive with at most 6 health lost over its 30 s window. Reports per trial:
+// window and still safe 2 s later; skeleton alive with at most 6 health lost over its 30 s window and behind the wall for its last 2 s. Reports per trial:
 // pass, decisions, seconds to safe, health lost, death, the results. A room is INVALID (notExercised) when the live body
 // did not start in danger (eyes not under water, not in the hole, no skeleton in sight) or reflexes alone made it safe
 // before the first decision; with no health sample it is INVALID too. Exit code (strict, the default): 0 all passed, 1 a trial failed, 2 invalid evidence.
@@ -269,6 +269,8 @@ try {
 		// Safe has to hold: two seconds on, the body is still out (not slid back into the water or the hole).
 		let endSafe = null;
 		if (room !== 'skeleton' && safeAt !== null) { endSafe = true; for (let i = 0; i < 4 && endSafe; i++) { await sleep(500); endSafe = await safe(); } }
+		// The skeleton room ends in cover: behind the wall for the last 2 s, not only blocking in the open behind a shield.
+		if (room === 'skeleton') { endSafe = true; for (let i = 0; i < 4 && endSafe; i++) { endSafe = await hidden(); if (endSafe && i < 3) await sleep(500); } }
 		sampling = false; await sampler;
 		const end = await pos();
 		const damage = damageEvidence(damageBefore, await readDamage().catch(() => null), before, await health().catch(() => NaN));
@@ -285,8 +287,8 @@ try {
 		else if (executed === 0 && safeAt !== null) row.notExercised = calls === 0 ? 'safe before the first decision (reflexes alone)' : 'safe with no call the body ran';
 		if (healthSamples === 0) row.error = 'no health sample in the window';
 		if (last?.state === 'ERROR') row.error = `call never returned: ${last.reasonCode}`;
-		row.pass = died === false && (room === 'skeleton' ? (row.damageTaken ?? Infinity) <= 6 : safeAt !== null && endSafe === true);
-		if (!row.pass) row.failReason = died ? 'died' : room === 'skeleton' ? `took ${row.damageTaken} damage` : safeAt === null ? 'not safe within the window' : 'safe, then back in danger';
+		row.pass = died === false && (room === 'skeleton' ? (row.damageTaken ?? Infinity) <= 6 && endSafe === true : safeAt !== null && endSafe === true);
+		if (!row.pass) row.failReason = died ? 'died' : room === 'skeleton' ? (endSafe !== true ? 'not in cover at the end' : `took ${row.damageTaken} damage`) : safeAt === null ? 'not safe within the window' : 'safe, then back in danger';
 		rows.push(row);
 		console.log(`[${room} ${row.arm} ${run}] ${roomVerdict(row).verdict} calls=${calls} safe=${row.safeSeconds}s hpLost=${row.healthLost}${died ? ' DIED' : ''} air ${airBefore}->${minAir}${row.hiddenShare !== undefined ? ` hidden=${row.hiddenShare}` : ''} | ${results.join(' ')} | ${row.message.slice(0, 160)}`);
 		await s.command(`kill @e[type=minecraft:skeleton]`).catch(() => {});

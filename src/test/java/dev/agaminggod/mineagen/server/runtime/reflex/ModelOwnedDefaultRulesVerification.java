@@ -36,8 +36,8 @@ public final class ModelOwnedDefaultRulesVerification {
 		ReflexScheduler chase = new ReflexScheduler();
 		chase.replace(defaults, 0);
 		for (ReflexSpec.Rule rule : defaults) {
-			boolean waits = heldBack.contains(rule.id()) || rule.id().equals("default-eat");
-			check(ReflexEngine.chaseGate(chase, rule, true, true) != waits, "a melee chase holds back only cover, retreat and eating: " + rule.id());
+			boolean waits = heldBack.contains(rule.id()) || rule.id().equals("default-eat") || rule.id().equals("default-arrow");
+			check(ReflexEngine.chaseGate(chase, rule, true, true) != waits, "a melee chase holds back only cover, retreat, eating and the arrow shield: " + rule.id());
 			check(ReflexEngine.chaseGate(chase, rule, true, false), "the default can fire once the chase ends: " + rule.id());
 		}
 		check(ReflexEngine.chaseGate(chase, modelRetreat, true, true), "a melee chase does not block the model's own rule");
