@@ -5,11 +5,14 @@ import { existsSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { recordingsRoot } from './private-inputs.mjs';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const manifestPath = 'test/private-inputs.json';
 const manifest = JSON.parse(await readFile(path.join(root, manifestPath), 'utf8'));
 const archive = process.env.ARENA_PRIVATE_INPUTS;
 if (archive && !existsSync(archive)) throw Error('ARENA_PRIVATE_INPUTS archive root does not exist: ' + archive);
+// Tests read recordings from ARENA_PRIVATE_INPUTS directly, so they get the folder that holds them.
+const recordings = recordingsRoot(archive);
 const available = input => {
  const gitObject = input.match(/^Private Git object ([a-f0-9]{40})\b/);
  if (gitObject) return spawnSync('git', ['cat-file', '-e', gitObject[1]], { cwd: root, stdio: 'ignore' }).status === 0;
@@ -41,6 +44,7 @@ if (!selected.length) process.exit(0);
 args.push(...requested.filter(arg => !files.includes(arg)), ...selected);
 // A session's model override (coordinator/src/default-models.mjs) must not change the defaults tests pin.
 const env = { ...process.env };
+if (recordings) env.ARENA_PRIVATE_INPUTS = recordings;
 delete env.ARENA_CODEX_MODEL;
 delete env.ARENA_CLAUDE_MODEL;
 const child = spawn(process.execPath, args, { cwd: root, stdio: 'inherit', env });

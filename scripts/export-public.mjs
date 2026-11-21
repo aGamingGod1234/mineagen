@@ -25,10 +25,10 @@ for (let at = 0; at < paths.length; at += 200) execFileSync('tar', ['-x', '-C', 
 // when the run comes from the repository itself, and on GitHub's runner for a pull request from a fork: Boat takes
 // only the owner's runs, so a fork's job that asked for it would wait for ever. The gate accepts exactly this text.
 const forkAwareRunner = "    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'boat' || 'ubuntu-latest' }}\n";
-// The public repository's own tree is already projected: its coordinator job names the fork-aware runner and it has no
-// private steps, comments, runner lines or markers left. Exporting from it expects none of them; exporting from the
-// private tree still expects every one.
-const alreadyPublic = (await readFile(path.join(output, '.github/workflows/coordinator.yml'), 'utf8')).includes(forkAwareRunner);
+// The public repository's own tree is already projected: its coordinator job has no private runner line, and it has no
+// private steps, comments or markers left. Exporting from it expects none of them; exporting from the private tree
+// still expects every one.
+const alreadyPublic = !/^    runs-on: \$\{\{ github\.event\.repository\.private && /m.test(await readFile(path.join(output, '.github/workflows/coordinator.yml'), 'utf8'));
 // Both trees share the availability-aware runner; no package projection is needed.
 // The public history has no private benchmark baseline; its dependent test is in the omission manifest.
 const workflows = ['.github/workflows/coordinator.yml', '.github/workflows/reliability.yml'];
@@ -54,7 +54,7 @@ const coordinatorPath = path.join(output, '.github/workflows/coordinator.yml');
 let privateRunnerLines = 0;
 const publicCoordinator = (await readFile(coordinatorPath, 'utf8'))
  .replace(/^    runs-on: \$\{\{ github\.event\.repository\.private && [^\n]*\n/m, () => { privateRunnerLines++; return forkAwareRunner; });
-if (privateRunnerLines !== (alreadyPublic ? 0 : 1) || /self-hosted|COORDINATOR_RUNS_ON/.test(publicCoordinator)) throw Error('Review the public workflow projection: the coordinator job must name only the fork-aware runner');
+if (privateRunnerLines !== (alreadyPublic ? 0 : 1) || /self-hosted|COORDINATOR_RUNS_ON/.test(publicCoordinator)) throw Error('Review the public workflow projection: the coordinator job must name only a GitHub-hosted or fork-aware runner');
 await writeFile(coordinatorPath, publicCoordinator);
 // The mod builds run on Boat in the private repository; the public copy sends a fork's pull request to GitHub's runner.
 const reliabilityPath = path.join(output, '.github/workflows/reliability.yml');
