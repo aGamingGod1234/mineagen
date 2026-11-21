@@ -339,9 +339,11 @@ export async function followEyes(target, body, { observation: initial, deadline,
 			const d = direction(last.yaw);
 			state.destination ??= { x: last.from.x + d.x * distance, z: last.from.z + d.z * distance };
 			let end = await act('travel_to', bounded({ ...state.destination, build: true, tolerance: 3 }), { soft: true });
-			// Out of blocks at the edge of water it was bridging: swim the rest, as a player with no blocks left does (eye rooms:
-			// eyes-a bridged 64 blocks of a lake and stopped OUT_OF_BLOCKS on 7 of 10 runs).
-			if (end?.find?.eyes?.stoppedBy === 'OUT_OF_BLOCKS') {
+			// Stopped at the edge of water it could not bridge (out of blocks, or travel will not build there): swim the rest, as a
+			// player does (eye rooms: eyes-a bridged 64 blocks of a lake and stopped OUT_OF_BLOCKS on 7 of 10 runs).
+			// Also when travel stopped short at water with blocks in hand ("building cannot continue: water at ..."; eye rooms
+			// r4: 2 of 40 finds); on dry ground the first hop finds no water and the leg hands back as before.
+			if (SOFT_LEG_CODES.has(end?.find?.eyes?.stoppedBy)) {
 				// travel_to walks only on seen standing spots; move_to swims at the surface. Swim on along the heading in short
 				// hops until the far side is in reach of a walk (at most 12 hops, about 100 blocks), then walk the rest.
 				for (let hop = 0; hop < 12; hop++) {
