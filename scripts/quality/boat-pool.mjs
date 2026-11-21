@@ -1,22 +1,24 @@
 // This computer's warm pool of boat machines for room-batch.mjs (see lib/boat-warm.mjs).
 //   node scripts/quality/boat-pool.mjs status [--json]
 //   node scripts/quality/boat-pool.mjs warm N --snapshot NAME [--type TYPE] [--idle-ttl MIN]
-//   node scripts/quality/boat-pool.mjs keepalive [--idle-ttl MIN] [--every MIN]
+//   node scripts/quality/boat-pool.mjs keepalive [--idle-ttl MIN] [--every MIN] [--include PREFIX,...]
 //   node scripts/quality/boat-pool.mjs drain [--snapshot NAME] [--type TYPE]
 //   node scripts/quality/boat-pool.mjs prune
 // status lists the pool's machines: busy (which batch holds it) or idle, the image, and the time to its auto-stop.
 // warm makes sure N machines of that image and size exist, starting only the shortfall (paced, one start each), and
-// leaves them idle. keepalive sets every idle machine's auto-stop to at least --idle-ttl from now (default 120 min,
-// ROOM_BATCH_IDLE_TTL_MIN); with --every it repeats until stopped, so the pool stays up between batches. An idle
-// machine is never extended without it, so a forgotten pool stops by itself. drain deletes every idle machine (or
-// those of one image and size); a busy one is left to its batch. prune deletes machines that are not running, idle
-// machines of an image that was rebuilt or deleted, and lease files of batches that are gone.
+// leaves them idle. keepalive sets every pool machine's auto-stop to at least --idle-ttl from now (default 1440 min,
+// ROOM_BATCH_IDLE_TTL_MIN), never earlier, and leaves a machine with auto-stop off alone; --include also covers every
+// running machine whose name starts with one of the prefixes (machines a benchmark made for --machines). With --every
+// it repeats until stopped, so the pool stays up between batches. Without it a forgotten pool stops by itself. drain
+// deletes every idle machine (or those of one image and size); a busy one is left to its batch. prune deletes machines
+// that are not running, idle machines of an image that was rebuilt or deleted, and machines a batch set aside after a
+// failed cleaning check, and clears lease files of batches that are gone. Only drain and prune delete, when run.
 // --snapshot defaults to ROOM_BATCH_SNAPSHOT and --type to ROOM_BATCH_TYPE or "default".
-import { imageHash, listSandboxes, minutesLeft, poolMember, warmBoatPool } from './lib/boat-warm.mjs';
+import { LIVE, imageHash, listSandboxes, minutesLeft, poolMember, warmBoatPool } from './lib/boat-warm.mjs';
 import { boat, destroyMachine } from './lib/boat-pool.mjs';
 import { leaseStore } from './lib/pool-leases.mjs';
 
-const USAGE = 'Usage: boat-pool.mjs status [--json] | warm N --snapshot NAME [--type TYPE] [--idle-ttl MIN] | keepalive [--idle-ttl MIN] [--every MIN] | drain [--snapshot NAME] [--type TYPE] | prune';
+const USAGE = 'Usage: boat-pool.mjs status [--json] | warm N --snapshot NAME [--type TYPE] [--idle-ttl MIN] | keepalive [--idle-ttl MIN] [--every MIN] [--include PREFIX,...] | drain [--snapshot NAME] [--type TYPE] | prune';
 const argv = process.argv.slice(2);
 const command = argv.shift();
 const flags = { positional: [] };
@@ -27,7 +29,7 @@ for (let i = 0; i < argv.length; i++) {
 }
 const fail = message => { console.error(`${message}\n${USAGE}`); process.exit(2); };
 if (!command || command === '--help' || command === 'help') { console.log(USAGE); process.exit(command ? 0 : 2); }
-const idleTtlSeconds = Math.round(Number(flags.idleTtl ?? process.env.ROOM_BATCH_IDLE_TTL_MIN ?? 120) * 60);
+const idleTtlSeconds = Math.round(Number(flags.idleTtl ?? process.env.ROOM_BATCH_IDLE_TTL_MIN ?? 1440) * 60);
 if (!Number.isFinite(idleTtlSeconds) || idleTtlSeconds < 300) fail('--idle-ttl wants at least 5 minutes');
 const snapshot = flags.snapshot ?? process.env.ROOM_BATCH_SNAPSHOT ?? null;
 const type = flags.type ?? process.env.ROOM_BATCH_TYPE ?? 'default';
@@ -38,17 +40,19 @@ const sleep = ms => new Promise(done => setTimeout(done, ms));
 
 /** The pool's machines with their lease and image state. */
 async function inventory({ all = true } = {}) {
-	const [sandboxes, leases, named] = await Promise.all([
+	const [sandboxes, leases, named, aside] = await Promise.all([
 		listSandboxes({ all }),
 		store.list(),
 		boat(['snapshots', '--json'], { timeoutMs: 120_000 }).then(text => JSON.parse(text).named ?? [], () => null),
+		store.asideList(),
 	]);
+	const asideByName = new Map(aside.map(item => [item.name, item]));
 	const byName = new Map(leases.map(item => [item.name, item]));
 	const images = named && new Map(named.map(item => [`${item.name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 24)}`, item]));
 	return sandboxes.map(item => poolMember(item, poolId)).filter(Boolean).map(member => {
 		const lease = byName.get(member.name);
 		const image = images?.get(member.snapshotSlug);
-		return { ...member, lease: lease?.lease ?? null, busy: Boolean(lease && !lease.stale), staleLease: lease?.stale && lease.lease ? lease.stale : null,
+		return { ...member, lease: lease?.lease ?? null, busy: Boolean(lease && !lease.stale), staleLease: lease?.stale && lease.lease ? lease.stale : null, aside: asideByName.get(member.name)?.reason ?? null,
 			image: image?.name ?? null, currentImage: images ? Boolean(image && imageHash(image.name, image.snapshotId) === member.imageHash) : null };
 	});
 }
@@ -68,10 +72,10 @@ async function destroyIdle(member, why) {
 if (command === 'status') {
 	const members = await inventory();
 	if (flags.json) { console.log(JSON.stringify({ poolId, members }, null, 2)); process.exit(0); }
-	console.log(`warm pool ${poolId} (lease files in ${store.dir}): ${members.length} machines, ${members.filter(item => item.busy).length} busy, ${members.filter(item => item.live && !item.busy).length} idle; boat new calls from this computer in the last hour: ${await store.recentStarts()}`);
+	console.log(`warm pool ${poolId} (lease files in ${store.dir}): ${members.length} machines, ${members.filter(item => item.busy).length} busy, ${members.filter(item => item.live && !item.busy && !item.aside).length} idle, ${members.filter(item => item.aside).length} set aside; boat new calls from this computer in the last hour: ${await store.recentStarts()}`);
 	console.log('id            state     lease                         image                       type     auto-stop in');
 	for (const item of members.sort((a, b) => a.name.localeCompare(b.name))) {
-		const lease = item.busy ? `busy: ${item.lease.batch ?? '?'} (pid ${item.lease.pid})` : item.staleLease ? `idle (stale lease: ${item.staleLease})` : 'idle';
+		const lease = item.aside ? `SET ASIDE: ${item.aside}` : item.busy ? `busy: ${item.lease.batch ?? '?'} (pid ${item.lease.pid})` : item.staleLease ? `idle (stale lease: ${item.staleLease})` : 'idle';
 		const image = item.currentImage === null ? item.snapshotSlug : item.image ? `${item.image}${item.currentImage ? '' : ' (OLD)'}` : `${item.snapshotSlug} (gone)`;
 		console.log(`${item.id.padEnd(13)} ${String(item.state).padEnd(9)} ${lease.slice(0, 29).padEnd(29)} ${image.slice(0, 27).padEnd(27)} ${item.type.padEnd(8)} ${minutesLeft(item)}`);
 	}
@@ -91,14 +95,24 @@ if (command === 'status') {
 	const every = flags.every === undefined ? null : Number(flags.every) * 60_000;
 	if (every !== null && !(every >= 60_000)) fail('--every wants at least 1 minute');
 	const pool = warmBoatPool({ snapshot: snapshot ?? 'any', type, idleTtlSeconds, log, store });
+	const prefixes = String(flags.include ?? '').split(',').map(item => item.trim()).filter(Boolean);
 	do {
-		const idle = (await inventory({ all: false })).filter(item => item.live && !item.busy);
-		let extended = 0;
-		for (const item of idle) {
+		try {
+		// Busy machines too: holdFor only ever moves a deadline later, so it never cuts a batch's own.
+		const members = (await inventory({ all: false })).filter(item => item.live);
+		const named = prefixes.length ? (await listSandboxes()).filter(item => LIVE.has(item.state) && prefixes.some(prefix => String(item.name ?? '').startsWith(prefix)) && !members.some(member => member.id === item.id))
+			.map(item => ({ id: item.id, name: item.name, remainingMs: item.archiveAfter ? Date.parse(item.archiveAfter) - Date.now() : Infinity })) : [];
+		let extended = 0, failed = 0;
+		for (const item of [...members, ...named]) {
 			try { const before = item.remainingMs; await pool.holdFor(item, idleTtlSeconds); if (before < idleTtlSeconds * 1000 - 60_000) extended++; }
-			catch (error) { log(`could not extend ${item.id}: ${error.message}`); }
+			catch (error) { failed++; log(`could not extend ${item.id}: ${error.message}`); }
 		}
-		log(`${idle.length} idle machines: ${extended} pushed to ${Math.round(idleTtlSeconds / 60)} min from now, the rest already had longer`);
+		log(`${members.length} pool and ${named.length} named machines: ${extended} pushed to ${Math.round(idleTtlSeconds / 60)} min from now, ${failed} failed, the rest had longer or no auto-stop`);
+		} catch (error) {
+			// One failed boat call must not end a keepalive that runs all day; the next round tries again.
+			if (every === null) throw error;
+			log(`keepalive round failed: ${error.message}`);
+		}
 		if (every !== null) await sleep(every);
 	} while (every !== null);
 } else if (command === 'drain') {
@@ -112,9 +126,12 @@ if (command === 'status') {
 	for (const item of members) {
 		if (item.busy) continue;
 		if (!item.live) { if (await destroyIdle(item, `state ${item.state}`)) deleted++; }
+		else if (item.aside) { if (await destroyIdle(item, `set aside: ${item.aside}`)) { deleted++; await store.clearAside(item.name); } }
 		else if (item.currentImage === false) { if (await destroyIdle(item, item.image ? 'its image was rebuilt' : 'its image is gone')) deleted++; }
 	}
 	let cleared = 0;
+	const present = new Set(members.map(item => item.name));
+	for (const item of await store.asideList()) if (!present.has(item.name)) await store.clearAside(item.name);
 	for (const lease of await store.list()) if (lease.stale && await store.clear(lease.name)) cleared++;
 	log(`deleted ${deleted} machines, cleared ${cleared} stale lease files`);
 } else fail(`unknown command ${command}`);

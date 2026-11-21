@@ -1,8 +1,9 @@
 // Pure parts of room-batch.mjs: the commands file, the shared room queue with one re-queue after a lost machine, and
 // the per-arm merge through finishRun. No machine, network or boat call happens here, so all of it is unit-tested.
-import { mkdir, readFile, readdir } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
+import { mkdir, mkdtemp, readFile, readdir, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
-import { finishRun } from './fixture-run.mjs';
+import { finishRun, roomVerdict } from './fixture-run.mjs';
 
 const ROOM_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
@@ -68,10 +69,10 @@ export function parseCommands(text, arms) {
 	});
 }
 
-/** Rows a room is expected to write: the count its selector names (BUILD_ONLY=a,b is 2), else 1. */
+/** Rows a room is expected to write: the count its selector names (BUILD_ONLY=a,b is 2), else 1 (an empty selector too). */
 export function plannedOf(env) {
 	const selector = Object.entries(env).find(([key]) => /(_ONLY|^SPOTS|^CASES)$/.test(key));
-	return selector ? selector[1].split(',').filter(Boolean).length : 1;
+	return Math.max(1, selector ? selector[1].split(',').filter(Boolean).length : 1);
 }
 
 /**
@@ -112,13 +113,17 @@ export async function runQueue({ rooms, workers, arrivals = [], attempt, maxAtte
 				catch (error) { outcome = { lost: true, reason: String(error?.message ?? error) }; }
 				worker.busy = false;
 				if (!outcome?.lost) { results.set(item.room.room, { ...outcome, lost: false, room: item.room.room, worker: worker.id, attempts: item.tries }); wake(); continue; }
-				log(`room ${item.room.room} lost on ${worker.id} (try ${item.tries}): ${outcome.reason}`);
-				if (item.tries < maxAttempts) queue.unshift(item);
-				else results.set(item.room.room, { lost: true, reason: outcome.reason, room: item.room.room, worker: worker.id, attempts: item.tries });
+				// requeue: the machine stopped the room for a planned reason (its cutoff), so the try does not count.
+				if (outcome.requeue) { item.tries--; log(`room ${item.room.room} back in the queue from ${worker.id}: ${outcome.reason}`); queue.unshift(item); }
+				else {
+					log(`room ${item.room.room} lost on ${worker.id} (try ${item.tries}): ${outcome.reason}`);
+					if (item.tries < maxAttempts) queue.unshift(item);
+					else results.set(item.room.room, { lost: true, reason: outcome.reason, room: item.room.room, worker: worker.id, attempts: item.tries });
+				}
 				live.delete(worker);
 				wake();
 				if (replace && queue.length) {
-					const fresh = await Promise.resolve().then(() => replace(worker)).catch(error => { log(`no replacement for ${worker.id}: ${error.message}`); return null; });
+					const fresh = await Promise.resolve().then(() => replace(worker, outcome)).catch(error => { log(`no replacement for ${worker.id}: ${error.message}`); return null; });
 					if (fresh) running.push(loop(fresh));
 				}
 				return;
@@ -131,6 +136,30 @@ export async function runQueue({ rooms, workers, arrivals = [], attempt, maxAtte
 	// Rooms no worker could take (every machine that could was lost) are reported lost, never silently dropped.
 	for (const item of queue) results.set(item.room.room, { lost: true, reason: item.tries ? 'no other machine left' : 'no machine left', room: item.room.room, attempts: item.tries });
 	return rooms.map(room => results.get(room.room));
+}
+
+/**
+ * A pool's fetch: download(localTgz) copies the room's archive here; it is unpacked into a staging folder and moved into
+ * roomsDir/ROOM only once its done.json reads, so a failed copy never leaves rows the merge could count and a retry never
+ * inherits an earlier attempt's files. Returns the done.json.
+ */
+export async function stageRoom({ roomsDir, room, download }) {
+	await mkdir(roomsDir, { recursive: true });
+	const staging = await mkdtemp(path.join(roomsDir, `.staging-${room}-`));
+	try {
+		const local = path.join(staging, `${room}.tgz`);
+		await download(local);
+		await new Promise((resolve, reject) => {
+			const tar = spawn('tar', ['-xzf', local, '-C', staging], { stdio: 'inherit' });
+			tar.on('error', reject);
+			tar.on('close', code => code === 0 ? resolve() : reject(new Error(`tar exited ${code}`)));
+		});
+		const done = JSON.parse(await readFile(path.join(staging, room, 'done.json'), 'utf8'));
+		if (done.room !== room || typeof done.arms !== 'object') throw new Error(`done.json of ${room} does not describe it`);
+		await rm(path.join(roomsDir, room), { recursive: true, force: true });
+		await rename(path.join(staging, room), path.join(roomsDir, room));
+		return done;
+	} finally { await rm(staging, { recursive: true, force: true }); }
 }
 
 async function readJson(file) { return JSON.parse(await readFile(file, 'utf8')); }
@@ -170,16 +199,31 @@ export async function mergeArms({ out, rooms, arms, outcomes }) {
 			const outcome = byRoom.get(room.room) ?? { lost: true, reason: 'not run' };
 			const dir = path.join(out, 'rooms', room.room, arm);
 			// A lost room counts no rows, whatever a partial copy left behind; it is all notStarted.
-			const found = outcome.lost ? { rows: [], summary: null } : await armRows(dir);
+			// The rows and their summary are the NAME.json / NAME-summary.json pair finishRun wrote (armRows).
+			const found = outcome.lost ? { rows: [], summary: null, problem: null } : await armRows(dir);
 			const own = found.summary;
-			const roomPlanned = Number.isInteger(own?.planned) ? own.planned : (room.plannedByArm?.[arm] ?? room.planned);
+			const ownValid = Boolean(own && typeof own === 'object' && Number.isInteger(own.planned));
+			const roomInvalid = outcome.lost ? null
+				: found.problem ? found.problem
+				: !ownValid ? 'missing or corrupt room summary'
+				: own.status === 'INVALID' ? 'room summary INVALID'
+				: own.planned <= 0 ? 'room planned 0 rows'
+				: null;
+			const basePlanned = ownValid ? own.planned : (room.plannedByArm?.[arm] ?? room.planned);
+			// A lost or invalid room always plans at least one row, so it can never leave the arm reading as a clean PASS.
+			const roomPlanned = outcome.lost || roomInvalid ? Math.max(basePlanned, 1) : basePlanned;
 			planned += roomPlanned;
 			const run = outcome.arms?.[arm] ?? {};
-			const roomRows = found.problem ? [{ name: room.room, pass: false, error: found.problem, startedAt: null, finishedAt: null, deaths: null, damageTaken: null }] : found.rows;
+			const roomRows = found.rows;
 			// Rows an arm wrote before the room timeout, a signal or a launch error killed it are not a finished run.
 			const killed = run.timedOut ? 'room timeout' : run.signal ? `signal ${run.signal}` : run.error ? `launch error: ${run.error}` : null;
-			for (const row of roomRows) rows.push({ ...row, ...(killed ? { integrity: [...(Array.isArray(row.integrity) ? row.integrity : []), `arm killed (${killed})`] } : {}),
+			const roomFlags = [...(killed ? [`arm killed (${killed})`] : []), ...(roomInvalid ? [roomInvalid] : [])];
+			for (const row of roomRows) rows.push({ ...row, ...(roomFlags.length ? { integrity: [...(Array.isArray(row.integrity) ? row.integrity : []), ...roomFlags] } : {}),
 				room: room.room, host: outcome.worker ?? null, attempts: outcome.attempts ?? 0, cantKeepUp: run.cantKeepUp ?? null });
+			if (roomInvalid && !roomRows.length) {
+				rows.push({ name: room.room, room: room.room, host: outcome.worker ?? null, attempts: outcome.attempts ?? 0, cantKeepUp: run.cantKeepUp ?? null,
+					pass: false, error: roomInvalid, integrity: roomFlags, startedAt: null, finishedAt: null, deaths: null, damageTaken: null });
+			}
 			perRoom.push({ room: room.room, lost: !!outcome.lost, reason: outcome.reason ?? null, rows: roomRows.length, planned: roomPlanned, exit: run.exit ?? null, seconds: run.seconds ?? null, timedOut: !!run.timedOut, cantKeepUp: run.cantKeepUp ?? null });
 		}
 		await mkdir(path.join(out, arm), { recursive: true });
@@ -196,7 +240,8 @@ export function armTotals({ summary, rows, perRoom }) {
 	// Unknown, never 0, when a row lacks the counter or a room wrote fewer rows than planned.
 	const missing = perRoom.some(room => room.rows < room.planned);
 	const known = key => !missing && ran.every(row => Number.isFinite(row[key])) ? sum(ran.map(row => row[key])) : null;
-	const passed = rows.filter(row => !row.skipped && row.pass === true && !row.error).length;
+	// The scorer's own predicate: a safe run that missed its bar (pass: true, bar: false) is a fail, not a pass.
+	const passed = rows.filter(row => roomVerdict(row).verdict === 'PASS').length;
 	return {
 		pass: passed, fail: summary.failed, invalid: summary.invalid, notStarted: summary.notStarted, status: summary.status,
 		lostRooms: perRoom.filter(room => room.lost).map(room => room.room),
@@ -221,7 +266,7 @@ export function formatSummary({ batch, merged, arms, wallSeconds, vms, rooms }) 
 			if (entry.lost) return `LOST (${entry.reason})`;
 			const rows = merged[arm].rows.filter(row => row.room === room.room);
 			if (!rows.length) return `no rows (exit ${entry.exit})`;
-			return rows.map(row => `${row.error || row.integrity?.length ? 'INVALID' : row.pass === true ? 'pass' : row.pass === false ? 'fail' : 'unknown'} d=${row.deaths ?? '?'} dmg=${row.damageTaken ?? '?'}`).join(', ') + ` ${clock(entry.seconds ?? 0)}`;
+			return rows.map(row => `${({ PASS: 'pass', FAIL: 'fail', INVALID: 'INVALID', SKIPPED: 'skipped' })[roomVerdict(row).verdict]} d=${row.deaths ?? '?'} dmg=${row.damageTaken ?? '?'}`).join(', ') + ` ${clock(entry.seconds ?? 0)}`;
 		});
 		lines.push(`${room.room}: ${cells.join(' | ')}`);
 	}

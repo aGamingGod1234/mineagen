@@ -9,6 +9,8 @@ import { DugStairs, PlacedWorkstations } from './resource-facts.mjs';
 import { howto, howtoHoldings } from './howto.mjs';
 import { minecraftCapabilities, normalizeMinecraftToolCall, toolAdjustments, toolResultContent, withAdjustments } from './native-minecraft-tools.mjs';
 import { runObtain } from './obtain-runner.mjs';
+import { resolveObtainItem } from './obtain-plan.mjs';
+import { KIT_CRAFT_TIMEOUT_MS, keepKit } from './kit-habit.mjs';
 import { runInventoryRepair } from './inventory-repair.mjs';
 import { PORTAL_ENTRY_NEXT, PORTAL_ENTRY_PREP } from './skill-fits.mjs';
 import { NativeProgramExecutor } from './native-program-executor.mjs';
@@ -184,6 +186,7 @@ export class NativeToolRuntime {
 	#stepRuns = new Map();
 	// Workstations obtain placed and has not picked up yet, per agent, across obtain calls.
 	#obtainPlaced = new Map();
+	#kitHabit = false;
 	// Agents whose next blocking body tool starts already interrupted: a danger steer is waiting for a tool boundary the
 	// model has not reached, so the tool it issues next was chosen without the danger (see interruptBlockingTool).
 	#armedDangerInterrupts = new Set();
@@ -231,6 +234,8 @@ export class NativeToolRuntime {
 		standingOrders = new StandingOrderBook(clock === WALL_CLOCK ? {} : { now: () => clock.now() }),
 		// The coordinator passes a book with the default survival rules; standalone runtimes (probes, tests) hold the model's rules only.
 		reflexBook = new ReflexBook({ defaults: [], ...(clock === WALL_CLOCK ? {} : { now: () => clock.now() }) }),
+		// After each obtain that succeeds, keep the kit from held items (kit-habit.mjs). Off for bare runtimes and tests.
+		kitHabit = false,
 	} = {}) {
 		if (typeof bridge?.send !== 'function') throw new TypeError('bridge.send must be a function');
 		this.#clock = completeClock(clock);
@@ -247,6 +252,7 @@ export class NativeToolRuntime {
 		if (memoryObservation !== null && typeof memoryObservation !== 'function') throw new TypeError('memoryObservation must be a function');
 		if (programExecutor !== null && ['run', 'onObservation', 'cancel'].some((method) => typeof programExecutor?.[method] !== 'function')) throw new TypeError('programExecutor must support run, onObservation, and cancel');
 		if (typeof sessionId !== 'string' || !/^[a-zA-Z0-9._-]{1,128}$/.test(sessionId)) throw new TypeError('sessionId must be 1..128 safe identifier characters');
+		this.#kitHabit = kitHabit === true;
 		if (['ingest', 'candidates', 'load', 'flush', 'clear'].some((method) => typeof occupancy?.[method] !== 'function')) throw new TypeError('occupancy must support observed-memory lifecycle and candidate queries');
 		this.#bridge = bridge;
 		this.#registry = registry;
@@ -2633,7 +2639,36 @@ export class NativeToolRuntime {
 		// furnace loads it left smelting are this call's to take out. Flooded approaches share this per-agent ledger.
 		if (!this.#obtainPlaced.has(record.agentId)) this.#obtainPlaced.set(record.agentId, { placed: [], loads: [], approaches: [] });
 		const kept = this.#obtainPlaced.get(record.agentId);
-		return runObtain(tool.arguments, body, { now: this.#clock.now, placed: kept.placed, loads: kept.loads, approaches: kept.approaches });
+		const stations = { now: this.#clock.now, placed: kept.placed, loads: kept.loads, approaches: kept.approaches };
+		const result = await runObtain(tool.arguments, body, stations);
+		if (!this.#kitHabit || result?.state !== 'SUCCEEDED' || interrupted() || !current()) return result;
+		// The kit habit (kit-habit.mjs): from what is held, keep a shield, armour and food in reach before handing back.
+		// What this obtain handed back is kept from kit crafts (obtain iron_ingot count 3 keeps its 3 ingots).
+		const asked = resolveObtainItem(tool.arguments?.item ?? '');
+		const reserved = asked.ids.length > 0 ? { ids: asked.ids, count: Number.isSafeInteger(tool.arguments?.count) && tool.arguments.count > 0 ? tool.arguments.count : 1 } : null;
+		let kit;
+		const stop = {};
+		try {
+			// Furnace loads an earlier obtain left are the next obtain's to collect, not a kit craft's walk.
+			kit = await keepKit(body, (item) => runObtain({ item, count: 1, timeoutMs: KIT_CRAFT_TIMEOUT_MS }, body, { ...stations, loads: [] }),
+				{ stopped: () => interrupted() || !current(), reserved, stop });
+		} catch (error) {
+			if (!current()) throw error;
+			kit = [`stopped (${error?.code ?? 'error'})`];
+		}
+		const halt = stop.result ?? null;
+		const cut = interrupted() || ['INTERRUPTED', 'RUNNING', 'PREPARING'].includes(halt?.state);
+		if (kit.length === 0 && !cut) return result;
+		this.#trace('native_obtain_step', { agentId: record.agentId, goalRevision: record.goalRevision, step: steps, text: `kit: ${kit.join(', ')}` });
+		const message = `${result.message ?? 'obtained'}; kit: ${kit.join(', ')}`;
+		if (!cut) return { ...result, kit, message };
+		// Danger during kit upkeep is handed back as obtain's own interruption: the item is held, the action still running
+		// (an equip, a kit craft's leg) is the model's to replace or cancel.
+		const running = halt?.state === 'INTERRUPTED' ? halt.running ?? null
+			: typeof halt?.actionId === 'string' ? { actionId: halt.actionId, ...(halt.recoveryHint ? { recoveryHint: halt.recoveryHint } : {}) } : null;
+		return { ...result, ...halted(), ...(halt?.state === 'INTERRUPTED' && halt.reasonCode ? { reasonCode: halt.reasonCode } : {}),
+			...(running === null ? {} : { running }), kit,
+			message: `${message}; stopped for danger after the item was obtained; decide, then carry on` };
 	}
 
 	/**
