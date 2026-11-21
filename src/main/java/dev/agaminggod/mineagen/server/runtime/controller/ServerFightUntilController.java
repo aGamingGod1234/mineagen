@@ -157,7 +157,7 @@ public final class ServerFightUntilController implements ServerController {
 	/** Test seam: the back-off walk for an angry enderman out of reach (navigation to the goal by default). */
 	interface DrawWalks { ServerController walk(Vec3 goal, long now); }
 
-	static DrawWalks drawWalks = (goal, now) -> new ServerNavigationController(goal, HUNT_ARRIVE, false, now, HUNT_WALK_MS, true);
+	static DrawWalks drawWalks = (goal, now) -> new ServerNavigationController(goal, HUNT_ARRIVE, false, now, ServerFightUntilController.HUNT_WALK_MS, true);
 	static final long HUNT_WALK_MS = 25_000L;
 
 	private final ServerProtectionPolicy protection;
