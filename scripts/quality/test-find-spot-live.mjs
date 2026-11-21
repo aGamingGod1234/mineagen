@@ -15,7 +15,7 @@ import path from 'node:path';
 import { boot, fixtureTickRate } from './watch-replay.mjs';
 import { gameClockFromObservations } from '../../coordinator/src/game-clock.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
-import { damageCounter, damageEvidence, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
+import { damageCounter, damageEvidence, deathCounter, recordDeathEvidence } from './lib/damage-counter.mjs';
 import { NativeToolRuntime } from '../../coordinator/src/native-tool-runtime.mjs';
 import { normalizeMinecraftToolCall } from '../../coordinator/src/native-minecraft-tools.mjs';
 import { adaptObservation } from '../../coordinator/src/observation-adapter.mjs';
@@ -110,7 +110,7 @@ for (let run = 0; run < runs; run++) {
 		const readDamage = await damageCounter(text => s.command(text), name);
 		const damageBefore = await readDamage();
 		const deaths = () => deathCounter(text => s.command(text), name, { objective: 'deaths', unsetIsZero: true });
-		const deathsBefore = await deaths();
+		const deathsBefore = await deaths().catch(() => null);
 		await s.fastRate();
 		// Play is timed on the fixture clock: game time at a raised rate, plain wall time at 20 TPS.
 		const now = () => s.clock.now();
@@ -141,8 +141,8 @@ for (let run = 0; run < runs; run++) {
 		row.wetDigsAtSpot = fromStart.filter((a) => a.reasonCode === 'WATER_AHEAD' && [startCell, firstEnd].includes(a.at?.join(','))).length;
 		row.moveOffAtS = actions.find((a) => a.actionType === 'travel_to' && Number.isFinite(a.args?.yaw) && Number.isFinite(a.args?.distance))?.s ?? null;
 		Object.assign(row, damageEvidence(damageBefore, await readDamage(), before, healthAfter));
-		// Recorded beside the sampled-health death below (null when unreadable); the verdict keeps using that one.
-		row.vanillaDeaths = deathEvidence(deathsBefore, await deaths()).deaths;
+		// Record the vanilla count alongside the sampled-health count.
+		recordDeathEvidence(row, deathsBefore, await deaths().catch(() => null), 'vanillaDeaths');
 		row.healthDropLowerBound = Math.max(0, before - minHealth);
 		row.deaths = minHealth <= 0 ? 1 : 0;
 		row.finishedAt = Date.now();

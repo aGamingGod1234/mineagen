@@ -19,7 +19,7 @@ import { writeFile, mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { boot, fixtureTickRate } from './watch-replay.mjs';
-import { damageCounter, recordDamageEvidence, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
+import { damageCounter, recordDamageEvidence, deathCounter, recordDeathEvidence } from './lib/damage-counter.mjs';
 import { fixtureSummary } from './lib/fixture-run.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 
@@ -44,14 +44,14 @@ const deaths = () => deathCounter((text) => s.command(text), AGENT, { objective:
 // A case's play window: raised to the fixture rate right before the body acts; the returned function ends it (back to
 // 20) and gives what it measured.
 async function startPlay() {
-	const damage0 = await readDamage(), deaths0 = await deaths();
+	const damage0 = await readDamage(), deaths0 = await deaths().catch(() => null);
 	await s.fastRate();
 	const t0 = now(), wall0 = Date.now(), timer = await s.gameTimer();
 	return async () => {
 		const play = { seconds: Math.round((now() - t0) / 1000), wallSeconds: Math.round((Date.now() - wall0) / 1000), gameSeconds: Math.round((await timer.elapsed()) / 1000), rates: await timer.rates().catch(() => null) };
 		await s.normalRate();
 		recordDamageEvidence(play, damage0, await readDamage());
-		play.deaths = deathEvidence(deaths0, await deaths()).deaths;
+		recordDeathEvidence(play, deaths0, await deaths().catch(() => null));
 		return play;
 	};
 }

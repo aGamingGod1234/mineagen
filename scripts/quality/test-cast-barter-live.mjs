@@ -21,7 +21,7 @@ import { fileURLToPath } from 'node:url';
 import { applyQualitySetup, activateQualitySetup } from '../../coordinator/src/benchmark/quality-scenarios.mjs';
 import { boot, unshownTickRate } from './watch-replay.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
-import { damageCounter, damageEvidence, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
+import { damageCounter, recordDamageEvidence, deathCounter, recordDeathEvidence } from './lib/damage-counter.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const [mode, fixtureFile, outArg, jarArg] = process.argv.slice(2);
@@ -61,7 +61,7 @@ const deaths = () => deathCounter(text => s.command(text), AGENT, { objective: '
 async function startPlay() {
 	// Harm evidence (vanilla's cumulative damage and death counters), read at 20 before the rate goes up.
 	readDamage ??= await damageCounter(text => s.command(text), AGENT);
-	damageBefore = await readDamage(); deathsBefore = await deaths();
+	damageBefore = await readDamage(); deathsBefore = await deaths().catch(() => null);
 	await s.fastRate(); wall0 = Date.now(); timer = await s.gameTimer(); return now();
 }
 async function endPlay() {
@@ -70,8 +70,9 @@ async function endPlay() {
 	timer = null;
 	await s.normalRate();
 	result.tick.held = await s.tickReport();
-	const { damageTaken, integrity } = damageEvidence(damageBefore, await readDamage(), null, null);
-	result.harm = { damageTaken, ...(integrity ? { integrity } : {}), deaths: deathEvidence(deathsBefore, await deaths()).deaths };
+	result.harm = {};
+	recordDamageEvidence(result.harm, damageBefore, await readDamage());
+	recordDeathEvidence(result.harm, deathsBefore, await deaths().catch(() => null));
 }
 async function obsidianIn(dim, [x0, y0, z0], [x1, y1, z1]) {
 	const cells = [];

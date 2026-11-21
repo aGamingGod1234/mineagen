@@ -186,6 +186,39 @@ test('a portal crossing with an unreadable damage score is invalid in its own ve
 	assert.deepEqual([run.verdict, run.reason, run.damage], ['INVALID', verdict.reason, null]);
 });
 
+test('a fire room with an invalid death count cannot pass even with valid damage evidence', async t => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'bench-deaths-'));
+	t.after(() => rm(dir, { recursive: true, force: true }));
+	const room = path.join(dir, 'rooms', 'fire.c1');
+	const replies = { rejected: null, malformed: 'unavailable', decreased: 'Body has 1 [fixture_deaths]', valid: 'Body has 2 [fixture_deaths]' };
+	await mkdir(room, { recursive: true });
+	await writeFile(path.join(room, 'done.json'), JSON.stringify({
+		arms: Object.fromEntries(Object.keys(replies).map(arm => [arm, { exit: 0 }])),
+	}));
+	for (const [arm, reply] of Object.entries(replies)) {
+		let deathReads = 0;
+		const command = async text => {
+			if (text === 'scoreboard players get Body arena_damage') return 'Body has 0 [arena_damage]';
+			if (text !== 'scoreboard players get Body fixture_deaths') return '';
+			if (++deathReads === 1) return 'Body has 2 [fixture_deaths]';
+			if (reply === null) throw new Error('RCON read failed');
+			return reply;
+		};
+		const rate = handRolledTickRate(command, new EventEmitter(), 'Body', { tickRate: 60 });
+		const end = await rate.play();
+		const armed = { pass: true, tick: await end() };
+		assert.equal(armed.tick.damageTaken, 0);
+		assert.equal(roomVerdict(armed).verdict, arm === 'valid' ? 'PASS' : 'INVALID');
+		await mkdir(path.join(room, arm));
+		await writeFile(path.join(room, arm, 'results.json'), JSON.stringify({ armed }));
+	}
+	const runs = await collectRuns(dir);
+	const reason = 'missing evidence: deaths Missing or decreasing vanilla death counter';
+	for (const { arm, verdict, reason: why, deaths } of runs) {
+		assert.deepEqual([verdict, why, deaths], arm === 'valid' ? ['PASS', null, 0] : ['INVALID', reason, null]);
+	}
+});
+
 test('a death repeated by a variant and its counter counts once, and an item wear is not health damage', async t => {
 	const dir = await mkdtemp(path.join(os.tmpdir(), 'bench-nest-'));
 	t.after(() => rm(dir, { recursive: true, force: true }));
@@ -323,7 +356,7 @@ test('a death counted after the counter sample stands, and an unreadable counter
 	await put('rooms/unread.c1/r1/blaze.json', { variants: { cover: { runs: [{ deaths: 0, deathCounter: { valid: false, deaths: null } }] } } });
 	// A parent repeating its child's count does not double it.
 	await put('rooms/same.c1/r1/blaze.json', { variants: { cover: { deaths: 1, runs: [{ deaths: 1, deathCounter: { valid: true, deaths: 1 } }] } } });
-	const meta = Object.fromEntries(rooms.map(room => [room, { bar: 'none' }]));
+	const meta = { late: { bar: 'none' }, same: { bar: 'none' } };
 	const runs = await collectRuns(dir, plan, meta);
 	const by = room => runs.find(run => run.room === room);
 	assert.equal(by('late').verdict, 'FAIL');

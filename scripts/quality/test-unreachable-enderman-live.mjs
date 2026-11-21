@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { MOD_JAR } from './mod-jar.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
-import { damageCounter, recordDamageEvidence, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
+import { damageCounter, recordDamageEvidence, deathCounter, recordDeathEvidence } from './lib/damage-counter.mjs';
 
 const USAGE = 'Usage: [SKIP_UNREACHABLE=0] [TRIALS=3] test-unreachable-enderman-live.mjs OUT_DIR [--strict|--descriptive] under slot.sh live, with JAVA_HOME and ARENA_HEADLESS_SERVER_TEMPLATE';
 const cli = process.argv.slice(2);
@@ -101,7 +101,7 @@ try {
 		await s.command(`random reset minecraft:entities/enderman ${700 + trial}`);
 		await s.command('summon minecraft:enderman -299.5 104 16.5 {PersistenceRequired:1b,Tags:["pillar"]}');
 		await s.idleSleep(1500);
-		const damage0 = await readDamage(), deaths0 = await deaths();
+		const damage0 = await readDamage(), deaths0 = await deaths().catch(() => null);
 		// Play from the stare on: game time on the fixture clock.
 		await s.fastRate();
 		const wall0 = Date.now(), timer = await s.gameTimer();
@@ -127,7 +127,7 @@ try {
 		const play = { wallSeconds: Math.round((Date.now() - wall0) / 1000), gameSeconds: Math.round((await timer.elapsed()) / 1000), rates: await timer.rates().catch(() => null) };
 		await s.normalRate();
 		recordDamageEvidence(play, damage0, await readDamage());
-		play.deaths = deathEvidence(deaths0, await deaths()).deaths;
+		recordDeathEvidence(play, deaths0, await deaths().catch(() => null));
 		play.tick = { rate: s.tickRate, held: await s.tickReport() };
 		const message = String(result.message ?? '');
 		const endings = Object.fromEntries([...(/endings: \{([^}]*)\}/.exec(message)?.[1] ?? '').matchAll(/(\w+)=(\d+)/g)].map(m => [m[1], Number(m[2])]));

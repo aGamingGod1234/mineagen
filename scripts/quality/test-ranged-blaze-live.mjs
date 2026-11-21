@@ -10,7 +10,7 @@ import { resolve, join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { boot, fixtureTickRate } from './watch-replay.mjs';
 import { normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
-import { damageCounter, damageEvidence, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
+import { damageCounter, recordDamageEvidence, deathCounter, recordDeathEvidence } from './lib/damage-counter.mjs';
 const out = resolve(process.argv[2]), jar = resolve(process.env.ARENA_JAR);
 const TRIALS = Number(process.env.TRIALS ?? 5), CALLS = Number(process.env.CALLS ?? 6), GAP_MS = Number(process.env.GAP_MS ?? 1500);
 const SETUPS = (process.env.SETUPS ?? 'W,O').split(',');
@@ -95,7 +95,7 @@ try {
    await s.command(`summon minecraft:blaze ${bx} ${by} ${bz} {Tags:["r4"],PersistenceRequired:1b${site.noAI ? ',NoAI:1b' : ''}}`);
    await s.setReflexes(RULES); armed = RULES;
    // Play: from the first look at the blaze, waits and times are game time (wall time at 20 TPS).
-   const damageBefore = await readDamage(), deathsBefore = await deaths();
+   const damageBefore = await readDamage(), deathsBefore = await deaths().catch(() => null);
    await s.fastRate();
    const now = () => s.clock.now();
    const trial0 = now(), wall0 = Date.now(), timer = await s.gameTimer();
@@ -105,8 +105,8 @@ try {
     row.gameSeconds = Math.round((await timer.elapsed()) / 1000);
     row.rates = await timer.rates().catch(() => null);
     await s.normalRate();
-    const { damageTaken, integrity } = damageEvidence(damageBefore, await readDamage(), null, null);
-    Object.assign(row, { damageTaken, ...(integrity ? { integrity } : {}), deaths: deathEvidence(deathsBefore, await deaths()).deaths });
+    recordDamageEvidence(row, damageBefore, await readDamage());
+    recordDeathEvidence(row, deathsBefore, await deaths().catch(() => null));
    };
    await act('look_at', { x: bx, y: by + 1, z: bz });
    row.initialHealth = await health();

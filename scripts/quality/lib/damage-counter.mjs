@@ -53,6 +53,13 @@ export function deathEvidence(before, after) {
 	return { before, after, valid, deaths: valid ? after - before : null };
 }
 
+/** Keep an unreadable death count distinct from a run with zero deaths. */
+export function recordDeathEvidence(row, before, after, field = 'deaths') {
+	const { deaths, valid } = deathEvidence(before, after);
+	row[field] = deaths;
+	if (!valid) (row.integrity ??= []).push({ file: 'deaths', error: 'Missing or decreasing vanilla death counter' });
+}
+
 /** Deliberate-damage fixtures declare an exact result; unspecified fixtures still require zero damage. */
 export function matchesDamageExpectation(row, expected = 0) {
 	if (!Number.isFinite(expected) || expected < 0) throw new Error('expectDamageTaken must be a finite nonnegative HP value');

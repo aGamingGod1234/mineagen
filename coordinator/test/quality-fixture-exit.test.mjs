@@ -31,10 +31,11 @@ const NOT_YET_ON_FINISH_RUN = [
 const liveFixtures = async () => (await readdir(quality)).filter(name => /^test-.*-live\.mjs$/.test(name)).sort();
 const usesFinishRun = text => /from '\.\/lib\/fixture-run\.mjs'/.test(text) && /\bfinishRun\(/.test(text);
 
-test('live fixtures keep damage counter integrity with the measured damage', async () => {
+test('live fixtures keep damage and death counter integrity with their counts', async () => {
 	for (const name of await liveFixtures()) {
 		const text = await readFile(path.join(quality, name), 'utf8');
 		assert.doesNotMatch(text, /\bdamageEvidence\([^\n]+\)\.damageTaken/, `${name} discards the damage counter integrity`);
+		assert.doesNotMatch(text, /\bdeathEvidence\([^\n]+\)\.deaths/, `${name} discards the death counter integrity`);
 	}
 });
 

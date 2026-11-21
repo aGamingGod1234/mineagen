@@ -1,5 +1,5 @@
 import { installTickRate, fixtureTickRate } from '../watch-replay.mjs';
-import { damageCounter, deathCounter, deathEvidence, recordDamageEvidence } from './damage-counter.mjs';
+import { damageCounter, deathCounter, recordDamageEvidence, recordDeathEvidence } from './damage-counter.mjs';
 
 /**
  * FIXTURE_TICK_RATE for a hand-rolled live fixture (one that starts java itself with its own RCON client and bridge):
@@ -33,7 +33,8 @@ export function handRolledTickRate(command, bridge, agent, { tickRate = fixtureT
 			await rate.normalRate();
 			const after = await read();
 			recordDamageEvidence(tick, before.damage, after.damage);
-			return { ...tick, deaths: deathEvidence(before.deaths, after.deaths).deaths };
+			recordDeathEvidence(tick, before.deaths, after.deaths);
+			return tick;
 		};
 	};
 	/** What the server held (tick query), for the run's output. */

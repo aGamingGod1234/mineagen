@@ -12,7 +12,7 @@ import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 import { installTickRate, fixtureTickRate } from './watch-replay.mjs';
-import { damageCounter, recordDamageEvidence, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
+import { damageCounter, recordDamageEvidence, deathCounter, recordDeathEvidence } from './lib/damage-counter.mjs';
 import { fixtureSummary } from './lib/fixture-run.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
@@ -131,14 +131,14 @@ try {
 	// A trip's play window: raised to the fixture rate from just before travel_to to its result; the returned function
 	// ends it (back to 20) and gives what it measured.
 	const startPlay = async () => {
-		const damageBefore = await readDamage(), deathsBefore = await deaths();
+		const damageBefore = await readDamage(), deathsBefore = await deaths().catch(() => null);
 		await rate.fastRate();
 		const t0 = rate.clock.now(), wall0 = Date.now(), timer = await rate.gameTimer();
 		return async () => {
 			const play = { seconds: Math.round((rate.clock.now() - t0) / 1000), wallSeconds: Math.round((Date.now() - wall0) / 1000), gameSeconds: Math.round((await timer.elapsed()) / 1000), rates: await timer.rates().catch(() => null) };
 			await rate.normalRate();
 			recordDamageEvidence(play, damageBefore, await readDamage());
-			play.deaths = deathEvidence(deathsBefore, await deaths()).deaths;
+			recordDeathEvidence(play, deathsBefore, await deaths().catch(() => null));
 			play.tick = { rate: rate.tickRate, held: await rate.tickReport() };
 			return play;
 		};

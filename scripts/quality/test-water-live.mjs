@@ -20,7 +20,7 @@
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { boot, fixtureTickRate } from './watch-replay.mjs';
-import { damageCounter, recordDamageEvidence, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
+import { damageCounter, recordDamageEvidence, deathCounter, recordDeathEvidence } from './lib/damage-counter.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 
 const USAGE = 'Usage: test-water-live.mjs OUT_DIR JAR [runs] [fixture;fixture...] [seed] [--strict|--descriptive] under slot.sh live';
@@ -70,7 +70,7 @@ try {
 	const deaths = () => deathCounter(text => s.command(text), NAME, { objective: 'deaths', unsetIsZero: true });
 	const now = () => s.clock.now();
 	// Vanilla counters before the settle or drain wait, so no extra read lands between it and the call.
-	const harmBefore = async () => ({ damage0: await readDamage(), deaths0: await deaths() });
+	const harmBefore = async () => ({ damage0: await readDamage(), deaths0: await deaths().catch(() => null) });
 	// The call's play window: raised to the fixture rate right before travel_to; the returned function ends it (back to
 	// 20) and gives what it measured.
 	const startPlay = async ({ damage0, deaths0 }) => {
@@ -80,7 +80,7 @@ try {
 			const play = { wallSeconds: Math.round((Date.now() - wall0) / 1000), gameSeconds: Math.round((await timer.elapsed()) / 1000), rates: await timer.rates().catch(() => null) };
 			await s.normalRate();
 			recordDamageEvidence(play, damage0, await readDamage());
-			play.vanillaDeaths = deathEvidence(deaths0, await deaths()).deaths;
+			recordDeathEvidence(play, deaths0, await deaths().catch(() => null), 'vanillaDeaths');
 			play.tick = { rate: s.tickRate, held: await s.tickReport() };
 			return play;
 		};

@@ -8,7 +8,7 @@ import { createReadStream } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { resolve, join } from 'node:path';
 import { boot, fixtureTickRate } from './watch-replay.mjs';
-import { damageCounter, damageEvidence, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
+import { damageCounter, recordDamageEvidence, deathCounter, recordDeathEvidence } from './lib/damage-counter.mjs';
 const out=resolve(process.argv[2]), jar=resolve(process.env.ARENA_JAR), template=process.env.ARENA_HEADLESS_SERVER_TEMPLATE;
 const hash=createHash('sha256');for await(const chunk of createReadStream(jar))hash.update(chunk);
 await mkdir(out,{recursive:true});
@@ -46,7 +46,7 @@ try {
   if(!/time is/i.test(floor)||Math.hypot(before.position.x-x-0.5,before.position.y-101,before.position.z-0.5)>1.0)throw new Error('Invalid construction fixture setup '+JSON.stringify({floor,position:before.position}));
   // Harm evidence (the fire case): vanilla's cumulative damage and death counters.
   const readDamage=await damageCounter(text=>s.command(text),'Probe'),deaths=()=>deathCounter(text=>s.command(text),'Probe',{objective:'deaths',unsetIsZero:true});
-  const damageBefore=await readDamage(),deathsBefore=await deaths();
+  const damageBefore=await readDamage(),deathsBefore = await deaths().catch(() => null);
   await s.fastRate();
   const t0=s.clock.now(),wall0=Date.now(),timer=await s.gameTimer();
   // Fire 800 ms of game time into the build (wall time at 20 TPS), unless the build ended first.
@@ -74,7 +74,8 @@ try {
   }
   Object.assign(row,{seconds:Math.round((s.clock.now()-t0)/1000),wallSeconds:Math.round((Date.now()-wall0)/1000),gameSeconds:Math.round((await timer.elapsed())/1000),rates:await timer.rates().catch(()=>null)});
   await s.normalRate();
-  {const {damageTaken,integrity}=damageEvidence(damageBefore,await readDamage(),null,null);Object.assign(row,{damageTaken,...(integrity?{integrity}:{}),deaths:deathEvidence(deathsBefore,await deaths()).deaths});}
+  recordDamageEvidence(row, damageBefore, await readDamage());
+  recordDeathEvidence(row, deathsBefore, await deaths().catch(() => null));
   results.cases.push(row);
   await writeFile(join(out,'shelter.json'),JSON.stringify(results,null,2));
   console.log(opening,roof,result.state,result.reasonCode,result.message);

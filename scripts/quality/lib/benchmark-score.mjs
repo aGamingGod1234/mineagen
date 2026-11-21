@@ -189,15 +189,14 @@ export async function collectRuns(batchDir, planned = null, meta = null) {
 			const survivalBar = meta?.[room]?.bar === 'none' || passWhen;
 			// What the fixture wrote outranks its exit code: an error it caught, a file cut short, or a pass: false it recorded.
 			if (!killed && evidence.integrity.length) ({ verdict, reason } = roomVerdict({ integrity: evidence.integrity }));
+			if (verdict === 'PASS' && evidence.deathsUnread) { verdict = 'INVALID'; reason = 'death counter unreadable'; }
 			if (verdict === 'PASS' && evidence.error) { verdict = 'INVALID'; reason = `fixture error: ${foldReason(evidence.error)}`; }
 			// A file cut short is unknown evidence whatever the exit code said.
 			if (verdict !== 'INVALID' && evidence.corrupt.length) { verdict = 'INVALID'; reason = `corrupt ${evidence.corrupt.join(', ')}`; }
 			if (verdict === 'PASS' && evidence.failedPass && !survivalBar) { verdict = 'FAIL'; reason = 'pass false'; }
 			if (verdict === 'PASS' && survivalBar && (evidence.deaths > 0 || evidence.failed)) { verdict = 'FAIL'; reason = evidence.deaths > 0 ? 'died' : evidence.failed === 'offBridge' ? 'off the bridge' : `${evidence.failed} false`; }
-			// A room judged on survival whose fixture recorded no death count, or said its counter could not be read, is
-			// unknown, not a safe pass.
+			// A room judged on survival must record a death count.
 			if (verdict === 'PASS' && survivalBar && evidence.deaths === null) { verdict = 'INVALID'; reason = 'no death record'; }
-			if (verdict === 'PASS' && survivalBar && evidence.deathsUnread) { verdict = 'INVALID'; reason = 'death counter unreadable'; }
 			if (verdict === 'PASS' && passWhen && !meetsBar(passWhen, evidence.fields)) { verdict = 'FAIL'; reason = `${passWhen.field} below ${passWhen.min}`; }
 			runs.push({ ...base, verdict, reason, deaths: evidence.deaths, damage: evidence.damage,
 				seconds: run.seconds ?? null, wallSeconds: run.seconds ?? null, cantKeepUp: run.cantKeepUp ?? null, exitOnly: true });
