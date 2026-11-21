@@ -36,6 +36,8 @@ Each description sentence, schema node, enum, parameter, default, reference
 paragraph, example and documented result code has a contract entry. Syntax
 examples prove admission only unless another witness proves their physical effect.
 Java witnesses must be reachable from `VerificationMain`.
+A Node witness's `test` must appear verbatim in its test file (plain text search), so
+write witness test titles without escaped quotes, apostrophes or interpolation.
 
 `checked` means the predicate is witnessed through a production runtime, Java
 verification or headless live bridge. `partial` identifies residual contextual
