@@ -247,7 +247,7 @@ public final class ForestHuntTickVerification {
 	}
 
 	/**
-	 * Main's pass-over (UnreachableTargets) is on in a forest pearl hunt with the switch off: an angry enderman the sword
+	 * The default pass-over (UnreachableTargets, no property set) in a forest pearl hunt: an angry enderman the sword
 	 * cannot reach (NO_SEEN_ROUTE) is tried once, its being in view no longer holds off the quiet spell, the relocation
 	 * walk starts, and the passed-over enderman does not cut that walk short.
 	 */
