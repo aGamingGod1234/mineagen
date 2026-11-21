@@ -141,11 +141,11 @@ public final class ServerEscapeController implements ServerController {
 	 * {@link #MAX_TRIES} swims); a bank tried twice and above the floor the body stands on, breathing, gets stairs once.
 	 */
 	static WaterMove waterMove(boolean underwater, int air, boolean bank, int tries, boolean onGround, boolean bankAbove, boolean staired, int swims) {
-		return waterMove(underwater, air, bank, tries, onGround, bankAbove, staired, swims, false, false);
+		return waterMove(underwater, air, bank, tries, onGround, bankAbove, staired, swims, false);
 	}
 
 	/**
-	 * {@code canFill}: no bank, a small enclosed pool (a flooded shaft) and plain blocks carried. A player there fills the
+	 * {@code canFill}: no bank, a confined flooded shaft (fillColumn) and enough plain blocks carried. A player there fills the
 	 * water under them from the bottom up until standing dry, and then climbs out of the hole that is left.
 	 */
 	static WaterMove waterMove(boolean underwater, int air, boolean bank, int tries, boolean onGround, boolean bankAbove, boolean staired, int swims, boolean canFill) {
