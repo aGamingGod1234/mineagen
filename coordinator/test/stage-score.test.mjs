@@ -233,3 +233,17 @@ test('a fatal Watcher episode with no receipt names its death from the episode\'
 		assert.deepEqual(scored.deathCauses, { skeleton_arrow: 1 });
 	} finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test('a run record\'s "unknown" for a counter-only death is no evidence: the lethal hit still names it', async () => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'stage-causes-'));
+	try {
+		const rows = [{ at: 1000, health: 20, deathCounter: 0, inventoryNbt: '[]' }, { at: 5000, health: 20, deathCounter: 1, inventoryNbt: '[]' }];
+		await writeFile(path.join(dir, 'quality-samples.jsonl'), rows.map(s => JSON.stringify(s)).join('\n') + '\n');
+		await writeFile(path.join(dir, 'long-run.json'), JSON.stringify({ timeline: { deaths: [{ at: 5000, cause: 'unknown' }] } }));
+		await mkdir(path.join(dir, 'arena-watch'));
+		await writeFile(path.join(dir, 'arena-watch', 'a-danger.jsonl'), JSON.stringify({ type: 'damage', agentId: 'a', atMs: 2000, damageType: 'minecraft:lava', attacker: null, lethal: true }) + '\n');
+		const scored = await scoreStageRun(dir);
+		assert.equal(scored.observedDeaths, 1);
+		assert.deepEqual(scored.deathCauses, { lava: 1 });
+	} finally { await rm(dir, { recursive: true, force: true }); }
+});

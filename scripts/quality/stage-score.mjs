@@ -193,7 +193,8 @@ export async function scoreStageRun(directory, { rawDirectory = null } = {}) {
 		// The episode keeps the vanilla death message (Episode.deathMessage), the cause when no receipt survives.
 		if (e.outcome === 'death') acceptDeath({ at: e.closedAt?.epochMs, cause: e.source?.type ?? e.kind, message: typeof e.deathMessage === 'string' ? e.deathMessage : null, source: 'watcher' });
 	});
-	for (const d of outcome?.metrics?.deathEvents ?? report?.timeline?.deaths ?? []) acceptDeath({ ...d, message: typeof d.cause === 'string' ? d.cause : null, source: 'run-record' });
+	// A run record writes 'unknown' for a death it saw only as a counter step (long-run.mjs): that is no evidence.
+	for (const d of outcome?.metrics?.deathEvents ?? report?.timeline?.deaths ?? []) acceptDeath({ ...d, message: typeof d.cause === 'string' && !/^unknown\b/i.test(d.cause) ? d.cause : null, source: 'run-record' });
 	// The Watcher's lethal hit names the damage type and attacker of a death already counted.
 	for (const dir of watchDirs) for (const n of (await readdir(dir).catch(() => [])).filter(n => n.endsWith('-danger.jsonl') && (!agentId || n.startsWith(agentId))))
 		await readJsonl(path.join(dir, n), row => { const d = deathEvidence(row); if (d && !deathRow(d, false)) pendingHits.push(d); });
