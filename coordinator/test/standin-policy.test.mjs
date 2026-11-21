@@ -2,6 +2,7 @@
 // gameplay friction logs where the old stand-in ended or idled a room that a model would have answered.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { normalizeMinecraftToolCall } from '../src/native-minecraft-tools.mjs';
 import { FORK_CAPS, mobAnswer, standinFork, standinEntry, playStandin, eatCalls, toolCalls, relocateCall } from '../../scripts/quality/lib/standin-policy.mjs';
 
 const ZOMBIE = '0b14864e-43f8-4b06-bf5c-a8c0a280511b';
@@ -136,4 +137,33 @@ test('each choice is recorded with what its calls ended with, and play stops at 
 	assert.deepEqual(entry, { atS: 12, step: 0, code: 'LOW_HEALTH', fork: 'hunger', choice: 'eat', why: 'food 10, health 10: eat bread',
 		calls: [{ type: 'select_item', state: 'SUCCEEDED', reasonCode: 'OK' }, { type: 'use_item', state: null, reasonCode: null }] });
 	assert.deepEqual(standinEntry({ fork: null, why: 'no fork for BUILD_SHORT' }, { atS: 3, code: 'BUILD_SHORT' }), { atS: 3, code: 'BUILD_SHORT', fork: null, why: 'no fork for BUILD_SHORT', calls: [] });
+});
+
+test('at health 8 or less with a mob near, cover flees the mob and eats, never idles', () => {
+	// fortress-gate-3: health 7.3 then 0.3 with piglins shooting; the old stand-in slept 15 s between finds and the body died.
+	const piglin = { stableId: PIGLIN, type: 'minecraft:piglin', hostile: true, alive: true, x: 6.5, y: 64, z: 0.5, targetingAgent: true };
+	const decision = standinFork({ result: failed('FIND_DANGER', 'Health 7.3 is at or below 8: eat or recover before searching on'), observation: body({ health: 7.3, foodLevel: 15, items: kit, entities: [piglin] }) });
+	assert.equal(decision.fork, 'hostile');
+	assert.equal(decision.choice, 'cover');
+	assert.deepEqual(decision.calls.map(call => call.arguments.actionType), ['flee_from', 'select_item', 'use_item']);
+});
+
+test('every call the policy can send passes the coordinator\'s tool schema', () => {
+	const water = { stableId: '3,63,0', blockId: 'minecraft:water', x: 3, y: 63, z: 0 };
+	const worn = { itemId: 'minecraft:iron_pickaxe', count: 1, slot: 1, damage: 249, maxDamage: 250 };
+	const decisions = [
+		standinFork({ result: failed('HOSTILE_NEAR', `minecraft:zombie ${ZOMBIE} 1.4 blocks away`), observation: body({ items: kit, entities: [zombie(1.4)] }) }),
+		standinFork({ result: failed('HOSTILE_NEAR', `minecraft:zombie ${ZOMBIE} 1.4 blocks away`), observation: body({ health: 10, items: kit, entities: [zombie(1.4)] }) }),
+		standinFork({ result: failed('HOSTILE_NEAR', `minecraft:zombie ${ZOMBIE} 1.4 blocks away`), observation: body({ health: 6, foodLevel: 10, items: kit, entities: [zombie(1.4)] }) }),
+		standinFork({ result: failed('LOW_HEALTH'), observation: body({ health: 10, foodLevel: 10, items: [{ itemId: 'minecraft:bread', count: 3, slot: 20 }] }) }),
+		standinFork({ result: failed('FIND_BLOCKED', 'TOOL_WORN'), observation: body({ items: [worn, { itemId: 'minecraft:stone_pickaxe', count: 1, slot: 14 }] }) }),
+		standinFork({ result: failed('FIND_BLOCKED', 'TOOL_WORN'), observation: body({ items: [worn, { itemId: 'minecraft:cobblestone', count: 9, slot: 3 }, { itemId: 'minecraft:oak_log', count: 1, slot: 4 }] }) }),
+		standinFork({ result: failed('FIND_BLOCKED', 'water under this spot stops every dig down'), observation: body({ items: kit, blocks: [water] }) }),
+		standinFork({ result: failed('FIND_BLOCKED', 'No way on'), observation: body({ yaw: 135, items: kit }) }),
+	];
+	assert.deepEqual(decisions.map(decision => decision.fork), ['hostile', 'hostile', 'hostile', 'hunger', 'tool', 'tool', 'water', 'blocked']);
+	for (const decision of decisions) for (const call of decision.calls) {
+		const args = call.name === 'do_step' ? { ...call.arguments, target: { ...call.arguments.target, timeoutMs: 120_000 } } : call.arguments;
+		assert.doesNotThrow(() => normalizeMinecraftToolCall(call.name, args), `${decision.fork} ${JSON.stringify(args)}`);
+	}
 });

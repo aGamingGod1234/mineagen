@@ -195,10 +195,15 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 			} catch (error) { return { state: 'ERROR', reasonCode: error?.code ?? 'ERROR', message: String(error?.message ?? error).slice(0, 300) }; }
 			const handle = result?.actionId ?? result?.handle?.actionId;
 			if (typeof handle === 'string' && ['RUNNING', 'PREPARING', 'ACCEPTED', 'STARTED'].includes(String(result?.state))) {
-				const until = Date.now() + 120_000;
+				// Waited to the call's own timeout and 30 s more; one still running then is cancelled, so the next call
+				// never meets a busy body.
+				const until = Date.now() + (one.arguments?.arguments?.timeoutMs ?? one.arguments?.target?.timeoutMs ?? 60_000) + 30_000;
 				const receipt = () => row.actions?.find(action => action.actionId === handle && action.state);
 				while (!receipt() && Date.now() < until) await sleep(500);
-				return receipt() ?? { state: 'HARNESS_TIMEOUT', reasonCode: 'HARNESS_TIMEOUT' };
+				if (receipt()) return receipt();
+				await runtime.execute({ agentId: record.agentId, goalRevision: record.goalRevision, turnId: `standin-cancel-${tag}`, callId: `standin-cancel-${tag}`,
+					tool: normalizeMinecraftToolCall('cancelAction', { actionId: handle, goalRevision: record.goalRevision }) }, record).catch(() => {});
+				return { state: 'HARNESS_TIMEOUT', reasonCode: 'HARNESS_TIMEOUT' };
 			}
 			return result;
 		};
@@ -208,7 +213,7 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 			try { observation = adaptObservation(await s.observe()); } catch { return null; }
 			const decision = standinFork({ result, observation, used });
 			const atS = Math.round((Date.now() - t0) / 1000);
-			if (!decision.fork || decision.choice === 'cover') { (row.standin ??= []).push(standinEntry(decision, { atS, step: callIndex, code: result?.reasonCode })); return decision; }
+			if (!decision.fork) { (row.standin ??= []).push(standinEntry(decision, { atS, step: callIndex, code: result?.reasonCode })); return decision; }
 			used[decision.fork] = (used[decision.fork] ?? 0) + 1;
 			const outcomes = await playStandin(decision, { dead: async () => (await deaths()) > deathsBefore, run: (one, index) => {
 				const args = one.name === 'do_step' ? { ...one.arguments, target: { ...one.arguments.target, timeoutMs: Math.max(60_000, Math.min(300_000, budgetMs - (Date.now() - t0) - 30_000)) } } : one.arguments;
@@ -255,10 +260,18 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 				}
 				const decision = await standinAnswer(result, callIndex, attempt, used);
 				if ((await deaths()) > deathsBefore) { row.ended = 'death or lost observations'; break; }
-				if (blockedFind && !(decision?.fork && decision.choice !== 'cover')) break;
-				// No fork answered (or cover): give the reflexes (and regeneration, when hurt) a moment, then ask again.
-				if (result?.reasonCode === 'FIND_DANGER' && !(decision?.fork && decision.choice !== 'cover')) await sleep((await health()) < 12 ? 15000 : 4000);
+				if (blockedFind && !decision?.fork) break;
+				// No fork answered: give the reflexes (and regeneration, when hurt) a moment, then ask again.
+				if (result?.reasonCode === 'FIND_DANGER' && !decision?.fork) await sleep((await health()) < 12 ? 15000 : 4000);
 			}
+		}
+		// The same classifier in both arms (STANDIN_POLICY on or off): the fork the policy sees on a repeat spot's last stop,
+		// with no caps and nothing played. A failed spot whose standinEnd.fork is set ended at a fork the policy answers.
+		const lastCall = row.calls.at(-1);
+		if (spot.repeat && lastCall && lastCall.state !== 'SUCCEEDED') {
+			const o = await s.observe().then(adaptObservation).catch(() => null);
+			const end = standinFork({ result: lastCall, observation: o ?? {} });
+			row.standinEnd = { code: lastCall.reasonCode, fork: end.fork, ...(end.choice ? { choice: end.choice } : {}), why: end.why, ...(row.ended ? { ended: row.ended } : {}) };
 		}
 		// A background step (do_step build) returned RUNNING: take the readings only once each command has its receipt.
 		if (!row.ended) {

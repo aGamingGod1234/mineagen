@@ -426,9 +426,11 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 			const call = spot.calls[Number(step)];
 			const wantsWater = /water/.test(String(call?.arguments?.target?.item ?? call?.arguments?.target?.block ?? ''));
 			const decision = standinFork({ result, observation: o, used, skip, wantsWater });
-			// No fork (or cover, which the answer's heal handles): recorded, so a room's end shows the stand-in had no answer.
-			if (!decision.fork || decision.choice === 'cover') { standinNote(decision, result?.reasonCode); return null; }
+			// No fork: recorded, so a room's end shows the stand-in had no answer.
+			if (!decision.fork) { standinNote(decision, result?.reasonCode); return null; }
 			standinUsed.set(step, { ...used, [decision.fork]: (used[decision.fork] ?? 0) + 1 });
+			// Cover: this fixture's own heal (wall in, eat, wait for health 14), as answer() does at health 8 or less.
+			if (decision.choice === 'cover') { standinNote(decision, result?.reasonCode); return `cover: ${await heal(tag, decision.mob?.id)}`; }
 			const outcomes = await playStandin(decision, { dead: async () => (await deaths()) > deathsBefore, run: (one, index) => {
 				const args = one.name === 'do_step' ? { ...one.arguments, target: { ...one.arguments.target, timeoutMs: Math.floor(Math.max(60_000, Math.min(300_000, left() - 60_000))) } } : one.arguments;
 				return run(one.name, args, `${tag}-standin${index}`);
@@ -681,6 +683,14 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 			break calls;
 		}
 		const last = row.calls.at(-1);
+		// The same classifier in both arms (STANDIN_POLICY on or off): the fork the policy sees on the room's last stop,
+		// with no caps and nothing played. A failed room whose standinEnd.fork is set ended at a fork the policy answers.
+		if (spot.retry && last && last.state !== 'SUCCEEDED') {
+			const o = await s.observe().then(adaptObservation).catch(() => null);
+			const call = spot.calls[Number(step)];
+			const end = standinFork({ result: last, observation: o ?? {}, wantsWater: /water/.test(String(call?.arguments?.target?.item ?? call?.arguments?.target?.block ?? '')) });
+			row.standinEnd = { code: last.reasonCode, fork: end.fork, ...(end.choice ? { choice: end.choice } : {}), why: end.why, ...(row.ended ? { ended: row.ended } : {}) };
+		}
 		// A step that failed at its step limit (its own timeout was cut to it) is stuck too.
 		if (!row.ended && last && last.state !== 'SUCCEEDED' && step !== null && stepEnd < totalEnd && now() >= stepEnd - 15_000) stuck();
 		row.built = last?.state === 'SUCCEEDED';

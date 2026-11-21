@@ -9,7 +9,8 @@
 //
 // Forks, first match wins:
 //   water    the body is under water, or the step stopped for water under it: walk 24 blocks away from the water
-//   hostile  a hostile is attacking or in the way: fight it or flee it (mobAnswer), cover at health 8 or less
+//   hostile  a hostile is attacking or in the way: fight it or flee it (mobAnswer); at health 8 or less, cover: flee
+//            it and eat (a fixture with its own heal, the build rooms', walls in and eats instead)
 //   hunger   food carried and food level 14 or less, or health 14 or less with food under 20: eat
 //   tool     a worn or missing pickaxe: switch to a sound one carried, else re-craft one the materials allow
 //   blocked  the step could not go on (FIND_BLOCKED, NO_ROUTE ...): once per step, walk 24 blocks to one side, retry
@@ -122,10 +123,12 @@ export function relocateCall(observation, { awayFromWater = false } = {}) {
 
 /**
  * The stand-in's answer to a step that stopped: { fork, choice, why, calls } with the calls to make before the step is
- * asked again, or { fork: null, why } when no fork applies (the fixture keeps its old behaviour: wait or end).
+ * asked again, or { fork: null, why } when no fork applies (the fixture keeps its old behaviour: wait or end). A fixture
+ * calls it once more at a room's end with no caps (used {}) and plays nothing: row.standinEnd, the same classifier in both
+ * arms, says whether the room ended at a fork the policy answers.
  * used counts the forks already answered for this step; a fork at its FORK_CAPS cap is passed over. skip names forks
- * the fixture answers itself (the build rooms re-craft a pickaxe their own way). cover means the fixture walls in or
- * waits to heal; it has no calls here.
+ * the fixture answers itself (the build rooms re-craft a pickaxe their own way). choice cover carries plain calls (flee,
+ * eat) for a fixture without its own heal.
  */
 export function standinFork({ result, observation, used = {}, skip = [], wantsWater = false } = {}) {
 	const open = fork => !skip.includes(fork) && !((used[fork] ?? 0) >= FORK_CAPS[fork]);
@@ -146,7 +149,11 @@ export function standinFork({ result, observation, used = {}, skip = [], wantsWa
 		const items = observation.inventory?.items ?? [];
 		const answer = mobAnswer({ ...mob, health, outOfSight: !(mob.distance <= 8), unarmed: /nothing to fight/i.test(message) || !items.some(item => WEAPON.test(item.itemId)),
 			shielded: items.some(item => (item.slot === 40 || item.slot === 'offhand') && item.itemId === 'minecraft:shield') });
-		return { fork: 'hostile', choice: answer.choice, why: answer.why, mob: { type: mob.type, id: mob.id, distance: mob.distance === null ? null : Math.round(mob.distance) }, calls: answer.call ? [{ name: 'act', arguments: answer.call }] : [] };
+		// Cover: a fixture with its own heal (the build rooms wall in and eat) uses that; the calls here are the plain
+		// answer for one without: flee the mob, then eat when food is carried.
+		const calls = answer.call ? [{ name: 'act', arguments: answer.call }]
+			: [{ name: 'act', arguments: { actionType: 'flee_from', arguments: { targetId: mob.id, distance: 16, timeoutMs: 12_000 } } }, ...(Number.isFinite(player.foodLevel) && player.foodLevel < 20 ? eatCalls(observation)?.calls ?? [] : [])];
+		return { fork: 'hostile', choice: answer.choice, why: answer.why, mob: { type: mob.type, id: mob.id, distance: mob.distance === null ? null : Math.round(mob.distance) }, calls };
 	}
 	const food = player.foodLevel;
 	const hostileClose = mob && mob.distance !== null && mob.distance <= 8;
