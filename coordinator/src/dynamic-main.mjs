@@ -26,6 +26,7 @@ import { AgentWorkspaceManager } from './agent-workspace.mjs';
 import { MinecraftAgentWorkspace } from './minecraft-agent-workspace.mjs';
 import { ClaudeProviderService } from './claude-service.mjs';
 import { CodexService } from './codex-service.mjs';
+import { contextRotationTokensSetting } from './context-carry-over.mjs';
 import { createHealthSampler } from './coordinator-health.mjs';
 import { ControlLatencyRegistry } from './control-latency-registry.mjs';
 import { buildCoordinatorStatus, providerRecoveryComponents } from './coordinator-status.mjs';
@@ -4862,7 +4863,7 @@ export function normalizeDynamicConfig(value, environment = process.env) {
 		assertOptionalConfigObject(value.codex.launchProfile, 'codex.launchProfile');
 		assertKnownConfigKeys(value.codex.launchProfile, ['agentId', 'model', 'reasoningEffort', 'serviceTier', 'planningTimeoutMs', 'maxDecisionBytes', 'cwd'], 'codex.launchProfile');
 	}
-	assertKnownConfigKeys(value.claude ?? {}, ['provider', 'cwd', 'executable', 'models', 'reasoningEfforts', 'planningTimeoutMs', 'startupTimeoutMs', 'interruptTimeoutMs', 'maxDecisionBytes', 'stdoutLimitBytes', 'stderrLimitBytes', 'runtimeRoot', 'fastMode'], 'claude');
+	assertKnownConfigKeys(value.claude ?? {}, ['provider', 'cwd', 'executable', 'models', 'reasoningEfforts', 'planningTimeoutMs', 'startupTimeoutMs', 'interruptTimeoutMs', 'maxDecisionBytes', 'stdoutLimitBytes', 'stderrLimitBytes', 'runtimeRoot', 'fastMode', 'contextRotationTokens'], 'claude');
 	assertKnownConfigKeys(value.limits ?? {}, ['agentCap', 'goalQueueCap', 'planningConcurrency', 'planningMode', 'urgentReserve', 'invalidDecisionRetries'], 'limits');
 	const secret = value.bridge.secret ?? environment[value.bridge.secretEnvironmentVariable ?? 'ARENA_AGENT_BRIDGE_SECRET'];
 	const cwd = value.codex.cwd ?? PROJECT_DIRECTORY;
@@ -4898,6 +4899,7 @@ export function normalizeDynamicConfig(value, environment = process.env) {
 			...value.codex,
 			cwd,
 			controlProtocol: codexControlProtocol,
+			contextRotationTokens: contextRotationTokensSetting(value.codex.contextRotationTokens, environment),
 			launchProfile: value.codex.launchProfile === undefined ? undefined : { ...value.codex.launchProfile, cwd },
 		},
 		claude: {
@@ -4906,6 +4908,7 @@ export function normalizeDynamicConfig(value, environment = process.env) {
 			// Claude agents share Codex's dedicated Minecraft workspace; only their launch prompt files live here.
 			runtimeRoot: path.join(minecraftAgentRoot, 'claude'),
 			...(value.claude ?? {}),
+			contextRotationTokens: contextRotationTokensSetting(value.claude?.contextRotationTokens, environment),
 		},
 		limits: {
 			agentCap,

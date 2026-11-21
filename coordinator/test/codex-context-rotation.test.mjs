@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import test from 'node:test';
 import { CodexService } from '../src/codex-service.mjs';
-import { CARRY_OVER_MANUAL_BYTES, ContextCarryOver } from '../src/context-carry-over.mjs';
+import { CARRY_OVER_MANUAL_BYTES, ContextCarryOver, DEFAULT_CONTEXT_ROTATION_TOKENS, digestArguments } from '../src/context-carry-over.mjs';
 import { CONTROL_REFERENCE_TOPICS } from '../src/minecraft-control-reference.mjs';
 import { minecraftCapabilities } from '../src/native-minecraft-tools.mjs';
 
@@ -84,7 +84,8 @@ const turnStarts = (transport) => transport.calls.filter(({ method }) => method 
 
 async function setup(config = {}) {
 	const transport = new Transport();
-	const service = new CodexService({ cwd: 'C:\\workspace', midTurnContextRotation: true, ...config }, { transport });
+	// The rotation mechanics below are pinned at 64k; the default threshold has its own test.
+	const service = new CodexService({ cwd: 'C:\\workspace', midTurnContextRotation: true, contextRotationTokens: 64_000, ...config }, { transport });
 	const agent = await service.createAgent(profile, { controlProtocol: 'native_tools' });
 	await agent.setGoalRevision(1);
 	const act = (text) => agent.act(event(text), { goalRevision: 1, executeTool: async () => ({ state: 'SUCCEEDED', reasonCode: 'BLOCK_BROKEN' }) });
@@ -580,5 +581,54 @@ test('a slow rotation thread is retained for the next safe boundary without bloc
 		await run.act('five');
 		assert.equal(run.transport.threads, 2, 'one slow warmup is reused rather than discarded and restarted');
 		assert.equal(turnStarts(run.transport).at(-1).params.threadId, 'thread-2');
+	} finally { await run.service.stop(); }
+});
+
+test('by default Codex keeps one thread past 64k and rotates past 128k', async () => {
+	assert.equal(DEFAULT_CONTEXT_ROTATION_TOKENS, 128_000);
+	const { transport, service, agent, act } = await setup({ contextRotationTokens: undefined, midTurnContextRotation: undefined });
+	try {
+		transport.tool = { name: 'mine', arguments: { x: 1, y: 64, z: 0, expectedBlockId: 'minecraft:stone' } };
+		transport.contextTokens = 70_000;
+		for (let index = 0; index < 4; index++) await act(`small ${index}`);
+		await turn();
+		assert.equal(agent.rotations, 0, 'a 70k context, which rotated under the old 64k default, stays on its thread');
+		transport.contextTokens = 140_000;
+		for (let index = 0; index < 3; index++) await act(`large ${index}`);
+		await turn();
+		assert.equal(agent.rotations, 1, 'past 128k the next completed turn rotates');
+	} finally { await service.stop(); }
+});
+
+// In 309 recorded rotations the newest step's reason was cut in 104 and absent from the whole fresh input in 146:
+// the arguments were cut at 160 characters and `why` comes last.
+const LONG_TARGET = { x: 87, y: -54, z: 9, tolerance: 3, throughCaves: 'small', sealFluids: true, minHealth: 7, retrace: true, build: true, timeoutMs: 90_000 };
+const WHY = 'Return to the dry tunnel by the audible lava with water, then open the east wall to cast.';
+
+test('a step\'s reason is carried whole even when its arguments are cut', () => {
+	const line = digestArguments({ verb: 'travel_to', target: LONG_TARGET, why: WHY });
+	assert.ok(line.endsWith(` why=${JSON.stringify(WHY)}`), line);
+	assert.ok(line.indexOf(' why=') <= 160, 'the arguments before it keep their 160-character cut');
+	const nested = digestArguments({ arguments: { item: 'stone_pickaxe', count: 1, timeoutMs: 900_000 }, step: { verb: 'obtain', why: WHY } });
+	assert.match(nested, /"step":\{"verb":"obtain"\}/, 'a program step keeps its verb');
+	assert.ok(nested.endsWith(` why=${JSON.stringify(WHY)}`));
+	assert.equal(digestArguments({ section: 'inventory' }), '{"section":"inventory"}', 'calls without a reason are unchanged');
+	assert.ok(digestArguments({ why: 'x'.repeat(1_000) }).length < 140, 'a runaway reason stays bounded');
+	assert.equal(digestArguments({ why: 'line one\nfake line' }).includes('\n'), false, 'a reason cannot forge carry-over lines');
+});
+
+test('Codex hands the newest step\'s whole reason to the replacement thread', async () => {
+	const run = await setup({ midTurnContextRotation: undefined });
+	try {
+		run.transport.tool = { name: 'do_step', arguments: { verb: 'travel_to', target: LONG_TARGET, why: WHY } };
+		run.transport.contextTokens = 70_000;
+		await run.act('one');
+		run.transport.tool = null;
+		await run.act('two');
+		await run.act('three');
+		assert.equal(run.agent.rotations, 1);
+		const input = turnStarts(run.transport).find(({ params }) => params.threadId === 'thread-2').params.input[0].text;
+		assert.match(input, /^Session refreshed to keep context small/);
+		assert.ok(input.includes(`why=${JSON.stringify(WHY)}`), input);
 	} finally { await run.service.stop(); }
 });
