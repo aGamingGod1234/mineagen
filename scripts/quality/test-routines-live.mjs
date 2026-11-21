@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 // Provider-free mechanics checks of the exact optional examples through the runProgram executor.
 // Always launch under slot.sh live; ports come from SLOT_PORT_BASE. Operator commands build/reset fixtures only.
+// FIXTURE_TICK_RATE (test only): each routine's setup runs at 20 TPS and the program itself at the fixture rate; at a
+// raised rate the executor times its budget (timeoutMs) and observation pacing in game time, as the runtime's does, so a
+// raised rate plays the same game. Each result's tick holds the rates it ran at.
 import { readFile, writeFile, mkdir, cp, readdir } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,7 +12,9 @@ import { randomBytes, createHash } from 'node:crypto';
 import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { NativeProgramExecutor } from '../../coordinator/src/native-program-executor.mjs';
+import { gameClockFromObservations } from '../../coordinator/src/game-clock.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
+import { handRolledTickRate } from './lib/fixture-play.mjs';
 
 const root=fileURLToPath(new URL('../..',import.meta.url));
 const out=resolve(process.argv[2] ?? 'runtime/routines/live');
@@ -40,7 +45,7 @@ class Inbox {
   accept(e){const i=this.waiters.findIndex(w=>w.type===e.type&&w.match(e));if(i>=0)this.waiters.splice(i,1)[0].done(e);else {this.events.push(e);if(this.events.length>1024)this.events.shift();}}
   wait(type,match=()=>true,ms=30000){const i=this.events.findIndex(e=>e.type===type&&match(e));if(i>=0)return Promise.resolve(this.events.splice(i,1)[0]);return new Promise((res,rej)=>{const w={type,match,done:e=>{clearTimeout(t);res(e)}};const t=setTimeout(()=>{this.waiters=this.waiters.filter(x=>x!==w);rej(new Error(`TIMEOUT ${type}`))},ms);this.waiters.push(w)});}
 }
-let rcon,bridge,record,observation,executor,active=false;
+let rcon,bridge,record,observation,executor,active=false,rate,gameClock=null;
 const agent='Routines';
 const results=[];
 const command=async s=>{
@@ -68,21 +73,24 @@ async function loadPrograms(){const doc=await readFile(join(root,'coordinator/te
 async function run(name,parameters,verify,body=name){
   if(name.startsWith('frame-')){for(const yaw of [-180,-90,0,90]){await command(`execute as ${agent} at @s run tp @s ~ ~ ~ ${yaw} 25`);await observe();}}
   await command(`gamemode survival ${agent}`);
-  await sleep(250);
+  await rate.idleSleep(250);
   const programs=await loadPrograms();
-  const before=await observe();const start=actions.length;active=true;
+  const before=await observe();const start=actions.length;
+  const played=await rate.play();active=true;
   await writeFile(join(out,'before.json'),JSON.stringify(before,null,2));
   let result;
   try{result=await executor.run(record,{source:programs.common+programs[body],parameters:{...common,...parameters},maxActions:512,timeoutMs:120000,observationIntervalMs:100},{observation:before,eventSequence:before.eventSequence,executeAction,cancelAction:async actionId=>{await bridge.send('action_cancel',record.agentId,{actionId,goalRevision:record.goalRevision,});},refreshObservation:observe,inspect});}
   finally{active=false;}
   const after=await observe();
+  const tick=await played();
   const pass=result.reasonCode==='PROGRAM_EXHAUSTED'&&await verify(after);
-  results.push({name,pass,sourceSha256:createHash('sha256').update(programs.common+programs[body]).digest('hex'),parameters,result,after,actions:actions.slice(start)});
+  results.push({name,pass,sourceSha256:createHash('sha256').update(programs.common+programs[body]).digest('hex'),parameters,result,after,actions:actions.slice(start),tick});
   console.log(JSON.stringify({name,pass,reason:result.reasonCode,trigger:result.trigger,actions:actions.length-start,position:after.position}));
   await writeFile(join(out,'results.json'),JSON.stringify({kind:'provider-free live runProgram mechanics',aiPerformanceMeasured:false,results},null,2));
   return pass;
 }
 async function reset(dim,x,y,z){
+  await rate.normalRate();
   await command(`gamemode spectator ${agent}`);
   await command('difficulty peaceful');
   await command(`execute in ${dim} run forceload add ${x-16} ${z-16} ${x+32} ${z+32}`);
@@ -92,23 +100,26 @@ async function reset(dim,x,y,z){
   await command(`execute in ${dim} run tp ${agent} ${x+0.5} ${y} ${z+0.5} -90 0`);
   await command(`clear ${agent}`);await command(`effect give ${agent} minecraft:instant_health 1 5 true`);
   await command(`give ${agent} minecraft:cobblestone 64`);
-  await sleep(250); await observe();
+  await rate.idleSleep(250); await observe();
 }
 try {
   for(let i=0;i<150;i++){try{rcon=new HeadlessRconClient({host:'127.0.0.1',port:port+1,password:secret,connectTimeoutMs:500,commandTimeoutMs:5000});await rcon.connect();break}catch(e){await rcon?.close();if(i===149)throw e;await sleep(1000)}}
   bridge=new MultiplexedServerBridge({port,secret},{});inbox=new Inbox(bridge);
-  bridge.on('observation',e=>{if(e.agentId===record?.agentId&&e.payload.ready){observation=e.payload;if(active)executor.onObservation(record,e.payload)}});
+  rate=handRolledTickRate(text=>command(text),bridge,agent);
+  // The runtime's own wiring at a raised rate (native-tool-runtime.mjs): program timers on game time, acknowledgements on wall time.
+  if(rate.tickRate!==20)gameClock=gameClockFromObservations({tickRate:rate.tickRate});
+  bridge.on('observation',e=>{if(e.agentId===record?.agentId&&e.payload.ready){gameClock?.observe(e.payload);observation=e.payload;if(active)executor.onObservation(record,e.payload)}});
   bridge.on('goal_spec_request',e=>{bridge.send('goal_spec_proposal',e.agentId,{requestId:e.payload.requestId,summary:'Controlled live mechanics fixture',predicate:{type:'survive_duration',ticks:12000}}).catch(()=>{});});
   const ready=inbox.wait('ready');bridge.start();await ready;
   await bridge.send('catalog_snapshot','server',{refreshedAtEpochMs:Date.now(),models:[{provider:'codex',model:'gpt-6.1-sol',id:'gpt-6.1-sol',displayName:'Provider-free routines fixture',reasoningEfforts:['low'],serviceTiers:['priority']}]});
   await command('difficulty peaceful');await command('gamerule minecraft:send_command_feedback false');await command('time set noon');
-  await command('forceload add -16 -16 32 32');await sleep(2000);
+  await command('forceload add -16 -16 32 32');await rate.idleSleep(2000);
   await command('fill -5 75 -5 20 90 10 minecraft:air');await command('fill -4 79 -4 2 79 4 minecraft:stone');
   const registered=inbox.wait('agent_registered');console.log(await command(`execute positioned 0.5 80 0.5 run mineagen summon gpt-6.1-sol low ${agent}`));
   const e=await registered;record={...(e.payload.record??e.payload),agentId:e.agentId};
   await bridge.send('agent_ready',record.agentId,{goalRevision:record.goalRevision,reconciled:false});
   const started=inbox.wait('goal_control',e=>e.payload.operation==='start');await command(`mineagen start ${agent} Survive for 600 seconds.`);record.goalRevision=(await started).payload.goalRevision;
-  await bridge.send('agent_ready',record.agentId,{goalRevision:record.goalRevision,reconciled:false});executor=new NativeProgramExecutor();
+  await bridge.send('agent_ready',record.agentId,{goalRevision:record.goalRevision,reconciled:false});executor=gameClock?new NativeProgramExecutor({now:gameClock.now,setTimeoutFn:gameClock.setTimeout,clearTimeoutFn:gameClock.clearTimeout,acknowledgementSetTimeoutFn:setTimeout,acknowledgementClearTimeoutFn:clearTimeout}):new NativeProgramExecutor();
   let selection=process.env.ROUTINES_ONLY ?? 'all';
   for(let round=0;round<20;round++){
   const only=selection==='all'?null:selection;
@@ -189,8 +200,8 @@ try {
     await command(`difficulty normal`);
     await command(`execute in minecraft:the_nether run summon minecraft:blaze ${x+(i===0?5.5:i===1?7.5:10.5)} 80 64.5 {PersistenceRequired:1b}`);
     await command(`execute in minecraft:the_nether run tp ${agent} ${x+0.5} 80 64.5 -90 0`);
-    await sleep(250);
-    await command(`gamemode survival ${agent}`);await sleep(250);
+    await rate.idleSleep(250);
+    await command(`gamemode survival ${agent}`);await rate.idleSleep(250);
     const obs=await observe();await writeFile(join(out,`blaze-${i}-before.json`),JSON.stringify(obs,null,2));const target=obs.entities.find(e=>e.type==='minecraft:blaze');
     if(!target)throw new Error('BLAZE_NOT_VISIBLE');
     await run(`blaze-${i}`,{targetId:target.uuid,allowedThreat:target.uuid,cover:{x:x+0.5,y:80,z:65.5},peek:{x:x+(i===0?2.5:0.5),y:80,z:64.5},weaponId:"minecraft:iron_sword",ranged:i!==0},async o=>{const healthText=await command(`execute in minecraft:the_nether run data get entity ${target.uuid} Health`);const health=Number(healthText.match(/data: ([0-9.]+)f/)?.[1]);return o.player.health>=20&&health<20;},'blaze');
@@ -205,6 +216,7 @@ try {
   }
   if(!found||selection==='stop')break;
   }
+  await writeFile(join(out,'tick.json'),JSON.stringify(await rate.report(),null,2));
   process.exitCode=results.some(r=>!r.pass)?1:0;
 
 } finally {

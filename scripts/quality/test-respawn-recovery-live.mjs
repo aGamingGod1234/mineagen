@@ -8,6 +8,9 @@
 //    the drops still there with an age of only the ticks a player was near them, and a walk over them picks them up.
 // Operator commands only build the fixture (floor, portal, kit, the death itself). No model call is made.
 // Launch under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME set.
+// FIXTURE_TICK_RATE (test only): steps 1-2 and 3-4 (from the respawn) run at the fixture rate with their waits in game
+// time, AWAY_SECONDS and secondsAway included; building the End ledge and the death run at 20 TPS, their settling waits
+// at the fixture rate. result.tick holds the rates of both parts.
 import { readFile, writeFile, mkdir, cp, readdir, unlink, open } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,6 +19,7 @@ import { randomBytes, createHash } from 'node:crypto';
 import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
+import { handRolledTickRate } from './lib/fixture-play.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const out = resolve(process.argv[2] ?? 'runtime/respawn-recovery-live');
@@ -44,7 +48,8 @@ class Inbox {
 }
 const AGENT = 'Recover';
 const result = { awaySeconds, steps: {}, lifecycle: [] };
-let rcon, bridge, inbox, record, observation, ordinal = 0;
+let rcon, bridge, inbox, record, observation, ordinal = 0, rate;
+const now = () => rate.clock.now();
 const command = async (text) => {
 	if (rcon.state === 'closed') { rcon = new HeadlessRconClient({ host: '127.0.0.1', port: port + 1, password: secret, commandTimeoutMs: 10000 }); await rcon.connect(); }
 	return (await rcon.command(text)).text;
@@ -69,7 +74,7 @@ const dimension = async () => String(await command(`data get entity ${AGENT} Dim
 const pos = async () => String(await command(`data get entity ${AGENT} Pos`)).match(/\[\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?\]/)?.slice(1).map((v) => Math.round(Number(v) * 10) / 10) ?? null;
 const held = (o) => (o?.inventory?.items ?? []).filter((i) => i.count > 0).map((i) => `${i.itemId.replace('minecraft:', '')}x${i.count}`);
 async function waitDimension(id, ms = 20000) {
-	for (let at = Date.now(); Date.now() - at < ms; await sleep(250)) if ((await dimension()) === id) return true;
+	for (let at = now(); now() - at < ms; await rate.clock.sleep(250)) if ((await dimension()) === id) return true;
 	return false;
 }
 // The End drops sit on a stone ledge 12 blocks from the arrival point, so arriving does not walk over them.
@@ -82,6 +87,7 @@ const itemsNearDrop = async () => {
 try {
 	for (let i = 0; i < 180; i++) { try { rcon = new HeadlessRconClient({ host: '127.0.0.1', port: port + 1, password: secret, connectTimeoutMs: 500, commandTimeoutMs: 10000 }); await rcon.connect(); break; } catch (e) { await rcon?.close(); if (i === 179 || child.exitCode !== null) throw e; await sleep(1000); } }
 	bridge = new MultiplexedServerBridge({ port, secret }, {}); inbox = new Inbox(bridge);
+	rate = handRolledTickRate(text => command(text), bridge, AGENT);
 	bridge.on('observation', (e) => { if (e.agentId === record?.agentId && e.payload.ready) observation = e.payload; });
 	// Death and respawn retain the goal; the replacement body needs ready even at the same revision.
 	bridge.on('goal_control', (e) => { if (e.agentId === record?.agentId && Number.isSafeInteger(e.payload?.goalRevision)) {
@@ -94,7 +100,7 @@ try {
 	const ready = inbox.wait('ready'); bridge.start(); await ready;
 	await bridge.send('catalog_snapshot', 'server', { refreshedAtEpochMs: Date.now(), models: [{ provider: 'codex', model: 'gpt-6.1-sol', id: 'gpt-6.1-sol', displayName: 'Provider-free respawn fixture', reasoningEfforts: ['low'], serviceTiers: ['priority'] }] });
 	await command('gamerule minecraft:send_command_feedback false'); await command('time set 1000');
-	await command('forceload add -16 -16 32 32'); await sleep(2000);
+	await command('forceload add -16 -16 32 32'); await rate.idleSleep(2000);
 	await command('fill -5 80 -5 12 90 8 minecraft:air'); await command('fill -5 79 -5 12 79 8 minecraft:stone');
 	await command('fill 3 79 -2 7 79 2 minecraft:end_portal_frame[eye=true]'); await command('fill 4 79 -1 6 79 1 minecraft:end_portal');
 	const registered = inbox.wait('agent_registered'); await command(`execute positioned 0.5 80 0.5 run mineagen summon gpt-6.1-sol low ${AGENT}`);
@@ -108,11 +114,12 @@ try {
 	await observe();
 	result.respawnAtStart = await command(`data get entity ${AGENT} respawn`);
 
+	const firstPlay = await rate.play();
 	result.steps.place = await act('place_block', { x: 0, y: 80, z: 2, face: 'up', itemId: 'minecraft:white_bed' });
 	const placed = await observe();
 	const bed = placed.blocks.find((b) => b.blockId === 'minecraft:white_bed');
 	result.steps.use = bed ? await act('interact_block', { x: bed.x, y: bed.y, z: bed.z, face: 'up', hand: 'main', expectedItemId: 'minecraft:air' }) : { error: 'bed not observed' };
-	await sleep(500);
+	await rate.clock.sleep(500);
 	const used = await observe();
 	result.dayTimeAtUse = used.world?.dayTime % 24000;
 	result.messagesAtUse = (used.perception?.events ?? []).filter((ev) => ev.type === 'system_message' || ev.type === 'action_bar').map((ev) => ev.text);
@@ -127,28 +134,30 @@ try {
 	result.steps.approach1 = await act('move_to', { x: 1.5, y: 80, z: 0.5, tolerance: 0.6, sprint: false });
 	result.steps.enter1 = await act('control', { forward: 1, strafe: 0, jump: true, sneak: false, sprint: false, attack: false, use: false, yaw: -90, pitch: 0, selectedSlot: 0, hand: 'main', ticks: 30, instantLook: true });
 	result.enteredEnd1 = await waitDimension('minecraft:the_end');
-	await sleep(1500);
+	await rate.clock.sleep(1500);
 	result.arrival1 = await pos();
-	await command('execute in minecraft:the_end run forceload add 80 -16 112 16'); await sleep(1500);
+	result.tick = { first: await firstPlay() };
+	await command('execute in minecraft:the_end run forceload add 80 -16 112 16'); await rate.idleSleep(1500);
 	await command('execute in minecraft:the_end run fill 80 48 -8 97 48 8 minecraft:stone');
 	await command('execute in minecraft:the_end run forceload remove 80 -16 112 16');
 	await command(`execute in minecraft:the_end run tp ${AGENT} ${DROP[0]}.5 ${DROP[1]} ${DROP[2]}.5`);
-	await sleep(1000);
+	await rate.idleSleep(1000);
 	const dead = inbox.wait('goal_control', (g) => g.payload.operation === 'dead', 20000).catch(() => null);
-	await sleep(3500); // a body just arrived in another dimension is invulnerable for 60 ticks
+	await rate.idleSleep(3500); // a body just arrived in another dimension is invulnerable for 60 ticks
 	await command(`kill ${AGENT}`);
 	const death = await dead;
 	result.death = death?.payload?.death ?? null;
-	const diedAt = Date.now();
-	await sleep(1500);
+	const diedAt = now();
+	await rate.idleSleep(1500);
 	result.dropsAtDeath = await itemsNearDrop();
+	const secondPlay = await rate.play();
 
 	result.steps.respawn = await act('respawn', {});
 	result.respawnReceiptConfirmed = result.steps.respawn?.state === 'SUCCEEDED'
 		&& result.steps.respawn.reasonCode === 'VANILLA_RESPAWNED'
 		&& result.steps.respawn.executionStarted === true && result.steps.respawn.physicalAttempted === true;
 	result.respawnedInOverworld = await waitDimension('minecraft:overworld');
-	await sleep(1000);
+	await rate.clock.sleep(1000);
 	result.respawnPos = await pos();
 	result.respawnAtBed = result.respawnedInOverworld && result.respawnPos && Math.hypot(result.respawnPos[0] - 0.5, result.respawnPos[2] - 2.5) <= 3;
 	const back = await observe();
@@ -158,13 +167,13 @@ try {
 	result.lostInventoryConfirmed = result.inventoryAfterRespawn.length === 0;
 
 	// 4. Away from the End, then back in with nothing: the drops wait, aged only while a player was near them.
-	const waitMs = Math.max(0, awaySeconds * 1000 - (Date.now() - diedAt));
-	await sleep(waitMs);
-	result.secondsAway = Math.round((Date.now() - diedAt) / 1000);
+	const waitMs = Math.max(0, awaySeconds * 1000 - (now() - diedAt));
+	await rate.clock.sleep(waitMs);
+	result.secondsAway = Math.round((now() - diedAt) / 1000);
 	result.steps.approach2 = await act('move_to', { x: 1.5, y: 80, z: 0.5, tolerance: 0.6, sprint: false });
 	result.steps.enter2 = await act('control', { forward: 1, strafe: 0, jump: true, sneak: false, sprint: false, attack: false, use: false, yaw: -90, pitch: 0, selectedSlot: 0, hand: 'main', ticks: 30, instantLook: true });
 	result.enteredEnd2 = await waitDimension('minecraft:the_end');
-	await sleep(1500);
+	await rate.clock.sleep(1500);
 	result.arrival2 = await pos();
 	result.dropsOnReturn = await itemsNearDrop();
 	result.steps.pickup = await act('move_to', { x: DROP[0] + 0.5, y: DROP[1], z: DROP[2] + 0.5, tolerance: 0.6, sprint: false });
@@ -176,7 +185,7 @@ try {
 		if (!at) break;
 		result.dropCells.push(at.map((v) => Math.round(v * 10) / 10));
 		result.steps[`walk-${i}`] = await act('move_to', { x: Math.floor(at[0]) + 0.5, y: Math.floor(at[1]), z: Math.floor(at[2]) + 0.5, tolerance: 0.6, sprint: false });
-		await sleep(700);
+		await rate.clock.sleep(700);
 	}
 	// Drops scatter a few blocks; collect each seen stack with the agent's own pick-up action.
 	for (let round = 0; round < 3; round++) {
@@ -186,8 +195,10 @@ try {
 		if (!rows.length) break;
 		for (const item of rows) result.steps[`pick-${round}-${item.stableId}`] = await act('pick_up_item', { targetSelector: item.stableId });
 	}
-	await sleep(1500);
+	await rate.clock.sleep(1500);
 	const after = await observe();
+	result.tick.second = await secondPlay();
+	result.tick.held = await rate.tickReport();
 	result.inventoryAfterPickup = held(after);
 	result.recovered = ['iron_pickaxe', 'iron_sword', 'golden_helmet'].every((id) => (after.inventory?.items ?? []).some((i) => i.itemId === `minecraft:${id}`));
 	result.ok = result.goalContinued && result.lostInventoryConfirmed && result.respawnReceiptConfirmed && result.bedSetsSpawnByDay && result.enteredEnd1 && result.respawnAtBed && result.enteredEnd2 && result.dropsOnReturn.count > 0

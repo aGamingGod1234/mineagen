@@ -16,6 +16,11 @@
 // PLAN `minHeldRate` (e.g. 0.8, the natural-world obtain claim) relaxes the first rule to that share of item-seed runs
 // held; a death or a workstation left anywhere still exits 1.
 // --descriptive reports without an acceptance exit code.
+// FIXTURE_TICK_RATE runs the obtains faster: the seed's setup runs at 20 TPS, and the server runs at the raised rate
+// while any lane's body is in an obtain run (lanes share one server, so a lane's run setup can overlap another lane's
+// play: setup waits are game time on s.clock for that reason). The obtain calls, their budgets, samplers and waits and
+// the runtime each lane drives are timed in game time, so a raised rate plays the same game. row.seconds is game seconds,
+// row.wallSeconds wall seconds, row.rates the rate asked for and reached; row.damageTaken is vanilla's cumulative counter.
 import { readFile, writeFile, mkdir, readdir, appendFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -24,13 +29,14 @@ import { normalizeMinecraftToolCall } from '../../coordinator/src/native-minecra
 import { adaptObservation } from '../../coordinator/src/observation-adapter.mjs';
 import { InspectionClient } from '../../coordinator/src/inspection-client.mjs';
 import { DEFAULT_REFLEXES } from '../../coordinator/src/reflexes.mjs';
-import { boot } from './watch-replay.mjs';
+import { boot, fixtureTickRate } from './watch-replay.mjs';
+import { gameClockFromObservations } from '../../coordinator/src/game-clock.mjs';
 import { callObtain } from './obtain-handbacks.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { parseSavedWorldSpawn } from '../../coordinator/src/headless-world-spawn.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
-import { deathCounter, deathEvidence } from './lib/damage-counter.mjs';
+import { damageCounter, damageEvidence, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const USAGE = 'Usage: test-obtain-live.mjs PLAN.json OUT_DIR [JAR] [--strict|--descriptive] under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME';
@@ -68,7 +74,8 @@ for (const [seedIndex, seed] of plan.seeds.entries()) {
 		// Each seed on its own ports (a crashed server can hold the last ones); no watchdog, as generating far chunks on a
 		// shared machine can hold one tick past its 60 s.
 		const seedPort = port + (seedIndex % 20) * 4;
-		s = current = await boot(dir, { jar: path.resolve(jarArg ?? path.join(root, MOD_JAR)), template, port: seedPort, world: null, seed: String(seed), spawnMonsters: true, goalTicks: 2_000_000, extraProperties: 'max-tick-time=-1\n' });
+		s = current = await boot(dir, { jar: path.resolve(jarArg ?? path.join(root, MOD_JAR)), template, port: seedPort, world: null, seed: String(seed), spawnMonsters: true, goalTicks: 2_000_000, extraProperties: 'max-tick-time=-1\n', tickRate: fixtureTickRate() });
+		await s.normalRate();
 		// One RCON connection serves four lanes; a slow command (a far chunk generating) can time the queue out and leave
 		// the client unusable. Any failure rebuilds the client and retries.
 		const secret = (await readFile(path.join(dir, 'secret.txt'), 'utf8')).trim();
@@ -85,6 +92,10 @@ for (const [seedIndex, seed] of plan.seeds.entries()) {
 				}
 			}
 		};
+		// The server runs at the fixture rate while any lane's body is in an obtain run, at 20 otherwise. Changes are queued
+		// so a lane ending its run never lowers the rate under one starting its run.
+		let playing = 0, rateQueue = Promise.resolve();
+		s.playRate = delta => (rateQueue = rateQueue.catch(() => {}).then(() => { playing += delta; return playing > 0 ? s.fastRate() : s.normalRate(); }));
 		// The world's own spawn, as a new player gets it: the first run starts there, the rest ring out around it.
 		await s.command('save-all flush');
 		let sx = 0, sz = 0;
@@ -150,10 +161,10 @@ async function joinAgent(s, lane, nextSpot) {
 	const inspections = new InspectionClient({ send: (type, agentId, payload) => s.bridge.send(type, agentId, payload) });
 	s.bridge.on('inspection_result', message => { if (message.agentId === record.agentId) inspections.accept(message); });
 	const log = [];
-	let logStart = Date.now();
+	let logStart = s.clock.now();
 	const runtime = new NativeToolRuntime({
-		trace: (event, fields) => { if (event === 'native_obtain_step' && fields?.agentId === record.agentId) log.push(`${Math.round((Date.now() - logStart) / 1000)}s ${fields.text}`); },
-		bridge: { send: async (type, agentId, payload) => { if (type === 'action_command') commands.set(payload.actionId, { actionType: payload.actionType, at: Date.now() }); return s.bridge.send(type, agentId, payload); } },
+		trace: (event, fields) => { if (event === 'native_obtain_step' && fields?.agentId === record.agentId) log.push(`${Math.round((s.clock.now() - logStart) / 1000)}s ${fields.text}`); },
+		bridge: { send: async (type, agentId, payload) => { if (type === 'action_command') commands.set(payload.actionId, { actionType: payload.actionType, at: s.clock.now() }); return s.bridge.send(type, agentId, payload); } },
 		requestObservation: async () => {
 			const before = latest?.eventSequence ?? 0;
 			await s.bridge.send('request_observation', record.agentId, { goalRevision: record.goalRevision });
@@ -161,6 +172,8 @@ async function joinAgent(s, lane, nextSpot) {
 			return { eventSequence: latest.eventSequence, observation: adaptObservation(latest) };
 		},
 		inspectObservation: async (rec, query) => ({ state: 'SUCCEEDED', reasonCode: 'INSPECTED', ...await inspections.request(rec, query) }),
+		// At a raised rate the runtime times obtain and its steps in game time (it feeds the clock its samples).
+		...(s.clock.rate === 20 ? {} : { clock: gameClockFromObservations({ tickRate: s.clock.rate }) }),
 	});
 	s.bridge.on('observation', ev => {
 		if (ev.agentId !== record.agentId || !ev.payload.ready) return;
@@ -180,12 +193,12 @@ async function joinAgent(s, lane, nextSpot) {
 	s.bridge.on('action_result', ev => {
 		if (ev.agentId !== record.agentId || !commands.has(ev.payload.actionId)) return;
 		const sent = commands.get(ev.payload.actionId);
-		if (['SUCCEEDED', 'FAILED', 'CANCELLED', 'TIMED_OUT'].includes(ev.payload.state)) actions.push(`${Math.round((sent.at - logStart) / 1000)}s +${Math.round((Date.now() - sent.at) / 1000)}s ${sent.actionType} ${ev.payload.state} ${ev.payload.reasonCode ?? ''} ${String(ev.payload.message ?? '').slice(0, 400)}${where()}`);
+		if (['SUCCEEDED', 'FAILED', 'CANCELLED', 'TIMED_OUT'].includes(ev.payload.state)) actions.push(`${Math.round((sent.at - logStart) / 1000)}s +${Math.round((s.clock.now() - sent.at) / 1000)}s ${sent.actionType} ${ev.payload.state} ${ev.payload.reasonCode ?? ''} ${String(ev.payload.message ?? '').slice(0, 400)}${where()}`);
 		runtime.onActionResult(record, ev.payload);
 		s.bridge.send('action_result_ack', record.agentId, { goalRevision: record.goalRevision, actionId: ev.payload.actionId }).catch(() => {});
 	});
 	await s.bridge.send('reflex_update', record.agentId, { revision: 1, rules: DEFAULT_REFLEXES.map(rule => ({ ...structuredClone(rule), coordinatorDefault: true })), yield: false });
-	return { name, record, runtime, spot, latest: () => latest, log, actions, resetLog: () => { log.length = 0; actions.length = 0; logStart = Date.now(); } };
+	return { name, record, runtime, spot, latest: () => latest, log, actions, resetLog: () => { log.length = 0; actions.length = 0; logStart = s.clock.now(); } };
 }
 
 async function runLane(s, agent, queue, seed, seedIndex, nextSpot) {
@@ -195,10 +208,13 @@ async function runLane(s, agent, queue, seed, seedIndex, nextSpot) {
 	const pos = async () => String(await s.command(`data get entity ${name} Pos`)).match(/\[\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?\]/)?.slice(1).map(Number) ?? null;
 	const health = async () => number(await s.command(`data get entity ${name} Health`));
 	const deaths = () => deathCounter(text => s.command(text), name, { objective: 'deaths', unsetIsZero: true });
+	const readDamage = await damageCounter(text => s.command(text), name);
+	const now = () => s.clock.now();
 	let previous = null;
 	for (const [index, entry] of queue.entries()) {
 		if (index > 0) spot = await landSpot(s, nextSpot);
 		const row = { seed: String(seed), seedIndex, lane, item: entry.item, count: entry.count ?? 1, budgetMs: entry.budgetMs, spot, startedAt: Date.now() };
+		let inPlay = false;
 		try {
 			// A body that died after the previous run handed back (no model here to answer the danger) respawns first;
 			// that death is the previous run's hand-back, recorded apart from deaths during an obtain.
@@ -233,24 +249,29 @@ async function runLane(s, agent, queue, seed, seedIndex, nextSpot) {
 			for (const [itemId, count] of entry.kit ?? []) await s.command(`give ${name} ${itemId} ${count}`);
 			await s.command(`effect give ${name} minecraft:instant_health 1 20 true`);
 			await s.command(`effect give ${name} minecraft:saturation 2 20 true`);
-			await sleep(2500);
+			// Game time: another lane may be playing at the raised rate meanwhile (plain wall time at 20 TPS).
+			await s.clock.sleep(2500);
 			// Never start in water: a spot that put the body in it is replaced by the next dry one.
 			for (let retry = 0; retry < 6 && !Array.isArray(entry.at) && /passed/i.test(await s.command(`execute as ${name} at @s if block ~ ~ ~ minecraft:water`).catch(() => '')); retry++) {
 				spot = await landSpot(s, nextSpot);
 				row.spot = spot;
 				await s.command(`execute in minecraft:overworld positioned ${spot[0]} 0 ${spot[1]} positioned over motion_blocking_no_leaves run tp ${name} ~0.5 ~ ~0.5`);
-				await sleep(2500);
+				await s.clock.sleep(2500);
 			}
 			const kitted = (entry.kit ?? []).length;
 			for (let i = 0; i < 300 && !(agent.latest()?.ready && (agent.latest()?.inventory?.items?.length ?? 0) >= kitted && (kitted > 0 || agent.latest()?.inventory?.items?.length === 0)); i++) await sleep(100);
 			row.start = await pos();
-			const healthBefore = await health(), deathsBefore = await deaths(), t0 = Date.now();
+			const damageBefore = await readDamage();
+			inPlay = true;
+			await s.playRate(+1);
+			const healthBefore = await health(), deathsBefore = await deaths(), t0 = now(), wall0 = Date.now(), timer = await s.gameTimer();
+			row.playStartedAt = wall0;
 			let minHealth = healthBefore;
 			let sampling = true;
-			const sampler = (async () => { while (sampling) { const h = await health().catch(() => NaN); if (Number.isFinite(h)) minHealth = Math.min(minHealth, h); await sleep(2000); } })();
+			const sampler = (async () => { while (sampling) { const h = await health().catch(() => NaN); if (Number.isFinite(h)) minHealth = Math.min(minHealth, h); await s.clock.sleep(2000); } })();
 			agent.resetLog();
 			const call = normalizeMinecraftToolCall('do_step', { verb: 'obtain', target: { item: entry.item, count: entry.count ?? 1, timeoutMs: entry.budgetMs }, why: `obtain ${entry.item}` });
-			const ran = await callObtain({ mode: process.env.OBTAIN_HANDBACK, budgetMs: entry.budgetMs, started: t0,
+			const ran = await callObtain({ mode: process.env.OBTAIN_HANDBACK, budgetMs: entry.budgetMs, started: t0, now,
 				execute: async (attempt, left) => {
 					const again = attempt === 0 ? call : normalizeMinecraftToolCall('do_step', { verb: 'obtain', target: { item: entry.item, count: entry.count ?? 1, timeoutMs: Math.max(60_000, left) }, why: `obtain ${entry.item}` });
 					try {
@@ -265,7 +286,7 @@ async function runLane(s, agent, queue, seed, seedIndex, nextSpot) {
 					const answer = named === null ? null : named[1] === 'creeper'
 						? { actionType: 'flee_from', arguments: { targetId: named[2], distance: 12, timeoutMs: 10_000 } }
 						: { actionType: 'fight_target', arguments: { targetId: named[2], timeoutMs: 20_000 } };
-					if (!answer) { await sleep(3000); return null; }
+					if (!answer) { await s.clock.sleep(3000); return null; }
 					try {
 						const answered = await runtime.execute({ agentId: record.agentId, goalRevision: record.goalRevision, turnId: `answer-${seedIndex}-${lane}-${index}-${attempt}`, callId: `answer-${index}-${attempt}`, tool: normalizeMinecraftToolCall('act', answer) }, record);
 						return `answered ${answer.actionType} ${named[1]}: ${answered?.state} ${answered?.reasonCode ?? ''}`;
@@ -276,7 +297,14 @@ async function runLane(s, agent, queue, seed, seedIndex, nextSpot) {
 			const placedAll = ran.results.flatMap((one) => one?.stations?.placed ?? []);
 			if (result && placedAll.length) result = { ...result, stations: { ...(result.stations ?? {}), placed: placedAll } };
 			sampling = false; await sampler;
-			row.seconds = Math.round((Date.now() - t0) / 1000);
+			row.seconds = Math.round((now() - t0) / 1000);
+			row.wallSeconds = Math.round((Date.now() - wall0) / 1000);
+			row.gameSeconds = Math.round((await timer.elapsed()) / 1000);
+			row.rates = await timer.rates().catch(() => null);
+			// Recorded only: the verdict keeps using deaths and sampled health.
+			row.damageTaken = damageEvidence(damageBefore, await readDamage()).damageTaken;
+			inPlay = false;
+			await s.playRate(-1);
 			row.result = { state: result?.state, reasonCode: result?.reasonCode, held: result?.held, message: String(result?.message ?? '').slice(0, 600), steps: result?.steps, stations: result?.stations };
 			row.log = [...agent.log];
 			row.actions = [...agent.actions];
@@ -296,6 +324,7 @@ async function runLane(s, agent, queue, seed, seedIndex, nextSpot) {
 			row.outcome = row.pass ? 'held' : result?.state === 'INTERRUPTED' && row.deaths === 0 ? 'handed_back' : 'failed';
 			row.firstCall = row.handBacks.length === 0 ? row.result.state : 'INTERRUPTED';
 			row.finishedAt = Date.now();
+			row.tick = { rate: s.tickRate, held: await s.tickReport() };
 			console.log(`[${seed} L${lane}] ${entry.item}: ${row.result.state} ${row.result.reasonCode} held=${row.result.held} ${row.seconds}s deaths=${row.deaths} hpLost=${row.healthLost} placed=${result?.stations?.placed?.length ?? 0} left=${row.stationsLeft} pass=${row.pass}`);
 			if (!row.pass) {
 				console.log(`   ${row.result.message}`);
@@ -305,6 +334,7 @@ async function runLane(s, agent, queue, seed, seedIndex, nextSpot) {
 			row.error = String(error?.stack ?? error).slice(0, 1200);
 			console.log(`[${seed} L${lane}] ${entry.item}: ERROR ${row.error.split('\n')[0]}`);
 		}
+		if (inPlay) await s.playRate(-1).catch(() => {});
 		await s.command(`forceload remove ${spot[0]} ${spot[1]}`).catch(() => {});
 		results.push(row);
 		previous = row;

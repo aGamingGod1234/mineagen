@@ -1,6 +1,11 @@
 #!/usr/bin/env node
 // Provider-free body parity fixtures through the real action bridge; --candidate checks opt-in combat options.
 // Always launch under slot.sh live; ports come from SLOT_PORT_BASE. Operator commands build/reset fixtures only.
+// FIXTURE_TICK_RATE (test only): each check's setup (reset, building, summons, the fake player's respawn grace) runs at
+// 20 TPS; from its first timed body action to its save it runs at the fixture rate, with its waits in game time. A
+// knockback, shield or backstop check sends its hit (damage) by RCON a set game time into the action: at 60 TPS the
+// command lands about one tick later than at 20, well inside the 36-70 tick actions. Natural regeneration is off, so
+// the health a check reads is what the hit left. Each saved row's tick holds the rates it ran at.
 import { readFile, writeFile, mkdir, cp, readdir } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,6 +14,7 @@ import { randomBytes, createHash } from 'node:crypto';
 import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
+import { handRolledTickRate } from './lib/fixture-play.mjs';
 
 const root=fileURLToPath(new URL('../..',import.meta.url));
 const out=resolve(process.argv[2] ?? 'runtime/routines/live');
@@ -41,7 +47,7 @@ class Inbox {
   accept(e){const i=this.waiters.findIndex(w=>w.type===e.type&&w.match(e));if(i>=0)this.waiters.splice(i,1)[0].done(e);else {this.events.push(e);if(this.events.length>1024)this.events.shift();}}
   wait(type,match=()=>true,ms=30000){const i=this.events.findIndex(e=>e.type===type&&match(e));if(i>=0)return Promise.resolve(this.events.splice(i,1)[0]);return new Promise((res,rej)=>{const w={type,match,done:e=>{clearTimeout(t);res(e)}};const t=setTimeout(()=>{this.waiters=this.waiters.filter(x=>x!==w);rej(new Error(`TIMEOUT ${type}`))},ms);this.waiters.push(w)});}
 }
-let rcon,bridge,record,observation;
+let rcon,bridge,record,observation,rate,played=null;
 const agent='Netherbody';
 const results=[];
 const command=async s=>{
@@ -65,7 +71,7 @@ async function executeAction(c){
 }
 async function reset(dim,x,y,z){
   await command(`gamemode spectator ${agent}`);
-  await command('difficulty peaceful');await sleep(150);
+  await rate.normalRate();await command('difficulty peaceful');await rate.idleSleep(150);
   await command(`execute in ${dim} run forceload add ${x-16} ${z-16} ${x+32} ${z+32}`);
   for(let i=0;i<100;i++){if(/time is/.test(await command(`execute in ${dim} if loaded ${x} ${y} ${z} run time query gametime`)))break;await sleep(100)}
   await command(`execute in ${dim} run fill ${x-5} ${y-5} ${z-5} ${x+20} ${y+12} ${z+10} minecraft:air`);
@@ -73,17 +79,18 @@ async function reset(dim,x,y,z){
   await command(`execute in ${dim} run tp ${agent} ${x+0.5} ${y} ${z+0.5} -90 0`);
   await command(`clear ${agent}`);await command(`effect give ${agent} minecraft:instant_health 1 5 true`);
   await command(`give ${agent} minecraft:cobblestone 64`);
-  await sleep(250); await observe();
+  await rate.idleSleep(250); await observe();
 }
 try {
   for(let i=0;i<150;i++){try{rcon=new HeadlessRconClient({host:'127.0.0.1',port:port+1,password:secret,connectTimeoutMs:500,commandTimeoutMs:5000});await rcon.connect();break}catch(e){await rcon?.close();if(i===149)throw e;await sleep(1000)}}
   bridge=new MultiplexedServerBridge({port,secret},{});inbox=new Inbox(bridge);
+  rate=handRolledTickRate(text=>command(text),bridge,agent);
   bridge.on('observation',e=>{if(e.agentId===record?.agentId&&e.payload.ready){observation=e.payload}});
   bridge.on('goal_spec_request',e=>{bridge.send('goal_spec_proposal',e.agentId,{requestId:e.payload.requestId,summary:'Controlled live mechanics fixture',predicate:{type:'survive_duration',ticks:12000}}).catch(()=>{});});
   const ready=inbox.wait('ready');bridge.start();await ready;
   await bridge.send('catalog_snapshot','server',{refreshedAtEpochMs:Date.now(),models:[{provider:'codex',model:'gpt-6.1-sol',id:'gpt-6.1-sol',displayName:'Provider-free routines fixture',reasoningEfforts:['low'],serviceTiers:['priority']}]});
   await command('difficulty peaceful');await command('gamerule minecraft:send_command_feedback false');await command('time set noon');
-  await command('forceload add -16 -16 32 32');await sleep(2000);
+  await command('forceload add -16 -16 32 32');await rate.idleSleep(2000);
   await command('fill -5 75 -5 20 90 10 minecraft:air');await command('fill -4 79 -4 2 79 4 minecraft:stone');
   const registered=inbox.wait('agent_registered');console.log(await command(`execute positioned 0.5 80 0.5 run mineagen summon gpt-6.1-sol low ${agent}`));
   const e=await registered;record={...(e.payload.record??e.payload),agentId:e.agentId};
@@ -95,52 +102,56 @@ try {
   await command('difficulty normal');
   await command('player Vanilla spawn at 0.5 80 0.5 facing -90 0 in minecraft:overworld in survival');
   async function act(type,args){return executeAction({actionId:`body-${++ordinal}`,action:{type,arguments:args},provenance:{traceId:`body-${ordinal}`,programId:"netherbody-fixture",programVersion:1,stepId:`step-${ordinal}`,eventSequence:observation.eventSequence}});}
-  async function save(name,data){results.push({name,...data});await writeFile(join(out,'results.json'),JSON.stringify(results,null,2));console.log(JSON.stringify({name,reason:data.result?.reasonCode,pos:data.pos,position:data.after?.position}));}
+  // begin(): the check's play starts here, at the fixture rate; save() ends it and records its tick.
+  const begin=async()=>{played=await rate.play();};
+  async function save(name,data){const tick=played?await played():null;played=null;results.push({name,...data,tick});await writeFile(join(out,'results.json'),JSON.stringify(results,null,2));console.log(JSON.stringify({name,reason:data.result?.reasonCode,pos:data.pos,position:data.after?.position}));}
   const candidate=process.argv.includes('--candidate');
   async function setup(x=0,z=0){
     await reset('minecraft:overworld',x,80,z);
     await command('difficulty normal');
     await command('tp Vanilla -3 80 -3');
     await command(`fill ${x-4} 79 ${z-4} ${x+10} 79 ${z+4} minecraft:nether_bricks`);
-    await command(`gamemode survival ${agent}`);await sleep(300);await observe();
+    await command(`gamemode survival ${agent}`);await rate.idleSleep(300);await observe();
   }
   for(let repeat=0;repeat<3;repeat++){
     for(const [name,offset,item] of [['adjacent',0.5,'cobblestone'],['overlap',0.85,'cobblestone'],['slab-clear',0.85,'oak_slab']]){
       await setup();if(name==='slab-clear')await command(`tp ${agent} 0.85 80.5 0.5 -90 45`);
       else await command(`tp ${agent} ${offset} 80 0.5 -90 45`);
       if(name==='slab-clear')await command('setblock 0 80 0 minecraft:oak_slab');
-      await command(`give ${agent} minecraft:${item} 8`);await act('select_item',{itemId:`minecraft:${item}`});await sleep(200);
+      await command(`give ${agent} minecraft:${item} 8`);await act('select_item',{itemId:`minecraft:${item}`});await rate.idleSleep(200);
       const before=await observe();
-      const result=await act('place_block',{x:1,y:80,z:0,face:'up',faceMode:'strict',itemId:`minecraft:${item}`});
+      await begin();const result=await act('place_block',{x:1,y:80,z:0,face:'up',faceMode:'strict',itemId:`minecraft:${item}`});
       await save(`${name}-${repeat}`,{result,before,after:await observe()});
     }
     // Bridge from the block beneath the player's feet: lean over its edge to expose the side.
     await setup();await command('fill -4 79 -4 10 79 4 minecraft:air');await command('setblock 0 79 0 minecraft:nether_bricks');
-    await command(`tp ${agent} 1.15 80 0.5 90 70`);await sleep(100);
-    await save(`underfoot-side-${repeat}`,{before:await observe(),result:await act('place_block',{x:1,y:79,z:0,face:'east',faceMode:'strict',itemId:'minecraft:cobblestone'}),after:await observe()});
+    await command(`tp ${agent} 1.15 80 0.5 90 70`);await rate.idleSleep(100);
+    {const before=await observe();await begin();
+    await save(`underfoot-side-${repeat}`,{before,result:await act('place_block',{x:1,y:79,z:0,face:'east',faceMode:'strict',itemId:'minecraft:cobblestone'}),after:await observe()});}
     for(const sneak of [false,true]){
       await setup();await command('fill 1 79 -4 10 79 4 minecraft:air');
-      const result=await act('control',{forward:1,strafe:0,jump:false,sneak,sprint:false,attack:false,use:false,yaw:-90,pitch:0,selectedSlot:0,hand:'main',ticks:35});
+      await begin();const result=await act('control',{forward:1,strafe:0,jump:false,sneak,sprint:false,attack:false,use:false,yaw:-90,pitch:0,selectedSlot:0,hand:'main',ticks:35});
       await save(`walk-edge-${sneak}-${repeat}`,{result,after:await observe()});
     }
     for(const mode of ['fight','control','vanilla'])for(const sneak of [false,true]){
       await setup();await command('fill 1 79 -4 10 79 4 minecraft:air');
       await command('summon minecraft:zombie -1.5 80 0.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Tags:["body-attacker"]}');
-      await command(`execute as ${agent} at @s run tp @s ~ ~ ~ 90 0`);await sleep(250);
+      await command(`execute as ${agent} at @s run tp @s ~ ~ ~ 90 0`);await rate.idleSleep(250);
       const target=(await observe()).entities.find(e=>e.type==='minecraft:zombie');
       if(!target)throw new Error('missing zombie');
       const who=mode==='vanilla'?'Vanilla':agent;
       if(mode==='vanilla'){await command('player Vanilla kill');await command('player Vanilla spawn at 0.85 80 0.5 facing 90 0 in minecraft:overworld in survival');
         // A fresh vanilla player has a 60-tick respawn damage grace period. Let it expire before the hit.
-        await sleep(4500);}
+        await rate.idleSleep(4500);}
       await command(`tp ${who} 0.85 80 0.5 90 0`);
       let running,stance;
+      await begin();
       if(mode==='vanilla'){await command(`tp ${agent} -3.5 80 3.5 90 0`);stance=await command(`player Vanilla ${sneak?'sneak':'unsneak'}`);}
       else if(mode==='control')running=act('control',{forward:0,strafe:0,jump:false,sneak,sprint:false,attack:false,use:false,yaw:90,pitch:0,selectedSlot:0,hand:'main',ticks:35});
       else running=act('fight_target',{targetId:target.uuid,pursue:false,timeoutMs:1800,...(candidate?{sneak}: {})});
-      await sleep(450);const before=await observe();
+      await rate.clock.sleep(450);const before=await observe();
       const damage=await command(`damage ${who} 1 minecraft:mob_attack by @e[tag=body-attacker,limit=1]`);
-      await sleep(650);const pos=await command(`data get entity ${who} Pos`);const during=await observe();
+      await rate.clock.sleep(650);const pos=await command(`data get entity ${who} Pos`);const during=await observe();
       const result=await running;await save(`knockback-${mode}-${sneak}-${repeat}`,{damage,stance,pos,before,during,result,after:await observe()});
     }
     for(const shield of [false,true]){
@@ -148,42 +159,42 @@ try {
       await command('summon minecraft:zombie 2.5 80 0.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Tags:["body-attacker"],Health:100f,attributes:[{id:"minecraft:max_health",base:100.0}]}');
       const target=(await observe()).entities.find(e=>e.type==='minecraft:zombie');
       if(!target)throw new Error('missing zombie');
-      const start=Date.now();const samples=[];
+      await begin();const start=rate.clock.now();const samples=[];
       const running=act('fight_target',{targetId:target.uuid,pursue:false,timeoutMs:3500,...(candidate?{sneak:true,shield}: {})});
-      for(let j=0;j<12;j++){await sleep(200);samples.push({ms:Date.now()-start,observation:await observe()});if(j===3)await command(`damage ${agent} 3 minecraft:mob_attack by @e[tag=body-attacker,limit=1]`);}
+      for(let j=0;j<12;j++){await rate.clock.sleep(200);samples.push({ms:rate.clock.now()-start,observation:await observe()});if(j===3)await command(`damage ${agent} 3 minecraft:mob_attack by @e[tag=body-attacker,limit=1]`);}
       await save(`shield-fight-${shield}-${repeat}`,{samples,result:await running,after:await observe(),targetHealth:await command(`data get entity ${target.uuid} Health`)});
     }
     await setup();await command(`item replace entity ${agent} weapon.offhand with minecraft:shield`);
-    const running=act('control',{forward:0,strafe:0,jump:false,sneak:true,sprint:false,attack:false,use:true,yaw:-90,pitch:0,selectedSlot:0,hand:'off',ticks:30});
-    await sleep(500);await save(`shield-control-sneak-${repeat}`,{during:await observe(),result:await running,after:await observe()});
+    await begin();const running=act('control',{forward:0,strafe:0,jump:false,sneak:true,sprint:false,attack:false,use:true,yaw:-90,pitch:0,selectedSlot:0,hand:'off',ticks:30});
+    await rate.clock.sleep(500);await save(`shield-control-sneak-${repeat}`,{during:await observe(),result:await running,after:await observe()});
     if(candidate){
       await setup();await command(`item replace entity ${agent} weapon.offhand with minecraft:shield`);
-      await command('summon minecraft:zombie 4.5 80 0.5 {NoAI:1b}');await sleep(200);
+      await command('summon minecraft:zombie 4.5 80 0.5 {NoAI:1b}');await rate.idleSleep(200);
       const target=(await observe()).entities.find(e=>e.type==='minecraft:zombie');
-      const running=act('fight_target',{targetId:target.uuid,pursue:false,sneak:true,shield:true,timeoutMs:10000});
-      const actionId=`body-${ordinal}`;await sleep(500);const during=await observe();
+      await begin();const running=act('fight_target',{targetId:target.uuid,pursue:false,sneak:true,shield:true,timeoutMs:10000});
+      const actionId=`body-${ordinal}`;await rate.clock.sleep(500);const during=await observe();
       await bridge.send('action_cancel',record.agentId,{actionId,goalRevision:record.goalRevision});
       await save(`cancel-shield-${repeat}`,{during,result:await running,after:await observe()});
       await command(`item replace entity ${agent} weapon.offhand with minecraft:air`);
-      await save(`missing-shield-${repeat}`,{result:await act('fight_target',{targetId:target.uuid,pursue:false,shield:true,timeoutMs:1000}),after:await observe()});
+      await begin();await save(`missing-shield-${repeat}`,{result:await act('fight_target',{targetId:target.uuid,pursue:false,shield:true,timeoutMs:1000}),after:await observe()});
     }
     // Fireballs at head height distinguish a real two-block screen from a foot-height block.
     for(const height of [0,1,2]){
       await setup();
       for(let y=80;y<80+height;y++)await act('place_block',{x:1,y,z:0,face:'up',faceMode:'strict',itemId:'minecraft:cobblestone'});
       const before=await observe();
-      const shot=await command('summon minecraft:small_fireball 5.5 81.2 0.5 {Motion:[-0.5d,0.0d,0.0d]}');
-      await sleep(1200);await save(`fireball-cover-${height}-${repeat}`,{shot,before,after:await observe()});
+      await begin();const shot=await command('summon minecraft:small_fireball 5.5 81.2 0.5 {Motion:[-0.5d,0.0d,0.0d]}');
+      await rate.clock.sleep(1200);await save(`fireball-cover-${height}-${repeat}`,{shot,before,after:await observe()});
       await command('kill @e[type=minecraft:small_fireball]');
-      await command('setblock 0 80 0 minecraft:water');await command(`tp ${agent} 0.5 80 0.5 -90 0`);await sleep(200);
+      await command('setblock 0 80 0 minecraft:water');await command(`tp ${agent} 0.5 80 0.5 -90 0`);await rate.idleSleep(200);
     }
     await setup();
     for(const y of [80,81])await act('place_block',{x:1,y,z:0,face:'up',faceMode:'strict',itemId:'minecraft:cobblestone'});
     await command('summon minecraft:zombie -1.5 80 0.5 {NoAI:1b,Tags:["body-attacker"]}');
-    await command(`execute as ${agent} at @s run tp @s ~ ~ ~ 90 0`);await sleep(300);
+    await command(`execute as ${agent} at @s run tp @s ~ ~ ~ 90 0`);await rate.idleSleep(300);
     const before=await observe();
-    await command(`damage ${agent} 1 minecraft:mob_attack by @e[tag=body-attacker,limit=1]`);
-    await sleep(900);await save(`backstop-${repeat}`,{before,after:await observe()});
+    await begin();await command(`damage ${agent} 1 minecraft:mob_attack by @e[tag=body-attacker,limit=1]`);
+    await rate.clock.sleep(900);await save(`backstop-${repeat}`,{before,after:await observe()});
   }
   await command('player Vanilla kill');
   const failures=[];
@@ -217,7 +228,7 @@ try {
     if(name.startsWith('fireball-cover-'))check(name.startsWith('fireball-cover-2')?r.after.player.health===20:r.after.player.health<20,name);
     if(name.startsWith('backstop-'))check(r.after.position.y===80&&r.after.position.x<0.71,name);
   }
-  await writeFile(join(out,'verdict.json'),JSON.stringify({candidate,checks:results.length,failures},null,2));
+  await writeFile(join(out,'verdict.json'),JSON.stringify({candidate,checks:results.length,failures,tick:await rate.report()},null,2));
   if(failures.length)throw new Error(`Fixture failures: ${failures.join(', ')}`);
 } finally {
   if(rcon)await command('stop').catch(()=>{});

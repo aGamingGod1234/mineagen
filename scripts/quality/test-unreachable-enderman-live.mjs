@@ -6,12 +6,17 @@
 // A trial passes when the pillar enderman was provoked, the reachable one was killed, at most 3 approaches ended
 // unreachable and the body lived: the switch-on bar. The pearl is recorded, not judged (a kill drops 0 or 1, vanilla). Run the switch-off control with --descriptive (today it is pinned and fails the bar).
 // Exit (strict, the default): 0 all passed, 1 a trial failed, 2 invalid evidence (an error or missing trials).
+// FIXTURE_TICK_RATE runs each trial faster: the room is built at 20 TPS, and from the provoking stare to the end of the
+// fight_until call the trial runs at the raised rate, its watch windows and seconds on the fixture clock (s.clock, game
+// time), so a raised rate plays the same game. Each row records wallSeconds, gameSeconds, rates, tick, vanilla
+// damageTaken and deaths beside its game seconds.
 import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { MOD_JAR } from './mod-jar.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
+import { damageCounter, damageEvidence, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
 
 const USAGE = 'Usage: [SKIP_UNREACHABLE=1] [TRIALS=3] test-unreachable-enderman-live.mjs OUT_DIR [--strict|--descriptive] under slot.sh live, with JAVA_HOME and ARENA_HEADLESS_SERVER_TEMPLATE';
 const cli = process.argv.slice(2);
@@ -26,7 +31,7 @@ const jar = path.resolve(process.env.ARENA_JAR ?? path.join(root, MOD_JAR));
 const on = process.env.SKIP_UNREACHABLE === '1';
 const TRIALS = Number(process.env.TRIALS ?? 3), CALL_MS = Number(process.env.CALL_MS ?? 120000);
 if (on) process.env.REPLAY_JAVA_OPTS = `${process.env.REPLAY_JAVA_OPTS ?? ''} -Dmineagen.fight.skipUnreachable=true`.trim();
-const { boot } = await import('./watch-replay.mjs');
+const { boot, fixtureTickRate } = await import('./watch-replay.mjs');
 await mkdir(out, { recursive: true });
 if ((await readdir(out)).length) throw new Error('Use a fresh output directory');
 await writeFile(path.join(out, 'manifest.json'), JSON.stringify({ kind: 'provider-free live mechanics', aiPerformanceMeasured: false, fixtureSetupUsesOperatorCommands: true,
@@ -34,7 +39,9 @@ await writeFile(path.join(out, 'manifest.json'), JSON.stringify({ kind: 'provide
 const sleep = ms => new Promise(done => setTimeout(done, ms));
 const AGENT = 'Hunter';
 const number = text => Number((/(-?\d+(?:\.\d+)?)[fdb]?\s*$/.exec(String(text).trim()) ?? [])[1]);
-const s = await boot(out, { jar, template, port, world: null, seed: '3315172112810107624' });
+const s = await boot(out, { jar, template, port, world: null, seed: '3315172112810107624', tickRate: fixtureTickRate() });
+await s.normalRate();
+const now = () => s.clock.now();
 s.bridge.on('message', (event) => {
 	const control = event.type === 'goal_control' ? event.payload : event.type === 'conversation_wake' ? event.payload.control : null;
 	if (control == null || event.agentId !== s.record?.agentId || !Number.isSafeInteger(control.goalRevision) || control.goalRevision <= s.record.goalRevision) return;
@@ -68,8 +75,11 @@ try {
 	const score = text => Number(/has (-?\d+)/.exec(String(text))?.[1]);
 	const alive = async (tag) => { await s.command(`execute store result score #e chk if entity @e[type=minecraft:enderman,tag=${tag}]`); return score(await s.command('scoreboard players get #e chk')) > 0; };
 	const angry = (o) => (o?.entities ?? []).some((row) => row.type === 'minecraft:enderman' && (row.appearance?.screaming === true || row.targetingAgent === true));
+	const readDamage = await damageCounter(text => s.command(text), AGENT);
+	const deaths = () => deathCounter(text => s.command(text), AGENT, { objective: 'deaths', unsetIsZero: true });
 	for (let trial = 1; trial <= TRIALS; trial++) {
-		for (let attempt = 0; attempt < 10 && !((await health().catch(() => 0)) > 0); attempt++) { await s.act('respawn', {}).catch(() => null); await sleep(1500); }
+		await s.normalRate();
+		for (let attempt = 0; attempt < 10 && !((await health().catch(() => 0)) > 0); attempt++) { await s.act('respawn', {}).catch(() => null); await s.idleSleep(1500); }
 		await s.command('kill @e[type=!minecraft:player]');
 		// A stone floor in the air with open sky; the pillar 6 blocks south, its top 4 above the floor, fenced round so the
 		// enderman cannot step off (an angry one inside 16 blocks of its target does not teleport, vanilla).
@@ -88,34 +98,43 @@ try {
 		await s.command(`effect give ${AGENT} minecraft:saturation 1 20 true`);
 		await s.command(`random reset minecraft:entities/enderman ${700 + trial}`);
 		await s.command('summon minecraft:enderman -299.5 104 16.5 {PersistenceRequired:1b,Tags:["pillar"]}');
-		await sleep(1500);
+		await s.idleSleep(1500);
+		const damage0 = await readDamage(), deaths0 = await deaths();
+		// Play from the stare on: game time on the fixture clock.
+		await s.fastRate();
+		const wall0 = Date.now(), timer = await s.gameTimer();
 		// Provoke the pillar one with a stare at its eyes, as the live hunts met them: angry, in view, out of reach.
 		await s.act('look_at', { x: -299.5, y: 106.55, z: 16.5 }, 20000);
 		let provoked = false;
-		for (const until = Date.now() + 8000; Date.now() < until && !provoked;) { provoked = angry(await s.observeOrNull()); if (!provoked) await sleep(250); }
+		for (const until = now() + 8000; now() < until && !provoked;) { provoked = angry(await s.observeOrNull()); if (!provoked) await s.clock.sleep(250); }
 		await s.act('look_at', { x: -299.5, y: 101.6, z: 16.5 }, 20000);
 		// The reachable one, calm, on the open floor 13 blocks off.
 		await s.command('summon minecraft:enderman -293.5 100 22.5 {PersistenceRequired:1b,Tags:["ground"]}');
-		await sleep(1000);
-		const t0 = Date.now();
+		await s.clock.sleep(1000);
+		const t0 = now();
 		let groundKilledS = null, pillarLeft = null;
 		const call = s.act('fight_until', { mob: 'minecraft:enderman', untilItem: 'minecraft:ender_pearl', untilCount: 1, fleeAtHealth: 8, timeoutMs: CALL_MS }, CALL_MS + 30000);
 		let result = null;
 		call.then(r => { result = r; }, error => { result = { state: 'ERROR', reasonCode: 'ERROR', message: String(error?.message ?? error) }; });
 		while (!result) {
-			await sleep(500);
-			if (groundKilledS === null && !(await alive('ground'))) groundKilledS = +((Date.now() - t0) / 1000).toFixed(1);
+			await s.clock.sleep(500);
+			if (groundKilledS === null && !(await alive('ground'))) groundKilledS = +((now() - t0) / 1000).toFixed(1);
 		}
 		pillarLeft = await alive('pillar');
-		const seconds = +((Date.now() - t0) / 1000).toFixed(1);
+		const seconds = +((now() - t0) / 1000).toFixed(1);
+		const play = { wallSeconds: Math.round((Date.now() - wall0) / 1000), gameSeconds: Math.round((await timer.elapsed()) / 1000), rates: await timer.rates().catch(() => null) };
+		await s.normalRate();
+		play.damageTaken = damageEvidence(damage0, await readDamage()).damageTaken;
+		play.deaths = deathEvidence(deaths0, await deaths()).deaths;
+		play.tick = { rate: s.tickRate, held: await s.tickReport() };
 		const message = String(result.message ?? '');
 		const endings = Object.fromEntries([...(/endings: \{([^}]*)\}/.exec(message)?.[1] ?? '').matchAll(/(\w+)=(\d+)/g)].map(m => [m[1], Number(m[2])]));
 		const gained = Number(/gained (\d+)/.exec(message)?.[1] ?? 0);
-		const row = { trial, startedAt: t0, finishedAt: Date.now(), skipUnreachable: on, provoked, state: result.state, reasonCode: result.reasonCode, seconds,
+		const row = { trial, startedAt: wall0, finishedAt: Date.now(), skipUnreachable: on, provoked, state: result.state, reasonCode: result.reasonCode, seconds,
 			unreachableApproaches: (endings.NO_SEEN_ROUTE ?? 0) + (endings.TARGET_UNREACHABLE ?? 0), endings,
 			kills: Number(/: (\d+) kills?,/.exec(message)?.[1] ?? 0), groundKilledS, pearlsGained: gained, firstPearlS: gained > 0 && result.reasonCode === 'UNTIL_COUNT_REACHED' ? seconds : null,
 			pillarStillOnPillar: pillarLeft, keptOn: Number(/kept on (\d+) that left reach/.exec(message)?.[1] ?? 0),
-			passedOver: Number(/out of reach: passed over (\d+)/.exec(message)?.[1] ?? 0), healthEnd: await health().catch(() => null), message: message.slice(0, 1600) };
+			passedOver: Number(/out of reach: passed over (\d+)/.exec(message)?.[1] ?? 0), healthEnd: await health().catch(() => null), message: message.slice(0, 1600), ...play };
 		if (result.state === 'ERROR') row.error = `fight_until never returned: ${result.message}`;
 		row.pass = row.provoked && row.groundKilledS !== null && row.unreachableApproaches <= 3 && row.healthEnd > 0;
 		trials.push(row);

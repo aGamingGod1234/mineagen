@@ -1,8 +1,13 @@
 #!/usr/bin/env node
 // Model-free death/retrace through production actions. Fixture commands construct terrain and cause death only.
+// FIXTURE_TICK_RATE runs each trial faster: terrain and body setup stay at 20 TPS, and a trial (outbound walk, death,
+// respawn, retrace and pickup) runs at the raised rate with its waits and seconds on the fixture clock (s.clock, game
+// time). Each trial records seconds (game), wallSeconds, gameSeconds, rates, tick and vanilla damage on the outbound and
+// retrace legs (the fixture's own kill falls between them).
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
-import { boot } from './watch-replay.mjs';
+import { boot, fixtureTickRate } from './watch-replay.mjs';
+import { damageCounter, damageEvidence } from './lib/damage-counter.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 const out=resolve(process.argv[2]);
 const only=process.argv[3];
@@ -33,10 +38,12 @@ async function walk(s,x,y,z){const r=await act(s,'travel_to',{x,y,z,tolerance:1,
 async function dim(s,target){for(let i=0;i<50;i++){const o=await observe(s);if(o.world.dimension===target)return o;await sleep(200);}throw Error(`no ${target}`);}
 for(const scenario of (only==='ladder'?['ladder']:['cave','nether','end']).filter(x=>!only||x===only)) {
  const dir=join(out,scenario);await mkdir(dir,{recursive:true});
- const s=server=await boot(dir,{jar,template,port,seed:20261024});
+ const s=server=await boot(dir,{jar,template,port,seed:20261024,tickRate:fixtureTickRate()});
  try {
+  await s.normalRate();
+  const now=()=>s.clock.now();
   await s.command('difficulty peaceful');await s.command('time set 1000');
-  await s.command('forceload add -16 -16 64 64');await sleep(1000);
+  await s.command('forceload add -16 -16 64 64');await s.idleSleep(1000);
   const y=['cave','ladder'].includes(scenario)?-30:100;
   if(scenario==='ladder') {
    await s.command('fill -3 -30 -3 4 -6 3 minecraft:air');
@@ -62,10 +69,15 @@ for(const scenario of (only==='ladder'?['ladder']:['cave','nether','end']).filte
   const started=s.inbox.wait('goal_control',e=>e.payload.operation==='start');await s.command(`mineagen start ${A} Survive for 1200 seconds.`);s.record.goalRevision=(await started).payload.goalRevision;
   await s.bridge.send('agent_ready',s.record.agentId,{goalRevision:s.record.goalRevision,reconciled:false});
   await s.command(`spawnpoint ${A} ${Math.floor(spawnX)} ${y} 0`);
+  const readDamage=await damageCounter(text=>s.command(text),A);
   for(let run=1;run<=Number(process.env.RECOVERY_REPS??3);run++) {
    const result={scenario,run,steps:[]};results.push(result);
    try {
     await s.command(`give ${A} minecraft:iron_pickaxe 1`);await s.command(`give ${A} minecraft:iron_sword 1`);await s.command(`give ${A} minecraft:cobblestone 16`);
+    const damage0=await readDamage();
+    // The trial is play: game time on the fixture clock from here to the last pickup.
+    await s.fastRate();
+    const t0=now(),wall0=Date.now(),timer=await s.gameTimer();
     let destination={x:24.5,y,z:24.5},dimension=OW;
     if(scenario==='ladder') {
      result.steps.push(await act(s,'control',{...control(90,1),forward:0,pitch:0}));
@@ -102,9 +114,11 @@ for(const scenario of (only==='ladder'?['ladder']:['cave','nether','end']).filte
      }
     }
     const before=await observe(s);console.log('outbound',scenario,before.position,before.routeMemory);result.deathPosition=before.position;destination={...before.position};result.destination=destination;
-    await sleep(3500);const dead=s.inbox.wait('goal_control',e=>e.payload.operation==='dead');await s.command(`kill ${A}`);await dead;
+    await s.clock.sleep(3500);result.outboundDamageTaken=damageEvidence(damage0,await readDamage()).damageTaken;
+    const dead=s.inbox.wait('goal_control',e=>e.payload.operation==='dead');await s.command(`kill ${A}`);await dead;
     result.dropProof=await s.command(`execute in ${dimension} positioned ${before.position.x} ${before.position.y} ${before.position.z} run data get entity @e[type=minecraft:item,limit=1,sort=nearest]`);
-    const diedAt=Date.now();result.steps.push(await act(s,'respawn',{}));await dim(s,OW);await sleep(750);
+    const diedAt=now();result.steps.push(await act(s,'respawn',{}));await dim(s,OW);await s.clock.sleep(750);
+    const damage1=await readDamage();
     const spawned=await observe(s);result.spawnPosition=spawned.position;result.respawnRoute=spawned.routeMemory;
     if(Math.hypot(spawned.position.x-spawnX,spawned.position.y-y,spawned.position.z-0.5)>3)throw Error('Fixture respawn missed the prepared camp');
     if(!result.respawnRoute?.death || Math.hypot(result.respawnRoute.death.x-result.deathPosition.x,result.respawnRoute.death.y-result.deathPosition.y,result.respawnRoute.death.z-result.deathPosition.z)>2) throw Error('Respawn route facts lost the death position');
@@ -114,48 +128,54 @@ for(const scenario of (only==='ladder'?['ladder']:['cave','nether','end']).filte
      const d=current.world.dimension===dimension?Math.hypot(current.position.x-destination.x,current.position.y-destination.y,current.position.z-destination.z):Infinity;
      if(d<=3) break;
      const r=await act(s,'travel_to',{...destination,dimension,retrace:true,build:false,tolerance:1,timeoutMs:110000});result.steps.push(r);
-     if(r.reasonCode==='DIMENSION_TRANSITION'){await sleep(700);continue;}
+     if(r.reasonCode==='DIMENSION_TRANSITION'){await s.clock.sleep(700);continue;}
      if(r.state!=='SUCCEEDED')break;
     }
     const after=await observe(s);
-    result.secondsToDropPoint=(Date.now()-diedAt)/1000;
+    result.secondsToDropPoint=(now()-diedAt)/1000;
     result.distance=after.world.dimension===dimension?Math.hypot(after.position.x-destination.x,after.position.y-destination.y,after.position.z-destination.z):null;
     result.reached=result.distance!==null&&result.distance<=3;
     // Pick up only stacks the player's current observation actually sees.
     for(let n=0;n<4;n++) {const o=await observe(s);for(const item of o.entities??[])if(item.type==='minecraft:item')result.steps.push(await act(s,'pick_up_item',{targetSelector:item.stableId??item.uuid}));if(!o.inventory.items.some(i=>i.itemId==='minecraft:iron_pickaxe'))result.steps.push(await act(s,'control',{...control(n===3?-90:n*90,1),forward:0,pitch:70}));}
     const final=await observe(s);result.finalPosition=final.position;result.finalEntities=final.entities;const inventory=final.inventory.items;result.inventory=inventory;result.pickaxeRecovered=inventory.some(i=>i.itemId==='minecraft:iron_pickaxe');result.kitRecovered=result.pickaxeRecovered&&inventory.some(i=>i.itemId==='minecraft:iron_sword');
-    result.secondsToPick=(Date.now()-diedAt)/1000;result.secondsToKit=result.kitRecovered?result.secondsToPick:null;result.ok=result.reached;
+    result.secondsToPick=(now()-diedAt)/1000;result.secondsToKit=result.kitRecovered?result.secondsToPick:null;result.ok=result.reached;
+    result.retraceDamageTaken=damageEvidence(damage1,await readDamage()).damageTaken;
+    result.seconds=Math.round((now()-t0)/1000);result.wallSeconds=Math.round((Date.now()-wall0)/1000);result.gameSeconds=Math.round((await timer.elapsed())/1000);result.rates=await timer.rates().catch(()=>null);
+    result.tick={rate:s.tickRate,held:await s.tickReport()};
    } catch(error){result.error=String(error.stack??error);result.ok=false;}
    await writeFile(join(out,'results.json'),JSON.stringify({jar,results},null,2));console.log(JSON.stringify(result));
-   if(!result.ok)break;
-   // Cave repeats walk home; other fixtures reset only between trials, creating no graph edge.
-   if(scenario==='cave') {await walk(s,24.5,y,0.5);await walk(s,0.5,y,0.5);}
+   if(!result.ok){await s.normalRate();break;}
+   // Cave repeats walk home (the body acts, so still at the raised rate); other fixtures reset only between trials, creating no graph edge.
+   if(scenario==='cave') {await walk(s,24.5,y,0.5);await walk(s,0.5,y,0.5);await s.normalRate();}
    else {
+    await s.normalRate();
     // Fixture-only reset between trials. Teleport creates no graph edge.
-    await s.command(`execute in ${OW} run tp ${A} ${spawnX} ${y} 0.5`);await sleep(1500);
+    await s.command(`execute in ${OW} run tp ${A} ${spawnX} ${y} 0.5`);await s.idleSleep(1500);
    }
    await s.command(`clear ${A}`);
   }
   if(process.env.RECOVERY_TOOLS==='1' && scenario==='cave' && results.filter(r=>r.scenario==='cave').every(r=>r.ok)) {
-   const tool={kind:'measured-tool-path',steps:[]};const t0=Date.now();
+   // The tool path and shaft are play: the body acts at the raised rate, timed on the fixture clock.
+   await s.fastRate();
+   const tool={kind:'measured-tool-path',steps:[]};const t0=now(),wall0=Date.now();
    await s.command(`clear ${A}`);
    for(let dy=0;dy<3;dy++) await s.command(`setblock 3 ${y+dy} 0 minecraft:oak_log`);
    for(let dy=2;dy>=0;dy--) tool.steps.push(await act(s,'break_block',{x:3,y:y+dy,z:0,expectedBlockId:'minecraft:oak_log',timeoutMs:20000}));
    for(let round=0;round<3;round++) for(const item of (await observe(s)).entities??[]) if(item.type==='minecraft:item')tool.steps.push(await act(s,'pick_up_item',{targetSelector:item.stableId??item.uuid}));
-   tool.logsSeconds=(Date.now()-t0)/1000;
+   tool.logsSeconds=(now()-t0)/1000;
    tool.steps.push(await act(s,'craft_inventory',{recipeId:'minecraft:oak_planks',count:12,timeoutMs:20000}));
    tool.steps.push(await act(s,'craft_inventory',{recipeId:'minecraft:crafting_table',count:1,timeoutMs:20000}));
    tool.steps.push(await act(s,'craft_inventory',{recipeId:'minecraft:stick',count:4,timeoutMs:20000}));
    tool.steps.push(await act(s,'place_block',{x:0,y,z:1,face:'up',itemId:'minecraft:crafting_table'}));
    tool.steps.push(await act(s,'craft_table',{recipeId:'minecraft:wooden_pickaxe',x:0,y,z:1,count:1,timeoutMs:20000}));
-   tool.woodenPickSeconds=(Date.now()-t0)/1000;
+   tool.woodenPickSeconds=(now()-t0)/1000;
    let inv=(await observe(s)).inventory.items;let pick=inv.find(i=>i.itemId==='minecraft:wooden_pickaxe');
    if(pick) tool.steps.push(await act(s,'select_item',{itemId:'minecraft:wooden_pickaxe'}));
    for(let x=1;x<=3;x++) await s.command(`setblock ${x} ${y} 2 minecraft:stone`);
    for(let x=1;x<=3;x++) tool.steps.push(await act(s,'break_block',{x,y,z:2,expectedBlockId:'minecraft:stone',timeoutMs:20000}));
    for(let round=0;round<3;round++) for(const item of (await observe(s)).entities??[]) if(item.type==='minecraft:item')tool.steps.push(await act(s,'pick_up_item',{targetSelector:item.stableId??item.uuid}));
    tool.steps.push(await act(s,'craft_table',{recipeId:'minecraft:stone_pickaxe',x:0,y,z:1,count:1,timeoutMs:20000}));
-   tool.stonePickSeconds=(Date.now()-t0)/1000;tool.inventory=(await observe(s)).inventory.items;tool.ok=tool.inventory.some(i=>i.itemId==='minecraft:stone_pickaxe');
+   tool.stonePickSeconds=(now()-t0)/1000;tool.wallSeconds=(Date.now()-wall0)/1000;tool.tick={rate:s.tickRate};tool.inventory=(await observe(s)).inventory.items;tool.ok=tool.inventory.some(i=>i.itemId==='minecraft:stone_pickaxe');
    await writeFile(join(out,'tool-path.json'),JSON.stringify(tool,null,2));console.log(JSON.stringify(tool));
    const shaft={steps:[]};
    shaft.steps.push(await act(s,'navigate_to',{x:0.5,y,z:0.5,tolerance:0.2,sprint:false,timeoutMs:30000}));
@@ -164,7 +184,7 @@ for(const scenario of (only==='ladder'?['ladder']:['cave','nether','end']).filte
    shaft.steps.push(await act(s,'dig_to',{pattern:'shaft',y:y-8,maxShaftY:y-8,throughCaves:false,timeoutMs:110000}));
    shaft.bottom=(await observe(s)).position;
    shaft.steps.push(await act(s,'travel_to',{x:0.5,y,z:0.5,retrace:true,build:true,tolerance:1,timeoutMs:110000}));
-   shaft.top=(await observe(s)).position;shaft.ok=Math.abs(shaft.top.y-y)<1 && Math.abs(shaft.bottom.y-(y-8))<1;
+   shaft.top=(await observe(s)).position;await s.normalRate();shaft.ok=Math.abs(shaft.top.y-y)<1 && Math.abs(shaft.bottom.y-(y-8))<1;
    await writeFile(join(out,'shaft.json'),JSON.stringify(shaft,null,2));console.log(JSON.stringify({kind:'shaft',...shaft}));
   }
  } catch(error) {await writeFile(join(dir,'fixture-error.json'),JSON.stringify({error:String(error.stack??error)},null,2));throw error;} finally {await s.stop();server=null;}

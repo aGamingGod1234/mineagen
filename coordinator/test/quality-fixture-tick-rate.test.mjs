@@ -83,8 +83,8 @@ test('boot runs a fixture at 20 unless it passes a rate, and says why when FIXTU
 });
 
 // rest: at 80, 2 of 6 walled-in nights took 3-4 damage and 1 of 6 bed nights could not place its bed; no run at 20 did
-// (cause not known). travel: its own waits are still wall time. Neither may pass a raised rate.
-for (const fixture of ['rest', 'travel']) {
+// (cause not known). It may not pass a raised rate.
+for (const fixture of ['rest']) {
 	test(`the ${fixture} fixture boots at 20 TPS whatever FIXTURE_TICK_RATE says`, async () => {
 		const source = await readFile(new URL(`../../scripts/quality/test-${fixture}-live.mjs`, import.meta.url), 'utf8');
 		// A boot() call, or the boot options a fixture hands warmBoots (fixture-servers.mjs).

@@ -8,6 +8,7 @@ import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
+import { handRolledTickRate } from './lib/fixture-play.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const out = resolve(process.argv[2] ?? 'runtime/lavawork-live');
@@ -42,6 +43,13 @@ class Inbox {
 }
 
 let rcon, bridge, record, observation, inbox, revision = 0, ordinal = 0, armed = [];
+// FIXTURE_TICK_RATE (test only): setup (reset, building, look-around, items) runs at 20 TPS; each scenario's play, from
+// the first break or pour to the end of its watch, runs at the fixture rate with its windows in game time. results[name].tick
+// holds the rates. An unarmed run's rescue at 10 health is harness commands sent after a read: at 60 TPS the lava burns
+// about three times as many ticks during them, so the body may sink lower (or die) before it is pulled out. Neither
+// changes that verdict (it asks for lost health or a death).
+let rate;
+const now = () => rate.clock.now();
 const agent = 'Lava';
 const timeline = [];
 const command = async (text) => {
@@ -85,11 +93,12 @@ let o;
 try {
 	for (let attempt = 0; attempt < 150; attempt += 1) { try { rcon = new HeadlessRconClient({ host: '127.0.0.1', port: port + 1, password: secret, connectTimeoutMs: 500, commandTimeoutMs: 5000 }); await rcon.connect(); break; } catch (error) { await rcon?.close(); if (attempt === 149) throw error; await sleep(1000); } }
 	bridge = new MultiplexedServerBridge({ port, secret }, {}); inbox = new Inbox(bridge);
+	rate = handRolledTickRate(text => command(text), bridge, agent);
 	bridge.on('observation', (event) => {
 		if (event.agentId !== record?.agentId || !event.payload.ready) return;
 		observation = event.payload;
 		const firing = event.payload.reflexes?.firing;
-		timeline.push({ at: Date.now(), firing: firing?.id ?? null, detail: firing?.detail ?? null, using: event.payload.interaction?.usingItem ?? null, x: event.payload.position?.x, action: event.payload.currentAction?.active ? event.payload.currentAction.actionId ?? true : false, health: event.payload.player?.health, incoming: (event.payload.incomingProjectiles ?? []).map((row) => `${row.type}@${row.etaSeconds}`), yaw: event.payload.view?.yaw, air: event.payload.player?.air, y: event.payload.position?.y });
+		timeline.push({ at: now(), firing: firing?.id ?? null, detail: firing?.detail ?? null, using: event.payload.interaction?.usingItem ?? null, x: event.payload.position?.x, action: event.payload.currentAction?.active ? event.payload.currentAction.actionId ?? true : false, health: event.payload.player?.health, incoming: (event.payload.incomingProjectiles ?? []).map((row) => `${row.type}@${row.etaSeconds}`), yaw: event.payload.view?.yaw, air: event.payload.player?.air, y: event.payload.position?.y });
 	});
 	// Follow goal revisions (the accepted goal spec bumps it); reflex rules are not tied to a revision.
 	bridge.on('message', (event) => {
@@ -105,19 +114,20 @@ try {
 	const ready = inbox.wait('ready'); bridge.start(); await ready;
 	await bridge.send('catalog_snapshot', 'server', { refreshedAtEpochMs: Date.now(), models: [{ provider: 'codex', model: 'gpt-6.1-sol', id: 'gpt-6.1-sol', displayName: 'Provider-free reflex fixture', reasoningEfforts: ['low'], serviceTiers: ['default'] }] });
 	await command('difficulty normal'); await command('gamerule minecraft:send_command_feedback false'); await command('gamerule minecraft:spawn_mobs false');
-	await command('time set noon'); await command('forceload add -32 -32 48 48'); await sleep(2000);
+	await command('time set noon'); await command('forceload add -32 -32 48 48'); await rate.idleSleep(2000);
 	await command('fill -24 75 -24 40 95 40 minecraft:air'); await command('fill -24 79 -24 40 79 40 minecraft:stone');
 	const registered = inbox.wait('agent_registered'); console.log(await command(`execute positioned 0.5 80 0.5 run mineagen summon gpt-6.1-sol low ${agent}`));
 	const summoned = await registered; record = { ...(summoned.payload.record ?? summoned.payload), agentId: summoned.agentId };
 	await bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false });
 	const started = inbox.wait('goal_control', (event) => event.payload.operation === 'start'); await command(`mineagen start ${agent} Survive for 1200 seconds.`); record.goalRevision = (await started).payload.goalRevision;
 	await bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false });
-	await sleep(2000); await observe();
+	await rate.idleSleep(2000); await observe();
 	await command(`gamemode survival ${agent}`); await command(`clear ${agent}`);
 	await command(`effect give ${agent} minecraft:saturation 5 10 true`);
 
 
 	const reset = async () => {
+		await rate.normalRate();
 		await command('kill @e[type=!minecraft:player]');
 		for (const fill of ['-8 70 -8 8 90 8 minecraft:air', '-8 70 -8 8 79 8 minecraft:stone']) {
 			const reply = await command(`fill ${fill}`);
@@ -128,7 +138,7 @@ try {
 		await command(`effect give ${agent} minecraft:instant_health 1 5 true`); await command(`effect give ${agent} minecraft:saturation 2 10 true`);
 		await command(`clear ${agent}`);
 		await setReflexes([]);
-		await sleep(2500);
+		await rate.idleSleep(2500);
 		await command(`effect clear ${agent}`);
 	};
 	const selected = (name) => only.length === 0 || only.includes(name);
@@ -144,31 +154,31 @@ try {
 	const fill = async (spec) => { const reply = await command(`fill ${spec}`); if (/too many|cannot|error|unknown/i.test(reply)) throw new Error(`fill refused: ${reply}`); };
 	const isBlock = async (x, y, z, id) => (await command(`execute if block ${x} ${y} ${z} ${id}`)).includes('passed');
 	const lavaAt = (now) => now.player?.hazard === 'lava' || now.player?.harm?.source === 'minecraft:lava' || now.player?.inLava === true;
-	const sample = (now) => ({ at: Date.now(), x: now.position?.x, y: now.position?.y, z: now.position?.z, health: health(now), harm: now.player?.harm?.source ?? null,
+	const sample = (now) => ({ at: rate.clock.now(), x: now.position?.x, y: now.position?.y, z: now.position?.z, health: health(now), harm: now.player?.harm?.source ?? null,
 		hazard: now.player?.hazard ?? null, inLava: lavaAt(now), firing: now.reflexes?.firing?.id ?? null, detail: now.reflexes?.firing?.detail ?? null });
-	const give = async (slot, item) => { await command(`item replace entity ${agent} hotbar.${slot} with ${item}`); await sleep(300); };
+	const give = async (slot, item) => { await command(`item replace entity ${agent} hotbar.${slot} with ${item}`); await rate.idleSleep(300); };
 	const act = async (type, args) => (await startAction(type, args)).result;
 	const brief = (result) => ({ state: result.state, reason: result.reasonCode, message: String(result.message ?? JSON.stringify(result.failure ?? '')).slice(0, 400) });
 	/** Samples the body for `ms` after an action; `stopWhen` ends early. Rescues a body still in lava at the end (tp out, heal). */
 	// Unarmed runs stop at rescueAt health (the lava has shown its cost) so the fixture never needs a death and respawn.
 	const watch = async (ms, rows, rescueAt = 0) => {
-		const end = Date.now() + ms; let died = false;
-		while (Date.now() < end) {
+		const end = now() + ms; let died = false;
+		while (now() < end) {
 			try { o = await observe(); } catch { died = true; break; }
 			rows.push(sample(o));
 			if (o.player?.dead || health(o) <= 0) { died = true; break; }
 			if (health(o) <= rescueAt) { await rescue(); break; }
-			await sleep(200);
+			await rate.clock.sleep(200);
 		}
 		return died;
 	};
 	// The fixture is built around the agent; it looks all round so its seen terrain holds the new walls and tunnel.
 	const lookAround = async (pitch) => { for (const yaw of [90, 180, -90, 0]) await act('control', { forward: 0, strafe: 0, jump: false, sneak: false, sprint: false, attack: false, use: false, yaw, pitch, selectedSlot: 0, hand: 'main', ticks: 8 }); };
-	const rescue = async () => { await command(`effect give ${agent} minecraft:fire_resistance 10 0 true`); await command(`effect give ${agent} minecraft:instant_health 1 5 true`); await command(`tp ${agent} 0.5 85 -6.5`); await sleep(1500); };
+	const rescue = async () => { await command(`effect give ${agent} minecraft:fire_resistance 10 0 true`); await command(`effect give ${agent} minecraft:instant_health 1 5 true`); await command(`tp ${agent} 0.5 85 -6.5`); await rate.idleSleep(1500); };
 	const respawnIfDead = async () => {
 		let dead = false;
 		try { o = await observe(); dead = o.player?.dead || health(o) <= 0; } catch { dead = true; }
-		if (dead) { await act('respawn', {}).catch(() => {}); await sleep(3000); }
+		if (dead) { await act('respawn', {}).catch(() => {}); await rate.idleSleep(3000); }
 	};
 
 	// A 1-wide tunnel heading +z; the face block at head height hides a lava source (iron-a: breaking the tunnel face).
@@ -176,7 +186,7 @@ try {
 		await fill('-3 80 -7 3 84 4 minecraft:stone');
 		await fill('0 80 -6 0 81 0 minecraft:air');
 		await set('0 81 2 minecraft:lava');
-		await command(`tp ${agent} 0.5 80 0.5 0 20`); await sleep(1500); await lookAround(20);
+		await command(`tp ${agent} 0.5 80 0.5 0 20`); await rate.idleSleep(1500); await lookAround(20);
 	};
 	const opened = async (name, rules, rescueAt) => {
 		try {
@@ -185,13 +195,15 @@ try {
 			if (rules.length) o = await setReflexes(rules);
 			o = await observe(); const before = health(o);
 			since = Math.max(0, ...(o.reflexes?.events ?? []).map((row) => row.seq ?? 0));
+			const played = await rate.play();
 			const guard = await act('break_block', { x: 0, y: 81, z: 1, expectedBlockId: 'minecraft:stone', timeoutMs: 8000 });
 			let broke = guard;
 			if (guard.reasonCode === 'LAVA_BEHIND') broke = await act('break_block', { x: 0, y: 81, z: 1, expectedBlockId: 'minecraft:stone', timeoutMs: 8000, acceptLavaRisk: true });
 			const rows = []; const died = await watch(12000, rows, rescueAt);
+			const tick = await played();
 			const inLavaSamples = rows.filter((row) => row.inLava).length;
 			results[name] = { healthBefore: before, minHealth: Math.min(...rows.map((row) => row.health ?? 20)), final: rows.at(-1), died, inLavaSamples,
-				firstBreak: brief(guard), break: brief(broke), reflexEvents: events(o, 'lava'), rows: rows.filter((_, index) => index % 4 === 0) };
+				firstBreak: brief(guard), break: brief(broke), reflexEvents: events(o, 'lava'), rows: rows.filter((_, index) => index % 4 === 0), tick };
 			await respawnIfDead(); if (!died) await rescue();
 			await settle(name);
 			return results[name];
@@ -213,7 +225,7 @@ try {
 		await fill('-3 79 -3 3 79 3 minecraft:air');
 		await set('0 78 0 minecraft:lava');
 		await set('0 79 0 minecraft:obsidian');
-		await command(`tp ${agent} 0.5 80 0.5 0 60`); await sleep(1500); await lookAround(60);
+		await command(`tp ${agent} 0.5 80 0.5 0 60`); await rate.idleSleep(1500); await lookAround(60);
 	};
 	const standOn = async (name, rules, rescueAt) => {
 		try {
@@ -222,11 +234,13 @@ try {
 			if (rules.length) o = await setReflexes(rules);
 			o = await observe(); const before = health(o);
 			since = Math.max(0, ...(o.reflexes?.events ?? []).map((row) => row.seq ?? 0));
+			const played = await rate.play();
 			const guard = await act('break_block', { x: 0, y: 79, z: 0, expectedBlockId: 'minecraft:obsidian', timeoutMs: 15000 });
 			const broke = guard.reasonCode === 'LAVA_BEHIND' ? await act('break_block', { x: 0, y: 79, z: 0, expectedBlockId: 'minecraft:obsidian', timeoutMs: 15000, acceptLavaRisk: true }) : guard;
 			const rows = []; const died = await watch(12000, rows, rescueAt);
+			const tick = await played();
 			results[name] = { healthBefore: before, minHealth: Math.min(...rows.map((row) => row.health ?? 20)), final: rows.at(-1), died,
-				inLavaSamples: rows.filter((row) => row.inLava).length, firstBreak: brief(guard), break: brief(broke), reflexEvents: events(o, 'lava'), rows: rows.filter((_, index) => index % 4 === 0) };
+				inLavaSamples: rows.filter((row) => row.inLava).length, firstBreak: brief(guard), break: brief(broke), reflexEvents: events(o, 'lava'), rows: rows.filter((_, index) => index % 4 === 0), tick };
 			await respawnIfDead(); if (!died) await rescue();
 			await settle(name);
 			return results[name];
@@ -249,26 +263,29 @@ try {
 			await reset();
 			// The stand is one block up, so the poured water runs past below the feet instead of pushing the body.
 			await set('3 78 0 minecraft:lava'); await set('3 79 0 minecraft:lava'); await set('1 80 0 minecraft:stone');
-			await command(`tp ${agent} 1.5 81 0.5 -90 40`); await sleep(1500); await lookAround(40);
+			await command(`tp ${agent} 1.5 81 0.5 -90 40`); await rate.idleSleep(1500); await lookAround(40);
 			await act('control', { forward: 0, strafe: 0, jump: false, sneak: false, sprint: false, attack: false, use: false, yaw: -90, pitch: 40, selectedSlot: 0, hand: 'main', ticks: 8 });
 			await give(0, 'minecraft:diamond_pickaxe'); await give(1, 'minecraft:water_bucket');
 			o = await observe(); const before = health(o);
+			const played = await rate.play();
 			await act('select_item', { itemId: 'minecraft:water_bucket' });
 			const pour = await act('interact_block', { x: 2, y: 79, z: 0, face: 'up', hand: 'main', expectedItemId: 'minecraft:water_bucket' });
-			await sleep(2500);
+			await rate.clock.sleep(2500);
 			const cast = await isBlock(3, 79, 0, 'minecraft:obsidian');
 			const scoop = await act('interact_block', { x: 2, y: 80, z: 0, face: 'up', hand: 'main', expectedItemId: 'minecraft:bucket' });
-			await sleep(1500);
+			await rate.clock.sleep(1500);
 			await act('select_item', { itemId: 'minecraft:diamond_pickaxe' });
 			const mined = await act('break_block', { x: 3, y: 79, z: 0, expectedBlockId: 'minecraft:obsidian', timeoutMs: 15000 });
 			const rows = []; await watch(4000, rows);
+			const tick = await played();
 			results[name] = { healthBefore: before, minHealth: Math.min(...rows.map((row) => row.health ?? 20)), final: rows.at(-1), cast,
-				pour: brief(pour), scoop: brief(scoop), mine: brief(mined), inLavaSamples: rows.filter((row) => row.inLava).length };
+				pour: brief(pour), scoop: brief(scoop), mine: brief(mined), inLavaSamples: rows.filter((row) => row.inLava).length, tick };
 			results[name].pass = cast && mined.state === 'SUCCEEDED' && /lava now open below/.test(mined.message ?? '') && results[name].inLavaSamples === 0 && results[name].minHealth >= before;
 			await settle(name);
 		} catch (error) { await settle(name, error); }
 	}
 	results.status = o?.reflexes;
+	await writeFile(join(out, 'tick.json'), JSON.stringify(await rate.report(), null, 2));
 	await writeFile(join(out, 'results.json'), JSON.stringify(results, null, 2));
 	await writeFile(join(out, 'timeline.json'), JSON.stringify(timeline, null, 1));
 	console.log(JSON.stringify(Object.fromEntries(Object.entries(results).filter(([key]) => key !== 'status').map(([key, value]) => [key, value.pass]))));
