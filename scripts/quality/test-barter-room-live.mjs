@@ -138,9 +138,22 @@ async function getGold() {
 	}
 	if (!ore) return false;
 	await select('minecraft:iron_pickaxe');
-	// The body mines only ore it sees, so turn to it first, as the refusal tells a model to.
+	// The body mines only ore it sees and reaches: walk up to it, then turn to it, as the refusals tell a model to.
+	if (Math.hypot(ore.x + 0.5 - facts.player.x, ore.z + 0.5 - facts.player.z) > 3.5)
+		await act('navigate_to', { x: ore.x + 0.5 + Math.sign(facts.player.x - ore.x), y: Y, z: ore.z + 0.5, tolerance: 1, sprint: false, timeoutMs: 20000 }, 30000);
 	await act('look_at', { x: ore.x + 0.5, y: ore.y + 0.5, z: ore.z + 0.5 });
-	return (await act('mine_vein', { x: ore.x, y: ore.y, z: ore.z, maxBlocks: 64, timeoutMs: 120000 }, 150000)).state === 'SUCCEEDED' || held('minecraft:gold_nugget') > nuggets;
+	await act('mine_vein', { x: ore.x, y: ore.y, z: ore.z, maxBlocks: 64, timeoutMs: 120000 }, 150000);
+	await collectNuggets();
+	return held('minecraft:gold_nugget') > nuggets;
+}
+// Mined nuggets drop in the mined cells, out of touch range: pick each seen stack up.
+async function collectNuggets() {
+	for (let i = 0; i < 12; i++) {
+		const drop = (facts.items ?? []).filter(x => x.itemId === 'minecraft:gold_nugget' && (x.distance ?? 99) <= 10).sort((a, b) => a.distance - b.distance)[0];
+		if (!drop) return;
+		const r = await act('pick_up_item', { targetSelector: drop.stableId, timeoutMs: 10000 }, 20000);
+		if (r.state !== 'SUCCEEDED') return;
+	}
 }
 async function wearGold() {
 	const piece = items().find(i => !WORN.has(i.slot) && /^minecraft:golden_(helmet|chestplate|leggings|boots)$/.test(i.itemId));
@@ -226,7 +239,7 @@ try {
 	const gold0 = goldUnits(), pearls0 = held('minecraft:ender_pearl');
 	row.goldStart = gold0;
 	startTicks = await gameTicks(); startedAt = Date.now(); row.startedAt = startedAt;
-	let idle = 0;
+	let idle = 0, outOfGold = false;
 	while (!dead && !row.notExercised && (await left()) > 100) {
 		await think();
 		await observe();
@@ -238,7 +251,10 @@ try {
 		// equip_item refuses an occupied armour slot; then the model tries the barter job, which puts carried gold on itself.
 		const carriedGold = items().some(i => !WORN.has(i.slot) && /^minecraft:golden_(helmet|chestplate|leggings|boots)$/.test(i.itemId));
 		if (!goldWorn() && !(await wearGold()) && !carriedGold) { idle++; continue; }
-		if (held('minecraft:gold_ingot') === 0 && goldWorn()) {
+		// Gold to convert goes to the barter job first; after it hands back OUT_OF_GOLD the model crafts it by hand.
+		const convertible = held('minecraft:gold_block') > 0 || held('minecraft:gold_nugget') >= 9;
+		if (held('minecraft:gold_ingot') === 0 && goldWorn() && (!convertible || outOfGold)) {
+			outOfGold = false;
 			if (!(await getGold())) { if (++idle > 6) { row.stopped = 'no gold left to trade, convert or mine'; break; } }
 			continue;
 		}
@@ -246,6 +262,7 @@ try {
 		const timeoutMs = Math.max(5000, Math.min(300000, (await left()) * 50));
 		const r = await act('barter_until', { itemId: 'minecraft:ender_pearl', count: 16, timeoutMs }, timeoutMs + 30000);
 		const code = r.reasonCode;
+		outOfGold = code === 'OUT_OF_GOLD';
 		if (code === 'NO_PIGLIN') {
 			const p = seenEntities('minecraft:piglin').filter(x => x.baby !== true).sort((a, b) => a.distance - b.distance)[0];
 			if (p) await act('navigate_to', { x: p.x, y: p.y, z: p.z, tolerance: 3, sprint: false, timeoutMs: 20000 }, 30000);
