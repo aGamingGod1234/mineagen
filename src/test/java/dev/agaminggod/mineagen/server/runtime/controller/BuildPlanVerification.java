@@ -46,7 +46,7 @@ public final class BuildPlanVerification {
 			if (ServerBuildController.order(portal.frame(), List.of(), cell -> false) != null) throw new AssertionError("A frame in the air has no order");
 			checks++;
 		}
-		return checks + verifyCastPlan() + verifySpill() + verifyCastBlocks() + verifyMaterials() + verifyHoleLanding() + verifyLineCells() + verifyStepCrouch() + verifyCarve();
+		return checks + verifyCastPlan() + verifySpill() + verifyCastTiming() + verifyCastBlocks() + verifyMaterials() + verifyHoleLanding() + verifyLineCells() + verifyStepCrouch() + verifyCarve();
 	}
 
 	/**
@@ -133,8 +133,47 @@ public final class BuildPlanVerification {
 				return y == -2 && k >= pool ? Blocks.LAVA.defaultBlockState() : Blocks.STONE.defaultBlockState();
 			};
 			boolean meets = ServerBuildController.spillMeetsLava(world, portal, wall);
-			if (meets != (pool == 8)) throw new AssertionError("Scooped water down a sloping floor toward a pool " + pool + " cells out, frame axis " + portal.axis() + ": " + meets);
-			checks++;
+			if (meets != (pool == 8)) throw new AssertionError("Standing water down a sloping floor toward a pool " + pool + " cells out, frame axis " + portal.axis() + ": " + meets);
+			// In the cast's own order the water is scooped before its first spread: the same site is fit for it.
+			if (ServerBuildController.spillMeetsLava(world, portal, wall, ServerBuildController.QUICK_SPILL_CELLS))
+				throw new AssertionError("Water scooped the tick after it lands, down a sloping floor toward a pool " + pool + " cells out, frame axis " + portal.axis() + ", met lava");
+			checks += 2;
+		}
+		return checks;
+	}
+
+	/**
+	 * The cast's clicks for one frame cell, tick by tick, against vanilla's timing: a lava source cast to obsidian the tick
+	 * water lands beside it, a water source's first spread at 5 ticks, lava's first flow at 30. The body takes
+	 * {@code turn} ticks from the lava's aim to the water's and back. Lava goes first, then water, then the scoop the next
+	 * tick (water gone before it spreads); with the water click failing, the lava is taken back before it flows.
+	 */
+	private static int verifyCastTiming() {
+		int checks = 0;
+		for (int turn = 0; turn <= 8; turn++) for (boolean waterOk : new boolean[] { true, false }) {
+			boolean lava = false, obsidian = false, water = false;
+			long lavaAt = -1, waterAt = -1, scoopAt = -1, takenAt = -1, busyUntil = -1;
+			StringBuilder order = new StringBuilder();
+			for (long t = 0; t < 120 && !(obsidian && !water) && takenAt < 0; t++) {
+				if (t < busyUntil) continue;
+				var step = ServerBuildController.castStep(water, lava || obsidian, lava, lava ? t - lavaAt : 0, waterOk);
+				if (obsidian && step != ServerBuildController.CastStep.SCOOP) throw new AssertionError("A cast cell asked for " + step);
+				switch (step) {
+					case LAVA -> { lava = true; lavaAt = t; busyUntil = t + 1 + turn; order.append('L'); }
+					case WATER -> { water = true; waterAt = t; lava = false; obsidian = true; busyUntil = t + 1; order.append('W'); }
+					case SCOOP -> { water = false; scoopAt = t; order.append('S'); }
+					case TAKE_BACK -> { lava = false; takenAt = t + turn; order.append('T'); }
+				}
+			}
+			if (waterOk) {
+				if (!order.toString().equals("LWS")) throw new AssertionError("Cast order with a " + turn + "-tick turn: " + order);
+				if (scoopAt - waterAt >= 5) throw new AssertionError("Water stood " + (scoopAt - waterAt) + " ticks, past its first spread");
+				if (waterAt - lavaAt >= 30) throw new AssertionError("Lava stood " + (waterAt - lavaAt) + " ticks before the water");
+			} else {
+				if (!order.toString().equals("LT")) throw new AssertionError("Cast order with the water click failing: " + order);
+				if (takenAt - lavaAt >= 30) throw new AssertionError("Lava taken back after " + (takenAt - lavaAt) + " ticks, past its first flow");
+			}
+			checks += 3;
 		}
 		return checks;
 	}
@@ -164,11 +203,13 @@ public final class BuildPlanVerification {
 					return null;
 				};
 				int dig = ServerBuildController.carveDig(world, rock, clearable, portal, wall);
-				// Lava down the tunnel within the poured water's run, or seen two cells behind the frame, rules the site out;
-				// lava further down the tunnel does not.
-				int expect = lava == ahead || lava == behind ? -1 : 32;
+				// Lava seen two cells behind the frame rules the site out. Lava down the tunnel does not: the water poured
+				// against the cast's lava is scooped the next tick, before it spreads, though left standing its whole run
+				// would reach the lava 5 cells along.
+				int expect = lava == behind ? -1 : 32;
 				if (dig != expect) throw new AssertionError("Carve beside a tunnel heading " + along + " with lava at " + lava + ": dig " + dig + ", expected " + expect);
-				checks++;
+				if (lava == ahead && !ServerBuildController.spillMeetsLava(world, portal, wall)) throw new AssertionError("Standing water down a tunnel heading " + along + " runs into lava 5 cells along");
+				checks += 2;
 			}
 			// The cells come front row first, bottom up: each one opens onto a cell dug before it or the tunnel.
 			Set<BlockPos> open = new HashSet<>(tunnel);
