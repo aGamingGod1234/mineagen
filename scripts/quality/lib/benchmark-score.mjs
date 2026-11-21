@@ -1,7 +1,7 @@
 // Scores a benchmark batch (room-batch.mjs output) per practice room and compares it with a saved baseline.
 // A benchmark room plays REPEATS times: as `copies` room-batch rooms (ROOM.cN) x `slots` arms (r1..rK, same jar, side
-// by side on one machine). Every row a fixture's finishRun pair writes is one run; a fixture that writes no rows (not
-// yet on finishRun) counts as one run judged by its exit code (0 pass, 1 fail, anything else invalid). Pure apart from reading
+// by side on one machine). Every row a fixture writes is one run; a fixture that writes no result.json (not yet on
+// finishRun) counts as one run judged by its exit code (0 pass, 1 fail, anything else invalid). Pure apart from reading
 // the batch folder, so the scoring and the comparison are unit-tested.
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -88,9 +88,9 @@ export async function otherEvidence(dir) {
 		if (Array.isArray(value)) return children;
 		if (depth === 0) for (const [key, child] of Object.entries(value)) if (Number.isFinite(child)) fields[key] = child;
 		if (value.pass === false || value.ok === false) failed ??= value.pass === false ? 'pass' : 'ok';
-		// died: true/false or a count (crowd's summary), deaths: N, or survived: false (crowd's runs).
-		const own = typeof value.died === 'boolean' ? (value.died ? 1 : 0) : Number.isFinite(value.died) ? value.died
-			: Number.isFinite(value.deaths) ? value.deaths : typeof value.survived === 'boolean' ? (value.survived ? 0 : 1) : null;
+		// The crowd room writes survived: false per run and a died count in its summary.
+		const own = typeof value.died === 'boolean' ? (value.died ? 1 : 0) : Number.isFinite(value.died) ? value.died : Number.isFinite(value.deaths) ? value.deaths
+			: typeof value.survived === 'boolean' ? (value.survived ? 0 : 1) : null;
 		const hurt = [value.damageTaken, value.healthLost, own !== null ? value.damage : undefined].find(Number.isFinite) ?? null;
 		return { deaths: children.deaths ?? own, damage: children.damage ?? hurt };
 	};
@@ -140,24 +140,23 @@ export async function collectRuns(batchDir, planned = null, meta = null) {
 			const base = { room, copy, arm };
 			if (!done || !run) { runs.push({ ...base, verdict: 'LOST', reason: outcomes.get(name)?.reason ?? 'no done.json', deaths: null, damage: null, seconds: null }); continue; }
 			const killed = run.timedOut ? 'room timeout' : run.signal ? `killed by ${run.signal}` : run.error ? `launch error: ${run.error}` : null;
-			// finishRun rows are the NAME.json / NAME-summary.json pair (armRows, as room-batch merges them): result.json,
-			// or runs.json for end-breath and acceptance.json for drawn-bow. A missing or corrupt summary, an INVALID one,
-			// or fewer rows than it planned is unknown evidence: those rows count as INVALID, never as a pass.
+			// finishRun's rows and their summary, under whatever name the fixture gave them (armRows, as the batch merger
+			// reads them); a missing or corrupt summary or one that planned more rows than came back is unknown evidence.
 			const found = await armRows(path.join(roomsDir, name, arm));
-			if (found.problem) { runs.push({ ...base, verdict: 'INVALID', reason: found.problem, deaths: null, damage: null, seconds: null }); continue; }
-			const rows = found.rows;
-			if (rows.length && rows.every(row => row && typeof row === 'object')) {
+			const rows = found.rows.filter(row => row && typeof row === 'object');
+			if (rows.length || found.problem) {
 				const own = found.summary;
-				const summaryProblem = !(own && typeof own === 'object' && Number.isInteger(own.planned)) ? 'missing or corrupt room summary'
-					: own.status === 'INVALID' ? 'room summary INVALID' : null;
+				const ownValid = Boolean(own && typeof own === 'object' && Number.isInteger(own.planned));
+				// An INVALID summary needs no room-wide verdict: its invalid rows read INVALID themselves, its missing ones below.
+				const invalid = killed ?? found.problem ?? (!ownValid ? 'missing or corrupt room summary' : own.planned <= 0 ? 'room planned 0 rows' : null);
 				for (const row of rows) {
-					const verdict = killed ? { verdict: 'INVALID', reason: killed } : summaryProblem ? { verdict: 'INVALID', reason: summaryProblem } : roomVerdict(row);
-					runs.push({ ...base, verdict: verdict.verdict, reason: verdict.verdict === 'PASS' ? null : verdict.verdict === 'INVALID' ? foldReason(verdict.reason) : reasonKey(row, verdict),
+					const verdict = invalid ? { verdict: 'INVALID', reason: invalid } : roomVerdict(row);
+					runs.push({ ...base, verdict: verdict.verdict, reason: verdict.verdict === 'PASS' ? null : invalid ?? reasonKey(row, verdict),
 						deaths: Number.isFinite(row.deaths) ? row.deaths : null, damage: Number.isFinite(row.damageTaken) ? row.damageTaken : null,
 						seconds: rowSeconds(row), wallSeconds: run.seconds ?? null, cantKeepUp: run.cantKeepUp ?? null });
 				}
-				const short = !summaryProblem && own.planned > rows.length ? own.planned - rows.length : 0;
-				for (let i = 0; i < short; i++) runs.push({ ...base, verdict: 'INVALID', reason: 'planned rows missing', deaths: null, damage: null, seconds: null });
+				const missing = Math.max(rows.length ? 0 : 1, ownValid ? own.planned - rows.length : 0);
+				for (let i = 0; i < missing; i++) runs.push({ ...base, verdict: 'INVALID', reason: invalid ?? 'a planned row was never written', deaths: null, damage: null, seconds: null });
 				continue;
 			}
 			// No rows: a fixture outside finishRun reports by its exit code; its own JSON files give deaths and damage

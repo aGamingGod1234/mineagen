@@ -4,7 +4,6 @@
 //     [--only ROOM,ROOM] [--baseline FILE] [--save-baseline FILE] [room-batch flags: --code REF --machines ID,...
 //     --vms N --snapshot NAME --type TYPE --room-timeout MIN --name PREFIX]
 //   node scripts/quality/benchmark.mjs --score OUT [--rooms FILE ...] [--baseline FILE] [--save-baseline FILE]
-//     (a rescore uses the room definitions saved in OUT/plan.json unless --rooms replaces them)
 // --rooms (repeatable, default scripts/quality/benchmark-rooms.json) lists rooms as
 //   [{ room, fixture, stage, skill, skill2, line, estMinutes, tickRate }], `line` being a room-batch command with $OUT
 //   and $JAR (see scripts/quality/README.md "Room batches on boat"); a file kept outside the repository can add rooms
@@ -36,17 +35,15 @@ for (let i = 0; i < argv.length; i++) {
 }
 if (flags.help) { console.log(USAGE); process.exit(0); }
 const fail = message => { console.error(`${message}\n${USAGE}`); process.exit(2); };
-// A rescore uses the room definitions its plan saved (bars, stages, skills), so a later edit to the room list or an
-// omitted --rooms file never changes an old result; --rooms given with --score replaces them on purpose.
-const savedPlan = flags.score ? JSON.parse(await readFile(path.join(path.resolve(flags.score), 'plan.json'), 'utf8')) : null;
+// Rescoring without --rooms uses the definitions the run saved in plan.json, so a later edit of the default list (or a
+// custom file left off) never changes a past run's verdicts.
+const explicitRooms = flags.rooms.length > 0;
+if (!flags.rooms.length) flags.rooms.push(path.join(root, 'scripts/quality/benchmark-rooms.json'));
+
 let rooms = [];
-if (savedPlan && !flags.rooms.length && Array.isArray(savedPlan.roomDefinitions)) rooms = savedPlan.roomDefinitions;
-else {
-	if (!flags.rooms.length) flags.rooms.push(path.join(root, 'scripts/quality/benchmark-rooms.json'));
-	for (const file of flags.rooms) {
-		const list = JSON.parse(await readFile(file, 'utf8'));
-		rooms.push(...(Array.isArray(list) ? list : list.rooms));
-	}
+for (const file of flags.rooms) {
+	const list = JSON.parse(await readFile(file, 'utf8'));
+	rooms.push(...(Array.isArray(list) ? list : list.rooms));
 }
 if (flags.only) {
 	const only = new Set(flags.only.split(',').filter(Boolean));
@@ -56,16 +53,16 @@ if (flags.only) {
 }
 const meta = Object.fromEntries(rooms.map(room => [room.room, room]));
 
-async function score(out, plan, identity) {
-	const runs = await collectRuns(path.join(out, 'batch'), plan, meta);
-	const scored = scoreRooms(runs, meta);
+async function score(out, plan, identity, roomMeta = meta) {
+	// Read before anything is saved: --save-baseline may name the same file as --baseline.
+	const baseline = flags.baseline ? JSON.parse(await readFile(flags.baseline, 'utf8')) : null;
+	const runs = await collectRuns(path.join(out, 'batch'), plan, roomMeta);
+	const scored = scoreRooms(runs, roomMeta);
 	const result = { ...identity, repeats: plan.repeats, slots: plan.slots, rooms: scored, groups: groupScores(scored) };
 	await writeFile(path.join(out, 'score.json'), JSON.stringify(result, null, 2) + '\n');
 	const board = formatScoreboard(result);
 	await writeFile(path.join(out, 'scoreboard.md'), board + '\n');
 	console.log(board);
-	// The comparison reads the old baseline before any save, so --baseline and --save-baseline may name one file.
-	const baseline = flags.baseline ? JSON.parse(await readFile(flags.baseline, 'utf8')) : null;
 	if (flags.saveBaseline) { await writeFile(flags.saveBaseline, JSON.stringify(result, null, 2) + '\n'); console.log(`baseline saved to ${flags.saveBaseline}`); }
 	if (baseline) {
 		const text = `Against the baseline of ${String(baseline.code ?? '?').slice(0, 8)} (${baseline.repeats} repeats):\n${formatComparison(compareScores(baseline, result))}`;
@@ -77,9 +74,10 @@ async function score(out, plan, identity) {
 
 if (flags.score) {
 	const out = path.resolve(flags.score);
-	const plan = savedPlan;
+	const plan = JSON.parse(await readFile(path.join(out, 'plan.json'), 'utf8'));
 	const batch = JSON.parse(await readFile(path.join(out, 'batch', 'batch.json'), 'utf8').catch(() => '{}'));
-	await score(out, plan, { code: batch.code ?? plan.code ?? null, jarSha256: batch.arms?.[0]?.sha256 ?? plan.jarSha256 ?? null, began: batch.began ?? null, wallSeconds: batch.wallSeconds ?? null });
+	const saved = !explicitRooms && Array.isArray(plan.roomDefinitions) ? Object.fromEntries(plan.roomDefinitions.map(room => [room.room, room])) : meta;
+	await score(out, plan, { code: batch.code ?? plan.code ?? null, jarSha256: batch.arms?.[0]?.sha256 ?? plan.jarSha256 ?? null, began: batch.began ?? null, wallSeconds: batch.wallSeconds ?? null }, saved);
 	process.exit(0);
 }
 
