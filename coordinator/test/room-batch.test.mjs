@@ -651,8 +651,12 @@ test('a warm machine that fails its check, or comes from a rebuilt image, is nev
 test('machines named with --machines are leased, cleaned and given back, and never created or deleted', { skip: process.platform === 'win32' }, async () => {
 	const fake = await fakeBoat();
 	try {
-		const made = await warm(fake).startNew();
-		const pool = warm(fake, { machines: [made.id] });
+		const owner = warm(fake);
+		const made = await owner.startNew();
+		// While the pool holds it, a --machines batch cannot have it: both lease by the machine's name.
+		await assert.rejects(warm(fake, { machines: [made.id] }).create(), /busy or unusable/);
+		await owner.release(made);
+		const pool = warm(fake, { machines: [made.id, 'bx_missing'] });
 		const vm = await pool.create();
 		assert.equal(vm.id, made.id);
 		await assert.rejects(warm(fake, { machines: [made.id] }).create(), /busy or unusable/);
@@ -830,4 +834,22 @@ test('a warm machine whose check gets no answer is skipped and kept, never delet
 		const again = await warm(fake).create();
 		assert.equal(again.id, vm.id, 'once it answers, it is reused');
 	} finally { delete process.env.FAKE_BOAT_EXEC_DOWN; await fake.close(); }
+});
+
+test('a machine with auto-stop turned off keeps it through a lease and a return', { skip: process.platform === 'win32' }, async () => {
+	const fake = await fakeBoat();
+	try {
+		const owner = warm(fake);
+		const made = await owner.startNew();
+		await owner.release(made);
+		const file = path.join(fake.dir, 'sandboxes', `${made.id}.json`);
+		await writeFile(file, JSON.stringify({ ...JSON.parse(await readFile(file, 'utf8')), archiveAfter: null }));
+		const extendsBefore = (await fake.calls('extend')).length;
+		const pool = warm(fake, { machines: [made.id] });
+		const vm = await pool.create();
+		await pool.keepAlive(vm);
+		await pool.release(vm);
+		assert.equal((await fake.calls('extend')).length, extendsBefore, 'no extend --ttl put a deadline on it');
+		assert.equal(JSON.parse(await readFile(file, 'utf8')).archiveAfter, null);
+	} finally { await fake.close(); }
 });
