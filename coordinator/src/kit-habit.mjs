@@ -24,6 +24,9 @@ const ARMOUR = Object.freeze([
 const PLANKS = /^minecraft:[a-z_]+_planks$/;
 const LOGS = /^minecraft:[a-z_]+_(log|wood|stem|hyphae)$/;
 
+// A pickaxe about to break is not one the route can mine with: obtain's planner (heldCounts) skips it, so its
+// replacement's iron stays reserved.
+const soundPickaxe = items => [...heldCounts({ inventory: { items } })].some(([id, n]) => /^(iron|diamond|netherite)_pickaxe$/.test(id) && n > 0);
 const numbered = item => Number.isInteger(item.slot) && item.slot >= 0 && item.slot <= 35;
 const bare = id => String(id ?? '').replace(/^minecraft:/, '');
 const inHotbar = item => item.slot === 'mainhand' || item.slot === 'offhand' || item.hotbar === true || Number.isInteger(item.slot) && item.slot <= 8;
@@ -36,7 +39,7 @@ const inHotbar = item => item.slot === 'mainhand' || item.slot === 'offhand' || 
 export function ironReserved(items) {
 	const has = re => items.some(item => re.test(item.itemId ?? ''));
 	const buckets = items.filter(item => /^minecraft:(bucket|water_bucket|lava_bucket)$/.test(item.itemId ?? '')).reduce((n, item) => n + item.count, 0);
-	return (has(/^minecraft:(iron|diamond|netherite)_pickaxe$/) ? 0 : 3) + (has(/^minecraft:shield$/) ? 0 : 1)
+	return (soundPickaxe(items) ? 0 : 3) + (has(/^minecraft:shield$/) ? 0 : 1)
 		+ Math.max(0, 2 - buckets) * 3 + (has(/^minecraft:flint_and_steel$/) ? 0 : 1);
 }
 
@@ -105,7 +108,7 @@ export function nextKitStep(o, { reserved = null } = {}) {
 	const craftable = itemId => craftsFromHeld(o, itemId, { reserved });
 	const wood = count(PLANKS) + 4 * count(LOGS);
 	// The iron pickaxe comes first: its 3 ingots are never spent on the shield (obtain iron_ingot count 3 for it would hand back 2).
-	const pickaxeOwed = items.some(item => /^minecraft:(iron|diamond|netherite)_pickaxe$/.test(item.itemId)) ? 0 : 3;
+	const pickaxeOwed = soundPickaxe(items) ? 0 : 3;
 	if (shields.length === 0 && ingots >= 1 + pickaxeOwed && wood >= 6 && craftable('minecraft:shield')) return { kind: 'craft', itemId: 'minecraft:shield' };
 	const spare = ingots - ironReserved(items);
 	for (const piece of ARMOUR) {

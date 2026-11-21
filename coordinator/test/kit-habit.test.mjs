@@ -35,6 +35,19 @@ test('armour comes only from iron the route does not still need', () => {
 		{ kind: 'craft', itemId: 'minecraft:iron_boots' });
 });
 
+test('a pickaxe about to break keeps its replacement\'s iron reserved', () => {
+	const worn = item('iron_pickaxe', 'mainhand', 1, { maxDamage: 250, damage: 248 });
+	const rest = [item('bucket', 3, 2), item('flint_and_steel', 4), item('crafting_table', 5), item('shield', 'offhand')];
+	assert.equal(ironReserved([worn, ...rest]), 3);
+	assert.deepEqual(nextKitStep(sample([worn, ...rest, item('iron_ingot', 1, 8)])), { kind: 'craft', itemId: 'minecraft:iron_boots' },
+		'8 ingots less 3 for the next pickaxe leave 5: boots, not the chestplate');
+	assert.deepEqual(nextKitStep(sample([worn, ...rest, item('iron_ingot', 1, 11)])), { kind: 'craft', itemId: 'minecraft:iron_chestplate' });
+	const fresh = { ...worn, damage: 10 };
+	assert.deepEqual(nextKitStep(sample([fresh, ...rest, item('iron_ingot', 1, 8)])), { kind: 'craft', itemId: 'minecraft:iron_chestplate' });
+	// The shield waits for the pickaxe's 3 ingots too.
+	assert.equal(nextKitStep(sample([worn, item('crafting_table', 5), item('oak_planks', 2, 10), item('iron_ingot', 1, 3)])), null);
+});
+
 test('held armour is worn, and a worn piece of any metal is left alone', () => {
 	assert.deepEqual(nextKitStep(sample([item('shield', 'offhand'), item('golden_helmet', 12)])),
 		{ kind: 'equip', sourceSlot: 12, targetSlot: 'head', itemId: 'minecraft:golden_helmet' });
