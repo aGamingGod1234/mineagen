@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { collectRuns, compareScores, fisher, foldReason, formatComparison, formatScoreboard, groupScores, planBenchmark, scoreRooms } from '../../scripts/quality/lib/benchmark-score.mjs';
 import { handRolledTickRate } from '../../scripts/quality/lib/fixture-play.mjs';
 import { roomVerdict } from '../../scripts/quality/lib/fixture-run.mjs';
+import { damageCounter, recordDamageEvidence } from '../../scripts/quality/lib/damage-counter.mjs';
 import { parseCommands } from '../../scripts/quality/lib/room-batch-core.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
@@ -160,6 +161,29 @@ test('a fire room with missing or decreasing damage evidence is invalid even whe
 	}
 	const { pass, invalid } = scoreRooms(runs).fire;
 	assert.deepEqual({ pass, invalid }, { pass: 1, invalid: 2 });
+});
+
+test('a portal crossing with an unreadable damage score is invalid in its own verdict and the benchmark', async t => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'bench-portal-'));
+	t.after(() => rm(dir, { recursive: true, force: true }));
+	const room = path.join(dir, 'rooms', 'portal.c1');
+	await mkdir(path.join(room, 'r1'), { recursive: true });
+	await writeFile(path.join(room, 'done.json'), JSON.stringify({ arms: { r1: { exit: 0 } } }));
+	let reads = 0;
+	const readDamage = await damageCounter(async command => {
+		if (!command.startsWith('scoreboard players get ')) return '';
+		if (++reads === 1) return 'Portal has 7 [arena_damage]';
+		throw new Error('RCON read failed');
+	}, 'Portal');
+	const play = {};
+	recordDamageEvidence(play, await readDamage(), await readDamage());
+	const crossing = { ok: true, play };
+	await writeFile(path.join(room, 'r1', 'result.json'), JSON.stringify({ ok: true, cases: { nether: crossing } }));
+	const verdict = roomVerdict({ ...crossing, pass: crossing.ok });
+	assert.equal(verdict.verdict, 'INVALID');
+	assert.match(verdict.reason, /damage_taken/);
+	const [run] = await collectRuns(dir);
+	assert.deepEqual([run.verdict, run.reason, run.damage], ['INVALID', verdict.reason, null]);
 });
 
 test('a death repeated by a variant and its counter counts once, and an item wear is not health damage', async t => {

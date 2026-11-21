@@ -19,7 +19,8 @@ import { writeFile, mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { boot, fixtureTickRate } from './watch-replay.mjs';
-import { damageCounter, damageEvidence, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
+import { damageCounter, recordDamageEvidence, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
+import { fixtureSummary } from './lib/fixture-run.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
@@ -49,7 +50,7 @@ async function startPlay() {
 	return async () => {
 		const play = { seconds: Math.round((now() - t0) / 1000), wallSeconds: Math.round((Date.now() - wall0) / 1000), gameSeconds: Math.round((await timer.elapsed()) / 1000), rates: await timer.rates().catch(() => null) };
 		await s.normalRate();
-		play.damageTaken = damageEvidence(damage0, await readDamage()).damageTaken;
+		recordDamageEvidence(play, damage0, await readDamage());
 		play.deaths = deathEvidence(deaths0, await deaths()).deaths;
 		return play;
 	};
@@ -161,4 +162,6 @@ try {
 }
 await writeFile(path.join(out, 'result.json'), JSON.stringify(result, null, 2));
 console.log(JSON.stringify(result, null, 2));
-process.exit(result.ok ? 0 : 1);
+const summary = fixtureSummary(Object.entries(result.cases).map(([name, row]) => ({ ...row, name, pass: row.ok })));
+console.log(summary.line);
+process.exit(result.error || summary.status === 'INVALID' ? 2 : summary.status === 'FAIL' ? 1 : 0);

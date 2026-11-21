@@ -9,7 +9,7 @@ import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 import { installTickRate, fixtureTickRate } from './watch-replay.mjs';
-import { damageCounter, damageEvidence } from './lib/damage-counter.mjs';
+import { damageCounter, recordDamageEvidence } from './lib/damage-counter.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const jarPath = resolve(process.env.ARENA_JAR ?? join(root, MOD_JAR));
@@ -80,7 +80,7 @@ async function playEnd(p) {
 	const tick = { tickRate: rate.tickRate, seconds: Math.round((rate.clock.now() - p.t0) / 1000), wallSeconds: Math.round((Date.now() - p.wall0) / 1000),
 		gameSeconds: Math.round(gameMs / 1000), rates: await p.timer.rates().catch(() => null) };
 	await rate.normalRate();
-	tick.damageTaken = damageEvidence(p.damage0, await damage().catch(() => null)).damageTaken;
+	recordDamageEvidence(tick, p.damage0, await damage().catch(() => null));
 	return tick;
 }
 /** Land after a fall (or time out): health lost, final y, whether water is under the feet, reflex reports. */

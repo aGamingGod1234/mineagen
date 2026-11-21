@@ -36,7 +36,7 @@ import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { parseSavedWorldSpawn } from '../../coordinator/src/headless-world-spawn.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
-import { damageCounter, damageEvidence, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
+import { damageCounter, recordDamageEvidence, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const USAGE = 'Usage: test-obtain-live.mjs PLAN.json OUT_DIR [JAR] [--strict|--descriptive] under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME';
@@ -301,8 +301,7 @@ async function runLane(s, agent, queue, seed, seedIndex, nextSpot) {
 			row.wallSeconds = Math.round((Date.now() - wall0) / 1000);
 			row.gameSeconds = Math.round((await timer.elapsed()) / 1000);
 			row.rates = await timer.rates().catch(() => null);
-			// Recorded only: the verdict keeps using deaths and sampled health.
-			row.damageTaken = damageEvidence(damageBefore, await readDamage()).damageTaken;
+			recordDamageEvidence(row, damageBefore, await readDamage());
 			inPlay = false;
 			await s.playRate(-1);
 			row.result = { state: result?.state, reasonCode: result?.reasonCode, held: result?.held, message: String(result?.message ?? '').slice(0, 600), steps: result?.steps, stations: result?.stations };

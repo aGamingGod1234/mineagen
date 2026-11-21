@@ -12,7 +12,8 @@ import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 import { installTickRate, fixtureTickRate } from './watch-replay.mjs';
-import { damageCounter, damageEvidence, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
+import { damageCounter, recordDamageEvidence, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
+import { fixtureSummary } from './lib/fixture-run.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const out = resolve(process.argv[2] ?? 'runtime/travel-resume-live');
@@ -136,7 +137,7 @@ try {
 		return async () => {
 			const play = { seconds: Math.round((rate.clock.now() - t0) / 1000), wallSeconds: Math.round((Date.now() - wall0) / 1000), gameSeconds: Math.round((await timer.elapsed()) / 1000), rates: await timer.rates().catch(() => null) };
 			await rate.normalRate();
-			play.damageTaken = damageEvidence(damageBefore, await readDamage()).damageTaken;
+			recordDamageEvidence(play, damageBefore, await readDamage());
 			play.deaths = deathEvidence(deathsBefore, await deaths()).deaths;
 			play.tick = { rate: rate.tickRate, held: await rate.tickReport() };
 			return play;
@@ -200,9 +201,9 @@ try {
 	results.status = o?.reflexes;
 	await writeFile(join(out, 'results.json'), JSON.stringify(results, null, 2));
 	await writeFile(join(out, 'timeline.json'), JSON.stringify(timeline, null, 1));
-	console.log(JSON.stringify(Object.fromEntries(Object.entries(results).filter(([key]) => key !== 'status').map(([key, value]) => [key, value.pass]))));
-	const failed = Object.entries(results).filter(([key, value]) => key !== 'status' && !value.pass).map(([key]) => key);
-	if (failed.length > 0) { console.log(JSON.stringify(results, null, 2)); process.exitCode = 1; }
+	const summary = fixtureSummary(Object.entries(results).filter(([name]) => name !== 'status').map(([name, row]) => ({ ...row, name })));
+	console.log(summary.line);
+	if (summary.status !== 'PASS') { console.log(JSON.stringify(results, null, 2)); process.exitCode = summary.status === 'INVALID' ? 2 : 1; }
 	else console.log('Travel resume mechanics verified');
 } finally {
 	if (rcon) await command('stop').catch(() => {});

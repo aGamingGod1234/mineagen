@@ -9,8 +9,9 @@ import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 import { installTickRate, fixtureTickRate } from './watch-replay.mjs';
-import { damageCounter, damageEvidence } from './lib/damage-counter.mjs';
+import { damageCounter, recordDamageEvidence } from './lib/damage-counter.mjs';
 import { watchObservations } from './lib/fixture-play.mjs';
+import { fixtureSummary, roomVerdict } from './lib/fixture-run.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const out = resolve(process.argv[2] ?? 'runtime/enderman-live');
@@ -138,7 +139,7 @@ try {
 		const tick = { tickRate: rate.tickRate, seconds: Math.round((rate.clock.now() - p.t0) / 1000), wallSeconds: Math.round((Date.now() - p.wall0) / 1000),
 			gameSeconds: Math.round(gameMs / 1000), rates: await p.timer.rates().catch(() => null) };
 		await rate.normalRate();
-		tick.damageTaken = damageEvidence(p.damage0, await damage().catch(() => null)).damageTaken;
+		recordDamageEvidence(tick, p.damage0, await damage().catch(() => null));
 		return tick;
 	};
 	const reset = async () => {
@@ -164,7 +165,7 @@ try {
 		if (error) results[name] = { ...(results[name] ?? {}), pass: false, error: String(error?.stack ?? error).slice(0, 400) };
 		await writeFile(join(out, 'results.json'), JSON.stringify(results, null, 2));
 		await writeFile(join(out, 'timeline.json'), JSON.stringify(timeline, null, 1));
-		console.log(`[scenario] ${name}: ${results[name]?.pass ? 'PASS' : 'FAIL'}`);
+		console.log(`[scenario] ${name}: ${roomVerdict(results[name]).verdict}`);
 	};
 	const until = async (ms, test) => { const end = rate.clock.now() + ms; while (rate.clock.now() < end) { o = await observe(); if (test(o)) return true; await rate.clock.sleep(250); } return false; };
 	const endermen = (now) => (now.entities ?? []).filter((row) => row.type === 'minecraft:enderman');
@@ -310,8 +311,10 @@ try {
 		try {
 			const rows = [];
 			for (let index = 0; index < fights; index++) rows.push(await fight(name, tunnel, base + index));
+			const integrity = rows.flatMap(row => row.tick.integrity ?? []);
 			results[name] = { rows, killed: rows.filter(row => row.killed).length, meanLost: +(rows.reduce((sum, row) => sum + row.lost, 0) / rows.length).toFixed(1), deaths: rows.filter(row => row.dead).length, pearls: rows.reduce((sum, row) => sum + row.pearls, 0),
 				meanKillS: rows.some(row => row.killed) ? +(rows.filter(row => row.killed).reduce((sum, row) => sum + row.killedAfterMs, 0) / rows.filter(row => row.killed).length / 1000).toFixed(1) : null };
+			if (integrity.length) results[name].integrity = integrity;
 			// Open ground must kill; a tunnel must keep the body unhurt (whether it also kills is the measurement).
 			results[name].pass = rows.every(row => row.provoked) && results[name].deaths === 0 && (tunnel ? results[name].meanLost === 0 : results[name].killed === rows.length);
 			await settle(name);
@@ -349,9 +352,9 @@ try {
 	results.status = o?.reflexes;
 	await writeFile(join(out, 'results.json'), JSON.stringify(results, null, 2));
 	await writeFile(join(out, 'timeline.json'), JSON.stringify(timeline, null, 1));
-	console.log(JSON.stringify(Object.fromEntries(Object.entries(results).filter(([key]) => key !== 'status').map(([key, value]) => [key, value.pass]))));
-	const failed = Object.entries(results).filter(([key, value]) => key !== 'status' && !value.pass).map(([key]) => key);
-	if (failed.length > 0) { console.log(JSON.stringify(results, null, 2)); process.exitCode = 1; }
+	const summary = fixtureSummary(scenarios.map(name => ({ ...results[name], name })));
+	console.log(summary.line);
+	if (summary.status !== 'PASS') { console.log(JSON.stringify(results, null, 2)); process.exitCode = summary.status === 'INVALID' ? 2 : 1; }
 	else console.log('Enderman mechanics verified');
 } finally {
 	if (rate) await writeFile(join(out, 'tick.json'), JSON.stringify({ tickRate: rate.tickRate, held: await rate.tickReport() }, null, 2)).catch(() => {});

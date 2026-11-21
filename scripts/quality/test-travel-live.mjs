@@ -15,7 +15,7 @@
 // the sampler and every stand-in wait are game time on the fixture clock (s.clock), so a raised rate plays the same game.
 // run.seconds is game seconds, run.wallSeconds wall seconds, run.rates the rate asked for and reached; blocksPerMinute is
 // per game minute (per wall minute at 20 TPS, as before); run.damageTaken is vanilla's cumulative counter.
-import { damageCounter, damageEvidence } from './lib/damage-counter.mjs';
+import { damageCounter, recordDamageEvidence } from './lib/damage-counter.mjs';
 import { readFile, writeFile, mkdir, readdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -366,7 +366,7 @@ async function runCourse(s, course) {
 	run.seconds = round(playMs / 1000);
 	run.timerGameSeconds = round((await timer.elapsed()) / 1000);
 	run.rates = await timer.rates().catch(() => null);
-	run.damageTaken = damageEvidence(damageBefore, await readDamage()).damageTaken;
+	recordDamageEvidence(run, damageBefore, await readDamage());
 	await s.normalRate();
 	run.tick = { rate: s.tickRate, held: await s.tickReport() };
 	delete run.failedLegs;

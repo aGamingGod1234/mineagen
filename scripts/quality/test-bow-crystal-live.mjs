@@ -8,7 +8,7 @@ import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 import { installTickRate, fixtureTickRate } from './watch-replay.mjs';
-import { damageCounter, damageEvidence } from './lib/damage-counter.mjs';
+import { damageCounter, recordDamageEvidence } from './lib/damage-counter.mjs';
 
 const root=fileURLToPath(new URL('../..',import.meta.url));
 const jarPath=resolve(process.env.ARENA_JAR ?? join(root,MOD_JAR));
@@ -68,7 +68,7 @@ async function endPlay(){
     gameSeconds:Math.round(gameMs/1000),rates:await p.timer.rates().catch(()=>null)};
   await rate.normalRate();
   tick.held=await rate.tickReport();
-  tick.damageTaken=damageEvidence(p.damage0,await p.damage().catch(()=>null)).damageTaken;
+  recordDamageEvidence(tick, p.damage0,await p.damage().catch(()=>null));
   return tick;
 }
 try {

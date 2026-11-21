@@ -31,6 +31,13 @@ const NOT_YET_ON_FINISH_RUN = [
 const liveFixtures = async () => (await readdir(quality)).filter(name => /^test-.*-live\.mjs$/.test(name)).sort();
 const usesFinishRun = text => /from '\.\/lib\/fixture-run\.mjs'/.test(text) && /\bfinishRun\(/.test(text);
 
+test('live fixtures keep damage counter integrity with the measured damage', async () => {
+	for (const name of await liveFixtures()) {
+		const text = await readFile(path.join(quality, name), 'utf8');
+		assert.doesNotMatch(text, /\bdamageEvidence\([^\n]+\)\.damageTaken/, `${name} discards the damage counter integrity`);
+	}
+});
+
 test('every live fixture reports through finishRun unless it is still on the shrinking list', async () => {
 	const files = await liveFixtures();
 	assert.equal(new Set(NOT_YET_ON_FINISH_RUN).size, NOT_YET_ON_FINISH_RUN.length, 'the list names a fixture twice');

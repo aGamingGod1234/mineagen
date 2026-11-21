@@ -9,7 +9,7 @@ import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 import { installTickRate, unshownTickRate } from './watch-replay.mjs';
-import { damageCounter, damageEvidence } from './lib/damage-counter.mjs';
+import { damageCounter, recordDamageEvidence } from './lib/damage-counter.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const out = resolve(process.argv[2] ?? 'runtime/count-stance-live');
@@ -190,7 +190,7 @@ try {
 		const gameMs = await timer.elapsed(), seconds = (rate.clock.now() - start.at) / 1000;
 		const tick = { tickRate: rate.tickRate, gameSeconds: Math.round(gameMs / 1000), wallSeconds: Math.round((Date.now() - wall0) / 1000), rates: await timer.rates().catch(() => null) };
 		await rate.normalRate();
-		tick.damageTaken = damageEvidence(damage0, await damage().catch(() => null)).damageTaken;
+		recordDamageEvidence(tick, damage0, await damage().catch(() => null));
 		const moved = Math.max(0, ...rows.map((r) => Math.hypot(r.x - start.x, r.z - start.z)));
 		const active = rows.filter((r) => r.action);
 		return { start, final: final && { state: final.state, reason: final.reasonCode, message: String(final.message ?? JSON.stringify(final.failure ?? '')) },

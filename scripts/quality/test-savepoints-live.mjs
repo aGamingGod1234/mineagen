@@ -9,7 +9,7 @@ import {readFile,writeFile,mkdir,readdir} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import path from 'node:path';
 import {boot,fixtureTickRate} from './watch-replay.mjs';
-import {damageCounter,damageEvidence} from './lib/damage-counter.mjs';
+import {damageCounter,recordDamageEvidence} from './lib/damage-counter.mjs';
 import {applyQualitySetup,activateQualitySetup} from '../../coordinator/src/benchmark/quality-scenarios.mjs';
 import {parseInventory,parseEquipment} from '../../coordinator/src/benchmark/checkpoint.mjs';
 import {Observer} from './run-scenarios.mjs';
@@ -142,7 +142,7 @@ try{
  if(spawnControl){await s.clock.sleep(5000);r.safety.skipped='Spawn-control baseline only';}
  r.safety.seconds=Math.round((now()-begin)/1000);r.safety.gameSeconds=Math.round((await timer.elapsed())/1000);r.safety.rates=await timer.rates().catch(()=>null);
  r.safety.wallMs=Date.now()-wall0;r.safety.minHealth=Math.min(...r.safety.samples.map(x=>x.health));r.safety.pass=r.safety.minHealth===20;
- r.safety.damageTaken=damageEvidence(damage0,await readDamage()).damageTaken;
+ recordDamageEvidence(r.safety, damage0,await readDamage());
  if(cp.fixtureVersion===2&&/^(2b-|9-nether-entry-sol)/.test(path.basename(file))){
   const portals={};for(const c of cp.setup.commands){const m=c.match(/^execute in (minecraft:[a-z_]+) run fill (-?\d+) (-?\d+) (-?\d+) .* minecraft:nether_portal/);if(m)portals[m[1]]=m.slice(2,5).map(Number);}
   const NE='minecraft:the_nether',ow=portals[OW],ne=portals[NE];if(!ow||!ne)throw new Error('Missing linked portal pair');

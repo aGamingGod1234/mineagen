@@ -9,7 +9,7 @@ import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 import { installTickRate, fixtureTickRate } from './watch-replay.mjs';
-import { damageCounter, damageEvidence } from './lib/damage-counter.mjs';
+import { damageCounter, recordDamageEvidence } from './lib/damage-counter.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const jarPath = resolve(process.env.ARENA_JAR ?? join(root, MOD_JAR));
@@ -72,7 +72,7 @@ async function endPlay() {
 		gameSeconds: Math.round(gameMs / 1000), rates: await p.timer.rates().catch(() => null) };
 	await rate.normalRate();
 	tick.held = await rate.tickReport();
-	tick.damageTaken = damageEvidence(p.damage0, await p.damage().catch(() => null)).damageTaken;
+	recordDamageEvidence(tick, p.damage0, await p.damage().catch(() => null));
 	return tick;
 }
 const frame = (over) => ({ forward: 1, strafe: 0, jump: false, sneak: false, sprint: true, attack: false, use: false, yaw: -90, pitch: 10, selectedSlot: 0, hand: 'main', ...over });

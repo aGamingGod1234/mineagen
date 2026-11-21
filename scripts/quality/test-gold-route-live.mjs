@@ -10,7 +10,7 @@ import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { boot, fixtureTickRate } from './watch-replay.mjs';
-import { damageCounter, damageEvidence } from './lib/damage-counter.mjs';
+import { damageCounter, recordDamageEvidence } from './lib/damage-counter.mjs';
 import { applyQualitySetup, activateQualitySetup } from '../../coordinator/src/benchmark/quality-scenarios.mjs';
 import { adaptObservation } from '../../coordinator/src/observation-adapter.mjs';
 import { validateAction } from '../../coordinator/src/schema.mjs';
@@ -174,7 +174,7 @@ try{
  result.endInventory=facts?.inventory?.items;result.endPosition=facts?.player;result.elapsedSeconds=(now()-started)/1000;
  result.wallSeconds=Math.round((Date.now()-wall0)/1000);result.gameSeconds=Math.round((await timer.elapsed())/1000);result.rates=await timer.rates().catch(()=>null);
  await s.normalRate();
- result.damageTaken=damageEvidence(damage0,await readDamage()).damageTaken;result.tick={rate:s.tickRate,held:await s.tickReport()};
+ recordDamageEvidence(result, damage0,await readDamage());result.tick={rate:s.tickRate,held:await s.tickReport()};
  result.completedWindow=result.elapsedSeconds>=seconds||dead;
  // Result-only commands after scoring; never consumed by policy functions above.
  result.locate=await s.command(`execute in minecraft:the_nether positioned ${cp.setup.position.join(' ')} run locate structure minecraft:bastion_remnant`);

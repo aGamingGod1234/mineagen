@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { MOD_JAR } from './mod-jar.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
-import { damageCounter, damageEvidence, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
+import { damageCounter, recordDamageEvidence, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
 
 const USAGE = 'Usage: [SKIP_UNREACHABLE=0] [TRIALS=3] test-unreachable-enderman-live.mjs OUT_DIR [--strict|--descriptive] under slot.sh live, with JAVA_HOME and ARENA_HEADLESS_SERVER_TEMPLATE';
 const cli = process.argv.slice(2);
@@ -126,7 +126,7 @@ try {
 		const seconds = +((now() - t0) / 1000).toFixed(1);
 		const play = { wallSeconds: Math.round((Date.now() - wall0) / 1000), gameSeconds: Math.round((await timer.elapsed()) / 1000), rates: await timer.rates().catch(() => null) };
 		await s.normalRate();
-		play.damageTaken = damageEvidence(damage0, await readDamage()).damageTaken;
+		recordDamageEvidence(play, damage0, await readDamage());
 		play.deaths = deathEvidence(deaths0, await deaths()).deaths;
 		play.tick = { rate: s.tickRate, held: await s.tickReport() };
 		const message = String(result.message ?? '');

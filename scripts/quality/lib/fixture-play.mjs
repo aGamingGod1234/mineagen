@@ -1,5 +1,5 @@
 import { installTickRate, fixtureTickRate } from '../watch-replay.mjs';
-import { damageCounter, damageEvidence, deathCounter, deathEvidence } from './damage-counter.mjs';
+import { damageCounter, deathCounter, deathEvidence, recordDamageEvidence } from './damage-counter.mjs';
 
 /**
  * FIXTURE_TICK_RATE for a hand-rolled live fixture (one that starts java itself with its own RCON client and bridge):
@@ -20,7 +20,7 @@ export function handRolledTickRate(command, bridge, agent, { tickRate = fixtureT
 		]).catch(() => null);
 		const pair = await counters;
 		if (!pair) return { damage: null, deaths: null };
-		return { damage: await pair[0]().catch(() => null), deaths: await pair[1]().catch(() => null) };
+		return { damage: await pair[0](), deaths: await pair[1]().catch(() => null) };
 	};
 	/** Raises the rate for one case's play; end() records timing and counter evidence and goes back to 20. */
 	rate.play = async () => {
@@ -32,8 +32,8 @@ export function handRolledTickRate(command, bridge, agent, { tickRate = fixtureT
 				gameSeconds: Math.round((await timer.elapsed()) / 1000), wallSeconds: Math.round((Date.now() - wall0) / 1000) };
 			await rate.normalRate();
 			const after = await read();
-			const { damageTaken, integrity } = damageEvidence(before.damage, after.damage);
-			return { ...tick, damageTaken, ...(integrity ? { integrity } : {}), deaths: deathEvidence(before.deaths, after.deaths).deaths };
+			recordDamageEvidence(tick, before.damage, after.damage);
+			return { ...tick, deaths: deathEvidence(before.deaths, after.deaths).deaths };
 		};
 	};
 	/** What the server held (tick query), for the run's output. */

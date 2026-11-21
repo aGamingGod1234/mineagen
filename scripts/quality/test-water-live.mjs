@@ -20,7 +20,7 @@
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { boot, fixtureTickRate } from './watch-replay.mjs';
-import { damageCounter, damageEvidence, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
+import { damageCounter, recordDamageEvidence, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 
 const USAGE = 'Usage: test-water-live.mjs OUT_DIR JAR [runs] [fixture;fixture...] [seed] [--strict|--descriptive] under slot.sh live';
@@ -79,7 +79,7 @@ try {
 		return async () => {
 			const play = { wallSeconds: Math.round((Date.now() - wall0) / 1000), gameSeconds: Math.round((await timer.elapsed()) / 1000), rates: await timer.rates().catch(() => null) };
 			await s.normalRate();
-			play.damageTaken = damageEvidence(damage0, await readDamage()).damageTaken;
+			recordDamageEvidence(play, damage0, await readDamage());
 			play.vanillaDeaths = deathEvidence(deaths0, await deaths()).deaths;
 			play.tick = { rate: s.tickRate, held: await s.tickReport() };
 			return play;

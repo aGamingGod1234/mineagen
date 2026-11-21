@@ -24,7 +24,7 @@ import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { DEFAULT_REFLEXES } from '../../coordinator/src/reflexes.mjs';
 import { planCountDefault } from '../../coordinator/src/plan-count.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
-import { deathCounter, deathEvidence, damageCounter, damageEvidence } from './lib/damage-counter.mjs';
+import { deathCounter, deathEvidence, damageCounter, recordDamageEvidence } from './lib/damage-counter.mjs';
 import { installTickRate, unshownTickRate } from './watch-replay.mjs';
 import { refusedBeforeRunning } from './lib/room-evidence.mjs';
 
@@ -548,7 +548,7 @@ try {
 			run.tick = { tickRate: rate.tickRate, gameSeconds: Math.round(gameMs / 1000), wallSeconds: Math.round((Date.now() - wallStartedAt) / 1000), rates: await timer.rates().catch(() => null) };
 			await rate.normalRate();
 			run.tick.held = await rate.tickReport();
-			run.damageTaken = damageEvidence(damageAtStart, await damage().catch(() => null)).damageTaken;
+			recordDamageEvidence(run, damageAtStart, await damage().catch(() => null));
 			run.kills = kills.slice(killMark).filter(k => k.type === 'minecraft:blaze').length;
 			const firstKill = kills.slice(killMark).find(k => k.type === 'minecraft:blaze'); if (firstKill) run.firstKillS = Math.round((firstKill.at - startedAt) / 1000);
 			run.otherKills = kills.slice(killMark).filter(k => k.type !== 'minecraft:blaze').map(k => k.type);

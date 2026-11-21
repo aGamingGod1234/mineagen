@@ -1,9 +1,10 @@
 import { damageTakenBetween } from '../../../coordinator/src/benchmark/quality-metrics.mjs';
 
-/** Vanilla statistic is in tenths of HP; regeneration cannot erase an earlier hit. */
+/** Vanilla statistic is in tenths of HP; an unreadable sample is null. */
 export async function damageCounter(command, agent, objective = 'arena_damage') {
 	if (!/^\w+$/.test(agent) || !/^\w+$/.test(objective)) throw new Error('Invalid damage counter selector');
-	return statCounter(command, agent, objective, 'minecraft.custom:minecraft.damage_taken');
+	const read = await statCounter(command, agent, objective, 'minecraft.custom:minecraft.damage_taken');
+	return () => read().catch(() => null);
 }
 
 /**
@@ -23,6 +24,13 @@ export function damageEvidence(before, after, healthBefore, healthAfter) {
 		damageTaken, netHealthChange: Number.isFinite(healthBefore) && Number.isFinite(healthAfter) ? healthAfter - healthBefore : null,
 		...(damageTaken === null ? { integrity: [{ file: 'damage_taken', error: 'Missing or decreasing vanilla damage counter' }] } : {}),
 	};
+}
+
+/** Keep the counter's integrity alongside the number, including in multi-leg results. */
+export function recordDamageEvidence(row, before, after, field = 'damageTaken') {
+	const { damageTaken, integrity } = damageEvidence(before, after);
+	row[field] = damageTaken;
+	if (integrity) (row.integrity ??= []).push(...integrity);
 }
 
 /**

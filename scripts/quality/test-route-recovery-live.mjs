@@ -7,7 +7,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { boot, fixtureTickRate } from './watch-replay.mjs';
-import { damageCounter, damageEvidence } from './lib/damage-counter.mjs';
+import { damageCounter, recordDamageEvidence } from './lib/damage-counter.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 const out=resolve(process.argv[2]);
 const only=process.argv[3];
@@ -114,7 +114,7 @@ for(const scenario of (only==='ladder'?['ladder']:['cave','nether','end']).filte
      }
     }
     const before=await observe(s);console.log('outbound',scenario,before.position,before.routeMemory);result.deathPosition=before.position;destination={...before.position};result.destination=destination;
-    await s.clock.sleep(3500);result.outboundDamageTaken=damageEvidence(damage0,await readDamage()).damageTaken;
+    await s.clock.sleep(3500);recordDamageEvidence(result, damage0,await readDamage(), 'outboundDamageTaken');
     const dead=s.inbox.wait('goal_control',e=>e.payload.operation==='dead');await s.command(`kill ${A}`);await dead;
     result.dropProof=await s.command(`execute in ${dimension} positioned ${before.position.x} ${before.position.y} ${before.position.z} run data get entity @e[type=minecraft:item,limit=1,sort=nearest]`);
     const diedAt=now();result.steps.push(await act(s,'respawn',{}));await dim(s,OW);await s.clock.sleep(750);
@@ -139,7 +139,7 @@ for(const scenario of (only==='ladder'?['ladder']:['cave','nether','end']).filte
     for(let n=0;n<4;n++) {const o=await observe(s);for(const item of o.entities??[])if(item.type==='minecraft:item')result.steps.push(await act(s,'pick_up_item',{targetSelector:item.stableId??item.uuid}));if(!o.inventory.items.some(i=>i.itemId==='minecraft:iron_pickaxe'))result.steps.push(await act(s,'control',{...control(n===3?-90:n*90,1),forward:0,pitch:70}));}
     const final=await observe(s);result.finalPosition=final.position;result.finalEntities=final.entities;const inventory=final.inventory.items;result.inventory=inventory;result.pickaxeRecovered=inventory.some(i=>i.itemId==='minecraft:iron_pickaxe');result.kitRecovered=result.pickaxeRecovered&&inventory.some(i=>i.itemId==='minecraft:iron_sword');
     result.secondsToPick=(now()-diedAt)/1000;result.secondsToKit=result.kitRecovered?result.secondsToPick:null;result.ok=result.reached;
-    result.retraceDamageTaken=damageEvidence(damage1,await readDamage()).damageTaken;
+    recordDamageEvidence(result, damage1,await readDamage(), 'retraceDamageTaken');
     result.seconds=Math.round((now()-t0)/1000);result.wallSeconds=Math.round((Date.now()-wall0)/1000);result.gameSeconds=Math.round((await timer.elapsed())/1000);result.rates=await timer.rates().catch(()=>null);
     result.tick={rate:s.tickRate,held:await s.tickReport()};
    } catch(error){result.error=String(error.stack??error);result.ok=false;}
