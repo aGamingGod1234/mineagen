@@ -10,7 +10,7 @@ test('shared runner omits only unavailable private selections and fails an undec
  try {
   await mkdir(path.join(dir, 'scripts'));
   await mkdir(path.join(dir, 'test'));
-  await copyFile(path.join(root, 'coordinator/scripts/run-public-suite.mjs'), path.join(dir, 'scripts/run-public-suite.mjs'));
+  for (const name of ['run-public-suite.mjs', 'private-inputs.mjs']) await copyFile(path.join(root, 'coordinator/scripts', name), path.join(dir, 'scripts', name));
   await writeFile(path.join(dir, 'test/private-inputs.json'), JSON.stringify({ tests: [
    { file: 'test/missing.test.mjs', test: '*', inputs: ['private-recording.json'] },
    { file: 'test/mixed.test.mjs', test: 'private sample 1', inputs: ['private-recording.json'] },

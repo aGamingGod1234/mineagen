@@ -106,6 +106,8 @@ Threats: check visible/targetable; fight or use reported exits; creepers escape.
 
 Omitted facts are unknown; failure.changed absent=none. queryMemory pages; author source live with program.parameters(); never noteKey or standing.template. exploreFrontier lists moveTo legs. Reclaim workstations. Claim effects from evidence. No task: takeTask operator requests, end turn; else say. Text is invisible; speech is async.`;
 
+// Byte budget: this payload is 1 byte under the 39,476 bytes three tests pin (search coordinator/test for 39_476), and
+// token-budget.test.mjs pins toolSchemaBytes at 38,900. A new field needs those budgets raised, with the reason.
 export const MINECRAFT_DYNAMIC_TOOLS = Object.freeze([
 	tool('do_step', { ...objectSchema({
 		verb: { type: 'string', enum: Object.keys(STEP_VERBS) },
