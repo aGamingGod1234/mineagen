@@ -1,7 +1,10 @@
 // The batch itself, over any pool of machines with this shape (boat-pool.mjs is the real one, tests use a fake):
 //   create() -> vm (vm.id)        prepare(vm) -> layout { code, out, jobs, helper, javaHome, template, jars: {arm: path}, inputs }
-//   start(vm, job)                poll(vm, room) -> 'done' | 'running' (throws when the machine does not answer)
+//   start(vm, job)                poll(vm, room, { signal }) -> 'done' | 'running' (throws when the machine does not answer)
 //   alive(vm) -> boolean          fetch(vm, room, roomsDir) puts ROOM/ under roomsDir and returns its done.json
+// The boat pool's poll is a long poll that returns as soon as the room ends (up to a minute), so pollMs, the pause
+// between polls, defaults to 0; retryMs is the pause after a poll that failed, so a machine that does not answer is not
+// asked again in a tight loop.
 //   keepAlive(vm)                 usage(vm) -> object         destroy(vm)
 // Machines are destroyed when the batch ends, also on an error or a signal.
 import { mkdir, readdir } from 'node:fs/promises';
@@ -23,7 +26,7 @@ function raceAbort(promise, signal) {
 	});
 }
 
-export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeoutMs = 40 * 60_000, pollMs = 20_000, lostAfterMs = 5 * 60_000,
+export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeoutMs = 40 * 60_000, pollMs = 0, retryMs = 15_000, lostAfterMs = 5 * 60_000,
 	keepAliveMs = 15 * 60_000, replacements = vms, log = console.log, rewrite = (value) => value, signal = null }) {
 	await mkdir(path.join(out, 'rooms'), { recursive: true });
 	if ((await readdir(path.join(out, 'rooms'))).length) throw new Error(`${out} already holds rooms: use a fresh output folder`);
@@ -33,6 +36,7 @@ export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeout
 		if (signal?.aborted) throw new Error('batch stopped');
 		const vm = await pool.create();
 		machines.push(vm);
+		log(`machine ${vm.id} created`);
 		if (signal?.aborted) { await retire(vm, 'batch stopped'); throw new Error('batch stopped'); }
 		const prep = Promise.resolve().then(() => pool.prepare(vm, { signal }));
 		prep.catch(() => {});
@@ -76,15 +80,17 @@ export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeout
 			let silentSince = null;
 			while (true) {
 				if (signal?.aborted) return { lost: true, reason: 'batch stopped' };
-				await sleep(pollMs);
+				if (pollMs) await sleep(pollMs);
 				if (Date.now() - vm.keptAliveAt > keepAliveMs) { await Promise.resolve().then(() => pool.keepAlive(vm)).then(() => { vm.keptAliveAt = Date.now(); }, () => {}); }
 				let state;
-				try { state = await pool.poll(vm, room.room); silentSince = null; }
+				try { state = await pool.poll(vm, room.room, { signal }); silentSince = null; }
 				catch (error) {
+					if (signal?.aborted) return { lost: true, reason: 'batch stopped' };
 					silentSince ??= Date.now();
 					// Only boat saying the machine is gone skips the grace period; a failed lookup is unknown.
 					const alive = await Promise.resolve().then(() => pool.alive(vm)).catch(() => null);
 					if (alive === false || Date.now() - silentSince > lostAfterMs) { await retire(vm, 'lost'); return { lost: true, reason: alive !== false ? `no answer for ${Math.round(lostAfterMs / 60_000)} min` : 'machine gone' }; }
+					await sleep(retryMs);
 					continue;
 				}
 				if (state === 'done') break;
