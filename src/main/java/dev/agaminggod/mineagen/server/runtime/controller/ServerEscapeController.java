@@ -66,6 +66,8 @@ public final class ServerEscapeController implements ServerController {
 	/** A shooter this near and in sight keeps the body from counting as safe. */
 	static final double SHOOTER_RANGE = 16.0D;
 	static final int COVER_WITHIN = 8;
+	/** How far a run from a shooter goes: past the 16 blocks it counts as a threat from. */
+	static final double RUN_BLOCKS = 20.0D;
 	/** Ticks the body must stay safe before the job hands back. */
 	static final int SAFE_TICKS = 20;
 	static final int MAX_TRIES = 3;
@@ -89,6 +91,8 @@ public final class ServerEscapeController implements ServerController {
 	private Runnable refund;
 	private int fills;
 	private int covers;
+	/** Runs out of a shooter's range when no cover is in reach. */
+	private int runs;
 	private int pits;
 	private final Map<BlockPos, Integer> bankTries = new java.util.HashMap<>();
 	private final Set<BlockPos> stairedBanks = new HashSet<>();
@@ -361,7 +365,14 @@ public final class ServerEscapeController implements ServerController {
 		input.release();
 		move = null;
 		refund = null;
-		// A cover move that found no cover and had no blocks to build one hands the choice back now.
+		// No cover in reach and no blocks to build it: a player runs out of bow range instead of standing in the open (a
+		// practice room: standing exposed, the defend reflex traded hits with the skeleton until the body died). Only when
+		// running did not help either does the choice go back.
+		if (result.status() == EscapeMoves.Status.FAILED && moveLabel.startsWith("cover") && situation(player) == Situation.SHOOTERS && runs < MAX_TRIES) {
+			runs++;
+			refund = () -> runs--;
+			return startMove(player, EscapeMoves.sprintAway(RUN_BLOCKS), "run out of range of " + type(shooterNear(player)));
+		}
 		if (result.status() == EscapeMoves.Status.FAILED && moveLabel.startsWith("cover") && situation(player) == Situation.SHOOTERS) {
 			return finish(player, TickResult.failed("ESCAPE_EXPOSED", "No cover from " + type(shooterNear(player)) + " here: " + result.detail() + done() + facts(player), 0.5D));
 		}

@@ -51,6 +51,11 @@ public final class EscapeMoves {
 		return adapt(new ReflexActions.TakeCover(within, false), null);
 	}
 
+	/** Sprint away from the hostiles in sight over safe footing for {@code blocks}: the retreat reflex's move. */
+	public static Move sprintAway(double blocks) {
+		return adapt(new ReflexActions.SprintAway(blocks), null);
+	}
+
 	/** Hostile mobs with a ranged attack that see the player within {@link ReflexActions#WATCHER_RANGE}, nearest first. */
 	public static List<Mob> shooters(ServerPlayer player) {
 		return ReflexActions.watchers(player).stream().filter(ThreatPerception::isRanged).toList();

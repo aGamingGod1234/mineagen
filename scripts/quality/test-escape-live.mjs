@@ -29,7 +29,7 @@ import path from 'node:path';
 import { boot } from './watch-replay.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 import { DEFAULT_REFLEXES } from '../../coordinator/src/reflexes.mjs';
-import { damageCounter, damageEvidence } from './lib/damage-counter.mjs';
+import { damageCounter, damageEvidence, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
 
 const USAGE = 'Usage: test-escape-live.mjs OUT_DIR JAR [runs] [room;room...] [--strict|--descriptive] under slot.sh live';
 const cli = process.argv.slice(2);
@@ -59,6 +59,9 @@ try {
 	await s.command('difficulty peaceful');
 	await s.command('gamerule minecraft:advance_time false').catch(() => {});
 	await s.command('time set 18000');
+	// Deaths from the vanilla counter, made before the body exists: a death mid-call (lifecycle DEAD) can fall between two
+	// health samples, so the lowest sampled health alone missed one.
+	await s.command('scoreboard objectives add es_death deathCount').catch(() => {});
 	const registered = s.inbox.wait('agent_registered', () => true, 60_000);
 	await s.command('forceload add 0 0');
 	await s.command(`execute positioned 0 0 0 positioned over motion_blocking_no_leaves run mineagen summon gpt-6.1-sol low ${NAME}`);
@@ -138,6 +141,7 @@ try {
 		const before = await health(), airBefore = await airLeft();
 		// The vanilla damage counter: regeneration between hits cannot hide damage the way lowest health does.
 		const damageBefore = await readDamage().catch(() => null);
+		const deathsBefore = await deathCounter(text => s.command(text), NAME, { objective: 'es_death', unsetIsZero: true }).catch(() => null);
 		if (!Number.isFinite(before)) throw new Error(`${room} ${run}: health unreadable before the room`);
 		let minHealth = before, minAir = airBefore, sampling = true, hiddenSamples = 0, samples = 0, healthSamples = 0;
 		const skeletonEye = async () => {
@@ -217,7 +221,8 @@ try {
 		sampling = false; await sampler;
 		const end = await pos();
 		const damage = damageEvidence(damageBefore, await readDamage().catch(() => null), before, await health().catch(() => NaN));
-		const died = minHealth <= 0;
+		const deaths = deathEvidence(deathsBefore, await deathCounter(text => s.command(text), NAME, { objective: 'es_death', unsetIsZero: true }).catch(() => null));
+		const died = minHealth <= 0 || (deaths.valid && deaths.deaths > 0) || /Lifecycle changed to DEAD/.test(String(last?.message ?? ''));
 		const row = { room, arm: arm === 'legacy' ? `legacy-${LEGACY}` : arm, run, calls, executed, endSafe, safeSeconds: safeAt === null ? null : Math.round(safeAt / 100) / 10, seconds: Math.round((Date.now() - t0) / 100) / 10,
 			healthLost: Math.round(Math.max(0, before - minHealth) * 10) / 10, damageTaken: damage.damageTaken, died,
 			...(damage.integrity ? { integrity: damage.integrity } : {}), airBefore, minAir,
@@ -232,8 +237,12 @@ try {
 		if (!row.pass) row.failReason = died ? 'died' : room === 'skeleton' ? `took ${row.damageTaken} damage` : safeAt === null ? 'not safe within the window' : 'safe, then back in danger';
 		rows.push(row);
 		console.log(`[${room} ${row.arm} ${run}] ${row.pass ? 'PASS' : 'FAIL'} calls=${calls} safe=${row.safeSeconds}s hpLost=${row.healthLost}${died ? ' DIED' : ''} air ${airBefore}->${minAir}${row.hiddenShare !== undefined ? ` hidden=${row.hiddenShare}` : ''} | ${results.join(' ')} | ${row.message.slice(0, 160)}`);
-		if (died) { await s.command(`mineagen respawn ${NAME}`).catch(() => {}); await sleep(3000); }
 		await s.command(`kill @e[type=minecraft:skeleton]`).catch(() => {});
+		if (died) {
+			// Back on its feet before the next room: the next room's first read failed when it came too soon after a respawn.
+			await s.command(`mineagen respawn ${NAME}`).catch(() => {});
+			for (let i = 0; i < 30; i++) { await sleep(1000); const o = await s.observe().catch(() => null); if (o && o.player?.dead !== true && Number.isFinite(await health().catch(() => NaN))) break; }
+		}
 	}
 } catch (error) {
 	rows.push({ room: 'harness', error: String(error?.stack ?? error).slice(0, 1200) });
