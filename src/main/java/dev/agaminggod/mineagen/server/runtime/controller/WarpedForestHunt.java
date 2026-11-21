@@ -60,8 +60,18 @@ final class WarpedForestHunt {
 	static final Set<String> SAFETY_STOPS = Set.of("TRAVEL_DAMAGED", "NAVIGATION_DAMAGED", "DAMAGE_TAKEN", "LOW_HEALTH", "LOW_HEALTH_BAILOUT",
 			"HOSTILE_NEAR", "IN_LAVA", "LAVA_AHEAD", "LAVA_BEHIND", "LAVA_INCOMING", "LAVA_FLOW", "LAVA_OPENED", "ON_FIRE", "BURNING",
 			"FALLING_BLOCKS", "VOID_EDGE", "AIR_RESERVE_REACHED", "AGENT_DEAD", "ACTION_CANCELLED");
-	/** Of those, the ones that say the ground that way is lava: the heading is blocked. */
-	static final Set<String> LAVA_STOPS = Set.of("IN_LAVA", "LAVA_AHEAD", "LAVA_BEHIND", "LAVA_INCOMING", "LAVA_FLOW", "LAVA_OPENED");
+	/**
+	 * Stops that say what lies that way hurts: lava, a hostile coming at the body, or a hit taken on the way. A player turns
+	 * away; round-1 rooms (seed 20261024, a fortress at the forest's edge) walked to the same spot again after a wither
+	 * skeleton stopped the walk there, and wither skeletons killed the bot in 3 of 10 runs.
+	 */
+	static final Set<String> HARM_THAT_WAY = Set.of("IN_LAVA", "LAVA_AHEAD", "LAVA_BEHIND", "LAVA_INCOMING", "LAVA_FLOW", "LAVA_OPENED",
+			"HOSTILE_NEAR", "TRAVEL_DAMAGED", "NAVIGATION_DAMAGED", "DAMAGE_TAKEN", "ON_FIRE", "BURNING");
+
+	/** That way is not walked again: a stop of HARM_THAT_WAY. */
+	static boolean refusesWay(String code) {
+		return code != null && HARM_THAT_WAY.contains(code);
+	}
 
 	/** Test seam: the biome id at a cell (the level's biome by default). */
 	interface Probe { String biome(ServerPlayer player, BlockPos at); }
@@ -358,8 +368,8 @@ final class WarpedForestHunt {
 		lastFailure = code;
 		if (safetyStop(code)) {
 			stops++;
-			// Lava that way: the heading is blocked. Damage or a hostile says nothing about the ground.
-			if (LAVA_STOPS.contains(code)) refuse();
+			// Lava, a hostile or a hit that way: the destination and its heading are not walked again.
+			if (refusesWay(code)) refuse();
 			return Walk.STOPPED;
 		}
 		refuse();

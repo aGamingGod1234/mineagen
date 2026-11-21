@@ -92,6 +92,10 @@ public final class ForestHuntVerification {
 		check(!WarpedForestHunt.arrived(false, "LAVA_AHEAD", 20.0D, true), "a lava stop is never credited as ground gained");
 		check(!WarpedForestHunt.arrived(true, "ARRIVED", 20.0D, false), "a walk that left the forest does not count");
 		check(WarpedForestHunt.safetyStop("HOSTILE_NEAR") && !WarpedForestHunt.safetyStop("NO_ROUTE"), "safety stops and route failures are told apart");
+		check(WarpedForestHunt.refusesWay("HOSTILE_NEAR") && WarpedForestHunt.refusesWay("TRAVEL_DAMAGED") && WarpedForestHunt.refusesWay("LAVA_AHEAD"),
+				"a hostile, a hit or lava that way: not walked again");
+		check(!WarpedForestHunt.refusesWay("LOW_HEALTH") && !WarpedForestHunt.refusesWay("ACTION_CANCELLED") && !WarpedForestHunt.refusesWay(null),
+				"low health or a cancel says nothing about that way");
 	}
 
 	private static void verifyDestinations() {
