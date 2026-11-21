@@ -351,16 +351,6 @@ test('MINEAGEN_FORTRESS_SEARCH=plain plays the loop without the walled-in rules'
 	} finally { if (prior === undefined) delete process.env.MINEAGEN_FORTRESS_SEARCH; else process.env.MINEAGEN_FORTRESS_SEARCH = prior; }
 });
 
-test('at the face of its own tunnel with nothing open in sight it digs on, with no compass walks into the rock', async () => {
-	const body = bodyFor({ travel: (args) => (args.build ? { result: tunnel, go: true } : { result: noRoute }),
-		ground: () => [{ yaw: 0, water: 0, land: 4, farthestLand: 3 }, { yaw: 90, water: 0, land: 4, farthestLand: 2 }, { yaw: -90, water: 0, land: 4, farthestLand: 2 }] });
-	await searchFor({ structure: 'fortress' }, body, { timeoutMs: 120_000 });
-	const legs = body.calls.filter((call) => call.type === 'travel_to');
-	const first = legs.findIndex((call) => call.build);
-	assert.equal(first, SEARCH_TURNS.length, 'walks first while it has not dug yet');
-	assert.equal(legs[first + 1].build, true, 'then digs on from the tunnel face');
-});
-
 test('each find first climbs the highest ground in sight, any way, and looks from there', async () => {
 	const body = bodyFor({ onLook: (o, calls) => (calls.length >= 1 && o.player.z < 95 ? { structures: [fortressRow] } : null) });
 	body.frontier = () => ({ candidates: [{ x: 100, y: 52, z: 70, dy: 12, distance: 30 }, { x: 110, y: 45, z: 110, dy: 5, distance: 14 }] });

@@ -221,14 +221,10 @@ export async function searchNetherFortress(ctx, env = process.env) {
 		const ahead = turn === 0 && footFails < MAX_FOOTING_FAILS ? footingAhead(body.frontier?.(observation)?.candidates, front.point, heading, tried) : null;
 		const turns = remembered ? TURNS : SEARCH_TURNS;
 		let build = turn >= turns.length;
-		// What the last look from here showed of the ground each way (null when it was taken elsewhere).
-		const seen = ctx.ground?.() ?? null;
-		const views = seen !== null && Math.hypot(seen.at.x - here.x, seen.at.z - here.z) <= 4 ? seen.views : null;
-		// At the face of its own tunnel with nothing open in sight: dig on, without compass walks into the rock (round 2:
-		// a third of the search's time went to walks that failed, most of them at a fresh tunnel face).
-		if (walled && !build && !remembered && digs > 0 && ahead === null && views !== null && openView(views, heading) === null) { build = true; turn = turns.length; }
 		// Before a dig: the open side the last look showed from here, walked as a player turns along a cavern wall.
-		const open = walled && build && !remembered && ahead === null && views !== null ? openView(views, heading, triedViews) : null;
+		const seen = ctx.ground?.() ?? null;
+		const open = walled && build && !remembered && ahead === null && seen !== null && Math.hypot(seen.at.x - here.x, seen.at.z - here.z) <= 4
+			? openView(seen.views, heading, triedViews) : null;
 		if (open !== null) build = false;
 		// Walled in: two digs in a row never opened into walkable ground. Back to the last open ground, then the next heading.
 		if (walled && build && digs >= MAX_DIGS && !remembered && lastOpen?.walked === true) {
