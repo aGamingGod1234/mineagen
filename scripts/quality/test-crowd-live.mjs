@@ -9,7 +9,7 @@ import { createHash } from 'node:crypto';
 import { boot, fixtureTickRate } from './watch-replay.mjs';
 import { ReflexBook } from '../../coordinator/src/reflexes.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
-import { damageCounter, damageEvidence, deathCounter } from './lib/damage-counter.mjs';
+import { damageCounter, damageEvidence, deathCounter, recordDeathEvidence } from './lib/damage-counter.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const out = path.resolve(process.argv[2] ?? 'runtime/crowd-live');
@@ -291,6 +291,7 @@ try {
 				await Promise.race([act, sleep(3000)]);
 			}
 			let alive = 0;
+			const deathsEnd = await deaths().catch(() => null);
 			for (const id of ids) if (!/No entity|not found/i.test(await s.command(`data get entity ${id} Health`))) alive++;
 			// The flinch covers the model's thinking gap: the gate's first hit to next command was 3-10 s, and a model round
 			// takes 5-17 s, so the run is also scored at SCORE_S (20 s by default) from the same track.
@@ -302,6 +303,7 @@ try {
 				food, startY: ay, minY: Math.min(...track.filter(t => t.y !== undefined).map(t => t.y)), ...defendTally(track),
 				reflexEvents: [...events.values()], track, seconds, wallSeconds, gameSeconds, rates, tick: { rate: s.tickRate, held: await s.tickReport() } };
 			Object.assign(row, damageEvidence(damageBefore, await readDamage(), startHealth, await health().catch(() => null)));
+			recordDeathEvidence(row, deathsBefore, deathsEnd);
 			runs.push(row);
 			console.log(`[crowd] ${name}#${repeat}: hits back ${row.hitsBack}, back-outs ${row.backOuts} (${row.backingOutS} s), lowest feet y ${row.minY}${food !== null ? `, food ${food}` : ''}; start ${startHealth}, by ${SCORE_S} s ${row.diedBy20 ? 'DIED' : `min ${row.minHealthBy20}`}; at ${WATCH_S} s ${row.survived ? 'SURVIVED' : `DIED at ${row.diedAtS} s`} min ${row.minHealth} end ${row.endHealth}, hostiles left ${alive}/${ids.length}${row.action ? `, action ${row.action.reasonCode ?? row.action} at ${row.action.atS ?? '-'} s` : ''} | ${[...events.values()].map(e => e.split(':').slice(0, 2).join(':')).join(' ')}`);
 			await writeFile(path.join(out, 'runs.json'), JSON.stringify(runs, null, 1));

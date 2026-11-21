@@ -201,4 +201,8 @@ for (const setup of SETUPS) {
  sum[setup] = { trials: rows.length, kills: rows.filter(t => t.kill).length, calls: calls.length, loosed: loosed.length, hits: loosed.filter(c => c.hit).length,
   codes: calls.reduce((m, c) => (m[c.reasonCode] = (m[c.reasonCode] ?? 0) + 1, m), {}) };
 }
-results.summary = sum; await save(); console.log(JSON.stringify(sum));
+results.summary = sum;
+// Resistance keeps the body alive, so the room is judged on the fight: every trial's blaze dies.
+results.bar = 'every trial kills its blaze';
+results.pass = results.trials.length > 0 && results.trials.every(row => row.kill === true);
+await save(); console.log(JSON.stringify(sum));
