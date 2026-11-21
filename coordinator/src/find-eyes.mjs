@@ -27,6 +27,8 @@ export const EYE_FLIGHT_BLOCKS = 12;
 // drop below it stay inside the view cone.
 export const EYE_WATCH_BLOCKS = 10;
 // A leg that ends with one of these after covering ground still counts as a leg: the next eye is thrown from there.
+// A pickup that ends with one of these found no way to the eye at all.
+export const NO_WAY_CODES = new Set(['NO_SEEN_ROUTE', 'NO_STANDABLE_PATH', 'NO_ROUTE', 'REACHED_FRONTIER', 'CAVE_OPENING']);
 export const SOFT_LEG_CODES = new Set(['TRAVEL_TIMEOUT', 'NO_ROUTE', 'TRAVEL_STALLED', 'STALLED_IN_PLACE', 'BUILD_FAILED', 'OUT_OF_BLOCKS', 'NO_FLOOR', 'NO_STANDABLE_PATH']);
 export function trustedCross(a, b) {
 	if (!Number.isFinite(a?.yaw) || !Number.isFinite(b?.yaw) || !point(a.from) || !point(b.from)) return false;
@@ -109,6 +111,10 @@ export async function followEyes(target, body, { observation: initial, deadline,
 		await refresh();
 		if (type === 'use_item') state.throws.at(-1).eyesAfter = eyesHeld(o);
 		state.walked += Math.hypot(o.player.x - before.x, o.player.z - before.z);
+		// Travel's tunnel through a hill flooded and the body backed out dry: the leg still covered its ground, so throw again
+		// from here as a player whose tunnel hits water steps back (eye rooms: 3 of 10 eyes-b finds ended FIND_DANGER so).
+		if (soft && result?.reasonCode === 'TUNNEL_FLOODED' && !result?.interruptedBy && !safety() && o.player.underWater !== true
+			&& Math.hypot(o.player.x - before.x, o.player.z - before.z) >= 8) return null;
 		if (result?.interruptedBy || dangerCodes.has(result?.reasonCode) || safety()) return finish('FIND_DANGER', dangerCodes.has(result?.reasonCode) ? result.reasonCode : safety() ?? result?.interruptedBy ?? 'interrupted');
 		const found = result?.seen ?? arrival();
 		if (found) return finish('FIND_SEEN', `Stronghold blocks seen at ${found.x},${found.y},${found.z}`, found);
@@ -278,6 +284,8 @@ export async function followEyes(target, body, { observation: initial, deadline,
 			if (drop?.stableId && eyesHeld(o) <= last.eyesAfter) {
 				failed = await act('pick_up_item', { targetSelector: drop.stableId });
 				if (failed && failed.reasonCode !== 'FIND_BLOCKED') return failed;
+				// No way to it at all (eye rooms: an eye on a ledge 3 blocks up gave NO_SEEN_ROUTE): leave it and go on.
+				if (failed && NO_WAY_CODES.has(failed.find?.eyes?.stoppedBy)) { leave(); continue; }
 				drop = visibleDrop();
 			}
 			// The pickup failed with the eye still in view (it rolled or fell into a hole): walk to where it is now and try once more.
@@ -328,7 +336,10 @@ export async function followEyes(target, body, { observation: initial, deadline,
 			if (!Number.isFinite(last.yaw)) return finish('FIND_BLOCKED', 'Eye heading not observed');
 			const d = direction(last.yaw);
 			state.destination ??= { x: last.from.x + d.x * distance, z: last.from.z + d.z * distance };
-			const end = await act('travel_to', bounded({ ...state.destination, build: true, tolerance: 3 }), { soft: true });
+			let end = await act('travel_to', bounded({ ...state.destination, build: true, tolerance: 3 }), { soft: true });
+			// Out of blocks at the edge of water it was bridging: swim the rest, as a player with no blocks left does (eye rooms:
+			// eyes-a bridged 64 blocks of a lake and stopped OUT_OF_BLOCKS on 7 of 10 runs).
+			if (end?.find?.eyes?.stoppedBy === 'OUT_OF_BLOCKS') end = await act('travel_to', bounded({ ...state.destination, build: false, tolerance: 3 }), { soft: true });
 			if (end) return end;
 			delete state.destination;
 			state.phase = 'throw';
@@ -356,6 +367,19 @@ export async function followEyes(target, body, { observation: initial, deadline,
 		}
 		if (o.player.skyOpen !== true) {
 			const sky = body.openSky?.();
+			// No open sky seen yet (the body starts under a tree): step out from under the cover a few blocks each way before
+			// digging up through it, as a player walks out from under leaves to throw (eye rooms: stairs_up into a tree's
+			// canopy stopped CAVE_OPENING before any throw on 4 of 20 eyes-c starts).
+			if (!sky && !state.coverTried) {
+				state.coverTried = true;
+				const at = { x: o.player.x, z: o.player.z };
+				for (const [dx, dz] of [[6, 0], [0, 6], [-6, 0], [0, -6]]) {
+					const end = await act('travel_to', bounded({ x: at.x + dx, z: at.z + dz, tolerance: 1.5, build: false }));
+					if (end && end.reasonCode !== 'FIND_BLOCKED') return end;
+					if (o.player.skyOpen === true) break;
+				}
+				continue;
+			}
 			const before = o.player.y;
 			const end = sky && Math.hypot(sky.x - o.player.x, sky.z - o.player.z) > 3
 				? await act('travel_to', bounded({ ...sky, retrace: true, build: true, tolerance: 2 }))

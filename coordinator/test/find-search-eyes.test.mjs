@@ -129,6 +129,47 @@ test('an eye on leaves above that the walk under it cannot reach is left behind 
 	assert.equal(b.calls.filter(c => c.type === 'move_to').length, 1, 'one step onto the spot');
 	assert.equal(b.calls.some(c => c.type === 'pick_up_item'), false);
 });
+test('a leg out of blocks at water swims the rest, and a flooded tunnel backed out of after ground covered is a leg', async () => {
+	const b = fake({ event: flight({ outcome: 'shattered' }) });
+	const original = b.act;
+	b.act = async (...args) => {
+		if (args[0] === 'travel_to' && args[1].build === true && Math.abs(args[1].x) > 50) { b.calls.push({ type: args[0], args: args[1] }); return { state: 'FAILED', reasonCode: 'OUT_OF_BLOCKS' }; }
+		return original(...args);
+	};
+	const r = await searchFor(target, b);
+	assert.equal(r.reasonCode, 'FIND_BUDGET', r.message);
+	assert.ok(b.calls.some(c => c.type === 'travel_to' && c.args.build === false && c.args.x === -120), 'swims the leg');
+	const flood = fake({ event: flight({ outcome: 'shattered' }) });
+	const plain = flood.act;
+	flood.act = async (...args) => {
+		if (args[0] === 'travel_to' && Math.abs(args[1].x) > 50) { flood.calls.push({ type: args[0], args: args[1] }); flood.o.player.x -= 40; return { state: 'FAILED', reasonCode: 'TUNNEL_FLOODED' }; }
+		return plain(...args);
+	};
+	const dry = await searchFor(target, flood);
+	assert.equal(dry.reasonCode, 'FIND_BUDGET', dry.message);
+});
+test('with no open sky seen yet the body steps out from under cover before digging up', async () => {
+	const b = fake({ skyOpen: false });
+	const original = b.act;
+	b.act = async (...args) => { const r = await original(...args); if (args[0] === 'travel_to' && args[1].z === 6) b.o.player.skyOpen = true; return r; };
+	await searchFor(target, b);
+	const moves = b.calls.filter(c => c.type === 'travel_to').slice(0, 2).map(c => [c.args.x, c.args.z, c.args.build]);
+	assert.deepEqual(moves, [[6, 0, false], [0, 6, false]]);
+	assert.equal(b.calls.some(c => c.type === 'dig_to' && c.args.pattern === 'stairs_up'), false);
+	assert.equal(b.calls.filter(c => c.type === 'use_item').length, 1);
+});
+test('a pickup with no way to the eye leaves it behind and the find goes on', async () => {
+	const b = fake({ event: flight({ outcome: 'dropped', droppedAt: { x: -12, y: 73, z: 0 } }) });
+	b.o.items = [{ itemId: 'minecraft:ender_eye', stableId: '00000000-0000-4000-8000-000000000001', x: -12, y: 73, z: 0 }];
+	const original = b.act;
+	b.act = async (...args) => {
+		if (args[0] === 'pick_up_item') { b.calls.push({ type: args[0], args: args[1] }); return { state: 'FAILED', reasonCode: 'NO_SEEN_ROUTE' }; }
+		return original(...args);
+	};
+	const r = await searchFor(target, b);
+	assert.equal(r.reasonCode, 'FIND_BUDGET', r.message); assert.equal(r.find.eyes.throws[0].recovery, 'not_reached');
+	assert.equal(b.calls.filter(c => c.type === 'pick_up_item').length, 1);
+});
 test('a leg that covered ground before water it cannot bridge still counts as a leg', async () => {
 	const b = fake({ event: flight({ outcome: 'shattered' }) });
 	const original = b.act;
