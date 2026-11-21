@@ -98,6 +98,12 @@ test('closed-set arguments name the accepted values and the rejected one', () =>
 		for (const value of accepted) assert.ok(message.includes(value), `${tool}: ${message}`);
 		assert.ok(message.includes(asked), `${tool} echoes '${asked}': ${message}`);
 	}
+	// A value that is not a string is described by its type, so the rejection stays coded instead of throwing.
+	for (const view of [Object.create(null), JSON.parse(`${'['.repeat(5_000)}${']'.repeat(5_000)}`)]) {
+		const error = rejection('observe', { view });
+		assert.equal(error.code, 'INVALID_MINECRAFT_TOOL_ARGUMENTS');
+		assert.match(error.message, /view \((object|array)\) is not one of full, changes/);
+	}
 	const topic = rejection('capabilities', { section: 'control', topic: 'flying' }).message;
 	assert.match(topic, /flying/);
 	assert.match(topic, /capabilities\(\{section:"control"\}\)/, 'a long topic list points at its index');

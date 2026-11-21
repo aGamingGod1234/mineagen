@@ -149,8 +149,10 @@ export class ContextCarryOver {
 
 	#noteManual(result) {
 		if (typeof result?.topic !== 'string' || typeof result.reference !== 'string') return;
-		const fields = result.reference.match(/^Fields: [^\n]+/m)?.[0];
-		if (fields === undefined) return;
+		// A single-entry topic holds at most one Fields line; an aggregate page (actions, all) holds many, none its own.
+		const matches = result.reference.match(/^Fields: [^\n]+/gm);
+		if (matches === null || matches.length !== 1) return;
+		const fields = matches[0];
 		this.#manual.delete(result.topic);
 		this.#manual.set(result.topic, fields);
 		if (this.#manual.size > CARRY_OVER_MANUAL_TOPICS) this.#manual.delete(this.#manual.keys().next().value);

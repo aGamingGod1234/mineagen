@@ -1495,7 +1495,10 @@ function stripActionType(action) {
 }
 
 function invalid(message) { throw codedError('INVALID_MINECRAFT_TOOL_ARGUMENTS', message); }
-const quoted = (value) => typeof value === 'string' ? JSON.stringify(value.slice(0, 48)) : String(value).slice(0, 48);
+// Only primitives are converted: String() throws on a null-prototype object and recurses on a deep array.
+const quoted = (value) => typeof value === 'string' ? JSON.stringify(value.slice(0, 48))
+	: value === null || ['number', 'boolean', 'undefined', 'bigint'].includes(typeof value) ? String(value).slice(0, 48)
+		: `(${Array.isArray(value) ? 'array' : typeof value})`;
 /** A closed-set rejection names the value given and the accepted ones. */
 function notOneOf(field, value, accepted) { return `${field} ${quoted(value)} is not one of ${accepted.join(', ')}`; }
 

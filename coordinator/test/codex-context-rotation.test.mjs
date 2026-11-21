@@ -285,6 +285,17 @@ test('carried manual Fields lines stay within their byte bound and keep the newe
 	assert.doesNotMatch(failed.text('Session refreshed'), /Manual you read earlier/, 'nothing is carried without a delivered reference');
 });
 
+test('an aggregate manual page carries nothing under its own name', () => {
+	// The actions and all pages hold many actions' Fields lines and none of their own; carrying the first one would
+	// label move_to's fields as "actions".
+	const carry = new ContextCarryOver();
+	const tool = { kind: 'capabilities', section: 'control', topic: 'actions' };
+	const page = minecraftCapabilities(tool);
+	assert.ok((page.reference.match(/^Fields: /gm) ?? []).length > 1, 'the actions page lists several actions');
+	carry.rememberTool(tool, page);
+	assert.doesNotMatch(carry.text('Session refreshed'), /Manual you read earlier/);
+});
+
 async function rotateOnce(setupResult) {
 	const { transport, act } = setupResult;
 	transport.contextTokens = 70_000;
