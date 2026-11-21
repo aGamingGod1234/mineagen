@@ -67,7 +67,8 @@ export function findSpotVerdict(spot = {}, row = {}) {
 /**
  * Why a spot measured nothing, else null. A search whose last find never reached the body (the harness threw, or the
  * server refused it) is no "not found". A safety-only room cannot pass on standing still: no call ran, one never reached
- * the body, or the spot ended on lost observations. A miss it did measure (damage, a death) stays a FAIL.
+ * the body, every body receipt in row.actions was turned away at admission, or the spot ended on lost observations. A
+ * miss it did measure (damage, a death) stays a FAIL.
  */
 function notPlayed({ searched, found, lastFind, pass, calls, spot, row }) {
 	if (searched) return !found && row.deaths === 0 && (!lastFind || unexercised(lastFind)) ? `find ${lastFind?.reasonCode ?? lastFind?.state ?? 'call'} never reached the body` : null;
@@ -75,6 +76,10 @@ function notPlayed({ searched, found, lastFind, pass, calls, spot, row }) {
 	if (!calls.length) return 'no call ran';
 	const lost = calls.filter(unexercised);
 	if (lost.length) return `${lost.map(entry => `${entry.call} ${entry.reasonCode ?? entry.state}`).join(', ')} never reached the body`;
+	// A background step returns RUNNING; its body receipts are row.actions (find-live's action_result tap). A room whose
+	// every receipt was turned away at admission played nothing, however its calls read.
+	const actions = row.actions ?? [];
+	if (actions.length && actions.every(rejectedAtAdmission)) return `${actions.map(action => `${action.type} ${action.reasonCode}`).join(', ')} never reached the body`;
 	return row.ended ? `spot ended early: ${row.ended}` : null;
 }
 

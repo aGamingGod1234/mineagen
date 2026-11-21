@@ -103,7 +103,7 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 				if (type === 'action_command') {
 					commands.add(payload.actionId);
 					const { timeoutMs: _t, discard: _d, ...args } = payload.arguments ?? {};
-					row.actions = [...(row.actions ?? []), { atS: Math.round((Date.now() - (row.t0 ?? Date.now())) / 1000), type: payload.actionType, args }];
+					row.actions = [...(row.actions ?? []), { atS: Math.round((Date.now() - (row.t0 ?? Date.now())) / 1000), actionId: payload.actionId, type: payload.actionType, args }];
 					console.log(`  [${spot.name}] +${row.actions.at(-1).atS}s ${payload.actionType} ${JSON.stringify(args)}`);
 				}
 				return s.bridge.send(type, agentId, payload);
@@ -123,8 +123,12 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 			if (ev.agentId !== record.agentId || !commands.has(ev.payload.actionId)) return;
 			runtime.onActionResult(record, ev.payload);
 			if (['SUCCEEDED', 'FAILED', 'CANCELLED', 'TIMED_OUT'].includes(ev.payload.state)) {
-				const last = row.actions?.at(-1);
-				if (last) Object.assign(last, { state: ev.payload.state, reasonCode: ev.payload.reasonCode, message: String(ev.payload.message ?? '').slice(0, 400) });
+				// The receipt goes on its own command, with the body's execution evidence (an admission rejection reports both false).
+				const action = row.actions?.findLast(entry => entry.actionId === ev.payload.actionId);
+				if (action) Object.assign(action, { state: ev.payload.state, reasonCode: ev.payload.reasonCode,
+					...(typeof ev.payload.executionStarted === 'boolean' ? { executionStarted: ev.payload.executionStarted } : {}),
+					...(typeof ev.payload.physicalAttempted === 'boolean' ? { physicalAttempted: ev.payload.physicalAttempted } : {}),
+					message: String(ev.payload.message ?? '').slice(0, 400) });
 				console.log(`  [${spot.name}]   -> ${ev.payload.state} ${ev.payload.reasonCode ?? ''} ${String(ev.payload.message ?? '').slice(0, 220)}`);
 			}
 			s.bridge.send('action_result_ack', record.agentId, { goalRevision: record.goalRevision, actionId: ev.payload.actionId }).catch(() => {});

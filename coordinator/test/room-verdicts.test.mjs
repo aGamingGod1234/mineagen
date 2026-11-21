@@ -84,6 +84,16 @@ test('a safety room whose calls the server rejected at admission is not exercise
 	const verdict = findSpotVerdict(spot, stopped);
 	assert.equal(verdict.notExercised, undefined);
 	assert.equal(roomVerdict({ ...stopped, ...verdict }).verdict, 'PASS');
+	// A background step (do_step build) returns RUNNING; its receipt reaches only row.actions through the action_result tap.
+	const build = { name: 'carve-hidden-lava', calls: [{ name: 'do_step', arguments: { verb: 'build' } }] };
+	const started = { call: 'do_step', verb: 'build', state: 'RUNNING' };
+	const turnedAway = { ...still, calls: [started], actions: [{ type: 'build', ...rejected('ACTION_RUNTIME_QUARANTINED') }] };
+	const away = findSpotVerdict(build, turnedAway);
+	assert.match(away.notExercised ?? '', /build ACTION_RUNTIME_QUARANTINED never reached the body/);
+	assert.equal(roomVerdict({ ...turnedAway, ...away }).verdict, 'INVALID');
+	// One refused re-ask beside a step the body did run is no unplayed room.
+	const played = { ...turnedAway, actions: [{ type: 'build', ...rejected('ACTION_ALREADY_ACTIVE') }, { type: 'build', state: 'SUCCEEDED', reasonCode: 'BUILT', executionStarted: true, physicalAttempted: true }] };
+	assert.equal(roomVerdict({ ...played, ...findSpotVerdict(build, played) }).verdict, 'PASS');
 	// The stand-in still re-asks a find the busy slot refused: that race clears once the cancelled action ends.
 	assert.equal(shouldRepeat({ name: 'do_step', arguments: { verb: 'find' } }, rejected('ACTION_ALREADY_ACTIVE'), { repeat: true }), true);
 });
