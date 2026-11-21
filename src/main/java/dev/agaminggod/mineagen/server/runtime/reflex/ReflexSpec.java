@@ -93,7 +93,7 @@ public final class ReflexSpec {
 
 	static {
 		condition("incoming_projectile", true, new Param("withinS", ParamKind.NUMBER, 0.05D, 2.0D, false),
-				new Param("projectiles", ParamKind.IDS, 0, 0, false));
+				new Param("projectiles", ParamKind.IDS, 0, 0, false), Param.flag("drawn"));
 		condition("hostile_near", true, new Param("within", ParamKind.NUMBER, 1.0D, 32.0D, true),
 				new Param("mobs", ParamKind.IDS, 0, 0, false), new Param("targetId", ParamKind.ENTITY_ID, 0, 0, false));
 		condition("target_in_reach", true, new Param("mobs", ParamKind.IDS, 0, 0, false));

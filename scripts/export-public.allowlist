@@ -897,6 +897,7 @@ docs/distribution/README.md
 docs/gameplay-friction/README.md
 docs/goal-progress.md
 docs/technical-catalogue/437-pov-reliability.md
+docs/technical-catalogue/30-drawn-bow-shield.md
 gradle.properties
 gradle/locks/26.1/mineagen.lockfile
 gradle/locks/26.1/voice-addon.lockfile
@@ -1043,6 +1044,7 @@ scripts/quality/test-defend-live.mjs
 scripts/quality/test-dig-live.mjs
 scripts/quality/test-dig-options-live.mjs
 scripts/quality/test-dragon-live.mjs
+scripts/quality/test-drawn-bow-live.mjs
 scripts/quality/test-end-breath-live.mjs
 scripts/quality/test-end-survive-live.mjs
 scripts/quality/test-end-void-live.mjs
@@ -2086,6 +2088,7 @@ src/test/java/dev/agaminggod/mineagen/server/runtime/input/UseTickPhaseVerificat
 src/test/java/dev/agaminggod/mineagen/server/runtime/input/VanillaMoveInputVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/menu/MenuCapabilityRegistryVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/reflex/DefaultEatRearmingVerification.java
+src/test/java/dev/agaminggod/mineagen/server/runtime/reflex/DrawnBowShieldVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/reflex/EndBreathFloorVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/reflex/LeaveFireDouseRecoveryVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/reflex/ModelOwnedDefaultRulesVerification.java
