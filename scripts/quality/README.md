@@ -34,8 +34,8 @@ Run from the repository root with:
 
 - Node 22 or newer
 - Java 25
-- a built mod JAR (`.\gradlew.bat build`)
-- a prepared Fabric server template (`scripts/prepare-headless-server-template.ps1`)
+- a built mod JAR (`./gradlew build`; `.\gradlew.bat build` on Windows)
+- a prepared Fabric server template: `node scripts/prepare-server-template.mjs --accept-minecraft-eula` on any OS (`scripts/prepare-headless-server-template.ps1` on Windows), then `export ARENA_HEADLESS_SERVER_TEMPLATE=<the folder it prints>`. `node scripts/doctor.mjs` checks all of these.
 - a signed-in Claude or Codex CLI
 
 ## Paths and environment
@@ -82,6 +82,17 @@ FIXTURE_TICK_RATE=60 CASES=corridor REPEATS=3 /path/to/recordings/arena-beat-gam
 ```
 
 Server start and world generation do not speed up; time in play does. `measure-tick-rate.mjs` measures what a machine holds with 1 to 4 bodies kept busy (`summary.json` per body count: `highestHeld` is the highest rate held with every lower rate held too, `notHeld` the misses, `leastBusy` the smallest share of body time spent working in any sample). One sample per rate is noisy on a shared machine, so pick a rate below `highestHeld` across several runs. `test-lag-clock-live.mjs` checks the reverse: a lagging server (`LAG=rate:10` or a real `LAG=crowd:N` pig pit) must not cut a `travel_to` or `dig_to` short. In model play the coordinator moves a program's wall-clock deadline out by the wall time the server fell behind the game clock (at most three program timeouts), so the body's own timeout still comes first. Model runs keep 20 TPS: provider timeouts are wall time.
+
+## Writing a new live fixture
+
+`coordinator/test/quality-fixture-exit.test.mjs` and the tool contracts enforce most of this; the rest is game behaviour that cost earlier fixtures a run.
+
+- Report through `finishRun` from `scripts/quality/lib/fixture-run.mjs` and exit with its code. `--help` prints the outcome line (`exit 1 = unmet acceptance, exit 2 = invalid evidence`) and exits 0 with no Java, template or slot; a run without a slot exits 2. Start from a fixture that already uses `finishRun`; the fixtures on the test's `NOT_YET_ON_FINISH_RUN` list fail this test when copied.
+- Pull every observation: call `s.observe()` before reading health, inventory or position. `s.observation` is only the last one pulled and goes stale while a long call runs.
+- Give a summoned skeleton its bow in the summon NBT, `{equipment:{mainhand:{id:"minecraft:bow",count:1}}}`; the drawn-bow fixture's first summons arrived unarmed and punched.
+- `pick_up_item` takes the drop's entity id (`stableId` or `uuid` from an observation) as `targetSelector`. Names such as `nearest_item` are rejected.
+- The model's tool schema sits at its byte budget, 1 byte under on main: three tests pin `MINECRAFT_DYNAMIC_TOOLS` (`coordinator/src/native-minecraft-tools.mjs`) at 39,476 bytes (search `coordinator/test` for `39_476`), and `coordinator/test/token-budget.test.mjs` pins `toolSchemaBytes` at 38,900. A new tool field needs a budget raise in those tests, with its reason in the pull request.
+- A Node witness in `coordinator/test/contracts/claims.json` names a test by its exact title, found by plain text search in the test file, so write the title so it reads the same in source: no escaped quotes or apostrophes, no template interpolation.
 
 ## Bed parity fixture
 

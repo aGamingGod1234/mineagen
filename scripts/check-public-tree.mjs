@@ -1,13 +1,19 @@
 #!/usr/bin/env node
 // The publication gate. Three ways to run it:
 //   node scripts/check-public-tree.mjs [folder]          every file under the folder (default: the current one); a
-//                                                         top-level .git folder or file is skipped
+//                                                         top-level .git folder or file is skipped. CI runs this on
+//                                                         a fresh checkout.
+//   node scripts/check-public-tree.mjs --tracked         the working copy of every file Git tracks in this checkout,
+//                                                         so untracked build output (node_modules, libs JARs) is not
+//                                                         read; matches the CI scan of a fresh checkout of HEAD plus
+//                                                         your uncommitted edits. Untracked new files are not scanned.
 //   node scripts/check-public-tree.mjs --staged          the staged content of every staged file (the pre-commit hook)
 //   node scripts/check-public-tree.mjs --text <file|->   text such as a commit message or a pull request description;
 //                                                         - reads standard input. Exemptions never apply to text.
 //   node scripts/check-public-tree.mjs --commit-msg <file>  a commit message file (the commit-msg hook)
 // Exit code 1 means a failure or a review finding; 2 means the gate could not run.
 import { readdir, readFile } from 'node:fs/promises';
+import { lstatSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
@@ -97,6 +103,23 @@ function scanStaged() {
   at += size + 1;
  }
 }
+// Tracked files in their working-tree form. A tracked path deleted locally is skipped; a gitlink is skipped as in --staged.
+function scanTracked() {
+ const top = execFileSync('git', ['rev-parse', '--show-toplevel']).toString('utf8').trim();
+ const listed = execFileSync('git', ['-c', 'core.quotepath=off', 'ls-files', '-s', '-z'], { cwd: top, maxBuffer: 2 ** 30 }).toString('utf8').split('\0');
+ const seen = new Set();
+ for (const entry of listed) {
+  const tab = entry.indexOf('\t');
+  if (tab < 0) continue;
+  const mode = entry.slice(0, entry.indexOf(' ')), rel = entry.slice(tab + 1);
+  if (seen.has(rel) || mode === '160000') continue;
+  seen.add(rel);
+  let info;
+  try { info = lstatSync(path.join(top, rel)); } catch { continue; }
+  if (mode === '120000' || info.isSymbolicLink()) { files++; console.log(rel + ':1: FAIL symlink'); failures++; continue; }
+  scanFile(rel, readFileSync(path.join(top, rel)));
+ }
+}
 // Git keeps every line of a message given with -m or -F, including lines that start with # and a scissors line, so
 // all of it is scanned. Only the diff that `git commit -v` puts below its own scissors block is dropped, because Git
 // cuts it from the message.
@@ -121,6 +144,7 @@ async function scanTexts(sources) {
 const [mode, ...rest] = process.argv.slice(2);
 try {
  if (mode === '--staged') scanStaged();
+ else if (mode === '--tracked') scanTracked();
  else if (mode === '--text') await scanTexts(rest);
  else if (mode === '--commit-msg') await scanCommitMessage(rest[0]);
  else if (mode?.startsWith('--')) throw Error('Unknown option ' + mode);
