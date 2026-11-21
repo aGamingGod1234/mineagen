@@ -8,7 +8,7 @@ import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { ReflexBook } from '../../coordinator/src/reflexes.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
-import { installTickRate, fixtureTickRate } from './watch-replay.mjs';
+import { installTickRate, unshownTickRate } from './watch-replay.mjs';
 import { damageCounter, damageEvidence } from './lib/damage-counter.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
@@ -221,7 +221,9 @@ async function shelterFire(agent) {
 const results = { rules: {}, cases: [] };
 try {
 	for (let i = 0; i < 150; i++) { try { rcon = new HeadlessRconClient({ host: '127.0.0.1', port: port + 1, password: secret, connectTimeoutMs: 500, commandTimeoutMs: 5000 }); await rcon.connect(); break; } catch (e) { await rcon?.close(); if (i === 149) throw e; await sleep(1000); } }
-	rate = installTickRate({ command: text => command(text) }, fixtureTickRate());
+	// 21 Nov A/B, 10 runs a side: in 4 of 8 shelter-fire and edge-control cases the body lived at 20 and died at 60 (its
+	// watch is a count of polls, so it covers more game time at 60). It stays at 20 until the watch counts game time.
+	rate = installTickRate({ command: text => command(text) }, unshownTickRate('the body without rules died at 60 TPS in cases it survived at 20'));
 	bridge = new MultiplexedServerBridge({ port, secret }, {}); inbox = new Inbox(bridge);
 	bridge.on('observation', e => { rate.clock.observe(e.payload?.world?.gameTime); if (e.payload.ready) latest.set(e.agentId, e.payload); });
 	bridge.on('goal_spec_request', e => { bridge.send('goal_spec_proposal', e.agentId, { requestId: e.payload.requestId, summary: 'Controlled live mechanics fixture', predicate: { type: 'survive_duration', ticks: 24000 } }).catch(() => {}); });

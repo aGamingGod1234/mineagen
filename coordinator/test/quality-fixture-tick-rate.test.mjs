@@ -199,8 +199,8 @@ test('unshownTickRate keeps a fixture that missed the A/B bar at 20 unless an A/
 
 // The 21 Nov 20 vs 60 TPS A/B (10 runs a side, same jar): these fixtures played the same game at 60, so they take
 // FIXTURE_TICK_RATE. Every other converted fixture stays at 20 through unshownTickRate until an A/B shows it.
-const SHOWN_AT_60 = ['bed', 'bed-spawn', 'bow-crystal', 'build', 'caged-crystal', 'controller-contracts', 'cornered', 'crowd', 'default-reflex',
-	'defend', 'dig', 'dragon', 'drawn-bow', 'end-breath', 'enderman', 'end-survive', 'end-void', 'find', 'find-spot', 'fire', 'gather', 'gold-route',
+const SHOWN_AT_60 = ['bed', 'bed-spawn', 'bow-crystal', 'build', 'caged-crystal', 'controller-contracts', 'cornered', 'crowd',
+	'defend', 'dig', 'drawn-bow', 'end-breath', 'enderman', 'end-survive', 'end-void', 'find', 'find-spot', 'fire', 'gather', 'gold-route',
 	'knockback-edge', 'nether-fight', 'nether-gather', 'portal-walkin', 'ranged-blaze', 'reflex-failspots', 'route-recovery', 'savepoints', 'shelter',
 	'shelter-forest', 'shelter-ranged', 'shelter-terrain', 'travel-resume', 'warped-pearl', 'water'];
 // escape arrived after the A/B and is not on the game clock yet; the others are never raised (see the README).

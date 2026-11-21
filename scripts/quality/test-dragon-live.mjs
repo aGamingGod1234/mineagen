@@ -8,7 +8,7 @@ import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
-import { installTickRate, fixtureTickRate } from './watch-replay.mjs';
+import { installTickRate, unshownTickRate } from './watch-replay.mjs';
 import { damageCounter, damageEvidence } from './lib/damage-counter.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
@@ -86,7 +86,8 @@ async function endPlay() {
 }
 try {
 	for (let i = 0; i < 150; i++) { try { rcon = new HeadlessRconClient({ host: '127.0.0.1', port: port + 1, password: secret, connectTimeoutMs: 500, commandTimeoutMs: 5000 }); await rcon.connect(); break; } catch (e) { await rcon?.close(); if (i === 149) throw e; await sleep(1000); } }
-	rate = installTickRate({ command: text => command(text) }, fixtureTickRate());
+	// 21 Nov A/B, 10 runs a side: no pass check, and perchedMelee ended in another dragon phase at 60 (2.7 vs 1 on average).
+	rate = installTickRate({ command: text => command(text) }, unshownTickRate('no pass check, and the perched phase ended differently at 60 TPS'));
 	bridge = new MultiplexedServerBridge({ port, secret }, {}); inbox = new Inbox(bridge);
 	bridge.on('observation', e => { rate.clock.observe(e.payload?.world?.gameTime); if (e.agentId === record?.agentId && e.payload.ready) observation = e.payload; });
 	bridge.on('goal_spec_request', e => { bridge.send('goal_spec_proposal', e.agentId, { requestId: e.payload.requestId, summary: 'Controlled live mechanics fixture', predicate: { type: 'survive_duration', ticks: 24000 } }).catch(() => {}); });
