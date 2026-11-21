@@ -932,6 +932,7 @@ scripts/decision-eval/portal-kit-replay.md
 scripts/decision-eval/run.mjs
 scripts/decision-eval/score-portal-kit.mjs
 scripts/decision-eval/simulate-verdict.mjs
+scripts/decision-eval/tier1-compare.mjs
 scripts/decision-eval/verify-provenance.mjs
 scripts/distribution-runtime.ps1
 scripts/doctor.mjs
@@ -2201,6 +2202,7 @@ coordinator/src/experience-store.mjs
 coordinator/src/fork-rule.mjs
 coordinator/src/kill-trace.mjs
 coordinator/test/action-work-lease.test.mjs
+coordinator/test/decision-eval-tier1-compare.test.mjs
 coordinator/test/experience-coordinator.test.mjs
 coordinator/test/experience-runtime.test.mjs
 coordinator/test/experience-store.test.mjs
