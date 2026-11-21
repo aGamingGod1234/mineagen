@@ -137,6 +137,19 @@ public final class ServerBarterController implements ServerController {
 		TickResult danger = danger(player);
 		if (danger != null) return danger;
 		if (gained(player) >= count) return done(player, "BARTER_COUNT_REACHED", gained(player) + " " + wantedId + " gained (asked " + count + ")");
+		// A running conversion finishes before anything else: it holds the body's input while it crafts, and a pickup
+		// started meanwhile could not move and would leave the craft's input lease expired.
+		if (craft != null) {
+			TickResult r = craft.tick(player, nowEpochMs);
+			if (r.state() == State.RUNNING) return TickResult.running(progress(player));
+			craft = null;
+			// A craft can succeed partly (CRAFT_PARTIAL: trimmed to inventory room or its pacing budget), so count what
+			// it made: nothing else moves ingots while it runs.
+			int made = Math.max(0, carried(player, Items.GOLD_INGOT) - ingotsBeforeCraft);
+			crafted += made;
+			if (r.state() != State.SUCCEEDED || made == 0) craftFailures++;
+			craftYield = 0;
+		}
 		if (pickup != null) {
 			TickResult r = pickup.tick(player, nowEpochMs);
 			if (r.state() == State.RUNNING) return TickResult.running(progress(player));
@@ -153,17 +166,6 @@ public final class ServerBarterController implements ServerController {
 			return TickResult.running(progress(player));
 		}
 		boolean waiting = nowEpochMs - lastThrowMs < RETURN_WAIT_MS || anyAdmiring(player);
-		if (craft != null) {
-			TickResult r = craft.tick(player, nowEpochMs);
-			if (r.state() == State.RUNNING) return TickResult.running(progress(player));
-			craft = null;
-			// A craft can succeed partly (CRAFT_PARTIAL: trimmed to inventory room or its pacing budget), so count what
-			// it made: nothing else moves ingots while it runs.
-			int made = Math.max(0, carried(player, Items.GOLD_INGOT) - ingotsBeforeCraft);
-			crafted += made;
-			if (r.state() != State.SUCCEEDED || made == 0) craftFailures++;
-			craftYield = 0;
-		}
 		if (carried(player, Items.GOLD_INGOT) == 0) {
 			stopWalk(player);
 			if (craftFailures < 3 && startConversion(player, nowEpochMs)) return TickResult.running(progress(player));
@@ -331,8 +333,9 @@ public final class ServerBarterController implements ServerController {
 		boolean tableHeld = carried(player, Items.CRAFTING_TABLE) > 0;
 		Conversion plan = conversion(blocks, nuggets, table != null, tableHeld);
 		if (plan == null) return false;
-		// Crafted ingots need a free slot: drop a stack of barter rubble first, as a player clears the bags.
-		if (player.getInventory().getFreeSlot() < 0 && !dropJunk(player)) return false;
+		// Full bags: drop a stack of barter rubble first, as a player clears them. With none to drop the craft still
+		// runs: a block or nine nuggets leave their slot for the grid, and the craft checks the room for its output.
+		if (player.getInventory().getFreeSlot() < 0) dropJunk(player);
 		if (plan.table() && table == null) table = placeTable(player);
 		if (plan.table() && table == null) return false;
 		craftYield = plan.ingots();
