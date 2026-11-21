@@ -42,6 +42,7 @@ import { DEFAULT_REFLEXES, ReflexBook } from '../../coordinator/src/reflexes.mjs
 import { fixtureTickRate } from './watch-replay.mjs';
 import { gameClockFromObservations } from '../../coordinator/src/game-clock.mjs';
 import { warmBoots } from './fixture-servers.mjs';
+import { liveRecord } from './watch-replay.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 import { damageCounter, damageEvidence, replyNumber, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
@@ -139,7 +140,7 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 			// At a raised rate the runtime times find, gather, obtain and wait in game time too (it feeds the clock its samples).
 			...(s.clock.rate === 20 ? {} : { clock: gameClockFromObservations({ tickRate: s.clock.rate }) }),
 		});
-		const record = { ...s.record, provider: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'low', serviceTier: 'default' };
+		const record = liveRecord(s, { provider: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'low', serviceTier: 'default' });
 		s.bridge.on('observation', ev => { if (ev.agentId === record.agentId && ev.payload.ready) runtime.updateObservation(record, adaptObservation(ev.payload), { eventSequence: ev.payload.eventSequence }); });
 		// A message the wire schema refused is dropped, connection kept (schema drift): count it, or the body loses
 		// observations with no trace in the run (batch 1: far-sight rows marked flowing/small, fixed in #209).

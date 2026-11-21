@@ -199,6 +199,7 @@ coordinator/src/intervention-audit.mjs
 coordinator/src/inventory-repair.mjs
 coordinator/src/job-gate.mjs
 coordinator/src/jsonl.mjs
+coordinator/src/kit-habit.mjs
 coordinator/src/lean-input.mjs
 coordinator/src/live-task-view.mjs
 coordinator/src/message-id.mjs
@@ -500,6 +501,7 @@ coordinator/test/fire-escape.test.mjs
 coordinator/test/fixture-run.test.mjs
 coordinator/test/fixture-servers.test.mjs
 coordinator/test/fixtures/appearance-budget.json
+coordinator/test/fixtures/bulk-temp-root.mjs
 coordinator/test/fixtures/claude-service-fixture.mjs
 coordinator/test/fixtures/codex-service-fixture.mjs
 coordinator/test/fixtures/codex-sol-context-series.json
@@ -625,6 +627,9 @@ coordinator/test/java-wire-schema.test.mjs
 coordinator/test/jsonl-audit.test.mjs
 coordinator/test/jsonl-decoder-equivalence.test.mjs
 coordinator/test/jsonl.test.mjs
+coordinator/test/kit-habit-runtime.test.mjs
+coordinator/test/kit-habit.test.mjs
+coordinator/test/late-game-end.test.mjs
 coordinator/test/latency-acceptance.test.mjs
 coordinator/test/latency-runner-cli.test.mjs
 coordinator/test/latency-runner.test.mjs
@@ -793,6 +798,7 @@ coordinator/test/reporting-transition-deduper.test.mjs
 coordinator/test/respawn-recovery.test.mjs
 coordinator/test/respawn-round2.test.mjs
 coordinator/test/respawn-route-facts.test.mjs
+coordinator/test/room-verdicts.test.mjs
 coordinator/test/rotating-jsonl-sink.test.mjs
 coordinator/test/round2-water-worn.test.mjs
 coordinator/test/route-line.test.mjs
@@ -894,6 +900,7 @@ docs/distribution/README.md
 docs/gameplay-friction/README.md
 docs/goal-progress.md
 docs/technical-catalogue/437-pov-reliability.md
+docs/technical-catalogue/30-drawn-bow-shield.md
 gradle.properties
 gradle/locks/26.1/mineagen.lockfile
 gradle/locks/26.1/voice-addon.lockfile
@@ -979,10 +986,13 @@ scripts/quality/ironpick2.json
 scripts/quality/ladder-evaluator.mjs
 scripts/quality/ladder.json
 scripts/quality/launch-scenarios.ps1
+scripts/quality/lava-room-spots.json
 scripts/quality/lava-survey.py
 scripts/quality/lib/damage-counter.mjs
+scripts/quality/lib/find-spot.mjs
 scripts/quality/lib/fixture-run.mjs
 scripts/quality/lib/reflex-failspot-pass.mjs
+scripts/quality/lib/room-evidence.mjs
 scripts/quality/lib/scripted-planner.mjs
 scripts/quality/lib/stake-comparison.mjs
 scripts/quality/make-checkpoint.mjs
@@ -1037,6 +1047,8 @@ scripts/quality/test-defend-live.mjs
 scripts/quality/test-dig-live.mjs
 scripts/quality/test-dig-options-live.mjs
 scripts/quality/test-dragon-live.mjs
+scripts/quality/test-drawn-bow-live.mjs
+scripts/quality/test-end-breath-live.mjs
 scripts/quality/test-end-survive-live.mjs
 scripts/quality/test-end-void-live.mjs
 scripts/quality/test-enderman-live.mjs
@@ -1663,6 +1675,7 @@ src/main/java/dev/agaminggod/mineagen/server/runtime/controller/HazardExits.java
 src/main/java/dev/agaminggod/mineagen/server/runtime/controller/HotbarWeapons.java
 src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ItemPickupProgress.java
 src/main/java/dev/agaminggod/mineagen/server/runtime/controller/KillDropCollector.java
+src/main/java/dev/agaminggod/mineagen/server/runtime/controller/LavaStep.java
 src/main/java/dev/agaminggod/mineagen/server/runtime/controller/LedgeFetch.java
 src/main/java/dev/agaminggod/mineagen/server/runtime/controller/MeleeReach.java
 src/main/java/dev/agaminggod/mineagen/server/runtime/controller/MinecraftNavigationWorld.java
@@ -2042,6 +2055,7 @@ src/test/java/dev/agaminggod/mineagen/server/runtime/controller/HazardExitsVerif
 src/test/java/dev/agaminggod/mineagen/server/runtime/controller/ItemPickupProgressVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/controller/LavaFlowMovementVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/controller/LavaSpreadVerification.java
+src/test/java/dev/agaminggod/mineagen/server/runtime/controller/LavaStepVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/controller/MinecraftNavigationWorldVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/controller/MiningToolsVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/controller/NavigationBreathingVerification.java
@@ -2077,6 +2091,8 @@ src/test/java/dev/agaminggod/mineagen/server/runtime/input/UseTickPhaseVerificat
 src/test/java/dev/agaminggod/mineagen/server/runtime/input/VanillaMoveInputVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/menu/MenuCapabilityRegistryVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/reflex/DefaultEatRearmingVerification.java
+src/test/java/dev/agaminggod/mineagen/server/runtime/reflex/DrawnBowShieldVerification.java
+src/test/java/dev/agaminggod/mineagen/server/runtime/reflex/EndBreathFloorVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/reflex/LeaveFireDouseRecoveryVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/reflex/ModelOwnedDefaultRulesVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/reflex/ReflexBodyVerification.java
@@ -2102,6 +2118,7 @@ src/test/python/test_pov_agent_lighting.py
 src/test/python/test_pov_map_visibility.py
 src/test/resources/d1-late4-handoff.json
 src/test/resources/default-reflex-rules.json
+src/test/resources/end-reflex-rules.json
 src/test/resources/player-action-schema-cases.json
 src/test/resources/pov-mixin-targets.txt
 voice-addon/build.gradle
@@ -2173,6 +2190,8 @@ SECURITY.md
 scripts/hooks/commit-msg
 scripts/hooks/pre-commit
 scripts/pull-request-text.mjs
+docs/technical-catalogue/35-lava-step-guard.md
+docs/technical-catalogue/36-end-breath-escape.md
 # Files the issue #2 pull requests (#4 to #28) added without listing them: coordinator sources and tests, mod
 # classes, quality scripts and catalogue pages. Each is already public, and an export without them does not build.
 coordinator/src/default-models.mjs
@@ -2227,3 +2246,4 @@ src/test/java/dev/agaminggod/mineagen/server/runtime/reflex/DriverRuleVerificati
 src/test/java/dev/agaminggod/mineagen/server/runtime/reflex/OwedDropsVerification.java
 src/test/java/dev/agaminggod/mineagen/server/watch/KillRowVerification.java
 docs/technical-catalogue/34-main-ci-green.md
+docs/technical-catalogue/47-ci-flake-fixes.md

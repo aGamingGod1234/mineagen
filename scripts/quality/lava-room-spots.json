@@ -1,0 +1,401 @@
+[
+	{
+		"name": "lava-room-1",
+		"seed": "5433312384530337025",
+		"inventory": [
+			{
+				"item": "minecraft:iron_pickaxe",
+				"count": 1
+			},
+			{
+				"item": "minecraft:cobblestone",
+				"count": 64
+			},
+			{
+				"item": "minecraft:bread",
+				"count": 8
+			}
+		],
+		"monsters": false,
+		"time": 6000,
+		"note": "Nether lava safety: a raised netherrack room with a same-level lava puddle (sources at the feet, flowed 8 s), a gold ingot beside its edge and a netherrack wall past it with two lava pockets. Raw control keys sprint, then sprint-jump, straight at the flow; then pick_up_item, move_to across, a dig_to tunnel toward one pocket and a building travel_to through the wall past the other. Pass: 0 deaths and 0 damage taken.",
+		"setup": [
+			"fill {x-10} {y+39} {z-10} {x+16} {y+46} {z+10} minecraft:air",
+			"fill {x-10} {y+39} {z-10} {x+16} {y+39} {z+10} minecraft:netherrack",
+			"fill {x-11} {y+40} {z-11} {x+17} {y+42} {z-11} minecraft:glass",
+			"fill {x-11} {y+40} {z+11} {x+17} {y+42} {z+11} minecraft:glass",
+			"fill {x-11} {y+40} {z-11} {x-11} {y+42} {z+11} minecraft:glass",
+			"fill {x+17} {y+40} {z-11} {x+17} {y+42} {z+11} minecraft:glass",
+			"fill {x+5} {y+40} {z-2} {x+6} {y+40} {z+2} minecraft:lava",
+			"fill {x+12} {y+40} {z-10} {x+15} {y+42} {z+10} minecraft:netherrack",
+			"setblock {x+14} {y+40} {z} minecraft:lava",
+			"setblock {x+14} {y+40} {z-5} minecraft:lava",
+			"tp Probe {x+0.5} {y+40} {z+0.5} -90 0"
+		],
+		"after": {
+			"ms": 8000,
+			"commands": [
+				"summon minecraft:item {x+5.5} {y+40} {z-5.5} {Item:{id:\"minecraft:gold_ingot\",count:1},PickupDelay:0}"
+			]
+		},
+		"calls": [
+			{
+				"name": "act",
+				"arguments": {
+					"actionType": "control",
+					"arguments": {
+						"forward": 1,
+						"strafe": 0,
+						"jump": false,
+						"sneak": false,
+						"sprint": true,
+						"attack": false,
+						"use": false,
+						"yaw": -90,
+						"pitch": 0,
+						"selectedSlot": 0,
+						"hand": "main",
+						"ticks": 60
+					}
+				}
+			},
+			{
+				"name": "act",
+				"arguments": {
+					"actionType": "control",
+					"arguments": {
+						"forward": 1,
+						"strafe": 0,
+						"jump": true,
+						"sneak": false,
+						"sprint": true,
+						"attack": false,
+						"use": false,
+						"yaw": -90,
+						"pitch": 0,
+						"selectedSlot": 0,
+						"hand": "main",
+						"ticks": 40
+					}
+				}
+			},
+			{
+				"name": "act",
+				"arguments": {
+					"actionType": "pick_up_item",
+					"arguments": {
+						"targetSelector": "{item}",
+						"timeoutMs": 30000
+					}
+				}
+			},
+			{
+				"name": "act",
+				"arguments": {
+					"actionType": "move_to",
+					"arguments": {
+						"x": "{x+11.5}",
+						"y": "{y+40}",
+						"z": "{z+0.5}",
+						"tolerance": 0.5,
+						"sprint": true
+					}
+				}
+			},
+			{
+				"name": "act",
+				"arguments": {
+					"actionType": "dig_to",
+					"arguments": {
+						"pattern": "tunnel",
+						"heading": "east",
+						"maxBlocks": 6,
+						"timeoutMs": 60000
+					}
+				}
+			},
+			{
+				"name": "act",
+				"arguments": {
+					"actionType": "travel_to",
+					"arguments": {
+						"x": "{x+16.5}",
+						"y": "{y+40}",
+						"z": "{z-4.5}",
+						"tolerance": 1,
+						"build": true,
+						"timeoutMs": 90000
+					}
+				}
+			}
+		],
+		"dump": true,
+		"expectDamageTaken": 0
+	},
+	{
+		"name": "lava-room-2",
+		"seed": "5433312384530337025",
+		"inventory": [
+			{
+				"item": "minecraft:iron_pickaxe",
+				"count": 1
+			},
+			{
+				"item": "minecraft:cobblestone",
+				"count": 64
+			},
+			{
+				"item": "minecraft:bread",
+				"count": 8
+			}
+		],
+		"monsters": false,
+		"time": 6000,
+		"note": "Nether lava safety: a raised netherrack room with a same-level lava puddle (sources at the feet, flowed 8 s), a gold ingot beside its edge and a netherrack wall past it with two lava pockets. Raw control keys sprint, then sprint-jump, straight at the flow; then pick_up_item, move_to across, a dig_to tunnel toward one pocket and a building travel_to through the wall past the other. Pass: 0 deaths and 0 damage taken.",
+		"setup": [
+			"fill {x-10} {y+39} {z-10} {x+16} {y+46} {z+10} minecraft:air",
+			"fill {x-10} {y+39} {z-10} {x+16} {y+39} {z+10} minecraft:netherrack",
+			"fill {x-11} {y+40} {z-11} {x+17} {y+42} {z-11} minecraft:glass",
+			"fill {x-11} {y+40} {z+11} {x+17} {y+42} {z+11} minecraft:glass",
+			"fill {x-11} {y+40} {z-11} {x-11} {y+42} {z+11} minecraft:glass",
+			"fill {x+17} {y+40} {z-11} {x+17} {y+42} {z+11} minecraft:glass",
+			"fill {x+5} {y+40} {z-2} {x+6} {y+40} {z+2} minecraft:lava",
+			"fill {x+12} {y+40} {z-10} {x+15} {y+42} {z+10} minecraft:netherrack",
+			"setblock {x+14} {y+40} {z} minecraft:lava",
+			"setblock {x+14} {y+40} {z-5} minecraft:lava",
+			"tp Probe {x+0.5} {y+40} {z+0.5} -90 0"
+		],
+		"after": {
+			"ms": 8000,
+			"commands": [
+				"summon minecraft:item {x+5.5} {y+40} {z-5.5} {Item:{id:\"minecraft:gold_ingot\",count:1},PickupDelay:0}"
+			]
+		},
+		"calls": [
+			{
+				"name": "act",
+				"arguments": {
+					"actionType": "control",
+					"arguments": {
+						"forward": 1,
+						"strafe": 0,
+						"jump": false,
+						"sneak": false,
+						"sprint": true,
+						"attack": false,
+						"use": false,
+						"yaw": -90,
+						"pitch": 0,
+						"selectedSlot": 0,
+						"hand": "main",
+						"ticks": 60
+					}
+				}
+			},
+			{
+				"name": "act",
+				"arguments": {
+					"actionType": "control",
+					"arguments": {
+						"forward": 1,
+						"strafe": 0,
+						"jump": true,
+						"sneak": false,
+						"sprint": true,
+						"attack": false,
+						"use": false,
+						"yaw": -90,
+						"pitch": 0,
+						"selectedSlot": 0,
+						"hand": "main",
+						"ticks": 40
+					}
+				}
+			},
+			{
+				"name": "act",
+				"arguments": {
+					"actionType": "pick_up_item",
+					"arguments": {
+						"targetSelector": "{item}",
+						"timeoutMs": 30000
+					}
+				}
+			},
+			{
+				"name": "act",
+				"arguments": {
+					"actionType": "move_to",
+					"arguments": {
+						"x": "{x+11.5}",
+						"y": "{y+40}",
+						"z": "{z+0.5}",
+						"tolerance": 0.5,
+						"sprint": true
+					}
+				}
+			},
+			{
+				"name": "act",
+				"arguments": {
+					"actionType": "dig_to",
+					"arguments": {
+						"pattern": "tunnel",
+						"heading": "east",
+						"maxBlocks": 6,
+						"timeoutMs": 60000
+					}
+				}
+			},
+			{
+				"name": "act",
+				"arguments": {
+					"actionType": "travel_to",
+					"arguments": {
+						"x": "{x+16.5}",
+						"y": "{y+40}",
+						"z": "{z-4.5}",
+						"tolerance": 1,
+						"build": true,
+						"timeoutMs": 90000
+					}
+				}
+			}
+		],
+		"dump": true,
+		"expectDamageTaken": 0
+	},
+	{
+		"name": "lava-room-3",
+		"seed": "5433312384530337025",
+		"inventory": [
+			{
+				"item": "minecraft:iron_pickaxe",
+				"count": 1
+			},
+			{
+				"item": "minecraft:cobblestone",
+				"count": 64
+			},
+			{
+				"item": "minecraft:bread",
+				"count": 8
+			}
+		],
+		"monsters": false,
+		"time": 6000,
+		"note": "Nether lava safety: a raised netherrack room with a same-level lava puddle (sources at the feet, flowed 8 s), a gold ingot beside its edge and a netherrack wall past it with two lava pockets. Raw control keys sprint, then sprint-jump, straight at the flow; then pick_up_item, move_to across, a dig_to tunnel toward one pocket and a building travel_to through the wall past the other. Pass: 0 deaths and 0 damage taken.",
+		"setup": [
+			"fill {x-10} {y+39} {z-10} {x+16} {y+46} {z+10} minecraft:air",
+			"fill {x-10} {y+39} {z-10} {x+16} {y+39} {z+10} minecraft:netherrack",
+			"fill {x-11} {y+40} {z-11} {x+17} {y+42} {z-11} minecraft:glass",
+			"fill {x-11} {y+40} {z+11} {x+17} {y+42} {z+11} minecraft:glass",
+			"fill {x-11} {y+40} {z-11} {x-11} {y+42} {z+11} minecraft:glass",
+			"fill {x+17} {y+40} {z-11} {x+17} {y+42} {z+11} minecraft:glass",
+			"fill {x+5} {y+40} {z-2} {x+6} {y+40} {z+2} minecraft:lava",
+			"fill {x+12} {y+40} {z-10} {x+15} {y+42} {z+10} minecraft:netherrack",
+			"setblock {x+14} {y+40} {z} minecraft:lava",
+			"setblock {x+14} {y+40} {z-5} minecraft:lava",
+			"tp Probe {x+0.5} {y+40} {z+0.5} -90 0"
+		],
+		"after": {
+			"ms": 8000,
+			"commands": [
+				"summon minecraft:item {x+5.5} {y+40} {z-5.5} {Item:{id:\"minecraft:gold_ingot\",count:1},PickupDelay:0}"
+			]
+		},
+		"calls": [
+			{
+				"name": "act",
+				"arguments": {
+					"actionType": "control",
+					"arguments": {
+						"forward": 1,
+						"strafe": 0,
+						"jump": false,
+						"sneak": false,
+						"sprint": true,
+						"attack": false,
+						"use": false,
+						"yaw": -90,
+						"pitch": 0,
+						"selectedSlot": 0,
+						"hand": "main",
+						"ticks": 60
+					}
+				}
+			},
+			{
+				"name": "act",
+				"arguments": {
+					"actionType": "control",
+					"arguments": {
+						"forward": 1,
+						"strafe": 0,
+						"jump": true,
+						"sneak": false,
+						"sprint": true,
+						"attack": false,
+						"use": false,
+						"yaw": -90,
+						"pitch": 0,
+						"selectedSlot": 0,
+						"hand": "main",
+						"ticks": 40
+					}
+				}
+			},
+			{
+				"name": "act",
+				"arguments": {
+					"actionType": "pick_up_item",
+					"arguments": {
+						"targetSelector": "{item}",
+						"timeoutMs": 30000
+					}
+				}
+			},
+			{
+				"name": "act",
+				"arguments": {
+					"actionType": "move_to",
+					"arguments": {
+						"x": "{x+11.5}",
+						"y": "{y+40}",
+						"z": "{z+0.5}",
+						"tolerance": 0.5,
+						"sprint": true
+					}
+				}
+			},
+			{
+				"name": "act",
+				"arguments": {
+					"actionType": "dig_to",
+					"arguments": {
+						"pattern": "tunnel",
+						"heading": "east",
+						"maxBlocks": 6,
+						"timeoutMs": 60000
+					}
+				}
+			},
+			{
+				"name": "act",
+				"arguments": {
+					"actionType": "travel_to",
+					"arguments": {
+						"x": "{x+16.5}",
+						"y": "{y+40}",
+						"z": "{z-4.5}",
+						"tolerance": 1,
+						"build": true,
+						"timeoutMs": 90000
+					}
+				}
+			}
+		],
+		"dump": true,
+		"expectDamageTaken": 0
+	}
+]

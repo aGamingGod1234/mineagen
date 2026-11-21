@@ -13,7 +13,7 @@ import { parseSavedWorldSpawn } from '../../coordinator/src/headless-world-spawn
 import { applyQualitySetup, activateQualitySetup } from '../../coordinator/src/benchmark/quality-scenarios.mjs';
 import { ScriptedPlanner } from './lib/scripted-planner.mjs';
 import { finishRun, terminalCounter, EDIT_LOOP_HELP } from './lib/fixture-run.mjs';
-import { damageCounter, damageEvidence } from './lib/damage-counter.mjs';
+import { damageCounter, damageEvidence, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
 import { boot } from './watch-replay.mjs';
 import { defaultModel } from '../../coordinator/src/default-models.mjs';
 
@@ -44,7 +44,7 @@ async function main() {
 		try {
 			const bootAt = Date.now(), registry = new AgentRegistry();
 			planner = new ScriptedPlanner(registry, { ...incident.script, budgetMs: incident.spot.totalMs, log });
-			s = await boot(out, { jar, template: process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port: Number(process.env.SLOT_PORT_BASE), seed: String(incident.spot.seed), spawnMonsters: true, handleGoalSpec: false,
+			s = await boot(out, { jar, template: process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port: Number(process.env.SLOT_PORT_BASE), seed: String(incident.spot.seed), spawnMonsters: true, handleGoalSpec: false, followRevision: false,
 				onBridge: async (session, connection) => {
 					const bridge = session.bridge, send = bridge.send.bind(bridge);
 					bridge.send = async (type, agentId, payload, options) => {
@@ -82,7 +82,8 @@ async function main() {
 			if (incident.spot.time !== undefined) await s.command(`time set ${incident.spot.time}`);
 			await sleep(1500);
 			const readDamage = await damageCounter(text => s.command(text), AGENT);
-			const beforeDamage = await readDamage(), beforeHealth = number(await s.command(`data get entity ${AGENT} Health`));
+			const readDeaths = () => deathCounter(text => s.command(text), AGENT);
+			const beforeDamage = await readDamage(), beforeDeaths = await readDeaths(), beforeHealth = number(await s.command(`data get entity ${AGENT} Health`));
 			const before = await s.observe();
 			const missingItems = incident.spot.inventory.filter(item => (before.inventory?.items ?? []).filter(row => row.itemId === item.item).reduce((n, row) => n + row.count, 0) < item.count);
 			row.startState = { position: before.position, dimension: before.world?.dimension, health: before.player?.health, onFire: before.player?.onFire, dayTime: before.world?.dayTime, inventory: before.inventory?.items };
@@ -96,7 +97,10 @@ async function main() {
 			row.phasesMs.run = Date.now() - row.playStartedAt; row.calls = planner.results;
 			const after = await s.observe(), afterHealth = number(await s.command(`data get entity ${AGENT} Health`));
 			Object.assign(row, damageEvidence(beforeDamage, await readDamage(), beforeHealth, afterHealth));
-			row.deaths = number(await s.command(`scoreboard players get ${AGENT} deaths`)) || 0;
+			// The setup-owned qo_death counter: the `deaths` reply "has 1 [deaths]" read as NaN, and `|| 0` made every death 0.
+			const deathResult = deathEvidence(beforeDeaths, await readDeaths());
+			row.deaths = deathResult.deaths;
+			if (!deathResult.valid) (row.integrity ??= []).push({ file: 'qo_death', error: 'Missing or decreasing vanilla death counter' });
 			row.actionCounts = receipts.snapshot();
 			row.decisions = { holds: decisions.filter(event => event.event === 'native_wake_filtered' && event.verdict === 'hold').length,
 				steers: decisions.filter(event => event.event === 'native_turn_steered').length, handBacks: row.calls.filter(result => result.reasonCode === 'FIND_DANGER').length };

@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { armTotals, formatSummary, mergeArms, parseCommands, plannedOf, runQueue, splitWords } from '../../scripts/quality/lib/room-batch-core.mjs';
+import { armTotals, formatSummary, mergeArms, parseCommands, plannedOf, runQueue, splitWords, stageRoom } from '../../scripts/quality/lib/room-batch-core.mjs';
 import { runBatch } from '../../scripts/quality/lib/room-batch-run.mjs';
+import { nextSlot, parseWindowsHosts, portClashes, slotPortBase, windowsBatchDir, windowsPath, windowsPool } from '../../scripts/quality/lib/windows-pool.mjs';
 import { BUNDLE_PATHS, buildBundle, hasZstd, launchScript, prepareScript, readWait, waitAndPackScript } from '../../scripts/quality/lib/boat-pool.mjs';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
@@ -30,6 +31,27 @@ test('a room line runs once per arm, an arm line overrides it, and bad lines are
 	assert.deepEqual(splitWords(`a 'b c' "d \\"e\\"" f\\ g`), ['a', 'b c', 'd "e"', 'f g']);
 	assert.equal(plannedOf({ FIND_ONLY: 'x,y,z' }), 3);
 	assert.equal(plannedOf({ OTHER: '1' }), 1);
+	assert.equal(plannedOf({ BUILD_ONLY: '' }), 1, 'an empty selector still plans one row');
+});
+
+test('a lost room with an empty selector keeps the arm from reading as PASS', async () => {
+	const out = await mkdtemp(path.join(os.tmpdir(), 'room-batch-empty-selector-'));
+	try {
+		const rooms = parseCommands(`@a ${LINE}\n@b BUILD_ONLY= ${LINE}`, ['new']);
+		assert.equal(rooms[1].planned, 1);
+		await writeRoom(out, 'a', 'new', [row('spot-a')]);
+		const outcomes = [
+			{ room: 'a', lost: false, worker: 'vm1', attempts: 1, arms: { new: { exit: 0, seconds: 5 } } },
+			{ room: 'b', lost: true, reason: 'worker died', worker: 'vm2', attempts: 2, arms: {} },
+		];
+		// A stale plannedByArm of 0 (an older parse) is clamped too.
+		const merged = await mergeArms({ out, rooms: [rooms[0], { ...rooms[1], planned: 0, plannedByArm: { new: 0 } }], arms: ['new'], outcomes });
+		const totals = armTotals(merged.new);
+		assert.notEqual(totals.status, 'PASS', 'a lost room must never read as PASS');
+		assert.equal(totals.notStarted, 1);
+		assert.deepEqual(totals.lostRooms, ['b']);
+		assert.equal(totals.damage, null, 'damage is unknown, not 0, with a room missing');
+	} finally { await rm(out, { recursive: true, force: true }); }
 });
 
 const worker = id => ({ id });
@@ -134,7 +156,7 @@ test('a batch over a fake pool re-queues the room of a machine that dies, delete
 		const machines = new Map();
 		const pool = {
 			async create() { const vm = { id: `vm${++made}` }; machines.set(vm.id, { alive: true, jobs: new Map() }); return vm; },
-			async prepare(vm) { return { wrapper: ['eatmydata'], code: '/c', out: '/o', jars: { new: '/j/new.jar', old: '/j/old.jar' }, inputs: {}, javaHome: '/jdk', template: '/t' }; },
+			async prepare(vm) { return { wrapper: ['eatmydata'], code: '/c', out: '/o', jars: { new: '/j/new.jar', old: '/j/old.jar' }, inputs: {}, javaHome: '/jdk', template: '/t', ...(vm.id === 'vm2' ? { portBase: 28400, env: { TMP: '/tmp2' } } : {}) }; },
 			async start(vm, job) { events.push(`start ${vm.id} ${job.room}`); machines.get(vm.id).jobs.set(job.room, job); if (vm.id === 'vm1') machines.get(vm.id).alive = false; },
 			async poll(vm, roomName) { if (!machines.get(vm.id).alive) throw new Error('no answer'); return 'done'; },
 			async alive(vm) { return machines.get(vm.id).alive; },
@@ -159,24 +181,28 @@ test('a batch over a fake pool re-queues the room of a machine that dies, delete
 		assert.deepEqual(job.lines.map(line => line.jar), ['/j/new.jar', '/j/old.jar']);
 		assert.ok(job.lines[0].args.includes('$OUT'), 'the machine fills in $OUT itself');
 		assert.deepEqual(job.wrapper, ['eatmydata'], 'the machine layout picks the command rooms run under');
+		assert.equal(job.portBase, 28400, 'the machine layout picks the room port base');
+		assert.deepEqual(job.env, { TMP: '/tmp2' });
+		assert.equal([...machines.get('vm1').jobs.values()][0].portBase, 28000, 'boat machines keep 28000');
 	} finally { await rm(out, { recursive: true, force: true }); }
 });
 
-test('the machine helper plays every arm side by side under the wrapper, each in its own folder and port range', async () => {
+test('the machine helper plays every arm side by side under the wrapper, each in its own folder and port range from the job port base', async () => {
 	const dir = await mkdtemp(path.join(os.tmpdir(), 'room-batch-remote-'));
 	try {
 		const fixture = path.join(dir, 'fixture.mjs');
 		await writeFile(fixture, `import { mkdirSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 const [out, jar] = process.argv.slice(2);
 mkdirSync(out, { recursive: true });
-writeFileSync(out + '/result.json', JSON.stringify([{ jar, wrapped: process.env.ROOM_WRAPPED, port: process.env.SLOT_PORT_BASE, only: process.env.BUILD_ONLY }]));
+writeFileSync(out + '/result.json', JSON.stringify([{ jar, wrapped: process.env.ROOM_WRAPPED, port: process.env.SLOT_PORT_BASE, slot: process.env.SLOT, extra: process.env.ROOM_EXTRA, javaFirst: process.env.PATH.startsWith(path.join('/jdk', 'bin') + path.delimiter), only: process.env.BUILD_ONLY }]));
 process.exit(jar.endsWith('old.jar') ? 3 : 0);\n`);
 		const wrapperScript = path.join(dir, 'wrap.mjs');
 		await writeFile(wrapperScript, `import { spawnSync } from 'node:child_process';
 const res = spawnSync(process.argv[2], process.argv.slice(3), { env: { ...process.env, ROOM_WRAPPED: 'yes' }, stdio: 'inherit' });
 process.exit(res.status ?? 1);\n`);
 		const wrapper = [process.execPath, wrapperScript];
-		const job = { room: 'r', code: dir, outDir: path.join(dir, 'out', 'r'), javaHome: '/jdk', template: '/t', timeoutMs: 60_000, wrapper,
+		const job = { room: 'r', code: dir, outDir: path.join(dir, 'out', 'r'), javaHome: '/jdk', template: '/t', timeoutMs: 60_000, wrapper, portBase: 28400, env: { ROOM_EXTRA: 'x' },
 			lines: ['new', 'old'].map(arm => ({ arm, jar: `/j/${arm}.jar`, env: { BUILD_ONLY: 'r' }, args: [fixture, '$OUT', '$JAR'] })) };
 		await writeFile(path.join(dir, 'job.json'), JSON.stringify(job));
 		const helper = fileURLToPath(new URL('../../scripts/quality/lib/room-batch-remote.mjs', import.meta.url));
@@ -188,7 +214,8 @@ process.exit(res.status ?? 1);\n`);
 		assert.equal(done.arms.new.exit, 0);
 		assert.equal(done.arms.old.exit, 3);
 		const rows = await Promise.all(['new', 'old'].map(async arm => JSON.parse(await readFile(path.join(job.outDir, arm, 'result.json'), 'utf8'))[0]));
-		assert.deepEqual(rows, [{ jar: '/j/new.jar', wrapped: 'yes', port: '28000', only: 'r' }, { jar: '/j/old.jar', wrapped: 'yes', port: '28100', only: 'r' }]);
+		assert.equal(done.portBase, 28400);
+		assert.deepEqual(rows, [{ jar: '/j/new.jar', wrapped: 'yes', port: '28400', slot: '4', extra: 'x', javaFirst: true, only: 'r' }, { jar: '/j/old.jar', wrapped: 'yes', port: '28500', slot: '5', extra: 'x', javaFirst: true, only: 'r' }]);
 	} finally { await rm(dir, { recursive: true, force: true }); }
 });
 
@@ -242,6 +269,35 @@ test('a machine that cannot start its room is deleted at once and the room plays
 		assert.equal(result.outcomes[0].attempts, 2);
 		assert.equal(result.merged.new.summary.status, 'PASS');
 	} finally { await rm(out, { recursive: true, force: true }); }
+});
+
+test('Windows PCs: the host list, one port range per arm from the slot base, slots spread over PCs, reserved ports and paths', () => {
+	assert.deepEqual(parseWindowsHosts('pc-a:4:0, pc-b:5:4'), [{ host: 'pc-a', slots: 4, slotBase: 0 }, { host: 'pc-b', slots: 5, slotBase: 4 }]);
+	assert.deepEqual(parseWindowsHosts('pc-a:2'), [{ host: 'pc-a', slots: 2, slotBase: 0 }]);
+	for (const bad of ['', 'pc-a', 'pc-a:0:0', 'pc-a:x:0', 'pc a:1:0', 'pc-a:1:0:9', 'pc-a:1:0,pc-a:2:0']) assert.throws(() => parseWindowsHosts(bad), undefined, bad);
+	assert.equal(slotPortBase(0, 0, 2), 28000);
+	assert.equal(slotPortBase(0, 1, 2), 28200, 'the second room starts after both arms of the first');
+	assert.equal(slotPortBase(4, 0, 2), 28400);
+	assert.equal(slotPortBase(4, 2, 3), 29000);
+	const hosts = [{ host: 'a', slots: 2 }, { host: 'b', slots: 1 }];
+	const busy = new Set();
+	const order = [];
+	for (let free; (free = nextSlot(hosts, busy)); ) { busy.add(`${free.host}:${free.slot}`); order.push(`${free.host}:${free.slot}`); }
+	assert.deepEqual(order, ['a:0', 'b:0', 'a:1']);
+	busy.delete('b:0');
+	assert.deepEqual(nextSlot(hosts, busy), { host: 'b', slot: 0 }, 'a freed slot is handed out again');
+	const netsh = 'Protocol tcp Port Exclusion Ranges\r\n\r\nStart Port    End Port\r\n----------    --------\r\n      5357        5357\r\n     28385       28385\r\n     50000       50059     *\r\n\r\n* - Administered port exclusions.\r\n';
+	assert.deepEqual(portClashes(netsh, 28000, 28399), [[28385, 28385]]);
+	assert.deepEqual(portClashes(netsh, 28400, 29399), []);
+	assert.deepEqual(portClashes(netsh, 50059, 50100), [[50000, 50059]]);
+	assert.equal(windowsPath('C:/aa-runs/batches/b/w0/jobs/r.json'), 'C:\\aa-runs\\batches\\b\\w0\\jobs\\r.json');
+	for (const badName of ['', '.', '..', '...', '.hidden', 'a..b', 'trail.', 'a/b', 'a\\b', 'bad name']) {
+		assert.throws(() => windowsBatchDir('C:/aa-runs', badName), undefined, badName);
+	}
+	const dir1 = windowsBatchDir('C:/aa-runs', 'smoke-1');
+	const dir2 = windowsBatchDir('C:/aa-runs', 'smoke-1');
+	assert.match(dir1, /^C:\/aa-runs\/batches\/smoke-1-\d+-[0-9a-f]{8}$/);
+	assert.notEqual(dir1, dir2, 'two concurrent batches with the same name get separate directories');
 });
 
 test('the room launch returns at once and leaves only the helper running, so ssh never waits out a room', { skip: process.platform === 'win32' }, async () => {
@@ -491,6 +547,28 @@ test('a delete that fails is tried again when the batch ends, and a failed liven
 	} finally { await rm(out, { recursive: true, force: true }); }
 });
 
+test('a fetched room replaces an earlier attempt only once its copy unpacks, and a failed copy leaves nothing', async () => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'room-batch-stage-'));
+	try {
+		const { execFileSync } = await import('node:child_process');
+		const src = path.join(dir, 'src');
+		await mkdir(path.join(src, 'r', 'new'), { recursive: true });
+		await writeFile(path.join(src, 'r', 'done.json'), JSON.stringify({ room: 'r', arms: { new: { exit: 0 } } }));
+		await writeFile(path.join(src, 'r', 'new', 'result.json'), '[]');
+		const archive = path.join(dir, 'r.tgz');
+		execFileSync('tar', ['-czf', archive, '-C', src, 'r']);
+		const roomsDir = path.join(dir, 'rooms');
+		await mkdir(path.join(roomsDir, 'r', 'old'), { recursive: true });
+		await writeFile(path.join(roomsDir, 'r', 'old', 'result.json'), '[{"pass":true}]');
+		await assert.rejects(stageRoom({ roomsDir, room: 'r', download: async () => { throw new Error('copy failed'); } }), /copy failed/);
+		assert.equal(await readFile(path.join(roomsDir, 'r', 'old', 'result.json'), 'utf8'), '[{"pass":true}]', 'a failed copy changes nothing');
+		const done = await stageRoom({ roomsDir, room: 'r', download: async local => { const { copyFile } = await import('node:fs/promises'); await copyFile(archive, local); } });
+		assert.equal(done.room, 'r');
+		assert.deepEqual((await readdir(roomsDir)).sort(), ['r'], 'no staging folder is left');
+		assert.deepEqual((await readdir(path.join(roomsDir, 'r'))).sort(), ['done.json', 'new'], 'the earlier attempt\'s files are gone');
+	} finally { await rm(dir, { recursive: true, force: true }); }
+});
+
 test('room-image waits for an in-flight machine creation and deletes it when cancelled', { skip: process.platform === 'win32' }, async () => {
 	const dir = await mkdtemp(path.join(os.tmpdir(), 'room-image-cancel-'));
 	try {
@@ -530,6 +608,203 @@ if (args.includes('new')) {
 		assert.ok(calls.some(args => args.includes('new')), 'machine creation started');
 		assert.ok(calls.some(args => args.includes('delete') && args.includes('bx_cancel_test')), 'created machine was deleted before exit');
 	} finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('mergeArms marks an arm INVALID when a room summary is missing, corrupt, or INVALID with planned 0', async () => {
+	const out = await mkdtemp(path.join(os.tmpdir(), 'room-batch-invalid-summary-'));
+	try {
+		const rooms = parseCommands(`@a ${LINE}\n@b ${LINE}`, ['new']);
+		await writeRoom(out, 'a', 'new', [row('spot-a')]);
+		// Room b wrote a passing row without result-summary.json (e.g. crashed before writing summary).
+		const dirB = path.join(out, 'rooms', 'b', 'new');
+		await mkdir(dirB, { recursive: true });
+		await writeFile(path.join(dirB, 'result.json'), JSON.stringify([row('spot-b')]));
+		const outcomes = [
+			{ room: 'a', lost: false, worker: 'vm1', attempts: 1, arms: { new: { exit: 0, seconds: 5 } } },
+			{ room: 'b', lost: false, worker: 'vm1', attempts: 1, arms: { new: { exit: 1, seconds: 5 } } },
+		];
+		const missingSummary = await mergeArms({ out, rooms, arms: ['new'], outcomes });
+		assert.equal(missingSummary.new.summary.status, 'INVALID', 'missing room summary must never read as PASS');
+		// Now room b writes an explicit INVALID summary with planned 0 and 0 rows.
+		await writeFile(path.join(dirB, 'result.json'), '[]');
+		await writeFile(path.join(dirB, 'result-summary.json'), JSON.stringify({ status: 'INVALID', planned: 0 }));
+		const zeroPlanned = await mergeArms({ out, rooms, arms: ['new'], outcomes });
+		assert.equal(zeroPlanned.new.summary.status, 'INVALID', 'an INVALID planned:0 room summary must stay INVALID');
+	} finally { await rm(out, { recursive: true, force: true }); }
+});
+
+test('cancelling a batch while machines are preparing deletes them at once without waiting for prepare', async () => {
+	const out = await mkdtemp(path.join(os.tmpdir(), 'room-batch-cancel-prep-'));
+	try {
+		const controller = new AbortController();
+		const deleted = [];
+		const pool = {
+			async create() { return { id: 'vm-prep' }; },
+			async prepare() {
+				setTimeout(() => controller.abort(), 10);
+				return new Promise(() => {}); // Never resolves.
+			},
+			async start() { throw new Error('should not start'); },
+			async poll() { return 'running'; },
+			async alive() { return true; },
+			async fetch() { throw new Error('should not fetch'); },
+			async keepAlive() {},
+			async usage() { return { seconds: 1 }; },
+			async destroy(vm) { deleted.push(vm.id); },
+		};
+		const rooms = parseCommands(`@a ${LINE}`, ['new']);
+		const result = await runBatch({ batch: { name: 't', code: 'abc12345' }, rooms, arms: [{ name: 'new' }], pool, vms: 1, out, pollMs: 1, log: () => {}, signal: controller.signal });
+		assert.deepEqual(deleted, ['vm-prep']);
+		assert.equal(result.machines[0].destroyed, true);
+		assert.deepEqual(result.outcomes.map(outcome => [outcome.room, outcome.lost, outcome.reason]), [['a', true, 'batch stopped']]);
+	} finally { await rm(out, { recursive: true, force: true }); }
+});
+
+test('windowsPool isolates worker cleanup markers, propagates SSH errors in alive, retries batch cleanup, and serializes replacement prepare', async () => {
+	const scripts = [];
+	let batchDeletes = 0, releaseDelete = null;
+	const pool = windowsPool({
+		hosts: [{ host: 'pc-a', slots: 2, slotBase: 0 }],
+		batchName: 'win-test',
+		bundle: { codeTar: '/tmp/c.tgz', helper: '/tmp/h.mjs', jars: { new: '/tmp/n.jar' }, inputs: [] },
+		log: () => {},
+		runUpload: async () => {},
+		runDownload: async () => {},
+		runPs: async (host, script) => {
+			scripts.push(script);
+			if (script === `'ok'`) throw new Error('ssh timeout');
+			if (script.includes('ConvertTo-Json')) return JSON.stringify({ node: 'C:\\node.exe', excluded: '' });
+			if (script.includes('refusing to delete outside batches root')) {
+				batchDeletes++;
+				if (batchDeletes === 1) throw new Error('busy lock');
+				if (batchDeletes === 2) await new Promise(resolve => { releaseDelete = resolve; });
+			}
+			return '';
+		},
+	});
+	const vm1 = await pool.create();
+	await pool.prepare(vm1);
+	// SSH error propagates from alive() rather than returning false.
+	await assert.rejects(() => pool.alive(vm1), /ssh timeout/);
+	// First destroy fails on shared batch cleanup; retry must attempt shared batch cleanup again without underflowing workers.
+	await assert.rejects(() => pool.destroy(vm1), /busy lock/);
+	assert.equal(batchDeletes, 1);
+	// Worker cleanup script uses trailing path separators so w0/ never matches w00/.
+	const workerCleanup = scripts.find(s => s.includes('$mark ='));
+	assert.match(workerCleanup, /\/w0\/', '.*\\w0\\'/);
+	// Second destroy enters deferred batch cleanup; a concurrent replacement prepare must wait until it finishes.
+	const retryDestroy = pool.destroy(vm1);
+	while (!releaseDelete) await new Promise(done => setImmediate(done));
+	const vm2 = await pool.create();
+	let prepDone = false;
+	const prepPromise = pool.prepare(vm2).then(() => { prepDone = true; });
+	await new Promise(done => setTimeout(done, 20));
+	assert.equal(prepDone, false, 'replacement prepare must wait for in-flight shared cleanup');
+	releaseDelete();
+	await Promise.all([retryDestroy, prepPromise]);
+	assert.equal(batchDeletes, 2);
+	assert.equal(prepDone, true);
+});
+
+test('windowsPool deletes its own stale batch folder before a re-prepare claims it again', async () => {
+	const scripts = [];
+	let uploads = 0;
+	const pool = windowsPool({
+		hosts: [{ host: 'pc-a', slots: 1, slotBase: 0 }],
+		batchName: 'win-stale',
+		bundle: { codeTar: '/tmp/c.tgz', helper: '/tmp/h.mjs', jars: { new: '/tmp/n.jar' }, inputs: [] },
+		log: () => {},
+		runUpload: async () => { if (++uploads === 1) throw new Error('scp failed'); },
+		runDownload: async () => {},
+		runPs: async (host, script) => {
+			scripts.push(script.includes('ConvertTo-Json') ? 'claim' : script.includes('refusing to delete outside batches root') ? 'clean' : 'other');
+			return script.includes('ConvertTo-Json') ? JSON.stringify({ node: 'C:\\node.exe', excluded: '' }) : '';
+		},
+	});
+	const vm = await pool.create();
+	// The upload fails after the batch folder was claimed: the folder is left behind.
+	await assert.rejects(() => pool.prepare(vm), /scp failed/);
+	assert.deepEqual(scripts, ['claim']);
+	await pool.prepare(vm);
+	assert.deepEqual(scripts.slice(0, 3), ['claim', 'clean', 'claim'], 'the stale folder is deleted before it is claimed again');
+});
+
+test('a row that ran safely but missed its bar counts and reads as a fail, as the scorer scores it', async () => {
+	const out = await mkdtemp(path.join(os.tmpdir(), 'room-batch-bar-'));
+	try {
+		const rooms = parseCommands(`@slow ${LINE}\n@bad ${LINE}`, ['new']);
+		await writeRoom(out, 'slow', 'new', [row('spot-slow', { bar: false })]);
+		await writeRoom(out, 'bad', 'new', [row('spot-bad', { measurementStatus: 'INVALID' })]);
+		const outcomes = ['slow', 'bad'].map(name => ({ room: name, lost: false, worker: 'vm1', attempts: 1, arms: { new: { exit: 0, seconds: 5 } } }));
+		const merged = await mergeArms({ out, rooms, arms: ['new'], outcomes });
+		const totals = armTotals(merged.new);
+		assert.equal(totals.pass, 0, 'neither row met acceptance');
+		assert.equal(totals.fail, 1);
+		assert.equal(totals.invalid, 1);
+		const text = formatSummary({ batch: { name: 'b', code: 'abc12345' }, merged, arms: ['new'], wallSeconds: 10, vms: 1, rooms });
+		assert.match(text, /^slow: fail /m);
+		assert.match(text, /^bad: INVALID /m);
+	} finally { await rm(out, { recursive: true, force: true }); }
+});
+
+const fakeWindows = ({ claim = async () => JSON.stringify({ node: 'C:\\node.exe', excluded: '' }), uploads = [], scripts = [], jars = { new: '/tmp/n.jar' } } = {}) => windowsPool({
+	hosts: [{ host: 'pc-a', slots: 1, slotBase: 0 }],
+	batchName: 'win-case',
+	bundle: { codeTar: '/tmp/c.tgz', helper: '/tmp/h.mjs', jars, inputs: [] },
+	log: () => {},
+	runUpload: async (host, local) => { uploads.push(local); },
+	runDownload: async () => {},
+	runPs: async (host, script) => {
+		const kind = script.includes('ConvertTo-Json') ? 'claim' : script.includes('refusing to delete outside batches root') ? 'clean' : 'other';
+		scripts.push(kind);
+		return kind === 'claim' ? claim(script) : '';
+	},
+});
+
+test('windowsPool refuses arm names that differ only in case', () => {
+	assert.throws(() => fakeWindows({ jars: { A: '/tmp/a.jar', a: '/tmp/b.jar' } }), /differ in more than case/);
+});
+
+test('windowsPool refuses a port range another batch on the PC holds, and deletes the folder it claimed', async () => {
+	const scripts = [];
+	const pool = fakeWindows({ scripts, claim: async script => {
+		assert.match(script, /ports\.json/, 'the claim records its port range');
+		return JSON.stringify({ overlap: ['other-batch-1'], node: 'C:\\node.exe', excluded: '' });
+	} });
+	const vm = await pool.create();
+	await assert.rejects(() => pool.prepare(vm), /may be in use by another batch \(other-batch-1/);
+	await pool.destroy(vm);
+	assert.deepEqual(scripts, ['claim', 'other', 'clean'], 'the worker sweep, then its own claimed folder is deleted');
+});
+
+test('windowsPool cleanup after Ctrl-C waits for an in-flight prepare, which stops before uploading', async () => {
+	const scripts = [], uploads = [];
+	let answer;
+	const pool = fakeWindows({ scripts, uploads, claim: () => new Promise(resolve => { answer = resolve; }) });
+	const controller = new AbortController();
+	const vm = await pool.create();
+	const prep = pool.prepare(vm, { signal: controller.signal });
+	prep.catch(() => {});
+	while (!answer) await new Promise(done => setImmediate(done));
+	controller.abort();
+	let destroyed = false;
+	const destroy = pool.destroy(vm).then(() => { destroyed = true; });
+	await new Promise(done => setTimeout(done, 20));
+	assert.equal(destroyed, false, 'cleanup waits while the first ssh answer is still out');
+	answer(JSON.stringify({ node: 'C:\\node.exe', excluded: '' }));
+	await destroy;
+	await assert.rejects(prep, /batch stopped/);
+	assert.deepEqual(uploads, [], 'nothing is uploaded after the stop');
+	assert.deepEqual(scripts, ['claim', 'other', 'clean'], 'the folder the late claim made is deleted');
+});
+
+test('windowsPool deletes a batch folder whose claim made it but never answered', async () => {
+	const scripts = [];
+	const pool = fakeWindows({ scripts, claim: async () => { throw new Error('ssh connection closed'); } });
+	const vm = await pool.create();
+	await assert.rejects(() => pool.prepare(vm), /ssh connection closed/);
+	await pool.destroy(vm);
+	assert.deepEqual(scripts, ['claim', 'other', 'clean'], 'the folder the claim may have made is deleted');
 });
 
 // The warm pool against a fake boat: sandboxes are files, exec runs the script here with HOME at the sandbox's own folder.
@@ -852,4 +1127,25 @@ test('a machine with auto-stop turned off keeps it through a lease and a return'
 		assert.equal((await fake.calls('extend')).length, extendsBefore, 'no extend --ttl put a deadline on it');
 		assert.equal(JSON.parse(await readFile(file, 'utf8')).archiveAfter, null);
 	} finally { await fake.close(); }
+});
+
+test('a stop during prepare gives a machine back to the pool only once its upload has ended', async () => {
+	const out = await mkdtemp(path.join(os.tmpdir(), 'room-batch-run-'));
+	try {
+		const events = [];
+		const pool = {
+			async create() { return { id: 'vm1' }; },
+			async prepare() { await new Promise(done => setTimeout(done, 400)); events.push('prepare ended'); return { code: '/c', out: '/o', jars: {}, inputs: {}, javaHome: '/jdk', template: '/t' }; },
+			async start() {}, async poll() { return 'done'; }, async alive() { return true; }, async fetch() { return {}; },
+			async keepAlive() {}, async usage() { return {}; },
+			async release() { events.push('release'); return true; },
+			async destroy() { events.push('delete'); },
+		};
+		const controller = new AbortController();
+		setTimeout(() => controller.abort(), 100);
+		const rooms = parseCommands(`@a ${LINE}`, ['new']);
+		const result = await runBatch({ batch: { name: 't', code: 'abc12345' }, rooms, arms: [{ name: 'new' }], pool, vms: 1, out, log: quiet, signal: controller.signal });
+		assert.deepEqual(events, ['prepare ended', 'release']);
+		assert.equal(result.outcomes[0].reason, 'batch stopped');
+	} finally { await rm(out, { recursive: true, force: true }); }
 });

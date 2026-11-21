@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { boot } from './watch-replay.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
+import { deathCounter } from './lib/damage-counter.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const out = path.resolve(process.argv[2] ?? 'runtime/rest-live');
@@ -39,16 +40,9 @@ const rows = [];
 async function session(seed, index) {
 	const dir = path.join(out, `seed-${index}`);
 	await mkdir(dir, { recursive: true });
+	// boot() follows any server message carrying a newer goal revision (one dawn run's rest was refused STALE_REVISION
+	// when only goal_control was followed).
 	const s = await boot(dir, { jar, template, port: basePort + (index % 2) * 50, world: null, seed, spawnMonsters: true });
-	// Any server message carrying a newer goal revision moves the fixture on with it (one dawn run's rest was refused
-	// STALE_REVISION when only goal_control was followed).
-	s.bridge.on('message', (event) => {
-		const revision = event?.payload?.goalRevision ?? event?.payload?.record?.goalRevision ?? event?.payload?.control?.goalRevision;
-		if (event.type === 'goal_control' && ['queue', 'dequeue'].includes(event.payload?.operation)) return;
-		if (!s.record || event.agentId !== s.record.agentId || !Number.isSafeInteger(revision) || revision <= s.record.goalRevision) return;
-		s.record.goalRevision = revision;
-		s.bridge.send('agent_ready', s.record.agentId, { goalRevision: revision, reconciled: false }).catch(() => {});
-	});
 	const health = async () => { const text = await s.command(`data get entity ${AGENT} Health`); return /No entity|not found/i.test(text) ? 0 : number(text); };
 	const pos = async () => (String(await s.command(`data get entity ${AGENT} Pos`)).match(/\[\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?\]/)?.slice(1).map(Number) ?? null);
 	// Command feedback is off on this server, so the clock is read from the body's own observation.
@@ -61,7 +55,8 @@ async function session(seed, index) {
 		}
 		return false;
 	};
-	const deaths = async () => number(await s.command(`scoreboard players get ${AGENT} deaths`)) || 0;
+	// Vanilla's deathCount objective boot() adds ("has 1 [deaths]" once read as NaN and then 0).
+	const deaths = () => deathCounter(text => s.command(text), AGENT, { objective: 'deaths', unsetIsZero: true });
 	try {
 		await s.command('difficulty normal');
 		await s.command('gamerule minecraft:advance_time true');
