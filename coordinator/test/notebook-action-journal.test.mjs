@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { existsSync } from 'node:fs';
 import { mkdtemp, readdir, readFile, writeFile, rm, open } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -13,8 +14,12 @@ const terminal = (actionId = 'action-1', worldId = 'world-one') => ({ ...identit
 const query = { worldId: 'world-one', limit: 64 };
 const record = { agentId: 'a', goalRevision: 1 };
 const turn = () => new Promise(setImmediate);
-async function fixture(t) {
-	const directory = await mkdtemp(join(tmpdir(), 'action-journal-'));
+// Every journal write waits for fsync. The bound tests below make over a thousand writes to check list bounds, not
+// durability, and on a host where one fsync takes 70 ms that alone passes CI's 2-minute budget for this file. They use
+// RAM-backed storage where the host has it; every other test keeps the real disk.
+const bulkRoot = existsSync('/dev/shm') ? '/dev/shm' : tmpdir();
+async function fixture(t, root = tmpdir()) {
+	const directory = await mkdtemp(join(root, 'action-journal-'));
 	t.after(() => rm(directory, { recursive: true, force: true }));
 	return directory;
 }
@@ -313,7 +318,7 @@ test('history eviction, retention migration and note clearing cannot discard rec
 });
 
 test('a full recovery list forgets its oldest stale entry instead of refusing every later action', async t => {
-	const directory = await fixture(t);
+	const directory = await fixture(t, bulkRoot);
 	const notebook = new ModelNotebook({ directory, maximumReceipts: 1 });
 	for (let i = 0; i < 1024; i++) await (i % 2 === 0 ? notebook.recordDispatch('a', identity(`pending-${i}`)) : notebook.recordUnknown('a', { ...identity(`pending-${i}`), reasonCode: 'RUNTIME_DISCONNECTED' }));
 	const full = await notebook.listUnresolved('a', query);
@@ -336,7 +341,7 @@ test('a full recovery list forgets its oldest stale entry instead of refusing ev
 });
 
 test('actions that never reached the bridge are settled history, not unknown outcomes', async t => {
-	const directory = await fixture(t);
+	const directory = await fixture(t, bulkRoot);
 	const notebook = new ModelNotebook({ directory, maximumReceipts: 1 });
 	await notebook.recordDispatch('a', identity('cancelled'));
 	const cancelled = await notebook.recordNotSent('a', { ...identity('cancelled'), reasonCode: 'CANCELLED_BEFORE_DISPATCH' });
