@@ -96,10 +96,15 @@ try {
   await command('fill -6 76 -6 16 86 12 minecraft:air');
   // Bridge end over open air (d3b-nether-a 15,61,87 shifted): the support 1,80,0 on a pillar, destination 0,80,0 west of it.
   await command('fill 1 76 0 1 80 0 minecraft:nether_bricks');
+  // A survivable floor 3 blocks under the pillar top: the edge guard holds a body back only from a deadly drop, so here
+  // it leaves the body where the room puts it.
+  await command('fill -6 77 -6 16 77 12 minecraft:stone');
   await at(1.5,81,0.5,90,60);await hold('cobblestone');
-  results.awayFromEye=keep(await place(0,80,0,'west','cobblestone'),{placed:await block(0,80,0,'cobblestone')});
+  let standing=observation?.position;
+  results.awayFromEye=keep(await place(0,80,0,'west','cobblestone'),{placed:await block(0,80,0,'cobblestone'),standing});
   await at(0.75,81,0.5,90,70);await hold('cobblestone');
-  results.fromEdge=keep(await place(0,80,0,'west','cobblestone'),{placed:await block(0,80,0,'cobblestone')});
+  standing=observation?.position;
+  results.fromEdge=keep(await place(0,80,0,'west','cobblestone'),{placed:await block(0,80,0,'cobblestone'),standing});
   await command('fill 2 79 4 9 79 7 minecraft:stone');await command('setblock 6 80 5 minecraft:stone');
   await at(3.5,80,5.5,-90,10);await hold('torch');
   results.wallTorch=keep(await place(5,80,5,'west','torch'),{wallTorch:await block(5,80,5,'wall_torch')});
