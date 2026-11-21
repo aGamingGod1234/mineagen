@@ -57,7 +57,8 @@ const SEQUENCE_STEP_SETTLE_MS = 800;
 const EXPIRED = Symbol('expired');
 // The model may answer danger with these while its program is paused for a decision, without first
 // settling the program decision; the paused program keeps its decision for a later respondProgram.
-const PAUSED_PROGRAM_DANGER_ACTIONS = new Set(['fight_target', 'flee_from']);
+// escape is the emergency step: like fight and flee it may borrow the body from a program paused for a danger decision.
+const PAUSED_PROGRAM_DANGER_ACTIONS = new Set(['fight_target', 'flee_from', 'escape']);
 const GUARD_DEFENSIVE_ACTIONS = new Set(['fight_target', 'flee_from', 'block_with_shield', 'use_item', 'respawn']);
 const GUARD_OVERRIDE_KINDS = new Set(['action', 'start_action', 'run_program', 'sequence', 'lookAround', 'gather', 'find', 'obtain', 'repair_inventory', 'finish']);
 // A direct model body command takes the body from a firing reflex. Starting a program does not: the program pauses under it.
@@ -948,7 +949,10 @@ export class NativeToolRuntime {
 			await this.#yieldStandingGuard(record);
 		}
 		if (REFLEX_YIELD_KINDS.has(request.tool.kind) && request.tool.actionType !== 'chat' && this.#reflexes.firing(record.agentId)) {
+			const epoch = this.#executionEpoch(record.agentId);
 			await this.#sendReflexes(record, { yieldFiring: true });
+			// A death or a new goal during the yield ends this call: nothing may dispatch onto a body that is no longer this one.
+			if (this.#executionEpoch(record.agentId) !== epoch) throw codedError('STALE_NATIVE_TOOL', 'Lifecycle changed while the reflex yielded the body');
 		}
 		if (request.tool.kind === 'reflexes') return { state: 'REFLEXES', reflexes: await this.#setReflexes(record, request.tool.reflexes) };
 		if (request.tool.kind === 'observe') return this.#observe(record);
@@ -1128,6 +1132,19 @@ export class NativeToolRuntime {
 		const background = tool.kind === 'start_action';
 		const entry = { goalRevision: record.goalRevision, verb: step.verb, ...(step.seen === undefined ? {} : { seen: step.seen }), intentId: null, actionId: null, seenWoken: false };
 		if (!background) this.#steps.set(record.agentId, entry);
+		// An emergency arrives mid-step (drowning under a dig, a skeleton during travel): escape stops the running body
+		// action itself instead of being refused as busy, which would cost the model a cancel call first.
+		// As replaceAction: the cancel must end the old action, and a lifecycle change during it (death, a new goal) stops
+		// the escape from starting on a body that is no longer this one. The dispatch path yields a firing reflex itself.
+		const running = step.verb === 'escape' && !this.#programRuns.has(record.agentId) && !this.#legChainOwnsBody(record, tool) ? this.#actions.get(record.agentId) : undefined;
+		let replaced = null;
+		if (running !== undefined && running.goalRevision === record.goalRevision && running.cancelling !== true && running.engineActionId === undefined) {
+			const expectedEpoch = this.#actionCancellationEpoch(record, running);
+			const cancelled = await this.#cancelAction(record, { kind: 'cancel_action', actionId: running.actionId, goalRevision: running.goalRevision });
+			if (this.#executionEpoch(record.agentId) !== expectedEpoch) throw codedError('STALE_NATIVE_TOOL', 'Lifecycle changed while stopping the step escape replaces');
+			if (!TERMINAL_ACTION_STATES.has(cancelled.state)) throw codedError('CANCEL_ACK_UNCONFIRMED', 'escape needs the running step to be stopped first');
+			replaced = replacementReceipt(cancelled, running.actionId);
+		}
 		let result;
 		try { result = await this.#executeTool({ ...request, tool }, record, lifecycleGeneration); }
 		catch (error) { throw reflexes === null ? error : Object.assign(error, { reflexes }); }
@@ -1136,7 +1153,7 @@ export class NativeToolRuntime {
 		const admitted = background && RUNNING_ACTION_STATES.has(result.state) && typeof result.actionId === 'string';
 		if (admitted) await this.#beginStep(record, entry, result.actionId, step);
 		const { seen: _seen, ...shown } = step;
-		return { ...result, step: { ...shown, ...(admitted ? { started: true, next: STEP_RUNNING_NOTE } : {}) }, ...(reflexes === null ? {} : { reflexes }) };
+		return { ...result, step: { ...shown, ...(admitted ? { started: true, next: STEP_RUNNING_NOTE } : {}) }, ...(reflexes === null ? {} : { reflexes }), ...(replaced === null ? {} : { replacedAction: replaced }) };
 	}
 
 	async #beginStep(record, entry, actionId, step) {
@@ -1445,7 +1462,9 @@ export class NativeToolRuntime {
 		if (!['action', 'start_action', 'replace_action'].includes(tool.kind) || !PAUSED_PROGRAM_DANGER_ACTIONS.has(tool.actionType)) return false;
 		const interrupted = this.#interruptedPausedDangerAction(record);
 		if (interrupted !== null) {
-			return tool.kind === 'action' || (tool.kind === 'replace_action' && tool.actionId === interrupted.actionId && tool.goalRevision === interrupted.goalRevision);
+			// escape (a start_action) may take over a borrowed fight or flee too: falling into water mid-fight needs it.
+			return tool.kind === 'action' || (tool.kind === 'start_action' && tool.actionType === 'escape')
+				|| (tool.kind === 'replace_action' && tool.actionId === interrupted.actionId && tool.goalRevision === interrupted.goalRevision);
 		}
 		if (!this.#pausedProgramForDanger(record)) return false;
 		if (tool.kind === 'replace_action') return this.#terminalActionReceipt(record, tool.actionId, tool.goalRevision) !== null;

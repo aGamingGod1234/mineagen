@@ -22,6 +22,7 @@ public final class AgentActivityPresentation {
 			case CAST_OBSIDIAN -> "Casting obsidian";
 			case BARTER_UNTIL -> "Bartering with piglins";
 			case REST -> "Resting through the night";
+			case ESCAPE -> "Getting out to safety";
 			case BUILD -> "Building";
 			case LOOK_AT -> "Looking around";
 			case ATTACK, FIGHT_TARGET, FIGHT_UNTIL -> "Engaging a target";
