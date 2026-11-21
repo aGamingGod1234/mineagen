@@ -220,6 +220,14 @@ public final class ServerTravelController implements ServerController {
 	 * 1,590 blocks, 75% of Nether pickaxe wear, because it built as soon as no seen spot was 2 blocks closer.
 	 */
 	static final int MAX_WALK_AROUNDS = 2;
+	/**
+	 * Off unless -Dmineagen.travel.walkAround=true or MINEAGEN_TRAVEL_WALK_AROUND=on. Practice rooms 21 Nov (Nether courses,
+	 * 10 repeats per jar): pickaxe uses per 100 blocks gained 69.8 with it against 60.2 without (50 runs each), and 148.6
+	 * against 141.8 (34 each); a 5-8 block sidestep does not get round a netherrack hill.
+	 */
+	static boolean walkAroundEnabled() {
+		return Boolean.getBoolean("mineagen.travel.walkAround") || "on".equalsIgnoreCase(String.valueOf(System.getenv("MINEAGEN_TRAVEL_WALK_AROUND")).trim());
+	}
 	static final double WALK_AROUND_MIN_LEFT = 8.0D;
 	private int walkArounds, walkedAround;
 	/** How far from the target the body was when this run of walks round began: only getting past it resets the count. */
@@ -925,7 +933,7 @@ public final class ServerTravelController implements ServerController {
 			nearShoreSince = 0L;
 			return swimTick(player, nowEpochMs);
 		}
-		if (build && !buildNow && buildRefusal == null && !onMagma(player) && walkArounds < MAX_WALK_AROUNDS
+		if (build && walkAroundEnabled() && !buildNow && buildRefusal == null && !onMagma(player) && walkArounds < MAX_WALK_AROUNDS
 				&& Math.hypot(targetX - player.getX(), targetZ - player.getZ()) > WALK_AROUND_MIN_LEFT) {
 			GridPosition around = TravelCheckpoints.detour(legs, player.getX(), player.getY(), player.getZ(), targetX, targetZ, this::isRefused);
 			if (around != null) {
