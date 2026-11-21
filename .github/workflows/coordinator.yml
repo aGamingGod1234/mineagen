@@ -18,7 +18,8 @@ jobs:
   # Runs on drafts too.
   coordinator-linux:
     name: Coordinator (Linux)
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'boat' || 'ubuntu-latest' }}
+    # GitHub's runner is free for a public repository; see reliability.yml's java-targets to move back to Boat.
+    runs-on: ubuntu-latest
     # The gameplay stake writes one sticky PR comment and a gameplay-stake commit status.
     permissions:
       contents: read

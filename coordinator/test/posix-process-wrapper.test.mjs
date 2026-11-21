@@ -58,6 +58,10 @@ test("POSIX wrapper owns a child spawned in the former snapshot gap", {
       cwd: directory,
       stdio: ["pipe", "ignore", "pipe"],
     });
+    const exited = new Promise((resolve) => owner.once("exit", (code) => resolve(code)));
+    let wrapperErrors = "";
+    owner.stderr.setEncoding("utf8");
+    owner.stderr.on("data", (chunk) => { wrapperErrors += chunk; });
     await waitFor(() => descriptorReady(claim), "wrapper ownership descriptor");
     // The claim names the owned group leader; read it now, because the wrapper removes the claim after cleanup.
     const groupId = Number.parseInt(/^rootPid=(\d+)$/m.exec(readFileSync(claim, "utf8"))[1], 10);
@@ -67,10 +71,16 @@ test("POSIX wrapper owns a child spawned in the former snapshot gap", {
     providerPid = Number.parseInt(await readFile(providerPidFile, "utf8"), 10);
     assert.equal(processAlive(providerPid), true, "late provider starts before its root exits");
     assert.equal(processGroupOf(providerPid), groupId, "the late provider belongs to the owned group");
+    // The provider ignores SIGTERM, so the wrapper waits its 2 s grace, sends SIGKILL and waits up to 2 s more, and every
+    // check reads the process table with ps, which may take up to 1 s on a loaded runner. Its own bound is over 5 s.
+    // A wrapper that gives up on cleanup stays alive and says why on stderr, so a timeout reports that and the group.
+    let cleanupTimer;
     const exit = await Promise.race([
-      new Promise((resolve) => owner.once("exit", (code) => resolve(code))),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("wrapper did not finish cleanup")), 5_000)),
-    ]);
+      exited,
+      new Promise((_, reject) => { cleanupTimer = setTimeout(() => reject(new Error("wrapper did not finish cleanup: "
+        + JSON.stringify({ exitCode: owner.exitCode, providerAlive: processAlive(providerPid),
+          groupRunning: processGroupIsRunning(groupId), stderr: wrapperErrors.slice(-2000) }))), 15_000); }),
+    ]).finally(() => clearTimeout(cleanupTimer));
     assert.equal(exit, 0);
     // Signal 0 also succeeds for an unreaped zombie; cleanup means no running member remains in the owned group.
     await waitFor(() => !processGroupIsRunning(groupId), "late provider group cleanup");
