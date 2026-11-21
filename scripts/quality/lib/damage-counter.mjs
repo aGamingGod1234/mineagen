@@ -32,11 +32,19 @@ export function damageEvidence(before, after, healthBefore, healthAfter) {
 	};
 }
 
-/** Only the setup-owned deathCount objective can establish a death baseline. */
-export async function deathCounter(command, agent) {
-	if (!/^\w+$/.test(agent)) throw new Error('Invalid death counter selector');
-	const match = /has (\d+) \[qo_death\]$/.exec(String(await command(`scoreboard players get ${agent} qo_death`)).trim());
-	return match && Number.isSafeInteger(Number(match[1])) ? Number(match[1]) : null;
+/**
+ * The vanilla death count from a deathCount objective, or null when the reply holds none: the reply ends "has 1 [qo_death]",
+ * which a trailing-number parse reads as NaN (and `|| 0` then turned every death into 0). Only the setup-owned qo_death
+ * objective (applyQualitySetup sets it to 0) can establish a baseline, so an unset score is null. A fixture whose own
+ * objective is created before the body exists (boot() adds `deaths`) passes { objective: 'deaths', unsetIsZero: true }:
+ * vanilla leaves a score unset until the first death.
+ */
+export async function deathCounter(command, agent, { objective = 'qo_death', unsetIsZero = false } = {}) {
+	if (!/^\w+$/.test(agent) || !/^\w+$/.test(objective)) throw new Error('Invalid death counter selector');
+	const reply = String(await command(`scoreboard players get ${agent} ${objective}`)).trim();
+	const match = /has (\d+) \[([^\]]+)\]$/.exec(reply);
+	if (match?.[2] === objective && Number.isSafeInteger(Number(match[1]))) return Number(match[1]);
+	return unsetIsZero && /none is set/i.test(reply) ? 0 : null;
 }
 
 export function deathEvidence(before, after) {
@@ -49,17 +57,4 @@ export function matchesDamageExpectation(row, expected = 0) {
 	if (!Number.isFinite(expected) || expected < 0) throw new Error('expectDamageTaken must be a finite nonnegative HP value');
 	return Number.isFinite(row.damageTaken) && row.damageTaken === expected
 		&& Number.isFinite(row.healthLost) && row.healthLost >= 0 && row.healthLost <= expected;
-}
-
-/**
- * test-find-live's pass rule. A spot that declares expectDamageTaken is a survival case whose calls need not end in a
- * find: it passes with no death, no lost observations, no call the harness could not run and exactly that damage taken.
- * Any other spot passes when its last call ends in expectCode (or a find, without one) and nobody died.
- */
-export function findLivePass(spot, row, last) {
-	if (spot.expectDamageTaken !== undefined) {
-		return row.deaths === 0 && !row.ended && !(row.calls ?? []).some((entry) => entry.state === 'ERROR')
-			&& matchesDamageExpectation(row, spot.expectDamageTaken);
-	}
-	return (spot.expectCode ? last?.reasonCode === spot.expectCode : row.found) && row.deaths === 0;
 }

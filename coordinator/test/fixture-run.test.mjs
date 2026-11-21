@@ -5,8 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { terminalCounter, finishRun, fixtureSummary } from '../../scripts/quality/lib/fixture-run.mjs';
-import { damageCounter, damageEvidence, replyNumber, deathCounter, deathEvidence, matchesDamageExpectation, findLivePass } from '../../scripts/quality/lib/damage-counter.mjs';
+import { terminalCounter, finishRun, fixtureSummary, roomVerdict } from '../../scripts/quality/lib/fixture-run.mjs';
+import { findSpotVerdict } from '../../scripts/quality/lib/find-spot.mjs';
+import { damageCounter, damageEvidence, replyNumber, deathCounter, deathEvidence, matchesDamageExpectation } from '../../scripts/quality/lib/damage-counter.mjs';
 
 test('a healed hit remains damage, and missing or reset counters cannot prove safety', async () => {
 	assert.deepEqual(damageEvidence(10, 40, 20, 20), { damageTaken: 3, netHealthChange: 0 });
@@ -48,25 +49,30 @@ test('deliberate fall damage must match its declared HP exactly, including heale
 	for (const invalid of [null, -1, '1', Infinity]) assert.throws(() => matchesDamageExpectation(healedFall, invalid), /finite nonnegative/);
 });
 
-test('find-live survival spots pass on zero deaths and zero damage, not on a find', async () => {
+test('find-live survival spots are judged on zero deaths and exactly their damage, not on a find', async () => {
 	const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 	const spots = JSON.parse(await readFile(path.join(root, 'scripts/quality/lava-room-spots.json'), 'utf8'));
 	assert.equal(spots.length, 3);
-	const calls = [{ call: 'act', state: 'SUCCEEDED', reasonCode: 'ACTION_DONE' }, { call: 'act', state: 'SUCCEEDED', reasonCode: 'DESTINATION_REACHED' }];
-	const clean = { calls, found: false, deaths: 0, damageTaken: 0, healthLost: 0 };
+	const calls = [{ call: 'act', state: 'FAILED', reasonCode: 'LAVA_AHEAD' }, { call: 'act', state: 'SUCCEEDED', reasonCode: 'DESTINATION_REACHED' }];
+	const clean = { calls, deaths: 0, damageTaken: 0, healthLost: 0 };
 	for (const spot of spots) {
-		assert.equal(findLivePass(spot, clean, calls.at(-1)), true, `${spot.name}: a clean run that reached its destination passes`);
-		for (const row of [{ ...clean, damageTaken: 1 }, { ...clean, damageTaken: null }, { ...clean, deaths: 1 }, { ...clean, ended: 'death or lost observations' },
-			{ ...clean, calls: [{ call: 'act', state: 'ERROR', reasonCode: 'ERROR' }, ...calls] }]) {
-			assert.equal(findLivePass(spot, row, calls.at(-1)), false, `${spot.name}: ${JSON.stringify(row)} fails`);
+		const verdict = findSpotVerdict(spot, clean);
+		assert.equal(verdict.pass, true, `${spot.name}: a clean run that reached its destination passes`);
+		assert.match(verdict.passReason, /survival: no death and exactly 0 HP damage/, `${spot.name} declares its survival criterion`);
+		assert.equal(verdict.notExercised, undefined);
+		// Health lost with no counted damage is still lost: the survival rule fails it.
+		for (const row of [{ ...clean, damageTaken: 1, healthLost: 1 }, { ...clean, healthLost: 2 }, { ...clean, deaths: 1 }]) {
+			assert.equal(findSpotVerdict(spot, row).pass, false, `${spot.name}: ${JSON.stringify(row)} fails`);
 		}
+		// Missing evidence and calls that never reached the body are INVALID, not a pass.
+		const unread = { ...clean, ...damageEvidence(null, 0, 20, 20), healthLost: 0 };
+		assert.equal(roomVerdict({ ...unread, ...findSpotVerdict(spot, unread) }).verdict, 'INVALID');
+		const threw = { ...clean, calls: [{ call: 'act', state: 'ERROR', reasonCode: 'INVALID_ARGUMENTS' }] };
+		assert.equal(roomVerdict({ ...threw, ...findSpotVerdict(spot, threw) }).verdict, 'INVALID');
 	}
-	// Spots without expectDamageTaken keep the find (or expectCode) rule.
-	const seen = { state: 'SUCCEEDED', reasonCode: 'FIND_SEEN' };
-	assert.equal(findLivePass({}, { found: true, deaths: 0, damageTaken: 3 }, seen), true);
-	assert.equal(findLivePass({}, { found: false, deaths: 0, damageTaken: 0 }, calls.at(-1)), false);
-	assert.equal(findLivePass({ expectCode: 'NO_TARGET' }, { found: false, deaths: 0 }, { reasonCode: 'NO_TARGET' }), true);
-	assert.equal(findLivePass({}, { found: true, deaths: 1 }, seen), false);
+	// A spot that declares a deliberate hit needs exactly that hit.
+	assert.equal(findSpotVerdict({ expectDamageTaken: 2 }, { ...clean, damageTaken: 2, healthLost: 2 }).pass, true);
+	assert.equal(findSpotVerdict({ expectDamageTaken: 2 }, clean).pass, false);
 });
 
 test('terminal counts ignore observation echoes, deduplicate receipts, and retain conflicts', () => {
@@ -76,7 +82,7 @@ test('terminal counts ignore observation echoes, deduplicate receipts, and retai
 	for (let i = 0; i < 199; i++) counter.accept({ type: 'observation', payload: { lastResult: result.payload } });
 	counter.accept({ envelope: result });
 	counter.accept({ ...result, payload: { ...result.payload, reasonCode: 'OTHER' } });
-	assert.deepEqual(counter.snapshot(), { terminalResults: 1, byReason: { WATER_AHEAD: 1 }, duplicates: 2, missingActionIds: 0, conflicts: 1 });
+	assert.deepEqual(counter.snapshot(), { terminalResults: 1, byReason: { WATER_AHEAD: 1 }, duplicates: 2, missingActionIds: 0, conflicts: 1, refused: 0 });
 });
 
 test('planned and cancelled-before-start cases never inflate completed or started counts', () => {
