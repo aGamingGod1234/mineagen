@@ -3,7 +3,7 @@ import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { existsSync } from 'node:fs';
-import { checkAdvancements, evaluateArtifacts, parseSuccessCheck } from './ladder-evaluator.mjs';
+import { checkAdvancements, evaluateArtifacts, formatProgress, parseSuccessCheck } from './ladder-evaluator.mjs';
 import { DEFAULT_SAMPLED_ADVANCEMENTS, parseArgs, resolveQualityScenarios, runScenarios } from './run-scenarios.mjs';
 import { readArtifactReport, writeArtifactReport } from '../../coordinator/src/benchmark/report-artifacts.mjs';
 
@@ -45,16 +45,18 @@ export function ladderRow(run) {
 		observedMinutes: Number.isFinite(m?.playWallTimeMs) ? m.playWallTimeMs / 60000 : null,
 		deaths: m?.deaths ?? null, bodyBusyPct: Number.isFinite(busy) ? Math.max(0, Math.min(100, (1 - busy) * 100)) : null,
 		failures: m?.toolFailuresByCode ?? null, termination: run.termination, runnerTermination: run.runnerTermination ?? null, passedThen: note,
-		passTicks: evaluated ? run.evaluation.passTicks ?? null : null, observerErrors: run.observerErrors ?? [] };
+		passTicks: evaluated ? run.evaluation.passTicks ?? null : null, observerErrors: run.observerErrors ?? [],
+		// Partial credit sits beside the verdict and never changes it. Results saved before evaluator version 3 have none.
+		progress: evaluated ? run.evaluation.progress ?? null : null, progressText: evaluated ? formatProgress(run.evaluation.progress) : null };
 }
 
 export function formatLadderReport(runs) {
 	const number = n => Number.isFinite(n) ? n.toFixed(2) : '?';
 	const cell = s => String(s ?? '?').replaceAll('|', '/').replaceAll('\n', ' ');
-	return ['# Ladder results', '', 'PASS is the evaluator-owned success check (inventory / advancement / position / survival sampled from the server) holding at any sample inside the budget; log fallback requires the agent name and an absolute timestamp inside the run window; the agent\'s own goalCompleted is a separate column. Pass min = time from goal_control start to the first passing sample (? for server-log evidence). ? is unobserved. Body-busy is the existing merged dispatch-to-completion proxy, excluding chat.', '',
-		'| Scenario | Provider / model | Run | Result | Pass min | Evaluator | Agent goalCompleted | Source | Deaths | Body busy % | Failures / stop |',
-		'|---|---|---:|---|---:|---|---|---|---:|---:|---|', ...runs.map(ladderRow).map(r =>
-			`| ${cell(r.scenario)} | ${cell(r.provider)} / ${cell(r.model)} | ${r.repetition} | ${r.result} (${cell(r.measurementStatus)}) | ${number(r.minutesToGoal)} | ${r.evaluatorPass === null ? 'n/a' : r.evaluatorPass ? 'pass' : 'fail'} | ${r.goalCompleted ? 'yes' : 'no'} | ${cell(r.evaluatorSource ?? 'n/a')} | ${r.deaths ?? '?'} | ${number(r.bodyBusyPct)} | ${cell(JSON.stringify(r.failures))}; ${cell(r.termination)}${r.passedThen ? '; ' + r.passedThen : ''}${r.observerErrors.length ? '; ' + cell(r.observerErrors.join('; ')) : ''} |`), ''].join('\n');
+	return ['# Ladder results', '', 'PASS is the evaluator-owned success check (inventory / advancement / position / survival sampled from the server) holding at any sample inside the budget; log fallback requires the agent name and an absolute timestamp inside the run window; the agent\'s own goalCompleted is a separate column. Pass min = time from goal_control start to the first passing sample (? for server-log evidence). ? is unobserved. Body-busy is the existing merged dispatch-to-completion proxy, excluding chat. Progress is information only and never a pass: for each clause, the best and final sampled count inside the budget (net of the starting kit), ticks survived, closest distance, or whether an advancement was reached; n/a means the result predates it or has no evaluation.', '',
+		'| Scenario | Provider / model | Run | Result | Progress | Pass min | Evaluator | Agent goalCompleted | Source | Deaths | Body busy % | Failures / stop |',
+		'|---|---|---:|---|---|---:|---|---|---|---:|---:|---|', ...runs.map(ladderRow).map(r =>
+			`| ${cell(r.scenario)} | ${cell(r.provider)} / ${cell(r.model)} | ${r.repetition} | ${r.result} (${cell(r.measurementStatus)}) | ${cell(r.progressText ?? 'n/a')} | ${number(r.minutesToGoal)} | ${r.evaluatorPass === null ? 'n/a' : r.evaluatorPass ? 'pass' : 'fail'} | ${r.goalCompleted ? 'yes' : 'no'} | ${cell(r.evaluatorSource ?? 'n/a')} | ${r.deaths ?? '?'} | ${number(r.bodyBusyPct)} | ${cell(JSON.stringify(r.failures))}; ${cell(r.termination)}${r.passedThen ? '; ' + r.passedThen : ''}${r.observerErrors.length ? '; ' + cell(r.observerErrors.join('; ')) : ''} |`), ''].join('\n');
 }
 
 // A verdict recorded during the run (or by an earlier evaluation) is never replaced by a failing re-evaluation.
