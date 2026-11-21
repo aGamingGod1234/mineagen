@@ -4,6 +4,8 @@ import { searchFor } from '../src/find-search.mjs';
 import { DROP_SEARCH_BLOCKS, trustedCross } from '../src/find-eyes.mjs';
 import { EYE_PLAN, FRAME_EYES, PEARL_PLAN, ROD_PLAN } from '../src/eye-plan.mjs';
 import { planObtain } from '../src/obtain-plan.mjs';
+import { routeLine } from '../src/skill-fits.mjs';
+import { emptyKnown, evaluatePlanCheck } from '../src/plan-checks.mjs';
 import { normalizeMinecraftToolCall } from '../src/native-minecraft-tools.mjs';
 
 // The late-game contract, part A: eye margin, eye pickup and stop-throwing (wall-breakers late-game-contract.md).
@@ -200,4 +202,39 @@ test('an eye lost from view and not found at its estimated drop is named as left
 	const r = await searchFor({ structure: 'stronghold', throwCap: 1 }, b);
 	assert.equal(r.find.eyes.throws[0].recovery, 'not_found');
 	assert.equal(r.find.eyes.eyesLeftBehind.length, 1);
+});
+
+test('the Overworld crafts the margin it brought home, not only the 12 the frame needs', () => {
+	const known = emptyKnown(); known.visitedDimensions.push('minecraft:the_nether');
+	const route = (items) => routeLine({ observation: { ready: true, observedAtEpochMs: 10, world: { worldId: 'w', dimension: 'minecraft:overworld' }, position: { x: 0, y: 64, z: 0 },
+		player: { health: 20, foodLevel: 20 }, inventory: { items: [['iron_pickaxe', 1], ['cooked_beef', 16], ...items].map(([id, count]) => ({ itemId: `minecraft:${id}`, count })) }, entities: [], blocks: [] },
+		known, evaluate: evaluatePlanCheck });
+	assert.match(route([['blaze_rod', 8], ['ender_pearl', 15]]), /^usual next step: craft 15 ender_eyes/);
+	assert.match(route([['blaze_rod', 7], ['ender_pearl', 12]]), /^usual next step: craft 12 ender_eyes/);
+	assert.match(route([['blaze_rod', 7], ['ender_pearl', 13]]), /^usual next step: craft 13 ender_eyes/);
+	// Twelve made, makings for three more held: those too, before the search.
+	assert.match(route([['ender_eye', 12], ['ender_pearl', 3], ['blaze_powder', 4]]), /^usual next step: craft 3 spare ender_eyes/);
+	assert.match(route([['ender_eye', 15], ['ender_pearl', 1], ['blaze_powder', 1]]), /^usual next step: find structure stronghold/);
+	assert.match(route([['ender_eye', 12]]), /^usual next step: find structure stronghold/);
+});
+
+test('a receipt that turns from unseen to dropped during the search walk is followed to where it dropped', async () => {
+	let walked = false;
+	const b = body({ flight: () => ({ outcome: 'unseen', lostFromView: true }), onAct: (type, args, o) => {
+		if (type === 'travel_to' && !walked && args.y === undefined && Math.abs(Math.hypot(args.x, args.z) - 12) < 0.01) {
+			walked = true;
+			o.player.x = args.x; o.player.z = args.z;
+			// The eye came back in sight on the walk: its receipt now says where it dropped, 8 blocks past the estimate.
+			const flight = o.perception.events.at(-1);
+			const droppedAt = { x: flight.from.x + (args.x - flight.from.x) * 20 / 12, y: 66, z: flight.from.z + (args.z - flight.from.z) * 20 / 12 };
+			o.perception.events.push({ ...flight, sequence: flight.sequence + 100, outcome: 'dropped', droppedAt });
+			o.items = [{ itemId: 'minecraft:ender_eye', stableId: EYE_ID, ...droppedAt }];
+			return { state: 'SUCCEEDED', reasonCode: 'ARRIVED' };
+		}
+		if (type === 'pick_up_item') { o.items = []; o.inventory.items[0].count++; return { state: 'SUCCEEDED', reasonCode: 'PICKED_UP' }; }
+		return null;
+	} });
+	const r = await searchFor({ structure: 'stronghold', throwCap: 1 }, b);
+	assert.equal(r.find.eyes.throws[0].outcome, 'dropped');
+	assert.equal(r.find.eyes.throws[0].eyesAfterPickup, 16);
 });

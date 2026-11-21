@@ -178,9 +178,13 @@ export async function followEyes(target, body, { observation: initial, deadline,
 				continue;
 			}
 			// droppedAt may be an airborne end marker. Only a currently seen item justifies recovery travel.
-			const dropAt = last.droppedAt ?? last.estimatedDrop, near = last.droppedAt ? 4 : 6;
-			const visibleDrop = () => (o.items ?? []).find(r => r.itemId === EYE && point(r) && r.stableId
-				&& (last.dropId ? r.stableId === last.dropId : Math.hypot(r.x - dropAt.x, r.z - dropAt.z) < near));
+			// Read each time: a receipt lost from view can turn into a drop once the walk brings the eye back in sight.
+			const visibleDrop = () => {
+				const dropAt = last.droppedAt ?? last.estimatedDrop, near = last.droppedAt ? 4 : 6;
+				return (o.items ?? []).find(r => r.itemId === EYE && point(r) && r.stableId
+					&& (last.dropId ? r.stableId === last.dropId : Math.hypot(r.x - dropAt.x, r.z - dropAt.z) < near));
+			};
+			const dropAt = last.droppedAt ?? last.estimatedDrop;
 			let current = visibleDrop();
 			// Out of view (it fell behind a rise or into grass): walk once to where it dropped and look, when that is near.
 			// A walk there that fails is not the end of the search: the eye is then named as left behind.

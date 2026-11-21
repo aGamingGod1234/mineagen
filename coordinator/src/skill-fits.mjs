@@ -382,8 +382,12 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 		if (frames.some(b => /^minecraft:(?:(?:mossy_|cracked_)?stone_bricks|iron_bars)$/.test(b?.blockId ?? '')))
 			return line('find block end_portal_frame walks observed passages to the portal room; resume after handling danger or a blocked doorway', eyeFacts);
 		if (rodsMissing > 0 || pearlsMissing > 0) return line(`go back to the Nether for ${[rodsMissing ? `${rodsMissing} blaze_rods` : null, pearlsMissing ? `${pearlsMissing} ender_pearls` : null].filter(Boolean).join(' and ')}`, eyeFacts);
-		if (eyesNeeded > 0) return line(`craft ${eyesNeeded} ender_eyes from pearls and blaze powder${first}`, `${eyeFacts}${lacks}`);
+		// Craft to the eye plan from what is held (the margin pays for throws and lost drops), never fewer than the frame needs.
+		const craftable = Math.min(pearls, count(/^minecraft:blaze_powder$/) + 2 * rods);
+		const craft = Math.max(eyesNeeded, Math.min(craftable, Math.max(0, EYE_PLAN - eyesHeld - filled)));
+		if (eyesNeeded > 0) return line(`craft ${craft} ender_eyes from pearls and blaze powder${first}`, `${eyeFacts}${lacks}`);
 		if (filled > 0 || frames.some(b => b?.blockId === 'minecraft:end_portal_frame')) return line(`set the ender_eyes in the empty End portal frames${first}`, `${eyeFacts}${lacks}`);
+		if (craft > 0 && !portalOpen) return line(`craft ${craft} spare ender_eyes from the pearls and blaze powder held, then find structure stronghold`, `${eyeFacts}; throws break 1 in 5`);
 		return line(`find structure stronghold follows thrown eyes and digs down; then find block end_portal_frame walks passages; resume after danger${first}`, eyeFacts);
 	}
 	// Round1 games6/8 lit portals, then spent the rest of the game on optional surface preparation; the portal bed is the
