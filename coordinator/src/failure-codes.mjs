@@ -121,6 +121,8 @@ export const FAILURE_CODES = Object.freeze({
 	FRAME_CELL_UNSEEN: ['cell', null],
 	NO_PIGLIN: ['reach', null],
 	PIGLIN_ANGRY: ['threat', null],
+	// mine_vein refused to break gold a seen calm piglin within 16 blocks would guard (ServerVeinController).
+	PIGLINS_NEAR_GOLD: ['threat', null],
 	CAST_TIMED_OUT: ['reach', null],
 	BARTER_TIMED_OUT: ['reach', null],
 	OUT_OF_BLOCKS: ['item', null],

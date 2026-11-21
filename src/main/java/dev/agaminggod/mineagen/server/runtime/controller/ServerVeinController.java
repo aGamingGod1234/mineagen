@@ -16,6 +16,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.tags.BlockTags;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Mob;
@@ -232,6 +233,12 @@ public final class ServerVeinController implements ServerController {
 	}
 
 	private TickResult startBreak(ServerPlayer player, BlockPos at, boolean leaf, long now) {
+		if (!leaf && player.level().getBlockState(at).is(BlockTags.GUARDED_BY_PIGLINS)) {
+			double piglin = nearestCalmPiglin(player);
+			if (angersPiglins(true, piglin)) return stop(player, "PIGLINS_NEAR_GOLD", String.format(Locale.ROOT,
+					"a calm piglin is %.1f blocks away: breaking %s within %d blocks of piglins turns them on you (vanilla), gold armour or not; mine it once they are further off",
+					piglin, blockId(player.level().getBlockState(at)), (int) PIGLIN_GUARD_RANGE), false, now);
+		}
 		try {
 			breaking = environment.breakBlock(player, at, Math.max(1L, Math.min(BLOCK_TIMEOUT_MS, deadline - now)));
 		} catch (AgentDomainException refused) {
@@ -256,6 +263,22 @@ public final class ServerVeinController implements ServerController {
 		breakingAt = at;
 		breakingLeaves = leaf;
 		return breakTick(player, now);
+	}
+
+	/** Vanilla: breaking a block tagged guarded_by_piglins angers every piglin within 16 blocks. */
+	public static final double PIGLIN_GUARD_RANGE = 16.0D;
+
+	public static boolean angersPiglins(boolean guardedBlock, double nearestCalmPiglin) {
+		return guardedBlock && nearestCalmPiglin <= PIGLIN_GUARD_RANGE;
+	}
+
+	/** The nearest seen calm adult piglin, as a player glances round before mining gold; infinity when none is seen. */
+	private static double nearestCalmPiglin(ServerPlayer player) {
+		double best = Double.POSITIVE_INFINITY;
+		for (var piglin : player.level().getEntitiesOfClass(net.minecraft.world.entity.monster.piglin.Piglin.class, player.getBoundingBox().inflate(PIGLIN_GUARD_RANGE + 1.0D),
+				p -> p.isAlive() && !p.isBaby() && p.getTarget() != player && dev.agaminggod.mineagen.server.perception.ObservationVisibility.canSeeEntity(player, p)))
+			best = Math.min(best, player.distanceTo(piglin));
+		return best;
 	}
 
 	private TickResult breakTick(ServerPlayer player, long now) {

@@ -167,6 +167,9 @@ public final class PerceptionGateVerification {
 	}
 
 	private static void verifyBarterJob() {
+		check(dev.agaminggod.mineagen.server.runtime.controller.ServerVeinController.angersPiglins(true, 12.0D), "gold ore with a calm piglin 12 blocks off is left unbroken");
+		check(!dev.agaminggod.mineagen.server.runtime.controller.ServerVeinController.angersPiglins(true, 20.0D), "a piglin 20 blocks off is past the 16-block guard");
+		check(!dev.agaminggod.mineagen.server.runtime.controller.ServerVeinController.angersPiglins(false, 3.0D), "netherrack beside a piglin is mined");
 		var blocks = ServerBarterController.conversion(3, 40, false, false);
 		check(blocks != null && blocks.recipeId().equals("minecraft:gold_ingot_from_gold_block") && blocks.ingots() == 27 && !blocks.table(),
 				"gold blocks craft first, in the inventory grid, 9 ingots each: " + blocks);
