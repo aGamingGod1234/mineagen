@@ -49,10 +49,10 @@ jobs:
   java-targets:
     name: Mod on Minecraft ${{ matrix.mc }}
     # Drafts skip it. No path filter: the JAR embeds the coordinator and the 26.3 leg runs the script tests.
-    # Boat is a rented VM runner that takes only the owner's runs. In the public repository a pull request from a fork
-    # runs this job on GitHub's runner instead.
+    # GitHub's runner is free for a public repository. To move this job back to Boat, the rented VM runner, use the
+    # fork-aware expression that scripts/check-public-tree.mjs allows, so a fork's pull request stays on GitHub's runner.
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'boat' || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     # The draft state is part of the group, so a draft run's skipped leg cannot cancel a ready run's leg.
     concurrency:
       group: ${{ github.workflow }}-mod-${{ matrix.mc }}-${{ github.event.pull_request.number || github.sha }}-${{ github.event.pull_request.draft }}
