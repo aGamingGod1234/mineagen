@@ -146,6 +146,7 @@ public final class VerificationMain {
 		passedAssertions += dev.agaminggod.mineagen.server.perception.WalkedRouteVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.LavaFlowMovementVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.LavaSpreadVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.LavaStepVerification.verify();
 		passedAssertions += GoalControlVerification.verify();
 		passedAssertions += GoalDraftAdvancementRevalidationVerification.verify();
 		passedAssertions += QueuedGoalRevalidationVerification.verify();

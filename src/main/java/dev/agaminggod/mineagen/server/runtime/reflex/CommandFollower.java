@@ -18,7 +18,7 @@ final class CommandFollower {
 	static final Set<String> HANDOFF_CODES = Set.of("LOW_HEALTH_BAILOUT", "ON_FIRE", "IN_LAVA", "NAVIGATION_DAMAGED");
 	/** Navigation failures a shelter's walk to its site ends on (as ServerNavigationController reports them). */
 	private static final Set<String> APPROACH_FAILURES = Set.of("NO_STANDABLE_PATH", "NO_SEEN_ROUTE", "PATH_BLOCKED", "NO_PROGRESS",
-			"REACHED_FRONTIER", "MISSED_LANDING", "DISPLACED", "ACTION_TIMEOUT", "LAVA_FLOW", "SNEAK_HOLDS_EDGE", "DESTINATION_NEAR_UNVERIFIED");
+			"REACHED_FRONTIER", "MISSED_LANDING", "DISPLACED", "ACTION_TIMEOUT", "LAVA_FLOW", "LAVA_STEP", "SNEAK_HOLDS_EDGE", "DESTINATION_NEAR_UNVERIFIED");
 	/**
 	 * Codes that hand off only for the action that stops on them: a travel stopped by danger, and a failed defence. Keyed by
 	 * type because the same code ends ordinary work too (NO_STANDABLE_PATH ends navigation and pickup, HOSTILE_NEAR digging).
