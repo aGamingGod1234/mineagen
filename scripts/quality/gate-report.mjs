@@ -222,8 +222,19 @@ function readRoundGame(dir) {
 	}];
 }
 
-// Files a run folder's raw/ may hold with death evidence: protocol receipts, coordinator trace rows, the Watcher's danger rows.
-const DEATH_FILES = ['quality-protocol.jsonl', 'protocol.jsonl', 'coordinator.jsonl', 'coordinator-instinct.jsonl', 'danger.jsonl'];
+// Files a run folder's raw/ may hold with death evidence: protocol receipts and coordinator trace rows.
+const DEATH_FILES = ['quality-protocol.jsonl', 'protocol.jsonl', 'coordinator.jsonl', 'coordinator-instinct.jsonl'];
+
+/**
+ * DEATH_FILES under raw/, and the Watcher's lethal-hit rows, which it writes as arena-watch/<agentId>-danger.jsonl (kept
+ * under raw/arena-watch, or still under raw/server/arena-watch), the same files stage-score reads.
+ */
+function deathFiles(raw, agentId) {
+	const listed = (dir) => { try { return readdirSync(dir); } catch { return []; } };
+	const watch = [path.join(raw, 'arena-watch'), path.join(raw, 'server', 'arena-watch')].flatMap((dir) => listed(dir)
+		.filter((name) => name.endsWith('-danger.jsonl') && (!agentId || name.startsWith(agentId))).map((name) => path.join(dir, name)));
+	return [...DEATH_FILES.map((name) => path.join(raw, name)), ...watch];
+}
 
 /**
  * A round game's deaths and their causes. The timeline lists every death, but a death it could only see as a death
@@ -233,14 +244,14 @@ const DEATH_FILES = ['quality-protocol.jsonl', 'protocol.jsonl', 'coordinator.js
 function roundDeaths(dir, timeline, start, end) {
 	const base = (timeline.deaths ?? []).map((death) => death.source === 'counter' || /^unknown/.test(death.cause ?? '')
 		? { at: death.at, counterOnly: true } : { at: death.at, message: death.cause ?? null });
-	const evidence = readDeathEvidence(DEATH_FILES.map((name) => path.join(dir, 'raw', name)), { agentId: timeline.agentId ?? null, from: start, to: end });
+	const evidence = readDeathEvidence(deathFiles(path.join(dir, 'raw'), timeline.agentId ?? null), { agentId: timeline.agentId ?? null, from: start, to: end });
 	const deaths = mergeDeaths(base, evidence);
 	return { deaths: deaths.length, deathCauses: countCauses(deaths) };
 }
 
 /** Causes for a run scored before stage-score counted them: its raw receipts, and any death without one as unknown. */
 function rawDeathCauses(raw, agentId, start, end, total) {
-	const evidence = readDeathEvidence(DEATH_FILES.map((name) => path.join(raw, name)), { agentId: agentId ?? null, from: start, to: end });
+	const evidence = readDeathEvidence(deathFiles(raw, agentId ?? null), { agentId: agentId ?? null, from: start, to: end });
 	return countCauses([...evidence, ...Array.from({ length: Math.max(0, total - evidence.length) }, () => ({}))]);
 }
 

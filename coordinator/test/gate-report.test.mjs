@@ -429,3 +429,24 @@ test('a round game counts deaths by cause, reading the cause of a counter-only d
 		assert.deepEqual(cohort.deathCauses, { skeleton_arrow: 1, lava: 1, fire: 1, other: 1 });
 	} finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test('a counter-only round death takes its killer from the Watcher danger file under arena-watch', async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), 'gate-report-'));
+	try {
+		const dir = await standardRound(root, [{ id: 'game-1', seed: '779', stages: {}, agentId: 'agent-a', deaths: [
+			{ at: T0 + 20 * MIN, cause: 'unknown (counter only)', source: 'counter', counterOrdinal: 1 },
+			{ at: T0 + 40 * MIN, cause: 'unknown (counter only)', source: 'counter', counterOrdinal: 2 },
+		] }]);
+		const hit = (minute, agentId, damageType, attacker) => JSON.stringify({ type: 'damage', lethal: true, agentId, atMs: T0 + minute * MIN + 200, damageType, attacker });
+		// Where the Watcher writes them: one file per agent, kept under raw/arena-watch or still under the server folder.
+		await mkdir(path.join(dir, 'game-1', 'raw', 'arena-watch'), { recursive: true });
+		await writeFile(path.join(dir, 'game-1', 'raw', 'arena-watch', 'agent-a-danger.jsonl'), hit(20, 'agent-a', 'arrow', 'minecraft:skeleton') + '\n');
+		await mkdir(path.join(dir, 'game-1', 'raw', 'server', 'arena-watch'), { recursive: true });
+		await writeFile(path.join(dir, 'game-1', 'raw', 'server', 'arena-watch', 'agent-a-danger.jsonl'), hit(40, 'agent-a', 'lava', null) + '\n');
+		await writeFile(path.join(dir, 'game-1', 'raw', 'arena-watch', 'agent-b-danger.jsonl'), hit(30, 'agent-b', 'drown', null) + '\n');
+		const [game] = readRun(dir);
+		assert.equal(game.deaths, 2);
+		assert.equal(game.deathCauses.unknown ?? 0, 0, 'both counter-only deaths are named from the Watcher rows');
+		assert.equal(Object.values(game.deathCauses).reduce((a, b) => a + b, 0), 2, 'another agent\'s danger file adds nothing');
+	} finally { await rm(root, { recursive: true, force: true }); }
+});
