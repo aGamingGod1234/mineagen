@@ -219,6 +219,15 @@ test('deaths come from the vanilla counter: "has 1 [deaths]" is one death, and r
 	assert.deepEqual(counter.snapshot(), { terminalResults: 1, byReason: { UNTIL_COUNT_REACHED: 1 }, duplicates: 0, missingActionIds: 0, conflicts: 0, refused: 50 });
 });
 
+test('a repeated refused receipt is one refusal, and a conflicting receipt for it still counts as a conflict', () => {
+	const counter = terminalCounter();
+	const stale = { type: 'action_result', agentId: 'a', payload: { actionId: 'x', goalRevision: 1, state: 'FAILED', reasonCode: 'STALE_REVISION' } };
+	counter.accept(stale);
+	counter.accept(stale);
+	counter.accept({ type: 'action_result', agentId: 'a', payload: { actionId: 'x', goalRevision: 1, state: 'SUCCEEDED', reasonCode: 'UNTIL_COUNT_REACHED' } });
+	assert.deepEqual(counter.snapshot(), { terminalResults: 0, byReason: {}, duplicates: 2, missingActionIds: 0, conflicts: 1, refused: 1 });
+});
+
 test('no live fixture reads the deaths scoreboard with a trailing-number parse', async () => {
 	// `number(reply) || 0` reads "Probe has 1 [deaths]" as NaN and then 0: every death disappeared.
 	for (const name of (await readdir(quality)).filter(file => file.endsWith('.mjs'))) {

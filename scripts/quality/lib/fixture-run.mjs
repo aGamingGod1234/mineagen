@@ -15,15 +15,16 @@ export function terminalCounter() {
 			const event = row.envelope ?? row, result = event.payload ?? {};
 			if (event.type !== 'action_result' || !TERMINAL.has(result.state)) return;
 			if (!result.actionId) { missingActionIds++; return; }
-			if (refusedBeforeRunning(result)) { refused++; return; }
 			const key = JSON.stringify([event.agentId, result.goalRevision, result.actionId]);
 			const signature = JSON.stringify([result.state, result.reasonCode]);
+			// Identity first, so a repeated refusal is one refusal and a different receipt for it is a conflict.
 			if (seen.has(key)) { duplicates++; if (seen.get(key) !== signature) conflicts++; return; }
 			seen.set(key, signature);
+			if (refusedBeforeRunning(result)) { refused++; return; }
 			const code = result.reasonCode ?? result.state;
 			byReason[code] = (byReason[code] ?? 0) + 1;
 		},
-		snapshot: () => ({ terminalResults: seen.size, byReason: { ...byReason }, duplicates, missingActionIds, conflicts, refused }),
+		snapshot: () => ({ terminalResults: seen.size - refused, byReason: { ...byReason }, duplicates, missingActionIds, conflicts, refused }),
 	};
 }
 
