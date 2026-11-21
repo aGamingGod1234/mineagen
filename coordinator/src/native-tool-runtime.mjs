@@ -1462,7 +1462,9 @@ export class NativeToolRuntime {
 		if (!['action', 'start_action', 'replace_action'].includes(tool.kind) || !PAUSED_PROGRAM_DANGER_ACTIONS.has(tool.actionType)) return false;
 		const interrupted = this.#interruptedPausedDangerAction(record);
 		if (interrupted !== null) {
-			return tool.kind === 'action' || (tool.kind === 'replace_action' && tool.actionId === interrupted.actionId && tool.goalRevision === interrupted.goalRevision);
+			// escape (a start_action) may take over a borrowed fight or flee too: falling into water mid-fight needs it.
+			return tool.kind === 'action' || (tool.kind === 'start_action' && tool.actionType === 'escape')
+				|| (tool.kind === 'replace_action' && tool.actionId === interrupted.actionId && tool.goalRevision === interrupted.goalRevision);
 		}
 		if (!this.#pausedProgramForDanger(record)) return false;
 		if (tool.kind === 'replace_action') return this.#terminalActionReceipt(record, tool.actionId, tool.goalRevision) !== null;
