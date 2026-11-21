@@ -9,6 +9,7 @@ import { AtomicAgentStore } from '../src/observed-memory-store.mjs';
 import { MAX_IDENTIFIER_LENGTH } from '../src/constants.mjs';
 
 import { entry, fixture, drain, DISK_BOUND } from './fixtures/pending-inbox-fixture.mjs';
+import { bulkTempRoot } from './fixtures/bulk-temp-root.mjs';
 
 test('pending inbox: exact retained wake survives consumption, later input and restart', async t => {
 	const { inbox, create } = await fixture(t);
@@ -97,7 +98,7 @@ test('pending inbox: fence during reclamation cannot invent unread backlog', asy
 });
 
 test('pending inbox: later steering commit cannot consume a rejected earlier reservation', DISK_BOUND, async (t) => {
-	const { inbox } = await fixture(t);
+	const { inbox } = await fixture(t, null, bulkTempRoot);
 	await inbox.append('one', entry(1));
 	const start = await inbox.reserve();
 	for (let n = 2; n <= 60; n++) await inbox.append('one', entry(n));
@@ -112,7 +113,7 @@ test('pending inbox: later steering commit cannot consume a rejected earlier res
 });
 
 test('pending inbox: actual serialized prefix only; scope/removal fencing and duplicate collisions', DISK_BOUND, async (t) => {
-	const { inbox } = await fixture(t);
+	const { inbox } = await fixture(t, null, bulkTempRoot);
 	for (let n = 1; n <= 10; n++) await inbox.append('one', entry(n));
 	assert.equal(await inbox.append('one', entry(3)), false);
 	await assert.rejects(inbox.append('one', { ...entry(3), text: 'changed' }), { code: 'CONVERSATION_COLLISION' });
@@ -140,7 +141,7 @@ test('pending inbox: append/index failure is not admitted, partial commit retrie
 			return disk.write(key, value);
 		} };
 	};
-	const { inbox, create } = await fixture(t, storeFactory);
+	const { inbox, create } = await fixture(t, storeFactory, bulkTempRoot);
 	await inbox.open('one');
 	fail = (key, value) => key === 'index' && value.tail === 1;
 	await assert.rejects(inbox.append('one', entry(1)), { code: 'CONVERSATION_STORAGE_FAILED' });
@@ -271,7 +272,7 @@ for (const damage of ['missing', 'null']) {
 }
 
 test('pending inbox: wake inspection crosses pages without consuming or duplicating reservations', DISK_BOUND, async t => {
-  const { inbox, create } = await fixture(t);
+  const { inbox, create } = await fixture(t, null, bulkTempRoot);
   const context = sequence => ({ ...entry(sequence), scope: 'public', kind: 'agent_message' });
   for (let sequence = 1; sequence <= 65; sequence++) await inbox.append('one', context(sequence));
   assert.equal(await inbox.hasUnreadWake(), false);
