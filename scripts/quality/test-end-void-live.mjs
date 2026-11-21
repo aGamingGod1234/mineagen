@@ -9,7 +9,7 @@ import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 import { installTickRate, fixtureTickRate } from './watch-replay.mjs';
-import { damageCounter, recordDamageEvidence } from './lib/damage-counter.mjs';
+import { damageCounter, recordDamageEvidence, deathCounter, recordDeathEvidence } from './lib/damage-counter.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const jarPath = resolve(process.env.ARENA_JAR ?? join(root, MOD_JAR));
@@ -73,6 +73,7 @@ async function endPlay() {
 	await rate.normalRate();
 	tick.held = await rate.tickReport();
 	recordDamageEvidence(tick, p.damage0, await p.damage().catch(() => null));
+	recordDeathEvidence(tick, p.deaths0, await p.deaths().catch(() => null));
 	return tick;
 }
 const frame = (over) => ({ forward: 1, strafe: 0, jump: false, sneak: false, sprint: true, attack: false, use: false, yaw: -90, pitch: 10, selectedSlot: 0, hand: 'main', ...over });
@@ -128,7 +129,8 @@ try {
 	// FIXTURE_TICK_RATE: setup runs at 20; from the first fireball case to the rim clutch the server runs at the fixture
 	// rate and every wait is on its clock (resistance keeps the body alive, so no verdict reads health).
 	const damage = await damageCounter(command, agent);
-	play = { damage0: await damage(), damage };
+	await command('scoreboard objectives add fixture_deaths deathCount'); const deaths = () => deathCounter(command, agent, { objective: 'fixture_deaths', unsetIsZero: true });
+	play = { damage0: await damage(), damage, deaths0: await deaths().catch(() => null), deaths };
 	await rate.fastRate();
 	play.t0 = rate.clock.now(); play.wall0 = Date.now(); play.timer = await rate.gameTimer();
 
@@ -178,6 +180,10 @@ try {
 		sequenceStopped: results.sequence.reasonCode, sequenceOnPlatform: results.sequence.onPlatform,
 		sneakOnPlatform: results.sneak.onPlatform, sneakResult: results.sneak.reasonCode, jar: jarPath,
 	};
+	// Resistance keeps the body alive, so the room is judged on footing: every case ends on the island or the platform.
+	results.bar = 'every case ends on the island or the platform';
+	results.pass = [results.summary.clutchEdgeOnIsland, results.summary.rimOnIsland, results.summary.platformOnPlatform,
+		results.summary.sprintOnPlatform, results.summary.sequenceOnPlatform, results.summary.sneakOnPlatform].every(value => value === true);
 	await writeFile(join(out, 'end-void.json'), JSON.stringify(results, null, 2));
 	console.log(JSON.stringify(results, null, 2));
 } finally {

@@ -7,7 +7,7 @@
 import { howtoIndex } from './howto.mjs';
 import { eyeTarget, eyesHeld, followEyes } from './find-eyes.mjs';
 import { portalTarget, strongholdNearby, findPortalRoom } from './find-portal-room.mjs';
-import { ENGAGE_CLOSE, SEARCH_LOW_HEALTH, creeperNear, searchDanger, threatRows } from './search-danger.mjs';
+import { ENGAGE_CLOSE, SEARCH_LOW_HEALTH, creeperNear, pursuedByPack, searchDanger, threatRows } from './search-danger.mjs';
 import { fortressSearch, searchNetherFortress } from './find-fortress.mjs';
 
 export const FIND_KINDS = Object.freeze(['block', 'biome', 'mob', 'structure']);
@@ -784,7 +784,9 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 	const shelterBlock = () => (observation?.inventory?.items ?? []).find((item) => SHELTER_BLOCKS.has(item?.itemId) && item.count >= 8)?.itemId;
 	const cover = async () => {
 		const block = shelterBlock();
-		if (profile.surface || block === undefined || observation?.player?.skyOpen === true || creeperNear(observation) !== null) return false;
+		// A mob on foot can reach the opening while the body builds, leaving nowhere to run when the pack catches up.
+		if (profile.surface || block === undefined || observation?.player?.skyOpen === true
+			|| creeperNear(observation) !== null || pursuedByPack(observation)) return false;
 		const at = bodyAt(observation);
 		const walled = await leg('wall in', 'build_shelter', { x: Math.floor(at.x), y: Math.floor(at.y + 1e-3), z: Math.floor(at.z), opening: nearestCardinal(observation?.player?.yaw ?? 0).name, itemId: block, roof: true });
 		return walled.result?.reasonCode === 'SHELTER_BUILT';

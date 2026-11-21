@@ -127,7 +127,10 @@ try {
       await save(`${name}-${repeat}`,{result,before,after:await observe()});
     }
     // Bridge from the block beneath the player's feet: lean over its edge to expose the side.
-    await setup();await command('fill -4 79 -4 10 79 4 minecraft:air');await command('setblock 0 79 0 minecraft:nether_bricks');
+    // The edge guard walks a settled body back to where it last stood, and a short teleport looks like a shove. Settle
+    // more than 6 blocks away first, so the lean spot is a fresh start rather than a shove off the old one.
+    await setup();await command('setblock -8 79 0 minecraft:nether_bricks');await command(`tp ${agent} -7.5 80 0.5 90 0`);await rate.idleSleep(400);
+    await command('fill -4 79 -4 10 79 4 minecraft:air');await command('setblock 0 79 0 minecraft:nether_bricks');
     await command(`tp ${agent} 1.15 80 0.5 90 70`);await rate.idleSleep(100);
     {const before=await observe();await begin();
     await save(`underfoot-side-${repeat}`,{before,result:await act('place_block',{x:1,y:79,z:0,face:'east',faceMode:'strict',itemId:'minecraft:cobblestone'}),after:await observe()});}
@@ -208,11 +211,13 @@ try {
     if(name.startsWith('overlap-')){
       check(r.result.causeCode==='BODY_IN_DESTINATION'||r.result.message.includes('BODY_IN_DESTINATION'),name);
       const support=r.before.blocks.find(b=>b.x===1&&b.y===79&&b.z===0);
-      check(support && support.placeableFaces.includes('up')===!candidate,name+' fact');
+      // The block the body stands in cannot take a block on top, so the fact no longer lists that face.
+      check(support && !support.placeableFaces.includes('up'),name+' fact');
     }
     if(name.startsWith('slab-clear-')||name.startsWith('adjacent-'))check(r.before.blocks.find(b=>b.x===1&&b.y===79&&b.z===0)?.placeableFaces.includes('up'),name+' fact');
     if(name.startsWith('walk-edge-true'))check(r.after.position.y===80,name);
-    if(name.startsWith('walk-edge-false'))check(r.after.position.y<79,name);
+    // Walking at a deadly drop without sneaking now crouches at the lip too (the edge guard covers control keys).
+    if(name.startsWith('walk-edge-false'))check(r.after.position.y===80,name);
     if(name.startsWith('knockback-')){
       const xyz=r.pos.match(/\[([^\]]+)\]/)?.[1].split(',').map(v=>Number(v.trim().replace(/d$/,'')));
       check(xyz&&xyz[0]>1.3&&xyz[1]<79,name);

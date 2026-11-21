@@ -1696,11 +1696,11 @@
    "stage": "early",
    "skill": "movement",
    "skill2": null,
-   "line": "CASES=edge-control REPEATS=1 ARENA_JAR=$JAR node scripts/quality/test-default-reflex-live.mjs $OUT",
+   "line": "CASES=edge-control,edge-control-shield REPEATS=1 ARENA_JAR=$JAR node scripts/quality/test-default-reflex-live.mjs $OUT",
    "estMinutes": 2,
    "tickRate": 20,
    "bar": "none",
-   "reads": "no exit verdict (exit 0): OUT/default-reflex.json summary.defaults (alive or on-bridge count); summary.none is the rule-less control body"
+   "reads": "no exit verdict (exit 0): OUT/default-reflex.json; the bar is edge-control-shield (offBridge, shield in hand). The empty-handed edge-control shot is recorded as knockedOff, not judged: knockback lifts any body off a one-wide bridge. summary.none is the rule-less control body"
   },
   {
    "room": "default-reflex-lava",
@@ -1845,6 +1845,17 @@
    "reads": "exit code (assert, 1 on fail); OUT/results.json row pass"
   },
   {
+   "room": "dig-options-drop-false",
+   "fixture": "test-dig-options-live.mjs",
+   "stage": "iron-kit",
+   "skill": "movement",
+   "skill2": "survival",
+   "line": "DIG_OPTION_CASES=drop-false node scripts/quality/test-dig-options-live.mjs $OUT $JAR",
+   "estMinutes": 1.2,
+   "tickRate": 20,
+   "reads": "exit code (assert, 1 on fail); OUT/results.json row pass"
+  },
+  {
    "room": "dig-options-cave-explicit-small",
    "fixture": "test-dig-options-live.mjs",
    "stage": "iron-kit",
@@ -1917,6 +1928,17 @@
    "skill": "movement",
    "skill2": "survival",
    "line": "DIG_OPTION_CASES=water-default node scripts/quality/test-dig-options-live.mjs $OUT $JAR",
+   "estMinutes": 1.2,
+   "tickRate": 20,
+   "reads": "exit code (assert, 1 on fail); OUT/results.json row pass"
+  },
+  {
+   "room": "dig-options-water-noseal",
+   "fixture": "test-dig-options-live.mjs",
+   "stage": "iron-kit",
+   "skill": "movement",
+   "skill2": "survival",
+   "line": "DIG_OPTION_CASES=water-noseal node scripts/quality/test-dig-options-live.mjs $OUT $JAR",
    "estMinutes": 1.2,
    "tickRate": 20,
    "reads": "exit code (assert, 1 on fail); OUT/results.json row pass"
@@ -2005,6 +2027,17 @@
    "skill": "movement",
    "skill2": "survival",
    "line": "DIG_OPTION_CASES=lava-purpose node scripts/quality/test-dig-options-live.mjs $OUT $JAR",
+   "estMinutes": 1.2,
+   "tickRate": 20,
+   "reads": "exit code (assert, 1 on fail); OUT/results.json row pass"
+  },
+  {
+   "room": "dig-options-lava-pool-seen",
+   "fixture": "test-dig-options-live.mjs",
+   "stage": "iron-kit",
+   "skill": "movement",
+   "skill2": "survival",
+   "line": "DIG_OPTION_CASES=lava-pool-seen node scripts/quality/test-dig-options-live.mjs $OUT $JAR",
    "estMinutes": 1.2,
    "tickRate": 20,
    "reads": "exit code (assert, 1 on fail); OUT/results.json row pass"
