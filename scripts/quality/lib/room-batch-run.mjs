@@ -35,14 +35,17 @@ function raceAbort(promise, signal) {
 }
 
 export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeoutMs = 40 * 60_000, pollMs = 0, retryMs = 15_000, lostAfterMs = 5 * 60_000,
-	keepAliveMs = 15 * 60_000, replacements = vms, log = console.log, rewrite = (value) => value, signal = null }) {
+	keepAliveMs = 15 * 60_000, prepareGraceMs = 120_000, replacements = vms, log = console.log, rewrite = (value) => value, signal = null }) {
 	await mkdir(path.join(out, 'rooms'), { recursive: true });
 	if ((await readdir(path.join(out, 'rooms'))).length) throw new Error(`${out} already holds rooms: use a fresh output folder`);
 	const began = Date.now(), machines = [], layouts = new Map();
 	let replaced = 0;
+	// Machines a room was lost on in this batch: a replacement never leases one of them again, since the queue would not
+	// give it the room it is replacing (a room is retried on a different machine).
+	const lostOn = new Set();
 	const bringUp = async () => {
 		if (signal?.aborted) throw new Error('batch stopped');
-		const vm = await pool.create({ signal });
+		const vm = await pool.create({ signal, avoid: [...lostOn] });
 		machines.push(vm);
 		log(`machine ${vm.id} created`);
 		if (signal?.aborted) { await retire(vm, 'batch stopped'); throw new Error('batch stopped'); }
@@ -53,9 +56,11 @@ export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeout
 			// A stop does not end the prepare still uploading into ~/batch; a machine going back to a pool waits for it
 			// (2 min at most), so the next batch's cleaning never races this batch's upload.
 			if (signal?.aborted && pool.release) {
-				let timer;
-				await Promise.race([prep.catch(() => {}), new Promise(done => { timer = setTimeout(done, 120_000); })]);
+				let timer, settled = false;
+				await Promise.race([prep.catch(() => {}).then(() => { settled = true; }), new Promise(done => { timer = setTimeout(done, prepareGraceMs); })]);
 				clearTimeout(timer);
+				// Still uploading after that: the machine may not go back to a pool, where another batch would lease it.
+				if (!settled) vm.unsafe = true;
 			}
 			await retire(vm, signal?.aborted ? 'batch stopped' : `prepare failed: ${error.message}`);
 			throw error;
@@ -71,7 +76,7 @@ export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeout
 		if (vm.retired) return;
 		vm.retired = true;
 		vm.usage = await Promise.resolve().then(() => pool.usage(vm)).catch(error => ({ error: error.message }));
-		if (pool.release) {
+		if (pool.release && !vm.unsafe) {
 			try {
 				if (await pool.release(vm)) { vm.returned = true; log(`machine ${vm.id} returned to the pool (${why})`); }
 				else { vm.destroyed = true; log(`machine ${vm.id} deleted by the pool (${why})`); }
@@ -141,6 +146,7 @@ export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeout
 		};
 		const replace = async (lostVm, outcome) => {
 			if (signal?.aborted) return null;
+			lostOn.add(lostVm.id);
 			// A cutoff is planned, not a fault: its room always asks for a machine elsewhere (the pool refuses when none is
 			// open), and spends none of the replacement budget.
 			if (!outcome?.requeue) { if (replaced >= replacements) return null; replaced++; }

@@ -48,21 +48,25 @@ async function inventory({ all = true } = {}) {
 	]);
 	const asideByName = new Map(aside.map(item => [item.name, item]));
 	const byName = new Map(leases.map(item => [item.name, item]));
-	const images = named && new Map(named.map(item => [`${item.name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 24)}`, item]));
+	// Names are shortened in machine names, so two images can share a slug; the hash (full name and snapshot id) decides.
+	const slugOf = name => name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 24) || 'none';
 	return sandboxes.map(item => poolMember(item, poolId)).filter(Boolean).map(member => {
 		const lease = byName.get(member.name);
-		const image = images?.get(member.snapshotSlug);
+		const sameSlug = named ? named.filter(item => slugOf(item.name) === member.snapshotSlug) : null;
+		const image = sameSlug?.find(item => imageHash(item.name, item.snapshotId) === member.imageHash) ?? null;
 		return { ...member, lease: lease?.lease ?? null, busy: Boolean(lease && !lease.stale), staleLease: lease?.stale && lease.lease ? lease.stale : null, aside: asideByName.get(member.name)?.reason ?? null,
-			image: image?.name ?? null, currentImage: images ? Boolean(image && imageHash(image.name, image.snapshotId) === member.imageHash) : null };
+			image: image?.name ?? (sameSlug?.length === 1 ? sameSlug[0].name : null), currentImage: named ? Boolean(image) : null };
 	});
 }
 const matches = member => (!snapshot || member.image === snapshot) && member.type === type.toLowerCase().replace(/[^a-z0-9]/g, '');
 
 async function destroyIdle(member, why) {
 	// Taking the lease first means no batch can lease the machine while it is being deleted.
-	if (!await store.take([member.name], { batch: `boat-pool ${command}` })) { log(`${member.id} is busy, left alone`); return false; }
+	// A set-aside machine has no batch on it; the lease only keeps one from starting while it is deleted.
+	if (!await store.take([member.name], { batch: `boat-pool ${command}`, includeAside: true })) { log(`${member.id} is busy, left alone`); return false; }
 	try {
 		await destroyMachine(member.id).catch(error => { if (!/not.?found|404|no such/i.test(error.message)) throw error; });
+		await store.clearAside(member.name);
 		log(`deleted ${member.id} (${why})`);
 		return true;
 	} catch (error) { log(`could not delete ${member.id}: ${error.message}`); return false; }
@@ -83,7 +87,7 @@ if (command === 'status') {
 	const want = Number(flags.positional[0]);
 	if (!Number.isInteger(want) || want < 1 || want > 200) fail('warm wants a count from 1 to 200');
 	if (!snapshot) fail('warm needs --snapshot or ROOM_BATCH_SNAPSHOT');
-	const have = (await inventory({ all: false })).filter(item => item.live && item.currentImage !== false && matches(item));
+	const have = (await inventory({ all: false })).filter(item => item.live && !item.aside && item.currentImage !== false && matches(item));
 	const missing = want - have.length;
 	log(`${have.length} ${type} machines of ${snapshot} in the pool${missing > 0 ? `; starting ${missing}` : ''}`);
 	const pool = warmBoatPool({ snapshot, type, ttlSeconds: idleTtlSeconds, idleTtlSeconds, startsPerMinute: Number(process.env.ROOM_BATCH_STARTS_PER_MINUTE ?? 20), batch: 'boat-pool warm', log, store });
@@ -126,7 +130,7 @@ if (command === 'status') {
 	for (const item of members) {
 		if (item.busy) continue;
 		if (!item.live) { if (await destroyIdle(item, `state ${item.state}`)) deleted++; }
-		else if (item.aside) { if (await destroyIdle(item, `set aside: ${item.aside}`)) { deleted++; await store.clearAside(item.name); } }
+		else if (item.aside) { if (await destroyIdle(item, `set aside: ${item.aside}`)) deleted++; }
 		else if (item.currentImage === false) { if (await destroyIdle(item, item.image ? 'its image was rebuilt' : 'its image is gone')) deleted++; }
 	}
 	let cleared = 0;

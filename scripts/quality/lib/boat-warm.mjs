@@ -27,7 +27,7 @@ export const LIVE = new Set(['provisioned', 'cloning', 'ready', 'idle', 'running
 export const MARKER = '.mineagen-pool.json';
 const slug = text => String(text).toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 24) || 'none';
 export const imageHash = (snapshot, snapshotId) => createHash('sha256').update(`${snapshot}\n${snapshotId ?? ''}`).digest('hex').slice(0, 8);
-export const machineName = ({ poolId, type, snapshot, snapshotId, rand = randomBytes(2).toString('hex') }) => `rbpool-${poolId}-${slug(type)}-${slug(snapshot)}-${imageHash(snapshot, snapshotId)}-${rand}`;
+export const machineName = ({ poolId, type, snapshot, snapshotId, rand = randomBytes(4).toString('hex') }) => `rbpool-${poolId}-${slug(type)}-${slug(snapshot)}-${imageHash(snapshot, snapshotId)}-${rand}`;
 
 /** A boat sandbox -> its pool fields when this pool made it, else null. */
 export function poolMember(sandbox, poolId, now = Date.now()) {
@@ -69,13 +69,15 @@ export function rateLimited(error) {
  * the machine should not be reused.
  */
 export function cleanScript({ marker, imageDir = 'rooms', mode = 'check', ports = [28000, 29999] }) {
+	const killJava = mode !== 'adopt';
 	return [
 		'H="$HOME"; W="$H/batch"; J="$H/' + imageDir + '/jdk/"; M="$H/' + MARKER + '"',
 		mode === 'adopt' ? ':' : mode === 'mark' ? `printf '%s' ${quote(marker)} > "$M" || exit 3` : `test "$(cat "$M" 2>/dev/null)" = ${quote(marker)} || { echo "pool marker does not match: $(head -c 300 "$M" 2>/dev/null)" >&2; exit 3; }`,
-		// Every process a room left: its cwd is under ~/batch, its binary is the image's Java, or its command line names
-		// either. One ls and one ps cover every process (a readlink per process took 14 s on a busy host). The paths reach
-		// awk through its environment, never its arguments, so the scan never finds itself.
-		'scan() { { ls -l /proc/[0-9]*/cwd /proc/[0-9]*/exe 2>/dev/null | PW="$W/" PJ="$J" awk \'{ split($(NF-2), p, "/"); if (index($NF "/", ENVIRON["PW"]) == 1 || index($NF, ENVIRON["PJ"]) == 1) print p[3] }\'; ps -eo pid=,args= 2>/dev/null | PW="$W/" PJ="$J" awk \'index($0, ENVIRON["PW"]) || index($0, ENVIRON["PJ"]) { print $1 }\'; } | sort -u | grep -vx -e "$$" -e "$PPID" | tr "\\n" " "; }',
+		// Every process a room left: its cwd is under ~/batch (also once deleted, which adds " (deleted)"), its binary is the
+		// image's Java (pool machines only: a machine named with --machines may run other things on that Java), or its command
+		// line names either. One find and one ps cover every process; the paths reach awk through its environment, never its
+		// arguments, so the scan never finds itself, and find's tab-separated output keeps paths with spaces whole.
+		`scan() { { find /proc/[0-9]*/cwd /proc/[0-9]*/exe -maxdepth 0 -printf '%p\\t%l\\n' 2>/dev/null | PW="$W/" PJ="${killJava ? '$J' : ''}" awk -F '\\t' '{ split($1, p, "/"); t = $2; sub(/ \\(deleted\\)$/, "", t); if (index(t "/", ENVIRON["PW"]) == 1 || (ENVIRON["PJ"] != "" && index(t, ENVIRON["PJ"]) == 1)) print p[3] }'; ps -eo pid=,args= 2>/dev/null | PW="$W/" PJ="${killJava ? '$J' : ''}" awk 'index($0, ENVIRON["PW"]) || (ENVIRON["PJ"] != "" && index($0, ENVIRON["PJ"])) { print $1 }'; } | sort -u | grep -vx -e "$$" -e "$PPID" | tr "\\n" " "; }`,
 		'left=""',
 		'for round in 1 2 3 4 5; do',
 		'  left="$(scan)"; left="${left% }"',
@@ -100,7 +102,7 @@ export function cleanScript({ marker, imageDir = 'rooms', mode = 'check', ports 
  * and one that fails its cleaning is left running for a look.
  */
 export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, idleTtlSeconds = 86_400, startsPerMinute = 20, startReserve = 5,
-	minRemainingSeconds = 15 * 60, roomPorts = [28000, 29999], machines = null, batch = null, bundle = null, imageDir = 'rooms', waitSeconds, log = console.log, store = leaseStore({ log }) } = {}) {
+	minRemainingSeconds = 120, roomPorts = [28000, 29999], machines = null, batch = null, bundle = null, imageDir = 'rooms', waitSeconds, log = console.log, store = leaseStore({ log }) } = {}) {
 	// prepare, start, poll, alive and fetch are the ephemeral pool's; only where machines come from and go to differs.
 	const base = bundle ? boatPool({ snapshot, type, ttlSeconds, namePrefix: 'unused', bundle, imageDir, log, ...(waitSeconds ? { waitSeconds } : {}) }) : {};
 	let identity = null, listing = null, limits = null, adoptable = null;
@@ -125,7 +127,9 @@ export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, id
 	// boat exec answers in about 0.4 s with the real exit code; ssh costs about 2.7 s (boat-pool.mjs).
 	const clean = (vm, mode) => vm.adopted ? execRemote(vm.id, cleanScript({ marker: '', imageDir, mode: 'adopt', ports: roomPorts }), { timeoutSeconds: 90 }) : init().then(ident => execRemote(vm.id, cleanScript({ marker: markerOf(vm.name, ident), imageDir, mode, ports: roomPorts }), { timeoutSeconds: 90 }));
 	/** Moves the deadline to at least ttl from now, never earlier. */
-	async function holdFor(vm, ttl) {
+	// The read and the extend run under the machine's own lock: two callers (a batch and keepalive) that both read the
+	// old deadline could otherwise land their extends out of order and leave the shorter one.
+	const holdFor = (vm, ttl) => store.withKey(`ttl-${vm.id}`, async () => {
 		const info = JSON.parse(await boat(['info', vm.id, '--json'], { timeoutMs: 60_000 })).sandbox ?? {};
 		if (!LIVE.has(info.state)) throw new Error(`machine ${vm.id} is ${info.state ?? 'gone'}`);
 		// No auto-stop (archiveAfter null) stays as it is: extend --ttl would put a deadline back on it.
@@ -133,7 +137,7 @@ export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, id
 		const remaining = Date.parse(info.archiveAfter) - Date.now();
 		if (Number.isFinite(remaining) && remaining >= ttl * 1000 - 60_000) return;
 		await extendMachine(vm.id, ttl);
-	}
+	});
 	// Machines are never deleted by a batch (the owner's rule: keep every machine on). One that fails its cleaning check is set aside:
 	// it stays running, no batch leases it, and `boat-pool.mjs status` lists it until `prune` or `drain` deletes it.
 	async function setAside(vm, reason) {
@@ -142,28 +146,25 @@ export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, id
 		log(`machine ${vm.id} ${vm.adopted ? 'named with --machines failed its check' : 'set aside'} (${reason}): left running, not deleted`);
 	}
 	const destroy = vm => setAside(vm, 'the batch gave it up');
+	// One limits read (shared while in flight, refreshed every 20 s) feeds the start ledger, which checks the hour and
+	// day windows for every batch on this computer at once (pool-leases.mjs reserveStart).
 	async function startBudget() {
 		if (!limits || Date.now() - limits.at > 20_000) {
-			const starts = await readLimits().catch(error => { log(`could not read the start limits (${error.message})`); return null; });
-			limits = { at: Date.now(), starts, used: 0 };
+			const at = Date.now();
+			limits = { at, read: readLimits().then(starts => ({ starts, readAt: at, reserve: startReserve }), error => { log(`could not read the start limits (${error.message})`); return null; }) };
 		}
-		const { starts } = limits;
-		if (!starts || starts.unlimited) return;
-		for (const window of ['hour', 'day']) {
-			const left = (starts[window]?.remaining ?? Infinity) - limits.used;
-			if (left <= startReserve) throw new Error(`the ${window} sandbox start limit has ${Math.max(left, 0)} starts left, keeping ${startReserve} in reserve: no new machine`);
-		}
-		limits.used++;
+		return limits.read;
 	}
 	async function createNew(signal) {
 		const ident = await init();
-		await startBudget();
-		const name = machineName({ poolId: ident.poolId, type, snapshot, snapshotId: ident.snapshotId });
-		// The lease exists before the machine does, so no other batch can take it between ready and lease.
-		await store.take([name], { batch });
+		// The lease exists before the machine does, so no other batch can take it between ready and lease. A name another
+		// start already holds is drawn again: creating under a lease we do not hold would leave the machine unowned.
+		let name = null;
+		for (let draw = 0; draw < 5 && !name; draw++) name = await store.take([machineName({ poolId: ident.poolId, type, snapshot, snapshotId: ident.snapshotId })], { batch });
+		if (!name) throw new Error('could not reserve a free machine name for a new machine');
 		try {
 			for (let attempt = 1; ; attempt++) {
-				const waited = await store.reserveStart({ perMinute: startsPerMinute, signal });
+				const waited = await store.reserveStart({ perMinute: startsPerMinute, signal, budget: await startBudget() });
 				if (waited > 1000) log(`waited ${Math.round(waited / 1000)} s to pace machine starts`);
 				let vm;
 				try { vm = await createMachine({ from: snapshot, type, ttlSeconds, name }); }
@@ -180,7 +181,11 @@ export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, id
 				const hydrating = await waitHydrated(vm.id, { log });
 				if (hydrating) log(`machine ${vm.id} waited ${hydrating} s for its image to finish downloading`);
 				try { await clean(fresh, 'mark'); }
-				catch (error) { await setAside(fresh, `failed its first check: ${error.message}`).catch(() => {}); throw new Error(`new machine ${vm.id} failed its first check: ${error.message}`); }
+				catch (error) {
+					// Only the check's own verdict sets a new machine aside; one that did not answer stays in the pool for a later lease.
+					if (verdictFailure(error)) await setAside(fresh, `failed its first check: ${error.message}`).catch(() => {});
+					throw new Error(`new machine ${vm.id} failed its first check: ${error.message}`);
+				}
 				log(`machine ${vm.id} started for the warm pool (${name})`);
 				return fresh;
 			}
@@ -190,7 +195,7 @@ export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, id
 	return {
 		...base,
 		/** A cleaned machine for this snapshot and type: a warm one when one is free (no start), else a new one (one start). */
-		async create({ signal = null } = {}) {
+		async create({ signal = null, avoid = [] } = {}) {
 			if (machines) {
 				// Leases are keyed by the machine's name, as pool leases are, so a named machine that is also a pool member
 				// can never be held by a pool batch and a --machines batch at once.
@@ -202,7 +207,7 @@ export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, id
 				const byName = await adoptable;
 				const tried = new Set();
 				while (true) {
-					const name = await store.take([...byName.keys()].filter(item => !tried.has(item) && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(item)), { batch });
+					const name = await store.take([...byName.keys()].filter(item => !tried.has(item) && !avoid.includes(byName.get(item)) && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(item)), { batch });
 					if (!name) throw new Error('every machine named with --machines is busy or unusable');
 					tried.add(name);
 					const id = byName.get(name);
@@ -216,7 +221,7 @@ export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, id
 			for (let round = 0; round < 50; round++) {
 				if (signal?.aborted) throw new Error('batch stopped');
 				const free = (await members()).filter(item => item.live && item.type === slug(type) && item.snapshotSlug === slug(snapshot) && item.imageHash === ident.hash
-					&& item.remainingMs > minRemainingSeconds * 1000 && !tried.has(item.name));
+					&& item.remainingMs > minRemainingSeconds * 1000 && !tried.has(item.name) && !avoid.includes(item.id));
 				const name = await store.take(free.map(item => item.name), { batch });
 				if (!name) break;
 				tried.add(name);
@@ -236,8 +241,14 @@ export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, id
 			}
 			return createNew(signal);
 		},
+		// A batch that lost its lease (it stalled past the heartbeat and another batch broke it) must not touch the machine.
+		async start(vm, job, options) {
+			if (!await store.verify(vm.name)) throw new Error(`the lease on ${vm.id} was broken by another batch`);
+			return base.start(vm, job, options);
+		},
 		/** Gives a machine back to the pool running: its rooms killed, its batch folder wiped, its deadline the idle TTL. */
 		async release(vm) {
+			if (!await store.verify(vm.name)) { log(`machine ${vm.id} now belongs to another batch: left alone`); return true; }
 			try {
 				await clean(vm, 'check');
 				await holdFor(vm, idleTtlSeconds);

@@ -176,11 +176,14 @@ export async function armRows(dir) {
 		const rows = await readJson(path.join(dir, `${base}.json`)).catch(() => null);
 		if (Array.isArray(rows)) pairs.push({ base, rows });
 	}
-	const pick = pairs.find(pair => pair.base === 'result') ?? (pairs.length === 1 ? pairs[0] : null);
-	if (!pick && !pairs.length && names.includes('result.json')) {
-		const rows = await readJson(path.join(dir, 'result.json')).catch(() => null);
-		if (Array.isArray(rows)) return { rows, summary: null, file: 'result.json', problem: null };
+	// A result.json row list without its summary is a rows file too (a fixture that died before finishRun wrote the
+	// summary); next to another pair it makes the pick ambiguous, so a failing result.json never loses to a passing pair.
+	const bare = !pairs.some(pair => pair.base === 'result') && names.includes('result.json') ? await readJson(path.join(dir, 'result.json')).catch(() => null) : null;
+	if (Array.isArray(bare)) {
+		if (pairs.length) return { rows: [], summary: null, file: null, problem: `several row files (result.json without its summary, ${pairs.map(pair => `${pair.base}.json`).join(', ')})` };
+		return { rows: bare, summary: null, file: 'result.json', problem: null };
 	}
+	const pick = pairs.find(pair => pair.base === 'result') ?? (pairs.length === 1 ? pairs[0] : null);
 	if (!pick) return { rows: [], summary: null, file: null, problem: pairs.length > 1 ? `several row files (${pairs.map(pair => `${pair.base}.json`).join(', ')}), none named result.json` : null };
 	return { rows: pick.rows, summary: await readJson(path.join(dir, `${pick.base}-summary.json`)).catch(() => null), file: `${pick.base}.json`, problem: null };
 }
