@@ -426,5 +426,433 @@
 				"blackstone"
 			]
 		}
+	},
+	{
+		"name": "fortress-gate-5",
+		"seed": "123456789",
+		"inventory": [
+			{
+				"item": "minecraft:iron_pickaxe",
+				"count": 1
+			},
+			{
+				"item": "minecraft:iron_sword",
+				"count": 1
+			},
+			{
+				"item": "minecraft:shield",
+				"count": 1
+			},
+			{
+				"item": "minecraft:cobblestone",
+				"count": 64
+			},
+			{
+				"item": "minecraft:cobblestone",
+				"count": 64
+			},
+			{
+				"item": "minecraft:bread",
+				"count": 16
+			},
+			{
+				"item": "minecraft:flint_and_steel",
+				"count": 1
+			},
+			{
+				"item": "minecraft:stick",
+				"count": 8
+			},
+			{
+				"item": "minecraft:crafting_table",
+				"count": 1
+			}
+		],
+		"monsters": true,
+		"note": "wall fortress order 8: a Nether entry on a spread start near Nether 0,0 with a Nether-entry kit; a checkpoint-game seed; find fortress repeated with the shared stand-in answering forks, 15 game-minutes.",
+		"setup": [
+			"item replace entity Probe weapon.offhand with minecraft:shield",
+			"item replace entity Probe armor.head with minecraft:golden_helmet",
+			"execute in minecraft:the_nether run spreadplayers 0 0 0 24 under 100 false Probe"
+		],
+		"after": {
+			"ms": 4000
+		},
+		"locate": "structure minecraft:fortress",
+		"locateIn": "minecraft:the_nether",
+		"repeat": true,
+		"budgetMs": 900000,
+		"calls": [
+			{
+				"name": "do_step",
+				"arguments": {
+					"verb": "find",
+					"target": {
+						"structure": "fortress"
+					},
+					"why": "a fortress for blaze rods"
+				}
+			}
+		],
+		"probe": [
+			"data get entity Probe Dimension",
+			"data get entity Probe Pos"
+		],
+		"mining": {
+			"mined": [
+				"netherrack",
+				"blackstone",
+				"basalt",
+				"soul_sand",
+				"soul_soil",
+				"magma_block",
+				"nether_quartz_ore",
+				"nether_gold_ore",
+				"gravel",
+				"crimson_nylium",
+				"warped_nylium",
+				"glowstone",
+				"nether_wart_block",
+				"warped_wart_block",
+				"crimson_stem",
+				"warped_stem",
+				"bone_block",
+				"nether_bricks",
+				"cobblestone"
+			],
+			"used": [
+				"iron_pickaxe",
+				"stone_pickaxe",
+				"golden_pickaxe",
+				"diamond_pickaxe",
+				"wooden_pickaxe"
+			],
+			"placed": [
+				"cobblestone",
+				"netherrack",
+				"blackstone"
+			]
+		}
+	},
+	{
+		"name": "fortress-gate-6",
+		"seed": "20261024",
+		"inventory": [
+			{
+				"item": "minecraft:iron_pickaxe",
+				"count": 1
+			},
+			{
+				"item": "minecraft:iron_sword",
+				"count": 1
+			},
+			{
+				"item": "minecraft:shield",
+				"count": 1
+			},
+			{
+				"item": "minecraft:cobblestone",
+				"count": 64
+			},
+			{
+				"item": "minecraft:cobblestone",
+				"count": 64
+			},
+			{
+				"item": "minecraft:bread",
+				"count": 16
+			},
+			{
+				"item": "minecraft:flint_and_steel",
+				"count": 1
+			},
+			{
+				"item": "minecraft:stick",
+				"count": 8
+			},
+			{
+				"item": "minecraft:crafting_table",
+				"count": 1
+			}
+		],
+		"monsters": true,
+		"note": "wall fortress order 8: a Nether entry on a spread start near Nether 0,0 with a Nether-entry kit; a checkpoint-game seed; find fortress repeated with the shared stand-in answering forks, 15 game-minutes.",
+		"setup": [
+			"item replace entity Probe weapon.offhand with minecraft:shield",
+			"item replace entity Probe armor.head with minecraft:golden_helmet",
+			"execute in minecraft:the_nether run spreadplayers 0 0 0 24 under 100 false Probe"
+		],
+		"after": {
+			"ms": 4000
+		},
+		"locate": "structure minecraft:fortress",
+		"locateIn": "minecraft:the_nether",
+		"repeat": true,
+		"budgetMs": 900000,
+		"calls": [
+			{
+				"name": "do_step",
+				"arguments": {
+					"verb": "find",
+					"target": {
+						"structure": "fortress"
+					},
+					"why": "a fortress for blaze rods"
+				}
+			}
+		],
+		"probe": [
+			"data get entity Probe Dimension",
+			"data get entity Probe Pos"
+		],
+		"mining": {
+			"mined": [
+				"netherrack",
+				"blackstone",
+				"basalt",
+				"soul_sand",
+				"soul_soil",
+				"magma_block",
+				"nether_quartz_ore",
+				"nether_gold_ore",
+				"gravel",
+				"crimson_nylium",
+				"warped_nylium",
+				"glowstone",
+				"nether_wart_block",
+				"warped_wart_block",
+				"crimson_stem",
+				"warped_stem",
+				"bone_block",
+				"nether_bricks",
+				"cobblestone"
+			],
+			"used": [
+				"iron_pickaxe",
+				"stone_pickaxe",
+				"golden_pickaxe",
+				"diamond_pickaxe",
+				"wooden_pickaxe"
+			],
+			"placed": [
+				"cobblestone",
+				"netherrack",
+				"blackstone"
+			]
+		}
+	},
+	{
+		"name": "fortress-gate-7",
+		"seed": "987654321",
+		"inventory": [
+			{
+				"item": "minecraft:iron_pickaxe",
+				"count": 1
+			},
+			{
+				"item": "minecraft:iron_sword",
+				"count": 1
+			},
+			{
+				"item": "minecraft:shield",
+				"count": 1
+			},
+			{
+				"item": "minecraft:cobblestone",
+				"count": 64
+			},
+			{
+				"item": "minecraft:cobblestone",
+				"count": 64
+			},
+			{
+				"item": "minecraft:bread",
+				"count": 16
+			},
+			{
+				"item": "minecraft:flint_and_steel",
+				"count": 1
+			},
+			{
+				"item": "minecraft:stick",
+				"count": 8
+			},
+			{
+				"item": "minecraft:crafting_table",
+				"count": 1
+			}
+		],
+		"monsters": true,
+		"note": "wall fortress order 8: a Nether entry on a spread start near Nether 0,0 with a Nether-entry kit; a checkpoint-game seed; find fortress repeated with the shared stand-in answering forks, 15 game-minutes.",
+		"setup": [
+			"item replace entity Probe weapon.offhand with minecraft:shield",
+			"item replace entity Probe armor.head with minecraft:golden_helmet",
+			"execute in minecraft:the_nether run spreadplayers 0 0 0 24 under 100 false Probe"
+		],
+		"after": {
+			"ms": 4000
+		},
+		"locate": "structure minecraft:fortress",
+		"locateIn": "minecraft:the_nether",
+		"repeat": true,
+		"budgetMs": 900000,
+		"calls": [
+			{
+				"name": "do_step",
+				"arguments": {
+					"verb": "find",
+					"target": {
+						"structure": "fortress"
+					},
+					"why": "a fortress for blaze rods"
+				}
+			}
+		],
+		"probe": [
+			"data get entity Probe Dimension",
+			"data get entity Probe Pos"
+		],
+		"mining": {
+			"mined": [
+				"netherrack",
+				"blackstone",
+				"basalt",
+				"soul_sand",
+				"soul_soil",
+				"magma_block",
+				"nether_quartz_ore",
+				"nether_gold_ore",
+				"gravel",
+				"crimson_nylium",
+				"warped_nylium",
+				"glowstone",
+				"nether_wart_block",
+				"warped_wart_block",
+				"crimson_stem",
+				"warped_stem",
+				"bone_block",
+				"nether_bricks",
+				"cobblestone"
+			],
+			"used": [
+				"iron_pickaxe",
+				"stone_pickaxe",
+				"golden_pickaxe",
+				"diamond_pickaxe",
+				"wooden_pickaxe"
+			],
+			"placed": [
+				"cobblestone",
+				"netherrack",
+				"blackstone"
+			]
+		}
+	},
+	{
+		"name": "fortress-gate-8",
+		"seed": "8675309",
+		"inventory": [
+			{
+				"item": "minecraft:iron_pickaxe",
+				"count": 1
+			},
+			{
+				"item": "minecraft:iron_sword",
+				"count": 1
+			},
+			{
+				"item": "minecraft:shield",
+				"count": 1
+			},
+			{
+				"item": "minecraft:cobblestone",
+				"count": 64
+			},
+			{
+				"item": "minecraft:cobblestone",
+				"count": 64
+			},
+			{
+				"item": "minecraft:bread",
+				"count": 16
+			},
+			{
+				"item": "minecraft:flint_and_steel",
+				"count": 1
+			},
+			{
+				"item": "minecraft:stick",
+				"count": 8
+			},
+			{
+				"item": "minecraft:crafting_table",
+				"count": 1
+			}
+		],
+		"monsters": true,
+		"note": "wall fortress order 8: a Nether entry on a spread start near Nether 0,0 with a Nether-entry kit; a checkpoint-game seed; find fortress repeated with the shared stand-in answering forks, 15 game-minutes.",
+		"setup": [
+			"item replace entity Probe weapon.offhand with minecraft:shield",
+			"item replace entity Probe armor.head with minecraft:golden_helmet",
+			"execute in minecraft:the_nether run spreadplayers 0 0 0 24 under 100 false Probe"
+		],
+		"after": {
+			"ms": 4000
+		},
+		"locate": "structure minecraft:fortress",
+		"locateIn": "minecraft:the_nether",
+		"repeat": true,
+		"budgetMs": 900000,
+		"calls": [
+			{
+				"name": "do_step",
+				"arguments": {
+					"verb": "find",
+					"target": {
+						"structure": "fortress"
+					},
+					"why": "a fortress for blaze rods"
+				}
+			}
+		],
+		"probe": [
+			"data get entity Probe Dimension",
+			"data get entity Probe Pos"
+		],
+		"mining": {
+			"mined": [
+				"netherrack",
+				"blackstone",
+				"basalt",
+				"soul_sand",
+				"soul_soil",
+				"magma_block",
+				"nether_quartz_ore",
+				"nether_gold_ore",
+				"gravel",
+				"crimson_nylium",
+				"warped_nylium",
+				"glowstone",
+				"nether_wart_block",
+				"warped_wart_block",
+				"crimson_stem",
+				"warped_stem",
+				"bone_block",
+				"nether_bricks",
+				"cobblestone"
+			],
+			"used": [
+				"iron_pickaxe",
+				"stone_pickaxe",
+				"golden_pickaxe",
+				"diamond_pickaxe",
+				"wooden_pickaxe"
+			],
+			"placed": [
+				"cobblestone",
+				"netherrack",
+				"blackstone"
+			]
+		}
 	}
 ]

@@ -89,6 +89,8 @@ export const MAX_DIGS = 2;
 const DIG_BLOCKS = 8;
 /** Mob stops in a row that left the body in place before that way counts as closed. */
 const MAX_MOB_STOPS = 3;
+/** A side walk makes way only when it ends this far from every earlier look point: new ground, not its own tunnel. */
+const NEW_GROUND = 12;
 const unit = (yaw) => ({ x: -Math.sin(yaw * Math.PI / 180), z: Math.cos(yaw * Math.PI / 180) });
 const footingKey = (row) => `${row.x},${row.y},${row.z}`;
 
@@ -144,8 +146,11 @@ export function startHeading(here, target) {
  * only when all of those get nowhere, build (bridge a gap, or dig through the wall) a short way on the heading; when that
  * fails too, turn to the side, then back. Look round from high ground ahead after each leg.
  */
-export async function searchNetherFortress(ctx) {
+export async function searchNetherFortress(ctx, env = process.env) {
 	const { body, leg, settle, look, handBack, left, minLegMs } = ctx;
+	// MINEAGEN_FORTRESS_SEARCH=plain plays the loop without the walled-in rules (open side, dig cap, mobs that pin it),
+	// so a practice-room batch can play both side by side on the same code.
+	const walled = env.MINEAGEN_FORTRESS_SEARCH !== 'plain';
 	const state = body.eyeSearchState ?? {};
 	const looks = state.fortressLooks ??= [];
 	// Seen footings a walk failed to reach, kept across calls: never the next target again.
@@ -164,7 +169,9 @@ export async function searchNetherFortress(ctx) {
 	// back there before it turns.
 	const triedViews = new Set();
 	const start = at();
-	let lastOpen = start === null ? null : { x: start.x, y: Math.floor(start.y + 1e-3), z: start.z };
+	// The start counts only once a walk has left it: a body that starts inside rock has no open ground to go back to.
+	let lastOpen = start === null ? null : { x: start.x, y: Math.floor(start.y + 1e-3), z: start.z, walked: false };
+	const fresh = (p) => looks.every((point) => Math.hypot(point.x - p.x, point.z - p.z) > NEW_GROUND);
 	// The farthest point reached along the current heading. A leg counts as progress only when it moves this forward:
 	// live round 1, a side walk that failed dragged the body 20 blocks back down its own tunnel, and the build leg after
 	// it walked the tunnel forward again and counted as a way on, over and over (1,032 blocks walked, 11 net).
@@ -193,11 +200,11 @@ export async function searchNetherFortress(ctx) {
 		let build = turn >= turns.length;
 		// Before a dig: the open side the last look showed from here, walked as a player turns along a cavern wall.
 		const seen = ctx.ground?.() ?? null;
-		const open = build && !remembered && ahead === null && seen !== null && Math.hypot(seen.at.x - here.x, seen.at.z - here.z) <= 4
+		const open = walled && build && !remembered && ahead === null && seen !== null && Math.hypot(seen.at.x - here.x, seen.at.z - here.z) <= 4
 			? openView(seen.views, heading, triedViews) : null;
 		if (open !== null) build = false;
 		// Walled in: two digs in a row never opened into walkable ground. Back to the last open ground, then the next heading.
-		if (build && digs >= MAX_DIGS && !remembered) {
+		if (walled && build && digs >= MAX_DIGS && !remembered && lastOpen?.walked === true) {
 			digs = 0; turn = 0; footFails = 0; failed += 1;
 			headingTurn = (headingTurn + 1) % HEADING_TURNS.length;
 			if (headingTurn === 0) state.fortressHeading = wrap(state.fortressHeading + 90);
@@ -205,7 +212,7 @@ export async function searchNetherFortress(ctx) {
 			triedViews.clear();
 			if (lastOpen !== null && Math.hypot(lastOpen.x - here.x, lastOpen.z - here.z) > 4) {
 				const back = await leg(`back to open ground at ${Math.floor(lastOpen.x)},${Math.floor(lastOpen.y)},${Math.floor(lastOpen.z)}: rock all the way on`, 'travel_to',
-					{ x: lastOpen.x, y: lastOpen.y, z: lastOpen.z, tolerance: 2, build: false });
+					{ x: lastOpen.x, y: lastOpen.y, z: lastOpen.z, tolerance: 2, retrace: true });
 				const stopped = await settle(back);
 				if (stopped !== null) return stopped;
 			}
@@ -241,13 +248,14 @@ export async function searchNetherFortress(ctx) {
 		if (gain > 0) { front.along += gain; front.point = after; }
 		const code = outcome.result?.reasonCode;
 		// A side walk toward open ground makes way by getting there, not by moving the front along the heading.
-		const progress = open !== null ? moved >= MIN_GAIN : gain >= Math.min(MIN_GAIN, distance / 2);
+		// Sliding back down its own tunnel is no way on (x1 gate-2: four such walks a round, each resetting the dig count).
+		const progress = open !== null ? moved >= MIN_GAIN && fresh(after) : gain >= Math.min(MIN_GAIN, distance / 2);
 		const tunnelled = Number(/tunnelled (\d+)/.exec(String(outcome.result?.message ?? ''))?.[1] ?? 0);
 		if (gain >= MIN_GAIN) triedViews.clear();
 		// A side walk that got there moves the front to it, and the way back the other side is not taken next.
 		if (progress && open !== null) { front.point = after; triedViews.add(viewKey(open.yaw + 180)); }
 		mobStops = !progress && NOT_THE_WAY.has(code) && moved < 2 ? mobStops + 1 : 0;
-		if (mobStops >= MAX_MOB_STOPS) {
+		if (walled && mobStops >= MAX_MOB_STOPS) {
 			// Mobs keep the body in place: deal with them first (smoke room 22 Nov: eight stops for magma cubes on one
 			// footing while they closed in, then death).
 			return stop('FAILED', 'FIND_DANGER', `Mobs stopped ${mobStops} legs in a row with the body in place (last ${code}: ${String(outcome.result?.message ?? '').slice(0, 120)}): fight or back away, then find again`, 'MOBS_IN_THE_WAY');
@@ -283,7 +291,7 @@ export async function searchNetherFortress(ctx) {
 			footFails = 0;
 			// A dig that got through counts as a way on, but only walking proves open ground: digs in a row are capped.
 			if (build && tunnelled >= DIG_BLOCKS) digs += 1;
-			else { digs = 0; lastOpen = { x: Math.floor(after.x) + 0.5, y: Math.floor(after.y + 1e-3), z: Math.floor(after.z) + 0.5 }; }
+			else { digs = 0; lastOpen = { x: Math.floor(after.x) + 0.5, y: Math.floor(after.y + 1e-3), z: Math.floor(after.z) + 0.5, walked: true }; }
 			// A side heading that went somewhere becomes the kept one.
 			if (headingTurn !== 0 && !remembered) { state.fortressHeading = heading; headingTurn = 0; }
 		}

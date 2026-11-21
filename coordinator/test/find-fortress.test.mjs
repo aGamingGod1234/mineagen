@@ -304,14 +304,49 @@ test('walled in ahead with open ground seen to the side: it walks there before a
 });
 
 test('two digs in a row that never open into walkable ground: back to the last open ground, then the next heading', async () => {
-	const body = bodyFor({ travel: (args) => (args.build ? { result: tunnel, go: true } : args.retrace || args.y !== undefined ? { result: arrived, go: true } : { result: noRoute }) });
+	// The first walk makes way (open ground), then rock all the way on.
+	const body = bodyFor({ travel: (args, n) => (n === 1 || args.retrace ? { result: arrived, go: true } : args.build ? { result: tunnel, go: true } : { result: noRoute }) });
 	await searchFor({ structure: 'fortress' }, body, { timeoutMs: 300_000 });
 	const legs = body.calls.filter((call) => call.type === 'travel_to');
+	const open = { x: Math.floor(body.looks[1].x) + 0.5, z: Math.floor(body.looks[1].z) + 0.5 };
 	const builds = legs.map((call, index) => (call.build ? index : -1)).filter((index) => index >= 0);
 	assert.ok(builds.length >= MAX_DIGS);
 	const back = legs[builds[MAX_DIGS - 1] + 1 + SEARCH_TURNS.length];
-	assert.equal(back.build, false);
-	assert.deepEqual([back.x, back.z], [100.5, 100.5], 'walks back to where walking last made way (the start)');
+	assert.equal(back.retrace, true, 'back along its own trail');
+	assert.deepEqual([back.x, back.z], [open.x, open.z], 'to where walking last made way');
 	const before = legs[builds[0]], after = legs.find((call, index) => index > legs.indexOf(back) && call.yaw !== undefined);
-	assert.notEqual(Math.round(Math.atan2(-(before.x - 100.5), before.z - 100.5) * 180 / Math.PI), after.yaw, 'the next heading, not the same rock again');
+	assert.notEqual(Math.round(Math.atan2(-(before.x - open.x), before.z - open.z) * 180 / Math.PI), after.yaw, 'the next heading, not the same rock again');
+});
+
+test('a body that starts inside rock with no open ground behind it digs on straight: there is nowhere to go back to', async () => {
+	const body = bodyFor({ travel: (args) => (args.build ? { result: tunnel, go: true } : { result: noRoute }) });
+	await searchFor({ structure: 'fortress' }, body, { timeoutMs: 300_000 });
+	const legs = body.calls.filter((call) => call.type === 'travel_to');
+	assert.equal(legs.some((call) => call.retrace), false);
+	assert.ok(legs.filter((call) => call.build).length > MAX_DIGS);
+});
+
+test('a side walk that only slides back down its own tunnel is no way on', async () => {
+	// Every open-side walk ends at an earlier look point (the start), never on new ground.
+	const body = bodyFor({ travel: (args, n, o) => {
+			if (args.build) return { result: tunnel, go: true };
+			if (args.yaw === 90) { Object.assign(o.player, { x: 100.5, z: 100.5 }); return { result: noRoute }; }
+			return { result: noRoute };
+		},
+		ground: () => [{ yaw: 90, water: 0, land: 8, farthestLand: 40 }] });
+	await searchFor({ structure: 'fortress' }, body, { timeoutMs: 120_000 });
+	const legs = body.calls.filter((call) => call.type === 'travel_to');
+	assert.ok(legs.filter((call) => call.yaw === 90).length <= 2, 'the open side is tried once from each front, not every round');
+});
+
+test('MINEAGEN_FORTRESS_SEARCH=plain plays the loop without the walled-in rules', async () => {
+	const prior = process.env.MINEAGEN_FORTRESS_SEARCH;
+	process.env.MINEAGEN_FORTRESS_SEARCH = 'plain';
+	try {
+		const body = bodyFor({ travel: (args) => (args.build ? { result: tunnel, go: true } : { result: noRoute }),
+			ground: () => [{ yaw: 90, water: 0, land: 8, farthestLand: 40 }], onLook: (o, calls) => (calls.length >= 5 ? { structures: [fortressRow] } : null) });
+		await searchFor({ structure: 'fortress' }, body, { timeoutMs: 300_000 });
+		assert.equal(body.calls.some((call) => call.yaw === 90), false, 'no open-side walk');
+		assert.equal(body.calls[3].build, true);
+	} finally { if (prior === undefined) delete process.env.MINEAGEN_FORTRESS_SEARCH; else process.env.MINEAGEN_FORTRESS_SEARCH = prior; }
 });
