@@ -31,8 +31,13 @@ export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeout
 		if (retired.has(vm.id)) return;
 		retired.add(vm.id);
 		vm.usage = await Promise.resolve().then(() => pool.usage(vm)).catch(error => ({ error: error.message }));
-		await Promise.resolve().then(() => pool.destroy(vm)).then(() => { vm.destroyed = true; }, error => { vm.destroyError = error.message; log(`could not delete ${vm.id}: ${error.message}`); });
-		log(`machine ${vm.id} deleted (${why})`);
+		await destroy(vm, why);
+	};
+	// Deleting is tracked apart from retiring: a delete that failed is tried again when the batch ends.
+	const destroy = async (vm, why) => {
+		if (vm.destroyed) return;
+		try { await pool.destroy(vm); vm.destroyed = true; vm.destroyError = null; log(`machine ${vm.id} deleted (${why})`); }
+		catch (error) { vm.destroyError = error.message; log(`could not delete ${vm.id} (${why}): ${error.message}`); }
 	};
 	let outcomes = [];
 	try {
@@ -58,8 +63,9 @@ export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeout
 				try { state = await pool.poll(vm, room.room); silentSince = null; }
 				catch (error) {
 					silentSince ??= Date.now();
-					const alive = await Promise.resolve().then(() => pool.alive(vm)).catch(() => false);
-					if (!alive || Date.now() - silentSince > lostAfterMs) { await retire(vm, 'lost'); return { lost: true, reason: alive ? `no answer for ${Math.round(lostAfterMs / 60_000)} min` : 'machine gone' }; }
+					// Only boat saying the machine is gone skips the grace period; a failed lookup is unknown.
+					const alive = await Promise.resolve().then(() => pool.alive(vm)).catch(() => null);
+					if (alive === false || Date.now() - silentSince > lostAfterMs) { await retire(vm, 'lost'); return { lost: true, reason: alive !== false ? `no answer for ${Math.round(lostAfterMs / 60_000)} min` : 'machine gone' }; }
 					continue;
 				}
 				if (state === 'done') break;
@@ -77,11 +83,12 @@ export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeout
 			log(`bringing up a machine in place of ${lostVm.id}`);
 			return bringUp();
 		};
-		outcomes = await runQueue({ rooms, workers, attempt, replace, log });
+		outcomes = await runQueue({ rooms, workers, attempt, replace, release: vm => retire(vm, 'no rooms left'), log });
 		// A stopped batch leaves its unfinished rooms lost for that reason, not for want of a machine.
 		if (signal?.aborted) outcomes = outcomes.map(outcome => outcome?.lost ? { ...outcome, reason: 'batch stopped' } : outcome);
 	} finally {
 		await Promise.all(machines.map(vm => retire(vm, 'batch over')));
+		await Promise.all(machines.filter(vm => !vm.destroyed).map(vm => destroy(vm, 'retry at batch end')));
 	}
 	const wallSeconds = Math.round((Date.now() - began) / 1000);
 	const armNames = arms.map(arm => arm.name);

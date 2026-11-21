@@ -1,6 +1,7 @@
 // Pure parts of room-batch.mjs: the commands file, the shared room queue with one re-queue after a lost machine, and
 // the per-arm merge through finishRun. No machine, network or boat call happens here, so all of it is unit-tested.
-import { mkdir, readFile, readdir } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
+import { mkdir, mkdtemp, readFile, readdir, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { finishRun } from './fixture-run.mjs';
 
@@ -64,7 +65,7 @@ export function parseCommands(text, arms) {
 			if (!command) throw new Error(`room ${room} has no command for arm ${arm}`);
 			return { arm, env: { ...command.env }, args: [...command.args] };
 		});
-		return { room, lines, planned: plannedOf(lines[0].env) };
+		return { room, lines, planned: plannedOf(lines[0].env), plannedByArm: Object.fromEntries(lines.map(line => [line.arm, plannedOf(line.env)])) };
 	});
 }
 
@@ -78,9 +79,10 @@ export function plannedOf(env) {
  * The shared queue. Every worker pulls the next room and plays both of its arms; attempt(worker, room, n) resolves to
  * { lost: false, ... } when the room finished on that worker (whatever its verdict), or { lost: true, reason } when the
  * worker died under it. A lost worker takes no more rooms; its room goes back to the front of the queue once, for a
- * different worker, then is reported lost. replace(), when given, may bring up a new worker for a lost one.
+ * different worker, then is reported lost. replace(), when given, may bring up a new worker for a lost one; release(),
+ * when given, is called for a worker that finds the queue empty, and that worker leaves.
  */
-export async function runQueue({ rooms, workers, attempt, maxAttempts = 2, replace = null, log = () => {} }) {
+export async function runQueue({ rooms, workers, attempt, maxAttempts = 2, replace = null, release = null, log = () => {} }) {
 	const queue = rooms.map(room => ({ room, tries: 0, triedOn: new Set() }));
 	const results = new Map(), live = new Set(), running = [];
 	let waiting = [];
@@ -95,6 +97,9 @@ export async function runQueue({ rooms, workers, attempt, maxAttempts = 2, repla
 			while (true) {
 				const item = take(worker);
 				if (!item) {
+					// With nothing left to queue, release() lets the machine go now instead of idling to the end; a room
+					// re-queued later goes to a replacement.
+					if (release && !queue.length) { await Promise.resolve().then(() => release(worker)).catch(error => log(`release of ${worker.id} failed: ${error.message}`)); return; }
 					// A busy worker may still lose its room back to the queue; otherwise nothing is left for this one.
 					if (![...live].some(other => other !== worker && other.busy)) return;
 					await new Promise(done => waiting.push(done));
@@ -126,6 +131,30 @@ export async function runQueue({ rooms, workers, attempt, maxAttempts = 2, repla
 	return rooms.map(room => results.get(room.room));
 }
 
+/**
+ * A pool's fetch: download(localTgz) copies the room's archive here; it is unpacked into a staging folder and moved into
+ * roomsDir/ROOM only once its done.json reads, so a failed copy never leaves rows the merge could count and a retry never
+ * inherits an earlier attempt's files. Returns the done.json.
+ */
+export async function stageRoom({ roomsDir, room, download }) {
+	await mkdir(roomsDir, { recursive: true });
+	const staging = await mkdtemp(path.join(roomsDir, `.staging-${room}-`));
+	try {
+		const local = path.join(staging, `${room}.tgz`);
+		await download(local);
+		await new Promise((resolve, reject) => {
+			const tar = spawn('tar', ['-xzf', local, '-C', staging], { stdio: 'inherit' });
+			tar.on('error', reject);
+			tar.on('close', code => code === 0 ? resolve() : reject(new Error(`tar exited ${code}`)));
+		});
+		const done = JSON.parse(await readFile(path.join(staging, room, 'done.json'), 'utf8'));
+		if (done.room !== room || typeof done.arms !== 'object') throw new Error(`done.json of ${room} does not describe it`);
+		await rm(path.join(roomsDir, room), { recursive: true, force: true });
+		await rename(path.join(staging, room), path.join(roomsDir, room));
+		return done;
+	} finally { await rm(staging, { recursive: true, force: true }); }
+}
+
 async function readJson(file) { return JSON.parse(await readFile(file, 'utf8')); }
 const exists = file => readdir(path.dirname(file)).then(names => names.includes(path.basename(file)), () => false);
 
@@ -142,13 +171,18 @@ export async function mergeArms({ out, rooms, arms, outcomes }) {
 		for (const room of rooms) {
 			const outcome = byRoom.get(room.room) ?? { lost: true, reason: 'not run' };
 			const dir = path.join(out, 'rooms', room.room, arm);
-			const own = await readJson(path.join(dir, 'result-summary.json')).catch(() => null);
-			const roomPlanned = Number.isInteger(own?.planned) ? own.planned : room.planned;
+			// A lost room counts no rows, whatever a partial copy left behind; it is all notStarted.
+			const own = outcome.lost ? null : await readJson(path.join(dir, 'result-summary.json')).catch(() => null);
+			const roomPlanned = Number.isInteger(own?.planned) ? own.planned : (room.plannedByArm?.[arm] ?? room.planned);
 			planned += roomPlanned;
 			const run = outcome.arms?.[arm] ?? {};
-			const roomRows = await exists(path.join(dir, 'result.json')) ? await readJson(path.join(dir, 'result.json')).catch(() => []) : [];
-			for (const row of Array.isArray(roomRows) ? roomRows : []) rows.push({ ...row, room: room.room, host: outcome.worker ?? null, attempts: outcome.attempts ?? 0, cantKeepUp: run.cantKeepUp ?? null });
-			perRoom.push({ room: room.room, lost: !!outcome.lost, reason: outcome.reason ?? null, rows: roomRows.length ?? 0, planned: roomPlanned, exit: run.exit ?? null, seconds: run.seconds ?? null, timedOut: !!run.timedOut, cantKeepUp: run.cantKeepUp ?? null });
+			const read = !outcome.lost && await exists(path.join(dir, 'result.json')) ? await readJson(path.join(dir, 'result.json')).catch(() => []) : [];
+			const roomRows = Array.isArray(read) ? read : [];
+			// Rows an arm wrote before the room timeout, a signal or a launch error killed it are not a finished run.
+			const killed = run.timedOut ? 'room timeout' : run.signal ? `signal ${run.signal}` : run.error ? `launch error: ${run.error}` : null;
+			for (const row of roomRows) rows.push({ ...row, ...(killed ? { integrity: [...(Array.isArray(row.integrity) ? row.integrity : []), `arm killed (${killed})`] } : {}),
+				room: room.room, host: outcome.worker ?? null, attempts: outcome.attempts ?? 0, cantKeepUp: run.cantKeepUp ?? null });
+			perRoom.push({ room: room.room, lost: !!outcome.lost, reason: outcome.reason ?? null, rows: roomRows.length, planned: roomPlanned, exit: run.exit ?? null, seconds: run.seconds ?? null, timedOut: !!run.timedOut, cantKeepUp: run.cantKeepUp ?? null });
 		}
 		await mkdir(path.join(out, arm), { recursive: true });
 		const summary = await finishRun(rows, { file: path.join(out, arm, 'result.json'), planned, strict: false, setExitCode: false });
@@ -161,7 +195,9 @@ const sum = values => values.reduce((total, value) => total + value, 0);
 /** Totals over rows that ran; a row without a number makes the total unknown instead of reading as zero. */
 export function armTotals({ summary, rows, perRoom }) {
 	const ran = rows.filter(row => Number.isFinite(row.startedAt) && !row.skipped);
-	const known = key => ran.every(row => Number.isFinite(row[key])) ? sum(ran.map(row => row[key])) : null;
+	// Unknown, never 0, when a row lacks the counter or a room wrote fewer rows than planned.
+	const missing = perRoom.some(room => room.rows < room.planned);
+	const known = key => !missing && ran.every(row => Number.isFinite(row[key])) ? sum(ran.map(row => row[key])) : null;
 	const passed = rows.filter(row => !row.skipped && row.pass === true && !row.error).length;
 	return {
 		pass: passed, fail: summary.failed, invalid: summary.invalid, notStarted: summary.notStarted, status: summary.status,

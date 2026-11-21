@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { armTotals, formatSummary, mergeArms, parseCommands, plannedOf, runQueue, splitWords } from '../../scripts/quality/lib/room-batch-core.mjs';
+import { armTotals, formatSummary, mergeArms, parseCommands, plannedOf, runQueue, splitWords, stageRoom } from '../../scripts/quality/lib/room-batch-core.mjs';
 import { runBatch } from '../../scripts/quality/lib/room-batch-run.mjs';
 import { nextSlot, parseWindowsHosts, portClashes, slotPortBase, windowsPath } from '../../scripts/quality/lib/windows-pool.mjs';
+import { launchScript } from '../../scripts/quality/lib/boat-pool.mjs';
 
 const LINE = 'node scripts/quality/test-build-live.mjs scripts/quality/carve-hidden-fluid-spots.json $OUT $JAR --descriptive';
 const room = name => ({ room: name, lines: [{ arm: 'new', env: {}, args: [] }, { arm: 'old', env: {}, args: [] }], planned: 1 });
@@ -110,9 +111,12 @@ test('the merge keeps room folders, counts a lost room as notStarted and calls t
 		assert.equal(newTotals.unknownDamageRows, 1);
 		assert.deepEqual(newTotals.lostRooms, ['c']);
 		assert.equal(newTotals.cantKeepUp, 2);
-		assert.equal(oldTotals.deaths, 1);
-		assert.equal(oldTotals.damage, 0);
+		assert.equal(oldTotals.deaths, null, 'a lost room makes the totals unknown, never a subtotal');
+		assert.equal(oldTotals.damage, null);
 		assert.equal(oldTotals.fail, 1);
+		const whole = await mergeArms({ out, rooms: rooms.slice(0, 2), arms: ['old'], outcomes: outcomes.slice(0, 2) });
+		assert.equal(armTotals(whole.old).deaths, 1);
+		assert.equal(armTotals(whole.old).damage, 0);
 		const text = formatSummary({ batch: { name: 'b1', code: 'f875b5a674' }, merged, arms: ['new', 'old'], wallSeconds: 125, vms: 2, rooms });
 		assert.match(text, /3 rooms x 2 arms on 2 machines, code f875b5a6, wall 2m05s/);
 		assert.match(text, /c: LOST \(machine gone\) \| LOST \(machine gone\)/);
@@ -258,4 +262,115 @@ test('Windows PCs: the host list, one port range per arm from the slot base, slo
 	assert.deepEqual(portClashes(netsh, 28400, 29399), []);
 	assert.deepEqual(portClashes(netsh, 50059, 50100), [[50000, 50059]]);
 	assert.equal(windowsPath('C:/aa-runs/batches/b/w0/jobs/r.json'), 'C:\\aa-runs\\batches\\b\\w0\\jobs\\r.json');
+});
+
+test('the room launch returns at once and leaves only the helper running, so ssh never waits out a room', { skip: process.platform === 'win32' }, async () => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'room-batch-launch-'));
+	try {
+		const helper = path.join(dir, 'helper.mjs');
+		await writeFile(helper, `import { writeFileSync } from 'node:fs'; setTimeout(() => writeFileSync(process.argv[2] + '.ran', 'yes'), 3000);\n`);
+		await mkdir(path.join(dir, 'out', 'r'), { recursive: true });
+		const script = launchScript({ outDir: path.join(dir, 'out', 'r'), code: dir, helper, jobFile: path.join(dir, 'job.json'), log: path.join(dir, 'job.log'), node: process.execPath });
+		const { spawn } = await import('node:child_process');
+		const began = Date.now();
+		// Like boat ssh: the call ends only when every holder of the output pipe has closed it.
+		const output = await new Promise((resolve, reject) => {
+			const child = spawn('bash', ['-c', script], { stdio: ['ignore', 'pipe', 'pipe'] });
+			let text = '';
+			child.stdout.on('data', chunk => { text += chunk; });
+			child.on('error', reject);
+			child.stdout.on('end', () => resolve(text));
+		});
+		assert.equal(output.trim(), 'started');
+		assert.ok(Date.now() - began < 2000, `the launch held the output open for ${Date.now() - began} ms`);
+		const deadline = Date.now() + 10_000;
+		while (Date.now() < deadline) { try { await readFile(path.join(dir, 'job.json.ran')); break; } catch { await new Promise(done => setTimeout(done, 200)); } }
+		assert.equal(await readFile(path.join(dir, 'job.json.ran'), 'utf8'), 'yes', 'the helper kept running after the launch returned');
+	} finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('a worker that finds the queue empty is released at once; a room lost after that goes to a replacement', async () => {
+	const released = [], played = [];
+	let made = 0;
+	const outcomes = await runQueue({ rooms: ['a', 'b'].map(room), workers: [worker('w1'), worker('w2')],
+		attempt: async (w, entry, tries) => {
+			played.push(`${w.id}:${entry.room}`);
+			await new Promise(done => setTimeout(done, w.id === 'w2' ? 20 : 1));
+			return w.id === 'w2' && tries === 1 ? { lost: true, reason: 'machine gone' } : { lost: false, arms: {} };
+		},
+		release: async w => { released.push(w.id); },
+		replace: async () => worker(`r${++made}`) });
+	assert.ok(outcomes.every(outcome => !outcome.lost));
+	assert.deepEqual(released.sort(), ['r1', 'w1']);
+	assert.deepEqual(played, ['w1:a', 'w2:b', 'r1:b']);
+});
+
+test('the merge ignores rows a lost room left behind, calls a killed arm invalid and counts planned rows per arm', async () => {
+	const out = await mkdtemp(path.join(os.tmpdir(), 'room-batch-guard-'));
+	try {
+		const rooms = parseCommands(`@a BUILD_ONLY=a ${LINE}\n@b:new BUILD_ONLY= ${LINE}\n@b:old BUILD_ONLY=x,y ${LINE}\n@c ${LINE}`, ['new', 'old']);
+		await writeRoom(out, 'a', 'new', [row('spot-a')]);
+		await writeRoom(out, 'a', 'old', [row('spot-a')]);
+		await writeRoom(out, 'b', 'old', [row('spot-x'), row('spot-y')]);
+		await writeRoom(out, 'c', 'new', [row('spot-c')]);
+		await writeRoom(out, 'c', 'old', [row('spot-c')]);
+		const outcomes = [
+			{ room: 'a', lost: false, worker: 'vm1', attempts: 1, arms: { new: { exit: 0, seconds: 9 }, old: { exit: 0, seconds: 9 } } },
+			{ room: 'b', lost: true, reason: 'copy failed: tar exited 2', attempts: 2 },
+			{ room: 'c', lost: false, worker: 'vm2', attempts: 1, arms: { new: { exit: null, signal: 'SIGKILL', timedOut: true, seconds: 2400 }, old: { exit: 0, seconds: 50 } } },
+		];
+		const merged = await mergeArms({ out, rooms, arms: ['new', 'old'], outcomes });
+		assert.equal(merged.old.summary.planned, 4, 'arm old selects two rows in room b');
+		assert.equal(merged.old.summary.notStarted, 2, 'the rows a lost room left on disk are not counted');
+		assert.equal(merged.old.summary.status, 'INVALID');
+		assert.equal(merged.new.summary.invalid, 1, 'rows of an arm the room timeout killed are invalid');
+		assert.match(merged.new.rows.find(item => item.room === 'c').integrity.join(), /arm killed \(room timeout\)/);
+		assert.equal(merged.new.summary.status, 'INVALID');
+	} finally { await rm(out, { recursive: true, force: true }); }
+});
+
+test('a delete that fails is tried again when the batch ends, and a failed liveness lookup keeps the grace period', async () => {
+	const out = await mkdtemp(path.join(os.tmpdir(), 'room-batch-delete-'));
+	try {
+		const deletes = [];
+		let polls = 0;
+		const pool = {
+			async create() { return { id: 'vm1' }; },
+			async prepare() { return { code: '/c', out: '/o', jars: { new: '/j/new.jar', old: '/j/old.jar' }, inputs: {}, javaHome: '/jdk', template: '/t' }; },
+			async start() {},
+			async poll() { if (++polls === 1) throw new Error('ssh hiccup'); return 'done'; },
+			async alive() { throw new Error('boat api hiccup'); },
+			async fetch(vm, roomName) { for (const arm of ['new', 'old']) await writeRoom(out, roomName, arm, [row(`spot-${roomName}`)]); return { seconds: 5, arms: { new: { exit: 0 }, old: { exit: 0 } }, machine: {} }; },
+			async keepAlive() {},
+			async usage() { return { seconds: 1 }; },
+			async destroy(vm) { deletes.push(vm.id); if (deletes.length === 1) throw new Error('boat busy'); },
+		};
+		const rooms = parseCommands(`@a ${LINE}`, ['new', 'old']);
+		const result = await runBatch({ batch: { name: 't', code: 'abc12345' }, rooms, arms: [{ name: 'new' }, { name: 'old' }], pool, vms: 1, out, pollMs: 1, log: () => {} });
+		assert.equal(result.outcomes[0].lost, false, 'one failed poll and one failed lookup do not lose the room');
+		assert.deepEqual(deletes, ['vm1', 'vm1']);
+		assert.equal(result.machines[0].destroyed, true);
+	} finally { await rm(out, { recursive: true, force: true }); }
+});
+
+test('a fetched room replaces an earlier attempt only once its copy unpacks, and a failed copy leaves nothing', async () => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'room-batch-stage-'));
+	try {
+		const { execFileSync } = await import('node:child_process');
+		const src = path.join(dir, 'src');
+		await mkdir(path.join(src, 'r', 'new'), { recursive: true });
+		await writeFile(path.join(src, 'r', 'done.json'), JSON.stringify({ room: 'r', arms: { new: { exit: 0 } } }));
+		await writeFile(path.join(src, 'r', 'new', 'result.json'), '[]');
+		const archive = path.join(dir, 'r.tgz');
+		execFileSync('tar', ['-czf', archive, '-C', src, 'r']);
+		const roomsDir = path.join(dir, 'rooms');
+		await mkdir(path.join(roomsDir, 'r', 'old'), { recursive: true });
+		await writeFile(path.join(roomsDir, 'r', 'old', 'result.json'), '[{"pass":true}]');
+		await assert.rejects(stageRoom({ roomsDir, room: 'r', download: async () => { throw new Error('copy failed'); } }), /copy failed/);
+		assert.equal(await readFile(path.join(roomsDir, 'r', 'old', 'result.json'), 'utf8'), '[{"pass":true}]', 'a failed copy changes nothing');
+		const done = await stageRoom({ roomsDir, room: 'r', download: async local => { const { copyFile } = await import('node:fs/promises'); await copyFile(archive, local); } });
+		assert.equal(done.room, 'r');
+		assert.deepEqual((await readdir(roomsDir)).sort(), ['r'], 'no staging folder is left');
+		assert.deepEqual((await readdir(path.join(roomsDir, 'r'))).sort(), ['done.json', 'new'], 'the earlier attempt\'s files are gone');
+	} finally { await rm(dir, { recursive: true, force: true }); }
 });

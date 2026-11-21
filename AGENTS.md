@@ -6,6 +6,17 @@ This file is for agents working on the codebase. The in-game agent's own instruc
 
 The goal right now is for one AI agent to beat Minecraft from scratch: start with an empty inventory in a new random world and kill the Ender Dragon on its own, in a reasonable time. Every change should move that forward or keep it from going backward. [docs/goal-progress.md](docs/goal-progress.md) says how progress is measured and has the latest numbers. Read it before you pick work, and add to its status table when a full-game round finishes.
 
+## Report to the owner in game terms
+
+Every status update, summary and result you give the project owner says, in plain words:
+
+- what the bot did wrong in the game;
+- what you changed, described as behaviour ("it now steps back from lava when a mob is near"), not as files or branches;
+- how it played before and after, as counts: "died in lava 3 of 3 times before, 0 of 3 after";
+- whether that difference is big enough to trust, or needs more runs.
+
+When you mention a project label, branch, commit, test or tool name, say what it means in the same sentence. Short labels such as round names belong in handoffs between agents.
+
 ## Private details stay off the repository
 
 This repository is public. Every push is public at once, and deleting a line later does not take it back.
@@ -33,6 +44,7 @@ git config core.hooksPath scripts/hooks
 ```
 
 `scripts/hooks/pre-commit` scans what you stage and `scripts/hooks/commit-msg` scans the message. Both run the publication gate, `scripts/check-public-tree.mjs`. CI runs the same gate on the whole tree and on the pull request title, description, branch name and every commit message; any finding fails `Coordinator (Linux)`.
+To scan what CI scans before you push, run `node scripts/check-public-tree.mjs --tracked`. It reads every tracked file as it is now and skips untracked build output; a plain `node scripts/check-public-tree.mjs .` on a working checkout also reads `node_modules` and the `libs/` JARs.
 
 When the gate flags a line:
 
@@ -40,6 +52,15 @@ When the gate flags a line:
 - A false positive in a file: add an exemption to `scripts/public-tree-exemptions.json` with the file, the rule, the SHA-256 of the line's text (without its line ending) and a reason. The exemption matches only that exact line.
 - A false positive in a commit message or pull request text: reword it. Text has no exemptions.
 - A `REVIEW` finding fails like a `FAIL`. Reword the line, or exempt it in a file when the word is ordinary software terminology.
+
+## Set up a checkout
+
+In every new clone or worktree, run `node scripts/doctor.mjs`. It prints one line per check (Node, Java 25 on `JAVA_HOME`, `libs/*.jar`, `coordinator/node_modules`, hooks, server template, `ARENA_PRIVATE_INPUTS`, slot locks, memory) with the command that fixes each failure.
+
+- `node scripts/doctor.mjs --fix` copies `libs/*.jar` and `coordinator/node_modules` from the main worktree (`--from DIR` names another) and sets the hooks. A copied `node_modules` works; a symlinked one breaks tests.
+- Add `--accept-minecraft-eula` when the machine owner accepts the Minecraft EULA: it prepares the shared headless server template with `scripts/prepare-server-template.mjs`, which runs on Linux. `scripts/prepare-headless-server-template.ps1` is the Windows version.
+- `eval "$(node scripts/doctor.mjs --env)"` exports `JAVA_HOME` and `ARENA_HEADLESS_SERVER_TEMPLATE`. Exports last only for that shell, so put it at the start of each command that runs a live fixture.
+- Set `ARENA_PRIVATE_INPUTS` to the private archive root. Recordings load from that root when it holds `coordinator/`, otherwise from its one subfolder holding `rundata-manifest.json`.
 
 ## Where things live
 

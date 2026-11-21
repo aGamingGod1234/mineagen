@@ -7,7 +7,8 @@
 // it took 51 s there against the fixtures' 30 s RCON timeout, so every room on a new jar came back INVALID. The
 // machines are thrown away, so nothing needs the writes to survive a crash.
 import { spawn } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { writeFile } from 'node:fs/promises';
+import { stageRoom } from './room-batch-core.mjs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -23,7 +24,7 @@ export function boat(args, { timeoutMs = 10 * 60_000, input = null } = {}) {
 		child.on('close', code => {
 			clearTimeout(timer);
 			if (code === 0) resolve(stdout);
-			else reject(new Error(`boat ${args[0]} exited ${code}: ${(stderr || stdout).trim().split('\n').slice(-2).join(' ').slice(0, 400)}`));
+			else reject(Object.assign(new Error(`boat ${args[0]} exited ${code}: ${(stderr || stdout).trim().split('\n').slice(-2).join(' ').slice(0, 400)}`), { stdout }));
 		});
 	});
 }
@@ -42,11 +43,26 @@ export async function remote(id, script, options) {
 }
 export const quote = text => `'${String(text).replace(/'/g, `'\\''`)}'`;
 
+/**
+ * Starts the room helper in the background and returns at once. Only the helper may go in the background: in
+ * `a && b && node ... > log &` the whole list is the background job, and its subshell keeps the ssh output open until
+ * the room ends, so boat ssh waited out the room and timed out on rooms longer than 10 minutes.
+ */
+export const launchScript = ({ outDir, code, helper, jobFile, log, node = 'node' }) =>
+	`rm -rf ${quote(outDir)} && cd ${quote(code)} || exit 1\nsetsid nohup ${node} ${quote(helper)} ${quote(jobFile)} > ${quote(log)} 2>&1 < /dev/null &\necho started`;
+
 export async function createMachine({ from = null, type = 'default', ttlSeconds = 7200, name, snapshots = false }) {
 	const args = ['new', '--no-env', '--type', type, '--ttl', String(ttlSeconds), '--name', name, '--json'];
 	if (from) args.push('--from', from);
 	if (!snapshots) args.push('--no-snapshots');
-	const text = await boat(args, { timeoutMs: 10 * 60_000 });
+	let text;
+	try { text = await boat(args, { timeoutMs: 10 * 60_000 }); }
+	catch (error) {
+		// A create that fails after boat printed the sandbox id still made a machine: delete it.
+		const orphan = jsonLines(error.stdout ?? '').find(event => event.id)?.id;
+		if (orphan) await boat(['delete', orphan, '--yes']).catch(() => {});
+		throw error;
+	}
 	const events = jsonLines(text);
 	const ready = events.find(event => event.event === 'ready');
 	const id = ready?.id ?? events.find(event => event.id)?.id;
@@ -94,7 +110,7 @@ export function boatPool({ snapshot, type = 'default', ttlSeconds = 7200, namePr
 			const jobs = path.posix.dirname(job.outDir).replace(/\/out$/, '/jobs');
 			const file = `${jobs}/${job.room}.json`;
 			await upload(vm.id, local, file);
-			await remote(vm.id, `rm -rf ${quote(job.outDir)} && cd ${quote(job.code)} && setsid nohup node ${quote(path.posix.join(path.posix.dirname(jobs), 'room-batch-remote.mjs'))} ${quote(file)} > ${quote(`${jobs}/${job.room}.log`)} 2>&1 < /dev/null & echo started`);
+			await remote(vm.id, launchScript({ outDir: job.outDir, code: job.code, helper: path.posix.join(path.posix.dirname(jobs), 'room-batch-remote.mjs'), jobFile: file, log: `${jobs}/${job.room}.log` }));
 			vm.outDir = path.posix.dirname(job.outDir);
 		},
 		async poll(vm, room) {
@@ -106,17 +122,7 @@ export function boatPool({ snapshot, type = 'default', ttlSeconds = 7200, namePr
 			const archive = `${vm.outDir}/${room}.tgz`;
 			// secret.txt is a throwaway per-run RCON secret; worlds are already deleted unless kept.
 			await remote(vm.id, `cd ${quote(vm.outDir)} && tar --exclude=secret.txt -czf ${quote(archive)} ${quote(room)}`);
-			await mkdir(roomsDir, { recursive: true });
-			const local = path.join(roomsDir, `${room}.tgz`);
-			await download(vm.id, archive, local);
-			await new Promise((resolve, reject) => {
-				const tar = spawn('tar', ['-xzf', local, '-C', roomsDir], { stdio: 'inherit' });
-				tar.on('error', reject);
-				tar.on('close', code => code === 0 ? resolve() : reject(new Error(`tar exited ${code}`)));
-			});
-			const { readFile, rm } = await import('node:fs/promises');
-			await rm(local);
-			return JSON.parse(await readFile(path.join(roomsDir, room, 'done.json'), 'utf8'));
+			return stageRoom({ roomsDir, room, download: local => download(vm.id, archive, local) });
 		},
 		async keepAlive(vm) { await extendMachine(vm.id, ttlSeconds); log(`machine ${vm.id} deadline pushed back ${Math.round(ttlSeconds / 60)} min`); },
 		usage: vm => machineUsage(vm.id),

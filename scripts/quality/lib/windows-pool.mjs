@@ -12,6 +12,7 @@ import { execFile } from 'node:child_process';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { stageRoom } from './room-batch-core.mjs';
 
 /** ROOM_BATCH_WINDOWS text -> [{ host, slots, slotBase }]. */
 export function parseWindowsHosts(text) {
@@ -155,12 +156,7 @@ $p = Get-CimInstance Win32_Process -Filter "ProcessId=$($r.ProcessId)"
 		async fetch(vm, room, roomsDir) {
 			// secret.txt is a throwaway per-run RCON secret; worlds are already deleted unless kept.
 			await powershell(vm.host, `Set-Location -LiteralPath ${psQuote(vm.outDir)}; tar --exclude=secret.txt -czf ${psQuote(`${room}.tgz`)} ${psQuote(room)}; if ($LASTEXITCODE -ne 0) { throw "tar exited $LASTEXITCODE" }`);
-			await mkdir(roomsDir, { recursive: true });
-			const local = path.join(roomsDir, `${room}.tgz`);
-			await download(vm.host, `${vm.outDir}/${room}.tgz`, local);
-			await run('tar', ['-xzf', local, '-C', roomsDir]);
-			await rm(local);
-			return JSON.parse(await readFile(path.join(roomsDir, room, 'done.json'), 'utf8'));
+			return stageRoom({ roomsDir, room, download: local => download(vm.host, `${vm.outDir}/${room}.tgz`, local) });
 		},
 		async keepAlive() {},
 		usage: vm => ({ host: vm.host, slot: vm.slot, portBase: vm.layout?.portBase ?? null }),
