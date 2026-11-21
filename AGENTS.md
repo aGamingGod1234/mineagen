@@ -58,7 +58,7 @@ When the gate flags a line:
 In every new clone or worktree, run `node scripts/doctor.mjs`. It prints one line per check (Node, Java 25 on `JAVA_HOME`, `libs/*.jar`, `coordinator/node_modules`, hooks, server template, `ARENA_PRIVATE_INPUTS`, slot locks, memory) with the command that fixes each failure.
 
 - `node scripts/doctor.mjs --fix` copies `libs/*.jar` and `coordinator/node_modules` from the main worktree (`--from DIR` names another) and sets the hooks. A copied `node_modules` works; a symlinked one breaks tests.
-- Add `--accept-minecraft-eula` when the machine owner accepts the Minecraft EULA: it prepares the shared headless server template with `scripts/prepare-server-template.mjs`, which runs on Linux. `scripts/prepare-headless-server-template.ps1` is the Windows version.
+- Add `--accept-minecraft-eula` when the machine owner accepts the Minecraft EULA: it prepares the shared headless server template with `scripts/prepare-server-template.mjs` (Node, any OS). `scripts/prepare-headless-server-template.ps1` is the PowerShell version for Windows.
 - `eval "$(node scripts/doctor.mjs --env)"` exports `JAVA_HOME` and `ARENA_HEADLESS_SERVER_TEMPLATE`. Exports last only for that shell, so put it at the start of each command that runs a live fixture.
 - Set `ARENA_PRIVATE_INPUTS` to the private archive root. Recordings load from that root when it holds `coordinator/`, otherwise from its one subfolder holding `rundata-manifest.json`.
 
@@ -70,6 +70,14 @@ In every new clone or worktree, run `node scripts/doctor.mjs`. It prints one lin
 - In-game agent instructions: `coordinator/config/minecraft-agent/AGENTS.md` and its `.codex/skills/minecraft-control/` directory.
 - Tests: `src/test/java/`, target-specific `src/compat/`, and `coordinator/test/`.
 - Scripts: `scripts/`; gameplay edit loop: `scripts/quality/README.md#edit-loop`.
+
+## Testing a change
+
+Test in four tiers, fastest first: decision tests, practice rooms, checkpoint games, full games. [Which test to run](scripts/quality/README.md#which-test-to-run) gives each tier's command and how to read its result.
+
+- Play practice rooms in batches with `scripts/quality/room-batch.mjs` on boat machines (`--pool boat`) or the Windows PCs (`--pool windows`).
+- On boat, starts are scarce and idle machines bill in full. Reuse the warm pool, keep it to its warm set by draining idle extras, and delete any extra machine you created when your work is done.
+- Judge a room by its pass rate over repeats, counting only valid rooms. INVALID, lost and unknown are never a pass.
 
 ## Debugging gameplay
 

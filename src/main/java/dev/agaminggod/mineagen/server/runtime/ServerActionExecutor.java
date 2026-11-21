@@ -2185,7 +2185,8 @@ public final class ServerActionExecutor {
 					.continuationOptions(arguments.has("throughCaves") ? arguments.get("throughCaves").getAsString() : "small",
 							ServerDigController.sealFluidsOption(arguments),
 							arguments.has("discard") ? java.util.stream.StreamSupport.stream(arguments.getAsJsonArray("discard").spliterator(), false).map(value -> value.getAsString()).toList() : java.util.List.of())
-					.acceptUnseenBelow(arguments.has("throughCaves") && arguments.get("throughCaves").getAsJsonPrimitive().isBoolean() && bool(arguments, "throughCaves"));
+					.acceptUnseenBelow(arguments.has("throughCaves") && arguments.get("throughCaves").getAsJsonPrimitive().isBoolean() && bool(arguments, "throughCaves"))
+					.inferDirection(nullableString(arguments, "pattern") == null);
 		} catch (IllegalArgumentException invalid) {
 			throw new AgentDomainException("INVALID_DIG_GOAL", invalid.getMessage());
 		}

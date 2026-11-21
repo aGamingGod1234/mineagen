@@ -130,6 +130,33 @@ const MAX_RELOCATIONS = 2;
 const RELOCATE = 12;
 const CLEAR_CAVE = 24;
 const MAX_CAVE_VISITS = 8;
+// Cave first: before the first dig down for an ore, walk (never dig) into a cave the body has seen or remembers, as a
+// player does, and look round it. At most CAVE_WALKS walks; a cave closer than CAVE_NEAR is the spot the first look
+// already saw from, and one with a hostile within CAVE_MOB_CLEAR is left alone. PR #31's room test (21 Nov): the cave
+// legs dug with build on, re-fired after mob stops mid-descent and walked into the mob's cave: iron found 0 of 4
+// exercised runs against 4 of 4, pickaxe worn out 3 of 4.
+const CAVE_WALKS = 2;
+const CAVE_NEAR = 6;
+const CAVE_MOB_CLEAR = 12;
+// No cave walks at all with a hostile this close to the body: a search asked again after a mob hand-back starts beside
+// the mob's cave (room 21 Nov: walks right after a creeper stop).
+const CAVE_MOB_SENSE = 24;
+// One cave walk's time, and the search time a cave walk leaves for the dig down after it.
+const CAVE_WALK_MS = 45_000;
+const CAVE_DIG_RESERVE_MS = 90_000;
+// Missed places for caves carry this blockId, so a failed cave walk never hides ore or water near it from a later search.
+const CAVE_MISS = 'mineagen:cave';
+const HOSTILE_TYPE = (type) => MELEE.test(String(type)) || RANGED.has(type) || /(^|:)(creeper|phantom|vex|evoker|ravager|warden)$/.test(String(type));
+// Water seen this close to a cave row is a flooded floor: a walk in ends swimming (PR #31 rerun, one seed: stuck in its
+// cave's water 5 of 6 runs, FIND_BLOCKED, while digging down saw iron in 69 s).
+const CAVE_WATER_NEAR = 4;
+const WET_WALK_STOPS = new Set(['WATER_AHEAD', 'TUNNEL_FLOODED', 'BREATH_LOW', 'AIR_RESERVE_REACHED', 'BREATH_NOT_COVERED']);
+/**
+ * Cave first is off unless MINEAGEN_CAVE_FIRST=on. Room batch 21 Nov (16 spawns x 10 repeats per arm, provider-free):
+ * 75% of 103 cave walks found no walking way into a seen cave and 15% met a mob; only 10 arrived. On the 3 spawns where
+ * walks fired, iron was found in 9 of 30 runs with it on against 18 of 30 off.
+ */
+export const caveFirst = (environment = process.env) => String(environment?.MINEAGEN_CAVE_FIRST ?? '').trim().toLowerCase() === 'on';
 // Blocks a dig_to may be given (schema.mjs maxBlocks) and the cells one step cuts per pattern.
 const MAX_DIG_BLOCKS = 4_096;
 const STEP_CELLS = Object.freeze({ tunnel: 2, stairs_down: 3, stairs_up: 3, steep_down: 4 });
@@ -433,11 +460,13 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 			...(legs.length === 0 ? {} : { route: legs.slice(-8).map((leg) => `${leg.how} ${leg.reasonCode ?? leg.state}`) }) };
 	};
 	const describe = (seen) => `${seen.id.replace(/^minecraft:/, '')} seen at ${seen.x},${seen.y},${seen.z}, ${seen.distance} blocks away (${seen.via})`;
-	const found = (seen) => ({ state: 'SUCCEEDED', reasonCode: 'FIND_SEEN', message: `Found: ${describe(seen)}`,
+	// What the cave-first walks did, for the result: the model learns which way paid.
+	let caveNote = '';
+	const found = (seen) => ({ state: 'SUCCEEDED', reasonCode: 'FIND_SEEN', message: `Found: ${describe(seen)}${caveNote}`,
 		find: { target: profile.label, seen, covered: covered() } });
 	const handBack = (state, reasonCode, why, extra = {}) => {
 		const c = covered();
-		return { state, reasonCode, ...extra, message: `${why}. Covered in ${c.seconds} s: ${c.legs} leg(s), walked ${c.walked} blocks, now ${c.fromStart} from the start at y${c.y}${c.deepestY < c.startY - 2 ? ` (deepest y${c.deepestY})` : ''}; ${profile.label} not seen`,
+		return { state, reasonCode, ...extra, message: `${why}. Covered in ${c.seconds} s: ${c.legs} leg(s), walked ${c.walked} blocks, now ${c.fromStart} from the start at y${c.y}${c.deepestY < c.startY - 2 ? ` (deepest y${c.deepestY})` : ''}; ${profile.label} not seen${caveNote}`,
 			find: { target: profile.label, covered: c } };
 	};
 	const left = () => deadline - body.now();
@@ -566,7 +595,7 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 		}
 	};
 	// What the last look around showed of the ground each way (the runtime's per-heading landmarks), and where it was taken.
-	let ground = null, lookedFrom = null;
+	let ground = null, lookedFrom = null, lastSurvey = null, sweepHostiles = [];
 	const cellOfBody = (at) => (at === null ? null : `${Math.floor(at.x)},${Math.floor(at.y + 0.01)},${Math.floor(at.z)}`);
 	const look = async (pitch) => {
 		// A mob the search fights, close and coming: met before the look turns the body's back on it. Fixture zombie
@@ -578,6 +607,10 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 		const result = await body.look({ pitch, survey: { include: profile.sections.slice(0, 8), limit: 8 } });
 		if (result?.interruptedBy !== undefined) return { interrupted: result };
 		lookedFrom = bodyAt(observation);
+		lastSurvey = result?.survey ?? null;
+		// Mobs any heading of the sweep showed: the last frame alone misses one beside a cave seen earlier in the turn.
+		sweepHostiles = (Array.isArray(result?.samples) ? result.samples : []).flatMap((sample) => Array.isArray(sample?.entities) ? sample.entities : [])
+			.map((row) => ({ type: row?.entityType ?? row?.type, ...(row?.position ?? row) })).filter((row) => HOSTILE_TYPE(row.type) && [row.x, row.y, row.z].every(Number.isFinite));
 		ground = Array.isArray(result?.ground) ? { at: bodyAt(observation), views: result.ground } : null;
 		noteCaves(null, result?.survey);
 		noteWoods(result?.survey);
@@ -1158,6 +1191,81 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 		const cap = (pattern) => pattern === 'shaft' ? {} : { maxBlocks: Math.min(MAX_DIG_BLOCKS, STEP_CELLS[pattern] * stepsLeft(heading)) };
 		const tunnelBlocks = () => cap('tunnel').maxBlocks;
 		const descentCap = (pattern) => cap(pattern);
+		// Ores only: lava keeps its own band and rock searches have no depth. Off for the A/B arm.
+		let cavePicked = !caveFirst() || profile.ids.has('minecraft:lava') || rock;
+		// Caves a cave-first walk may go to: seen in this search or remembered, unvisited, within reach and inside within, at
+		// or below the body and not far under the band, not where the body stands, and with no hostile seen near it.
+		const waterCells = () => [observation, observation?.sighted, lastSurvey].flatMap((source) => ['blocks', 'veins'].flatMap((section) => Array.isArray(source?.[section]) ? source[section] : []))
+			.filter((row) => row?.blockId === 'minecraft:water').map(cellOf).filter((cell) => cell !== null);
+		const caveChoices = (here) => {
+			const wet = waterCells();
+			const hostiles = [...(observation?.entities ?? []).filter((row) => row?.hostile === true && row.alive !== false), ...sweepHostiles].filter((row) => [row?.x, row?.y, row?.z].every(Number.isFinite));
+			const caveMisses = (body.missedPlaces?.() ?? []).filter((place) => place.blockId === CAVE_MISS);
+			return [...caves.values()].filter((row) => !row.visited && row.y <= here.y + 2 && row.y >= profile.depth - CAVE_BAND
+				&& Math.hypot(row.x + 0.5 - here.x, row.z + 0.5 - here.z) <= CAVE_REACH && Math.hypot(row.x + 0.5 - origin.x, row.z + 0.5 - origin.z) <= within
+				&& Math.hypot(row.x + 0.5 - here.x, row.y - here.y, row.z + 0.5 - here.z) >= CAVE_NEAR
+				&& !caveMisses.some((place) => Math.hypot(place.x - row.x, place.y - row.y, place.z - row.z) <= SAME_PLACE)
+				&& !hostiles.some((mob) => Math.hypot(mob.x - row.x - 0.5, mob.y - row.y, mob.z - row.z - 0.5) <= CAVE_MOB_CLEAR)
+				&& !wet.some((cell) => Math.hypot(cell.x - row.x, cell.y - row.y, cell.z - row.z) <= CAVE_WATER_NEAR))
+				.sort((a, b) => Math.hypot(a.x - here.x, a.y - here.y, a.z - here.z) - Math.hypot(b.x - here.x, b.y - here.y, b.z - here.z));
+		};
+		// Up to CAVE_WALKS walks with build off: a cave with no walking way in costs a few seconds and no pickaxe use. Null
+		// to dig on from wherever the walks left the body (in a cave, lower down), else the search's end.
+		const caveWalks = async (from) => {
+			for (const row of body.known?.(observation)?.sightings ?? []) {
+				if (row?.kind !== 'cave' || ![row.x, row.y, row.z].every(Number.isFinite)) continue;
+				const key = `${row.x},${row.y},${row.z}`;
+				if (!caves.has(key)) caves.set(key, { x: row.x, y: row.y, z: row.z, air: row.air, visited: false });
+			}
+			let tried = 0, entered = 0, flooded = 0;
+			for (; tried < CAVE_WALKS && left() >= MIN_LEG_MS; tried += 1) {
+				const here = bodyAt(observation);
+				if (left() < CAVE_WALK_MS + CAVE_DIG_RESERVE_MS) break;
+				const near = [...(observation?.entities ?? []).filter((row) => row?.hostile === true && row.alive !== false), ...(threatRows(observation) ?? []), ...sweepHostiles]
+					.some((row) => (Number.isFinite(row.distance) ? row.distance : Math.hypot(row.x - here.x, row.y - here.y, row.z - here.z)) <= CAVE_MOB_SENSE);
+				if (near) break;
+				const cave = caveChoices(here)[0];
+				if (cave === undefined) break;
+				caveVisits += 1;
+				for (const row of caves.values()) if (Math.hypot(row.x - cave.x, row.y - cave.y, row.z - cave.z) <= CAVE_NEAR) row.visited = true;
+				const walk = await leg('walk into a cave', 'travel_to', { x: cave.x + 0.5, y: cave.y, z: cave.z + 0.5, tolerance: 3, build: false, stopWhenSeen: profile.stopId, timeoutMs: CAVE_WALK_MS });
+				const code = walk.result?.reasonCode, arrived = code === 'ARRIVED';
+				// Water on the way in or underfoot: a flooded cave. Back to the dry spot the walks began from and dig there.
+				if (!walk.seen && !walk.interrupted && !walk.ended && (WET_WALK_STOPS.has(code) || inWater())) {
+					flooded += 1; tried += 1;
+					body.missPlace?.({ x: cave.x, y: cave.y, z: cave.z, blockId: CAVE_MISS }, 'flooded cave');
+					if (observation?.player?.underWater === true) { const drowning = await surface(); if (drowning !== null) return drowning; }
+					const back = await leg('back out of the flooded cave', 'travel_to', { x: from.x, y: from.y, z: from.z, tolerance: 2, build: false, stopWhenSeen: profile.stopId });
+					// Every return walk is settled: one that stopped for damage or danger carries only its result.
+					const out = await settle(back);
+					if (out !== null) return out;
+					break;
+				}
+				const walked = await settle(walk);
+				if (walked !== null) { caveNote = `; walked into ${entered + (arrived ? 1 : 0)} of ${tried + 1} cave(s) before digging`; return walked; }
+				// A mob met on the way: no more wandering into caves near it; the dig goes on from here.
+				if (code === 'HOSTILE_NEAR' || HIT_STOPS.has(code) || FIGHT_STOPS.has(code)) { tried += 1; break; }
+				if (!arrived) { if (!BLOCKED.has(code)) body.missPlace?.({ x: cave.x, y: cave.y, z: cave.z, blockId: CAVE_MISS }, 'no walking way into the cave'); continue; }
+				entered += 1;
+				const inside = await look(20);
+				lookedAt = bodyAt(observation);
+				if (inside.interrupted || inside.seen || inside.ended) { caveNote = `; walked into ${entered} of ${tried + 1} cave(s) before digging`; return settle(inside); }
+			}
+			// No cave entered: back to where the walks began before digging. A walk that gave up still moved the body, and
+			// room test 21 Nov (one seed, 10 of 10): it stopped at a pond's edge, so the dig down met the water and the wet
+			// spot moves wore the pickaxe out, where the same dig from the start saw iron in about a minute.
+			const stopped = bodyAt(observation);
+			if (tried > 0 && entered === 0 && flooded === 0 && stopped !== null && Math.hypot(stopped.x - from.x, stopped.y - from.y, stopped.z - from.z) > 2) {
+				const back = await leg('back to where the cave walks began', 'travel_to', { x: from.x, y: from.y, z: from.z, tolerance: 1.5, build: false, stopWhenSeen: profile.stopId, timeoutMs: CAVE_WALK_MS });
+				const out = await settle(back);
+				if (out !== null) return out;
+			}
+			if (tried > 0) {
+				const now = bodyAt(observation);
+				caveNote = `; walked into ${entered} of ${tried} cave(s) first${flooded > 0 ? ` (${flooded} flooded, walked back out)` : ''}${entered > 0 && now !== null && now.y < from.y - 2 ? `, down to y${Math.floor(now.y)}` : ''}, then dug`;
+			}
+			return null;
+		};
 		while (left() >= MIN_LEG_MS) {
 			const at = bodyAt(observation);
 			// Digs that go nowhere (the body under water, every way here wet or refused): move off this spot rather than
@@ -1302,6 +1410,15 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 				if (ended !== null) return ended;
 				if (!['DIG_GOAL_REACHED', 'DIG_LIMIT_REACHED'].includes(outcome.result?.reasonCode)) { descentStops += 1; turn(); }
 				continue;
+			}
+			// Cave first, once, before the first dig of this search: never after a dig stopped for a mob or opened a cave.
+			if (!cavePicked && profile.depth !== null && !level && at.y > profile.depth + 3) {
+				cavePicked = true;
+				if (!legs.some((entry) => entry.actionType === 'dig_to')) {
+					const picked = await caveWalks(at);
+					if (picked !== null) return picked;
+					continue;
+				}
 			}
 			if (profile.depth !== null && !level && at.y > profile.depth + 3 && descentStops < MAX_DESCENT_STOPS) {
 				const wetGround = wetSpots().some((spot) => Math.hypot(spot.x + 0.5 - at.x, spot.z + 0.5 - at.z) <= WET_REGION);

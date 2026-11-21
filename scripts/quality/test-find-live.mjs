@@ -13,7 +13,10 @@
 // setup: operator commands that build a fixture before the calls, {x}, {y}, {z} (with +n or -n; {x+0.5} is a cell's
 // centre) standing for the body's block at spawn; after: { ms, commands } runs after setup. A call argument that is
 // exactly such a placeholder becomes that number. expectDamageTaken: a survival room, judged on no death and exactly that
-// damage (findSpotVerdict in lib/find-spot.mjs).
+// damage (findSpotVerdict in lib/find-spot.mjs). finish: operator commands run when the calls end, their replies kept
+// (scoreboard stats, inventory); callFinish: the same after every call. A call with wait: true (a background do_step)
+// holds the next call until its body actions end. Every spot reports lavaSamples: trail samples with lava at the body's
+// feet or head.
 // Production steering lives in run-incident.mjs; this body-only fixture cannot accept steer:true.
 import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -179,7 +182,10 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		row.t0 = t0;
 		const trail = [];
 		sampling = true;
-		sampler = (async () => { while (sampling) { const p = await pos().catch(() => null); if (p) trail.push([...p, Date.now() - t0]); await sleep(500); } })();
+		row.lavaSamples = 0;
+		const inLava = async () => /passed/i.test(String(await s.command(`execute at ${AGENT} if block ~ ~ ~ minecraft:lava`).catch(() => '')))
+			|| /passed/i.test(String(await s.command(`execute at ${AGENT} if block ~ ~1 ~ minecraft:lava`).catch(() => '')));
+		sampler = (async () => { while (sampling) { const p = await pos().catch(() => null); if (p) trail.push([...p, Date.now() - t0]); if (await inLava()) row.lavaSamples += 1; await sleep(500); } })();
 		const budgetMs = spot.budgetMs ?? 900_000;
 		for (const [callIndex, call] of (spot.calls ?? []).entries()) {
 			for (let attempt = 0; ; attempt++) {
@@ -201,6 +207,13 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 				}
 				const entry = callEntry(call, result, { attempt, atS: Math.round((callStarted - t0) / 1000), seconds: Math.round((Date.now() - callStarted) / 1000) });
 				row.calls.push(entry);
+				// wait: a background step (do_step dig_to) finishes its body actions before the next call.
+				if (call.wait === true && ['RUNNING', 'PREPARING'].includes(result?.state)
+					&& (await awaitActionReceipts(row, { deadline: t0 + budgetMs, stopped: async () => (await deaths()) > deathsBefore })).length) {
+					row.ended = 'background step unfinished at the budget'; break;
+				}
+				// callFinish: operator commands read after every call (a stat before the next call), replies kept on the entry.
+				if (Array.isArray(spot.callFinish)) { entry.finish = []; for (const text of spot.callFinish) entry.finish.push({ command: text, reply: String(await s.command(text)).slice(0, 400) }); }
 				if (spot.dump) await writeFile(path.join(dir, `call-${callIndex}-${attempt}.json`), JSON.stringify(result, null, 2));
 				console.log(`[${spot.name}] +${entry.atS}s ${call.name}#${attempt} ${entry.state} ${entry.reasonCode} ${entry.seconds}s :: ${entry.message.slice(0, 300)}`);
 				// A dead body, or one the server no longer samples, ends the spot.
@@ -214,6 +227,8 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 				// The stand-in for a model after danger: give the reflexes (and regeneration, when hurt) a moment, then ask again.
 				if (result?.reasonCode === 'FIND_DANGER') await sleep((await health()) < 12 ? 15000 : 4000);
 			}
+			// A death, lost observations or an unfinished background step ends the spot: no later call runs.
+			if (row.ended) break;
 		}
 		// A background step (do_step build) returned RUNNING: take the readings only once each command has its receipt.
 		if (!row.ended) {
@@ -230,6 +245,7 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		row.path = { walked: Math.round(walked), net: Math.round(Math.hypot(end[0] - row.start[0], end[2] - row.start[2])), farthest: Math.round(farthest),
 			descended: Math.round(row.start[1] - Math.min(...trail.map(p => p[1]), row.start[1])), samples: trail.length };
 		row.end = await pos();
+		if (Array.isArray(spot.finish)) { row.finish = []; for (const text of spot.finish) row.finish.push({ command: text, reply: String(await s.command(text)).slice(0, 4000) }); }
 		const healthAfter = await health();
 		Object.assign(row, damageEvidence(damageBefore, await readDamage(), healthBefore, healthAfter));
 		row.healthLost = Number.isFinite(healthBefore) && Number.isFinite(healthAfter) ? Math.max(0, healthBefore - healthAfter) : null;
@@ -241,7 +257,7 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		// foundAtS comes from the same find entry that decides found.
 		Object.assign(row, findSpotVerdict(spot, row));
 		await writeFile(path.join(dir, 'trail.json'), JSON.stringify(trail));
-		console.log(`[${spot.name}] ${findSpotLabel(row)} in ${row.foundAtS ?? row.seconds}s walked=${row.path.walked} net=${row.path.net} farthest=${row.path.farthest} descended=${row.path.descended} damageTaken=${row.damageTaken ?? "unknown"} deaths=${row.deaths} handBacks=${row.handBacks}`);
+		console.log(`[${spot.name}] ${findSpotLabel(row)} in ${row.foundAtS ?? row.seconds}s walked=${row.path.walked} net=${row.path.net} farthest=${row.path.farthest} descended=${row.path.descended} damageTaken=${row.damageTaken ?? "unknown"} deaths=${row.deaths} handBacks=${row.handBacks} lavaSamples=${row.lavaSamples}`);
 	} catch (error) {
 		row.error = String(error?.stack ?? error).slice(0, 1200);
 		console.log(`[${spot.name}] ERROR ${row.error.split('\n')[0]}`);
