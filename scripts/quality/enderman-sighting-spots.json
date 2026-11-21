@@ -4,15 +4,7 @@
 		"seed": "20261024",
 		"monsters": true,
 		"budgetMs": 240000,
-		"repeat": true,
-		"repeatOn": [
-			"NO_TARGET_SEEN",
-			"AREA_CLEARED",
-			"FIGHT_UNTIL_TIMED_OUT",
-			"NO_SEEN_ROUTE",
-			"TARGET_UNREACHABLE",
-			"ACTION_CANCELLED"
-		],
+		"repeat": false,
 		"killMob": "minecraft:enderman",
 		"inventory": [
 			{
@@ -79,7 +71,8 @@
 						"fleeAtHealth": 12
 					},
 					"why": "an enderman in sight: its pearl for eyes of ender"
-				}
+				},
+				"wait": true
 			}
 		],
 		"note": "Control: a calm enderman 16 blocks away on the open floor, inside fight_until's default 24-block area."
@@ -89,15 +82,7 @@
 		"seed": "20261024",
 		"monsters": true,
 		"budgetMs": 240000,
-		"repeat": true,
-		"repeatOn": [
-			"NO_TARGET_SEEN",
-			"AREA_CLEARED",
-			"FIGHT_UNTIL_TIMED_OUT",
-			"NO_SEEN_ROUTE",
-			"TARGET_UNREACHABLE",
-			"ACTION_CANCELLED"
-		],
+		"repeat": false,
 		"killMob": "minecraft:enderman",
 		"inventory": [
 			{
@@ -164,7 +149,8 @@
 						"fleeAtHealth": 12
 					},
 					"why": "an enderman in sight: its pearl for eyes of ender"
-				}
+				},
+				"wait": true
 			}
 		],
 		"note": "A calm enderman 40 blocks away on the open floor, beyond the default area: real games ended such hunts NO_TARGET_SEEN."
@@ -174,15 +160,7 @@
 		"seed": "20261024",
 		"monsters": true,
 		"budgetMs": 240000,
-		"repeat": true,
-		"repeatOn": [
-			"NO_TARGET_SEEN",
-			"AREA_CLEARED",
-			"FIGHT_UNTIL_TIMED_OUT",
-			"NO_SEEN_ROUTE",
-			"TARGET_UNREACHABLE",
-			"ACTION_CANCELLED"
-		],
+		"repeat": false,
 		"killMob": "minecraft:enderman",
 		"inventory": [
 			{
@@ -250,7 +228,8 @@
 						"fleeAtHealth": 12
 					},
 					"why": "an enderman in sight: its pearl for eyes of ender"
-				}
+				},
+				"wait": true
 			}
 		],
 		"note": "A calm enderman 30 blocks away on a 6-high shelf no walk reaches: a player stares at it from where it stands."
@@ -260,15 +239,7 @@
 		"seed": "20261024",
 		"monsters": true,
 		"budgetMs": 240000,
-		"repeat": true,
-		"repeatOn": [
-			"NO_TARGET_SEEN",
-			"AREA_CLEARED",
-			"FIGHT_UNTIL_TIMED_OUT",
-			"NO_SEEN_ROUTE",
-			"TARGET_UNREACHABLE",
-			"ACTION_CANCELLED"
-		],
+		"repeat": false,
 		"killMob": "minecraft:enderman",
 		"inventory": [
 			{
@@ -336,7 +307,8 @@
 						"fleeAtHealth": 12
 					},
 					"why": "an enderman in sight: its pearl for eyes of ender"
-				}
+				},
+				"wait": true
 			}
 		],
 		"note": "A calm enderman 22 blocks away beyond a 6-wide lava moat across the whole room."
@@ -346,15 +318,7 @@
 		"seed": "20261024",
 		"monsters": true,
 		"budgetMs": 240000,
-		"repeat": true,
-		"repeatOn": [
-			"NO_TARGET_SEEN",
-			"AREA_CLEARED",
-			"FIGHT_UNTIL_TIMED_OUT",
-			"NO_SEEN_ROUTE",
-			"TARGET_UNREACHABLE",
-			"ACTION_CANCELLED"
-		],
+		"repeat": false,
 		"killMob": "minecraft:enderman",
 		"inventory": [
 			{
@@ -422,7 +386,8 @@
 						"fleeAtHealth": 12
 					},
 					"why": "an enderman in sight: its pearl for eyes of ender"
-				}
+				},
+				"wait": true
 			}
 		],
 		"note": "A calm enderman 36 blocks away beyond a 6-wide lava moat: beyond the default area and across lava."
@@ -432,15 +397,7 @@
 		"seed": "20261024",
 		"monsters": true,
 		"budgetMs": 240000,
-		"repeat": true,
-		"repeatOn": [
-			"NO_TARGET_SEEN",
-			"AREA_CLEARED",
-			"FIGHT_UNTIL_TIMED_OUT",
-			"NO_SEEN_ROUTE",
-			"TARGET_UNREACHABLE",
-			"ACTION_CANCELLED"
-		],
+		"repeat": false,
 		"killMob": "minecraft:enderman",
 		"inventory": [
 			{
@@ -508,7 +465,8 @@
 						"roof": true
 					},
 					"why": "an enderman in sight: its pearl for eyes of ender"
-				}
+				},
+				"wait": true
 			}
 		],
 		"note": "As ender-far-open with the model's roof:true (real games asked for a roof in most enderman hunts)."
