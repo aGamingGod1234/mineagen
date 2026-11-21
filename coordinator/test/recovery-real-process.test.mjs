@@ -100,6 +100,12 @@ test('real coordinator process reconnects to a restored loopback bridge without 
 		const [code, signal] = await once(child, 'exit');
 		assert.equal(code, 0);
 		assert.equal(signal, null);
+		// The child holds no unreferenced handle, so exiting on its own means it closed its bridge socket. This side reads
+		// that close and the end of the child's output as separate events that can land after 'exit', so wait for them.
+		await Promise.all([
+			...[child.stdout, child.stderr].filter((stream) => !stream.readableEnded).map((stream) => once(stream, 'end')),
+			...[...sockets].map((socket) => once(socket, 'close')),
+		]);
 		assert.equal(sockets.size, 0);
 		assert.equal(maxOpenSockets, 1, 'reconnect never overlaps owned bridge sockets');
 		assert.equal(await openConnectionCount(server), 0);
