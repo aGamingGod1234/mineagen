@@ -158,7 +158,6 @@ try {
 			else await s.command(skeleton.replace('%X%', '-299.5').replace('%Y%', '100').replace('%Z%', '20.5'));
 			const steps = [];
 			let maxThreatDistance = 0;
-			let coverSeen = false;
 			let backOuts = 0, backingSeen = false, minHealth = start, died = false, hits = 0, shieldS = 0, fired = false, wallingSeen = false, refusal = null, stopped = null, endDetail = null;
 			let blockMap = null, commandResult = null, commandSentAt = null, wallsAtCommand = null, creeperAt = null, healthAtCreeper = null, creeperExploded = false, maxWalls = 0;
 			if (name !== 'creeper') await s.fastRate();
@@ -168,7 +167,6 @@ try {
 				await s.clock.sleep(250);
 				const o = await s.observeOrNull();
 				const detail = o?.reflexes?.firing?.id === 'default-defend' ? String(o.reflexes.firing.detail ?? '') : '';
-				if (/taking cover from|cover: in cover at|in cover at/.test(detail)) coverSeen = true;
 				if (spawnerCase && o?.position) {
 					maxThreatDistance = Math.max(maxThreatDistance, Math.hypot(o.position.x + 300.5, o.position.z - 16.5));
 				}
@@ -244,7 +242,7 @@ try {
 					endMap.cells[`${dx},${dy},${dz}`] = kind;
 				}
 			}
-			const row = { case: name, run, food, coverSeen, defendFired: fired, hitsBack: hits, backOuts, backingSeen, shieldSeconds: shieldS, wallingSeen, refusal, stopped, maxWalls, wallsAtEnd,
+			const row = { case: name, run, food, defendFired: fired, hitsBack: hits, backOuts, backingSeen, shieldSeconds: shieldS, wallingSeen, refusal, stopped, maxWalls, wallsAtEnd,
 				wallsAtCommand, commandResult, creeperExploded, blastDamage: healthAtCreeper === null ? null : +(healthAtCreeper - (died ? 0 : minHealth)).toFixed(1),
 				endDetail, steps, blockMap, endMap, died, healthLost: died ? start : +(start - minHealth).toFixed(1),
 				seconds, wallSeconds, gameSeconds, rates, tick: { rate: s.tickRate, held: await s.tickReport() } };
@@ -254,7 +252,9 @@ try {
 				row.maxThreatDistance = +maxThreatDistance.toFixed(1);
 				row.pass = !died && maxThreatDistance >= (spawnerCase ? 12 : 16);
 			}
-			if (name === 'cover-zombie') row.pass = !died && coverSeen;
+			// Cover reached by any firing (defend's own step or a low-health cover rule): only a finished move says "in cover at".
+			row.coverSeen = steps.some((step) => /in cover at|already out of sight/.test(step)) || /in cover at|already out of sight/.test(endDetail ?? '');
+			if (name === 'cover-zombie') row.pass = !died && row.coverSeen;
 			runs.push(row);
 			console.log(`[defend] ${name}#${run}: fired ${fired}, hits back ${hits}, back-outs ${backOuts} (backing seen ${backingSeen})${food !== null ? `, food ${food}` : ''}, shield ${shieldS} s, walling ${wallingSeen}, walls max ${maxWalls} end ${wallsAtEnd}${refusal ? `, ${refusal}` : ''}${stopped ? `, ${stopped}` : ''}${commandResult ? `, command ${JSON.stringify(commandResult)} (walls when sent ${wallsAtCommand})` : ''}${healthAtCreeper !== null ? `, creeper exploded ${creeperExploded}, blast damage ${row.blastDamage}` : ''}, ${died ? 'DIED' : `lost ${row.healthLost}`}`);
 			await writeFile(path.join(out, 'runs.json'), JSON.stringify(runs, null, 1));
