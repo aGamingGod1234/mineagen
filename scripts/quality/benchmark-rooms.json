@@ -2032,6 +2032,17 @@
    "reads": "exit code (assert, 1 on fail); OUT/results.json row pass"
   },
   {
+   "room": "dig-options-lava-pool-seen",
+   "fixture": "test-dig-options-live.mjs",
+   "stage": "iron-kit",
+   "skill": "movement",
+   "skill2": "survival",
+   "line": "DIG_OPTION_CASES=lava-pool-seen node scripts/quality/test-dig-options-live.mjs $OUT $JAR",
+   "estMinutes": 1.2,
+   "tickRate": 20,
+   "reads": "exit code (assert, 1 on fail); OUT/results.json row pass"
+  },
+  {
    "room": "dragon",
    "fixture": "test-dragon-live.mjs",
    "stage": "end",

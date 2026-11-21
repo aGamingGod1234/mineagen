@@ -82,6 +82,9 @@ async function shot(label, { sneak = false, wall = false } = {}) {
 	if (hold) await hold.done.catch(() => null);
 	const tick = await played();
 	const result = { label, sneak, wall, start, end: { x: round(last.x), y: round(last.y), z: round(last.z) }, horizontal: round(far), fell: round(start.y - minY), tick };
+	// Resistance keeps the body alive, so the room is judged on falls: a block on the open side must hold it on the bridge.
+	// Standing and sneaking shots are knockback physics (vanilla pushes either off a one-wide bridge) and are only recorded.
+	if (wall) result.pass = result.fell === 0;
 	console.log(JSON.stringify(result));
 	return result;
 }
@@ -99,7 +102,7 @@ async function cancelledSneak(cancelAfterMs) {
 	await rate.clock.sleep(2000);
 	const after = await pos();
 	const tick = await played();
-	const row = { cancelAfterMs, xAtCancel: round(before.x), after: { x: round(after.x), y: round(after.y) }, stayed: after.y > 80.5, state: result.state, message: String(result.message ?? '').slice(0, 200), tick };
+	const row = { cancelAfterMs, xAtCancel: round(before.x), after: { x: round(after.x), y: round(after.y) }, stayed: after.y > 80.5, pass: after.y > 80.5, state: result.state, message: String(result.message ?? '').slice(0, 200), tick };
 	console.log(JSON.stringify(row));
 	return row;
 }

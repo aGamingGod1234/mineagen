@@ -56,6 +56,8 @@ try {
   { name: 'lava-default', fluid: 'lava', args: {}, expect: 'LAVA_AHEAD' },
   { name: 'lava-seal', fluid: 'lava', args: { sealFluids: true }, expect: 'LAVA_AHEAD' },
   { name: 'lava-purpose', fluid: 'lava', args: { sealFluids: true, stopWhenSeen: 'minecraft:lava' }, expect: ['LAVA_AHEAD', 'TARGET_SEEN'] },
+  // A cast-size pool (10 sources, air above) seen across an open cave before any sound: left for casting, not plugged.
+  { name: 'lava-pool-seen', pool: true, pitch: 30, args: { sealFluids: true, stopWhenSeen: 'minecraft:lava' }, expect: ['LAVA_AHEAD', 'TARGET_SEEN'] },
  ].filter(c => !process.env.DIG_OPTION_CASES || process.env.DIG_OPTION_CASES.split(',').includes(c.name));
  for (const [i, c] of cases.entries()) {
   await s.normalRate();
@@ -70,6 +72,11 @@ try {
   if (c.lavaDrop) await s.command(`fill 2 54 ${z - 1} 6 54 ${z + 1} minecraft:lava`);
   if (c.hidden) await s.command(`setblock 2 60 ${z + 2} minecraft:lava`);
   if (c.fluid) await s.command(`setblock 2 60 ${z + 1} minecraft:${c.fluid}`);
+  if (c.pool) {
+   // A cave opening off the body's own cell, its floor a 5x2 lava basin walled by stone, so it cannot flow.
+   await s.command(`fill 0 60 ${z + 1} 6 62 ${z + 4} minecraft:air`);
+   await s.command(`fill 2 59 ${z + 2} 6 59 ${z + 3} minecraft:lava`);
+  }
   await s.command(`clear ${A}`);
   await s.command(`item replace entity ${A} hotbar.0 with minecraft:iron_pickaxe`);
   await s.command(`item replace entity ${A} hotbar.1 with minecraft:cobblestone ${c.full ? 64 : 32}`);
@@ -78,7 +85,7 @@ try {
    await s.command(`item replace entity ${A} hotbar.2 with minecraft:bucket`);
   }
   if (c.full) for (let slot = 2; slot < 36; slot++) await s.command(`item replace entity ${A} container.${slot} with minecraft:diamond 64`);
-  await s.command(`tp ${A} 0.5 60 ${z + 0.5} -90 0`);
+  await s.command(`tp ${A} 0.5 60 ${z + 0.5} -90 ${c.pitch ?? 0}`);
   await s.command(`gamemode survival ${A}`);
   await s.command(`effect give ${A} minecraft:saturation 2 10 true`);
   await sleep(1200);
@@ -96,6 +103,11 @@ try {
   const inventory = await s.command(`data get entity ${A} Inventory`);
   const items = await s.command(`execute at ${A} as @e[type=minecraft:item,distance=..12] run data get entity @s Item`);
   const row = { name: c.name, args, expect: c.expect, result, inventory, items, position: await s.command(`data get entity ${A} Pos`), ...tick };
+  if (c.pool) {
+   let left = 0;
+   for (let x = 2; x <= 6; x++) for (let dz = 2; dz <= 3; dz++) if (/passed/i.test(String(await s.command(`execute if block ${x} 59 ${z + dz} minecraft:lava`)))) left++;
+   row.poolLeft = left;
+  }
   row.pass = [c.expect].flat().includes(result.reasonCode);
   if (c.name === 'full-discard') row.pass &&= /Q-dropped cobblestone\*64/.test(result.message) && /cobblestone/.test(items);
   if (c.name === 'full-default') row.pass &&= /candidate junk stacks: cobblestone\*64 slot 1/.test(result.message) && /discard:/.test(result.message);
@@ -108,6 +120,7 @@ try {
   if (c.lavaDrop) row.pass &&= !/sealed fluids with/.test(result.message);
   // One covered lava source is too small to cast a portal from, so it is plugged like a spill.
   if (c.name === 'lava-purpose') row.pass &&= /a pocket too small for a portal cast/.test(result.message) && /plugged it with cobblestone/.test(result.message);
+  if (c.pool) row.pass &&= row.poolLeft === 10 && !/plugged it/.test(result.message) && /cast_obsidian/.test(result.message);
   rows.push(row);
   await writeFile(join(out, 'results.json'), JSON.stringify(rows, null, 2));
   console.log(`${row.pass ? 'PASS' : 'FAIL'} ${c.name}: ${result.reasonCode}`);
