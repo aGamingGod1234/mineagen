@@ -16,6 +16,7 @@ import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
+import { handRolledTickRate } from './lib/fixture-play.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const out = resolve(process.argv[2] ?? 'runtime/nether-gather-live');
@@ -50,6 +51,11 @@ class Inbox {
 }
 
 let rcon, bridge, record, observation, inbox, revision = 0, ordinal = 0, armed = [];
+// FIXTURE_TICK_RATE (test only): setup (reset, kit, summons, angering) runs at 20 TPS; each fight runs at the fixture rate.
+// Each run's tick holds the rates and vanilla's damage counter (damageTaken, tenths of HP). healthLost compares health
+// before and after the fight, so regeneration during it hides hits at any rate; damageTaken does not.
+let rate;
+const now = () => rate.clock.now();
 const agent = 'Reflex';
 const timeline = [];
 const command = async (text) => {
@@ -92,11 +98,12 @@ let o;
 try {
 	for (let attempt = 0; attempt < 150; attempt += 1) { try { rcon = new HeadlessRconClient({ host: '127.0.0.1', port: port + 1, password: secret, connectTimeoutMs: 500, commandTimeoutMs: 5000 }); await rcon.connect(); break; } catch (error) { await rcon?.close(); if (attempt === 149) throw error; await sleep(1000); } }
 	bridge = new MultiplexedServerBridge({ port, secret }, {}); inbox = new Inbox(bridge);
+	rate = handRolledTickRate(text => command(text), bridge, agent);
 	bridge.on('observation', (event) => {
 		if (event.agentId !== record?.agentId || !event.payload.ready) return;
 		observation = event.payload;
 		const firing = event.payload.reflexes?.firing;
-		timeline.push({ at: Date.now(), firing: firing?.id ?? null, detail: firing?.detail ?? null, using: event.payload.interaction?.usingItem ?? null, x: event.payload.position?.x, action: event.payload.currentAction?.active ? event.payload.currentAction.actionId ?? true : false, health: event.payload.player?.health, incoming: (event.payload.incomingProjectiles ?? []).map((row) => `${row.type}@${row.etaSeconds}`), yaw: event.payload.view?.yaw, air: event.payload.player?.air, y: event.payload.position?.y });
+		timeline.push({ at: now(), firing: firing?.id ?? null, detail: firing?.detail ?? null, using: event.payload.interaction?.usingItem ?? null, x: event.payload.position?.x, action: event.payload.currentAction?.active ? event.payload.currentAction.actionId ?? true : false, health: event.payload.player?.health, incoming: (event.payload.incomingProjectiles ?? []).map((row) => `${row.type}@${row.etaSeconds}`), yaw: event.payload.view?.yaw, air: event.payload.player?.air, y: event.payload.position?.y });
 	});
 	// Follow goal revisions (the accepted goal spec bumps it); reflex rules are not tied to a revision.
 	bridge.on('message', (event) => {
@@ -112,19 +119,20 @@ try {
 	const ready = inbox.wait('ready'); bridge.start(); await ready;
 	await bridge.send('catalog_snapshot', 'server', { refreshedAtEpochMs: Date.now(), models: [{ provider: 'codex', model: 'gpt-6.1-sol', id: 'gpt-6.1-sol', displayName: 'Provider-free reflex fixture', reasoningEfforts: ['low'], serviceTiers: ['default'] }] });
 	await command('difficulty normal'); await command('gamerule minecraft:send_command_feedback false'); await command('gamerule minecraft:spawn_mobs false');
-	await command('time set noon'); await command('forceload add -32 -32 48 48'); await sleep(2000);
+	await command('time set noon'); await command('forceload add -32 -32 48 48'); await rate.idleSleep(2000);
 	await command('fill -24 75 -24 40 95 40 minecraft:air'); await command('fill -24 79 -24 40 79 40 minecraft:stone');
 	const registered = inbox.wait('agent_registered'); console.log(await command(`execute positioned 0.5 80 0.5 run mineagen summon gpt-6.1-sol low ${agent}`));
 	const summoned = await registered; record = { ...(summoned.payload.record ?? summoned.payload), agentId: summoned.agentId };
 	await bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false });
 	const started = inbox.wait('goal_control', (event) => event.payload.operation === 'start'); await command(`mineagen start ${agent} Survive for 1200 seconds.`); record.goalRevision = (await started).payload.goalRevision;
 	await bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false });
-	await sleep(2000); await observe();
+	await rate.idleSleep(2000); await observe();
 	await command(`gamemode survival ${agent}`); await command(`clear ${agent}`);
 	await command(`effect give ${agent} minecraft:saturation 5 10 true`);
 
 
 	const reset = async () => {
+		await rate.normalRate();
 		await command('kill @e[type=!minecraft:player]');
 		// Each fill stays under vanilla's 32,768-block limit (a larger one is refused and leaves the last fixture standing).
 		for (const fill of ['-12 80 -12 20 90 24 minecraft:air', '-12 79 -12 20 79 24 minecraft:stone', '-2 70 -1 2 78 6 minecraft:stone']) {
@@ -134,7 +142,7 @@ try {
 		await command(`effect give ${agent} minecraft:instant_health 1 5 true`); await command(`effect give ${agent} minecraft:saturation 2 10 true`);
 		await command(`clear ${agent}`); await command(`tp ${agent} 0.5 80 0.5 0 0`);
 		await setReflexes([]);
-		await sleep(1000);
+		await rate.idleSleep(1000);
 	};
 	const selected = (name) => only.length === 0 || only.includes(name);
 	// Each scenario runs on its own: a failure is recorded and the next one still runs; results are saved as they come.
@@ -147,7 +155,7 @@ try {
 		console.log(`[scenario] ${name}: ${results[name]?.pass ? 'PASS' : 'FAIL'}`);
 	};
 	const debug = process.env.REFLEX_DEBUG === '1';
-	const until = async (ms, test) => { const end = Date.now() + ms; while (Date.now() < end) { o = await observe(); if (debug) console.log(`[debug] ${JSON.stringify({ rules: o.reflexes?.rules, firing: o.reflexes?.firing, error: o.reflexes?.error, pos: o.position })}`); if (test(o)) return true; await sleep(debug ? 1000 : 250); } return false; };
+	const until = async (ms, test) => { const end = now() + ms; while (now() < end) { o = await observe(); if (debug) console.log(`[debug] ${JSON.stringify({ rules: o.reflexes?.rules, firing: o.reflexes?.firing, error: o.reflexes?.error, pos: o.position })}`); if (test(o)) return true; await rate.clock.sleep(debug ? 1000 : 250); } return false; };
 	const block = async (x, y, z) => (await command(`execute if block ${x} ${y} ${z} minecraft:air`)).includes('passed') ? 'air' : 'solid';
 	const firingSeen = (id) => timeline.some((row) => row.firing === id);
 	// Endermen under open sky teleport away in daylight.
@@ -164,19 +172,20 @@ try {
 	const angerAndFight = async (name, x, z, args, second = null) => {
 		await command(`summon minecraft:enderman ${x} 80 ${z} {UUID:[I;1,2,3,9],${tough}}`);
 		if (second) await command(`summon minecraft:enderman ${second[0]} 80 ${second[1]} {${tough}}`);
-		await sleep(500);
+		await rate.idleSleep(500);
 		await command(`execute as @e[type=minecraft:enderman] run damage @s 1 minecraft:player_attack by ${agent}`);
 		o = await observe(); const before = health(o);
+		const played = await rate.play();
 		const fight = await startAction('fight_target', { targetId: enderman, timeoutMs: 25000, ...args });
 		const done = await fight.result; o = await observe();
 		const alive = (await command('execute if entity @e[type=minecraft:enderman]')).includes('passed');
-		return { result: done.reasonCode, healthLost: Math.round((before - health(o)) * 10) / 10, killed: !alive, ms: done.durationMs ?? null };
+		return { result: done.reasonCode, healthLost: Math.round((before - health(o)) * 10) / 10, killed: !alive, ms: done.durationMs ?? null, tick: await played() };
 	};
 	if (want('shieldTiming')) {
 		try {
 			results.shieldTiming = { runs: [] };
 			for (let i = 0; i < repeats; i += 1) {
-				await reset(); await kit(); await sleep(1200);
+				await reset(); await kit(); await rate.idleSleep(1200);
 				results.shieldTiming.runs.push(await angerAndFight('shieldTiming', 0.5, 4.5, { pursue: false, shield: true, fleeAtHealth: 4, timeoutMs: 15000 },
 					i % 2 === 1 ? [3.5, 3.5] : null));
 			}
@@ -193,7 +202,7 @@ try {
 				await reset(); await kit();
 				// Stone block x -2..2, z 0..4, y 80..83; a 1-wide, 2-high tunnel along x=0 from the mouth at z=4 to z=1.
 				await command('fill -2 80 0 2 83 4 minecraft:stone'); await command('fill 0 80 1 0 81 4 minecraft:air');
-				await command(`tp ${agent} 0.5 80 2.5 0 0`); await sleep(1200);
+				await command(`tp ${agent} 0.5 80 2.5 0 0`); await rate.idleSleep(1200);
 				results.tunnel.runs.push(await angerAndFight('tunnel', 0.5, 6.5, { pursue: false, shield: false }));
 			}
 			const runs = results.tunnel.runs;
@@ -202,6 +211,7 @@ try {
 			await settle('tunnel');
 		} catch (error) { await settle('tunnel', error); }
 	}
+	await writeFile(join(out, 'tick.json'), JSON.stringify(await rate.report(), null, 2));
 	await writeFile(join(out, 'results.json'), JSON.stringify(results, null, 2));
 	console.log(JSON.stringify(results));
 } finally {

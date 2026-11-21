@@ -12,7 +12,7 @@ import net.minecraft.world.phys.Vec3;
  * enderman on a pillar stops walking at it and looks for another, and tries again once one of them has moved. The
  * reach answer is the sword engagement's own search over seen terrain (TARGET_UNREACHABLE, NO_SEEN_ROUTE).
  *
- * <p>Off by default (-Dmineagen.fight.skipUnreachable=true turns it on). Live pearl hunts on 19-20 Nov: an angry
+ * <p>On by default (-Dmineagen.fight.skipUnreachable=false turns it off). Live pearl hunts on 19-20 Nov: an angry
  * enderman in view but out of reach was re-engaged 156-867 times a call (each "kept on" as an attacker), so the hunt's
  * quiet spell never started. Bow volleys and blaze fights are never marked: out of sword reach is normal there.
  */
@@ -33,9 +33,12 @@ final class UnreachableTargets {
 		this.enabled = enabled;
 	}
 
-	/** Read once per call, so a fixture can run both arms in one JVM. */
+	/**
+	 * Read once per call, so a fixture can run both arms in one JVM. On unless the property is "false": the 21 Nov room
+	 * benchmark had the unreachable-enderman room at 0 of 10 with it off and 10 of 10 with it on.
+	 */
 	static UnreachableTargets fromProperty() {
-		return new UnreachableTargets("true".equals(System.getProperty(PROPERTY)));
+		return new UnreachableTargets(!"false".equals(System.getProperty(PROPERTY)));
 	}
 
 	boolean enabled() {

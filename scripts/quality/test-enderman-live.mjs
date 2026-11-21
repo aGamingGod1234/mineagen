@@ -8,6 +8,10 @@ import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
+import { installTickRate, fixtureTickRate } from './watch-replay.mjs';
+import { damageCounter, recordDamageEvidence } from './lib/damage-counter.mjs';
+import { watchObservations } from './lib/fixture-play.mjs';
+import { fixtureSummary, roomVerdict } from './lib/fixture-run.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const out = resolve(process.argv[2] ?? 'runtime/enderman-live');
@@ -41,18 +45,19 @@ class Inbox {
 	}
 }
 
-let rcon, bridge, record, observation, inbox, revision = 0, ordinal = 0, armed = [];
+let rcon, bridge, record, observation, inbox, revision = 0, ordinal = 0, armed = [], rate;
 const agent = 'Ender';
 const timeline = [];
 const command = async (text) => {
 	if (rcon.state === 'closed') { rcon = new HeadlessRconClient({ host: '127.0.0.1', port: port + 1, password: secret, commandTimeoutMs: 5000 }); await rcon.connect(); }
 	return (await rcon.command(text)).text;
 };
-async function observe() {
+async function observe(timeoutMs) {
 	const sequence = observation?.eventSequence ?? 0;
-	const next = inbox.wait('observation', (event) => event.agentId === record.agentId && event.payload.ready && event.payload.eventSequence > sequence);
-	await bridge.send('request_observation', record.agentId, { goalRevision: record.goalRevision });
-	return (await next).payload;
+	const next = inbox.wait('observation', (event) => event.agentId === record.agentId && event.payload.ready && event.payload.eventSequence > sequence, timeoutMs);
+	const sent = bridge.send('request_observation', record.agentId, { goalRevision: record.goalRevision });
+	// The inbox deadline also applies while the bridge is waiting to send the request.
+	return (await Promise.race([next, sent.then(() => next)])).payload;
 }
 /** As the coordinator sends a model's rules: normalized by reflexes.mjs, the complete set, a new revision. */
 async function setReflexes(rules) {
@@ -83,12 +88,17 @@ const only = (process.env.REFLEX_ONLY ?? '').split(',').filter(Boolean);
 let o;
 try {
 	for (let attempt = 0; attempt < 150; attempt += 1) { try { rcon = new HeadlessRconClient({ host: '127.0.0.1', port: port + 1, password: secret, connectTimeoutMs: 500, commandTimeoutMs: 5000 }); await rcon.connect(); break; } catch (error) { await rcon?.close(); if (attempt === 149) throw error; await sleep(1000); } }
+	// FIXTURE_TICK_RATE: every scenario is built at 20 (reset, pen, kit, rules; settle waits pass at the fixture rate) and
+	// the server runs at the fixture rate from the body's first look to the end of its watch, on the fixture clock. A
+	// death's respawn runs at 20 again. drop-odds has no body action (operator kills, a seeded loot table) and stays at 20.
+	rate = installTickRate({ command: text => command(text) }, fixtureTickRate());
 	bridge = new MultiplexedServerBridge({ port, secret }, {}); inbox = new Inbox(bridge);
 	bridge.on('observation', (event) => {
+		rate.clock.observe(event.payload?.world?.gameTime);
 		if (event.agentId !== record?.agentId || !event.payload.ready) return;
 		observation = event.payload;
 		const firing = event.payload.reflexes?.firing;
-		timeline.push({ at: Date.now(), firing: firing?.id ?? null, detail: firing?.detail ?? null, using: event.payload.interaction?.usingItem ?? null, x: event.payload.position?.x, action: event.payload.currentAction?.active ? event.payload.currentAction.actionId ?? true : false, health: event.payload.player?.health, incoming: (event.payload.incomingProjectiles ?? []).map((row) => `${row.type}@${row.etaSeconds}`), yaw: event.payload.view?.yaw, air: event.payload.player?.air, y: event.payload.position?.y });
+		timeline.push({ at: rate.clock.now(), firing: firing?.id ?? null, detail: firing?.detail ?? null, using: event.payload.interaction?.usingItem ?? null, x: event.payload.position?.x, action: event.payload.currentAction?.active ? event.payload.currentAction.actionId ?? true : false, health: event.payload.player?.health, incoming: (event.payload.incomingProjectiles ?? []).map((row) => `${row.type}@${row.etaSeconds}`), yaw: event.payload.view?.yaw, air: event.payload.player?.air, y: event.payload.position?.y });
 	});
 	// Follow goal revisions (the accepted goal spec bumps it); reflex rules are not tied to a revision.
 	bridge.on('message', (event) => {
@@ -117,7 +127,24 @@ try {
 
 
 	await command('gamerule minecraft:mob_griefing false');
+	const damage = await damageCounter(command, agent);
+	const playStart = async () => {
+		const damage0 = await damage().catch(() => null);
+		await rate.fastRate();
+		return { damage0, t0: rate.clock.now(), wall0: Date.now(), timer: await rate.gameTimer() };
+	};
+	const playEnd = async (p) => {
+		// elapsed() reads the world tick first, so the clock is anchored on it when seconds is read.
+		const gameMs = await p.timer.elapsed();
+		const tick = { tickRate: rate.tickRate, seconds: Math.round((rate.clock.now() - p.t0) / 1000), wallSeconds: Math.round((Date.now() - p.wall0) / 1000),
+			gameSeconds: Math.round(gameMs / 1000), rates: await p.timer.rates().catch(() => null) };
+		await rate.normalRate();
+		recordDamageEvidence(tick, p.damage0, await damage().catch(() => null));
+		return tick;
+	};
 	const reset = async () => {
+		// Every scenario is set up at 20, also after one that failed mid-play.
+		await rate.normalRate();
 		await command('kill @e[type=!minecraft:player]');
 		for (const fill of ['-16 80 -8 16 92 40 minecraft:air', '-16 79 -8 16 79 40 minecraft:stone']) {
 			const reply = await command(`fill ${fill}`);
@@ -129,7 +156,7 @@ try {
 		await command(`item replace entity ${agent} armor.chest with minecraft:iron_chestplate`);
 		await command(`item replace entity ${agent} armor.legs with minecraft:iron_leggings`);
 		await setReflexes([]);
-		await sleep(1000);
+		await rate.idleSleep(1000);
 	};
 	const selected = (name) => only.length === 0 || only.includes(name);
 	const scenarios = [];
@@ -138,28 +165,35 @@ try {
 		if (error) results[name] = { ...(results[name] ?? {}), pass: false, error: String(error?.stack ?? error).slice(0, 400) };
 		await writeFile(join(out, 'results.json'), JSON.stringify(results, null, 2));
 		await writeFile(join(out, 'timeline.json'), JSON.stringify(timeline, null, 1));
-		console.log(`[scenario] ${name}: ${results[name]?.pass ? 'PASS' : 'FAIL'}`);
+		console.log(`[scenario] ${name}: ${roomVerdict(results[name]).verdict}`);
 	};
-	const until = async (ms, test) => { const end = Date.now() + ms; while (Date.now() < end) { o = await observe(); if (test(o)) return true; await sleep(250); } return false; };
+	const until = async (ms, test) => { const end = rate.clock.now() + ms; while (rate.clock.now() < end) { o = await observe(); if (test(o)) return true; await rate.clock.sleep(250); } return false; };
 	const endermen = (now) => (now.entities ?? []).filter((row) => row.type === 'minecraft:enderman');
 	const angry = (now) => endermen(now).some((row) => row.appearance?.screaming === true || row.targetingAgent === true);
 	// A calm enderman in a fence pen 20 blocks south, its eyes above the fence: it cannot wander off or walk over.
 	const pen = async (z) => {
 		await command(`fill -1 80 ${z - 1} 1 80 ${z + 1} minecraft:oak_fence`); await command(`setblock 0 80 ${z} minecraft:air`);
 		await command(`summon minecraft:enderman 0.5 80 ${z + 0.5}`);
-		await sleep(1500);
+		await rate.idleSleep(1500);
 	};
 	let died = false;
 	bridge.on('message', (event) => { if (event.type === 'goal_control' && event.payload?.operation === 'dead') died = true; });
-	const stand = async (ms, rows) => { const end = Date.now() + ms; while (Date.now() < end && !died) { try { o = await Promise.race([observe(), sleep(3000).then(() => { throw new Error('no observation'); })]); } catch { if (died) break; continue; } rows.push({ t: Date.now(), health: health(o), angry: angry(o), firing: o.reflexes?.firing?.id ?? null, using: o.interaction?.usingItem ?? null }); await sleep(250); } };
+	const stand = async (ms, rows) => {
+		for await (const sample of watchObservations(rate.clock, observe, ms, () => died)) {
+			o = sample;
+			rows.push({ t: rate.clock.now(), health: health(o), angry: angry(o), firing: o.reflexes?.firing?.id ?? null, using: o.interaction?.usingItem ?? null });
+		}
+	};
 
 	// look_at a point 2.5 blocks behind a calm enderman at its eye height (run d9-end-b's pearl aim): no provocation.
 	if (want('look-past')) {
 		try {
 			await reset(); await pen(20);
+			const play = await playStart();
 			const look = await (await startAction('look_at', { x: 0.5, y: 82.6, z: 23 })).result;
-			await sleep(4000); o = await observe();
-			results['look-past'] = { state: look.state, message: look.message, view: o.view, angry: angry(o), endermen: endermen(o).map((row) => ({ d: row.distance, appearance: row.appearance ?? null, targeting: row.targetingAgent })) };
+			await rate.clock.sleep(4000); o = await observe();
+			const tick = await playEnd(play);
+			results['look-past'] = { tick, state: look.state, message: look.message, view: o.view, angry: angry(o), endermen: endermen(o).map((row) => ({ d: row.distance, appearance: row.appearance ?? null, targeting: row.targetingAgent })) };
 			results['look-past'].pass = look.state === 'SUCCEEDED' && /calm enderman .* eyes/.test(look.message ?? '') && !angry(o);
 			await settle('look-past');
 		} catch (error) { await settle('look-past', error); }
@@ -168,9 +202,10 @@ try {
 	if (want('look-at-head')) {
 		try {
 			await reset(); await pen(20);
+			const play = await playStart();
 			const look = await (await startAction('look_at', { x: 0.5, y: 82.55, z: 20.5 })).result;
 			const provoked = await until(6000, angry);
-			results['look-at-head'] = { state: look.state, message: look.message, view: o.view, provoked };
+			results['look-at-head'] = { state: look.state, message: look.message, view: o.view, provoked, tick: await playEnd(play) };
 			results['look-at-head'].pass = look.state === 'SUCCEEDED' && provoked;
 			await settle('look-at-head');
 		} catch (error) { await settle('look-at-head', error); }
@@ -179,11 +214,12 @@ try {
 		try {
 			await reset(); await pen(20);
 			await command(`item replace entity ${agent} weapon.mainhand with minecraft:ender_pearl 4`);
+			const play = await playStart();
 			const calm = await (await startAction('use_item', { durationMs: 1, mode: 'inspect', expectedItemId: 'minecraft:ender_pearl', aimX: 0.5, aimY: 82.55, aimZ: 20.5 })).result;
 			await (await startAction('look_at', { x: 0.5, y: 82.55, z: 20.5 })).result;
 			const provoked = await until(6000, angry);
 			const hot = await (await startAction('use_item', { durationMs: 1, mode: 'inspect', expectedItemId: 'minecraft:ender_pearl', aimX: 0.5, aimY: 82, aimZ: 18 })).result;
-			results['pearl-preview'] = { calm: calm.message, provoked, angry: hot.message };
+			results['pearl-preview'] = { calm: calm.message, provoked, angry: hot.message, tick: await playEnd(play) };
 			results['pearl-preview'].pass = provoked && /viewMeetsEndermanEyes/.test(calm.message ?? '') && /"angry":true/.test(hot.message ?? '');
 			await settle('pearl-preview');
 		} catch (error) { await settle('pearl-preview', error); }
@@ -192,19 +228,21 @@ try {
 		try {
 			await reset();
 			for (const line of kit) await command(line);
-			await command('summon minecraft:enderman 0.5 80 6.5'); await sleep(1500);
+			await command('summon minecraft:enderman 0.5 80 6.5'); await rate.idleSleep(1500);
 			if (rules.length) o = await setReflexes(rules);
+			const play = await playStart();
 			await (await startAction('look_at', { x: 0.5, y: 82.55, z: 6.5 })).result;
 			const provoked = await until(6000, angry);
 			// Then look away, as the agents did: a provoked enderman freezes while stared at and attacks once you look off.
 			await (await startAction('look_at', { x: 0.5, y: 80, z: -6 })).result;
-			const rows = []; const before = health(o); const started = Date.now();
+			const rows = []; const before = health(o); const started = rate.clock.now();
 			await stand(12000, rows);
-			const diedAfterMs = died ? Date.now() - started : null;
+			const diedAfterMs = died ? rate.clock.now() - started : null;
+			const tick = await playEnd(play);
 			const water = (await command('execute if block 0 80 0 minecraft:water')).includes('passed');
 			const dead = died;
 			if (died) { await command('kill @e[type=minecraft:enderman]'); await (await startAction('respawn', {})).result.catch(() => null); died = false; await sleep(2000); }
-			results[name] = { provoked, healthBefore: before, health: dead ? 0 : health(o), lowest: dead ? 0 : Math.min(...rows.map((row) => row.health)), dead, diedAfterMs,
+			results[name] = { tick, provoked, healthBefore: before, health: dead ? 0 : health(o), lowest: dead ? 0 : Math.min(...rows.map((row) => row.health)), dead, diedAfterMs,
 				waterAtFeet: water, events: (o.reflexes?.events ?? []).slice(-4), samples: rows.filter((_, index) => index % 4 === 0) };
 			return results[name];
 		} catch (error) { await settle(name, error); return null; }
@@ -241,25 +279,31 @@ try {
 		await command(`random reset minecraft:entities/enderman ${salt}`);
 		// Penned while provoked so the look meets its eyes, then released to come at the player.
 		await command('fill -1 80 5 1 80 7 minecraft:oak_fence'); await command('setblock 0 80 6 minecraft:air');
-		await command(`summon minecraft:enderman 0.5 80 6.5 {UUID:[I;0,0,0,${id}]}`); await sleep(1500);
+		await command(`summon minecraft:enderman 0.5 80 6.5 {UUID:[I;0,0,0,${id}]}`); await rate.idleSleep(1500);
+		const play = await playStart();
 		await (await startAction('look_at', { x: 0.5, y: 82.55, z: 6.5 })).result;
 		const provoked = await until(6000, angry);
 		await command('fill -1 80 5 1 80 7 minecraft:air');
-		const before = health(o), started = Date.now(), trail = [];
+		const before = health(o), started = rate.clock.now(), trail = [];
 		const action = await startAction('fight_target', { targetId: uuid, pursue: false, timeoutMs: 30000 });
 		let lowest = before, killedAfterMs = null;
-		const watch = (async () => { while (Date.now() - started < 32000 && !died) { try { o = await Promise.race([observe(), sleep(3000).then(() => { throw new Error('no observation'); })]); } catch { continue; } lowest = Math.min(lowest, health(o) ?? lowest);
-			const at = /\[\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?\]/.exec(await command(`data get entity ${uuid} Pos`));
-			if (!at) { killedAfterMs = Date.now() - started; return; }
-			const row = endermen(o).find((e) => e.uuid === uuid);
-			trail.push({ t: Date.now() - started, at: at.slice(1).map((n) => Math.round(Number(n) * 10) / 10), inView: row !== undefined, angry: row?.appearance?.screaming === true || row?.targetingAgent === true, health: health(o) });
-			await sleep(250); } })();
-		const outcome = await action.result; await watch;
-		await sleep(1500);
+		const watch = async () => {
+			for await (const sample of watchObservations(rate.clock, observe, 32000, () => died)) {
+				o = sample;
+				lowest = Math.min(lowest, health(o) ?? lowest);
+				const at = /\[\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?\]/.exec(await command(`data get entity ${uuid} Pos`));
+				if (!at) { killedAfterMs = rate.clock.now() - started; return; }
+				const row = endermen(o).find((e) => e.uuid === uuid);
+				trail.push({ t: rate.clock.now() - started, at: at.slice(1).map((n) => Math.round(Number(n) * 10) / 10), inView: row !== undefined, angry: row?.appearance?.screaming === true || row?.targetingAgent === true, health: health(o) });
+			}
+		};
+		const [outcome] = await Promise.all([action.result, watch()]);
+		await rate.clock.sleep(1500);
 		const pearls = await pearlsOnGround();
+		const tick = await playEnd(play);
 		const dead = died;
 		if (died) { await command('kill @e[type=minecraft:enderman]'); await (await startAction('respawn', {})).result.catch(() => null); died = false; await sleep(2000); }
-		return { name, tunnel, salt, provoked, fight: outcome.state, reasonCode: outcome.reasonCode ?? null, message: String(outcome.message ?? '').slice(0, 200), healthBefore: before, lost: dead ? before : +(before - lowest).toFixed(1), dead, killed: killedAfterMs !== null, killedAfterMs, pearls, trail: trail.filter((_, index) => index % 4 === 0) };
+		return { tick, name, tunnel, salt, provoked, fight: outcome.state, reasonCode: outcome.reasonCode ?? null, message: String(outcome.message ?? '').slice(0, 200), healthBefore: before, lost: dead ? before : +(before - lowest).toFixed(1), dead, killed: killedAfterMs !== null, killedAfterMs, pearls, trail: trail.filter((_, index) => index % 4 === 0) };
 	};
 	const fights = Number(process.env.ENDER_FIGHTS ?? 3);
 	for (const [name, tunnel, base] of [['fight-open', false, 500], ['fight-tunnel', 'wall', 600], ['fight-hillside', 'hill', 700]]) {
@@ -267,8 +311,10 @@ try {
 		try {
 			const rows = [];
 			for (let index = 0; index < fights; index++) rows.push(await fight(name, tunnel, base + index));
+			const integrity = rows.flatMap(row => row.tick.integrity ?? []);
 			results[name] = { rows, killed: rows.filter(row => row.killed).length, meanLost: +(rows.reduce((sum, row) => sum + row.lost, 0) / rows.length).toFixed(1), deaths: rows.filter(row => row.dead).length, pearls: rows.reduce((sum, row) => sum + row.pearls, 0),
 				meanKillS: rows.some(row => row.killed) ? +(rows.filter(row => row.killed).reduce((sum, row) => sum + row.killedAfterMs, 0) / rows.filter(row => row.killed).length / 1000).toFixed(1) : null };
+			if (integrity.length) results[name].integrity = integrity;
 			// Open ground must kill; a tunnel must keep the body unhurt (whether it also kills is the measurement).
 			results[name].pass = rows.every(row => row.provoked) && results[name].deaths === 0 && (tunnel ? results[name].meanLost === 0 : results[name].killed === rows.length);
 			await settle(name);
@@ -306,11 +352,12 @@ try {
 	results.status = o?.reflexes;
 	await writeFile(join(out, 'results.json'), JSON.stringify(results, null, 2));
 	await writeFile(join(out, 'timeline.json'), JSON.stringify(timeline, null, 1));
-	console.log(JSON.stringify(Object.fromEntries(Object.entries(results).filter(([key]) => key !== 'status').map(([key, value]) => [key, value.pass]))));
-	const failed = Object.entries(results).filter(([key, value]) => key !== 'status' && !value.pass).map(([key]) => key);
-	if (failed.length > 0) { console.log(JSON.stringify(results, null, 2)); process.exitCode = 1; }
+	const summary = fixtureSummary(scenarios.map(name => ({ ...results[name], name })));
+	console.log(summary.line);
+	if (summary.status !== 'PASS') { console.log(JSON.stringify(results, null, 2)); process.exitCode = summary.status === 'INVALID' ? 2 : 1; }
 	else console.log('Enderman mechanics verified');
 } finally {
+	if (rate) await writeFile(join(out, 'tick.json'), JSON.stringify({ tickRate: rate.tickRate, held: await rate.tickReport() }, null, 2)).catch(() => {});
 	if (rcon) await command('stop').catch(() => {});
 	bridge?.stop(); await rcon?.close();
 	await Promise.race([new Promise((done) => child.once('exit', done)), sleep(10000)]); if (child.exitCode === null) child.kill('SIGTERM'); await log.close();

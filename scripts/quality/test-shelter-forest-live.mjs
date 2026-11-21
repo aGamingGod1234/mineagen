@@ -2,10 +2,13 @@
 // Provider-free build_shelter at natural warped-forest ground points (OPUS-PLAN E6 bar: >= 9/10 per seed).
 // CHECKPOINT OUT JAR [points=10], under fix-slot.sh. The operator picks points with spreadplayers around the save
 // point's start (never shown to the body); hostile spawns are off, so this measures construction only.
+// FIXTURE_TICK_RATE runs each build_shelter faster: the teleport, kit, the settle after it (chunk loading, wall-clock work)
+// and the four looks stay at 20 TPS; only the build runs at the raised rate. Points record seconds (game), wallSeconds and
+// rates.
 import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
-import { boot } from './watch-replay.mjs';
+import { boot, fixtureTickRate } from './watch-replay.mjs';
 import { applyQualitySetup, activateQualitySetup } from '../../coordinator/src/benchmark/quality-scenarios.mjs';
 const [checkpointFile, outArg, jarArg, pointsArg = '10', pairedArg] = process.argv.slice(2);
 // pairedArg: an earlier shelter-forest.json; its feet are reused (same seed, same terrain) so arms are paired.
@@ -13,13 +16,13 @@ const paired = pairedArg ? JSON.parse(await readFile(pairedArg, 'utf8')).points 
 const cp = JSON.parse(await readFile(checkpointFile, 'utf8')), out = path.resolve(outArg), jar = path.resolve(jarArg), points = Number(pointsArg);
 if (!process.env.SLOT_PORT_BASE) throw Error('Use fix-slot.sh'); await mkdir(out, { recursive: true }); if ((await readdir(out)).length) throw Error('Fresh output required');
 const result = { kind: 'provider-free build_shelter at natural forest points; no combat claim', checkpoint: path.basename(checkpointFile), seed: cp.seed,
-	checkpointSha256: createHash('sha256').update(await readFile(checkpointFile)).digest('hex'), jarSha256: createHash('sha256').update(await readFile(jar)).digest('hex'), points: [] };
+	checkpointSha256: createHash('sha256').update(await readFile(checkpointFile)).digest('hex'), jarSha256: createHash('sha256').update(await readFile(jar)).digest('hex'), tickRate: fixtureTickRate(), points: [] };
 const save = () => writeFile(path.join(out, 'shelter-forest.json'), JSON.stringify(result, null, 2) + '\n');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const openings = ['north', 'east', 'south', 'west'];
 let s;
 try {
-	s = await boot(out, { jar, template: process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port: Number(process.env.SLOT_PORT_BASE), world: null, seed: cp.seed, spawnMonsters: false, goalTicks: 150000 });
+	s = await boot(out, { jar, template: process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port: Number(process.env.SLOT_PORT_BASE), world: null, seed: cp.seed, spawnMonsters: false, goalTicks: 150000, tickRate: fixtureTickRate() });
 	const registered = s.inbox.wait('agent_registered', () => true, 45000);
 	let summon; for (let i = 0; i < 20; i++) {
 		summon = await s.command('execute positioned 0.5 200 0.5 run mineagen summon gpt-6.1-sol low Probe'); if (!summon.includes('MODEL_CATALOG_UNAVAILABLE')) break;
@@ -35,6 +38,7 @@ try {
 	const origin = (await s.observe()).position;
 	for (let i = 0; i < points; i++) {
 		// A ring of 10 points about 16 blocks apart around the start; spreadplayers lands on natural ground under y 128.
+		await s.normalRate();
 		const a = i * 2 * Math.PI / points, px = Math.round(origin.x + 24 * Math.cos(a)), pz = Math.round(origin.z + 24 * Math.sin(a));
 		await s.command('kill @e[type=!minecraft:player,distance=..64]');
 		const spread = paired ? await s.command(`execute in minecraft:the_nether run tp Probe ${paired[i].feet.x + 0.5} ${paired[i].feet.y} ${paired[i].feet.z + 0.5}`)
@@ -45,9 +49,13 @@ try {
 		let o = await s.observe(); const p = o.position, feet = { x: Math.floor(p.x), y: Math.floor(p.y + 1e-3), z: Math.floor(p.z) };
 		for (let k = 0; k < 4; k++) await s.act('look_at', { x: p.x + 3 * Math.cos(k * Math.PI / 2), y: p.y - 1.5, z: p.z + 3 * Math.sin(k * Math.PI / 2) }).catch(() => null);
 		const opening = openings[i % 4];
+		await s.fastRate();
+		const t0 = s.clock.now(), wall0 = Date.now(), timer = await s.gameTimer();
 		const r = await s.act('build_shelter', { x: feet.x, y: feet.y, z: feet.z, opening, itemId: 'minecraft:cobblestone', roof: true, timeoutMs: 60000 });
 		o = await s.observe();
-		const row = { point: i, spread: String(spread).slice(0, 160), feet, opening, state: r.state, reason: r.reasonCode, message: String(r.message ?? ''), health: o.health };
+		const tick = { seconds: Math.round((s.clock.now() - t0) / 1000), wallSeconds: Math.round((Date.now() - wall0) / 1000), gameSeconds: Math.round((await timer.elapsed()) / 1000), rates: await timer.rates().catch(() => null) };
+		await s.normalRate();
+		const row = { point: i, spread: String(spread).slice(0, 160), feet, opening, state: r.state, reason: r.reasonCode, message: String(r.message ?? ''), health: o.health, ...tick };
 		const dest = String(r.message ?? '').match(/destination=(-?\d+),(-?\d+),(-?\d+)/);
 		if (r.state !== 'SUCCEEDED' && dest) {
 			// Operator-only column dump at the failing cell (never shown to the body): '#' solid-ish, '.' replaceable.
@@ -59,6 +67,7 @@ try {
 		result.points.push(row); await save();
 		console.log(i, JSON.stringify(feet), opening, r.state, r.reasonCode, String(r.message ?? '').slice(0, 200));
 	}
+	result.tick = { rate: s.tickRate, held: await s.tickReport() };
 } catch (error) { result.error = String(error.stack ?? error); }
 finally { await s?.stop().catch(() => {}); }
 result.built = result.points.filter(p => p.state === 'SUCCEEDED').length; result.attempted = result.points.length;

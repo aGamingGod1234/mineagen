@@ -1,9 +1,10 @@
 import { damageTakenBetween } from '../../../coordinator/src/benchmark/quality-metrics.mjs';
 
-/** Vanilla statistic is in tenths of HP; regeneration cannot erase an earlier hit. */
+/** Vanilla statistic is in tenths of HP; an unreadable sample is null. */
 export async function damageCounter(command, agent, objective = 'arena_damage') {
 	if (!/^\w+$/.test(agent) || !/^\w+$/.test(objective)) throw new Error('Invalid damage counter selector');
-	return statCounter(command, agent, objective, 'minecraft.custom:minecraft.damage_taken');
+	const read = await statCounter(command, agent, objective, 'minecraft.custom:minecraft.damage_taken');
+	return () => read().catch(() => null);
 }
 
 /**
@@ -25,6 +26,13 @@ export function damageEvidence(before, after, healthBefore, healthAfter) {
 	};
 }
 
+/** Keep the counter's integrity alongside the number, including in multi-leg results. */
+export function recordDamageEvidence(row, before, after, field = 'damageTaken') {
+	const { damageTaken, integrity } = damageEvidence(before, after);
+	row[field] = damageTaken;
+	if (integrity) (row.integrity ??= []).push(...integrity);
+}
+
 /**
  * The vanilla death count from a deathCount objective, or null when the reply holds none: the reply ends "has 1 [qo_death]",
  * which a trailing-number parse reads as NaN (and `|| 0` then turned every death into 0). Only the setup-owned qo_death
@@ -43,6 +51,14 @@ export async function deathCounter(command, agent, { objective = 'qo_death', uns
 export function deathEvidence(before, after) {
 	const valid = [before, after].every(n => Number.isSafeInteger(n) && n >= 0) && after >= before;
 	return { before, after, valid, deaths: valid ? after - before : null };
+}
+
+/** Keep an unreadable death count distinct from a run with zero deaths. */
+export function recordDeathEvidence(row, before, after, field = 'deaths') {
+	const evidence = deathEvidence(before, after);
+	row[field] = evidence.deaths;
+	if (!evidence.valid) (row.integrity ??= []).push({ file: 'deaths', error: 'Missing or decreasing vanilla death counter' });
+	return evidence;
 }
 
 /** Deliberate-damage fixtures declare an exact result; unspecified fixtures still require zero damage. */
@@ -67,11 +83,11 @@ export async function statCounter(command, agent, objective, criterion) {
 
 /**
  * Shield blocked share per arm from vanilla counters in tenths of HP. Each case holds the four counter reads around it.
- * Pass: the drawn arm blocks at least minShare of the damage and more than the arrow-only arm. A missing or decreasing
+ * Pass: the drawn arm blocks at least minShare of the damage and more than the arrow-only arm (when {@code ran} has it). A missing or decreasing
  * read, or an arm that no arrow hit or was blocked in, makes the whole run invalid evidence (integrity rows), never a zero.
  */
-export function shieldShareVerdict(cases, minShare) {
-	const arms = { arrowOnly: { blocked: 0, taken: 0, cases: [] }, drawn: { blocked: 0, taken: 0, cases: [] } };
+export function shieldShareVerdict(cases, minShare, ran = ['arrowOnly', 'drawn']) {
+	const arms = Object.fromEntries(ran.map(arm => [arm, { blocked: 0, taken: 0, cases: [] }]));
 	const integrity = [];
 	const delta = (before, after) => Number.isSafeInteger(before) && Number.isSafeInteger(after) && after >= before ? after - before : null;
 	for (const { arm, blocked0, blocked1, taken0, taken1, ...rest } of cases) {
@@ -82,9 +98,10 @@ export function shieldShareVerdict(cases, minShare) {
 	}
 	if (integrity.length) return { arms, shareArrowOnly: null, shareDrawn: null, minShare, pass: false, integrity };
 	const share = (arm) => arms[arm].blocked + arms[arm].taken > 0 ? arms[arm].blocked / (arms[arm].blocked + arms[arm].taken) : null;
-	const shareArrowOnly = share('arrowOnly'), shareDrawn = share('drawn');
+	const shareArrowOnly = arms.arrowOnly ? share('arrowOnly') : null, shareDrawn = share('drawn');
 	// An arm no arrow hit or was blocked in measured nothing: the comparison is invalid evidence, not a 0% baseline.
 	const unmeasured = Object.keys(arms).filter(arm => share(arm) === null).map(arm => ({ arm, error: 'No arrow damage taken or blocked in this arm' }));
 	if (unmeasured.length) return { arms, shareArrowOnly, shareDrawn, minShare, pass: false, integrity: unmeasured };
-	return { arms, shareArrowOnly, shareDrawn, minShare, pass: shareDrawn >= minShare && shareDrawn > shareArrowOnly };
+	// Without the arrow-only arm (RULE_ARMS=drawn) the drawn arm answers to the floor alone.
+	return { arms, shareArrowOnly, shareDrawn, minShare, pass: shareDrawn >= minShare && (!arms.arrowOnly || shareDrawn > shareArrowOnly) };
 }

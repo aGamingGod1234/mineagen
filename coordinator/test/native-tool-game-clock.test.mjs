@@ -291,3 +291,87 @@ test('gameClockFromObservations: a slow server that still ticks keeps timers on 
 		assert.ok(firedAt !== null && firedAt >= 520, `fired on game time (${firedAt} ms of wall)`);
 	} finally { clearInterval(ticker); }
 });
+
+test('clock.at: a sample on the game timeline from its gameTime, else its wall stamp scaled at the tick rate', () => {
+	let wall = 1_000_000;
+	const clock = gameClockFromObservations({ tickRate: 60, wallNow: () => wall });
+	const sample = (gameTime, observedAtEpochMs, dimension = 'minecraft:overworld') => ({ world: { worldId: 'w', dimension, gameTime }, observedAtEpochMs });
+	assert.equal(clock.at({ observedAtEpochMs: 999_000 }), 999_000, 'before any sample: its wall stamp');
+	assert.equal(clock.at({}), null, 'no time at all');
+	clock.observe(sample(10_000, wall));
+	const start = clock.now();
+	wall += 1_000;
+	clock.observe(sample(10_060, wall));
+	assert.equal(clock.at(sample(10_060, wall)), start + 3_000, '60 ticks are 3 game s, though 1 s of wall passed');
+	assert.equal(clock.at(sample(10_030, wall - 500)), start + 1_500, 'an older sample of the same world');
+	assert.equal(clock.at({ observedAtEpochMs: wall - 500 }), start + 1_500, 'no gameTime: its wall stamp at 3x from the anchor');
+	assert.equal(clock.at(sample(99_999, wall, 'minecraft:the_nether')), start + 3_000, 'another dimension: its wall stamp');
+	assert.ok(clock.at(sample(20_000, wall)) <= clock.now(), 'never later than now()');
+});
+
+test('WALL_CLOCK.at reads observedAtEpochMs exactly as the runtime did before the clock', async () => {
+	const { WALL_CLOCK, completeClock } = await import('../src/game-clock.mjs');
+	assert.equal(WALL_CLOCK.at({ observedAtEpochMs: 1234 }), 1234);
+	assert.equal(WALL_CLOCK.at({ observedAtEpochMs: Number.NaN }), null);
+	assert.equal(WALL_CLOCK.at(undefined), null);
+	assert.equal(completeClock(WALL_CLOCK), WALL_CLOCK, 'production keeps the very same clock');
+	assert.equal(completeClock({ now: () => 42, sleep: async () => {} }).at({ observedAtEpochMs: 7 }), 42, 'a clock without at() stamps samples with its now()');
+});
+
+// Two failures from one block, then a third: a fixture at 60 TPS sends them 6.7 s and 25 s of wall time after the
+// first, which is 20 s and 75 s of game time.
+async function repeatedFailures(clock, setWall) {
+	const record = { agentId: `clock-repeat-${Math.random().toString(36).slice(2, 8)}`, goalRevision: 1, provider: 'claude', model: 'claude-opus-5-5', reasoningEffort: 'low' };
+	const sent = [];
+	const runtime = new NativeToolRuntime({ ...(clock ? { clock } : {}), bridge: { send: async (type, _agent, payload) => { if (type === 'action_command') sent.push(payload); } } });
+	const base = 1_000_000, repeats = [];
+	try {
+		for (const [index, [wallMs, gameTime]] of [[0, 10_000], [6_667, 10_400], [25_000, 11_500]].entries()) {
+			setWall(base + wallMs);
+			runtime.updateObservation(record, { position: { x: -30.7, y: 66, z: -36.5 }, world: { worldId: 'w', dimension: 'minecraft:overworld', gameTime }, observedAtEpochMs: base + wallMs }, { eventSequence: index + 1 });
+			const pending = runtime.execute({ agentId: record.agentId, goalRevision: 1, turnId: 'turn', callId: `call-${index}`, tool: { kind: 'action', actionType: 'move_to', arguments: { x: -48 - index, y: 68, z: -26, tolerance: 3 } } }, record);
+			await spin();
+			runtime.onActionResult(record, { actionId: sent.at(-1).actionId, state: 'FAILED', reasonCode: 'NO_PATH', executionStarted: true, physicalAttempted: true,
+				observedAtEpochMs: base + wallMs, actionObservation: { position: { x: -30.7, y: 66, z: -36.5 }, observedAtEpochMs: base + wallMs } });
+			repeats.push((await pending).failure?.repeat ?? null);
+		}
+	} finally { runtime.disposeAll(); }
+	return repeats;
+}
+
+test('repeated failures: the 60 s window and the seconds it reports count game time on a game clock', async () => {
+	let wall = 0;
+	const game = await repeatedFailures(gameClockFromObservations({ tickRate: 60, wallNow: () => wall }), (ms) => { wall = ms; });
+	assert.deepEqual(game, [null, '2nd from this block in 20s', '2nd from this block in 55s'], 'the first failure is 75 game s old by the third');
+	const production = await repeatedFailures(null, () => {});
+	assert.deepEqual(production, [null, '2nd from this block in 7s', '3rd from this block in 25s'], 'no clock: wall time, as before');
+});
+
+// A start sample taken 0.9 s of wall time before dispatch: 2.7 s of game time at 60 TPS, past the 2 s the failure's
+// change text names as stale; on wall time (production) it is 0.9 s and not named.
+async function startSampleChange(clock, { sampleAt, wait }) {
+	const record = { agentId: `clock-age-${Math.random().toString(36).slice(2, 8)}`, goalRevision: 1, provider: 'claude', model: 'claude-opus-5-5', reasoningEffort: 'low' };
+	const sent = [];
+	const runtime = new NativeToolRuntime({ ...(clock ? { clock } : {}), bridge: { send: async (type, _agent, payload) => { if (type === 'action_command') sent.push(payload); } } });
+	try {
+		runtime.updateObservation(record, { position: { x: 0.5, y: 66, z: 0.5 }, world: { worldId: 'w', dimension: 'minecraft:overworld', gameTime: 5_000 }, observedAtEpochMs: sampleAt }, { eventSequence: 1 });
+		wait();
+		const pending = runtime.execute({ agentId: record.agentId, goalRevision: 1, turnId: 'turn', callId: 'age', tool: { kind: 'action', actionType: 'move_to', arguments: { x: 9, y: 66, z: 0, tolerance: 1 } } }, record);
+		await spin();
+		runtime.onActionResult(record, { actionId: sent.at(-1).actionId, state: 'FAILED', reasonCode: 'NO_PATH', executionStarted: true, physicalAttempted: true,
+			actionObservation: { position: { x: 4.5, y: 66, z: 0.5 } } });
+		return (await pending).failure.changed;
+	} finally { runtime.disposeAll(); }
+}
+
+test('a body action\'s start sample age counts game time on a game clock', async () => {
+	let wall = 3_000_000;
+	const clock = gameClockFromObservations({ tickRate: 60, wallNow: () => wall });
+	assert.equal(await startSampleChange(clock, { sampleAt: wall, wait: () => { wall += 900; } }), 'moved 4m since a position seen 3s before it started');
+	assert.equal(await startSampleChange(null, { sampleAt: Date.now() - 900, wait: () => {} }), 'moved 4m', 'no clock: 0.9 s of wall time, not named stale');
+});
+
+test('a runtime on a game clock gives its executor wall timers for the cancel acknowledgement', () => {
+	const source = readFileSync(new URL('../src/native-tool-runtime.mjs', import.meta.url), 'utf8');
+	assert.match(source, /acknowledgementSetTimeoutFn: setTimeout, acknowledgementClearTimeoutFn: clearTimeout/);
+});

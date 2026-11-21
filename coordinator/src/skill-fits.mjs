@@ -265,8 +265,8 @@ const INSTINCT_ROUTE = ROUTE.flatMap(row => row.id === 'stone' ? [row, WEAPON] :
 const outOfReach = item => item.slot !== 'mainhand' && item.slot !== 'offhand'
 	&& (item.hotbar === false || Number.isInteger(item.slot) && item.slot >= 9 && item.hotbar !== true);
 
-// The default eat reflex does not top up (hunger 14+) on these, or on a golden apple above health 8, under the instincts
-// arm (ReflexActions.topUpLacks), so food like this in the hotbar does not put food in its reach.
+// The default eat reflex does not top up (hunger 14+) on these, or on a golden apple above health 8 (ReflexActions.topUpLacks,
+// both arms), so food like this in the hotbar does not put food in its reach.
 const TOP_UP_SKIPPED = /^minecraft:(rotten_flesh|spider_eye|poisonous_potato|pufferfish|suspicious_stew|chorus_fruit|chicken)$/;
 const HEALING_FOOD = /^minecraft:(enchanted_)?golden_apple$/;
 // Every vanilla item with a food component, as the eat reflex reads them (ReflexActions.Held.food): EDIBLE plus the foods

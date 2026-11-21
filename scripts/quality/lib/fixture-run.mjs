@@ -46,7 +46,8 @@ export function roomVerdict(row) {
 	if (row.skipped) return { verdict: 'SKIPPED', reason: row.skipped === true ? 'skipped' : firstLine(row.skipped) };
 	if (row.cancelledBeforeStart === true) return { verdict: 'INVALID', reason: 'cancelled before it started' };
 	if (row.error) return { verdict: 'INVALID', reason: `error: ${firstLine(row.error)}` };
-	if (row.integrity?.length) return { verdict: 'INVALID', reason: `missing evidence: ${row.integrity.map(item => [item.file, item.error].filter(Boolean).join(' ')).join('; ')}` };
+	const integrity = [...(row.integrity ?? []), ...(row.tick?.integrity ?? []), ...(row.play?.integrity ?? [])];
+	if (integrity.length) return { verdict: 'INVALID', reason: `missing evidence: ${integrity.map(item => [item.file, item.error].filter(Boolean).join(' ')).join('; ')}` };
 	if (row.measurementStatus === 'INVALID') return { verdict: 'INVALID', reason: firstLine(row.measurementReason ?? 'measurement status INVALID') };
 	if (row.notExercised) return { verdict: 'INVALID', reason: `not exercised: ${firstLine(row.notExercised)}` };
 	if (row.reflexHold?.verdict === 'INVALID') return { verdict: 'INVALID', reason: row.reflexHold.reason };

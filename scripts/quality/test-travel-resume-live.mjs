@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+// FIXTURE_TICK_RATE runs each trip faster: setup stays at 20 TPS, and each trip (from travel_to until its result) runs at
+// the raised rate, with the reflexResume poll on the fixture clock (rate.clock, game time), so a raised rate plays the
+// same game. Each case's `play` records seconds (game), wallSeconds, gameSeconds, rates, damageTaken, deaths and tick.
 import { readFile, writeFile, mkdir, cp, readdir, unlink, open } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,6 +11,9 @@ import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
+import { installTickRate, fixtureTickRate } from './watch-replay.mjs';
+import { damageCounter, recordDamageEvidence, deathCounter, recordDeathEvidence } from './lib/damage-counter.mjs';
+import { fixtureSummary } from './lib/fixture-run.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const out = resolve(process.argv[2] ?? 'runtime/travel-resume-live');
@@ -41,7 +47,7 @@ class Inbox {
 	}
 }
 
-let rcon, bridge, record, observation, inbox, revision = 0, ordinal = 0;
+let rcon, bridge, record, observation, inbox, rate, revision = 0, ordinal = 0;
 const agent = 'Resume';
 const timeline = [];
 const command = async (text) => {
@@ -77,12 +83,14 @@ const only = (process.env.RESUME_ONLY ?? '').split(',').filter(Boolean);
 let o;
 try {
 	for (let attempt = 0; attempt < 150; attempt += 1) { try { rcon = new HeadlessRconClient({ host: '127.0.0.1', port: port + 1, password: secret, connectTimeoutMs: 500, commandTimeoutMs: 5000 }); await rcon.connect(); break; } catch (error) { await rcon?.close(); if (attempt === 149) throw error; await sleep(1000); } }
+	rate = installTickRate({ command: (text) => command(text) }, fixtureTickRate());
 	bridge = new MultiplexedServerBridge({ port, secret }, {}); inbox = new Inbox(bridge);
+	bridge.on('observation', (event) => rate.clock.observe(event.payload?.world?.gameTime));
 	bridge.on('observation', (event) => {
 		if (event.agentId !== record?.agentId || !event.payload.ready) return;
 		observation = event.payload;
 		const firing = event.payload.reflexes?.firing;
-		timeline.push({ at: Date.now(), firing: firing?.id ?? null, action: event.payload.currentAction?.active ? event.payload.currentAction.actionId ?? true : false, health: event.payload.player?.health, incoming: (event.payload.incomingProjectiles ?? []).map((row) => `${row.type}@${row.etaSeconds}`), yaw: event.payload.view?.yaw, air: event.payload.player?.air, y: event.payload.position?.y });
+		timeline.push({ at: rate.clock.now(), firing: firing?.id ?? null, action: event.payload.currentAction?.active ? event.payload.currentAction.actionId ?? true : false, health: event.payload.player?.health, incoming: (event.payload.incomingProjectiles ?? []).map((row) => `${row.type}@${row.etaSeconds}`), yaw: event.payload.view?.yaw, air: event.payload.player?.air, y: event.payload.position?.y });
 	});
 	// Follow goal revisions (the accepted goal spec bumps it); reflex rules are not tied to a revision.
 	bridge.on('message', (event) => {
@@ -98,76 +106,104 @@ try {
 	const ready = inbox.wait('ready'); bridge.start(); await ready;
 	await bridge.send('catalog_snapshot', 'server', { refreshedAtEpochMs: Date.now(), models: [{ provider: 'codex', model: 'gpt-6.1-sol', id: 'gpt-6.1-sol', displayName: 'Provider-free reflex fixture', reasoningEfforts: ['low'], serviceTiers: ['default'] }] });
 	await command('difficulty normal'); await command('gamerule minecraft:send_command_feedback false'); await command('gamerule minecraft:spawn_mobs false');
-	await command('time set noon'); await command('forceload add -32 -32 48 48'); await sleep(2000);
+	await command('time set noon'); await command('forceload add -32 -32 48 48'); await rate.idleSleep(2000);
+	await command('scoreboard objectives add deaths deathCount');
 	await command('fill -24 75 -24 40 95 40 minecraft:air'); await command('fill -24 79 -24 40 79 40 minecraft:stone');
 	const registered = inbox.wait('agent_registered'); console.log(await command(`execute positioned 0.5 80 0.5 run mineagen summon gpt-6.1-sol low ${agent}`));
 	const summoned = await registered; record = { ...(summoned.payload.record ?? summoned.payload), agentId: summoned.agentId };
 	await bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false });
 	const started = inbox.wait('goal_control', (event) => event.payload.operation === 'start'); await command(`mineagen start ${agent} Survive for 1200 seconds.`); record.goalRevision = (await started).payload.goalRevision;
 	await bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false });
-	await sleep(2000); await observe();
+	await rate.idleSleep(2000); await observe();
 	await command(`gamemode survival ${agent}`); await command(`clear ${agent}`);
 	await command(`effect give ${agent} minecraft:saturation 5 10 true`);
 	await command(`effect give ${agent} minecraft:resistance 1000 2 true`);
 	const resetCourse = async () => {
 		await command('kill @e[type=!minecraft:player]'); await command('fill -6 80 -6 6 90 40 minecraft:air'); await command('fill -6 79 -6 6 79 40 minecraft:stone');
 		await command(`clear ${agent}`); await command(`effect give ${agent} minecraft:instant_health 1 3 true`);
-		await command(`tp ${agent} 0.5 80 0.5 0 0`); await sleep(800); return observe();
+		await command(`tp ${agent} 0.5 80 0.5 0 0`); await rate.idleSleep(800); return observe();
 	};
 	const travel = (extra = {}) => startAction('travel_to', { x: 0.5, y: 80, z: 36.5, tolerance: 2, build: false, timeoutMs: 60000, ...extra });
-	const zombie = async () => { await command('summon minecraft:zombie 0.5 80 14.5 {PersistenceRequired:1b,CanPickUpLoot:0b,IsBaby:0b}'); await command('item replace entity @e[type=minecraft:zombie] armor.head with minecraft:leather_helmet'); await sleep(300); };
+	const zombie = async () => { await command('summon minecraft:zombie 0.5 80 14.5 {PersistenceRequired:1b,CanPickUpLoot:0b,IsBaby:0b}'); await command('item replace entity @e[type=minecraft:zombie] armor.head with minecraft:leather_helmet'); await rate.idleSleep(300); };
 	const zombies = async () => Number((await command('execute if entity @e[type=minecraft:zombie]')).match(/\d+/)?.[0] ?? 0);
+	const readDamage = await damageCounter(command, agent);
+	const deaths = () => deathCounter(command, agent, { objective: 'deaths', unsetIsZero: true });
+	// A trip's play window: raised to the fixture rate from just before travel_to to its result; the returned function
+	// ends it (back to 20) and gives what it measured.
+	const startPlay = async () => {
+		const damageBefore = await readDamage(), deathsBefore = await deaths().catch(() => null);
+		await rate.fastRate();
+		const t0 = rate.clock.now(), wall0 = Date.now(), timer = await rate.gameTimer();
+		return async () => {
+			const play = { seconds: Math.round((rate.clock.now() - t0) / 1000), wallSeconds: Math.round((Date.now() - wall0) / 1000), gameSeconds: Math.round((await timer.elapsed()) / 1000), rates: await timer.rates().catch(() => null) };
+			await rate.normalRate();
+			recordDamageEvidence(play, damageBefore, await readDamage());
+			recordDeathEvidence(play, deathsBefore, await deaths().catch(() => null));
+			play.tick = { rate: rate.tickRate, held: await rate.tickReport() };
+			return play;
+		};
+	};
 
 	if (only.length === 0 || only.includes('zombieStop')) {
+		await rate.normalRate();
 		await command('time set noon'); await resetCourse();
 		await command(`item replace entity ${agent} hotbar.0 with minecraft:iron_sword`);
 		o = await setReflexes([]);
 		await zombie();
+		const endPlay = await startPlay();
 		const trip = await travel();
 		const result = await trip.result;
 		o = await observe();
-		results.zombieStop = { state: result.state, reasonCode: result.reasonCode, message: result.message?.slice(0, 400), z: o.position?.z };
+		const play = await endPlay();
+		results.zombieStop = { state: result.state, reasonCode: result.reasonCode, message: result.message?.slice(0, 400), z: o.position?.z, play };
 		results.zombieStop.pass = result.state === 'FAILED' && result.reasonCode === 'HOSTILE_NEAR';
 	}
 
 	// zombieFight: fightThrough:true fights the zombie with the carried sword (fight_target rules), then arrives.
 	if (only.length === 0 || only.includes('zombieFight')) {
+		await rate.normalRate();
 		await command('time set noon'); await resetCourse();
 		await command(`item replace entity ${agent} hotbar.0 with minecraft:iron_sword`);
 		o = await setReflexes([]);
 		await zombie();
 		const before = await zombies();
+		const endPlay = await startPlay();
 		const trip = await travel({ fightThrough: true });
 		const result = await trip.result;
 		o = await observe();
+		const play = await endPlay();
 		const after = await zombies();
-		results.zombieFight = { state: result.state, reasonCode: result.reasonCode, message: result.message?.slice(0, 600), z: o.position?.z, health: health(o), zombiesBefore: before, zombiesAfter: after };
+		results.zombieFight = { state: result.state, reasonCode: result.reasonCode, message: result.message?.slice(0, 600), z: o.position?.z, health: health(o), zombiesBefore: before, zombiesAfter: after, play };
 		results.zombieFight.pass = result.state === 'SUCCEEDED' && result.reasonCode === 'ARRIVED' && /fought through zombie/.test(result.message ?? '') && after === 0;
 	}
 
 	// reflexResume: a hit mid-trip fires a model-armed rule (select bread); the trip is paused under it, then resumes.
 	if (only.length === 0 || only.includes('reflexResume')) {
+		await rate.normalRate();
 		await command('time set noon'); await resetCourse();
 		await command(`item replace entity ${agent} hotbar.0 with minecraft:iron_sword`); await command(`item replace entity ${agent} hotbar.4 with minecraft:bread 4`);
 		o = await setReflexes([{ id: 'hurt-bread', priority: 6, when: { type: 'health_below', value: 19 }, do: { type: 'select', item: 'minecraft:bread' }, maxFirings: 1 }]);
+		const endPlay = await startPlay();
 		const trip = await travel();
 		let hit = false;
+		// The hit lands once the body is past z 6 of the 36-block course: polled every 100 ms of game time for 6 s of it.
 		for (let index = 0; index < 60 && !hit; index += 1) {
-			await sleep(100); o = await observe();
+			await rate.clock.sleep(100); o = await observe();
 			if ((o.position?.z ?? 0) > 6) { await command(`damage ${agent} 4 minecraft:generic`); hit = true; }
 		}
 		const result = await trip.result;
 		o = await observe();
+		const play = await endPlay();
 		results.reflexResume = { hit, state: result.state, reasonCode: result.reasonCode, message: result.message?.slice(0, 600), z: o.position?.z, events: events(o, 'hurt-bread'),
-			firedDuringTrip: timeline.some((row) => row.firing === 'hurt-bread') || events(o, 'hurt-bread').length > 0 };
+			firedDuringTrip: timeline.some((row) => row.firing === 'hurt-bread') || events(o, 'hurt-bread').length > 0, play };
 		results.reflexResume.pass = hit && result.state === 'SUCCEEDED' && result.reasonCode === 'ARRIVED' && /paused 1 time\(s\) by reflex hurt-bread/.test(result.message ?? '') && /resumed 1 time/.test(result.message ?? '');
 	}
 	results.status = o?.reflexes;
 	await writeFile(join(out, 'results.json'), JSON.stringify(results, null, 2));
 	await writeFile(join(out, 'timeline.json'), JSON.stringify(timeline, null, 1));
-	console.log(JSON.stringify(Object.fromEntries(Object.entries(results).filter(([key]) => key !== 'status').map(([key, value]) => [key, value.pass]))));
-	const failed = Object.entries(results).filter(([key, value]) => key !== 'status' && !value.pass).map(([key]) => key);
-	if (failed.length > 0) { console.log(JSON.stringify(results, null, 2)); process.exitCode = 1; }
+	const summary = fixtureSummary(Object.entries(results).filter(([name]) => name !== 'status').map(([name, row]) => ({ ...row, name })));
+	console.log(summary.line);
+	if (summary.status !== 'PASS') { console.log(JSON.stringify(results, null, 2)); process.exitCode = summary.status === 'INVALID' ? 2 : 1; }
 	else console.log('Travel resume mechanics verified');
 } finally {
 	if (rcon) await command('stop').catch(() => {});

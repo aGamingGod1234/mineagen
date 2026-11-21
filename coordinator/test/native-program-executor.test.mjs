@@ -1209,3 +1209,16 @@ test('onError cannot treat an uncertain transport outcome as a failed physical r
 	assert.equal(result.reasonCode, 'BRIDGE_DISCONNECTED');
 	assert.equal(run.commands.length, 1);
 });
+
+test('the cancel acknowledgement runs on its own timers, so a game-clock deadline leaves it on wall time', async () => {
+	const game = [], ack = [];
+	const run = setup({ executeAction: () => new Promise(() => {}), cancelAction: async () => {} },
+		{ setTimeoutFn: (callback, ms) => { const timer = { callback, ms }; game.push(timer); return timer; }, clearTimeoutFn: () => {},
+			acknowledgementSetTimeoutFn: (callback, ms) => { const timer = { callback, ms }; ack.push(timer); return timer; }, acknowledgementClearTimeoutFn: () => {} });
+	const pending = run.executor.run(record, { source: `${prefix} await player.wait(100);`, timeoutMs: 10 }, run.context);
+	game[0].callback();
+	assert.equal(game.length, 1, 'the deadline is on the program timers');
+	assert.deepEqual(ack.map((timer) => timer.ms), [5000], 'the acknowledgement wait is on its own timers');
+	ack[0].callback();
+	assert.equal((await pending).reasonCode, 'PROGRAM_CANCEL_ACK_TIMEOUT');
+});
