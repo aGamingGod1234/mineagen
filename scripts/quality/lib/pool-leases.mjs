@@ -6,7 +6,7 @@
 //   starts.json        times of this computer's recent `boat new` calls, for pacing them under the start rate limit
 //   aside/NAME.json    { reason, at }: the machine failed its cleaning check; it stays running but no batch takes it
 //   idle/NAME.json     { at }: when a batch last gave the machine back (keepalive deletes the longest idle first)
-// A lease is stale when its process is gone or it has not been refreshed for leaseStaleMs (a hung or reused pid), and a
+// A lease is stale when its process is gone (or its pid now belongs to another process), and a
 // stale lease is broken only under the mutex, so two batches can never both take the same machine.
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -103,18 +103,16 @@ export function leaseStore({ dir = defaultPoolDir(), leaseStaleMs = 5 * 60_000, 
 	}
 	const withMutex = fn => withLock(mutexFile, fn);
 
-	// A lease whose holder is provably the same live process (pid and start time) is live however old its heartbeat:
-	// an overloaded computer once kept a live batch from refreshing for 505 s, and breaking its lease put two batches on
-	// the same machines. The heartbeat only decides for a lease that carries no start time (older code) or cannot be
-	// checked here.
+	// A lease is live while its holder's process is: an overloaded computer once kept a live batch from refreshing for
+	// 505 s, and breaking its lease put two batches on the same machines (and let keepalive delete one under it). The
+	// start time, when the lease carries one, tells a reused pid apart. The heartbeat no longer decides: a hung batch
+	// keeps its machines until it is stopped.
 	const staleness = lease => {
 		if (!lease) return 'missing';
 		if (!processAlive(lease.pid)) return `process ${lease.pid} is gone`;
 		const started = lease.pidStart ? processStart(lease.pid) : null;
 		if (started !== null && started !== lease.pidStart) return `process ${lease.pid} is a different process now`;
-		if (started !== null) return null;
-		const age = now() - (lease.heartbeatAt ?? 0);
-		return age > leaseStaleMs ? `no heartbeat for ${Math.round(age / 1000)} s` : null;
+		return null;
 	};
 	const pidStart = processStart(process.pid);
 

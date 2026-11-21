@@ -952,7 +952,7 @@ test('machines named with --machines are leased, cleaned and given back, and nev
 	} finally { await fake.close(); }
 });
 
-test('leases are exclusive across processes, and the lease of a batch that died or hung is broken', async () => {
+test('leases are exclusive across processes, the lease of a batch that died is broken, and a live one is kept however old its heartbeat', async () => {
 	const dir = await mkdtemp(path.join(os.tmpdir(), 'pool-leases-'));
 	try {
 		const lib = new URL('../../scripts/quality/lib/pool-leases.mjs', import.meta.url).href;
@@ -964,10 +964,10 @@ console.log(JSON.stringify(await store.take(['m1', 'm2'], { batch: String(proces
 		const store = leaseStore({ dir });
 		// Every racer has exited: their leases are stale and the next batch breaks them.
 		assert.equal(await store.take(['m1']), 'm1');
-		// A live process whose heartbeat stopped (hung, or a reused pid) loses its lease too; a fresh one keeps it.
+		// A live process keeps its lease whatever its heartbeat says: breaking it put two batches on one machine.
 		await writeFile(path.join(dir, 'leases/m2.json'), JSON.stringify({ token: 'x', pid: process.pid, heartbeatAt: Date.now() - 10 * 60_000 }));
 		await writeFile(path.join(dir, 'leases/m3.json'), JSON.stringify({ token: 'y', pid: process.pid, heartbeatAt: Date.now() }));
-		assert.equal(await leaseStore({ dir }).take(['m3', 'm2']), 'm2');
+		assert.equal(await leaseStore({ dir }).take(['m3', 'm2']), null, 'a live process keeps its lease even with no heartbeat for 10 min (older code wrote no start time)');
 		assert.equal(await leaseStore({ dir }).take(['m3']), null);
 		// A mutex left by a crashed holder is broken.
 		await writeFile(path.join(dir, 'mutex'), JSON.stringify({ pid: 999999999, at: Date.now() }));
