@@ -131,7 +131,7 @@ const breadHeld = o => (o?.inventory?.items ?? []).filter(i => i.itemId === 'min
 async function kit(s) {
 	await s.command(`clear ${AGENT}`);
 	for (const [slot, item] of [['hotbar.0', 'iron_sword'], ['hotbar.1', 'bow'], ['hotbar.2', 'cobblestone 64'], ['hotbar.3', 'bread 16'], ['inventory.0', 'arrow 64'],
-		['weapon.offhand', 'shield'], ['armor.head', 'iron_helmet'], ['armor.chest', 'iron_chestplate'], ['armor.legs', 'iron_leggings'], ['armor.feet', 'iron_boots']])
+		['hotbar.4', 'iron_pickaxe'], ['weapon.offhand', 'shield'], ['armor.head', 'iron_helmet'], ['armor.chest', 'iron_chestplate'], ['armor.legs', 'iron_leggings'], ['armor.feet', 'iron_boots']])
 		await s.command(`item replace entity ${AGENT} ${slot} with minecraft:${item}`);
 	await s.command(`effect clear ${AGENT}`);
 	await s.command(`effect give ${AGENT} minecraft:instant_health 1 10 true`);

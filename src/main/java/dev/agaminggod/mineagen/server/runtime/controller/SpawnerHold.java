@@ -138,6 +138,13 @@ public final class SpawnerHold {
 		return health < TURTLE_HEALTH || health < TURTLE_DONE && elapsedMs - sinceMs < TURTLE_MS;
 	}
 
+	/** Walled in, the body heals to TURTLE_DONE before it opens the doorway again, for at most SEALED_MS. */
+	static final long SEALED_MS = 120_000L;
+
+	static boolean sealedHeal(float health, long sinceMs, long elapsedMs) {
+		return sinceMs >= 0L && health < TURTLE_DONE && elapsedMs - sinceMs < SEALED_MS;
+	}
+
 	/** A rod trip (or any step out of the cell) turns back to the cell below this health: the cell is where it heals. */
 	static boolean backToCell(float health) {
 		return health < TURTLE_HEALTH;

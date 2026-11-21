@@ -70,6 +70,9 @@ public final class SpawnerHoldVerification {
 		check(SpawnerHold.handBack(sense(2, 3.0F, 20, true, 60_000L, false, 0L, true, 0, false, false)) == null, "H2 once the cell stands the body heals in it, no hand-back");
 		check(SpawnerHold.turtle(true, 5.0F, 0L, SpawnerHold.TURTLE_MS * 3), "below the turtle health the shield heal does not stop for time");
 		check(!SpawnerHold.turtle(true, 15.0F, 0L, SpawnerHold.TURTLE_MS), "above it the shield heal stops at its time cap");
+		check(SpawnerHold.sealedHeal(15.0F, 0L, SpawnerHold.TURTLE_MS * 2), "walled in, the heal goes on past the shield heal's time cap below TURTLE_DONE");
+		check(!SpawnerHold.sealedHeal(SpawnerHold.TURTLE_DONE, 0L, 1_000L), "walled in, the heal ends at TURTLE_DONE");
+		check(!SpawnerHold.sealedHeal(5.0F, 0L, SpawnerHold.SEALED_MS), "walled in, the heal ends at SEALED_MS");
 		check(SpawnerHold.backToCell(11.0F) && !SpawnerHold.backToCell(12.0F), "a rod trip turns back to the cell below 12 health");
 		check("OUT_OF_FOOD".equals(SpawnerHold.handBack(sense(2, 12.0F, 10, false, 60_000L, false, 0L, true, 0, false, false))), "H3 hurt, hungry, no food");
 		check(SpawnerHold.handBack(sense(2, 12.0F, 10, true, 60_000L, false, 0L, true, 0, false, false)) == null, "H3 not with food left (the hold eats)");

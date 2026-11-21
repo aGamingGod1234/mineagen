@@ -116,6 +116,10 @@ public final class ServerFightUntilController implements ServerController {
 		Vec3 aim(ServerPlayer body, BlockPos at, Direction face, String itemId);
 		/** Null when placed, else why not. */
 		String place(ServerPlayer body, BlockPos at, Direction face, String itemId);
+		/** Breaks the block at {@code at} with the best carried tool (build_shelter's clearing), or null when this body has no such hands. */
+		default ServerController clear(ServerPlayer body, BlockPos at, long timeoutMs) {
+			return null;
+		}
 	}
 
 	/** A calm enderman not provoked by a stare within this time is passed over. */

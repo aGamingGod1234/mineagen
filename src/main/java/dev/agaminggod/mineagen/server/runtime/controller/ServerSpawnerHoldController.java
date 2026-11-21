@@ -111,6 +111,16 @@ public final class ServerSpawnerHoldController implements ServerController {
 	private int shieldAsks, usingTicks;
 	private final Map<String, Integer> usedInHeal = new LinkedHashMap<>();
 	private final Map<String, Integer> healWinners = new LinkedHashMap<>();
+	/**
+	 * The heal walls the doorway up (sill and window, two blocks), as a player blocks themself in to heal: round 3 live,
+	 * every heal death came after the shield had worn out on 36-45 blocked fireballs through the doorway, so "shield up"
+	 * held an empty offhand and fireballs and fire took the last 11 health in the cell. Once healed, the two blocks are
+	 * mined out and the fight goes on from the same cell.
+	 */
+	private ServerController sealWork, reopenWork;
+	private boolean sealed, sealTried, reopening;
+	private int seals, reopens;
+	private static final long SEAL_MS = 8_000L, REOPEN_MS = 20_000L;
 	private String cancelFacts;
 
 	public ServerSpawnerHoldController(ServerPlayer player, JsonObject arguments, ServerProtectionPolicy protection, BlockPos spawner,
@@ -353,8 +363,13 @@ public final class ServerSpawnerHoldController implements ServerController {
 			if (punching != null) return punching;
 		}
 		if (eatTicks >= 0) return eat(player);
+		if (reopening) {
+			TickResult opening = reopen(player, now);
+			if (opening != null) return opening;
+		}
 		boolean shot = ReflexSensors.blockableShot(player, 1.5D) != null;
-		boolean turtling = SpawnerHold.turtle(inCell, player.getHealth(), turtleSinceMs, elapsed);
+		boolean turtling = sealed ? SpawnerHold.sealedHeal(player.getHealth(), turtleSinceMs, elapsed)
+				: SpawnerHold.turtle(inCell, player.getHealth(), turtleSinceMs, elapsed);
 		if (turtling) {
 			turtleTicks++;
 			if (player.isBlocking()) blockingTicks++;
@@ -367,14 +382,39 @@ public final class ServerSpawnerHoldController implements ServerController {
 				stopEngine(player);
 				turtleSinceMs = elapsed;
 				turtles++;
-				note(String.format(Locale.ROOT, "health %.1f: shield up in the cell to heal (offhand %s, main %s)", player.getHealth(),
+				note(String.format(Locale.ROOT, "health %.1f: heal in the cell (offhand %s, main %s)", player.getHealth(),
 						BuiltInRegistries.ITEM.getKey(player.getOffhandItem().getItem()).getPath(), BuiltInRegistries.ITEM.getKey(player.getMainHandItem().getItem()).getPath()));
+				sealTried = false;
+			}
+			// Walled in or behind the shield, the body is not watching for blazes: the spawner is not quiet for that.
+			lastBlazeMs = elapsed;
+			if (!sealed && !sealTried) {
+				sealTried = true;
+				int carried = blockItem == null ? 0 : ServerFightUntilController.count(player, BuiltInRegistries.ITEM.getValue(Identifier.parse(blockItem)));
+				if (carried >= 2) {
+					shieldInput.release();
+					sealWork = roofing.seal(cell, opening, blockItem, SEAL_MS, now);
+					seals++;
+				}
+			}
+			if (sealWork != null) {
+				TickResult built = sealWork.tick(player, now);
+				if (built.state() == State.RUNNING) return TickResult.running(progress(player));
+				sealWork.cancel(player);
+				sealWork = null;
+				sealed = built.state() == State.SUCCEEDED;
+				note(sealed ? "walled the doorway up to heal" : "walling the doorway up failed: " + built.reasonCode());
 			}
 			int food = foodSlot(player);
-			if (SpawnerHold.healBite(player.getFoodData().getFoodLevel(), biteSafe(player), food >= 0)) {
+			if (sealed ? food >= 0 && player.getFoodData().getFoodLevel() < 20
+					: SpawnerHold.healBite(player.getFoodData().getFoodLevel(), biteSafe(player), food >= 0)) {
 				shieldInput.release();
 				startEat(player, food);
 				return eat(player);
+			}
+			if (sealed) {
+				shieldInput.release();
+				return TickResult.running(progress(player));
 			}
 			shieldUp(player);
 			// Who drives the body's keys in the heal, and whether the winning keys hold the shield (0 of 294 heal ticks blocked).
@@ -389,6 +429,11 @@ public final class ServerSpawnerHoldController implements ServerController {
 			note(String.format(Locale.ROOT, "healed to %.1f in %.0f s", player.getHealth(), (elapsed - turtleSinceMs) / 1000.0D));
 			turtleSinceMs = -1L;
 			shieldInput.release();
+			if (sealed) {
+				reopening = true;
+				TickResult opening = reopen(player, now);
+				if (opening != null) return opening;
+			}
 		}
 		boolean blazeInReach = !player.level().getEntitiesOfClass(LivingEntity.class, player.getBoundingBox().inflate(SpawnerHold.EAT_BLAZE_CLEAR),
 				e -> e.getType() == McEntityTypes.BLAZE && e.isAlive()).isEmpty();
@@ -526,6 +571,39 @@ public final class ServerSpawnerHoldController implements ServerController {
 		float pitch = (float) -Math.toDegrees(Math.atan2(delta.y, Math.hypot(delta.x, delta.z)));
 		shieldInput.apply(player, new AgentInputState(0.0F, 0.0F, false, false, false, false, true, yaw, pitch,
 				player.getInventory().getSelectedSlot(), InteractionHand.OFF_HAND));
+	}
+
+	/** Mines the walled-up doorway open again (window first, then sill). Null once it is open or cannot be opened. */
+	private TickResult reopen(ServerPlayer player, long now) {
+		if (reopenWork == null) {
+			BlockPos doorway = cell.relative(opening);
+			BlockPos next = null;
+			for (BlockPos at : new BlockPos[] {doorway.above(), doorway})
+				if (!player.level().getBlockState(at).getCollisionShape(player.level(), at).isEmpty()) { next = at; break; }
+			if (next == null) {
+				sealed = false;
+				reopening = false;
+				reopens++;
+				note("doorway open again");
+				return null;
+			}
+			reopenWork = roofing.clear(player, next, REOPEN_MS);
+			if (reopenWork == null) {
+				reopening = false;
+				note("no way to mine the doorway open: staying walled in");
+				return null;
+			}
+		}
+		TickResult result = reopenWork.tick(player, now);
+		if (result.state() == State.RUNNING) return TickResult.running(progress(player));
+		reopenWork.cancel(player);
+		reopenWork = null;
+		if (result.state() != State.SUCCEEDED) {
+			reopening = false;
+			note("mining the doorway open failed: " + result.reasonCode());
+			return null;
+		}
+		return TickResult.running(progress(player));
 	}
 
 	private void startEat(ServerPlayer player, int slot) {
@@ -723,10 +801,10 @@ public final class ServerSpawnerHoldController implements ServerController {
 
 	private String summary(ServerPlayer player, long elapsed) {
 		int held = ServerFightUntilController.count(player, untilItem);
-		return String.format(Locale.ROOT, "spawner hold at %s: cell %s, %d site%s failed, %d build%s; %+d %s in %.0f s; %d engine run%s %s; %d rod trip%s; %d meal%s; %d defend%s; %d shield heal%s (shield up %d of %d ticks, asked %d, using %d %s, keys %s, %d bite%s stopped for a volley); %d fire%s punched out; hurts %s; health lost %s%s",
+		return String.format(Locale.ROOT, "spawner hold at %s: cell %s, %d site%s failed, %d build%s; %+d %s in %.0f s; %d engine run%s %s; %d rod trip%s; %d meal%s; %d defend%s; %d heal%s (%d walled in, %d reopened; shield up %d of %d ticks, asked %d, using %d %s, keys %s, %d bite%s stopped for a volley); %d fire%s punched out; hurts %s; health lost %s%s",
 				spawner.toShortString(), cell == null ? "none" : cell.toShortString(), sitesFailed, sitesFailed == 1 ? "" : "s", builds, builds == 1 ? "" : "s",
 				held - Math.max(0, startHeld), untilItemId, elapsed / 1000.0D, engineRuns, engineRuns == 1 ? "" : "s", engineEnds, trips, trips == 1 ? "" : "s",
-				meals, meals == 1 ? "" : "s", defends, defends == 1 ? "" : "s", turtles, turtles == 1 ? "" : "s", blockingTicks, turtleTicks, shieldAsks, usingTicks, usedInHeal, healWinners, bitesStopped, bitesStopped == 1 ? "" : "s", firesPunched, firesPunched == 1 ? "" : "s", hurts, lostText(), log.isEmpty() ? "" : "; log: " + String.join(" | ", log.subList(Math.max(0, log.size() - 6), log.size())));
+				meals, meals == 1 ? "" : "s", defends, defends == 1 ? "" : "s", turtles, turtles == 1 ? "" : "s", seals, reopens, blockingTicks, turtleTicks, shieldAsks, usingTicks, usedInHeal, healWinners, bitesStopped, bitesStopped == 1 ? "" : "s", firesPunched, firesPunched == 1 ? "" : "s", hurts, lostText(), log.isEmpty() ? "" : "; log: " + String.join(" | ", log.subList(Math.max(0, log.size() - 6), log.size())));
 	}
 
 	private String lostText() {
@@ -761,6 +839,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 		cancelWalk(player);
 		if (work != null) { work.cancel(player); work = null; }
 		if (collector != null) { collector.cancel(player); collector = null; }
+		if (sealWork != null) { sealWork.cancel(player); sealWork = null; }
+		if (reopenWork != null) { reopenWork.cancel(player); reopenWork = null; }
 		returning = false;
 		eatTicks = -1;
 		eatInput.release();
