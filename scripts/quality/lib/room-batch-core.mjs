@@ -3,7 +3,7 @@
 import { spawn } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, readdir, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
-import { finishRun, rowFailed, rowInvalid, rowPassed } from './fixture-run.mjs';
+import { finishRun, roomVerdict } from './fixture-run.mjs';
 
 const ROOM_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
@@ -212,7 +212,7 @@ export function armTotals({ summary, rows, perRoom }) {
 	const missing = perRoom.some(room => room.rows < room.planned);
 	const known = key => !missing && ran.every(row => Number.isFinite(row[key])) ? sum(ran.map(row => row[key])) : null;
 	// The scorer's own predicate: a safe run that missed its bar (pass: true, bar: false) is a fail, not a pass.
-	const passed = rows.filter(rowPassed).length;
+	const passed = rows.filter(row => roomVerdict(row).verdict === 'PASS').length;
 	return {
 		pass: passed, fail: summary.failed, invalid: summary.invalid, notStarted: summary.notStarted, status: summary.status,
 		lostRooms: perRoom.filter(room => room.lost).map(room => room.room),
@@ -237,7 +237,7 @@ export function formatSummary({ batch, merged, arms, wallSeconds, vms, rooms }) 
 			if (entry.lost) return `LOST (${entry.reason})`;
 			const rows = merged[arm].rows.filter(row => row.room === room.room);
 			if (!rows.length) return `no rows (exit ${entry.exit})`;
-			return rows.map(row => `${rowInvalid(row) ? 'INVALID' : rowFailed(row) ? 'fail' : row.pass === true ? 'pass' : 'unknown'} d=${row.deaths ?? '?'} dmg=${row.damageTaken ?? '?'}`).join(', ') + ` ${clock(entry.seconds ?? 0)}`;
+			return rows.map(row => `${({ PASS: 'pass', FAIL: 'fail', INVALID: 'INVALID', SKIPPED: 'skipped' })[roomVerdict(row).verdict]} d=${row.deaths ?? '?'} dmg=${row.damageTaken ?? '?'}`).join(', ') + ` ${clock(entry.seconds ?? 0)}`;
 		});
 		lines.push(`${room.room}: ${cells.join(' | ')}`);
 	}

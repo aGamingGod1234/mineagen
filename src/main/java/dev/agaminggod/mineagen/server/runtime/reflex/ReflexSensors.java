@@ -30,6 +30,7 @@ import net.minecraft.world.entity.monster.Monster;
 import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.entity.projectile.arrow.AbstractArrow;
 import net.minecraft.world.entity.projectile.hurtingprojectile.AbstractHurtingProjectile;
+import net.minecraft.world.item.BowItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -347,7 +348,48 @@ public final class ReflexSensors {
 			best = eta;
 			soonest = projectile;
 		}
+		if (soonest == null && condition.flag("drawn")) {
+			Mob archer = drawnAt(player, frame);
+			if (archer != null) return new Reading(true, archer);
+		}
 		return soonest == null ? Reading.FALSE : new Reading(true, soonest);
+	}
+
+	/**
+	 * Ticks into a bow draw at which {@code drawn} reads true. Bow mobs release at 20 (vanilla RangedBowAttackGoal), and a
+	 * shield blocks only 5 ticks after it is raised, plus up to 5 to turn. In CP2r the median skeleton shot came from about
+	 * 4 blocks and the arrow reflex started 2 ticks before impact, so waiting for the arrow left 28 of 36 hits unblocked
+	 * with a shield in hand.
+	 */
+	static final int DRAW_RAISE_TICKS = 8;
+	/** How far a drawn bow is noticed: about a skeleton's 15-block shooting range, with room for one closing in. */
+	static final double DRAW_RANGE = 24.0D;
+	/** How far off its head points from the body and still reads as aimed at it (horizontal: a long shot aims high). */
+	static final double DRAW_AIM_DEGREES = 30.0D;
+
+	/** The nearest visible mob holding a bow drawn {@link #DRAW_RAISE_TICKS}+ ticks with its head turned to the body. */
+	static Mob drawnAt(ServerPlayer player, ObservationVisibility.Frame frame) {
+		Vec3 body = player.getBoundingBox().getCenter();
+		Mob nearest = null;
+		double best = Double.POSITIVE_INFINITY;
+		for (Mob mob : player.level().getEntitiesOfClass(Mob.class, player.getBoundingBox().inflate(DRAW_RANGE), Mob::isAlive)) {
+			if (!mob.isUsingItem() || !(mob.getUseItem().getItem() instanceof BowItem) || mob.getTicksUsingItem() < DRAW_RAISE_TICKS) continue;
+			double distance = player.distanceTo(mob);
+			if (distance > DRAW_RANGE || distance >= best) continue;
+			if (!headTurnedTo(mob.getYHeadRot(), mob.position(), body, DRAW_AIM_DEGREES)) continue;
+			if (!frame.canSeeEntity(mob)) continue;
+			best = distance;
+			nearest = mob;
+		}
+		return nearest;
+	}
+
+	/** Whether a head at {@code yaw} (Minecraft degrees) standing at {@code from} faces {@code to} within {@code degrees}. */
+	static boolean headTurnedTo(float yaw, Vec3 from, Vec3 to, double degrees) {
+		double dx = to.x - from.x, dz = to.z - from.z;
+		if (Math.hypot(dx, dz) < 1.0E-3D) return true;
+		float toward = (float) Math.toDegrees(Math.atan2(-dx, dz));
+		return Math.abs(Mth.wrapDegrees(toward - yaw)) <= degrees;
 	}
 
 	/**

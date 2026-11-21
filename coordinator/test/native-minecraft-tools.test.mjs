@@ -871,7 +871,7 @@ test('a control topic naming an action or tool under the wrong prefix reads the 
 		assert.equal(call.topic, read);
 		assert.match(toolAdjustments(call).topic, new RegExp(`asked ${asked}`));
 	}
-	assert.throws(() => normalizeMinecraftToolCall('capabilities', { section: 'control', topic: 'tool:fly' }), /control reference topic is not supported/);
+	assert.throws(() => normalizeMinecraftToolCall('capabilities', { section: 'control', topic: 'tool:fly' }), /control topic "tool:fly" is unknown; capabilities\(\{section:"control"\}\) lists topics/);
 });
 
 test('cast_obsidian takes a site with count or frame and barter_until an item and count; both default their timeout to five minutes', () => {
