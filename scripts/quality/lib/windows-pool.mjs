@@ -141,8 +141,10 @@ exit $p.ExitCode`;
 if (Test-Path -LiteralPath ${psQuote(job.outDir)}) { Remove-Item -Recurse -Force -LiteralPath ${psQuote(job.outDir)} }
 $r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = 'powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand ${encode(launch)}'; CurrentDirectory = ${psQuote(windowsPath(layout.code))} }
 if ($r.ReturnValue -ne 0) { throw "Win32_Process.Create returned $($r.ReturnValue)" }
-"pid=$($r.ProcessId)"`);
+$p = Get-CimInstance Win32_Process -Filter "ProcessId=$($r.ProcessId)"
+"pid=$($r.ProcessId) born=$(if ($p) { $p.CreationDate.ToFileTimeUtc() } else { 0 })"`);
 			vm.pid = Number(/pid=(\d+)/.exec(text)?.[1]);
+			vm.born = /born=(\d+)/.exec(text)?.[1] ?? '0';
 			vm.outDir = layout.out;
 		},
 		async poll(vm, room) {
@@ -166,9 +168,11 @@ if ($r.ReturnValue -ne 0) { throw "Win32_Process.Create returned $($r.ReturnValu
 			const pc = machines.get(vm.host);
 			const dir = vm.dir ?? `${batchDir}/w${vm.slot}`;
 			// Kill the room's tree first, then anything still running from this worker's folder, then delete the folder
-			// (retried: Windows refuses to delete files a process held a moment ago).
+			// (retried: Windows refuses to delete files a process held a moment ago). Windows reuses a pid once its process
+			// exits, so the tree is killed only while that pid still has the room parent's start time.
 			await powershell(vm.host, `
-${vm.pid ? `try { & taskkill /T /F /PID ${vm.pid} 2>&1 | Out-Null } catch {}` : ''}
+${vm.pid ? `$p = Get-CimInstance Win32_Process -Filter "ProcessId=${vm.pid}"
+if ($p -and $p.CreationDate.ToFileTimeUtc() -eq ${vm.born}) { try { & taskkill /T /F /PID ${vm.pid} 2>&1 | Out-Null } catch {} }` : ''}
 $mark = @(${psQuote(dir)}, ${psQuote(windowsPath(dir))})
 Get-CimInstance Win32_Process | Where-Object { $c = $_.CommandLine; $c -and ($mark | Where-Object { $c.Contains($_) }) } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 foreach ($i in 1..10) { if (-not (Test-Path -LiteralPath ${psQuote(dir)})) { break }; Remove-Item -Recurse -Force -LiteralPath ${psQuote(dir)} -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2 }

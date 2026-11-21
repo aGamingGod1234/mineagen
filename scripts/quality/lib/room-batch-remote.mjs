@@ -18,7 +18,8 @@ await mkdir(job.outDir, { recursive: true });
 const expand = (text, values) => String(text).replace(/\$(OUT|JAR)\b/g, (_, key) => values[key]);
 const windows = process.platform === 'win32';
 const portBase = job.portBase ?? 28000;
-// On Linux each arm leads its own process group; Windows has no groups, so taskkill takes the tree from the arm's pid.
+// On Linux each arm leads its own process group. Windows has no groups, so taskkill takes the tree from the arm's pid,
+// and only while the arm still runs: Windows hands an exited pid to the next process.
 function killTree(pid, signal) {
 	if (windows) spawnSync('taskkill', ['/T', '/F', '/PID', String(pid)], { stdio: 'ignore', windowsHide: true });
 	else try { process.kill(-pid, signal); } catch {}
@@ -61,7 +62,7 @@ const runs = job.lines.map((line, slot) => new Promise(resolve => {
 	const timer = setTimeout(() => {
 		timedOut = true;
 		killTree(child.pid, 'SIGTERM');
-		setTimeout(() => killTree(child.pid, 'SIGKILL'), 20000).unref();
+		if (!windows) setTimeout(() => killTree(child.pid, 'SIGKILL'), 20000).unref();
 	}, job.timeoutMs);
 	let settled = false;
 	const finish = (exit, signal, error) => {
@@ -69,8 +70,8 @@ const runs = job.lines.map((line, slot) => new Promise(resolve => {
 		settled = true;
 		clearTimeout(timer);
 		// Fixture servers are the fixture's children in the same group; nothing of this arm may outlive it. On Windows the
-		// tree of an exited pid cannot be walked, so there the pool also kills the room's tree when it retires the slot.
-		killTree(child.pid, 'SIGKILL');
+		// arm's pid is gone by now, so the pool kills what is left of the room when it retires the slot.
+		if (!windows) killTree(child.pid, 'SIGKILL');
 		log.end();
 		resolve({ arm: line.arm, exit, signal, error: error ?? null, timedOut, seconds: Math.round((Date.now() - began) / 1000) });
 	};
