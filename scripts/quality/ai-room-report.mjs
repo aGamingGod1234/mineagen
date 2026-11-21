@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Per-room comparison of an AI-room batch (room-batch.mjs --player model):
 //   node scripts/quality/ai-room-report.mjs BATCH_OUT [--json FILE]
-// Reads each arm's merged rows (OUT/ai/result.json, OUT/script/result.json) and each room's done.json, groups the
-// repeats of a room (NAME-rN), and prints per room and arm: valid runs, pass rate over valid runs, deaths, damage
+// Reads each room's arm folders (OUT/rooms/ROOM/ARM/) and done.json, groups the repeats of a room (NAME-rN), and
+// prints per room and arm: valid runs, pass rate over valid runs, deaths, damage
 // taken (HP), median minutes, and for the model arm median and total model calls. Minutes are the model's play time
 // for the ai arm (goal start to end) and the arm's whole run (boot included) for the script arm, whose fixtures time
 // play differently. INVALID runs count apart and never enter a rate.
@@ -20,6 +20,28 @@ const median = values => {
 const total = values => values.every(Number.isFinite) ? values.reduce((a, b) => a + b, 0) : null;
 const baseRoom = name => String(name).replace(/-r\d+$/, '');
 const readJson = async file => JSON.parse(await readFile(file, 'utf8'));
+const elapsedMinutes = row => Number.isFinite(row.finishedAt) && Number.isFinite(row.startedAt) ? (row.finishedAt - row.startedAt) / 60000 : null;
+
+/**
+ * One arm's rows in a room folder. Most fixtures write finishRun rows (result.json). Two stand-ins write their own:
+ * test-drawn-bow-live.mjs (acceptance.json, with arrow damage in tenths of HP per rule arm in results.json; the
+ * production rule is the drawn one, and the fixture heals the body below 12 HP, so it cannot die) and
+ * test-travel-live.mjs (results.json { results }: pass on arrival with no death).
+ */
+export async function readArmRows(dir) {
+	const rows = await readJson(path.join(dir, 'result.json')).catch(() => null);
+	if (Array.isArray(rows)) return rows;
+	const accepted = await readJson(path.join(dir, 'acceptance.json')).catch(() => null), acceptance = Array.isArray(accepted) ? accepted[0] : accepted;
+	const results = await readJson(path.join(dir, 'results.json')).catch(() => null);
+	if (acceptance && typeof acceptance === 'object' && results?.drawnBow) {
+		const taken = results.drawnBow.arms?.drawn?.taken;
+		return [{ ...acceptance, deaths: 0, damageTaken: Number.isFinite(taken) ? taken / 10 : null, minutes: elapsedMinutes(acceptance), note: 'drawn-bow: idle body, heals below 12 HP' }];
+	}
+	if (Array.isArray(results?.results)) return results.results.map(run => run.error ? { name: run.id, pass: false, error: String(run.error).split('\n')[0] }
+		: { name: run.id, pass: run.arrived === true && run.deaths === 0, deaths: run.deaths ?? null, damageTaken: run.damage ?? null, minutes: Number.isFinite(run.wallSeconds) ? run.wallSeconds / 60 : null,
+			blocksMined: run.blocksMined ?? null, pickaxeUses: run.pickaxeUses ?? null, startedAt: run.startedAtEpochMs, finishedAt: run.endedAtEpochMs });
+	return [];
+}
 
 export function compareArms({ arms, done }) {
 	const rooms = new Map();
@@ -32,7 +54,7 @@ export function compareArms({ arms, done }) {
 	return [...rooms].map(([room, byArm]) => ({ room, arms: Object.fromEntries(Object.entries(byArm).map(([arm, runs]) => {
 		const valid = runs.filter(run => run.verdict === 'PASS' || run.verdict === 'FAIL');
 		const passed = valid.filter(run => run.verdict === 'PASS').length;
-		const minutes = runs.map(run => Number.isFinite(run.playMinutes) ? run.playMinutes : Number.isFinite(run.armSeconds) ? run.armSeconds / 60 : null);
+		const minutes = runs.map(run => Number.isFinite(run.playMinutes) ? run.playMinutes : Number.isFinite(run.minutes) ? run.minutes : Number.isFinite(run.armSeconds) ? run.armSeconds / 60 : null);
 		return [arm, { runs: runs.length, valid: valid.length, passed, invalid: runs.length - valid.length, passRate: valid.length ? passed / valid.length : null,
 			deaths: total(valid.map(run => run.deaths)), damage: total(valid.map(run => run.damageTaken)), medianMinutes: median(minutes),
 			medianModelCalls: median(runs.map(run => run.modelCalls)), modelCalls: runs.some(run => Number.isFinite(run.modelCalls)) ? total(runs.map(run => run.modelCalls ?? 0)) : null,
@@ -58,11 +80,16 @@ export function formatComparison(rooms, arms) {
 
 async function main([dir, ...rest]) {
 	if (!dir || dir === '--help') { console.log('Usage: ai-room-report.mjs BATCH_OUT [--json FILE]'); return; }
-	const out = path.resolve(dir), arms = {};
-	for (const arm of ['ai', 'script']) arms[arm] = await readJson(path.join(out, arm, 'result.json')).catch(() => null);
-	for (const arm of Object.keys(arms)) if (!Array.isArray(arms[arm])) delete arms[arm];
-	const done = {};
-	for (const room of await readdir(path.join(out, 'rooms')).catch(() => [])) done[room] = await readJson(path.join(out, 'rooms', room, 'done.json')).catch(() => null);
+	const out = path.resolve(dir), arms = {}, done = {};
+	for (const room of (await readdir(path.join(out, 'rooms')).catch(() => [])).filter(name => !name.startsWith('.')).sort()) {
+		done[room] = await readJson(path.join(out, 'rooms', room, 'done.json')).catch(() => null);
+		for (const arm of ['ai', 'script']) {
+			if (!done[room]?.arms?.[arm]) continue;
+			const run = done[room].arms[arm], killed = run.timedOut ? 'room timeout' : run.signal ? `signal ${run.signal}` : run.error ? `launch error: ${run.error}` : null;
+			const rows = await readArmRows(path.join(out, 'rooms', room, arm));
+			(arms[arm] ??= []).push(...(rows.length ? rows : [{ pass: false, error: 'no result rows' }]).map(row => ({ ...row, room, ...(killed ? { integrity: [...(row.integrity ?? []), { file: 'arm', error: `killed (${killed})` }] } : {}) })));
+		}
+	}
 	const rooms = compareArms({ arms, done });
 	console.log(formatComparison(rooms, Object.keys(arms)));
 	const json = rest[0] === '--json' ? rest[1] : null;
