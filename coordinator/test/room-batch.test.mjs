@@ -533,3 +533,258 @@ if (args.includes('new')) {
 		assert.ok(calls.some(args => args.includes('delete') && args.includes('bx_cancel_test')), 'created machine was deleted before exit');
 	} finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+// The warm pool against a fake boat: sandboxes are files, exec runs the script here with HOME at the sandbox's own folder.
+const FAKE_BOAT = `import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+import path from 'node:path';
+const dir = process.env.FAKE_BOAT_DIR, boxes = path.join(dir, 'sandboxes');
+mkdirSync(boxes, { recursive: true });
+const args = process.argv.slice(2).filter(arg => arg !== '--no-update');
+appendFileSync(path.join(dir, 'calls.log'), JSON.stringify(args) + '\\n');
+const opt = name => { const at = args.indexOf(name); return at < 0 ? null : args[at + 1]; };
+const iso = ms => new Date(ms).toISOString();
+const home = id => path.join(dir, 'homes', id);
+const read = id => existsSync(path.join(boxes, id + '.json')) ? JSON.parse(readFileSync(path.join(boxes, id + '.json'), 'utf8')) : null;
+const save = box => writeFileSync(path.join(boxes, box.id + '.json'), JSON.stringify(box));
+const out = value => console.log(JSON.stringify(value));
+const [command, id] = args;
+if (command === 'new') {
+	if (process.env.FAKE_BOAT_LIMIT_ONCE && !existsSync(path.join(dir, 'limited'))) { writeFileSync(path.join(dir, 'limited'), '1'); console.error('429 rate_limited: the start limit for this minute is full, retryAfterSeconds 1'); process.exit(1); }
+	const box = { id: 'bx_' + randomBytes(4).toString('hex'), name: opt('--name'), type: opt('--type'), state: 'idle', createdAt: iso(Date.now()), archiveAfter: iso(Date.now() + Number(opt('--ttl')) * 1000) };
+	mkdirSync(path.join(home(box.id), 'rooms/jdk/bin'), { recursive: true });
+	mkdirSync(path.join(home(box.id), 'rooms/template-26.3'), { recursive: true });
+	writeFileSync(path.join(home(box.id), 'rooms/jdk/bin/java'), '#!/bin/sh\\n', { mode: 0o755 });
+	writeFileSync(path.join(home(box.id), 'rooms/template-26.3/server.jar'), '');
+	save(box); out({ event: 'ready', id: box.id });
+} else if (command === 'list') out({ sandboxes: readdirSync(boxes).map(file => JSON.parse(readFileSync(path.join(boxes, file), 'utf8'))) });
+else if (command === 'snapshots') out({ named: [{ name: 'img', snapshotId: process.env.FAKE_BOAT_SNAPSHOT_ID ?? 'sid-1' }] });
+else if (command === 'limits') out({ starts: { minute: { remaining: 30 }, hour: { remaining: Number(process.env.FAKE_BOAT_HOUR_LEFT ?? 100) }, day: { remaining: 500 } } });
+else if (command === 'info') { const box = read(id); if (!box) { console.error('sandbox not found'); process.exit(1); } out({ sandbox: box }); }
+else if (command === 'extend') { const box = read(id); box.archiveAfter = iso(Date.now() + Number(opt('--ttl')) * 1000); save(box); out({}); }
+else if (command === 'delete') { rmSync(path.join(boxes, id + '.json'), { force: true }); out({}); }
+else if (command === 'usage') out({ seconds: 1 });
+else if (command === 'exec') {
+	if (!read(id)) { out({ success: false, error: 'sandbox not found' }); process.exit(0); }
+	const run = spawnSync('bash', ['-c', args.at(-1)], { env: { ...process.env, HOME: home(id), PATH: path.join(dir, 'bin') + ':' + process.env.PATH }, encoding: 'utf8' });
+	out({ success: run.status === 0, exitCode: run.status, stdout: run.stdout, stderr: run.stderr });
+} else { console.error('fake boat cannot ' + command); process.exit(1); }
+`;
+
+async function fakeBoat(env = {}) {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'fake-boat-'));
+	await mkdir(path.join(dir, 'bin'), { recursive: true });
+	await writeFile(path.join(dir, 'bin/eatmydata'), '#!/bin/sh\nexec "$@"\n', { mode: 0o755 });
+	await writeFile(path.join(dir, 'boat.mjs'), FAKE_BOAT);
+	await writeFile(path.join(dir, 'boat'), `#!/bin/sh\nexec "${process.execPath}" "${path.join(dir, 'boat.mjs')}" "$@"\n`, { mode: 0o755 });
+	const saved = { BOAT_BIN: process.env.BOAT_BIN, FAKE_BOAT_DIR: process.env.FAKE_BOAT_DIR, ...Object.fromEntries(Object.keys(env).map(key => [key, process.env[key]])) };
+	Object.assign(process.env, { BOAT_BIN: path.join(dir, 'boat'), FAKE_BOAT_DIR: dir, ...env });
+	return {
+		dir, poolDir: path.join(dir, 'pool'),
+		home: id => path.join(dir, 'homes', id),
+		calls: async kind => (await readFile(path.join(dir, 'calls.log'), 'utf8').catch(() => '')).trim().split('\n').filter(Boolean).map(line => JSON.parse(line)).filter(args => args[0] === kind),
+		exists: id => existsSync(path.join(dir, 'sandboxes', `${id}.json`)),
+		async close() { for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; } await rm(dir, { recursive: true, force: true }); },
+	};
+}
+const { leaseStore } = await import('../../scripts/quality/lib/pool-leases.mjs');
+const { warmBoatPool, rateLimited, poolMember, machineName } = await import('../../scripts/quality/lib/boat-warm.mjs');
+const quiet = () => {};
+const warm = (fake, extra = {}) => warmBoatPool({ snapshot: 'img', type: 'default', store: leaseStore({ dir: fake.poolDir }), log: quiet, roomPorts: [1, 0], startsPerMinute: 600, ...extra });
+const exited = child => new Promise(resolve => { if (child.exitCode !== null || child.signalCode !== null) resolve(); else child.once('exit', resolve); });
+
+test('a machine goes back to the warm pool killed and wiped, and the next batch leases it with no boat start', { skip: process.platform === 'win32' }, async () => {
+	const fake = await fakeBoat();
+	try {
+		const first = warm(fake);
+		const vm = await first.create();
+		assert.equal(vm.reused, false);
+		assert.equal((await fake.calls('new')).length, 1);
+		// What a batch leaves behind: its folder, a fixture world and a room process still running under ~/batch.
+		const batchDir = path.join(fake.home(vm.id), 'batch');
+		await mkdir(path.join(batchDir, 'out/r1'), { recursive: true });
+		await mkdir(path.join(fake.home(vm.id), '.cache/mineagen/fixtures/worlds/w1'), { recursive: true });
+		await mkdir(path.join(fake.home(vm.id), '.cache/mineagen/fixtures/servers/s1'), { recursive: true });
+		const room = spawn('sleep', ['300'], { cwd: path.join(batchDir, 'out/r1'), stdio: 'ignore', detached: true });
+		assert.equal(await first.release(vm), true);
+		await Promise.race([exited(room), new Promise((_, reject) => setTimeout(() => reject(new Error('the room process outlived the release')), 5000))]);
+		assert.equal(existsSync(batchDir), false, 'the batch folder is wiped');
+		assert.equal(existsSync(path.join(fake.home(vm.id), '.cache/mineagen/fixtures/worlds')), false, 'fixture worlds go, as on a fresh machine');
+		assert.ok(existsSync(path.join(fake.home(vm.id), '.cache/mineagen/fixtures/servers/s1')), 'prepared servers stay');
+		assert.ok(existsSync(path.join(fake.home(vm.id), 'rooms/jdk/bin/java')), 'the image stays');
+		assert.ok(fake.exists(vm.id), 'the machine is still running');
+
+		// A second batch (its own lease store, as another thread would have) gets the same machine without a start.
+		const second = warm(fake);
+		const again = await second.create();
+		assert.equal(again.id, vm.id);
+		assert.equal(again.reused, true);
+		assert.equal((await fake.calls('new')).length, 1, 'no new machine for the second batch');
+		// While it is leased, another batch cannot have it and starts its own.
+		const other = await first.create();
+		assert.notEqual(other.id, vm.id);
+		assert.equal((await fake.calls('new')).length, 2);
+		assert.deepEqual((await fake.calls('delete')), [], 'nothing was deleted');
+		first.store.stop(); second.store.stop();
+	} finally { await fake.close(); }
+});
+
+test('a warm machine that fails its check, or comes from a rebuilt image, is never handed out', { skip: process.platform === 'win32' }, async () => {
+	const fake = await fakeBoat();
+	try {
+		const pool = warm(fake);
+		const vm = await pool.create();
+		await pool.release(vm);
+		await writeFile(path.join(fake.home(vm.id), '.mineagen-pool.json'), '{"someone":"else"}');
+		const next = await warm(fake).create();
+		assert.notEqual(next.id, vm.id);
+		assert.equal(fake.exists(vm.id), false, 'the broken machine is deleted');
+		assert.equal((await fake.calls('new')).length, 2);
+		await pool.release(next);
+		// The image was saved again under the same name: its old machines do not match and a new one starts.
+		process.env.FAKE_BOAT_SNAPSHOT_ID = 'sid-2';
+		const rebuilt = await warm(fake).create();
+		assert.notEqual(rebuilt.id, next.id);
+		assert.ok(fake.exists(next.id), 'an old-image machine is left for prune or its idle deadline, not taken');
+	} finally { delete process.env.FAKE_BOAT_SNAPSHOT_ID; await fake.close(); }
+});
+
+test('machines named with --machines are leased, cleaned and given back, and never created or deleted', { skip: process.platform === 'win32' }, async () => {
+	const fake = await fakeBoat();
+	try {
+		const made = await warm(fake).startNew();
+		const pool = warm(fake, { machines: [made.id] });
+		const vm = await pool.create();
+		assert.equal(vm.id, made.id);
+		await assert.rejects(warm(fake, { machines: [made.id] }).create(), /busy or unusable/);
+		await rm(path.join(fake.home(vm.id), 'rooms/jdk'), { recursive: true });
+		assert.equal(await pool.release(vm), true, 'a named machine that fails its check is left running');
+		await pool.destroy(vm);
+		assert.ok(fake.exists(vm.id));
+		assert.equal((await fake.calls('new')).length, 1);
+		assert.deepEqual(await fake.calls('delete'), []);
+	} finally { await fake.close(); }
+});
+
+test('leases are exclusive across processes, and the lease of a batch that died or hung is broken', async () => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'pool-leases-'));
+	try {
+		const lib = new URL('../../scripts/quality/lib/pool-leases.mjs', import.meta.url).href;
+		const racer = `const { leaseStore } = await import(${JSON.stringify(lib)}); const store = leaseStore({ dir: ${JSON.stringify(dir)} });
+console.log(JSON.stringify(await store.take(['m1', 'm2'], { batch: String(process.pid) }))); setTimeout(() => process.exit(0), 1500);`;
+		const children = Array.from({ length: 6 }, () => spawn(process.execPath, ['--input-type=module', '-e', racer], { stdio: ['ignore', 'pipe', 'inherit'] }));
+		const taken = await Promise.all(children.map(child => new Promise(resolve => { let text = ''; child.stdout.on('data', chunk => { text += chunk; }); child.on('exit', () => resolve(JSON.parse(text.trim()))); })));
+		assert.deepEqual(taken.filter(Boolean).sort(), ['m1', 'm2'], 'each machine went to exactly one of six racing batches');
+		const store = leaseStore({ dir });
+		// Every racer has exited: their leases are stale and the next batch breaks them.
+		assert.equal(await store.take(['m1']), 'm1');
+		// A live process whose heartbeat stopped (hung, or a reused pid) loses its lease too; a fresh one keeps it.
+		await writeFile(path.join(dir, 'leases/m2.json'), JSON.stringify({ token: 'x', pid: process.pid, heartbeatAt: Date.now() - 10 * 60_000 }));
+		await writeFile(path.join(dir, 'leases/m3.json'), JSON.stringify({ token: 'y', pid: process.pid, heartbeatAt: Date.now() }));
+		assert.equal(await leaseStore({ dir }).take(['m3', 'm2']), 'm2');
+		assert.equal(await leaseStore({ dir }).take(['m3']), null);
+		// A mutex left by a crashed holder is broken.
+		await writeFile(path.join(dir, 'mutex'), JSON.stringify({ pid: 999999999, at: Date.now() }));
+		assert.equal(await leaseStore({ dir }).take(['m4']), 'm4');
+		store.stop();
+	} finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('machine starts are paced over every batch on the computer, a full minute is retried and a nearly full hour stops creation', { skip: process.platform === 'win32' }, async () => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'pool-pace-'));
+	try {
+		const began = Date.now();
+		const a = leaseStore({ dir }), b = leaseStore({ dir });
+		await Promise.all([a.reserveStart({ perMinute: 100, minGapMs: 250 }), b.reserveStart({ perMinute: 100, minGapMs: 250 }), a.reserveStart({ perMinute: 100, minGapMs: 250 })]);
+		assert.ok(Date.now() - began >= 480, 'three starts from two batches are spaced by the gap');
+		assert.equal(await a.recentStarts(), 3);
+		const controller = new AbortController();
+		setTimeout(() => controller.abort(), 300);
+		await assert.rejects(b.reserveStart({ perMinute: 3, minGapMs: 0, signal: controller.signal }), /batch stopped/, 'a fourth start in the minute waits');
+	} finally { await rm(dir, { recursive: true, force: true }); }
+	assert.deepEqual(rateLimited(new Error('boat new exited 1: 429 rate_limited window hour, retryAfterSeconds 1800')), { window: 'hour', retryAfterSeconds: 1800, concurrent: false });
+	assert.equal(rateLimited(new Error('boat new exited 1: no_ready_machine')), null);
+	const limited = await fakeBoat({ FAKE_BOAT_LIMIT_ONCE: '1' });
+	try {
+		const vm = await warm(limited).create();
+		assert.ok(limited.exists(vm.id));
+		assert.equal((await limited.calls('new')).length, 2, 'one refused start, then one that worked');
+	} finally { await limited.close(); }
+	const full = await fakeBoat({ FAKE_BOAT_HOUR_LEFT: '3' });
+	try {
+		await assert.rejects(warm(full).create(), /hour sandbox start limit has 3 starts left/);
+		assert.equal((await full.calls('new')).length, 0);
+	} finally { await full.close(); }
+});
+
+test('only machines this computer\'s pool named are members', () => {
+	const name = machineName({ poolId: 'ab12cd', type: 'large', snapshot: 'mineagen-rooms-263', snapshotId: 'sid', rand: 'beef' });
+	assert.match(name, /^rbpool-ab12cd-large-mineagenrooms263-[0-9a-f]{8}-beef$/);
+	assert.equal(poolMember({ id: 'bx_1', name, state: 'idle', archiveAfter: null }, 'ab12cd').remainingMs, Infinity);
+	assert.equal(poolMember({ id: 'bx_1', name, state: 'idle' }, 'ffffff'), null, 'another computer\'s pool');
+	assert.equal(poolMember({ id: 'bx_2', name: 'tbcave-27', state: 'idle' }, 'ab12cd'), null, 'a machine another tool started');
+});
+
+test('rooms start on the first machine while a later one is still coming up, and a pool with release() keeps its machines', async () => {
+	const out = await mkdtemp(path.join(os.tmpdir(), 'room-batch-run-'));
+	try {
+		const events = [];
+		let made = 0;
+		const pool = {
+			async create() { const vm = { id: `vm${++made}` }; if (vm.id === 'vm2') await new Promise(done => setTimeout(done, 250)); return vm; },
+			async prepare() { return { code: '/c', out: '/o', jars: { new: '/j/new.jar', old: '/j/old.jar' }, inputs: {}, javaHome: '/jdk', template: '/t' }; },
+			async start(vm, job) { events.push({ at: Date.now(), what: `start ${vm.id} ${job.room}` }); },
+			async poll() { await new Promise(done => setTimeout(done, 150)); return 'done'; },
+			async alive() { return true; },
+			async fetch(vm, roomName) { for (const arm of ['new', 'old']) await writeRoom(out, roomName, arm, [row(`spot-${roomName}`)]); return { seconds: 1, arms: { new: { exit: 0 }, old: { exit: 0 } }, machine: {} }; },
+			async keepAlive() {}, async usage() { return {}; },
+			async release(vm) { events.push({ at: Date.now(), what: `release ${vm.id}` }); return true; },
+			async destroy(vm) { events.push({ at: Date.now(), what: `delete ${vm.id}` }); },
+		};
+		const rooms = parseCommands(`@a ${LINE}\n@b ${LINE}\n@c ${LINE}\n@d ${LINE}`, ['new', 'old']);
+		const began = Date.now();
+		const result = await runBatch({ batch: { name: 't', code: 'abc12345' }, rooms, arms: [{ name: 'new' }, { name: 'old' }], pool, vms: 2, out, log: quiet });
+		assert.ok(events[0].what.startsWith('start vm1') && events[0].at - began < 200, 'the first room did not wait for the late machine');
+		assert.ok(events.some(event => event.what.startsWith('start vm2')), 'the late machine joined the queue');
+		assert.ok(result.outcomes.every(outcome => !outcome.lost));
+		assert.deepEqual(events.filter(event => event.what.startsWith('delete')), []);
+		assert.ok(result.machines.every(vm => vm.returned && !vm.destroyed));
+	} finally { await rm(out, { recursive: true, force: true }); }
+});
+
+test('the merge finds rows finishRun wrote under another name, and calls several candidates invalid', async () => {
+	const { armRows } = await import('../../scripts/quality/lib/room-batch-core.mjs');
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'arm-rows-'));
+	try {
+		// drawn-bow: acceptance.json + acceptance-summary.json, no result.json.
+		await mkdir(path.join(dir, 'bow'));
+		await writeFile(path.join(dir, 'bow/acceptance.json'), JSON.stringify([row('bow')]));
+		await writeFile(path.join(dir, 'bow/acceptance-summary.json'), JSON.stringify({ planned: 1 }));
+		await writeFile(path.join(dir, 'bow/results.json'), JSON.stringify({ drawnBow: {} }));
+		assert.deepEqual(await armRows(path.join(dir, 'bow')), { rows: [row('bow')], summary: { planned: 1 }, file: 'acceptance.json', problem: null });
+		// end-breath: result.json is its own report (an object); the rows are runs.json.
+		await mkdir(path.join(dir, 'breath'));
+		await writeFile(path.join(dir, 'breath/result.json'), JSON.stringify({ arm: 'new', runs: [] }));
+		await writeFile(path.join(dir, 'breath/runs.json'), JSON.stringify([row('r1'), row('r2')]));
+		await writeFile(path.join(dir, 'breath/runs-summary.json'), JSON.stringify({ planned: 2 }));
+		assert.equal((await armRows(path.join(dir, 'breath'))).file, 'runs.json');
+		await writeFile(path.join(dir, 'breath/acceptance.json'), JSON.stringify([row('x')]));
+		await writeFile(path.join(dir, 'breath/acceptance-summary.json'), JSON.stringify({ planned: 1 }));
+		assert.match((await armRows(path.join(dir, 'breath'))).problem, /several row files \(acceptance\.json, runs\.json\)/);
+		// Through the merge: the rows count, and the summary shows them instead of "no rows".
+		const out = path.join(dir, 'out');
+		for (const arm of ['new', 'old']) {
+			await mkdir(path.join(out, 'rooms/end-breath', arm), { recursive: true });
+			await writeFile(path.join(out, 'rooms/end-breath', arm, 'result.json'), JSON.stringify({ arm, runs: [] }));
+			await writeFile(path.join(out, 'rooms/end-breath', arm, 'runs.json'), JSON.stringify([row('r1')]));
+			await writeFile(path.join(out, 'rooms/end-breath', arm, 'runs-summary.json'), JSON.stringify({ planned: 1 }));
+		}
+		const rooms = [room('end-breath')];
+		const merged = await mergeArms({ out, rooms, arms: ['new', 'old'], outcomes: [{ room: 'end-breath', lost: false, arms: { new: { exit: 0, seconds: 3 }, old: { exit: 0, seconds: 3 } } }] });
+		assert.equal(merged.new.summary.status, 'PASS');
+		const text = formatSummary({ batch: { name: 'b', code: 'abcdef12' }, merged, arms: ['new', 'old'], wallSeconds: 1, vms: 1, rooms });
+		assert.doesNotMatch(text, /no rows/);
+		assert.match(text, /end-breath: pass d=0 dmg=0/);
+	} finally { await rm(dir, { recursive: true, force: true }); }
+});
