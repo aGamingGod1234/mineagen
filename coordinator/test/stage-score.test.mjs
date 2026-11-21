@@ -247,3 +247,27 @@ test('a run record\'s "unknown" for a counter-only death is no evidence: the let
 		assert.deepEqual(scored.deathCauses, { lava: 1 });
 	} finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test('a lethal hit of a death a coordinator row already named does not take a second death\'s slot', async () => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'stage-causes-'));
+	try {
+		const rows = [{ at: 1000, health: 20, deathCounter: 0, inventoryNbt: '[]' }, { at: 5000, health: 20, deathCounter: 1, inventoryNbt: '[]' },
+			{ at: 9000, health: 20, deathCounter: 2, inventoryNbt: '[]' }];
+		await writeFile(path.join(dir, 'quality-samples.jsonl'), rows.map(s => JSON.stringify(s)).join('\n') + '\n');
+		await mkdir(path.join(dir, 'arena-watch'));
+		await writeFile(path.join(dir, 'arena-watch', 'a-danger.jsonl'), [
+			{ type: 'damage', agentId: 'a', atMs: 4200, damageType: 'minecraft:lava', attacker: null, lethal: true },
+			{ type: 'damage', agentId: 'a', atMs: 8500, damageType: 'minecraft:arrow', attacker: 'minecraft:skeleton', lethal: true },
+		].map(r => JSON.stringify(r)).join('\n') + '\n');
+		await writeFile(path.join(dir, 'coordinator.jsonl'), JSON.stringify({ event: 'agent_death', agentId: 'a', goalRevision: 1, at: 4250, diedAtEpochMs: 4200, cause: 'a tried to swim in lava', damageType: 'minecraft:lava' }) + '\n');
+		const scored = await scoreStageRun(dir);
+		assert.equal(scored.observedDeaths, 2);
+		assert.deepEqual(scored.deathCauses, { lava: 1, skeleton_arrow: 1 });
+	} finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('the long-run capture keeps agent_death rows, so a death\'s record survives trace rotation', async () => {
+	const { longTraceRow } = await import('../src/benchmark/long-run-artifacts.mjs');
+	const row = { event: 'agent_death', agentId: 'a', cause: 'a drowned' };
+	assert.equal(longTraceRow(row), row);
+});

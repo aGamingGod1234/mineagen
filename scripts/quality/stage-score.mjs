@@ -309,6 +309,10 @@ export async function scoreStageRun(directory, { rawDirectory = null } = {}) {
 		if (same) { for (const key of DEATH_EVIDENCE) same[key] ??= hit[key] ?? null; } else pendingDeaths.push({ ...hit });
 	}
 	for (const hit of pendingDeaths.filter(h => (!finite(startedAt) || h.at >= startedAt) && (!finite(lastAt) || h.at <= lastAt) && (!operatorStop || h.at <= operatorStop.at)).sort((a, b) => a.at - b.at)) {
+		// A row another source already named for this same death (a coordinator death row that enriched a sample's death
+		// after this hit was queued) is that death, not a slot for a second one.
+		const named = deathRows.find(row => Math.abs(row.at - hit.at) < 1500 && DEATH_EVIDENCE.some(key => row[key] != null));
+		if (named) { for (const key of DEATH_EVIDENCE) named[key] ??= hit[key] ?? null; continue; }
 		const bare = deathRows.find(row => row.at >= hit.at && row.at - hit.at <= SAMPLE_DEATH_BOUND_MS && DEATH_EVIDENCE.every(key => row[key] == null));
 		if (bare) { for (const key of DEATH_EVIDENCE) bare[key] = hit[key] ?? null; continue; }
 		if (deathRows.length < totalDeaths) deathRows.push({ at: hit.at, ...Object.fromEntries(DEATH_EVIDENCE.map(key => [key, hit[key] ?? null])) });
