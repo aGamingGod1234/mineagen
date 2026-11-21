@@ -330,6 +330,8 @@ public final class ServerFightUntilController implements ServerController {
 	private int farStares;
 	private int drawOvers;
 	private ServerController drawWalk;
+	private Vec3 drawGoal;
+	private long lastDrawTick = Long.MIN_VALUE;
 	private LivingEntity drawn;
 	private Vec3 drawnAt;
 	private Vec3 holdAt;
@@ -1508,6 +1510,13 @@ public final class ServerFightUntilController implements ServerController {
 	private TickResult tickDrawOver(ServerPlayer player, long elapsed, long now, boolean mayStart) {
 		if (drawWalk != null) {
 			lastTargetMs = elapsed;
+			long gameTick = player.level().getGameTime();
+			if (lastDrawTick != Long.MIN_VALUE && EndermanHuntLeads.walkLeftUnticked(lastDrawTick, gameTick)) {
+				// A shield guard or fire step held the body and the walk's input lease lapsed: plan the same back-off afresh.
+				drawWalk.cancel(player);
+				drawWalk = drawWalks.walk(drawGoal, now);
+			}
+			lastDrawTick = gameTick;
 			TickResult walked = drawWalk.tick(player, now);
 			if (walked.state() == State.RUNNING) return TickResult.running(progress(player));
 			drawWalk.cancel(player);
@@ -1529,7 +1538,7 @@ public final class ServerFightUntilController implements ServerController {
 			drawHoldUntilMs = -1L;
 		}
 		drawn = null;
-		if (!mayStart || !choices.mayMove() || roofed || drawOvers >= MAX_DRAW_OVERS) return null;
+		if (!mayStart || !choices.mayReposition() || roofed || drawOvers >= MAX_DRAW_OVERS) return null;
 		for (Monster enderman : player.level().getEntitiesOfClass(McCompat.ENDERMAN, player.getBoundingBox().inflate(TELEPORT_RANGE),
 				e -> e.isAlive() && !e.isDeadOrDying() && attacking(player, e))) {
 			if (player.distanceTo(enderman) > TELEPORT_RANGE || !unreachable.marked(enderman.getUUID()) || !sensed(player, enderman)) continue;
@@ -1539,6 +1548,8 @@ public final class ServerFightUntilController implements ServerController {
 			if (look != null) { look.cancel(player); look = null; }
 			if (walk != null) { walk.cancel(player); walk = null; }
 			drawWalk = drawWalks.walk(goal, now);
+			drawGoal = goal;
+			lastDrawTick = Long.MIN_VALUE;
 			drawn = enderman;
 			drawnAt = enderman.position();
 			drawOvers++;

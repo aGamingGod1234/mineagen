@@ -284,7 +284,9 @@ const row={name:`pearl-${cp.seed}-salt${repeat}`,startedAt:started||undefined,fi
  elapsedGameTicks:result.elapsedGameTicks??null,completedWindow:result.completedWindow??false,pass:result.pass};
 if(result.error)row.error=result.error;
 // No player stats file: deaths and kills are unknown, never 0.
-if(!statsRead&&!result.error)row.integrity=[{file:'server/world/players/stats',error:'missing player stats: deaths and kills unknown'}];
+// Missing or corrupt evidence (an unreadable or falling damage counter, missing player stats) is no verdict, never a pass.
+if(Array.isArray(result.integrity)&&result.integrity.length)row.integrity=[...result.integrity];
+if(!statsRead&&!result.error)row.integrity=[...(row.integrity??[]),{file:'server/world/players/stats',error:'missing player stats: deaths and kills unknown'}];
 if(!started&&!result.error)row.notExercised='the hunt never started';
 if(row.pass)row.passReason=`${pearls} pearls in ${ticks} game ticks, no death`;
 else row.failReason=[pearls<bar?`${pearls} of ${bar} pearls in ${ticks} game ticks`:null,dead||result.deaths>0?'died':null].filter(Boolean).join('; ')||'pass false';
