@@ -20,7 +20,7 @@ import { readFile, writeFile, mkdir, readdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { applyQualitySetup, activateQualitySetup, parseLocatedPosition } from '../../coordinator/src/benchmark/quality-scenarios.mjs';
-import { boot, fixtureTickRate } from './watch-replay.mjs';
+import { boot, unshownTickRate } from './watch-replay.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
@@ -362,7 +362,9 @@ async function runCourse(s, course) {
 for (const [seed, group] of bySeed) {
 	const dir = path.join(out, `seed-${seed}`);
 	await mkdir(dir, { recursive: true });
-	const s = await boot(dir, { jar, template, port, world: null, seed, goalTicks: 20 * 60 * 60 * 4, bridgeReadyMs: 180_000, tickRate: fixtureTickRate() });
+	const s = await boot(dir, { jar, template, port, world: null, seed, goalTicks: 20 * 60 * 60 * 4, bridgeReadyMs: 180_000,
+		// 21 Nov A/B, 10 runs a side per course: y55-fortress died in 4 of 10 at 60 TPS, 0 of 10 at 20 (the other six courses matched).
+		tickRate: unshownTickRate('y55-fortress died in 4 of 10 runs at 60 TPS, 0 of 10 at 20') });
 	current = s;
 	try {
 		// Diagnostics for a course that errors: what the server last sent.

@@ -7,7 +7,9 @@ import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
-import { boot, fixtureTickRate } from './watch-replay.mjs';
+import { boot, unshownTickRate } from './watch-replay.mjs';
+// 21 Nov A/B, 10 runs a side: 1 death at 60 TPS, none at 20, and blast damage 3.3 against 6.1 on average.
+const TICK_RATE = unshownTickRate('1 death in 10 at 60 TPS, none at 20');
 import { ReflexBook } from '../../coordinator/src/reflexes.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 import { damageCounter, damageEvidence, deathCounter } from './lib/damage-counter.mjs';
@@ -21,11 +23,11 @@ const REPEATS = Number(process.env.REPEATS ?? 3);
 await mkdir(out, { recursive: true });
 if ((await readdir(out)).length) throw new Error('Use a fresh output directory');
 await writeFile(path.join(out, 'manifest.json'), JSON.stringify({ kind: 'provider-free live mechanics', aiPerformanceMeasured: false, fixtureSetupUsesOperatorCommands: true,
-	jar, jarSha256: createHash('sha256').update(await readFile(jar)).digest('hex'), repeats: REPEATS, tickRate: fixtureTickRate(), node: process.version }, null, 2));
+	jar, jarSha256: createHash('sha256').update(await readFile(jar)).digest('hex'), repeats: REPEATS, tickRate: TICK_RATE, node: process.version }, null, 2));
 const sleep = ms => new Promise(done => setTimeout(done, ms));
 const AGENT = 'Creep';
 const number = text => Number((/(-?\d+(?:\.\d+)?)[fdb]?\s*$/.exec(String(text).trim()) ?? [])[1]);
-const s = await boot(out, { jar, template, port, world: null, seed: '3315172112810107624', tickRate: fixtureTickRate() });
+const s = await boot(out, { jar, template, port, world: null, seed: '3315172112810107624', tickRate: TICK_RATE });
 s.bridge.on('message', (event) => {
 	const control = event.type === 'goal_control' ? event.payload : event.type === 'conversation_wake' ? event.payload.control : null;
 	if (control == null || event.agentId !== s.record?.agentId || !Number.isSafeInteger(control.goalRevision) || control.goalRevision <= s.record.goalRevision) return;
