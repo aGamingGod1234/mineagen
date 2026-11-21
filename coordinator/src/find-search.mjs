@@ -476,7 +476,7 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 		// Afloat at the bottom of its own 1-wide shaft, open to the sky: the last spot under open sky is the body's own, so
 		// the way up is straight up its column. lava-gate-1: the shaft broke the roof of a flooded cave at y56 and the body
 		// trod water there for 12 minutes, every way off judged "already at the surface" (10 of 10 runs).
-		if (here !== null && observation?.player?.skyOpen === true && inWater() && (sky === null || Math.hypot(sky.x - here.x, sky.z - here.z) <= 1.5)) {
+		if (here !== null && observation?.player?.skyOpen === true && afloat() && (sky === null || Math.hypot(sky.x - here.x, sky.z - here.z) <= 1.5)) {
 			return { x: Math.floor(here.x) + 0.5, y: Math.floor(here.y + 1e-3) + SHAFT_UP, z: Math.floor(here.z) + 0.5 };
 		}
 		return null;
@@ -493,7 +493,7 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 		for (let pulse = 0, stalls = 0; pulse < MAX_STAIR_PULSES && stalls < 2; pulse += 1) {
 			const at = bodyAt(observation);
 			const player = observation?.player;
-			if (at === null || (player?.inWater !== true && player?.underWater !== true)) return null;
+			if (at === null || !afloat()) return null;
 			if (player.underWater !== true) { breathed = at; since = 0; }
 			else if ((Number.isFinite(player.air) ? player.air : 0) - STAIR_PULSE_TICKS < (since + 1) * STAIR_PULSE_TICKS) return backToBreath(breathed, since);
 			toward = via !== null && (at.y < via.y - 0.5 || Math.hypot(via.x - at.x, via.z - at.z) > 0.8) ? via : sky;
@@ -510,7 +510,7 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 		// under and back, and there is no lower breath to sink back to.
 		const breathedAtTop = breathed !== null && breathed.y >= top - 1;
 		if (observation?.player?.underWater === true && since > 0 && !breathedAtTop) { const back = await backToBreath(breathed, since); if (back !== null) return back; }
-		return from !== null && (top < from.y + 1 || (inWater() && breathedAtTop)) ? stepOut(toward) : null;
+		return from !== null && (top < from.y + 1 || (afloat() && breathedAtTop)) ? stepOut(toward) : null;
 	};
 	let stepOuts = 0;
 	const stepOut = async (toward) => {
@@ -551,6 +551,10 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 		return null;
 	};
 	const inWater = () => observation?.player?.inWater === true || observation?.player?.underWater === true;
+	// In the water or bobbing just over it: a jump pulse at the top of a 1-wide flooded shaft lifts the body clear of the
+	// water for a sample (lava-gate-6: the swim read that as out and stopped, and the body sank back), so out of the water
+	// counts only with footing under it.
+	const afloat = () => inWater() || (observation?.player?.onGround === false && observation?.player?.inLava !== true);
 	// Back down to where it last breathed, sinking (sneak) toward it, a pulse for each it swam up; then the search goes
 	// on from there, as from any stair the swim could not climb.
 	const backToBreath = async (breathed, pulses) => {
@@ -1144,11 +1148,11 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 		};
 		const climbOut = async (top, away, label) => {
 			const up = await leg(label, 'travel_to', { x: top.x, y: top.y, z: top.z, retrace: true, tolerance: 3, stopWhenSeen: profile.stopId });
-			if (!up.seen && !up.interrupted && SHUT_WAY.has(up.result?.reasonCode) && inWater()) {
+			if (!up.seen && !up.interrupted && SHUT_WAY.has(up.result?.reasonCode) && afloat()) {
 				// Afloat in its own flooded hole: up the water and out onto a step cut beside it, then the stairs from there.
 				const swum = await swimUpStair(top, up);
 				if (swum !== null) return swum;
-				if (inWater()) return settle(up);
+				if (afloat()) return settle(up);
 			}
 			const at = bodyAt(observation);
 			if (up.seen || up.interrupted || !SHUT_WAY.has(up.result?.reasonCode) || observation?.player?.underWater === true || at === null || at.y >= top.y - 3) return settle(up);
@@ -1289,7 +1293,7 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 					if (ended !== null) return ended;
 					// Out onto the step beside its flooded shaft: stairs on up from there, not another dig down into the water.
 					const stepped = bodyAt(observation);
-					if (!inWater() && stepped !== null && stepped.y < wetSky.y - 3) {
+					if (!afloat() && stepped !== null && stepped.y < wetSky.y - 3) {
 						const up = await leg('stairs up out of the flooded shaft', 'dig_to', { pattern: 'stairs_up', y: Math.floor(wetSky.y),
 							heading: nearestCardinal(Number.isFinite(observation?.player?.yaw) ? observation.player.yaw : 0).name,
 							maxBlocks: Math.min(MAX_DIG_BLOCKS, STEP_CELLS.stairs_up * (Math.ceil(wetSky.y - stepped.y) + 4)), stopWhenSeen: profile.stopId, discard: DISCARD });

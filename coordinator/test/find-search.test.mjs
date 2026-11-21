@@ -1666,8 +1666,8 @@ test('Nether ore searches do not invent nonexistent deepslate variants', () => {
 // (water in every cell round it up to the stone roof at y57); the only air is the shaft, open to the sky, so the spot the
 // runtime keeps under open sky is the body's own at the bottom. On main every way off read "already at the surface" and
 // the body trod water there for 12 minutes (10 of 10 runs).
-function afloatUnderOwnShaft() {
-	let laid = false, out = false;
+function afloatUnderOwnShaft({ bob = false, spawnSky = false } = {}) {
+	let laid = false, out = false, pulses = 0;
 	const cut = new Set();
 	const water = [];
 	for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]]) water.push({ blockId: 'minecraft:water', x: 16 + dx, y: 56, z: -48 + dz });
@@ -1682,17 +1682,31 @@ function afloatUnderOwnShaft() {
 		control: Array.from({ length: 80 }, () => ({ result: { state: 'SUCCEEDED' }, ms: 1_000,
 			move: (player, args) => {
 				// Jump pulses in the 1-wide column go nowhere; the hop needs the laid floor and the cut step.
-				if (args.forward === 1 && args.pitch === 0 && laid && cut.size >= 3) { out = true; return { y: 57, z: player.z + 1, inWater: false, underWater: false, skyOpen: false }; }
-				return {};
+				if (args.forward === 1 && args.pitch === 0 && laid && cut.size >= 3) { out = true; return { y: 57, z: player.z + 1, inWater: false, underWater: false, skyOpen: false, onGround: true }; }
+				// lava-gate-6: a jump pulse at the water's top lifts the body clear for a sample, then it sinks back.
+				pulses += 1;
+				if (bob && args.jump && pulses % 2 === 1) return { y: 56.9, inWater: false, onGround: false };
+				return { y: 56.3, inWater: true, onGround: false };
 			} })),
 		dig_to: Array.from({ length: 30 }, () => ({ get result() { return out ? { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:lava seen at 30,40,-30, 5 blocks away' }
 			: { state: 'FAILED', reasonCode: 'WATER_AHEAD', message: 'Stopped: The body is under water at 16,56,-48 (air 298/300); not digging on.' }; } })),
 	} });
-	body.openSky = () => ({ x: 16.5, y: 56, z: -47.5 });
+	// lava-gate-6's spawn is remembered under open sky 12 above; lava-gate-1's open shaft leaves only the body's own spot.
+	body.openSky = () => (spawnSky ? { x: 16.5, y: 68, z: -47.5 } : { x: 16.5, y: 56, z: -47.5 });
 	const missed = [];
 	body.missedPlaces = () => missed;
 	body.missPlace = (place, why) => missed.push({ ...place, why });
 	return body;
+}
+
+for (const [label, options] of [['bobbing clear of the water on every other jump (lava-gate-6)', { bob: true }], ['its spawn remembered under open sky above, bobbing (lava-gate-6)', { bob: true, spawnSky: true }]]) {
+	test(`flooded own shaft, ${label}: the lava find still lays a step, cuts it out and climbs on`, async () => {
+		const body = afloatUnderOwnShaft(options);
+		const result = await searchFor({ block: 'minecraft:lava' }, body, { timeoutMs: 540_000 });
+		const types = body.calls.map((call) => call.actionType);
+		assert.ok(types.includes('place_block') && types.indexOf('break_block') > types.indexOf('place_block'), `laid then cut (calls: ${types.join(',')}; ${result.reasonCode} ${result.message})`);
+		assert.equal(result.reasonCode, 'FIND_SEEN', result.message);
+	});
 }
 
 test('lava-gate-1: afloat at the bottom of its own shaft open to the sky, the lava find lays a step in the water, cuts it out and climbs on', async () => {
