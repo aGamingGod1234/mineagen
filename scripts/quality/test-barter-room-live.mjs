@@ -161,8 +161,12 @@ async function wearGold() {
 		// A refused equip is not retried: the slot stays occupied, so the model moves on to the barter job.
 		if (equipRefused) return false;
 		const slot = { helmet: 'head', chestplate: 'chest', leggings: 'legs', boots: 'feet' }[/golden_(\w+)$/.exec(piece.itemId)[1]];
-		const ok = (await act('equip_item', { sourceSlot: piece.slot, targetSlot: slot, expectedItemId: piece.itemId })).state === 'SUCCEEDED';
-		if (!ok) equipRefused = true;
+		let ok = (await act('equip_item', { sourceSlot: piece.slot, targetSlot: slot, expectedItemId: piece.itemId })).state === 'SUCCEEDED';
+		if (!ok) {
+			// An occupied slot refuses equip_item; a player right-clicks the armour in hand instead, which swaps it on.
+			equipRefused = true;
+			if (await select(piece.itemId)) { await act('use_item', { mode: 'once', durationMs: 200, expectedItemId: piece.itemId }); ok = goldWorn(); }
+		}
 		return ok;
 	}
 	if (held('minecraft:gold_ingot') >= 5) return craftAtTable('minecraft:golden_helmet', 1);
@@ -267,9 +271,19 @@ try {
 		const code = r.reasonCode;
 		outOfGold = code === 'OUT_OF_GOLD';
 		if (code === 'NO_PIGLIN') {
-			const p = seenEntities('minecraft:piglin').filter(x => x.baby !== true).sort((a, b) => a.distance - b.distance)[0];
+			const nearestPiglin = () => seenEntities('minecraft:piglin').filter(x => x.baby !== true).sort((a, b) => a.distance - b.distance)[0];
+			let p = nearestPiglin();
+			// None in this view: look around in quarter turns, as a player does, before walking to the nearest one seen.
+			for (let turn = 0; !p && turn < 4; turn++) {
+				const at = facts.player, a = turn * Math.PI / 2;
+				await act('look_at', { x: at.x + 12 * Math.cos(a), y: at.y + 1.2, z: at.z + 12 * Math.sin(a) });
+				await sleep(300);
+				await observe();
+				p = nearestPiglin();
+			}
 			if (p) await act('navigate_to', { x: p.x, y: p.y, z: p.z, tolerance: 3, sprint: false, timeoutMs: 20000 }, 30000);
-			else if (++idle > 6) { row.stopped = 'no piglin in sight'; break; }
+			if (!p && ++idle > 6) { row.stopped = 'no piglin in sight'; break; }
+			continue;
 		} else if (code === 'HOSTILE_NEAR' || code === 'PIGLIN_ANGRY' || code === 'DAMAGE_TAKEN') {
 			const id = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/.exec(r.message ?? '')?.[1];
 			const named = id && (facts.entities ?? []).find(x => x.stableId === id || x.uuid === id);
@@ -277,7 +291,8 @@ try {
 			const target = named ?? nearest;
 			if (target) await fight(target.stableId);
 		}
-		idle = 0;
+		// Only a call that traded or ended for another reason resets the give-up count.
+		if (code !== 'NO_PIGLIN') idle = 0;
 	}
 	const endTicks = await gameTicks();
 	await observe();
