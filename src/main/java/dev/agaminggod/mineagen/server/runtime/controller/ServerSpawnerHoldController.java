@@ -151,6 +151,16 @@ public final class ServerSpawnerHoldController implements ServerController {
 	 */
 	private ServerController sealWork, reopenWork;
 	private boolean sealed, sealTried, reopening, skipLintel;
+	/**
+	 * Hurt before the cell stands (walking to the site or building under fire): the body walls itself in where it stands,
+	 * as a player blocks themself in, and heals there; that spot becomes the cell. Blaze spawner rooms: the deaths came
+	 * 6 s into the walk or build, 14 health lost to several blazes at once, before any cell stood.
+	 */
+	private ServerController emergency;
+	private Direction emergencyOpening;
+	private BlockPos emergencyCell;
+	private long emergencyRetryTick;
+	private int emergencies;
 	private long sealRetryTick;
 	private int seals, reopens;
 	private static final long SEAL_MS = 8_000L, REOPEN_MS = 20_000L;
@@ -282,7 +292,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 		boolean spawnerGone = seenSpawner != null && !seenSpawner.is(Blocks.SPAWNER);
 		String code = SpawnerHold.handBack(new SpawnerHold.Sense(ServerFightUntilController.count(player, untilItem), untilCount, player.getHealth(),
 				fleeAtHealth, player.getFoodData().getFoodLevel(), foodSlot(player) >= 0, elapsed, timeoutMs, spawnerGone,
-				phase == Phase.HOLD ? elapsed - lastBlazeMs : 0L, phase == Phase.HOLD, sitesFailed, noSiteLeft,
+				phase == Phase.HOLD ? elapsed - lastBlazeMs : 0L, phase == Phase.HOLD || emergency != null, sitesFailed, noSiteLeft,
 				phase == Phase.HOLD && SpawnerHold.breached(witherHits, player.level().getGameTime())));
 		if (target != null && code == null) {
 			if (target.isDeadOrDying()) code = "TARGET_KILLED";
@@ -290,6 +300,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 		}
 		if (target != null && "FIGHT_UNTIL_TIMED_OUT".equals(code)) code = "FIGHT_TIMED_OUT";
 		if (code != null) return stop(player, handBackResult(player, code, elapsed));
+		TickResult walling = emergency(player, now, elapsed);
+		if (walling != null) return walling;
 		if (!inCell || defend != null) {
 			TickResult defending = defend(player, now);
 			if (defending != null) return defending;
@@ -775,6 +787,42 @@ public final class ServerSpawnerHoldController implements ServerController {
 				player.getInventory().getSelectedSlot(), InteractionHand.OFF_HAND));
 	}
 
+	private TickResult emergency(ServerPlayer player, long now, long elapsed) {
+		if (emergency == null) {
+			if (phase == Phase.HOLD || phase == Phase.SCAN || spawner == null || player.getHealth() >= SpawnerHold.TURTLE_HEALTH
+					|| !player.onGround() || player.level().getGameTime() < emergencyRetryTick) return null;
+			String item = roofing.blockItem(player);
+			int carried = item == null ? 0 : ServerFightUntilController.count(player, BuiltInRegistries.ITEM.getValue(Identifier.parse(item)));
+			if (carried < 10) return null;
+			cancelParts(player);
+			blockItem = item;
+			emergencyCell = player.blockPosition();
+			emergencyOpening = SpawnerHold.facing(spawner.getX() - emergencyCell.getX(), spawner.getZ() - emergencyCell.getZ());
+			emergency = roofing.seal(emergencyCell, emergencyOpening, blockItem, SEAL_MS + 4_000L, now);
+			emergencies++;
+			note(String.format(Locale.ROOT, "health %.1f before the cell stood: walling in at %s", player.getHealth(), emergencyCell.toShortString()));
+		}
+		TickResult built = emergency.tick(player, now);
+		if (built.state() == State.RUNNING) return TickResult.running(progress(player));
+		emergency.cancel(player);
+		emergency = null;
+		if (built.state() != State.SUCCEEDED) {
+			note("walling in where it stood failed: " + built.reasonCode());
+			emergencyRetryTick = player.level().getGameTime() + 20L;
+			return null;
+		}
+		cell = emergencyCell;
+		opening = emergencyOpening;
+		triedSites.add(cell);
+		phase = Phase.HOLD;
+		sealed = true;
+		turtleSinceMs = elapsed;
+		turtles++;
+		LAST_HOLD.put(player.getUUID(), new Held(spawner, cell, opening));
+		note("walled in at " + cell.toShortString() + " to heal; it is the cell now, doorway " + opening.getSerializedName());
+		return TickResult.running(progress(player));
+	}
+
 	/** Mines the walled-up doorway open again (window first, then sill). Null once it is open or cannot be opened. */
 	private TickResult reopen(ServerPlayer player, long now) {
 		if (reopenWork == null) {
@@ -1077,6 +1125,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 		if (ledge != null) { ledge.cancel(player); ledge = null; }
 		if (sealWork != null) { sealWork.cancel(player); sealWork = null; }
 		if (reopenWork != null) { reopenWork.cancel(player); reopenWork = null; }
+		if (emergency != null) { emergency.cancel(player); emergency = null; }
 		returning = false;
 		eatTicks = -1;
 		eatInput.release();
