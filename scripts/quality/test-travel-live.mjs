@@ -42,6 +42,8 @@ const AGENT = 'Probe';
 const COURSE_BUDGET_MS = Number(flag('--budget', spec.budgetMinutes ?? 12)) * 60_000;
 const ARRIVAL = spec.arrivalBlocks ?? 16;
 // Plain building blocks a stand-in model would move to the hotbar (travel_to's own choice of blocks is the server's).
+const MINED = ['netherrack', 'soul_sand', 'soul_soil', 'basalt', 'smooth_basalt', 'blackstone', 'magma_block', 'nether_gold_ore', 'nether_quartz_ore', 'gravel', 'glowstone',
+	'crimson_nylium', 'warped_nylium', 'nether_wart_block', 'warped_wart_block', 'stone', 'deepslate', 'cobblestone', 'dirt', 'grass_block', 'andesite', 'diorite', 'granite', 'tuff', 'sand', 'sandstone'];
 const BLOCKS = /^minecraft:(netherrack|cobblestone|cobbled_deepslate|blackstone|basalt|smooth_basalt|dirt|stone|deepslate|andesite|diorite|granite|tuff|end_stone|[a-z_]+_planks)$/;
 
 const results = [];
@@ -207,6 +209,11 @@ async function runCourse(s, course) {
 		await s.command(`scoreboard objectives add tpk_${tier} minecraft.used:minecraft.${tier}_pickaxe`).catch(() => {});
 		await s.command(`scoreboard players set ${AGENT} tpk_${tier} 0`).catch(() => {});
 	}
+	// Blocks broken over the course, by the ground travel digs through in each dimension (vanilla's mined statistic).
+	for (const [i, block] of MINED.entries()) {
+		await s.command(`scoreboard objectives add tmb_${i} minecraft.mined:minecraft.${block}`).catch(() => {});
+		await s.command(`scoreboard players set ${AGENT} tmb_${i} 0`).catch(() => {});
+	}
 	const clockObservation = await observe(s);
 	const startGameTick = clockObservation.world?.gameTime;
 	let lastGameTick = startGameTick;
@@ -320,6 +327,8 @@ async function runCourse(s, course) {
 		sampling = false;
 		await sampler;
 	}
+	run.blocksMined = 0;
+	for (const i of MINED.keys()) run.blocksMined += Number(/has (\d+) \[/.exec(String(await s.command(`scoreboard players get ${AGENT} tmb_${i}`).catch(() => '')))?.[1] ?? 0);
 	run.pickaxeUses = 0;
 	for (const tier of PICKS) run.pickaxeUses += Number(/has (\d+) \[/.exec(String(await s.command(`scoreboard players get ${AGENT} tpk_${tier}`).catch(() => '')))?.[1] ?? 0);
 	const endObservation = s.dead ? null : await observe(s);
@@ -377,7 +386,7 @@ for (const [seed, group] of bySeed) {
 			try {
 				const run = await runCourse(s, course);
 				results.push(run);
-				console.log(JSON.stringify({ id: run.id, arrived: run.arrived, wallSeconds: run.wallSeconds, blocksPerMinute: run.blocksPerMinute, startDistance: run.startDistance, endDistance: run.endDistance, failures: run.failures, actions: run.actions, deaths: run.deaths, damage: run.damage, fire: run.fireSamples, lava: run.lavaSamples, pickaxeUses: run.pickaxeUses, path: round(run.path) }));
+				console.log(JSON.stringify({ id: run.id, arrived: run.arrived, wallSeconds: run.wallSeconds, blocksPerMinute: run.blocksPerMinute, startDistance: run.startDistance, endDistance: run.endDistance, failures: run.failures, actions: run.actions, deaths: run.deaths, damage: run.damage, fire: run.fireSamples, lava: run.lavaSamples, pickaxeUses: run.pickaxeUses, blocksMined: run.blocksMined, path: round(run.path) }));
 			} catch (error) {
 				results.push({ id: course.id, mode, error: String(error?.stack ?? error), lastObservations: s.seen.slice(-12), lastResults: s.results.slice(-6) });
 				console.log(JSON.stringify({ id: course.id, error: String(error?.message ?? error) }));
