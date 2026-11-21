@@ -1,6 +1,7 @@
 // The verdict and repeat rule of scripts/quality/test-find-live.mjs, kept here so they can be tested without a live slot.
 // A spot's calls may be any tools, not only find: a lava-safety room acts and never searches.
 import { refusedBeforeRunning, rejectedAtAdmission } from './room-evidence.mjs';
+import { matchesDamageExpectation } from './damage-counter.mjs';
 
 export const isFindCall = call => call?.name === 'do_step' && call?.arguments?.verb === 'find';
 // A recorded call was a search however it was sent: its verb, a find payload or a FIND_* code.
@@ -34,7 +35,8 @@ export function shouldRepeat(call, result, spot = {}, { budgetLeftMs = Infinity 
  * One spot's verdict with its reason. found is null when the spot made no find call (it is no search, so "not found" is
  * no failure). The expectation is the spot's expectCode on its last call, else the last find's sighting when it
  * searched, else, for a room that only acts (a lava-safety room whose wanted stop is a FAILED LAVA_AHEAD), no damage:
- * its call outcomes are reported, not judged. Every spot also needs no death. Deaths and damage are the vanilla
+ * its call outcomes are reported, not judged. A spot with expectDamageTaken is a survival room: it needs exactly that
+ * damage taken and no more health lost (matchesDamageExpectation), whatever its calls ended. Every spot also needs no death. Deaths and damage are the vanilla
  * counters; unknown damage is missing evidence, which finishRun reports as invalid, and unknown deaths fail. A spot
  * that measured nothing also gets notExercised (notPlayed below), which finishRun reports as invalid.
  */
@@ -46,7 +48,12 @@ export function findSpotVerdict(spot = {}, row = {}) {
 	const last = calls.at(-1);
 	const misses = [];
 	let expectation;
-	if (spot.expectCode) {
+	if (spot.expectDamageTaken !== undefined) {
+		expectation = `survival: no death and exactly ${spot.expectDamageTaken} HP damage`;
+		if (Number.isFinite(row.damageTaken) && !matchesDamageExpectation(row, spot.expectDamageTaken)) {
+			misses.push(`took ${row.damageTaken} HP damage and lost ${row.healthLost ?? 'unknown'} HP health, expected ${spot.expectDamageTaken}`);
+		}
+	} else if (spot.expectCode) {
 		expectation = `last call ${spot.expectCode}`;
 		if (last?.reasonCode !== spot.expectCode) misses.push(`last call ended ${last?.reasonCode ?? last?.state ?? 'never'}, expected ${spot.expectCode}`);
 	} else if (searched) {

@@ -7,6 +7,11 @@ export const MIN_TURNS_BETWEEN_ROTATIONS = 3;
 // The event's now header carries intent, the unresolved failure and the last effect; older calls repeat it.
 const CARRY_OVER_TOOL_CALLS = 6;
 const CARRY_OVER_CONVERSATION = 6;
+// A fresh context has lost every manual topic read before it: in 16 recorded games 22 of 26 manual rereads came right
+// after a rotation. Each topic's own Fields line is restated, newest first, within this many bytes (heading included).
+// Replayed over those games this adds about 1 KB per rotation (max 1.9 KB) and carries the topic of 20 of the 22.
+export const CARRY_OVER_MANUAL_BYTES = 2_000;
+const CARRY_OVER_MANUAL_TOPICS = 32;
 const TERMINAL_RESULT_STATES = new Set(['SUCCEEDED', 'FAILED', 'CANCELLED', 'TIMED_OUT']);
 
 /**
@@ -85,6 +90,8 @@ export class ContextCarryOver {
 	#conversation = [];
 	#program = null;
 	#lastNote = null;
+	// Manual topic -> its Fields line, oldest read first.
+	#manual = new Map();
 
 	rememberTool(tool, result, error = null) {
 		if (tool === null || typeof tool !== 'object') return;
@@ -97,6 +104,7 @@ export class ContextCarryOver {
 		const digestResult = error !== null ? { outcome: `error ${typeof error?.code === 'string' ? error.code : 'TOOL_FAILED'}` } : result;
 		this.#tools.push(name, truncate(safeJson(args), 160), digestResult);
 		if (typeof result?.programId === 'string') this.#noteProgram(result);
+		if (kind === 'capabilities' && error === null) this.#noteManual(result);
 	}
 
 	/** Delivered conversation and program state from a native event ("instruction\njson"). */
@@ -132,10 +140,36 @@ export class ContextCarryOver {
 		return [
 			heading,
 			...(this.#tools.length === 0 ? [] : ['Your most recent tool calls (oldest first):', ...this.#tools.lines().map((entry) => `- ${entry}`)]),
+			...this.#manualLines(),
 			...(this.#conversation.length === 0 ? [] : ['Recent conversation already delivered to you (oldest first):', ...this.#conversation.map((entry) => `- ${entry}`)]),
 			...(this.#program === null ? [] : [`Historical program (current event takes precedence): ${JSON.stringify(this.#program)}`]),
 			...(this.#lastNote === null ? [] : [`Your last note: ${JSON.stringify(this.#lastNote)}`]),
 		].join('\n');
+	}
+
+	#noteManual(result) {
+		if (typeof result?.topic !== 'string' || typeof result.reference !== 'string') return;
+		// A single-entry topic holds at most one Fields line; an aggregate page (actions, all) holds many, none its own.
+		const matches = result.reference.match(/^Fields: [^\n]+/gm);
+		if (matches === null || matches.length !== 1) return;
+		const fields = matches[0];
+		this.#manual.delete(result.topic);
+		this.#manual.set(result.topic, fields);
+		if (this.#manual.size > CARRY_OVER_MANUAL_TOPICS) this.#manual.delete(this.#manual.keys().next().value);
+	}
+
+	#manualLines() {
+		const heading = 'Manual you read earlier, each topic\'s Fields line (newest first):';
+		const lines = [];
+		let bytes = Buffer.byteLength(heading);
+		for (const [topic, fields] of [...this.#manual].reverse()) {
+			const line = `- ${topic}: ${fields}`;
+			const size = Buffer.byteLength(line) + 1;
+			if (bytes + size > CARRY_OVER_MANUAL_BYTES) continue;
+			bytes += size;
+			lines.push(line);
+		}
+		return lines.length === 0 ? [] : [heading, ...lines];
 	}
 
 	#noteProgram(value) {

@@ -121,6 +121,16 @@ public final class ServerNavigationController implements ServerController {
 	private Vec3 endpointStabilityPosition;
 	private boolean endpointStabilityConfirmed;
 	private InputLease inputLease;
+	/** The lava cell being sealed (a step the brink guard refused), the face of its support clicked, and progress. */
+	private BlockPos sealCell;
+	private net.minecraft.core.Direction sealFace;
+	private int sealTicks;
+	private int seals;
+	private int sealSlot = -1;
+	/** The lava cell the guard last refused a step into on this walk: a second refusal there seals or stops. */
+	private BlockPos lavaRefusedCell;
+	/** The first tick the route planned after that refusal applied movement keys, or -1. */
+	private int keysAfterReplanTick = -1;
 	private LeasedServerInputController inputController;
 	private AgentInputStates.MotorState motorState;
 	private boolean lastSprint;
@@ -366,6 +376,8 @@ public final class ServerNavigationController implements ServerController {
 			nodes = plan.nodes();
 			waypoint = nodes.get(waypointIndex);
 		}
+		TickResult lavaStep = lavaStep(player, nowEpochMs);
+		if (lavaStep != null) return lavaStep;
 		int occupied = occupiedWalkNode(nodes, waypointIndex, grid(player.position()));
 		if (occupied >= 0 && player.onGround()) {
 			// Corner-cut steering crosses walk cells away from their centers; standing in a later
@@ -1446,6 +1458,8 @@ public final class ServerNavigationController implements ServerController {
 					&& player.level().noCollision(player.getBoundingBox().move(next.x, 0, next.z))) brake = centering;
 		}
 		lastSprint = step.sprint() && !fire && !edgeCrouch && !crouched;
+		if (lavaRefusedCell != null && keysAfterReplanTick < 0 && plan != null && (step.forward() != 0.0F || step.strafe() != 0.0F))
+			keysAfterReplanTick = player.tickCount;
 		inputController.apply(inputLease, new dev.agaminggod.mineagen.server.runtime.input.AgentInputState(
 				fire ? brake[0] : step.forward(), fire ? brake[1] : step.strafe(), step.jump(), crouched || crouching || edgeCrouch, lastSprint,
 				false, false, step.state().yaw(), step.state().pitch(),
@@ -1594,8 +1608,23 @@ public final class ServerNavigationController implements ServerController {
 
 	/** A crouched walker cannot open a door (a sneaking right-click uses the held item), so it plans around closed ones. */
 	private MinecraftNavigationWorld doorWorld(MinecraftNavigationWorld world) {
+		if (keepsLavaFlowRoutes) world.keepLavaFlowRoutes();
 		return crouched ? world : world.opensDoors();
 	}
+
+	/**
+	 * Plan through cells seen lava fills next and fail the route with LAVA_FLOW naming the cell, as before the detour rule:
+	 * a portal cast waits for the lava it drained to stop flowing (ServerBuildController) instead of walking round.
+	 */
+	public ServerNavigationController keepLavaFlowRoutes() {
+		if (!keepsLavaFlowRoutes) {
+			keepsLavaFlowRoutes = true;
+			if (navigationWorld != null) navigationWorld.keepLavaFlowRoutes();
+		}
+		return this;
+	}
+
+	private boolean keepsLavaFlowRoutes;
 
 	/** How near the eye a door is opened or closed from (blocks to its centre): within vanilla's 4.5 reach. */
 	static final double DOOR_REACH = 3.0D;
@@ -1711,6 +1740,140 @@ public final class ServerNavigationController implements ServerController {
 		BlockState after = player.level().getBlockState(hit.getBlockPos());
 		return door(after) && after.getValue(BlockStateProperties.OPEN) != wasOpen;
 	}
+
+	/**
+	 * A step the brink guard refused because the body would have touched lava at its own level (Nether lava safety):
+	 * place a held building block into that lava cell, as a player plugs a flow across the path, then plan again; without
+	 * a block on the hotbar, a support face in reach or past {@link LavaStep#MAX_SEALS} seals, stop with LAVA_STEP before
+	 * the body enters. Null while no refusal is pending.
+	 */
+	private TickResult lavaStep(ServerPlayer player, long nowEpochMs) {
+		if (sealCell == null) {
+			BlockPos lava = BrinkGuard.lavaRefusal(player);
+			if (lava == null) return null;
+			int refusedAt = BrinkGuard.lavaRefusalTick(player);
+			BrinkGuard.clearLavaRefusal(player);
+			if (!LavaStep.lava(player.level().getBlockState(lava))) return null;
+			// A first refusal is often one braked tick at a corner: release the keys and plan again from where the body
+			// stopped. The same cell refused again is in the way (plug it or stop), but only once the new plan's own keys
+			// were refused: the leased old keys, or the slide, refused on the next ticks are no second refusal.
+			if (!lava.equals(lavaRefusedCell)) {
+				lavaRefusedCell = lava;
+				keysAfterReplanTick = -1;
+				plan = null;
+				coast(player);
+				return TickResult.running(currentProgress());
+			}
+			if (!secondLavaRefusal(refusedAt, keysAfterReplanTick)) return null;
+			String refusal = sealRefusal(player, lava);
+			if (refusal != null) return fail(player, "LAVA_STEP", "Stopped before stepping into lava at " + lava.getX() + "," + lava.getY() + ","
+					+ lava.getZ() + "; " + refusal + ". Plug it with a block or go round", currentProgress());
+			sealCell = lava;
+			sealTicks = 0;
+			seals++;
+		}
+		return sealTick(player, nowEpochMs);
+	}
+
+	/**
+	 * Whether a refusal at the cell already refused once is the second one: recorded after the first tick the replanned
+	 * route applied movement keys ({@code keysAfterReplanTick}, -1 until then).
+	 */
+	static boolean secondLavaRefusal(int refusalTick, int keysAfterReplanTick) {
+		return keysAfterReplanTick >= 0 && refusalTick > keysAfterReplanTick;
+	}
+
+	/**
+	 * Lets this walk seal lava in its way, with the caller's placement permission (its build flag and the server's
+	 * protection policy). A walk without it never places a block: it stops with LAVA_STEP instead.
+	 */
+	public ServerNavigationController sealsLava(java.util.function.BiPredicate<ServerPlayer, BlockPos> mayPlace) {
+		sealPermission = mayPlace;
+		return this;
+	}
+
+	private java.util.function.BiPredicate<ServerPlayer, BlockPos> sealPermission;
+
+	/** Why this walk may not place a seal at the cell, or null: no permission was given, or it denies the cell. */
+	static String sealPermissionRefusal(java.util.function.BiPredicate<ServerPlayer, BlockPos> permission, ServerPlayer player, BlockPos cell) {
+		if (permission == null) return "this walk may not place blocks";
+		return permission.test(player, cell) ? null : "placing a block there is not allowed";
+	}
+
+	/** Why the lava cell cannot be sealed from here, or null (and sealFace, sealSlot set). */
+	private String sealRefusal(ServerPlayer player, BlockPos lava) {
+		String denied = sealPermissionRefusal(sealPermission, player, lava);
+		if (denied != null) return denied;
+		if (seals >= LavaStep.MAX_SEALS) return LavaStep.MAX_SEALS + " lava cells were sealed on this walk already";
+		int slot = -1;
+		for (int hotbar = 0; hotbar < 9; hotbar++) {
+			if (TravelBuilder.buildingBlock(player.getInventory().getItem(hotbar))) { slot = hotbar; break; }
+		}
+		if (slot < 0) return "no plain building block on the hotbar to plug it with";
+		var level = player.level();
+		java.util.List<net.minecraft.core.Direction> faces = LavaStep.sealFaces(lava, at -> level.getBlockState(at).isCollisionShapeFullBlock(level, at));
+		if (faces.isEmpty()) return "no solid block beside it to place against";
+		// The first face in preference order that is in reach and may be used.
+		for (net.minecraft.core.Direction face : faces) {
+			BlockPos support = lava.relative(face.getOpposite());
+			if (sealAim(support, face).distanceToSqr(player.getEyePosition()) > LavaStep.SEAL_REACH_SQUARED || !level.mayInteract(player, support)) continue;
+			sealFace = face;
+			sealSlot = slot;
+			return null;
+		}
+		return "no face to place against is in reach and usable";
+	}
+
+	private static Vec3 sealAim(BlockPos support, net.minecraft.core.Direction face) {
+		return Vec3.atCenterOf(support).add(face.getStepX() * 0.499D, face.getStepY() * 0.499D, face.getStepZ() * 0.499D);
+	}
+
+	/** Turn to the support face with the feet still, select the block, and click once the crosshair is on that face. */
+	private TickResult sealTick(ServerPlayer player, long nowEpochMs) {
+		BlockPos cell = sealCell;
+		if (!LavaStep.lava(player.level().getBlockState(cell))) return sealed(player);
+		if (++sealTicks > SEAL_TICKS) {
+			sealCell = null;
+			return fail(player, "LAVA_STEP", "Stopped before stepping into lava at " + cell.getX() + "," + cell.getY() + "," + cell.getZ()
+					+ "; plugging it with a block did not take within " + SEAL_TICKS / 20 + " s. Plug it or go round", currentProgress());
+		}
+		if (inputLease == null) {
+			inputController = AgentInputRuntime.controller(player);
+			inputLease = inputController.acquire(AgentInputRuntime.requireAgentId(player), InputOwner.NAVIGATION, 100);
+		}
+		if (motorState == null) motorState = AgentInputStates.MotorState.initial(player.getYRot(), player.getXRot());
+		BlockPos support = cell.relative(sealFace.getOpposite());
+		float[] look = TravelBuilder.lookAt(player.getEyePosition(), sealAim(support, sealFace));
+		var step = AgentInputStates.stepMotor(motorState, new AgentInputStates.MotorTarget(look[0], look[1], false, false, false), nowEpochMs);
+		motorState = step.state();
+		lastSprint = false;
+		inputController.apply(inputLease, new dev.agaminggod.mineagen.server.runtime.input.AgentInputState(
+				0.0F, 0.0F, false, true, false, false, false, step.state().yaw(), step.state().pitch(), sealSlot, InteractionHand.MAIN_HAND));
+		if (player.getInventory().getSelectedSlot() != sealSlot || !TravelBuilder.buildingBlock(player.getMainHandItem())) return TickResult.running(currentProgress());
+		BlockHitResult hit = TravelBuilder.crosshair(player);
+		if (hit == null || !hit.getBlockPos().equals(support) || hit.getDirection() != sealFace) return TickResult.running(currentProgress());
+		// The same gates as a normal placement, for the lava cell and its support, right before the click.
+		String denied = LavaStep.placementDenied(player, cell, support, sealPermission);
+		if (denied != null) {
+			sealCell = null;
+			return fail(player, "LAVA_STEP", "Stopped before stepping into lava at " + cell.getX() + "," + cell.getY() + "," + cell.getZ()
+					+ "; " + denied + ". Go round", currentProgress());
+		}
+		TravelBuilder.click(player, hit);
+		return LavaStep.lava(player.level().getBlockState(cell)) ? TickResult.running(currentProgress()) : sealed(player);
+	}
+
+	/** The cell holds a block now: plan again from here over the changed ground. */
+	private TickResult sealed(ServerPlayer player) {
+		if (TICK_DIAGNOSTICS_ENABLED) LOGGER.info("NAV_LAVA_SEALED cell={} seals={}", sealCell, seals);
+		sealCell = null;
+		BrinkGuard.clearLavaRefusal(player);
+		plan = null;
+		return TickResult.running(currentProgress());
+	}
+
+	/** Ticks one seal may take (turning to the face and the click). */
+	static final int SEAL_TICKS = 40;
 
 	private MinecraftNavigationWorld navigationWorld(ServerPlayer player) {
 		var seen = dev.agaminggod.mineagen.server.perception.SeenTerrain.of(player);
