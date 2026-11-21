@@ -210,7 +210,13 @@ while (true) {
 					await remote(vm.id, `sid=$(ps -o sid= -p "$(pgrep -f 'ck/game.sh ${game.id} ' | head -1)" 2>/dev/null | tr -d ' '); [ -n "$sid" ] && pkill -TERM -s "$sid"; sleep 20; echo "exit timeout $(date -Is)" > ~/ck/games/${game.id}/done`);
 					await log(`timed out ${game.id} on ${vm.id}`);
 				}
-				if (/DONE/.test(status)) { await fetch(vm, game); vm.game = null; }
+				if (/DONE/.test(status)) {
+					await fetch(vm, game); vm.game = null;
+					// A machine that will get no further game loses its sign-in now, not only when the whole batch ends.
+					if (stopped || signInChanged || existsSync(path.join(out, 'STOP')) || !canStart(Date.now(), plan) || !nextGame(games)) {
+						await removeCodexSignIn(vm.id); vm.signInRemoved = true; await log(`removed the sign-in from ${vm.id} (no further game for it)`);
+					}
+				}
 			}
 			if (!vm.game && !stopped && !signInChanged && !existsSync(path.join(out, 'STOP')) && canStart(Date.now(), plan) && await meterOk()) {
 				const game = nextGame(games);
@@ -233,7 +239,8 @@ while (true) {
 	await new Promise(resolve => setTimeout(resolve, POLL_MS));
 }
 for (const g of games.filter(g => g.state === 'queued')) g.state = 'not started';
-for (const vm of machines.filter(m => !m.lost && m.prepared)) {
+// Every machine of the batch, lost and half-prepared ones included (one that comes back must not keep it); a failure is logged.
+for (const vm of machines.filter(m => m.id !== 'none')) {
 	await removeCodexSignIn(vm.id).then(() => log(`removed the sign-in from ${vm.id}`)).catch(e => log(`could not remove the sign-in from ${vm.id}: ${e.message}`));
 }
 state.endedAt = new Date().toISOString();
