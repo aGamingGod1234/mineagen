@@ -242,6 +242,14 @@ Loot rolls do not come from the piglin or the mob: piglin barters draw from the 
 REFLEX_ONLY=look-past,look-at-head,fight-open,fight-tunnel,drop-odds /path/to/recordings/arena-beat-game/slot.sh live node scripts/quality/test-enderman-live.mjs /tmp/enderman
 ```
 
+### Barter practice room
+
+`test-barter-room-live.mjs ROOM SALT OUT_DIR JAR` plays the barter job as a practice room: a sealed, lit netherrack hall (41 x 41) in the seed's nether wastes, summoned calm adult piglins, one loot salt (`random reset * SALT`) and a 10-game-minute window (`BARTER_TICKS`, default 12000) read from the world clock. Rooms: `held` (192 gold ingots and a golden helmet carried over a worn iron one; 5 piglins 28 blocks off), `blocks` (20 gold blocks and 6 ingots, golden boots worn, as bastion loot; 5 piglins 20 blocks off and a loose hoglin) and `mine` (a Nether start's gold: golden helmet worn, nothing to trade; 39 Nether gold ores in the wall beside the start, a crafting table and pickaxe carried; 4 piglins 28 blocks off). A stand-in plays only calls a model has: `barter_until` re-called after every hand-back, with the recovery a model makes on each reason code (equip carried gold armour, craft carried gold into ingots and a helmet at the carried table, walk to and mine seen ore and pick up its nuggets, walk toward a seen piglin, fight a hostile that comes close, eat), waiting `THINK_MS` (default 5000, a model turn) before each decision. Give both arms of a repeat the same salt: barters then follow the ingots traded. A row records pearls, ingots traded (gold gone, in ingot units), deaths, damage, calls and reason codes, and both per 10 game minutes. It passes alive with gold traded (40 ingots in `held` and `blocks`, 1 in `mine`); pearls are recorded, not judged (none from 40 ingots 42% of the time). It stays at 20 TPS: its model turns are wall time.
+
+```bash
+/path/to/recordings/arena-beat-game/slot.sh live node scripts/quality/test-barter-room-live.mjs blocks 7001 /tmp/barter-blocks build/libs/mineagen-VERSION.jar
+```
+
 ## Forest flee fixture
 
 `test-flee-forest-live.mjs` sends the production `flee_from` from six forest spots of a saved run world, a zombie 4 blocks away on each side (24 flees), and reports net ground speed, sprint share and outcome per flee in `flees.json` and `summary.json`. Set `FLEE_WORLD` to a saved world directory (copied, never modified); the d2b-iron-c world is the default fixture. Each flee starts with an empty seen-terrain memory, as after a respawn (`FLEE_FRESH=0` keeps it); `FLEE_ONLY=5,6` and `FLEE_REPEAT=N` select and repeat flees. No model calls.
