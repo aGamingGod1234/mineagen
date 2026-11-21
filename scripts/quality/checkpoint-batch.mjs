@@ -22,6 +22,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { appendFile, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createMachine, download, installCodex, machineState, quote, remote, removeCodexSignIn, upload } from './lib/boat-pool.mjs';
+import { readArtifactReport } from '../../coordinator/src/benchmark/report-artifacts.mjs';
 import { canStart, expandPlan, loseGame, nextGame, scoreGame, summarize, summaryText } from './lib/checkpoint-batch-core.mjs';
 
 const USAGE = 'Usage: checkpoint-batch.mjs --plan PLAN.json --out FRESH_DIR [--dry-run] | --score OUT_DIR';
@@ -143,7 +144,8 @@ tar --exclude=auth.json --exclude=.codex-home -czf ../${game.id}.tgz . && echo o
 
 async function scoreFrom(dir, game, p) {
 	const file = path.join(dir, 'games', game.id, 'report', 'long-run.json');
-	const report = await readFile(file, 'utf8').then(JSON.parse).catch(() => null);
+	// Large report fields live in report-artifacts/ beside it; the reader restores them and checks their hashes.
+	const report = await readArtifactReport(file).catch(() => null);
 	return scoreGame(report, p.savepoints[game.savepoint].targets);
 }
 
