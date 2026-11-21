@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { armTotals, formatSummary, mergeArms, parseCommands, plannedOf, runQueue, splitWords, stageRoom } from '../../scripts/quality/lib/room-batch-core.mjs';
 import { runBatch } from '../../scripts/quality/lib/room-batch-run.mjs';
-import { nextSlot, parseWindowsHosts, portClashes, slotPortBase, windowsBatchDir, windowsPath, windowsPool } from '../../scripts/quality/lib/windows-pool.mjs';
+import { cutoffTime, nextClockTime, nextSlot, parseWindowsHosts, pastCutoff, portClashes, slotPortBase, windowsBatchDir, windowsPath, windowsPool } from '../../scripts/quality/lib/windows-pool.mjs';
 import { BUNDLE_PATHS, buildBundle, hasZstd, launchScript, prepareScript, readWait, waitAndPackScript } from '../../scripts/quality/lib/boat-pool.mjs';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
@@ -1165,4 +1165,118 @@ test('a new machine gets its first room only once its image has fully arrived', 
 		const infos = (await fake.calls('info')).filter(args => args[1] === vm.id);
 		assert.ok(infos.length >= 2, 'it asked boat until the machine said hydrated');
 	} finally { delete process.env.FAKE_BOAT_HYDRATE_MS; await fake.close(); }
+});
+
+test('a PC cutoff: parsed as the next time the local clock shows it, and a PC past it gets no slot', () => {
+	const at = (hours, minutes) => { const day = new Date(2026, 10, 21, hours, minutes, 0, 0); return day.getTime(); };
+	assert.equal(nextClockTime(1, 30, at(0, 30)), at(1, 30), 'later the same night');
+	assert.equal(nextClockTime(1, 30, at(23, 0)), new Date(2026, 10, 22, 1, 30).getTime(), 'after midnight');
+	assert.equal(nextClockTime(1, 30, at(1, 30)), new Date(2026, 10, 22, 1, 30).getTime(), 'at the cutoff itself the next one is tomorrow');
+	assert.deepEqual(parseWindowsHosts('pc-a:4:0, pc-b:5:4@01:30', at(0, 0)), [{ host: 'pc-a', slots: 4, slotBase: 0 }, { host: 'pc-b', slots: 5, slotBase: 4, cutoff: '01:30', cutoffAt: at(1, 30) }]);
+	assert.deepEqual(parseWindowsHosts('pc-a:2@9:05', at(0, 0)), [{ host: 'pc-a', slots: 2, slotBase: 0, cutoff: '09:05', cutoffAt: at(9, 5) }]);
+	for (const bad of ['pc-a:1:0@24:00', 'pc-a:1:0@01:60', 'pc-a:1:0@1:5', 'pc-a:1:0@0130', 'pc-a:1:0@', 'pc-a:1:0@01:30-', 'pc-a:1:0@01:30-01:30', 'pc-a:1:0@01:30-25:00']) assert.throws(() => parseWindowsHosts(bad), undefined, bad);
+	// A closed window: before it, the cutoff is its start; inside it, the PC is closed now; after it, the next night.
+	assert.deepEqual(parseWindowsHosts('pc-b:5:4@1:30-09:00', at(0, 0)), [{ host: 'pc-b', slots: 5, slotBase: 4, cutoff: '01:30-09:00', cutoffAt: at(1, 30) }]);
+	assert.equal(cutoffTime([1, 30], [9, 0], at(1, 30)), at(1, 30), 'closed from its first minute');
+	assert.equal(cutoffTime([1, 30], [9, 0], at(2, 0)), at(2, 0), 'a batch started inside the window gets no time there');
+	assert.equal(cutoffTime([1, 30], [9, 0], at(9, 0)), new Date(2026, 10, 22, 1, 30).getTime(), 'open again at 09:00');
+	assert.equal(cutoffTime([23, 0], [7, 0], at(3, 0)), at(3, 0), 'a window across midnight, seen after midnight');
+	assert.equal(cutoffTime([23, 0], [7, 0], at(22, 0)), at(23, 0), 'and seen before it');
+	assert.equal(cutoffTime([1, 30], null, at(2, 0)), new Date(2026, 10, 22, 1, 30).getTime(), 'with no reopen time only the next cutoff counts');
+	const hosts = [{ host: 'a', slots: 1, cutoffAt: at(1, 30) }, { host: 'b', slots: 1 }];
+	assert.equal(pastCutoff(hosts[0], at(1, 29)), false);
+	assert.equal(pastCutoff(hosts[0], at(1, 30)), true);
+	assert.deepEqual(nextSlot(hosts, new Set(), at(1, 0)), { host: 'a', slot: 0 });
+	assert.deepEqual(nextSlot(hosts, new Set(), at(1, 30)), { host: 'b', slot: 0 }, 'a PC past its cutoff is skipped');
+	assert.equal(nextSlot(hosts, new Set(['b:0']), at(1, 30)), null);
+});
+
+test('windowsPool hands out no slot on a PC past its cutoff and tells the batch when each PC closes', async () => {
+	let clock = 1_000;
+	const pool = windowsPool({ hosts: [{ host: 'pc-a', slots: 1, slotBase: 0, cutoff: '01:30', cutoffAt: 2_000 }, { host: 'pc-b', slots: 1, slotBase: 4 }],
+		batchName: 'cutoff', bundle: { codeTar: '/c', helper: '/h', jars: { new: '/n' }, inputs: [] }, log: () => {}, runPs: async () => '', runUpload: async () => {}, runDownload: async () => {}, now: () => clock });
+	const first = await pool.create();
+	assert.equal(first.host, 'pc-a');
+	assert.equal(pool.closesAt(first), 2_000);
+	clock = 2_000;
+	const second = await pool.create();
+	assert.equal(second.host, 'pc-b');
+	assert.equal(pool.closesAt(second), null);
+	await assert.rejects(pool.create(), /every Windows slot is taken/);
+	await pool.destroy(second);
+	const only = windowsPool({ hosts: [{ host: 'pc-a', slots: 1, slotBase: 0, cutoffAt: 2_000 }], batchName: 'cutoff', bundle: { codeTar: '/c', helper: '/h', jars: { new: '/n' }, inputs: [] },
+		log: () => {}, runPs: async () => '', runUpload: async () => {}, runDownload: async () => {}, now: () => clock });
+	await assert.rejects(only.create(), /every Windows PC is past its cutoff/);
+});
+
+test('at a machine\'s cutoff its room is stopped and re-queued without spending a try, and no room starts there after it', async () => {
+	const out = await mkdtemp(path.join(os.tmpdir(), 'room-batch-cutoff-'));
+	try {
+		const events = [], logs = [];
+		// The cutoff falls once the machine without one has finished the queue and been released, so the re-queued room
+		// can only go to a fresh machine.
+		let closesAt = null;
+		const past = () => closesAt !== null && Date.now() >= closesAt ? 'after' : 'before';
+		let made = 0;
+		const pool = {
+			async create() { return { id: `vm${++made}`, closes: made === 1 }; },
+			async prepare() { return { code: '/c', out: '/o', jars: { new: '/j/new.jar', old: '/j/old.jar' }, inputs: {}, javaHome: '/jdk', template: '/t' }; },
+			async start(vm, job) { events.push(`start ${vm.id} ${job.room} ${past()}`); },
+			// The closing machine's room plays past the cutoff; the other machine finishes every room.
+			async poll(vm) { return vm.closes ? 'running' : 'done'; },
+			async alive() { return true; },
+			async fetch(vm, roomName) {
+				for (const arm of ['new', 'old']) await writeRoom(out, roomName, arm, [row(`spot-${roomName}`)]);
+				return { seconds: 1, arms: { new: { exit: 0, seconds: 1 }, old: { exit: 0, seconds: 1 } }, machine: {} };
+			},
+			async keepAlive() {},
+			usage: () => ({}),
+			async destroy(vm) { events.push(`delete ${vm.id} ${past()}`); if (vm.id === 'vm2') closesAt = Date.now(); },
+			closesAt: vm => vm.closes ? closesAt : null,
+		};
+		const rooms = parseCommands(`@a BUILD_ONLY=a ${LINE}\n@b BUILD_ONLY=b ${LINE}\n@c BUILD_ONLY=c ${LINE}`, ['new', 'old']);
+		const result = await runBatch({ batch: { name: 't', code: 'abc12345' }, rooms, arms: [{ name: 'new' }, { name: 'old' }], pool, vms: 2, out, pollMs: 5, replacements: 0, log: line => logs.push(line) });
+		assert.ok(result.outcomes.every(outcome => !outcome.lost), JSON.stringify(result.outcomes));
+		assert.ok(result.outcomes.every(outcome => outcome.worker !== 'vm1'), 'every room counted ran on a machine without a cutoff');
+		const cut = events.find(event => event.startsWith('start vm1')).split(' ')[2];
+		assert.equal(result.outcomes.find(outcome => outcome.room === cut).attempts, 1, 'the stopped try does not count');
+		assert.deepEqual(events.filter(event => event.startsWith('start vm1')).map(event => event.split(' ')[3]), ['before'], 'no room starts there after the cutoff');
+		assert.ok(events.includes('delete vm1 after'), 'the machine is retired at the cutoff, which kills its room');
+		assert.ok(logs.some(line => line.includes(`room ${cut} back in the queue from vm1`)));
+		// The other machine had finished the queue and was released, so the re-queued room went to a fresh machine even
+		// with no replacement budget: a cutoff is planned and spends none.
+		assert.equal(result.outcomes.find(outcome => outcome.room === cut).worker, 'vm3');
+		assert.equal(result.merged.new.summary.status, 'PASS');
+	} finally { await rm(out, { recursive: true, force: true }); }
+});
+
+test('a cutoff window is read off the local calendar across a daylight-saving change', () => {
+	// New York leaves daylight saving at 02:00 on 1 Nov 2026 and enters it at 02:00 on 8 Mar 2026: a 01:30-09:00 window
+	// then lasts 8.5 or 6.5 hours of elapsed time, and still opens at 09:00 on the wall clock.
+	const code = `import { cutoffTime } from ${JSON.stringify(new URL('../../scripts/quality/lib/windows-pool.mjs', import.meta.url).href)};
+const at = (y, m, d, h, min) => new Date(y, m, d, h, min).getTime();
+console.log(JSON.stringify([
+	cutoffTime([1, 30], [9, 0], at(2026, 10, 1, 8, 30)) === at(2026, 10, 1, 8, 30),
+	cutoffTime([1, 30], [9, 0], at(2026, 10, 1, 9, 30)) === at(2026, 10, 2, 1, 30),
+	cutoffTime([1, 30], [9, 0], at(2026, 2, 8, 8, 30)) === at(2026, 2, 8, 8, 30),
+	cutoffTime([1, 30], [9, 0], at(2026, 2, 8, 9, 30)) === at(2026, 2, 9, 1, 30),
+]));`;
+	const run = spawnSync(process.execPath, ['--input-type=module', '-e', code], { env: { ...process.env, TZ: 'America/New_York' }, encoding: 'utf8' });
+	assert.equal(run.status, 0, run.stderr);
+	assert.deepEqual(JSON.parse(run.stdout), [true, true, true, true], 'closed at 08:30 and open at 09:30 on both change days');
+});
+
+test('windowsPool never launches a room whose upload outlasted the PC cutoff, and destroy waits for that start', async () => {
+	const scripts = [];
+	let armed = false, cut = false;
+	const pool = fakeWindows({ scripts, uploads: { push() { if (armed) cut = true; } } });
+	const vm = await pool.create();
+	await pool.prepare(vm);
+	const before = scripts.length;
+	armed = true;
+	const start = pool.start(vm, { room: 'r', outDir: 'C:/x/out/r' }, { closed: () => cut });
+	await assert.rejects(start, /past its cutoff/);
+	assert.equal(scripts.length, before, 'no launch script was sent after the cutoff');
+	await pool.destroy(vm);
+	await assert.rejects(pool.start(vm, { room: 'r2', outDir: 'C:/x/out/r2' }, { closed: () => true }), /past its cutoff/);
 });

@@ -15,8 +15,9 @@
 // --machines ID,ID,... (or ROOM_BATCH_MACHINES) uses exactly those running machines instead, made from the image: each is
 // leased so no other batch takes it at once, cleaned the same way, and given back running; none is created or deleted.
 // --ephemeral (or --no-reuse) makes throwaway machines and deletes them, as before. --pool windows plays on the PCs
-// ROOM_BATCH_WINDOWS names (<sshHost>:<slots>:<slotBase>,...; see lib/windows-pool.mjs), one room per slot; --vms
-// defaults to every slot. Output: OUT/rooms/ROOM/{ARM/,ARM.log,done.json}, OUT/ARM/result.json and
+// ROOM_BATCH_WINDOWS names (<sshHost>:<slots>:<slotBase>[@HH:MM[-HH:MM]],...; see lib/windows-pool.mjs), one room per
+// slot; @HH:MM[-HH:MM] is a PC's cutoff (and reopen time) on this machine's clock; --vms defaults to every slot.
+// Output: OUT/rooms/ROOM/{ARM/,ARM.log,done.json}, OUT/ARM/result.json and
 // result-summary.json from finishRun, OUT/batch.json (identity, outcomes, machine usage) and OUT/summary.txt.
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -93,6 +94,7 @@ const batch = { name: flags.name ?? `room-batch-${new Date().toISOString().slice
 	arms: flags.arms.map(arm => ({ name: arm.name, jar: path.basename(arm.jar), sha256: sha256(arm.jar) })), rooms: rooms.map(room => room.room), inputs: inputs.map(input => input.name) };
 const where = windowsHosts ? `${vms} room slots on ${windowsHosts.length} Windows PCs` : `${vms} ${type} machines from ${snapshot ?? '(no snapshot)'}`;
 console.log(`${batch.name}: ${rooms.length} rooms x ${flags.arms.length} arms, ${where}, code ${code.slice(0, 8)}`);
+for (const pc of windowsHosts ?? []) if (pc.cutoffAt != null) console.log(pc.cutoffAt <= Date.now() ? `${pc.host}: inside its closed window ${pc.cutoff}, so it plays no room in this batch` : `${pc.host}: no room starts after ${new Date(pc.cutoffAt).toString().slice(0, 21)} (cutoff ${pc.cutoff}, in ${Math.round((pc.cutoffAt - Date.now()) / 60_000)} min); a room still playing there then is stopped and re-queued on another PC`);
 if (flags.dryRun) { for (const room of rooms) for (const line of room.lines) console.log(`  ${room.room} [${line.arm}] ${Object.entries(line.env).map(([k, v]) => `${k}=${v}`).join(' ')} node ${line.args.join(' ')}`); process.exit(0); }
 if (!windowsHosts && !snapshot && !machines.length) fail('--snapshot or ROOM_BATCH_SNAPSHOT names the saved image (make it with room-image.mjs)');
 await mkdir(out, { recursive: true });

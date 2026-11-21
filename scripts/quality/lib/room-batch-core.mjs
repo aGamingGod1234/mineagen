@@ -113,13 +113,17 @@ export async function runQueue({ rooms, workers, arrivals = [], attempt, maxAtte
 				catch (error) { outcome = { lost: true, reason: String(error?.message ?? error) }; }
 				worker.busy = false;
 				if (!outcome?.lost) { results.set(item.room.room, { ...outcome, lost: false, room: item.room.room, worker: worker.id, attempts: item.tries }); wake(); continue; }
-				log(`room ${item.room.room} lost on ${worker.id} (try ${item.tries}): ${outcome.reason}`);
-				if (item.tries < maxAttempts) queue.unshift(item);
-				else results.set(item.room.room, { lost: true, reason: outcome.reason, room: item.room.room, worker: worker.id, attempts: item.tries });
+				// requeue: the machine stopped the room for a planned reason (its cutoff), so the try does not count.
+				if (outcome.requeue) { item.tries--; log(`room ${item.room.room} back in the queue from ${worker.id}: ${outcome.reason}`); queue.unshift(item); }
+				else {
+					log(`room ${item.room.room} lost on ${worker.id} (try ${item.tries}): ${outcome.reason}`);
+					if (item.tries < maxAttempts) queue.unshift(item);
+					else results.set(item.room.room, { lost: true, reason: outcome.reason, room: item.room.room, worker: worker.id, attempts: item.tries });
+				}
 				live.delete(worker);
 				wake();
 				if (replace && queue.length) {
-					const fresh = await Promise.resolve().then(() => replace(worker)).catch(error => { log(`no replacement for ${worker.id}: ${error.message}`); return null; });
+					const fresh = await Promise.resolve().then(() => replace(worker, outcome)).catch(error => { log(`no replacement for ${worker.id}: ${error.message}`); return null; });
 					if (fresh) running.push(loop(fresh));
 				}
 				return;
