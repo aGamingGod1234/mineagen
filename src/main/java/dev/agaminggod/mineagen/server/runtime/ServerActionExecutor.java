@@ -849,6 +849,7 @@ public final class ServerActionExecutor {
 								arguments.has("timeoutMs") ? integer(arguments, "timeoutMs") : DEFAULT_TIMEOUT_MS,
 								true
 						).keepsKnockbackMargin(new dev.agaminggod.mineagen.server.runtime.controller.KnockbackHolds())
+								.sealsLava((body, cell) -> protection.mayModifyBlock(body, body.level(), cell))
 				);
 				if (standing != null) action.destinationNote = String.format(java.util.Locale.ROOT,
 						"; requested %s is %s, so the target became the standing spot %.1f,%.0f,%.1f", cell(BlockPos.containing(requested)),

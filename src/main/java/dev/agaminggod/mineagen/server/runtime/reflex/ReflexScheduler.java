@@ -22,9 +22,11 @@ import java.util.Set;
  * stance held for three maxS spans in a row without its condition clearing wakes the model once (it may need to flee
  * instead of holding).</li>
  * <li>Rules expire after ttlMs, when an until condition holds, or after maxFirings.</li>
- * <li>The hazard floor ({@link #floor}): a coordinator default for lava, fire, air or suffocation fires while its condition
- * holds, not only on its edge; a model command does not end its firing while the hazard holds and it has not settled; and
- * at the loop limits it stays armed and wakes the model once per crossing instead of being disabled.</li>
+ * <li>The hazard floor ({@link #floor}): a coordinator default for lava, fire, air, suffocation or dragon breath fires while
+ * its condition holds, not only on its edge; a model command does not end its firing while the hazard holds and it has not
+ * settled; and at the loop limits it stays armed and wakes the model once per crossing instead of being disabled. A breath
+ * floor that failed {@link #MAX_FAILURES_IN_A_ROW} times in a row in the cloud is cornered: the model's command then takes
+ * the body (a pearl, a potion, a way the run could not see), and the floor fires again once the body is out.</li>
  * </ul>
  */
 public final class ReflexScheduler {
@@ -37,7 +39,9 @@ public final class ReflexScheduler {
 	/** Consecutive maxS spans a stance may hold, its condition never clearing, before the model is told. */
 	public static final int HELD_SPANS_BEFORE_WAKE = 3;
 	/** Conditions whose coordinator default is the hazard floor: the body must leave them whatever it was told. */
-	public static final Set<String> FLOOR_HAZARDS = Set.of("in_lava", "in_fire", "air_below", "suffocating");
+	public static final Set<String> FLOOR_HAZARDS = Set.of("in_lava", "in_fire", "air_below", "suffocating", "cloud_near");
+	/** Floor hazards whose firing gives way to a model command once it is cornered (see {@link State#cornered}). */
+	public static final Set<String> CORNERED_RELEASE = Set.of("cloud_near");
 
 	/**
 	 * A hazard-floor rule: a coordinator default with a non-negated lava, fire, air or suffocation condition. A model-written
@@ -110,11 +114,23 @@ public final class ReflexScheduler {
 		/** Tick of the condition's latest rising edge (triggers). */
 		long edgeTick = Long.MIN_VALUE;
 		final Deque<Long> recentFirings = new ArrayDeque<>();
+		/** A floor rule that gives way to a model command once cornered ({@link #CORNERED_RELEASE}). */
+		final boolean releasesCornered;
+		/** Runs in a row that failed still in the hazard (a timeout is not one: the run was still moving). */
+		int cornerFailures;
 
 		State(ReflexSpec.Rule rule, long installedTick) {
 			this.rule = rule;
 			this.installedTick = installedTick;
 			this.floor = ReflexScheduler.floor(rule);
+			boolean release = false;
+			if (floor) for (ReflexSpec.Condition condition : rule.when()) if (!condition.negated() && CORNERED_RELEASE.contains(condition.type())) release = true;
+			this.releasesCornered = release;
+		}
+
+		/** Out of options in its hazard: failed this many times in a row, so the model's command may try instead. */
+		boolean cornered() {
+			return releasesCornered && cornerFailures >= MAX_FAILURES_IN_A_ROW;
 		}
 
 		/**
@@ -131,6 +147,7 @@ public final class ReflexScheduler {
 			state.yieldedTrigger = yieldedTrigger;
 			state.fired = fired;
 			state.failuresInARow = failuresInARow;
+			state.cornerFailures = cornerFailures;
 			state.lastFailure = lastFailure;
 			state.disabledReason = disabledReason;
 			state.heldSpans = heldSpans;
@@ -323,6 +340,10 @@ public final class ReflexScheduler {
 			if (!truth) {
 				state.suppressed = false;
 				state.yieldedTrigger = false;
+				state.cornerFailures = 0;
+				// A breath edge queued behind another firing goes with the cloud: fired late, the run would start from a safe
+				// body with no cloud point and sprint from an unrelated mob or the body's facing.
+				if (state.releasesCornered) state.pendingUntil = -1L;
 				state.heldSpans = 0;
 				if (state.lastTruth || state.falseSince == Long.MIN_VALUE) state.falseSince = now;
 			} else {
@@ -349,7 +370,9 @@ public final class ReflexScheduler {
 			Outcome outcome = null;
 			String reason = detail == null ? "" : detail;
 			String held = heldBack.get(current.ruleId());
-			if (current.ruleId().equals(deferredYield) && (!state.lastTruth || settledHold) && status == ActionStatus.RUNNING) {
+			// A breath floor keeps a waiting command until its run ends, not the first tick out: released 1 block clear, the
+			// command sprinted straight back into the cloud before the reflex could turn the body (live breath room).
+			if (current.ruleId().equals(deferredYield) && (!state.lastTruth && !state.releasesCornered || settledHold) && status == ActionStatus.RUNNING) {
 				outcome = Outcome.YIELDED;
 				reason = "model command";
 				if (state.rule.kind() == ReflexSpec.Kind.STANCE) state.suppressed = true;
@@ -378,9 +401,25 @@ public final class ReflexScheduler {
 				endOutcome = outcome;
 				current = null;
 				// A floor firing that ran out, failed or was preempted in its hazard fires again: the command still waits for its yield.
-				boolean refires = state.lastTruth && (outcome == Outcome.TIMEOUT || outcome == Outcome.FAILED || outcome == Outcome.PREEMPTED);
-				if (ended.ruleId().equals(deferredYield) && !refires) deferredYield = null;
+				// A breath run that ends done still in reach of the cloud (no safe heading further) has not got the body out either.
+				boolean refires = state.lastTruth && (outcome == Outcome.TIMEOUT || outcome == Outcome.FAILED || outcome == Outcome.PREEMPTED
+						|| outcome == Outcome.DONE && state.releasesCornered);
+				boolean kept = ended.ruleId().equals(deferredYield);
+				if (kept && !refires) deferredYield = null;
 				recordEnd(state, outcome, now, reason);
+				if (kept && state.releasesCornered && !state.lastTruth && outcome != Outcome.YIELDED) {
+					// The breath run ended out of the cloud: the command it kept waiting takes the body now.
+					deferredYield = null;
+					deferredYielded = true;
+					state.yieldedTrigger = true;
+					yieldStancesTo(state);
+				} else if (kept && state.cornered()) {
+					// Cornered with a command waiting: the command takes the body; the floor waits until the body is out.
+					deferredYield = null;
+					deferredYielded = true;
+					state.yieldedTrigger = true;
+					yieldStancesTo(state);
+				}
 				rearmSwallowedEdges(ended, now);
 			}
 		}
@@ -428,10 +467,18 @@ public final class ReflexScheduler {
 	 */
 	public Decision yield(long now) {
 		suppressIdleShields();
+		// A cornered breath floor between its refirings yields too, or it would take the body back from the command next tick.
+		for (State state : states.values()) {
+			if (!state.cornered() || !state.lastTruth) continue;
+			state.yieldedTrigger = true;
+			if (state.rule.id().equals(deferredYield)) deferredYield = null;
+		}
 		if (current == null) return Decision.NONE;
 		Firing ended = current;
 		State state = states.get(ended.ruleId());
-		if (state.floor && state.lastTruth && !settledHold) {
+		// A breath run keeps a new command waiting until the run ends, also once the body is just out of the cloud and still
+		// sprinting: released then, the command walked straight back in (council R3).
+		if (state.floor && (state.lastTruth || state.releasesCornered) && !settledHold && !state.cornered()) {
 			deferredYield = current.ruleId();
 			return Decision.NONE;
 		}
@@ -452,6 +499,56 @@ public final class ReflexScheduler {
 		for (State other : states.values()) {
 			if (other != floor && !other.floor && other.rule.kind() == ReflexSpec.Kind.STANCE && other.lastTruth) other.suppressed = true;
 		}
+	}
+
+	/**
+	 * A breath floor ({@link #CORNERED_RELEASE}) still in its hazard owes the next run: a command, however it arrived, waits in
+	 * the gap between two of its firings. Other floors (lava) keep main's behaviour: a waiting command runs in their cooldown.
+	 */
+	public boolean holdsWaitingCommand() {
+		return holdsWaitingCommand(null);
+	}
+
+	/**
+	 * As {@link #holdsWaitingCommand()}, reading the breath condition from this tick's {@code senses} where they have it (null:
+	 * the last step's). The engine ticks a running firing before {@link #step}: the tick the cloud comes, the last step's
+	 * reading would still let a shield pass the command's forward input toward it.
+	 */
+	public boolean holdsWaitingCommand(Map<String, Sense> senses) {
+		for (State state : states.values()) {
+			if (!state.releasesCornered || state.disabledReason != null || blocked(state)) continue;
+			Sense sense = senses == null ? null : senses.get(state.rule.id());
+			boolean truth = sense != null ? sense.truth() : state.lastTruth;
+			if (truth && !state.yieldedTrigger) return true;
+		}
+		return false;
+	}
+
+	/** Rules that must not fire now whatever their condition (an End default outside the End); see {@link #blockWhere}. */
+	private java.util.function.Predicate<ReflexSpec.Rule> blocked;
+
+	/**
+	 * Rules matching {@code rule} (null: none) must not fire from now on: their queued edges are dropped and they are left out
+	 * of selection until it changes (the End's defaults the tick the body leaves the End, before the coordinator removes them).
+	 * Called every tick: it allocates nothing.
+	 */
+	public void blockWhere(java.util.function.Predicate<ReflexSpec.Rule> rule) {
+		blocked = rule;
+		if (rule == null) return;
+		for (State state : states.values()) if (rule.test(state.rule)) state.pendingUntil = -1L;
+	}
+
+	private boolean blocked(State state) {
+		return blocked != null && blocked.test(state.rule);
+	}
+
+	/** A cornered floor rule, still in its hazard, that has not yet given the body to a command. */
+	public boolean corneredUnyielded() {
+		for (State state : states.values()) {
+			if (!state.cornered() || !state.lastTruth || state.yieldedTrigger) continue;
+			if (current == null || current.ruleId().equals(state.rule.id())) return true;
+		}
+		return false;
 	}
 
 	/** Whether the last {@link #step} ended a floor firing for a model command it had been kept through. */
@@ -505,10 +602,12 @@ public final class ReflexScheduler {
 	}
 
 	private boolean ready(State state, long now) {
-		if (state.disabledReason != null || now < state.cooldownUntil || state.heldBack || heldNow.containsKey(state.rule.id())) return false;
+		if (state.disabledReason != null || now < state.cooldownUntil || state.heldBack || heldNow.containsKey(state.rule.id()) || blocked(state)) return false;
 		if (current != null && current.ruleId().equals(state.rule.id())) return false;
 		if (state.rule.maxFirings() > 0 && state.fired >= state.rule.maxFirings()) return false;
-		// A floor trigger is level-triggered: ready whenever its hazard holds, unless a settled firing of it yielded.
+		// A floor trigger is level-triggered: ready whenever its hazard holds, unless a settled firing of it yielded. A breath
+		// floor is only level-triggered: a queued edge (a rearm after another firing) never starts it once the cloud has cleared.
+		if (state.rule.kind() == ReflexSpec.Kind.TRIGGER && state.releasesCornered) return state.lastTruth && !state.yieldedTrigger;
 		if (state.rule.kind() == ReflexSpec.Kind.TRIGGER) return state.pendingUntil >= now || state.floor && state.lastTruth && !state.yieldedTrigger;
 		return state.lastTruth && !state.suppressed;
 	}
@@ -520,6 +619,10 @@ public final class ReflexScheduler {
 		long duration = Math.max(0L, now - started);
 		boolean stance = state.rule.kind() == ReflexSpec.Kind.STANCE;
 		state.cooldownUntil = stance && outcome == Outcome.TIMEOUT && state.lastTruth ? now : now + Math.max(1L, state.rule.cooldownMs() / 50L);
+		// A breath floor that times out or ends done still in reach of the cloud runs again in the same tick: in its cooldown
+		// the paused command resumed and walked back into the cloud (live breath room, a run timed out at a small island's
+		// rim). A failed run waits the rule's own cooldown (the engine keeps a waiting command paused through it).
+		if (state.releasesCornered && state.lastTruth && outcome != Outcome.YIELDED && outcome != Outcome.FAILED) state.cooldownUntil = now;
 		boolean harmedHold = stance && outcome == Outcome.TIMEOUT && harmed;
 		boolean failure = outcome == Outcome.FAILED || outcome == Outcome.TIMEOUT && !stance || harmedHold;
 		boolean progress = !failure && (outcome == Outcome.DONE || outcome == Outcome.TIMEOUT && stance);
@@ -528,6 +631,11 @@ public final class ReflexScheduler {
 			wake = true;
 			detail = (detail == null || detail.isEmpty() ? "" : detail + "; ") + "held " + (duration * HELD_SPANS_BEFORE_WAKE / TICKS_PER_SECOND)
 					+ " s and the condition has not cleared";
+		}
+		if (state.releasesCornered) {
+			// Only a run that got the body out resets the count; a run done still in the cloud is like a timeout: neither.
+			if (outcome == Outcome.FAILED && state.lastTruth) state.cornerFailures++;
+			else if (outcome == Outcome.DONE && !state.lastTruth) state.cornerFailures = 0;
 		}
 		if (failure) {
 			state.failuresInARow++;

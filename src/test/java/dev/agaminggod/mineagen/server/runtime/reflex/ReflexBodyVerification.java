@@ -251,7 +251,7 @@ public final class ReflexBodyVerification {
 		check(!ReflexEngine.sleepsWithoutItem(parsed.get(0), ReflexActions.lacks(parsed.get(0).action(), empty, 0, held("minecraft:shield"))), "an offhand shield wakes it");
 		java.util.function.IntFunction<ReflexActions.Held> bread = index -> index == 2 ? new ReflexActions.Held("minecraft:bread", true, false) : none;
 		check(!ReflexEngine.sleepsWithoutItem(parsed.get(1), ReflexActions.lacks(parsed.get(1).action(), bread, 0, none)), "hotbar food wakes it");
-		check(ReflexSpec.MAX_RULES == 27, "the mod holds the model's 12 rules plus the 15 defaults");
+		check(ReflexSpec.MAX_RULES == 29, "the mod holds the model's 12 rules plus the 15 defaults and the End's 2");
 	}
 
 	/** Vanilla food values (nutrition, saturation) for the choice below. */
@@ -320,7 +320,17 @@ public final class ReflexBodyVerification {
 		for (int index = 0; index < 12; index++) {
 			full.add(JsonParser.parseString("{\"id\":\"own-" + index + "\",\"when\":{\"type\":\"on_fire\"},\"do\":{\"type\":\"leave_fire\"}}"));
 		}
-		check(ReflexSpec.parseRules(full).size() == ReflexSpec.MAX_RULES, "the defaults and a full set of 12 model rules fit the mod's limit exactly");
+		check(ReflexSpec.parseRules(full).size() == ReflexSpec.MAX_RULES - 2, "the defaults and a full set of 12 model rules fit the mod's limit");
+		// In the End the coordinator adds its End defaults (reflexes.mjs DIMENSION_REFLEXES): the same fixture file pins them.
+		String end;
+		try (var input = ReflexBodyVerification.class.getResourceAsStream("/end-reflex-rules.json")) {
+			check(input != null, "the End reflex fixture is on the test classpath");
+			end = new String(input.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+		} catch (java.io.IOException error) {
+			throw new IllegalStateException(error);
+		}
+		for (var rule : JsonParser.parseString(end).getAsJsonArray()) full.add(rule);
+		check(ReflexSpec.parseRules(full).size() == ReflexSpec.MAX_RULES, "in the End the defaults, the End's own and 12 model rules fit the mod's limit exactly");
 	}
 
 	private static ReflexActions.Held held(String id) {

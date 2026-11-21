@@ -52,6 +52,13 @@ public interface WalkabilityView {
 	 */
 	default boolean lavaFillsNext(GridPosition position) { return lavaFlowsInto(position); }
 
+	/**
+	 * Whether routes over this view never enter a cell lava fills next (see {@link #lavaFillsNext}), going round it
+	 * instead, unless the body already stands in such a flow and walks out through it. Off for views whose planners
+	 * must keep every way out (fight, flee, hazard exits).
+	 */
+	default boolean refusesLavaFlowCells() { return false; }
+
 	/** A one-cell gap can be jumped, but landing failure over hazards or a deep drop is more costly. */
 	default int gapExposureCost(GridPosition gap) {
 		if (cellAt(gap) == Cell.HAZARD) return 40;

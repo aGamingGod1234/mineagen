@@ -514,6 +514,13 @@ public final class LocalPathfinder implements PathPlanner {
 				}
 			}
 		}
+		// Nether lava safety: a cell seen lava fills next is no route cell at all, so the plan goes round it
+		// rather than through it (it used to cost 200 and then fail the whole route with LAVA_FLOW). The exemption is the
+		// flow region the start stands in: a dry cell never expands into a flow cell, so only cells joined to the start
+		// through flow cells are crossed. A start-cell-only rule would trap a body two or more cells deep in a wide flow.
+		if (view.refusesLavaFlowCells() && !neighbors.isEmpty() && !view.lavaFillsNext(current)) {
+			neighbors.removeIf(edge -> view.lavaFillsNext(edge.position()));
+		}
 		double sourceSpeed = neighbors.isEmpty() ? 1.0D : view.movementSpeedMultiplier(current);
 		for (int index = 0; index < neighbors.size(); index++) {
 			Neighbor edge = neighbors.get(index);
