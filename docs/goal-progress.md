@@ -65,6 +65,8 @@ Changes are tested in four tiers, from fastest to slowest:
 3. **Checkpoint runs**: games with the model from a save point partway along the route, run overnight. They test what rooms cannot, such as what the model decides.
 4. **Full games from scratch**: the status table above, the scoreboard for the goal.
 
+A room or a game can come out differently with no code change, so each result is a count over repeats. From now on each room plays 10 times a side, and a games round plays 8 seeds. A gap of one or two passes in 10 rooms (a rule of thumb from chance alone) or under 2 seeds in a round (measured from repeated seeds) counts as no change. A room that did not play properly is invalid and is played again, and a game with a missing record is unknown; neither counts as a pass. The commands for each tier are in [Which test to run](../scripts/quality/README.md#which-test-to-run).
+
 ## Practice rooms on 2026-11-21
 
 Four gameplay changes merged today, each measured in practice rooms against the code before it. These are rooms, not full games, so they do not count toward the status table.
@@ -73,7 +75,7 @@ Four gameplay changes merged today, each measured in practice rooms against the 
 |---|---|---|---|
 | Lava safety (#35) | lava at the bot's own level | died in lava 9 of 9 | 0 of 9 |
 | End breath escape (#36) | dragon breath in the End | lost 18 to 30 HP in each of 23 rooms, 2 deaths | 0 HP lost, 0 deaths in 28 of 28 |
-| Unreachable enderman (#39, a switch that is off by default) | an enderman the bot cannot reach | killed it 0 of 5 | 5 of 5 with the switch on |
+| Unreachable enderman (#39; its switch is on by default since 21 Nov) | an enderman the bot cannot reach | killed it 0 of 5 | 5 of 5 with the switch on |
 | Shield on a drawn bow (#30) | a skeleton shooting from 4 to 10 blocks | shield stopped 67% of the arrow damage | 81% (24 cases each) |
 
 The first three gaps are all-or-nothing and safe to trust. The shield gain held in 18 of 24 paired cases but is about 3 points either way, and it showed no gain at 10 blocks.
