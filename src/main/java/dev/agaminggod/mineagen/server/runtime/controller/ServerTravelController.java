@@ -163,6 +163,7 @@ public final class ServerTravelController implements ServerController {
 	private int portalTicks;
 	/** Ticks spent walking straight into the opening after the step in ended short of it. */
 	private int portalNudge;
+	private boolean portalStepped;
 	private TravelCheckpoints.WalkingSearch checkpointSearch;
 	private GridPosition legTarget;
 	private double legStartLeft;
@@ -412,6 +413,11 @@ public final class ServerTravelController implements ServerController {
 		return horizontalSquared <= 4.0D && aboveFloor >= -1.0D && aboveFloor <= 2.0D;
 	}
 
+	/** Whether a body this far below a lit portal's floor, beside it, pillars one block before the step in. */
+	static boolean stepsUpToPortal(double horizontalSquared, double aboveFloor) {
+		return horizontalSquared <= 6.25D && aboveFloor < -1.0D && aboveFloor >= -2.6D;
+	}
+
 	/**
 	 * At a target that is a seen portal: step into its nearest standing cell, then stand there until the crossing. Null
 	 * when the target is no portal, or while the step in runs (the leg phase ticks it).
@@ -434,12 +440,33 @@ public final class ServerTravelController implements ServerController {
 			return TickResult.running(progress(player));
 		}
 		if (portalLeg && !(phase == Phase.LEG && leg != null)) {
+			// The step block under the feet is being placed: the build phase ticks it.
+			if (phase == Phase.BUILD && move != null) return null;
 			double dx = portalCell.x() + 0.5D - player.getX(), dz = portalCell.z() + 0.5D - player.getZ();
-			if (portalNudge++ < PORTAL_NUDGE_TICKS && nudgesIntoPortal(dx * dx + dz * dz, player.getY() - portalCell.y())) {
+			double above = player.getY() - portalCell.y();
+			if (portalNudge++ < PORTAL_NUDGE_TICKS && nudgesIntoPortal(dx * dx + dz * dz, above)) {
 				TickResult stop = stopOrTimeout(player, nowEpochMs);
 				if (stop != null) return stop;
-				apply(player, new AgentInputStates.MotorTarget(Mth.wrapDegrees((float) Math.toDegrees(Math.atan2(-dx, dz))), 0.0F, true, false, false), false, false, false, nowEpochMs);
+				// A jump where the frame's bottom row stands a block over the feet, as a player hops into the opening.
+				apply(player, new AgentInputStates.MotorTarget(Mth.wrapDegrees((float) Math.toDegrees(Math.atan2(-dx, dz))), 0.0F, true, player.horizontalCollision, false), false, false, false, nowEpochMs);
 				return TickResult.running(progress(player));
+			}
+			// The frame stands on a ledge 2 over the ground in front (lava-gate-1: 8 of 9 lit portals not entered): one
+			// carried block under the feet, then the step in from a block below the floor.
+			if (!portalStepped && stepsUpToPortal(dx * dx + dz * dz, above) && player.onGround() && TravelBuilder.blockSlot(player) >= 0) {
+				portalStepped = true;
+				portalNudge = 0;
+				releaseInput();
+				move = new TravelBuilder.Plan(TravelBuilder.Kind.PILLAR, Direction.NORTH, 1, null, null);
+				buildDirection = Direction.NORTH;
+				buildRun = BUILD_RUN;
+				moveFeet = feet(player);
+				moveTicks = 0;
+				moveStage = 0;
+				pillarDone = 0;
+				centred = false;
+				phase = Phase.BUILD;
+				return null;
 			}
 		}
 		if (portalLeg) return phase == Phase.LEG && leg != null ? null : fail(player, "PORTAL_NOT_REACHED", "Could not step into the portal at " + cell(portalCell) + lastFailureText());
