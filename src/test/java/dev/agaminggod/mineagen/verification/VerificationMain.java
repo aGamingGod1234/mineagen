@@ -146,6 +146,7 @@ public final class VerificationMain {
 		passedAssertions += dev.agaminggod.mineagen.server.perception.WalkedRouteVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.LavaFlowMovementVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.LavaSpreadVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.LavaStepVerification.verify();
 		passedAssertions += GoalControlVerification.verify();
 		passedAssertions += GoalDraftAdvancementRevalidationVerification.verify();
 		passedAssertions += QueuedGoalRevalidationVerification.verify();
@@ -172,6 +173,7 @@ public final class VerificationMain {
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.reflex.ModelOwnedDefaultRulesVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.reflex.DriverRuleVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.reflex.CoverRuleVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.reflex.DrawnBowShieldVerification.verify();
 		passedAssertions += CoordinatorProcessOwnershipVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.WindowsCoordinatorJobDrainVerification.verify();
 		passedAssertions += CoordinatorStartupSmokeVerification.verify();
@@ -269,6 +271,7 @@ public final class VerificationMain {
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.input.SneakSettlingVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.BrinkGuardVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.EndermanHuntLeadsVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.SkipUnreachableVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.ShelterPlanVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.BuildPlanVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.DigPlanVerification.verify();

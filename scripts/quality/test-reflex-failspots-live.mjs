@@ -9,7 +9,9 @@ import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 import { spotPassed } from './lib/reflex-failspot-pass.mjs';
+import { reflexHold } from './lib/room-evidence.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
+import { deathCounter } from './lib/damage-counter.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const jarPath = resolve(process.env.ARENA_JAR ?? join(root, MOD_JAR));
@@ -133,7 +135,8 @@ async function place(s, spot, kit) {
 }
 
 const eventsOf = (o, ids, since) => (o.reflexes?.events ?? []).filter(e => ids.includes(e.id) && (e.seq ?? 0) > since).map(e => ({ outcome: e.outcome, detail: e.detail, ms: e.ms }));
-const deaths = async (s) => number(await s.command(`scoreboard players get ${agent} deaths`)) || 0;
+// The deathCount objective boot adds: "has 1 [deaths]" once read as NaN, and `|| 0` hid the death.
+const deaths = (s) => deathCounter(text => s.command(text), agent, { objective: 'deaths', unsetIsZero: true });
 const health = async (s) => { const text = await s.command(`data get entity ${agent} Health`); return /No entity|not found/i.test(text) ? 0 : number(text); };
 
 async function tunnelSpot(s, spot) {
@@ -171,7 +174,8 @@ async function tunnelSpot(s, spot) {
 	const final = track.at(-1);
 	const died = (await deaths(s)) > deathsBefore || (await health(s)) <= 0;
 	await s.command(`execute in ${spot.dim} run kill @e[type=minecraft:zombie]`);
-	return { recorded: spot.recorded, walkedIn: walked, events, died, startedAt: start0.map(round), final: [final.x, final.z],
+	// The rule under test must fire: a body that walked out on its own measured nothing (finishRun reports it invalid).
+	return { recorded: spot.recorded, walkedIn: walked, events, died, hold: reflexHold(o.reflexes, { id: 'escape', sinceSeq: since, holdMs: 0 }), startedAt: start0.map(round), final: [final.x, final.z],
 		fromZombie: round(Math.hypot(final.x - world(6, 0)[0], final.z - world(6, 0)[2])), escaped: !events.some(e => e.outcome === 'failed') && final.z < oz - 1, track: track.filter((_, i) => i % 2 === 0) };
 }
 
@@ -187,7 +191,7 @@ for (const spot of selected) {
 		s = await boot(dir);
 		results.spots[spot.name] = await tunnelSpot(s, spot);
 		const r = results.spots[spot.name];
-		Object.assign(row, { died: r.died ?? null, lost: r.lost ?? null, events: r.events?.map(e => e.outcome) ?? null, finishedAt: Date.now() });
+		Object.assign(row, { died: r.died ?? null, lost: r.lost ?? null, events: r.events?.map(e => e.outcome) ?? null, reflexHold: r.hold, finishedAt: Date.now() });
 		row.pass = spotPassed(spot, r);
 	} catch (error) {
 		results.spots[spot.name] = { ...(results.spots[spot.name] ?? {}), error: String(error?.stack ?? error).slice(0, 600) };
