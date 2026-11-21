@@ -282,6 +282,15 @@ test('the starting kit is not counted as progress and unreadable inventories are
 	assert.deepEqual(verdict(given), verdict(applied));
 });
 
+test('an unreadable final inventory leaves the end count unknown instead of reusing an earlier one', async () => {
+	const { evaluateSamples } = await import('../../scripts/quality/ladder-evaluator.mjs');
+	const rods = [0, 5, null];
+	const samples = rods.map((n, i) => sample(i * 1000, i * 20, { inventoryNbt: n === null ? undefined : nbt(...(n ? [['blaze_rod', n]] : [])) }));
+	const e = evaluateSamples(samples, { successCheck: 'inventory: blaze_rod >=7', durationBudgetMs: 60000, goalStartAt: 0, setup: { inventory: [] } });
+	assert.deepEqual([e.progress[0].bestHeld, e.progress[0].endHeld, e.progress[0].endEarned, e.progress[0].samples], [5, null, null, 2]);
+	assert.equal(ladderRow({ scenario: 'L-D1', evaluation: e }).progressText, 'blaze_rod best 5/7, end unknown');
+});
+
 test('progress reaches the target exactly when the inventory verdict passes', async () => {
 	const { evaluateSamples } = await import('../../scripts/quality/ladder-evaluator.mjs');
 	const checks = ['inventory: blaze_rod >=7', 'inventory_contains_any: cooked_beef|cooked_porkchop >=20', 'inventory: iron_ingot >=3'];

@@ -166,7 +166,9 @@ export function evaluateProgress(spec, samples, { goalStartAt = null, goalStartT
 			case 'inventory': {
 				const supplied = kit !== null ? inventoryHeld(leaf, kit) : readable.length ? inventoryHeld(leaf, readable[0].inventoryNbt) : null;
 				const held = readable.map(s => inventoryHeld(leaf, s.inventoryNbt));
-				const bestHeld = held.length ? held.reduce((a, b) => Math.max(a, b)) : null, endHeld = held.at(-1) ?? null;
+				// The end count is the final in-budget sample's; when that inventory is unreadable the end is unknown, not an earlier count.
+				const final = window.at(-1), endHeld = final && readableInventory(final) ? inventoryHeld(leaf, final.inventoryNbt) : null;
+				const bestHeld = held.length ? held.reduce((a, b) => Math.max(a, b)) : null;
 				const net = n => n === null || supplied === null ? null : Math.max(0, n - supplied);
 				return { type: 'inventory', items: leaf.items.map(bare), target: leaf.count, supplied, kitSource, needed: supplied === null ? null : Math.max(0, leaf.count - supplied),
 					bestHeld, endHeld, bestEarned: net(bestHeld), endEarned: net(endHeld), samples: held.length };
@@ -202,7 +204,7 @@ export function formatProgress(progress) {
 				const name = p.items.join('|');
 				if (p.bestEarned === null) return `${name} no readable inventory`;
 				const given = p.supplied > 0 ? ` (net of ${p.supplied} ${p.kitSource === 'first sample' ? 'held at start' : 'given'})` : '';
-				return `${name} best ${p.bestEarned}/${p.needed}, end ${p.endEarned}${given}`;
+				return `${name} best ${p.bestEarned}/${p.needed}, end ${p.endEarned ?? 'unknown'}${given}`;
 			}
 			case 'survive': return p.survivedTicks === null ? 'survival unobserved' : `survived ${p.survivedTicks}/${p.target} ticks${p.died ? ', died' : ''}${p.clock === 'wall-fallback' ? ' (wall clock)' : ''}`;
 			case 'position': return p.closest === null ? `${p.dimension} (${p.center.join(',')}) not reached` : `${p.dimension} (${p.center.join(',')}) closest ${p.closest}/${p.radius} blocks${p.end === null ? '' : `, end ${p.end}`}`;
