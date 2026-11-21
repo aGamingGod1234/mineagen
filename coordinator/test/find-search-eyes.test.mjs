@@ -41,7 +41,7 @@ test('downward and nearly overhead eyes switch to staircase descent and stop at 
 	for (const event of [flight({ vertical: 'sank' }), flight({ flewBlocks: 1 })]) {
 		const b = fake({ event }); const r = await searchFor(target, b);
 		assert.equal(r.reasonCode, 'FIND_SEEN');
-		assert.equal(b.calls.find(c => c.type === 'dig_to').args.pattern, 'stairs_down');
+		assert.equal(b.calls.find(c => c.type === 'dig_to').args.pattern, 'steep_down');
 		assert.equal(b.calls.some(c => c.args.pattern === 'shaft'), false);
 	}
 });

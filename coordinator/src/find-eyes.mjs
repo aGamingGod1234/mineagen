@@ -304,7 +304,7 @@ export async function followEyes(target, body, { observation: initial, deadline,
 					const end = await act('travel_to', bounded({ x: state.estimate.x, z: state.estimate.z, build: true, tolerance: 3 }), { soft: true });
 					if (end) return end;
 				}
-				if (near()) { state.phase = 'dig'; state.digAt = { ...state.estimate }; }
+				if (near()) { state.phase = 'dig'; state.digAt = { ...state.estimate }; state.digCentre = { ...state.estimate }; }
 				continue;
 			}
 			state.bracket = eyeBracket(state.bracket, state.throws.at(-2), last) ?? state.bracket;
@@ -313,6 +313,7 @@ export async function followEyes(target, body, { observation: initial, deadline,
 				const end = await act('travel_to', bounded({ ...middle, build: true, tolerance: 2 }), { soft: true });
 				if (end) return end;
 				state.phase = Math.hypot(a.x - b.x, a.z - b.z) <= 24 ? 'dig' : 'throw';
+				if (state.phase === 'dig') state.digCentre = middle;
 				continue;
 			}
 			const distance = eyeLeg(last, state.throws.length);
@@ -320,6 +321,7 @@ export async function followEyes(target, body, { observation: initial, deadline,
 				if (point(last.to)) {
 					const end = await act('travel_to', bounded({ x: last.to.x, z: last.to.z, tolerance: 2, build: true }));
 					if (end) return end;
+					state.digCentre = { x: last.to.x, z: last.to.z };
 				}
 				state.phase = 'dig'; continue;
 			}
@@ -339,7 +341,13 @@ export async function followEyes(target, body, { observation: initial, deadline,
 				return finish('FIND_NOT_FOUND', 'Staircase reached y-54 without stronghold blocks');
 			}
 			const before = o.player.y;
-			const end = await act('dig_to', bounded({ pattern: 'stairs_down', heading: state.digWest ? 'west' : 'east', y: Math.max(-54, Math.floor(before) - 8), maxBlocks: 32,
+			// The first flight heads back across the point the eyes went down at, so the to-and-fro strip straddles it rather
+			// than running off to one side (eye rooms: strips that ran 8 blocks east of the stronghold passed its depth unseen).
+			if (state.digWest === undefined && Number.isFinite(state.digCentre?.x)) state.digWest = o.player.x > state.digCentre.x;
+			// steep_down sees each floor before it stands on it, as stairs_down does, and drops two levels a step: a third
+			// fewer blocks a level, so one iron pickaxe reaches stronghold depth (eye rooms: stairs_down wore the only pickaxe
+			// out at y-25 in 4 of 10 descents).
+			const end = await act('dig_to', bounded({ pattern: 'steep_down', heading: state.digWest ? 'west' : 'east', y: Math.max(-54, Math.floor(before) - 8), maxBlocks: 32,
 				throughCaves: 'small', stopWhenSeen: 'minecraft:stone_bricks', discard }));
 			if (end) return end;
 			state.digWest = !state.digWest;

@@ -86,7 +86,7 @@ test('two throws that cross well stop the throwing: walk to the crossing and dig
 	const toEstimate = b.calls.filter(c => c.type === 'travel_to')[1].args;
 	assert.ok(Math.hypot(toEstimate.x - STRONGHOLD.x, toEstimate.z - STRONGHOLD.z) <= 3, JSON.stringify(toEstimate));
 	assert.equal(b.calls.at(-1).type, 'dig_to');
-	assert.equal(b.calls.at(-1).args.pattern, 'stairs_down');
+	assert.equal(b.calls.at(-1).args.pattern, 'steep_down');
 	assert.equal(eyesHeld(b), 14);
 });
 
@@ -95,7 +95,7 @@ test('a crossing that leads nowhere is dropped: the next find climbs and throws 
 	const b = body({ onAct: (type, args, o) => {
 		if (type === 'travel_to' && ++legs === 1) { o.player.x = args.x; o.player.z = args.z + 60; return { state: 'SUCCEEDED', reasonCode: 'ARRIVED' }; }
 		// No stronghold under the crossing: the staircase finds nothing.
-		if (type === 'dig_to' && args.pattern === 'stairs_down') { o.player.y = args.y; return { state: 'SUCCEEDED', reasonCode: 'ARRIVED' }; }
+		if (type === 'dig_to' && args.pattern === 'steep_down') { o.player.y = args.y; return { state: 'SUCCEEDED', reasonCode: 'ARRIVED' }; }
 		if (type === 'dig_to') { o.player.y = args.y; o.player.skyOpen = true; return { state: 'SUCCEEDED', reasonCode: 'ARRIVED' }; }
 		return null;
 	} });
@@ -107,7 +107,7 @@ test('a crossing that leads nowhere is dropped: the next find climbs and throws 
 	const throws = b.calls.filter(c => c.type === 'use_item').length;
 	b.o.player.skyOpen = false;
 	await searchFor({ structure: 'stronghold', throwCap: 6 }, b);
-	const after = b.calls.slice(b.calls.findLastIndex(c => c.type === 'dig_to' && c.args.pattern === 'stairs_down') + 1);
+	const after = b.calls.slice(b.calls.findLastIndex(c => c.type === 'dig_to' && c.args.pattern === 'steep_down') + 1);
 	assert.ok(b.calls.some(c => c.type === 'dig_to' && c.args.pattern === 'stairs_up'), 'climbs back to open sky');
 	assert.ok(b.calls.filter(c => c.type === 'use_item').length > throws, 'throws again');
 	assert.ok(after.length >= 0);
