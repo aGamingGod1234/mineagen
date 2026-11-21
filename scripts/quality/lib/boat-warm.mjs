@@ -238,7 +238,7 @@ export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, id
 				await clean(vm, 'check');
 				await holdFor(vm, idleTtlSeconds);
 				await store.drop(vm.name);
-				log(`machine ${vm.id} back in the warm pool for ${Math.round(idleTtlSeconds / 60)} min`);
+				log(vm.adopted ? `machine ${vm.id} given back, still running` : `machine ${vm.id} back in the warm pool for ${Math.round(idleTtlSeconds / 60)} min`);
 			} catch (error) {
 				if (vm.adopted || !(verdictFailure(error) || goneFailure(error))) {
 					// Unknown state is kept: the next lease cleans and checks it again before any room plays there.
