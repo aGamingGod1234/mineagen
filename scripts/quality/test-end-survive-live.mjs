@@ -9,7 +9,7 @@ import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 import { installTickRate, fixtureTickRate } from './watch-replay.mjs';
-import { damageCounter, recordDamageEvidence } from './lib/damage-counter.mjs';
+import { damageCounter, recordDamageEvidence, deathCounter, recordDeathEvidence } from './lib/damage-counter.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const jarPath = resolve(process.env.ARENA_JAR ?? join(root, MOD_JAR));
@@ -36,7 +36,7 @@ class Inbox {
 	accept(e) { const i = this.waiters.findIndex(w => w.type === e.type && w.match(e)); if (i >= 0) this.waiters.splice(i, 1)[0].done(e); else { this.events.push(e); if (this.events.length > 1024) this.events.shift(); } }
 	wait(type, match = () => true, ms = 30000) { const i = this.events.findIndex(e => e.type === type && match(e)); if (i >= 0) return Promise.resolve(this.events.splice(i, 1)[0]); return new Promise((res, rej) => { const w = { type, match, done: e => { clearTimeout(t); res(e); } }; const t = setTimeout(() => { this.waiters = this.waiters.filter(x => x !== w); rej(new Error(`TIMEOUT ${type}`)); }, ms); this.waiters.push(w); }); }
 }
-let rcon, bridge, record, observation, inbox, ordinal = 0, revision = 0, rate, damage;
+let rcon, bridge, record, observation, inbox, ordinal = 0, revision = 0, rate, damage, deaths;
 const agent = 'Lander';
 const command = async s => {
 	if (rcon.state === 'closed') { rcon = new HeadlessRconClient({ host: '127.0.0.1', port: port + 1, password: secret, commandTimeoutMs: 5000 }); await rcon.connect(); }
@@ -70,9 +70,9 @@ const results = { clutch: {}, crystal: {}, void: {} };
  * back at once, and the void step is one 2-tick control.
  */
 async function playStart() {
-	const damage0 = await damage().catch(() => null);
+	const damage0 = await damage().catch(() => null), deaths0 = await deaths().catch(() => null);
 	await rate.fastRate();
-	return { damage0, t0: rate.clock.now(), wall0: Date.now(), timer: await rate.gameTimer() };
+	return { damage0, deaths0, t0: rate.clock.now(), wall0: Date.now(), timer: await rate.gameTimer() };
 }
 async function playEnd(p) {
 	// elapsed() reads the world tick first, so the clock is anchored on it when seconds is read.
@@ -81,6 +81,7 @@ async function playEnd(p) {
 		gameSeconds: Math.round(gameMs / 1000), rates: await p.timer.rates().catch(() => null) };
 	await rate.normalRate();
 	recordDamageEvidence(tick, p.damage0, await damage().catch(() => null));
+	recordDeathEvidence(tick, p.deaths0, await deaths().catch(() => null));
 	return tick;
 }
 /** Land after a fall (or time out): health lost, final y, whether water is under the feet, reflex reports. */
@@ -118,6 +119,8 @@ try {
 	await command(`item replace entity ${agent} armor.feet with minecraft:iron_boots`);
 	await command(`item replace entity ${agent} hotbar.0 with minecraft:iron_sword`);
 	damage = await damageCounter(command, agent);
+	await command('scoreboard objectives add fixture_deaths deathCount');
+	deaths = () => deathCounter(command, agent, { objective: 'fixture_deaths', unsetIsZero: true });
 	results.tickRate = rate.tickRate;
 	const kit = async () => { await command(`item replace entity ${agent} hotbar.3 with minecraft:water_bucket`); await command(`item replace entity ${agent} hotbar.0 with minecraft:iron_sword`); await command(`fill -16 81 -16 16 81 16 minecraft:air replace minecraft:water`); };
 	// The settle passes at the fixture rate and leaves the server at the rate it ran at (a drop heals mid-fall).
@@ -184,6 +187,11 @@ try {
 		crystalPredicted: results.crystal.break9.predicted, crystalLost: results.crystal.break9.lost,
 		voidGroundAhead: results.void.groundAhead?.status ?? null, voidInControl: /void/.test(results.void.controlMessage ?? ''), jar: jarPath,
 	};
+	// The body's read of End dangers: the crystal blast it predicted is what it lost (within 1 HP), and a control step
+	// toward the void is stopped and named.
+	results.bar = 'crystal blast within 1 HP of its prediction, void step stopped';
+	results.pass = Number.isFinite(results.summary.crystalPredicted) && Number.isFinite(results.summary.crystalLost)
+		&& Math.abs(results.summary.crystalLost - results.summary.crystalPredicted) <= 1 && results.summary.voidInControl;
 	await writeFile(join(out, 'end-survive.json'), JSON.stringify(results, null, 2));
 	console.log(JSON.stringify(results, null, 2));
 } finally {

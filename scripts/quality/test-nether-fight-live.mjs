@@ -132,6 +132,10 @@ try {
 		sweep: `piglin hurt ${results.sweep.piglinHurt}; reported ${results.sweep.reported}`,
 		jar: jarPath,
 	};
+	// Resistance keeps the body alive, so the room is judged on the fight: it keeps hitting after its shield breaks and
+	// says so, and it reports a sweep that hits a calm zombified piglin.
+	results.bar = 'hits on after the shield breaks and notes it; reports the sweep on a calm piglin';
+	results.pass = results.shieldBreak.hitsAfterBreak === true && results.shieldBreak.notesBreak === true && results.sweep.reported === true;
 	results.tick = await rate.report();
 	console.log(JSON.stringify(results.summary, null, 2));
 } finally {
