@@ -17,7 +17,8 @@ export function longProtocolRow(row) {
 	if (['goal_control', 'goal_completion_result', 'advancement_granted', 'entity_killed', 'agent_registered', 'agent_removed'].includes(e.type)) return row;
 	return null;
 }
-export const longTraceRow = row => ['native_model_call', 'native_decision_timing', 'native_token_usage', 'experience_state', 'experience_error'].includes(row.event) ? row : null;
+// agent_death carries a death's cause and last-10-seconds record: kept so it survives the trace journal's rotation.
+export const longTraceRow = row => ['native_model_call', 'native_decision_timing', 'native_token_usage', 'experience_state', 'experience_error', 'agent_death'].includes(row.event) ? row : null;
 
 /** What the coordinator actually loaded (experience_state) and any experience error stage, or null when the run had none. */
 export function observedExperience(traceRows) {

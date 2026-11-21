@@ -853,6 +853,13 @@ test('protocol v2 accepts exact death facts only on dead lifecycle control', () 
 		() => validateProtocolV2Payload('goal_control', { operation: 'dead', goalRevision: 8, updatedAtEpochMs: 18 }),
 		/requires death facts/,
 	);
+	// What killed the body and its state then (the death record); a death with no killer sends null attackers.
+	const shot = { ...death, damageType: 'minecraft:arrow', attacker: 'minecraft:skeleton', directAttacker: 'minecraft:arrow', foodLevel: 6, saturation: 0.5, armor: 4 };
+	assert.deepEqual(validateProtocolV2Payload('goal_control', { operation: 'dead', goalRevision: 8, updatedAtEpochMs: 18, death: shot }).death, shot);
+	const burned = { ...death, damageType: 'minecraft:on_fire', attacker: null, directAttacker: null, foodLevel: 0, saturation: 0, armor: 0 };
+	assert.deepEqual(validateProtocolV2Payload('goal_control', { operation: 'dead', goalRevision: 8, updatedAtEpochMs: 18, death: burned }).death, burned);
+	assert.throws(() => validateProtocolV2Payload('goal_control', { operation: 'dead', goalRevision: 8, updatedAtEpochMs: 18, death: { ...shot, foodLevel: -1 } }), /foodLevel/);
+	assert.throws(() => validateProtocolV2Payload('goal_control', { operation: 'dead', goalRevision: 8, updatedAtEpochMs: 18, death: { ...shot, killer: 'x' } }), /killer/);
 	assert.throws(
 		() => validateProtocolV2Payload('goal_control', { operation: 'start', goalRevision: 8, updatedAtEpochMs: 18, goal: 'run', death }),
 		/must not include death/,

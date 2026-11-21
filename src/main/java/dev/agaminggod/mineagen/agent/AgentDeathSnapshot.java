@@ -7,10 +7,26 @@ public record AgentDeathSnapshot(
 		String cause, String dimensionId, double x, double y, double z,
 		Optional<String> respawnDimensionId, Optional<Double> respawnX, Optional<Double> respawnY, Optional<Double> respawnZ,
 		Optional<Float> respawnYaw, Optional<Float> respawnPitch, Optional<Boolean> respawnForced, String gameMode,
-		long diedAtEpochMs, java.util.OptionalInt score
+		long diedAtEpochMs, java.util.OptionalInt score, Optional<Detail> detail
 ) {
+	/**
+	 * What killed the body and its state then, for the death record: the vanilla damage type, the entity types of the
+	 * killer and of what hit (an arrow, a fireball), and hunger and armour. Absent for deaths recorded before this existed.
+	 */
+	public record Detail(String damageType, Optional<String> attacker, Optional<String> directAttacker, int foodLevel, float saturation, int armor) {
+		public Detail {
+			damageType = text(damageType, "damageType");
+			attacker = Objects.requireNonNull(attacker, "attacker must not be null").map(value -> text(value, "attacker"));
+			directAttacker = Objects.requireNonNull(directAttacker, "directAttacker must not be null").map(value -> text(value, "directAttacker"));
+			if (foodLevel < 0) throw new AgentDomainException("INVALID_DEATH_SNAPSHOT", "foodLevel must not be negative");
+			finite(saturation, "saturation");
+			if (armor < 0) throw new AgentDomainException("INVALID_DEATH_SNAPSHOT", "armor must not be negative");
+		}
+	}
+
 	public AgentDeathSnapshot {
 		score = Objects.requireNonNull(score, "score must not be null");
+		detail = Objects.requireNonNull(detail, "detail must not be null");
 		cause = text(cause, "cause");
 		dimensionId = text(dimensionId, "dimensionId");
 		finite(x, "x"); finite(y, "y"); finite(z, "z");
@@ -37,6 +53,16 @@ public record AgentDeathSnapshot(
 			throw new AgentDomainException("INVALID_DEATH_SNAPSHOT", "gameMode must be a vanilla game mode");
 		}
 		if (diedAtEpochMs <= 0L) throw new AgentDomainException("INVALID_DEATH_SNAPSHOT", "diedAtEpochMs must be positive");
+	}
+
+	public AgentDeathSnapshot(
+			String cause, String dimensionId, double x, double y, double z,
+			Optional<String> respawnDimensionId, Optional<Double> respawnX, Optional<Double> respawnY, Optional<Double> respawnZ,
+			Optional<Float> respawnYaw, Optional<Float> respawnPitch, Optional<Boolean> respawnForced, String gameMode,
+			long diedAtEpochMs, java.util.OptionalInt score
+	) {
+		this(cause, dimensionId, x, y, z, respawnDimensionId, respawnX, respawnY, respawnZ,
+				respawnYaw, respawnPitch, respawnForced, gameMode, diedAtEpochMs, score, Optional.empty());
 	}
 
 	public AgentDeathSnapshot(
