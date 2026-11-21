@@ -104,6 +104,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 	private long lastBlazeMs, lastElapsed;
 	private int lastHurtTime;
 	private TickResult finished;
+	private String cancelFacts;
 
 	public ServerSpawnerHoldController(ServerPlayer player, JsonObject arguments, ServerProtectionPolicy protection, BlockPos spawner,
 			ServerFightUntilController.Roofing roofing, long now) {
@@ -723,6 +724,11 @@ public final class ServerSpawnerHoldController implements ServerController {
 	 * and without this the phase, spot and health lost at death were known only from server death lines.
 	 */
 	public String stoppedBodyFacts(ServerPlayer player) {
+		return cancelFacts != null ? cancelFacts : facts(player);
+	}
+
+	/** Read before cancelParts, which clears the trip, defend and shield-heal state the receipt names. */
+	private String facts(ServerPlayer player) {
 		BlockPos at = player.blockPosition();
 		return String.format(Locale.ROOT, "; spawner hold stopped in phase %s%s at %d,%d,%d (%s), health %.1f; %s", phase.name().toLowerCase(Locale.ROOT),
 				collector != null || returning ? " trip" : defend != null ? " defend" : turtleSinceMs >= 0L ? " shield heal" : "",
@@ -733,6 +739,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 	@Override
 	public void cancel(ServerPlayer player) {
 		HOLDING.remove(player.getUUID());
+		if (cancelFacts == null) cancelFacts = facts(player);
 		cancelParts(player);
 	}
 }
