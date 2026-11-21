@@ -168,7 +168,7 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		for (const one of tally) {
 			await s.command(`scoreboard objectives remove ${one.objective}`);
 			const reply = String(await s.command(`scoreboard objectives add ${one.objective} ${one.stat}`));
-			if (!/added/i.test(reply)) console.log(`[${spot.name}] mining counter ${one.stat}: ${reply.slice(0, 160)}`);
+			if (!/added|created/i.test(reply)) console.log(`[${spot.name}] mining counter ${one.stat}: ${reply.slice(0, 160)}`);
 		}
 		row.start = await pos();
 		row.kit = (runtime.latestObservation?.(record)?.inventory?.items ?? adaptObservation(await s.observe()).inventory?.items ?? []).map(item => `${item.itemId.replace('minecraft:', '')}x${item.count}@${item.slot}`);
