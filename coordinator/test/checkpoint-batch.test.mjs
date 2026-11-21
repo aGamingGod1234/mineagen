@@ -60,3 +60,14 @@ test('checkpoint batch plays a save point only with the arms it lists', () => {
 	p.savepoints.eyes.arms = ['nope'];
 	assert.throws(() => expandPlan(p), /arms must list arms of the plan/);
 });
+
+test('checkpoint batch splits every arm evenly over the sign-ins and gives the arms of a repeat different ones', () => {
+	const p = plan(); p.codexHomes = ['/one', '/two']; delete p.codexHome; p.savepoints.nether.repeats = 4;
+	const games = expandPlan(p, { salt: () => 1 });
+	for (const arm of ['main', 'int']) {
+		const mine = games.filter(g => g.arm === arm && g.savepoint === 'nether').map(g => g.account);
+		assert.equal(mine.filter(a => a === 0).length, mine.filter(a => a === 1).length, arm);
+	}
+	for (const repeat of [1, 2, 3, 4]) assert.deepEqual(new Set(games.filter(g => g.savepoint === 'nether' && g.repeat === repeat).map(g => g.account)).size, 2);
+	assert.ok(expandPlan(plan(), { salt: () => 1 }).every(g => g.account === 0));
+});

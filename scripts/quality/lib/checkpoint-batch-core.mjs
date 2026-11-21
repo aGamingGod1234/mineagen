@@ -3,6 +3,9 @@ import { randomInt } from 'node:crypto';
 
 const NAME = /^[a-z0-9][a-z0-9-]{0,40}$/;
 
+/** The Codex homes of a plan: `codexHomes` (a list) or the single `codexHome`. */
+export const codexHomes = plan => Array.isArray(plan.codexHomes) ? plan.codexHomes : typeof plan.codexHome === 'string' ? [plan.codexHome] : [];
+
 /**
  * Checks a plan and expands it into games. Every repeat of a save point draws one loot salt shared by all arms, so the
  * arms of a repeat play the same world with the same loot rolls and differ only in their build. Games are ordered
@@ -14,7 +17,8 @@ export function expandPlan(plan, { salt = () => randomInt(-2147483648, 214748364
 	const need = (ok, message) => { if (!ok) errors.push(message); };
 	need(Number.isInteger(plan.minutes) && plan.minutes >= 1 && plan.minutes <= 240, 'minutes must be an integer 1..240');
 	need(!Number.isNaN(Date.parse(plan.deadline ?? '')), 'deadline must be an ISO time with its offset');
-	need(typeof plan.codexHome === 'string' && plan.codexHome.length > 0, 'codexHome names the folder holding the Codex sign-in (auth.json)');
+	const homes = codexHomes(plan);
+	need(homes.length >= 1 && homes.every(h => typeof h === 'string' && h.length > 0), 'codexHome (or codexHomes, a list) names the folder holding each Codex sign-in (auth.json)');
 	const arms = Object.entries(plan.arms ?? {});
 	need(arms.length >= 1, 'arms needs at least one arm');
 	for (const [name, arm] of arms) {
@@ -36,13 +40,17 @@ export function expandPlan(plan, { salt = () => randomInt(-2147483648, 214748364
 	const games = [];
 	const maxRepeats = Math.max(...points.map(([, p]) => p.repeats));
 	let flip = 0;
+	// Repeat r of save point p uses sign-in (r - 1 + arm index + p) mod N for each arm, so every arm splits each save point's
+	// repeats evenly over the sign-ins (exactly, for an even repeat count; odd ones alternate their extra game by save point)
+	// and the arms of one repeat alternate between them: no account's limits or speed can favour an arm.
+	const accounts = homes.length;
 	for (let repeat = 1; repeat <= maxRepeats; repeat++) {
 		for (const [name, point] of points) {
 			if (repeat > point.repeats) continue;
 			const shared = point.salt ?? salt();
 			const mine = point.arms ? armNames.filter(a => point.arms.includes(a)) : armNames;
 			const order = flip++ % 2 ? [...mine].reverse() : mine;
-			for (const arm of order) games.push({ id: `${name}-r${repeat}-${arm}`, savepoint: name, repeat, arm, salt: shared, attempts: 0, state: 'queued' });
+			for (const arm of order) games.push({ id: `${name}-r${repeat}-${arm}`, savepoint: name, repeat, arm, salt: shared, account: (repeat - 1 + armNames.indexOf(arm) + points.findIndex(([n]) => n === name)) % accounts, attempts: 0, state: 'queued' });
 		}
 	}
 	return games;

@@ -4,7 +4,7 @@
 //   touch OUT_DIR/STOP                                               (start no new game; running games finish)
 // PLAN.json (paths absolute; keep it outside the checkout, since it names the sign-in folder):
 //   { "minutes": 90, "deadline": "2026-11-22T01:00:00+08:00", "model": "gpt-6.2-sol", "effort": "low",
-//     "codexHome": "/folder/holding/auth.json", "snapshot": "mineagen-rooms-263", "type": "default",
+//     "codexHomes": ["/folder/holding/auth.json", "/another/sign-in"] (or one "codexHome"), "snapshot": "mineagen-rooms-263", "type": "default",
 //     "vms": ["bx_..."], "create": 4, "spares": 2, "name": "ckpt-night",
 //     "arms": { "main": { "root": "/checkout", "ref": "COMMIT", "jar": "/main.jar", "env": {} }, "int": { ... } },
 //     "meter": { "command": "prints the percent of the Codex allowance left", "floorPercent": 10 },
@@ -24,7 +24,7 @@ import { appendFile, mkdir, readFile, readdir, rename, rm, writeFile } from 'nod
 import path from 'node:path';
 import { boat, createMachine, download, installCodex, machineState, quote, remote, removeCodexSignIn, upload } from './lib/boat-pool.mjs';
 import { readArtifactReport } from '../../coordinator/src/benchmark/report-artifacts.mjs';
-import { canStart, expandPlan, loseGame, nextGame, scoreGame, summarize, summaryText } from './lib/checkpoint-batch-core.mjs';
+import { canStart, codexHomes, expandPlan, loseGame, nextGame, scoreGame, summarize, summaryText } from './lib/checkpoint-batch-core.mjs';
 
 const USAGE = 'Usage: checkpoint-batch.mjs --plan PLAN.json --out FRESH_DIR [--dry-run] | --score OUT_DIR';
 const args = process.argv.slice(2);
@@ -46,8 +46,10 @@ if (flag('score')) {
 const plan = JSON.parse(await readFile(path.resolve(flag('plan')), 'utf8'));
 const out = path.resolve(flag('out'));
 const games = expandPlan(plan);
-const authFile = path.join(plan.codexHome, 'auth.json');
-if (!existsSync(authFile)) throw new Error(`no Codex sign-in at ${authFile}`);
+// Each game gets its sign-in copied to its machine just before it starts (game.account picks it; see expandPlan).
+const authFiles = codexHomes(plan).map(home => path.join(home, 'auth.json'));
+for (const file of authFiles) if (!existsSync(file)) throw new Error(`no Codex sign-in at ${file}`);
+const authFile = authFiles[0];
 for (const [name, point] of Object.entries(plan.savepoints)) if (!existsSync(point.file)) throw new Error(`save point ${name}: no file ${point.file}`);
 for (const [name, arm] of Object.entries(plan.arms)) {
 	if (!existsSync(arm.jar)) throw new Error(`arm ${name}: no jar ${arm.jar}`);
@@ -55,7 +57,7 @@ for (const [name, arm] of Object.entries(plan.arms)) {
 	execFileSync('git', ['-C', arm.root, 'cat-file', '-e', `${arm.ref}^{commit}`]);
 }
 if (args.includes('--dry-run')) {
-	for (const g of games) console.log(`${g.id} salt ${g.salt}`);
+	for (const g of games) console.log(`${g.id} salt ${g.salt} sign-in ${g.account + 1}`);
 	console.log(`${games.length} games, ${plan.minutes} min each, last start ${new Date(Date.parse(plan.deadline) - (plan.minutes + 10) * 60_000).toISOString()}`);
 	process.exit(0);
 }
@@ -63,7 +65,7 @@ if (existsSync(out) && (await readdir(out)).length) throw new Error(`${out} is n
 await mkdir(path.join(out, 'games'), { recursive: true });
 await mkdir(path.join(out, 'pkg'), { recursive: true });
 const log = async line => { const text = `${new Date().toISOString()} ${line}`; console.log(text); await appendFile(path.join(out, 'batch.log'), `${text}\n`).catch(() => {}); };
-const authSha = sha(authFile);
+const authShas = authFiles.map(sha), authSha = authShas[0];
 const codexVersion = execFileSync('codex', ['--version'], { encoding: 'utf8' }).trim().split(/\s+/).pop();
 
 // Package each arm once.
@@ -107,7 +109,7 @@ async function meterOk() {
 	return !meterLow;
 }
 
-const state = { plan: { ...plan, codexHome: '(private)' }, startedAt: new Date().toISOString(), codexVersion, arms: pkgs, games, machines: [] };
+const state = { plan: { ...plan, codexHome: '(private)', codexHomes: authFiles.map((_, i) => `(private sign-in ${i + 1})`) }, startedAt: new Date().toISOString(), codexVersion, arms: pkgs, games, machines: [] };
 const save = async () => { await writeFile(path.join(out, 'state.json.tmp'), JSON.stringify(state, null, 2)); await rename(path.join(out, 'state.json.tmp'), path.join(out, 'state.json')); };
 let created = 0, spares = plan.spares ?? 0, stopped = false, signInChanged = false;
 process.on('SIGINT', () => { stopped = true; }); process.on('SIGTERM', () => { stopped = true; });
@@ -143,9 +145,12 @@ async function addMachine(kind) {
 }
 
 async function start(vm, game) {
+	await upload(vm.id, authFiles[game.account], '.codex/auth.json');
+	const copied = (await remote(vm.id, 'chmod 600 ~/.codex/auth.json; sha256sum ~/.codex/auth.json | cut -c1-64')).trim();
+	if (copied !== authShas[game.account]) throw new Error(`sign-in ${game.account + 1} did not copy intact to ${vm.id}`);
 	game.state = 'running'; game.attempts++; game.machine = vm.id; game.startedAt = new Date().toISOString(); vm.game = game.id; vm.lastSeen = Date.now();
 	await remote(vm.id, `rm -rf ~/ck/games/${game.id}; mkdir -p ~/ck/games/${game.id}\nsetsid nohup ~/ck/game.sh ${game.id} ${game.arm} "$HOME/ck/sp/${game.savepoint}.json" ${plan.minutes} ${game.salt} ${quote(plan.model ?? 'gpt-6.2-sol')} ${quote(plan.effort ?? 'low')} > /dev/null 2>&1 < /dev/null &\necho started`);
-	await log(`started ${game.id} on ${vm.id} (salt ${game.salt}, attempt ${game.attempts})`);
+	await log(`started ${game.id} on ${vm.id} (salt ${game.salt}, sign-in ${game.account + 1}, attempt ${game.attempts})`);
 }
 
 async function fetch(vm, game) {
@@ -154,7 +159,7 @@ async function fetch(vm, game) {
 if [ -n "$raw" ] && [ -d "$raw" ]; then rm -rf raw; mkdir raw; tar -C "$raw" --exclude=server --exclude=.codex-home --exclude=auth.json --exclude=rcon-password.txt --exclude=secret.txt -cf - . | tar -C raw -xf -; rm -rf "$raw/server"; fi
 tar --exclude=auth.json --exclude=.codex-home -czf ../${game.id}.tgz . && echo ok; sha256sum ~/.codex/auth.json | cut -c1-64`, { timeoutMs: 15 * 60_000 });
 	const remoteSha = text.trim().split('\n').pop();
-	if (remoteSha !== authSha) { signInChanged = true; await log(`SIGN-IN CHANGED on ${vm.id}: Codex refreshed it there; no new game starts`); }
+	if (remoteSha !== authShas[game.account]) { signInChanged = true; await log(`SIGN-IN CHANGED on ${vm.id}: Codex refreshed it there; no new game starts`); }
 	const dest = path.join(out, 'games', game.id);
 	await rm(dest, { recursive: true, force: true }); await mkdir(dest, { recursive: true });
 	// The raw journals stay packed in game.tgz (about 1 GB unpacked per 90-minute game); only the report and logs unpack.
@@ -179,7 +184,7 @@ async function scoreFrom(dir, game, p) {
 
 async function writeSummary(dir, s) {
 	const rows = summarize(s.games, s.plan);
-	await writeFile(path.join(dir, 'summary.json'), JSON.stringify({ rows, games: s.games.map(g => ({ id: g.id, state: g.state, salt: g.salt, machine: g.machine, attempts: g.attempts, done: g.done, score: g.score })) }, null, 2));
+	await writeFile(path.join(dir, 'summary.json'), JSON.stringify({ rows, games: s.games.map(g => ({ id: g.id, state: g.state, salt: g.salt, signIn: g.account + 1, machine: g.machine, attempts: g.attempts, done: g.done, score: g.score })) }, null, 2));
 	await writeFile(path.join(dir, 'summary.txt'), `${summaryText(rows)}\n`);
 }
 
