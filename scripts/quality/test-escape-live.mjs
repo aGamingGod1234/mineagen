@@ -29,6 +29,7 @@ import path from 'node:path';
 import { boot } from './watch-replay.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 import { DEFAULT_REFLEXES } from '../../coordinator/src/reflexes.mjs';
+import { damageCounter, damageEvidence } from './lib/damage-counter.mjs';
 
 const USAGE = 'Usage: test-escape-live.mjs OUT_DIR JAR [runs] [room;room...] [--strict|--descriptive] under slot.sh live';
 const cli = process.argv.slice(2);
@@ -133,6 +134,8 @@ try {
 		}
 		await sleep(1000 + drain);
 		const before = await health(), airBefore = await airLeft();
+		// The vanilla damage counter: regeneration between hits cannot hide damage the way lowest health does.
+		const damageBefore = await damageCounter(s.command, NAME).catch(() => null);
 		if (!Number.isFinite(before)) throw new Error(`${room} ${run}: health unreadable before the room`);
 		let minHealth = before, minAir = airBefore, sampling = true, hiddenSamples = 0, samples = 0, healthSamples = 0;
 		const skeletonEye = async () => {
@@ -211,9 +214,11 @@ try {
 		if (room !== 'skeleton' && safeAt !== null) { endSafe = true; for (let i = 0; i < 4 && endSafe; i++) { await sleep(500); endSafe = await safe(); } }
 		sampling = false; await sampler;
 		const end = await pos();
+		const damage = damageEvidence(damageBefore, await damageCounter(s.command, NAME).catch(() => null), before, await health().catch(() => NaN));
 		const died = minHealth <= 0;
 		const row = { room, arm: arm === 'legacy' ? `legacy-${LEGACY}` : arm, run, calls, executed, endSafe, safeSeconds: safeAt === null ? null : Math.round(safeAt / 100) / 10, seconds: Math.round((Date.now() - t0) / 100) / 10,
-			healthLost: Math.round(Math.max(0, before - minHealth) * 10) / 10, died, airBefore, minAir,
+			healthLost: Math.round(Math.max(0, before - minHealth) * 10) / 10, damageTaken: damage.damageTaken, died,
+			...(damage.integrity ? { integrity: damage.integrity } : {}), airBefore, minAir,
 			hiddenShare: room === 'skeleton' && samples > 0 ? Math.round(hiddenSamples / samples * 100) / 100 : undefined,
 			endDy: end ? Math.round((end[1] - F) * 10) / 10 : null, results, state: last?.state ?? null, reasonCode: last?.reasonCode ?? null,
 			message: String(last?.message ?? '').slice(0, 300), startedAt, finishedAt: Date.now() };
@@ -221,8 +226,8 @@ try {
 		else if (executed === 0 && safeAt !== null) row.notExercised = calls === 0 ? 'safe before the first decision (reflexes alone)' : 'safe with no call the body ran';
 		if (healthSamples === 0) row.error = 'no health sample in the window';
 		if (last?.state === 'ERROR') row.error = `call never returned: ${last.reasonCode}`;
-		row.pass = !died && (room === 'skeleton' ? row.healthLost <= 6 : safeAt !== null && endSafe === true);
-		if (!row.pass) row.failReason = died ? 'died' : room === 'skeleton' ? `lost ${row.healthLost} health` : safeAt === null ? 'not safe within the window' : 'safe, then back in danger';
+		row.pass = !died && (room === 'skeleton' ? (row.damageTaken ?? Infinity) <= 6 : safeAt !== null && endSafe === true);
+		if (!row.pass) row.failReason = died ? 'died' : room === 'skeleton' ? `took ${row.damageTaken} damage` : safeAt === null ? 'not safe within the window' : 'safe, then back in danger';
 		rows.push(row);
 		console.log(`[${room} ${row.arm} ${run}] ${row.pass ? 'PASS' : 'FAIL'} calls=${calls} safe=${row.safeSeconds}s hpLost=${row.healthLost}${died ? ' DIED' : ''} air ${airBefore}->${minAir}${row.hiddenShare !== undefined ? ` hidden=${row.hiddenShare}` : ''} | ${results.join(' ')} | ${row.message.slice(0, 160)}`);
 		if (died) { await s.command(`mineagen respawn ${NAME}`).catch(() => {}); await sleep(3000); }
