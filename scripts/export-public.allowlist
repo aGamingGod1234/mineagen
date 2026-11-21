@@ -500,6 +500,7 @@ coordinator/test/fire-escape.test.mjs
 coordinator/test/fixture-run.test.mjs
 coordinator/test/fixture-servers.test.mjs
 coordinator/test/fixtures/appearance-budget.json
+coordinator/test/fixtures/bulk-temp-root.mjs
 coordinator/test/fixtures/claude-service-fixture.mjs
 coordinator/test/fixtures/codex-service-fixture.mjs
 coordinator/test/fixtures/codex-sol-context-series.json
