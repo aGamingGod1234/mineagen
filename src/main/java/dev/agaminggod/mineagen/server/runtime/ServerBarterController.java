@@ -92,7 +92,7 @@ public final class ServerBarterController implements ServerController {
 	private int scanSteps;
 	private int thrown, crafted, armourTries, craftFailures;
 	private ServerController craft;
-	private int craftYield;
+	private int craftYield, ingotsBeforeCraft;
 	private String wornNow;
 	private ServerItemPickupController pickup;
 	private UUID pickupId;
@@ -157,7 +157,11 @@ public final class ServerBarterController implements ServerController {
 			TickResult r = craft.tick(player, nowEpochMs);
 			if (r.state() == State.RUNNING) return TickResult.running(progress(player));
 			craft = null;
-			if (r.state() == State.SUCCEEDED) crafted += craftYield; else craftFailures++;
+			// A craft can succeed partly (CRAFT_PARTIAL: trimmed to inventory room or its pacing budget), so count what
+			// it made: nothing else moves ingots while it runs.
+			int made = Math.max(0, carried(player, Items.GOLD_INGOT) - ingotsBeforeCraft);
+			crafted += made;
+			if (r.state() != State.SUCCEEDED || made == 0) craftFailures++;
 			craftYield = 0;
 		}
 		if (carried(player, Items.GOLD_INGOT) == 0) {
@@ -332,6 +336,7 @@ public final class ServerBarterController implements ServerController {
 		if (plan.table() && table == null) table = placeTable(player);
 		if (plan.table() && table == null) return false;
 		craftYield = plan.ingots();
+		ingotsBeforeCraft = carried(player, Items.GOLD_INGOT);
 		craft = environment.craft(player, plan.recipeId(), plan.ingots(), plan.table() ? table : null, CRAFT_TIMEOUT_MS);
 		return true;
 	}

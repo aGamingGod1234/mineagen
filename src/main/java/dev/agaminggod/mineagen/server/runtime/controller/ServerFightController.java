@@ -549,14 +549,15 @@ public final class ServerFightController implements ServerController {
 				|| Math.sqrt(box.distanceToSqr(eye)) <= heldRange.effectiveMaxRange(player) + SHIELD_RAISE_MARGIN;
 		boolean shielding = shield && !shieldBroke && nearTarget || dev.agaminggod.mineagen.server.runtime.reflex.ReflexEngine.fightHoldsShield(player)
 				&& player.getOffhandItem().getItem() instanceof net.minecraft.world.item.ShieldItem;
-		input.apply(player, new AgentInputState(forward, strafe, jump, sneak, sprint && !sneak, false, shielding && !step.attack(),
-				yaw, pitch, weaponSlot, shielding ? InteractionHand.OFF_HAND : InteractionHand.MAIN_HAND));
-		// The swing is a direct server call, so it must also yield to an operator takeover (whose input lease wins).
 		Map<LivingEntity, Float> calm = step.attack() ? calmNeutralsBeside(player) : Map.of();
 		// A sword sweep hurts calm piglins beside the target and turns the whole group on the body (three of three barter
 		// room deaths beside a hoglin): hold the swing until none stands in the sweep, as a player does.
 		boolean holdForSweep = holdSwingForSweep(player.getMainHandItem().is(net.minecraft.tags.ItemTags.SWORDS), calm.size());
 		if (holdForSweep) sweepHolds++;
+		// A held swing keeps the shield up: lowering it for a hit that never comes leaves the body open.
+		input.apply(player, new AgentInputState(forward, strafe, jump, sneak, sprint && !sneak, false, shielding && (!step.attack() || holdForSweep),
+				yaw, pitch, weaponSlot, shielding ? InteractionHand.OFF_HAND : InteractionHand.MAIN_HAND));
+		// The swing is a direct server call, so it must also yield to an operator takeover (whose input lease wins).
 		if (step.attack() && !holdForSweep && !player.isUsingItem() && !operatorControlled(player)) {
 			if (footwork != null) noteStrike(player);
 			player.attack(strike);
