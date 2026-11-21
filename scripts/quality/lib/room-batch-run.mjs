@@ -7,6 +7,8 @@
 // between polls, defaults to 0; retryMs is the pause after a poll that failed, so a machine that does not answer is not
 // asked again in a tight loop.
 //   keepAlive(vm)                 usage(vm) -> object         destroy(vm)
+//   closesAt(vm) -> epoch ms|null  optional: from then on no room starts on vm, and a room still playing is stopped and
+//                                  re-queued without spending one of its tries
 // Machines are destroyed when the batch ends, also on an error or a signal.
 import { mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -70,6 +72,9 @@ export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeout
 		} else {
 		const attempt = async (vm, room, tries) => {
 			if (signal?.aborted) return { lost: true, reason: 'batch stopped' };
+			const closesAt = pool.closesAt?.(vm) ?? null;
+			const closed = () => closesAt !== null && Date.now() >= closesAt;
+			if (closed()) { await retire(vm, 'past its cutoff'); return { lost: true, requeue: true, reason: 'its machine is past its cutoff' }; }
 			const layout = layouts.get(vm.id);
 			const job = { room: room.room, code: layout.code, outDir: path.posix.join(layout.out, room.room), javaHome: layout.javaHome, template: layout.template, timeoutMs: roomTimeoutMs, wrapper: layout.wrapper ?? [],
 				portBase: layout.portBase ?? 28000, env: layout.env ?? {},
@@ -82,12 +87,15 @@ export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeout
 			let silentSince = null;
 			while (true) {
 				if (signal?.aborted) return { lost: true, reason: 'batch stopped' };
-				if (pollMs) await sleep(pollMs);
+				// A machine with a cutoff is checked at the cutoff itself, not up to one poll later.
+				const wait = closesAt === null ? pollMs : Math.max(0, Math.min(pollMs, closesAt - Date.now()));
+				if (wait) await sleep(wait);
 				if (Date.now() - vm.keptAliveAt > keepAliveMs) { await Promise.resolve().then(() => pool.keepAlive(vm)).then(() => { vm.keptAliveAt = Date.now(); }, () => {}); }
 				let state;
 				try { state = await pool.poll(vm, room.room, { signal }); silentSince = null; }
 				catch (error) {
 					if (signal?.aborted) return { lost: true, reason: 'batch stopped' };
+					if (closed()) { await retire(vm, 'cutoff'); return { lost: true, requeue: true, reason: 'stopped at its machine\'s cutoff' }; }
 					silentSince ??= Date.now();
 					// Only boat saying the machine is gone skips the grace period; a failed lookup is unknown.
 					const alive = await Promise.resolve().then(() => pool.alive(vm)).catch(() => null);
@@ -96,6 +104,7 @@ export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeout
 					continue;
 				}
 				if (state === 'done') break;
+				if (closed()) { await retire(vm, 'cutoff'); return { lost: true, requeue: true, reason: 'stopped at its machine\'s cutoff' }; }
 				if (Date.now() > deadline) { await retire(vm, 'room never finished'); return { lost: true, reason: 'room never wrote done.json' }; }
 			}
 			try {
@@ -104,9 +113,11 @@ export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeout
 				return { lost: false, arms: done.arms, seconds: done.seconds, machine: done.machine };
 			} catch (error) { await retire(vm, 'copy failed'); return { lost: true, reason: `copy failed: ${error.message}` }; }
 		};
-		const replace = async lostVm => {
-			if (replaced >= replacements || signal?.aborted) return null;
-			replaced++;
+		const replace = async (lostVm, outcome) => {
+			if (signal?.aborted) return null;
+			// A cutoff is planned, not a fault: its room always asks for a machine elsewhere (the pool refuses when none is
+			// open), and spends none of the replacement budget.
+			if (!outcome?.requeue) { if (replaced >= replacements) return null; replaced++; }
 			log(`bringing up a machine in place of ${lostVm.id}`);
 			return bringUp();
 		};

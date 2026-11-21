@@ -2,7 +2,9 @@
 // worker is one room slot of one PC: ROOM_BATCH_WINDOWS=<sshHost>:<slots>:<slotBase>,... gives each PC its slot count
 // (rooms at once) and its slot base. A room plays every arm side by side, so room slot i of a PC uses one 100-port
 // range per arm from 28000 + (slotBase + i * arms) * 100; a slot base moves a PC's ports clear of the TCP ranges
-// Hyper-V reserves at boot, which prepare() checks against `netsh int ipv4 show excludedportrange`.
+// Hyper-V reserves at boot, which prepare() checks against `netsh int ipv4 show excludedportrange`. A PC that must be free
+// by a set time takes `@HH:MM` after its slot base (<sshHost>:<slots>:<slotBase>@01:30), read on the clock of the machine
+// running the batch: from then on no room starts there, and a room still playing there is stopped and re-queued.
 // The PC already holds Java 25 and the server template under ROOT (C:/aa-runs: jdk25, templates/26.3). Each PC gets the
 // code, jars and inputs once per batch under ROOT/batches/BATCH, and each worker its own w<slot>/ folder for jobs and
 // output. A room starts through WMI (Win32_Process.Create), so it outlives the ssh session; its PowerShell parent asks
@@ -15,15 +17,27 @@ import os from 'node:os';
 import path from 'node:path';
 import { stageRoom } from './room-batch-core.mjs';
 
-/** ROOM_BATCH_WINDOWS text -> [{ host, slots, slotBase }]. */
-export function parseWindowsHosts(text) {
+/** The first moment after `now` at which the local clock reads hours:minutes. */
+export function nextClockTime(hours, minutes, now = Date.now()) {
+	const at = new Date(now);
+	at.setHours(hours, minutes, 0, 0);
+	if (at.getTime() <= now) at.setDate(at.getDate() + 1);
+	return at.getTime();
+}
+
+/** ROOM_BATCH_WINDOWS text -> [{ host, slots, slotBase, cutoff?: 'HH:MM', cutoffAt?: epoch ms }]. */
+export function parseWindowsHosts(text, now = Date.now()) {
 	const hosts = String(text ?? '').split(',').map(item => item.trim()).filter(Boolean).map(item => {
-		const [host, slots, slotBase = '0', extra] = item.split(':');
-		if (extra !== undefined || !/^[A-Za-z0-9._@-]+$/.test(host ?? '') || !/^\d+$/.test(slots ?? '') || !/^\d+$/.test(slotBase)) throw new Error(`a Windows PC is <sshHost>:<slots>:<slotBase>, got ${item}`);
+		const match = /^([A-Za-z0-9._@-]+):(\d+)(?::(\d+))?(?:@(\d{1,2}):(\d{2}))?$/.exec(item);
+		if (!match) throw new Error(`a Windows PC is <sshHost>:<slots>:<slotBase>[@HH:MM], got ${item}`);
+		const [, host, slots, slotBase = '0', hours, minutes] = match;
 		if (Number(slots) < 1 || Number(slots) > 16) throw new Error(`${host}: slots wants 1 to 16`);
-		return { host, slots: Number(slots), slotBase: Number(slotBase) };
+		const pc = { host, slots: Number(slots), slotBase: Number(slotBase) };
+		if (hours === undefined) return pc;
+		if (Number(hours) > 23 || Number(minutes) > 59) throw new Error(`${host}: cutoff ${hours}:${minutes} is not a time of day`);
+		return { ...pc, cutoff: `${hours.padStart(2, '0')}:${minutes}`, cutoffAt: nextClockTime(Number(hours), Number(minutes), now) };
 	});
-	if (!hosts.length) throw new Error('ROOM_BATCH_WINDOWS names no PC (<sshHost>:<slots>:<slotBase>,...)');
+	if (!hosts.length) throw new Error('ROOM_BATCH_WINDOWS names no PC (<sshHost>:<slots>:<slotBase>[@HH:MM],...)');
 	if (new Set(hosts.map(item => item.host)).size !== hosts.length) throw new Error('a PC appears twice in ROOM_BATCH_WINDOWS');
 	return hosts;
 }
@@ -31,10 +45,13 @@ export function parseWindowsHosts(text) {
 /** The first port of room slot `slot` on a PC; the room's arms use one 100-port range each from there. */
 export const slotPortBase = (slotBase, slot, arms) => 28000 + (slotBase + slot * arms) * 100;
 
-/** The next free (host, slot), taking slot 0 of every PC before slot 1 of any, so rooms spread over the PCs. */
-export function nextSlot(hosts, busy) {
+/** Whether a PC is past its cutoff at `now`. */
+export const pastCutoff = (pc, now = Date.now()) => pc.cutoffAt != null && now >= pc.cutoffAt;
+
+/** The next free (host, slot) on a PC not past its cutoff, taking slot 0 of every PC before slot 1 of any, so rooms spread over the PCs. */
+export function nextSlot(hosts, busy, now = Date.now()) {
 	const most = Math.max(...hosts.map(item => item.slots));
-	for (let slot = 0; slot < most; slot++) for (const item of hosts) if (slot < item.slots && !busy.has(`${item.host}:${slot}`)) return { host: item.host, slot };
+	for (let slot = 0; slot < most; slot++) for (const item of hosts) if (slot < item.slots && !pastCutoff(item, now) && !busy.has(`${item.host}:${slot}`)) return { host: item.host, slot };
 	return null;
 }
 
@@ -92,7 +109,7 @@ const download = (host, remotePath, local) => run('scp', ['-q', ...SSH, `${host}
  * The pool room-batch-run.mjs drives. hosts from parseWindowsHosts; bundle: { codeTar, helper, jars: {arm: localPath},
  * inputs: [{ local, name }] }; batchName names the batch folder on each PC.
  */
-export function windowsPool({ hosts, batchName, bundle, root = 'C:/aa-runs', log = console.log, runPs = powershell, runUpload = upload, runDownload = download }) {
+export function windowsPool({ hosts, batchName, bundle, root = 'C:/aa-runs', log = console.log, runPs = powershell, runUpload = upload, runDownload = download, now = Date.now }) {
 	const arms = Object.keys(bundle.jars).length;
 	// Windows folders ignore case: arms A and a would upload to one jar and write one output folder.
 	if (new Set(Object.keys(bundle.jars).map(arm => arm.toLowerCase())).size !== arms) throw new Error('arm names must differ in more than case on Windows');
@@ -190,8 +207,8 @@ foreach ($d in 'jobs', 'out') { New-Item -ItemType Directory -Force -Path (Join-
 
 	return {
 		async create() {
-			const free = nextSlot(hosts, busy);
-			if (!free) throw new Error('every Windows slot is taken');
+			const free = nextSlot(hosts, busy, now());
+			if (!free) throw new Error(hosts.every(item => pastCutoff(item, now())) ? 'every Windows PC is past its cutoff' : 'every Windows slot is taken (or its PC is past its cutoff)');
 			busy.add(`${free.host}:${free.slot}`);
 			machines.get(free.host).workers++;
 			// A fresh id per create, so a re-queued room never lands on a slot id it already failed on.
@@ -236,6 +253,8 @@ $p = Get-CimInstance Win32_Process -Filter "ProcessId=$($r.ProcessId)"
 			return stageRoom({ roomsDir, room, download: local => runDownload(vm.host, `${vm.outDir}/${room}.tgz`, local) });
 		},
 		async keepAlive() {},
+		// runBatch starts no room on this worker from then on, and stops and re-queues the one it plays.
+		closesAt: vm => machines.get(vm.host).cutoffAt ?? null,
 		usage: vm => ({ host: vm.host, slot: vm.slot, portBase: vm.layout?.portBase ?? null }),
 		async destroy(vm) {
 			const pc = machines.get(vm.host);
