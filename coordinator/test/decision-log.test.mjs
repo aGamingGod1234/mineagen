@@ -12,7 +12,9 @@ const record = { agentId: 'agent-a', provider: 'codex', model: 'gpt-6.1-terra', 
 async function fixture(t, options = {}) {
  const directory = await mkdtemp(path.join(os.tmpdir(), 'aa-decision-'));
  t.after(() => rm(directory, { recursive: true, force: true }));
- const log = new DecisionLog({ directory, ...options }); t.after(() => log.close());
+ // These tests read the file after close, so close must wait for every write. Its 1 s shutdown bound is shorter than the
+ // first write on Windows, which sets the owner-only ACL through PowerShell before appending.
+ const log = new DecisionLog({ directory, closeTimeoutMs: 30_000, ...options }); t.after(() => log.close());
  return { directory, log, file: log.pathFor(record.agentId) };
 }
 function call(log, args = { x: 12, y: 64, z: 3, purpose: 'Reach water' }) {
@@ -44,7 +46,8 @@ test('decision rows preserve sent input, full arguments, summary, assistant and 
  assert.equal(first.reasoning, 'Need water.'); assert.equal(first.assistant, 'I will reach the river.');
  assert.equal(rows.find(r => r.type === 'action_result').decisionId, first.decisionId);
  assert.match(timeline(rows), /walk_to.*Reach water/); assert.match(timeline(rows), /SUCCEEDED/);
- assert.equal((await stat(file)).mode & 0o777, 0o600);
+ // Windows has no POSIX mode bits; its owner-only ACL is checked by the private artifact tests.
+ if (process.platform !== 'win32') assert.equal((await stat(file)).mode & 0o777, 0o600);
 });
 
 test('all capture surfaces redact API, bridge, voice and authorization secrets including escaped values', async t => {
@@ -94,7 +97,7 @@ test('new sessions retain only four sessions and leave ordinary traces alone', a
  const { directory, log } = await fixture(t);
  for (let i = 1; i <= 5; i++) await writeFile(path.join(directory, `decision-${i}-old--a-12345678.jsonl`), '{}\n');
  await writeFile(path.join(directory, 'coordinator.jsonl'), 'keep');
- const next = new DecisionLog({ directory }); call(next); await next.close(); await log.close();
+ const next = new DecisionLog({ directory, closeTimeoutMs: 30_000 }); call(next); await next.close(); await log.close();
  const names = await readdir(directory);
  assert.equal(names.filter(n => n.startsWith('decision-')).length, 4); assert.ok(names.includes('coordinator.jsonl'));
 });
