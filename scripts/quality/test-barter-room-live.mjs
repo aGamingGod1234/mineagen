@@ -105,7 +105,8 @@ async function placeTable() {
 	if (!held('minecraft:crafting_table')) return null;
 	const p = facts.player, fx = Math.floor(p.x), fz = Math.floor(p.z);
 	for (const [dx, dz] of [[1, 0], [0, 1], [-1, 0], [0, -1], [1, 1], [-1, -1]]) {
-		const r = await act('place_block', { x: fx + dx, y: Y - 1, z: fz + dz, face: 'up', itemId: 'minecraft:crafting_table' });
+		// The cell the table goes into, clicked on the floor's top face.
+		const r = await act('place_block', { x: fx + dx, y: Y, z: fz + dz, face: 'up', itemId: 'minecraft:crafting_table' });
 		if (r.state === 'SUCCEEDED') { table = { x: fx + dx, y: Y, z: fz + dz }; return table; }
 	}
 	return null;
