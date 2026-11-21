@@ -78,6 +78,9 @@ public final class SkipUnreachableVerification {
 		Map<ServerPlayer, Object> savedPlayers = new java.util.IdentityHashMap<>(seenPlayers);
 		long savedSweptAt = sweptAtField.getLong(null);
 		String savedSwitch = System.getProperty(UnreachableTargets.PROPERTY);
+		// The fixture level has no biomes: these hunts stand outside a warped forest (ForestHuntTickVerification covers it).
+		WarpedForestHunt.Probe savedProbe = WarpedForestHunt.probe;
+		WarpedForestHunt.probe = (player, at) -> "minecraft:plains";
 		seenPlayers.clear();
 		try {
 			for (boolean on : new boolean[] {false, true}) {
@@ -89,6 +92,7 @@ public final class SkipUnreachableVerification {
 			verifyEligibleAfterMoving();
 			verifyRememberedSightingAfterBodyMoves();
 		} finally {
+			WarpedForestHunt.probe = savedProbe;
 			ServerFightUntilController.scriptedMelee = null;
 			if (savedSwitch == null) System.clearProperty(UnreachableTargets.PROPERTY);
 			else System.setProperty(UnreachableTargets.PROPERTY, savedSwitch);
