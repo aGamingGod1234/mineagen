@@ -2089,7 +2089,7 @@ public final class ServerBuildController implements ServerController {
 				// Taken back because the lava did not follow from here: pour the pair from another spot.
 				if (staleWater) { staleWater = false; staleScoops++; moveForClick = true; triedSpots.add(player.blockPosition().immutable()); }
 			}
-			case FILL -> { scoopSpots.remove(player.blockPosition()); scoopSpots.add(player.blockPosition().immutable()); fills++; triedSources.clear(); lastFill = target.immutable(); poolMemory.remove(lastFill); seekWalks = 0; }
+			case FILL -> { scoopSpots.remove(player.blockPosition()); scoopSpots.add(player.blockPosition().immutable()); fills++; triedSources.clear(); lastFill = target.immutable(); poolMemory.remove(lastFill); seekWalks = 0; fetchRetries = 0; }
 		}
 		return running();
 	}
