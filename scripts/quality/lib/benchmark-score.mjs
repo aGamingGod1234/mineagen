@@ -69,28 +69,35 @@ const meetsBar = (passWhen, fields) => Number.isFinite(fields?.[passWhen.field])
  * A field nobody wrote stays null (unknown), never 0.
  */
 export async function otherEvidence(dir) {
-	let deaths = null, damage = null, failed = null;
-	const fields = {}, top = { deaths: null, damage: null };
+	let failed = null;
+	const fields = {};
+	// The deepest object that names a death or a hurt counts it; a parent (a variant, a summary, a deathCounter) that
+	// repeats its children's total adds nothing. A bare "damage" counts only beside died/deaths, since elsewhere it is
+	// often an item's wear, not health.
 	const visit = (value, depth) => {
-		if (depth > 4 || value === null || typeof value !== 'object') return;
-		if (Array.isArray(value)) { for (const item of value) visit(item, depth + 1); return; }
-		// A file's top-level totals count only when no row anywhere names them, so a summary never doubles its rows.
-		const hurt = [value.damageTaken, value.damage, value.healthLost].find(Number.isFinite);
-		if (depth === 0) {
-			if (typeof value.died === 'boolean') top.deaths = (top.deaths ?? 0) + (value.died ? 1 : 0);
-			else if (Number.isFinite(value.deaths)) top.deaths = (top.deaths ?? 0) + value.deaths;
-			if (hurt !== undefined) top.damage = (top.damage ?? 0) + hurt;
-			for (const [key, child] of Object.entries(value)) if (Number.isFinite(child)) fields[key] = child;
-		} else {
-			if (typeof value.died === 'boolean') deaths = (deaths ?? 0) + (value.died ? 1 : 0);
-			else if (Number.isFinite(value.deaths)) deaths = (deaths ?? 0) + value.deaths;
-			if (hurt !== undefined) damage = (damage ?? 0) + hurt;
+		if (depth > 6 || value === null || typeof value !== 'object') return { deaths: null, damage: null };
+		const children = { deaths: null, damage: null };
+		const entries = Array.isArray(value) ? value.map(item => [null, item]) : Object.entries(value);
+		for (const [key, child] of entries) {
+			if (child === null || typeof child !== 'object' || key === 'summary') continue;
+			const below = visit(child, depth + 1);
+			if (below.deaths !== null) children.deaths = (children.deaths ?? 0) + below.deaths;
+			if (below.damage !== null) children.damage = (children.damage ?? 0) + below.damage;
 		}
+		if (Array.isArray(value)) return children;
+		if (depth === 0) for (const [key, child] of Object.entries(value)) if (Number.isFinite(child)) fields[key] = child;
 		if (value.pass === false || value.ok === false) failed ??= value.pass === false ? 'pass' : 'ok';
-		for (const [key, child] of Object.entries(value)) if (key !== 'summary' && typeof child === 'object') visit(child, depth + 1);
+		const own = typeof value.died === 'boolean' ? (value.died ? 1 : 0) : Number.isFinite(value.deaths) ? value.deaths : null;
+		const hurt = [value.damageTaken, value.healthLost, own !== null ? value.damage : undefined].find(Number.isFinite) ?? null;
+		return { deaths: children.deaths ?? own, damage: children.damage ?? hurt };
 	};
-	for (const file of (await readdir(dir).catch(() => [])).filter(file => file.endsWith('.json') && !SKIP_FILES.has(file))) visit(await readJson(path.join(dir, file)), 0);
-	deaths ??= top.deaths; damage ??= top.damage;
+	let deaths = null, damage = null;
+	for (const file of (await readdir(dir).catch(() => [])).filter(file => file.endsWith('.json') && !SKIP_FILES.has(file))) {
+		const found = visit(await readJson(path.join(dir, file)), 0);
+		// Two files saying the same thing (rows.json and summary.json) must not add up: keep the larger count.
+		if (found.deaths !== null) deaths = Math.max(deaths ?? 0, found.deaths);
+		if (found.damage !== null) damage = Math.max(damage ?? 0, found.damage);
+	}
 	return { deaths, damage: damage === null ? null : +damage.toFixed(1), failed, fields };
 }
 /** The thrown error of a fixture that failed by exception, from its log, folded to count. */

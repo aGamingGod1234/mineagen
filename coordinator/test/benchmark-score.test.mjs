@@ -120,3 +120,14 @@ test('a single result object counts its own deaths and a room passes only on its
 	assert.deepEqual([by('pearl', 'r2').verdict, by('pearl', 'r2').reason], ['FAIL', 'endPearls below 1']);
 	assert.deepEqual([by('rest', 'r1').deaths, by('rest', 'r1').damage], [1, 20]);
 });
+
+test('a death repeated by a variant and its counter counts once, and an item wear is not health damage', async t => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'bench-nest-'));
+	t.after(() => rm(dir, { recursive: true, force: true }));
+	await writeFile(path.join(dir, 'blaze.json'), JSON.stringify({ variants: { cover: { deaths: 1, runs: [{ deaths: 1, deathCounter: { deaths: 1 } }] } } }));
+	await writeFile(path.join(dir, 'results.json'), JSON.stringify({ wear: { damage: 55, pass: true } }));
+	const { otherEvidence } = await import('../../scripts/quality/lib/benchmark-score.mjs');
+	const found = await otherEvidence(dir);
+	assert.equal(found.deaths, 1);
+	assert.equal(found.damage, null);
+});
