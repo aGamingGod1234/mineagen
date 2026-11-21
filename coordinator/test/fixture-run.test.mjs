@@ -166,3 +166,12 @@ test('review of PR #30: an arm that took no arrow damage is unmeasured, so the d
 	const idleDrawn = shieldShareVerdict([{ ...idle, blocked1: 10, taken1: 30 }, { ...idle, arm: 'drawn' }], 0.8);
 	assert.deepEqual([idleDrawn.pass, idleDrawn.integrity.map(row => row.arm)], [false, ['drawn']]);
 });
+
+test('a drawn-only room (RULE_ARMS=drawn) answers to the floor alone, and still needs measured damage', () => {
+	const drawn = { arm: 'drawn', repeat: 0, distance: 15, blocked0: 0, blocked1: 95, taken0: 0, taken1: 5 };
+	const alone = shieldShareVerdict([drawn], 0.8, ['drawn']);
+	assert.deepEqual([alone.pass, alone.shareArrowOnly, alone.shareDrawn, alone.integrity], [true, null, 0.95, undefined]);
+	assert.equal(shieldShareVerdict([{ ...drawn, blocked1: 70, taken1: 30 }], 0.8, ['drawn']).pass, false);
+	const idle = shieldShareVerdict([{ ...drawn, blocked1: 0, taken1: 0 }], 0.8, ['drawn']);
+	assert.deepEqual([idle.pass, idle.integrity.map(row => row.arm)], [false, ['drawn']]);
+});
