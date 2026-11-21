@@ -98,7 +98,7 @@ export function cleanScript({ marker, imageDir = 'rooms', mode = 'check', ports 
  * machines: ids of running machines to use instead of the pool. Only those are leased; none is ever created or deleted,
  * and one that fails its cleaning is left running for a look.
  */
-export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, idleTtlSeconds = 7200, startsPerMinute = 20, startReserve = 5,
+export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, idleTtlSeconds = 86_400, startsPerMinute = 20, startReserve = 5,
 	minRemainingSeconds = 15 * 60, roomPorts = [28000, 29999], machines = null, batch = null, bundle = null, imageDir = 'rooms', waitSeconds, log = console.log, store = leaseStore({ log }) } = {}) {
 	// prepare, start, poll, alive and fetch are the ephemeral pool's; only where machines come from and go to differs.
 	const base = bundle ? boatPool({ snapshot, type, ttlSeconds, namePrefix: 'unused', bundle, imageDir, log, ...(waitSeconds ? { waitSeconds } : {}) }) : {};

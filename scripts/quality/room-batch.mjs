@@ -11,7 +11,7 @@
 // "default") the machine size. Boat machines come from this computer's warm pool (lib/boat-warm.mjs; see the pool with
 // scripts/quality/boat-pool.mjs status): free running machines of the same image and size are leased with no boat start,
 // only a shortfall is created (paced under the sandbox start rate limits), and every healthy machine goes back to the
-// pool running when the batch is done with it, for --idle-ttl minutes (ROOM_BATCH_IDLE_TTL_MIN, default 120).
+// pool running when the batch is done with it, for --idle-ttl minutes (ROOM_BATCH_IDLE_TTL_MIN, default 1440: a day).
 // --machines ID,ID,... (or ROOM_BATCH_MACHINES) uses exactly those running machines instead, made from the image: each is
 // leased so no other batch takes it at once, cleaned the same way, and given back running; none is created or deleted.
 // --ephemeral (or --no-reuse) makes throwaway machines and deletes them, as before. --pool windows plays on the PCs
@@ -74,7 +74,7 @@ const warmPool = !windowsHosts && !flags.ephemeral;
 const snapshot = flags.snapshot ?? process.env.ROOM_BATCH_SNAPSHOT;
 const type = flags.type ?? process.env.ROOM_BATCH_TYPE ?? 'default';
 const roomTimeoutMs = Number(flags.roomTimeout ?? 40) * 60_000;
-const idleTtlMinutes = Number(flags.idleTtl ?? process.env.ROOM_BATCH_IDLE_TTL_MIN ?? 120);
+const idleTtlMinutes = Number(flags.idleTtl ?? process.env.ROOM_BATCH_IDLE_TTL_MIN ?? 1440);
 if (!Number.isFinite(idleTtlMinutes) || idleTtlMinutes < 5 || idleTtlMinutes > 30 * 24 * 60) fail('--idle-ttl wants 5 to 43200 minutes');
 const startsPerMinute = Number(process.env.ROOM_BATCH_STARTS_PER_MINUTE ?? 20);
 const rooms = parseCommands(await readFile(flags.commands, 'utf8'), flags.arms.map(arm => arm.name));
