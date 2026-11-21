@@ -441,6 +441,28 @@ try {
 		} catch (error) { await settle('handover', error); }
 	}
 	const during = (from, to) => timeline.filter((row) => row.at >= from && row.at <= to);
+	// shieldCover: the escape step alone (no reflexes), a shield in the offhand, a skeleton straight ahead and the only cover
+	// straight behind. The shield keeps the view on the skeleton, so the walk to cover has to move backward behind it.
+	if (want('shieldCover')) {
+		try {
+			await reset();
+			await command('fill -1 80 -3 1 82 -3 minecraft:stone');
+			await command(`item replace entity ${agent} weapon.offhand with minecraft:shield`);
+			await command('summon minecraft:skeleton 0.5 80 10.5 {NoAI:1b,PersistenceRequired:1b,equipment:{mainhand:{id:"minecraft:bow",count:1}}}');
+			await rate.idleSleep(1000);
+			const played = await rate.play();
+			const from = now();
+			const run = await startAction('escape', { timeoutMs: 15000 });
+			const done = await run.result;
+			o = await observe();
+			const rows = during(from, now());
+			const tick = await played();
+			results.shieldCover = { result: done.reasonCode, message: String(done.message ?? '').slice(0, 300), seconds: (now() - from) / 1000, position: o.position,
+				shieldUp: rows.filter((row) => row.using).length, samples: rows.length, tick };
+			results.shieldCover.pass = done.reasonCode === 'ESCAPED' && /in cover at/.test(done.message ?? '') && (o.position?.z ?? 0) < -3;
+			await settle('shieldCover');
+		} catch (error) { await settle('shieldCover', error); }
+	}
 	// A held shield stance and a model command that only walks: the body walks behind the raised shield, slowed.
 	if (want('shieldWalk')) {
 		try {
