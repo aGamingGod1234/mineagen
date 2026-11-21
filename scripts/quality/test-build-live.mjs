@@ -46,7 +46,7 @@ import { liveRecord } from './watch-replay.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 import { damageCounter, damageEvidence, replyNumber, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
-import { FOOD, ARCHER, mobAnswer, standinFork, standinEntry, playStandin } from './lib/standin-policy.mjs';
+import { FOOD, ARCHER, mobAnswer, standinFork, standinEntry, playStandin, STANDIN_POLICY_ON } from './lib/standin-policy.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const cli = process.argv.slice(2);
@@ -419,6 +419,7 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 			return entry;
 		};
 		const standinAnswer = async (result, tag, skip = ['tool']) => {
+			if (!STANDIN_POLICY_ON) return null;
 			let o;
 			try { o = adaptObservation(await s.observe()); } catch { return null; }
 			const used = standinUsed.get(step) ?? {};

@@ -33,7 +33,7 @@ import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-r
 import { damageCounter, damageEvidence, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
 import { isFindCall, shouldRepeat, findSpotVerdict, findSpotLabel, callEntry, awaitActionReceipts } from './lib/find-spot.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
-import { standinFork, standinEntry, playStandin } from './lib/standin-policy.mjs';
+import { standinFork, standinEntry, playStandin, STANDIN_POLICY_ON } from './lib/standin-policy.mjs';
 
 const atBody = (text, at) => String(text).replace(/\{([xyz])([+-][\d.]+)?\}/g, (_, axis, offset) => String(at[axis] + Number(offset ?? 0)));
 
@@ -203,6 +203,7 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 			return result;
 		};
 		const standinAnswer = async (result, callIndex, attempt, used) => {
+			if (!STANDIN_POLICY_ON) return null;
 			let observation;
 			try { observation = adaptObservation(await s.observe()); } catch { return null; }
 			const decision = standinFork({ result, observation, used });
@@ -245,7 +246,7 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 				if ((await deaths()) > deathsBefore || /TIMEOUT observation/.test(entry.message)) { row.ended = 'death or lost observations'; break; }
 				const budgetLeftMs = budgetMs - (Date.now() - t0);
 				// A blocked search is asked again only after the stand-in answered its fork (another angle, a sound pickaxe).
-				const blockedFind = spot.repeat && isFindCall(call) && result?.reasonCode === 'FIND_BLOCKED' && budgetLeftMs >= 60_000;
+				const blockedFind = STANDIN_POLICY_ON && spot.repeat && isFindCall(call) && result?.reasonCode === 'FIND_BLOCKED' && budgetLeftMs >= 60_000;
 				if (!shouldRepeat(call, result, spot, { budgetLeftMs }) && !blockedFind) break;
 				// The provider-free stand-in for a model: give the reflexes a moment with danger, then ask again.
 				if (['RUNNING', 'PREPARING'].includes(result?.state) && typeof result?.actionId === 'string') {

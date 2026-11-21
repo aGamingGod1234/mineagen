@@ -15,6 +15,9 @@
 //   blocked  the step could not go on (FIND_BLOCKED, NO_ROUTE ...): once per step, walk 24 blocks to one side, retry
 // Each fork has a per-step cap (FORK_CAPS) so an answer that changes nothing never loops to the step limit.
 
+// STANDIN_POLICY=off plays the old stand-in (re-ask only; the build rooms' own answer without the new forks), so a room
+// batch can play old and new side by side on the same code and machines (an @ROOM:old line with STANDIN_POLICY=off).
+export const STANDIN_POLICY_ON = process.env.STANDIN_POLICY !== 'off';
 export const FOOD = /^minecraft:(cooked_[a-z]+|beef|porkchop|mutton|chicken|rabbit|bread|apple|baked_potato|carrot|sweet_berries|golden_carrot|golden_apple)$/;
 export const ARCHER = /^(skeleton|stray|bogged|parched|pillager)$/;
 const ALWAYS_FLEE = /^(creeper|witch|drowned|blaze)$/;
