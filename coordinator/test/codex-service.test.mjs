@@ -2151,3 +2151,16 @@ test('delayed usage keeps the preceding inference timing after a tool response s
 	assert.equal(events[0].call.endedAt, 6000);
 	transport.complete('thread-1', 'turn-1'); await turn; await service.stop();
 });
+
+test('the choice tool switch adds choose_response after the native tools, and only when on', async () => {
+	for (const choiceTool of [false, true]) {
+		const transport = new FakeSharedTransport();
+		transport.autoComplete = false;
+		const service = new CodexService({ cwd: 'C:\\workspace' }, { transport, choiceTool });
+		const agent = await service.createAgent(profile(`agent-choice-${choiceTool}`), { controlProtocol: 'native_tools' });
+		await agent.setGoalRevision(1);
+		const threadStart = transport.calls.find((call) => call.method === 'thread/start').params;
+		assert.deepEqual(threadStart.dynamicTools.map((tool) => tool.name), [...MINECRAFT_DYNAMIC_TOOLS.map((tool) => tool.name), ...(choiceTool ? ['choose_response'] : [])]);
+		await service.stop();
+	}
+});
