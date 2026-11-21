@@ -76,7 +76,7 @@ In every new clone or worktree, run `node scripts/doctor.mjs`. It prints one lin
 Test in four tiers, fastest first: decision tests, practice rooms, checkpoint games, full games. [Which test to run](scripts/quality/README.md#which-test-to-run) gives each tier's command and how to read its result.
 
 - Play practice rooms in batches with `scripts/quality/room-batch.mjs` on boat machines (`--pool boat`) or the Windows PCs (`--pool windows`).
-- On boat, starts are scarce and machine hours are not. Reuse the warm pool and leave every machine running.
+- On boat, starts are scarce and idle machines bill in full. Reuse the warm pool, keep it to its warm set by draining idle extras, and delete any extra machine you created when your work is done.
 - Judge a room by its pass rate over repeats, counting only valid rooms. INVALID, lost and unknown are never a pass.
 
 ## Debugging gameplay

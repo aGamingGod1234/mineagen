@@ -7,7 +7,7 @@ Test a change in four tiers, fastest first. [How testing works](../../docs/goal-
 | Tier | Use it for | Command on main |
 |---|---|---|
 | 1. Decision tests | every change: checks that one decision comes out right, from the unit tests to recorded moments | `cd coordinator && npm test` runs the unit tests. `npm run eval:decisions -- --baseline main --quick` (from `coordinator/`) replays recorded moments through the real model and a judge on the other provider, with no Minecraft server; it needs `ARENA_PRIVATE_INPUTS`, and without it prints SKIP and gives no verdict ([decision evals](../decision-eval/README.md)). For one recorded incident: `node scripts/quality/check.mjs --incident ID` ([Edit loop](#edit-loop)). One score per category against a stored baseline, `npm run eval:tier1`, is coming in PR #62. |
-| 2. Practice rooms | every gameplay change: minutes of staged play, a script in the model's place, the change and main side by side | `room-batch.mjs` on boat machines or the Windows PCs ([below](#a-practice-room-batch)). Rooms played by the real model (`--player model`) are coming in PR #60. |
+| 2. Practice rooms | every gameplay change: minutes of staged play, a script in the model's place, the change and main side by side | `room-batch.mjs` on boat machines or the Windows PCs ([below](#a-practice-room-batch)). Rooms played by the real model (`--player model`) are coming in PR #60. Every room 10 times, compared with a saved baseline (`benchmark.mjs`), is coming in PR #64. |
 | 3. Checkpoint games | several fixes together, and anything that depends on what the model decides; overnight | `run-long.mjs --checkpoint SAVE_POINT.json` plays one real-model game from a save point. Batches of them on boat machines (`checkpoint-batch.mjs`) are coming in PR #57. |
 | 4. Full games | the scoreboard, not a test of one change | A round of fresh worlds on the fixed seeds, added to the goal page's status table. [Long runs](#long-runs-beat-the-game-on-a-random-seed) plays one fresh-world game. |
 
@@ -20,9 +20,9 @@ Test a change in four tiers, fastest first. [How testing works](../../docs/goal-
 
 Boat machines:
 
-- Machine hours are plentiful and starts are scarce: every create, fork or resume counts against boat's start limits, and ssh, exec and `boat extend` do not. A batch leases running machines from the warm pool, creates only the shortfall, and gives them back running.
-- Check the pool with `node scripts/quality/boat-pool.mjs status`. `boat-pool.mjs keepalive --every 60` keeps idle pool machines from reaching their auto-stop; stopping a machine erases it.
-- `drain`, `prune` and `--ephemeral` delete machines. Use them only when the project owner asks.
+- Starts and idle time both cost: every create, fork or resume counts against boat's start limits (ssh, exec and `boat extend` do not), and an idle machine bills in full. A batch leases running machines from the warm pool, creates only the shortfall, and gives them back when it ends.
+- Keep the pool at a warm set of about 20 machines and delete idle extras beyond it. `node scripts/quality/boat-pool.mjs status` lists it; `drain` deletes every idle pool machine (or those of one image and size), so check `status` before you run it. `keepalive --every 60` keeps the warm set from reaching its auto-stop; stopping a machine erases it.
+- Delete any extra machine you created by name, outside the pool, when your work is done. `--ephemeral` makes throwaway machines that the batch deletes itself.
 - A new machine gets its first room only after boat reports it `hydrated`; the batch waits for that itself.
 
 ### Speed: which rooms play at 3x
