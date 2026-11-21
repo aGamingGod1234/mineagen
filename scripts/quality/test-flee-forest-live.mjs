@@ -136,11 +136,11 @@ try {
 			let done = null;
 			flee.result.then((result) => { done = result; });
 			while (done == null && now() - t0 < 20000) {
-				const now = await observe();
-				const p = now.position ?? now.player;
-				const z = (now.entities ?? []).find((entity) => entity.uuid === uuid || entity.stableId === uuid);
-				samples.push({ t: rate.clock.now() - t0, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), sprinting: now.player?.sprinting, collision: now.player?.horizontalCollision,
-					onGround: now.player?.onGround, health: now.player?.health, zombie: z?.position ? +Math.hypot(z.position.x - p.x, z.position.z - p.z).toFixed(1) : null, yaw: now.view?.yaw == null ? null : +now.view.yaw.toFixed(0) });
+				const sample = await observe();
+				const p = sample.position ?? sample.player;
+				const z = (sample.entities ?? []).find((entity) => entity.uuid === uuid || entity.stableId === uuid);
+				samples.push({ t: rate.clock.now() - t0, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), sprinting: sample.player?.sprinting, collision: sample.player?.horizontalCollision,
+					onGround: sample.player?.onGround, health: sample.player?.health, zombie: z?.position ? +Math.hypot(z.position.x - p.x, z.position.z - p.z).toFixed(1) : null, yaw: sample.view?.yaw == null ? null : +sample.view.yaw.toFixed(0) });
 				await rate.clock.sleep(100);
 			}
 			const result = await flee.result;
