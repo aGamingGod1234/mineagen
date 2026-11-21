@@ -67,8 +67,8 @@ export function findSpotVerdict(spot = {}, row = {}) {
 /**
  * Why a spot measured nothing, else null. A search whose last find never reached the body (the harness threw, or the
  * server refused it) is no "not found". A safety-only room cannot pass on standing still: no call ran, one never reached
- * the body, every body receipt in row.actions was turned away at admission, or the spot ended on lost observations. A
- * miss it did measure (damage, a death) stays a FAIL.
+ * the body, every body receipt in row.actions was turned away at admission, a command in row.actions has no terminal
+ * receipt, or the spot ended on lost observations. A miss it did measure (damage, a death) stays a FAIL.
  */
 function notPlayed({ searched, found, lastFind, pass, calls, spot, row }) {
 	if (searched) return !found && row.deaths === 0 && (!lastFind || unexercised(lastFind)) ? `find ${lastFind?.reasonCode ?? lastFind?.state ?? 'call'} never reached the body` : null;
@@ -80,6 +80,9 @@ function notPlayed({ searched, found, lastFind, pass, calls, spot, row }) {
 	// every receipt was turned away at admission played nothing, however its calls read.
 	const actions = row.actions ?? [];
 	if (actions.length && actions.every(rejectedAtAdmission)) return `${actions.map(action => `${action.type} ${action.reasonCode}`).join(', ')} never reached the body`;
+	// A step still running when the readings were taken has not shown whether it stays safe.
+	const unfinished = unfinishedActions(row);
+	if (unfinished.length) return `${unfinished.map(action => action.type).join(', ')} has no terminal receipt: the step never ended`;
 	return row.ended ? `spot ended early: ${row.ended}` : null;
 }
 
@@ -100,4 +103,18 @@ export function callEntry(call, result, { attempt, atS, seconds }) {
 		...(typeof result?.executionStarted === 'boolean' ? { executionStarted: result.executionStarted } : {}),
 		...(typeof result?.physicalAttempted === 'boolean' ? { physicalAttempted: result.physicalAttempted } : {}),
 		message: String(result?.message ?? '').slice(0, 900), find: result?.find };
+}
+
+const TERMINAL_STATES = new Set(['SUCCEEDED', 'FAILED', 'CANCELLED', 'TIMED_OUT']);
+const unfinishedActions = row => (row.actions ?? []).filter(action => !TERMINAL_STATES.has(action.state));
+
+/**
+ * Waits until every command in row.actions has its terminal receipt (find-live's action_result tap writes it there),
+ * the spot is stopped (a death), or the deadline (the spot's budget) passes. A background step such as do_step build
+ * returns RUNNING at once, so readings taken without this wait judge a dig that has not finished. Returns the commands
+ * still without a receipt.
+ */
+export async function awaitActionReceipts(row, { deadline, stopped = async () => false, now = Date.now, wait = ms => new Promise(done => setTimeout(done, ms)), intervalMs = 500 }) {
+	while (unfinishedActions(row).length && now() < deadline && !(await stopped().catch(() => false))) await wait(intervalMs);
+	return unfinishedActions(row);
 }

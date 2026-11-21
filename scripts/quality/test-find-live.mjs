@@ -27,7 +27,7 @@ import { warmBoots } from './fixture-servers.mjs';
 import { liveRecord } from './watch-replay.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 import { damageCounter, damageEvidence, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
-import { isFindCall, shouldRepeat, findSpotVerdict, findSpotLabel, callEntry } from './lib/find-spot.mjs';
+import { isFindCall, shouldRepeat, findSpotVerdict, findSpotLabel, callEntry, awaitActionReceipts } from './lib/find-spot.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 
 const atBody = (text, at) => String(text).replace(/\{([xyz])([+-][\d.]+)?\}/g, (_, axis, offset) => String(at[axis] + Number(offset ?? 0)));
@@ -201,6 +201,11 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 				// The stand-in for a model after danger: give the reflexes (and regeneration, when hurt) a moment, then ask again.
 				if (result?.reasonCode === 'FIND_DANGER') await sleep((await health()) < 12 ? 15000 : 4000);
 			}
+		}
+		// A background step (do_step build) returned RUNNING: take the readings only once each command has its receipt.
+		if (!row.ended) {
+			const pending = await awaitActionReceipts(row, { deadline: t0 + budgetMs, stopped: async () => (await deaths()) > deathsBefore });
+			if (pending.length) console.log(`[${spot.name}] no terminal receipt by the budget for ${pending.map(action => action.type).join(', ')}`);
 		}
 		sampling = false; await sampler;
 		row.handBacks = row.calls.filter((entry) => entry.reasonCode === 'FIND_DANGER').length;

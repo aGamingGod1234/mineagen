@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { finishRun, fixtureSummary, roomVerdict, terminalCounter } from '../../scripts/quality/lib/fixture-run.mjs';
 import { deathCounter, deathEvidence } from '../../scripts/quality/lib/damage-counter.mjs';
 import { healthFloor, startHealthWatch, reflexHold, refusedBeforeRunning } from '../../scripts/quality/lib/room-evidence.mjs';
-import { shouldRepeat, findSpotVerdict, findSpotLabel, callEntry } from '../../scripts/quality/lib/find-spot.mjs';
+import { shouldRepeat, findSpotVerdict, findSpotLabel, callEntry, awaitActionReceipts } from '../../scripts/quality/lib/find-spot.mjs';
 import { surviveTicks, proposedGoalTicks, newerGoalRevision, liveRecord } from '../../scripts/quality/watch-replay.mjs';
 
 const quality = fileURLToPath(new URL('../../scripts/quality/', import.meta.url));
@@ -96,6 +96,29 @@ test('a safety room whose calls the server rejected at admission is not exercise
 	assert.equal(roomVerdict({ ...played, ...findSpotVerdict(build, played) }).verdict, 'PASS');
 	// The stand-in still re-asks a find the busy slot refused: that race clears once the cancelled action ends.
 	assert.equal(shouldRepeat({ name: 'do_step', arguments: { verb: 'find' } }, rejected('ACTION_ALREADY_ACTIVE'), { repeat: true }), true);
+});
+
+test('a safety room whose background step never ended is not exercised, and find-live waits for that step', async () => {
+	// carve-hidden-lava: do_step build returns RUNNING at once; no damage yet says nothing about the dig toward the lava.
+	const build = { name: 'carve-hidden-lava', calls: [{ name: 'do_step', arguments: { verb: 'build' } }] };
+	const unfinished = { deaths: 0, damageTaken: 0, calls: [{ call: 'do_step', verb: 'build', state: 'RUNNING' }], actions: [{ actionId: 'a1', type: 'build' }] };
+	const verdict = findSpotVerdict(build, unfinished);
+	assert.match(verdict.notExercised ?? '', /build has no terminal receipt/);
+	assert.equal(roomVerdict({ ...unfinished, ...verdict }).verdict, 'INVALID');
+	const ended = { ...unfinished, actions: [{ actionId: 'a1', type: 'build', state: 'SUCCEEDED', reasonCode: 'BUILT', executionStarted: true, physicalAttempted: true }] };
+	assert.equal(roomVerdict({ ...ended, ...findSpotVerdict(build, ended) }).verdict, 'PASS');
+	// find-live holds the readings until every command has its receipt, a death, or the spot's budget.
+	const row = { actions: [{ actionId: 'a1', type: 'build' }] };
+	let clock = 0, waits = 0;
+	const wait = async ms => { clock += ms; if (++waits === 3) Object.assign(row.actions[0], { state: 'SUCCEEDED', reasonCode: 'BUILT' }); };
+	assert.deepEqual(await awaitActionReceipts(row, { deadline: 60_000, now: () => clock, wait, stopped: async () => false }), []);
+	assert.equal(waits, 3);
+	const stuck = { actions: [{ actionId: 'a2', type: 'build' }] };
+	clock = 0;
+	assert.deepEqual((await awaitActionReceipts(stuck, { deadline: 2_000, now: () => clock, wait: async ms => { clock += ms; }, stopped: async () => false })).map(a => a.actionId), ['a2']);
+	clock = 0;
+	assert.equal((await awaitActionReceipts(stuck, { deadline: 60_000, now: () => clock, wait: async ms => { clock += ms; }, stopped: async () => clock >= 1_000 })).length, 1, 'a death ends the wait');
+	assert.ok(clock < 60_000);
 });
 
 test('find-live keeps the body\'s execution evidence on each call', () => {
