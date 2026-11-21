@@ -83,6 +83,24 @@ FIXTURE_TICK_RATE=60 CASES=corridor REPEATS=3 /path/to/recordings/arena-beat-gam
 
 Server start and world generation do not speed up; time in play does. `measure-tick-rate.mjs` measures what a machine holds with 1 to 4 bodies kept busy (`summary.json` per body count: `highestHeld` is the highest rate held with every lower rate held too, `notHeld` the misses, `leastBusy` the smallest share of body time spent working in any sample). One sample per rate is noisy on a shared machine, so pick a rate below `highestHeld` across several runs. `test-lag-clock-live.mjs` checks the reverse: a lagging server (`LAG=rate:10` or a real `LAG=crowd:N` pig pit) must not cut a `travel_to` or `dig_to` short. In model play the coordinator moves a program's wall-clock deadline out by the wall time the server fell behind the game clock (at most three program timeouts), so the body's own timeout still comes first. Model runs keep 20 TPS: provider timeouts are wall time.
 
+## Room batches on boat
+
+`room-batch.mjs` plays a batch of practice rooms x arms on boat machines instead of waiting for a local live slot. It splits the batch by room, never by arm: each machine pulls the next room from one shared queue and plays all of its arms side by side (`SLOT_PORT_BASE` 28000, 28100, ...), so machine and load differences never become the A/B delta. A commands file has one line per room; the line runs once per arm with `$JAR` for that arm's jar and `$OUT` for a fresh output folder, and `@ROOM:ARM ...` gives one arm its own line:
+
+```text
+@carve-hidden-lava BUILD_ONLY=carve-hidden-lava node scripts/quality/test-build-live.mjs scripts/quality/carve-hidden-fluid-spots.json $OUT $JAR --descriptive
+```
+
+```bash
+node scripts/quality/room-batch.mjs --commands ROOMS.txt --arm new=NEW.jar --arm old=OLD.jar --pool boat --vms 5 --out FRESH_DIR --snapshot IMAGE
+```
+
+- **Code.** The machines run `--code REF` (default `HEAD`) as `git archive` plus this checkout's `coordinator/node_modules`. A local file a line names by absolute path, such as a private spots file, is copied to every machine and the line points at the copy.
+- **Output.** `OUT/rooms/ROOM/ARM/` holds each room's fixture folder unchanged (never flattened: `spot-N` names repeat across rooms), with `ARM.log` and `done.json` (exit, seconds, `Can't keep up` lines, lowest available memory). `OUT/ARM/result.json` and `result-summary.json` come from `finishRun` over every room's rows with `planned` counting every room, so a missing room reads as `notStarted` and the arm as INVALID. `OUT/summary.txt` gives per arm pass, fail, invalid, notStarted, lost rooms, deaths, damage (unknown, never 0, when a row has no counter) and room time, then one line per room. `OUT/batch.json` records the code, jar hashes, image, outcomes and each machine's boat usage.
+- **Lost machines.** A machine that stops answering (5 minutes, or boat no longer lists it running) is deleted; its room goes back to the front of the queue once, for another machine, and a replacement machine comes up. A room lost twice is reported `LOST`. A room's arms are killed after `--room-timeout` minutes (default 40).
+- **Cost.** Every machine is `--no-env` (rooms make no model calls) and deleted when the batch ends, on an error, or on Ctrl-C. Boat stops a machine at a fixed deadline from its creation, not when idle, so the runner pushes the deadline back while rooms remain; the deadline stops a machine whose runner died. `--type` (or `ROOM_BATCH_TYPE`, default `default`: 4 vCPU, 8 GB) picks the size.
+- **Image.** `node scripts/quality/room-image.mjs --template TEMPLATE_DIR --snapshot IMAGE --warm-jar JAR` builds the saved image the batch forks from: Temurin 25.0.5 (hash-checked) and the server template under the machine's `rooms/` folder, plus the prepared server from one warm-up room. Rerun it when the template or Java changes. `--snapshot` (or `ROOM_BATCH_SNAPSHOT`) names it for the batch.
+
 ## Bed parity fixture
 
 `test-bed-live.mjs` checks crafting from 3 wool + 3 planks, two-block placement, vanilla night skipping, the saved bed spawn, and daytime/nearby-monster rejection messages through production bridge actions. It uses an isolated flat-world fixture and no model calls; it does not measure model choices. Build the candidate first, then run with `JAVA_HOME` and `ARENA_HEADLESS_SERVER_TEMPLATE` set:
