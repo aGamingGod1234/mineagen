@@ -10,6 +10,9 @@ import { readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { roomVerdict } from './lib/fixture-run.mjs';
+import { readArmRows } from './lib/standin-rows.mjs';
+
+export { readArmRows };
 
 const median = values => {
 	const sorted = values.filter(Number.isFinite).sort((a, b) => a - b);
@@ -20,29 +23,6 @@ const median = values => {
 const total = values => values.every(Number.isFinite) ? values.reduce((a, b) => a + b, 0) : null;
 const baseRoom = name => String(name).replace(/-r\d+$/, '');
 const readJson = async file => JSON.parse(await readFile(file, 'utf8'));
-const elapsedMinutes = row => Number.isFinite(row.finishedAt) && Number.isFinite(row.startedAt) ? (row.finishedAt - row.startedAt) / 60000 : null;
-
-/**
- * One arm's rows in a room folder. Most fixtures write finishRun rows (result.json). Two stand-ins write their own:
- * test-drawn-bow-live.mjs (acceptance.json, with arrow damage in tenths of HP per rule arm in results.json; the
- * production rule is the drawn one, and the fixture heals the body below 12 HP, so it cannot die) and
- * test-travel-live.mjs (results.json { results }: pass on arrival with no death).
- */
-export async function readArmRows(dir) {
-	const rows = await readJson(path.join(dir, 'result.json')).catch(() => null);
-	if (Array.isArray(rows)) return rows;
-	const accepted = await readJson(path.join(dir, 'acceptance.json')).catch(() => null), acceptance = Array.isArray(accepted) ? accepted[0] : accepted;
-	const results = await readJson(path.join(dir, 'results.json')).catch(() => null);
-	if (acceptance && typeof acceptance === 'object' && results?.drawnBow) {
-		const taken = results.drawnBow.arms?.drawn?.taken;
-		return [{ ...acceptance, deaths: 0, damageTaken: Number.isFinite(taken) ? taken / 10 : null, minutes: elapsedMinutes(acceptance), note: 'drawn-bow: idle body, heals below 12 HP' }];
-	}
-	if (Array.isArray(results?.results)) return results.results.map(run => run.error ? { name: run.id, pass: false, error: String(run.error).split('\n')[0] }
-		: { name: run.id, pass: run.arrived === true && run.deaths === 0, deaths: run.deaths ?? null, damageTaken: run.damage ?? null, minutes: Number.isFinite(run.wallSeconds) ? run.wallSeconds / 60 : null,
-			blocksMined: run.blocksMined ?? null, pickaxeUses: run.pickaxeUses ?? null, startedAt: run.startedAtEpochMs, finishedAt: run.endedAtEpochMs });
-	return [];
-}
-
 export function compareArms({ arms, done }) {
 	const rooms = new Map();
 	for (const [arm, rows] of Object.entries(arms)) for (const row of rows) {
@@ -78,26 +58,51 @@ export function formatComparison(rooms, arms) {
 	return lines.join('\n') + (invalid.length ? `\n\nInvalid runs:\n${invalid.join('\n')}` : '') + '\n';
 }
 
+/**
+ * Every planned arm of every planned room in one batch folder as rows. The plan is batch.json's rooms and arms, so a room
+ * that was lost, or never started because the batch stopped, is an INVALID row (with the batch's reason) instead of
+ * dropping out of the rate: 4 passes and 1 lost read 4/4 (+1 invalid), not 4/4. Without batch.json (the batch never
+ * finished) the plan is unknown, so the rows found are kept and a warning says the inventory may be short.
+ */
+export async function readBatchArms(out) {
+	const batch = await readJson(path.join(out, 'batch.json')).catch(() => null);
+	const found = (await readdir(path.join(out, 'rooms')).catch(() => [])).filter(name => !name.startsWith('.')).sort();
+	const planned = Array.isArray(batch?.rooms) ? batch.rooms : found;
+	const armNames = Array.isArray(batch?.arms) ? batch.arms.map(arm => arm.name).filter(name => ['ai', 'script'].includes(name)) : ['ai', 'script'];
+	const outcomes = new Map((batch?.outcomes ?? []).filter(Boolean).map(outcome => [outcome.room, outcome]));
+	const arms = {}, warnings = batch ? [] : [`${out}: no batch.json, so rooms the batch lost or never started are not counted`];
+	for (const room of planned) {
+		const done = await readJson(path.join(out, 'rooms', room, 'done.json')).catch(() => null), outcome = outcomes.get(room);
+		for (const arm of armNames) {
+			const run = done?.arms?.[arm];
+			if (!run) {
+				if (!batch && !done) continue;
+				const reason = outcome?.lost ? `lost: ${outcome.reason ?? 'no reason recorded'}` : done ? 'the arm did not run' : 'never started';
+				(arms[arm] ??= []).push({ room, pass: false, error: reason, deaths: null, damageTaken: null });
+				continue;
+			}
+			const killed = run.timedOut ? 'room timeout' : run.signal ? `signal ${run.signal}` : run.error ? `launch error: ${run.error}` : null;
+			const rows = await readArmRows(path.join(out, 'rooms', room, arm));
+			(arms[arm] ??= []).push(...(rows.length ? rows : [{ pass: false, error: 'no result rows' }]).map(row => ({ ...row, room, armSeconds: run.seconds ?? null,
+				...(killed ? { integrity: [...(row.integrity ?? []), { file: 'arm', error: `killed (${killed})` }] } : {}) })));
+		}
+	}
+	return { arms, warnings };
+}
+
 async function main(argv) {
 	const jsonAt = argv.indexOf('--json'), json = jsonAt >= 0 ? argv[jsonAt + 1] : null;
-	const dirs = argv.filter((arg, i) => arg !== '--json' && i !== jsonAt + 1 || jsonAt < 0 && arg !== '--json');
+	const dirs = argv.filter((arg, i) => jsonAt < 0 || (i !== jsonAt && i !== jsonAt + 1));
 	if (!dirs.length || dirs[0] === '--help') { console.log('Usage: ai-room-report.mjs BATCH_OUT [BATCH_OUT ...] [--json FILE]  (several batches of the same rooms pool their repeats)'); return; }
-	const arms = {};
+	const arms = {}, warnings = [];
 	for (const dir of dirs) {
-		const out = path.resolve(dir);
-		for (const room of (await readdir(path.join(out, 'rooms')).catch(() => [])).filter(name => !name.startsWith('.')).sort()) {
-			const done = await readJson(path.join(out, 'rooms', room, 'done.json')).catch(() => null);
-			for (const arm of ['ai', 'script']) {
-				if (!done?.arms?.[arm]) continue;
-				const run = done.arms[arm], killed = run.timedOut ? 'room timeout' : run.signal ? `signal ${run.signal}` : run.error ? `launch error: ${run.error}` : null;
-				const rows = await readArmRows(path.join(out, 'rooms', room, arm));
-				(arms[arm] ??= []).push(...(rows.length ? rows : [{ pass: false, error: 'no result rows' }]).map(row => ({ ...row, room, armSeconds: run.seconds ?? null,
-					...(killed ? { integrity: [...(row.integrity ?? []), { file: 'arm', error: `killed (${killed})` }] } : {}) })));
-			}
-		}
+		const batch = await readBatchArms(path.resolve(dir));
+		for (const [arm, rows] of Object.entries(batch.arms)) (arms[arm] ??= []).push(...rows);
+		warnings.push(...batch.warnings);
 	}
 	const rooms = compareArms({ arms, done: {} });
 	console.log(formatComparison(rooms, Object.keys(arms)));
+	for (const warning of warnings) console.log(`warning: ${warning}`);
 	if (json) await writeFile(json, JSON.stringify(rooms, null, 2) + '\n');
 }
 

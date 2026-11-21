@@ -35,7 +35,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseCommands } from './lib/room-batch-core.mjs';
-import { AI_ARM, SCRIPT_ARM, aiRoomCommands, selectAiRooms } from './lib/ai-room-lines.mjs';
+import { AI_ARM, SCRIPT_ARM, aiRoomCommands, findRefreshedSignIn, selectAiRooms } from './lib/ai-room-lines.mjs';
 import { runBatch } from './lib/room-batch-run.mjs';
 import { boatPool, buildBundle } from './lib/boat-pool.mjs';
 import { warmBoatPool } from './lib/boat-warm.mjs';
@@ -163,6 +163,17 @@ const pool = windowsHosts ? windowsPool({ hosts: windowsHosts, batchName: batch.
 	: warmPool ? warmBoatPool({ snapshot, type, ttlSeconds: 7200, idleTtlSeconds: Math.round(idleTtlMinutes * 60), startsPerMinute, machines: machines.length ? machines : null, batch: batch.name, bundle, log })
 	: boatPool({ snapshot, type, ttlSeconds: 7200, namePrefix: batch.name, bundle, log });
 const began = new Date().toISOString();
+// A model batch stops at the first fetched room whose Codex sign-in was refreshed: the rotation can sign out every other
+// copy, so no further room may play on it. The rooms that had not finished read LOST (batch stopped).
+let signInStop = null;
+const signInWatch = flags.player === 'model' ? setInterval(async () => {
+	if (signInStop || controller.signal.aborted) return;
+	const room = await findRefreshedSignIn(path.join(out, 'rooms'));
+	if (!room) return;
+	signInStop = room;
+	await log(`room ${room}: Codex refreshed its sign-in; stopping the batch`);
+	controller.abort();
+}, 5_000) : null;
 try {
 	// The boat poll waits for the room's end itself; a Windows poll answers at once, so it gets a pause between asks.
 	const result = await runBatch({ batch, rooms, arms: flags.arms, pool, vms, out, roomTimeoutMs, log, rewrite, signal: controller.signal, ...(windowsHosts ? { pollMs: 10_000 } : {}) });
@@ -173,5 +184,6 @@ try {
 	const reused = result.machines.filter(vm => vm.reused).length;
 	if (warmPool) console.log(`machines: ${reused} reused from the warm pool, ${result.machines.length - reused} started; ${result.machines.filter(vm => vm.returned).length} back in the pool, ${result.machines.filter(vm => vm.destroyed).length} deleted`);
 	if (controller.signal.aborted) process.exitCode = 130;
+	if (signInStop) { console.error(`STOPPED: Codex refreshed the sign-in in room ${signInStop}; check the account before another model batch`); process.exitCode = 4; }
 	if (leftover.length) { console.error(`NOT DELETED: ${leftover.map(vm => vm.id).join(', ')} (${windowsHosts ? `kill its room and delete C:/aa-runs/batches/${batch.name} on that PC` : 'delete them with boat delete ID --yes'})`); process.exitCode = 3; }
-} finally { await rm(work, { recursive: true, force: true }); }
+} finally { if (signInWatch) clearInterval(signInWatch); await rm(work, { recursive: true, force: true }); }

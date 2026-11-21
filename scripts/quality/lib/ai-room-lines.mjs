@@ -5,9 +5,27 @@
 // batch input and points the line at the copy; run-ai-room.mjs moves it into a private CODEX_HOME for that run only.
 // With several sign-ins (several accounts), the AI lines take them in turn, room by room, so the model calls of a
 // batch spread evenly across the accounts.
+// The script arm runs its stand-in through ai-room-standin.mjs, which leaves the fixture alone and adds the finishRun rows
+// the batch merges when the fixture writes only its own report. Every word of a generated line is quoted the way
+// parseCommands reads it, so paths with spaces or quotes stay one word.
+import { readdir, readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { splitWords } from './room-batch-core.mjs';
 
 export const AI_ARM = 'ai';
 export const SCRIPT_ARM = 'script';
+
+/** One word for a room line: bare when it is plain, else double-quoted with \ and " escaped (splitWords' rules). */
+export const quoteWord = word => /^[A-Za-z0-9_@%+=:,./$-]+$/.test(String(word)) ? String(word) : `"${String(word).replace(/["\\]/g, '\\$&')}"`;
+const envWord = (key, value) => `${key}=${quoteWord(value)}`;
+
+/** The stand-in line rewritten to run through ai-room-standin.mjs: its env first, then the wrapper, $OUT and the fixture. */
+export function standInCommand(standIn) {
+	const words = splitWords(standIn), env = [];
+	while (words.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[0])) env.push(words.shift());
+	if (words[0] !== 'node' || words.length < 2 || !words.includes('$OUT')) throw new Error(`a stand-in is "ENV... node FIXTURE ... $OUT ...": ${standIn}`);
+	return [...env.map(word => { const at = word.indexOf('='); return envWord(word.slice(0, at), word.slice(at + 1)); }), 'node', 'scripts/quality/ai-room-standin.mjs', '$OUT', ...words.slice(1).map(quoteWord)].join(' ');
+}
 
 /** Picks rooms by id or name; every name must match exactly one room. */
 export function selectAiRooms(scenarios, select) {
@@ -34,9 +52,22 @@ export function aiRoomCommands({ scenarios, roomsPath, repeats = 1, script = tru
 		if (script && /FIXTURE_TICK_RATE=/.test(room.aiRoom.standIn)) throw new Error(`AI room ${room.name}: the stand-in must play at 20 ticks per second too`);
 		for (let r = 1; r <= repeats; r++) {
 			const name = `${room.name}-r${r}`;
-			lines.push(`@${name}:${AI_ARM} CODEX_AUTH_FILE=${authFiles[turn++ % authFiles.length]} node scripts/quality/run-ai-room.mjs ${roomsPath} ${room.id} $OUT $JAR${model ? ` --model ${model}` : ''} --descriptive`);
-			if (script) lines.push(`@${name}:${SCRIPT_ARM} ${room.aiRoom.standIn}`);
+			const ai = ['node', 'scripts/quality/run-ai-room.mjs', roomsPath, room.id, '$OUT', '$JAR', ...(model ? ['--model', model] : []), '--descriptive'].map(quoteWord);
+			lines.push(`@${name}:${AI_ARM} ${envWord('CODEX_AUTH_FILE', authFiles[turn++ % authFiles.length])} ${ai.join(' ')}`);
+			if (script) lines.push(`@${name}:${SCRIPT_ARM} ${standInCommand(room.aiRoom.standIn)}`);
 		}
 	}
 	return lines.join('\n') + '\n';
+}
+
+/**
+ * The first fetched AI room whose Codex sign-in was refreshed, or null. room-batch polls this while a model batch runs
+ * and stops the batch on a hit: a refresh rotates the token, and every other copy of the sign-in may be signed out.
+ */
+export async function findRefreshedSignIn(roomsDir) {
+	for (const room of (await readdir(roomsDir).catch(() => [])).filter(name => !name.startsWith('.')).sort()) {
+		const rows = await readFile(path.join(roomsDir, room, AI_ARM, 'result.json'), 'utf8').then(JSON.parse, () => null);
+		if (Array.isArray(rows) && rows.some(row => row?.signInRefreshed === true)) return room;
+	}
+	return null;
 }

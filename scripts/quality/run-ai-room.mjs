@@ -15,8 +15,10 @@
 // run's artifacts (coordinator and model logs, samples) are copied to OUT/artifacts without the world (server/), the
 // Codex workspace (it holds a copy of the sign-in) and the RCON password.
 // Codex: with CODEX_AUTH_FILE set (room-batch --player model sends the sign-in as a batch input), the room copies it
-// into a fresh private CODEX_HOME outside OUT for this run only and deletes it after, so no copy travels back with the
-// room's folder. A machine without the codex CLI gets @openai/codex@CODEX_CLI_VERSION (default below) under ~/.local.
+// into a fresh private CODEX_HOME beside that file (on a batch machine: ~/batch/inputs, outside OUT and inside the folder
+// the warm pool wipes on every lease and return, so even a room killed with -9 leaves no copy on a reusable machine) and
+// deletes it after. A machine without the codex CLI gets @openai/codex@CODEX_CLI_VERSION (default below) under ~/.local.
+// When Codex rewrote the sign-in during the room, the room exits 4 and says so; room-batch stops the batch on it.
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { chmod, copyFile, cp, mkdtemp, readFile, rm } from 'node:fs/promises';
@@ -32,6 +34,12 @@ export function copyArtifacts(from, to) {
 	return cp(from, to, { recursive: true, filter: source => source === from || !SKIP_ARTIFACTS.has(path.basename(source)) });
 }
 
+/** Copies the run's evidence into OUT/artifacts; returns why it could not, or null. */
+export async function keepArtifacts(run, out) {
+	if (!run?.artifacts) return 'the run left no artifacts';
+	return copyArtifacts(run.artifacts, path.join(out, 'artifacts')).then(() => null, error => error.message);
+}
+
 const sha256 = async file => { try { return createHash('sha256').update(await readFile(file)).digest('hex'); } catch { return null; } };
 /**
  * Whether Codex rewrote the sign-in during the run: a refresh rotates the token and can sign out every other copy, so a
@@ -43,21 +51,27 @@ export async function signInChanged(sentHash, files) {
 }
 
 export const CODEX_CLI_VERSION = '0.171.0';
+export const SIGN_IN_REFRESHED_EXIT = 4;
+
+// Windows runs codex and npm through their .cmd shims, which only a shell can start; the arguments here are fixed words.
+const runTool = (exec, platform) => (command, args, options) => platform === 'win32' ? exec(command, args, { ...options, shell: true }) : exec(command, args, options);
 
 /** Puts a signed-in codex CLI within reach of the coordinator; returns what to undo and what was found. */
-export async function prepareCodex(env = process.env, { exec = execFileSync } = {}) {
+export async function prepareCodex(env = process.env, { exec = execFileSync, platform = process.platform } = {}) {
 	env.PATH = [path.join(os.homedir(), '.local', 'bin'), env.PATH].filter(Boolean).join(path.delimiter);
-	const version = () => { try { return exec('codex', ['--version'], { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { return null; } };
-	let cli = version();
+	const run = runTool(exec, platform);
 	const wanted = env.CODEX_CLI_VERSION ?? CODEX_CLI_VERSION;
+	if (!/^[0-9A-Za-z.+-]+$/.test(wanted)) throw new Error(`CODEX_CLI_VERSION must be a version, got ${wanted}`);
+	const version = () => { try { return run('codex', ['--version'], { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { return null; } };
+	let cli = version();
 	if (!cli || (env.CODEX_CLI_VERSION && !cli.endsWith(wanted))) {
-		exec('npm', ['install', '-g', '--prefix', path.join(os.homedir(), '.local'), `@openai/codex@${wanted}`], { env, stdio: ['ignore', 'ignore', 'inherit'], timeout: 5 * 60_000 });
+		run('npm', ['install', '-g', '--prefix', path.join(os.homedir(), '.local'), `@openai/codex@${wanted}`], { env, stdio: ['ignore', 'ignore', 'inherit'], timeout: 5 * 60_000 });
 		cli = version();
 		if (!cli) throw new Error(`codex CLI ${wanted} did not install`);
 	}
 	let home = null;
 	if (env.CODEX_AUTH_FILE) {
-		home = await mkdtemp(path.join(os.tmpdir(), 'ai-room-codex-'));
+		home = await mkdtemp(path.join(path.dirname(path.resolve(env.CODEX_AUTH_FILE)), '.ai-room-codex-'));
 		await chmod(home, 0o700);
 		await copyFile(env.CODEX_AUTH_FILE, path.join(home, 'auth.json'));
 		await chmod(path.join(home, 'auth.json'), 0o600);
@@ -81,9 +95,18 @@ export function aiRoomRow(room, run, { startedAt, finishedAt }) {
 	// evidence: such a run stays valid and says its token counts are approximate. Any other gap is INVALID.
 	const tokensOnly = run.measurementStatus === 'INCOMPLETE' && m.tokenReconciliation?.complete === false && !(run.observerErrors ?? []).length && !(m.coverage?.jsonlDroppedLines > 0);
 	if (run.measurementStatus !== 'MEASURED' && !tokensOnly) integrity.push({ file: 'measurement', error: `status ${run.measurementStatus ?? 'unknown'} (${run.termination ?? 'no termination'})` });
-	if (!(m.modelCalls > 0)) integrity.push({ file: 'provider', error: 'the model made no call' });
+	// Goal translation counts in modelCalls; only a gameplay call shows the model played the room (reflexes alone can
+	// survive the skeleton room).
+	if (!(m.playModelCalls > 0)) integrity.push({ file: 'provider', error: 'the model made no gameplay call' });
 	if (!Number.isFinite(m.deaths)) integrity.push({ file: 'deaths', error: 'no death counter' });
 	if (!Number.isFinite(m.damageTaken)) integrity.push({ file: 'damage_taken', error: 'no damage counter' });
+	// The totals are the highest reading over the samples, so a counter that went unread later (a death or a hit after
+	// the last good reading) would still show 0. Any sample without a counter leaves deaths or damage unknown.
+	const gaps = m.coverage?.scoreboardGaps;
+	if (!gaps) integrity.push({ file: 'scoreboard', error: 'no counter coverage recorded' });
+	else for (const [counter, missing] of Object.entries({ deaths: gaps.deaths, damage_taken: gaps.damageTaken })) {
+		if (missing !== 0) integrity.push({ file: counter, error: `${missing ?? 'unknown'} samples without the counter` });
+	}
 	if (run.evaluation?.status !== 'EVALUATED') integrity.push({ file: 'evaluation', error: `check not evaluated (${run.evaluation?.status ?? 'none'})` });
 	const noDamage = room.aiRoom?.pass?.noDamage === true;
 	const checkHeld = ladder.result === 'PASS';
@@ -126,8 +149,10 @@ async function main(args) {
 		const options = parseLadderArgs(aiRoomLadderArgs({ rooms: path.resolve(rooms), id: room.id, out: path.resolve(out), jar: path.resolve(jar), ...flags }));
 		const [run] = await runLadder(options);
 		const refreshed = codex.sentHash ? await signInChanged(codex.sentHash, [path.join(codex.home, 'auth.json'), ...(run?.artifacts ? [path.join(run.artifacts, 'provider-workspaces', 'minecraft-agent', '.codex-home', 'auth.json')] : [])]) : null;
-		if (run?.artifacts) await copyArtifacts(run.artifacts, path.join(path.resolve(out), 'artifacts')).catch(error => console.warn(`artifact copy: ${error.message}`));
+		// The run's own artifacts sit outside OUT on a machine the batch wipes, so a room whose copy failed has no evidence.
+		const copyError = await keepArtifacts(run, path.resolve(out));
 		row = { ...aiRoomRow(room, run, { startedAt, finishedAt: Date.now() }), codexCli: codex.cli, signInRefreshed: Boolean(refreshed) };
+		if (copyError) (row.integrity ??= []).push({ file: 'artifacts', error: `evidence not kept: ${copyError}` });
 		if (refreshed) {
 			(row.integrity ??= []).push({ file: 'sign-in', error: 'Codex refreshed the sign-in during this room: stop the batch, the other copies may be signed out' });
 			console.error('SIGN-IN REFRESHED: Codex rewrote auth.json during this room; stop the batch.');
@@ -137,6 +162,7 @@ async function main(args) {
 	} finally { await codex?.cleanup().catch(() => {}); }
 	console.log(JSON.stringify(row, null, 2));
 	await finishRun([row], { file: path.join(path.resolve(out), 'result.json'), strict: !descriptive });
+	if (row.signInRefreshed) process.exitCode = SIGN_IN_REFRESHED_EXIT;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
