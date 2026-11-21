@@ -124,11 +124,13 @@ public final class BrinkGuard {
 		return jump && !brace && onGround && !fireResistant;
 	}
 
-	/** A jump's horizontal displacement after each tick from take-off to two ticks past its last landing tick. */
-	static double[][] jumpShifts(double motionX, double motionZ, double[] heading, boolean sprint) {
-		double[][] shifts = new double[JUMP_AIR_TICKS + 2][];
-		for (int ticks = 1; ticks <= JUMP_AIR_TICKS + 2; ticks++) shifts[ticks - 1] = jumpDisplacement(motionX, motionZ, heading, sprint, ticks);
-		return shifts;
+	/**
+	 * The lava cell a jump taken now would touch at take-off height, or null: the jump model below (take-off push, sprint
+	 * boost, air control) run tick by tick against the blocks, from take-off to two ticks past its last landing tick.
+	 */
+	static BlockPos jumpLava(LavaStep.Read read, AABB box, double motionX, double motionZ, double[] heading, boolean sprint) {
+		double[] launch = jumpLaunch(motionX, motionZ, heading, sprint);
+		return LavaStep.jumpPath(read, box, launch[0], launch[1], heading, jumpAirControl(sprint), JUMP_AIR_TICKS + 2);
 	}
 
 	/**
@@ -300,8 +302,8 @@ public final class BrinkGuard {
 		if (!refuseJump && checksJumpLanding(jump, brace, player.onGround(), HazardExits.fireResistant(player))) {
 			double[] heading = worldHeading(player.getYRot(), forward, strafe);
 			Vec3 now = player.getDeltaMovement();
-			BlockPos lava = LavaStep.jumpPath((x, y, z) -> player.level().getBlockState(new BlockPos(x, y, z)), player.getBoundingBox(),
-					jumpShifts(now.x, now.z, heading, player.isSprinting()), LavaStep.jumpHeights(JUMP_AIR_TICKS + 2));
+			BlockPos lava = jumpLava((x, y, z) -> player.level().getBlockState(new BlockPos(x, y, z)), player.getBoundingBox(),
+					now.x, now.z, heading, player.isSprinting());
 			takeOffChecked = lava == null;
 			if (lava != null) {
 				refuseJump = true;
@@ -504,9 +506,9 @@ public final class BrinkGuard {
 	 * sprinting) and air drag (0.91).
 	 */
 	static double[] jumpDisplacement(double motionX, double motionZ, double[] heading, boolean sprint, int ticks) {
-		double vx = motionX + heading[0] * (INPUT_ACCELERATION + (sprint ? 0.2D : 0.0D));
-		double vz = motionZ + heading[1] * (INPUT_ACCELERATION + (sprint ? 0.2D : 0.0D));
-		double air = sprint ? 0.026D : 0.02D, x = 0.0D, z = 0.0D;
+		double[] launch = jumpLaunch(motionX, motionZ, heading, sprint);
+		double vx = launch[0], vz = launch[1];
+		double air = jumpAirControl(sprint), x = 0.0D, z = 0.0D;
 		for (int tick = 0; tick < ticks; tick++) {
 			x += vx;
 			z += vz;
@@ -514,6 +516,17 @@ public final class BrinkGuard {
 			vz = vz * 0.91D + heading[1] * air;
 		}
 		return new double[] {x, z};
+	}
+
+	/** A jump's horizontal velocity as it leaves the ground: the motion now plus the take-off tick's push and sprint boost. */
+	static double[] jumpLaunch(double motionX, double motionZ, double[] heading, boolean sprint) {
+		return new double[] {motionX + heading[0] * (INPUT_ACCELERATION + (sprint ? 0.2D : 0.0D)),
+				motionZ + heading[1] * (INPUT_ACCELERATION + (sprint ? 0.2D : 0.0D))};
+	}
+
+	/** Vanilla air control a tick along the keys' heading (0.02, 0.026 sprinting). */
+	static double jumpAirControl(boolean sprint) {
+		return sprint ? 0.026D : 0.02D;
 	}
 
 	/**

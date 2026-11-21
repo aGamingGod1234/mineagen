@@ -120,56 +120,70 @@ public final class LavaStep {
 	private static final double STEP_HEIGHT = 0.6D;
 
 	/**
-	 * A lava cell a jump would touch on its way, or null when its whole path is clear. {@code shifts[t]} and
-	 * {@code heights[t]} are the jump's horizontal displacement and rise after tick t+1 (rising, falling and landing
-	 * ticks; the brink guard's jump model). A wall stops motion on its own axis only, from that tick on, as vanilla's
-	 * collide does (the larger axis first), and the check goes on: a jump angled into a tunnel wall slides along it.
-	 * Under a low ceiling the rise is cut to what fits and stays cut, never treated as safe.
+	 * A lava cell a jump would touch on its way, or null when its whole path is clear. Vanilla jump motion, tick by tick:
+	 * the body leaves the ground at {@code (vx, vz)} and 0.42 up, then each tick it moves (up or down first, then the
+	 * larger horizontal axis, as vanilla's collide does), and its velocity takes air drag 0.91 plus {@code air} along
+	 * {@code heading} and gravity. A block in the way stops motion on its axis for that tick only, as vanilla zeroes it:
+	 * a head that hits a low ceiling starts falling at once, and air control moves the body along an axis again once it
+	 * is past the wall that stopped it. The feet never go below take-off height (a drop is the brink guard's fall check).
 	 */
-	public static BlockPos jumpPath(Read read, AABB box, double[][] shifts, double[] heights) {
+	public static BlockPos jumpPath(Read read, AABB box, double vx, double vz, double[] heading, double air, int ticks) {
 		if (touched(read, box) != null) return null;
-		double ceiling = Double.MAX_VALUE, x = 0.0D, z = 0.0D, lastX = 0.0D, lastZ = 0.0D;
-		boolean xStopped = false, zStopped = false;
-		for (int tick = 0; tick < shifts.length; tick++) {
-			double dx = xStopped ? 0.0D : shifts[tick][0] - lastX, dz = zStopped ? 0.0D : shifts[tick][1] - lastZ;
-			lastX = shifts[tick][0];
-			lastZ = shifts[tick][1];
-			double want = Math.min(Math.max(0.0D, heights[tick]), ceiling);
-			boolean zFirst = Math.abs(dx) < Math.abs(dz);
+		double x = 0.0D, y = 0.0D, z = 0.0D, vy = JUMP_VELOCITY;
+		for (int tick = 0; tick < ticks; tick++) {
+			if (vy > 0.0D) {
+				double rise = clip(read, box, x, y, z, 1, vy);
+				if (rise != vy) vy = 0.0D;
+				y += rise;
+			} else {
+				y = Math.max(0.0D, y + vy);
+			}
+			boolean zFirst = Math.abs(vx) < Math.abs(vz);
 			for (int axis = 0; axis < 2; axis++) {
 				if ((axis == 0) != zFirst) {
-					if (dx != 0.0D && clearRise(read, box, x + dx, z, want) < 0.0D) xStopped = true; else x += dx;
+					if (vx == 0.0D) continue;
+					double moved = clip(read, box, x, y, z, 0, vx);
+					if (moved != vx) vx = 0.0D;
+					x += moved;
 				} else {
-					if (dz != 0.0D && clearRise(read, box, x, z + dz, want) < 0.0D) zStopped = true; else z += dz;
+					if (vz == 0.0D) continue;
+					double moved = clip(read, box, x, y, z, 2, vz);
+					if (moved != vz) vz = 0.0D;
+					z += moved;
 				}
 			}
-			double rise = Math.max(0.0D, clearRise(read, box, x, z, want));
-			if (rise < want) ceiling = rise;
-			BlockPos cell = touched(read, box.move(x, rise, z));
+			BlockPos cell = touched(read, box.move(x, y, z));
 			if (cell != null) return cell;
+			vy = (vy - GRAVITY) * VERTICAL_DRAG;
+			vx = vx * AIR_DRAG + heading[0] * air;
+			vz = vz * AIR_DRAG + heading[1] * air;
 		}
 		return null;
 	}
 
-	/** The highest rise up to {@code want} at which the box shifted by (x, z) is not blocked, or -1 when none is. */
-	private static double clearRise(Read read, AABB box, double x, double z, double want) {
-		for (double rise = want; ; rise = Math.max(0.0D, rise - 0.05D)) {
-			if (!blocked(read, box.move(x, rise, z))) return rise;
-			if (rise <= 0.0D) return -1.0D;
+	/**
+	 * How far the box at (x, y, z) moves along {@code axis} (0 x, 1 y, 2 z) of a wanted move {@code v}: all of it when
+	 * clear, else up to the block in the way, kept a thousandth short so the box rests against it as vanilla's does.
+	 */
+	private static double clip(Read read, AABB box, double x, double y, double z, int axis, double v) {
+		if (!blocked(read, shifted(box, x, y, z, axis, v))) return v;
+		double clear = 0.0D, stop = 1.0D;
+		for (int step = 0; step < 10; step++) {
+			double mid = (clear + stop) / 2.0D;
+			if (blocked(read, shifted(box, x, y, z, axis, v * mid))) stop = mid; else clear = mid;
 		}
+		return Math.copySign(Math.max(0.0D, Math.abs(v) * clear - 1.0E-3D), v);
 	}
 
-	/** A vanilla jump's rise above take-off after each of {@code ticks} ticks (0.42 up, then gravity 0.08 and drag 0.98). */
-	public static double[] jumpHeights(int ticks) {
-		double[] heights = new double[ticks];
-		double y = 0.0D, vy = 0.42D;
-		for (int tick = 0; tick < ticks; tick++) {
-			y += vy;
-			vy = (vy - 0.08D) * 0.98D;
-			heights[tick] = Math.max(0.0D, y);
-		}
-		return heights;
+	private static AABB shifted(AABB box, double x, double y, double z, int axis, double d) {
+		return box.move(x + (axis == 0 ? d : 0.0D), y + (axis == 1 ? d : 0.0D), z + (axis == 2 ? d : 0.0D));
 	}
+
+	/** Vanilla jump: 0.42 up at take-off, then gravity 0.08 and vertical drag 0.98 a tick; horizontal air drag 0.91. */
+	static final double JUMP_VELOCITY = 0.42D;
+	private static final double GRAVITY = 0.08D;
+	private static final double VERTICAL_DRAG = 0.98D;
+	static final double AIR_DRAG = 0.91D;
 
 	/**
 	 * Why a seal or plug may not place a block into {@code target} against {@code support}, or null: the same gates as

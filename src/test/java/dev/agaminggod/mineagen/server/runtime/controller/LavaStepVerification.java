@@ -59,6 +59,8 @@ public final class LavaStepVerification {
 		verifySlabFooting();
 		verifyBesideClock();
 		verifyTimeoutKeepsLavaStep();
+		verifyCeilingDrop();
+		verifyAirControlPastWall();
 		return assertions;
 	}
 
@@ -128,7 +130,7 @@ public final class LavaStepVerification {
 
 	/** The cell the brink guard's jump model meets, from standing (rising, falling and landing ticks). */
 	private static BlockPos jump(LavaStep.Read read, AABB box, double[] heading, boolean sprint) {
-		return LavaStep.jumpPath(read, box, BrinkGuard.jumpShifts(0.0D, 0.0D, heading, sprint), LavaStep.jumpHeights(BrinkGuard.JUMP_AIR_TICKS + 2));
+		return BrinkGuard.jumpLava(read, box, 0.0D, 0.0D, heading, sprint);
 	}
 
 	private static void verifySealFace() {
@@ -410,6 +412,24 @@ public final class LavaStepVerification {
 		String text = ServerTravelController.withLavaStep("The trip's timeoutMs ran out before arrival", "Stopped before stepping into lava at 3,64,0");
 		check(text.contains("LAVA_STEP") && text.contains("3,64,0"), "TRAVEL_TIMEOUT names the lava cell that stopped a leg: " + text);
 		check(ServerTravelController.withLavaStep("ran out", null).equals("ran out"), "no pending stop, no extra text");
+	}
+
+	/** Review: a jump that hits a two-high ceiling stops rising and falls at once, so a thin flow just ahead burns. */
+	private static void verifyCeilingDrop() {
+		Room room = new Room();
+		for (int x = -3; x <= 8; x++) for (int z = -3; z <= 3; z++) room.set(x, 66, z, STONE);
+		for (int z = -3; z <= 3; z++) room.set(2, 64, z, LAVA.setValue(LiquidBlock.LEVEL, 7));
+		check(new BlockPos(2, 64, 0).equals(jump(room::at, body(0.5D, 0.5D), new double[] {1.0D, 0.0D}, true)),
+				"a sprint jump under a two-high ceiling comes down at once and crosses a one-wide level-7 flow at the feet: refused");
+	}
+
+	/** Review: an axis a wall stopped moves again on air control once the body is past the wall. */
+	private static void verifyAirControlPastWall() {
+		// A two-high pillar south-east of the body's corner; lava at head height on a solid ledge past it.
+		Room room = new Room().set(1, 64, 0, STONE).set(1, 65, 0, STONE).set(1, 64, 1, STONE).set(1, 65, 1, LAVA);
+		double[] southEast = {Math.sqrt(0.5D), Math.sqrt(0.5D)};
+		check(new BlockPos(1, 65, 1).equals(jump(room::at, body(0.5D, 0.5D), southEast, true)),
+				"a sprint jump south-east past the pillar's end drifts east again into the lava: refused");
 	}
 
 	private static void check(boolean value, String reason) {
