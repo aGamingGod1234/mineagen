@@ -77,6 +77,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 	/** No spawner found by looking round: the ordinary fight_until runs instead, under this controller. */
 	private ServerFightUntilController fallback;
 	private String fallbackWhy = "";
+	/** fight_target on this blaze, held from the cell: the hold ends when it dies (or is gone), not at a rod count. */
+	private LivingEntity target;
 	private final long startedAt;
 	private final Item untilItem;
 	private final String untilItemId;
@@ -198,6 +200,12 @@ public final class ServerSpawnerHoldController implements ServerController {
 		return null;
 	}
 
+	/** The fight_target form: held from the cell until {@code target} dies. */
+	public ServerSpawnerHoldController untilDead(LivingEntity target) {
+		this.target = target;
+		return this;
+	}
+
 	/** True while a spawner hold owns this body (its whole run, not only in the cell): back-off reflexes stand aside. */
 	public static boolean holding(ServerPlayer player) {
 		return HOLDING.contains(player.getUUID());
@@ -236,6 +244,11 @@ public final class ServerSpawnerHoldController implements ServerController {
 				fleeAtHealth, player.getFoodData().getFoodLevel(), foodSlot(player) >= 0, elapsed, timeoutMs, spawnerGone,
 				phase == Phase.HOLD ? elapsed - lastBlazeMs : 0L, phase == Phase.HOLD, sitesFailed, noSiteLeft,
 				phase == Phase.HOLD && SpawnerHold.breached(witherHits, player.level().getGameTime())));
+		if (target != null && code == null) {
+			if (target.isDeadOrDying()) code = "TARGET_KILLED";
+			else if (!target.isAlive() || target.isRemoved() || target.level() != player.level()) code = "TARGET_GONE";
+		}
+		if (target != null && "FIGHT_UNTIL_TIMED_OUT".equals(code)) code = "FIGHT_TIMED_OUT";
 		if (code != null) return stop(player, handBackResult(player, code, elapsed));
 		if (!inCell || defend != null) {
 			TickResult defending = defend(player, now);
@@ -326,7 +339,9 @@ public final class ServerSpawnerHoldController implements ServerController {
 			if (!player.level().getBlockState(doorway).getCollisionShape(player.level(), doorway).isEmpty()
 					|| !player.level().getBlockState(doorway.above()).getCollisionShape(player.level(), doorway.above()).isEmpty()) {
 				sealed = true;
-				reopening = true;
+				// Walled in and still hurt: heal on before opening (the last call ended mid-heal).
+				if (player.getHealth() < SpawnerHold.TURTLE_DONE) turtleSinceMs = Math.max(0L, lastElapsed);
+				else reopening = true;
 			}
 			note("resumed the hold in its cell " + cell.toShortString() + (reopening ? ", doorway walled up" : ""));
 			return enterHold(player);
@@ -942,7 +957,10 @@ public final class ServerSpawnerHoldController implements ServerController {
 		return switch (code) {
 			case "UNTIL_COUNT_REACHED" -> TickResult.succeeded(code, "Holds " + ServerFightUntilController.count(player, untilItem) + " " + untilItemId
 					+ " (asked " + untilCount + "); " + text);
-			case "FIGHT_UNTIL_TIMED_OUT" -> TickResult.timedOut(code, String.format(Locale.ROOT, "%.0f s timeout reached; %s", timeoutMs / 1000.0D, text), progress(player));
+			case "FIGHT_UNTIL_TIMED_OUT", "FIGHT_TIMED_OUT" -> TickResult.timedOut(code, String.format(Locale.ROOT, "%.0f s timeout reached; %s", timeoutMs / 1000.0D, text), progress(player));
+			case "TARGET_KILLED" -> TickResult.succeeded(code, "Killed " + BuiltInRegistries.ENTITY_TYPE.getKey(target.getType()) + " " + target.getUUID()
+					+ " from the spawner hold's cell; " + text);
+			case "TARGET_GONE" -> TickResult.succeeded(code, BuiltInRegistries.ENTITY_TYPE.getKey(target.getType()) + " " + target.getUUID() + " is gone; " + text);
 			default -> TickResult.failed(code, why(code) + "; " + text, progress(player));
 		};
 	}

@@ -493,7 +493,7 @@ public final class ReflexEngine {
 				&& dev.agaminggod.mineagen.server.runtime.controller.CorneredStand.standing(player)
 				// A blaze spawner hold owns the body for its whole run: its roofed cell is the cover a retreat would look for,
 				// it heals there, and rod trips turn back to it when hurt. Running out onto the fortress floor is what kills.
-				|| active != null && active.type() == ActionType.FIGHT_UNTIL
+				|| active != null && (active.type() == ActionType.FIGHT_UNTIL || active.type() == ActionType.FIGHT_TARGET)
 				&& dev.agaminggod.mineagen.server.runtime.controller.ServerSpawnerHoldController.holding(player);
 		boolean firingBlocksShots = agent.scheduler.current() != null && agent.behaviour != null && agent.behaviour.blocksShots();
 		Map<String, ReflexScheduler.Sense> senses = new HashMap<>();

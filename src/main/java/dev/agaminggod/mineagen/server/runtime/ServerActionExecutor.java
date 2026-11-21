@@ -928,7 +928,8 @@ public final class ServerActionExecutor {
 			case ATTACK -> ActiveAction.aimedAtEntity(request, player,
 					() -> resolveExactObservedTarget(player, string(arguments, "targetId")),
 					() -> attack(player, string(arguments, "targetId")));
-			case FIGHT_TARGET -> ActiveAction.controller(request, player, strikePart(player, string(arguments, "targetId"), new ServerFightController(
+			case FIGHT_TARGET -> ActiveAction.controller(request, player, blazeTargetHold(request, player, arguments) instanceof dev.agaminggod.mineagen.server.runtime.controller.ServerController hold ? hold
+					: strikePart(player, string(arguments, "targetId"), new ServerFightController(
 					combatTarget(player, string(arguments, "targetId")),
 					arguments.has("desiredRange") ? number(arguments, "desiredRange") : null,
 					arguments.has("fleeAtHealth") ? (float) number(arguments, "fleeAtHealth") : null,
@@ -1874,6 +1875,31 @@ public final class ServerActionExecutor {
 		dev.agaminggod.mineagen.server.runtime.controller.CountFightChoices.copy(arguments, until);
 		return ActiveAction.controller(request, player, new dev.agaminggod.mineagen.server.runtime.controller.ServerFightUntilController(
 				player, until, protection, GameClock.nowMs(), request.type().wireName(), first, roofing(request)));
+	}
+
+	/**
+	 * fight_target on a blaze by a seen fortress spawner, hold on: the fight is held from the spawner hold's roofed cell
+	 * (built, or the one this body held before) and ends when that blaze dies, as a player fights blazes from a nook by
+	 * the spawner instead of chasing them across the deck. Main's blaze spawner rooms: the open fight died in 27 of 30.
+	 * roof:false keeps the open fight. Null when the open fight runs.
+	 */
+	private dev.agaminggod.mineagen.server.runtime.controller.ServerController blazeTargetHold(ServerActionRequest request, ServerPlayer player, JsonObject arguments) {
+		if (!dev.agaminggod.mineagen.server.runtime.controller.SpawnerHold.ENABLED || player.level().dimension() != net.minecraft.world.level.Level.NETHER) return null;
+		if (arguments.has("roof") && !bool(arguments, "roof")) return null;
+		net.minecraft.world.entity.LivingEntity target;
+		try { target = combatTarget(player, string(arguments, "targetId")); }
+		catch (AgentDomainException unresolved) { return null; }
+		if (!(target instanceof net.minecraft.world.entity.monster.Blaze)) return null;
+		BlockPos spawner = dev.agaminggod.mineagen.server.runtime.controller.ServerSpawnerHoldController.seenFortressSpawner(player);
+		if (spawner == null) return null;
+		JsonObject until = new JsonObject();
+		until.addProperty("mob", "minecraft:blaze");
+		until.addProperty("untilItem", "minecraft:blaze_rod");
+		until.addProperty("untilCount", 64 * 36);
+		if (arguments.has("fleeAtHealth")) until.addProperty("fleeAtHealth", number(arguments, "fleeAtHealth"));
+		if (arguments.has("timeoutMs")) until.addProperty("timeoutMs", integer(arguments, "timeoutMs"));
+		return new dev.agaminggod.mineagen.server.runtime.controller.ServerSpawnerHoldController(player, until, protection, spawner,
+				roofing(request), GameClock.nowMs()).untilDead(target);
 	}
 
 	/** fight_until; blazes at a seen fortress spawner get the body-owned spawner hold (roof:false keeps the open fight). */
