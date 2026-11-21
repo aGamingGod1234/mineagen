@@ -1,0 +1,516 @@
+[
+	{
+		"name": "ender-near-open",
+		"seed": "20261024",
+		"monsters": true,
+		"budgetMs": 240000,
+		"repeat": true,
+		"repeatOn": [
+			"NO_TARGET_SEEN",
+			"AREA_CLEARED",
+			"FIGHT_UNTIL_TIMED_OUT",
+			"NO_SEEN_ROUTE",
+			"TARGET_UNREACHABLE",
+			"ACTION_CANCELLED"
+		],
+		"killMob": "minecraft:enderman",
+		"inventory": [
+			{
+				"item": "minecraft:iron_sword"
+			},
+			{
+				"item": "minecraft:iron_pickaxe"
+			},
+			{
+				"item": "minecraft:shield"
+			},
+			{
+				"item": "minecraft:cooked_beef",
+				"count": 32
+			},
+			{
+				"item": "minecraft:cobblestone",
+				"count": 64
+			},
+			{
+				"item": "minecraft:cobblestone",
+				"count": 64
+			},
+			{
+				"item": "minecraft:oak_planks",
+				"count": 32
+			},
+			{
+				"item": "minecraft:water_bucket"
+			}
+		],
+		"setup": [
+			"item replace entity Probe armor.head with minecraft:golden_helmet",
+			"item replace entity Probe armor.chest with minecraft:iron_chestplate",
+			"item replace entity Probe armor.legs with minecraft:iron_leggings",
+			"item replace entity Probe armor.feet with minecraft:iron_boots",
+			"execute in minecraft:the_nether run forceload add -16 -16 64 16",
+			"execute in minecraft:the_nether run fill -6 99 -12 50 99 12 minecraft:netherrack",
+			"execute in minecraft:the_nether run fill -6 100 -12 50 114 12 minecraft:air",
+			"execute in minecraft:the_nether run fill -7 98 -13 51 115 -13 minecraft:netherrack",
+			"execute in minecraft:the_nether run fill -7 98 13 51 115 13 minecraft:netherrack",
+			"execute in minecraft:the_nether run fill -7 98 -13 -7 115 13 minecraft:netherrack",
+			"execute in minecraft:the_nether run fill 51 98 -13 51 115 13 minecraft:netherrack",
+			"execute in minecraft:the_nether run fill -7 115 -13 51 115 13 minecraft:netherrack",
+			"execute in minecraft:the_nether run tp Probe 0.5 100 0.5 -90 0",
+			"execute in minecraft:the_nether run kill @e[type=!minecraft:player,x=-6,y=99,z=-12,dx=56,dy=16,dz=24]",
+			"execute in minecraft:the_nether run summon minecraft:enderman 16.5 100 0.5 {PersistenceRequired:1b}"
+		],
+		"after": {
+			"ms": 3000,
+			"commands": []
+		},
+		"calls": [
+			{
+				"name": "do_step",
+				"arguments": {
+					"verb": "fight_until",
+					"target": {
+						"mob": "minecraft:enderman",
+						"untilItem": "minecraft:ender_pearl",
+						"untilCount": 1,
+						"weapon": "sword",
+						"collect": true,
+						"fleeAtHealth": 12
+					},
+					"why": "an enderman in sight: its pearl for eyes of ender"
+				}
+			}
+		],
+		"note": "Control: a calm enderman 16 blocks away on the open floor, inside fight_until's default 24-block area."
+	},
+	{
+		"name": "ender-far-open",
+		"seed": "20261024",
+		"monsters": true,
+		"budgetMs": 240000,
+		"repeat": true,
+		"repeatOn": [
+			"NO_TARGET_SEEN",
+			"AREA_CLEARED",
+			"FIGHT_UNTIL_TIMED_OUT",
+			"NO_SEEN_ROUTE",
+			"TARGET_UNREACHABLE",
+			"ACTION_CANCELLED"
+		],
+		"killMob": "minecraft:enderman",
+		"inventory": [
+			{
+				"item": "minecraft:iron_sword"
+			},
+			{
+				"item": "minecraft:iron_pickaxe"
+			},
+			{
+				"item": "minecraft:shield"
+			},
+			{
+				"item": "minecraft:cooked_beef",
+				"count": 32
+			},
+			{
+				"item": "minecraft:cobblestone",
+				"count": 64
+			},
+			{
+				"item": "minecraft:cobblestone",
+				"count": 64
+			},
+			{
+				"item": "minecraft:oak_planks",
+				"count": 32
+			},
+			{
+				"item": "minecraft:water_bucket"
+			}
+		],
+		"setup": [
+			"item replace entity Probe armor.head with minecraft:golden_helmet",
+			"item replace entity Probe armor.chest with minecraft:iron_chestplate",
+			"item replace entity Probe armor.legs with minecraft:iron_leggings",
+			"item replace entity Probe armor.feet with minecraft:iron_boots",
+			"execute in minecraft:the_nether run forceload add -16 -16 64 16",
+			"execute in minecraft:the_nether run fill -6 99 -12 50 99 12 minecraft:netherrack",
+			"execute in minecraft:the_nether run fill -6 100 -12 50 114 12 minecraft:air",
+			"execute in minecraft:the_nether run fill -7 98 -13 51 115 -13 minecraft:netherrack",
+			"execute in minecraft:the_nether run fill -7 98 13 51 115 13 minecraft:netherrack",
+			"execute in minecraft:the_nether run fill -7 98 -13 -7 115 13 minecraft:netherrack",
+			"execute in minecraft:the_nether run fill 51 98 -13 51 115 13 minecraft:netherrack",
+			"execute in minecraft:the_nether run fill -7 115 -13 51 115 13 minecraft:netherrack",
+			"execute in minecraft:the_nether run tp Probe 0.5 100 0.5 -90 0",
+			"execute in minecraft:the_nether run kill @e[type=!minecraft:player,x=-6,y=99,z=-12,dx=56,dy=16,dz=24]",
+			"execute in minecraft:the_nether run summon minecraft:enderman 40.5 100 0.5 {PersistenceRequired:1b}"
+		],
+		"after": {
+			"ms": 3000,
+			"commands": []
+		},
+		"calls": [
+			{
+				"name": "do_step",
+				"arguments": {
+					"verb": "fight_until",
+					"target": {
+						"mob": "minecraft:enderman",
+						"untilItem": "minecraft:ender_pearl",
+						"untilCount": 1,
+						"weapon": "sword",
+						"collect": true,
+						"fleeAtHealth": 12
+					},
+					"why": "an enderman in sight: its pearl for eyes of ender"
+				}
+			}
+		],
+		"note": "A calm enderman 40 blocks away on the open floor, beyond the default area: real games ended such hunts NO_TARGET_SEEN."
+	},
+	{
+		"name": "ender-shelf",
+		"seed": "20261024",
+		"monsters": true,
+		"budgetMs": 240000,
+		"repeat": true,
+		"repeatOn": [
+			"NO_TARGET_SEEN",
+			"AREA_CLEARED",
+			"FIGHT_UNTIL_TIMED_OUT",
+			"NO_SEEN_ROUTE",
+			"TARGET_UNREACHABLE",
+			"ACTION_CANCELLED"
+		],
+		"killMob": "minecraft:enderman",
+		"inventory": [
+			{
+				"item": "minecraft:iron_sword"
+			},
+			{
+				"item": "minecraft:iron_pickaxe"
+			},
+			{
+				"item": "minecraft:shield"
+			},
+			{
+				"item": "minecraft:cooked_beef",
+				"count": 32
+			},
+			{
+				"item": "minecraft:cobblestone",
+				"count": 64
+			},
+			{
+				"item": "minecraft:cobblestone",
+				"count": 64
+			},
+			{
+				"item": "minecraft:oak_planks",
+				"count": 32
+			},
+			{
+				"item": "minecraft:water_bucket"
+			}
+		],
+		"setup": [
+			"item replace entity Probe armor.head with minecraft:golden_helmet",
+			"item replace entity Probe armor.chest with minecraft:iron_chestplate",
+			"item replace entity Probe armor.legs with minecraft:iron_leggings",
+			"item replace entity Probe armor.feet with minecraft:iron_boots",
+			"execute in minecraft:the_nether run forceload add -16 -16 64 16",
+			"execute in minecraft:the_nether run fill -6 99 -12 50 99 12 minecraft:netherrack",
+			"execute in minecraft:the_nether run fill -6 100 -12 50 114 12 minecraft:air",
+			"execute in minecraft:the_nether run fill -7 98 -13 51 115 -13 minecraft:netherrack",
+			"execute in minecraft:the_nether run fill -7 98 13 51 115 13 minecraft:netherrack",
+			"execute in minecraft:the_nether run fill -7 98 -13 -7 115 13 minecraft:netherrack",
+			"execute in minecraft:the_nether run fill 51 98 -13 51 115 13 minecraft:netherrack",
+			"execute in minecraft:the_nether run fill -7 115 -13 51 115 13 minecraft:netherrack",
+			"execute in minecraft:the_nether run fill 27 100 -3 34 105 3 minecraft:netherrack",
+			"execute in minecraft:the_nether run tp Probe 0.5 100 0.5 -90 0",
+			"execute in minecraft:the_nether run kill @e[type=!minecraft:player,x=-6,y=99,z=-12,dx=56,dy=16,dz=24]",
+			"execute in minecraft:the_nether run summon minecraft:enderman 30.5 106 0.5 {PersistenceRequired:1b}"
+		],
+		"after": {
+			"ms": 3000,
+			"commands": []
+		},
+		"calls": [
+			{
+				"name": "do_step",
+				"arguments": {
+					"verb": "fight_until",
+					"target": {
+						"mob": "minecraft:enderman",
+						"untilItem": "minecraft:ender_pearl",
+						"untilCount": 1,
+						"weapon": "sword",
+						"collect": true,
+						"fleeAtHealth": 12
+					},
+					"why": "an enderman in sight: its pearl for eyes of ender"
+				}
+			}
+		],
+		"note": "A calm enderman 30 blocks away on a 6-high shelf no walk reaches: a player stares at it from where it stands."
+	},
+	{
+		"name": "ender-across-lava",
+		"seed": "20261024",
+		"monsters": true,
+		"budgetMs": 240000,
+		"repeat": true,
+		"repeatOn": [
+			"NO_TARGET_SEEN",
+			"AREA_CLEARED",
+			"FIGHT_UNTIL_TIMED_OUT",
+			"NO_SEEN_ROUTE",
+			"TARGET_UNREACHABLE",
+			"ACTION_CANCELLED"
+		],
+		"killMob": "minecraft:enderman",
+		"inventory": [
+			{
+				"item": "minecraft:iron_sword"
+			},
+			{
+				"item": "minecraft:iron_pickaxe"
+			},
+			{
+				"item": "minecraft:shield"
+			},
+			{
+				"item": "minecraft:cooked_beef",
+				"count": 32
+			},
+			{
+				"item": "minecraft:cobblestone",
+				"count": 64
+			},
+			{
+				"item": "minecraft:cobblestone",
+				"count": 64
+			},
+			{
+				"item": "minecraft:oak_planks",
+				"count": 32
+			},
+			{
+				"item": "minecraft:water_bucket"
+			}
+		],
+		"setup": [
+			"item replace entity Probe armor.head with minecraft:golden_helmet",
+			"item replace entity Probe armor.chest with minecraft:iron_chestplate",
+			"item replace entity Probe armor.legs with minecraft:iron_leggings",
+			"item replace entity Probe armor.feet with minecraft:iron_boots",
+			"execute in minecraft:the_nether run forceload add -16 -16 64 16",
+			"execute in minecraft:the_nether run fill -6 99 -12 50 99 12 minecraft:netherrack",
+			"execute in minecraft:the_nether run fill -6 100 -12 50 114 12 minecraft:air",
+			"execute in minecraft:the_nether run fill -7 98 -13 51 115 -13 minecraft:netherrack",
+			"execute in minecraft:the_nether run fill -7 98 13 51 115 13 minecraft:netherrack",
+			"execute in minecraft:the_nether run fill -7 98 -13 -7 115 13 minecraft:netherrack",
+			"execute in minecraft:the_nether run fill 51 98 -13 51 115 13 minecraft:netherrack",
+			"execute in minecraft:the_nether run fill -7 115 -13 51 115 13 minecraft:netherrack",
+			"execute in minecraft:the_nether run fill 9 99 -12 14 99 12 minecraft:lava",
+			"execute in minecraft:the_nether run tp Probe 0.5 100 0.5 -90 0",
+			"execute in minecraft:the_nether run kill @e[type=!minecraft:player,x=-6,y=99,z=-12,dx=56,dy=16,dz=24]",
+			"execute in minecraft:the_nether run summon minecraft:enderman 22.5 100 0.5 {PersistenceRequired:1b}"
+		],
+		"after": {
+			"ms": 3000,
+			"commands": []
+		},
+		"calls": [
+			{
+				"name": "do_step",
+				"arguments": {
+					"verb": "fight_until",
+					"target": {
+						"mob": "minecraft:enderman",
+						"untilItem": "minecraft:ender_pearl",
+						"untilCount": 1,
+						"weapon": "sword",
+						"collect": true,
+						"fleeAtHealth": 12
+					},
+					"why": "an enderman in sight: its pearl for eyes of ender"
+				}
+			}
+		],
+		"note": "A calm enderman 22 blocks away beyond a 6-wide lava moat across the whole room."
+	},
+	{
+		"name": "ender-far-lava",
+		"seed": "20261024",
+		"monsters": true,
+		"budgetMs": 240000,
+		"repeat": true,
+		"repeatOn": [
+			"NO_TARGET_SEEN",
+			"AREA_CLEARED",
+			"FIGHT_UNTIL_TIMED_OUT",
+			"NO_SEEN_ROUTE",
+			"TARGET_UNREACHABLE",
+			"ACTION_CANCELLED"
+		],
+		"killMob": "minecraft:enderman",
+		"inventory": [
+			{
+				"item": "minecraft:iron_sword"
+			},
+			{
+				"item": "minecraft:iron_pickaxe"
+			},
+			{
+				"item": "minecraft:shield"
+			},
+			{
+				"item": "minecraft:cooked_beef",
+				"count": 32
+			},
+			{
+				"item": "minecraft:cobblestone",
+				"count": 64
+			},
+			{
+				"item": "minecraft:cobblestone",
+				"count": 64
+			},
+			{
+				"item": "minecraft:oak_planks",
+				"count": 32
+			},
+			{
+				"item": "minecraft:water_bucket"
+			}
+		],
+		"setup": [
+			"item replace entity Probe armor.head with minecraft:golden_helmet",
+			"item replace entity Probe armor.chest with minecraft:iron_chestplate",
+			"item replace entity Probe armor.legs with minecraft:iron_leggings",
+			"item replace entity Probe armor.feet with minecraft:iron_boots",
+			"execute in minecraft:the_nether run forceload add -16 -16 64 16",
+			"execute in minecraft:the_nether run fill -6 99 -12 50 99 12 minecraft:netherrack",
+			"execute in minecraft:the_nether run fill -6 100 -12 50 114 12 minecraft:air",
+			"execute in minecraft:the_nether run fill -7 98 -13 51 115 -13 minecraft:netherrack",
+			"execute in minecraft:the_nether run fill -7 98 13 51 115 13 minecraft:netherrack",
+			"execute in minecraft:the_nether run fill -7 98 -13 -7 115 13 minecraft:netherrack",
+			"execute in minecraft:the_nether run fill 51 98 -13 51 115 13 minecraft:netherrack",
+			"execute in minecraft:the_nether run fill -7 115 -13 51 115 13 minecraft:netherrack",
+			"execute in minecraft:the_nether run fill 9 99 -12 14 99 12 minecraft:lava",
+			"execute in minecraft:the_nether run tp Probe 0.5 100 0.5 -90 0",
+			"execute in minecraft:the_nether run kill @e[type=!minecraft:player,x=-6,y=99,z=-12,dx=56,dy=16,dz=24]",
+			"execute in minecraft:the_nether run summon minecraft:enderman 36.5 100 0.5 {PersistenceRequired:1b}"
+		],
+		"after": {
+			"ms": 3000,
+			"commands": []
+		},
+		"calls": [
+			{
+				"name": "do_step",
+				"arguments": {
+					"verb": "fight_until",
+					"target": {
+						"mob": "minecraft:enderman",
+						"untilItem": "minecraft:ender_pearl",
+						"untilCount": 1,
+						"weapon": "sword",
+						"collect": true,
+						"fleeAtHealth": 12
+					},
+					"why": "an enderman in sight: its pearl for eyes of ender"
+				}
+			}
+		],
+		"note": "A calm enderman 36 blocks away beyond a 6-wide lava moat: beyond the default area and across lava."
+	},
+	{
+		"name": "ender-far-open-roof",
+		"seed": "20261024",
+		"monsters": true,
+		"budgetMs": 240000,
+		"repeat": true,
+		"repeatOn": [
+			"NO_TARGET_SEEN",
+			"AREA_CLEARED",
+			"FIGHT_UNTIL_TIMED_OUT",
+			"NO_SEEN_ROUTE",
+			"TARGET_UNREACHABLE",
+			"ACTION_CANCELLED"
+		],
+		"killMob": "minecraft:enderman",
+		"inventory": [
+			{
+				"item": "minecraft:iron_sword"
+			},
+			{
+				"item": "minecraft:iron_pickaxe"
+			},
+			{
+				"item": "minecraft:shield"
+			},
+			{
+				"item": "minecraft:cooked_beef",
+				"count": 32
+			},
+			{
+				"item": "minecraft:cobblestone",
+				"count": 64
+			},
+			{
+				"item": "minecraft:cobblestone",
+				"count": 64
+			},
+			{
+				"item": "minecraft:oak_planks",
+				"count": 32
+			},
+			{
+				"item": "minecraft:water_bucket"
+			}
+		],
+		"setup": [
+			"item replace entity Probe armor.head with minecraft:golden_helmet",
+			"item replace entity Probe armor.chest with minecraft:iron_chestplate",
+			"item replace entity Probe armor.legs with minecraft:iron_leggings",
+			"item replace entity Probe armor.feet with minecraft:iron_boots",
+			"execute in minecraft:the_nether run forceload add -16 -16 64 16",
+			"execute in minecraft:the_nether run fill -6 99 -12 50 99 12 minecraft:netherrack",
+			"execute in minecraft:the_nether run fill -6 100 -12 50 114 12 minecraft:air",
+			"execute in minecraft:the_nether run fill -7 98 -13 51 115 -13 minecraft:netherrack",
+			"execute in minecraft:the_nether run fill -7 98 13 51 115 13 minecraft:netherrack",
+			"execute in minecraft:the_nether run fill -7 98 -13 -7 115 13 minecraft:netherrack",
+			"execute in minecraft:the_nether run fill 51 98 -13 51 115 13 minecraft:netherrack",
+			"execute in minecraft:the_nether run fill -7 115 -13 51 115 13 minecraft:netherrack",
+			"execute in minecraft:the_nether run tp Probe 0.5 100 0.5 -90 0",
+			"execute in minecraft:the_nether run kill @e[type=!minecraft:player,x=-6,y=99,z=-12,dx=56,dy=16,dz=24]",
+			"execute in minecraft:the_nether run summon minecraft:enderman 40.5 100 0.5 {PersistenceRequired:1b}"
+		],
+		"after": {
+			"ms": 3000,
+			"commands": []
+		},
+		"calls": [
+			{
+				"name": "do_step",
+				"arguments": {
+					"verb": "fight_until",
+					"target": {
+						"mob": "minecraft:enderman",
+						"untilItem": "minecraft:ender_pearl",
+						"untilCount": 1,
+						"weapon": "sword",
+						"collect": true,
+						"fleeAtHealth": 12,
+						"roof": true
+					},
+					"why": "an enderman in sight: its pearl for eyes of ender"
+				}
+			}
+		],
+		"note": "As ender-far-open with the model's roof:true (real games asked for a roof in most enderman hunts)."
+	}
+]

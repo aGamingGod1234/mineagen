@@ -22,6 +22,8 @@
 // FIND_SEEN from afar is followed by travel_to the seen cell and the call again, as a model does with a far sighting.
 // row.reachedDuring names the call that was running ("find" or the fallback "travel_to"); row.passFind needs "find".
 // locateDimension: run the ground-truth locate in that dimension (a Nether biome is located in the Nether).
+// killMob (e.g. "minecraft:enderman"): the spot passes when the body kills one (the server's entity_killed) and does
+// not die; repeats stop at the kill. row.kills counts kills by type, row.pearlsHeld the ender pearls held at the end.
 // Production steering lives in run-incident.mjs; this body-only fixture cannot accept steer:true.
 // FIXTURE_TICK_RATE runs play faster: setup stays at 20 TPS and every deadline and wait during play is game time on the
 // fixture clock (s.clock), as is the runtime it drives, so a raised rate plays the same game. row.seconds is game
@@ -150,6 +152,11 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 				console.log(`[${spot.name}] in ${spot.reachBiome} at +${row.reachedAtS}s ${row.reachedAt.join(',')}`);
 			}
 		});
+		s.bridge.on('entity_killed', ev => {
+			if (ev.agentId !== record.agentId || !row.t0) return;
+			const type = ev.payload?.entityType;
+			if (typeof type === 'string') row.kills = { ...(row.kills ?? {}), [type]: (row.kills?.[type] ?? 0) + 1 };
+		});
 		s.bridge.on('action_result', ev => {
 			if (ev.agentId !== record.agentId || !commands.has(ev.payload.actionId)) return;
 			runtime.onActionResult(record, ev.payload);
@@ -255,6 +262,7 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 				if ((await deaths()) > deathsBefore || /TIMEOUT observation/.test(entry.message)) { row.ended = 'death or lost observations'; break; }
 				const found = result?.state === 'SUCCEEDED' && result?.reasonCode === 'FIND_SEEN';
 				if (spot.reachBiome && row.reachedAtS !== undefined) break;
+				if (spot.killMob && (row.kills?.[spot.killMob] ?? 0) >= 1) break;
 				const seen = result?.find?.seen;
 				if (spot.reachBiome && found && seen && seen.via !== 'standing in it' && now() - t0 < budgetMs - 10_000) {
 					// A far sighting: the model's next call walks there (travel_to with its defaults), then finds again.
@@ -317,6 +325,16 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		// found is null for a room with no find call; its verdict is then no death and no damage (lib/find-spot.mjs).
 		// foundAtS comes from the same find entry that decides found.
 		Object.assign(row, findSpotVerdict(spot, row));
+		if (spot.killMob) {
+			// A kill room is judged on the kill and no death; a pearl drop is vanilla's coin flip, reported, not judged.
+			await sleep(1500);
+			row.pearlsHeld = (adaptObservation(await s.observe()).inventory?.items ?? []).filter(item => item.itemId === 'minecraft:ender_pearl').reduce((n, item) => n + item.count, 0);
+			const killed = (row.kills?.[spot.killMob] ?? 0) >= 1;
+			row.pass = killed && row.deaths === 0;
+			delete row.passReason; delete row.failReason;
+			if (row.pass) { delete row.notExercised; row.passReason = `killed ${spot.killMob}, no death`; }
+			else row.failReason = [killed ? null : `no ${spot.killMob} killed`, row.deaths !== 0 ? `${row.deaths} deaths` : null].filter(Boolean).join('; ');
+		}
 		if (spot.reachBiome) {
 			// A crossing room is judged on the body standing in the biome in time, not on a sighting.
 			const reachTicks = spot.reachTicks ?? 12_000;
