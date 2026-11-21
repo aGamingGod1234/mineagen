@@ -61,7 +61,7 @@ test('publication gate reports file and line for private evidence and rejects ov
   assert.equal(spawnSync(process.execPath, [gate, dir]).status, 1);
  } finally { await rm(dir, { recursive: true, force: true }); }
 });
-test('release workflow runs only in the public repository, on Boat or hosted Windows, and passes the publication gate', async () => {
+test('release workflow runs only in the public repository, on a GitHub-hosted or Boat runner, and passes the publication gate', async () => {
  const workflow = await readFile(path.join(root, '.github/workflows/release.yml'), 'utf8');
  assert.match(workflow, /^permissions:\n  contents: read\n/m);
  const start = workflow.search(/^jobs:\n/m);
@@ -72,8 +72,8 @@ test('release workflow runs only in the public repository, on Boat or hosted Win
   const name = job.slice(0, job.indexOf(':')).trim();
   // The private repository must never build or publish a release.
   assert.match(job, /^    if: github\.repository == 'aGamingGod1234\/mineagen'(?: &&[^\n]*)?$/m, name + ' is guarded to the public repository');
-  // Tag pushes and manual runs only ever come from the repository itself, so its Linux jobs run on Boat.
-  assert.match(job, /^    runs-on: (?:boat|windows-latest)$/m, name + ' names Boat or a GitHub-hosted Windows runner');
+  // Tag pushes and manual runs only ever come from the repository itself, so a Linux job may also run on Boat.
+  assert.match(job, /^    runs-on: (?:ubuntu-latest|boat|windows-latest)$/m, name + ' names a GitHub-hosted or Boat runner');
   assert.match(job, /^    timeout-minutes: \d+$/m, name + ' has a timeout');
   // A job that holds the write token runs no checkout or build code.
   if (/contents: write/.test(job)) assert.doesNotMatch(job, /actions\/checkout|gradlew|fetch-libs|npm ci/, name + ' writes the release, so it must not build');
