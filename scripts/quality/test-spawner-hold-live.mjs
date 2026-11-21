@@ -8,7 +8,8 @@
 // The stand-in makes only calls a model makes, the same on every jar: look at the spawner once, then fight_until
 // mob:blaze untilItem:blaze_rod untilCount:UNTIL fleeAtHealth:6 timeoutMs up to 600 s, reissued after every hand-back;
 // eat bread below 10 health. The coordinator's default reflexes run with its automatic stance (ReflexBook, instincts on).
-// Variants: plain; withers (two wither skeletons summoned on the approach, between the bridge and the spawner).
+// Variants: plain; withers (two wither skeletons summoned on the approach, between the bridge and the spawner); behind (plain,
+// but the body starts facing away from the spawner and the stand-in makes no look_at first: it has not seen the spawner).
 // ARM=old feeds the stance resolver observations without wither skeletons (the old coordinator had no fortress stance).
 // Per run: rods held at the end of the window (0 after a death), game minutes to UNTIL rods, deaths, hand-back codes.
 // Pass bar (contract): UNTIL (7) rods within RUN_MIN (25) game minutes on 3 of 4 runs of a variant, at most 1 death.
@@ -160,11 +161,11 @@ async function oneRun(s, seed, variant, keepStance) {
 		await s.gameSleep(1500);
 	}
 	await build(s);
-	await s.command(`${NETHER} tp ${AGENT} ${START[0]} ${START[1]} ${START[2]} -90 0`);
+	await s.command(`${NETHER} tp ${AGENT} ${START[0]} ${START[1]} ${START[2]} ${variant === 'behind' ? 90 : -90} 0`);
 	await kit(s);
 	await s.idleSleep(3500);
 	await s.command(`${NETHER} kill @e[type=!minecraft:player,x=${SX},y=${SY},z=${SZ},distance=..64]`);
-	await s.command(`${NETHER} tp ${AGENT} ${START[0]} ${START[1]} ${START[2]} -90 0`);
+	await s.command(`${NETHER} tp ${AGENT} ${START[0]} ${START[1]} ${START[2]} ${variant === 'behind' ? 90 : -90} 0`);
 	await kit(s);
 	if (variant === 'withers') for (const [x, y, z] of WITHERS) await s.command(`${NETHER} summon minecraft:wither_skeleton ${x} ${y} ${z} {PersistenceRequired:1b}`);
 	await keepStance(await s.observe());
@@ -177,7 +178,7 @@ async function oneRun(s, seed, variant, keepStance) {
 	const watch = startHealthWatch({ readHealth: () => health(s), readDeaths: () => deathCount(s) });
 	const window = RUN_MIN * 60_000;
 	const row = { seed, variant, arm: ARM, rodsAtEnd: 0, maxRods: 0, reachedMin: null, deaths: 0, minHealth: 20, calls: {}, codes: {}, messages: [], stances: {}, startedAt };
-	const look = await s.act('look_at', { x: SX + 0.5, y: SY + 0.5, z: SZ + 0.5 }).catch(e => ({ reasonCode: String(e.message) }));
+	const look = variant === 'behind' ? { reasonCode: 'NOT_LOOKED' } : await s.act('look_at', { x: SX + 0.5, y: SY + 0.5, z: SZ + 0.5 }).catch(e => ({ reasonCode: String(e.message) }));
 	row.look = look.reasonCode;
 	let dead = false, stale = 0;
 	while ((await timer.elapsed()) < window) {
