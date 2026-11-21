@@ -28,6 +28,9 @@ function clause(text) {
 	if ((m = text.match(/^inventory\s+(.+)$/))) return all(inventoryClauses(m[1]));
 	if ((m = text.match(/^position_within\s+(\w+)\s*\(\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*\)\s*radius\s*(\d+(?:\.\d+)?)$/)))
 		return { type: 'position', dimension: `minecraft:${m[1]}`, center: [+m[2], +m[3], +m[4]], radius: +m[5] };
+	// Horizontal distance only, for a target whose height is unknown (a walk over or round a hill).
+	if ((m = text.match(/^position_within_xz\s+(\w+)\s*\(\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*\)\s*radius\s*(\d+(?:\.\d+)?)$/)))
+		return { type: 'position', horizontal: true, dimension: `minecraft:${m[1]}`, center: [+m[2], +m[3]], radius: +m[4] };
 	throw new Error(`Unparseable clause: ${text}`);
 }
 const all = of => of.length === 1 ? of[0] : { type: 'all', of };
@@ -46,7 +49,7 @@ export function parseSuccessCheck(text) {
 		if (bare(m[1]) !== 'ender_dragon') throw new Error(`No kill evidence mapping for ${m[1]}`);
 		return { type: 'advancement', id: 'end/kill_dragon' };
 	}
-	if (/^position_within\s/.test(t)) return clause(t);
+	if (/^position_within(_xz)?\s/.test(t)) return clause(t);
 	throw new Error(`Unparseable successCheck: ${t}`);
 }
 
@@ -68,6 +71,11 @@ function survivedTicks(sample, ctx) {
 	if (Number.isFinite(sample.gameTime) && Number.isFinite(ctx.goalStartTick)) return sample.gameTime - ctx.goalStartTick;
 	return (sample.at - ctx.goalStartAt) / 50;
 }
+function positionDistance(spec, sample) {
+	const p = sample?.position;
+	if (!p || sample.dimension !== spec.dimension) return null;
+	return spec.horizontal ? Math.hypot(p.x - spec.center[0], p.z - spec.center[1]) : Math.hypot(p.x - spec.center[0], p.y - spec.center[1], p.z - spec.center[2]);
+}
 function holds(spec, sample, ctx) {
 	switch (spec.type) {
 		case 'all': return spec.of.every(s => holds(s, sample, ctx));
@@ -75,8 +83,8 @@ function holds(spec, sample, ctx) {
 		case 'inventory': return inventoryHolds(spec, sample);
 		case 'advancement': return (sample.advancements ?? []).includes(spec.id);
 		case 'position': {
-			const p = sample.position;
-			return Boolean(p) && sample.dimension === spec.dimension && Math.hypot(p.x - spec.center[0], p.y - spec.center[1], p.z - spec.center[2]) <= spec.radius;
+			const d = positionDistance(spec, sample);
+			return d !== null && d <= spec.radius;
 		}
 		case 'survive': return !ctx.died && survivedTicks(sample, ctx) >= spec.ticks;
 		default: throw new Error(`Unknown check type ${spec.type}`);
@@ -180,7 +188,7 @@ export function evaluateProgress(spec, samples, { goalStartAt = null, goalStartT
 				return { type: 'survive', target: leaf.ticks, survivedTicks: survived === null ? null : Math.round(survived), died: deathAt !== null, clock: last ? gameClock ? 'game-ticks' : 'wall-fallback' : null };
 			}
 			case 'position': {
-				const distance = s => s?.position && s.dimension === leaf.dimension ? Math.hypot(s.position.x - leaf.center[0], s.position.y - leaf.center[1], s.position.z - leaf.center[2]) : null;
+				const distance = s => positionDistance(leaf, s);
 				const seen = window.map(distance).filter(d => d !== null);
 				const closest = seen.length ? seen.reduce((a, b) => Math.min(a, b)) : null, end = distance(window.at(-1));
 				return { type: 'position', dimension: bare(leaf.dimension), center: leaf.center, radius: leaf.radius, closest: closest === null ? null : round1(closest),
