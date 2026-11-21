@@ -40,8 +40,8 @@ Run from the repository root with:
 
 - Node 22 or newer
 - Java 25
-- a built mod JAR (`.\gradlew.bat build`)
-- a prepared Fabric server template (`scripts/prepare-headless-server-template.ps1`)
+- a built mod JAR (`./gradlew build`; `.\gradlew.bat build` on Windows)
+- a prepared Fabric server template: `node scripts/prepare-server-template.mjs --accept-minecraft-eula` on any OS (`scripts/prepare-headless-server-template.ps1` on Windows), then `export ARENA_HEADLESS_SERVER_TEMPLATE=<the folder it prints>`. `node scripts/doctor.mjs` checks all of these.
 - a signed-in Claude or Codex CLI
 
 ## Paths and environment
@@ -88,6 +88,17 @@ FIXTURE_TICK_RATE=60 CASES=corridor REPEATS=3 /path/to/recordings/arena-beat-gam
 ```
 
 Server start and world generation do not speed up; time in play does. `measure-tick-rate.mjs` measures what a machine holds with 1 to 4 bodies kept busy (`summary.json` per body count: `highestHeld` is the highest rate held with every lower rate held too, `notHeld` the misses, `leastBusy` the smallest share of body time spent working in any sample). One sample per rate is noisy on a shared machine, so pick a rate below `highestHeld` across several runs. `test-lag-clock-live.mjs` checks the reverse: a lagging server (`LAG=rate:10` or a real `LAG=crowd:N` pig pit) must not cut a `travel_to` or `dig_to` short. In model play the coordinator moves a program's wall-clock deadline out by the wall time the server fell behind the game clock (at most three program timeouts), so the body's own timeout still comes first. Model runs keep 20 TPS: provider timeouts are wall time.
+
+## Writing a new live fixture
+
+`coordinator/test/quality-fixture-exit.test.mjs` and the tool contracts enforce most of this; the rest is game behaviour that cost earlier fixtures a run.
+
+- Report through `finishRun` from `scripts/quality/lib/fixture-run.mjs` and exit with its code. `--help` prints the outcome line (`exit 1 = unmet acceptance, exit 2 = invalid evidence`) and exits 0 with no Java, template or slot; a run without a slot exits 2. Start from a fixture that already uses `finishRun`; the fixtures on the test's `NOT_YET_ON_FINISH_RUN` list fail this test when copied.
+- Pull every observation: call `s.observe()` before reading health, inventory or position. `s.observation` is only the last one pulled and goes stale while a long call runs.
+- Give a summoned skeleton its bow in the summon NBT, `{equipment:{mainhand:{id:"minecraft:bow",count:1}}}`; the drawn-bow fixture's first summons arrived unarmed and punched.
+- `pick_up_item` takes the drop's entity id (`stableId` or `uuid` from an observation) as `targetSelector`. Names such as `nearest_item` are rejected.
+- The model's tool schema sits at its byte budget, 1 byte under on main: three tests pin `MINECRAFT_DYNAMIC_TOOLS` (`coordinator/src/native-minecraft-tools.mjs`) at 39,476 bytes (search `coordinator/test` for `39_476`), and `coordinator/test/token-budget.test.mjs` pins `toolSchemaBytes` at 38,900. A new tool field needs a budget raise in those tests, with its reason in the pull request.
+- A Node witness in `coordinator/test/contracts/claims.json` names a test by its exact title, found by plain text search in the test file, so write the title so it reads the same in source: no escaped quotes or apostrophes, no template interpolation.
 
 ## Bed parity fixture
 
@@ -159,7 +170,7 @@ export JAVA_HOME=/usr/lib/jvm/temurin-25-jdk-amd64
 
 For unattended use on Linux, launch that wrapper in a detached session with stdout/stderr redirected to a file. The Node launcher owns separate process groups for its server, coordinator (including provider children), and runner; closeout drains captures, stops the server and terminates only those owned groups. `--out` and the retained `runtime/headless-runs/` directories provide on-disk progress and evidence.
 
-`results.json` preserves full extracted metrics and failed launches. `ladder-report.md` and `ladder-report.json` give each scenario/provider/model/repetition's pass/fail, goal minutes, deaths, body-busy percentage and tool failures. PASS requires authoritative server completion. Measurement status remains separate; unavailable values remain unknown. Failed attempts have no time-to-goal, with observed duration retained in JSON. Body-busy reuses the existing goal-window action interval union, excluding chat. A verified subtask does not certify the method used or an unassisted full run. Read each scenario's notes for supplied resources, random drop risks, alternate branches and predicate limits. Source/fixture identities and raw evidence remain in per-attempt reports beneath the output directory.
+`results.json` preserves full extracted metrics and failed launches. `ladder-report.md` and `ladder-report.json` give each scenario/provider/model/repetition's pass/fail, goal minutes, deaths, body-busy percentage and tool failures. Beside pass/fail, Progress (evaluator version 3) shows how far the run got on each clause of the check inside the budget: best and final item count net of the starting kit (for example `blaze_rod best 3/7, end 1`; the end reads `unknown` when the final sample's inventory was unreadable), ticks survived, closest distance to a target position, or whether an advancement was reached. Progress is information only and never turns a FAIL into a PASS; results saved before version 3 show `n/a` until `--rescore` recomputes them from their samples. PASS requires authoritative server completion. Measurement status remains separate; unavailable values remain unknown. Failed attempts have no time-to-goal, with observed duration retained in JSON. Body-busy reuses the existing goal-window action interval union, excluding chat. A verified subtask does not certify the method used or an unassisted full run. Read each scenario's notes for supplied resources, random drop risks, alternate branches and predicate limits. Source/fixture identities and raw evidence remain in per-attempt reports beneath the output directory.
 
 Run setup validation with no model calls on its own disposable server:
 

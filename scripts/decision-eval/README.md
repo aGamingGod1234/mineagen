@@ -354,10 +354,12 @@ The held-out cases are held-out moments and variants: some come from the same re
 (different moments, never a shared observation), so they test generalisation across moments, not across independent
 runs or worlds. A stronger split would reserve whole source runs for the evaluator.
 
+`$ARENA_DATA` below is the archive folder that holds `rundata-manifest.json`: the archive root itself, or the one subfolder that holds it.
+
 ```sh
 npm run eval:decisions -- --baseline main --split heldout \
   --cases ../../arena-quality-research/evaluator-only/decision-eval/heldout.json \
-  --expect-fixture-sha256 "@$ARENA_PRIVATE_INPUTS/coordinator/test/fixtures/decision-eval/heldout.sha256" \
+  --expect-fixture-sha256 "@$ARENA_DATA/coordinator/test/fixtures/decision-eval/heldout.sha256" \
   --out ../../arena-quality-research/evaluator-only/decision-eval/runs/<name>
 ```
 
