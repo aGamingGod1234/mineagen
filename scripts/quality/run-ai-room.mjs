@@ -11,14 +11,25 @@
 // Writes OUT/result.json and OUT/result-summary.json through finishRun, one row: pass when the check held with no
 // death (and no damage when aiRoom.pass.noDamage), with deaths, damageTaken (vanilla damage_taken, HP), modelCalls,
 // playMinutes and minutesToGoal. A row is INVALID, never a pass or a fail, when the run was not fully measured, the
-// model made no call, or the death or damage counter is missing. The ladder's own output stays in OUT/ladder.
+// model made no call, or the death or damage counter is missing. The ladder's own output stays in OUT/ladder, and the
+// run's artifacts (coordinator and model logs, samples) are copied to OUT/artifacts without the world (server/), the
+// Codex workspace (it holds a copy of the sign-in) and the RCON password.
+// Codex: with CODEX_AUTH_FILE set (room-batch --player model sends the sign-in as a batch input), the room copies it
+// into a fresh private CODEX_HOME outside OUT for this run only and deletes it after, so no copy travels back with the
+// room's folder. A machine without the codex CLI gets @openai/codex@CODEX_CLI_VERSION (default below) under ~/.local.
 import { execFileSync } from 'node:child_process';
-import { chmod, copyFile, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { chmod, copyFile, cp, mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ladderRow, parseLadderArgs, runLadder } from './run-ladder.mjs';
 import { finishRun } from './lib/fixture-run.mjs';
+
+const SKIP_ARTIFACTS = new Set(['server', 'provider-workspaces', 'rcon-password.txt', 'auth.json']);
+/** Copies a run's artifact folder into the room's output, leaving out the world and anything that holds a credential. */
+export function copyArtifacts(from, to) {
+	return cp(from, to, { recursive: true, filter: source => source === from || !SKIP_ARTIFACTS.has(path.basename(source)) });
+}
 
 export const CODEX_CLI_VERSION = '0.171.0';
 
@@ -53,7 +64,11 @@ const USAGE = `Usage: run-ai-room.mjs ROOMS.json ROOM_ID OUT_DIR JAR [--model gp
 export function aiRoomRow(room, run, { startedAt, finishedAt }) {
 	const ladder = ladderRow(run), m = run.metrics ?? {};
 	const integrity = [];
-	if (run.measurementStatus !== 'MEASURED') integrity.push({ file: 'measurement', error: `status ${run.measurementStatus ?? 'unknown'} (${run.termination ?? 'no termination'})` });
+	// A room the evaluator stops early often ends while the last call's token row is still open, so per-call token rows
+	// fall short of the thread totals and run-scenarios marks the run INCOMPLETE. That is token bookkeeping, not game
+	// evidence: such a run stays valid and says its token counts are approximate. Any other gap is INVALID.
+	const tokensOnly = run.measurementStatus === 'INCOMPLETE' && m.tokenReconciliation?.complete === false && !(run.observerErrors ?? []).length && !(m.coverage?.jsonlDroppedLines > 0);
+	if (run.measurementStatus !== 'MEASURED' && !tokensOnly) integrity.push({ file: 'measurement', error: `status ${run.measurementStatus ?? 'unknown'} (${run.termination ?? 'no termination'})` });
 	if (!(m.modelCalls > 0)) integrity.push({ file: 'provider', error: 'the model made no call' });
 	if (!Number.isFinite(m.deaths)) integrity.push({ file: 'deaths', error: 'no death counter' });
 	if (!Number.isFinite(m.damageTaken)) integrity.push({ file: 'damage_taken', error: 'no damage counter' });
@@ -67,7 +82,7 @@ export function aiRoomRow(room, run, { startedAt, finishedAt }) {
 		deaths: Number.isFinite(m.deaths) ? m.deaths : null, damageTaken: Number.isFinite(m.damageTaken) ? m.damageTaken : null,
 		modelCalls: Number.isFinite(m.modelCalls) ? m.modelCalls : null, playModelCalls: m.playModelCalls ?? null, costEstimateUsd: m.costEstimateUsd ?? null,
 		playMinutes: ladder.observedMinutes, minutesToGoal: ladder.minutesToGoal, capMinutes: room.durationBudgetMs / 60000, progress: ladder.progressText,
-		termination: run.termination ?? null, runnerTermination: run.runnerTermination ?? null, measurementStatus: run.measurementStatus ?? null, observerErrors: run.observerErrors ?? [],
+		tokensReconciled: m.tokenReconciliation?.complete ?? null, termination: run.termination ?? null, runnerTermination: run.runnerTermination ?? null, measurementStatus: run.measurementStatus ?? null, observerErrors: run.observerErrors ?? [],
 		tickRate: 20, startedAt, finishedAt };
 }
 
@@ -98,6 +113,7 @@ async function main(args) {
 		codex = await prepareCodex();
 		const options = parseLadderArgs(aiRoomLadderArgs({ rooms: path.resolve(rooms), id: room.id, out: path.resolve(out), jar: path.resolve(jar), ...flags }));
 		const [run] = await runLadder(options);
+		if (run?.artifacts) await copyArtifacts(run.artifacts, path.join(path.resolve(out), 'artifacts')).catch(error => console.warn(`artifact copy: ${error.message}`));
 		row = { ...aiRoomRow(room, run, { startedAt, finishedAt: Date.now() }), codexCli: codex.cli };
 	} catch (error) {
 		row = { name: room.name, room: room.name, scenario: room.id, player: 'model', pass: false, error: error.message, deaths: null, damageTaken: null, modelCalls: null, startedAt, finishedAt: Date.now() };
