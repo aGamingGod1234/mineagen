@@ -91,7 +91,8 @@ for (const name of ['SIGINT', 'SIGTERM']) process.on(name, () => {
 
 const pool = boatPool({ snapshot, type, ttlSeconds: 7200, namePrefix: batch.name, bundle: { codeTar: `${codeTar}.gz`, helper, jars: Object.fromEntries(flags.arms.map(arm => [arm.name, path.resolve(arm.jar)])), inputs } });
 const logFile = path.join(out, 'batch.log');
-const log = async message => { const line = `${new Date().toISOString()} ${message}`; console.log(line); await writeFile(logFile, line + '\n', { flag: 'a' }); };
+// A failed log write (a full disk) must never end the process before the machines are deleted.
+const log = async message => { const line = `${new Date().toISOString()} ${message}`; console.log(line); await writeFile(logFile, line + '\n', { flag: 'a' }).catch(() => {}); };
 const began = new Date().toISOString();
 try {
 	const result = await runBatch({ batch, rooms, arms: flags.arms, pool, vms, out, roomTimeoutMs, log, rewrite, signal: controller.signal });

@@ -42,7 +42,16 @@ const step = message => console.log(`${new Date().toISOString()} ${message}`);
 const work = await mkdtemp(path.join(os.tmpdir(), 'room-image-'));
 const began = Date.now();
 step(`creating a ${type} machine`);
-const vm = await createMachine({ type, ttlSeconds: 3600, name: `room-image-${flags.snapshot}`, snapshots: true });
+// Ctrl-C (or SIGTERM) deletes the machine before exiting, at any point of the build.
+let vm = null, stopping = false;
+for (const name of ['SIGINT', 'SIGTERM']) process.on(name, async () => {
+	if (stopping) return;
+	stopping = true;
+	step(`${name}: deleting the image machine`);
+	if (vm) await destroyMachine(vm.id).then(() => step(`deleted ${vm.id}`), error => step(`could not delete ${vm.id}: ${error.message}`));
+	process.exit(130);
+});
+vm = await createMachine({ type, ttlSeconds: 3600, name: `room-image-${flags.snapshot}`, snapshots: true });
 step(`machine ${vm.id}`);
 let saved = false;
 try {
@@ -72,11 +81,16 @@ echo ${quote(`${serverSha}  ${rooms}/template-26.3/server.jar`)} | sha256sum -c 
 		const job = { room: room.room, code: layout.code, outDir: `${layout.out}/${room.room}`, javaHome: layout.javaHome, template: layout.template, timeoutMs: 15 * 60_000, wrapper: layout.wrapper,
 			lines: room.lines.map(line => ({ ...line, jar: layout.jars.warm })) };
 		await pool.start(vm, job);
-		while (await pool.poll(vm, room.room) !== 'done') await new Promise(done => setTimeout(done, 15_000));
+		const deadline = Date.now() + job.timeoutMs + 5 * 60_000;
+		while (await pool.poll(vm, room.room) !== 'done') {
+			if (Date.now() > deadline) throw new Error('the warm-up room never wrote done.json; the image is not saved');
+			await new Promise(done => setTimeout(done, 15_000));
+		}
 		const done = JSON.parse(await remote(vm.id, `cat ${quote(`${job.outDir}/done.json`)}`));
 		const summary = JSON.parse(await remote(vm.id, `cat ${quote(`${job.outDir}/warm/result-summary.json`)} 2>/dev/null || echo null`));
 		warm = { seconds: done.seconds, exit: done.arms.warm.exit, cantKeepUp: done.arms.warm.cantKeepUp, minAvailableMb: done.machine.minAvailableMb, summary };
 		step(`warm-up room: ${JSON.stringify(warm)}`);
+		if (done.arms.warm.timedOut || done.arms.warm.signal || done.arms.warm.error) throw new Error(`the warm-up room was killed (${JSON.stringify(done.arms.warm)}); the image is not saved`);
 		if (summary?.status !== 'PASS') throw new Error(`the warm-up room did not pass (${summary?.status ?? 'no summary'}); the image is not saved`);
 		// Keep the prepared server (keyed on the template's path and file times, which every fork shares); drop the rest.
 		await remote(vm.id, `rm -rf ${quote(`${home}/batch`)} ${quote(`${home}/.cache/mineagen/fixtures/worlds`)}; ls ${quote(`${home}/.cache/mineagen/fixtures/servers`)}`);

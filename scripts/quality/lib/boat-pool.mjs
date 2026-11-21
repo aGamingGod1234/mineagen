@@ -7,7 +7,7 @@
 // it took 51 s there against the fixtures' 30 s RCON timeout, so every room on a new jar came back INVALID. The
 // machines are thrown away, so nothing needs the writes to survive a crash.
 import { spawn } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -23,7 +23,7 @@ export function boat(args, { timeoutMs = 10 * 60_000, input = null } = {}) {
 		child.on('close', code => {
 			clearTimeout(timer);
 			if (code === 0) resolve(stdout);
-			else reject(new Error(`boat ${args[0]} exited ${code}: ${(stderr || stdout).trim().split('\n').slice(-2).join(' ').slice(0, 400)}`));
+			else reject(Object.assign(new Error(`boat ${args[0]} exited ${code}: ${(stderr || stdout).trim().split('\n').slice(-2).join(' ').slice(0, 400)}`), { stdout }));
 		});
 	});
 }
@@ -54,7 +54,14 @@ export async function createMachine({ from = null, type = 'default', ttlSeconds 
 	const args = ['new', '--no-env', '--type', type, '--ttl', String(ttlSeconds), '--name', name, '--json'];
 	if (from) args.push('--from', from);
 	if (!snapshots) args.push('--no-snapshots');
-	const text = await boat(args, { timeoutMs: 10 * 60_000 });
+	let text;
+	try { text = await boat(args, { timeoutMs: 10 * 60_000 }); }
+	catch (error) {
+		// A create that fails after boat printed the sandbox id still made a machine: delete it.
+		const orphan = jsonLines(error.stdout ?? '').find(event => event.id)?.id;
+		if (orphan) await boat(['delete', orphan, '--yes']).catch(() => {});
+		throw error;
+	}
 	const events = jsonLines(text);
 	const ready = events.find(event => event.event === 'ready');
 	const id = ready?.id ?? events.find(event => event.id)?.id;
@@ -114,17 +121,24 @@ export function boatPool({ snapshot, type = 'default', ttlSeconds = 7200, namePr
 			const archive = `${vm.outDir}/${room}.tgz`;
 			// secret.txt is a throwaway per-run RCON secret; worlds are already deleted unless kept.
 			await remote(vm.id, `cd ${quote(vm.outDir)} && tar --exclude=secret.txt -czf ${quote(archive)} ${quote(room)}`);
+			// Unpack into a staging folder and move the room into place only once done.json reads, so a failed copy never
+			// leaves rows the merge could count, and a retry never inherits an earlier attempt's files.
 			await mkdir(roomsDir, { recursive: true });
-			const local = path.join(roomsDir, `${room}.tgz`);
-			await download(vm.id, archive, local);
-			await new Promise((resolve, reject) => {
-				const tar = spawn('tar', ['-xzf', local, '-C', roomsDir], { stdio: 'inherit' });
-				tar.on('error', reject);
-				tar.on('close', code => code === 0 ? resolve() : reject(new Error(`tar exited ${code}`)));
-			});
-			const { readFile, rm } = await import('node:fs/promises');
-			await rm(local);
-			return JSON.parse(await readFile(path.join(roomsDir, room, 'done.json'), 'utf8'));
+			const staging = await mkdtemp(path.join(roomsDir, `.staging-${room}-`));
+			try {
+				const local = path.join(staging, `${room}.tgz`);
+				await download(vm.id, archive, local);
+				await new Promise((resolve, reject) => {
+					const tar = spawn('tar', ['-xzf', local, '-C', staging], { stdio: 'inherit' });
+					tar.on('error', reject);
+					tar.on('close', code => code === 0 ? resolve() : reject(new Error(`tar exited ${code}`)));
+				});
+				const done = JSON.parse(await readFile(path.join(staging, room, 'done.json'), 'utf8'));
+				if (done.room !== room || typeof done.arms !== 'object') throw new Error(`done.json of ${room} does not describe it`);
+				await rm(path.join(roomsDir, room), { recursive: true, force: true });
+				await rename(path.join(staging, room), path.join(roomsDir, room));
+				return done;
+			} finally { await rm(staging, { recursive: true, force: true }); }
 		},
 		async keepAlive(vm) { await extendMachine(vm.id, ttlSeconds); log(`machine ${vm.id} deadline pushed back ${Math.round(ttlSeconds / 60)} min`); },
 		usage: vm => machineUsage(vm.id),
