@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { UNREACHED, UNREACHED_SPOT, chooseHeading, findProfile, oreRockShare, rememberedPlaces, sameVein, searchFor, seenAtOf, sightingOf } from '../src/find-search.mjs';
+import { DESCENT_RESERVE, UNREACHED, UNREACHED_SPOT, chooseHeading, pickaxeUses, stairBudget, findProfile, oreRockShare, rememberedPlaces, sameVein, searchFor, seenAtOf, sightingOf } from '../src/find-search.mjs';
 import { normalizeMinecraftToolCall } from '../src/native-minecraft-tools.mjs';
 import { isNativeBodyTool } from '../src/codex-service.mjs';
 
@@ -1886,4 +1886,25 @@ test('cave first: when no cave walk got in, the body walks back to where the wal
 	const order = body.calls.filter((call) => call.actionType).map((call) => `${call.actionType}${call.args.build === false ? ':walk' : ''}`);
 	assert.deepEqual(order, ['travel_to:walk', 'travel_to:walk', 'dig_to']);
 	assert.deepEqual([body.calls[2].args.x, body.calls[2].args.y, body.calls[2].args.z], [0.5, 70, 0.5]);
+});
+
+test('lava-gate-3 kit: stairs only as far as the pickaxes also cover a shaft for the rest and the search at depth, then the bucket shaft', async () => {
+	// An iron (250) and a stone (131) pickaxe, new: 377 uses past the 2 each dig keeps back.
+	const kit = [{ itemId: 'minecraft:iron_pickaxe', count: 1, maxDamage: 250, damage: 0 }, { itemId: 'minecraft:stone_pickaxe', count: 1, maxDamage: 131, damage: 0 },
+		{ itemId: 'minecraft:water_bucket', count: 1 }, { itemId: 'minecraft:cobblestone', count: 16 }];
+	assert.equal(pickaxeUses({ inventory: { items: kit } }), 377);
+	assert.equal(pickaxeUses({ inventory: { items: [{ itemId: 'minecraft:iron_pickaxe', count: 1 }] } }), Infinity, 'no wear reported: unknown');
+	assert.equal(stairBudget(377, 125), 2 * (377 - 125 - DESCENT_RESERVE));
+	assert.equal(stairBudget(200, 125), 0);
+	const start = sample({ player: { x: 0.5, y: 71, z: 0.5, yaw: 0, health: 20, skyOpen: true }, inventory: { items: kit } });
+	const body = fakeBody({ start, frontier: { candidates: [], coverage: { headings: {} } },
+		acts: { dig_to: [
+			// The stairs spend their budget (one use a block) and stop at the limit, about 46 blocks down.
+			{ move: () => ({ y: 25 }), then: { inventory: { items: [{ ...kit[0], damage: 184 }, kit[1], kit[2], kit[3]] } }, result: { state: 'SUCCEEDED', reasonCode: 'DIG_LIMIT_REACHED', message: 'Mined the maxBlocks limit' } },
+			{ result: { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:lava seen at 4,-54,0, 4 blocks away' } }] } });
+	const result = await searchFor({ block: 'minecraft:lava' }, body);
+	assert.equal(result.reasonCode, 'FIND_SEEN', result.message);
+	const digs = body.calls.filter((call) => call.actionType === 'dig_to').map((call) => call.args);
+	assert.deepEqual(digs.map((args) => args.pattern), ['steep_down', 'shaft']);
+	assert.ok(digs[0].maxBlocks <= stairBudget(377, 71 - findProfile({ block: 'minecraft:lava' }).depth), 'the stairs leg is capped at the budget');
 });

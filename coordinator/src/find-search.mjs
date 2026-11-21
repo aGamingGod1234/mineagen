@@ -108,9 +108,34 @@ export function sparePickaxe(observation) {
 		&& !(item.maxDamage > 0 && item.maxDamage - (item.damage ?? 0) <= 2))
 		.sort((a, b) => PICK_TIERS.indexOf(b.itemId.replace(/^minecraft:/, '').split('_')[0]) - PICK_TIERS.indexOf(a.itemId.replace(/^minecraft:/, '').split('_')[0]))[0] ?? null;
 }
+/** Uses left on every carried pickaxe, each above the 2 a dig keeps back (dig_to stops at 2 or fewer). */
+export function pickaxeUses(observation) {
+	const picks = (observation?.inventory?.items ?? []).filter((item) => /_pickaxe$/.test(item?.itemId ?? '') && item.maxDamage > 0);
+	// No wear reported (no pickaxe, or an observation without durability): unknown, never a reason to change the way down.
+	if (picks.length === 0) return Infinity;
+	return picks.reduce((sum, item) => sum + Math.max(0, item.maxDamage - (item.damage ?? 0) - 2) * Math.max(1, item.count ?? 1), 0);
+}
+/**
+ * Pickaxe uses a lava find keeps for the search at depth (tunnel legs, a carved cast site) after the way down: the
+ * stairs cost about 2 per block of depth against the shaft's 1. On the lava-gate rooms' kit (an iron and a stone
+ * pickaxe, about 380 uses) stairs from y71 wore both out at y-54 before the pool was found (lava-gate-3: 10 of 10 runs
+ * TOOL_WORN after 597 s); a winning run there spent about 150 uses at depth after the stairs.
+ */
+export const DESCENT_RESERVE = 160;
+/**
+ * Blocks of stairs a descent can afford: stairs while the uses left still cover a shaft for the rest of the depth and
+ * {@link DESCENT_RESERVE}. Each stair block takes one use and half a block of depth, so the stairs may spend
+ * 2 x (uses - depth - reserve) blocks.
+ */
+export function stairBudget(uses, depthLeft, reserve = DESCENT_RESERVE) {
+	if (!Number.isFinite(uses)) return Infinity;
+	return Math.max(0, 2 * (uses - Math.max(0, depthLeft) - reserve));
+}
 const TIMED = new Set(['travel_to', 'dig_to', 'fight_target', 'break_block', 'build_shelter']);
 const SHELTER_BLOCKS = new Set(['minecraft:cobblestone', 'minecraft:cobbled_deepslate', 'minecraft:dirt', 'minecraft:stone', 'minecraft:deepslate', 'minecraft:andesite', 'minecraft:diorite', 'minecraft:granite', 'minecraft:tuff', 'minecraft:netherrack']);
 const MAX_PEEKS = 2;
+// Shafts a lava find short of pickaxe uses may start: one, and one more after a stop (a cave, water) turned it.
+const MAX_SHORT_SHAFTS = 2;
 // Falls or spills of the target fluid seen with no source (far sight's flowing rows) a search walks over to, and the
 // missed-place reason that keeps a later search from walking to one again.
 const MAX_SPILLS = 3;
@@ -1136,7 +1161,7 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 		let rockLegs = 0;
 		const water = (observation?.inventory?.items ?? []).some((item) => item?.itemId === 'minecraft:water_bucket');
 		let heading = nearestCardinal(chooseHeading(body.frontier(observation)?.coverage?.headings));
-		let descentStops = 0, lookedAt = rock ? bodyAt(observation) : null;
+		let descentStops = 0, shaftStops = 0, lookedAt = rock ? bodyAt(observation) : null;
 		// Turns after a stop: from the last heading that went its full leg, right, then left, then back; never to and fro.
 		let base = null, turns = 0;
 		const turn = () => { base ??= heading; turns += 1; heading = CARDINALS[(CARDINALS.indexOf(base) + [1, 3, 2][(turns - 1) % 3]) % 4]; };
@@ -1472,14 +1497,21 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 				// broke a cave roof and dropped the body 28 blocks among mobs (lava-gate-8, 6 of its 11 deaths). Stairs lead back up
 				// out of a flood and stop at a cave's lip. MINEAGEN_LAVA_SHAFT=on keeps the shaft (for an A/B or a rollback).
 				const lava = profile.ids.has('minecraft:lava');
-				const pattern = (!lava || lavaShaft()) && water && descentStops === 0 && !wetGround ? 'shaft' : 'steep_down';
+				// Stairs only as far as the pickaxes last: when they cannot also cover the rest of the depth and the search
+				// there, the rest goes down the cheaper bucket shaft, as a player short of tools does.
+				const stairs = lava && profile.depth !== null ? stairBudget(pickaxeUses(observation), Math.floor(at.y + 1e-3) - profile.depth) : Infinity;
+				const short = lava && !lavaShaft() && stairs < STEP_CELLS.steep_down * 2 && water && !wetGround && shaftStops < MAX_SHORT_SHAFTS;
+				const pattern = short || ((!lava || lavaShaft()) && water && descentStops === 0 && !wetGround) ? 'shaft' : 'steep_down';
+				if (short) shaftStops += 1;
 				// At the edge of within, the stairs turn back toward the start and go on down inside it.
 				if (pattern !== 'shaft') {
 					inward();
 					if (stepsLeft(heading) < 1) return handBack('FAILED', 'FIND_NOT_FOUND', `Searched to ${within} blocks from the start`);
 				}
 				if (pattern === 'shaft' || (lava && water)) await bucketToHotbar();
-				const outcome = await leg(`dig ${pattern} to y${profile.depth}`, 'dig_to', { pattern, y: profile.depth, heading: heading.name, ...descentCap(pattern), stopWhenSeen: profile.stopId, discard: DISCARD });
+				const limit = descentCap(pattern);
+				if (pattern === 'steep_down' && Number.isFinite(stairs) && stairs >= STEP_CELLS.steep_down * 2) limit.maxBlocks = Math.min(limit.maxBlocks ?? MAX_DIG_BLOCKS, stairs);
+				const outcome = await leg(`dig ${pattern} to y${profile.depth}`, 'dig_to', { pattern, y: profile.depth, heading: heading.name, ...limit, stopWhenSeen: profile.stopId, discard: DISCARD });
 				const ended = await settle(outcome);
 				if (ended !== null) return ended;
 				const code = outcome.result?.reasonCode;
