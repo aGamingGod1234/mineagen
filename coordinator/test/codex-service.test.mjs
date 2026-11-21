@@ -2164,3 +2164,39 @@ test('the choice tool switch adds choose_response after the native tools, and on
 		await service.stop();
 	}
 });
+
+test('a danger steer during choose_response interrupts the body step it runs, like any blocking body call', async (t) => {
+	const transport = new FakeSharedTransport();
+	transport.autoComplete = false;
+	const service = new CodexService({ cwd: 'C:\\workspace' }, { transport, choiceTool: true });
+	t.after(() => service.stop());
+	const agent = await service.createAgent(profile('agent-choice-steer'), { controlProtocol: 'native_tools' });
+	await agent.setGoalRevision(1);
+	let releaseExecution;
+	let toolStarted;
+	const started = new Promise((resolve) => { toolStarted = resolve; });
+	const execution = new Promise((resolve) => { releaseExecution = resolve; });
+	const turn = agent.act('event: a zombie targets you', { goalRevision: 1, executeTool: async () => { toolStarted(); return execution; } });
+	void turn.catch(() => {});
+	await new Promise((resolve) => setImmediate(resolve));
+	transport.emit('serverRequest', { id: 91, method: 'item/tool/call',
+		params: { threadId: 'thread-1', turnId: 'turn-1', callId: 'pick', tool: 'choose_response', arguments: { choice: 'fight' } } });
+	try {
+		await started;
+		let interrupted = false;
+		const steer = agent.steer(() => 'fresh danger facts', { goalRevision: 1,
+			onInterrupt: () => { interrupted = true; releaseExecution({ state: 'RUNNING', actionId: 'fight-1', interruptedBy: 'danger', choice: 'Chosen: fight it.' }); } });
+		let response;
+		for (let attempt = 0; attempt < 10_000 && response === undefined; attempt += 1) {
+			response = transport.calls.find((call) => call.method === '$respond' && call.id === 91)?.result;
+			if (response === undefined) await new Promise((resolve) => setTimeout(resolve, 1));
+		}
+		assert.equal(interrupted, true, 'the coordinator is asked to cut the running body step short');
+		assert.notEqual(response, undefined);
+		assert.deepEqual(await steer, { turnId: 'turn-1' });
+		assert.match(response.contentItems[1].text, /fresh danger facts/);
+		assert.equal(transport.calls.some((call) => call.method === 'turn/steer'), false, 'the choice result carries the event once');
+		transport.emit('notification', { method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'completed' } } });
+		await turn;
+	} finally { releaseExecution({ state: 'RUNNING', actionId: 'fight-1' }); }
+});

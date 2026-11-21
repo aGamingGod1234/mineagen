@@ -1395,12 +1395,13 @@ export function nativeToolSchedulingClass(tool) {
 }
 
 export function isNativeBodyTool(tool) {
-	return ['sequence', 'lookAround', 'gather', 'find', 'obtain', 'run_program', 'start_action', 'replace_action'].includes(tool?.kind)
+	// choose_response runs the chosen body step in the model's place (choice-moments.mjs), so it is a body call too.
+	return ['sequence', 'choose_response', 'lookAround', 'gather', 'find', 'obtain', 'run_program', 'start_action', 'replace_action'].includes(tool?.kind)
 		|| tool?.kind === 'action' && tool.actionType !== 'chat';
 }
 
 function isBlockingNativeTool(tool) {
-	return tool?.kind === 'sequence' || tool?.kind === 'lookAround' || tool?.kind === 'gather' || tool?.kind === 'find' || tool?.kind === 'obtain'
+	return tool?.kind === 'sequence' || tool?.kind === 'choose_response' || tool?.kind === 'lookAround' || tool?.kind === 'gather' || tool?.kind === 'find' || tool?.kind === 'obtain'
 		|| tool?.kind === 'action' && tool.actionType !== 'chat';
 }
 

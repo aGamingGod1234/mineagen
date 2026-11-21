@@ -75,7 +75,9 @@ export function momentSignals({ observation = {}, trigger = null, changed = null
 	return {
 		health: Number.isFinite(player.health) ? player.health : null,
 		threats,
-		respawned: /\brespawned\b/.test(changedText) || trigger === 'respawn' || trigger === 'player_death',
+		// The death screen is not the respawn: only respawn acts while dead, so the choice waits for the living body.
+		dead: player.dead === true,
+		respawned: /\brespawned\b/.test(changedText) || trigger === 'respawn' || (trigger === 'player_death' && player.dead !== true),
 		dimensionChanged: /\bdimension \S+->\S+/.test(changedText) || trigger === 'dimension_changed',
 		nightBegan: /\bnight began\b/.test(changedText),
 		// Night on the surface only (activeContexts); underground the night changes little.
@@ -94,6 +96,7 @@ export function momentSignals({ observation = {}, trigger = null, changed = null
 
 /** The one moment kind these signals flag, most urgent first, or null. */
 export function flagMoment(s) {
+	if (s.dead) return null;
 	if (s.respawned) return 'respawned';
 	if (s.health !== null && s.health <= 8) return 'low_health';
 	if (s.threats.length > 0) return 'threat';
@@ -165,7 +168,9 @@ export function planChoice(kind, key, s) {
 		case 'kit_gap.craft_armour': return step('obtain', { item: 'minecraft:iron_chestplate' }, 'Make iron armour before going on.');
 		case 'respawned.recover_items': {
 			const d = s?.lastDeath;
-			if (!d || ![d.x, d.y, d.z].every(Number.isFinite) || (d.dimension && s.dimension && d.dimension !== s.dimension)) return { kind: 'hand_back' };
+			// The recovery record names the death's dimension dimensionId; drops in another dimension go back to the model.
+			const died = d?.dimensionId ?? d?.dimension ?? null;
+			if (!d || ![d.x, d.y, d.z].every(Number.isFinite) || died === null || (s.dimension !== null && died !== s.dimension)) return { kind: 'hand_back' };
 			return step('travel_to', { x: Math.round(d.x), y: Math.round(d.y), z: Math.round(d.z), tolerance: 2 }, 'Go back for the dropped items.');
 		}
 		case 'cave_seen.enter_cave': {

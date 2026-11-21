@@ -28,6 +28,14 @@ test('a respawn wake flags respawned even at full health with mobs about', () =>
 	assert.equal(flagMoment(momentSignals({ observation: observation(), trigger: 'player_death' })), 'respawned');
 });
 
+test('the death screen offers nothing and keeps the respawn offer for the living body', () => {
+	let now = 0;
+	const moments = new ChoiceMoments({ now: () => now });
+	assert.equal(moments.offer('a', momentSignals({ observation: observation({ dead: true, health: 0 }), trigger: 'player_death' })), null);
+	now = 5_000;
+	assert.equal(moments.offer('a', momentSignals({ observation: observation(), changed: 'respawned in overworld after death' })).kind, 'respawned');
+});
+
 test('a known cave flags cave_seen only while the next resource is an ore, in the Overworld', () => {
 	const taskFacts = '{"known":"caves: cave(air 62/125) 12m S dy+12 y42 @8,42,-200"}';
 	const s = momentSignals({ observation: observation(), taskFacts, goalNow: 'bucket 0/1; next: iron' });
@@ -81,7 +89,7 @@ test('the same kind is not offered again inside its window, and the offer is rem
 
 test('each body plan is a valid model tool call', () => {
 	const s = momentSignals({ observation: observation({ threats: [skeleton, zombie], health: 6, x: 3.7, y: 64, z: -9.2, yaw: 178 }, { inventory: { selectedSlot: 0, items: [{ itemId: 'minecraft:dirt', count: 12, slot: 3 }, { itemId: 'minecraft:cobblestone', count: 40, slot: 4 }] } }) });
-	s.lastDeath = { x: 10.4, y: 64, z: -3.6, dimension: 'minecraft:overworld' };
+	s.lastDeath = { x: 10.4, y: 64, z: -3.6, dimensionId: 'minecraft:overworld' };
 	s.cave = { x: 8, y: 42, z: -200 };
 	s.foodToHotbar = { kind: 'hotbar', sourceSlot: 12, hotbarSlot: 8, itemId: 'minecraft:bread' };
 	let calls = 0;
@@ -98,7 +106,8 @@ test('each body plan is a valid model tool call', () => {
 	assert.deepEqual(planChoice('night_falls', 'shelter', s).args.target, { x: 3, y: 64, z: -10, opening: 'north', itemId: 'minecraft:cobblestone', roof: true });
 	assert.equal(planChoice('threat', 'ignore', s).kind, 'carry_on');
 	assert.equal(planChoice('threat', 'sleep', s).kind, 'invalid');
-	assert.equal(planChoice('respawned', 'recover_items', { ...s, lastDeath: { ...s.lastDeath, dimension: 'minecraft:the_nether' } }).kind, 'hand_back', 'drops in another dimension go back to the model');
+	assert.equal(planChoice('respawned', 'recover_items', { ...s, lastDeath: { ...s.lastDeath, dimensionId: 'minecraft:the_nether' } }).kind, 'hand_back', 'drops in another dimension go back to the model');
+	assert.equal(planChoice('respawned', 'recover_items', { ...s, lastDeath: { x: 1, y: 2, z: 3 } }).kind, 'hand_back', 'a death with no known dimension goes back to the model');
 	assert.equal(planChoice('threat', 'retreat_cover', { ...s, threats: [] }).kind, 'hand_back');
 });
 
