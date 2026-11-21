@@ -350,6 +350,9 @@ public final class ServerBarterController implements ServerController {
 		double bestDistance = Double.MAX_VALUE;
 		for (BlockPos at : BlockPos.betweenClosed(feet.offset(-4, -2, -4), feet.offset(4, 3, 4))) {
 			if (!player.level().getBlockState(at).is(Blocks.CRAFTING_TABLE)) continue;
+			// A table behind a wall cannot be used: the craft would fail on its sightline, so pass it over.
+			if (TargetSightline.block(player.level(), net.minecraft.world.phys.shapes.CollisionContext.of(player), player.getEyePosition(), at,
+					player.blockInteractionRange(), null) == null) continue;
 			double d = player.getEyePosition().distanceTo(Vec3.atCenterOf(at));
 			if (d <= TABLE_REACH && d < bestDistance) { best = at.immutable(); bestDistance = d; }
 		}

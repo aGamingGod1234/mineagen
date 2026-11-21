@@ -77,7 +77,8 @@ async function act(type, args, waitMs = 65000) {
 	let r;
 	// A goal revision that moved on between the read and the send is refused unrun; send it once more on the new one.
 	for (let attempt = 0; attempt < 3; attempt++) {
-		try { r = await s.act(type, args, waitMs); } catch (error) { r = { state: 'ERROR', reasonCode: 'HARNESS_TIMEOUT', message: String(error?.message ?? error) }; }
+		// A lost or late terminal receipt is missing evidence: the room ends INVALID, never scored on a guess.
+		try { r = await s.act(type, args, waitMs); } catch (error) { throw new Error(`no terminal result for ${type}: ${String(error?.message ?? error).slice(0, 300)}`); }
 		if (r.reasonCode !== 'STALE_REVISION') break;
 		await sleep(500);
 	}
