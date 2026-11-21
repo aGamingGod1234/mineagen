@@ -5,5 +5,5 @@
 - **Result:** measured on 21 Nov over 9 distinct rooms (10 room setups, 5 repeats each).
   - 50 model rooms plus 50 script rooms took 35 minutes of wall time on 10 machines.
   - Overhead outside play was a median 38 s per room.
-  - The model passed 44 of 49 valid rooms, the script 30 of 50.
+  - The model passed 44 of 49 valid rooms, the script 29 of 50 (skeleton rerun at equal 60 s exposure after review).
   - 956 model calls, a median of 16 per room.
