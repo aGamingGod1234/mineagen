@@ -62,21 +62,30 @@ public final class DrawnBowShieldVerification {
 	}
 
 	/**
-	 * The live drawn-bow room, one tick after a block: the arrow bounced off the shield at a tenth of its speed and drops
-	 * past the head, still inside the box an arrow hits from, so the flight estimate gives it 0 s to impact. Read as a shot,
-	 * the shield turned to the line it bounced along, 8 blocks behind the body, and the archer's next draw came from behind.
+	 * The live drawn-bow room, after a block: the arrow bounced off the shield at a tenth of its speed and falls back past
+	 * the head, inside the box an arrow hits from or popped just above it, so the flight estimate reads it as landing now.
+	 * Read as a shot, the shield turned to the line it bounced along, away from the archer, whose next draw came from
+	 * behind. An arrow that struck the body or shield is no shot; a fresh one a tick from its hit still is.
 	 */
 	private static void bouncedArrowIsNoShot() {
 		net.minecraft.world.phys.AABB body = new net.minecraft.world.phys.AABB(0.2D, 80.0D, 0.2D, 0.8D, 81.8D, 0.8D);
 		Vec3 skeleton = new Vec3(9.6D, 80.0D, 6.5D);
+		java.util.function.BiPredicate<Vec3, Vec3> clear = (from, to) -> true;
 		Vec3 bounced = new Vec3(0.927D, 81.573D, 0.364D), bouncedVelocity = new Vec3(0.126D, -0.083D, 0.079D);
-		double eta = dev.agaminggod.mineagen.server.perception.ProjectilePerception.impactSeconds(bounced, bouncedVelocity, body, Vec3.ZERO, false,
-				dev.agaminggod.mineagen.server.perception.ProjectilePerception.HIT_MARGIN);
-		check(Double.isFinite(eta), "the flight estimate alone reads the bounced arrow as landing now");
-		check(Double.isNaN(ReflexSensors.shotSeconds(body, bounced, bouncedVelocity, Vec3.ZERO, false, (from, to) -> true)),
-				"an arrow already at the body has landed, so incoming_projectile and the shield's shot skip it");
+		Vec3 popped = new Vec3(0.68D, 82.1D, 0.37D), poppedVelocity = new Vec3(0.14D, -0.038D, -0.02D);
+		check(Double.isFinite(ReflexSensors.shotSeconds(false, body, bounced, bouncedVelocity, Vec3.ZERO, false, clear))
+				&& Double.isFinite(ReflexSensors.shotSeconds(false, body, popped, poppedVelocity, Vec3.ZERO, false, clear)),
+				"the flight estimate alone reads both bounces as landing now");
+		check(Double.isNaN(ReflexSensors.shotSeconds(true, body, bounced, bouncedVelocity, Vec3.ZERO, false, clear))
+				&& Double.isNaN(ReflexSensors.shotSeconds(true, body, popped, poppedVelocity, Vec3.ZERO, false, clear)),
+				"an arrow that struck the body or shield is no shot for incoming_projectile or the shield");
+		Object shot = new Object(), other = new Object();
+		java.util.UUID player = java.util.UUID.randomUUID(), someoneElse = java.util.UUID.randomUUID();
+		StruckShots.record(shot, player);
+		check(StruckShots.struck(shot, player) && !StruckShots.struck(shot, someoneElse) && !StruckShots.struck(other, player),
+				"struck is per projectile and per body: a bounce can still threaten another player");
 		Vec3 incoming = new Vec3(1.348D, 81.678D, 0.626D), incomingVelocity = new Vec3(-1.286D, -0.167D, -0.803D);
-		double next = ReflexSensors.shotSeconds(body, incoming, incomingVelocity, Vec3.ZERO, false, (from, to) -> true);
+		double next = ReflexSensors.shotSeconds(false, body, incoming, incomingVelocity, Vec3.ZERO, false, clear);
 		check(Double.isFinite(next) && next <= 0.05D, "the arrow one tick before the hit is still a shot, landing this tick");
 		Vec3 eye = new Vec3(0.5D, 81.62D, 0.5D);
 		Vec3 toIncoming = incoming.subtract(incomingVelocity.normalize().scale(8.0D)).subtract(eye), toSkeleton = skeleton.subtract(eye);

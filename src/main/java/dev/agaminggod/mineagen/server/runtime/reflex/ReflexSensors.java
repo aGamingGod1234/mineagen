@@ -353,26 +353,20 @@ public final class ReflexSensors {
 	}
 
 	/**
-	 * Whether a projectile is already at the body: inside the box an arrow hits from (the body plus vanilla's hit margin).
-	 * Its flight ended there, as a hit or bounced off the shield, so it is no shot about to land. A blocked arrow drops
-	 * back past the head at a tenth of its speed and still crossed the margin box for 2 ticks, and the shield turned to the
-	 * line it bounced along, away from the archer (live drawn-bow room).
+	 * Seconds until this projectile hits the body along a clear flight, or NaN: what incoming_projectile and shots read.
+	 * A projectile that already struck this body or its shield ({@link StruckShots}) is no shot.
 	 */
-	static boolean landed(net.minecraft.world.phys.AABB body, Vec3 at) {
-		return body.inflate(ProjectilePerception.HIT_MARGIN).contains(at);
-	}
-
-	/** Seconds until this projectile hits the body along a clear flight, or NaN: what incoming_projectile and shots read. */
 	private static double shotSeconds(ServerPlayer player, Projectile projectile, boolean fireball) {
-		return shotSeconds(player.getBoundingBox(), projectile.position(), projectile.getDeltaMovement(), player.getDeltaMovement(), fireball,
+		return shotSeconds(StruckShots.struck(projectile, player.getUUID()), player.getBoundingBox(), projectile.position(),
+				projectile.getDeltaMovement(), player.getDeltaMovement(), fireball,
 				(from, to) -> player.level().clip(new ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, projectile))
 						.getType() == HitResult.Type.MISS);
 	}
 
-	/** {@link #shotSeconds(ServerPlayer, Projectile, boolean)} without a server: NaN for a projectile that has {@link #landed}. */
-	static double shotSeconds(net.minecraft.world.phys.AABB body, Vec3 at, Vec3 velocity, Vec3 bodyVelocity, boolean fireball,
+	/** {@link #shotSeconds(ServerPlayer, Projectile, boolean)} without a server; {@code struck}: it already hit this body. */
+	static double shotSeconds(boolean struck, net.minecraft.world.phys.AABB body, Vec3 at, Vec3 velocity, Vec3 bodyVelocity, boolean fireball,
 			java.util.function.BiPredicate<Vec3, Vec3> clearFlight) {
-		if (landed(body, at)) return Double.NaN;
+		if (struck) return Double.NaN;
 		return ProjectilePerception.impactSeconds(at, velocity, body, bodyVelocity, fireball, ProjectilePerception.HIT_MARGIN, clearFlight);
 	}
 
