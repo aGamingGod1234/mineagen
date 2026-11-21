@@ -10,6 +10,9 @@ import { readArtifactReport } from '../../coordinator/src/benchmark/report-artif
 import { itemCount } from '../../coordinator/src/benchmark/quality-metrics.mjs';
 import { terminalCounter, EDIT_LOOP_HELP } from './lib/fixture-run.mjs';
 import { LONG_RUN_MILESTONES } from '../../coordinator/src/benchmark/long-run.mjs';
+import { classifyDeath, countCauses, deathEvidence } from './lib/death-causes.mjs';
+
+const DEATH_EVIDENCE = ['message', 'damageType', 'attacker', 'directAttacker'];
 
 const finite = Number.isFinite;
 const timestamp = row => row?.at ?? row?.observedAtMs ?? row?.atMs ?? row?.timestamp ?? row?.payload?.observedAtEpochMs ?? row?.payload?.updatedAtEpochMs ?? null;
@@ -149,8 +152,15 @@ export async function scoreStageRun(directory, { rawDirectory = null } = {}) {
 		if (stop && finite(Date.parse(stop[1]))) operatorStop = { kind: 'operator-stop', at: Date.parse(stop[1]), reason: stop[2] ?? 'Historical operator stop; explanation was not recorded', source: '.done marker', reasonRecorded: Boolean(stop[2]) };
 	}
 	let agentId = null, startedAt = runner?.budget?.goalStartedAt ?? report?.timeline?.startedAt ?? context?.startedAt ?? null, endedAt = null, firstDeath = null, completed = false;
-	const deathTimes = [];
-	const acceptDeath = d => { if (operatorStop && d.at > operatorStop.at || finite(startedAt) && finite(windowMs) && d.at > startedAt + windowMs) return; if (finite(d.at) && (!finite(startedAt) || d.at >= startedAt)) { if (!deathTimes.some(at => Math.abs(at - d.at) < 1500)) deathTimes.push(d.at); if (!firstDeath || d.at < firstDeath.at) firstDeath = d; } };
+	const deathTimes = [], deathRows = [];
+	// One row per death with the evidence that names its cause (death-causes.mjs); a second source of the same death fills gaps.
+	const deathRow = (d, add) => {
+		if (!d || !finite(d.at)) return;
+		const same = deathRows.find(row => Math.abs(row.at - d.at) < 1500);
+		if (same) { for (const key of DEATH_EVIDENCE) same[key] ??= d[key] ?? null; return; }
+		if (add) deathRows.push({ at: d.at, ...Object.fromEntries(DEATH_EVIDENCE.map(key => [key, d[key] ?? null])) });
+	};
+	const acceptDeath = d => { if (operatorStop && d.at > operatorStop.at || finite(startedAt) && finite(windowMs) && d.at > startedAt + windowMs) return; if (finite(d.at) && (!finite(startedAt) || d.at >= startedAt)) { if (!deathTimes.some(at => Math.abs(at - d.at) < 1500)) deathTimes.push(d.at); deathRow(d, true); if (!firstDeath || d.at < firstDeath.at) firstDeath = d; } };
 	const protocolName = raw && existsSync(path.join(raw, 'quality-protocol.jsonl')) ? 'quality-protocol.jsonl' : 'protocol.jsonl';
 	let protocolStarted = false;
 	const actions = terminalCounter();
@@ -159,7 +169,8 @@ export async function scoreStageRun(directory, { rawDirectory = null } = {}) {
 		if (e.type === 'goal_control' && p.operation === 'start' && finite(at) && !protocolStarted && (!agentId || e.agentId === agentId)) { agentId ??= e.agentId; startedAt = at; protocolStarted = true; }
 		if (agentId && e.agentId && e.agentId !== agentId) return;
 		if (finite(at) && (!finite(startedAt) || at >= startedAt) && (!finite(startedAt) || !finite(windowMs) || at <= startedAt + windowMs) && (!operatorStop || at <= operatorStop.at)) actions.accept(row);
-		if (e.type === 'goal_control' && p.operation === 'dead') acceptDeath({ at: p.death?.diedAtEpochMs ?? at, cause: p.death?.cause ?? null, source: 'protocol' });
+		if (e.type === 'goal_control' && p.operation === 'dead') acceptDeath({ at: p.death?.diedAtEpochMs ?? at, cause: p.death?.cause ?? null, message: p.death?.cause ?? null,
+			damageType: p.death?.damageType ?? null, attacker: p.death?.attacker ?? null, directAttacker: p.death?.directAttacker ?? null, source: 'protocol' });
 		if (e.type === 'goal_control' && ['stop', 'complete'].includes(p.operation) && finite(at) && (!finite(startedAt) || at >= startedAt) && (!finite(windowMs) || !finite(startedAt) || at <= startedAt + windowMs + 5000)) { endedAt = at; completed ||= p.operation === 'complete'; }
 	}, diagnostics);
 	if (!protocol.rows) diagnostics.push('Protocol absent: command arguments, exact perception, rule expiry and controller ownership may be unobservable.');
@@ -175,7 +186,10 @@ export async function scoreStageRun(directory, { rawDirectory = null } = {}) {
 	for (const f of watchFiles) await readJsonl(f, e => {
 		if (e.outcome === 'death') acceptDeath({ at: e.closedAt?.epochMs, cause: e.source?.type ?? e.kind, source: 'watcher' });
 	});
-	for (const d of outcome?.metrics?.deathEvents ?? report?.timeline?.deaths ?? []) acceptDeath({ ...d, source: 'run-record' });
+	for (const d of outcome?.metrics?.deathEvents ?? report?.timeline?.deaths ?? []) acceptDeath({ ...d, message: typeof d.cause === 'string' ? d.cause : null, source: 'run-record' });
+	// The Watcher's lethal hit names the damage type and attacker of a death already counted.
+	for (const dir of watchDirs) for (const n of (await readdir(dir).catch(() => [])).filter(n => n.endsWith('-danger.jsonl') && (!agentId || n.startsWith(agentId))))
+		await readJsonl(path.join(dir, n), row => { const d = deathEvidence(row); if (d) deathRow(d, false); });
 	const supplied = setupResources(definition?.setup);
 	const first = newStage('first_life', supplied), recovery = newStage('after_death', zero());
 	let previous = null, lastAt = null, sampleDeaths = 0;
@@ -257,6 +271,7 @@ export async function scoreStageRun(directory, { rawDirectory = null } = {}) {
 		if (!finite(at) || finite(startedAt) && at < startedAt || finite(lastAt) && at > lastAt || operatorStop && at > operatorStop.at) return;
 		if (row.event === 'native_decision_timing' && row.outcome === 'completed' && finite(row.segmentDurationMs)) latencies.push(row.segmentDurationMs);
 		if (row.event === 'native_model_call' && finite(row.totalMs)) usageLatencies.push(row.totalMs);
+		if (row.event === 'agent_death') deathRow(deathEvidence(row), false);
 		if (deathTrace && at >= traceStart && at <= traceEnd) {
 			if (row.event === 'native_tool_dispatch_started') deathTrace.dispatchedCommands.push({ at, actionId: row.actionId, actionType: row.actionType, source: 'coordinator' });
 			if (/reflexes_|action_completed/.test(row.event)) (deathTrace.coordinatorEvents ??= []).push(row);
@@ -292,6 +307,9 @@ export async function scoreStageRun(directory, { rawDirectory = null } = {}) {
 		postRunFailure: runner?.failureCategory && runner.failureCategory !== 'budget' ? { category: runner.failureCategory, classification: runner.classification, diagnostics: runner.diagnostics } : null,
 		censoring: { censored: ending.censored, unobservedRemainder: ending.censored, observedFirstLifeFailure: Boolean(firstDeath), reason: 'Continuation after the last observation is unobserved, including after a fixed budget. Observed first-life deaths remain failures.' },
 		firstLife, afterDeath, suppliedKit: { inventory: supplied, reserveContainers: suppliedReserves(definition?.setup) }, observedDeaths: !lastAt && !deathTimes.length ? null : Math.max(sampleDeaths, deathTimes.length), firstLifeDeathTrace: deathTrace,
+		// A death seen only in the samples has no receipt: unknown. Every other death has the cause its evidence names.
+		deathCauses: countCauses([...deathRows, ...Array.from({ length: Math.max(0, Math.max(sampleDeaths, deathTimes.length) - deathRows.length) }, () => ({}))]),
+		deathRecords: deathRows.map(row => ({ ...row, cause: classifyDeath(row).cause })),
 		timing: { decisionSegments: latencies.length, decisionP50Ms: p50(latencies), usageRecords: usageLatencies.length, usageRecordP50Ms: p50(usageLatencies), basis: 'completed provider decision segments; usage notification timing shown separately, never substituted' },
 		coverage: { protocolRecords: protocol.rows, samples: first.samples + recovery.samples, watcherFiles: watchFiles.length, diagnostics: [...new Set(diagnostics)] } };
 }

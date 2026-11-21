@@ -201,15 +201,16 @@ async function standardRound(root, games, { startKind = 'fresh', baseline = star
 	const dir = path.join(root, 'round9');
 	await mkdir(dir, { recursive: true });
 	await writeFile(path.join(dir, 'manifest.json'), JSON.stringify({ games: games.map(({ id }, i) => ({ id, tag: `r9-${i + 1}`, jar: `jars/route-${SHA.slice(0, 8)}.jar`, minutes: 180 })) }));
-	for (const { id, seed, stages, deaths = 0, minute = 60, samples, model = 'gpt-6.1-sol', reason } of games) {
+	for (const { id, seed, stages, deaths = 0, minute = 60, samples, model = 'gpt-6.1-sol', reason, agentId, raw = {} } of games) {
 		const game = path.join(dir, id);
 		await mkdir(path.join(game, 'raw'), { recursive: true });
 		await writeFile(path.join(game, 'timeline.json'), JSON.stringify({ stageOrder: ['iron pickaxe', 'in the Nether'], startedAt: T0, stoppedAt: T0 + minute * MIN, minute, startKind,
-			stages: Object.entries(stages).map(([stage, at]) => ({ stage, minute: at, at: T0 + at * MIN, source: at === 0 && baseline ? 'snapshot baseline' : 'observation' })), deaths: Array.from({ length: deaths }, () => ({ cause: 'x' })) }));
+			stages: Object.entries(stages).map(([stage, at]) => ({ stage, minute: at, at: T0 + at * MIN, source: at === 0 && baseline ? 'snapshot baseline' : 'observation' })), deaths: Array.isArray(deaths) ? deaths : Array.from({ length: deaths }, () => ({ cause: 'x' })), ...(agentId ? { agentId } : {}) }));
 		await writeFile(path.join(game, 'spend.json'), JSON.stringify({ usd: 2.5 }));
 		await writeFile(path.join(game, 'raw', 'manifest.json'), JSON.stringify({ provider: 'codex', model, reasoningEffort: 'low', world: { seed } }));
 		await writeFile(path.join(game, 'controller.json'), JSON.stringify({ state: 'done', at: T0, ...(reason ? { reason } : {}) }));
 		if (samples) await writeFile(path.join(game, 'raw', 'quality-samples.jsonl'), samples.map((row) => JSON.stringify(row)).join('\n') + '\n');
+		for (const [name, rows] of Object.entries(raw)) await writeFile(path.join(game, 'raw', name), rows.map((row) => JSON.stringify(row)).join('\n') + '\n');
 	}
 	return dir;
 }
@@ -403,5 +404,28 @@ test('games censored early split into cap, stall, other and unrecorded stops', a
 		assert.equal(cohort.funnel.nether.censoredEarly, 4);
 		assert.deepEqual(cohort.funnel.nether.censoredEarlyBy, { cap: 1, stall: 1, other: 1, unrecorded: 1 });
 		assert.deepEqual(cohort.stops, { cap: 1, other: 1, stall: 1, unrecorded: 1, window: 1 });
+	} finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('a round game counts deaths by cause, reading the cause of a counter-only death from its receipt at a later goal revision', async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), 'gate-report-'));
+	try {
+		const dead = (minute, goalRevision, cause, agentId = 'agent-a') => ({ observedAtMs: T0 + minute * MIN + 100, envelope: { type: 'goal_control', agentId,
+			payload: { operation: 'dead', goalRevision, updatedAtEpochMs: T0 + minute * MIN, death: { cause, diedAtEpochMs: T0 + minute * MIN } } } });
+		// The round runner kept receipts of the starting revision only; the later two deaths it saw only as death counter steps.
+		const dir = await standardRound(root, [{ id: 'game-1', seed: '777', stages: {}, agentId: 'agent-a', deaths: [
+			{ at: T0 + 10 * MIN, cause: 'ha_x was shot by Skeleton', source: 'goal_control' },
+			{ at: T0 + 30 * MIN + 4000, cause: 'unknown (counter only)', source: 'counter', counterOrdinal: 2 },
+			{ at: T0 + 50 * MIN + 2000, cause: 'unknown (counter only)', source: 'counter', counterOrdinal: 3 },
+		], raw: {
+			'quality-protocol.jsonl': [dead(10, 1, 'ha_x was shot by Skeleton'), dead(30, 2, 'ha_x tried to swim in lava to escape Zombified Piglin'),
+				dead(50, 3, 'ha_x was burned to a crisp while fighting Blaze'), dead(40, 1, 'ha_y was slain by Zombie', 'agent-b'), dead(70, 4, 'ha_x drowned')],
+		} }, { id: 'game-2', seed: '778', stages: {}, deaths: 1 }]);
+		const [first, second] = readRun(dir);
+		assert.equal(first.deaths, 3, 'the death after the game stopped is not this game\'s');
+		assert.deepEqual(first.deathCauses, { skeleton_arrow: 1, lava: 1, fire: 1 });
+		assert.deepEqual(second.deathCauses, { other: 1 }, 'a named cause the classifier does not know is other, not unknown');
+		const [cohort] = buildGate({ gate: 'r9', title: 'round 9', cohorts: [{ name: 'r9', label: 'round 9', dirs: [dir] }] }).cohorts;
+		assert.deepEqual(cohort.deathCauses, { skeleton_arrow: 1, lava: 1, fire: 1, other: 1 });
 	} finally { await rm(root, { recursive: true, force: true }); }
 });

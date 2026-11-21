@@ -159,3 +159,28 @@ test('zero-good paired PASS and missing continuations are prominent in reports',
 	assert.match(md, /1\/1 cases have no continuation/);
 	assert.match(md, /both arms have zero good/);
 });
+
+test('deaths are counted by cause from the receipt, the Watcher\'s lethal hit and the coordinator\'s death row; only a bare counter step is unknown', async () => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'stage-causes-'));
+	try {
+		const rows = [
+			{ at: 1000, health: 20, deathCounter: 0, inventoryNbt: '[]' }, { at: 3000, health: 0, deathCounter: 1, inventoryNbt: '[]' },
+			{ at: 9000, health: 0, deathCounter: 2, inventoryNbt: '[]' }, { at: 20000, health: 0, deathCounter: 3, inventoryNbt: '[]' },
+		];
+		await writeFile(path.join(dir, 'quality-samples.jsonl'), rows.map(s => JSON.stringify(s)).join('\n') + '\n');
+		const dead = (at, revision, death) => ({ observedAtMs: at, envelope: { type: 'goal_control', agentId: 'a', payload: { operation: 'dead', goalRevision: revision, updatedAtEpochMs: at, death: { diedAtEpochMs: at, ...death } } } });
+		await writeFile(path.join(dir, 'quality-protocol.jsonl'), [
+			{ observedAtMs: 1000, envelope: { type: 'goal_control', agentId: 'a', payload: { operation: 'start', updatedAtEpochMs: 1000 } } },
+			dead(2900, 1, { cause: 'a was shot by Skeleton', damageType: 'minecraft:arrow', attacker: 'minecraft:skeleton' }),
+			// After a steer the revision is 2; an older server sent only the message.
+			dead(8900, 2, { cause: 'a burned to death' }),
+		].map(r => JSON.stringify(r)).join('\n') + '\n');
+		await mkdir(path.join(dir, 'arena-watch'));
+		await writeFile(path.join(dir, 'arena-watch', 'a-danger.jsonl'), JSON.stringify({ type: 'damage', agentId: 'a', atMs: 8901, damageType: 'minecraft:on_fire', attacker: null, lethal: true }) + '\n');
+		await writeFile(path.join(dir, 'coordinator.jsonl'), JSON.stringify({ event: 'agent_death', agentId: 'a', goalRevision: 2, at: 8950, diedAtEpochMs: 8900, cause: 'a burned to death', attacker: null }) + '\n');
+		const scored = await scoreStageRun(dir);
+		assert.equal(scored.observedDeaths, 3);
+		assert.deepEqual(scored.deathCauses, { skeleton_arrow: 1, fire: 1, unknown: 1 });
+		assert.equal(scored.deathRecords[1].damageType, 'minecraft:on_fire', 'the Watcher row fills the damage type an older receipt lacks');
+	} finally { await rm(dir, { recursive: true, force: true }); }
+});

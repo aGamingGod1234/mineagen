@@ -54,7 +54,7 @@ Where things stand:
 - **Furthest from scratch:** a Nether fortress and ender pearls. No fresh-world game has yet got blaze rods, eyes of ender, the stronghold, the End or the dragon.
 - **Late game, staged:** the agent has killed the dragon from a start already in the End twice: on 2026-10-26 in 44 minutes, on older code, and on 2026-11-14 in 7 minutes. On 2026-11-14 it also entered the End once, in 11 minutes, from a start holding twelve eyes.
 - **Biggest walls:** reaching the Nether reliably (one seed has never got there in three rounds), then finding a fortress and getting blaze rods once there.
-- **Deaths:** about 2.6 per game. The 30 games in the table had 78 deaths: skeleton arrows (28), zombies (12), lava (9, all after the agent had reached the Nether), Drowned mobs (5), creepers (4), spiders (4), drowning (2) and other or unknown causes (14).
+- **Deaths:** about 2.6 per game. The 30 games in rounds 2 to 6 had 78 deaths: skeleton arrows (29), zombies (13), lava (10, all after the agent had reached the Nether), Drowned mobs (5), creepers (4), spiders (4), fire (3), endermen (3), wither skeletons (2), drowning (2), one piglin, one hoglin and one fall onto a stalagmite. None is unknown: a recount on 2026-11-21 read each death's server receipt. The first count had 14 as other or unknown, 8 of them named causes outside its list and 6 deaths the round record saw only as a death counter step.
 
 ## Keeping this page current
 

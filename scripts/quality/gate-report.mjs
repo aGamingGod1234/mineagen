@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Gate report: turns saved gate run folders into one JSON per gate, so every PR can show the product funnel without
-// running a game. Each run gives its commit, seed, the minutes to each milestone, deaths, cost, and model or scripted.
+// running a game. Each run gives its commit, seed, the minutes to each milestone, deaths by cause, cost, and model or scripted.
 //
 //   node scripts/quality/gate-report.mjs --gate 3 --title "..." --out docs/gates/gate-3.json \
 //     --cohort gate3 "#178 merged into main" DIR... [--cohort NAME LABEL DIR...] [--allow-model-mismatch]
@@ -19,6 +19,7 @@ import { pathToFileURL } from 'node:url';
 import { itemCount } from '../../coordinator/src/benchmark/quality-metrics.mjs';
 import { netherTravel, sampleObservation } from './nether-travel-metrics.mjs';
 import { stopKind } from '../../coordinator/src/benchmark/long-run.mjs';
+import { countCauses, formatCauses, mergeDeaths, readDeathEvidence, sumCauses } from './lib/death-causes.mjs';
 
 export const SCHEMA = 'arena-gate-report/v1';
 // Funnel order. null in a run = not reached in its window; a missing key = this kind of run does not measure it.
@@ -123,7 +124,8 @@ function readLongRun(dir) {
 		...profileFields(profile), ...stopFields(reason),
 		windowMin: minutes(longRun?.windowMs ?? stage.window.windowMs), ...(observed.length ? { playedMin: minutes(end - t0) } : {}),
 		milestones: Object.fromEntries(MILESTONES.filter(({ key }) => key in ms).map(({ key }) => [key, ms[key] === null ? null : minutes(ms[key] - t0)])),
-		deaths: stage.observedDeaths ?? 0, costUsd: Math.round((longRun?.spend?.usd ?? 0) * 1000) / 1000,
+		deaths: stage.observedDeaths ?? 0, deathCauses: stage.deathCauses ?? rawDeathCauses(raw, stage.identity?.agentId, t0, end, stage.observedDeaths ?? 0),
+		costUsd: Math.round((longRun?.spend?.usd ?? 0) * 1000) / 1000,
 		decisionLog: decisionFiles(raw).length > 0,
 		...samplesOf(raw, t0, end).nether,
 	}];
@@ -137,7 +139,7 @@ function readScripted(dir) {
 		const key = SCRIPTED_KEYS[row.item];
 		if (!key) throw new Error(`${dir}: scripted item ${row.item} has no funnel milestone`);
 		return { run: path.basename(dir), seed: String(row.seed), commit, ranAt: null, mode: 'scripted', model: null, ...profileFields(null), ...stopFields(null), windowMin: minutes(row.budgetMs),
-			milestones: { [key]: row.pass ? minutes(row.seconds * 1000) : null }, deaths: row.deaths ?? 0, costUsd: 0, decisionLog: false };
+			milestones: { [key]: row.pass ? minutes(row.seconds * 1000) : null }, deaths: row.deaths ?? 0, deathCauses: row.deaths ? { unknown: row.deaths } : {}, costUsd: 0, decisionLog: false };
 	});
 }
 
@@ -216,8 +218,30 @@ function readRoundGame(dir) {
 		// its milestones are not its own, so it measures none.
 		...(savePoint ? { milestones: {}, unmeasured: `start ${timeline.startKind ?? 'from a snapshot'}: inherited stages are not this game's` } : {
 			milestones: Object.fromEntries(MILESTONES.map(({ key }) => [key, ms[key] === null ? null : minutes(ms[key] - t0)])), ...samples.nether }),
-		deaths: timeline.deaths?.length ?? 0, costUsd: Math.round((spend?.usd ?? 0) * 1000) / 1000, decisionLog: false,
+		...roundDeaths(dir, timeline, t0, end), costUsd: Math.round((spend?.usd ?? 0) * 1000) / 1000, decisionLog: false,
 	}];
+}
+
+// Files a run folder's raw/ may hold with death evidence: protocol receipts, coordinator trace rows, the Watcher's danger rows.
+const DEATH_FILES = ['quality-protocol.jsonl', 'protocol.jsonl', 'coordinator.jsonl', 'coordinator-instinct.jsonl', 'danger.jsonl'];
+
+/**
+ * A round game's deaths and their causes. The timeline lists every death, but a death it could only see as a death
+ * counter step reads "unknown (counter only)": the cause is taken from the raw receipts of the same agent at any goal
+ * revision. A receipt the timeline lacks altogether is a death too.
+ */
+function roundDeaths(dir, timeline, start, end) {
+	const base = (timeline.deaths ?? []).map((death) => death.source === 'counter' || /^unknown/.test(death.cause ?? '')
+		? { at: death.at, counterOnly: true } : { at: death.at, message: death.cause ?? null });
+	const evidence = readDeathEvidence(DEATH_FILES.map((name) => path.join(dir, 'raw', name)), { agentId: timeline.agentId ?? null, from: start, to: end });
+	const deaths = mergeDeaths(base, evidence);
+	return { deaths: deaths.length, deathCauses: countCauses(deaths) };
+}
+
+/** Causes for a run scored before stage-score counted them: its raw receipts, and any death without one as unknown. */
+function rawDeathCauses(raw, agentId, start, end, total) {
+	const evidence = readDeathEvidence(DEATH_FILES.map((name) => path.join(raw, name)), { agentId: agentId ?? null, from: start, to: end });
+	return countCauses([...evidence, ...Array.from({ length: Math.max(0, total - evidence.length) }, () => ({}))]);
 }
 
 export function readRun(dir) {
@@ -378,7 +402,7 @@ export function buildGate({ gate, title, cohorts, allowModelMismatch = false }) 
 			provider: one(runs.map((run) => run.provider)), modelId: one(runs.map((run) => run.modelId)), effort: one(runs.map((run) => run.effort)),
 			stops: Object.fromEntries([...new Set(runs.map((run) => run.stopKind ?? 'unrecorded'))].sort().map((kind) => [kind, runs.filter((run) => (run.stopKind ?? 'unrecorded') === kind).length])),
 			windowMin: one(runs.map((run) => run.windowMin)), ranAt: runs.map((run) => run.ranAt).filter(Boolean).sort()[0] ?? null, seeds: [...new Set(runs.map((run) => run.seed))], runs,
-			funnel: funnel(runs), deaths: runs.reduce((sum, run) => sum + run.deaths, 0), nether: netherTotals(runs),
+			funnel: funnel(runs), deaths: runs.reduce((sum, run) => sum + run.deaths, 0), deathCauses: sumCauses(runs.map((run) => run.deathCauses)), nether: netherTotals(runs),
 			costUsd: Math.round(runs.reduce((sum, run) => sum + run.costUsd, 0) * 100) / 100, repeats: repeatsOf(runs) };
 	});
 	const notes = [];
@@ -426,6 +450,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 	if (options.out) writeFileSync(options.out, text); else process.stdout.write(text);
 	for (const cohort of report.cohorts) {
 		console.error(`${cohort.name} @ ${String(cohort.commit).slice(0, 8)}: ${cohort.seeds.length} seeds, ${cohort.runs.length} runs, deaths ${cohort.deaths}, $${cohort.costUsd}`);
+		console.error(`  Deaths by cause: ${formatCauses(cohort.deathCauses)}`);
 		console.error(`  ${'Game'.padEnd(16)} ${'Seed'.padEnd(20)} ${'Model'.padEnd(24)} ${'Effort'.padEnd(7)} ${'Played'.padEnd(13)} Stop`);
 		for (const run of cohort.runs) console.error(`  ${String(run.run).padEnd(16)} ${String(run.seed).padEnd(20)} ${String(run.mode === 'scripted' ? 'scripted' : run.modelId ?? '?').padEnd(24)} ${String(run.effort ?? '-').padEnd(7)} ${`${run.playedMin ?? '?'}/${run.windowMin ?? '?'} min`.padEnd(13)} ${run.stopKind ?? 'unrecorded'}${run.stopReason ? ` (${run.stopReason})` : ''}`);
 		for (const { key, label } of MILESTONES) if (cohort.funnel[key]) {
