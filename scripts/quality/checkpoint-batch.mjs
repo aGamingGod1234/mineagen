@@ -22,7 +22,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { appendFile, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { createMachine, download, installCodex, machineState, quote, remote, removeCodexSignIn, upload } from './lib/boat-pool.mjs';
+import { boat, createMachine, download, installCodex, machineState, quote, remote, removeCodexSignIn, upload } from './lib/boat-pool.mjs';
 import { readArtifactReport } from '../../coordinator/src/benchmark/report-artifacts.mjs';
 import { canStart, expandPlan, loseGame, nextGame, scoreGame, summarize, summaryText } from './lib/checkpoint-batch-core.mjs';
 
@@ -130,7 +130,15 @@ async function prepare(vm) {
 
 async function addMachine(kind) {
 	const vm = await createMachine({ from: plan.snapshot ?? 'mineagen-rooms-263', type: plan.type ?? 'default', ttlSeconds: 86_400, name: `${plan.name ?? 'ckpt'}-${++created}`, snapshots: false, noAutoStop: true });
-	await log(`created machine ${vm.id} (${kind})`);
+	// A machine made from a saved image keeps downloading it in the background until boat reports it hydrated; jobs
+	// started before that came back invalid in practice rooms (PR #54, which adds waitHydrated to the boat helpers).
+	const began = Date.now();
+	while (Date.now() - began < 5 * 60_000) {
+		const info = JSON.parse(await boat(['info', vm.id, '--json'], { timeoutMs: 60_000 }).catch(() => '{}')).sandbox ?? null;
+		if (info && info.hydrated !== false) break;
+		await new Promise(done => setTimeout(done, 2000));
+	}
+	await log(`created machine ${vm.id} (${kind}), image ready after ${Math.round((Date.now() - began) / 1000)} s`);
 	return { id: vm.id, created: true };
 }
 
