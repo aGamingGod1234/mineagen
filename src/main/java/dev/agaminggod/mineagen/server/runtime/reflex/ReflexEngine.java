@@ -66,9 +66,13 @@ public final class ReflexEngine {
 		return weaker;
 	}
 
-	/** Keep a moving retreat through a melee chase. Hunger and low-health cover can turn the body back into the pack. */
+	/**
+	 * Keep a moving retreat through a melee chase. Hunger and low-health cover can turn the body back into the pack, and the
+	 * default arrow shield would take the whole firing for a drawn bow: the body stops to block while the pack closes.
+	 */
 	static boolean chaseGate(ReflexScheduler scheduler, ReflexSpec.Rule rule, boolean truth, boolean fleeingWithChaser) {
-		if (!fleeingWithChaser || !rule.coordinatorDefault() || !(backsOffWhenWeaker(rule) || "eat".equals(rule.action().type()))) return truth;
+		String type = rule.action().type();
+		if (!fleeingWithChaser || !rule.coordinatorDefault() || !(backsOffWhenWeaker(rule) || "eat".equals(type) || "shield".equals(type))) return truth;
 		scheduler.discardPendingStart(rule.id());
 		return false;
 	}

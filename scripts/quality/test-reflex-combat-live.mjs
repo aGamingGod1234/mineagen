@@ -201,7 +201,9 @@ try {
 			await settle('creeper');
 		} catch (error) { await settle('creeper', error); }
 	}
-	if (want('secondCreeper')) {
+	// secondCreeperFar: the second fuse lights 5.5 blocks to the side, past the 5-block sense that would hand it over.
+	for (const [name, place] of [['secondCreeper', (p) => ({ x: p.x, z: p.z - 2.0 })], ['secondCreeperFar', (p) => ({ x: p.x + 5.5, z: p.z })]]) {
+	if (want(name)) {
 		try {
 			await reset();
 			o = await setReflexes([{ id: 'fuse', priority: 9, when: { type: 'creeper_fusing', within: 5 }, do: { type: 'sprint_away', blocks: 8 }, maxS: 8 }]);
@@ -209,7 +211,7 @@ try {
 			const played = await rate.play();
 			await command('summon minecraft:creeper 0.5 80 3.5 {NoAI:1b,ignited:1b,Fuse:120s,Tags:["firstFuse"]}');
 			if (!await until(8000, (now) => now.reflexes?.firing?.id === 'fuse')) throw new Error('first fuse never started the retreat');
-			const second = { x: o.position.x, y: o.position.y, z: o.position.z - 2.0 };
+			const second = { ...place(o.position), y: o.position.y };
 			await command(`summon minecraft:creeper ${second.x} ${second.y} ${second.z} {NoAI:1b,ignited:1b,Fuse:120s,Tags:["secondFuse"]}`);
 			const bothFusing = (sample) => (sample.threats?.entries ?? []).filter((row) => row.type === 'minecraft:creeper' && row.swelling).length === 2;
 			if (!await until(3000, (now) => now.reflexes?.firing?.id === 'fuse' && bothFusing(now))) throw new Error('two fuses did not overlap');
@@ -218,9 +220,10 @@ try {
 			if (!await until(10000, (now) => mine(now).length > 0 && !now.reflexes?.firing)) throw new Error('retreat never ended after the second fuse');
 			const separation = Math.hypot(o.position.x - second.x, o.position.z - second.z);
 			const tick = await played();
-			results.secondCreeper = { events: mine(o), separation, tick, pass: mine(o).some((row) => row.outcome === 'done') && separation >= 6 };
-			await settle('secondCreeper');
-		} catch (error) { await settle('secondCreeper', error); }
+			results[name] = { events: mine(o), separation, tick, pass: mine(o).some((row) => row.outcome === 'done') && separation >= 6 };
+			await settle(name);
+		} catch (error) { await settle(name, error); }
+	}
 	}
 	// rx-diag (R-CREEPER): on a cliff edge with the creeper coming from inland, sprint_away runs along the edge. Before, the
 	// knockback margin refused every heading once the creeper was within 3 blocks, so the body stood still and the blast

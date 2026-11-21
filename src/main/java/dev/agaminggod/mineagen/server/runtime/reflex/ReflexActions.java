@@ -710,8 +710,8 @@ final class ReflexActions {
 				return Step.running(done + "; " + held.detail());
 			}
 			LivingEntity shooter = shooterBeyondReach(player, context.focus(), player.getInventory().getItem(slot));
-			if (shooter != null && walls == null && player.tickCount >= coverRetryTick && PlaceBlock.blockSlot(player, null) >= 0
-					&& nearestChaser(player, PACK_RANGE) >= PACK_RANGE) walls = new WallIn(shooter);
+			boolean canWall = PlaceBlock.blockSlot(player, null) >= 0 && nearestChaser(player, PACK_RANGE) >= PACK_RANGE;
+			if (shooter != null && walls == null && player.tickCount >= coverRetryTick && canWall) walls = new WallIn(shooter);
 			if (walls != null) {
 				Step built = walls.tick(context, input);
 				if (built.status() == ReflexScheduler.ActionStatus.RUNNING) return Step.running(done + "; " + built.detail());
@@ -720,7 +720,8 @@ final class ReflexActions {
 				coverRetryTick = player.tickCount + 40;
 				if (built.status() == ReflexScheduler.ActionStatus.DONE) return Step.done(done + "; " + built.detail());
 			}
-			if (shooter != null && PlaceBlock.blockSlot(player, null) < 0 && (cover != null || player.tickCount >= coverRetryTick)) {
+			// No blocks, or a melee mob too near to stand building: a corner in reach is the cover.
+			if (shooter != null && !canWall && (cover != null || player.tickCount >= coverRetryTick)) {
 				if (cover == null) cover = new TakeCover(COVER_WITHIN, false);
 				Step hidden = cover.tick(new Context(player, shooter, context.stance(), context.memory(), context.point(), context.below(),
 						context.fightShields()), input);
@@ -1605,6 +1606,31 @@ final class ReflexActions {
 		return "melee".equals(ThreatDamage.expectedHit(mob, player).mode()) && ThreatDamage.meleeHitBeforeDefences(mob, player) >= PACK_HIT;
 	}
 
+	/** How near a cell's centre a pack member stands for a retreat to refuse that cell: it would run into the mob. */
+	static final double PACK_CELL_RADIUS = 1.5D;
+
+	/** A pack member ({@link #packMember}) hostile to the body stands on or beside {@code cell}. */
+	static boolean packOnCell(ServerPlayer player, GridPosition cell) {
+		double x = cell.x() + 0.5D, z = cell.z() + 0.5D;
+		return !player.level().getEntitiesOfClass(Mob.class, new AABB(x - 2.0D, cell.y() - 2.0D, z - 2.0D, x + 2.0D, cell.y() + 3.0D, z + 2.0D),
+				mob -> mob.isAlive() && ThreatPerception.isHostileTo(mob, player) && packMember(mob, player)
+						&& Math.hypot(mob.getX() - x, mob.getZ() - z) <= PACK_CELL_RADIUS && Math.abs(mob.getY() - cell.y()) < 2.0D).isEmpty();
+	}
+
+	/** A pack member within {@link #PACK_HEADING_RANGE} blocks stands within {@link #PACK_HEADING_ARC} degrees of {@code yaw}. */
+	static boolean runsIntoPack(ServerPlayer player, float yaw) {
+		for (Mob mob : player.level().getEntitiesOfClass(Mob.class, player.getBoundingBox().inflate(PACK_HEADING_RANGE),
+				mob -> mob.isAlive() && ThreatPerception.isHostileTo(mob, player) && packMember(mob, player))) {
+			if (player.distanceTo(mob) > PACK_HEADING_RANGE) continue;
+			float bearing = (float) Math.toDegrees(Math.atan2(-(mob.getX() - player.getX()), mob.getZ() - player.getZ()));
+			if (Math.abs(Mth.wrapDegrees(bearing - yaw)) <= PACK_HEADING_ARC) return true;
+		}
+		return false;
+	}
+
+	static final double PACK_HEADING_RANGE = 5.0D;
+	static final float PACK_HEADING_ARC = 40.0F;
+
 	/**
 	 * Where a pack presses from: its mobs' positions weighted by 1/distance squared, so the nearest count most and a run
 	 * leaves all of them behind instead of only the one it was told about (gate B7: a retreat from 4 zombies switched
@@ -1687,6 +1713,17 @@ final class ReflexActions {
 			for (GridPosition cell : ahead) if (flows.contains(cell) && !accepted.contains(cell)) return cell;
 			return null;
 		}
+
+		/** A cell within the next {@link #PACK_LOOKAHEAD_CELLS} that a pack member stands on or beside, or null. */
+		GridPosition packAhead(ServerPlayer player) {
+			advance(player);
+			for (GridPosition cell : path.subList(index, Math.min(path.size(), index + PACK_LOOKAHEAD_CELLS))) {
+				if (packOnCell(player, cell)) return cell;
+			}
+			return null;
+		}
+
+		static final int PACK_LOOKAHEAD_CELLS = 4;
 
 		/** The cell walked toward now (cells already reached are passed), or null once the last is reached. */
 		GridPosition next(ServerPlayer player) {
@@ -1797,6 +1834,14 @@ final class ReflexActions {
 			}
 			if (ending != null) return settle(player, input);
 			double moved = Math.hypot(player.getX() - start.x, player.getZ() - start.z);
+			// The default sense hands over a lit creeper only within 5 blocks; one lit just beyond is still inside this run's clearance.
+			if (creeper != null && (!creeper.isAlive() || !ReflexSensors.fusing(creeper))) {
+				Creeper next = otherFusing(player, creeper);
+				if (next != null) {
+					retarget(player.position());
+					creeper = next;
+				}
+			}
 			if (creeper != null && !creeper.isAlive()) {
 				return end(player, input, Step.done(String.format(Locale.ROOT, "ran %.1f blocks; creeper is gone", moved)));
 			}
@@ -1844,6 +1889,11 @@ final class ReflexActions {
 			}
 			// Lava flowing toward the way back: drop it and pick a heading (the probe refuses the flow's cells).
 			if (walk != null && walk.lavaAhead(player) != null) walk = null;
+			// A pack member stepped onto the way back (one coming up the entry tunnel): a player turns off rather than run into it.
+			if (walk != null && keepClearOfPack && walk.packAhead(player) != null) {
+				walk = null;
+				walkNote = "";
+			}
 			if (walk != null) {
 				Step step = walk.tick(player, input, canSprint(player));
 				if (step.status() == ReflexScheduler.ActionStatus.RUNNING) return Step.running(String.format(Locale.ROOT, "%s, %.1f away", walkNote.substring(2), separation));
@@ -1866,7 +1916,8 @@ final class ReflexActions {
 					&& SafeStep.blocked(player, lastHeading) == null && !runsIntoCloud(player, lastHeading)
 					&& !runsTowardVoid(player, lastHeading)) heading = lastHeading;
 			if (heading == null) heading = SafeStep.heading(player, away, offsets, lastHeading,
-					List.of(yaw -> runsIntoCloud(player, yaw) || runsTowardVoid(player, yaw), yaw -> runsTowardVoid(player, yaw)), maxDrop);
+					List.of(yaw -> runsIntoCloud(player, yaw) || runsTowardVoid(player, yaw) || keepClearOfPack && runsIntoPack(player, yaw),
+							yaw -> runsIntoCloud(player, yaw) || runsTowardVoid(player, yaw), yaw -> runsTowardVoid(player, yaw)), maxDrop);
 			lastHeading = heading;
 			if (heading == null && dropHeading != null) heading = dropHeading;
 			if (heading == null && spentAcross) return end(player, input, Step.done(String.format(Locale.ROOT, "ran %.1f blocks; no safe heading further", moved) + dropNote + walkNote));
@@ -1962,6 +2013,21 @@ final class ReflexActions {
 			return Step.running(String.format(Locale.ROOT, "running %s, %.1f away", SafeStep.compass(heading), separation));
 		}
 
+		/** The nearest lit creeper other than {@code tracked} within {@link #CREEPER_HANDOVER} blocks, or null. */
+		static Creeper otherFusing(ServerPlayer player, Creeper tracked) {
+			Creeper nearest = null;
+			double best = CREEPER_HANDOVER;
+			for (Creeper other : player.level().getEntitiesOfClass(Creeper.class, player.getBoundingBox().inflate(CREEPER_HANDOVER),
+					other -> other != tracked && other.isAlive() && ReflexSensors.fusing(other))) {
+				double distance = player.distanceTo(other);
+				if (distance <= best) { best = distance; nearest = other; }
+			}
+			return nearest;
+		}
+
+		/** Vanilla keeps a fuse burning to 7 blocks: a lit creeper that near still blows within reach of the body. */
+		static final double CREEPER_HANDOVER = 7.0D;
+
 		/** A second fuse invalidates the first creeper's route, separation and any move to settle at its end. */
 		private void retarget(Vec3 position) {
 			start = position;
@@ -2011,7 +2077,7 @@ final class ReflexActions {
 			ServerPlayer player = context.player();
 			List<GridPosition> preferred = keepClearOfPack ? context.memory().dryFooting() : List.of();
 			List<GridPosition> path = SafeStep.awayPath(player, origin.x, origin.z, MAX_PATH_STEPS, MAX_PATH_CELLS, PATH_MIN_GAIN,
-					cell -> runsIntoCloud(player, cell), maxDrop, preferred);
+					cell -> runsIntoCloud(player, cell) || keepClearOfPack && packOnCell(player, cell), maxDrop, preferred);
 			if (path == null) return null;
 			walk = new PathWalk(path);
 			GridPosition end = path.getLast();

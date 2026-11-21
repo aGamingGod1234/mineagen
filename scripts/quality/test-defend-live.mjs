@@ -117,9 +117,14 @@ try {
 				await s.command('fill -303 100 7 -297 100 13 minecraft:stone');
 				await s.command('fill -302 100 8 -298 100 12 minecraft:water');
 			}
-			if (name === 'spawner') {
+			// spawner-behind: the pack's zombie comes from behind, on the straight way back. spawner-archer: a skeleton draws
+			// from the side while the body backs out. cover-zombie: shieldless with cobblestone, a skeleton shooting, a zombie
+			// coming from 7 blocks (too near to stand building) and a stone corner 4 blocks west.
+			const spawnerCase = ['spawner', 'spawner-behind', 'spawner-archer'].includes(name);
+			if (spawnerCase) {
 				await s.command('setblock -301 100 16 minecraft:spawner{Delay:32767s,SpawnData:{entity:{id:"minecraft:zombie"}}}');
 			}
+			if (name === 'cover-zombie') await s.command('fill -304 100 9 -304 102 11 minecraft:stone');
 			await s.command(`execute in minecraft:overworld run tp ${AGENT} -299.5 ${name === 'water' ? 98 : 100} 10.5 0 0`);
 			await s.command(`clear ${AGENT}`);
 			await s.command(`item replace entity ${AGENT} container.0 with minecraft:${['approach', 'approach-hungry'].includes(name) ? 'iron_pickaxe' : 'stone_sword'}`);
@@ -137,12 +142,23 @@ try {
 			const damageBefore = await readDamage();
 			const start = await health();
 			const skeleton = `summon minecraft:skeleton %X% %Y% %Z% {PersistenceRequired:1b,equipment:{mainhand:{id:"minecraft:bow",count:1}}}`;
-			if (name === 'zombie' || name === 'spawner') await s.command(`summon minecraft:zombie -299.5 100 14.5 {PersistenceRequired:1b,CanPickUpLoot:0b,IsBaby:0b}`);
+			if (name === 'zombie' || name === 'spawner' || name === 'spawner-archer') await s.command(`summon minecraft:zombie -299.5 100 14.5 {PersistenceRequired:1b,CanPickUpLoot:0b,IsBaby:0b}`);
+			if (name === 'spawner-behind') {
+				await s.command(`summon minecraft:zombie -299.5 100 14.5 {PersistenceRequired:1b,CanPickUpLoot:0b,IsBaby:0b}`);
+				await s.command(`summon minecraft:zombie -299.5 100 5.5 {PersistenceRequired:1b,CanPickUpLoot:0b,IsBaby:0b}`);
+			}
+			if (name === 'spawner-archer') await s.command(skeleton.replace('%X%', '-288.5').replace('%Y%', '100').replace('%Z%', '8.5'));
+			if (name === 'cover-zombie') {
+				await s.command(skeleton.replace('%X%', '-299.5').replace('%Y%', '100').replace('%Z%', '20.5'));
+				await s.command(`summon minecraft:zombie -299.5 100 3.5 {PersistenceRequired:1b,CanPickUpLoot:0b,IsBaby:0b}`);
+			}
+			else if (spawnerCase || name === 'cover-zombie') { /* summoned above */ }
 			else if (name.startsWith('approach')) await s.command(`summon minecraft:zombie -299.5 100 19.5 {PersistenceRequired:1b,CanPickUpLoot:0b,IsBaby:${name === 'approach-fast' ? 1 : 0}b}`);
 			else if (name === 'water') await s.command(skeleton.replace('%X%', '-299.5').replace('%Y%', '103').replace('%Z%', '16.5'));
 			else await s.command(skeleton.replace('%X%', '-299.5').replace('%Y%', '100').replace('%Z%', '20.5'));
 			const steps = [];
 			let maxThreatDistance = 0;
+			let coverSeen = false;
 			let backOuts = 0, backingSeen = false, minHealth = start, died = false, hits = 0, shieldS = 0, fired = false, wallingSeen = false, refusal = null, stopped = null, endDetail = null;
 			let blockMap = null, commandResult = null, commandSentAt = null, wallsAtCommand = null, creeperAt = null, healthAtCreeper = null, creeperExploded = false, maxWalls = 0;
 			if (name !== 'creeper') await s.fastRate();
@@ -152,7 +168,8 @@ try {
 				await s.clock.sleep(250);
 				const o = await s.observeOrNull();
 				const detail = o?.reflexes?.firing?.id === 'default-defend' ? String(o.reflexes.firing.detail ?? '') : '';
-				if (name === 'spawner' && o?.position) {
+				if (/taking cover from|cover: in cover at|in cover at/.test(detail)) coverSeen = true;
+				if (spawnerCase && o?.position) {
 					maxThreatDistance = Math.max(maxThreatDistance, Math.hypot(o.position.x + 300.5, o.position.z - 16.5));
 				}
 				if (name === 'open-archer' && o?.position) {
@@ -227,16 +244,17 @@ try {
 					endMap.cells[`${dx},${dy},${dz}`] = kind;
 				}
 			}
-			const row = { case: name, run, food, defendFired: fired, hitsBack: hits, backOuts, backingSeen, shieldSeconds: shieldS, wallingSeen, refusal, stopped, maxWalls, wallsAtEnd,
+			const row = { case: name, run, food, coverSeen, defendFired: fired, hitsBack: hits, backOuts, backingSeen, shieldSeconds: shieldS, wallingSeen, refusal, stopped, maxWalls, wallsAtEnd,
 				wallsAtCommand, commandResult, creeperExploded, blastDamage: healthAtCreeper === null ? null : +(healthAtCreeper - (died ? 0 : minHealth)).toFixed(1),
 				endDetail, steps, blockMap, endMap, died, healthLost: died ? start : +(start - minHealth).toFixed(1),
 				seconds, wallSeconds, gameSeconds, rates, tick: { rate: s.tickRate, held: await s.tickReport() } };
 			Object.assign(row, damageEvidence(damageBefore, await readDamage(), start, healthEnd));
 			recordDeathEvidence(row, deathsBefore, deathsEnd);
-			if (name === 'spawner' || name === 'open-archer') {
+			if (spawnerCase || name === 'open-archer') {
 				row.maxThreatDistance = +maxThreatDistance.toFixed(1);
-				row.pass = !died && maxThreatDistance >= (name === 'spawner' ? 12 : 16);
+				row.pass = !died && maxThreatDistance >= (spawnerCase ? 12 : 16);
 			}
+			if (name === 'cover-zombie') row.pass = !died && coverSeen;
 			runs.push(row);
 			console.log(`[defend] ${name}#${run}: fired ${fired}, hits back ${hits}, back-outs ${backOuts} (backing seen ${backingSeen})${food !== null ? `, food ${food}` : ''}, shield ${shieldS} s, walling ${wallingSeen}, walls max ${maxWalls} end ${wallsAtEnd}${refusal ? `, ${refusal}` : ''}${stopped ? `, ${stopped}` : ''}${commandResult ? `, command ${JSON.stringify(commandResult)} (walls when sent ${wallsAtCommand})` : ''}${healthAtCreeper !== null ? `, creeper exploded ${creeperExploded}, blast damage ${row.blastDamage}` : ''}, ${died ? 'DIED' : `lost ${row.healthLost}`}`);
 			await writeFile(path.join(out, 'runs.json'), JSON.stringify(runs, null, 1));
