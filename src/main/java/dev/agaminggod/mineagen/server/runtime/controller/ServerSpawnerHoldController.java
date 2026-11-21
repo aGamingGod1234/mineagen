@@ -793,7 +793,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 			double blazeNear = Math.min(nearest(blazes, item.position()), nearest(blazes, player.position()));
 			int blazesNearRod = (int) blazes.stream().filter(b -> b.position().distanceTo(item.position()) <= SpawnerHold.LEDGE_BLAZE_RANGE).count();
 			if (!SpawnerHold.mayCollect(player.getHealth(), witherToBody, nearest(withers, item.position()), blazeNear, item.getAge())
-					&& !SpawnerHold.mayStepOut(player.getHealth(), witherToBody, nearest(withers, item.position()), item.position().distanceTo(middle), blazesNearRod)) continue;
+					&& !SpawnerHold.mayStepOut(player.getHealth(), witherToBody, nearest(withers, item.position()), item.position().distanceTo(middle), blazesNearRod)
+					&& !SpawnerHold.mayFetchBold(player.getHealth(), witherToBody, nearest(withers, item.position()), nearest(blazes, item.position()), item.position().distanceTo(middle))) continue;
 			ids.add(item.getUUID());
 		}
 		return ids;
