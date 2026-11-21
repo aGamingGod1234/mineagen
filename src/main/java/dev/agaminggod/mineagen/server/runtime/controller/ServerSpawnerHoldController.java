@@ -108,6 +108,15 @@ public final class ServerSpawnerHoldController implements ServerController {
 	private ServerFightController defend;
 	private int defends;
 	private KillDropCollector collector;
+	/**
+	 * A rod that landed on a ledge above the feet (the platform round a fortress spawner, over the cell's floor) is
+	 * fetched by the count fight's ledge trip: up the steps, or a pillar beside the ledge, and back down to the cell.
+	 * Live (real fortress spawner room): the pickup refused such rods on every tick, 1,977 trips that stopped the fight
+	 * each time, 19 kills for 1 rod.
+	 */
+	private LedgeFetch ledge;
+	private final Set<UUID> ledgeTried = new java.util.HashSet<>();
+	private int ledgeTrips, ledgeRods, heldBeforeLedge;
 	private boolean returning;
 	private int eatTicks = -1, eatSlot = -1, eatCount;
 	private final CombatInputLease shieldInput = new CombatInputLease();
@@ -288,6 +297,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 			cancelWalk(player);
 			if (work != null) { work.cancel(player); work = null; }
 			if (collector != null) { collector.cancel(player); collector = null; returning = true; }
+			if (ledge != null) { ledge.cancel(player); ledge = null; returning = true; }
 			defend = new ServerFightController(attacker, null, fleeAtHealth, true, CombatPlanning.TargetPolicy.NAMED, false, true, false,
 					player.getOffhandItem().getItem() instanceof net.minecraft.world.item.ShieldItem, SpawnerHold.DEFEND_MS, now);
 			defends++;
@@ -431,6 +441,20 @@ public final class ServerSpawnerHoldController implements ServerController {
 			returning = true;
 			note(String.format(Locale.ROOT, "health %.1f on a rod trip: back to the cell", player.getHealth()));
 		}
+		if (ledge != null && SpawnerHold.backToCell(player.getHealth())) {
+			ledge.cancel(player);
+			ledge = null;
+			returning = true;
+			note(String.format(Locale.ROOT, "health %.1f on a ledge trip: back to the cell", player.getHealth()));
+		}
+		if (ledge != null) {
+			String done = ledge.tick(player, now);
+			if (done == null) return TickResult.running(progress(player));
+			ledge = null;
+			ledgeRods += Math.max(0, ServerFightUntilController.count(player, untilItem) - heldBeforeLedge);
+			note("ledge: " + done);
+			returning = true;
+		}
 		if (collector != null || returning) return collect(player, now);
 		if (inCell) {
 			TickResult punching = punchOutFire(player);
@@ -524,6 +548,22 @@ public final class ServerSpawnerHoldController implements ServerController {
 				collector = new KillDropCollector(rods, protection::mayTakeEntity, now, COLLECT_MS).makingRoom(protection::mayDropItem);
 				trips++;
 				return collect(player, now);
+			}
+			for (UUID id : ledgeRods(player)) {
+				ledgeTried.add(id);
+				LedgeFetch trip = LedgeFetch.plan(player, id, untilItem, Vec3.atBottomCenterOf(cell),
+						(body, at) -> protection.mayModifyBlock(body, (net.minecraft.server.level.ServerLevel) body.level(), at),
+						ServerFightUntilController.count(player, untilItem), now);
+				if (trip == null) {
+					if (LedgeFetch.waiting) ledgeTried.remove(id);
+					else note("ledge: no trip for " + id + ": " + LedgeFetch.refusal);
+					continue;
+				}
+				stopEngine(player);
+				ledge = trip;
+				ledgeTrips++;
+				heldBeforeLedge = ServerFightUntilController.count(player, untilItem);
+				return TickResult.running(progress(player));
 			}
 		}
 		outOfCellTicks = inCell ? 0 : outOfCellTicks + 1;
@@ -728,6 +768,32 @@ public final class ServerSpawnerHoldController implements ServerController {
 		for (ItemEntity item : player.level().getEntitiesOfClass(ItemEntity.class, new AABB(middle, middle).inflate(SpawnerHold.COLLECT_RANGE),
 				e -> e.isAlive() && e.getItem().is(untilItem))) {
 			if (!ObservationVisibility.canSeeEntity(player, item) || !ServerFightUntilController.dropReachable(player, item.position())) continue;
+			// On a ledge above the feet the pickup leaves it (KillDropCollector): that is a ledge trip's (ledgeRods).
+			if (aboveFeet(player, item)) continue;
+			double blazeNear = Math.min(nearest(blazes, item.position()), nearest(blazes, player.position()));
+			if (!SpawnerHold.mayCollect(player.getHealth(), witherToBody, nearest(withers, item.position()), blazeNear, item.getAge())) continue;
+			ids.add(item.getUUID());
+		}
+		return ids;
+	}
+
+	private static boolean aboveFeet(ServerPlayer player, ItemEntity item) {
+		return item.onGround() && item.getY() > player.getY() + 0.6D;
+	}
+
+	/** Seen rods on a ledge above the feet near the cell, not yet tried, that {@link SpawnerHold#mayCollect} allows a trip to now. */
+	private List<UUID> ledgeRods(ServerPlayer player) {
+		Vec3 middle = Vec3.atBottomCenterOf(cell);
+		List<UUID> ids = new ArrayList<>();
+		List<LivingEntity> withers = player.level().getEntitiesOfClass(LivingEntity.class, new AABB(middle, middle).inflate(SpawnerHold.COLLECT_RANGE + 12.0D),
+				e -> e.getType() == McEntityTypes.WITHER_SKELETON && e.isAlive());
+		List<LivingEntity> blazes = player.level().getEntitiesOfClass(LivingEntity.class, new AABB(middle, middle).inflate(SpawnerHold.COLLECT_RANGE + 8.0D),
+				e -> e.getType() == McEntityTypes.BLAZE && e.isAlive());
+		double witherToBody = nearest(withers, player.position());
+		for (ItemEntity item : player.level().getEntitiesOfClass(ItemEntity.class, new AABB(middle, middle).inflate(SpawnerHold.COLLECT_RANGE),
+				e -> e.isAlive() && e.getItem().is(untilItem))) {
+			if (ledgeTried.contains(item.getUUID()) || !aboveFeet(player, item) || !ObservationVisibility.canSeeEntity(player, item)) continue;
+			dev.agaminggod.mineagen.server.perception.ObservedDrops.remember(player, item);
 			double blazeNear = Math.min(nearest(blazes, item.position()), nearest(blazes, player.position()));
 			if (!SpawnerHold.mayCollect(player.getHealth(), witherToBody, nearest(withers, item.position()), blazeNear, item.getAge())) continue;
 			ids.add(item.getUUID());
@@ -875,9 +941,9 @@ public final class ServerSpawnerHoldController implements ServerController {
 
 	private String summary(ServerPlayer player, long elapsed) {
 		int held = ServerFightUntilController.count(player, untilItem);
-		return String.format(Locale.ROOT, "spawner hold at %s: cell %s, %d site%s failed, %d build%s; %+d %s in %.0f s; %d engine run%s %s; %d rod trip%s; %d meal%s; %d defend%s; %d heal%s (%d walled in, %d reopened; shield up %d of %d ticks, asked %d, using %d %s, keys %s, %d bite%s stopped for a volley); %d fire%s punched out; hurts %s; health lost %s%s",
+		return String.format(Locale.ROOT, "spawner hold at %s: cell %s, %d site%s failed, %d build%s; %+d %s in %.0f s; %d engine run%s %s; %d rod trip%s (%d up a ledge, %d rods from them); %d meal%s; %d defend%s; %d heal%s (%d walled in, %d reopened; shield up %d of %d ticks, asked %d, using %d %s, keys %s, %d bite%s stopped for a volley); %d fire%s punched out; hurts %s; health lost %s%s",
 				spawner == null ? "none seen" : spawner.toShortString(), cell == null ? "none" : cell.toShortString(), sitesFailed, sitesFailed == 1 ? "" : "s", builds, builds == 1 ? "" : "s",
-				held - Math.max(0, startHeld), untilItemId, elapsed / 1000.0D, engineRuns, engineRuns == 1 ? "" : "s", engineEnds, trips, trips == 1 ? "" : "s",
+				held - Math.max(0, startHeld), untilItemId, elapsed / 1000.0D, engineRuns, engineRuns == 1 ? "" : "s", engineEnds, trips, trips == 1 ? "" : "s", ledgeTrips, ledgeRods,
 				meals, meals == 1 ? "" : "s", defends, defends == 1 ? "" : "s", turtles, turtles == 1 ? "" : "s", seals, reopens, blockingTicks, turtleTicks, shieldAsks, usingTicks, usedInHeal, healWinners, bitesStopped, bitesStopped == 1 ? "" : "s", firesPunched, firesPunched == 1 ? "" : "s", hurts, lostText(), log.isEmpty() ? "" : "; log: " + String.join(" | ", log.subList(Math.max(0, log.size() - 6), log.size())));
 	}
 
@@ -913,6 +979,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 		cancelWalk(player);
 		if (work != null) { work.cancel(player); work = null; }
 		if (collector != null) { collector.cancel(player); collector = null; }
+		if (ledge != null) { ledge.cancel(player); ledge = null; }
 		if (sealWork != null) { sealWork.cancel(player); sealWork = null; }
 		if (reopenWork != null) { reopenWork.cancel(player); reopenWork = null; }
 		returning = false;
