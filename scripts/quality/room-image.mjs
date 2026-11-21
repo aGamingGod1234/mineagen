@@ -43,15 +43,41 @@ const work = await mkdtemp(path.join(os.tmpdir(), 'room-image-'));
 const began = Date.now();
 step(`creating a ${type} machine`);
 // Ctrl-C (or SIGTERM) deletes the machine before exiting, at any point of the build.
-let vm = null, stopping = false;
-for (const name of ['SIGINT', 'SIGTERM']) process.on(name, async () => {
+let vm = null, creating = null, deleting = null, stopping = false;
+const deleteVmOnce = () => {
+	if (deleting) return deleting;
+	if (!vm) return Promise.resolve();
+	const id = vm.id;
+	vm = null;
+	deleting = destroyMachine(id).then(() => step(`deleted ${id}`), error => step(`could not delete ${id}: ${error.message}`));
+	return deleting;
+};
+const stopAndExit = async (code) => {
+	if (creating) {
+		try { vm = await creating; } catch {}
+		creating = null;
+	}
+	await deleteVmOnce();
+	await rm(work, { recursive: true, force: true }).catch(() => {});
+	process.exit(code);
+};
+for (const name of ['SIGINT', 'SIGTERM']) process.on(name, () => {
 	if (stopping) return;
 	stopping = true;
 	step(`${name}: deleting the image machine`);
-	if (vm) await destroyMachine(vm.id).then(() => step(`deleted ${vm.id}`), error => step(`could not delete ${vm.id}: ${error.message}`));
-	process.exit(130);
+	void stopAndExit(130);
 });
-vm = await createMachine({ type, ttlSeconds: 3600, name: `room-image-${flags.snapshot}`, snapshots: true });
+try {
+	creating = createMachine({ type, ttlSeconds: 3600, name: `room-image-${flags.snapshot}`, snapshots: true });
+	vm = await creating;
+	creating = null;
+	if (stopping) await new Promise(() => {});
+} catch (error) {
+	creating = null;
+	if (stopping) await new Promise(() => {});
+	await rm(work, { recursive: true, force: true }).catch(() => {});
+	throw error;
+}
 step(`machine ${vm.id}`);
 let saved = false;
 try {
@@ -103,9 +129,12 @@ echo ${quote(`${serverSha}  ${rooms}/template-26.3/server.jar`)} | sha256sum -c 
 	saved = true;
 	console.log(JSON.stringify(image, null, 2));
 } finally {
-	const usage = await machineUsage(vm.id).catch(error => ({ error: error.message }));
-	if (flags.keep) step(`kept ${vm.id}; delete it with boat delete ${vm.id} --yes`);
-	else { await destroyMachine(vm.id).then(() => step(`deleted ${vm.id}`), error => step(`could not delete ${vm.id}: ${error.message}`)); }
-	step(`machine usage ${JSON.stringify(usage)}; ${saved ? 'image saved' : 'image NOT saved'} in ${Math.round((Date.now() - began) / 1000)}s`);
-	await rm(work, { recursive: true, force: true });
+	if (!stopping && vm) {
+		const id = vm.id;
+		const usage = await machineUsage(id).catch(error => ({ error: error.message }));
+		if (flags.keep) { vm = null; step(`kept ${id}; delete it with boat delete ${id} --yes`); }
+		else await deleteVmOnce();
+		step(`machine usage ${JSON.stringify(usage)}; ${saved ? 'image saved' : 'image NOT saved'} in ${Math.round((Date.now() - began) / 1000)}s`);
+	}
+	await rm(work, { recursive: true, force: true }).catch(() => {});
 }

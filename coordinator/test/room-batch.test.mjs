@@ -331,3 +331,44 @@ test('a delete that fails is tried again when the batch ends, and a failed liven
 		assert.equal(result.machines[0].destroyed, true);
 	} finally { await rm(out, { recursive: true, force: true }); }
 });
+
+test('room-image waits for an in-flight machine creation and deletes it when cancelled', { skip: process.platform === 'win32' }, async () => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'room-image-cancel-'));
+	try {
+		const tpl = path.join(dir, 'tpl'), logFile = path.join(dir, 'boat.log'), fakeBoat = path.join(dir, 'fake-boat.mjs');
+		await mkdir(tpl, { recursive: true });
+		await writeFile(path.join(tpl, 'server.jar'), 'stub');
+		await writeFile(fakeBoat, `#!/usr/bin/env node
+import { appendFileSync } from 'node:fs';
+const args = process.argv.slice(2);
+appendFileSync(${JSON.stringify(logFile)}, JSON.stringify(args) + '\\n');
+if (args.includes('new')) {
+	process.stdout.write(JSON.stringify({ event: 'ready', id: 'bx_cancel_test' }) + '\\n');
+	setTimeout(() => process.exit(0), 300);
+} else {
+	process.exit(0);
+}
+`, { mode: 0o755 });
+		const { spawn } = await import('node:child_process');
+		const script = fileURLToPath(new URL('../../scripts/quality/room-image.mjs', import.meta.url));
+		const child = spawn(process.execPath, [script, '--template', tpl, '--snapshot', 'cancel-snap'], {
+			env: { ...process.env, BOAT_BIN: fakeBoat },
+			stdio: ['ignore', 'pipe', 'pipe'],
+		});
+		const deadline = Date.now() + 5000;
+		while (Date.now() < deadline) {
+			const calls = await readFile(logFile, 'utf8').catch(() => '');
+			if (calls.includes('"new"')) break;
+			await new Promise(done => setTimeout(done, 25));
+		}
+		child.kill('SIGTERM');
+		const exitCode = await new Promise((resolve, reject) => {
+			child.on('error', reject);
+			child.on('close', code => resolve(code));
+		});
+		assert.equal(exitCode, 130);
+		const calls = (await readFile(logFile, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+		assert.ok(calls.some(args => args.includes('new')), 'machine creation started');
+		assert.ok(calls.some(args => args.includes('delete') && args.includes('bx_cancel_test')), 'created machine was deleted before exit');
+	} finally { await rm(dir, { recursive: true, force: true }); }
+});
