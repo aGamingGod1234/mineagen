@@ -8,7 +8,7 @@ import path from 'node:path';
 
 import { terminateChildProcess, spawnOwnedProcess as nodeSpawn } from './child-process-lifecycle.mjs';
 import { ClaudeToolServer } from './claude-tool-server.mjs';
-import { DEFAULT_CONTEXT_ROTATION_TOKENS, ToolDigests } from './context-carry-over.mjs';
+import { DEFAULT_CONTEXT_ROTATION_TOKENS, ToolDigests, digestArguments } from './context-carry-over.mjs';
 import { FailureCarryOver, correlateFailureEvent, shareVisibleFailureFields } from './failure-carry-over.mjs';
 import { HandoffBudget, CONTEXT_PRICE_USD } from './handoff-budget.mjs';
 import { goalSpecInstructions, nativeInstructions, nativeRecoveryInstructions, nativeToolSchedulingClass, isNativeBodyTool, presentNativeToolResult, recoveryInstructions } from './codex-service.mjs';
@@ -1563,8 +1563,8 @@ ${encoded}`);
 			this.#recentTools.noteDelivered(replaced);
 		}
 		this.#failureCarryOver.noteEnvelope(result);
-		digests.push(name, truncate(JSON.stringify(args ?? {}), 160), result);
-		return this.#recentTools.push(name, truncate(JSON.stringify(args ?? {}), 160), result);
+		digests.push(name, digestArguments(args ?? {}), result);
+		return this.#recentTools.push(name, digestArguments(args ?? {}), result);
 	}
 
 	/**

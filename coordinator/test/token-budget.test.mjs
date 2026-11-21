@@ -209,12 +209,11 @@ test('an eye of ender flight reaches the next wake as attention, beside the hear
 test('rotating the recorded Sol Codex session at 64k context tokens halves its input', async () => {
 	const { readFile } = await import('node:fs/promises');
 	const { replayContextRotation } = await import('../src/benchmark/token-budget.mjs');
-	const { DEFAULT_CONTEXT_ROTATION_TOKENS } = await import('../src/context-carry-over.mjs');
 	const series = JSON.parse(await readFile(new URL('./fixtures/codex-sol-context-series.json', import.meta.url), 'utf8'));
 	const calls = series.calls.map(([context, cached]) => ({ context, cached }));
 	const prefixTokens = calls[0].context;
 	const before = replayContextRotation({ calls, turnEnds: series.turnEnds, prefixTokens, thresholdTokens: 0 });
-	const after = replayContextRotation({ calls, turnEnds: series.turnEnds, prefixTokens, thresholdTokens: DEFAULT_CONTEXT_ROTATION_TOKENS });
+	const after = replayContextRotation({ calls, turnEnds: series.turnEnds, prefixTokens, thresholdTokens: 64_000 });
 	// Recorded: 68 calls, 6,883,432 input tokens, 101,227 average context, 253,672 uncached.
 	assert.equal(before.inputTokens, 6_883_432);
 	assert.ok(after.inputTokens <= before.inputTokens * 0.5, `${after.inputTokens} input tokens after rotation`);

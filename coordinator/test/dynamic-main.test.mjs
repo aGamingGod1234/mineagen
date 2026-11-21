@@ -1493,3 +1493,16 @@ test('a saved Gemini profile reports one error without falling back and the coor
 		await coordinator.stop();
 	}
 });
+
+test('the context rotation threshold is 128k by default, set per run by MINEAGEN_CONTEXT_ROTATION_TOKENS, for both providers', () => {
+	const base = () => ({ bridge: { port: 25570, secret: 's'.repeat(32) }, codex: {} });
+	const rotation = (config, environment) => {
+		const normalized = normalizeDynamicConfig(config, environment);
+		return [normalized.codex.contextRotationTokens, normalized.claude.contextRotationTokens];
+	};
+	assert.deepEqual(rotation(base(), {}), [128_000, 128_000]);
+	assert.deepEqual(rotation(base(), { MINEAGEN_CONTEXT_ROTATION_TOKENS: '64000' }), [64_000, 64_000], 'a 64k arm');
+	assert.deepEqual(rotation(base(), { MINEAGEN_CONTEXT_ROTATION_TOKENS: ' 0 ' }), [0, 0], '0 turns rotation off');
+	assert.deepEqual(rotation({ ...base(), codex: { contextRotationTokens: 90_000 }, claude: { contextRotationTokens: 70_000 } }, { MINEAGEN_CONTEXT_ROTATION_TOKENS: '64000' }), [90_000, 70_000], 'a config file value wins');
+	for (const bad of ['64k', '-1', '1e5']) assert.throws(() => normalizeDynamicConfig(base(), { MINEAGEN_CONTEXT_ROTATION_TOKENS: bad }), /MINEAGEN_CONTEXT_ROTATION_TOKENS/);
+});

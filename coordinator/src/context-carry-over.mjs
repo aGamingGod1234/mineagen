@@ -1,7 +1,12 @@
 // Every model call re-reads the whole provider conversation. Past this many context tokens a provider session is
 // replaced by a fresh one (same instructions and tools) that starts with this short carry-over; each event already
-// restates the goal, task memory, facts and program state.
-export const DEFAULT_CONTEXT_ROTATION_TOKENS = 64_000;
+// restates the goal, task memory, facts and program state. The model's window is 500k; this is a cost setting. At 64k a
+// session lasted a median of 17 model calls (3.4 minutes of play, 23 resets a game). Replayed over 17 recorded games,
+// 128k gives about 9 resets a game for about 53% more input tokens (nearly all cached), about 19% more cost at proxy
+// prices, and about 0.4 s more per decision.
+export const DEFAULT_CONTEXT_ROTATION_TOKENS = 128_000;
+// Overrides the default for both providers (a token count; 0 never rotates) when the config file sets none.
+export const CONTEXT_ROTATION_TOKENS_ENV = 'MINEAGEN_CONTEXT_ROTATION_TOKENS';
 // Hysteresis: a fresh session whose first turns already pass the threshold (large tool results) must not thrash.
 export const MIN_TURNS_BETWEEN_ROTATIONS = 3;
 // The event's now header carries intent, the unresolved failure and the last effect; older calls repeat it.
@@ -12,7 +17,44 @@ const CARRY_OVER_CONVERSATION = 6;
 // Replayed over those games this adds about 1 KB per rotation (max 1.9 KB) and carries the topic of 20 of the 22.
 export const CARRY_OVER_MANUAL_BYTES = 2_000;
 const CARRY_OVER_MANUAL_TOPICS = 32;
+// The model's own reason for a call. Arguments are cut at 160 characters and the reason comes last, so in 309 recorded
+// rotations the newest step's reason was cut in 104 and missing from the whole fresh input in 146; it is kept whole
+// (do_step accepts at most 100 characters).
+const CARRY_OVER_ARGUMENTS = 160;
+const CARRY_OVER_WHY = 120;
 const TERMINAL_RESULT_STATES = new Set(['SUCCEEDED', 'FAILED', 'CANCELLED', 'TIMED_OUT']);
+
+/** The context rotation threshold: the config file's value, else the environment's, else the default. */
+export function contextRotationTokensSetting(configured, environment = process.env) {
+	if (configured !== undefined) return configured;
+	const text = environment?.[CONTEXT_ROTATION_TOKENS_ENV]?.trim();
+	if (!text) return DEFAULT_CONTEXT_ROTATION_TOKENS;
+	if (!/^\d+$/.test(text) || !Number.isSafeInteger(Number(text))) throw new TypeError(`${CONTEXT_ROTATION_TOKENS_ENV} must be a nonnegative integer token count`);
+	return Number(text);
+}
+
+/**
+ * A call's arguments for a digest line: cut to a short JSON, with the model's own `why` kept whole after it. `stepWhy`
+ * is the reason of a step whose arguments do not hold it (a do_step that starts or runs an action).
+ */
+export function digestArguments(args, stepWhy = null) {
+	if (args === null || typeof args !== 'object' || Array.isArray(args)) return withWhy(truncate(safeJson(args), CARRY_OVER_ARGUMENTS), stepWhy);
+	let why = stepWhy;
+	let rest = args;
+	if (typeof args.why === 'string') {
+		({ why, ...rest } = args);
+	} else if (args.step !== null && typeof args.step === 'object' && !Array.isArray(args.step) && typeof args.step.why === 'string') {
+		const { why: stepWhy, ...step } = args.step;
+		why = stepWhy;
+		rest = { ...args, step };
+	}
+	return withWhy(truncate(safeJson(rest), CARRY_OVER_ARGUMENTS), why);
+}
+
+function withWhy(text, why) {
+	const reason = typeof why === 'string' ? why.replace(/\s+/g, ' ').trim() : '';
+	return reason.length === 0 ? text : `${text} why=${JSON.stringify(truncate(reason, CARRY_OVER_WHY))}`;
+}
 
 /**
  * One-line tool digests for a fresh or resumed context. A running action's ID can be cancelled, and the
@@ -102,7 +144,8 @@ export class ContextCarryOver {
 		// A successor that failed after its predecessor was closed still delivers the predecessor's receipt.
 		if (error !== null) this.#tools.noteDelivered(error?.replacedAction);
 		const digestResult = error !== null ? { outcome: `error ${typeof error?.code === 'string' ? error.code : 'TOOL_FAILED'}` } : result;
-		this.#tools.push(name, truncate(safeJson(args), 160), digestResult);
+		// A step that starts or runs an action keeps its reason beside the action's arguments, in tool.step.
+		this.#tools.push(name, digestArguments(args, isAction ? tool.step?.why ?? null : null), digestResult);
 		if (typeof result?.programId === 'string') this.#noteProgram(result);
 		if (kind === 'capabilities' && error === null) this.#noteManual(result);
 	}
