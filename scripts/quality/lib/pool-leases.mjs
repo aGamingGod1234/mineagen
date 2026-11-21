@@ -8,7 +8,7 @@
 // A lease is stale when its process is gone or it has not been refreshed for leaseStaleMs (a hung or reused pid), and a
 // stale lease is broken only under the mutex, so two batches can never both take the same machine.
 import { randomBytes } from 'node:crypto';
-import { mkdir, open, readdir, readFile, rename, rm, unlink, writeFile, link } from 'node:fs/promises';
+import { link, mkdir, open, readdir, readFile, rename, rm, stat, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -52,16 +52,17 @@ export function leaseStore({ dir = defaultPoolDir(), leaseStaleMs = 5 * 60_000, 
 			const text = await readFile(mutexFile, 'utf8').catch(() => null);
 			let holder = null;
 			try { holder = JSON.parse(text); } catch {}
-			// An empty or half-written file belongs to a holder that is still writing it, unless it is old.
-			const age = holder?.at ? now() - holder.at : null;
-			if (text !== null && (holder ? !processAlive(holder.pid) || age > mutexStaleMs : false)) {
+			// An empty or half-written file belongs to a holder that is still writing it, unless it is old (its writer died
+			// between creating and writing it); its age then comes from the file itself.
+			const age = holder?.at ? now() - holder.at : await stat(mutexFile).then(info => now() - info.mtimeMs, () => null);
+			if (text !== null && (holder ? !processAlive(holder.pid) || age > mutexStaleMs : age !== null && age > mutexStaleMs)) {
 				// Break it by moving it aside and checking we moved the stale one; a fresh one moved by mistake goes back.
 				const aside = `${mutexFile}.broken-${process.pid}-${randomBytes(3).toString('hex')}`;
 				if (await rename(mutexFile, aside).then(() => true, () => false)) {
 					const moved = await readFile(aside, 'utf8').catch(() => null);
 					if (moved !== text) await link(aside, mutexFile).catch(() => {});
 					await unlink(aside).catch(() => {});
-					log(`broke a stale pool mutex of pid ${holder.pid}`);
+					log(`broke a stale pool mutex${holder ? ` of pid ${holder.pid}` : ' that was never written'}`);
 				}
 				continue;
 			}

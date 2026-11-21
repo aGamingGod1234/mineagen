@@ -48,12 +48,14 @@ async function inventory({ all = true } = {}) {
 	]);
 	const asideByName = new Map(aside.map(item => [item.name, item]));
 	const byName = new Map(leases.map(item => [item.name, item]));
-	const images = named && new Map(named.map(item => [`${item.name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 24)}`, item]));
+	// Names are shortened in machine names, so two images can share a slug; the hash (full name and snapshot id) decides.
+	const slugOf = name => name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 24) || 'none';
 	return sandboxes.map(item => poolMember(item, poolId)).filter(Boolean).map(member => {
 		const lease = byName.get(member.name);
-		const image = images?.get(member.snapshotSlug);
+		const sameSlug = named ? named.filter(item => slugOf(item.name) === member.snapshotSlug) : null;
+		const image = sameSlug?.find(item => imageHash(item.name, item.snapshotId) === member.imageHash) ?? null;
 		return { ...member, lease: lease?.lease ?? null, busy: Boolean(lease && !lease.stale), staleLease: lease?.stale && lease.lease ? lease.stale : null, aside: asideByName.get(member.name)?.reason ?? null,
-			image: image?.name ?? null, currentImage: images ? Boolean(image && imageHash(image.name, image.snapshotId) === member.imageHash) : null };
+			image: image?.name ?? (sameSlug?.length === 1 ? sameSlug[0].name : null), currentImage: named ? Boolean(image) : null };
 	});
 }
 const matches = member => (!snapshot || member.image === snapshot) && member.type === type.toLowerCase().replace(/[^a-z0-9]/g, '');

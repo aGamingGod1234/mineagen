@@ -142,22 +142,29 @@ export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, id
 		log(`machine ${vm.id} ${vm.adopted ? 'named with --machines failed its check' : 'set aside'} (${reason}): left running, not deleted`);
 	}
 	const destroy = vm => setAside(vm, 'the batch gave it up');
+	// One limits read serves every machine a batch starts at once: the read is shared while in flight, and each
+	// reservation counts against it until its `boat new` has run (pending), so a fresh read never forgets one.
+	let pending = 0;
 	async function startBudget() {
 		if (!limits || Date.now() - limits.at > 20_000) {
-			const starts = await readLimits().catch(error => { log(`could not read the start limits (${error.message})`); return null; });
-			limits = { at: Date.now(), starts, used: 0 };
+			limits = { at: Date.now(), used: pending, read: readLimits().catch(error => { log(`could not read the start limits (${error.message})`); return null; }) };
 		}
-		const { starts } = limits;
-		if (!starts || starts.unlimited) return;
+		const current = limits;
+		const starts = await current.read;
+		if (!starts || starts.unlimited) { pending++; return; }
+		// No await between the check and the count, so two machines cannot both take the last allowed start.
 		for (const window of ['hour', 'day']) {
-			const left = (starts[window]?.remaining ?? Infinity) - limits.used;
+			const left = (starts[window]?.remaining ?? Infinity) - current.used;
 			if (left <= startReserve) throw new Error(`the ${window} sandbox start limit has ${Math.max(left, 0)} starts left, keeping ${startReserve} in reserve: no new machine`);
 		}
-		limits.used++;
+		current.used++;
+		pending++;
 	}
 	async function createNew(signal) {
 		const ident = await init();
 		await startBudget();
+		let started = false;
+		const settle = () => { if (!started) { started = true; pending--; } };
 		const name = machineName({ poolId: ident.poolId, type, snapshot, snapshotId: ident.snapshotId });
 		// The lease exists before the machine does, so no other batch can take it between ready and lease.
 		await store.take([name], { batch });
@@ -166,7 +173,7 @@ export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, id
 				const waited = await store.reserveStart({ perMinute: startsPerMinute, signal });
 				if (waited > 1000) log(`waited ${Math.round(waited / 1000)} s to pace machine starts`);
 				let vm;
-				try { vm = await createMachine({ from: snapshot, type, ttlSeconds, name }); }
+				try { vm = await createMachine({ from: snapshot, type, ttlSeconds, name }); settle(); }
 				catch (error) {
 					const limit = rateLimited(error);
 					if (!limit || limit.concurrent || limit.window !== 'minute' || attempt >= 4) throw error;
@@ -184,13 +191,13 @@ export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, id
 				log(`machine ${vm.id} started for the warm pool (${name})`);
 				return fresh;
 			}
-		} catch (error) { await store.drop(name); throw error; }
+		} catch (error) { settle(); await store.drop(name); throw error; }
 	}
 
 	return {
 		...base,
 		/** A cleaned machine for this snapshot and type: a warm one when one is free (no start), else a new one (one start). */
-		async create({ signal = null } = {}) {
+		async create({ signal = null, avoid = [] } = {}) {
 			if (machines) {
 				// Leases are keyed by the machine's name, as pool leases are, so a named machine that is also a pool member
 				// can never be held by a pool batch and a --machines batch at once.
@@ -202,7 +209,7 @@ export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, id
 				const byName = await adoptable;
 				const tried = new Set();
 				while (true) {
-					const name = await store.take([...byName.keys()].filter(item => !tried.has(item) && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(item)), { batch });
+					const name = await store.take([...byName.keys()].filter(item => !tried.has(item) && !avoid.includes(byName.get(item)) && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(item)), { batch });
 					if (!name) throw new Error('every machine named with --machines is busy or unusable');
 					tried.add(name);
 					const id = byName.get(name);
@@ -216,7 +223,7 @@ export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, id
 			for (let round = 0; round < 50; round++) {
 				if (signal?.aborted) throw new Error('batch stopped');
 				const free = (await members()).filter(item => item.live && item.type === slug(type) && item.snapshotSlug === slug(snapshot) && item.imageHash === ident.hash
-					&& item.remainingMs > minRemainingSeconds * 1000 && !tried.has(item.name));
+					&& item.remainingMs > minRemainingSeconds * 1000 && !tried.has(item.name) && !avoid.includes(item.id));
 				const name = await store.take(free.map(item => item.name), { batch });
 				if (!name) break;
 				tried.add(name);

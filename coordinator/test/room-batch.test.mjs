@@ -832,7 +832,7 @@ if (command === 'new') {
 	writeFileSync(path.join(home(box.id), 'rooms/template-26.3/server.jar'), '');
 	save(box); out({ event: 'ready', id: box.id });
 } else if (command === 'list') out({ sandboxes: readdirSync(boxes).map(file => JSON.parse(readFileSync(path.join(boxes, file), 'utf8'))) });
-else if (command === 'snapshots') out({ named: [{ name: 'img', snapshotId: process.env.FAKE_BOAT_SNAPSHOT_ID ?? 'sid-1' }] });
+else if (command === 'snapshots') out({ named: process.env.FAKE_BOAT_SNAPSHOTS ? JSON.parse(process.env.FAKE_BOAT_SNAPSHOTS) : [{ name: 'img', snapshotId: process.env.FAKE_BOAT_SNAPSHOT_ID ?? 'sid-1' }] });
 else if (command === 'limits') out({ starts: { minute: { remaining: 30 }, hour: { remaining: Number(process.env.FAKE_BOAT_HOUR_LEFT ?? 100) }, day: { remaining: 500 } } });
 else if (command === 'info') { const box = read(id); if (!box) { console.error('sandbox not found'); process.exit(1); } out({ sandbox: { ...box, hydrated: Date.now() - Date.parse(box.createdAt) >= Number(process.env.FAKE_BOAT_HYDRATE_MS ?? 0) } }); }
 else if (command === 'extend') { const box = read(id); box.archiveAfter = iso(Date.now() + Number(opt('--ttl')) * 1000); save(box); out({}); }
@@ -1279,4 +1279,67 @@ test('windowsPool never launches a room whose upload outlasted the PC cutoff, an
 	assert.equal(scripts.length, before, 'no launch script was sent after the cutoff');
 	await pool.destroy(vm);
 	await assert.rejects(pool.start(vm, { room: 'r2', outDir: 'C:/x/out/r2' }, { closed: () => true }), /past its cutoff/);
+});
+
+test('review fixes: a stuck upload is set aside, a never-written mutex is broken, and machines started at once share one start budget', { skip: process.platform === 'win32' }, async () => {
+	// A stop during a prepare that outlasts the grace: the machine is not given back, it is set aside (destroy).
+	const out = await mkdtemp(path.join(os.tmpdir(), 'room-batch-run-'));
+	try {
+		const events = [];
+		const pool = {
+			async create() { return { id: 'vm1' }; },
+			prepare: () => new Promise(() => {}),
+			async start() {}, async poll() { return 'done'; }, async alive() { return true; }, async fetch() { return {}; },
+			async keepAlive() {}, async usage() { return {}; },
+			async release() { events.push('release'); return true; },
+			async destroy() { events.push('set aside'); },
+		};
+		const controller = new AbortController();
+		setTimeout(() => controller.abort(), 50);
+		await runBatch({ batch: { name: 't', code: 'abc12345' }, rooms: parseCommands(`@a ${LINE}`, ['new']), arms: [{ name: 'new' }], pool, vms: 1, out, log: quiet, signal: controller.signal, prepareGraceMs: 100 });
+		assert.deepEqual(events, ['set aside']);
+	} finally { await rm(out, { recursive: true, force: true }); }
+
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'pool-mutex-'));
+	try {
+		const store = leaseStore({ dir, mutexStaleMs: 1000 });
+		await store.poolId();
+		await writeFile(path.join(dir, 'mutex'), '');
+		const { utimes } = await import('node:fs/promises');
+		await utimes(path.join(dir, 'mutex'), new Date(Date.now() - 5000), new Date(Date.now() - 5000));
+		assert.equal(await store.take(['m1']), 'm1', 'an empty mutex left by a crash is broken by its age');
+		store.stop();
+	} finally { await rm(dir, { recursive: true, force: true }); }
+
+	// 7 starts left in the hour and 5 kept in reserve: of three machines started at once, exactly two may start.
+	const fake = await fakeBoat({ FAKE_BOAT_HOUR_LEFT: '7' });
+	try {
+		const pool = warm(fake);
+		const results = await Promise.allSettled([pool.startNew(), pool.startNew(), pool.startNew()]);
+		assert.equal(results.filter(item => item.status === 'fulfilled').length, 2);
+		assert.match(results.find(item => item.status === 'rejected').reason.message, /hour sandbox start limit has 5 starts left/);
+		assert.equal((await fake.calls('new')).length, 2);
+		pool.store.stop();
+	} finally { await fake.close(); }
+});
+
+test('review fixes: a replacement never leases the machine its room was lost on, and images sharing a short name stay apart', { skip: process.platform === 'win32' }, async () => {
+	const fake = await fakeBoat();
+	try {
+		const first = warm(fake);
+		const vm = await first.create();
+		await first.release(vm);
+		const again = await warm(fake).create({ avoid: [vm.id] });
+		assert.notEqual(again.id, vm.id, 'the machine the room was lost on is avoided');
+	} finally { await fake.close(); }
+
+	const images = await fakeBoat({ FAKE_BOAT_SNAPSHOTS: JSON.stringify([{ name: 'room-image', snapshotId: 'a' }, { name: 'roomimage', snapshotId: 'b' }]) });
+	try {
+		for (const snapshot of ['room-image', 'roomimage']) await warmBoatPool({ snapshot, type: 'default', store: leaseStore({ dir: images.poolDir }), log: quiet, roomPorts: [1, 0], startsPerMinute: 600 }).startNew();
+		const cli = fileURLToPath(new URL('../../scripts/quality/boat-pool.mjs', import.meta.url));
+		const run = spawnSync(process.execPath, [cli, 'status', '--json'], { env: { ...process.env, ROOM_BATCH_POOL_DIR: images.poolDir }, encoding: 'utf8' });
+		assert.equal(run.status, 0, run.stderr);
+		const members = JSON.parse(run.stdout).members;
+		assert.deepEqual(members.map(item => [item.image, item.currentImage]).sort(), [['room-image', true], ['roomimage', true]]);
+	} finally { await images.close(); }
 });
