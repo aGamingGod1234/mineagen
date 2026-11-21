@@ -1487,8 +1487,28 @@ test('batch 1 r5 seed 3: a lava dig near water met under an earlier dig down tak
 	};
 	// Two wet spots from the search before, 30 blocks west: the same aquifer region.
 	assert.equal(await run([{ x: 219, y: 65, z: -219, why: 'water under a dig down' }, { x: 219, y: 65, z: -209, why: 'water under a dig down' }]), 'steep_down');
-	assert.equal(await run([{ x: 100, y: 65, z: -219, why: 'water under a dig down' }]), 'shaft', 'water met far off says nothing of the ground here');
-	assert.equal(await run([]), 'shaft', 'no water met: the bucket shaft as before');
+	assert.equal(await run([{ x: 100, y: 65, z: -219, why: 'water under a dig down' }]), 'steep_down', 'a lava find digs stairs, water met or not');
+	assert.equal(await run([]), 'steep_down', 'no water met: stairs, not the bucket shaft');
+	process.env.MINEAGEN_LAVA_SHAFT = 'on';
+	try {
+		assert.equal(await run([{ x: 100, y: 65, z: -219, why: 'water under a dig down' }]), 'shaft', 'switch on: water met far off says nothing of the ground here');
+		assert.equal(await run([]), 'shaft', 'switch on: no water met, the bucket shaft as before');
+	} finally { delete process.env.MINEAGEN_LAVA_SHAFT; }
+});
+
+test('lava-gate-1 and -8: a lava find from spawn digs stairs down, never the 1-wide shaft that flooded or dropped it into a mob cave', async () => {
+	const start = sample({ player: { x: 16.5, y: 70, z: -47.5, yaw: 0, health: 20, skyOpen: true },
+		inventory: { items: [{ itemId: 'minecraft:iron_pickaxe', count: 1 }, { itemId: 'minecraft:water_bucket', count: 1 }, { itemId: 'minecraft:cobblestone', count: 16 }] } });
+	const body = fakeBody({ start, frontier: { candidates: [], coverage: { headings: {} } },
+		acts: { dig_to: [{ result: { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:lava seen at 20,-54,-40, 6 blocks away' } }] } });
+	await searchFor({ block: 'minecraft:lava' }, body);
+	const digs = body.calls.filter((call) => call.actionType === 'dig_to').map((call) => call.args.pattern);
+	assert.deepEqual(digs, ['steep_down']);
+	// An ore find keeps the bucket shaft: only the lava descent changed.
+	const ore = fakeBody({ start, frontier: { candidates: [], coverage: { headings: {} } },
+		acts: { dig_to: [{ result: { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:iron_ore seen at 20,16,-40, 4 blocks away' } }] } });
+	await searchFor({ block: 'minecraft:iron_ore' }, ore);
+	assert.equal(ore.calls.find((call) => call.actionType === 'dig_to')?.args.pattern, 'shaft');
 });
 
 test('batches 1-2: a lava shaft starts with the water bucket in the hotbar, so the dig cuts one column, not two', async () => {

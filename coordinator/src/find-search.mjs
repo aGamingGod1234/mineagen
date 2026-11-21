@@ -159,6 +159,8 @@ const FLOODED_REACH = 96;
 // The way up a flooded 1-wide shaft open to the sky, in blocks above the water, when no spot under open sky is remembered
 // above the body: about the depth a shaft from the surface meets an aquifer or a flooded cave (lava-gate-1: 14).
 const SHAFT_UP = 12;
+/** MINEAGEN_LAVA_SHAFT=on: a lava find's first descent is the bucket shaft again, not stairs. */
+export const lavaShaft = () => process.env.MINEAGEN_LAVA_SHAFT === 'on';
 // Swimming up a flooded stair: pulses of this many ticks, at most this many (the stair from y16 to the surface is ~50 up).
 const STAIR_PULSE_TICKS = 40;
 const MAX_WATER_STEPS = 6;
@@ -1344,13 +1346,18 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 			}
 			if (profile.depth !== null && !level && at.y > profile.depth + 3 && descentStops < MAX_DESCENT_STOPS) {
 				const wetGround = wetSpots().some((spot) => Math.hypot(spot.x + 0.5 - at.x, spot.z + 0.5 - at.z) <= WET_REGION);
-				const pattern = water && descentStops === 0 && !wetGround ? 'shaft' : 'steep_down';
+				// A lava find digs stairs, not a 1-wide shaft, as a player does: on the wall-portal rooms the bucket shaft from
+				// spawn broke into a flooded cave and left the body afloat in its own hole (lava-gate-1 and -6, 20 of 20 runs), or
+				// broke a cave roof and dropped the body 28 blocks among mobs (lava-gate-8, 6 of its 11 deaths). Stairs lead back up
+				// out of a flood and stop at a cave's lip. MINEAGEN_LAVA_SHAFT=on keeps the shaft (for an A/B or a rollback).
+				const lava = profile.ids.has('minecraft:lava');
+				const pattern = (!lava || lavaShaft()) && water && descentStops === 0 && !wetGround ? 'shaft' : 'steep_down';
 				// At the edge of within, the stairs turn back toward the start and go on down inside it.
 				if (pattern !== 'shaft') {
 					inward();
 					if (stepsLeft(heading) < 1) return handBack('FAILED', 'FIND_NOT_FOUND', `Searched to ${within} blocks from the start`);
 				}
-				if (pattern === 'shaft') await bucketToHotbar();
+				if (pattern === 'shaft' || (lava && water)) await bucketToHotbar();
 				const outcome = await leg(`dig ${pattern} to y${profile.depth}`, 'dig_to', { pattern, y: profile.depth, heading: heading.name, ...descentCap(pattern), stopWhenSeen: profile.stopId, discard: DISCARD });
 				const ended = await settle(outcome);
 				if (ended !== null) return ended;
