@@ -43,6 +43,16 @@ public final class SwimOutVerification {
 		check(ServerTravelController.underWater(50, true, Double.NaN, false, Double.NaN, false) == ServerTravelController.SwimStep.STOP,
 				"at the reserve with nothing found: stop");
 
+		// The last step into a lit portal: walked in from up to 2 above its floor (lava-gate-1 stood 1.2 above, 1 block off).
+		check(ServerTravelController.nudgesIntoPortal(1.3D * 1.3D + 0.1D * 0.1D, 1.2D), "1.2 above the floor, 1.3 blocks across: walk in");
+		check(ServerTravelController.nudgesIntoPortal(1.0D, -0.5D), "half a block below the floor: walk in, as before");
+		check(!ServerTravelController.nudgesIntoPortal(1.0D, 2.6D), "on the frame's top, 2.6 above: no walk in (a fall onto the frame)");
+		check(!ServerTravelController.nudgesIntoPortal(9.0D, 0.0D), "3 blocks across: a leg, not a nudge");
+		check(ServerTravelController.stepsUpToPortal(1.1D * 1.1D, -2.0D), "2 below the floor beside the frame (lava-gate-1's ledge): pillar one, then step in");
+		check(!ServerTravelController.stepsUpToPortal(1.0D, -0.5D), "within a block of the floor: no pillar, the walk in does it");
+		check(!ServerTravelController.stepsUpToPortal(1.0D, -3.5D), "3.5 below: not one block's climb");
+		check(!ServerTravelController.nudgesIntoPortal(1.1D * 1.1D, -2.0D), "2 below: no plain walk in");
+
 		// Straight up means the body's own column, every cell open: a detour round an overhead block through the column
 		// beside it (a flooded shaft going up 6) is not, so it goes through the breath rule.
 		net.minecraft.core.BlockPos eye = new net.minecraft.core.BlockPos(10, 60, 10);

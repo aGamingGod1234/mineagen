@@ -1487,8 +1487,28 @@ test('batch 1 r5 seed 3: a lava dig near water met under an earlier dig down tak
 	};
 	// Two wet spots from the search before, 30 blocks west: the same aquifer region.
 	assert.equal(await run([{ x: 219, y: 65, z: -219, why: 'water under a dig down' }, { x: 219, y: 65, z: -209, why: 'water under a dig down' }]), 'steep_down');
-	assert.equal(await run([{ x: 100, y: 65, z: -219, why: 'water under a dig down' }]), 'shaft', 'water met far off says nothing of the ground here');
-	assert.equal(await run([]), 'shaft', 'no water met: the bucket shaft as before');
+	assert.equal(await run([{ x: 100, y: 65, z: -219, why: 'water under a dig down' }]), 'steep_down', 'a lava find digs stairs, water met or not');
+	assert.equal(await run([]), 'steep_down', 'no water met: stairs, not the bucket shaft');
+	process.env.MINEAGEN_LAVA_SHAFT = 'on';
+	try {
+		assert.equal(await run([{ x: 100, y: 65, z: -219, why: 'water under a dig down' }]), 'shaft', 'switch on: water met far off says nothing of the ground here');
+		assert.equal(await run([]), 'shaft', 'switch on: no water met, the bucket shaft as before');
+	} finally { delete process.env.MINEAGEN_LAVA_SHAFT; }
+});
+
+test('lava-gate-1 and -8: a lava find from spawn digs stairs down, never the 1-wide shaft that flooded or dropped it into a mob cave', async () => {
+	const start = sample({ player: { x: 16.5, y: 70, z: -47.5, yaw: 0, health: 20, skyOpen: true },
+		inventory: { items: [{ itemId: 'minecraft:iron_pickaxe', count: 1 }, { itemId: 'minecraft:water_bucket', count: 1 }, { itemId: 'minecraft:cobblestone', count: 16 }] } });
+	const body = fakeBody({ start, frontier: { candidates: [], coverage: { headings: {} } },
+		acts: { dig_to: [{ result: { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:lava seen at 20,-54,-40, 6 blocks away' } }] } });
+	await searchFor({ block: 'minecraft:lava' }, body);
+	const digs = body.calls.filter((call) => call.actionType === 'dig_to').map((call) => call.args.pattern);
+	assert.deepEqual(digs, ['steep_down']);
+	// An ore find keeps the bucket shaft: only the lava descent changed.
+	const ore = fakeBody({ start, frontier: { candidates: [], coverage: { headings: {} } },
+		acts: { dig_to: [{ result: { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:iron_ore seen at 20,16,-40, 4 blocks away' } }] } });
+	await searchFor({ block: 'minecraft:iron_ore' }, ore);
+	assert.equal(ore.calls.find((call) => call.actionType === 'dig_to')?.args.pattern, 'shaft');
 });
 
 test('batches 1-2: a lava shaft starts with the water bucket in the hotbar, so the dig cuts one column, not two', async () => {
@@ -1640,6 +1660,66 @@ test('Nether ore searches do not invent nonexistent deepslate variants', () => {
   const expected=['minecraft:'+ore+'_ore','minecraft:deepslate_'+ore+'_ore'].sort();
   for (const block of expected)assert.deepEqual([...findProfile({block}).ids].sort(),expected);
  }
+});
+
+// lava-gate-1 (seed 5433312384530337025): the lava find's 1-wide shaft from spawn broke the roof of a flooded cave at y56
+// (water in every cell round it up to the stone roof at y57); the only air is the shaft, open to the sky, so the spot the
+// runtime keeps under open sky is the body's own at the bottom. On main every way off read "already at the surface" and
+// the body trod water there for 12 minutes (10 of 10 runs).
+function afloatUnderOwnShaft({ bob = false, spawnSky = false } = {}) {
+	let laid = false, out = false, pulses = 0;
+	const cut = new Set();
+	const water = [];
+	for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]]) water.push({ blockId: 'minecraft:water', x: 16 + dx, y: 56, z: -48 + dz });
+	const start = { x: 16.5, y: 56.3, z: -47.5, yaw: 0, health: 20, inWater: true, underWater: false, air: 300, maxAir: 300, skyOpen: true };
+	const body = fakeBody({ start: sample({ player: start, blocks: water, inventory: { items: [{ itemId: 'minecraft:iron_pickaxe', count: 1 },
+		{ itemId: 'minecraft:water_bucket', count: 1 }, { itemId: 'minecraft:cobblestone', count: 16 }] } }), frontier: { candidates: [], coverage: { headings: {} } }, acts: {
+		travel_to: Array.from({ length: 20 }, () => ({ result: { state: 'FAILED', reasonCode: 'NO_ROUTE',
+			message: 'Could not get out of the water in 30 s; no dry footing seen within 10 blocks' }, ms: 30_000 })),
+		place_block: Array.from({ length: 4 }, () => ({ result: { state: 'SUCCEEDED', reasonCode: 'BLOCK_PLACED' }, ms: 500, move: () => { laid = true; return {}; } })),
+		break_block: Array.from({ length: 40 }, () => ({ result: { state: 'SUCCEEDED', reasonCode: 'BLOCK_BROKEN' }, ms: 1_000,
+			move: (player, args) => { cut.add(`${args.x},${args.y},${args.z}`); return {}; } })),
+		control: Array.from({ length: 80 }, () => ({ result: { state: 'SUCCEEDED' }, ms: 1_000,
+			move: (player, args) => {
+				// Jump pulses in the 1-wide column go nowhere; the hop needs the laid floor and the cut step.
+				if (args.forward === 1 && args.pitch === 0 && laid && cut.size >= 3) { out = true; return { y: 57, z: player.z + 1, inWater: false, underWater: false, skyOpen: false, onGround: true }; }
+				// lava-gate-6: a jump pulse at the water's top lifts the body clear for a sample, then it sinks back.
+				pulses += 1;
+				if (bob && args.jump && pulses % 2 === 1) return { y: 56.9, inWater: false, onGround: false };
+				return { y: 56.3, inWater: true, onGround: false };
+			} })),
+		dig_to: Array.from({ length: 30 }, () => ({ get result() { return out ? { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:lava seen at 30,40,-30, 5 blocks away' }
+			: { state: 'FAILED', reasonCode: 'WATER_AHEAD', message: 'Stopped: The body is under water at 16,56,-48 (air 298/300); not digging on.' }; } })),
+	} });
+	// lava-gate-6's spawn is remembered under open sky 12 above; lava-gate-1's open shaft leaves only the body's own spot.
+	body.openSky = () => (spawnSky ? { x: 16.5, y: 68, z: -47.5 } : { x: 16.5, y: 56, z: -47.5 });
+	const missed = [];
+	body.missedPlaces = () => missed;
+	body.missPlace = (place, why) => missed.push({ ...place, why });
+	return body;
+}
+
+for (const [label, options] of [['bobbing clear of the water on every other jump (lava-gate-6)', { bob: true }], ['its spawn remembered under open sky above, bobbing (lava-gate-6)', { bob: true, spawnSky: true }]]) {
+	test(`flooded own shaft, ${label}: the lava find still lays a step, cuts it out and climbs on`, async () => {
+		const body = afloatUnderOwnShaft(options);
+		const result = await searchFor({ block: 'minecraft:lava' }, body, { timeoutMs: 540_000 });
+		const types = body.calls.map((call) => call.actionType);
+		assert.ok(types.includes('place_block') && types.indexOf('break_block') > types.indexOf('place_block'), `laid then cut (calls: ${types.join(',')}; ${result.reasonCode} ${result.message})`);
+		assert.equal(result.reasonCode, 'FIND_SEEN', result.message);
+	});
+}
+
+test('lava-gate-1: afloat at the bottom of its own shaft open to the sky, the lava find lays a step in the water, cuts it out and climbs on', async () => {
+	const body = afloatUnderOwnShaft();
+	const result = await searchFor({ block: 'minecraft:lava' }, body, { timeoutMs: 540_000 });
+	const types = body.calls.map((call) => call.actionType);
+	const laid = types.indexOf('place_block'), firstCut = types.indexOf('break_block');
+	assert.ok(laid >= 0, `a step laid in the water (calls: ${types.join(',')}; ${result.reasonCode} ${result.message})`);
+	assert.ok(firstCut > laid, 'laid before the step is cut out above it');
+	assert.deepEqual(['x', 'y', 'z', 'face'].map((key) => body.calls[laid].args[key]), [16, 56, -47, 'down'], 'into the water beside the body (south, its yaw), against the rock over it');
+	const stairs = body.calls.find((call) => call.actionType === 'dig_to' && call.args.pattern === 'stairs_up');
+	assert.ok(stairs !== undefined && stairs.args.y >= 64, 'stairs on up out of the flooded shaft, not another dig into the water');
+	assert.equal(result.reasonCode, 'FIND_SEEN', result.message);
 });
 
 // Cave first is opt-in (MINEAGEN_CAVE_FIRST=on); the tests from here on run with it on, except the switch test, which sets it itself.

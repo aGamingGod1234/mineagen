@@ -46,7 +46,7 @@ public final class BuildPlanVerification {
 			if (ServerBuildController.order(portal.frame(), List.of(), cell -> false) != null) throw new AssertionError("A frame in the air has no order");
 			checks++;
 		}
-		return checks + verifyCastPlan() + verifySpill() + verifyCastBlocks() + verifyMaterials() + verifyHoleLanding() + verifyLineCells() + verifyStepCrouch() + verifyCarve();
+		return checks + verifyCastPlan() + verifySpill() + verifyCastTiming() + verifyCastBlocks() + verifyMaterials() + verifyHoleLanding() + verifyLineCells() + verifyStepCrouch() + verifyCarve();
 	}
 
 	/**
@@ -108,8 +108,92 @@ public final class BuildPlanVerification {
 				if (meets != (lava == inFront)) throw new AssertionError("Spill toward lava at " + lava + ": " + meets);
 				checks++;
 			}
+			checks += verifySpillDownSlope(portal, wall);
 		}
 		return checks;
+	}
+
+	/**
+	 * A cave room's site: the floor in front of the frame steps down a block at 4 and 6 cells out, to a pool 2 below the
+	 * frame's ground. The scooped water still runs its whole course, afresh below each drop, so a pool 8 cells out (10 cells
+	 * of run) is in it, and one 15 cells out, past the 7-cell flat run after the last drop, is not.
+	 */
+	private static int verifySpillDownSlope(ServerBuildController.Portal portal, Direction wall) {
+		int checks = 0;
+		Direction front = wall.getOpposite();
+		BlockPos origin = portal.origin();
+		BlockPos along = portal.at(1, 0).subtract(portal.at(0, 0));
+		for (int pool : new int[] { 8, 15 }) {
+			java.util.function.Function<BlockPos, BlockState> world = cell -> {
+				BlockPos d = cell.subtract(origin);
+				int k = d.getX() * front.getStepX() + d.getZ() * front.getStepZ(), i = d.getX() * along.getX() + d.getZ() * along.getZ(), y = cell.getY() - origin.getY();
+				if (k < 1 || k > pool + 3 || i < -1 || i > 4 || y > 3) return Blocks.STONE.defaultBlockState();
+				int floor = k >= 6 ? -2 : k >= 4 ? -1 : 0;
+				if (y > floor) return Blocks.CAVE_AIR.defaultBlockState();
+				return y == -2 && k >= pool ? Blocks.LAVA.defaultBlockState() : Blocks.STONE.defaultBlockState();
+			};
+			boolean meets = ServerBuildController.spillMeetsLava(world, portal, wall);
+			if (meets != (pool == 8)) throw new AssertionError("Standing water down a sloping floor toward a pool " + pool + " cells out, frame axis " + portal.axis() + ": " + meets);
+			// In the cast's own order the water is scooped before its first spread: the same site is fit for it.
+			if (ServerBuildController.spillMeetsLava(world, portal, wall, ServerBuildController.QUICK_SPILL_CELLS))
+				throw new AssertionError("Water scooped the tick after it lands, down a sloping floor toward a pool " + pool + " cells out, frame axis " + portal.axis() + ", met lava");
+			checks += 2;
+		}
+		return checks;
+	}
+
+	/**
+	 * The cast's clicks for one frame cell, tick by tick, against vanilla's timing: a lava source cast to obsidian the tick
+	 * water lands beside it, a water source's first spread at 5 ticks, lava's first flow at 30. The body takes
+	 * {@code turn} ticks from the lava's aim to the water's and back. Lava goes first, then water, then the scoop the next
+	 * tick (water gone before it spreads); with the water click failing, the lava is taken back before it flows.
+	 */
+	private static int verifyCastTiming() {
+		int checks = 0;
+		for (int turn = 0; turn <= 8; turn++) for (boolean waterOk : new boolean[] { true, false }) {
+			boolean lava = false, obsidian = false, water = false;
+			long lavaAt = -1, waterAt = -1, scoopAt = -1, takenAt = -1, busyUntil = -1;
+			StringBuilder order = new StringBuilder();
+			for (long t = 0; t < 120 && !(obsidian && !water) && takenAt < 0; t++) {
+				if (t < busyUntil) continue;
+				var step = ServerBuildController.castStep(water, lava || obsidian, lava, lava ? t - lavaAt : 0, waterOk);
+				if (obsidian && step != ServerBuildController.CastStep.SCOOP) throw new AssertionError("A cast cell asked for " + step);
+				switch (step) {
+					case LAVA -> { lava = true; lavaAt = t; busyUntil = t + 1 + turn; order.append('L'); }
+					case WATER -> { water = true; waterAt = t; lava = false; obsidian = true; busyUntil = t + 1; order.append('W'); }
+					case SCOOP -> { water = false; scoopAt = t; order.append('S'); }
+					case TAKE_BACK -> { lava = false; takenAt = t + turn; order.append('T'); }
+				}
+			}
+			if (waterOk) {
+				if (!order.toString().equals("LWS")) throw new AssertionError("Cast order with a " + turn + "-tick turn: " + order);
+				if (scoopAt - waterAt >= 5) throw new AssertionError("Water stood " + (scoopAt - waterAt) + " ticks, past its first spread");
+				if (waterAt - lavaAt >= 30) throw new AssertionError("Lava stood " + (waterAt - lavaAt) + " ticks before the water");
+			} else {
+				if (!order.toString().equals("LT")) throw new AssertionError("Cast order with the water click failing: " + order);
+				if (takenAt - lavaAt >= 30) throw new AssertionError("Lava taken back after " + (takenAt - lavaAt) + " ticks, past its first flow");
+			}
+			checks += 3;
+		}
+		return checks + verifyPourLine();
+	}
+
+	/**
+	 * The water poured against lava poured first, seen from a cave room: frame at -281,-53,14 axis x, lava in side cell
+	 * (3,1) at -278,-52,14, its water in the opening at -279,-52,14 against the mould's face behind it. From the body
+	 * on the frame's plane to the east the line crosses the lava's cell, which casts as the water lands and then hides the
+	 * water from the scoop (it stood 211 ticks and ran out); from the ground in front it does not.
+	 */
+	private static int verifyPourLine() {
+		var portal = new ServerBuildController.Portal(new BlockPos(-281, -53, 14), Direction.Axis.X);
+		BlockPos lava = portal.at(3, 1), water = portal.at(2, 1);
+		if (!lava.equals(new BlockPos(-278, -52, 14)) || !water.equals(new BlockPos(-279, -52, 14))) throw new AssertionError("Pour line fixture cells");
+		net.minecraft.world.phys.Vec3 face = new net.minecraft.world.phys.Vec3(-278.5D, -51.5D, 14.0D);
+		net.minecraft.world.phys.Vec3 east = new net.minecraft.world.phys.Vec3(-274.5D, -51.38D, 14.5D), front = new net.minecraft.world.phys.Vec3(-278.5D, -50.38D, 16.5D);
+		if (!ServerBuildController.crosses(east, face, lava)) throw new AssertionError("The water's line from the frame's plane passes through the lava's cell");
+		if (ServerBuildController.crosses(front, face, lava)) throw new AssertionError("The water's line from in front of the opening misses the lava's cell");
+		if (ServerBuildController.crosses(east, face, null)) throw new AssertionError("No cell to avoid crosses nothing");
+		return 3;
 	}
 
 	private static int verifyCarve() {
@@ -137,11 +221,13 @@ public final class BuildPlanVerification {
 					return null;
 				};
 				int dig = ServerBuildController.carveDig(world, rock, clearable, portal, wall);
-				// Lava down the tunnel within the poured water's run, or seen two cells behind the frame, rules the site out;
-				// lava further down the tunnel does not.
-				int expect = lava == ahead || lava == behind ? -1 : 32;
+				// Lava seen two cells behind the frame rules the site out. Lava down the tunnel does not: the water poured
+				// against the cast's lava is scooped the next tick, before it spreads, though left standing its whole run
+				// would reach the lava 5 cells along.
+				int expect = lava == behind ? -1 : 32;
 				if (dig != expect) throw new AssertionError("Carve beside a tunnel heading " + along + " with lava at " + lava + ": dig " + dig + ", expected " + expect);
-				checks++;
+				if (lava == ahead && !ServerBuildController.spillMeetsLava(world, portal, wall)) throw new AssertionError("Standing water down a tunnel heading " + along + " runs into lava 5 cells along");
+				checks += 2;
 			}
 			// The cells come front row first, bottom up: each one opens onto a cell dug before it or the tunnel.
 			Set<BlockPos> open = new HashSet<>(tunnel);
