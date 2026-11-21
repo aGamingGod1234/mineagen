@@ -43,7 +43,9 @@ export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeout
 			const job = { room: room.room, code: layout.code, outDir: path.posix.join(layout.out, room.room), javaHome: layout.javaHome, template: layout.template, timeoutMs: roomTimeoutMs, wrapper: layout.wrapper ?? [],
 				lines: room.lines.map(line => ({ arm: line.arm, jar: layout.jars[line.arm], env: Object.fromEntries(Object.entries(line.env).map(([key, value]) => [key, rewrite(value, layout)])), args: line.args.map(arg => rewrite(arg, layout)) })) };
 			log(`room ${room.room} -> ${vm.id} (try ${tries})`);
-			await pool.start(vm, job);
+			// A machine that cannot start a room is deleted now, not at the end of the batch; the room is re-queued.
+			try { await pool.start(vm, job); }
+			catch (error) { await retire(vm, 'start failed'); return { lost: true, reason: `start failed: ${error.message}` }; }
 			const deadline = Date.now() + roomTimeoutMs + 10 * 60_000;
 			let silentSince = null;
 			while (true) {

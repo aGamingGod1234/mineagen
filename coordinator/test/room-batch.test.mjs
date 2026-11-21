@@ -204,3 +204,31 @@ test('a stopped batch deletes its machines and reports unfinished rooms as stopp
 		assert.equal(result.merged.new.summary.notStarted, 2);
 	} finally { await rm(out, { recursive: true, force: true }); }
 });
+
+test('a machine that cannot start its room is deleted at once and the room plays on a replacement', async () => {
+	const out = await mkdtemp(path.join(os.tmpdir(), 'room-batch-start-'));
+	try {
+		const events = [];
+		let made = 0;
+		const pool = {
+			async create() { const vm = { id: `vm${++made}` }; events.push(`create ${vm.id}`); return vm; },
+			async prepare() { return { code: '/c', out: '/o', jars: { new: '/j/new.jar', old: '/j/old.jar' }, inputs: {}, javaHome: '/jdk', template: '/t' }; },
+			async start(vm) { if (vm.id === 'vm1') throw new Error('server not responding'); events.push(`start ${vm.id}`); },
+			async poll() { return 'done'; },
+			async alive() { return true; },
+			async fetch(vm, roomName) {
+				for (const arm of ['new', 'old']) await writeRoom(out, roomName, arm, [row(`spot-${roomName}`)]);
+				return { seconds: 5, arms: { new: { exit: 0 }, old: { exit: 0 } }, machine: {} };
+			},
+			async keepAlive() {},
+			async usage() { return { seconds: 1 }; },
+			async destroy(vm) { events.push(`delete ${vm.id}`); },
+		};
+		const rooms = parseCommands(`@a ${LINE}`, ['new', 'old']);
+		const result = await runBatch({ batch: { name: 't', code: 'abc12345' }, rooms, arms: [{ name: 'new' }, { name: 'old' }], pool, vms: 1, out, pollMs: 1, log: () => {} });
+		assert.deepEqual(events, ['create vm1', 'delete vm1', 'create vm2', 'start vm2', 'delete vm2']);
+		assert.equal(result.outcomes[0].lost, false);
+		assert.equal(result.outcomes[0].attempts, 2);
+		assert.equal(result.merged.new.summary.status, 'PASS');
+	} finally { await rm(out, { recursive: true, force: true }); }
+});
