@@ -365,3 +365,28 @@ test('footingAhead: from higher up, ground at the lava sea rim is not walked dow
 	assert.equal(footingAhead([rim], { x: 100.5, y: 48, z: 100.5 }, 0), null, 'standing at y48');
 	assert.equal(footingAhead([rim], { x: 100.5, y: LAVA_RIM_Y + 2, z: 100.5 }, 0)?.z, 140, 'already down at the rim: it walks on along it');
 });
+
+test('the search stays inside the caller\'s within and hands back FIND_NOT_FOUND at its edge (Codex on #79)', async () => {
+	const body = bodyFor();
+	const result = await searchFor({ structure: 'fortress' }, body, { within: 16, timeoutMs: 30_000 });
+	const p = body.observation.player;
+	assert.ok(Math.hypot(p.x - 100.5, p.z - 100.5) <= 16 + 1e-6, `ended ${Math.round(Math.hypot(p.x - 100.5, p.z - 100.5))} blocks out`);
+	assert.equal(result.reasonCode, 'FIND_NOT_FOUND');
+});
+
+test('the last open ground and the digs since it are kept across find calls, so a re-asked search still goes back (Codex on #79)', async () => {
+	const state = {};
+	const travel = (args, n) => (n === 1 || args.retrace ? { result: arrived, go: true } : args.build ? { result: tunnel, go: true } : { result: noRoute });
+	// Call 1: one walk on open ground, then one dig before its budget ends.
+	const first = bodyFor({ travel, state });
+	await searchFor({ structure: 'fortress' }, first, { timeoutMs: 64_000 });
+	assert.equal(first.calls.filter((call) => call.build).length, 1);
+	// Call 2 from the tunnel's end: one more blind dig, then back along the trail.
+	const second = bodyFor({ travel: (args) => (args.retrace ? { result: arrived, go: true } : args.build ? { result: tunnel, go: true } : { result: noRoute }), state });
+	Object.assign(second.observation.player, { x: first.observation.player.x, z: first.observation.player.z });
+	await searchFor({ structure: 'fortress' }, second, { timeoutMs: 120_000 });
+	const legs = second.calls.filter((call) => call.type === 'travel_to');
+	const back = legs.findIndex((call) => call.retrace);
+	assert.ok(back > 0, 'walks back to the kept open ground');
+	assert.equal(legs.slice(0, back).filter((call) => call.build).length, MAX_DIGS - 1, 'after one more dig, not two');
+});

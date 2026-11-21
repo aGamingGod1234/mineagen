@@ -99,6 +99,8 @@ const DIG_BLOCKS = 8;
 const MAX_MOB_STOPS = 3;
 /** A side walk makes way only when it ends this far from every earlier look point: new ground, not its own tunnel. */
 const NEW_GROUND = 12;
+/** Open ground kept from an earlier find call is walked back to only from this close (not after a respawn far off). */
+const KEPT_OPEN = 128;
 const unit = (yaw) => ({ x: -Math.sin(yaw * Math.PI / 180), z: Math.cos(yaw * Math.PI / 180) });
 const footingKey = (row) => `${row.x},${row.y},${row.z}`;
 
@@ -171,6 +173,9 @@ export async function searchNetherFortress(ctx, env = process.env) {
 		if (stopCode !== undefined) back.find.stopCode = stopCode;
 		return back;
 	};
+	// The caller's search circle (find's within): no leg goes past it, and a search that reaches its edge is done.
+	const inside = (x, z) => ctx.origin == null || !Number.isFinite(ctx.within) || Math.hypot(x - ctx.origin.x, z - ctx.origin.z) <= ctx.within;
+	const reach = () => { const p = at(); return ctx.origin == null || !Number.isFinite(ctx.within) || p === null ? Infinity : ctx.within - Math.hypot(p.x - ctx.origin.x, p.z - ctx.origin.z); };
 	// The first look of the call (searchFor's) already happened where the body stands.
 	const earlier = looks.slice();
 	noteLook();
@@ -180,7 +185,7 @@ export async function searchNetherFortress(ctx, env = process.env) {
 	if (walled) {
 		const p = at();
 		const high = p === null ? undefined : (body.frontier?.(ctx.observation())?.candidates ?? [])
-			.filter((row) => Number.isFinite(row.dy) && row.dy >= HIGH_GROUND_RISE && row.distance <= OPENING_CLIMB && row.blocked !== true
+			.filter((row) => Number.isFinite(row.dy) && row.dy >= HIGH_GROUND_RISE && row.distance <= OPENING_CLIMB && row.blocked !== true && inside(row.x, row.z)
 				&& earlier.every((point) => Math.hypot(point.x - row.x, point.z - row.z) > VANTAGE_NEW))
 			.sort((a, b) => b.dy - a.dy)[0];
 		if (high !== undefined && left() >= minLegMs) {
@@ -194,13 +199,20 @@ export async function searchNetherFortress(ctx, env = process.env) {
 			}
 		}
 	}
-	let failed = 0, turn = 0, footFails = 0, headingTurn = 0, digs = 0, mobStops = 0;
+	let failed = 0, turn = 0, footFails = 0, headingTurn = 0, mobStops = 0;
+	let digs = 0;
 	// Open views walked from the current front, and the last place a walk (not a dig) made way: a walled-in search walks
 	// back there before it turns.
 	const triedViews = new Set();
 	const start = at();
 	// The start counts only once a walk has left it: a body that starts inside rock has no open ground to go back to.
-	let lastOpen = start === null ? null : { x: start.x, y: Math.floor(start.y + 1e-3), z: start.z, walked: false };
+	// The last open ground and the digs since are kept across find calls, so a search re-asked inside its own tunnel still
+	// goes back after two blind digs (Codex on #79); open ground far from here (a respawn) is not walked back to.
+	const kept = state.fortressOpen;
+	const keptNear = kept?.walked === true && start !== null && Math.hypot(kept.x - start.x, kept.z - start.z) <= KEPT_OPEN;
+	let lastOpen = keptNear ? kept : start === null ? null : { x: start.x, y: Math.floor(start.y + 1e-3), z: start.z, walked: false };
+	const keep = () => { state.fortressOpen = lastOpen; state.fortressDigs = digs; };
+	if (keptNear && Number.isSafeInteger(state.fortressDigs)) digs = state.fortressDigs;
 	const fresh = (p) => looks.every((point) => Math.hypot(point.x - p.x, point.z - p.z) > NEW_GROUND);
 	// The farthest point reached along the current heading. A leg counts as progress only when it moves this forward:
 	// live round 1, a side walk that failed dragged the body 20 blocks back down its own tunnel, and the build leg after
@@ -211,6 +223,7 @@ export async function searchNetherFortress(ctx, env = process.env) {
 		const observation = ctx.observation();
 		const here = at();
 		if (here === null) return stop('FAILED', 'FIND_BLOCKED', 'The body position is unknown', 'NO_POSITION');
+		if (reach() < MIN_LEG) return stop('FAILED', 'FIND_NOT_FOUND', `Searched to ${ctx.within} blocks from the start`);
 		const health = observation?.player?.health;
 		if (Number.isFinite(health) && health <= SEARCH_LOW_HEALTH) {
 			return stop('FAILED', 'FIND_DANGER', `Health ${health} is at or below ${SEARCH_LOW_HEALTH}: eat or recover before searching on`, 'LOW_HEALTH');
@@ -225,7 +238,7 @@ export async function searchNetherFortress(ctx, env = process.env) {
 		const heading = remembered ? yawToward(target.x - here.x, target.z - here.z) : wrap(state.fortressHeading + HEADING_TURNS[headingTurn]);
 		if (front === null || front.heading !== heading) front = { heading, u: unit(heading), origin: here, point: here, along: 0 };
 		// Seen ground ahead of the farthest point, not just ahead of where a failed walk left the body.
-		const ahead = turn === 0 && footFails < MAX_FOOTING_FAILS ? footingAhead(body.frontier?.(observation)?.candidates, front.point, heading, tried) : null;
+		const ahead = turn === 0 && footFails < MAX_FOOTING_FAILS ? footingAhead((body.frontier?.(observation)?.candidates ?? []).filter((row) => inside(row.x, row.z)), front.point, heading, tried) : null;
 		const turns = remembered ? TURNS : SEARCH_TURNS;
 		let build = turn >= turns.length;
 		// Before a dig: the open side the last look showed from here, walked as a player turns along a cavern wall.
@@ -236,6 +249,7 @@ export async function searchNetherFortress(ctx, env = process.env) {
 		// Walled in: two digs in a row never opened into walkable ground. Back to the last open ground, then the next heading.
 		if (walled && build && digs >= MAX_DIGS && !remembered && lastOpen?.walked === true) {
 			digs = 0; turn = 0; footFails = 0; failed += 1;
+			keep();
 			headingTurn = (headingTurn + 1) % HEADING_TURNS.length;
 			if (headingTurn === 0) state.fortressHeading = wrap(state.fortressHeading + 90);
 			front = null;
@@ -251,7 +265,7 @@ export async function searchNetherFortress(ctx, env = process.env) {
 		}
 		let args, distance, how;
 		if (open !== null) {
-			distance = Math.min(FORTRESS_LEG, open.farthestLand);
+			distance = Math.max(MIN_LEG, Math.min(FORTRESS_LEG, open.farthestLand, Math.floor(reach())));
 			args = { yaw: open.yaw, distance, build: false };
 			how = `walk toward open ground seen ${open.farthestLand} blocks off at yaw ${open.yaw}`;
 		} else if (ahead !== null) {
@@ -260,9 +274,9 @@ export async function searchNetherFortress(ctx, env = process.env) {
 			how = `walk to seen ground ${Math.round(ahead.along)} blocks ahead at ${ahead.x},${ahead.y},${ahead.z}`;
 		} else {
 			const yaw = build ? heading : wrap(heading + turns[turn]);
-			distance = build ? BUILD_LEG : remembered ? Math.max(MIN_LEG, Math.min(FORTRESS_LEG, Math.round(target.distance))) : FORTRESS_LEG;
+			distance = Math.max(MIN_LEG, Math.min(build ? BUILD_LEG : remembered ? Math.min(FORTRESS_LEG, Math.round(target.distance)) : FORTRESS_LEG, Math.floor(reach())));
 			// A build leg aims past the farthest point: the way back to it is known ground, so only new rock is dug.
-			args = build ? { x: Math.floor(front.point.x + front.u.x * BUILD_LEG) + 0.5, y: Math.floor(front.point.y + 1e-3), z: Math.floor(front.point.z + front.u.z * BUILD_LEG) + 0.5, tolerance: 3, build }
+			args = build ? { x: Math.floor(front.point.x + front.u.x * distance) + 0.5, y: Math.floor(front.point.y + 1e-3), z: Math.floor(front.point.z + front.u.z * distance) + 0.5, tolerance: 3, build }
 				: { yaw, distance, build };
 			how = `${build ? 'build' : 'walk'} ${remembered ? `toward the fortress seen at ${Math.round(target.x)},${Math.round(target.z)}` : `on heading ${Math.round(yaw)}`}`;
 		}
@@ -322,13 +336,14 @@ export async function searchNetherFortress(ctx, env = process.env) {
 			// A dig that got through counts as a way on, but only walking proves open ground: digs in a row are capped.
 			if (build && tunnelled >= DIG_BLOCKS) digs += 1;
 			else { digs = 0; lastOpen = { x: Math.floor(after.x) + 0.5, y: Math.floor(after.y + 1e-3), z: Math.floor(after.z) + 0.5, walked: true }; }
+			keep();
 			// A side heading that went somewhere becomes the kept one.
 			if (headingTurn !== 0 && !remembered) { state.fortressHeading = heading; headingTurn = 0; }
 		}
 		// A vantage: high ground in sight close by shows more of the fog's 96 blocks than the floor of a valley.
 		const u = unit(heading);
 		const high = (body.frontier?.(ctx.observation())?.candidates ?? [])
-			.filter((row) => Number.isFinite(row.dy) && row.dy >= HIGH_GROUND_RISE && row.distance <= HIGH_GROUND_REACH && row.blocked !== true
+			.filter((row) => Number.isFinite(row.dy) && row.dy >= HIGH_GROUND_RISE && row.distance <= HIGH_GROUND_REACH && row.blocked !== true && inside(row.x, row.z)
 				// Ahead on the heading, and new: not the hill the last look was already taken from.
 				&& (row.x - after.x) * u.x + (row.z - after.z) * u.z > 0
 				&& looks.every((point) => Math.hypot(point.x - row.x, point.z - row.z) > VANTAGE_NEW))

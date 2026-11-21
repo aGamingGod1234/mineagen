@@ -1088,7 +1088,7 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 
 	// A Nether fortress: legs toward the unseen start ground of the structure grid's regions (find-fortress.mjs).
 	if (fortressSearch(profile, observation)) {
-		return searchNetherFortress({ body, observation: () => observation, ground: () => ground, leg, settle, look, handBack, left, minLegMs: MIN_LEG_MS });
+		return searchNetherFortress({ body, observation: () => observation, ground: () => ground, origin, within, leg, settle, look, handBack, left, minLegMs: MIN_LEG_MS });
 	}
 
 	{
