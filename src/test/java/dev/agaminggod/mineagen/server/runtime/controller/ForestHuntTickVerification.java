@@ -95,6 +95,7 @@ public final class ForestHuntTickVerification {
 			verifyCancel();
 			verifyPauseResume();
 			verifyInterruptedByEnderman();
+			verifyUnreachablePassedOver();
 			verifyFailedPerchBacksOff();
 			verifyNotForest();
 		} finally {
@@ -242,6 +243,44 @@ public final class ForestHuntTickVerification {
 			fixture.player.lookAt(net.minecraft.commands.arguments.EntityAnchorArgument.Anchor.EYES, enderman.getEyePosition());
 			fixture.run(hunt, 3);
 			check(fixture.cancelledWalks >= 1, "the enderman in view ended the walk");
+		}
+	}
+
+	/**
+	 * Main's pass-over (UnreachableTargets) is on in a forest pearl hunt with the switch off: an angry enderman the sword
+	 * cannot reach (NO_SEEN_ROUTE) is tried once, its being in view no longer holds off the quiet spell, the relocation
+	 * walk starts, and the passed-over enderman does not cut that walk short.
+	 */
+	private static void verifyUnreachablePassedOver() throws Exception {
+		String saved = System.getProperty(UnreachableTargets.PROPERTY);
+		System.clearProperty(UnreachableTargets.PROPERTY);
+		List<LivingEntity> engaged = new ArrayList<>();
+		try (Fixture fixture = Fixture.create()) {
+			int[] failedAt = {-1};
+			ServerFightUntilController.scriptedMelee = target -> {
+				engaged.add(target);
+				return new ServerController() {
+					@Override public TickResult tick(ServerPlayer body, long nowEpochMs) {
+						if (failedAt[0] < 0) failedAt[0] = fixture.ticks;
+						return TickResult.failed("NO_SEEN_ROUTE", "scripted: no route through seen terrain to a spot within reach", 0.0D);
+					}
+					@Override public void cancel(ServerPlayer body) { }
+				};
+			};
+			WarpedForestHunt.walks = (goal, mayModify, now) -> fixture.walk(1_000, ServerController.State.RUNNING, "", null);
+			FixtureEnderman ledge = fixture.enderman(new Vec3(2.5D, 68.0D, 4.5D), fixture.player);
+			fixture.player.lookAt(net.minecraft.commands.arguments.EntityAnchorArgument.Anchor.EYES, ledge.getEyePosition());
+			ServerFightUntilController hunt = fixture.hunt(hunt(60_000L), null);
+			ServerController.TickResult end = fixture.run(hunt, 400);
+			check(end.state() == ServerController.State.RUNNING, "the hunt goes on: " + end.reasonCode());
+			check(engaged.size() == 1, "the enderman out of reach is tried once, not every tick: " + engaged.size());
+			check(fixture.walksMade == 1, "with only it in view, the quiet spell starts a relocation walk: " + fixture.walksMade);
+			check(fixture.firstWalkTick - failedAt[0] >= WarpedForestHunt.QUIET_MS / 50L - 2L && fixture.firstWalkTick - failedAt[0] <= WarpedForestHunt.QUIET_MS / 50L + 40L,
+					"the walk starts one quiet spell after the failed approach: " + (fixture.firstWalkTick - failedAt[0]) + " ticks");
+			check(fixture.cancelledWalks == 0, "the passed-over enderman does not end the walk");
+		} finally {
+			ServerFightUntilController.scriptedMelee = null;
+			if (saved != null) System.setProperty(UnreachableTargets.PROPERTY, saved);
 		}
 	}
 

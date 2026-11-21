@@ -182,8 +182,11 @@ public final class ServerFightUntilController implements ServerController {
 	private final ElapsedTimeAccumulator elapsedTime;
 	private final HazardEntry hazard = new HazardEntry();
 	private final Map<UUID, Long> excluded = new HashMap<>();
-	/** Mobs a sword approach found out of reach, passed over until they or the body move (off by default; {@link UnreachableTargets}). */
-	private final UnreachableTargets unreachable = UnreachableTargets.fromProperty();
+	/**
+	 * Mobs a sword approach found out of reach, passed over until they or the body move ({@link UnreachableTargets}): off
+	 * by default, always on in a warped-forest pearl hunt, where an enderman on a ledge or across lava pinned the hunt.
+	 */
+	private UnreachableTargets unreachable = UnreachableTargets.fromProperty();
 	private final Map<String, Integer> endings = new LinkedHashMap<>();
 	/** Hurts the body took, by damage kind and what the body was doing (shield, sword, bow, move, idle). */
 	private final Map<String, Integer> hurts = new LinkedHashMap<>();
@@ -411,6 +414,9 @@ public final class ServerFightUntilController implements ServerController {
 			// Open ground first; a requested roof waits for the first calm enderman (its spot named the shelter site, as in K11).
 			forest = new WarpedForestHunt(player.position());
 			forest.mayModify(this::mayModify);
+			// A player skips the enderman on a ledge or across lava and picks another; the forest walks need the quiet spell
+			// that an unreachable one in view would hold off.
+			if (!unreachable.enabled()) unreachable = new UnreachableTargets(true);
 			roofWanted = roof;
 			if (roof) spot = null;
 			roof = false;

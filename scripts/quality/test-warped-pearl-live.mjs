@@ -11,9 +11,17 @@ import {applyQualitySetup,activateQualitySetup} from '../../coordinator/src/benc
 import {adaptObservation} from '../../coordinator/src/observation-adapter.mjs';
 import {validateAction} from '../../coordinator/src/schema.mjs';
 import {normalizeReflexEntries} from '../../coordinator/src/reflexes.mjs';
-const [checkpointFile,outArg,jarArg,repeatArg='1',ticksArg='24000']=process.argv.slice(2);
+import {finishRun,EDIT_LOOP_HELP,FIXTURE_OUTCOME_HELP} from './lib/fixture-run.mjs';
+// The room's verdict goes through finishRun into room.json and room-summary.json (one row); result.json stays the
+// detailed report. PASS: at least PEARL_BAR (6) pearls held inside the window, no death, no error.
+const USAGE='Usage: [STANDIN=roof|until|count] [PEARL_BAR=6] test-warped-pearl-live.mjs CHECKPOINT OUT JAR [salt=1] [gameTicks=24000] [--strict|--descriptive] under slot.sh live';
+const cli=process.argv.slice(2);
+if(cli.includes('--help')){console.log(USAGE+'\n'+EDIT_LOOP_HELP+'\n'+FIXTURE_OUTCOME_HELP);process.exit(0);}
+const strict=!cli.includes('--descriptive');
+const [checkpointFile,outArg,jarArg,repeatArg='1',ticksArg='24000']=cli.filter(a=>!['--strict','--descriptive'].includes(a));
+if(!process.env.SLOT_PORT_BASE||!process.env.ARENA_HEADLESS_SERVER_TEMPLATE||!process.env.JAVA_HOME||!checkpointFile||!outArg||!jarArg){console.error(USAGE);process.exit(2);}
 const cp=JSON.parse(await readFile(checkpointFile,'utf8')),out=path.resolve(outArg),jar=path.resolve(jarArg),repeat=Number(repeatArg),ticks=Number(ticksArg);
-if(!process.env.SLOT_PORT_BASE)throw Error('Use slot.sh live');await mkdir(out,{recursive:true});if((await readdir(out)).length)throw Error('Fresh output required');
+await mkdir(out,{recursive:true});if((await readdir(out)).length)throw Error('Fresh output required');
 if(cp.fixtureVersion!==2||cp.setup.expectedBiome!=='minecraft:warped_forest')throw Error('Prepared v2 forest checkpoint required');
 const result={checkpointSha256:createHash('sha256').update(await readFile(checkpointFile)).digest('hex'),seed:cp.seed,repeat,requestedGameTicks:ticks,providerCalls:0,naturalSpawns:true,controllerSha256:createHash('sha256').update(await readFile(fileURLToPath(import.meta.url))).digest('hex'),jarSha256:createHash('sha256').update(await readFile(jar)).digest('hex'),actions:{},refusals:{},fights:[],sightings:0};
 const sleep=ms=>new Promise(r=>setTimeout(r,ms)),seen=new Set(),cooldown=new Map();
@@ -226,7 +234,8 @@ try{
  }else result.error=String(error.stack??error);
 }
 finally{active=false;await s?.stop().catch(()=>{});}
-for(const f of await readdir(path.join(out,'server/world/players/stats')).catch(()=>[])){
+let statsRead=false;
+for(const f of await readdir(path.join(out,'server/world/players/stats')).catch(()=>[])){statsRead=true;
  const stats=JSON.parse(await readFile(path.join(out,'server/world/players/stats',f),'utf8')).stats??{};result.stats=stats;
  result.endermenKilled=stats['minecraft:killed']?.['minecraft:enderman']??0;result.pearlsPickedUp=stats['minecraft:picked_up']?.['minecraft:ender_pearl']??0;result.deaths=stats['minecraft:custom']?.['minecraft:deaths']??0;
 }
@@ -234,4 +243,20 @@ if(dead)result.pearlsInWindow=0;
 // Shelters built and kills, from every hunt receipt (ServerFightUntilController: "shelters built: N", "N kill(s)").
 let shelters=0,kills=0;for(const c of result.untilCalls??[]){const m=String(c.message);shelters+=Number(/shelters built: (\d+)/.exec(m)?.[1]??0);kills+=Number(/: (\d+) kills?,/.exec(m)?.[1]??0);}
 Object.assign(result,{sheltersBuilt:shelters,receiptKills:kills,sheltersPerKill:kills?shelters/kills:null,pass:!dead&&!(result.deaths>0)&&!result.error&&(result.pearlsInWindow??0)>=Number(process.env.PEARL_BAR??6)});
-await save();console.log(JSON.stringify(result));process.exitCode=result.error?1:0;
+// Hand-back codes and main's pass-over of unreachable endermen ("out of reach: passed over N times ... (M let back in)").
+const handBacks={};let passedOver=0,letBackIn=0;
+for(const c of result.untilCalls??[]){handBacks[c.reason]=(handBacks[c.reason]??0)+1;const m=/out of reach: passed over (\d+) times? .*?\((\d+) let back in\)/.exec(String(c.message));if(m){passedOver+=Number(m[1]);letBackIn+=Number(m[2]);}}
+Object.assign(result,{handBacks,passedOver,letBackIn});
+await save();console.log(JSON.stringify(result));
+const bar=Number(process.env.PEARL_BAR??6),pearls=result.pearlsInWindow??0;
+const row={name:`pearl-${cp.seed}-salt${repeat}`,startedAt:started||undefined,finishedAt:Date.now(),seed:cp.seed,salt:repeat,standin:STANDIN,
+ pearlsInWindow:pearls,endPearls:result.endPearls??null,endermenKilled:result.endermenKilled??null,pearlsPickedUp:result.pearlsPickedUp??null,
+ deaths:statsRead?result.deaths:null,dead,receiptKills:kills,sheltersBuilt:shelters,handBacks,passedOver,letBackIn,calls:(result.untilCalls??[]).length,
+ elapsedGameTicks:result.elapsedGameTicks??null,completedWindow:result.completedWindow??false,pass:result.pass};
+if(result.error)row.error=result.error;
+// No player stats file: deaths and kills are unknown, never 0.
+if(!statsRead&&!result.error)row.integrity=[{file:'server/world/players/stats',error:'missing player stats: deaths and kills unknown'}];
+if(!started&&!result.error)row.notExercised='the hunt never started';
+if(row.pass)row.passReason=`${pearls} pearls in ${ticks} game ticks, no death`;
+else row.failReason=[pearls<bar?`${pearls} of ${bar} pearls in ${ticks} game ticks`:null,dead||result.deaths>0?'died':null].filter(Boolean).join('; ')||'pass false';
+await finishRun([row],{file:path.join(out,'room.json'),strict});
