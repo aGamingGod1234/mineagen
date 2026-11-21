@@ -3064,6 +3064,182 @@
    "estMinutes": 3,
    "tickRate": 20,
    "reads": "exit code (throws on a failed check)"
+  },
+  {
+   "room": "iron-obtain-1001",
+   "fixture": "test-find-live.mjs",
+   "stage": "early",
+   "skill": "mining",
+   "skill2": "survival",
+   "line": "FIND_ONLY=obtain-1001 node scripts/quality/test-find-live.mjs scripts/quality/iron-obtain-spots.json $OUT $JAR --descriptive",
+   "estMinutes": 6,
+   "tickRate": 20,
+   "reads": "OUT/result.json row pass: the last obtain ended OBTAINED with no death; the call is asked again after a DANGER hand-back, as a model re-asks"
+  },
+  {
+   "room": "iron-obtain-2002",
+   "fixture": "test-find-live.mjs",
+   "stage": "early",
+   "skill": "mining",
+   "skill2": "survival",
+   "line": "FIND_ONLY=obtain-2002 node scripts/quality/test-find-live.mjs scripts/quality/iron-obtain-spots.json $OUT $JAR --descriptive",
+   "estMinutes": 6,
+   "tickRate": 20,
+   "reads": "OUT/result.json row pass: the last obtain ended OBTAINED with no death; the call is asked again after a DANGER hand-back, as a model re-asks"
+  },
+  {
+   "room": "iron-obtain-3003",
+   "fixture": "test-find-live.mjs",
+   "stage": "early",
+   "skill": "mining",
+   "skill2": "survival",
+   "line": "FIND_ONLY=obtain-3003 node scripts/quality/test-find-live.mjs scripts/quality/iron-obtain-spots.json $OUT $JAR --descriptive",
+   "estMinutes": 6,
+   "tickRate": 20,
+   "reads": "OUT/result.json row pass: the last obtain ended OBTAINED with no death; the call is asked again after a DANGER hand-back, as a model re-asks"
+  },
+  {
+   "room": "iron-obtain-4004",
+   "fixture": "test-find-live.mjs",
+   "stage": "early",
+   "skill": "mining",
+   "skill2": "survival",
+   "line": "FIND_ONLY=obtain-4004 node scripts/quality/test-find-live.mjs scripts/quality/iron-obtain-spots.json $OUT $JAR --descriptive",
+   "estMinutes": 6,
+   "tickRate": 20,
+   "reads": "OUT/result.json row pass: the last obtain ended OBTAINED with no death; the call is asked again after a DANGER hand-back, as a model re-asks"
+  },
+  {
+   "room": "iron-obtain-5005",
+   "fixture": "test-find-live.mjs",
+   "stage": "early",
+   "skill": "mining",
+   "skill2": "survival",
+   "line": "FIND_ONLY=obtain-5005 node scripts/quality/test-find-live.mjs scripts/quality/iron-obtain-spots.json $OUT $JAR --descriptive",
+   "estMinutes": 6,
+   "tickRate": 20,
+   "reads": "OUT/result.json row pass: the last obtain ended OBTAINED with no death; the call is asked again after a DANGER hand-back, as a model re-asks"
+  },
+  {
+   "room": "iron-obtain-6006",
+   "fixture": "test-find-live.mjs",
+   "stage": "early",
+   "skill": "mining",
+   "skill2": "survival",
+   "line": "FIND_ONLY=obtain-6006 node scripts/quality/test-find-live.mjs scripts/quality/iron-obtain-spots.json $OUT $JAR --descriptive",
+   "estMinutes": 6,
+   "tickRate": 20,
+   "reads": "OUT/result.json row pass: the last obtain ended OBTAINED with no death; the call is asked again after a DANGER hand-back, as a model re-asks"
+  },
+  {
+   "room": "iron-obtain-7007",
+   "fixture": "test-find-live.mjs",
+   "stage": "early",
+   "skill": "mining",
+   "skill2": "survival",
+   "line": "FIND_ONLY=obtain-7007 node scripts/quality/test-find-live.mjs scripts/quality/iron-obtain-spots.json $OUT $JAR --descriptive",
+   "estMinutes": 6,
+   "tickRate": 20,
+   "reads": "OUT/result.json row pass: the last obtain ended OBTAINED with no death; the call is asked again after a DANGER hand-back, as a model re-asks"
+  },
+  {
+   "room": "iron-obtain-8008",
+   "fixture": "test-find-live.mjs",
+   "stage": "early",
+   "skill": "mining",
+   "skill2": "survival",
+   "line": "FIND_ONLY=obtain-8008 node scripts/quality/test-find-live.mjs scripts/quality/iron-obtain-spots.json $OUT $JAR --descriptive",
+   "estMinutes": 6,
+   "tickRate": 20,
+   "reads": "OUT/result.json row pass: the last obtain ended OBTAINED with no death; the call is asked again after a DANGER hand-back, as a model re-asks"
+  },
+  {
+   "room": "iron-obtain-20261009",
+   "fixture": "test-find-live.mjs",
+   "stage": "early",
+   "skill": "mining",
+   "skill2": "survival",
+   "line": "FIND_ONLY=obtain-20261009 node scripts/quality/test-find-live.mjs scripts/quality/iron-obtain-spots.json $OUT $JAR --descriptive",
+   "estMinutes": 6,
+   "tickRate": 20,
+   "reads": "OUT/result.json row pass: the last obtain ended OBTAINED with no death; the call is asked again after a DANGER hand-back, as a model re-asks"
+  },
+  {
+   "room": "iron-obtain-20261029",
+   "fixture": "test-find-live.mjs",
+   "stage": "early",
+   "skill": "mining",
+   "skill2": "survival",
+   "line": "FIND_ONLY=obtain-20261029 node scripts/quality/test-find-live.mjs scripts/quality/iron-obtain-spots.json $OUT $JAR --descriptive",
+   "estMinutes": 6,
+   "tickRate": 20,
+   "reads": "OUT/result.json row pass: the last obtain ended OBTAINED with no death; the call is asked again after a DANGER hand-back, as a model re-asks"
+  },
+  {
+   "room": "iron-obtain-20261107",
+   "fixture": "test-find-live.mjs",
+   "stage": "early",
+   "skill": "mining",
+   "skill2": "survival",
+   "line": "FIND_ONLY=obtain-20261107 node scripts/quality/test-find-live.mjs scripts/quality/iron-obtain-spots.json $OUT $JAR --descriptive",
+   "estMinutes": 6,
+   "tickRate": 20,
+   "reads": "OUT/result.json row pass: the last obtain ended OBTAINED with no death; the call is asked again after a DANGER hand-back, as a model re-asks"
+  },
+  {
+   "room": "iron-obtain-31001",
+   "fixture": "test-find-live.mjs",
+   "stage": "early",
+   "skill": "mining",
+   "skill2": "survival",
+   "line": "FIND_ONLY=obtain-31001 node scripts/quality/test-find-live.mjs scripts/quality/iron-obtain-spots.json $OUT $JAR --descriptive",
+   "estMinutes": 6,
+   "tickRate": 20,
+   "reads": "OUT/result.json row pass: the last obtain ended OBTAINED with no death; the call is asked again after a DANGER hand-back, as a model re-asks"
+  },
+  {
+   "room": "iron-obtain-31002",
+   "fixture": "test-find-live.mjs",
+   "stage": "early",
+   "skill": "mining",
+   "skill2": "survival",
+   "line": "FIND_ONLY=obtain-31002 node scripts/quality/test-find-live.mjs scripts/quality/iron-obtain-spots.json $OUT $JAR --descriptive",
+   "estMinutes": 6,
+   "tickRate": 20,
+   "reads": "OUT/result.json row pass: the last obtain ended OBTAINED with no death; the call is asked again after a DANGER hand-back, as a model re-asks"
+  },
+  {
+   "room": "iron-obtain-31003",
+   "fixture": "test-find-live.mjs",
+   "stage": "early",
+   "skill": "mining",
+   "skill2": "survival",
+   "line": "FIND_ONLY=obtain-31003 node scripts/quality/test-find-live.mjs scripts/quality/iron-obtain-spots.json $OUT $JAR --descriptive",
+   "estMinutes": 6,
+   "tickRate": 20,
+   "reads": "OUT/result.json row pass: the last obtain ended OBTAINED with no death; the call is asked again after a DANGER hand-back, as a model re-asks"
+  },
+  {
+   "room": "iron-obtain-31004",
+   "fixture": "test-find-live.mjs",
+   "stage": "early",
+   "skill": "mining",
+   "skill2": "survival",
+   "line": "FIND_ONLY=obtain-31004 node scripts/quality/test-find-live.mjs scripts/quality/iron-obtain-spots.json $OUT $JAR --descriptive",
+   "estMinutes": 6,
+   "tickRate": 20,
+   "reads": "OUT/result.json row pass: the last obtain ended OBTAINED with no death; the call is asked again after a DANGER hand-back, as a model re-asks"
+  },
+  {
+   "room": "iron-obtain-31005",
+   "fixture": "test-find-live.mjs",
+   "stage": "early",
+   "skill": "mining",
+   "skill2": "survival",
+   "line": "FIND_ONLY=obtain-31005 node scripts/quality/test-find-live.mjs scripts/quality/iron-obtain-spots.json $OUT $JAR --descriptive",
+   "estMinutes": 6,
+   "tickRate": 20,
+   "reads": "OUT/result.json row pass: the last obtain ended OBTAINED with no death; the call is asked again after a DANGER hand-back, as a model re-asks"
   }
  ]
 }
