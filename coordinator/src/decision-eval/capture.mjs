@@ -201,8 +201,11 @@ function perchedDragonRow(observation) {
 }
 
 const SIGHTING_KINDS = ['caves', 'veins', 'blocks']; // sighted.blocks carries lava and spawners
-/** Keeps the observations that first sighted a cave, vein or block row (lava, spawner) this life, by kind and position. */
-function noteSightings(agent, payload, limit) {
+/**
+ * Keeps the observations that first sighted a cave, vein or block row (lava, spawner) this life, by kind, dimension and
+ * position: the same coordinates in another dimension are another place.
+ */
+export function noteSightings(agent, payload, limit) {
 	agent.sightings ??= [];
 	agent.sightingKeys ??= new Set();
 	let fresh = false;
@@ -211,7 +214,7 @@ function noteSightings(agent, payload, limit) {
 		if (!Array.isArray(rows)) continue;
 		for (const row of rows) {
 			if (!finite(row?.x) || !finite(row?.y) || !finite(row?.z)) continue;
-			const key = `${kind}:${Math.floor(row.x)},${Math.floor(row.y)},${Math.floor(row.z)}`;
+			const key = `${kind}:${payload?.world?.dimension ?? payload?.dimension ?? ''}:${Math.floor(row.x)},${Math.floor(row.y)},${Math.floor(row.z)}`;
 			if (!agent.sightingKeys.has(key)) { agent.sightingKeys.add(key); fresh = true; }
 		}
 	}
