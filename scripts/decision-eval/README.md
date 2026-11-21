@@ -172,6 +172,53 @@ instead of "told 23s"), and for 8 it added an earlier failure line. Replaying th
 answered those results are not replayed, so an answered failure comes back as unanswered (iron-sourcing-06 would open
 with "Action failed: move_to REACHED_FRONTIER" although the recorded player had already moved on).
 
+## Tier-1 decision test
+
+One command scores any commit on how often the in-game model picks the player-like move at recorded moments, with a
+score per category and the change against a stored baseline:
+
+```sh
+# This checkout (from coordinator/)
+npm run eval:tier1
+# Any commit, or another checkout that carries this harness
+npm run eval:tier1 -- --build <commit>
+# A wake wording variant on the same moments (see "Wake wording" below)
+npm run eval:tier1 -- --wording fresh
+```
+
+- **Cases.** The families listed in `tier1.json`, grouped into five categories: ore search, lava, travel and obstacles,
+  combat, food and climbing out. Each category mixes older train families with `cp2r-*` families: moments taken from the
+  decision logs of the 19 Nov checkpoint round, at the exact observation the in-game model woke on, with the earlier
+  observations that first sighted each cave, vein and lava block (`capture.mjs --at <pins> --sightings 12`), so
+  remembered caves and lava come back in the rebuilt view. They live in the private archive under
+  `coordinator/test/fixtures/decision-eval/tier1/`.
+- **Asking.** The build renders every case with its own code (`run.mjs`) and asks the in-game profile (`tier1.json`:
+  Codex, GPT-6.2 Sol, low effort) `--samples` times per case (default 3). Answers are cached like any decision eval.
+- **Grading.** Predicates where a case has them, otherwise the cross-family rubric judge (Claude Opus 5.5 for a Sol
+  player). Each `cp2r-*` rubric names the player move and the specific carry-on move that is wrong at that moment;
+  reads alone are neutral.
+- **Score.** A case scores its good answers over graded answers; a category is the mean of its cases; the score is the
+  mean of the five categories. Ungraded answers (judge outage) are counted and left out.
+- **Baseline.** `tier1-baseline.json` holds main's per-case counts (no case content). `--write-baseline` replaces it.
+  Deltas come with a 90% interval from a paired bootstrap over cases; a change marked **real** has an interval that
+  excludes zero. Two main runs at different `--sample-offset` give the noise floor (see the PR that added this).
+- **Output.** `<out>/tier1.md` (the table), `tier1.json` and `graded-samples.jsonl` (every answer and its grade).
+- **What it cannot see.** When the bot gets woken (each case is one wake that already happened), pathing and combat
+  execution, and long-game memory older than the replayed observations.
+
+### Wake wording
+
+`--wording` rewrites each rendered wake before it is sent, keeping every fact (`coordinator/src/decision-eval/wording.mjs`).
+It tests whether the wording pushes the model to carry on with its running step:
+
+- `production`: the build's own text.
+- `fresh-question`: the first line becomes "Fresh look: what would a skilled Minecraft player do right now? Carrying on
+  with the current step is one option, not the default; ..." followed by the event facts. The production phrases
+  "Update; act on fresh facts.", "Keep the existing goal; choose its next unmet step from these fresh facts." and
+  "Make progress now;" are dropped.
+- `fresh`: the same first line, plus the running step shown as an option: "Doing: X" becomes "Current step (one option,
+  you may switch): X" and "usual next step:" becomes "one usual next step:".
+
 ## Read a report
 
 - **Verdict.** FAIL needs a whole family (Holm-adjusted over every planned family) or the overall set to drop with

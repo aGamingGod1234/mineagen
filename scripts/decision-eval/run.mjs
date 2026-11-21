@@ -42,6 +42,8 @@ const USAGE = `Usage: node scripts/decision-eval/run.mjs --cases <file|dir> [opt
   --random-view-id              name observation views with a random id per session, as production does
                                 (default: one fixed eval id, so repeated samples read the wake from the prompt cache)
   --cache-report                render, look up the cache, print { cached, missing } as JSON and exit
+  --wording <name>              wake wording variant (coordinator/src/decision-eval/wording.mjs): production (default),
+                                fresh-question or fresh; an experiment, not production behaviour
   --dry-run                     render only; no model calls`;
 
 const { values: args } = parseArgs({
@@ -52,11 +54,14 @@ const { values: args } = parseArgs({
 		out: { type: 'string' }, 'expect-fixture-sha256': { type: 'string' }, 'max-calls': { type: 'string' }, probe: { type: 'boolean', default: false }, 'budget-usd': { type: 'string' }, 'budget-ledger': { type: 'string' }, 'cache-epoch': { type: 'string', default: '1' },
 		root: { type: 'string' }, 'dry-run': { type: 'boolean', default: false }, help: { type: 'boolean', default: false },
 		'sample-offset': { type: 'string', default: '0' }, 'cache-dir': { type: 'string' }, 'import-cache': { type: 'string' }, 'import-runtime': { type: 'string' }, 'random-view-id': { type: 'boolean', default: false }, 'cache-report': { type: 'boolean', default: false },
+		wording: { type: 'string', default: 'production' },
 	},
 });
 if (args.help || !args.cases?.length) { console.log(USAGE); process.exit(args.help ? 0 : 2); }
 const positive = (value, name) => { const number = Number(value); if (!Number.isSafeInteger(number) || number <= 0) { console.error(`--${name} must be a positive integer`); process.exit(2); } return number; };
 const samples = positive(args.samples, 'samples');
+const { WAKE_WORDINGS } = await source('wording.mjs');
+if (!Object.hasOwn(WAKE_WORDINGS, args.wording)) { console.error(`--wording must be one of ${Object.keys(WAKE_WORDINGS).join(', ')}`); process.exit(2); }
 const concurrency = positive(args.concurrency, 'concurrency');
 const provider = args.provider;
 // "fake" exists for orchestration tests only: DECISION_EVAL_FAKE_PROVIDER names a module whose answer({ caseId, sample,
@@ -140,7 +145,7 @@ const renderStarted = performance.now();
 const renders = new Map();
 const renderErrors = [];
 for (const testCase of cases) {
-	try { renders.set(testCase.id, await renderWake(testCase, { provider: renderProvider, model, reasoningEffort: effort })); }
+	try { renders.set(testCase.id, await renderWake(testCase, { provider: renderProvider, model, reasoningEffort: effort, wording: args.wording })); }
 	catch (error) { renderErrors.push({ caseId: testCase.id, code: error.code ?? 'RENDER_FAILED', message: String(error.message).slice(0, 512) }); }
 }
 const renderMs = Math.round(performance.now() - renderStarted);
@@ -341,7 +346,7 @@ const summary = {
 };
 const run = {
 	schemaVersion: DECISION_EVAL_SCHEMA_VERSION, kind: 'decision-eval-run', startedAt, finishedAt: new Date().toISOString(), build,
-	config: { provider, model, effort, samples, sampleCounts: Object.fromEntries(sampleCounts), concurrency, split: args.split, quick: args.quick, casesPaths: files, casesSha256: setSha256, dryRun: args['dry-run'], budgetUsd: Number.isFinite(budgetUsd) ? budgetUsd : null, budgetLedger, maxCalls, probe: args.probe, runtime, cacheEpoch: args['cache-epoch'],
+	config: { provider, model, effort, wording: args.wording, samples, sampleCounts: Object.fromEntries(sampleCounts), concurrency, split: args.split, quick: args.quick, casesPaths: files, casesSha256: setSha256, dryRun: args['dry-run'], budgetUsd: Number.isFinite(budgetUsd) ? budgetUsd : null, budgetLedger, maxCalls, probe: args.probe, runtime, cacheEpoch: args['cache-epoch'],
 		sampleOffset, viewSession: viewSession === null ? 'random' : 'eval-fixed', cacheBuildKey },
 	renders: Object.fromEntries([...renders].map(([id, value]) => [id, { inputSha256: value.inputSha256, encodedSha256: value.encodedSha256, inputBytes: value.inputBytes, encodedBytes: value.encodedBytes, trigger: value.trigger, replay: value.replay, ...(value.triggerMismatch ? { triggerMismatch: value.triggerMismatch } : {}) }])),
 	results, summary,

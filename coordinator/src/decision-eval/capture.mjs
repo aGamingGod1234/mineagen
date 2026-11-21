@@ -14,7 +14,7 @@ import { createHash } from 'node:crypto';
 export const CAPTURE_TRIGGERS = Object.freeze([
 	'damage', 'low_health', 'low_food', 'failed_action', 'hazard_lava', 'hazard_fire', 'hazard_drowning', 'hazard_fall',
 	'hostile_near', 'night_falling', 'no_progress', 'plan_step_change', 'plan_step_stalled', 'inventory_full', 'respawn', 'threat_after_escape',
-	'milestone_gained', 'dimension_change', 'structure_seen', 'progression_mob_seen', 'dragon_perched',
+	'milestone_gained', 'dimension_change', 'structure_seen', 'progression_mob_seen', 'dragon_perched', 'pinned',
 ]);
 
 // Progression moments ("have X, what next"): the first carried item of each stage of the vanilla route to the dragon,
@@ -38,6 +38,8 @@ const STRUCTURE_BLOCKS = new Set(['nether_bricks', 'nether_brick_fence', 'spawne
 export const DEFAULT_CAPTURE_OPTIONS = Object.freeze({
 	cooldownMs: 30_000,          // the same trigger (and detail key) fires at most once per window
 	previousObservations: 2,     // earlier observations of the same life kept with each moment
+	sightingObservations: 0,     // also keep up to this many earlier observations of the life that first sighted a cave,
+	                             // vein or lava row, so the replay rebuilds the remembered places the model was shown
 	recentResults: 5,
 	hostileRadius: 12,
 	creeperRadius: 10,
@@ -198,6 +200,24 @@ function perchedDragonRow(observation) {
 		&& e.perceivedBy !== 'sound' && e.appearance?.motion === 'perched') ?? null;
 }
 
+const SIGHTING_KINDS = ['caves', 'veins', 'blocks']; // sighted.blocks carries lava and spawners
+/** Keeps the observations that first sighted a cave, vein or block row (lava, spawner) this life, by kind and position. */
+function noteSightings(agent, payload, limit) {
+	agent.sightings ??= [];
+	agent.sightingKeys ??= new Set();
+	let fresh = false;
+	for (const kind of SIGHTING_KINDS) {
+		const rows = payload?.sighted?.[kind];
+		if (!Array.isArray(rows)) continue;
+		for (const row of rows) {
+			if (!finite(row?.x) || !finite(row?.y) || !finite(row?.z)) continue;
+			const key = `${kind}:${Math.floor(row.x)},${Math.floor(row.y)},${Math.floor(row.z)}`;
+			if (!agent.sightingKeys.has(key)) { agent.sightingKeys.add(key); fresh = true; }
+		}
+	}
+	if (fresh) { agent.sightings.push(payload); if (agent.sightings.length > limit * 4) agent.sightings.shift(); }
+}
+
 /** "open wood[unmet:#logs 0/8]; later:6" -> "wood" (the plan step the model was shown as open). */
 export function openPlanStep(progressLine) {
 	if (typeof progressLine !== 'string') return null;
@@ -226,8 +246,16 @@ export class MomentCapture {
 	moments = [];
 	stats = { rows: 0, observations: 0, results: 0, failures: 0, deaths: 0, suppressed: 0, triggers: {} };
 
-	constructor({ trace, runId = null, scenarioId = null, turns = [], options = {} } = {}) {
+	#pinned; #pinMode;
+
+	/**
+	 * `pinned` ([{ atMs, label, agentId? }]) captures a moment on the first live observation at or after each time (of
+	 * that agent, when given) instead of the triggers: for moments chosen from another record, such as a decision log.
+	 */
+	constructor({ trace, runId = null, scenarioId = null, turns = [], options = {}, pinned = [] } = {}) {
 		this.#options = { ...DEFAULT_CAPTURE_OPTIONS, ...options };
+		this.#pinned = pinned.filter((pin) => finite(pin?.atMs)).sort((a, b) => a.atMs - b.atMs);
+		this.#pinMode = this.#pinned.length > 0;
 		this.#trace = trace;
 		this.runId = runId;
 		this.scenarioId = scenarioId;
@@ -252,7 +280,9 @@ export class MomentCapture {
 			const target = turn.agentId && this.#agents.has(turn.agentId) ? this.#agents.get(turn.agentId) : agent;
 			const data = turn.data;
 			if (typeof data.goal === 'string' && data.goal.trim()) target.goal = data.goal;
-			if (isObject(data.goalSpec)) target.goalSpec = data.goalSpec;
+			// Turn inputs can carry only the predicate; keep the recorded spec's other fields (fingerprint, request, tick),
+			// or the replay coordinator refuses the goal and never wakes.
+			if (isObject(data.goalSpec)) target.goalSpec = { ...(target.goalSpec ?? {}), ...data.goalSpec };
 			if (isObject(data.taskMemory)) target.taskMemory = data.taskMemory;
 			if (typeof data.progress === 'string') {
 				const open = openPlanStep(data.progress);
@@ -270,7 +300,9 @@ export class MomentCapture {
 		if (last !== undefined && at - last < this.#options.cooldownMs) { this.stats.suppressed++; return; }
 		agent.lastFire.set(event.key, at);
 		const observationRaw = rawObservation(observation);
-		const previousObservations = agent.history.slice(-this.#options.previousObservations - 1, -1).map(rawObservation);
+		const recent = agent.history.slice(-this.#options.previousObservations - 1, -1);
+		const sightings = (agent.sightings ?? []).filter((entry) => !recent.includes(entry) && entry !== observation).slice(-this.#options.sightingObservations);
+		const previousObservations = [...sightings, ...recent].map(rawObservation);
 		this.moments.push({
 			id: `${this.#trace.replace(/[^a-z0-9]+/gi, '-').toLowerCase().slice(-48)}-${event.trigger}-${at}`.replace(/^-+/, ''),
 			trigger: event.trigger,
@@ -336,7 +368,7 @@ export class MomentCapture {
 		if (envelope.type === 'goal_control' && payload.operation === 'dead') {
 			const agent = this.#agent(agentId);
 			this.stats.deaths++;
-			agent.dead = true; agent.respawnPending = true; agent.history = []; agent.pendingFailure = null; agent.stall = null; agent.pendingMilestones?.clear();
+			agent.dead = true; agent.respawnPending = true; agent.history = []; agent.sightings = []; agent.sightingKeys = new Set(); agent.pendingFailure = null; agent.stall = null; agent.pendingMilestones?.clear();
 			return;
 		}
 		if (envelope.type !== 'observation' || !isObject(payload.player)) return;
@@ -348,7 +380,14 @@ export class MomentCapture {
 		if (!alive(payload)) { agent.history.push(payload); if (agent.history.length > 8) agent.history.shift(); return; }
 		agent.history.push(payload);
 		if (agent.history.length > 8) agent.history.shift();
+		if (this.#options.sightingObservations > 0) noteSightings(agent, payload, this.#options.sightingObservations);
 		if (agent.goal === null) return; // no recorded goal yet: the moment would have no task context
+		if (this.#pinMode) {
+			const due = this.#pinned.filter((pin) => pin.atMs <= at && (pin.agentId == null || pin.agentId === agentId));
+			if (due.length > 0) this.#pinned = this.#pinned.filter((pin) => !due.includes(pin));
+			for (const pin of due) this.#fire(agentId, agent, { trigger: 'pinned', key: `pinned:${pin.label ?? pin.atMs}`, detail: { ...pin, lagMs: at - pin.atMs } }, payload, meta);
+			return;
+		}
 		const detected = detectObservationTriggers(previous, payload, this.#options);
 		// "Have X, what next" is the decision the player makes once the step that produced X has finished: a milestone
 		// gained during a running action (a crafting sequence, a furnace transaction) fires on the first observation
