@@ -1,10 +1,15 @@
 #!/usr/bin/env node
 // Model-free verification of one checkpoint in a fresh disposable world. Launch under slot.sh live.
 // node scripts/quality/test-savepoints-live.mjs CHECKPOINT OUT [JAR]
+// FIXTURE_TICK_RATE runs the world-time windows faster: the checkpoint is set up and read at 20 TPS, and the 60-second
+// idle safety window, the portal round trip, each respawn and the vanilla ladder climb run at the raised rate with their
+// windows and waits on the fixture clock (s.clock, game time), so a raised rate plays the same game. The micro start
+// checks stay at 20 TPS. r.safety records game seconds, wallMs, rates and vanilla damageTaken; r.tick the rate held.
 import {readFile,writeFile,mkdir,readdir} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import path from 'node:path';
-import {boot} from './watch-replay.mjs';
+import {boot,fixtureTickRate} from './watch-replay.mjs';
+import {damageCounter,recordDamageEvidence} from './lib/damage-counter.mjs';
 import {applyQualitySetup,activateQualitySetup} from '../../coordinator/src/benchmark/quality-scenarios.mjs';
 import {parseInventory,parseEquipment} from '../../coordinator/src/benchmark/checkpoint.mjs';
 import {Observer} from './run-scenarios.mjs';
@@ -20,7 +25,9 @@ const pos=text=>String(text).match(/\[\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?,\s*(-?[\d.
 let s;
 try{
  // It adopts revisions below without answering agent_ready, as before boot() could follow them itself.
- s=await boot(out,{jar:path.resolve(jar),template:process.env.ARENA_HEADLESS_SERVER_TEMPLATE,port:Number(process.env.SLOT_PORT_BASE),seed:cp.seed,spawnMonsters:true,followRevision:false});
+ s=await boot(out,{jar:path.resolve(jar),template:process.env.ARENA_HEADLESS_SERVER_TEMPLATE,port:Number(process.env.SLOT_PORT_BASE),seed:cp.seed,spawnMonsters:true,followRevision:false,tickRate:fixtureTickRate()});
+ await s.normalRate();
+ const now=()=>s.clock.now();
  s.bridge.on('message',e=>{const revision=e.payload.goalRevision??e.payload.record?.goalRevision??e.payload.control?.goalRevision;if(s.record&&e.agentId===s.record.agentId&&Number.isInteger(revision))s.record.goalRevision=Math.max(s.record.goalRevision,revision);});
  const command=async text=>({text:await s.command(text)});
  const loaded=async (dim,x,z)=>{for(let i=0;i<100;i++){if(/time is \d+/i.test(await s.command(`execute in ${dim} if loaded ${x} 100 ${z} run time query gametime`)))return;await sleep(200);}throw new Error('Verification chunk did not load');};
@@ -105,7 +112,7 @@ try{
   }
   if(cp.milestone==='micro-dragon-low'){
    // Force-load every spike so an unloaded crystal cannot hide from the check (fixture world only).
-   await s.command(`execute in ${END} run forceload add -64 -64 64 64`);for(const [x,z] of [[-48,0],[48,0],[0,-48],[0,48]])await loaded(END,x,z);await sleep(5000);
+   await s.command(`execute in ${END} run forceload add -64 -64 64 64`);for(const [x,z] of [[-48,0],[48,0],[0,-48],[0,48]])await loaded(END,x,z);await s.idleSleep(5000);
    const crystals=/time is \d+/i.test(await s.command(`execute in ${END} if entity @e[type=minecraft:end_crystal] run time query gametime`));
    const healthText=await s.command(`execute in ${END} run data get entity @e[type=minecraft:ender_dragon,limit=1] Health`);
    const health=number(healthText);
@@ -122,20 +129,26 @@ try{
   for(const [type,positions] of Object.entries(hazards))for(const p of positions){const text=await s.command(`execute in ${OW} if block ${p.join(' ')} minecraft:${type} run time query gametime`);if(/time is \d+/i.test(text))r.portalRoom.remaining.push({type,position:p});}
   if(r.portalRoom.remaining.length)throw new Error('Portal-room lava or silverfish spawner remains');
  }
- r.safety={samples:[],wallMs:0,ticks:0};const begin=Date.now(),tick0=number(await s.command('time query gametime'));
- while(!spawnControl&&(Date.now()-begin<60000||r.safety.ticks<1200)){
+ // The idle window is play: 60 s of game time (and 1200 ticks) at the raised rate; the 180 s guard stays wall time.
+ const readDamage=await damageCounter(text=>s.command(text),AGENT);const damage0=await readDamage();
+ await s.fastRate();
+ r.safety={samples:[],wallMs:0,ticks:0};const begin=now(),wall0=Date.now(),timer=await s.gameTimer(),tick0=number(await s.command('time query gametime'));
+ while(!spawnControl&&(now()-begin<60000||r.safety.ticks<1200)){
   const health=number(await s.command(`data get entity ${AGENT} Health`));const deaths=number(await s.command(`scoreboard players get ${AGENT} qo_death`))||0;
-  r.safety.samples.push({ms:Date.now()-begin,health,deaths,pos:pos(await s.command(`data get entity ${AGENT} Pos`))});
+  r.safety.samples.push({ms:now()-begin,health,deaths,pos:pos(await s.command(`data get entity ${AGENT} Pos`))});
   if(!health||deaths)throw new Error('Unsafe start: body died during 60-second idle');
-  r.safety.ticks=number(await s.command('time query gametime'))-tick0;if(Date.now()-begin>180000)throw new Error('Safety window did not advance 1200 ticks');await sleep(2000);
+  r.safety.ticks=number(await s.command('time query gametime'))-tick0;if(Date.now()-wall0>180000)throw new Error('Safety window did not advance 1200 ticks');await s.clock.sleep(2000);
  }
- if(spawnControl){await sleep(5000);r.safety.skipped='Spawn-control baseline only';}
- r.safety.wallMs=Date.now()-begin;r.safety.minHealth=Math.min(...r.safety.samples.map(x=>x.health));r.safety.pass=r.safety.minHealth===20;
+ if(spawnControl){await s.clock.sleep(5000);r.safety.skipped='Spawn-control baseline only';}
+ r.safety.seconds=Math.round((now()-begin)/1000);r.safety.gameSeconds=Math.round((await timer.elapsed())/1000);r.safety.rates=await timer.rates().catch(()=>null);
+ r.safety.wallMs=Date.now()-wall0;r.safety.minHealth=Math.min(...r.safety.samples.map(x=>x.health));r.safety.pass=r.safety.minHealth===20;
+ recordDamageEvidence(r.safety, damage0,await readDamage());
  if(cp.fixtureVersion===2&&/^(2b-|9-nether-entry-sol)/.test(path.basename(file))){
   const portals={};for(const c of cp.setup.commands){const m=c.match(/^execute in (minecraft:[a-z_]+) run fill (-?\d+) (-?\d+) (-?\d+) .* minecraft:nether_portal/);if(m)portals[m[1]]=m.slice(2,5).map(Number);}
   const NE='minecraft:the_nether',ow=portals[OW],ne=portals[NE];if(!ow||!ne)throw new Error('Missing linked portal pair');
-  const arrive=async(dim,at)=>{for(let i=0;i<160;i++){if((await s.command(`data get entity ${AGENT} Dimension`)).includes(dim)){const actual=pos(await s.command(`data get entity ${AGENT} Pos`));if(actual&&Math.hypot(...actual.map((n,j)=>n-at[j]))<5)return actual;}await sleep(250);}throw new Error('Portal did not link to its prepared counterpart');};
-  const cooldown=async()=>{for(let i=0;i<160;i++){const text=await s.command(`data get entity ${AGENT} PortalCooldown`);if(/Found no elements/i.test(text)||number(text)===0)return;await sleep(250);}throw new Error('Vanilla portal cooldown did not expire');};
+  // Still at the raised rate: the crossings and cooldowns are waited for in game time (40 s of it each).
+  const arrive=async(dim,at)=>{for(let i=0;i<160;i++){if((await s.command(`data get entity ${AGENT} Dimension`)).includes(dim)){const actual=pos(await s.command(`data get entity ${AGENT} Pos`));if(actual&&Math.hypot(...actual.map((n,j)=>n-at[j]))<5)return actual;}await s.clock.sleep(250);}throw new Error('Portal did not link to its prepared counterpart');};
+  const cooldown=async()=>{for(let i=0;i<160;i++){const text=await s.command(`data get entity ${AGENT} PortalCooldown`);if(/Found no elements/i.test(text)||number(text)===0)return;await s.clock.sleep(250);}throw new Error('Vanilla portal cooldown did not expire');};
   await cooldown();await s.command(`execute in ${NE} run tp ${AGENT} ${ne[0]+1.5} ${ne[1]} ${ne[2]+.5}`);
   r.portalRoundTrip={overworld:await arrive(OW,ow)};
   await s.command(`execute in ${OW} run tp ${AGENT} ${ow[0]+.5} ${ow[1]} ${ow[2]-.5}`);await cooldown();
@@ -143,21 +156,25 @@ try{
   r.portalRoundTrip.nether=await arrive(NE,ne);r.portalRoundTrip.health=number(await s.command(`data get entity ${AGENT} Health`));if(r.portalRoundTrip.health!==20)throw new Error('Portal round trip damaged the body');r.portalRoundTrip.pass=true;
   await s.command(`execute in ${NE} run tp ${AGENT} ${cp.setup.position.join(' ')}`);
  }
+ await s.normalRate();
  const bed=cp.bedSpawn.position,[bx,by,bz]=bed;
  await s.command(`execute in ${OW} run forceload add ${bx} ${bz}`);await loaded(OW,bx,bz);
  r.respawnConfig=await s.command(`data get entity ${AGENT} respawn`);
  const respawn=async()=>{
   // Dimension changes and respawns give the fake vanilla client 60 game ticks of load immunity.
   // Under chunk-generation load, four wall seconds can contain fewer than 60 ticks.
+  // At the raised rate from the load-immunity wait to the respawned body's first reads; its waits are game time.
+  await s.fastRate();
   const loadTick=number(await s.command('time query gametime'));
-  while(number(await s.command('time query gametime'))-loadTick<65)await sleep(250);
+  while(number(await s.command('time query gametime'))-loadTick<65)await s.clock.sleep(250);
   const dead=s.inbox.wait('goal_control',g=>g.payload.operation==='dead',20000).catch(()=>null);
-  await s.command(`kill ${AGENT}`);if(!(await dead))throw new Error('Death not captured');await sleep(1000);
+  await s.command(`kill ${AGENT}`);if(!(await dead))throw new Error('Death not captured');await s.clock.sleep(1000);
   const action=await s.act('respawn',{});
   // The current body cancels its action receipt when respawn changes DEAD to STARTING.
   // Judge the actual new vanilla player and record that receipt, rather than treating it as a second death.
-  await sleep(1500);
+  await s.clock.sleep(1500);
   await s.bridge.send('agent_ready',s.record.agentId,{goalRevision:s.record.goalRevision,reconciled:false});
+  await s.normalRate();
   const health=number(await s.command(`data get entity ${AGENT} Health`));if(!(health>0))throw new Error('Respawn did not create a living body');
   return {pos:pos(await s.command(`data get entity ${AGENT} Pos`)),dimension:await s.command(`data get entity ${AGENT} Dimension`),health,action:action.state,reasonCode:action.reasonCode};
  };
@@ -175,10 +192,12 @@ try{
   for(let a=bx;a<x;a++)await test(`execute in ${OW} if block ${a} ${by} ${z} minecraft:air if block ${a} ${by+1} ${z} minecraft:air run time query gametime`);
   // Ascend the actual ladder with vanilla inputs in survival, after collecting no special recovery equipment.
   await s.command(`execute in ${OW} run tp ${AGENT} ${x+.5} ${by} ${z+.5} -90 0`);
+  // The climb is play: its window and polls are game time at the raised rate.
+  await s.fastRate();
   await s.command(`player ${AGENT} move forward`);
-  const until=Date.now()+Math.max(30000,(top-by)*550);let at;
-  while(Date.now()<until){at=pos(await s.command(`data get entity ${AGENT} Pos`));if(at?.[1]>=top-.3)break;await sleep(700);}
-  await s.command(`player ${AGENT} stop`);r.route.climbedTo=at;r.route.pass=at?.[1]>=top-.3;
+  const until=now()+Math.max(30000,(top-by)*550);let at;
+  while(now()<until){at=pos(await s.command(`data get entity ${AGENT} Pos`));if(at?.[1]>=top-.3)break;await s.clock.sleep(700);}
+  await s.command(`player ${AGENT} stop`);await s.normalRate();r.route.climbedTo=at;r.route.pass=at?.[1]>=top-.3;
   if(!r.route.pass)throw new Error('Vanilla ladder ascent did not reach the surface');
  }
  // A distinctive, safe world spawn in the disposable copy proves fallback even for beds beside natural world spawn.
@@ -187,8 +206,8 @@ try{
  await s.command(`execute in ${OW} run fill 4092 300 4092 4100 319 4100 minecraft:air`);
  await s.command('setworldspawn 4096 300 4096');await s.command('gamerule minecraft:respawn_radius 0');
  await s.command(`execute in ${OW} run setblock ${bx} ${by} ${bz} minecraft:air`);await s.command(`execute in ${OW} run setblock ${bx+1} ${by} ${bz} minecraft:air`);
- await sleep(4000);r.brokenBedRespawn=await respawn();r.brokenBedRespawn.expectedWorldSpawn=[4096.5,300,4096.5];r.brokenBedRespawn.pass=/overworld/.test(r.brokenBedRespawn.dimension)&&r.brokenBedRespawn.pos&&Math.hypot(...r.brokenBedRespawn.pos.map((n,i)=>n-r.brokenBedRespawn.expectedWorldSpawn[i]))<3;
+ await s.idleSleep(4000);r.brokenBedRespawn=await respawn();r.brokenBedRespawn.expectedWorldSpawn=[4096.5,300,4096.5];r.brokenBedRespawn.pass=/overworld/.test(r.brokenBedRespawn.dimension)&&r.brokenBedRespawn.pos&&Math.hypot(...r.brokenBedRespawn.pos.map((n,i)=>n-r.brokenBedRespawn.expectedWorldSpawn[i]))<3;
  r.pass=[r.kit,r.safety,r.spareKit,r.route,r.bedRespawn,r.brokenBedRespawn].every(x=>x.pass);
  }
-}catch(error){r.error=String(error.stack??error);r.pass=false;}finally{await s?.stop().catch(()=>{});}
+}catch(error){r.error=String(error.stack??error);r.pass=false;}finally{if(s?.tickReport)r.tick={rate:s.tickRate,held:await s.tickReport().catch(()=>null)};await s?.stop().catch(()=>{});}
 r.finishedAt=new Date().toISOString();await writeFile(path.join(out,'result.json'),JSON.stringify(r,null,2)+'\n');console.log(JSON.stringify({checkpoint:r.checkpoint,pass:r.pass,error:r.error}));process.exitCode=r.pass?0:1;

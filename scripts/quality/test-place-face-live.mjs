@@ -3,6 +3,8 @@
 // explained with the plane to pass, a player at the edge places, a side-face torch is a wall torch, a body overlap gives the box.
 // ARENA_JAR overrides the jar under test (default: this checkout's build).
 // Always launch under slot.sh live; ports come from SLOT_PORT_BASE. Operator commands build/reset fixtures only.
+// FIXTURE_TICK_RATE (test only): setup (building, teleports, items, settling) runs at 20 TPS and each place_block at the
+// fixture rate; each result's tick holds the rates it ran at.
 import { readFile, writeFile, mkdir, cp, readdir } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,6 +13,8 @@ import { randomBytes, createHash } from 'node:crypto';
 import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
+import { handRolledTickRate } from './lib/fixture-play.mjs';
+import { unshownTickRate } from './watch-replay.mjs';
 
 const root=fileURLToPath(new URL('../..',import.meta.url));
 const out=resolve(process.argv[2] ?? 'runtime/place-face-live');
@@ -40,7 +44,7 @@ class Inbox {
   accept(e){const i=this.waiters.findIndex(w=>w.type===e.type&&w.match(e));if(i>=0)this.waiters.splice(i,1)[0].done(e);else {this.events.push(e);if(this.events.length>1024)this.events.shift();}}
   wait(type,match=()=>true,ms=30000){const i=this.events.findIndex(e=>e.type===type&&match(e));if(i>=0)return Promise.resolve(this.events.splice(i,1)[0]);return new Promise((res,rej)=>{const w={type,match,done:e=>{clearTimeout(t);res(e)}};const t=setTimeout(()=>{this.waiters=this.waiters.filter(x=>x!==w);rej(new Error(`TIMEOUT ${type}`))},ms);this.waiters.push(w)});}
 }
-let rcon,bridge,record,observation;
+let rcon,bridge,record,observation,rate;
 const agent='Placer';
 const command=async s=>{
   if(rcon.state==='closed'){rcon=new HeadlessRconClient({host:'127.0.0.1',port:port+1,password:secret,commandTimeoutMs:5000});await rcon.connect();}
@@ -64,12 +68,13 @@ async function executeAction(c){
 try {
   for(let i=0;i<150;i++){try{rcon=new HeadlessRconClient({host:'127.0.0.1',port:port+1,password:secret,connectTimeoutMs:500,commandTimeoutMs:5000});await rcon.connect();break}catch(e){await rcon?.close();if(i===149)throw e;await sleep(1000)}}
   bridge=new MultiplexedServerBridge({port,secret},{});inbox=new Inbox(bridge);
+  rate=handRolledTickRate(text=>command(text),bridge, agent, { tickRate: unshownTickRate('it already fails at 20 TPS, so an A/B cannot show the same game at 60') });
   bridge.on('observation',e=>{if(e.agentId===record?.agentId&&e.payload.ready){observation=e.payload}});
   bridge.on('goal_spec_request',e=>{bridge.send('goal_spec_proposal',e.agentId,{requestId:e.payload.requestId,summary:'Controlled live mechanics fixture',predicate:{type:'survive_duration',ticks:12000}}).catch(()=>{});});
   const ready=inbox.wait('ready');bridge.start();await ready;
   await bridge.send('catalog_snapshot','server',{refreshedAtEpochMs:Date.now(),models:[{provider:'codex',model:'gpt-6.1-sol',id:'gpt-6.1-sol',displayName:'Provider-free place face fixture',reasoningEfforts:['low'],serviceTiers:['priority']}]});
   await command('difficulty peaceful');await command('gamerule minecraft:send_command_feedback false');await command('time set noon');
-  await command('forceload add -16 -16 32 32');await sleep(2000);
+  await command('forceload add -16 -16 32 32');await rate.idleSleep(2000);
   await command('fill -5 75 -5 20 90 10 minecraft:air');await command('fill -4 79 -4 2 79 4 minecraft:stone');
   const registered=inbox.wait('agent_registered');console.log(await command(`execute positioned 0.5 80 0.5 run mineagen summon gpt-6.1-sol low ${agent}`));
   const e=await registered;record={...(e.payload.record??e.payload),agentId:e.agentId};
@@ -84,10 +89,10 @@ try {
   }
   const results={};
   const block=async(x,y,z,id)=>/passed/i.test(await command(`execute if block ${x} ${y} ${z} minecraft:${id}`));
-  const hold=async(id,n=16)=>{await command(`clear ${agent}`);await command(`item replace entity ${agent} weapon.mainhand with minecraft:${id} ${n}`);await sleep(300);await observe();};
-  const at=async(x,y,z,yaw,pitch)=>{await command(`tp ${agent} ${x} ${y} ${z} ${yaw} ${pitch}`);await sleep(800);await observe();};
-  const place=(x,y,z,face,item)=>act('place_block',{x,y,z,face,itemId:`minecraft:${item}`});
-  const keep=(r,extra={})=>({state:r.state,reasonCode:r.reasonCode,cause:r.cause,message:r.message,...extra});
+  const hold=async(id,n=16)=>{await command(`clear ${agent}`);await command(`item replace entity ${agent} weapon.mainhand with minecraft:${id} ${n}`);await rate.idleSleep(300);await observe();};
+  const at=async(x,y,z,yaw,pitch)=>{await rate.normalRate();await command(`tp ${agent} ${x} ${y} ${z} ${yaw} ${pitch}`);await rate.idleSleep(800);await observe();};
+  const place=async(x,y,z,face,item)=>{const played=await rate.play();const r=await act('place_block',{x,y,z,face,itemId:`minecraft:${item}`});return {...r,tick:await played()};};
+  const keep=(r,extra={})=>({state:r.state,reasonCode:r.reasonCode,cause:r.cause,message:r.message,tick:r.tick,...extra});
   await command('fill -6 76 -6 16 86 12 minecraft:air');
   // Bridge end over open air (d3b-nether-a 15,61,87 shifted): the support 1,80,0 on a pillar, destination 0,80,0 west of it.
   await command('fill 1 76 0 1 80 0 minecraft:nether_bricks');
@@ -106,6 +111,7 @@ try {
   await command('setblock 11 80 0 minecraft:tall_grass[half=lower]');await command('setblock 11 81 0 minecraft:tall_grass[half=upper]');
   await at(11.5,80,0.5,-90,40);await hold('cobblestone');
   results.eyeInGrass=keep(await place(12,80,0,'up','cobblestone'),{placed:await block(12,80,0,'cobblestone')});
+  results.tick=await rate.report();
   await writeFile(join(out,'place.json'),JSON.stringify(results,null,2));
   console.log(JSON.stringify(results,null,2));
   const checks={
