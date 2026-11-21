@@ -48,7 +48,7 @@ export function compareArms({ arms, done }) {
 	for (const [arm, rows] of Object.entries(arms)) for (const row of rows) {
 		const label = row.room ?? row.name, room = baseRoom(label);
 		const entry = rooms.get(room) ?? {};
-		(entry[arm] ??= []).push({ ...row, label, verdict: roomVerdict(row).verdict, armSeconds: done[label]?.arms?.[arm]?.seconds ?? null });
+		(entry[arm] ??= []).push({ ...row, label, verdict: roomVerdict(row).verdict, armSeconds: row.armSeconds ?? done[label]?.arms?.[arm]?.seconds ?? null });
 		rooms.set(room, entry);
 	}
 	return [...rooms].map(([room, byArm]) => ({ room, arms: Object.fromEntries(Object.entries(byArm).map(([arm, runs]) => {
@@ -78,21 +78,26 @@ export function formatComparison(rooms, arms) {
 	return lines.join('\n') + (invalid.length ? `\n\nInvalid runs:\n${invalid.join('\n')}` : '') + '\n';
 }
 
-async function main([dir, ...rest]) {
-	if (!dir || dir === '--help') { console.log('Usage: ai-room-report.mjs BATCH_OUT [--json FILE]'); return; }
-	const out = path.resolve(dir), arms = {}, done = {};
-	for (const room of (await readdir(path.join(out, 'rooms')).catch(() => [])).filter(name => !name.startsWith('.')).sort()) {
-		done[room] = await readJson(path.join(out, 'rooms', room, 'done.json')).catch(() => null);
-		for (const arm of ['ai', 'script']) {
-			if (!done[room]?.arms?.[arm]) continue;
-			const run = done[room].arms[arm], killed = run.timedOut ? 'room timeout' : run.signal ? `signal ${run.signal}` : run.error ? `launch error: ${run.error}` : null;
-			const rows = await readArmRows(path.join(out, 'rooms', room, arm));
-			(arms[arm] ??= []).push(...(rows.length ? rows : [{ pass: false, error: 'no result rows' }]).map(row => ({ ...row, room, ...(killed ? { integrity: [...(row.integrity ?? []), { file: 'arm', error: `killed (${killed})` }] } : {}) })));
+async function main(argv) {
+	const jsonAt = argv.indexOf('--json'), json = jsonAt >= 0 ? argv[jsonAt + 1] : null;
+	const dirs = argv.filter((arg, i) => arg !== '--json' && i !== jsonAt + 1 || jsonAt < 0 && arg !== '--json');
+	if (!dirs.length || dirs[0] === '--help') { console.log('Usage: ai-room-report.mjs BATCH_OUT [BATCH_OUT ...] [--json FILE]  (several batches of the same rooms pool their repeats)'); return; }
+	const arms = {};
+	for (const dir of dirs) {
+		const out = path.resolve(dir);
+		for (const room of (await readdir(path.join(out, 'rooms')).catch(() => [])).filter(name => !name.startsWith('.')).sort()) {
+			const done = await readJson(path.join(out, 'rooms', room, 'done.json')).catch(() => null);
+			for (const arm of ['ai', 'script']) {
+				if (!done?.arms?.[arm]) continue;
+				const run = done.arms[arm], killed = run.timedOut ? 'room timeout' : run.signal ? `signal ${run.signal}` : run.error ? `launch error: ${run.error}` : null;
+				const rows = await readArmRows(path.join(out, 'rooms', room, arm));
+				(arms[arm] ??= []).push(...(rows.length ? rows : [{ pass: false, error: 'no result rows' }]).map(row => ({ ...row, room, armSeconds: run.seconds ?? null,
+					...(killed ? { integrity: [...(row.integrity ?? []), { file: 'arm', error: `killed (${killed})` }] } : {}) })));
+			}
 		}
 	}
-	const rooms = compareArms({ arms, done });
+	const rooms = compareArms({ arms, done: {} });
 	console.log(formatComparison(rooms, Object.keys(arms)));
-	const json = rest[0] === '--json' ? rest[1] : null;
 	if (json) await writeFile(json, JSON.stringify(rooms, null, 2) + '\n');
 }
 
