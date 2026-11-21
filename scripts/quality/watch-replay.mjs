@@ -151,7 +151,7 @@ export function installTickRate(s, tickRate, { wait = sleep } = {}) {
 	s.applyTickRate = () => s.setRate(tickRate);
 	s.fastRate = () => s.setRate(tickRate);
 	s.normalRate = () => s.setRate(20);
-	s.gameTicks = async () => { const m = /time is (\d+)/i.exec(String(await s.command('time query gametime').catch(() => ''))); return m ? Number(m[1]) : null; };
+	s.gameTicks = async () => { const m = /time is (\d+)/i.exec(String(await s.command('time query gametime').catch(() => ''))); const ticks = m ? Number(m[1]) : null; s.clock?.observe(ticks); return ticks; };
 	// Waits ms of game time. Polls the world clock, so a server that cannot hold the rate still gets the full wait; a frozen
 	// world (tick freeze) ends it after twice the wall time.
 	s.gameSleep = async ms => {
@@ -188,9 +188,51 @@ export function installTickRate(s, tickRate, { wait = sleep } = {}) {
 			return { askedTps: asked, reachedTps: ticks0 === null || now === null || wallS <= 0 ? null : +((now - ticks0) / wallS).toFixed(1), gameTicks: ticks0 === null || now === null ? null : now - ticks0, wallS: +wallS.toFixed(1) };
 		} };
 	};
+	s.clock = fixtureClock(tickRate, () => s.rate, wait, () => s.gameTicks());
 	// What the server actually held (tick query: target rate, mean and percentile ms per tick), for the run's manifest.
 	s.tickReport = async () => String(await s.command('tick query').catch(error => `tick query failed: ${error.message}`)).replace(/\s+/g, ' ').trim();
 	return s;
+}
+
+/**
+ * The clock a fixture times play with: s.clock.now() is epoch-like ms that advance with game time, s.clock.sleep(ms)
+ * waits ms of game time. A fixture whose rate is 20 gets the plain wall clock, so its runs are unchanged. At a raised
+ * rate the clock anchors on the world's game tick (s.clock.observe(ticks), fed from every observation and each
+ * s.gameTicks() read) and extrapolates at most 1 s of wall time past the last anchor at the rate the server was asked
+ * for, so a server that cannot hold the rate, or a frozen world, slows the clock instead of letting it run ahead. It
+ * never goes backwards. sleep ends on a reported tick, so it is never short.
+ */
+export function fixtureClock(tickRate, currentRate = () => tickRate, wait = sleep, sync = null) {
+	if (tickRate === 20) return { rate: 20, now: Date.now, sleep: ms => wait(ms), observe: () => {} };
+	let epoch0 = null, game0 = null, anchorGame = null, anchorWall = 0, last = 0;
+	const anchored = () => game0 === null ? Date.now() : epoch0 + (anchorGame - game0);
+	const clock = {
+		rate: tickRate,
+		observe(ticks, wallMs = Date.now()) {
+			if (!Number.isSafeInteger(ticks)) return;
+			const gameMs = ticks * 50;
+			if (game0 === null) { epoch0 = wallMs; game0 = gameMs; }
+			if (anchorGame !== null && gameMs < anchorGame) return;
+			anchorGame = gameMs; anchorWall = wallMs;
+		},
+		now() {
+			if (game0 === null) return (last = Math.max(last, Date.now()));
+			const ahead = Math.min(Math.max(0, Date.now() - anchorWall), 1000) * currentRate() / 20;
+			return (last = Math.max(last, epoch0 + (anchorGame - game0) + ahead));
+		},
+		// Ends on a tick the world reported, never on the extrapolation, so a wait is never short; it may run one poll long.
+		async sleep(ms) {
+			const until = clock.now() + ms;
+			for (;;) {
+				if (anchored() >= until) return;
+				// A quiet body sends no samples: read the world's tick when the last anchor is older than 100 ms.
+				if (sync && Date.now() - anchorWall > 100) await sync().catch(() => null);
+				if (anchored() >= until) return;
+				await wait(Math.max(5, Math.min(250, (until - clock.now()) * 20 / Math.max(20, currentRate()))));
+			}
+		},
+	};
+	return clock;
 }
 
 /** Only RCON setup belongs here: bridge observations/actions may need a running world to complete. */
@@ -273,7 +315,7 @@ export async function boot(dir, { jar, template, port, world, seed, goalTicks = 
 		// First boot of these settings: keep the world as generated, before any fixture command touches it.
 		if (cacheEntry && !cacheEntry.hit) await snapshotWorld(cacheEntry, path.join(server, 'world'), s.command).catch(error => console.log(`[world cache] not saved: ${error.message}`));
 		s.bridge = new MultiplexedServerBridge({ port, secret }, {}); s.inbox = new Inbox(s.bridge);
-		s.bridge.on('observation', e => { if (e.agentId === s.record?.agentId && e.payload.ready) s.observation = e.payload; });
+		s.bridge.on('observation', e => { s.clock?.observe(e.payload?.world?.gameTime); if (e.agentId === s.record?.agentId && e.payload.ready) s.observation = e.payload; });
 		if (handleGoalSpec) s.bridge.on('goal_spec_request', e => { s.bridge.send('goal_spec_proposal', e.agentId, { requestId: e.payload.requestId, summary: 'Incident replay', predicate: { type: 'survive_duration', ticks: proposedGoalTicks(e.payload.originalRequest, goalTicks) } }).catch(() => {}); });
 		if (followRevision) s.bridge.on('message', event => {
 			const revision = newerGoalRevision(s.record, event);

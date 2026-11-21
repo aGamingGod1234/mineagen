@@ -4,8 +4,9 @@
 //     [--code REF] [--snapshot NAME] [--type TYPE] [--room-timeout MIN] [--name PREFIX] [--dry-run]
 // ROOMS.txt, one line per room (see parseCommands in lib/room-batch-core.mjs):
 //   @carve-hidden-lava BUILD_ONLY=carve-hidden-lava node scripts/quality/test-build-live.mjs scripts/quality/carve-hidden-fluid-spots.json $OUT $JAR --descriptive
-// The code is the commit REF (default HEAD) as git archive plus this checkout's coordinator/node_modules. A local file
-// named by absolute path in a line (a private spots file) is copied to every machine and the line points at the copy.
+// The code is the commit REF (default HEAD) as git archive of the paths fixtures use (BUNDLE_PATHS in lib/boat-pool.mjs)
+// plus this checkout's coordinator/node_modules. A local file named by absolute path in a line (a private spots file)
+// is copied to every machine and the line points at the copy. Code, helper, jars and inputs travel as one bundle.
 // --snapshot (or ROOM_BATCH_SNAPSHOT) names the saved image room-image.mjs makes; --type (or ROOM_BATCH_TYPE, default
 // "default") the machine size. --pool windows plays on the PCs ROOM_BATCH_WINDOWS names (<sshHost>:<slots>:<slotBase>,...;
 // see lib/windows-pool.mjs), one room per slot; --vms defaults to every slot. Output: OUT/rooms/ROOM/{ARM/,ARM.log,done.json}, OUT/ARM/result.json and
@@ -13,13 +14,13 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
-import { cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseCommands } from './lib/room-batch-core.mjs';
 import { runBatch } from './lib/room-batch-run.mjs';
-import { boatPool } from './lib/boat-pool.mjs';
+import { boatPool, buildBundle } from './lib/boat-pool.mjs';
 import { parseWindowsHosts, windowsPool } from './lib/windows-pool.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
@@ -81,12 +82,22 @@ if ((await readdir(out)).length) fail(`${out} is not empty: use a fresh output f
 await writeFile(path.join(out, 'commands.txt'), await readFile(flags.commands, 'utf8'));
 
 const work = await mkdtemp(path.join(os.tmpdir(), 'room-batch-'));
-const codeTar = path.join(work, 'code.tar');
-execFileSync('git', ['-C', root, 'archive', '--format=tar', '-o', codeTar, code]);
-execFileSync('tar', ['-C', root, '-rf', codeTar, 'coordinator/node_modules']);
-execFileSync('gzip', ['-1', codeTar]);
-const helper = path.join(work, 'room-batch-remote.mjs');
-await cp(path.join(root, 'scripts/quality/lib/room-batch-remote.mjs'), helper);
+const jars = Object.fromEntries(flags.arms.map(arm => [arm.name, path.resolve(arm.jar)]));
+const helper = path.join(root, 'scripts/quality/lib/room-batch-remote.mjs');
+let bundle;
+if (windowsHosts) {
+	// A Windows PC unpacks with its own tar, which has no zstd: the code goes up as a gzip tar, the helper, jars and inputs
+	// as their own files (windows-pool.mjs).
+	const codeTar = path.join(work, 'code.tar');
+	execFileSync('git', ['-C', root, 'archive', '--format=tar', '-o', codeTar, code]);
+	execFileSync('tar', ['-C', root, '-rf', codeTar, 'coordinator/node_modules']);
+	execFileSync('gzip', ['-1', codeTar]);
+	bundle = { codeTar: `${codeTar}.gz`, helper, jars, inputs };
+	console.log(`code ${(statSync(bundle.codeTar).size / 2 ** 20).toFixed(1)} MB (gzip)`);
+} else {
+	bundle = await buildBundle({ root, ref: code, jars, inputs, helper, work });
+	console.log(`bundle ${(statSync(bundle.file).size / 2 ** 20).toFixed(1)} MB (${bundle.unpack.split(' ')[0]})`);
+}
 
 const controller = new AbortController();
 let stopping = false;
@@ -97,14 +108,14 @@ for (const name of ['SIGINT', 'SIGTERM']) process.on(name, () => {
 	controller.abort();
 });
 
-const bundle = { codeTar: `${codeTar}.gz`, helper, jars: Object.fromEntries(flags.arms.map(arm => [arm.name, path.resolve(arm.jar)])), inputs };
-const pool = windowsHosts ? windowsPool({ hosts: windowsHosts, batchName: batch.name, bundle }) : boatPool({ snapshot, type, ttlSeconds: 7200, namePrefix: batch.name, bundle });
 const logFile = path.join(out, 'batch.log');
 // A failed log write (a full disk) must never end the process before the machines are deleted.
 const log = async message => { const line = `${new Date().toISOString()} ${message}`; console.log(line); await writeFile(logFile, line + '\n', { flag: 'a' }).catch(() => {}); };
+const pool = windowsHosts ? windowsPool({ hosts: windowsHosts, batchName: batch.name, bundle, log }) : boatPool({ snapshot, type, ttlSeconds: 7200, namePrefix: batch.name, bundle, log });
 const began = new Date().toISOString();
 try {
-	const result = await runBatch({ batch, rooms, arms: flags.arms, pool, vms, out, roomTimeoutMs, log, rewrite, signal: controller.signal });
+	// The boat poll waits for the room's end itself; a Windows poll answers at once, so it gets a pause between asks.
+	const result = await runBatch({ batch, rooms, arms: flags.arms, pool, vms, out, roomTimeoutMs, log, rewrite, signal: controller.signal, ...(windowsHosts ? { pollMs: 10_000 } : {}) });
 	await writeFile(path.join(out, 'batch.json'), JSON.stringify({ ...batch, began, ended: new Date().toISOString(), wallSeconds: result.wallSeconds, outcomes: result.outcomes, machines: result.machines }, null, 2) + '\n');
 	await writeFile(path.join(out, 'summary.txt'), result.text + '\n');
 	console.log(result.text);
