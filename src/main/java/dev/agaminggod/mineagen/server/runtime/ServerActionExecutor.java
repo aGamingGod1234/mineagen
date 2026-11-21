@@ -679,6 +679,9 @@ public final class ServerActionExecutor {
 		} else if (committed == null && action.controller instanceof ServerNavigationController navigation) {
 			result = action.result(ServerActionState.CANCELLED, "ACTION_CANCELLED",
 					cancellationReason + navigation.stoppedBodyFacts(action.player), GameClock.nowMs());
+		} else if (committed == null && action.controller instanceof dev.agaminggod.mineagen.server.runtime.controller.ServerSpawnerHoldController hold) {
+			result = action.result(ServerActionState.CANCELLED, "ACTION_CANCELLED",
+					cancellationReason + hold.stoppedBodyFacts(action.player), GameClock.nowMs());
 		}
 		complete(action, result);
 		return true;

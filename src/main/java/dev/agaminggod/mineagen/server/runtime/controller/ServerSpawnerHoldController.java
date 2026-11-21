@@ -718,6 +718,18 @@ public final class ServerSpawnerHoldController implements ServerController {
 		return result;
 	}
 
+	/**
+	 * The hold's receipt for a cancel: a death ends the action through the lifecycle cancel before the hold ticks again,
+	 * and without this the phase, spot and health lost at death were known only from server death lines.
+	 */
+	public String stoppedBodyFacts(ServerPlayer player) {
+		BlockPos at = player.blockPosition();
+		return String.format(Locale.ROOT, "; spawner hold stopped in phase %s%s at %d,%d,%d (%s), health %.1f; %s", phase.name().toLowerCase(Locale.ROOT),
+				collector != null || returning ? " trip" : defend != null ? " defend" : turtleSinceMs >= 0L ? " shield heal" : "",
+				at.getX(), at.getY(), at.getZ(), cell == null ? "no cell" : at.equals(cell) ? "in the cell" : "cell " + cell.toShortString(),
+				player.getHealth(), summary(player, lastElapsed));
+	}
+
 	@Override
 	public void cancel(ServerPlayer player) {
 		HOLDING.remove(player.getUUID());

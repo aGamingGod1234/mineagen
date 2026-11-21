@@ -23,6 +23,7 @@ import { boot, fixtureTickRate } from './watch-replay.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 import { ReflexBook } from '../../coordinator/src/reflexes.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
+import { startHealthWatch } from './lib/room-evidence.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const USAGE = 'Usage: test-spawner-hold-live.mjs OUT_DIR under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME (ARENA_JAR, SEEDS, VARIANTS, RUN_MIN, UNTIL, ARM, FIXTURE_TICK_RATE)';
@@ -171,6 +172,8 @@ async function oneRun(s, seed, variant, keepStance) {
 	const stanceTimer = setInterval(() => { if (s.observation) keepStance(s.observation).catch(() => {}); }, 500);
 	await s.fastRate();
 	const timer = await s.gameTimer({ worldTicks: true });
+	// Observations come only between calls and one fight_until spans most of a run: sample health on its own clock.
+	const watch = startHealthWatch({ readHealth: () => health(s), readDeaths: () => deathCount(s) });
 	const window = RUN_MIN * 60_000;
 	const row = { seed, variant, arm: ARM, rodsAtEnd: 0, maxRods: 0, reachedMin: null, deaths: 0, minHealth: 20, calls: {}, codes: {}, messages: [], stances: {}, startedAt };
 	const look = await s.act('look_at', { x: SX + 0.5, y: SY + 0.5, z: SZ + 0.5 }).catch(e => ({ reasonCode: String(e.message) }));
@@ -216,12 +219,15 @@ async function oneRun(s, seed, variant, keepStance) {
 		row.calls[type] = (row.calls[type] ?? 0) + 1;
 		if (type === 'fight_until') {
 			row.codes[result.reasonCode] = (row.codes[result.reasonCode] ?? 0) + 1;
-			row.messages.push(`${((await timer.elapsed()) / 60_000).toFixed(1)}m ${result.reasonCode}: ${String(result.message ?? '').slice(0, 900)}`);
+			row.messages.push(`${((await timer.elapsed()) / 60_000).toFixed(1)}m ${result.reasonCode}: ${String(result.message ?? '').slice(0, 3000)}`);
 		}
 		if (result.reasonCode === 'AGENT_DEAD') { dead = true; break; }
 		if (['NO_TARGET_SEEN', 'FIXTURE_ERROR', 'AREA_CLEARED'].includes(result.reasonCode)) await s.gameSleep(1000);
 	}
 	clearInterval(stanceTimer);
+	const watched = await watch.stop();
+	if (Number.isFinite(watched.minHealth)) row.minHealth = Math.min(row.minHealth, watched.minHealth);
+	row.healthSamples = watched.samples;
 	row.gameMin = +((await timer.elapsed()) / 60_000).toFixed(1);
 	row.tick = await timer.rates();
 	await s.normalRate();
