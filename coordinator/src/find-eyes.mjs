@@ -134,6 +134,12 @@ export async function followEyes(target, body, { observation: initial, deadline,
 		return null;
 	};
 	const bounded = args => ({ ...args, boundaryX: state.origin.x, boundaryZ: state.origin.z, boundaryRadius: within });
+	// How far along unit heading d from `from` stays inside the search circle with 2 blocks to brake.
+	const hopRoom = (from, d) => {
+		const r = within - 2, fx = from.x - state.origin.x, fz = from.z - state.origin.z;
+		const b = fx * d.x + fz * d.z, c = fx * fx + fz * fz - r * r, disc = b * b - c;
+		return disc < 0 ? 0 : Math.max(0, -b + Math.sqrt(disc));
+	};
 	const ingest = flight => {
 		const t = state.throws.at(-1);
 		Object.assign(t, flight);
@@ -350,10 +356,13 @@ export async function followEyes(target, body, { observation: initial, deadline,
 				// hops until the far side is in reach of a walk (at most 12 hops, about 100 blocks), then walk the rest.
 				for (let hop = 0; hop < 12; hop++) {
 					const from = { x: o.player.x, z: o.player.z };
+					// Inside the search circle, as every bounded walk is (2 blocks kept to brake): a hop shortens at the edge.
+					const step = Math.min(8, hopRoom(from, d));
+					if (step < 3) break;
 					// From the bank the water surface is a block or two below the feet; afloat it is where the body is.
 					let swam = null;
 					for (const dy of o.player.inWater === true ? [0, -1] : [-1, -2]) {
-						swam = await act('move_to', { x: from.x + d.x * 8, y: Math.floor(o.player.y) + dy, z: from.z + d.z * 8, tolerance: 2, sprint: false }, { breathStop: true });
+						swam = await act('move_to', { x: from.x + d.x * step, y: Math.floor(o.player.y) + dy, z: from.z + d.z * step, tolerance: 2, sprint: false }, { breathStop: true });
 						if (!(swam?.find?.eyes?.stoppedBy === 'NO_STANDABLE_PATH')) break;
 					}
 					if (swam && swam.reasonCode !== 'FIND_BLOCKED') return swam;

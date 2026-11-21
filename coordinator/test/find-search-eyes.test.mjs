@@ -151,6 +151,21 @@ test('a leg out of blocks at water swims the rest, and a flooded tunnel backed o
 	const dry = await searchFor(target, flood);
 	assert.equal(dry.reasonCode, 'FIND_BUDGET', dry.message);
 });
+test('swim hops stay inside the search circle', async () => {
+	const b = fake({ event: flight({ outcome: 'shattered' }) });
+	b.o.player.x = -25; b.o.player.inWater = true;
+	const original = b.act;
+	b.act = async (...args) => {
+		if (args[0] === 'travel_to' && Math.abs(args[1].x) > 30) { b.calls.push({ type: args[0], args: args[1] }); return { state: 'FAILED', reasonCode: 'OUT_OF_BLOCKS' }; }
+		if (args[0] === 'move_to') { b.calls.push({ type: args[0], args: args[1] }); b.o.player.x = args[1].x; b.o.player.z = args[1].z; return { state: 'SUCCEEDED', reasonCode: 'DESTINATION_REACHED' }; }
+		return original(...args);
+	};
+	b.eyeSearchState = { origin: { x: 0, y: 70, z: 0 } };
+	await searchFor(target, b, { within: 32 });
+	const hops = b.calls.filter(c => c.type === 'move_to');
+	assert.ok(hops.length >= 1);
+	for (const h of hops) assert.ok(Math.hypot(h.args.x, h.args.z) <= 30.001, `hop to ${h.args.x},${h.args.z} leaves the circle`);
+});
 test('with no open sky seen yet the body steps out from under cover before digging up', async () => {
 	const b = fake({ skyOpen: false });
 	const original = b.act;
