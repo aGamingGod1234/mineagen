@@ -137,3 +137,17 @@ test('a sign-in Codex rewrote during the room is caught by its hash', async () =
 		await codex.cleanup();
 	} finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test('the report reads the drawn-bow and travel stand-ins in their own formats', async () => {
+	const { readArmRows } = await import('../../scripts/quality/ai-room-report.mjs');
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'ai-room-standin-'));
+	try {
+		await writeFile(path.join(dir, 'acceptance.json'), JSON.stringify([{ pass: true, startedAt: 0, finishedAt: 90000 }]));
+		await writeFile(path.join(dir, 'results.json'), JSON.stringify({ drawnBow: { arms: { drawn: { taken: 40 }, arrowOnly: { taken: 110 } } } }));
+		assert.deepEqual((await readArmRows(dir)).map(r => [r.pass, r.deaths, r.damageTaken, r.minutes]), [[true, 0, 4, 1.5]]);
+		await rm(path.join(dir, 'acceptance.json'));
+		await writeFile(path.join(dir, 'results.json'), JSON.stringify({ results: [{ id: 'ow-east200', arrived: false, deaths: 0, damage: 2, wallSeconds: 300, blocksMined: 86 }, { id: 'x', error: 'boom\nstack' }] }));
+		const rows = await readArmRows(dir);
+		assert.deepEqual(rows.map(r => [r.pass, r.damageTaken, r.minutes, r.blocksMined ?? null, r.error ?? null]), [[false, 2, 5, 86, null], [false, undefined, undefined, null, 'boom']]);
+	} finally { await rm(dir, { recursive: true, force: true }); }
+});
