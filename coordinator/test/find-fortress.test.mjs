@@ -390,3 +390,11 @@ test('the last open ground and the digs since it are kept across find calls, so 
 	assert.ok(back > 0, 'walks back to the kept open ground');
 	assert.equal(legs.slice(0, back).filter((call) => call.build).length, MAX_DIGS - 1, 'after one more dig, not two');
 });
+
+test('a wounded body hands back before the opening climb, not after it (Codex on #79)', async () => {
+	const body = bodyFor({ health: 6 });
+	body.frontier = () => ({ candidates: [{ x: 100, y: 52, z: 70, dy: 12, distance: 30 }] });
+	const result = await searchFor({ structure: 'fortress' }, body, { timeoutMs: 300_000 });
+	assert.equal(result.reasonCode, 'FIND_DANGER');
+	assert.equal(body.calls.filter((call) => call.type === 'travel_to').length, 0);
+});

@@ -182,7 +182,9 @@ export async function searchNetherFortress(ctx, env = process.env) {
 	// A player first climbs the highest ground in sight, any way, and looks out over the caverns from there (round 2:
 	// the generic sweep's opening climb saw gate-7's fortress within a minute in 7 of 7 runs; this loop, which only
 	// climbed ahead, 0 of 7). Not a hill already looked from in an earlier call.
-	if (walled) {
+	// Not at or below the search's health floor: the loop's first check hands that back to eat or recover (Codex on #79).
+	const opening = ctx.observation()?.player?.health;
+	if (walled && !(Number.isFinite(opening) && opening <= SEARCH_LOW_HEALTH)) {
 		const p = at();
 		const high = p === null ? undefined : (body.frontier?.(ctx.observation())?.candidates ?? [])
 			.filter((row) => Number.isFinite(row.dy) && row.dy >= HIGH_GROUND_RISE && row.distance <= OPENING_CLIMB && row.blocked !== true && inside(row.x, row.z)
