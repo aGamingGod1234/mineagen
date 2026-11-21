@@ -35,6 +35,9 @@ for (let i = 0; i < argv.length; i++) {
 }
 if (flags.help) { console.log(USAGE); process.exit(0); }
 const fail = message => { console.error(`${message}\n${USAGE}`); process.exit(2); };
+// Rescoring without --rooms uses the definitions the run saved in plan.json, so a later edit of the default list (or a
+// custom file left off) never changes a past run's verdicts.
+const explicitRooms = flags.rooms.length > 0;
 if (!flags.rooms.length) flags.rooms.push(path.join(root, 'scripts/quality/benchmark-rooms.json'));
 
 let rooms = [];
@@ -50,17 +53,18 @@ if (flags.only) {
 }
 const meta = Object.fromEntries(rooms.map(room => [room.room, room]));
 
-async function score(out, plan, identity) {
-	const runs = await collectRuns(path.join(out, 'batch'), plan, meta);
-	const scored = scoreRooms(runs, meta);
+async function score(out, plan, identity, roomMeta = meta) {
+	// Read before anything is saved: --save-baseline may name the same file as --baseline.
+	const baseline = flags.baseline ? JSON.parse(await readFile(flags.baseline, 'utf8')) : null;
+	const runs = await collectRuns(path.join(out, 'batch'), plan, roomMeta);
+	const scored = scoreRooms(runs, roomMeta);
 	const result = { ...identity, repeats: plan.repeats, slots: plan.slots, rooms: scored, groups: groupScores(scored) };
 	await writeFile(path.join(out, 'score.json'), JSON.stringify(result, null, 2) + '\n');
 	const board = formatScoreboard(result);
 	await writeFile(path.join(out, 'scoreboard.md'), board + '\n');
 	console.log(board);
 	if (flags.saveBaseline) { await writeFile(flags.saveBaseline, JSON.stringify(result, null, 2) + '\n'); console.log(`baseline saved to ${flags.saveBaseline}`); }
-	if (flags.baseline) {
-		const baseline = JSON.parse(await readFile(flags.baseline, 'utf8'));
+	if (baseline) {
 		const text = `Against the baseline of ${String(baseline.code ?? '?').slice(0, 8)} (${baseline.repeats} repeats):\n${formatComparison(compareScores(baseline, result))}`;
 		await writeFile(path.join(out, 'comparison.txt'), text + '\n');
 		console.log(`\n${text}`);
@@ -72,7 +76,8 @@ if (flags.score) {
 	const out = path.resolve(flags.score);
 	const plan = JSON.parse(await readFile(path.join(out, 'plan.json'), 'utf8'));
 	const batch = JSON.parse(await readFile(path.join(out, 'batch', 'batch.json'), 'utf8').catch(() => '{}'));
-	await score(out, plan, { code: batch.code ?? plan.code ?? null, jarSha256: batch.arms?.[0]?.sha256 ?? plan.jarSha256 ?? null, began: batch.began ?? null, wallSeconds: batch.wallSeconds ?? null });
+	const saved = !explicitRooms && Array.isArray(plan.roomDefinitions) ? Object.fromEntries(plan.roomDefinitions.map(room => [room.room, room])) : meta;
+	await score(out, plan, { code: batch.code ?? plan.code ?? null, jarSha256: batch.arms?.[0]?.sha256 ?? plan.jarSha256 ?? null, began: batch.began ?? null, wallSeconds: batch.wallSeconds ?? null }, saved);
 	process.exit(0);
 }
 
@@ -84,7 +89,7 @@ await mkdir(out, { recursive: true });
 if ((await readdir(out)).length) fail(`${out} is not empty: use a fresh output folder`);
 const jarSha256 = createHash('sha256').update(readFileSync(flags.jar)).digest('hex');
 await writeFile(path.join(out, 'commands.txt'), plan.commands);
-await writeFile(path.join(out, 'plan.json'), JSON.stringify({ ...plan, commands: undefined, jarSha256, rooms: rooms.map(room => room.room) }, null, 2) + '\n');
+await writeFile(path.join(out, 'plan.json'), JSON.stringify({ ...plan, commands: undefined, jarSha256, rooms: rooms.map(room => room.room), roomDefinitions: rooms }, null, 2) + '\n');
 console.log(`${rooms.length} rooms x ${plan.repeats} repeats = ${plan.instances.length} batch rooms x ${plan.slots} side by side`);
 
 const batchArgs = [path.join(root, 'scripts/quality/room-batch.mjs'), '--commands', path.join(out, 'commands.txt'), '--out', path.join(out, 'batch'), '--pool', 'boat',

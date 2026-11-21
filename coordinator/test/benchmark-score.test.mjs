@@ -33,6 +33,7 @@ test('runs are read per row, by exit code without rows, and a room that never ca
 	await put('rooms/a.c1/r1/result.json', [{ name: 'a', pass: true, deaths: 0, damageTaken: 0, seconds: 20 }]);
 	await put('rooms/a.c1/r2/result.json', [{ name: 'a', pass: false, failReason: 'fell 12 blocks at 3,4,5', deaths: 1, damageTaken: 20, seconds: 31,
 		calls: [{ state: 'FAILED', reasonCode: 'LAVA_AHEAD' }] }]);
+	for (const arm of ['r1', 'r2']) await put(`rooms/a.c1/${arm}/result-summary.json`, { planned: 1, status: arm === 'r1' ? 'PASS' : 'FAIL' });
 	await put('rooms/b.c1/done.json', { room: 'b.c1', arms: { r1: { exit: 0, seconds: 50 }, r2: { exit: 1, seconds: 60, timedOut: true } } });
 	await put('batch.json', { outcomes: [{ room: 'c.c1', lost: true, reason: 'machine gone' }] });
 	const runs = await collectRuns(dir, plan);
@@ -130,4 +131,70 @@ test('a death repeated by a variant and its counter counts once, and an item wea
 	const found = await otherEvidence(dir);
 	assert.equal(found.deaths, 1);
 	assert.equal(found.damage, null);
+});
+
+test('finishRun rows count only with a valid summary, under any name, and every planned row is accounted for', async t => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'bench-score-'));
+	t.after(() => rm(dir, { recursive: true, force: true }));
+	const put = async (file, value) => { await mkdir(path.dirname(path.join(dir, file)), { recursive: true }); await writeFile(path.join(dir, file), JSON.stringify(value)); };
+	const plan = planBenchmark([{ room: 'a', line: LINE }], { repeats: 4, slots: 4 });
+	await put('rooms/a.c1/done.json', { room: 'a.c1', arms: { r1: { exit: 0 }, r2: { exit: 0 }, r3: { exit: 1 }, r4: { exit: 0 } } });
+	const row = (pass) => ({ name: 'a', pass, deaths: 0, damageTaken: 0, seconds: 5 });
+	// r1: passing rows with no summary (the fixture died before writing it).
+	await put('rooms/a.c1/r1/result.json', [row(true)]);
+	// r2: the summary planned 3 rows, 2 came back.
+	await put('rooms/a.c1/r2/result.json', [row(true), row(true)]);
+	await put('rooms/a.c1/r2/result-summary.json', { planned: 3, status: 'INVALID' });
+	// r3: seven cases written to runs.json, as the End-breath room does; result.json is an object.
+	await put('rooms/a.c1/r3/runs.json', [...Array(6)].map(() => row(true)).concat([row(false)]));
+	await put('rooms/a.c1/r3/runs-summary.json', { planned: 7, status: 'FAIL' });
+	await put('rooms/a.c1/r3/result.json', { runs: 7 });
+	// r4: a corrupt summary.
+	await put('rooms/a.c1/r4/result.json', [row(true)]);
+	await writeFile(path.join(dir, 'rooms/a.c1/r4/result-summary.json'), '{not json');
+	const runs = await collectRuns(dir, plan);
+	const of = arm => runs.filter(run => run.arm === arm && run.copy === 1).map(run => run.verdict);
+	assert.deepEqual(of('r1'), ['INVALID'], 'rows without their summary are unknown evidence');
+	assert.deepEqual(of('r2'), ['PASS', 'PASS', 'INVALID'], 'a planned row that never came back is INVALID');
+	assert.deepEqual(of('r3').sort(), ['FAIL', 'PASS', 'PASS', 'PASS', 'PASS', 'PASS', 'PASS'], 'seven cases scored one by one');
+	assert.deepEqual(of('r4'), ['INVALID']);
+});
+
+test('a crowd room that recorded a death fails its survival bar', async t => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'bench-score-'));
+	t.after(() => rm(dir, { recursive: true, force: true }));
+	const put = async (file, value) => { await mkdir(path.dirname(path.join(dir, file)), { recursive: true }); await writeFile(path.join(dir, file), JSON.stringify(value)); };
+	const plan = planBenchmark([{ room: 'crowd', line: LINE }], { repeats: 2, slots: 2 });
+	await put('rooms/crowd.c1/done.json', { room: 'crowd.c1', arms: { r1: { exit: 0 }, r2: { exit: 0 } } });
+	await put('rooms/crowd.c1/r1/runs.json', [{ trial: 1, survived: false }]);
+	await put('rooms/crowd.c1/r1/summary.json', { died: 1 });
+	await put('rooms/crowd.c1/r2/runs.json', [{ trial: 1, survived: true }]);
+	const runs = await collectRuns(dir, plan, { crowd: { bar: 'none' } });
+	const by = arm => runs.find(run => run.arm === arm);
+	assert.equal(by('r1').verdict, 'FAIL');
+	assert.equal(by('r1').deaths, 1);
+	assert.equal(by('r2').verdict, 'PASS');
+	assert.equal(by('r2').deaths, 0);
+});
+
+test('a rescore uses the saved room definitions, and reads --baseline before --save-baseline replaces it', async t => {
+	const { spawnSync } = await import('node:child_process');
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'bench-cli-'));
+	t.after(() => rm(dir, { recursive: true, force: true }));
+	const put = async (file, value) => { await mkdir(path.dirname(path.join(dir, file)), { recursive: true }); await writeFile(path.join(dir, file), JSON.stringify(value)); };
+	// A custom room, not in the default list, whose bar is a pearl held at the end.
+	const definitions = [{ room: 'custom-pearl', line: LINE, passWhen: { field: 'endPearls', min: 1 } }];
+	const plan = planBenchmark(definitions, { repeats: 2, slots: 2 });
+	await put('out/plan.json', { ...plan, commands: undefined, rooms: ['custom-pearl'], roomDefinitions: definitions });
+	await put('out/batch/batch.json', { code: 'newcode1', arms: [] });
+	await put('out/batch/rooms/custom-pearl.c1/done.json', { room: 'custom-pearl.c1', arms: { r1: { exit: 0 }, r2: { exit: 0 } } });
+	for (const arm of ['r1', 'r2']) await put(`out/batch/rooms/custom-pearl.c1/${arm}/result.json`, { endPearls: 0, deaths: 0 });
+	const baselineFile = path.join(dir, 'baseline.json');
+	await put('baseline.json', { code: 'oldcode1', repeats: 2, rooms: { 'custom-pearl': { pass: 2, fail: 0, invalid: 0, lost: 0, passRate: 1, deaths: 0, damage: 0, medianSeconds: 1 } } });
+	const run = spawnSync(process.execPath, [path.join(root, 'scripts/quality/benchmark.mjs'), '--score', path.join(dir, 'out'), '--baseline', baselineFile, '--save-baseline', baselineFile], { encoding: 'utf8' });
+	assert.equal(run.status, 0, run.stderr);
+	const scored = JSON.parse(await readFile(path.join(dir, 'out', 'score.json'), 'utf8'));
+	assert.equal(scored.rooms['custom-pearl'].fail, 2, 'endPearls 0 misses the saved bar even though the default list does not name the room');
+	assert.match(await readFile(path.join(dir, 'out', 'comparison.txt'), 'utf8'), /oldcode1/, 'the comparison read the old baseline');
+	assert.equal(JSON.parse(await readFile(baselineFile, 'utf8')).code, 'newcode1', 'and the new baseline replaced it afterwards');
 });
