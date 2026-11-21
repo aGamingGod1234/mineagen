@@ -1641,3 +1641,49 @@ test('Nether ore searches do not invent nonexistent deepslate variants', () => {
   for (const block of expected)assert.deepEqual([...findProfile({block}).ids].sort(),expected);
  }
 });
+
+// lava-gate-1 (seed 5433312384530337025): the lava find's 1-wide shaft from spawn broke the roof of a flooded cave at y56
+// (water in every cell round it up to the stone roof at y57); the only air is the shaft, open to the sky, so the spot the
+// runtime keeps under open sky is the body's own at the bottom. On main every way off read "already at the surface" and
+// the body trod water there for 12 minutes (10 of 10 runs).
+function afloatUnderOwnShaft() {
+	let laid = false, out = false;
+	const cut = new Set();
+	const water = [];
+	for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]]) water.push({ blockId: 'minecraft:water', x: 16 + dx, y: 56, z: -48 + dz });
+	const start = { x: 16.5, y: 56.3, z: -47.5, yaw: 0, health: 20, inWater: true, underWater: false, air: 300, maxAir: 300, skyOpen: true };
+	const body = fakeBody({ start: sample({ player: start, blocks: water, inventory: { items: [{ itemId: 'minecraft:iron_pickaxe', count: 1 },
+		{ itemId: 'minecraft:water_bucket', count: 1 }, { itemId: 'minecraft:cobblestone', count: 16 }] } }), frontier: { candidates: [], coverage: { headings: {} } }, acts: {
+		travel_to: Array.from({ length: 20 }, () => ({ result: { state: 'FAILED', reasonCode: 'NO_ROUTE',
+			message: 'Could not get out of the water in 30 s; no dry footing seen within 10 blocks' }, ms: 30_000 })),
+		place_block: Array.from({ length: 4 }, () => ({ result: { state: 'SUCCEEDED', reasonCode: 'BLOCK_PLACED' }, ms: 500, move: () => { laid = true; return {}; } })),
+		break_block: Array.from({ length: 40 }, () => ({ result: { state: 'SUCCEEDED', reasonCode: 'BLOCK_BROKEN' }, ms: 1_000,
+			move: (player, args) => { cut.add(`${args.x},${args.y},${args.z}`); return {}; } })),
+		control: Array.from({ length: 80 }, () => ({ result: { state: 'SUCCEEDED' }, ms: 1_000,
+			move: (player, args) => {
+				// Jump pulses in the 1-wide column go nowhere; the hop needs the laid floor and the cut step.
+				if (args.forward === 1 && args.pitch === 0 && laid && cut.size >= 3) { out = true; return { y: 57, z: player.z + 1, inWater: false, underWater: false, skyOpen: false }; }
+				return {};
+			} })),
+		dig_to: Array.from({ length: 30 }, () => ({ get result() { return out ? { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:lava seen at 30,40,-30, 5 blocks away' }
+			: { state: 'FAILED', reasonCode: 'WATER_AHEAD', message: 'Stopped: The body is under water at 16,56,-48 (air 298/300); not digging on.' }; } })),
+	} });
+	body.openSky = () => ({ x: 16.5, y: 56, z: -47.5 });
+	const missed = [];
+	body.missedPlaces = () => missed;
+	body.missPlace = (place, why) => missed.push({ ...place, why });
+	return body;
+}
+
+test('lava-gate-1: afloat at the bottom of its own shaft open to the sky, the lava find lays a step in the water, cuts it out and climbs on', async () => {
+	const body = afloatUnderOwnShaft();
+	const result = await searchFor({ block: 'minecraft:lava' }, body, { timeoutMs: 540_000 });
+	const types = body.calls.map((call) => call.actionType);
+	const laid = types.indexOf('place_block'), firstCut = types.indexOf('break_block');
+	assert.ok(laid >= 0, `a step laid in the water (calls: ${types.join(',')}; ${result.reasonCode} ${result.message})`);
+	assert.ok(firstCut > laid, 'laid before the step is cut out above it');
+	assert.deepEqual(['x', 'y', 'z', 'face'].map((key) => body.calls[laid].args[key]), [16, 56, -47, 'down'], 'into the water beside the body (south, its yaw), against the rock over it');
+	const stairs = body.calls.find((call) => call.actionType === 'dig_to' && call.args.pattern === 'stairs_up');
+	assert.ok(stairs !== undefined && stairs.args.y >= 64, 'stairs on up out of the flooded shaft, not another dig into the water');
+	assert.equal(result.reasonCode, 'FIND_SEEN', result.message);
+});

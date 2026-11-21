@@ -156,6 +156,9 @@ const MAX_RETRACES = 3;
 // The last open-sky spot a wet or flooded body climbs back to: only one this close (a retrace along its own path).
 const SKY_REACH = 48;
 const FLOODED_REACH = 96;
+// The way up a flooded 1-wide shaft open to the sky, in blocks above the water, when no spot under open sky is remembered
+// above the body: about the depth a shaft from the surface meets an aquifer or a flooded cave (lava-gate-1: 14).
+const SHAFT_UP = 12;
 // Swimming up a flooded stair: pulses of this many ticks, at most this many (the stair from y16 to the surface is ~50 up).
 const STAIR_PULSE_TICKS = 40;
 const MAX_WATER_STEPS = 6;
@@ -466,9 +469,19 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 	// runtime keeps it from every sample), when that is above it and close enough to walk back to.
 	const skyAbove = (here, reach) => {
 		const sky = body.openSky?.() ?? null;
-		return sky !== null && [sky.x, sky.y, sky.z].every(Number.isFinite) && here !== null && sky.y > here.y + 3
-			&& Math.hypot(sky.x - here.x, sky.z - here.z) <= reach ? sky : null;
+		if (sky !== null && [sky.x, sky.y, sky.z].every(Number.isFinite) && here !== null && sky.y > here.y + 3
+			&& Math.hypot(sky.x - here.x, sky.z - here.z) <= reach) return sky;
+		// Afloat at the bottom of its own 1-wide shaft, open to the sky: the last spot under open sky is the body's own, so
+		// the way up is straight up its column. lava-gate-1: the shaft broke the roof of a flooded cave at y56 and the body
+		// trod water there for 12 minutes, every way off judged "already at the surface" (10 of 10 runs).
+		if (here !== null && observation?.player?.skyOpen === true && inWater() && (sky === null || Math.hypot(sky.x - here.x, sky.z - here.z) <= 1.5)) {
+			return { x: Math.floor(here.x) + 0.5, y: Math.floor(here.y + 1e-3) + SHAFT_UP, z: Math.floor(here.z) + 0.5 };
+		}
+		return null;
 	};
+	// Water seen at a cell: the sample's own block rows or the water the runtime remembers.
+	const waterAt = (cell) => [...(observation?.blocks ?? []), ...(body.known?.(observation, /(^|:)water$/)?.blocks ?? [])]
+		.some((row) => /(^|:)water$/.test(String(row?.blockId ?? '')) && row.x === cell.x && row.y === cell.y && row.z === cell.z);
 	const swimUpStair = async (sky, failed = null) => {
 		const next = /toward Point\[[^\]]*?x=(-?\d+), y=(-?\d+), z=(-?\d+)\]/.exec(String(failed?.result?.message ?? ''));
 		const via = next === null ? null : { x: Number(next[1]) + 0.5, y: Number(next[2]), z: Number(next[3]) + 0.5 };
@@ -509,6 +522,14 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 			const dir = nearestCardinal(flat ? Math.atan2(-(toward.x - at.x), toward.z - at.z) * 180 / Math.PI : Number.isFinite(player.yaw) ? player.yaw : 0);
 			const dx = Math.round(-Math.sin(dir.yaw * Math.PI / 180)), dz = Math.round(Math.cos(dir.yaw * Math.PI / 180));
 			const fx = Math.floor(at.x), fy = Math.floor(at.y + 1e-3), fz = Math.floor(at.z);
+			// Water under the step too (a flooded cave below the shaft, water up to its roof): a block laid into it first,
+			// against the rock over it, is the step's floor, as a player lays one before climbing out.
+			const block = (observation?.inventory?.items ?? []).find((item) => SHELTER_BLOCKS.has(item?.itemId) && item.count >= 1)?.itemId;
+			if (block !== undefined && waterAt({ x: fx + dx, y: fy, z: fz + dz })) {
+				const laid = await leg('lay a step in the water', 'place_block', { x: fx + dx, y: fy, z: fz + dz, face: 'down', itemId: block });
+				if (laid.seen || laid.interrupted) return settle(laid);
+				if (laid.result?.state !== 'SUCCEEDED') return null;
+			}
 			for (const [x, y, z] of [[fx + dx, fy + 1, fz + dz], [fx + dx, fy + 2, fz + dz], [fx + dx, fy + 3, fz + dz], [fx, fy + 2, fz], [fx, fy + 3, fz]]) {
 				if (!breathing(observation?.player)) return null;
 				const cut = await leg('cut a step out of the water', 'break_block', { x, y, z });
@@ -1121,6 +1142,12 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 		};
 		const climbOut = async (top, away, label) => {
 			const up = await leg(label, 'travel_to', { x: top.x, y: top.y, z: top.z, retrace: true, tolerance: 3, stopWhenSeen: profile.stopId });
+			if (!up.seen && !up.interrupted && SHUT_WAY.has(up.result?.reasonCode) && inWater()) {
+				// Afloat in its own flooded hole: up the water and out onto a step cut beside it, then the stairs from there.
+				const swum = await swimUpStair(top, up);
+				if (swum !== null) return swum;
+				if (inWater()) return settle(up);
+			}
 			const at = bodyAt(observation);
 			if (up.seen || up.interrupted || !SHUT_WAY.has(up.result?.reasonCode) || observation?.player?.underWater === true || at === null || at.y >= top.y - 3) return settle(up);
 			const rise = Math.ceil(top.y - at.y);
@@ -1255,7 +1282,19 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 					: await leg('off this spot', 'travel_to', { yaw: heading.yaw, distance: Math.min(RELOCATE, stepsLeft(heading)), stopWhenSeen: profile.stopId });
 				let ended = await settle(out);
 				if (ended !== null) return ended;
-				if (wetSky !== null && out.result?.state !== 'SUCCEEDED') { ended = await swimUpStair(wetSky, out); if (ended !== null) return ended; }
+				if (wetSky !== null && out.result?.state !== 'SUCCEEDED') {
+					ended = await swimUpStair(wetSky, out);
+					if (ended !== null) return ended;
+					// Out onto the step beside its flooded shaft: stairs on up from there, not another dig down into the water.
+					const stepped = bodyAt(observation);
+					if (!inWater() && stepped !== null && stepped.y < wetSky.y - 3) {
+						const up = await leg('stairs up out of the flooded shaft', 'dig_to', { pattern: 'stairs_up', y: Math.floor(wetSky.y),
+							heading: nearestCardinal(Number.isFinite(observation?.player?.yaw) ? observation.player.yaw : 0).name,
+							maxBlocks: Math.min(MAX_DIG_BLOCKS, STEP_CELLS.stairs_up * (Math.ceil(wetSky.y - stepped.y) + 4)), stopWhenSeen: profile.stopId, discard: DISCARD });
+						ended = await settle(up);
+						if (ended !== null) return ended;
+					}
+				}
 				previous = bodyAt(observation);
 				// A move off that left the body where it was: digging here again meets the same stop. Live, B-1's aquifer cell:
 				// two such moves (BUILD_FAILED in the water) each followed by two more wet digs down, 108 s in all.
