@@ -272,6 +272,10 @@ try {
 		try {
 			await reset();
 			await command('setblock 0 79 2 minecraft:lava');
+			// Look back over the ground behind first: the escape runs only over ground the bot has seen, as a player
+			// who knows what is behind them backs straight off.
+			await command(`tp ${agent} 0.5 80 0.8 180 30`);
+			await sleep(1000);
 			await command(`tp ${agent} 0.5 80 0.8 0 0`);
 			o = await setReflexes([{ id: 'lava', priority: 9, when: { type: 'lava_near', within: 2 }, do: { type: 'sprint_away', blocks: 3 }, maxS: 3 }]);
 			const played = await rate.play();
