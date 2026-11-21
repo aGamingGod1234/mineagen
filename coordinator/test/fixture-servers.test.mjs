@@ -5,6 +5,10 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { warmBoots, worldProperties, worldCacheKey, stageServer } from '../../scripts/quality/fixture-servers.mjs';
 
+// slot.sh hands out live slots as flock locks, and a self-sent SIGTERM ends a Windows process with code 1 before any
+// handler runs. Tests of either run only where the harness runs: on a POSIX machine.
+const posixOnly = { skip: process.platform === 'win32' ? 'live slots use flock and POSIX signals, which Windows lacks' : false };
+
 function fakeServers() {
 	const log = [];
 	const boot = async (dir, options) => {
@@ -121,7 +125,7 @@ test('a discarded world is preserved when server exit cannot be confirmed', asyn
 	} finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test('a swallowed playing-server stop failure prevents advancement and port reuse', async () => {
+test('a swallowed playing-server stop failure prevents advancement and port reuse', posixOnly, async () => {
 	const { EventEmitter } = await import('node:events');
 	const { spawnSync } = await import('node:child_process');
 	const { replayPort } = await import('../../scripts/quality/watch-replay.mjs');
@@ -160,7 +164,7 @@ test('a swallowed playing-server stop failure prevents advancement and port reus
 	}
 });
 
-for (const ahead of [0, 1]) for (const interruption of ['failed', 'exit', 'SIGTERM']) test(`exit guard retains ${ahead ? 'ahead' : 'on-demand'} boot during ${interruption}`, async () => {
+for (const ahead of [0, 1]) for (const interruption of ['failed', 'exit', 'SIGTERM']) test(`exit guard retains ${ahead ? 'ahead' : 'on-demand'} boot during ${interruption}`, interruption === 'SIGTERM' ? posixOnly : {}, async () => {
 	const { spawnSync } = await import('node:child_process');
 	const root = await mkdtemp(path.join(tmpdir(), 'boot-exit-'));
 	const moduleUrl = new URL('../../scripts/quality/fixture-servers.mjs', import.meta.url).href;
@@ -194,7 +198,7 @@ process.exit(0);
 	} finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test('a server booted ahead holds a free live slot until its case takes it, and boots on demand when none is free', async () => {
+test('a server booted ahead holds a free live slot until its case takes it, and boots on demand when none is free', posixOnly, async () => {
 	const { spawn, spawnSync } = await import('node:child_process');
 	const root = await mkdtemp(path.join(tmpdir(), 'pool-'));
 	const pool = { dir: root, count: 2 };
@@ -323,7 +327,7 @@ test('freeze failure confirms shutdown before retrying the same case', async () 
 	} finally { await rm(root, { recursive: true, force: true }); }
 });
 
-for (const failure of ['freeze', 'thaw', 'unused']) test(`${failure}: unconfirmed shutdown preserves world and slot until child exits`, async () => {
+for (const failure of ['freeze', 'thaw', 'unused']) test(`${failure}: unconfirmed shutdown preserves world and slot until child exits`, posixOnly, async () => {
 	const { EventEmitter } = await import('node:events');
 	const { spawnSync } = await import('node:child_process');
 	const root = await mkdtemp(path.join(tmpdir(), 'unsafe-'));
