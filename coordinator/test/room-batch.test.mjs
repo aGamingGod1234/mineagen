@@ -28,6 +28,27 @@ test('a room line runs once per arm, an arm line overrides it, and bad lines are
 	assert.deepEqual(splitWords(`a 'b c' "d \\"e\\"" f\\ g`), ['a', 'b c', 'd "e"', 'f g']);
 	assert.equal(plannedOf({ FIND_ONLY: 'x,y,z' }), 3);
 	assert.equal(plannedOf({ OTHER: '1' }), 1);
+	assert.equal(plannedOf({ BUILD_ONLY: '' }), 1, 'an empty selector still plans one row');
+});
+
+test('a lost room with an empty selector keeps the arm from reading as PASS', async () => {
+	const out = await mkdtemp(path.join(os.tmpdir(), 'room-batch-empty-selector-'));
+	try {
+		const rooms = parseCommands(`@a ${LINE}\n@b BUILD_ONLY= ${LINE}`, ['new']);
+		assert.equal(rooms[1].planned, 1);
+		await writeRoom(out, 'a', 'new', [row('spot-a')]);
+		const outcomes = [
+			{ room: 'a', lost: false, worker: 'vm1', attempts: 1, arms: { new: { exit: 0, seconds: 5 } } },
+			{ room: 'b', lost: true, reason: 'worker died', worker: 'vm2', attempts: 2, arms: {} },
+		];
+		// A stale plannedByArm of 0 (an older parse) is clamped too.
+		const merged = await mergeArms({ out, rooms: [rooms[0], { ...rooms[1], planned: 0, plannedByArm: { new: 0 } }], arms: ['new'], outcomes });
+		const totals = armTotals(merged.new);
+		assert.notEqual(totals.status, 'PASS', 'a lost room must never read as PASS');
+		assert.equal(totals.notStarted, 1);
+		assert.deepEqual(totals.lostRooms, ['b']);
+		assert.equal(totals.damage, null, 'damage is unknown, not 0, with a room missing');
+	} finally { await rm(out, { recursive: true, force: true }); }
 });
 
 const worker = id => ({ id });

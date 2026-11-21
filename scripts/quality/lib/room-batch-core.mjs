@@ -68,10 +68,10 @@ export function parseCommands(text, arms) {
 	});
 }
 
-/** Rows a room is expected to write: the count its selector names (BUILD_ONLY=a,b is 2), else 1. */
+/** Rows a room is expected to write: the count its selector names (BUILD_ONLY=a,b is 2), else 1 (an empty selector too). */
 export function plannedOf(env) {
 	const selector = Object.entries(env).find(([key]) => /(_ONLY|^SPOTS|^CASES)$/.test(key));
-	return selector ? selector[1].split(',').filter(Boolean).length : 1;
+	return Math.max(1, selector ? selector[1].split(',').filter(Boolean).length : 1);
 }
 
 /**
@@ -155,7 +155,8 @@ export async function mergeArms({ out, rooms, arms, outcomes }) {
 				: own.planned <= 0 ? 'room planned 0 rows'
 				: null;
 			const basePlanned = ownValid ? own.planned : (room.plannedByArm?.[arm] ?? room.planned);
-			const roomPlanned = roomInvalid ? Math.max(basePlanned, 1) : basePlanned;
+			// A lost or invalid room always plans at least one row, so it can never leave the arm reading as a clean PASS.
+			const roomPlanned = outcome.lost || roomInvalid ? Math.max(basePlanned, 1) : basePlanned;
 			planned += roomPlanned;
 			const run = outcome.arms?.[arm] ?? {};
 			const read = !outcome.lost && await exists(path.join(dir, 'result.json')) ? await readJson(path.join(dir, 'result.json')).catch(() => []) : [];
