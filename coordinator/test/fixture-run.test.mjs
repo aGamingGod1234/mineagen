@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { terminalCounter, finishRun, fixtureSummary, roomVerdict } from '../../scripts/quality/lib/fixture-run.mjs';
 import { findSpotVerdict } from '../../scripts/quality/lib/find-spot.mjs';
-import { damageCounter, damageEvidence, replyNumber, deathCounter, deathEvidence, matchesDamageExpectation } from '../../scripts/quality/lib/damage-counter.mjs';
+import { damageCounter, damageEvidence, replyNumber, deathCounter, deathEvidence, matchesDamageExpectation, statCounter, shieldShareVerdict } from '../../scripts/quality/lib/damage-counter.mjs';
 
 test('a healed hit remains damage, and missing or reset counters cannot prove safety', async () => {
 	assert.deepEqual(damageEvidence(10, 40, 20, 20), { damageTaken: 3, netHealthChange: 0 });
@@ -137,4 +137,32 @@ test('death scoring requires real initialized baseline and final counters, never
 	assert.deepEqual(deathEvidence(2, 2), { before: 2, after: 2, valid: true, deaths: 0 });
 	assert.equal(deathEvidence(2, 3).deaths, 1);
 	assert.equal(deathEvidence(3, 2).valid, false);
+});
+
+test('review of PR #30: an unreadable shield or damage counter is invalid evidence, never a zero that passes', async () => {
+	const replies = ['created', 'Reflex has 40 [blk]', 'Reflex has 0 [blk]', 'No score for Reflex is set (none is set)', 'unknown objective', 'Reflex has 7 [other]'];
+	const read = await statCounter(async () => replies.shift(), 'Reflex', 'blk', 'minecraft.custom:minecraft.damage_blocked_by_shield');
+	assert.equal(await read(), 40);
+	assert.equal(await read(), 0);
+	assert.equal(await read(), 0);
+	assert.equal(await read(), null);
+	assert.equal(await read(), null);
+	const arrowOnly = { arm: 'arrowOnly', repeat: 0, distance: 4, blocked0: 0, blocked1: 10, taken0: 0, taken1: 30 };
+	const unreadableDamage = shieldShareVerdict([arrowOnly, { arm: 'drawn', repeat: 0, distance: 4, blocked0: 0, blocked1: 40, taken0: null, taken1: null }], 0.8);
+	assert.equal(unreadableDamage.pass, false);
+	assert.equal(unreadableDamage.shareDrawn, null);
+	assert.equal(unreadableDamage.integrity.length, 1);
+	assert.equal(unreadableDamage.arms.drawn.cases[0].taken, null);
+	const readable = shieldShareVerdict([arrowOnly, { arm: 'drawn', repeat: 0, distance: 4, blocked0: 5, blocked1: 45, taken0: 30, taken1: 35 }], 0.8);
+	assert.deepEqual([readable.pass, readable.shareArrowOnly, readable.shareDrawn, readable.integrity], [true, 0.25, 40 / 45, undefined]);
+});
+
+test('review of PR #30: an arm that took no arrow damage is unmeasured, so the drawn arm cannot pass against it', () => {
+	const idle = { arm: 'arrowOnly', repeat: 0, distance: 10, blocked0: 0, blocked1: 0, taken0: 0, taken1: 0 };
+	const unexercised = shieldShareVerdict([idle, { arm: 'drawn', repeat: 0, distance: 10, blocked0: 0, blocked1: 40, taken0: 0, taken1: 0 }], 0.8);
+	assert.equal(unexercised.pass, false);
+	assert.equal(unexercised.shareArrowOnly, null);
+	assert.deepEqual(unexercised.integrity.map(row => row.arm), ['arrowOnly']);
+	const idleDrawn = shieldShareVerdict([{ ...idle, blocked1: 10, taken1: 30 }, { ...idle, arm: 'drawn' }], 0.8);
+	assert.deepEqual([idleDrawn.pass, idleDrawn.integrity.map(row => row.arm)], [false, ['drawn']]);
 });

@@ -9,9 +9,9 @@ test('wire ownership follows the book, including identical replacements and cust
 	book.observeContext('a', live);
 	assert.ok(book.payload('a').rules.every(rule => rule.coordinatorDefault === true));
 	const arrow = DEFAULT_REFLEXES.find(rule => rule.id === 'default-arrow');
-	const { ttlMs, ...definition } = arrow;
+	const { ttlMs, maxMs, ...definition } = arrow;
 	book.apply('a', normalizeReflexEntries([
-		{ ...definition, ttlS: ttlMs / 1000 },
+		{ ...definition, ttlS: ttlMs / 1000, ...(maxMs === undefined ? {} : { maxS: maxMs / 1000 }) },
 		{ id: 'default-fire', when: { type: 'in_fire' }, do: { type: 'place', item: 'water_bucket', where: 'below' }, wake: true },
 		{ id: 'default-custom', when: { type: 'night' }, do: { type: 'shield' }, wake: true },
 	]));
