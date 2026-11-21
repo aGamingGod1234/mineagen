@@ -153,6 +153,8 @@ public final class ServerFightUntilController implements ServerController {
 	/** How far from an angry enderman the sword cannot reach the body backs off, so it teleports across to the body. */
 	static final double DRAW_DISTANCE = 19.0D;
 	static final int MAX_DRAW_OVERS = 4;
+	/** After backing off, the body holds this long for the angry one to teleport across (vanilla tries every 1.5 s). */
+	static final long DRAW_HOLD_MS = 10_000L;
 
 	/** Test seam: the back-off walk for an angry enderman out of reach (navigation to the goal by default). */
 	interface DrawWalks { ServerController walk(Vec3 goal, long now); }
@@ -326,6 +328,8 @@ public final class ServerFightUntilController implements ServerController {
 	private int farStares;
 	private int drawOvers;
 	private ServerController drawWalk;
+	private LivingEntity drawn;
+	private long drawHoldUntilMs = -1L;
 	private int holds;
 	private int attackerSoftEnds;
 	/** The low-health perch (endermen): the column's base cell, blocks placed, ticks spent; done once per call. */
@@ -628,10 +632,11 @@ public final class ServerFightUntilController implements ServerController {
 			}
 		}
 		LivingEntity target = nextTarget(player, elapsed);
-		if (target == null && mob == McEntityTypes.ENDERMAN) {
-			TickResult drawing = tickDrawOver(player, elapsed, nowEpochMs);
+		if (mob == McEntityTypes.ENDERMAN) {
+			// A back-off for an angry one out of reach, and the hold after it, are not cut short by re-engaging it.
+			TickResult drawing = tickDrawOver(player, elapsed, nowEpochMs, target == null);
 			if (drawing != null) return drawing;
-			target = stareTarget(player);
+			if (target == null) target = stareTarget(player);
 		}
 		if (target != null && hunt != null) {
 			hunt.cancel(player);
@@ -1491,17 +1496,29 @@ public final class ServerFightUntilController implements ServerController {
 	 * where it is: vanilla teleports one toward its target only from farther. The body backs off to DRAW_DISTANCE from it,
 	 * as a player steps back from the lava, and waits there for it to come across. Null when nothing is to be drawn over.
 	 */
-	private TickResult tickDrawOver(ServerPlayer player, long elapsed, long now) {
+	private TickResult tickDrawOver(ServerPlayer player, long elapsed, long now, boolean mayStart) {
 		if (drawWalk != null) {
 			lastTargetMs = elapsed;
 			TickResult walked = drawWalk.tick(player, now);
 			if (walked.state() == State.RUNNING) return TickResult.running(progress(player));
 			drawWalk.cancel(player);
 			drawWalk = null;
+			drawHoldUntilMs = elapsed + DRAW_HOLD_MS;
 			note("backed off for the angry enderman to come across: " + walked.reasonCode());
 			return TickResult.running(progress(player));
 		}
-		if (!choices.mayMove() || roofed || drawOvers >= MAX_DRAW_OVERS) return null;
+		if (drawn != null && elapsed < drawHoldUntilMs) {
+			// Hold where the back-off ended until it comes within reach (then the fight takes it) or the hold runs out.
+			if (drawn.isAlive() && !drawn.isDeadOrDying() && player.distanceTo(drawn) > ENDER_HOLD_RANGE) {
+				lastTargetMs = elapsed;
+				if (look != null) { look.cancel(player); look = null; }
+				ServerLookController.turnToward(player, legs(drawn));
+				return TickResult.running(progress(player));
+			}
+			drawHoldUntilMs = -1L;
+		}
+		drawn = null;
+		if (!mayStart || !choices.mayMove() || roofed || drawOvers >= MAX_DRAW_OVERS) return null;
 		for (Monster enderman : player.level().getEntitiesOfClass(McCompat.ENDERMAN, player.getBoundingBox().inflate(TELEPORT_RANGE),
 				e -> e.isAlive() && !e.isDeadOrDying() && attacking(player, e))) {
 			if (player.distanceTo(enderman) > TELEPORT_RANGE || !unreachable.marked(enderman.getUUID())) continue;
@@ -1511,6 +1528,7 @@ public final class ServerFightUntilController implements ServerController {
 			if (look != null) { look.cancel(player); look = null; }
 			if (walk != null) { walk.cancel(player); walk = null; }
 			drawWalk = drawWalks.walk(goal, now);
+			drawn = enderman;
 			drawOvers++;
 			lastTargetMs = elapsed;
 			note(String.format(Locale.ROOT, "angry %s %s out of reach %.1f blocks away: backing off to %s for it to teleport across", mobId,
