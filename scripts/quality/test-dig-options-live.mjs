@@ -38,21 +38,23 @@ try {
  const deaths = () => deathCounter(text => s.command(text), A, { objective: 'deaths', unsetIsZero: true });
  const cases = [
   { name: 'cave-default-small', cave: 'small', args: {}, expect: 'DIG_GOAL_REACHED' },
-  { name: 'cave-false', cave: 'small', args: { throughCaves: false }, expect: 'CAVE_OPENING' },
+  { name: 'cave-false', cave: 'small', args: { throughCaves: false }, expect: 'DIG_GOAL_REACHED' },
+  { name: 'drop-false', drop: 2, args: { throughCaves: false }, expect: 'CAVE_OPENING' },
   { name: 'cave-explicit-small', cave: 'small', args: { throughCaves: 'small' }, expect: 'DIG_GOAL_REACHED' },
-  { name: 'cave-large-default', cave: 'large', args: {}, expect: 'CAVE_OPENING' },
+  { name: 'cave-large-default', cave: 'large', args: {}, expect: 'DIG_GOAL_REACHED' },
   { name: 'cave-large-true', cave: 'large', args: { throughCaves: true }, expect: 'DIG_GOAL_REACHED' },
   { name: 'full-default', full: true, args: {}, expect: 'INVENTORY_FULL' },
   { name: 'full-discard', full: true, args: { discard: ['cobblestone'] }, expect: 'DIG_GOAL_REACHED' },
   { name: 'full-unlisted', full: true, args: { discard: ['tuff'] }, expect: 'INVENTORY_FULL' },
-  { name: 'water-default', fluid: 'water', args: {}, expect: 'WATER_AHEAD' },
+  { name: 'water-default', fluid: 'water', args: {}, expect: 'DIG_GOAL_REACHED' },
+  { name: 'water-noseal', fluid: 'water', args: { sealFluids: false }, expect: 'WATER_AHEAD' },
   { name: 'water-seal', fluid: 'water', args: { sealFluids: true }, expect: 'DIG_GOAL_REACHED' },
   { name: 'water-seal-no-caves', fluid: 'water', args: { throughCaves: false, sealFluids: true }, expect: 'DIG_GOAL_REACHED' },
   { name: 'lava-drop', lavaDrop: true, drop: 5, args: { sealFluids: true }, expect: ['LAVA_AHEAD', 'CAVE_OPENING'] },
   { name: 'deep-drop-default', drop: 5, args: {}, expect: 'CAVE_OPENING' },
   { name: 'lava-hidden-seal', hidden: true, args: { sealFluids: true }, expect: 'LAVA_AHEAD' },
   { name: 'lava-default', fluid: 'lava', args: {}, expect: 'LAVA_AHEAD' },
-  { name: 'lava-seal', fluid: 'lava', args: { sealFluids: true }, expect: 'DIG_GOAL_REACHED' },
+  { name: 'lava-seal', fluid: 'lava', args: { sealFluids: true }, expect: 'LAVA_AHEAD' },
   { name: 'lava-purpose', fluid: 'lava', args: { sealFluids: true, stopWhenSeen: 'minecraft:lava' }, expect: ['LAVA_AHEAD', 'TARGET_SEEN'] },
  ].filter(c => !process.env.DIG_OPTION_CASES || process.env.DIG_OPTION_CASES.split(',').includes(c.name));
  for (const [i, c] of cases.entries()) {
@@ -97,10 +99,15 @@ try {
   row.pass = [c.expect].flat().includes(result.reasonCode);
   if (c.name === 'full-discard') row.pass &&= /Q-dropped cobblestone\*64/.test(result.message) && /cobblestone/.test(items);
   if (c.name === 'full-default') row.pass &&= /candidate junk stacks: cobblestone\*64 slot 1/.test(result.message) && /discard:/.test(result.message);
-  if (c.fluid && c.name.includes('seal')) row.pass &&= /sealed fluids with/.test(result.message);
+  // Sealing is on by default and carries on only past water; a lava plug hands the turn back with the cast offer.
+  if (c.fluid === 'water' && c.args.sealFluids !== false) row.pass &&= /sealed fluids with/.test(result.message);
+  if (c.name === 'lava-seal') row.pass &&= /plugged it with cobblestone at 2,60,/.test(result.message) && /cast_obsidian/.test(result.message);
+  // A cave beside the tunnel is noted and passed, whatever throughCaves says; only a drop under the cut stops it.
+  if (c.name === 'cave-false' || c.name === 'cave-large-default') row.pass &&= /dug past caves at 2,6/.test(result.message);
   if (c.name === 'lava-default') row.pass &&= /water bucket held/.test(result.message) && /cast_obsidian \{x:2,y:60,z:/.test(result.message);
   if (c.lavaDrop) row.pass &&= !/sealed fluids with/.test(result.message);
-  if (c.name === 'lava-purpose') row.pass &&= (result.reasonCode === 'TARGET_SEEN' || /left for casting/.test(result.message)) && /cast_obsidian/.test(result.message);
+  // One covered lava source is too small to cast a portal from, so it is plugged like a spill.
+  if (c.name === 'lava-purpose') row.pass &&= /a pocket too small for a portal cast/.test(result.message) && /plugged it with cobblestone/.test(result.message);
   rows.push(row);
   await writeFile(join(out, 'results.json'), JSON.stringify(rows, null, 2));
   console.log(`${row.pass ? 'PASS' : 'FAIL'} ${c.name}: ${result.reasonCode}`);
