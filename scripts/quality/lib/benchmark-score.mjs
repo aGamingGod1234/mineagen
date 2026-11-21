@@ -72,7 +72,7 @@ const meetsBar = (passWhen, fields) => Number.isFinite(fields?.[passWhen.field])
  * A field nobody wrote stays null (unknown), never 0.
  */
 export async function otherEvidence(dir) {
-	let failed = null, failedPass = false;
+	let failed = null, failedPass = false, deathsUnread = false;
 	const fields = {}, corrupt = [];
 	// The deepest object that names a death or a hurt counts it; a parent (a variant, a summary, a deathCounter) that
 	// repeats its children's total adds nothing. A bare "damage" counts only beside died/deaths, since elsewhere it is
@@ -95,11 +95,16 @@ export async function otherEvidence(dir) {
 		if (value.pass === false) failedPass = true;
 		// The default-reflex edge room's bar is staying on the bridge (its own tally); resistance keeps both bodies alive.
 		if (value.offBridge === true) failed ??= 'offBridge';
+		// A death counter that says it could not be read (the blaze room's deathCounter.valid false) leaves deaths unknown.
+		if (value.valid === false && 'deaths' in value) deathsUnread = true;
 		// The crowd room writes survived: false per run and a died count in its summary.
 		const own = typeof value.died === 'boolean' ? (value.died ? 1 : 0) : Number.isFinite(value.died) ? value.died : Number.isFinite(value.deaths) ? value.deaths
 			: typeof value.survived === 'boolean' ? (value.survived ? 0 : 1) : typeof value.alive === 'boolean' ? (value.alive ? 0 : 1) : null;
 		const hurt = [value.damageTaken, value.healthLost, own !== null ? value.damage : undefined].find(Number.isFinite) ?? null;
-		return { deaths: children.deaths ?? own, damage: children.damage ?? hurt };
+		// A parent that repeats its children's total adds nothing, but one that counted a death after them (the blaze room
+		// samples its counter before the last health check) keeps it: the larger count stands.
+		const deaths = children.deaths === null ? own : own === null ? children.deaths : Math.max(children.deaths, own);
+		return { deaths, damage: children.damage ?? hurt };
 	};
 	let deaths = null, damage = null;
 	const names = await readdir(dir).catch(() => []);
@@ -113,7 +118,7 @@ export async function otherEvidence(dir) {
 	}
 	// A crowd, defend or rest room that caught an error writes error.txt and still exits 0.
 	const error = names.includes('error.txt') ? (await readFile(path.join(dir, 'error.txt'), 'utf8').catch(() => '')).split('\n')[0] || 'error.txt' : null;
-	return { deaths, damage: damage === null ? null : +damage.toFixed(1), failed, failedPass, fields, corrupt, error };
+	return { deaths, damage: damage === null ? null : +damage.toFixed(1), failed, failedPass, deathsUnread, fields, corrupt, error };
 }
 /** The thrown error of a fixture that failed by exception, from its log, folded to count. */
 async function failureLine(log) {
@@ -187,8 +192,10 @@ export async function collectRuns(batchDir, planned = null, meta = null) {
 			if (verdict !== 'INVALID' && evidence.corrupt.length) { verdict = 'INVALID'; reason = `corrupt ${evidence.corrupt.join(', ')}`; }
 			if (verdict === 'PASS' && evidence.failedPass && !survivalBar) { verdict = 'FAIL'; reason = 'pass false'; }
 			if (verdict === 'PASS' && survivalBar && (evidence.deaths > 0 || evidence.failed)) { verdict = 'FAIL'; reason = evidence.deaths > 0 ? 'died' : evidence.failed === 'offBridge' ? 'off the bridge' : `${evidence.failed} false`; }
-			// A room judged on survival whose fixture recorded no death count is unknown, not a safe pass.
+			// A room judged on survival whose fixture recorded no death count, or said its counter could not be read, is
+			// unknown, not a safe pass.
 			if (verdict === 'PASS' && survivalBar && evidence.deaths === null) { verdict = 'INVALID'; reason = 'no death record'; }
+			if (verdict === 'PASS' && survivalBar && evidence.deathsUnread) { verdict = 'INVALID'; reason = 'death counter unreadable'; }
 			if (verdict === 'PASS' && passWhen && !meetsBar(passWhen, evidence.fields)) { verdict = 'FAIL'; reason = `${passWhen.field} below ${passWhen.min}`; }
 			runs.push({ ...base, verdict, reason, deaths: evidence.deaths, damage: evidence.damage,
 				seconds: run.seconds ?? null, wallSeconds: run.seconds ?? null, cantKeepUp: run.cantKeepUp ?? null, exitOnly: true });

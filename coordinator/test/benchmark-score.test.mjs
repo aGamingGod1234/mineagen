@@ -246,3 +246,25 @@ test('what a fixture wrote outranks its exit 0: caught errors, pass false, alive
 	assert.deepEqual(of('cut'), ['INVALID'], 'a cut-short file makes its run INVALID');
 	assert.deepEqual(of('fine'), ['PASS'], 'and the scoreboard goes on to the next room');
 });
+
+test('a death counted after the counter sample stands, and an unreadable counter is no verdict', async t => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'bench-score-'));
+	t.after(() => rm(dir, { recursive: true, force: true }));
+	const put = async (file, value) => { await mkdir(path.dirname(path.join(dir, file)), { recursive: true }); await writeFile(path.join(dir, file), JSON.stringify(value)); };
+	const rooms = ['late', 'unread', 'same'];
+	const plan = planBenchmark(rooms.map(room => ({ room, line: LINE })), { repeats: 1, slots: 1 });
+	for (const room of rooms) await put(`rooms/${room}.c1/done.json`, { room: `${room}.c1`, arms: { r1: { exit: 0 } } });
+	// The blaze room: its final health check found the death after the counter was sampled.
+	await put('rooms/late.c1/r1/blaze.json', { variants: { cover: { runs: [{ deaths: 1, deathCounter: { valid: true, deaths: 0 } }] } } });
+	await put('rooms/unread.c1/r1/blaze.json', { variants: { cover: { runs: [{ deaths: 0, deathCounter: { valid: false, deaths: null } }] } } });
+	// A parent repeating its child's count does not double it.
+	await put('rooms/same.c1/r1/blaze.json', { variants: { cover: { deaths: 1, runs: [{ deaths: 1, deathCounter: { valid: true, deaths: 1 } }] } } });
+	const meta = Object.fromEntries(rooms.map(room => [room, { bar: 'none' }]));
+	const runs = await collectRuns(dir, plan, meta);
+	const by = room => runs.find(run => run.room === room);
+	assert.equal(by('late').verdict, 'FAIL');
+	assert.equal(by('late').deaths, 1);
+	assert.equal(by('unread').verdict, 'INVALID');
+	assert.equal(by('unread').reason, 'death counter unreadable');
+	assert.equal(by('same').deaths, 1);
+});
