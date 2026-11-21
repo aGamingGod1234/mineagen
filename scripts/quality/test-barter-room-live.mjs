@@ -120,7 +120,8 @@ async function craftAtTable(recipeId, count) {
 // Gold the model would turn into ingots before bartering; false when there is none to convert or mine.
 async function getGold() {
 	const blocks = held('minecraft:gold_block'), nuggets = held('minecraft:gold_nugget');
-	if (blocks > 0) return (await act('craft_inventory', { recipeId: 'minecraft:gold_ingot_from_gold_block', count: Math.min(blocks, 7), timeoutMs: 20000 })).state === 'SUCCEEDED';
+	// count is output ingots: up to 7 blocks (63 ingots) at once, the batch the barter job crafts.
+	if (blocks > 0) return (await act('craft_inventory', { recipeId: 'minecraft:gold_ingot_from_gold_block', count: Math.min(blocks, 7) * 9, timeoutMs: 20000 })).state === 'SUCCEEDED';
 	if (nuggets >= 9) return craftAtTable('minecraft:gold_ingot_from_nuggets', Math.min(64, Math.floor(nuggets / 9)));
 	const seenOre = () => {
 		const p = facts.player;
@@ -297,15 +298,25 @@ try {
 	const endTicks = await gameTicks();
 	await observe();
 	const damage1 = await damage();
-	const nuggetsPicked = (await nuggetPickups()) - nuggets0;
-	const deaths = replyNumber(await s.command(`scoreboard players get ${AGENT} barter_deaths`));
+	const nuggets1 = await nuggetPickups();
+	const nuggetsPicked = Number.isFinite(nuggets0) && Number.isFinite(nuggets1) ? nuggets1 - nuggets0 : null;
+	// The objective exists before the window starts, so an unset score is 0 deaths; any other reply is unknown evidence.
+	const deathReply = String(await s.command(`scoreboard players get ${AGENT} barter_deaths`));
+	const deaths = /has (\d+) \[barter_deaths\]/.exec(deathReply)?.[1] !== undefined ? Number(/has (\d+) \[barter_deaths\]/.exec(deathReply)[1])
+		: /none is set/i.test(deathReply) ? 0 : null;
+	// A counter that cannot be read is missing evidence, never a safe pass (AGENTS.md, Debugging gameplay).
+	const integrity = [];
+	if (!Number.isFinite(damage0) || !Number.isFinite(damage1) || damage1 < damage0) integrity.push({ file: 'damage_taken', error: 'Missing or decreasing vanilla damage counter' });
+	if (deaths === null) integrity.push({ file: 'barter_deaths', error: `Unreadable death counter: ${deathReply.slice(0, 120)}` });
+	if (nuggetsPicked === null || nuggetsPicked < 0) integrity.push({ file: 'barter_nug', error: 'Missing or decreasing nugget pickup counter' });
+	if (integrity.length) row.integrity = integrity;
 	row.elapsedTicks = endTicks - startTicks;
 	row.finishedAt = Date.now();
-	row.deaths = Number.isFinite(deaths) ? deaths : dead ? 1 : 0;
+	row.deaths = deaths === null ? null : Math.max(deaths, dead ? 1 : 0);
 	row.damageTaken = Number.isFinite(damage1) && Number.isFinite(damage0) ? (damage1 - damage0) / 10 : null;
 	row.pearls = dead ? null : held('minecraft:ender_pearl') - pearls0;
 	row.goldEnd = dead ? null : goldUnits();
-	row.goldMined = Number.isFinite(nuggetsPicked) ? +(nuggetsPicked / 9).toFixed(2) : null;
+	row.goldMined = nuggetsPicked === null ? null : +(nuggetsPicked / 9).toFixed(2);
 	row.ingotsTraded = dead || row.goldMined === null ? null : +(gold0 + row.goldMined - row.goldEnd).toFixed(2);
 	const alive = String(await s.command(`execute in ${NETHER} if entity @e[type=minecraft:piglin,tag=barter_room]`).catch(() => ''));
 	row.piglinsAliveAtEnd = /count: (\d+)/i.test(alive) ? Number(/count: (\d+)/i.exec(alive)[1]) : /failed/i.test(alive) ? 0 : null;
@@ -316,7 +327,6 @@ try {
 	row.pass = !dead && row.deaths === 0 && row.ingotsTraded >= bar;
 	row.failReason = dead || row.deaths ? 'the body died' : `traded ${row.ingotsTraded} ingots (bar ${bar})${row.stopped ? `; ${row.stopped}` : ''}`;
 	row.passReason = `traded ${row.ingotsTraded} ingots for ${row.pearls} pearls in ${(row.elapsedTicks / 1200).toFixed(1)} game min`;
-	if (dead && !row.deaths) row.deaths = 1;
 	console.log(`[barter-room] ${room} salt ${salt}: pearls ${row.pearls}, ingots traded ${row.ingotsTraded}, deaths ${row.deaths}, damage ${row.damageTaken}, calls ${JSON.stringify(row.calls)}`);
 } catch (error) {
 	console.error(error);
