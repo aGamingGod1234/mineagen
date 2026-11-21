@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { terminalCounter, finishRun, fixtureSummary, roomVerdict } from '../../scripts/quality/lib/fixture-run.mjs';
 import { findSpotVerdict } from '../../scripts/quality/lib/find-spot.mjs';
-import { damageCounter, damageEvidence, replyNumber, deathCounter, deathEvidence, matchesDamageExpectation, statCounter, shieldShareVerdict } from '../../scripts/quality/lib/damage-counter.mjs';
+import { damageCounter, damageEvidence, replyNumber, deathCounter, deathEvidence, recordDeathEvidence, matchesDamageExpectation, statCounter, shieldShareVerdict } from '../../scripts/quality/lib/damage-counter.mjs';
 
 test('a healed hit remains damage, and missing or reset counters cannot prove safety', async () => {
 	assert.deepEqual(damageEvidence(10, 40, 20, 20), { damageTaken: 3, netHealthChange: 0 });
@@ -137,6 +137,19 @@ test('death scoring requires real initialized baseline and final counters, never
 	assert.deepEqual(deathEvidence(2, 2), { before: 2, after: 2, valid: true, deaths: 0 });
 	assert.equal(deathEvidence(2, 3).deaths, 1);
 	assert.equal(deathEvidence(3, 2).valid, false);
+});
+
+test('a safe escape with an unreadable death count is invalid even with a clean damage count', async () => {
+	for (const [before, after] of [[null, 0], [0, null], [2, 0]]) {
+		const row = { pass: true, ...damageEvidence(0, 0, 20, 20) };
+		row.deathEvidence = recordDeathEvidence(row, before, after);
+		assert.deepEqual(row.deathEvidence, { before, after, valid: false, deaths: null });
+		assert.equal(row.deaths, null);
+		const summary = await finishRun([row], { setExitCode: false });
+		assert.equal(summary.exitCode, 2);
+		assert.equal(summary.passed, 0);
+		assert.match(summary.rooms[0].reason, /vanilla death counter/);
+	}
 });
 
 test('review of PR #30: an unreadable shield or damage counter is invalid evidence, never a zero that passes', async () => {

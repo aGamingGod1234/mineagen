@@ -55,9 +55,10 @@ export function deathEvidence(before, after) {
 
 /** Keep an unreadable death count distinct from a run with zero deaths. */
 export function recordDeathEvidence(row, before, after, field = 'deaths') {
-	const { deaths, valid } = deathEvidence(before, after);
-	row[field] = deaths;
-	if (!valid) (row.integrity ??= []).push({ file: 'deaths', error: 'Missing or decreasing vanilla death counter' });
+	const evidence = deathEvidence(before, after);
+	row[field] = evidence.deaths;
+	if (!evidence.valid) (row.integrity ??= []).push({ file: 'deaths', error: 'Missing or decreasing vanilla death counter' });
+	return evidence;
 }
 
 /** Deliberate-damage fixtures declare an exact result; unspecified fixtures still require zero damage. */

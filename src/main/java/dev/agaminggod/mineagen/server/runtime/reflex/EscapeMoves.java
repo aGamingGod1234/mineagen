@@ -51,9 +51,9 @@ public final class EscapeMoves {
 		return adapt(new ReflexActions.TakeCover(within, false), null);
 	}
 
-	/** Sprint away from the hostiles in sight over safe footing for {@code blocks}: the retreat reflex's move. */
-	public static Move sprintAway(double blocks) {
-		return adapt(new ReflexActions.SprintAway(blocks), null);
+	/** Sprint away from the shooter over safe footing for {@code blocks}: the retreat reflex's move. */
+	public static Move sprintAway(double blocks, Mob shooter) {
+		return adapt(new ReflexActions.SprintAway(blocks), shooter);
 	}
 
 	/** Hostile mobs with a ranged attack that see the player within {@link ReflexActions#WATCHER_RANGE}, nearest first. */
