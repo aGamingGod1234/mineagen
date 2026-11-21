@@ -15,7 +15,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { boat, boatPool, buildBundle, createMachine, destroyMachine, machineUsage, quote, remote, upload } from './lib/boat-pool.mjs';
+import { boat, boatPool, buildBundle, createMachine, destroyMachine, machineUsage, quote, remote, upload, waitHydrated } from './lib/boat-pool.mjs';
 import { parseCommands } from './lib/room-batch-core.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
@@ -81,6 +81,9 @@ try {
 step(`machine ${vm.id}`);
 let saved = false;
 try {
+	// A machine can answer before boat has finished downloading its files, and a room on it then fails (waitHydrated).
+	const hydrating = await waitHydrated(vm.id, { log: step });
+	if (hydrating) step(`waited ${hydrating} s for the machine's files to finish downloading`);
 	const home = (await remote(vm.id, 'printf %s "$HOME"')).trim();
 	const rooms = `${home}/rooms`;
 	step('installing Java');
