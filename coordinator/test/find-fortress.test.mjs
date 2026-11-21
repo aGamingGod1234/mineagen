@@ -350,3 +350,13 @@ test('MINEAGEN_FORTRESS_SEARCH=plain plays the loop without the walled-in rules'
 		assert.equal(body.calls[3].build, true);
 	} finally { if (prior === undefined) delete process.env.MINEAGEN_FORTRESS_SEARCH; else process.env.MINEAGEN_FORTRESS_SEARCH = prior; }
 });
+
+test('at the face of its own tunnel with nothing open in sight it digs on, with no compass walks into the rock', async () => {
+	const body = bodyFor({ travel: (args) => (args.build ? { result: tunnel, go: true } : { result: noRoute }),
+		ground: () => [{ yaw: 0, water: 0, land: 4, farthestLand: 3 }, { yaw: 90, water: 0, land: 4, farthestLand: 2 }, { yaw: -90, water: 0, land: 4, farthestLand: 2 }] });
+	await searchFor({ structure: 'fortress' }, body, { timeoutMs: 120_000 });
+	const legs = body.calls.filter((call) => call.type === 'travel_to');
+	const first = legs.findIndex((call) => call.build);
+	assert.equal(first, SEARCH_TURNS.length, 'walks first while it has not dug yet');
+	assert.equal(legs[first + 1].build, true, 'then digs on from the tunnel face');
+});
