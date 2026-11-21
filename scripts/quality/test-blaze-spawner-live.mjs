@@ -106,6 +106,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 // The stand-in's own observe-decide-act steps take wall time, so at a raised rate it answers a little later in game time.
 const FIXTURE_RATE = fixtureTickRate();
 let rate = null, windowEnd = null;
+const cancelTimers = [];
 const now = () => rate ? rate.clock.now() : Date.now();
 class Inbox {
 	events = []; waiters = [];
@@ -429,7 +430,7 @@ try {
 						type = 'fight_target';
 						const args = { targetId: blaze.uuid, pursue: false, shield: true, collect: false, fleeAtHealth: 12, timeoutMs: 20000, untilItem: 'minecraft:blaze_rod', untilCount: UNTIL };
 						const pending = act(type, args, Math.max(1000, runDeadline - now()) + 20000);
-						if (CANCEL_S > 0) { const actionId = `bz-${ordinal}`; let answered = false; rate.clock.sleep(CANCEL_S * 1000).then(() => { if (!answered) bridge.send('action_cancel', record.agentId, { goalRevision: record.goalRevision, actionId }).catch(() => {}); }); res = await pending; answered = true; }
+						if (CANCEL_S > 0) { const actionId = `bz-${ordinal}`; let answered = false; const until = now() + CANCEL_S * 1000; cancelTimers.push((async () => { while (!answered && now() < until) await rate.clock.sleep(Math.min(250, until - now())); if (!answered) bridge.send('action_cancel', record.agentId, { goalRevision: record.goalRevision, actionId }).catch(() => {}); })().catch(() => {})); res = await pending; answered = true; }
 						else res = await pending;
 						if (!refusedBeforeRunning(res)) run.fightResults[res.reasonCode] = (run.fightResults[res.reasonCode] ?? 0) + 1;
 						(run.untilMessages ??= []).push(`${Math.round((now() - startedAt) / 1000)}s ${res.reasonCode}: ${String(res.message ?? '').slice(0, 1600)}`);
@@ -539,7 +540,9 @@ try {
 				}
 				if (res.reasonCode === 'AGENT_DEAD') { run.deaths++; dead = true; break; }
 			}
-			runDeadline = Infinity; windowEnd = null;
+			// The window poller's clock.sleep ends only on a world tick: let it finish while the server still runs, or after
+			// 'stop' it waits for a tick that never comes and node never exits (a raised-rate run hung to its room timeout).
+			runDeadline = Infinity; await windowEnd; await Promise.all(cancelTimers); cancelTimers.length = 0; windowEnd = null;
 			// elapsed() reads the world tick first, so the clock is anchored on it when seconds is read below.
 			const gameMs = await timer.elapsed();
 			run.tick = { tickRate: rate.tickRate, gameSeconds: Math.round(gameMs / 1000), wallSeconds: Math.round((Date.now() - wallStartedAt) / 1000), rates: await timer.rates().catch(() => null) };

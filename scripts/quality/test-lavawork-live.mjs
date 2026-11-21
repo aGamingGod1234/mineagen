@@ -9,6 +9,7 @@ import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 import { handRolledTickRate } from './lib/fixture-play.mjs';
+import { unshownTickRate } from './watch-replay.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const out = resolve(process.argv[2] ?? 'runtime/lavawork-live');
@@ -93,7 +94,11 @@ let o;
 try {
 	for (let attempt = 0; attempt < 150; attempt += 1) { try { rcon = new HeadlessRconClient({ host: '127.0.0.1', port: port + 1, password: secret, connectTimeoutMs: 500, commandTimeoutMs: 5000 }); await rcon.connect(); break; } catch (error) { await rcon?.close(); if (attempt === 149) throw error; await sleep(1000); } }
 	bridge = new MultiplexedServerBridge({ port, secret }, {}); inbox = new Inbox(bridge);
-	rate = handRolledTickRate(text => command(text), bridge, agent);
+	// Stays at 20 (unshownTickRate): cast-safe's first break passes only if the body has not heard the lava pop, and the
+	// hearing model emits a pop whenever its running count of expected pops reaches one, a count carried over from the
+	// earlier scenarios' lava. At 60 those scenarios pass other tick counts during the harness's round trips, so cast-safe
+	// starts from another count: LAVA_BEHIND in 1 of 3 full runs at 60, 0 of 3 at 20, and 0 of 2 at 60 when run alone.
+	rate = handRolledTickRate(text => command(text), bridge, agent, { tickRate: unshownTickRate('cast-safe hears lava depending on earlier scenarios\' tick counts') });
 	bridge.on('observation', (event) => {
 		if (event.agentId !== record?.agentId || !event.payload.ready) return;
 		observation = event.payload;

@@ -77,6 +77,10 @@ async function run(name,parameters,verify,body=name){
   const programs=await loadPrograms();
   const before=await observe();const start=actions.length;
   const played=await rate.play();active=true;
+  // The blaze routines stay at 20: the blaze flies about while the program's observe/act round trips take wall time, so at
+  // 60 it moves three times as far between the program's read and its shot. Blaze cases played at 60 lost the blaze 2 of
+  // 6 times, at 20 about 4 of 54 (they lose it at 20 too). The game-time executor clock then leads the world by under one sample.
+  if(name.startsWith('blaze-'))await rate.normalRate();
   await writeFile(join(out,'before.json'),JSON.stringify(before,null,2));
   let result;
   try{result=await executor.run(record,{source:programs.common+programs[body],parameters:{...common,...parameters},maxActions:512,timeoutMs:120000,observationIntervalMs:100},{observation:before,eventSequence:before.eventSequence,executeAction,cancelAction:async actionId=>{await bridge.send('action_cancel',record.agentId,{actionId,goalRevision:record.goalRevision,});},refreshObservation:observe,inspect});}

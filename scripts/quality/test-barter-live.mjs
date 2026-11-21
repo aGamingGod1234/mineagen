@@ -12,7 +12,7 @@ import { randomBytes, createHash } from 'node:crypto';
 import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
-import { installTickRate, fixtureTickRate } from './watch-replay.mjs';
+import { installTickRate, unshownTickRate } from './watch-replay.mjs';
 import { damageCounter, damageEvidence } from './lib/damage-counter.mjs';
 
 const root=fileURLToPath(new URL('../..',import.meta.url));
@@ -79,8 +79,11 @@ async function endPlay(){
 }
 try {
   for(let i=0;i<150;i++){try{rcon=new HeadlessRconClient({host:'127.0.0.1',port:port+1,password:secret,connectTimeoutMs:500,commandTimeoutMs:5000});await rcon.connect();break}catch(e){await rcon?.close();if(i===149)throw e;await sleep(1000)}}
-  // FIXTURE_TICK_RATE: setup runs at 20; the barter play (hand-over to the last return) runs at the fixture rate on its clock.
-  rate=installTickRate({command:text=>command(text)},fixtureTickRate());
+  // Stays at 20 (unshownTickRate): each barter return is seen only if it lands out of the body's pickup reach and a 1 s
+  // sample catches it on the ground. Where the piglin throws from depends on how many ticks pass during the harness's
+  // round trips, so at 60 a return went unseen in 2 of 3 runs (hand-over once, dropped gold once); 20 TPS saw both
+  // returns in 14 of 14 runs.
+  rate=installTickRate({command:text=>command(text)},unshownTickRate('barter returns picked up before a sample sees them'));
   bridge=new MultiplexedServerBridge({port,secret},{});inbox=new Inbox(bridge);
   bridge.on('observation',e=>{rate.clock.observe(e.payload?.world?.gameTime);if(e.agentId===record?.agentId&&e.payload.ready){observation=e.payload}});
   bridge.on('goal_spec_request',e=>{bridge.send('goal_spec_proposal',e.agentId,{requestId:e.payload.requestId,summary:'Controlled live mechanics fixture',predicate:{type:'survive_duration',ticks:12000}}).catch(()=>{});});
