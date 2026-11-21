@@ -1353,9 +1353,12 @@ public final class AgentManager {
 			cause = "Agent died";
 		}
 		AgentInputRuntime.clear(server, matchedRecord.orElseThrow().agentId());
-		return AgentDeathCapture.record(
-				savedData.registry(), player.getUUID(), deathSnapshot(player, cause, now), now
-		);
+		AgentDeathSnapshot snapshot = deathSnapshot(player, cause, now);
+		snapshot = new AgentDeathSnapshot(snapshot.cause(), snapshot.dimensionId(), snapshot.x(), snapshot.y(), snapshot.z(),
+				snapshot.respawnDimensionId(), snapshot.respawnX(), snapshot.respawnY(), snapshot.respawnZ(), snapshot.respawnYaw(),
+				snapshot.respawnPitch(), snapshot.respawnForced(), snapshot.gameMode(), snapshot.diedAtEpochMs(), snapshot.score(),
+				Optional.of(AgentDeathCapture.detail(player, source)));
+		return AgentDeathCapture.record(savedData.registry(), player.getUUID(), snapshot, now);
 	}
 
 	private static AgentDeathSnapshot deathSnapshot(ServerPlayer player, long now) {
