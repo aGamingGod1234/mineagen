@@ -33,9 +33,11 @@ export function nextClockTime(hours, minutes, now = Date.now()) {
 export function cutoffTime(close, open = null, now = Date.now()) {
 	const next = nextClockTime(close[0], close[1], now);
 	if (!open) return next;
-	const closedMs = ((open[0] * 60 + open[1] - close[0] * 60 - close[1] + 1440) % 1440) * 60_000;
+	// The window that closed last: its close one calendar day before the next one, its reopening the first time after that
+	// close the clock shows `open`. Both are read off the local calendar, never a fixed number of hours, so a
+	// daylight-saving change inside the window moves neither.
 	const last = new Date(next); last.setDate(last.getDate() - 1);
-	return now < last.getTime() + closedMs ? now : next;
+	return now < nextClockTime(open[0], open[1], last.getTime()) ? now : next;
 }
 
 const clockTime = (host, text) => {
@@ -226,6 +228,31 @@ foreach ($d in 'jobs', 'out') { New-Item -ItemType Directory -Force -Path (Join-
 		return vm.layout;
 	}
 
+	async function startRoom(vm, job, closed) {
+		if (closed()) throw new Error('past its cutoff');
+		const { layout } = vm;
+		const local = path.join(os.tmpdir(), `room-batch-${process.pid}-${vm.id}-${job.room}.json`);
+		await writeFile(local, JSON.stringify(job, null, 2));
+		const file = `${layout.jobs}/${job.room}.json`;
+		try { await runUpload(vm.host, local, file); } finally { await rm(local, { force: true }); }
+		// The upload can outlast the cutoff: past it, the room never launches.
+		if (closed()) throw new Error('past its cutoff');
+		// The room's parent holds ES_CONTINUOUS | ES_SYSTEM_REQUIRED while it plays, so an idle PC does not sleep.
+		const launch = `Add-Type -Namespace W -Name P -MemberDefinition '[DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint f);'
+[W.P]::SetThreadExecutionState([uint32]2147483649) | Out-Null
+$p = Start-Process -FilePath ${psQuote(layout.node)} -ArgumentList '"${windowsPath(layout.helper)}"', '"${windowsPath(file)}"' -WorkingDirectory ${psQuote(windowsPath(layout.code))} -NoNewWindow -PassThru -Wait -RedirectStandardOutput ${psQuote(`${layout.jobs}/${job.room}.log`)} -RedirectStandardError ${psQuote(`${layout.jobs}/${job.room}.err`)}
+exit $p.ExitCode`;
+		const text = await runPs(vm.host, `
+if (Test-Path -LiteralPath ${psQuote(job.outDir)}) { Remove-Item -Recurse -Force -LiteralPath ${psQuote(job.outDir)} }
+$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = 'powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand ${encode(launch)}'; CurrentDirectory = ${psQuote(windowsPath(layout.code))} }
+if ($r.ReturnValue -ne 0) { throw "Win32_Process.Create returned $($r.ReturnValue)" }
+$p = Get-CimInstance Win32_Process -Filter "ProcessId=$($r.ProcessId)"
+"pid=$($r.ProcessId) born=$(if ($p) { $p.CreationDate.ToFileTimeUtc() } else { 0 })"`);
+		vm.pid = Number(/pid=(\d+)/.exec(text)?.[1]);
+		vm.born = /born=(\d+)/.exec(text)?.[1] ?? '0';
+		vm.outDir = layout.out;
+	}
+
 	return {
 		async create() {
 			const free = nextSlot(hosts, busy, now());
@@ -241,26 +268,10 @@ foreach ($d in 'jobs', 'out') { New-Item -ItemType Directory -Force -Path (Join-
 			vm.preparing = prepareWorker(vm, signal);
 			return vm.preparing;
 		},
-		async start(vm, job) {
-			const { layout } = vm;
-			const local = path.join(os.tmpdir(), `room-batch-${process.pid}-${vm.id}-${job.room}.json`);
-			await writeFile(local, JSON.stringify(job, null, 2));
-			const file = `${layout.jobs}/${job.room}.json`;
-			try { await runUpload(vm.host, local, file); } finally { await rm(local, { force: true }); }
-			// The room's parent holds ES_CONTINUOUS | ES_SYSTEM_REQUIRED while it plays, so an idle PC does not sleep.
-			const launch = `Add-Type -Namespace W -Name P -MemberDefinition '[DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint f);'
-[W.P]::SetThreadExecutionState([uint32]2147483649) | Out-Null
-$p = Start-Process -FilePath ${psQuote(layout.node)} -ArgumentList '"${windowsPath(layout.helper)}"', '"${windowsPath(file)}"' -WorkingDirectory ${psQuote(windowsPath(layout.code))} -NoNewWindow -PassThru -Wait -RedirectStandardOutput ${psQuote(`${layout.jobs}/${job.room}.log`)} -RedirectStandardError ${psQuote(`${layout.jobs}/${job.room}.err`)}
-exit $p.ExitCode`;
-			const text = await runPs(vm.host, `
-if (Test-Path -LiteralPath ${psQuote(job.outDir)}) { Remove-Item -Recurse -Force -LiteralPath ${psQuote(job.outDir)} }
-$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = 'powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand ${encode(launch)}'; CurrentDirectory = ${psQuote(windowsPath(layout.code))} }
-if ($r.ReturnValue -ne 0) { throw "Win32_Process.Create returned $($r.ReturnValue)" }
-$p = Get-CimInstance Win32_Process -Filter "ProcessId=$($r.ProcessId)"
-"pid=$($r.ProcessId) born=$(if ($p) { $p.CreationDate.ToFileTimeUtc() } else { 0 })"`);
-			vm.pid = Number(/pid=(\d+)/.exec(text)?.[1]);
-			vm.born = /born=(\d+)/.exec(text)?.[1] ?? '0';
-			vm.outDir = layout.out;
+		start(vm, job, { closed = () => false } = {}) {
+			// destroy() waits for this: a cutoff that retires the slot mid-start must not race a launch that comes after it.
+			vm.starting = startRoom(vm, job, closed);
+			return vm.starting;
 		},
 		async poll(vm, room) {
 			const text = await runPs(vm.host, `if (Test-Path -LiteralPath ${psQuote(`${vm.outDir}/${room}/done.json`)}) { 'DONE' } else { 'RUNNING' }`, { timeoutMs: 120_000 });
@@ -280,6 +291,7 @@ $p = Get-CimInstance Win32_Process -Filter "ProcessId=$($r.ProcessId)"
 		async destroy(vm) {
 			const pc = machines.get(vm.host);
 			if (vm.preparing) await vm.preparing.catch(() => {});
+			if (vm.starting) await vm.starting.catch(() => {});
 			const dir = vm.dir ?? `${batchDir}/w${vm.slot}`;
 			// Kill the room's tree first, then anything still running from this worker's folder (trailing separator avoids w1 matching w10),
 			// then delete the folder (retried: Windows refuses to delete files a process held a moment ago). Windows reuses a pid

@@ -1,7 +1,7 @@
 // The batch itself, over any pool of machines with this shape (boat-pool.mjs and windows-pool.mjs are real, tests use a fake):
 //   create() -> vm (vm.id)        prepare(vm) -> layout { code, out, jobs, helper, javaHome, template, jars: {arm: path}, inputs,
 //                                   and optionally wrapper [cmd...], portBase (default 28000), env {name: value} }
-//   start(vm, job)                poll(vm, room, { signal }) -> 'done' | 'running' (throws when the machine does not answer)
+//   start(vm, job, { closed })    poll(vm, room, { signal }) -> 'done' | 'running' (throws when the machine does not answer)
 //   alive(vm) -> boolean          fetch(vm, room, roomsDir) puts ROOM/ under roomsDir and returns its done.json
 // The boat pool's poll is a long poll that returns as soon as the room ends (up to a minute), so pollMs, the pause
 // between polls, defaults to 0; retryMs is the pause after a poll that failed, so a machine that does not answer is not
@@ -82,8 +82,13 @@ export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeout
 				lines: room.lines.map(line => ({ arm: line.arm, jar: layout.jars[line.arm], env: Object.fromEntries(Object.entries(line.env).map(([key, value]) => [key, rewrite(value, layout)])), args: line.args.map(arg => rewrite(arg, layout)) })) };
 			log(`room ${room.room} -> ${vm.id} (try ${tries})`);
 			// A machine that cannot start a room is deleted now, not at the end of the batch; the room is re-queued.
-			try { await pool.start(vm, job); }
-			catch (error) { await retire(vm, 'start failed'); return { lost: true, reason: `start failed: ${error.message}` }; }
+			// The pool checks the cutoff again just before it launches, after uploads that may outlast it.
+			try { await pool.start(vm, job, { closed }); }
+			catch (error) {
+				if (closed()) { await retire(vm, 'cutoff'); return { lost: true, requeue: true, reason: 'its machine reached its cutoff while the room started' }; }
+				await retire(vm, 'start failed'); return { lost: true, reason: `start failed: ${error.message}` };
+			}
+			if (closed()) { await retire(vm, 'cutoff'); return { lost: true, requeue: true, reason: 'stopped at its machine\'s cutoff' }; }
 			const deadline = Date.now() + roomTimeoutMs + 10 * 60_000;
 			let silentSince = null;
 			while (true) {

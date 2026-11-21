@@ -891,3 +891,34 @@ test('at a machine\'s cutoff its room is stopped and re-queued without spending 
 		assert.equal(result.merged.new.summary.status, 'PASS');
 	} finally { await rm(out, { recursive: true, force: true }); }
 });
+
+test('a cutoff window is read off the local calendar across a daylight-saving change', () => {
+	// New York leaves daylight saving at 02:00 on 1 Nov 2026 and enters it at 02:00 on 8 Mar 2026: a 01:30-09:00 window
+	// then lasts 8.5 or 6.5 hours of elapsed time, and still opens at 09:00 on the wall clock.
+	const code = `import { cutoffTime } from ${JSON.stringify(new URL('../../scripts/quality/lib/windows-pool.mjs', import.meta.url).href)};
+const at = (y, m, d, h, min) => new Date(y, m, d, h, min).getTime();
+console.log(JSON.stringify([
+	cutoffTime([1, 30], [9, 0], at(2026, 10, 1, 8, 30)) === at(2026, 10, 1, 8, 30),
+	cutoffTime([1, 30], [9, 0], at(2026, 10, 1, 9, 30)) === at(2026, 10, 2, 1, 30),
+	cutoffTime([1, 30], [9, 0], at(2026, 2, 8, 8, 30)) === at(2026, 2, 8, 8, 30),
+	cutoffTime([1, 30], [9, 0], at(2026, 2, 8, 9, 30)) === at(2026, 2, 9, 1, 30),
+]));`;
+	const run = spawnSync(process.execPath, ['--input-type=module', '-e', code], { env: { ...process.env, TZ: 'America/New_York' }, encoding: 'utf8' });
+	assert.equal(run.status, 0, run.stderr);
+	assert.deepEqual(JSON.parse(run.stdout), [true, true, true, true], 'closed at 08:30 and open at 09:30 on both change days');
+});
+
+test('windowsPool never launches a room whose upload outlasted the PC cutoff, and destroy waits for that start', async () => {
+	const scripts = [];
+	let armed = false, cut = false;
+	const pool = fakeWindows({ scripts, uploads: { push() { if (armed) cut = true; } } });
+	const vm = await pool.create();
+	await pool.prepare(vm);
+	const before = scripts.length;
+	armed = true;
+	const start = pool.start(vm, { room: 'r', outDir: 'C:/x/out/r' }, { closed: () => cut });
+	await assert.rejects(start, /past its cutoff/);
+	assert.equal(scripts.length, before, 'no launch script was sent after the cutoff');
+	await pool.destroy(vm);
+	await assert.rejects(pool.start(vm, { room: 'r2', outDir: 'C:/x/out/r2' }, { closed: () => true }), /past its cutoff/);
+});
