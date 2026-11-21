@@ -9,6 +9,8 @@ import { randomBytes, createHash } from 'node:crypto';
 import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
+import { installTickRate, unshownTickRate } from './watch-replay.mjs';
+import { damageCounter, recordDamageEvidence } from './lib/damage-counter.mjs';
 
 const root=fileURLToPath(new URL('../..',import.meta.url));
 const out=resolve(process.argv[2] ?? 'runtime/bucket-aim-live');
@@ -37,7 +39,7 @@ class Inbox {
   accept(e){const i=this.waiters.findIndex(w=>w.type===e.type&&w.match(e));if(i>=0)this.waiters.splice(i,1)[0].done(e);else {this.events.push(e);if(this.events.length>1024)this.events.shift();}}
   wait(type,match=()=>true,ms=30000){const i=this.events.findIndex(e=>e.type===type&&match(e));if(i>=0)return Promise.resolve(this.events.splice(i,1)[0]);return new Promise((res,rej)=>{const w={type,match,done:e=>{clearTimeout(t);res(e)}};const t=setTimeout(()=>{this.waiters=this.waiters.filter(x=>x!==w);rej(new Error(`TIMEOUT ${type}`))},ms);this.waiters.push(w)});}
 }
-let rcon,bridge,record,observation;
+let rcon,bridge,record,observation,rate,play=null;
 const agent='Bucket';
 const command=async s=>{
   if(rcon.state==='closed'){rcon=new HeadlessRconClient({host:'127.0.0.1',port:port+1,password:secret,commandTimeoutMs:5000});await rcon.connect();}
@@ -58,10 +60,25 @@ async function executeAction(c){
   await writeFile(join(out,'actions.json'),JSON.stringify(actions,null,2));
   return r;
 }
+// The play's game and wall seconds, the rates the server held, and vanilla's damage counter over it.
+async function endPlay(){
+  const p=play;p.done=true;
+  // elapsed() reads the world tick first, so the clock is anchored on it when seconds is read.
+  const gameMs=await p.timer.elapsed();
+  const tick={tickRate:rate.tickRate,seconds:Math.round((rate.clock.now()-p.t0)/1000),wallSeconds:Math.round((Date.now()-p.wall0)/1000),
+    gameSeconds:Math.round(gameMs/1000),rates:await p.timer.rates().catch(()=>null)};
+  await rate.normalRate();
+  tick.held=await rate.tickReport();
+  recordDamageEvidence(tick, p.damage0,await p.damage().catch(()=>null));
+  return tick;
+}
 try {
   for(let i=0;i<150;i++){try{rcon=new HeadlessRconClient({host:'127.0.0.1',port:port+1,password:secret,connectTimeoutMs:500,commandTimeoutMs:5000});await rcon.connect();break}catch(e){await rcon?.close();if(i===149)throw e;await sleep(1000)}}
+  // FIXTURE_TICK_RATE: setup runs at 20; the bucket cases (with the pool resets between them) run at the fixture rate.
+  // At 60 TPS 4 of 10 runs failed the final check (0 of 10 at 20, 21 Nov A/B): it stays at 20 until that is explained.
+  rate=installTickRate({command:text=>command(text)},unshownTickRate('4 of 10 runs failed at 60 TPS, 0 of 10 at 20'));
   bridge=new MultiplexedServerBridge({port,secret},{});inbox=new Inbox(bridge);
-  bridge.on('observation',e=>{if(e.agentId===record?.agentId&&e.payload.ready){observation=e.payload}});
+  bridge.on('observation',e=>{rate.clock.observe(e.payload?.world?.gameTime);if(e.agentId===record?.agentId&&e.payload.ready){observation=e.payload}});
   bridge.on('goal_spec_request',e=>{bridge.send('goal_spec_proposal',e.agentId,{requestId:e.payload.requestId,summary:'Controlled live mechanics fixture',predicate:{type:'survive_duration',ticks:12000}}).catch(()=>{});});
   const ready=inbox.wait('ready');bridge.start();await ready;
   await bridge.send('catalog_snapshot','server',{refreshedAtEpochMs:Date.now(),models:[{provider:'codex',model:'gpt-6.1-sol',id:'gpt-6.1-sol',displayName:'Provider-free bucket aim fixture',reasoningEfforts:['low'],serviceTiers:['priority']}]});
@@ -83,14 +100,18 @@ try {
   await command('fill -4 79 -4 8 79 8 minecraft:stone');
   const results={};
   const is=async(x,y,z,id)=>/passed/i.test(await command(`execute if block ${x} ${y} ${z} minecraft:${id}`));
-  const hold=async id=>{await command(`item replace entity ${agent} weapon.mainhand with minecraft:${id}`);await sleep(300);await observe();};
-  const at=async(x,y,z,yaw,pitch)=>{await command(`tp ${agent} ${x} ${y} ${z} ${yaw} ${pitch}`);await sleep(600);await observe();};
+  const hold=async id=>{await command(`item replace entity ${agent} weapon.mainhand with minecraft:${id}`);await rate.clock.sleep(300);await observe();};
+  const at=async(x,y,z,yaw,pitch)=>{await command(`tp ${agent} ${x} ${y} ${z} ${yaw} ${pitch}`);await rate.clock.sleep(600);await observe();};
   const use=(expected,x,y,z)=>act('use_item',{mode:'once',durationMs:250,expectedItemId:`minecraft:${expected}`,aimX:x,aimY:y,aimZ:z});
   // Game d2c-iron-c geometry shifted by (-78,+40,-112): coolant source at 0,80,0 walled by obsidian, the fresh cast at
   // 1,80,0 between it and the eye. The straight line to the source's center crosses that obsidian.
   const pool=async()=>{await command('fill -2 80 -2 2 82 2 minecraft:air');
     for(const [x,z] of [[1,0],[-1,0],[0,1],[0,-1]])await command(`setblock ${x} 80 ${z} minecraft:obsidian`);
     await command('setblock 0 80 0 minecraft:water');};
+  const damage=await damageCounter(command,agent);
+  play={damage0:await damage(),damage};
+  await rate.fastRate();
+  play.t0=rate.clock.now();play.wall0=Date.now();play.timer=await rate.gameTimer();
   await pool();await at(2.43,80,0.51,90,10);await hold('bucket');
   let r=await use('bucket',0.5,80.5,0.5);
   results.hiddenCenter={state:r.state,reasonCode:r.reasonCode,message:r.message,filled:await is(0,80,0,'air')};
@@ -114,11 +135,12 @@ try {
   await lavaPool();await at(2.5,81,0.5,90,40);await hold('water_bucket');
   // A filled bucket's ray ignores fluids (vanilla): aimed at the lava surface it lands on the floor beyond, so aim at the
   // center cell's floor.
-  r=await use('water_bucket',0.5,80.05,0.5);await sleep(1500);
+  r=await use('water_bucket',0.5,80.05,0.5);await rate.clock.sleep(1500);
   results.poolCast={state:r.state,reasonCode:r.reasonCode,message:r.message,obsidian:await cells('obsidian'),lava:await cells('lava'),centerWater:await is(0,80,0,'water')};
   await hold('bucket');
-  r=await use('bucket',0.5,80.5,0.5);await sleep(1500);
+  r=await use('bucket',0.5,80.5,0.5);await rate.clock.sleep(1500);
   results.scoop={state:r.state,reasonCode:r.reasonCode,message:r.message,centerEmpty:await is(0,80,0,'air'),obsidian:await cells('obsidian')};
+  results.tick=await endPlay();
   await writeFile(join(out,'bucket.json'),JSON.stringify(results,null,2));
   console.log(JSON.stringify(results,null,2));
   const ok=results.hiddenCenter.state==='SUCCEEDED'&&results.hiddenCenter.filled&&/water_bucket/.test(results.hiddenCenter.message)
@@ -131,6 +153,7 @@ try {
   if(!ok)throw new Error('bucket aim live check failed');
   console.log('Bucket aim live check passed');
 } finally {
+  if(play&&!play.done)await endPlay().then(tick=>writeFile(join(out,'tick.json'),JSON.stringify(tick,null,2))).catch(()=>{});
   if(rcon)await command('stop').catch(()=>{});
   bridge?.stop();await rcon?.close();
   await Promise.race([new Promise(r=>child.once('exit',r)),sleep(10000)]);if(child.exitCode===null)child.kill('SIGTERM');await log.close();

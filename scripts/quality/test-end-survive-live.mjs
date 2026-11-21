@@ -8,6 +8,8 @@ import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
+import { installTickRate, fixtureTickRate } from './watch-replay.mjs';
+import { damageCounter, recordDamageEvidence } from './lib/damage-counter.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const jarPath = resolve(process.env.ARENA_JAR ?? join(root, MOD_JAR));
@@ -34,7 +36,7 @@ class Inbox {
 	accept(e) { const i = this.waiters.findIndex(w => w.type === e.type && w.match(e)); if (i >= 0) this.waiters.splice(i, 1)[0].done(e); else { this.events.push(e); if (this.events.length > 1024) this.events.shift(); } }
 	wait(type, match = () => true, ms = 30000) { const i = this.events.findIndex(e => e.type === type && match(e)); if (i >= 0) return Promise.resolve(this.events.splice(i, 1)[0]); return new Promise((res, rej) => { const w = { type, match, done: e => { clearTimeout(t); res(e); } }; const t = setTimeout(() => { this.waiters = this.waiters.filter(x => x !== w); rej(new Error(`TIMEOUT ${type}`)); }, ms); this.waiters.push(w); }); }
 }
-let rcon, bridge, record, observation, inbox, ordinal = 0, revision = 0;
+let rcon, bridge, record, observation, inbox, ordinal = 0, revision = 0, rate, damage;
 const agent = 'Lander';
 const command = async s => {
 	if (rcon.state === 'closed') { rcon = new HeadlessRconClient({ host: '127.0.0.1', port: port + 1, password: secret, commandTimeoutMs: 5000 }); await rcon.connect(); }
@@ -61,20 +63,42 @@ async function setReflexes(rules) {
 const number = text => Number((/(-?\d+(?:\.\d+)?)[fdb]?\s*$/.exec(text.trim()) ?? [])[1]);
 const health = async () => number(await command(`data get entity ${agent} Health`));
 const results = { clutch: {}, crystal: {}, void: {} };
+/**
+ * FIXTURE_TICK_RATE: a fall runs at the fixture rate from the body's sprint (or the drop's teleport) until it lands, on
+ * the fixture clock; the server is back at 20 for the wait after landing and the health read, as saturation regenerates
+ * health while the harness reads it. The crystal blast and the void step stay at 20: the blast is an operator hit read
+ * back at once, and the void step is one 2-tick control.
+ */
+async function playStart() {
+	const damage0 = await damage().catch(() => null);
+	await rate.fastRate();
+	return { damage0, t0: rate.clock.now(), wall0: Date.now(), timer: await rate.gameTimer() };
+}
+async function playEnd(p) {
+	// elapsed() reads the world tick first, so the clock is anchored on it when seconds is read.
+	const gameMs = await p.timer.elapsed();
+	const tick = { tickRate: rate.tickRate, seconds: Math.round((rate.clock.now() - p.t0) / 1000), wallSeconds: Math.round((Date.now() - p.wall0) / 1000),
+		gameSeconds: Math.round(gameMs / 1000), rates: await p.timer.rates().catch(() => null) };
+	await rate.normalRate();
+	recordDamageEvidence(tick, p.damage0, await damage().catch(() => null));
+	return tick;
+}
 /** Land after a fall (or time out): health lost, final y, whether water is under the feet, reflex reports. */
-async function landing(before, ms = 8000) {
-	const deadline = Date.now() + ms;
+async function landing(before, play, ms = 8000) {
+	const deadline = rate.clock.now() + ms;
 	let o;
-	await sleep(600);
-	while (Date.now() < deadline) { o = await observe(); if (o.player?.onGround || o.player?.inWater) break; await sleep(100); }
+	await rate.clock.sleep(600);
+	while (rate.clock.now() < deadline) { o = await observe(); if (o.player?.onGround || o.player?.inWater) break; await rate.clock.sleep(100); }
+	const tick = await playEnd(play);
 	await sleep(1500);
 	o = await observe();
-	return { lost: Math.round((before - await health()) * 10) / 10, y: o.position?.y, inWater: o.player?.inWater ?? null, reports: (o.reflexes?.events ?? []).filter(e => e.id === 'mlg').map(e => `${e.outcome}: ${e.detail}`) };
+	return { tick, lost: Math.round((before - await health()) * 10) / 10, y: o.position?.y, inWater: o.player?.inWater ?? null, reports: (o.reflexes?.events ?? []).filter(e => e.id === 'mlg').map(e => `${e.outcome}: ${e.detail}`) };
 }
 try {
 	for (let i = 0; i < 150; i++) { try { rcon = new HeadlessRconClient({ host: '127.0.0.1', port: port + 1, password: secret, connectTimeoutMs: 500, commandTimeoutMs: 5000 }); await rcon.connect(); break; } catch (e) { await rcon?.close(); if (i === 149) throw e; await sleep(1000); } }
+	rate = installTickRate({ command: text => command(text) }, fixtureTickRate());
 	bridge = new MultiplexedServerBridge({ port, secret }, {}); inbox = new Inbox(bridge);
-	bridge.on('observation', e => { if (e.agentId === record?.agentId && e.payload.ready) observation = e.payload; });
+	bridge.on('observation', e => { rate.clock.observe(e.payload?.world?.gameTime); if (e.agentId === record?.agentId && e.payload.ready) observation = e.payload; });
 	bridge.on('goal_spec_request', e => { bridge.send('goal_spec_proposal', e.agentId, { requestId: e.payload.requestId, summary: 'Controlled live mechanics fixture', predicate: { type: 'survive_duration', ticks: 24000 } }).catch(() => {}); });
 	const ready = inbox.wait('ready'); bridge.start(); await ready;
 	await bridge.send('catalog_snapshot', 'server', { refreshedAtEpochMs: Date.now(), models: [{ provider: 'codex', model: 'gpt-6.1-sol', id: 'gpt-6.1-sol', displayName: 'Provider-free End fixture', reasoningEfforts: ['low'], serviceTiers: ['priority'] }] });
@@ -93,15 +117,19 @@ try {
 	await command(`item replace entity ${agent} armor.legs with minecraft:iron_leggings`);
 	await command(`item replace entity ${agent} armor.feet with minecraft:iron_boots`);
 	await command(`item replace entity ${agent} hotbar.0 with minecraft:iron_sword`);
+	damage = await damageCounter(command, agent);
+	results.tickRate = rate.tickRate;
 	const kit = async () => { await command(`item replace entity ${agent} hotbar.3 with minecraft:water_bucket`); await command(`item replace entity ${agent} hotbar.0 with minecraft:iron_sword`); await command(`fill -16 81 -16 16 81 16 minecraft:air replace minecraft:water`); };
-	const heal = async () => { await command(`effect give ${agent} minecraft:instant_health 1 5 true`); await sleep(600); };
+	// The settle passes at the fixture rate and leaves the server at the rate it ran at (a drop heals mid-fall).
+	const heal = async () => { await command(`effect give ${agent} minecraft:instant_health 1 5 true`); await rate.idleSleep(600); };
 	// A 1x1 stone pillar whose top is `top`; the agent stands on it facing +x, then sprints 0.75 s off its edge.
 	const sprintOff = async (top) => {
 		await command(`fill 0 81 0 0 ${top} 0 minecraft:stone`);
-		await command(`tp ${agent} 0.5 ${top + 1} 0.5 -90 20`); await sleep(1200);
+		await command(`tp ${agent} 0.5 ${top + 1} 0.5 -90 20`); await rate.idleSleep(1200);
 		await heal(); const before = await health();
+		const play = await playStart();
 		await act('control', { forward: 1, strafe: 0, jump: false, sneak: false, sprint: true, attack: false, use: false, yaw: -90, pitch: 20, selectedSlot: 0, hand: 'main', ticks: 15 });
-		const landed = await landing(before);
+		const landed = await landing(before, play);
 		await command(`fill 0 81 0 0 ${top} 0 minecraft:air`);
 		return { top, fall: top - 80, ...landed };
 	};
@@ -114,8 +142,9 @@ try {
 	results.clutch.sprint25 = await sprintOff(105);
 	await kit();
 	{
+		const play = await playStart();
 		await command(`tp ${agent} 3.5 125 3.5 0 30`); await heal(); const before = await health();
-		results.clutch.drop45 = { fall: 45, ...await landing(before, 10000) };
+		results.clutch.drop45 = { fall: 45, ...await landing(before, play, 10000) };
 	}
 	await setReflexes([]);
 

@@ -3087,6 +3087,15 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		facts.addProperty("gameMode", death.gameMode());
 		facts.addProperty("diedAtEpochMs", death.diedAtEpochMs());
 		death.score().ifPresent(value -> facts.addProperty("score", value));
+		// What killed the body and its state then, so every death record names its cause (scripts/quality/lib/death-causes.mjs).
+		death.detail().ifPresent(detail -> {
+			facts.addProperty("damageType", detail.damageType());
+			detail.attacker().ifPresentOrElse(value -> facts.addProperty("attacker", value), () -> facts.add("attacker", JsonNull.INSTANCE));
+			detail.directAttacker().ifPresentOrElse(value -> facts.addProperty("directAttacker", value), () -> facts.add("directAttacker", JsonNull.INSTANCE));
+			facts.addProperty("foodLevel", detail.foodLevel());
+			facts.addProperty("saturation", detail.saturation());
+			facts.addProperty("armor", detail.armor());
+		});
 		return facts;
 	}
 

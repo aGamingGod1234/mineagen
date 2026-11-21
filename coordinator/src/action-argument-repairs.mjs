@@ -1,6 +1,8 @@
 import { MAX_DURATION_MS } from './constants.mjs';
 
 const STAIRCASE_NAMES = new Set(['staircase', 'stairs', 'staircase_down', 'stair_down', 'stairs_downward']);
+// A staircase with no direction: dig_to with no pattern climbs when its y is above the feet, else goes down.
+const EITHER_WAY = new Set(['staircase', 'stairs']);
 // Minecraft yaw: 0 faces south, 90 west, 180 north, -90 east.
 const YAW_HEADINGS = ['south', 'west', 'north', 'east'];
 
@@ -21,7 +23,10 @@ export function repairActionArguments(type, input) {
 		delete args.timeoutMs;
 		adjusted.timeoutMs = 'ignored (move_to has no timeoutMs; use navigate_to for an action timeout, or the program deadline)';
 	}
-	if (staircaseName) {
+	if (staircaseName && EITHER_WAY.has(input.pattern.toLowerCase())) {
+		delete args.pattern;
+		adjusted.pattern = `left out, so stairs up or down toward y (asked ${input.pattern})`;
+	} else if (staircaseName) {
 		args.pattern = 'stairs_down';
 		adjusted.pattern = `stairs_down (asked ${input.pattern})`;
 	}

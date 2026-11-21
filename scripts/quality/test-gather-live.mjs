@@ -9,6 +9,10 @@
 // A spot passes when the call SUCCEEDED (or ended with the spot's `expectCode`, one code or a list, for a spot built to
 // fail, such as no tree in reach) with no death and no health lost. Exit code (strict, the default): 0 all passed, 1 a spot failed,
 // 2 invalid evidence (a spot errored or never ran). --descriptive reports without an acceptance exit code.
+// FIXTURE_TICK_RATE runs the call faster: setup stays at 20 TPS, and the call, its sampler and the runtime it drives are
+// timed in game time (s.clock), so a raised rate plays the same game. row.seconds is game seconds, row.wallSeconds wall
+// seconds, row.rates the rate asked for and reached; row.damageTaken is vanilla's cumulative counter, so healing cannot
+// hide damage.
 import { readFile, mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,10 +22,11 @@ import { normalizeMinecraftToolCall } from '../../coordinator/src/native-minecra
 import { adaptObservation } from '../../coordinator/src/observation-adapter.mjs';
 import { InspectionClient } from '../../coordinator/src/inspection-client.mjs';
 import { warmBoots } from './fixture-servers.mjs';
-import { liveRecord } from './watch-replay.mjs';
+import { liveRecord, fixtureTickRate } from './watch-replay.mjs';
+import { gameClockFromObservations } from '../../coordinator/src/game-clock.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
-import { deathCounter, deathEvidence } from './lib/damage-counter.mjs';
+import { damageCounter, damageEvidence, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const USAGE = 'Usage: test-gather-live.mjs SPOTS.json OUT_DIR [JAR] [--strict|--descriptive] under fix-slot.sh with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME';
@@ -42,7 +47,7 @@ const results = [];
 
 // Each spot gets its own server and world; the next one boots while this one plays, from the seed's cached world.
 for await (const { item: [, spot], server: s, error: bootError } of warmBoots([...spots.entries()], ([index, spot]) => ({ dir: path.join(out, `spot-${index}`),
-	options: { jar: path.resolve(jarArg ?? path.join(root, MOD_JAR)), template, port, world: null, seed: String(spot.seed), worldCache: true } }))) {
+	options: { jar: path.resolve(jarArg ?? path.join(root, MOD_JAR)), template, port, world: null, seed: String(spot.seed), worldCache: true, tickRate: fixtureTickRate() } }))) {
 	const pos = async () => String(await s.command(`data get entity ${AGENT} Pos`)).match(/\[\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?\]/)?.slice(1).map(Number) ?? null;
 	const health = async () => number(await s.command(`data get entity ${AGENT} Health`));
 	const deaths = () => deathCounter(text => s.command(text), AGENT, { objective: 'deaths', unsetIsZero: true });
@@ -51,6 +56,7 @@ for await (const { item: [, spot], server: s, error: bootError } of warmBoots([.
 	try {
 		row.startedAt = Date.now();
 		if (!s) throw bootError;
+		await s.normalRate();
 		const [fx, fz] = [spot.x ?? 0, spot.z ?? 0];
 		let e = null;
 		for (let attempt = 0; attempt < 3 && !e; attempt++) {
@@ -80,7 +86,7 @@ for await (const { item: [, spot], server: s, error: bootError } of warmBoots([.
 			const at = { x: x0, y: y0, z: z0 };
 			row.fixture = [...(row.fixture ?? []), await s.command(text.replace(/\{([xyz])([+-]\d+)?\}/g, (_, axis, offset) => String(at[axis] + Number(offset ?? 0))))];
 		}
-		await sleep(2000);
+		await s.idleSleep(2000);
 		// The coordinator's runtime, fed as the live coordinator feeds it: wire samples through the adapter.
 		const commands = new Set();
 		const inspections = new InspectionClient({ send: (type, agentId, payload) => s.bridge.send(type, agentId, payload) });
@@ -93,6 +99,8 @@ for await (const { item: [, spot], server: s, error: bootError } of warmBoots([.
 			requestObservation: async () => { const payload = await s.observe(); return { eventSequence: payload.eventSequence, observation: adaptObservation(payload) }; },
 			// Surveys go to the server as the coordinator sends them (InspectionClient over the bridge).
 			inspectObservation: async (rec, query) => ({ state: 'SUCCEEDED', reasonCode: 'INSPECTED', ...await inspections.request(rec, query) }),
+			// At a raised rate the runtime times gather and its steps in game time (it feeds the clock its samples).
+			...(s.clock.rate === 20 ? {} : { clock: gameClockFromObservations({ tickRate: s.clock.rate }) }),
 		});
 		const record = liveRecord(s, { provider: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'low', serviceTier: 'default' });
 		s.bridge.on('observation', ev => { if (ev.agentId === record.agentId && ev.payload.ready) runtime.updateObservation(record, adaptObservation(ev.payload), { eventSequence: ev.payload.eventSequence }); });
@@ -103,7 +111,12 @@ for await (const { item: [, spot], server: s, error: bootError } of warmBoots([.
 		});
 		await s.observe();
 		row.start = await pos();
-		const healthBefore = await health(), deathsBefore = await deaths(), t0 = Date.now();
+		const readDamage = await damageCounter(text => s.command(text), AGENT);
+		const damageBefore = await readDamage();
+		await s.fastRate();
+		const now = () => s.clock.now();
+		const healthBefore = await health(), deathsBefore = await deaths(), t0 = now(), wall0 = Date.now(), timer = await s.gameTimer();
+		row.playStartedAt = wall0;
 		if (!Number.isFinite(healthBefore)) throw new Error('health unreadable before the call');
 		// spot.tool runs any tool instead (e.g. moveTo past trees); "{x+8}"-style strings are coordinates from the start feet.
 		const at = { x: x0, y: y0, z: z0 };
@@ -115,23 +128,30 @@ for await (const { item: [, spot], server: s, error: bootError } of warmBoots([.
 		const heights = [];
 		let sampling = true;
 		const visited = [];
-		const sampler = (async () => { while (sampling) { const p = await pos().catch(() => null); if (p) { heights.push(p[1]); visited.push(p); } await sleep(250); } })();
+		const sampler = (async () => { while (sampling) { const p = await pos().catch(() => null); if (p) { heights.push(p[1]); visited.push(p); } await s.clock.sleep(250); } })();
 		const result = await runtime.execute({ agentId: record.agentId, goalRevision: record.goalRevision, turnId: 'gather-live', callId: 'gather-1',
 			tool: normalizeMinecraftToolCall(call.name, call.arguments) }, record);
 		sampling = false; await sampler;
 		row.maxRise = heights.length ? Math.round((Math.max(...heights) - y0) * 10) / 10 : null;
 		// spot.watch {x:[lo,hi]} (blocks from the start x): whether the body stood a block up inside that strip (on a hedge).
 		if (spot.watch) row.onWatched = visited.filter(([px, py]) => px - x0 >= spot.watch.x[0] && px - x0 < spot.watch.x[1] + 1 && py - y0 >= 0.9).length;
-		row.seconds = Math.round((Date.now() - t0) / 1000);
+		row.seconds = Math.round((now() - t0) / 1000);
+		row.wallSeconds = Math.round((Date.now() - wall0) / 1000);
+		row.gameSeconds = Math.round((await timer.elapsed()) / 1000);
+		row.rates = await timer.rates().catch(() => null);
 		row.result = { state: result?.state, reasonCode: result?.reasonCode, message: String(result?.message ?? '').slice(0, 400), held: result?.held, broken: result?.broken, picked: result?.picked, steps: result?.steps };
 		row.end = await pos();
-		row.healthLost = Math.max(0, healthBefore - (await health()));
+		const healthAfter = await health();
+		await s.normalRate();
+		row.healthLost = Math.max(0, healthBefore - healthAfter);
+		Object.assign(row, damageEvidence(damageBefore, await readDamage(), healthBefore, healthAfter));
 		const deathResult = deathEvidence(deathsBefore, await deaths());
 		row.deaths = deathResult.deaths;
 		if (!deathResult.valid) (row.integrity ??= []).push({ file: 'deaths', error: 'Missing or decreasing vanilla death counter' });
 		if (!Number.isFinite(row.healthLost)) throw new Error('health unreadable after the call');
 		row.inventory = String(await s.command(`data get entity ${AGENT} Inventory`)).slice(0, 600);
 		row.finishedAt = Date.now();
+		row.tick = { rate: s.tickRate, held: await s.tickReport() };
 		const expected = [spot.expectCode].flat().filter(Boolean);
 		const met = expected.length ? expected.includes(row.result.reasonCode) : row.result.state === 'SUCCEEDED';
 		row.pass = Boolean(met && row.deaths === 0 && row.healthLost === 0);

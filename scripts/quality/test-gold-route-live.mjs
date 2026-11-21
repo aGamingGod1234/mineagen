@@ -2,11 +2,15 @@
 // Test-only model-free controller, never exposed as a player routine. All decisions
 // consume production player observations. /locate and vanilla stats are result-only.
 // CHECKPOINT OUT JAR [seconds=600] [salt=1], under slot.sh live.
+// FIXTURE_TICK_RATE runs the window faster: setup stays at 20 TPS, and the window, the controller's waits and its memory
+// ages (blocked ores, last seen) are game time on the fixture clock (s.clock), so a raised rate plays the same game.
+// elapsedSeconds is game seconds; wallSeconds, gameSeconds, rates, tick and vanilla damageTaken are recorded beside it.
 import { readFile, writeFile, mkdir, appendFile, readdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { boot } from './watch-replay.mjs';
+import { boot, fixtureTickRate } from './watch-replay.mjs';
+import { damageCounter, recordDamageEvidence } from './lib/damage-counter.mjs';
 import { applyQualitySetup, activateQualitySetup } from '../../coordinator/src/benchmark/quality-scenarios.mjs';
 import { adaptObservation } from '../../coordinator/src/observation-adapter.mjs';
 import { validateAction } from '../../coordinator/src/schema.mjs';
@@ -20,9 +24,11 @@ const result={seed:cp.seed,checkpoint:path.basename(cpFile),providerCalls:0,seco
 let s,facts,dead=false,started=0,active=false,cycle=0;
 const cells=new Map(),visits=new Map(),blocked=new Map(),oresSeen=new Set(),openedDoors=new Set();
 const key=b=>`${b.x},${b.y},${b.z}`;
+// Game time on the fixture clock once the server is up (plain wall time at 20 TPS).
+const now=()=>s?.clock?s.clock.now():Date.now();
 const source=b=>/^minecraft:(nether_gold_ore|gold_block)$/.test(b.blockId);
 const ground=b=>/^minecraft:(netherrack|blackstone|basalt|smooth_basalt|polished_basalt|soul_sand|soul_soil|warped_nylium|crimson_nylium|cobblestone|polished_blackstone_bricks|cracked_polished_blackstone_bricks)$/.test(b.blockId);
-const save=()=>writeFile(path.join(out,'result.json'),JSON.stringify({...result,minutes:started?(Date.now()-started)/60000:0,dead,oresSeen:oresSeen.size},null,2));
+const save=()=>writeFile(path.join(out,'result.json'),JSON.stringify({...result,minutes:started?(now()-started)/60000:0,dead,oresSeen:oresSeen.size},null,2));
 async function observe(){
  const sent=Date.now();const wait=s.inbox.wait('observation',e=>e.agentId===s.record.agentId&&(e.payload.observedAtEpochMs??0)>=sent-50,15000);
  await s.bridge.send('request_observation',s.record.agentId,{goalRevision:s.record.goalRevision});
@@ -31,14 +37,14 @@ async function observe(){
  facts=adaptObservation(raw);
  for(const b of [...(facts.blocks??[]),...(facts.landmarks??[])]){
   if(![b.x,b.y,b.z].every(Number.isFinite))continue;
-  cells.set(key(b),{...b,seenAt:Date.now()});if(source(b))oresSeen.add(key(b));
+  cells.set(key(b),{...b,seenAt:now()});if(source(b))oresSeen.add(key(b));
  }
  return facts;
 }
 async function act(type,args){
  validateAction({type,...args});result.actions[type]=(result.actions[type]??0)+1;
- const at=Date.now(),r=await s.act(type,args);
- await appendFile(path.join(out,'actions.jsonl'),JSON.stringify({seconds:started?(at-started)/1000:0,type,args,state:r.state,reason:r.reasonCode,message:r.message,ms:Date.now()-at})+'\n');
+ const at=now(),r=await s.act(type,args);
+ await appendFile(path.join(out,'actions.jsonl'),JSON.stringify({seconds:started?(at-started)/1000:0,type,args,state:r.state,reason:r.reasonCode,message:r.message,ms:now()-at})+'\n');
  if(r.state!=='SUCCEEDED')result.refusals[r.reasonCode]=(result.refusals[r.reasonCode]??0)+1;
  return r;
 }
@@ -56,7 +62,7 @@ async function scan(){
  for(let i=0;i<6&&!dead;i++){
   const a=(i+cycle%6)*Math.PI/3;
   await act('look_at',{x:p.x+20*Math.cos(a),y:p.y+1,z:p.z+20*Math.sin(a)});
-  await sleep(150);await observe();
+  await s.clock.sleep(150);await observe();
  }
 }
 async function openDoor(){
@@ -79,7 +85,7 @@ async function openDoor(){
 async function mine(){
  if(guarded())return false;
  const p=facts.player;
- const ores=[...cells.values()].filter(b=>source(b)&&(blocked.get(key(b))??0)<Date.now())
+ const ores=[...cells.values()].filter(b=>source(b)&&(blocked.get(key(b))??0)<now())
   .map(b=>({...b,d:Math.hypot(b.x+.5-p.x,b.y+.5-(p.y+1.62),b.z+.5-p.z)}))
   .filter(b=>b.d<=4.6&&!(Math.floor(p.x)===b.x&&Math.floor(p.z)===b.z&&b.y<p.y))
   .sort((a,b)=>Number(b.blockId==='minecraft:gold_block')-Number(a.blockId==='minecraft:gold_block')||a.d-b.d);
@@ -88,12 +94,12 @@ async function mine(){
  if(dead||guarded())return false;
  const r=await act('break_block',{x:b.x,y:b.y,z:b.z,expectedBlockId:b.blockId,timeoutMs:6000});
  if(r.state==='SUCCEEDED'){result.mined[b.blockId]=(result.mined[b.blockId]??0)+1;cells.delete(key(b));}
- else blocked.set(key(b),Date.now()+45000);
+ else blocked.set(key(b),now()+45000);
  await observe();return true;
 }
 async function move(){
  const p=facts.player;
- const sources=[...cells.values()].filter(b=>source(b)&&(blocked.get(key(b))??0)<Date.now()&&Date.now()-b.seenAt<180000);
+ const sources=[...cells.values()].filter(b=>source(b)&&(blocked.get(key(b))??0)<now()&&now()-b.seenAt<180000);
  const target=sources.map(b=>({...b,d:Math.hypot(b.x+.5-p.x,b.y+.5-p.y,b.z+.5-p.z)}))
   .filter(b=>b.d<32).sort((a,b)=>a.d-b.d)[0];
  if(target&&!guarded()){
@@ -102,10 +108,10 @@ async function move(){
   const r=Math.abs(dy)>3
    ?await act('dig_to',{x:target.x,z:target.z,y:target.y+(dy<0?1:-1),pattern:dy<0?'stairs_down':'stairs_up',maxBlocks:48,timeoutMs:30000})
    :await act('travel_to',{x:target.x+.5,z:target.z+.5,y:target.y+1,tolerance:3,build:true,minHealth:12,timeoutMs:20000});
-  if(r.state!=='SUCCEEDED')blocked.set(key(target),Date.now()+45000);
+  if(r.state!=='SUCCEEDED')blocked.set(key(target),now()+45000);
   await observe();return true;
  }
- const candidates=[...cells.values()].filter(b=>ground(b)&&Date.now()-b.seenAt<20000&&
+ const candidates=[...cells.values()].filter(b=>ground(b)&&now()-b.seenAt<20000&&
    Math.abs(b.y+1-p.y)<=3.1&&Math.hypot(b.x+.5-p.x,b.z+.5-p.z)>=2.5&&Math.hypot(b.x+.5-p.x,b.z+.5-p.z)<=16)
   .map(b=>{
    const target={x:b.x+.5,y:b.y+1,z:b.z+.5};const v=visits.get(key(b))??0;
@@ -119,7 +125,8 @@ async function move(){
  await observe();return true;
 }
 try{
- s=await boot(out,{jar,template:process.env.ARENA_HEADLESS_SERVER_TEMPLATE,port:Number(process.env.SLOT_PORT_BASE),world:null,seed:cp.seed,spawnMonsters:true,goalTicks:100000});
+ s=await boot(out,{jar,template:process.env.ARENA_HEADLESS_SERVER_TEMPLATE,port:Number(process.env.SLOT_PORT_BASE),world:null,seed:cp.seed,spawnMonsters:true,goalTicks:100000,tickRate:fixtureTickRate()});
+ await s.normalRate();
  const registered=s.inbox.wait('agent_registered',()=>true,45000);
  let summon;
  for(let n=0;n<20;n++){
@@ -141,8 +148,11 @@ try{
  // The camp door is player-visible preparation. It is opened by the body, not operator commands.
  const door=facts.blocks.find(b=>b.blockId==='minecraft:oak_door');
  if(door)await act('set_door',{x:door.x,y:door.y,z:door.z,open:true});
- started=Date.now();active=true;result.start={...facts.player};result.startedAt=new Date(started).toISOString();await save();
- while(!dead&&Date.now()-started<seconds*1000){
+ const readDamage=await damageCounter(text=>s.command(text),'Probe');const damage0=await readDamage();
+ await s.fastRate();
+ const wall0=Date.now(),timer=await s.gameTimer();
+ started=now();active=true;result.start={...facts.player};result.startedAt=new Date(wall0).toISOString();await save();
+ while(!dead&&now()-started<seconds*1000){
   await observe();if(dead)break;
   const threat=facts.entities.find(e=>e.targetingAgent&&e.distance<12);
   if(threat){
@@ -158,10 +168,13 @@ try{
   await scan();if(dead)break;
   if(await openDoor())continue;
   if(await mine()){await save();continue;}
-  if(!await move())await sleep(400);
+  if(!await move())await s.clock.sleep(400);
   cycle++;await save();
  }
- result.endInventory=facts?.inventory?.items;result.endPosition=facts?.player;result.elapsedSeconds=(Date.now()-started)/1000;
+ result.endInventory=facts?.inventory?.items;result.endPosition=facts?.player;result.elapsedSeconds=(now()-started)/1000;
+ result.wallSeconds=Math.round((Date.now()-wall0)/1000);result.gameSeconds=Math.round((await timer.elapsed())/1000);result.rates=await timer.rates().catch(()=>null);
+ await s.normalRate();
+ recordDamageEvidence(result, damage0,await readDamage());result.tick={rate:s.tickRate,held:await s.tickReport()};
  result.completedWindow=result.elapsedSeconds>=seconds||dead;
  // Result-only commands after scoring; never consumed by policy functions above.
  result.locate=await s.command(`execute in minecraft:the_nether positioned ${cp.setup.position.join(' ')} run locate structure minecraft:bastion_remnant`);

@@ -11,6 +11,13 @@ export const FAILURE_CODES = Object.freeze({
 	SHELTER_BUILT: ['ok'],
 	// rest and a cornered flee_from
 	RESTED: ['ok'],
+	// escape (do_step escape): ESCAPED is the safe hand-back; the rest name what it lacked.
+	ESCAPED: ['ok'],
+	ESCAPE_NO_SHORE: ['body', null],
+	ESCAPE_NO_WAY: ['body', null],
+	ESCAPE_EXPOSED: ['body', null],
+	ESCAPE_TIMEOUT: ['body', null],
+	ESCAPE_STEP_REFUSED: ['body', null],
 	UNDERGROUND: ['ok'],
 	STOOD_GROUND: ['ok'],
 	WALLED_IN: ['ok'],

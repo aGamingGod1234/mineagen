@@ -92,7 +92,7 @@ test('urgent program hints match the actual danger trigger', () => {
 				decision: { decisionId: 'p1:decision-2', trigger, priority: 'urgent' } },
 			observation: hurt(12),
 		});
-		assert.match(input.split('\n')[0], /fight_target \(melee\), .*flee_from, supported cover placement, digging in .*Respond to the pending program decision after/, `${trigger} puts immediate defense before the program reply`);
+		assert.match(input.split('\n')[0], /fight_target \(melee\), .*flee_from, supported cover placement, do_step escape \(cover from shooters, out of water or a hole; hands back once safe\), digging in .*Respond to the pending program decision after/, `${trigger} puts immediate defense before the program reply`);
 	}
 	for (const [trigger, expected] of [
 		['damage', /^danger\. Reply to the program\./],

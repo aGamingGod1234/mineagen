@@ -11,12 +11,15 @@ const COUNTED_STATES = new Set(['FAILED', 'TIMED_OUT']);
 export class RepeatedFailureLedger {
 	#history = new Map();
 
-	/** Records one terminal result and returns a compact repeat fact, or null for a first failure. */
-	record(agentId, { goalRevision, actionType, arguments: args, state, reasonCode, observation, now = Date.now() }) {
+	/**
+	 * Records one terminal result and returns a compact repeat fact, or null for a first failure. at is the sample's time
+	 * on the caller's clock (default its observedAtEpochMs, else now), so a game-clock caller keeps the window in game time.
+	 */
+	record(agentId, { goalRevision, actionType, arguments: args, state, reasonCode, observation, now = Date.now(), at: stamp = null }) {
 		if (!COUNTED_STATES.has(state) || typeof reasonCode !== 'string' || reasonCode.length === 0) return null;
 		const position = extractPosition(observation);
 		if (position === null) return null;
-		const at = Number.isFinite(observation?.observedAtEpochMs) ? observation.observedAtEpochMs : now;
+		const at = Number.isFinite(stamp) ? stamp : Number.isFinite(observation?.observedAtEpochMs) ? observation.observedAtEpochMs : now;
 		const cell = `${Math.floor(position.x)},${Math.floor(position.y)},${Math.floor(position.z)}`;
 		const request = JSON.stringify([actionType, args ?? null]);
 		const history = this.#history.get(agentId);

@@ -13,9 +13,14 @@
 // must also arrive (SUCCEEDED). roofed, detour, waterfall and narrowfall pass on a safe stop: the body rises to air or
 // stops at the edge and hands the choice back. Exit code (strict, the default): 0 all passed, 1 a trial failed,
 // 2 invalid evidence (a trial errored, health could not be read, or trials are missing). --descriptive reports only.
+// FIXTURE_TICK_RATE runs each call faster: the fixture is built at 20 TPS (its settle and air-drain waits are game time,
+// s.idleSleep), the starting health and air are read at 20, and the call, its sampler and the afterMs watch run at the
+// raised rate on the fixture clock (s.clock), so a raised rate plays the same game. A row's seconds are game seconds,
+// beside wallSeconds, gameSeconds, rates, tick, vanilla damageTaken and vanillaDeaths (recorded, not judged).
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
-import { boot } from './watch-replay.mjs';
+import { boot, fixtureTickRate } from './watch-replay.mjs';
+import { damageCounter, recordDamageEvidence, deathCounter, recordDeathEvidence } from './lib/damage-counter.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 
 const USAGE = 'Usage: test-water-live.mjs OUT_DIR JAR [runs] [fixture;fixture...] [seed] [--strict|--descriptive] under slot.sh live';
@@ -43,7 +48,8 @@ const NAME = `Sw${process.pid % 100000}`;
 const rows = [];
 let s;
 try {
-	s = await boot(path.join(out, 'server'), { jar: path.resolve(jarArg), template, port, world: null, seed: seedArg ?? '1', spawnMonsters: false, goalTicks: 2_000_000 });
+	s = await boot(path.join(out, 'server'), { jar: path.resolve(jarArg), template, port, world: null, seed: seedArg ?? '1', spawnMonsters: false, goalTicks: 2_000_000, tickRate: fixtureTickRate() });
+	await s.normalRate();
 	await s.command('difficulty peaceful');
 	await s.command('gamerule minecraft:advance_time false').catch(() => {});
 	await s.command('time set 1000');
@@ -60,6 +66,25 @@ try {
 	const pos = async () => String(await s.command(`data get entity ${NAME} Pos`)).match(/\[\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?\]/)?.slice(1).map(Number) ?? null;
 	const health = async () => number(await s.command(`data get entity ${NAME} Health`));
 	const airLeft = async () => number(await s.command(`data get entity ${NAME} Air`));
+	const readDamage = await damageCounter(text => s.command(text), NAME);
+	const deaths = () => deathCounter(text => s.command(text), NAME, { objective: 'deaths', unsetIsZero: true });
+	const now = () => s.clock.now();
+	// Vanilla counters before the settle or drain wait, so no extra read lands between it and the call.
+	const harmBefore = async () => ({ damage0: await readDamage(), deaths0: await deaths().catch(() => null) });
+	// The call's play window: raised to the fixture rate right before travel_to; the returned function ends it (back to
+	// 20) and gives what it measured.
+	const startPlay = async ({ damage0, deaths0 }) => {
+		await s.fastRate();
+		const wall0 = Date.now(), timer = await s.gameTimer();
+		return async () => {
+			const play = { wallSeconds: Math.round((Date.now() - wall0) / 1000), gameSeconds: Math.round((await timer.elapsed()) / 1000), rates: await timer.rates().catch(() => null) };
+			await s.normalRate();
+			recordDamageEvidence(play, damage0, await readDamage());
+			recordDeathEvidence(play, deaths0, await deaths().catch(() => null), 'vanillaDeaths');
+			play.tick = { rate: s.tickRate, held: await s.tickReport() };
+			return play;
+		};
+	};
 	let n = 0;
 	for (const fixture of fixtures) for (let run = 0; run < runs; run++) {
 		const startedAt = Date.now();
@@ -71,21 +96,25 @@ try {
 			for (let i = 0; i < 60 && !/time is/i.test(await s.command(`execute if loaded ${Math.floor(sx)} 0 ${Math.floor(sz)} run time query gametime`)); i++) await sleep(1000);
 			await s.command(`tp ${NAME} ${sx} ${sy} ${sz} 90 0`);
 			await s.command(`effect give ${NAME} minecraft:instant_health 1 10 true`);
-			await sleep(3000);
-			const before = await health(), t0 = Date.now();
+			const harm = await harmBefore();
+			await s.idleSleep(3000);
+			const before = await health();
 			if (!Number.isFinite(before)) throw new Error(`${fixture} ${run}: health unreadable before the call`);
+			const endPlay = await startPlay(harm), t0 = now();
 			let minHealth = before, sampling = true;
-			const sampler = (async () => { while (sampling) { const h = await health().catch(() => NaN); if (Number.isFinite(h)) minHealth = Math.min(minHealth, h); await sleep(500); } })();
+			const sampler = (async () => { while (sampling) { const h = await health().catch(() => NaN); if (Number.isFinite(h)) minHealth = Math.min(minHealth, h); await s.clock.sleep(500); } })();
 			const result = await s.act('travel_to', { x: tx, z: tz, tolerance: 3, timeoutMs: 90_000 }, 100_000).catch(error => ({ state: 'ERROR', reasonCode: error.message }));
 			sampling = false; await sampler;
+			const seconds = Math.round((now() - t0) / 1000);
 			const end = await pos();
-			const row = { fixture, run, state: result.state, reasonCode: result.reasonCode, seconds: Math.round((Date.now() - t0) / 1000),
+			const play = await endPlay();
+			const row = { fixture, run, state: result.state, reasonCode: result.reasonCode, seconds, ...play,
 				left: end ? Math.round(Math.hypot(end[0] - tx, end[2] - tz) * 10) / 10 : null, healthLost: Math.max(0, before - minHealth), died: minHealth <= 0,
 				message: String(result.message ?? '').slice(0, 240), startedAt, finishedAt: Date.now() };
 			row.pass = judge(row);
 			rows.push(row);
 			console.log(`[${fixture} ${run}] ${row.state} ${row.reasonCode} ${row.seconds}s left=${row.left} hpLost=${row.healthLost}${row.died ? ' DIED' : ''} | ${row.message.slice(0, 140)}`);
-			if (row.died) { await s.command(`mineagen respawn ${NAME}`).catch(() => {}); await sleep(3000); }
+			if (row.died) { await s.command(`mineagen respawn ${NAME}`).catch(() => {}); await s.idleSleep(3000); }
 			continue;
 		}
 		const X = 200 + 80 * n++, Z = 200;
@@ -93,7 +122,7 @@ try {
 		for (let i = 0; i < 60 && !/time is/i.test(await s.command(`execute if loaded ${X} 0 ${Z} run time query gametime`)); i++) await sleep(1000);
 		// A flat stone pad round the fixture, so the land around it is the same in every trial.
 		await s.command(`execute positioned ${X} 0 ${Z} positioned over motion_blocking_no_leaves run tp ${NAME} ~0.5 ~ ~0.5`);
-		await sleep(1500);
+		await s.idleSleep(1500);
 		const F = Math.floor((await pos())[1]);
 		await s.command(`fill ${X - 16} ${F - 12} ${Z - 16} ${X + 24} ${F - 1} ${Z + 16} minecraft:stone`);
 		await s.command(`fill ${X - 16} ${F} ${Z - 16} ${X + 24} ${F + 6} ${Z + 16} minecraft:air`);
@@ -124,7 +153,7 @@ try {
 				await s.command(`fill ${X + 3} ${F - 2} ${Z - 3} ${X + 3} ${F + 1} ${Z + 3} minecraft:stone`);
 				await s.command(`fill ${X + 3} ${F - 2} ${Z} ${X + 3} ${F - 1} ${Z} minecraft:water`);
 			}
-			await sleep(3000);
+			await s.idleSleep(3000);
 			start = [X - 2.5, F - 1, Z + 0.5]; target = { x: X + 20.5, z: Z + 0.5 }; facing = -90;
 		} else if (fixture === 'widelake') {
 			await s.command(`fill ${X - 16} ${F - 5} ${Z - 10} ${X + 20} ${F - 1} ${Z + 10} minecraft:water`);
@@ -134,27 +163,33 @@ try {
 			start = [X + 7.5, F - 8, Z + 0.5]; target = { x: X - 12.5, z: Z + 0.5 };
 		}
 		// Breath back in full first (a body moved straight from one underwater spot to the next keeps its spent air).
-		await s.command(`tp ${NAME} ${X + 0.5} ${F} ${Z - 10.5} ${facing} 0`); await sleep(6000);
+		await s.command(`tp ${NAME} ${X + 0.5} ${F} ${Z - 10.5} ${facing} 0`); await s.idleSleep(6000);
 		await s.command(`tp ${NAME} ${start[0]} ${start[1]} ${start[2]} ${facing} 0`);
 		await s.command(`effect give ${NAME} minecraft:instant_health 1 10 true`);
-		await sleep(2000 + drain);
-		const before = await health(), airBefore = await airLeft(), t0 = Date.now();
+		const harm = await harmBefore();
+		// The air drain is game time (air runs down per tick), so it leaves the same air at any rate.
+		await s.idleSleep(2000 + drain);
+		// Read at 20 TPS, so no more air runs down before the call than at 20.
+		const before = await health(), airBefore = await airLeft();
 		if (!Number.isFinite(before)) throw new Error(`${fixture} ${run}: health unreadable before the call`);
+		const endPlay = await startPlay(harm), t0 = now();
 		let minHealth = before, minAir = airBefore, maxX = -Infinity, sampling = true;
 		const sampler = (async () => { while (sampling) {
 			const h = await health().catch(() => NaN), a = await airLeft().catch(() => NaN), p = await pos().catch(() => null);
 			if (Number.isFinite(h)) minHealth = Math.min(minHealth, h);
 			if (Number.isFinite(a)) minAir = Math.min(minAir, a);
 			if (p && p[1] < start[1] + 4) maxX = Math.max(maxX, p[0] - start[0]);
-			await sleep(250);
+			await s.clock.sleep(250);
 		} })();
 		const result = await s.act('travel_to', { x: target.x, z: target.z, tolerance: 3, timeoutMs: 90_000 }, 100_000).catch(error => ({ state: 'ERROR', reasonCode: error.message }));
 		// afterMs: what happens to the body in the seconds after travel_to returns (a stop under water is the model's turn).
 		const minAtResult = minHealth;
-		if (afterMs > 0) await sleep(afterMs);
+		const resultAt = now();
+		if (afterMs > 0) await s.clock.sleep(afterMs);
 		sampling = false; await sampler;
 		const end = await pos();
-		const row = { fixture, run, state: result.state, reasonCode: result.reasonCode, seconds: Math.round((Date.now() - t0 - afterMs) / 1000),
+		const play = await endPlay();
+		const row = { fixture, run, state: result.state, reasonCode: result.reasonCode, seconds: Math.round((resultAt - t0) / 1000), ...play,
 			...(afterMs > 0 ? { healthLostAfter: Math.max(0, minAtResult - minHealth) } : {}),
 			left: end ? Math.round(Math.hypot(end[0] - target.x, end[2] - target.z) * 10) / 10 : null, healthLost: Math.max(0, before - minAtResult), died: minHealth <= 0,
 			airBefore, minAir, deepEast: Number.isFinite(maxX) ? Math.round(maxX * 10) / 10 : null, endY: end ? Math.round((end[1] - start[1]) * 10) / 10 : null,
@@ -162,7 +197,7 @@ try {
 		row.pass = judge(row);
 		rows.push(row);
 		console.log(`[${fixture} ${run}] ${row.state} ${row.reasonCode} ${row.seconds}s left=${row.left} hpLost=${row.healthLost} air ${row.airBefore}->${row.minAir} east(low)=${row.deepEast} dy=${row.endY}${row.healthLostAfter !== undefined ? ` hpLostNext${afterMs / 1000}s=${row.healthLostAfter}` : ''}${row.died ? ' DIED' : ''} | ${row.message.slice(0, 140)}`);
-		if (row.died) { await s.command(`mineagen respawn ${NAME}`).catch(() => {}); await sleep(3000); }
+		if (row.died) { await s.command(`mineagen respawn ${NAME}`).catch(() => {}); await s.idleSleep(3000); }
 	}
 } catch (error) {
 	// Recorded as an invalid row: the trials it cut short are missing too.
