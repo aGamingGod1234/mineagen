@@ -385,7 +385,7 @@ public final class ServerBuildController implements ServerController {
 	 * The cell's pair goes in the old order, water first (no spot reaches both cells), allowed only where the water's
 	 * whole run ({@link #SPILL_CELLS}) meets no lava: water standing for the lava's turn runs its full course.
 	 */
-	private boolean waterFirst, runOffMeetsLava;
+	private boolean waterFirst, runOffMeetsLava, sureRunOffMeetsLava;
 	/** This cell has no spot whose water line misses the lava's cell: pour it from a spot where it crosses (main's way). */
 	private boolean crossAllowed;
 	private int lavaTakes;
@@ -1832,6 +1832,7 @@ public final class ServerBuildController implements ServerController {
 		castOrder.addAll(castPairs(portal));
 		spares = mouldBlocks + 1;
 		runOffMeetsLava = spillMeetsLava(cell -> known(player, cell), portal, back, SPILL_CELLS);
+		sureRunOffMeetsLava = spillMeetsLava(cell -> known(player, cell), portal, back, SURE_SPILL_CELLS);
 		pouredLava = null;
 		quickScoop = waterFirst = crossAllowed = false;
 		BlockPos source = lavaSources(player, portal.at(1, 1), (int) CAST_POOL_REACH + 4).stream().findFirst().orElse(poolAt);
@@ -1974,7 +1975,9 @@ public final class ServerBuildController implements ServerController {
 			Predicate<Vec3> reaches = kind == Pour.SCOOP || kind == Pour.TAKE ? eye -> scoopReaches(player, eye, target) : eye -> pourClick(player, eye, target, false, avoid) != null;
 			BlockPos partnerAvoid = paired && !crossAllowed ? target : null;
 			BlockPos spot = partner == null ? null : standFor(player, eye -> reaches.test(eye) && pourClick(player, eye, partner, false, partnerAvoid) != null);
-			if (spot == null && paired && !crossAllowed && standFor(player, eye -> pourClick(player, eye, target, false) != null && pourClick(player, eye, partner, false) != null) != null) {
+			// Water poured across the lava's cell stands behind the obsidian it casts, out of the scoop's reach until the body
+			// walks round (one stood 211 ticks): only where its 8-cell run meets no lava, so it cannot crust the pool.
+			if (spot == null && paired && !crossAllowed && !sureRunOffMeetsLava && standFor(player, eye -> pourClick(player, eye, target, false) != null && pourClick(player, eye, partner, false) != null) != null) {
 				// No spot's water line misses the lava's cell (a frame's top cell under a low roof, cast-obi-1: 9 of 10 runs
 				// pillared into the rock over the head): pour this cell from a spot whose line crosses it, as main did.
 				crossAllowed = true;
@@ -2031,6 +2034,9 @@ public final class ServerBuildController implements ServerController {
 		}
 		if (player.getInventory().getSelectedSlot() != slot) { player.getInventory().setSelectedSlot(slot); pause = 1; return running(); }
 		if (onLook == null && !turn(player, click.getLocation(), false)) return clickStall(player, now);
+		// The limit is checked before the click: a fourth pour checked after it would leave its lava standing uncooled in the frame.
+		if (kind == Pour.LAVA && cellPours >= 3)
+			return fail(player, "BUILD_BLOCKED", "Lava poured into frame cell " + xyz(target) + " " + cellPours + " times without casting it" + (refusal == null ? "" : "; " + refusal));
 		int held = carried(player, item);
 		// Lava poured first stands uncooled for the few ticks until the water lands beside it, or is taken back: refused
 		// only where its flow would meet the body before its first flow tick.
@@ -2045,8 +2051,7 @@ public final class ServerBuildController implements ServerController {
 			if (!scoop) deadSupports.add(click.getBlockPos().immutable());
 		}
 		if (why != null) { refusal = why; return clickStall(player, now); }
-		if (kind == Pour.LAVA && ++cellPours > 3)
-			return fail(player, "BUILD_BLOCKED", "Lava poured into frame cell " + xyz(target) + " " + cellPours + " times without casting it" + (refusal == null ? "" : "; " + refusal));
+		if (kind == Pour.LAVA) cellPours++;
 		clickTicks = 0;
 		clickStalls = 0;
 		waterAlone = false;

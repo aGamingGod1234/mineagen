@@ -474,8 +474,9 @@ public final class ServerTravelController implements ServerController {
 				return TickResult.running(progress(player));
 			}
 			// The frame stands on a ledge 2 over the ground in front (lava-gate-1: 8 of 9 lit portals not entered): one
-			// carried block under the feet, then the step in from a block below the floor.
-			if (!portalStepped && stepsUpToPortal(dx * dx + dz * dz, above) && player.onGround() && TravelBuilder.blockSlot(player) >= 0) {
+			// carried block under the feet, then the step in from a block below the floor. Never on a build:false walk,
+			// which promises to place and mine nothing.
+			if (build && !portalStepped && stepsUpToPortal(dx * dx + dz * dz, above) && player.onGround() && TravelBuilder.blockSlot(player) >= 0) {
 				portalStepped = true;
 				portalNudge = 0;
 				releaseInput();

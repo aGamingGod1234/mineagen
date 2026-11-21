@@ -573,7 +573,8 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 		stepOuts += 1;
 		for (let step = 0; step < MAX_WATER_STEPS; step += 1) {
 			const at = bodyAt(observation), player = observation?.player;
-			if (at === null || (player?.inWater !== true && player?.underWater !== true) || !breathing(player)) return null;
+			// A sample clear of the water mid-bob is still in it (afloat): stopping there skips the step and the body sinks back.
+			if (at === null || !afloat() || !breathing(player)) return null;
 			const flat = Math.hypot(toward.x - at.x, toward.z - at.z) > 0.5;
 			const dir = nearestCardinal(flat ? Math.atan2(-(toward.x - at.x), toward.z - at.z) * 180 / Math.PI : Number.isFinite(player.yaw) ? player.yaw : 0);
 			const dx = Math.round(-Math.sin(dir.yaw * Math.PI / 180)), dz = Math.round(Math.cos(dir.yaw * Math.PI / 180));
@@ -609,6 +610,11 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 	// water for a sample (lava-gate-6: the swim read that as out and stopped, and the body sank back), so out of the water
 	// counts only with footing under it.
 	const afloat = () => inWater() || (observation?.player?.onGround === false && observation?.player?.inLava !== true);
+	// Clear of the water for a sample with water right under the feet: the top of a bob in a flooded hole, not dry ground.
+	const bobbing = () => {
+		const at = bodyAt(observation);
+		return at !== null && observation?.player?.onGround === false && waterAt({ x: Math.floor(at.x), y: Math.floor(at.y + 1e-3) - 1, z: Math.floor(at.z) });
+	};
 	// Back down to where it last breathed, sinking (sneak) toward it, a pulse for each it swam up; then the search goes
 	// on from there, as from any stair the swim could not climb.
 	const backToBreath = async (breathed, pulses) => {
@@ -1416,7 +1422,7 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 				if (stepsLeft(heading) < 4) return handBack('FAILED', 'FIND_NOT_FOUND', `Searched to ${within} blocks from the start`);
 				const from = bodyAt(observation);
 				// In water (its own flooded tunnels), a walk off swims in place: out the way it came instead.
-				const wetSky = observation?.player?.inWater === true || observation?.player?.underWater === true ? skyAbove(from, FLOODED_REACH) : null;
+				const wetSky = inWater() || bobbing() ? skyAbove(from, FLOODED_REACH) : null;
 				const out = wetSky !== null ? await leg('out of the water the way it came', 'travel_to', { x: wetSky.x, y: wetSky.y, z: wetSky.z, retrace: true, tolerance: 3, stopWhenSeen: profile.stopId })
 					: await leg('off this spot', 'travel_to', { yaw: heading.yaw, distance: Math.min(RELOCATE, stepsLeft(heading)), stopWhenSeen: profile.stopId });
 				let ended = await settle(out);
