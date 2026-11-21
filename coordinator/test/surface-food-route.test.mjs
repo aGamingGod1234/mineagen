@@ -12,7 +12,7 @@ const line = (o, known = emptyKnown()) => routeLine({ observation: o, known, eva
 
 test('food stocking stays before the first iron descent even while healthy', () => {
 	const text = line(observation());
-	assert.match(text, /cooked meat/); assert.match(text, /before digging below Y ?40/); assert.doesNotMatch(text, /obtain iron_pickaxe/);
+	assert.match(text, /cooked meat/); assert.match(text, /before digging below Y ?40/); assert.doesNotMatch(text, /obtain log count \d+ before going down/);
 	assert.match(line(observation([item('wooden_pickaxe')])), /cooked meat 0\/8/);
 	assert.match(line(observation([item('stone_pickaxe')])), /cooked meat 0\/8/);
 	assert.match(line(observation([])), /obtain wooden_pickaxe/);
@@ -26,7 +26,7 @@ test('food stocking names the nearest actually seen animal, not beef in a sheep 
 });
 
 test('mixed cooked meats total eight; raw meat is cooked without requesting eight of one type', () => {
-	assert.match(line(observation([...tools, item('cooked_mutton', 3), item('cooked_porkchop', 5)])), /obtain iron_pickaxe/);
+	assert.match(line(observation([...tools, item('cooked_mutton', 3), item('cooked_porkchop', 5)])), /obtain log count \d+ before going down/);
 	assert.match(line(observation([...tools, item('mutton', 2), item('cooked_chicken', 3)])), /obtain cooked_mutton count 2/);
 	assert.match(line(observation([...tools, item('cooked_mutton', 2), item('mutton', 8), item('cooked_beef', 3)])), /obtain cooked_mutton count 5/);
 	assert.match(line(observation([...tools, item('beef', 8)])), /obtain cooked_beef/);

@@ -42,6 +42,11 @@ export function recordDamageEvidence(row, before, after, field = 'damageTaken') 
  */
 export async function deathCounter(command, agent, { objective = 'qo_death', unsetIsZero = false } = {}) {
 	if (!/^\w+$/.test(agent) || !/^\w+$/.test(objective)) throw new Error('Invalid death counter selector');
+	return scoreboardCounter(command, agent, objective, { unsetIsZero });
+}
+
+/** Read a nonnegative count from an existing objective. */
+export async function scoreboardCounter(command, agent, objective, { unsetIsZero = false } = {}) {
 	const reply = String(await command(`scoreboard players get ${agent} ${objective}`)).trim();
 	const match = /has (\d+) \[([^\]]+)\]$/.exec(reply);
 	if (match?.[2] === objective && Number.isSafeInteger(Number(match[1]))) return Number(match[1]);
@@ -55,9 +60,10 @@ export function deathEvidence(before, after) {
 
 /** Keep an unreadable death count distinct from a run with zero deaths. */
 export function recordDeathEvidence(row, before, after, field = 'deaths') {
-	const { deaths, valid } = deathEvidence(before, after);
-	row[field] = deaths;
-	if (!valid) (row.integrity ??= []).push({ file: 'deaths', error: 'Missing or decreasing vanilla death counter' });
+	const evidence = deathEvidence(before, after);
+	row[field] = evidence.deaths;
+	if (!evidence.valid) (row.integrity ??= []).push({ file: 'deaths', error: 'Missing or decreasing vanilla death counter' });
+	return evidence;
 }
 
 /** Deliberate-damage fixtures declare an exact result; unspecified fixtures still require zero damage. */
