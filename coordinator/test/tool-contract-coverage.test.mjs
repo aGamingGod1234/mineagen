@@ -30,6 +30,21 @@ test('model-facing contract bytes remain within the pinned baseline budgets', ()
 	assert.ok(Buffer.byteLength(ARENA_SCRIPT_API_REFERENCE) <= 15_710);
 });
 
+test('tool schemas carry no keyword that another keyword already implies', () => {
+	// The tool list sat 1 byte under its cap. Integers are validated as safe integers, and an anchored pattern fixes its
+	// own length, so these bounds only cost bytes (426 in total when removed).
+	const implied = [];
+	const visit = (schema, path) => {
+		if (!schema || typeof schema !== 'object') return;
+		if (schema.type === 'integer' && schema.maximum === Number.MAX_SAFE_INTEGER) implied.push(`${path}: maximum`);
+		if (schema.pattern === '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' && (schema.minLength !== undefined || schema.maxLength !== undefined)) implied.push(`${path}: UUID length`);
+		if (schema.pattern === '^[a-z0-9_.-]+:[a-z0-9_./-]+$' && schema.minLength === 1) implied.push(`${path}: minLength`);
+		for (const [key, child] of Object.entries(schema)) visit(child, `${path}.${key}`);
+	};
+	for (const tool of MINECRAFT_DYNAMIC_TOOLS) visit(tool.inputSchema, tool.name);
+	assert.deepEqual(implied, []);
+});
+
 test('every model-facing contract change requires its reviewed claim-table entry to change', () => {
 	assert.deepEqual(contractChanges(discovered, table.claims), [], 'Run npm run contracts:refresh, then review only listed claims in test/contracts/claims.json');
 	assert.deepEqual(table.claims.filter(entry => entry.status === 'review-required').map(entry => entry.id), [], 'Refresh does not approve changed contracts; review their predicates and checks');

@@ -8066,14 +8066,13 @@
       ],
       "contract": {
         "id": "tool:taskMemory:schema:query.offset",
-        "claim": "{\"type\":\"integer\",\"minimum\":0,\"maximum\":9007199254740991}",
+        "claim": "{\"type\":\"integer\",\"minimum\":0}",
         "kind": "schema",
         "tool": "taskMemory",
         "path": "query.offset",
         "contract": {
           "type": "integer",
-          "minimum": 0,
-          "maximum": 9007199254740991
+          "minimum": 0
         }
       },
       "location": {
@@ -8908,14 +8907,13 @@
       ],
       "contract": {
         "id": "tool:capabilities:schema:offset",
-        "claim": "{\"type\":\"integer\",\"minimum\":0,\"maximum\":9007199254740991}",
+        "claim": "{\"type\":\"integer\",\"minimum\":0}",
         "kind": "schema",
         "tool": "capabilities",
         "path": "offset",
         "contract": {
           "type": "integer",
-          "minimum": 0,
-          "maximum": 9007199254740991
+          "minimum": 0
         }
       },
       "location": {
@@ -9635,14 +9633,13 @@
       ],
       "contract": {
         "id": "tool:inspect:schema:afterSequence",
-        "claim": "{\"type\":\"integer\",\"minimum\":0,\"maximum\":9007199254740991}",
+        "claim": "{\"type\":\"integer\",\"minimum\":0}",
         "kind": "schema",
         "tool": "inspect",
         "path": "afterSequence",
         "contract": {
           "type": "integer",
-          "minimum": 0,
-          "maximum": 9007199254740991
+          "minimum": 0
         }
       },
       "location": {
@@ -9663,13 +9660,12 @@
       ],
       "contract": {
         "id": "tool:inspect:schema:recipeId",
-        "claim": "{\"type\":\"string\",\"minLength\":1,\"maxLength\":256,\"pattern\":\"^[a-z0-9_.-]+:[a-z0-9_./-]+$\"}",
+        "claim": "{\"type\":\"string\",\"maxLength\":256,\"pattern\":\"^[a-z0-9_.-]+:[a-z0-9_./-]+$\"}",
         "kind": "schema",
         "tool": "inspect",
         "path": "recipeId",
         "contract": {
           "type": "string",
-          "minLength": 1,
           "maxLength": 256,
           "pattern": "^[a-z0-9_.-]+:[a-z0-9_./-]+$"
         }
@@ -9692,13 +9688,12 @@
       ],
       "contract": {
         "id": "tool:inspect:schema:entityType",
-        "claim": "{\"type\":\"string\",\"minLength\":1,\"maxLength\":256,\"pattern\":\"^[a-z0-9_.-]+:[a-z0-9_./-]+$\"}",
+        "claim": "{\"type\":\"string\",\"maxLength\":256,\"pattern\":\"^[a-z0-9_.-]+:[a-z0-9_./-]+$\"}",
         "kind": "schema",
         "tool": "inspect",
         "path": "entityType",
         "contract": {
           "type": "string",
-          "minLength": 1,
           "maxLength": 256,
           "pattern": "^[a-z0-9_.-]+:[a-z0-9_./-]+$"
         }
@@ -9721,13 +9716,12 @@
       ],
       "contract": {
         "id": "tool:inspect:schema:outputItemId",
-        "claim": "{\"type\":\"string\",\"minLength\":1,\"maxLength\":256,\"pattern\":\"^[a-z0-9_.-]+:[a-z0-9_./-]+$\"}",
+        "claim": "{\"type\":\"string\",\"maxLength\":256,\"pattern\":\"^[a-z0-9_.-]+:[a-z0-9_./-]+$\"}",
         "kind": "schema",
         "tool": "inspect",
         "path": "outputItemId",
         "contract": {
           "type": "string",
-          "minLength": 1,
           "maxLength": 256,
           "pattern": "^[a-z0-9_.-]+:[a-z0-9_./-]+$"
         }
@@ -10076,14 +10070,13 @@
       ],
       "contract": {
         "id": "tool:cancelAction:schema:goalRevision",
-        "claim": "{\"type\":\"integer\",\"minimum\":0,\"maximum\":9007199254740991}",
+        "claim": "{\"type\":\"integer\",\"minimum\":0}",
         "kind": "schema",
         "tool": "cancelAction",
         "path": "goalRevision",
         "contract": {
           "type": "integer",
-          "minimum": 0,
-          "maximum": 9007199254740991
+          "minimum": 0
         }
       },
       "location": {
@@ -10313,14 +10306,13 @@
       ],
       "contract": {
         "id": "tool:replaceAction:schema:goalRevision",
-        "claim": "{\"type\":\"integer\",\"minimum\":0,\"maximum\":9007199254740991}",
+        "claim": "{\"type\":\"integer\",\"minimum\":0}",
         "kind": "schema",
         "tool": "replaceAction",
         "path": "goalRevision",
         "contract": {
           "type": "integer",
-          "minimum": 0,
-          "maximum": 9007199254740991
+          "minimum": 0
         }
       },
       "location": {
@@ -13546,14 +13538,13 @@
       ],
       "contract": {
         "id": "tool:queryMemory:schema:offset",
-        "claim": "{\"type\":\"integer\",\"minimum\":0,\"maximum\":9007199254740991}",
+        "claim": "{\"type\":\"integer\",\"minimum\":0}",
         "kind": "schema",
         "tool": "queryMemory",
         "path": "offset",
         "contract": {
           "type": "integer",
-          "minimum": 0,
-          "maximum": 9007199254740991
+          "minimum": 0
         }
       },
       "location": {
@@ -14853,14 +14844,13 @@
       ],
       "contract": {
         "id": "tool:queueProgram:schema:goalRevision",
-        "claim": "{\"type\":\"integer\",\"minimum\":0,\"maximum\":9007199254740991}",
+        "claim": "{\"type\":\"integer\",\"minimum\":0}",
         "kind": "schema",
         "tool": "queueProgram",
         "path": "goalRevision",
         "contract": {
           "type": "integer",
-          "minimum": 0,
-          "maximum": 9007199254740991
+          "minimum": 0
         }
       },
       "location": {
@@ -14881,14 +14871,13 @@
       ],
       "contract": {
         "id": "tool:queueProgram:schema:programVersion",
-        "claim": "{\"type\":\"integer\",\"minimum\":1,\"maximum\":9007199254740991}",
+        "claim": "{\"type\":\"integer\",\"minimum\":1}",
         "kind": "schema",
         "tool": "queueProgram",
         "path": "programVersion",
         "contract": {
           "type": "integer",
-          "minimum": 1,
-          "maximum": 9007199254740991
+          "minimum": 1
         }
       },
       "location": {
@@ -15288,14 +15277,13 @@
       ],
       "contract": {
         "id": "tool:cancelQueuedProgram:schema:goalRevision",
-        "claim": "{\"type\":\"integer\",\"minimum\":0,\"maximum\":9007199254740991}",
+        "claim": "{\"type\":\"integer\",\"minimum\":0}",
         "kind": "schema",
         "tool": "cancelQueuedProgram",
         "path": "goalRevision",
         "contract": {
           "type": "integer",
-          "minimum": 0,
-          "maximum": 9007199254740991
+          "minimum": 0
         }
       },
       "location": {
@@ -15593,14 +15581,13 @@
       ],
       "contract": {
         "id": "tool:respondProgram:schema:goalRevision",
-        "claim": "{\"type\":\"integer\",\"minimum\":0,\"maximum\":9007199254740991}",
+        "claim": "{\"type\":\"integer\",\"minimum\":0}",
         "kind": "schema",
         "tool": "respondProgram",
         "path": "goalRevision",
         "contract": {
           "type": "integer",
-          "minimum": 0,
-          "maximum": 9007199254740991
+          "minimum": 0
         }
       },
       "location": {
@@ -15649,14 +15636,13 @@
       ],
       "contract": {
         "id": "tool:respondProgram:schema:eventSequence",
-        "claim": "{\"type\":\"integer\",\"minimum\":0,\"maximum\":9007199254740991}",
+        "claim": "{\"type\":\"integer\",\"minimum\":0}",
         "kind": "schema",
         "tool": "respondProgram",
         "path": "eventSequence",
         "contract": {
           "type": "integer",
-          "minimum": 0,
-          "maximum": 9007199254740991
+          "minimum": 0
         }
       },
       "location": {
@@ -15950,14 +15936,13 @@
       ],
       "contract": {
         "id": "tool:cancelProgram:schema:goalRevision",
-        "claim": "{\"type\":\"integer\",\"minimum\":0,\"maximum\":9007199254740991}",
+        "claim": "{\"type\":\"integer\",\"minimum\":0}",
         "kind": "schema",
         "tool": "cancelProgram",
         "path": "goalRevision",
         "contract": {
           "type": "integer",
-          "minimum": 0,
-          "maximum": 9007199254740991
+          "minimum": 0
         }
       },
       "location": {
@@ -20473,14 +20458,12 @@
       ],
       "contract": {
         "id": "tool:say:schema:recipientId",
-        "claim": "{\"type\":\"string\",\"minLength\":36,\"maxLength\":36,\"pattern\":\"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$\"}",
+        "claim": "{\"type\":\"string\",\"pattern\":\"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$\"}",
         "kind": "schema",
         "tool": "say",
         "path": "recipientId",
         "contract": {
           "type": "string",
-          "minLength": 36,
-          "maxLength": 36,
           "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
         }
       },
@@ -26129,14 +26112,12 @@
       ],
       "contract": {
         "id": "tool:takeTask:schema:requesterId",
-        "claim": "{\"type\":\"string\",\"minLength\":36,\"maxLength\":36,\"pattern\":\"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$\"}",
+        "claim": "{\"type\":\"string\",\"pattern\":\"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$\"}",
         "kind": "schema",
         "tool": "takeTask",
         "path": "requesterId",
         "contract": {
           "type": "string",
-          "minLength": 36,
-          "maxLength": 36,
           "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
         }
       },
