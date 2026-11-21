@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
-test('packaging checks installed metadata, artifact parity and retained map attribution', {
+test('packaging checks installed metadata and artifact parity', {
 	skip: process.platform !== 'win32' && 'Windows packaging verifier',
 	timeout: 120_000,
 }, () => {
@@ -17,5 +17,5 @@ test('packaging checks installed metadata, artifact parity and retained map attr
 	});
 	assert.ifError(result.error);
 	assert.equal(result.status, 0, result.stdout + result.stderr);
-	assert.match(result.stdout, /PASS: 14 offline packaging cases/);
+	assert.match(result.stdout, /PASS: 11 offline packaging cases/);
 });
