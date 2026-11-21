@@ -1876,7 +1876,7 @@ public final class ServerBuildController implements ServerController {
 				return running();
 			}
 			lavaWatered = false;
-			boolean lands = ours && !moveForClick && pourClick(player, player.getEyePosition(), water, true) != null;
+			boolean lands = ours && !moveForClick && pourClick(player, player.getEyePosition(), water, true, cell) != null;
 			return switch (castStep(false, lava, ours, age, lands)) {
 				case LAVA -> pour(player, now, Pour.LAVA, cell, water);
 				case TAKE_BACK -> pour(player, now, Pour.TAKE, cell, null);
@@ -1914,7 +1914,9 @@ public final class ServerBuildController implements ServerController {
 	private TickResult pour(ServerPlayer player, long now, Pour kind, BlockPos target, BlockPos partner) {
 		String item = switch (kind) { case WATER -> "minecraft:water_bucket"; case LAVA -> "minecraft:lava_bucket"; default -> "minecraft:bucket"; };
 		boolean scoop = kind == Pour.SCOOP || kind == Pour.FILL || kind == Pour.TAKE;
-		BlockHitResult click = moveForClick ? null : scoop ? scoopClick(player, target) : pourClick(player, player.getEyePosition(), target, true);
+		// Water against lava poured first comes in by a line clear of the lava's cell (see crosses).
+		BlockPos avoid = kind == Pour.WATER && partner == null && pouredLava != null && !waterFirst ? pouredLava : null;
+		BlockHitResult click = moveForClick ? null : scoop ? scoopClick(player, target) : pourClick(player, player.getEyePosition(), target, true, avoid);
 		// The water just poured against the lava is in the look's own line (it came in through the face it was poured
 		// against): scoop it along that look, with no turn, before its first spread.
 		BlockHitResult onLook = kind == Pour.SCOOP && quickScoop ? lookScoop(player, target) : null;
@@ -1923,7 +1925,7 @@ public final class ServerBuildController implements ServerController {
 		if (click != null && kind == Pour.WATER && partner != null && !waterAlone && pourClick(player, player.getEyePosition(), partner, false) == null) click = null;
 		// Lava poured first (no water standing yet) never stands without the water following: a lava-only spot is no spot for it.
 		boolean paired = kind == Pour.LAVA && partner != null && pouredWater == null && !waterFirst;
-		if (click != null && paired && pourClick(player, player.getEyePosition(), partner, false) == null) click = null;
+		if (click != null && paired && pourClick(player, player.getEyePosition(), partner, false, target) == null) click = null;
 		if (click == null) {
 			if (kind == Pour.FILL) { triedSources.add(target); return running(); }
 			releaseInput();
@@ -1939,8 +1941,9 @@ public final class ServerBuildController implements ServerController {
 				phase = Phase.PILLAR;
 				return running();
 			}
-			Predicate<Vec3> reaches = kind == Pour.SCOOP || kind == Pour.TAKE ? eye -> scoopReaches(player, eye, target) : eye -> pourClick(player, eye, target, false) != null;
-			BlockPos spot = partner == null ? null : standFor(player, eye -> reaches.test(eye) && pourClick(player, eye, partner, false) != null);
+			Predicate<Vec3> reaches = kind == Pour.SCOOP || kind == Pour.TAKE ? eye -> scoopReaches(player, eye, target) : eye -> pourClick(player, eye, target, false, avoid) != null;
+			BlockPos partnerAvoid = paired ? target : null;
+			BlockPos spot = partner == null ? null : standFor(player, eye -> reaches.test(eye) && pourClick(player, eye, partner, false, partnerAvoid) != null);
 			if (spot == null && kind == Pour.WATER) waterAlone = true;
 			if (spot == null && paired && !runOffMeetsLava) {
 				// No spot pours both: the old order, water first, whose standing water runs its whole course and meets no lava here.
@@ -1951,7 +1954,7 @@ public final class ServerBuildController implements ServerController {
 			if (spot == null && steps < 3) {
 				// From the ground no eye sees a face for it: a spot whose eye, one block up, does.
 				BlockPos raised = standFor(player, eye -> reaches.test(eye.add(0.0D, 1.0D, 0.0D))
-						&& (partner == null || pourClick(player, eye.add(0.0D, 1.0D, 0.0D), partner, false) != null));
+						&& (partner == null || pourClick(player, eye.add(0.0D, 1.0D, 0.0D), partner, false, partnerAvoid) != null));
 				if (raised == null && !paired) raised = standFor(player, eye -> reaches.test(eye.add(0.0D, 1.0D, 0.0D)));
 				if (raised != null) {
 					BlockState head = known(player, raised.above(2));
@@ -2104,6 +2107,21 @@ public final class ServerBuildController implements ServerController {
 	 * sees within reach. {@code verify} checks it with the bucket's own ray from the body's eye now.
 	 */
 	private BlockHitResult pourClick(ServerPlayer player, Vec3 eye, BlockPos target, boolean verify) {
+		return pourClick(player, eye, target, verify, null);
+	}
+
+	/**
+	 * Whether the line from {@code eye} to {@code point} passes through {@code cell}. The water poured against lava poured
+	 * first must not come in through the lava's cell: the lava casts as the water lands, and the obsidian then stands
+	 * between the eye and the water, so it cannot be scooped before it spreads (in one cave room, water poured along the
+	 * frame's plane through the cell it cast stood 211 ticks while the body walked round, and ran out of the frame).
+	 */
+	static boolean crosses(Vec3 eye, Vec3 point, BlockPos cell) {
+		return cell != null && new AABB(cell).deflate(0.01D).clip(eye, point).isPresent();
+	}
+
+	/** {@link #pourClick(ServerPlayer, Vec3, BlockPos, boolean)} whose line does not pass through {@code avoid}. */
+	private BlockHitResult pourClick(ServerPlayer player, Vec3 eye, BlockPos target, boolean verify, BlockPos avoid) {
 		List<Direction> sides = new ArrayList<>(List.of(Direction.values()));
 		sides.sort(Comparator.comparingDouble(d -> Vec3.atCenterOf(target.relative(d)).distanceToSqr(eye)));
 		for (Direction side : sides) {
@@ -2111,7 +2129,7 @@ public final class ServerBuildController implements ServerController {
 			if (!full(player, support) && !madeSolid.contains(support) || deadSupports.contains(support)) continue;
 			Direction face = side.getOpposite();
 			Vec3 point = TargetSightline.block(player.level(), CollisionContext.of(player), eye, support, player.blockInteractionRange() - 0.2D, face);
-			if (point == null) continue;
+			if (point == null || crosses(eye, point, avoid)) continue;
 			if (verify) {
 				BlockHitResult hit = environment.bucketRay(player, point, false);
 				if (hit == null || hit.getType() != HitResult.Type.BLOCK || !hit.getBlockPos().equals(support) || hit.getDirection() != face) continue;

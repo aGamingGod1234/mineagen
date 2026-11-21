@@ -175,7 +175,25 @@ public final class BuildPlanVerification {
 			}
 			checks += 3;
 		}
-		return checks;
+		return checks + verifyPourLine();
+	}
+
+	/**
+	 * The water poured against lava poured first, seen from a cave room: frame at -281,-53,14 axis x, lava in side cell
+	 * (3,1) at -278,-52,14, its water in the opening at -279,-52,14 against the mould's face behind it. From the body
+	 * on the frame's plane to the east the line crosses the lava's cell, which casts as the water lands and then hides the
+	 * water from the scoop (it stood 211 ticks and ran out); from the ground in front it does not.
+	 */
+	private static int verifyPourLine() {
+		var portal = new ServerBuildController.Portal(new BlockPos(-281, -53, 14), Direction.Axis.X);
+		BlockPos lava = portal.at(3, 1), water = portal.at(2, 1);
+		if (!lava.equals(new BlockPos(-278, -52, 14)) || !water.equals(new BlockPos(-279, -52, 14))) throw new AssertionError("Pour line fixture cells");
+		net.minecraft.world.phys.Vec3 face = new net.minecraft.world.phys.Vec3(-278.5D, -51.5D, 14.0D);
+		net.minecraft.world.phys.Vec3 east = new net.minecraft.world.phys.Vec3(-274.5D, -51.38D, 14.5D), front = new net.minecraft.world.phys.Vec3(-278.5D, -50.38D, 16.5D);
+		if (!ServerBuildController.crosses(east, face, lava)) throw new AssertionError("The water's line from the frame's plane passes through the lava's cell");
+		if (ServerBuildController.crosses(front, face, lava)) throw new AssertionError("The water's line from in front of the opening misses the lava's cell");
+		if (ServerBuildController.crosses(east, face, null)) throw new AssertionError("No cell to avoid crosses nothing");
+		return 3;
 	}
 
 	private static int verifyCarve() {
