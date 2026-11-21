@@ -133,10 +133,10 @@ public final class SpawnerHoldVerification {
 		check(!SpawnerHold.shouldEat(10, 10.0F, false, false, true), "not when a bite is unsafe (a shot or a volley due: the shield comes first)");
 		check(SpawnerHold.biteSafe(-1, false), "a bite with no charged blaze and no shot is safe");
 		check(!SpawnerHold.biteSafe(-1, true), "not with a shot inbound");
-		check(SpawnerHold.biteSafe(18, false), "a charge 18 ticks old leaves the bite and the shield's raise before its volley");
-		check(!SpawnerHold.biteSafe(19, false), "a charge 19 ticks old does not");
+		check(SpawnerHold.biteSafe(17, false), "a charge 17 ticks old leaves the bite and the shield's raise before its volley");
+		check(!SpawnerHold.biteSafe(18, false), "a charge 18 ticks old does not");
 		check(!SpawnerHold.stopBite(49, false) && SpawnerHold.stopBite(50, false) && SpawnerHold.stopBite(-1, true), "a bite stops 10 ticks before a volley, or for a shot");
-		check(!SpawnerHold.stopBite(18 + SpawnerHold.BITE_TICKS, false), "a bite started when safe is never stopped by that same charge");
+		check(!SpawnerHold.stopBite(17 + SpawnerHold.BITE_TICKS, false), "a bite started when safe is never stopped by that same charge");
 		check(SpawnerHold.healBite(19, true, true), "the heal bites at any hunger below full when it is safe");
 		check(!SpawnerHold.healBite(10, false, true), "the heal keeps the shield up when a bite is unsafe, however hungry");
 		check(!SpawnerHold.healBite(20, true, true) && !SpawnerHold.healBite(10, true, false), "not when full or without food");

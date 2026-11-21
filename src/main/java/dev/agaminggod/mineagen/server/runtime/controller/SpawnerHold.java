@@ -115,12 +115,12 @@ public final class SpawnerHold {
 	 * the air, raised it too late when one came (0 of 299 heal ticks blocking), and both seeds died in the cell.
 	 */
 	static boolean biteSafe(int oldestCharge, boolean shotInbound) {
-		return !shotInbound && (oldestCharge < 0 || oldestCharge + BITE_TICKS <= CHARGE_TICKS - SHIELD_READY_TICKS);
+		return !shotInbound && (oldestCharge < 0 || oldestCharge + BITE_TICKS < CHARGE_TICKS - SHIELD_READY_TICKS);
 	}
 
 	/** A bite under way stops for a shot inbound or a volley due before the shield would be ready. */
 	static boolean stopBite(int oldestCharge, boolean shotInbound) {
-		return shotInbound || oldestCharge > CHARGE_TICKS - SHIELD_READY_TICKS;
+		return shotInbound || oldestCharge >= CHARGE_TICKS - SHIELD_READY_TICKS;
 	}
 
 	/** In the shield heal the shield stays up; it comes down only for a bite that is safe (any hunger below full). */
