@@ -44,7 +44,8 @@ async function mockedRun(fault = 'none') {
         if (fault === 'audit-wrong-usage') audit.calls[0].usage.output_tokens++;
         return audit;
       },
-      timeoutMs: ['no-goal', 'no-gameplay'].includes(fault) ? 4500 : 15000,
+      // The no-goal window must also cover launcher start and the observer attaching on a loaded Windows runner.
+      timeoutMs: ['no-goal', 'no-gameplay'].includes(fault) ? 12000 : 15000,
       spawnLauncher(command, args, launch) {
         const matrixFile = args[args.indexOf('-MatrixPath') + 1];
         launcherDirectories.push(path.dirname(matrixFile));
@@ -165,7 +166,7 @@ test('strict smoke passes with real owned processes, real HTTP transport, local 
   }
 });
 
-for (const fault of ['no-goal', 'no-gameplay']) test(`strict smoke is INCOMPLETE when ${fault} prevents the required sequence`, { skip: process.platform !== 'win32', timeout: 30000 }, async () => {
+for (const fault of ['no-goal', 'no-gameplay']) test(`strict smoke is INCOMPLETE when ${fault} prevents the required sequence`, { skip: process.platform !== 'win32', timeout: 45000 }, async () => {
   const { report } = await mockedRun(fault);
   assert.equal(report.status, 'INCOMPLETE', JSON.stringify(report, null, 2));
 });
