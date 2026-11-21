@@ -8,7 +8,7 @@
  * with choose_response, and the coordinator runs an existing body step for the chosen key. A key with no body step
  * goes back to the model to carry out; a "carry on" key leaves the running step alone.
  */
-import { isNightTime, lavaNear } from './danger-contexts.mjs';
+import { activeContexts, lavaNear } from './danger-contexts.mjs';
 import { nextKitStep } from './kit-habit.mjs';
 
 export function choiceToolEnabled(environment = process.env) {
@@ -43,8 +43,13 @@ const CARRY_ON = new Set(['keep_working', 'ignore', 'carry_on', 'restart_here', 
 const REPEAT_MS = Object.freeze({ low_health: 20_000, threat: 20_000, lava_seen: 180_000, respawned: 30_000, entered_dim: 30_000, night_falls: 600_000, cave_seen: 120_000, kit_gap: 300_000, food_stored: 300_000 });
 // The goal line names the next base resource ("...; next: iron"); a cave matters while that is an ore.
 const ORE_NEXT = /\bnext: (?:iron|coal|gold|diamonds?|redstone)\b/;
-// A known cave in the task facts: "cave(air 62/125) 12m S dy+12 y42 @8,42,-200".
-const CAVE_LEAD = /\bcave\(air \d+\/\d+\)[^;@|]*@(-?\d+),(-?\d+),(-?\d+)/;
+// A known cave in the task facts: "cave(air 62/125) 12m S dy+12 y42 @8,42,-200". Only one close enough to walk into now.
+const CAVE_LEAD = /\bcave\(air \d+\/\d+\) (\d+)m[^;@|]*@(-?\d+),(-?\d+),(-?\d+)/g;
+const CAVE_NEAR_BLOCKS = 32;
+// Lava only when it is close: in the Nether it is in view most of the time, and the lava reflexes cover contact.
+const LAVA_CLOSE_BLOCKS = 4;
+// An open offer is answered from the facts of its own moment; after this the moment is over.
+const OFFER_TTL_MS = 60_000;
 
 export const CHOOSE_RESPONSE_TOOL = Object.freeze({
 	type: 'function', name: 'choose_response',
@@ -58,24 +63,27 @@ export const CHOOSE_RESPONSE_TOOL = Object.freeze({
  */
 export function momentSignals({ observation = {}, trigger = null, changed = null, taskFacts = null, goalNow = null } = {}) {
 	const player = observation?.player ?? {};
-	const threats = (Array.isArray(player.threats) ? player.threats : []).filter((t) => t && t.alive !== false);
+	// Only hostiles that target the player: a mob merely nearby is not this moment.
+	const threats = rows(player.threats).filter((t) => t && t.alive !== false && (t.targeting === true || t.targetingAgent === true || (Array.isArray(t.signals) && t.signals.includes('targeting'))));
 	const changedText = typeof changed === 'string' ? changed : '';
 	const kit = safe(() => nextKitStep(observation));
 	const dimension = observation?.world?.dimension ?? observation?.dimension ?? null;
 	const overworld = dimension === null || /overworld/.test(String(dimension));
-	const cave = overworld && typeof goalNow === 'string' && ORE_NEXT.test(goalNow) && typeof taskFacts === 'string' ? CAVE_LEAD.exec(taskFacts) : null;
-	const dayTime = observation?.world?.dayTime;
+	const cave = overworld && typeof goalNow === 'string' && ORE_NEXT.test(goalNow) && typeof taskFacts === 'string'
+		? [...taskFacts.matchAll(CAVE_LEAD)].find((m) => Number(m[1]) <= CAVE_NEAR_BLOCKS) ?? null : null;
+	const contexts = safe(() => activeContexts(observation)) ?? new Set();
 	return {
 		health: Number.isFinite(player.health) ? player.health : null,
 		threats,
 		respawned: /\brespawned\b/.test(changedText) || trigger === 'respawn' || trigger === 'player_death',
 		dimensionChanged: /\bdimension \S+->\S+/.test(changedText) || trigger === 'dimension_changed',
 		nightBegan: /\bnight began\b/.test(changedText),
-		nightNow: overworld && Number.isFinite(dayTime) && safe(() => isNightTime(dayTime)) === true,
-		lava: safe(() => lavaNear(observation)) === true,
+		// Night on the surface only (activeContexts); underground the night changes little.
+		nightNow: contexts.has('night'),
+		lava: safe(() => lavaNear(observation, LAVA_CLOSE_BLOCKS)) === true,
 		foodToHotbar: kit?.kind === 'hotbar' ? kit : null,
 		shieldCraft: kit?.kind === 'craft' && kit.itemId === 'minecraft:shield',
-		cave: cave ? { x: Number(cave[1]), y: Number(cave[2]), z: Number(cave[3]) } : null,
+		cave: cave ? { x: Number(cave[2]), y: Number(cave[3]), z: Number(cave[4]) } : null,
 		lastDeath: observation?.recovery?.lastDeath ?? null,
 		dimension,
 		position: blockPosition(observation),
@@ -119,7 +127,10 @@ export class ChoiceMoments {
 		agent.offered = { kind, signals, at };
 		return { kind, line: momentLine(kind) };
 	}
-	offered(agentId) { return this.#agents.get(agentId)?.offered ?? null; }
+	offered(agentId) {
+		const offered = this.#agents.get(agentId)?.offered ?? null;
+		return offered !== null && this.#now() - offered.at <= OFFER_TTL_MS ? offered : null;
+	}
 	clear(agentId) { const agent = this.#agents.get(agentId); if (agent) agent.offered = null; }
 	#agent(agentId) {
 		if (!this.#agents.has(agentId)) this.#agents.set(agentId, { asked: new Map(), offered: null });
@@ -165,13 +176,40 @@ export function planChoice(kind, key, s) {
 	}
 }
 
-/** The choose_response result text the model reads. */
+/**
+ * The same plan when a body action is already running (a new action would be refused): urgent moves replace it,
+ * moving food waits for it to end, and an obtain (foreground) cancels it first. Returns [plan, cancelFirst].
+ */
+export function againstRunning(plan, running, goalRevision) {
+	if (plan.kind !== 'call' || running == null || typeof running.actionId !== 'string') return { plan, cancel: null };
+	const cancel = { name: 'cancelAction', args: { actionId: running.actionId, goalRevision } };
+	if (plan.name === 'act' && plan.args.actionType === 'select_tool') return { plan: { ...plan, args: { ...plan.args, after: running.actionId } }, cancel: null };
+	if (plan.name === 'act') return { plan: { ...plan, name: 'replaceAction', args: { actionId: running.actionId, goalRevision, ...plan.args } }, cancel: null };
+	if (plan.name === 'do_step' && BACKGROUND_VERBS.has(plan.args.verb)) {
+		return { plan: { ...plan, name: 'replaceAction', args: { actionId: running.actionId, goalRevision, actionType: plan.args.verb, arguments: plan.args.target } }, cancel: null };
+	}
+	return { plan, cancel };
+}
+const BACKGROUND_VERBS = new Set(['travel_to', 'build_shelter']);
+
+/** The choose_response result text the model reads, from what the body did. */
 export function choiceResultText(kind, key, plan, body = null) {
 	const meaning = CHOICE_MENUS[kind]?.[key];
 	if (plan.kind === 'invalid') return `${JSON.stringify(key)} is not a listed response${kind ? ` (keys: ${Object.keys(CHOICE_MENUS[kind]).join(', ')})` : '; no moment is open'}. Carry on with your next call.`;
 	if (plan.kind === 'carry_on') return `Chosen: ${meaning}. The running step goes on; make your next call as usual.`;
 	if (plan.kind === 'hand_back') return `Chosen: ${meaning}. No body step does this by itself: make the tool call that does it now.`;
-	return `Chosen: ${meaning}. The body started ${plan.name === 'do_step' ? plan.args.verb : plan.args.actionType} for it.${body ? ` Result: ${body}` : ''}`;
+	const what = plan.name === 'do_step' ? plan.args.verb : plan.args.actionType;
+	const state = body?.state;
+	if (body?.executed === false || ['REJECTED', 'FAILED', 'CANCELLED'].includes(state)) {
+		return `Chosen: ${meaning}. The body could not do it (${what}: ${String(body?.reasonCode ?? state ?? 'refused')}); make the tool call that does it now.`;
+	}
+	return `Chosen: ${meaning}. The body ${state === 'SUCCEEDED' ? 'did' : 'started'} ${what} for it.`;
+}
+
+function rows(value) {
+	if (Array.isArray(value)) return value;
+	if (Array.isArray(value?.entries)) return value.entries;
+	return [];
 }
 
 const BUILDING = /^minecraft:(cobblestone|cobbled_deepslate|dirt|stone|deepslate|netherrack|andesite|diorite|granite|tuff|blackstone|sandstone|[a-z_]+_planks)$/;

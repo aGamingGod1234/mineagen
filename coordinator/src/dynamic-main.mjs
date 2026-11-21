@@ -104,7 +104,7 @@ import { carriedFoodToEat, eatCalls, naturalRegeneration } from './fork-rule.mjs
 const COUNT_SKILL_HELD = new Set(['damage', 'threat', 'projectile', 'fire']);
 import { DEFAULT_REFLEXES, DIMENSION_REFLEXES, ReflexBook, instinctsEnabled } from './reflexes.mjs';
 import { kitHabitEnabled } from './kit-habit.mjs';
-import { ChoiceMoments, choiceResultText, choiceToolEnabled, momentSignals, planChoice } from './choice-moments.mjs';
+import { ChoiceMoments, againstRunning, choiceResultText, choiceToolEnabled, momentSignals, planChoice } from './choice-moments.mjs';
 import { normalizeMinecraftToolCall } from './native-minecraft-tools.mjs';
 // Namespace import: situationStrategyTopic is optional, so the changed line works with or without it.
 import * as strategyReference from './minecraft-strategy-reference.mjs';
@@ -2713,20 +2713,40 @@ export class DynamicCoordinator extends EventEmitter {
 		return `${offer.line} ${input}`;
 	}
 
-	/** choose_response: the chosen key's body step runs as the model's own call would; other keys go back to the model. */
+	/**
+	 * choose_response: the chosen key's body step runs as the model's own call would; other keys go back to the model.
+	 * Targets, position and food slots come from the latest observation; a running action is replaced or waited on.
+	 */
 	async #chooseResponse(work, toolRequest) {
 		const key = toolRequest.tool.choice;
+		const record = this.#registry.get(work.agentId);
 		const open = this.#choiceMoments?.offered(work.agentId) ?? null;
-		const plan = open === null ? { kind: 'invalid' } : planChoice(open.kind, key, open.signals);
-		this.#writeTrace('choice_made', { agentId: work.agentId, goalRevision: work.goalRevision, kind: open?.kind ?? null, choice: key, plan: plan.kind,
-			...(plan.kind === 'call' ? { body: plan.name === 'do_step' ? plan.args.verb : plan.args.actionType } : {}) });
-		if (plan.kind !== 'invalid') this.#choiceMoments.clear(work.agentId);
-		if (plan.kind !== 'call') return { state: 'SUCCEEDED', choice: choiceResultText(open?.kind ?? null, key, plan) };
-		let tool;
-		try { tool = normalizeMinecraftToolCall(plan.name, plan.args); }
-		catch (error) { return { state: 'SUCCEEDED', choice: `${choiceResultText(open.kind, key, { kind: 'hand_back' })} (${String(error?.message ?? error).slice(0, 160)})` }; }
-		const result = await this.#executeNativeTool(work, { ...toolRequest, callId: `${toolRequest.callId}:choice`, tool });
-		return { choice: choiceResultText(open.kind, key, plan), ...result };
+		let signals = open?.signals ?? null;
+		const latest = record === null ? null : this.#nativeRuntime.latestObservation(record)?.observation ?? null;
+		if (open !== null && latest !== null) {
+			try {
+				const fresh = momentSignals({ observation: latest });
+				signals = { ...signals, threats: fresh.threats.length > 0 ? fresh.threats : signals.threats, position: fresh.position ?? signals.position,
+					block: fresh.block ?? signals.block, facing: fresh.facing ?? signals.facing, foodToHotbar: open.kind === 'food_stored' ? fresh.foodToHotbar : signals.foodToHotbar };
+			} catch { /* the offer's own facts stand */ }
+		}
+		const planned = open === null ? { kind: 'invalid' } : planChoice(open.kind, key, signals);
+		const running = record === null ? null : this.#nativeRuntime.runningAction(record);
+		const { plan, cancel } = againstRunning(planned, running, work.goalRevision);
+		if (planned.kind !== 'invalid') this.#choiceMoments.clear(work.agentId);
+		const trace = (extra) => this.#writeTrace('choice_made', { agentId: work.agentId, goalRevision: work.goalRevision, kind: open?.kind ?? null, choice: key, plan: plan.kind,
+			...(plan.kind === 'call' ? { body: plan.name === 'do_step' ? plan.args.verb : plan.args.actionType, via: plan.name, replacedRunning: running !== null } : {}), ...extra });
+		if (plan.kind !== 'call') { trace({}); return { state: 'SUCCEEDED', choice: choiceResultText(open?.kind ?? null, key, plan) }; }
+		let result;
+		try {
+			if (cancel !== null) await this.#executeNativeTool(work, { ...toolRequest, callId: `${toolRequest.callId}:choice-cancel`, tool: normalizeMinecraftToolCall(cancel.name, cancel.args) }).catch(() => null);
+			result = await this.#executeNativeTool(work, { ...toolRequest, callId: `${toolRequest.callId}:choice`, tool: normalizeMinecraftToolCall(plan.name, plan.args) });
+		} catch (error) {
+			trace({ bodyState: 'ERROR', reasonCode: String(error?.code ?? 'ERROR').slice(0, 64) });
+			return { state: 'SUCCEEDED', choice: choiceResultText(open.kind, key, plan, { executed: false, reasonCode: error?.code ?? String(error?.message ?? error).slice(0, 120) }) };
+		}
+		trace({ bodyState: typeof result?.state === 'string' ? result.state : null });
+		return { choice: choiceResultText(open.kind, key, plan, result), ...result };
 	}
 
 	async #settleNativeSteering(work) {

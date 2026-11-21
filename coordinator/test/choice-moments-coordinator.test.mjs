@@ -81,3 +81,26 @@ test('a carry-on key dispatches no body action and says the running step goes on
 	await new Promise(resolve => setImmediate(resolve));
 	assert.equal(run.bridge.sent.some(x => x.type === 'action_command'), false);
 });
+
+test('with a step already running, retreat_cover replaces it with flee_from instead of being refused', async t => {
+	const { run, request, traces } = await launch(t, { MINEAGEN_CHOICE_TOOL: 'on' });
+	const walking = await request.executeTool({ agentId: 'agent-a', goalRevision: 1, turnId: 'turn-1', callId: 'walk',
+		tool: normalizeMinecraftToolCall('startAction', { actionType: 'travel_to', arguments: { x: 40, y: 64, z: 0, timeoutMs: 60_000 } }) });
+	assert.equal(walking.state, 'RUNNING', JSON.stringify(walking));
+	const pending = choose(request, 'retreat_cover');
+	// The replacement stops the walk first; the body reports it cancelled, then the flee starts.
+	for (let i = 0; i < 50 && !run.bridge.sent.some(x => x.type === 'action_command' && x.payload.actionType === 'flee_from'); i++) {
+		const cancel = run.bridge.sent.find(x => x.type === 'action_cancel' && !x.answered);
+		if (cancel) { cancel.answered = true; run.bridge.emit('action_result', { agentId: 'agent-a', payload: { goalRevision: 1, actionId: walking.actionId, state: 'CANCELLED', reasonCode: 'CANCELLED', message: 'Cancelled', executionStarted: true, eventSequence: 2 } }); }
+		await new Promise(resolve => setTimeout(resolve, 10));
+	}
+	const flee = run.bridge.sent.find(x => x.type === 'action_command' && x.payload.actionType === 'flee_from');
+	assert.ok(flee, `sent: ${run.bridge.sent.map(x => `${x.type}:${x.payload?.actionType ?? ''}`).join(', ')}`);
+	assert.equal(flee.payload.arguments.targetId, ZOMBIE);
+	run.bridge.emit('action_result', { agentId: 'agent-a', payload: { goalRevision: 1, actionId: flee.payload.actionId, state: 'SUCCEEDED',
+		reasonCode: 'ACTION_COMPLETED', message: 'Fled', executionStarted: true, eventSequence: 3 } });
+	const result = await pending;
+	assert.doesNotMatch(result.choice, /could not do it/, result.choice);
+	const made = traces.filter(x => x.event === 'choice_made');
+	assert.deepEqual(made.map(x => [x.choice, x.body, x.via, x.replacedRunning]), [['retreat_cover', 'flee_from', 'replaceAction', true]]);
+});
