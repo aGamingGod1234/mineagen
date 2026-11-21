@@ -42,6 +42,14 @@ final class WarpedForestHunt {
 	static final double ARRIVE = 3.0D;
 	/** Heading walks: compass headings this far out, ended where the body gets to (height unknown until it is there). */
 	static final double HEADING_STEP = 20.0D;
+	/**
+	 * An enderman seen farther than this above or below the feet stands on a ledge or across a drop: a player picks one
+	 * on open ground instead. Smoke rooms, seed 987654321: walks to ones seen 6 and 12 blocks off the feet led down into
+	 * a lava basin in 3 of 3 runs.
+	 */
+	static final double LEDGE_DY = 4.0D;
+	/** Seen lava this close to the body (blocks, each axis) ends a walk: that way is lava, as a player steps back from it. */
+	static final int LAVA_NEAR = 2;
 	/** A route failure that still moved at least this far counts as arrived where it stopped. */
 	static final double MOVED_ENOUGH = 8.0D;
 	private static final int RINGS_HEADINGS = 16;
@@ -165,7 +173,8 @@ final class WarpedForestHunt {
 	 * in 8-block bands, then nearest), else null.
 	 */
 	static Vec3 choose(Vec3 from, Vec3 start, List<Vec3> searched, List<Vec3> refused, Vec3 outsideSighting, List<Vec3> candidates) {
-		if (outsideSighting != null && fresh(outsideSighting, start, searched, refused, ARRIVE)) return outsideSighting;
+		if (outsideSighting != null && Math.abs(outsideSighting.y - from.y) <= LEDGE_DY && fresh(outsideSighting, start, searched, refused, ARRIVE))
+			return outsideSighting;
 		Vec3 best = null;
 		double bestScore = Double.MAX_VALUE;
 		for (Vec3 floor : candidates) {
@@ -177,6 +186,15 @@ final class WarpedForestHunt {
 			if (score < bestScore) { bestScore = score; best = floor; }
 		}
 		return best;
+	}
+
+	/** Seen lava within LAVA_NEAR blocks of the feet (each axis, from two below the feet to two above the head's foot). */
+	static boolean lavaNear(MinecraftNavigationWorld.StateRead seen, BlockPos feet) {
+		for (int dx = -LAVA_NEAR; dx <= LAVA_NEAR; dx++)
+			for (int dz = -LAVA_NEAR; dz <= LAVA_NEAR; dz++)
+				for (int dy = -LAVA_NEAR; dy <= LAVA_NEAR; dy++)
+					if (TravelBuilder.lava(seen.at(feet.getX() + dx, feet.getY() + dy, feet.getZ() + dz))) return true;
+		return false;
 	}
 
 	private static boolean fresh(Vec3 at, Vec3 start, List<Vec3> searched, List<Vec3> refused, double apart) {
@@ -312,6 +330,17 @@ final class WarpedForestHunt {
 			walk = walks.walk(walkGoal, mayModify, now);
 		}
 		lastWalkTick = gameTick;
+		if (flat(walkFrom, player.position()) > LAVA_NEAR) {
+			var seen = SeenTerrain.of(player);
+			if (lavaNear(seen::known, player.blockPosition())) {
+				// Lava beside the way: the walk stops before travel's own lava guard has to pull the body back out of a flow.
+				cancel(player);
+				lastFailure = "LAVA_NEAR at " + player.blockPosition().toShortString();
+				stops++;
+				refuse();
+				return Walk.STOPPED;
+			}
+		}
 		ServerController.TickResult result = walk.tick(player, now);
 		if (result.state() == ServerController.State.RUNNING) return Walk.RUNNING;
 		walk.cancel(player);

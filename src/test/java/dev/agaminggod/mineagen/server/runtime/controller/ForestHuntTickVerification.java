@@ -271,7 +271,8 @@ public final class ForestHuntTickVerification {
 			FixtureEnderman ledge = fixture.enderman(new Vec3(2.5D, 68.0D, 4.5D), fixture.player);
 			fixture.player.lookAt(net.minecraft.commands.arguments.EntityAnchorArgument.Anchor.EYES, ledge.getEyePosition());
 			ServerFightUntilController hunt = fixture.hunt(hunt(60_000L), null);
-			ServerController.TickResult end = fixture.run(hunt, 400);
+			// The angry one is awaited and approached first (about 8 s), then one 12 s quiet spell: 700 ticks covers both.
+			ServerController.TickResult end = fixture.run(hunt, 700);
 			check(end.state() == ServerController.State.RUNNING, "the hunt goes on: " + end.reasonCode());
 			check(engaged.size() == 1, "the enderman out of reach is tried once, not every tick: " + engaged.size());
 			check(fixture.walksMade == 1, "with only it in view, the quiet spell starts a relocation walk: " + fixture.walksMade + " (failed at tick " + failedAt[0] + "; "

@@ -24,6 +24,7 @@ public final class ForestHuntVerification {
 		verifyHandBacks();
 		verifyWalkEnds();
 		verifyDestinations();
+		verifyLavaNear();
 		return assertions;
 	}
 
@@ -107,6 +108,19 @@ public final class ForestHuntVerification {
 		Vec3 south = WarpedForestHunt.headingPoint(start, 0);
 		check(Math.abs(south.z - 20.5D) < 1.0E-9 && Math.abs(south.x - 0.5D) < 1.0E-9, "heading 0 is 20 blocks south");
 		check(WarpedForestHunt.choose(start, start, searched, List.of(), null, List.of(south)) == south, "an untried heading is walked when no floor is in sight");
+		Vec3 ledge = new Vec3(40.5D, 76.0D, 10.5D), below = new Vec3(40.5D, 63.0D, 10.5D), level = new Vec3(40.5D, 73.5D, 10.5D);
+		check(WarpedForestHunt.choose(start, start, searched, List.of(), ledge, List.of(far)) == far, "an enderman seen 6 blocks above the feet is on a ledge: not walked to");
+		check(WarpedForestHunt.choose(start, start, searched, List.of(), below, List.of(far)) == far, "one seen 7 blocks below is across a drop: not walked to");
+		check(WarpedForestHunt.choose(start, start, searched, List.of(), level, List.of(far)) == level, "one 3.5 blocks up on open ground is walked to");
+	}
+
+	private static void verifyLavaNear() {
+		net.minecraft.core.BlockPos feet = new net.minecraft.core.BlockPos(0, 64, 0);
+		net.minecraft.world.level.block.state.BlockState lava = net.minecraft.world.level.block.Blocks.LAVA.defaultBlockState();
+		check(!WarpedForestHunt.lavaNear((x, y, z) -> null, feet), "nothing seen: no lava near");
+		check(WarpedForestHunt.lavaNear((x, y, z) -> x == 2 && y == 62 && z == -1 ? lava : null, feet), "lava two blocks out and two down is near");
+		check(!WarpedForestHunt.lavaNear((x, y, z) -> x == 3 && y == 64 && z == 0 ? lava : null, feet), "lava three blocks out is not");
+		check(!WarpedForestHunt.lavaNear((x, y, z) -> x == 0 && y == 61 && z == 0 ? lava : null, feet), "lava three below is not");
 	}
 
 	private static void check(boolean condition, String message) {
