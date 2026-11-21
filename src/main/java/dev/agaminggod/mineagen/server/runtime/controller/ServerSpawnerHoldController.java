@@ -107,6 +107,9 @@ public final class ServerSpawnerHoldController implements ServerController {
 	/** Game tick each blaze within SCAN was first seen charged (glowing) in its current charge. */
 	private final Map<UUID, Long> chargedSince = new java.util.HashMap<>();
 	private int bitesStopped;
+	/** Heal ticks the shield was asked up, and ticks the body was using an item then (by hand and item): a heal that never blocked needs both. */
+	private int shieldAsks, usingTicks;
+	private final Map<String, Integer> usedInHeal = new LinkedHashMap<>();
 	private String cancelFacts;
 
 	public ServerSpawnerHoldController(ServerPlayer player, JsonObject arguments, ServerProtectionPolicy protection, BlockPos spawner,
@@ -354,6 +357,11 @@ public final class ServerSpawnerHoldController implements ServerController {
 		if (turtling) {
 			turtleTicks++;
 			if (player.isBlocking()) blockingTicks++;
+			if (player.isUsingItem()) {
+				usingTicks++;
+				usedInHeal.merge(player.getUsedItemHand().name().toLowerCase(Locale.ROOT) + " "
+						+ BuiltInRegistries.ITEM.getKey(player.getUseItem().getItem()).getPath(), 1, Integer::sum);
+			}
 			if (turtleSinceMs < 0L) {
 				stopEngine(player);
 				turtleSinceMs = elapsed;
@@ -491,6 +499,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 
 	/** The shield raised toward the nearest seen blaze, else out of the doorway at eye height. */
 	private void shieldUp(ServerPlayer player) {
+		shieldAsks++;
 		Vec3 eye = player.getEyePosition();
 		Vec3 toward = Vec3.atCenterOf(cell.relative(opening, 3)).add(0.0D, 0.6D, 0.0D);
 		double best = Double.MAX_VALUE;
@@ -706,10 +715,10 @@ public final class ServerSpawnerHoldController implements ServerController {
 
 	private String summary(ServerPlayer player, long elapsed) {
 		int held = ServerFightUntilController.count(player, untilItem);
-		return String.format(Locale.ROOT, "spawner hold at %s: cell %s, %d site%s failed, %d build%s; %+d %s in %.0f s; %d engine run%s %s; %d rod trip%s; %d meal%s; %d defend%s; %d shield heal%s (shield up %d of %d ticks, %d bite%s stopped for a volley); %d fire%s punched out; hurts %s; health lost %s%s",
+		return String.format(Locale.ROOT, "spawner hold at %s: cell %s, %d site%s failed, %d build%s; %+d %s in %.0f s; %d engine run%s %s; %d rod trip%s; %d meal%s; %d defend%s; %d shield heal%s (shield up %d of %d ticks, asked %d, using %d %s, %d bite%s stopped for a volley); %d fire%s punched out; hurts %s; health lost %s%s",
 				spawner.toShortString(), cell == null ? "none" : cell.toShortString(), sitesFailed, sitesFailed == 1 ? "" : "s", builds, builds == 1 ? "" : "s",
 				held - Math.max(0, startHeld), untilItemId, elapsed / 1000.0D, engineRuns, engineRuns == 1 ? "" : "s", engineEnds, trips, trips == 1 ? "" : "s",
-				meals, meals == 1 ? "" : "s", defends, defends == 1 ? "" : "s", turtles, turtles == 1 ? "" : "s", blockingTicks, turtleTicks, bitesStopped, bitesStopped == 1 ? "" : "s", firesPunched, firesPunched == 1 ? "" : "s", hurts, lostText(), log.isEmpty() ? "" : "; log: " + String.join(" | ", log.subList(Math.max(0, log.size() - 6), log.size())));
+				meals, meals == 1 ? "" : "s", defends, defends == 1 ? "" : "s", turtles, turtles == 1 ? "" : "s", blockingTicks, turtleTicks, shieldAsks, usingTicks, usedInHeal, bitesStopped, bitesStopped == 1 ? "" : "s", firesPunched, firesPunched == 1 ? "" : "s", hurts, lostText(), log.isEmpty() ? "" : "; log: " + String.join(" | ", log.subList(Math.max(0, log.size() - 6), log.size())));
 	}
 
 	private String lostText() {
