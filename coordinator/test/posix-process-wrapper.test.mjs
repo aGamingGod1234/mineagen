@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -31,6 +31,28 @@ test("zombie-only POSIX groups are stopped when PID 1 does not reap adopted gran
     signal,
     readProcessTable: () => undefined,
   }), true, "an unreadable process table fails closed");
+
+  // The parent reaps the last zombie after signal 0 succeeds but before ps reads the table.
+  const reapedDuringRead = () => {
+    let signals = 0;
+    return (pid, signalNumber) => {
+      signal(pid, signalNumber);
+      signals += 1;
+      if (signals > 1) throw Object.assign(new Error("kill ESRCH"), { code: "ESRCH" });
+    };
+  };
+  assert.equal(processGroupIsRunning(groupId, {
+    signal: reapedDuringRead(),
+    readProcessTable: () => "  1 Ss\n",
+  }), false, "a group reaped during the ps read is gone");
+  assert.equal(processGroupIsRunning(groupId, {
+    signal: reapedDuringRead(),
+    readProcessTable: () => undefined,
+  }), false, "a group gone after an unreadable read is gone");
+  assert.equal(processGroupIsRunning(groupId, {
+    signal,
+    readProcessTable: () => "  1 Ss\n",
+  }), true, "a group that still answers but is missing from the table fails closed");
 });
 
 test("POSIX wrapper owns a child spawned in the former snapshot gap", {
@@ -67,8 +89,9 @@ test("POSIX wrapper owns a child spawned in the former snapshot gap", {
     const groupId = Number.parseInt(/^rootPid=(\d+)$/m.exec(readFileSync(claim, "utf8"))[1], 10);
     assert.equal(existsSync(providerPidFile), false, "coordinator target stays gated until ownership is durable");
     owner.stdin.write(Buffer.from([1]));
-    await waitFor(() => existsSync(providerPidFile), "late provider PID");
-    providerPid = Number.parseInt(await readFile(providerPidFile, "utf8"), 10);
+    // The provider creates the file before it writes the PID, so wait for the number itself.
+    await waitFor(() => readPid(providerPidFile) !== undefined, "late provider PID");
+    providerPid = readPid(providerPidFile);
     assert.equal(processAlive(providerPid), true, "late provider starts before its root exits");
     assert.equal(processGroupOf(providerPid), groupId, "the late provider belongs to the owned group");
     // The provider ignores SIGTERM, so the wrapper waits its 2 s grace, sends SIGKILL and waits up to 2 s more, and every
@@ -132,6 +155,15 @@ function descriptorReady(claim) {
     return text.includes("version=1") && text.includes("rootPid=");
   } catch {
     return false;
+  }
+}
+
+function readPid(file) {
+  try {
+    const pid = Number.parseInt(readFileSync(file, "utf8"), 10);
+    return Number.isInteger(pid) && pid > 0 ? pid : undefined;
+  } catch {
+    return undefined;
   }
 }
 
