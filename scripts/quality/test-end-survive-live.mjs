@@ -187,11 +187,13 @@ try {
 		crystalPredicted: results.crystal.break9.predicted, crystalLost: results.crystal.break9.lost,
 		voidGroundAhead: results.void.groundAhead?.status ?? null, voidInControl: /void/.test(results.void.controlMessage ?? ''), jar: jarPath,
 	};
-	// The body's read of End dangers: the crystal blast it predicted is what it lost (within 1 HP), and a control step
-	// toward the void is stopped and named.
-	results.bar = 'crystal blast within 1 HP of its prediction, void step stopped';
+	// The body's read of End dangers: the crystal blast it predicted is what it lost (within 1 HP), and standing at the
+	// platform's edge it names the void ahead, in its observation and in a control result. Perception only: stopping a
+	// step into the void is end-void's bar (its sprint and sequence stop on VOID_EDGE).
+	results.bar = 'crystal blast within 1 HP of its prediction; the void ahead is named';
 	results.pass = Number.isFinite(results.summary.crystalPredicted) && Number.isFinite(results.summary.crystalLost)
-		&& Math.abs(results.summary.crystalLost - results.summary.crystalPredicted) <= 1 && results.summary.voidInControl;
+		&& Math.abs(results.summary.crystalLost - results.summary.crystalPredicted) <= 1
+		&& results.summary.voidGroundAhead === 'void' && results.summary.voidInControl;
 	await writeFile(join(out, 'end-survive.json'), JSON.stringify(results, null, 2));
 	console.log(JSON.stringify(results, null, 2));
 } finally {
