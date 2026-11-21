@@ -169,7 +169,12 @@ try{
  // The window is play: raised to the fixture rate until it ends (see finally).
  readDamage=await damageCounter(text=>s.command(text),'Probe');damage0=await readDamage();
  await s.fastRate();wall0=Date.now();timer=await s.gameTimer();
- if(DEFAULTS&&['until','roof','count'].includes(STANDIN))await setRules(DEFAULT_REFLEXES.map(rule=>({...structuredClone(rule),coordinatorDefault:true})));
+ if(DEFAULTS&&['until','roof','count'].includes(STANDIN)){
+  // All of them, as the coordinator arms them (more than the 12 a model may set, so not through setRules).
+  s.revision+=1;await s.bridge.send('reflex_update',s.record.agentId,{revision:s.revision,rules:DEFAULT_REFLEXES.map(rule=>({...structuredClone(rule),coordinatorDefault:true})),yield:false});
+  let armed=false;for(let i=0;i<40&&!armed;i++){armed=(await s.observe()).reflexes?.revision===s.revision;if(!armed)await sleep(100);}
+  if(!armed)throw Error(`default reflexes (revision ${s.revision}) never echoed`);
+ }
  result.defaultReflexes=DEFAULTS;
  if(STANDIN==='until'){
   startTicks=await gameTicks();started=now();active=true;result.startedAt=new Date(Date.now()).toISOString();result.startGameTicks=startTicks;result.untilCalls=[];
