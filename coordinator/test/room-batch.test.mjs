@@ -6,7 +6,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { armTotals, formatSummary, mergeArms, parseCommands, plannedOf, runQueue, splitWords } from '../../scripts/quality/lib/room-batch-core.mjs';
 import { runBatch } from '../../scripts/quality/lib/room-batch-run.mjs';
-import { launchScript } from '../../scripts/quality/lib/boat-pool.mjs';
+import { BUNDLE_PATHS, buildBundle, hasZstd, launchScript, prepareScript, readWait, waitAndPackScript } from '../../scripts/quality/lib/boat-pool.mjs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
 
 const LINE = 'node scripts/quality/test-build-live.mjs scripts/quality/carve-hidden-fluid-spots.json $OUT $JAR --descriptive';
 const room = name => ({ room: name, lines: [{ arm: 'new', env: {}, args: [] }, { arm: 'old', env: {}, args: [] }], planned: 1 });
@@ -303,6 +305,165 @@ test('a worker that finds the queue empty is released at once; a room lost after
 	assert.ok(outcomes.every(outcome => !outcome.lost));
 	assert.deepEqual(released.sort(), ['r1', 'w1']);
 	assert.deepEqual(played, ['w1:a', 'w2:b', 'r1:b']);
+});
+
+const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
+const covered = relative => relative === '' || BUNDLE_PATHS.some(entry => relative === entry || relative.startsWith(`${entry}/`));
+
+test('the batch bundle holds every file the live fixtures import and every repository file they name', () => {
+	const quality = path.join(repoRoot, 'scripts/quality');
+	const queue = readdirSync(quality).filter(name => /^test-.*-live\.mjs$|^watch-replay\.mjs$/.test(name)).map(name => path.join(quality, name));
+	assert.ok(queue.length > 10);
+	const seen = new Set(), missing = new Set(), bare = new Set();
+	while (queue.length) {
+		const file = queue.pop();
+		if (seen.has(file)) continue;
+		seen.add(file);
+		const text = readFileSync(file, 'utf8');
+		for (const match of text.matchAll(/(?:import|export)\s[^'"`;]*?from\s*['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)|new URL\(\s*['"]([^'"]+)['"]\s*,\s*import\.meta\.url/g)) {
+			const spec = match[1] ?? match[2] ?? match[3];
+			if (spec.startsWith('node:')) continue;
+			if (!spec.startsWith('.')) { bare.add(spec.split('/')[0]); continue; }
+			const target = path.resolve(path.dirname(file), spec);
+			const relative = path.relative(repoRoot, target).split(path.sep).join('/');
+			// A path the repository lacks (a private evals/ file) was never in the code archive either.
+			if (!covered(relative) && existsSync(target)) missing.add(`${relative} (imported by ${path.relative(repoRoot, file)})`);
+			else if (/\.m?js$/.test(target) && existsSync(target)) queue.push(target);
+		}
+		// Files a fixture reads by repository path, such as coordinator/test/fixtures/routine-programs.md.
+		for (const match of text.matchAll(/['"`]((?:coordinator\/(?:test|test-support|fixtures)|src|docs|server-template|voice-addon|gradle)\/[\w./-]+)/g)) {
+			if (!covered(match[1]) && existsSync(path.join(repoRoot, match[1]))) missing.add(`${match[1]} (named by ${path.relative(repoRoot, file)})`);
+		}
+	}
+	assert.deepEqual([...missing], []);
+	for (const name of bare) assert.ok(existsSync(path.join(repoRoot, 'coordinator/node_modules', name)), `${name} is imported but not in coordinator/node_modules`);
+});
+
+for (const zstd of [true, false]) test(`a ${zstd ? 'zstd' : 'gzip'} bundle unpacks on the machine side into code, helper, jars and inputs, and prepare checks the image`, { skip: process.platform === 'win32' || !existsSync(path.join(repoRoot, '.git')) || (zstd && !hasZstd()) }, async () => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'room-batch-bundle-'));
+	try {
+		await mkdir(path.join(dir, 'local'));
+		for (const [name, text] of [['new.jar', 'new jar'], ['old.jar', 'old jar'], ['spots.json', '[]']]) await writeFile(path.join(dir, 'local', name), text);
+		const work = path.join(dir, 'work');
+		await mkdir(work);
+		const bundle = await buildBundle({ root: repoRoot, ref: 'HEAD', jars: { new: path.join(dir, 'local/new.jar'), old: path.join(dir, 'local/old.jar') },
+			inputs: [{ local: path.join(dir, 'local/spots.json'), name: '1-spots.json' }], helper: path.join(repoRoot, 'scripts/quality/lib/room-batch-remote.mjs'), work, zstd });
+		assert.equal(bundle.unpack.split(' ')[0], zstd ? 'zstd' : 'gzip');
+		const home = path.join(dir, 'home'), bin = path.join(dir, 'bin');
+		await mkdir(path.join(home, 'rooms/jdk/bin'), { recursive: true });
+		await mkdir(path.join(home, 'rooms/template-26.3'), { recursive: true });
+		await mkdir(bin);
+		await writeFile(path.join(home, 'rooms/jdk/bin/java'), '#!/bin/sh\n', { mode: 0o755 });
+		await writeFile(path.join(bin, 'eatmydata'), '#!/bin/sh\nexec "$@"\n', { mode: 0o755 });
+		const run = (env) => spawnSync('bash', ['-c', `(\n${prepareScript({ unpack: bundle.unpack })}\n)`], { input: readFileSync(bundle.file), encoding: 'utf8', env: { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH}`, ...env } });
+		const noTemplate = run();
+		assert.notEqual(noTemplate.status, 0);
+		assert.match(noTemplate.stdout, /no server template/);
+		await writeFile(path.join(home, 'rooms/template-26.3/server.jar'), 'jar');
+		const ok = run();
+		assert.equal(ok.status, 0, ok.stdout + ok.stderr);
+		assert.match(ok.stdout, new RegExp(`^HOME=${home}$`, 'm'));
+		assert.match(ok.stdout, /^STEPS=\d+\.\d,\d+\.\d$/m, 'prepare reports where its seconds went');
+		const batch = path.join(home, 'batch');
+		assert.equal(readFileSync(path.join(batch, 'jars/old.jar'), 'utf8'), 'old jar');
+		assert.equal(readFileSync(path.join(batch, 'inputs/1-spots.json'), 'utf8'), '[]');
+		assert.ok(existsSync(path.join(batch, 'room-batch-remote.mjs')));
+		assert.ok(existsSync(path.join(batch, 'code/scripts/quality/test-build-live.mjs')));
+		assert.ok(existsSync(path.join(batch, 'code/coordinator/src/dynamic-main.mjs')));
+		assert.ok(existsSync(path.join(batch, 'code/coordinator/node_modules/acorn/package.json')));
+		assert.ok(!existsSync(path.join(batch, 'code/src')), 'the Java sources stay home');
+		assert.ok(!existsSync(path.join(batch, 'code/.room-batch')));
+		for (const name of ['jobs', 'out']) assert.ok(existsSync(path.join(batch, name)));
+		assert.deepEqual(bundle.jars, ['new', 'old']);
+	} finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('the long poll says RUNNING while a room plays, the room folder as soon as done.json appears, and no output is no answer', { skip: process.platform === 'win32' }, async () => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'room-batch-wait-'));
+	try {
+		await mkdir(path.join(dir, 'out/r/new'), { recursive: true });
+		await writeFile(path.join(dir, 'out/r/new/result.json'), '[]');
+		await writeFile(path.join(dir, 'out/r/new/secret.txt'), 'rcon');
+		const waitFor = (seconds) => new Promise((resolve, reject) => {
+			const child = spawn('bash', ['-c', waitAndPackScript({ outDir: path.join(dir, 'out'), room: 'r', seconds })], { stdio: ['ignore', 'pipe', 'inherit'] });
+			const chunks = [];
+			child.stdout.on('data', chunk => chunks.push(chunk));
+			child.on('error', reject);
+			child.on('close', code => resolve({ code, data: Buffer.concat(chunks) }));
+		});
+		const idle = await waitFor(1);
+		assert.equal(idle.code, 0);
+		assert.equal(readWait('vm1', idle.data), 'running');
+		assert.throws(() => readWait('vm1', Buffer.alloc(0)), /no answer from vm1/);
+		assert.throws(() => readWait('vm1', Buffer.from('ssh: connection closed')), /no answer from vm1: ssh: connection closed/);
+		const began = Date.now();
+		setTimeout(() => writeFile(path.join(dir, 'out/r/done.json'), '{"seconds":3}'), 1500);
+		const done = await waitFor(30);
+		const waited = Date.now() - began;
+		assert.equal(done.code, 0);
+		assert.ok(Buffer.isBuffer(readWait('vm1', done.data)));
+		assert.ok(waited < 3000, `the end was seen ${waited - 1500} ms late`);
+		await mkdir(path.join(dir, 'back'));
+		const untar = spawnSync('tar', ['-xz', '-C', path.join(dir, 'back')], { input: done.data });
+		assert.equal(untar.status, 0);
+		assert.equal(readFileSync(path.join(dir, 'back/r/done.json'), 'utf8'), '{"seconds":3}');
+		assert.ok(existsSync(path.join(dir, 'back/r/new/result.json')));
+		assert.ok(!existsSync(path.join(dir, 'back/r/new/secret.txt')), 'the RCON secret stays on the machine');
+	} finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('the room launch writes its job file in the same call', { skip: process.platform === 'win32' }, async () => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'room-batch-job-'));
+	try {
+		const helper = path.join(dir, 'helper.mjs');
+		await writeFile(helper, `import { readFileSync, writeFileSync } from 'node:fs'; writeFileSync(process.argv[2] + '.seen', JSON.parse(readFileSync(process.argv[2], 'utf8')).room);\n`);
+		const job = { room: "it's", lines: [{ args: ['$OUT', 'a "quoted" word'] }] };
+		const jobFile = path.join(dir, 'jobs', 'r.json');
+		const script = launchScript({ outDir: path.join(dir, 'out', 'r'), code: dir, helper, jobFile, log: path.join(dir, 'job.log'), node: process.execPath, job });
+		assert.equal(spawnSync('bash', ['-c', script], { encoding: 'utf8' }).stdout.trim(), 'started');
+		assert.deepEqual(JSON.parse(readFileSync(jobFile, 'utf8')), job);
+		const deadline = Date.now() + 10_000;
+		while (Date.now() < deadline && !existsSync(`${jobFile}.seen`)) await new Promise(done => setTimeout(done, 100));
+		assert.equal(readFileSync(`${jobFile}.seen`, 'utf8'), "it's");
+	} finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('a poll that fails on a live machine is retried after a pause, and a stop cuts a running poll short', async () => {
+	const out = await mkdtemp(path.join(os.tmpdir(), 'room-batch-retry-'));
+	try {
+		const polls = [];
+		let failures = 1;
+		const pool = {
+			async create() { return { id: 'vm1' }; },
+			async prepare() { return { code: '/c', out: '/o', jars: { new: '/j/new.jar', old: '/j/old.jar' }, inputs: {}, javaHome: '/jdk', template: '/t' }; },
+			async start() {},
+			async poll(vm, roomName, options) { polls.push({ at: Date.now(), signal: options?.signal ?? null }); if (failures-- > 0) throw new Error('ssh dropped'); return 'done'; },
+			async alive() { return true; },
+			async fetch(vm, roomName) {
+				for (const arm of ['new', 'old']) await writeRoom(out, roomName, arm, [row(`spot-${roomName}`)]);
+				return { seconds: 5, arms: { new: { exit: 0 }, old: { exit: 0 } }, machine: {} };
+			},
+			async keepAlive() {},
+			async usage() { return { seconds: 1 }; },
+			async destroy() {},
+		};
+		const controller = new AbortController();
+		const result = await runBatch({ batch: { name: 't', code: 'abc12345' }, rooms: parseCommands(`@a ${LINE}`, ['new', 'old']), arms: [{ name: 'new' }, { name: 'old' }], pool, vms: 1, out, retryMs: 200, log: () => {}, signal: controller.signal });
+		assert.equal(result.outcomes[0].lost, false);
+		assert.equal(polls.length, 2);
+		assert.ok(polls[1].at - polls[0].at >= 190, 'the failed poll was retried at once');
+		assert.equal(polls[0].signal, controller.signal, 'the poll gets the batch signal so a stop can cut it short');
+
+		const stopOut = await mkdtemp(path.join(os.tmpdir(), 'room-batch-retry-stop-'));
+		try {
+			const stopper = new AbortController();
+			const stopping = { ...pool, poll: (vm, roomName, { signal }) => new Promise((resolve, reject) => { signal.addEventListener('abort', () => reject(new Error('stopped'))); setTimeout(() => stopper.abort(), 20); }) };
+			const began = Date.now();
+			const stopped = await runBatch({ batch: { name: 't', code: 'abc12345' }, rooms: parseCommands(`@a ${LINE}`, ['new', 'old']), arms: [{ name: 'new' }, { name: 'old' }], pool: stopping, vms: 1, out: stopOut, log: () => {}, signal: stopper.signal });
+			assert.equal(stopped.outcomes[0].reason, 'batch stopped');
+			assert.ok(Date.now() - began < 2000);
+		} finally { await rm(stopOut, { recursive: true, force: true }); }
+	} finally { await rm(out, { recursive: true, force: true }); }
 });
 
 test('the merge ignores rows a lost room left behind, calls a killed arm invalid and counts planned rows per arm', async () => {
