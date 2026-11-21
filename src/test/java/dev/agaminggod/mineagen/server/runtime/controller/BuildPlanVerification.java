@@ -108,6 +108,33 @@ public final class BuildPlanVerification {
 				if (meets != (lava == inFront)) throw new AssertionError("Spill toward lava at " + lava + ": " + meets);
 				checks++;
 			}
+			checks += verifySpillDownSlope(portal, wall);
+		}
+		return checks;
+	}
+
+	/**
+	 * A cave room's site: the floor in front of the frame steps down a block at 4 and 6 cells out, to a pool 2 below the
+	 * frame's ground. The scooped water still runs its whole course, afresh below each drop, so a pool 8 cells out (10 cells
+	 * of run) is in it, and one 15 cells out, past the 7-cell flat run after the last drop, is not.
+	 */
+	private static int verifySpillDownSlope(ServerBuildController.Portal portal, Direction wall) {
+		int checks = 0;
+		Direction front = wall.getOpposite();
+		BlockPos origin = portal.origin();
+		BlockPos along = portal.at(1, 0).subtract(portal.at(0, 0));
+		for (int pool : new int[] { 8, 15 }) {
+			java.util.function.Function<BlockPos, BlockState> world = cell -> {
+				BlockPos d = cell.subtract(origin);
+				int k = d.getX() * front.getStepX() + d.getZ() * front.getStepZ(), i = d.getX() * along.getX() + d.getZ() * along.getZ(), y = cell.getY() - origin.getY();
+				if (k < 1 || k > pool + 3 || i < -1 || i > 4 || y > 3) return Blocks.STONE.defaultBlockState();
+				int floor = k >= 6 ? -2 : k >= 4 ? -1 : 0;
+				if (y > floor) return Blocks.CAVE_AIR.defaultBlockState();
+				return y == -2 && k >= pool ? Blocks.LAVA.defaultBlockState() : Blocks.STONE.defaultBlockState();
+			};
+			boolean meets = ServerBuildController.spillMeetsLava(world, portal, wall);
+			if (meets != (pool == 8)) throw new AssertionError("Scooped water down a sloping floor toward a pool " + pool + " cells out, frame axis " + portal.axis() + ": " + meets);
+			checks++;
 		}
 		return checks;
 	}

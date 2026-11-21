@@ -126,13 +126,16 @@ public final class ServerBuildController implements ServerController {
 	static final double CAST_RISE = 2.0D;
 	static final int CAST_CLICK_TICKS = 60;
 	/**
-	 * Cells poured water may run (5 ticks each) before it is gone: {@link #WATER_STAND_TICKS} standing, the scoop's turn and
-	 * click, and the front's last step. A cast usually scoops it 9-12 ticks after the pour.
+	 * Cells the poured water's run is followed for. A cast scoops its water 9-12 ticks after the pour, past the source's first
+	 * spread at 5, and taking the source up does not stop the flow already out: the drying spreads back from the source one
+	 * cell per 5 ticks, as fast as the front advances, so the front runs its whole vanilla course (7 cells on the flat,
+	 * afresh below each drop). In one cave room it ran 10 cells down a sloping floor into the pool and crusted it to
+	 * obsidian. The bound only ends the search; a run-off into the pool takes at most a few drops.
 	 */
-	static final int SPILL_CELLS = 8;
+	static final int SPILL_CELLS = 32;
 	/** Long enough for a 7-block lava flow with no source to drain (30 ticks a level in the Overworld). */
 	static final int DRAIN_TICKS = 300;
-	/** Water left standing longer than this (its lava click not landing) is scooped back before it runs {@link #SPILL_CELLS} cells. */
+	/** Water left standing longer than this (its lava click not landing) is scooped back to pour the pair from another spot. */
 	static final int WATER_STAND_TICKS = 25;
 	static final int WIDE_RADIUS = 14;
 	/**
@@ -1453,11 +1456,14 @@ public final class ServerBuildController implements ServerController {
 
 	/**
 	 * Whether water poured for the cast could run into a lava source: from each pour's water cell it falls where nothing
-	 * holds it up and spreads where something does (vanilla flow, 7 blocks at most), one cell per 5 ticks for the
-	 * {@link #SPILL_CELLS} cells it runs before it is scooped back, through cells seen open; the frame, opening and the cells
-	 * in front count as open (dug or cleared), the mould and the cells cast before as solid, unseen cells as rock.
+	 * holds it up and spreads where something does (vanilla flow, 7 blocks on the flat and afresh below each drop), its
+	 * whole course even though the source is scooped (see {@link #SPILL_CELLS}), through cells seen open; the frame, opening
+	 * and the cells in front count as open (dug or cleared), the mould and the cells cast before as solid, unseen cells as rock.
 	 */
-	static boolean spillMeetsLava(java.util.function.Function<BlockPos, BlockState> known, Portal p, Direction wall) {
+	static boolean spillMeetsLava(java.util.function.Function<BlockPos, BlockState> world, Portal p, Direction wall) {
+		// Every pour's run reads the same cells: read each once.
+		java.util.Map<BlockPos, java.util.Optional<BlockState>> read = new java.util.HashMap<>();
+		java.util.function.Function<BlockPos, BlockState> known = cell -> read.computeIfAbsent(cell, at -> java.util.Optional.ofNullable(world.apply(at))).orElse(null);
 		Set<BlockPos> mould = new HashSet<>(wallCells(p, wall)), cleared = new HashSet<>(p.frame());
 		// Everything in the frame's plane above the ground corners is dug or cleared, and the cells in front of it.
 		for (int i = 0; i <= 3; i++) for (int y = 1; y <= 4; y++) { cleared.add(p.at(i, y)); cleared.add(p.at(i, y).relative(wall.getOpposite())); }
