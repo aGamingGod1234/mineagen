@@ -33,6 +33,18 @@ export function threatRows(observation) {
 	return rows === null ? null : rows.filter((row) => row !== null && typeof row === 'object' && typeof row.type === 'string' && Number.isFinite(row.distance));
 }
 
+/** Melee pursuers can reach a shelter opening after the body has rounded a corner or put some distance between them. */
+export function pursuedByPack(observation) {
+	const attacker = observation?.player?.lastAttacker?.uuid ?? null;
+	const seen = new Set();
+	const pursuers = (threatRows(observation) ?? []).filter(row => {
+		const id = row.uuid ?? row.stableId;
+		return row.alive !== false && row.distance <= RANGE && hunting(row, attacker) && !seen.has(id) && seen.add(id);
+	});
+	const melee = pursuers.filter(row => !RANGED.test(row.type));
+	return melee.length >= 2 || pursuers.length >= 2 && melee.some(row => row.distance <= ENGAGE_CLOSE);
+}
+
 export const CREEPER_NO_WALL = 16;
 
 /** The nearest live creeper within CREEPER_NO_WALL blocks in the sample's threat or entity rows ({ uuid, distance, x?, z? }), or null. */

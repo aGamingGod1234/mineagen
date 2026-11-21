@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import { boot } from './watch-replay.mjs';
 import { ReflexBook } from '../../coordinator/src/reflexes.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
-import { deathCounter } from './lib/damage-counter.mjs';
+import { damageCounter, damageEvidence, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const out = path.resolve(process.argv[2] ?? 'runtime/crowd-live');
@@ -208,6 +208,7 @@ try {
 	// The gate bodies fought at food 17 and saturation 0, where vanilla regenerates nothing: no regeneration here either.
 	await s.command('gamerule minecraft:natural_health_regeneration false');
 	await register();
+	const damage = await damageCounter(text => s.command(text), AGENT);
 	console.log(`[crowd] default reflexes armed: ${await armDefaults()}`);
 	let run = 0;
 	for (const name of CASES) {
@@ -239,6 +240,7 @@ try {
 			await sleep(1500);
 			// The run starts at the summon: an archer shoots at once, before the fixture has seen it in an observation.
 			const deathsBefore = await deaths();
+			const damageBefore = await damage();
 			const startHealth = await health();
 			const t0 = Date.now();
 			const ids = [];
@@ -277,6 +279,8 @@ try {
 				await Promise.race([act, sleep(3000)]);
 			}
 			let alive = 0;
+			const took = damageEvidence(damageBefore, await damage(), startHealth, died ? 0 : last);
+			const death = deathEvidence(deathsBefore, await deaths());
 			for (const id of ids) if (!/No entity|not found/i.test(await s.command(`data get entity ${id} Health`))) alive++;
 			// The flinch covers the model's thinking gap: the gate's first hit to next command was 3-10 s, and a model round
 			// takes 5-17 s, so the run is also scored at SCORE_S (20 s by default) from the same track.
@@ -286,7 +290,8 @@ try {
 				diedAtS: died ? track.at(-1)?.t ?? 0 : null, minHealth: died ? 0 : minHealth, endHealth: died ? 0 : last, hostilesLeft: alive, hostiles: ids.length,
 				action: actResult ? { state: actResult.state, reasonCode: actResult.reasonCode ?? null, atS: actResult.atS, message: String(actResult.message ?? '').slice(0, 400) } : (c.act ? 'still running' : null),
 				food, startY: ay, minY: Math.min(...track.filter(t => t.y !== undefined).map(t => t.y)), ...defendTally(track),
-				reflexEvents: [...events.values()], track };
+				reflexEvents: [...events.values()], track, ...took, deaths: death.deaths };
+			if (!death.valid) row.integrity = [...(row.integrity ?? []), { file: 'deaths', error: 'Missing or decreasing death counter' }];
 			runs.push(row);
 			console.log(`[crowd] ${name}#${repeat}: hits back ${row.hitsBack}, back-outs ${row.backOuts} (${row.backingOutS} s), lowest feet y ${row.minY}${food !== null ? `, food ${food}` : ''}; start ${startHealth}, by ${SCORE_S} s ${row.diedBy20 ? 'DIED' : `min ${row.minHealthBy20}`}; at ${WATCH_S} s ${row.survived ? 'SURVIVED' : `DIED at ${row.diedAtS} s`} min ${row.minHealth} end ${row.endHealth}, hostiles left ${alive}/${ids.length}${row.action ? `, action ${row.action.reasonCode ?? row.action} at ${row.action.atS ?? '-'} s` : ''} | ${[...events.values()].map(e => e.split(':').slice(0, 2).join(':')).join(' ')}`);
 			await writeFile(path.join(out, 'runs.json'), JSON.stringify(runs, null, 1));

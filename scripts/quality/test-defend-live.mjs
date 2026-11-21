@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import { boot } from './watch-replay.mjs';
 import { ReflexBook } from '../../coordinator/src/reflexes.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
-import { deathCounter } from './lib/damage-counter.mjs';
+import { damageCounter, damageEvidence, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const out = path.resolve(process.argv[2] ?? 'runtime/defend-live');
@@ -60,6 +60,7 @@ try {
 	await s.command(`mineagen start ${AGENT} Survive for 1200 seconds.`); s.record.goalRevision = (await started).payload.goalRevision;
 	await s.bridge.send('agent_ready', s.record.agentId, { goalRevision: s.record.goalRevision, reconciled: false });
 	await s.command(`gamemode survival ${AGENT}`);
+	const damage = await damageCounter(text => s.command(text), AGENT);
 	const book = new ReflexBook();
 	if (!book.observeContext(s.record.agentId, await s.observe())) throw new Error('defaults did not arm');
 	const payload = book.payload(s.record.agentId);
@@ -72,7 +73,7 @@ try {
 	// "#b has 1 [chk]": the score sits before the objective name, not at the end of the reply.
 	const score = text => Number(/has (-?\d+)/.exec(String(text))?.[1]);
 	const isBlock = async (x, y, z, id) => { await s.command(`execute store success score #b chk if block ${x} ${y} ${z} ${id}`); return score(await s.command('scoreboard players get #b chk')) === 1; };
-	const pos = async () => (String(await s.command(`data get entity ${AGENT} Pos`)).match(/\[\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?\]/)?.slice(1).map(Number) ?? null);
+	const pos = async (entity = AGENT) => (String(await s.command(`data get entity ${entity} Pos`)).match(/\[\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?\]/)?.slice(1).map(Number) ?? null);
 	const walls = async () => {
 		const at = await pos();
 		if (!at) return null;
@@ -109,10 +110,13 @@ try {
 				await s.command('fill -303 100 7 -297 100 13 minecraft:stone');
 				await s.command('fill -302 100 8 -298 100 12 minecraft:water');
 			}
+			if (name === 'spawner') {
+				await s.command('setblock -301 100 16 minecraft:spawner{Delay:32767s,SpawnData:{entity:{id:"minecraft:zombie"}}}');
+			}
 			await s.command(`execute in minecraft:overworld run tp ${AGENT} -299.5 ${name === 'water' ? 98 : 100} 10.5 0 0`);
 			await s.command(`clear ${AGENT}`);
 			await s.command(`item replace entity ${AGENT} container.0 with minecraft:${['approach', 'approach-hungry'].includes(name) ? 'iron_pickaxe' : 'stone_sword'}`);
-			await s.command(`item replace entity ${AGENT} container.3 with minecraft:cobblestone 16`);
+			if (name !== 'open-archer') await s.command(`item replace entity ${AGENT} container.3 with minecraft:cobblestone 16`);
 			if (name === 'shield') await s.command(`item replace entity ${AGENT} weapon.offhand with minecraft:shield`);
 			await s.command(`effect clear ${AGENT}`);
 			await s.command(`effect give ${AGENT} minecraft:instant_health 1 5 true`);
@@ -122,14 +126,16 @@ try {
 			await s.command(`gamerule minecraft:natural_health_regeneration ${START_HEALTH[name] === undefined}`);
 			await sleep(1500);
 			if (START_HEALTH[name] !== undefined) await s.command(`damage ${AGENT} ${(await health()) - START_HEALTH[name]} minecraft:generic`);
+			const deathsBefore = await deaths();
+			const damageBefore = await damage();
+			const start = await health();
 			const skeleton = `summon minecraft:skeleton %X% %Y% %Z% {PersistenceRequired:1b,equipment:{mainhand:{id:"minecraft:bow",count:1}}}`;
-			if (name === 'zombie') await s.command(`summon minecraft:zombie -299.5 100 14.5 {PersistenceRequired:1b,CanPickUpLoot:0b,IsBaby:0b}`);
+			if (name === 'zombie' || name === 'spawner') await s.command(`summon minecraft:zombie -299.5 100 14.5 {PersistenceRequired:1b,CanPickUpLoot:0b,IsBaby:0b}`);
 			else if (name.startsWith('approach')) await s.command(`summon minecraft:zombie -299.5 100 19.5 {PersistenceRequired:1b,CanPickUpLoot:0b,IsBaby:${name === 'approach-fast' ? 1 : 0}b}`);
 			else if (name === 'water') await s.command(skeleton.replace('%X%', '-299.5').replace('%Y%', '103').replace('%Z%', '16.5'));
 			else await s.command(skeleton.replace('%X%', '-299.5').replace('%Y%', '100').replace('%Z%', '20.5'));
-			const deathsBefore = await deaths();
-			const start = await health();
 			const steps = [];
+			let maxThreatDistance = 0;
 			let backOuts = 0, backingSeen = false, minHealth = start, died = false, hits = 0, shieldS = 0, fired = false, wallingSeen = false, refusal = null, stopped = null, endDetail = null;
 			let blockMap = null, commandResult = null, commandSentAt = null, wallsAtCommand = null, creeperAt = null, healthAtCreeper = null, creeperExploded = false, maxWalls = 0;
 			const t0 = Date.now();
@@ -137,6 +143,13 @@ try {
 				await sleep(250);
 				const o = await s.observeOrNull();
 				const detail = o?.reflexes?.firing?.id === 'default-defend' ? String(o.reflexes.firing.detail ?? '') : '';
+				if (name === 'spawner' && o?.position) {
+					maxThreatDistance = Math.max(maxThreatDistance, Math.hypot(o.position.x + 300.5, o.position.z - 16.5));
+				}
+				if (name === 'open-archer' && o?.position) {
+					const at = await pos('@e[type=minecraft:skeleton,limit=1]');
+					if (at) maxThreatDistance = Math.max(maxThreatDistance, Math.hypot(o.position.x - at[0], o.position.z - at[2]));
+				}
 				if (o?.reflexes?.firing?.id) {
 					const step = `${o.reflexes.firing.id}: ${String(o.reflexes.firing.detail ?? '').replace(/-?[\d.]+/g, '#').slice(0, 160)}`;
 					if (!steps.includes(step) && steps.length < 24) steps.push(step);
@@ -184,6 +197,8 @@ try {
 				if ((await deaths()) > deathsBefore || h === 0) { died = true; break; }
 				if (h !== null) minHealth = Math.min(minHealth, h);
 			}
+			const took = damageEvidence(damageBefore, await damage(), start, await health());
+			const death = deathEvidence(deathsBefore, await deaths());
 			const wallsAtEnd = await walls();
 			// What stands round the body's floor cell at the end: cobble, water, air or other, feet and head level.
 			let endMap = null;
@@ -202,7 +217,13 @@ try {
 			}
 			const row = { case: name, run, food, defendFired: fired, hitsBack: hits, backOuts, backingSeen, shieldSeconds: shieldS, wallingSeen, refusal, stopped, maxWalls, wallsAtEnd,
 				wallsAtCommand, commandResult, creeperExploded, blastDamage: healthAtCreeper === null ? null : +(healthAtCreeper - (died ? 0 : minHealth)).toFixed(1),
-				endDetail, steps, blockMap, endMap, died, healthLost: died ? start : +(start - minHealth).toFixed(1) };
+				endDetail, steps, blockMap, endMap, died, healthLost: died ? start : +(start - minHealth).toFixed(1),
+				...took, deaths: death.deaths };
+			if (!death.valid) row.integrity = [...(row.integrity ?? []), { file: 'deaths', error: 'Missing or decreasing death counter' }];
+			if (name === 'spawner' || name === 'open-archer') {
+				row.maxThreatDistance = +maxThreatDistance.toFixed(1);
+				row.pass = !died && maxThreatDistance >= (name === 'spawner' ? 12 : 16);
+			}
 			runs.push(row);
 			console.log(`[defend] ${name}#${run}: fired ${fired}, hits back ${hits}, back-outs ${backOuts} (backing seen ${backingSeen})${food !== null ? `, food ${food}` : ''}, shield ${shieldS} s, walling ${wallingSeen}, walls max ${maxWalls} end ${wallsAtEnd}${refusal ? `, ${refusal}` : ''}${stopped ? `, ${stopped}` : ''}${commandResult ? `, command ${JSON.stringify(commandResult)} (walls when sent ${wallsAtCommand})` : ''}${healthAtCreeper !== null ? `, creeper exploded ${creeperExploded}, blast damage ${row.blastDamage}` : ''}, ${died ? 'DIED' : `lost ${row.healthLost}`}`);
 			await writeFile(path.join(out, 'runs.json'), JSON.stringify(runs, null, 1));

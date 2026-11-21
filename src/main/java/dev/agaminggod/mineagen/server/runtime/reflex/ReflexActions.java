@@ -6,6 +6,7 @@ import dev.agaminggod.mineagen.server.runtime.ArmSwing;
 import carpet.script.utils.Tracer;
 import dev.agaminggod.mineagen.client.navigation.GridPosition;
 import dev.agaminggod.mineagen.server.perception.LavaSpread;
+import dev.agaminggod.mineagen.server.perception.ObservationVisibility;
 import dev.agaminggod.mineagen.server.perception.ThreatDamage;
 import dev.agaminggod.mineagen.server.perception.ThreatPerception;
 import dev.agaminggod.mineagen.server.perception.WaterAirFacts;
@@ -44,6 +45,7 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.entity.SpawnerBlockEntity;
 import dev.agaminggod.mineagen.server.runtime.AdvancedInteractionService;
 import dev.agaminggod.mineagen.server.runtime.InventoryRoom;
 import dev.agaminggod.mineagen.server.runtime.menu.AgentInventoryView;
@@ -488,14 +490,22 @@ final class ReflexActions {
 		/** The hotbar slot selected when the firing began: a changed slot is named so the model's next use_item knows. */
 		private int startSlot = -1;
 		static final int CROWD = 2;
-		static final double CROWD_RANGE = 4.0D;
+		static final double CROWD_RANGE = 6.0D;
+		private static final int SPAWNER_RANGE = 8;
+		private static final double SPAWNER_ACTIVATION_RANGE = 16.0D;
+		private static final double BOW_RANGE = 16.0D;
+		private static final double SHOOTER_RUN_BLOCKS = 20.0D;
 		/** A backing-out run's length: sprint_away's own run, from the pack. */
 		static final double BACK_OUT_BLOCKS = 8.0D;
 		/** A failed back-out (no heading away) is not tried again until the body has moved this far from where it failed. */
 		static final double BACK_OUT_RETRY_BLOCKS = 3.0D;
 		private SprintAway backOut;
-		/** The running back-out is from one mob the body is too weak to trade blows with, not from a pack. */
-		private boolean backOutWeak;
+		private Mob backOutFocus;
+		private Vec3 backOutPoint;
+		private BlockPos spawner;
+		private int nextSpawnerLook;
+		private enum Retreat { CROWD, SPAWNER, WEAK, SHOOTER }
+		private Retreat retreat;
 		private Vec3 backOutFailedAt;
 		private int backOuts;
 		private String backOutNote;
@@ -508,12 +518,56 @@ final class ReflexActions {
 		private int keptPace = -1;
 		private int backOutStartTick;
 
-		Mob outmatching(ServerPlayer player) {
-			Mob mob = closingMelee(player);
+		private Mob outmatching(ServerPlayer player, Mob mob) {
 			if (mob == null || mob.getId() == keptPace) return null;
 			double hit = ThreatDamage.expectedHit(mob, player).damage();
 			if (hit <= 0.0D || player.getHealth() + player.getAbsorptionAmount() > WEAK_HITS * hit) return null;
 			return outpaces(runSpeed(player), mob.getAttributeValue(net.minecraft.world.entity.ai.attributes.Attributes.MOVEMENT_SPEED)) ? mob : null;
+		}
+
+		/** Only a spawner the player can see can turn an ordinary melee fight into a retreat. */
+		private void lookForSpawner(ServerPlayer player) {
+			if (player.tickCount < nextSpawnerLook) return;
+			nextSpawnerLook = player.tickCount + 10;
+			BlockPos feet = player.blockPosition();
+			var level = player.level();
+			var sight = ObservationVisibility.frame(level, player);
+			for (int cx = (feet.getX() - SPAWNER_RANGE) >> 4; cx <= (feet.getX() + SPAWNER_RANGE) >> 4; cx++) {
+				for (int cz = (feet.getZ() - SPAWNER_RANGE) >> 4; cz <= (feet.getZ() + SPAWNER_RANGE) >> 4; cz++) {
+					var chunk = level.getChunkSource().getChunkNow(cx, cz);
+					if (chunk == null) continue;
+					for (var entry : chunk.getBlockEntities().entrySet()) {
+						BlockPos at = entry.getKey();
+						if (entry.getValue() instanceof SpawnerBlockEntity && at.distSqr(feet) <= SPAWNER_RANGE * SPAWNER_RANGE
+								&& sight.canSeeBlock(at)) {
+							spawner = at;
+							return;
+						}
+					}
+				}
+			}
+		}
+
+		private void startBackOut(ServerPlayer player, Retreat cause, Mob focus) {
+			backOut = switch (cause) {
+				case SHOOTER -> new SprintAway(SHOOTER_RUN_BLOCKS, SprintAway.BACK_OUT_DROP, BOW_RANGE);
+				case SPAWNER -> new SprintAway(SPAWNER_ACTIVATION_RANGE, SprintAway.BACK_OUT_DROP, SPAWNER_ACTIVATION_RANGE);
+				default -> new SprintAway(BACK_OUT_BLOCKS, SprintAway.BACK_OUT_DROP);
+			};
+			retreat = cause;
+			backOutFocus = focus;
+			// The pack centre can swing from one side of the body to the other while it threads between mobs.
+			backOutPoint = switch (cause) {
+				case SPAWNER -> Vec3.atCenterOf(spawner);
+				case CROWD -> java.util.Objects.requireNonNullElse(packCentre(player, meleeNear(player, PACK_RANGE)), focus.position());
+				default -> null;
+			};
+			backOuts++;
+			backOutStartTick = player.tickCount;
+		}
+
+		private boolean canBackOut(ServerPlayer player) {
+			return backOutFailedAt == null || player.position().distanceTo(backOutFailedAt) > BACK_OUT_RETRY_BLOCKS;
 		}
 
 		/** A run from one mob pays only when the mob's chase is at most this share of the body's run: it falls behind. */
@@ -573,42 +627,57 @@ final class ReflexActions {
 			// One melee mob coming at a body it would kill in WEAK_HITS hits is backed away from too, before the hit lands:
 			// a trade of blows at that health is lost (gate2A-2, gate2A-8: 8-9 health and no food, a zombie walked up while
 			// the model thought and its first hits began the end).
-			Mob outmatching = crowd.size() < CROWD ? outmatching(player) : null;
-			if (backOut == null && (crowd.size() >= CROWD || outmatching != null)
-					&& (backOutFailedAt == null || player.position().distanceTo(backOutFailedAt) > BACK_OUT_RETRY_BLOCKS)) {
-				backOut = new SprintAway(BACK_OUT_BLOCKS, SprintAway.BACK_OUT_DROP);
-				backOuts++;
-				backOutWeak = crowd.size() < CROWD;
-				backOutStartTick = player.tickCount;
+			Mob closing = closingMelee(player);
+			if (backOut == null && canBackOut(player)) {
+				if (closing != null || !crowd.isEmpty()) lookForSpawner(player);
+				if (crowd.size() >= CROWD) startBackOut(player, Retreat.CROWD, crowd.getFirst());
+				else if (closing != null && spawner != null && player.blockPosition().distSqr(spawner) <= SPAWNER_ACTIVATION_RANGE * SPAWNER_ACTIVATION_RANGE
+						&& player.level().getBlockState(spawner).is(Blocks.SPAWNER)) {
+					startBackOut(player, Retreat.SPAWNER, closing);
+				} else if (closing != null && rangedAttacker(player, context.focus()) != null) {
+					startBackOut(player, Retreat.CROWD, closing);
+				} else {
+					Mob outmatching = outmatching(player, closing);
+					if (outmatching != null) startBackOut(player, Retreat.WEAK, outmatching);
+				}
 			}
 			// Backing away from one mob that still lands hits keeps pace after all (food ran out mid-run, rough ground):
 			// the run stops and defend fights it below this tick.
-			if (backOut != null && backOutWeak && crowd.size() < CROWD && player.getLastHurtByMob() instanceof Mob hitter
-					&& player.getLastHurtByMobTimestamp() > backOutStartTick && closingMelee(player) == hitter) {
+			if (backOut != null && retreat == Retreat.WEAK && crowd.size() < CROWD && player.getLastHurtByMob() instanceof Mob hitter
+					&& player.getLastHurtByMobTimestamp() > backOutStartTick && closing == hitter) {
 				backOut.end(player);
 				backOut = null;
 				keptPace = hitter.getId();
 				backOutNote = "stopped backing away: " + type(hitter) + " kept pace and hit";
 			}
 			if (backOut != null) {
-				Entity nearest = !crowd.isEmpty() ? crowd.getFirst() : outmatching != null ? outmatching : context.focus();
-				Step ran = backOut.tick(new Context(player, nearest, context.stance(), context.memory(), null, context.below(),
-						context.fightShields()), input);
+				Mob nearest = retreat == Retreat.CROWD && !crowd.isEmpty() ? crowd.getFirst() : backOutFocus;
+				if (retreat == Retreat.SHOOTER) {
+					Step blocked = cover.blockShot(player, input, true);
+					if (blocked != null) return blocked;
+				}
+				Step ran = backOut.tick(new Context(player, backOutPoint == null ? nearest : null, context.stance(), context.memory(),
+						backOutPoint, context.below(), context.fightShields()), input);
 				if (ran.status() == ReflexScheduler.ActionStatus.RUNNING) {
-					if (backOutWeak) {
-						return Step.running(String.format(Locale.ROOT, "%d hit(s) back; backing away from %s (%d of its hits would kill the body): %s",
-								hits, nearest == null ? "the attacker" : type(nearest), WEAK_HITS, ran.detail()));
-					}
-					return Step.running(String.format(Locale.ROOT, "%d hit(s) back; backing out of %d %s: %s", hits, crowd.size(),
-							crowd.isEmpty() ? "mobs" : type(crowd.getFirst()) + (crowd.size() > 1 ? " and others" : ""), ran.detail()));
+					String why = switch (retreat) {
+						case WEAK -> "backing away from " + type(nearest) + " (" + WEAK_HITS + " of its hits would kill the body)";
+						case CROWD -> "backing out of " + crowd.size() + " mobs";
+						case SPAWNER -> "backing away from a spawner";
+						case SHOOTER -> "running out of range of " + type(nearest);
+					};
+					return Step.running(hits + " hit(s) back; " + why + ": " + ran.detail());
 				}
 				// A finished or failed run applies no input this tick (SprintAway), so defend's own answer below takes it.
 				backOut.end(player);
 				backOut = null;
+				if (retreat == Retreat.SHOOTER) {
+					cover.end(player);
+					cover = null;
+				}
 				backOutNote = (ran.status() == ReflexScheduler.ActionStatus.DONE ? "backed out: " : "could not back out: ") + ran.detail();
 				if (ran.status() != ReflexScheduler.ActionStatus.DONE) backOutFailedAt = player.position();
 				// A full run that still ends with the mob about to reach the body was not outrun: no second run from it.
-				Mob still = backOutWeak ? closingMelee(player) : null;
+				Mob still = retreat == Retreat.WEAK ? closingMelee(player) : null;
 				if (still != null && ran.status() == ReflexScheduler.ActionStatus.DONE) {
 					keptPace = still.getId();
 					backOutNote += "; " + type(still) + " kept pace";
@@ -619,7 +688,13 @@ final class ReflexActions {
 			int weapon = dev.agaminggod.mineagen.server.runtime.controller.HotbarWeapons.bestSlotOrNone(player);
 			if (startSlot < 0) startSlot = player.getInventory().getSelectedSlot();
 			int slot = weapon >= 0 && !player.getMainHandItem().is(Items.SHIELD) ? weapon : player.getInventory().getSelectedSlot();
-			LivingEntity target = shot != null && shield ? null : inReach(player, context.focus(), player.getInventory().getItem(slot));
+			int blockSlot = PlaceBlock.blockSlot(player, null);
+			Mob exposed = blockSlot >= 0 || !canBackOut(player) ? null : rangedAttacker(player, context.focus());
+			// A shield that is already stopping the shots is cover. Move under fire if the shooter got through it.
+			if (shield && exposed != null && (player.getLastHurtByMob() != exposed
+					|| player.tickCount - player.getLastHurtByMobTimestamp() > UNDER_FIRE_TICKS)) exposed = null;
+			boolean seekingCover = exposed != null && (cover != null || player.tickCount >= coverRetryTick);
+			LivingEntity target = (shot != null && shield || seekingCover) ? null : inReach(player, context.focus(), player.getInventory().getItem(slot));
 			int selected = target != null ? slot : player.getInventory().getSelectedSlot();
 			String done = hits + " hit(s) back" + (guardTicks > 0 ? ", shield up " + Math.round(guardTicks / 2.0D) / 10.0D + " s" : "")
 					+ (selected != startSlot ? ", hotbar slot " + selected + " selected (was " + startSlot + ")" : "")
@@ -638,13 +713,13 @@ final class ReflexActions {
 				}
 				return Step.running(done + "; fighting " + type(target));
 			}
-			if (shield) {
+			if (shield && !seekingCover) {
 				Step held = guard.tick(context, input);
 				if (held.status() == ReflexScheduler.ActionStatus.RUNNING) guardTicks++;
 				return Step.running(done + "; " + held.detail());
 			}
-			LivingEntity shooter = shooterBeyondReach(player, context.focus(), player.getInventory().getItem(slot));
-			if (shooter != null && walls == null && player.tickCount >= coverRetryTick && PlaceBlock.blockSlot(player, null) >= 0) walls = new WallIn(shooter);
+			LivingEntity shooter = seekingCover ? exposed : shooterBeyondReach(player, context.focus(), player.getInventory().getItem(slot));
+			if (shooter != null && closing == null && walls == null && player.tickCount >= coverRetryTick && blockSlot >= 0) walls = new WallIn(shooter);
 			if (walls != null) {
 				Step built = walls.tick(context, input);
 				if (built.status() == ReflexScheduler.ActionStatus.RUNNING) return Step.running(done + "; " + built.detail());
@@ -653,21 +728,32 @@ final class ReflexActions {
 				coverRetryTick = player.tickCount + 40;
 				if (built.status() == ReflexScheduler.ActionStatus.DONE) return Step.done(done + "; " + built.detail());
 			}
-			if (shooter != null && PlaceBlock.blockSlot(player, null) < 0 && (cover != null || player.tickCount >= coverRetryTick)) {
+			if (shooter != null && blockSlot < 0 && (cover != null || player.tickCount >= coverRetryTick)) {
 				if (cover == null) cover = new TakeCover(COVER_WITHIN, false);
 				Step hidden = cover.tick(new Context(player, shooter, context.stance(), context.memory(), context.point(), context.below(),
 						context.fightShields()), input);
 				if (hidden.status() == ReflexScheduler.ActionStatus.RUNNING) return Step.running(done + "; taking cover from " + type(shooter) + ": " + hidden.detail());
 				// In cover (or none found): look again a second later, so a shooter that moves round is answered too.
 				coverNote = hidden.detail();
+				coverRetryTick = player.tickCount + (hidden.status() == ReflexScheduler.ActionStatus.DONE ? 20 : 40);
+				if (hidden.status() == ReflexScheduler.ActionStatus.FAILED && exposed != null) {
+					startBackOut(player, Retreat.SHOOTER, exposed);
+					return Step.running(done + "; no cover, backing away from " + type(exposed));
+				}
 				cover.end(player);
 				cover = null;
-				coverRetryTick = player.tickCount + (hidden.status() == ReflexScheduler.ActionStatus.DONE ? 20 : 40);
 			}
 			Entity focus = context.focus();
 			Vec3 at = focus != null && focus.isAlive() ? ReflexSensors.aimPoint(focus instanceof Projectile p && p.getOwner() != null ? p.getOwner() : focus) : null;
 			input.accept(look(player, at, 0.0F, 0.0F, false, false, slot, InteractionHand.MAIN_HAND));
 			return Step.running(done + "; no shield, facing the attacker" + (coverNote == null ? "" : "; cover: " + coverNote));
+		}
+
+		private static Mob rangedAttacker(ServerPlayer player, Entity focus) {
+			Entity source = focus instanceof Projectile shot ? shot.getOwner() : focus;
+			if (!(source instanceof Mob mob) || !mob.isAlive() || !ThreatPerception.isRanged(mob)) return null;
+			if (player.distanceTo(mob) >= BOW_RANGE || !mob.hasLineOfSight(player)) return null;
+			return mob;
 		}
 
 		/**
@@ -704,7 +790,10 @@ final class ReflexActions {
 		public boolean holdsWhileTrue() { return true; }
 
 		@Override
-		public long releaseGraceTicks() { return chased ? CHASED_GRACE_TICKS : SHIELD_GRACE_TICKS; }
+		public boolean blocksShots() { return cover != null && (backOut == null || retreat == Retreat.SHOOTER) && cover.blocksShots(); }
+
+		@Override
+		public long releaseGraceTicks() { return backOut != null || chased ? CHASED_GRACE_TICKS : SHIELD_GRACE_TICKS; }
 	}
 
 	/** Aim at the focus and swing when the crosshair is on it and the attack has recharged; a trigger swings once. */
@@ -1638,7 +1727,7 @@ final class ReflexActions {
 			advance(player);
 			if (index >= path.size()) return Step.done("arrived");
 			Vec3 now = player.position();
-			stuck = last != null && now.distanceToSqr(last) < 0.0025D ? stuck + 1 : 0;
+			stuck = last != null && now.subtract(last).horizontalDistanceSqr() < 0.0025D ? stuck + 1 : 0;
 			last = now;
 			GridPosition cell = path.get(index);
 			if (stuck >= 30) return Step.failed("blocked on the way at " + cell.x() + "," + cell.y() + "," + cell.z());
@@ -1650,6 +1739,9 @@ final class ReflexActions {
 	/** Run from the threat (the focus or the condition's point) along known safe footing, facing where it runs. */
 	static final class SprintAway implements Behaviour {
 		private static final float[] OFFSETS = {0.0F, 30.0F, -30.0F, 60.0F, -60.0F, 90.0F, -90.0F, 120.0F, -120.0F};
+		private static final float[] CREEPER_OFFSETS = {0.0F, 30.0F, -30.0F, 60.0F, -60.0F, 90.0F, -90.0F};
+		/** The fuse starts inside three blocks. Once it is out, leave twice that much room before stopping. */
+		private static final double CREEPER_CLEAR = 6.0D;
 		/** Health a drop taken in place of a level escape must leave. */
 		private static final float SURVIVE_MARGIN = 4.0F;
 		/** Headings back toward a cloud's centre, tried only when none of {@link #OFFSETS} has footing. */
@@ -1658,10 +1750,12 @@ final class ReflexActions {
 		private static final int CLOUD_CROSSING_DAMAGE = 6;
 		private final double blocks;
 		private final int maxDrop;
+		private final double stopAtSeparation;
 		/** One block down, as running over uneven ground steps down; a deeper drop leaves the footing the body stood on. */
 		static final int BACK_OUT_DROP = 1;
 		private Vec3 start;
 		private Vec3 origin;
+		private Creeper creeper;
 		private double startSeparation = Double.NaN;
 		private Vec3 last;
 		private int stuck;
@@ -1693,8 +1787,13 @@ final class ReflexActions {
 		}
 
 		SprintAway(double blocks, int maxDrop) {
+			this(blocks, maxDrop, Double.POSITIVE_INFINITY);
+		}
+
+		SprintAway(double blocks, int maxDrop, double stopAtSeparation) {
 			this.blocks = blocks;
 			this.maxDrop = maxDrop;
+			this.stopAtSeparation = stopAtSeparation;
 		}
 
 		private boolean keepsFooting() {
@@ -1706,7 +1805,13 @@ final class ReflexActions {
 			ServerPlayer player = context.player();
 			if (start == null) start = player.position();
 			if (ending != null) return settle(player, input);
+			if (creeper == null && context.focus() instanceof Creeper target) creeper = target;
+			double moved = Math.hypot(player.getX() - start.x, player.getZ() - start.z);
+			if (creeper != null && !creeper.isAlive()) {
+				return end(player, input, Step.done(String.format(Locale.ROOT, "ran %.1f blocks; creeper is gone", moved)));
+			}
 			Vec3 threat = context.threat();
+			if (creeper != null) threat = creeper.position();
 			// From a melee mob with others of its kind about, the run leaves the pack, not the one mob. A fusing creeper, an
 			// archer or a place keep their own point: the creeper's blast is the danger whatever else stands near.
 			if (context.focus() instanceof Mob mob && !(mob instanceof Creeper) && !ThreatPerception.isRanged(mob)) {
@@ -1722,8 +1827,9 @@ final class ReflexActions {
 			else if (origin == null) origin = player.position().subtract(player.getViewVector(1.0F).multiply(1.0D, 0.0D, 1.0D));
 			double separation = Math.hypot(player.getX() - origin.x, player.getZ() - origin.z);
 			if (Double.isNaN(startSeparation)) startSeparation = separation;
-			double moved = Math.hypot(player.getX() - start.x, player.getZ() - start.z);
-			if (separation - startSeparation >= blocks || moved >= blocks * 1.5D) {
+			boolean creeperClear = creeper != null && separation >= CREEPER_CLEAR
+					&& creeper.getSwellDir() <= 0 && creeper.getSwelling(1.0F) <= 0.0F;
+			if (creeperClear || separation >= stopAtSeparation || separation - startSeparation >= blocks || moved >= blocks * 1.5D) {
 				return end(player, input, Step.done(String.format(Locale.ROOT, "ran %.1f blocks, now %.1f away", moved, separation) + dropNote + walkNote));
 			}
 			if (dropHeading != null && player.onGround() && Mth.floor(player.getY() + 1.0E-4D) < dropFromY) dropHeading = null;
@@ -1752,7 +1858,13 @@ final class ReflexActions {
 				}
 			}
 			float away = (float) Math.toDegrees(Math.atan2(-(player.getX() - origin.x), player.getZ() - origin.z));
-			Float heading = SafeStep.heading(player, away, OFFSETS, lastHeading,
+			float[] offsets = creeper == null ? OFFSETS : CREEPER_OFFSETS;
+			Float heading = null;
+			// Once running away along an edge, keep the heading while it still gains distance and has footing.
+			if (creeper != null && lastHeading != null && Math.abs(Mth.wrapDegrees(lastHeading - away)) <= 90.0F
+					&& SafeStep.blocked(player, lastHeading) == null && !runsIntoCloud(player, lastHeading)
+					&& !runsTowardVoid(player, lastHeading)) heading = lastHeading;
+			if (heading == null) heading = SafeStep.heading(player, away, offsets, lastHeading,
 					List.of(yaw -> runsIntoCloud(player, yaw) || runsTowardVoid(player, yaw), yaw -> runsTowardVoid(player, yaw)), maxDrop);
 			lastHeading = heading;
 			if (heading == null && dropHeading != null) heading = dropHeading;
@@ -1764,7 +1876,7 @@ final class ReflexActions {
 				if (back != null) return back;
 				if (moved >= 1.0D) return end(player, input, Step.done(String.format(Locale.ROOT, "ran %.1f blocks; no safe heading further", moved) + dropNote + walkNote));
 				List<SafeStep.Blocked> blocked = new ArrayList<>();
-				for (float offset : OFFSETS) {
+				for (float offset : offsets) {
 					SafeStep.Blocked why = SafeStep.blocked(player, Mth.wrapDegrees(away + offset));
 					if (why != null) blocked.add(why);
 				}
@@ -1819,7 +1931,8 @@ final class ReflexActions {
 				heading = dropHeading;
 			}
 			Vec3 now = player.position();
-			stuck = last != null && now.distanceToSqr(last) < 0.0025D ? stuck + 1 : 0;
+			// Jumping against a corner can change Y without getting anywhere along the retreat.
+			stuck = last != null && now.subtract(last).horizontalDistanceSqr() < 0.0025D ? stuck + 1 : 0;
 			last = now;
 			// A straight heading the probe allows can still jam the body on a corner (a diagonal into a side tunnel): a
 			// player steps around it along ground it knows rather than push into the corner.
@@ -2495,7 +2608,7 @@ final class ReflexActions {
 		@Override
 		public Step tick(Context context, Consumer<AgentInputState> input) {
 			ServerPlayer player = context.player();
-			Step blocked = blockShot(player, input);
+			Step blocked = blockShot(player, input, false);
 			if (blocked != null) return blocked;
 			if (wall != null) return buildCover(context, input);
 			if (walk == null) {
@@ -2558,7 +2671,7 @@ final class ReflexActions {
 		 * a raised shield moves at a fifth of the speed, and the walk, the look around and the wall each aim the view the
 		 * shield turns away. The blocking step, or null when this tick goes on with cover.
 		 */
-		private Step blockShot(ServerPlayer player, Consumer<AgentInputState> input) {
+		private Step blockShot(ServerPlayer player, Consumer<AgentInputState> input, boolean retreating) {
 			InteractionHand hand = shieldHand(player);
 			blocking = hand != null;
 			if (hand == null) return null;
@@ -2572,7 +2685,8 @@ final class ReflexActions {
 			shieldTicks++;
 			input.accept(look(player, shot == null ? shotFrom : ReflexSensors.strikeFacing(player, shot), 0.0F, 0.0F, false, true,
 					player.getInventory().getSelectedSlot(), hand));
-			String phase = wall != null ? "while building cover toward " + type(shooter)
+			String phase = retreating ? "while running out of range"
+					: wall != null ? "while building cover toward " + type(shooter)
 					: walk != null ? "on the way to cover at " + cover.x() + "," + cover.y() + "," + cover.z() : "while looking for cover";
 			return Step.running("blocking a shot " + phase + shielded());
 		}

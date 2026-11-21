@@ -16,6 +16,7 @@ import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
+import { damageCounter, damageEvidence, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const out = resolve(process.argv[2] ?? 'runtime/reflex-combat-live');
@@ -84,7 +85,7 @@ function startAction(type, args) {
 	return bridge.send('action_command', record.agentId, payload).then(() => ({ id, result }));
 }
 const events = (o, id) => (o.reflexes?.events ?? []).filter((event) => event.id === id);
-const health = (o) => o.player?.health;
+const health = (o) => o?.player?.health;
 
 const results = {};
 const only = (process.env.REFLEX_ONLY ?? '').split(',').filter(Boolean);
@@ -122,7 +123,10 @@ try {
 	await sleep(2000); await observe();
 	await command(`gamemode survival ${agent}`); await command(`clear ${agent}`);
 	await command(`effect give ${agent} minecraft:saturation 5 10 true`);
-
+	await command('scoreboard objectives add deaths deathCount');
+	const deaths = () => deathCounter(command, agent, { objective: 'deaths', unsetIsZero: true });
+	const damage = await damageCounter(command, agent);
+	let deathsBefore, damageBefore, healthBefore;
 
 	const reset = async () => {
 		await command('kill @e[type=!minecraft:player]');
@@ -135,6 +139,9 @@ try {
 		await command(`clear ${agent}`); await command(`tp ${agent} 0.5 80 0.5 0 0`);
 		await setReflexes([]);
 		await sleep(1000);
+		deathsBefore = await deaths();
+		damageBefore = await damage();
+		healthBefore = health(observation);
 	};
 	const selected = (name) => only.length === 0 || only.includes(name);
 	// Each scenario runs on its own: a failure is recorded and the next one still runs; results are saved as they come.
@@ -142,6 +149,10 @@ try {
 	const want = (name) => selected(name) && (scenarios.push(name), true);
 	const settle = async (name, error) => {
 		if (error) results[name] = { ...(results[name] ?? {}), pass: false, error: String(error?.stack ?? error).slice(0, 400) };
+		const took = damageEvidence(damageBefore, await damage().catch(() => null), healthBefore, health(o));
+		const death = deathEvidence(deathsBefore, await deaths().catch(() => null));
+		Object.assign(results[name], took, { deaths: death.deaths });
+		if (!death.valid) results[name].integrity = [...(results[name].integrity ?? []), { file: 'deaths', error: 'Missing or decreasing death counter' }];
 		await writeFile(join(out, 'results.json'), JSON.stringify(results, null, 2));
 		await writeFile(join(out, 'timeline.json'), JSON.stringify(timeline, null, 1));
 		console.log(`[scenario] ${name}: ${results[name]?.pass ? 'PASS' : 'FAIL'}`);
