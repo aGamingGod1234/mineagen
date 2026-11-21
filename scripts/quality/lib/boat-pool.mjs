@@ -42,6 +42,14 @@ export async function remote(id, script, options) {
 }
 export const quote = text => `'${String(text).replace(/'/g, `'\\''`)}'`;
 
+/**
+ * Starts the room helper in the background and returns at once. Only the helper may go in the background: in
+ * `a && b && node ... > log &` the whole list is the background job, and its subshell keeps the ssh output open until
+ * the room ends, so boat ssh waited out the room and timed out on rooms longer than 10 minutes.
+ */
+export const launchScript = ({ outDir, code, helper, jobFile, log, node = 'node' }) =>
+	`rm -rf ${quote(outDir)} && cd ${quote(code)} || exit 1\nsetsid nohup ${node} ${quote(helper)} ${quote(jobFile)} > ${quote(log)} 2>&1 < /dev/null &\necho started`;
+
 export async function createMachine({ from = null, type = 'default', ttlSeconds = 7200, name, snapshots = false }) {
 	const args = ['new', '--no-env', '--type', type, '--ttl', String(ttlSeconds), '--name', name, '--json'];
 	if (from) args.push('--from', from);
@@ -94,7 +102,7 @@ export function boatPool({ snapshot, type = 'default', ttlSeconds = 7200, namePr
 			const jobs = path.posix.dirname(job.outDir).replace(/\/out$/, '/jobs');
 			const file = `${jobs}/${job.room}.json`;
 			await upload(vm.id, local, file);
-			await remote(vm.id, `rm -rf ${quote(job.outDir)} && cd ${quote(job.code)} && setsid nohup node ${quote(path.posix.join(path.posix.dirname(jobs), 'room-batch-remote.mjs'))} ${quote(file)} > ${quote(`${jobs}/${job.room}.log`)} 2>&1 < /dev/null & echo started`);
+			await remote(vm.id, launchScript({ outDir: job.outDir, code: job.code, helper: path.posix.join(path.posix.dirname(jobs), 'room-batch-remote.mjs'), jobFile: file, log: `${jobs}/${job.room}.log` }));
 			vm.outDir = path.posix.dirname(job.outDir);
 		},
 		async poll(vm, room) {

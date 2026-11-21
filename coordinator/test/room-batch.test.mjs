@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { armTotals, formatSummary, mergeArms, parseCommands, plannedOf, runQueue, splitWords } from '../../scripts/quality/lib/room-batch-core.mjs';
 import { runBatch } from '../../scripts/quality/lib/room-batch-run.mjs';
+import { launchScript } from '../../scripts/quality/lib/boat-pool.mjs';
 
 const LINE = 'node scripts/quality/test-build-live.mjs scripts/quality/carve-hidden-fluid-spots.json $OUT $JAR --descriptive';
 const room = name => ({ room: name, lines: [{ arm: 'new', env: {}, args: [] }, { arm: 'old', env: {}, args: [] }], planned: 1 });
@@ -231,4 +232,29 @@ test('a machine that cannot start its room is deleted at once and the room plays
 		assert.equal(result.outcomes[0].attempts, 2);
 		assert.equal(result.merged.new.summary.status, 'PASS');
 	} finally { await rm(out, { recursive: true, force: true }); }
+});
+
+test('the room launch returns at once and leaves only the helper running, so ssh never waits out a room', { skip: process.platform === 'win32' }, async () => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'room-batch-launch-'));
+	try {
+		const helper = path.join(dir, 'helper.mjs');
+		await writeFile(helper, `import { writeFileSync } from 'node:fs'; setTimeout(() => writeFileSync(process.argv[2] + '.ran', 'yes'), 3000);\n`);
+		await mkdir(path.join(dir, 'out', 'r'), { recursive: true });
+		const script = launchScript({ outDir: path.join(dir, 'out', 'r'), code: dir, helper, jobFile: path.join(dir, 'job.json'), log: path.join(dir, 'job.log'), node: process.execPath });
+		const { spawn } = await import('node:child_process');
+		const began = Date.now();
+		// Like boat ssh: the call ends only when every holder of the output pipe has closed it.
+		const output = await new Promise((resolve, reject) => {
+			const child = spawn('bash', ['-c', script], { stdio: ['ignore', 'pipe', 'pipe'] });
+			let text = '';
+			child.stdout.on('data', chunk => { text += chunk; });
+			child.on('error', reject);
+			child.stdout.on('end', () => resolve(text));
+		});
+		assert.equal(output.trim(), 'started');
+		assert.ok(Date.now() - began < 2000, `the launch held the output open for ${Date.now() - began} ms`);
+		const deadline = Date.now() + 10_000;
+		while (Date.now() < deadline) { try { await readFile(path.join(dir, 'job.json.ran')); break; } catch { await new Promise(done => setTimeout(done, 200)); } }
+		assert.equal(await readFile(path.join(dir, 'job.json.ran'), 'utf8'), 'yes', 'the helper kept running after the launch returned');
+	} finally { await rm(dir, { recursive: true, force: true }); }
 });
