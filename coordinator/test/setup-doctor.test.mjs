@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { applyFixes, doctorContext, runChecks } from '../../scripts/doctor.mjs';
+import { applyFixes, doctorContext, exportLine, runChecks } from '../../scripts/doctor.mjs';
 import { recordingsRoot } from '../scripts/private-inputs.mjs';
 
 const doctor = fileURLToPath(new URL('../../scripts/doctor.mjs', import.meta.url));
@@ -140,11 +140,12 @@ test('a recording missing from the archive fails the private inputs check by nam
 });
 
 test('Java 25 must be on JAVA_HOME; the fix exports the Java 25 found on PATH', () => {
-	const { checkout, cleanup } = fixture();
+	const { base, checkout, cleanup } = fixture();
 	try {
+		const jdk = path.join(base, 'jdk');
+		write(path.join(jdk, 'bin/java'), 'x');
 		const javaRun = version => (command, args) => {
-			if (args[0] === '-version') return { status: 0, stdout: '', stderr: `openjdk version "${version}" 2026-10-20` };
-			if (command === 'which') return { status: 0, stdout: `${process.execPath}\n` };
+			if (args.includes('-version')) return { status: 0, stdout: '', stderr: `Property settings:\n    java.home = ${jdk}\n\nopenjdk version "${version}" 2026-10-20` };
 			return stubRun(command, args);
 		};
 		assert.match(result(context(checkout, { run: javaRun('21.0.4') }), 'java').detail, /no Java 25/);
@@ -155,6 +156,51 @@ test('Java 25 must be on JAVA_HOME; the fix exports the Java 25 found on PATH', 
 		const home = unset.env.JAVA_HOME;
 		assert.equal(result(context(checkout, { run: javaRun('25.0.5'), env: { JAVA_HOME: home } }), 'java').status, 'ok');
 	} finally { cleanup(); }
+});
+
+test('a launcher shim for java on PATH resolves to the JDK the JVM reports, not the shim folder', () => {
+	const { base, checkout, cleanup } = fixture();
+	try {
+		const shim = path.join(base, 'shims/bin/java'), jdk = path.join(base, 'jdk-25');
+		write(shim, '#!/bin/sh\nexec /elsewhere/java "$@"\n');
+		write(path.join(jdk, 'bin/java'), 'x');
+		const run = (command, args) => {
+			if (args.includes('-version')) return { status: 0, stdout: '', stderr: `    java.home = ${jdk}\nopenjdk version "25.0.5" 2026-10-20` };
+			if (command === 'which') return { status: 0, stdout: `${shim}\n` };
+			return stubRun(command, args);
+		};
+		const found = result(context(checkout, { run }), 'java');
+		assert.equal(found.env.JAVA_HOME, jdk);
+		assert.ok(existsSync(path.join(found.env.JAVA_HOME, 'bin/java')), 'the exported home has bin/java');
+		// Without a reported home, the shim's own folder (which has bin/java) is not guessed.
+		const guessed = result(context(checkout, { run: (command, args) => args.includes('-version') ? { status: 0, stdout: '', stderr: 'openjdk version "25.0.5"' } : run(command, args) }), 'java');
+		assert.equal(guessed.env, undefined);
+	} finally { cleanup(); }
+});
+
+test('--fix moves a checksum-invalid JAR aside before the download fallback, which keeps any file in place', async () => {
+	const { base, checkout, cleanup } = fixture();
+	try {
+		const jar = path.join(checkout, 'libs/fabric-carpet-26.3+v1.jar');
+		write(jar, 'tampered');
+		const presentAtFetch = [];
+		const run = (command, args) => {
+			if (command === 'bash' && /fetch-libs\.sh$/.test(args[0])) presentAtFetch.push(existsSync(jar));
+			return stubRun(command, args);
+		};
+		const steps = await applyFixes(context(checkout, { run }), { from: path.join(base, 'empty-main') });
+		assert.ok(presentAtFetch.length > 0, 'the download fallback ran');
+		assert.deepEqual([...new Set(presentAtFetch)], [false], 'the invalid JAR was out of the way when fetch-libs.sh ran');
+		assert.equal(readFileSync(`${jar}.invalid`, 'utf8'), 'tampered');
+		assert.ok(steps.some(step => /moved libs\/fabric-carpet-26\.3\+v1\.jar \(checksum mismatch\)/.test(step)), steps.join('\n'));
+	} finally { cleanup(); }
+});
+
+test('--env lines keep $, backticks and quotes literal when eval reads them', { skip: process.platform === 'win32' && 'needs a POSIX shell' }, () => {
+	const value = "/cache-$DOCTOR_PROBE/`echo hi`/it's \"here\"";
+	const shell = spawnSync('sh', ['-c', `${exportLine('DOCTOR_VALUE', value)}; printf %s "$DOCTOR_VALUE"`], { encoding: 'utf8', env: { ...process.env, DOCTOR_PROBE: 'expanded' } });
+	assert.equal(shell.status, 0, shell.stderr);
+	assert.equal(shell.stdout, value);
 });
 
 test('slot locks say Windows is unsupported, and memory warns below the live-server floor', () => {

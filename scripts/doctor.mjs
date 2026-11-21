@@ -10,7 +10,7 @@
 //                                               the server template (scripts/prepare-server-template.mjs)
 //   eval "$(node scripts/doctor.mjs --env)"     export JAVA_HOME and ARENA_HEADLESS_SERVER_TEMPLATE when they are
 //                                               unset or wrong and a working value was found
-import { cpSync, copyFileSync, existsSync, lstatSync, readFileSync, readdirSync, realpathSync, unlinkSync } from 'node:fs';
+import { cpSync, copyFileSync, existsSync, lstatSync, readFileSync, readdirSync, renameSync, unlinkSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
@@ -39,18 +39,27 @@ export function doctorContext(overrides = {}) {
 	};
 }
 
-function javaVersion(ctx, java) {
-	const result = ctx.run(java, ['-version']);
-	return result.error ? null : Number(/version "(\d+)/.exec(`${result.stderr}${result.stdout}`)?.[1]) || 0;
+/** Version and java.home of one java executable, as the JVM itself reports them. */
+function javaInfo(ctx, java) {
+	const result = ctx.run(java, ['-XshowSettings:properties', '-version']);
+	if (result.error) return { version: null };
+	const output = `${result.stderr}${result.stdout}`;
+	return { version: Number(/version "(\d+)/.exec(output)?.[1]) || 0, home: /^\s*java\.home = (.+?)\s*$/m.exec(output)?.[1] };
 }
 
 /** JAVA_HOME of the first Java 25 found: JAVA_HOME itself, then java on PATH. */
 export function java25Home(ctx) {
 	const exe = ctx.platform === 'win32' ? 'java.exe' : 'java';
-	if (ctx.env.JAVA_HOME && javaVersion(ctx, path.join(ctx.env.JAVA_HOME, 'bin', exe)) === 25) return ctx.env.JAVA_HOME;
-	if (javaVersion(ctx, exe) !== 25) return null;
-	const found = ctx.run(ctx.platform === 'win32' ? 'where' : 'which', [exe]).stdout?.split(/\r?\n/)[0]?.trim();
-	try { return found ? path.dirname(path.dirname(realpathSync(found))) : null; } catch { return null; }
+	const isHome = home => Boolean(home) && existsSync(path.join(home, 'bin', exe));
+	if (ctx.env.JAVA_HOME && javaInfo(ctx, path.join(ctx.env.JAVA_HOME, 'bin', exe)).version === 25) return ctx.env.JAVA_HOME;
+	// Use the home the JVM reports: the folder above `java` on PATH is wrong when that is a launcher shim, not the JDK.
+	const onPath = javaInfo(ctx, exe);
+	return onPath.version === 25 && isHome(onPath.home) ? onPath.home : null;
+}
+
+/** One `export NAME='value'` line that `eval` in bash or sh reads back as exactly that value. */
+export function exportLine(name, value) {
+	return `export ${name}='${String(value).replaceAll("'", `'\\''`)}'`;
 }
 
 /** Every libs/ JAR a checksum file names, for all three Minecraft targets, with its state. */
@@ -186,7 +195,13 @@ export async function applyFixes(ctx, { from = mainCheckout(ctx), acceptEula = f
 		const source = from && path.join(from, 'libs', jar.name);
 		if (source && existsSync(source) && sha256(source) === jar.hash) { copyFileSync(source, jar.file); steps.push(`copied libs/${jar.name} from ${from}`); }
 	}
-	if (libsState(ctx.root).some(jar => jar.state !== 'ok') && ctx.platform !== 'win32') {
+	const stillBad = libsState(ctx.root).filter(jar => jar.state !== 'ok');
+	if (stillBad.length && ctx.platform !== 'win32') {
+		// fetch-libs.sh keeps any file already in place, so move a checksum-invalid one aside or it is never replaced.
+		for (const jar of stillBad.filter(jar => jar.state === 'checksum mismatch')) {
+			renameSync(jar.file, `${jar.file}.invalid`);
+			steps.push(`moved libs/${jar.name} (checksum mismatch) to libs/${jar.name}.invalid`);
+		}
 		for (const target of ['', '26.1', '26.2']) {
 			const result = ctx.run('bash', [path.join(ctx.root, 'scripts/fetch-libs.sh'), ...(target ? [target] : [])], { cwd: ctx.root });
 			steps.push(`ran ./scripts/fetch-libs.sh ${target || '(default target)'}: exit ${result.status}`);
@@ -229,7 +244,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
 	if (flags.has('--help')) { console.log(readFileSync(fileURLToPath(import.meta.url), 'utf8').split('\n').slice(1, 13).map(line => line.replace(/^\/\/ ?/, '')).join('\n')); process.exit(0); }
 	const ctx = doctorContext();
 	if (flags.has('--env')) {
-		for (const result of runChecks(ctx)) for (const [name, value] of Object.entries(result.env ?? {})) console.log(`export ${name}=${JSON.stringify(value)}`);
+		for (const result of runChecks(ctx)) for (const [name, value] of Object.entries(result.env ?? {})) console.log(exportLine(name, value));
 		process.exit(0);
 	}
 	if (flags.has('--fix')) {
