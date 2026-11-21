@@ -248,8 +248,19 @@ export async function followEyes(target, body, { observation: initial, deadline,
 			}
 			last.dropId = current.stableId;
 			const end = await act('travel_to', bounded({ x: current.x, y: current.y, z: current.z, tolerance: 1, build: true }));
-			if (end) return end;
+			const reach = () => Math.hypot(current.x - o.player.x, current.z - o.player.z);
+			if (end && (end.reasonCode !== 'FIND_BLOCKED' || reach() > 4)) return end;
 			let drop = visibleDrop(), failed = null;
+			// Arrived and the eye neither came to hand nor stays in view (it lies a block below the feet, in a dip or water):
+			// step onto it, as a player walks over an item (eye rooms: 5 of 13 lost eyes were walked to and left there).
+			if ((end || !drop) && eyesHeld(o) <= last.eyesAfter && !last.steppedOn && reach() <= 4) {
+				last.steppedOn = true;
+				const at = drop ?? current;
+				const stepped = await act('move_to', { x: at.x, y: Math.abs(at.y - o.player.y) <= 2 ? at.y : o.player.y, z: at.z, tolerance: 0.5, sprint: false });
+				if (stepped && stepped.reasonCode !== 'FIND_BLOCKED') return stepped;
+				drop = visibleDrop();
+			}
+			if (end && eyesHeld(o) <= last.eyesAfter) return end;
 			if (drop?.stableId && eyesHeld(o) <= last.eyesAfter) {
 				failed = await act('pick_up_item', { targetSelector: drop.stableId });
 				if (failed && failed.reasonCode !== 'FIND_BLOCKED') return failed;

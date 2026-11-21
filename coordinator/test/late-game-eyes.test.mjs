@@ -339,3 +339,25 @@ test('a drop seen landing but not picked out after the walk is stepped onto, whi
 	assert.equal(r.find.eyes.throws[0].eyesAfterPickup, 16);
 	assert.equal(r.find.eyes.eyesLeftBehind, undefined);
 });
+
+test('a seen eye walked to but lying a block below the feet is stepped onto, not left there', async () => {
+	const b = body({ flight: (n, from) => ({ outcome: 'dropped', droppedAt: { x: from.x + 6, y: 69, z: from.z } }), onAct: (type, args, o) => {
+		if (type === 'travel_to' && args.y !== undefined) {
+			// Arrived beside it; from here it is out of view in the dip below.
+			o.player.x = args.x - 0.8; o.player.z = args.z; o.items = [];
+			return { state: 'SUCCEEDED', reasonCode: 'ARRIVED' };
+		}
+		if (type === 'move_to') { o.player.x = args.x; o.player.z = args.z; if (args.tolerance <= 0.5 && args.y === 69) o.inventory.items[0].count++; return { state: 'SUCCEEDED', reasonCode: 'ARRIVED' }; }
+		return null;
+	} });
+	// The drop is in view from the throw point.
+	const realAct = b.act;
+	b.act = async (type, args, options) => {
+		const r = await realAct(type, args, options);
+		if (type === 'wait' && args.durationMs > 1000) b.o.items = [{ itemId: 'minecraft:ender_eye', stableId: EYE_ID, x: 6, y: 69, z: 0 }];
+		return r;
+	};
+	const r = await searchFor({ structure: 'stronghold', throwCap: 1 }, b);
+	assert.ok(b.calls.some(c => c.type === 'move_to' && c.args.y === 69), 'steps down onto it');
+	assert.equal(r.find.eyes.throws[0].eyesAfterPickup, 16);
+});
