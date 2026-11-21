@@ -164,6 +164,8 @@ public final class ServerFightController implements ServerController {
 	private boolean shieldChecked;
 	/** Calm neutral mobs this fight's swings hurt besides the target (sword sweeps), "type uuid". */
 	private final List<String> neutralHits = new ArrayList<>(4);
+	/** Swings held because a calm neutral stood where the sword's sweep would land (a player waits for it to step clear). */
+	private int sweepHolds;
 	private int ticksOnTarget;
 	private int policyCountdown = CombatPlanning.POLICY_INTERVAL_TICKS;
 	private int policySwitches;
@@ -550,8 +552,12 @@ public final class ServerFightController implements ServerController {
 		input.apply(player, new AgentInputState(forward, strafe, jump, sneak, sprint && !sneak, false, shielding && !step.attack(),
 				yaw, pitch, weaponSlot, shielding ? InteractionHand.OFF_HAND : InteractionHand.MAIN_HAND));
 		// The swing is a direct server call, so it must also yield to an operator takeover (whose input lease wins).
-		if (step.attack() && !player.isUsingItem() && !operatorControlled(player)) {
-			Map<LivingEntity, Float> calm = calmNeutralsBeside(player);
+		Map<LivingEntity, Float> calm = step.attack() ? calmNeutralsBeside(player) : Map.of();
+		// A sword sweep hurts calm piglins beside the target and turns the whole group on the body (three of three barter
+		// room deaths beside a hoglin): hold the swing until none stands in the sweep, as a player does.
+		boolean holdForSweep = holdSwingForSweep(player.getMainHandItem().is(net.minecraft.tags.ItemTags.SWORDS), calm.size());
+		if (holdForSweep) sweepHolds++;
+		if (step.attack() && !holdForSweep && !player.isUsingItem() && !operatorControlled(player)) {
 			if (footwork != null) noteStrike(player);
 			player.attack(strike);
 			noteNeutralHits(player, calm);
@@ -1130,6 +1136,11 @@ public final class ServerFightController implements ServerController {
 		return calm;
 	}
 
+	/** True when a sword swing now would sweep a calm neutral: the swing waits for it to step clear. */
+	public static boolean holdSwingForSweep(boolean swordInHand, int calmNeutralsInSweep) {
+		return swordInHand && calmNeutralsInSweep > 0;
+	}
+
 	/** Names each calm neutral the swing hurt (its sweep): a hurt zombified piglin angers every one within 35 blocks. */
 	private void noteNeutralHits(ServerPlayer player, Map<LivingEntity, Float> calm) {
 		for (Map.Entry<LivingEntity, Float> entry : calm.entrySet()) {
@@ -1142,6 +1153,7 @@ public final class ServerFightController implements ServerController {
 
 	private String kills() {
 		String extra = (blazeWaitTicks == 0 ? "" : String.format(Locale.ROOT, "; held deck awaiting blaze reach %.1f s", blazeWaitTicks / 20.0D)) + footworkFacts() + (shieldBroke ? "; offhand shield broke mid-fight, fought on unshielded" : "")
+				+ (sweepHolds == 0 ? "" : String.format(Locale.ROOT, "; held the sword %.1f s while a calm neutral stood in its sweep", sweepHolds / 20.0D))
 				+ (neutralHits.isEmpty() ? "" : "; your sword sweep also hit calm " + String.join(", ", neutralHits)
 						+ " (now hostile; a hurt zombified piglin angers all within 35 blocks)");
 		if (kills.isEmpty()) return extra;
