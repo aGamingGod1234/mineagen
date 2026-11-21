@@ -220,3 +220,16 @@ test('a death seen only in the samples takes its cause from the coordinator\'s d
 		assert.deepEqual(both.deathCauses, { lava: 1 }, 'a hit and a death row of one death stay one death');
 	} finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test('a fatal Watcher episode with no receipt names its death from the episode\'s death message', async () => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'stage-causes-'));
+	try {
+		const rows = [{ at: 1000, health: 20, deathCounter: 0, inventoryNbt: '[]' }, { at: 5000, health: 20, deathCounter: 1, inventoryNbt: '[]' }];
+		await writeFile(path.join(dir, 'quality-samples.jsonl'), rows.map(s => JSON.stringify(s)).join('\n') + '\n');
+		await mkdir(path.join(dir, 'arena-watch'));
+		await writeFile(path.join(dir, 'arena-watch', 'a-episodes.jsonl'), JSON.stringify({ outcome: 'death', kind: 'mob', closedAt: { epochMs: 3000 }, deathMessage: 'Miner was shot by Skeleton' }) + '\n');
+		const scored = await scoreStageRun(dir);
+		assert.equal(scored.observedDeaths, 1);
+		assert.deepEqual(scored.deathCauses, { skeleton_arrow: 1 });
+	} finally { await rm(dir, { recursive: true, force: true }); }
+});

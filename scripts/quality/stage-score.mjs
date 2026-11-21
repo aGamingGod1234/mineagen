@@ -190,7 +190,8 @@ export async function scoreStageRun(directory, { rawDirectory = null } = {}) {
 	}
 	const fatalEpisodes = [];
 	for (const f of watchFiles) await readJsonl(f, e => {
-		if (e.outcome === 'death') acceptDeath({ at: e.closedAt?.epochMs, cause: e.source?.type ?? e.kind, source: 'watcher' });
+		// The episode keeps the vanilla death message (Episode.deathMessage), the cause when no receipt survives.
+		if (e.outcome === 'death') acceptDeath({ at: e.closedAt?.epochMs, cause: e.source?.type ?? e.kind, message: typeof e.deathMessage === 'string' ? e.deathMessage : null, source: 'watcher' });
 	});
 	for (const d of outcome?.metrics?.deathEvents ?? report?.timeline?.deaths ?? []) acceptDeath({ ...d, message: typeof d.cause === 'string' ? d.cause : null, source: 'run-record' });
 	// The Watcher's lethal hit names the damage type and attacker of a death already counted.
