@@ -189,6 +189,8 @@ for (const id of plan.vms ?? []) machines.push({ id, created: false });
 for (let i = 0; i < (plan.create ?? 0); i++) machines.push(await addMachine('pool'));
 await save();
 await log(`batch: ${games.length} games, ${plan.minutes} min, ${machines.length} machines, deadline ${plan.deadline}`);
+// Prepare every machine at once (about a minute each), so the first wave starts together; one that fails is retried in the loop.
+await Promise.all(machines.map(vm => prepare(vm).then(() => { vm.lastSeen = Date.now(); return log(`prepared ${vm.id}`); }, error => log(`machine ${vm.id}: ${error.message.split('\n')[0].slice(0, 300)}`))));
 
 while (true) {
 	for (const vm of machines.filter(m => !m.lost)) {
