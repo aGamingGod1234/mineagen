@@ -26,6 +26,7 @@ import { CONTEXT_TRIGGERS, SURVIVAL_TRIGGERS } from './arena-script/program-engi
 import { defaultServiceTier } from './constants.mjs';
 import { actionLeaseTimeoutMs, requestedActionTimeoutMs } from './work-lease-supervisor.mjs';
 import { PLAN_COUNT_ACTIONS, countSkillDurationMs, planCountDefault } from './plan-count.mjs';
+import { WALL_CLOCK, completeClock } from './game-clock.mjs';
 
 const FORGET_REASONS = /agent_removed|server_replaced|coordinator_stopped/;
 const TERMINAL_ACTION_STATES = new Set(['SUCCEEDED', 'FAILED', 'CANCELLED', 'TIMED_OUT']);
@@ -197,8 +198,14 @@ export class NativeToolRuntime {
 	#sequence = 0;
 	#publicationGraceMs;
 	#sequenceStepSettleMs;
+	// Gameplay time (searches, gather, obtain, waits, program deadlines): wall time unless a fixture passes a game clock.
+	#clock;
+	// The executor the runtime built on a game clock already pays server lag in its deadline (no wall-time lag credit).
+	#executorOnGameClock = false;
 
 	constructor({
+		// { now(), sleep(ms), setTimeout?, clearTimeout?, observe? } (game-clock.mjs); it is fed every stored sample.
+		clock = WALL_CLOCK,
 		bridge,
 		registry = null,
 		onFinish = async () => ({ state: 'FINISH_REQUESTED' }),
@@ -224,13 +231,14 @@ export class NativeToolRuntime {
 		occupancy = new ExplorationOccupancy(),
 		publicationGraceMs = POST_RESULT_PUBLICATION_GRACE_MS,
 		sequenceStepSettleMs = SEQUENCE_STEP_SETTLE_MS,
-		standingOrders = new StandingOrderBook(),
+		standingOrders = new StandingOrderBook(clock === WALL_CLOCK ? {} : { now: () => clock.now() }),
 		// The coordinator passes a book with the default survival rules; standalone runtimes (probes, tests) hold the model's rules only.
-		reflexBook = new ReflexBook({ defaults: [] }),
+		reflexBook = new ReflexBook({ defaults: [], ...(clock === WALL_CLOCK ? {} : { now: () => clock.now() }) }),
 		// After each obtain that succeeds, keep the kit from held items (kit-habit.mjs). Off for bare runtimes and tests.
 		kitHabit = false,
 	} = {}) {
 		if (typeof bridge?.send !== 'function') throw new TypeError('bridge.send must be a function');
+		this.#clock = completeClock(clock);
 		if (registry !== null && typeof registry?.get !== 'function') throw new TypeError('registry.get must be a function');
 		if (typeof onFinish !== 'function') throw new TypeError('onFinish must be a function');
 		if (typeof trace !== 'function') throw new TypeError('trace must be a function');
@@ -277,7 +285,9 @@ export class NativeToolRuntime {
 		if (planNeeds !== null && typeof planNeeds !== 'function') throw new TypeError('planNeeds must be a function');
 		this.#planNeeds = planNeeds;
 		this.#memoryObservation = memoryObservation;
-		this.#programExecutor = programExecutor ?? new NativeProgramExecutor({ sessionId });
+		this.#programExecutor = programExecutor ?? (this.#clock === WALL_CLOCK ? new NativeProgramExecutor({ sessionId })
+			: new NativeProgramExecutor({ sessionId, now: this.#clock.now, setTimeoutFn: this.#clock.setTimeout, clearTimeoutFn: this.#clock.clearTimeout }));
+		this.#executorOnGameClock = programExecutor === null && this.#clock !== WALL_CLOCK;
 		if (typeof onProgramEvent !== 'function') throw new TypeError('onProgramEvent must be a function');
 		this.#onProgramEvent = onProgramEvent;
 		if (typeof onWorkStarted !== 'function') throw new TypeError('onWorkStarted must be a function');
@@ -410,6 +420,7 @@ export class NativeToolRuntime {
 		this.#programExecutor.onObservation(record, { observation: storedObservation, eventSequence: storedSequence, attention: attention && !administrativeWake, ...(priority === undefined ? {} : { priority }), ...(trigger === undefined ? {} : { trigger }), ...(resourceSightings === undefined ? {} : { resourceSightings }) });
 		// Reflexes first: a guard reads whether a reflex holds the body on this same sample.
 		this.#considerReflexes(record, storedObservation);
+		this.#clock.observe?.(storedObservation);
 		this.#creditServerLag(record, storedObservation);
 		this.#considerStandingOrders(record, storedObservation);
 		return true;
@@ -535,7 +546,7 @@ export class NativeToolRuntime {
 	 */
 	#creditServerLag(record, observation) {
 		const run = this.#programRuns.get(record.agentId);
-		if (run?.state !== 'RUNNING' || run.goalRevision !== record.goalRevision || typeof this.#programExecutor.extendDeadlineForLag !== 'function') return;
+		if (this.#executorOnGameClock || run?.state !== 'RUNNING' || run.goalRevision !== record.goalRevision || typeof this.#programExecutor.extendDeadlineForLag !== 'function') return;
 		const epochMs = observation?.observedAtEpochMs, gameTime = observation?.world?.gameTime;
 		if (!Number.isFinite(epochMs) || !Number.isSafeInteger(gameTime)) return;
 		const last = run.lagClock;
@@ -1087,7 +1098,7 @@ export class NativeToolRuntime {
 				try {
 					const result = await this.#executeLookAround(request, record, tool, this.#executionEpoch(record.agentId), run);
 					const at = gatherBodyAt(this.#observations.get(record.agentId)?.observation ?? {});
-					if (result?.state === 'SUCCEEDED' && at !== null) this.#lastSweeps.set(record.agentId, { goalRevision: record.goalRevision, at: Date.now(), from: at, key: sweepKey(tool), result });
+					if (result?.state === 'SUCCEEDED' && at !== null) this.#lastSweeps.set(record.agentId, { goalRevision: record.goalRevision, at: this.#clock.now(), from: at, key: sweepKey(tool), result });
 					return result;
 				}
 				finally { if (this.#sweeps.get(record.agentId) === sweep) this.#sweeps.delete(record.agentId); }
@@ -1954,13 +1965,13 @@ export class NativeToolRuntime {
 		waits.add(wake);
 		this.#programWaits.set(record.agentId, waits);
 		let timer;
-		const elapsed = new Promise((resolve) => { timer = setTimeout(resolve, durationMs, 'elapsed'); });
+		const elapsed = new Promise((resolve) => { timer = this.#clock.setTimeout(resolve, durationMs, 'elapsed'); });
 		try {
 			const reason = await Promise.race([elapsed, woken, run.result.then(() => 'ended', () => 'ended')]);
 			if (reason === 'danger') return waited('WAIT_INTERRUPTED', { interruptedBy: 'danger' });
 			return waited(reason === 'ended' ? 'PROGRAM_ENDED' : reason === 'decision' ? 'PROGRAM_DECISION' : 'WAIT_ELAPSED');
 		} finally {
-			clearTimeout(timer);
+			this.#clock.clearTimeout(timer);
 			waits.delete(wake);
 			if (waits.size === 0 && this.#programWaits.get(record.agentId) === waits) this.#programWaits.delete(record.agentId);
 		}
@@ -2078,7 +2089,8 @@ export class NativeToolRuntime {
 		if (latest?.goalRevision !== record.goalRevision) throw codedError('CURRENT_OBSERVATION_REQUIRED', 'A current player observation is required before running a program');
 		run.state = 'RUNNING';
 		run.startedAtMs = Date.now();
-		run.deadlineEpochMs = run.startedAtMs + (request.tool.timeoutMs ?? 30_000);
+		// On the executor's clock, so the reported deadline is the one that ends the program.
+		run.deadlineEpochMs = (this.#executorOnGameClock ? this.#clock.now() : run.startedAtMs) + (request.tool.timeoutMs ?? 30_000);
 		this.#trace('native_program_started', { agentId: record.agentId, goalRevision: run.goalRevision, programId: run.programId,
 			origin: request.tool.noteKey === undefined ? 'source' : 'note', background: request.tool.background === true,
 			...(run.handoff == null ? {} : { successor: true }), ...programSourceSummary(source),
@@ -2627,7 +2639,7 @@ export class NativeToolRuntime {
 		// furnace loads it left smelting are this call's to take out. Flooded approaches share this per-agent ledger.
 		if (!this.#obtainPlaced.has(record.agentId)) this.#obtainPlaced.set(record.agentId, { placed: [], loads: [], approaches: [] });
 		const kept = this.#obtainPlaced.get(record.agentId);
-		const stations = { placed: kept.placed, loads: kept.loads, approaches: kept.approaches };
+		const stations = { now: this.#clock.now, placed: kept.placed, loads: kept.loads, approaches: kept.approaches };
 		const result = await runObtain(tool.arguments, body, stations);
 		if (!this.#kitHabit || result?.state !== 'SUCCEEDED' || interrupted() || !current()) return result;
 		// The kit habit (kit-habit.mjs): from what is held, keep a shield, armour and food in reach before handing back.
@@ -2670,7 +2682,7 @@ export class NativeToolRuntime {
 		// obtain asks for any of several items (any log): each counts toward the count and each drop is picked up.
 		const counted = new Set(tool.arguments.itemIds ?? [itemId]);
 		const wanted = new Set(blockIds);
-		const startedAt = Date.now();
+		const now = this.#clock.now, startedAt = now();
 		const failed = new Set(), triedItems = new Set(), reasons = [];
 		let last = null, broken = 0, picked = 0, misses = 0, steps = 0, held = 0, startHeld = null, lookedUp = null, sweeps = 0, farWalks = 0;
 		const step = async (call, label) => {
@@ -2687,7 +2699,7 @@ export class NativeToolRuntime {
 			return result;
 		};
 		const end = (state, reasonCode, why) => ({ state, reasonCode, held, broken, picked, steps,
-			message: `${why}. Holding ${held} ${itemId} (asked ${count}, ${held - (startHeld ?? held)} gained); broke ${broken} block(s), picked up ${picked} drop(s) in ${steps} step(s) over ${Math.round((Date.now() - startedAt) / 1000)} s` });
+			message: `${why}. Holding ${held} ${itemId} (asked ${count}, ${held - (startHeld ?? held)} gained); broke ${broken} block(s), picked up ${picked} drop(s) in ${steps} step(s) over ${Math.round((now() - startedAt) / 1000)} s` });
 		while (true) {
 			if (this.#executionEpoch(record.agentId) !== executionEpoch) throw codedError('NATIVE_ACTION_CANCELLED', 'gather cancelled before its next step');
 			const facts = await this.#observe(record, { includeMetadata: false, deliver: false });
@@ -2698,7 +2710,7 @@ export class NativeToolRuntime {
 			if (held >= count) return end('SUCCEEDED', 'GATHER_DONE', `Gathered: holding ${count} or more ${itemId}`);
 			const health = o.player?.health;
 			if (Number.isFinite(health) && health <= 8) return end('FAILED', 'LOW_HEALTH', `Health ${health}: stopped gathering`);
-			if (Date.now() - startedAt >= timeoutMs) return end('TIMED_OUT', 'GATHER_TIMEOUT', `timeoutMs ${timeoutMs} ran out`);
+			if (now() - startedAt >= timeoutMs) return end('TIMED_OUT', 'GATHER_TIMEOUT', `timeoutMs ${timeoutMs} ran out`);
 			if (misses >= 3) return end('FAILED', 'GATHER_STUCK', `3 targets in a row out of reach (${reasons.slice(-3).join('; ')})`);
 			const body = gatherBodyAt(o);
 			if (body === null) throw codedError('FRESH_OBSERVATION_REQUIRED', 'gather needs the body position');
@@ -2708,7 +2720,7 @@ export class NativeToolRuntime {
 				.sort((a, b) => Math.hypot(a.x - body.x, a.z - body.z) - Math.hypot(b.x - body.x, b.z - body.z))[0];
 			if (drop !== undefined) {
 				triedItems.add(drop.stableId);
-				const result = await step({ name: 'act', arguments: { actionType: 'pick_up_item', arguments: { targetSelector: drop.stableId, timeoutMs: gatherStepTimeout(30_000, startedAt + timeoutMs) } } }, 'pick up');
+				const result = await step({ name: 'act', arguments: { actionType: 'pick_up_item', arguments: { targetSelector: drop.stableId, timeoutMs: gatherStepTimeout(30_000, startedAt + timeoutMs, now()) } } }, 'pick up');
 				if (result?.state === 'SUCCEEDED') picked += 1;
 				continue;
 			}
@@ -2747,7 +2759,7 @@ export class NativeToolRuntime {
 			const key = `${target.x},${target.y},${target.z}`;
 			if (!gatherInReach(body, target)) {
 				const stand = gatherStand(o, wanted, target, body);
-				const moved = await step({ name: 'moveTo', arguments: { x: stand.x, y: stand.y, z: stand.z, tolerance: 1.5, timeoutMs: gatherStepTimeout(20_000, startedAt + timeoutMs) } }, 'walk');
+				const moved = await step({ name: 'moveTo', arguments: { x: stand.x, y: stand.y, z: stand.z, tolerance: 1.5, timeoutMs: gatherStepTimeout(20_000, startedAt + timeoutMs, now()) } }, 'walk');
 				const after = gatherBodyAt((await this.#observe(record, { includeMetadata: false, deliver: false })).observation ?? {});
 				// A walk toward a far sighting brings the exact blocks into the 6-block observation; the next step picks them.
 				if (target.far && after !== null && !gatherInReach(after, target)) {
@@ -2762,7 +2774,7 @@ export class NativeToolRuntime {
 					continue;
 				}
 			}
-			const result = await step({ name: 'mine', arguments: { x: target.x, y: target.y, z: target.z, expectedBlockId: target.blockId, autoAim: true, timeoutMs: gatherStepTimeout(15_000, startedAt + timeoutMs) } }, 'break');
+			const result = await step({ name: 'mine', arguments: { x: target.x, y: target.y, z: target.z, expectedBlockId: target.blockId, autoAim: true, timeoutMs: gatherStepTimeout(15_000, startedAt + timeoutMs, now()) } }, 'break');
 			// Broken but nothing dropped for want of the right tool (a worn-out pickaxe, stone by hand): a player sees nothing
 			// fall and stops. Scripted gate seed 1: 22 stone blocks punched by hand, 8 s each, for no cobblestone.
 			if (result?.state === 'SUCCEEDED' && /no block drops without correct tool/i.test(String(result?.message ?? '')))
@@ -2799,7 +2811,7 @@ export class NativeToolRuntime {
 		const latest = () => this.#observations.get(agentId)?.observation ?? {};
 		return {
 			eyeSearchState,
-			now: () => Date.now(),
+			now: () => this.#clock.now(),
 			progress: (facts) => { blockingRun[label] = { step: steps, ...facts }; },
 			observe: async () => {
 				live();
@@ -2825,10 +2837,10 @@ export class NativeToolRuntime {
 				// sleep and releases a sample still on its way, so the next leg never waits on the watcher (the sleep cost about
 				// 1.5 s after every failed search leg).
 				const stopped = new Promise((resolve) => { release = resolve; });
-				const stop = () => { running = false; clearTimeout(timer); wake?.(); release(null); };
+				const stop = () => { running = false; this.#clock.clearTimeout(timer); wake?.(); release(null); };
 				const watcher = watch === null ? null : (async () => {
 					while (running) {
-						await new Promise((resolve) => { wake = resolve; timer = setTimeout(resolve, 2_000); });
+						await new Promise((resolve) => { wake = resolve; timer = this.#clock.setTimeout(resolve, 2_000); });
 						if (!running || this.#executionEpoch(agentId) !== executionEpoch) return;
 						let sample = latest();
 						try { sample = (await Promise.race([this.#observe(record, { includeMetadata: false, deliver: false }), stopped]))?.observation ?? sample; } catch { /* the latest pushed sample stands */ }
@@ -2895,7 +2907,7 @@ export class NativeToolRuntime {
 		const observation = this.#observations.get(record.agentId)?.observation ?? {};
 		const at = gatherBodyAt(observation);
 		if (last === undefined || last.goalRevision !== record.goalRevision || at === null || last.key !== sweepKey(tool)) return null;
-		const ageMs = Date.now() - last.at, moved = Math.hypot(at.x - last.from.x, at.y - last.from.y, at.z - last.from.z);
+		const ageMs = this.#clock.now() - last.at, moved = Math.hypot(at.x - last.from.x, at.y - last.from.y, at.z - last.from.z);
 		const threats = observation.player?.threats ?? observation.threats?.entries ?? observation.threats ?? [];
 		if (ageMs > SWEEP_REUSE_MS || moved > SWEEP_REUSE_BLOCKS || (Array.isArray(threats) && threats.length > 0)) return null;
 		return { ...last.result, reused: `same view as ${Math.round(ageMs / 1000)} s ago, ${Math.round(moved)} blocks from here; the camera did not turn` };
@@ -3124,12 +3136,14 @@ export class NativeToolRuntime {
 			const settledResult = result.then((value) => ({ type: 'result', value }));
 			let settled = await Promise.race([settledResult, blockingRun.interruption.then(() => ({ type: 'interruption' }))]);
 			if (settled.type === 'interruption' && blockingRun.sequence?.remainingSteps > 0 && blockingRun.settleBudgetMs > 0) {
-				const settleStartedAt = performance.now();
+				// Game time: the steps it waits on (equip, select, place) take a few ticks.
+				const settleNow = this.#clock === WALL_CLOCK ? () => performance.now() : this.#clock.now;
+				const settleStartedAt = settleNow();
 				let timer;
 				settled = await Promise.race([settledResult,
-					new Promise((resolve) => { timer = setTimeout(resolve, blockingRun.settleBudgetMs, { type: 'interruption' }); })]);
-				clearTimeout(timer);
-				blockingRun.settleBudgetMs -= performance.now() - settleStartedAt;
+					new Promise((resolve) => { timer = this.#clock.setTimeout(resolve, blockingRun.settleBudgetMs, { type: 'interruption' }); })]);
+				this.#clock.clearTimeout(timer);
+				blockingRun.settleBudgetMs -= settleNow() - settleStartedAt;
 			}
 			if (settled.type === 'interruption') {
 				const status = this.#actionStatus(record, actionId);

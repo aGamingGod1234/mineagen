@@ -4,7 +4,7 @@
 // One fresh --no-env machine gets, under its home: rooms/jdk (Temurin, checked against its SHA-256), rooms/template-26.3
 // (TEMPLATE_DIR copied as is; ARENA_HEADLESS_SERVER_TEMPLATE for every room) and rooms/image.json. Node 22 or newer and
 // python3 (fixture-servers.mjs unpacks the vanilla bundle with it) must already be on the machine; eatmydata (rooms run
-// under it, see boat-pool.mjs) is installed when missing. --warm-jar plays one short room (carve-hidden-lava) with that
+// under it) and zstd (the batch bundle is packed with it), see boat-pool.mjs, are installed when missing. --warm-jar plays one short room (carve-hidden-lava) with that
 // jar, through the same helper a batch uses; the image is saved only when that room passes, which proves the image and
 // leaves the prepared server in the fixture cache so batch rooms skip the unpack. The machine is then saved with
 // `boat snapshot ID NAME` and deleted (--keep leaves it running).
@@ -15,7 +15,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { boat, boatPool, createMachine, destroyMachine, machineUsage, quote, remote, upload } from './lib/boat-pool.mjs';
+import { boat, boatPool, buildBundle, createMachine, destroyMachine, machineUsage, quote, remote, upload } from './lib/boat-pool.mjs';
 import { parseCommands } from './lib/room-batch-core.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
@@ -87,8 +87,9 @@ try {
 	await remote(vm.id, `set -e; rm -rf ${quote(rooms)}; mkdir -p ${quote(rooms)}/jdk; cd ${quote(rooms)}; curl -fsSL -o jdk.tgz ${quote(jdkUrl)}
 echo ${quote(`${jdkSha}  jdk.tgz`)} | sha256sum -c -; tar -xzf jdk.tgz -C jdk --strip-components=1; rm jdk.tgz; jdk/bin/java -version 2>&1 | head -1
 node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 22 ? 0 : 1)'
-command -v eatmydata >/dev/null || { sudo -n apt-get update -qq && sudo -n DEBIAN_FRONTEND=noninteractive apt-get install -y -qq eatmydata; }
-command -v python3 tar gzip setsid eatmydata >/dev/null`, { timeoutMs: 15 * 60_000 });
+missing=$(for tool in eatmydata zstd; do command -v $tool >/dev/null || echo $tool; done)
+[ -z "$missing" ] || { sudo -n apt-get update -qq && sudo -n DEBIAN_FRONTEND=noninteractive apt-get install -y -qq $missing; }
+command -v python3 tar gzip zstd setsid eatmydata >/dev/null`, { timeoutMs: 15 * 60_000 });
 	step('copying the template');
 	execFileSync('tar', ['-czf', path.join(work, 'template.tgz'), '-C', template, '.']);
 	await upload(vm.id, path.join(work, 'template.tgz'), `${rooms}/template.tgz`);
@@ -97,20 +98,17 @@ echo ${quote(`${serverSha}  ${rooms}/template-26.3/server.jar`)} | sha256sum -c 
 	let warm = null;
 	if (flags.warmJar) {
 		step('playing the warm-up room');
-		const codeTar = path.join(work, 'code.tar');
-		execFileSync('git', ['-C', root, 'archive', '--format=tar', '-o', codeTar, 'HEAD']);
-		execFileSync('tar', ['-C', root, '-rf', codeTar, 'coordinator/node_modules']);
-		execFileSync('gzip', ['-1', codeTar]);
-		const pool = boatPool({ snapshot: null, type, namePrefix: 'unused', bundle: { codeTar: `${codeTar}.gz`, helper: path.join(root, 'scripts/quality/lib/room-batch-remote.mjs'), jars: { warm: path.resolve(flags.warmJar) }, inputs: [] } });
+		const bundle = await buildBundle({ root, ref: 'HEAD', jars: { warm: path.resolve(flags.warmJar) }, helper: path.join(root, 'scripts/quality/lib/room-batch-remote.mjs'), work });
+		const pool = boatPool({ snapshot: null, type, namePrefix: 'unused', bundle });
 		const layout = await pool.prepare(vm);
 		const [room] = parseCommands(WARM_ROOM, ['warm']);
 		const job = { room: room.room, code: layout.code, outDir: `${layout.out}/${room.room}`, javaHome: layout.javaHome, template: layout.template, timeoutMs: 15 * 60_000, wrapper: layout.wrapper,
 			lines: room.lines.map(line => ({ ...line, jar: layout.jars.warm })) };
 		await pool.start(vm, job);
+		// poll waits on the machine for up to a minute at a time, so no sleep between polls.
 		const deadline = Date.now() + job.timeoutMs + 5 * 60_000;
 		while (await pool.poll(vm, room.room) !== 'done') {
 			if (Date.now() > deadline) throw new Error('the warm-up room never wrote done.json; the image is not saved');
-			await new Promise(done => setTimeout(done, 15_000));
 		}
 		const done = JSON.parse(await remote(vm.id, `cat ${quote(`${job.outDir}/done.json`)}`));
 		const summary = JSON.parse(await remote(vm.id, `cat ${quote(`${job.outDir}/warm/result-summary.json`)} 2>/dev/null || echo null`));
