@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { armTotals, formatSummary, mergeArms, parseCommands, plannedOf, runQueue, splitWords, stageRoom } from '../../scripts/quality/lib/room-batch-core.mjs';
 import { runBatch } from '../../scripts/quality/lib/room-batch-run.mjs';
-import { nextSlot, parseWindowsHosts, portClashes, slotPortBase, windowsPath } from '../../scripts/quality/lib/windows-pool.mjs';
+import { nextSlot, parseWindowsHosts, portClashes, slotPortBase, windowsBatchDir, windowsPath } from '../../scripts/quality/lib/windows-pool.mjs';
 import { launchScript } from '../../scripts/quality/lib/boat-pool.mjs';
 
 const LINE = 'node scripts/quality/test-build-live.mjs scripts/quality/carve-hidden-fluid-spots.json $OUT $JAR --descriptive';
@@ -269,6 +269,13 @@ test('Windows PCs: the host list, one port range per arm from the slot base, slo
 	assert.deepEqual(portClashes(netsh, 28400, 29399), []);
 	assert.deepEqual(portClashes(netsh, 50059, 50100), [[50000, 50059]]);
 	assert.equal(windowsPath('C:/aa-runs/batches/b/w0/jobs/r.json'), 'C:\\aa-runs\\batches\\b\\w0\\jobs\\r.json');
+	for (const badName of ['', '.', '..', '...', '.hidden', 'a..b', 'trail.', 'a/b', 'a\\b', 'bad name']) {
+		assert.throws(() => windowsBatchDir('C:/aa-runs', badName), undefined, badName);
+	}
+	const dir1 = windowsBatchDir('C:/aa-runs', 'smoke-1');
+	const dir2 = windowsBatchDir('C:/aa-runs', 'smoke-1');
+	assert.match(dir1, /^C:\/aa-runs\/batches\/smoke-1-\d+-[0-9a-f]{8}$/);
+	assert.notEqual(dir1, dir2, 'two concurrent batches with the same name get separate directories');
 });
 
 test('the room launch returns at once and leaves only the helper running, so ssh never waits out a room', { skip: process.platform === 'win32' }, async () => {

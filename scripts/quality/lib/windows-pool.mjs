@@ -9,6 +9,7 @@
 // Windows to stay awake while the room plays. destroy() kills that room's process tree and deletes the worker's
 // folder, and the PC's last worker deletes the batch folder. Nothing is installed, and no PC is ever slept or shut down.
 import { execFile } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -45,6 +46,26 @@ export function portClashes(netshText, from, to) {
 
 /** A forward-slash path as Windows writes it (C:/aa-runs/x -> C:\aa-runs\x), for a command line cmd or WMI reads. */
 export const windowsPath = text => String(text).replace(/\//g, '\\');
+
+/**
+ * Validates a batch folder name and builds a unique per-run batch directory strictly beneath `<root>/batches`.
+ * Rejects `.`, `..`, trailing dots, path separators, or anything that resolves outside the batches root.
+ */
+export function windowsBatchDir(root, batchName, runId = `${process.pid}-${randomBytes(4).toString('hex')}`) {
+	const name = String(batchName ?? '');
+	if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name) || name.endsWith('.') || name.includes('..')) {
+		throw new Error(`batch name must start with a letter or digit, contain only letters, digits, ., _ or -, and not end with . or contain ..: ${batchName}`);
+	}
+	if (!/^[A-Za-z0-9_-]+$/.test(String(runId ?? ''))) throw new Error(`invalid Windows batch run id: ${runId}`);
+	const batchesRoot = path.win32.resolve(windowsPath(`${root}/batches`));
+	const folder = `${name}-${runId}`;
+	const resolved = path.win32.resolve(batchesRoot, folder);
+	const rel = path.win32.relative(batchesRoot, resolved);
+	if (!rel || rel === '.' || rel.startsWith('..') || path.win32.isAbsolute(rel) || rel.includes('\\') || rel.includes('/')) {
+		throw new Error(`batch directory escaped batches root: ${batchName}`);
+	}
+	return `${root}/batches/${folder}`;
+}
 const psQuote = text => `'${String(text).replace(/'/g, "''")}'`;
 const encode = script => Buffer.from(script, 'utf16le').toString('base64');
 
@@ -72,10 +93,10 @@ const download = (host, remotePath, local) => run('scp', ['-q', ...SSH, `${host}
  * inputs: [{ local, name }] }; batchName names the batch folder on each PC.
  */
 export function windowsPool({ hosts, batchName, bundle, root = 'C:/aa-runs', log = console.log }) {
-	if (!/^[A-Za-z0-9._-]+$/.test(batchName)) throw new Error(`batch name must be letters, digits, ., _ or -: ${batchName}`);
 	const arms = Object.keys(bundle.jars).length;
-	const batchDir = `${root}/batches/${batchName}`;
-	const busy = new Set(), machines = new Map(hosts.map(item => [item.host, { ...item, ready: null, workers: 0 }]));
+	const batchDir = windowsBatchDir(root, batchName);
+	const batchesRoot = `${root}/batches`;
+	const busy = new Set(), machines = new Map(hosts.map(item => [item.host, { ...item, ready: null, workers: 0, claimedBatchDir: false }]));
 	let count = 0;
 
 	async function prepareHost(pc) {
@@ -83,10 +104,16 @@ export function windowsPool({ hosts, batchName, bundle, root = 'C:/aa-runs', log
 		const facts = JSON.parse((await powershell(pc.host, `
 if (-not (Test-Path -LiteralPath ${psQuote(`${root}/jdk25/bin/java.exe`)})) { throw 'no Java at ${root}/jdk25' }
 if (-not (Test-Path -LiteralPath ${psQuote(`${root}/templates/26.3/server.jar`)})) { throw 'no server template at ${root}/templates/26.3' }
-if (Test-Path -LiteralPath ${psQuote(batchDir)}) { Remove-Item -Recurse -Force -LiteralPath ${psQuote(batchDir)} }
+New-Item -ItemType Directory -Force -Path ${psQuote(batchesRoot)} | Out-Null
+$baseFull = [System.IO.Path]::GetFullPath(${psQuote(windowsPath(batchesRoot))}).TrimEnd('\\') + '\\'
+$batchFull = [System.IO.Path]::GetFullPath(${psQuote(windowsPath(batchDir))})
+if (-not $batchFull.StartsWith($baseFull, [System.StringComparison]::OrdinalIgnoreCase)) { throw "batch directory escapes batches root: $batchFull" }
+if (Test-Path -LiteralPath ${psQuote(batchDir)}) { throw "batch directory already exists: ${batchDir}" }
+New-Item -ItemType Directory -Path ${psQuote(batchDir)} -ErrorAction Stop | Out-Null
 foreach ($d in 'jars', 'inputs', 'code') { New-Item -ItemType Directory -Force -Path (Join-Path ${psQuote(batchDir)} $d) | Out-Null }
 foreach ($d in 'cache', 'tmp') { New-Item -ItemType Directory -Force -Path (Join-Path ${psQuote(root)} $d) | Out-Null }
 @{ node = (Get-Command node.exe).Source; excluded = ((netsh int ipv4 show excludedportrange protocol=tcp) -join "\`n") } | ConvertTo-Json -Compress`)).trim().split('\n').at(-1));
+		pc.claimedBatchDir = true;
 		const clashes = portClashes(facts.excluded, first, last);
 		if (clashes.length) throw new Error(`${pc.host}: ports ${first}-${last} overlap the reserved ranges ${clashes.map(range => range.join('-')).join(', ')}; raise its slot base`);
 		await upload(pc.host, bundle.codeTar, `${batchDir}/code.tgz`);
@@ -176,8 +203,14 @@ if (Test-Path -LiteralPath ${psQuote(dir)}) { throw 'could not delete ${dir}' }`
 			busy.delete(`${vm.host}:${vm.slot}`);
 			if (--pc.workers === 0) {
 				pc.ready = null;
-				await powershell(vm.host, `foreach ($i in 1..10) { if (-not (Test-Path -LiteralPath ${psQuote(batchDir)})) { break }; Remove-Item -Recurse -Force -LiteralPath ${psQuote(batchDir)} -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2 }
+				if (pc.claimedBatchDir) {
+					pc.claimedBatchDir = false;
+					await powershell(vm.host, `$baseFull = [System.IO.Path]::GetFullPath(${psQuote(windowsPath(batchesRoot))}).TrimEnd('\\') + '\\'
+$batchFull = [System.IO.Path]::GetFullPath(${psQuote(windowsPath(batchDir))})
+if (-not $batchFull.StartsWith($baseFull, [System.StringComparison]::OrdinalIgnoreCase)) { throw "refusing to delete outside batches root: $batchFull" }
+foreach ($i in 1..10) { if (-not (Test-Path -LiteralPath ${psQuote(batchDir)})) { break }; Remove-Item -Recurse -Force -LiteralPath ${psQuote(batchDir)} -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2 }
 if (Test-Path -LiteralPath ${psQuote(batchDir)}) { throw 'could not delete ${batchDir}' }`, { timeoutMs: 180_000 });
+				}
 			}
 		},
 	};
