@@ -360,3 +360,12 @@ test('at the face of its own tunnel with nothing open in sight it digs on, with 
 	assert.equal(first, SEARCH_TURNS.length, 'walks first while it has not dug yet');
 	assert.equal(legs[first + 1].build, true, 'then digs on from the tunnel face');
 });
+
+test('each find first climbs the highest ground in sight, any way, and looks from there', async () => {
+	const body = bodyFor({ onLook: (o, calls) => (calls.length >= 1 && o.player.z < 95 ? { structures: [fortressRow] } : null) });
+	body.frontier = () => ({ candidates: [{ x: 100, y: 52, z: 70, dy: 12, distance: 30 }, { x: 110, y: 45, z: 110, dy: 5, distance: 14 }] });
+	const result = await searchFor({ structure: 'fortress' }, body, { timeoutMs: 300_000 });
+	assert.equal(result.reasonCode, 'FIND_SEEN');
+	assert.deepEqual([body.calls[0].x, body.calls[0].y, body.calls[0].z, body.calls[0].build], [100.5, 52, 70.5, false], 'the highest, behind as much as ahead');
+	assert.equal(body.calls.length, 1, 'the look from the top saw it');
+});

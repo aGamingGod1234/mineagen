@@ -35,6 +35,8 @@ export const TURNS = Object.freeze([0, 45, -45, 90, -90]);
 export const SEARCH_TURNS = Object.freeze([0, 45, -45]);
 const HIGH_GROUND_RISE = 5;
 const HIGH_GROUND_REACH = 32;
+/** The opening climb takes the highest ground in sight this far away, as the generic sweep's does. */
+const OPENING_CLIMB = 48;
 // Look points kept across find calls in this dimension (the trail only keeps 128 16-block sectors).
 const MAX_LOOKS = 256;
 const BUILD_BLOCKS = new Set(['minecraft:cobblestone', 'minecraft:cobbled_deepslate', 'minecraft:dirt', 'minecraft:stone', 'minecraft:deepslate',
@@ -163,7 +165,28 @@ export async function searchNetherFortress(ctx, env = process.env) {
 		return back;
 	};
 	// The first look of the call (searchFor's) already happened where the body stands.
+	const earlier = looks.slice();
 	noteLook();
+	// A player first climbs the highest ground in sight, any way, and looks out over the caverns from there (round 2:
+	// the generic sweep's opening climb saw gate-7's fortress within a minute in 7 of 7 runs; this loop, which only
+	// climbed ahead, 0 of 7). Not a hill already looked from in an earlier call.
+	if (walled) {
+		const p = at();
+		const high = p === null ? undefined : (body.frontier?.(ctx.observation())?.candidates ?? [])
+			.filter((row) => Number.isFinite(row.dy) && row.dy >= HIGH_GROUND_RISE && row.distance <= OPENING_CLIMB && row.blocked !== true
+				&& earlier.every((point) => Math.hypot(point.x - row.x, point.z - row.z) > VANTAGE_NEW))
+			.sort((a, b) => b.dy - a.dy)[0];
+		if (high !== undefined && left() >= minLegMs) {
+			const climb = await leg('up to the highest ground in sight', 'travel_to', { x: high.x + 0.5, y: high.y, z: high.z + 0.5, tolerance: 2, build: false });
+			const stopped = await settle(climb);
+			if (stopped !== null) return stopped;
+			if (climb.result?.reasonCode === 'ARRIVED') {
+				const view = await look(-5);
+				noteLook();
+				if (view.interrupted || view.seen || view.ended) return settle(view);
+			}
+		}
+	}
 	let failed = 0, turn = 0, footFails = 0, headingTurn = 0, digs = 0, mobStops = 0;
 	// Open views walked from the current front, and the last place a walk (not a dig) made way: a walled-in search walks
 	// back there before it turns.
