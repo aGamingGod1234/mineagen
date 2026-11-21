@@ -151,8 +151,12 @@ const HOSTILE_TYPE = (type) => MELEE.test(String(type)) || RANGED.has(type) || /
 // cave's water 5 of 6 runs, FIND_BLOCKED, while digging down saw iron in 69 s).
 const CAVE_WATER_NEAR = 4;
 const WET_WALK_STOPS = new Set(['WATER_AHEAD', 'TUNNEL_FLOODED', 'BREATH_LOW', 'AIR_RESERVE_REACHED', 'BREATH_NOT_COVERED']);
-/** MINEAGEN_CAVE_FIRST=off keeps the dig-down-first ore search (an A/B arm); on otherwise. */
-export const caveFirst = (environment = process.env) => String(environment?.MINEAGEN_CAVE_FIRST ?? '').trim().toLowerCase() !== 'off';
+/**
+ * Cave first is off unless MINEAGEN_CAVE_FIRST=on. Room batch 21 Nov (16 spawns x 10 repeats per arm, provider-free):
+ * 75% of 103 cave walks found no walking way into a seen cave and 15% met a mob; only 10 arrived. On the 3 spawns where
+ * walks fired, iron was found in 9 of 30 runs with it on against 18 of 30 off.
+ */
+export const caveFirst = (environment = process.env) => String(environment?.MINEAGEN_CAVE_FIRST ?? '').trim().toLowerCase() === 'on';
 // Blocks a dig_to may be given (schema.mjs maxBlocks) and the cells one step cuts per pattern.
 const MAX_DIG_BLOCKS = 4_096;
 const STEP_CELLS = Object.freeze({ tunnel: 2, stairs_down: 3, stairs_up: 3, steep_down: 4 });

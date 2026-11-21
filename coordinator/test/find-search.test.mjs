@@ -1642,6 +1642,10 @@ test('Nether ore searches do not invent nonexistent deepslate variants', () => {
  }
 });
 
+// Cave first is opt-in (MINEAGEN_CAVE_FIRST=on); the tests from here on run with it on, except the switch test, which sets it itself.
+const caveFirstBefore = process.env.MINEAGEN_CAVE_FIRST;
+test('cave first tests run with the switch on', () => { process.env.MINEAGEN_CAVE_FIRST = 'on'; });
+test.after(() => { if (caveFirstBefore === undefined) delete process.env.MINEAGEN_CAVE_FIRST; else process.env.MINEAGEN_CAVE_FIRST = caveFirstBefore; });
 // Cave first (21 Nov room test of PR #31: its cave legs dug with build on, re-fired after mob stops mid-descent and walked
 // into the mob's cave; iron 0 of 4 exercised runs against 4 of 4, pickaxe worn out 3 of 4).
 const DOWN = { move: (player, args) => ({ y: args.y }), result: { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:iron_ore seen at 3,20,9, 3 blocks away' } };
@@ -1717,17 +1721,20 @@ test('cave first runs once, before the first dig: a cave the descent opened afte
 	assert.doesNotMatch(result.message, /cave\(s\)/);
 });
 
-test('cave first is off with MINEAGEN_CAVE_FIRST=off and for lava', async () => {
+test('cave first runs only with MINEAGEN_CAVE_FIRST=on, and never for lava', async () => {
 	const run = async (target) => {
 		const body = fakeBody({ frontier: { candidates: [], coverage: { headings: {} } }, looks: [{ survey: { caves: [cave(20, 50, 0)] } }], acts: { dig_to: [DOWN] } });
 		await searchFor(target, body);
 		return body.calls.some((call) => call.actionType === 'travel_to' && call.args.build === false);
 	};
 	assert.equal(await run({ block: 'minecraft:lava' }), false);
-	const before = process.env.MINEAGEN_CAVE_FIRST;
+	delete process.env.MINEAGEN_CAVE_FIRST;
+	assert.equal(await run({ block: 'minecraft:iron_ore' }), false, 'off by default');
 	process.env.MINEAGEN_CAVE_FIRST = 'off';
-	try { assert.equal(await run({ block: 'minecraft:iron_ore' }), false); } finally { if (before === undefined) delete process.env.MINEAGEN_CAVE_FIRST; else process.env.MINEAGEN_CAVE_FIRST = before; }
+	assert.equal(await run({ block: 'minecraft:iron_ore' }), false);
+	process.env.MINEAGEN_CAVE_FIRST = 'on';
 	assert.equal(await run({ block: 'minecraft:iron_ore' }), true);
+	assert.equal(await run({ block: 'minecraft:lava' }), false);
 });
 
 test('cave first: a cave with water seen beside it is left alone, and a walk that ends in water walks back out and digs from dry ground', async () => {
