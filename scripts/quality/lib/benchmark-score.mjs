@@ -1,11 +1,12 @@
 // Scores a benchmark batch (room-batch.mjs output) per practice room and compares it with a saved baseline.
 // A benchmark room plays REPEATS times: as `copies` room-batch rooms (ROOM.cN) x `slots` arms (r1..rK, same jar, side
-// by side on one machine). Every row a fixture writes is one run; a fixture that writes no result.json (not yet on
-// finishRun) counts as one run judged by its exit code (0 pass, 1 fail, anything else invalid). Pure apart from reading
+// by side on one machine). Every row a fixture's finishRun pair writes is one run; a fixture that writes no rows (not
+// yet on finishRun) counts as one run judged by its exit code (0 pass, 1 fail, anything else invalid). Pure apart from reading
 // the batch folder, so the scoring and the comparison are unit-tested.
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { roomVerdict } from './fixture-run.mjs';
+import { armRows } from './room-batch-core.mjs';
 
 /**
  * The room-batch commands for a benchmark: each room ROOM becomes `copies` rooms ROOM.c1.. (longest first, so long
@@ -87,7 +88,9 @@ export async function otherEvidence(dir) {
 		if (Array.isArray(value)) return children;
 		if (depth === 0) for (const [key, child] of Object.entries(value)) if (Number.isFinite(child)) fields[key] = child;
 		if (value.pass === false || value.ok === false) failed ??= value.pass === false ? 'pass' : 'ok';
-		const own = typeof value.died === 'boolean' ? (value.died ? 1 : 0) : Number.isFinite(value.deaths) ? value.deaths : null;
+		// died: true/false or a count (crowd's summary), deaths: N, or survived: false (crowd's runs).
+		const own = typeof value.died === 'boolean' ? (value.died ? 1 : 0) : Number.isFinite(value.died) ? value.died
+			: Number.isFinite(value.deaths) ? value.deaths : typeof value.survived === 'boolean' ? (value.survived ? 0 : 1) : null;
 		const hurt = [value.damageTaken, value.healthLost, own !== null ? value.damage : undefined].find(Number.isFinite) ?? null;
 		return { deaths: children.deaths ?? own, damage: children.damage ?? hurt };
 	};
@@ -137,14 +140,24 @@ export async function collectRuns(batchDir, planned = null, meta = null) {
 			const base = { room, copy, arm };
 			if (!done || !run) { runs.push({ ...base, verdict: 'LOST', reason: outcomes.get(name)?.reason ?? 'no done.json', deaths: null, damage: null, seconds: null }); continue; }
 			const killed = run.timedOut ? 'room timeout' : run.signal ? `killed by ${run.signal}` : run.error ? `launch error: ${run.error}` : null;
-			const rows = await readJson(path.join(roomsDir, name, arm, 'result.json'));
-			if (Array.isArray(rows) && rows.length && rows.every(row => row && typeof row === 'object')) {
+			// finishRun rows are the NAME.json / NAME-summary.json pair (armRows, as room-batch merges them): result.json,
+			// or runs.json for end-breath and acceptance.json for drawn-bow. A missing or corrupt summary, an INVALID one,
+			// or fewer rows than it planned is unknown evidence: those rows count as INVALID, never as a pass.
+			const found = await armRows(path.join(roomsDir, name, arm));
+			if (found.problem) { runs.push({ ...base, verdict: 'INVALID', reason: found.problem, deaths: null, damage: null, seconds: null }); continue; }
+			const rows = found.rows;
+			if (rows.length && rows.every(row => row && typeof row === 'object')) {
+				const own = found.summary;
+				const summaryProblem = !(own && typeof own === 'object' && Number.isInteger(own.planned)) ? 'missing or corrupt room summary'
+					: own.status === 'INVALID' ? 'room summary INVALID' : null;
 				for (const row of rows) {
-					const verdict = killed ? { verdict: 'INVALID', reason: killed } : roomVerdict(row);
-					runs.push({ ...base, verdict: verdict.verdict, reason: verdict.verdict === 'PASS' ? null : reasonKey(row, verdict),
+					const verdict = killed ? { verdict: 'INVALID', reason: killed } : summaryProblem ? { verdict: 'INVALID', reason: summaryProblem } : roomVerdict(row);
+					runs.push({ ...base, verdict: verdict.verdict, reason: verdict.verdict === 'PASS' ? null : verdict.verdict === 'INVALID' ? foldReason(verdict.reason) : reasonKey(row, verdict),
 						deaths: Number.isFinite(row.deaths) ? row.deaths : null, damage: Number.isFinite(row.damageTaken) ? row.damageTaken : null,
 						seconds: rowSeconds(row), wallSeconds: run.seconds ?? null, cantKeepUp: run.cantKeepUp ?? null });
 				}
+				const short = !summaryProblem && own.planned > rows.length ? own.planned - rows.length : 0;
+				for (let i = 0; i < short; i++) runs.push({ ...base, verdict: 'INVALID', reason: 'planned rows missing', deaths: null, damage: null, seconds: null });
 				continue;
 			}
 			// No rows: a fixture outside finishRun reports by its exit code; its own JSON files give deaths and damage
@@ -153,7 +166,10 @@ export async function collectRuns(batchDir, planned = null, meta = null) {
 			let verdict = killed ? 'INVALID' : run.exit === 0 ? 'PASS' : run.exit === 1 ? 'FAIL' : 'INVALID';
 			let reason = verdict === 'PASS' ? null : killed ?? (await failureLine(path.join(roomsDir, name, `${arm}.log`))) ?? `exit ${run.exit ?? '?'}`;
 			const passWhen = meta?.[room]?.passWhen;
-			if (verdict === 'PASS' && (meta?.[room]?.bar === 'none' || passWhen) && (evidence.deaths > 0 || evidence.failed)) { verdict = 'FAIL'; reason = evidence.deaths > 0 ? 'died' : `${evidence.failed} false`; }
+			const survivalBar = meta?.[room]?.bar === 'none' || passWhen;
+			if (verdict === 'PASS' && survivalBar && (evidence.deaths > 0 || evidence.failed)) { verdict = 'FAIL'; reason = evidence.deaths > 0 ? 'died' : `${evidence.failed} false`; }
+			// A room judged on survival whose fixture recorded no death count is unknown, not a safe pass.
+			if (verdict === 'PASS' && survivalBar && evidence.deaths === null) { verdict = 'INVALID'; reason = 'no death record'; }
 			if (verdict === 'PASS' && passWhen && !meetsBar(passWhen, evidence.fields)) { verdict = 'FAIL'; reason = `${passWhen.field} below ${passWhen.min}`; }
 			runs.push({ ...base, verdict, reason, deaths: evidence.deaths, damage: evidence.damage,
 				seconds: run.seconds ?? null, wallSeconds: run.seconds ?? null, cantKeepUp: run.cantKeepUp ?? null, exitOnly: true });

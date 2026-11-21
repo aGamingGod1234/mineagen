@@ -31,6 +31,8 @@ test('runs are read per row, by exit code without rows, and a room that never ca
 	const plan = planBenchmark([{ room: 'a', line: LINE }, { room: 'b', line: LINE }, { room: 'c', line: LINE }], { repeats: 4, slots: 2 });
 	await put('rooms/a.c1/done.json', { room: 'a.c1', arms: { r1: { exit: 0, seconds: 30 }, r2: { exit: 1, seconds: 40 } } });
 	await put('rooms/a.c1/r1/result.json', [{ name: 'a', pass: true, deaths: 0, damageTaken: 0, seconds: 20 }]);
+	await put('rooms/a.c1/r1/result-summary.json', { planned: 1, status: 'PASS' });
+	await put('rooms/a.c1/r2/result-summary.json', { planned: 1, status: 'FAIL' });
 	await put('rooms/a.c1/r2/result.json', [{ name: 'a', pass: false, failReason: 'fell 12 blocks at 3,4,5', deaths: 1, damageTaken: 20, seconds: 31,
 		calls: [{ state: 'FAILED', reasonCode: 'LAVA_AHEAD' }] }]);
 	await put('rooms/b.c1/done.json', { room: 'b.c1', arms: { r1: { exit: 0, seconds: 50 }, r2: { exit: 1, seconds: 60, timedOut: true } } });
@@ -130,4 +132,60 @@ test('a death repeated by a variant and its counter counts once, and an item wea
 	const found = await otherEvidence(dir);
 	assert.equal(found.deaths, 1);
 	assert.equal(found.damage, null);
+});
+
+test('finishRun rows need their summary, a short summary adds invalid runs, and rows under another name are found', async t => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'bench-pair-'));
+	t.after(() => rm(dir, { recursive: true, force: true }));
+	const put = async (file, value) => { await mkdir(path.dirname(path.join(dir, file)), { recursive: true }); await writeFile(path.join(dir, file), typeof value === 'string' ? value : JSON.stringify(value)); };
+	await put('rooms/a.c1/done.json', { room: 'a.c1', arms: { r1: { exit: 0, seconds: 30 }, r2: { exit: 0, seconds: 30 }, r3: { exit: 0, seconds: 30 }, r4: { exit: 0, seconds: 30 } } });
+	await put('rooms/a.c1/r1/result.json', [{ name: 'a', pass: true }]);
+	await put('rooms/a.c1/r2/result.json', [{ name: 'a', pass: true }]);
+	await put('rooms/a.c1/r2/result-summary.json', '{not json');
+	await put('rooms/a.c1/r3/result.json', [{ name: 'a', pass: true }]);
+	await put('rooms/a.c1/r3/result-summary.json', { planned: 3, status: 'INVALID' });
+	await put('rooms/a.c1/r4/runs.json', [{ name: 'night-1', pass: true }, { name: 'night-2', pass: false, failReason: 'void fall' }]);
+	await put('rooms/a.c1/r4/runs-summary.json', { planned: 3, status: 'FAIL' });
+	await put('rooms/a.c1/r4/result.json', { arm: 'new', runs: 2 });
+	const runs = await collectRuns(dir, null, {});
+	const verdicts = arm => runs.filter(run => run.arm === arm).map(run => `${run.verdict}${run.reason ? ` ${run.reason}` : ''}`);
+	assert.deepEqual(verdicts('r1'), ['INVALID missing or corrupt room summary']);
+	assert.deepEqual(verdicts('r2'), ['INVALID missing or corrupt room summary']);
+	assert.deepEqual(verdicts('r3'), ['INVALID room summary INVALID']);
+	assert.deepEqual(verdicts('r4'), ['PASS', 'FAIL void fall', 'INVALID planned rows missing']);
+});
+
+test('a crowd death recorded as survived false or a died count fails a room judged on survival, and no record is unknown', async t => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'bench-crowd-'));
+	t.after(() => rm(dir, { recursive: true, force: true }));
+	const put = async (file, value) => { await mkdir(path.dirname(path.join(dir, file)), { recursive: true }); await writeFile(path.join(dir, file), JSON.stringify(value)); };
+	await put('rooms/crowd.c1/done.json', { room: 'crowd.c1', arms: { r1: { exit: 0, seconds: 60 }, r2: { exit: 0, seconds: 60 }, r3: { exit: 0, seconds: 60 } } });
+	await put('rooms/crowd.c1/r1/runs.json', [{ survived: false }]);
+	await put('rooms/crowd.c1/r2/summary.json', { died: 1, runs: 1 });
+	await put('rooms/crowd.c1/r3/other.json', { kills: 3 });
+	const runs = await collectRuns(dir, null, { crowd: { bar: 'none' } });
+	const by = arm => runs.find(run => run.arm === arm);
+	assert.deepEqual([by('r1').verdict, by('r1').deaths], ['FAIL', 1]);
+	assert.deepEqual([by('r2').verdict, by('r2').deaths], ['FAIL', 1]);
+	assert.deepEqual([by('r3').verdict, by('r3').reason], ['INVALID', 'no death record']);
+});
+
+test('a rescore keeps the room bars its plan saved and compares with the old baseline before saving over it', async t => {
+	const { spawnSync } = await import('node:child_process');
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'bench-rescore-'));
+	t.after(() => rm(dir, { recursive: true, force: true }));
+	const put = async (file, value) => { await mkdir(path.dirname(path.join(dir, file)), { recursive: true }); await writeFile(path.join(dir, file), JSON.stringify(value)); };
+	const room = { room: 'pearl', line: LINE, stage: 'nether-pearls', skill: 'combat', passWhen: { field: 'endPearls', min: 1 } };
+	await put('plan.json', { ...planBenchmark([room], { repeats: 1, slots: 1 }), commands: undefined, roomDefinitions: [room] });
+	await put('batch/rooms/pearl.c1/done.json', { room: 'pearl.c1', arms: { r1: { exit: 0, seconds: 100 } } });
+	await put('batch/rooms/pearl.c1/r1/result.json', { endPearls: 0, deaths: 0 });
+	await put('baseline.json', { code: 'old', repeats: 1, rooms: { pearl: { pass: 1, fail: 0, invalid: 0, lost: 0, passRate: 1, deaths: 0, damage: null, medianSeconds: 90 } } });
+	const baseline = path.join(dir, 'baseline.json');
+	const result = spawnSync(process.execPath, [path.join(root, 'scripts/quality/benchmark.mjs'), '--score', dir, '--baseline', baseline, '--save-baseline', baseline], { encoding: 'utf8' });
+	assert.equal(result.status, 0, result.stderr);
+	const comparison = await readFile(path.join(dir, 'comparison.txt'), 'utf8');
+	assert.match(comparison, /pearl \| 1\/1 \(100%\) \| 0\/1 \(0%\)/);
+	const saved = JSON.parse(await readFile(baseline, 'utf8'));
+	assert.equal(saved.rooms.pearl.fail, 1);
+	assert.equal(saved.rooms.pearl.topReasons[0].reason, 'endPearls below 1');
 });
