@@ -120,7 +120,7 @@ try {
   if (c.lavaDrop) row.pass &&= !/sealed fluids with/.test(result.message);
   // One covered lava source is too small to cast a portal from, so it is plugged like a spill.
   if (c.name === 'lava-purpose') row.pass &&= /a pocket too small for a portal cast/.test(result.message) && /plugged it with cobblestone/.test(result.message);
-  if (c.pool) row.pass &&= row.poolLeft === 10 && !/plugged it/.test(result.message);
+  if (c.pool) row.pass &&= row.poolLeft === 10 && !/plugged it/.test(result.message) && /cast_obsidian/.test(result.message);
   rows.push(row);
   await writeFile(join(out, 'results.json'), JSON.stringify(rows, null, 2));
   console.log(`${row.pass ? 'PASS' : 'FAIL'} ${c.name}: ${result.reasonCode}`);
