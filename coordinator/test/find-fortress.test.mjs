@@ -160,3 +160,36 @@ test('outside the Nether, or for another structure, the generic sweep runs', asy
 	await searchFor({ structure: 'bastion' }, bastion, { timeoutMs: 20_000 });
 	assert.equal(bastion.calls[0].build, false);
 });
+
+test('a mob stopping legs is neither progress nor a closed way: the search runs to its time cap, not NO_WAY_ON', async () => {
+	const body = bodyFor({ travel: () => ({ result: { state: 'FAILED', reasonCode: 'HOSTILE_NEAR', message: 'minecraft:zombified_piglin 6 blocks away' } }) });
+	const result = await searchFor({ structure: 'fortress' }, body, { timeoutMs: 300_000 });
+	assert.equal(result.reasonCode, 'FIND_BUDGET');
+	assert.ok(body.calls.length > MAX_FAILED_LEGS);
+});
+
+test('after every turn toward one target fails, that ground is ruled out and the next target is taken', async () => {
+	const state = {};
+	const body = bodyFor({ state, travel: () => ({ result: noRoute }) });
+	await searchFor({ structure: 'fortress' }, body, { timeoutMs: 300_000 });
+	assert.equal(state.fortressUnreachable.length, 3);
+	const first = nextFortressTarget({ x: 100.5, z: 100.5 }, null, [{ x: 100, z: 100 }]);
+	assert.deepEqual(state.fortressUnreachable[0], { x: Math.round(first.x), z: Math.round(first.z) });
+	assert.notEqual(body.calls[5].yaw, body.calls[0].yaw, 'the sixth leg heads for another target');
+});
+
+test('a vantage is climbed only when it lies ahead toward the target and away from earlier look points', async () => {
+	// The candidate is placed along (or against) the bearing of the leg just walked, which heads for the leg's target.
+	const run = async (place) => {
+		const body = bodyFor({ onLook: (o, calls) => (calls.length >= 2 ? { structures: [fortressRow] } : null) });
+		body.frontier = () => {
+			const p = body.observation.player, yaw = body.calls.at(-1).yaw * Math.PI / 180;
+			return { candidates: [place(p, -Math.sin(yaw), Math.cos(yaw))] };
+		};
+		await searchFor({ structure: 'fortress' }, body, { timeoutMs: 300_000 });
+		return body.calls.some((call) => call.x !== undefined && call.build === false);
+	};
+	assert.equal(await run((p, ux, uz) => ({ x: Math.floor(p.x + ux * 20), y: 52, z: Math.floor(p.z + uz * 20), dy: 8, distance: 20 })), true, 'high ground ahead is climbed');
+	assert.equal(await run((p, ux, uz) => ({ x: Math.floor(p.x - ux * 20), y: 52, z: Math.floor(p.z - uz * 20), dy: 8, distance: 20 })), false, 'high ground behind is not');
+	assert.equal(await run(() => ({ x: 101, y: 52, z: 110, dy: 8, distance: 20 })), false, 'a hill next to an earlier look point is not');
+});

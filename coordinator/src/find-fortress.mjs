@@ -16,8 +16,13 @@ export const FORTRESS_LEG = 48;
 const MIN_LEG = 8;
 /** Building blocks a leg needs to be allowed to bridge or pillar. */
 export const MIN_BUILD_BLOCKS = 8;
-/** Legs in a row that got less than half way before the search hands back NO_WAY_ON. */
-export const MAX_FAILED_LEGS = 5;
+/** Route failures in a row (every turn at three targets) before the search hands back NO_WAY_ON. */
+export const MAX_FAILED_LEGS = 15;
+// Stops that say nothing about the way: a mob met on the leg (settle fought or passed it), or a hit taken.
+const NOT_THE_WAY = new Set(['HOSTILE_NEAR', 'TARGET_ESCAPED', 'TARGET_UNREACHABLE', 'APPROACH_BLOCKED', 'NO_SEEN_ROUTE', 'FIGHT_TIMED_OUT',
+	'TRAVEL_DAMAGED', 'NAVIGATION_DAMAGED', 'DAMAGE_TAKEN']);
+/** A vantage counts only this far from every earlier look point. */
+const VANTAGE_NEW = 48;
 /** Turns tried from one spot when a leg toward the target gets nowhere: 45 degrees each way, then 90. */
 const TURNS = [0, 45, -45, 90, -90];
 /** Walking legs in a row that got nowhere, with too few blocks to build, before the search hands back OUT_OF_BLOCKS. */
@@ -64,6 +69,8 @@ export async function searchNetherFortress(ctx) {
 	const { body, leg, settle, look, handBack, left, minLegMs } = ctx;
 	const state = body.eyeSearchState ?? {};
 	const looks = state.fortressLooks ??= [];
+	// Targets every turn failed to reach: their ground counts as seen, so the next region's ground is the target.
+	const unreachable = state.fortressUnreachable ??= [];
 	const at = () => { const p = ctx.observation()?.player; return [p?.x, p?.y, p?.z].every(Number.isFinite) ? { x: p.x, y: p.y, z: p.z } : null; };
 	const noteLook = () => { const p = at(); if (p !== null) { looks.push({ x: Math.floor(p.x), z: Math.floor(p.z) }); if (looks.length > MAX_LOOKS) looks.shift(); } };
 	const stop = (stateName, code, why, stopCode) => {
@@ -73,7 +80,7 @@ export async function searchNetherFortress(ctx) {
 	};
 	// The first look of the call (searchFor's) already happened where the body stands.
 	noteLook();
-	let failed = 0, turn = 0, failedAt = null;
+	let failed = 0, targetFails = 0, targetKey = null;
 	while (left() >= minLegMs) {
 		const observation = ctx.observation();
 		const here = at();
@@ -84,13 +91,13 @@ export async function searchNetherFortress(ctx) {
 		}
 		const sighted = Array.isArray(observation?.sighted?.structures)
 			? observation.sighted.structures.map((row) => ({ ...row, what: row?.structure ?? `built:${(row?.blocks ?? []).join('+')}` })) : [];
-		const target = nextFortressTarget(here, body.known?.(observation) ?? null, looks, sighted);
+		const target = nextFortressTarget(here, body.known?.(observation) ?? null, [...looks, ...unreachable], sighted);
 		if (target === null) return stop('FAILED', 'FIND_NOT_FOUND', 'Every region within two of here has had its start ground seen, and no fortress was among them');
 		const bearing = yawToward(target.x - here.x, target.z - here.z);
-		// A spot where legs keep failing: turn further from the bearing each time, from this same spot.
-		const cell = `${Math.floor(here.x)},${Math.floor(here.z)}`;
-		if (failedAt !== cell) turn = 0;
-		const yaw = wrap(bearing + TURNS[turn % TURNS.length]);
+		// Legs toward one target that keep failing turn further from its bearing each time.
+		const key = `${target.kind}:${Math.round(target.x)},${Math.round(target.z)}`;
+		if (key !== targetKey) { targetKey = key; targetFails = 0; }
+		const yaw = wrap(bearing + TURNS[targetFails % TURNS.length]);
 		const blocks = buildingBlocks(observation);
 		const build = blocks >= MIN_BUILD_BLOCKS;
 		const distance = Math.max(MIN_LEG, Math.min(FORTRESS_LEG, Math.round(target.distance)));
@@ -102,27 +109,39 @@ export async function searchNetherFortress(ctx) {
 		const after = at() ?? here;
 		const moved = Math.hypot(after.x - here.x, after.z - here.z);
 		const code = outcome.result?.reasonCode;
-		if (code !== 'ARRIVED' && moved < distance / 2) {
+		if (code !== 'ARRIVED' && moved < distance / 2 && NOT_THE_WAY.has(code)) {
+			// A mob or a hit stopped the leg (settle answered it): neither progress nor a closed way.
+			if (moved < 2) continue;
+		} else if (code !== 'ARRIVED' && moved < distance / 2) {
 			failed += 1;
+			targetFails += 1;
 			// Without blocks to bridge with, a few walking legs that get nowhere mean the way on needs building.
 			const held = buildingBlocks(ctx.observation());
 			if ((code === 'OUT_OF_BLOCKS' || !build) && held < MIN_BUILD_BLOCKS && (code === 'OUT_OF_BLOCKS' || failed >= MAX_WALK_FAILS)) {
 				return stop('FAILED', 'FIND_BLOCKED', `Out of building blocks (${held} held) and walking has no way on toward ${Math.round(target.x)},${Math.round(target.z)}: mine netherrack or cobblestone, then find again`, 'OUT_OF_BLOCKS');
 			}
-			failedAt = `${Math.floor(after.x)},${Math.floor(after.z)}`;
-			turn += 1;
+			if (targetFails >= TURNS.length) {
+				if (target.kind === 'remembered') {
+					return stop('FAILED', 'FIND_BLOCKED', `The fortress seen at ${Math.round(target.x)},${target.y ?? '?'},${Math.round(target.z)} could not be reached: ${targetFails} legs toward it got less than half way`, 'FORTRESS_UNREACHABLE');
+				}
+				unreachable.push({ x: Math.round(target.x), z: Math.round(target.z) });
+				if (unreachable.length > MAX_LOOKS) unreachable.shift();
+				targetKey = null;
+			}
 			if (failed >= MAX_FAILED_LEGS) {
 				return stop('FAILED', 'FIND_BLOCKED', `No way on: ${failed} legs in a row got less than half way (last ${code ?? outcome.result?.state}: ${String(outcome.result?.message ?? '').slice(0, 160)})`, 'NO_WAY_ON');
 			}
 			if (moved < 2) continue;
 		} else {
 			failed = 0;
-			turn = 0;
-			failedAt = null;
+			targetFails = 0;
 		}
 		// A vantage: high ground in sight close by shows more of the fog's 96 blocks than the floor of a valley.
 		const high = (body.frontier?.(ctx.observation())?.candidates ?? [])
-			.filter((row) => Number.isFinite(row.dy) && row.dy >= HIGH_GROUND_RISE && row.distance <= HIGH_GROUND_REACH && row.blocked !== true)
+			.filter((row) => Number.isFinite(row.dy) && row.dy >= HIGH_GROUND_RISE && row.distance <= HIGH_GROUND_REACH && row.blocked !== true
+				// Ahead toward the target, and new: not the hill the last look was already taken from.
+				&& (row.x - after.x) * (target.x - after.x) + (row.z - after.z) * (target.z - after.z) > 0
+				&& looks.every((point) => Math.hypot(point.x - row.x, point.z - row.z) > VANTAGE_NEW))
 			.sort((a, b) => b.dy - a.dy)[0];
 		if (high !== undefined && left() >= minLegMs) {
 			const climb = await leg('up to a vantage', 'travel_to', { x: high.x + 0.5, y: high.y, z: high.z + 0.5, tolerance: 2, build: false });

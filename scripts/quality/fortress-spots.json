@@ -56,6 +56,10 @@
 					"why": "a fortress for blaze rods"
 				}
 			}
+		],
+		"probe": [
+			"data get entity Probe Dimension",
+			"data get entity Probe Pos"
 		]
 	},
 	{
@@ -115,6 +119,10 @@
 					"why": "a fortress for blaze rods"
 				}
 			}
+		],
+		"probe": [
+			"data get entity Probe Dimension",
+			"data get entity Probe Pos"
 		]
 	},
 	{
@@ -174,6 +182,10 @@
 					"why": "a fortress for blaze rods"
 				}
 			}
+		],
+		"probe": [
+			"data get entity Probe Dimension",
+			"data get entity Probe Pos"
 		]
 	},
 	{
@@ -233,6 +245,10 @@
 					"why": "a fortress for blaze rods"
 				}
 			}
+		],
+		"probe": [
+			"data get entity Probe Dimension",
+			"data get entity Probe Pos"
 		]
 	}
 ]
