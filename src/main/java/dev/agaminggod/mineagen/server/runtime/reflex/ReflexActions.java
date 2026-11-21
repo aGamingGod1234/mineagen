@@ -169,18 +169,27 @@ final class ReflexActions {
 		return lacks(player, action, false);
 	}
 
-	/** As above; for a coordinator default eat rule under the instincts arm, also {@link #topUpLacks}. */
+	/** As above; for the coordinator's default eat rule, also {@link #topUpLacks}. */
 	static String lacks(ServerPlayer player, ReflexSpec.Action action, boolean coordinatorDefault) {
 		String lacks = lacks(action, index -> Held.of(player.getInventory().getItem(index)), player.getInventory().getSelectedSlot(), Held.of(player.getOffhandItem()));
-		if (lacks != null || !coordinatorDefault || !"eat".equals(action.type()) || !Instincts.enabled()) return lacks;
+		if (lacks != null || !topUpApplies(action, coordinatorDefault)) return lacks;
 		return topUpLacks(index -> Held.of(player.getInventory().getItem(index)), Held.of(player.getOffhandItem()), player.getFoodData().getFoodLevel(), player.getHealth());
 	}
 
-	/** At this hunger or more, eating only tops the bar up toward 18 for healing (issue 2 Step 2, instincts arm). */
+	/**
+	 * The coordinator's default eat rule tops up below 18 with or without the instincts arm (practice room: a hurt body at
+	 * hunger 16 with bread healed 12 to 20 in 10 of 10 runs at 18, and stayed at 12 in 10 of 10 at the old 14), so the
+	 * top-up food choice applies to it in both arms. A rule the model writes eats what it says.
+	 */
+	static boolean topUpApplies(ReflexSpec.Action action, boolean coordinatorDefault) {
+		return coordinatorDefault && "eat".equals(action.type());
+	}
+
+	/** At this hunger or more, eating only tops the bar up toward 18 for healing (issue 2 Step 2). */
 	static final int TOP_UP_HUNGER = 14;
 
 	/**
-	 * The instincts arm eats from hunger 17 to heal (health regrows only at 18+). Topping up is not worth a harmful food
+	 * The default eat rule eats from hunger 17 to heal (health regrows only at 18+). Topping up is not worth a harmful food
 	 * (rotten flesh, raw chicken) or a golden apple above {@link Eat#HEALING_FOOD_HEALTH}, so at {@link #TOP_UP_HUNGER} or more
 	 * with only those in reach the default eat rule sleeps and says why, instead of eating them or failing each cooldown.
 	 */
@@ -307,6 +316,9 @@ final class ReflexActions {
 			long now = player.level().getGameTime();
 			// A player holding a shield turns it to the shot about to land, not to whichever mob is nearest.
 			Entity shot = ReflexSensors.incomingShot(player, SHIELD_SHOT_SECONDS);
+			// In flight it faces where the shot will touch the body (vanilla's block test); after, back along its line,
+			// toward the shooter, so the next draw stays in view.
+			Vec3 meet = shot == null ? null : ReflexSensors.strikeFacing(player, shot);
 			if (shot != null) {
 				shotFrom = ReflexSensors.aimPoint(shot);
 				shotTick = now;
@@ -322,7 +334,7 @@ final class ReflexActions {
 				Step strike = counter(player, context.focus(), close, now, input);
 				if (strike != null) return strike;
 			}
-			Vec3 target = volley ? shotFrom : guardPoint(player, context.focus(), close, now);
+			Vec3 target = meet != null ? meet : volley ? shotFrom : guardPoint(player, context.focus(), close, now);
 			AgentInputState aim = look(player, target, 0.0F, 0.0F, false, true, player.getInventory().getSelectedSlot(), hand);
 			if (below == null) {
 				if (dev.agaminggod.mineagen.server.runtime.controller.BrinkGuard.needsFooting(player)) {
@@ -2558,7 +2570,8 @@ final class ReflexActions {
 			}
 			if (shotFrom == null || !blocksNow(true, now - shotTick, shieldTicks)) return null;
 			shieldTicks++;
-			input.accept(look(player, shotFrom, 0.0F, 0.0F, false, true, player.getInventory().getSelectedSlot(), hand));
+			input.accept(look(player, shot == null ? shotFrom : ReflexSensors.strikeFacing(player, shot), 0.0F, 0.0F, false, true,
+					player.getInventory().getSelectedSlot(), hand));
 			String phase = wall != null ? "while building cover toward " + type(shooter)
 					: walk != null ? "on the way to cover at " + cover.x() + "," + cover.y() + "," + cover.z() : "while looking for cover";
 			return Step.running("blocking a shot " + phase + shielded());

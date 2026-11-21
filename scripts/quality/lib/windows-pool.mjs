@@ -2,7 +2,10 @@
 // worker is one room slot of one PC: ROOM_BATCH_WINDOWS=<sshHost>:<slots>:<slotBase>,... gives each PC its slot count
 // (rooms at once) and its slot base. A room plays every arm side by side, so room slot i of a PC uses one 100-port
 // range per arm from 28000 + (slotBase + i * arms) * 100; a slot base moves a PC's ports clear of the TCP ranges
-// Hyper-V reserves at boot, which prepare() checks against `netsh int ipv4 show excludedportrange`.
+// Hyper-V reserves at boot, which prepare() checks against `netsh int ipv4 show excludedportrange`. A PC that must be free
+// from a set time takes a cutoff after its slot base, on the clock of the machine running the batch: `@01:30` closes it
+// the next time the clock shows 01:30, and `@01:30-09:00` also keeps it closed until 09:00, so a batch started at 02:00
+// leaves it out. From the cutoff no room starts there, and a room still playing there is stopped and re-queued.
 // The PC already holds Java 25 and the server template under ROOT (C:/aa-runs: jdk25, templates/26.3). Each PC gets the
 // code, jars and inputs once per batch under ROOT/batches/BATCH, and each worker its own w<slot>/ folder for jobs and
 // output. A room starts through WMI (Win32_Process.Create), so it outlives the ssh session; its PowerShell parent asks
@@ -15,15 +18,49 @@ import os from 'node:os';
 import path from 'node:path';
 import { stageRoom } from './room-batch-core.mjs';
 
-/** ROOM_BATCH_WINDOWS text -> [{ host, slots, slotBase }]. */
-export function parseWindowsHosts(text) {
+/** The first moment after `now` at which the local clock reads hours:minutes. */
+export function nextClockTime(hours, minutes, now = Date.now()) {
+	const at = new Date(now);
+	at.setHours(hours, minutes, 0, 0);
+	if (at.getTime() <= now) at.setDate(at.getDate() + 1);
+	return at.getTime();
+}
+
+/**
+ * When a PC with cutoff `close` (and optional reopen time `open`, both [hours, minutes]) closes, seen from `now`: `now`
+ * itself while it is inside the closed window, else the next time the clock shows `close`.
+ */
+export function cutoffTime(close, open = null, now = Date.now()) {
+	const next = nextClockTime(close[0], close[1], now);
+	if (!open) return next;
+	// The window that closed last: its close one calendar day before the next one, its reopening the first time after that
+	// close the clock shows `open`. Both are read off the local calendar, never a fixed number of hours, so a
+	// daylight-saving change inside the window moves neither.
+	const last = new Date(next); last.setDate(last.getDate() - 1);
+	return now < nextClockTime(open[0], open[1], last.getTime()) ? now : next;
+}
+
+const clockTime = (host, text) => {
+	const [hours, minutes] = text.split(':').map(Number);
+	if (hours > 23 || minutes > 59) throw new Error(`${host}: ${text} is not a time of day`);
+	return [hours, minutes];
+};
+
+/** ROOM_BATCH_WINDOWS text -> [{ host, slots, slotBase, cutoff?: 'HH:MM' or 'HH:MM-HH:MM', cutoffAt?: epoch ms }]. */
+export function parseWindowsHosts(text, now = Date.now()) {
 	const hosts = String(text ?? '').split(',').map(item => item.trim()).filter(Boolean).map(item => {
-		const [host, slots, slotBase = '0', extra] = item.split(':');
-		if (extra !== undefined || !/^[A-Za-z0-9._@-]+$/.test(host ?? '') || !/^\d+$/.test(slots ?? '') || !/^\d+$/.test(slotBase)) throw new Error(`a Windows PC is <sshHost>:<slots>:<slotBase>, got ${item}`);
+		const match = /^([A-Za-z0-9._@-]+):(\d+)(?::(\d+))?(?:@(\d{1,2}:\d{2})(?:-(\d{1,2}:\d{2}))?)?$/.exec(item);
+		if (!match) throw new Error(`a Windows PC is <sshHost>:<slots>:<slotBase>[@HH:MM[-HH:MM]], got ${item}`);
+		const [, host, slots, slotBase = '0', close, open] = match;
 		if (Number(slots) < 1 || Number(slots) > 16) throw new Error(`${host}: slots wants 1 to 16`);
-		return { host, slots: Number(slots), slotBase: Number(slotBase) };
+		const pc = { host, slots: Number(slots), slotBase: Number(slotBase) };
+		if (close === undefined) return pc;
+		const closeAt = clockTime(host, close), openAt = open === undefined ? null : clockTime(host, open);
+		if (openAt && openAt[0] === closeAt[0] && openAt[1] === closeAt[1]) throw new Error(`${host}: a cutoff window ${close}-${open} closes and opens at once`);
+		const hhmm = ([hours, minutes]) => `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+		return { ...pc, cutoff: openAt ? `${hhmm(closeAt)}-${hhmm(openAt)}` : hhmm(closeAt), cutoffAt: cutoffTime(closeAt, openAt, now) };
 	});
-	if (!hosts.length) throw new Error('ROOM_BATCH_WINDOWS names no PC (<sshHost>:<slots>:<slotBase>,...)');
+	if (!hosts.length) throw new Error('ROOM_BATCH_WINDOWS names no PC (<sshHost>:<slots>:<slotBase>[@HH:MM[-HH:MM]],...)');
 	if (new Set(hosts.map(item => item.host)).size !== hosts.length) throw new Error('a PC appears twice in ROOM_BATCH_WINDOWS');
 	return hosts;
 }
@@ -31,10 +68,13 @@ export function parseWindowsHosts(text) {
 /** The first port of room slot `slot` on a PC; the room's arms use one 100-port range each from there. */
 export const slotPortBase = (slotBase, slot, arms) => 28000 + (slotBase + slot * arms) * 100;
 
-/** The next free (host, slot), taking slot 0 of every PC before slot 1 of any, so rooms spread over the PCs. */
-export function nextSlot(hosts, busy) {
+/** Whether a PC is past its cutoff at `now`. */
+export const pastCutoff = (pc, now = Date.now()) => pc.cutoffAt != null && now >= pc.cutoffAt;
+
+/** The next free (host, slot) on a PC not past its cutoff, taking slot 0 of every PC before slot 1 of any, so rooms spread over the PCs. */
+export function nextSlot(hosts, busy, now = Date.now()) {
 	const most = Math.max(...hosts.map(item => item.slots));
-	for (let slot = 0; slot < most; slot++) for (const item of hosts) if (slot < item.slots && !busy.has(`${item.host}:${slot}`)) return { host: item.host, slot };
+	for (let slot = 0; slot < most; slot++) for (const item of hosts) if (slot < item.slots && !pastCutoff(item, now) && !busy.has(`${item.host}:${slot}`)) return { host: item.host, slot };
 	return null;
 }
 
@@ -92,7 +132,7 @@ const download = (host, remotePath, local) => run('scp', ['-q', ...SSH, `${host}
  * The pool room-batch-run.mjs drives. hosts from parseWindowsHosts; bundle: { codeTar, helper, jars: {arm: localPath},
  * inputs: [{ local, name }] }; batchName names the batch folder on each PC.
  */
-export function windowsPool({ hosts, batchName, bundle, root = 'C:/aa-runs', log = console.log, runPs = powershell, runUpload = upload, runDownload = download }) {
+export function windowsPool({ hosts, batchName, bundle, root = 'C:/aa-runs', log = console.log, runPs = powershell, runUpload = upload, runDownload = download, now = Date.now }) {
 	const arms = Object.keys(bundle.jars).length;
 	// Windows folders ignore case: arms A and a would upload to one jar and write one output folder.
 	if (new Set(Object.keys(bundle.jars).map(arm => arm.toLowerCase())).size !== arms) throw new Error('arm names must differ in more than case on Windows');
@@ -188,10 +228,35 @@ foreach ($d in 'jobs', 'out') { New-Item -ItemType Directory -Force -Path (Join-
 		return vm.layout;
 	}
 
+	async function startRoom(vm, job, closed) {
+		if (closed()) throw new Error('past its cutoff');
+		const { layout } = vm;
+		const local = path.join(os.tmpdir(), `room-batch-${process.pid}-${vm.id}-${job.room}.json`);
+		await writeFile(local, JSON.stringify(job, null, 2));
+		const file = `${layout.jobs}/${job.room}.json`;
+		try { await runUpload(vm.host, local, file); } finally { await rm(local, { force: true }); }
+		// The upload can outlast the cutoff: past it, the room never launches.
+		if (closed()) throw new Error('past its cutoff');
+		// The room's parent holds ES_CONTINUOUS | ES_SYSTEM_REQUIRED while it plays, so an idle PC does not sleep.
+		const launch = `Add-Type -Namespace W -Name P -MemberDefinition '[DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint f);'
+[W.P]::SetThreadExecutionState([uint32]2147483649) | Out-Null
+$p = Start-Process -FilePath ${psQuote(layout.node)} -ArgumentList '"${windowsPath(layout.helper)}"', '"${windowsPath(file)}"' -WorkingDirectory ${psQuote(windowsPath(layout.code))} -NoNewWindow -PassThru -Wait -RedirectStandardOutput ${psQuote(`${layout.jobs}/${job.room}.log`)} -RedirectStandardError ${psQuote(`${layout.jobs}/${job.room}.err`)}
+exit $p.ExitCode`;
+		const text = await runPs(vm.host, `
+if (Test-Path -LiteralPath ${psQuote(job.outDir)}) { Remove-Item -Recurse -Force -LiteralPath ${psQuote(job.outDir)} }
+$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = 'powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand ${encode(launch)}'; CurrentDirectory = ${psQuote(windowsPath(layout.code))} }
+if ($r.ReturnValue -ne 0) { throw "Win32_Process.Create returned $($r.ReturnValue)" }
+$p = Get-CimInstance Win32_Process -Filter "ProcessId=$($r.ProcessId)"
+"pid=$($r.ProcessId) born=$(if ($p) { $p.CreationDate.ToFileTimeUtc() } else { 0 })"`);
+		vm.pid = Number(/pid=(\d+)/.exec(text)?.[1]);
+		vm.born = /born=(\d+)/.exec(text)?.[1] ?? '0';
+		vm.outDir = layout.out;
+	}
+
 	return {
 		async create() {
-			const free = nextSlot(hosts, busy);
-			if (!free) throw new Error('every Windows slot is taken');
+			const free = nextSlot(hosts, busy, now());
+			if (!free) throw new Error(hosts.every(item => pastCutoff(item, now())) ? 'every Windows PC is past its cutoff' : 'every Windows slot is taken (or its PC is past its cutoff)');
 			busy.add(`${free.host}:${free.slot}`);
 			machines.get(free.host).workers++;
 			// A fresh id per create, so a re-queued room never lands on a slot id it already failed on.
@@ -203,26 +268,10 @@ foreach ($d in 'jobs', 'out') { New-Item -ItemType Directory -Force -Path (Join-
 			vm.preparing = prepareWorker(vm, signal);
 			return vm.preparing;
 		},
-		async start(vm, job) {
-			const { layout } = vm;
-			const local = path.join(os.tmpdir(), `room-batch-${process.pid}-${vm.id}-${job.room}.json`);
-			await writeFile(local, JSON.stringify(job, null, 2));
-			const file = `${layout.jobs}/${job.room}.json`;
-			try { await runUpload(vm.host, local, file); } finally { await rm(local, { force: true }); }
-			// The room's parent holds ES_CONTINUOUS | ES_SYSTEM_REQUIRED while it plays, so an idle PC does not sleep.
-			const launch = `Add-Type -Namespace W -Name P -MemberDefinition '[DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint f);'
-[W.P]::SetThreadExecutionState([uint32]2147483649) | Out-Null
-$p = Start-Process -FilePath ${psQuote(layout.node)} -ArgumentList '"${windowsPath(layout.helper)}"', '"${windowsPath(file)}"' -WorkingDirectory ${psQuote(windowsPath(layout.code))} -NoNewWindow -PassThru -Wait -RedirectStandardOutput ${psQuote(`${layout.jobs}/${job.room}.log`)} -RedirectStandardError ${psQuote(`${layout.jobs}/${job.room}.err`)}
-exit $p.ExitCode`;
-			const text = await runPs(vm.host, `
-if (Test-Path -LiteralPath ${psQuote(job.outDir)}) { Remove-Item -Recurse -Force -LiteralPath ${psQuote(job.outDir)} }
-$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = 'powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand ${encode(launch)}'; CurrentDirectory = ${psQuote(windowsPath(layout.code))} }
-if ($r.ReturnValue -ne 0) { throw "Win32_Process.Create returned $($r.ReturnValue)" }
-$p = Get-CimInstance Win32_Process -Filter "ProcessId=$($r.ProcessId)"
-"pid=$($r.ProcessId) born=$(if ($p) { $p.CreationDate.ToFileTimeUtc() } else { 0 })"`);
-			vm.pid = Number(/pid=(\d+)/.exec(text)?.[1]);
-			vm.born = /born=(\d+)/.exec(text)?.[1] ?? '0';
-			vm.outDir = layout.out;
+		start(vm, job, { closed = () => false } = {}) {
+			// destroy() waits for this: a cutoff that retires the slot mid-start must not race a launch that comes after it.
+			vm.starting = startRoom(vm, job, closed);
+			return vm.starting;
 		},
 		async poll(vm, room) {
 			const text = await runPs(vm.host, `if (Test-Path -LiteralPath ${psQuote(`${vm.outDir}/${room}/done.json`)}) { 'DONE' } else { 'RUNNING' }`, { timeoutMs: 120_000 });
@@ -236,10 +285,13 @@ $p = Get-CimInstance Win32_Process -Filter "ProcessId=$($r.ProcessId)"
 			return stageRoom({ roomsDir, room, download: local => runDownload(vm.host, `${vm.outDir}/${room}.tgz`, local) });
 		},
 		async keepAlive() {},
+		// runBatch starts no room on this worker from then on, and stops and re-queues the one it plays.
+		closesAt: vm => machines.get(vm.host).cutoffAt ?? null,
 		usage: vm => ({ host: vm.host, slot: vm.slot, portBase: vm.layout?.portBase ?? null }),
 		async destroy(vm) {
 			const pc = machines.get(vm.host);
 			if (vm.preparing) await vm.preparing.catch(() => {});
+			if (vm.starting) await vm.starting.catch(() => {});
 			const dir = vm.dir ?? `${batchDir}/w${vm.slot}`;
 			// Kill the room's tree first, then anything still running from this worker's folder (trailing separator avoids w1 matching w10),
 			// then delete the folder (retried: Windows refuses to delete files a process held a moment ago). Windows reuses a pid

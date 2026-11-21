@@ -128,6 +128,8 @@ public final class AgentServerRuntime {
 		dev.agaminggod.mineagen.server.perception.EyeFlightObservation.register();
 		// Ground-truth danger audit for logs and reports only; it never reaches the model (see Watcher).
 		dev.agaminggod.mineagen.server.watch.Watcher.register();
+		// Arrows that already hit a body or its shield, so a shield never turns to a bounce (see StruckShots).
+		dev.agaminggod.mineagen.server.runtime.reflex.StruckShots.register();
 		ServerLifecycleEvents.SERVER_STOPPING.register(AgentServerRuntime::stop);
 		ServerLifecycleEvents.END_DATA_PACK_RELOAD.register((server, resourceManager, success) ->
 				ServerObservationCollector.clearTagCache());

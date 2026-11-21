@@ -110,7 +110,7 @@ public final class ServerActionExecutor {
 		}
 	}
 	private static final Set<ActionType> ARENA_SCRIPT_PRIMITIVES = Set.of(
-			ActionType.MOVE_TO, ActionType.NAVIGATE_TO, ActionType.TRAVEL_TO, ActionType.DIG_TO, ActionType.MINE_VEIN, ActionType.BUILD_SHELTER, ActionType.CAST_OBSIDIAN, ActionType.BARTER_UNTIL, ActionType.REST, ActionType.BUILD, ActionType.CONTROL, ActionType.CONTROL_SEQUENCE, ActionType.LOOK_AT, ActionType.ATTACK,
+			ActionType.MOVE_TO, ActionType.NAVIGATE_TO, ActionType.TRAVEL_TO, ActionType.DIG_TO, ActionType.MINE_VEIN, ActionType.BUILD_SHELTER, ActionType.CAST_OBSIDIAN, ActionType.BARTER_UNTIL, ActionType.REST, ActionType.ESCAPE, ActionType.BUILD, ActionType.CONTROL, ActionType.CONTROL_SEQUENCE, ActionType.LOOK_AT, ActionType.ATTACK,
 			ActionType.SELECT_ITEM, ActionType.USE_ITEM, ActionType.BREAK_BLOCK, ActionType.PLACE_BLOCK,
 			ActionType.CHAT, ActionType.WAIT, ActionType.SET_DOOR, ActionType.PICK_UP_ITEM, ActionType.DROP_ITEM,
 			ActionType.TRANSFER_CONTAINER, ActionType.CRAFT_INVENTORY, ActionType.CRAFT_TABLE,
@@ -910,6 +910,9 @@ public final class ServerActionExecutor {
 			// Model-chosen rest: a bed when one can be had, else walls or a roofed hole, until morning.
 			case REST -> ActiveAction.controller(request, player, new dev.agaminggod.mineagen.server.runtime.controller.ServerRestController(
 					integer(arguments, "timeoutMs"), GameClock.nowMs(), restEnvironment(request)));
+			// "Get me out safely": out of water, a hole or a shooter's sight, then hands back.
+			case ESCAPE -> ActiveAction.controller(request, player, new dev.agaminggod.mineagen.server.runtime.controller.ServerEscapeController(
+					integer(arguments, "timeoutMs"), GameClock.nowMs(), escapeEnvironment(request)));
 			case BARTER_UNTIL -> ActiveAction.controller(request, player, new ServerBarterController(
 					string(arguments, "itemId"), integer(arguments, "count"), integer(arguments, "timeoutMs"), GameClock.nowMs()));
 			// Turns over a few ticks like a player instead of snapping; finishes on the exact lookAt rotation.
@@ -1901,6 +1904,28 @@ public final class ServerActionExecutor {
 		};
 	}
 
+	/** escape's hands: travel_to (building steps), build pillar, dig_to stairs_up with fluids sealed, and block placement for the fill. */
+	private dev.agaminggod.mineagen.server.runtime.controller.ServerEscapeController.Environment escapeEnvironment(ServerActionRequest parent) {
+		return new dev.agaminggod.mineagen.server.runtime.controller.ServerEscapeController.Environment() {
+			public dev.agaminggod.mineagen.server.runtime.controller.ServerController travel(ServerPlayer body, BlockPos to, long timeoutMs) {
+				return new dev.agaminggod.mineagen.server.runtime.controller.ServerTravelController(to.getX() + 0.5D, to.getY(), to.getZ() + 0.5D, 1.0D, timeoutMs,
+						true, null, null, (player, cell) -> protection.mayModifyBlock(player, player.level(), cell), GameClock.nowMs()).keepsKnockbackMargin();
+			}
+			public dev.agaminggod.mineagen.server.runtime.controller.ServerController pillar(ServerPlayer body, int size, long timeoutMs) {
+				return new dev.agaminggod.mineagen.server.runtime.controller.ServerBuildController(
+						dev.agaminggod.mineagen.server.runtime.controller.ServerBuildController.Structure.PILLAR, null, null, size, timeoutMs, GameClock.nowMs(), buildEnvironment(parent));
+			}
+			public dev.agaminggod.mineagen.server.runtime.controller.ServerController stairsUp(ServerPlayer body, int y, Direction heading, long timeoutMs) {
+				JsonObject args = new JsonObject();
+				args.addProperty("pattern", "stairs_up"); args.addProperty("y", y); args.addProperty("heading", heading.getName());
+				args.addProperty("sealFluids", true); args.addProperty("timeoutMs", timeoutMs);
+				return digController(args);
+			}
+			public Vec3 aim(ServerPlayer body, BlockPos at, Direction face, String itemId) { return shelterEnvironment(parent, itemId).aim(body, at, face); }
+			public String place(ServerPlayer body, BlockPos at, Direction face, String itemId) { return shelterEnvironment(parent, itemId).place(body, at, face); }
+		};
+	}
+
 	/** rest's hands: build_shelter's sealing, clearing and placement, the craft transaction, a bed click, dig_to stairs. */
 	private dev.agaminggod.mineagen.server.runtime.controller.ServerRestController.Environment restEnvironment(ServerActionRequest parent) {
 		var roofing = roofing(parent);
@@ -2168,7 +2193,8 @@ public final class ServerActionExecutor {
 					.continuationOptions(arguments.has("throughCaves") ? arguments.get("throughCaves").getAsString() : "small",
 							ServerDigController.sealFluidsOption(arguments),
 							arguments.has("discard") ? java.util.stream.StreamSupport.stream(arguments.getAsJsonArray("discard").spliterator(), false).map(value -> value.getAsString()).toList() : java.util.List.of())
-					.acceptUnseenBelow(arguments.has("throughCaves") && arguments.get("throughCaves").getAsJsonPrimitive().isBoolean() && bool(arguments, "throughCaves"));
+					.acceptUnseenBelow(arguments.has("throughCaves") && arguments.get("throughCaves").getAsJsonPrimitive().isBoolean() && bool(arguments, "throughCaves"))
+					.inferDirection(nullableString(arguments, "pattern") == null);
 		} catch (IllegalArgumentException invalid) {
 			throw new AgentDomainException("INVALID_DIG_GOAL", invalid.getMessage());
 		}

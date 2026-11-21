@@ -239,7 +239,8 @@ test('contract: every advertised player API member executes its declared physica
 	for (const match of reference.matchAll(/```json executor-call\r?\n([\s\S]*?)\r?\n```/g)) {
 		const example = JSON.parse(match[1]);
 		const normalized = normalizeMinecraftToolCall(example.tool, example.arguments);
-		const actions = normalized.kind === 'action' ? [normalized] : normalized.kind === 'sequence' ? normalized.actions : [];
+		// A do_step example is an accepted fixture too: escape is reachable only through do_step and programs.
+		const actions = normalized.kind === 'action' || normalized.kind === 'start_action' ? [normalized] : normalized.kind === 'sequence' ? normalized.actions : [];
 		for (const action of actions) if (!fixtures.has(action.actionType)) fixtures.set(action.actionType, { type: action.actionType, ...action.arguments });
 	}
 	// moveTo's native wrapper uses navigate_to, while the program member preserves move_to.
