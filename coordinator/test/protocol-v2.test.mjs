@@ -1400,6 +1400,8 @@ test('bridge probes an authenticated peer and reconnects when heartbeat silence 
 		scheduleDeadline: deadlines.schedule,
 		cancelDeadline: deadlines.cancel,
 		currentRevision: () => 0,
+		// The manual deadline queue does not move real time; a fixed clock keeps a slow host from reading it as a stall.
+		monotonicNow: () => 0,
 	});
 	t.after(() => bridge.stop());
 	const errors = [];
@@ -1437,6 +1439,8 @@ test('a heartbeat deadline that runs late after a coordinator stall probes again
 	const errors = [], late = [];
 	bridge.on('protocolError', (error) => errors.push(error));
 	bridge.on('heartbeatLate', (event) => late.push(event));
+	bridge.on('heartbeatLate', () => { throw new Error('a failing listener must not skip the probe or the deadline'); });
+	bridge.on('listenerError', () => {});
 	bridge.start();
 	socket.emit('connect');
 	const hello = JSON.parse(socket.writes[0]);
@@ -1455,8 +1459,10 @@ test('a heartbeat deadline that runs late after a coordinator stall probes again
 	assert.equal(JSON.parse(socket.writes.at(-1)).type, 'heartbeat', 'the missed probe goes out at once');
 	assert.ok(socket.writes.length > writesBefore);
 
-	now += 29;
+	// Late again: the fresh window grants no second grace, so repeated stalls cannot keep a silent bridge ready.
+	now += 226_000;
 	await deadlines.runDelay(29);
+	assert.equal(late.length, 1);
 	assert.equal(socket.destroyed, true, 'a bridge that stays silent through the fresh window still reconnects');
 	assert.equal(errors.at(-1)?.code, 'HEARTBEAT_TIMEOUT');
 });

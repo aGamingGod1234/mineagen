@@ -31,15 +31,16 @@ export function isSensitiveDiagnosticKey(value) {
 }
 
 export function sanitizeDiagnosticText(value, options = {}) {
-	rememberEnvironmentCredentials();
-	return sanitizeText(value, options);
+	return sanitizeText(value, options, { rescan: true });
 }
 
-/** sanitizeDiagnosticText once the caller has remembered the environment's credentials. */
-function sanitizeText(value, { maxBytes = 2_048, redactPaths = true, preserveWhitespace = false, redactPrompts = true } = {}) {
+/** sanitizeDiagnosticText; without rescan, the caller has already remembered the environment's credentials. */
+function sanitizeText(value, { maxBytes = 2_048, redactPaths = true, preserveWhitespace = false, redactPrompts = true } = {}, { rescan = false } = {}) {
 	if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) throw new TypeError('maxBytes must be a nonnegative safe integer');
 	let text;
 	try { text = String(value ?? ''); } catch { text = '[unavailable]'; }
+	// Scan after the conversion: a value's own toString can still change the environment.
+	if (rescan) rememberEnvironmentCredentials();
 	text = redactRememberedCredentials(text)
 		.replace(AUTHORIZATION, (_match, prefix, scheme) => `${prefix}${scheme} ${DIAGNOSTIC_REDACTED}`)
 		.replace(BEARER, (_match, scheme) => `${scheme} ${DIAGNOSTIC_REDACTED}`)

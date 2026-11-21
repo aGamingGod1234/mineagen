@@ -1484,7 +1484,7 @@ export class MultiplexedServerBridge extends EventEmitter {
 	/** Inbound messages accepted but not yet released by their handlers (reads pause at three quarters of the cap). */
 	get inboundQueued() { return this.#inboundEntries.size; }
 
-	#refreshHeartbeatDeadline(socket, connectionEpoch) {
+	#refreshHeartbeatDeadline(socket, connectionEpoch, { allowLateGrace = true } = {}) {
 		this.#clearHeartbeatDeadline();
 		const token = this.#heartbeatDeadlineToken;
 		const scheduledAt = this.#monotonicNow();
@@ -1493,11 +1493,12 @@ export class MultiplexedServerBridge extends EventEmitter {
 			const lateMs = Math.round(this.#monotonicNow() - scheduledAt - this.#heartbeatTimeoutMs);
 			// A deadline that runs a probe interval late means this process stalled (a throttled host starved timers for up
 			// to 226 s): no probe went out and buffered replies are still unread, so the silence is ours. Probe now and give
-			// the server one full window; a bridge that stays silent through it still fails below.
-			if (lateMs > this.#heartbeatIntervalMs) {
-				this.emit('heartbeatLate', { lateMs, connectionEpoch });
+			// the server one full window. That window grants no second grace: a bridge silent through it fails even if its
+			// deadline runs late too, so repeated stalls cannot keep a dead bridge marked ready.
+			if (allowLateGrace && lateMs > this.#heartbeatIntervalMs) {
+				this.#refreshHeartbeatDeadline(socket, connectionEpoch, { allowLateGrace: false });
 				void this.send('heartbeat', 'server', {}, { connectionEpoch }).catch(() => {});
-				this.#refreshHeartbeatDeadline(socket, connectionEpoch);
+				this.#emitSafely('heartbeatLate', { lateMs, connectionEpoch });
 				return;
 			}
 			this.#fail(new ProtocolV2Error('HEARTBEAT_TIMEOUT', 'Authenticated Minecraft bridge became silent'), socket, connectionEpoch);

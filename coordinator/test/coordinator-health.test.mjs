@@ -52,3 +52,19 @@ test('the coordinator writes a coordinator_health trace row from its status inte
 		await run.coordinator.stop();
 	}
 });
+
+test('a failing health sampler does not stop status publishing', async () => {
+	let tick = null;
+	const run = await start({
+		healthSampler: { sample() { throw new Error('sampler failed'); }, close() {} },
+		setStatusInterval: (callback) => { tick = callback; return 1; }, clearStatusInterval: () => {},
+	});
+	try {
+		const before = run.bridge.sent.filter((message) => message.type === 'coordinator_status').length;
+		assert.doesNotThrow(() => tick());
+		await new Promise((resolve) => setImmediate(resolve));
+		assert.ok(run.bridge.sent.filter((message) => message.type === 'coordinator_status').length > before);
+	} finally {
+		await run.coordinator.stop();
+	}
+});

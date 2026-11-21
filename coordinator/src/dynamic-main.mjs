@@ -631,8 +631,10 @@ export class DynamicCoordinator extends EventEmitter {
 			this.#bridge.start();
 			this.#health = this.#healthSamplerFactory();
 			this.#statusHandle = this.#setStatusInterval(() => {
-				const health = this.#health?.sample({ inboundQueued: this.#bridge.inboundQueued ?? null, agentOperations: this.#totalAgentOperations });
-				if (health) this.#writeTrace('coordinator_health', health);
+				try {
+					const health = this.#health?.sample({ inboundQueued: this.#bridge.inboundQueued ?? null, agentOperations: this.#totalAgentOperations });
+					if (health) this.#writeTrace('coordinator_health', health);
+				} catch { /* health rows are observational; status and recovery still run */ }
 				const connectionEpoch = this.#connectionEpoch;
 				this.#requestProviderRecovery(connectionEpoch);
 				this.#run(() => this.#publishStatus(connectionEpoch), connectionEpoch);
@@ -641,6 +643,8 @@ export class DynamicCoordinator extends EventEmitter {
 		} catch (error) {
 			if (this.#statusHandle !== null) this.#clearStatusInterval(this.#statusHandle);
 			this.#statusHandle = null;
+			this.#health?.close();
+			this.#health = null;
 			this.#bridge.stop();
 			this.#unbindBridge();
 			await this.#codexService.stop();
