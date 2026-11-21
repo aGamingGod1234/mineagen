@@ -14,7 +14,8 @@
 // off alone. Idle pool machines beyond the warm N, idle for --grace minutes (default 10), are deleted, longest idle
 // first, once their lease is taken and nothing runs there; any other machine is left to reach its auto-stop. Without
 // --warm every idle pool machine is kept warm; --night-warm replaces --warm during --night (this computer's clock).
-// --idle-stop machines stop by themselves --idle-stop-min (default 60) after their last work, and are never deleted here.
+// --idle-stop machines stop by themselves --idle-stop-min (default 60) after their last work or their batch's lease, and
+// are never deleted here (a machine made with --no-snapshots is erased by its stop: give only machines that may go).
 // With --every it repeats until stopped. drain
 // deletes every idle machine (or those of one image and size); a busy one is left to its batch. prune deletes machines
 // that are not running, idle machines of an image that was rebuilt or deleted, and machines a batch set aside after a
@@ -161,11 +162,16 @@ if (command === 'status') {
 		}
 		let stopping = 0, working = 0;
 		if (idleStop.length) {
+			const leased = new Set((await store.list()).filter(item => !item.stale).map(item => item.name));
 			for (const item of (await listSandboxes()).filter(item => LIVE.has(item.state) && idleStop.some(prefix => String(item.name ?? '').startsWith(prefix)))) {
 				try {
+					// A machine a live batch holds is that batch's: its rooms may sit between steps.
+					if (leased.has(item.name)) { working++; await pool.holdFor(item, idleStopSeconds); continue; }
 					const state = await execRemote(item.id, WORK_SCRIPT, { timeoutSeconds: 30 }).catch(() => 'unknown');
+					const remaining = item.archiveAfter == null ? Infinity : Date.parse(item.archiveAfter) - Date.now();
 					if (/busy/.test(state)) { working++; await pool.holdFor(item, idleStopSeconds); }
-					else if (item.archiveAfter == null && /idle/.test(state)) { stopping++; await extendMachine(item.id, idleStopSeconds); log(`${item.name} (${item.id}) is idle: it stops in ${Math.round(idleStopSeconds / 60)} min unless work starts`); }
+					// Idle: auto-stop no later than --idle-stop-min from now (turned on if it was off, brought in if it was further).
+					else if (/idle/.test(state) && remaining > idleStopSeconds * 1000 + 60_000) { stopping++; await extendMachine(item.id, idleStopSeconds); log(`${item.name} (${item.id}) is idle: it stops in ${Math.round(idleStopSeconds / 60)} min unless work starts`); }
 				} catch (error) { failed++; log(`could not set the idle stop of ${item.id}: ${error.message}`); }
 			}
 		}
