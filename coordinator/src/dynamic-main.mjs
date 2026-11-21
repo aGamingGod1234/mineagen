@@ -97,7 +97,8 @@ import { DRAGON_PERCHED_TRIGGER, dragonPerchEdge, dragonPerchLine, noteCombatDis
 import { heldToolBreak } from './held-tool-break.mjs';
 import { SITUATION_CHANGED_FIELD, STRATEGY_POINTER_FIELD, SituationChangeTracker } from './situation-changes.mjs';
 import { ContextEntryTracker, uncoveredDangers } from './danger-contexts.mjs';
-import { WakeFilter, countSkillKinds, stepFolds } from './wake-filter.mjs';
+import { SIGHTING_STEPS, WakeFilter, countSkillKinds, stepFolds } from './wake-filter.mjs';
+import { needResources, sightingNeeded, textResources } from './need-sources.mjs';
 import { searchHoldsSteer } from './search-danger.mjs';
 import { carriedFoodToEat, eatCalls, naturalRegeneration } from './fork-rule.mjs';
 // Danger triggers a running count skill handles itself when they come from its own mob (see countSkillKinds).
@@ -128,6 +129,7 @@ const GENERIC_WAKE_TRIGGERS = new Set(['attention', 'observation']);
 // Folded by a running step yet still named on the wake its end brings: what was seen, not how the body moved.
 // A running step's until "seen:<block>" came into view (a verb whose body does not stop itself on it).
 const STEP_UNTIL_TRIGGER = 'step_until_seen';
+const STEP_SIGHTING_TRIGGER = 'needed_sighting';
 const STEP_NAMED_TRIGGERS = new Set(['resource_discovery', 'structure_sighted', 'lava_heard', 'furnace_ready', 'heal_opportunity']);
 // Ordinary perception a running program already receives and answers through its own decisions (onObservation).
 const PROGRAM_OWNED_PERCEPTION_TRIGGERS = new Set(['attention', 'observation', 'resource_discovery', 'structure_sighted', 'lava_heard', 'heal_opportunity', 'projectile']);
@@ -1227,6 +1229,22 @@ export class DynamicCoordinator extends EventEmitter {
 						this.#writeTrace('native_wake_filtered', { agentId: record.agentId, goalRevision: record.goalRevision, trigger: attention.trigger, verdict: 'wake', reason: `step ${step} until seen:${untilSeen}` });
 						this.#resumeDeferredWake(record, attention);
 						this.#scheduleNativeTurn(record, { ...wakeRequest, priority: 'urgent', trigger: STEP_UNTIL_TRIGGER, nativeEvent: { ...wakeRequest.nativeEvent, trigger: STEP_UNTIL_TRIGGER } });
+						return;
+					}
+					// The plan's needed ore, or a new roomy cave while an ore or lava is needed, in reach of a running dig_to or
+					// travel_to: a player stops and looks. Once per step (native-tool-runtime.mjs stepNeedSighting).
+					// Only a sample the step would fold (an ordinary trigger, no failure owed): danger keeps its own path.
+					const needSighting = step === null || !SIGHTING_STEPS.has(step) || !stepFolds(step, attention) || failureSteerOwed ? null
+						: this.#nativeRuntime.stepNeedSighting(record, observation, () => {
+							// The plan's open needs (a frame still to cast counts as obsidian); without a plan, what the goal itself
+							// asks to acquire ("get iron").
+							const names = needResources(this.#taskViews.openNeeds(record, { frame: true }).map((need) => need.id));
+							return sightingNeeded(names.length ? names : textResources(record.currentGoal ?? ''));
+						});
+					if (needSighting !== null) {
+						this.#writeTrace('native_wake_filtered', { agentId: record.agentId, goalRevision: record.goalRevision, trigger: attention.trigger, verdict: 'wake', reason: `step ${step}: ${needSighting}` });
+						this.#resumeDeferredWake(record, attention);
+						this.#scheduleNativeTurn(record, { ...wakeRequest, priority: 'urgent', trigger: STEP_SIGHTING_TRIGGER, nativeEvent: { ...wakeRequest.nativeEvent, trigger: STEP_SIGHTING_TRIGGER } });
 						return;
 					}
 					if (stepFolds(step, attention) && !failureSteerOwed && this.#wakeFilter.discovery(record.agentId, { attention, observation, goalText: record.currentGoal }) === null) {
@@ -4428,10 +4446,12 @@ export class DynamicCoordinator extends EventEmitter {
 			const reflexes = this.#nativeRuntime.reflexReport(record);
 			// Facts the wake filter held while the model's action ran (hits absorbed, items gained, routine updates).
 			const whileActing = this.#wakeFilter.take(record.agentId, observation);
+			// What the step that just ended gained, spent and wore, so the model needs no inventory inspect for it.
+			const stepChanged = isPlanning ? null : this.#nativeRuntime.stepChangeLine?.(record) ?? null;
 			const pace = continuity === null ? null : this.#bodyPace.line(record.agentId);
 			const input = buildNativeEventInput(record, {
 				...nativeEvent, movementLoop, taskMemory, progress: this.#taskViews.progress(record), goalNow: this.#taskViews.goalLine(record), doing: this.#taskViews.doingLine(record), skillFits: this.#taskViews.skillLine?.(record) ?? null,
-				continuity: guardOutcome || reflexes || pace || whileActing ? { ...continuity, ...(guardOutcome ? { guardOutcome } : {}), ...(reflexes ? { reflexes } : {}), ...(whileActing ? { whileActing } : {}), ...(pace ? { pace } : {}) } : continuity, dangerSummary: request.dangerSummary,
+				continuity: guardOutcome || reflexes || pace || whileActing || stepChanged ? { ...continuity, ...(guardOutcome ? { guardOutcome } : {}), ...(reflexes ? { reflexes } : {}), ...(whileActing ? { whileActing } : {}), ...(stepChanged ? { stepChanged } : {}), ...(pace ? { pace } : {}) } : continuity, dangerSummary: request.dangerSummary,
 				awaitingConfirmation: this.#awaitingNativeConfirmation(record, request.lifecycleGeneration),
 				confirmationFacts: this.#nativeConfirmationWaits.get(record.agentId)?.facts ?? null,
 				observation, actionReceipt: request.nativeEvent.observation?.lastResult, newContext: this.#pendingAssessment(record, request, nativeEvent, observation), changed, strategy, contexts, uncovered,
@@ -7268,6 +7288,13 @@ const at = (cell) => [cell?.x, cell?.y, cell?.z].every(Number.isFinite) ? `${cel
 // The threat line names what a player could do with what the body carries, in no preferred order. d41 deck c4/c5:
 // the line listed melee, flight and cover but never the bow, and the model never drew a carried bow from inside a shelter.
 const RANGED_AMMO = new Set(['minecraft:arrow', 'minecraft:spectral_arrow', 'minecraft:tipped_arrow']);
+// Mobs that shoot from range; a shield raised toward them blocks the shot.
+const RANGED_MOBS = new Set(['minecraft:skeleton', 'minecraft:stray', 'minecraft:bogged', 'minecraft:pillager', 'minecraft:blaze']);
+/** A shield in either hand of the shown inventory. */
+function shieldHeld(observation) {
+	const items = observation?.continuity?.rememberedSections?.includes('inventory') ? null : observation?.inventory?.items;
+	return Array.isArray(items) && items.some(e => e?.count > 0 && e.itemId === 'minecraft:shield' && (e.slot === 'offhand' || e.slot === 'mainhand'));
+}
 export function carriedCombatOptions(observation) {
 	const items = observation?.continuity?.rememberedSections?.includes('inventory') || !Array.isArray(observation?.inventory?.items) ? null
 		: observation.inventory.items.filter(e => e?.count > 0);
@@ -7293,7 +7320,15 @@ function survivalFactLine(observation, { newContext = false } = {}) {
 	if (creeper) return `Live Minecraft event: creeper ${creeper.uuid} ${creeper.distance}m away${creeper.swelling === true ? ', swelling' : ''}. Choose flee_from now, including during a fight with another mob. Replace the active action with your escape if needed; fighting the other target does not handle this explosion. Use observed footing; the escape call can carry reflexes for the rest of the encounter.`;
 	if (observation.currentAction?.active !== true && observation.lastResult?.reasonCode === 'LOW_HEALTH_BAILOUT') return 'Live Minecraft event: combat stopped at your bailout health; read the receipt for the bounded retreat outcome or why no retreat was attempted. Repeating the same threshold cannot attack while health remains below it. Choose flee_from, reachable cover, digging in (a 1x1 hole 2 deep with one block over it is fully enclosed; dirt breaks by hand in under 1 s) or a shield now, then heal once clear. Use fresh attacker UUIDs; do not resume exposed work.';
 	if (threats.some(threat => threat.targeting === true || threat.swelling === true || threat.signals?.includes('attacked') || threat.signals?.includes('imminent') || threat.signals?.includes('creeper_close'))) {
-		if (lowEligibleBody(player, 10, 0.5)) return `Live Minecraft event: nearby attacker and low health. Choose flee_from, reachable cover or digging in (a 1x1 hole 2 deep with one block over it is fully enclosed; dirt breaks by hand in under 1 s) now; break contact before eating. At fleeAtHealth, a pursuing fight attempts a bounded retreat; read its actual outcome. Use player.threats UUIDs and observed footing.${edgeNote(player)}`;
+		if (lowEligibleBody(player, 10, 0.5)) {
+			// A shooter is answered by the shield a player already holds: 2 of 3 skeleton deaths on 19 Nov came with the
+			// shield lines offering only flight, cover or a hole.
+			// ranged_sight is only a line of sight; aiming, targeting or a hit means it is after this body.
+			const engaged = threat => threat.targeting === true || threat.signals?.some(signal => ['attacked', 'ranged_aiming'].includes(signal));
+			const shooter = shieldHeld(observation) ? threats.find(threat => engaged(threat) && (RANGED_MOBS.has(threat.type) || /(^|:)(bow|crossbow)$/.test(threat.holding ?? ''))) : undefined;
+			const shield = shooter ? `, or block_with_shield facing the ${String(shooter.type).replace(/^minecraft:/, '')} ${shooter.uuid ?? ''} (a raised shield stops its shots from the front) and fight_target it once in reach`.replace(/ {2,}/g, ' ') : '';
+			return `Live Minecraft event: nearby attacker and low health. Choose flee_from, reachable cover or digging in (a 1x1 hole 2 deep with one block over it is fully enclosed; dirt breaks by hand in under 1 s)${shield} now; break contact before eating. At fleeAtHealth, a pursuing fight attempts a bounded retreat; read its actual outcome. Use player.threats UUIDs and observed footing.${edgeNote(player)}`;
+		}
 		const calm = asArray(observation.entities).filter(entity => ['minecraft:piglin', 'minecraft:zombified_piglin'].includes(entity.type) && entity.hostile === false && entity.targetingAgent !== true && entity.alive !== false && entity.distance <= 4);
 		if (calm.some(entity => entity.type === 'minecraft:piglin')) return `Live Minecraft event: nearby attacker beside a calm piglin. Sword sweeps can provoke its group despite worn gold. Choose separation or cover now, or a held axe with attack when in reach; fight_target selects its own hotbar weapon. Use the hostile target UUID, not the calm piglin.${edgeNote(player)}`;
 		// Run d9-nether-e: a fight_target sweep at a blaze hurt a calm zombified piglin 1.3 m away; it killed the agent 13 s later.

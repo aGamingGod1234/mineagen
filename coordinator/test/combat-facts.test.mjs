@@ -60,6 +60,16 @@ test('bailout and attacked-only threats lead with immediate defense, not another
 	assert.match(wake().split('\n')[0], /nearby attacker and low health/);
 	assert.match(wake().split('\n')[0], /pursuing fight attempts a bounded retreat; read its actual outcome/);
 	assert.match(wake().split('\n')[0], /reachable cover or digging in \(a 1x1 hole 2 deep with one block over it is fully enclosed/, 'digging in needs no carried blocks');
+	assert.doesNotMatch(wake().split('\n')[0], /block_with_shield facing/, 'no shield held: no shield option');
+	// Low health against a shooter with a shield in hand: the shield and a fight back are options beside flight and cover.
+	o.player.threats = [{ uuid: 'skel-1', type: 'minecraft:skeleton', targeting: true, signals: ['ranged_aiming'], holding: 'minecraft:bow' }];
+	o.inventory = { ...o.inventory, items: [...(o.inventory?.items ?? []), { slot: 'offhand', itemId: 'minecraft:shield', count: 1 }] };
+	assert.match(wake().split('\n')[0], /nearby attacker and low health\. Choose flee_from, reachable cover or digging in \([^)]*\), or block_with_shield facing the skeleton skel-1 \(a raised shield stops its shots from the front\) and fight_target it once in reach now;/);
+	o.player.threats = [{ uuid: 'piglin', type: 'minecraft:piglin', signals: ['attacked'] }];
+	assert.doesNotMatch(wake().split('\n')[0], /block_with_shield facing/, 'a melee attacker gets no shooter option');
+	o.player.threats = [{ uuid: 'zombie-1', type: 'minecraft:zombie', targeting: true }, { uuid: 'skel-2', type: 'minecraft:skeleton', holding: 'minecraft:bow', signals: ['ranged_sight'] }];
+	assert.doesNotMatch(wake().split('\n')[0], /block_with_shield facing/, 'a skeleton that is not after the body is not the one to face');
+	o.player.threats = [{ uuid: 'piglin', type: 'minecraft:piglin', signals: ['attacked'] }];
 	o.player.health = 15;
 	assert.match(wake().split('\n')[0], /nearby threat.*supported cover placement, digging in \(a 1x1 hole 2 deep/);
 	o.player.health = 20;

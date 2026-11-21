@@ -211,6 +211,7 @@ function factToWireObservation(value, goalRevision, eventSequence, attention, ob
 		blocks: (value.blocks ?? []).map((block) => ({ x: block.x, y: block.y, z: block.z, blockId: block.blockId, placeableFaces: ['up'] })),
 		nearbyContainers: [], world: value.world ?? { dimension: 'minecraft:overworld', gameTime: 1, dayTime: 1, raining: false, thundering: false },
 		currentAction: { active: false }, lastResult: { present: false },
+		...(value.sighted === undefined ? {} : { sighted: structuredClone(value.sighted) }),
 	};
 }
 

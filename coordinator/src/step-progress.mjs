@@ -200,6 +200,31 @@ function inventoryDelta(before, after) {
  return bulk ? [...rows, `${bulk > 0 ? '+' : ''}${bulk} stone/dirt`] : rows;
 }
 
+const usesLeft = (item) => Number.isFinite(item?.usesLeft) ? item.usesLeft
+ : Number.isFinite(item?.maxDamage) && item.maxDamage > 0 && Number.isFinite(item?.damage) ? item.maxDamage - item.damage : null;
+/**
+ * What a step changed in the inventory, from the items held when it started to the items held now: counts gained and
+ * spent (stone and dirt summed) and the uses each kind of tool lost, or "inventory unchanged". Null without both lists.
+ * The 19 Nov games spent 54 inventory inspects, mostly right after an obtain or a failed step, to learn this.
+ */
+export function stepChange(before, after) {
+ if (!Array.isArray(before) || !Array.isArray(after)) return null;
+ const rows = (items) => items.filter((item) => typeof item?.itemId === 'string' && Number.isFinite(item.count)).map(({ itemId, count }) => ({ itemId, count }));
+ const held = inventoryDelta(rows(before), rows(after));
+ const tools = (items) => {
+  const map = new Map();
+  for (const item of items) { const left = usesLeft(item); if (left !== null) map.set(item.itemId, (map.get(item.itemId) ?? 0) + left); }
+  return map;
+ };
+ const was = tools(before), now = tools(after), wear = [];
+ for (const [id, left] of was) {
+  const after = now.get(id) ?? 0;
+  if (after < left) wear.push(`${id.replace(/^minecraft:/, '')} -${left - after}${now.has(id) ? ` (${after} left)` : ' (broke)'}`);
+ }
+ const parts = [held.length ? `held ${held.join(', ')}` : '', wear.length ? `tool uses ${wear.slice(0, 3).join(', ')}` : ''].filter(Boolean);
+ return parts.length ? parts.join('; ') : 'inventory unchanged';
+}
+
 /** A result that changed nothing, keyed by action and outcome; null for an effective or model-cancelled result. */
 export function repeatSignature(receipt) {
  const type = receipt?.actionType, state = receipt?.state, message = typeof receipt?.message === 'string' ? receipt.message : '';
