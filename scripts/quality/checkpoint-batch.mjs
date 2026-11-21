@@ -7,6 +7,7 @@
 //     "codexHome": "/folder/holding/auth.json", "snapshot": "mineagen-rooms-263", "type": "default",
 //     "vms": ["bx_..."], "create": 4, "spares": 2, "name": "ckpt-night",
 //     "arms": { "main": { "root": "/checkout", "ref": "COMMIT", "jar": "/main.jar", "env": {} }, "int": { ... } },
+//     "meter": { "command": "prints the percent of the Codex allowance left", "floorPercent": 10 },
 //     "savepoints": { "nether": { "file": "/sp/9-nether-entry-123456789-v2.json", "repeats": 4, "targets": ["fortress", "blaze_rod"] } } }
 // Each arm is `git archive REF` of its root plus that root's coordinator/node_modules, and its jar. Every repeat of a
 // save point draws one loot salt that all arms share (lib/checkpoint-batch-core.mjs). A game runs scripts/quality/run-long.mjs
@@ -15,7 +16,7 @@
 // are the scarce resource, so they stay up for reuse. The sign-in is copied to each machine, checked against its source
 // hash after every game (a changed hash means Codex refreshed it there, which can sign out the source machine, so no new
 // game starts), kept out of every copy-back, and removed from every machine when the batch ends.
-// Output: OUT/games/ID/{run.log,report/long-run.json,raw/...}, OUT/state.json, OUT/summary.json, OUT/summary.txt, OUT/batch.log.
+// Output: OUT/games/ID/{run.log,done,report/long-run.json,game.tgz (everything, raw journals under raw/)}, OUT/state.json, OUT/summary.json, OUT/summary.txt, OUT/batch.log.
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
@@ -90,6 +91,22 @@ eatmydata node scripts/quality/run-long.mjs --provider codex --model "$model" --
 echo "exit $? $(date -Is)" > "$dir/done"
 `);
 
+// The meter command prints the percent of the sign-in's allowance left. Below the floor no new game starts; a reading
+// that fails or is not a number is logged and does not stop the batch, since the batch cannot read the meter itself.
+let meterAt = 0, meterLow = false;
+async function meterOk() {
+	if (!plan.meter || Date.now() - meterAt < 5 * 60_000) return !meterLow;
+	meterAt = Date.now();
+	try {
+		const left = Number(execFileSync('bash', ['-c', plan.meter.command], { encoding: 'utf8', timeout: 60_000 }).trim().split(/\s+/).pop());
+		if (!Number.isFinite(left)) throw new Error('not a number');
+		if (left < plan.meter.floorPercent && !meterLow) await log(`meter ${left}% left, below the ${plan.meter.floorPercent}% floor: no new game starts`);
+		meterLow = left < plan.meter.floorPercent;
+		state.meter = { left, at: new Date().toISOString() };
+	} catch (error) { await log(`meter unreadable: ${error.message.split('\n')[0].slice(0, 200)}`); }
+	return !meterLow;
+}
+
 const state = { plan: { ...plan, codexHome: '(private)' }, startedAt: new Date().toISOString(), codexVersion, arms: pkgs, games, machines: [] };
 const save = async () => { await writeFile(path.join(out, 'state.json.tmp'), JSON.stringify(state, null, 2)); await rename(path.join(out, 'state.json.tmp'), path.join(out, 'state.json')); };
 let created = 0, spares = plan.spares ?? 0, stopped = false, signInChanged = false;
@@ -132,9 +149,12 @@ tar --exclude=auth.json --exclude=.codex-home -czf ../${game.id}.tgz . && echo o
 	if (remoteSha !== authSha) { signInChanged = true; await log(`SIGN-IN CHANGED on ${vm.id}: Codex refreshed it there; no new game starts`); }
 	const dest = path.join(out, 'games', game.id);
 	await rm(dest, { recursive: true, force: true }); await mkdir(dest, { recursive: true });
-	await download(vm.id, `ck/games/${game.id}.tgz`, path.join(dest, 'copy.tgz'));
-	execFileSync('tar', ['-xzf', path.join(dest, 'copy.tgz'), '-C', dest]);
-	await rm(path.join(dest, 'copy.tgz'));
+	// The raw journals stay packed in game.tgz (about 1 GB unpacked per 90-minute game); only the report and logs unpack.
+	await download(vm.id, `ck/games/${game.id}.tgz`, path.join(dest, 'game.tgz'));
+	// tar exits non-zero when a member is missing (a game that died before its report): the rest still unpacks, and a
+	// missing report scores unknown.
+	try { execFileSync('tar', ['-xzf', path.join(dest, 'game.tgz'), '-C', dest, './done', './run.log', './ledger.json', './report'], { stdio: 'ignore' }); }
+	catch { await log(`${game.id}: copy is missing some of done, run.log, ledger.json, report`); }
 	execFileSync('find', [dest, '-name', 'auth.json', '-delete']);
 	game.done = (await readFile(path.join(dest, 'done'), 'utf8').catch(() => 'missing')).trim();
 	game.score = await scoreFrom(out, game, plan);
@@ -177,7 +197,7 @@ while (true) {
 				}
 				if (/DONE/.test(status)) { await fetch(vm, game); vm.game = null; }
 			}
-			if (!vm.game && !stopped && !signInChanged && !existsSync(path.join(out, 'STOP')) && canStart(Date.now(), plan)) {
+			if (!vm.game && !stopped && !signInChanged && !existsSync(path.join(out, 'STOP')) && canStart(Date.now(), plan) && await meterOk()) {
 				const game = nextGame(games);
 				if (game) await start(vm, game);
 			}
@@ -193,7 +213,7 @@ while (true) {
 	}
 	await save(); await writeSummary(out, state);
 	const running = machines.some(m => m.game && !m.lost);
-	const startable = !stopped && !signInChanged && !existsSync(path.join(out, 'STOP')) && canStart(Date.now(), plan) && nextGame(games);
+	const startable = !stopped && !signInChanged && !meterLow && !existsSync(path.join(out, 'STOP')) && canStart(Date.now(), plan) && nextGame(games);
 	if (!running && !startable) break;
 	await new Promise(resolve => setTimeout(resolve, POLL_MS));
 }
