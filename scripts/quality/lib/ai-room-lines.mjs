@@ -3,6 +3,8 @@
 // (the room's aiRoom.standIn: the practice room where a script plays the model's part). Both arms run the same jar.
 // The Codex sign-in travels as CODEX_AUTH_FILE, an absolute path, so room-batch copies the file to each machine as a
 // batch input and points the line at the copy; run-ai-room.mjs moves it into a private CODEX_HOME for that run only.
+// With several sign-ins (several accounts), the AI lines take them in turn, room by room, so the model calls of a
+// batch spread evenly across the accounts.
 
 export const AI_ARM = 'ai';
 export const SCRIPT_ARM = 'script';
@@ -21,9 +23,10 @@ export function selectAiRooms(scenarios, select) {
  * The batch's room lines. roomsPath is how the machine finds the rooms file: a repository path, or an absolute local
  * path (copied there as an input). Each room plays its own durationBudgetMs as its time cap.
  */
-export function aiRoomCommands({ scenarios, roomsPath, repeats = 1, script = true, authFile, model = null }) {
+export function aiRoomCommands({ scenarios, roomsPath, repeats = 1, script = true, authFile = null, authFiles = authFile ? [authFile] : [], model = null }) {
 	if (!Number.isInteger(repeats) || repeats < 1 || repeats > 20) throw new Error('--repeats wants 1 to 20');
-	if (!authFile) throw new Error('--player model needs the Codex sign-in file: --codex-auth FILE or ROOM_BATCH_CODEX_AUTH');
+	if (!authFiles.length) throw new Error('--player model needs the Codex sign-in file: --codex-auth FILE[,FILE] or ROOM_BATCH_CODEX_AUTH');
+	let turn = 0;
 	const lines = [`# AI rooms from ${roomsPath}: ${scenarios.length} rooms x ${repeats} repeats, arms ${script ? `${AI_ARM} (model) and ${SCRIPT_ARM} (script stand-in)` : `${AI_ARM} (model)`}, 20 ticks per second`];
 	for (const room of scenarios) {
 		if (!/^[a-z0-9][a-z0-9._-]*$/.test(room.name ?? '')) throw new Error(`AI room ${room.id} needs a lowercase name`);
@@ -31,7 +34,7 @@ export function aiRoomCommands({ scenarios, roomsPath, repeats = 1, script = tru
 		if (script && /FIXTURE_TICK_RATE=/.test(room.aiRoom.standIn)) throw new Error(`AI room ${room.name}: the stand-in must play at 20 ticks per second too`);
 		for (let r = 1; r <= repeats; r++) {
 			const name = `${room.name}-r${r}`;
-			lines.push(`@${name}:${AI_ARM} CODEX_AUTH_FILE=${authFile} node scripts/quality/run-ai-room.mjs ${roomsPath} ${room.id} $OUT $JAR${model ? ` --model ${model}` : ''} --descriptive`);
+			lines.push(`@${name}:${AI_ARM} CODEX_AUTH_FILE=${authFiles[turn++ % authFiles.length]} node scripts/quality/run-ai-room.mjs ${roomsPath} ${room.id} $OUT $JAR${model ? ` --model ${model}` : ''} --descriptive`);
 			if (script) lines.push(`@${name}:${SCRIPT_ARM} ${room.aiRoom.standIn}`);
 		}
 	}

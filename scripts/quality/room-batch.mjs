@@ -24,7 +24,8 @@
 //     [--rooms NAME,...] [--repeats N] [--no-script] [--model M] --pool boat --vms N --out FRESH_DIR
 // plays each chosen room of ROOMS.json (default scripts/quality/ai-rooms.json) N times with arm "ai" (run-ai-room.mjs)
 // beside arm "script" (the room's practice-room stand-in), both on JAR at 20 ticks per second (lib/ai-room-lines.mjs).
-// The sign-in (or ROOM_BATCH_CODEX_AUTH) goes to each machine as a batch input; it is never written to OUT.
+// The sign-in (or ROOM_BATCH_CODEX_AUTH) goes to each machine as a batch input; it is never written to OUT. Several
+// sign-ins (FILE,FILE or the flag twice) are taken in turn room by room, spreading the calls across accounts.
 // node scripts/quality/ai-room-report.mjs OUT prints pass rate, deaths, damage, minutes and model calls per room.
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -50,6 +51,7 @@ function parseFlags(argv) {
 		if (flag === '--help') flags.help = true;
 		else if (flag === '--dry-run') flags.dryRun = true;
 		else if (flag === '--no-script') flags.noScript = true;
+		else if (flag === '--codex-auth' && flags.codexAuth) flags.codexAuth += `,${argv[++i]}`;
 		else if (flag === '--ephemeral' || flag === '--no-reuse') flags.ephemeral = true;
 		else if (flag === '--arm') { const [name, ...jar] = String(argv[++i] ?? '').split('='); flags.arms.push({ name, jar: jar.join('=') }); }
 		else if (flag.startsWith('--')) flags[flag.slice(2).replace(/-(\w)/g, (_, ch) => ch.toUpperCase())] = argv[++i];
@@ -66,12 +68,13 @@ if (flags.player !== undefined) {
 	if (flags.player !== 'model') fail('--player takes model (the default player is the room\'s own script)');
 	if (flags.commands || flags.arms.length) fail('--player model makes its own room lines and arms: give --jar, not --commands or --arm');
 	if (!flags.jar || !existsSync(flags.jar)) fail('--player model needs --jar JAR');
-	const authFile = flags.codexAuth ?? process.env.ROOM_BATCH_CODEX_AUTH;
-	if (!authFile || !existsSync(authFile)) fail('--player model needs the Codex sign-in file: --codex-auth FILE or ROOM_BATCH_CODEX_AUTH');
+	// Several sign-ins (comma-separated, or --codex-auth given more than once) are taken in turn, room by room.
+	const authFiles = String(flags.codexAuth ?? process.env.ROOM_BATCH_CODEX_AUTH ?? '').split(',').map(item => item.trim()).filter(Boolean);
+	if (!authFiles.length || authFiles.some(file => !existsSync(file))) fail('--player model needs the Codex sign-in file: --codex-auth FILE[,FILE] or ROOM_BATCH_CODEX_AUTH');
 	const roomsFile = path.resolve(flags.aiRooms ?? path.join(root, 'scripts/quality/ai-rooms.json'));
 	try {
 		const chosen = selectAiRooms(JSON.parse(readFileSync(roomsFile, 'utf8')).scenarios, flags.rooms);
-		commandsText = aiRoomCommands({ scenarios: chosen, roomsPath: roomsFile, repeats: Number(flags.repeats ?? 1), script: !flags.noScript, authFile: path.resolve(authFile), model: flags.model ?? null });
+		commandsText = aiRoomCommands({ scenarios: chosen, roomsPath: roomsFile, repeats: Number(flags.repeats ?? 1), script: !flags.noScript, authFiles: authFiles.map(file => path.resolve(file)), model: flags.model ?? null });
 	} catch (error) { fail(error.message); }
 	flags.arms = [{ name: AI_ARM, jar: flags.jar }, ...(flags.noScript ? [] : [{ name: SCRIPT_ARM, jar: flags.jar }])];
 }

@@ -26,6 +26,12 @@ test('AI room lines pair each repeat of a room with its script stand-in on the s
 	assert.equal(solo[0].lines.length, 1);
 });
 
+test('AI room lines take several sign-ins in turn, room by room', () => {
+	const text = aiRoomCommands({ scenarios: [room('ai-a'), room('ai-b')], roomsPath: '/r', repeats: 2, authFiles: ['/a1.json', '/a2.json'] });
+	const auths = parseCommands(text, ['ai', 'script']).map(r => r.lines[0].env.CODEX_AUTH_FILE);
+	assert.deepEqual(auths, ['/a1.json', '/a2.json', '/a1.json', '/a2.json']);
+});
+
 test('AI room lines refuse a raised tick rate, a missing sign-in and unknown rooms', () => {
 	assert.throws(() => aiRoomCommands({ scenarios: [room('ai-a')], roomsPath: '/r', authFile: null }), /sign-in/);
 	const fast = room('ai-a'); fast.aiRoom.standIn = `FIXTURE_TICK_RATE=60 ${fast.aiRoom.standIn}`;
