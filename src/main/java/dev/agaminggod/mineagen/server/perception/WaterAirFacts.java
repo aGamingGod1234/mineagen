@@ -55,6 +55,35 @@ public final class WaterAirFacts {
 		}
 	}
 
+	/**
+	 * Where to duck out from under a ceiling when no way up is known: a seen open-water (or air) cell beside the eye cell,
+	 * taken only when the cell over the eye is a seen solid block. A player stuck under a ledge swims out beside it and
+	 * looks up; from inside the eye's own capped column no amount of turning shows the way up. A neighbour whose cell
+	 * above is seen open comes first, then one whose cell above is not seen yet; null when the head is not capped or no
+	 * neighbour qualifies.
+	 */
+	public static BlockPos peekCell(ServerPlayer agent) {
+		var eye = agent.getEyePosition();
+		return peekCell(view(agent), Mth.floor(eye.x), Mth.floor(eye.y), Mth.floor(eye.z));
+	}
+
+	static BlockPos peekCell(SwimPlanning.ColumnView view, int x, int eyeY, int z) {
+		if (view.at(x, eyeY + 1, z) != SwimPlanning.Cell.SOLID) return null;
+		BlockPos best = null;
+		int bestRank = Integer.MAX_VALUE;
+		for (int[] side : new int[][] { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }) {
+			if (!swimmable(view.at(x + side[0], eyeY, z + side[1]))) continue;
+			var above = view.at(x + side[0], eyeY + 1, z + side[1]);
+			int rank = swimmable(above) ? 0 : above == SwimPlanning.Cell.UNKNOWN ? 1 : -1;
+			if (rank >= 0 && rank < bestRank) { bestRank = rank; best = new BlockPos(x + side[0], eyeY, z + side[1]); }
+		}
+		return best;
+	}
+
+	private static boolean swimmable(SwimPlanning.Cell cell) {
+		return cell == SwimPlanning.Cell.WATER || cell == SwimPlanning.Cell.RISING_WATER || cell == SwimPlanning.Cell.OPEN;
+	}
+
 	private static SwimPlanning.ColumnView view(ServerPlayer agent) {
 		var seen = SeenTerrain.of(agent);
 		return (x, y, z) -> {
