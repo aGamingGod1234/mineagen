@@ -43,7 +43,7 @@ const USAGE = `Usage: node scripts/decision-eval/run.mjs --cases <file|dir> [opt
                                 (default: one fixed eval id, so repeated samples read the wake from the prompt cache)
   --cache-report                render, look up the cache, print { cached, missing } as JSON and exit
   --wording <name>              wake wording variant (coordinator/src/decision-eval/wording.mjs): production (default),
-                                fresh-question or fresh; an experiment, not production behaviour
+                                fresh-question, fresh or choose; an experiment, not production behaviour
   --dry-run                     render only; no model calls`;
 
 const { values: args } = parseArgs({
@@ -60,8 +60,8 @@ const { values: args } = parseArgs({
 if (args.help || !args.cases?.length) { console.log(USAGE); process.exit(args.help ? 0 : 2); }
 const positive = (value, name) => { const number = Number(value); if (!Number.isSafeInteger(number) || number <= 0) { console.error(`--${name} must be a positive integer`); process.exit(2); } return number; };
 const samples = positive(args.samples, 'samples');
-const { WAKE_WORDINGS } = await source('wording.mjs');
-if (!Object.hasOwn(WAKE_WORDINGS, args.wording)) { console.error(`--wording must be one of ${Object.keys(WAKE_WORDINGS).join(', ')}`); process.exit(2); }
+const { checkWording } = await source('wording.mjs');
+try { checkWording(args.wording); } catch (error) { console.error(`--wording: ${error.message}`); process.exit(2); }
 const concurrency = positive(args.concurrency, 'concurrency');
 const provider = args.provider;
 // "fake" exists for orchestration tests only: DECISION_EVAL_FAKE_PROVIDER names a module whose answer({ caseId, sample,

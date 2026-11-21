@@ -5,6 +5,9 @@
  * wording. Variants are an experiment of the harness, not production behaviour.
  */
 
+const CHOOSE_LINE = 'Before any tool call, say in one line what a skilled Minecraft player would do right now and why; carrying on '
+	+ 'with the current step is one option, not the default. Then make the tool call for it.';
+
 const FRESH_QUESTION = 'Fresh look: what would a skilled Minecraft player do right now? Carrying on with the current step is one '
 	+ 'option, not the default; whatever is in view now (caves, ore, lava, threats, food, a failed route) may call for something else. '
 	+ 'Pick the move a player would make next.';
@@ -38,17 +41,22 @@ export const WAKE_WORDINGS = Object.freeze({
 });
 
 export function checkWording(wording) {
-	if (!Object.hasOwn(WAKE_WORDINGS, wording)) throw new TypeError(`unknown wake wording ${wording}; one of ${Object.keys(WAKE_WORDINGS).join(', ')}`);
+	if (wording === 'choose') return;
+	if (!Object.hasOwn(WAKE_WORDINGS, wording)) throw new TypeError(`unknown wake wording ${wording}; one of ${[...Object.keys(WAKE_WORDINGS), 'choose'].join(', ')}`);
 }
 
 /** Applies a wording variant to a rendered wake input ("<instruction>\n<json>"); production returns it unchanged. */
 export function applyWording(input, wording = 'production') {
 	checkWording(wording);
+	// choose: the wake unchanged, ending with one line asking for the player's move before the tool call.
+	if (wording === 'choose') return input.includes('\n{') ? `${input}\n\n${CHOOSE_LINE}` : input;
 	const variant = WAKE_WORDINGS[wording];
 	if (variant === null) return input;
-	const split = input.indexOf('\n');
+	// The facts start at the first line that opens a JSON object; any text lines before it are the instruction.
+	const split = input.indexOf('\n{');
 	if (split < 0) return freshInstruction(input);
-	const wake = JSON.parse(input.slice(split + 1));
+	let wake;
+	try { wake = JSON.parse(input.slice(split + 1)); } catch { return `${freshInstruction(input.slice(0, split))}${input.slice(split)}`; }
 	const [line, next] = variant(input.slice(0, split), wake);
 	return `${line}\n${JSON.stringify(next)}`;
 }
