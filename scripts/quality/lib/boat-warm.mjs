@@ -102,7 +102,7 @@ export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, id
 	minRemainingSeconds = 15 * 60, roomPorts = [28000, 29999], machines = null, batch = null, bundle = null, imageDir = 'rooms', waitSeconds, log = console.log, store = leaseStore({ log }) } = {}) {
 	// prepare, start, poll, alive and fetch are the ephemeral pool's; only where machines come from and go to differs.
 	const base = bundle ? boatPool({ snapshot, type, ttlSeconds, namePrefix: 'unused', bundle, imageDir, log, ...(waitSeconds ? { waitSeconds } : {}) }) : {};
-	let identity = null, listing = null, limits = null;
+	let identity = null, listing = null, limits = null, adoptable = null;
 	const init = () => identity ??= (async () => {
 		const poolId = await store.poolId();
 		// A failed lookup must not change the image hash: nothing would match and every machine would be a new start.
@@ -127,7 +127,8 @@ export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, id
 	async function holdFor(vm, ttl) {
 		const info = JSON.parse(await boat(['info', vm.id, '--json'], { timeoutMs: 60_000 })).sandbox ?? {};
 		if (!LIVE.has(info.state)) throw new Error(`machine ${vm.id} is ${info.state ?? 'gone'}`);
-		if (info.archiveAfter === null) return;
+		// No auto-stop (archiveAfter null) stays as it is: extend --ttl would put a deadline back on it.
+		if (info.archiveAfter == null) return;
 		const remaining = Date.parse(info.archiveAfter) - Date.now();
 		if (Number.isFinite(remaining) && remaining >= ttl * 1000 - 60_000) return;
 		await extendMachine(vm.id, ttl);
@@ -185,14 +186,23 @@ export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, id
 		/** A cleaned machine for this snapshot and type: a warm one when one is free (no start), else a new one (one start). */
 		async create({ signal = null } = {}) {
 			if (machines) {
+				// Leases are keyed by the machine's name, as pool leases are, so a named machine that is also a pool member
+				// can never be held by a pool batch and a --machines batch at once.
+				adoptable ??= listSandboxes().then(sandboxes => {
+					const found = new Map(sandboxes.filter(item => machines.includes(item.id) && LIVE.has(item.state)).map(item => [item.name || item.id, item.id]));
+					for (const id of machines) if (![...found.values()].includes(id)) log(`machine ${id} named with --machines is not running: skipped`);
+					return found;
+				});
+				const byName = await adoptable;
 				const tried = new Set();
 				while (true) {
-					const id = await store.take(machines.filter(item => !tried.has(item)), { batch });
-					if (!id) throw new Error('every machine named with --machines is busy or unusable');
-					tried.add(id);
-					const vm = { id, name: id, reused: true, adopted: true, ttlSeconds };
+					const name = await store.take([...byName.keys()].filter(item => !tried.has(item) && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(item)), { batch });
+					if (!name) throw new Error('every machine named with --machines is busy or unusable');
+					tried.add(name);
+					const id = byName.get(name);
+					const vm = { id, name, reused: true, adopted: true, ttlSeconds };
 					try { await clean(vm); await holdFor(vm, ttlSeconds); log(`machine ${id} leased (named with --machines)`); return vm; }
-					catch (error) { log(`named machine ${id} is not usable, skipping it: ${error.message}`); await store.drop(id); }
+					catch (error) { log(`named machine ${id} is not usable, skipping it: ${error.message}`); await store.drop(name); }
 				}
 			}
 			const ident = await init();
