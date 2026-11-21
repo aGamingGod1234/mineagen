@@ -150,21 +150,26 @@ if (command === 'status') {
 		const kept = item => prefixes.some(prefix => String(item.name ?? '').startsWith(prefix));
 		const extra = warmCount === null ? [] : idle.slice(warmCount).filter(item => !kept(item) && idleFor(item) >= graceMs).reverse();
 		let deleted = 0, skipped = 0, failed = 0;
+		// Spared because work runs there (or the check got no answer): its deadline is held like a busy machine's, so the
+		// auto-stop never cuts a room that outlived its batch's lease.
+		const spared = [];
 		for (const item of extra) {
+			let reason = null;
 			const check = async () => {
 				// A batch leased and gave it back since this round looked: it is no longer the longest idle.
 				if ((await store.idleSince())[item.name] !== since[item.name]) return 'a batch used it since this round began';
 				// Nothing may be running there: a room or game left by a batch that lost track of it keeps the machine.
 				const running = await execRemote(item.id, busyScript(), { timeoutSeconds: 30 }).catch(() => 'unknown');
-				return /free/.test(running) ? null : /busy/.test(running) ? 'a room or game is still running there' : 'it did not answer';
+				reason = /free/.test(running) ? null : /busy/.test(running) ? 'a room or game is still running there' : 'it did not answer';
+				return reason;
 			};
 			if (await destroyIdle(item, `beyond the warm ${warmCount}, idle ${since[item.name] ? `${Math.round(idleFor(item) / 60_000)} min` : 'since before idle times were kept'}`, { check })) { deleted++; await store.forgetIdle(item.name); }
-			else skipped++;
+			else { skipped++; if (reason) spared.push(item); }
 		}
 		// Extended: busy pool machines (holdFor only moves a deadline later), the warm ones, and named machines to keep.
 		const named = prefixes.length ? (await listSandboxes()).filter(item => LIVE.has(item.state) && prefixes.some(prefix => String(item.name ?? '').startsWith(prefix)) && !members.some(member => member.id === item.id))
 			.map(item => ({ id: item.id, name: item.name, remainingMs: item.archiveAfter ? Date.parse(item.archiveAfter) - Date.now() : Infinity })) : [];
-		const hold = [...members.filter(item => item.busy), ...warm, ...named];
+		const hold = [...members.filter(item => item.busy), ...warm, ...spared, ...named];
 		let extended = 0;
 		for (const item of hold) {
 			try { const before = item.remainingMs; await pool.holdFor(item, idleTtlSeconds); if (before < idleTtlSeconds * 1000 - 60_000) extended++; }

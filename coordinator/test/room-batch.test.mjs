@@ -1521,12 +1521,16 @@ test('keepalive --warm keeps the most recently used idle machines, deletes the r
 		// vms[0] was given back first (longest idle) but still has a room running: it must be spared.
 		const room = spawn('sleep', ['300'], { cwd: (await mkdir(path.join(fake.home(vms[0].id), 'batch/out/r'), { recursive: true }), path.join(fake.home(vms[0].id), 'batch/out/r')), stdio: 'ignore', detached: true });
 		try {
+			const spareBox = path.join(fake.dir, 'sandboxes', `${vms[0].id}.json`);
+			await writeFile(spareBox, JSON.stringify({ ...JSON.parse(await readFile(spareBox, 'utf8')), archiveAfter: new Date(Date.now() + 5 * 60_000).toISOString() }));
 			const cli = fileURLToPath(new URL('../../scripts/quality/boat-pool.mjs', import.meta.url));
 			const run = spawnSync(process.execPath, [cli, 'keepalive', '--warm', '2', '--grace', '0'], { env: { ...process.env, ROOM_BATCH_POOL_DIR: fake.poolDir }, encoding: 'utf8' });
 			assert.equal(run.status, 0, run.stdout + run.stderr);
 			assert.ok(fake.exists(vms[3].id) && fake.exists(vms[2].id), 'the two most recently used stay warm');
 			assert.equal(fake.exists(vms[1].id), false, 'an idle one beyond the warm two is deleted');
 			assert.ok(fake.exists(vms[0].id), 'the one with a room still running is spared');
+			const box = JSON.parse(await readFile(path.join(fake.dir, 'sandboxes', `${vms[0].id}.json`), 'utf8'));
+			assert.ok(Date.parse(box.archiveAfter) - Date.now() > 50 * 60_000, 'the spared machine got its deadline pushed back');
 			assert.match(run.stdout, /1 deleted, 1 kept \(in use, or work on them\)/);
 		} finally { room.kill('SIGKILL'); }
 		store.stop();
