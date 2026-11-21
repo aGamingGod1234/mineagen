@@ -94,3 +94,31 @@ test('a hostile or lava with no known distance is not taken as near', () => {
 	const near = situationTags({ ...observation({ y: 40 }), blocks: [{ blockId: 'minecraft:lava', x: 3, y: 40, z: 0 }] }).tags;
 	assert.ok(near.includes('place:near_lava'), 'block coordinates beside the player count');
 });
+
+test('the Nether stage holds until the carried rods, powder and eyes make twelve eyes', () => {
+	const nether = items => situationTags(observation({ dimension: 'minecraft:the_nether', y: 40, items: [item('cooked_beef', 9), ...items] })).tags;
+	const short = nether([item('blaze_rod', 1), item('ender_pearl', 6)]);
+	assert.ok(short.includes('stage:nether') && short.includes('need:blaze_rods') && short.includes('need:ender_pearls') && !short.includes('need:stronghold'), 'one rod and six pearls is not enough');
+	const oneEye = nether([item('ender_eye', 1)]);
+	assert.ok(oneEye.includes('stage:nether') && oneEye.includes('need:blaze_rods') && oneEye.includes('need:ender_pearls'), 'one crafted eye is not enough');
+	const powder = nether([item('blaze_powder', 12), item('ender_pearl', 12)]);
+	assert.ok(powder.includes('stage:eyes') && powder.includes('need:stronghold') && !powder.includes('need:blaze_rods') && !powder.includes('need:ender_pearls'), 'twelve powder is six rods');
+	const mixed = nether([item('ender_eye', 4), item('blaze_powder', 2), item('blaze_rod', 3), item('ender_pearl', 8)]);
+	assert.ok(mixed.includes('stage:eyes') && !mixed.includes('need:blaze_rods') && !mixed.includes('need:ender_pearls'), 'eyes, powder and rods add up');
+	assert.ok(nether([item('blaze_powder', 11), item('ender_pearl', 12)]).includes('need:blaze_rods'), 'eleven powder is one short');
+	const home = situationTags(observation({ items: [item('cooked_beef', 9), item('blaze_rod', 1), item('ender_pearl', 6)] })).tags;
+	assert.ok(home.includes('stage:eyes') && home.includes('need:stronghold'), 'back in the Overworld the stage is unchanged');
+});
+
+test('a visible mob the body reports as calm is not a threat; a sensed one still is', () => {
+	const calm = n => Array.from({ length: n }, (_, i) => ({ stableId: `p${i}`, type: 'minecraft:zombified_piglin', distance: 5 + i, hostile: false, targetingAgent: false }));
+	const quiet = { ...observation({ dimension: 'minecraft:the_nether', y: 40 }), entities: [...calm(3), { stableId: 'e', type: 'minecraft:enderman', distance: 6, hostile: false }] };
+	quiet.player.threats = [];
+	assert.ok(!situationTags(quiet).tags.some(tag => tag.startsWith('threat:')), 'calm neutral mobs are not threats');
+	const angry = { ...observation({ dimension: 'minecraft:the_nether', y: 40 }), entities: [{ stableId: 'p0', type: 'minecraft:zombified_piglin', distance: 5, hostile: false, targetingAgent: true }, { stableId: 'p1', type: 'minecraft:piglin', distance: 7, hostile: true }] };
+	const angryTags = situationTags(angry).tags;
+	assert.ok(angryTags.includes('threat:zombified_piglin') && angryTags.includes('threat:piglin'), 'one targeting the agent or hostile is');
+	const sensed = { ...observation({ dimension: 'minecraft:the_nether', y: 40 }), entities: calm(1) };
+	sensed.player.threats = [{ uuid: 'p0', stableId: 'p0', type: 'minecraft:zombified_piglin', distance: 5 }];
+	assert.ok(situationTags(sensed).tags.includes('threat:zombified_piglin'), 'a threat the body senses counts even if the view row says calm');
+});

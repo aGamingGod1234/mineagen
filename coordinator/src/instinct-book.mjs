@@ -101,14 +101,19 @@ export function situationTags(observation, { trigger = null, enteredDimension = 
 	for (const [item, has] of Object.entries(kit)) tags.add(`${has ? 'has' : 'lacks'}:${item}`);
 	// Stage: the furthest of what the body holds and where it is.
 	const buckets = count(/^(bucket|water_bucket|lava_bucket)$/);
-	const stage = dim === 'end' ? 'end' : kit.eyes_of_ender || (kit.blaze_rods && count(/^ender_pearl$/) >= 6) ? 'eyes' : dim === 'nether' ? 'nether'
+	// Eye supply in rod and pearl terms: a rod makes two powder, each eye took one powder and one pearl. In the Nether the
+	// stage moves on only once the supply makes the 12 eyes the End needs.
+	const eyes = count(/^ender_eye$/), powder = count(/^blaze_powder$/);
+	const rodsShort = count(/^blaze_rod$/) * 2 + powder + eyes < 12, pearlsShort = count(/^ender_pearl$/) + eyes < 12;
+	const eyeStage = dim === 'nether' ? !rodsShort && !pearlsShort : kit.eyes_of_ender || ((kit.blaze_rods || powder > 0) && count(/^ender_pearl$/) >= 6);
+	const stage = dim === 'end' ? 'end' : eyeStage ? 'eyes' : dim === 'nether' ? 'nether'
 		: pickIron && buckets >= 1 && kit.flint_and_steel ? 'portal' : pickIron ? 'iron' : kit.stone_pickaxe ? 'stone' : 'start';
 	tags.add(`stage:${stage}`);
 	const need = new Set();
 	if (stage === 'start') need.add(held(/^wooden_pickaxe$/) ? 'stone' : 'wood');
 	if (stage === 'stone' || (stage === 'iron' && (!kit.shield || buckets < 2 || !kit.flint_and_steel))) need.add('iron');
 	if (stage === 'portal' && count(/^obsidian$/) < 10) need.add('portal').add('obsidian').add('lava');
-	if (stage === 'nether') { if (count(/^blaze_rod$/) < 6) need.add('blaze_rods'); if (count(/^ender_pearl$/) < 12) need.add('ender_pearls'); }
+	if (stage === 'nether') { if (rodsShort) need.add('blaze_rods'); if (pearlsShort) need.add('ender_pearls'); }
 	if (stage === 'eyes') need.add('stronghold');
 	if (count(FOOD) < 4) need.add('food');
 	// Place: underground below y 56 in the Overworld, surface at 64 and up; a cave the body reports seeing counts as one.
@@ -127,7 +132,9 @@ export function situationTags(observation, { trigger = null, enteredDimension = 
 	for (const thing of need) tags.add(`need:${thing}`);
 	// Threats: the body's sensed threats (player.threats) and hostiles in view, within range now; three or more
 	// distinct ones is many. A row with no known distance is not taken as near.
-	const rows = [...(Array.isArray(player.threats) ? player.threats : []), ...(Array.isArray(observation?.entities) ? observation.entities : [])];
+	// A mob in view that the body reports calm (hostile:false, not targeting the agent) is no threat; a sensed one still is.
+	const calm = row => row?.hostile === false && row?.targetingAgent !== true;
+	const rows = [...(Array.isArray(player.threats) ? player.threats : []), ...(Array.isArray(observation?.entities) ? observation.entities.filter(row => !calm(row)) : [])];
 	const hostiles = new Map();
 	for (const row of rows) {
 		const type = SHORT(row?.type);
