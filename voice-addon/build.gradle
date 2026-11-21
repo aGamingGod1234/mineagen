@@ -9,16 +9,26 @@ base {
 	archivesName = 'mineagen-voice'
 }
 
+// exclusiveContent: Loom adds Maven Central and other repositories first, and a plain content filter still lets them be
+// asked for these groups. Those lookups can only miss, and a rate-limited miss (HTTP 429) fails the whole build.
 repositories {
-	maven {
-		url = 'https://maven.maxhenkel.de/repository/public'
-		mavenContent { releasesOnly() }
-		content { includeGroup 'de.maxhenkel.voicechat' }
+	exclusiveContent {
+		forRepository {
+			maven {
+				url = 'https://maven.maxhenkel.de/repository/public'
+				mavenContent { releasesOnly() }
+			}
+		}
+		filter { includeGroup 'de.maxhenkel.voicechat' }
 	}
-	maven {
-		name = 'Modrinth'
-		url = 'https://api.modrinth.com/maven'
-		content { includeGroup 'maven.modrinth' }
+	exclusiveContent {
+		forRepository {
+			maven {
+				name = 'Modrinth'
+				url = 'https://api.modrinth.com/maven'
+			}
+		}
+		filter { includeGroup 'maven.modrinth' }
 	}
 }
 
