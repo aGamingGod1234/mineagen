@@ -91,7 +91,8 @@ test('the sign-in goes into a private Codex home for the run and is gone after i
 		assert.equal(codex.cli, 'codex-cli 0.171.0');
 		assert.deepEqual(calls, ['codex --version']);
 		assert.equal(await readFile(path.join(env.CODEX_HOME, 'auth.json'), 'utf8'), '{"tokens":"x"}');
-		assert.equal((await stat(env.CODEX_HOME)).mode & 0o777, 0o700);
+		// Windows chmod sets no owner-only bits; the boat machines that play AI rooms are Linux.
+		if (process.platform !== 'win32') assert.equal((await stat(env.CODEX_HOME)).mode & 0o777, 0o700);
 		assert.equal(env.OPENAI_API_KEY, undefined);
 		await codex.cleanup();
 		await assert.rejects(stat(env.CODEX_HOME));
