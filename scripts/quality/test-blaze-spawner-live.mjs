@@ -25,7 +25,7 @@ import { DEFAULT_REFLEXES } from '../../coordinator/src/reflexes.mjs';
 import { planCountDefault } from '../../coordinator/src/plan-count.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 import { deathCounter, deathEvidence, damageCounter, damageEvidence } from './lib/damage-counter.mjs';
-import { installTickRate, fixtureTickRate } from './watch-replay.mjs';
+import { installTickRate, unshownTickRate } from './watch-replay.mjs';
 import { refusedBeforeRunning } from './lib/room-evidence.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
@@ -104,7 +104,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 // state is checked the server runs at the fixture rate until the RUN_S window ends. The window, the call gap, CANCEL_S
 // and every time the run records (first blaze, kills, reached) are game time on the fixture clock (wall time at 20).
 // The stand-in's own observe-decide-act steps take wall time, so at a raised rate it answers a little later in game time.
-const FIXTURE_RATE = fixtureTickRate();
+const FIXTURE_RATE = unshownTickRate('not yet in a 10-repeat 20 vs 60 TPS A/B (its 60 TPS hang was fixed after the pilot)');
 let rate = null, windowEnd = null;
 const cancelTimers = [];
 const now = () => rate ? rate.clock.now() : Date.now();

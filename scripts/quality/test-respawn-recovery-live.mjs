@@ -20,6 +20,7 @@ import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 import { handRolledTickRate } from './lib/fixture-play.mjs';
+import { unshownTickRate } from './watch-replay.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const out = resolve(process.argv[2] ?? 'runtime/respawn-recovery-live');
@@ -87,7 +88,7 @@ const itemsNearDrop = async () => {
 try {
 	for (let i = 0; i < 180; i++) { try { rcon = new HeadlessRconClient({ host: '127.0.0.1', port: port + 1, password: secret, connectTimeoutMs: 500, commandTimeoutMs: 10000 }); await rcon.connect(); break; } catch (e) { await rcon?.close(); if (i === 179 || child.exitCode !== null) throw e; await sleep(1000); } }
 	bridge = new MultiplexedServerBridge({ port, secret }, {}); inbox = new Inbox(bridge);
-	rate = handRolledTickRate(text => command(text), bridge, AGENT);
+	rate = handRolledTickRate(text => command(text), bridge, AGENT, { tickRate: unshownTickRate('flaky at 20 TPS (2 of 14 runs) and not yet in a 10-repeat A/B') });
 	bridge.on('observation', (e) => { if (e.agentId === record?.agentId && e.payload.ready) observation = e.payload; });
 	// Death and respawn retain the goal; the replacement body needs ready even at the same revision.
 	bridge.on('goal_control', (e) => { if (e.agentId === record?.agentId && Number.isSafeInteger(e.payload?.goalRevision)) {

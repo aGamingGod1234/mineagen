@@ -7,14 +7,14 @@
 // wall time, "two ticks plus transport". report.tick records seconds (game), wallSeconds and rates.
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
-import { boot, fixtureTickRate } from './watch-replay.mjs';
+import { boot, unshownTickRate } from './watch-replay.mjs';
 const out=resolve(process.argv[2]); await mkdir(out,{recursive:true});
-const report={kind:'provider-free held-out mechanics',tickRate:fixtureTickRate(),cases:[]};
+const report={kind:'provider-free held-out mechanics',tickRate:unshownTickRate('it already fails at 20 TPS, so an A/B cannot show the same game at 60'),cases:[]};
 let s;
 const check=(ok,message)=>{ if(!ok) throw new Error(message); };
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 try {
- s=await boot(out,{jar:process.env.ARENA_JAR,template:process.env.ARENA_HEADLESS_SERVER_TEMPLATE,port:Number(process.env.SLOT_PORT_BASE),seed:20261009,tickRate:fixtureTickRate()});
+ s=await boot(out,{jar:process.env.ARENA_JAR,template:process.env.ARENA_HEADLESS_SERVER_TEMPLATE,port:Number(process.env.SLOT_PORT_BASE),seed:20261009,tickRate:unshownTickRate('it already fails at 20 TPS, so an A/B cannot show the same game at 60')});
  await s.command('gamerule minecraft:spawn_mobs false');
  await s.command('forceload add -32 -32 64 32');
  await s.command('fill -20 100 -20 60 100 20 minecraft:stone');

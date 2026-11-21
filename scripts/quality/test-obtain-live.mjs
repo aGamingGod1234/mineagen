@@ -29,7 +29,7 @@ import { normalizeMinecraftToolCall } from '../../coordinator/src/native-minecra
 import { adaptObservation } from '../../coordinator/src/observation-adapter.mjs';
 import { InspectionClient } from '../../coordinator/src/inspection-client.mjs';
 import { DEFAULT_REFLEXES } from '../../coordinator/src/reflexes.mjs';
-import { boot, fixtureTickRate } from './watch-replay.mjs';
+import { boot, unshownTickRate } from './watch-replay.mjs';
 import { gameClockFromObservations } from '../../coordinator/src/game-clock.mjs';
 import { callObtain } from './obtain-handbacks.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
@@ -74,7 +74,7 @@ for (const [seedIndex, seed] of plan.seeds.entries()) {
 		// Each seed on its own ports (a crashed server can hold the last ones); no watchdog, as generating far chunks on a
 		// shared machine can hold one tick past its 60 s.
 		const seedPort = port + (seedIndex % 20) * 4;
-		s = current = await boot(dir, { jar: path.resolve(jarArg ?? path.join(root, MOD_JAR)), template, port: seedPort, world: null, seed: String(seed), spawnMonsters: true, goalTicks: 2_000_000, extraProperties: 'max-tick-time=-1\n', tickRate: fixtureTickRate() });
+		s = current = await boot(dir, { jar: path.resolve(jarArg ?? path.join(root, MOD_JAR)), template, port: seedPort, world: null, seed: String(seed), spawnMonsters: true, goalTicks: 2_000_000, extraProperties: 'max-tick-time=-1\n', tickRate: unshownTickRate('not yet played in a 20 vs 60 TPS A/B: its saved world or plan is private') });
 		await s.normalRate();
 		// One RCON connection serves four lanes; a slow command (a far chunk generating) can time the queue out and leave
 		// the client unusable. Any failure rebuilds the client and retries.

@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { mkdir, writeFile, rm, readFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { boot, fixtureTickRate } from './watch-replay.mjs';
+import { boot, unshownTickRate } from './watch-replay.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 import { damageCounter, damageEvidence, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
 const out = resolve(process.argv[2]);
@@ -16,7 +16,7 @@ const jar = resolve(process.argv[3] ?? MOD_JAR);
 assert.ok(process.env.SLOT_PORT_BASE && process.env.ARENA_HEADLESS_SERVER_TEMPLATE && process.env.JAVA_HOME);
 await mkdir(out, { recursive: false });
 const rows = [];
-const s = await boot(out, { jar, template: process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port: Number(process.env.SLOT_PORT_BASE), world: null, seed: '20261018', tickRate: fixtureTickRate() });
+const s = await boot(out, { jar, template: process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port: Number(process.env.SLOT_PORT_BASE), world: null, seed: '20261018', tickRate: unshownTickRate('it already fails at 20 TPS, so an A/B cannot show the same game at 60') });
 const sleep = ms => new Promise(done => setTimeout(done, ms));
 const A = 'Probe';
 try {

@@ -15,6 +15,7 @@ import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 import { handRolledTickRate } from './lib/fixture-play.mjs';
+import { unshownTickRate } from './watch-replay.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const out = resolve(process.argv[2] ?? 'runtime/flee-forest-live');
@@ -82,7 +83,7 @@ const flees = [];
 try {
 	for (let attempt = 0; attempt < 150; attempt += 1) { try { rcon = new HeadlessRconClient({ host: '127.0.0.1', port: port + 1, password: secret, connectTimeoutMs: 500, commandTimeoutMs: 5000 }); await rcon.connect(); break; } catch (error) { await rcon?.close(); if (attempt === 149) throw error; await sleep(1000); } }
 	bridge = new MultiplexedServerBridge({ port, secret }, {}); inbox = new Inbox(bridge);
-	rate = handRolledTickRate(text => command(text), bridge, agent);
+	rate = handRolledTickRate(text => command(text), bridge, agent, { tickRate: unshownTickRate('not yet played in a 20 vs 60 TPS A/B: its saved world or plan is private') });
 	bridge.on('observation', (event) => { if (event.agentId === record?.agentId && event.payload.ready) observation = event.payload; });
 	bridge.on('message', (event) => {
 		const registered = ['agent_registered', 'registry_entry'].includes(event.type) ? { goalRevision: event.payload.goalRevision ?? event.payload.record?.goalRevision, operation: 'registered' } : null;

@@ -15,6 +15,7 @@ import { NativeProgramExecutor } from '../../coordinator/src/native-program-exec
 import { gameClockFromObservations } from '../../coordinator/src/game-clock.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 import { handRolledTickRate } from './lib/fixture-play.mjs';
+import { unshownTickRate } from './watch-replay.mjs';
 
 const root=fileURLToPath(new URL('../..',import.meta.url));
 const out=resolve(process.argv[2] ?? 'runtime/routines/live');
@@ -109,7 +110,7 @@ async function reset(dim,x,y,z){
 try {
   for(let i=0;i<150;i++){try{rcon=new HeadlessRconClient({host:'127.0.0.1',port:port+1,password:secret,connectTimeoutMs:500,commandTimeoutMs:5000});await rcon.connect();break}catch(e){await rcon?.close();if(i===149)throw e;await sleep(1000)}}
   bridge=new MultiplexedServerBridge({port,secret},{});inbox=new Inbox(bridge);
-  rate=handRolledTickRate(text=>command(text),bridge,agent);
+  rate=handRolledTickRate(text=>command(text),bridge, agent, { tickRate: unshownTickRate('not yet in a 10-repeat 20 vs 60 TPS A/B') });
   // The runtime's own wiring at a raised rate (native-tool-runtime.mjs): program timers on game time, acknowledgements on wall time.
   if(rate.tickRate!==20)gameClock=gameClockFromObservations({tickRate:rate.tickRate});
   bridge.on('observation',e=>{if(e.agentId===record?.agentId&&e.payload.ready){gameClock?.observe(e.payload);observation=e.payload;if(active)executor.onObservation(record,e.payload)}});

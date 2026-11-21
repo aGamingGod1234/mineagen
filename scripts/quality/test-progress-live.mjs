@@ -19,7 +19,7 @@ import { readFileSync } from 'node:fs';
 import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
-import { installTickRate, fixtureTickRate } from './watch-replay.mjs';
+import { installTickRate, unshownTickRate } from './watch-replay.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const jarPath = resolve(process.env.ARENA_JAR ?? join(root, MOD_JAR));
@@ -78,7 +78,7 @@ async function boot(dir, world) {
 	liveServer = child;
 	for (let i = 0; i < 150; i++) { try { s.rcon = new HeadlessRconClient({ host: '127.0.0.1', port: port + 1, password: secret, connectTimeoutMs: 500, commandTimeoutMs: 30000 }); await s.rcon.connect(); break; } catch (e) { await s.rcon?.close(); if (i === 149) throw e; await sleep(1000); } }
 	s.command = async (text) => (await s.rcon.command(text)).text;
-	installTickRate(s, fixtureTickRate());
+	installTickRate(s, unshownTickRate('not yet played in a 20 vs 60 TPS A/B: its saved world or plan is private'));
 	s.bridge = new MultiplexedServerBridge({ port, secret }, {}); s.inbox = new Inbox(s.bridge);
 	s.bridge.on('observation', e => s.clock.observe(e.payload?.world?.gameTime));
 	s.bridge.on('goal_spec_request', e => { s.bridge.send('goal_spec_proposal', e.agentId, { requestId: e.payload.requestId, summary: 'Controlled live progress fixture', predicate: { type: 'survive_duration', ticks: 24000 } }).catch(() => {}); });
