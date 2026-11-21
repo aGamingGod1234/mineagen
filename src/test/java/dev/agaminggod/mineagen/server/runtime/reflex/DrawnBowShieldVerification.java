@@ -24,6 +24,7 @@ public final class DrawnBowShieldVerification {
 		modelRulesKeepTheArrowOnly();
 		raiseLeavesTimeBeforeTheRelease();
 		headFacingIsHorizontal();
+		bouncedArrowIsNoShot();
 		return assertions;
 	}
 
@@ -57,6 +58,26 @@ public final class DrawnBowShieldVerification {
 		check(!ReflexSensors.headTurnedTo(0.0F, at, new Vec3(0.0D, 64.0D, -10.0D), 30.0D), "a head turned away is not aimed");
 		check(ReflexSensors.headTurnedTo(-170.0F, at, new Vec3(1.0D, 64.0D, -10.0D), 30.0D), "angles wrap at 180");
 		check(!ReflexSensors.headTurnedTo(0.0F, at, new Vec3(10.0D, 64.0D, 10.0D), 30.0D), "45 degrees off is not aimed");
+	}
+
+	/**
+	 * The live drawn-bow room, one tick after a block: the arrow bounced off the shield at a tenth of its speed and drops
+	 * past the head, still inside the box an arrow hits from, so the flight estimate gives it 0 s to impact. Read as a shot,
+	 * the shield turned to the line it bounced along, 8 blocks behind the body, and the archer's next draw came from behind.
+	 */
+	private static void bouncedArrowIsNoShot() {
+		net.minecraft.world.phys.AABB body = new net.minecraft.world.phys.AABB(0.2D, 80.0D, 0.2D, 0.8D, 81.8D, 0.8D);
+		Vec3 skeleton = new Vec3(9.6D, 80.0D, 6.5D);
+		Vec3 bounced = new Vec3(0.927D, 81.573D, 0.364D), bouncedVelocity = new Vec3(0.126D, -0.083D, 0.079D);
+		double eta = dev.agaminggod.mineagen.server.perception.ProjectilePerception.impactSeconds(bounced, bouncedVelocity, body, Vec3.ZERO, false,
+				dev.agaminggod.mineagen.server.perception.ProjectilePerception.HIT_MARGIN);
+		check(Double.isFinite(eta), "the flight estimate alone reads the bounced arrow as landing now");
+		check(ReflexSensors.landed(body, bounced), "an arrow already at the body has landed, so it is no shot to turn to");
+		Vec3 incoming = new Vec3(1.348D, 81.678D, 0.626D), incomingVelocity = new Vec3(-1.286D, -0.167D, -0.803D);
+		check(!ReflexSensors.landed(body, incoming), "the arrow one tick before the hit is still a shot");
+		Vec3 eye = new Vec3(0.5D, 81.62D, 0.5D);
+		Vec3 toIncoming = incoming.subtract(incomingVelocity.normalize().scale(8.0D)).subtract(eye), toSkeleton = skeleton.subtract(eye);
+		check(toIncoming.x * toSkeleton.x + toIncoming.z * toSkeleton.z > 0.0D, "the shot's line still points the shield at the archer");
 	}
 
 	private static List<ReflexSpec.Rule> defaults() {

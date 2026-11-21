@@ -339,6 +339,7 @@ public final class ReflexSensors {
 			if (projectile.getOwner() == player) continue;
 			boolean grounded = projectile instanceof AbstractArrow arrow && ((AbstractArrowInvoker) arrow).mineagen$isInGround();
 			if (!ProjectilePerception.flying(grounded, projectile.getDeltaMovement())) continue;
+			if (landed(player, projectile)) continue;
 			double eta = ProjectilePerception.impactSeconds(projectile.position(), projectile.getDeltaMovement(), player.getBoundingBox(),
 					player.getDeltaMovement(), type.contains("fireball"), ProjectilePerception.HIT_MARGIN,
 					(from, to) -> player.level().clip(new ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, projectile))
@@ -353,6 +354,20 @@ public final class ReflexSensors {
 			if (archer != null) return new Reading(true, archer);
 		}
 		return soonest == null ? Reading.FALSE : new Reading(true, soonest);
+	}
+
+	/**
+	 * Whether a projectile is already at the body: inside the box an arrow hits from (the body plus vanilla's hit margin).
+	 * Its flight ended there, as a hit or bounced off the shield, so it is no shot about to land. A blocked arrow drops
+	 * back past the head at a tenth of its speed and still crossed the margin box for 2 ticks, and the shield turned to the
+	 * line it bounced along, away from the archer (live drawn-bow room).
+	 */
+	static boolean landed(ServerPlayer player, Projectile projectile) {
+		return landed(player.getBoundingBox(), projectile.position());
+	}
+
+	static boolean landed(net.minecraft.world.phys.AABB body, Vec3 at) {
+		return body.inflate(ProjectilePerception.HIT_MARGIN).contains(at);
 	}
 
 	/**
@@ -488,6 +503,7 @@ public final class ReflexSensors {
 					: !ProjectilePerception.supported(type)) continue;
 			boolean grounded = arrow && ((AbstractArrowInvoker) projectile).mineagen$isInGround();
 			if (!ProjectilePerception.flying(grounded, projectile.getDeltaMovement())) continue;
+			if (landed(player, projectile)) continue;
 			double eta = ProjectilePerception.impactSeconds(projectile.position(), projectile.getDeltaMovement(), player.getBoundingBox(),
 					player.getDeltaMovement(), type.contains("fireball"), ProjectilePerception.HIT_MARGIN,
 					(from, to) -> player.level().clip(new ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, projectile))
