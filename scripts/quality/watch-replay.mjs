@@ -28,6 +28,7 @@ import { normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
 import { fixtureCatalogCodexModels } from '../../coordinator/src/default-models.mjs';
 import { stageServer, worldProperties, lookupWorld, snapshotWorld, worldCacheEnabled } from './fixture-servers.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
+import { deathCounter } from './lib/damage-counter.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const sleep = ms => new Promise(done => setTimeout(done, ms));
@@ -150,7 +151,7 @@ export function installTickRate(s, tickRate, { wait = sleep } = {}) {
 	s.applyTickRate = () => s.setRate(tickRate);
 	s.fastRate = () => s.setRate(tickRate);
 	s.normalRate = () => s.setRate(20);
-	s.gameTicks = async () => { const m = /time is (\d+)/i.exec(String(await s.command('time query gametime').catch(() => ''))); return m ? Number(m[1]) : null; };
+	s.gameTicks = async () => { const m = /time is (\d+)/i.exec(String(await s.command('time query gametime').catch(() => ''))); const ticks = m ? Number(m[1]) : null; s.clock?.observe(ticks); return ticks; };
 	// Waits ms of game time. Polls the world clock, so a server that cannot hold the rate still gets the full wait; a frozen
 	// world (tick freeze) ends it after twice the wall time.
 	s.gameSleep = async ms => {
@@ -187,9 +188,51 @@ export function installTickRate(s, tickRate, { wait = sleep } = {}) {
 			return { askedTps: asked, reachedTps: ticks0 === null || now === null || wallS <= 0 ? null : +((now - ticks0) / wallS).toFixed(1), gameTicks: ticks0 === null || now === null ? null : now - ticks0, wallS: +wallS.toFixed(1) };
 		} };
 	};
+	s.clock = fixtureClock(tickRate, () => s.rate, wait, () => s.gameTicks());
 	// What the server actually held (tick query: target rate, mean and percentile ms per tick), for the run's manifest.
 	s.tickReport = async () => String(await s.command('tick query').catch(error => `tick query failed: ${error.message}`)).replace(/\s+/g, ' ').trim();
 	return s;
+}
+
+/**
+ * The clock a fixture times play with: s.clock.now() is epoch-like ms that advance with game time, s.clock.sleep(ms)
+ * waits ms of game time. A fixture whose rate is 20 gets the plain wall clock, so its runs are unchanged. At a raised
+ * rate the clock anchors on the world's game tick (s.clock.observe(ticks), fed from every observation and each
+ * s.gameTicks() read) and extrapolates at most 1 s of wall time past the last anchor at the rate the server was asked
+ * for, so a server that cannot hold the rate, or a frozen world, slows the clock instead of letting it run ahead. It
+ * never goes backwards. sleep ends on a reported tick, so it is never short.
+ */
+export function fixtureClock(tickRate, currentRate = () => tickRate, wait = sleep, sync = null) {
+	if (tickRate === 20) return { rate: 20, now: Date.now, sleep: ms => wait(ms), observe: () => {} };
+	let epoch0 = null, game0 = null, anchorGame = null, anchorWall = 0, last = 0;
+	const anchored = () => game0 === null ? Date.now() : epoch0 + (anchorGame - game0);
+	const clock = {
+		rate: tickRate,
+		observe(ticks, wallMs = Date.now()) {
+			if (!Number.isSafeInteger(ticks)) return;
+			const gameMs = ticks * 50;
+			if (game0 === null) { epoch0 = wallMs; game0 = gameMs; }
+			if (anchorGame !== null && gameMs < anchorGame) return;
+			anchorGame = gameMs; anchorWall = wallMs;
+		},
+		now() {
+			if (game0 === null) return (last = Math.max(last, Date.now()));
+			const ahead = Math.min(Math.max(0, Date.now() - anchorWall), 1000) * currentRate() / 20;
+			return (last = Math.max(last, epoch0 + (anchorGame - game0) + ahead));
+		},
+		// Ends on a tick the world reported, never on the extrapolation, so a wait is never short; it may run one poll long.
+		async sleep(ms) {
+			const until = clock.now() + ms;
+			for (;;) {
+				if (anchored() >= until) return;
+				// A quiet body sends no samples: read the world's tick when the last anchor is older than 100 ms.
+				if (sync && Date.now() - anchorWall > 100) await sync().catch(() => null);
+				if (anchored() >= until) return;
+				await wait(Math.max(5, Math.min(250, (until - clock.now()) * 20 / Math.max(20, currentRate()))));
+			}
+		},
+	};
+	return clock;
 }
 
 /** Only RCON setup belongs here: bridge observations/actions may need a running world to complete. */
@@ -202,8 +245,46 @@ export async function frozenFixtureSetup(s, setup) {
 	}
 }
 
-/** One server on a copy of the incident's world (or the seed); mirrors test-reflex-failspots-live.mjs. */
-export async function boot(dir, { jar, template, port, world, seed, goalTicks = 24000, spawnMonsters = false, readyTimeoutMs = 30000, bridgeReadyMs = readyTimeoutMs, extraProperties = '', worldCache = false, onBridge = null, onSpawn = null, handleGoalSpec = true, tickRate }) {
+/**
+ * The ticks a "Survive for N seconds" goal asks for (GoalCompiler's survival duration, digits only), else null. The mod
+ * rejects a proposed survive_duration shorter than the goal text, and then no goal_control start ever arrives.
+ */
+export function surviveTicks(request) {
+	const match = /^survive(?: for)? (\d+) (ticks?|seconds?|minutes?)\.?$/i.exec(String(request ?? '').trim());
+	if (!match) return null;
+	return Number(match[1]) * (/^minute/i.test(match[2]) ? 1200 : /^second/i.test(match[2]) ? 20 : 1);
+}
+
+/** The survive_duration boot() proposes for a goal: at least what its text asks for, so a fixture's goalTicks cannot fall short. */
+export const proposedGoalTicks = (request, goalTicks = 24000) => Math.max(goalTicks, surviveTicks(request) ?? 0);
+
+/**
+ * The newer goal revision a server message carries for the fixture's agent, else null. A death, a respawn or a low-health
+ * hand-back moves the revision, the hand-back with no goal_control, so a fixture that only followed goal_control had its
+ * later commands refused STALE_REVISION. Queue and dequeue controls do not move the active task.
+ */
+export function newerGoalRevision(record, event) {
+	if (!record || event?.agentId !== record.agentId) return null;
+	if (event.type === 'goal_control' && ['queue', 'dequeue'].includes(event.payload?.operation)) return null;
+	const payload = event.payload ?? {};
+	const revision = payload.goalRevision ?? payload.record?.goalRevision ?? payload.control?.goalRevision ?? payload.observation?.goalRevision;
+	return Number.isSafeInteger(revision) && revision > (record.goalRevision ?? -1) ? revision : null;
+}
+
+/**
+ * A copy of s.record with extra fields whose goalRevision stays the live one: boot()'s follower moves s.record, and a
+ * plain { ...s.record } copy kept sending the old revision after a hand-back, so every later command was refused.
+ */
+export function liveRecord(s, extra = {}) {
+	return Object.defineProperty({ ...s.record, ...extra }, 'goalRevision', { get: () => s.record.goalRevision, set: value => { s.record.goalRevision = value; }, enumerable: true });
+}
+
+/**
+ * One server on a copy of the incident's world (or the seed); mirrors test-reflex-failspots-live.mjs. followRevision
+ * (default on) moves s.record.goalRevision with any newer revision the server sends and answers agent_ready, as the
+ * coordinator does; a caller that runs the production coordinator on the bridge (run-incident.mjs) turns it off.
+ */
+export async function boot(dir, { jar, template, port, world, seed, goalTicks = 24000, spawnMonsters = false, readyTimeoutMs = 30000, bridgeReadyMs = readyTimeoutMs, extraProperties = '', worldCache = false, onBridge = null, onSpawn = null, handleGoalSpec = true, followRevision = true, tickRate }) {
 	tickRate = bootTickRate(tickRate);
 	const server = path.join(dir, 'server');
 	await stageServer(template, server, jar);
@@ -234,8 +315,14 @@ export async function boot(dir, { jar, template, port, world, seed, goalTicks = 
 		// First boot of these settings: keep the world as generated, before any fixture command touches it.
 		if (cacheEntry && !cacheEntry.hit) await snapshotWorld(cacheEntry, path.join(server, 'world'), s.command).catch(error => console.log(`[world cache] not saved: ${error.message}`));
 		s.bridge = new MultiplexedServerBridge({ port, secret }, {}); s.inbox = new Inbox(s.bridge);
-		s.bridge.on('observation', e => { if (e.agentId === s.record?.agentId && e.payload.ready) s.observation = e.payload; });
-		if (handleGoalSpec) s.bridge.on('goal_spec_request', e => { s.bridge.send('goal_spec_proposal', e.agentId, { requestId: e.payload.requestId, summary: 'Incident replay', predicate: { type: 'survive_duration', ticks: goalTicks } }).catch(() => {}); });
+		s.bridge.on('observation', e => { s.clock?.observe(e.payload?.world?.gameTime); if (e.agentId === s.record?.agentId && e.payload.ready) s.observation = e.payload; });
+		if (handleGoalSpec) s.bridge.on('goal_spec_request', e => { s.bridge.send('goal_spec_proposal', e.agentId, { requestId: e.payload.requestId, summary: 'Incident replay', predicate: { type: 'survive_duration', ticks: proposedGoalTicks(e.payload.originalRequest, goalTicks) } }).catch(() => {}); });
+		if (followRevision) s.bridge.on('message', event => {
+			const revision = newerGoalRevision(s.record, event);
+			if (revision === null) return;
+			s.record.goalRevision = revision;
+			s.bridge.send('agent_ready', s.record.agentId, { goalRevision: revision, reconciled: false }).catch(() => {});
+		});
 		const ready = s.inbox.wait('ready', () => true, bridgeReadyMs); ready.catch(() => {});
 		if (onBridge) await onBridge(s, { port, secret });
 		s.bridge.start(); s.ready = await ready;
@@ -277,7 +364,8 @@ export async function boot(dir, { jar, template, port, world, seed, goalTicks = 
 }
 
 const number = text => Number((/(-?\d+(?:\.\d+)?)[fdb]?\s*$/.exec(String(text).trim()) ?? [])[1]);
-const deaths = async s => number(await s.command(`scoreboard players get ${AGENT} deaths`)) || 0;
+// boot() adds the deathCount objective `deaths` before the body exists, so an unset score is 0; an unreadable one is null.
+const deaths = s => deathCounter(text => s.command(text), AGENT, { objective: 'deaths', unsetIsZero: true });
 const health = async s => { const text = await s.command(`data get entity ${AGENT} Health`); return /No entity|not found/i.test(text) ? 0 : number(text); };
 
 async function replayOne(s, { incident, savepoint }, { windowMs }) {

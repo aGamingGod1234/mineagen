@@ -24,7 +24,9 @@
 // Launch under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME. BUILD_ONLY=a,b runs only those spots.
 // CHAIN_TOTAL_MS=5400000 gives each chain 90 minutes instead of its totalMs. CHAIN_STEP_MS (default 25 minutes for a
 // chain) ends a run whose one step, its retries and recovery calls included, runs longer: row.ended 'stuck at <step>'.
-// Build stays at 20 TPS even with FIXTURE_TICK_RATE set; its damage sampler is not validated at raised rates.
+// FIXTURE_TICK_RATE runs play faster: setup stays at 20 TPS (its idle waits pass at the fixture rate) and every deadline and
+// wait during play is game time on the fixture clock (s.clock), so a raised rate plays the same game. row.seconds is game
+// seconds, row.wallSeconds wall seconds, row.rates the rate asked for and reached.
 import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -37,7 +39,10 @@ import { HAND_SPEED_STONE } from '../../coordinator/src/obtain-runner.mjs';
 import { InspectionClient } from '../../coordinator/src/inspection-client.mjs';
 import { parseSavedWorldSpawn } from '../../coordinator/src/headless-world-spawn.mjs';
 import { DEFAULT_REFLEXES, ReflexBook } from '../../coordinator/src/reflexes.mjs';
+import { fixtureTickRate } from './watch-replay.mjs';
+import { gameClockFromObservations } from '../../coordinator/src/game-clock.mjs';
 import { warmBoots } from './fixture-servers.mjs';
+import { liveRecord } from './watch-replay.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 import { damageCounter, damageEvidence, replyNumber, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
@@ -67,7 +72,7 @@ const stepMsOf = spot => spot.expect === 'nether' ? Number(process.env.CHAIN_STE
 const goalSecondsOf = spot => Math.max(1200, Math.ceil((totalMsOf(spot) ?? 0) / 1000) + 600);
 const cases = [...spots.entries()].filter(([, spot]) => !only || only.has(spot.name));
 for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(cases, ([index, spot]) => ({ dir: path.join(out, `spot-${index}`),
-	options: { jar: path.resolve(jarArg ?? path.join(root, MOD_JAR)), template, port, world: null, seed: String(spot.seed), spawnMonsters: spot.monsters !== false, goalTicks: goalSecondsOf(spot) * 20, worldCache: true } }),
+	options: { jar: path.resolve(jarArg ?? path.join(root, MOD_JAR)), template, port, world: null, seed: String(spot.seed), spawnMonsters: spot.monsters !== false, goalTicks: goalSecondsOf(spot) * 20, worldCache: true, tickRate: fixtureTickRate() } }),
 	// BUILD_KEEP keeps each world, saved at stop, to inspect what was built; otherwise stopping deletes the ~150 MB world.
 	{ keepWorld: process.env.BUILD_KEEP ? true : undefined })) {
 	const goalSeconds = goalSecondsOf(spot);
@@ -84,15 +89,17 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		row.startedAt = Date.now();
 		if (!s) throw bootError;
 		await s.normalRate();
-		await s.command('save-all flush');
-		await sleep(1500);
+		// level.dat holds the spawn: a cached world (hit or just saved) already has it on disk; only a server without the
+		// cache must save first. The wait lets the world run as before, in less wall time at a raised fixture rate.
+		if (s.worldCache === 'off') await s.command('save-all flush');
+		await s.idleSleep(1500);
 		const spawn = parseSavedWorldSpawn(await readFile(path.join(dir, 'server/world/level.dat')));
 		row.spawn = spawn;
 		let e = null;
 		for (let attempt = 0; attempt < 3 && !e; attempt++) {
 			const registered = s.inbox.wait('agent_registered', () => true, 45000).catch(() => null);
 			await s.command(`forceload add ${spawn.x} ${spawn.z}`);
-			for (let wait = 0; wait < 60 && !/time is/i.test(await s.command(`execute if loaded ${spawn.x} 0 ${spawn.z} run time query gametime`)); wait++) await sleep(1000);
+			for (let wait = 0; wait < 600 && !/time is/i.test(await s.command(`execute if loaded ${spawn.x} 0 ${spawn.z} run time query gametime`)); wait++) await sleep(100);
 			await s.command(`execute positioned ${spawn.x} 0 ${spawn.z} positioned over motion_blocking_no_leaves run mineagen summon gpt-6.1-sol low ${AGENT}`);
 			e = await registered;
 		}
@@ -111,7 +118,7 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		await s.command('tick unfreeze').catch(() => {});
 		await s.command(`difficulty ${spot.difficulty ?? 'normal'}`);
 		if (spot.time !== undefined) await s.command(`time set ${spot.time}`);
-		await s.gameSleep(1500);
+		await s.idleSleep(1500);
 		const commands = new Set();
 		const inspections = new InspectionClient({ send: (type, agentId, payload) => s.bridge.send(type, agentId, payload) });
 		s.bridge.on('inspection_result', message => { inspections.accept(message); });
@@ -121,7 +128,7 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 				if (type === 'action_command') {
 					commands.add(payload.actionId);
 					const { timeoutMs: _t, discard: _d, ...args } = payload.arguments ?? {};
-					row.actions = [...(row.actions ?? []), { atS: Math.round((Date.now() - (row.t0 ?? Date.now())) / 1000), type: payload.actionType, args }];
+					row.actions = [...(row.actions ?? []), { atS: Math.round((s.clock.now() - (row.t0 ?? s.clock.now())) / 1000), type: payload.actionType, args }];
 					console.log(`  [${spot.name}] +${row.actions.at(-1).atS}s ${payload.actionType} ${JSON.stringify(args)}`);
 				}
 				return s.bridge.send(type, agentId, payload);
@@ -129,9 +136,11 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 			requestObservation: async () => { const payload = await s.observe(); return { eventSequence: payload.eventSequence, observation: adaptObservation(payload) }; },
 			inspectObservation: async (rec, query) => ({ state: 'SUCCEEDED', reasonCode: 'INSPECTED', ...await inspections.request(rec, query) }),
 			// The twelve default reflexes, armed at the first live sample as the coordinator arms them (dynamic-main).
-			reflexBook: new ReflexBook({ defaults: DEFAULT_REFLEXES }),
+			reflexBook: new ReflexBook({ defaults: DEFAULT_REFLEXES, ...(s.clock.rate === 20 ? {} : { now: () => s.clock.now() }) }),
+			// At a raised rate the runtime times find, gather, obtain and wait in game time too (it feeds the clock its samples).
+			...(s.clock.rate === 20 ? {} : { clock: gameClockFromObservations({ tickRate: s.clock.rate }) }),
 		});
-		const record = { ...s.record, provider: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'low', serviceTier: 'default' };
+		const record = liveRecord(s, { provider: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'low', serviceTier: 'default' });
 		s.bridge.on('observation', ev => { if (ev.agentId === record.agentId && ev.payload.ready) runtime.updateObservation(record, adaptObservation(ev.payload), { eventSequence: ev.payload.eventSequence }); });
 		// A message the wire schema refused is dropped, connection kept (schema drift): count it, or the body loses
 		// observations with no trace in the run (batch 1: far-sight rows marked flowing/small, fixed in #209).
@@ -152,15 +161,15 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		});
 		await s.observe();
 		// The runtime resends its reflex rules when the mod reports they are missing.
-		for (let wait = 0; wait < 20 && !((await s.observe()).reflexes?.rules?.length >= 12); wait++) await sleep(500);
+		for (let wait = 0; wait < 100 && !((await s.observe()).reflexes?.rules?.length >= 12); wait++) await sleep(100);
 		const reflexSample = (await s.observe()).reflexes;
 		row.reflexes = reflexSample?.rules?.length ?? 0;
 		if (spot.startAt?.y !== undefined) {
 			const { x, y, z } = spot.startAt;
 			await s.command(`forceload add ${x} ${z}`);
-			for (let wait = 0; wait < 60 && !/time is/i.test(await s.command(`execute if loaded ${x} 0 ${z} run time query gametime`)); wait++) await sleep(1000);
+			for (let wait = 0; wait < 600 && !/time is/i.test(await s.command(`execute if loaded ${x} 0 ${z} run time query gametime`)); wait++) await sleep(100);
 			row.teleport = String(await s.command(`tp ${AGENT} ${x + 0.5} ${y} ${z + 0.5}`)).slice(0, 160);
-			await sleep(3000);
+			await s.idleSleep(3000);
 		} else if (spot.startAt) {
 			// The first dry surface cell from startAt, then round the pool at the same distance in 45 degree steps.
 			const r = spot.pool ? Math.hypot(spot.startAt.x - spot.pool.x, spot.startAt.z - spot.pool.z) : 0;
@@ -169,14 +178,14 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 				const x = k === 0 || !spot.pool ? spot.startAt.x : Math.round(spot.pool.x + r * Math.cos(a0 + k * Math.PI / 4));
 				const z = k === 0 || !spot.pool ? spot.startAt.z : Math.round(spot.pool.z + r * Math.sin(a0 + k * Math.PI / 4));
 				await s.command(`forceload add ${x} ${z}`);
-				for (let wait = 0; wait < 60 && !/time is/i.test(await s.command(`execute if loaded ${x} 0 ${z} run time query gametime`)); wait++) await sleep(1000);
+				for (let wait = 0; wait < 600 && !/time is/i.test(await s.command(`execute if loaded ${x} 0 ${z} run time query gametime`)); wait++) await sleep(100);
 				row.teleport = String(await s.command(`execute as ${AGENT} positioned ${x} 0 ${z} positioned over motion_blocking_no_leaves run tp @s ~ ~ ~`)).slice(0, 160);
-				await sleep(1500);
+				await s.idleSleep(1500);
 				const wet = !/passed/i.test(String(await s.command(`execute as ${AGENT} at @s unless block ~ ~ ~ water unless block ~ ~-1 ~ water unless block ~ ~-1 ~ lava unless block ~ ~-1 ~ ice`)));
 				row.startTried = [...(row.startTried ?? []), { x, z, wet }];
 				if (!wet || !spot.pool) break;
 			}
-			await sleep(1500);
+			await s.idleSleep(1500);
 		}
 		console.log(`[${spot.name}] reflexes armed: ${row.reflexes} (${(reflexSample?.rules ?? []).map(rule => rule.id).join(',')}); sends ${JSON.stringify(row.reflexSends ?? [])}`);
 		row.start = await pos();
@@ -191,20 +200,27 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 			continue;
 		}
 		for (const text of spot.commands ?? []) row.setup = [...(row.setup ?? []), String(await s.command(`execute as ${AGENT} at @s run ${text}`)).slice(0, 120)];
-		if (spot.commands?.length) await s.gameSleep(1500);
+		if (spot.commands?.length) await s.idleSleep(1500);
 		const startCell = row.start.map(Math.floor);
 		const resolveAt = at => at === undefined ? undefined : Object.fromEntries(['x', 'y', 'z'].map((k, i) => [k, typeof at[k] === 'string' && at[k].startsWith('~') ? startCell[i] + Number(at[k].slice(1) || 0) : at[k]]));
 		const readDamage = await damageCounter(text => s.command(text), AGENT);
 		const damageBefore = await readDamage();
 		await s.fastRate();
-		const healthBefore = await health(), deathsBefore = await deaths(), t0 = Date.now(), timer = await s.gameTimer();
-		row.playStartedAt = t0;
+		// Play is timed on the fixture clock: game time, so every deadline and wait below covers the same game time at any
+		// tick rate (plain wall time at 20 TPS).
+		const now = () => s.clock.now();
+		const healthBefore = await health(), deathsBefore = await deaths(), t0 = now(), wall0 = Date.now(), timer = await s.gameTimer();
+		row.playStartedAt = wall0;
 		row.t0 = t0;
 		const trail = [];
 		sampling = true;
 		row.fireTicks = 0; row.lavaContact = 0; row.fireContact = 0; row.minAir = 300; row.airSamples = 0;
+		// Samples start every 500 ms of game time from t0, whatever their reads cost: a raised rate packs more ticks into
+		// the reads, and sleeping 500 ms after them spaced samples 11-12 ticks apart at 60 TPS, so the same drop read as a
+		// bigger fall (cast-obi-2's worst fall: 2.8-2.9 blocks at 20 TPS, up to 3.0 at 60).
+		let nextSample = t0;
 		sampler = (async () => { while (sampling) {
-			const p = await pos().catch(() => null); if (p) trail.push([...p, Date.now() - t0]);
+			const p = await pos().catch(() => null); if (p) trail.push([...p, now() - t0]);
 			const air = number(await s.command(`data get entity ${AGENT} Air`).catch(() => ''));
 			if (Number.isFinite(air) && row.waterFrom !== undefined) { row.minAir = Math.min(row.minAir, air); row.airSamples++; }
 			const fire = number(await s.command(`data get entity ${AGENT} Fire`).catch(() => '')); if (fire > 0) row.fireTicks++;
@@ -212,7 +228,9 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 				if (/passed/i.test(String(await s.command(`execute as ${AGENT} at @s if block ~ ${dy} ~ minecraft:lava`).catch(() => '')))) row.lavaContact++;
 				if (/passed/i.test(String(await s.command(`execute as ${AGENT} at @s if block ~ ${dy} ~ #minecraft:fire`).catch(() => '')))) row.fireContact++;
 			}
-			await s.gameSleep(500);
+			nextSample += 500;
+			if (now() > nextSample) nextSample = now();
+			await s.clock.sleep(nextSample - now());
 		} })();
 		row.totalMs = totalMsOf(spot);
 		const totalEnd = row.totalMs === undefined ? Infinity : t0 + row.totalMs;
@@ -223,10 +241,10 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		const stuck = () => {
 			const main = spot.calls[Number(step)]?.arguments;
 			const what = String(main?.target?.item ?? main?.target?.block ?? main?.target?.structure ?? main?.verb ?? step).replace('minecraft:', '');
-			row.stuck = { step: Number(step), what, minutes: Math.round((Date.now() - stepStarted.get(step)) / 6000) / 10 };
+			row.stuck = { step: Number(step), what, minutes: Math.round((now() - stepStarted.get(step)) / 6000) / 10 };
 			row.ended = `stuck at ${what}`;
 		};
-		const left = () => Math.min(totalEnd, stepEnd) - Date.now();
+		const left = () => Math.min(totalEnd, stepEnd) - now();
 		const dimension = async () => String(await s.command(`data get entity ${AGENT} Dimension`).catch(() => '')).match(/"([^"]+)"/)?.[1] ?? null;
 		let opening = null;
 		// The lava cell the last find named ("lava seen at x,y,z"): a call's target "$lava" walks there (within 4 blocks).
@@ -243,8 +261,8 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 				let done = await runtime.execute({ agentId: record.agentId, goalRevision: record.goalRevision, turnId: `answer-${tag}`, callId: `answer-${tag}`, tool: normalizeMinecraftToolCall(name, args) }, record);
 				const handle = done?.actionId ?? done?.handle?.actionId;
 				if (typeof handle === 'string' && ['RUNNING', 'PREPARING', 'ACCEPTED', 'STARTED'].includes(String(done?.state))) {
-					const until = Math.min(Date.now() + 420_000, totalEnd, stepEnd);
-					while (!terminal.has(handle) && Date.now() < until) await sleep(500);
+					const until = Math.min(now() + 420_000, totalEnd, stepEnd);
+					while (!terminal.has(handle) && now() < until) await s.clock.sleep(500);
 					done = terminal.get(handle) ?? { state: 'HARNESS_TIMEOUT' };
 				}
 				return done;
@@ -271,7 +289,7 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		};
 		const heal = async (tag, cover = false) => {
 			// A dead body sends no ready observation (s.observe throws TIMEOUT): read it as no sample.
-			const started = Date.now(), body = async () => { try { return adaptObservation(await s.observe()); } catch { return {}; } };
+			const started = now(), body = async () => { try { return adaptObservation(await s.observe()); } catch { return {}; } };
 			let o = await body(), sill = null, walledIn = false, windowShut = null;
 			const entry = { ...(cover ? { cover: true } : {}), before: o.player?.health, foodBefore: o.player?.foodLevel, steps: [] };
 			let food = () => (o.inventory?.items ?? []).filter(item => FOOD.test(item.itemId)).sort((a, b) => /cooked/.test(b.itemId) - /cooked/.test(a.itemId));
@@ -304,7 +322,7 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 					const still = o.player && (o.entities ?? []).find((one) => one?.stableId === creeper.stableId && one.alive !== false && Math.hypot(one.x - o.player.x, one.y - o.player.y, one.z - o.player.z) <= 7);
 					walledIn = fled?.reasonCode === 'WALLED_IN' && Boolean(o.player);
 					if (!walledIn && (!o.player || still)) {
-						Object.assign(entry, { after: o.player?.health, healed: o.player?.health > 8, seconds: Math.round((Date.now() - started) / 1000) });
+						Object.assign(entry, { after: o.player?.health, healed: o.player?.health > 8, seconds: Math.round((now() - started) / 1000) });
 						entry.steps.push(o.player ? 'creeper still within 7 blocks: no walls' : 'no player sample');
 						(row.heals ??= []).push(entry);
 						console.log(`[${spot.name}] HEAL ${JSON.stringify(entry)}`);
@@ -316,7 +334,7 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 				let walled = walledIn ? { state: 'SUCCEEDED', reasonCode: 'WALLED_IN' } : await run('act', { actionType: 'build_shelter', arguments: { x, y, z, opening, itemId: stone.itemId, timeoutMs: 30_000 } }, `${tag}-wall`);
 				entry.steps.push(`build_shelter ${opening}: ${walled?.state} ${walled?.reasonCode ?? ''}`);
 				if (walled?.reasonCode === 'NO_STANDABLE_PATH') {
-					await sleep(1_000);
+					await s.clock.sleep(1_000);
 					o = await body();
 					if (o.player) {
 						[x, y, z] = [o.player.x, o.player.y, o.player.z].map(Math.floor);
@@ -334,9 +352,9 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 				}
 			} else if (cover) entry.steps.push(`no wall: ${(o.inventory?.items ?? []).filter((item) => WALL.test(item.itemId)).map((item) => `${item.itemId.slice(10)}x${item.count}`).join(' ') || 'no blocks to wall in with'}${o.player ? '' : ', no player sample'}`);
 			let ate = 0, best = entry.before;
-			const waitFrom = Date.now();
+			const waitFrom = now();
 			// Cover with no walls up waits for nothing: the step again (the mob is answered there).
-			while ((!cover || sill || walledIn) && Date.now() - waitFrom < (cover ? 60_000 : 90_000) && left() > 60_000) {
+			while ((!cover || sill || walledIn) && now() - waitFrom < (cover ? 60_000 : 90_000) && left() > 60_000) {
 				o = await body();
 				// Healed, or hurt while waiting (a mob found the body): hand back to the next answer.
 				// Hurt is measured from the best health reached while eating, not the health the heal started at.
@@ -348,7 +366,7 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 					if (moved) entry.steps.push(moved);
 					await run('act', { actionType: 'select_item', arguments: { itemId: food()[0].itemId } }, `${tag}-sel${ate}`);
 					await run('act', { actionType: 'use_item', arguments: { mode: 'hold', durationMs: 2_000 } }, `${tag}-eat${ate++}`);
-				} else await sleep(3_000);
+				} else await s.clock.sleep(3_000);
 			}
 			if (windowShut) {
 				const reopened = await run('act', { actionType: 'break_block', arguments: { ...windowShut, timeoutMs: 15_000 } }, `${tag}-window`);
@@ -359,7 +377,7 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 				entry.steps.push(`open sill: ${opened?.state} ${opened?.reasonCode ?? ''}`);
 			}
 			o = await body();
-			Object.assign(entry, { after: o.player?.health, foodAfter: o.player?.foodLevel, ate, seconds: Math.round((Date.now() - started) / 1000), healed: o.player?.health > 8 });
+			Object.assign(entry, { after: o.player?.health, foodAfter: o.player?.foodLevel, ate, seconds: Math.round((now() - started) / 1000), healed: o.player?.health > 8 });
 			(row.heals ??= []).push(entry);
 			console.log(`[${spot.name}] HEAL ${JSON.stringify(entry)}`);
 			return `${cover ? 'cover' : 'heal'} ${entry.before} -> ${entry.after} health, food ${entry.foodBefore} -> ${entry.foodAfter}, ate ${ate} in ${entry.seconds}s${entry.steps.length ? ` (${entry.steps.join('; ')})` : ''}`;
@@ -445,9 +463,9 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		calls: for (let next = 0; next < queue.length; next++) for (let attempt = 0; ; attempt++) {
 			const { call, index: callIndex } = queue[next];
 			step = stepOf(callIndex);
-			if (!stepStarted.has(step)) stepStarted.set(step, Date.now());
+			if (!stepStarted.has(step)) stepStarted.set(step, now());
 			stepEnd = stepStarted.get(step) + stepMs;
-			if (Date.now() >= stepEnd - 5_000 && stepEnd < totalEnd) { stuck(); break calls; }
+			if (now() >= stepEnd - 5_000 && stepEnd < totalEnd) { stuck(); break calls; }
 			if (left() <= 5_000) { row.ended = 'out of time'; break calls; }
 			// A setup step with untilY is skipped once the body stands at or below that y (an earlier dig got there).
 			if (call.setup && call.untilY !== undefined && (await pos())?.[1] < call.untilY + 1) break;
@@ -458,7 +476,7 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 			// A call { equip, to } puts a carried item in an equipment slot, as the model does with act equip_item from the
 			// slot it sees (the route's shield goes in the off hand, slot 40 in observations). Already there: nothing to do.
 			if (call.equip !== undefined) {
-				const started = Date.now(), obsInv = adaptObservation(await s.observe()).inventory ?? {}, inv = obsInv.items ?? [];
+				const started = now(), obsInv = adaptObservation(await s.observe()).inventory ?? {}, inv = obsInv.items ?? [];
 				const there = inv.some((item) => ((call.to === 'offhand' && item.slot === 40) || item.slot === call.to) && item.itemId === call.equip);
 				// The held hotbar slot shows as 'mainhand' in observations: its number is the inventory's selectedSlot.
 				const slotOf = (item) => item.slot === 'mainhand' ? obsInv.selectedSlot : item.slot;
@@ -466,15 +484,15 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 				const done = there ? { state: 'SUCCEEDED', reasonCode: 'ALREADY_EQUIPPED' } : one
 					? await run('act', { actionType: 'equip_item', arguments: { sourceSlot: slotOf(one), targetSlot: call.to, expectedItemId: call.equip } }, `equip-${callIndex}`)
 					: { state: 'FAILED', reasonCode: 'NOT_CARRIED' };
-				row.calls.push({ call: 'equip', verb: 'equip', what: call.equip, atS: Math.round((started - t0) / 1000), seconds: Math.round((Date.now() - started) / 1000), state: done?.state, reasonCode: done?.reasonCode });
+				row.calls.push({ call: 'equip', verb: 'equip', what: call.equip, atS: Math.round((started - t0) / 1000), seconds: Math.round((now() - started) / 1000), state: done?.state, reasonCode: done?.reasonCode });
 				console.log(`[${spot.name}] +${row.calls.at(-1).atS}s equip ${call.equip} to ${call.to}: ${done?.state} ${done?.reasonCode ?? ''}`);
 				break;
 			}
-			const callStarted = Date.now();
+			const callStarted = now();
 			// The water window belongs to the water spots (expect "water"); a chain's water step has the step limit instead.
 			const water = spot.expect === 'water' && call.arguments?.verb === 'obtain' && call.arguments?.target?.item === 'minecraft:water_bucket';
 			const windowMs = (spot.waterSeconds ?? 180) * 1000;
-			if (water && row.waterFrom !== undefined && Date.now() - row.waterFrom >= windowMs) { row.ended = 'water window over'; break calls; }
+			if (water && row.waterFrom !== undefined && now() - row.waterFrom >= windowMs) { row.ended = 'water window over'; break calls; }
 			if (water && row.waterFrom === undefined) { row.waterFrom = callStarted; row.waterStart = await pos(); row.waterHealth = await health(); }
 			let result;
 			try {
@@ -515,22 +533,22 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 					args = { ...args, target: { ...args.target, timeoutMs: Math.floor(want) } };
 				}
 				// A retry gets what is left of the water window (obtain takes at least 60 s).
-				if (water && row.waterFrom !== undefined && spot.expect === 'water') args = { ...args, target: { ...args.target, timeoutMs: Math.max(60_000, Math.floor(windowMs - (Date.now() - row.waterFrom))) } };
+				if (water && row.waterFrom !== undefined && spot.expect === 'water') args = { ...args, target: { ...args.target, timeoutMs: Math.max(60_000, Math.floor(windowMs - (now() - row.waterFrom))) } };
 				row.sent = [...(row.sent ?? []), args];
 				result = await runtime.execute({ agentId: record.agentId, goalRevision: record.goalRevision, turnId: `build-live-${callIndex}-${attempt}`, callId: `build-${callIndex}-${attempt}`,
 					tool: normalizeMinecraftToolCall(call.name, args) }, record);
 				const handle = result?.actionId ?? result?.handle?.actionId;
 				if (typeof handle === 'string' && ['RUNNING', 'PREPARING', 'ACCEPTED', 'STARTED'].includes(String(result?.state))) {
-					const until = Math.min(Date.now() + (spot.budgetMs ?? 420_000), totalEnd, stepEnd);
-					while (!terminal.has(handle) && Date.now() < until) await sleep(500);
+					const until = Math.min(now() + (spot.budgetMs ?? 420_000), totalEnd, stepEnd);
+					while (!terminal.has(handle) && now() < until) await s.clock.sleep(500);
 					result = terminal.get(handle) ?? { state: 'HARNESS_TIMEOUT', reasonCode: 'HARNESS_TIMEOUT', message: 'no terminal result' };
 				}
 			} catch (error) {
 				result = { state: 'ERROR', reasonCode: error?.code ?? 'ERROR', message: String(error?.message ?? error).slice(0, 600) };
 			}
-			if (water && result?.state === 'SUCCEEDED' && row.waterSeconds === undefined) row.waterSeconds = Math.round((Date.now() - row.waterFrom) / 1000);
+			if (water && result?.state === 'SUCCEEDED' && row.waterSeconds === undefined) row.waterSeconds = Math.round((now() - row.waterFrom) / 1000);
 			const entry = { call: call.name, verb: call.arguments?.verb, what: call.arguments?.target?.item ?? call.arguments?.target?.block ?? call.arguments?.target?.structure ?? call.arguments?.actionType,
-				atS: Math.round((callStarted - t0) / 1000), seconds: Math.round((Date.now() - callStarted) / 1000), state: result?.state, reasonCode: result?.reasonCode,
+				atS: Math.round((callStarted - t0) / 1000), seconds: Math.round((now() - callStarted) / 1000), state: result?.state, reasonCode: result?.reasonCode,
 				message: String(result?.message ?? '').slice(0, 1500), ...(result?.steps ? { steps: result.steps } : {}) };
 			row.calls.push(entry);
 			const lavaNamed = /lava seen at (-?\d+),(-?\d+),(-?\d+)/.exec(entry.message);
@@ -601,7 +619,7 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 					if (shielded) { row.shields = [...(row.shields ?? []), { call: callIndex, steps: shielded }]; console.log(`[${spot.name}] SHIELD ${shielded}`); }
 					if ((await deaths()) > deathsBefore) { row.ended = 'death'; break calls; }
 				}
-				await sleep(spot.retry.waitMs ?? 5000);
+				await s.clock.sleep(spot.retry.waitMs ?? 5000);
 				continue;
 			}
 			// A refusal the model answers with other steps first (blocks short for the mould: obtain them), then this one again.
@@ -623,14 +641,14 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		}
 		const last = row.calls.at(-1);
 		// A step that failed at its step limit (its own timeout was cut to it) is stuck too.
-		if (!row.ended && last && last.state !== 'SUCCEEDED' && step !== null && stepEnd < totalEnd && Date.now() >= stepEnd - 15_000) stuck();
+		if (!row.ended && last && last.state !== 'SUCCEEDED' && step !== null && stepEnd < totalEnd && now() >= stepEnd - 15_000) stuck();
 		row.built = last?.state === 'SUCCEEDED';
 		if (spot.expect === 'portal') {
 			const opening = /opening at (-?\d+),(-?\d+),(-?\d+)/.exec(last?.message ?? '');
 			row.portalBlock = opening ? /passed/i.test(String(await s.command(`execute if block ${opening[1]} ${opening[2]} ${opening[3]} minecraft:nether_portal`))) : false;
 			row.lit = row.built && last.reasonCode === 'PORTAL_LIT' && row.portalBlock;
 		}
-		if (spot.expect === 'nether') { await sleep(3000); row.dimension = await dimension(); row.inNether = row.dimension === 'minecraft:the_nether'; }
+		if (spot.expect === 'nether') { await s.clock.sleep(3000); row.dimension = await dimension(); row.inNether = row.dimension === 'minecraft:the_nether'; }
 		const endCell = (await pos())?.map(Math.floor);
 		row.endCell = endCell;
 		row.rose = endCell ? endCell[1] - startCell[1] : null;
@@ -638,8 +656,11 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		if (spot.expect === 'bridge' && goalAt) { const goal = resolveAt(goalAt); row.leftToGoal = endCell ? Math.abs(goal.x - endCell[0]) + Math.abs(goal.z - endCell[2]) : null; }
 		row.code = last?.reasonCode;
 		sampling = false; await sampler;
-		row.seconds = Math.round((Date.now() - t0) / 1000);
+		row.seconds = Math.round((now() - t0) / 1000);
+		row.wallSeconds = Math.round((Date.now() - wall0) / 1000);
 		row.gameSeconds = Math.round((await timer.elapsed()) / 1000);
+		// What the run really played at: the rate asked for and game ticks per wall second over play.
+		row.rates = await timer.rates().catch(() => null);
 		let walked = 0, farthest = 0;
 		for (let i = 1; i < trail.length; i++) walked += Math.hypot(trail[i][0] - trail[i - 1][0], trail[i][2] - trail[i - 1][2]);
 		for (const p of trail) farthest = Math.max(farthest, Math.hypot(p[0] - trail[0][0], p[2] - trail[0][2]));

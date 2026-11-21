@@ -192,6 +192,75 @@ public final class ReflexEngine {
 		return decision;
 	}
 
+	/** Coordinator defaults that exist only in the End (the coordinator arms them there; see reflexes.mjs DIMENSION_REFLEXES). */
+	static final Set<String> END_DEFAULTS = Set.of("default-breath", "default-end-throw");
+
+	/** The scheduler's End-only rules, blocked while the body is outside the End. */
+	static Set<String> endOnlyIds(ReflexScheduler scheduler) {
+		Set<String> ids = new LinkedHashSet<>();
+		for (String id : scheduler.ids()) if (endOnly(scheduler.rule(id))) ids.add(id);
+		return ids;
+	}
+
+	/**
+	 * One tick with no firing: while a breath run is owed to a waiting command, hold still input on the reflex lease (taken if
+	 * needed) and keep it renewed; otherwise release any lease left from the gap. Returns the lease to keep (null: none).
+	 */
+	static InputLease gapStep(ReflexScheduler scheduler, LeasedServerInputController controller, AgentId agentId, InputLease lease,
+			boolean commandActive, float yaw, float pitch, int slot) {
+		if (holdsCommandBetweenFirings(scheduler, commandActive)) {
+			InputLease held = holdStill(controller, agentId, lease, yaw, pitch, slot);
+			controller.renew(agentId);
+			return held;
+		}
+		releaseLease(controller, lease, yaw, pitch, -1);
+		return null;
+	}
+
+	/** Gives up a reflex lease, its look (and kept hotbar slot, unless -1) carried into the paused leases below it. */
+	static void releaseLease(LeasedServerInputController controller, InputLease lease, float yaw, float pitch, int keptSlot) {
+		if (lease == null || controller == null) return;
+		try {
+			controller.rebase(lease, yaw, pitch, keptSlot);
+			controller.release(lease);
+		} catch (LeasedServerInputController.StaleInputLeaseException ignored) {
+			// Already revoked by a lifecycle clear.
+		}
+	}
+
+	/** The reflex lease (taken if needed) holding still input over the body: no forward, strafe, sprint, jump or use. */
+	static InputLease holdStill(LeasedServerInputController controller, AgentId agentId, InputLease lease, float yaw, float pitch, int slot) {
+		InputLease held = lease != null ? lease : controller.acquire(agentId, InputOwner.REFLEX, INPUT_PRIORITY);
+		try {
+			controller.apply(held, AgentInputState.idle(yaw, pitch, slot));
+		} catch (LeasedServerInputController.StaleInputLeaseException cleared) {
+			held = controller.acquire(agentId, InputOwner.REFLEX, INPUT_PRIORITY);
+			controller.apply(held, AgentInputState.idle(yaw, pitch, slot));
+		}
+		return held;
+	}
+
+	/** An End-only coordinator default: it neither fires nor keeps running outside the End. */
+	static boolean endOnly(ReflexSpec.Rule rule) {
+		return rule != null && rule.coordinatorDefault() && END_DEFAULTS.contains(rule.id());
+	}
+
+	/**
+	 * A command waiting under a floor firing stays paused in the gap between two of its firings (a failed run's cooldown):
+	 * one free tick let a paused travel_to step back toward the cloud.
+	 */
+	static boolean holdsCommandBetweenFirings(ReflexScheduler scheduler, boolean commandActive) {
+		return commandActive && scheduler.current() == null && scheduler.holdsWaitingCommand();
+	}
+
+	/**
+	 * A cornered breath floor gives the body to the running command, whether it asked for the body (a yield request) or was
+	 * already running when the cloud came, or was admitted between two firings.
+	 */
+	static ReflexScheduler.Decision corneredHandBack(ReflexScheduler scheduler, CommandFollower command, boolean commandActive, long now) {
+		return commandActive && scheduler.corneredUnyielded() ? yieldTo(scheduler, command, now) : ReflexScheduler.Decision.NONE;
+	}
+
 	/** A floor firing kept through a command's yield has just yielded to it: follow the command as a yield does. */
 	static void followDeferredYield(ReflexScheduler scheduler, CommandFollower command, long now) {
 		if (scheduler.deferredYielded() && scheduler.anySuppressed()) command.yielded(now);
@@ -349,7 +418,11 @@ public final class ReflexEngine {
 		for (Map.Entry<AgentId, AgentReflexes> entry : agents.entrySet()) {
 			AgentId agentId = entry.getKey();
 			AgentReflexes agent = entry.getValue();
-			if (agent.scheduler.isEmpty()) continue;
+			if (agent.scheduler.isEmpty()) {
+				// No rules left (all removed): a still-input lease held between breath runs must not outlive them.
+				release(agentId, agent, false);
+				continue;
+			}
 			try {
 				if (tickAgent(agentId, agent, now, body)) paused.add(agentId);
 			} catch (RuntimeException failure) {
@@ -375,18 +448,33 @@ public final class ReflexEngine {
 		return type == ActionType.FIGHT_TARGET || type == ActionType.FIGHT_UNTIL || type == ActionType.USE_RANGED;
 	}
 
-	private static boolean passesThrough(AgentReflexes agent, ServerActionRequest active) {
-		return agent.behaviour != null && agent.behaviour.passesMovement() && active != null && CommandFollower.movesUnderHold(active);
+	private static boolean passesThrough(AgentReflexes agent, ServerActionRequest active, Map<String, ReflexScheduler.Sense> senses) {
+		return passesThrough(agent.behaviour != null && agent.behaviour.passesMovement(), active != null && CommandFollower.movesUnderHold(active), agent.scheduler, senses);
+	}
+
+	/**
+	 * A firing that lets a walking command move behind it (a held shield) does not while a breath run is owed: in the breath
+	 * cooldown a shield stance composed the command's forward input and resumed it toward the cloud (council R3).
+	 */
+	static boolean passesThrough(boolean passesMovement, boolean commandMoves, ReflexScheduler scheduler) {
+		return passesThrough(passesMovement, commandMoves, scheduler, null);
+	}
+
+	/** As above, with this tick's senses (null: the scheduler's last step), read before the scheduler steps on them. */
+	static boolean passesThrough(boolean passesMovement, boolean commandMoves, ReflexScheduler scheduler, Map<String, ReflexScheduler.Sense> senses) {
+		return passesMovement && commandMoves && !scheduler.holdsWaitingCommand(senses);
 	}
 
 	private boolean tickAgent(AgentId agentId, AgentReflexes agent, long now, Body body) {
 		ServerPlayer player = manager.findAgentPlayer(agentId).orElse(null);
 		if (player == null || !player.isAlive() || player.isSpectator()) {
 			end(agentId, agent, agent.scheduler.interrupt(now, "body unavailable"));
+			release(agentId, agent, false);
 			return false;
 		}
 		if (manager.server() != null && AgentControlReservations.isReserved(manager.server(), agentId)) {
 			end(agentId, agent, agent.scheduler.interrupt(now, "operator control"));
+			release(agentId, agent, false);
 			return false;
 		}
 		agent.memory.observe(player, now);
@@ -395,6 +483,11 @@ public final class ReflexEngine {
 		ServerActionRequest active = body.active(agentId);
 		ActionType activeType = active == null ? null : active.type();
 		followCommand(agentId, agent, active, body, now);
+		boolean inEnd = player.level().dimension() == net.minecraft.world.level.Level.END;
+		// The End's own defaults stop the tick the body leaves the End, before the coordinator's next rule update.
+		ReflexScheduler.Firing running = agent.scheduler.current();
+		if (running != null && !inEnd && endOnly(agent.scheduler.rule(running.ruleId()))) end(agentId, agent, agent.scheduler.interrupt(now, "left the End"));
+		agent.scheduler.blockWhere(inEnd ? null : ReflexEngine::endOnly);
 		ObservationVisibility.Frame frame = ObservationVisibility.frame(player.level(), player);
 		boolean cornered = active != null && active.type() == ActionType.FLEE_FROM
 				&& dev.agaminggod.mineagen.server.runtime.controller.CorneredStand.standing(player)
@@ -437,6 +530,7 @@ public final class ReflexEngine {
 				until = ReflexSensors.sense(player, condition, frame, agent.memory, now).truth();
 			}
 			truth = gatedTruth(rule, truth, activeType);
+			if (!inEnd && endOnly(rule)) truth = false;
 			truth = shieldGate(agent.scheduler, rule, truth, firingBlocksShots);
 			owedDropsGate(agent.scheduler, rule, truth);
 			// A default "back off when weaker" rule does not pause a flee that has already found no way out and stands its
@@ -460,7 +554,7 @@ public final class ReflexEngine {
 		ReflexScheduler.Firing firing = agent.scheduler.current();
 		if (firing != null && agent.behaviour != null) {
 			ReflexSpec.Rule rule = agent.scheduler.rule(firing.ruleId());
-			ReflexActions.Step step = agent.behaviour.tick(context(agentId, player, agent, firing.ruleId(), rule, active), state -> apply(agentId, agent, player, state));
+			ReflexActions.Step step = agent.behaviour.tick(context(agentId, player, agent, firing.ruleId(), rule, active, senses), state -> apply(agentId, agent, player, state));
 			FiringStep exit = firingStep(rule, step.status(), step.detail(), activeType, agent.behaviour.settled(), now - firing.startTick(), firing.maxTicks(),
 					agent.behaviour.yieldsToFight());
 			status = exit.status();
@@ -481,12 +575,21 @@ public final class ReflexEngine {
 			agent.startHealth = player.getHealth();
 			agent.firingFocus = agent.focus.get(rule.id());
 			agent.firingPoint = agent.points.get(rule.id());
-			ReflexActions.Step step = agent.behaviour.tick(context(agentId, player, agent, rule.id(), rule, active), state -> apply(agentId, agent, player, state));
+			ReflexActions.Step step = agent.behaviour.tick(context(agentId, player, agent, rule.id(), rule, active, senses), state -> apply(agentId, agent, player, state));
 			agent.detail = step.detail();
 			changed.add(agentId);
 		}
-		if (agent.scheduler.current() == null) return false;
-		boolean passes = passesThrough(agent, active);
+		end(agentId, agent, corneredHandBack(agent.scheduler, agent.command, active != null, now));
+		if (agent.scheduler.current() == null) {
+			// Between two breath runs a waiting command stays paused and the reflex lease holds still input, so the command's
+			// last forward/sprint/jump does not replay into the cloud; with nothing owed the lease goes.
+			if (agent.controller == null && agent.lease == null && !holdsCommandBetweenFirings(agent.scheduler, active != null)) return false;
+			if (agent.controller == null) agent.controller = AgentInputRuntime.controller(player);
+			agent.lease = gapStep(agent.scheduler, agent.controller, agentId, agent.lease, active != null,
+					player.getYRot(), player.getXRot(), player.getInventory().getSelectedSlot());
+			return agent.lease != null;
+		}
+		boolean passes = passesThrough(agent, active, senses);
 		if (passes && fightShield(player, active) && agent.behaviour.defersToFight()) {
 			// The fight raises the shield itself between swings; a reflex lease over it would block every swing.
 			FIGHT_SHIELDS.add(player.getUUID());
@@ -517,7 +620,8 @@ public final class ReflexEngine {
 				&& player.getOffhandItem().getItem() instanceof net.minecraft.world.item.ShieldItem;
 	}
 
-	private ReflexActions.Context context(AgentId agentId, ServerPlayer player, AgentReflexes agent, String ruleId, ReflexSpec.Rule rule, ServerActionRequest active) {
+	private ReflexActions.Context context(AgentId agentId, ServerPlayer player, AgentReflexes agent, String ruleId, ReflexSpec.Rule rule, ServerActionRequest active,
+			Map<String, ReflexScheduler.Sense> senses) {
 		Entity focus = agent.focus.get(ruleId);
 		Vec3 point = agent.points.get(ruleId);
 		if (focus != null) agent.firingFocus = focus;
@@ -525,7 +629,7 @@ public final class ReflexEngine {
 		// While the condition no longer names it (the body turned to face the mob), the firing keeps what it started on.
 		if (focus == null && agent.firingFocus != null && agent.firingFocus.isAlive()) focus = agent.firingFocus;
 		if (point == null) point = agent.firingPoint;
-		boolean passes = passesThrough(agent, active);
+		boolean passes = passesThrough(agent, active, senses);
 		AgentInputState below = null;
 		if (passes) {
 			LeasedServerInputController controller = agent.controller != null ? agent.controller : AgentInputRuntime.controller(player);
@@ -583,15 +687,15 @@ public final class ReflexEngine {
 
 	private void release(AgentId agentId, AgentReflexes agent, boolean keepSelection) {
 		if (agent.lease == null || agent.controller == null) return;
-		try {
-			ServerPlayer player = manager.findAgentPlayer(agentId).orElse(null);
-			if (player != null) {
-				agent.controller.rebase(agent.lease, player.getYRot(), player.getXRot(),
-						keepSelection ? player.getInventory().getSelectedSlot() : -1);
+		ServerPlayer player = manager.findAgentPlayer(agentId).orElse(null);
+		if (player != null) {
+			releaseLease(agent.controller, agent.lease, player.getYRot(), player.getXRot(), keepSelection ? player.getInventory().getSelectedSlot() : -1);
+		} else {
+			try {
+				agent.controller.release(agent.lease);
+			} catch (LeasedServerInputController.StaleInputLeaseException ignored) {
+				// Already revoked by a lifecycle clear.
 			}
-			agent.controller.release(agent.lease);
-		} catch (LeasedServerInputController.StaleInputLeaseException ignored) {
-			// Already revoked by a lifecycle clear.
 		}
 		agent.lease = null;
 	}

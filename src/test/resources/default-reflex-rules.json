@@ -135,12 +135,14 @@
 		"when": [
 			{
 				"type": "incoming_projectile",
-				"withinS": 0.6
+				"withinS": 0.6,
+				"drawn": true
 			}
 		],
 		"do": {
 			"type": "shield"
 		},
+		"maxMs": 10000,
 		"ttlMs": 3600000,
 		"coordinatorDefault": true
 	},

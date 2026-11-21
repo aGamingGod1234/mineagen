@@ -5,8 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { terminalCounter, finishRun, fixtureSummary } from '../../scripts/quality/lib/fixture-run.mjs';
-import { damageCounter, damageEvidence, replyNumber, deathCounter, deathEvidence, matchesDamageExpectation } from '../../scripts/quality/lib/damage-counter.mjs';
+import { terminalCounter, finishRun, fixtureSummary, roomVerdict } from '../../scripts/quality/lib/fixture-run.mjs';
+import { findSpotVerdict } from '../../scripts/quality/lib/find-spot.mjs';
+import { damageCounter, damageEvidence, replyNumber, deathCounter, deathEvidence, matchesDamageExpectation, statCounter, shieldShareVerdict } from '../../scripts/quality/lib/damage-counter.mjs';
 
 test('a healed hit remains damage, and missing or reset counters cannot prove safety', async () => {
 	assert.deepEqual(damageEvidence(10, 40, 20, 20), { damageTaken: 3, netHealthChange: 0 });
@@ -48,6 +49,32 @@ test('deliberate fall damage must match its declared HP exactly, including heale
 	for (const invalid of [null, -1, '1', Infinity]) assert.throws(() => matchesDamageExpectation(healedFall, invalid), /finite nonnegative/);
 });
 
+test('find-live survival spots are judged on zero deaths and exactly their damage, not on a find', async () => {
+	const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+	const spots = JSON.parse(await readFile(path.join(root, 'scripts/quality/lava-room-spots.json'), 'utf8'));
+	assert.equal(spots.length, 3);
+	const calls = [{ call: 'act', state: 'FAILED', reasonCode: 'LAVA_AHEAD' }, { call: 'act', state: 'SUCCEEDED', reasonCode: 'DESTINATION_REACHED' }];
+	const clean = { calls, deaths: 0, damageTaken: 0, healthLost: 0 };
+	for (const spot of spots) {
+		const verdict = findSpotVerdict(spot, clean);
+		assert.equal(verdict.pass, true, `${spot.name}: a clean run that reached its destination passes`);
+		assert.match(verdict.passReason, /survival: no death and exactly 0 HP damage/, `${spot.name} declares its survival criterion`);
+		assert.equal(verdict.notExercised, undefined);
+		// Health lost with no counted damage is still lost: the survival rule fails it.
+		for (const row of [{ ...clean, damageTaken: 1, healthLost: 1 }, { ...clean, healthLost: 2 }, { ...clean, deaths: 1 }]) {
+			assert.equal(findSpotVerdict(spot, row).pass, false, `${spot.name}: ${JSON.stringify(row)} fails`);
+		}
+		// Missing evidence and calls that never reached the body are INVALID, not a pass.
+		const unread = { ...clean, ...damageEvidence(null, 0, 20, 20), healthLost: 0 };
+		assert.equal(roomVerdict({ ...unread, ...findSpotVerdict(spot, unread) }).verdict, 'INVALID');
+		const threw = { ...clean, calls: [{ call: 'act', state: 'ERROR', reasonCode: 'INVALID_ARGUMENTS' }] };
+		assert.equal(roomVerdict({ ...threw, ...findSpotVerdict(spot, threw) }).verdict, 'INVALID');
+	}
+	// A spot that declares a deliberate hit needs exactly that hit.
+	assert.equal(findSpotVerdict({ expectDamageTaken: 2 }, { ...clean, damageTaken: 2, healthLost: 2 }).pass, true);
+	assert.equal(findSpotVerdict({ expectDamageTaken: 2 }, clean).pass, false);
+});
+
 test('terminal counts ignore observation echoes, deduplicate receipts, and retain conflicts', () => {
 	const counter = terminalCounter();
 	const result = { type: 'action_result', agentId: 'a', payload: { actionId: 'one', goalRevision: 1, state: 'FAILED', reasonCode: 'WATER_AHEAD' } };
@@ -55,7 +82,7 @@ test('terminal counts ignore observation echoes, deduplicate receipts, and retai
 	for (let i = 0; i < 199; i++) counter.accept({ type: 'observation', payload: { lastResult: result.payload } });
 	counter.accept({ envelope: result });
 	counter.accept({ ...result, payload: { ...result.payload, reasonCode: 'OTHER' } });
-	assert.deepEqual(counter.snapshot(), { terminalResults: 1, byReason: { WATER_AHEAD: 1 }, duplicates: 2, missingActionIds: 0, conflicts: 1 });
+	assert.deepEqual(counter.snapshot(), { terminalResults: 1, byReason: { WATER_AHEAD: 1 }, duplicates: 2, missingActionIds: 0, conflicts: 1, refused: 0 });
 });
 
 test('planned and cancelled-before-start cases never inflate completed or started counts', () => {
@@ -110,4 +137,32 @@ test('death scoring requires real initialized baseline and final counters, never
 	assert.deepEqual(deathEvidence(2, 2), { before: 2, after: 2, valid: true, deaths: 0 });
 	assert.equal(deathEvidence(2, 3).deaths, 1);
 	assert.equal(deathEvidence(3, 2).valid, false);
+});
+
+test('review of PR #30: an unreadable shield or damage counter is invalid evidence, never a zero that passes', async () => {
+	const replies = ['created', 'Reflex has 40 [blk]', 'Reflex has 0 [blk]', 'No score for Reflex is set (none is set)', 'unknown objective', 'Reflex has 7 [other]'];
+	const read = await statCounter(async () => replies.shift(), 'Reflex', 'blk', 'minecraft.custom:minecraft.damage_blocked_by_shield');
+	assert.equal(await read(), 40);
+	assert.equal(await read(), 0);
+	assert.equal(await read(), 0);
+	assert.equal(await read(), null);
+	assert.equal(await read(), null);
+	const arrowOnly = { arm: 'arrowOnly', repeat: 0, distance: 4, blocked0: 0, blocked1: 10, taken0: 0, taken1: 30 };
+	const unreadableDamage = shieldShareVerdict([arrowOnly, { arm: 'drawn', repeat: 0, distance: 4, blocked0: 0, blocked1: 40, taken0: null, taken1: null }], 0.8);
+	assert.equal(unreadableDamage.pass, false);
+	assert.equal(unreadableDamage.shareDrawn, null);
+	assert.equal(unreadableDamage.integrity.length, 1);
+	assert.equal(unreadableDamage.arms.drawn.cases[0].taken, null);
+	const readable = shieldShareVerdict([arrowOnly, { arm: 'drawn', repeat: 0, distance: 4, blocked0: 5, blocked1: 45, taken0: 30, taken1: 35 }], 0.8);
+	assert.deepEqual([readable.pass, readable.shareArrowOnly, readable.shareDrawn, readable.integrity], [true, 0.25, 40 / 45, undefined]);
+});
+
+test('review of PR #30: an arm that took no arrow damage is unmeasured, so the drawn arm cannot pass against it', () => {
+	const idle = { arm: 'arrowOnly', repeat: 0, distance: 10, blocked0: 0, blocked1: 0, taken0: 0, taken1: 0 };
+	const unexercised = shieldShareVerdict([idle, { arm: 'drawn', repeat: 0, distance: 10, blocked0: 0, blocked1: 40, taken0: 0, taken1: 0 }], 0.8);
+	assert.equal(unexercised.pass, false);
+	assert.equal(unexercised.shareArrowOnly, null);
+	assert.deepEqual(unexercised.integrity.map(row => row.arm), ['arrowOnly']);
+	const idleDrawn = shieldShareVerdict([{ ...idle, blocked1: 10, taken1: 30 }, { ...idle, arm: 'drawn' }], 0.8);
+	assert.deepEqual([idleDrawn.pass, idleDrawn.integrity.map(row => row.arm)], [false, ['drawn']]);
 });

@@ -239,3 +239,116 @@ test('server completion of a different predicate cannot replace the requested ad
 	const confirmed = evaluateSamples(samples, { ...check, protocolRows: rows({ type: 'operator_confirmed' }) });
 	assert.equal(confirmed.pass, false);
 });
+
+// Partial credit (evaluator version 3): reported beside PASS/FAIL, never part of it.
+const nbt = (...items) => `[${items.map(([id, count], i) => `{count: ${count}, Slot: ${i}b, id: "minecraft:${id}"}`).join(', ')}]`;
+const verdict = e => ({ pass: e.pass, passAt: e.passAt, timeToPassMs: e.timeToPassMs, source: e.source, died: e.died, lastSampleAt: e.lastSampleAt, passTicks: e.passTicks, evidence: e.evidence, postPass: e.postPass });
+
+test('a failed run keeps its best and end counts across a death', async () => {
+	const { evaluateSamples } = await import('../../scripts/quality/ladder-evaluator.mjs');
+	const rods = [0, 1, 3, 5, 5, 0, 1], deaths = [0, 0, 0, 0, 1, 1, 1];
+	const samples = rods.map((n, i) => sample(i * 1000, i * 20, { deathCounter: deaths[i], inventoryNbt: nbt(['ender_pearl', 14], ...(n ? [['blaze_rod', n]] : [])) }));
+	const kit = [{ item: 'minecraft:ender_pearl', count: 14 }];
+	const e = evaluateSamples(samples, { successCheck: 'inventory: blaze_rod >=7', durationBudgetMs: 60000, goalStartAt: 0, setup: { inventory: kit } });
+	assert.equal(e.pass, false);
+	assert.equal(e.died, true);
+	assert.equal(e.evaluatorVersion, 3);
+	assert.deepEqual(e.progress, [{ type: 'inventory', items: ['blaze_rod'], target: 7, supplied: 0, kitSource: 'scenario setup', needed: 7, bestHeld: 5, endHeld: 1, bestEarned: 5, endEarned: 1, samples: 7 }]);
+	const row = ladderRow({ scenario: 'L-D1', goalCompleted: false, evaluation: e, metrics: { deaths: 1 } });
+	assert.deepEqual([row.result, row.progressText], ['FAIL', 'blaze_rod best 5/7, end 1']);
+	assert.match(formatLadderReport([{ scenario: 'L-D1', goalCompleted: false, evaluation: e }]), /\| FAIL \(\?\) \| blaze_rod best 5\/7, end 1 \| \? \| fail \| no \|/);
+	// Samples after the budget never count, like the verdict.
+	const late = evaluateSamples([...samples, sample(70000, 1400, { inventoryNbt: nbt(['blaze_rod', 6]) })], { successCheck: 'inventory: blaze_rod >=7', durationBudgetMs: 60000, goalStartAt: 0 });
+	assert.equal(late.progress[0].bestHeld, 5);
+});
+
+test('the starting kit is not counted as progress and unreadable inventories are unknown, not zero', async () => {
+	const { evaluateSamples } = await import('../../scripts/quality/ladder-evaluator.mjs');
+	const pearls = [4, 6, 10, null, 8];
+	const samples = pearls.map((n, i) => sample(i * 1000, i * 20, { inventoryNbt: n === null ? undefined : nbt(['ender_pearl', n]) }));
+	const check = { successCheck: 'inventory: ender_pearl >=14', durationBudgetMs: 60000, goalStartAt: 0 };
+	const given = evaluateSamples(samples, { ...check, setup: { inventory: [{ item: 'minecraft:ender_pearl', count: 4 }] } });
+	assert.deepEqual([given.progress[0].supplied, given.progress[0].needed, given.progress[0].bestEarned, given.progress[0].endEarned, given.progress[0].samples], [4, 10, 6, 4, 4]);
+	assert.equal(ladderRow({ scenario: 'L-C3', evaluation: given }).progressText, 'ender_pearl best 6/10, end 4 (net of 4 given)');
+	// An explicit kit (the applied quality-setup.json) wins over the scenario setup; with neither, the first readable sample is the baseline.
+	const applied = evaluateSamples(samples, { ...check, setup: { inventory: [] }, startingInventory: [{ item: 'ender_pearl', count: 2 }], startingInventorySource: 'applied setup' });
+	assert.deepEqual([applied.progress[0].supplied, applied.progress[0].kitSource, applied.progress[0].bestEarned], [2, 'applied setup', 8]);
+	const fallback = evaluateSamples(samples, check);
+	assert.deepEqual([fallback.progress[0].supplied, fallback.progress[0].kitSource], [4, 'first sample']);
+	// Spending kit items reads as zero earned, never negative.
+	assert.equal(evaluateSamples([sample(0, 0, { inventoryNbt: nbt(['ender_pearl', 1]) })], { ...check, setup: { inventory: [{ item: 'minecraft:ender_pearl', count: 4 }] } }).progress[0].endEarned, 0);
+	// The kit changes progress only: the verdict is identical with or without it.
+	assert.deepEqual(verdict(given), verdict(fallback));
+	assert.deepEqual(verdict(given), verdict(applied));
+});
+
+test('an unreadable final inventory leaves the end count unknown instead of reusing an earlier one', async () => {
+	const { evaluateSamples } = await import('../../scripts/quality/ladder-evaluator.mjs');
+	const rods = [0, 5, null];
+	const samples = rods.map((n, i) => sample(i * 1000, i * 20, { inventoryNbt: n === null ? undefined : nbt(...(n ? [['blaze_rod', n]] : [])) }));
+	const e = evaluateSamples(samples, { successCheck: 'inventory: blaze_rod >=7', durationBudgetMs: 60000, goalStartAt: 0, setup: { inventory: [] } });
+	assert.deepEqual([e.progress[0].bestHeld, e.progress[0].endHeld, e.progress[0].endEarned, e.progress[0].samples], [5, null, null, 2]);
+	assert.equal(ladderRow({ scenario: 'L-D1', evaluation: e }).progressText, 'blaze_rod best 5/7, end unknown');
+});
+
+test('progress reaches the target exactly when the inventory verdict passes', async () => {
+	const { evaluateSamples } = await import('../../scripts/quality/ladder-evaluator.mjs');
+	const checks = ['inventory: blaze_rod >=7', 'inventory_contains_any: cooked_beef|cooked_porkchop >=20', 'inventory: iron_ingot >=3'];
+	let seed = 7;
+	const rand = n => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed % n; };
+	for (let trial = 0; trial < 200; trial++) {
+		const samples = Array.from({ length: 1 + rand(8) }, (_, i) => sample(i * 1000, i * 20, { inventoryNbt: nbt(['blaze_rod', rand(9)], ['cooked_beef', rand(15)], ['cooked_porkchop', rand(15)], ['iron_ingot', rand(5)]) }));
+		for (const successCheck of checks) {
+			const e = evaluateSamples(samples, { successCheck, durationBudgetMs: 60000, goalStartAt: 0, setup: { inventory: [] } });
+			assert.equal(e.progress[0].bestHeld >= e.progress[0].target, e.pass, `${successCheck} trial ${trial}`);
+		}
+	}
+});
+
+test('survival, position and advancement clauses report how far the run got', async () => {
+	const { evaluateSamples } = await import('../../scripts/quality/ladder-evaluator.mjs');
+	const survive = evaluateSamples([sample(0, 100), sample(1000, 120), sample(2000, 140), sample(3000, 160, { deathCounter: 1 }), sample(4000, 180, { deathCounter: 1 })],
+		{ successCheck: 'survive_duration: 1000 ticks; any death fails attempt', durationBudgetMs: 600000, goalStartAt: 0 });
+	assert.equal(survive.pass, false);
+	assert.deepEqual(survive.progress, [{ type: 'survive', target: 1000, survivedTicks: 40, died: true, clock: 'game-ticks' }]);
+	assert.equal(ladderRow({ evaluation: survive }).progressText, 'survived 40/1000 ticks, died');
+	const at = (d, x, t) => sample(t, t / 50, { dimension: `minecraft:${d}`, position: { x, y: 64, z: 0 } });
+	const check = 'position_within the_end (0,64,0) radius40';
+	const far = evaluateSamples([at('overworld', 5, 0), at('the_end', 90, 1000), at('the_end', 60, 2000), at('the_end', 75, 3000)], { successCheck: check, durationBudgetMs: 60000, goalStartAt: 0 });
+	assert.equal(far.pass, false);
+	assert.deepEqual([far.progress[0].closest, far.progress[0].end, far.progress[0].reached], [60, 75, false]);
+	assert.equal(ladderRow({ evaluation: far }).progressText, 'the_end (0,64,0) closest 60/40 blocks, end 75');
+	const never = evaluateSamples([at('overworld', 5, 0)], { successCheck: check, durationBudgetMs: 60000, goalStartAt: 0 });
+	assert.equal(ladderRow({ evaluation: never }).progressText, 'the_end (0,64,0) not reached');
+	const both = evaluateSamples([sample(0, 0, { inventoryNbt: nbt(['ender_eye', 9]), position: { x: 2, y: 81, z: 0 } })],
+		{ successCheck: 'all: inventory ender_eye >=12 AND position_within overworld (2,81,0) radius6', durationBudgetMs: 60000, goalStartAt: 0, setup: { inventory: [] } });
+	assert.equal(both.pass, false);
+	assert.equal(ladderRow({ evaluation: both }).progressText, 'ender_eye best 9/12, end 9; overworld (2,81,0) closest 0/6 blocks, end 0');
+	const any = evaluateSamples([sample(0, 0, { advancements: ['nether/find_bastion'] })], { successCheck: 'any advancement: nether/find_fortress OR nether/find_bastion', durationBudgetMs: 60000, goalStartAt: 0 });
+	assert.equal(ladderRow({ evaluation: any }).progressText, 'nether/find_fortress not reached; nether/find_bastion reached');
+});
+
+test('results saved before progress existed still load, report n/a and rescore with progress', async () => {
+	const { writeArtifactReport } = await import('../src/benchmark/report-artifacts.mjs');
+	const { rescoreLadder } = await import('../../scripts/quality/run-ladder.mjs');
+	const { writeFile, mkdir } = await import('node:fs/promises');
+	const old = { pass: false, passAt: null, timeToPassMs: null, source: null, died: true, lastSampleAt: 4000, evaluatorVersion: 2, status: 'EVALUATED', check: 'inventory: blaze_rod >=7', samples: 4 };
+	const row = ladderRow({ scenario: 'L-D1', goalCompleted: false, evaluation: old });
+	assert.deepEqual([row.result, row.progress, row.progressText], ['FAIL', null, null]);
+	assert.match(formatLadderReport([{ scenario: 'L-D1', evaluation: old }]), /\| FAIL \(\?\) \| n\/a \|/);
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'ladder-rescore-'));
+	try {
+		const artifacts = path.join(dir, 'q-old-L-D1-r1');
+		await mkdir(artifacts);
+		const rods = [0, 2, 4, 1];
+		await writeFile(path.join(artifacts, 'quality-samples.json'), JSON.stringify({ samples: rods.map((n, i) => sample(1000 + i * 1000, i * 20, { deathCounter: i === 3 ? 1 : 0, inventoryNbt: nbt(['ender_pearl', 10], ['blaze_rod', n]) })) }));
+		await writeFile(path.join(artifacts, 'quality-setup.json'), JSON.stringify({ definition: { inventory: [{ item: 'minecraft:ender_pearl', count: 10 }] } }));
+		await writeFile(path.join(artifacts, 'report.json'), JSON.stringify({ budget: { goalStartedAt: 1000 } }));
+		await writeArtifactReport(path.join(dir, 'results.json'), { schemaVersion: 1, benchmark: 'route-ladder', runs: [{ scenario: 'L-D1', repetition: 1, goalCompleted: false, artifacts: '/elsewhere/q-old-L-D1-r1', evaluation: old, metrics: { deaths: 1 } }] });
+		const [run] = await rescoreLadder(dir);
+		assert.deepEqual([run.evaluation.pass, run.evaluation.died, run.evaluation.evaluatorVersion, run.evaluation.progress[0].kitSource], [false, true, 3, 'applied setup']);
+		assert.equal(ladderRow(run).progressText, 'blaze_rod best 4/7, end 1');
+		assert.match(await readFile(path.join(dir, 'ladder-rescored.md'), 'utf8'), /\| FAIL \(\?\) \| blaze_rod best 4\/7, end 1 \|/);
+		assert.equal(JSON.parse(await readFile(path.join(dir, 'ladder-rescored.json'), 'utf8'))[0].progress[0].bestEarned, 4);
+	} finally { await rm(dir, { recursive: true, force: true }); }
+});

@@ -168,6 +168,8 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		}
 	};
 	private final Map<AgentId, String> progressReceiptScopes = new HashMap<>();
+	/** Agents owed a plan_facts snapshot because a receipt could not be queued, keyed to the coordinator generation that lost it. */
+	private final Map<AgentId, Long> pendingProgressSnapshots = new LinkedHashMap<>();
 	private final GoalVerificationRuntime goalVerificationRuntime;
 	private final BridgeEnvelopeCodec codec = new BridgeEnvelopeCodec();
 	private static final GoalSpecWireCodec GOAL_SPEC_WIRE_CODEC = new GoalSpecWireCodec();
@@ -220,6 +222,8 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 	private volatile Runnable handshakeSnapshotHook = () -> { };
 	private volatile Runnable observationEnqueueHook = () -> { };
 	private volatile java.util.function.Consumer<AutoCloseable> handshakeCommittedHook = ignored -> { };
+	/** Builds an agent's plan_facts snapshot, or returns null while its body is not loaded. */
+	private volatile java.util.function.Function<AgentRecord, JsonObject> progressSnapshotSource = this::knownProgressPayload;
 	private boolean disconnectInProgress;
 	private long coordinatorLifecycleGeneration;
 	private volatile Session session;
@@ -447,6 +451,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		publishPendingDisconnects();
 		publishCatalogDiscoveryRetry();
 		replayPendingTerminalResults();
+		retryPendingProgressSnapshots();
 		List<AgentRecord> visibleRecords = manager.coordinatorVisibleRecords();
 		List<AgentId> observationAgents = registeredObservationIds(visibleRecords);
 		Set<AgentId> observationAgentSet = Set.copyOf(observationAgents);
@@ -829,6 +834,14 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 
 	void setHandshakeCommittedHookForVerification(java.util.function.Consumer<AutoCloseable> hook) {
 		handshakeCommittedHook = Objects.requireNonNull(hook, "handshake committed hook must not be null");
+	}
+
+	void setProgressSnapshotSourceForVerification(java.util.function.Function<AgentRecord, JsonObject> source) {
+		progressSnapshotSource = Objects.requireNonNull(source, "progress snapshot source must not be null");
+	}
+
+	boolean progressSnapshotPendingForVerification(AgentId agentId) {
+		return pendingProgressSnapshots.containsKey(agentId);
 	}
 
 	boolean coordinatorDisconnectPendingForVerification() {
@@ -2688,18 +2701,30 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		conversationPublished(event);
 	}
 
+	/**
+	 * Runs inside Minecraft's advancement hook on the server thread, so it never throws: a receipt the coordinator cannot
+	 * take now is made good by a later plan_facts snapshot.
+	 */
 	public void publishProgressReceipt(AgentId id, String type, String field, String identifier) {
-		JsonObject payload = new JsonObject();
-		payload.addProperty("goalRevision", manager.registry().require(id).goalRevision());
-		payload.addProperty(field, identifier);
-		publishPlanFacts(id, type, payload);
+		try {
+			JsonObject payload = new JsonObject();
+			payload.addProperty("goalRevision", manager.registry().require(id).goalRevision());
+			payload.addProperty(field, identifier);
+			publishReceipt(id, type, payload);
+		} catch (RuntimeException exception) {
+			LOGGER.warn("Dropping {} for {}: {}", type, id, exception.getMessage());
+		}
 	}
 
 	/** entity_killed, with {@code at} only for a coordinator that announced killFacts (an older one rejects the key). */
 	public void publishKill(AgentId id, String entityType, net.minecraft.core.BlockPos at) {
-		Session active = session;
-		publishPlanFacts(id, "entity_killed", killPayload(manager.registry().require(id).goalRevision(), entityType, at,
-				active != null && active.killFacts));
+		try {
+			Session active = session;
+			publishReceipt(id, "entity_killed", killPayload(manager.registry().require(id).goalRevision(), entityType, at,
+					active != null && active.killFacts));
+		} catch (RuntimeException exception) {
+			LOGGER.warn("Dropping entity_killed for {}: {}", id, exception.getMessage());
+		}
 	}
 
 	public static JsonObject killPayload(long goalRevision, String entityType, net.minecraft.core.BlockPos at, boolean killFacts) {
@@ -2716,21 +2741,61 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		return payload;
 	}
 
-	private void publishPlanFacts(AgentId id, String type, JsonObject payload) {
-		Session active = session;
-		if (active == null || !active.planFacts || !active.open.get() || !active.authenticated.get() || !protocolKnownAgentIds.contains(id)) return;
-		active.enqueue(new BridgeEnvelope(2, serverInstanceId, id.toString(), type,
-				"server-" + messageIds.incrementAndGet(), payload));
+	private void publishReceipt(AgentId id, String type, JsonObject payload) {
+		if (!publishPlanFacts(id, type, payload)) {
+			// The snapshot carries every earned advancement and this goal's verified kills, so it replaces the lost receipt.
+			progressReceiptScopes.remove(id);
+			pendingProgressSnapshots.put(id, coordinatorLifecycleGeneration);
+		}
 	}
 
-	private void publishKnownProgress(AgentId id) {
+	/**
+	 * Returns false only when the agent's queue or the connection is full, which the caller retries. A closed session
+	 * needs no retry: the next session's agent_ready sends a fresh snapshot under its own generation.
+	 */
+	private boolean publishPlanFacts(AgentId id, String type, JsonObject payload) {
 		Session active = session;
-		if (active == null || !active.planFacts) return;
+		if (active == null || !active.planFacts || !active.open.get() || !active.authenticated.get() || !protocolKnownAgentIds.contains(id)) return true;
+		try {
+			active.enqueue(new BridgeEnvelope(2, serverInstanceId, id.toString(), type,
+					"server-" + messageIds.incrementAndGet(), payload));
+			return true;
+		} catch (BridgeProtocolException exception) {
+			if (isTransientObservationDelivery(exception)) {
+				LOGGER.debug("{} for {} waits for a plan_facts snapshot: {}", type, id, exception.code());
+				return false;
+			}
+			if ("COORDINATOR_DISCONNECTED".equals(exception.code())) LOGGER.debug("{} for {} lost to a closed session", type, id);
+			else LOGGER.warn("Dropping {} for {}: {}", type, id, exception.getMessage());
+			return true;
+		} catch (RuntimeException exception) {
+			LOGGER.warn("Dropping {} for {}: {}", type, id, exception.getMessage());
+			return true;
+		}
+	}
+
+	/** Returns false while the snapshot is still owed: the body is not loaded or the queue is full. */
+	private boolean publishKnownProgress(AgentId id) {
+		Session active = session;
+		if (active == null || !active.planFacts) return true;
 		var record = manager.registry().require(id);
 		String scope = coordinatorLifecycleGeneration + ":" + record.goalRevision();
-		if (scope.equals(progressReceiptScopes.get(id))) return;
+		if (scope.equals(progressReceiptScopes.get(id))) return true;
+		JsonObject payload = progressSnapshotSource.apply(record);
+		if (payload == null) return false;
+		if (!publishPlanFacts(id, "plan_facts", payload)) {
+			pendingProgressSnapshots.put(id, coordinatorLifecycleGeneration);
+			return false;
+		}
+		progressReceiptScopes.put(id, scope);
+		progressReceiptScopes.keySet().retainAll(protocolKnownAgentIds);
+		return true;
+	}
+
+	private JsonObject knownProgressPayload(AgentRecord record) {
+		AgentId id = record.agentId();
 		ServerPlayer player = manager.findAgentPlayer(id).orElse(null);
-		if (player == null) return;
+		if (player == null) return null;
 		JsonObject payload = new JsonObject();
 		payload.addProperty("goalRevision", record.goalRevision());
 		JsonArray advancements = new JsonArray();
@@ -2743,9 +2808,27 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 				dev.agaminggod.mineagen.server.AgentSavedData.get(manager.server()).killLedger().snapshot(),
 				id, goal.goalId(), goal.createdAtEpochMs()).forEach(kills::add));
 		payload.add("verifiedKills", kills);
-		publishPlanFacts(id, "plan_facts", payload);
-		progressReceiptScopes.put(id, scope);
-		progressReceiptScopes.keySet().retainAll(protocolKnownAgentIds);
+		return payload;
+	}
+
+	/** Sends owed snapshots once the agent's queue has room; a mark from an earlier coordinator generation is dropped. */
+	private void retryPendingProgressSnapshots() {
+		if (pendingProgressSnapshots.isEmpty()) return;
+		Session active = session;
+		if (active == null || !active.open.get() || !active.authenticated.get()) return;
+		for (AgentId id : List.copyOf(pendingProgressSnapshots.keySet())) {
+			if (pendingProgressSnapshots.get(id) != coordinatorLifecycleGeneration || !protocolKnownAgentIds.contains(id)) {
+				pendingProgressSnapshots.remove(id);
+				continue;
+			}
+			if (!active.hasRoomFor(id.toString())) continue;
+			try {
+				if (publishKnownProgress(id)) pendingProgressSnapshots.remove(id);
+			} catch (RuntimeException exception) {
+				pendingProgressSnapshots.remove(id);
+				LOGGER.warn("Dropping plan_facts snapshot for {}: {}", id, exception.getMessage());
+			}
+		}
 	}
 
 	void publishGoalSpecRequest(PendingGoalDraft draft) {
@@ -4519,6 +4602,11 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 				queuedByAgent.merge(envelope.agentId(), 1, Integer::sum);
 				retainQueuedBytes(envelope, bytesByEnvelope.get(envelope));
 			}
+		}
+
+		/** A cheap check before building a large envelope; enqueue still enforces the limits. */
+		synchronized boolean hasRoomFor(String agentId) {
+			return open.get() && authenticated.get() && queuedByAgent.getOrDefault(agentId, 0) < AGENT_QUEUE_CAP && outbound.remainingCapacity() > 0;
 		}
 
 		void enqueue(BridgeEnvelope envelope) {
