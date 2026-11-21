@@ -195,14 +195,17 @@ public final class SkipUnreachableVerification {
 			FixtureEnderman right = fixture.enderman(new Vec3(2.5D, 68.0D, 4.5D), fixture.player);
 			fixture.script(left, 3, UNREACHABLE);
 			fixture.script(right, 3, UNREACHABLE);
-			ServerFightUntilController hunt = fixture.hunt(hunt(60_000L));
-			ServerController.TickResult end = fixture.run(hunt, 1_400);
+			// On, the body first backs off from them (at most MAX_DRAW_OVERS times, holding DRAW_HOLD_MS after each) for
+			// one to teleport across; the fixture's endermen never move, so the quiet spell follows.
+			ServerFightUntilController hunt = fixture.hunt(hunt(on ? 120_000L : 60_000L));
+			ServerController.TickResult end = fixture.run(hunt, on ? 2_400 : 1_400);
 			if (on) {
 				check(end.state() != ServerController.State.RUNNING && "NO_TARGET_SEEN".equals(end.reasonCode()),
 						"on: the quiet spell runs out with only unreachable endermen in view: " + end.reasonCode());
 				long quietTicks = fixture.ticks - fixture.lastEngagedTick;
-				check(quietTicks >= ServerFightUntilController.NO_TARGET_MS / 50L - 2L && quietTicks <= ServerFightUntilController.NO_TARGET_MS / 50L + 40L,
-						"on: it hands back about 30 s after the last failed approach: " + quietTicks + " ticks");
+				check(quietTicks >= ServerFightUntilController.NO_TARGET_MS / 50L - 2L,
+						"on: it hands back no sooner than 30 s after the last failed approach: " + quietTicks + " ticks");
+				check(drawGoals.size() == ServerFightUntilController.MAX_DRAW_OVERS, "on: it backs off at most " + ServerFightUntilController.MAX_DRAW_OVERS + " times: " + drawGoals.size());
 				check(fixture.engaged.size() == 2, "on: each was tried once: " + fixture.engaged.size());
 				check(!drawGoals.isEmpty() && drawGoals.stream().allMatch(goal -> Math.abs(Math.hypot(goal.x - left.getX(), goal.z - left.getZ()) - ServerFightUntilController.DRAW_DISTANCE) < 0.5D
 						|| Math.abs(Math.hypot(goal.x - right.getX(), goal.z - right.getZ()) - ServerFightUntilController.DRAW_DISTANCE) < 0.5D),

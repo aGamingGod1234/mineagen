@@ -279,15 +279,18 @@ public final class ForestHuntTickVerification {
 			WarpedForestHunt.walks = (goal, mayModify, now) -> fixture.walk(1_000, ServerController.State.RUNNING, "", null);
 			FixtureEnderman ledge = fixture.enderman(new Vec3(2.5D, 68.0D, 4.5D), fixture.player);
 			fixture.player.lookAt(net.minecraft.commands.arguments.EntityAnchorArgument.Anchor.EYES, ledge.getEyePosition());
-			ServerFightUntilController hunt = fixture.hunt(hunt(60_000L), null);
-			// The angry one is awaited and approached first (about 8 s), then one 12 s quiet spell: 700 ticks covers both.
-			ServerController.TickResult end = fixture.run(hunt, 700);
+			ServerFightUntilController hunt = fixture.hunt(hunt(120_000L), null);
+			// The angry one is awaited and approached first (about 8 s); the body then backs off from it up to
+			// MAX_DRAW_OVERS times, holding DRAW_HOLD_MS each (it never teleports here), then one 12 s quiet spell.
+			ServerController.TickResult end = fixture.run(hunt, 1_600);
 			check(end.state() == ServerController.State.RUNNING, "the hunt goes on: " + end.reasonCode());
 			check(engaged.size() == 1, "the enderman out of reach is tried once, not every tick: " + engaged.size());
 			check(fixture.walksMade == 1, "with only it in view, the quiet spell starts a relocation walk: " + fixture.walksMade + " (failed at tick " + failedAt[0] + "; "
 					+ end.message() + ")");
-			check(fixture.firstWalkTick - failedAt[0] >= WarpedForestHunt.QUIET_MS / 50L - 2L && fixture.firstWalkTick - failedAt[0] <= WarpedForestHunt.QUIET_MS / 50L + 40L,
-					"the walk starts one quiet spell after the failed approach: " + (fixture.firstWalkTick - failedAt[0]) + " ticks");
+			long afterHolds = ServerFightUntilController.MAX_DRAW_OVERS * ServerFightUntilController.DRAW_HOLD_MS / 50L;
+			check(fixture.firstWalkTick - failedAt[0] >= WarpedForestHunt.QUIET_MS / 50L - 2L
+					&& fixture.firstWalkTick - failedAt[0] <= afterHolds + WarpedForestHunt.QUIET_MS / 50L + 80L,
+					"the walk starts one quiet spell after the back-offs end: " + (fixture.firstWalkTick - failedAt[0]) + " ticks");
 			check(fixture.cancelledWalks == 0, "the passed-over enderman does not end the walk");
 		} finally {
 			ServerFightUntilController.scriptedMelee = null;
