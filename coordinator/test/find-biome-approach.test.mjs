@@ -11,7 +11,7 @@ const NETHERRACK = { itemId: 'minecraft:netherrack', count: 64 };
  * fail (NO_ROUTE, no movement); the biome follows the position. walls: how many walking legs in a row fail before one
  * gets through; buildWorks: whether a building leg moves.
  */
-function netherBody({ sighted = null, dimension = 'minecraft:the_nether', looks = [], walls = () => false, buildWorks = true, known = null, danger = null, dangerCode = 'LAVA_AHEAD', items = [NETHERRACK] } = {}) {
+function netherBody({ short = 0, sighted = null, dimension = 'minecraft:the_nether', looks = [], walls = () => false, buildWorks = true, known = null, danger = null, dangerCode = 'LAVA_AHEAD', items = [NETHERRACK] } = {}) {
 	let at = { x: 0.5, y: 70, z: 0.5 }, clock = 0, walksTried = 0;
 	const calls = [], missed = [];
 	const biome = () => (at.z >= FOREST_Z ? 'minecraft:warped_forest' : dimension === 'minecraft:the_nether' ? 'minecraft:basalt_deltas' : 'minecraft:plains');
@@ -30,7 +30,9 @@ function netherBody({ sighted = null, dimension = 'minecraft:the_nether', looks 
 			const blocked = args.build ? !buildWorks : walls(walksTried++);
 			if (blocked) return { state: 'FAILED', reasonCode: 'NO_ROUTE', message: 'No seen standing spot ahead gets closer, and build is false' };
 			const rad = args.yaw * Math.PI / 180;
-			at = { x: at.x - Math.sin(rad) * args.distance, y: at.y, z: at.z + Math.cos(rad) * args.distance };
+			// short: travel_to's arrival tolerance, the leg ends that many blocks before its distance.
+			const go = Math.max(0, args.distance - short);
+			at = { x: at.x - Math.sin(rad) * go, y: at.y, z: at.z + Math.cos(rad) * go };
 			return { state: 'SUCCEEDED', reasonCode: 'ARRIVED' };
 		},
 		frontier: () => null,
@@ -151,4 +153,14 @@ test('a fight on the way to a Nether forest does not end the approach on a far s
 	assert.ok(stopped, 'the zombie stopped the first approach leg');
 	if (result.reasonCode === 'FIND_SEEN') assert.equal(result.find.seen.via, 'standing in it', `found only standing in the forest: ${result.message}`);
 	assert.ok(body.calls.filter((call) => call.actionType === 'travel_to').length >= 2, 'the approach went on after the zombie');
+});
+
+test('a forest cell seen right at the biome edge is walked through, not given up 3 blocks short of it', async () => {
+	// Travel stops 3 blocks before each leg's end (its arrival tolerance); the seen cell is the forest's first row (z 85).
+	const edge = { state: 'SUCCEEDED', survey: { biomes: [{ biome: 'minecraft:warped_forest', x: 0, y: 70, z: FOREST_Z }] } };
+	const body = netherBody({ looks: [edge], short: 3 });
+	const result = await searchFor({ biome: 'minecraft:warped_forest' }, body, { timeoutMs: 540_000 });
+	assert.equal(result.reasonCode, 'FIND_SEEN', result.message);
+	assert.equal(result.find.seen.via, 'standing in it');
+	assert.ok(body.calls.some((call) => call.actionType === 'travel_to' && call.args.distance >= 7), 'one leg aimed past the edge cell');
 });

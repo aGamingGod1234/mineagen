@@ -58,6 +58,9 @@ const APPROACH_STUCK = 5;
 // A stuck leg turns the next one off the straight line: basalt columns and lava pools block one heading, not all.
 const APPROACH_TURNS = Object.freeze([0, 45, -45, 90, -90]);
 const APPROACH_ARRIVE = 3;
+// A leg that ends within APPROACH_ARRIVE of a seen cell not yet in the biome is followed once by one aimed this far past
+// the cell: travel_to stops within its own 3-block tolerance, short of a cell at the biome's edge.
+const APPROACH_PAST = 4;
 const MAX_DESCENT_STOPS = 6;
 const DEPTHS = Object.freeze({ lava: -54, iron_ore: 16, deepslate_iron_ore: 16, gold_ore: -16, deepslate_gold_ore: -16, diamond_ore: -58,
 	deepslate_diamond_ore: -58, redstone_ore: -58, deepslate_redstone_ore: -58, lapis_ore: 0, deepslate_lapis_ore: 0, copper_ore: 48,
@@ -814,13 +817,21 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 	const approach = async (goal, what) => {
 		approaching = true;
 		try {
-			let budget = APPROACH_BUILD_BUDGET, stuck = 0, legsRun = 0;
+			let budget = APPROACH_BUILD_BUDGET, stuck = 0, legsRun = 0, pastTried = false;
 			while (left() >= MIN_LEG_MS) {
 				const here = standingIn(observation);
 				if (here !== null) return found(here);
 				const at = bodyAt(observation);
 				const away = Math.hypot(goal.x + 0.5 - at.x, goal.z + 0.5 - at.z);
-				if (away <= APPROACH_ARRIVE) return { stuck: `reached ${goal.x},${goal.y},${goal.z} but the ground there is not ${profile.label}` };
+				if (away <= APPROACH_ARRIVE) {
+					if (pastTried || withinReach() < 1) return { stuck: `reached ${goal.x},${goal.y},${goal.z} but the ground there is not ${profile.label}` };
+					pastTried = true;
+					const through = wrap(Math.round(Math.atan2(-(goal.x + 0.5 - at.x), goal.z + 0.5 - at.z) * 180 / Math.PI));
+					const step = await leg(`through to ${what}`, 'travel_to', { yaw: through, distance: Math.min(Math.ceil(away) + APPROACH_PAST, Math.floor(withinReach())), build: false }, standingIn);
+					const stepEnd = lavaLip(step) ? null : await settle(step);
+					if (stepEnd !== null) return stepEnd;
+					continue;
+				}
 				// The caller's within holds for the approach too: no leg ends beyond it.
 				if (!insideBoundary({ x: goal.x + 0.5, z: goal.z + 0.5 })) return { stuck: `${goal.x},${goal.y},${goal.z} lies beyond within ${within} of the start` };
 				const room = Math.floor(withinReach());
