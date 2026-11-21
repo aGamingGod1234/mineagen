@@ -4,6 +4,7 @@
 //   mutex              held for milliseconds around every lease and ledger change; a crashed holder's is broken after staleMs
 //   leases/NAME.json   { token, pid, batch, leasedAt, heartbeatAt }: the machine named NAME is in use
 //   starts.json        times of this computer's recent `boat new` calls, for pacing them under the start rate limit
+//   aside/NAME.json    { reason, at }: the machine failed its cleaning check; it stays running but no batch takes it
 // A lease is stale when its process is gone or it has not been refreshed for leaseStaleMs (a hung or reused pid), and a
 // stale lease is broken only under the mutex, so two batches can never both take the same machine.
 import { randomBytes } from 'node:crypto';
@@ -28,10 +29,10 @@ async function writeJsonAtomic(file, value) {
 }
 
 export function leaseStore({ dir = defaultPoolDir(), leaseStaleMs = 5 * 60_000, mutexStaleMs = 30_000, heartbeatMs = 30_000, now = Date.now, log = () => {} } = {}) {
-	const leasesDir = path.join(dir, 'leases'), mutexFile = path.join(dir, 'mutex'), ledgerFile = path.join(dir, 'starts.json');
+	const leasesDir = path.join(dir, 'leases'), asideDir = path.join(dir, 'aside'), mutexFile = path.join(dir, 'mutex'), ledgerFile = path.join(dir, 'starts.json');
 	const held = new Map(); // name -> token, leases this process holds
 	let ready = null, beat = null;
-	const setup = () => ready ??= mkdir(leasesDir, { recursive: true });
+	const setup = () => ready ??= Promise.all([mkdir(leasesDir, { recursive: true }), mkdir(asideDir, { recursive: true })]);
 	const leaseFile = name => {
 		if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) throw new Error(`bad machine name for a lease: ${name}`);
 		return path.join(leasesDir, `${name}.json`);
@@ -123,6 +124,7 @@ export function leaseStore({ dir = defaultPoolDir(), leaseStaleMs = 5 * 60_000, 
 			return withMutex(async () => {
 				for (const name of names) {
 					const file = leaseFile(name);
+					if (await readJson(path.join(asideDir, `${name}.json`))) continue;
 					// Lease files are written by rename, so one that does not parse is corrupt and counts as stale.
 					const current = await readJson(file);
 					if (current && !staleness(current)) continue;
@@ -150,6 +152,10 @@ export function leaseStore({ dir = defaultPoolDir(), leaseStaleMs = 5 * 60_000, 
 				return true;
 			});
 		},
+		/** Sets a machine aside: it stays running, no batch leases it, and only an explicit prune or drain deletes it. */
+		async setAside(name, reason) { leaseFile(name); await setup(); await writeJsonAtomic(path.join(asideDir, `${name}.json`), { reason, at: now(), pid: process.pid }); },
+		async asideList() { await setup(); const out = []; for (const file of (await readdir(asideDir)).filter(item => item.endsWith('.json'))) out.push({ name: file.slice(0, -5), ...(await readJson(path.join(asideDir, file)) ?? {}) }); return out; },
+		async clearAside(name) { leaseFile(name); await rm(path.join(asideDir, `${name}.json`), { force: true }); },
 		/** Removes a stale lease file; a live one stays. */
 		async clear(name) {
 			return withMutex(async () => {

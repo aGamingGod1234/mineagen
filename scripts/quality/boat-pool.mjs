@@ -9,9 +9,10 @@
 // leaves them idle. keepalive sets every pool machine's auto-stop to at least --idle-ttl from now (default 1440 min,
 // ROOM_BATCH_IDLE_TTL_MIN), never earlier, and leaves a machine with auto-stop off alone; --include also covers every
 // running machine whose name starts with one of the prefixes (machines a benchmark made for --machines). With --every
-// it repeats until stopped, so the pool stays up between batches. Without it a forgotten pool stops by itself. drain deletes every idle machine (or
-// those of one image and size); a busy one is left to its batch. prune deletes machines that are not running, idle
-// machines of an image that was rebuilt or deleted, and lease files of batches that are gone.
+// it repeats until stopped, so the pool stays up between batches. Without it a forgotten pool stops by itself. drain
+// deletes every idle machine (or those of one image and size); a busy one is left to its batch. prune deletes machines
+// that are not running, idle machines of an image that was rebuilt or deleted, and machines a batch set aside after a
+// failed cleaning check, and clears lease files of batches that are gone. Only drain and prune delete, when run.
 // --snapshot defaults to ROOM_BATCH_SNAPSHOT and --type to ROOM_BATCH_TYPE or "default".
 import { LIVE, imageHash, listSandboxes, minutesLeft, poolMember, warmBoatPool } from './lib/boat-warm.mjs';
 import { boat, destroyMachine } from './lib/boat-pool.mjs';
@@ -39,17 +40,19 @@ const sleep = ms => new Promise(done => setTimeout(done, ms));
 
 /** The pool's machines with their lease and image state. */
 async function inventory({ all = true } = {}) {
-	const [sandboxes, leases, named] = await Promise.all([
+	const [sandboxes, leases, named, aside] = await Promise.all([
 		listSandboxes({ all }),
 		store.list(),
 		boat(['snapshots', '--json'], { timeoutMs: 120_000 }).then(text => JSON.parse(text).named ?? [], () => null),
+		store.asideList(),
 	]);
+	const asideByName = new Map(aside.map(item => [item.name, item]));
 	const byName = new Map(leases.map(item => [item.name, item]));
 	const images = named && new Map(named.map(item => [`${item.name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 24)}`, item]));
 	return sandboxes.map(item => poolMember(item, poolId)).filter(Boolean).map(member => {
 		const lease = byName.get(member.name);
 		const image = images?.get(member.snapshotSlug);
-		return { ...member, lease: lease?.lease ?? null, busy: Boolean(lease && !lease.stale), staleLease: lease?.stale && lease.lease ? lease.stale : null,
+		return { ...member, lease: lease?.lease ?? null, busy: Boolean(lease && !lease.stale), staleLease: lease?.stale && lease.lease ? lease.stale : null, aside: asideByName.get(member.name)?.reason ?? null,
 			image: image?.name ?? null, currentImage: images ? Boolean(image && imageHash(image.name, image.snapshotId) === member.imageHash) : null };
 	});
 }
@@ -69,10 +72,10 @@ async function destroyIdle(member, why) {
 if (command === 'status') {
 	const members = await inventory();
 	if (flags.json) { console.log(JSON.stringify({ poolId, members }, null, 2)); process.exit(0); }
-	console.log(`warm pool ${poolId} (lease files in ${store.dir}): ${members.length} machines, ${members.filter(item => item.busy).length} busy, ${members.filter(item => item.live && !item.busy).length} idle; boat new calls from this computer in the last hour: ${await store.recentStarts()}`);
+	console.log(`warm pool ${poolId} (lease files in ${store.dir}): ${members.length} machines, ${members.filter(item => item.busy).length} busy, ${members.filter(item => item.live && !item.busy && !item.aside).length} idle, ${members.filter(item => item.aside).length} set aside; boat new calls from this computer in the last hour: ${await store.recentStarts()}`);
 	console.log('id            state     lease                         image                       type     auto-stop in');
 	for (const item of members.sort((a, b) => a.name.localeCompare(b.name))) {
-		const lease = item.busy ? `busy: ${item.lease.batch ?? '?'} (pid ${item.lease.pid})` : item.staleLease ? `idle (stale lease: ${item.staleLease})` : 'idle';
+		const lease = item.aside ? `SET ASIDE: ${item.aside}` : item.busy ? `busy: ${item.lease.batch ?? '?'} (pid ${item.lease.pid})` : item.staleLease ? `idle (stale lease: ${item.staleLease})` : 'idle';
 		const image = item.currentImage === null ? item.snapshotSlug : item.image ? `${item.image}${item.currentImage ? '' : ' (OLD)'}` : `${item.snapshotSlug} (gone)`;
 		console.log(`${item.id.padEnd(13)} ${String(item.state).padEnd(9)} ${lease.slice(0, 29).padEnd(29)} ${image.slice(0, 27).padEnd(27)} ${item.type.padEnd(8)} ${minutesLeft(item)}`);
 	}
@@ -123,9 +126,12 @@ if (command === 'status') {
 	for (const item of members) {
 		if (item.busy) continue;
 		if (!item.live) { if (await destroyIdle(item, `state ${item.state}`)) deleted++; }
+		else if (item.aside) { if (await destroyIdle(item, `set aside: ${item.aside}`)) { deleted++; await store.clearAside(item.name); } }
 		else if (item.currentImage === false) { if (await destroyIdle(item, item.image ? 'its image was rebuilt' : 'its image is gone')) deleted++; }
 	}
 	let cleared = 0;
+	const present = new Set(members.map(item => item.name));
+	for (const item of await store.asideList()) if (!present.has(item.name)) await store.clearAside(item.name);
 	for (const lease of await store.list()) if (lease.stale && await store.clear(lease.name)) cleared++;
 	log(`deleted ${deleted} machines, cleared ${cleared} stale lease files`);
 } else fail(`unknown command ${command}`);

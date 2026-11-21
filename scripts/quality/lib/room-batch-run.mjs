@@ -7,12 +7,12 @@
 // between polls, defaults to 0; retryMs is the pause after a poll that failed, so a machine that does not answer is not
 // asked again in a tight loop.
 //   keepAlive(vm)                 usage(vm) -> object         destroy(vm)
-//   release(vm) -> boolean, optional: gives a healthy machine back to a warm pool (boat-warm.mjs) instead of deleting it;
-//                                   false means the pool deleted it itself because it could not be reused.
+//   release(vm) -> boolean, optional: gives a machine back to a warm pool (boat-warm.mjs) instead of deleting it;
+//                                   false means the pool deleted it itself (the warm pool never does: it sets it aside).
 // Rooms start on each machine as soon as it is ready, not once every machine is. A machine leaves the batch when its
 // queue is empty, when it is lost or fails a room, and when the batch ends (also on an error or a signal). A pool with
-// release() then decides: it keeps a machine that passes its cleaning check and deletes one that does not. Without
-// release() every machine is destroyed.
+// release() then decides: the warm pool keeps a machine that passes its cleaning check and sets aside, still running,
+// one that does not. Without release() every machine is destroyed.
 import { mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { formatSummary, mergeArms, runQueue } from './room-batch-core.mjs';

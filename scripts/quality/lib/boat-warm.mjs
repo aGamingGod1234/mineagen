@@ -10,9 +10,10 @@
 // or tool started are never touched: boat's "idle" state only means no agent prompt runs, not that the machine is unused.
 // Before a machine goes to a batch, and again when it comes back, cleanScript() kills whatever the last batch left running
 // under ~/batch or on the image's Java, checks no room port is still held, and wipes ~/batch and the fixture worlds cache,
-// so a warm machine starts a room the way a fresh one does. The image (Java, template, prepared servers) stays.
+// so a warm machine starts a room the way a fresh one does. The image (Java, template, prepared servers) stays. No
+// batch ever deletes or stops a machine: one that fails the check is set aside, still running, for a look or a prune.
 import { createHash, randomBytes } from 'node:crypto';
-import { boat, boatPool, createMachine, destroyMachine, execRemote, extendMachine, machineUsage, quote, waitHydrated } from './boat-pool.mjs';
+import { boat, boatPool, createMachine, execRemote, extendMachine, machineUsage, quote, waitHydrated } from './boat-pool.mjs';
 import { leaseStore } from './pool-leases.mjs';
 
 const sleep = (ms, signal) => new Promise((resolve, reject) => {
@@ -133,12 +134,14 @@ export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, id
 		if (Number.isFinite(remaining) && remaining >= ttl * 1000 - 60_000) return;
 		await extendMachine(vm.id, ttl);
 	}
-	async function destroy(vm) {
-		if (vm.adopted) { await store.drop(vm.name); log(`machine ${vm.id} was named with --machines: left running, not deleted`); return; }
-		try { await destroyMachine(vm.id); }
-		catch (error) { if (!/not.?found|404|no such/i.test(error.message)) throw error; }
+	// Machines are never deleted by a batch (the owner's rule: keep every machine on). One that fails its cleaning check is set aside:
+	// it stays running, no batch leases it, and `boat-pool.mjs status` lists it until `prune` or `drain` deletes it.
+	async function setAside(vm, reason) {
+		if (!vm.adopted) await store.setAside(vm.name, reason);
 		await store.drop(vm.name);
+		log(`machine ${vm.id} ${vm.adopted ? 'named with --machines failed its check' : 'set aside'} (${reason}): left running, not deleted`);
 	}
+	const destroy = vm => setAside(vm, 'the batch gave it up');
 	async function startBudget() {
 		if (!limits || Date.now() - limits.at > 20_000) {
 			const starts = await readLimits().catch(error => { log(`could not read the start limits (${error.message})`); return null; });
@@ -177,7 +180,7 @@ export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, id
 				const hydrating = await waitHydrated(vm.id, { log });
 				if (hydrating) log(`machine ${vm.id} waited ${hydrating} s for its image to finish downloading`);
 				try { await clean(fresh, 'mark'); }
-				catch (error) { await destroy(fresh).catch(() => {}); throw new Error(`new machine ${vm.id} failed its first check: ${error.message}`); }
+				catch (error) { await setAside(fresh, `failed its first check: ${error.message}`).catch(() => {}); throw new Error(`new machine ${vm.id} failed its first check: ${error.message}`); }
 				log(`machine ${vm.id} started for the warm pool (${name})`);
 				return fresh;
 			}
@@ -225,12 +228,10 @@ export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, id
 					log(`machine ${vm.id} reused from the warm pool (no start)`);
 					return vm;
 				} catch (error) {
-					// Only the cleaning's own verdict, or boat saying the machine is gone, deletes it; a boat call that failed
-					// (no answer, a timeout) leaves it in the pool for a later lease.
-					if (verdictFailure(error) || goneFailure(error)) {
-						log(`warm machine ${vm.id} is not reusable, deleting it: ${error.message}`);
-						await destroy(vm).catch(error2 => { log(`could not delete ${vm.id}: ${error2.message}`); return store.drop(name); });
-					} else { log(`warm machine ${vm.id} did not answer its check, skipping it: ${error.message}`); await store.drop(name); }
+					// The cleaning's own verdict, or boat saying the machine is gone, sets it aside; a boat call that failed (no
+					// answer, a timeout) leaves it in the pool for a later lease.
+					if (verdictFailure(error) || goneFailure(error)) await setAside(vm, error.message).catch(() => store.drop(name));
+					else { log(`warm machine ${vm.id} did not answer its check, skipping it: ${error.message}`); await store.drop(name); }
 				}
 			}
 			return createNew(signal);
@@ -249,9 +250,7 @@ export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, id
 					await store.drop(vm.name);
 					return true;
 				}
-				log(`machine ${vm.id} could not go back to the pool (${error.message}): deleting it`);
-				await destroy(vm);
-				return false;
+				await setAside(vm, error.message);
 			}
 			return true;
 		},

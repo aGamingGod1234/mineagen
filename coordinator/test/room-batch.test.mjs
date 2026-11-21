@@ -910,11 +910,17 @@ test('a warm machine that fails its check, or comes from a rebuilt image, is nev
 		const vm = await pool.create();
 		await pool.release(vm);
 		await writeFile(path.join(fake.home(vm.id), '.mineagen-pool.json'), '{"someone":"else"}');
-		const next = await warm(fake).create();
+		const second = warm(fake);
+		const next = await second.create();
 		assert.notEqual(next.id, vm.id);
-		assert.equal(fake.exists(vm.id), false, 'the broken machine is deleted');
+		assert.ok(fake.exists(vm.id), 'the broken machine is set aside, still running, never deleted by a batch');
+		assert.deepEqual(await fake.calls('delete'), []);
+		assert.deepEqual((await leaseStore({ dir: fake.poolDir }).asideList()).map(item => item.name), [vm.name]);
 		assert.equal((await fake.calls('new')).length, 2);
-		await pool.release(next);
+		await second.release(next);
+		const third = warm(fake);
+		assert.equal((await third.create()).id, next.id, 'a set-aside machine is never leased again');
+		third.store.stop();
 		// The image was saved again under the same name: its old machines do not match and a new one starts.
 		process.env.FAKE_BOAT_SNAPSHOT_ID = 'sid-2';
 		const rebuilt = await warm(fake).create();
