@@ -454,13 +454,13 @@ test('footingAhead: with rim on, ground at the lava sea rim is never the way on,
 	assert.equal(footingAhead(rows, here, 0, [], { rim: true }).z, 24);
 });
 
-test('from the lava sea rim the search first climbs to the nearest higher ground in sight, any way', async () => {
+test('from the lava sea rim the search first climbs to the highest ground in reach, any way', async () => {
 	const body = bodyFor({ state: { fortressHeading: 0 }, onLook: (o, calls) => (calls.length >= 1 ? { structures: [fortressRow] } : null) });
 	body.observation.player.y = 34;
 	body.frontier = () => ({ candidates: [{ x: 100, y: 34, z: 140, distance: 40 }, { x: 90, y: 44, z: 80, distance: 22 }, { x: 110, y: 41, z: 92, distance: 13 }, { x: 100, y: 60, z: 60, distance: 40 }] });
 	const result = await withEnv(undefined, () => searchFor({ structure: 'fortress' }, body, { timeoutMs: 300_000 }));
 	assert.equal(result.reasonCode, 'FIND_SEEN');
-	assert.deepEqual([body.calls[0].x, body.calls[0].y, body.calls[0].z], [110.5, 41, 92.5], 'the nearest ground 4 or more above the rim, behind the heading too');
+	assert.deepEqual([body.calls[0].x, body.calls[0].y, body.calls[0].z], [90.5, 44, 80.5], 'the highest ground in reach 4 or more above the rim, behind the heading too, not a cliff 26 up');
 	assert.equal(body.calls[0].build, false);
 	const old = bodyFor({ state: { fortressHeading: 0 }, onLook: (o, calls) => (calls.length >= 1 ? { structures: [fortressRow] } : null) });
 	old.observation.player.y = 34;

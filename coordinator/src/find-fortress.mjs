@@ -299,16 +299,17 @@ export async function searchNetherFortress(ctx, env = process.env) {
 			const fromLook = view !== null && Math.hypot(view.at.x - here.x, view.at.z - here.z) <= 4 ? viewHeading(view.views) : null;
 			state.fortressHeading = fromLook ?? startHeading(here, target);
 		}
-		// Off the lava sea's rim before anything else: up to the nearest higher ground in sight, any way, as a player
+		// Off the lava sea's rim before anything else: up to the highest ground in reach, any way, as a player
 		// climbs back from a lava shore rather than walking or tunnelling along it (round 1: gate-7's runs spent their
-		// rooms at y33-35 among hoglins, 5 of 20 dying in lava; gate-5's in 5 of 20).
+		// rooms at y33-35 among hoglins, 5 of 20 dying in lava; gate-5's in 5 of 20). Highest, not nearest: gate-5's
+		// nearest ledge above the shore is the one both arms fell off into lava.
 		if (r2 && here.y <= LAVA_RIM_Y + 1 && rimClimbs < MAX_RIM_CLIMBS) {
 			const away = (row) => Number.isFinite(row.distance) ? row.distance : Math.hypot(row.x + 0.5 - here.x, row.z + 0.5 - here.z);
 			const up = (body.frontier?.(observation)?.candidates ?? [])
 				.filter((row) => [row?.x, row?.y, row?.z].every(Number.isFinite) && row.y >= LAVA_RIM_Y + 4 && row.y - here.y <= FOOTING_DROP
 					&& row.blocked !== true && inside(row.x, row.z) && !tried.includes(footingKey(row)) && away(row) <= RIM_CLIMB_REACH
 					&& !towardBrink(brinks, here, yawToward(row.x + 0.5 - here.x, row.z + 0.5 - here.z)))
-				.sort((a, b) => away(a) - away(b))[0];
+				.sort((a, b) => b.y - a.y || away(a) - away(b))[0];
 			if (up !== undefined) {
 				rimClimbs += 1;
 				const climb = await leg(`up off the lava sea's rim to ${up.x},${up.y},${up.z}`, 'travel_to', { x: up.x + 0.5, y: up.y, z: up.z + 0.5, tolerance: 2, build: false });
