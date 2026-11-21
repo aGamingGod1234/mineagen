@@ -2856,7 +2856,10 @@ export class NativeToolRuntime {
 			act: async (actionType, args, { watch = null } = {}) => {
 				live();
 				steps += 1;
-				const action = normalizeMinecraftToolCall('act', { actionType, arguments: args });
+				// escape is a step the model starts with do_step, hidden from its act; a helper (find's wet hole) runs it as the
+				// same body action do_step escape starts, with that step's 60 s timeout.
+				const action = actionType === 'escape' ? { kind: 'action', actionType, arguments: { timeoutMs: 60_000, ...args } }
+					: normalizeMinecraftToolCall('act', { actionType, arguments: args });
 				if (action.kind !== 'action') throw codedError('INVALID_NATIVE_TOOL', `${label} expected one body action for ${actionType}`);
 				let seen = null, running = true, timer = null, wake = null, release = null;
 				// Samples arrive with each published change; a watched leg also asks for one every 2 s. The leg's end wakes the
