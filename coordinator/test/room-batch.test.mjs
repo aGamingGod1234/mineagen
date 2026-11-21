@@ -849,6 +849,8 @@ async function fakeBoat(env = {}) {
 	const dir = await mkdtemp(path.join(os.tmpdir(), 'fake-boat-'));
 	await mkdir(path.join(dir, 'bin'), { recursive: true });
 	await writeFile(path.join(dir, 'bin/eatmydata'), '#!/bin/sh\nexec "$@"\n', { mode: 0o755 });
+	// A fake machine has no listening ports of its own: this computer's (other live rooms) must not show through.
+	await writeFile(path.join(dir, 'bin/ss'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
 	await writeFile(path.join(dir, 'boat.mjs'), FAKE_BOAT);
 	await writeFile(path.join(dir, 'boat'), `#!/bin/sh\nexec "${process.execPath}" "${path.join(dir, 'boat.mjs')}" "$@"\n`, { mode: 0o755 });
 	const saved = { BOAT_BIN: process.env.BOAT_BIN, FAKE_BOAT_DIR: process.env.FAKE_BOAT_DIR, ...Object.fromEntries(Object.keys(env).map(key => [key, process.env[key]])) };
@@ -1447,10 +1449,10 @@ test('third review: warm does not count a set-aside machine, and prune deletes o
 		const cli = fileURLToPath(new URL('../../scripts/quality/boat-pool.mjs', import.meta.url));
 		const run = args => spawnSync(process.execPath, [cli, ...args], { env: { ...process.env, ROOM_BATCH_POOL_DIR: fake.poolDir }, encoding: 'utf8' });
 		const warmed = run(['warm', '1', '--snapshot', 'img']);
-		assert.equal(warmed.status, 0, warmed.stderr);
+		assert.equal(warmed.status, 0, warmed.stdout + warmed.stderr);
 		assert.equal((await fake.calls('new')).length, 2, 'warm 1 started a machine: the set-aside one is not capacity');
 		const pruned = run(['prune']);
-		assert.equal(pruned.status, 0, pruned.stderr);
+		assert.equal(pruned.status, 0, pruned.stdout + pruned.stderr);
 		assert.equal(fake.exists(vm.id), false, 'prune deleted the set-aside machine');
 		assert.deepEqual(await store.asideList(), []);
 		assert.equal((await fake.calls('delete')).length, 1, 'only the set-aside machine was deleted');
