@@ -62,9 +62,11 @@ const matches = member => (!snapshot || member.image === snapshot) && member.typ
 
 async function destroyIdle(member, why) {
 	// Taking the lease first means no batch can lease the machine while it is being deleted.
-	if (!await store.take([member.name], { batch: `boat-pool ${command}` })) { log(`${member.id} is busy, left alone`); return false; }
+	// A set-aside machine has no batch on it; the lease only keeps one from starting while it is deleted.
+	if (!await store.take([member.name], { batch: `boat-pool ${command}`, includeAside: true })) { log(`${member.id} is busy, left alone`); return false; }
 	try {
 		await destroyMachine(member.id).catch(error => { if (!/not.?found|404|no such/i.test(error.message)) throw error; });
+		await store.clearAside(member.name);
 		log(`deleted ${member.id} (${why})`);
 		return true;
 	} catch (error) { log(`could not delete ${member.id}: ${error.message}`); return false; }
@@ -85,7 +87,7 @@ if (command === 'status') {
 	const want = Number(flags.positional[0]);
 	if (!Number.isInteger(want) || want < 1 || want > 200) fail('warm wants a count from 1 to 200');
 	if (!snapshot) fail('warm needs --snapshot or ROOM_BATCH_SNAPSHOT');
-	const have = (await inventory({ all: false })).filter(item => item.live && item.currentImage !== false && matches(item));
+	const have = (await inventory({ all: false })).filter(item => item.live && !item.aside && item.currentImage !== false && matches(item));
 	const missing = want - have.length;
 	log(`${have.length} ${type} machines of ${snapshot} in the pool${missing > 0 ? `; starting ${missing}` : ''}`);
 	const pool = warmBoatPool({ snapshot, type, ttlSeconds: idleTtlSeconds, idleTtlSeconds, startsPerMinute: Number(process.env.ROOM_BATCH_STARTS_PER_MINUTE ?? 20), batch: 'boat-pool warm', log, store });
@@ -128,7 +130,7 @@ if (command === 'status') {
 	for (const item of members) {
 		if (item.busy) continue;
 		if (!item.live) { if (await destroyIdle(item, `state ${item.state}`)) deleted++; }
-		else if (item.aside) { if (await destroyIdle(item, `set aside: ${item.aside}`)) { deleted++; await store.clearAside(item.name); } }
+		else if (item.aside) { if (await destroyIdle(item, `set aside: ${item.aside}`)) deleted++; }
 		else if (item.currentImage === false) { if (await destroyIdle(item, item.image ? 'its image was rebuilt' : 'its image is gone')) deleted++; }
 	}
 	let cleared = 0;

@@ -148,11 +148,11 @@ export function leaseStore({ dir = defaultPoolDir(), leaseStaleMs = 5 * 60_000, 
 		 * Under the mutex, takes the first of `names` with no live lease (breaking a stale one) and returns its name, or
 		 * null. Call it with the mutex not held.
 		 */
-		async take(names, { batch = null } = {}) {
+		async take(names, { batch = null, includeAside = false } = {}) {
 			return withMutex(async () => {
 				for (const name of names) {
 					const file = leaseFile(name);
-					if (await readJson(path.join(asideDir, `${name}.json`))) continue;
+					if (!includeAside && await readJson(path.join(asideDir, `${name}.json`))) continue;
 					// Lease files are written by rename, so one that does not parse is corrupt and counts as stale.
 					const current = await readJson(file);
 					if (current && !staleness(current)) continue;

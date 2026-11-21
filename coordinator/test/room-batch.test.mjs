@@ -1435,3 +1435,25 @@ test('second review: a contender that judged a lock stale never removes the fres
 		assert.ok(freedAt !== null && enteredAt >= freedAt, 'it waited for the fresh holder instead of removing its lock');
 	} finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test('third review: warm does not count a set-aside machine, and prune deletes one', { skip: process.platform === 'win32' }, async () => {
+	const fake = await fakeBoat();
+	try {
+		const store = leaseStore({ dir: fake.poolDir });
+		const pool = warmBoatPool({ snapshot: 'img', type: 'default', store, log: quiet, roomPorts: [1, 0], startsPerMinute: 600 });
+		const vm = await pool.startNew();
+		await pool.release(vm);
+		await store.setAside(vm.name, 'test');
+		const cli = fileURLToPath(new URL('../../scripts/quality/boat-pool.mjs', import.meta.url));
+		const run = args => spawnSync(process.execPath, [cli, ...args], { env: { ...process.env, ROOM_BATCH_POOL_DIR: fake.poolDir }, encoding: 'utf8' });
+		const warmed = run(['warm', '1', '--snapshot', 'img']);
+		assert.equal(warmed.status, 0, warmed.stderr);
+		assert.equal((await fake.calls('new')).length, 2, 'warm 1 started a machine: the set-aside one is not capacity');
+		const pruned = run(['prune']);
+		assert.equal(pruned.status, 0, pruned.stderr);
+		assert.equal(fake.exists(vm.id), false, 'prune deleted the set-aside machine');
+		assert.deepEqual(await store.asideList(), []);
+		assert.equal((await fake.calls('delete')).length, 1, 'only the set-aside machine was deleted');
+		store.stop();
+	} finally { await fake.close(); }
+});
