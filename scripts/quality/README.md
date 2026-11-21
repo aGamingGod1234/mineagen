@@ -160,9 +160,9 @@ node scripts/quality/room-batch.mjs --commands ROOMS.txt --arm new=NEW.jar --arm
 
 ### Which fixtures run at 60 TPS
 
-Every provider-free live fixture except `test-barter-odds-live.mjs` (vanilla odds; it sprints the clock itself), `test-lag-clock-live.mjs` (a lag test), `test-rest-live.mjs` (its own `TICK_RATE` speeds up a sealed night) and `test-escape-live.mjs` (added after the A/B) now plays on the game clock: setup at 20 TPS, play deadlines, windows, samplers and stand-in waits on `s.clock`. A fixture that starts its own server, RCON client and bridge gets the same helpers from `handRolledTickRate(command, bridge, agent)` in `lib/fixture-play.mjs`, whose `rate.play()` raises the rate for one case and returns what it ran at.
+Provider-free live fixtures play on the game clock with setup at 20 TPS and play deadlines, windows, samplers and stand-in waits on `s.clock`. The exceptions are `test-barter-odds-live.mjs` (vanilla odds, with its own clock speed), `test-lag-clock-live.mjs` (a lag test), `test-rest-live.mjs` (its own `TICK_RATE` speeds up a sealed night), and `test-escape-live.mjs` and `test-iron-kit-live.mjs` (wall-clock play). A fixture that starts its own server, RCON client and bridge gets the same helpers from `handRolledTickRate(command, bridge, agent)` in `lib/fixture-play.mjs`, whose `rate.play()` raises the rate for one case and returns what it ran at.
 
-A fixture takes `FIXTURE_TICK_RATE` (`tickRate: fixtureTickRate()`) only after an A/B showed it plays the same game at 60. The rest pass `unshownTickRate('what differed')` instead: they stay at 20 with a warning, and `FIXTURE_TICK_RATE_UNSHOWN=1` runs them fast for the next A/B. `coordinator/test/quality-fixture-tick-rate.test.mjs` holds both lists.
+A game-clock fixture takes `FIXTURE_TICK_RATE` (`tickRate: fixtureTickRate()`) only after an A/B showed it plays the same game at 60. Other game-clock fixtures pass `unshownTickRate('what differed')` and stay at 20 with a warning. `FIXTURE_TICK_RATE_UNSHOWN=1` runs those fixtures fast for the next A/B. `coordinator/test/quality-fixture-tick-rate.test.mjs` checks these rules.
 
 The A/B (boat, same jar, 20 and 60 TPS side by side on one machine, 10 runs a side of 96 rooms from 43 fixtures; bar: passes within 3 of 10, no harm at 60 where 20 had none, median game seconds and walked distance within 25%) gave:
 

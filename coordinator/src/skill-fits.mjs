@@ -1,4 +1,5 @@
 import { foodAdviceNeeded, portalBedSource } from './survival-advice.mjs';
+import { heldCounts, keepPickaxeMakings, planObtain } from './obtain-plan.mjs';
 
 // One wake fact: a goal skill (fight_until, barter_until, build nether_portal by casting, cast_obsidian) whose preconditions hold right now, with the
 // call's fields and the facts that make it fit. It names a call the model may make; nothing runs from it.
@@ -164,6 +165,17 @@ export function foodStockHandback(tool, result) {
 	return tool?.kind === 'find' && Object.hasOwn(ANIMAL_MEAT, id(tool.arguments?.mob)) && (result.reasonCode === 'FIND_NOT_FOUND' || result.state === 'TIMED_OUT');
 }
 
+/**
+ * Whether a finished obtain says the trip's wood has no source here: an obtain of logs or planks that failed or ran out
+ * of time (no tree in reach, or no way up to one from under cover). The trip then goes down with the wood it has, as a
+ * player who finds no tree nearby does; the obtain helper still fetches a log later if a craft needs one.
+ */
+export function woodStockHandback(tool, result) {
+	if (tool?.kind !== 'obtain' || !['FAILED', 'TIMED_OUT'].includes(result?.state) || result.reasonCode === 'OBSERVATION_UNAVAILABLE') return false;
+	const id = String(typeof result.item === 'string' ? result.item : tool.arguments?.item ?? '').trim().toLowerCase().replace(/^#?minecraft:/, '').replace(/^#/, '');
+	return /^(log|logs|planks|[a-z_]+_(log|planks|stem))$/.test(id);
+}
+
 function nearbyMeat(o) {
 	if (remembered(o, 'entities')) return null;
 	const at = o.position ?? o.player;
@@ -199,10 +211,20 @@ const ROUTE = [
 	// above 14, by half the stock held with nothing to cook and no animal in view: held as a hard quota it headed the route
 	// for 31 minutes of one game and hid the stone, iron and kit steps. A hand-back releases it at any hunger: with no food
 	// to eat, hunger only falls, and the later rows carry the low-hunger restock suffix instead.
+	// Surface preparation only: down a mine there is no animal to hunt, and the line would send the body back up.
+	// A hand-back releases it only until an animal comes into view again: released for the whole life, it let the body go
+	// down with nothing to eat (all 29 food climbs of the 19 Nov round had no food held).
 	{ id: 'food_stock', done: 'visited:minecraft:the_nether', next: stockFoodNext,
-		held: f => f.cookedMeat >= MEAT_STOCK || f.foodHandedBack || !f.foodNeeded && f.cookedMeat >= MEAT && f.rawMeat === 0 && f.nearbyMeat === null },
+		held: f => f.cookedMeat >= MEAT_STOCK || f.below || f.foodHandedBack && f.nearbyMeat === null || !f.foodNeeded && f.cookedMeat >= MEAT && f.rawMeat === 0 && f.nearbyMeat === null },
 	{ id: 'stone', done: 'tool:pickaxe:stone+', next: () => ['obtain stone_pickaxe', 'wooden pickaxe, no stone tools'] },
 	{ id: 'furnace', done: 'has:minecraft:furnace*1 | has:minecraft:iron_ingot*3 | tool:pickaxe:iron+', next: f => ['obtain furnace', `stone tools, ${f.count(/^minecraft:cobblestone$/)} cobblestone`] },
+	// One trip down for the whole kit, as a player goes: the wood its crafts and smelting take is carried down first
+	// (the obtain helper climbs back to the surface for any log it lacks underground), then all of its iron in one
+	// obtain. Per item, each craft that ran out of planks underground was a climb, and each item's iron another descent.
+	{ id: 'trip_wood', done: 'frame:lit | visited:minecraft:the_nether', held: f => f.below || f.woodHandedBack || f.tripLogs === 0,
+		next: f => [`obtain log count ${f.logs + f.tripLogs} before going down`, `wood for the kit's crafts and smelting, so the trip needs no climb back; ${f.wood} logs/planks held`] },
+	{ id: 'iron_trip', done: 'frame:lit | visited:minecraft:the_nether', held: f => f.kitIron <= f.ingots,
+		next: f => [`obtain iron_ingot count ${f.kitIron} in one trip, then craft the kit`, `kit iron ${f.kitIron}: ${f.kitParts}; ${f.iron} iron held`] },
 	{ id: 'iron_pickaxe', done: 'tool:pickaxe:iron+', next: f => ['obtain iron_pickaxe', f.iron ? `stone tools, ${f.iron}/3 iron held` : 'stone tools, no iron yet'] },
 	// Skeletons killed 8 of 12 scripted deaths; a shield in the off hand blocks their arrows.
 	// A shield lost after the portal is lit (or the Nether visited) no longer holds the route back.
@@ -274,9 +296,10 @@ function foodSource(o) {
  * The usual next step toward beating the game from the player's state, or null without a live sample. observation: the
  * newest live sample; known: plan-checks facts (visited dimensions, lit frames, lava pools, placements); evaluate: the
  * plan-check evaluator (evaluatePlanCheck); memory: scoped, contradiction-aware source facts from LiveTaskViews;
- * foodHandedBack: a food hand-back this life (foodStockHandback) released the cooked-meat stock.
+ * foodHandedBack: a food hand-back this life (foodStockHandback) released the cooked-meat stock; woodHandedBack: a wood
+ * hand-back this life (woodStockHandback) released the trip's wood step.
  */
-export function routeLine({ observation: o = null, known = null, memory = null, foodHandedBack = false, evaluate, instincts = false } = {}) {
+export function routeLine({ observation: o = null, known = null, memory = null, foodHandedBack = false, woodHandedBack = false, evaluate, instincts = false } = {}) {
 	if (!live(o) || !Array.isArray(o.inventory?.items) || remembered(o, 'inventory') || known === null || typeof evaluate !== 'function') return null;
 	const items = o.inventory.items.filter(i => i?.count > 0);
 	const count = re => items.filter(i => re.test(i.itemId ?? '')).reduce((n, i) => n + i.count, 0);
@@ -297,7 +320,12 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 	const rodsMissing = Math.max(0, rodsNeeded - rods), pearlsMissing = Math.max(0, eyesNeeded - pearls);
 	const eyeFacts = `rods ${rods}/${rodsNeeded}, pearls ${pearls}/${eyesNeeded}, eyes ${eyesHeld} held + ${filled} set of ${EYES}`;
 	const facts = { count, foodNeeded: foodAdviceNeeded(o), foodHandedBack: foodHandedBack === true, food: count(EDIBLE), cookedMeat: count(COOKED_MEAT), rawMeat: count(RAW_FOOD), nearbyMeat: nearbyMeat(o), blocks: count(MOULD), wood: count(/^minecraft:([a-z_]+_(log|planks|stem))$/), iron: count(/^minecraft:(iron_ingot|raw_iron)$/),
-		buckets: count(/^minecraft:(bucket|water_bucket|lava_bucket)$/), pools: (known.lavaPools ?? []).filter(p => p?.dimension === dimension).length };
+		buckets: count(/^minecraft:(bucket|water_bucket|lava_bucket)$/), pools: (known.lavaPools ?? []).filter(p => p?.dimension === dimension).length,
+		below: belowGround(o), woodHandedBack: woodHandedBack === true, logs: count(/^minecraft:[a-z_]+_log$/), ingots: count(/^minecraft:iron_ingot$/) };
+	const kit = kitLeft(count);
+	Object.assign(facts, { kitIron: kit.iron, kitParts: kit.parts });
+	// Planned only when the route reaches the step: a whole-kit obtain plan per wake is not free.
+	Object.defineProperty(facts, 'tripLogs', { get: () => tripLogs(o, kit) });
 	// Instincts arm: food first in every dimension (C27), before more resource travel.
 	let foodNote = '';
 	if (instincts === true) {
@@ -364,7 +392,7 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 			return line(`return via known Overworld portal at ${portal.x},${portal.y},${portal.z} to the Nether`, `${survival}active portal needs no iron pick or ignition; use held tools`);
 		}
 		// Without a retained portal, keep the existing preparation route; no coordinates are inferred from history.
-		const rebuild = ROUTE.slice(0, ROUTE.findIndex(row => row.id === 'iron_pickaxe') + 1).find(row => row.id !== 'food_stock' && !done(row));
+		const rebuild = ROUTE.slice(0, ROUTE.findIndex(row => row.id === 'iron_pickaxe') + 1).find(row => !['food_stock', 'trip_wood', 'iron_trip'].includes(row.id) && !done(row));
 		if (rebuild !== undefined) { const [next, why] = rebuild.next(facts); return line(next, `${why}; rebuild after the Nether visit`); }
 		if (foodAdviceNeeded(o) && food < 10) return line(`obtain cooked_beef count ${20 - food} before going on (food ${food}/10)`, eyeFacts);
 		if (frames.some(b => /^minecraft:(?:(?:mossy_|cracked_)?stone_bricks|iron_bars)$/.test(b?.blockId ?? '')))
@@ -386,10 +414,47 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 		const bed = stage.id === 'portal' ? portalBed(o, known, { lit: false }) : null;
 		const [next, why] = bed?.step ? [`before lighting the portal, ${bed.step[0]}`, bed.step[1]] : stage.next(facts);
 		// Food on the way when hungry, once the stone tools are made: a full hunger bar needs no hunt.
-		const restock = !['food', 'food_stock', 'wood', 'stone'].includes(stage.id) && foodNote === '' && food < 10 && foodAdviceNeeded(o) ? `; low hunger/health, food ${food} held: obtain cooked_beef on the way` : '';
+		// Down a mine, food carried is eaten there (the eat reflex) rather than hunted: the hunt is a climb back up, so it is
+		// named only once the food is gone.
+		const restock = !['food', 'food_stock', 'wood', 'stone'].includes(stage.id) && foodNote === '' && (facts.below ? food === 0 : food < 10) && foodAdviceNeeded(o) ? `; low hunger/health, food ${food} held: obtain cooked_beef on the way` : '';
 		return line(`${next}${restock}`, why);
 	}
 	return null;
+}
+
+// Down a mine: under the sky and below this height. Cave and tunnel floors are under it; a spawn on dry land is not.
+const MINE_Y = 50;
+function belowGround(o) {
+	const at = o.position ?? o.player?.position ?? o.player;
+	return o.world?.dimension === 'minecraft:overworld' && Number.isFinite(at?.y) && at.y < MINE_Y && o.player?.skyOpen !== true;
+}
+
+// The iron kit the portal route still needs from what is held: an iron pickaxe (3 iron), a shield (1), two buckets (3
+// each, a filled one counts; none once a frame's 10 obsidian is carried) and flint and steel (1).
+function kitLeft(count) {
+	const items = [];
+	if (!count(/^minecraft:(iron|diamond|netherite)_pickaxe$/)) items.push({ id: 'iron_pickaxe', count: 1, iron: 3, name: 'pickaxe 3' });
+	if (!count(/^minecraft:shield$/)) items.push({ id: 'shield', count: 1, iron: 1, name: 'shield 1' });
+	const buckets = count(/^minecraft:obsidian$/) >= 10 ? 0 : Math.max(0, 2 - count(/^minecraft:(bucket|water_bucket|lava_bucket)$/));
+	if (buckets > 0) items.push({ id: 'bucket', count: count(/^minecraft:bucket$/) + buckets, iron: 3 * buckets, name: `${buckets} bucket${buckets > 1 ? 's' : ''} ${3 * buckets}` });
+	if (!count(/^minecraft:flint_and_steel$/)) items.push({ id: 'flint_and_steel', count: 1, iron: 1, name: 'flint_and_steel 1' });
+	return { items, iron: items.reduce((n, item) => n + item.iron, 0), parts: items.map(item => item.name).join(', ') };
+}
+
+// Logs the rest of the kit still takes from what is held, by obtain's own planner over the whole kit at once: sticks, the
+// shield's planks, a table when none is carried, and plank fuel for smelting its iron unless coal is held or in view. The
+// next pickaxe's sticks stay kept back as obtain keeps them (keepPickaxeMakings).
+function tripLogs(o, kit) {
+	if (kit.items.length === 0) return 0;
+	try {
+		const ids = kit.items.map(item => item.id);
+		const held = keepPickaxeMakings(heldCounts(o), ids);
+		const seen = new Set(remembered(o, 'blocks') ? [] : (o.blocks ?? []).filter(b => b?.visible !== false).map(b => String(b.blockId ?? '').replace(/^minecraft:/, '')));
+		const [first, ...also] = kit.items.map(item => ({ ids: [item.id], count: item.count }));
+		const plan = planObtain({ ...first, also }, { held, seen, dimension: o.world?.dimension });
+		return plan.needs.filter(need => need.kind === 'mine' && need.blocks.length > 0 && need.blocks.every(block => /_(log|stem)$/.test(block)))
+			.reduce((n, need) => n + need.count, 0);
+	} catch { return 0; }
 }
 
 // The lit Overworld frame nearest the player, from the plan-check facts that made frame:lit hold.

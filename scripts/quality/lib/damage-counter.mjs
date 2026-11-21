@@ -42,6 +42,11 @@ export function recordDamageEvidence(row, before, after, field = 'damageTaken') 
  */
 export async function deathCounter(command, agent, { objective = 'qo_death', unsetIsZero = false } = {}) {
 	if (!/^\w+$/.test(agent) || !/^\w+$/.test(objective)) throw new Error('Invalid death counter selector');
+	return scoreboardCounter(command, agent, objective, { unsetIsZero });
+}
+
+/** Read a nonnegative count from an existing objective. */
+export async function scoreboardCounter(command, agent, objective, { unsetIsZero = false } = {}) {
 	const reply = String(await command(`scoreboard players get ${agent} ${objective}`)).trim();
 	const match = /has (\d+) \[([^\]]+)\]$/.exec(reply);
 	if (match?.[2] === objective && Number.isSafeInteger(Number(match[1]))) return Number(match[1]);
