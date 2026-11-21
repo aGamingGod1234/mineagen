@@ -68,7 +68,7 @@ export async function statCounter(command, agent, objective, criterion) {
 /**
  * Shield blocked share per arm from vanilla counters in tenths of HP. Each case holds the four counter reads around it.
  * Pass: the drawn arm blocks at least minShare of the damage and more than the arrow-only arm. A missing or decreasing
- * read makes the whole run invalid evidence (integrity rows), never a zero.
+ * read, or an arm that no arrow hit or was blocked in, makes the whole run invalid evidence (integrity rows), never a zero.
  */
 export function shieldShareVerdict(cases, minShare) {
 	const arms = { arrowOnly: { blocked: 0, taken: 0, cases: [] }, drawn: { blocked: 0, taken: 0, cases: [] } };
@@ -83,5 +83,8 @@ export function shieldShareVerdict(cases, minShare) {
 	if (integrity.length) return { arms, shareArrowOnly: null, shareDrawn: null, minShare, pass: false, integrity };
 	const share = (arm) => arms[arm].blocked + arms[arm].taken > 0 ? arms[arm].blocked / (arms[arm].blocked + arms[arm].taken) : null;
 	const shareArrowOnly = share('arrowOnly'), shareDrawn = share('drawn');
-	return { arms, shareArrowOnly, shareDrawn, minShare, pass: shareDrawn !== null && shareDrawn >= minShare && shareDrawn > (shareArrowOnly ?? 0) };
+	// An arm no arrow hit or was blocked in measured nothing: the comparison is invalid evidence, not a 0% baseline.
+	const unmeasured = Object.keys(arms).filter(arm => share(arm) === null).map(arm => ({ arm, error: 'No arrow damage taken or blocked in this arm' }));
+	if (unmeasured.length) return { arms, shareArrowOnly, shareDrawn, minShare, pass: false, integrity: unmeasured };
+	return { arms, shareArrowOnly, shareDrawn, minShare, pass: shareDrawn >= minShare && shareDrawn > shareArrowOnly };
 }

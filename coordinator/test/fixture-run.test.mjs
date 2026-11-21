@@ -129,3 +129,13 @@ test('review of PR #30: an unreadable shield or damage counter is invalid eviden
 	const readable = shieldShareVerdict([arrowOnly, { arm: 'drawn', repeat: 0, distance: 4, blocked0: 5, blocked1: 45, taken0: 30, taken1: 35 }], 0.8);
 	assert.deepEqual([readable.pass, readable.shareArrowOnly, readable.shareDrawn, readable.integrity], [true, 0.25, 40 / 45, undefined]);
 });
+
+test('review of PR #30: an arm that took no arrow damage is unmeasured, so the drawn arm cannot pass against it', () => {
+	const idle = { arm: 'arrowOnly', repeat: 0, distance: 10, blocked0: 0, blocked1: 0, taken0: 0, taken1: 0 };
+	const unexercised = shieldShareVerdict([idle, { arm: 'drawn', repeat: 0, distance: 10, blocked0: 0, blocked1: 40, taken0: 0, taken1: 0 }], 0.8);
+	assert.equal(unexercised.pass, false);
+	assert.equal(unexercised.shareArrowOnly, null);
+	assert.deepEqual(unexercised.integrity.map(row => row.arm), ['arrowOnly']);
+	const idleDrawn = shieldShareVerdict([{ ...idle, blocked1: 10, taken1: 30 }, { ...idle, arm: 'drawn' }], 0.8);
+	assert.deepEqual([idleDrawn.pass, idleDrawn.integrity.map(row => row.arm)], [false, ['drawn']]);
+});
