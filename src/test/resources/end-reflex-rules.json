@@ -1,0 +1,45 @@
+[
+	{
+		"id": "default-breath",
+		"kind": "trigger",
+		"priority": 9,
+		"when": [
+			{
+				"type": "cloud_near",
+				"within": 2
+			}
+		],
+		"do": {
+			"type": "sprint_away",
+			"blocks": 10
+		},
+		"maxMs": 6000,
+		"ttlMs": 3600000,
+		"coordinatorDefault": true
+	},
+	{
+		"id": "default-end-throw",
+		"kind": "trigger",
+		"priority": 8,
+		"when": [
+			{
+				"type": "dragon_charging",
+				"within": 48
+			},
+			{
+				"type": "edge_near",
+				"within": 3,
+				"direction": "any",
+				"drop": 16
+			}
+		],
+		"do": {
+			"type": "away_from_edge",
+			"blocks": 6
+		},
+		"maxMs": 6000,
+		"cooldownMs": 3000,
+		"ttlMs": 3600000,
+		"coordinatorDefault": true
+	}
+]
