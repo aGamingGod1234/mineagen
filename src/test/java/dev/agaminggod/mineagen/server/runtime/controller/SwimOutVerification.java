@@ -43,6 +43,17 @@ public final class SwimOutVerification {
 		check(ServerTravelController.underWater(50, true, Double.NaN, false, Double.NaN, false) == ServerTravelController.SwimStep.STOP,
 				"at the reserve with nothing found: stop");
 
+		check(ServerTravelController.underWater(85, false, Double.NaN, false, Double.NaN, false, true) == ServerTravelController.SwimStep.PEEK,
+				"capped head, no way up seen, 4 s of air: duck out to the open cell beside (stopping there only drowns it)");
+		check(ServerTravelController.underWater(50, false, Double.NaN, false, Double.NaN, true, true) == ServerTravelController.SwimStep.PEEK,
+				"at the reserve and looked round, the head still capped: duck out before stopping");
+		check(ServerTravelController.underWater(85, false, 3.0D, false, Double.NaN, false, true) == ServerTravelController.SwimStep.AIR,
+				"a seen way up still comes first");
+		check(ServerTravelController.underWater(300, false, Double.NaN, false, 8.0D, false, true) == ServerTravelController.SwimStep.SHORE,
+				"a bank within the breath still comes before a peek");
+		check(ServerTravelController.underWater(85, false, 30.0D, false, Double.NaN, true, true) == ServerTravelController.SwimStep.STOP,
+				"a seen route too long for the breath: the breath rule stops it, no peek");
+
 		// Straight up means the body's own column, every cell open: a detour round an overhead block through the column
 		// beside it (a flooded shaft going up 6) is not, so it goes through the breath rule.
 		net.minecraft.core.BlockPos eye = new net.minecraft.core.BlockPos(10, 60, 10);
