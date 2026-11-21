@@ -125,6 +125,7 @@ public final class MultiplexedServerBridgeVerification {
 		verifyActionProgressReachesCoordinator();
 		verifyBlockTagCapability();
 		verifyPlanFactsWireCapability();
+		verifyPlanFactsBackpressureSnapshot();
 		verifyBodyFactsCapability();
 		verifyBreakExposureCapability();
 		assertEquals(true, MultiplexedServerBridge.HANDSHAKE_RETRY_WAIT_MS > 0L,
@@ -1791,6 +1792,91 @@ public final class MultiplexedServerBridgeVerification {
 				deleteIfExists(secretFile);
 			}
 		}
+	}
+
+	/**
+	 * A full agent queue during an advancement or kill once threw out of Minecraft's tick and crashed the server. The receipts
+	 * must not throw; once the queue drains, one plan_facts snapshot replaces them.
+	 */
+	private static void verifyPlanFactsBackpressureSnapshot() {
+		MultiplexedServerBridge bridge = null;
+		Path secretFile = null;
+		try {
+			String secret = "0123456789abcdef0123456789abcdef";
+			secretFile = Files.createTempFile("mineagen-plan-facts-backpressure-secret-", ".txt");
+			Files.writeString(secretFile, secret);
+			AgentManager manager = uninitializedManager();
+			AgentRecord agent = manager.registry().create("gpt-5.6-sol", "high", Optional.of("Backpressure"), 1_000L);
+			bridge = new MultiplexedServerBridge(manager, 0, secretFile);
+			bridge.setProgressSnapshotSourceForVerification(record -> {
+				JsonObject snapshot = new JsonObject();
+				snapshot.addProperty("goalRevision", record.goalRevision());
+				JsonArray advancements = new JsonArray();
+				advancements.add("minecraft:adventure/shoot_arrow");
+				snapshot.add("advancements", advancements);
+				JsonArray kills = new JsonArray();
+				kills.add("minecraft:zombie");
+				snapshot.add("verifiedKills", kills);
+				return snapshot;
+			});
+			bridge.start();
+			BridgeEnvelopeCodec codec = new BridgeEnvelopeCodec();
+			try (Socket socket = new Socket(MultiplexedServerBridge.LOOPBACK_HOST, bridge.boundPortForVerification());
+				 BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8))) {
+				socket.setSoTimeout(2_000);
+				AuthenticationExchange exchange = beginAuthentication(socket, reader, codec, secret, "hello-backpressure");
+				writeAuthenticatedHello(socket, codec, secret, null, "hello-backpressure", exchange, false, true);
+				assertEquals("hello_ack", codec.decode(reader.readLine()).type(), "plan-facts coordinator authenticates");
+				AgentId id = agent.agentId();
+				MultiplexedServerBridge full = bridge;
+				saturateAgentQueue(bridge, id);
+				assertDoesNotThrow(() -> full.publishProgressReceipt(id, "advancement_granted", "advancementId", "minecraft:adventure/shoot_arrow"),
+						"an advancement during agent backpressure does not throw into the server tick");
+				assertDoesNotThrow(() -> full.publishKill(id, "minecraft:zombie", null),
+						"a kill during agent backpressure does not throw into the server tick");
+				assertTrue(bridge.progressSnapshotPendingForVerification(id), "a dropped receipt leaves the agent owed a snapshot");
+				assertEquals(0, progressFrames(bridge, reader, codec, id, 100L).size(), "nothing is published for the agent while its queue stays full");
+				assertTrue(bridge.progressSnapshotPendingForVerification(id), "the owed snapshot survives ticks with a full queue");
+
+				setQueuedCount(bridge, id.toString(), 0);
+				BridgeEnvelope snapshot = null;
+				long deadline = System.currentTimeMillis() + 2_000L;
+				while (snapshot == null && System.currentTimeMillis() < deadline) {
+					List<BridgeEnvelope> frames = progressFrames(bridge, reader, codec, id, 10L);
+					if (!frames.isEmpty()) snapshot = frames.get(0);
+				}
+				assertTrue(snapshot != null, "the snapshot is published once the agent queue drains");
+				assertEquals("plan_facts", snapshot.type(), "a plan_facts snapshot replaces the dropped receipts");
+				assertEquals(agent.goalRevision(), snapshot.payload().get("goalRevision").getAsLong(), "the snapshot carries the current goal revision");
+				assertEquals("[\"minecraft:adventure/shoot_arrow\"]", snapshot.payload().get("advancements").toString(),
+						"the snapshot carries the dropped advancement");
+				assertEquals("[\"minecraft:zombie\"]", snapshot.payload().get("verifiedKills").toString(), "the snapshot carries the dropped kill");
+				assertTrue(!bridge.progressSnapshotPendingForVerification(id), "an enqueued snapshot settles the debt");
+				assertEquals(0, progressFrames(bridge, reader, codec, id, 100L).size(), "later ticks send no duplicate snapshot");
+			}
+		} catch (Exception exception) {
+			throw new AssertionError("plan facts backpressure verification failed", exception);
+		} finally {
+			if (bridge != null) bridge.close();
+			deleteIfExists(secretFile);
+		}
+	}
+
+	/** Ticks for {@code millis} and returns the plan_facts, advancement_granted and entity_killed frames published for the agent. */
+	private static List<BridgeEnvelope> progressFrames(MultiplexedServerBridge bridge, BufferedReader reader, BridgeEnvelopeCodec codec,
+			AgentId agentId, long millis) throws Exception {
+		List<BridgeEnvelope> frames = new ArrayList<>();
+		long deadline = System.currentTimeMillis() + millis;
+		do {
+			bridge.tick();
+			Thread.sleep(1L);
+			while (reader.ready()) {
+				BridgeEnvelope envelope = codec.decode(reader.readLine());
+				if (agentId.toString().equals(envelope.agentId())
+						&& Set.of("plan_facts", "advancement_granted", "entity_killed").contains(envelope.type())) frames.add(envelope);
+			}
+		} while (System.currentTimeMillis() < deadline);
+		return frames;
 	}
 
 	/** Tags are listed once per block type only for a coordinator whose hello announced it; an older one keeps them inline. */
