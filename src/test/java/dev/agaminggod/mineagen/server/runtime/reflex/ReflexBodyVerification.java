@@ -227,6 +227,10 @@ public final class ReflexBodyVerification {
 		food.put(5, ReflexActions.Held.EMPTY);
 		food.put(12, new ReflexActions.Held("minecraft:cooked_beef", true, false));
 		check(ReflexActions.topUpLacks(pack, none, 17, 20.0F) != null, "beef in the main inventory is out of reach of the eat rule");
+		ReflexSpec.Action eatAction = rules("""
+				[{"id":"default-eat","coordinatorDefault":true,"priority":3,"when":{"type":"hunger_below","value":18},"do":{"type":"eat"}}]""").get(0).action();
+		check(ReflexActions.topUpApplies(eatAction, true) && !ReflexActions.topUpApplies(eatAction, false),
+				"the top-up food choice covers the coordinator's eat rule in both arms, not a model's own eat rule");
 		check(Instincts.listed("aim, instincts") && !Instincts.listed("") && !Instincts.listed(null) && !Instincts.listed("instinct"), "the flag reads a comma list");
 		slots.put(20, none);
 		slots.put(30, held("minecraft:torch"));

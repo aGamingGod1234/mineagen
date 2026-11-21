@@ -11,12 +11,16 @@
 // Reports per course: arrival, wall time, horizontal progress toward the target per minute, path length, the action
 // results by reason, damage taken, fire and lava contact (sampled every 0.5 s) and deaths. Launch under slot.sh live
 // (SLOT_PORT_BASE) with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME.
-import { damageCounter } from './lib/damage-counter.mjs';
+// FIXTURE_TICK_RATE runs the courses faster: each course's setup runs at 20 TPS, and the course budget, the legs' timeouts,
+// the sampler and every stand-in wait are game time on the fixture clock (s.clock), so a raised rate plays the same game.
+// run.seconds is game seconds, run.wallSeconds wall seconds, run.rates the rate asked for and reached; blocksPerMinute is
+// per game minute (per wall minute at 20 TPS, as before); run.damageTaken is vanilla's cumulative counter.
+import { damageCounter, recordDamageEvidence } from './lib/damage-counter.mjs';
 import { readFile, writeFile, mkdir, readdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { applyQualitySetup, activateQualitySetup, parseLocatedPosition } from '../../coordinator/src/benchmark/quality-scenarios.mjs';
-import { boot } from './watch-replay.mjs';
+import { boot, unshownTickRate } from './watch-replay.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
@@ -36,12 +40,13 @@ const courses = spec.courses.filter(course => !only || only.includes(course.id))
 const out = path.resolve(outArg);
 await mkdir(out, { recursive: true });
 if ((await readdir(out)).length) throw new Error('Use a fresh output directory');
-const sleep = ms => new Promise(done => setTimeout(done, ms));
 const round = (value, digits = 1) => Math.round(value * 10 ** digits) / 10 ** digits;
 const AGENT = 'Probe';
 const COURSE_BUDGET_MS = Number(flag('--budget', spec.budgetMinutes ?? 12)) * 60_000;
 const ARRIVAL = spec.arrivalBlocks ?? 16;
 // Plain building blocks a stand-in model would move to the hotbar (travel_to's own choice of blocks is the server's).
+const MINED = ['netherrack', 'soul_sand', 'soul_soil', 'basalt', 'smooth_basalt', 'blackstone', 'magma_block', 'nether_gold_ore', 'nether_quartz_ore', 'gravel', 'glowstone',
+	'crimson_nylium', 'warped_nylium', 'nether_wart_block', 'warped_wart_block', 'stone', 'deepslate', 'cobblestone', 'dirt', 'grass_block', 'andesite', 'diorite', 'granite', 'tuff', 'sand', 'sandstone'];
 const BLOCKS = /^minecraft:(netherrack|cobblestone|cobbled_deepslate|blackstone|basalt|smooth_basalt|dirt|stone|deepslate|andesite|diorite|granite|tuff|end_stone|[a-z_]+_planks)$/;
 
 const results = [];
@@ -54,7 +59,8 @@ process.on('SIGINT', () => { stopServer(); process.exit(130); });
 process.on('exit', stopServer);
 process.on('unhandledRejection', error => console.error(`unhandled: ${error?.message ?? error}`));
 for (const course of courses) {
-	const checkpoint = JSON.parse(await readFile(path.resolve(checkpointDir ?? spec.checkpointDir ?? path.dirname(coursesFile), course.checkpoint), 'utf8'));
+	// checkpointData: the save point inline, for a courses file that travels alone (a room batch copies one file).
+	const checkpoint = course.checkpointData ?? JSON.parse(await readFile(path.resolve(checkpointDir ?? spec.checkpointDir ?? path.dirname(coursesFile), course.checkpoint), 'utf8'));
 	course.loaded = checkpoint;
 	if (!bySeed.has(checkpoint.seed)) bySeed.set(checkpoint.seed, []);
 	bySeed.get(checkpoint.seed).push(course);
@@ -131,7 +137,7 @@ async function navigateLeg(s, target, run) {
 	const bearing = Math.atan2(target.z - here[2], target.x - here[0]);
 	// Look toward the target first, as a model's lookAround would, so the landmarks cover that way.
 	await act(s, 'look_at', { x: here[0] + Math.cos(bearing) * 20, y: here[1] - 2, z: here[2] + Math.sin(bearing) * 20 }, 20_000).catch(() => null);
-	await sleep(300);
+	await s.clock.sleep(300);
 	const observation = await observe(s);
 	const at = positionOf(observation);
 	const before = horizontal(at, [target.x, 0, target.z]);
@@ -165,10 +171,12 @@ async function travelLeg(s, target, run, remainingMs) {
 async function runCourse(s, course) {
 	const checkpoint = course.loaded;
 	const dim = checkpoint.setup.dimension;
+	// Setup runs at 20 TPS; play is raised to the fixture rate below.
+	await s.normalRate();
 	// A body that died on the previous course respawns first (setup teleports and equips a living player).
 	if (s.dead) {
 		await act(s, 'respawn', {}, 30_000).catch(() => null);
-		await sleep(2000);
+		await s.idleSleep(2000);
 		s.dead = false;
 	}
 	// A save point's portal-frame fills find nothing to replace when the terrain there is already open; that is done.
@@ -182,7 +190,7 @@ async function runCourse(s, course) {
 	await s.command(`effect give ${AGENT} minecraft:saturation 1 20 true`);
 	await s.command(`effect give ${AGENT} minecraft:instant_health 1 10 true`);
 	await s.command(`scoreboard players set ${AGENT} deaths 0`);
-	await sleep(1500);
+	await s.idleSleep(1500);
 	const startObservation = await observe(s);
 	const start = positionOf(startObservation);
 	const target = await locateTarget(s, course, start, dim);
@@ -200,11 +208,29 @@ async function runCourse(s, course) {
 		};
 		damageScoreInitial = await damageScore();
 	}
+	// Pickaxe uses over the course (vanilla's used statistic per tier): the wear travel spends digging and building.
+	const PICKS = ['wooden', 'stone', 'golden', 'iron', 'diamond', 'netherite'];
+	// A counter that could not be zeroed or read leaves the totals unknown, never a partial total that reads as less wear.
+	const counterFailures = [];
+	for (const tier of PICKS) {
+		await s.command(`scoreboard objectives add tpk_${tier} minecraft.used:minecraft.${tier}_pickaxe`).catch(() => {});
+		await s.command(`scoreboard players set ${AGENT} tpk_${tier} 0`).catch(error => { counterFailures.push(`tpk_${tier} not zeroed: ${error?.message ?? error}`); });
+	}
+	// Blocks broken over the course, by the ground travel digs through in each dimension (vanilla's mined statistic).
+	for (const [i, block] of MINED.entries()) {
+		await s.command(`scoreboard objectives add tmb_${i} minecraft.mined:minecraft.${block}`).catch(() => {});
+		await s.command(`scoreboard players set ${AGENT} tmb_${i} 0`).catch(error => { counterFailures.push(`tmb_${i} not zeroed: ${error?.message ?? error}`); });
+	}
+	const readDamage = await damageCounter(text => s.command(text), AGENT);
+	const damageBefore = await readDamage();
+	await s.fastRate();
+	// Play is timed on the fixture clock: game time at a raised rate, plain wall time at 20 TPS.
+	const now = () => s.clock.now();
 	const clockObservation = await observe(s);
 	const startGameTick = clockObservation.world?.gameTime;
 	let lastGameTick = startGameTick;
-	const startedAt = Date.now();
-	let last = start, health = startObservation.player?.health ?? 20, sampling = true, noProgress = 0;
+	const startedAt = Date.now(), t0 = now(), timer = await s.gameTimer();
+	let last = start, health = startObservation.player?.health ?? 20, sampling = true, noProgress = 0, nextSample = t0;
 	const sampler = (async () => {
 		while (sampling) {
 			const o = await observe(s).catch(() => null);
@@ -218,7 +244,10 @@ async function runCourse(s, course) {
 				if (o.player.onFire) run.fireSamples += 1;
 				if (o.player.inLava) run.lavaSamples += 1;
 			}
-			await sleep(500);
+			// Samples start every 500 ms of game time from t0, whatever their reads cost (as test-find-live.mjs).
+			nextSample += 500;
+			if (now() > nextSample) nextSample = now();
+			await s.clock.sleep(nextSample - now());
 		}
 	})();
 	// A dead body's observations say PLAYER_DEAD (the scoreboard objective did not count every death).
@@ -226,14 +255,14 @@ async function runCourse(s, course) {
 		: Number(/has (\d+) \[deaths\]/.exec(String(await s.command(`scoreboard players get ${AGENT} deaths`)))?.[1] ?? 0);
 	try {
 		try {
-		while (Date.now() - startedAt < COURSE_BUDGET_MS) {
+		while (now() - t0 < COURSE_BUDGET_MS) {
 			if (await deathCount() > 0) { run.deaths = await deathCount(); s.dead = true; break; }
 			const here = positionOf(await observe(s));
 			if (arrivedAt(here, target)) break;
 			const before = remaining(here, target);
 			let result;
 			try {
-				result = mode === 'navigate' ? await navigateLeg(s, target, run) : await travelLeg(s, target, run, COURSE_BUDGET_MS - (Date.now() - startedAt));
+				result = mode === 'navigate' ? await navigateLeg(s, target, run) : await travelLeg(s, target, run, COURSE_BUDGET_MS - (now() - t0));
 			} catch (error) {
 				// A body that died mid-leg answers no observation; count the death, anything else is a harness error.
 				if (await deathCount() > 0) { run.deaths = await deathCount(); s.dead = true; break; }
@@ -246,7 +275,7 @@ async function runCourse(s, course) {
 			run.results[key] = (run.results[key] ?? 0) + 1;
 			if (result.state !== 'SUCCEEDED') run.failures += 1;
 			if (mode === 'travel') {
-				run.stops.push({ at: round((Date.now() - startedAt) / 1000), state: result.state, reasonCode: result.reasonCode, message: String(result.message ?? '').slice(0, 600) });
+				run.stops.push({ at: round((now() - t0) / 1000), state: result.state, reasonCode: result.reasonCode, message: String(result.message ?? '').slice(0, 600) });
 				if (process.env.TRAVEL_VERBOSE) console.log(JSON.stringify(run.stops.at(-1)));
 			}
 			else if (result.state !== 'SUCCEEDED') run.stops.push({ reasonCode: result.reasonCode, message: String(result.message ?? '').slice(0, 300) });
@@ -278,7 +307,7 @@ async function runCourse(s, course) {
 			}
 			// After a burn the stand-in model lets the flames go out before setting off again.
 			if (['TRAVEL_DAMAGED', 'ON_FIRE', 'IN_LAVA'].includes(result.reasonCode)) {
-				for (let i = 0; i < 16 && (await observe(s)).player?.onFire; i++) await sleep(1000);
+				for (let i = 0; i < 16 && (await observe(s)).player?.onFire; i++) await s.clock.sleep(1000);
 			}
 			// No way on (or lava came at it): the stand-in model tries one detour heading (60 degrees off, alternating sides)
 			// before going on.
@@ -289,7 +318,7 @@ async function runCourse(s, course) {
 				const detour = await act(s, 'travel_to', { x: at[0] + Math.cos(bearing) * 30, z: at[2] + Math.sin(bearing) * 30, tolerance: 4, timeoutMs: 60_000, ...(typeof run.build === 'boolean' ? { build: run.build } : {}) }, 90_000);
 				run.actions += 1;
 				run.results[`${detour.state} ${detour.reasonCode} (detour)`] = (run.results[`${detour.state} ${detour.reasonCode} (detour)`] ?? 0) + 1;
-				run.stops.push({ at: round((Date.now() - startedAt) / 1000), state: detour.state, reasonCode: detour.reasonCode, detour: true, message: String(detour.message ?? '').slice(0, 400) });
+				run.stops.push({ at: round((now() - t0) / 1000), state: detour.state, reasonCode: detour.reasonCode, detour: true, message: String(detour.message ?? '').slice(0, 400) });
 			}
 			const after = positionOf(await observe(s));
 			noProgress = remaining(after, target) < before - 2 ? 0 : noProgress + 1;
@@ -303,7 +332,7 @@ async function runCourse(s, course) {
 	} finally {
 		if (Number.isFinite(course.afterStopWatchMs) && course.afterStopWatchMs > 0 && !s.dead) {
 			const damageBefore = run.damage, healthBefore = health, statBefore = await damageScore();
-			await sleep(course.afterStopWatchMs);
+			await s.clock.sleep(course.afterStopWatchMs);
 			const statAfter = await damageScore();
 			run.damageTakenDeci = statAfter - damageScoreInitial;
 			run.idleWatch = { durationMs: course.afterStopWatchMs, damage: run.damage - damageBefore, healthBefore, healthAfter: health, damageTakenDeci: statAfter - statBefore,
@@ -313,11 +342,33 @@ async function runCourse(s, course) {
 		sampling = false;
 		await sampler;
 	}
+	const sumCounters = async objectives => {
+		let total = 0;
+		for (const objective of objectives) {
+			const text = String(await s.command(`scoreboard players get ${AGENT} ${objective}`).catch(error => { counterFailures.push(`${objective} not read: ${error?.message ?? error}`); return ''; }));
+			const value = /has (\d+) \[/.exec(text)?.[1];
+			if (value === undefined) { if (text) counterFailures.push(`${objective} read as: ${text.slice(0, 80)}`); total = null; continue; }
+			if (total !== null) total += Number(value);
+		}
+		return total;
+	};
+	run.blocksMined = await sumCounters([...MINED.keys()].map(i => `tmb_${i}`));
+	run.pickaxeUses = await sumCounters(PICKS.map(tier => `tpk_${tier}`));
+	if (counterFailures.length || run.blocksMined === null || run.pickaxeUses === null) {
+		run.blocksMined = null; run.pickaxeUses = null;
+		run.integrity = [...(Array.isArray(run.integrity) ? run.integrity : []), { file: 'scoreboard', error: `travel counters unknown: ${counterFailures.join('; ') || 'a counter read failed'}`.slice(0, 400) }];
+	}
 	const endObservation = s.dead ? null : await observe(s);
 	const end = s.dead ? last : positionOf(endObservation);
 	if (Number.isFinite(endObservation?.world?.gameTime)) lastGameTick = endObservation.world.gameTime;
 	const endedAt = Date.now();
-	const wallMs = endedAt - startedAt;
+	const wallMs = endedAt - startedAt, playMs = now() - t0;
+	run.seconds = round(playMs / 1000);
+	run.timerGameSeconds = round((await timer.elapsed()) / 1000);
+	run.rates = await timer.rates().catch(() => null);
+	recordDamageEvidence(run, damageBefore, await readDamage());
+	await s.normalRate();
+	run.tick = { rate: s.tickRate, held: await s.tickReport() };
 	delete run.failedLegs;
 	// Sampling can miss a hit followed by regeneration inside 500 ms. These two measurements overlap.
 	run.damageLowerBound = Math.max(run.damage, run.actionDamage);
@@ -327,7 +378,7 @@ async function runCourse(s, course) {
 	run.arrived = arrivedAt(end, target) || run.targetSeen !== undefined;
 	run.wallSeconds = round(wallMs / 1000);
 	run.progressBlocks = round(run.startDistance - run.endDistance);
-	run.blocksPerMinute = round(run.progressBlocks / (wallMs / 60_000));
+	run.blocksPerMinute = round(run.progressBlocks / (playMs / 60_000));
 	run.startedAtEpochMs = startedAt;
 	run.endedAtEpochMs = endedAt;
 	run.gameTicks = Number.isFinite(startGameTick) && Number.isFinite(lastGameTick) ? Math.max(0, lastGameTick - startGameTick) : null;
@@ -336,14 +387,16 @@ async function runCourse(s, course) {
 	run.blocksPerGameMinute = run.gameTicks > 0 ? round(run.progressBlocks / (run.gameTicks / 1200)) : null;
 	run.gameClockSource = s.dead ? 'last alive observation; death may omit the final sampling interval' : 'ready observation world.gameTime';
 	run.pathBlocks = round(run.path);
-	run.blocksPerMinuteWithModel5s = round(run.progressBlocks / ((wallMs + run.actions * 5_000) / 60_000));
+	run.blocksPerMinuteWithModel5s = round(run.progressBlocks / ((playMs + run.actions * 5_000) / 60_000));
 	return run;
 }
 
 for (const [seed, group] of bySeed) {
 	const dir = path.join(out, `seed-${seed}`);
 	await mkdir(dir, { recursive: true });
-	const s = await boot(dir, { jar, template, port, world: null, seed, goalTicks: 20 * 60 * 60 * 4, bridgeReadyMs: 180_000 });
+	const s = await boot(dir, { jar, template, port, world: null, seed, goalTicks: 20 * 60 * 60 * 4, bridgeReadyMs: 180_000,
+		// 21 Nov A/B, 10 runs a side per course: y55-fortress died in 4 of 10 at 60 TPS, 0 of 10 at 20 (the other six courses matched).
+		tickRate: unshownTickRate('y55-fortress died in 4 of 10 runs at 60 TPS, 0 of 10 at 20') });
 	current = s;
 	try {
 		// Diagnostics for a course that errors: what the server last sent.
@@ -368,7 +421,7 @@ for (const [seed, group] of bySeed) {
 			try {
 				const run = await runCourse(s, course);
 				results.push(run);
-				console.log(JSON.stringify({ id: run.id, arrived: run.arrived, wallSeconds: run.wallSeconds, blocksPerMinute: run.blocksPerMinute, startDistance: run.startDistance, endDistance: run.endDistance, failures: run.failures, actions: run.actions, deaths: run.deaths, damage: run.damage, fire: run.fireSamples, lava: run.lavaSamples }));
+				console.log(JSON.stringify({ id: run.id, arrived: run.arrived, wallSeconds: run.wallSeconds, blocksPerMinute: run.blocksPerMinute, startDistance: run.startDistance, endDistance: run.endDistance, failures: run.failures, actions: run.actions, deaths: run.deaths, damage: run.damage, fire: run.fireSamples, lava: run.lavaSamples, pickaxeUses: run.pickaxeUses, blocksMined: run.blocksMined, path: round(run.path) }));
 			} catch (error) {
 				results.push({ id: course.id, mode, error: String(error?.stack ?? error), lastObservations: s.seen.slice(-12), lastResults: s.results.slice(-6) });
 				console.log(JSON.stringify({ id: course.id, error: String(error?.message ?? error) }));

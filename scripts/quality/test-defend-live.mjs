@@ -1,12 +1,18 @@
 #!/usr/bin/env node
+// FIXTURE_TICK_RATE runs the 25 s watch faster: setup and the summons stay at 20 TPS, then the watch and every wait and
+// time in it are game time on the fixture clock (s.clock). The creeper case stays at 20: its creeper is summoned when a
+// harness read sees the first wall, and its blast damage is read off sampled health while regeneration runs, so both
+// depend on how many ticks the reads take. With regeneration on, healthLost reads later hits after more healing at a
+// raised rate; rows also record damageTaken (vanilla's cumulative counter, which healing cannot hide), seconds (game),
+// wallSeconds and rates.
 import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
-import { boot } from './watch-replay.mjs';
+import { boot, fixtureTickRate } from './watch-replay.mjs';
 import { ReflexBook } from '../../coordinator/src/reflexes.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
-import { deathCounter } from './lib/damage-counter.mjs';
+import { damageCounter, damageEvidence, deathCounter } from './lib/damage-counter.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const out = path.resolve(process.argv[2] ?? 'runtime/defend-live');
@@ -17,11 +23,11 @@ const REPEATS = Number(process.env.REPEATS ?? 2);
 await mkdir(out, { recursive: true });
 if ((await readdir(out)).length) throw new Error('Use a fresh output directory');
 await writeFile(path.join(out, 'manifest.json'), JSON.stringify({ kind: 'provider-free live mechanics', aiPerformanceMeasured: false, fixtureSetupUsesOperatorCommands: true,
-	jar, jarSha256: createHash('sha256').update(await readFile(jar)).digest('hex'), repeats: REPEATS, node: process.version }, null, 2));
+	jar, jarSha256: createHash('sha256').update(await readFile(jar)).digest('hex'), repeats: REPEATS, tickRate: fixtureTickRate(), node: process.version }, null, 2));
 const sleep = ms => new Promise(done => setTimeout(done, ms));
 const AGENT = 'Guard';
 const number = text => Number((/(-?\d+(?:\.\d+)?)[fdb]?\s*$/.exec(String(text).trim()) ?? [])[1]);
-const s = await boot(out, { jar, template, port, world: null, seed: '3315172112810107624' });
+const s = await boot(out, { jar, template, port, world: null, seed: '3315172112810107624', tickRate: fixtureTickRate() });
 s.bridge.on('message', (event) => {
 	const control = event.type === 'goal_control' ? event.payload : event.type === 'conversation_wake' ? event.payload.control : null;
 	if (control == null || event.agentId !== s.record?.agentId || !Number.isSafeInteger(control.goalRevision) || control.goalRevision <= s.record.goalRevision) return;
@@ -87,13 +93,15 @@ try {
 	};
 	// Health the gate2 bodies had when the danger arrived (no food, so no regeneration): set after the full heal.
 	const START_HEALTH = { approach: 8, 'approach-hungry': 8, 'approach-fast': 8, shallow: 12 };
+	const readDamage = await damageCounter(text => s.command(text), AGENT);
 	for (const name of (process.env.CASES ?? 'zombie,shield,water,creeper,command').split(',')) {
 		for (let run = 1; run <= REPEATS; run++) {
+			await s.normalRate();
 			for (let attempt = 0; attempt < 10 && !((await health().catch(() => 0)) > 0); attempt++) {
 				await s.bridge.send('catalog_snapshot', 'server', { refreshedAtEpochMs: Date.now(), models: [{ provider: 'codex', model: 'gpt-6.1-sol', id: 'gpt-6.1-sol', displayName: 'Provider-free defend fixture', reasoningEfforts: ['low'], serviceTiers: ['default'] }] }).catch(() => {});
-				await s.act('respawn', {}).catch(() => null); await sleep(1500);
+				await s.act('respawn', {}).catch(() => null); await s.idleSleep(1500);
 			}
-			await sleep(3500);
+			await s.idleSleep(3500);
 			await s.command('kill @e[type=!minecraft:player]');
 			// Walls and pools a previous run left: rebuild the floor so every run starts in the open.
 			await s.command('fill -320 96 -10 -280 99 30 minecraft:stone');
@@ -120,7 +128,7 @@ try {
 			const food = name === 'approach-hungry' ? await starve() : (await s.command(`effect give ${AGENT} minecraft:saturation 1 20 true`), null);
 			if (name === 'water') await s.command(`effect give ${AGENT} minecraft:water_breathing 60 0 true`);
 			await s.command(`gamerule minecraft:natural_health_regeneration ${START_HEALTH[name] === undefined}`);
-			await sleep(1500);
+			await s.idleSleep(1500);
 			if (START_HEALTH[name] !== undefined) await s.command(`damage ${AGENT} ${(await health()) - START_HEALTH[name]} minecraft:generic`);
 			const skeleton = `summon minecraft:skeleton %X% %Y% %Z% {PersistenceRequired:1b,equipment:{mainhand:{id:"minecraft:bow",count:1}}}`;
 			if (name === 'zombie') await s.command(`summon minecraft:zombie -299.5 100 14.5 {PersistenceRequired:1b,CanPickUpLoot:0b,IsBaby:0b}`);
@@ -128,13 +136,16 @@ try {
 			else if (name === 'water') await s.command(skeleton.replace('%X%', '-299.5').replace('%Y%', '103').replace('%Z%', '16.5'));
 			else await s.command(skeleton.replace('%X%', '-299.5').replace('%Y%', '100').replace('%Z%', '20.5'));
 			const deathsBefore = await deaths();
+			const damageBefore = await readDamage();
 			const start = await health();
 			const steps = [];
 			let backOuts = 0, backingSeen = false, minHealth = start, died = false, hits = 0, shieldS = 0, fired = false, wallingSeen = false, refusal = null, stopped = null, endDetail = null;
 			let blockMap = null, commandResult = null, commandSentAt = null, wallsAtCommand = null, creeperAt = null, healthAtCreeper = null, creeperExploded = false, maxWalls = 0;
-			const t0 = Date.now();
-			while (Date.now() - t0 < 25000) {
-				await sleep(250);
+			if (name !== 'creeper') await s.fastRate();
+			const now = () => s.clock.now();
+			const t0 = now(), wall0 = Date.now(), timer = await s.gameTimer();
+			while (now() - t0 < 25000) {
+				await s.clock.sleep(250);
 				const o = await s.observeOrNull();
 				const detail = o?.reflexes?.firing?.id === 'default-defend' ? String(o.reflexes.firing.detail ?? '') : '';
 				if (o?.reflexes?.firing?.id) {
@@ -171,19 +182,23 @@ try {
 				if (name === 'creeper' && creeperAt === null && (w ?? 0) >= 1) {
 					await s.command('kill @e[type=minecraft:skeleton]');
 					await s.command(`execute at ${AGENT} positioned ~5 ~ ~ run summon minecraft:creeper ~ ~ ~ {PersistenceRequired:1b}`);
-					creeperAt = Date.now(); healthAtCreeper = await health();
+					creeperAt = now(); healthAtCreeper = await health();
 				}
 				if (creeperAt !== null && !creeperExploded && score(await s.command('execute store result score #c chk if entity @e[type=minecraft:creeper]').then(() => s.command('scoreboard players get #c chk'))) === 0) creeperExploded = true;
 				if (name === 'command' && commandSentAt === null && (w ?? 0) >= 1) {
 					wallsAtCommand = w;
-					commandSentAt = Date.now();
-					s.act('wait', { durationMs: 500 }, 60000).then(r => { commandResult = { state: r.state, reasonCode: r.reasonCode, resultAfterS: +((Date.now() - commandSentAt) / 1000).toFixed(2) }; }).catch(error => { commandResult = { error: error.message }; });
+					commandSentAt = now();
+					s.act('wait', { durationMs: 500 }, 60000).then(r => { commandResult = { state: r.state, reasonCode: r.reasonCode, resultAfterS: +((now() - commandSentAt) / 1000).toFixed(2) }; }).catch(error => { commandResult = { error: error.message }; });
 				}
-				if (name === 'command' && commandResult && Date.now() - commandSentAt > 3000) break;
+				if (name === 'command' && commandResult && now() - commandSentAt > 3000) break;
 				const h = await health().catch(() => null);
 				if ((await deaths()) > deathsBefore || h === 0) { died = true; break; }
 				if (h !== null) minHealth = Math.min(minHealth, h);
 			}
+			const seconds = Math.round((now() - t0) / 1000), wallSeconds = Math.round((Date.now() - wall0) / 1000), gameSeconds = Math.round((await timer.elapsed()) / 1000);
+			const rates = await timer.rates().catch(() => null);
+			const healthEnd = await health().catch(() => null);
+			await s.normalRate();
 			const wallsAtEnd = await walls();
 			// What stands round the body's floor cell at the end: cobble, water, air or other, feet and head level.
 			let endMap = null;
@@ -202,7 +217,9 @@ try {
 			}
 			const row = { case: name, run, food, defendFired: fired, hitsBack: hits, backOuts, backingSeen, shieldSeconds: shieldS, wallingSeen, refusal, stopped, maxWalls, wallsAtEnd,
 				wallsAtCommand, commandResult, creeperExploded, blastDamage: healthAtCreeper === null ? null : +(healthAtCreeper - (died ? 0 : minHealth)).toFixed(1),
-				endDetail, steps, blockMap, endMap, died, healthLost: died ? start : +(start - minHealth).toFixed(1) };
+				endDetail, steps, blockMap, endMap, died, healthLost: died ? start : +(start - minHealth).toFixed(1),
+				seconds, wallSeconds, gameSeconds, rates, tick: { rate: s.tickRate, held: await s.tickReport() } };
+			Object.assign(row, damageEvidence(damageBefore, await readDamage(), start, healthEnd));
 			runs.push(row);
 			console.log(`[defend] ${name}#${run}: fired ${fired}, hits back ${hits}, back-outs ${backOuts} (backing seen ${backingSeen})${food !== null ? `, food ${food}` : ''}, shield ${shieldS} s, walling ${wallingSeen}, walls max ${maxWalls} end ${wallsAtEnd}${refusal ? `, ${refusal}` : ''}${stopped ? `, ${stopped}` : ''}${commandResult ? `, command ${JSON.stringify(commandResult)} (walls when sent ${wallsAtCommand})` : ''}${healthAtCreeper !== null ? `, creeper exploded ${creeperExploded}, blast damage ${row.blastDamage}` : ''}, ${died ? 'DIED' : `lost ${row.healthLost}`}`);
 			await writeFile(path.join(out, 'runs.json'), JSON.stringify(runs, null, 1));

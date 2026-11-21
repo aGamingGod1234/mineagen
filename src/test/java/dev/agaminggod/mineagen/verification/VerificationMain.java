@@ -299,6 +299,7 @@ public final class VerificationMain {
 		passedAssertions += AttentionHazardVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.perception.WaterAirFactsVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.NavigationBreathingVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.EscapeVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.perception.ProjectilePerceptionVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.perception.ThreatAttentionVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.CombatPlanningVerification.verify();
@@ -403,6 +404,7 @@ public final class VerificationMain {
 				"cast_obsidian",
 				"barter_until",
 				"rest",
+				"escape",
 				"build",
 				"travel_to",
 				"fight_target",

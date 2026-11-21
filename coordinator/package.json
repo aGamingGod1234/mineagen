@@ -20,6 +20,7 @@
 		"test": "node scripts/run-public-suite.mjs",
 		"eval:decisions": "node ../scripts/decision-eval/eval.mjs",
 		"eval:decisions:pr": "node ../scripts/decision-eval/ci-check.mjs",
+		"eval:tier1": "node ../scripts/decision-eval/tier1.mjs",
 		"contracts:refresh": "node scripts/contracts-refresh.mjs",
 		"test:stake": "node --test --test-timeout=60000 test/decision-stake.test.mjs",
 		"test:contracts": "node --test --test-timeout=60000 test/tool-contract-coverage.test.mjs test/tool-contract-schema.test.mjs test/program-contract-truth.test.mjs test/tool-contract-runtime.test.mjs test/unicode-text-contracts.test.mjs test/contracts-refresh.test.mjs",

@@ -11,12 +11,17 @@
 // would before naming it), sends one action and checks the world with operator reads. No model call is made; operator
 // commands build the fixture and read the outcome only. Launch under fix-slot.sh (SLOT_PORT_BASE) with
 // ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME. RANDOM_SALT=N reseeds loot rolls for barter trials.
+// FIXTURE_TICK_RATE runs the action faster: setup, the look at the pool and the operator reads before and after (obsidian
+// counts, block maps) stay at 20 TPS; the action and, in portal mode, its 360 s window, the model's answer waits and the
+// last wait for the portal are game time on the fixture clock (s.clock). result.seconds is game seconds; result.tick
+// records wallSeconds and the rates.
 import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { applyQualitySetup, activateQualitySetup } from '../../coordinator/src/benchmark/quality-scenarios.mjs';
-import { boot } from './watch-replay.mjs';
+import { boot, unshownTickRate } from './watch-replay.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
+import { damageCounter, recordDamageEvidence, deathCounter, recordDeathEvidence } from './lib/damage-counter.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const [mode, fixtureFile, outArg, jarArg] = process.argv.slice(2);
@@ -34,8 +39,8 @@ await mkdir(out, { recursive: true });
 if ((await readdir(out)).length) throw new Error('Use a fresh output directory');
 const sleep = ms => new Promise(done => setTimeout(done, ms));
 const AGENT = 'Probe';
-const result = { mode, fixture: path.basename(fixtureFile), salt: process.env.RANDOM_SALT ?? null };
-const s = await boot(out, { jar: path.resolve(jarArg ?? path.join(root, MOD_JAR)), template, port, world: null, seed: fixture.seed, readyTimeoutMs: 90000 });
+const result = { mode, fixture: path.basename(fixtureFile), salt: process.env.RANDOM_SALT ?? null, tickRate: unshownTickRate('it already fails at 20 TPS, so an A/B cannot show the same game at 60') };
+const s = await boot(out, { jar: path.resolve(jarArg ?? path.join(root, MOD_JAR)), template, port, world: null, seed: fixture.seed, readyTimeoutMs: 90000, tickRate: unshownTickRate('it already fails at 20 TPS, so an A/B cannot show the same game at 60') });
 const count = text => Number(/count: (\d+)/i.exec(String(text))?.[1] ?? 0);
 const held = async item => count(await s.command(`execute if items entity ${AGENT} container.* ${item}`));
 const isBlock = async (dim, [x, y, z], block) => /passed/i.test(String(await s.command(`execute in ${dim} if block ${x} ${y} ${z} ${block}`)));
@@ -48,6 +53,26 @@ async function act(type, args, ms) {
 	const r = (await next).payload;
 	await s.bridge.send('action_result_ack', s.record.agentId, { actionId: id, goalRevision: s.record.goalRevision });
 	return { state: r.state, reasonCode: r.reasonCode, message: r.message };
+}
+// Play: the rate goes up and the clock starts; endPlay records the rates and brings the server back to 20.
+const now = () => s.clock.now();
+let wall0 = null, timer = null, readDamage = null, damageBefore = null, deathsBefore = null;
+const deaths = () => deathCounter(text => s.command(text), AGENT, { objective: 'deaths', unsetIsZero: true });
+async function startPlay() {
+	// Harm evidence (vanilla's cumulative damage and death counters), read at 20 before the rate goes up.
+	readDamage ??= await damageCounter(text => s.command(text), AGENT);
+	damageBefore = await readDamage(); deathsBefore = await deaths().catch(() => null);
+	await s.fastRate(); wall0 = Date.now(); timer = await s.gameTimer(); return now();
+}
+async function endPlay() {
+	if (!timer) return;
+	result.tick = { rate: s.tickRate, wallSeconds: Math.round((Date.now() - wall0) / 1000), gameSeconds: Math.round((await timer.elapsed()) / 1000), rates: await timer.rates().catch(() => null) };
+	timer = null;
+	await s.normalRate();
+	result.tick.held = await s.tickReport();
+	result.harm = {};
+	recordDamageEvidence(result.harm, damageBefore, await readDamage());
+	recordDeathEvidence(result.harm, deathsBefore, await deaths().catch(() => null));
 }
 async function obsidianIn(dim, [x0, y0, z0], [x1, y1, z1]) {
 	const cells = [];
@@ -99,14 +124,16 @@ try {
 		const [x, y, z] = room.at;
 		for (const [i, [dx, dz]] of fixture.room.piglins.entries())
 			await s.command(`execute in minecraft:the_nether run summon minecraft:piglin ${x + dx + 0.5} ${y} ${z + dz + 0.5} {PersistenceRequired:1b,IsImmuneToZombification:1b,UUID:[I;0,0,7,${i + 1}]}`);
-		await sleep(2000);
+		await s.idleSleep(2000);
 		const o = await s.observe();
 		result.piglinsSeen = (o.entities ?? []).filter(row => row.type === 'minecraft:piglin').length;
 		result.before = { wanted: await held(fixture.item), gold: await held('minecraft:gold_ingot') };
-		const t0 = Date.now();
+		const t0 = await startPlay();
 		result.action = await act('barter_until', { itemId: fixture.item, count: fixture.count, timeoutMs: fixture.timeoutMs }, fixture.timeoutMs + 30000);
-		result.seconds = Math.round((Date.now() - t0) / 1000);
+		result.seconds = Math.round((now() - t0) / 1000);
+		// Inventory first, as before: the verdict compares it with the reported count, and items keep arriving.
 		result.after = { wanted: await held(fixture.item), gold: await held('minecraft:gold_ingot') };
+		await endPlay();
 		const reported = Number(new RegExp(`${fixture.item} gained: (\\d+)`).exec(result.action.message ?? '')?.[1] ?? NaN);
 		const thrown = Number(/gold ingots thrown (\d+)/.exec(result.action.message ?? '')?.[1] ?? NaN);
 		const gainedAll = /all items gained: (.*)$/.exec(result.action.message ?? '')?.[1] ?? '';
@@ -143,14 +170,14 @@ try {
 			return layers;
 		}
 		result.mapBefore = await dump();
-		const t0 = Date.now(), WINDOW = 360000, left = () => WINDOW - (Date.now() - t0);
+		const t0 = await startPlay(), WINDOW = 360000, left = () => WINDOW - (now() - t0);
 		const args = { x: site.origin[0], y: site.origin[1], z: site.origin[2], axis: site.axis, frame: true, timeoutMs: 240000 };
 		result.args = args;
 		result.calls = [];
 		for (let call = 0; call < 2 && left() > 60000; call++) {
-			if (call) await sleep(5000);   // the model's answer time before it calls again
+			if (call) await s.clock.sleep(5000);   // the model's answer time before it calls again
 			const r = await act('cast_obsidian', { ...args, timeoutMs: Math.min(240000, left() - 30000) }, left() + 30000);
-			result.calls.push({ reasonCode: r.reasonCode, seconds: Math.round((Date.now() - t0) / 1000), message: r.message?.slice(0, 4000) });
+			result.calls.push({ reasonCode: r.reasonCode, seconds: Math.round((now() - t0) / 1000), message: r.message?.slice(0, 4000) });
 			if (r.reasonCode === 'FRAME_COMPLETE' || /DAMAGE|LAVA|FIRE|HEALTH/.test(r.reasonCode ?? '')) break;
 		}
 		const last = result.calls.at(-1) ?? {};
@@ -173,23 +200,25 @@ try {
 			result.steps.push(await act('select_item', { itemId: 'minecraft:flint_and_steel' }, 10000));
 			result.steps.push(await act('interact_block', { x: bottom[0], y: bottom[1], z: bottom[2], face, hand: 'main', expectedItemId: 'minecraft:flint_and_steel' }, 15000));
 			result.lit = await isBlock(dim, inside, 'minecraft:nether_portal');
-			result.litSeconds = Math.round((Date.now() - t0) / 1000);
+			result.litSeconds = Math.round((now() - t0) / 1000);
 			if (result.lit) {
 				const walkIn = () => act('move_to', { x: inside[0] + 0.5, y: inside[1], z: inside[2] + 0.5, tolerance: 0.3, sprint: true }, 30000);
 				// PORTAL_PREWALK=x,y,z (diagnosis only): a first move_to there before the walk in.
 				if (process.env.PORTAL_PREWALK) { const [px, py, pz] = process.env.PORTAL_PREWALK.split(',').map(Number); result.steps.push(await act('move_to', { x: px, y: py, z: pz, tolerance: 0.3 }, 30000)); }
 				result.steps.push(await walkIn());
 				// A failed walk gets the model's answer time and one more call, as a model retries it.
-				if (result.steps.at(-1).state === 'FAILED') { await sleep(5000); result.steps.push(await walkIn()); result.walkRetried = true; }
+				if (result.steps.at(-1).state === 'FAILED') { await s.clock.sleep(5000); result.steps.push(await walkIn()); result.walkRetried = true; }
 				result.steps.push(await act('wait', { durationMs: 4500 }, 15000).catch(error => ({ error: String(error) })));
 			}
 			result.steps = result.steps.map(r => ({ state: r.state, reasonCode: r.reasonCode, message: r.message?.slice(0, 200) }));
 		}
-		await sleep(1500);
+		await s.clock.sleep(1500);
+		// The block map is diagnosis only: it reads at 20, as before (and still counts towards seconds, as it did).
+		await endPlay();
 		if (!result.nether) result.mapAfter = await dump();
 		result.dimension = String(await s.command(`data get entity ${AGENT} Dimension`));
 		result.nether = /the_nether/.test(result.dimension);
-		result.seconds = Math.round((Date.now() - t0) / 1000);
+		result.seconds = Math.round((now() - t0) / 1000);
 		result.inWindow = result.nether && result.seconds <= WINDOW / 1000 + 30;
 		result.deaths = count(await s.command(`scoreboard players get ${AGENT} probeDeaths`)) || Number(/has (\d+)/.exec(String(await s.command(`scoreboard players get ${AGENT} probeDeaths`)))?.[1] ?? 0);
 		result.ok = result.nether && result.inWindow;
@@ -200,13 +229,14 @@ try {
 		await s.observe(); await sleep(500); await s.observe();
 		const box = [[edge[0] - 8, edge[1] - 2, edge[2] - 8], [edge[0] + 6, edge[1] + 6, edge[2] + 8]];
 		const before = await obsidianIn(dim, ...box);
-		const t0 = Date.now();
+		const t0 = await startPlay();
 		const args = mode === 'cast-frame'
 			? { x: fixture.frame.origin[0], y: fixture.frame.origin[1], z: fixture.frame.origin[2], axis: fixture.frame.axis, frame: true, timeoutMs: 240000 }
 			: { x: edge[0], y: edge[1], z: edge[2], count: 4, timeoutMs: 240000 };
 		result.args = args;
 		result.action = await act('cast_obsidian', args, 270000);
-		result.seconds = Math.round((Date.now() - t0) / 1000);
+		result.seconds = Math.round((now() - t0) / 1000);
+		await endPlay();
 		const after = await obsidianIn(dim, ...box);
 		const key = c => c.join(',');
 		const old = new Set(before.map(key));

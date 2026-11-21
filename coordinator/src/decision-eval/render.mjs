@@ -17,6 +17,7 @@ import { normalizeMinecraftToolCall } from '../native-minecraft-tools.mjs';
 import { PlanningScheduler } from '../planning-scheduler.mjs';
 import { TaskMemoryStore } from '../task-memory-store.mjs';
 import { casePreviousObservations, validateCase } from './schema.mjs';
+import { applyWording, checkWording } from './wording.mjs';
 
 /**
  * Renders a decision-eval case into exactly what this build sends the play model on a fresh (post-reset) session.
@@ -187,10 +188,12 @@ function payloadOf(input) {
  * Renders the wake input of one case.
  * Returns { input, encodedInput, inputSha256, encodedSha256, instruction, event, trigger, recoverySummary, replay }.
  * `input` is the string the coordinator passes to agent.act(); `encodedInput` is what a fresh provider session
- * writes to the model (encodeNativeEventInput with fresh observation views), byte for byte.
+ * writes to the model (encodeNativeEventInput with fresh observation views), byte for byte. `wording` (wording.mjs)
+ * rewrites the rendered wake's instruction and step lines before encoding; "production" leaves it as the build wrote it.
  */
-export async function renderWake(testCase, { provider = 'claude', model = 'claude-opus-5-5', reasoningEffort = 'low' } = {}) {
+export async function renderWake(testCase, { provider = 'claude', model = 'claude-opus-5-5', reasoningEffort = 'low', wording = 'production' } = {}) {
 	validateCase(testCase);
+	checkWording(wording);
 	const agent = testCase.state.agent;
 	if (testCase.state.wake?.conversation?.length > 0) throw new DecisionEvalRenderError('RENDER_UNSUPPORTED', `case ${testCase.id}: unread conversation replay is not supported yet`);
 	const tools = setupTools(testCase);
@@ -325,7 +328,8 @@ export async function renderWake(testCase, { provider = 'claude', model = 'claud
 			}
 			diagnostics.inspections = bridge.count('inspection_request');
 			if (captured === null) throw new DecisionEvalRenderError('NO_WAKE', `case ${testCase.id}: this build does not wake the model for the case observation`, { diagnostics });
-			const { input, turn } = captured;
+			const { turn } = captured;
+			const input = applyWording(captured.input, wording);
 			const encodedInput = encodeNativeEventInput(input, new ModelObservationViews());
 			const payload = payloadOf(input);
 			const result = {

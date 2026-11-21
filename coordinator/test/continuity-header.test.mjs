@@ -375,7 +375,8 @@ test('a wake queued before a craft and delivered after it states the route of th
 	await views.observe(r, queued);
 	assert.match(views.continuity(r, { observation: queued }).route, /^usual next step: obtain furnace /, 'the queued sample before the craft');
 	for (let n = 1; n <= 9; n++) await views.observe(r, sample(n * 1000, items(...kit, ['iron_pickaxe', 1, 5], ['furnace', 1, 6])));
-	assert.match(views.continuity(r, { observation: queued }).route, /^usual next step: obtain shield, then equip_item it to offhand /,
+	// The pickaxe made, the rest of the kit is one trip: its wood first.
+	assert.match(views.continuity(r, { observation: queued }).route, /^usual next step: obtain log count \d+ before going down /,
 		'an older observation outside the sample cache does not lend its inventory to the route');
-	assert.match(views.continuity(r).route, /^usual next step: obtain shield/);
+	assert.match(views.continuity(r).route, /^usual next step: obtain log count \d+ before going down/);
 });

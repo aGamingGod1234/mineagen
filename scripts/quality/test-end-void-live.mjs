@@ -8,6 +8,8 @@ import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
+import { installTickRate, fixtureTickRate } from './watch-replay.mjs';
+import { damageCounter, recordDamageEvidence } from './lib/damage-counter.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const jarPath = resolve(process.env.ARENA_JAR ?? join(root, MOD_JAR));
@@ -34,7 +36,7 @@ class Inbox {
 	accept(e) { const i = this.waiters.findIndex(w => w.type === e.type && w.match(e)); if (i >= 0) this.waiters.splice(i, 1)[0].done(e); else { this.events.push(e); if (this.events.length > 1024) this.events.shift(); } }
 	wait(type, match = () => true, ms = 30000) { const i = this.events.findIndex(e => e.type === type && match(e)); if (i >= 0) return Promise.resolve(this.events.splice(i, 1)[0]); return new Promise((res, rej) => { const w = { type, match, done: e => { clearTimeout(t); res(e); } }; const t = setTimeout(() => { this.waiters = this.waiters.filter(x => x !== w); rej(new Error(`TIMEOUT ${type}`)); }, ms); this.waiters.push(w); }); }
 }
-let rcon, bridge, record, observation, inbox, ordinal = 0, revision = 0;
+let rcon, bridge, record, observation, inbox, ordinal = 0, revision = 0, rate, play = null;
 const agent = 'Rim';
 const command = async s => {
 	if (rcon.state === 'closed') { rcon = new HeadlessRconClient({ host: '127.0.0.1', port: port + 1, password: secret, commandTimeoutMs: 5000 }); await rcon.connect(); }
@@ -61,6 +63,18 @@ async function setReflexes(rules) {
 const number = text => Number((/(-?\d+(?:\.\d+)?)[fdb]?\s*$/.exec(text.trim()) ?? [])[1]);
 const health = async () => number(await command(`data get entity ${agent} Health`));
 const results = {};
+/** The play's game and wall seconds, the rates the server held, and vanilla's damage counter over it. */
+async function endPlay() {
+	const p = play; p.done = true;
+	// elapsed() reads the world tick first, so the clock is anchored on it when seconds is read.
+	const gameMs = await p.timer.elapsed();
+	const tick = { tickRate: rate.tickRate, seconds: Math.round((rate.clock.now() - p.t0) / 1000), wallSeconds: Math.round((Date.now() - p.wall0) / 1000),
+		gameSeconds: Math.round(gameMs / 1000), rates: await p.timer.rates().catch(() => null) };
+	await rate.normalRate();
+	tick.held = await rate.tickReport();
+	recordDamageEvidence(tick, p.damage0, await p.damage().catch(() => null));
+	return tick;
+}
 const frame = (over) => ({ forward: 1, strafe: 0, jump: false, sneak: false, sprint: true, attack: false, use: false, yaw: -90, pitch: 10, selectedSlot: 0, hand: 'main', ...over });
 const pos = async () => { const o = await observe(); return { x: Math.round(o.position.x * 100) / 100, y: Math.round(o.position.y * 100) / 100, z: Math.round(o.position.z * 100) / 100, dead: o.player?.dead ?? null }; };
 const clearMobs = async () => { await end('kill @e[type=minecraft:ender_dragon]'); await end('kill @e[type=minecraft:enderman]'); await end('kill @e[type=minecraft:area_effect_cloud]'); await end('kill @e[type=minecraft:dragon_fireball]'); };
@@ -68,25 +82,26 @@ const fireballEvents = (o) => (o.reflexes?.events ?? []).filter(e => e.id === 'e
 /** Arms the d6-end-a reflex, sends a dragon fireball at the body from the west, waits out the firing, then the model's stale sprint east. */
 async function fireballThenSprint(spawn, from) {
 	await clearMobs();
-	await end(`tp ${agent} ${spawn.join(' ')} 90 10`); await sleep(1500);
+	await end(`tp ${agent} ${spawn.join(' ')} 90 10`); await rate.clock.sleep(1500);
 	await command(`effect give ${agent} minecraft:instant_health 1 5 true`);
 	await setReflexes([{ id: 'end-fireball', kind: 'trigger', priority: 9, when: { type: 'fireball_incoming', withinS: 2 }, do: { type: 'sprint_away', blocks: 8 }, ttlS: 600 }]);
 	const start = await pos();
 	await end(`summon minecraft:dragon_fireball ${from.join(' ')} {Motion:[0.6d,0.0d,0.0d],acceleration_power:0.05d}`);
 	let o, events = [];
-	for (let i = 0; i < 60 && events.length === 0; i++) { await sleep(150); o = await observe(); events = fireballEvents(o); }
-	await sleep(800);
+	for (let i = 0; i < 60 && events.length === 0; i++) { await rate.clock.sleep(150); o = await observe(); events = fireballEvents(o); }
+	await rate.clock.sleep(800);
 	const afterReflex = await pos();
 	const sprint = await act('control', frame({ ticks: 20 }));
-	await sleep(1500);
+	await rate.clock.sleep(1500);
 	const final = await pos();
 	await setReflexes([]);
 	return { start, reflex: events, afterReflex, sprint: { reasonCode: sprint.reasonCode, message: sprint.message }, final };
 }
 try {
 	for (let i = 0; i < 150; i++) { try { rcon = new HeadlessRconClient({ host: '127.0.0.1', port: port + 1, password: secret, connectTimeoutMs: 500, commandTimeoutMs: 5000 }); await rcon.connect(); break; } catch (e) { await rcon?.close(); if (i === 149) throw e; await sleep(1000); } }
+	rate = installTickRate({ command: text => command(text) }, fixtureTickRate());
 	bridge = new MultiplexedServerBridge({ port, secret }, {}); inbox = new Inbox(bridge);
-	bridge.on('observation', e => { if (e.agentId === record?.agentId && e.payload.ready) observation = e.payload; });
+	bridge.on('observation', e => { rate.clock.observe(e.payload?.world?.gameTime); if (e.agentId === record?.agentId && e.payload.ready) observation = e.payload; });
 	bridge.on('goal_spec_request', e => { bridge.send('goal_spec_proposal', e.agentId, { requestId: e.payload.requestId, summary: 'Controlled live mechanics fixture', predicate: { type: 'survive_duration', ticks: 24000 } }).catch(() => {}); });
 	const ready = inbox.wait('ready'); bridge.start(); await ready;
 	await bridge.send('catalog_snapshot', 'server', { refreshedAtEpochMs: Date.now(), models: [{ provider: 'codex', model: 'gpt-6.1-sol', id: 'gpt-6.1-sol', displayName: 'Provider-free End void fixture', reasoningEfforts: ['low'], serviceTiers: ['priority'] }] });
@@ -108,7 +123,14 @@ try {
 	await end('fill 98 48 -2 102 48 2 minecraft:obsidian'); await end('fill 98 49 -2 102 52 2 minecraft:air');
 	const onPlatform = p => p.y >= 48.9 && p.x > 97.7 && p.x < 103.3 && p.z > -2.3 && p.z < 3.3;
 	const onRim = p => p.y >= 56.9 && p.x > -10.3 && p.x < 11.3 && p.z > 289.7 && p.z < 311.3;
-	const back = async () => { await end(`tp ${agent} 100.5 49 0.5 90 10`); await sleep(1200); };
+	const back = async () => { await end(`tp ${agent} 100.5 49 0.5 90 10`); await rate.clock.sleep(1200); };
+
+	// FIXTURE_TICK_RATE: setup runs at 20; from the first fireball case to the rim clutch the server runs at the fixture
+	// rate and every wait is on its clock (resistance keeps the body alive, so no verdict reads health).
+	const damage = await damageCounter(command, agent);
+	play = { damage0: await damage(), damage };
+	await rate.fastRate();
+	play.t0 = rate.clock.now(); play.wall0 = Date.now(); play.timer = await rate.gameTimer();
 
 	results.rim = await fireballThenSprint([2.5, 57, 300.5], [-12.5, 58.6, 300.5]);
 	results.rim.onIsland = onRim(results.rim.final);
@@ -118,19 +140,19 @@ try {
 	await back();
 	// 3. Raw frames from the platform centre: a sprint east, a control_sequence frame east, a sneaking walk east.
 	{
-		const sprint = await act('control', frame({ ticks: 20 })); await sleep(1500);
+		const sprint = await act('control', frame({ ticks: 20 })); await rate.clock.sleep(1500);
 		results.sprint = { reasonCode: sprint.reasonCode, message: sprint.message, final: await pos() };
 		results.sprint.onPlatform = onPlatform(results.sprint.final);
 		await back();
-		const sequence = await act('control_sequence', { maxTicks: 40, frames: [frame({ ticks: 20, yaw: 0 }), frame({ ticks: 20 })] }); await sleep(1500);
+		const sequence = await act('control_sequence', { maxTicks: 40, frames: [frame({ ticks: 20, yaw: 0 }), frame({ ticks: 20 })] }); await rate.clock.sleep(1500);
 		results.sequence = { reasonCode: sequence.reasonCode, message: sequence.message, final: await pos() };
 		results.sequence.onPlatform = onPlatform(results.sequence.final);
 		await back();
-		const sneak = await act('control', frame({ ticks: 40, sneak: true, sprint: false })); await sleep(1000);
+		const sneak = await act('control', frame({ ticks: 40, sneak: true, sprint: false })); await rate.clock.sleep(1000);
 		results.sneak = { reasonCode: sneak.reasonCode, final: await pos() };
 		results.sneak.onPlatform = onPlatform(results.sneak.final);
 		await back();
-		const jump = await act('control', frame({ ticks: 4, jump: true, sprint: false, forward: 0 })); await sleep(1000);
+		const jump = await act('control', frame({ ticks: 4, jump: true, sprint: false, forward: 0 })); await rate.clock.sleep(1000);
 		results.jumpInPlace = { reasonCode: jump.reasonCode, final: await pos() };
 	}
 	// 4. Water clutch at an island rim (d6-end-b: the placed source's flow carried the landed body off the rim).
@@ -140,13 +162,14 @@ try {
 		await setReflexes([{ id: 'end-fall', kind: 'trigger', priority: 8, when: { type: 'falling', blocks: 4 }, do: { type: 'place', item: 'minecraft:water_bucket', where: 'below' }, ttlS: 600 }]);
 		await end(`tp ${agent} 10.5 66 300.5 -90 30`);
 		let o, events = [];
-		for (let i = 0; i < 60; i++) { await sleep(150); o = await observe(); events = (o.reflexes?.events ?? []).filter(e => e.id === 'end-fall').map(e => `${e.outcome}: ${e.detail}`); if (events.length && o.player?.onGround) break; }
-		await sleep(4000);
+		for (let i = 0; i < 60; i++) { await rate.clock.sleep(150); o = await observe(); events = (o.reflexes?.events ?? []).filter(e => e.id === 'end-fall').map(e => `${e.outcome}: ${e.detail}`); if (events.length && o.player?.onGround) break; }
+		await rate.clock.sleep(4000);
 		const final = await pos();
 		const water = (await end('execute if block 10 57 300 minecraft:water')).includes('passed');
 		results.clutchEdge = { reflex: events, final, onIsland: onRim(final), waterLeft: water, bucket: (await command(`data get entity ${agent} Inventory[{Slot:3b}].id`)).trim() };
 		await end('fill -10 57 290 10 60 310 minecraft:air'); await setReflexes([]);
 	}
+	results.tick = await endPlay();
 	results.summary = {
 		clutchEdgeOnIsland: results.clutchEdge.onIsland, clutchEdgeReflex: results.clutchEdge.reflex, clutchEdgeWaterLeft: results.clutchEdge.waterLeft,
 		rimOnIsland: results.rim.onIsland, rimSprint: results.rim.sprint.reasonCode, rimReflex: results.rim.reflex,
@@ -158,6 +181,7 @@ try {
 	await writeFile(join(out, 'end-void.json'), JSON.stringify(results, null, 2));
 	console.log(JSON.stringify(results, null, 2));
 } finally {
+	if (play && !play.done) results.tick = await endPlay().catch(() => null);
 	await writeFile(join(out, 'end-void.json'), JSON.stringify(results, null, 2)).catch(() => {});
 	if (rcon) await command('stop').catch(() => {});
 	bridge?.stop(); await rcon?.close();

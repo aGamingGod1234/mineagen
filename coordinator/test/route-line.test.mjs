@@ -20,6 +20,8 @@ const route = (items, options = {}, known = emptyKnown()) => routeLine({ observa
 const COOKED = [['cooked_beef', 24]];
 const SHIELD = ['shield', 1, 'offhand'];
 const MEAT = [['beef', 4]];
+// Wood for the trip down, carried: a crafting table and logs enough for the kit's crafts and smelting.
+const TRIP = [['crafting_table', 1], ['oak_log', 8]];
 // Nothing for a bed in reach at a lit portal: entry, with the reason the portal bed is skipped.
 const ENTRY_NO_BED = 'usual next step: enter the Nether through the lit portal now (no bed, 3 matching wool or sheep in reach: no portal bed; food stocks are optional unless health or hunger is low)';
 
@@ -29,16 +31,32 @@ test('the route walks the usual Overworld order from nothing to a lit portal', (
 	assert.match(route([['oak_log', 3], ...MEAT]), /obtain wooden_pickaxe \(3 logs\/planks held\)/);
 	assert.match(route([['wooden_pickaxe', 1]]), /cooked meat 0\/8/);
 	assert.match(route([['stone_pickaxe', 1], ['cobblestone', 5], ...COOKED]), /^usual next step: obtain furnace \(stone tools, 5 cobblestone\)$/);
-	assert.equal(route([['stone_pickaxe', 1], ['furnace', 1], ...COOKED]), 'usual next step: obtain iron_pickaxe (stone tools, no iron yet)');
-	assert.match(route([['stone_pickaxe', 1], ['furnace', 1], ['raw_iron', 2], ...COOKED]), /\(stone tools, 2\/3 iron held\)/);
+	// Before the first descent, the wood the whole kit's crafts and smelting take: no table carried, 4 planks more.
+	assert.equal(route([['stone_pickaxe', 1], ['furnace', 1], ...COOKED]), "usual next step: obtain log count 5 before going down (wood for the kit's crafts and smelting, so the trip needs no climb back; 0 logs/planks held)");
+	// A carried table takes its planks off; the count is a total to hold, and one log stays kept for the next pickaxe's sticks.
+	assert.match(route([['stone_pickaxe', 1], ['furnace', 1], ['crafting_table', 1], ['oak_log', 1], ...COOKED]), /^usual next step: obtain log count 5 before going down \(.*1 logs\/planks held\)$/);
+	assert.match(route([['stone_pickaxe', 1], ['furnace', 1], ['crafting_table', 1], ['oak_log', 5], ...COOKED]), /^usual next step: obtain iron_ingot count 11 in one trip/);
+	// Coal in view fuels the smelting: less wood to carry.
+	const coal = sample([['stone_pickaxe', 1], ['furnace', 1], ['crafting_table', 1], ...COOKED]);
+	coal.blocks = [{ blockId: 'minecraft:coal_ore', x: 3, y: 60, z: 3, visible: true }];
+	assert.match(routeLine({ observation: coal, known: emptyKnown(), evaluate: evaluatePlanCheck }), /^usual next step: obtain log count 2 before going down/);
+	// Down a mine the wood step gives way to the trip itself: a missing log must not turn into a climb.
+	const deep = sample([['stone_pickaxe', 1], ['furnace', 1], ...COOKED]); deep.position.y = 20; deep.player.skyOpen = false;
+	assert.match(routeLine({ observation: deep, known: emptyKnown(), evaluate: evaluatePlanCheck }), /^usual next step: obtain iron_ingot count 11 in one trip/);
+	// Then all of the kit's iron in one trip, instead of one obtain (and one search) per item.
+	assert.equal(route([['stone_pickaxe', 1], ['furnace', 1], ...TRIP, ...COOKED]), 'usual next step: obtain iron_ingot count 11 in one trip, then craft the kit (kit iron 11: pickaxe 3, shield 1, 2 buckets 6, flint_and_steel 1; 0 iron held)');
+	assert.match(route([['stone_pickaxe', 1], ['furnace', 1], ['raw_iron', 2], ...TRIP, ...COOKED]), /obtain iron_ingot count 11 in one trip.*; 2 iron held\)$/);
+	// With the trip's iron held, the kit is crafted from it, pickaxe first.
+	assert.equal(route([['stone_pickaxe', 1], ['furnace', 1], ['iron_ingot', 11], ...TRIP, ...COOKED]), 'usual next step: obtain iron_pickaxe (stone tools, 11/3 iron held)');
 	// Right after the iron pickaxe: a shield in the off hand (skeletons killed 8 of 12 scripted deaths).
-	assert.equal(route([['iron_pickaxe', 1], ['iron_ingot', 2], ...COOKED]), 'usual next step: obtain shield, then equip_item it to offhand (iron 2 held, shield takes 1)');
-	assert.equal(route([['iron_pickaxe', 1], ['shield', 1], ...COOKED]), 'usual next step: equip_item shield to offhand (shield held, not in the off hand)');
-	assert.equal(route([['iron_pickaxe', 1], ['iron_ingot', 2], SHIELD, ...COOKED]),
-		'usual next step: obtain bucket count 2, then flint_and_steel (iron 2 held, 7 needed for 2 buckets, flint_and_steel)');
-	assert.match(route([['iron_pickaxe', 1], ['bucket', 2], ['iron_ingot', 1], SHIELD, ...COOKED]), /^usual next step: obtain flint_and_steel \(/);
-	// The shield gates the kit even when the buckets and the light came first.
-	assert.match(route([['iron_pickaxe', 1], ['bucket', 2], ['flint_and_steel', 1], ...COOKED]), /^usual next step: obtain shield/);
+	assert.equal(route([['iron_pickaxe', 1], ['iron_ingot', 8], ...TRIP, ...COOKED]), 'usual next step: obtain shield, then equip_item it to offhand (iron 8 held, shield takes 1)');
+	assert.equal(route([['iron_pickaxe', 1], ['shield', 1], ['iron_ingot', 7], ...TRIP, ...COOKED]), 'usual next step: equip_item shield to offhand (shield held, not in the off hand)');
+	assert.equal(route([['iron_pickaxe', 1], ['iron_ingot', 7], SHIELD, ...TRIP, ...COOKED]),
+		'usual next step: obtain bucket count 2, then flint_and_steel (iron 7 held, 7 needed for 2 buckets, flint_and_steel)');
+	assert.match(route([['iron_pickaxe', 1], ['bucket', 2], ['iron_ingot', 1], SHIELD, ...TRIP, ...COOKED]), /^usual next step: obtain flint_and_steel \(/);
+	// The shield gates the kit even when the buckets and the light came first: its iron is the trip's.
+	assert.match(route([['iron_pickaxe', 1], ['bucket', 2], ['flint_and_steel', 1], ...TRIP, ...COOKED]), /^usual next step: obtain iron_ingot count 1 in one trip.*kit iron 1: shield 1/);
+	assert.match(route([['iron_pickaxe', 1], ['bucket', 2], ['flint_and_steel', 1], ['iron_ingot', 1], ...TRIP, ...COOKED]), /^usual next step: obtain shield/);
 	const kit = [['iron_pickaxe', 1], ['water_bucket', 1], ['bucket', 1], ['flint_and_steel', 1], SHIELD];
 	assert.match(route([...kit, ...COOKED]), /^usual next step: find block minecraft:lava, then build nether_portal beside the pool \(casts the frame with your buckets, lights it\) \(water bucket held, plain blocks 0\/13, lava pools seen 0\)$/);
 	assert.match(route([...kit, ['cobblestone', 16], ...COOKED], {}, { ...emptyKnown(), lavaPools: [{ dimension: 'minecraft:overworld', x: 4, y: 60, z: 4 }] }),
@@ -57,15 +75,16 @@ test('ten carried obsidian and a lighter reach build without buckets, water, lav
 		assert.equal(line, `usual next step: build nether_portal (${obsidian} obsidian held)`);
 		assert.ok(Buffer.byteLength(line) <= ROUTE_BYTES);
 	}
-	assert.equal(route([...kit, ['obsidian', 9]]), 'usual next step: obtain bucket count 2 (iron 0 held, 6 needed for 2 buckets)');
+	assert.equal(route([...kit, ['obsidian', 9], ...TRIP]), 'usual next step: obtain iron_ingot count 6 in one trip, then craft the kit (kit iron 6: 2 buckets 6; 0 iron held)');
+	assert.equal(route([...kit, ['obsidian', 9], ['iron_ingot', 6], ...TRIP]), 'usual next step: obtain bucket count 2 (iron 6 held, 6 needed for 2 buckets)');
 	assert.equal(route([...kit, ['obsidian', 4], ['obsidian', 6]]), 'usual next step: build nether_portal (10 obsidian held)');
 });
 
 test('a carried frame still needs the lighter, without gathering casting buckets first', () => {
 	const kit = [['iron_pickaxe', 1], SHIELD, ['obsidian', 10], ...COOKED];
-	assert.equal(route(kit), 'usual next step: obtain flint_and_steel (iron 0 held, 1 needed for flint_and_steel)');
+	assert.equal(route([...kit, ...TRIP]), 'usual next step: obtain iron_ingot count 1 in one trip, then craft the kit (kit iron 1: flint_and_steel 1; 0 iron held)');
 	assert.equal(route([...kit, ['iron_ingot', 2], ['bucket', 1]]), 'usual next step: obtain flint_and_steel (iron 2 held, 1 needed for flint_and_steel)');
-	assert.equal(route([['iron_pickaxe', 1], SHIELD, ['obsidian', 9], ...COOKED]), 'usual next step: obtain bucket count 2, then flint_and_steel (iron 0 held, 7 needed for 2 buckets, flint_and_steel)');
+	assert.equal(route([['iron_pickaxe', 1], SHIELD, ['obsidian', 9], ['iron_ingot', 7], ...TRIP, ...COOKED]), 'usual next step: obtain bucket count 2, then flint_and_steel (iron 7 held, 7 needed for 2 buckets, flint_and_steel)');
 });
 
 test('the production continuity header offers a carried build from current inventory with empty portal memory', async () => {
@@ -76,15 +95,17 @@ test('the production continuity header offers a carried build from current inven
 	await views.observe(record, sample([...kit, ['obsidian', 10]]));
 	assert.equal(views.continuity(record).route, 'usual next step: build nether_portal (10 obsidian held)');
 	// Losing one obsidian returns the route to casting preparation instead of keeping the old carried-kit fact.
-	await views.observe(record, { ...sample([...kit, ['obsidian', 9]]), observedAtEpochMs: 11 });
+	await views.observe(record, { ...sample([...kit, ['obsidian', 9], ['iron_ingot', 6], ...TRIP]), observedAtEpochMs: 11 });
 	assert.match(views.continuity(record).route, /^usual next step: obtain bucket count 2/);
 });
 
 test('carried obsidian skips only casting needs and retains current tools, shield and survival facts', () => {
 	const frame = [['obsidian', 10], ['flint_and_steel', 1]];
 	assert.match(route(frame), /^usual next step: obtain wooden_pickaxe/);
-	assert.match(route([...frame, ['stone_pickaxe', 1], ['furnace', 1], ...COOKED]), /^usual next step: obtain iron_pickaxe/);
-	assert.match(route([...frame, ['iron_pickaxe', 1], ...COOKED]), /^usual next step: obtain shield/);
+	// The carried frame drops the buckets' iron from the trip: pickaxe 3 and shield 1.
+	assert.match(route([...frame, ['stone_pickaxe', 1], ['furnace', 1], ...TRIP, ...COOKED]), /^usual next step: obtain iron_ingot count 4 in one trip.*pickaxe 3, shield 1;/);
+	assert.match(route([...frame, ['stone_pickaxe', 1], ['furnace', 1], ['iron_ingot', 4], ...TRIP, ...COOKED]), /^usual next step: obtain iron_pickaxe/);
+	assert.match(route([...frame, ['iron_pickaxe', 1], ['iron_ingot', 1], ...TRIP, ...COOKED]), /^usual next step: obtain shield/);
 	assert.match(route([...frame, ['iron_pickaxe', 1], ['shield', 1], ...COOKED]), /^usual next step: equip_item shield to offhand/);
 	const ready = [...frame, ['iron_pickaxe', 1], SHIELD];
 	assert.match(route(ready, { health: 8, foodLevel: 20 }), /cooked meat.*before digging below Y40|before digging below Y40.*cooked meat/);
@@ -206,9 +227,12 @@ test('only a beat-the-game goal carries the route, and it rides the wake header 
 
 test('review: obtain counts are totals to hold, and a filled bucket counts toward the two', () => {
 	const COOKED = [['cooked_beef', 20]];
-	assert.match(route([['iron_pickaxe', 1], ['bucket', 1], SHIELD, ...COOKED]), /^usual next step: obtain bucket count 2,/);
-	assert.match(route([['iron_pickaxe', 1], ['water_bucket', 1], SHIELD, ...COOKED]), /^usual next step: obtain bucket count 1,/);
-	assert.match(route([['iron_pickaxe', 1], SHIELD, ...COOKED]), /^usual next step: obtain bucket count 2,/);
+	const IRON = [['iron_ingot', 7], ...TRIP];
+	assert.match(route([['iron_pickaxe', 1], ['bucket', 1], SHIELD, ...IRON, ...COOKED]), /^usual next step: obtain bucket count 2,/);
+	assert.match(route([['iron_pickaxe', 1], ['water_bucket', 1], SHIELD, ...IRON, ...COOKED]), /^usual next step: obtain bucket count 1,/);
+	assert.match(route([['iron_pickaxe', 1], SHIELD, ...IRON, ...COOKED]), /^usual next step: obtain bucket count 2,/);
+	// The trip's iron is a total to hold too: a bucket already made takes its 3 off the kit.
+	assert.match(route([['iron_pickaxe', 1], ['bucket', 1], SHIELD, ...TRIP, ...COOKED]), /^usual next step: obtain iron_ingot count 4 in one trip/);
 });
 
 test('offhand:<id> holds only for the item in the off hand slot', () => {
