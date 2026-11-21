@@ -4471,6 +4471,8 @@ public final class ServerActionExecutor {
 				case CONTROLLER -> !(controller instanceof dev.agaminggod.mineagen.server.runtime.controller.ServerShelterController)
 						&& !(controller instanceof ServerFightController) && !(controller instanceof ServerFleeController)
 						&& !(controller instanceof dev.agaminggod.mineagen.server.runtime.controller.ServerFightUntilController)
+						// The spawner hold steps off or punches out fire and hands back on lava itself, as the fights do.
+						&& !(controller instanceof dev.agaminggod.mineagen.server.runtime.controller.ServerSpawnerHoldController)
 						&& !(controller instanceof ServerDigController dig && dig.pattern() == ServerDigController.Pattern.SHAFT);
 				case IMMEDIATE, AIMED, USE, TRANSACTION -> false;
 			};
