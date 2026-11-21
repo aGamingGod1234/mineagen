@@ -587,7 +587,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 			}
 		}
 		outOfCellTicks = inCell ? 0 : outOfCellTicks + 1;
-		if (outOfCellTicks > OUT_OF_CELL_TICKS || !inCell && SpawnerHold.backToCell(player.getHealth())) {
+		if (!SpawnerHold.OPEN_FIGHT && outOfCellTicks > OUT_OF_CELL_TICKS || !inCell && SpawnerHold.backToCell(player.getHealth())) {
 			stopEngine(player);
 			returning = true;
 			return collect(player, now);
@@ -614,8 +614,11 @@ public final class ServerSpawnerHoldController implements ServerController {
 		args.addProperty("x", cell.getX() + 0.5D);
 		args.addProperty("y", cell.getY());
 		args.addProperty("z", cell.getZ() + 0.5D);
-		args.addProperty("pursue", false);
-		args.addProperty("collect", false);
+		// Open fight (SpawnerHold.OPEN_FIGHT): the model's own fight while healthy; the cell is where the body heals.
+		if (!SpawnerHold.OPEN_FIGHT) {
+			args.addProperty("pursue", false);
+			args.addProperty("collect", false);
+		}
 		if (!args.has("continueWithAttackers")) args.addProperty("continueWithAttackers", true);
 		if (!args.has("radius") || args.get("radius").getAsDouble() < SpawnerHold.SITE_MAX + 8.0D) args.addProperty("radius", SpawnerHold.SITE_MAX + 8.0D);
 		args.addProperty("timeoutMs", Math.max(1_000L, timeoutMs - elapsed));

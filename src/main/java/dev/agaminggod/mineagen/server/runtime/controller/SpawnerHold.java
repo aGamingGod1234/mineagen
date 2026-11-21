@@ -13,6 +13,12 @@ import net.minecraft.core.Direction;
 public final class SpawnerHold {
 	/** Off until live runs pass the rods bar; fixtures turn it on with -Dmineagen.fight.spawnerHold=true. */
 	public static final boolean ENABLED = "true".equals(System.getProperty("mineagen.fight.spawnerHold"));
+	/**
+	 * -Dmineagen.fight.spawnerHoldOpen=true: fight the model's own fight (pursue, its drops) while healthy and go back
+	 * into the cell to wall in and heal below TURTLE_HEALTH, instead of fighting from the cell. Real fortress room: the open
+	 * fight kept 39 rods in 9 runs, the cell fight 7; the plain spawner room: the open fight died in 8 of 10, healing nowhere.
+	 */
+	public static final boolean OPEN_FIGHT = Boolean.getBoolean("mineagen.fight.spawnerHoldOpen");
 	/** A seen fortress spawner within this many blocks of the body starts a hold. */
 	public static final double SCAN = 24.0D;
 	/** The cell stands this far (horizontal) from the spawner: a vanilla spawner runs only with a player within 16. */
