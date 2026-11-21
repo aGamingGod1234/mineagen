@@ -142,7 +142,9 @@ public final class ServerDigController implements ServerController {
 
 	private enum Phase { START, MINE, SETTLE_FALL, FLOOR, PLACE, MOVE, RETREAT, RECENTER, SHAFT_FALL, CAVE_LOOK }
 
-	private final Pattern pattern;
+	private Pattern pattern;
+	/** No pattern was named: the first tick picks stairs up or down from the feet then (inferDirection). */
+	private boolean inferDirection;
 	/** The shape being dug now: the requested pattern, or steep_down once a shaft passes maxShaftY. */
 	private Pattern active;
 	/** A shaft goes on as steep_down at or below this y (lava lakes and aquifer lava are common down there). */
@@ -315,11 +317,18 @@ public final class ServerDigController implements ServerController {
 			throw new IllegalArgumentException("tunnel needs x, z or a heading");
 	}
 
+	/** With no pattern named, the stairs go toward the target y from where the feet are on the first tick. */
+	public ServerDigController inferDirection(boolean infer) {
+		this.inferDirection = infer && pattern == Pattern.STAIRS_DOWN;
+		return this;
+	}
+
 	@Override
 	public TickResult tick(ServerPlayer player, long nowEpochMs) {
 		if (!started) {
 			started = true;
 			startY = player.blockPosition().getY();
+			if (inferDirection) { pattern = Pattern.parse(null, targetY, startY); active = pattern; }
 			// A down pattern toward a y above the feet (or stairs up toward one below) would count as there at once with
 			// nothing mined: refuse it instead of reporting success.
 			if (targetY != null && pattern != Pattern.TUNNEL && (pattern.down() ? targetY > startY : targetY < startY))

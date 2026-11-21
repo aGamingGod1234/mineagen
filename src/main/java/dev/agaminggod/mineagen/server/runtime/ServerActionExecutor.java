@@ -888,7 +888,7 @@ public final class ServerActionExecutor {
 						.descend((y, x, z, digTimeoutMs) -> digController(dev.agaminggod.mineagen.server.runtime.controller.ServerTravelController.staircase(
 								arguments, y, x, z, digTimeoutMs, player.blockPosition().getY()))));
 			}
-			case DIG_TO -> ActiveAction.controller(request, player, digController(arguments, player.blockPosition().getY()));
+			case DIG_TO -> ActiveAction.controller(request, player, digController(arguments));
 			case MINE_VEIN -> {
 				BlockPos at = blockPosition(arguments);
 				int maxBlocks = arguments.has("maxBlocks") ? integer(arguments, "maxBlocks")
@@ -2122,11 +2122,6 @@ public final class ServerActionExecutor {
 	}
 
 	private ServerDigController digController(JsonObject arguments) {
-		return digController(arguments, Integer.MIN_VALUE);
-	}
-
-	/** feetY: the body's feet, which picks the stairs' direction when no pattern is named (MIN_VALUE: down). */
-	private ServerDigController digController(JsonObject arguments, int feetY) {
 		Integer y = arguments.has("y") ? (int) Math.floor(number(arguments, "y")) : null;
 		Integer x = arguments.has("x") ? (int) Math.floor(number(arguments, "x")) : null;
 		Integer z = arguments.has("z") ? (int) Math.floor(number(arguments, "z")) : null;
@@ -2154,7 +2149,7 @@ public final class ServerActionExecutor {
 			}
 		};
 		try {
-			return new ServerDigController(ServerDigController.Pattern.parse(nullableString(arguments, "pattern"), y, feetY), y, x, z,
+			return new ServerDigController(ServerDigController.Pattern.parse(nullableString(arguments, "pattern")), y, x, z,
 					heading == null ? null : Direction.byName(heading),
 					arguments.has("maxBlocks") ? integer(arguments, "maxBlocks") : 1024,
 					arguments.has("timeoutMs") ? integer(arguments, "timeoutMs") : 600_000L, GameClock.nowMs(), environment,
@@ -2164,7 +2159,8 @@ public final class ServerActionExecutor {
 					.continuationOptions(arguments.has("throughCaves") ? arguments.get("throughCaves").getAsString() : "small",
 							ServerDigController.sealFluidsOption(arguments),
 							arguments.has("discard") ? java.util.stream.StreamSupport.stream(arguments.getAsJsonArray("discard").spliterator(), false).map(value -> value.getAsString()).toList() : java.util.List.of())
-					.acceptUnseenBelow(arguments.has("throughCaves") && arguments.get("throughCaves").getAsJsonPrimitive().isBoolean() && bool(arguments, "throughCaves"));
+					.acceptUnseenBelow(arguments.has("throughCaves") && arguments.get("throughCaves").getAsJsonPrimitive().isBoolean() && bool(arguments, "throughCaves"))
+					.inferDirection(nullableString(arguments, "pattern") == null);
 		} catch (IllegalArgumentException invalid) {
 			throw new AgentDomainException("INVALID_DIG_GOAL", invalid.getMessage());
 		}

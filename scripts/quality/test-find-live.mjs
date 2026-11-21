@@ -195,7 +195,10 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 				const entry = callEntry(call, result, { attempt, atS: Math.round((callStarted - t0) / 1000), seconds: Math.round((Date.now() - callStarted) / 1000) });
 				row.calls.push(entry);
 				// wait: a background step (do_step dig_to) finishes its body actions before the next call.
-				if (call.wait === true && ['RUNNING', 'PREPARING'].includes(result?.state)) await awaitActionReceipts(row, { deadline: t0 + budgetMs, stopped: async () => (await deaths()) > deathsBefore });
+				if (call.wait === true && ['RUNNING', 'PREPARING'].includes(result?.state)
+					&& (await awaitActionReceipts(row, { deadline: t0 + budgetMs, stopped: async () => (await deaths()) > deathsBefore })).length) {
+					row.ended = 'background step unfinished at the budget'; break;
+				}
 				// callFinish: operator commands read after every call (a stat before the next call), replies kept on the entry.
 				if (Array.isArray(spot.callFinish)) { entry.finish = []; for (const text of spot.callFinish) entry.finish.push({ command: text, reply: String(await s.command(text)).slice(0, 400) }); }
 				if (spot.dump) await writeFile(path.join(dir, `call-${callIndex}-${attempt}.json`), JSON.stringify(result, null, 2));
@@ -211,6 +214,8 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 				// The stand-in for a model after danger: give the reflexes (and regeneration, when hurt) a moment, then ask again.
 				if (result?.reasonCode === 'FIND_DANGER') await sleep((await health()) < 12 ? 15000 : 4000);
 			}
+			// A death, lost observations or an unfinished background step ends the spot: no later call runs.
+			if (row.ended) break;
 		}
 		// A background step (do_step build) returned RUNNING: take the readings only once each command has its receipt.
 		if (!row.ended) {

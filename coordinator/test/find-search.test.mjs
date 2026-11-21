@@ -1758,3 +1758,20 @@ test('cave first: no cave walk with a hostile within 24 blocks of the body (a se
 	await searchFor({ block: 'minecraft:iron_ore' }, body);
 	assert.equal(body.calls.some((call) => call.actionType === 'travel_to'), false);
 });
+
+test('cave first: a mob seen on any heading of the look rules out its cave; walks are time-capped; cave misses never hide ore', async () => {
+	const sweep = fakeBody({ frontier: { candidates: [], coverage: { headings: {} } },
+		looks: [{ survey: { caves: [cave(30, 50, 0)] }, samples: [{ entities: [{ type: 'minecraft:skeleton', x: 31, y: 50, z: 2 }] }, { entities: [] }] }], acts: { dig_to: [DOWN] } });
+	await searchFor({ block: 'minecraft:iron_ore' }, sweep);
+	assert.equal(sweep.calls.some((call) => call.actionType === 'travel_to'), false, 'the skeleton beside it was seen on an earlier heading');
+	const missed = [];
+	const capped = fakeBody({ frontier: { candidates: [], coverage: { headings: {} } }, looks: [{ survey: { caves: [cave(20, 50, 0)] } }],
+		acts: { travel_to: [{ result: { state: 'FAILED', reasonCode: 'NO_ROUTE', message: 'build is false' } }], dig_to: [DOWN] } });
+	capped.missPlace = (place, why) => missed.push({ ...place, why });
+	await searchFor({ block: 'minecraft:iron_ore' }, capped);
+	assert.equal(capped.calls.find((call) => call.actionType === 'travel_to').args.timeoutMs, 45_000);
+	assert.deepEqual(missed.map((row) => row.blockId), ['mineagen:cave'], 'a cave miss is typed, so ore and water searches ignore it');
+	const late = fakeBody({ frontier: { candidates: [], coverage: { headings: {} } }, looks: [{ survey: { caves: [cave(20, 50, 0)] } }], acts: { dig_to: [DOWN] } });
+	await searchFor({ block: 'minecraft:iron_ore' }, late, { timeoutMs: 100_000 });
+	assert.equal(late.calls.some((call) => call.actionType === 'travel_to'), false, 'too little time left for a walk and a dig after it');
+});

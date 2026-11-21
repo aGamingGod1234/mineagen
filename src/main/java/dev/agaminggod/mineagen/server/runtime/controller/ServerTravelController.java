@@ -215,13 +215,15 @@ public final class ServerTravelController implements ServerController {
 	static final int MAX_CROSSINGS = 2;
 	/**
 	 * With build on, sideways walks round rock (a seen spot 5-8 blocks off the bearing, no closer, at most BACKTRACK
-	 * farther) tried in a row before the body builds or tunnels; a leg that gets closer resets the count. A target this
-	 * close horizontally is a way down or up, not round. 19 Nov round: travel dug 1,590 blocks, 75% of Nether pickaxe
-	 * wear, because it built as soon as no seen spot was 2 blocks closer.
+	 * farther) tried in a row before the body builds or tunnels; getting closer than where the walks began, or a build or
+	 * dig, resets the count. A target this close horizontally is a way down or up, not round. 19 Nov round: travel dug
+	 * 1,590 blocks, 75% of Nether pickaxe wear, because it built as soon as no seen spot was 2 blocks closer.
 	 */
 	static final int MAX_WALK_AROUNDS = 2;
 	static final double WALK_AROUND_MIN_LEFT = 8.0D;
 	private int walkArounds, walkedAround;
+	/** How far from the target the body was when this run of walks round began: only getting past it resets the count. */
+	private double aroundFromLeft = Double.NaN;
 	static final long WADE_MS = 3_000L;
 	static final long CROSS_TIMEOUT_MS = 60_000L;
 	/** A far bank counts only when it leaves at least this much less of the trip than the bank swum from. */
@@ -927,6 +929,7 @@ public final class ServerTravelController implements ServerController {
 				&& Math.hypot(targetX - player.getX(), targetZ - player.getZ()) > WALK_AROUND_MIN_LEFT) {
 			GridPosition around = TravelCheckpoints.detour(legs, player.getX(), player.getY(), player.getZ(), targetX, targetZ, this::isRefused);
 			if (around != null) {
+				if (walkArounds == 0) aroundFromLeft = left(player.position());
 				walkArounds++;
 				walkedAround++;
 				refused.add(around);
@@ -1025,7 +1028,7 @@ public final class ServerTravelController implements ServerController {
 				leg = null;
 				legs++;
 				failedLegs = 0;
-				walkArounds = 0;
+				if (walkArounds > 0 && left(player.position()) < aroundFromLeft - PROGRESS_STEP) walkArounds = 0;
 				looks = 0;
 				buildRefusal = null;
 				phase = Phase.PLAN;
@@ -1067,7 +1070,7 @@ public final class ServerTravelController implements ServerController {
 		boolean noGain = result.state() == ServerController.State.SUCCEEDED && gained < NO_GAIN;
 		if (!noGain && (result.state() == ServerController.State.SUCCEEDED || gained >= PROGRESS_STEP)) {
 			failedLegs = 0;
-			walkArounds = 0;
+			if (walkArounds > 0 && left(player.position()) < aroundFromLeft - PROGRESS_STEP) walkArounds = 0;
 			looks = 0;
 			buildRefusal = null;
 			if (result.state() != ServerController.State.SUCCEEDED) refused.add(legTarget);
