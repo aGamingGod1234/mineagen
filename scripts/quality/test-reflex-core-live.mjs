@@ -210,7 +210,9 @@ try {
 	// 3. A pickaxe with one use left breaks mid-mining; the trigger swaps to the other pickaxe and the next break uses it.
 	if (only.length === 0 || only.includes('toolSwap')) {
 		await command(`tp ${agent} 0.5 80 0.5 0 30`);
-		await command(`item replace entity ${agent} hotbar.0 with minecraft:wooden_pickaxe[damage=58]`);
+		// break_block picks the best unworn pick itself; an enchanted held pick is the model's own choice and stays in
+		// hand, so the worn pick is the one that breaks (here) or runs low (toolWear) and the reflex gets its turn.
+		await command(`item replace entity ${agent} hotbar.0 with minecraft:wooden_pickaxe[damage=58,enchantments={"minecraft:efficiency":1}]`);
 		await command(`item replace entity ${agent} hotbar.3 with minecraft:stone_pickaxe`);
 		await command(`item replace entity ${agent} hotbar.1 with minecraft:dirt 4`);
 		await command('setblock 0 80 2 minecraft:stone'); await command('setblock 0 81 2 minecraft:stone');
@@ -279,7 +281,7 @@ try {
 		await command(`tp ${agent} 10.5 80 0.5 0 30`);
 		// Earlier checks leave another hotbar slot selected; the worn pickaxe goes into whichever slot is held.
 		const held = (await observe()).inventory?.selectedSlot ?? 0;
-		await command(`item replace entity ${agent} hotbar.${held} with minecraft:wooden_pickaxe[damage=55]`);
+		await command(`item replace entity ${agent} hotbar.${held} with minecraft:wooden_pickaxe[damage=55,enchantments={"minecraft:efficiency":1}]`);
 		await command(`item replace entity ${agent} inventory.11 with minecraft:stone_pickaxe`);
 		o = await setReflexes([{ id: 'fresh-pick', priority: 4, when: { type: 'tool_low', uses: 3, tool: 'pickaxe' }, do: { type: 'select', tool: 'pickaxe' } }]);
 		const breaks = [];
