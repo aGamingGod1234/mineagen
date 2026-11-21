@@ -22,7 +22,7 @@ import { readFile, writeFile, mkdir, readdir, appendFile } from 'node:fs/promise
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
-import { damageCounter, replyNumber } from './lib/damage-counter.mjs';
+import { damageCounter, statCounter, replyNumber } from './lib/damage-counter.mjs';
 import { adaptObservation } from '../../coordinator/src/observation-adapter.mjs';
 import { validateAction } from '../../coordinator/src/schema.mjs';
 
@@ -230,6 +230,9 @@ try {
 	const damage = await damageCounter(s.command, AGENT);
 	await s.command('scoreboard objectives add barter_deaths deathCount').catch(() => {});
 	const damage0 = await damage();
+	// Gold gained in the room: nuggets picked up (mined), in ingot units. Barter returns never include gold.
+	const nuggetPickups = await statCounter(s.command, AGENT, 'barter_nug', 'minecraft.picked_up:minecraft.gold_nugget');
+	const nuggets0 = await nuggetPickups();
 	// The first observations can predate the kit; wait until the inventory shows the sword the setup gave.
 	for (let i = 0; i < 20 && !items().some(x => x.itemId === 'minecraft:iron_sword'); i++) { await observe(); await sleep(500); }
 	if (!items().some(x => x.itemId === 'minecraft:iron_sword')) throw new Error('the kit never showed in an observation');
@@ -279,6 +282,7 @@ try {
 	const endTicks = await gameTicks();
 	await observe();
 	const damage1 = await damage();
+	const nuggetsPicked = (await nuggetPickups()) - nuggets0;
 	const deaths = replyNumber(await s.command(`scoreboard players get ${AGENT} barter_deaths`));
 	row.elapsedTicks = endTicks - startTicks;
 	row.finishedAt = Date.now();
@@ -286,8 +290,8 @@ try {
 	row.damageTaken = Number.isFinite(damage1) && Number.isFinite(damage0) ? (damage1 - damage0) / 10 : null;
 	row.pearls = dead ? null : held('minecraft:ender_pearl') - pearls0;
 	row.goldEnd = dead ? null : goldUnits();
-	row.ingotsTraded = dead ? null : +(gold0 - row.goldEnd).toFixed(2);
-	row.goldMined = room === 'mine' && !dead ? +(row.goldEnd + row.ingotsTraded).toFixed(2) : undefined;
+	row.goldMined = Number.isFinite(nuggetsPicked) ? +(nuggetsPicked / 9).toFixed(2) : null;
+	row.ingotsTraded = dead || row.goldMined === null ? null : +(gold0 + row.goldMined - row.goldEnd).toFixed(2);
 	const alive = String(await s.command(`execute in ${NETHER} if entity @e[type=minecraft:piglin,tag=barter_room]`).catch(() => ''));
 	row.piglinsAliveAtEnd = /count: (\d+)/i.test(alive) ? Number(/count: (\d+)/i.exec(alive)[1]) : /failed/i.test(alive) ? 0 : null;
 	const window = Math.max(row.elapsedTicks, 1);
