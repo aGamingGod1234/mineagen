@@ -203,7 +203,8 @@ const SHOWN_AT_60 = ['bed', 'bed-spawn', 'bow-crystal', 'build', 'caged-crystal'
 	'defend', 'dig', 'dragon', 'drawn-bow', 'end-breath', 'enderman', 'end-survive', 'end-void', 'find', 'find-spot', 'fire', 'gather', 'gold-route',
 	'knockback-edge', 'nether-fight', 'nether-gather', 'portal-walkin', 'ranged-blaze', 'reflex-failspots', 'route-recovery', 'savepoints', 'shelter',
 	'shelter-forest', 'shelter-ranged', 'shelter-terrain', 'travel-resume', 'warped-pearl', 'water'];
-const NEVER_RAISED = ['barter-odds', 'lag-clock', 'rest'];
+// escape arrived after the A/B and is not on the game clock yet; the others are never raised (see the README).
+const NEVER_RAISED = ['barter-odds', 'escape', 'lag-clock', 'rest'];
 test('only fixtures the A/B showed at 60 TPS take FIXTURE_TICK_RATE; the rest stay at 20', async () => {
 	const { readdir } = await import('node:fs/promises');
 	const dir = new URL('../../scripts/quality/', import.meta.url);

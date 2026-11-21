@@ -174,7 +174,8 @@ test('F1 air feedback distinguishes surfacing from travel and offers refill and 
 		player: { underWater: true, air: 290, maxAir: 300, waterMotion: 'sinking', breathable: { x: 666.5, y: 62.75, z: 2522.5, distance: 2, direction: 'up' } },
 	} });
 	assert.match(input.split('\n')[0], /14.5s air left; Breathable 666.5,62.75,2522.5 2m up/);
-	assert.match(input.split('\n')[0], /Surfacing alone does not advance a route.*Released input sinks; hold jump to refill.*moveTo travel.*doors create air/);
+	assert.match(input.split('\n')[0], /Surfacing alone does not advance a route.*do_step escape.*swims to air and out onto dry footing.*moveTo travel.*doors create air/);
+	assert.doesNotMatch(input.split('\n')[0], /hold jump/);
 });
 
 test('afloat recovery is explained after surfacing, including when the air bar is full', () => {

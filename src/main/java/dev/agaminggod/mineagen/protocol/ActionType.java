@@ -29,6 +29,7 @@ public enum ActionType {
 	CAST_OBSIDIAN("cast_obsidian"),
 	BARTER_UNTIL("barter_until"),
 	REST("rest"),
+	ESCAPE("escape"),
 	BUILD("build"),
 	TRAVEL_TO("travel_to"),
 	FIGHT_TARGET("fight_target"),

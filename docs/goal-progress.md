@@ -54,7 +54,31 @@ Where things stand:
 - **Furthest from scratch:** a Nether fortress and ender pearls. No fresh-world game has yet got blaze rods, eyes of ender, the stronghold, the End or the dragon.
 - **Late game, staged:** the agent has killed the dragon from a start already in the End twice: on 2026-10-26 in 44 minutes, on older code, and on 2026-11-14 in 7 minutes. On 2026-11-14 it also entered the End once, in 11 minutes, from a start holding twelve eyes.
 - **Biggest walls:** reaching the Nether reliably (one seed has never got there in three rounds), then finding a fortress and getting blaze rods once there.
-- **Deaths:** about 2.6 per game. The 30 games in the table had 78 deaths: skeleton arrows (28), zombies (12), lava (9, all after the agent had reached the Nether), Drowned mobs (5), creepers (4), spiders (4), drowning (2) and other or unknown causes (14).
+- **Deaths:** about 2.6 per game. The 30 games in rounds 2 to 6 had 78 deaths: skeleton arrows (29), zombies (13), lava (10, all after the agent had reached the Nether), Drowned mobs (5), creepers (4), spiders (4), fire (3), endermen (3), wither skeletons (2), drowning (2), one piglin, one hoglin and one fall onto a stalagmite. None is unknown: a recount on 2026-11-21 read each death's server receipt. The first count had 14 as other or unknown, 8 of them named causes outside its list and 6 deaths the round record saw only as a death counter step.
+
+## How testing works
+
+Changes are tested in four tiers, from fastest to slowest:
+
+1. **Decision tests**: automated checks that one decision comes out right, such as which block to step on or when to raise the shield. They run on every change.
+2. **Practice rooms**: a few minutes of real play in a small staged situation, such as lava beside the path or an enderman out of reach, with no model calls. A change plays the same rooms with and without it, and the counts are compared. Every gameplay change runs them.
+3. **Checkpoint runs**: games with the model from a save point partway along the route, run overnight. They test what rooms cannot, such as what the model decides.
+4. **Full games from scratch**: the status table above, the scoreboard for the goal.
+
+A room or a game can come out differently with no code change, so each result is a count over repeats. From now on each room plays 10 times a side, and a games round plays 8 seeds. A gap of one or two passes in 10 rooms (a rule of thumb from chance alone) or under 2 seeds in a round (measured from repeated seeds) counts as no change. A room that did not play properly is invalid and is played again, and a game with a missing record is unknown; neither counts as a pass. The commands for each tier are in [Which test to run](../scripts/quality/README.md#which-test-to-run).
+
+## Practice rooms on 2026-11-21
+
+Four gameplay changes merged today, each measured in practice rooms against the code before it. These are rooms, not full games, so they do not count toward the status table.
+
+| Change | Room | Before | After |
+|---|---|---|---|
+| Lava safety (#35) | lava at the bot's own level | died in lava 9 of 9 | 0 of 9 |
+| End breath escape (#36) | dragon breath in the End | lost 18 to 30 HP in each of 23 rooms, 2 deaths | 0 HP lost, 0 deaths in 28 of 28 |
+| Unreachable enderman (#39; its switch is on by default since 21 Nov) | an enderman the bot cannot reach | killed it 0 of 5 | 5 of 5 with the switch on |
+| Shield on a drawn bow (#30) | a skeleton shooting from 4 to 10 blocks | shield stopped 67% of the arrow damage | 81% (24 cases each) |
+
+The first three gaps are all-or-nothing and safe to trust. The shield gain held in 18 of 24 paired cases but is about 3 points either way, and it showed no gain at 10 blocks.
 
 ## Keeping this page current
 

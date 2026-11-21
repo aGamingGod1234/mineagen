@@ -11,6 +11,7 @@ import {
 	toolAdjustments,
 	minecraftCapabilities,
 	UNSEARCHABLE_BLOCKS,
+	STEP_ONLY_ACTIONS,
 } from '../src/native-minecraft-tools.mjs';
 import { ARENA_SCRIPT_API_REFERENCE } from '../src/prompts.mjs';
 import { ACTION_FIELDS } from '../src/constants.mjs';
@@ -118,11 +119,14 @@ test('every native actionType entry point advertises exactly the catalogue enum 
 		replaceAction: MINECRAFT_DYNAMIC_TOOLS.find(({ name }) => name === 'replaceAction').inputSchema.properties.actionType,
 		sequence: MINECRAFT_DYNAMIC_TOOLS.find(({ name }) => name === 'sequence').inputSchema.properties.actions.items.properties.actionType,
 	};
-	assert.equal(catalogue.length, 49); // 40 + dig_to + travel_to + build_shelter + fight_until + cast_obsidian + barter_until + mine_vein + rest + build
+	assert.equal(catalogue.length, 50); // 40 + dig_to + travel_to + build_shelter + fight_until + cast_obsidian + barter_until + mine_vein + rest + build + escape
+	// Step-only actions (escape) run through do_step and programs; the raw action enums leave them out to save tool bytes.
+	const advertised = catalogue.filter(type => !STEP_ONLY_ACTIONS.has(type));
+	assert.deepEqual([...STEP_ONLY_ACTIONS].filter(type => !catalogue.includes(type)), []);
 	for (const [tool, schema] of Object.entries(schemas)) {
 		// A plain string enum is valid under OpenAI strict mode, Anthropic input_schema and Gemini function declarations.
 		assert.equal(schema.type, 'string', tool);
-		assert.deepEqual([...schema.enum], catalogue, tool);
+		assert.deepEqual([...schema.enum], advertised, tool);
 		assert.equal(new Set(schema.enum).size, schema.enum.length, tool);
 	}
 	const cases = JSON.parse(readFileSync(new URL('../../src/test/resources/player-action-schema-cases.json', import.meta.url), 'utf8'));
@@ -480,7 +484,8 @@ test('advertised native actions exactly match Java model-authored dispatch', asy
 		.sort();
 	const advertisedActions = advertisedActionTypes().toSorted();
 
-	assert.deepEqual(advertisedActions, javaActions);
+	assert.deepEqual(advertisedActions, javaActions.filter(type => !STEP_ONLY_ACTIONS.has(type)));
+	for (const type of STEP_ONLY_ACTIONS) assert.ok(javaActions.includes(type), `${type} runs from do_step and programs`);
 	assert.ok(advertisedActions.includes('pick_up_item'), 'working Java pickup controller remains reachable');
 	assert.ok(advertisedActions.includes('fight_target') && advertisedActions.includes('flee_from'), 'Java fight/flee controllers are reachable');
 	for (const unsupportedComposite of ['build_sequence', 'follow_entity']) {
@@ -799,7 +804,7 @@ test('act advertises every action field signature exactly as validation requires
 	const { description } = MINECRAFT_DYNAMIC_TOOLS.find(({ name }) => name === 'act').inputSchema.properties.arguments;
 	const advertised = Object.fromEntries([...description.matchAll(/([a-z_]+)\(([^)]*)\)/g)]
 		.map(([, type, fields]) => [type, fields ? fields.split(',') : []]));
-	assert.deepEqual(Object.keys(advertised), Object.keys(ACTION_FIELDS));
+	assert.deepEqual(Object.keys(advertised), Object.keys(ACTION_FIELDS).filter(type => !STEP_ONLY_ACTIONS.has(type)));
 	for (const [type, fields] of Object.entries(advertised)) {
 		const { requiredFields, optionalFields } = minecraftCapabilities().actions.find(({ actionType }) => actionType === type);
 		assert.deepEqual(fields.filter((field) => !field.endsWith('?')), requiredFields, `${type} required fields`);

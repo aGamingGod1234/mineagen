@@ -172,7 +172,8 @@ export class Tail {
 	async poll() {
 		let current;
 		try { current = await open(this.file, 'r'); } catch (e) { if (e.code === 'ENOENT') return this.handle ? this.drain(this.handle) : []; throw e; }
-		const stat = await current.stat(), identity = `${stat.dev}:${stat.ino}`;
+		// Windows file IDs pass 2^53, so a Number ino rounds and two files can share it; bigint keeps it exact.
+		const stat = await current.stat({ bigint: true }), identity = `${stat.dev}:${stat.ino}`;
 		const rows = [];
 		if (this.handle && this.identity !== identity) {
 			// Retaining the descriptor lets us drain the old inode even after rotation renamed or deleted it.

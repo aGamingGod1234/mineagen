@@ -2,9 +2,9 @@
 // Provider-free live room for -Dmineagen.fight.skipUnreachable (UnreachableTargets): an angry enderman fenced in on a
 // 4-high pillar the body cannot reach, and a calm one on the open floor. Each trial runs one production fight_until
 // (enderman until one more ender pearl, 120 s) and counts the sword approaches that ended unreachable, the kills and the
-// time to the first pearl. SKIP_UNREACHABLE=1 starts the server with the switch on; run once off and once on.
+// time to the first pearl. The switch is on by default; SKIP_UNREACHABLE=0 starts the server with it off, the control arm.
 // A trial passes when the pillar enderman was provoked, the reachable one was killed, at most 3 approaches ended
-// unreachable and the body lived: the switch-on bar. The pearl is recorded, not judged (a kill drops 0 or 1, vanilla). Run the switch-off control with --descriptive (today it is pinned and fails the bar).
+// unreachable and the body lived: the switch-on bar. The pearl is recorded, not judged (a kill drops 0 or 1, vanilla). Run the switch-off control with --descriptive (it is pinned and fails the bar).
 // Exit (strict, the default): 0 all passed, 1 a trial failed, 2 invalid evidence (an error or missing trials).
 // FIXTURE_TICK_RATE runs each trial faster: the room is built at 20 TPS, and from the provoking stare to the end of the
 // fight_until call the trial runs at the raised rate, its watch windows and seconds on the fixture clock (s.clock, game
@@ -18,7 +18,7 @@ import { MOD_JAR } from './mod-jar.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 import { damageCounter, damageEvidence, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
 
-const USAGE = 'Usage: [SKIP_UNREACHABLE=1] [TRIALS=3] test-unreachable-enderman-live.mjs OUT_DIR [--strict|--descriptive] under slot.sh live, with JAVA_HOME and ARENA_HEADLESS_SERVER_TEMPLATE';
+const USAGE = 'Usage: [SKIP_UNREACHABLE=0] [TRIALS=3] test-unreachable-enderman-live.mjs OUT_DIR [--strict|--descriptive] under slot.sh live, with JAVA_HOME and ARENA_HEADLESS_SERVER_TEMPLATE';
 const cli = process.argv.slice(2);
 if (cli.includes('--help')) { console.log(USAGE + '\n' + EDIT_LOOP_HELP + '\n' + FIXTURE_OUTCOME_HELP); process.exit(0); }
 const strict = !cli.includes('--descriptive');
@@ -28,9 +28,9 @@ const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port = Number(proce
 if (!outArg || !template || !port || !process.env.JAVA_HOME) { console.error(USAGE); process.exit(2); }
 const out = path.resolve(outArg);
 const jar = path.resolve(process.env.ARENA_JAR ?? path.join(root, MOD_JAR));
-const on = process.env.SKIP_UNREACHABLE === '1';
+const on = process.env.SKIP_UNREACHABLE !== '0';
 const TRIALS = Number(process.env.TRIALS ?? 3), CALL_MS = Number(process.env.CALL_MS ?? 120000);
-if (on) process.env.REPLAY_JAVA_OPTS = `${process.env.REPLAY_JAVA_OPTS ?? ''} -Dmineagen.fight.skipUnreachable=true`.trim();
+process.env.REPLAY_JAVA_OPTS = `${process.env.REPLAY_JAVA_OPTS ?? ''} -Dmineagen.fight.skipUnreachable=${on}`.trim();
 const { boot, unshownTickRate } = await import('./watch-replay.mjs');
 await mkdir(out, { recursive: true });
 if ((await readdir(out)).length) throw new Error('Use a fresh output directory');
