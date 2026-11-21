@@ -1703,6 +1703,18 @@ test('cave first: at most two walks, and a mob met on a walk ends the walking', 
 	assert.equal(walks(mob), 1, 'no second cave walk after the mob');
 });
 
+test('cave first: the walk back to where the cave walks began that stops for damage hands back, it does not dig on', async () => {
+	const body = fakeBody({ frontier: { candidates: [], coverage: { headings: {} } }, looks: [{ survey: { caves: [cave(20, 50, 0)] } }],
+		acts: { travel_to: [
+			// The walk into the cave gives up 9 blocks out, so the body walks back before digging.
+			{ move: () => ({ x: 9.5, z: 0.5 }), result: { state: 'FAILED', reasonCode: 'NO_ROUTE', message: 'No seen standing spot ahead gets closer, and build is false' } },
+			{ move: () => ({ health: 10 }), result: { state: 'FAILED', reasonCode: 'TRAVEL_DAMAGED', message: 'Stopped: lost 10 health on the way' } },
+		], dig_to: [DOWN] } });
+	const result = await searchFor({ block: 'minecraft:iron_ore' }, body);
+	assert.equal(result.reasonCode, 'FIND_DANGER', result.message);
+	assert.equal(body.calls.some((call) => call.actionType === 'dig_to'), false, 'no dig after the damaged walk back');
+});
+
 test('cave first runs once, before the first dig: a cave the descent opened after a mob stop is not walked to', async () => {
 	const body = fakeBody({ start: sample({ inventory: { items: [{ itemId: 'minecraft:stone_sword', count: 1 }, { itemId: 'minecraft:cobblestone', count: 20 }] } }),
 		frontier: { candidates: [], coverage: { headings: {} } },

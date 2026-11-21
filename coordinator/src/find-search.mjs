@@ -1236,7 +1236,9 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 					body.missPlace?.({ x: cave.x, y: cave.y, z: cave.z, blockId: CAVE_MISS }, 'flooded cave');
 					if (observation?.player?.underWater === true) { const drowning = await surface(); if (drowning !== null) return drowning; }
 					const back = await leg('back out of the flooded cave', 'travel_to', { x: from.x, y: from.y, z: from.z, tolerance: 2, build: false, stopWhenSeen: profile.stopId });
-					if (back.seen || back.interrupted || back.ended) return settle(back);
+					// Every return walk is settled: one that stopped for damage or danger carries only its result.
+					const out = await settle(back);
+					if (out !== null) return out;
 					break;
 				}
 				const walked = await settle(walk);
@@ -1255,7 +1257,8 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 			const stopped = bodyAt(observation);
 			if (tried > 0 && entered === 0 && flooded === 0 && stopped !== null && Math.hypot(stopped.x - from.x, stopped.y - from.y, stopped.z - from.z) > 2) {
 				const back = await leg('back to where the cave walks began', 'travel_to', { x: from.x, y: from.y, z: from.z, tolerance: 1.5, build: false, stopWhenSeen: profile.stopId, timeoutMs: CAVE_WALK_MS });
-				if (back.seen || back.interrupted || back.ended) return settle(back);
+				const out = await settle(back);
+				if (out !== null) return out;
 			}
 			if (tried > 0) {
 				const now = bodyAt(observation);

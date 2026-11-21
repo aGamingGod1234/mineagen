@@ -205,14 +205,16 @@ async function runCourse(s, course) {
 	}
 	// Pickaxe uses over the course (vanilla's used statistic per tier): the wear travel spends digging and building.
 	const PICKS = ['wooden', 'stone', 'golden', 'iron', 'diamond', 'netherite'];
+	// A counter that could not be zeroed or read leaves the totals unknown, never a partial total that reads as less wear.
+	const counterFailures = [];
 	for (const tier of PICKS) {
 		await s.command(`scoreboard objectives add tpk_${tier} minecraft.used:minecraft.${tier}_pickaxe`).catch(() => {});
-		await s.command(`scoreboard players set ${AGENT} tpk_${tier} 0`).catch(() => {});
+		await s.command(`scoreboard players set ${AGENT} tpk_${tier} 0`).catch(error => { counterFailures.push(`tpk_${tier} not zeroed: ${error?.message ?? error}`); });
 	}
 	// Blocks broken over the course, by the ground travel digs through in each dimension (vanilla's mined statistic).
 	for (const [i, block] of MINED.entries()) {
 		await s.command(`scoreboard objectives add tmb_${i} minecraft.mined:minecraft.${block}`).catch(() => {});
-		await s.command(`scoreboard players set ${AGENT} tmb_${i} 0`).catch(() => {});
+		await s.command(`scoreboard players set ${AGENT} tmb_${i} 0`).catch(error => { counterFailures.push(`tmb_${i} not zeroed: ${error?.message ?? error}`); });
 	}
 	const clockObservation = await observe(s);
 	const startGameTick = clockObservation.world?.gameTime;
@@ -327,10 +329,22 @@ async function runCourse(s, course) {
 		sampling = false;
 		await sampler;
 	}
-	run.blocksMined = 0;
-	for (const i of MINED.keys()) run.blocksMined += Number(/has (\d+) \[/.exec(String(await s.command(`scoreboard players get ${AGENT} tmb_${i}`).catch(() => '')))?.[1] ?? 0);
-	run.pickaxeUses = 0;
-	for (const tier of PICKS) run.pickaxeUses += Number(/has (\d+) \[/.exec(String(await s.command(`scoreboard players get ${AGENT} tpk_${tier}`).catch(() => '')))?.[1] ?? 0);
+	const sumCounters = async objectives => {
+		let total = 0;
+		for (const objective of objectives) {
+			const text = String(await s.command(`scoreboard players get ${AGENT} ${objective}`).catch(error => { counterFailures.push(`${objective} not read: ${error?.message ?? error}`); return ''; }));
+			const value = /has (\d+) \[/.exec(text)?.[1];
+			if (value === undefined) { if (text) counterFailures.push(`${objective} read as: ${text.slice(0, 80)}`); total = null; continue; }
+			if (total !== null) total += Number(value);
+		}
+		return total;
+	};
+	run.blocksMined = await sumCounters([...MINED.keys()].map(i => `tmb_${i}`));
+	run.pickaxeUses = await sumCounters(PICKS.map(tier => `tpk_${tier}`));
+	if (counterFailures.length || run.blocksMined === null || run.pickaxeUses === null) {
+		run.blocksMined = null; run.pickaxeUses = null;
+		run.integrity = [...(Array.isArray(run.integrity) ? run.integrity : []), { file: 'scoreboard', error: `travel counters unknown: ${counterFailures.join('; ') || 'a counter read failed'}`.slice(0, 400) }];
+	}
 	const endObservation = s.dead ? null : await observe(s);
 	const end = s.dead ? last : positionOf(endObservation);
 	if (Number.isFinite(endObservation?.world?.gameTime)) lastGameTick = endObservation.world.gameTime;
