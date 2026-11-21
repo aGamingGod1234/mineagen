@@ -338,7 +338,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 			if (!SpawnerHold.siteInRange(horizontal, dy)) continue;
 			BlockPos center = spawner.offset(dx, dy, dz);
 			if (triedSites.contains(center) || !standable(player, seen, center)) continue;
-			Direction toward = SpawnerHold.facing(-dx, -dz);
+			Direction toward = SpawnerHold.DOOR_AWAY ? SpawnerHold.facing(dx, dz) : SpawnerHold.facing(-dx, -dz);
 			int blocks = 0;
 			boolean firm = true;
 			for (BlockPos at : shelterCells(center, toward)) {
