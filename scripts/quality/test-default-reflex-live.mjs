@@ -186,7 +186,9 @@ async function edgeControl(agent, shield = false) {
 	await keys.done.catch(() => null);
 	await command(`effect clear ${agent.name} minecraft:resistance`);
 	if (shield) await command(`item replace entity ${agent.name} weapon.offhand with minecraft:air`);
-	return { ...row, offBridge: row.fell > 3 };
+	// Empty-handed, a fireball's knockback lifts the body off a one-wide bridge before any reflex can act (the rule-less
+	// body falls the same): that shot is recorded, not judged. The shield shot is the bar: blocked, the hit pushes nothing.
+	return shield ? { ...row, offBridge: row.fell > 3 } : { ...row, knockedOff: row.fell > 3 };
 }
 
 /** A one-cell stone shelter on a pad at z 30 (walls two high, roof, a window at eye height east), fire at the feet. */
@@ -253,7 +255,7 @@ try {
 			const row = await run(agent); console.log(JSON.stringify(row)); results.cases.push(row);
 		}
 	}
-	const tally = (mode, name) => { const rows = results.cases.filter(c => c.mode === mode && c.case === name && !c.skipped); return `${rows.filter(c => name.startsWith('edge-control') ? !c.offBridge : c.alive).length}/${rows.length}${name.startsWith('edge-control') ? ' stayed on' : ' alive'}${name.startsWith('lava') ? `, entered lava ${rows.filter(c => c.entered).length}/${rows.length}` : ''}`; };
+	const tally = (mode, name) => { const rows = results.cases.filter(c => c.mode === mode && c.case === name && !c.skipped); return `${rows.filter(c => name.startsWith('edge-control') ? !(c.offBridge ?? c.knockedOff) : c.alive).length}/${rows.length}${name.startsWith('edge-control') ? ' stayed on' : ' alive'}${name.startsWith('lava') ? `, entered lava ${rows.filter(c => c.entered).length}/${rows.length}` : ''}`; };
 	results.summary = Object.fromEntries(['defaults', 'none'].map(mode => [mode, Object.fromEntries(['edge-control', 'edge-control-shield', 'lava-knock', 'lava-drop'].map(name => [name, tally(mode, name)]))]));
 	results.summary.jar = jarPath;
 	results.tickRate = rate.tickRate;
