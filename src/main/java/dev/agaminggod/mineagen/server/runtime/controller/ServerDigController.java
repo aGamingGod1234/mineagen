@@ -63,6 +63,15 @@ public final class ServerDigController implements ServerController {
 			throw new IllegalArgumentException("pattern must be stairs_down, steep_down, stairs_up, tunnel or shaft");
 		}
 
+		/**
+		 * The named pattern, or with none named the stairs toward the target y from the body's feet: up when it is above,
+		 * else down. 19 Nov round: two escape climbs from skeletons with no pattern dug stairs_down and "reached" y-24 at 0 blocks.
+		 */
+		public static Pattern parse(String value, Integer targetY, int feetY) {
+			if (value == null && targetY != null && targetY > feetY) return STAIRS_UP;
+			return parse(value);
+		}
+
 		boolean down() {
 			return this == STAIRS_DOWN || this == STEEP_DOWN || this == SHAFT;
 		}
@@ -311,6 +320,12 @@ public final class ServerDigController implements ServerController {
 		if (!started) {
 			started = true;
 			startY = player.blockPosition().getY();
+			// A down pattern toward a y above the feet (or stairs up toward one below) would count as there at once with
+			// nothing mined: refuse it instead of reporting success.
+			if (targetY != null && pattern != Pattern.TUNNEL && (pattern.down() ? targetY > startY : targetY < startY))
+				return TickResult.failed("INVALID_DIG_GOAL", summary(player, "Stopped: " + pattern.wireName() + " goes " + (pattern.down() ? "down" : "up")
+						+ ", but y" + targetY + " is " + (pattern.down() ? "above" : "below") + " the feet at y" + startY + "; use "
+						+ (pattern.down() ? "stairs_up" : "stairs_down") + " or leave pattern out"), progress(player));
 			lastHealth = player.getHealth();
 			startHealth = lastHealth;
 			// A same-column x/z goal has no bearing; plan() still steers toward any horizontal displacement.

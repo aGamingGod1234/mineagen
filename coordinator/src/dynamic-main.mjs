@@ -7098,7 +7098,7 @@ function runningActionFacts(action, start, authored, player) {
 	}
 	if (action.actionType === 'fight_target' && Number.isFinite(args.fleeAtHealth)) facts.fleeAtHealth = args.fleeAtHealth;
 	// A dig runs for minutes: its goal stays in view while it digs.
-	if (action.actionType === 'dig_to') facts.to = `${args.pattern ?? 'stairs_down'}${Number.isFinite(args.y) ? ` y${args.y}` : ''}${Number.isFinite(args.x) ? ` x${args.x}` : ''}${Number.isFinite(args.z) ? ` z${args.z}` : ''}${args.heading ? ` ${args.heading}` : ''}`;
+	if (action.actionType === 'dig_to') facts.to = `${args.pattern ?? 'stairs'}${Number.isFinite(args.y) ? ` y${args.y}` : ''}${Number.isFinite(args.x) ? ` x${args.x}` : ''}${Number.isFinite(args.z) ? ` z${args.z}` : ''}${args.heading ? ` ${args.heading}` : ''}`;
 	if (start?.actionId === action.actionId && Number.isFinite(start.health) && Number.isFinite(player?.health)) {
 		const before = Math.ceil(start.health), now = Math.ceil(player.health);
 		if (now < before) facts.hurtWhileRunning = `${before}->${now}`;
