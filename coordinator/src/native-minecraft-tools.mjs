@@ -131,9 +131,9 @@ export const MINECRAFT_DYNAMIC_TOOLS = Object.freeze([
 		section: { type: 'string', enum: INSPECTION_SECTIONS }, offset: integerSchema(0, 4_096), limit: integerSchema(1, 32),
 		slot: integerSchema(0, 255), x: integerSchema(-COORDINATE_LIMIT, COORDINATE_LIMIT), y: integerSchema(-2_048, 2_048), z: integerSchema(-COORDINATE_LIMIT, COORDINATE_LIMIT),
 		afterSequence: integerSchema(0, Number.MAX_SAFE_INTEGER),
-		recipeId: { type: 'string', minLength: 1, maxLength: 256, pattern: '^[a-z0-9_.-]+:[a-z0-9_./-]+$' },
-		entityType: { type: 'string', minLength: 1, maxLength: 256, pattern: '^[a-z0-9_.-]+:[a-z0-9_./-]+$' },
-		outputItemId: { type: 'string', minLength: 1, maxLength: 256, pattern: '^[a-z0-9_.-]+:[a-z0-9_./-]+$' },
+		recipeId: { type: 'string', maxLength: 256, pattern: '^[a-z0-9_.-]+:[a-z0-9_./-]+$' },
+		entityType: { type: 'string', maxLength: 256, pattern: '^[a-z0-9_.-]+:[a-z0-9_./-]+$' },
+		outputItemId: { type: 'string', maxLength: 256, pattern: '^[a-z0-9_.-]+:[a-z0-9_./-]+$' },
 		include: { type: 'array', items: { type: 'string' } }, exclude: { type: 'array', items: { type: 'string' } },
 	}, ['section'])),
 	tool('actionStatus', objectSchema({ actionId: { type: 'string', minLength: 1, maxLength: 128 } })),
@@ -227,7 +227,7 @@ export const MINECRAFT_DYNAMIC_TOOLS = Object.freeze([
 	tool('say', objectSchema({
 		message: { type: 'string', minLength: 1, maxLength: MAX_CHAT_LENGTH },
 		audience: { type: 'string', enum: ['public', 'direct', 'proximity'] },
-		recipientId: { type: 'string', minLength: 36, maxLength: 36, pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' },
+		recipientId: { type: 'string', pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' },
 	}, ['message'])),
 	tool('wait', objectSchema({
 		durationMs: integerSchema(MIN_DURATION_MS, MAX_DURATION_MS),
@@ -252,7 +252,7 @@ export const MINECRAFT_DYNAMIC_TOOLS = Object.freeze([
 	tool('takeTask', objectSchema({
 		request: { type: 'string', minLength: 1, maxLength: 512 },
 		resume: { type: 'boolean' },
-		requesterId: { type: 'string', minLength: 36, maxLength: 36, pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' },
+		requesterId: { type: 'string', pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' },
 	})),
 	tool('finish', objectSchema({
 		summary: { type: 'string', minLength: 1, maxLength: 512 },
@@ -1425,7 +1425,8 @@ function objectSchema(properties, required = []) {
 }
 
 function numberSchema(minimum, maximum) { return { type: 'number', minimum, maximum }; }
-function integerSchema(minimum, maximum) { return { type: 'integer', minimum, maximum }; }
+// Integers are validated as safe integers, so a Number.MAX_SAFE_INTEGER maximum adds nothing (324 tool-list bytes).
+function integerSchema(minimum, maximum) { return maximum === Number.MAX_SAFE_INTEGER ? { type: 'integer', minimum } : { type: 'integer', minimum, maximum }; }
 
 function requireObject(value) {
 	if (value === null || typeof value !== 'object' || Array.isArray(value)) invalid('arguments must be an object');
