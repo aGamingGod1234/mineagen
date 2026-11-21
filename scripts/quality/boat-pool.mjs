@@ -182,11 +182,15 @@ if (command === 'status') {
 				try {
 					// A machine a live batch holds is that batch's: its rooms may sit between steps.
 					if (leased.has(item.name)) { working++; await pool.holdFor(item, idleStopSeconds); continue; }
-					const state = await execRemote(item.id, WORK_SCRIPT, { timeoutSeconds: 30 }).catch(() => 'unknown');
-					const remaining = item.archiveAfter == null ? Infinity : Date.parse(item.archiveAfter) - Date.now();
-					if (/busy/.test(state)) { working++; await pool.holdFor(item, idleStopSeconds); }
-					// Idle: auto-stop no later than --idle-stop-min from now (turned on if it was off, brought in if it was further).
-					else if (/idle/.test(state) && remaining > idleStopSeconds * 1000 + 60_000) { stopping++; await extendMachine(item.id, idleStopSeconds); log(`${item.name} (${item.id}) is idle: it stops in ${Math.round(idleStopSeconds / 60)} min unless work starts`); }
+					// The decision runs under the machine's lease, so no batch can take it between the check and the new deadline.
+					if (!await store.take([item.name], { batch: 'boat-pool idle-stop' })) { working++; continue; }
+					try {
+						const state = await execRemote(item.id, WORK_SCRIPT, { timeoutSeconds: 30 }).catch(() => 'unknown');
+						const remaining = item.archiveAfter == null ? Infinity : Date.parse(item.archiveAfter) - Date.now();
+						if (/busy/.test(state)) { working++; await pool.holdFor(item, idleStopSeconds); }
+						// Idle: auto-stop no later than --idle-stop-min from now (turned on if it was off, brought in if it was further).
+						else if (/idle/.test(state) && remaining > idleStopSeconds * 1000 + 60_000) { stopping++; await extendMachine(item.id, idleStopSeconds); log(`${item.name} (${item.id}) is idle: it stops in ${Math.round(idleStopSeconds / 60)} min unless work starts`); }
+					} finally { await store.drop(item.name, { idle: false }); }
 				} catch (error) { failed++; log(`could not set the idle stop of ${item.id}: ${error.message}`); }
 			}
 		}
