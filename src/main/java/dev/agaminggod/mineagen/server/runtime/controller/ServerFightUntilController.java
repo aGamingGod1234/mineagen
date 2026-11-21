@@ -142,6 +142,17 @@ public final class ServerFightUntilController implements ServerController {
 	static final double SIGHT_RANGE = 96.0D;
 	static final long SIGHTING_MS = 120_000L;
 	static final double HUNT_ARRIVE = 3.0D;
+	/**
+	 * Calm endermen this far off are stared at from where the body stands when none is in the area (vanilla's enderman
+	 * looks for staring players out to its 64-block follow range): a player provokes the one on a shelf or across lava
+	 * and lets it come. Real games ended such hunts NO_TARGET_SEEN with the enderman in view outside the area.
+	 */
+	static final double STARE_RANGE = 64.0D;
+	/** An angry enderman teleports toward its target only from farther than this (vanilla: 16 blocks). */
+	static final double TELEPORT_RANGE = 16.0D;
+	/** How far from an angry enderman the sword cannot reach the body backs off, so it teleports across to the body. */
+	static final double DRAW_DISTANCE = 19.0D;
+	static final int MAX_DRAW_OVERS = 4;
 	static final long HUNT_WALK_MS = 25_000L;
 
 	private final ServerProtectionPolicy protection;
@@ -306,6 +317,10 @@ public final class ServerFightUntilController implements ServerController {
 	private long holdSinceMs;
 	private int stares;
 	private int staresProvoked;
+	/** Stares at calm endermen beyond the area or out of the sword's reach, and back-offs that drew an angry one across. */
+	private int farStares;
+	private int drawOvers;
+	private ServerController drawWalk;
 	private int holds;
 	private int attackerSoftEnds;
 	/** The low-health perch (endermen): the column's base cell, blocks placed, ticks spent; done once per call. */
@@ -608,6 +623,11 @@ public final class ServerFightUntilController implements ServerController {
 			}
 		}
 		LivingEntity target = nextTarget(player, elapsed);
+		if (target == null && mob == McEntityTypes.ENDERMAN) {
+			TickResult drawing = tickDrawOver(player, elapsed, nowEpochMs);
+			if (drawing != null) return drawing;
+			target = stareTarget(player);
+		}
 		if (target != null && hunt != null) {
 			hunt.cancel(player);
 			hunt = null;
@@ -1090,10 +1110,17 @@ public final class ServerFightUntilController implements ServerController {
 		if (!provoked(player, target)) {
 			holding = null;
 			if (staredOut.contains(target.getUUID()) || !eyesClear(player, target)) return null;
-			if (provoking != target) { provoking = target; provokeSinceMs = elapsed; stares++; }
+			if (provoking != target) { provoking = target; provokeSinceMs = elapsed; stares++; if (beyondReach(player, target)) farStares++; }
 			if (elapsed - provokeSinceMs >= PROVOKE_MS) {
 				staredOut.add(target.getUUID());
 				provoking = null;
+				if (beyondReach(player, target)) {
+					// Beyond the area, on a shelf or across lava: a player does not walk there; it leaves this one.
+					excluded.put(target.getUUID(), elapsed + EXCLUDE_MS);
+					note(String.format(Locale.ROOT, "stare did not provoke %s %s in %d s (%.1f blocks away, out of reach); left alone", mobId,
+							target.getUUID(), PROVOKE_MS / 1000, player.distanceTo(target)));
+					return TickResult.running(progress(player));
+				}
 				note(String.format(Locale.ROOT, "stare did not provoke %s %s in %d s (%.1f blocks away); walking in to hit it", mobId,
 						target.getUUID(), PROVOKE_MS / 1000, player.distanceTo(target)));
 				return null;
@@ -1431,6 +1458,63 @@ public final class ServerFightUntilController implements ServerController {
 	static java.util.function.Function<LivingEntity, ServerController> scriptedMelee;
 
 	/** A mob a sword approach found out of reach that has not moved, nor the body, nor hurt the body since ({@link UnreachableTargets}). */
+	/** Outside the model's area, or one the sword's approach found out of reach. */
+	private boolean beyondReach(ServerPlayer player, LivingEntity entity) {
+		return entity.position().distanceTo(center) > radius || unreachable.marked(entity.getUUID()) || passedOver(player, entity);
+	}
+
+	/**
+	 * With no enderman to fight in the area: the nearest calm one the body sees within STARE_RANGE, with a clear line
+	 * between their eyes, not stared out or left yet. The open-ground stare (tickOpenEnderman) provokes it from here.
+	 */
+	private LivingEntity stareTarget(ServerPlayer player) {
+		LivingEntity best = null;
+		double bestDistance = Double.MAX_VALUE;
+		for (Monster enderman : player.level().getEntitiesOfClass(McCompat.ENDERMAN, player.getBoundingBox().inflate(STARE_RANGE),
+				e -> e.isAlive() && !e.isDeadOrDying() && !attacking(player, e))) {
+			double distance = player.distanceTo(enderman);
+			if (distance > STARE_RANGE || distance >= bestDistance || staredOut.contains(enderman.getUUID()) || excluded.containsKey(enderman.getUUID())) continue;
+			if (!mayEngage(player, enderman) || !ObservationVisibility.canSeeEntity(player, enderman) || !eyesClear(player, enderman)) continue;
+			best = enderman;
+			bestDistance = distance;
+		}
+		return best;
+	}
+
+	/**
+	 * An angry enderman the sword's approach found out of reach (across lava, on a shelf) within TELEPORT_RANGE stays
+	 * where it is: vanilla teleports one toward its target only from farther. The body backs off to DRAW_DISTANCE from it,
+	 * as a player steps back from the lava, and waits there for it to come across. Null when nothing is to be drawn over.
+	 */
+	private TickResult tickDrawOver(ServerPlayer player, long elapsed, long now) {
+		if (drawWalk != null) {
+			lastTargetMs = elapsed;
+			TickResult walked = drawWalk.tick(player, now);
+			if (walked.state() == State.RUNNING) return TickResult.running(progress(player));
+			drawWalk.cancel(player);
+			drawWalk = null;
+			note("backed off for the angry enderman to come across: " + walked.reasonCode());
+			return TickResult.running(progress(player));
+		}
+		if (!choices.mayMove() || roofed || drawOvers >= MAX_DRAW_OVERS) return null;
+		for (Monster enderman : player.level().getEntitiesOfClass(McCompat.ENDERMAN, player.getBoundingBox().inflate(TELEPORT_RANGE),
+				e -> e.isAlive() && !e.isDeadOrDying() && attacking(player, e))) {
+			if (player.distanceTo(enderman) > TELEPORT_RANGE || !unreachable.marked(enderman.getUUID())) continue;
+			Vec3 away = new Vec3(player.getX() - enderman.getX(), 0.0D, player.getZ() - enderman.getZ());
+			if (away.lengthSqr() < 1.0E-6) continue;
+			Vec3 goal = new Vec3(enderman.getX(), player.getY(), enderman.getZ()).add(away.normalize().scale(DRAW_DISTANCE));
+			if (look != null) { look.cancel(player); look = null; }
+			if (walk != null) { walk.cancel(player); walk = null; }
+			drawWalk = new ServerNavigationController(goal, HUNT_ARRIVE, false, now, HUNT_WALK_MS, true);
+			drawOvers++;
+			lastTargetMs = elapsed;
+			note(String.format(Locale.ROOT, "angry %s %s out of reach %.1f blocks away: backing off to %s for it to teleport across", mobId,
+					enderman.getUUID(), player.distanceTo(enderman), cell(goal)));
+			return TickResult.running(progress(player));
+		}
+		return null;
+	}
+
 	private boolean passedOver(ServerPlayer player, LivingEntity entity) {
 		return unreachable.passedOver(entity.getUUID(), entity.position(), player.position(),
 				player.getLastHurtByMob() == entity ? player.getLastHurtByMobTimestamp() : Integer.MIN_VALUE);
@@ -2285,6 +2369,8 @@ public final class ServerFightUntilController implements ServerController {
 		if (mob == McEntityTypes.ENDERMAN && !roofed && stares + holds + attackerSoftEnds > 0)
 			text.append(String.format(Locale.ROOT, "; endermen: stared at %d calm (%d provoked), waited %d time%s for an angry one to come, kept on %d that left reach still hunting you",
 					stares, staresProvoked, holds, holds == 1 ? "" : "s", attackerSoftEnds));
+		if (farStares + drawOvers > 0) text.append(String.format(Locale.ROOT, "; from afar: stared at %d beyond reach, backed off %d time%s for an angry one to come across",
+				farStares, drawOvers, drawOvers == 1 ? "" : "s"));
 		if (leads != null && leads.tried() > 0) text.append(String.format(Locale.ROOT,
 				"; hunt: walked toward %d enderm%s you saw in the area (%d walks reached the spot, %d found an enderman on the way, %d had no route)",
 				leads.tried(), leads.tried() == 1 ? "an" : "en", leads.reached(), huntFinds, leads.noRoute()));
@@ -2303,6 +2389,7 @@ public final class ServerFightUntilController implements ServerController {
 		if (melee != null) melee.cancel(player);
 		if (volley != null) { volley.cancel("fight_until stopped"); volley.cleanup(); }
 		if (walk != null) walk.cancel(player);
+		if (drawWalk != null) { drawWalk.cancel(player); drawWalk = null; }
 		if (look != null) look.cancel(player);
 		if (building != null) building.cancel(player);
 		if (step != null) step.cancel(player);
