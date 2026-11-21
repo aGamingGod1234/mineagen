@@ -10,7 +10,8 @@
 // keeps it, saved. Launch under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME.
 // setup: operator commands that build a fixture before the calls, {x}, {y}, {z} (with +n or -n; {x+0.5} is a cell's
 // centre) standing for the body's block at spawn; after: { ms, commands } runs after setup. A call argument that is
-// exactly such a placeholder becomes that number.
+// exactly such a placeholder becomes that number. A spot passes when its last call ends in expectCode, or a find without
+// one, and nobody died; a spot with expectDamageTaken is a survival case instead (findLivePass in lib/damage-counter.mjs).
 // Production steering lives in run-incident.mjs; this body-only fixture cannot accept steer:true.
 import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -24,7 +25,7 @@ import { parseSavedWorldSpawn } from '../../coordinator/src/headless-world-spawn
 import { DEFAULT_REFLEXES, ReflexBook } from '../../coordinator/src/reflexes.mjs';
 import { warmBoots } from './fixture-servers.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
-import { damageCounter, damageEvidence } from './lib/damage-counter.mjs';
+import { damageCounter, damageEvidence, findLivePass } from './lib/damage-counter.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 
 const atBody = (text, at) => String(text).replace(/\{([xyz])([+-][\d.]+)?\}/g, (_, axis, offset) => String(at[axis] + Number(offset ?? 0)));
@@ -229,11 +230,12 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		row.end = await pos();
 		const healthAfter = await health();
 		Object.assign(row, damageEvidence(damageBefore, await readDamage(), healthBefore, healthAfter));
+		row.healthLost = Number.isFinite(healthBefore) && Number.isFinite(healthAfter) ? Math.max(0, healthBefore - healthAfter) : null;
 		row.deaths = (await deaths()) - deathsBefore;
 		row.finishedAt = Date.now();
-		row.pass = (spot.expectCode ? last?.reasonCode === spot.expectCode : row.found) && row.deaths === 0;
+		row.pass = findLivePass(spot, row, last);
 		await writeFile(path.join(dir, 'trail.json'), JSON.stringify(trail));
-		console.log(`[${spot.name}] ${row.found ? 'FOUND' : 'NOT FOUND'} in ${row.foundAtS ?? row.seconds}s walked=${row.path.walked} net=${row.path.net} farthest=${row.path.farthest} descended=${row.path.descended} damageTaken=${row.damageTaken ?? "unknown"} deaths=${row.deaths} handBacks=${row.handBacks}`);
+		console.log(`[${spot.name}] ${row.found ? 'FOUND' : 'NOT FOUND'} in ${row.foundAtS ?? row.seconds}s walked=${row.path.walked} net=${row.path.net} farthest=${row.path.farthest} descended=${row.path.descended} damageTaken=${row.damageTaken ?? "unknown"} deaths=${row.deaths} handBacks=${row.handBacks} PASS=${row.pass}`);
 	} catch (error) {
 		row.error = String(error?.stack ?? error).slice(0, 1200);
 		console.log(`[${spot.name}] ERROR ${row.error.split('\n')[0]}`);

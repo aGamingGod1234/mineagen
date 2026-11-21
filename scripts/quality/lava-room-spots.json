@@ -129,7 +129,8 @@
 				}
 			}
 		],
-		"dump": true
+		"dump": true,
+		"expectDamageTaken": 0
 	},
 	{
 		"name": "lava-room-2",
@@ -261,7 +262,8 @@
 				}
 			}
 		],
-		"dump": true
+		"dump": true,
+		"expectDamageTaken": 0
 	},
 	{
 		"name": "lava-room-3",
@@ -393,6 +395,7 @@
 				}
 			}
 		],
-		"dump": true
+		"dump": true,
+		"expectDamageTaken": 0
 	}
 ]

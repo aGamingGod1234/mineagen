@@ -50,3 +50,16 @@ export function matchesDamageExpectation(row, expected = 0) {
 	return Number.isFinite(row.damageTaken) && row.damageTaken === expected
 		&& Number.isFinite(row.healthLost) && row.healthLost >= 0 && row.healthLost <= expected;
 }
+
+/**
+ * test-find-live's pass rule. A spot that declares expectDamageTaken is a survival case whose calls need not end in a
+ * find: it passes with no death, no lost observations, no call the harness could not run and exactly that damage taken.
+ * Any other spot passes when its last call ends in expectCode (or a find, without one) and nobody died.
+ */
+export function findLivePass(spot, row, last) {
+	if (spot.expectDamageTaken !== undefined) {
+		return row.deaths === 0 && !row.ended && !(row.calls ?? []).some((entry) => entry.state === 'ERROR')
+			&& matchesDamageExpectation(row, spot.expectDamageTaken);
+	}
+	return (spot.expectCode ? last?.reasonCode === spot.expectCode : row.found) && row.deaths === 0;
+}
