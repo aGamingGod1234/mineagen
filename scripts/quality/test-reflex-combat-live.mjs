@@ -19,6 +19,7 @@ import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
+import { damageCounter, damageEvidence, deathCounter, recordDeathEvidence } from './lib/damage-counter.mjs';
 import { handRolledTickRate } from './lib/fixture-play.mjs';
 import { unshownTickRate } from './watch-replay.mjs';
 
@@ -90,7 +91,7 @@ function startAction(type, args) {
 	return bridge.send('action_command', record.agentId, payload).then(() => ({ id, result }));
 }
 const events = (o, id) => (o.reflexes?.events ?? []).filter((event) => event.id === id);
-const health = (o) => o.player?.health;
+const health = (o) => o?.player?.health;
 
 const results = {};
 const only = (process.env.REFLEX_ONLY ?? '').split(',').filter(Boolean);
@@ -129,7 +130,10 @@ try {
 	await rate.idleSleep(2000); await observe();
 	await command(`gamemode survival ${agent}`); await command(`clear ${agent}`);
 	await command(`effect give ${agent} minecraft:saturation 5 10 true`);
-
+	await command('scoreboard objectives add deaths deathCount');
+	const deaths = () => deathCounter(command, agent, { objective: 'deaths', unsetIsZero: true });
+	const damage = await damageCounter(command, agent);
+	let deathsBefore, damageBefore, healthBefore;
 
 	const reset = async () => {
 		await rate.normalRate();
@@ -143,6 +147,9 @@ try {
 		await command(`clear ${agent}`); await command(`tp ${agent} 0.5 80 0.5 0 0`);
 		await setReflexes([]);
 		await rate.idleSleep(1000);
+		deathsBefore = await deaths();
+		damageBefore = await damage();
+		healthBefore = health(observation);
 	};
 	const selected = (name) => only.length === 0 || only.includes(name);
 	// Each scenario runs on its own: a failure is recorded and the next one still runs; results are saved as they come.
@@ -150,6 +157,9 @@ try {
 	const want = (name) => selected(name) && (scenarios.push(name), true);
 	const settle = async (name, error) => {
 		if (error) results[name] = { ...(results[name] ?? {}), pass: false, error: String(error?.stack ?? error).slice(0, 400) };
+		const took = damageEvidence(damageBefore, await damage().catch(() => null), healthBefore, health(o));
+		Object.assign(results[name], took);
+		recordDeathEvidence(results[name], deathsBefore, await deaths().catch(() => null));
 		await writeFile(join(out, 'results.json'), JSON.stringify(results, null, 2));
 		await writeFile(join(out, 'timeline.json'), JSON.stringify(timeline, null, 1));
 		console.log(`[scenario] ${name}: ${results[name]?.pass ? 'PASS' : 'FAIL'}`);
@@ -190,6 +200,27 @@ try {
 			results.creeper.pass = events(o, 'fuse').some((row) => row.outcome === 'done' && /ran/.test(row.detail ?? '')) && health(o) >= before - 2;
 			await settle('creeper');
 		} catch (error) { await settle('creeper', error); }
+	}
+	if (want('secondCreeper')) {
+		try {
+			await reset();
+			o = await setReflexes([{ id: 'fuse', priority: 9, when: { type: 'creeper_fusing', within: 5 }, do: { type: 'sprint_away', blocks: 8 }, maxS: 8 }]);
+			const since = Math.max(0, ...(o.reflexes?.events ?? []).map((row) => row.seq ?? 0));
+			const played = await rate.play();
+			await command('summon minecraft:creeper 0.5 80 3.5 {NoAI:1b,ignited:1b,Fuse:120s,Tags:["firstFuse"]}');
+			if (!await until(8000, (now) => now.reflexes?.firing?.id === 'fuse')) throw new Error('first fuse never started the retreat');
+			const second = { x: o.position.x, y: o.position.y, z: o.position.z - 2.0 };
+			await command(`summon minecraft:creeper ${second.x} ${second.y} ${second.z} {NoAI:1b,ignited:1b,Fuse:120s,Tags:["secondFuse"]}`);
+			const bothFusing = (sample) => (sample.threats?.entries ?? []).filter((row) => row.type === 'minecraft:creeper' && row.swelling).length === 2;
+			if (!await until(3000, (now) => now.reflexes?.firing?.id === 'fuse' && bothFusing(now))) throw new Error('two fuses did not overlap');
+			await command('kill @e[tag=firstFuse]');
+			const mine = (now) => events(now, 'fuse').filter((row) => (row.seq ?? 0) > since);
+			if (!await until(10000, (now) => mine(now).length > 0 && !now.reflexes?.firing)) throw new Error('retreat never ended after the second fuse');
+			const separation = Math.hypot(o.position.x - second.x, o.position.z - second.z);
+			const tick = await played();
+			results.secondCreeper = { events: mine(o), separation, tick, pass: mine(o).some((row) => row.outcome === 'done') && separation >= 6 };
+			await settle('secondCreeper');
+		} catch (error) { await settle('secondCreeper', error); }
 	}
 	// rx-diag (R-CREEPER): on a cliff edge with the creeper coming from inland, sprint_away runs along the edge. Before, the
 	// knockback margin refused every heading once the creeper was within 3 blocks, so the body stood still and the blast
