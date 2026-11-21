@@ -120,7 +120,7 @@ async function matrixExpiry({ statusDelay = 1100, cleanupOptions = {}, cleanupBu
 	const directory = await mkdtemp(path.join(os.tmpdir(), 'headless-phase-'));
 	const s = scenario(), state = world({ removalFails, stopFails }), sockets = [], clients = [];
 	const configPath = path.join(directory, 'matrix.json'), worldManifestPath = path.join(directory, 'world-manifest.json');
-	let cleanupDeadline = null, cleanupEntries = 0, trialDeadline;
+	let cleanupDeadline = null, cleanupEntries = 0, trialDeadline, cleanupConnectSettledAt = null;
 	try {
 		const result = await runHeadlessMatrix({
 			configPath, worldManifestPath, runDirectory: directory, rconPort: 25575, rconPasswordFile: 'fixture-password',
@@ -136,11 +136,18 @@ async function matrixExpiry({ statusDelay = 1100, cleanupOptions = {}, cleanupBu
 				assert.deepEqual(options, { host: '127.0.0.1', port: 25575, password: 'synthetic', commandLock: path.join(directory, s.id, 'rcon-command.lock') });
 				if (sockets.length) assert.equal(sockets[0].destroyed, true, 'retire trial socket before replacement');
 				const socket = new FramedSocket(state, sockets.length ? cleanupOptions : { statusDelay });
-				const client = clientFor(socket, options); sockets.push(socket); clients.push(client); return client;
+				const client = clientFor(socket, options); sockets.push(socket); clients.push(client);
+				if (sockets.length === 2) {
+					const connect = client.connect.bind(client);
+					client.connect = () => connect().finally(() => { cleanupConnectSettledAt = performance.now(); });
+				}
+				return client;
 			},
 		});
 		assert.equal(cleanupEntries, 1); assert.ok(cleanupDeadline > trialDeadline);
-		assert.ok(performance.now() < cleanupDeadline + 250, 'connection/authentication must use the existing cleanup deadline');
+		// Time the cleanup connection itself: the report written after it can take over 150 ms on a loaded runner.
+		assert.notEqual(cleanupConnectSettledAt, null, 'the cleanup connection settles before the run returns');
+		assert.ok(cleanupConnectSettledAt < cleanupDeadline + 250, 'connection/authentication must use the existing cleanup deadline');
 		assertClosed(sockets, clients);
 		return { report: result.report.scenarios[0], sockets };
 	} finally { await rm(directory, { recursive: true, force: true }); }
