@@ -1,9 +1,10 @@
-// find {structure: fortress} in the Nether: the body owns the search loop. Fortresses and bastions share one grid of
-// 432-block regions (nether-regions.mjs), so instead of the generic sweep's straight legs on the least covered heading,
-// each leg heads for the nearest start ground no one has seen yet, re-read from observed memory before every leg, so a
-// search resumed after a respawn or a portal trip skips what was already seen. Legs walk first and bridge, pillar or
-// tunnel (build) only where walking gets nowhere, the way a player crosses a lava sea; a look round with a structure survey after each leg
-// names a fortress from its nether bricks out to the 96-block fog.
+// find {structure: fortress} in the Nether: the body owns the search loop, searching the way a player does. It keeps one
+// heading along z (fortresses string out in z), kept across find calls, and each leg walks to the farthest seen ground
+// ahead (a lava shore, a ridge, the far side of a cavern), with a look round from high ground after each leg; the
+// structure survey names a fortress from its nether bricks out to the 96-block fog. It bridges or digs (build) only
+// where every walk gets nowhere, and turns to the side when even that fails. Fortresses and bastions share one grid of
+// 432-block regions (nether-regions.mjs): the first unseen region's start ground picks the heading's sign, and a search
+// with every region near it seen hands back.
 //
 // Audit (2026-11-18): 3 of 13 Nether games found a fortress, none through find; each find structure fortress ran the
 // generic sweep for 0-4.5 min. The region order itself was measured on 30 seeds against /locate (nether-regions.mjs).
@@ -18,8 +19,8 @@ const MIN_LEG = 8;
 export const BUILD_LEG = 24;
 /** Building blocks a leg needs to be allowed to bridge or pillar. */
 export const MIN_BUILD_BLOCKS = 8;
-/** Route failures in a row (five walks and a build at each of three targets) before the search hands back NO_WAY_ON. */
-export const MAX_FAILED_LEGS = 18;
+/** Route failures in a row (three seen footings, five walks and a build on each of four headings) before NO_WAY_ON. */
+export const MAX_FAILED_LEGS = 36;
 // Stops that say nothing about the way: a mob met on the leg (settle fought or passed it), or a hit taken.
 const NOT_THE_WAY = new Set(['HOSTILE_NEAR', 'TARGET_ESCAPED', 'TARGET_UNREACHABLE', 'APPROACH_BLOCKED', 'NO_SEEN_ROUTE', 'FIGHT_TIMED_OUT',
 	'TRAVEL_DAMAGED', 'NAVIGATION_DAMAGED', 'DAMAGE_TAKEN']);
@@ -64,17 +65,58 @@ export function nextFortressTarget(position, known, looks = [], sighted = []) {
 	return row === undefined ? null : { kind: 'region', rx: row.rx, rz: row.rz, x: row.target.x, z: row.target.z, distance: row.target.distance, unseen: row.unseen };
 }
 
+/** A footing counts as ahead only this far along the heading, within 45 degrees of it. */
+export const AHEAD_MIN = 12;
+/** Footings far below or high above the feet are cliffs and roof ledges, not the way on. */
+const FOOTING_DROP = 16, FOOTING_RISE = 10;
+/** Headings tried in turn when every walk and a build on one fail: the heading, then each side, then back. */
+export const HEADING_TURNS = Object.freeze([0, 90, -90, 180]);
+const MAX_TRIED = 256;
+/** Unreachable seen footings tried on one heading before walking it by compass. */
+const MAX_FOOTING_FAILS = 3;
+const unit = (yaw) => ({ x: -Math.sin(yaw * Math.PI / 180), z: Math.cos(yaw * Math.PI / 180) });
+const footingKey = (row) => `${row.x},${row.y},${row.z}`;
+
+/**
+ * The seen ground to walk to next: the frontier footing (a seen surface not yet stood on) that gets farthest along the
+ * heading, within 45 degrees of it, not far below or above the feet, and not tried already. A player looks along a lava
+ * shore or a ridge and walks to the far end of what is in sight, rather than walking a compass line into a wall.
+ */
+export function footingAhead(candidates, here, yaw, tried = []) {
+	const u = unit(yaw), skip = new Set(tried);
+	let best = null;
+	for (const row of candidates ?? []) {
+		if (![row?.x, row?.y, row?.z].every(Number.isFinite) || row.blocked === true || row.visited === true || row.footing === 'stood' || skip.has(footingKey(row))) continue;
+		const dx = row.x + 0.5 - here.x, dz = row.z + 0.5 - here.z, dy = row.y - here.y;
+		const along = dx * u.x + dz * u.z, side = Math.abs(dx * u.z - dz * u.x);
+		if (along < AHEAD_MIN || side > along || dy < -FOOTING_DROP || dy > FOOTING_RISE) continue;
+		const score = along - side / 2 - Math.max(0, Math.abs(dy) - 4);
+		if (best === null || score > best.score) best = { ...row, along, score, distance: Math.hypot(dx, dz) };
+	}
+	return best;
+}
+
+/** The heading a new search keeps: along z toward the first unseen region's start ground (fortresses string out in z). */
+export function startHeading(here, target) {
+	return target !== null && target.z < here.z ? 180 : 0;
+}
+
 /**
  * The loop. ctx carries searchFor's own closures, so danger, fights, sightings and hand-backs are judged exactly as in
  * every other find: observation() (the latest sample), leg(how, type, args), settle(outcome), look(pitch),
  * handBack(state, code, why, extra), left() (ms of the call's budget), minLegMs, and the runtime body.
+ *
+ * A player's search: keep one heading along z, kept across find calls; each leg walks to the farthest seen ground ahead
+ * (a lava shore, a ridge, the far side of a cavern); with none in sight, walk the heading and 45 and 90 degrees off it;
+ * only when all of those get nowhere, build (bridge a gap, or dig through the wall) a short way on the heading; when that
+ * fails too, turn to the side, then back. Look round from high ground ahead after each leg.
  */
 export async function searchNetherFortress(ctx) {
 	const { body, leg, settle, look, handBack, left, minLegMs } = ctx;
 	const state = body.eyeSearchState ?? {};
 	const looks = state.fortressLooks ??= [];
-	// Targets every turn failed to reach: their ground counts as seen, so the next region's ground is the target.
-	const unreachable = state.fortressUnreachable ??= [];
+	// Seen footings a walk failed to reach, kept across calls: never the next target again.
+	const tried = state.fortressTried ??= [];
 	const at = () => { const p = ctx.observation()?.player; return [p?.x, p?.y, p?.z].every(Number.isFinite) ? { x: p.x, y: p.y, z: p.z } : null; };
 	const noteLook = () => { const p = at(); if (p !== null) { looks.push({ x: Math.floor(p.x), z: Math.floor(p.z) }); if (looks.length > MAX_LOOKS) looks.shift(); } };
 	const stop = (stateName, code, why, stopCode) => {
@@ -84,7 +126,7 @@ export async function searchNetherFortress(ctx) {
 	};
 	// The first look of the call (searchFor's) already happened where the body stands.
 	noteLook();
-	let failed = 0, targetFails = 0, targetKey = null;
+	let failed = 0, turn = 0, footFails = 0, headingTurn = 0;
 	while (left() >= minLegMs) {
 		const observation = ctx.observation();
 		const here = at();
@@ -95,23 +137,29 @@ export async function searchNetherFortress(ctx) {
 		}
 		const sighted = Array.isArray(observation?.sighted?.structures)
 			? observation.sighted.structures.map((row) => ({ ...row, what: row?.structure ?? `built:${(row?.blocks ?? []).join('+')}` })) : [];
-		const target = nextFortressTarget(here, body.known?.(observation) ?? null, [...looks, ...unreachable], sighted);
+		const target = nextFortressTarget(here, body.known?.(observation) ?? null, looks, sighted);
 		if (target === null) return stop('FAILED', 'FIND_NOT_FOUND', 'Every region within two of here has had its start ground seen, and no fortress was among them');
-		const bearing = yawToward(target.x - here.x, target.z - here.z);
-		// Per target: walk at each turn (the bearing, 45 each way, 90 each way); only when all five walks get nowhere, build
-		// on the bearing; when that fails too, the target's ground is ruled out. Live round 2: building after one failed
-		// walk still tunnelled ~120 cells of netherrack in 3 minutes and wore out the only iron pickaxe.
-		const key = `${target.kind}:${Math.round(target.x)},${Math.round(target.z)}`;
-		if (key !== targetKey) { targetKey = key; targetFails = 0; }
-		const build = targetFails >= TURNS.length;
-		const yaw = build ? bearing : wrap(bearing + TURNS[targetFails]);
-		const distance = build ? BUILD_LEG : Math.max(MIN_LEG, Math.min(FORTRESS_LEG, Math.round(target.distance)));
-		const toward = target.kind === 'remembered' ? `the fortress seen at ${Math.round(target.x)},${Math.round(target.z)}`
-			: `unseen start ground of region ${target.rx},${target.rz} (${Math.round(target.distance)} blocks)`;
-		if (build && buildingBlocks(observation) < MIN_BUILD_BLOCKS) {
-			return stop('FAILED', 'FIND_BLOCKED', `Out of building blocks (${buildingBlocks(observation)} held) and walking has no way on toward ${Math.round(target.x)},${Math.round(target.z)} at any of ${TURNS.length} headings: mine netherrack or cobblestone, then find again`, 'OUT_OF_BLOCKS');
+		const remembered = target.kind === 'remembered';
+		state.fortressHeading ??= startHeading(here, target);
+		// Toward a remembered fortress the bearing is its own; otherwise the kept heading.
+		const heading = remembered ? yawToward(target.x - here.x, target.z - here.z) : wrap(state.fortressHeading + HEADING_TURNS[headingTurn]);
+		const ahead = turn === 0 && footFails < MAX_FOOTING_FAILS ? footingAhead(body.frontier?.(observation)?.candidates, here, heading, tried) : null;
+		const build = turn >= TURNS.length;
+		let args, distance, how;
+		if (ahead !== null) {
+			distance = ahead.distance;
+			args = { x: ahead.x + 0.5, y: ahead.y, z: ahead.z + 0.5, tolerance: 3, build: false };
+			how = `walk to seen ground ${Math.round(ahead.along)} blocks ahead at ${ahead.x},${ahead.y},${ahead.z}`;
+		} else {
+			const yaw = build ? heading : wrap(heading + TURNS[turn]);
+			distance = build ? BUILD_LEG : remembered ? Math.max(MIN_LEG, Math.min(FORTRESS_LEG, Math.round(target.distance))) : FORTRESS_LEG;
+			args = { yaw, distance, build };
+			how = `${build ? 'build' : 'walk'} ${remembered ? `toward the fortress seen at ${Math.round(target.x)},${Math.round(target.z)}` : `on heading ${Math.round(yaw)}`}`;
 		}
-		const outcome = await leg(`${build ? 'build' : 'walk'} toward ${toward}`, 'travel_to', { yaw, distance, build });
+		if (build && buildingBlocks(observation) < MIN_BUILD_BLOCKS) {
+			return stop('FAILED', 'FIND_BLOCKED', `Out of building blocks (${buildingBlocks(observation)} held) and walking has no way on at heading ${Math.round(heading)}: mine netherrack or cobblestone, then find again`, 'OUT_OF_BLOCKS');
+		}
+		const outcome = await leg(how, 'travel_to', args);
 		const ended = await settle(outcome);
 		if (ended !== null) return ended;
 		const after = at() ?? here;
@@ -122,17 +170,20 @@ export async function searchNetherFortress(ctx) {
 			if (moved < 2) continue;
 		} else if (code !== 'ARRIVED' && moved < distance / 2) {
 			failed += 1;
-			targetFails += 1;
+			if (ahead !== null) { footFails += 1; tried.push(footingKey(ahead)); if (tried.length > MAX_TRIED) tried.shift(); }
+			else turn += 1;
 			if (code === 'OUT_OF_BLOCKS' && buildingBlocks(ctx.observation()) < MIN_BUILD_BLOCKS) {
-				return stop('FAILED', 'FIND_BLOCKED', `Out of building blocks while bridging toward ${Math.round(target.x)},${Math.round(target.z)}: mine netherrack or cobblestone, then find again`, 'OUT_OF_BLOCKS');
+				return stop('FAILED', 'FIND_BLOCKED', `Out of building blocks while bridging on heading ${Math.round(heading)}: mine netherrack or cobblestone, then find again`, 'OUT_OF_BLOCKS');
 			}
-			if (targetFails > TURNS.length) {
-				if (target.kind === 'remembered') {
-					return stop('FAILED', 'FIND_BLOCKED', `The fortress seen at ${Math.round(target.x)},${target.y ?? '?'},${Math.round(target.z)} could not be reached: ${targetFails} legs toward it got less than half way`, 'FORTRESS_UNREACHABLE');
+			if (turn > TURNS.length) {
+				// Walled in on this heading even building: turn to the side, then the other side, then back.
+				if (remembered) {
+					return stop('FAILED', 'FIND_BLOCKED', `The fortress seen at ${Math.round(target.x)},${target.y ?? '?'},${Math.round(target.z)} could not be reached: every walk and a build toward it got less than half way`, 'FORTRESS_UNREACHABLE');
 				}
-				unreachable.push({ x: Math.round(target.x), z: Math.round(target.z) });
-				if (unreachable.length > MAX_LOOKS) unreachable.shift();
-				targetKey = null;
+				turn = 0;
+				footFails = 0;
+				headingTurn = (headingTurn + 1) % HEADING_TURNS.length;
+				if (headingTurn === 0) state.fortressHeading = wrap(state.fortressHeading + 90);
 			}
 			if (failed >= MAX_FAILED_LEGS) {
 				return stop('FAILED', 'FIND_BLOCKED', `No way on: ${failed} legs in a row got less than half way (last ${code ?? outcome.result?.state}: ${String(outcome.result?.message ?? '').slice(0, 160)})`, 'NO_WAY_ON');
@@ -140,13 +191,17 @@ export async function searchNetherFortress(ctx) {
 			if (moved < 2) continue;
 		} else {
 			failed = 0;
-			targetFails = 0;
+			turn = 0;
+			footFails = 0;
+			// A side heading that went somewhere becomes the kept one.
+			if (headingTurn !== 0 && !remembered) { state.fortressHeading = heading; headingTurn = 0; }
 		}
 		// A vantage: high ground in sight close by shows more of the fog's 96 blocks than the floor of a valley.
+		const u = unit(heading);
 		const high = (body.frontier?.(ctx.observation())?.candidates ?? [])
 			.filter((row) => Number.isFinite(row.dy) && row.dy >= HIGH_GROUND_RISE && row.distance <= HIGH_GROUND_REACH && row.blocked !== true
-				// Ahead toward the target, and new: not the hill the last look was already taken from.
-				&& (row.x - after.x) * (target.x - after.x) + (row.z - after.z) * (target.z - after.z) > 0
+				// Ahead on the heading, and new: not the hill the last look was already taken from.
+				&& (row.x - after.x) * u.x + (row.z - after.z) * u.z > 0
 				&& looks.every((point) => Math.hypot(point.x - row.x, point.z - row.z) > VANTAGE_NEW))
 			.sort((a, b) => b.dy - a.dy)[0];
 		if (high !== undefined && left() >= minLegMs) {
@@ -158,5 +213,5 @@ export async function searchNetherFortress(ctx) {
 		noteLook();
 		if (view.interrupted || view.seen || view.ended) return settle(view);
 	}
-	return stop('TIMED_OUT', 'FIND_BUDGET', 'The search time ran out; find again to go on from the regions already seen');
+	return stop('TIMED_OUT', 'FIND_BUDGET', 'The search time ran out; find again to go on from the ground already seen');
 }

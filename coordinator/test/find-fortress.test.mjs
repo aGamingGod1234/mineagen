@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { searchFor } from '../src/find-search.mjs';
-import { MAX_FAILED_LEGS, TURNS, FORTRESS_LEG, BUILD_LEG, fortressSearch, nextFortressTarget, yawToward } from '../src/find-fortress.mjs';
+import { MAX_FAILED_LEGS, TURNS, FORTRESS_LEG, BUILD_LEG, AHEAD_MIN, fortressSearch, footingAhead, nextFortressTarget, startHeading, yawToward } from '../src/find-fortress.mjs';
 import { REGION_BLOCKS, searchRegions } from '../src/nether-regions.mjs';
 
 // The wall-breaker contract's hand-back rules for find {structure: fortress} in the Nether, one test each.
@@ -36,7 +36,7 @@ function bodyFor({ items = blocks(64), health = 20, travel = () => ({ result: ar
 		} };
 }
 
-test('legs head for the nearest unseen region start ground, walking, and stop on a sighting', async () => {
+test('legs keep one heading along z, toward the nearest unseen region start ground, walking, and stop on a sighting', async () => {
 	const body = bodyFor({ onLook: (o, calls) => (calls.length >= 2 ? { structures: [fortressRow] } : null) });
 	const result = await searchFor({ structure: 'fortress' }, body, { timeoutMs: 300_000 });
 	assert.equal(result.state, 'SUCCEEDED');
@@ -47,7 +47,8 @@ test('legs head for the nearest unseen region start ground, walking, and stop on
 	assert.equal(first.build, false, 'walk first: building legs wore out a pickaxe tunnelling through hills');
 	assert.ok(first.distance <= FORTRESS_LEG);
 	const target = searchRegions({ x: 100.5, z: 100.5 }, new Map(), 1, [{ x: 100, z: 100 }])[0].target;
-	assert.equal(first.yaw, yawToward(target.x - 100.5, target.z - 100.5));
+	assert.equal(first.yaw, target.z < 100.5 ? 180 : 0, 'along z, the way fortresses string out');
+	assert.equal(first.yaw, startHeading({ x: 100.5, z: 100.5 }, target));
 });
 
 test('the nether_fortress spelling takes the same loop', async () => {
@@ -124,11 +125,11 @@ test('out of blocks mid-bridge hands back at once', async () => {
 
 test('no way on: building legs that keep failing turn, then hand back NO_WAY_ON', async () => {
 	const body = bodyFor({ travel: () => ({ result: noRoute }) });
-	const result = await searchFor({ structure: 'fortress' }, body, { timeoutMs: 300_000 });
+	const result = await searchFor({ structure: 'fortress' }, body, { timeoutMs: 570_000 });
 	assert.equal(result.reasonCode, 'FIND_BLOCKED');
 	assert.equal(result.find.stopCode, 'NO_WAY_ON');
-	assert.equal(body.calls.length, MAX_FAILED_LEGS, 'five walks and a build at each of three targets');
-	assert.ok(new Set(body.calls.map((call) => call.yaw)).size >= 4, 'each failed leg turns further from the bearing');
+	assert.equal(body.calls.length, MAX_FAILED_LEGS, 'five walks and a build on each heading in turn');
+	assert.ok(new Set(body.calls.map((call) => call.yaw)).size >= 4, 'each failed leg turns further from the heading');
 });
 
 test('searched out: every region in the window known to hold a bastion hands back FIND_NOT_FOUND', async () => {
@@ -160,7 +161,8 @@ test('resumes from memory: ground already stood near is not a target again, acro
 	assert.ok(state.fortressLooks.length >= 2);
 	const again = bodyFor({ state });
 	await searchFor({ structure: 'fortress' }, again, { timeoutMs: 20_000 });
-	assert.notEqual(again.calls[0].yaw, body.calls[0].yaw, 'the resumed search does not repeat the first leg');
+	assert.equal(again.calls[0].yaw, body.calls[0].yaw, 'the resumed search keeps its heading');
+	assert.ok(Number.isFinite(state.fortressHeading));
 });
 
 test('a remembered fortress sighting is the target before any unseen region', () => {
@@ -187,19 +189,51 @@ test('MINEAGEN_FORTRESS_SEARCH=off keeps the generic sweep for a fortress in the
 
 test('a mob stopping legs is neither progress nor a closed way: the search runs to its time cap, not NO_WAY_ON', async () => {
 	const body = bodyFor({ travel: () => ({ result: { state: 'FAILED', reasonCode: 'HOSTILE_NEAR', message: 'minecraft:zombified_piglin 6 blocks away' } }) });
-	const result = await searchFor({ structure: 'fortress' }, body, { timeoutMs: 300_000 });
+	const result = await searchFor({ structure: 'fortress' }, body, { timeoutMs: 570_000 });
 	assert.equal(result.reasonCode, 'FIND_BUDGET');
 	assert.ok(body.calls.length > MAX_FAILED_LEGS);
 });
 
-test('after every turn toward one target fails, that ground is ruled out and the next target is taken', async () => {
+test('after five walks and a build on the heading fail, the next legs go to the side; a side that goes on becomes the heading', async () => {
 	const state = {};
-	const body = bodyFor({ state, travel: () => ({ result: noRoute }) });
+	const body = bodyFor({ state, travel: (args, n) => (n > TURNS.length + 1 ? { result: arrived, go: true } : { result: noRoute }),
+		onLook: (o, calls) => (calls.length >= TURNS.length + 3 ? { structures: [fortressRow] } : null) });
 	await searchFor({ structure: 'fortress' }, body, { timeoutMs: 300_000 });
-	assert.equal(state.fortressUnreachable.length, 3);
-	const first = nextFortressTarget({ x: 100.5, z: 100.5 }, null, [{ x: 100, z: 100 }]);
-	assert.deepEqual(state.fortressUnreachable[0], { x: Math.round(first.x), z: Math.round(first.z) });
-	assert.notEqual(body.calls[TURNS.length + 1].yaw, body.calls[0].yaw, 'after five walks and a build, the next target');
+	const first = body.calls[0].yaw;
+	assert.deepEqual(body.calls.slice(0, TURNS.length + 1).map((call) => call.build), [false, false, false, false, false, true]);
+	const side = body.calls[TURNS.length + 1];
+	assert.equal(side.build, false);
+	assert.equal(Math.abs(((side.yaw - first + 540) % 360) - 180), 90, 'a quarter turn');
+	assert.equal(state.fortressHeading, side.yaw);
+	assert.equal(body.calls[TURNS.length + 2].yaw, side.yaw, 'and it keeps going that way');
+});
+
+test('seen ground ahead is walked to before any compass leg, and a footing that cannot be reached is not tried again', async () => {
+	const state = {};
+	const far = { x: 104, y: 42, z: 160, dy: 2, distance: 60, footing: 'seen_surface' };
+	const near = { x: 98, y: 40, z: 125, dy: 0, distance: 25, footing: 'seen_surface' };
+	const body = bodyFor({ state, travel: (args, n) => (n === 1 ? { result: noRoute } : { result: arrived, go: args.yaw !== undefined }),
+		onLook: (o, calls) => (calls.length >= 3 ? { structures: [fortressRow] } : null) });
+	state.fortressHeading = 0;
+	body.frontier = () => ({ candidates: [far, near, { x: 100, y: 40, z: 60, dy: 0, distance: 40, footing: 'seen_surface' }] });
+	await searchFor({ structure: 'fortress' }, body, { timeoutMs: 300_000 });
+	assert.deepEqual([body.calls[0].x, body.calls[0].z], [104.5, 160.5], 'the farthest seen ground ahead first');
+	assert.equal(body.calls[0].build, false);
+	assert.deepEqual([body.calls[1].x, body.calls[1].z], [98.5, 125.5], 'then the next one, not the unreachable one again');
+	assert.deepEqual(state.fortressTried, ['104,42,160']);
+});
+
+test('footingAhead: ahead within 45 degrees, not stood on, not a cliff or a roof ledge', () => {
+	const here = { x: 0.5, y: 40, z: 0.5 };
+	const pick = (rows) => footingAhead(rows, here, 0)?.z ?? null;
+	assert.equal(pick([{ x: 0, y: 40, z: AHEAD_MIN - 2 }]), null, 'too close to count as progress');
+	assert.equal(pick([{ x: 0, y: 40, z: -30 }]), null, 'behind');
+	assert.equal(pick([{ x: 40, y: 40, z: 20 }]), null, 'more than 45 degrees off');
+	assert.equal(pick([{ x: 0, y: 40, z: 30, visited: true }]), null, 'stood on already');
+	assert.equal(pick([{ x: 0, y: 40, z: 30, blocked: true }]), null, 'a move failed there');
+	assert.equal(pick([{ x: 0, y: 70, z: 30 }]), null, 'a ledge high above');
+	assert.equal(pick([{ x: 0, y: 10, z: 30 }]), null, 'a drop far below');
+	assert.equal(pick([{ x: 0, y: 40, z: 30 }, { x: 0, y: 41, z: 50 }]), 50, 'the farthest along');
 });
 
 test('a vantage is climbed only when it lies ahead toward the target and away from earlier look points', async () => {
@@ -207,13 +241,14 @@ test('a vantage is climbed only when it lies ahead toward the target and away fr
 	const run = async (place) => {
 		const body = bodyFor({ onLook: (o, calls) => (calls.length >= 2 ? { structures: [fortressRow] } : null) });
 		body.frontier = () => {
+			if (body.calls.length === 0) return { candidates: [] };
 			const p = body.observation.player, yaw = body.calls.at(-1).yaw * Math.PI / 180;
 			return { candidates: [place(p, -Math.sin(yaw), Math.cos(yaw))] };
 		};
 		await searchFor({ structure: 'fortress' }, body, { timeoutMs: 300_000 });
 		return body.calls.some((call) => call.x !== undefined && call.build === false);
 	};
-	assert.equal(await run((p, ux, uz) => ({ x: Math.floor(p.x + ux * 20), y: 52, z: Math.floor(p.z + uz * 20), dy: 8, distance: 20 })), true, 'high ground ahead is climbed');
-	assert.equal(await run((p, ux, uz) => ({ x: Math.floor(p.x - ux * 20), y: 52, z: Math.floor(p.z - uz * 20), dy: 8, distance: 20 })), false, 'high ground behind is not');
-	assert.equal(await run(() => ({ x: 101, y: 52, z: 110, dy: 8, distance: 20 })), false, 'a hill next to an earlier look point is not');
+	assert.equal(await run((p, ux, uz) => ({ x: Math.floor(p.x + ux * 20), y: 52, z: Math.floor(p.z + uz * 20), dy: 12, distance: 20 })), true, 'high ground ahead is climbed');
+	assert.equal(await run((p, ux, uz) => ({ x: Math.floor(p.x - ux * 20), y: 52, z: Math.floor(p.z - uz * 20), dy: 12, distance: 20 })), false, 'high ground behind is not');
+	assert.equal(await run(() => ({ x: 101, y: 52, z: 110, dy: 12, distance: 20 })), false, 'a hill next to an earlier look point is not');
 });
