@@ -6,8 +6,9 @@
 //   held   192 gold ingots and a golden helmet carried, iron helmet worn; 5 calm piglins 28 blocks east (out of 16).
 //   blocks 20 gold blocks and 6 ingots carried (bastion loot), golden boots worn; 5 piglins 20 blocks east and one
 //          hoglin loose near them.
-//   mine   no gold: 39 Nether gold ores in the west wall beside the start, a crafting table and iron pickaxe carried,
-//          iron armour worn; 4 piglins 28 blocks east (out of 16, so mining there angers none).
+//   mine   a Nether start's gold: a golden helmet worn and no gold to trade; 39 Nether gold ores in the west wall
+//          beside the start, a crafting table and iron pickaxe carried; 4 piglins 28 blocks east (mining there angers
+//          none: they guard gold only within 16).
 // The stand-in plays what a model can call: barter_until (ender_pearl), re-called after every hand-back, and the
 // recovery a model would make on each reason code (equip carried gold armour; craft blocks or nuggets into ingots and
 // a golden helmet at the carried table; mine the seen gold ore; walk toward a seen piglin; fight a hostile that is
@@ -126,6 +127,8 @@ async function getGold() {
 		.sort((a, b) => Math.hypot(a.x - p.x, a.y - p.y, a.z - p.z) - Math.hypot(b.x - p.x, b.y - p.y, b.z - p.z))[0];
 	if (!ore) return false;
 	await select('minecraft:iron_pickaxe');
+	// The body mines only ore it sees, so turn to it first, as the refusal tells a model to.
+	await act('look_at', { x: ore.x + 0.5, y: ore.y + 0.5, z: ore.z + 0.5 });
 	return (await act('mine_vein', { x: ore.x, y: ore.y, z: ore.z, maxBlocks: 64, timeoutMs: 120000 }, 150000)).state === 'SUCCEEDED' || held('minecraft:gold_nugget') > nuggets;
 }
 async function wearGold() {
@@ -184,7 +187,7 @@ try {
 	await s.command(`effect clear ${AGENT}`);
 	await s.command(`effect give ${AGENT} minecraft:instant_health 1 5 true`);
 	await s.command(`effect give ${AGENT} minecraft:saturation 1 20 true`);
-	const armour = { head: 'iron_helmet', chest: 'iron_chestplate', legs: 'iron_leggings', feet: room === 'blocks' ? 'golden_boots' : 'iron_boots' };
+	const armour = { head: room === 'mine' ? 'golden_helmet' : 'iron_helmet', chest: 'iron_chestplate', legs: 'iron_leggings', feet: room === 'blocks' ? 'golden_boots' : 'iron_boots' };
 	for (const [slot, item] of Object.entries(armour)) await s.command(`item replace entity ${AGENT} armor.${slot} with minecraft:${item}`);
 	const give = { held: [['iron_sword', 1], ['iron_pickaxe', 1], ['cooked_beef', 16], ['gold_ingot', 64], ['gold_ingot', 64], ['gold_ingot', 64], ['golden_helmet', 1]],
 		blocks: [['iron_sword', 1], ['iron_pickaxe', 1], ['cooked_beef', 16], ['gold_block', 20], ['gold_ingot', 6]],
