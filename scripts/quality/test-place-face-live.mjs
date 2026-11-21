@@ -99,9 +99,13 @@ try {
   // A survivable floor 3 blocks under the pillar top: the edge guard holds a body back only from a deadly drop, so here
   // it leaves the body where the room puts it.
   await command('fill -6 77 -6 16 77 12 minecraft:stone');
+  // The edge guard walks a settled body back to where it last stood (here now open air) unless it was moved more than
+  // 6 blocks: settle on the floor far off first, so each pillar spot is a fresh start.
+  await at(10.5,78,10.5,0,60);
   await at(1.5,81,0.5,90,60);await hold('cobblestone');
   let standing=observation?.position;
   results.awayFromEye=keep(await place(0,80,0,'west','cobblestone'),{placed:await block(0,80,0,'cobblestone'),standing});
+  await at(10.5,78,10.5,0,60);
   await at(0.75,81,0.5,90,70);await hold('cobblestone');
   standing=observation?.position;
   results.fromEdge=keep(await place(0,80,0,'west','cobblestone'),{placed:await block(0,80,0,'cobblestone'),standing});

@@ -83,10 +83,10 @@ try {
   await command('fill -4 79 -4 5 79 8 minecraft:stone');
   await command(`gamemode survival ${agent}`);
   const frame=row=>row.sighted?.portalFrames?.[0];
-  async function act(type,args){
+  async function act(type,args,{refusal=false}={}){
     const id=`frame-${++ordinal}`;
     const r=await executeAction({actionId:id,action:{type,arguments:args},provenance:{traceId:id,programId:'frame-fixture',stepId:id,eventSequence:observation.eventSequence}});
-    if(r.state!=='SUCCEEDED')throw new Error(JSON.stringify(r));
+    if(r.state!=='SUCCEEDED'&&!refusal)throw new Error(JSON.stringify(r));
     return r;
   }
   const look=async yaw=>{await command(`tp ${agent} 0.5 80 0.5 ${yaw} 10`);await rate.idleSleep(600);return observe();};
@@ -114,8 +114,8 @@ try {
   const is=async(x,y,z,id)=>/passed/i.test(await command(`execute if block ${x} ${y} ${z} minecraft:${id}`));
   await command('fill -4 80 -4 5 86 3 minecraft:air');
   await command(`tp ${agent} 0.5 80 -2.5 0 30`);await rate.idleSleep(500);await observe();
-  const pour=async(x,y,z,extra={})=>{await command(`item replace entity ${agent} weapon.mainhand with minecraft:lava_bucket`);await rate.idleSleep(200);await observe();
-    return act('interact_block',{x,y:y-1,z,face:'up',hand:'main',expectedItemId:'minecraft:lava_bucket',...extra});};
+  const pour=async(x,y,z,extra={},options={})=>{await command(`item replace entity ${agent} weapon.mainhand with minecraft:lava_bucket`);await rate.idleSleep(200);await observe();
+    return act('interact_block',{x,y:y-1,z,face:'up',hand:'main',expectedItemId:'minecraft:lava_bucket',...extra},options);};
   await command('setblock -2 80 0 minecraft:cobblestone');await command('setblock -1 80 0 minecraft:cobblestone');await command('setblock -1 81 0 minecraft:water');
   await pour(-2,81,0);results.waterBeside=await is(-2,81,0,'obsidian');
   await command('fill -4 80 -1 4 82 1 minecraft:air');
@@ -124,7 +124,7 @@ try {
   await command('setblock 2 81 0 minecraft:air');await command('setblock 2 79 0 minecraft:stone');
   await command('setblock 0 80 1 minecraft:cobblestone');
   // This pour's flow would reach the body: the lava safety rule refuses it unless the caller accepts the risk.
-  const guarded=await pour(0,81,1);results.pourAtBodyRefused=guarded.reasonCode==='LAVA_POUR_AT_BODY'&&!(await is(0,81,1,'lava'));
+  const guarded=await pour(0,81,1,{},{refusal:true});results.pourAtBodyRefused=guarded.reasonCode==='LAVA_POUR_AT_BODY'&&!(await is(0,81,1,'lava'));
   await pour(0,81,1,{acceptLavaRisk:true});results.noWaterIsLava=await is(0,81,1,'lava');
   await command(`item replace entity ${agent} weapon.mainhand with minecraft:bucket`);await rate.idleSleep(200);await observe();
   await act('interact_block',{x:0,y:81,z:1,face:'north',hand:'main',expectedItemId:'minecraft:bucket'});
