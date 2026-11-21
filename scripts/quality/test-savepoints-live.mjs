@@ -19,7 +19,8 @@ const number=text=>Number(String(text).match(/(?:entity data:\s*|time is |has )(
 const pos=text=>String(text).match(/\[\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?\]/)?.slice(1).map(Number);
 let s;
 try{
- s=await boot(out,{jar:path.resolve(jar),template:process.env.ARENA_HEADLESS_SERVER_TEMPLATE,port:Number(process.env.SLOT_PORT_BASE),seed:cp.seed,spawnMonsters:true});
+ // It adopts revisions below without answering agent_ready, as before boot() could follow them itself.
+ s=await boot(out,{jar:path.resolve(jar),template:process.env.ARENA_HEADLESS_SERVER_TEMPLATE,port:Number(process.env.SLOT_PORT_BASE),seed:cp.seed,spawnMonsters:true,followRevision:false});
  s.bridge.on('message',e=>{const revision=e.payload.goalRevision??e.payload.record?.goalRevision??e.payload.control?.goalRevision;if(s.record&&e.agentId===s.record.agentId&&Number.isInteger(revision))s.record.goalRevision=Math.max(s.record.goalRevision,revision);});
  const command=async text=>({text:await s.command(text)});
  const loaded=async (dim,x,z)=>{for(let i=0;i<100;i++){if(/time is \d+/i.test(await s.command(`execute in ${dim} if loaded ${x} 100 ${z} run time query gametime`)))return;await sleep(200);}throw new Error('Verification chunk did not load');};
