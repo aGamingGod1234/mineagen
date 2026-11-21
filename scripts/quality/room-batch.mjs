@@ -99,5 +99,6 @@ try {
 	await writeFile(path.join(out, 'summary.txt'), result.text + '\n');
 	console.log(result.text);
 	const leftover = result.machines.filter(vm => !vm.destroyed);
+	if (controller.signal.aborted) process.exitCode = 130;
 	if (leftover.length) { console.error(`NOT DELETED: ${leftover.map(vm => vm.id).join(', ')} (delete them with boat delete ID --yes)`); process.exitCode = 3; }
 } finally { await rm(work, { recursive: true, force: true }); }

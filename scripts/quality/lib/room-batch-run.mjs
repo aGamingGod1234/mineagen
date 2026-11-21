@@ -74,6 +74,8 @@ export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeout
 			return bringUp();
 		};
 		outcomes = await runQueue({ rooms, workers, attempt, replace, log });
+		// A stopped batch leaves its unfinished rooms lost for that reason, not for want of a machine.
+		if (signal?.aborted) outcomes = outcomes.map(outcome => outcome?.lost ? { ...outcome, reason: 'batch stopped' } : outcome);
 	} finally {
 		await Promise.all(machines.map(vm => retire(vm, 'batch over')));
 	}

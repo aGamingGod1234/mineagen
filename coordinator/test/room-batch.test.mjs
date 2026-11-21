@@ -179,3 +179,28 @@ process.exit(jar.endsWith('old.jar') ? 3 : 0);\n`);
 		assert.deepEqual(rows, [{ jar: '/j/new.jar', wrapped: 'yes', port: '28000', only: 'r' }, { jar: '/j/old.jar', wrapped: 'yes', port: '28100', only: 'r' }]);
 	} finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test('a stopped batch deletes its machines and reports unfinished rooms as stopped', async () => {
+	const out = await mkdtemp(path.join(os.tmpdir(), 'room-batch-stop-'));
+	try {
+		const controller = new AbortController();
+		const deleted = [];
+		const pool = {
+			async create() { return { id: 'vm1' }; },
+			async prepare() { return { code: '/c', out: '/o', jars: { new: '/j/new.jar', old: '/j/old.jar' }, inputs: {}, javaHome: '/jdk', template: '/t' }; },
+			async start() { controller.abort(); },
+			async poll() { return 'running'; },
+			async alive() { return true; },
+			async fetch() { throw new Error('never fetched'); },
+			async keepAlive() {},
+			async usage() { return { seconds: 1 }; },
+			async destroy(vm) { deleted.push(vm.id); },
+		};
+		const rooms = parseCommands(`@a ${LINE}\n@b ${LINE}`, ['new', 'old']);
+		const result = await runBatch({ batch: { name: 't', code: 'abc12345' }, rooms, arms: [{ name: 'new' }, { name: 'old' }], pool, vms: 1, out, pollMs: 1, log: () => {}, signal: controller.signal });
+		assert.deepEqual(deleted, ['vm1']);
+		assert.deepEqual(result.outcomes.map(outcome => [outcome.room, outcome.lost, outcome.reason]), [['a', true, 'batch stopped'], ['b', true, 'batch stopped']]);
+		assert.equal(result.merged.new.summary.status, 'INVALID');
+		assert.equal(result.merged.new.summary.notStarted, 2);
+	} finally { await rm(out, { recursive: true, force: true }); }
+});
