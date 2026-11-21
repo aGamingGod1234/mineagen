@@ -10,6 +10,13 @@
 // --snapshot (or ROOM_BATCH_SNAPSHOT) names the saved image room-image.mjs makes; --type (or ROOM_BATCH_TYPE, default
 // "default") the machine size. Output: OUT/rooms/ROOM/{ARM/,ARM.log,done.json}, OUT/ARM/result.json and
 // result-summary.json from finishRun, OUT/batch.json (identity, outcomes, machine usage) and OUT/summary.txt.
+// AI rooms (the real model plays the room through the production coordinator), instead of --commands and --arm:
+//   node scripts/quality/room-batch.mjs --player model --jar JAR --codex-auth AUTH.json [--ai-rooms ROOMS.json]
+//     [--rooms NAME,...] [--repeats N] [--no-script] [--model M] --pool boat --vms N --out FRESH_DIR
+// plays each chosen room of ROOMS.json (default scripts/quality/ai-rooms.json) N times with arm "ai" (run-ai-room.mjs)
+// beside arm "script" (the room's practice-room stand-in), both on JAR at 20 ticks per second (lib/ai-room-lines.mjs).
+// The sign-in (or ROOM_BATCH_CODEX_AUTH) goes to each machine as a batch input; it is never written to OUT.
+// node scripts/quality/ai-room-report.mjs OUT prints pass rate, deaths, damage, minutes and model calls per room.
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
@@ -18,11 +25,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseCommands } from './lib/room-batch-core.mjs';
+import { AI_ARM, SCRIPT_ARM, aiRoomCommands, selectAiRooms } from './lib/ai-room-lines.mjs';
 import { runBatch } from './lib/room-batch-run.mjs';
 import { boatPool, buildBundle } from './lib/boat-pool.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
-const USAGE = 'Usage: room-batch.mjs --commands ROOMS.txt --arm NAME=JAR [--arm NAME=JAR] --pool boat --vms N --out FRESH_DIR [--code REF] [--snapshot NAME] [--type TYPE] [--room-timeout MIN] [--name PREFIX] [--dry-run]';
+const USAGE = 'Usage: room-batch.mjs --commands ROOMS.txt --arm NAME=JAR [--arm NAME=JAR] --pool boat --vms N --out FRESH_DIR [--code REF] [--snapshot NAME] [--type TYPE] [--room-timeout MIN] [--name PREFIX] [--dry-run]\n       room-batch.mjs --player model --jar JAR --codex-auth AUTH.json [--ai-rooms ROOMS.json] [--rooms NAME,...] [--repeats N] [--no-script] [--model M] --pool boat --vms N --out FRESH_DIR [...]';
 
 function parseFlags(argv) {
 	const flags = { arms: [] };
@@ -30,6 +38,7 @@ function parseFlags(argv) {
 		const flag = argv[i];
 		if (flag === '--help') flags.help = true;
 		else if (flag === '--dry-run') flags.dryRun = true;
+		else if (flag === '--no-script') flags.noScript = true;
 		else if (flag === '--arm') { const [name, ...jar] = String(argv[++i] ?? '').split('='); flags.arms.push({ name, jar: jar.join('=') }); }
 		else if (flag.startsWith('--')) flags[flag.slice(2).replace(/-(\w)/g, (_, ch) => ch.toUpperCase())] = argv[++i];
 		else throw new Error(`unexpected argument ${flag}`);
@@ -40,7 +49,21 @@ function parseFlags(argv) {
 const flags = parseFlags(process.argv.slice(2));
 if (flags.help) { console.log(USAGE); process.exit(0); }
 const fail = message => { console.error(`${message}\n${USAGE}`); process.exit(2); };
-if (!flags.commands || !flags.out || !flags.arms.length) fail('--commands, --out and at least one --arm are required');
+let commandsText = null;
+if (flags.player !== undefined) {
+	if (flags.player !== 'model') fail('--player takes model (the default player is the room\'s own script)');
+	if (flags.commands || flags.arms.length) fail('--player model makes its own room lines and arms: give --jar, not --commands or --arm');
+	if (!flags.jar || !existsSync(flags.jar)) fail('--player model needs --jar JAR');
+	const authFile = flags.codexAuth ?? process.env.ROOM_BATCH_CODEX_AUTH;
+	if (!authFile || !existsSync(authFile)) fail('--player model needs the Codex sign-in file: --codex-auth FILE or ROOM_BATCH_CODEX_AUTH');
+	const roomsFile = path.resolve(flags.aiRooms ?? path.join(root, 'scripts/quality/ai-rooms.json'));
+	try {
+		const chosen = selectAiRooms(JSON.parse(readFileSync(roomsFile, 'utf8')).scenarios, flags.rooms);
+		commandsText = aiRoomCommands({ scenarios: chosen, roomsPath: roomsFile, repeats: Number(flags.repeats ?? 1), script: !flags.noScript, authFile: path.resolve(authFile), model: flags.model ?? null });
+	} catch (error) { fail(error.message); }
+	flags.arms = [{ name: AI_ARM, jar: flags.jar }, ...(flags.noScript ? [] : [{ name: SCRIPT_ARM, jar: flags.jar }])];
+}
+if (!(flags.commands || commandsText) || !flags.out || !flags.arms.length) fail('--commands, --out and at least one --arm are required');
 if ((flags.pool ?? 'boat') !== 'boat') fail('only --pool boat exists');
 for (const arm of flags.arms) {
 	if (!/^[A-Za-z0-9_-]+$/.test(arm.name) || !arm.jar) fail(`--arm wants NAME=JAR, got ${arm.name}=${arm.jar}`);
@@ -52,7 +75,8 @@ if (!Number.isInteger(vms) || vms < 1 || vms > 50) fail('--vms wants 1 to 50');
 const snapshot = flags.snapshot ?? process.env.ROOM_BATCH_SNAPSHOT;
 const type = flags.type ?? process.env.ROOM_BATCH_TYPE ?? 'default';
 const roomTimeoutMs = Number(flags.roomTimeout ?? 40) * 60_000;
-const rooms = parseCommands(await readFile(flags.commands, 'utf8'), flags.arms.map(arm => arm.name));
+commandsText ??= await readFile(flags.commands, 'utf8');
+const rooms = parseCommands(commandsText, flags.arms.map(arm => arm.name));
 const out = path.resolve(flags.out);
 
 // Local files a line names by absolute path travel with the batch; repository paths resolve inside the code root.
@@ -64,14 +88,14 @@ const rewrite = (value, layout) => layout.inputs[value] ?? value;
 
 const code = execFileSync('git', ['-C', root, 'rev-parse', flags.code ?? 'HEAD'], { encoding: 'utf8' }).trim();
 const sha256 = file => createHash('sha256').update(readFileSync(file)).digest('hex');
-const batch = { name: flags.name ?? `room-batch-${new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')}`, code, snapshot, type, vms, roomTimeoutMs,
+const batch = { player: flags.player ?? 'script', name: flags.name ?? `room-batch-${new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')}`, code, snapshot, type, vms, roomTimeoutMs,
 	arms: flags.arms.map(arm => ({ name: arm.name, jar: path.basename(arm.jar), sha256: sha256(arm.jar) })), rooms: rooms.map(room => room.room), inputs: inputs.map(input => input.name) };
 console.log(`${batch.name}: ${rooms.length} rooms x ${flags.arms.length} arms, ${vms} ${type} machines from ${snapshot ?? '(no snapshot)'}, code ${code.slice(0, 8)}`);
 if (flags.dryRun) { for (const room of rooms) for (const line of room.lines) console.log(`  ${room.room} [${line.arm}] ${Object.entries(line.env).map(([k, v]) => `${k}=${v}`).join(' ')} node ${line.args.join(' ')}`); process.exit(0); }
 if (!snapshot) fail('--snapshot or ROOM_BATCH_SNAPSHOT names the saved image (make it with room-image.mjs)');
 await mkdir(out, { recursive: true });
 if ((await readdir(out)).length) fail(`${out} is not empty: use a fresh output folder`);
-await writeFile(path.join(out, 'commands.txt'), await readFile(flags.commands, 'utf8'));
+await writeFile(path.join(out, 'commands.txt'), commandsText);
 
 const work = await mkdtemp(path.join(os.tmpdir(), 'room-batch-'));
 const bundle = await buildBundle({ root, ref: code, jars: Object.fromEntries(flags.arms.map(arm => [arm.name, path.resolve(arm.jar)])), inputs,
