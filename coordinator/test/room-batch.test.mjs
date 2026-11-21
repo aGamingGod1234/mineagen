@@ -3,12 +3,12 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { armTotals, formatSummary, mergeArms, parseCommands, plannedOf, runQueue, splitWords } from '../../scripts/quality/lib/room-batch-core.mjs';
 import { runBatch } from '../../scripts/quality/lib/room-batch-run.mjs';
 import { BUNDLE_PATHS, buildBundle, hasZstd, launchScript, prepareScript, readWait, waitAndPackScript } from '../../scripts/quality/lib/boat-pool.mjs';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 
 const LINE = 'node scripts/quality/test-build-live.mjs scripts/quality/carve-hidden-fluid-spots.json $OUT $JAR --descriptive';
 const room = name => ({ room: name, lines: [{ arm: 'new', env: {}, args: [] }, { arm: 'old', env: {}, args: [] }], planned: 1 });
@@ -113,9 +113,12 @@ test('the merge keeps room folders, counts a lost room as notStarted and calls t
 		assert.equal(newTotals.unknownDamageRows, 1);
 		assert.deepEqual(newTotals.lostRooms, ['c']);
 		assert.equal(newTotals.cantKeepUp, 2);
-		assert.equal(oldTotals.deaths, 1);
-		assert.equal(oldTotals.damage, 0);
+		assert.equal(oldTotals.deaths, null, 'a lost room makes the totals unknown, never a subtotal');
+		assert.equal(oldTotals.damage, null);
 		assert.equal(oldTotals.fail, 1);
+		const whole = await mergeArms({ out, rooms: rooms.slice(0, 2), arms: ['old'], outcomes: outcomes.slice(0, 2) });
+		assert.equal(armTotals(whole.old).deaths, 1);
+		assert.equal(armTotals(whole.old).damage, 0);
 		const text = formatSummary({ batch: { name: 'b1', code: 'f875b5a674' }, merged, arms: ['new', 'old'], wallSeconds: 125, vms: 2, rooms });
 		assert.match(text, /3 rooms x 2 arms on 2 machines, code f875b5a6, wall 2m05s/);
 		assert.match(text, /c: LOST \(machine gone\) \| LOST \(machine gone\)/);
@@ -168,15 +171,20 @@ const [out, jar] = process.argv.slice(2);
 mkdirSync(out, { recursive: true });
 writeFileSync(out + '/result.json', JSON.stringify([{ jar, wrapped: process.env.ROOM_WRAPPED, port: process.env.SLOT_PORT_BASE, only: process.env.BUILD_ONLY }]));
 process.exit(jar.endsWith('old.jar') ? 3 : 0);\n`);
-		const job = { room: 'r', code: dir, outDir: path.join(dir, 'out', 'r'), javaHome: '/jdk', template: '/t', timeoutMs: 60_000, wrapper: ['env', 'ROOM_WRAPPED=yes'],
+		const wrapperScript = path.join(dir, 'wrap.mjs');
+		await writeFile(wrapperScript, `import { spawnSync } from 'node:child_process';
+const res = spawnSync(process.argv[2], process.argv.slice(3), { env: { ...process.env, ROOM_WRAPPED: 'yes' }, stdio: 'inherit' });
+process.exit(res.status ?? 1);\n`);
+		const wrapper = [process.execPath, wrapperScript];
+		const job = { room: 'r', code: dir, outDir: path.join(dir, 'out', 'r'), javaHome: '/jdk', template: '/t', timeoutMs: 60_000, wrapper,
 			lines: ['new', 'old'].map(arm => ({ arm, jar: `/j/${arm}.jar`, env: { BUILD_ONLY: 'r' }, args: [fixture, '$OUT', '$JAR'] })) };
 		await writeFile(path.join(dir, 'job.json'), JSON.stringify(job));
-		const helper = new URL('../../scripts/quality/lib/room-batch-remote.mjs', import.meta.url).pathname;
+		const helper = fileURLToPath(new URL('../../scripts/quality/lib/room-batch-remote.mjs', import.meta.url));
 		const { spawnSync } = await import('node:child_process');
 		const run = spawnSync(process.execPath, [helper, path.join(dir, 'job.json')], { encoding: 'utf8' });
 		assert.equal(run.status, 0, run.stderr);
 		const done = JSON.parse(await readFile(path.join(job.outDir, 'done.json'), 'utf8'));
-		assert.deepEqual(done.wrapper, ['env', 'ROOM_WRAPPED=yes']);
+		assert.deepEqual(done.wrapper, wrapper);
 		assert.equal(done.arms.new.exit, 0);
 		assert.equal(done.arms.old.exit, 3);
 		const rows = await Promise.all(['new', 'old'].map(async arm => JSON.parse(await readFile(path.join(job.outDir, arm, 'result.json'), 'utf8'))[0]));
@@ -435,4 +443,93 @@ test('a poll that fails on a live machine is retried after a pause, and a stop c
 			assert.ok(Date.now() - began < 2000);
 		} finally { await rm(stopOut, { recursive: true, force: true }); }
 	} finally { await rm(out, { recursive: true, force: true }); }
+});
+
+test('the merge ignores rows a lost room left behind, calls a killed arm invalid and counts planned rows per arm', async () => {
+	const out = await mkdtemp(path.join(os.tmpdir(), 'room-batch-guard-'));
+	try {
+		const rooms = parseCommands(`@a BUILD_ONLY=a ${LINE}\n@b:new BUILD_ONLY= ${LINE}\n@b:old BUILD_ONLY=x,y ${LINE}\n@c ${LINE}`, ['new', 'old']);
+		await writeRoom(out, 'a', 'new', [row('spot-a')]);
+		await writeRoom(out, 'a', 'old', [row('spot-a')]);
+		await writeRoom(out, 'b', 'old', [row('spot-x'), row('spot-y')]);
+		await writeRoom(out, 'c', 'new', [row('spot-c')]);
+		await writeRoom(out, 'c', 'old', [row('spot-c')]);
+		const outcomes = [
+			{ room: 'a', lost: false, worker: 'vm1', attempts: 1, arms: { new: { exit: 0, seconds: 9 }, old: { exit: 0, seconds: 9 } } },
+			{ room: 'b', lost: true, reason: 'copy failed: tar exited 2', attempts: 2 },
+			{ room: 'c', lost: false, worker: 'vm2', attempts: 1, arms: { new: { exit: null, signal: 'SIGKILL', timedOut: true, seconds: 2400 }, old: { exit: 0, seconds: 50 } } },
+		];
+		const merged = await mergeArms({ out, rooms, arms: ['new', 'old'], outcomes });
+		assert.equal(merged.old.summary.planned, 4, 'arm old selects two rows in room b');
+		assert.equal(merged.old.summary.notStarted, 2, 'the rows a lost room left on disk are not counted');
+		assert.equal(merged.old.summary.status, 'INVALID');
+		assert.equal(merged.new.summary.invalid, 1, 'rows of an arm the room timeout killed are invalid');
+		assert.match(merged.new.rows.find(item => item.room === 'c').integrity.join(), /arm killed \(room timeout\)/);
+		assert.equal(merged.new.summary.status, 'INVALID');
+	} finally { await rm(out, { recursive: true, force: true }); }
+});
+
+test('a delete that fails is tried again when the batch ends, and a failed liveness lookup keeps the grace period', async () => {
+	const out = await mkdtemp(path.join(os.tmpdir(), 'room-batch-delete-'));
+	try {
+		const deletes = [];
+		let polls = 0;
+		const pool = {
+			async create() { return { id: 'vm1' }; },
+			async prepare() { return { code: '/c', out: '/o', jars: { new: '/j/new.jar', old: '/j/old.jar' }, inputs: {}, javaHome: '/jdk', template: '/t' }; },
+			async start() {},
+			async poll() { if (++polls === 1) throw new Error('ssh hiccup'); return 'done'; },
+			async alive() { throw new Error('boat api hiccup'); },
+			async fetch(vm, roomName) { for (const arm of ['new', 'old']) await writeRoom(out, roomName, arm, [row(`spot-${roomName}`)]); return { seconds: 5, arms: { new: { exit: 0 }, old: { exit: 0 } }, machine: {} }; },
+			async keepAlive() {},
+			async usage() { return { seconds: 1 }; },
+			async destroy(vm) { deletes.push(vm.id); if (deletes.length === 1) throw new Error('boat busy'); },
+		};
+		const rooms = parseCommands(`@a ${LINE}`, ['new', 'old']);
+		const result = await runBatch({ batch: { name: 't', code: 'abc12345' }, rooms, arms: [{ name: 'new' }, { name: 'old' }], pool, vms: 1, out, pollMs: 1, log: () => {} });
+		assert.equal(result.outcomes[0].lost, false, 'one failed poll and one failed lookup do not lose the room');
+		assert.deepEqual(deletes, ['vm1', 'vm1']);
+		assert.equal(result.machines[0].destroyed, true);
+	} finally { await rm(out, { recursive: true, force: true }); }
+});
+
+test('room-image waits for an in-flight machine creation and deletes it when cancelled', { skip: process.platform === 'win32' }, async () => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'room-image-cancel-'));
+	try {
+		const tpl = path.join(dir, 'tpl'), logFile = path.join(dir, 'boat.log'), fakeBoat = path.join(dir, 'fake-boat.mjs');
+		await mkdir(tpl, { recursive: true });
+		await writeFile(path.join(tpl, 'server.jar'), 'stub');
+		await writeFile(fakeBoat, `#!/usr/bin/env node
+import { appendFileSync } from 'node:fs';
+const args = process.argv.slice(2);
+appendFileSync(${JSON.stringify(logFile)}, JSON.stringify(args) + '\\n');
+if (args.includes('new')) {
+	process.stdout.write(JSON.stringify({ event: 'ready', id: 'bx_cancel_test' }) + '\\n');
+	setTimeout(() => process.exit(0), 300);
+} else {
+	process.exit(0);
+}
+`, { mode: 0o755 });
+		const { spawn } = await import('node:child_process');
+		const script = fileURLToPath(new URL('../../scripts/quality/room-image.mjs', import.meta.url));
+		const child = spawn(process.execPath, [script, '--template', tpl, '--snapshot', 'cancel-snap'], {
+			env: { ...process.env, BOAT_BIN: fakeBoat },
+			stdio: ['ignore', 'pipe', 'pipe'],
+		});
+		const deadline = Date.now() + 5000;
+		while (Date.now() < deadline) {
+			const calls = await readFile(logFile, 'utf8').catch(() => '');
+			if (calls.includes('"new"')) break;
+			await new Promise(done => setTimeout(done, 25));
+		}
+		child.kill('SIGTERM');
+		const exitCode = await new Promise((resolve, reject) => {
+			child.on('error', reject);
+			child.on('close', code => resolve(code));
+		});
+		assert.equal(exitCode, 130);
+		const calls = (await readFile(logFile, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+		assert.ok(calls.some(args => args.includes('new')), 'machine creation started');
+		assert.ok(calls.some(args => args.includes('delete') && args.includes('bx_cancel_test')), 'created machine was deleted before exit');
+	} finally { await rm(dir, { recursive: true, force: true }); }
 });

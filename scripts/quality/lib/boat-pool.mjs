@@ -11,7 +11,7 @@
 // input. So a machine gets everything in one ssh with the bundle on its input (prepare), a room starts with one exec,
 // and one ssh both waits for the room's end and brings its folder back (poll).
 import { execFileSync, spawn } from 'node:child_process';
-import { copyFile, mkdir, readFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 
 export function boat(args, { timeoutMs = 10 * 60_000, input = null, binary = false, anyExit = false, signal = null } = {}) {
@@ -32,7 +32,7 @@ export function boat(args, { timeoutMs = 10 * 60_000, input = null, binary = fal
 			signal?.removeEventListener('abort', kill);
 			const stdout = binary ? Buffer.concat(chunks) : Buffer.concat(chunks).toString();
 			if (code === 0 || anyExit) resolve(stdout);
-			else reject(new Error(`boat ${args[0]} exited ${code}: ${(stderr || String(stdout)).trim().split('\n').slice(-2).join(' ').slice(0, 400)}`));
+			else reject(Object.assign(new Error(`boat ${args[0]} exited ${code}: ${(stderr || String(stdout)).trim().split('\n').slice(-2).join(' ').slice(0, 400)}`), { stdout }));
 		});
 	});
 }
@@ -144,7 +144,14 @@ export async function createMachine({ from = null, type = 'default', ttlSeconds 
 	const args = ['new', '--no-env', '--type', type, '--ttl', String(ttlSeconds), '--name', name, '--json'];
 	if (from) args.push('--from', from);
 	if (!snapshots) args.push('--no-snapshots');
-	const text = await boat(args, { timeoutMs: 10 * 60_000 });
+	let text;
+	try { text = await boat(args, { timeoutMs: 10 * 60_000 }); }
+	catch (error) {
+		// A create that fails after boat printed the sandbox id still made a machine: delete it.
+		const orphan = jsonLines(error.stdout ?? '').find(event => event.id)?.id;
+		if (orphan) await boat(['delete', orphan, '--yes']).catch(() => {});
+		throw error;
+	}
 	const events = jsonLines(text);
 	const ready = events.find(event => event.event === 'ready');
 	const id = ready?.id ?? events.find(event => event.id)?.id;
@@ -214,10 +221,22 @@ export function boatPool({ snapshot, type = 'default', ttlSeconds = 7200, namePr
 			await mkdir(roomsDir, { recursive: true });
 			const stashed = vm.fetched?.room === room ? vm.fetched.data : null;
 			vm.fetched = null;
-			// The folder normally came back with the poll that saw the end; a cut stream is fetched again on its own.
-			try { if (!stashed) throw new Error('nothing stashed'); await untar(stashed, roomsDir); }
-			catch { await untar(await remoteBytes(vm.id, packScript({ outDir: vm.outDir, room }), { timeoutMs: 15 * 60_000 }), roomsDir); }
-			return JSON.parse(await readFile(path.join(roomsDir, room, 'done.json'), 'utf8'));
+			// Unpack into a staging folder and move the room into place only once done.json reads, so a failed copy never
+			// leaves rows the merge could count, and a retry never inherits an earlier attempt's files.
+			const staging = await mkdtemp(path.join(roomsDir, `.staging-${room}-`));
+			try {
+				// The folder normally came back with the poll that saw the end; a cut stream is fetched again on its own.
+				try { if (!stashed) throw new Error('nothing stashed'); await untar(stashed, staging); }
+				catch {
+					await rm(staging, { recursive: true, force: true }); await mkdir(staging, { recursive: true });
+					await untar(await remoteBytes(vm.id, packScript({ outDir: vm.outDir, room }), { timeoutMs: 15 * 60_000 }), staging);
+				}
+				const done = JSON.parse(await readFile(path.join(staging, room, 'done.json'), 'utf8'));
+				if (done.room !== room || typeof done.arms !== 'object') throw new Error(`done.json of ${room} does not describe it`);
+				await rm(path.join(roomsDir, room), { recursive: true, force: true });
+				await rename(path.join(staging, room), path.join(roomsDir, room));
+				return done;
+			} finally { await rm(staging, { recursive: true, force: true }); }
 		},
 		async keepAlive(vm) { await extendMachine(vm.id, ttlSeconds); log(`machine ${vm.id} deadline pushed back ${Math.round(ttlSeconds / 60)} min`); },
 		usage: vm => machineUsage(vm.id),

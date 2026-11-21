@@ -64,7 +64,7 @@ export function parseCommands(text, arms) {
 			if (!command) throw new Error(`room ${room} has no command for arm ${arm}`);
 			return { arm, env: { ...command.env }, args: [...command.args] };
 		});
-		return { room, lines, planned: plannedOf(lines[0].env) };
+		return { room, lines, planned: plannedOf(lines[0].env), plannedByArm: Object.fromEntries(lines.map(line => [line.arm, plannedOf(line.env)])) };
 	});
 }
 
@@ -146,13 +146,18 @@ export async function mergeArms({ out, rooms, arms, outcomes }) {
 		for (const room of rooms) {
 			const outcome = byRoom.get(room.room) ?? { lost: true, reason: 'not run' };
 			const dir = path.join(out, 'rooms', room.room, arm);
-			const own = await readJson(path.join(dir, 'result-summary.json')).catch(() => null);
-			const roomPlanned = Number.isInteger(own?.planned) ? own.planned : room.planned;
+			// A lost room counts no rows, whatever a partial copy left behind; it is all notStarted.
+			const own = outcome.lost ? null : await readJson(path.join(dir, 'result-summary.json')).catch(() => null);
+			const roomPlanned = Number.isInteger(own?.planned) ? own.planned : (room.plannedByArm?.[arm] ?? room.planned);
 			planned += roomPlanned;
 			const run = outcome.arms?.[arm] ?? {};
-			const roomRows = await exists(path.join(dir, 'result.json')) ? await readJson(path.join(dir, 'result.json')).catch(() => []) : [];
-			for (const row of Array.isArray(roomRows) ? roomRows : []) rows.push({ ...row, room: room.room, host: outcome.worker ?? null, attempts: outcome.attempts ?? 0, cantKeepUp: run.cantKeepUp ?? null });
-			perRoom.push({ room: room.room, lost: !!outcome.lost, reason: outcome.reason ?? null, rows: roomRows.length ?? 0, planned: roomPlanned, exit: run.exit ?? null, seconds: run.seconds ?? null, timedOut: !!run.timedOut, cantKeepUp: run.cantKeepUp ?? null });
+			const read = !outcome.lost && await exists(path.join(dir, 'result.json')) ? await readJson(path.join(dir, 'result.json')).catch(() => []) : [];
+			const roomRows = Array.isArray(read) ? read : [];
+			// Rows an arm wrote before the room timeout, a signal or a launch error killed it are not a finished run.
+			const killed = run.timedOut ? 'room timeout' : run.signal ? `signal ${run.signal}` : run.error ? `launch error: ${run.error}` : null;
+			for (const row of roomRows) rows.push({ ...row, ...(killed ? { integrity: [...(Array.isArray(row.integrity) ? row.integrity : []), `arm killed (${killed})`] } : {}),
+				room: room.room, host: outcome.worker ?? null, attempts: outcome.attempts ?? 0, cantKeepUp: run.cantKeepUp ?? null });
+			perRoom.push({ room: room.room, lost: !!outcome.lost, reason: outcome.reason ?? null, rows: roomRows.length, planned: roomPlanned, exit: run.exit ?? null, seconds: run.seconds ?? null, timedOut: !!run.timedOut, cantKeepUp: run.cantKeepUp ?? null });
 		}
 		await mkdir(path.join(out, arm), { recursive: true });
 		const summary = await finishRun(rows, { file: path.join(out, arm, 'result.json'), planned, strict: false, setExitCode: false });
@@ -165,7 +170,9 @@ const sum = values => values.reduce((total, value) => total + value, 0);
 /** Totals over rows that ran; a row without a number makes the total unknown instead of reading as zero. */
 export function armTotals({ summary, rows, perRoom }) {
 	const ran = rows.filter(row => Number.isFinite(row.startedAt) && !row.skipped);
-	const known = key => ran.every(row => Number.isFinite(row[key])) ? sum(ran.map(row => row[key])) : null;
+	// Unknown, never 0, when a row lacks the counter or a room wrote fewer rows than planned.
+	const missing = perRoom.some(room => room.rows < room.planned);
+	const known = key => !missing && ran.every(row => Number.isFinite(row[key])) ? sum(ran.map(row => row[key])) : null;
 	const passed = rows.filter(row => !row.skipped && row.pass === true && !row.error).length;
 	return {
 		pass: passed, fail: summary.failed, invalid: summary.invalid, notStarted: summary.notStarted, status: summary.status,
