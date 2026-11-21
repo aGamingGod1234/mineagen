@@ -149,6 +149,9 @@ async function fight(targetId) {
 try {
 	await s.command('difficulty normal');
 	await s.command('gamerule minecraft:spawn_mobs false');
+	// A pad under the summon point: a body summoned in the air falls to its death before the room is built.
+	await s.command('forceload add 0 0');
+	await s.command('fill -1 199 -1 1 199 1 minecraft:glass');
 	let e = null, reply = null;
 	for (let attempt = 0; attempt < 3 && !e; attempt++) {
 		const registered = s.inbox.wait('agent_registered', () => true, 45000).catch(() => null);
