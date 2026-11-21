@@ -9,7 +9,7 @@ import { normalizeStandIn } from '../../scripts/quality/ai-room-standin.mjs';
 import { parseCommands } from '../../scripts/quality/lib/room-batch-core.mjs';
 import { roomVerdict } from '../../scripts/quality/lib/fixture-run.mjs';
 import { aiRoomRow, aiRoomLadderArgs, copyArtifacts, keepArtifacts, prepareCodex, signInChanged } from '../../scripts/quality/run-ai-room.mjs';
-import { compareArms, formatComparison, readBatchArms } from '../../scripts/quality/ai-room-report.mjs';
+import { compareArms, formatComparison, readBatchArms, roomArmRows } from '../../scripts/quality/ai-room-report.mjs';
 import { parseLadderArgs } from '../../scripts/quality/run-ladder.mjs';
 
 const room = (name, extra = {}) => ({ id: name.toUpperCase(), name, seed: '1', goal: 'g', durationBudgetMs: 600000, setup: {}, successCheck: 'survive_duration: 0 ticks',
@@ -241,6 +241,7 @@ test('lost and never-started rooms stay in the comparison as INVALID rows', asyn
 		await writeFile(path.join(dir, 'rooms', 'ai-a-r1', 'done.json'), JSON.stringify({ arms: { ai: { seconds: 90 }, script: { seconds: 60 } } }));
 		await writeFile(path.join(dir, 'rooms', 'ai-a-r1', 'ai', 'result.json'), JSON.stringify([aiRoomRow(room('ai-a'), measured({}), times)]));
 		await writeFile(path.join(dir, 'rooms', 'ai-a-r1', 'script', 'result.json'), JSON.stringify([{ pass: true, deaths: 0, damageTaken: 0, startedAt: 1 }]));
+		for (const arm of ['ai', 'script']) await writeFile(path.join(dir, 'rooms', 'ai-a-r1', arm, 'result-summary.json'), JSON.stringify({ planned: 1, status: 'PASS' }));
 		const { arms } = await readBatchArms(dir);
 		const [a] = compareArms({ arms, done: {} });
 		assert.deepEqual([a.arms.ai.passed, a.arms.ai.valid, a.arms.ai.invalid], [1, 1, 2]);
@@ -289,4 +290,34 @@ test('the npm prefix the CLI installs into is on PATH: PREFIX/bin, or PREFIX its
 	await prepareCodex(windows, { exec, platform: 'win32', userHome: 'C:\\Users\\u' });
 	assert.equal(posix.PATH.split(':')[0], path.join('/h', '.local', 'bin'));
 	assert.equal(windows.PATH.split(';')[0], path.join('C:\\Users\\u', '.local'));
+});
+
+test('the report counts a rows file only with its summary, as the batch merge does', async () => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'ai-room-summary-'));
+	try {
+		const bare = path.join(dir, 'bare'), short = path.join(dir, 'short'), good = path.join(dir, 'good'), native = path.join(dir, 'native');
+		for (const d of [bare, short, good, native]) await mkdir(d);
+		const passing = JSON.stringify([{ pass: true, deaths: 0, damageTaken: 0, startedAt: 1 }]);
+		await writeFile(path.join(bare, 'result.json'), passing);
+		await writeFile(path.join(short, 'result.json'), passing);
+		await writeFile(path.join(short, 'result-summary.json'), JSON.stringify({ planned: 2, status: 'PASS' }));
+		await writeFile(path.join(good, 'result.json'), passing);
+		await writeFile(path.join(good, 'result-summary.json'), JSON.stringify({ planned: 1, status: 'PASS' }));
+		await writeFile(path.join(native, 'results.json'), JSON.stringify({ results: [{ id: 'c', arrived: true, deaths: 0, damage: 0, wallSeconds: 60 }] }));
+		assert.deepEqual((await roomArmRows(bare)).map(row => roomVerdict(row).verdict), ['INVALID']);
+		assert.deepEqual((await roomArmRows(short)).map(row => roomVerdict(row).verdict), ['PASS', 'INVALID']);
+		assert.deepEqual((await roomArmRows(good)).map(row => roomVerdict(row).verdict), ['PASS']);
+		assert.deepEqual((await roomArmRows(native)).map(row => roomVerdict(row).verdict), ['PASS']);
+	} finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('a fixture\'s own named rows pair keeps the damage its report holds', async () => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'ai-room-named-'));
+	try {
+		await writeFile(path.join(dir, 'acceptance.json'), JSON.stringify([{ pass: true, startedAt: 1, finishedAt: 2 }]));
+		await writeFile(path.join(dir, 'acceptance-summary.json'), JSON.stringify({ planned: 1, status: 'PASS' }));
+		await writeFile(path.join(dir, 'results.json'), JSON.stringify({ drawnBow: { arms: { drawn: { taken: 160 } } } }));
+		const [row] = await roomArmRows(dir);
+		assert.deepEqual([roomVerdict(row).verdict, row.deaths, row.damageTaken], ['PASS', 0, 16]);
+	} finally { await rm(dir, { recursive: true, force: true }); }
 });

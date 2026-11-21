@@ -11,6 +11,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { roomVerdict } from './lib/fixture-run.mjs';
 import { readArmRows } from './lib/standin-rows.mjs';
+import { armRows } from './lib/room-batch-core.mjs';
 
 export { readArmRows };
 
@@ -59,6 +60,26 @@ export function formatComparison(rooms, arms) {
 }
 
 /**
+ * One arm's rows, judged the way the batch merge judges them (mergeArms): a finishRun rows file needs its summary, a
+ * summary that is not INVALID and plans rows, and as many rows as it planned; otherwise the rows are INVALID and each
+ * missing row is one more INVALID row. An arm with no finishRun rows at all (a stand-in recorded before
+ * ai-room-standin.mjs, which wrote only its own report) falls back to that report, read by readArmRows.
+ */
+export async function roomArmRows(dir) {
+	const found = await armRows(dir);
+	if (!found.file && !found.problem) return readArmRows(dir);
+	const own = found.summary, ownValid = Boolean(own && typeof own === 'object' && Number.isInteger(own.planned));
+	const problem = found.problem ?? (!ownValid ? 'missing or corrupt room summary' : own.status === 'INVALID' ? 'room summary INVALID' : own.planned <= 0 ? 'room planned 0 rows' : null);
+	// A fixture's own named pair (acceptance.json from drawn-bow) holds the verdict; its report holds the damage.
+	const adapted = found.file !== 'result.json' ? await readArmRows(dir).catch(() => []) : [];
+	const merged = adapted.length === found.rows.length ? found.rows.map((row, i) => ({ ...adapted[i], ...row, deaths: row.deaths ?? adapted[i].deaths, damageTaken: row.damageTaken ?? adapted[i].damageTaken })) : found.rows;
+	const rows = merged.map(row => problem ? { ...row, integrity: [...(Array.isArray(row.integrity) ? row.integrity : []), { file: 'summary', error: problem }] } : row);
+	const planned = ownValid ? own.planned : Math.max(rows.length, 1);
+	for (let i = rows.length; i < planned; i++) rows.push({ pass: false, error: `planned row ${i + 1} of ${planned} missing${problem ? ` (${problem})` : ''}`, deaths: null, damageTaken: null });
+	return rows;
+}
+
+/**
  * Every planned arm of every planned room in one batch folder as rows. The plan is batch.json's rooms and arms, so a room
  * that was lost, or never started because the batch stopped, is an INVALID row (with the batch's reason) instead of
  * dropping out of the rate: 4 passes and 1 lost read 4/4 (+1 invalid), not 4/4. Without batch.json (the batch never
@@ -82,7 +103,7 @@ export async function readBatchArms(out) {
 				continue;
 			}
 			const killed = run.timedOut ? 'room timeout' : run.signal ? `signal ${run.signal}` : run.error ? `launch error: ${run.error}` : null;
-			const rows = await readArmRows(path.join(out, 'rooms', room, arm));
+			const rows = await roomArmRows(path.join(out, 'rooms', room, arm));
 			(arms[arm] ??= []).push(...(rows.length ? rows : [{ pass: false, error: 'no result rows' }]).map(row => ({ ...row, room, armSeconds: run.seconds ?? null,
 				...(killed ? { integrity: [...(row.integrity ?? []), { file: 'arm', error: `killed (${killed})` }] } : {}) })));
 		}
