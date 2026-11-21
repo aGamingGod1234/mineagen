@@ -156,7 +156,7 @@ export function planChoice(kind, key, s) {
 		case 'threat.retreat_cover': case 'low_health.retreat_eat':
 			return nearest ? act('flee_from', { targetId: threatId(nearest), distance: 16, timeoutMs: 10_000 }) : { kind: 'hand_back' };
 		case 'threat.fight': case 'low_health.fight':
-			return nearest ? act('fight_target', { targetId: threatId(nearest), timeoutMs: 30_000 }) : { kind: 'hand_back' };
+			return nearest ? act('fight_target', { targetId: threatId(nearest), timeoutMs: 30_000, single: true }) : { kind: 'hand_back' };
 		case 'threat.block_shield': return act('block_with_shield', { durationMs: 3000 });
 		// Healing needs a sealed box; build_shelter leaves an eye-height window (the mod seals only its own recovery shelter),
 		// so walling in to heal goes back to the model (dig in, or place the blocks). Night and respawn shelters keep it.
@@ -208,7 +208,7 @@ export function choiceResultText(kind, key, plan, body = null) {
 	if (plan.kind === 'hand_back') return `Chosen: ${meaning}. No body step does this by itself: make the tool call that does it now.`;
 	const what = plan.name === 'do_step' ? plan.args.verb : plan.args.actionType;
 	const state = body?.state;
-	if (body?.executed === false || ['REJECTED', 'FAILED', 'CANCELLED'].includes(state)) {
+	if (body?.executed === false || ['REJECTED', 'FAILED', 'CANCELLED', 'TIMED_OUT'].includes(state)) {
 		return `Chosen: ${meaning}. The body could not do it (${what}: ${String(body?.reasonCode ?? state ?? 'refused')}); make the tool call that does it now.`;
 	}
 	return `Chosen: ${meaning}. The body ${state === 'SUCCEEDED' ? 'did' : 'started'} ${what} for it.`;

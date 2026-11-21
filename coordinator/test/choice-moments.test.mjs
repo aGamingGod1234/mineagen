@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { CHOICE_MENUS, CHOOSE_RESPONSE_TOOL, ChoiceMoments, againstRunning, choiceResultText, choiceToolEnabled, flagMoment, momentLine, momentSignals, planChoice } from '../src/choice-moments.mjs';
 import { normalizeMinecraftToolCall } from '../src/native-minecraft-tools.mjs';
+import { planCountDefault } from '../src/plan-count.mjs';
 
 const zombie = { uuid: '0b7f4f5e-8a54-4a33-9d0e-2c1b1d6f2a10', type: 'minecraft:zombie', distance: 6, targeting: true };
 const skeleton = { uuid: '9a3c2b1d-0000-4a33-9d0e-2c1b1d6f2a11', type: 'minecraft:skeleton', distance: 14, signals: ['targeting'] };
@@ -118,6 +119,21 @@ test('lava is a moment only within 4 blocks', () => {
 	assert.equal(flagMoment(momentSignals({ observation: lava(7) })), null);
 });
 
+test('a chosen fight stays on one blaze even when the goal needs six rods', () => {
+	const blaze = { ...zombie, type: 'minecraft:blaze' };
+	const signals = momentSignals({ observation: observation({ threats: [blaze] }) });
+	const context = { entities: [blaze], needs: [{ id: 'minecraft:blaze_rod', have: 0, need: 6 }] };
+	for (const kind of ['threat', 'low_health']) {
+		const chosen = planChoice(kind, 'fight', signals);
+		for (const running of [null, { actionId: 'walk' }]) {
+			const { plan } = againstRunning(chosen, running, 1);
+			const call = normalizeMinecraftToolCall(plan.name, plan.args);
+			const { tool } = planCountDefault(call, context);
+			assert.deepEqual(tool.arguments, { targetId: blaze.uuid, timeoutMs: 30_000 });
+		}
+	}
+});
+
 test('an open offer expires after a minute', () => {
 	let now = 0;
 	const moments = new ChoiceMoments({ now: () => now });
@@ -169,6 +185,7 @@ test('the result text tells the model what happens next', () => {
 	assert.match(choiceResultText('threat', 'retreat_cover', flee, { state: 'RUNNING' }), /The body started flee_from/);
 	assert.match(choiceResultText('threat', 'retreat_cover', flee, { state: 'SUCCEEDED' }), /The body did flee_from/);
 	assert.match(choiceResultText('threat', 'retreat_cover', flee, { state: 'REJECTED', executed: false, reasonCode: 'NATIVE_ACTION_IN_PROGRESS' }), /could not do it \(flee_from: NATIVE_ACTION_IN_PROGRESS\); make the tool call/);
+	assert.match(choiceResultText('threat', 'retreat_cover', flee, { state: 'TIMED_OUT', reasonCode: 'FLEE_TIMED_OUT' }), /could not do it \(flee_from: FLEE_TIMED_OUT\); make the tool call/);
 	assert.match(choiceResultText(null, 'fight', { kind: 'invalid' }), /no moment is open/);
 	assert.match(momentLine('kit_gap'), /craft_shield = craft a shield/);
 });
