@@ -88,6 +88,8 @@ const PLAIN_BLOCKS = /^(cobblestone|cobbled_deepslate|dirt|stone|deepslate|andes
 const SPARE_BLOCKS = 24;
 // After a fill, a walk back out of the water to a dry spot from before a find search goes only this many blocks.
 const DRY_WALK = 32;
+// A wet ore search steps out to dry ground no more than this far above or below the body.
+const DRY_RISE = 6;
 const KEEP_COBBLE = 16;
 const ROOM_STACKS = 2;
 const COBBLE = new Set(['cobblestone', 'cobbled_deepslate']);
@@ -890,7 +892,21 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		const o = await body.observe();
 		danger ??= bodyDanger(o) ?? hostileOn(o);
 		if (body.interrupted() || body.stopped()) return;
-		if (ore && origin && (o.player?.underWater === true || o.player?.inWater === true)) {
+		const wet = o.player?.underWater === true || o.player?.inWater === true;
+		// Out of the water to the last dry ground nearby, as a player steps out of a flooded cut and digs on another way:
+		// retracing to where this obtain started was a climb back to the surface, and the search began again from the top.
+		// Only dry ground at about this depth: one far above is the climb this avoids.
+		const here = bodyAt(o);
+		const dry = ore && wet && lastDry !== null && here !== null && Math.abs(lastDry.y - here.y) <= DRY_RISE
+			&& Math.hypot(lastDry.x - here.x, lastDry.z - here.z) <= DRY_WALK ? lastDry : null;
+		if (dry !== null) {
+			step(`out of the water to the dry ground at ${Math.floor(dry.x)},${Math.floor(dry.y)},${Math.floor(dry.z)}, then search on from there`);
+			const out = await act('travel_to', { x: dry.x, y: dry.y, z: dry.z, tolerance: 1, build: false, timeoutMs: 60_000 });
+			const after = await body.observe();
+			if (out?.state === 'SUCCEEDED' && after.player?.inWater !== true && after.player?.underWater !== true) return out;
+			body.note(`walk out of the water stopped: ${out?.reasonCode ?? out?.state}`);
+		}
+		if (ore && origin && wet) {
 			step('out of the water first: back up the way the body came');
 			const out = await act('travel_to', { x: origin.x, y: origin.y, z: origin.z, retrace: true, tolerance: 3, timeoutMs: 120_000 });
 			if (out?.state !== 'SUCCEEDED') body.note(`move stopped: ${out?.reasonCode ?? out?.state}`);

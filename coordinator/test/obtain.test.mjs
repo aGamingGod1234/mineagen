@@ -716,6 +716,20 @@ test('scripted gate seed 3: a log search blocked for want of a pickaxe is a fail
 	assert.ok(logSearches <= 3, `${logSearches} log searches`);
 });
 
+test('a whole kit plans as one: one iron need for every item, one table and the shared fuel', () => {
+	const held = new Map([['stone_pickaxe', 1], ['furnace', 1], ['crafting_table', 1]]);
+	const kit = planObtain({ ids: ['iron_pickaxe'], count: 1, also: [{ ids: ['shield'], count: 1 }, { ids: ['bucket'], count: 2 }, { ids: ['flint_and_steel'], count: 1 }] }, { held, seen: new Set() });
+	const iron = kit.needs.filter((need) => need.accept.includes('raw_iron'));
+	assert.equal(iron.length, 1);
+	assert.equal(iron[0].count, 11);
+	assert.equal(kit.fuel.smelts, 11);
+	// The table carried serves every craft; none is made.
+	assert.equal(kit.ops.some((op) => op.outputs.includes('crafting_table')), false);
+	// One item at a time, the same kit is four plans that each count only their own iron.
+	const alone = planObtain({ ids: ['bucket'], count: 2 }, { held, seen: new Set() });
+	assert.equal(alone.needs.find((need) => need.accept.includes('raw_iron')).count, 6);
+});
+
 test('scripted gate seed 2: in a flooded stair, the move off an ore out of reach is back up the way the body came, not tunnels refused in the water', async () => {
 	const body = simulatedBody({ start: { stone_pickaxe: 1, furnace: 1, crafting_table: 1, stick: 2, oak_planks: 8 } });
 	let water = false, searches = 0;
@@ -739,6 +753,33 @@ test('scripted gate seed 2: in a flooded stair, the move off an ore out of reach
 	const order = body.calls.map(([type, args]) => (type === 'travel_to' && args.retrace ? 'retrace' : type === 'dig_to' && args.heading ? 'tunnel-off' : type));
 	assert.ok(order.includes('retrace'), order.join(' '));
 	assert.ok(!order.includes('tunnel-off'), order.join(' '));
+});
+
+test('flooded on the way to an ore with dry ground just behind: step out onto it and search on, not a retrace back to the surface', async () => {
+	const body = simulatedBody({ start: { stone_pickaxe: 1, furnace: 1, crafting_table: 1, stick: 2, oak_planks: 8 } });
+	let water = false, searches = 0;
+	const observe = body.observe;
+	body.observe = async () => { const o = await observe(); o.player.underWater = water; o.player.inWater = water; return o; };
+	body.search = async (target, options) => {
+		body.calls.push(['search', target, options]);
+		searches += 1;
+		const seen = searches <= 2 ? { x: 4, y: 20, z: 40, id: 'minecraft:iron_ore' } : { x: 1, y: 63, z: 1, id: 'minecraft:iron_ore' };
+		return { state: 'SUCCEEDED', reasonCode: 'FIND_SEEN', message: `Found: ${seen.id}`, find: { seen } };
+	};
+	const act = body.act;
+	body.act = async (type, args) => {
+		if (type === 'travel_to' && args.retrace) { body.calls.push([type, args]); water = false; return { state: 'SUCCEEDED', reasonCode: 'ARRIVED' }; }
+		// The walk to the last dry cell, with no building: out of the water a few blocks back.
+		if (type === 'travel_to' && args.build === false) { body.calls.push([type, args]); water = false; return { state: 'SUCCEEDED', reasonCode: 'ARRIVED' }; }
+		if (type === 'travel_to' && args.y === 20) { body.calls.push([type, args]); water = true; return { state: 'FAILED', reasonCode: 'NO_ROUTE', message: 'Could not get out of the water in 30 s' }; }
+		if (type === 'dig_to' && water) { body.calls.push([type, args]); return { state: 'FAILED', reasonCode: 'WATER_AHEAD', message: 'The body is under water' }; }
+		return act(type, args);
+	};
+	const result = await runObtain({ item: 'iron_pickaxe', count: 1 }, body, { now: ticking() });
+	assert.equal(result.state, 'SUCCEEDED', result.message);
+	const order = body.calls.map(([type, args]) => (type === 'travel_to' && args.retrace ? 'retrace' : type === 'travel_to' && args.build === false ? 'dry-walk' : type));
+	assert.ok(order.includes('dry-walk'), order.join(' '));
+	assert.ok(!order.includes('retrace'), order.join(' '));
 });
 
 test('scripted gate seed 1: soil deeper than one dig down: dig on down until stone shows, not a walk that wears the pickaxe out', async () => {
