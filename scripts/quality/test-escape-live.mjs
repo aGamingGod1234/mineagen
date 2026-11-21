@@ -194,6 +194,7 @@ try {
 		const damageBefore = await readDamage().catch(() => null);
 		const deathsBefore = await readDeaths();
 		if (!Number.isFinite(before)) throw new Error(`${room} ${run}: health unreadable before the room`);
+		const coverLog = [];
 		let minHealth = before, minAir = airBefore, sampling = true, hiddenSamples = 0, samples = 0, healthSamples = 0;
 		const skeletonEye = async () => {
 			const text = String(await s.command('data get entity @e[type=minecraft:skeleton,limit=1,sort=nearest] Pos').catch(() => ''));
@@ -215,7 +216,7 @@ try {
 			const h = await health().catch(() => NaN), a = await airLeft().catch(() => NaN);
 			if (Number.isFinite(h)) { minHealth = Math.min(minHealth, h); healthSamples++; }
 			if (Number.isFinite(a)) minAir = Math.min(minAir, a);
-			if (room === 'skeleton') { samples++; if (await hidden().catch(() => false)) hiddenSamples++; }
+			if (room === 'skeleton') { samples++; const covered = await hidden().catch(() => false); if (covered) hiddenSamples++; coverLog.push({ at: Date.now(), covered }); }
 			await sleep(250);
 		} })();
 		const safe = async () => {
@@ -269,8 +270,12 @@ try {
 		// Safe has to hold: two seconds on, the body is still out (not slid back into the water or the hole).
 		let endSafe = null;
 		if (room !== 'skeleton' && safeAt !== null) { endSafe = true; for (let i = 0; i < 4 && endSafe; i++) { await sleep(500); endSafe = await safe(); } }
-		// The skeleton room ends in cover: behind the wall for the last 2 s, not only blocking in the open behind a shield.
-		if (room === 'skeleton') { endSafe = true; for (let i = 0; i < 4 && endSafe; i++) { endSafe = await hidden(); if (endSafe && i < 3) await sleep(500); } }
+		// The skeleton room ends in cover: behind the wall for every sample of the window's last 2 s, not only blocking in
+		// the open behind a shield.
+		if (room === 'skeleton') {
+			const tail = coverLog.filter(row => row.at >= t0 + window - 2000 && row.at <= t0 + window);
+			endSafe = tail.length >= 4 && tail.every(row => row.covered);
+		}
 		sampling = false; await sampler;
 		const end = await pos();
 		const damage = damageEvidence(damageBefore, await readDamage().catch(() => null), before, await health().catch(() => NaN));
