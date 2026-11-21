@@ -197,7 +197,13 @@ export function leaseStore({ dir = defaultPoolDir(), leaseStaleMs = 5 * 60_000, 
 		 * Waits until a `boat new` fits the pace (perMinute starts in any 60 s, minGapMs apart, counted over every batch on
 		 * this computer), then records it. Returns the ms waited.
 		 */
-		async reserveStart({ perMinute = 20, minGapMs = Math.ceil(60_000 / perMinute), signal = null } = {}) {
+		/**
+		 * budget, when given: { starts, readAt, reserve } from the provider's limits read at readAt. The hour and day
+		 * windows are checked here, under the mutex, against that read minus every start any batch on this computer
+		 * recorded since (30 s earlier, to cover a start the read may not have seen yet), so two batches can never both
+		 * spend the last starts above the reserve. A refused start is not recorded.
+		 */
+		async reserveStart({ perMinute = 20, minGapMs = Math.ceil(60_000 / perMinute), signal = null, budget = null } = {}) {
 			if (!Number.isInteger(perMinute) || perMinute < 1) throw new Error(`starts per minute must be a whole number of at least 1, got ${perMinute}`);
 			if (!Number.isFinite(minGapMs) || minGapMs < 0) throw new Error(`the gap between starts must be a number of ms, got ${minGapMs}`);
 			const began = now();
@@ -205,7 +211,14 @@ export function leaseStore({ dir = defaultPoolDir(), leaseStaleMs = 5 * 60_000, 
 				if (signal?.aborted) throw new Error('batch stopped');
 				const wait = await withMutex(async () => {
 					const at = now();
-					const times = ((await readJson(ledgerFile)) ?? []).filter(time => Number.isFinite(time) && at - time < 3_600_000).sort((a, b) => a - b);
+					const times = ((await readJson(ledgerFile)) ?? []).filter(time => Number.isFinite(time) && at - time < 86_400_000).sort((a, b) => a - b);
+					if (budget?.starts && !budget.starts.unlimited) {
+						const since = times.filter(time => time > budget.readAt - 30_000).length;
+						for (const window of ['hour', 'day']) {
+							const left = (budget.starts[window]?.remaining ?? Infinity) - since;
+							if (left <= budget.reserve) throw new Error(`the ${window} sandbox start limit has ${Math.max(left, 0)} starts left, keeping ${budget.reserve} in reserve: no new machine`);
+						}
+					}
 					const minute = times.filter(time => at - time < 60_000);
 					const last = times.at(-1) ?? -Infinity;
 					const until = Math.max(minute.length >= perMinute ? minute[minute.length - perMinute] + 60_000 : 0, last + minGapMs);

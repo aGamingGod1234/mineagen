@@ -1481,3 +1481,16 @@ test('fourth review: a new machine whose drawn name is already reserved draws an
 		real.stop();
 	} finally { await fake.close(); }
 });
+
+test('fifth review: two batches filling the pool at once share the hour budget', { skip: process.platform === 'win32' }, async () => {
+	const fake = await fakeBoat({ FAKE_BOAT_HOUR_LEFT: '6' });
+	try {
+		// Separate pools and lease stores, as two batch processes have, over one pool folder.
+		const a = warm(fake), b = warm(fake);
+		const results = await Promise.allSettled([a.startNew(), b.startNew()]);
+		assert.equal(results.filter(item => item.status === 'fulfilled').length, 1, '6 left with 5 in reserve allows one start between them');
+		assert.match(results.find(item => item.status === 'rejected').reason.message, /hour sandbox start limit has 5 starts left/);
+		assert.equal((await fake.calls('new')).length, 1);
+		a.store.stop(); b.store.stop();
+	} finally { await fake.close(); }
+});

@@ -146,40 +146,28 @@ export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, id
 		log(`machine ${vm.id} ${vm.adopted ? 'named with --machines failed its check' : 'set aside'} (${reason}): left running, not deleted`);
 	}
 	const destroy = vm => setAside(vm, 'the batch gave it up');
-	// One limits read serves every machine a batch starts at once: the read is shared while in flight, and each
-	// reservation counts against it until its `boat new` has run (pending), so a fresh read never forgets one.
-	let pending = 0;
+	// One limits read (shared while in flight, refreshed every 20 s) feeds the start ledger, which checks the hour and
+	// day windows for every batch on this computer at once (pool-leases.mjs reserveStart).
 	async function startBudget() {
 		if (!limits || Date.now() - limits.at > 20_000) {
-			limits = { at: Date.now(), used: pending, read: readLimits().catch(error => { log(`could not read the start limits (${error.message})`); return null; }) };
+			const at = Date.now();
+			limits = { at, read: readLimits().then(starts => ({ starts, readAt: at, reserve: startReserve }), error => { log(`could not read the start limits (${error.message})`); return null; }) };
 		}
-		const current = limits;
-		const starts = await current.read;
-		if (!starts || starts.unlimited) { pending++; return; }
-		// No await between the check and the count, so two machines cannot both take the last allowed start.
-		for (const window of ['hour', 'day']) {
-			const left = (starts[window]?.remaining ?? Infinity) - current.used;
-			if (left <= startReserve) throw new Error(`the ${window} sandbox start limit has ${Math.max(left, 0)} starts left, keeping ${startReserve} in reserve: no new machine`);
-		}
-		current.used++;
-		pending++;
+		return limits.read;
 	}
 	async function createNew(signal) {
 		const ident = await init();
-		await startBudget();
-		let started = false;
-		const settle = () => { if (!started) { started = true; pending--; } };
 		// The lease exists before the machine does, so no other batch can take it between ready and lease. A name another
 		// start already holds is drawn again: creating under a lease we do not hold would leave the machine unowned.
 		let name = null;
 		for (let draw = 0; draw < 5 && !name; draw++) name = await store.take([machineName({ poolId: ident.poolId, type, snapshot, snapshotId: ident.snapshotId })], { batch });
-		if (!name) { settle(); throw new Error('could not reserve a free machine name for a new machine'); }
+		if (!name) throw new Error('could not reserve a free machine name for a new machine');
 		try {
 			for (let attempt = 1; ; attempt++) {
-				const waited = await store.reserveStart({ perMinute: startsPerMinute, signal });
+				const waited = await store.reserveStart({ perMinute: startsPerMinute, signal, budget: await startBudget() });
 				if (waited > 1000) log(`waited ${Math.round(waited / 1000)} s to pace machine starts`);
 				let vm;
-				try { vm = await createMachine({ from: snapshot, type, ttlSeconds, name }); settle(); }
+				try { vm = await createMachine({ from: snapshot, type, ttlSeconds, name }); }
 				catch (error) {
 					const limit = rateLimited(error);
 					if (!limit || limit.concurrent || limit.window !== 'minute' || attempt >= 4) throw error;
@@ -201,7 +189,7 @@ export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, id
 				log(`machine ${vm.id} started for the warm pool (${name})`);
 				return fresh;
 			}
-		} catch (error) { settle(); await store.drop(name); throw error; }
+		} catch (error) { await store.drop(name); throw error; }
 	}
 
 	return {
