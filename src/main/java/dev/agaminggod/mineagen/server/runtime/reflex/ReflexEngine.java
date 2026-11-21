@@ -489,6 +489,8 @@ public final class ReflexEngine {
 		if (running != null && !inEnd && endOnly(agent.scheduler.rule(running.ruleId()))) end(agentId, agent, agent.scheduler.interrupt(now, "left the End"));
 		agent.scheduler.blockWhere(inEnd ? null : ReflexEngine::endOnly);
 		ObservationVisibility.Frame frame = ObservationVisibility.frame(player.level(), player);
+		// A fortress spawner in view is remembered for a blaze fight started later, cover or not (spawner hold).
+		if (player.tickCount % 20 == 0) dev.agaminggod.mineagen.server.runtime.controller.ServerSpawnerHoldController.notice(player);
 		boolean cornered = active != null && active.type() == ActionType.FLEE_FROM
 				&& dev.agaminggod.mineagen.server.runtime.controller.CorneredStand.standing(player)
 				// A blaze spawner hold owns the body for its whole run: its roofed cell is the cover a retreat would look for,

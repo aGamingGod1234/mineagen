@@ -180,6 +180,41 @@ public final class ServerSpawnerHoldController implements ServerController {
 	 * seen, or null. The world is scanned for spawner blocks; only one the body's own terrain view knows counts.
 	 */
 	public static BlockPos seenFortressSpawner(ServerPlayer player) {
+		BlockPos now = inViewFortressSpawner(player);
+		if (now != null) {
+			NOTICED.put(player.getUUID(), new Noticed(now, player.level().getGameTime()));
+			return now;
+		}
+		if (player.level().dimension() != Level.NETHER) return null;
+		BlockPos feet = player.blockPosition();
+		Held held = LAST_HOLD.get(player.getUUID());
+		if (held != null && held.spawner().distSqr(feet) <= SpawnerHold.SCAN * SpawnerHold.SCAN
+				&& player.level().getBlockState(held.spawner()).is(Blocks.SPAWNER)) return held.spawner();
+		Noticed noticed = NOTICED.get(player.getUUID());
+		if (noticed != null && player.level().getGameTime() - noticed.tick() <= NOTICE_TICKS
+				&& noticed.spawner().distSqr(feet) <= SpawnerHold.SCAN * SpawnerHold.SCAN
+				&& player.level().getBlockState(noticed.spawner()).is(Blocks.SPAWNER)) return noticed.spawner();
+		return null;
+	}
+
+	/**
+	 * A fortress spawner this body saw in the last NOTICE_TICKS (5 minutes): a player who built cover between it and the
+	 * spawner still knows where the spawner is (blaze spawner cover room: the two cover blocks hid the spawner, the fight
+	 * ran in the open and died 4 of 4). Kept fresh by {@link #notice} once a second from the reflex engine.
+	 */
+	private record Noticed(BlockPos spawner, long tick) {
+	}
+	private static final Map<UUID, Noticed> NOTICED = new java.util.concurrent.ConcurrentHashMap<>();
+	private static final long NOTICE_TICKS = 6_000L;
+
+	/** Remembers a fortress spawner in view now (the reflex engine calls this once a second in the Nether). */
+	public static void notice(ServerPlayer player) {
+		if (player.level().dimension() != Level.NETHER) return;
+		BlockPos now = inViewFortressSpawner(player);
+		if (now != null) NOTICED.put(player.getUUID(), new Noticed(now, player.level().getGameTime()));
+	}
+
+	private static BlockPos inViewFortressSpawner(ServerPlayer player) {
 		if (player.level().dimension() != Level.NETHER) return null;
 		var seen = SeenTerrain.of(player);
 		BlockPos feet = player.blockPosition();
@@ -197,11 +232,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 			bestDistance = distance;
 			best = at.immutable();
 		}
-		if (best != null) return best;
-		Held held = LAST_HOLD.get(player.getUUID());
-		if (held != null && held.spawner().distSqr(feet) <= SpawnerHold.SCAN * SpawnerHold.SCAN
-				&& player.level().getBlockState(held.spawner()).is(Blocks.SPAWNER)) return held.spawner();
-		return null;
+		return best;
 	}
 
 	/** The fight_target form: held from the cell until {@code target} dies; {@code openFight} runs when no hold applies. */
