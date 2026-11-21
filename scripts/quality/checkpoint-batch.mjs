@@ -21,7 +21,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { appendFile, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { createMachine, download, machineState, quote, remote, upload } from './lib/boat-pool.mjs';
+import { createMachine, download, installCodex, machineState, quote, remote, removeCodexSignIn, upload } from './lib/boat-pool.mjs';
 import { canStart, expandPlan, loseGame, nextGame, scoreGame, summarize, summaryText } from './lib/checkpoint-batch-core.mjs';
 
 const USAGE = 'Usage: checkpoint-batch.mjs --plan PLAN.json --out FRESH_DIR [--dry-run] | --score OUT_DIR';
@@ -95,10 +95,9 @@ let created = 0, spares = plan.spares ?? 0, stopped = false, signInChanged = fal
 process.on('SIGINT', () => { stopped = true; }); process.on('SIGTERM', () => { stopped = true; });
 
 async function prepare(vm) {
-	await remote(vm.id, `set -e; mkdir -p ~/ck/arms ~/ck/sp ~/ck/games ~/.codex; chmod 700 ~/.codex; command -v eatmydata >/dev/null; test -x ~/rooms/jdk/bin/java
-[ "$(~/.local/bin/codex --version 2>/dev/null | awk '{print $NF}')" = ${quote(codexVersion)} ] || npm i -g --prefix ~/.local @openai/codex@${quote(codexVersion)} >/dev/null 2>&1; ~/.local/bin/codex --version >/dev/null`, { timeoutMs: 15 * 60_000 });
-	await upload(vm.id, authFile, '.codex/auth.json');
-	await remote(vm.id, 'chmod 600 ~/.codex/auth.json');
+	await remote(vm.id, 'set -e; mkdir -p ~/ck/arms ~/ck/sp ~/ck/games; command -v eatmydata >/dev/null; test -x ~/rooms/jdk/bin/java');
+	const hash = await installCodex(vm.id, { authFile, version: codexVersion });
+	if (hash !== authSha) throw new Error(`sign-in copy on ${vm.id} does not match its source`);
 	for (const [name, pkg] of Object.entries(pkgs)) {
 		await upload(vm.id, pkg.tar, `ck/arms/${name}.tar.gz`);
 		await upload(vm.id, plan.arms[name].jar, `ck/arms/${name}.jar`);
@@ -198,7 +197,7 @@ while (true) {
 }
 for (const g of games.filter(g => g.state === 'queued')) g.state = 'not started';
 for (const vm of machines.filter(m => !m.lost && m.prepared)) {
-	await remote(vm.id, 'rm -f ~/.codex/auth.json; find ~/ck -name auth.json -delete; find ~/ck -type d -name .codex-home -prune -exec rm -rf {} +').then(() => log(`removed the sign-in from ${vm.id}`)).catch(e => log(`could not remove the sign-in from ${vm.id}: ${e.message}`));
+	await removeCodexSignIn(vm.id).then(() => log(`removed the sign-in from ${vm.id}`)).catch(e => log(`could not remove the sign-in from ${vm.id}: ${e.message}`));
 }
 state.endedAt = new Date().toISOString();
 await save(); await writeSummary(out, state);
