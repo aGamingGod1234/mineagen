@@ -149,6 +149,15 @@ public final class ServerBuildController implements ServerController {
 	 */
 	static final int QUICK_SPILL_CELLS = 1;
 	/**
+	 * The water's run a site is first chosen by (the bound before the quick scoop): a site whose 8-cell run meets no lava
+	 * stays safe when a scoop comes late. Open sites the quick bound alone admits sit tighter by the pool: in two away rooms
+	 * main always lit, they were taken over sites 3 blocks farther out, and 19 of 20 runs then had a frame cell no spot
+	 * could see or reach (BUILD_BLOCKED, NO_STAND_SPOT).
+	 */
+	static final int SURE_SPILL_CELLS = 8;
+	/** Added to a site's cost when only {@link #QUICK_SPILL_CELLS} admits it: any site {@link #SURE_SPILL_CELLS} admits comes first. */
+	static final double LOOSE_SITE_COST = 1000.0D;
+	/**
 	 * Ticks lava poured first may stand in a frame cell waiting for the water before it is taken back: it first flows at
 	 * its 30-tick fluid tick (the cast never runs where lava is fast, since water there boils away), and the turn back to
 	 * the lava's own aim and the click take well under the other 18.
@@ -623,6 +632,7 @@ public final class ServerBuildController implements ServerController {
 		Portal best = null;
 		Direction bestBack = null;
 		double bestCost = Double.MAX_VALUE;
+		boolean bestSure = true;
 		List<BlockPos> pool = casting ? castPool(player, center, SITE_RADIUS + (int) CAST_POOL_REACH) : List.of();
 		int plain = casting ? plainCount(player) : 0;
 		for (Direction.Axis axis : new Direction.Axis[] { Direction.Axis.X, Direction.Axis.Z })
@@ -632,11 +642,14 @@ public final class ServerBuildController implements ServerController {
 				double cost = siteCost(player, level, candidate, rejects);
 				if (cost == Double.MAX_VALUE) continue;
 				Direction side = null;
+				boolean sure = true;
 				if (casting) {
 					double castCost = Double.MAX_VALUE;
 					for (Direction wall : new Direction[] { candidate.normal(), candidate.normal().getOpposite() }) {
 						double c = castCost(player, level, candidate, wall, pool, plain, rejects);
-						if (c < castCost) { castCost = c; side = wall; }
+						boolean wallSure = c != Double.MAX_VALUE && !spillMeetsLava(cell -> known(player, cell), candidate, wall, SURE_SPILL_CELLS);
+						if (c != Double.MAX_VALUE && !wallSure) c += LOOSE_SITE_COST;
+						if (c < castCost) { castCost = c; side = wall; sure = wallSure; }
 					}
 					if (side == null) continue;
 					cost += castCost;
@@ -646,7 +659,7 @@ public final class ServerBuildController implements ServerController {
 				// for the mould and a roof too low for the step up.
 				if (candidate.equals(carved) && side == carvedBack) cost -= 100.0D;
 				if (lastFrame != null && candidate.equals(lastFrame.origin()) && side == lastFrame.back()) cost -= 80.0D;
-				if (cost < bestCost) { bestCost = cost; best = candidate; bestBack = side; }
+				if (cost < bestCost) { bestCost = cost; best = candidate; bestBack = side; bestSure = sure; }
 			}
 		// A site fit for the cast but for the blocks carried: more blocks, not another spot, is what it takes.
 		if (best == null && rejects[9] > 0) return short_(player, String.format(Locale.ROOT, "casting the frame needs %d plain blocks for the mould behind it at the best site by the lava near %s, "
@@ -657,6 +670,20 @@ public final class ServerBuildController implements ServerController {
 				rejects[5], rejects[0] + rejects[1] + rejects[2] + rejects[3] + rejects[4] + rejects[5],
 				casting ? String.format(Locale.ROOT, "; for casting, %d had no seen open or solid cells behind for the mould or before the frame, %d stood over %.0f blocks from, or %.0f above or below, the %d lava sources seen, %d would let the poured water run into the lava",
 						rejects[6], rejects[7], CAST_POOL_REACH, CAST_RISE, pool.size(), rejects[8]) : "");
+		// After a carve, an open site only the quick bound admits is the dug rock beside the refused carve (away-pair-1: 10
+		// of 10 runs lost the way to its spots mid-cast, where main carved a second site and lit it 10 of 10): the next carve first.
+		boolean loose = best != null && !bestSure && !(best.equals(carved) && bestBack == carvedBack);
+		if (loose && casting && carves > 0 && carves < MAX_CARVES && !pool.isEmpty()) {
+			Portal kept = best;
+			best = null;
+			if (carved != null) {
+				carveNote += "; the carved site was refused after the dig (" + refusal(player, level, carved, carvedBack, pool, plain) + ")";
+				rejectedSites.add(carved.origin());
+				carved = null;
+			}
+			if (carve(player, pool, plain)) return running();
+			best = kept;
+		}
 		if (best == null && carved != null) {
 			carveNote += "; the carved site was refused after the dig (" + refusal(player, level, carved, carvedBack, pool, plain) + ")";
 			rejectedSites.add(carved.origin());
@@ -1759,6 +1786,7 @@ public final class ServerBuildController implements ServerController {
 					for (BlockPos cell : wallCells(p, wall)) { BlockState state = known(player, cell); if (state != null && !rock.test(cell, state)) open++; }
 					if (castBlocks(open) > plain) { blocks++; continue; }
 					double cost = 0.5D * dig + 0.6D * open + 0.4D * near + 0.8D * rise + 0.3D * Math.sqrt(stand.distSqr(from));
+					if (spillMeetsLava(cell -> known(player, cell), p, wall, SURE_SPILL_CELLS)) cost += LOOSE_SITE_COST;
 					if (cost < bestCost) { bestCost = cost; best = p; bestWall = wall; bestStand = stand; bestDig = dig; }
 				}
 			}
