@@ -41,11 +41,11 @@
 			}
 		],
 		"monsters": true,
-		"note": "wall fortress order 8: a Nether entry on safe ground near Nether 0,0 with a Nether-entry kit; find fortress repeated with the shared stand-in answering forks, 15 game-minutes at 20 TPS. Ground truth: vanilla locate in the Nether from the start.",
+		"note": "wall fortress order 8: a Nether entry on a fixed start at Nether 1.5,86,11.5 (one place a spread start landed, so every arm and repeat plays the same ground) with a Nether-entry kit; find fortress repeated with the shared stand-in answering forks, 15 game-minutes at 20 TPS. Ground truth: vanilla locate in the Nether from the start (nearest fortress at -400,448, about 593 blocks away).",
 		"setup": [
 			"item replace entity Probe weapon.offhand with minecraft:shield",
 			"item replace entity Probe armor.head with minecraft:golden_helmet",
-			"execute in minecraft:the_nether run spreadplayers 0 0 0 24 under 100 false Probe"
+			"execute in minecraft:the_nether run tp Probe 1.5 86 11.5"
 		],
 		"after": {
 			"ms": 4000
@@ -148,11 +148,11 @@
 			}
 		],
 		"monsters": true,
-		"note": "wall fortress order 8: a Nether entry on safe ground near Nether 0,0 with a Nether-entry kit; find fortress repeated with the shared stand-in answering forks, 15 game-minutes at 20 TPS. Ground truth: vanilla locate in the Nether from the start.",
+		"note": "wall fortress order 8: a Nether entry on a fixed start at Nether -7.5,62,-10.5 (one place a spread start landed, so every arm and repeat plays the same ground) with a Nether-entry kit; find fortress repeated with the shared stand-in answering forks, 15 game-minutes at 20 TPS. Ground truth: vanilla locate in the Nether from the start (nearest fortress at -224,-144, about 253 blocks away).",
 		"setup": [
 			"item replace entity Probe weapon.offhand with minecraft:shield",
 			"item replace entity Probe armor.head with minecraft:golden_helmet",
-			"execute in minecraft:the_nether run spreadplayers 0 0 0 24 under 100 false Probe"
+			"execute in minecraft:the_nether run tp Probe -7.5 62 -10.5"
 		],
 		"after": {
 			"ms": 4000
@@ -255,11 +255,11 @@
 			}
 		],
 		"monsters": true,
-		"note": "wall fortress order 8: a Nether entry on safe ground near Nether 0,0 with a Nether-entry kit; find fortress repeated with the shared stand-in answering forks, 15 game-minutes at 20 TPS. Ground truth: vanilla locate in the Nether from the start.",
+		"note": "wall fortress order 8: a Nether entry on a fixed start at Nether 3.5,83,13.5 (one place a spread start landed, so every arm and repeat plays the same ground) with a Nether-entry kit; find fortress repeated with the shared stand-in answering forks, 15 game-minutes at 20 TPS. Ground truth: vanilla locate in the Nether from the start (nearest fortress at -288,480, about 550 blocks away).",
 		"setup": [
 			"item replace entity Probe weapon.offhand with minecraft:shield",
 			"item replace entity Probe armor.head with minecraft:golden_helmet",
-			"execute in minecraft:the_nether run spreadplayers 0 0 0 24 under 100 false Probe"
+			"execute in minecraft:the_nether run tp Probe 3.5 83 13.5"
 		],
 		"after": {
 			"ms": 4000
@@ -362,11 +362,11 @@
 			}
 		],
 		"monsters": true,
-		"note": "wall fortress order 8: a Nether entry on safe ground near Nether 0,0 with a Nether-entry kit; find fortress repeated with the shared stand-in answering forks, 15 game-minutes at 20 TPS. Ground truth: vanilla locate in the Nether from the start.",
+		"note": "wall fortress order 8: a Nether entry on a fixed start at Nether 5.5,90,-22.5 (one place a spread start landed, so every arm and repeat plays the same ground) with a Nether-entry kit; find fortress repeated with the shared stand-in answering forks, 15 game-minutes at 20 TPS. Ground truth: vanilla locate in the Nether from the start (nearest fortress at 48,-240, about 221 blocks away).",
 		"setup": [
 			"item replace entity Probe weapon.offhand with minecraft:shield",
 			"item replace entity Probe armor.head with minecraft:golden_helmet",
-			"execute in minecraft:the_nether run spreadplayers 0 0 0 24 under 100 false Probe"
+			"execute in minecraft:the_nether run tp Probe 5.5 90 -22.5"
 		],
 		"after": {
 			"ms": 4000
