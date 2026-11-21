@@ -23,6 +23,8 @@ test('gate run 3 forks go back with their reason: low health, a creeper, several
 	assert.match(searchDanger(view([zombie()], { health: 7 })).fork, /^health 7/);
 	assert.match(searchDanger(view([{ uuid: 'c', type: 'minecraft:creeper', distance: 3, targeting: true, lineOfSight: true, signals: ['creeper_close'] }])).fork, /creeper 3 blocks/);
 	assert.match(searchDanger(view([zombie(), { uuid: 's', type: 'minecraft:skeleton', distance: 6, targeting: true, lineOfSight: true, signals: ['ranged_aiming'] }])).fork, /2 hostiles after it/);
+	assert.match(searchDanger(view([zombie(), zombie({ uuid: 'z2', distance: 11, lineOfSight: false })])).fork, /2 hostiles after it/,
+		'a second pursuer rounding a corner can join the fight');
 	assert.match(searchDanger(view([{ uuid: 's', type: 'minecraft:skeleton', distance: 12, targeting: true, lineOfSight: true, signals: ['ranged_aiming'] }])).fork, /skeleton 12 blocks away with a line of sight/);
 	assert.match(searchDanger(view([zombie()], { health: 9, items: ['minecraft:stone_pickaxe'] })).fork, /3 of its hits would end a fight at 8 with it alive/, 'three zombie hits of 3');
 	// The search's fight bails at 8 (fleeAtHealth): it starts only three hits above that line, armed or not.

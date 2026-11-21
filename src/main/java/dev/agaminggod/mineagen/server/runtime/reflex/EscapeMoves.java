@@ -48,7 +48,7 @@ public final class EscapeMoves {
 
 	/** Walk to the nearest reachable cell that hides from every shooter in sight, blocking shots with a held shield. */
 	public static Move takeCover(int within) {
-		return adapt(new ReflexActions.TakeCover(within, false), null);
+		return adapt(new ReflexActions.TakeCover(within, false, true), null);
 	}
 
 	/** Hostile mobs with a ranged attack that see the player within {@link ReflexActions#WATCHER_RANGE}, nearest first. */

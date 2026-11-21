@@ -305,15 +305,27 @@ public final class SafeStep {
 	/** As above, with no single drop on the way deeper than {@code maxDrop} blocks. */
 	public static List<GridPosition> awayPath(WalkabilityView world, GridPosition feet, double threatX, double threatZ, int maxSteps,
 			int maxCells, double minGain, java.util.function.Predicate<GridPosition> refuse, int maxDrop) {
+		return awayPath(world, feet, threatX, threatZ, maxSteps, maxCells, minGain, refuse, maxDrop, List.of());
+	}
+
+	private static List<GridPosition> awayPath(WalkabilityView world, GridPosition feet, double threatX, double threatZ, int maxSteps,
+			int maxCells, double minGain, java.util.function.Predicate<GridPosition> refuse, int maxDrop, List<GridPosition> walked) {
 		Map<GridPosition, GridPosition> parents = reachable(world, feet, maxSteps, maxCells, maxDrop);
 		double from = separation(feet, threatX, threatZ);
+		GridPosition best = saferCell(walked, parents, feet, threatX, threatZ, from, minGain, refuse);
+		if (best == null) best = saferCell(parents.keySet(), parents, feet, threatX, threatZ, from, minGain, refuse);
+		return best == null ? null : pathTo(parents, best);
+	}
+
+	private static GridPosition saferCell(Iterable<GridPosition> candidates, Map<GridPosition, GridPosition> parents,
+			GridPosition feet, double threatX, double threatZ, double from, double minGain, java.util.function.Predicate<GridPosition> refuse) {
 		double nearest = from - 0.5D;
 		GridPosition best = null;
 		double bestSeparation = from + minGain - 1.0E-9D;
 		// Breadth-first order: among equally far cells the first found has the shortest path.
-		for (GridPosition cell : parents.keySet()) {
+		for (GridPosition cell : candidates) {
 			double separation = separation(cell, threatX, threatZ);
-			if (separation <= bestSeparation || refuse.test(cell)) continue;
+			if (separation <= bestSeparation || !parents.containsKey(cell) || refuse.test(cell)) continue;
 			boolean clear = true;
 			for (GridPosition step = parents.get(cell); step != null && clear; step = parents.get(step)) {
 				clear = separation(step, threatX, threatZ) >= nearest && (step.equals(feet) || !refuse.test(step));
@@ -322,7 +334,7 @@ public final class SafeStep {
 			best = cell;
 			bestSeparation = separation;
 		}
-		return best == null ? null : pathTo(parents, best);
+		return best;
 	}
 
 	private static double separation(GridPosition cell, double x, double z) {
@@ -333,6 +345,12 @@ public final class SafeStep {
 	public static List<GridPosition> awayPath(ServerPlayer player, double threatX, double threatZ, int maxSteps, int maxCells, double minGain,
 			java.util.function.Predicate<GridPosition> refuse, int maxDrop) {
 		return awayPath(ObservedTerrain.of(player), standing(player), threatX, threatZ, maxSteps, maxCells, minGain, refuse, maxDrop);
+	}
+
+	/** Prefer a reachable cell on the way in, subject to the same footing and separation checks as other routes. */
+	public static List<GridPosition> awayPath(ServerPlayer player, double threatX, double threatZ, int maxSteps, int maxCells, double minGain,
+			java.util.function.Predicate<GridPosition> refuse, int maxDrop, List<GridPosition> walked) {
+		return awayPath(ObservedTerrain.of(player), standing(player), threatX, threatZ, maxSteps, maxCells, minGain, refuse, maxDrop, walked);
 	}
 
 	/** The path from the feet to {@code goal} (excluding the feet), or null when it is not in {@code parents}. */

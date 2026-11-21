@@ -66,6 +66,13 @@ public final class ReflexEngine {
 		return weaker;
 	}
 
+	/** Keep a moving retreat through a melee chase. Hunger and low-health cover can turn the body back into the pack. */
+	static boolean chaseGate(ReflexScheduler scheduler, ReflexSpec.Rule rule, boolean truth, boolean fleeingWithChaser) {
+		if (!fleeingWithChaser || !rule.coordinatorDefault() || !(backsOffWhenWeaker(rule) || "eat".equals(rule.action().type()))) return truth;
+		scheduler.discardPendingStart(rule.id());
+		return false;
+	}
+
 	/** How near a chasing melee mob must be for the retreat's pace check to count it: default-retreat's hostile_near. */
 	static final double PACE_RANGE = 6.0D;
 
@@ -491,6 +498,9 @@ public final class ReflexEngine {
 		ObservationVisibility.Frame frame = ObservationVisibility.frame(player.level(), player);
 		boolean cornered = active != null && active.type() == ActionType.FLEE_FROM
 				&& dev.agaminggod.mineagen.server.runtime.controller.CorneredStand.standing(player);
+		boolean fleeing = activeType == ActionType.FLEE_FROM && !cornered
+				|| agent.behaviour instanceof ReflexActions.Defend defend && defend.backingOutOfPack();
+		boolean fleeingWithChaser = fleeing && ReflexActions.Defend.nearestChaser(player, ReflexActions.PACK_RANGE) < ReflexActions.PACK_RANGE;
 		boolean firingBlocksShots = agent.scheduler.current() != null && agent.behaviour != null && agent.behaviour.blocksShots();
 		Map<String, ReflexScheduler.Sense> senses = new HashMap<>();
 		Map<String, Entity> focus = new HashMap<>();
@@ -528,6 +538,7 @@ public final class ReflexEngine {
 			truth = gatedTruth(rule, truth, activeType);
 			if (!inEnd && endOnly(rule)) truth = false;
 			truth = shieldGate(agent.scheduler, rule, truth, firingBlocksShots);
+			truth = chaseGate(agent.scheduler, rule, truth, fleeingWithChaser);
 			owedDropsGate(agent.scheduler, rule, truth);
 			// A default "back off when weaker" rule does not pause a flee that has already found no way out and stands its
 			// ground: running or taking cover there only hands the attackers free hits (cornered fixture: 4.6 s paused

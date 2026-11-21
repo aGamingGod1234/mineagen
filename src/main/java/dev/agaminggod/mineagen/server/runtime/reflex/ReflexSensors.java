@@ -100,15 +100,28 @@ public final class ReflexSensors {
 		private int idleTicks;
 		private net.minecraft.resources.ResourceKey<net.minecraft.world.level.Level> footingDimension;
 		private final java.util.ArrayDeque<GridPosition> dryFooting = new java.util.ArrayDeque<>();
+		private BlockPos seenSpawner;
+		private int seenSpawnerAt;
 
 		List<GridPosition> dryFooting() {
 			return List.copyOf(dryFooting);
+		}
+
+		void rememberSpawner(BlockPos spawner, int tick) {
+			seenSpawner = spawner;
+			seenSpawnerAt = tick;
+		}
+
+		BlockPos recentSpawner(int tick) {
+			// As with ground the body just walked, remember the way the pack came from across reflex firings.
+			return tick >= seenSpawnerAt && tick - seenSpawnerAt <= 30 * 20 ? seenSpawner : null;
 		}
 
 		void observe(ServerPlayer player, long tick) {
 			if (footingDimension != player.level().dimension()) {
 				footingDimension = player.level().dimension();
 				dryFooting.clear();
+				seenSpawner = null;
 			}
 			if (player.onGround() && !HazardExits.inHazardBlock(player)) {
 				BlockPos feet = player.blockPosition();

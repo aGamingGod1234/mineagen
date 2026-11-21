@@ -89,7 +89,8 @@ export function searchDanger(observation) {
 	if (creeper !== undefined) return { fork: `a creeper ${Math.round(creeper.distance)} blocks away` };
 	const after = threats.filter((row) => hunting(row, attacker));
 	const engaged = after.filter((row) => row.lineOfSight === true || row.distance <= ENGAGE_CLOSE);
-	if (engaged.length >= 2) return { fork: `${engaged.length} hostiles after it (${engaged.slice(0, 3).map(at).join(', ')})` };
+	const pressure = engaged.length === 1 && pursuedByPack(observation) ? after : engaged;
+	if (pressure.length >= 2) return { fork: `${pressure.length} hostiles after it (${pressure.slice(0, 3).map(at).join(', ')})` };
 	if (health !== null && health <= SEARCH_LOW_HEALTH && after.length > 0) return { fork: `health ${health} with a ${at(after[0])}` };
 	if (engaged.length === 0) {
 		if (after.length > 0) return { handle: 'ignore', mob: after[0], why: `${after.map(at).join(', ')}, behind rock out of its sight` };
