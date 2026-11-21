@@ -13,6 +13,8 @@
 //            under the shaft): afloat with the feet in the lake's top cell and the head in the shaft; 16 cobblestone and
 //            an iron pickaxe. The only air is the shaft. Pass: dry footing out of the water.
 //   skeleton the body on open ground with an offhand shield, a skeleton 10 blocks east, a 3x3 stone wall 3 blocks west.
+// Optional regressions (escape jar): archer-direction puts a nearer zombie west of the body and a skeleton east.
+// archer-resume pauses the run with a reflex while the skeleton is still in range.
 // The arm is read from the jar: a jar with the escape body job plays "escape" (every decision is do_step escape); any
 // other jar plays "legacy", fixed in advance (a stand-in, not a model). ESCAPE_LEGACY=strong (the default) gives it the
 // strongest single old call, handed the room's geometry: water rooms travel_to the bank, pit build pillar of the hole's
@@ -27,9 +29,9 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { boot } from './watch-replay.mjs';
-import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
+import { finishRun, roomVerdict, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 import { DEFAULT_REFLEXES } from '../../coordinator/src/reflexes.mjs';
-import { damageCounter, damageEvidence } from './lib/damage-counter.mjs';
+import { damageCounter, damageEvidence, deathCounter, recordDeathEvidence } from './lib/damage-counter.mjs';
 
 const USAGE = 'Usage: test-escape-live.mjs OUT_DIR JAR [runs] [room;room...] [--strict|--descriptive] under slot.sh live';
 const cli = process.argv.slice(2);
@@ -43,7 +45,8 @@ const rooms = (roomsArg ?? 'deep;stair;pit;pitdig;shaft;lake;skeleton').split(';
 const THINK_MS = Number(process.env.ESCAPE_THINK_MS ?? 6_000);
 const PAD_Y = 150;
 const LEGACY = process.env.ESCAPE_LEGACY === 'wake' ? 'wake' : 'strong';
-const WINDOW_MS = { deep: 60_000, stair: 60_000, pit: 60_000, pitdig: 60_000, shaft: 90_000, lake: 90_000, skeleton: 30_000 };
+const WINDOW_MS = { deep: 60_000, stair: 60_000, pit: 60_000, pitdig: 60_000, shaft: 90_000, lake: 90_000, skeleton: 30_000,
+	'archer-direction': 15_000, 'archer-resume': 15_000 };
 const out = path.resolve(outArg);
 await mkdir(out, { recursive: true });
 const jarPath = path.resolve(jarArg);
@@ -59,6 +62,9 @@ try {
 	await s.command('difficulty peaceful');
 	await s.command('gamerule minecraft:advance_time false').catch(() => {});
 	await s.command('time set 18000');
+	// Deaths from the vanilla counter, made before the body exists: a death mid-call (lifecycle DEAD) can fall between two
+	// health samples, so the lowest sampled health alone missed one.
+	await s.command('scoreboard objectives add es_death deathCount').catch(() => {});
 	const registered = s.inbox.wait('agent_registered', () => true, 60_000);
 	await s.command('forceload add 0 0');
 	await s.command(`execute positioned 0 0 0 positioned over motion_blocking_no_leaves run mineagen summon gpt-6.1-sol low ${NAME}`);
@@ -70,28 +76,36 @@ try {
 	s.record.goalRevision = (await started).payload.goalRevision;
 	await s.bridge.send('agent_ready', s.record.agentId, { goalRevision: s.record.goalRevision, reconciled: false });
 	// The survival reflexes a real game arms (both arms alike): swim up, shield, cover, retreat and the rest.
-	await s.bridge.send('reflex_update', s.record.agentId, { revision: 1, rules: DEFAULT_REFLEXES.map(rule => ({ ...structuredClone(rule), coordinatorDefault: true })), yield: false });
+	const defaultRules = DEFAULT_REFLEXES.map(rule => ({ ...structuredClone(rule), coordinatorDefault: true }));
+	const armDefaults = () => s.bridge.send('reflex_update', s.record.agentId, { revision: ++s.revision, rules: defaultRules, yield: false });
+	await armDefaults();
 	const pos = async () => String(await s.command(`data get entity ${NAME} Pos`)).match(/\[\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?\]/)?.slice(1).map(Number) ?? null;
 	const health = async () => number(await s.command(`data get entity ${NAME} Health`));
 	const airLeft = async () => number(await s.command(`data get entity ${NAME} Air`));
 	const onGround = async () => /1b\s*$/.test(String(await s.command(`data get entity ${NAME} OnGround`)).trim());
 	// The reader is made once (it creates the objective); each trial reads it before and after.
 	const readDamage = await damageCounter(text => s.command(text), NAME, 'es_damage');
+	const readDeaths = () => deathCounter(text => s.command(text), NAME, { objective: 'es_death', unsetIsZero: true }).catch(() => null);
 	const blockAt = async (x, y, z, id) => /passed/i.test(String(await s.command(`execute if block ${x} ${y} ${z} ${id}`)));
 	let n = 0;
 	for (const room of rooms) for (let run = 0; run < runs; run++) {
 		const startedAt = Date.now();
+		const archer = room === 'archer-direction' || room === 'archer-resume';
 		const X = 200 + 80 * n++, Z = 200;
+		const west = archer ? 32 : 16;
 		await s.command('difficulty peaceful');
-		await s.command(`forceload add ${X - 24} ${Z - 24} ${X + 24} ${Z + 24}`);
+		if (archer) await s.setReflexes(room === 'archer-resume' ? [
+			{ id: 'hurt-bread', priority: 6, when: { type: 'health_below', value: 19 }, do: { type: 'select', item: 'minecraft:bread' }, maxFirings: 1 },
+		] : []);
+		await s.command(`forceload add ${X - west - 8} ${Z - 24} ${X + 24} ${Z + 24}`);
 		for (let i = 0; i < 60 && !/time is/i.test(await s.command(`execute if loaded ${X} 0 ${Z} run time query gametime`)); i++) await sleep(1000);
 		// A pad in the air, the same in every trial whatever the seed's terrain (an ocean there once flooded a dry hole),
 		// ringed with barrier two high so no walk leaves it.
 		const F = PAD_Y;
 		await s.command(`fill ${X - 17} ${F - 14} ${Z - 17} ${X + 25} ${F + 8} ${Z + 17} minecraft:air`);
-		await s.command(`fill ${X - 16} ${F - 14} ${Z - 16} ${X + 24} ${F - 1} ${Z + 16} minecraft:stone`);
-		await s.command(`fill ${X - 17} ${F} ${Z - 17} ${X + 25} ${F + 1} ${Z + 17} minecraft:barrier hollow`);
-		await s.command(`fill ${X - 16} ${F} ${Z - 16} ${X + 24} ${F + 8} ${Z + 16} minecraft:air`);
+		await s.command(`fill ${X - west} ${F - 14} ${Z - 16} ${X + 24} ${F - 1} ${Z + 16} minecraft:stone`);
+		await s.command(`fill ${X - west - 1} ${F} ${Z - 17} ${X + 25} ${F + 1} ${Z + 17} minecraft:barrier hollow`);
+		await s.command(`fill ${X - west} ${F} ${Z - 16} ${X + 24} ${F + 8} ${Z + 16} minecraft:air`);
 		await s.command(`kill @e[type=!minecraft:player,distance=..40,x=${X},y=${F},z=${Z}]`).catch(() => {});
 		await s.command(`clear ${NAME}`);
 		let start, drain = 0, facing = 90, bank = null, wall = null;
@@ -122,11 +136,51 @@ try {
 			wall = { x0: X - 3, x1: X - 2, y0: F, y1: F + 3, z0: Z - 1, z1: Z + 2 };
 			await s.command(`item replace entity ${NAME} weapon.offhand with minecraft:shield 1`);
 			start = [X + 0.5, F, Z + 0.5];
+		} else if (archer) {
+			start = [X + 0.5, F, Z + 0.5];
+			if (room === 'archer-resume') await s.command(`item replace entity ${NAME} hotbar.4 with minecraft:bread 4`);
 		} else throw new Error(`unknown room ${room}`);
 		// Breath back in full first (a body moved from one underwater spot to the next keeps its spent air).
 		await s.command(`tp ${NAME} ${X + 0.5} ${F} ${Z - 10.5} ${facing} 0`); await sleep(5000);
 		await s.command(`tp ${NAME} ${start[0]} ${start[1]} ${start[2]} ${facing} 0`);
 		await s.command(`effect give ${NAME} minecraft:instant_health 1 10 true`);
+		if (archer) {
+			await s.command('difficulty normal');
+			await s.command(`summon minecraft:skeleton ${X + 10.5} ${F} ${Z + 0.5} {NoAI:1b,PersistenceRequired:1b,equipment:{mainhand:{id:"minecraft:bow",count:1}}}`);
+			if (room === 'archer-direction') await s.command(`summon minecraft:zombie ${X - 3.5} ${F} ${Z + 1.5} {NoAI:1b,PersistenceRequired:1b}`);
+			await sleep(500);
+			const deathsBefore = await readDeaths();
+			const t0 = Date.now();
+			const escape = s.act('escape', { timeoutMs: WINDOW_MS[room] }).catch(error => ({ state: 'ERROR', message: error.message }));
+			let firstDx = null, hit = false;
+			// The cover search looks around on the spot. The first movement comes from the sprint.
+			while (Date.now() - t0 < 5000 && firstDx === null) {
+				const p = await pos();
+				if (p && Math.abs(p[0] - start[0]) >= 1) {
+					firstDx = p[0] - start[0];
+					if (room === 'archer-resume' && firstDx < 0 && firstDx > -6) {
+						await s.command(`damage ${NAME} 4 minecraft:generic`);
+						hit = true;
+					}
+				}
+				await sleep(50);
+			}
+			const result = await escape;
+			const message = String(result.message ?? '');
+			const paused = /paused 1 time\(s\) by reflex hurt-bread.*resumed 1 time/.test(message);
+			const coverSearches = (message.match(/cover from skeleton failed/g) ?? []).length;
+			const row = { room, run, firstDx, hit, paused, coverSearches, result: result.state, message, startedAt, finishedAt: Date.now() };
+			row.deathEvidence = recordDeathEvidence(row, deathsBefore, await readDeaths());
+			if (arm !== 'escape' || firstDx === null || !coverSearches || (room === 'archer-resume' && (!hit || !paused))) {
+				row.notExercised = 'the fallback sprint or its requested reflex pause did not run';
+			}
+			row.pass = row.deaths === 0 && result.state === 'SUCCEEDED' && (room === 'archer-direction' ? firstDx < 0 : coverSearches === 1);
+			row.failReason = room === 'archer-direction' ? 'the escape did not clear the shooter after running away from it' : 'the run did not resume directly after the reflex';
+			rows.push(row);
+			console.log(`[${room} ${run}] ${roomVerdict(row).verdict} ${JSON.stringify(row)}`);
+			await armDefaults();
+			continue;
+		}
 		let skeleton = null;
 		if (room === 'skeleton') {
 			await s.command('difficulty normal');
@@ -138,6 +192,7 @@ try {
 		const before = await health(), airBefore = await airLeft();
 		// The vanilla damage counter: regeneration between hits cannot hide damage the way lowest health does.
 		const damageBefore = await readDamage().catch(() => null);
+		const deathsBefore = await readDeaths();
 		if (!Number.isFinite(before)) throw new Error(`${room} ${run}: health unreadable before the room`);
 		let minHealth = before, minAir = airBefore, sampling = true, hiddenSamples = 0, samples = 0, healthSamples = 0;
 		const skeletonEye = async () => {
@@ -217,23 +272,29 @@ try {
 		sampling = false; await sampler;
 		const end = await pos();
 		const damage = damageEvidence(damageBefore, await readDamage().catch(() => null), before, await health().catch(() => NaN));
-		const died = minHealth <= 0;
 		const row = { room, arm: arm === 'legacy' ? `legacy-${LEGACY}` : arm, run, calls, executed, endSafe, safeSeconds: safeAt === null ? null : Math.round(safeAt / 100) / 10, seconds: Math.round((Date.now() - t0) / 100) / 10,
-			healthLost: Math.round(Math.max(0, before - minHealth) * 10) / 10, damageTaken: damage.damageTaken, died,
+			healthLost: Math.round(Math.max(0, before - minHealth) * 10) / 10, damageTaken: damage.damageTaken,
 			...(damage.integrity ? { integrity: damage.integrity } : {}), airBefore, minAir,
 			hiddenShare: room === 'skeleton' && samples > 0 ? Math.round(hiddenSamples / samples * 100) / 100 : undefined,
 			endDy: end ? Math.round((end[1] - F) * 10) / 10 : null, results, state: last?.state ?? null, reasonCode: last?.reasonCode ?? null,
 			message: String(last?.message ?? '').slice(0, 300), startedAt, finishedAt: Date.now() };
+		row.deathEvidence = recordDeathEvidence(row, deathsBefore, await readDeaths());
+		const sawDeath = minHealth <= 0 || row.deaths > 0 || /Lifecycle changed to DEAD/.test(String(last?.message ?? ''));
+		const died = row.died = sawDeath ? true : row.deathEvidence.valid ? false : null;
 		if (!exposed) row.notExercised = room === 'skeleton' ? 'no skeleton in sight at the start' : 'the live body did not start in danger';
 		else if (executed === 0 && safeAt !== null) row.notExercised = calls === 0 ? 'safe before the first decision (reflexes alone)' : 'safe with no call the body ran';
 		if (healthSamples === 0) row.error = 'no health sample in the window';
 		if (last?.state === 'ERROR') row.error = `call never returned: ${last.reasonCode}`;
-		row.pass = !died && (room === 'skeleton' ? (row.damageTaken ?? Infinity) <= 6 : safeAt !== null && endSafe === true);
+		row.pass = died === false && (room === 'skeleton' ? (row.damageTaken ?? Infinity) <= 6 : safeAt !== null && endSafe === true);
 		if (!row.pass) row.failReason = died ? 'died' : room === 'skeleton' ? `took ${row.damageTaken} damage` : safeAt === null ? 'not safe within the window' : 'safe, then back in danger';
 		rows.push(row);
-		console.log(`[${room} ${row.arm} ${run}] ${row.pass ? 'PASS' : 'FAIL'} calls=${calls} safe=${row.safeSeconds}s hpLost=${row.healthLost}${died ? ' DIED' : ''} air ${airBefore}->${minAir}${row.hiddenShare !== undefined ? ` hidden=${row.hiddenShare}` : ''} | ${results.join(' ')} | ${row.message.slice(0, 160)}`);
-		if (died) { await s.command(`mineagen respawn ${NAME}`).catch(() => {}); await sleep(3000); }
+		console.log(`[${room} ${row.arm} ${run}] ${roomVerdict(row).verdict} calls=${calls} safe=${row.safeSeconds}s hpLost=${row.healthLost}${died ? ' DIED' : ''} air ${airBefore}->${minAir}${row.hiddenShare !== undefined ? ` hidden=${row.hiddenShare}` : ''} | ${results.join(' ')} | ${row.message.slice(0, 160)}`);
 		await s.command(`kill @e[type=minecraft:skeleton]`).catch(() => {});
+		if (died) {
+			// Back on its feet before the next room: the next room's first read failed when it came too soon after a respawn.
+			await s.command(`mineagen respawn ${NAME}`).catch(() => {});
+			for (let i = 0; i < 30; i++) { await sleep(1000); const o = await s.observe().catch(() => null); if (o && o.player?.dead !== true && Number.isFinite(await health().catch(() => NaN))) break; }
+		}
 	}
 } catch (error) {
 	rows.push({ room: 'harness', error: String(error?.stack ?? error).slice(0, 1200) });
