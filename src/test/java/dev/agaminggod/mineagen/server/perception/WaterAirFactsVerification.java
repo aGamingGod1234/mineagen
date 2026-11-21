@@ -45,6 +45,10 @@ public final class WaterAirFactsVerification {
 		SwimPlanning.ColumnView blind = (x, y, z) -> x == 0 && z == 0 && y <= 60 ? SwimPlanning.Cell.WATER
 				: x == 1 && z == 0 && y == 60 ? SwimPlanning.Cell.UNKNOWN : SwimPlanning.Cell.SOLID;
 		check(WaterAirFacts.peekCell(blind, 0, 60, 0) == null, "a side cell never seen is not swum into");
+		SwimPlanning.ColumnView lip = (x, y, z) -> x == 0 && z == 0 && y <= 60 ? SwimPlanning.Cell.WATER
+				: x == 1 && z == 0 && y >= 60 && y <= 61 ? SwimPlanning.Cell.WATER : x == -1 && z == 0 && y <= 61 ? SwimPlanning.Cell.WATER : SwimPlanning.Cell.SOLID;
+		check(new net.minecraft.core.BlockPos(-1, 60, 0).equals(WaterAirFacts.peekCell(lip, 0, 60, 0)),
+				"east is open only at eye level (a lip below): the body would not fit, so duck out west");
 		SwimPlanning.ColumnView wall = (x, y, z) -> x == 0 && z == 0 && y <= 60 ? SwimPlanning.Cell.WATER
 				: x == 2 && y >= 60 ? SwimPlanning.Cell.OPEN : SwimPlanning.Cell.SOLID;
 		check(SwimPlanning.nearestSurface(wall, 0, 60, 0) == null, "nearby air behind a wall is unreachable");

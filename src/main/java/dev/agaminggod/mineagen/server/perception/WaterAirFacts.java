@@ -60,7 +60,7 @@ public final class WaterAirFacts {
 	 * taken only when the cell over the eye is a seen solid block. A player stuck under a ledge swims out beside it and
 	 * looks up; from inside the eye's own capped column no amount of turning shows the way up. A neighbour whose cell
 	 * above is seen open comes first, then one whose cell above is not seen yet; null when the head is not capped or no
-	 * neighbour qualifies.
+	 * neighbour qualifies. The neighbour must be open just below eye level too, so the body fits through.
 	 */
 	public static BlockPos peekCell(ServerPlayer agent) {
 		var eye = agent.getEyePosition();
@@ -72,7 +72,8 @@ public final class WaterAirFacts {
 		BlockPos best = null;
 		int bestRank = Integer.MAX_VALUE;
 		for (int[] side : new int[][] { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }) {
-			if (!swimmable(view.at(x + side[0], eyeY, z + side[1]))) continue;
+			// The body's own height must fit: open at eye level and just below it, as the surface search asks of each cell.
+			if (!swimmable(view.at(x + side[0], eyeY, z + side[1])) || !swimmable(view.at(x + side[0], eyeY - 1, z + side[1]))) continue;
 			var above = view.at(x + side[0], eyeY + 1, z + side[1]);
 			int rank = swimmable(above) ? 0 : above == SwimPlanning.Cell.UNKNOWN ? 1 : -1;
 			if (rank >= 0 && rank < bestRank) { bestRank = rank; best = new BlockPos(x + side[0], eyeY, z + side[1]); }
