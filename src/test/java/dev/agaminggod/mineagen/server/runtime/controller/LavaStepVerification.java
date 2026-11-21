@@ -61,6 +61,7 @@ public final class LavaStepVerification {
 		verifyTimeoutKeepsLavaStep();
 		verifyCeilingDrop();
 		verifyAirControlPastWall();
+		verifyGroundSlidePastPost();
 		return assertions;
 	}
 
@@ -430,6 +431,15 @@ public final class LavaStepVerification {
 		double[] southEast = {Math.sqrt(0.5D), Math.sqrt(0.5D)};
 		check(new BlockPos(1, 65, 1).equals(jump(room::at, body(0.5D, 0.5D), southEast, true)),
 				"a sprint jump south-east past the pillar's end drifts east again into the lava: refused");
+	}
+
+	/** Review: a ground slide moves up to a narrow post before its axis stops, and the rest of the slide is judged from there. */
+	private static void verifyGroundSlidePastPost() {
+		// An isolated cobblestone wall post (0.25 to 0.75 of its cell) east of the body; lava in the lane south of it.
+		Room room = new Room().set(1, 64, 0, Blocks.COBBLESTONE_WALL.defaultBlockState()).set(1, 64, 1, LAVA);
+		double[] southEast = {Math.sqrt(0.5D), Math.sqrt(0.5D)};
+		check(new BlockPos(1, 64, 1).equals(LavaStep.refused(room::at, body(0.699D, 0.5D), 0.20D, 0.17D, southEast, ACCELERATION)),
+				"a diagonal slide clipped against the post's west face reaches the lava south of it: refused");
 	}
 
 	private static void check(boolean value, String reason) {

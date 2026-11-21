@@ -74,19 +74,25 @@ public final class LavaStep {
 	private static BlockPos coast(Read read, AABB box, double vx, double vz) {
 		double x = 0.0D, z = 0.0D;
 		for (int tick = 0; tick < COAST_TICKS && (tick == 0 || vx * vx + vz * vz > 1.0E-6D); tick++) {
-			// A wall stops motion on its own axis only, as vanilla's collide does (the larger axis first): a body sliding
-			// along a wall keeps its other component, which may carry it into lava beside the wall.
+			// A wall stops motion on its own axis only, as vanilla's collide does (the larger axis first): the body moves
+			// up to it, then keeps its other component, which may carry it into lava beside the wall.
 			boolean zFirst = Math.abs(vx) < Math.abs(vz);
 			for (int axis = 0; axis < 2; axis++) {
 				if ((axis == 0) != zFirst) {
-					if (blocked(read, box.move(x + vx, 0.0D, z))) vx = 0.0D; else x += vx;
+					if (vx == 0.0D) continue;
+					double moved = clip(read, box, x, 0.0D, z, 0, vx);
+					if (moved != vx) vx = 0.0D;
+					x += moved;
 				} else {
-					if (blocked(read, box.move(x, 0.0D, z + vz))) vz = 0.0D; else z += vz;
+					if (vz == 0.0D) continue;
+					double moved = clip(read, box, x, 0.0D, z, 2, vz);
+					if (moved != vz) vz = 0.0D;
+					z += moved;
 				}
 			}
-			if (vx == 0.0D && vz == 0.0D) return null;
 			BlockPos cell = touched(read, box.move(x, 0.0D, z));
 			if (cell != null) return cell;
+			if (vx == 0.0D && vz == 0.0D) return null;
 			vx *= GROUND_DRAG;
 			vz *= GROUND_DRAG;
 		}
