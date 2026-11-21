@@ -791,7 +791,9 @@ public final class ServerSpawnerHoldController implements ServerController {
 			// On a ledge above the feet the pickup leaves it (KillDropCollector): that is a ledge trip's (ledgeRods).
 			if (aboveFeet(player, item)) continue;
 			double blazeNear = Math.min(nearest(blazes, item.position()), nearest(blazes, player.position()));
-			if (!SpawnerHold.mayCollect(player.getHealth(), witherToBody, nearest(withers, item.position()), blazeNear, item.getAge())) continue;
+			int blazesNearRod = (int) blazes.stream().filter(b -> b.position().distanceTo(item.position()) <= SpawnerHold.LEDGE_BLAZE_RANGE).count();
+			if (!SpawnerHold.mayCollect(player.getHealth(), witherToBody, nearest(withers, item.position()), blazeNear, item.getAge())
+					&& !SpawnerHold.mayStepOut(player.getHealth(), witherToBody, nearest(withers, item.position()), item.position().distanceTo(middle), blazesNearRod)) continue;
 			ids.add(item.getUUID());
 		}
 		return ids;

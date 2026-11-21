@@ -70,6 +70,9 @@ public final class SpawnerHoldVerification {
 		check(SpawnerHold.handBack(sense(2, 3.0F, 20, true, 60_000L, false, 0L, true, 0, false, false)) == null, "H2 once the cell stands the body heals in it, no hand-back");
 		check(SpawnerHold.turtle(true, 5.0F, 0L, SpawnerHold.TURTLE_MS * 3), "below the turtle health the shield heal does not stop for time");
 		check(!SpawnerHold.turtle(true, 15.0F, 0L, SpawnerHold.TURTLE_MS), "above it the shield heal stops at its time cap");
+		check(SpawnerHold.mayStepOut(12.0F, Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, 4.0D, 1), "a rod 4 blocks from the cell is stepped out for with one blaze near it");
+		check(!SpawnerHold.mayStepOut(12.0F, Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, 6.0D, 0), "not one 6 blocks off");
+		check(!SpawnerHold.mayStepOut(12.0F, Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, 2.0D, 2), "not with two blazes near it");
 		check(SpawnerHold.mayFetchLedge(16.0F, Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, 1), "a ledge trip goes at 16 health with one blaze near the rod");
 		check(!SpawnerHold.mayFetchLedge(16.0F, Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, 2), "not with two blazes near the rod");
 		check(!SpawnerHold.mayFetchLedge(15.0F, Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, 0), "not below 16 health");

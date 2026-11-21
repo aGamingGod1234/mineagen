@@ -111,6 +111,19 @@ public final class SpawnerHold {
 		return health >= LEDGE_HEALTH && blazesNearRod <= LEDGE_BLAZES;
 	}
 
+	/** A rod this close to the cell is a step out, not a trip. */
+	static final double STEP_OUT = 5.0D;
+
+	/**
+	 * A step out of the cell for a rod lying by it: health above the trip turn-back, no wither skeleton near, and at most
+	 * LEDGE_BLAZES blazes near the rod. At a busy spawner a blaze is always within 10 blocks, so the trip rule alone left
+	 * the rods by the doorway (real fortress room: 20 kills, 1 rod in 10 minutes).
+	 */
+	static boolean mayStepOut(float health, double witherToBody, double witherToRod, double fromCell, int blazesNearRod) {
+		if (witherToBody <= WITHER_CLEAR || witherToRod <= WITHER_CLEAR) return false;
+		return fromCell <= STEP_OUT && health >= COLLECT_HEALTH && blazesNearRod <= LEDGE_BLAZES;
+	}
+
 	/** Eat inside the cell: hungry enough to stop regrowing, or hurt with room to eat, and a bite that ends before a volley. */
 	static boolean shouldEat(int hunger, float health, boolean biteSafe, boolean blazeInReach, boolean hasFood) {
 		if (!hasFood || !biteSafe || blazeInReach) return false;
