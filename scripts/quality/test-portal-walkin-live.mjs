@@ -15,6 +15,7 @@ import { writeFile, mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { boot } from './watch-replay.mjs';
+import { MOD_JAR } from './mod-jar.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const [outArg, jarArg] = process.argv.slice(2);
@@ -26,7 +27,7 @@ if ((await readdir(out)).length) throw new Error('Use a fresh output directory')
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 const AGENT = 'Portal';
 const result = { cases: {} };
-const s = await boot(out, { jar: path.resolve(jarArg ?? path.join(root, 'build/libs/mineagen-0.2.0.jar')), template, port, world: null, seed: '20261024' });
+const s = await boot(out, { jar: path.resolve(jarArg ?? path.join(root, MOD_JAR)), template, port, world: null, seed: '20261024' });
 const ow = 'execute in minecraft:overworld run';
 const dimension = async () => String(await s.command(`data get entity ${AGENT} Dimension`)).match(/"([^"]+)"/)?.[1] ?? null;
 const pos = async () => String(await s.command(`data get entity ${AGENT} Pos`)).match(/\[\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?\]/)?.slice(1).map((v) => Math.round(Number(v) * 10) / 10) ?? null;

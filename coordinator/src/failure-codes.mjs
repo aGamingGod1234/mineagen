@@ -217,6 +217,10 @@ export const FAILURE_CODES = Object.freeze({
 	FLEE_TIMED_OUT: ['threat', null],
 	IN_LAVA: ['threat', 'the body stays outside damaging lava', ['inLava && !lava', '!player.isInLava()', 'HazardExits.contact(player) == HazardExits.Contact.LAVA', 'if (player.isInLava())']],
 	LAVA_FLOW: ['threat', 'no route cell is one seen lava flows into next', ['lavaFlowEntry']],
+	// A walk stopped before a step into same-level lava it could not plug (ServerNavigationController.lavaStep).
+	LAVA_STEP: ['threat', null],
+	// A travel tunnel that opened into lava plugged the cut and stopped that way (ServerTravelController.plugLava).
+	TUNNEL_LAVA_PLUGGED: ['cell', null],
 	LAVA_BEHIND: ['threat', 'acceptLavaRisk is true or no lava borders it', ['acceptLavaRisk', 'lavaBehind']],
 	LAVA_POUR_AT_BODY: ['threat', 'acceptLavaRisk, water casts it or flow misses you', ['acceptLavaRisk', 'lavaPourAtBody', 'lastRefusal']],
 	LAVA_AHEAD: ['threat', null],

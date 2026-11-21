@@ -5,12 +5,14 @@ import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { boot } from './watch-replay.mjs';
 import { ReflexBook } from '../../coordinator/src/reflexes.mjs';
+import { MOD_JAR } from './mod-jar.mjs';
+import { deathCounter } from './lib/damage-counter.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const out = path.resolve(process.argv[2] ?? 'runtime/crowd-live');
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port = Number(process.env.SLOT_PORT_BASE);
 if (!template || !port || !process.env.JAVA_HOME) throw new Error('Launch under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME');
-const jar = path.resolve(process.env.ARENA_JAR ?? path.join(root, 'build/libs/mineagen-0.2.0.jar'));
+const jar = path.resolve(process.env.ARENA_JAR ?? path.join(root, MOD_JAR));
 const WATCH_S = Number(process.env.WATCH_S ?? 40), REPEATS = Number(process.env.REPEATS ?? 3), SCORE_S = Number(process.env.SCORE_S ?? 20);
 const CASES = (process.env.CASES ?? 'open,bailout,cave,grass-archer').split(',');
 await mkdir(out, { recursive: true });
@@ -48,7 +50,7 @@ s.bridge.on('message', (event) => {
 	s.bridge.send('agent_ready', s.record.agentId, { goalRevision: revision, reconciled: false }).catch(() => {});
 });
 const health = async () => { const text = await s.command(`data get entity ${AGENT} Health`); return /No entity|not found/i.test(text) ? 0 : number(text); };
-const deaths = async () => number(await s.command(`scoreboard players get ${AGENT} deaths`)) || 0;
+const deaths = () => deathCounter(text => s.command(text), AGENT, { objective: 'deaths', unsetIsZero: true });
 // An observation that never comes back (the body between revisions) must not hang a run: wait at most 2 s for one.
 const look = () => Promise.race([s.observeOrNull(), sleep(2000).then(() => null)]);
 const uuid = (run, n) => [`00000005-0000-0000-0000-${String(run).padStart(4, '0')}${String(n).padStart(8, '0')}`, `[I;5,0,${run},${n}]`];

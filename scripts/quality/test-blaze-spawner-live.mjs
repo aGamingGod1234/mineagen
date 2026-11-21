@@ -23,9 +23,12 @@ import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { DEFAULT_REFLEXES } from '../../coordinator/src/reflexes.mjs';
 import { planCountDefault } from '../../coordinator/src/plan-count.mjs';
+import { MOD_JAR } from './mod-jar.mjs';
+import { deathCounter, deathEvidence } from './lib/damage-counter.mjs';
+import { refusedBeforeRunning } from './lib/room-evidence.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
-const jarPath = resolve(process.env.ARENA_JAR ?? join(root, 'build/libs/mineagen-0.2.0.jar'));
+const jarPath = resolve(process.env.ARENA_JAR ?? join(root, MOD_JAR));
 const out = resolve(process.argv[2] ?? 'runtime/blaze-spawner-live');
 const REPEATS = Number(process.env.REPEATS ?? 3), RUN_S = Number(process.env.RUN_S ?? 240);
 const VARIANTS = (process.env.VARIANTS ?? 'gap0,gap5,cover').split(',');
@@ -252,6 +255,9 @@ try {
 	await command('gamerule minecraft:send_command_feedback false');
 	// Passive evaluator counter: vanilla increments bow-use stats when an arrow is actually released.
 	await command('scoreboard objectives add d39_bow minecraft.used:minecraft.bow');
+	// Vanilla's death count: a death inside one long call (ACTION_CANCELLED "Lifecycle changed to DEAD") is no AGENT_DEAD
+	// result and a respawned body samples at full health, so deaths and the health floor come from this counter too.
+	await command('scoreboard objectives add bz_deaths deathCount');
 	const spawnRule = await command('gamerule minecraft:spawn_mobs false');
 	if (!/false/i.test(spawnRule)) throw new Error('Could not isolate natural mob spawning: '+spawnRule);
 	console.log('Natural mob spawning disabled; block spawner remains vanilla.');
@@ -325,6 +331,7 @@ try {
 			await nether(`tp ${agent} ${cell[0]} ${cell[1]} ${cell[2]} 0 0`);
 			if (SAVE_POINT) for (const [dx, dy, dz] of SAVE_POINT.blazes) await nether(`summon minecraft:blaze ${cell[0]+dx} ${cell[1]+dy} ${cell[2]+dz} {PersistenceRequired:1b}`);
 			const startServerTick = await serverTick();
+			const deathsAtStart = await deathCounter(command, agent, { objective: 'bz_deaths', unsetIsZero: true }).catch(() => null);
 			const run = { startServerTick, variant, gap, deaths: 0, kills: 0, rodItemsSeen: 0, rodsPicked: 0, rodsAtEnd: 0, minHealth: 20, calls: {}, fightResults: {}, firstBlazeS: null, firstKillS: null, damageWhileIdleS: 0 };
 			const rodIds = new Set(), startedAt = Date.now(), killMark = kills.length;
 			runDeadline = startedAt + RUN_S*1000; windowRods = 0; lastWindowObservation = null; lastWindowObservationAt = 0;
@@ -405,13 +412,13 @@ try {
 						const pending = act(type, args, Math.max(1000, runDeadline - Date.now()) + 20000);
 						if (CANCEL_S > 0) { const actionId = `bz-${ordinal}`; const cut = setTimeout(() => { bridge.send('action_cancel', record.agentId, { goalRevision: record.goalRevision, actionId }).catch(() => {}); }, CANCEL_S * 1000); res = await pending; clearTimeout(cut); }
 						else res = await pending;
-						run.fightResults[res.reasonCode] = (run.fightResults[res.reasonCode] ?? 0) + 1;
+						if (!refusedBeforeRunning(res)) run.fightResults[res.reasonCode] = (run.fightResults[res.reasonCode] ?? 0) + 1;
 						(run.untilMessages ??= []).push(`${Math.round((Date.now() - startedAt) / 1000)}s ${res.reasonCode}: ${String(res.message ?? '').slice(0, 1600)}`);
 						if (res.reasonCode === 'UNTIL_COUNT_REACHED') run.reachedS ??= Math.round((Date.now() - startedAt) / 1000);
 					}
 					else if (heard) { type = 'look_at'; res = await act(type, { x: heard.position.x, y: heard.position.y + 1, z: heard.position.z }); }
 					else { type = 'wait'; res = await act(type, { durationMs: 1000 }); }
-					run.calls[type] = (run.calls[type] ?? 0) + 1;
+					if (refusedBeforeRunning(res)) run.refused = (run.refused ?? 0) + 1; else run.calls[type] = (run.calls[type] ?? 0) + 1;
 					if (res.reasonCode === 'AGENT_DEAD') { run.deaths++; dead = true; break; }
 					continue;
 				}
@@ -434,13 +441,13 @@ try {
 					else if (STANDIN === 'count' && blaze && blaze.perceivedBy !== 'sound' && blaze.distance <= 24) { type = 'fight_target'; args = { targetId: blaze.uuid, untilItem: 'minecraft:blaze_rod', untilCount: UNTIL, fleeAtHealth: LOW_HP ? 14 : 6, timeoutMs: Math.max(1000, Math.min(600000, runDeadline - Date.now())) }; }
 					else { type = 'fight_until'; args = { mob: 'minecraft:blaze', untilItem: 'minecraft:blaze_rod', untilCount: UNTIL, weapon: WEAPON, fleeAtHealth: LOW_HP ? 14 : 6, timeoutMs: Math.max(1000, Math.min(600000, runDeadline - Date.now())) }; }
 					const res = await act(type, args, Math.max(1000, runDeadline - Date.now(), type === 'fight_target' ? 180000 : 0) + 20000);
-					run.calls[type] = (run.calls[type] ?? 0) + 1;
+					if (refusedBeforeRunning(res)) run.refused = (run.refused ?? 0) + 1; else run.calls[type] = (run.calls[type] ?? 0) + 1;
 					if (type === 'use_ranged') (run.openerResults ??= []).push(`${Math.round((Date.now() - startedAt) / 1000)}s ${res.reasonCode}: ${String(res.message ?? '').slice(0, 900)}`);
 					if (type === 'fight_until' || type === 'fight_target') {
 						const m = String(res.message ?? '');
 						const fire = m.match(/fire: ([0-9.]+) s burning, (\d+) steps? off fire; shield: raised (\d+) times? at shots, (\d+) blocked; cover: (\d+) moves?/);
 						if (fire) { run.fireS = (run.fireS ?? 0) + Number(fire[1]); run.fireSteps = (run.fireSteps ?? 0) + Number(fire[2]); run.shieldRaised = (run.shieldRaised ?? 0) + Number(fire[3]); run.shieldBlocks = (run.shieldBlocks ?? 0) + Number(fire[4]); run.coverMoves = (run.coverMoves ?? 0) + Number(fire[5]); }
-						run.fightResults[res.reasonCode] = (run.fightResults[res.reasonCode] ?? 0) + 1;
+						if (!refusedBeforeRunning(res)) run.fightResults[res.reasonCode] = (run.fightResults[res.reasonCode] ?? 0) + 1;
 						(run.untilMessages ??= []).push(`${Math.round((Date.now() - startedAt) / 1000)}s ${res.reasonCode}: ${String(res.message ?? '').slice(0, 1200)}`);
 						if (res.reasonCode === 'UNTIL_COUNT_REACHED') run.reachedS ??= Math.round((Date.now() - startedAt) / 1000);
 						if (LOW_HP && res.reasonCode === 'LOW_HEALTH_BAILOUT') { run.lowHealthStop = { hp: (await observe(5000).catch(() => o)).player?.health }; break; }
@@ -489,8 +496,8 @@ try {
 				await traceRow({variant,repeat,s:Math.round((Date.now()-startedAt)/100)/10,type,args,result:res});
 				for (const m of String(res.message ?? '').matchAll(/minecraft:blaze_rod at (-?\d+),(-?\d+),(-?\d+) uuid=([a-f0-9-]{36})/g)) { knownRods.set(m[4],{uuid:m[4],at:Date.now(),x:Number(m[1]),y:Number(m[2]),z:Number(m[3])}); rodIds.add(m[4]); }
 				if (type === 'pick_up_item') knownRods.delete(args.targetSelector);
-				run.calls[type] = (run.calls[type] ?? 0) + 1;
-				if (type === 'fight_target') { run.fightResults[res.reasonCode] = (run.fightResults[res.reasonCode] ?? 0) + 1; (run.fightMessages ??= []).length < 12 && run.fightMessages.push(`${Math.round((Date.now() - startedAt) / 1000)}s d=${blaze.distance.toFixed(1)} dy=${(blaze.position.y - o.position.y).toFixed(1)} hp=${hp.toFixed(1)} ${res.reasonCode}: ${String(res.message ?? '').slice(0, 260)}`); }
+				if (refusedBeforeRunning(res)) run.refused = (run.refused ?? 0) + 1; else run.calls[type] = (run.calls[type] ?? 0) + 1;
+				if (type === 'fight_target') { if (!refusedBeforeRunning(res)) run.fightResults[res.reasonCode] = (run.fightResults[res.reasonCode] ?? 0) + 1; (run.fightMessages ??= []).length < 12 && run.fightMessages.push(`${Math.round((Date.now() - startedAt) / 1000)}s d=${blaze.distance.toFixed(1)} dy=${(blaze.position.y - o.position.y).toFixed(1)} hp=${hp.toFixed(1)} ${res.reasonCode}: ${String(res.message ?? '').slice(0, 260)}`); }
 				if (type === 'use_ranged') {
 					(run.rangedResults ??= {})[res.reasonCode] = (run.rangedResults[res.reasonCode] ?? 0) + 1;
 					(run.rangedMessages ??= []).push({ s: Math.round((Date.now()-startedAt)/1000), reason: res.reasonCode, message: res.message });
@@ -520,6 +527,8 @@ try {
 			run.rodItemsSeen = rodIds.size; run.seconds = Math.round((Date.now() - startedAt) / 1000);
 			run.endServerTick = await serverTick();
 			run.approxTps = (run.endServerTick-startServerTick)/((Date.now()-startedAt)/1000);
+			run.deathCounter = deathEvidence(deathsAtStart, await deathCounter(command, agent, { objective: 'bz_deaths', unsetIsZero: true }).catch(() => null));
+			if (run.deathCounter.valid && run.deathCounter.deaths > run.deaths) { run.deaths = run.deathCounter.deaths; dead = true; }
 			if (dead) { run.recovered = false; run.minHealth = 0; }
 			else {
 				// Never credit a pickup observed only after the cutoff, or inventory lost on death.

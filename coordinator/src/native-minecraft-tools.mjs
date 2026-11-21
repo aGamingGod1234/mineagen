@@ -106,6 +106,8 @@ Threats: check visible/targetable; fight or use reported exits; creepers escape.
 
 Omitted facts are unknown; failure.changed absent=none. queryMemory pages; author source live with program.parameters(); never noteKey or standing.template. exploreFrontier lists moveTo legs. Reclaim workstations. Claim effects from evidence. No task: takeTask operator requests, end turn; else say. Text is invisible; speech is async.`;
 
+// Byte budget: this payload is 1 byte under the 39,476 bytes three tests pin (search coordinator/test for 39_476), and
+// token-budget.test.mjs pins toolSchemaBytes at 38,900. A new field needs those budgets raised, with the reason.
 export const MINECRAFT_DYNAMIC_TOOLS = Object.freeze([
 	tool('do_step', { ...objectSchema({
 		verb: { type: 'string', enum: Object.keys(STEP_VERBS) },
@@ -131,9 +133,9 @@ export const MINECRAFT_DYNAMIC_TOOLS = Object.freeze([
 		section: { type: 'string', enum: INSPECTION_SECTIONS }, offset: integerSchema(0, 4_096), limit: integerSchema(1, 32),
 		slot: integerSchema(0, 255), x: integerSchema(-COORDINATE_LIMIT, COORDINATE_LIMIT), y: integerSchema(-2_048, 2_048), z: integerSchema(-COORDINATE_LIMIT, COORDINATE_LIMIT),
 		afterSequence: integerSchema(0, Number.MAX_SAFE_INTEGER),
-		recipeId: { type: 'string', minLength: 1, maxLength: 256, pattern: '^[a-z0-9_.-]+:[a-z0-9_./-]+$' },
-		entityType: { type: 'string', minLength: 1, maxLength: 256, pattern: '^[a-z0-9_.-]+:[a-z0-9_./-]+$' },
-		outputItemId: { type: 'string', minLength: 1, maxLength: 256, pattern: '^[a-z0-9_.-]+:[a-z0-9_./-]+$' },
+		recipeId: { type: 'string', maxLength: 256, pattern: '^[a-z0-9_.-]+:[a-z0-9_./-]+$' },
+		entityType: { type: 'string', maxLength: 256, pattern: '^[a-z0-9_.-]+:[a-z0-9_./-]+$' },
+		outputItemId: { type: 'string', maxLength: 256, pattern: '^[a-z0-9_.-]+:[a-z0-9_./-]+$' },
 		include: { type: 'array', items: { type: 'string' } }, exclude: { type: 'array', items: { type: 'string' } },
 	}, ['section'])),
 	tool('actionStatus', objectSchema({ actionId: { type: 'string', minLength: 1, maxLength: 128 } })),
@@ -227,7 +229,7 @@ export const MINECRAFT_DYNAMIC_TOOLS = Object.freeze([
 	tool('say', objectSchema({
 		message: { type: 'string', minLength: 1, maxLength: MAX_CHAT_LENGTH },
 		audience: { type: 'string', enum: ['public', 'direct', 'proximity'] },
-		recipientId: { type: 'string', minLength: 36, maxLength: 36, pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' },
+		recipientId: { type: 'string', pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' },
 	}, ['message'])),
 	tool('wait', objectSchema({
 		durationMs: integerSchema(MIN_DURATION_MS, MAX_DURATION_MS),
@@ -252,7 +254,7 @@ export const MINECRAFT_DYNAMIC_TOOLS = Object.freeze([
 	tool('takeTask', objectSchema({
 		request: { type: 'string', minLength: 1, maxLength: 512 },
 		resume: { type: 'boolean' },
-		requesterId: { type: 'string', minLength: 36, maxLength: 36, pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' },
+		requesterId: { type: 'string', pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' },
 	})),
 	tool('finish', objectSchema({
 		summary: { type: 'string', minLength: 1, maxLength: 512 },
@@ -504,12 +506,12 @@ function normalizeMinecraftToolArguments(name, value) {
 			catch (error) { invalid(error.message); }
 		case 'observe':
 			requireExactKeys(args, ['view', 'afterObservationId']);
-			if (args.view !== undefined && !['full', 'changes'].includes(args.view)) invalid('observation view is not supported');
+			if (args.view !== undefined && !['full', 'changes'].includes(args.view)) invalid(notOneOf('view', args.view, ['full', 'changes']));
 			if (args.afterObservationId !== undefined && args.view !== 'changes') invalid('afterObservationId requires changes view');
 			return { kind: 'observe', ...(args.view === undefined ? {} : { view: args.view }), ...(args.afterObservationId === undefined ? {} : { afterObservationId: boundedText(args.afterObservationId, 'afterObservationId', 128) }) };
 		case 'capabilities':
 			requireExactKeys(args, ['section', 'topic', 'offset']);
-			if (args.section !== undefined && !['all', 'program', 'control', 'strategy', 'howto'].includes(args.section)) invalid('capability section is not supported');
+			if (args.section !== undefined && !['all', 'program', 'control', 'strategy', 'howto'].includes(args.section)) invalid(notOneOf('section', args.section, ['all', 'program', 'control', 'strategy', 'howto']));
 			if (args.section === 'howto') {
 				return { kind: 'capabilities', section: 'howto', topic: boundedText(args.topic, 'topic', 128), ...(args.offset === undefined ? {} : { offset: integer(args.offset, 'offset', 0, 4_096) }) };
 			}
@@ -522,7 +524,7 @@ function normalizeMinecraftToolArguments(name, value) {
 				}
 			} else {
 				if ((args.topic !== undefined || args.offset !== undefined) && args.section !== 'control') invalid('topic and offset require the control reference section');
-				if (args.topic !== undefined && !CONTROL_REFERENCE_TOPICS.includes(args.topic)) invalid('control reference topic is not supported');
+				if (args.topic !== undefined && !CONTROL_REFERENCE_TOPICS.includes(args.topic)) invalid(`control topic ${quoted(args.topic)} is unknown; capabilities({section:"control"}) lists topics`);
 			}
 			if (args.offset !== undefined && args.topic === undefined) invalid('control reference offset requires a topic');
 			return { kind: 'capabilities', ...(args.section === undefined ? {} : { section: args.section }), ...(args.topic === undefined ? {} : { topic: args.topic }), ...(args.offset === undefined ? {} : { offset: integer(args.offset, 'offset', 0, Number.MAX_SAFE_INTEGER) }) };
@@ -531,7 +533,7 @@ function normalizeMinecraftToolArguments(name, value) {
 			return normalizeSurvey({ ...args, section: 'survey' });
 		case 'inspect': {
 			requireExactKeys(args, ['section', 'offset', 'limit', 'slot', 'x', 'y', 'z', 'afterSequence', 'recipeId', 'entityType', 'outputItemId', 'include', 'exclude']);
-			if (!INSPECTION_SECTIONS.includes(args.section)) invalid('section is not supported');
+			if (!INSPECTION_SECTIONS.includes(args.section)) invalid(notOneOf('section', args.section, INSPECTION_SECTIONS));
 			if (args.section === 'survey') return normalizeSurvey(args);
 			if (args.include !== undefined || args.exclude !== undefined) invalid('include and exclude are only valid for survey');
 			const query = { kind: 'inspect', section: args.section, offset: optionalInteger(args.offset, 0, 'offset', 0, 4_096), limit: optionalInteger(args.limit, 32, 'limit', 1, 32) };
@@ -583,7 +585,7 @@ function normalizeMinecraftToolArguments(name, value) {
 			if (args.operation !== 'query' || args.entry !== undefined) invalid('taskMemory requires remember/entry or query/query');
 			const query = args.query === undefined ? {} : requireObject(args.query);
 			requireExactKeys(query, ['kind', 'text', 'offset', 'limit', 'dimension']);
-			if (query.kind !== undefined && !['all', 'place', 'route', 'progress', 'lesson', 'deaths', 'assets', 'trail'].includes(query.kind)) invalid('Unknown task memory kind');
+			if (query.kind !== undefined && !['all', 'place', 'route', 'progress', 'lesson', 'deaths', 'assets', 'trail'].includes(query.kind)) invalid(notOneOf('query.kind', query.kind, ['all', 'place', 'route', 'progress', 'lesson', 'deaths', 'assets', 'trail']));
 			return { kind: 'task_memory', operation: 'query', query: { kind: query.kind ?? 'all', offset: optionalInteger(query.offset, 0, 'offset', 0, Number.MAX_SAFE_INTEGER), limit: optionalInteger(query.limit, 20, 'limit', 1, 64), ...(query.dimension === undefined ? {} : { dimension: boundedText(query.dimension, 'dimension', 128) }), ...(query.text === undefined || query.text === '' ? {} : { text: boundedText(query.text, 'text', 256) }) } };
 		}
 		case 'notebook':
@@ -591,7 +593,7 @@ function normalizeMinecraftToolArguments(name, value) {
 			return { kind: 'notebook', key: boundedText(args.key, 'key', 128), text: boundedText(args.text, 'text', 2048) };
 		case 'queryMemory':
 			requireExactKeys(args, ['kind', 'text', 'limit', 'offset']);
-			if (args.kind !== undefined && !['all', 'notes', 'receipts', 'unresolved'].includes(args.kind)) invalid('kind is not supported');
+			if (args.kind !== undefined && !['all', 'notes', 'receipts', 'unresolved'].includes(args.kind)) invalid(notOneOf('kind', args.kind, ['all', 'notes', 'receipts', 'unresolved']));
 			return { kind: 'query_memory', memoryKind: args.kind ?? 'all', offset: optionalInteger(args.offset, 0, 'offset', 0, Number.MAX_SAFE_INTEGER), limit: optionalInteger(args.limit, 20, 'limit', 1, 64), ...(args.text === undefined ? {} : { text: boundedText(args.text, 'text', 256) }) };
 		case 'runProgram': {
 			requireExactKeys(args, ['source', 'noteKey', 'parameters', 'background', 'observationIntervalMs', 'maxActions', 'timeoutMs', 'expectedDurationMs', 'standing', 'reflexes']);
@@ -628,7 +630,7 @@ function normalizeMinecraftToolArguments(name, value) {
 			return { kind: 'cancel_program', programId: boundedText(args.programId, 'programId', 128), goalRevision: integer(args.goalRevision, 'goalRevision', 0, Number.MAX_SAFE_INTEGER) };
 		case 'respondProgram': {
 			requireExactKeys(args, ['programId', 'goalRevision', 'decisionId', 'eventSequence', 'directive', 'source']);
-			if (!['continue', 'pause', 'replace', 'finish'].includes(args.directive)) invalid('directive is not supported');
+			if (!['continue', 'pause', 'replace', 'finish'].includes(args.directive)) invalid(notOneOf('directive', args.directive, ['continue', 'pause', 'replace', 'finish']));
 			if ((args.directive === 'replace') !== (args.source !== undefined)) invalid('Only replace requires source');
 			const source = args.source === undefined ? undefined : boundedText(args.source, 'source', MAX_PROGRAM_SOURCE_BYTES);
 			if (source !== undefined && Buffer.byteLength(source, 'utf8') > MAX_PROGRAM_SOURCE_BYTES) invalid('source must fit 65536 UTF-8 bytes');
@@ -728,7 +730,7 @@ function normalizeMinecraftToolArguments(name, value) {
 			const audience = args.audience === undefined
 				? recipientId === undefined ? 'public' : 'direct'
 				: args.audience;
-			if (!['public', 'direct', 'proximity'].includes(audience)) invalid('audience is not supported');
+			if (!['public', 'direct', 'proximity'].includes(audience)) invalid(notOneOf('audience', audience, ['public', 'direct', 'proximity']));
 			if (audience === 'direct' && recipientId === undefined) invalid('direct speech requires recipientId');
 			if (audience !== 'direct' && recipientId !== undefined) invalid(`${audience} speech cannot use recipientId`);
 			return normalizeMinecraftToolArguments('act', { actionType: 'chat', arguments: audience === 'direct'
@@ -1425,7 +1427,8 @@ function objectSchema(properties, required = []) {
 }
 
 function numberSchema(minimum, maximum) { return { type: 'number', minimum, maximum }; }
-function integerSchema(minimum, maximum) { return { type: 'integer', minimum, maximum }; }
+// Integers are validated as safe integers, so a Number.MAX_SAFE_INTEGER maximum adds nothing (324 tool-list bytes).
+function integerSchema(minimum, maximum) { return maximum === Number.MAX_SAFE_INTEGER ? { type: 'integer', minimum } : { type: 'integer', minimum, maximum }; }
 
 function requireObject(value) {
 	if (value === null || typeof value !== 'object' || Array.isArray(value)) invalid('arguments must be an object');
@@ -1492,6 +1495,12 @@ function stripActionType(action) {
 }
 
 function invalid(message) { throw codedError('INVALID_MINECRAFT_TOOL_ARGUMENTS', message); }
+// Only primitives are converted: String() throws on a null-prototype object and recurses on a deep array.
+const quoted = (value) => typeof value === 'string' ? JSON.stringify(value.slice(0, 48))
+	: value === null || ['number', 'boolean', 'undefined', 'bigint'].includes(typeof value) ? String(value).slice(0, 48)
+		: `(${Array.isArray(value) ? 'array' : typeof value})`;
+/** A closed-set rejection names the value given and the accepted ones. */
+function notOneOf(field, value, accepted) { return `${field} ${quoted(value)} is not one of ${accepted.join(', ')}`; }
 
 /** Rules carried by a body call: installed before its action, exactly as a rules-only runProgram would. */
 function normalizeCarriedReflexes(value) {

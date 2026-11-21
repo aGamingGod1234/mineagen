@@ -5,12 +5,14 @@ import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { boot } from './watch-replay.mjs';
 import { ReflexBook } from '../../coordinator/src/reflexes.mjs';
+import { MOD_JAR } from './mod-jar.mjs';
+import { deathCounter } from './lib/damage-counter.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const out = path.resolve(process.argv[2] ?? 'runtime/defend-live');
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port = Number(process.env.SLOT_PORT_BASE);
 if (!template || !port || !process.env.JAVA_HOME) throw new Error('Launch under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME');
-const jar = path.resolve(process.env.ARENA_JAR ?? path.join(root, 'build/libs/mineagen-0.2.0.jar'));
+const jar = path.resolve(process.env.ARENA_JAR ?? path.join(root, MOD_JAR));
 const REPEATS = Number(process.env.REPEATS ?? 2);
 await mkdir(out, { recursive: true });
 if ((await readdir(out)).length) throw new Error('Use a fresh output directory');
@@ -28,7 +30,7 @@ s.bridge.on('message', (event) => {
 	s.bridge.send('agent_ready', s.record.agentId, { goalRevision: s.record.goalRevision, reconciled: false }).catch(() => {});
 });
 const health = async () => { const text = await s.command(`data get entity ${AGENT} Health`); return /No entity|not found/i.test(text) ? 0 : number(text); };
-const deaths = async () => number(await s.command(`scoreboard players get ${AGENT} deaths`)) || 0;
+const deaths = () => deathCounter(text => s.command(text), AGENT, { objective: 'deaths', unsetIsZero: true });
 /** Drains food to 6 or less (sprinting needs more than 6) with a strong Hunger effect, then clears it (as test-crowd-live). */
 async function starve() {
 	await s.command(`effect give ${AGENT} minecraft:hunger 60 80 true`);

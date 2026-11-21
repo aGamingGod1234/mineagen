@@ -29,6 +29,8 @@ import { callObtain } from './obtain-handbacks.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { parseSavedWorldSpawn } from '../../coordinator/src/headless-world-spawn.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
+import { MOD_JAR } from './mod-jar.mjs';
+import { deathCounter, deathEvidence } from './lib/damage-counter.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const USAGE = 'Usage: test-obtain-live.mjs PLAN.json OUT_DIR [JAR] [--strict|--descriptive] under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME';
@@ -66,7 +68,7 @@ for (const [seedIndex, seed] of plan.seeds.entries()) {
 		// Each seed on its own ports (a crashed server can hold the last ones); no watchdog, as generating far chunks on a
 		// shared machine can hold one tick past its 60 s.
 		const seedPort = port + (seedIndex % 20) * 4;
-		s = current = await boot(dir, { jar: path.resolve(jarArg ?? path.join(root, 'build/libs/mineagen-0.2.0.jar')), template, port: seedPort, world: null, seed: String(seed), spawnMonsters: true, goalTicks: 2_000_000, extraProperties: 'max-tick-time=-1\n' });
+		s = current = await boot(dir, { jar: path.resolve(jarArg ?? path.join(root, MOD_JAR)), template, port: seedPort, world: null, seed: String(seed), spawnMonsters: true, goalTicks: 2_000_000, extraProperties: 'max-tick-time=-1\n' });
 		// One RCON connection serves four lanes; a slow command (a far chunk generating) can time the queue out and leave
 		// the client unusable. Any failure rebuilds the client and retries.
 		const secret = (await readFile(path.join(dir, 'secret.txt'), 'utf8')).trim();
@@ -192,7 +194,7 @@ async function runLane(s, agent, queue, seed, seedIndex, nextSpot) {
 	let spot = agent.spot;
 	const pos = async () => String(await s.command(`data get entity ${name} Pos`)).match(/\[\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?\]/)?.slice(1).map(Number) ?? null;
 	const health = async () => number(await s.command(`data get entity ${name} Health`));
-	const deaths = async () => number(await s.command(`scoreboard players get ${name} deaths`)) || 0;
+	const deaths = () => deathCounter(text => s.command(text), name, { objective: 'deaths', unsetIsZero: true });
 	let previous = null;
 	for (const [index, entry] of queue.entries()) {
 		if (index > 0) spot = await landSpot(s, nextSpot);
@@ -279,7 +281,9 @@ async function runLane(s, agent, queue, seed, seedIndex, nextSpot) {
 			row.log = [...agent.log];
 			row.actions = [...agent.actions];
 			// The scoreboard misses some agent deaths; health reaching 0 is one too.
-			row.deaths = Math.max((await deaths()) - deathsBefore, minHealth <= 0 ? 1 : 0);
+			const deathResult = deathEvidence(deathsBefore, await deaths());
+			row.deaths = deathResult.valid ? Math.max(deathResult.deaths, minHealth <= 0 ? 1 : 0) : null;
+			if (!deathResult.valid) (row.integrity ??= []).push({ file: 'deaths', error: 'Missing or decreasing vanilla death counter' });
 			row.healthLost = Math.max(0, healthBefore - minHealth);
 			row.end = await pos();
 			row.stationsLeft = 0;

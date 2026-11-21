@@ -71,3 +71,7 @@ launcher_profiles.*.backup.json
 
 # Linux test runs create this from Windows-style paths; it is not a valid path on Windows.
 /coordinator/C:/
+
+# Third-party mod JARs that scripts/fetch-libs.sh downloads; never commit them.
+libs/*.jar
+libs/*.jar.invalid

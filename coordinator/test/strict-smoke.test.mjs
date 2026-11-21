@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { spawnOwnedProcess, terminateChildProcess } from '../src/child-process-lifecycle.mjs';
 import { parseLongArgs } from '../../scripts/quality/run-long.mjs';
+import { SAMPLER_GAP_MS } from '../../scripts/quality/run-scenarios.mjs';
 import { runStrictSmoke, evaluateSmoke, providerUsageCost, verifySmokeReport } from '../../scripts/quality/strict-smoke.mjs';
 
 const fixture = fileURLToPath(new URL('./fixtures/strict-smoke-launcher.cjs', import.meta.url));
@@ -44,7 +45,10 @@ async function mockedRun(fault = 'none') {
         if (fault === 'audit-wrong-usage') audit.calls[0].usage.output_tokens++;
         return audit;
       },
-      timeoutMs: ['no-goal', 'no-gameplay'].includes(fault) ? 4500 : 15000,
+      // The no-goal window must also cover launcher start and the observer attaching on a loaded Windows runner. The
+      // no-gameplay fixture does start a goal but has no game to sample, so its window must end before the observer's
+      // sampler-stall limit after that start: at 12 s it reported "Sampler stalled", an integrity error, and FAIL.
+      timeoutMs: fault === 'no-goal' ? 12000 : fault === 'no-gameplay' ? SAMPLER_GAP_MS - 2000 : 15000,
       spawnLauncher(command, args, launch) {
         const matrixFile = args[args.indexOf('-MatrixPath') + 1];
         launcherDirectories.push(path.dirname(matrixFile));
@@ -165,7 +169,7 @@ test('strict smoke passes with real owned processes, real HTTP transport, local 
   }
 });
 
-for (const fault of ['no-goal', 'no-gameplay']) test(`strict smoke is INCOMPLETE when ${fault} prevents the required sequence`, { skip: process.platform !== 'win32', timeout: 30000 }, async () => {
+for (const fault of ['no-goal', 'no-gameplay']) test(`strict smoke is INCOMPLETE when ${fault} prevents the required sequence`, { skip: process.platform !== 'win32', timeout: 45000 }, async () => {
   const { report } = await mockedRun(fault);
   assert.equal(report.status, 'INCOMPLETE', JSON.stringify(report, null, 2));
 });

@@ -481,7 +481,8 @@ public final class AgentServerRuntime {
 
 	private static String startupFailureStatus(String code) {
 		if (code.startsWith("NODE_RUNTIME")) {
-			return "Automation is offline: Node.js 22+ was not found, so the model CLIs cannot be scanned. Put Node 22+ at .minecraft/mineagen-runtime/runtime/toolchains/node/ (node.exe on Windows, bin/node elsewhere), or set -Dmineagen.nodePath to its absolute path, then restart Minecraft.";
+			// The control snapshot rejects a status over 160 characters, which leaves the control center stuck on "Syncing".
+			return "Automation is offline: Node.js 22+ not found. Put it in mineagen-runtime/runtime/toolchains/node or set -Dmineagen.nodePath, then restart Minecraft.";
 		}
 		if ("BRIDGE_SECRET_PATH_CONFLICT".equals(code)) {
 			return "Automation is offline. Bridge and voice secret paths must point to the prepared runtime secret.";

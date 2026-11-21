@@ -9,6 +9,7 @@ import { randomBytes, createHash } from 'node:crypto';
 import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { NativeProgramExecutor } from '../../coordinator/src/native-program-executor.mjs';
+import { MOD_JAR } from './mod-jar.mjs';
 
 const root=fileURLToPath(new URL('../..',import.meta.url));
 const out=resolve(process.argv[2] ?? 'runtime/routines/live');
@@ -19,12 +20,12 @@ await mkdir(out,{recursive:true});
 if((await readdir(out)).length)throw new Error('Use a fresh output directory');
 const reference=await readFile(join(root,'coordinator/test/fixtures/routine-programs.md'),'utf8');
 await writeFile(join(out,'routine-examples.md'),reference);
-await writeFile(join(out,'manifest.json'),JSON.stringify({kind:'provider-free live mechanics',aiPerformanceMeasured:false,fixtureSetupUsesOperatorCommands:true,referenceSha256:createHash('sha256').update(reference).digest('hex'),jarSha256:createHash('sha256').update(await readFile(join(root,'build/libs/mineagen-0.2.0.jar'))).digest('hex'),node:process.version},null,2));
+await writeFile(join(out,'manifest.json'),JSON.stringify({kind:'provider-free live mechanics',aiPerformanceMeasured:false,fixtureSetupUsesOperatorCommands:true,referenceSha256:createHash('sha256').update(reference).digest('hex'),jarSha256:createHash('sha256').update(await readFile(join(root,MOD_JAR))).digest('hex'),node:process.version},null,2));
 await cp(template,server,{recursive:true});
 for(const name of await readdir(join(server,'mods'))) if(name.startsWith('mineagen-')) {
   const {unlink}=await import('node:fs/promises'); await unlink(join(server,'mods',name));
 }
-await cp(join(root,'build/libs/mineagen-0.2.0.jar'),join(server,'mods/mineagen-0.2.0.jar'));
+await cp(join(root,MOD_JAR),join(server,'mods/mineagen-0.2.0.jar'));
 const secret=randomBytes(32).toString('hex');
 await writeFile(join(out,'secret.txt'),secret,{mode:0o600});
 await writeFile(join(server,'server.properties'),`online-mode=false\nserver-ip=127.0.0.1\nserver-port=${port+2}\nenable-rcon=true\nrcon.ip=127.0.0.1\nrcon.port=${port+1}\nrcon.password=${secret}\nlevel-name=world\nlevel-seed=20261017\nlevel-type=minecraft:flat\ngenerator-settings={"layers":[{"block":"minecraft:bedrock","height":1},{"block":"minecraft:stone","height":3}],"biome":"minecraft:plains"}\nspawn-protection=0\nview-distance=5\nsimulation-distance=5\npause-when-empty-seconds=-1\nmax-players=4\n`);

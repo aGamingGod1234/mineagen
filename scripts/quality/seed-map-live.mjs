@@ -8,6 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { boot } from './watch-replay.mjs';
 import { parseSavedWorldSpawn } from '../../coordinator/src/headless-world-spawn.mjs';
+import { MOD_JAR } from './mod-jar.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const [seed, outArg, radiusArg = '320', stepArg = '8', jarArg] = process.argv.slice(2);
@@ -16,7 +17,7 @@ if (!seed || !outArg || !template || !port) throw new Error('Usage: SEED OUT_DIR
 const out = path.resolve(outArg), radius = Number(radiusArg), step = Number(stepArg);
 await mkdir(out, { recursive: true });
 if ((await readdir(out)).length) throw new Error('Use a fresh output directory');
-const s = await boot(out, { jar: path.resolve(jarArg ?? path.join(root, 'build/libs/mineagen-0.2.0.jar')), template, port, world: null, seed, extraProperties: 'max-tick-time=-1\n' });
+const s = await boot(out, { jar: path.resolve(jarArg ?? path.join(root, MOD_JAR)), template, port, world: null, seed, extraProperties: 'max-tick-time=-1\n' });
 try {
 	await s.command('save-all flush');
 	const { x: sx, z: sz } = parseSavedWorldSpawn(await readFile(path.join(out, 'server', 'world', 'level.dat')));

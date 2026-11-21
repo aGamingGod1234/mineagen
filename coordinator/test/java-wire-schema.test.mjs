@@ -84,7 +84,7 @@ const CONTRACTS = {
 		['acceptInspectionRequest', 'reply', 'normalizeProtocolV2Payload:inspection_result/value'],
 		['requestTaskView', 'payload', 'normalizeProtocolV2Payload:task_view_request/value'],
 		['completionResultPayload', 'result', 'normalizeProtocolV2Payload:goal_completion_result/value'],
-		['publishKnownProgress', 'payload', 'normalizeProtocolV2Payload:plan_facts/value'],
+		['knownProgressPayload', 'payload', 'normalizeProtocolV2Payload:plan_facts/value'],
 		['conversationEventPayload', 'payload', 'normalizeConversationEvent/value'],
 		['conversationWakePayload', 'payload', 'normalizeConversationWake/value'],
 		['conversationWakePayload', 'control', 'normalizeGoalControl/value'],

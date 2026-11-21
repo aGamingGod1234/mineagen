@@ -30,11 +30,12 @@
 import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
-import { damageCounter, damageEvidence, matchesDamageExpectation } from './lib/damage-counter.mjs';
+import { damageCounter, damageEvidence, matchesDamageExpectation, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
 import { fileURLToPath } from 'node:url';
 import { applyQualitySetup, activateQualitySetup } from '../../coordinator/src/benchmark/quality-scenarios.mjs';
 import { fixtureTickRate } from './watch-replay.mjs';
 import { warmBoots } from './fixture-servers.mjs';
+import { MOD_JAR } from './mod-jar.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const USAGE = 'Usage: test-dig-live.mjs SPOTS.json OUT_DIR [JAR] [--strict|--descriptive] under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME';
@@ -64,14 +65,14 @@ const results = [];
 const cases = [];
 for (const [index, raw] of spots.entries()) cases.push([index, raw, raw.checkpoint ? JSON.parse(await readFile(raw.checkpoint, 'utf8')) : null]);
 for await (const { item: [, raw, checkpoint], server: s, error: bootError } of warmBoots(cases, ([index, raw, checkpoint]) => ({ dir: path.join(out, `spot-${index}`),
-	options: { jar: path.resolve(jarArg ?? path.join(root, 'build/libs/mineagen-0.2.0.jar')), template, port, world: null, seed: String(raw.seed ?? checkpoint?.seed), tickRate: fixtureTickRate(), worldCache: true } }))) {
+	options: { jar: path.resolve(jarArg ?? path.join(root, MOD_JAR)), template, port, world: null, seed: String(raw.seed ?? checkpoint?.seed), tickRate: fixtureTickRate(), worldCache: true } }))) {
 	const seed = String(raw.seed ?? checkpoint?.seed);
 	const seedSpots = [{ ...raw, checkpointData: checkpoint }];
 	const startedAt = Date.now();
 	if (!s) { results.push({ name: raw.name, seed, startedAt, error: String(bootError?.stack ?? bootError).slice(0, 1200) }); continue; }
 	const pos = async () => String(await s.command(`data get entity ${AGENT} Pos`)).match(/\[\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?\]/)?.slice(1).map(Number) ?? null;
 	const health = async () => number(await s.command(`data get entity ${AGENT} Health`));
-	const deaths = async () => number(await s.command(`scoreboard players get ${AGENT} deaths`)) || 0;
+	const deaths = () => deathCounter(text => s.command(text), AGENT, { objective: 'deaths', unsetIsZero: true });
 	// dig_to legs run for minutes: the bridge act helper waits 65 s, so this one waits for the action's own timeout.
 	const dig = async (args, actionType = 'dig_to') => {
 		const id = `dig-${++s.ordinal}`;
@@ -273,7 +274,9 @@ for await (const { item: [, raw, checkpoint], server: s, error: bootError } of w
 				row.actionSeconds = Math.round(actionSeconds);
 				row.blocks = row.legs.reduce((sum, leg) => sum + (Number.isFinite(leg.blocks) ? leg.blocks : 0), 0);
 				row.blocksPerMinute = actionSeconds ? Math.round(row.blocks / actionSeconds * 60) : null;
-				row.deaths = (await deaths()) - deathsBefore;
+				const deathResult = deathEvidence(deathsBefore, await deaths());
+				row.deaths = deathResult.deaths;
+				if (!deathResult.valid) (row.integrity ??= []).push({ file: 'deaths', error: 'Missing or decreasing vanilla death counter' });
 				row.reached = (spot.pattern ?? 'stairs_down') === 'stairs_up' ? Math.floor(row.end?.[1] ?? -999) >= targetY
 					: row.legs.some(leg => leg.reasonCode === 'DIG_GOAL_REACHED') || Math.floor(row.end?.[1] ?? 999) <= targetY;
 				row.legsToReach = row.reached ? row.legs.length : null;

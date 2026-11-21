@@ -8,7 +8,8 @@ import {boot} from './watch-replay.mjs';
 import {applyQualitySetup,activateQualitySetup} from '../../coordinator/src/benchmark/quality-scenarios.mjs';
 import {parseInventory,parseEquipment} from '../../coordinator/src/benchmark/checkpoint.mjs';
 import {Observer} from './run-scenarios.mjs';
-const [file,out,jar=process.env.ARENA_JAR ?? 'build/libs/mineagen-0.2.0.jar',mode]=process.argv.slice(2);
+import { MOD_JAR } from './mod-jar.mjs';
+const [file,out,jar=process.env.ARENA_JAR ?? MOD_JAR,mode]=process.argv.slice(2);
 if(!file||!out||!process.env.SLOT_PORT_BASE)throw new Error('CHECKPOINT OUT [JAR], under slot.sh live');
 await mkdir(out,{recursive:true});if((await readdir(out)).length)throw new Error('Use a fresh output directory');
 const bytes=await readFile(file),cp=JSON.parse(bytes),AGENT='Probe',OW='minecraft:overworld',spawnControl=mode==='--spawn-control';
@@ -18,7 +19,8 @@ const number=text=>Number(String(text).match(/(?:entity data:\s*|time is |has )(
 const pos=text=>String(text).match(/\[\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?\]/)?.slice(1).map(Number);
 let s;
 try{
- s=await boot(out,{jar:path.resolve(jar),template:process.env.ARENA_HEADLESS_SERVER_TEMPLATE,port:Number(process.env.SLOT_PORT_BASE),seed:cp.seed,spawnMonsters:true});
+ // It adopts revisions below without answering agent_ready, as before boot() could follow them itself.
+ s=await boot(out,{jar:path.resolve(jar),template:process.env.ARENA_HEADLESS_SERVER_TEMPLATE,port:Number(process.env.SLOT_PORT_BASE),seed:cp.seed,spawnMonsters:true,followRevision:false});
  s.bridge.on('message',e=>{const revision=e.payload.goalRevision??e.payload.record?.goalRevision??e.payload.control?.goalRevision;if(s.record&&e.agentId===s.record.agentId&&Number.isInteger(revision))s.record.goalRevision=Math.max(s.record.goalRevision,revision);});
  const command=async text=>({text:await s.command(text)});
  const loaded=async (dim,x,z)=>{for(let i=0;i<100;i++){if(/time is \d+/i.test(await s.command(`execute in ${dim} if loaded ${x} 100 ${z} run time query gametime`)))return;await sleep(200);}throw new Error('Verification chunk did not load');};

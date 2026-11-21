@@ -16,6 +16,11 @@ import net.minecraft.world.phys.Vec3;
 /** Visible cloud geometry and the body's own contact/effect cues, never hidden potion contents. */
 public final class CloudDanger {
 	private static final java.util.Map<ServerPlayer, java.util.Set<AreaEffectCloud>> KNOWN_HARM = new java.util.WeakHashMap<>();
+	/**
+	 * Harmful clouds this player has sensed (seen or touched): a player running from breath remembers where it is behind
+	 * them. Without it the reflex lost the cloud the moment the body turned away, and a waiting command walked back in.
+	 */
+	private static final java.util.Map<ServerPlayer, java.util.Set<AreaEffectCloud>> SENSED = new java.util.WeakHashMap<>();
 	private static final java.util.Map<ServerPlayer, Alerts> ALERTS = new java.util.WeakHashMap<>();
 	private static final class Alerts {
 		Object level;
@@ -40,8 +45,13 @@ public final class CloudDanger {
 	}
 	private CloudDanger() { }
 
-	static void forget(ServerPlayer player) { FRAMES.remove(player); ALERTS.remove(player); KNOWN_HARM.remove(player); }
-	static void clear() { FRAMES.clear(); ALERTS.clear(); KNOWN_HARM.clear(); }
+	static void forget(ServerPlayer player) { FRAMES.remove(player); ALERTS.remove(player); KNOWN_HARM.remove(player); SENSED.remove(player); }
+	static void clear() { FRAMES.clear(); ALERTS.clear(); KNOWN_HARM.clear(); SENSED.clear(); }
+
+	private static boolean sensed(ServerPlayer player, AreaEffectCloud cloud) {
+		var known = SENSED.get(player);
+		return known != null && known.contains(cloud);
+	}
 
 	static boolean dragon(AreaEffectCloud cloud) { return cloud.getParticle().getType() == ParticleTypes.DRAGON_BREATH; }
 
@@ -96,13 +106,14 @@ public final class CloudDanger {
 			boolean contact = inside(cloud.position(), cloud.getRadius(), cloud.getBoundingBox(), feet, player.getBoundingBox());
 			var known = KNOWN_HARM.get(player);
 			if (!dragon(cloud) && !(known != null && known.contains(cloud)) && !(contact && harmCue(player, cloud))) continue;
-			if (!contact) {
+			if (!contact && !sensed(player, cloud)) {
 				if (visibility == null) visibility = ObservationVisibility.frame(player.level(), player);
 				if (!visibility.canSeeAppearance(cloud)) continue;
 			}
 			best = edge;
 			nearest = cloud;
 		}
+		if (nearest != null) SENSED.computeIfAbsent(player, ignored -> java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>())).add(nearest);
 		return nearest;
 	}
 
@@ -130,6 +141,7 @@ public final class CloudDanger {
 			AABB body = new AABB(feet.x - 0.3D, feet.y, feet.z - 0.3D, feet.x + 0.3D, feet.y + 1.8D, feet.z + 0.3D);
 			if (!inside(cloud.position(), radius, bounds.inflate(0.0D, 1.0D, 0.0D), feet, body)) continue;
 			if (onlyNew && inside(cloud.position(), cloud.getRadius(), cloud.getBoundingBox(), here, player.getBoundingBox())) continue;
+			if (sensed(player, cloud)) return true;
 			if (visibility == null) visibility = ObservationVisibility.frame(player.level(), player);
 			if (visibility.canSeeAppearance(cloud)) return true;
 		}

@@ -24,7 +24,8 @@ import { createHash } from 'node:crypto';
 import { boot, fixtureTickRate, frozenFixtureSetup } from './watch-replay.mjs';
 import { ReflexBook } from '../../coordinator/src/reflexes.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
-import { damageCounter, damageEvidence } from './lib/damage-counter.mjs';
+import { damageCounter, damageEvidence, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
+import { MOD_JAR } from './mod-jar.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const USAGE = 'Usage: test-cornered-live.mjs [OUT_DIR] [--strict|--descriptive] under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME (CASES, REPEATS, WATCH_S, ARENA_JAR)';
@@ -34,7 +35,7 @@ const strict = !cli.includes('--descriptive');
 const out = path.resolve(cli.filter(arg => !['--strict', '--descriptive'].includes(arg))[0] ?? 'runtime/cornered-live');
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port = Number(process.env.SLOT_PORT_BASE);
 if (!template || !port || !process.env.JAVA_HOME) { console.error(USAGE); process.exit(2); }
-const jar = path.resolve(process.env.ARENA_JAR ?? path.join(root, 'build/libs/mineagen-0.2.0.jar'));
+const jar = path.resolve(process.env.ARENA_JAR ?? path.join(root, MOD_JAR));
 if (!existsSync(jar)) { console.error(`no jar at ${jar}`); process.exit(2); }
 const WATCH_S = Number(process.env.WATCH_S ?? 45), REPEATS = Number(process.env.REPEATS ?? 3);
 const CASES = (process.env.CASES ?? 'seed4-cave,corridor,corridor-archer,crowd-low').split(',');
@@ -61,15 +62,8 @@ const s = await boot(out, { jar, template, port, world: null, seed: SEED, tickRa
 	return finish();
 });
 // A refused observation names the server's current revision: adopt it and ask again (a revision moved on by a message
-// this fixture does not track ended two matrices early with "TIMEOUT observation").
-// Any server message carrying a newer goal revision moves the fixture on with it (a death, a respawn or a lifecycle
-// message it does not otherwise track left later commands STALE_REVISION).
-s.bridge.on('message', (event) => {
-	const revision = event?.payload?.goalRevision ?? event?.payload?.record?.goalRevision ?? event?.payload?.control?.goalRevision;
-	if (!s.record || event.agentId !== s.record.agentId || !Number.isSafeInteger(revision) || revision <= s.record.goalRevision) return;
-	s.record.goalRevision = revision;
-	s.bridge.send('agent_ready', s.record.agentId, { goalRevision: revision, reconciled: false }).catch(() => {});
-});
+// this fixture does not track ended two matrices early with "TIMEOUT observation"). boot() follows every newer goal
+// revision the server sends (a death, a respawn, a lifecycle message), so later commands are not refused STALE_REVISION.
 // watch-replay's observe leaves its reply wait pending when the send is refused; that orphan later rejects unhandled.
 process.on('unhandledRejection', (error) => { if (/TIMEOUT observation/.test(String(error?.message))) return; console.error(error); runs.push({ case: 'harness', error: String(error?.stack ?? error).slice(0, 1200) }); });
 const rawObserve = s.observe;
@@ -87,17 +81,9 @@ s.observe = async () => {
 		}
 	}
 };
-// A death or respawn moves the goal revision on; follow it as the coordinator does, or every later message is refused.
-s.bridge.on('message', (event) => {
-	const registered = ['agent_registered', 'registry_entry'].includes(event.type) ? { goalRevision: event.payload.goalRevision ?? event.payload.record?.goalRevision, operation: 'registered' } : null;
-	const control = registered ?? (event.type === 'goal_control' ? event.payload : event.type === 'conversation_wake' ? event.payload.control : null);
-	if (control == null || event.agentId !== s.record?.agentId || !Number.isSafeInteger(control.goalRevision) || control.goalRevision <= s.record.goalRevision) return;
-	if (['queue', 'dequeue'].includes(control.operation)) return;
-	s.record.goalRevision = control.goalRevision;
-	s.bridge.send('agent_ready', s.record.agentId, { goalRevision: s.record.goalRevision, reconciled: false }).catch(() => {});
-});
 const health = async () => { const text = await s.command(`data get entity ${AGENT} Health`); return /No entity|not found/i.test(text) ? 0 : number(text); };
-const deaths = async () => number(await s.command(`scoreboard players get ${AGENT} deaths`)) || 0;
+// Vanilla's deathCount objective boot() adds; its reply "has 1 [deaths]" once read as NaN, and `|| 0` hid every death.
+const deaths = () => deathCounter(text => s.command(text), AGENT, { objective: 'deaths', unsetIsZero: true });
 const uuid = (run, n) => [`00000004-0000-0000-0000-${String(run).padStart(4, '0')}${String(n).padStart(8, '0')}`, `[I;4,0,${run},${n}]`];
 
 // Keep diagnosis opt-in: RCON reads themselves take wall time while entities continue ticking.
@@ -299,7 +285,11 @@ try {
 				reflexDetails: (s.observation?.reflexes?.events ?? []).map(e => `${e.id}:${e.outcome}: ${e.detail ?? ''}`).slice(-8), track,
 				startedAt, finishedAt: Date.now(), pass: !died };
 			Object.assign(row, damageEvidence(damageBefore, await readDamage(), healthBefore, await health()));
-			row.deaths = (await deaths()) - deathsBefore;
+			const deathResult = deathEvidence(deathsBefore, await deaths());
+			row.deaths = deathResult.deaths;
+			if (!deathResult.valid) (row.integrity ??= []).push({ file: 'deaths', error: 'Missing or decreasing vanilla death counter' });
+			if (row.deaths > 0 && !died) Object.assign(row, { survived: false, minHealth: 0, endHealth: 0, pass: false });
+			if (!row.pass) row.failReason = `body died${fleeResult?.reasonCode ? ` after flee ${fleeResult.reasonCode}` : ''}`;
 			runs.push(row);
 			console.log(`[cornered] ${name}#${repeat}: ${row.survived ? 'SURVIVED' : 'DIED'} min ${row.minHealth} end ${row.endHealth}, hostiles left ${alive}/${ids.length}, flee ${row.flee.reasonCode ?? row.flee} at ${row.flee.atS ?? '-'} s, tps asked ${tick.askedTps} reached ${tick.reachedTps} | ${String(row.flee.message ?? '').slice(0, 200)}`);
 			await writeFile(path.join(out, 'runs.json'), JSON.stringify(runs, null, 1));

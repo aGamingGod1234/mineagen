@@ -11,6 +11,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseSavedWorldSpawn } from '../../coordinator/src/headless-world-spawn.mjs';
 import { boot } from './watch-replay.mjs';
+import { MOD_JAR } from './mod-jar.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const [seed, outArg, radiusArg, jarArg] = process.argv.slice(2);
@@ -20,7 +21,7 @@ const radius = Number(radiusArg ?? 112);
 const out = path.resolve(outArg);
 await mkdir(out, { recursive: true });
 const sleep = ms => new Promise(done => setTimeout(done, ms));
-const s = await boot(out, { jar: path.resolve(jarArg ?? path.join(root, 'build/libs/mineagen-0.2.0.jar')), template, port, world: null, seed: String(seed) });
+const s = await boot(out, { jar: path.resolve(jarArg ?? path.join(root, MOD_JAR)), template, port, world: null, seed: String(seed) });
 let spawn;
 try {
 	await s.command('save-all flush');

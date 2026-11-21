@@ -89,6 +89,7 @@ public final class MinecraftNavigationWorld implements WalkabilityView {
 	// Asked for every search edge: primitive maps keyed by packed position, no boxing.
 	private final Long2DoubleOpenHashMap movementSpeeds = new Long2DoubleOpenHashMap();
 	private final Long2IntOpenHashMap exposureCosts = new Long2IntOpenHashMap();
+	private final it.unimi.dsi.fastutil.longs.Long2ByteOpenHashMap lavaFillsCache = new it.unimi.dsi.fastutil.longs.Long2ByteOpenHashMap();
 	private static final class CellSample {
 		Cell cell;
 		long frame;
@@ -656,7 +657,26 @@ public final class MinecraftNavigationWorld implements WalkabilityView {
 
 	@Override
 	public boolean lavaFillsNext(GridPosition position) {
-		return lavaFills((x, y, z) -> level.isOutsideBuildHeight(y) ? null : stateAt(x, y, z), position.x(), position.y(), position.z());
+		// Asked for every search edge now that routes refuse these cells: cached per world like the exposure costs.
+		long key = BlockPos.asLong(position.x(), position.y(), position.z());
+		byte known = lavaFillsCache.getOrDefault(key, (byte) -1);
+		if (known >= 0) return known == 1;
+		boolean fills = lavaFills((x, y, z) -> level.isOutsideBuildHeight(y) ? null : stateAt(x, y, z), position.x(), position.y(), position.z());
+		lavaFillsCache.put(key, fills ? (byte) 1 : (byte) 0);
+		return fills;
+	}
+
+	/** Navigation routes (move_to, pick_up_item, travel legs) go round cells lava fills next (Nether lava safety). */
+	@Override
+	public boolean refusesLavaFlowCells() {
+		return refusesLavaFlowCells;
+	}
+
+	private boolean refusesLavaFlowCells = true;
+
+	/** Routes may enter cells lava fills next again (the cast's drain wait; see ServerNavigationController.keepLavaFlowRoutes). */
+	void keepLavaFlowRoutes() {
+		refusesLavaFlowCells = false;
 	}
 
 	/** Lava an acquired cell exposes the body to (see {@link #lavaExposure}). Reads blocks only: no neighbour is classified. */
@@ -781,6 +801,8 @@ public final class MinecraftNavigationWorld implements WalkabilityView {
 		sweptJumps.clear();
 		movementSpeeds.clear();
 		exposureCosts.clear();
+		// Lava spreads and drains, and seals fill cells: what lava fills next is read again each frame.
+		lavaFillsCache.clear();
 		unknownRead = false;
 		blockedMagma = false;
 	}
