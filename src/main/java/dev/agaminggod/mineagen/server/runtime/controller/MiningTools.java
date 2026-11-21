@@ -60,6 +60,25 @@ public final class MiningTools {
 	}
 
 	/**
+	 * With nothing faster than the hand on this block ({@link #KEEP}) and a tool held that would spend a use on it for no
+	 * gain (a pickaxe on gravel, dirt or sand): an empty hotbar slot, else one holding no damageable item, else
+	 * {@code selected}. A stair from the surface mined 24 to 30 gravel and dirt blocks with the pickaxe, about a tenth of
+	 * the uses the room's two pickaxes have.
+	 */
+	static int sparingSlot(Inventory inventory, BlockState state, int selected) {
+		ItemStack held = inventory.getItem(selected);
+		if (held.isEmpty() || !held.isDamageableItem() || held.getDestroySpeed(state) > 1.0F) return selected;
+		if (state.requiresCorrectToolForDrops()) return selected;
+		int plain = -1;
+		for (int slot = 0; slot < 9; slot++) {
+			ItemStack stack = inventory.getItem(slot);
+			if (stack.isEmpty()) return slot;
+			if (plain < 0 && !stack.isDamageableItem()) plain = slot;
+		}
+		return plain >= 0 ? plain : selected;
+	}
+
+	/**
 	 * A player whose hotbar has no sound tool for the block reaches into the main inventory: {@code {source, hotbar}}
 	 * to swap a sound tool from slots 9-35 into, or null. The hotbar slot is the worn tool's own (it goes back to the
 	 * inventory unspent), else an empty one, else the held one. Only called after the hotbar rule said NONE or WORN.

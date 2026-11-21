@@ -715,7 +715,7 @@ public final class ServerDigController implements ServerController {
 		if (slot == -2) return stop(player, "NO_TOOL", "No hotbar tool can harvest " + blockId(state) + " at " + cell(cell) + toolHint(player, state));
 		if (slot == -3) return stop(player, "TOOL_WORN", "Every hotbar tool for " + blockId(state) + " has " + WORN_USES + " or fewer uses left" + toolHint(player, state));
 		if (slot >= 0) lastTool = itemId(player.getInventory().getItem(slot));
-		selected = slot >= 0 ? slot : selected;
+		selected = slot >= 0 ? slot : slot == MiningTools.KEEP ? MiningTools.sparingSlot(player.getInventory(), state, selected) : selected;
 		AgentInputState look = AgentInputStates.lookingAt(player, aim, 0.0F, 0.0F, false, false, false, false, false, InteractionHand.MAIN_HAND);
 		float yaw = AgentInputStates.turnYaw(player.getYRot(), look.yaw());
 		float pitch = AgentInputStates.turnPitch(player.getXRot(), look.pitch());
