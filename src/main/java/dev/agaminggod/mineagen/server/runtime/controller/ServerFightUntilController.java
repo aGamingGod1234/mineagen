@@ -329,6 +329,7 @@ public final class ServerFightUntilController implements ServerController {
 	private int drawOvers;
 	private ServerController drawWalk;
 	private LivingEntity drawn;
+	private Vec3 drawnAt;
 	private long drawHoldUntilMs = -1L;
 	private int holds;
 	private int attackerSoftEnds;
@@ -1508,8 +1509,9 @@ public final class ServerFightUntilController implements ServerController {
 			return TickResult.running(progress(player));
 		}
 		if (drawn != null && elapsed < drawHoldUntilMs) {
-			// Hold where the back-off ended until it comes within reach (then the fight takes it) or the hold runs out.
-			if (drawn.isAlive() && !drawn.isDeadOrDying() && player.distanceTo(drawn) > ENDER_HOLD_RANGE) {
+			// Hold where the back-off ended until it comes within reach or moves (then the fight takes it), or the hold runs out.
+			if (drawn.isAlive() && !drawn.isDeadOrDying() && player.distanceTo(drawn) > ENDER_HOLD_RANGE
+					&& drawn.position().distanceTo(drawnAt) < UnreachableTargets.MOVED) {
 				lastTargetMs = elapsed;
 				if (look != null) { look.cancel(player); look = null; }
 				ServerLookController.turnToward(player, legs(drawn));
@@ -1529,6 +1531,7 @@ public final class ServerFightUntilController implements ServerController {
 			if (walk != null) { walk.cancel(player); walk = null; }
 			drawWalk = drawWalks.walk(goal, now);
 			drawn = enderman;
+			drawnAt = enderman.position();
 			drawOvers++;
 			lastTargetMs = elapsed;
 			note(String.format(Locale.ROOT, "angry %s %s out of reach %.1f blocks away: backing off to %s for it to teleport across", mobId,
