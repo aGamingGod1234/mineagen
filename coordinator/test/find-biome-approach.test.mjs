@@ -126,3 +126,29 @@ test('the approach keeps to the caller within: a forest beyond it is not walked 
 	for (const call of body.calls.filter((entry) => entry.actionType === 'travel_to')) assert.ok(call.args.distance <= 60);
 	assert.match(result.message, /beyond within 60|edge of within 60|Searched to 60/);
 });
+
+test('a fight on the way to a Nether forest does not end the approach on a far sighting of it', async () => {
+	// The first approach leg stops for a zombie beside the body; the body is armed, so find fights it. Every sample still
+	// shows the forest 90 blocks off: before, the fight leg's own sighting check handed that back as FIND_SEEN in the deltas.
+	const body = netherBody({ looks: [seenForest], items: [NETHERRACK, { itemId: 'minecraft:iron_sword', count: 1 }] });
+	const observe = body.observe, act = body.act;
+	let stopped = false, zombie = true;
+	body.observe = async () => {
+		const sample = await observe();
+		return { ...sample, sighted: { biomes: [{ biome: 'minecraft:warped_forest', x: 0, y: 70, z: 90 }] },
+			entities: zombie ? [{ stableId: 'z1', type: 'minecraft:zombie', hostile: true, alive: true, x: sample.player.x + 2, y: sample.player.y, z: sample.player.z, distance: 2 }] : [] };
+	};
+	body.act = async (actionType, args) => {
+		if (actionType === 'travel_to' && Number.isFinite(args.yaw) && !stopped) {
+			stopped = true;
+			body.calls.push({ actionType, args });
+			return { state: 'FAILED', reasonCode: 'HOSTILE_NEAR', message: 'minecraft:zombie z1 2.0 blocks away at 2,70,0, targeting you' };
+		}
+		if (actionType === 'fight_target') { zombie = false; body.calls.push({ actionType, args }); return { state: 'SUCCEEDED', reasonCode: 'TARGET_KILLED' }; }
+		return act(actionType, args);
+	};
+	const result = await searchFor({ biome: 'minecraft:warped_forest' }, body, { timeoutMs: 540_000 });
+	assert.ok(stopped, 'the zombie stopped the first approach leg');
+	if (result.reasonCode === 'FIND_SEEN') assert.equal(result.find.seen.via, 'standing in it', `found only standing in the forest: ${result.message}`);
+	assert.ok(body.calls.filter((call) => call.actionType === 'travel_to').length >= 2, 'the approach went on after the zombie');
+});

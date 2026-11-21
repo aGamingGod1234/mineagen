@@ -657,6 +657,8 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 	// One body action toward the search; a sighting during it (its own stopWhenSeen, or the watch) ends it.
 	// sight: what ends this leg as seen (default: the target in view anywhere, as sightingOf reads it).
 	const leg = async (how, actionType, args, sight = null) => {
+		// While a Nether biome is approached, every leg (a fight or sidestep on the way too) ends as seen only standing in it.
+		if (sight === null && approaching && netherBiome()) sight = standingIn;
 		progress(how);
 		const timeout = Math.min(left(), 600_000, args.timeoutMs ?? Infinity);
 		// Controllers enforce the original circle on every tick, including retrace detours.
@@ -846,7 +848,8 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 		} finally { approaching = false; }
 	};
 	// Every sighting ends here: a Nether biome is found only standing in it, anything else on sight.
-	const arrive = (seen) => (approaching || !netherBiome() || seen.via === 'standing in it' ? found(seen) : approachSeen(seen));
+	// During an approach a far sighting is no arrival: the approach goes on (null).
+	const arrive = (seen) => (!netherBiome() || seen.via === 'standing in it' ? found(seen) : approaching ? null : approachSeen(seen));
 	const approachSeen = async (seen) => {
 		const reached = await approach(seen, `the ${profile.label} seen at ${seen.x},${seen.y},${seen.z}`);
 		if (reached?.stuck === undefined) return reached;

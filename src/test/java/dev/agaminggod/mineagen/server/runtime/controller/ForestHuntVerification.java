@@ -25,6 +25,7 @@ public final class ForestHuntVerification {
 		verifyWalkEnds();
 		verifyDestinations();
 		verifyLavaNear();
+		verifyWalkBackGoal();
 		return assertions;
 	}
 
@@ -116,6 +117,13 @@ public final class ForestHuntVerification {
 		check(WarpedForestHunt.choose(start, start, searched, List.of(), ledge, List.of(far)) == far, "an enderman seen 6 blocks above the feet is on a ledge: not walked to");
 		check(WarpedForestHunt.choose(start, start, searched, List.of(), below, List.of(far)) == far, "one seen 7 blocks below is across a drop: not walked to");
 		check(WarpedForestHunt.choose(start, start, searched, List.of(), level, List.of(far)) == level, "one 3.5 blocks up on open ground is walked to");
+	}
+
+	private static void verifyWalkBackGoal() {
+		Vec3 footing = new Vec3(10.5D, 64.0D, 0.5D), body = new Vec3(12.5D, 64.0D, 0.5D);
+		Vec3 goal = WarpedForestHunt.past(footing, body);
+		check(Math.abs(goal.x - 6.5D) < 1.0E-9 && Math.abs(goal.z - 0.5D) < 1.0E-9, "the walk back aims 4 blocks past the footing, away from the body: " + goal);
+		check(WarpedForestHunt.flat(goal, body) > WarpedForestHunt.ARRIVE, "so travel cannot call it arrived from where the body stands");
 	}
 
 	private static void verifyLavaNear() {

@@ -151,7 +151,8 @@ public final class ForestHuntTickVerification {
 			ServerFightUntilController hunt = fixture.hunt(hunt(40_000L), null);
 			fixture.run(hunt, 300);
 			check(fixture.cancelledWalks >= 1, "the walk that left the forest was ended that tick");
-			check(goals.size() >= 2 && goals.get(1).distanceTo(new Vec3(0.5D, 64.0D, 0.5D)) < 1.0E-6, "the next walk goes back to the last forest footing: " + goals);
+			check(goals.size() >= 2 && Math.abs(WarpedForestHunt.flat(goals.get(1), new Vec3(0.5D, 64.0D, 0.5D)) - WarpedForestHunt.BACK_PAST) < 1.0E-6
+					&& goals.get(1).x < 0.5D, "the next walk goes back past the last forest footing, deeper into the forest: " + goals);
 			check(fixture.player.getX() < 200.0D, "the walk back runs from outside the forest and brings the body back in: x " + fixture.player.getX());
 		}
 	}

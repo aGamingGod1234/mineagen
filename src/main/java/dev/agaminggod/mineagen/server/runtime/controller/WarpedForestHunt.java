@@ -110,6 +110,8 @@ final class WarpedForestHunt {
 	/** The last footing the body stood on in the forest: where a walk that left the forest returns to. */
 	private Vec3 lastInForest;
 	private Vec3 backTo;
+	/** The forest footing the current walk back heads past (its failures are remembered per footing). */
+	private Vec3 backFooting;
 	private Vec3 arrivedAt;
 	private int relocations;
 	private int arrivals;
@@ -276,7 +278,8 @@ final class WarpedForestHunt {
 		Kind kind;
 		int heading = -1;
 		if (backTo != null) {
-			goal = backTo;
+			goal = past(backTo, player.position());
+			backFooting = backTo;
 			backTo = null;
 			kind = Kind.BACK;
 		} else {
@@ -334,6 +337,16 @@ final class WarpedForestHunt {
 			return leftForest(player);
 		}
 		standing(player);
+		if (walkKind == Kind.BACK && inForest(player) && flat(walkFrom, player.position()) > 0.5D) {
+			// Back in the forest: that is the walk's arrival, wherever travel would have stopped.
+			cancel(player);
+			arrivals++;
+			failedInRow = 0;
+			headingsFailed.clear();
+			searched.add(player.position());
+			arrivedAt = player.position();
+			return Walk.ARRIVED;
+		}
 		long gameTick = player.level().getGameTime();
 		if (lastWalkTick != Long.MIN_VALUE && EndermanHuntLeads.walkLeftUnticked(lastWalkTick, gameTick)) {
 			// Something else held the body (a collect or guard): plan the same walk afresh, as the lead walks do.
@@ -381,8 +394,20 @@ final class WarpedForestHunt {
 		failedInRow++;
 		refused.add(walkGoal);
 		if (walkKind == Kind.HEADING && walkHeading >= 0) headingsFailed.add(walkHeading);
-		if (walkKind == Kind.BACK) backFailed.add(walkGoal);
+		if (walkKind == Kind.BACK) backFailed.add(backFooting);
 	}
+
+	/**
+	 * The walk back's goal: BACK_PAST blocks beyond the last forest footing, away from the body. The footing itself lies
+	 * within travel's arrival tolerance of a body that just stepped out, so a walk to it would end without moving.
+	 */
+	static Vec3 past(Vec3 footing, Vec3 body) {
+		double dx = footing.x - body.x, dz = footing.z - body.z, length = Math.hypot(dx, dz);
+		if (length < 1.0E-6) return footing;
+		return new Vec3(footing.x + dx / length * BACK_PAST, footing.y, footing.z + dz / length * BACK_PAST);
+	}
+
+	static final double BACK_PAST = 4.0D;
 
 	private Walk leftForest(ServerPlayer player) {
 		lastFailure = "left the forest at " + BlockPos.containing(player.position()).toShortString();
