@@ -85,6 +85,8 @@ public final class ServerEscapeController implements ServerController {
 	private int safeTicks;
 	private int swims;
 	private int climbs;
+	/** Gives back the running move's attempt when a reflex interrupts it (see {@link #resumed}). */
+	private Runnable refund;
 	private int fills;
 	private int covers;
 	private int pits;
@@ -163,6 +165,7 @@ public final class ServerEscapeController implements ServerController {
 		// holds forward and jump against the bank there.
 		if (bank != null && !player.isUnderWater() && besideBank(player, bank) && climbs < MAX_TRIES) {
 			climbs++;
+			refund = () -> climbs--;
 			return startMove(player, climbOut(bank), "climb out onto the bank at " + bank.toShortString());
 		}
 		int tries = bank == null ? 0 : bankTries.merge(bank, 1, Integer::sum);
@@ -176,6 +179,7 @@ public final class ServerEscapeController implements ServerController {
 			case SWIM -> {
 				if (bank != null) bankTries.merge(bank, -1, Integer::sum);
 				swims++;
+				refund = () -> swims--;
 				yield startMove(player, EscapeMoves.swimUp(), "swim to air");
 			}
 			// Afloat and breathing with nowhere dry in reach: a safe stop, the way on is the model's choice.
@@ -193,6 +197,7 @@ public final class ServerEscapeController implements ServerController {
 			}
 			case FILL -> {
 				fills++;
+				refund = () -> fills--;
 				yield startMove(player, fillUnder(block, column.top().getX(), column.top().getZ()), "fill the " + column.depth() + " water cells under the body with " + block.replace("minecraft:", ""));
 			}
 			case TRAVEL -> {
@@ -339,6 +344,7 @@ public final class ServerEscapeController implements ServerController {
 		if (covers >= MAX_TRIES) return finish(player, TickResult.failed("ESCAPE_EXPOSED", "Still in sight of " + type(shooterNear(player))
 				+ " after " + covers + " cover moves" + done() + facts(player), 0.5D));
 		covers++;
+		refund = () -> covers--;
 		return startMove(player, EscapeMoves.takeCover(COVER_WITHIN), "cover from " + type(shooterNear(player)));
 	}
 
@@ -354,6 +360,7 @@ public final class ServerEscapeController implements ServerController {
 		note(moveLabel + (result.status() == EscapeMoves.Status.DONE ? ": " : " failed: ") + result.detail());
 		input.release();
 		move = null;
+		refund = null;
 		// A cover move that found no cover and had no blocks to build one hands the choice back now.
 		if (result.status() == EscapeMoves.Status.FAILED && moveLabel.startsWith("cover") && situation(player) == Situation.SHOOTERS) {
 			return finish(player, TickResult.failed("ESCAPE_EXPOSED", "No cover from " + type(shooterNear(player)) + " here: " + result.detail() + done() + facts(player), 0.5D));
@@ -400,8 +407,11 @@ public final class ServerEscapeController implements ServerController {
 
 	@Override
 	public void resumed(ServerPlayer player) {
-		// A reflex held the body (a raised shield, a swim up): the old move's picture is stale, so look again.
+		// A reflex held the body (a raised shield, a swim up): the old move's picture is stale, so look again. The move did
+		// not fail, so its attempt is given back: steady arrow fire pausing cover for the shield must not use up the tries.
 		if (child != null) child.resumed(player);
+		if (move != null && refund != null) refund.run();
+		refund = null;
 		move = null;
 		safeTicks = 0;
 		input.release();
