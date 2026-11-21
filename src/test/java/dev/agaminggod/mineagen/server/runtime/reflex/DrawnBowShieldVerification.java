@@ -72,9 +72,11 @@ public final class DrawnBowShieldVerification {
 		double eta = dev.agaminggod.mineagen.server.perception.ProjectilePerception.impactSeconds(bounced, bouncedVelocity, body, Vec3.ZERO, false,
 				dev.agaminggod.mineagen.server.perception.ProjectilePerception.HIT_MARGIN);
 		check(Double.isFinite(eta), "the flight estimate alone reads the bounced arrow as landing now");
-		check(ReflexSensors.landed(body, bounced), "an arrow already at the body has landed, so it is no shot to turn to");
+		check(Double.isNaN(ReflexSensors.shotSeconds(body, bounced, bouncedVelocity, Vec3.ZERO, false, (from, to) -> true)),
+				"an arrow already at the body has landed, so incoming_projectile and the shield's shot skip it");
 		Vec3 incoming = new Vec3(1.348D, 81.678D, 0.626D), incomingVelocity = new Vec3(-1.286D, -0.167D, -0.803D);
-		check(!ReflexSensors.landed(body, incoming), "the arrow one tick before the hit is still a shot");
+		double next = ReflexSensors.shotSeconds(body, incoming, incomingVelocity, Vec3.ZERO, false, (from, to) -> true);
+		check(Double.isFinite(next) && next <= 0.05D, "the arrow one tick before the hit is still a shot, landing this tick");
 		Vec3 eye = new Vec3(0.5D, 81.62D, 0.5D);
 		Vec3 toIncoming = incoming.subtract(incomingVelocity.normalize().scale(8.0D)).subtract(eye), toSkeleton = skeleton.subtract(eye);
 		check(toIncoming.x * toSkeleton.x + toIncoming.z * toSkeleton.z > 0.0D, "the shot's line still points the shield at the archer");

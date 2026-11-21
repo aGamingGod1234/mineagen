@@ -339,11 +339,7 @@ public final class ReflexSensors {
 			if (projectile.getOwner() == player) continue;
 			boolean grounded = projectile instanceof AbstractArrow arrow && ((AbstractArrowInvoker) arrow).mineagen$isInGround();
 			if (!ProjectilePerception.flying(grounded, projectile.getDeltaMovement())) continue;
-			if (landed(player, projectile)) continue;
-			double eta = ProjectilePerception.impactSeconds(projectile.position(), projectile.getDeltaMovement(), player.getBoundingBox(),
-					player.getDeltaMovement(), type.contains("fireball"), ProjectilePerception.HIT_MARGIN,
-					(from, to) -> player.level().clip(new ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, projectile))
-							.getType() == HitResult.Type.MISS);
+			double eta = shotSeconds(player, projectile, type.contains("fireball"));
 			if (!Double.isFinite(eta) || eta > within || eta >= best) continue;
 			if (!frame.canSeeEntity(projectile)) continue;
 			best = eta;
@@ -362,12 +358,22 @@ public final class ReflexSensors {
 	 * back past the head at a tenth of its speed and still crossed the margin box for 2 ticks, and the shield turned to the
 	 * line it bounced along, away from the archer (live drawn-bow room).
 	 */
-	static boolean landed(ServerPlayer player, Projectile projectile) {
-		return landed(player.getBoundingBox(), projectile.position());
-	}
-
 	static boolean landed(net.minecraft.world.phys.AABB body, Vec3 at) {
 		return body.inflate(ProjectilePerception.HIT_MARGIN).contains(at);
+	}
+
+	/** Seconds until this projectile hits the body along a clear flight, or NaN: what incoming_projectile and shots read. */
+	private static double shotSeconds(ServerPlayer player, Projectile projectile, boolean fireball) {
+		return shotSeconds(player.getBoundingBox(), projectile.position(), projectile.getDeltaMovement(), player.getDeltaMovement(), fireball,
+				(from, to) -> player.level().clip(new ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, projectile))
+						.getType() == HitResult.Type.MISS);
+	}
+
+	/** {@link #shotSeconds(ServerPlayer, Projectile, boolean)} without a server: NaN for a projectile that has {@link #landed}. */
+	static double shotSeconds(net.minecraft.world.phys.AABB body, Vec3 at, Vec3 velocity, Vec3 bodyVelocity, boolean fireball,
+			java.util.function.BiPredicate<Vec3, Vec3> clearFlight) {
+		if (landed(body, at)) return Double.NaN;
+		return ProjectilePerception.impactSeconds(at, velocity, body, bodyVelocity, fireball, ProjectilePerception.HIT_MARGIN, clearFlight);
 	}
 
 	/**
@@ -503,11 +509,7 @@ public final class ReflexSensors {
 					: !ProjectilePerception.supported(type)) continue;
 			boolean grounded = arrow && ((AbstractArrowInvoker) projectile).mineagen$isInGround();
 			if (!ProjectilePerception.flying(grounded, projectile.getDeltaMovement())) continue;
-			if (landed(player, projectile)) continue;
-			double eta = ProjectilePerception.impactSeconds(projectile.position(), projectile.getDeltaMovement(), player.getBoundingBox(),
-					player.getDeltaMovement(), type.contains("fireball"), ProjectilePerception.HIT_MARGIN,
-					(from, to) -> player.level().clip(new ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, projectile))
-							.getType() == HitResult.Type.MISS);
+			double eta = shotSeconds(player, projectile, type.contains("fireball"));
 			if (!Double.isFinite(eta) || eta > withinS || eta >= best) continue;
 			if (frame == null) frame = ObservationVisibility.frame(player.level(), player);
 			if (!(projectile instanceof AbstractHurtingProjectile ? frame.hasLineOfSight(projectile) : frame.canSeeEntity(projectile))) continue;
