@@ -46,6 +46,7 @@ import { liveRecord } from './watch-replay.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 import { damageCounter, damageEvidence, replyNumber, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
+import { FOOD, ARCHER, mobAnswer, standinFork, standinEntry, playStandin, STANDIN_POLICY_ON } from './lib/standin-policy.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const cli = process.argv.slice(2);
@@ -272,7 +273,6 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		// underground it hands back UNDERGROUND at once, and it never eats), so: obtain beef when no food is carried, wall
 		// in with carried stone, then eat whenever food is under 18 (vanilla heals only at 18+) and wait for health 14
 		// (up to 90 s). Each heal goes in row.heals.
-		const FOOD = /^minecraft:(cooked_[a-z]+|beef|porkchop|mutton|chicken|rabbit|bread|apple|baked_potato|carrot|sweet_berries)$/;
 		const WALL = /^minecraft:(cobblestone|cobbled_deepslate|stone|deepslate|andesite|diorite|granite|tuff|netherrack|dirt|[a-z_]+_planks|[a-z_]+_log)$/;
 		const wallRank = (id) => /_(planks|log)$/.test(id) ? 2 : id === 'minecraft:dirt' ? 1 : 0;
 		const foodToHotbar = async (tag) => {
@@ -384,7 +384,6 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		};
 		// Round 5 shield: after an archer stop, carry a shield in the off hand (the body raises it: default-arrow at a shot,
 		// fight_target's shot guard). obtain plans it from scratch (1 iron ingot, 6 planks); once per run unless it is lost.
-		const ARCHER = /^(skeleton|stray|bogged|parched|pillager)$/;
 		let archerSeen = false, shieldTried = false, shieldHeld = false;
 		const shield = async (tag) => {
 			const items = async () => adaptObservation(await s.observe()).inventory;
@@ -409,7 +408,38 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 			}
 			return said.length ? said.join('; ') : null;
 		};
-		const answer = async (message, tag) => {
+		// The shared stand-in policy (lib/standin-policy.mjs) for the forks this answer did not cover before: under water
+		// or stopped by water under the spot, hunger with food carried, a blocked step (once per step, another angle),
+		// and on rooms without answer, a hostile in the way. Every choice goes in row.standin; forks per step in standinUsed.
+		const standinUsed = new Map();
+		const standinNote = (decision, code, outcomes) => {
+			const entry = standinEntry(decision, { atS: Math.round((now() - t0) / 1000), step: step === null ? undefined : Number(step), code, outcomes });
+			(row.standin ??= []).push(entry);
+			console.log(`[${spot.name}] STANDIN ${entry.fork ?? 'none'}${entry.choice ? ` ${entry.choice}` : ''}: ${entry.why}${entry.calls.length ? ` -> ${entry.calls.map((one) => `${one.type} ${one.state ?? ''} ${one.reasonCode ?? ''}`.trim()).join('; ')}` : ''}`);
+			return entry;
+		};
+		const standinAnswer = async (result, tag, skip = ['tool']) => {
+			if (!STANDIN_POLICY_ON) return null;
+			let o;
+			try { o = adaptObservation(await s.observe()); } catch { return null; }
+			const used = standinUsed.get(step) ?? {};
+			const call = spot.calls[Number(step)];
+			const wantsWater = /water/.test(String(call?.arguments?.target?.item ?? call?.arguments?.target?.block ?? ''));
+			const decision = standinFork({ result, observation: o, used, skip, wantsWater });
+			// No fork: recorded, so a room's end shows the stand-in had no answer.
+			if (!decision.fork) { standinNote(decision, result?.reasonCode); return null; }
+			standinUsed.set(step, { ...used, [decision.fork]: (used[decision.fork] ?? 0) + 1 });
+			// Cover: this fixture's own heal (wall in, eat, wait for health 14), as answer() does at health 8 or less.
+			if (decision.choice === 'cover') { standinNote(decision, result?.reasonCode); return `cover: ${await heal(tag, decision.mob?.id)}`; }
+			const outcomes = await playStandin(decision, { dead: async () => (await deaths()) > deathsBefore, run: (one, index) => {
+				const args = one.name === 'do_step' ? { ...one.arguments, target: { ...one.arguments.target, timeoutMs: Math.floor(Math.max(60_000, Math.min(300_000, left() - 60_000))) } } : one.arguments;
+				return run(one.name, args, `${tag}-standin${index}`);
+			} });
+			const entry = standinNote(decision, result?.reasonCode, outcomes);
+			return `standin ${entry.fork} ${entry.choice}: ${entry.calls.map((one) => `${one.type} ${one.state} ${one.reasonCode ?? ''}`.trim()).join('; ')}`;
+		};
+		const answer = async (message, tag, code) => {
+			let fork, mobChoice = null;
 			const named = /minecraft:([a-z_]+) ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/.exec(String(message ?? ''));
 			const stop = String(message ?? '').replace(/-?\d+/g, '#').slice(0, 90);
 			const again = stop === lastStop;
@@ -433,23 +463,25 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 			// 12 health. Health 8 or less with a mob near, or a flee that did not get away: wall in and wait (cover).
 			const mob = near ?? (named && { type: named[1], id: named[2], many: false });
 			if (mob) {
-				const hp = await health(), archer = !mob.many && ARCHER.test(mob.type);
-				if (!(hp > 8)) return `${mob.type} near at health ${hp}: ${await heal(tag, mob.id)}`;
-				const unarmed = /nothing to fight/i.test(String(message ?? '')) || !(o?.inventory?.items ?? []).some((item) => /_(sword|axe|pickaxe|shovel)$/.test(item.itemId));
-				// An archer named but not in the sample is out of sight: not chased either.
-				const far = archer && !(away(mob.id) <= 8);
-				// A shield in the off hand goes up between swings (fight_target shield:true), as a player closes on an archer.
-				const shielded = (o?.inventory?.items ?? []).some((item) => (item.slot === 40 || item.slot === 'offhand') && item.itemId === 'minecraft:shield');
-				const flee = unarmed || far || mob.many || /^(creeper|witch|drowned|blaze)$/.test(mob.type) || (!archer && !(hp > 12));
-				act = flee ? { actionType: 'flee_from', arguments: { targetId: mob.id, distance: 16, timeoutMs: 12_000 } }
-					: { actionType: 'fight_target', arguments: { targetId: mob.id, ...(archer ? { fleeAtHealth: 8, ...(shielded ? { shield: true } : {}) } : {}), timeoutMs: 20_000 } };
+				const hp = await health();
+				// The shared stand-in rule (lib/standin-policy.mjs mobAnswer): an archer named but not in the sample is out of
+				// sight and not chased; a shield in the off hand goes up between swings (fight_target shield:true).
+				const choice = mobAnswer({ ...mob, health: hp, outOfSight: !(away(mob.id) <= 8),
+					unarmed: /nothing to fight/i.test(String(message ?? '')) || !(o?.inventory?.items ?? []).some((item) => /_(sword|axe|pickaxe|shovel)$/.test(item.itemId)),
+					shielded: (o?.inventory?.items ?? []).some((item) => (item.slot === 40 || item.slot === 'offhand') && item.itemId === 'minecraft:shield') });
+				mobChoice = { fork: 'hostile', choice: choice.choice, why: choice.why, mob: { type: mob.type, id: mob.id }, calls: choice.call ? [{ name: 'act', arguments: choice.call }] : [] };
+				if (choice.choice === 'cover') { standinNote(mobChoice, code); return `${mob.type} near at health ${hp}: ${await heal(tag, mob.id)}`; }
+				act = choice.call;
 			} else if (!(await health() > 8)) {
 				return heal(tag);
+			} else if ((fork = await standinAnswer({ state: 'FAILED', reasonCode: code, message }, tag, ['hostile', 'tool'])) !== null) {
+				return fork;
 			} else if (again) {
 				act = { actionType: 'dig_to', arguments: { pattern: 'tunnel', heading: spot.retry?.heading ?? 'east', maxBlocks: 8, timeoutMs: 30_000 } };
 			} else return null;
 			// Waited to its end like run(): no second body action beside it.
 			const done = await run('act', act, tag);
+			if (mobChoice) standinNote(mobChoice, code, [done]);
 			const said = `${act.actionType} ${mob?.type ?? act.arguments.heading}: ${done?.state} ${done?.reasonCode ?? ''}`;
 			if (!mob) return said;
 			const escaped = act.actionType !== 'flee_from' || ['ESCAPED', 'TARGET_LOST', 'TARGET_GONE'].includes(done?.reasonCode) && !/no safe direction/i.test(String(done?.message ?? ''));
@@ -573,6 +605,15 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 			const answerSaidTool = row.retries?.at(-1)?.call === callIndex && /FAILED (NO_TOOL|TOOL_WORN)\b/.test(String(row.retries.at(-1).answered ?? ''));
 			if ((answerSaidTool || ['NO_TOOL', 'TOOL_WORN'].includes(entry.reasonCode) || /\b(TOOL_WORN|NO_TOOL)\b|\bpickaxe (is |was )?(worn|missing)|\b(worn[- ]out|missing|no usable) ([a-z_:]+ )?pickaxe/i.test(entry.message) || HAND_SPEED_STONE.test(entry.message))
 				&& (row.toolFixes ?? []).filter((fix) => stepOf(fix.call) === step).length < 6) {
+				// The shared stand-in first: a sound pickaxe carried off the hotbar, or one the carried materials craft (an iron
+				// pickaxe from 3 iron and sticks). Else, or when that fails, the stone pickaxes below.
+				const shared = await standinAnswer({ state: 'FAILED', reasonCode: answerSaidTool ? 'TOOL_WORN' : entry.reasonCode, message: answerSaidTool ? 'TOOL_WORN' : entry.message },
+					`${callIndex}-${attempt}-tool`, ['water', 'hostile', 'hunger', 'blocked']);
+				if ((await deaths()) > deathsBefore) { row.ended = 'death'; break calls; }
+				if (shared && row.standin?.at(-1)?.calls?.every((one) => one.state === 'SUCCEEDED')) {
+					row.toolFixes = [...(row.toolFixes ?? []), { call: callIndex, code: entry.reasonCode, state: 'SUCCEEDED', reasonCode: row.standin.at(-1).choice }];
+					attempt--; continue;
+				}
 				const sound = heldCounts(adaptObservation(await s.observe())).get('stone_pickaxe') ?? 0;
 				const make = (count, tag) => run('do_step', { verb: 'obtain', target: { item: 'minecraft:stone_pickaxe', count, timeoutMs: Math.floor(Math.max(60_000, Math.min(300_000, left() - 60_000))) }, why: count > sound + 1 ? 'two pickaxes to dig on with' : 'a pickaxe to dig on with' }, tag);
 				let made = await make(sound + 2, `${callIndex}-${attempt}-tool`);
@@ -592,7 +633,9 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 			if (!call.once && (spot.retry?.codes?.includes(entry.reasonCode) || spot.retry?.answer && entry.reasonCode === 'LOW_HEALTH') && attempt < (spot.retry.times ?? 2)) {
 				const heals = row.heals?.length ?? 0;
 				// A death during the answer (a dead body sends no observation) is a death, not a harness error.
-				const answered = spot.retry.answer ? await answer(entry.message, `${callIndex}-${attempt}`).catch(async (error) => { if ((await deaths()) > deathsBefore) return `died during the answer (${error.message})`; throw error; }) : null;
+				// A room without answer still gets the shared stand-in's answer (a hostile in the way, hunger, water) before the wait.
+				const answered = await (spot.retry.answer ? answer(entry.message, `${callIndex}-${attempt}`, entry.reasonCode) : standinAnswer(result, `${callIndex}-${attempt}`))
+					.catch(async (error) => { if ((await deaths()) > deathsBefore) return `died during the answer (${error.message})`; throw error; });
 				row.retries = [...(row.retries ?? []), { call: callIndex, code: entry.reasonCode, ...(answered ? { answered } : {}) }];
 				if ((await deaths()) > deathsBefore) { row.ended = 'death'; break calls; }
 				let healFailed = row.heals?.length > heals && !row.heals.at(-1).healed;
@@ -637,9 +680,26 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 			if (call.setup) break;
 			// An optional route step (the shield) that could not be done: the chain goes on without it, as a player would.
 			if (call.optional) { (row.skipped ??= []).push({ call: callIndex, code: entry.reasonCode }); break; }
+			// A stop the retries do not cover, or retries spent: the shared stand-in answers its fork (a hostile in the way,
+			// water, hunger, a blocked step tried once from another angle), then the step again, as the model's next turn would.
+			// Each fork has a per-step cap (FORK_CAPS), so this ends; the step limit bounds it too.
+			if (spot.retry && !call.once && spot.expectCode !== entry.reasonCode && left() > 60_000) {
+				const answered = await standinAnswer(result, `${callIndex}-${attempt}-end`, ['tool'])
+					.catch(async (error) => { if ((await deaths()) > deathsBefore) return null; throw error; });
+				if ((await deaths()) > deathsBefore) { row.ended = 'death'; break calls; }
+				if (answered) { attempt--; continue; }
+			}
 			break calls;
 		}
 		const last = row.calls.at(-1);
+		// The same classifier in both arms (STANDIN_POLICY on or off): the fork the policy sees on the room's last stop,
+		// with no caps and nothing played. A failed room whose standinEnd.fork is set ended at a fork the policy answers.
+		if (spot.retry && last && last.state !== 'SUCCEEDED') {
+			const o = await s.observe().then(adaptObservation).catch(() => null);
+			const call = spot.calls[Number(step)];
+			const end = standinFork({ result: last, observation: o ?? {}, wantsWater: /water/.test(String(call?.arguments?.target?.item ?? call?.arguments?.target?.block ?? '')) });
+			row.standinEnd = { code: last.reasonCode, fork: end.fork, ...(end.choice ? { choice: end.choice } : {}), why: end.why, ...(row.ended ? { ended: row.ended } : {}) };
+		}
 		// A step that failed at its step limit (its own timeout was cut to it) is stuck too.
 		if (!row.ended && last && last.state !== 'SUCCEEDED' && step !== null && stepEnd < totalEnd && now() >= stepEnd - 15_000) stuck();
 		row.built = last?.state === 'SUCCEEDED';
