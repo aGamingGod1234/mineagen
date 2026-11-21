@@ -1750,3 +1750,11 @@ test('cave first: a cave with water seen beside it is left alone, and a walk tha
 	assert.match(result.message, /1 flooded, walked back out/);
 	assert.equal(swim.calls.filter((call) => call.actionType === 'dig_to').length, 1);
 });
+
+test('cave first: no cave walk with a hostile within 24 blocks of the body (a search asked again after a mob stop)', async () => {
+	const body = fakeBody({ frontier: { candidates: [], coverage: { headings: {} } },
+		start: sample({ entities: [{ type: 'minecraft:creeper', hostile: true, x: -10, y: 70, z: 10, distance: 14 }] }),
+		looks: [{ survey: { caves: [cave(20, 50, 0)] } }], acts: { dig_to: [DOWN] } });
+	await searchFor({ block: 'minecraft:iron_ore' }, body);
+	assert.equal(body.calls.some((call) => call.actionType === 'travel_to'), false);
+});

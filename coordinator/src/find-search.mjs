@@ -138,6 +138,9 @@ const MAX_CAVE_VISITS = 8;
 const CAVE_WALKS = 2;
 const CAVE_NEAR = 6;
 const CAVE_MOB_CLEAR = 12;
+// No cave walks at all with a hostile this close to the body: a search asked again after a mob hand-back starts beside
+// the mob's cave (room 21 Nov: walks right after a creeper stop).
+const CAVE_MOB_SENSE = 24;
 // Water seen this close to a cave row is a flooded floor: a walk in ends swimming (PR #31 rerun, one seed: stuck in its
 // cave's water 5 of 6 runs, FIND_BLOCKED, while digging down saw iron in 69 s).
 const CAVE_WATER_NEAR = 4;
@@ -1202,6 +1205,9 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 			let tried = 0, entered = 0, flooded = 0;
 			for (; tried < CAVE_WALKS && left() >= MIN_LEG_MS; tried += 1) {
 				const here = bodyAt(observation);
+				const near = [...(observation?.entities ?? []).filter((row) => row?.hostile === true && row.alive !== false), ...(threatRows(observation) ?? [])]
+					.some((row) => (Number.isFinite(row.distance) ? row.distance : Math.hypot(row.x - here.x, row.y - here.y, row.z - here.z)) <= CAVE_MOB_SENSE);
+				if (near) break;
 				const cave = caveChoices(here)[0];
 				if (cave === undefined) break;
 				caveVisits += 1;
