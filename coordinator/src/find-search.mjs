@@ -75,6 +75,7 @@ export function hostileIsDanger(observation) {
 	return (Array.isArray(observation?.entities) ? observation.entities : []).some((row) => row?.hostile === true && row.alive !== false
 		&& (Number.isFinite(row.distance) ? row.distance : Math.hypot(row.x - at.x, row.y - at.y, row.z - at.z)) <= CLOSE_HOSTILE);
 }
+const MAX_ESCAPES = 2;
 const BREATH_STOPS = new Set(['AIR_RESERVE_REACHED', 'BREATH_NOT_COVERED', 'TUNNEL_FLOODED']);
 // Stops a search cannot work round by itself: the model decides (craft a pickaxe, empty the inventory...).
 const BLOCKED = new Set(['NO_TOOL', 'TOOL_WORN', 'INVENTORY_FULL']);
@@ -762,6 +763,7 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 		return null;
 	};
 	let swaps = 0;
+	let escapes = 0;
 	const bucketToHotbar = async () => {
 		const items = observation?.inventory?.items ?? [];
 		const selected = observation?.inventory?.selectedSlot;
@@ -1154,8 +1156,20 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 			return [CARDINALS[(i + 1) % 4], CARDINALS[(i + 3) % 4]].filter((option) => stepsLeft(option) >= WET_SIDE_MIN)
 				.sort((a, b) => wetAhead(a) - wetAhead(b) || stepsLeft(b) - stepsLeft(a))[0] ?? null;
 		};
+		// Still in the water of its own wet hole after the way back failed: the escape job (do_step escape) gets the body
+		// out as a player swims or climbs out, then the search judges the spot from dry footing. B-1's aquifer: the way
+		// back NO_ROUTE and the walk off STALLED_IN_PLACE, 3 blocks under the start, then a hand-back in the water.
+		const escapeWater = async () => {
+			if (!inWater() || escapes >= MAX_ESCAPES) return null;
+			escapes += 1;
+			return settle(await leg('escape the water', 'escape', {}));
+		};
 		const climbOut = async (top, away, label) => {
 			const up = await leg(label, 'travel_to', { x: top.x, y: top.y, z: top.z, retrace: true, tolerance: 3, stopWhenSeen: profile.stopId });
+			if (!up.seen && !up.interrupted && SHUT_WAY.has(up.result?.reasonCode) && inWater()) {
+				const ended = await escapeWater();
+				if (ended !== null) return ended;
+			}
 			const at = bodyAt(observation);
 			if (up.seen || up.interrupted || !SHUT_WAY.has(up.result?.reasonCode) || observation?.player?.underWater === true || at === null || at.y >= top.y - 3) return settle(up);
 			const rise = Math.ceil(top.y - at.y);
@@ -1366,6 +1380,8 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 				let ended = await settle(out);
 				if (ended !== null) return ended;
 				if (wetSky !== null && out.result?.state !== 'SUCCEEDED') { ended = await swimUpStair(wetSky, out); if (ended !== null) return ended; }
+				ended = await escapeWater();
+				if (ended !== null) return ended;
 				previous = bodyAt(observation);
 				// A move off that left the body where it was: digging here again meets the same stop. Live, B-1's aquifer cell:
 				// two such moves (BUILD_FAILED in the water) each followed by two more wet digs down, 108 s in all.
