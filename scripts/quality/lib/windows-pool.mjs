@@ -3,8 +3,9 @@
 // (rooms at once) and its slot base. A room plays every arm side by side, so room slot i of a PC uses one 100-port
 // range per arm from 28000 + (slotBase + i * arms) * 100; a slot base moves a PC's ports clear of the TCP ranges
 // Hyper-V reserves at boot, which prepare() checks against `netsh int ipv4 show excludedportrange`. A PC that must be free
-// by a set time takes `@HH:MM` after its slot base (<sshHost>:<slots>:<slotBase>@01:30), read on the clock of the machine
-// running the batch: from then on no room starts there, and a room still playing there is stopped and re-queued.
+// from a set time takes a cutoff after its slot base, on the clock of the machine running the batch: `@01:30` closes it
+// the next time the clock shows 01:30, and `@01:30-09:00` also keeps it closed until 09:00, so a batch started at 02:00
+// leaves it out. From the cutoff no room starts there, and a room still playing there is stopped and re-queued.
 // The PC already holds Java 25 and the server template under ROOT (C:/aa-runs: jdk25, templates/26.3). Each PC gets the
 // code, jars and inputs once per batch under ROOT/batches/BATCH, and each worker its own w<slot>/ folder for jobs and
 // output. A room starts through WMI (Win32_Process.Create), so it outlives the ssh session; its PowerShell parent asks
@@ -25,19 +26,39 @@ export function nextClockTime(hours, minutes, now = Date.now()) {
 	return at.getTime();
 }
 
-/** ROOM_BATCH_WINDOWS text -> [{ host, slots, slotBase, cutoff?: 'HH:MM', cutoffAt?: epoch ms }]. */
+/**
+ * When a PC with cutoff `close` (and optional reopen time `open`, both [hours, minutes]) closes, seen from `now`: `now`
+ * itself while it is inside the closed window, else the next time the clock shows `close`.
+ */
+export function cutoffTime(close, open = null, now = Date.now()) {
+	const next = nextClockTime(close[0], close[1], now);
+	if (!open) return next;
+	const closedMs = ((open[0] * 60 + open[1] - close[0] * 60 - close[1] + 1440) % 1440) * 60_000;
+	const last = new Date(next); last.setDate(last.getDate() - 1);
+	return now < last.getTime() + closedMs ? now : next;
+}
+
+const clockTime = (host, text) => {
+	const [hours, minutes] = text.split(':').map(Number);
+	if (hours > 23 || minutes > 59) throw new Error(`${host}: ${text} is not a time of day`);
+	return [hours, minutes];
+};
+
+/** ROOM_BATCH_WINDOWS text -> [{ host, slots, slotBase, cutoff?: 'HH:MM' or 'HH:MM-HH:MM', cutoffAt?: epoch ms }]. */
 export function parseWindowsHosts(text, now = Date.now()) {
 	const hosts = String(text ?? '').split(',').map(item => item.trim()).filter(Boolean).map(item => {
-		const match = /^([A-Za-z0-9._@-]+):(\d+)(?::(\d+))?(?:@(\d{1,2}):(\d{2}))?$/.exec(item);
-		if (!match) throw new Error(`a Windows PC is <sshHost>:<slots>:<slotBase>[@HH:MM], got ${item}`);
-		const [, host, slots, slotBase = '0', hours, minutes] = match;
+		const match = /^([A-Za-z0-9._@-]+):(\d+)(?::(\d+))?(?:@(\d{1,2}:\d{2})(?:-(\d{1,2}:\d{2}))?)?$/.exec(item);
+		if (!match) throw new Error(`a Windows PC is <sshHost>:<slots>:<slotBase>[@HH:MM[-HH:MM]], got ${item}`);
+		const [, host, slots, slotBase = '0', close, open] = match;
 		if (Number(slots) < 1 || Number(slots) > 16) throw new Error(`${host}: slots wants 1 to 16`);
 		const pc = { host, slots: Number(slots), slotBase: Number(slotBase) };
-		if (hours === undefined) return pc;
-		if (Number(hours) > 23 || Number(minutes) > 59) throw new Error(`${host}: cutoff ${hours}:${minutes} is not a time of day`);
-		return { ...pc, cutoff: `${hours.padStart(2, '0')}:${minutes}`, cutoffAt: nextClockTime(Number(hours), Number(minutes), now) };
+		if (close === undefined) return pc;
+		const closeAt = clockTime(host, close), openAt = open === undefined ? null : clockTime(host, open);
+		if (openAt && openAt[0] === closeAt[0] && openAt[1] === closeAt[1]) throw new Error(`${host}: a cutoff window ${close}-${open} closes and opens at once`);
+		const hhmm = ([hours, minutes]) => `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+		return { ...pc, cutoff: openAt ? `${hhmm(closeAt)}-${hhmm(openAt)}` : hhmm(closeAt), cutoffAt: cutoffTime(closeAt, openAt, now) };
 	});
-	if (!hosts.length) throw new Error('ROOM_BATCH_WINDOWS names no PC (<sshHost>:<slots>:<slotBase>[@HH:MM],...)');
+	if (!hosts.length) throw new Error('ROOM_BATCH_WINDOWS names no PC (<sshHost>:<slots>:<slotBase>[@HH:MM[-HH:MM]],...)');
 	if (new Set(hosts.map(item => item.host)).size !== hosts.length) throw new Error('a PC appears twice in ROOM_BATCH_WINDOWS');
 	return hosts;
 }

@@ -72,8 +72,9 @@ export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeout
 		} else {
 		const attempt = async (vm, room, tries) => {
 			if (signal?.aborted) return { lost: true, reason: 'batch stopped' };
-			const closesAt = pool.closesAt?.(vm) ?? null;
-			const closed = () => closesAt !== null && Date.now() >= closesAt;
+			// Read each time: a pool may move a machine's cutoff while a room plays.
+			const closesAt = () => pool.closesAt?.(vm) ?? null;
+			const closed = () => closesAt() !== null && Date.now() >= closesAt();
 			if (closed()) { await retire(vm, 'past its cutoff'); return { lost: true, requeue: true, reason: 'its machine is past its cutoff' }; }
 			const layout = layouts.get(vm.id);
 			const job = { room: room.room, code: layout.code, outDir: path.posix.join(layout.out, room.room), javaHome: layout.javaHome, template: layout.template, timeoutMs: roomTimeoutMs, wrapper: layout.wrapper ?? [],
@@ -88,7 +89,7 @@ export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeout
 			while (true) {
 				if (signal?.aborted) return { lost: true, reason: 'batch stopped' };
 				// A machine with a cutoff is checked at the cutoff itself, not up to one poll later.
-				const wait = closesAt === null ? pollMs : Math.max(0, Math.min(pollMs, closesAt - Date.now()));
+				const wait = closesAt() === null ? pollMs : Math.max(0, Math.min(pollMs, closesAt() - Date.now()));
 				if (wait) await sleep(wait);
 				if (Date.now() - vm.keptAliveAt > keepAliveMs) { await Promise.resolve().then(() => pool.keepAlive(vm)).then(() => { vm.keptAliveAt = Date.now(); }, () => {}); }
 				let state;

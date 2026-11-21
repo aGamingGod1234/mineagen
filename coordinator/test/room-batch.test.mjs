@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { armTotals, formatSummary, mergeArms, parseCommands, plannedOf, runQueue, splitWords, stageRoom } from '../../scripts/quality/lib/room-batch-core.mjs';
 import { runBatch } from '../../scripts/quality/lib/room-batch-run.mjs';
-import { nextClockTime, nextSlot, parseWindowsHosts, pastCutoff, portClashes, slotPortBase, windowsBatchDir, windowsPath, windowsPool } from '../../scripts/quality/lib/windows-pool.mjs';
+import { cutoffTime, nextClockTime, nextSlot, parseWindowsHosts, pastCutoff, portClashes, slotPortBase, windowsBatchDir, windowsPath, windowsPool } from '../../scripts/quality/lib/windows-pool.mjs';
 import { BUNDLE_PATHS, buildBundle, hasZstd, launchScript, prepareScript, readWait, waitAndPackScript } from '../../scripts/quality/lib/boat-pool.mjs';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
@@ -816,7 +816,15 @@ test('a PC cutoff: parsed as the next time the local clock shows it, and a PC pa
 	assert.equal(nextClockTime(1, 30, at(1, 30)), new Date(2026, 10, 22, 1, 30).getTime(), 'at the cutoff itself the next one is tomorrow');
 	assert.deepEqual(parseWindowsHosts('pc-a:4:0, pc-b:5:4@01:30', at(0, 0)), [{ host: 'pc-a', slots: 4, slotBase: 0 }, { host: 'pc-b', slots: 5, slotBase: 4, cutoff: '01:30', cutoffAt: at(1, 30) }]);
 	assert.deepEqual(parseWindowsHosts('pc-a:2@9:05', at(0, 0)), [{ host: 'pc-a', slots: 2, slotBase: 0, cutoff: '09:05', cutoffAt: at(9, 5) }]);
-	for (const bad of ['pc-a:1:0@24:00', 'pc-a:1:0@01:60', 'pc-a:1:0@1:5', 'pc-a:1:0@0130', 'pc-a:1:0@']) assert.throws(() => parseWindowsHosts(bad), undefined, bad);
+	for (const bad of ['pc-a:1:0@24:00', 'pc-a:1:0@01:60', 'pc-a:1:0@1:5', 'pc-a:1:0@0130', 'pc-a:1:0@', 'pc-a:1:0@01:30-', 'pc-a:1:0@01:30-01:30', 'pc-a:1:0@01:30-25:00']) assert.throws(() => parseWindowsHosts(bad), undefined, bad);
+	// A closed window: before it, the cutoff is its start; inside it, the PC is closed now; after it, the next night.
+	assert.deepEqual(parseWindowsHosts('pc-b:5:4@1:30-09:00', at(0, 0)), [{ host: 'pc-b', slots: 5, slotBase: 4, cutoff: '01:30-09:00', cutoffAt: at(1, 30) }]);
+	assert.equal(cutoffTime([1, 30], [9, 0], at(1, 30)), at(1, 30), 'closed from its first minute');
+	assert.equal(cutoffTime([1, 30], [9, 0], at(2, 0)), at(2, 0), 'a batch started inside the window gets no time there');
+	assert.equal(cutoffTime([1, 30], [9, 0], at(9, 0)), new Date(2026, 10, 22, 1, 30).getTime(), 'open again at 09:00');
+	assert.equal(cutoffTime([23, 0], [7, 0], at(3, 0)), at(3, 0), 'a window across midnight, seen after midnight');
+	assert.equal(cutoffTime([23, 0], [7, 0], at(22, 0)), at(23, 0), 'and seen before it');
+	assert.equal(cutoffTime([1, 30], null, at(2, 0)), new Date(2026, 10, 22, 1, 30).getTime(), 'with no reopen time only the next cutoff counts');
 	const hosts = [{ host: 'a', slots: 1, cutoffAt: at(1, 30) }, { host: 'b', slots: 1 }];
 	assert.equal(pastCutoff(hosts[0], at(1, 29)), false);
 	assert.equal(pastCutoff(hosts[0], at(1, 30)), true);
@@ -847,13 +855,15 @@ test('at a machine\'s cutoff its room is stopped and re-queued without spending 
 	const out = await mkdtemp(path.join(os.tmpdir(), 'room-batch-cutoff-'));
 	try {
 		const events = [], logs = [];
-		// The machine without a cutoff finishes its rooms in a few 5 ms polls, long before this.
-		const closesAt = Date.now() + 500;
+		// The cutoff falls once the machine without one has finished the queue and been released, so the re-queued room
+		// can only go to a fresh machine.
+		let closesAt = null;
+		const past = () => closesAt !== null && Date.now() >= closesAt ? 'after' : 'before';
 		let made = 0;
 		const pool = {
 			async create() { return { id: `vm${++made}`, closes: made === 1 }; },
 			async prepare() { return { code: '/c', out: '/o', jars: { new: '/j/new.jar', old: '/j/old.jar' }, inputs: {}, javaHome: '/jdk', template: '/t' }; },
-			async start(vm, job) { events.push(`start ${vm.id} ${job.room} ${Date.now() >= closesAt ? 'after' : 'before'}`); },
+			async start(vm, job) { events.push(`start ${vm.id} ${job.room} ${past()}`); },
 			// The closing machine's room plays past the cutoff; the other machine finishes every room.
 			async poll(vm) { return vm.closes ? 'running' : 'done'; },
 			async alive() { return true; },
@@ -863,7 +873,7 @@ test('at a machine\'s cutoff its room is stopped and re-queued without spending 
 			},
 			async keepAlive() {},
 			usage: () => ({}),
-			async destroy(vm) { events.push(`delete ${vm.id} ${Date.now() >= closesAt ? 'after' : 'before'}`); },
+			async destroy(vm) { events.push(`delete ${vm.id} ${past()}`); if (vm.id === 'vm2') closesAt = Date.now(); },
 			closesAt: vm => vm.closes ? closesAt : null,
 		};
 		const rooms = parseCommands(`@a BUILD_ONLY=a ${LINE}\n@b BUILD_ONLY=b ${LINE}\n@c BUILD_ONLY=c ${LINE}`, ['new', 'old']);
