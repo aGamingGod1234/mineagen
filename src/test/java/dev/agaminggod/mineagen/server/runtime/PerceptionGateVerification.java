@@ -30,6 +30,7 @@ public final class PerceptionGateVerification {
 		verifyRememberedWaterNowLavaBehindWall();
 		verifySeenLavaPoolStillWorks();
 		verifyPiglinAnger();
+		verifyBarterJob();
 		verifyPouredWaterNeedsFreshEvidence();
 		return assertions;
 	}
@@ -163,6 +164,25 @@ public final class PerceptionGateVerification {
 		check(!ServerBarterController.perceivedAngry(false, true), "a piglin behind a wall going for the body is not reported");
 		check(ServerBarterController.perceivedAngry(true, true), "a seen piglin going for the body stops the barter");
 		check(!ServerBarterController.perceivedAngry(true, false), "a seen calm piglin is not angry (its ANGRY_AT memory is never read)");
+	}
+
+	private static void verifyBarterJob() {
+		var blocks = ServerBarterController.conversion(3, 40, false, false);
+		check(blocks != null && blocks.recipeId().equals("minecraft:gold_ingot_from_gold_block") && blocks.ingots() == 27 && !blocks.table(),
+				"gold blocks craft first, in the inventory grid, 9 ingots each: " + blocks);
+		check(ServerBarterController.conversion(20, 0, false, false).ingots() == 63, "at most 7 blocks at once (63 ingots, under a stack)");
+		var nuggets = ServerBarterController.conversion(0, 52, false, true);
+		check(nuggets != null && nuggets.recipeId().equals("minecraft:gold_ingot_from_nuggets") && nuggets.ingots() == 5 && nuggets.table(),
+				"52 nuggets make 5 ingots at a carried table: " + nuggets);
+		check(ServerBarterController.conversion(0, 52, false, false) == null, "nuggets with no table in reach or carried cannot be converted");
+		check(ServerBarterController.conversion(0, 8, true, true) == null, "fewer than 9 nuggets make no ingot");
+		check(ServerBarterController.tradedIngots(2, 0, 0) == 2, "2 ingots held, none left: 2 traded however many throws picked them back up");
+		check(ServerBarterController.tradedIngots(6, 63, 9) == 60, "6 held plus 63 crafted, 9 left: 60 traded");
+		check(ServerBarterController.isPiglinSideDanger("minecraft:hoglin") && ServerBarterController.isPiglinSideDanger("minecraft:piglin_brute")
+				&& !ServerBarterController.isPiglinSideDanger("minecraft:piglin"), "hoglins and brutes are dangers beside a group; piglins are not");
+		List<net.minecraft.world.phys.Vec3> hoglin = List.of(new net.minecraft.world.phys.Vec3(10, 64, 0));
+		check(ServerBarterController.nearDanger(new net.minecraft.world.phys.Vec3(4, 64, 0), hoglin, 8.0D), "a piglin 6 blocks from a hoglin is passed over");
+		check(!ServerBarterController.nearDanger(new net.minecraft.world.phys.Vec3(-4, 64, 0), hoglin, 8.0D), "a piglin 14 blocks from it is not");
 	}
 
 	private static void check(boolean condition, String message) {

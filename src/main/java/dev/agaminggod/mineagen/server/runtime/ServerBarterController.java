@@ -58,6 +58,8 @@ public final class ServerBarterController implements ServerController {
 	/** How far the body walks to a calm piglin it sees: a group across a bastion bridge or a crimson clearing. */
 	static final double SEEK_RANGE = 32.0D;
 	static final double TABLE_REACH = 4.5D;
+	/** A piglin with a seen hoglin, zoglin or brute this close is passed over: walking up to it walks into that mob. */
+	static final double DANGER_NEAR_PIGLIN = 8.0D;
 	static final long CRAFT_TIMEOUT_MS = 20_000L;
 	static final double THROW_RANGE = 2.6D;
 	static final double DROP_RANGE = 8.0D;
@@ -315,20 +317,15 @@ public final class ServerBarterController implements ServerController {
 	 */
 	private boolean startConversion(ServerPlayer player, long now) {
 		if (environment == null) return false;
-		int blocks = carried(player, Items.GOLD_BLOCK);
-		if (blocks > 0) {
-			int crafts = Math.min(blocks, 7);
-			craftYield = crafts * 9;
-			craft = environment.craft(player, "minecraft:gold_ingot_from_gold_block", craftYield, null, CRAFT_TIMEOUT_MS);
-			return true;
-		}
-		int nuggets = carried(player, Items.GOLD_NUGGET);
-		if (nuggets < 9) return false;
-		BlockPos table = tableInReach(player);
-		if (table == null && carried(player, Items.CRAFTING_TABLE) > 0) table = placeTable(player);
-		if (table == null) return false;
-		craftYield = Math.min(64, nuggets / 9);
-		craft = environment.craft(player, "minecraft:gold_ingot_from_nuggets", craftYield, table, CRAFT_TIMEOUT_MS);
+		int blocks = carried(player, Items.GOLD_BLOCK), nuggets = carried(player, Items.GOLD_NUGGET);
+		BlockPos table = blocks > 0 || nuggets < 9 ? null : tableInReach(player);
+		boolean tableHeld = carried(player, Items.CRAFTING_TABLE) > 0;
+		Conversion plan = conversion(blocks, nuggets, table != null, tableHeld);
+		if (plan == null) return false;
+		if (plan.table() && table == null) table = placeTable(player);
+		if (plan.table() && table == null) return false;
+		craftYield = plan.ingots();
+		craft = environment.craft(player, plan.recipeId(), plan.ingots(), plan.table() ? table : null, CRAFT_TIMEOUT_MS);
 		return true;
 	}
 
@@ -363,6 +360,38 @@ public final class ServerBarterController implements ServerController {
 		return String.format(Locale.ROOT, " (still carried: %d gold blocks, %d nuggets; nuggets need a crafting table)", blocks, nuggets);
 	}
 
+	/** A crafting step that turns carried gold into ingots: the recipe, the ingots it yields, and whether it needs a table. */
+	record Conversion(String recipeId, int ingots, boolean table) {}
+
+	/**
+	 * What to craft when the ingots run out: gold blocks first (inventory grid, up to 7 blocks, 63 ingots), else 9 or more
+	 * nuggets at a table in reach or a carried one; null when nothing can be converted here.
+	 */
+	static Conversion conversion(int blocks, int nuggets, boolean tableInReach, boolean tableCarried) {
+		if (blocks > 0) return new Conversion("minecraft:gold_ingot_from_gold_block", Math.min(blocks, 7) * 9, false);
+		if (nuggets >= 9 && (tableInReach || tableCarried)) return new Conversion("minecraft:gold_ingot_from_nuggets", Math.min(64, nuggets / 9), true);
+		return null;
+	}
+
+	/** Ingots that went to piglins: what was held plus what was crafted, less what is held now. Throws overcount it. */
+	static int tradedIngots(int startIngots, int crafted, int heldNow) {
+		return Math.max(0, startIngots + crafted - heldNow);
+	}
+
+	/** Mobs that attack a gold-wearing player beside a piglin group: hoglins, zoglins and piglin brutes. */
+	static boolean isPiglinSideDanger(String entityId) {
+		return "minecraft:hoglin".equals(entityId) || "minecraft:zoglin".equals(entityId) || "minecraft:piglin_brute".equals(entityId);
+	}
+
+	static boolean nearDanger(Vec3 piglin, List<Vec3> dangers, double radius) {
+		for (Vec3 danger : dangers) if (danger.distanceTo(piglin) <= radius) return true;
+		return false;
+	}
+
+	private static boolean nearDanger(Vec3 piglin, List<Vec3> dangers) {
+		return nearDanger(piglin, dangers, DANGER_NEAR_PIGLIN);
+	}
+
 	/**
 	 * A piglin's anger as a player perceives it: a piglin the eye sees going for the body (its target is the body, so it
 	 * charges or aims at it). Its brain's ANGRY_AT memory is never read, and a piglin out of sight (behind a wall) is not
@@ -384,8 +413,12 @@ public final class ServerBarterController implements ServerController {
 
 	/** The nearest seen calm adult piglin with an empty offhand (not examining an item) that has no ingot pending. */
 	private Piglin freePiglin(ServerPlayer player, long now) {
+		List<Vec3> dangers = player.level().getEntitiesOfClass(Mob.class, player.getBoundingBox().inflate(SEEK_RANGE + DANGER_NEAR_PIGLIN),
+						mob -> mob.isAlive() && isPiglinSideDanger(BuiltInRegistries.ENTITY_TYPE.getKey(mob.getType()).toString())
+								&& ObservationVisibility.canSeeEntity(player, mob))
+				.stream().map(Mob::position).toList();
 		return visiblePiglins(player).stream()
-				.filter(p -> p.getOffhandItem().isEmpty() && busyUntil.getOrDefault(p.getUUID(), 0L) <= now)
+				.filter(p -> p.getOffhandItem().isEmpty() && busyUntil.getOrDefault(p.getUUID(), 0L) <= now && !nearDanger(p.position(), dangers))
 				.min(Comparator.comparingDouble(player::distanceTo)).orElse(null);
 	}
 
@@ -429,7 +462,7 @@ public final class ServerBarterController implements ServerController {
 		});
 		int gold = carried(player, Items.GOLD_INGOT);
 		// Ingots a piglin left on the ground come back by contact pickup and are thrown again, so throws overcount.
-		int traded = Math.max(0, startGold + crafted - gold);
+		int traded = tradedIngots(startGold, crafted, gold);
 		return String.format(Locale.ROOT, "%s. %s gained: %d of %d (now held %d); gold ingots traded %d (%d throws), crafted %d, held %d (started with %d)%s; all items gained: %s",
 				why, wantedId, gained(player), count, carried(player, wanted), traded, thrown, crafted, gold, startGold,
 				wornNow == null ? "" : "; put on " + wornNow, gainedItems.isEmpty() ? "none" : gainedItems.toString());
