@@ -307,6 +307,9 @@ final class ReflexActions {
 			long now = player.level().getGameTime();
 			// A player holding a shield turns it to the shot about to land, not to whichever mob is nearest.
 			Entity shot = ReflexSensors.incomingShot(player, SHIELD_SHOT_SECONDS);
+			// In flight it faces where the shot will touch the body (vanilla's block test); after, back along its line,
+			// toward the shooter, so the next draw stays in view.
+			Vec3 meet = shot == null ? null : ReflexSensors.strikeFacing(player, shot);
 			if (shot != null) {
 				shotFrom = ReflexSensors.aimPoint(shot);
 				shotTick = now;
@@ -322,7 +325,7 @@ final class ReflexActions {
 				Step strike = counter(player, context.focus(), close, now, input);
 				if (strike != null) return strike;
 			}
-			Vec3 target = volley ? shotFrom : guardPoint(player, context.focus(), close, now);
+			Vec3 target = meet != null ? meet : volley ? shotFrom : guardPoint(player, context.focus(), close, now);
 			AgentInputState aim = look(player, target, 0.0F, 0.0F, false, true, player.getInventory().getSelectedSlot(), hand);
 			if (below == null) {
 				if (dev.agaminggod.mineagen.server.runtime.controller.BrinkGuard.needsFooting(player)) {
@@ -2558,7 +2561,8 @@ final class ReflexActions {
 			}
 			if (shotFrom == null || !blocksNow(true, now - shotTick, shieldTicks)) return null;
 			shieldTicks++;
-			input.accept(look(player, shotFrom, 0.0F, 0.0F, false, true, player.getInventory().getSelectedSlot(), hand));
+			input.accept(look(player, shot == null ? shotFrom : ReflexSensors.strikeFacing(player, shot), 0.0F, 0.0F, false, true,
+					player.getInventory().getSelectedSlot(), hand));
 			String phase = wall != null ? "while building cover toward " + type(shooter)
 					: walk != null ? "on the way to cover at " + cover.x() + "," + cover.y() + "," + cover.z() : "while looking for cover";
 			return Step.running("blocking a shot " + phase + shielded());

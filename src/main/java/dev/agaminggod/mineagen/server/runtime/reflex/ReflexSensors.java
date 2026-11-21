@@ -483,6 +483,47 @@ public final class ReflexSensors {
 		return incoming(player, withinS, true);
 	}
 
+	/**
+	 * Where a raised shield faces to stop this shot while it flies: toward the point where it will touch the body. Vanilla
+	 * blocks a hit by the angle from the body to that point, not to the shooter, so an arrow off line by half a block
+	 * that grazes the body's side counts as a side hit (live drawn-bow room: facing the skeleton 3 degrees off, hit at
+	 * 103). Falls back to the line it flies in from when the flight misses or strikes square on.
+	 */
+	static Vec3 strikeFacing(ServerPlayer player, Entity shot) {
+		Vec3 eye = player.getEyePosition();
+		Vec3 strike = shot instanceof AbstractArrow ? strikePoint(player.getBoundingBox(), shot.position(), shot.getDeltaMovement(),
+				player.getDeltaMovement(), shot.tickCount) : null;
+		return strike == null ? aimPoint(shot) : facingPoint(player.position(), eye, strike, aimPoint(shot));
+	}
+
+	/** A point level with {@code eye} toward {@code strike} as seen from {@code feet}; {@code fallback} when it is overhead. */
+	static Vec3 facingPoint(Vec3 feet, Vec3 eye, Vec3 strike, Vec3 fallback) {
+		double dx = strike.x - feet.x, dz = strike.z - feet.z, length = Math.hypot(dx, dz);
+		if (length < 0.05D) return fallback;
+		return new Vec3(eye.x + dx / length * 2.0D, fallback.y, eye.z + dz / length * 2.0D);
+	}
+
+	/**
+	 * Where an arrow at {@code at} flying {@code velocity}, {@code age} ticks old, first touches {@code body} (moving with
+	 * {@code bodyVelocity}), or null when it misses within 2 s: vanilla's flight (move, then 0.99 drag and 0.05 gravity)
+	 * against the body box grown by vanilla's hit margin, which widens from 0 to 0.3 over the arrow's first 8 ticks.
+	 */
+	static Vec3 strikePoint(net.minecraft.world.phys.AABB body, Vec3 at, Vec3 velocity, Vec3 bodyVelocity, int age) {
+		Vec3 drift = new Vec3(bodyVelocity.x, 0.0D, bodyVelocity.z);
+		Vec3 point = at;
+		for (int tick = 0; tick < 40; tick++) {
+			double margin = Math.max(0.0D, Math.min(0.3D, (age + tick + 1 - 2) / 20.0D));
+			net.minecraft.world.phys.AABB box = body.move(drift.scale(tick)).inflate(margin);
+			Vec3 next = point.add(velocity);
+			if (box.contains(point)) return point;
+			var hit = box.clip(point, next);
+			if (hit.isPresent()) return hit.get();
+			point = next;
+			velocity = velocity.scale(0.99D).add(0.0D, -0.05D, 0.0D);
+		}
+		return null;
+	}
+
 	/** {@link #aimPoint} for actions: where a shield faces to stop this shot (the line it flies in from). */
 	public static Vec3 shieldFacing(Entity shot) {
 		return aimPoint(shot);

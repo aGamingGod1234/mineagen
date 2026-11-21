@@ -25,6 +25,7 @@ public final class DrawnBowShieldVerification {
 		raiseLeavesTimeBeforeTheRelease();
 		headFacingIsHorizontal();
 		bouncedArrowIsNoShot();
+		grazingArrowIsMetWhereItStrikes();
 		return assertions;
 	}
 
@@ -80,6 +81,29 @@ public final class DrawnBowShieldVerification {
 		Vec3 eye = new Vec3(0.5D, 81.62D, 0.5D);
 		Vec3 toIncoming = incoming.subtract(incomingVelocity.normalize().scale(8.0D)).subtract(eye), toSkeleton = skeleton.subtract(eye);
 		check(toIncoming.x * toSkeleton.x + toIncoming.z * toSkeleton.z > 0.0D, "the shot's line still points the shield at the archer");
+	}
+
+	/**
+	 * The live drawn-bow room: a skeleton 9 blocks off shot half a block wide of a body facing it 3 degrees off. The arrow
+	 * touched the body's side, 103 degrees from that facing, and vanilla let it through. From the arrow's first tick the
+	 * strike point is the traced hit, and the shield faced toward it covers it.
+	 */
+	private static void grazingArrowIsMetWhereItStrikes() {
+		net.minecraft.world.phys.AABB body = new net.minecraft.world.phys.AABB(0.2D, 80.0D, 0.2D, 0.8D, 81.8D, 0.8D);
+		Vec3 feet = new Vec3(0.5D, 80.0D, 0.5D), eye = new Vec3(0.5D, 81.62D, 0.5D), skeleton = new Vec3(3.727D, 80.0D, 8.541D);
+		Vec3 strike = ReflexSensors.strikePoint(body, new Vec3(3.779D, 81.64D, 8.594D), new Vec3(-0.514D, 0.161D, -1.561D), Vec3.ZERO, 0);
+		check(strike != null && strike.distanceTo(new Vec3(1.0D, 81.886D, 0.152D)) < 0.02D, "the strike point is where vanilla hit the body");
+		check(blockAngle(feet, skeleton.subtract(feet), strike) > 90.0D, "facing the skeleton leaves this hit outside the shield");
+		Vec3 facing = ReflexSensors.facingPoint(feet, eye, strike, skeleton);
+		check(blockAngle(feet, facing.subtract(eye), strike) < 1.0D, "facing the strike point puts it at the shield's centre");
+		check(ReflexSensors.strikePoint(body, new Vec3(3.779D, 81.64D, 8.594D), new Vec3(0.514D, 0.161D, 1.561D), Vec3.ZERO, 0) == null,
+				"an arrow flying away strikes nothing");
+	}
+
+	/** Vanilla's shield test: degrees between a horizontal view and the hit point as seen from the feet. */
+	private static double blockAngle(Vec3 feet, Vec3 view, Vec3 hit) {
+		Vec3 look = new Vec3(view.x, 0.0D, view.z).normalize(), to = new Vec3(hit.x - feet.x, 0.0D, hit.z - feet.z).normalize();
+		return Math.toDegrees(Math.acos(Math.max(-1.0D, Math.min(1.0D, look.dot(to)))));
 	}
 
 	private static List<ReflexSpec.Rule> defaults() {
