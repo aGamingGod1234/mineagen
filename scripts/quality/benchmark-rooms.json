@@ -1696,11 +1696,11 @@
    "stage": "early",
    "skill": "movement",
    "skill2": null,
-   "line": "CASES=edge-control REPEATS=1 ARENA_JAR=$JAR node scripts/quality/test-default-reflex-live.mjs $OUT",
+   "line": "CASES=edge-control,edge-control-shield REPEATS=1 ARENA_JAR=$JAR node scripts/quality/test-default-reflex-live.mjs $OUT",
    "estMinutes": 2,
    "tickRate": 20,
    "bar": "none",
-   "reads": "no exit verdict (exit 0): OUT/default-reflex.json summary.defaults (alive or on-bridge count); summary.none is the rule-less control body"
+   "reads": "no exit verdict (exit 0): OUT/default-reflex.json; the bar is edge-control-shield (offBridge, shield in hand). The empty-handed edge-control shot is recorded as knockedOff, not judged: knockback lifts any body off a one-wide bridge. summary.none is the rule-less control body"
   },
   {
    "room": "default-reflex-lava",
