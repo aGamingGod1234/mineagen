@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { boot } from './watch-replay.mjs';
 import { ReflexBook } from '../../coordinator/src/reflexes.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
+import { deathCounter } from './lib/damage-counter.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const out = path.resolve(process.argv[2] ?? 'runtime/cornered-creeper-live');
@@ -29,7 +30,7 @@ s.bridge.on('message', (event) => {
 	s.bridge.send('agent_ready', s.record.agentId, { goalRevision: s.record.goalRevision, reconciled: false }).catch(() => {});
 });
 const health = async () => { const text = await s.command(`data get entity ${AGENT} Health`); return /No entity|not found/i.test(text) ? 0 : number(text); };
-const deaths = async () => number(await s.command(`scoreboard players get ${AGENT} deaths`)) || 0;
+const deaths = () => deathCounter(text => s.command(text), AGENT, { objective: 'deaths', unsetIsZero: true });
 const alive = async id => !/No entity|not found/i.test(await s.command(`data get entity ${id} Health`));
 const runs = [];
 try {
