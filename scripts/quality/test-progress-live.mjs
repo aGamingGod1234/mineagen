@@ -5,6 +5,11 @@
 // one every 5 s, the named target cells really hold the target block (asked over RCON), results counted by action and
 // code, and the cost per line. Always launch under slot.sh live; ports come from SLOT_PORT_BASE. No model calls.
 //   ARENA_HEADLESS_SERVER_TEMPLATE=... slot.sh live node scripts/quality/test-progress-live.mjs OUT_DIR
+// FIXTURE_TICK_RATE runs each spot's watch faster: the spot is set up at 20 TPS, and the watch (the wait, the actions and
+// the stay) runs at the raised rate with its waits on the fixture clock (s.clock, game time). The Watcher writes a line
+// every 100 game ticks, so at a raised rate the line gaps are read from each line's gameTime (a missed line still shows
+// as a 10 s gap); at 20 TPS they are read from atMs (wall time), as before. Each spot records play: seconds (game),
+// wallSeconds, gameSeconds, rates and tick.
 import { readFile, writeFile, mkdir, cp, readdir, unlink, open, rm } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,6 +19,7 @@ import { readFileSync } from 'node:fs';
 import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
+import { installTickRate, unshownTickRate } from './watch-replay.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const jarPath = resolve(process.env.ARENA_JAR ?? join(root, MOD_JAR));
@@ -72,7 +78,9 @@ async function boot(dir, world) {
 	liveServer = child;
 	for (let i = 0; i < 150; i++) { try { s.rcon = new HeadlessRconClient({ host: '127.0.0.1', port: port + 1, password: secret, connectTimeoutMs: 500, commandTimeoutMs: 30000 }); await s.rcon.connect(); break; } catch (e) { await s.rcon?.close(); if (i === 149) throw e; await sleep(1000); } }
 	s.command = async (text) => (await s.rcon.command(text)).text;
+	installTickRate(s, unshownTickRate('not yet played in a 20 vs 60 TPS A/B: its saved world or plan is private'));
 	s.bridge = new MultiplexedServerBridge({ port, secret }, {}); s.inbox = new Inbox(s.bridge);
+	s.bridge.on('observation', e => s.clock.observe(e.payload?.world?.gameTime));
 	s.bridge.on('goal_spec_request', e => { s.bridge.send('goal_spec_proposal', e.agentId, { requestId: e.payload.requestId, summary: 'Controlled live progress fixture', predicate: { type: 'survive_duration', ticks: 24000 } }).catch(() => {}); });
 	const ready = s.inbox.wait('ready'); s.bridge.start(); await ready;
 	await s.bridge.send('catalog_snapshot', 'server', { refreshedAtEpochMs: Date.now(), models: [{ provider: 'codex', model: 'gpt-6.1-sol', id: 'gpt-6.1-sol', displayName: 'Provider-free progress fixture', reasoningEfforts: ['low'], serviceTiers: ['priority'] }] });
@@ -147,15 +155,23 @@ for (const [index, entry] of WORLDS.entries()) {
 			// The 7-nether-real save point stands in the arrival portal, which would carry the probe back: this copy loses it.
 			if (spot.offPortal) await s.command(`execute in ${spot.dim} run fill ${Math.floor(x) - 4} ${Math.floor(y) - 2} ${Math.floor(z) - 4} ${Math.floor(x) + 4} ${Math.floor(y) + 4} ${Math.floor(z) + 4} minecraft:air replace minecraft:nether_portal`);
 			await s.command(spot.surface ? `execute in ${spot.dim} positioned ${x} 0 ${z} positioned over motion_blocking run tp ${agent} ~ ~ ~` : `execute in ${spot.dim} run tp ${agent} ${x} ${y} ${z}`);
-			await sleep(1_000);
+			await s.normalRate();
+			await s.idleSleep(1_000);
 			for (const command of spot.setup ?? []) await s.command(command);
+			await s.fastRate();
+			const t0 = s.clock.now(), wall0 = Date.now(), timer = await s.gameTimer();
 			const before = (await linesOf(s)).length;
-			await sleep(6_000);
+			await s.clock.sleep(6_000);
 			const actions = [await s.act('look_at', { x: x + 3, y: y + 1, z: z + 3 })];
 			for (let i = 0; i < 3; i++) actions.push(await s.act('break_block', { x: Math.floor(x), y: Math.floor(y) + 1, z: Math.floor(z), timeoutMs: 3000 }));
-			await sleep(spot.stay);
+			await s.clock.sleep(spot.stay);
 			const lines = (await linesOf(s)).slice(before).filter(l => l.dim === spot.dim);
-			const gaps = lines.slice(1).map((l, i) => l.atMs - lines[i].atMs);
+			const play = { seconds: Math.round((s.clock.now() - t0) / 1000), wallSeconds: Math.round((Date.now() - wall0) / 1000), gameSeconds: Math.round((await timer.elapsed()) / 1000), rates: await timer.rates().catch(() => null) };
+			await s.normalRate();
+			play.tick = { rate: s.tickRate, held: await s.tickReport() };
+			// Game ms between lines at a raised rate (the Watcher's cadence is game ticks); wall ms at 20 TPS, as before.
+			const lineMs = l => s.tickRate === 20 ? l.atMs : l.gameTime * 50;
+			const gaps = lines.slice(1).map((l, i) => lineMs(l) - lineMs(lines[i]));
 			const counted = {};
 			for (const l of lines) for (const [type, counts] of Object.entries(l.results ?? {})) for (const [k, n] of Object.entries(counts)) counted[`${type} ${k}`] = (counted[`${type} ${k}`] ?? 0) + n;
 			const last = lines.at(-1);
@@ -171,7 +187,7 @@ for (const [index, entry] of WORLDS.entries()) {
 			if (spot.name === 'end' && !(last?.targets?.crystals?.left >= 2 && last?.targets?.dragon?.dist > 0)) fail(spot.name, `crystals or dragon not seen: ${JSON.stringify(last?.targets)}`);
 			const costs = lines.map(l => l.costUs).sort((a, b) => a - b);
 			results.spots[spot.name] = { lines: lines.length, gapsMs: gaps, actions, counted, costUs: { median: costs[costs.length >> 1] ?? null, max: costs.at(-1) ?? null },
-				pos: last?.pos ?? null, action: last?.action ?? null, scan: last?.scan ?? null, cells };
+				pos: last?.pos ?? null, action: last?.action ?? null, scan: last?.scan ?? null, cells, play };
 			if (lines.length < Math.floor(spot.stay / 5_000)) fail(spot.name, `only ${lines.length} lines in ${spot.stay / 1000} s`);
 			if (gaps.some(g => g < 4_000 || g > 6_500)) fail(spot.name, `line gaps ${gaps.join(',')}`);
 			if (!(counted['break_block FAILED:TARGET_AIR'] >= 3 || Object.entries(counted).some(([k, n]) => k.startsWith('break_block FAILED') && n >= 3))) fail(spot.name, `break_block failures not counted: ${JSON.stringify(counted)}`);

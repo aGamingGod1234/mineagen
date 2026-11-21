@@ -8,6 +8,8 @@ import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
+import { installTickRate, unshownTickRate } from './watch-replay.mjs';
+import { damageCounter, recordDamageEvidence } from './lib/damage-counter.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const out = resolve(process.argv[2] ?? 'runtime/count-stance-live');
@@ -41,7 +43,7 @@ class Inbox {
 	}
 }
 
-let rcon, bridge, record, observation, inbox, revision = 0, ordinal = 0, armed = [];
+let rcon, bridge, record, observation, inbox, revision = 0, ordinal = 0, armed = [], rate;
 const agent = 'Stance';
 const timeline = [];
 const command = async (text) => {
@@ -83,12 +85,18 @@ const only = (process.env.REFLEX_ONLY ?? '').split(',').filter(Boolean);
 let o;
 try {
 	for (let attempt = 0; attempt < 150; attempt += 1) { try { rcon = new HeadlessRconClient({ host: '127.0.0.1', port: port + 1, password: secret, connectTimeoutMs: 500, commandTimeoutMs: 5000 }); await rcon.connect(); break; } catch (error) { await rcon?.close(); if (attempt === 149) throw error; await sleep(1000); } }
+	// FIXTURE_TICK_RATE: every scenario is built at 20 (reset, kit, mobs; settle waits pass at the fixture rate) and the
+	// server runs at the fixture rate only for the count fight, timed on the fixture clock (seconds are game seconds).
+	// bow-crouch passed 0 of 10 at 60 TPS against 10 of 10 at 20 (21 Nov A/B): its pass counts samples (lateSamples >= 20),
+	// and fewer arrive per game second at a raised rate. It stays at 20 until that check counts game time.
+	rate = installTickRate({ command: text => command(text) }, unshownTickRate('bow-crouch counts samples, 0 of 10 passed at 60 TPS'));
 	bridge = new MultiplexedServerBridge({ port, secret }, {}); inbox = new Inbox(bridge);
 	bridge.on('observation', (event) => {
+		rate.clock.observe(event.payload?.world?.gameTime);
 		if (event.agentId !== record?.agentId || !event.payload.ready) return;
 		observation = event.payload;
 		const firing = event.payload.reflexes?.firing;
-		timeline.push({ at: Date.now(), firing: firing?.id ?? null, detail: firing?.detail ?? null, using: event.payload.interaction?.usingItem ?? null, x: event.payload.position?.x, action: event.payload.currentAction?.active ? event.payload.currentAction.actionId ?? true : false, health: event.payload.player?.health, incoming: (event.payload.incomingProjectiles ?? []).map((row) => `${row.type}@${row.etaSeconds}`), yaw: event.payload.view?.yaw, air: event.payload.player?.air, y: event.payload.position?.y });
+		timeline.push({ at: rate.clock.now(), firing: firing?.id ?? null, detail: firing?.detail ?? null, using: event.payload.interaction?.usingItem ?? null, x: event.payload.position?.x, action: event.payload.currentAction?.active ? event.payload.currentAction.actionId ?? true : false, health: event.payload.player?.health, incoming: (event.payload.incomingProjectiles ?? []).map((row) => `${row.type}@${row.etaSeconds}`), yaw: event.payload.view?.yaw, air: event.payload.player?.air, y: event.payload.position?.y });
 	});
 	// Follow goal revisions (the accepted goal spec bumps it); reflex rules are not tied to a revision.
 	bridge.on('message', (event) => {
@@ -114,9 +122,12 @@ try {
 	await sleep(2000); await observe();
 	await command(`gamemode survival ${agent}`); await command(`clear ${agent}`);
 	await command(`effect give ${agent} minecraft:saturation 5 10 true`);
+	const damage = await damageCounter(command, agent);
 
 
 	const reset = async () => {
+		// Every scenario is set up at 20, also after one that failed mid-fight.
+		await rate.normalRate();
 		await command('kill @e[type=!minecraft:player]');
 		// Each fill stays under vanilla's 32,768-block limit (a larger one is refused and leaves the last fixture standing).
 		for (const fill of ['-12 80 -12 20 90 24 minecraft:air', '-12 79 -12 20 79 24 minecraft:stone', '-2 70 -1 2 78 6 minecraft:stone']) {
@@ -126,7 +137,7 @@ try {
 		await command(`effect give ${agent} minecraft:instant_health 1 5 true`); await command(`effect give ${agent} minecraft:saturation 2 10 true`);
 		await command(`clear ${agent}`); await command(`tp ${agent} 0.5 80 0.5 0 0`);
 		await setReflexes([]);
-		await sleep(1000);
+		await rate.idleSleep(1000);
 	};
 	const selected = (name) => only.length === 0 || only.includes(name);
 	// Each scenario runs on its own: a failure is recorded and the next one still runs; results are saved as they come.
@@ -139,7 +150,7 @@ try {
 		console.log(`[scenario] ${name}: ${results[name]?.pass ? 'PASS' : 'FAIL'}`);
 	};
 	const debug = process.env.REFLEX_DEBUG === '1';
-	const until = async (ms, test) => { const end = Date.now() + ms; while (Date.now() < end) { o = await observe(); if (debug) console.log(`[debug] ${JSON.stringify({ rules: o.reflexes?.rules, firing: o.reflexes?.firing, error: o.reflexes?.error, pos: o.position })}`); if (test(o)) return true; await sleep(debug ? 1000 : 250); } return false; };
+	const until = async (ms, test) => { const end = rate.clock.now() + ms; while (rate.clock.now() < end) { o = await observe(); if (debug) console.log(`[debug] ${JSON.stringify({ rules: o.reflexes?.rules, firing: o.reflexes?.firing, error: o.reflexes?.error, pos: o.position })}`); if (test(o)) return true; await rate.clock.sleep(debug ? 1000 : 250); } return false; };
 	const block = async (x, y, z) => (await command(`execute if block ${x} ${y} ${z} minecraft:air`)).includes('passed') ? 'air' : 'solid';
 	const firingSeen = (id) => timeline.some((row) => row.firing === id);
 	const fireCells = async (spec) => { const reply = await command(`fill ${spec} minecraft:fire replace minecraft:air`); if (/cannot|error|unknown/i.test(reply)) throw new Error(`fire fill refused: ${reply}`); };
@@ -149,7 +160,7 @@ try {
 	const noRegen = async () => { await command(`effect clear ${agent}`); await command(`effect give ${agent} minecraft:hunger 30 255 true`); const drained = await until(20000, (now) => now.player?.foodLevel <= 16); await command(`effect clear ${agent}`); if (!drained) throw new Error(`food still ${o.player?.foodLevel}`); };
 	const fireAt = (now) => now.player?.hazard === 'fire' || now.player?.harm?.source === 'minecraft:in_fire';
 	const uuid = (n) => `00000000-0000-0000-0000-${String(n).padStart(12, '0')}`;
-	const row = (now) => ({ at: Date.now(), x: now.position?.x, y: now.position?.y, z: now.position?.z, crouching: now.player?.crouching ?? null, pose: now.player?.pose ?? null,
+	const row = (now) => ({ at: rate.clock.now(), x: now.position?.x, y: now.position?.y, z: now.position?.z, crouching: now.player?.crouching ?? null, pose: now.player?.pose ?? null,
 		action: now.currentAction?.active ? now.currentAction.actionId ?? true : false, health: health(now), using: now.interaction?.usingItem ?? null, mainHand: now.interaction?.mainHandItemId ?? null });
 	const kit = async () => {
 		await command(`item replace entity ${agent} weapon.mainhand with minecraft:iron_sword`);
@@ -158,23 +169,32 @@ try {
 	};
 	/** Runs one count fight and samples the body until it ends; the husks stand still (NoAI) and do not burn (husk). */
 	const countFight = async (args, during, duringAfterMs = 0) => {
+		const damage0 = await damage().catch(() => null);
+		await rate.fastRate();
+		const wall0 = Date.now(), timer = await rate.gameTimer();
 		o = await observe();
 		const start = row(o);
 		const { result } = await startAction('fight_target', { targetId: uuid(1), untilItem: 'minecraft:rotten_flesh', untilCount: 5, timeoutMs: 15000, ...args });
 		const rows = []; let done = null;
 		result.then((value) => { done = value; }, () => {});
-		const end = Date.now() + 230000;
+		const end = rate.clock.now() + 230000;
 		let fired = false;
-		while (!done && Date.now() < end) {
+		while (!done && rate.clock.now() < end) {
 			o = await observe(); rows.push(row(o));
-			if (!fired && during && rows.length >= 6 && Date.now() - start.at >= duringAfterMs) { fired = true; await during(); }
-			await sleep(200);
+			if (!fired && during && rows.length >= 6 && rate.clock.now() - start.at >= duringAfterMs) { fired = true; await during(); }
+			await rate.clock.sleep(200);
 		}
+		// A wall-time watchdog for a result that never comes.
 		const final = done ?? await Promise.race([result, sleep(15000).then(() => null)]);
+		// elapsed() reads the world tick first, so the clock is anchored on it when seconds is read.
+		const gameMs = await timer.elapsed(), seconds = (rate.clock.now() - start.at) / 1000;
+		const tick = { tickRate: rate.tickRate, gameSeconds: Math.round(gameMs / 1000), wallSeconds: Math.round((Date.now() - wall0) / 1000), rates: await timer.rates().catch(() => null) };
+		await rate.normalRate();
+		recordDamageEvidence(tick, damage0, await damage().catch(() => null));
 		const moved = Math.max(0, ...rows.map((r) => Math.hypot(r.x - start.x, r.z - start.z)));
 		const active = rows.filter((r) => r.action);
 		return { start, final: final && { state: final.state, reason: final.reasonCode, message: String(final.message ?? JSON.stringify(final.failure ?? '')) },
-			seconds: (Date.now() - start.at) / 1000,
+			seconds, tick,
 			bowSamples: active.filter((r) => r.using && r.mainHand === 'minecraft:bow').length,
 			moved: Math.round(moved * 100) / 100, samples: active.length, crouched: active.filter((r) => r.crouching).length,
 			lateSamples: active.filter((r) => r.at - start.at >= 1000).length, lateCrouched: active.filter((r) => r.at - start.at >= 1000 && r.crouching).length, rows: rows.filter((r, i) => i % 5 === 0 || !r.crouching) };
@@ -188,7 +208,7 @@ try {
 	const husks = async () => {
 		await command('summon minecraft:husk 0.5 80 2.3 {NoAI:1b,UUID:[I;0,0,0,1]}');
 		await command('summon minecraft:husk 0.5 80 7.5 {NoAI:1b,UUID:[I;0,0,0,2]}');
-		await sleep(1500);
+		await rate.idleSleep(1500);
 	};
 
 	// pursue:false + sneak:true: kills the husk in reach, never walks to the far one, crouched every sample.
@@ -227,7 +247,7 @@ try {
 		await blaze(1, 0.5, 86, 2.5);
 		await command('summon minecraft:piglin 0.5 80 2.5 {UUID:[I;0,0,0,2],PersistenceRequired:1b,IsImmuneToZombification:1b,HandItems:[{id:"minecraft:golden_sword",count:1},{}]}');
 		await command(`damage ${uuid(2)} 1 minecraft:player_attack by ${agent}`);
-		await sleep(1500);
+		await rate.idleSleep(1500);
 		const memory = await command(`data get entity ${uuid(2)} Brain.memories`);
 		if (!memory.includes('angry_at')) throw new Error(`Piglin did not become angry: ${memory}`);
 		return { health: await healthOf(2), angry: true };
@@ -259,7 +279,7 @@ try {
 			await reset(); await kit(); await tough();
 			await blaze(1, 0.5, 80, 2.4);
 			await command('summon minecraft:creeper 2.5 80 1.5 {UUID:[I;0,0,0,3],Fuse:32767s,ExplosionRadius:0b,PersistenceRequired:1b}');
-			await sleep(1500);
+			await rate.idleSleep(1500);
 			const run = await countFight({ targetId: uuid(1), untilItem: 'minecraft:blaze_rod', untilCount: 5, timeoutMs: 15000, continueWithAttackers: true });
 			const creeperHealth = await healthOf(3);
 			results['no-creeper'] = { ...run, rows: undefined, blazeKilled: !(await alive(1)), creeperHealth, creeperAlive: await alive(3) };
@@ -275,7 +295,7 @@ try {
 			await command(`item replace entity ${agent} hotbar.2 with minecraft:bow`);
 			await command(`item replace entity ${agent} hotbar.3 with minecraft:arrow 64`);
 			await blaze(1, 0.5, 83, 9.5);
-			await sleep(1500);
+			await rate.idleSleep(1500);
 			const floorRod = async () => command('summon minecraft:item 0.5 81 5.5 {Item:{id:"minecraft:blaze_rod",count:1},PickupDelay:10s}');
 			const run = await countFight({ untilItem: 'minecraft:blaze_rod', untilCount: 1, sneak: true }, floorRod);
 			const rods = Number(/Found (\d+)/.exec(await command(`clear ${agent} minecraft:blaze_rod 0`))?.[1] ?? 0);
@@ -300,10 +320,10 @@ try {
 				const look = await startAction('look_at', aim);
 				const result = await look.result;
 				if (result.state !== 'SUCCEEDED') throw new Error(`Landing setup look failed: ${result.reasonCode}`);
-				await sleep(500); await observe();
+				await rate.idleSleep(500); await observe();
 			}
 			await blaze(1, 0.5, 83, 9.5);
-			await sleep(1500);
+			await rate.idleSleep(1500);
 			const ledgeRod = async () => command('summon minecraft:item 7.5 84 5.5 {Item:{id:"minecraft:blaze_rod",count:1},PickupDelay:10s}');
 			const run = await countFight({ untilItem: 'minecraft:blaze_rod', untilCount: 9, sneak: true }, ledgeRod);
 			results['ledge-crouch'] = run;
@@ -321,10 +341,10 @@ try {
 			for (const [x, z] of [[-1, 0], [0, -1], [0, 1]]) await command(`setblock ${x} 79 ${z} minecraft:air`);
 			await command('setblock 1 80 -1 minecraft:oak_fence');
 			for (const aim of [{ x: 1.5, y: 79, z: 0.5 }, { x: 1.5, y: 80.5, z: -0.5 }, { x: 0.5, y: 81, z: 9.5 }]) {
-				const look = await startAction('look_at', aim); await look.result; await sleep(500); await observe();
+				const look = await startAction('look_at', aim); await look.result; await rate.idleSleep(500); await observe();
 			}
 			await command('summon minecraft:enderman 0.5 80 9.5 {NoAI:1b,PersistenceRequired:1b,UUID:[I;0,0,0,1]}');
-			await sleep(1500);
+			await rate.idleSleep(1500);
 			// End after construction, independently of enderman aggression and pearl loot RNG.
 			const run = await countFight({ untilItem: 'minecraft:ender_pearl', untilCount: 1, roof: true, sneak: true },
 				() => command(`give ${agent} minecraft:ender_pearl 1`), 25000);
@@ -341,19 +361,19 @@ try {
 	if (want('stationary-retarget')) {
 		try {
 			await reset(); await kit(); await tough();
-			await blaze(1, 0.5, 86, 9.5); await sleep(1500);
+			await blaze(1, 0.5, 86, 9.5); await rate.idleSleep(1500);
 			let introducedAt = null;
 			const introduce = async () => {
-				introducedAt = Date.now();
+				introducedAt = rate.clock.now();
 				await command('summon minecraft:blaze 0.5 85 4.5 {NoGravity:1b,PersistenceRequired:1b,UUID:[I;0,0,0,2]}');
 				await command(`damage ${uuid(2)} 1 minecraft:player_attack by ${agent}`);
-				await sleep(1000);
+				await rate.clock.sleep(1000);
 				// NoAI stops decisions, but NoGravity retains velocity. Freeze both and restore the intended distance.
 				await command(`data merge entity ${uuid(2)} {NoAI:1b,Motion:[0.0d,0.0d,0.0d]}`);
 				await command(`tp ${uuid(2)} 0.5 85 4.5`);
 			};
 			const run = await countFight({ untilItem: 'minecraft:blaze_rod', untilCount: 1, pursue: false, shield: false, targetPolicy: 'nearest_attacker' }, introduce, 17000);
-			const secondsAfterB = introducedAt == null ? null : (Date.now() - introducedAt) / 1000;
+			const secondsAfterB = introducedAt == null ? null : (rate.clock.now() - introducedAt) / 1000;
 			results['stationary-retarget'] = { ...run, rows: undefined, secondsAfterB };
 			results['stationary-retarget'].pass = run.final?.reason === 'TARGET_OUT_OF_REACH' && run.moved < 0.5
 				&& run.seconds >= 36 && run.seconds < 50 && secondsAfterB >= 19
@@ -366,10 +386,10 @@ try {
 		try {
 			await reset(); await kit(); await tough();
 			await blaze(1, 0.5, 86, 2.5);
-			await sleep(1500);
-			const began = Date.now();
+			await rate.idleSleep(1500);
+			const began = rate.clock.now();
 			const run = await countFight({ targetId: uuid(1), untilItem: 'minecraft:blaze_rod', untilCount: 1, pursue: false });
-			results['still-unreachable'] = { ...run, rows: undefined, seconds: Math.round((Date.now() - began) / 1000) };
+			results['still-unreachable'] = { ...run, rows: undefined, seconds: Math.round((rate.clock.now() - began) / 1000) };
 			results['still-unreachable'].pass = run.final?.reason === 'TARGET_OUT_OF_REACH' && run.moved < 0.5 && results['still-unreachable'].seconds < 40;
 			await settle('still-unreachable');
 		} catch (error) { await settle('still-unreachable', error); }
@@ -382,6 +402,7 @@ try {
 	if (failed.length > 0) { console.log(JSON.stringify(results, null, 2)); process.exitCode = 1; }
 	else console.log('Count stance verified');
 } finally {
+	if (rate) await writeFile(join(out, 'tick.json'), JSON.stringify({ tickRate: rate.tickRate, held: await rate.tickReport() }, null, 2)).catch(() => {});
 	if (rcon) await command('stop').catch(() => {});
 	bridge?.stop(); await rcon?.close();
 	await Promise.race([new Promise((done) => child.once('exit', done)), sleep(10000)]); if (child.exitCode === null) child.kill('SIGTERM'); await log.close();
