@@ -1775,3 +1775,16 @@ test('cave first: a mob seen on any heading of the look rules out its cave; walk
 	await searchFor({ block: 'minecraft:iron_ore' }, late, { timeoutMs: 100_000 });
 	assert.equal(late.calls.some((call) => call.actionType === 'travel_to'), false, 'too little time left for a walk and a dig after it');
 });
+
+test('cave first: when no cave walk got in, the body walks back to where the walks began before it digs', async () => {
+	const body = fakeBody({ frontier: { candidates: [], coverage: { headings: {} } }, looks: [{ survey: { caves: [cave(-8, 56, -5)] } }],
+		acts: { travel_to: [
+			{ move: () => ({ x: -7.5, y: 63, z: -3.6 }), result: { state: 'FAILED', reasonCode: 'NO_ROUTE', message: 'No seen standing spot ahead gets closer, and build is false' } },
+			{ move: () => ({ x: 0.5, y: 70, z: 0.5 }), result: { state: 'SUCCEEDED', reasonCode: 'ARRIVED' } }],
+		dig_to: [DOWN] } });
+	const result = await searchFor({ block: 'minecraft:iron_ore' }, body);
+	assert.equal(result.reasonCode, 'FIND_SEEN', result.message);
+	const order = body.calls.filter((call) => call.actionType).map((call) => `${call.actionType}${call.args.build === false ? ':walk' : ''}`);
+	assert.deepEqual(order, ['travel_to:walk', 'travel_to:walk', 'dig_to']);
+	assert.deepEqual([body.calls[2].args.x, body.calls[2].args.y, body.calls[2].args.z], [0.5, 70, 0.5]);
+});

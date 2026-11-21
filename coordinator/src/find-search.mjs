@@ -1245,6 +1245,14 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 				lookedAt = bodyAt(observation);
 				if (inside.interrupted || inside.seen || inside.ended) { caveNote = `; walked into ${entered} of ${tried + 1} cave(s) before digging`; return settle(inside); }
 			}
+			// No cave entered: back to where the walks began before digging. A walk that gave up still moved the body, and
+			// room test 21 Nov (one seed, 10 of 10): it stopped at a pond's edge, so the dig down met the water and the wet
+			// spot moves wore the pickaxe out, where the same dig from the start saw iron in about a minute.
+			const stopped = bodyAt(observation);
+			if (tried > 0 && entered === 0 && flooded === 0 && stopped !== null && Math.hypot(stopped.x - from.x, stopped.y - from.y, stopped.z - from.z) > 2) {
+				const back = await leg('back to where the cave walks began', 'travel_to', { x: from.x, y: from.y, z: from.z, tolerance: 1.5, build: false, stopWhenSeen: profile.stopId, timeoutMs: CAVE_WALK_MS });
+				if (back.seen || back.interrupted || back.ended) return settle(back);
+			}
 			if (tried > 0) {
 				const now = bodyAt(observation);
 				caveNote = `; walked into ${entered} of ${tried} cave(s) first${flooded > 0 ? ` (${flooded} flooded, walked back out)` : ''}${entered > 0 && now !== null && now.y < from.y - 2 ? `, down to y${Math.floor(now.y)}` : ''}, then dug`;
