@@ -148,6 +148,8 @@ public final class ServerFightUntilController implements ServerController {
 	 * and lets it come. Real games ended such hunts NO_TARGET_SEEN with the enderman in view outside the area.
 	 */
 	static final double STARE_RANGE = 64.0D;
+	/** Below this health the body provokes no enderman from afar. */
+	static final float STARE_MIN_HEALTH = 14.0F;
 	/** An angry enderman teleports toward its target only from farther than this (vanilla: 16 blocks). */
 	static final double TELEPORT_RANGE = 16.0D;
 	/** How far from an angry enderman the sword cannot reach the body backs off, so it teleports across to the body. */
@@ -634,7 +636,8 @@ public final class ServerFightUntilController implements ServerController {
 			}
 		}
 		LivingEntity target = nextTarget(player, elapsed);
-		if (mob == McEntityTypes.ENDERMAN) {
+		if (mob == McEntityTypes.ENDERMAN && forest == null) {
+			// Outside a warped forest only: there, staring from afar provoked several at once (deaths 9 to 24 of 40 runs).
 			// A back-off for an angry one out of reach, and the hold after it, are not cut short by re-engaging it.
 			TickResult drawing = tickDrawOver(player, elapsed, nowEpochMs, target == null);
 			if (drawing != null) return drawing;
@@ -1480,6 +1483,10 @@ public final class ServerFightUntilController implements ServerController {
 	 * between their eyes, not stared out or left yet. The open-ground stare (tickOpenEnderman) provokes it from here.
 	 */
 	private LivingEntity stareTarget(ServerPlayer player) {
+		// One at a time and with health to spare, as a player provokes them: none while another is angry at the body.
+		if (player.getHealth() < STARE_MIN_HEALTH) return null;
+		if (!player.level().getEntitiesOfClass(McCompat.ENDERMAN, player.getBoundingBox().inflate(STARE_RANGE),
+				e -> e.isAlive() && !e.isDeadOrDying() && attacking(player, e)).isEmpty()) return null;
 		LivingEntity best = null;
 		double bestDistance = Double.MAX_VALUE;
 		for (Monster enderman : player.level().getEntitiesOfClass(McCompat.ENDERMAN, player.getBoundingBox().inflate(STARE_RANGE),
