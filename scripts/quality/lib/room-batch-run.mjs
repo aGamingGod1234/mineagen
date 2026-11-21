@@ -34,10 +34,11 @@ export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeout
 		log(`machine ${vm.id} ready`);
 		return vm;
 	};
-	const retired = new Set();
+	// Retiring is marked on the lease (the vm object), not the id: a warm pool can hand the same machine back to this
+	// batch as a new lease after an earlier one was released, and that lease must be retired on its own.
 	const retire = async (vm, why) => {
-		if (retired.has(vm.id)) return;
-		retired.add(vm.id);
+		if (vm.retired) return;
+		vm.retired = true;
 		vm.usage = await Promise.resolve().then(() => pool.usage(vm)).catch(error => ({ error: error.message }));
 		if (pool.release) {
 			try {

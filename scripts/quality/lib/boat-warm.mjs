@@ -39,12 +39,18 @@ export function poolMember(sandbox, poolId, now = Date.now()) {
 
 export async function listSandboxes({ all = false } = {}) {
 	const parsed = JSON.parse(await boat(['list', ...(all ? ['--all'] : []), '--json'], { timeoutMs: 120_000 }));
+	// The CLI lists one page; pool machines past it would go unseen and be paid for again as new starts.
+	if (parsed.pageInfo?.hasMore) throw new Error(`boat list has more than one page (${parsed.sandboxes?.length ?? '?'} shown): the pool cannot see every machine`);
 	return parsed.sandboxes ?? [];
 }
+/** The snapshot's id, or null when no saved snapshot has that name (the image hash then uses the name only). */
 export async function snapshotId(snapshot) {
 	const parsed = JSON.parse(await boat(['snapshots', '--json'], { timeoutMs: 120_000 }));
 	return (parsed.named ?? []).find(item => item.name === snapshot)?.snapshotId ?? null;
 }
+/** A cleaning that failed on its own verdict (exit 3, 4 or 5: marker, stuck process, image) rather than a boat call that failed. */
+export const verdictFailure = error => /^command failed on \S+ \((3|4|5)\)/.test(String(error?.message ?? ''));
+const goneFailure = error => /^machine \S+ is /.test(String(error?.message ?? ''));
 export const readLimits = async () => JSON.parse(await boat(['limits', '--json'], { timeoutMs: 60_000 })).starts ?? null;
 
 /** A failed `boat new` that hit a start limit -> { window, retryAfterSeconds }, else null. The CLI's wording is parsed loosely. */
@@ -65,16 +71,13 @@ export function cleanScript({ marker, imageDir = 'rooms', mode = 'check', ports 
 	return [
 		'H="$HOME"; W="$H/batch"; J="$H/' + imageDir + '/jdk/"; M="$H/' + MARKER + '"',
 		mode === 'adopt' ? ':' : mode === 'mark' ? `printf '%s' ${quote(marker)} > "$M" || exit 3` : `test "$(cat "$M" 2>/dev/null)" = ${quote(marker)} || { echo "pool marker does not match: $(head -c 300 "$M" 2>/dev/null)" >&2; exit 3; }`,
-		// Every process a room left: its cwd, binary or command line is under ~/batch, or it runs the image's Java.
+		// Every process a room left: its cwd is under ~/batch, its binary is the image's Java, or its command line names
+		// either. One ls and one ps cover every process (a readlink per process took 14 s on a busy host). The paths reach
+		// awk through its environment, never its arguments, so the scan never finds itself.
+		'scan() { { ls -l /proc/[0-9]*/cwd /proc/[0-9]*/exe 2>/dev/null | PW="$W/" PJ="$J" awk \'{ split($(NF-2), p, "/"); if (index($NF "/", ENVIRON["PW"]) == 1 || index($NF, ENVIRON["PJ"]) == 1) print p[3] }\'; ps -eo pid=,args= 2>/dev/null | PW="$W/" PJ="$J" awk \'index($0, ENVIRON["PW"]) || index($0, ENVIRON["PJ"]) { print $1 }\'; } | sort -u | grep -vx -e "$$" -e "$PPID" | tr "\\n" " "; }',
 		'left=""',
 		'for round in 1 2 3 4 5; do',
-		'  left=""',
-		'  for d in /proc/[0-9]*; do',
-		'    p="${d#/proc/}"; [ "$p" = "$$" ] && continue; [ "$p" = "$PPID" ] && continue',
-		'    cwd="$(readlink "$d/cwd" 2>/dev/null)" || continue',
-		'    exe="$(readlink "$d/exe" 2>/dev/null)"; cmd="$(tr "\\0" " " < "$d/cmdline" 2>/dev/null)"',
-		'    case "$cwd/ $exe $cmd" in *"$W/"*|*"$J"*) left="$left $p";; esac',
-		'  done',
+		'  left="$(scan)"; left="${left% }"',
 		'  [ -z "$left" ] && break',
 		'  kill -9 $left 2>/dev/null; sleep 1',
 		'done',
@@ -102,7 +105,13 @@ export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, id
 	let identity = null, listing = null, limits = null;
 	const init = () => identity ??= (async () => {
 		const poolId = await store.poolId();
-		const id = await snapshotId(snapshot).catch(error => { log(`could not read the id of snapshot ${snapshot} (${error.message}); matching by its name only`); return null; });
+		// A failed lookup must not change the image hash: nothing would match and every machine would be a new start.
+		let id, lastError;
+		for (let attempt = 0; attempt < 3 && id === undefined; attempt++) {
+			id = await snapshotId(snapshot).catch(error => { lastError = error; return undefined; });
+			if (id === undefined) await sleep(2000 * (attempt + 1));
+		}
+		if (id === undefined) throw new Error(`could not read the saved snapshots to match ${snapshot}: ${lastError.message}`);
 		return { poolId, snapshotId: id, hash: imageHash(snapshot, id) };
 	})();
 	const markerOf = (name, ident) => JSON.stringify({ pool: ident.poolId, name, snapshot, snapshotId: ident.snapshotId, type });
@@ -203,8 +212,12 @@ export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, id
 					log(`machine ${vm.id} reused from the warm pool (no start)`);
 					return vm;
 				} catch (error) {
-					log(`warm machine ${vm.id} is not reusable, deleting it: ${error.message}`);
-					await destroy(vm).catch(error2 => { log(`could not delete ${vm.id}: ${error2.message}`); return store.drop(name); });
+					// Only the cleaning's own verdict, or boat saying the machine is gone, deletes it; a boat call that failed
+					// (no answer, a timeout) leaves it in the pool for a later lease.
+					if (verdictFailure(error) || goneFailure(error)) {
+						log(`warm machine ${vm.id} is not reusable, deleting it: ${error.message}`);
+						await destroy(vm).catch(error2 => { log(`could not delete ${vm.id}: ${error2.message}`); return store.drop(name); });
+					} else { log(`warm machine ${vm.id} did not answer its check, skipping it: ${error.message}`); await store.drop(name); }
 				}
 			}
 			return createNew(signal);
@@ -217,9 +230,15 @@ export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, id
 				await store.drop(vm.name);
 				log(`machine ${vm.id} back in the warm pool for ${Math.round(idleTtlSeconds / 60)} min`);
 			} catch (error) {
-				log(`machine ${vm.id} could not go back to the pool (${error.message}): ${vm.adopted ? 'leaving it running for a look' : 'deleting it'}`);
+				if (vm.adopted || !(verdictFailure(error) || goneFailure(error))) {
+					// Unknown state is kept: the next lease cleans and checks it again before any room plays there.
+					log(`machine ${vm.id} back in the pool unchecked (${error.message}): the next lease checks it`);
+					await store.drop(vm.name);
+					return true;
+				}
+				log(`machine ${vm.id} could not go back to the pool (${error.message}): deleting it`);
 				await destroy(vm);
-				return !!vm.adopted;
+				return false;
 			}
 			return true;
 		},
