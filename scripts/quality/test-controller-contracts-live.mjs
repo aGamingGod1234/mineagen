@@ -1,11 +1,15 @@
 // Provider-free controller contracts against the actual installed mod jar.
 // Run on test host with the same RAM/CPU guard as winrunner; no model or provider is invoked.
+// FIXTURE_TICK_RATE runs shieldHands, shieldAnalog, expiry and swimDetour faster: each sets up at 20 TPS and raises the
+// rate (play()) once the body acts; the swim's 24 s window is game time on the fixture clock (s.clock). crystalOwnership
+// and arrowFeedback stay at 20: the fixture kills, damages or walls off the target while the arrow is in flight, a harness
+// step that must land within a tick or two of the launch. Each case records the rates it played at.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
-import { boot, uuidOf } from './watch-replay.mjs';
+import { boot, uuidOf, fixtureTickRate } from './watch-replay.mjs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 const moduleRoot = process.env.ARENA_CONTRACT_MODULE_ROOT ?? fileURLToPath(new URL('../../coordinator/src/', import.meta.url));
 const [{ ReflexBook, normalizeReflexEntries }, { coveringRule }, { noteCombatDispatch, settleCombatResult }] = await Promise.all(
@@ -20,15 +24,21 @@ const results = {};
 const hash = createHash('sha256');
 for await (const chunk of createReadStream(jar)) hash.update(chunk);
 await mkdir(out, { recursive: true });
-await writeFile(join(out, 'manifest.json'), JSON.stringify({ jar, sha256: hash.digest('hex'), kind: 'real Fabric server, provider-free', startedAt: new Date().toISOString() }, null, 2));
-let s;
+await writeFile(join(out, 'manifest.json'), JSON.stringify({ jar, sha256: hash.digest('hex'), kind: 'real Fabric server, provider-free', tickRate: fixtureTickRate(), startedAt: new Date().toISOString() }, null, 2));
+let s, playTimer = null;
+// The body acts from here: raise the rate and time the rest of the case.
+async function play() { await s.fastRate(); playTimer = await s.gameTimer(); }
 const frame = patch => ({ forward: 0, strafe: 0, jump: false, sneak: false, sprint: false, attack: false, use: false, yaw: 0, pitch: 10, selectedSlot: 0, hand: 'main', ticks: 20, instantLook: true, ...patch });
 const shield = { id: 'guard', kind: 'stance', when: { type: 'hostile_near', mobs: ['husk'], within: 12 }, do: { type: 'shield' }, maxS: 20 };
 const numeric = text => Number((/(-?\d+(?:\.\d+)?)[fdb]?\s*$/.exec(String(text).trim()) ?? [])[1]);
 async function check(name, run) {
  if (only.size && !only.has(name)) return;
+ await s.normalRate(); playTimer = null;
  try { results[name] = { pass: true, ...await run() }; }
  catch (e) { results[name] = { ...(results[name] ?? {}), pass: false, error: String(e.stack ?? e) }; }
+ // The rate asked for and reached over the last played stretch (none for a case kept at 20).
+ results[name].rates = playTimer ? await playTimer.rates().catch(() => null) : null;
+ await s.normalRate();
  await writeFile(join(out, 'results.json'), JSON.stringify(results, null, 2));
  console.log(name, JSON.stringify(results[name]));
 }
@@ -38,6 +48,7 @@ async function sampleUntil(predicate, ms = 8000) {
  throw new Error('observation condition timed out');
 }
 async function reset() {
+ await s.normalRate();
  await s.setReflexes([]);
  // Vanilla keeps a dying mob's body for twenty ticks; move old fixture targets out of the next shot/attack lane.
  await s.command('tp @e[tag=d38target] 200 81 200');
@@ -49,7 +60,7 @@ async function reset() {
  await s.command('effect clear Probe');
  await s.command('effect give Probe minecraft:resistance 120 4 true');
  await s.command('effect give Probe minecraft:saturation 120 10 true');
- await sleep(500);
+ await s.idleSleep(500);
  return s.observe();
 }
 async function target(type = 'husk', z = 2.5, x = 0.5) {
@@ -81,7 +92,7 @@ async function bowSetup(type = 'husk', z = 35.5) {
  return target(type, z);
 }
 try {
- s = await boot(out, { jar, template: process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port: Number(process.env.SLOT_PORT_BASE), seed: 20261025 });
+ s = await boot(out, { jar, template: process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port: Number(process.env.SLOT_PORT_BASE), seed: 20261025, tickRate: fixtureTickRate() });
  // boot's catalog is provider-free; explicitly match the player's required default service tier.
  await s.bridge.send('catalog_snapshot', 'server', { refreshedAtEpochMs: Date.now(), models: [{ provider: 'codex', model: 'gpt-6.1-sol', id: 'gpt-6.1-sol', displayName: 'Controller contract fixture', reasoningEfforts: ['low'], serviceTiers: ['default'] }] });
  await s.command('gamerule minecraft:spawn_mobs false');
@@ -112,6 +123,7 @@ try {
    await reset(); const targetId = await target();
    await s.command('item replace entity Probe weapon.mainhand with minecraft:iron_sword');
    await s.command('item replace entity Probe weapon.offhand with minecraft:shield');
+   await play();
    await raise();
    await sampleUntil(o => o.interaction?.rayTarget?.uuid === targetId);
    await yieldHands();
@@ -126,6 +138,7 @@ try {
   await reset(); await target();
   await s.command('item replace entity Probe weapon.mainhand with minecraft:snowball 8');
   await s.command('item replace entity Probe weapon.offhand with minecraft:shield');
+  await play();
   await raise(); await yieldHands();
   const r = await s.act('control', frame({ use: true, ticks: 8 }));
   const count = numeric(await s.command('data get entity Probe SelectedItem.count'));
@@ -139,6 +152,7 @@ try {
   for (const [forward, yaw] of [[0.05, 90], [0.15, 90], [0.15, 45]]) {
    await reset(); await target();
    await s.command('item replace entity Probe weapon.offhand with minecraft:shield');
+   await play();
    const before = await raise();
    const r = await s.act('control', frame({ forward, yaw, ticks: 40 }));
    const after = await s.observe();
@@ -164,10 +178,12 @@ try {
    const rule = kind === 'ttl' ? { id: 'exp', when: { type: 'on_fire' }, do: { type: 'stop' }, ttlS: 1 }
     : kind === 'maxFirings' ? { id: 'exp', when: { type: 'hostile_near', within: 10 }, do: { type: 'select', item: 'minecraft:iron_sword' }, maxFirings: 1 }
     : { id: 'exp', when: { type: 'on_fire' }, do: { type: 'stop' }, until: { type: 'hostile_near', within: 10 } };
-   const book = new ReflexBook(); book.apply(s.record.agentId, normalizeReflexEntries([rule]));
+   // The book's own clock follows game time at a raised rate (wall time at 20 TPS).
+   const book = new ReflexBook(s.clock.rate === 20 ? {} : { now: () => s.clock.now() }); book.apply(s.record.agentId, normalizeReflexEntries([rule]));
    // Use the same monotonically increasing revision as the other fixtures.
    while (book.payload(s.record.agentId).revision <= s.revision) book.apply(s.record.agentId, []), book.apply(s.record.agentId, normalizeReflexEntries([rule]));
    let p = book.payload(s.record.agentId); s.revision = p.revision;
+   await play();
    await s.bridge.send('reflex_update', s.record.agentId, p);
    const expired = await sampleUntil(o => o.reflexes?.revision === p.revision && !o.reflexes.rules.some(x => x.id === 'exp') && (o.reflexes.events ?? []).some(x => x.id === 'exp' && x.outcome === 'expired'), 9000);
    results.expiry = { kind, payload: p, serverStatus: expired.reflexes };
@@ -186,6 +202,7 @@ try {
   return { trials };
  });
 
+ // Kept at 20 TPS (see the header): the target is killed while the arrow flies.
  await check('crystalOwnership', async () => {
   const targetId = await bowSetup('end_crystal', 35.5);
   const action = s.act('use_ranged', { targetId, drawDurationMs: 1100, timeoutMs: 6000 });
@@ -201,6 +218,7 @@ try {
   return { external: r, own };
  });
 
+ // Kept at 20 TPS (see the header): the target is hurt, and the wall built, while the arrow flies.
  await check('arrowFeedback', async () => {
   const targetId = await bowSetup();
   const action = s.act('use_ranged', { targetId, drawDurationMs: 1100, timeoutMs: 6000, aimX: 5.5, aimY: 100, aimZ: 35.5 });
@@ -241,12 +259,14 @@ try {
   await s.command('tp Probe 0.5 81 0.5 90 -10'); await sleep(200);
   await s.command('effect clear Probe minecraft:water_breathing');
   const starting = await s.observe();
+  await play();
   await s.setReflexes([{ id: 'air', priority: 9, when: { type: 'air_below', bubbles: 10 }, do: { type: 'swim_up' }, maxS: 20 }]);
-  const track = []; const deadline = Date.now() + 24000;
-  while (Date.now() < deadline) {
+  // The 24 s window is game time (wall time at 20 TPS).
+  const track = []; const deadline = s.clock.now() + 24000;
+  while (s.clock.now() < deadline) {
    const o = await s.observe(); track.push({ pos: o.position, air: o.player?.air, firing: o.reflexes?.firing, events: o.reflexes?.events });
    if ((o.reflexes?.events ?? []).some(e => e.id === 'air' && ['done', 'failed', 'timeout'].includes(e.outcome))) break;
-   await sleep(150);
+   await s.clock.sleep(150);
   }
   results.swimDetour = { starting: { position: starting.position, player: starting.player }, track };
   const events = track.flatMap(x => x.events ?? []);
@@ -254,5 +274,9 @@ try {
   assert.ok(events.some(e => e.id === 'air' && e.outcome === 'done' && /surfaced/.test(e.detail)), 'the swimmer follows the detour to breathable air');
   return { track, starting: { position: starting.position, breathable: starting.player?.breathable } };
  });
-} finally { await s?.stop(); }
+} finally {
+ // Beside results.json, whose every entry is a case with a verdict.
+ if (s) await writeFile(join(out, 'tick.json'), JSON.stringify({ tickRate: s.tickRate, held: await s.tickReport().catch(() => null) }, null, 2)).catch(() => {});
+ await s?.stop();
+}
 assert.ok(Object.values(results).every(r => r.pass), 'all selected shipping-jar contracts must pass');

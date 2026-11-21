@@ -75,3 +75,4 @@ launcher_profiles.*.backup.json
 # Third-party mod JARs that scripts/fetch-libs.sh downloads; never commit them.
 libs/*.jar
 libs/*.jar.invalid
+coordinator/.kit-arms/

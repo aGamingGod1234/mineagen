@@ -4,6 +4,8 @@
 // body's ground speed, sprint share and outcome. A vanilla player sprints about 5.6 m/s and outruns a zombie.
 // The world is a copy of a saved run world (FLEE_WORLD, read only): the forest where game d2b-iron-c died to a
 // zombie at the respawn point. Always launch under slot.sh live; ports come from SLOT_PORT_BASE.
+// FIXTURE_TICK_RATE (test only): setup runs at 20 TPS; each flee runs at the fixture rate and its samples are timed in
+// game time, so seconds and m/s are game figures at any rate. Each row's tick holds the rates it ran at.
 import { readFile, writeFile, mkdir, cp, readdir, unlink, open, rm } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,6 +14,8 @@ import { randomBytes, createHash } from 'node:crypto';
 import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
+import { handRolledTickRate } from './lib/fixture-play.mjs';
+import { unshownTickRate } from './watch-replay.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const out = resolve(process.argv[2] ?? 'runtime/flee-forest-live');
@@ -49,7 +53,8 @@ class Inbox {
 	}
 }
 
-let rcon, bridge, record, observation, inbox, ordinal = 0;
+let rcon, bridge, record, observation, inbox, ordinal = 0, rate;
+const now = () => rate.clock.now();
 const agent = 'Flee';
 const command = async (text) => {
 	if (rcon.state === 'closed') { rcon = new HeadlessRconClient({ host: '127.0.0.1', port: port + 1, password: secret, commandTimeoutMs: 5000 }); await rcon.connect(); }
@@ -78,6 +83,7 @@ const flees = [];
 try {
 	for (let attempt = 0; attempt < 150; attempt += 1) { try { rcon = new HeadlessRconClient({ host: '127.0.0.1', port: port + 1, password: secret, connectTimeoutMs: 500, commandTimeoutMs: 5000 }); await rcon.connect(); break; } catch (error) { await rcon?.close(); if (attempt === 149) throw error; await sleep(1000); } }
 	bridge = new MultiplexedServerBridge({ port, secret }, {}); inbox = new Inbox(bridge);
+	rate = handRolledTickRate(text => command(text), bridge, agent, { tickRate: unshownTickRate('not yet played in a 20 vs 60 TPS A/B: its saved world or plan is private') });
 	bridge.on('observation', (event) => { if (event.agentId === record?.agentId && event.payload.ready) observation = event.payload; });
 	bridge.on('message', (event) => {
 		const registered = ['agent_registered', 'registry_entry'].includes(event.type) ? { goalRevision: event.payload.goalRevision ?? event.payload.record?.goalRevision, operation: 'registered' } : null;
@@ -91,13 +97,13 @@ try {
 	const ready = inbox.wait('ready'); bridge.start(); await ready;
 	await bridge.send('catalog_snapshot', 'server', { refreshedAtEpochMs: Date.now(), models: [{ provider: 'codex', model: 'gpt-6.1-sol', id: 'gpt-6.1-sol', displayName: 'Provider-free flee fixture', reasoningEfforts: ['low'], serviceTiers: ['default'] }] });
 	await command('difficulty normal'); await command('gamerule minecraft:send_command_feedback false'); await command('gamerule minecraft:spawn_mobs false');
-	await command('time set midnight'); await command('gamerule minecraft:advance_time false'); await command('forceload add -48 32 80 160'); await sleep(3000);
+	await command('time set midnight'); await command('gamerule minecraft:advance_time false'); await command('forceload add -48 32 80 160'); await rate.idleSleep(3000);
 	const registered = inbox.wait('agent_registered'); console.log(await command(`execute positioned 9.5 72 90.5 run mineagen summon gpt-6.1-sol low ${agent}`));
 	const summoned = await registered; record = { ...(summoned.payload.record ?? summoned.payload), agentId: summoned.agentId };
 	await bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false });
 	const started = inbox.wait('goal_control', (event) => event.payload.operation === 'start'); await command(`mineagen start ${agent} Survive for 1200 seconds.`); record.goalRevision = (await started).payload.goalRevision;
 	await bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false });
-	await sleep(2000); await observe();
+	await rate.idleSleep(2000); await observe();
 	await command(`gamemode survival ${agent}`); await command(`clear ${agent}`);
 
 	const repeat = Number(process.env.FLEE_REPEAT ?? 1);
@@ -110,33 +116,36 @@ try {
 			if (only.length && !only.includes(index)) continue;
 			run += 1;
 			const uuid = `00000001-0000-0002-0000-0003${run.toString(16).padStart(8, '0')}`;
+			await rate.normalRate();
 			await command('kill @e[type=minecraft:zombie]');
 			await command(`effect give ${agent} minecraft:instant_health 1 5 true`); await command(`effect give ${agent} minecraft:saturation 2 10 true`);
 			await command(`effect give ${agent} minecraft:resistance 30 4 true`);
 			const yaw = Math.atan2(-dx, dz) * 180 / Math.PI;
 			// As after a respawn the body knows no terrain: a dimension change empties its seen-terrain memory.
-			if (fresh) { await command(`execute in minecraft:the_nether run tp ${agent} 0.5 140 0.5`); await sleep(1500); }
+			if (fresh) { await command(`execute in minecraft:the_nether run tp ${agent} 0.5 140 0.5`); await rate.idleSleep(1500); }
 			await command(`execute in minecraft:overworld positioned ${sx} 0 ${sz} positioned over motion_blocking_no_leaves run tp ${agent} ~ ~ ~ ${yaw.toFixed(1)} 0`);
-			await sleep(1500);
+			await rate.idleSleep(1500);
 			await command(`execute positioned ${sx + dx} 0 ${sz + dz} positioned over motion_blocking_no_leaves run summon minecraft:zombie ~ ~ ~ {UUID:[I;1,2,3,${run}],IsBaby:0b,PersistenceRequired:1b,CanPickUpLoot:0b}`);
 			let o = null;
 			for (let wait = 0; wait < 20; wait += 1) { o = await observe(); if ((o.entities ?? []).some((entity) => entity.uuid === uuid || entity.stableId === uuid)) break; await sleep(100); }
 			const start = o.position ?? { x: o.player.x, y: o.player.y, z: o.player.z };
 			if (index === (only[0] ?? 1)) await writeFile(join(out, 'observation.json'), JSON.stringify(o, null, 1));
-			const t0 = Date.now();
+			const played = await rate.play();
+			const t0 = now();
 			const flee = await startAction('flee_from', { targetId: uuid, distance: 24, timeoutMs: 8000 });
 			const samples = [];
 			let done = null;
 			flee.result.then((result) => { done = result; });
-			while (done == null && Date.now() - t0 < 20000) {
-				const now = await observe();
-				const p = now.position ?? now.player;
-				const z = (now.entities ?? []).find((entity) => entity.uuid === uuid || entity.stableId === uuid);
-				samples.push({ t: Date.now() - t0, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), sprinting: now.player?.sprinting, collision: now.player?.horizontalCollision,
-					onGround: now.player?.onGround, health: now.player?.health, zombie: z?.position ? +Math.hypot(z.position.x - p.x, z.position.z - p.z).toFixed(1) : null, yaw: now.view?.yaw == null ? null : +now.view.yaw.toFixed(0) });
-				await sleep(100);
+			while (done == null && now() - t0 < 20000) {
+				const sample = await observe();
+				const p = sample.position ?? sample.player;
+				const z = (sample.entities ?? []).find((entity) => entity.uuid === uuid || entity.stableId === uuid);
+				samples.push({ t: rate.clock.now() - t0, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), sprinting: sample.player?.sprinting, collision: sample.player?.horizontalCollision,
+					onGround: sample.player?.onGround, health: sample.player?.health, zombie: z?.position ? +Math.hypot(z.position.x - p.x, z.position.z - p.z).toFixed(1) : null, yaw: sample.view?.yaw == null ? null : +sample.view.yaw.toFixed(0) });
+				await rate.clock.sleep(100);
 			}
 			const result = await flee.result;
+			const tick = await played();
 			const last = samples.at(-1) ?? start;
 			const net = Math.hypot(last.x - start.x, last.z - start.z);
 			let path = 0; for (let i = 1; i < samples.length; i += 1) path += Math.hypot(samples[i].x - samples[i - 1].x, samples[i].z - samples[i - 1].z);
@@ -145,7 +154,7 @@ try {
 				netMps: seconds > 0 ? +(net / seconds).toFixed(2) : 0, pathMps: seconds > 0 ? +(path / seconds).toFixed(2) : 0,
 				sprintShare: samples.length ? +(samples.filter((row) => row.sprinting).length / samples.length).toFixed(2) : 0,
 				collisionShare: samples.length ? +(samples.filter((row) => row.collision).length / samples.length).toFixed(2) : 0,
-				minZombie: Math.min(...samples.map((row) => row.zombie ?? 99)), samples };
+				minZombie: Math.min(...samples.map((row) => row.zombie ?? 99)), tick, samples };
 			flees.push(row);
 			console.log(`[flee ${index}#${run}] spot ${sx},${sz} side ${dx},${dz}: ${result.reasonCode} net ${row.netMps} m/s path ${row.pathMps} m/s sprint ${row.sprintShare} collide ${row.collisionShare} minZombie ${row.minZombie} | ${String(result.message).slice(0, 220)}`);
 			await writeFile(join(out, 'flees.json'), JSON.stringify(flees, null, 1));
@@ -156,7 +165,7 @@ try {
 	const mean = (rows, key) => rows.length ? +(rows.reduce((sum, row) => sum + row[key], 0) / rows.length).toFixed(2) : 0;
 	const summary = { flees: flees.length, meanNetMps: mean(moving, 'netMps'), meanPathMps: mean(moving, 'pathMps'), meanSprintShare: mean(moving, 'sprintShare'),
 		slow: moving.filter((row) => row.netMps < 3.5).map((row) => row.index), outcomes: Object.fromEntries([...new Set(flees.map((row) => row.reasonCode))].map((code) => [code, flees.filter((row) => row.reasonCode === code).length])) };
-	await writeFile(join(out, 'summary.json'), JSON.stringify(summary, null, 2));
+	await writeFile(join(out, 'summary.json'), JSON.stringify({ ...summary, tick: await rate.report() }, null, 2));
 	console.log(JSON.stringify(summary));
 } finally {
 	if (rcon) await command('stop').catch(() => {});

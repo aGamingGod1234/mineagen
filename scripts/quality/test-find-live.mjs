@@ -13,8 +13,14 @@
 // setup: operator commands that build a fixture before the calls, {x}, {y}, {z} (with +n or -n; {x+0.5} is a cell's
 // centre) standing for the body's block at spawn; after: { ms, commands } runs after setup. A call argument that is
 // exactly such a placeholder becomes that number. expectDamageTaken: a survival room, judged on no death and exactly that
-// damage (findSpotVerdict in lib/find-spot.mjs).
+// damage (findSpotVerdict in lib/find-spot.mjs). finish: operator commands run when the calls end, their replies kept
+// (scoreboard stats, inventory); callFinish: the same after every call. A call with wait: true (a background do_step)
+// holds the next call until its body actions end. Every spot reports lavaSamples: trail samples with lava at the body's
+// feet or head.
 // Production steering lives in run-incident.mjs; this body-only fixture cannot accept steer:true.
+// FIXTURE_TICK_RATE runs play faster: setup stays at 20 TPS and every deadline and wait during play is game time on the
+// fixture clock (s.clock), as is the runtime it drives, so a raised rate plays the same game. row.seconds is game
+// seconds, row.wallSeconds wall seconds, row.rates the rate asked for and reached.
 import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -26,7 +32,8 @@ import { InspectionClient } from '../../coordinator/src/inspection-client.mjs';
 import { parseSavedWorldSpawn } from '../../coordinator/src/headless-world-spawn.mjs';
 import { DEFAULT_REFLEXES, ReflexBook } from '../../coordinator/src/reflexes.mjs';
 import { warmBoots } from './fixture-servers.mjs';
-import { liveRecord } from './watch-replay.mjs';
+import { liveRecord, fixtureTickRate } from './watch-replay.mjs';
+import { gameClockFromObservations } from '../../coordinator/src/game-clock.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 import { damageCounter, damageEvidence, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
 import { isFindCall, shouldRepeat, findSpotVerdict, findSpotLabel, callEntry, awaitActionReceipts } from './lib/find-spot.mjs';
@@ -60,7 +67,7 @@ const uuidOf = (text) => {
 // Each spot gets its own server and world; the next one boots while this one plays, from the seed's cached world.
 const cases = [...spots.entries()].filter(([, spot]) => !only || only.has(spot.name));
 for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(cases, ([index, spot]) => ({ dir: path.join(out, `spot-${index}`),
-	options: { jar: path.resolve(jarArg ?? path.join(root, MOD_JAR)), template, port, world: null, seed: String(spot.seed), spawnMonsters: spot.monsters !== false, worldCache: true } }))) {
+	options: { jar: path.resolve(jarArg ?? path.join(root, MOD_JAR)), template, port, world: null, seed: String(spot.seed), spawnMonsters: spot.monsters !== false, worldCache: true, tickRate: fixtureTickRate() } }))) {
 	// A spot whose server failed to boot (ahead and again on demand) is recorded as invalid evidence below.
 	const s = server;
 	const pos = async () => String(await s.command(`data get entity ${AGENT} Pos`)).match(/\[\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?\]/)?.slice(1).map(Number) ?? null;
@@ -74,8 +81,9 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 	try {
 		row.startedAt = Date.now();
 		if (!s) throw bootError;
+		await s.normalRate();
 		await s.command('save-all flush');
-		await sleep(1500);
+		await s.idleSleep(1500);
 		const spawn = parseSavedWorldSpawn(await readFile(path.join(dir, 'server/world/level.dat')));
 		row.spawn = spawn;
 		let e = null;
@@ -101,7 +109,7 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		await s.command('tick unfreeze').catch(() => {});
 		await s.command(`difficulty ${spot.difficulty ?? 'normal'}`);
 		if (spot.time !== undefined) await s.command(`time set ${spot.time}`);
-		await sleep(1500);
+		await s.idleSleep(1500);
 		const commands = new Set();
 		const inspections = new InspectionClient({ send: (type, agentId, payload) => s.bridge.send(type, agentId, payload) });
 		s.bridge.on('inspection_result', message => { inspections.accept(message); });
@@ -111,7 +119,7 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 				if (type === 'action_command') {
 					commands.add(payload.actionId);
 					const { timeoutMs: _t, discard: _d, ...args } = payload.arguments ?? {};
-					row.actions = [...(row.actions ?? []), { atS: Math.round((Date.now() - (row.t0 ?? Date.now())) / 1000), actionId: payload.actionId, type: payload.actionType, args }];
+					row.actions = [...(row.actions ?? []), { atS: Math.round((s.clock.now() - (row.t0 ?? s.clock.now())) / 1000), actionId: payload.actionId, type: payload.actionType, args }];
 					console.log(`  [${spot.name}] +${row.actions.at(-1).atS}s ${payload.actionType} ${JSON.stringify(args)}`);
 				}
 				return s.bridge.send(type, agentId, payload);
@@ -119,7 +127,9 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 			requestObservation: async () => { const payload = await s.observe(); return { eventSequence: payload.eventSequence, observation: adaptObservation(payload) }; },
 			inspectObservation: async (rec, query) => ({ state: 'SUCCEEDED', reasonCode: 'INSPECTED', ...await inspections.request(rec, query) }),
 			// The twelve default reflexes, armed at the first live sample as the coordinator arms them (dynamic-main).
-			reflexBook: new ReflexBook({ defaults: DEFAULT_REFLEXES }),
+			reflexBook: new ReflexBook({ defaults: DEFAULT_REFLEXES, ...(s.clock.rate === 20 ? {} : { now: () => s.clock.now() }) }),
+			// At a raised rate the runtime times find, gather, obtain and wait in game time too (it feeds the clock its samples).
+			...(s.clock.rate === 20 ? {} : { clock: gameClockFromObservations({ tickRate: s.clock.rate }) }),
 		});
 		const record = liveRecord(s, { provider: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'low', serviceTier: 'default' });
 		s.bridge.on('observation', ev => {
@@ -153,7 +163,7 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 				const reply = String(await s.command(atBody(text, base))).slice(0, 160);
 				if (process.env.FIND_SETUP_LOG === "1" || /error|unknown|incorrect|expected|not loaded|no entity/i.test(reply)) console.log(`[${spot.name}] setup: ${atBody(text, base)} -> ${reply}`);
 			}
-			await sleep(spot.after?.ms ?? 1500);
+			await s.idleSleep(spot.after?.ms ?? 1500);
 			for (const text of spot.after?.commands ?? []) await s.command(atBody(text, base));
 			row.fixtureAt = base;
 			row.probe = [];
@@ -174,23 +184,38 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		}
 		const readDamage = await damageCounter(text => s.command(text), AGENT);
 		const damageBefore = await readDamage();
-		const healthBefore = await health(), deathsBefore = await deaths(), t0 = Date.now();
-		row.playStartedAt = t0;
+		await s.fastRate();
+		// Play is timed on the fixture clock: game time, so every deadline and wait below covers the same game time at any
+		// tick rate (plain wall time at 20 TPS).
+		const now = () => s.clock.now();
+		const healthBefore = await health(), deathsBefore = await deaths(), t0 = now(), wall0 = Date.now(), timer = await s.gameTimer();
+		row.playStartedAt = wall0;
 		row.t0 = t0;
 		const trail = [];
 		sampling = true;
-		sampler = (async () => { while (sampling) { const p = await pos().catch(() => null); if (p) trail.push([...p, Date.now() - t0]); await sleep(500); } })();
+		row.lavaSamples = 0;
+		const inLava = async () => /passed/i.test(String(await s.command(`execute at ${AGENT} if block ~ ~ ~ minecraft:lava`).catch(() => '')))
+			|| /passed/i.test(String(await s.command(`execute at ${AGENT} if block ~ ~1 ~ minecraft:lava`).catch(() => '')));
+		// Samples start every 500 ms of game time from t0, whatever their reads cost (as test-build-live.mjs).
+		let nextSample = t0;
+		sampler = (async () => { while (sampling) {
+			const p = await pos().catch(() => null); if (p) trail.push([...p, now() - t0]);
+			if (await inLava()) row.lavaSamples += 1;
+			nextSample += 500;
+			if (now() > nextSample) nextSample = now();
+			await s.clock.sleep(nextSample - now());
+		} })();
 		const budgetMs = spot.budgetMs ?? 900_000;
 		for (const [callIndex, call] of (spot.calls ?? []).entries()) {
 			for (let attempt = 0; ; attempt++) {
-				const callStarted = Date.now();
+				const callStarted = now();
 				// "{item}": the UUID of the dropped item nearest the body now (pick_up_item takes a canonical UUID).
 				const itemUuid = JSON.stringify(call.arguments).includes('"{item}"') ? uuidOf(await s.command(`data get entity @e[type=item,sort=nearest,limit=1] UUID`)) : null;
 				let result;
 				try {
 					// A search never outruns the spot's budget: its timeoutMs is what is left of it (at most the 540 s default).
 					const args = isFindCall(call)
-						? { ...call.arguments, target: { ...call.arguments.target, timeoutMs: Math.max(10_000, Math.min(540_000, budgetMs - (Date.now() - t0))) } }
+						? { ...call.arguments, target: { ...call.arguments.target, timeoutMs: Math.max(10_000, Math.min(540_000, budgetMs - (now() - t0))) } }
 						// A call argument that is exactly "{x+n}" (y, z) is the fixture's cell at spawn plus n, as a number.
 						: row.fixtureAt ? JSON.parse(JSON.stringify(call.arguments).replace(/"(\{[xyz](?:[+-][\d.]+)?\})"/g, (_, text) => atBody(text, row.fixtureAt))
 							.replace(/"\{item\}"/g, () => JSON.stringify(itemUuid))) : call.arguments;
@@ -199,30 +224,44 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 				} catch (error) {
 					result = { state: 'ERROR', reasonCode: error?.code ?? 'ERROR', message: String(error?.message ?? error).slice(0, 600) };
 				}
-				const entry = callEntry(call, result, { attempt, atS: Math.round((callStarted - t0) / 1000), seconds: Math.round((Date.now() - callStarted) / 1000) });
+				const entry = callEntry(call, result, { attempt, atS: Math.round((callStarted - t0) / 1000), seconds: Math.round((now() - callStarted) / 1000) });
 				row.calls.push(entry);
+				// wait: a background step (do_step dig_to) finishes its body actions before the next call.
+				if (call.wait === true && ['RUNNING', 'PREPARING'].includes(result?.state)
+					&& (await awaitActionReceipts(row, { deadline: t0 + budgetMs, now, wait: ms => s.clock.sleep(ms), stopped: async () => (await deaths()) > deathsBefore })).length) {
+					row.ended = 'background step unfinished at the budget'; break;
+				}
+				// callFinish: operator commands read after every call (a stat before the next call), replies kept on the entry.
+				if (Array.isArray(spot.callFinish)) { entry.finish = []; for (const text of spot.callFinish) entry.finish.push({ command: text, reply: String(await s.command(text)).slice(0, 400) }); }
 				if (spot.dump) await writeFile(path.join(dir, `call-${callIndex}-${attempt}.json`), JSON.stringify(result, null, 2));
 				console.log(`[${spot.name}] +${entry.atS}s ${call.name}#${attempt} ${entry.state} ${entry.reasonCode} ${entry.seconds}s :: ${entry.message.slice(0, 300)}`);
 				// A dead body, or one the server no longer samples, ends the spot.
 				if ((await deaths()) > deathsBefore || /TIMEOUT observation/.test(entry.message)) { row.ended = 'death or lost observations'; break; }
-				if (!shouldRepeat(call, result, spot, { budgetLeftMs: budgetMs - (Date.now() - t0) })) break;
+				if (!shouldRepeat(call, result, spot, { budgetLeftMs: budgetMs - (now() - t0) })) break;
 				// The provider-free stand-in for a model: give the reflexes a moment with danger, then ask again.
 				if (['RUNNING', 'PREPARING'].includes(result?.state) && typeof result?.actionId === 'string') {
 					await runtime.execute({ agentId: record.agentId, goalRevision: record.goalRevision, turnId: `find-live-cancel-${callIndex}-${attempt}`, callId: `cancel-${callIndex}-${attempt}`,
 						tool: normalizeMinecraftToolCall('cancelAction', { actionId: result.actionId, goalRevision: record.goalRevision }) }, record).catch(() => {});
 				}
 				// The stand-in for a model after danger: give the reflexes (and regeneration, when hurt) a moment, then ask again.
-				if (result?.reasonCode === 'FIND_DANGER') await sleep((await health()) < 12 ? 15000 : 4000);
+				if (result?.reasonCode === 'FIND_DANGER') await s.clock.sleep((await health()) < 12 ? 15000 : 4000);
 			}
+			// A death, lost observations or an unfinished background step ends the spot: no later call runs.
+			if (row.ended) break;
 		}
 		// A background step (do_step build) returned RUNNING: take the readings only once each command has its receipt.
 		if (!row.ended) {
-			const pending = await awaitActionReceipts(row, { deadline: t0 + budgetMs, stopped: async () => (await deaths()) > deathsBefore });
+			const pending = await awaitActionReceipts(row, { deadline: t0 + budgetMs, now, wait: ms => s.clock.sleep(ms), stopped: async () => (await deaths()) > deathsBefore });
 			if (pending.length) console.log(`[${spot.name}] no terminal receipt by the budget for ${pending.map(action => action.type).join(', ')}`);
 		}
 		sampling = false; await sampler;
 		row.handBacks = row.calls.filter((entry) => entry.reasonCode === 'FIND_DANGER').length;
-		row.seconds = Math.round((Date.now() - t0) / 1000);
+		row.seconds = Math.round((now() - t0) / 1000);
+		row.wallSeconds = Math.round((Date.now() - wall0) / 1000);
+		row.gameSeconds = Math.round((await timer.elapsed()) / 1000);
+		// What the run really played at: the rate asked for and game ticks per wall second over play.
+		row.rates = await timer.rates().catch(() => null);
+		await s.normalRate();
 		let walked = 0, farthest = 0;
 		for (let i = 1; i < trail.length; i++) walked += Math.hypot(trail[i][0] - trail[i - 1][0], trail[i][2] - trail[i - 1][2]);
 		for (const p of trail) farthest = Math.max(farthest, Math.hypot(p[0] - trail[0][0], p[2] - trail[0][2]));
@@ -230,6 +269,7 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		row.path = { walked: Math.round(walked), net: Math.round(Math.hypot(end[0] - row.start[0], end[2] - row.start[2])), farthest: Math.round(farthest),
 			descended: Math.round(row.start[1] - Math.min(...trail.map(p => p[1]), row.start[1])), samples: trail.length };
 		row.end = await pos();
+		if (Array.isArray(spot.finish)) { row.finish = []; for (const text of spot.finish) row.finish.push({ command: text, reply: String(await s.command(text)).slice(0, 4000) }); }
 		const healthAfter = await health();
 		Object.assign(row, damageEvidence(damageBefore, await readDamage(), healthBefore, healthAfter));
 		row.healthLost = Number.isFinite(healthBefore) && Number.isFinite(healthAfter) ? Math.max(0, healthBefore - healthAfter) : null;
@@ -237,11 +277,12 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		row.deaths = deathResult.deaths;
 		if (!deathResult.valid) (row.integrity ??= []).push({ file: 'qo_death', error: 'Missing or decreasing vanilla death counter' });
 		row.finishedAt = Date.now();
+		row.tick = { rate: s.tickRate, held: await s.tickReport() };
 		// found is null for a room with no find call; its verdict is then no death and no damage (lib/find-spot.mjs).
 		// foundAtS comes from the same find entry that decides found.
 		Object.assign(row, findSpotVerdict(spot, row));
 		await writeFile(path.join(dir, 'trail.json'), JSON.stringify(trail));
-		console.log(`[${spot.name}] ${findSpotLabel(row)} in ${row.foundAtS ?? row.seconds}s walked=${row.path.walked} net=${row.path.net} farthest=${row.path.farthest} descended=${row.path.descended} damageTaken=${row.damageTaken ?? "unknown"} deaths=${row.deaths} handBacks=${row.handBacks}`);
+		console.log(`[${spot.name}] ${findSpotLabel(row)} in ${row.foundAtS ?? row.seconds}s walked=${row.path.walked} net=${row.path.net} farthest=${row.path.farthest} descended=${row.path.descended} damageTaken=${row.damageTaken ?? "unknown"} deaths=${row.deaths} handBacks=${row.handBacks} lavaSamples=${row.lavaSamples}`);
 	} catch (error) {
 		row.error = String(error?.stack ?? error).slice(0, 1200);
 		console.log(`[${spot.name}] ERROR ${row.error.split('\n')[0]}`);

@@ -937,12 +937,12 @@ test('machines named with --machines are leased, cleaned and given back, and nev
 		const owner = warm(fake);
 		const made = await owner.startNew();
 		// While the pool holds it, a --machines batch cannot have it: both lease by the machine's name.
-		await assert.rejects(warm(fake, { machines: [made.id] }).create(), /busy or unusable/);
+		await assert.rejects(warm(fake, { machines: [made.id] }).create(), /no machine named with --machines is free: 1 held by a live batch: rbpool-.* by batch \?/);
 		await owner.release(made);
 		const pool = warm(fake, { machines: [made.id, 'bx_missing'] });
 		const vm = await pool.create();
 		assert.equal(vm.id, made.id);
-		await assert.rejects(warm(fake, { machines: [made.id] }).create(), /busy or unusable/);
+		await assert.rejects(warm(fake, { machines: [made.id] }).create(), /no machine named with --machines is free: 1 held by a live batch/);
 		await rm(path.join(fake.home(vm.id), 'rooms/jdk'), { recursive: true });
 		assert.equal(await pool.release(vm), true, 'a named machine that fails its check is left running');
 		await pool.destroy(vm);
@@ -952,7 +952,7 @@ test('machines named with --machines are leased, cleaned and given back, and nev
 	} finally { await fake.close(); }
 });
 
-test('leases are exclusive across processes, and the lease of a batch that died or hung is broken', async () => {
+test('leases are exclusive across processes, the lease of a batch that died is broken, and a live one is kept however old its heartbeat', async () => {
 	const dir = await mkdtemp(path.join(os.tmpdir(), 'pool-leases-'));
 	try {
 		const lib = new URL('../../scripts/quality/lib/pool-leases.mjs', import.meta.url).href;
@@ -964,10 +964,10 @@ console.log(JSON.stringify(await store.take(['m1', 'm2'], { batch: String(proces
 		const store = leaseStore({ dir });
 		// Every racer has exited: their leases are stale and the next batch breaks them.
 		assert.equal(await store.take(['m1']), 'm1');
-		// A live process whose heartbeat stopped (hung, or a reused pid) loses its lease too; a fresh one keeps it.
+		// A live process keeps its lease whatever its heartbeat says: breaking it put two batches on one machine.
 		await writeFile(path.join(dir, 'leases/m2.json'), JSON.stringify({ token: 'x', pid: process.pid, heartbeatAt: Date.now() - 10 * 60_000 }));
 		await writeFile(path.join(dir, 'leases/m3.json'), JSON.stringify({ token: 'y', pid: process.pid, heartbeatAt: Date.now() }));
-		assert.equal(await leaseStore({ dir }).take(['m3', 'm2']), 'm2');
+		assert.equal(await leaseStore({ dir }).take(['m3', 'm2']), null, 'a live process keeps its lease even with no heartbeat for 10 min (older code wrote no start time)');
 		assert.equal(await leaseStore({ dir }).take(['m3']), null);
 		// A mutex left by a crashed holder is broken.
 		await writeFile(path.join(dir, 'mutex'), JSON.stringify({ pid: 999999999, at: Date.now() }));
@@ -1508,4 +1508,71 @@ test('sixth review: a lock taken after a wait longer than the stale limit is sta
 		await store.withMutex(async () => { written = JSON.parse(await readFile(path.join(dir, 'mutex'), 'utf8')); });
 		assert.equal(written.at, clock, 'the lock carries the time it was taken, not the time the wait began');
 	} finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('keepalive --warm keeps the most recently used idle machines, deletes the rest longest idle first, and spares one with a room still running', { skip: process.platform === 'win32' }, async () => {
+	const fake = await fakeBoat();
+	try {
+		const store = leaseStore({ dir: fake.poolDir });
+		const pool = warmBoatPool({ snapshot: 'img', type: 'default', store, log: quiet, roomPorts: [1, 0], startsPerMinute: 600 });
+		const vms = [];
+		for (let i = 0; i < 4; i++) vms.push(await pool.startNew());
+		for (const vm of vms) { await pool.release(vm); await new Promise(done => setTimeout(done, 20)); }
+		// vms[0] was given back first (longest idle) but still has a room running: it must be spared.
+		const room = spawn('sleep', ['300'], { cwd: (await mkdir(path.join(fake.home(vms[0].id), 'batch/out/r'), { recursive: true }), path.join(fake.home(vms[0].id), 'batch/out/r')), stdio: 'ignore', detached: true });
+		try {
+			const spareBox = path.join(fake.dir, 'sandboxes', `${vms[0].id}.json`);
+			await writeFile(spareBox, JSON.stringify({ ...JSON.parse(await readFile(spareBox, 'utf8')), archiveAfter: new Date(Date.now() + 5 * 60_000).toISOString() }));
+			const cli = fileURLToPath(new URL('../../scripts/quality/boat-pool.mjs', import.meta.url));
+			const run = spawnSync(process.execPath, [cli, 'keepalive', '--warm', '2', '--grace', '0'], { env: { ...process.env, ROOM_BATCH_POOL_DIR: fake.poolDir }, encoding: 'utf8' });
+			assert.equal(run.status, 0, run.stdout + run.stderr);
+			assert.ok(fake.exists(vms[3].id) && fake.exists(vms[2].id), 'the two most recently used stay warm');
+			assert.equal(fake.exists(vms[1].id), false, 'an idle one beyond the warm two is deleted');
+			assert.ok(fake.exists(vms[0].id), 'the one with a room still running is spared');
+			const box = JSON.parse(await readFile(path.join(fake.dir, 'sandboxes', `${vms[0].id}.json`), 'utf8'));
+			assert.ok(Date.parse(box.archiveAfter) - Date.now() > 50 * 60_000, 'the spared machine got its deadline pushed back');
+			assert.match(run.stdout, /1 deleted, 1 kept \(in use, or work on them\)/);
+		} finally { room.kill('SIGKILL'); }
+		store.stop();
+	} finally { await fake.close(); }
+});
+
+test('a live batch keeps its lease however stale its heartbeat, and --machines refuses its machine and names it', { skip: process.platform !== 'linux' }, async () => {
+	const fake = await fakeBoat();
+	try {
+		// The holder: a real live process, recorded with its start time, whose heartbeat stopped 10 minutes ago.
+		const holder = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'ignore' });
+		try {
+			const { processStart } = await import('../../scripts/quality/lib/pool-leases.mjs');
+			const made = await warm(fake).startNew();
+			const leaseFile = path.join(fake.poolDir, 'leases', `${made.name}.json`);
+			const stale = Date.now() - 10 * 60_000;
+			await writeFile(leaseFile, JSON.stringify({ token: 'theirs', pid: holder.pid, pidStart: processStart(holder.pid), batch: 'rr-pack', heartbeatAt: stale }));
+			await assert.rejects(warm(fake, { machines: [made.id] }).create(), /no machine named with --machines is free: 1 held by a live batch: rbpool-\S+ by batch rr-pack \(pid \d+\)/);
+			assert.equal(JSON.parse(await readFile(leaseFile, 'utf8')).token, 'theirs', 'the live lease was not broken');
+			// The same pid under a different start time is a reused pid: that lease is stale.
+			await writeFile(leaseFile, JSON.stringify({ token: 'theirs', pid: holder.pid, pidStart: '1', batch: 'rr-pack', heartbeatAt: Date.now() }));
+			assert.equal((await warm(fake, { machines: [made.id] }).create()).id, made.id);
+		} finally { holder.kill('SIGKILL'); }
+	} finally { await fake.close(); }
+});
+
+test('keepalive --warm never deletes a pool machine matching --keep, and a lease dropped only to inspect a machine records no idle time', { skip: process.platform === 'win32' }, async () => {
+	const fake = await fakeBoat();
+	try {
+		const store = leaseStore({ dir: fake.poolDir });
+		const pool = warmBoatPool({ snapshot: 'img', type: 'default', store, log: quiet, roomPorts: [1, 0], startsPerMinute: 600 });
+		const vm = await pool.startNew();
+		await pool.release(vm);
+		const before = (await store.idleSince())[vm.name];
+		await store.take([vm.name]);
+		await store.drop(vm.name, { idle: false });
+		assert.equal((await store.idleSince())[vm.name], before, 'an inspection lease leaves the idle time alone');
+		const cli = fileURLToPath(new URL('../../scripts/quality/boat-pool.mjs', import.meta.url));
+		const run = spawnSync(process.execPath, [cli, 'keepalive', '--warm', '0', '--grace', '0', '--keep', 'rbpool-'], { env: { ...process.env, ROOM_BATCH_POOL_DIR: fake.poolDir }, encoding: 'utf8' });
+		assert.equal(run.status, 0, run.stdout + run.stderr);
+		assert.ok(fake.exists(vm.id), 'a pool machine matching --keep is not deleted');
+		assert.match(run.stdout, /0 deleted/);
+		store.stop();
+	} finally { await fake.close(); }
 });

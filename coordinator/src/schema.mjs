@@ -173,6 +173,7 @@ export function validateAction(value) {
 			requireDuration(action.timeoutMs, 'action.timeoutMs');
 			break;
 		case 'rest':
+		case 'escape':
 			requireDuration(action.timeoutMs, 'action.timeoutMs');
 			break;
 		case 'build':

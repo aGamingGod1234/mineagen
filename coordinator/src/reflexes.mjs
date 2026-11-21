@@ -24,7 +24,9 @@ export const DEFAULT_REFLEXES = Object.freeze([
 	// Air and fire must interrupt a retreat already in progress; only a strictly higher priority preempts.
 	{ id: 'default-retreat', kind: 'trigger', priority: 7, when: [{ type: 'health_below', value: 7 }, { type: 'hostile_near', within: 6 }], do: { type: 'sprint_away', blocks: 10 }, cooldownMs: 5_000, ttlMs: 3_600_000 },
 	// Each firing eats one item. A stance retries after cooldown while hungry and releases if a hostile comes within 8 blocks.
-	{ id: 'default-eat', kind: 'stance', priority: 3, when: [{ type: 'hunger_below', value: 14 }, { type: 'hostile_near', within: 8, not: true }], do: { type: 'eat' }, cooldownMs: 20_000, ttlMs: 3_600_000 },
+	// Below 18, not 14: health regrows only at hunger 18+. Practice room (hurt to 12, hunger 16, bread in the bag): at 14 the
+	// body never ate and stayed at 12 in 10 of 10 runs; at 18 it ate and healed to 20 in 10 of 10.
+	{ id: 'default-eat', kind: 'stance', priority: 3, when: [{ type: 'hunger_below', value: 18 }, { type: 'hostile_near', within: 8, not: true }], do: { type: 'eat' }, cooldownMs: 20_000, ttlMs: 3_600_000 },
 	{ id: 'default-defend', kind: 'stance', priority: 5, when: [{ type: 'attacked', withinS: 4 }], do: { type: 'defend' }, ttlMs: 3_600_000 },
 	// Bow skeletons as well as blazes (issue 2, K8): skeleton arrows were 21 of 54 deaths, most with a flee running in the open.
 	// 8 s, not the 4 s trigger default: a walk of 8 steps, a look around and a stop to block each shot on the way (about 1.25 s
@@ -70,7 +72,7 @@ export function instinctsEnabled(environment = {}) {
 
 /**
  * The automatic stance (D3): the brain need not set one. It is only numbers in the default rules below, so the wire and
- * older mods see ordinary rules (C23). steady equals DEFAULT_REFLEXES apart from the eat line.
+ * older mods see ordinary rules (C23). steady equals DEFAULT_REFLEXES.
  */
 export const STANCES = Object.freeze(['steady', 'fight', 'cautious', 'fortress']);
 // fortress (wall breaker rods): a wither skeleton within 16 blocks in the Nether. Wither skeletons caused 12 of 28 staged

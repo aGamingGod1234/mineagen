@@ -1641,3 +1641,169 @@ test('Nether ore searches do not invent nonexistent deepslate variants', () => {
   for (const block of expected)assert.deepEqual([...findProfile({block}).ids].sort(),expected);
  }
 });
+
+// Cave first is opt-in (MINEAGEN_CAVE_FIRST=on); the tests from here on run with it on, except the switch test, which sets it itself.
+const caveFirstBefore = process.env.MINEAGEN_CAVE_FIRST;
+test('cave first tests run with the switch on', () => { process.env.MINEAGEN_CAVE_FIRST = 'on'; });
+test.after(() => { if (caveFirstBefore === undefined) delete process.env.MINEAGEN_CAVE_FIRST; else process.env.MINEAGEN_CAVE_FIRST = caveFirstBefore; });
+// Cave first (21 Nov room test of PR #31: its cave legs dug with build on, re-fired after mob stops mid-descent and walked
+// into the mob's cave; iron 0 of 4 exercised runs against 4 of 4, pickaxe worn out 3 of 4).
+const DOWN = { move: (player, args) => ({ y: args.y }), result: { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:iron_ore seen at 3,20,9, 3 blocks away' } };
+const cave = (x, y, z) => ({ x, y, z, air: 60 });
+
+test('cave first: a cave in the first look, below and within reach, is walked into with build off before any dig', async () => {
+	const body = fakeBody({ frontier: { candidates: [], coverage: { headings: {} } },
+		looks: [{ survey: { caves: [cave(20, 50, 0)] } }, { survey: { veins: [{ blockId: 'minecraft:iron_ore', x: 24, y: 46, z: 2, visible: 3 }] } }],
+		acts: { travel_to: [{ move: () => ({ x: 20.5, y: 50, z: 0.5 }), result: { state: 'SUCCEEDED', reasonCode: 'ARRIVED' } }], dig_to: [DOWN] } });
+	const result = await searchFor({ block: 'minecraft:iron_ore' }, body);
+	assert.equal(result.reasonCode, 'FIND_SEEN', result.message);
+	assert.match(result.message, /walked into 1 of 1 cave\(s\) before digging/);
+	const walk = body.calls.find((call) => call.actionType === 'travel_to').args;
+	assert.deepEqual([walk.x, walk.y, walk.z, walk.build], [20.5, 50, 0.5, false]);
+	assert.equal(body.calls.some((call) => call.actionType === 'dig_to'), false, 'seen from inside the cave: no dig at all');
+});
+
+test('cave first: a cave with no walking way in is marked and left, and the dig down runs from where the body stands', async () => {
+	const missed = [];
+	const body = fakeBody({ frontier: { candidates: [], coverage: { headings: {} } }, looks: [{ survey: { caves: [cave(20, 50, 0)] } }],
+		acts: { travel_to: [{ ms: 3_000, result: { state: 'FAILED', reasonCode: 'NO_ROUTE', message: 'No seen standing spot ahead gets closer, and build is false' } }], dig_to: [DOWN] } });
+	body.missPlace = (place, why) => missed.push({ ...place, why });
+	const result = await searchFor({ block: 'minecraft:iron_ore' }, body);
+	assert.equal(result.reasonCode, 'FIND_SEEN', result.message);
+	assert.deepEqual(body.calls.filter((call) => call.actionType).map((call) => call.actionType), ['travel_to', 'dig_to']);
+	assert.equal(body.calls[1].args.build, false);
+	assert.deepEqual(missed.map((row) => [row.x, row.y, row.z, row.why]), [[20, 50, 0, 'no walking way into the cave']]);
+	assert.match(result.message, /walked into 0 of 1 cave\(s\) first, then dug/);
+});
+
+test('cave first: a remembered cave counts; the cave the body stands at, one above it, one far under the band and one with a mob near do not', async () => {
+	const known = { sightings: [{ kind: 'cave', what: 'cave', x: 0, y: 30, z: 30, air: 50 }] };
+	const body = fakeBody({ known, frontier: { candidates: [], coverage: { headings: {} } },
+		start: sample({ entities: [{ type: 'minecraft:zombie', hostile: true, x: 30, y: 60, z: 4, distance: 30 }] }),
+		looks: [{ survey: { caves: [cave(2, 68, 1), cave(10, 80, 0), cave(0, -20, 20), cave(30, 60, 0)] } }],
+		acts: { travel_to: [{ move: () => ({ x: 0.5, y: 30, z: 30.5 }), result: { state: 'SUCCEEDED', reasonCode: 'ARRIVED' } }], dig_to: [DOWN] } });
+	const result = await searchFor({ block: 'minecraft:iron_ore' }, body);
+	assert.equal(result.reasonCode, 'FIND_SEEN', result.message);
+	const walks = body.calls.filter((call) => call.actionType === 'travel_to').map((call) => [call.args.x, call.args.y, call.args.z]);
+	assert.deepEqual(walks, [[0.5, 30, 30.5]], 'only the remembered cave');
+	assert.match(result.message, /walked into 1 of 1 cave\(s\) first, down to y30, then dug/);
+});
+
+test('cave first: at most two walks, and a mob met on a walk ends the walking', async () => {
+	const walks = (body) => body.calls.filter((call) => call.actionType === 'travel_to').length;
+	const three = [cave(20, 50, 0), cave(-20, 50, 0), cave(0, 50, 20)];
+	const arrive = (x, z) => ({ move: () => ({ x, y: 50, z }), result: { state: 'SUCCEEDED', reasonCode: 'ARRIVED' } });
+	const all = fakeBody({ frontier: { candidates: [], coverage: { headings: {} } }, looks: [{ survey: { caves: three } }, { survey: {} }, { survey: {} }],
+		acts: { travel_to: [arrive(20.5, 0.5), arrive(-19.5, 0.5), arrive(0.5, 20.5)], dig_to: [DOWN] } });
+	assert.equal((await searchFor({ block: 'minecraft:iron_ore' }, all)).reasonCode, 'FIND_SEEN');
+	assert.equal(walks(all), 2);
+	const mob = fakeBody({ frontier: { candidates: [], coverage: { headings: {} } }, looks: [{ survey: { caves: three } }],
+		acts: { travel_to: [{ result: { state: 'FAILED', reasonCode: 'HOSTILE_NEAR', message: 'minecraft:zombie 1a2b 14 blocks away' } }], dig_to: [DOWN] } });
+	await searchFor({ block: 'minecraft:iron_ore' }, mob);
+	assert.equal(walks(mob), 1, 'no second cave walk after the mob');
+});
+
+test('cave first: the walk back to where the cave walks began that stops for damage hands back, it does not dig on', async () => {
+	const body = fakeBody({ frontier: { candidates: [], coverage: { headings: {} } }, looks: [{ survey: { caves: [cave(20, 50, 0)] } }],
+		acts: { travel_to: [
+			// The walk into the cave gives up 9 blocks out, so the body walks back before digging.
+			{ move: () => ({ x: 9.5, z: 0.5 }), result: { state: 'FAILED', reasonCode: 'NO_ROUTE', message: 'No seen standing spot ahead gets closer, and build is false' } },
+			{ move: () => ({ health: 10 }), result: { state: 'FAILED', reasonCode: 'TRAVEL_DAMAGED', message: 'Stopped: lost 10 health on the way' } },
+		], dig_to: [DOWN] } });
+	const result = await searchFor({ block: 'minecraft:iron_ore' }, body);
+	assert.equal(result.reasonCode, 'FIND_DANGER', result.message);
+	assert.equal(body.calls.some((call) => call.actionType === 'dig_to'), false, 'no dig after the damaged walk back');
+});
+
+test('cave first runs once, before the first dig: a cave the descent opened after a mob stop is not walked to', async () => {
+	const body = fakeBody({ start: sample({ inventory: { items: [{ itemId: 'minecraft:stone_sword', count: 1 }, { itemId: 'minecraft:cobblestone', count: 20 }] } }),
+		frontier: { candidates: [], coverage: { headings: {} } },
+		looks: [{ survey: {} }, { survey: { caves: [cave(10, 45, 0)] } }],
+		acts: {
+			dig_to: [
+				{ move: () => ({ y: 55 }), result: { state: 'FAILED', reasonCode: 'HOSTILE_NEAR', message: 'Stopped: minecraft:skeleton 86ef at 0,45,-6, 10 blocks away. At 0,55,0; dug past caves at 10,45,0 (y45)' } },
+				{ result: { state: 'SUCCEEDED', reasonCode: 'DIG_LIMIT_REACHED', message: 'Mined the maxBlocks limit' } },
+				DOWN,
+			],
+			build_shelter: [{ result: { state: 'SUCCEEDED', reasonCode: 'SHELTER_BUILT' } }],
+		} });
+	const result = await searchFor({ block: 'minecraft:iron_ore' }, body);
+	assert.equal(result.reasonCode, 'FIND_SEEN', result.message);
+	assert.equal(body.calls.some((call) => call.actionType === 'travel_to' && call.args.build === false), false);
+	assert.doesNotMatch(result.message, /cave\(s\)/);
+});
+
+test('cave first runs only with MINEAGEN_CAVE_FIRST=on, and never for lava', async () => {
+	const run = async (target) => {
+		const body = fakeBody({ frontier: { candidates: [], coverage: { headings: {} } }, looks: [{ survey: { caves: [cave(20, 50, 0)] } }], acts: { dig_to: [DOWN] } });
+		await searchFor(target, body);
+		return body.calls.some((call) => call.actionType === 'travel_to' && call.args.build === false);
+	};
+	assert.equal(await run({ block: 'minecraft:lava' }), false);
+	delete process.env.MINEAGEN_CAVE_FIRST;
+	assert.equal(await run({ block: 'minecraft:iron_ore' }), false, 'off by default');
+	process.env.MINEAGEN_CAVE_FIRST = 'off';
+	assert.equal(await run({ block: 'minecraft:iron_ore' }), false);
+	process.env.MINEAGEN_CAVE_FIRST = 'on';
+	assert.equal(await run({ block: 'minecraft:iron_ore' }), true);
+	assert.equal(await run({ block: 'minecraft:lava' }), false);
+});
+
+test('cave first: a cave with water seen beside it is left alone, and a walk that ends in water walks back out and digs from dry ground', async () => {
+	const seenWet = fakeBody({ frontier: { candidates: [], coverage: { headings: {} } },
+		looks: [{ survey: { caves: [cave(20, 50, 0)], blocks: [{ blockId: 'minecraft:water', x: 21, y: 49, z: 1 }] } }], acts: { dig_to: [DOWN] } });
+	assert.equal((await searchFor({ block: 'minecraft:iron_ore' }, seenWet)).reasonCode, 'FIND_SEEN');
+	assert.equal(seenWet.calls.some((call) => call.actionType === 'travel_to'), false, 'the flooded cave is not walked to');
+	const missed = [];
+	const swim = fakeBody({ frontier: { candidates: [], coverage: { headings: {} } }, looks: [{ survey: { caves: [cave(20, 50, 0), cave(-20, 50, 0)] } }],
+		acts: { travel_to: [
+			{ move: () => ({ x: 18.5, y: 50, z: 0.5, inWater: true }), result: { state: 'FAILED', reasonCode: 'NO_ROUTE', message: 'Could not get out of the water in 30 s' } },
+			{ move: () => ({ x: 0.5, y: 70, z: 0.5, inWater: false }), result: { state: 'SUCCEEDED', reasonCode: 'ARRIVED' } }],
+		dig_to: [DOWN] } });
+	swim.missPlace = (place, why) => missed.push({ ...place, why });
+	const result = await searchFor({ block: 'minecraft:iron_ore' }, swim);
+	assert.equal(result.reasonCode, 'FIND_SEEN', result.message);
+	const travels = swim.calls.filter((call) => call.actionType === 'travel_to').map((call) => [call.args.x, call.args.y, call.args.z, call.args.build]);
+	assert.deepEqual(travels, [[20.5, 50, 0.5, false], [0.5, 70, 0.5, false]], 'into the cave, then back to the start; no second cave');
+	assert.ok(missed.some((row) => row.why === 'flooded cave'));
+	assert.match(result.message, /1 flooded, walked back out/);
+	assert.equal(swim.calls.filter((call) => call.actionType === 'dig_to').length, 1);
+});
+
+test('cave first: no cave walk with a hostile within 24 blocks of the body (a search asked again after a mob stop)', async () => {
+	const body = fakeBody({ frontier: { candidates: [], coverage: { headings: {} } },
+		start: sample({ entities: [{ type: 'minecraft:creeper', hostile: true, x: -10, y: 70, z: 10, distance: 14 }] }),
+		looks: [{ survey: { caves: [cave(20, 50, 0)] } }], acts: { dig_to: [DOWN] } });
+	await searchFor({ block: 'minecraft:iron_ore' }, body);
+	assert.equal(body.calls.some((call) => call.actionType === 'travel_to'), false);
+});
+
+test('cave first: a mob seen on any heading of the look rules out its cave; walks are time-capped; cave misses never hide ore', async () => {
+	const sweep = fakeBody({ frontier: { candidates: [], coverage: { headings: {} } },
+		looks: [{ survey: { caves: [cave(30, 50, 0)] }, samples: [{ entities: [{ type: 'minecraft:skeleton', x: 31, y: 50, z: 2 }] }, { entities: [] }] }], acts: { dig_to: [DOWN] } });
+	await searchFor({ block: 'minecraft:iron_ore' }, sweep);
+	assert.equal(sweep.calls.some((call) => call.actionType === 'travel_to'), false, 'the skeleton beside it was seen on an earlier heading');
+	const missed = [];
+	const capped = fakeBody({ frontier: { candidates: [], coverage: { headings: {} } }, looks: [{ survey: { caves: [cave(20, 50, 0)] } }],
+		acts: { travel_to: [{ result: { state: 'FAILED', reasonCode: 'NO_ROUTE', message: 'build is false' } }], dig_to: [DOWN] } });
+	capped.missPlace = (place, why) => missed.push({ ...place, why });
+	await searchFor({ block: 'minecraft:iron_ore' }, capped);
+	assert.equal(capped.calls.find((call) => call.actionType === 'travel_to').args.timeoutMs, 45_000);
+	assert.deepEqual(missed.map((row) => row.blockId), ['mineagen:cave'], 'a cave miss is typed, so ore and water searches ignore it');
+	const late = fakeBody({ frontier: { candidates: [], coverage: { headings: {} } }, looks: [{ survey: { caves: [cave(20, 50, 0)] } }], acts: { dig_to: [DOWN] } });
+	await searchFor({ block: 'minecraft:iron_ore' }, late, { timeoutMs: 100_000 });
+	assert.equal(late.calls.some((call) => call.actionType === 'travel_to'), false, 'too little time left for a walk and a dig after it');
+});
+
+test('cave first: when no cave walk got in, the body walks back to where the walks began before it digs', async () => {
+	const body = fakeBody({ frontier: { candidates: [], coverage: { headings: {} } }, looks: [{ survey: { caves: [cave(-8, 56, -5)] } }],
+		acts: { travel_to: [
+			{ move: () => ({ x: -7.5, y: 63, z: -3.6 }), result: { state: 'FAILED', reasonCode: 'NO_ROUTE', message: 'No seen standing spot ahead gets closer, and build is false' } },
+			{ move: () => ({ x: 0.5, y: 70, z: 0.5 }), result: { state: 'SUCCEEDED', reasonCode: 'ARRIVED' } }],
+		dig_to: [DOWN] } });
+	const result = await searchFor({ block: 'minecraft:iron_ore' }, body);
+	assert.equal(result.reasonCode, 'FIND_SEEN', result.message);
+	const order = body.calls.filter((call) => call.actionType).map((call) => `${call.actionType}${call.args.build === false ? ':walk' : ''}`);
+	assert.deepEqual(order, ['travel_to:walk', 'travel_to:walk', 'dig_to']);
+	assert.deepEqual([body.calls[2].args.x, body.calls[2].args.y, body.calls[2].args.z], [0.5, 70, 0.5]);
+});

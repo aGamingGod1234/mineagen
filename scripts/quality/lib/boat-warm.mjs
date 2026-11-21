@@ -63,6 +63,12 @@ export function rateLimited(error) {
 	return { window, retryAfterSeconds: Number.isFinite(seconds) && seconds > 0 ? seconds : null, concurrent: /limit_reached|at once/i.test(text) };
 }
 
+/** The shell function scan(): pids of every process a room left (see cleanScript), one line, space separated. */
+const scanFunction = killJava => `scan() { { find /proc/[0-9]*/cwd /proc/[0-9]*/exe -maxdepth 0 -printf '%p\\t%l\\n' 2>/dev/null | PW="$W/" PJ="${killJava ? '$J' : ''}" awk -F '\\t' '{ split($1, p, "/"); t = $2; sub(/ \\(deleted\\)$/, "", t); if (index(t "/", ENVIRON["PW"]) == 1 || (ENVIRON["PJ"] != "" && index(t, ENVIRON["PJ"]) == 1)) print p[3] }'; ps -eo pid=,args= 2>/dev/null | PW="$W/" PJ="${killJava ? '$J' : ''}" awk 'index($0, ENVIRON["PW"]) || (ENVIRON["PJ"] != "" && index($0, ENVIRON["PJ"])) { print $1 }'; } | sort -u | grep -vx -e "$$" -e "$PPID" | tr "\\n" " "; }`;
+
+/** Prints busy when a room or game process runs on a pool machine, else free (keepalive checks before deleting). */
+export const busyScript = ({ imageDir = 'rooms' } = {}) => ['H="$HOME"; W="$H/batch"; J="$H/' + imageDir + '/jdk/"', scanFunction(true), 'left="$(scan)"; [ -n "${left% }" ] && echo busy || echo free'].join('\n');
+
 /**
  * The cleaning a pool machine gets before a batch and after it. mode 'mark' first writes the marker (a fresh machine),
  * 'adopt' skips it (a machine named with --machines); otherwise a missing or different marker fails it. Fails (exit 3/4/5) when the marker, the image or a killed room says
@@ -77,7 +83,7 @@ export function cleanScript({ marker, imageDir = 'rooms', mode = 'check', ports 
 		// image's Java (pool machines only: a machine named with --machines may run other things on that Java), or its command
 		// line names either. One find and one ps cover every process; the paths reach awk through its environment, never its
 		// arguments, so the scan never finds itself, and find's tab-separated output keeps paths with spaces whole.
-		`scan() { { find /proc/[0-9]*/cwd /proc/[0-9]*/exe -maxdepth 0 -printf '%p\\t%l\\n' 2>/dev/null | PW="$W/" PJ="${killJava ? '$J' : ''}" awk -F '\\t' '{ split($1, p, "/"); t = $2; sub(/ \\(deleted\\)$/, "", t); if (index(t "/", ENVIRON["PW"]) == 1 || (ENVIRON["PJ"] != "" && index(t, ENVIRON["PJ"]) == 1)) print p[3] }'; ps -eo pid=,args= 2>/dev/null | PW="$W/" PJ="${killJava ? '$J' : ''}" awk 'index($0, ENVIRON["PW"]) || (ENVIRON["PJ"] != "" && index($0, ENVIRON["PJ"])) { print $1 }'; } | sort -u | grep -vx -e "$$" -e "$PPID" | tr "\\n" " "; }`,
+		scanFunction(killJava),
 		'left=""',
 		'for round in 1 2 3 4 5; do',
 		'  left="$(scan)"; left="${left% }"',
@@ -101,7 +107,7 @@ export function cleanScript({ marker, imageDir = 'rooms', mode = 'check', ports 
  * machines: ids of running machines to use instead of the pool. Only those are leased; none is ever created or deleted,
  * and one that fails its cleaning is left running for a look.
  */
-export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, idleTtlSeconds = 86_400, startsPerMinute = 20, startReserve = 5,
+export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, idleTtlSeconds = 3600, startsPerMinute = 20, startReserve = 5,
 	minRemainingSeconds = 120, roomPorts = [28000, 29999], machines = null, batch = null, bundle = null, imageDir = 'rooms', waitSeconds, log = console.log, store = leaseStore({ log }) } = {}) {
 	// prepare, start, poll, alive and fetch are the ephemeral pool's; only where machines come from and go to differs.
 	const base = bundle ? boatPool({ snapshot, type, ttlSeconds, namePrefix: 'unused', bundle, imageDir, log, ...(waitSeconds ? { waitSeconds } : {}) }) : {};
@@ -202,13 +208,19 @@ export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, id
 				adoptable ??= listSandboxes().then(sandboxes => {
 					const found = new Map(sandboxes.filter(item => machines.includes(item.id) && LIVE.has(item.state)).map(item => [item.name || item.id, item.id]));
 					for (const id of machines) if (![...found.values()].includes(id)) log(`machine ${id} named with --machines is not running: skipped`);
+					store.list().then(leases => { for (const item of leases) if (found.has(item.name) && !item.stale && !store.holds(item.name)) log(`machine ${found.get(item.name)} (${item.name}) named with --machines is held by batch ${item.lease?.batch ?? '?'} (pid ${item.lease?.pid ?? '?'}): skipped`); }).catch(() => {});
 					return found;
 				});
 				const byName = await adoptable;
 				const tried = new Set();
 				while (true) {
 					const name = await store.take([...byName.keys()].filter(item => !tried.has(item) && !avoid.includes(byName.get(item)) && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(item)), { batch });
-					if (!name) throw new Error('every machine named with --machines is busy or unusable');
+					if (!name) {
+						// Say who holds each named machine: two batches on one machine wipe each other's rooms, so this is refused.
+						const held = (await store.list()).filter(item => byName.has(item.name) && !item.stale && !store.holds(item.name));
+						const detail = held.map(item => `${item.name} by batch ${item.lease?.batch ?? '?'} (pid ${item.lease?.pid ?? '?'})`).join(', ');
+						throw new Error(`no machine named with --machines is free${held.length ? `: ${held.length} held by a live batch: ${detail}` : ''}${tried.size ? `; ${tried.size} failed their check` : ''}`);
+					}
 					tried.add(name);
 					const id = byName.get(name);
 					const vm = { id, name, reused: true, adopted: true, ttlSeconds };

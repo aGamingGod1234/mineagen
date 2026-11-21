@@ -12,6 +12,8 @@ import { randomBytes, createHash } from 'node:crypto';
 import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
+import { installTickRate, unshownTickRate } from './watch-replay.mjs';
+import { damageCounter, recordDamageEvidence } from './lib/damage-counter.mjs';
 
 const root=fileURLToPath(new URL('../..',import.meta.url));
 const out=resolve(process.argv[2] ?? 'runtime/barter-live');
@@ -42,7 +44,7 @@ class Inbox {
   accept(e){const i=this.waiters.findIndex(w=>w.type===e.type&&w.match(e));if(i>=0)this.waiters.splice(i,1)[0].done(e);else {this.events.push(e);if(this.events.length>1024)this.events.shift();}}
   wait(type,match=()=>true,ms=30000){const i=this.events.findIndex(e=>e.type===type&&match(e));if(i>=0)return Promise.resolve(this.events.splice(i,1)[0]);return new Promise((res,rej)=>{const w={type,match,done:e=>{clearTimeout(t);res(e)}};const t=setTimeout(()=>{this.waiters=this.waiters.filter(x=>x!==w);rej(new Error(`TIMEOUT ${type}`))},ms);this.waiters.push(w)});}
 }
-let rcon,bridge,record,observation;
+let rcon,bridge,record,observation,rate,play=null;
 const agent='Barter';
 const command=async s=>{
   if(rcon.state==='closed'){rcon=new HeadlessRconClient({host:'127.0.0.1',port:port+1,password:secret,commandTimeoutMs:5000});await rcon.connect();}
@@ -63,10 +65,27 @@ async function executeAction(c){
   await writeFile(join(out,'actions.json'),JSON.stringify(actions,null,2));
   return r;
 }
+// The play's game and wall seconds, the rates the server held, and vanilla's damage counter over it.
+async function endPlay(){
+  const p=play;p.done=true;
+  // elapsed() reads the world tick first, so the clock is anchored on it when seconds is read.
+  const gameMs=await p.timer.elapsed();
+  const tick={tickRate:rate.tickRate,seconds:Math.round((rate.clock.now()-p.t0)/1000),wallSeconds:Math.round((Date.now()-p.wall0)/1000),
+    gameSeconds:Math.round(gameMs/1000),rates:await p.timer.rates().catch(()=>null)};
+  await rate.normalRate();
+  tick.held=await rate.tickReport();
+  recordDamageEvidence(tick, p.damage0,await p.damage().catch(()=>null));
+  return tick;
+}
 try {
   for(let i=0;i<150;i++){try{rcon=new HeadlessRconClient({host:'127.0.0.1',port:port+1,password:secret,connectTimeoutMs:500,commandTimeoutMs:5000});await rcon.connect();break}catch(e){await rcon?.close();if(i===149)throw e;await sleep(1000)}}
+  // Stays at 20 (unshownTickRate): each barter return is seen only if it lands out of the body's pickup reach and a 1 s
+  // sample catches it on the ground. Where the piglin throws from depends on how many ticks pass during the harness's
+  // round trips, so at 60 a return went unseen in 2 of 3 runs (hand-over once, dropped gold once); 20 TPS saw both
+  // returns in 14 of 14 runs.
+  rate=installTickRate({command:text=>command(text)},unshownTickRate('barter returns picked up before a sample sees them'));
   bridge=new MultiplexedServerBridge({port,secret},{});inbox=new Inbox(bridge);
-  bridge.on('observation',e=>{if(e.agentId===record?.agentId&&e.payload.ready){observation=e.payload}});
+  bridge.on('observation',e=>{rate.clock.observe(e.payload?.world?.gameTime);if(e.agentId===record?.agentId&&e.payload.ready){observation=e.payload}});
   bridge.on('goal_spec_request',e=>{bridge.send('goal_spec_proposal',e.agentId,{requestId:e.payload.requestId,summary:'Controlled live mechanics fixture',predicate:{type:'survive_duration',ticks:12000}}).catch(()=>{});});
   const ready=inbox.wait('ready');bridge.start();await ready;
   await bridge.send('catalog_snapshot','server',{refreshedAtEpochMs:Date.now(),models:[{provider:'codex',model:'gpt-6.1-sol',id:'gpt-6.1-sol',displayName:'Provider-free barter fixture',reasoningEfforts:['low'],serviceTiers:['priority']}]});
@@ -90,7 +109,7 @@ try {
     const id=`barter-${++ordinal}`;
     return executeAction({actionId:id,action:{type,arguments:args},provenance:{traceId:id,programId:'barter-fixture',stepId:id,eventSequence:observation.eventSequence}});
   }
-  const at=async(x,y,z,yaw,pitch)=>{await command(`tp ${agent} ${x} ${y} ${z} ${yaw} ${pitch}`);await sleep(600);observation=await observe();};
+  const at=async(x,y,z,yaw,pitch)=>{await command(`tp ${agent} ${x} ${y} ${z} ${yaw} ${pitch}`);await rate.clock.sleep(600);observation=await observe();};
   const gold=()=>(observation.inventory?.items??[]).filter(i=>i.itemId==='minecraft:gold_ingot').reduce((n,i)=>n+i.count,0);
   const carried=()=>(observation.inventory?.items??[]).filter(i=>!['head','chest','legs','feet','offhand'].includes(i.slot));
   const inventoryIds=()=>{const counts=new Map();for(const i of carried())counts.set(i.itemId,(counts.get(i.itemId)??0)+i.count);return counts;};
@@ -104,9 +123,13 @@ try {
   await command('summon minecraft:piglin 0.5 80 2.5 {IsImmuneToZombification:1b,PersistenceRequired:1b,UUID:[I;0,0,0,7]}');
   const piglin='00000000-0000-0000-0000-000000000007';
   await at(0.5,80,0.5,0,10);
-  await sleep(1500);
+  await rate.idleSleep(1500);
   await command(`tp @e[type=minecraft:piglin] 0.5 80 2.0`);
   observation=await observe();
+  const damage=await damageCounter(command,agent);
+  play={damage0:await damage(),damage};
+  await rate.fastRate();
+  play.t0=rate.clock.now();play.wall0=Date.now();play.timer=await rate.gameTimer();
   r=await act('select_item',{itemId:'minecraft:gold_ingot'});
   observation=await observe();
   r=await act('interact_entity',{targetId:piglin,hand:'main',expectedItemId:'minecraft:gold_ingot'});
@@ -114,7 +137,7 @@ try {
   results.handOver={state:r.state,reasonCode:r.reasonCode,message:r.message,goldAfter:gold()};
   const returns=async()=>{
     for(let i=0;i<20;i++){
-      await sleep(1000);observation=await observe();
+      await rate.clock.sleep(1000);observation=await observe();
       const drops=(observation.entities??[]).filter(x=>x.type==='minecraft:item'&&x.itemId!=='minecraft:gold_ingot');
       if(drops.length) return drops;
     }
@@ -136,6 +159,7 @@ try {
   results.dropReturn=drops.map(d=>({itemId:d.itemId,count:d.count,distance:Math.round(d.distance??-1)}));
   const piglinState=await command('data get entity @e[type=minecraft:piglin,limit=1] Brain.memories');
   results.piglinCalm=!/angry_at/.test(piglinState);
+  results.tick=await endPlay();
   await writeFile(join(out,'barter.json'),JSON.stringify(results,null,2));
   console.log(JSON.stringify(results,null,2));
   const ok=results.dropOwner.state==='SUCCEEDED'&&/\[I;/.test(results.dropOwner.thrower)
@@ -144,6 +168,7 @@ try {
   if(!ok)throw new Error('barter live check failed');
   console.log('Barter live check passed');
 } finally {
+  if(play&&!play.done)await endPlay().then(tick=>writeFile(join(out,'tick.json'),JSON.stringify(tick,null,2))).catch(()=>{});
   if(rcon)await command('stop').catch(()=>{});
   bridge?.stop();await rcon?.close();
   await Promise.race([new Promise(r=>child.once('exit',r)),sleep(10000)]);if(child.exitCode===null)child.kill('SIGTERM');await log.close();
