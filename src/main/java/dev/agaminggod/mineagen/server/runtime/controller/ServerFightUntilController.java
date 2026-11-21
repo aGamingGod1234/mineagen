@@ -538,6 +538,18 @@ public final class ServerFightUntilController implements ServerController {
 			}
 			if (player.getAttackRangeWith(player.getMainHandItem()).isInRange(player, current.getBoundingBox(), 0.0D)) outOfReachSinceMs = -1L;
 			else if (outOfReachSinceMs < 0L) outOfReachSinceMs = elapsed;
+			else if (elapsed - outOfReachSinceMs >= BOW_SWITCH_MS && useBow(player, current)) {
+				// A blaze that drifted out of sword reach is shot instead of awaited: spawner hold live, the sword engagement
+				// waited 20 s at a time on blazes 5-11 blocks off (8 times in one run) while their volleys wore the shield out.
+				melee.cancel(player);
+				melee = null;
+				firstTarget = current;
+				current = null;
+				outOfReachSinceMs = -1L;
+				outOfReachTarget = null;
+				bowSwitches++;
+				return TickResult.running(progress(player));
+			}
 			else if (elapsed - outOfReachSinceMs >= STILL_REACH_MS)
 				return stop(player, TickResult.failed("TARGET_OUT_OF_REACH", String.format(Locale.ROOT,
 						"pursue:false: %s %s stayed out of sword reach for %.0f s (%.1f blocks away) and no bow shot was taken; the body stays in place, so the fight handed back",
@@ -1310,6 +1322,9 @@ public final class ServerFightUntilController implements ServerController {
 
 	/** How far below the feet a drop may land and still be walked to (a drop of three costs no health). */
 	static final int DROP_REACH_BELOW = 3;
+	/** pursue:false: a sword target this long out of reach is shot with the bow when the bow is usable on it. */
+	static final long BOW_SWITCH_MS = 2_000L;
+	private int bowSwitches;
 	/** The short sword hold while a target hovers over a drop, before the bow is weighed again. */
 	static final long FLOOR_HOLD_MS = 4_000L;
 
@@ -2094,6 +2109,7 @@ public final class ServerFightUntilController implements ServerController {
 				via.equals("fight_until") ? "fight_until" : via + " count", mobId, kills, kills == 1 ? "" : "s", untilItemId, Math.max(0, startCount), held, held - Math.max(0, startCount), untilCount,
 				Math.max(0, startArrows - arrows(player)), startArrows - arrows(player) == 1 ? "" : "s", bowEngagements, meleeEngagements,
 				bowEngagements + meleeEngagements == 1 ? "" : "s"));
+		if (bowSwitches > 0) text.append(String.format(Locale.ROOT, "; %d sword target%s out of reach shot with the bow instead", bowSwitches, bowSwitches == 1 ? "" : "s"));
 		text.append(String.format(Locale.ROOT, "; fire: %.1f s burning, %d step%s off fire; shield: raised %d time%s at shots, %d blocked; cover: %d move%s; looked for %d unseen drop%s, found %d",
 				burnTicks / 20.0D, fireSteps, fireSteps == 1 ? "" : "s", guards, guards == 1 ? "" : "s", shieldBlocks, coverMoves, coverMoves == 1 ? "" : "s",
 				dropLooks, dropLooks == 1 ? "" : "s", dropsFound));
