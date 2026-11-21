@@ -110,6 +110,23 @@ node scripts/quality/room-batch.mjs --commands ROOMS.txt --arm new=NEW.jar --arm
 - **Cost.** Every machine is `--no-env` (rooms make no model calls) and deleted when the batch ends, on an error, or on Ctrl-C. Boat stops a machine at a fixed deadline from its creation, not when idle, so the runner pushes the deadline back while rooms remain; the deadline stops a machine whose runner died. `--type` (or `ROOM_BATCH_TYPE`, default `default`: 4 vCPU, 8 GB) picks the size.
 - **Image.** `node scripts/quality/room-image.mjs --template TEMPLATE_DIR --snapshot IMAGE --warm-jar JAR` builds the saved image the batch forks from: Temurin 25.0.5 (hash-checked) and the server template under the machine's `rooms/` folder, `eatmydata` and `zstd`, plus the prepared server from one warm-up room. It saves the image only when that room passes; the same `--snapshot` name replaces the old image. Rerun it when the template or Java changes. `--snapshot` (or `ROOM_BATCH_SNAPSHOT`) names it for the batch.
 
+### AI rooms: the real model in a practice room
+
+An AI room is a practice room played by the real model (GPT-6.2 Sol, low reasoning, through Codex) and the production coordinator instead of a script, so one short run tests the brain and the body together. It sits between practice rooms (minutes, no model) and checkpoint games (hours).
+
+```bash
+node scripts/quality/room-batch.mjs --player model --jar JAR --codex-auth AUTH.json [--ai-rooms ROOMS.json] [--rooms ai-cast-1,ai-skeleton] [--repeats 5] [--no-script] --pool boat --vms N --snapshot IMAGE --out FRESH_DIR
+node scripts/quality/ai-room-report.mjs FRESH_DIR
+```
+
+- **Rooms.** `ROOMS.json` (default `scripts/quality/ai-rooms.json`) is a scenario file in the format of `reflex-rooms.json`: seed, `goal` (what a player would be told), `durationBudgetMs` (the time cap, counted from the goal start), `setup` (the practice room's start state: position, kit, terrain commands, time, mobs) and `successCheck` (`ladder-evaluator.mjs` grammar; `position_within_xz DIM (X, Z) radius R` ignores height, for a walk over or round a hill). `aiRoom.standIn` is the practice-room line for the same room, `aiRoom.pass.noDamage` asks for 0 damage as the practice room does, and `aiRoom.verdictGap` says where the two verdicts differ.
+- **Arms.** Each repeat of a room plays arm `ai` (`run-ai-room.mjs`) beside arm `script` (the stand-in) on one machine, both on `JAR`. `--no-script` plays the model alone.
+- **Play.** `run-ai-room.mjs ROOMS.json ROOM_ID OUT JAR` runs the room through `run-ladder.mjs`: a fresh fixed-seed server, the coordinator with the Codex provider, the goal, 1 Hz samples and early stop when the check holds. Both arms play at 20 ticks per second, since provider timeouts are wall time; a raised `FIXTURE_TICK_RATE` is refused.
+- **Verdict.** PASS when the check held, with 0 deaths, and 0 damage when the room asks for it. INVALID, never a pass or a fail, when the model made no call, the death or damage counter is missing, or the run lost evidence. A room the evaluator stops early often ends while the last call's token row is still open; that run stays valid with `tokensReconciled: false` (token counts approximate).
+- **Sign-in.** `--codex-auth` (or `ROOM_BATCH_CODEX_AUTH`) travels to each machine as a batch input. The room copies it into a private `CODEX_HOME` outside its output for that run and deletes it after. The room's copied artifacts leave out the world, the coordinator's Codex workspace (it holds a copy) and the RCON password. A machine without the `codex` CLI gets the pinned one under `~/.local`.
+- **Time.** On top of the play, each AI room spends about a minute booting and about two minutes turning the goal text into a goal: in the first smoke the coordinator's first translation call timed out at 120 s and the retry answered at once.
+- **Report.** `ai-room-report.mjs OUT` prints per room and arm: passes over valid runs (invalid ones apart), deaths, damage taken in HP, median minutes (the model's play time; the script arm's whole run) and the model's median calls.
+
 ## Writing a new live fixture
 
 `coordinator/test/quality-fixture-exit.test.mjs` and the tool contracts enforce most of this; the rest is game behaviour that cost earlier fixtures a run.

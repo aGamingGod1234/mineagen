@@ -18,6 +18,7 @@
 // into a fresh private CODEX_HOME outside OUT for this run only and deletes it after, so no copy travels back with the
 // room's folder. A machine without the codex CLI gets @openai/codex@CODEX_CLI_VERSION (default below) under ~/.local.
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { chmod, copyFile, cp, mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -29,6 +30,16 @@ const SKIP_ARTIFACTS = new Set(['server', 'provider-workspaces', 'rcon-password.
 /** Copies a run's artifact folder into the room's output, leaving out the world and anything that holds a credential. */
 export function copyArtifacts(from, to) {
 	return cp(from, to, { recursive: true, filter: source => source === from || !SKIP_ARTIFACTS.has(path.basename(source)) });
+}
+
+const sha256 = async file => { try { return createHash('sha256').update(await readFile(file)).digest('hex'); } catch { return null; } };
+/**
+ * Whether Codex rewrote the sign-in during the run: a refresh rotates the token and can sign out every other copy, so a
+ * batch must stop at once. Compares the sent file with the run's private home and the coordinator's workspace copy.
+ */
+export async function signInChanged(sentHash, files) {
+	for (const file of files) { const now = await sha256(file); if (now !== null && now !== sentHash) return file; }
+	return null;
 }
 
 export const CODEX_CLI_VERSION = '0.171.0';
@@ -53,7 +64,8 @@ export async function prepareCodex(env = process.env, { exec = execFileSync } = 
 		env.CODEX_HOME = home;
 	}
 	for (const key of ['OPENAI_API_KEY', 'CODEX_API_KEY']) delete env[key];
-	return { cli, home, cleanup: () => home ? rm(home, { recursive: true, force: true }) : Promise.resolve() };
+	const sentHash = env.CODEX_AUTH_FILE ? await sha256(env.CODEX_AUTH_FILE) : null;
+	return { cli, home, sentHash, cleanup: () => home ? rm(home, { recursive: true, force: true }) : Promise.resolve() };
 }
 
 const USAGE = `Usage: run-ai-room.mjs ROOMS.json ROOM_ID OUT_DIR JAR [--model gpt-6.2-sol] [--effort low] [--service-tier default]
@@ -113,8 +125,13 @@ async function main(args) {
 		codex = await prepareCodex();
 		const options = parseLadderArgs(aiRoomLadderArgs({ rooms: path.resolve(rooms), id: room.id, out: path.resolve(out), jar: path.resolve(jar), ...flags }));
 		const [run] = await runLadder(options);
+		const refreshed = codex.sentHash ? await signInChanged(codex.sentHash, [path.join(codex.home, 'auth.json'), ...(run?.artifacts ? [path.join(run.artifacts, 'provider-workspaces', 'minecraft-agent', '.codex-home', 'auth.json')] : [])]) : null;
 		if (run?.artifacts) await copyArtifacts(run.artifacts, path.join(path.resolve(out), 'artifacts')).catch(error => console.warn(`artifact copy: ${error.message}`));
-		row = { ...aiRoomRow(room, run, { startedAt, finishedAt: Date.now() }), codexCli: codex.cli };
+		row = { ...aiRoomRow(room, run, { startedAt, finishedAt: Date.now() }), codexCli: codex.cli, signInRefreshed: Boolean(refreshed) };
+		if (refreshed) {
+			(row.integrity ??= []).push({ file: 'sign-in', error: 'Codex refreshed the sign-in during this room: stop the batch, the other copies may be signed out' });
+			console.error('SIGN-IN REFRESHED: Codex rewrote auth.json during this room; stop the batch.');
+		}
 	} catch (error) {
 		row = { name: room.name, room: room.name, scenario: room.id, player: 'model', pass: false, error: error.message, deaths: null, damageTaken: null, modelCalls: null, startedAt, finishedAt: Date.now() };
 	} finally { await codex?.cleanup().catch(() => {}); }

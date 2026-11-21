@@ -6,7 +6,7 @@ import test from 'node:test';
 import { aiRoomCommands, selectAiRooms } from '../../scripts/quality/lib/ai-room-lines.mjs';
 import { parseCommands } from '../../scripts/quality/lib/room-batch-core.mjs';
 import { roomVerdict } from '../../scripts/quality/lib/fixture-run.mjs';
-import { aiRoomRow, aiRoomLadderArgs, copyArtifacts, prepareCodex } from '../../scripts/quality/run-ai-room.mjs';
+import { aiRoomRow, aiRoomLadderArgs, copyArtifacts, prepareCodex, signInChanged } from '../../scripts/quality/run-ai-room.mjs';
 import { compareArms, formatComparison } from '../../scripts/quality/ai-room-report.mjs';
 import { parseLadderArgs } from '../../scripts/quality/run-ladder.mjs';
 
@@ -121,5 +121,19 @@ test('a room keeps its logs but never the world, the Codex workspace or the RCON
 		await writeFile(path.join(run, 'traces/dynamic.stderr.log'), 'log');
 		await copyArtifacts(run, path.join(dir, 'out'));
 		assert.deepEqual((await readdir(path.join(dir, 'out'))).sort(), ['coordinator.jsonl', 'traces']);
+	} finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('a sign-in Codex rewrote during the room is caught by its hash', async () => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'ai-room-hash-'));
+	try {
+		const auth = path.join(dir, 'auth.json');
+		await writeFile(auth, '{"t":1}');
+		const codex = await prepareCodex({ CODEX_AUTH_FILE: auth, PATH: '' }, { exec: () => 'codex-cli 0.171.0' });
+		const copy = path.join(codex.home, 'auth.json');
+		assert.equal(await signInChanged(codex.sentHash, [copy, path.join(dir, 'missing.json')]), null);
+		await writeFile(copy, '{"t":2}');
+		assert.equal(await signInChanged(codex.sentHash, [copy]), copy);
+		await codex.cleanup();
 	} finally { await rm(dir, { recursive: true, force: true }); }
 });
