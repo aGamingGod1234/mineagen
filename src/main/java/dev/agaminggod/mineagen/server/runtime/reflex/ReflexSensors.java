@@ -100,15 +100,28 @@ public final class ReflexSensors {
 		private int idleTicks;
 		private net.minecraft.resources.ResourceKey<net.minecraft.world.level.Level> footingDimension;
 		private final java.util.ArrayDeque<GridPosition> dryFooting = new java.util.ArrayDeque<>();
+		private BlockPos seenSpawner;
+		private int seenSpawnerAt;
 
 		List<GridPosition> dryFooting() {
 			return List.copyOf(dryFooting);
+		}
+
+		void rememberSpawner(BlockPos spawner, int tick) {
+			seenSpawner = spawner;
+			seenSpawnerAt = tick;
+		}
+
+		BlockPos recentSpawner(int tick) {
+			// As with ground the body just walked, remember the way the pack came from across reflex firings.
+			return tick >= seenSpawnerAt && tick - seenSpawnerAt <= 30 * 20 ? seenSpawner : null;
 		}
 
 		void observe(ServerPlayer player, long tick) {
 			if (footingDimension != player.level().dimension()) {
 				footingDimension = player.level().dimension();
 				dryFooting.clear();
+				seenSpawner = null;
 			}
 			if (player.onGround() && !HazardExits.inHazardBlock(player)) {
 				BlockPos feet = player.blockPosition();
@@ -613,13 +626,17 @@ public final class ReflexSensors {
 		Creeper nearest = null;
 		double best = Double.POSITIVE_INFINITY;
 		for (Creeper creeper : player.level().getEntitiesOfClass(Creeper.class, player.getBoundingBox().inflate(within), Creeper::isAlive)) {
-			if (creeper.getSwellDir() <= 0 && creeper.getSwelling(1.0F) <= 0.0F) continue;
+			if (!fusing(creeper)) continue;
 			double distance = player.distanceTo(creeper);
 			if (distance > within || distance >= best) continue;
 			best = distance;
 			nearest = creeper;
 		}
 		return nearest == null ? Reading.FALSE : new Reading(true, nearest);
+	}
+
+	static boolean fusing(Creeper creeper) {
+		return creeper.getSwellDir() > 0 || creeper.getSwelling(1.0F) > 0.0F;
 	}
 
 	/** Twice vanilla's stare tolerance, so a reflex turns away before the stare provokes the enderman. */

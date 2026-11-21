@@ -8,7 +8,7 @@ import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 import { installTickRate, fixtureTickRate } from './watch-replay.mjs';
-import { damageCounter, recordDamageEvidence } from './lib/damage-counter.mjs';
+import { damageCounter, recordDamageEvidence, deathCounter, recordDeathEvidence } from './lib/damage-counter.mjs';
 
 const root=fileURLToPath(new URL('../..',import.meta.url));
 const jarPath=resolve(process.env.ARENA_JAR ?? join(root,MOD_JAR));
@@ -69,6 +69,7 @@ async function endPlay(){
   await rate.normalRate();
   tick.held=await rate.tickReport();
   recordDamageEvidence(tick, p.damage0,await p.damage().catch(()=>null));
+  recordDeathEvidence(tick, p.deaths0, await p.deaths().catch(() => null));
   return tick;
 }
 try {
@@ -111,7 +112,8 @@ try {
   const results={open:[],behind:null,caged:null,cagedAimed:null};
   // Open crystals in front, 20-45 blocks out and 10-35 up, as on End pillars seen from the island floor.
   const damage=await damageCounter(command,agent);
-  play={damage0:await damage(),damage};
+  await command('scoreboard objectives add fixture_deaths deathCount'); const deaths = () => deathCounter(command, agent, { objective: 'fixture_deaths', unsetIsZero: true });
+  play={damage0:await damage(),damage,deaths0:await deaths().catch(()=>null),deaths};
   await rate.fastRate();
   play.t0=rate.clock.now();play.wall0=Date.now();play.timer=await rate.gameTimer();
   const spots=[[20,95,0],[0,106,30],[-30,110,-15],[25,90,-35],[-40,100,20],[35,115,25],[-15,92,-40],[42,100,-5]];
@@ -135,6 +137,9 @@ try {
     r=await shot(id,{aimX:x+0.5,aimY:y+4,aimZ:z+0.5}); results.cagedAimed={state:r.state,reasonCode:r.reasonCode,message:r.message}; }
   const hits=results.open.filter(x=>x.broke).length;
   results.summary={openHits:hits,openShots:results.open.length,jar:jarPath};
+  // Resistance keeps the body alive, so the room is judged on its shots: at least 3 in 4 open crystals hit.
+  results.bar='open crystal hits >= 75% of shots';
+  results.pass=results.open.length>0&&hits>=0.75*results.open.length;
   results.tick=await endPlay();
   await writeFile(join(out,'bow.json'),JSON.stringify(results,null,2));
   console.log(JSON.stringify(results,null,2));
