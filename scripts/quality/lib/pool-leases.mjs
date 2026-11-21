@@ -8,7 +8,7 @@
 // A lease is stale when its process is gone or it has not been refreshed for leaseStaleMs (a hung or reused pid), and a
 // stale lease is broken only under the mutex, so two batches can never both take the same machine.
 import { randomBytes } from 'node:crypto';
-import { link, mkdir, open, readdir, readFile, rename, rm, stat, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, open, readdir, readFile, rename, rm, stat, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -28,7 +28,8 @@ async function writeJsonAtomic(file, value) {
 	await rename(tmp, file);
 }
 
-export function leaseStore({ dir = defaultPoolDir(), leaseStaleMs = 5 * 60_000, mutexStaleMs = 30_000, heartbeatMs = 30_000, now = Date.now, log = () => {} } = {}) {
+// onStale (tests only) runs after a lock is judged stale and before anything is done about it.
+export function leaseStore({ dir = defaultPoolDir(), leaseStaleMs = 5 * 60_000, mutexStaleMs = 30_000, heartbeatMs = 30_000, now = Date.now, log = () => {}, onStale = null } = {}) {
 	const leasesDir = path.join(dir, 'leases'), asideDir = path.join(dir, 'aside'), mutexFile = path.join(dir, 'mutex'), ledgerFile = path.join(dir, 'starts.json');
 	const held = new Map(); // name -> token, leases this process holds
 	let ready = null, beat = null;
@@ -38,42 +39,56 @@ export function leaseStore({ dir = defaultPoolDir(), leaseStaleMs = 5 * 60_000, 
 		return path.join(leasesDir, `${name}.json`);
 	};
 
-	async function withMutex(fn) {
+	/**
+	 * Runs fn holding the lock file `file` (created exclusively). A lock is stale when its holder's process is gone or it
+	 * is older than staleMs (by its own time, or the file's when its writer died before writing it). A stale lock is
+	 * removed only under a second, short breaker lock and only if it still reads the same after that lock is taken, so a
+	 * contender that judged an old lock stale can never remove the fresh lock another one put in its place.
+	 */
+	async function withLock(file, fn, staleMs = mutexStaleMs) {
 		await setup();
+		await mkdir(path.dirname(file), { recursive: true });
 		const mine = JSON.stringify({ pid: process.pid, token: randomBytes(8).toString('hex'), at: now() });
 		for (let wait = 5; ; wait = Math.min(wait * 2, 100)) {
 			try {
-				const handle = await open(mutexFile, 'wx');
+				const handle = await open(file, 'wx');
 				try { await handle.writeFile(mine); } finally { await handle.close(); }
 				break;
 			} catch (error) {
 				if (error.code !== 'EEXIST') throw error;
 			}
-			const text = await readFile(mutexFile, 'utf8').catch(() => null);
+			const text = await readFile(file, 'utf8').catch(() => null);
 			let holder = null;
 			try { holder = JSON.parse(text); } catch {}
-			// An empty or half-written file belongs to a holder that is still writing it, unless it is old (its writer died
-			// between creating and writing it); its age then comes from the file itself.
-			const age = holder?.at ? now() - holder.at : await stat(mutexFile).then(info => now() - info.mtimeMs, () => null);
-			if (text !== null && (holder ? !processAlive(holder.pid) || age > mutexStaleMs : age !== null && age > mutexStaleMs)) {
-				// Break it by moving it aside and checking we moved the stale one; a fresh one moved by mistake goes back.
-				const aside = `${mutexFile}.broken-${process.pid}-${randomBytes(3).toString('hex')}`;
-				if (await rename(mutexFile, aside).then(() => true, () => false)) {
-					const moved = await readFile(aside, 'utf8').catch(() => null);
-					if (moved !== text) await link(aside, mutexFile).catch(() => {});
-					await unlink(aside).catch(() => {});
-					log(`broke a stale pool mutex${holder ? ` of pid ${holder.pid}` : ' that was never written'}`);
+			const age = holder?.at ? now() - holder.at : await stat(file).then(info => now() - info.mtimeMs, () => null);
+			if (text !== null && (holder ? !processAlive(holder.pid) || age > staleMs : age !== null && age > staleMs)) {
+				if (onStale) await onStale(file);
+				const breaker = `${file}.break`;
+				const broke = await open(breaker, 'wx').then(handle => handle.close().then(() => true), error => {
+					if (error.code !== 'EEXIST') throw error;
+					return false;
+				});
+				if (broke) {
+					try {
+						if (await readFile(file, 'utf8').catch(() => null) === text) {
+							await unlink(file).catch(() => {});
+							log(`broke a stale pool lock${holder ? ` of pid ${holder.pid}` : ' that was never written'} (${path.basename(file)})`);
+						}
+					} finally { await unlink(breaker).catch(() => {}); }
+					continue;
 				}
-				continue;
+				// A breaker held for more than a few seconds belongs to a process that died inside it.
+				if (await stat(breaker).then(info => now() - info.mtimeMs > 10_000, () => false)) await unlink(breaker).catch(() => {});
 			}
 			await sleep(wait);
 		}
 		try { return await fn(); }
 		finally {
-			// Remove only our own mutex: if ours was broken as stale, the file now belongs to someone else.
-			if (await readFile(mutexFile, 'utf8').catch(() => null) === mine) await unlink(mutexFile).catch(() => {});
+			// Remove only our own lock: if ours was broken as stale, the file now belongs to someone else.
+			if (await readFile(file, 'utf8').catch(() => null) === mine) await unlink(file).catch(() => {});
 		}
 	}
+	const withMutex = fn => withLock(mutexFile, fn);
 
 	const staleness = lease => !lease ? 'missing'
 		: !processAlive(lease.pid) ? `process ${lease.pid} is gone`
@@ -98,6 +113,18 @@ export function leaseStore({ dir = defaultPoolDir(), leaseStaleMs = 5 * 60_000, 
 
 	return {
 		dir, withMutex, staleness,
+		/** Runs fn holding a lock of its own for `key` (one machine's deadline), so reads and writes of it never interleave. */
+		withKey: (key, fn, staleMs = 3 * 60_000) => { leaseFile(key); return withLock(path.join(dir, 'locks', `${key}.lock`), fn, staleMs); },
+		/** Whether this process still holds the lease on name, read from its file (another batch may have broken it). */
+		async verify(name) {
+			const token = held.get(name);
+			if (!token) return false;
+			const lease = await readJson(leaseFile(name));
+			if (lease?.token === token) return true;
+			held.delete(name);
+			log(`lost the lease on ${name}: another batch broke it`);
+			return false;
+		},
 		async poolId() {
 			await setup();
 			const file = path.join(dir, 'pool-id');
@@ -171,6 +198,8 @@ export function leaseStore({ dir = defaultPoolDir(), leaseStaleMs = 5 * 60_000, 
 		 * this computer), then records it. Returns the ms waited.
 		 */
 		async reserveStart({ perMinute = 20, minGapMs = Math.ceil(60_000 / perMinute), signal = null } = {}) {
+			if (!Number.isInteger(perMinute) || perMinute < 1) throw new Error(`starts per minute must be a whole number of at least 1, got ${perMinute}`);
+			if (!Number.isFinite(minGapMs) || minGapMs < 0) throw new Error(`the gap between starts must be a number of ms, got ${minGapMs}`);
 			const began = now();
 			while (true) {
 				if (signal?.aborted) throw new Error('batch stopped');

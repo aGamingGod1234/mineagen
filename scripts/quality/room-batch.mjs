@@ -78,6 +78,7 @@ const roomTimeoutMs = Number(flags.roomTimeout ?? 40) * 60_000;
 const idleTtlMinutes = Number(flags.idleTtl ?? process.env.ROOM_BATCH_IDLE_TTL_MIN ?? 1440);
 if (!Number.isFinite(idleTtlMinutes) || idleTtlMinutes < 5 || idleTtlMinutes > 30 * 24 * 60) fail('--idle-ttl wants 5 to 43200 minutes');
 const startsPerMinute = Number(process.env.ROOM_BATCH_STARTS_PER_MINUTE ?? 20);
+if (!Number.isInteger(startsPerMinute) || startsPerMinute < 1) fail('ROOM_BATCH_STARTS_PER_MINUTE wants a whole number of at least 1');
 const rooms = parseCommands(await readFile(flags.commands, 'utf8'), flags.arms.map(arm => arm.name));
 const out = path.resolve(flags.out);
 

@@ -69,13 +69,15 @@ export function rateLimited(error) {
  * the machine should not be reused.
  */
 export function cleanScript({ marker, imageDir = 'rooms', mode = 'check', ports = [28000, 29999] }) {
+	const killJava = mode !== 'adopt';
 	return [
 		'H="$HOME"; W="$H/batch"; J="$H/' + imageDir + '/jdk/"; M="$H/' + MARKER + '"',
 		mode === 'adopt' ? ':' : mode === 'mark' ? `printf '%s' ${quote(marker)} > "$M" || exit 3` : `test "$(cat "$M" 2>/dev/null)" = ${quote(marker)} || { echo "pool marker does not match: $(head -c 300 "$M" 2>/dev/null)" >&2; exit 3; }`,
-		// Every process a room left: its cwd is under ~/batch, its binary is the image's Java, or its command line names
-		// either. One ls and one ps cover every process (a readlink per process took 14 s on a busy host). The paths reach
-		// awk through its environment, never its arguments, so the scan never finds itself.
-		'scan() { { ls -l /proc/[0-9]*/cwd /proc/[0-9]*/exe 2>/dev/null | PW="$W/" PJ="$J" awk \'{ split($(NF-2), p, "/"); if (index($NF "/", ENVIRON["PW"]) == 1 || index($NF, ENVIRON["PJ"]) == 1) print p[3] }\'; ps -eo pid=,args= 2>/dev/null | PW="$W/" PJ="$J" awk \'index($0, ENVIRON["PW"]) || index($0, ENVIRON["PJ"]) { print $1 }\'; } | sort -u | grep -vx -e "$$" -e "$PPID" | tr "\\n" " "; }',
+		// Every process a room left: its cwd is under ~/batch (also once deleted, which adds " (deleted)"), its binary is the
+		// image's Java (pool machines only: a machine named with --machines may run other things on that Java), or its command
+		// line names either. One find and one ps cover every process; the paths reach awk through its environment, never its
+		// arguments, so the scan never finds itself, and find's tab-separated output keeps paths with spaces whole.
+		`scan() { { find /proc/[0-9]*/cwd /proc/[0-9]*/exe -maxdepth 0 -printf '%p\\t%l\\n' 2>/dev/null | PW="$W/" PJ="${killJava ? '$J' : ''}" awk -F '\\t' '{ split($1, p, "/"); t = $2; sub(/ \\(deleted\\)$/, "", t); if (index(t "/", ENVIRON["PW"]) == 1 || (ENVIRON["PJ"] != "" && index(t, ENVIRON["PJ"]) == 1)) print p[3] }'; ps -eo pid=,args= 2>/dev/null | PW="$W/" PJ="${killJava ? '$J' : ''}" awk 'index($0, ENVIRON["PW"]) || (ENVIRON["PJ"] != "" && index($0, ENVIRON["PJ"])) { print $1 }'; } | sort -u | grep -vx -e "$$" -e "$PPID" | tr "\\n" " "; }`,
 		'left=""',
 		'for round in 1 2 3 4 5; do',
 		'  left="$(scan)"; left="${left% }"',
@@ -100,7 +102,7 @@ export function cleanScript({ marker, imageDir = 'rooms', mode = 'check', ports 
  * and one that fails its cleaning is left running for a look.
  */
 export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, idleTtlSeconds = 86_400, startsPerMinute = 20, startReserve = 5,
-	minRemainingSeconds = 15 * 60, roomPorts = [28000, 29999], machines = null, batch = null, bundle = null, imageDir = 'rooms', waitSeconds, log = console.log, store = leaseStore({ log }) } = {}) {
+	minRemainingSeconds = 120, roomPorts = [28000, 29999], machines = null, batch = null, bundle = null, imageDir = 'rooms', waitSeconds, log = console.log, store = leaseStore({ log }) } = {}) {
 	// prepare, start, poll, alive and fetch are the ephemeral pool's; only where machines come from and go to differs.
 	const base = bundle ? boatPool({ snapshot, type, ttlSeconds, namePrefix: 'unused', bundle, imageDir, log, ...(waitSeconds ? { waitSeconds } : {}) }) : {};
 	let identity = null, listing = null, limits = null, adoptable = null;
@@ -125,7 +127,9 @@ export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, id
 	// boat exec answers in about 0.4 s with the real exit code; ssh costs about 2.7 s (boat-pool.mjs).
 	const clean = (vm, mode) => vm.adopted ? execRemote(vm.id, cleanScript({ marker: '', imageDir, mode: 'adopt', ports: roomPorts }), { timeoutSeconds: 90 }) : init().then(ident => execRemote(vm.id, cleanScript({ marker: markerOf(vm.name, ident), imageDir, mode, ports: roomPorts }), { timeoutSeconds: 90 }));
 	/** Moves the deadline to at least ttl from now, never earlier. */
-	async function holdFor(vm, ttl) {
+	// The read and the extend run under the machine's own lock: two callers (a batch and keepalive) that both read the
+	// old deadline could otherwise land their extends out of order and leave the shorter one.
+	const holdFor = (vm, ttl) => store.withKey(`ttl-${vm.id}`, async () => {
 		const info = JSON.parse(await boat(['info', vm.id, '--json'], { timeoutMs: 60_000 })).sandbox ?? {};
 		if (!LIVE.has(info.state)) throw new Error(`machine ${vm.id} is ${info.state ?? 'gone'}`);
 		// No auto-stop (archiveAfter null) stays as it is: extend --ttl would put a deadline back on it.
@@ -133,7 +137,7 @@ export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, id
 		const remaining = Date.parse(info.archiveAfter) - Date.now();
 		if (Number.isFinite(remaining) && remaining >= ttl * 1000 - 60_000) return;
 		await extendMachine(vm.id, ttl);
-	}
+	});
 	// Machines are never deleted by a batch (the owner's rule: keep every machine on). One that fails its cleaning check is set aside:
 	// it stays running, no batch leases it, and `boat-pool.mjs status` lists it until `prune` or `drain` deletes it.
 	async function setAside(vm, reason) {
@@ -187,7 +191,11 @@ export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, id
 				const hydrating = await waitHydrated(vm.id, { log });
 				if (hydrating) log(`machine ${vm.id} waited ${hydrating} s for its image to finish downloading`);
 				try { await clean(fresh, 'mark'); }
-				catch (error) { await setAside(fresh, `failed its first check: ${error.message}`).catch(() => {}); throw new Error(`new machine ${vm.id} failed its first check: ${error.message}`); }
+				catch (error) {
+					// Only the check's own verdict sets a new machine aside; one that did not answer stays in the pool for a later lease.
+					if (verdictFailure(error)) await setAside(fresh, `failed its first check: ${error.message}`).catch(() => {});
+					throw new Error(`new machine ${vm.id} failed its first check: ${error.message}`);
+				}
 				log(`machine ${vm.id} started for the warm pool (${name})`);
 				return fresh;
 			}
@@ -243,8 +251,14 @@ export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, id
 			}
 			return createNew(signal);
 		},
+		// A batch that lost its lease (it stalled past the heartbeat and another batch broke it) must not touch the machine.
+		async start(vm, job, options) {
+			if (!await store.verify(vm.name)) throw new Error(`the lease on ${vm.id} was broken by another batch`);
+			return base.start(vm, job, options);
+		},
 		/** Gives a machine back to the pool running: its rooms killed, its batch folder wiped, its deadline the idle TTL. */
 		async release(vm) {
+			if (!await store.verify(vm.name)) { log(`machine ${vm.id} now belongs to another batch: left alone`); return true; }
 			try {
 				await clean(vm, 'check');
 				await holdFor(vm, idleTtlSeconds);

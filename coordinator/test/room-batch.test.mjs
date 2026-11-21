@@ -1111,6 +1111,7 @@ test('a warm machine whose check gets no answer is skipped and kept, never delet
 		const other = await warm(fake).create().catch(error => error);
 		assert.ok(other instanceof Error, 'the new machine cannot be checked either');
 		assert.ok(fake.exists(vm.id), 'the unreachable warm machine is still there');
+		assert.deepEqual(await leaseStore({ dir: fake.poolDir }).asideList(), [], 'a check that got no answer sets nothing aside, a new machine included');
 		delete process.env.FAKE_BOAT_EXEC_DOWN;
 		const again = await warm(fake).create();
 		assert.equal(again.id, vm.id, 'once it answers, it is reused');
@@ -1342,4 +1343,95 @@ test('review fixes: a replacement never leases the machine its room was lost on,
 		const members = JSON.parse(run.stdout).members;
 		assert.deepEqual(members.map(item => [item.image, item.currentImage]).sort(), [['room-image', true], ['roomimage', true]]);
 	} finally { await images.close(); }
+});
+
+test('second review: a stale mutex broken by many processes at once still admits one holder at a time', async () => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'pool-mutex-race-'));
+	try {
+		await mkdir(dir, { recursive: true });
+		await writeFile(path.join(dir, 'mutex'), JSON.stringify({ pid: 999999999, token: 'dead', at: Date.now() }));
+		const lib = new URL('../../scripts/quality/lib/pool-leases.mjs', import.meta.url).href;
+		const log = path.join(dir, 'sections.log');
+		const racer = `const { leaseStore } = await import(${JSON.stringify(lib)}); const { appendFileSync } = await import('node:fs');
+const store = leaseStore({ dir: ${JSON.stringify(dir)} });
+for (let i = 0; i < 3; i++) await store.withMutex(async () => { appendFileSync(${JSON.stringify(log)}, 'in\\n'); await new Promise(done => setTimeout(done, 20)); appendFileSync(${JSON.stringify(log)}, 'out\\n'); });`;
+		await Promise.all(Array.from({ length: 8 }, () => new Promise((resolve, reject) => {
+			const child = spawn(process.execPath, ['--input-type=module', '-e', racer], { stdio: ['ignore', 'ignore', 'inherit'] });
+			child.on('exit', code => code === 0 ? resolve() : reject(new Error(`racer exited ${code}`)));
+		})));
+		const lines = (await readFile(log, 'utf8')).trim().split('\n');
+		assert.equal(lines.length, 48);
+		for (let i = 0; i < lines.length; i += 2) assert.deepEqual(lines.slice(i, i + 2), ['in', 'out'], `sections overlapped at line ${i}`);
+	} finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('second review: a lost lease stops the batch touching the machine, named machines keep their own Java processes, and a near-deadline machine is reused', { skip: process.platform === 'win32' }, async () => {
+	const fake = await fakeBoat();
+	try {
+		const pool = warm(fake);
+		const vm = await pool.create();
+		// Another batch broke the lease while this one stalled.
+		const leaseFile = path.join(fake.poolDir, 'leases', `${vm.name}.json`);
+		await writeFile(leaseFile, JSON.stringify({ token: 'theirs', pid: process.pid, heartbeatAt: Date.now() }));
+		await assert.rejects(pool.start(vm, { room: 'r', outDir: '/x/out/r', code: '/x' }), /broken by another batch/);
+		await mkdir(path.join(fake.home(vm.id), 'batch/theirs'), { recursive: true });
+		assert.equal(await pool.release(vm), true);
+		assert.ok(existsSync(path.join(fake.home(vm.id), 'batch/theirs')), 'their batch folder was not wiped');
+		await rm(leaseFile);
+
+		// A process on the image's Java survives cleaning a --machines machine, and is killed on a pool machine.
+		const java = path.join(fake.home(vm.id), 'rooms/jdk/bin/sleepy');
+		const { copyFile } = await import('node:fs/promises');
+		await copyFile('/bin/sleep', java);
+		const service = spawn(java, ['300'], { cwd: fake.home(vm.id), stdio: 'ignore', detached: true });
+		const named = warm(fake, { machines: [vm.id] });
+		const leased = await named.create();
+		await named.release(leased);
+		assert.equal(service.exitCode ?? service.signalCode, null, 'the named machine kept its own process on the image Java');
+		const again = await warm(fake).create();
+		assert.equal(again.id, vm.id);
+		await Promise.race([exited(service), new Promise((_, reject) => setTimeout(() => reject(new Error('a pool machine kept a process on the image Java')), 5000))]);
+
+		// Five minutes from auto-stop is still worth leasing: the lease pushes the deadline back instead of paying a start.
+		const box = path.join(fake.dir, 'sandboxes', `${again.id}.json`);
+		const other = warm(fake);
+		await warm(fake).release(again).catch(() => {});
+		await rm(path.join(fake.poolDir, 'leases', `${again.name}.json`), { force: true });
+		await writeFile(box, JSON.stringify({ ...JSON.parse(await readFile(box, 'utf8')), archiveAfter: new Date(Date.now() + 5 * 60_000).toISOString() }));
+		const near = await other.create();
+		assert.equal(near.id, vm.id);
+		assert.ok(Date.parse(JSON.parse(await readFile(box, 'utf8')).archiveAfter) - Date.now() > 60 * 60_000, 'its deadline was pushed back');
+		assert.equal((await fake.calls('new')).length, 1);
+	} finally { await fake.close(); }
+});
+
+test('second review: a bare failing result.json next to a passing pair reads as ambiguous, and a pace of 0 is refused', async () => {
+	const { armRows } = await import('../../scripts/quality/lib/room-batch-core.mjs');
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'arm-rows-'));
+	try {
+		await writeFile(path.join(dir, 'result.json'), JSON.stringify([row('r', { pass: false })]));
+		await writeFile(path.join(dir, 'acceptance.json'), JSON.stringify([row('a')]));
+		await writeFile(path.join(dir, 'acceptance-summary.json'), JSON.stringify({ planned: 1 }));
+		assert.match((await armRows(dir)).problem, /several row files \(result\.json without its summary, acceptance\.json\)/);
+	} finally { await rm(dir, { recursive: true, force: true }); }
+	const ledger = await mkdtemp(path.join(os.tmpdir(), 'pool-pace-'));
+	try { await assert.rejects(leaseStore({ dir: ledger }).reserveStart({ perMinute: 0 }), /at least 1/); }
+	finally { await rm(ledger, { recursive: true, force: true }); }
+});
+
+test('second review: a contender that judged a lock stale never removes the fresh lock another put in its place', async () => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'pool-mutex-fresh-'));
+	try {
+		await writeFile(path.join(dir, 'mutex'), JSON.stringify({ pid: 999999999, token: 'dead', at: Date.now() }));
+		let freedAt = null, enteredAt = null, swapped = false;
+		// Between this contender's stale judgment and its break, another breaks the old lock and takes a fresh one.
+		const store = leaseStore({ dir, onStale: async file => {
+			if (swapped) return;
+			swapped = true;
+			await writeFile(file, JSON.stringify({ pid: process.pid, token: 'fresh', at: Date.now() }));
+			setTimeout(() => { freedAt = Date.now(); rm(file, { force: true }); }, 300);
+		} });
+		await store.withMutex(async () => { enteredAt = Date.now(); });
+		assert.ok(freedAt !== null && enteredAt >= freedAt, 'it waited for the fresh holder instead of removing its lock');
+	} finally { await rm(dir, { recursive: true, force: true }); }
 });
