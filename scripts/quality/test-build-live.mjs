@@ -605,6 +605,15 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 			const answerSaidTool = row.retries?.at(-1)?.call === callIndex && /FAILED (NO_TOOL|TOOL_WORN)\b/.test(String(row.retries.at(-1).answered ?? ''));
 			if ((answerSaidTool || ['NO_TOOL', 'TOOL_WORN'].includes(entry.reasonCode) || /\b(TOOL_WORN|NO_TOOL)\b|\bpickaxe (is |was )?(worn|missing)|\b(worn[- ]out|missing|no usable) ([a-z_:]+ )?pickaxe/i.test(entry.message) || HAND_SPEED_STONE.test(entry.message))
 				&& (row.toolFixes ?? []).filter((fix) => stepOf(fix.call) === step).length < 6) {
+				// The shared stand-in first: a sound pickaxe carried off the hotbar, or one the carried materials craft (an iron
+				// pickaxe from 3 iron and sticks). Else, or when that fails, the stone pickaxes below.
+				const shared = await standinAnswer({ state: 'FAILED', reasonCode: answerSaidTool ? 'TOOL_WORN' : entry.reasonCode, message: answerSaidTool ? 'TOOL_WORN' : entry.message },
+					`${callIndex}-${attempt}-tool`, ['water', 'hostile', 'hunger', 'blocked']);
+				if ((await deaths()) > deathsBefore) { row.ended = 'death'; break calls; }
+				if (shared && row.standin?.at(-1)?.calls?.every((one) => one.state === 'SUCCEEDED')) {
+					row.toolFixes = [...(row.toolFixes ?? []), { call: callIndex, code: entry.reasonCode, state: 'SUCCEEDED', reasonCode: row.standin.at(-1).choice }];
+					attempt--; continue;
+				}
 				const sound = heldCounts(adaptObservation(await s.observe())).get('stone_pickaxe') ?? 0;
 				const make = (count, tag) => run('do_step', { verb: 'obtain', target: { item: 'minecraft:stone_pickaxe', count, timeoutMs: Math.floor(Math.max(60_000, Math.min(300_000, left() - 60_000))) }, why: count > sound + 1 ? 'two pickaxes to dig on with' : 'a pickaxe to dig on with' }, tag);
 				let made = await make(sound + 2, `${callIndex}-${attempt}-tool`);
