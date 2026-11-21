@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { searchFor } from '../src/find-search.mjs';
-import { MAX_FAILED_LEGS, MAX_DIGS, OPEN_VIEW, TURNS, SEARCH_TURNS, FORTRESS_LEG, BUILD_LEG, AHEAD_MIN, openView, fortressSearch, footingAhead, nextFortressTarget, startHeading, yawToward } from '../src/find-fortress.mjs';
+import { MAX_FAILED_LEGS, MAX_DIGS, OPEN_VIEW, LAVA_RIM_Y, TURNS, SEARCH_TURNS, FORTRESS_LEG, BUILD_LEG, AHEAD_MIN, openView, fortressSearch, footingAhead, nextFortressTarget, startHeading, yawToward } from '../src/find-fortress.mjs';
 import { REGION_BLOCKS, searchRegions } from '../src/nether-regions.mjs';
 
 // The wall-breaker contract's hand-back rules for find {structure: fortress} in the Nether, one test each.
@@ -358,4 +358,10 @@ test('each find first climbs the highest ground in sight, any way, and looks fro
 	assert.equal(result.reasonCode, 'FIND_SEEN');
 	assert.deepEqual([body.calls[0].x, body.calls[0].y, body.calls[0].z, body.calls[0].build], [100.5, 52, 70.5, false], 'the highest, behind as much as ahead');
 	assert.equal(body.calls.length, 1, 'the look from the top saw it');
+});
+
+test('footingAhead: from higher up, ground at the lava sea rim is not walked down to', () => {
+	const rim = { x: 100, y: LAVA_RIM_Y - 1, z: 140, footing: 'seen' };
+	assert.equal(footingAhead([rim], { x: 100.5, y: 48, z: 100.5 }, 0), null, 'standing at y48');
+	assert.equal(footingAhead([rim], { x: 100.5, y: LAVA_RIM_Y + 2, z: 100.5 }, 0)?.z, 140, 'already down at the rim: it walks on along it');
 });

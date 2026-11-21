@@ -76,6 +76,12 @@ export function nextFortressTarget(position, known, looks = [], sighted = []) {
 export const AHEAD_MIN = 12;
 /** Footings far below or high above the feet are cliffs and roof ledges, not the way on. */
 const FOOTING_DROP = 16, FOOTING_RISE = 10;
+/**
+ * The lava sea's surface is y31; ground within 5 of it is its rim, where a mob's hit or a slip ends in lava. A body
+ * standing higher keeps to higher ground and looks over the sea from there (round 2: 4 of 10 gate-5 runs died at lava
+ * edges after walking down toward the sea, against 1 of 10 for the generic sweep).
+ */
+export const LAVA_RIM_Y = 36;
 /** Headings tried in turn when every walk and a build on one fail: the heading, then each side, then back. */
 export const HEADING_TURNS = Object.freeze([0, 90, -90, 180]);
 const MAX_TRIED = 256;
@@ -109,6 +115,7 @@ export function footingAhead(candidates, here, yaw, tried = []) {
 		const dx = row.x + 0.5 - here.x, dz = row.z + 0.5 - here.z, dy = row.y - here.y;
 		const along = dx * u.x + dz * u.z, side = Math.abs(dx * u.z - dz * u.x);
 		if (along < AHEAD_MIN || side > along || dy < -FOOTING_DROP || dy > FOOTING_RISE) continue;
+		if (row.y <= LAVA_RIM_Y && here.y > LAVA_RIM_Y + 4) continue;
 		const score = along - side / 2 - Math.max(0, Math.abs(dy) - 4);
 		if (best === null || score > best.score) best = { ...row, along, score, distance: Math.hypot(dx, dz) };
 	}
