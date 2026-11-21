@@ -450,3 +450,16 @@ test('a counter-only round death takes its killer from the Watcher danger file u
 		assert.equal(Object.values(game.deathCauses).reduce((a, b) => a + b, 0), 2, 'another agent\'s danger file adds nothing');
 	} finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test('a long run scored before stage-score counted causes reads death receipts from rotated journals too', async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), 'gate-report-'));
+	try {
+		const dir = await longRun(root, 'gate-rotated-1', { seed: '43', iron: null, afterDeathIron: null, bucket: null, deaths: 1, usd: 0.5, log: [] });
+		const receipt = { observedAtMs: T0 + 10 * MIN + 100, envelope: { type: 'goal_control', agentId: 'agent-a',
+			payload: { operation: 'dead', goalRevision: 1, updatedAtEpochMs: T0 + 10 * MIN, death: { cause: 'ha_x was shot by Skeleton', diedAtEpochMs: T0 + 10 * MIN } } } };
+		await writeFile(path.join(dir, 'raw', 'protocol.jsonl'), '');
+		await writeFile(path.join(dir, 'raw', 'protocol.jsonl.1'), JSON.stringify(receipt) + '\n');
+		const [run] = readRun(dir);
+		assert.deepEqual(run.deathCauses, { skeleton_arrow: 1 }, 'the receipt that rotated into protocol.jsonl.1 names the death');
+	} finally { await rm(root, { recursive: true, force: true }); }
+});

@@ -233,7 +233,10 @@ function deathFiles(raw, agentId) {
 	const listed = (dir) => { try { return readdirSync(dir); } catch { return []; } };
 	const watch = [path.join(raw, 'arena-watch'), path.join(raw, 'server', 'arena-watch')].flatMap((dir) => listed(dir)
 		.filter((name) => name.endsWith('-danger.jsonl') && (!agentId || name.startsWith(agentId))).map((name) => path.join(dir, name)));
-	return [...DEATH_FILES.map((name) => path.join(raw, name)), ...watch];
+	// Each journal with its rotated generations (protocol.jsonl.1, ...), as stage-score and long-run-artifacts read them.
+	const rotated = (name) => listed(raw).filter((entry) => entry === name || entry.startsWith(name + '.') && /^\d+$/.test(entry.slice(name.length + 1)))
+		.sort((a, b) => Number(b.slice(name.length + 1) || 0) - Number(a.slice(name.length + 1) || 0)).map((entry) => path.join(raw, entry));
+	return [...DEATH_FILES.flatMap(rotated), ...watch];
 }
 
 /**

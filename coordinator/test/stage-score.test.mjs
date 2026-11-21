@@ -184,3 +184,21 @@ test('deaths are counted by cause from the receipt, the Watcher\'s lethal hit an
 		assert.equal(scored.deathRecords[1].damageType, 'minecraft:on_fire', 'the Watcher row fills the damage type an older receipt lacks');
 	} finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test('a death seen only in the samples takes its cause from the Watcher\'s lethal hit before it', async () => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'stage-causes-'));
+	try {
+		const rows = [{ at: 1000, health: 20, deathCounter: 0, inventoryNbt: '[]' }, { at: 5000, health: 20, deathCounter: 1, inventoryNbt: '[]' },
+			{ at: 9000, health: 20, deathCounter: 2, inventoryNbt: '[]' }];
+		await writeFile(path.join(dir, 'quality-samples.jsonl'), rows.map(s => JSON.stringify(s)).join('\n') + '\n');
+		await mkdir(path.join(dir, 'arena-watch'));
+		// No receipt, episode or run-record death: only the counter steps and the Watcher's lethal hits.
+		await writeFile(path.join(dir, 'arena-watch', 'a-danger.jsonl'), [
+			{ type: 'damage', agentId: 'a', atMs: 4200, damageType: 'minecraft:lava', attacker: null, lethal: true },
+			{ type: 'damage', agentId: 'a', atMs: 8500, damageType: 'minecraft:arrow', attacker: 'minecraft:skeleton', lethal: true },
+		].map(r => JSON.stringify(r)).join('\n') + '\n');
+		const scored = await scoreStageRun(dir);
+		assert.equal(scored.observedDeaths, 2);
+		assert.deepEqual(scored.deathCauses, { lava: 1, skeleton_arrow: 1 }, 'both counter-only deaths are named, none is added');
+	} finally { await rm(dir, { recursive: true, force: true }); }
+});

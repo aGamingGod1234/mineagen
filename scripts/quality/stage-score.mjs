@@ -13,6 +13,8 @@ import { LONG_RUN_MILESTONES } from '../../coordinator/src/benchmark/long-run.mj
 import { classifyDeath, countCauses, deathEvidence } from './lib/death-causes.mjs';
 
 const DEATH_EVIDENCE = ['message', 'damageType', 'attacker', 'directAttacker'];
+// How long before the sample that first shows a death its lethal hit may be: samples come every few seconds.
+const SAMPLE_DEATH_BOUND_MS = 60_000;
 
 const finite = Number.isFinite;
 const timestamp = row => row?.at ?? row?.observedAtMs ?? row?.atMs ?? row?.timestamp ?? row?.payload?.observedAtEpochMs ?? row?.payload?.updatedAtEpochMs ?? null;
@@ -157,9 +159,12 @@ export async function scoreStageRun(directory, { rawDirectory = null } = {}) {
 	const deathRow = (d, add) => {
 		if (!d || !finite(d.at)) return;
 		const same = deathRows.find(row => Math.abs(row.at - d.at) < 1500);
-		if (same) { for (const key of DEATH_EVIDENCE) same[key] ??= d[key] ?? null; return; }
+		if (same) { for (const key of DEATH_EVIDENCE) same[key] ??= d[key] ?? null; return true; }
 		if (add) deathRows.push({ at: d.at, ...Object.fromEntries(DEATH_EVIDENCE.map(key => [key, d[key] ?? null])) });
+		return add;
 	};
+	// Lethal hits no counted death matched when read: a death seen only in the samples comes later (see below).
+	const pendingHits = [];
 	const acceptDeath = d => { if (operatorStop && d.at > operatorStop.at || finite(startedAt) && finite(windowMs) && d.at > startedAt + windowMs) return; if (finite(d.at) && (!finite(startedAt) || d.at >= startedAt)) { if (!deathTimes.some(at => Math.abs(at - d.at) < 1500)) deathTimes.push(d.at); deathRow(d, true); if (!firstDeath || d.at < firstDeath.at) firstDeath = d; } };
 	const protocolName = raw && existsSync(path.join(raw, 'quality-protocol.jsonl')) ? 'quality-protocol.jsonl' : 'protocol.jsonl';
 	let protocolStarted = false;
@@ -189,7 +194,7 @@ export async function scoreStageRun(directory, { rawDirectory = null } = {}) {
 	for (const d of outcome?.metrics?.deathEvents ?? report?.timeline?.deaths ?? []) acceptDeath({ ...d, message: typeof d.cause === 'string' ? d.cause : null, source: 'run-record' });
 	// The Watcher's lethal hit names the damage type and attacker of a death already counted.
 	for (const dir of watchDirs) for (const n of (await readdir(dir).catch(() => [])).filter(n => n.endsWith('-danger.jsonl') && (!agentId || n.startsWith(agentId))))
-		await readJsonl(path.join(dir, n), row => { const d = deathEvidence(row); if (d) deathRow(d, false); });
+		await readJsonl(path.join(dir, n), row => { const d = deathEvidence(row); if (d && !deathRow(d, false)) pendingHits.push(d); });
 	const supplied = setupResources(definition?.setup);
 	const first = newStage('first_life', supplied), recovery = newStage('after_death', zero());
 	let previous = null, lastAt = null, sampleDeaths = 0;
@@ -291,6 +296,16 @@ export async function scoreStageRun(directory, { rawDirectory = null } = {}) {
 	if (recovery.samples && firstDeath) recovery.startedAt = firstDeath.at;
 	const firstLife = cleanStage(first, firstDeath ? 'observed_death' : !first.samples ? 'unobserved' : ending.censored ? 'censored_alive' : 'completed', firstDeath?.at ?? lastAt);
 	recovery.deaths = Math.max(0, Math.max(sampleDeaths, deathTimes.length) - (firstDeath ? 1 : 0));
+	// A death seen only in the samples has no evidence row, or an empty one at the sample that showed it (an upper time
+	// bound). A lethal hit the Watcher recorded before it names that death: it fills the empty row the sample made, else
+	// takes one of the deaths that have no row, never adding a death the counts do not have.
+	const totalDeaths = Math.max(sampleDeaths, deathTimes.length);
+	for (const hit of pendingHits.filter(h => (!finite(startedAt) || h.at >= startedAt) && (!finite(lastAt) || h.at <= lastAt) && (!operatorStop || h.at <= operatorStop.at)).sort((a, b) => a.at - b.at)) {
+		const bare = deathRows.find(row => row.at >= hit.at && row.at - hit.at <= SAMPLE_DEATH_BOUND_MS && DEATH_EVIDENCE.every(key => row[key] == null));
+		if (bare) { for (const key of DEATH_EVIDENCE) bare[key] = hit[key] ?? null; continue; }
+		if (deathRows.length < totalDeaths) deathRows.push({ at: hit.at, ...Object.fromEntries(DEATH_EVIDENCE.map(key => [key, hit[key] ?? null])) });
+	}
+	deathRows.sort((a, b) => a.at - b.at);
 	const afterDeath = cleanStage(recovery, recovery.samples ? ending.censored ? 'censored' : 'completed' : 'unobserved', lastAt);
 	if (!operatorStop && ending.kind === 'unknown') diagnostics.push('Historical stop time/reason absent: do not infer an operator stop from timeout/SIGTERM.');
 	if (!supplied) diagnostics.push('Save-point kit definition absent; initial possession is not proven earned.');
