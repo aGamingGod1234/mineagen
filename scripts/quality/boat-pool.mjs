@@ -70,18 +70,21 @@ async function inventory({ all = true } = {}) {
 }
 const matches = member => (!snapshot || member.image === snapshot) && member.type === type.toLowerCase().replace(/[^a-z0-9]/g, '');
 
-async function destroyIdle(member, why) {
+async function destroyIdle(member, why, { check = null } = {}) {
 	// Taking the lease first means no batch can lease the machine while it is being deleted.
 	// A set-aside machine has no batch on it; the lease only keeps one from starting while it is deleted.
 	if (!await store.take([member.name], { batch: `boat-pool ${command}`, includeAside: true })) { log(`${member.id} is busy, left alone`); return false; }
 	try {
+		// check runs under the lease: what it reads can no longer change under it. A reason it returns keeps the machine.
+		const keep = check ? await check() : null;
+		if (keep) { log(`${member.id} kept: ${keep}`); return false; }
 		await destroyMachine(member.id).catch(error => { if (!/not.?found|404|no such/i.test(error.message)) throw error; });
 		await store.clearAside(member.name);
 		await store.forgetIdle(member.name);
 		log(`deleted ${member.id} (${why})`);
 		return true;
 	} catch (error) { log(`could not delete ${member.id}: ${error.message}`); return false; }
-	finally { await store.drop(member.name); }
+	finally { await store.drop(member.name, { idle: false }); }
 }
 
 if (command === 'status') {
@@ -143,13 +146,20 @@ if (command === 'status') {
 		const rank = item => since[item.name] ?? (Date.parse(item.createdAt ?? '') || 0) - 1e12;
 		const idle = members.filter(item => !item.busy && !item.aside).sort((a, b) => rank(b) - rank(a));
 		const warm = warmCount === null ? idle : idle.slice(0, warmCount);
-		const extra = warmCount === null ? [] : idle.slice(warmCount).filter(item => idleFor(item) >= graceMs).reverse();
+		// A pool machine matching a --keep prefix is never a deletion candidate.
+		const kept = item => prefixes.some(prefix => String(item.name ?? '').startsWith(prefix));
+		const extra = warmCount === null ? [] : idle.slice(warmCount).filter(item => !kept(item) && idleFor(item) >= graceMs).reverse();
 		let deleted = 0, skipped = 0, failed = 0;
 		for (const item of extra) {
-			// Nothing may be running there: a room or game left by a batch that lost track of it keeps the machine.
-			const running = await execRemote(item.id, busyScript(), { timeoutSeconds: 30 }).catch(() => 'unknown');
-			if (!/free/.test(running)) { skipped++; log(`${item.id} kept: ${/busy/.test(running) ? 'a room or game is still running there' : 'it did not answer'}`); continue; }
-			if (await destroyIdle(item, `beyond the warm ${warmCount}, idle ${since[item.name] ? `${Math.round(idleFor(item) / 60_000)} min` : 'since before idle times were kept'}`)) { deleted++; await store.forgetIdle(item.name); }
+			const check = async () => {
+				// A batch leased and gave it back since this round looked: it is no longer the longest idle.
+				if ((await store.idleSince())[item.name] !== since[item.name]) return 'a batch used it since this round began';
+				// Nothing may be running there: a room or game left by a batch that lost track of it keeps the machine.
+				const running = await execRemote(item.id, busyScript(), { timeoutSeconds: 30 }).catch(() => 'unknown');
+				return /free/.test(running) ? null : /busy/.test(running) ? 'a room or game is still running there' : 'it did not answer';
+			};
+			if (await destroyIdle(item, `beyond the warm ${warmCount}, idle ${since[item.name] ? `${Math.round(idleFor(item) / 60_000)} min` : 'since before idle times were kept'}`, { check })) { deleted++; await store.forgetIdle(item.name); }
+			else skipped++;
 		}
 		// Extended: busy pool machines (holdFor only moves a deadline later), the warm ones, and named machines to keep.
 		const named = prefixes.length ? (await listSandboxes()).filter(item => LIVE.has(item.state) && prefixes.some(prefix => String(item.name ?? '').startsWith(prefix)) && !members.some(member => member.id === item.id))
@@ -176,7 +186,7 @@ if (command === 'status') {
 			}
 		}
 		const left = members.length - hold.length + named.length - deleted;
-		log(`pool ${members.length} (${members.filter(item => item.busy).length} busy, ${idle.length} idle, warm ${warm.length} of ${warmCount ?? 'all'}${atNight() ? ', night' : ''}), named ${named.length}: ${deleted} deleted, ${skipped} kept with work on them, ${extended} pushed to ${Math.round(idleTtlSeconds / 60)} min, ${failed} failed; ${Math.max(left, 0)} left to their auto-stop${idleStop.length ? `; idle-stop machines: ${working} working, ${stopping} set to stop` : ''}`);
+		log(`pool ${members.length} (${members.filter(item => item.busy).length} busy, ${idle.length} idle, warm ${warm.length} of ${warmCount ?? 'all'}${atNight() ? ', night' : ''}), named ${named.length}: ${deleted} deleted, ${skipped} kept (in use, or work on them), ${extended} pushed to ${Math.round(idleTtlSeconds / 60)} min, ${failed} failed; ${Math.max(left, 0)} left to their auto-stop${idleStop.length ? `; idle-stop machines: ${working} working, ${stopping} set to stop` : ''}`);
 		} catch (error) {
 			// One failed boat call must not end a keepalive that runs all day; the next round tries again.
 			if (every === null) throw error;

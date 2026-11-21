@@ -191,7 +191,8 @@ export function leaseStore({ dir = defaultPoolDir(), leaseStaleMs = 5 * 60_000, 
 		},
 		holds: name => held.has(name),
 		/** Drops our lease on name; a lease another batch holds is left alone. */
-		async drop(name) {
+		/** Drops our lease; idle: false (a lease taken only to delete or inspect the machine) records no give-back time. */
+		async drop(name, { idle = true } = {}) {
 			const token = held.get(name);
 			held.delete(name);
 			if (!held.size && beat) { clearInterval(beat); beat = null; }
@@ -200,7 +201,7 @@ export function leaseStore({ dir = defaultPoolDir(), leaseStaleMs = 5 * 60_000, 
 				const lease = await readJson(leaseFile(name));
 				if (lease?.token !== token) return false;
 				await rm(leaseFile(name), { force: true });
-				await writeJsonAtomic(path.join(idleDir, `${name}.json`), { at: now() });
+				if (idle) await writeJsonAtomic(path.join(idleDir, `${name}.json`), { at: now() });
 				return true;
 			});
 		},

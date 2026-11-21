@@ -1527,7 +1527,7 @@ test('keepalive --warm keeps the most recently used idle machines, deletes the r
 			assert.ok(fake.exists(vms[3].id) && fake.exists(vms[2].id), 'the two most recently used stay warm');
 			assert.equal(fake.exists(vms[1].id), false, 'an idle one beyond the warm two is deleted');
 			assert.ok(fake.exists(vms[0].id), 'the one with a room still running is spared');
-			assert.match(run.stdout, /1 deleted, 1 kept with work on them/);
+			assert.match(run.stdout, /1 deleted, 1 kept \(in use, or work on them\)/);
 		} finally { room.kill('SIGKILL'); }
 		store.stop();
 	} finally { await fake.close(); }
@@ -1550,5 +1550,25 @@ test('a live batch keeps its lease however stale its heartbeat, and --machines r
 			await writeFile(leaseFile, JSON.stringify({ token: 'theirs', pid: holder.pid, pidStart: '1', batch: 'rr-pack', heartbeatAt: Date.now() }));
 			assert.equal((await warm(fake, { machines: [made.id] }).create()).id, made.id);
 		} finally { holder.kill('SIGKILL'); }
+	} finally { await fake.close(); }
+});
+
+test('keepalive --warm never deletes a pool machine matching --keep, and a lease dropped only to inspect a machine records no idle time', { skip: process.platform === 'win32' }, async () => {
+	const fake = await fakeBoat();
+	try {
+		const store = leaseStore({ dir: fake.poolDir });
+		const pool = warmBoatPool({ snapshot: 'img', type: 'default', store, log: quiet, roomPorts: [1, 0], startsPerMinute: 600 });
+		const vm = await pool.startNew();
+		await pool.release(vm);
+		const before = (await store.idleSince())[vm.name];
+		await store.take([vm.name]);
+		await store.drop(vm.name, { idle: false });
+		assert.equal((await store.idleSince())[vm.name], before, 'an inspection lease leaves the idle time alone');
+		const cli = fileURLToPath(new URL('../../scripts/quality/boat-pool.mjs', import.meta.url));
+		const run = spawnSync(process.execPath, [cli, 'keepalive', '--warm', '0', '--grace', '0', '--keep', 'rbpool-'], { env: { ...process.env, ROOM_BATCH_POOL_DIR: fake.poolDir }, encoding: 'utf8' });
+		assert.equal(run.status, 0, run.stdout + run.stderr);
+		assert.ok(fake.exists(vm.id), 'a pool machine matching --keep is not deleted');
+		assert.match(run.stdout, /0 deleted/);
+		store.stop();
 	} finally { await fake.close(); }
 });
