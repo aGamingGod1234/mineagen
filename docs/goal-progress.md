@@ -75,7 +75,7 @@ Four gameplay changes merged today, each measured in practice rooms against the 
 |---|---|---|---|
 | Lava safety (#35) | lava at the bot's own level | died in lava 9 of 9 | 0 of 9 |
 | End breath escape (#36) | dragon breath in the End | lost 18 to 30 HP in each of 23 rooms, 2 deaths | 0 HP lost, 0 deaths in 28 of 28 |
-| Unreachable enderman (#39, a switch that is off by default) | an enderman the bot cannot reach | killed it 0 of 5 | 5 of 5 with the switch on |
+| Unreachable enderman (#39; its switch is on by default since 21 Nov) | an enderman the bot cannot reach | killed it 0 of 5 | 5 of 5 with the switch on |
 | Shield on a drawn bow (#30) | a skeleton shooting from 4 to 10 blocks | shield stopped 67% of the arrow damage | 81% (24 cases each) |
 
 The first three gaps are all-or-nothing and safe to trust. The shield gain held in 18 of 24 paired cases but is about 3 points either way, and it showed no gain at 10 blocks.
