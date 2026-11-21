@@ -179,6 +179,17 @@ test('a pickup with no way to the eye leaves it behind and the find goes on', as
 	assert.equal(r.reasonCode, 'FIND_BUDGET', r.message); assert.equal(r.find.eyes.throws[0].recovery, 'not_reached');
 	assert.equal(b.calls.filter(c => c.type === 'pick_up_item').length, 1);
 });
+test('a walk to an eye whose tunnel floods, backed out of dry, leaves the eye instead of ending the find as danger', async () => {
+	const b = fake({ event: flight({ outcome: 'dropped', droppedAt: { x: -12, y: 69, z: 0 } }) });
+	b.o.items = [{ itemId: 'minecraft:ender_eye', stableId: '00000000-0000-4000-8000-000000000001', x: -12, y: 69, z: 0 }];
+	const original = b.act;
+	b.act = async (...args) => {
+		if (args[0] === 'travel_to' && args[1].y === 69) { b.calls.push({ type: args[0], args: args[1] }); return { state: 'FAILED', reasonCode: 'TUNNEL_FLOODED' }; }
+		return original(...args);
+	};
+	const r = await searchFor(target, b);
+	assert.equal(r.reasonCode, 'FIND_BUDGET', r.message); assert.equal(r.find.eyes.throws[0].recovery, 'not_reached');
+});
 test('a leg that covered ground before water it cannot bridge still counts as a leg', async () => {
 	const b = fake({ event: flight({ outcome: 'shattered' }) });
 	const original = b.act;

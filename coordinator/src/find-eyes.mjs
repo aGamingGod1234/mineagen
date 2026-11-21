@@ -28,8 +28,8 @@ export const EYE_FLIGHT_BLOCKS = 12;
 export const EYE_WATCH_BLOCKS = 10;
 // A leg that ends with one of these after covering ground still counts as a leg: the next eye is thrown from there.
 // A pickup that ends with one of these found no way to the eye at all.
-export const NO_WAY_CODES = new Set(['NO_SEEN_ROUTE', 'NO_STANDABLE_PATH', 'NO_ROUTE', 'REACHED_FRONTIER', 'CAVE_OPENING']);
-export const SOFT_LEG_CODES = new Set(['TRAVEL_TIMEOUT', 'NO_ROUTE', 'TRAVEL_STALLED', 'STALLED_IN_PLACE', 'BUILD_FAILED', 'OUT_OF_BLOCKS', 'NO_FLOOR', 'NO_STANDABLE_PATH']);
+export const NO_WAY_CODES = new Set(['NO_SEEN_ROUTE', 'NO_STANDABLE_PATH', 'NO_ROUTE', 'REACHED_FRONTIER', 'CAVE_OPENING', 'ITEM_PICKUP_TIMED_OUT']);
+export const SOFT_LEG_CODES = new Set(['TRAVEL_TIMEOUT', 'NO_ROUTE', 'TRAVEL_STALLED', 'STALLED_IN_PLACE', 'BUILD_FAILED', 'OUT_OF_BLOCKS', 'NO_FLOOR', 'NO_STANDABLE_PATH', 'TUNNEL_FLOODED']);
 export function trustedCross(a, b) {
 	if (!Number.isFinite(a?.yaw) || !Number.isFinite(b?.yaw) || !point(a.from) || !point(b.from)) return false;
 	if (Math.hypot(a.from.x - b.from.x, a.from.z - b.from.z) < TRUSTED_BASE_BLOCKS) return false;
@@ -115,8 +115,10 @@ export async function followEyes(target, body, { observation: initial, deadline,
 		// from here as a player whose tunnel hits water steps back (eye rooms: 3 of 10 eyes-b finds ended FIND_DANGER so).
 		// A swim hop that surfaced to breathe reached air, as asked: it is a hop, not a danger.
 		if (breathStop && ['BREATH_NOT_COVERED', 'AIR_RESERVE_REACHED'].includes(result?.reasonCode) && !safety() && o.player.underWater !== true) return null;
-		if (soft && result?.reasonCode === 'TUNNEL_FLOODED' && !result?.interruptedBy && !safety() && o.player.underWater !== true
-			&& Math.hypot(o.player.x - before.x, o.player.z - before.z) >= 8) return null;
+		const dryFlood = result?.reasonCode === 'TUNNEL_FLOODED' && !result?.interruptedBy && !safety() && o.player.underWater !== true;
+		if (soft && dryFlood && Math.hypot(o.player.x - before.x, o.player.z - before.z) >= 8) return null;
+		// With no ground covered it is a blocked walk, not a danger: the eye walk leaves the eye, the leg tries the water.
+		if (dryFlood) return finish('FIND_BLOCKED', 'TUNNEL_FLOODED');
 		if (result?.interruptedBy || dangerCodes.has(result?.reasonCode) || safety()) return finish('FIND_DANGER', dangerCodes.has(result?.reasonCode) ? result.reasonCode : safety() ?? result?.interruptedBy ?? 'interrupted');
 		const found = result?.seen ?? arrival();
 		if (found) return finish('FIND_SEEN', `Stronghold blocks seen at ${found.x},${found.y},${found.z}`, found);
