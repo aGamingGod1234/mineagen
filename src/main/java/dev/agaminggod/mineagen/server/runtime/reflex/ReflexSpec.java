@@ -21,8 +21,11 @@ import java.util.regex.Pattern;
  * {@link ReflexSensors} / {@link ReflexActions}.
  */
 public final class ReflexSpec {
-	/** The model's own 12 rules plus the coordinator's 15 default rules (14 survival rules and the owed-drops habit). */
-	public static final int MAX_RULES = 27;
+	/**
+	 * The model's own 12 rules plus the coordinator's 15 default rules (14 survival rules and the owed-drops habit) and the
+	 * 2 it arms only in the End (breath and the dragon's throw, reflexes.mjs DIMENSION_REFLEXES).
+	 */
+	public static final int MAX_RULES = 29;
 	/** Ids the coordinator's default survival rules carry (reflexes.mjs DEFAULT_REFLEXES). */
 	public static final String DEFAULT_RULE_PREFIX = "default-";
 	public static final int MAX_CONDITIONS = 4;

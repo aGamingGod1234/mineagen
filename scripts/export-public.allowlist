@@ -199,6 +199,7 @@ coordinator/src/intervention-audit.mjs
 coordinator/src/inventory-repair.mjs
 coordinator/src/job-gate.mjs
 coordinator/src/jsonl.mjs
+coordinator/src/kit-habit.mjs
 coordinator/src/lean-input.mjs
 coordinator/src/live-task-view.mjs
 coordinator/src/message-id.mjs
@@ -626,6 +627,9 @@ coordinator/test/java-wire-schema.test.mjs
 coordinator/test/jsonl-audit.test.mjs
 coordinator/test/jsonl-decoder-equivalence.test.mjs
 coordinator/test/jsonl.test.mjs
+coordinator/test/kit-habit-runtime.test.mjs
+coordinator/test/kit-habit.test.mjs
+coordinator/test/late-game-end.test.mjs
 coordinator/test/latency-acceptance.test.mjs
 coordinator/test/latency-runner-cli.test.mjs
 coordinator/test/latency-runner.test.mjs
@@ -1044,6 +1048,7 @@ scripts/quality/test-dig-live.mjs
 scripts/quality/test-dig-options-live.mjs
 scripts/quality/test-dragon-live.mjs
 scripts/quality/test-drawn-bow-live.mjs
+scripts/quality/test-end-breath-live.mjs
 scripts/quality/test-end-survive-live.mjs
 scripts/quality/test-end-void-live.mjs
 scripts/quality/test-enderman-live.mjs
@@ -2087,6 +2092,7 @@ src/test/java/dev/agaminggod/mineagen/server/runtime/input/VanillaMoveInputVerif
 src/test/java/dev/agaminggod/mineagen/server/runtime/menu/MenuCapabilityRegistryVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/reflex/DefaultEatRearmingVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/reflex/DrawnBowShieldVerification.java
+src/test/java/dev/agaminggod/mineagen/server/runtime/reflex/EndBreathFloorVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/reflex/LeaveFireDouseRecoveryVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/reflex/ModelOwnedDefaultRulesVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/reflex/ReflexBodyVerification.java
@@ -2112,6 +2118,7 @@ src/test/python/test_pov_agent_lighting.py
 src/test/python/test_pov_map_visibility.py
 src/test/resources/d1-late4-handoff.json
 src/test/resources/default-reflex-rules.json
+src/test/resources/end-reflex-rules.json
 src/test/resources/player-action-schema-cases.json
 src/test/resources/pov-mixin-targets.txt
 voice-addon/build.gradle
@@ -2184,6 +2191,7 @@ scripts/hooks/commit-msg
 scripts/hooks/pre-commit
 scripts/pull-request-text.mjs
 docs/technical-catalogue/35-lava-step-guard.md
+docs/technical-catalogue/36-end-breath-escape.md
 # Files the issue #2 pull requests (#4 to #28) added without listing them: coordinator sources and tests, mod
 # classes, quality scripts and catalogue pages. Each is already public, and an export without them does not build.
 coordinator/src/default-models.mjs

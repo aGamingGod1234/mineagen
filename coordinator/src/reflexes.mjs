@@ -37,11 +37,27 @@ export const DEFAULT_REFLEXES = Object.freeze([
 	// instinct and any command pre-empt it. 20 s covers the collect and the walk back.
 	{ id: 'default-owed-drops', kind: 'trigger', priority: 2, when: [{ type: 'drops_owed' }], do: { type: 'collect_drops' }, maxMs: 20_000, cooldownMs: 5_000, ttlMs: 3_600_000 },
 ].map((rule) => Object.freeze(rule)));
-export const DEFAULT_REFLEX_IDS = Object.freeze(new Set(DEFAULT_REFLEXES.map((rule) => rule.id)));
+/**
+ * Defaults armed only in one dimension: on entering it (as at spawn or respawn) and removed on leaving. The End (late-game
+ * wall, order 12): breath killed 5 of 6 staged End deaths, 3 with no rule at all. default-breath is a hazard floor in the
+ * mod (ReflexScheduler.FLOOR_HAZARDS has cloud_near): it fires while the breath is within 2 blocks (a sprinting body
+ * overshoots 1), a model command waits under it until the run ends out of the cloud, and the loop limits never switch it off. Its run (sprint_away) refuses headings into a
+ * cloud or toward the void and ends stepped back off a brink. default-end-throw steps inland when the dragon swoops at a
+ * body standing near a deep drop, the throw that ends in the void.
+ */
+export const DIMENSION_REFLEXES = Object.freeze({
+	'minecraft:the_end': Object.freeze([
+		{ id: 'default-breath', kind: 'trigger', priority: 9, when: [{ type: 'cloud_near', within: 2 }], do: { type: 'sprint_away', blocks: 10 }, maxMs: 6_000, ttlMs: 3_600_000 },
+		{ id: 'default-end-throw', kind: 'trigger', priority: 8, when: [{ type: 'dragon_charging', within: 48 }, { type: 'edge_near', within: 3, direction: 'any', drop: 16 }], do: { type: 'away_from_edge', blocks: 6 }, maxMs: 6_000, cooldownMs: 3_000, ttlMs: 3_600_000 },
+	].map((rule) => Object.freeze(rule))),
+});
+const MOST_DIMENSION_REFLEXES = Math.max(0, ...Object.values(DIMENSION_REFLEXES).map((rules) => rules.length));
+export const DEFAULT_REFLEX_IDS = Object.freeze(new Set([...DEFAULT_REFLEXES, ...Object.values(DIMENSION_REFLEXES).flat()].map((rule) => rule.id)));
 // The mod runs at most this many rules (ReflexSpec.MAX_RULES): the cap of every rule-set bound on the wire (C24). The
-// model's own rules plus the defaults must fit it, so a new default needs a raise on both sides first.
-export const MAX_REFLEX_RULES = 27;
-if (MAX_REFLEXES + DEFAULT_REFLEXES.length > MAX_REFLEX_RULES) throw new Error(`reflex rules ${MAX_REFLEXES} + ${DEFAULT_REFLEXES.length} exceed the mod's ${MAX_REFLEX_RULES}`);
+// model's own rules plus the defaults (with the most any dimension adds) must fit it, so a new default needs a raise on
+// both sides first.
+export const MAX_REFLEX_RULES = 29;
+if (MAX_REFLEXES + DEFAULT_REFLEXES.length + MOST_DIMENSION_REFLEXES > MAX_REFLEX_RULES) throw new Error(`reflex rules ${MAX_REFLEXES} + ${DEFAULT_REFLEXES.length} + ${MOST_DIMENSION_REFLEXES} exceed the mod's ${MAX_REFLEX_RULES}`);
 
 /**
  * Issue 2 Step 2: the instincts arm. MINEAGEN_INSTINCTS lists `instincts` (comma list) to turn it on; the mod reads the
@@ -349,9 +365,13 @@ export class ReflexBook {
 	#samples = new Map();
 	#now;
 	#defaults;
+	#dimensionDefaults;
 	#instincts;
 
-	constructor({ now = Date.now, defaults = DEFAULT_REFLEXES, instincts = false } = {}) { this.#now = now; this.#defaults = defaults; this.#instincts = instincts === true; }
+	/** dimensionDefaults: {dimension: rules} armed only there; by default DIMENSION_REFLEXES with the production defaults. */
+	constructor({ now = Date.now, defaults = DEFAULT_REFLEXES, dimensionDefaults = defaults === DEFAULT_REFLEXES ? DIMENSION_REFLEXES : {}, instincts = false } = {}) {
+		this.#now = now; this.#defaults = defaults; this.#dimensionDefaults = dimensionDefaults; this.#instincts = instincts === true;
+	}
 
 	#agent(agentId) {
 		let agent = this.#agents.get(agentId);
@@ -448,8 +468,12 @@ export class ReflexBook {
 		agent.dimension = dimension;
 		if (event !== null) agent.declined.clear();
 		const restanced = this.#instincts && this.#settleStance(agent, observation, event !== null);
-		const missing = this.#defaults.filter((rule) => !agent.rules.has(rule.id) && !agent.declined.has(rule.id));
-		if (missing.length === 0 && !restanced) return false;
+		const here = this.#dimensionDefaults[dimension] ?? [];
+		// A dimension's own defaults leave with it (only while still held as defaults: a model replacement is the model's).
+		const gone = Object.values(this.#dimensionDefaults).flat().filter((rule) => !here.includes(rule) && agent.defaults.has(rule.id));
+		for (const rule of gone) { agent.rules.delete(rule.id); agent.defaults.delete(rule.id); }
+		const missing = [...this.#defaults, ...here].filter((rule) => !agent.rules.has(rule.id) && !agent.declined.has(rule.id));
+		if (missing.length === 0 && !restanced && gone.length === 0) return false;
 		for (const rule of missing) {
 			agent.rules.set(rule.id, this.#instincts ? materializeDefault(rule, agent.stance) : structuredClone(rule));
 			agent.defaults.add(rule.id);
