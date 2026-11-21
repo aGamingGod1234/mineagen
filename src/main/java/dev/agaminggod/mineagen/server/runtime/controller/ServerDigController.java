@@ -262,6 +262,15 @@ public final class ServerDigController implements ServerController {
 	private int aimTicks;
 	private int phaseTicks;
 	private int refills;
+	/** Times this call stepped back from falling gravel or sand and dug on once it landed (retreat). */
+	private int looseRetreats;
+	private int landingTicks;
+	/** Ticks spent knocking a snow layer or plant out of this step's cell (floor). */
+	private int clearTicks;
+	static final int CLEAR_TICKS = 40;
+	static final int MAX_LOOSE_RETREATS = 6;
+	/** How long the body waits, stepped back, for a falling block to land before it digs on (2 s). */
+	static final int LANDING_TICKS = 40;
 	private final Set<BlockPos> cut = new HashSet<>();
 	private final Set<BlockPos> openBefore = new HashSet<>();
 	private BlockPos placeAt;
@@ -524,6 +533,7 @@ public final class ServerDigController implements ServerController {
 			if (known != null && passable(player.level(), neighbour, known)) openBefore.add(neighbour);
 		}
 		refills = 0;
+		clearTicks = 0;
 		cellIndex = 0;
 		mining = null;
 		phaseTicks = 0;
@@ -860,6 +870,22 @@ public final class ServerDigController implements ServerController {
 		if (active == Pattern.STAIRS_UP) {
 			BlockPos step = next.below();
 			BlockState state = player.level().getBlockState(step);
+			// A snow layer or grass in the step's cell hides the faces a step block would go against: knock it away
+			// first, as a player does, then place the step on what is under it.
+			if (!standable(player.level(), step, state) && !state.isAir() && state.canBeReplaced() && state.getFluidState().isEmpty()
+					&& clearTicks < CLEAR_TICKS) {
+				Vec3 aim = dev.agaminggod.mineagen.server.runtime.TargetSightline.block(player.level(), net.minecraft.world.phys.shapes.CollisionContext.of(player),
+						player.getEyePosition(), step, player.blockInteractionRange(), null);
+				if (aim != null) {
+					clearTicks++;
+					AgentInputState look = AgentInputStates.lookingAt(player, aim, 0.0F, 0.0F, false, false, false, false, false, InteractionHand.MAIN_HAND);
+					boolean onTarget = Tracer.rayTrace(player, 1.0F, player.blockInteractionRange(), false) instanceof BlockHitResult hit
+							&& hit.getType() == HitResult.Type.BLOCK && hit.getBlockPos().equals(step);
+					applyInput(player, 0.0F, false, false, onTarget, AgentInputStates.turnYaw(player.getYRot(), look.yaw()),
+							AgentInputStates.turnPitch(player.getXRot(), look.pitch()), player.getInventory().getSelectedSlot());
+					return TickResult.running(progress(player));
+				}
+			}
 			if (!standable(player.level(), step, state)) {
 				String filler = filler(player);
 				Direction face = filler == null || !state.canBeReplaced() || !state.getFluidState().isEmpty() ? null : supportFace(player, step);
@@ -1279,11 +1305,30 @@ public final class ServerDigController implements ServerController {
 		return false;
 	}
 
-	/** A loose block is falling at the head after the jump headroom opened: step back down the stairs out of its way. */
+	/**
+	 * A loose block is falling at the head after the jump headroom opened: step back down the stairs out of its way, let
+	 * it land, then plan the step again and dig through what fell, as a player does with a gravel pocket. Only after
+	 * MAX_LOOSE_RETREATS such falls in one call does it hand back.
+	 */
 	private TickResult retreat(ServerPlayer player) {
 		BlockPos back = feet.relative(heading.getOpposite()).below();
-		if (player.blockPosition().equals(back) && player.onGround() || ++phaseTicks > 30)
-			return stop(player, "FALLING_BLOCKS", "A loose block fell from above " + cell(feet.above(2)) + "; stepped back to " + cell(player.blockPosition()));
+		if (player.blockPosition().equals(back) && player.onGround() || ++phaseTicks > 30) {
+			if (looseRetreats < MAX_LOOSE_RETREATS && player.onGround()) {
+				boolean falling = !player.level().getEntitiesOfClass(FallingBlockEntity.class, player.getBoundingBox().inflate(1.0D, 6.0D, 1.0D)).isEmpty();
+				if (falling && ++landingTicks <= LANDING_TICKS) {
+					hold(player, 0.0F, false, false, heading.toYRot(), 0.0F);
+					return TickResult.running(progress(player));
+				}
+				looseRetreats++;
+				landingTicks = 0;
+				phaseTicks = 0;
+				phase = Phase.START;
+				releaseInput();
+				return TickResult.running(progress(player));
+			}
+			return stop(player, "FALLING_BLOCKS", "A loose block fell from above " + cell(feet.above(2)) + "; stepped back to " + cell(player.blockPosition())
+					+ (looseRetreats > 0 ? " after digging on through " + looseRetreats + " earlier falls" : ""));
+		}
 		hold(player, -1.0F, false, false, heading.toYRot(), 0.0F);
 		return TickResult.running(progress(player));
 	}

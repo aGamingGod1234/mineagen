@@ -112,7 +112,7 @@ try {
   await writeFile(join(out,'drops.json'),JSON.stringify(results,null,2));
   console.log(JSON.stringify(results,null,2));
   const ok=results.floor.reasonCode==='TARGET_KILLED'&&/drops seen: .*minecraft:chicken at /.test(results.floor.message)&&!/burns/.test(results.floor.message)
-    &&results.overLava.reasonCode==='TARGET_KILLED'&&/minecraft:chicken at [-\d]+,80,[-\d]+ \(over lava 1 below: burns\)/.test(results.overLava.message)
+    &&results.overLava.reasonCode==='TARGET_KILLED'&&/minecraft:chicken at [-\d]+,80,[-\d]+ uuid=[0-9a-f-]+ \((?:falling|landed), last seen\) \(over lava 1 below: burns\)/.test(results.overLava.message)
     &&results.blaze.reasonCode==='TARGET_KILLED'&&/drops seen: (1x minecraft:blaze_rod at |none from minecraft:blaze)/.test(results.blaze.message);
   if(!ok)throw new Error('kill drops live check failed');
   console.log('Kill drops live check passed');

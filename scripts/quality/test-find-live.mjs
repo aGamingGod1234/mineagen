@@ -33,6 +33,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { applyQualitySetup, activateQualitySetup } from '../../coordinator/src/benchmark/quality-scenarios.mjs';
 import { NativeToolRuntime } from '../../coordinator/src/native-tool-runtime.mjs';
+import { kitHabitEnabled } from '../../coordinator/src/kit-habit.mjs';
 import { normalizeMinecraftToolCall } from '../../coordinator/src/native-minecraft-tools.mjs';
 import { adaptObservation } from '../../coordinator/src/observation-adapter.mjs';
 import { InspectionClient } from '../../coordinator/src/inspection-client.mjs';
@@ -137,6 +138,8 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 			reflexBook: new ReflexBook({ defaults: DEFAULT_REFLEXES, ...(s.clock.rate === 20 ? {} : { now: () => s.clock.now() }) }),
 			// At a raised rate the runtime times find, gather, obtain and wait in game time too (it feeds the clock its samples).
 			...(s.clock.rate === 20 ? {} : { clock: gameClockFromObservations({ tickRate: s.clock.rate }) }),
+			// The kit habit as dynamic-main arms it: on unless MINEAGEN_KIT_HABIT=off.
+			kitHabit: kitHabitEnabled(process.env),
 		});
 		const record = liveRecord(s, { provider: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'low', serviceTier: 'default' });
 		s.bridge.on('observation', ev => {
