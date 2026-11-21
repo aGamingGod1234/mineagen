@@ -272,6 +272,12 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		row.path = { walked: Math.round(walked), net: Math.round(Math.hypot(end[0] - row.start[0], end[2] - row.start[2])), farthest: Math.round(farthest),
 			descended: Math.round(row.start[1] - Math.min(...trail.map(p => p[1]), row.start[1])), samples: trail.length };
 		row.end = await pos();
+		// finalProbe: ground-truth commands after the calls (eyes still lying in the world), {x},{y},{z} at the body's end.
+		if (Array.isArray(spot.finalProbe)) {
+			const at = { x: Math.floor(row.end[0]), y: Math.floor(row.end[1]), z: Math.floor(row.end[2]) };
+			row.finalProbe = [];
+			for (const text of spot.finalProbe) row.finalProbe.push(String(await s.command(atBody(text, at))).slice(0, 300));
+		}
 		if (Array.isArray(spot.finish)) { row.finish = []; for (const text of spot.finish) row.finish.push({ command: text, reply: String(await s.command(text)).slice(0, 4000) }); }
 		const healthAfter = await health();
 		Object.assign(row, damageEvidence(damageBefore, await readDamage(), healthBefore, healthAfter));

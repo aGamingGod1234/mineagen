@@ -15,6 +15,7 @@ import { fortressSearchOption } from './nether-regions.mjs';
 import { NETHER_OPTIONS_BYTES, SOURCE_BLOCKS, bedSpawnOption, descentRespawnFact, knownLine, needOptions, netherReadiness, netherRouteOption, pearlHuntLine, pearlOptions, pearlSourceInView, pearlsWanted, pickaxeTier, portalAtHand, progressionGoal, textResources } from './need-sources.mjs';
 import { VILLAGE_POI, headingOf, sightingKind } from './search-coverage.mjs';
 import { foodStockHandback, routeLine, skillFitsLine, woodStockHandback } from './skill-fits.mjs';
+import { KIT_ITEMS } from './end-readiness.mjs';
 import { beatsTheGame } from './goal-spec-translator.mjs';
 import { dropLoss, recoveryRoute } from './respawn-recovery.mjs';
 import { lightLine, toolsLine, picksLine, sleepLine, spawnLine, castingLine, frameLine } from './wake-body-facts.mjs';
@@ -250,12 +251,24 @@ export class LiveTaskViews {
   * after a restart the step heads the route again until the next one.
   */
  noteFoodHandback(record, tool, result) {
+  this.#noteKitHandback(record, tool, result);
   const food = foodStockHandback(tool, result), wood = !food && woodStockHandback(tool, result);
   if (!beatsTheGame(record.currentGoalSpec) || !food && !wood) return false;
   const state = this.#state(record), o = state.observation;
   if (!currentSample(o) || deadSample(o) || !state.worldId || !Number.isFinite(o.observedAtEpochMs)) return false;
   state[food ? 'foodHandback' : 'woodHandback'] = { at: o.observedAtEpochMs, worldId: state.worldId, deaths: state.deaths };
   return true;
+ }
+ /** An obtain of an End kit item that came back failed (not a danger stop) releases that fix on the route line this life. */
+ #noteKitHandback(record, tool, result) {
+  if (!beatsTheGame(record.currentGoalSpec) || tool?.kind !== 'obtain' || !['FAILED', 'TIMED_OUT'].includes(result?.state) || result.reasonCode === 'OBSERVATION_UNAVAILABLE'
+   || /DANGER|HEALTH|CANCEL|INTERRUPT/.test(result.reasonCode ?? '')) return;
+  const raw = typeof result.item === 'string' ? result.item : tool.arguments?.item;
+  const item = `minecraft:${String(raw ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_').replace(/^minecraft:/, '')}`;
+  if (!KIT_ITEMS.test(item)) return;
+  const state = this.#state(record);
+  if (!state.worldId) return;
+  state.kitHandbacks = [...(state.kitHandbacks ?? []).filter(row => row.item !== item), { item, worldId: state.worldId, deaths: state.deaths }];
  }
  async actionReceipt(record, receipt) {
   if (receipt.goalRevision === record.goalRevision) {
@@ -705,7 +718,8 @@ export class LiveTaskViews {
   const released = handback => handback != null && handback.worldId === current.worldId && handback.deaths === state.deaths
    && handback.at <= state.observation?.observedAtEpochMs;
   const foodHandedBack = released(current.foodHandback), woodHandedBack = released(current.woodHandback);
-  const route = beatsTheGame(record.currentGoalSpec) ? routeLine({ observation: state.observation, known: state.known, memory: this.#memory(record, state, ROUTE_SOURCE_BLOCKS), foodHandedBack, woodHandedBack, evaluate: evaluatePlanCheck, instincts: this.#instincts }) : null;
+  const kitHandedBack = new Set((current.kitHandbacks ?? []).filter(row => row.worldId === current.worldId && row.deaths === state.deaths).map(row => row.item));
+  const route = beatsTheGame(record.currentGoalSpec) ? routeLine({ observation: state.observation, known: state.known, memory: this.#memory(record, state, ROUTE_SOURCE_BLOCKS), foodHandedBack, woodHandedBack, kitHandedBack, evaluate: evaluatePlanCheck, instincts: this.#instincts }) : null;
   return composeContinuityHeader({ goal: record.currentGoal, intent: state.intent, evidence: intentEvidence(state), since, progress: this.#progressLine(state), route, stepProgress: stepProgress.progress ?? null, repeats: stepProgress.repeats ?? null, search: stepProgress.search ?? null, ...this.#memoryFacts(record, state, shown, observation?.recovery ?? null), results: state.results, running, effect: state.effect, orders, guardInstalled, guardCoverage, guardThreatsNear, guardThreatsTargeting, annotate });
  }
  /** The trigger for a no-progress or repeated-result fact not yet woken for ('no_progress' | 'repeated_result'), once. */
