@@ -60,6 +60,11 @@ public final class ServerBarterController implements ServerController {
 	static final double TABLE_REACH = 4.5D;
 	/** A piglin with a seen hoglin, zoglin or brute this close is passed over: walking up to it walks into that mob. */
 	static final double DANGER_NEAR_PIGLIN = 8.0D;
+	/**
+	 * Barter returns a player leaves on the ground: building rubble that fills the bags (20 barter-room runs picked up
+	 * stacks of gravel and blackstone until the gold blocks could no longer be crafted into ingots).
+	 */
+	static final Set<String> JUNK = Set.of("minecraft:gravel", "minecraft:blackstone", "minecraft:soul_sand", "minecraft:nether_brick", "minecraft:netherrack");
 	static final long CRAFT_TIMEOUT_MS = 20_000L;
 	static final double THROW_RANGE = 2.6D;
 	static final double DROP_RANGE = 8.0D;
@@ -322,6 +327,8 @@ public final class ServerBarterController implements ServerController {
 		boolean tableHeld = carried(player, Items.CRAFTING_TABLE) > 0;
 		Conversion plan = conversion(blocks, nuggets, table != null, tableHeld);
 		if (plan == null) return false;
+		// Crafted ingots need a free slot: drop a stack of barter rubble first, as a player clears the bags.
+		if (player.getInventory().getFreeSlot() < 0 && !dropJunk(player)) return false;
 		if (plan.table() && table == null) table = placeTable(player);
 		if (plan.table() && table == null) return false;
 		craftYield = plan.ingots();
@@ -351,6 +358,21 @@ public final class ServerBarterController implements ServerController {
 					&& player.level().getBlockState(at).is(Blocks.CRAFTING_TABLE)) return at;
 		}
 		return null;
+	}
+
+	/** Q-drops the largest carried stack of barter rubble; false when there is none (the asked item never counts). */
+	private boolean dropJunk(ServerPlayer player) {
+		int best = -1;
+		for (int slot = 0; slot < 36; slot++) {
+			ItemStack stack = player.getInventory().getItem(slot);
+			if (stack.isEmpty() || stack.is(wanted) || !JUNK.contains(BuiltInRegistries.ITEM.getKey(stack.getItem()).toString())) continue;
+			if (best < 0 || stack.getCount() > player.getInventory().getItem(best).getCount()) best = slot;
+		}
+		if (best < 0) return false;
+		ItemStack stack = player.getInventory().removeItem(best, player.getInventory().getItem(best).getCount());
+		ItemEntity dropped = McCompat.drop(player, stack, true, true);
+		if (dropped != null) ignoredDrops.add(dropped.getUUID());
+		return dropped != null;
 	}
 
 	/** What gold is still carried but could not be turned into ingots here, for the model's next choice. */
@@ -417,8 +439,13 @@ public final class ServerBarterController implements ServerController {
 						mob -> mob.isAlive() && isPiglinSideDanger(BuiltInRegistries.ENTITY_TYPE.getKey(mob.getType()).toString())
 								&& ObservationVisibility.canSeeEntity(player, mob))
 				.stream().map(Mob::position).toList();
-		return visiblePiglins(player).stream()
-				.filter(p -> p.getOffhandItem().isEmpty() && busyUntil.getOrDefault(p.getUUID(), 0L) <= now && !nearDanger(p.position(), dangers))
+		List<Piglin> seen = visiblePiglins(player);
+		// Walk beyond 16 blocks only when no piglin at all is that near: a busy one close by is waited for, not left
+		// for one 30 blocks off (chasing far piglins halved the throws in the held room).
+		boolean anyNear = seen.stream().anyMatch(p -> player.distanceTo(p) <= PIGLIN_RANGE);
+		return seen.stream()
+				.filter(p -> (!anyNear || player.distanceTo(p) <= PIGLIN_RANGE) && p.getOffhandItem().isEmpty()
+						&& busyUntil.getOrDefault(p.getUUID(), 0L) <= now && !nearDanger(p.position(), dangers))
 				.min(Comparator.comparingDouble(player::distanceTo)).orElse(null);
 	}
 
@@ -426,6 +453,7 @@ public final class ServerBarterController implements ServerController {
 	private ItemEntity nearestDrop(ServerPlayer player) {
 		return player.level().getEntitiesOfClass(ItemEntity.class, player.getBoundingBox().inflate(DROP_RANGE),
 						e -> e.isAlive() && !ignoredDrops.contains(e.getUUID()) && !e.getItem().is(Items.GOLD_INGOT)
+								&& (e.getItem().is(wanted) || !JUNK.contains(BuiltInRegistries.ITEM.getKey(e.getItem().getItem()).toString()))
 								&& e.onGround() && player.distanceTo(e) <= DROP_RANGE && ObservationVisibility.canSeeEntity(player, e)
 								&& dev.agaminggod.mineagen.server.runtime.InventoryRoom.canTake(player, e.getItem()))
 				.stream().min(Comparator.comparingDouble(player::distanceTo)).orElse(null);

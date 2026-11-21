@@ -183,6 +183,9 @@ public final class PerceptionGateVerification {
 		List<net.minecraft.world.phys.Vec3> hoglin = List.of(new net.minecraft.world.phys.Vec3(10, 64, 0));
 		check(ServerBarterController.nearDanger(new net.minecraft.world.phys.Vec3(4, 64, 0), hoglin, 8.0D), "a piglin 6 blocks from a hoglin is passed over");
 		check(!ServerBarterController.nearDanger(new net.minecraft.world.phys.Vec3(-4, 64, 0), hoglin, 8.0D), "a piglin 14 blocks from it is not");
+		check(ServerBarterController.JUNK.contains("minecraft:gravel") && ServerBarterController.JUNK.contains("minecraft:blackstone")
+				&& !ServerBarterController.JUNK.contains("minecraft:ender_pearl") && !ServerBarterController.JUNK.contains("minecraft:obsidian")
+				&& !ServerBarterController.JUNK.contains("minecraft:crying_obsidian"), "rubble is left on the ground; pearls and obsidian are kept");
 	}
 
 	private static void check(boolean condition, String message) {
