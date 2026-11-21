@@ -403,6 +403,16 @@ public final class ServerTravelController implements ServerController {
 	}
 
 	/**
+	 * Whether a body this near a lit portal walks the last step in itself: within 2 blocks across, from at most 1 below its
+	 * floor cell to 2 above it, as a player steps or drops into the opening. lava-gate-1: the body stood 1.2 above the
+	 * floor on the ground cleared beside a cast frame, 1 block from the opening, and the trip failed PORTAL_NOT_REACHED
+	 * in 3 s (2 of 3 runs that lit the portal).
+	 */
+	static boolean nudgesIntoPortal(double horizontalSquared, double aboveFloor) {
+		return horizontalSquared <= 4.0D && aboveFloor >= -1.0D && aboveFloor <= 2.0D;
+	}
+
+	/**
 	 * At a target that is a seen portal: step into its nearest standing cell, then stand there until the crossing. Null
 	 * when the target is no portal, or while the step in runs (the leg phase ticks it).
 	 */
@@ -425,7 +435,7 @@ public final class ServerTravelController implements ServerController {
 		}
 		if (portalLeg && !(phase == Phase.LEG && leg != null)) {
 			double dx = portalCell.x() + 0.5D - player.getX(), dz = portalCell.z() + 0.5D - player.getZ();
-			if (portalNudge++ < PORTAL_NUDGE_TICKS && dx * dx + dz * dz <= 4.0D && Math.abs(player.getY() - portalCell.y()) <= 1.0D) {
+			if (portalNudge++ < PORTAL_NUDGE_TICKS && nudgesIntoPortal(dx * dx + dz * dz, player.getY() - portalCell.y())) {
 				TickResult stop = stopOrTimeout(player, nowEpochMs);
 				if (stop != null) return stop;
 				apply(player, new AgentInputStates.MotorTarget(Mth.wrapDegrees((float) Math.toDegrees(Math.atan2(-dx, dz))), 0.0F, true, false, false), false, false, false, nowEpochMs);
