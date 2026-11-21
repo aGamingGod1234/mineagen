@@ -61,6 +61,8 @@ export const foldReason = text => String(text ?? '').split('\n')[0]
 	.replace(/-?\d+(\.\d+)?/g, 'N').replace(/\s+/g, ' ').trim().slice(0, 90);
 
 const SKIP_FILES = new Set(['manifest.json', 'actions.json', 'timeline.json', 'result-summary.json', 'done.json']);
+/** A room's own bar from its meta: passWhen { field, min } on a top-level number of the fixture's JSON, e.g. pearls held at the end. */
+const meetsBar = (passWhen, fields) => Number.isFinite(fields?.[passWhen.field]) && fields[passWhen.field] >= passWhen.min;
 /**
  * Deaths and damage from a fixture's own JSON files when it writes no result.json: every list of row objects counts
  * died: true (or deaths: N) and sums damageTaken (or damage, healthLost); a row with pass: false or ok: false is noted.
@@ -68,18 +70,28 @@ const SKIP_FILES = new Set(['manifest.json', 'actions.json', 'timeline.json', 'r
  */
 export async function otherEvidence(dir) {
 	let deaths = null, damage = null, failed = null;
+	const fields = {}, top = { deaths: null, damage: null };
 	const visit = (value, depth) => {
 		if (depth > 4 || value === null || typeof value !== 'object') return;
 		if (Array.isArray(value)) { for (const item of value) visit(item, depth + 1); return; }
-		if (typeof value.died === 'boolean') deaths = (deaths ?? 0) + (value.died ? 1 : 0);
-		else if (Number.isFinite(value.deaths) && depth > 0) deaths = (deaths ?? 0) + value.deaths;
+		// A file's top-level totals count only when no row anywhere names them, so a summary never doubles its rows.
 		const hurt = [value.damageTaken, value.damage, value.healthLost].find(Number.isFinite);
-		if (hurt !== undefined && depth > 0) damage = (damage ?? 0) + hurt;
+		if (depth === 0) {
+			if (typeof value.died === 'boolean') top.deaths = (top.deaths ?? 0) + (value.died ? 1 : 0);
+			else if (Number.isFinite(value.deaths)) top.deaths = (top.deaths ?? 0) + value.deaths;
+			if (hurt !== undefined) top.damage = (top.damage ?? 0) + hurt;
+			for (const [key, child] of Object.entries(value)) if (Number.isFinite(child)) fields[key] = child;
+		} else {
+			if (typeof value.died === 'boolean') deaths = (deaths ?? 0) + (value.died ? 1 : 0);
+			else if (Number.isFinite(value.deaths)) deaths = (deaths ?? 0) + value.deaths;
+			if (hurt !== undefined) damage = (damage ?? 0) + hurt;
+		}
 		if (value.pass === false || value.ok === false) failed ??= value.pass === false ? 'pass' : 'ok';
 		for (const [key, child] of Object.entries(value)) if (key !== 'summary' && typeof child === 'object') visit(child, depth + 1);
 	};
 	for (const file of (await readdir(dir).catch(() => [])).filter(file => file.endsWith('.json') && !SKIP_FILES.has(file))) visit(await readJson(path.join(dir, file)), 0);
-	return { deaths, damage: damage === null ? null : +damage.toFixed(1), failed };
+	deaths ??= top.deaths; damage ??= top.damage;
+	return { deaths, damage: damage === null ? null : +damage.toFixed(1), failed, fields };
 }
 /** The thrown error of a fixture that failed by exception, from its log, folded to count. */
 async function failureLine(log) {
@@ -119,7 +131,7 @@ export async function collectRuns(batchDir, planned = null, meta = null) {
 			if (!done || !run) { runs.push({ ...base, verdict: 'LOST', reason: outcomes.get(name)?.reason ?? 'no done.json', deaths: null, damage: null, seconds: null }); continue; }
 			const killed = run.timedOut ? 'room timeout' : run.signal ? `killed by ${run.signal}` : run.error ? `launch error: ${run.error}` : null;
 			const rows = await readJson(path.join(roomsDir, name, arm, 'result.json'));
-			if (Array.isArray(rows) && rows.length) {
+			if (Array.isArray(rows) && rows.length && rows.every(row => row && typeof row === 'object')) {
 				for (const row of rows) {
 					const verdict = killed ? { verdict: 'INVALID', reason: killed } : roomVerdict(row);
 					runs.push({ ...base, verdict: verdict.verdict, reason: verdict.verdict === 'PASS' ? null : reasonKey(row, verdict),
@@ -133,7 +145,9 @@ export async function collectRuns(batchDir, planned = null, meta = null) {
 			const evidence = await otherEvidence(path.join(roomsDir, name, arm));
 			let verdict = killed ? 'INVALID' : run.exit === 0 ? 'PASS' : run.exit === 1 ? 'FAIL' : 'INVALID';
 			let reason = verdict === 'PASS' ? null : killed ?? (await failureLine(path.join(roomsDir, name, `${arm}.log`))) ?? `exit ${run.exit ?? '?'}`;
-			if (verdict === 'PASS' && meta?.[room]?.bar === 'none' && (evidence.deaths > 0 || evidence.failed)) { verdict = 'FAIL'; reason = evidence.deaths > 0 ? 'died' : `${evidence.failed} false`; }
+			const passWhen = meta?.[room]?.passWhen;
+			if (verdict === 'PASS' && (meta?.[room]?.bar === 'none' || passWhen) && (evidence.deaths > 0 || evidence.failed)) { verdict = 'FAIL'; reason = evidence.deaths > 0 ? 'died' : `${evidence.failed} false`; }
+			if (verdict === 'PASS' && passWhen && !meetsBar(passWhen, evidence.fields)) { verdict = 'FAIL'; reason = `${passWhen.field} below ${passWhen.min}`; }
 			runs.push({ ...base, verdict, reason, deaths: evidence.deaths, damage: evidence.damage,
 				seconds: run.seconds ?? null, wallSeconds: run.seconds ?? null, cantKeepUp: run.cantKeepUp ?? null, exitOnly: true });
 		}

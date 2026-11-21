@@ -103,3 +103,20 @@ test('a fixture outside finishRun gives deaths and damage from its own rows, and
 	assert.equal(by('bed', 'r1').reason, 'Error: bed live check failed at N,N,N');
 	assert.equal(by('bed', 'r1').deaths, null);
 });
+
+test('a single result object counts its own deaths and a room passes only on its own bar', async t => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'bench-bar-'));
+	t.after(() => rm(dir, { recursive: true, force: true }));
+	const put = async (file, value) => { await mkdir(path.dirname(path.join(dir, file)), { recursive: true }); await writeFile(path.join(dir, file), JSON.stringify(value)); };
+	await put('rooms/pearl.c1/done.json', { room: 'pearl.c1', arms: { r1: { exit: 0, seconds: 1200 }, r2: { exit: 0, seconds: 1200 } } });
+	await put('rooms/pearl.c1/r1/result.json', { endPearls: 2, deaths: 0 });
+	await put('rooms/pearl.c1/r2/result.json', { endPearls: 0, deaths: 0 });
+	await put('rooms/rest.c1/done.json', { room: 'rest.c1', arms: { r1: { exit: 0, seconds: 60 } } });
+	await put('rooms/rest.c1/r1/rows.json', [{ died: true, damage: 20 }]);
+	await put('rooms/rest.c1/r1/summary.json', { deaths: 1, damage: 20 });
+	const runs = await collectRuns(dir, null, { pearl: { passWhen: { field: 'endPearls', min: 1 } }, rest: { bar: 'none' } });
+	const by = (room, arm) => runs.find(run => run.room === room && run.arm === arm);
+	assert.deepEqual([by('pearl', 'r1').verdict, by('pearl', 'r1').deaths], ['PASS', 0]);
+	assert.deepEqual([by('pearl', 'r2').verdict, by('pearl', 'r2').reason], ['FAIL', 'endPearls below 1']);
+	assert.deepEqual([by('rest', 'r1').deaths, by('rest', 'r1').damage], [1, 20]);
+});
