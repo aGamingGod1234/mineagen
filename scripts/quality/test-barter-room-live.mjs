@@ -99,7 +99,7 @@ async function select(itemId) {
 	await act('select_item', { itemId });
 	return true;
 }
-let table = null;
+let table = null, equipRefused = false;
 // The carried crafting table, placed once on the floor beside the body (as a player does), reused afterwards.
 async function placeTable() {
 	if (table) return table;
@@ -134,8 +134,12 @@ async function getGold() {
 async function wearGold() {
 	const piece = items().find(i => !WORN.has(i.slot) && /^minecraft:golden_(helmet|chestplate|leggings|boots)$/.test(i.itemId));
 	if (piece) {
+		// A refused equip is not retried: the slot stays occupied, so the model moves on to the barter job.
+		if (equipRefused) return false;
 		const slot = { helmet: 'head', chestplate: 'chest', leggings: 'legs', boots: 'feet' }[/golden_(\w+)$/.exec(piece.itemId)[1]];
-		return (await act('equip_item', { sourceSlot: piece.slot, targetSlot: slot, expectedItemId: piece.itemId })).state === 'SUCCEEDED';
+		const ok = (await act('equip_item', { sourceSlot: piece.slot, targetSlot: slot, expectedItemId: piece.itemId })).state === 'SUCCEEDED';
+		if (!ok) equipRefused = true;
+		return ok;
 	}
 	if (held('minecraft:gold_ingot') >= 5) return craftAtTable('minecraft:golden_helmet', 1);
 	return getGold();
@@ -220,8 +224,10 @@ try {
 		const threat = (facts.entities ?? []).filter(x => /^minecraft:(hoglin|piglin_brute|zoglin|zombified_piglin|magma_cube|ghast|wither_skeleton)$/.test(x.type) && x.alive !== false
 			&& (x.targetingAgent === true || x.distance <= 6)).sort((a, b) => a.distance - b.distance)[0];
 		if (threat) { await fight(threat.stableId); continue; }
-		if (!goldWorn()) { if (!(await wearGold())) idle++; continue; }
-		if (held('minecraft:gold_ingot') === 0) {
+		// equip_item refuses an occupied armour slot; then the model tries the barter job, which puts carried gold on itself.
+		const carriedGold = items().some(i => !WORN.has(i.slot) && /^minecraft:golden_(helmet|chestplate|leggings|boots)$/.test(i.itemId));
+		if (!goldWorn() && !(await wearGold()) && !carriedGold) { idle++; continue; }
+		if (held('minecraft:gold_ingot') === 0 && goldWorn()) {
 			if (!(await getGold())) { if (++idle > 6) { row.stopped = 'no gold left to trade, convert or mine'; break; } }
 			continue;
 		}
