@@ -937,12 +937,12 @@ test('machines named with --machines are leased, cleaned and given back, and nev
 		const owner = warm(fake);
 		const made = await owner.startNew();
 		// While the pool holds it, a --machines batch cannot have it: both lease by the machine's name.
-		await assert.rejects(warm(fake, { machines: [made.id] }).create(), /busy or unusable/);
+		await assert.rejects(warm(fake, { machines: [made.id] }).create(), /no machine named with --machines is free: 1 held by a live batch: rbpool-.* by batch \?/);
 		await owner.release(made);
 		const pool = warm(fake, { machines: [made.id, 'bx_missing'] });
 		const vm = await pool.create();
 		assert.equal(vm.id, made.id);
-		await assert.rejects(warm(fake, { machines: [made.id] }).create(), /busy or unusable/);
+		await assert.rejects(warm(fake, { machines: [made.id] }).create(), /no machine named with --machines is free: 1 held by a live batch/);
 		await rm(path.join(fake.home(vm.id), 'rooms/jdk'), { recursive: true });
 		assert.equal(await pool.release(vm), true, 'a named machine that fails its check is left running');
 		await pool.destroy(vm);
@@ -1530,5 +1530,25 @@ test('keepalive --warm keeps the most recently used idle machines, deletes the r
 			assert.match(run.stdout, /1 deleted, 1 kept with work on them/);
 		} finally { room.kill('SIGKILL'); }
 		store.stop();
+	} finally { await fake.close(); }
+});
+
+test('a live batch keeps its lease however stale its heartbeat, and --machines refuses its machine and names it', { skip: process.platform !== 'linux' }, async () => {
+	const fake = await fakeBoat();
+	try {
+		// The holder: a real live process, recorded with its start time, whose heartbeat stopped 10 minutes ago.
+		const holder = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'ignore' });
+		try {
+			const { processStart } = await import('../../scripts/quality/lib/pool-leases.mjs');
+			const made = await warm(fake).startNew();
+			const leaseFile = path.join(fake.poolDir, 'leases', `${made.name}.json`);
+			const stale = Date.now() - 10 * 60_000;
+			await writeFile(leaseFile, JSON.stringify({ token: 'theirs', pid: holder.pid, pidStart: processStart(holder.pid), batch: 'rr-pack', heartbeatAt: stale }));
+			await assert.rejects(warm(fake, { machines: [made.id] }).create(), /no machine named with --machines is free: 1 held by a live batch: rbpool-\S+ by batch rr-pack \(pid \d+\)/);
+			assert.equal(JSON.parse(await readFile(leaseFile, 'utf8')).token, 'theirs', 'the live lease was not broken');
+			// The same pid under a different start time is a reused pid: that lease is stale.
+			await writeFile(leaseFile, JSON.stringify({ token: 'theirs', pid: holder.pid, pidStart: '1', batch: 'rr-pack', heartbeatAt: Date.now() }));
+			assert.equal((await warm(fake, { machines: [made.id] }).create()).id, made.id);
+		} finally { holder.kill('SIGKILL'); }
 	} finally { await fake.close(); }
 });

@@ -208,13 +208,19 @@ export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, id
 				adoptable ??= listSandboxes().then(sandboxes => {
 					const found = new Map(sandboxes.filter(item => machines.includes(item.id) && LIVE.has(item.state)).map(item => [item.name || item.id, item.id]));
 					for (const id of machines) if (![...found.values()].includes(id)) log(`machine ${id} named with --machines is not running: skipped`);
+					store.list().then(leases => { for (const item of leases) if (found.has(item.name) && !item.stale && !store.holds(item.name)) log(`machine ${found.get(item.name)} (${item.name}) named with --machines is held by batch ${item.lease?.batch ?? '?'} (pid ${item.lease?.pid ?? '?'}): skipped`); }).catch(() => {});
 					return found;
 				});
 				const byName = await adoptable;
 				const tried = new Set();
 				while (true) {
 					const name = await store.take([...byName.keys()].filter(item => !tried.has(item) && !avoid.includes(byName.get(item)) && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(item)), { batch });
-					if (!name) throw new Error('every machine named with --machines is busy or unusable');
+					if (!name) {
+						// Say who holds each named machine: two batches on one machine wipe each other's rooms, so this is refused.
+						const held = (await store.list()).filter(item => byName.has(item.name) && !item.stale && !store.holds(item.name));
+						const detail = held.map(item => `${item.name} by batch ${item.lease?.batch ?? '?'} (pid ${item.lease?.pid ?? '?'})`).join(', ');
+						throw new Error(`no machine named with --machines is free${held.length ? `: ${held.length} held by a live batch: ${detail}` : ''}${tried.size ? `; ${tried.size} failed their check` : ''}`);
+					}
 					tried.add(name);
 					const id = byName.get(name);
 					const vm = { id, name, reused: true, adopted: true, ttlSeconds };
