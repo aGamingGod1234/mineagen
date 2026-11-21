@@ -12,7 +12,7 @@
 // under ~/batch or on the image's Java, checks no room port is still held, and wipes ~/batch and the fixture worlds cache,
 // so a warm machine starts a room the way a fresh one does. The image (Java, template, prepared servers) stays.
 import { createHash, randomBytes } from 'node:crypto';
-import { boat, boatPool, createMachine, destroyMachine, execRemote, extendMachine, machineUsage, quote } from './boat-pool.mjs';
+import { boat, boatPool, createMachine, destroyMachine, execRemote, extendMachine, machineUsage, quote, waitHydrated } from './boat-pool.mjs';
 import { leaseStore } from './pool-leases.mjs';
 
 const sleep = (ms, signal) => new Promise((resolve, reject) => {
@@ -173,6 +173,9 @@ export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, id
 					continue;
 				}
 				const fresh = { id: vm.id, name, reused: false, ttlSeconds };
+				// A new machine's first room waits until the image has fully arrived (see waitHydrated); a warm one has.
+				const hydrating = await waitHydrated(vm.id, { log });
+				if (hydrating) log(`machine ${vm.id} waited ${hydrating} s for its image to finish downloading`);
 				try { await clean(fresh, 'mark'); }
 				catch (error) { await destroy(fresh).catch(() => {}); throw new Error(`new machine ${vm.id} failed its first check: ${error.message}`); }
 				log(`machine ${vm.id} started for the warm pool (${name})`);

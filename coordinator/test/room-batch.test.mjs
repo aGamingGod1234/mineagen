@@ -834,7 +834,7 @@ if (command === 'new') {
 } else if (command === 'list') out({ sandboxes: readdirSync(boxes).map(file => JSON.parse(readFileSync(path.join(boxes, file), 'utf8'))) });
 else if (command === 'snapshots') out({ named: [{ name: 'img', snapshotId: process.env.FAKE_BOAT_SNAPSHOT_ID ?? 'sid-1' }] });
 else if (command === 'limits') out({ starts: { minute: { remaining: 30 }, hour: { remaining: Number(process.env.FAKE_BOAT_HOUR_LEFT ?? 100) }, day: { remaining: 500 } } });
-else if (command === 'info') { const box = read(id); if (!box) { console.error('sandbox not found'); process.exit(1); } out({ sandbox: box }); }
+else if (command === 'info') { const box = read(id); if (!box) { console.error('sandbox not found'); process.exit(1); } out({ sandbox: { ...box, hydrated: Date.now() - Date.parse(box.createdAt) >= Number(process.env.FAKE_BOAT_HYDRATE_MS ?? 0) } }); }
 else if (command === 'extend') { const box = read(id); box.archiveAfter = iso(Date.now() + Number(opt('--ttl')) * 1000); save(box); out({}); }
 else if (command === 'delete') { rmSync(path.join(boxes, id + '.json'), { force: true }); out({}); }
 else if (command === 'usage') out({ seconds: 1 });
@@ -1148,4 +1148,15 @@ test('a stop during prepare gives a machine back to the pool only once its uploa
 		assert.deepEqual(events, ['prepare ended', 'release']);
 		assert.equal(result.outcomes[0].reason, 'batch stopped');
 	} finally { await rm(out, { recursive: true, force: true }); }
+});
+
+test('a new machine gets its first room only once its image has fully arrived', { skip: process.platform === 'win32' }, async () => {
+	const fake = await fakeBoat({ FAKE_BOAT_HYDRATE_MS: '2500' });
+	try {
+		const began = Date.now();
+		const vm = await warm(fake).create();
+		assert.ok(Date.now() - began >= 2500, 'create waited for hydration');
+		const infos = (await fake.calls('info')).filter(args => args[1] === vm.id);
+		assert.ok(infos.length >= 2, 'it asked boat until the machine said hydrated');
+	} finally { delete process.env.FAKE_BOAT_HYDRATE_MS; await fake.close(); }
 });
