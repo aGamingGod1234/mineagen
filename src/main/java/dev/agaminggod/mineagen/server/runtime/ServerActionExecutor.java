@@ -929,24 +929,7 @@ public final class ServerActionExecutor {
 					() -> resolveExactObservedTarget(player, string(arguments, "targetId")),
 					() -> attack(player, string(arguments, "targetId")));
 			case FIGHT_TARGET -> ActiveAction.controller(request, player, blazeTargetHold(request, player, arguments) instanceof dev.agaminggod.mineagen.server.runtime.controller.ServerController hold ? hold
-					: strikePart(player, string(arguments, "targetId"), new ServerFightController(
-					combatTarget(player, string(arguments, "targetId")),
-					arguments.has("desiredRange") ? number(arguments, "desiredRange") : null,
-					arguments.has("fleeAtHealth") ? (float) number(arguments, "fleeAtHealth") : null,
-					continueWithAttackers(arguments),
-					// The model chooses the policy; the controller only applies it (named by default).
-					dev.agaminggod.mineagen.server.runtime.controller.CombatPlanning.TargetPolicy.parse(
-							nullableString(arguments, "targetPolicy")),
-					// Players are follow-through or policy candidates only when the model opts in.
-					arguments.has("includePlayers") && bool(arguments, "includePlayers"),
-					!arguments.has("pursue") || bool(arguments, "pursue"),
-					arguments.has("sneak") && bool(arguments, "sneak"),
-					arguments.has("shield") && bool(arguments, "shield"),
-					integer(arguments, "timeoutMs"), GameClock.nowMs())
-					.collectDrops(arguments.has("collect") && bool(arguments, "collect") ? protection::mayTakeEntity : null)
-					// collect false or unset: the drops are walked to only once no hostile is within 16 blocks (ExamplePlayer, Oct 29).
-					.collectWhenClear(arguments.has("collect") && bool(arguments, "collect") ? null : protection::mayTakeEntity)
-					.makingRoom(protection::mayDropItem)));
+					: openFightTarget(player, arguments));
 			// Model-chosen goal skill (ExamplePlayer, Oct 28): fight one mob type until an item count, each engagement a fight_target or volley.
 			case FIGHT_UNTIL -> ActiveAction.controller(request, player, fightUntil(request, player, arguments));
 			case FLEE_FROM -> ActiveAction.controller(request, player, new ServerFleeController(
@@ -1877,6 +1860,28 @@ public final class ServerActionExecutor {
 				player, until, protection, GameClock.nowMs(), request.type().wireName(), first, roofing(request)));
 	}
 
+	/** fight_target's ordinary fight (the open fight, or a named dragon part). */
+	private ServerFightController openFightTarget(ServerPlayer player, JsonObject arguments) {
+		return strikePart(player, string(arguments, "targetId"), new ServerFightController(
+				combatTarget(player, string(arguments, "targetId")),
+				arguments.has("desiredRange") ? number(arguments, "desiredRange") : null,
+				arguments.has("fleeAtHealth") ? (float) number(arguments, "fleeAtHealth") : null,
+				continueWithAttackers(arguments),
+				// The model chooses the policy; the controller only applies it (named by default).
+				dev.agaminggod.mineagen.server.runtime.controller.CombatPlanning.TargetPolicy.parse(
+						nullableString(arguments, "targetPolicy")),
+				// Players are follow-through or policy candidates only when the model opts in.
+				arguments.has("includePlayers") && bool(arguments, "includePlayers"),
+				!arguments.has("pursue") || bool(arguments, "pursue"),
+				arguments.has("sneak") && bool(arguments, "sneak"),
+				arguments.has("shield") && bool(arguments, "shield"),
+				integer(arguments, "timeoutMs"), GameClock.nowMs())
+				.collectDrops(arguments.has("collect") && bool(arguments, "collect") ? protection::mayTakeEntity : null)
+				// collect false or unset: the drops are walked to only once no hostile is within 16 blocks (ExamplePlayer, Oct 29).
+				.collectWhenClear(arguments.has("collect") && bool(arguments, "collect") ? null : protection::mayTakeEntity)
+				.makingRoom(protection::mayDropItem));
+	}
+
 	/**
 	 * fight_target on a blaze by a seen fortress spawner, hold on: the fight is held from the spawner hold's roofed cell
 	 * (built, or the one this body held before) and ends when that blaze dies, as a player fights blazes from a nook by
@@ -1899,7 +1904,7 @@ public final class ServerActionExecutor {
 		if (arguments.has("fleeAtHealth")) until.addProperty("fleeAtHealth", number(arguments, "fleeAtHealth"));
 		if (arguments.has("timeoutMs")) until.addProperty("timeoutMs", integer(arguments, "timeoutMs"));
 		return new dev.agaminggod.mineagen.server.runtime.controller.ServerSpawnerHoldController(player, until, protection, spawner,
-				roofing(request), GameClock.nowMs()).untilDead(target);
+				roofing(request), GameClock.nowMs()).untilDead(target, () -> openFightTarget(player, arguments));
 	}
 
 	/** fight_until; blazes at a seen fortress spawner get the body-owned spawner hold (roof:false keeps the open fight). */
@@ -4497,6 +4502,8 @@ public final class ServerActionExecutor {
 				case CONTROLLER -> !(controller instanceof dev.agaminggod.mineagen.server.runtime.controller.ServerShelterController)
 						&& !(controller instanceof ServerFightController) && !(controller instanceof ServerFleeController)
 						&& !(controller instanceof dev.agaminggod.mineagen.server.runtime.controller.ServerFightUntilController)
+						// The spawner hold steps off or punches out fire and hands back on lava itself, as the fights do.
+						&& !(controller instanceof dev.agaminggod.mineagen.server.runtime.controller.ServerSpawnerHoldController)
 						&& !(controller instanceof ServerDigController dig && dig.pattern() == ServerDigController.Pattern.SHAFT);
 				case IMMEDIATE, AIMED, USE, TRANSACTION -> false;
 			};

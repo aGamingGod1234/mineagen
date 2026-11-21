@@ -75,7 +75,11 @@ public final class ServerSpawnerHoldController implements ServerController {
 	private BlockPos spawner;
 	private int scanTicks;
 	/** No spawner found by looking round: the ordinary fight_until runs instead, under this controller. */
-	private ServerFightUntilController fallback;
+	private ServerController fallback;
+	/** The fight_target form's ordinary fight, run when no hold applies here (no spawner or no cell site). */
+	private java.util.function.Supplier<ServerController> openFight;
+	/** Ticks spent looking round for a cell site before the ordinary fight takes over. */
+	private int siteLooks;
 	private String fallbackWhy = "";
 	/** fight_target on this blaze, held from the cell: the hold ends when it dies (or is gone), not at a rod count. */
 	private LivingEntity target;
@@ -200,10 +204,15 @@ public final class ServerSpawnerHoldController implements ServerController {
 		return null;
 	}
 
-	/** The fight_target form: held from the cell until {@code target} dies. */
-	public ServerSpawnerHoldController untilDead(LivingEntity target) {
+	/** The fight_target form: held from the cell until {@code target} dies; {@code openFight} runs when no hold applies. */
+	public ServerSpawnerHoldController untilDead(LivingEntity target, java.util.function.Supplier<ServerController> openFight) {
 		this.target = target;
+		this.openFight = openFight;
 		return this;
+	}
+
+	private ServerController ordinaryFight(ServerPlayer player, long now) {
+		return openFight != null ? openFight.get() : new ServerFightUntilController(player, model, protection, now, "fight_until", null, roofing);
 	}
 
 	/** True while a spawner hold owns this body (its whole run, not only in the cell): back-off reflexes stand aside. */
@@ -284,7 +293,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 			HOLDING.remove(player.getUUID());
 			shieldInput.release();
 			fallbackWhy = "no fortress spawner seen after looking round";
-			fallback = new ServerFightUntilController(player, model, protection, now, "fight_until", null, roofing);
+			fallback = ordinaryFight(player, now);
 			return fallback.tick(player, now);
 		}
 		float yaw = player.getYRot() + 360.0F / (SCAN_TICKS / 2.0F);
@@ -369,6 +378,16 @@ public final class ServerSpawnerHoldController implements ServerController {
 			double score = SpawnerHold.siteScore(horizontal, Math.sqrt(center.distSqr(player.blockPosition())), blocks);
 			if (score < best) { best = score; bestCell = center; bestOpening = toward; }
 		}
+		if (bestCell == null && sitesFailed == 0 && builds == 0 && siteLooks < SCAN_TICKS) {
+			// Nothing seen to build on yet: look round (level, then down at the deck) and weigh the seen cells again.
+			siteLooks++;
+			float yaw = player.getYRot() + 360.0F / (SCAN_TICKS / 2.0F);
+			float pitch = siteLooks <= SCAN_TICKS / 2 ? 20.0F : 45.0F;
+			shieldInput.apply(player, new AgentInputState(0.0F, 0.0F, false, false, false, false, false, yaw, pitch,
+					player.getInventory().getSelectedSlot(), InteractionHand.MAIN_HAND));
+			return TickResult.running(progress(player));
+		}
+		if (siteLooks > 0) shieldInput.release();
 		if (bestCell == null) {
 			if (sitesFailed == 0 && builds == 0) {
 				// No cell to build here at all: the ordinary fight runs instead of a hand-back (real fortress room: the
@@ -377,7 +396,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 				HOLDING.remove(player.getUUID());
 				cancelParts(player);
 				fallbackWhy = "no seen cell 6-12 blocks from the spawner";
-				fallback = new ServerFightUntilController(player, model, protection, now, "fight_until", null, roofing);
+				fallback = ordinaryFight(player, now);
 				return fallback.tick(player, now);
 			}
 			noSiteLeft = true;
@@ -953,6 +972,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 	}
 
 	private TickResult handBackResult(ServerPlayer player, String code, long elapsed) {
+		if (target != null && "FIGHT_UNTIL_TIMED_OUT".equals(code)) code = "FIGHT_TIMED_OUT";
 		String text = summary(player, elapsed);
 		return switch (code) {
 			case "UNTIL_COUNT_REACHED" -> TickResult.succeeded(code, "Holds " + ServerFightUntilController.count(player, untilItem) + " " + untilItemId
