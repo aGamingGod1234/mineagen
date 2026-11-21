@@ -55,7 +55,7 @@ test('terminal counts ignore observation echoes, deduplicate receipts, and retai
 	for (let i = 0; i < 199; i++) counter.accept({ type: 'observation', payload: { lastResult: result.payload } });
 	counter.accept({ envelope: result });
 	counter.accept({ ...result, payload: { ...result.payload, reasonCode: 'OTHER' } });
-	assert.deepEqual(counter.snapshot(), { terminalResults: 1, byReason: { WATER_AHEAD: 1 }, duplicates: 2, missingActionIds: 0, conflicts: 1 });
+	assert.deepEqual(counter.snapshot(), { terminalResults: 1, byReason: { WATER_AHEAD: 1 }, duplicates: 2, missingActionIds: 0, conflicts: 1, refused: 0 });
 });
 
 test('planned and cancelled-before-start cases never inflate completed or started counts', () => {
