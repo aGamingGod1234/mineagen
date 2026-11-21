@@ -1100,7 +1100,14 @@ export class DynamicCoordinator extends EventEmitter {
 				const supervisionKey = this.#supervisionKey(record, lifecycleGeneration);
 				this.#goalSupervisor.factualProgress(supervisionKey, factualProgressSignature(wireObservation), factualProgressDetails(wireObservation));
 				if (this.#usesNativeTools(record)) this.#nativeRuntimeEpochs.set(record.agentId, connectionEpoch);
-				const observation = adaptObservation(wireObservation);
+				let observation;
+				try { observation = adaptObservation(wireObservation); }
+				catch (error) {
+					// The sample is still dropped and reported as agent_error; the trace names the field that failed.
+					this.#writeTrace('observation_rejected', { agentId: record.agentId, goalRevision: record.goalRevision,
+						eventSequence: Number.isSafeInteger(wireObservation?.eventSequence) ? wireObservation.eventSequence : null, ...rejectionTraceFields(error, 'INVALID_OBSERVATION') });
+					throw error;
+				}
 				const refreshMemorySummary = () => {
 					const memoryKey = `${record.goalRevision}:${this.#playerMemory.worldId(record)}`;
 					if (this.#memorySummaries.get(record.agentId)?.key !== memoryKey) {
@@ -1499,8 +1506,17 @@ export class DynamicCoordinator extends EventEmitter {
 				finally { await this.stop(); }
 			});
 		});
-		this.#listen('protocolError', (error) => this.emit('runtimeError', error), { lifecycle: true });
-		this.#listen('messageRejected', (rejection) => this.emit('runtimeError', rejection.error), { lifecycle: true });
+		// Both drop inbound input: protocolError also resets the connection, messageRejected keeps it.
+		this.#listen('protocolError', (error) => {
+			this.#writeTrace('bridge_protocol_error', rejectionTraceFields(error, 'PROTOCOL_ERROR'));
+			this.emit('runtimeError', error);
+		}, { lifecycle: true });
+		this.#listen('messageRejected', (rejection) => {
+			this.#writeTrace('bridge_message_rejected', { type: typeof rejection?.type === 'string' ? rejection.type.slice(0, 64) : null,
+				agentId: typeof rejection?.agentId === 'string' ? rejection.agentId.slice(0, 128) : null,
+				count: Number.isSafeInteger(rejection?.count) ? rejection.count : null, ...rejectionTraceFields(rejection?.error, 'INBOUND_MESSAGE_REJECTED') });
+			this.emit('runtimeError', rejection.error);
+		}, { lifecycle: true });
 		this.#listen('transportError', (error) => this.emit('runtimeError', error), { lifecycle: true });
 		this.#listen('heartbeatLate', (event) => this.#writeTrace('bridge_heartbeat_late', { lateMs: event?.lateMs ?? null }), { lifecycle: true });
 	}
@@ -7620,6 +7636,11 @@ export function burnFacts(player) {
 	const protectedTicks = resistance == null ? 0 : Number.isFinite(resistance.duration) && resistance.duration >= 0 ? resistance.duration : Infinity;
 	return { seconds, rawDamage: Math.floor(Math.max(0, player.fireTicks - protectedTicks) / 20) };
 }
+/** Code and bounded reason of a rejected input, for its trace row. */
+function rejectionTraceFields(error, fallbackCode) {
+	return { code: sanitizeDiagnosticErrorCode(error, { fallback: fallbackCode }), reason: sanitizeDiagnosticErrorMessage(error, { maxBytes: 512 }) };
+}
+
 export const NO_TASK_HEAL_INSTRUCTION = 'Live Minecraft event: low health. You have no active task; any finished task stays finished, so do not redo it. Recovering is your call. healing.regenFoodReady reports hunger eligibility under vanilla rules; damage may outpace recovery. healing.options lists the food in reach as exact calls: eat carried food, pick_up_item a food drop, fight_target a passive animal and pick up its drop, mine fully grown crops or melon, or interact with ripe berries; then eat. Other work is a player request and needs takeTask.';
 export const TASK_HEAL_INSTRUCTION = 'Live Minecraft event: low health with food in reach. Whether to recover before continuing the task is your call. healing.regenFoodReady reports hunger eligibility under vanilla rules; damage may outpace recovery. healing.options lists the food in reach as exact calls (eat carried food; pick_up_item a food drop; fight_target a passive animal and pick up its drop). Respond explicitly to pending program decisions.';
 export const NO_TASK_DANGER_INSTRUCTION = 'Live Minecraft event: danger. You have no active task; any finished task stays finished, so do not redo it. Options include: fight_target, flee_from, eat or drink, shield or totem, equip armor and weapons, move away. Other work is a player request and needs takeTask.';
