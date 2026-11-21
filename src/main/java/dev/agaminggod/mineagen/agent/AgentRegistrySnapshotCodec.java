@@ -200,7 +200,25 @@ public final class AgentRegistrySnapshotCodec {
 		json.addProperty("game_mode", death.gameMode());
 		json.addProperty("died_at_epoch_ms", death.diedAtEpochMs());
 		death.score().ifPresent(value -> json.addProperty("score", value));
+		death.detail().ifPresent(detail -> {
+			JsonObject facts = new JsonObject();
+			facts.addProperty("damage_type", detail.damageType());
+			detail.attacker().ifPresentOrElse(value -> facts.addProperty("attacker", value), () -> facts.add("attacker", null));
+			detail.directAttacker().ifPresentOrElse(value -> facts.addProperty("direct_attacker", value), () -> facts.add("direct_attacker", null));
+			facts.addProperty("food_level", detail.foodLevel());
+			facts.addProperty("saturation", detail.saturation());
+			facts.addProperty("armor", detail.armor());
+			json.add("detail", facts);
+		});
 		return json;
+	}
+
+	private static Optional<AgentDeathSnapshot.Detail> optionalDeathDetail(JsonObject death) {
+		if (!death.has("detail") || death.get("detail").isJsonNull()) return Optional.empty();
+		JsonObject json = requireObject(death.get("detail"), "detail");
+		return Optional.of(new AgentDeathSnapshot.Detail(requireString(json, "damage_type"), optionalString(json, "attacker"),
+				optionalString(json, "direct_attacker"), requireInt(json, "food_level"), (float) requireDouble(json, "saturation"),
+				requireInt(json, "armor")));
 	}
 
 	private static Optional<AgentDeathSnapshot> optionalDeathSnapshot(JsonObject object, String field, String fallbackGameMode) {
@@ -212,7 +230,7 @@ public final class AgentRegistrySnapshotCodec {
 				optionalString(json, "respawn_dimension_id"), optionalDouble(json, "respawn_x"), optionalDouble(json, "respawn_y"), optionalDouble(json, "respawn_z"),
 				optionalFloat(json, "respawn_yaw", 0.0F), optionalFloat(json, "respawn_pitch", 0.0F), optionalBooleanValue(json, "respawn_forced", false),
 				json.has("game_mode") ? requireString(json, "game_mode") : fallbackGameMode,
-				requireLong(json, "died_at_epoch_ms"), optionalInt(json, "score")
+				requireLong(json, "died_at_epoch_ms"), optionalInt(json, "score"), optionalDeathDetail(json)
 		));
 	}
 
