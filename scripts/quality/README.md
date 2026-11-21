@@ -110,6 +110,22 @@ node scripts/quality/room-batch.mjs --commands ROOMS.txt --arm new=NEW.jar --arm
 - **Cost.** Every machine is `--no-env` (rooms make no model calls) and deleted when the batch ends, on an error, or on Ctrl-C. Boat stops a machine at a fixed deadline from its creation, not when idle, so the runner pushes the deadline back while rooms remain; the deadline stops a machine whose runner died. `--type` (or `ROOM_BATCH_TYPE`, default `default`: 4 vCPU, 8 GB) picks the size.
 - **Image.** `node scripts/quality/room-image.mjs --template TEMPLATE_DIR --snapshot IMAGE --warm-jar JAR` builds the saved image the batch forks from: Temurin 25.0.5 (hash-checked) and the server template under the machine's `rooms/` folder, `eatmydata` and `zstd`, plus the prepared server from one warm-up room. It saves the image only when that room passes; the same `--snapshot` name replaces the old image. Rerun it when the template or Java changes. `--snapshot` (or `ROOM_BATCH_SNAPSHOT`) names it for the batch.
 
+## Checkpoint games on boat
+
+`checkpoint-batch.mjs` plays real-model games from save points (`run-long.mjs --checkpoint`) on boat machines forked from the room image, one game per machine, and scores each game from its `long-run.json`. It is the overnight test of whether several fixes work together.
+
+```bash
+node scripts/quality/checkpoint-batch.mjs --plan PLAN.json --out FRESH_DIR [--dry-run]
+node scripts/quality/checkpoint-batch.mjs --score FRESH_DIR
+```
+
+- **Plan.** The header of `checkpoint-batch.mjs` shows the file. Each arm is a checkout root, a commit and a jar, plus the environment switches the arm turns on. Each save point names its file, its repeats and its targets: the long-run milestone ids it should reach, such as `fortress` and `blaze_rod`. Keep the plan outside the checkout, because `codexHome` names the folder that holds the Codex sign-in.
+- **Pairing.** Every repeat of a save point draws one loot salt that all arms share, so both arms play the same world with the same loot rolls. The two games of a repeat start in the same wave, and the arm that starts first alternates.
+- **Schedule.** A game starts only when its window plus 10 minutes ends before `deadline`. A machine that stops answering for 5 minutes, or that boat no longer lists as live, is dropped. Its game goes back to the front of the queue once and then reads `lost`, and up to `spares` replacement machines are created. A game still running 30 minutes after its window is ended with SIGTERM, so `run-long.mjs` writes its partial timeline. `touch OUT/STOP` stops new starts and lets running games finish.
+- **Machines.** They are created with `--no-auto-stop` and never stopped or deleted, because boat starts are the scarce resource. `vms` lists running machines to reuse. Each game runs under `eatmydata` (see Disk syncs above).
+- **Sign-in.** The Codex sign-in is copied to each machine and left out of every copy-back, along with the per-run Codex home, the world and the RCON secrets. After each game its hash is compared with the source. A changed hash means Codex refreshed the sign-in on that machine, which can sign out every other copy, so no new game starts. The sign-in is removed from every machine when the batch ends.
+- **Scores.** A target counts only when it was first seen more than 30 s after goal start, because anything held at the first sample came with the save point. A game without a report scores unknown, never 0. `OUT/summary.txt` gives one line per save point and arm, with targets reached out of games scored, the minutes, and deaths. `OUT/games/ID/` holds `run.log`, `report/` and `raw/` (the run's journals) for re-extraction with `run-long.mjs --report`.
+
 ## Writing a new live fixture
 
 `coordinator/test/quality-fixture-exit.test.mjs` and the tool contracts enforce most of this; the rest is game behaviour that cost earlier fixtures a run.

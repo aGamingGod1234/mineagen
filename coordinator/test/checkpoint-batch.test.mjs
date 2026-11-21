@@ -1,0 +1,53 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { canStart, expandPlan, loseGame, nextGame, scoreGame, summarize } from '../../scripts/quality/lib/checkpoint-batch-core.mjs';
+
+const plan = () => ({
+	minutes: 90, deadline: '2026-11-22T01:00:00+08:00', codexHome: '/x',
+	arms: { main: { root: '/a', ref: 'HEAD', jar: '/a.jar' }, int: { root: '/b', ref: 'HEAD', jar: '/b.jar', env: { MINEAGEN_X: '1' } } },
+	savepoints: { nether: { file: '/n.json', repeats: 2, targets: ['fortress', 'blaze_rod'] }, eyes: { file: '/e.json', repeats: 1, targets: ['stronghold', 'end'] } },
+});
+
+test('checkpoint batch pairs both arms of a repeat on one shared salt and alternates which arm goes first', () => {
+	let n = 0;
+	const games = expandPlan(plan(), { salt: () => ++n });
+	assert.deepEqual(games.map(g => `${g.id}:${g.salt}`), ['nether-r1-main:1', 'nether-r1-int:1', 'eyes-r1-int:2', 'eyes-r1-main:2', 'nether-r2-main:3', 'nether-r2-int:3']);
+});
+
+test('checkpoint batch refuses a plan with a bad arm, save point or deadline', () => {
+	const bad = plan();
+	bad.deadline = 'tonight'; bad.arms.int.env = { 'bad name': '1' }; delete bad.savepoints.eyes.targets;
+	assert.throws(() => expandPlan(bad), /deadline[\s\S]*env name[\s\S]*targets/);
+});
+
+test('checkpoint batch starts no game whose window would pass the deadline', () => {
+	const p = plan(), deadline = Date.parse(p.deadline);
+	assert.equal(canStart(deadline - 100 * 60_000, p), true);
+	assert.equal(canStart(deadline - 99 * 60_000, p), false);
+});
+
+test('checkpoint batch picks the waiting arm of a started repeat first, then requeues a lost game once', () => {
+	const games = expandPlan(plan(), { salt: () => 7 });
+	games[0].state = 'running';
+	games.push(games.splice(1, 1)[0]);
+	assert.equal(nextGame(games).id, 'nether-r1-int');
+	const lost = games[0]; lost.attempts = 1;
+	loseGame(games, lost.id, 'gone');
+	assert.equal(games[0].id, lost.id); assert.equal(lost.state, 'queued');
+	lost.attempts = 2; loseGame(games, lost.id, 'gone again');
+	assert.equal(lost.state, 'lost'); assert.deepEqual(lost.lostReasons, ['gone', 'gone again']);
+});
+
+test('checkpoint batch scores earned targets only, keeps inherited and missing ones unknown, and counts deaths', () => {
+	const report = { timeline: { playedMs: 5_400_000, stopReason: 'WALL_CLOCK_BUDGET', milestones: [
+		{ id: 'fortress', reached: true, elapsedMs: 1_800_000 }, { id: 'blaze_rod', reached: false, elapsedMs: null }, { id: 'iron_pickaxe', reached: true, elapsedMs: 1000 },
+	], deaths: [{ cause: 'lava' }], unexplainedDeaths: 1 } };
+	const score = scoreGame(report, ['fortress', 'blaze_rod', 'iron_pickaxe']);
+	assert.deepEqual(score.targets, { fortress: 30, blaze_rod: false, iron_pickaxe: null });
+	assert.deepEqual(score.inherited, ['iron_pickaxe']);
+	assert.equal(score.deaths, 2);
+	assert.deepEqual(scoreGame(null, ['fortress']), { known: false, targets: { fortress: null }, deaths: null });
+	const games = [{ savepoint: 'nether', arm: 'main', state: 'done', score }, { savepoint: 'nether', arm: 'main', state: 'lost', score: scoreGame(null, ['fortress', 'blaze_rod']) }];
+	const row = summarize(games, plan()).find(r => r.savepoint === 'nether' && r.arm === 'main');
+	assert.deepEqual([row.games, row.known, row.lost, row.targets.fortress.reached, row.targets.fortress.of, row.deaths], [2, 1, 1, 1, 1, 2]);
+});
