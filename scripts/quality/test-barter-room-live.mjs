@@ -122,9 +122,20 @@ async function getGold() {
 	const blocks = held('minecraft:gold_block'), nuggets = held('minecraft:gold_nugget');
 	if (blocks > 0) return (await act('craft_inventory', { recipeId: 'minecraft:gold_ingot_from_gold_block', count: Math.min(blocks, 7), timeoutMs: 20000 })).state === 'SUCCEEDED';
 	if (nuggets >= 9) return craftAtTable('minecraft:gold_ingot_from_nuggets', Math.min(64, Math.floor(nuggets / 9)));
-	const p = facts.player;
-	const ore = (facts.blocks ?? []).filter(b => b.blockId === 'minecraft:nether_gold_ore')
-		.sort((a, b) => Math.hypot(a.x - p.x, a.y - p.y, a.z - p.z) - Math.hypot(b.x - p.x, b.y - p.y, b.z - p.z))[0];
+	const seenOre = () => {
+		const p = facts.player;
+		return (facts.blocks ?? []).filter(b => b.blockId === 'minecraft:nether_gold_ore')
+			.sort((a, b) => Math.hypot(a.x - p.x, a.y - p.y, a.z - p.z) - Math.hypot(b.x - p.x, b.y - p.y, b.z - p.z))[0];
+	};
+	let ore = seenOre();
+	// None in view: look around once, in four quarter turns, as a player does before giving up on gold.
+	for (let turn = 0; !ore && turn < 4; turn++) {
+		const p = facts.player, a = turn * Math.PI / 2;
+		await act('look_at', { x: p.x + 12 * Math.cos(a), y: p.y + 1.2, z: p.z + 12 * Math.sin(a) });
+		await sleep(300);
+		await observe();
+		ore = seenOre();
+	}
 	if (!ore) return false;
 	await select('minecraft:iron_pickaxe');
 	// The body mines only ore it sees, so turn to it first, as the refusal tells a model to.
