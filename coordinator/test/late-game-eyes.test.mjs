@@ -321,3 +321,21 @@ test('standing where a lost eye should lie and not seeing it, the body looks up 
 	const climb = b.calls.find(c => c.type === 'travel_to' && c.args.y === 78);
 	assert.ok(climb, 'walks (and builds) up to where it lies');
 });
+
+test('a drop seen landing but not picked out after the walk is stepped onto, which collects it', async () => {
+	const b = body({ flight: (n, from) => ({ outcome: 'dropped', droppedAt: { x: from.x + 12, y: 70, z: from.z } }), onAct: (type, args, o) => {
+		// Hidden in grass: never in the item list; walking over the cell collects it.
+		if (type === 'move_to') {
+			o.player.x = args.x; o.player.z = args.z;
+			if (args.tolerance <= 0.5) o.inventory.items[0].count++;
+			return { state: 'SUCCEEDED', reasonCode: 'ARRIVED' };
+		}
+		return null;
+	} });
+	const r = await searchFor({ structure: 'stronghold', throwCap: 1 }, b);
+	const step = b.calls.find(c => c.type === 'move_to');
+	assert.ok(step, 'steps onto where it landed');
+	assert.equal(step.args.x, 12);
+	assert.equal(r.find.eyes.throws[0].eyesAfterPickup, 16);
+	assert.equal(r.find.eyes.eyesLeftBehind, undefined);
+});

@@ -215,7 +215,7 @@ export async function followEyes(target, body, { observation: initial, deadline,
 			const gap = point(dropAt) ? Math.hypot(dropAt.x - o.player.x, dropAt.z - o.player.z) : Infinity;
 			if (!current && !last.dropId && !last.searchedDrop && gap > 4 && gap <= DROP_SEARCH_BLOCKS) {
 				last.searchedDrop = true;
-				const end = await act('travel_to', bounded({ x: dropAt.x, z: dropAt.z, tolerance: 2, build: true }));
+				const end = await act('travel_to', bounded({ x: dropAt.x, z: dropAt.z, tolerance: last.droppedAt ? 1 : 2, build: true }));
 				if (end && end.reasonCode !== 'FIND_BLOCKED') return end;
 				if (Number.isFinite(last.eyesAfter) && eyesHeld(o) > last.eyesAfter) continue;
 				current = visibleDrop();
@@ -230,6 +230,16 @@ export async function followEyes(target, body, { observation: initial, deadline,
 					current = visibleDrop();
 					if (current) break;
 				}
+			}
+			// A drop it saw land and cannot pick out now (in grass, at its feet): step onto the spot, as a player walks over an
+			// item to take it (eye rooms: a seen drop 2 blocks off was named left behind and still lay there at the end).
+			const landed = last.droppedAt;
+			if (!current && point(landed) && !last.steppedOn && Math.hypot(landed.x - o.player.x, landed.z - o.player.z) <= 4) {
+				last.steppedOn = true;
+				const end = await act('move_to', { x: landed.x, y: Math.abs(landed.y - o.player.y) <= 2 ? landed.y : o.player.y, z: landed.z, tolerance: 0.5, sprint: false });
+				if (end && end.reasonCode !== 'FIND_BLOCKED') return end;
+				if (Number.isFinite(last.eyesAfter) && eyesHeld(o) > last.eyesAfter) continue;
+				current = visibleDrop();
 			}
 			if (!current) {
 				last.recovery = last.searchedDrop ? 'not_found' : 'not_visible';
