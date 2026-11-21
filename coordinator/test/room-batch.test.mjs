@@ -258,3 +258,19 @@ test('the room launch returns at once and leaves only the helper running, so ssh
 		assert.equal(await readFile(path.join(dir, 'job.json.ran'), 'utf8'), 'yes', 'the helper kept running after the launch returned');
 	} finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test('a worker that finds the queue empty is released at once; a room lost after that goes to a replacement', async () => {
+	const released = [], played = [];
+	let made = 0;
+	const outcomes = await runQueue({ rooms: ['a', 'b'].map(room), workers: [worker('w1'), worker('w2')],
+		attempt: async (w, entry, tries) => {
+			played.push(`${w.id}:${entry.room}`);
+			await new Promise(done => setTimeout(done, w.id === 'w2' ? 20 : 1));
+			return w.id === 'w2' && tries === 1 ? { lost: true, reason: 'machine gone' } : { lost: false, arms: {} };
+		},
+		release: async w => { released.push(w.id); },
+		replace: async () => worker(`r${++made}`) });
+	assert.ok(outcomes.every(outcome => !outcome.lost));
+	assert.deepEqual(released.sort(), ['r1', 'w1']);
+	assert.deepEqual(played, ['w1:a', 'w2:b', 'r1:b']);
+});

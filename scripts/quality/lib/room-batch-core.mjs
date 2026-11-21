@@ -78,9 +78,10 @@ export function plannedOf(env) {
  * The shared queue. Every worker pulls the next room and plays both of its arms; attempt(worker, room, n) resolves to
  * { lost: false, ... } when the room finished on that worker (whatever its verdict), or { lost: true, reason } when the
  * worker died under it. A lost worker takes no more rooms; its room goes back to the front of the queue once, for a
- * different worker, then is reported lost. replace(), when given, may bring up a new worker for a lost one.
+ * different worker, then is reported lost. replace(), when given, may bring up a new worker for a lost one; release(),
+ * when given, is called for a worker that finds the queue empty, and that worker leaves.
  */
-export async function runQueue({ rooms, workers, attempt, maxAttempts = 2, replace = null, log = () => {} }) {
+export async function runQueue({ rooms, workers, attempt, maxAttempts = 2, replace = null, release = null, log = () => {} }) {
 	const queue = rooms.map(room => ({ room, tries: 0, triedOn: new Set() }));
 	const results = new Map(), live = new Set(), running = [];
 	let waiting = [];
@@ -95,6 +96,9 @@ export async function runQueue({ rooms, workers, attempt, maxAttempts = 2, repla
 			while (true) {
 				const item = take(worker);
 				if (!item) {
+					// With nothing left to queue, release() lets the machine go now instead of idling to the end; a room
+					// re-queued later goes to a replacement.
+					if (release && !queue.length) { await Promise.resolve().then(() => release(worker)).catch(error => log(`release of ${worker.id} failed: ${error.message}`)); return; }
 					// A busy worker may still lose its room back to the queue; otherwise nothing is left for this one.
 					if (![...live].some(other => other !== worker && other.busy)) return;
 					await new Promise(done => waiting.push(done));
