@@ -1,0 +1,506 @@
+{
+  "version": 1,
+  "description": "AI rooms: practice rooms played by the real model (room-batch.mjs --player model). Each aiRoom.standIn is the same room with a script playing the model part; aiRoom.verdictGap says where the two verdicts differ.",
+  "scenarios": [
+    {
+      "id": "AI-SKELETON",
+      "name": "ai-skeleton",
+      "phase": "AI",
+      "seed": "20261018",
+      "goal": "A skeleton with a bow is shooting at you from about 7 blocks away. Stay alive for one minute and take as little damage as you can.",
+      "durationBudgetMs": 90000,
+      "runPolicy": {
+        "clock": "goal-start",
+        "continueAfterDeath": false
+      },
+      "worldRules": {
+        "spawn_mobs": false
+      },
+      "setup": {
+        "dimension": "minecraft:overworld",
+        "position": [
+          0.5,
+          200,
+          0.5
+        ],
+        "surface": false,
+        "time": 18000,
+        "freezeUntilGoalStart": true,
+        "commands": [
+          "execute at {agent} run fill ~-24 ~-5 ~-24 ~40 ~1 ~40 minecraft:air",
+          "execute at {agent} run fill ~-24 ~2 ~-24 ~40 ~8 ~40 minecraft:air",
+          "execute at {agent} run fill ~-24 ~9 ~-24 ~40 ~15 ~40 minecraft:air",
+          "execute at {agent} run fill ~-24 ~-1 ~-24 ~40 ~-1 ~40 minecraft:stone"
+        ],
+        "inventory": [],
+        "armour": {},
+        "effects": [
+          {
+            "id": "minecraft:saturation",
+            "seconds": 5,
+            "amplifier": 10
+          }
+        ],
+        "mobs": [
+          {
+            "id": "minecraft:skeleton",
+            "offset": [
+              0,
+              0,
+              7
+            ],
+            "nbt": "{PersistenceRequired:1b,equipment:{mainhand:{id:\"minecraft:bow\",count:1}}}"
+          }
+        ],
+        "finalCommands": [
+          "item replace entity {agent} weapon.offhand with minecraft:shield",
+          "execute at {agent} run tp {agent} ~ ~ ~ 0 0"
+        ]
+      },
+      "successCheck": "survive_duration: 1200 ticks",
+      "aiRoom": {
+        "standIn": "REPEATS=1 DISTANCES=7 ARENA_JAR=$JAR node scripts/quality/test-drawn-bow-live.mjs $OUT --descriptive",
+        "pass": {
+          "noDamage": false
+        },
+        "verdictGap": "The script arm is an idle body judged on the share of arrow damage its one shield rule blocked (health topped up below 12 HP, so no deaths by construction); the AI arm passes by surviving 60 s of game time with 0 deaths, and its kill of the skeleton is not recorded by any sampled stat. Both arms hold only a shield, so the comparison is damage taken and deaths, not a kill.",
+        "setupCheck": "Mirrored test-drawn-bow-live.mjs: normal difficulty, no mob spawning (spawn-monsters=false and spawn_mobs false -> worldRules spawn_mobs false), body at the centre of a stone floor one block below the feet spanning x/z -24..+40 from it with air from 5 below to 15 above (fixture fill -24 79 -24 40 79 40 and -24 75 -24 40 95 40 around 0.5 80 0.5; split into three air fills under the 32768-block limit, which the fixture's single 88725-block fill likely exceeds silently on an already empty flat world), time 18000 (midnight, daylight cycle left on), clear then only a shield in the off hand, no armour, saturation 5 s level 10, facing yaw 0 pitch 0 (south) toward one persistent bow skeleton summoned 7 blocks south on the same floor. Not reproducible: the fixture is a superflat world (bedrock + 3 stone, plains) with the floor at y 79; the AI arm uses the same seed as a natural world with the floor at y 200 over open air, so a fall off the edge is lethal in both. The fixture's per-case instant-health top-up and second skeleton at 30 s are left out on purpose: the AI must win on its own health, and a killed skeleton stays dead. Chose this over reflex-rooms.json R-SKELETON (two skeletons at 12 and 14 blocks, full iron armour, sword, food, cobblestone, torches, 4 min) because the AI arm must match the stand-in's start, which has no armour, weapon or food. Damage comparison: AI row damageTaken (HP) against results.json drawnBow.arms.arrowOnly.taken + drawn.taken, which are tenths of HP (divide by 10), over the same 60 s of exposure; the AI arm runs the twelve default reflexes, whose arrow rule equals the drawn case, and default-retreat may sprint it off the platform edge. The kill is visible only in the run log and the model's actions."
+      }
+    },
+    {
+      "id": "AI-LAVA-1",
+      "name": "ai-lava-1",
+      "phase": "AI",
+      "seed": "5433312384530337025",
+      "goal": "You are in a walled netherrack room with a lava puddle ahead. Pick up the gold ingot lying beside the lava, then get through the netherrack wall at the far end and stand at x 32.5, y 110, z -52.5 on the other side. Do not touch lava and take no damage.",
+      "durationBudgetMs": 900000,
+      "runPolicy": {
+        "clock": "goal-start",
+        "continueAfterDeath": false
+      },
+      "setup": {
+        "dimension": "minecraft:overworld",
+        "position": [
+          16.5,
+          110,
+          -47.5
+        ],
+        "surface": false,
+        "time": 6000,
+        "freezeUntilGoalStart": true,
+        "loadChunks": [
+          {
+            "dimension": "minecraft:overworld",
+            "position": [
+              8,
+              110,
+              -56
+            ]
+          },
+          {
+            "dimension": "minecraft:overworld",
+            "position": [
+              8,
+              110,
+              -40
+            ]
+          },
+          {
+            "dimension": "minecraft:overworld",
+            "position": [
+              24,
+              110,
+              -56
+            ]
+          },
+          {
+            "dimension": "minecraft:overworld",
+            "position": [
+              40,
+              110,
+              -56
+            ]
+          },
+          {
+            "dimension": "minecraft:overworld",
+            "position": [
+              40,
+              110,
+              -40
+            ]
+          }
+        ],
+        "commands": [
+          "gamerule spawn_monsters false",
+          "fill 6 109 -58 32 116 -38 minecraft:air",
+          "fill 6 109 -58 32 109 -38 minecraft:netherrack",
+          "fill 5 110 -59 33 112 -59 minecraft:glass",
+          "fill 5 110 -37 33 112 -37 minecraft:glass",
+          "fill 5 110 -59 5 112 -37 minecraft:glass",
+          "fill 33 110 -59 33 112 -37 minecraft:glass",
+          "fill 21 110 -50 22 110 -46 minecraft:lava",
+          "fill 28 110 -58 31 112 -38 minecraft:netherrack",
+          "setblock 30 110 -48 minecraft:lava",
+          "setblock 30 110 -53 minecraft:lava",
+          "tp {agent} 16.5 110 -47.5 -90 0"
+        ],
+        "settleTicks": 100,
+        "finalCommands": [
+          "summon minecraft:item 21.5 110 -53.5 {Item:{id:\"minecraft:gold_ingot\",count:1},PickupDelay:0}"
+        ],
+        "inventory": [
+          {
+            "item": "minecraft:iron_pickaxe",
+            "count": 1
+          },
+          {
+            "item": "minecraft:cobblestone",
+            "count": 64
+          },
+          {
+            "item": "minecraft:bread",
+            "count": 8
+          }
+        ],
+        "armour": {},
+        "effects": [],
+        "mobs": []
+      },
+      "successCheck": "all: inventory gold_ingot >=1 AND position_within overworld (32.5, 110, -52.5) radius 1",
+      "aiRoom": {
+        "standIn": "FIND_ONLY=lava-room-1 node scripts/quality/test-find-live.mjs scripts/quality/lava-room-spots.json $OUT $JAR --descriptive",
+        "pass": {
+          "noDamage": true
+        },
+        "verdictGap": "The script room passes on 0 deaths and exactly 0 damage (expectDamageTaken 0) and never checks that the ingot was picked up or the wall crossed; the AI room must also hold the ingot while standing within 1 block of the script's last travel target (32.5, 110, -52.5), then 0 deaths and 0 damage. The ingot despawns 5 minutes after play starts in both arms; the script finishes in about 26 s, the AI arm has 15 minutes.",
+        "setupCheck": "Mirrors lava-room-1 in scripts/quality/lava-room-spots.json as test-find-live.mjs plays it: kit, time 6000, difficulty normal, every setup line with {x,y,z} replaced by the archived fixtureAt (16,70,-48), the final tp with yaw -90, and the ingot summoned only after the lava has flowed. Differences: the AI setup is tick-frozen, so the flow comes from settleTicks 100 (5 s of game time) instead of the fixture's 8 s real wait (Overworld lava spreads its 3 blocks in about 90 ticks; not checked live); monsters off is gamerule spawn_monsters false instead of the fixture's spawn-monsters=false server property (not checked that 26.x still reads the property; the open, noon-lit room spawns nothing either way); the body is summoned at world spawn and teleported, never standing at the surface start; loadChunks keeps all 6 room chunks loaded for the fills. lava-room-1 and lava-room-2 are identical spots, so AI-LAVA-1 and AI-LAVA-2 are two plays of the same room. No worldSpawn override: like R-SKELETON, the body is summoned at the matrix's default surface start and teleported to the room."
+      },
+      "requireSampledSuccess": true
+    },
+    {
+      "id": "AI-LAVA-2",
+      "name": "ai-lava-2",
+      "phase": "AI",
+      "seed": "5433312384530337025",
+      "goal": "You are in a walled netherrack room with a lava puddle ahead. Pick up the gold ingot lying beside the lava, then get through the netherrack wall at the far end and stand at x 32.5, y 110, z -52.5 on the other side. Do not touch lava and take no damage.",
+      "durationBudgetMs": 900000,
+      "runPolicy": {
+        "clock": "goal-start",
+        "continueAfterDeath": false
+      },
+      "setup": {
+        "dimension": "minecraft:overworld",
+        "position": [
+          16.5,
+          110,
+          -47.5
+        ],
+        "surface": false,
+        "time": 6000,
+        "freezeUntilGoalStart": true,
+        "loadChunks": [
+          {
+            "dimension": "minecraft:overworld",
+            "position": [
+              8,
+              110,
+              -56
+            ]
+          },
+          {
+            "dimension": "minecraft:overworld",
+            "position": [
+              8,
+              110,
+              -40
+            ]
+          },
+          {
+            "dimension": "minecraft:overworld",
+            "position": [
+              24,
+              110,
+              -56
+            ]
+          },
+          {
+            "dimension": "minecraft:overworld",
+            "position": [
+              40,
+              110,
+              -56
+            ]
+          },
+          {
+            "dimension": "minecraft:overworld",
+            "position": [
+              40,
+              110,
+              -40
+            ]
+          }
+        ],
+        "commands": [
+          "gamerule spawn_monsters false",
+          "fill 6 109 -58 32 116 -38 minecraft:air",
+          "fill 6 109 -58 32 109 -38 minecraft:netherrack",
+          "fill 5 110 -59 33 112 -59 minecraft:glass",
+          "fill 5 110 -37 33 112 -37 minecraft:glass",
+          "fill 5 110 -59 5 112 -37 minecraft:glass",
+          "fill 33 110 -59 33 112 -37 minecraft:glass",
+          "fill 21 110 -50 22 110 -46 minecraft:lava",
+          "fill 28 110 -58 31 112 -38 minecraft:netherrack",
+          "setblock 30 110 -48 minecraft:lava",
+          "setblock 30 110 -53 minecraft:lava",
+          "tp {agent} 16.5 110 -47.5 -90 0"
+        ],
+        "settleTicks": 100,
+        "finalCommands": [
+          "summon minecraft:item 21.5 110 -53.5 {Item:{id:\"minecraft:gold_ingot\",count:1},PickupDelay:0}"
+        ],
+        "inventory": [
+          {
+            "item": "minecraft:iron_pickaxe",
+            "count": 1
+          },
+          {
+            "item": "minecraft:cobblestone",
+            "count": 64
+          },
+          {
+            "item": "minecraft:bread",
+            "count": 8
+          }
+        ],
+        "armour": {},
+        "effects": [],
+        "mobs": []
+      },
+      "successCheck": "all: inventory gold_ingot >=1 AND position_within overworld (32.5, 110, -52.5) radius 1",
+      "aiRoom": {
+        "standIn": "FIND_ONLY=lava-room-2 node scripts/quality/test-find-live.mjs scripts/quality/lava-room-spots.json $OUT $JAR --descriptive",
+        "pass": {
+          "noDamage": true
+        },
+        "verdictGap": "The script room passes on 0 deaths and exactly 0 damage (expectDamageTaken 0) and never checks that the ingot was picked up or the wall crossed; the AI room must also hold the ingot while standing within 1 block of the script's last travel target (32.5, 110, -52.5), then 0 deaths and 0 damage. The ingot despawns 5 minutes after play starts in both arms; the script finishes in about 26 s, the AI arm has 15 minutes.",
+        "setupCheck": "Mirrors lava-room-2 in scripts/quality/lava-room-spots.json as test-find-live.mjs plays it: kit, time 6000, difficulty normal, every setup line with {x,y,z} replaced by the archived fixtureAt (16,70,-48), the final tp with yaw -90, and the ingot summoned only after the lava has flowed. Differences: the AI setup is tick-frozen, so the flow comes from settleTicks 100 (5 s of game time) instead of the fixture's 8 s real wait (Overworld lava spreads its 3 blocks in about 90 ticks; not checked live); monsters off is gamerule spawn_monsters false instead of the fixture's spawn-monsters=false server property (not checked that 26.x still reads the property; the open, noon-lit room spawns nothing either way); the body is summoned at world spawn and teleported, never standing at the surface start; loadChunks keeps all 6 room chunks loaded for the fills. lava-room-1 and lava-room-2 are identical spots, so AI-LAVA-1 and AI-LAVA-2 are two plays of the same room. No worldSpawn override: like R-SKELETON, the body is summoned at the matrix's default surface start and teleported to the room."
+      },
+      "requireSampledSuccess": true
+    },
+    {
+      "id": "AI-WATER-CAVE",
+      "name": "ai-water-cave",
+      "phase": "AI",
+      "seed": "3315172112810107624",
+      "goal": "You are at the end of a tunnel deep underground with a bucket and two pickaxes. Fill your bucket with water. Stay alive.",
+      "durationBudgetMs": 900000,
+      "runPolicy": {
+        "clock": "goal-start",
+        "continueAfterDeath": false
+      },
+      "setup": {
+        "dimension": "minecraft:overworld",
+        "position": [
+          -295.5,
+          -53,
+          16.6
+        ],
+        "surface": false,
+        "time": 10600,
+        "freezeUntilGoalStart": true,
+        "loadChunks": [
+          {
+            "dimension": "minecraft:overworld",
+            "position": [
+              -295.5,
+              -53,
+              16.6
+            ]
+          }
+        ],
+        "commands": [
+          "fill -296 -53 16 -296 -52 21 minecraft:air",
+          "fill -295 -53 21 -295 -52 21 minecraft:air",
+          "tp {agent} -295.5 -53 16.6 180 0"
+        ],
+        "inventory": [
+          {
+            "item": "minecraft:bucket",
+            "count": 1
+          },
+          {
+            "item": "minecraft:iron_pickaxe",
+            "count": 1
+          },
+          {
+            "item": "minecraft:stone_pickaxe",
+            "count": 1
+          }
+        ],
+        "armour": {},
+        "effects": [],
+        "mobs": []
+      },
+      "successCheck": "inventory: water_bucket >=1",
+      "aiRoom": {
+        "standIn": "BUILD_ONLY=water-4-y-54 node scripts/quality/test-build-live.mjs scripts/quality/water-underground-spots.json $OUT $JAR --descriptive",
+        "pass": {
+          "noDamage": false
+        },
+        "verdictGap": "The script room passes when the body holds a water bucket within 180 s of its first obtain water_bucket call, with no death, at least one Air sample and Air never 0; damage is allowed. The AI room gets the room's whole 900 s budget for the fill, needs no death, and has no drowning or Air check. The script arm fails this room 7 of 7 archived runs (no water found within 180 s, 0 damage, 0 deaths), so it measures whether the model can do what the script cannot. water-2-y-54 and water-7-y-54 pass but stop in a flooded aquifer cell at y 47 and y 54, where the dig's water-sealing blocks are not recorded, so their start cannot be rebuilt.",
+        "setupCheck": "water-4-y-54 is played by scripts/quality/test-build-live.mjs (the only script that reads water-underground-spots.json). Its timed part starts after an untimed dig on peaceful from world spawn, which ended at the same cell in all 7 archived runs: (-295.5, -53, 16.6), at the end of a 1x2 tunnel dug north from (-296,-53,21) after one step west from (-295,-53,21) (cells from the dig receipts). The AI start places the body there facing north, carves only those 7 dug cells, gives the bucket and two fresh pickaxes as the spot does after the dig, and sets time 10600 (the fixture's time 1000 plus the 480 s dig). Not reproduced: the 115-step staircase and side tunnels back to the surface (the script arm can climb them; the AI arm starts in a sealed dead end), the one block the last, worn-out dig broke ahead of the body (its cell is not recorded), and the roughly 400 mined blocks the script body carried (cobbled deepslate, cobblestone, tuff and others; exact counts are not recorded). The dig ran on peaceful, so no hostiles were near at the water call; the AI arm loads a fresh chunk with none either, on normal difficulty with monsters on in both. The dig receipts report lava heard 2-3 blocks from (-296,-54,21) and (-297,-53,21); those blocks stay uncarved, as in the script room. No worldSpawn override: like R-SKELETON, the body is summoned at the matrix's default surface start and teleported to the room."
+      },
+      "requireSampledSuccess": true
+    },
+    {
+      "id": "AI-CAST-1",
+      "name": "ai-cast-1",
+      "phase": "AI",
+      "seed": "5433312384530337025",
+      "goal": "There is a lava pool somewhere in these caves. Find it, build a nether portal from its lava, light the portal and go through it to the Nether.",
+      "durationBudgetMs": 780000,
+      "runPolicy": {
+        "clock": "goal-start",
+        "continueAfterDeath": false
+      },
+      "worldSpawn": {
+        "policy": "world_spawn"
+      },
+      "setup": {
+        "dimension": "minecraft:overworld",
+        "position": [
+          15.5,
+          -52,
+          -123.5
+        ],
+        "loadChunks": [
+          {
+            "dimension": "minecraft:overworld",
+            "position": [
+              15.5,
+              -52,
+              -123.5
+            ]
+          }
+        ],
+        "surface": false,
+        "time": 1000,
+        "freezeUntilGoalStart": true,
+        "commands": [],
+        "inventory": [
+          {
+            "item": "minecraft:iron_pickaxe",
+            "count": 1
+          },
+          {
+            "item": "minecraft:water_bucket",
+            "count": 1
+          },
+          {
+            "item": "minecraft:bucket",
+            "count": 1
+          },
+          {
+            "item": "minecraft:flint_and_steel",
+            "count": 1
+          },
+          {
+            "item": "minecraft:cobblestone",
+            "count": 16
+          },
+          {
+            "item": "minecraft:bread",
+            "count": 8
+          }
+        ],
+        "armour": {},
+        "effects": [],
+        "mobs": []
+      },
+      "successCheck": "advancement: story/enter_the_nether",
+      "aiRoom": {
+        "standIn": "BUILD_ONLY=cast-obi-1 node scripts/quality/test-build-live.mjs scripts/quality/cast-spots.json $OUT $JAR --descriptive",
+        "pass": {
+          "noDamage": true
+        },
+        "verdictGap": "The script passes when a lit nether_portal block stands in the opening its build names, with no death, no damage, no fire or lava contact and no fall of 3+ blocks; the AI arm must also step through the portal (the evaluator only sees the enter_the_nether advancement) within 780 s, and harmless fire or lava contact and short falls are not checked.",
+        "setupCheck": "Mirrored test-build-live.mjs: seed 5433312384530337025 natural world, normal difficulty, monsters on (spot.monsters unset -> spawnMonsters true; run-scenarios keeps spawn_mobs true), body summoned at the generated world spawn (worldSpawn world_spawn), same quality setup kit in the same give order with clear first and no armour or effects, time set 1000 with daylight cycle on, then startAt {x,y,z} branch: tp to (15+0.5, -52, -124+0.5) with no surface search (the pool round-walk only runs for startAt without y). Not reproducible: the fixture plays 1.5 s unfrozen at world spawn and 3 s at the cave cell before its first call, the AI arm starts frozen at the cell; the fixture server runs view and simulation distance 6, the matrix uses its own template's. loadChunks switches on applyQualitySetup's loaded-chunk wait, standing in for the fixture's forceload + execute-if-loaded poll before its tp (it throws QUALITY_SETUP_CHUNK_READY after about 100 polls; unverified offline). Both arms arm the twelve default reflexes. 15 walked blocks from the shore per the spot note. No lit-portal check is available: run-scenarios can sample objective.rcon into objectiveMet, but the successCheck grammar never reads it and an objective also changes the release and leak-stop logic."
+      }
+    },
+    {
+      "id": "AI-CAST-2",
+      "name": "ai-cast-2",
+      "phase": "AI",
+      "seed": "313280743662651985",
+      "goal": "There is a lava pool somewhere in these caves. Find it, build a nether portal from its lava, light the portal and go through it to the Nether.",
+      "durationBudgetMs": 780000,
+      "runPolicy": {
+        "clock": "goal-start",
+        "continueAfterDeath": false
+      },
+      "worldSpawn": {
+        "policy": "world_spawn"
+      },
+      "setup": {
+        "dimension": "minecraft:overworld",
+        "position": [
+          -507.5,
+          -48,
+          -50.5
+        ],
+        "loadChunks": [
+          {
+            "dimension": "minecraft:overworld",
+            "position": [
+              -507.5,
+              -48,
+              -50.5
+            ]
+          }
+        ],
+        "surface": false,
+        "time": 1000,
+        "freezeUntilGoalStart": true,
+        "commands": [],
+        "inventory": [
+          {
+            "item": "minecraft:iron_pickaxe",
+            "count": 1
+          },
+          {
+            "item": "minecraft:water_bucket",
+            "count": 1
+          },
+          {
+            "item": "minecraft:bucket",
+            "count": 1
+          },
+          {
+            "item": "minecraft:flint_and_steel",
+            "count": 1
+          },
+          {
+            "item": "minecraft:cobblestone",
+            "count": 16
+          },
+          {
+            "item": "minecraft:bread",
+            "count": 8
+          }
+        ],
+        "armour": {},
+        "effects": [],
+        "mobs": []
+      },
+      "successCheck": "advancement: story/enter_the_nether",
+      "aiRoom": {
+        "standIn": "BUILD_ONLY=cast-obi-2 node scripts/quality/test-build-live.mjs scripts/quality/cast-spots.json $OUT $JAR --descriptive",
+        "pass": {
+          "noDamage": true
+        },
+        "verdictGap": "The script passes when a lit nether_portal block stands in the opening its build names, with no death, no damage, no fire or lava contact and no fall of 3+ blocks; the AI arm must also step through the portal (the evaluator only sees the enter_the_nether advancement) within 780 s, and harmless fire or lava contact and short falls are not checked.",
+        "setupCheck": "Mirrored test-build-live.mjs: seed 313280743662651985 natural world, normal difficulty, monsters on (spot.monsters unset -> spawnMonsters true; run-scenarios keeps spawn_mobs true), body summoned at the generated world spawn (worldSpawn world_spawn), same quality setup kit in the same give order with clear first and no armour or effects, time set 1000 with daylight cycle on, then startAt {x,y,z} branch: tp to (-508+0.5, -48, -51+0.5) with no surface search (the pool round-walk only runs for startAt without y). Not reproducible: the fixture plays 1.5 s unfrozen at world spawn and 3 s at the cave cell before its first call, the AI arm starts frozen at the cell; the fixture server runs view and simulation distance 6, the matrix uses its own template's. loadChunks switches on applyQualitySetup's loaded-chunk wait, standing in for the fixture's forceload + execute-if-loaded poll before its tp (it throws QUALITY_SETUP_CHUNK_READY after about 100 polls; unverified offline). Both arms arm the twelve default reflexes. 20 walked blocks from the shore per the spot note. No lit-portal check is available: run-scenarios can sample objective.rcon into objectiveMet, but the successCheck grammar never reads it and an objective also changes the release and leak-stop logic."
+      }
+    }
+  ]
+}
