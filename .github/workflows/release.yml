@@ -26,13 +26,12 @@ concurrency:
 # Only the two jobs that call gh hold a write token, and they run no build code. In a dry run they only write
 # checksums and skip their gh step.
 # Release builds use no Actions cache, so nothing saved by another run ends up in a published file.
-# Tag pushes and manual runs only ever come from the repository itself, so the Linux jobs run on Boat, the rented
-# VM runner; the Windows job runs on GitHub's runner.
+# Every job runs on GitHub's runners, which are free for a public repository.
 jobs:
   check-tag:
     name: Check the tag
     if: github.repository == 'aGamingGod1234/mineagen'
-    runs-on: boat
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       tag: ${{ steps.version.outputs.tag }}
@@ -61,7 +60,7 @@ jobs:
     name: Mod JARs for Minecraft ${{ matrix.mc }}
     needs: check-tag
     if: github.repository == 'aGamingGod1234/mineagen'
-    runs-on: boat
+    runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -116,7 +115,7 @@ jobs:
     name: Publish the release
     needs: [check-tag, jars]
     if: github.repository == 'aGamingGod1234/mineagen'
-    runs-on: boat
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: write
@@ -234,7 +233,7 @@ jobs:
     name: Attach the Windows package
     needs: [check-tag, release, windows-package]
     if: github.repository == 'aGamingGod1234/mineagen'
-    runs-on: boat
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: write
