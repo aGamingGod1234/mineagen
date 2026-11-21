@@ -17,6 +17,7 @@ import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
+import { statCounter, shieldShareVerdict } from './lib/damage-counter.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const USAGE = 'Usage: test-drawn-bow-live.mjs [OUT_DIR] [--strict|--descriptive] under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME (DISTANCES, REPEATS, CASE_SECONDS, DRAWN_MIN_SHARE, ARENA_JAR)';
@@ -126,14 +127,13 @@ try {
 	await command(`effect give ${agent} minecraft:saturation 5 10 true`);
 
 	await command('time set midnight');
-	await command('scoreboard objectives add blk minecraft.custom:minecraft.damage_blocked_by_shield');
-	await command('scoreboard objectives add dmg minecraft.custom:minecraft.damage_taken');
-	const score = async (name) => { const text = await command(`scoreboard players get ${agent} ${name}`); const value = /has (\d+) /.exec(text)?.[1]; if (value === undefined) console.log(`[score] ${name}: ${text}`); return Number(value ?? 0); };
+	// Unreadable counter reads stay null and make the run invalid evidence; only "none is set" is a real zero.
+	const score = { blk: await statCounter(command, agent, 'blk', 'minecraft.custom:minecraft.damage_blocked_by_shield'), dmg: await statCounter(command, agent, 'dmg', 'minecraft.custom:minecraft.damage_taken') };
 	const arrowOnly = { id: 'arrow-test', priority: 7, when: [{ type: 'incoming_projectile', withinS: 0.6 }], do: { type: 'shield' } };
 	const drawn = { ...arrowOnly, when: [{ type: 'incoming_projectile', withinS: 0.6, drawn: true }] };
 	const distances = (process.env.DISTANCES ?? '4,7,10').split(',').map(Number);
 	const repeats = Number(process.env.REPEATS ?? 2), seconds = Number(process.env.CASE_SECONDS ?? 30);
-	const arms = { arrowOnly: { blocked: 0, taken: 0, cases: [] }, drawn: { blocked: 0, taken: 0, cases: [] } };
+	const cases = [];
 	for (let repeat = 0; repeat < repeats; repeat += 1) {
 		for (const distance of distances) {
 			for (const [arm, rule] of [['arrowOnly', arrowOnly], ['drawn', drawn]]) {
@@ -141,7 +141,7 @@ try {
 				await command(`tp ${agent} 0.5 80 0.5 0 0`); await command(`item replace entity ${agent} weapon.offhand with minecraft:shield`);
 				await command(`effect give ${agent} minecraft:instant_health 1 3 true`);
 				await setReflexes([rule]); await sleep(1000);
-				const blocked0 = await score('blk'), taken0 = await score('dmg');
+				const blocked0 = await score.blk(), taken0 = await score.dmg();
 				// /summon gives a skeleton no bow (it then walks up and punches): hand it one, as a natural spawn has.
 				await command(`summon minecraft:skeleton 0.5 80 ${0.5 + distance} {PersistenceRequired:1b,equipment:{mainhand:{id:"minecraft:bow",count:1}}}`);
 				const seenEvents = new Map();
@@ -153,25 +153,23 @@ try {
 					if (process.env.DRAWN_DEBUG) console.log(`[tick] health ${health(o)} firing ${o.reflexes?.firing?.id ?? '-'} incoming ${JSON.stringify(o.incomingProjectiles ?? null)?.slice(0, 120)} mode ${o.player?.gameMode ?? o.gameMode ?? '?'}`);
 					if ((health(o) ?? 20) < 12) await command(`effect give ${agent} minecraft:instant_health 1 3 true`);
 				}
-				const blocked = await score('blk') - blocked0, taken = await score('dmg') - taken0;
+				const blocked1 = await score.blk(), taken1 = await score.dmg();
 				o = await observe();
-				arms[arm].blocked += blocked; arms[arm].taken += taken;
-				arms[arm].cases.push({ repeat, distance, blocked, taken, events: [...seenEvents.values()] });
-				console.log(`[case] ${arm} ${distance} blocks: blocked ${blocked / 10} HP, taken ${taken / 10} HP; firings ${seenEvents.size}: ${[...seenEvents.values()].slice(0, 4).map(row => `${row.outcome} ${row.detail}`).join(' | ')}`);
+				cases.push({ arm, repeat, distance, blocked0, blocked1, taken0, taken1, events: [...seenEvents.values()] });
+				const counter = (before, after) => before === null || after === null ? 'unreadable' : `${(after - before) / 10} HP`;
+				console.log(`[case] ${arm} ${distance} blocks: blocked ${counter(blocked0, blocked1)}, taken ${counter(taken0, taken1)}; firings ${seenEvents.size}: ${[...seenEvents.values()].slice(0, 4).map(row => `${row.outcome} ${row.detail}`).join(' | ')}`);
 				await setReflexes([]);
 			}
 		}
 	}
-	const share = (arm) => arms[arm].blocked + arms[arm].taken > 0 ? arms[arm].blocked / (arms[arm].blocked + arms[arm].taken) : null;
-	const minShare = Number(process.env.DRAWN_MIN_SHARE ?? 0.8);
-	results.drawnBow = { arms, shareArrowOnly: share('arrowOnly'), shareDrawn: share('drawn'), minShare };
-	results.drawnBow.pass = share('drawn') !== null && share('drawn') >= minShare && share('drawn') > (share('arrowOnly') ?? 0);
+	results.drawnBow = shieldShareVerdict(cases, Number(process.env.DRAWN_MIN_SHARE ?? 0.8));
 	await writeFile(join(out, 'results.json'), JSON.stringify(results, null, 2));
 	await writeFile(join(out, 'timeline.json'), JSON.stringify(timeline, null, 1));
-	console.log(`blocked share: arrow-only ${share('arrowOnly')}, drawn ${share('drawn')}`);
+	console.log(`blocked share: arrow-only ${results.drawnBow.shareArrowOnly}, drawn ${results.drawnBow.shareDrawn}`);
 	acceptance.pass = results.drawnBow.pass;
 	acceptance.shareArrowOnly = results.drawnBow.shareArrowOnly; acceptance.shareDrawn = results.drawnBow.shareDrawn;
-	if (acceptance.pass) console.log('Drawn bow shield verified');
+	if (results.drawnBow.integrity) acceptance.integrity = results.drawnBow.integrity;
+	if (acceptance.pass && !acceptance.integrity) console.log('Drawn bow shield verified');
 } catch (error) {
 	acceptance.error = String(error?.stack ?? error);
 	console.error(error);
