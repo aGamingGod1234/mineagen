@@ -949,7 +949,10 @@ export class NativeToolRuntime {
 			await this.#yieldStandingGuard(record);
 		}
 		if (REFLEX_YIELD_KINDS.has(request.tool.kind) && request.tool.actionType !== 'chat' && this.#reflexes.firing(record.agentId)) {
+			const epoch = this.#executionEpoch(record.agentId);
 			await this.#sendReflexes(record, { yieldFiring: true });
+			// A death or a new goal during the yield ends this call: nothing may dispatch onto a body that is no longer this one.
+			if (this.#executionEpoch(record.agentId) !== epoch) throw codedError('STALE_NATIVE_TOOL', 'Lifecycle changed while the reflex yielded the body');
 		}
 		if (request.tool.kind === 'reflexes') return { state: 'REFLEXES', reflexes: await this.#setReflexes(record, request.tool.reflexes) };
 		if (request.tool.kind === 'observe') return this.#observe(record);
@@ -1131,14 +1134,12 @@ export class NativeToolRuntime {
 		if (!background) this.#steps.set(record.agentId, entry);
 		// An emergency arrives mid-step (drowning under a dig, a skeleton during travel): escape stops the running body
 		// action itself instead of being refused as busy, which would cost the model a cancel call first.
-		// As replaceAction: a reflex holding the body yields first, the cancel must end the old action, and a lifecycle change
-		// during it (death, a new goal) stops the escape from starting on a body that is no longer this one.
+		// As replaceAction: the cancel must end the old action, and a lifecycle change during it (death, a new goal) stops
+		// the escape from starting on a body that is no longer this one. The dispatch path yields a firing reflex itself.
 		const running = step.verb === 'escape' && !this.#programRuns.has(record.agentId) && !this.#legChainOwnsBody(record, tool) ? this.#actions.get(record.agentId) : undefined;
 		let replaced = null;
 		if (running !== undefined && running.goalRevision === record.goalRevision && running.cancelling !== true && running.engineActionId === undefined) {
 			const expectedEpoch = this.#actionCancellationEpoch(record, running);
-			if (this.#reflexes.firing(record.agentId)) await this.#sendReflexes(record, { yieldFiring: true })
-				.catch((error) => this.#trace('reflexes_send_failed', { agentId: record.agentId, path: 'escape_step', reasonCode: error?.code ?? 'REFLEX_SEND_FAILED' }));
 			const cancelled = await this.#cancelAction(record, { kind: 'cancel_action', actionId: running.actionId, goalRevision: running.goalRevision });
 			if (this.#executionEpoch(record.agentId) !== expectedEpoch) throw codedError('STALE_NATIVE_TOOL', 'Lifecycle changed while stopping the step escape replaces');
 			if (!TERMINAL_ACTION_STATES.has(cancelled.state)) throw codedError('CANCEL_ACK_UNCONFIRMED', 'escape needs the running step to be stopped first');

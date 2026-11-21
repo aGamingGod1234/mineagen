@@ -20,12 +20,13 @@ test('do_step escape runs the escape body action with a 60 s default and never r
 	assert.deepEqual(Object.keys(toolAdjustments(extra)).sort(), ['target.timeoutMs', 'target.x', 'target.z']);
 	assert.equal(normalizeMinecraftToolCall('do_step', { verb: 'escape', target: { timeoutMs: 120_000 }, why: 'out' }).arguments.timeoutMs, 120_000);
 	// Anything else is dropped and reported, never refused: after would cancel what it waits for.
-	for (const args of [{ verb: 'escape', target: 'shore', why: '' }, { verb: 'escape', x: 3, keepGoing: true, after: 'act-1', why: 'x'.repeat(150) }, { verb: 'escape', why: 7, until: '' }]) {
+	for (const args of [{ verb: 'escape', target: 'shore', why: '' }, { verb: 'escape', x: 3, keepGoing: true, after: 'act-1', why: 'x'.repeat(150) }, { verb: 'escape', why: 7, until: '' }, { verb: 'escape', until: 'a\nb', target: { x: 1 }, after: 'h' }, { verb: 'escape', until: 'u'.repeat(400) }]) {
 		const step = normalizeMinecraftToolCall('do_step', args);
 		assert.deepEqual([step.actionType, step.arguments, step.after, step.keepGoing], ['escape', { timeoutMs: 60_000 }, undefined, undefined], JSON.stringify(args));
 		assert.ok(toolAdjustments(step), JSON.stringify(args));
 		assert.ok(step.step.why.length > 0 && step.step.why.length <= 100);
 	}
+	assert.deepEqual(Object.keys(toolAdjustments(normalizeMinecraftToolCall('do_step', { verb: 'escape', target: { x: 1 }, after: 'h' }))).sort(), ['after', 'target.x'], 'both stages report what they dropped');
 });
 
 test('escape is a do_step verb and a program call, kept out of the raw action enums to save tool bytes', () => {

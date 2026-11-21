@@ -174,7 +174,7 @@ try {
 			: room === 'skeleton' ? skeleton !== null && !(await hidden())
 			: room === 'shaft' || room === 'lake' ? await blockAt(Math.floor(live[0]), Math.floor(live[1]), Math.floor(live[2]), 'minecraft:water') : live[1] < F - 2;
 		const t0 = Date.now(), window = WINDOW_MS[room];
-		let calls = 0, last = null, safeAt = null;
+		let calls = 0, executed = 0, last = null, safeAt = null;
 		const results = [];
 		while (Date.now() - t0 < window) {
 			if (await safe()) { safeAt ??= Date.now() - t0; if (room !== 'skeleton' || calls === 0) break; await sleep(500); continue; }
@@ -191,6 +191,7 @@ try {
 				call = under && LEGACY === 'wake' ? ['control', { forward: 0, strafe: 0, jump: true, sneak: false, sprint: false, attack: false, use: false, yaw: facing, pitch: -45, selectedSlot: 0, hand: 'main', ticks: 40 }]
 					: ['travel_to', { x: bank.x, z: bank.z, tolerance: 1, timeoutMs: Math.min(30_000, left) }];
 			} else if (room === 'pit') call = ['build', { structure: 'pillar', size: LEGACY === 'wake' ? 1 : Math.max(1, F - Math.floor(p[1])), timeoutMs: Math.min(30_000, left) }];
+			else if (room === 'lake' && LEGACY === 'wake') call = ['control', { forward: 0, strafe: 0, jump: true, sneak: false, sprint: false, attack: false, use: false, yaw: facing, pitch: -45, selectedSlot: 0, hand: 'main', ticks: 40 }];
 			else if (room === 'lake') call = ['dig_to', { pattern: 'stairs_up', y: F, heading: 'east', timeoutMs: Math.min(60_000, left) }];
 			else if (room === 'shaft') call = LEGACY === 'wake' ? ['control', { forward: 0, strafe: 0, jump: true, sneak: false, sprint: false, attack: false, use: false, yaw: facing, pitch: -45, selectedSlot: 0, hand: 'main', ticks: 40 }]
 				: ['build', { structure: 'pillar', size: Math.max(1, F - Math.floor(p[1])), timeoutMs: Math.min(30_000, left) }];
@@ -199,23 +200,25 @@ try {
 			calls++;
 			last = await s.act(call[0], call[1], left + 10_000).catch(error => ({ state: 'ERROR', reasonCode: error.message }));
 			results.push(`${call[0]}:${last.state}:${last.reasonCode}`);
+			// A call the body ran (not refused at the gate): only these can be credited with a save.
+			if (last.state !== 'ERROR' && last.executionStarted !== false && !/^INVALID|^UNKNOWN_ACTION/.test(String(last.reasonCode ?? ''))) executed++;
 			if (last.state === 'ERROR') break;
 			if ((await health().catch(() => NaN)) <= 0) break;
 		}
 		if (room === 'skeleton' && calls > 0) await sleep(Math.max(0, window - (Date.now() - t0)));
 		// Safe has to hold: two seconds on, the body is still out (not slid back into the water or the hole).
 		let endSafe = null;
-		if (room !== 'skeleton' && safeAt !== null) { await sleep(2000); endSafe = await safe(); }
+		if (room !== 'skeleton' && safeAt !== null) { endSafe = true; for (let i = 0; i < 4 && endSafe; i++) { await sleep(500); endSafe = await safe(); } }
 		sampling = false; await sampler;
 		const end = await pos();
 		const died = minHealth <= 0;
-		const row = { room, arm: arm === 'legacy' ? `legacy-${LEGACY}` : arm, run, calls, endSafe, safeSeconds: safeAt === null ? null : Math.round(safeAt / 100) / 10, seconds: Math.round((Date.now() - t0) / 100) / 10,
+		const row = { room, arm: arm === 'legacy' ? `legacy-${LEGACY}` : arm, run, calls, executed, endSafe, safeSeconds: safeAt === null ? null : Math.round(safeAt / 100) / 10, seconds: Math.round((Date.now() - t0) / 100) / 10,
 			healthLost: Math.round(Math.max(0, before - minHealth) * 10) / 10, died, airBefore, minAir,
 			hiddenShare: room === 'skeleton' && samples > 0 ? Math.round(hiddenSamples / samples * 100) / 100 : undefined,
 			endDy: end ? Math.round((end[1] - F) * 10) / 10 : null, results, state: last?.state ?? null, reasonCode: last?.reasonCode ?? null,
 			message: String(last?.message ?? '').slice(0, 300), startedAt, finishedAt: Date.now() };
 		if (!exposed) row.notExercised = room === 'skeleton' ? 'no skeleton in sight at the start' : 'the live body did not start in danger';
-		else if (calls === 0 && safeAt !== null) row.notExercised = 'safe before the first decision (reflexes alone)';
+		else if (executed === 0 && safeAt !== null) row.notExercised = calls === 0 ? 'safe before the first decision (reflexes alone)' : 'safe with no call the body ran';
 		if (healthSamples === 0) row.error = 'no health sample in the window';
 		if (last?.state === 'ERROR') row.error = `call never returned: ${last.reasonCode}`;
 		row.pass = !died && (room === 'skeleton' ? row.healthLost <= 6 : safeAt !== null && endSafe === true);

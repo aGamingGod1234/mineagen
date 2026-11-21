@@ -369,7 +369,8 @@ function repairToolArguments(name, value) {
 				if (why.length === 0) { if (args.why !== undefined) adjusted.why = 'empty; "get out safely" used'; args.why = 'get out safely'; }
 				else if (codePointLength(why) > STEP_WHY_LENGTH) { adjusted.why = `cut to ${STEP_WHY_LENGTH} characters`; args.why = [...why].slice(0, STEP_WHY_LENGTH).join(''); }
 				else args.why = why;
-				if (args.until !== undefined && (typeof args.until !== 'string' || args.until.trim().length === 0)) { adjusted.until = 'ignored: not one line of text'; delete args.until; }
+				if (args.until !== undefined && (typeof args.until !== 'string' || args.until.trim().length === 0 || /[\x00-\x1f\x7f]/.test(args.until.trim())
+					|| codePointLength(args.until.trim()) > INTENT_FIELDS.until)) { adjusted.until = 'ignored: not one line of text within the until limit'; delete args.until; }
 			}
 			return done(args);
 		case 'lookAround':
@@ -480,7 +481,8 @@ export function normalizeMinecraftToolCall(name, original) {
 	}
 	const { value, adjusted } = repairToolArguments(name, original);
 	const result = normalizeRepairedToolCall(name, value);
-	if (adjusted !== undefined) TOOL_ADJUSTMENTS.set(result, adjusted);
+	// Both stages' notes are kept: the normalizer's own drops (a do_step target key) and the repair's (after, why).
+	if (adjusted !== undefined) TOOL_ADJUSTMENTS.set(result, { ...(TOOL_ADJUSTMENTS.get(result) ?? {}), ...adjusted });
 	return result;
 }
 
