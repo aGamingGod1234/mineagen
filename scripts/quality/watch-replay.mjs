@@ -125,6 +125,18 @@ export function fixtureTickRate(value = process.env.FIXTURE_TICK_RATE) {
 }
 
 /**
+ * The rate for a fixture whose play is on the game clock but which is not shown to play the same game at a raised rate
+ * (it missed the 20 vs 60 TPS A/B bar): 20 TPS, with a warning when FIXTURE_TICK_RATE asks for more, unless
+ * FIXTURE_TICK_RATE_UNSHOWN=1, which an A/B that tests it again sets. why says what differed.
+ */
+export function unshownTickRate(why, env = process.env, warn = console.warn) {
+	const asked = fixtureTickRate(env.FIXTURE_TICK_RATE);
+	if (asked === 20 || env.FIXTURE_TICK_RATE_UNSHOWN === '1') return asked;
+	warn(`[boot] FIXTURE_TICK_RATE=${env.FIXTURE_TICK_RATE} ignored: this fixture is not shown to play the same at a raised rate (${why}); FIXTURE_TICK_RATE_UNSHOWN=1 runs it anyway`);
+	return 20;
+}
+
+/**
  * The rate a fixture's s.fastRate() raises a booted server to (boot itself leaves it at 20): 20 unless the caller passes tickRate. Only fixtures whose own waits are game time
  * (s.gameSleep, s.gameTimer) and whose results matched 20 TPS at a raised rate pass fixtureTickRate(); any other fixture
  * keeps 20 TPS even with FIXTURE_TICK_RATE set, and says so. A fixture with wall-clock waits would cover several times the

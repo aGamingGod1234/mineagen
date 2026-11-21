@@ -8,6 +8,8 @@ import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { rememberEndCrystals, endCrystalFact } from '../../coordinator/src/dragon-fight-facts.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
+import { installTickRate, fixtureTickRate } from './watch-replay.mjs';
+import { damageCounter, recordDamageEvidence } from './lib/damage-counter.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const jarPath = resolve(process.env.ARENA_JAR ?? join(root, MOD_JAR));
@@ -34,7 +36,7 @@ class Inbox {
 	accept(e) { const i = this.waiters.findIndex(w => w.type === e.type && w.match(e)); if (i >= 0) this.waiters.splice(i, 1)[0].done(e); else { this.events.push(e); if (this.events.length > 1024) this.events.shift(); } }
 	wait(type, match = () => true, ms = 30000) { const i = this.events.findIndex(e => e.type === type && match(e)); if (i >= 0) return Promise.resolve(this.events.splice(i, 1)[0]); return new Promise((res, rej) => { const w = { type, match, done: e => { clearTimeout(t); res(e); } }; const t = setTimeout(() => { this.waiters = this.waiters.filter(x => x !== w); rej(new Error(`TIMEOUT ${type}`)); }, ms); this.waiters.push(w); }); }
 }
-let rcon, bridge, record, observation, inbox, ordinal = 0;
+let rcon, bridge, record, observation, inbox, ordinal = 0, rate, play = null;
 const agent = 'Caged';
 const command = async s => {
 	if (rcon.state === 'closed') { rcon = new HeadlessRconClient({ host: '127.0.0.1', port: port + 1, password: secret, commandTimeoutMs: 5000 }); await rcon.connect(); }
@@ -77,15 +79,30 @@ async function groundAt(x, z) {
 async function stand(x, y, z, faceX, faceY, faceZ) {
 	const dx = faceX - x, dz = faceZ - z, dy = faceY - (y + 1.62);
 	const yaw = Math.atan2(-dx, dz) * 180 / Math.PI, pitch = -Math.atan2(dy, Math.hypot(dx, dz)) * 180 / Math.PI;
-	await end(`tp ${agent} ${x} ${y} ${z} ${yaw.toFixed(1)} ${pitch.toFixed(1)}`); await sleep(1500);
+	await end(`tp ${agent} ${x} ${y} ${z} ${yaw.toFixed(1)} ${pitch.toFixed(1)}`); await rate.clock.sleep(1500);
 	await end('kill @e[type=minecraft:ender_dragon]');
 	return observe();
 }
-async function seen(o, spike) { for (let i = 0; i < 10 && !nearestCrystal(o, spike); i++) { await sleep(300); o = await observe(); } return o; }
+async function seen(o, spike) { for (let i = 0; i < 10 && !nearestCrystal(o, spike); i++) { await rate.clock.sleep(300); o = await observe(); } return o; }
+/** The play's game and wall seconds, the rates the server held, and vanilla's damage counter over it. */
+async function endPlay() {
+	const p = play; p.done = true;
+	// elapsed() reads the world tick first, so the clock is anchored on it when seconds is read.
+	const gameMs = await p.timer.elapsed();
+	const tick = { tickRate: rate.tickRate, seconds: Math.round((rate.clock.now() - p.t0) / 1000), wallSeconds: Math.round((Date.now() - p.wall0) / 1000),
+		gameSeconds: Math.round(gameMs / 1000), rates: await p.timer.rates().catch(() => null) };
+	await rate.normalRate();
+	tick.held = await rate.tickReport();
+	recordDamageEvidence(tick, p.damage0, await p.damage().catch(() => null));
+	return tick;
+}
 try {
 	for (let i = 0; i < 150; i++) { try { rcon = new HeadlessRconClient({ host: '127.0.0.1', port: port + 1, password: secret, connectTimeoutMs: 500, commandTimeoutMs: 5000 }); await rcon.connect(); break; } catch (e) { await rcon?.close(); if (i === 149) throw e; await sleep(1000); } }
+	// FIXTURE_TICK_RATE: setup (kit, finding the caged spikes) runs at 20; from the first stand at the cage to the last
+	// pillar-edge shot the server runs at the fixture rate and every wait is on its clock.
+	rate = installTickRate({ command: text => command(text) }, fixtureTickRate());
 	bridge = new MultiplexedServerBridge({ port, secret }, {}); inbox = new Inbox(bridge);
-	bridge.on('observation', e => { if (e.agentId === record?.agentId && e.payload.ready) observation = e.payload; });
+	bridge.on('observation', e => { rate.clock.observe(e.payload?.world?.gameTime); if (e.agentId === record?.agentId && e.payload.ready) observation = e.payload; });
 	bridge.on('goal_spec_request', e => { bridge.send('goal_spec_proposal', e.agentId, { requestId: e.payload.requestId, summary: 'Controlled live mechanics fixture', predicate: { type: 'survive_duration', ticks: 24000 } }).catch(() => {}); });
 	const ready = inbox.wait('ready'); bridge.start(); await ready;
 	await bridge.send('catalog_snapshot', 'server', { refreshedAtEpochMs: Date.now(), models: [{ provider: 'codex', model: 'gpt-6.1-sol', id: 'gpt-6.1-sol', displayName: 'Provider-free caged crystal fixture', reasoningEfforts: ['low'], serviceTiers: ['priority'] }] });
@@ -119,6 +136,10 @@ try {
 		if (gy !== null) { groundSpot = { x: gx + 0.5, y: gy, z: gz + 0.5, outward }; break; }
 	}
 	results.groundSpot = groundSpot;
+	const damage = await damageCounter(command, agent);
+	play = { damage0: await damage(), damage };
+	await rate.fastRate();
+	play.t0 = rate.clock.now(); play.wall0 = Date.now(); play.timer = await rate.gameTimer();
 	let o = await seen(await stand(groundSpot.x, groundSpot.y, groundSpot.z, centre.x, centre.y, centre.z), cage);
 	const row = nearestCrystal(o, cage);
 	results.appearance = row?.appearance ?? null;
@@ -141,14 +162,14 @@ try {
 	results.pillarBase = baseY;
 	await stand(standX + 0.5, baseY, standZ + 0.5, centre.x, centre.y, centre.z);
 	await act('select_item', { itemId: 'minecraft:cobblestone' });
-	const pillarStarted = Date.now();
+	const pillarStarted = rate.clock.now();
 	let feet = baseY;
 	for (let i = 0; i < 80 && feet < cage.cy; i++) {
 		await act('control', { forward: 0, strafe: 0, jump: true, sneak: false, sprint: false, attack: false, use: true, yaw: 0, pitch: 90, selectedSlot: 2, hand: 'main', ticks: 10 });
 		o = await observe(); feet = Math.floor(o.position.y + 1e-6);
 	}
-	await sleep(600); o = await observe(); feet = Math.floor(o.position.y + 1e-6);
-	results.pillar = { from: baseY, to: feet, target: cage.cy, seconds: Math.round((Date.now() - pillarStarted) / 100) / 10, at: o.position };
+	await rate.clock.sleep(600); o = await observe(); feet = Math.floor(o.position.y + 1e-6);
+	results.pillar = { from: baseY, to: feet, target: cage.cy, seconds: Math.round((rate.clock.now() - pillarStarted) / 100) / 10, at: o.position };
 	check('pillared up beside the cage to the crystal height through the body', feet >= cage.cy, results.pillar);
 	const inspectTop = await inspect({ section: 'entities', entityType: 'minecraft:end_crystal', limit: 16 });
 	results.inspectFromPillarBeforeBreak = JSON.stringify(inspectTop).match(/"arrowFromHere":"[^"]*"/g);
@@ -228,10 +249,12 @@ try {
 	}
 	check('pillar-edge refusal says how far out the crystal shows', Number.isFinite(results.pillarEdge?.advised), results.pillarEdge?.first?.message);
 	check('a shot from the advised distance is not refused at the pillar', results.pillarEdge?.fromAdvised && results.pillarEdge.fromAdvised.reasonCode !== 'TARGET_OBSTRUCTED', results.pillarEdge?.fromAdvised);
+	results.tick = await endPlay();
 	results.summary = Object.fromEntries(Object.entries(results.checks).map(([k, v]) => [k, v.ok]));
 	await writeFile(join(out, 'caged.json'), JSON.stringify(results, null, 2));
 	console.log(JSON.stringify(results, null, 2));
 } finally {
+	if (play && !play.done) results.tick = await endPlay().catch(() => null);
 	await writeFile(join(out, 'caged.json'), JSON.stringify(results, null, 2)).catch(() => {});
 	if (rcon) await command('stop').catch(() => {});
 	bridge?.stop(); await rcon?.close();

@@ -1,0 +1,1113 @@
+{
+ "kind": "decision-eval-tier1",
+ "schemaVersion": 1,
+ "generatedAt": "2026-11-21T05:31:19.627Z",
+ "commit": "383bb4cb6548e85d3f7153b99ef49b72ddfaee65",
+ "profile": {
+  "provider": "codex",
+  "model": "gpt-6.2-sol",
+  "effort": "low"
+ },
+ "wording": "production",
+ "samples": 6,
+ "sampleOffset": 0,
+ "corpusCases": 129,
+ "cases": {
+  "creeper-near-01": {
+   "category": "combat",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "creeper-near-02": {
+   "category": "combat",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "creeper-near-03": {
+   "category": "combat",
+   "good": 4,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "creeper-near-04": {
+   "category": "combat",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "creeper-near-05": {
+   "category": "combat",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "fullgame-route-repair-01": {
+   "category": "travel",
+   "good": 0,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "fullgame-route-repair-02": {
+   "category": "travel",
+   "good": 5,
+   "graded": 6,
+   "reads": 1,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "fullgame-route-repair-03": {
+   "category": "travel",
+   "good": 5,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "fullgame-route-repair-04": {
+   "category": "travel",
+   "good": 5,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "fullgame-route-repair-05": {
+   "category": "travel",
+   "good": 4,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "hunger-01": {
+   "category": "food-climb",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "hunger-02": {
+   "category": "food-climb",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "hunger-03": {
+   "category": "food-climb",
+   "good": 1,
+   "graded": 6,
+   "reads": 5,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "hunger-04": {
+   "category": "food-climb",
+   "good": 1,
+   "graded": 6,
+   "reads": 1,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "hunger-05": {
+   "category": "food-climb",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "hunger-06": {
+   "category": "food-climb",
+   "good": 2,
+   "graded": 6,
+   "reads": 4,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "hunger-07": {
+   "category": "food-climb",
+   "good": 3,
+   "graded": 6,
+   "reads": 3,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "hunger-08": {
+   "category": "food-climb",
+   "good": 2,
+   "graded": 3,
+   "reads": 1,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "hunger-09": {
+   "category": "food-climb",
+   "good": 1,
+   "graded": 6,
+   "reads": 5,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "hunger-10": {
+   "category": "food-climb",
+   "good": 4,
+   "graded": 6,
+   "reads": 2,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "iron-sourcing-01": {
+   "category": "ore-search",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "iron-sourcing-02": {
+   "category": "ore-search",
+   "good": 5,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "iron-sourcing-03": {
+   "category": "ore-search",
+   "good": 5,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "iron-sourcing-04": {
+   "category": "ore-search",
+   "good": 3,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "iron-sourcing-05": {
+   "category": "ore-search",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "iron-sourcing-06": {
+   "category": "ore-search",
+   "good": 0,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "iron-sourcing-07": {
+   "category": "ore-search",
+   "good": 1,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "iron-sourcing-08": {
+   "category": "ore-search",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "lava-contact-01": {
+   "category": "lava",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "lava-contact-02": {
+   "category": "lava",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "lava-contact-03": {
+   "category": "lava",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "lava-contact-04": {
+   "category": "lava",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "lava-contact-05": {
+   "category": "lava",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "lava-contact-06": {
+   "category": "lava",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "lava-contact-07": {
+   "category": "lava",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "lava-contact-08": {
+   "category": "lava",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "lava-contact-09": {
+   "category": "lava",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "low-health-recovery-01": {
+   "category": "food-climb",
+   "good": 4,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "low-health-recovery-02": {
+   "category": "food-climb",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "low-health-recovery-03": {
+   "category": "food-climb",
+   "good": 3,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "low-health-recovery-04": {
+   "category": "food-climb",
+   "good": 2,
+   "graded": 6,
+   "reads": 4,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "low-health-recovery-05": {
+   "category": "food-climb",
+   "good": 3,
+   "graded": 6,
+   "reads": 3,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "low-health-recovery-06": {
+   "category": "food-climb",
+   "good": 2,
+   "graded": 6,
+   "reads": 4,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "low-health-recovery-07": {
+   "category": "food-climb",
+   "good": 0,
+   "graded": 6,
+   "reads": 6,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "melee-threat-low-health-01": {
+   "category": "combat",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "melee-threat-low-health-02": {
+   "category": "combat",
+   "good": 0,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "melee-threat-low-health-03": {
+   "category": "combat",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "melee-threat-low-health-04": {
+   "category": "combat",
+   "good": 5,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "melee-threat-low-health-05": {
+   "category": "combat",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "melee-threat-low-health-06": {
+   "category": "combat",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "melee-threat-low-health-07": {
+   "category": "combat",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "melee-threat-low-health-08": {
+   "category": "combat",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "overworld-bailout-01": {
+   "category": "combat",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "overworld-bailout-02": {
+   "category": "combat",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "melee-threat-low-health-fullgame-zombie": {
+   "category": "combat",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "unreachable-target-01": {
+   "category": "travel",
+   "good": 3,
+   "graded": 6,
+   "reads": 2,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "unreachable-target-02": {
+   "category": "travel",
+   "good": 1,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "unreachable-target-03": {
+   "category": "travel",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "unreachable-target-04": {
+   "category": "travel",
+   "good": 5,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "unreachable-target-05": {
+   "category": "travel",
+   "good": 2,
+   "graded": 6,
+   "reads": 2,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "unreachable-target-06": {
+   "category": "travel",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "unreachable-target-07": {
+   "category": "travel",
+   "good": 3,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "unreachable-target-08": {
+   "category": "travel",
+   "good": 2,
+   "graded": 3,
+   "reads": 1,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "unreachable-target-09": {
+   "category": "travel",
+   "good": 0,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "unreachable-target-10": {
+   "category": "travel",
+   "good": 0,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "unreachable-target-11": {
+   "category": "travel",
+   "good": 4,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "unreachable-target-12": {
+   "category": "travel",
+   "good": 0,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "unreachable-target-13": {
+   "category": "travel",
+   "good": 3,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "unreachable-target-14": {
+   "category": "travel",
+   "good": 0,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-combat-01": {
+   "category": "combat",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-combat-02": {
+   "category": "combat",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-combat-03": {
+   "category": "combat",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-combat-04": {
+   "category": "combat",
+   "good": 4,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-combat-05": {
+   "category": "combat",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-combat-06": {
+   "category": "combat",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-combat-07": {
+   "category": "combat",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-combat-08": {
+   "category": "combat",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-combat-09": {
+   "category": "combat",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-combat-10": {
+   "category": "combat",
+   "good": 3,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-combat-11": {
+   "category": "combat",
+   "good": 0,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-combat-12": {
+   "category": "combat",
+   "good": 5,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-food-climb-01": {
+   "category": "food-climb",
+   "good": 3,
+   "graded": 6,
+   "reads": 3,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-food-climb-02": {
+   "category": "food-climb",
+   "good": 0,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-food-climb-03": {
+   "category": "food-climb",
+   "good": 0,
+   "graded": 6,
+   "reads": 1,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-food-climb-04": {
+   "category": "food-climb",
+   "good": 0,
+   "graded": 6,
+   "reads": 1,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-food-climb-05": {
+   "category": "food-climb",
+   "good": 3,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-food-climb-06": {
+   "category": "food-climb",
+   "good": 2,
+   "graded": 6,
+   "reads": 3,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-food-climb-07": {
+   "category": "food-climb",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-food-climb-08": {
+   "category": "food-climb",
+   "good": 0,
+   "graded": 6,
+   "reads": 6,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-food-climb-09": {
+   "category": "food-climb",
+   "good": 0,
+   "graded": 6,
+   "reads": 6,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-food-climb-10": {
+   "category": "food-climb",
+   "good": 0,
+   "graded": 6,
+   "reads": 4,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-food-climb-11": {
+   "category": "food-climb",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-food-climb-12": {
+   "category": "food-climb",
+   "good": 4,
+   "graded": 6,
+   "reads": 2,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-lava-01": {
+   "category": "lava",
+   "good": 4,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-lava-02": {
+   "category": "lava",
+   "good": 0,
+   "graded": 6,
+   "reads": 1,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-lava-03": {
+   "category": "lava",
+   "good": 0,
+   "graded": 6,
+   "reads": 1,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-lava-04": {
+   "category": "lava",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-lava-05": {
+   "category": "lava",
+   "good": 2,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-lava-06": {
+   "category": "lava",
+   "good": 4,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-lava-07": {
+   "category": "lava",
+   "good": 5,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-lava-08": {
+   "category": "lava",
+   "good": 5,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-lava-09": {
+   "category": "lava",
+   "good": 0,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-lava-10": {
+   "category": "lava",
+   "good": 3,
+   "graded": 6,
+   "reads": 3,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-lava-11": {
+   "category": "lava",
+   "good": 1,
+   "graded": 6,
+   "reads": 4,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-lava-12": {
+   "category": "lava",
+   "good": 1,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-ore-search-01": {
+   "category": "ore-search",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-ore-search-02": {
+   "category": "ore-search",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-ore-search-03": {
+   "category": "ore-search",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-ore-search-04": {
+   "category": "ore-search",
+   "good": 4,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-ore-search-05": {
+   "category": "ore-search",
+   "good": 5,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-ore-search-06": {
+   "category": "ore-search",
+   "good": 5,
+   "graded": 6,
+   "reads": 1,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-ore-search-07": {
+   "category": "ore-search",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-ore-search-08": {
+   "category": "ore-search",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-ore-search-09": {
+   "category": "ore-search",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-ore-search-10": {
+   "category": "ore-search",
+   "good": 0,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-ore-search-11": {
+   "category": "ore-search",
+   "good": 5,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-ore-search-12": {
+   "category": "ore-search",
+   "good": 5,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-travel-01": {
+   "category": "travel",
+   "good": 4,
+   "graded": 6,
+   "reads": 2,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-travel-02": {
+   "category": "travel",
+   "good": 0,
+   "graded": 6,
+   "reads": 3,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-travel-03": {
+   "category": "travel",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-travel-04": {
+   "category": "travel",
+   "good": 4,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-travel-05": {
+   "category": "travel",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-travel-06": {
+   "category": "travel",
+   "good": 4,
+   "graded": 6,
+   "reads": 2,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-travel-07": {
+   "category": "travel",
+   "good": 5,
+   "graded": 6,
+   "reads": 1,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-travel-08": {
+   "category": "travel",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-travel-09": {
+   "category": "travel",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-travel-10": {
+   "category": "travel",
+   "good": 6,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-travel-11": {
+   "category": "travel",
+   "good": 0,
+   "graded": 6,
+   "reads": 0,
+   "ungraded": 0,
+   "errors": 0
+  },
+  "cp2r-travel-12": {
+   "category": "travel",
+   "good": 5,
+   "graded": 6,
+   "reads": 1,
+   "ungraded": 0,
+   "errors": 0
+  }
+ },
+ "score": 0.6690381729258259,
+ "actingScore": 0.751608176769467,
+ "categories": {
+  "ore-search": {
+   "rate": 0.7666666666666668,
+   "actingRate": 0.7750000000000001,
+   "cases": 20,
+   "scoredCases": 20,
+   "good": 92,
+   "graded": 120,
+   "reads": 1,
+   "ungraded": 0
+  },
+  "lava": {
+   "rate": 0.6746031746031745,
+   "actingRate": 0.7142857142857143,
+   "cases": 21,
+   "scoredCases": 21,
+   "good": 85,
+   "graded": 126,
+   "reads": 9,
+   "ungraded": 0
+  },
+  "travel": {
+   "rate": 0.5806451612903225,
+   "actingRate": 0.6424731182795698,
+   "cases": 31,
+   "scoredCases": 31,
+   "good": 106,
+   "graded": 183,
+   "reads": 15,
+   "ungraded": 0
+  },
+  "combat": {
+   "rate": 0.875,
+   "actingRate": 0.875,
+   "cases": 28,
+   "scoredCases": 28,
+   "good": 147,
+   "graded": 168,
+   "reads": 0,
+   "ungraded": 0
+  },
+  "food-climb": {
+   "rate": 0.4482758620689656,
+   "actingRate": 0.7512820512820512,
+   "cases": 29,
+   "scoredCases": 29,
+   "good": 76,
+   "graded": 171,
+   "reads": 64,
+   "ungraded": 0
+  }
+ },
+ "cost": {
+  "samplesAsked": 3,
+  "samplesFromCache": 765,
+  "playerUsd": 0.011408,
+  "judgeCalls": 1,
+  "judgeCacheHits": 625,
+  "judgeUsd": 0.0505276,
+  "askWallMs": 34093,
+  "totalWallMs": 44701
+ }
+}

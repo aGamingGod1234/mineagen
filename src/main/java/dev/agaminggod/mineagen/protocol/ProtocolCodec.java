@@ -374,6 +374,7 @@ public final class ProtocolCodec {
 				requireDuration(arguments, FIELD_TIMEOUT_MS);
 			}
 			case REST -> requireDuration(arguments, FIELD_TIMEOUT_MS);
+			case ESCAPE -> requireDuration(arguments, FIELD_TIMEOUT_MS);
 			case BUILD -> {
 				requireOneOf(arguments, "structure", List.of("nether_portal", "pillar", "bridge", "shelter"));
 				if (present(arguments, FIELD_X) || present(arguments, FIELD_Y) || present(arguments, FIELD_Z)) validateCoordinates(arguments, true);
@@ -1168,6 +1169,7 @@ public final class ProtocolCodec {
 		fields.put(ActionType.CAST_OBSIDIAN, List.of(FIELD_X, FIELD_Y, FIELD_Z, "axis", "frame", "resume", FIELD_COUNT, FIELD_TIMEOUT_MS));
 		fields.put(ActionType.BARTER_UNTIL, List.of(FIELD_ITEM_ID, FIELD_COUNT, FIELD_TIMEOUT_MS));
 		fields.put(ActionType.REST, List.of(FIELD_TIMEOUT_MS));
+		fields.put(ActionType.ESCAPE, List.of(FIELD_TIMEOUT_MS));
 		fields.put(ActionType.BUILD, List.of("structure", FIELD_X, FIELD_Y, FIELD_Z, FIELD_ITEM_ID, "size", FIELD_TIMEOUT_MS));
 		fields.put(ActionType.BUILD_SHELTER, List.of(FIELD_X, FIELD_Y, FIELD_Z, "opening", FIELD_ITEM_ID, "roof", FIELD_TIMEOUT_MS));
 		fields.put(ActionType.MINE_VEIN, List.of(FIELD_X, FIELD_Y, FIELD_Z, "maxBlocks", FIELD_TIMEOUT_MS));

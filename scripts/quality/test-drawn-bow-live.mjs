@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Provider-free A/B check of the arrow shield in a real server: this script stands in for the coordinator and installs
-// one shield rule, the arrow-only one (incoming_projectile withinS 0.6, the old default-arrow) or the same rule with
-// drawn:true (the new default-arrow, which also reads a bow drawn at the body). A live skeleton at 4, 7 and 10 blocks
+// one shield rule, the arrow-only one (incoming_projectile withinS 0.6, the old default-arrow) or the shipped default-arrow
+// (drawn:true, which also reads a bow drawn at the body; RULE_ARMS=drawn plays only this one). A live skeleton at 4, 7 and 10 blocks
 // shoots at an idle body with a shield in the off hand. Vanilla's damage_blocked_by_shield and damage_taken counters
 // (tenths of HP) give the share of arrow damage the shield stopped in each arm. Pass: the drawn arm blocks at least
 // DRAWN_MIN_SHARE of the damage and more than the arrow-only arm. CP2r baseline with a shield in hand: 41 of 77 hits blocked.
@@ -14,13 +14,14 @@ import { spawn } from 'node:child_process';
 import { randomBytes, createHash } from 'node:crypto';
 import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
-import { normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
+import { normalizeReflexEntries, DEFAULT_REFLEXES } from '../../coordinator/src/reflexes.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
+import { installTickRate, fixtureTickRate } from './watch-replay.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 import { statCounter, shieldShareVerdict } from './lib/damage-counter.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
-const USAGE = 'Usage: test-drawn-bow-live.mjs [OUT_DIR] [--strict|--descriptive] under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME (DISTANCES, REPEATS, CASE_SECONDS, DRAWN_MIN_SHARE, ARENA_JAR)';
+const USAGE = 'Usage: test-drawn-bow-live.mjs [OUT_DIR] [--strict|--descriptive] under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME (DISTANCES, REPEATS, CASE_SECONDS, DRAWN_MIN_SHARE, RULE_ARMS, ARENA_JAR)';
 const cli = process.argv.slice(2);
 if (cli.includes('--help')) { console.log(USAGE + '\n' + EDIT_LOOP_HELP + '\n' + FIXTURE_OUTCOME_HELP); process.exit(0); }
 const strict = !cli.includes('--descriptive');
@@ -56,7 +57,7 @@ class Inbox {
 	}
 }
 
-let rcon, bridge, record, observation, inbox, revision = 0, ordinal = 0;
+let rcon, bridge, record, observation, inbox, revision = 0, ordinal = 0, rate;
 const agent = 'Reflex';
 const timeline = [];
 const command = async (text) => {
@@ -69,10 +70,10 @@ async function observe() {
 	await bridge.send('request_observation', record.agentId, { goalRevision: record.goalRevision });
 	return (await next).payload;
 }
-/** As the coordinator sends a model's rules: normalized by reflexes.mjs, the complete set, a new revision. */
+/** As the coordinator sends rules: the complete set in wire form (model rules through normalizeReflexEntries), a new revision. */
 async function setReflexes(rules) {
 	revision += 1;
-	await bridge.send('reflex_update', record.agentId, { revision, rules: normalizeReflexEntries(rules), yield: false });
+	await bridge.send('reflex_update', record.agentId, { revision, rules, yield: false });
 	for (let index = 0; index < 40; index += 1) { const o = await observe(); if (o.reflexes?.revision === revision) return o; await sleep(100); }
 	throw new Error(`reflex revision ${revision} never echoed`);
 }
@@ -94,12 +95,17 @@ const only = (process.env.REFLEX_ONLY ?? '').split(',').filter(Boolean);
 let o;
 try {
 	for (let attempt = 0; attempt < 150; attempt += 1) { try { rcon = new HeadlessRconClient({ host: '127.0.0.1', port: port + 1, password: secret, connectTimeoutMs: 500, commandTimeoutMs: 5000 }); await rcon.connect(); break; } catch (error) { await rcon?.close(); if (attempt === 149) throw error; await sleep(1000); } }
+	// FIXTURE_TICK_RATE: each case is set up at 20 (skeleton and arrows cleared, health topped up, the rule echoed) and
+	// the server runs at the fixture rate from the skeleton's summon to the end of the CASE_SECONDS window, which is game
+	// time on the fixture clock. The counters are read back at 20.
+	rate = installTickRate({ command: text => command(text) }, fixtureTickRate());
 	bridge = new MultiplexedServerBridge({ port, secret }, {}); inbox = new Inbox(bridge);
 	bridge.on('observation', (event) => {
+		rate.clock.observe(event.payload?.world?.gameTime);
 		if (event.agentId !== record?.agentId || !event.payload.ready) return;
 		observation = event.payload;
 		const firing = event.payload.reflexes?.firing;
-		timeline.push({ at: Date.now(), firing: firing?.id ?? null, action: event.payload.currentAction?.active ? event.payload.currentAction.actionId ?? true : false, health: event.payload.player?.health, incoming: (event.payload.incomingProjectiles ?? []).map((row) => `${row.type}@${row.etaSeconds}`), yaw: event.payload.view?.yaw, air: event.payload.player?.air, y: event.payload.position?.y });
+		timeline.push({ at: rate.clock.now(), firing: firing?.id ?? null, action: event.payload.currentAction?.active ? event.payload.currentAction.actionId ?? true : false, health: event.payload.player?.health, incoming: (event.payload.incomingProjectiles ?? []).map((row) => `${row.type}@${row.etaSeconds}`), yaw: event.payload.view?.yaw, air: event.payload.player?.air, y: event.payload.position?.y });
 	});
 	// Follow goal revisions (the accepted goal spec bumps it); reflex rules are not tied to a revision.
 	bridge.on('message', (event) => {
@@ -129,23 +135,30 @@ try {
 	await command('time set midnight');
 	// Unreadable counter reads stay null and make the run invalid evidence; only "none is set" is a real zero.
 	const score = { blk: await statCounter(command, agent, 'blk', 'minecraft.custom:minecraft.damage_blocked_by_shield'), dmg: await statCounter(command, agent, 'dmg', 'minecraft.custom:minecraft.damage_taken') };
-	const arrowOnly = { id: 'arrow-test', priority: 7, when: [{ type: 'incoming_projectile', withinS: 0.6 }], do: { type: 'shield' } };
-	const drawn = { ...arrowOnly, when: [{ type: 'incoming_projectile', withinS: 0.6, drawn: true }] };
+	// The drawn arm plays the shipped default-arrow rule as the coordinator sends it (its 10 s maxMs too), renamed for the events.
+	const arrowOnly = normalizeReflexEntries([{ id: 'arrow-test', priority: 7, when: [{ type: 'incoming_projectile', withinS: 0.6 }], do: { type: 'shield' } }])[0];
+	const drawn = { ...structuredClone(DEFAULT_REFLEXES.find((rule) => rule.id === 'default-arrow')), id: 'arrow-test' };
+	// RULE_ARMS=drawn skips the arrow-only arm: half the room time when jars, not rules, are the A/B arms.
+	const ruleArms = (process.env.RULE_ARMS ?? 'arrowOnly,drawn').split(',').filter(Boolean);
+	if (!ruleArms.includes('drawn') || ruleArms.some((arm) => !['arrowOnly', 'drawn'].includes(arm))) throw new Error(`RULE_ARMS wants arrowOnly,drawn or drawn, got ${ruleArms}`);
 	const distances = (process.env.DISTANCES ?? '4,7,10').split(',').map(Number);
 	const repeats = Number(process.env.REPEATS ?? 2), seconds = Number(process.env.CASE_SECONDS ?? 30);
 	const cases = [];
 	for (let repeat = 0; repeat < repeats; repeat += 1) {
 		for (const distance of distances) {
-			for (const [arm, rule] of [['arrowOnly', arrowOnly], ['drawn', drawn]]) {
+			for (const [arm, rule] of [['arrowOnly', arrowOnly], ['drawn', drawn]].filter(([arm]) => ruleArms.includes(arm))) {
+				await rate.normalRate();
 				await command('kill @e[type=minecraft:skeleton]'); await command('kill @e[type=minecraft:arrow]');
 				await command(`tp ${agent} 0.5 80 0.5 0 0`); await command(`item replace entity ${agent} weapon.offhand with minecraft:shield`);
 				await command(`effect give ${agent} minecraft:instant_health 1 3 true`);
-				await setReflexes([rule]); await sleep(1000);
+				await setReflexes([rule]); await rate.idleSleep(1000);
 				const blocked0 = await score.blk(), taken0 = await score.dmg();
+				await rate.fastRate();
+				const wall0 = Date.now(), timer = await rate.gameTimer();
 				// /summon gives a skeleton no bow (it then walks up and punches): hand it one, as a natural spawn has.
 				await command(`summon minecraft:skeleton 0.5 80 ${0.5 + distance} {PersistenceRequired:1b,equipment:{mainhand:{id:"minecraft:bow",count:1}}}`);
 				const seenEvents = new Map();
-				for (const end = Date.now() + seconds * 1000; Date.now() < end; await sleep(1000)) {
+				for (const end = rate.clock.now() + seconds * 1000; rate.clock.now() < end; await rate.clock.sleep(1000)) {
 					// Observations come on request: read a fresh one, and top health up so no case ends in a death
 					// (damage_taken still counts every hit).
 					o = await observe();
@@ -153,16 +166,19 @@ try {
 					if (process.env.DRAWN_DEBUG) console.log(`[tick] health ${health(o)} firing ${o.reflexes?.firing?.id ?? '-'} incoming ${JSON.stringify(o.incomingProjectiles ?? null)?.slice(0, 120)} mode ${o.player?.gameMode ?? o.gameMode ?? '?'}`);
 					if ((health(o) ?? 20) < 12) await command(`effect give ${agent} minecraft:instant_health 1 3 true`);
 				}
+				const gameMs = await timer.elapsed();
+				const tick = { tickRate: rate.tickRate, gameSeconds: Math.round(gameMs / 1000), wallSeconds: Math.round((Date.now() - wall0) / 1000), rates: await timer.rates().catch(() => null) };
+				await rate.normalRate();
 				const blocked1 = await score.blk(), taken1 = await score.dmg();
 				o = await observe();
-				cases.push({ arm, repeat, distance, blocked0, blocked1, taken0, taken1, events: [...seenEvents.values()] });
+				cases.push({ arm, repeat, distance, blocked0, blocked1, taken0, taken1, events: [...seenEvents.values()], tick });
 				const counter = (before, after) => before === null || after === null ? 'unreadable' : `${(after - before) / 10} HP`;
 				console.log(`[case] ${arm} ${distance} blocks: blocked ${counter(blocked0, blocked1)}, taken ${counter(taken0, taken1)}; firings ${seenEvents.size}: ${[...seenEvents.values()].slice(0, 4).map(row => `${row.outcome} ${row.detail}`).join(' | ')}`);
 				await setReflexes([]);
 			}
 		}
 	}
-	results.drawnBow = shieldShareVerdict(cases, Number(process.env.DRAWN_MIN_SHARE ?? 0.8));
+	results.drawnBow = shieldShareVerdict(cases, Number(process.env.DRAWN_MIN_SHARE ?? 0.8), ruleArms);
 	await writeFile(join(out, 'results.json'), JSON.stringify(results, null, 2));
 	await writeFile(join(out, 'timeline.json'), JSON.stringify(timeline, null, 1));
 	console.log(`blocked share: arrow-only ${results.drawnBow.shareArrowOnly}, drawn ${results.drawnBow.shareDrawn}`);
@@ -174,6 +190,7 @@ try {
 	acceptance.error = String(error?.stack ?? error);
 	console.error(error);
 } finally {
+	if (rate) await writeFile(join(out, 'tick.json'), JSON.stringify({ tickRate: rate.tickRate, held: await rate.tickReport() }, null, 2)).catch(() => {});
 	if (rcon) await command('stop').catch(() => {});
 	bridge?.stop(); await rcon?.close();
 	await Promise.race([new Promise((done) => child.once('exit', done)), sleep(10000)]); if (child.exitCode === null) child.kill('SIGTERM'); await log.close();

@@ -680,6 +680,16 @@ public final class AgentRegistryVerification {
 		assertEquals(died.after().deathSnapshot(), roundTrip.deathSnapshot(), "death snapshot persistence round-trip");
 		assertEquals("spectator", roundTrip.deathSnapshot().orElseThrow().gameMode(), "actual live game mode survives restart");
 		assertEquals(Optional.of(true), roundTrip.deathSnapshot().orElseThrow().respawnForced(), "forced vanilla respawn flag survives restart");
+		assertEquals(Optional.empty(), roundTrip.deathSnapshot().orElseThrow().detail(), "a death saved without a cause detail reads back without one");
+		AgentDeathSnapshot shot = new AgentDeathSnapshot(
+				"Miner was shot by Skeleton", "minecraft:overworld", 1.0D, 64.0D, 1.0D,
+				Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+				"survival", START_TIME + 2L, OptionalInt.empty(),
+				Optional.of(new AgentDeathSnapshot.Detail("minecraft:arrow", Optional.of("minecraft:skeleton"), Optional.of("minecraft:arrow"), 6, 0.5F, 0))
+		);
+		AgentRecord shotDead = codec.decode(codec.encode(new AgentRegistry.Snapshot(AgentConstants.SCHEMA_VERSION, AgentConstants.DEFAULT_AGENT_LIMIT,
+				AgentConstants.DEFAULT_QUEUE_LIMIT, List.of(AgentLifecycleReducer.die(active, shot, START_TIME + 3L).after())))).records().getFirst();
+		assertEquals(Optional.of(shot), shotDead.deathSnapshot(), "the damage type, attacker, hunger and armour of a death survive restart");
 		AgentDeathSnapshot legacyShape = new AgentDeathSnapshot(
 				"legacy death", "minecraft:overworld", 1.0D, 64.0D, 1.0D,
 				Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), START_TIME + 2L
