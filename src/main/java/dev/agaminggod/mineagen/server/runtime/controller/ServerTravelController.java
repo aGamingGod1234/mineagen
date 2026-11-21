@@ -226,7 +226,10 @@ public final class ServerTravelController implements ServerController {
 	 * against 141.8 (34 each); a 5-8 block sidestep does not get round a netherrack hill.
 	 */
 	static boolean walkAroundEnabled() {
-		return Boolean.getBoolean("mineagen.travel.walkAround") || "on".equalsIgnoreCase(String.valueOf(System.getenv("MINEAGEN_TRAVEL_WALK_AROUND")).trim());
+		// Read into a local first: the result-code scanner (failure-code-sources.mjs) takes a capitalised string in the
+		// result expression for a result code.
+		String environment = System.getenv("MINEAGEN_TRAVEL_WALK_AROUND");
+		return Boolean.getBoolean("mineagen.travel.walkAround") || "on".equalsIgnoreCase(String.valueOf(environment).trim());
 	}
 	static final double WALK_AROUND_MIN_LEFT = 8.0D;
 	private int walkArounds, walkedAround;
