@@ -83,6 +83,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 	private String fallbackWhy = "";
 	/** fight_target on this blaze, held from the cell: the hold ends when it dies (or is gone), not at a rod count. */
 	private LivingEntity target;
+	/** The fight_target form's open fight while healthy (open fight on). */
+	private ServerController openPart;
 	private final long startedAt;
 	private final Item untilItem;
 	private final String untilItemId;
@@ -294,12 +296,28 @@ public final class ServerSpawnerHoldController implements ServerController {
 				fleeAtHealth, player.getFoodData().getFoodLevel(), foodSlot(player) >= 0, elapsed, timeoutMs, spawnerGone,
 				phase == Phase.HOLD ? elapsed - lastBlazeMs : 0L, phase == Phase.HOLD || emergency != null, sitesFailed, noSiteLeft,
 				phase == Phase.HOLD && SpawnerHold.breached(witherHits, player.level().getGameTime())));
-		if (target != null && code == null) {
+		// The open fight_target reports its own kill (and collects the drop first).
+		if (target != null && code == null && openPart == null) {
 			if (target.isDeadOrDying()) code = "TARGET_KILLED";
 			else if (!target.isAlive() || target.isRemoved() || target.level() != player.level()) code = "TARGET_GONE";
 		}
 		if (target != null && "FIGHT_UNTIL_TIMED_OUT".equals(code)) code = "FIGHT_TIMED_OUT";
 		if (code != null) return stop(player, handBackResult(player, code, elapsed));
+		// fight_target form, open fight on: the model's own fight_target runs; hurt below TURTLE_HEALTH, the body walls in
+		// where it stands and heals (emergency), then fights on. No site walk: in the blaze spawner rooms the deaths came on
+		// the walk to a cell site and while building it under fire.
+		if (target != null && SpawnerHold.OPEN_FIGHT && phase != Phase.HOLD && emergency == null
+				&& (player.getHealth() >= SpawnerHold.TURTLE_HEALTH || !canWallIn(player))) {
+			if (openPart == null) openPart = openFight.get();
+			TickResult fought = openPart.tick(player, now);
+			if (fought.state() == State.RUNNING) return fought;
+			openPart.cancel(player);
+			openPart = null;
+			HOLDING.remove(player.getUUID());
+			finished = fought;
+			return fought;
+		}
+		if (target != null && SpawnerHold.OPEN_FIGHT && openPart != null) { openPart.cancel(player); openPart = null; }
 		TickResult walling = emergency(player, now, elapsed);
 		if (walling != null) return walling;
 		if (!inCell || defend != null) {
@@ -787,13 +805,16 @@ public final class ServerSpawnerHoldController implements ServerController {
 				player.getInventory().getSelectedSlot(), InteractionHand.OFF_HAND));
 	}
 
+	private boolean canWallIn(ServerPlayer player) {
+		if (spawner == null || !player.onGround() || player.level().getGameTime() < emergencyRetryTick) return false;
+		String item = roofing.blockItem(player);
+		return item != null && ServerFightUntilController.count(player, BuiltInRegistries.ITEM.getValue(Identifier.parse(item))) >= 10;
+	}
+
 	private TickResult emergency(ServerPlayer player, long now, long elapsed) {
 		if (emergency == null) {
-			if (phase == Phase.HOLD || phase == Phase.SCAN || spawner == null || player.getHealth() >= SpawnerHold.TURTLE_HEALTH
-					|| !player.onGround() || player.level().getGameTime() < emergencyRetryTick) return null;
+			if (phase == Phase.HOLD || phase == Phase.SCAN || player.getHealth() >= SpawnerHold.TURTLE_HEALTH || !canWallIn(player)) return null;
 			String item = roofing.blockItem(player);
-			int carried = item == null ? 0 : ServerFightUntilController.count(player, BuiltInRegistries.ITEM.getValue(Identifier.parse(item)));
-			if (carried < 10) return null;
 			cancelParts(player);
 			blockItem = item;
 			emergencyCell = player.blockPosition();
@@ -835,6 +856,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 				reopening = false;
 				reopens++;
 				note("doorway open again");
+				// fight_target form: back to the open fight from here.
+				if (target != null && SpawnerHold.OPEN_FIGHT) phase = Phase.SITE;
 				return null;
 			}
 			reopenWork = roofing.clear(player, next, REOPEN_MS);
@@ -1126,6 +1149,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 		if (sealWork != null) { sealWork.cancel(player); sealWork = null; }
 		if (reopenWork != null) { reopenWork.cancel(player); reopenWork = null; }
 		if (emergency != null) { emergency.cancel(player); emergency = null; }
+		if (openPart != null) { openPart.cancel(player); openPart = null; }
 		returning = false;
 		eatTicks = -1;
 		eatInput.release();
