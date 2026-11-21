@@ -26,6 +26,7 @@ public final class ForestHuntVerification {
 		verifyDestinations();
 		verifyLavaNear();
 		verifyWalkBackGoal();
+		verifyDangerKept();
 		return assertions;
 	}
 
@@ -117,6 +118,20 @@ public final class ForestHuntVerification {
 		check(WarpedForestHunt.choose(start, start, searched, List.of(), ledge, List.of(far)) == far, "an enderman seen 6 blocks above the feet is on a ledge: not walked to");
 		check(WarpedForestHunt.choose(start, start, searched, List.of(), below, List.of(far)) == far, "one seen 7 blocks below is across a drop: not walked to");
 		check(WarpedForestHunt.choose(start, start, searched, List.of(), level, List.of(far)) == level, "one 3.5 blocks up on open ground is walked to");
+	}
+
+	private static void verifyDangerKept() {
+		Vec3 start = new Vec3(0.5D, 70.0D, 0.5D);
+		List<Vec3> searched = List.of(start);
+		Vec3 near = new Vec3(20.5D, 70.0D, 0.5D), other = new Vec3(-20.5D, 70.0D, 0.5D);
+		Vec3 skeleton = WarpedForestHunt.dangerAt("minecraft:wither_skeleton 4d7a6510-608f-4496-8bf9-3d1741b0fe4f 10.0 blocks away at 26.5,70.9,8.1, targeting you; at 18.5,70.0,0.5", start);
+		check(Math.abs(skeleton.x - 26.5D) < 1.0E-9 && Math.abs(skeleton.z - 8.1D) < 1.0E-9, "the hostile's place is read from the travel receipt: " + skeleton);
+		check(WarpedForestHunt.dangerAt("Took 1.9 damage", start) == start, "a hit with no named mob marks where the body stood");
+		check(WarpedForestHunt.choose(start, start, searched, List.of(), List.of(skeleton), null, List.of(near, other)) == other,
+				"a destination within 24 blocks of where a hostile stopped a walk is skipped for one elsewhere");
+		check(WarpedForestHunt.choose(start, start, searched, List.of(), List.of(skeleton), null, List.of(near)) == null, "with only that one, no walk");
+		check(WarpedForestHunt.choose(start, start, searched, List.of(), List.of(skeleton), new Vec3(30.5D, 70.0D, 4.5D), List.of(other)) == other,
+				"an enderman seen beside that hostile is not walked to either");
 	}
 
 	private static void verifyWalkBackGoal() {

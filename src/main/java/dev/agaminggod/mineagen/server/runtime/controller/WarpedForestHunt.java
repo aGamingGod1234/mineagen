@@ -50,6 +50,12 @@ final class WarpedForestHunt {
 	static final double LEDGE_DY = 4.0D;
 	/** Seen lava this close to the body (blocks, each axis) ends a walk: that way is lava, as a player steps back from it. */
 	static final int LAVA_NEAR = 2;
+	/**
+	 * Walks keep this far from where a hostile or a hit stopped one: a player who met a wither skeleton or a magma cube
+	 * there goes elsewhere. Rounds 6 and 8 (seed 20261024, a fortress at the forest's edge): after such a stop the next
+	 * walk went a few blocks over, and the bot died to the fortress mobs or in lava fleeing them.
+	 */
+	static final double DANGER_KEEP = 24.0D;
 	/** A route failure that still moved at least this far counts as arrived where it stopped. */
 	static final double MOVED_ENOUGH = 8.0D;
 	private static final int RINGS_HEADINGS = 16;
@@ -93,6 +99,8 @@ final class WarpedForestHunt {
 	private final Vec3 start;
 	private final List<Vec3> searched = new ArrayList<>();
 	private final List<Vec3> refused = new ArrayList<>();
+	/** Where hostiles or hits stopped walks this call (DANGER_KEEP). */
+	private final List<Vec3> dangers = new ArrayList<>();
 	/** Standing points seen in the forest at decision time, and their columns, for the call. */
 	private final List<Vec3> floors = new ArrayList<>();
 	private final Set<Long> floorColumns = new HashSet<>();
@@ -185,13 +193,19 @@ final class WarpedForestHunt {
 	 * in 8-block bands, then nearest), else null.
 	 */
 	static Vec3 choose(Vec3 from, Vec3 start, List<Vec3> searched, List<Vec3> refused, Vec3 outsideSighting, List<Vec3> candidates) {
-		if (outsideSighting != null && Math.abs(outsideSighting.y - from.y) <= LEDGE_DY && fresh(outsideSighting, start, searched, refused, ARRIVE))
+		return choose(from, start, searched, refused, List.of(), outsideSighting, candidates);
+	}
+
+	/** As above, keeping DANGER_KEEP blocks from every place a hostile stopped a walk (dangers). */
+	static Vec3 choose(Vec3 from, Vec3 start, List<Vec3> searched, List<Vec3> refused, List<Vec3> dangers, Vec3 outsideSighting, List<Vec3> candidates) {
+		if (outsideSighting != null && Math.abs(outsideSighting.y - from.y) <= LEDGE_DY && fresh(outsideSighting, start, searched, refused, ARRIVE)
+				&& clearOf(outsideSighting, dangers))
 			return outsideSighting;
 		Vec3 best = null;
 		double bestScore = Double.MAX_VALUE;
 		for (Vec3 floor : candidates) {
 			double flat = flat(from, floor);
-			if (flat < STEP_MIN - 0.5D || flat > STEP_MAX + 0.5D || !fresh(floor, start, searched, refused, NEW_GROUND)) continue;
+			if (flat < STEP_MIN - 0.5D || flat > STEP_MAX + 0.5D || !fresh(floor, start, searched, refused, NEW_GROUND) || !clearOf(floor, dangers)) continue;
 			double away = Double.MAX_VALUE;
 			for (Vec3 spot : searched) away = Math.min(away, flat(spot, floor));
 			double score = -Math.floor(away / 8.0D) * 1_000.0D + flat;
@@ -207,6 +221,21 @@ final class WarpedForestHunt {
 				for (int dy = -LAVA_NEAR; dy <= LAVA_NEAR; dy++)
 					if (TravelBuilder.lava(seen.at(feet.getX() + dx, feet.getY() + dy, feet.getZ() + dz))) return true;
 		return false;
+	}
+
+	private static boolean clearOf(Vec3 at, List<Vec3> dangers) {
+		for (Vec3 danger : dangers) if (flat(danger, at) < DANGER_KEEP) return false;
+		return true;
+	}
+
+	/**
+	 * Where a walk's hostile or hit stop came from: the "at x,y,z" the travel receipt names for the mob, else the body's
+	 * own position when it stopped.
+	 */
+	static Vec3 dangerAt(String message, Vec3 body) {
+		java.util.regex.Matcher m = java.util.regex.Pattern.compile("minecraft:[a-z_]+ [0-9a-f-]{36} [0-9.]+ blocks away at (-?\\d+(?:\\.\\d+)?),(-?\\d+(?:\\.\\d+)?),(-?\\d+(?:\\.\\d+)?)")
+				.matcher(message == null ? "" : message);
+		return m.find() ? new Vec3(Double.parseDouble(m.group(1)), Double.parseDouble(m.group(2)), Double.parseDouble(m.group(3))) : body;
 	}
 
 	private static boolean fresh(Vec3 at, Vec3 start, List<Vec3> searched, List<Vec3> refused, double apart) {
@@ -289,7 +318,7 @@ final class WarpedForestHunt {
 			List<Vec3> headings = new ArrayList<>();
 			for (int index = 0; index < HEADING_COUNT; index++) headings.add(headingsFailed.contains(index) ? null : headingPoint(here, index));
 			for (Vec3 point : headings) if (point != null) candidates.add(point);
-			goal = choose(here, start, searched, refused, outsideSighting, candidates);
+			goal = choose(here, start, searched, refused, dangers, outsideSighting, candidates);
 			if (goal == null) { emptyScans++; return false; }
 			heading = headings.indexOf(goal);
 			kind = goal == outsideSighting ? Kind.SIGHTING : heading >= 0 ? Kind.HEADING : Kind.FLOOR;
@@ -384,6 +413,7 @@ final class WarpedForestHunt {
 			stops++;
 			// Lava, a hostile or a hit that way: the destination and its heading are not walked again.
 			if (refusesWay(code)) refuse();
+			if ("HOSTILE_NEAR".equals(code) || code.endsWith("_DAMAGED") || "DAMAGE_TAKEN".equals(code)) dangers.add(dangerAt(result.message(), here));
 			return Walk.STOPPED;
 		}
 		refuse();
