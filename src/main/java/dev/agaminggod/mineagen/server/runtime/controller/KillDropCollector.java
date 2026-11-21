@@ -40,6 +40,18 @@ public final class KillDropCollector {
 	/** Set by {@link #makingRoom}: who may Q-drop junk to make room for a drop; null leaves a drop with no room behind. */
 	private java.util.function.Predicate<ServerPlayer> mayDrop;
 	private int roomStacks;
+	/**
+	 * A drop that fell over an edge below the feet: the pickup walk stops at the brink, which will not step off onto
+	 * ground it has not seen (22 Nov checkpoints: a rod fell off a fortress deck, the walk timed out at the brink and the
+	 * rod was left). As a player does, the body looks down at the drop from where the walk stopped, so the ground under
+	 * it is seen, then walks again once. The drop being looked at, the ticks spent, and the drops already looked for.
+	 */
+	private UUID lookingDown;
+	private int lookTicks;
+	private final java.util.Set<UUID> lookedDown = new java.util.HashSet<>();
+	static final int LOOK_DOWN_TICKS = 15;
+	/** A drop at least this far below the feet is "over an edge". */
+	static final double BELOW_FEET = 0.9D;
 
 	public KillDropCollector(Collection<UUID> drops, BiPredicate<ServerPlayer, Entity> mayTake, long nowEpochMs) {
 		this(drops, mayTake, nowEpochMs, COLLECT_BUDGET_MS);
@@ -74,6 +86,21 @@ public final class KillDropCollector {
 	/** Null while walking to a drop; the summary once every drop was taken or left. */
 	public String tick(ServerPlayer player, long nowEpochMs) {
 		while (true) {
+			if (lookingDown != null) {
+				Entity entity = ((net.minecraft.server.level.ServerLevel) player.level()).getEntity(lookingDown);
+				if (entity instanceof ItemEntity item && item.isAlive() && nowEpochMs < deadline - 1000L && lookTicks++ < LOOK_DOWN_TICKS) {
+					boolean aimed = ServerLookController.turnToward(player, item.position().add(0.0D, 0.1D, 0.0D));
+					if (!aimed || lookTicks < 4) return null;
+					// Read the ground under and around the drop from this pose, so the walk finds it seen (SeenTerrain keeps it 10 s).
+					var seen = dev.agaminggod.mineagen.server.perception.SeenTerrain.of(player);
+					int x = net.minecraft.util.Mth.floor(item.getX()), y = net.minecraft.util.Mth.floor(item.getY()), z = net.minecraft.util.Mth.floor(item.getZ());
+					for (int dx = -1; dx <= 1; dx++) for (int dz = -1; dz <= 1; dz++) for (int dy = -2; dy <= 2; dy++) seen.known(x + dx, y + dy, z + dz);
+					if (ObservationVisibility.canSeeEntity(player, item)) ObservedDrops.remember(player, item);
+				}
+				notes.add("looked down over the edge at " + ObservedDrops.describe(player, lookingDown));
+				pending.addFirst(lookingDown);
+				lookingDown = null;
+			}
 			if (route != null) {
 				long tick = player.level().getGameTime();
 				if (tick - routeTick > 1L) route.resumed(player);
@@ -96,6 +123,16 @@ public final class KillDropCollector {
 					route = new ServerTravelController(at.x, at.y, at.z, 1.0D, deadline - nowEpochMs,
 							true, null, healthFloor, mayModify, nowEpochMs).routeLeg();
 					routeTick = player.level().getGameTime();
+					current = null;
+					continue;
+				}
+				Entity still = result.state() == ServerController.State.SUCCEEDED ? null
+						: ((net.minecraft.server.level.ServerLevel) player.level()).getEntity(currentId);
+				if (still instanceof ItemEntity fallen && fallen.isAlive() && fallen.getY() < player.getY() - BELOW_FEET
+						&& deadline - nowEpochMs > 2000L && lookedDown.add(currentId)) {
+					notes.add("walk to " + currentLabel + " stopped: " + result.reasonCode());
+					lookingDown = currentId;
+					lookTicks = 0;
 					current = null;
 					continue;
 				}
@@ -223,5 +260,6 @@ public final class KillDropCollector {
 		route = null;
 		if (current != null) current.cancel(player);
 		current = null;
+		lookingDown = null;
 	}
 }

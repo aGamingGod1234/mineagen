@@ -19,7 +19,7 @@ import path from 'node:path';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
-import { boot, fixtureTickRate } from './watch-replay.mjs';
+import { boot, unshownTickRate } from './watch-replay.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 import { ReflexBook } from '../../coordinator/src/reflexes.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
@@ -36,6 +36,7 @@ const jar = path.resolve(process.env.ARENA_JAR ?? path.join(root, MOD_JAR));
 if (!existsSync(jar)) { console.error(`no jar at ${jar}`); process.exit(2); }
 const SEEDS = (process.env.SEEDS ?? '20261119,20261120,20261121,20261122').split(',');
 const VARIANTS = (process.env.VARIANTS ?? 'plain,withers').split(',');
+const TICK_RATE = unshownTickRate('not yet in a 20 vs 60 TPS A/B');
 const RUN_MIN = Number(process.env.RUN_MIN ?? 25), UNTIL = Number(process.env.UNTIL ?? 7), ARM = process.env.ARM ?? 'new';
 // The mod reads the instincts arm from its environment; the server inherits this process's.
 process.env.MINEAGEN_INSTINCTS = 'instincts';
@@ -45,7 +46,7 @@ await mkdir(out, { recursive: true });
 if ((await readdir(out)).length) { console.error('Use a fresh output directory'); process.exit(2); }
 await writeFile(path.join(out, 'manifest.json'), JSON.stringify({ kind: 'provider-free live mechanics', aiPerformanceMeasured: false, fixtureSetupUsesOperatorCommands: true,
 	jar: path.basename(jar), jarSha256: createHash('sha256').update(await readFile(jar)).digest('hex'), arm: ARM, seeds: SEEDS, variants: VARIANTS, runMin: RUN_MIN, until: UNTIL,
-	tickRate: fixtureTickRate(), naturalMobSpawning: false, primaryScore: 'rods held at the end of the window; 0 after a death', node: process.version }, null, 2));
+	tickRate: TICK_RATE, naturalMobSpawning: false, primaryScore: 'rods held at the end of the window; 0 after a death', node: process.version }, null, 2));
 const sleep = ms => new Promise(done => setTimeout(done, ms));
 const AGENT = 'Rods';
 const number = text => Number((/(-?\d+(?:\.\d+)?)[fdb]?\s*$/.exec(String(text).trim()) ?? [])[1]);
@@ -248,7 +249,7 @@ const health = async s => { const text = await s.command(`data get entity ${AGEN
 for (const seed of SEEDS) {
 	let s = null;
 	try {
-		s = await boot(path.join(out, `seed-${seed}`), { jar, template, port, world: null, seed, goalTicks: 72_000, tickRate: fixtureTickRate(), worldCache: true });
+		s = await boot(path.join(out, `seed-${seed}`), { jar, template, port, world: null, seed, goalTicks: 72_000, tickRate: TICK_RATE, worldCache: true });
 		follow(s);
 		await s.command('difficulty normal');
 		await s.command('gamerule minecraft:spawn_mobs false');

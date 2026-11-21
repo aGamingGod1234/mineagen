@@ -208,6 +208,17 @@ public final class ServerFightController implements ServerController {
 	/** collect:false or unset (ExamplePlayer, Oct 29): after the fight, walk to its seen drops only with no hostile within 16 blocks, then back. */
 	private java.util.function.BiPredicate<ServerPlayer, net.minecraft.world.entity.Entity> clearFilter;
 	private Vec3 clearReturn;
+	/**
+	 * A kill whose drop the body did not see (it died out of view: above the head after a crit jump, past the shield):
+	 * where it died, the tick it died and the result to finish with once the drop look ends. A player knows a blaze drops
+	 * its rod where it dies and looks there. Real games (22 Nov checkpoints): a rod lay in view one observation after a
+	 * kill whose result said "none from minecraft:blaze", and the bot walked on without it.
+	 */
+	private Vec3 dropLookAt;
+	private long dropLookKillTick, dropLookUntilTick;
+	private TickResult dropLookEnd;
+	static final int DROP_LOOK_TICKS = 20;
+	static final double DROP_LOOK_BLOCKS = 3.0D, DROP_LOOK_BELOW = 8.0D;
 	private java.util.function.Predicate<ServerPlayer> mayDrop;
 	private ServerNavigationController clearWalk;
 	private boolean clearBackUnderFire;
@@ -330,6 +341,7 @@ public final class ServerFightController implements ServerController {
 			clearWalk = new ServerNavigationController(clearReturn, 0.4D, false, nowEpochMs, 10_000L, false);
 			return TickResult.running(0.99D);
 		}
+		if (dropLookEnd != null) return tickDropLook(player, nowEpochMs);
 		boolean blazeFight = target instanceof net.minecraft.world.entity.monster.Blaze;
 		boolean blazeWait = blazeFight && (shield && !shieldBroke
 				|| dev.agaminggod.mineagen.server.runtime.reflex.ReflexEngine.fightHoldsShield(player)
@@ -361,28 +373,16 @@ public final class ServerFightController implements ServerController {
 			if (next == null) {
 				String reasonCode = killed || !kills.isEmpty() ? "TARGET_KILLED" : "TARGET_GONE";
 				TickResult end = TickResult.succeeded(reasonCode, ended + kills() + remainingThreats(player));
-				if (collectFilter != null && !witnessedDrops.isEmpty()) {
-					// collect:true: the fight is over; walk to what it dropped by pick_up_item's own route.
+				if (killed && witnessedDrops.isEmpty() && (collectFilter != null || clearFilter != null)) {
 					BrinkGuard.keepLevel(player, this, false);
 					input.release();
-					collectEnd = end;
-					collector = new KillDropCollector(witnessedDrops, collectFilter, nowEpochMs).crouched(sneak).makingRoom(mayDrop);
+					dropLookAt = target.position().add(0.0D, target.getBbHeight() * 0.5D, 0.0D);
+					dropLookKillTick = player.level().getGameTime();
+					dropLookUntilTick = dropLookKillTick + DROP_LOOK_TICKS;
+					dropLookEnd = end;
 					return TickResult.running(0.99D);
 				}
-				if (collectFilter == null && clearFilter != null && !witnessedDrops.isEmpty()) {
-					String blocker = KillDropCollector.hostileNear(player);
-					if (blocker != null) return finish(player, new TickResult(end.state(), end.reasonCode(), end.message() + "; collect:false: left "
-							+ witnessedDrops.size() + " seen drop(s), " + blocker + " (within " + (int) KillDropCollector.CLEAR_RANGE + ")", end.progress()));
-					BrinkGuard.keepLevel(player, this, false);
-					input.release();
-					collectEnd = new TickResult(end.state(), end.reasonCode(), end.message() + "; collect:false: no hostile within "
-							+ (int) KillDropCollector.CLEAR_RANGE + " blocks, walked out for the drops", end.progress());
-					clearReturn = player.position();
-					collector = new KillDropCollector(witnessedDrops, clearFilter, nowEpochMs).makingRoom(mayDrop);
-					return TickResult.running(0.99D);
-				}
-				return finish(player, collectFilter == null ? end
-						: new TickResult(end.state(), end.reasonCode(), end.message() + "; collect: no drop was seen to collect", end.progress()));
+				return afterKill(player, end, nowEpochMs);
 			}
 			switchTo(next, "follow-through");
 			clock.killed();
@@ -1154,6 +1154,65 @@ public final class ServerFightController implements ServerController {
 		text.append(" (").append(totalHits).append(" hits)");
 		if (!drops.isEmpty()) text.append("; drops seen: ").append(String.join(", ", drops));
 		return text.append(extra).toString();
+	}
+
+	/** The fight is over: walk to its witnessed drops as the model's collect choice says, or finish. */
+	private TickResult afterKill(ServerPlayer player, TickResult end, long nowEpochMs) {
+		if (collectFilter != null && !witnessedDrops.isEmpty()) {
+			// collect:true: the fight is over; walk to what it dropped by pick_up_item's own route.
+			BrinkGuard.keepLevel(player, this, false);
+			input.release();
+			collectEnd = end;
+			collector = new KillDropCollector(witnessedDrops, collectFilter, nowEpochMs).crouched(sneak).makingRoom(mayDrop);
+			return TickResult.running(0.99D);
+		}
+		if (collectFilter == null && clearFilter != null && !witnessedDrops.isEmpty()) {
+			String blocker = KillDropCollector.hostileNear(player);
+			if (blocker != null) return finish(player, new TickResult(end.state(), end.reasonCode(), end.message() + "; collect:false: left "
+					+ witnessedDrops.size() + " seen drop(s), " + blocker + " (within " + (int) KillDropCollector.CLEAR_RANGE + ")", end.progress()));
+			BrinkGuard.keepLevel(player, this, false);
+			input.release();
+			collectEnd = new TickResult(end.state(), end.reasonCode(), end.message() + "; collect:false: no hostile within "
+					+ (int) KillDropCollector.CLEAR_RANGE + " blocks, walked out for the drops", end.progress());
+			clearReturn = player.position();
+			collector = new KillDropCollector(witnessedDrops, clearFilter, nowEpochMs).makingRoom(mayDrop);
+			return TickResult.running(0.99D);
+		}
+		return finish(player, collectFilter == null ? end
+				: new TickResult(end.state(), end.reasonCode(), end.message() + "; collect: no drop was seen to collect", end.progress()));
+	}
+
+	/**
+	 * The drop look ({@link #dropLookAt}): turn toward where the target died, then down under it where its drop falls,
+	 * for {@link #DROP_LOOK_TICKS}; a drop of the kill's age now seen there is witnessed and collected as one seen at the kill.
+	 */
+	private TickResult tickDropLook(ServerPlayer player, long nowEpochMs) {
+		long tick = player.level().getGameTime();
+		dev.agaminggod.mineagen.server.perception.ObservationVisibility.Frame sight =
+				dev.agaminggod.mineagen.server.perception.ObservationVisibility.frame(player.level(), player);
+		int maxAge = (int) Math.min(80L, DROP_AGE_TICKS + Math.max(0L, tick - dropLookKillTick));
+		net.minecraft.world.phys.AABB area = new net.minecraft.world.phys.AABB(dropLookAt.x - DROP_LOOK_BLOCKS, dropLookAt.y - DROP_LOOK_BELOW,
+				dropLookAt.z - DROP_LOOK_BLOCKS, dropLookAt.x + DROP_LOOK_BLOCKS, dropLookAt.y + 2.0D, dropLookAt.z + DROP_LOOK_BLOCKS);
+		List<String> seen = new ArrayList<>();
+		for (net.minecraft.world.entity.item.ItemEntity item : player.level().getEntitiesOfClass(net.minecraft.world.entity.item.ItemEntity.class, area,
+				item -> item.isAlive() && !item.getItem().isEmpty() && item.getAge() <= maxAge)) {
+			if (witnessedDrops.contains(item.getUUID()) || !sight.canSeeEntity(item)) continue;
+			dev.agaminggod.mineagen.server.perception.ObservedDrops.remember(player, item, dev.agaminggod.mineagen.server.perception.ObservedDrops.Source.KILL);
+			witnessedDrops.add(item.getUUID());
+			net.minecraft.core.BlockPos at = item.blockPosition();
+			seen.add(item.getItem().getCount() + "x " + BuiltInRegistries.ITEM.getKey(item.getItem().getItem()) + " at " + at.getX() + "," + at.getY() + "," + at.getZ()
+					+ " uuid=" + item.getUUID() + burnsBelow(player, item.position()));
+		}
+		if (!seen.isEmpty() || tick >= dropLookUntilTick) {
+			TickResult end = dropLookEnd;
+			dropLookEnd = null;
+			String note = seen.isEmpty() ? "; drop look: turned to where it died, saw no drop" : "; drop look: saw " + String.join(", ", seen);
+			return afterKill(player, new TickResult(end.state(), end.reasonCode(), end.message() + note, end.progress()), nowEpochMs);
+		}
+		// First where it died, then the ground under it: a drop falls from there.
+		double down = tick - dropLookKillTick < DROP_LOOK_TICKS / 2 ? 0.0D : 2.0D;
+		ServerLookController.turnToward(player, dropLookAt.subtract(0.0D, down, 0.0D));
+		return TickResult.running(0.99D);
 	}
 
 	/**

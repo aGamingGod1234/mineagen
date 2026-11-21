@@ -1080,6 +1080,7 @@ scripts/quality/test-reflex-core-live.mjs
 scripts/quality/test-reflex-failspots-live.mjs
 scripts/quality/test-respawn-recovery-live.mjs
 scripts/quality/test-rest-live.mjs
+scripts/quality/test-rod-pickup-live.mjs
 scripts/quality/test-route-recovery-live.mjs
 scripts/quality/test-routines-live.mjs
 scripts/quality/test-savepoints-live.mjs
