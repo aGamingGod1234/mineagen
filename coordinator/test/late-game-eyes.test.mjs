@@ -238,3 +238,66 @@ test('a receipt that turns from unseen to dropped during the search walk is foll
 	assert.equal(r.find.eyes.throws[0].outcome, 'dropped');
 	assert.equal(r.find.eyes.throws[0].eyesAfterPickup, 16);
 });
+
+test('a thrown eye is watched along its heading, never at the hand where it starts', async () => {
+	const b = body({ eyes: 16, onAct: (type, args, o) => {
+		const eye = (o.entities ?? [])[0];
+		if (type === 'use_item') {
+			o.inventory.items[0].count--;
+			// The first sample after the throw sees the eye at the hand, on the body itself.
+			o.entities = [{ type: 'minecraft:eye_of_ender', x: o.player.x, y: o.player.y + 0.9, z: o.player.z }];
+			return { state: 'SUCCEEDED', reasonCode: 'USE_INPUT_CONFIRMED' };
+		}
+		if (type === 'wait' && args.durationMs === 100 && eye) {
+			const d = Math.hypot(STRONGHOLD.x, STRONGHOLD.z);
+			eye.x += 0.5 * STRONGHOLD.x / d; eye.z += 0.5 * STRONGHOLD.z / d;
+			return { state: 'SUCCEEDED', reasonCode: 'ACTION_COMPLETED' };
+		}
+		if (type === 'wait') o.entities = [];
+		return null;
+	} });
+	await searchFor({ structure: 'stronghold', throwCap: 1 }, b);
+	const look = b.calls.find(c => c.type === 'look_at');
+	assert.ok(look, 'the body turns to watch the flight');
+	const out = Math.hypot(look.args.x, look.args.z);
+	assert.ok(out > 8, `looks well ahead of the hand, not at it (${out.toFixed(1)} blocks)`);
+	assert.ok(Math.abs(yawTo({ x: 0, z: 0 }, look.args) - yawTo({ x: 0, z: 0 }, STRONGHOLD)) < 2, 'along the eye heading');
+	assert.ok(look.args.y > 72, 'above the throw height, where the eye flies and drops');
+	assert.ok(b.calls.findIndex(c => c.type === 'wait' && c.args.durationMs === 100) < b.calls.indexOf(look), 'waits for the eye to leave the hand first');
+});
+
+test('the next throw faces the way the last eye flew, a little up', async () => {
+	const b = body({ eyes: 16 });
+	await searchFor({ structure: 'stronghold', throwCap: 2 }, b);
+	const throws = b.calls.map((c, i) => [c, i]).filter(([c]) => c.type === 'use_item').map(([, i]) => i);
+	assert.equal(throws.length, 2);
+	const facing = b.calls.slice(throws[0], throws[1]).filter(c => c.type === 'control').at(-1);
+	assert.ok(facing, 'turns before the second throw');
+	assert.ok(Math.abs(facing.args.yaw - yawTo({ x: 0, z: 0 }, STRONGHOLD)) < 0.2);
+	assert.ok(facing.args.pitch < 0, 'looks up');
+	assert.equal(b.calls.slice(0, throws[0]).some(c => c.type === 'control' && c.args.pitch === -20), false, 'no heading to face before the first throw');
+});
+
+test('an eye lost from view is looked for where it should drop before any walk, and a drop seen there is picked up', async () => {
+	let looked = false;
+	const b = body({ flight: () => ({ outcome: 'unseen', lostFromView: true, flewBlocks: undefined }), onAct: (type, args, o) => {
+		if (type === 'look_at' && !looked && Math.abs(Math.hypot(args.x, args.z) - 12) < 0.01) {
+			looked = true;
+			const flight = o.perception.events.at(-1);
+			const droppedAt = { x: args.x, y: 69, z: args.z };
+			o.perception.events.push({ ...flight, sequence: flight.sequence + 100, outcome: 'dropped', droppedAt });
+			o.items = [{ itemId: 'minecraft:ender_eye', stableId: EYE_ID, ...droppedAt }];
+			return { state: 'SUCCEEDED', reasonCode: 'ACTION_COMPLETED' };
+		}
+		if (type === 'pick_up_item') { o.items = []; o.inventory.items[0].count++; return { state: 'SUCCEEDED', reasonCode: 'PICKED_UP' }; }
+		return null;
+	} });
+	const r = await searchFor({ structure: 'stronghold', throwCap: 1 }, b);
+	assert.ok(looked, 'looks at the estimated drop');
+	const lookAt = b.calls.findIndex(c => c.type === 'look_at' && Math.abs(Math.hypot(c.args.x, c.args.z) - 12) < 0.01);
+	const firstWalk = b.calls.findIndex(c => c.type === 'travel_to');
+	assert.ok(firstWalk === -1 || lookAt < firstWalk, 'the look comes before any walk');
+	assert.equal(r.find.eyes.throws[0].outcome, 'dropped');
+	assert.equal(r.find.eyes.throws[0].eyesAfterPickup, 16);
+	assert.equal(r.find.eyes.throws[0].searchedDrop, undefined, 'no blind search walk was needed');
+});

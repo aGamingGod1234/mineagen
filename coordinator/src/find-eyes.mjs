@@ -23,6 +23,9 @@ export const ESTIMATE_DIG_BLOCKS = 16;
 export const DROP_SEARCH_BLOCKS = 24;
 // How far a thrown eye flies along its heading before it drops or breaks (vanilla: about 12 blocks).
 export const EYE_FLIGHT_BLOCKS = 12;
+// Where the body looks while an eye flies: this far along its heading and a little above, so the end of the flight and the
+// drop below it stay inside the view cone.
+export const EYE_WATCH_BLOCKS = 10;
 export function trustedCross(a, b) {
 	if (!Number.isFinite(a?.yaw) || !Number.isFinite(b?.yaw) || !point(a.from) || !point(b.from)) return false;
 	if (Math.hypot(a.from.x - b.from.x, a.from.z - b.from.z) < TRUSTED_BASE_BLOCKS) return false;
@@ -150,9 +153,21 @@ export async function followEyes(target, body, { observation: initial, deadline,
 			// then keep the seen eye in view so its final height and drop are observable.
 			if ((state.scanTurns ?? 0) < 4) {
 				const eye = (o.entities ?? []).find(r => r.type === 'minecraft:eye_of_ender' && point(r));
+				const from = last.from, gone = eye ? Math.hypot(eye.x - from.x, eye.z - from.z) : 0;
+				// Just thrown, the eye is still at the hand: looking there pitches the view down at the body's own feet, and
+				// the eye is out of sight once it is 2 blocks off (live eye rooms: every throw seen for 1.9 blocks only).
+				// Let it move a little first; from then its heading from the throw point is its heading to the stronghold.
+				if (eye && gone < 0.3 && (state.eyeWaits ?? 0) < 4) {
+					state.eyeWaits = (state.eyeWaits ?? 0) + 1;
+					const end = await act('wait', { durationMs: 100 });
+					if (end) return end;
+					continue;
+				}
 				if (eye) {
 					state.scanTurns = 4;
-					const end = await act('look_at', { x: eye.x, y: eye.y, z: eye.z });
+					// Watch where it goes, as a player does: look along its heading, above where it ends and drops.
+					const ahead = gone >= 0.3 ? { x: (eye.x - from.x) / gone, z: (eye.z - from.z) / gone } : direction(o.player.yaw ?? 0);
+					const end = await act('look_at', { x: from.x + ahead.x * EYE_WATCH_BLOCKS, y: from.y + 4, z: from.z + ahead.z * EYE_WATCH_BLOCKS });
 					if (end) return end;
 				} else {
 					const yaw = [-180, -90, 0, 90][state.scanTurns ?? 0];
@@ -184,8 +199,16 @@ export async function followEyes(target, body, { observation: initial, deadline,
 				return (o.items ?? []).find(r => r.itemId === EYE && point(r) && r.stableId
 					&& (last.dropId ? r.stableId === last.dropId : Math.hypot(r.x - dropAt.x, r.z - dropAt.z) < near));
 			};
-			const dropAt = last.droppedAt ?? last.estimatedDrop;
+			let dropAt = last.droppedAt ?? last.estimatedDrop;
 			let current = visibleDrop();
+			// Lost from view in flight: look where it should have dropped before walking there (the drop then reads as seen).
+			if (!current && !last.dropId && !last.lookedAtDrop && !last.droppedAt && point(dropAt)) {
+				last.lookedAtDrop = true;
+				const end = await act('look_at', { x: dropAt.x, y: dropAt.y - 1, z: dropAt.z });
+				if (end) return end;
+				dropAt = last.droppedAt ?? last.estimatedDrop;
+				current = visibleDrop();
+			}
 			// Out of view (it fell behind a rise or into grass): walk once to where it dropped and look, when that is near.
 			// A walk there that fails is not the end of the search: the eye is then named as left behind.
 			// Not for an item already tracked by id (gone from view means taken or despawned), nor from where it dropped.
@@ -292,8 +315,16 @@ export async function followEyes(target, body, { observation: initial, deadline,
 		const end = await act(Number.isInteger(eye.slot) && eye.slot >= 9 ? 'select_tool' : 'select_item', Number.isInteger(eye.slot) && eye.slot >= 9
 			? { sourceSlot: eye.slot, hotbarSlot: o.inventory.selectedSlot ?? 0, expectedItemId: EYE, minRemainingDurability: 0 } : { itemId: EYE });
 		if (end) return end;
+		// Face the way the last eye flew, a little up, so this one flies into view from the hand.
+		const previous = state.throws.at(-1);
+		if (Number.isFinite(previous?.yaw)) {
+			const faced = await act('control', { forward: 0, strafe: 0, jump: false, sneak: false, sprint: false, attack: false, use: false,
+				yaw: previous.yaw, pitch: -20, selectedSlot: o.inventory.selectedSlot ?? 0, hand: 'main', ticks: 2 });
+			if (faced) return faced;
+		}
 		if (left() < 1000) return finish('FIND_BUDGET', 'timeoutMs exhausted before throw');
 		state.scanTurns = 0;
+		state.eyeWaits = 0;
 		state.beforeFlights = flights(o).map(e => e.flightId ?? e.sequence);
 		state.throws.push({ from: { x: o.player.x, y: o.player.y, z: o.player.z } });
 		state.phase = 'flight';
