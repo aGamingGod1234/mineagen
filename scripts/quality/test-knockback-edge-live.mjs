@@ -98,7 +98,7 @@ async function cancelledSneak(cancelAfterMs) {
 	await frame.sent;
 	// KB_TRACE=1: the body's position every 100 ms of game time through the walk and 2 s after the cancel.
 	const trace = process.env.KB_TRACE === '1' ? [] : null;
-	const sample = async (phase) => { const p = await pos(); trace.push({ phase, at: Math.round(rate.clock.now()), x: round(p.x), y: round(p.y), sneak: observation?.player?.sneaking ?? observation?.player?.crouching ?? null, brink: observation?.player?.brink ?? null }); };
+	const sample = async (phase) => { const p = await pos(); trace.push({ phase, at: Math.round(rate.clock.now()), x: round(p.x), y: round(p.y), sneak: observation?.player?.crouching ?? null, brink: observation?.player?.brink ?? null }); };
 	if (trace) { const until = rate.clock.now() + cancelAfterMs; while (rate.clock.now() < until) { await sample('walk'); await rate.clock.sleep(100); } }
 	else await rate.clock.sleep(cancelAfterMs);
 	const before = await pos();
