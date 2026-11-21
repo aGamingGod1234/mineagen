@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PendingConversationInbox } from '../src/pending-conversation-inbox.mjs';
 import { fixture, event, until, flush } from './fixtures/runtime-inbox-fixture.mjs';
+import { bulkTempRoot } from './fixtures/bulk-temp-root.mjs';
 const publicEvent = sequence => ({ ...event(sequence, false), kind: 'agent_message', scope: 'public', text: `Public context ${sequence}` });
 async function persisted(t, messages) {
-  const directory = await mkdtemp(join(tmpdir(), 'public-recovery-'));
+  const directory = await mkdtemp(join(bulkTempRoot, 'public-recovery-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const inbox = new PendingConversationInbox({ directory, agentId: 'agent-a' });
   for (const message of messages) await inbox.append('r17-server', message);

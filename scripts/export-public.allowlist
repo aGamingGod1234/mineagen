@@ -502,6 +502,7 @@ coordinator/test/fire-escape.test.mjs
 coordinator/test/fixture-run.test.mjs
 coordinator/test/fixture-servers.test.mjs
 coordinator/test/fixtures/appearance-budget.json
+coordinator/test/fixtures/bulk-temp-root.mjs
 coordinator/test/fixtures/claude-service-fixture.mjs
 coordinator/test/fixtures/codex-service-fixture.mjs
 coordinator/test/fixtures/codex-sol-context-series.json
@@ -2235,3 +2236,4 @@ src/test/java/dev/agaminggod/mineagen/server/runtime/reflex/DriverRuleVerificati
 src/test/java/dev/agaminggod/mineagen/server/runtime/reflex/OwedDropsVerification.java
 src/test/java/dev/agaminggod/mineagen/server/watch/KillRowVerification.java
 docs/technical-catalogue/34-main-ci-green.md
+docs/technical-catalogue/47-ci-flake-fixes.md
