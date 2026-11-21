@@ -469,11 +469,11 @@
 			}
 		],
 		"monsters": true,
-		"note": "wall fortress order 8: a Nether entry on a spread start near Nether 0,0 with a Nether-entry kit; a checkpoint-game seed; find fortress repeated with the shared stand-in answering forks, 15 game-minutes.",
+		"note": "wall fortress order 8: a Nether entry on a fixed start at Nether 7.5,62,-4.5 (one place a spread start landed, so every arm and repeat plays the same ground) with a Nether-entry kit; a checkpoint-game seed; find fortress repeated with the shared stand-in answering forks, 15 game-minutes. Ground truth: vanilla locate in the Nether from the start (nearest fortress at -160,-304, about 342 blocks away).",
 		"setup": [
 			"item replace entity Probe weapon.offhand with minecraft:shield",
 			"item replace entity Probe armor.head with minecraft:golden_helmet",
-			"execute in minecraft:the_nether run spreadplayers 0 0 0 24 under 100 false Probe"
+			"execute in minecraft:the_nether run tp Probe 7.5 62 -4.5"
 		],
 		"after": {
 			"ms": 4000
@@ -576,11 +576,11 @@
 			}
 		],
 		"monsters": true,
-		"note": "wall fortress order 8: a Nether entry on a spread start near Nether 0,0 with a Nether-entry kit; a checkpoint-game seed; find fortress repeated with the shared stand-in answering forks, 15 game-minutes.",
+		"note": "wall fortress order 8: a Nether entry on a fixed start at Nether -7.5,61,21.5 (one place a spread start landed, so every arm and repeat plays the same ground) with a Nether-entry kit; a checkpoint-game seed; find fortress repeated with the shared stand-in answering forks, 15 game-minutes. Ground truth: vanilla locate in the Nether from the start (nearest fortress at -256,144, about 276 blocks away).",
 		"setup": [
 			"item replace entity Probe weapon.offhand with minecraft:shield",
 			"item replace entity Probe armor.head with minecraft:golden_helmet",
-			"execute in minecraft:the_nether run spreadplayers 0 0 0 24 under 100 false Probe"
+			"execute in minecraft:the_nether run tp Probe -7.5 61 21.5"
 		],
 		"after": {
 			"ms": 4000
@@ -683,11 +683,11 @@
 			}
 		],
 		"monsters": true,
-		"note": "wall fortress order 8: a Nether entry on a spread start near Nether 0,0 with a Nether-entry kit; a checkpoint-game seed; find fortress repeated with the shared stand-in answering forks, 15 game-minutes.",
+		"note": "wall fortress order 8: a Nether entry on a fixed start at Nether 4.5,53,-0.5 (one place a spread start landed, so every arm and repeat plays the same ground) with a Nether-entry kit; a checkpoint-game seed; find fortress repeated with the shared stand-in answering forks, 15 game-minutes. Ground truth: vanilla locate in the Nether from the start (nearest fortress at -144,-80, about 167 blocks away).",
 		"setup": [
 			"item replace entity Probe weapon.offhand with minecraft:shield",
 			"item replace entity Probe armor.head with minecraft:golden_helmet",
-			"execute in minecraft:the_nether run spreadplayers 0 0 0 24 under 100 false Probe"
+			"execute in minecraft:the_nether run tp Probe 4.5 53 -0.5"
 		],
 		"after": {
 			"ms": 4000
@@ -790,11 +790,11 @@
 			}
 		],
 		"monsters": true,
-		"note": "wall fortress order 8: a Nether entry on a spread start near Nether 0,0 with a Nether-entry kit; a checkpoint-game seed; find fortress repeated with the shared stand-in answering forks, 15 game-minutes.",
+		"note": "wall fortress order 8: a Nether entry on a fixed start at Nether 17.5,100,8.5 (one place a spread start landed, so every arm and repeat plays the same ground) with a Nether-entry kit; a checkpoint-game seed; find fortress repeated with the shared stand-in answering forks, 15 game-minutes. Ground truth: vanilla locate in the Nether from the start (nearest fortress at 272,192, about 314 blocks away).",
 		"setup": [
 			"item replace entity Probe weapon.offhand with minecraft:shield",
 			"item replace entity Probe armor.head with minecraft:golden_helmet",
-			"execute in minecraft:the_nether run spreadplayers 0 0 0 24 under 100 false Probe"
+			"execute in minecraft:the_nether run tp Probe 17.5 100 8.5"
 		],
 		"after": {
 			"ms": 4000
