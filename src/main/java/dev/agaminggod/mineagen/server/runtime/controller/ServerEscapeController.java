@@ -41,6 +41,12 @@ public final class ServerEscapeController implements ServerController {
 		ServerController pillar(ServerPlayer body, int size, long timeoutMs);
 		/** dig_to stairs_up to feet level {@code y}, heading {@code heading}, sealing fluids it opens. */
 		ServerController stairsUp(ServerPlayer body, int y, Direction heading, long timeoutMs);
+		/** Where to look to place {@code itemId} into cell {@code at} against the block on its {@code face} side's opposite. */
+		net.minecraft.world.phys.Vec3 aim(ServerPlayer body, BlockPos at, Direction face, String itemId);
+		/** Places it with the ordinary placement gates; null when placed, else why not. */
+		String place(ServerPlayer body, BlockPos at, Direction face, String itemId);
+		/** Breaks one block with the best carried tool and the clearing gates (protection, lava behind). */
+		ServerController clear(ServerPlayer body, BlockPos at, long timeoutMs);
 	}
 
 	public static final long DEFAULT_TIMEOUT_MS = 60_000L;
@@ -79,6 +85,9 @@ public final class ServerEscapeController implements ServerController {
 	private int safeTicks;
 	private int swims;
 	private int climbs;
+	private int fills;
+	private int steps;
+	private BlockPos stepSite;
 	private int covers;
 	private int pits;
 	private final Map<BlockPos, Integer> bankTries = new java.util.HashMap<>();
@@ -126,15 +135,29 @@ public final class ServerEscapeController implements ServerController {
 	}
 
 	/** The way out of water: swim to air, travel to a bank, cut stairs up to it, or stop with no way / no shore. */
-	enum WaterMove { SWIM, TRAVEL, STAIRS, NO_WAY, NO_SHORE }
+	enum WaterMove { SWIM, TRAVEL, STAIRS, FILL, STEP, NO_WAY, NO_SHORE }
 
 	/**
 	 * {@code tries} counts this pick of the bank too. Little air, or no bank in reach, swims first (at most
 	 * {@link #MAX_TRIES} swims); a bank tried twice and above the floor the body stands on, breathing, gets stairs once.
 	 */
 	static WaterMove waterMove(boolean underwater, int air, boolean bank, int tries, boolean onGround, boolean bankAbove, boolean staired, int swims) {
-		if (underwater && (!bank || air < SWIM_FIRST_AIR) && swims < MAX_TRIES) return WaterMove.SWIM;
-		if (!bank) return underwater ? WaterMove.NO_WAY : WaterMove.NO_SHORE;
+		return waterMove(underwater, air, bank, tries, onGround, bankAbove, staired, swims, false, false);
+	}
+
+	static WaterMove waterMove(boolean underwater, int air, boolean bank, int tries, boolean onGround, boolean bankAbove, boolean staired, int swims, boolean canFill) {
+		return waterMove(underwater, air, bank, tries, onGround, bankAbove, staired, swims, canFill, false);
+	}
+
+	/**
+	 * {@code canFill}: no bank, a small enclosed pool (a flooded shaft) and plain blocks carried. A player there fills the
+	 * water under them from the bottom up until standing dry, and then climbs out of the hole that is left.
+	 * {@code canStep}: no bank, afloat under a ceiling (a shaft that broke into a flooded cave): place a block into the
+	 * water beside the body against the ceiling's underside, break the ceiling over it, and climb onto it.
+	 */
+	static WaterMove waterMove(boolean underwater, int air, boolean bank, int tries, boolean onGround, boolean bankAbove, boolean staired, int swims, boolean canFill, boolean canStep) {
+		if (underwater && (!bank || air < SWIM_FIRST_AIR) && swims < MAX_TRIES && !(canFill && air >= SWIM_FIRST_AIR)) return WaterMove.SWIM;
+		if (!bank) return canFill ? WaterMove.FILL : canStep && !underwater ? WaterMove.STEP : underwater ? WaterMove.NO_WAY : WaterMove.NO_SHORE;
 		// dig_to stops at once with the eyes under water (WATER_AHEAD), so the stairs start only from breathable footing.
 		if (tries > 2 && onGround && !underwater && bankAbove && !staired) return WaterMove.STAIRS;
 		if (tries > MAX_TRIES + 1) return WaterMove.NO_WAY;
@@ -142,6 +165,16 @@ public final class ServerEscapeController implements ServerController {
 	}
 
 	private TickResult water(ServerPlayer player, long now) {
+		// A step being cut beside the body: break the ceiling over the placed block, then the bank search finds it.
+		if (stepSite != null) {
+			Level level = player.level();
+			if (solid(level, stepSite)) {
+				for (BlockPos over : List.of(stepSite.above(), stepSite.above(2))) {
+					if (solid(level, over)) return startChild(player, environment.clear(player, over, childMs(now)), "break the ceiling at " + over.toShortString() + " over the step");
+				}
+			}
+			stepSite = null;
+		}
 		BlockPos bank = bank(player, bankTries);
 		// travel_to counts a stop within a block of the bank as arrived, often still treading water at its edge: a player
 		// holds forward and jump against the bank there.
@@ -151,8 +184,12 @@ public final class ServerEscapeController implements ServerController {
 		}
 		int tries = bank == null ? 0 : bankTries.merge(bank, 1, Integer::sum);
 		boolean bankAbove = bank != null && bank.getY() > player.getBlockY();
+		String block = plainBlock(player);
+		boolean canFill = bank == null && fills < MAX_TRIES && block != null && connectedWater(player.level(), player.blockPosition()).size() <= FILL_POOL
+				&& fillTarget(player) != null;
+		BlockPos step = bank == null && !canFill && block != null && steps < MAX_TRIES ? stepSite(player) : null;
 		WaterMove next = waterMove(player.isUnderWater(), player.getAirSupply(), bank != null, tries, player.onGround(), bankAbove,
-				bank != null && stairedBanks.contains(bank), swims);
+				bank != null && stairedBanks.contains(bank), swims, canFill, step != null);
 		return switch (next) {
 			case SWIM -> {
 				if (bank != null) bankTries.merge(bank, -1, Integer::sum);
@@ -171,6 +208,15 @@ public final class ServerEscapeController implements ServerController {
 				Direction heading = toward(player, bank);
 				yield startChild(player, environment.stairsUp(player, bank.getY(), heading, childMs(now)),
 						"re-cut the flooded way up as dry stairs to y" + bank.getY() + " heading " + heading.getName());
+			}
+			case STEP -> {
+				steps++;
+				stepSite = step.immutable();
+				yield startMove(player, placeInto(step, Direction.DOWN, block), "place a step at " + step.toShortString() + " against the ceiling");
+			}
+			case FILL -> {
+				fills++;
+				yield startMove(player, fillUnder(block), "fill the flooded hole under the body with " + block.replace("minecraft:", ""));
 			}
 			case TRAVEL -> {
 				travelBank = bank.immutable();
@@ -198,6 +244,121 @@ public final class ServerEscapeController implements ServerController {
 			input.accept(new dev.agaminggod.mineagen.server.runtime.input.AgentInputState(1.0F, 0.0F, true, false, false, false, false, yaw, pitch,
 					player.getInventory().getSelectedSlot(), net.minecraft.world.InteractionHand.MAIN_HAND));
 			return new EscapeMoves.Result(EscapeMoves.Status.RUNNING, "pushing onto the bank");
+		};
+	}
+
+	/**
+	 * A water cell beside the body's feet with a breakable solid block over it (the ceiling of a flooded cave the body
+	 * floats up against) and the body's head in air: a block placed there against the ceiling's underside, with the two
+	 * ceiling blocks over it broken, is a dry step out of the water. Null when no side offers one.
+	 */
+	static BlockPos stepSite(ServerPlayer player) {
+		Level level = player.level();
+		BlockPos feet = player.blockPosition();
+		if (!level.getFluidState(feet.above()).isEmpty() && !level.getBlockState(feet.above()).isAir()) return null;
+		BlockPos best = null;
+		for (Direction side : Direction.Plane.HORIZONTAL) {
+			BlockPos site = feet.relative(side);
+			if (!level.getFluidState(site).is(net.minecraft.tags.FluidTags.WATER) || !level.getBlockState(site).canBeReplaced()) continue;
+			if (!breakable(player, site.above()) || !level.getBlockState(site.above()).isFaceSturdy(level, site.above(), Direction.DOWN)) continue;
+			BlockPos head = site.above(2);
+			if (solid(level, head) ? !breakable(player, head) : !clear(level, head)) continue;
+			if (!level.getFluidState(head.above()).isEmpty()) continue;
+			if (best == null) best = site;
+		}
+		return best;
+	}
+
+	/** A solid block the body can break: by hand when soft, else with a carried tool that harvests it; never bedrock. */
+	private static boolean breakable(ServerPlayer player, BlockPos cell) {
+		BlockState state = player.level().getBlockState(cell);
+		if (state.isAir() || !state.getFluidState().isEmpty()) return false;
+		float hardness = state.getDestroySpeed(player.level(), cell);
+		if (hardness < 0.0F) return false;
+		return !state.requiresCorrectToolForDrops() && hardness <= 1.0F || ServerDigController.toolSlot(player, state) >= 0;
+	}
+
+	/** Look at the face and place one block into cell {@code at}, afloat with jump in water; done once the cell is solid. */
+	EscapeMoves.Move placeInto(BlockPos at, Direction face, String item) {
+		int[] ticks = {0};
+		return (player, input) -> {
+			if (solid(player.level(), at)) return new EscapeMoves.Result(EscapeMoves.Status.DONE, "placed " + item.replace("minecraft:", "") + " at " + at.toShortString());
+			if (++ticks[0] > 60) return new EscapeMoves.Result(EscapeMoves.Status.FAILED, "could not place into " + at.toShortString());
+			net.minecraft.world.phys.Vec3 aim;
+			try { aim = environment.aim(player, at, face, item); }
+			catch (RuntimeException refused) { aim = net.minecraft.world.phys.Vec3.atCenterOf(at).add(-face.getStepX() * 0.499D, -face.getStepY() * 0.499D, -face.getStepZ() * 0.499D); }
+			boolean jump = player.isInWater();
+			var look = dev.agaminggod.mineagen.server.runtime.input.AgentInputStates.lookingAt(player, aim, 0, 0, jump, false, false, false, false, net.minecraft.world.InteractionHand.MAIN_HAND);
+			float yaw = dev.agaminggod.mineagen.server.runtime.input.AgentInputStates.turnYaw(player.getYRot(), look.yaw());
+			float pitch = dev.agaminggod.mineagen.server.runtime.input.AgentInputStates.turnPitch(player.getXRot(), look.pitch());
+			input.accept(new dev.agaminggod.mineagen.server.runtime.input.AgentInputState(0.0F, 0.0F, jump, false, false, false, false, yaw, pitch,
+					player.getInventory().getSelectedSlot(), net.minecraft.world.InteractionHand.MAIN_HAND));
+			if (Math.abs(dev.agaminggod.mineagen.server.runtime.input.AgentInputStates.shortestAngleDelta(yaw, look.yaw())) > 1.0F || Math.abs(pitch - look.pitch()) > 1.0F)
+				return new EscapeMoves.Result(EscapeMoves.Status.RUNNING, "looking at " + at.toShortString());
+			try { environment.place(player, at, face, item); } catch (RuntimeException refused) { /* not ready; try again next tick */ }
+			return new EscapeMoves.Result(EscapeMoves.Status.RUNNING, "placing at " + at.toShortString());
+		};
+	}
+
+	/** A pool this small with no bank is a flooded hole or shaft that carried blocks can fill. */
+	static final int FILL_POOL = 48;
+	/** How far down the body's column a water cell to fill is looked for. */
+	static final int FILL_DEPTH = 10;
+
+	/** The lowest water cell in the body's own column, resting on a block that holds a placement; null when there is none. */
+	static BlockPos fillTarget(ServerPlayer player) {
+		Level level = player.level();
+		BlockPos feet = player.blockPosition();
+		BlockPos lowest = null;
+		for (int dy = 0; dy <= FILL_DEPTH; dy++) {
+			BlockPos cell = feet.below(dy);
+			if (!level.getFluidState(cell).is(net.minecraft.tags.FluidTags.WATER)) {
+				if (lowest != null && level.getBlockState(cell).isFaceSturdy(level, cell, Direction.UP)) return lowest;
+				if (dy > 0) return null;
+				continue;
+			}
+			lowest = cell;
+		}
+		return null;
+	}
+
+	/**
+	 * Fill the water under the body from the bottom up, as a player in a flooded shaft does: look down at the top of the
+	 * block under the lowest water cell and place a block there, staying afloat with jump while in reach and letting the
+	 * body sink while the cell is too deep to reach. Done standing on the fill with the eyes in air; failed when no
+	 * placement lands for 3 s, the blocks run out, or after 15 s.
+	 */
+	EscapeMoves.Move fillUnder(String item) {
+		int[] ticks = {0, 0, 0};
+		return (player, input) -> {
+			ticks[0]++;
+			BlockPos target = fillTarget(player);
+			if (target == null) {
+				if (!player.isUnderWater() && (player.onGround() || !player.isInWater())) return new EscapeMoves.Result(EscapeMoves.Status.DONE, "filled " + ticks[2] + " cells; standing dry at " + player.blockPosition().toShortString());
+				return new EscapeMoves.Result(EscapeMoves.Status.FAILED, "no water cell under the body to fill (" + ticks[2] + " filled)");
+			}
+			if (ServerBuildController.carried(player, item) == 0) return new EscapeMoves.Result(EscapeMoves.Status.FAILED, "ran out of " + item + " after filling " + ticks[2] + " cells");
+			if (ticks[0] > 300 || ticks[1] > 60) return new EscapeMoves.Result(EscapeMoves.Status.FAILED, "could not place into " + target.toShortString() + " (" + ticks[2] + " filled)");
+			net.minecraft.world.phys.Vec3 aim;
+			try { aim = environment.aim(player, target, Direction.UP, item); }
+			catch (RuntimeException refused) { aim = net.minecraft.world.phys.Vec3.atCenterOf(target).add(0.0D, -0.499D, 0.0D); }
+			boolean inCell = player.getBoundingBox().intersects(new net.minecraft.world.phys.AABB(target));
+			double reach = player.blockInteractionRange() - 0.25D;
+			// Afloat (jump) while the cell is in reach or the body stands in it; sinking (no jump) toward a cell too deep.
+			boolean jump = inCell || player.getEyePosition().distanceTo(aim) <= reach;
+			var look = dev.agaminggod.mineagen.server.runtime.input.AgentInputStates.lookingAt(player, aim, 0, 0, jump, false, false, false, false, net.minecraft.world.InteractionHand.MAIN_HAND);
+			float yaw = dev.agaminggod.mineagen.server.runtime.input.AgentInputStates.turnYaw(player.getYRot(), look.yaw());
+			float pitch = dev.agaminggod.mineagen.server.runtime.input.AgentInputStates.turnPitch(player.getXRot(), look.pitch());
+			input.accept(new dev.agaminggod.mineagen.server.runtime.input.AgentInputState(0.0F, 0.0F, jump, false, false, false, false, yaw, pitch,
+					player.getInventory().getSelectedSlot(), net.minecraft.world.InteractionHand.MAIN_HAND));
+			ticks[1]++;
+			if (inCell || !jump) return new EscapeMoves.Result(EscapeMoves.Status.RUNNING, inCell ? "rising out of " + target.toShortString() : "sinking toward " + target.toShortString());
+			if (Math.abs(dev.agaminggod.mineagen.server.runtime.input.AgentInputStates.shortestAngleDelta(yaw, look.yaw())) > 1.0F || Math.abs(pitch - look.pitch()) > 1.0F)
+				return new EscapeMoves.Result(EscapeMoves.Status.RUNNING, "looking down at " + target.toShortString());
+			try {
+				if (environment.place(player, target, Direction.UP, item) == null) { ticks[2]++; ticks[1] = 0; }
+			} catch (RuntimeException refused) { /* the look or the cell is not ready yet; try again next tick */ }
+			return new EscapeMoves.Result(EscapeMoves.Status.RUNNING, "filling " + target.toShortString());
 		};
 	}
 

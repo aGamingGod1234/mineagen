@@ -7,6 +7,11 @@
 //            swim up meets the stair ceiling).
 //   pit      the body on the floor of a 1x1 hole 5 deep, 16 cobblestone carried, no pickaxe.
 //   pitdig   the same hole 4 deep, a stone pickaxe and no blocks.
+//   shaft    afloat in a 1x1 shaft 13 deep whose bottom 4 cells are flooded, no bank anywhere, 16 cobblestone carried
+//            (a find's shaft that broke into an underground lake).
+//   lake     a 1x1 shaft 7 deep that broke the stone roof of a flooded cave (9x9, 6 deep, every cell a source, ceiling
+//            under the shaft): afloat with the feet in the lake's top cell and the head in the shaft; 16 cobblestone and
+//            an iron pickaxe. The only air is the shaft. Pass: dry footing out of the water.
 //   skeleton the body on open ground with an offhand shield, a skeleton 10 blocks east, a 3x3 stone wall 3 blocks west.
 // The arm is read from the jar: a jar with the escape body job plays "escape" (every decision is do_step escape); any
 // other jar plays "legacy", fixed in advance (a stand-in, not a model). ESCAPE_LEGACY=strong (the default) gives it the
@@ -33,11 +38,11 @@ const [outArg, jarArg, runsArg, roomsArg] = cli.filter(arg => !['--strict', '--d
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port = Number(process.env.SLOT_PORT_BASE);
 if (!outArg || !jarArg || !template || !port) { console.error(USAGE); process.exit(2); }
 const runs = Number(runsArg ?? 3);
-const rooms = (roomsArg ?? 'deep;stair;pit;pitdig;skeleton').split(';');
+const rooms = (roomsArg ?? 'deep;stair;pit;pitdig;shaft;lake;skeleton').split(';');
 const THINK_MS = Number(process.env.ESCAPE_THINK_MS ?? 6_000);
 const PAD_Y = 150;
 const LEGACY = process.env.ESCAPE_LEGACY === 'wake' ? 'wake' : 'strong';
-const WINDOW_MS = { deep: 60_000, stair: 60_000, pit: 60_000, pitdig: 60_000, skeleton: 30_000 };
+const WINDOW_MS = { deep: 60_000, stair: 60_000, pit: 60_000, pitdig: 60_000, shaft: 90_000, lake: 90_000, skeleton: 30_000 };
 const out = path.resolve(outArg);
 await mkdir(out, { recursive: true });
 const jarPath = path.resolve(jarArg);
@@ -98,6 +103,17 @@ try {
 			await s.command(`fill ${X} ${F - depth} ${Z} ${X} ${F - 1} ${Z} minecraft:air`);
 			start = [X + 0.5, F - depth, Z + 0.5];
 			await s.command(room === 'pit' ? `item replace entity ${NAME} hotbar.0 with minecraft:cobblestone 16` : `item replace entity ${NAME} hotbar.0 with minecraft:stone_pickaxe 1`);
+		} else if (room === 'shaft') {
+			await s.command(`fill ${X} ${F - 13} ${Z} ${X} ${F - 1} ${Z} minecraft:air`);
+			await s.command(`fill ${X} ${F - 13} ${Z} ${X} ${F - 10} ${Z} minecraft:water`);
+			start = [X + 0.5, F - 10, Z + 0.5];
+			await s.command(`item replace entity ${NAME} hotbar.0 with minecraft:cobblestone 16`);
+		} else if (room === 'lake') {
+			await s.command(`fill ${X - 4} ${F - 13} ${Z - 4} ${X + 4} ${F - 8} ${Z + 4} minecraft:water`);
+			await s.command(`fill ${X} ${F - 7} ${Z} ${X} ${F - 1} ${Z} minecraft:air`);
+			start = [X + 0.5, F - 8.2, Z + 0.5];
+			await s.command(`item replace entity ${NAME} hotbar.0 with minecraft:cobblestone 16`);
+			await s.command(`item replace entity ${NAME} hotbar.1 with minecraft:iron_pickaxe 1`);
 		} else if (room === 'skeleton') {
 			await s.command(`fill ${X - 3} ${F} ${Z - 1} ${X - 3} ${F + 2} ${Z + 1} minecraft:stone`);
 			wall = { x0: X - 3, x1: X - 2, y0: F, y1: F + 3, z0: Z - 1, z1: Z + 2 };
@@ -149,12 +165,14 @@ try {
 				const feet = [Math.floor(p[0]), Math.floor(p[1]), Math.floor(p[2])];
 				return await onGround() && !(await blockAt(...feet, 'minecraft:water')) && p[1] >= F - 0.01;
 			}
-			if (room === 'pit' || room === 'pitdig') return p[1] >= F - 0.01 && await onGround();
+			if (room === 'pit' || room === 'pitdig' || room === 'shaft') return p[1] >= F - 0.01 && await onGround();
+			if (room === 'lake') return await onGround() && !(await blockAt(Math.floor(p[0]), Math.floor(p[1]), Math.floor(p[2]), 'minecraft:water'));
 			return hidden();
 		};
 		const live = await pos();
 		const exposed = live === null ? false : room === 'deep' || room === 'stair' ? await blockAt(Math.floor(live[0]), Math.floor(live[1] + 1.62), Math.floor(live[2]), 'minecraft:water')
-			: room === 'skeleton' ? skeleton !== null && !(await hidden()) : live[1] < F - 2;
+			: room === 'skeleton' ? skeleton !== null && !(await hidden())
+			: room === 'shaft' || room === 'lake' ? await blockAt(Math.floor(live[0]), Math.floor(live[1]), Math.floor(live[2]), 'minecraft:water') : live[1] < F - 2;
 		const t0 = Date.now(), window = WINDOW_MS[room];
 		let calls = 0, last = null, safeAt = null;
 		const results = [];
@@ -173,6 +191,9 @@ try {
 				call = under && LEGACY === 'wake' ? ['control', { forward: 0, strafe: 0, jump: true, sneak: false, sprint: false, attack: false, use: false, yaw: facing, pitch: -45, selectedSlot: 0, hand: 'main', ticks: 40 }]
 					: ['travel_to', { x: bank.x, z: bank.z, tolerance: 1, timeoutMs: Math.min(30_000, left) }];
 			} else if (room === 'pit') call = ['build', { structure: 'pillar', size: LEGACY === 'wake' ? 1 : Math.max(1, F - Math.floor(p[1])), timeoutMs: Math.min(30_000, left) }];
+			else if (room === 'lake') call = ['dig_to', { pattern: 'stairs_up', y: F, heading: 'east', timeoutMs: Math.min(60_000, left) }];
+			else if (room === 'shaft') call = LEGACY === 'wake' ? ['control', { forward: 0, strafe: 0, jump: true, sneak: false, sprint: false, attack: false, use: false, yaw: facing, pitch: -45, selectedSlot: 0, hand: 'main', ticks: 40 }]
+				: ['build', { structure: 'pillar', size: Math.max(1, F - Math.floor(p[1])), timeoutMs: Math.min(30_000, left) }];
 			else if (room === 'pitdig') call = ['dig_to', { pattern: 'stairs_up', y: F, heading: 'east', timeoutMs: Math.min(60_000, left) }];
 			else call = ['flee_from', { targetId: skeleton.uuid, distance: 16, timeoutMs: Math.min(10_000, left) }];
 			calls++;

@@ -28,7 +28,12 @@ public final class EscapeVerification {
 		check(ServerEscapeController.waterMove(false, 300, false, 0, false, false, false, 0) == ServerEscapeController.WaterMove.NO_SHORE, "afloat with no bank hands back breathing");
 		check(ServerEscapeController.waterMove(true, 40, false, 0, false, false, false, 3) == ServerEscapeController.WaterMove.NO_WAY, "three failed swims and no bank hand back");
 		check(ServerEscapeController.waterMove(true, 40, true, 1, false, true, false, 3) == ServerEscapeController.WaterMove.TRAVEL, "after three swims a known bank is travelled to");
-		assertions += 11;
+		// A flooded shaft with no bank and blocks carried: fill under, afloat or with air in hand; swim first only on little air.
+		check(ServerEscapeController.waterMove(false, 300, false, 0, false, false, false, 0, true) == ServerEscapeController.WaterMove.FILL, "afloat in a flooded shaft fills under");
+		check(ServerEscapeController.waterMove(true, 250, false, 0, false, false, false, 0, true) == ServerEscapeController.WaterMove.FILL, "under water with air to spare fills under");
+		check(ServerEscapeController.waterMove(true, 60, false, 0, false, false, false, 0, true) == ServerEscapeController.WaterMove.SWIM, "under water on little air swims to air first");
+		check(ServerEscapeController.waterMove(false, 300, true, 1, false, false, false, 0, true) == ServerEscapeController.WaterMove.TRAVEL, "a bank in reach is still travelled to");
+		assertions += 15;
 		// Hole: level with the rim steps out; blocks and headroom pillar; else dug stairs; else no way.
 		check(ServerEscapeController.pitMove(0, 0, false, false) == ServerEscapeController.PitMove.STEP_OUT, "level with the rim steps out");
 		check(ServerEscapeController.pitMove(4, 4, true, true) == ServerEscapeController.PitMove.PILLAR, "four blocks under open sky pillar a four-deep hole");

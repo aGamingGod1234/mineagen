@@ -1921,6 +1921,15 @@ public final class ServerActionExecutor {
 				args.addProperty("sealFluids", true); args.addProperty("timeoutMs", timeoutMs);
 				return digController(args);
 			}
+			public Vec3 aim(ServerPlayer body, BlockPos at, Direction face, String itemId) { return shelterEnvironment(parent, itemId).aim(body, at, face); }
+			public String place(ServerPlayer body, BlockPos at, Direction face, String itemId) { return shelterEnvironment(parent, itemId).place(body, at, face); }
+			public dev.agaminggod.mineagen.server.runtime.controller.ServerController clear(ServerPlayer body, BlockPos at, long timeoutMs) {
+				BlockState state = body.level().getBlockState(at);
+				if (state.isAir()) return (player, now) -> dev.agaminggod.mineagen.server.runtime.controller.ServerController.TickResult.succeeded("BLOCK_BROKEN", "already open");
+				int slot = dev.agaminggod.mineagen.server.runtime.controller.ServerDigController.toolSlot(body, state);
+				if (slot >= 0) body.getInventory().setSelectedSlot(slot);
+				return shelterEnvironment(parent, "minecraft:cobblestone").clear(body, at, false, timeoutMs);
+			}
 		};
 	}
 
