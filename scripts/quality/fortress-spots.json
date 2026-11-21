@@ -1,0 +1,238 @@
+[
+	{
+		"name": "fortress-gate-1",
+		"seed": "5433312384530337025",
+		"inventory": [
+			{
+				"item": "minecraft:iron_pickaxe",
+				"count": 1
+			},
+			{
+				"item": "minecraft:iron_sword",
+				"count": 1
+			},
+			{
+				"item": "minecraft:shield",
+				"count": 1
+			},
+			{
+				"item": "minecraft:cobblestone",
+				"count": 64
+			},
+			{
+				"item": "minecraft:cobblestone",
+				"count": 64
+			},
+			{
+				"item": "minecraft:bread",
+				"count": 16
+			},
+			{
+				"item": "minecraft:flint_and_steel",
+				"count": 1
+			}
+		],
+		"monsters": true,
+		"note": "wall fortress order 8: a Nether entry on safe ground near Nether 0,0 with a Nether-entry kit; find fortress repeated as a model that only re-asks would, 15 game-minutes at 20 TPS. Ground truth: vanilla locate in the Nether from the start.",
+		"setup": [
+			"item replace entity Probe weapon.offhand with minecraft:shield",
+			"execute in minecraft:the_nether run spreadplayers 0 0 0 24 under 100 false Probe"
+		],
+		"after": {
+			"ms": 4000
+		},
+		"locate": "structure minecraft:fortress",
+		"locateIn": "minecraft:the_nether",
+		"repeat": true,
+		"budgetMs": 900000,
+		"calls": [
+			{
+				"name": "do_step",
+				"arguments": {
+					"verb": "find",
+					"target": {
+						"structure": "fortress"
+					},
+					"why": "a fortress for blaze rods"
+				}
+			}
+		]
+	},
+	{
+		"name": "fortress-gate-2",
+		"seed": "313280743662651985",
+		"inventory": [
+			{
+				"item": "minecraft:iron_pickaxe",
+				"count": 1
+			},
+			{
+				"item": "minecraft:iron_sword",
+				"count": 1
+			},
+			{
+				"item": "minecraft:shield",
+				"count": 1
+			},
+			{
+				"item": "minecraft:cobblestone",
+				"count": 64
+			},
+			{
+				"item": "minecraft:cobblestone",
+				"count": 64
+			},
+			{
+				"item": "minecraft:bread",
+				"count": 16
+			},
+			{
+				"item": "minecraft:flint_and_steel",
+				"count": 1
+			}
+		],
+		"monsters": true,
+		"note": "wall fortress order 8: a Nether entry on safe ground near Nether 0,0 with a Nether-entry kit; find fortress repeated as a model that only re-asks would, 15 game-minutes at 20 TPS. Ground truth: vanilla locate in the Nether from the start.",
+		"setup": [
+			"item replace entity Probe weapon.offhand with minecraft:shield",
+			"execute in minecraft:the_nether run spreadplayers 0 0 0 24 under 100 false Probe"
+		],
+		"after": {
+			"ms": 4000
+		},
+		"locate": "structure minecraft:fortress",
+		"locateIn": "minecraft:the_nether",
+		"repeat": true,
+		"budgetMs": 900000,
+		"calls": [
+			{
+				"name": "do_step",
+				"arguments": {
+					"verb": "find",
+					"target": {
+						"structure": "fortress"
+					},
+					"why": "a fortress for blaze rods"
+				}
+			}
+		]
+	},
+	{
+		"name": "fortress-gate-3",
+		"seed": "3244043502755372002",
+		"inventory": [
+			{
+				"item": "minecraft:iron_pickaxe",
+				"count": 1
+			},
+			{
+				"item": "minecraft:iron_sword",
+				"count": 1
+			},
+			{
+				"item": "minecraft:shield",
+				"count": 1
+			},
+			{
+				"item": "minecraft:cobblestone",
+				"count": 64
+			},
+			{
+				"item": "minecraft:cobblestone",
+				"count": 64
+			},
+			{
+				"item": "minecraft:bread",
+				"count": 16
+			},
+			{
+				"item": "minecraft:flint_and_steel",
+				"count": 1
+			}
+		],
+		"monsters": true,
+		"note": "wall fortress order 8: a Nether entry on safe ground near Nether 0,0 with a Nether-entry kit; find fortress repeated as a model that only re-asks would, 15 game-minutes at 20 TPS. Ground truth: vanilla locate in the Nether from the start.",
+		"setup": [
+			"item replace entity Probe weapon.offhand with minecraft:shield",
+			"execute in minecraft:the_nether run spreadplayers 0 0 0 24 under 100 false Probe"
+		],
+		"after": {
+			"ms": 4000
+		},
+		"locate": "structure minecraft:fortress",
+		"locateIn": "minecraft:the_nether",
+		"repeat": true,
+		"budgetMs": 900000,
+		"calls": [
+			{
+				"name": "do_step",
+				"arguments": {
+					"verb": "find",
+					"target": {
+						"structure": "fortress"
+					},
+					"why": "a fortress for blaze rods"
+				}
+			}
+		]
+	},
+	{
+		"name": "fortress-gate-4",
+		"seed": "3315172112810107624",
+		"inventory": [
+			{
+				"item": "minecraft:iron_pickaxe",
+				"count": 1
+			},
+			{
+				"item": "minecraft:iron_sword",
+				"count": 1
+			},
+			{
+				"item": "minecraft:shield",
+				"count": 1
+			},
+			{
+				"item": "minecraft:cobblestone",
+				"count": 64
+			},
+			{
+				"item": "minecraft:cobblestone",
+				"count": 64
+			},
+			{
+				"item": "minecraft:bread",
+				"count": 16
+			},
+			{
+				"item": "minecraft:flint_and_steel",
+				"count": 1
+			}
+		],
+		"monsters": true,
+		"note": "wall fortress order 8: a Nether entry on safe ground near Nether 0,0 with a Nether-entry kit; find fortress repeated as a model that only re-asks would, 15 game-minutes at 20 TPS. Ground truth: vanilla locate in the Nether from the start.",
+		"setup": [
+			"item replace entity Probe weapon.offhand with minecraft:shield",
+			"execute in minecraft:the_nether run spreadplayers 0 0 0 24 under 100 false Probe"
+		],
+		"after": {
+			"ms": 4000
+		},
+		"locate": "structure minecraft:fortress",
+		"locateIn": "minecraft:the_nether",
+		"repeat": true,
+		"budgetMs": 900000,
+		"calls": [
+			{
+				"name": "do_step",
+				"arguments": {
+					"verb": "find",
+					"target": {
+						"structure": "fortress"
+					},
+					"why": "a fortress for blaze rods"
+				}
+			}
+		]
+	}
+]

@@ -13,7 +13,7 @@
 // setup: operator commands that build a fixture before the calls, {x}, {y}, {z} (with +n or -n; {x+0.5} is a cell's
 // centre) standing for the body's block at spawn; after: { ms, commands } runs after setup. A call argument that is
 // exactly such a placeholder becomes that number. expectDamageTaken: a survival room, judged on no death and exactly that
-// damage (findSpotVerdict in lib/find-spot.mjs).
+// damage (findSpotVerdict in lib/find-spot.mjs). locateIn: the dimension to run locate in (a Nether start).
 // Production steering lives in run-incident.mjs; this body-only fixture cannot accept steer:true.
 import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -164,7 +164,8 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		row.kit = (runtime.latestObservation?.(record)?.inventory?.items ?? adaptObservation(await s.observe()).inventory?.items ?? []).map(item => `${item.itemId.replace('minecraft:', '')}x${item.count}@${item.slot}`);
 		console.log(`[${spot.name}] kit ${row.kit.join(' ')}`);
 		// Ground truth for the report only (vanilla locate from the start; the search never sees it).
-		if (spot.locate) row.located = String(await s.command(`execute positioned ${row.start.map(Math.floor).join(' ')} run locate ${spot.locate}`)).slice(0, 300);
+		// locateIn: the dimension the start is in (a Nether start locates a fortress there), else the server's default.
+		if (spot.locate) row.located = String(await s.command(`execute ${spot.locateIn ? `in ${spot.locateIn} ` : ''}positioned ${row.start.map(Math.floor).join(' ')} run locate ${spot.locate}`)).slice(0, 300);
 		// skipBeyond: a target vanilla puts farther than this from the start is out of the search's reach; no search runs.
 		const locatedAt = Number(/\((\d+) blocks? away\)/.exec(row.located ?? '')?.[1]);
 		if (spot.skipBeyond !== undefined && !(locatedAt <= spot.skipBeyond)) {
