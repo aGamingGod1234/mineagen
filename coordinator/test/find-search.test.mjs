@@ -1729,3 +1729,24 @@ test('cave first is off with MINEAGEN_CAVE_FIRST=off and for lava', async () => 
 	try { assert.equal(await run({ block: 'minecraft:iron_ore' }), false); } finally { if (before === undefined) delete process.env.MINEAGEN_CAVE_FIRST; else process.env.MINEAGEN_CAVE_FIRST = before; }
 	assert.equal(await run({ block: 'minecraft:iron_ore' }), true);
 });
+
+test('cave first: a cave with water seen beside it is left alone, and a walk that ends in water walks back out and digs from dry ground', async () => {
+	const seenWet = fakeBody({ frontier: { candidates: [], coverage: { headings: {} } },
+		looks: [{ survey: { caves: [cave(20, 50, 0)], blocks: [{ blockId: 'minecraft:water', x: 21, y: 49, z: 1 }] } }], acts: { dig_to: [DOWN] } });
+	assert.equal((await searchFor({ block: 'minecraft:iron_ore' }, seenWet)).reasonCode, 'FIND_SEEN');
+	assert.equal(seenWet.calls.some((call) => call.actionType === 'travel_to'), false, 'the flooded cave is not walked to');
+	const missed = [];
+	const swim = fakeBody({ frontier: { candidates: [], coverage: { headings: {} } }, looks: [{ survey: { caves: [cave(20, 50, 0), cave(-20, 50, 0)] } }],
+		acts: { travel_to: [
+			{ move: () => ({ x: 18.5, y: 50, z: 0.5, inWater: true }), result: { state: 'FAILED', reasonCode: 'NO_ROUTE', message: 'Could not get out of the water in 30 s' } },
+			{ move: () => ({ x: 0.5, y: 70, z: 0.5, inWater: false }), result: { state: 'SUCCEEDED', reasonCode: 'ARRIVED' } }],
+		dig_to: [DOWN] } });
+	swim.missPlace = (place, why) => missed.push({ ...place, why });
+	const result = await searchFor({ block: 'minecraft:iron_ore' }, swim);
+	assert.equal(result.reasonCode, 'FIND_SEEN', result.message);
+	const travels = swim.calls.filter((call) => call.actionType === 'travel_to').map((call) => [call.args.x, call.args.y, call.args.z, call.args.build]);
+	assert.deepEqual(travels, [[20.5, 50, 0.5, false], [0.5, 70, 0.5, false]], 'into the cave, then back to the start; no second cave');
+	assert.ok(missed.some((row) => row.why === 'flooded cave'));
+	assert.match(result.message, /1 flooded, walked back out/);
+	assert.equal(swim.calls.filter((call) => call.actionType === 'dig_to').length, 1);
+});
