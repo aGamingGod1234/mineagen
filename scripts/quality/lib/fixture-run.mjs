@@ -22,10 +22,16 @@ export function terminalCounter() {
 	};
 }
 
+/** The scorer's row verdicts: evidence that cannot be trusted, and a row that missed acceptance (its pass or its bar). */
+export const rowInvalid = row => Boolean(row.error || row.integrity?.length || row.measurementStatus === 'INVALID');
+export const rowFailed = row => row.pass === false || row.bar === false;
+/** A row that met acceptance: passed, met its bar, and its evidence is valid. */
+export const rowPassed = row => !row.skipped && row.pass === true && !rowFailed(row) && !rowInvalid(row);
+
 export function fixtureSummary(rows, { planned = rows.length } = {}) {
 	const counted = rows.filter(row => !row.skipped);
-	const invalid = counted.filter(row => row.error || row.integrity?.length || row.measurementStatus === 'INVALID');
-	const failed = counted.filter(row => row.pass === false || row.bar === false);
+	const invalid = counted.filter(rowInvalid);
+	const failed = counted.filter(rowFailed);
 	return {
 		planned, started: rows.filter(row => Number.isFinite(row.startedAt)).length,
 		completed: counted.filter(row => Number.isFinite(row.finishedAt) && !row.error).length,

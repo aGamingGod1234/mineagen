@@ -569,3 +569,21 @@ test('windowsPool deletes its own stale batch folder before a re-prepare claims 
 	await pool.prepare(vm);
 	assert.deepEqual(scripts.slice(0, 3), ['claim', 'clean', 'claim'], 'the stale folder is deleted before it is claimed again');
 });
+
+test('a row that ran safely but missed its bar counts and reads as a fail, as the scorer scores it', async () => {
+	const out = await mkdtemp(path.join(os.tmpdir(), 'room-batch-bar-'));
+	try {
+		const rooms = parseCommands(`@slow ${LINE}\n@bad ${LINE}`, ['new']);
+		await writeRoom(out, 'slow', 'new', [row('spot-slow', { bar: false })]);
+		await writeRoom(out, 'bad', 'new', [row('spot-bad', { measurementStatus: 'INVALID' })]);
+		const outcomes = ['slow', 'bad'].map(name => ({ room: name, lost: false, worker: 'vm1', attempts: 1, arms: { new: { exit: 0, seconds: 5 } } }));
+		const merged = await mergeArms({ out, rooms, arms: ['new'], outcomes });
+		const totals = armTotals(merged.new);
+		assert.equal(totals.pass, 0, 'neither row met acceptance');
+		assert.equal(totals.fail, 1);
+		assert.equal(totals.invalid, 1);
+		const text = formatSummary({ batch: { name: 'b', code: 'abc12345' }, merged, arms: ['new'], wallSeconds: 10, vms: 1, rooms });
+		assert.match(text, /^slow: fail /m);
+		assert.match(text, /^bad: INVALID /m);
+	} finally { await rm(out, { recursive: true, force: true }); }
+});
