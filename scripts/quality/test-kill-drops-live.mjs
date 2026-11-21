@@ -2,6 +2,7 @@
 // Provider-free check that fight_target kill results report the drops the player saw and whether one falls into lava
 // (d3b-nether-b: a blaze shot down over the lava room dropped its rod into lava; the result said nothing).
 // Always launch under slot.sh live; ports come from SLOT_PORT_BASE. Operator commands build/reset fixtures only.
+// FIXTURE_TICK_RATE (test only): setup runs at 20 TPS and each fight at the fixture rate; each result's tick holds the rates.
 import { readFile, writeFile, mkdir, cp, readdir } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,6 +11,8 @@ import { randomBytes, createHash } from 'node:crypto';
 import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
+import { handRolledTickRate } from './lib/fixture-play.mjs';
+import { unshownTickRate } from './watch-replay.mjs';
 
 const root=fileURLToPath(new URL('../..',import.meta.url));
 const out=resolve(process.argv[2] ?? 'runtime/kill-drops-live');
@@ -38,7 +41,7 @@ class Inbox {
   accept(e){const i=this.waiters.findIndex(w=>w.type===e.type&&w.match(e));if(i>=0)this.waiters.splice(i,1)[0].done(e);else {this.events.push(e);if(this.events.length>1024)this.events.shift();}}
   wait(type,match=()=>true,ms=30000){const i=this.events.findIndex(e=>e.type===type&&match(e));if(i>=0)return Promise.resolve(this.events.splice(i,1)[0]);return new Promise((res,rej)=>{const w={type,match,done:e=>{clearTimeout(t);res(e)}};const t=setTimeout(()=>{this.waiters=this.waiters.filter(x=>x!==w);rej(new Error(`TIMEOUT ${type}`))},ms);this.waiters.push(w)});}
 }
-let rcon,bridge,record,observation;
+let rcon,bridge,record,observation,rate;
 const agent='Drops';
 const command=async s=>{
   if(rcon.state==='closed'){rcon=new HeadlessRconClient({host:'127.0.0.1',port:port+1,password:secret,commandTimeoutMs:5000});await rcon.connect();}
@@ -62,12 +65,13 @@ async function executeAction(c){
 try {
   for(let i=0;i<150;i++){try{rcon=new HeadlessRconClient({host:'127.0.0.1',port:port+1,password:secret,connectTimeoutMs:500,commandTimeoutMs:5000});await rcon.connect();break}catch(e){await rcon?.close();if(i===149)throw e;await sleep(1000)}}
   bridge=new MultiplexedServerBridge({port,secret},{});inbox=new Inbox(bridge);
+  rate=handRolledTickRate(text=>command(text),bridge, agent, { tickRate: unshownTickRate('it already fails at 20 TPS, so an A/B cannot show the same game at 60') });
   bridge.on('observation',e=>{if(e.agentId===record?.agentId&&e.payload.ready){observation=e.payload}});
   bridge.on('goal_spec_request',e=>{bridge.send('goal_spec_proposal',e.agentId,{requestId:e.payload.requestId,summary:'Controlled live mechanics fixture',predicate:{type:'survive_duration',ticks:12000}}).catch(()=>{});});
   const ready=inbox.wait('ready');bridge.start();await ready;
   await bridge.send('catalog_snapshot','server',{refreshedAtEpochMs:Date.now(),models:[{provider:'codex',model:'gpt-6.1-sol',id:'gpt-6.1-sol',displayName:'Provider-free kill drops fixture',reasoningEfforts:['low'],serviceTiers:['priority']}]});
   await command('difficulty easy');await command('gamerule minecraft:send_command_feedback false');await command('time set noon');
-  await command('forceload add -16 -16 32 32');await sleep(2000);
+  await command('forceload add -16 -16 32 32');await rate.idleSleep(2000);
   await command('fill -5 75 -5 20 90 10 minecraft:air');await command('fill -4 79 -4 2 79 4 minecraft:stone');
   const registered=inbox.wait('agent_registered');console.log(await command(`execute positioned 0.5 80 0.5 run mineagen summon gpt-6.1-sol low ${agent}`));
   const e=await registered;record={...(e.payload.record??e.payload),agentId:e.agentId};
@@ -85,24 +89,26 @@ try {
   await command(`effect give ${agent} minecraft:resistance 600 4 true`);
   await command(`item replace entity ${agent} weapon.mainhand with minecraft:iron_sword`);
   const results={};
-  const at=async(x,y,z,yaw,pitch)=>{await command(`tp ${agent} ${x} ${y} ${z} ${yaw} ${pitch}`);await sleep(600);await observe();};
+  const at=async(x,y,z,yaw,pitch)=>{await rate.normalRate();await command(`tp ${agent} ${x} ${y} ${z} ${yaw} ${pitch}`);await rate.idleSleep(600);await observe();};
   const uuid=n=>`00000000-0000-0000-0000-${String(n).padStart(12,'0')}`;
-  const fight=async(n)=>{await sleep(400);await observe();return act('fight_target',{targetId:uuid(n),pursue:false,timeoutMs:8000});};
+  // The fight is the play: it runs at the fixture rate; the drops it reports land and burn in game time.
+  const fight=async(n)=>{await rate.idleSleep(400);await observe();const played=await rate.play();const r=await act('fight_target',{targetId:uuid(n),pursue:false,timeoutMs:8000});return {...r,tick:await played()};};
   await at(0.5,80,0.5,0,20);
   await command('summon minecraft:chicken 0.5 80 2.5 {NoAI:1b,UUID:[I;0,0,0,1]}');
   let r=await fight(1);
-  results.floor={state:r.state,reasonCode:r.reasonCode,message:r.message};
+  results.floor={state:r.state,reasonCode:r.reasonCode,message:r.message,tick:r.tick};
   await command('kill @e[type=minecraft:item]');
   await command('fill 2 77 -1 4 79 1 minecraft:lava');
   await at(0.5,80,0.5,-90,0);
   await command('summon minecraft:chicken 3.0 80.4 0.5 {NoAI:1b,NoGravity:1b,UUID:[I;0,0,0,2]}');
   r=await fight(2);
-  results.overLava={state:r.state,reasonCode:r.reasonCode,message:r.message};
+  results.overLava={state:r.state,reasonCode:r.reasonCode,message:r.message,tick:r.tick};
   await command('fill 2 77 -1 4 79 1 minecraft:stone');await command('kill @e[type=minecraft:item]');
   await at(0.5,80,0.5,0,-10);
   await command('summon minecraft:blaze 0.5 80.5 2.5 {NoAI:1b,NoGravity:1b,Health:1f,UUID:[I;0,0,0,3]}');
   r=await fight(3);
-  results.blaze={state:r.state,reasonCode:r.reasonCode,message:r.message};
+  results.blaze={state:r.state,reasonCode:r.reasonCode,message:r.message,tick:r.tick};
+  results.tick=await rate.report();
   await writeFile(join(out,'drops.json'),JSON.stringify(results,null,2));
   console.log(JSON.stringify(results,null,2));
   const ok=results.floor.reasonCode==='TARGET_KILLED'&&/drops seen: .*minecraft:chicken at /.test(results.floor.message)&&!/burns/.test(results.floor.message)

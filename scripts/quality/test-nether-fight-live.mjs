@@ -7,6 +7,7 @@ import { randomBytes, createHash } from 'node:crypto';
 import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
+import { handRolledTickRate } from './lib/fixture-play.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const jarPath = resolve(process.env.ARENA_JAR ?? join(root, MOD_JAR));
@@ -34,6 +35,11 @@ class Inbox {
 	wait(type, match = () => true, ms = 30000) { const i = this.events.findIndex(e => e.type === type && match(e)); if (i >= 0) return Promise.resolve(this.events.splice(i, 1)[0]); return new Promise((res, rej) => { const w = { type, match, done: e => { clearTimeout(t); res(e); } }; const t = setTimeout(() => { this.waiters = this.waiters.filter(x => x !== w); rej(new Error(`TIMEOUT ${type}`)); }, ms); this.waiters.push(w); }); }
 }
 let rcon, bridge, record, observation, inbox, ordinal = 0;
+// FIXTURE_TICK_RATE (test only): setup (building, summons, settling) runs at 20 TPS; the footing move and each fight run
+// at the fixture rate with their waits in game time; each result's tick holds the rates. The shield-break fight stays at
+// 20: its finding rests on two RCON steps landing together 1.5 s into the fight (read the zombie's health, then empty the
+// offhand), and at 60 TPS a swing could land between them and count as a hit after the break.
+let rate;
 const agent = 'Fighter';
 const footings = [];
 const command = async s => {
@@ -66,13 +72,14 @@ const results = { footing: {}, shieldBreak: {}, sweep: {} };
 try {
 	for (let i = 0; i < 150; i++) { try { rcon = new HeadlessRconClient({ host: '127.0.0.1', port: port + 1, password: secret, connectTimeoutMs: 500, commandTimeoutMs: 5000 }); await rcon.connect(); break; } catch (e) { await rcon?.close(); if (i === 149) throw e; await sleep(1000); } }
 	bridge = new MultiplexedServerBridge({ port, secret }, {}); inbox = new Inbox(bridge);
+	rate = handRolledTickRate(text => command(text), bridge, agent);
 	bridge.on('observation', e => { if (e.agentId === record?.agentId && e.payload.ready) { observation = e.payload; if (e.payload.player?.footing) footings.push({ attention: e.payload.attention === true, footing: e.payload.player.footing }); } });
 	bridge.on('goal_spec_request', e => { bridge.send('goal_spec_proposal', e.agentId, { requestId: e.payload.requestId, summary: 'Controlled live mechanics fixture', predicate: { type: 'survive_duration', ticks: 24000 } }).catch(() => {}); });
 	const ready = inbox.wait('ready'); bridge.start(); await ready;
 	await bridge.send('catalog_snapshot', 'server', { refreshedAtEpochMs: Date.now(), models: [{ provider: 'codex', model: 'gpt-6.1-sol', id: 'gpt-6.1-sol', displayName: 'Provider-free nether fight fixture', reasoningEfforts: ['low'], serviceTiers: ['priority'] }] });
 	await command('gamerule minecraft:send_command_feedback false'); await command('time set noon');
 	await command('gamerule minecraft:spawn_mobs false').catch(() => command('gamerule doMobSpawning false'));
-	await command('forceload add -32 -32 32 32'); await sleep(2000);
+	await command('forceload add -32 -32 32 32'); await rate.idleSleep(2000);
 	// A fortress-bridge-like deck: 9x9 at y80, 22 blocks over the floor, open on the east two cells from the body.
 	await command('fill -16 58 -16 16 58 16 minecraft:stone'); await command('fill -16 59 -16 16 100 16 minecraft:air');
 	await command('fill -6 80 -4 2 80 4 minecraft:nether_bricks');
@@ -86,33 +93,37 @@ try {
 	await command(`item replace entity ${agent} hotbar.0 with minecraft:iron_sword`);
 	await command(`item replace entity ${agent} weapon.offhand with minecraft:shield`);
 
-	await command(`tp ${agent} -0.5 81 0.5 -90 35`); await sleep(1500);
+	await command(`tp ${agent} -0.5 81 0.5 -90 35`); await rate.idleSleep(1500);
+	const moving = await rate.play();
 	const moved = await act('move_to', { x: 0.5, y: 81, z: 0.5, tolerance: 0.3, sprint: false });
+	results.footing.tick = await moving();
 	results.footing.moveResult = /footing \{[^}]*\}/.exec(moved.message ?? '')?.[0] ?? null;
 	// Resistance 255 keeps the fixture body alive through the fights below.
 	await command(`effect give ${agent} minecraft:resistance 1200 255 true`);
 
 	await command(`tp ${agent} 0.5 81 0.5 -90 0`);
-	await mob('minecraft:zombie', 2.5, 0.5); await sleep(800);
+	await mob('minecraft:zombie', 2.5, 0.5); await rate.idleSleep(800);
 	const zombie = await entityId('minecraft:zombie');
 	const fight = command_('fight_target', { targetId: zombie, pursue: false, shield: true, timeoutMs: 5000 });
-	await fight.sent; await sleep(1500);
+	await fight.sent; await rate.clock.sleep(1500);
 	const before = await health(`@e[type=minecraft:zombie,limit=1]`);
 	await command(`item replace entity ${agent} weapon.offhand with minecraft:air`);
 	const result = await fight.done;
 	const after = await health(`@e[type=minecraft:zombie,limit=1]`);
-	results.shieldBreak = { state: result.state, reasonCode: result.reasonCode, zombieHealthAtBreak: before, zombieHealthAfter: after, hitsAfterBreak: before > after, notesBreak: /shield broke/.test(result.message ?? ''), message: String(result.message ?? '').slice(0, 300) };
+	results.shieldBreak = { state: result.state, reasonCode: result.reasonCode, zombieHealthAtBreak: before, zombieHealthAfter: after, hitsAfterBreak: before > after, notesBreak: /shield broke/.test(result.message ?? ''), message: String(result.message ?? '').slice(0, 300), tickRate: 20 };
 	console.log(JSON.stringify(results.shieldBreak));
 	await command('kill @e[type=minecraft:zombie]');
 
 	await command(`item replace entity ${agent} weapon.offhand with minecraft:shield`);
 	await command(`tp ${agent} 0.5 81 0.5 -90 0`);
-	await mob('minecraft:zombie', 2.5, 0.5); await mob('minecraft:zombified_piglin', 2.5, 1.7); await sleep(800);
+	await mob('minecraft:zombie', 2.5, 0.5); await mob('minecraft:zombified_piglin', 2.5, 1.7); await rate.idleSleep(800);
 	const target = await entityId('minecraft:zombie');
 	const pigBefore = await health('@e[type=minecraft:zombified_piglin,limit=1]');
+	const sweeping = await rate.play();
 	const swept = await act('fight_target', { targetId: target, pursue: false, timeoutMs: 3000 });
 	const pigAfter = await health('@e[type=minecraft:zombified_piglin,limit=1]');
-	results.sweep = { state: swept.state, piglinHurt: pigAfter < pigBefore, pigBefore, pigAfter, reported: /sweep also hit calm minecraft:zombified_piglin/.test(swept.message ?? ''), message: String(swept.message ?? '').slice(0, 400) };
+	const sweepTick = await sweeping();
+	results.sweep = { state: swept.state, piglinHurt: pigAfter < pigBefore, pigBefore, pigAfter, reported: /sweep also hit calm minecraft:zombified_piglin/.test(swept.message ?? ''), message: String(swept.message ?? '').slice(0, 400), tick: sweepTick };
 	console.log(JSON.stringify(results.sweep));
 
 	results.summary = {
@@ -121,6 +132,7 @@ try {
 		sweep: `piglin hurt ${results.sweep.piglinHurt}; reported ${results.sweep.reported}`,
 		jar: jarPath,
 	};
+	results.tick = await rate.report();
 	console.log(JSON.stringify(results.summary, null, 2));
 } finally {
 	await writeFile(join(out, 'nether-fight.json'), JSON.stringify(results, null, 2)).catch(() => {});
