@@ -129,7 +129,7 @@ try {
 			await s.command(`clear ${AGENT}`);
 			await s.command(`item replace entity ${AGENT} container.0 with minecraft:${['approach', 'approach-hungry'].includes(name) ? 'iron_pickaxe' : 'stone_sword'}`);
 			if (name !== 'open-archer') await s.command(`item replace entity ${AGENT} container.3 with minecraft:cobblestone 16`);
-			if (name === 'shield') await s.command(`item replace entity ${AGENT} weapon.offhand with minecraft:shield`);
+			if (name === 'shield' || name === 'spawner-archer') await s.command(`item replace entity ${AGENT} weapon.offhand with minecraft:shield`);
 			await s.command(`effect clear ${AGENT}`);
 			await s.command(`effect give ${AGENT} minecraft:instant_health 1 5 true`);
 			// A hungry body gets no saturation: its food is drained below sprinting instead.

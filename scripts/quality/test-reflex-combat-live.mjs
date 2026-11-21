@@ -447,6 +447,10 @@ try {
 		try {
 			await reset();
 			await command('fill -1 80 -3 1 82 -3 minecraft:stone');
+			// Ground behind a wall is never seen from in front: the body stands there first, as a player walked past it.
+			await command(`tp ${agent} 0.5 80 -5.5 180 30`); await rate.idleSleep(1500);
+			await command(`tp ${agent} 0.5 80 -5.5 0 30`); await rate.idleSleep(1000);
+			await command(`tp ${agent} 0.5 80 0.5 0 0`); await rate.idleSleep(500);
 			await command(`item replace entity ${agent} weapon.offhand with minecraft:shield`);
 			await command('summon minecraft:skeleton 0.5 80 10.5 {NoAI:1b,PersistenceRequired:1b,equipment:{mainhand:{id:"minecraft:bow",count:1}}}');
 			await rate.idleSleep(1000);

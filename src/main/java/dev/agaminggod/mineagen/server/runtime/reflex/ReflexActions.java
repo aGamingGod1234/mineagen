@@ -722,7 +722,8 @@ final class ReflexActions {
 			}
 			// No blocks, or a melee mob too near to stand building: a corner in reach is the cover.
 			if (shooter != null && !canWall && (cover != null || player.tickCount >= coverRetryTick)) {
-				if (cover == null) cover = new TakeCover(COVER_WITHIN, false);
+				// Natural cover only: building walls is the branch above, which a melee mob this near rules out.
+				if (cover == null) cover = new TakeCover(COVER_WITHIN, false, false, false);
 				Step hidden = cover.tick(new Context(player, shooter, context.stance(), context.memory(), context.point(), context.below(),
 						context.fightShields()), input);
 				if (hidden.status() == ReflexScheduler.ActionStatus.RUNNING) return Step.running(done + "; taking cover from " + type(shooter) + ": " + hidden.detail());
@@ -1617,20 +1618,6 @@ final class ReflexActions {
 						&& Math.hypot(mob.getX() - x, mob.getZ() - z) <= PACK_CELL_RADIUS && Math.abs(mob.getY() - cell.y()) < 2.0D).isEmpty();
 	}
 
-	/** A pack member within {@link #PACK_HEADING_RANGE} blocks stands within {@link #PACK_HEADING_ARC} degrees of {@code yaw}. */
-	static boolean runsIntoPack(ServerPlayer player, float yaw) {
-		for (Mob mob : player.level().getEntitiesOfClass(Mob.class, player.getBoundingBox().inflate(PACK_HEADING_RANGE),
-				mob -> mob.isAlive() && ThreatPerception.isHostileTo(mob, player) && packMember(mob, player))) {
-			if (player.distanceTo(mob) > PACK_HEADING_RANGE) continue;
-			float bearing = (float) Math.toDegrees(Math.atan2(-(mob.getX() - player.getX()), mob.getZ() - player.getZ()));
-			if (Math.abs(Mth.wrapDegrees(bearing - yaw)) <= PACK_HEADING_ARC) return true;
-		}
-		return false;
-	}
-
-	static final double PACK_HEADING_RANGE = 5.0D;
-	static final float PACK_HEADING_ARC = 40.0F;
-
 	/**
 	 * Where a pack presses from: its mobs' positions weighted by 1/distance squared, so the nearest count most and a run
 	 * leaves all of them behind instead of only the one it was told about (gate B7: a retreat from 4 zombies switched
@@ -1916,8 +1903,7 @@ final class ReflexActions {
 					&& SafeStep.blocked(player, lastHeading) == null && !runsIntoCloud(player, lastHeading)
 					&& !runsTowardVoid(player, lastHeading)) heading = lastHeading;
 			if (heading == null) heading = SafeStep.heading(player, away, offsets, lastHeading,
-					List.of(yaw -> runsIntoCloud(player, yaw) || runsTowardVoid(player, yaw) || keepClearOfPack && runsIntoPack(player, yaw),
-							yaw -> runsIntoCloud(player, yaw) || runsTowardVoid(player, yaw), yaw -> runsTowardVoid(player, yaw)), maxDrop);
+					List.of(yaw -> runsIntoCloud(player, yaw) || runsTowardVoid(player, yaw), yaw -> runsTowardVoid(player, yaw)), maxDrop);
 			lastHeading = heading;
 			if (heading == null && dropHeading != null) heading = dropHeading;
 			if (heading == null && spentAcross) return end(player, input, Step.done(String.format(Locale.ROOT, "ran %.1f blocks; no safe heading further", moved) + dropNote + walkNote));
@@ -2653,6 +2639,8 @@ final class ReflexActions {
 		private PlaceBlock wall;
 		private LivingEntity shooter;
 		private final Shield walkingGuard;
+		/** With no hiding cell in reach, build two blocks of cover from the hotbar; false: natural cover only. */
+		private final boolean buildsCover;
 		private String why;
 		/**
 		 * A rule's firing: with no cell that hides and no block to build cover, it ends done and says so instead of failing,
@@ -2682,6 +2670,11 @@ final class ReflexActions {
 		}
 
 		TakeCover(int within, boolean openGroundDone, boolean guardWhileWalking) {
+			this(within, openGroundDone, guardWhileWalking, true);
+		}
+
+		TakeCover(int within, boolean openGroundDone, boolean guardWhileWalking, boolean buildsCover) {
+			this.buildsCover = buildsCover;
 			this.within = within;
 			this.openGroundDone = openGroundDone;
 			this.walkingGuard = guardWhileWalking ? new Shield() : null;
@@ -2745,8 +2738,8 @@ final class ReflexActions {
 					why = "no cell within " + within + " steps hides from " + who + " (" + reach.size() + " cells reachable over seen ground)";
 					// In the open a player with blocks makes the cover: two blocks between it and the nearest shooter.
 					shooter = from.getFirst();
-					if (PlaceBlock.blockSlot(player, null) < 0) {
-						String open = why + "; no solid block in the hotbar to build cover";
+					if (!buildsCover || PlaceBlock.blockSlot(player, null) < 0) {
+						String open = why + (buildsCover ? "; no solid block in the hotbar to build cover" : "; not building cover here");
 						return openGroundDone ? Step.done(open + "; stayed in the open") : Step.failed(open);
 					}
 					wall = new PlaceBlock(null, 2);
