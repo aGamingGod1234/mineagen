@@ -3287,6 +3287,39 @@
    "estMinutes": 3,
    "tickRate": 20,
    "reads": "OUT/result.json row pass: from the oak tree where the playtest bot began its stone step (wooden pickaxe, sticks, planks held), obtain stone_pickaxe ended OBTAINED with no dig_to stairs_down"
+  },
+  {
+   "room": "blaze-ledge-edge",
+   "fixture": "test-ledge-blaze-live.mjs",
+   "stage": "nether-rods",
+   "skill": "survival",
+   "skill2": "combat",
+   "line": "CASES=edge REPEATS=1 ARENA_JAR=$JAR node scripts/quality/test-ledge-blaze-live.mjs $OUT",
+   "estMinutes": 4,
+   "tickRate": 20,
+   "reads": "exit code; OUT/result.json row pass: over 180 game s the body never went below the 3-wide deck it started on (edge column on the blaze side) and never touched the lava 40 blocks down; died, wallingSeen, refusal, firingAtFall recorded apart; no hit taken reads INVALID"
+  },
+  {
+   "room": "blaze-ledge-1wide",
+   "fixture": "test-ledge-blaze-live.mjs",
+   "stage": "nether-rods",
+   "skill": "survival",
+   "skill2": "combat",
+   "line": "CASES=1wide REPEATS=1 ARENA_JAR=$JAR node scripts/quality/test-ledge-blaze-live.mjs $OUT",
+   "estMinutes": 4,
+   "tickRate": 20,
+   "reads": "exit code; OUT/result.json row pass: over 180 game s the body never went below the 1-wide deck and never touched the lava 40 blocks down; died, wallingSeen, refusal, firingAtFall recorded apart; no hit taken reads INVALID"
+  },
+  {
+   "room": "blaze-ledge-corridor",
+   "fixture": "test-ledge-blaze-live.mjs",
+   "stage": "nether-rods",
+   "skill": "survival",
+   "skill2": "combat",
+   "line": "CASES=corridor REPEATS=1 ARENA_JAR=$JAR node scripts/quality/test-ledge-blaze-live.mjs $OUT",
+   "estMinutes": 4,
+   "tickRate": 20,
+   "reads": "exit code; OUT/result.json row pass (control): the walled 3-wide deck with the blaze at its end, over 180 game s the body never went below it or into the lava; wallingSeen should be true; no hit taken reads INVALID"
   }
  ]
 }
