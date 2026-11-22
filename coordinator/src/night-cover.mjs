@@ -13,6 +13,12 @@ export const NIGHT_ARMOUR = 15;
 const SHORT_WALK = 8;
 /** A walk ending this far below the body is a way down into a cave, not a walk across the hills. */
 const WAY_DOWN = 8;
+/**
+ * ServerRestController.underground: more than this much ground over the eyes and rest returns UNDERGROUND at once, so
+ * the gate does not offer it there. EYE_HEIGHT is a standing player's eye above its feet.
+ */
+const REST_UNDERGROUND_DEPTH = 4;
+const EYE_HEIGHT = 1.62;
 
 const WALKS = new Set(['travel_to', 'navigate_to']);
 
@@ -78,7 +84,12 @@ export function nightMoveStop(observation, actionType, args = {}, { environment 
 	const armour = Number.isFinite(player.armor) ? player.armor : 0;
 	const when = phase === 'dusk' ? 'dusk is a minute away' : 'it is night';
 	if (player.skyOpen === false && climbsUp(actionType, args, at, openSky)) {
-		return `${when} and armour is ${armour}: staying under cover instead of climbing to the surface. Work down here (smelt, craft, mine), or rest (it seals the way up) and go up at dawn`;
+		// Rest only seals a shallow spot: deeper (or with no open sky known to measure from) it hands back UNDERGROUND
+		// at once, so only what works down here is named.
+		const shallow = at !== null && Number.isFinite(openSky?.y) && openSky.y - (at.y + EYE_HEIGHT) <= REST_UNDERGROUND_DEPTH;
+		return shallow
+			? `${when} and armour is ${armour}: staying under cover instead of climbing to the surface. Work down here (smelt, craft, mine), or rest (it seals the way up) and go up at dawn`
+			: `${when} and armour is ${armour}: staying under cover instead of climbing to the surface. Down here the night changes nothing: smelt, craft or mine on, or wait for dawn, then go up`;
 	}
 	if (phase === 'night' && player.skyOpen !== false && WALKS.has(actionType) && !(Number.isFinite(args?.y) && at !== null && args.y < at.y - WAY_DOWN) && walkLength(args, at) > SHORT_WALK) {
 		return `${when} on open ground and armour is ${armour}: not walking out among the mobs. rest (bed, walls or a dug hole) until dawn, or dig down and work underground`;
