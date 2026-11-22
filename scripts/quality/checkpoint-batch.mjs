@@ -173,11 +173,12 @@ tar --exclude=auth.json --exclude=.codex-home -czf ../${game.id}.tgz . && echo o
 	if (changed) { signInChanged = true; await log(`SIGN-IN CHANGED on ${vm.id}${runShas.some(h => h !== authShas[game.account]) ? ' (the game\'s own copy)' : ''}: Codex refreshed it there; no new game starts`); }
 	const tgzSha = lines.find(l => l.startsWith('tgz='))?.slice(4);
 	const dest = path.join(out, 'games', game.id);
-	await rm(dest, { recursive: true, force: true }); await mkdir(dest, { recursive: true });
 	// The raw journals stay packed in game.tgz (about 1 GB unpacked per 90-minute game); only the report and logs unpack.
-	// A failed or partial copy (a full local disk, a dropped scp) is this computer's problem, not the machine's: it is
-	// marked local so the machine is not dropped, and the next pass copies the game again from the machine.
+	// Every step on this computer (the folder, the copy, its check and unpacking) that fails, for example on a full disk,
+	// is marked local: the machine is not dropped, and the next pass copies the game again from the machine.
 	const local = error => Object.assign(error, { local: true });
+	try {
+	await rm(dest, { recursive: true, force: true }); await mkdir(dest, { recursive: true });
 	await download(vm.id, `ck/games/${game.id}.tgz`, path.join(dest, 'game.tgz')).catch(error => { throw local(error); });
 	if (tgzSha && sha(path.join(dest, 'game.tgz')) !== tgzSha) throw local(new Error(`copy of ${game.id} does not match the machine's (sha), copied again next pass`));
 	// A member the archive lacks (a game that died before its report) scores unknown; failing to list or unpack the
@@ -190,6 +191,7 @@ tar --exclude=auth.json --exclude=.codex-home -czf ../${game.id}.tgz . && echo o
 	try { if (wanted.length) execFileSync('tar', ['-xzf', path.join(dest, 'game.tgz'), '-C', dest, ...wanted.map(m => m.replace(/\/$/, ''))], { stdio: 'ignore' }); }
 	catch (error) { throw local(new Error(`could not unpack the copy of ${game.id}: ${error.message.split('\n')[0]}`)); }
 	execFileSync('find', [dest, '-name', 'auth.json', '-delete']);
+	} catch (error) { throw error.local ? error : local(error); }
 	game.done = (await readFile(path.join(dest, 'done'), 'utf8').catch(() => 'missing')).trim();
 	game.score = await scoreFrom(out, game, plan);
 	game.state = 'done'; game.endedAt = new Date().toISOString();
