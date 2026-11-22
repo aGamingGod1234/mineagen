@@ -217,7 +217,7 @@ public final class ServerTravelController implements ServerController {
 	private float swimTurned;
 	/** Ticks spent ducking out from under a ceiling this swim (SwimStep.PEEK), capped at PEEK_TICKS. */
 	private int peekTicks;
-	private static final int PEEK_TICKS = 30;
+	private static final int PEEK_TICKS = dev.agaminggod.mineagen.server.perception.WaterAirFacts.PEEK_TICKS;
 	/** Banks it reached but could not climb onto (4 s within reach), never chosen again this trip. */
 	private final Set<GridPosition> refusedShores = new HashSet<>();
 	private long nearShoreSince;
@@ -710,8 +710,7 @@ public final class ServerTravelController implements ServerController {
 			// above that cell comes into view and the route up is acquired there. Not sprinting: a sprint-swim follows the
 			// view, which here points up into the ceiling.
 			peekTicks++;
-			double dx = peek.getX() + 0.5D - player.getX(), dz = peek.getZ() + 0.5D - player.getZ();
-			yaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
+			yaw = dev.agaminggod.mineagen.server.perception.WaterAirFacts.peekYaw(player, peek);
 			forward = true;
 			pitch = PEEK_PITCH;
 			boolean jump = SwimPlanning.floatJump(inWater, player.onGround(), eyesUnder);
@@ -777,8 +776,8 @@ public final class ServerTravelController implements ServerController {
 	/** What a swimmer whose eyes are under water does next. */
 	enum SwimStep { AIR, SHORE, PEEK, WAIT, LOOK, STOP }
 
-	/** The view while ducking out from under a ceiling: nearly straight up, so the open column above comes into view. */
-	static final float PEEK_PITCH = -80.0F;
+	/** The view while ducking out from under a ceiling (WaterAirFacts.PEEK_PITCH), shared with the swim-up reflex. */
+	static final float PEEK_PITCH = dev.agaminggod.mineagen.server.perception.WaterAirFacts.PEEK_PITCH;
 
 	/**
 	 * Air first, as a player does: under water the body rises along the seen route to air whenever its breath covers the

@@ -32,7 +32,9 @@ const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port = Number(proce
 if (!outArg || !jarArg || !template || !port) { console.error(USAGE); process.exit(2); }
 const runs = Number(runsArg ?? 3);
 const fixtures = (fixturesArg ?? 'lake;stair;widelake').split(';');
-const ARRIVE = new Set(['lake', 'stair', 'widelake']);
+// detour-escape: the detour pocket (a solid block over the body, the flooded shaft up one block east) with the escape job
+// (do_step escape) instead of travel_to; it passes only when the escape gets the body out (SUCCEEDED) without harm.
+const ARRIVE = new Set(['lake', 'stair', 'widelake', 'detour-escape']);
 // A bridge error (state ERROR) means the harness lost the call: invalid evidence, not a failed trial.
 const judge = (row) => {
 	if (row.state === 'ERROR') row.error = `travel_to never returned: ${row.reasonCode}`;
@@ -136,7 +138,7 @@ try {
 			await s.command(`fill ${X + 9} ${F - 6} ${Z - 1} ${X + 11} ${F - 4} ${Z + 1} minecraft:air`);
 			// Facing down the passage, so the bank at its end is seen (an unseen bank is never chosen).
 			start = [X + 0.5, F - 6, Z + 0.5]; target = { x: X + 20.5, z: Z + 0.5 }; drain = 4_000; facing = -90;
-		} else if (fixture === 'detour') {
+		} else if (fixture === 'detour' || fixture === 'detour-escape') {
 			// A solid block over the body's cell; the way to air is the flooded shaft beside it going up 10 (11 cells), on
 			// about 4 s of air: above the reserve, short of what the breath rule allows for 11 cells.
 			await s.command(`fill ${X} ${F - 11} ${Z} ${X} ${F - 10} ${Z} minecraft:water`);
@@ -181,7 +183,8 @@ try {
 			if (p && p[1] < start[1] + 4) maxX = Math.max(maxX, p[0] - start[0]);
 			await s.clock.sleep(250);
 		} })();
-		const result = await s.act('travel_to', { x: target.x, z: target.z, tolerance: 3, timeoutMs: 90_000 }, 100_000).catch(error => ({ state: 'ERROR', reasonCode: error.message }));
+		const result = await (fixture === 'detour-escape' ? s.act('escape', { timeoutMs: 30_000 }, 40_000)
+			: s.act('travel_to', { x: target.x, z: target.z, tolerance: 3, timeoutMs: 90_000 }, 100_000)).catch(error => ({ state: 'ERROR', reasonCode: error.message }));
 		// afterMs: what happens to the body in the seconds after travel_to returns (a stop under water is the model's turn).
 		const minAtResult = minHealth;
 		const resultAt = now();
