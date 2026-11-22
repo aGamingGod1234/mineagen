@@ -28,7 +28,7 @@ import { startHealthWatch } from './lib/room-evidence.mjs';
 import { deathCounter, recordDeathEvidence } from './lib/damage-counter.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
-const USAGE = 'Usage: test-spawner-hold-live.mjs OUT_DIR under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME (ARENA_JAR, SEEDS, VARIANTS, RUN_MIN, UNTIL, ARM, FIXTURE_TICK_RATE)';
+const USAGE = 'Usage: test-spawner-hold-live.mjs OUT_DIR under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME (ARENA_JAR, SEEDS, VARIANTS, RUN_MIN, UNTIL, ARM, FLEE, FIXTURE_TICK_RATE)';
 const cli = process.argv.slice(2);
 if (cli.includes('--help')) { console.log(USAGE + '\n' + EDIT_LOOP_HELP + '\n' + FIXTURE_OUTCOME_HELP); process.exit(0); }
 const out = path.resolve(cli[0] ?? 'runtime/spawner-hold-live');
@@ -39,6 +39,8 @@ if (!existsSync(jar)) { console.error(`no jar at ${jar}`); process.exit(2); }
 const SEEDS = (process.env.SEEDS ?? '20261119,20261120,20261121,20261122').split(',');
 const VARIANTS = (process.env.VARIANTS ?? 'plain,withers').split(',');
 const TICK_RATE = unshownTickRate('not yet in a 20 vs 60 TPS A/B');
+// FLEE: the stand-in's fleeAtHealth (6 by default; 12+ checks that the hold's walled-in heal, not the engine's retreat, answers it).
+const FLEE = Number(process.env.FLEE ?? 6);
 const RUN_MIN = Number(process.env.RUN_MIN ?? 25), UNTIL = Number(process.env.UNTIL ?? 7), ARM = process.env.ARM ?? 'new';
 // The mod reads the instincts arm from its environment; the server inherits this process's.
 process.env.MINEAGEN_INSTINCTS = 'instincts';
@@ -200,11 +202,11 @@ async function oneRun(s, seed, variant, keepStance) {
 		if (h < 10 && breadHeld(o) > 0 && (o.player?.food ?? o.player?.foodLevel ?? 0) < 20) {
 			await s.act('select_item', { itemId: 'minecraft:bread' }).catch(() => {});
 			type = 'use_item'; args = { durationMs: 1700, expectedItemId: 'minecraft:bread' };
-		} else if (h <= 6) {
+		} else if (h <= FLEE) {
 			// Hurt and full: wait to regrow above the call's 6-health floor, as a model would, rather than reissue at once.
 			type = 'wait'; args = { durationMs: 2000 };
 		} else {
-			type = 'fight_until'; args = { mob: 'minecraft:blaze', untilItem: 'minecraft:blaze_rod', untilCount: UNTIL, fleeAtHealth: 6, timeoutMs: Math.max(1000, Math.min(600_000, left)) };
+			type = 'fight_until'; args = { mob: 'minecraft:blaze', untilItem: 'minecraft:blaze_rod', untilCount: UNTIL, fleeAtHealth: FLEE, timeoutMs: Math.max(1000, Math.min(600_000, left)) };
 		}
 		// The mod can move the goal revision on (a low-health hand-back) with no goal_control the fixture follows: adopt it.
 		if (Number.isSafeInteger(o.goalRevision) && o.goalRevision > s.record.goalRevision) {
