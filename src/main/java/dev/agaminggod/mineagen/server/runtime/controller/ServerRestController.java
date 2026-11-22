@@ -321,9 +321,13 @@ public final class ServerRestController implements ServerController {
 				return runChild(environment.clear(player, second, STEP_MS), dug2 -> {
 					if (dug2.state() != State.SUCCEEDED) return stuck(player, "could not dig the hole: " + dug2.reasonCode() + " " + dug2.message());
 					return lookThen(floor, () -> {
-						if (!solid(player, floor)) return stuck(player, "under the hole at " + second.toShortString() + " is "
+						// From beside a 1-wide hole the body's own block hides the hole's floor, so it is nearly always unseen
+						// (from-scratch game 13: rest refused every night hole at 1.3 health with an empty inventory). A player
+						// digs two down and steps in; only a floor known to be open or fluid is a drop.
+						boolean unseen = SeenTerrain.of(player).known(floor.getX(), floor.getY(), floor.getZ()) == null;
+						if (!unseen && !solid(player, floor)) return stuck(player, "under the hole at " + second.toShortString() + " is "
 								+ describeBelow(player, floor) + ": not stepping into a drop; wall in with 10 or more plain blocks, or rest on solid ground");
-						log.add("hole dug to " + second.toShortString() + " over solid " + describeBelow(player, floor));
+						log.add("hole dug to " + second.toShortString() + (unseen ? " (its floor hidden from beside it)" : " over solid " + describeBelow(player, floor)));
 						return runChild(new ServerNavigationController(Vec3.atBottomCenterOf(second), 0.35D, false, dev.agaminggod.mineagen.server.runtime.GameClock.nowMs(), STEP_MS, false),
 								stepped -> stepped.state() == State.SUCCEEDED || feet(player).equals(second) ? roofHole(player, away)
 										: stuck(player, "could not step into the hole: " + stepped.reasonCode() + " " + stepped.message()));

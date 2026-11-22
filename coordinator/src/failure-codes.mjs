@@ -47,6 +47,9 @@ export const FAILURE_CODES = Object.freeze({
 	FIND_NOT_FOUND: ['body', null],
 	SEARCH_BOUNDARY: ['body', 'body stays inside search circle with braking room', ['searchBoundaryReached(']],
 	FIND_DANGER: ['threat', null],
+	// Night with no armour (night-cover.mjs): find and obtain refuse a climb up or a long walk on open ground until dawn.
+	FIND_NIGHT: ['threat', null],
+	NIGHT: ['threat', null],
 	FIND_BLOCKED: ['item', null],
 	FIND_NO_POSITION: ['internal', 'no live sample gave the body position'],
 	SHELTER_BLOCKED: ['cell', null],

@@ -10,6 +10,7 @@
 import { howtoIndex } from './howto.mjs';
 import { DAMAGE_STOPS, FIGHT_STOPS, DISCARD, LIFE_SAFETY_STOPS, MAX_FIND_TIMEOUT_MS, UNREACHED, UNREACHED_SPOT, caveLog, hostileIsDanger, sameVein } from './find-search.mjs';
 import { threatRows, blazeBlocksErrand } from './search-danger.mjs';
+import { nightMoveStop } from './night-cover.mjs';
 import { REGEN_RESUME_HEALTH, bodyDanger, eatCalls, lowHealthFork } from './fork-rule.mjs';
 import { heldCounts, heldOf, keepPickaxeMakings, planObtain, readyTimes, resolveObtainItem, shortId, OBTAIN_STATIONS } from './obtain-plan.mjs';
 
@@ -341,7 +342,7 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		return args;
 	};
 	// An action still running when danger interrupted (the runtime keeps it for the model) is handed back with its handle.
-	let running = null, danger = null, fillToolStop = null, capacityStop = null;
+	let running = null, danger = null, fillToolStop = null, capacityStop = null, nightStop = null;
 	// The fork the coordinator stopped this run for ({reasonCode, message}), unless obtain found danger of its own: the
 	// run then ends with the fork's code, and the legs it cut short are not read as danger.
 	const forkStop = () => (danger === null ? rawBody.forkStop?.() ?? null : null);
@@ -391,28 +392,32 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		danger ??= bodyDanger(o);
 		return body.interrupted() || body.stopped();
 	};
-	const errandStop = async () => {
+	const nightRefused = { state: 'FAILED', reasonCode: 'NIGHT' };
+	const errandStop = async (type, args) => {
+		if (nightStop !== null) return nightRefused;
 		const o = await observe();
 		// A fresh observation yields: preserve cancellation and the deadline before dispatching after it.
 		if (danger !== null || rawBody.interrupted() || rawBody.stopped()) return halted();
 		if (left() <= 0) return expired;
+		const night = type === undefined ? null : nightMoveStop(o, type, args);
+		if (night !== null) { nightStop = night; step(`not now: ${night}`); return nightRefused; }
 		if (blazeBlocksErrand(o) === null) return null;
 		danger = 'blaze exposure: stay in cover or choose combat before resource travel';
 		return halted();
 	};
-	const guard = async (call, errand = false) => {
+	const guard = async (call, errand = false, type, args) => {
 		if (checkingCleanup && cleanupStopped(await observe().catch(() => null))) return halted();
 		if (danger !== null || rawBody.interrupted() || rawBody.stopped()) return halted();
 		if (capacityStop !== null && !cleaning) return { state: 'FAILED', reasonCode: 'INVENTORY_FULL' };
 		if (cleanupObservationFailed) return unavailable;
 		if (left() <= 0) return expired;
-		if (errand) { const stopped = await errandStop(); if (stopped !== null) return stopped; }
+		if (errand) { const stopped = await errandStop(type, args); if (stopped !== null) return stopped; }
 		const result = await seen(call());
 		if (checkingCleanup) cleanupStopped(await observe().catch(() => null));
 		return result;
 	};
-	const body = { ...rawBody, observe, interrupted: () => danger !== null || rawBody.interrupted(), stopped: () => rawBody.stopped() || left() <= 0 || fillToolStop !== null || capacityStop !== null || cleanupObservationFailed,
-		act: (type, args) => type === 'dig_to' ? withMiningRoom(() => guard(() => rawBody.act(type, cap(args)), ['travel_to', 'navigate_to', 'dig_to', 'mine_vein'].includes(type))) : guard(() => rawBody.act(type, cap(args)), ['travel_to', 'navigate_to', 'dig_to', 'mine_vein'].includes(type)),
+	const body = { ...rawBody, observe, interrupted: () => danger !== null || rawBody.interrupted(), stopped: () => rawBody.stopped() || left() <= 0 || fillToolStop !== null || capacityStop !== null || nightStop !== null || cleanupObservationFailed,
+		act: (type, args) => type === 'dig_to' ? withMiningRoom(() => guard(() => rawBody.act(type, cap(args)), true, type, args)) : guard(() => rawBody.act(type, cap(args)), ['travel_to', 'navigate_to', 'dig_to', 'mine_vein'].includes(type), type, args),
 		mine: (args) => withMiningRoom(() => guard(() => rawBody.mine(cap(args)))),
 		moveTo: (args) => guard(() => rawBody.moveTo(cap(args)), true), gather: (args) => guard(() => rawBody.gather(cap(args)), true),
 		// find's search, inside obtain's time; its danger stop is obtain's danger, its leg still running is handed back.
@@ -423,6 +428,7 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			{ const stopped = await errandStop(); if (stopped !== null) return stopped; }
 			const result = await rawBody.search(target, { ...options, timeoutMs: Math.max(5_000, Math.min(options.timeoutMs, left())) });
 			dryBeforeSearch = lastDry !== null;
+			if (result?.reasonCode === 'FIND_NIGHT' && nightStop === null) nightStop = String(result.message ?? 'night').replace(/\. Covered in .*$/, '');
 			// A search a fork stopped ends with the fork's code (the loop top), not as danger.
 			const fork = forkStop() !== null;
 			if (!fork && result?.reasonCode === 'FIND_DANGER' && danger === null) {
@@ -1474,6 +1480,7 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		if (have >= count) return end('SUCCEEDED', 'OBTAINED', `Obtained ${label}`);
 		if (now() - startedAt >= timeoutMs) return end('TIMED_OUT', 'OBTAIN_TIMEOUT', `timeoutMs ${timeoutMs} ran out`);
 		if (capacityStop !== null) return end('FAILED', 'OBTAIN_STUCK', capacityStop);
+		if (nightStop !== null) return end('INTERRUPTED', 'NIGHT', `Waiting for morning: ${nightStop}; call obtain again at dawn or from under cover`);
 		if (approachStop !== null) return end('FAILED', approachStop.reasonCode, approachStop.message);
 		if (++rounds > MAX_ROUNDS) return end('FAILED', 'OBTAIN_STUCK', `${MAX_ROUNDS} rounds without finishing`);
 		const health = o.player?.health;

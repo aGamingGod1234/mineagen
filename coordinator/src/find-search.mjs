@@ -7,6 +7,7 @@
 import { howtoIndex } from './howto.mjs';
 import { eyeTarget, eyesHeld, followEyes } from './find-eyes.mjs';
 import { portalTarget, strongholdNearby, findPortalRoom } from './find-portal-room.mjs';
+import { nightMoveStop } from './night-cover.mjs';
 import { ENGAGE_CLOSE, SEARCH_LOW_HEALTH, creeperNear, pursuedByPack, searchDanger, threatRows } from './search-danger.mjs';
 
 export const FIND_KINDS = Object.freeze(['block', 'biome', 'mob', 'structure']);
@@ -424,7 +425,14 @@ function nearestCardinal(yaw) {
  * early, reported as result.seen), frontier() (exploreFrontier footing with coverage), known() (remembered sightings
  * and blocks), places() (the model's remembered places), progress(facts). Returns { state, reasonCode, message, find }.
  */
-export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, within = DEFAULT_FIND_WITHIN } = {}) {
+export async function searchFor(target, body, options = {}) {
+	const night = { ended: null };
+	const result = await searchLegs(target, body, options, night);
+	// A night stop ends every later leg at once; whatever the search said after it, the night is why it stopped.
+	return night.ended !== null && result?.state !== 'SUCCEEDED' ? night.ended : result;
+}
+
+async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, within = DEFAULT_FIND_WITHIN } = {}, night) {
 	const startedAt = body.now();
 	const deadline = startedAt + timeoutMs;
 	let observation = await body.observe();
@@ -470,7 +478,9 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 		return { state, reasonCode, ...extra, message: `${why}. Covered in ${c.seconds} s: ${c.legs} leg(s), walked ${c.walked} blocks, now ${c.fromStart} from the start at y${c.y}${c.deepestY < c.startY - 2 ? ` (deepest y${c.deepestY})` : ''}; ${profile.label} not seen${caveNote}`,
 			find: { target: profile.label, covered: c } };
 	};
-	const left = () => deadline - body.now();
+	// Set once a leg would take the body up or out into the night: every later leg ends the search the same way.
+	let nightEnded = null;
+	const left = () => nightEnded !== null ? 0 : deadline - body.now();
 	const armed = () => (observation?.inventory?.items ?? []).some((item) => WEAPON.test(item?.itemId ?? ''));
 	const forTarget = (place) => place.blockId === undefined || profile.ids.has(place.blockId);
 	const unreached = (body.missedPlaces?.() ?? []).filter((place) => place.why === UNREACHED && forTarget(place)).map(({ x, y, z }) => ({ x, y, z }));
@@ -645,6 +655,11 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 
 	// One body action toward the search; a sighting during it (its own stopWhenSeen, or the watch) ends it.
 	const leg = async (how, actionType, args) => {
+		if (nightEnded === null) {
+			const why = nightMoveStop(observation, actionType, args);
+			if (why !== null) night.ended = nightEnded = handBack('FAILED', 'FIND_NIGHT', `Stopped before "${how}": ${why}`);
+		}
+		if (nightEnded !== null) return { ended: nightEnded, result: { state: 'FAILED', reasonCode: 'FIND_NIGHT' } };
 		progress(how);
 		const timeout = Math.min(left(), 600_000, args.timeoutMs ?? Infinity);
 		// Controllers enforce the original circle on every tick, including retrace detours.
