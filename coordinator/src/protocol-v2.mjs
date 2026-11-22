@@ -97,12 +97,15 @@ const SERVER_TYPES = new Set(SERVER_TO_COORDINATOR_TYPES);
 const REVISION_GUARDED_INBOUND_TYPES = new Set(['plan_facts', 'advancement_granted', 'entity_killed', 'observation', 'inspection_result', 'conversation_event', 'action_progress', 'action_result', 'goal_completion_result']);
 const REVISION_GUARDED_OUTBOUND_TYPES = new Set(['agent_ready', 'planning_state', 'goal_completed', 'conversation_wake_ack', 'request_observation', 'inspection_request', 'action_command', 'action_cancel', 'agent_error', 'verbose_event']);
 const TERMINAL_ACTION_STATES = new Set(['SUCCEEDED', 'FAILED', 'CANCELLED', 'TIMED_OUT']);
-// Snapshots that the next message of the same type supersedes. When the payload of one of these fails only because the
-// server emits something this schema does not know (SCHEMA_DRIFT_REPAIRS), the message is dropped and reported instead of
-// closing the session: a reconnect cannot cure an emitter and schema that disagree, it replays the same message while
-// in-flight actions are lost. Containment runs after the same guards a valid message passes (duplicate ID, server
-// instance, fragment ordering, agent identity, goal revision), so corruption behind the drift still closes the connection.
+// Snapshots that the next message of the same type supersedes. Once the session is ready, a payload of one of these that
+// fails validation is dropped and reported instead of closing the session: a reconnect cannot cure an emitter and schema
+// that disagree, it replays the same message while in-flight actions are lost. Containment runs after the same guards a
+// valid message passes (envelope header, duplicate ID, server instance, fragment ordering, agent identity, goal revision),
+// so a bad envelope or revision still closes the connection. Unknown fields (SCHEMA_DRIFT_REPAIRS) are dropped for as long
+// as they last; a malformed or oversized known fact closes the connection only after
+// MAX_CONSECUTIVE_SNAPSHOT_REJECTIONS of that agent's snapshots of that type in a row failed.
 const SUPERSEDED_INBOUND_TYPES = new Set(['observation', 'action_progress']);
+const MAX_CONSECUTIVE_SNAPSHOT_REJECTIONS = 8;
 // Only these errors supply a repair that removes schema drift from a private validation copy.
 // Missing or mistyped facts, bad numbers/identifiers and oversized arrays never supply a repair.
 const SCHEMA_DRIFT_REPAIRS = new WeakMap();
@@ -471,8 +474,16 @@ function normalizeProtocolV2Payload(type, value) {
 				goalRevision: revision(value.goalRevision, 'goalRevision'),
 			};
 		case 'request_observation':
-			exactKeys(value, ['goalRevision'], ['goalRevision'], type);
-			return { goalRevision: revision(value.goalRevision, 'goalRevision') };
+			exactKeys(value, ['goalRevision', 'resync', 'acceptedEventSequence'], ['goalRevision'], type);
+			// resync: the coordinator dropped an observation, so the server announces again what it missed, counting from
+			// acceptedEventSequence (its last accepted observation) when given.
+			if (value.resync !== undefined && value.resync !== true) throw new ProtocolV2Error('INVALID_PAYLOAD', 'request_observation resync is only true');
+			if (value.acceptedEventSequence !== undefined && value.resync !== true) throw new ProtocolV2Error('INVALID_PAYLOAD', 'request_observation acceptedEventSequence needs resync');
+			return {
+				goalRevision: revision(value.goalRevision, 'goalRevision'),
+				...(value.resync === undefined ? {} : { resync: true }),
+				...(value.acceptedEventSequence === undefined ? {} : { acceptedEventSequence: positiveInteger(value.acceptedEventSequence, 'acceptedEventSequence') }),
+			};
 		case 'inspection_request':
 			exactKeys(value, ['goalRevision', 'requestId', 'query'], ['goalRevision', 'requestId', 'query'], type);
 			return { goalRevision: revision(value.goalRevision, 'goalRevision'), requestId: requireIdentifier(value.requestId, 'requestId'), query: normalizeInspectionQuery(value.query) };
@@ -654,6 +665,11 @@ export class MultiplexedServerBridge extends EventEmitter {
 	#retiredAgentIds = new Set();
 	#observedRevisions = new Map();
 	#payloadRejections = new Map();
+	#snapshotRejectionStreaks = new Map();
+	/** Agents asked to re-announce what they missed: the last observation accepted before the drops, and drops since asking. */
+	#resyncRequested = new Map();
+	/** The event sequence of each agent's last accepted observation: a resync counts the server's changes from it. */
+	#acceptedObservationSequence = new Map();
 
 	constructor(config, { audit = null, ...dependencies } = {}) {
 		super();
@@ -762,6 +778,9 @@ export class MultiplexedServerBridge extends EventEmitter {
 	#onConnect(socket, connectionEpoch) {
 		if (!this.#isCurrentConnection(socket, connectionEpoch)) return;
 		this.#inboundMessageIds.clear();
+		this.#snapshotRejectionStreaks.clear();
+		this.#resyncRequested.clear();
+		this.#acceptedObservationSequence.clear();
 		this.#observedRevisions.clear();
 		this.#clearInboundQueue();
 		this.#clientNonce = authenticationToken(this.#randomNonce(), 'clientNonce');
@@ -829,26 +848,36 @@ export class MultiplexedServerBridge extends EventEmitter {
 	#accept(value, socket, connectionEpoch) {
 		let envelope;
 		let payloadError = null;
+		let corruptSnapshot = false;
 		try {
 			envelope = validateProtocolV2Envelope(value, { direction: 'server_to_coordinator' });
 		} catch (error) {
-			if (!this.#ready || !SCHEMA_DRIFT_REPAIRS.has(error)) throw error;
+			if (!this.#ready) throw error;
 			const header = validateEnvelopeHeader(value, 'server_to_coordinator');
 			if (!SUPERSEDED_INBOUND_TYPES.has(header.type)) throw error;
-			// Revalidate a private copy after discarding only explicitly classified drift. A later malformed
-			// known fact remains fatal. This copy is never delivered: the whole snapshot is rejected below.
-			const payload = structuredClone(value.payload);
-			for (;;) {
-				try {
-					envelope = { ...header, payload: validateProtocolV2Payload(header.type, payload) };
-					break;
-				} catch (knownError) {
-					const discard = SCHEMA_DRIFT_REPAIRS.get(knownError);
-					if (discard === undefined) throw knownError;
-					discard();
+			payloadError = error;
+			if (SCHEMA_DRIFT_REPAIRS.has(error)) {
+				// Revalidate a private copy after discarding only explicitly classified drift. This copy is never
+				// delivered: the whole snapshot is rejected below.
+				const payload = structuredClone(value.payload);
+				for (;;) {
+					try {
+						envelope = { ...header, payload: validateProtocolV2Payload(header.type, payload) };
+						break;
+					} catch (knownError) {
+						const discard = SCHEMA_DRIFT_REPAIRS.get(knownError);
+						if (discard !== undefined) { discard(); continue; }
+						payloadError = knownError;
+						break;
+					}
 				}
 			}
-			payloadError = error;
+			if (envelope === undefined) {
+				// A malformed or oversized known fact. The guards below still need a valid goal revision, which
+				// they read straight from the raw payload, so a missing or bad revision stays fatal.
+				corruptSnapshot = true;
+				envelope = { ...header, payload: { goalRevision: value.payload.goalRevision } };
+			}
 		}
 		if (payloadError === null) this.#invokeAudit('server_to_coordinator', envelope.type === 'auth_response'
 			? { ...envelope, payload: { ...envelope.payload, proof: '[REDACTED]' } }
@@ -894,9 +923,49 @@ export class MultiplexedServerBridge extends EventEmitter {
 				&& envelope.type !== 'agent_registered' && !retainedRetiredResult) {
 			throw new ProtocolV2Error('UNKNOWN_AGENT', `Message references unknown agent '${envelope.agentId}'`);
 		}
+		const streak = `${envelope.agentId}\0${envelope.type}`;
 		if (payloadError !== null) {
+			if (corruptSnapshot) {
+				const inARow = (this.#snapshotRejectionStreaks.get(streak) ?? 0) + 1;
+				if (inARow >= MAX_CONSECUTIVE_SNAPSHOT_REJECTIONS) {
+					// The server keeps sending snapshots this agent can never use: reconnect rather than run blind.
+					throw new ProtocolV2Error('REPEATED_SNAPSHOT_REJECTION',
+						`${inARow} ${envelope.type} snapshots in a row for '${envelope.agentId}' failed validation; last: ${payloadError.code ?? 'PROTOCOL_ERROR'} ${payloadError.message}`,
+						{ cause: payloadError });
+				}
+				this.#snapshotRejectionStreaks.delete(streak);
+				if (this.#snapshotRejectionStreaks.size >= MAX_TRACKED_PAYLOAD_REJECTIONS) this.#snapshotRejectionStreaks.delete(this.#snapshotRejectionStreaks.keys().next().value);
+				this.#snapshotRejectionStreaks.set(streak, inARow);
+				// The server counted the dropped observation as delivered, so a wake it carried (a creeper starting to swell)
+				// would never come again. Ask it to announce every current threat again: once now, and once more after the
+				// fault clears if the answer was dropped too, so a fault lasting a few seconds is ridden out at the normal rate.
+				if (envelope.type === 'observation') {
+					const pending = this.#resyncRequested.get(envelope.agentId);
+					if (pending === undefined) {
+						this.#requestResync(envelope.agentId, envelope.payload.goalRevision, this.#acceptedObservationSequence.get(envelope.agentId), connectionEpoch);
+					} else pending.dropped += 1;
+				}
+			}
 			this.#reportRejectedPayload(envelope, value, payloadError, connectionEpoch);
 			return;
+		}
+		this.#snapshotRejectionStreaks.delete(streak);
+		if (envelope.type === 'observation' && envelope.payload.eventSequence !== undefined) {
+			this.#acceptedObservationSequence.delete(envelope.agentId);
+			this.#acceptedObservationSequence.set(envelope.agentId, envelope.payload.eventSequence);
+			if (this.#acceptedObservationSequence.size > MAX_REGISTRY_SNAPSHOT_AGENTS) this.#acceptedObservationSequence.delete(this.#acceptedObservationSequence.keys().next().value);
+		}
+		if (envelope.type === 'observation' && this.#resyncRequested.has(envelope.agentId)) {
+			// Still counted from the last observation accepted before the drops: later ones were changes against dropped ones.
+			// The server forces attention on its answer, so a quiet observation already on its way is not taken for it.
+			const pending = this.#resyncRequested.get(envelope.agentId);
+			if (pending.dropped > 0) this.#requestResync(envelope.agentId, envelope.payload.goalRevision, pending.from, connectionEpoch);
+			else if (envelope.payload.attention === true) this.#resyncRequested.delete(envelope.agentId);
+		}
+		if (envelope.type === 'agent_registered' || envelope.type === 'agent_removed') {
+			this.#resyncRequested.delete(envelope.agentId);
+			this.#acceptedObservationSequence.delete(envelope.agentId);
+			for (const type of SUPERSEDED_INBOUND_TYPES) this.#snapshotRejectionStreaks.delete(`${envelope.agentId}\0${type}`);
 		}
 		if (envelope.type === 'agent_removed') {
 			rememberBounded(this.#retiredAgentIds, envelope.agentId, MAX_TRACKED_TERMINAL_ACTION_IDS);
@@ -907,6 +976,12 @@ export class MultiplexedServerBridge extends EventEmitter {
 		if (envelope.type === 'heartbeat' && !this.#acceptHeartbeat(envelope.payload, socket, connectionEpoch)) return;
 		const event = { ...envelope, connectionEpoch };
 		this.#enqueueInbound(event, socket, connectionEpoch);
+	}
+
+	#requestResync(agentId, goalRevision, from, connectionEpoch) {
+		this.#resyncRequested.set(agentId, { dropped: 0, from });
+		void this.send('request_observation', agentId, { goalRevision, resync: true, ...(from === undefined ? {} : { acceptedEventSequence: from }) },
+			{ connectionEpoch }).catch(() => {});
 	}
 
 	/** Report drift only after the normal delivery, identity and revision guards have passed. */
