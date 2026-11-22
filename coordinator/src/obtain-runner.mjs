@@ -1299,6 +1299,8 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 				looted.doors.push({ x: door.x, y: door.y, z: door.z });
 				step(`look into the house through the door at ${cellKey(door)}`);
 				if (!(await walk(door, 2))) { if (body.interrupted() || body.stopped()) return 'stopped'; continue; }
+				// The way in is away from where the body stands outside the door.
+				const from = bodyAt(await body.observe()) ?? { x: door.x + 0.5, z: door.z + 1.5 };
 				await act('set_door', { x: door.x, y: door.y, z: door.z, open: true });
 				// A hostile in or by the house: not a house to walk into. Shut it again and try the next.
 				const near = ((await body.observe()).entities ?? []).filter((row) => row?.alive !== false && [row.x, row.z].every(Number.isFinite)
@@ -1308,7 +1310,6 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 				if (inside) { await act('set_door', { x: door.x, y: door.y, z: door.z, open: false }); step(`a ${bare(inside.type)} by the door at ${cellKey(door)}: not going in`); continue; }
 				// Through the doorway: two blocks past the door on the far side from where the body stands (travel's tolerance
 				// is at least a block, so a target in the doorway itself can stop outside).
-				const from = bodyAt(await body.observe()) ?? { x: door.x + 0.5, z: door.z + 1.5 };
 				const dx = door.x + 0.5 - from.x, dz = door.z + 0.5 - from.z;
 				const axisX = Math.abs(dx) >= Math.abs(dz);
 				const into = { x: Math.floor(door.x) + 0.5 + (axisX ? 2 * Math.sign(dx || 1) : 0), z: Math.floor(door.z) + 0.5 + (axisX ? 0 : 2 * Math.sign(dz || 1)) };
