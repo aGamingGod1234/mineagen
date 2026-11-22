@@ -45,6 +45,16 @@ test('food only in the offhand is eaten from the offhand, not selected into the 
 	assert.equal(hotbar.calls[1].arguments.arguments.hand, undefined);
 });
 
+test('a sword carried off the hotbar is no weapon to fight with: the zombie is fled', () => {
+	// ServerFightController picks only hotbar weapons, so a sword in the main inventory or offhand leaves the hand empty.
+	const result = failed('HOSTILE_NEAR', `build nether_portal; minecraft:zombie ${ZOMBIE} 2.0 blocks away`);
+	for (const slot of [20, 40]) {
+		const decision = standinFork({ result, observation: body({ items: [{ itemId: 'minecraft:iron_sword', count: 1, slot }, { itemId: 'minecraft:bread', count: 8, slot: 0 }], entities: [zombie(2)] }) });
+		assert.equal(decision.choice, 'flee', `sword in slot ${slot}`);
+	}
+	assert.notEqual(standinFork({ result, observation: body({ items: kit, entities: [zombie(2)] }) }).choice, 'flee');
+});
+
 test('a zombie that stopped the build next to the body is fought, not waited out', () => {
 	// cast-gate-7: build nether_portal ended HOSTILE_NEAR with a zombie 1.4 blocks away; the old stand-in only re-asked.
 	const decision = standinFork({ result: failed('HOSTILE_NEAR', `build nether_portal; minecraft:zombie ${ZOMBIE} 1.4 blocks away`), observation: body({ items: kit, entities: [zombie(1.4)] }) });

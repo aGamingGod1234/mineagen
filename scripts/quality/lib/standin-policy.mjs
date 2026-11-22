@@ -38,6 +38,8 @@ const failed = result => result && result.state !== 'SUCCEEDED';
 const mobType = id => String(id ?? '').replace(/^minecraft:/, '');
 const distanceTo = (at, one) => (at && [one?.x, one?.y, one?.z].every(Number.isFinite) ? Math.hypot(one.x - at.x, one.y - at.y, one.z - at.z) : null);
 const isHeld = (item, selected) => item.slot === 'mainhand' || item.slot === 'offhand' || item.slot === 40 || (Number.isInteger(item.slot) && item.slot <= 8) || item.slot === selected;
+// The fight controller picks its weapon from hotbar slots 0-8 only (HotbarWeapons.candidates).
+const onHotbar = item => item.slot === 'mainhand' || (Number.isInteger(item.slot) && item.slot >= 0 && item.slot <= 8);
 const usesLeft = item => (item?.maxDamage > 0 ? item.maxDamage - (item.damage ?? 0) : Infinity);
 // Minecraft yaw: 0 faces +z (south), 90 faces -x (west).
 const yawToward = (dx, dz) => Math.round(Math.atan2(-dx, dz) * 180 / Math.PI);
@@ -150,7 +152,7 @@ export function standinFork({ result, observation, used = {}, skip = [], wantsWa
 	const attacked = mob && (DANGER_CODES.has(code) || mob.distance !== null && mob.distance <= 6 || (observation.entities ?? []).some(one => one?.stableId === mob.id && one.targetingAgent === true));
 	if (open('hostile') && mob && attacked) {
 		const items = observation.inventory?.items ?? [];
-		const answer = mobAnswer({ ...mob, health, outOfSight: !(mob.distance !== null && mob.distance <= 8), unarmed: /nothing to fight/i.test(message) || !items.some(item => WEAPON.test(item.itemId)),
+		const answer = mobAnswer({ ...mob, health, outOfSight: !(mob.distance !== null && mob.distance <= 8), unarmed: /nothing to fight/i.test(message) || !items.some(item => WEAPON.test(item.itemId) && onHotbar(item)),
 			shielded: items.some(item => (item.slot === 40 || item.slot === 'offhand') && item.itemId === 'minecraft:shield') });
 		// Cover: a fixture with its own heal (the build rooms wall in and eat) uses that; the calls here are the plain
 		// answer for one without: flee the mob, then eat when food is carried.
