@@ -130,6 +130,9 @@ let created = 0, spares = plan.spares ?? 0, stopped = false, aborted = false, si
 // The first signal starts no new game and lets running ones finish; a second ends the running games and goes straight
 // to the cleanup (sign-ins off, created machines deleted). A hang-up counts as a signal too.
 const onSignal = () => { if (stopped) aborted = true; stopped = true; };
+// After a hang-up the terminal is gone and a write to it fails; batch.log still gets every line, and the runner must
+// live on to its cleanup.
+for (const stream of [process.stdout, process.stderr]) stream.on('error', () => {});
 for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, onSignal);
 // A created machine's boat deadline: the whole game window plus an hour for setup and copy-back, at least 2 hours.
 const TTL_SECONDS = Math.max(2 * 3600, (plan.minutes + 60) * 60);
@@ -195,14 +198,14 @@ if [ -n "$raw" ] && [ -d "$raw" ]; then rm -rf raw; mkdir raw; tar -C "$raw" --e
 [ -n "$raw" ] && find "$raw" -path '*.codex-home/auth.json' -exec sha256sum {} + 2>/dev/null | cut -c1-64 | sed 's/^/run=/'
 tar --exclude=auth.json --exclude=.codex-home -czf ../${game.id}.tgz . && echo ok; echo tgz=$(sha256sum ../${game.id}.tgz | cut -c1-64); sha256sum ~/.codex/auth.json | cut -c1-64`, { timeoutMs: 15 * 60_000 });
 	const lines = text.trim().split('\n'), remoteSha = lines.pop();
-	// No "ok" means tar failed on the machine (its disk full, say): a machine-side failure, not a local one, so it counts
-	// against the machine instead of being copied again forever.
-	if (!lines.includes('ok')) throw new Error(`could not pack ${game.id} on ${vm.id}`);
 	// The game's coordinator works on its own copy of the sign-in (.codex-home under the run folder), so a refresh during
 	// the game shows there, not in ~/.codex: both must still match the source.
 	const runShas = lines.filter(l => l.startsWith('run=')).map(l => l.slice(4));
 	const changed = [remoteSha, ...runShas].some(hash => hash !== authShas[game.account]);
 	if (changed) { signInChanged = true; await log(`SIGN-IN CHANGED on ${vm.id}${runShas.some(h => h !== authShas[game.account]) ? ' (the game\'s own copy)' : ''}: Codex refreshed it there; no new game starts`); }
+	// No "ok" means tar failed on the machine (its disk full, say): a machine-side failure, not a local one, so it counts
+	// against the machine instead of being copied again forever. The sign-in hashes above were already compared.
+	if (!lines.includes('ok')) throw new Error(`could not pack ${game.id} on ${vm.id}`);
 	const tgzSha = lines.find(l => l.startsWith('tgz='))?.slice(4);
 	const dest = path.join(out, 'games', game.id);
 	// The raw journals stay packed in game.tgz (about 1 GB unpacked per 90-minute game); only the report and logs unpack.
@@ -273,18 +276,21 @@ async function tend(vm, step) {
 		}
 		vm.failingSince ??= Date.now();
 		const gone = await machineState(vm.id).then(s => !LIVE.has(s)).catch(() => false);
-		if (gone || Date.now() - vm.failingSince > LOST_AFTER_MS) {
-			vm.lost = true;
-			if (vm.game) { const g = loseGame(games, vm.game, `machine ${vm.id} stopped answering`); await log(`lost ${vm.id}; ${g.id} is ${g.state}`); vm.game = null; }
-			// A lost machine this batch would delete anyway is deleted now (a stopped one too: its snapshot bills), not left
-			// billing until the batch ends. A listed one is kept, and the cleanup still tries to take its sign-in off.
-			if (deletes(vm)) {
-				await removeCodexSignIn(vm.id).catch(() => {});
-				await destroyWithRetry(vm.id).then(() => { vm.deleted = true; return log(`deleted lost machine ${vm.id}`); }, e => log(`could not delete lost machine ${vm.id}: ${e.message}`));
-			}
-			if (spares > 0 && !noMoreGames()) { spares--; const extra = await addMachine('replacement').catch(async e => { await log(`replacement failed: ${e.message}`); return { id: 'none', lost: true }; }); machines.push(extra); await save().catch(() => {}); }
-		}
+		if (gone || Date.now() - vm.failingSince > LOST_AFTER_MS) await dropMachine(vm);
 	}
+}
+// A machine that stopped answering, or whose launches keep dying: its game goes back to the queue once, a machine this
+// batch would delete is deleted now, and a spare replaces it while games can still start.
+async function dropMachine(vm) {
+	vm.lost = true;
+	if (vm.game) { const g = loseGame(games, vm.game, `machine ${vm.id} stopped answering`); await log(`lost ${vm.id}; ${g.id} is ${g.state}`); vm.game = null; }
+	// A lost machine this batch would delete anyway is deleted now (a stopped one too: its snapshot bills), not left
+	// billing until the batch ends. A listed one is kept, and the cleanup still tries to take its sign-in off.
+	if (deletes(vm)) {
+		await removeCodexSignIn(vm.id).catch(() => {});
+		await destroyWithRetry(vm.id).then(() => { vm.deleted = true; return log(`deleted lost machine ${vm.id}`); }, e => log(`could not delete lost machine ${vm.id}: ${e.message}`));
+	}
+	if (spares > 0 && !noMoreGames()) { spares--; const extra = await addMachine('replacement').catch(async e => { await log(`replacement failed: ${e.message}`); return { id: 'none', lost: true }; }); machines.push(extra); await save().catch(() => {}); }
 }
 async function check(vm) {
 	// A failed push is logged and tried again next pass; it does not count against the machine.
@@ -295,18 +301,30 @@ async function check(vm) {
 	// An idle machine that failed last time must answer before it counts as healthy again.
 	if (!vm.game) { if (vm.failingSince) await remote(vm.id, 'true', { timeoutMs: 60_000 }); return; }
 	const game = games.find(g => g.id === vm.game);
-	const status = await remote(vm.id, `if test -f ~/ck/games/${game.id}/done; then echo DONE; elif pgrep -f 'ck/game.sh ${game.id} ' >/dev/null; then echo RUNNING; else echo GONE; fi`, { timeoutMs: 120_000 });
+	// pgrep first, the done file second: game.sh writes done as it exits, so the other order can miss both.
+	const status = await remote(vm.id, `if pgrep -f 'ck/game.sh ${game.id} ' >/dev/null; then echo RUNNING; elif test -f ~/ck/games/${game.id}/done; then echo DONE; else echo GONE; fi`, { timeoutMs: 120_000 });
+	if (/GONE/.test(status) && game.timingOut) {
+		// The hang timeout's kill ended the game but its own call dropped before it wrote done: finish it the same way,
+		// so the partial report is copied home, not wiped by a replay.
+		await remote(vm.id, `mkdir -p ~/ck/games/${game.id}; echo "exit timeout $(date -Is)" > ~/ck/games/${game.id}/done`);
+		await fetch(vm, game); vm.game = null; vm.goneInRow = 0;
+		return;
+	}
 	if (/GONE/.test(status)) {
 		// No done file and no game process: the launch never ran (its ssh dropped first) or the session was killed. The
-		// machine is fine; the game goes back to the queue once (loseGame), instead of idling until the hang timeout.
+		// game goes back to the queue once (loseGame), instead of idling until the hang timeout. Two in a row on one
+		// machine (a full disk, a wiped ~/ck) drop the machine, so it cannot lose game after game.
 		const g = loseGame(games, game.id, `game process on ${vm.id} ended without a done file`);
 		await log(`${g.id} is not running on ${vm.id} and wrote no done file; it is ${g.state}`);
 		vm.game = null;
+		vm.goneInRow = (vm.goneInRow ?? 0) + 1;
+		if (vm.goneInRow >= 2) { await log(`dropping ${vm.id}: ${vm.goneInRow} launches in a row ended without a done file`); await dropMachine(vm); }
 		return;
 	}
 	if (!/DONE/.test(status) && Date.now() - Date.parse(game.startedAt) > (plan.minutes + 30) * 60_000) {
 		// A game past its window plus half an hour is hung: end its session. run-long writes its partial timeline and report
 		// on SIGTERM, which can take minutes, so wait for the session to end (up to 5 min) before killing what is left.
+		game.timingOut = true;
 		await remote(vm.id, `sid=$(ps -o sid= -p "$(pgrep -f 'ck/game.sh ${game.id} ' | head -1)" 2>/dev/null | tr -d ' ')
 if [ -n "$sid" ]; then pkill -TERM -s "$sid"; for i in $(seq 1 60); do pgrep -s "$sid" >/dev/null || break; sleep 5; done; pkill -KILL -s "$sid"; sleep 2; fi
 mkdir -p ~/ck/games/${game.id}; echo "exit timeout $(date -Is)" > ~/ck/games/${game.id}/done`, { timeoutMs: 10 * 60_000 });
@@ -314,7 +332,7 @@ mkdir -p ~/ck/games/${game.id}; echo "exit timeout $(date -Is)" > ~/ck/games/${g
 		await fetch(vm, game); vm.game = null;
 		return;
 	}
-	if (/DONE/.test(status)) { await fetch(vm, game); vm.game = null; }
+	if (/DONE/.test(status)) { await fetch(vm, game); vm.game = null; vm.goneInRow = 0; }
 }
 // Copies home run in parallel (each is one scp of about 100 MB): a wave that ends together comes back in minutes, not
 // one game after another.
