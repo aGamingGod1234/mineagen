@@ -24,7 +24,7 @@ test('a travel course passes on arrival with no death and fails when it stops sh
 	const short = roomVerdict(travelRow(course('b', { arrived: false, endDistance: 150, gaveUp: 'no progress over 3 actions' })));
 	assert.deepEqual(short, { verdict: 'FAIL', reason: 'not arrived: 150 of 200 blocks left (no progress over 3 actions)' });
 	assert.deepEqual(roomVerdict(travelRow(course('c', { deaths: 1 }))), { verdict: 'FAIL', reason: '1 death' });
-	assert.equal(roomVerdict(travelRow(course('d', { deaths: null }))).verdict, 'FAIL', 'an unknown death count is never a pass');
+	assert.deepEqual(roomVerdict(travelRow(course('d', { deaths: null }))), { verdict: 'INVALID', reason: 'missing evidence: scoreboard death count unknown' }, 'an unknown death count is never a pass');
 });
 
 test('a course without evidence is INVALID, never a pass: an error, an unreadable counter, a server that never booted', () => {

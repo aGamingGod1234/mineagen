@@ -16,11 +16,13 @@ export function travelRow(run, { maxPickaxeUsesPer100 = null } = {}) {
 	const row = { ...run, name: run.id, startedAt: run.startedAt ?? run.startedAtEpochMs ?? null, finishedAt: run.finishedAt ?? run.endedAtEpochMs ?? null };
 	if (run.error) return row;
 	row.pickaxeUsesPer100Blocks = pickaxeUsesPer100(run);
+	// An unknown death count is missing evidence (INVALID), never a measured miss or a pass.
+	if (!Number.isFinite(run.deaths)) row.integrity = [...(Array.isArray(run.integrity) ? run.integrity : []), { file: 'scoreboard', error: 'death count unknown' }];
 	const arrived = run.arrived === true, alive = run.deaths === 0;
 	row.pass = arrived && alive;
 	if (row.pass) row.passReason = run.targetSeen !== undefined ? `target seen: ${run.targetSeen}` : `arrived, ${run.endDistance} blocks from the target`;
 	else row.failReason = [arrived ? null : `not arrived: ${run.endDistance} of ${run.startDistance} blocks left${run.gaveUp ? ` (${run.gaveUp})` : ''}`,
-		alive ? null : Number.isFinite(run.deaths) ? `${run.deaths} death${run.deaths === 1 ? '' : 's'}` : 'deaths unknown'].filter(Boolean).join('; ');
+		alive || !Number.isFinite(run.deaths) ? null : `${run.deaths} death${run.deaths === 1 ? '' : 's'}`].filter(Boolean).join('; ');
 	if (Number.isFinite(maxPickaxeUsesPer100) && Number.isFinite(run.pickaxeUses)) {
 		const per100 = row.pickaxeUsesPer100Blocks;
 		row.pickaxeBar = maxPickaxeUsesPer100;
