@@ -1348,6 +1348,13 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			budget.failed.add(cellKey(chest));
 			return `no way to the chest at ${cellKey(chest)}: ${lastFailure ?? 'walk failed'}`;
 		}
+		// travel_to counts arrival within 3 blocks of height: a chest on a house floor up a step can be out of sight from
+		// there. navigate_to keeps height: beside the chest, inside its reach.
+		{
+			const at = bodyAt(await body.observe());
+			if (at && (Math.abs(at.y - chest.y) > 1 || eyeDistance(at, chest) > REACH - 0.5))
+				await act('navigate_to', { x: Math.floor(chest.x) + 0.5, y: Math.floor(chest.y), z: Math.floor(chest.z) + 0.5, tolerance: 1.5, sprint: false, timeoutMs: 10_000 });
+		}
 		const o = await body.observe();
 		const heldItem = o.inventory?.selectedItem ?? (o.inventory?.items ?? []).find((row) => row.slot === 'mainhand')?.itemId ?? 'minecraft:air';
 		// The close goes out even after danger stopped the run (obtain's own act refuses new moves then): no chest stays open.
