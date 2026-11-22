@@ -393,6 +393,8 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		return body.interrupted() || body.stopped();
 	};
 	const nightRefused = { state: 'FAILED', reasonCode: 'NIGHT' };
+	// How far gather's own walks can take the body between targets (NativeToolRuntime gathers within 32 blocks).
+	const GATHER_WALK = 32;
 	const errandStop = async (type, args) => {
 		if (nightStop !== null) return nightRefused;
 		const o = await observe();
@@ -419,7 +421,10 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 	const body = { ...rawBody, observe, interrupted: () => danger !== null || rawBody.interrupted(), stopped: () => rawBody.stopped() || left() <= 0 || fillToolStop !== null || capacityStop !== null || nightStop !== null || cleanupObservationFailed,
 		act: (type, args) => type === 'dig_to' ? withMiningRoom(() => guard(() => rawBody.act(type, cap(args)), true, type, args)) : guard(() => rawBody.act(type, cap(args)), ['travel_to', 'navigate_to', 'dig_to', 'mine_vein'].includes(type), type, args),
 		mine: (args) => withMiningRoom(() => guard(() => rawBody.mine(cap(args)))),
-		moveTo: (args) => guard(() => rawBody.moveTo(cap(args)), true), gather: (args) => guard(() => rawBody.gather(cap(args)), true),
+		// Night check for these too (review of #117): a walk to a point, and gather's own walks between trees or blocks,
+		// which can reach the whole gather radius (32 blocks) on open ground.
+		moveTo: (args) => guard(() => rawBody.moveTo(cap(args)), true, 'travel_to', args),
+		gather: (args) => guard(() => rawBody.gather(cap(args)), true, 'travel_to', { distance: Number.isFinite(args?.radius) ? args.radius : GATHER_WALK }),
 		// find's search, inside obtain's time; its danger stop is obtain's danger, its leg still running is handed back.
 		search: rawBody.search && (async (target, options) => {
 			if (danger !== null) return halted();

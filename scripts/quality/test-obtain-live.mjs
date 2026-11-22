@@ -380,7 +380,11 @@ async function runLane(s, agent, queue, seed, seedIndex, nextSpot) {
 				if (standing) { row.stationsLeft += 1; (row.standing ??= []).push(station); }
 			}
 			row.inventory = String(await s.command(`data get entity ${name} Inventory`)).slice(0, 900);
-			row.pass = entry.survive === true ? row.deaths === 0 && row.aliveAtEnd === true
+			// A survival run whose obtain errored (a stale sample or revision it never got past) never exercised the bot:
+			// alive at the end, it is invalid evidence, never a pass (review of #117). A death still counts as a death.
+			const errored = ran.results.find((one) => one?.state === 'ERROR');
+			if (entry.survive === true && errored && row.aliveAtEnd === true) (row.integrity ??= []).push({ file: 'obtain', error: `obtain ${errored.reasonCode ?? 'ERROR'}: ${String(errored.message ?? '').slice(0, 160)}` });
+			row.pass = entry.survive === true ? row.deaths === 0 && row.aliveAtEnd === true && !(row.integrity?.length)
 				: result?.state === 'SUCCEEDED' && row.seconds * 1000 <= entry.budgetMs + 15_000 && row.deaths === 0 && row.stationsLeft === 0;
 			row.outcome = row.pass ? 'held' : result?.state === 'INTERRUPTED' && row.deaths === 0 ? 'handed_back' : 'failed';
 			row.firstCall = row.handBacks.length === 0 ? row.result.state : 'INTERRUPTED';
