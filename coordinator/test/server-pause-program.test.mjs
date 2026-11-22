@@ -118,3 +118,38 @@ test('one pause event reaches every timer that can end a live step: leases, plan
 		await run.coordinator.stop();
 	}
 });
+
+test('a program started while the game is already paused gets only the part of the pause it lived through', async (t) => {
+	const path = await mkdtemp(join(tmpdir(), 'server-pause-late-'));
+	t.after(() => rm(path, { recursive: true, force: true }));
+	const registry = new AgentRegistry(), bridge = new FakeBridge(), planner = new FakePlanner(registry), provider = new FakeProvider();
+	let run, request, handle;
+	const supervisor = new ActiveGoalSupervisor({ requestObservation: (key) => run.coordinator.requestSupervisedObservation(key), onExpire: (event) => run.coordinator.handleLeaseExpired(event) });
+	planner.requestNativeTurn = async (r) => {
+		planner.requests.push(r);
+		if (!request) {
+			request = r;
+			handle = await r.executeTool({ agentId: r.agentId, goalRevision: r.goalRevision, turnId: 'late', callId: 'run',
+				tool: { kind: 'run_program', background: true, timeoutMs: 300, source: 'program.onUnhandledAttention("continue_and_notify"); await player.wait(10000);' } });
+		}
+		return new Promise(() => {});
+	};
+	run = await start({ registry, bridge, planner, codexService: provider, goalSupervisor: supervisor, memoryDirectory: path,
+		setStatusInterval: () => null, clearStatusInterval: () => {}, config: { bridge: { port: 25570, secret: 's'.repeat(32) }, codex: { controlProtocol: 'native_tools' } } });
+	try {
+		bridge.emit('serverPause', { paused: true, tickAgeMs: 0 });
+		await sleep(700);
+		bridge.emit('goal_control', { agentId: 'agent-a', payload: { operation: 'start', goalRevision: 1, goal: 'Wait.' } });
+		bridge.emit('observation', { agentId: 'agent-a', payload: { goalRevision: 1, eventSequence: 1, observation: { player: { x: 0, y: 64, z: 0, health: 20 }, inventory: { items: [] } } } });
+		await eventually(() => handle && bridge.sent.some((message) => message.type === 'action_command'));
+		await sleep(150);
+		bridge.emit('serverPause', { paused: false, tickAgeMs: 0 });
+		const resumedAt = Date.now();
+		await eventually(() => bridge.sent.some((message) => message.type === 'action_cancel'), 3000);
+		const after = Date.now() - resumedAt;
+		assert.ok(after >= 200, `the program keeps its own 300 ms after the resume (cancelled ${after} ms after)`);
+		assert.ok(after < 650, `and is not credited the 700 ms of pause before it started (cancelled ${after} ms after the resume)`);
+	} finally {
+		await run.coordinator.stop();
+	}
+});

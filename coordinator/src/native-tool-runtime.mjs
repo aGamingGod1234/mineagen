@@ -661,12 +661,13 @@ export class NativeToolRuntime {
 		else if (this.#pausedAtEpochMs !== null) {
 			// Samples are stamped in wall time and game time stood still: the first sample after the pause only re-anchors
 			// each lag clock, or it would credit the paused time a second time, as server lag.
-			const held = Math.max(0, Date.now() - this.#pausedAtEpochMs);
+			const now = Date.now(), pausedAt = this.#pausedAtEpochMs;
 			this.#pausedAtEpochMs = null;
-			this.#pauseHeldMs += held;
+			this.#pauseHeldMs += Math.max(0, now - pausedAt);
 			for (const run of this.#programRuns.values()) {
 				if (run.lagClock !== undefined) run.lagClock = { ...run.lagClock, resumed: true };
-				if (run.deadlineEpochMs != null) run.deadlineEpochMs += held;
+				// Only the part of the pause this program lived through, as its executor deadline is credited.
+				if (run.deadlineEpochMs != null) run.deadlineEpochMs += Math.max(0, now - Math.max(pausedAt, run.startedAtMs ?? pausedAt));
 			}
 		}
 		return changed;

@@ -247,12 +247,13 @@ export class NativeProgramExecutor {
 			}
 			return true;
 		}
-		const held = Math.max(0, this.#now() - this.#pausedAt);
+		const now = this.#now(), pausedAt = this.#pausedAt;
 		this.#pausedAt = null;
 		for (const run of this.#runs.values()) {
 			if (run.settled || run.stopping !== null) continue;
-			run.pauseCreditMs = (run.pauseCreditMs ?? 0) + held;
-			if (run.urgentWaitSince !== null) run.urgentWaitSince += held;
+			// Only the part of the pause this program lived through: one started while paused gets the time since its start.
+			run.pauseCreditMs = (run.pauseCreditMs ?? 0) + Math.max(0, now - Math.max(pausedAt, run.startedAt));
+			if (run.urgentWaitSince !== null) run.urgentWaitSince += Math.max(0, now - Math.max(pausedAt, run.urgentWaitSince));
 			this.#armDeadline(run);
 			this.#scheduleObservation(run);
 		}

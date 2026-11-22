@@ -659,3 +659,25 @@ test('a single-player pause holds a foreground tool lease and the turn budget, t
 	gate.resolve('done');
 	assert.equal(await run, 'done');
 });
+
+test('a turn admitted while paused gets only the part of the pause it lived through', async () => {
+	let now = 0;
+	const timers = [];
+	const scheduler = new PlanningScheduler({
+		maxConcurrent: 1, maxPending: 0, now: () => now,
+		scheduleTimeout(callback, delay) { const timer = { callback, delay }; timers.push(timer); return timer; },
+		cancelTimeout(timer) { if (timer) timer.cancelled = true; },
+	});
+	scheduler.serverPaused(true);
+	now = 600;
+	const gate = deferred();
+	let task;
+	const run = scheduler.schedule('late', (context) => { task = context; return gate.promise; }, { leaseTimeoutMs: 25, maxLeaseDurationMs: 300 });
+	await Promise.resolve();
+	now = 800;
+	scheduler.serverPaused(false);
+	assert.equal(task.renewLease({ phase: 'tool', timeoutMs: 1_000 }), true);
+	assert.equal(timers.at(-1).delay, 300, 'admitted at 600, resumed at 800: 200 ms credited, the full 300 ms budget left, not 900');
+	gate.resolve('done');
+	await run;
+});

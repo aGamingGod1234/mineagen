@@ -430,6 +430,7 @@ export class PlanningScheduler {
 				leasePhase: 'provider',
 				phaseTimeoutMs: entry.leaseTimeoutMs,
 				leaseDeadline: entry.maxLeaseDurationMs === null ? null : this.#now() + entry.maxLeaseDurationMs,
+				admittedAt: this.#now(),
 				settlementTimeoutHandle: null,
 				cancelError: null,
 				promiseSettled: false,
@@ -540,10 +541,11 @@ export class PlanningScheduler {
 			}
 			return true;
 		}
-		const held = Math.max(0, now - this.#pausedAt);
+		const pausedAt = this.#pausedAt;
 		this.#pausedAt = null;
 		for (const entry of this.#active.values()) {
-			if (entry.leaseDeadline !== null) entry.leaseDeadline += held;
+			// Only the part of the pause this turn lived through: one admitted while paused gets the time since admission.
+			if (entry.leaseDeadline !== null) entry.leaseDeadline += Math.max(0, now - Math.max(pausedAt, entry.admittedAt ?? pausedAt));
 			if (entry.pausedRemainingMs == null || entry.controller.signal.aborted) continue;
 			const remaining = entry.pausedRemainingMs;
 			entry.pausedRemainingMs = null;
