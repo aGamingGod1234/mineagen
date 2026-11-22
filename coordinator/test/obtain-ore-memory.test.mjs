@@ -62,3 +62,24 @@ test('a remembered ore is walked toward until it shows, aimed at the cell over i
 	const walk = acts.find(([type]) => type === 'travel_to')?.[1];
 	assert.deepEqual([walk?.x, walk?.y, walk?.z, walk?.stopWhenSeen], [298.5, 15, -260.5, 'minecraft:iron_ore']);
 });
+
+test('review: a remembered walk that sights another block of the ore takes that one, not the old cell behind rock', async () => {
+	const acts = [], mined = [], missed = [];
+	let player = { x: 319.5, y: 15, z: -249.5, health: 20, food: 20, onGround: true };
+	const near = { blockId: 'minecraft:iron_ore', x: 300, y: 14, z: -255 };
+	const o = () => at({ inventory: { selectedSlot: 0, items: [{ itemId: 'minecraft:stone_pickaxe', slot: 0, count: 1, remainingDurability: 100 }] },
+		player, seenResources: [ore], blocks: player.x < 302 ? [near] : [] });
+	const body = { observe: async () => o(), stopped: () => false, interrupted: () => false, note: () => {},
+		act: async (type, args) => {
+			acts.push([type, args]);
+			if (type === 'travel_to') { player = { ...player, x: 300.5, z: -253.5 }; return { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:iron_ore seen at 300,14,-255, 2 blocks away' }; }
+			return { state: 'SUCCEEDED', reasonCode: 'DIG_GOAL_REACHED' };
+		},
+		mine: async (args) => { mined.push(args); return { state: 'FAILED', reasonCode: 'HOSTILE_NEAR' }; },
+		search: async () => ({ reasonCode: 'FIND_NOT_FOUND' }), missPlace: (place, why) => missed.push({ ...place, why }) };
+	let t = 0;
+	await runObtain({ item: 'raw_iron', count: 1, timeoutMs: 20_000 }, body, { now: () => (t += 1000) });
+	assert.deepEqual([mined[0]?.x, mined[0]?.y, mined[0]?.z], [300, 14, -255], 'mines the ore the walk saw');
+	assert.equal(acts.filter(([type, args]) => type === 'dig_to' && args.x === 298).length, 0, 'no dig toward the old cell');
+	assert.equal(missed.filter((row) => row.x === 298 && row.z === -261).length, 0, 'the old cell is not written off');
+});

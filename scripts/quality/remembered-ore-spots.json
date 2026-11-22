@@ -23,8 +23,8 @@
   "setup": [
    "forceload add 288 -270 326 -240",
    "kill @e[type=minecraft:item,distance=..40]",
-   "fill 297 14 -264 299 17 -249 minecraft:stone",
-   "fill 297 14 -251 321 17 -249 minecraft:stone",
+   "fill 295 13 -265 304 18 -248 minecraft:stone",
+   "fill 295 13 -253 323 18 -247 minecraft:stone",
    "fill 298 15 -263 298 16 -250 minecraft:air",
    "fill 298 15 -250 320 16 -250 minecraft:air",
    "setblock 298 14 -262 minecraft:iron_ore",
@@ -48,7 +48,8 @@
      "verb": "obtain",
      "target": {
       "item": "raw_iron",
-      "count": 2
+      "count": 2,
+      "timeoutMs": 120000
      },
      "why": "iron for a pickaxe"
     }
@@ -80,6 +81,13 @@
     "index": 0,
     "match": "Test passed"
    }
-  ]
+  ],
+  "expectAction": [
+   {
+    "type": "travel_to",
+    "reasonCode": "TARGET_SEEN"
+   }
+  ],
+  "maxSeconds": 120
  }
 ]

@@ -427,6 +427,14 @@ function rememberedOre(need, o, budget, missed = []) {
 		.sort((a, b) => a.cost - b.cost)[0] ?? null;
 }
 
+/** Remembered ores of the need that cost more to reach than a fresh search: find's known-place trips skip them too. */
+function pricedOutOres(need, o) {
+	if (need.kind === 'kill' || !need.blocks?.some((block) => ORE_BLOCKS.test(block))) return [];
+	const blocks = new Set(need.blocks.map(id));
+	return (o.seenResources ?? []).filter((row) => row?.kind === 'block' && blocks.has(row.id) && [row.x, row.y, row.z].every(Number.isSafeInteger)
+		&& !(seenRowCost(row, o) < searchCost(row.id))).slice(0, 16).map((row) => ({ x: row.x, y: row.y, z: row.z }));
+}
+
 /** A mob near a herd a walk could not get within hunting reach of (budget.herds): not one to walk at again. */
 const unreachedHerd = (budget, row) => (budget?.herds ?? []).some((herd) => Math.hypot(herd.x - row.x, herd.z - row.z) <= HUNT_RADIUS);
 
@@ -451,6 +459,8 @@ export async function locate(need, body, { budget, timeoutMs }) {
 	const main = need.kind === 'kill' ? null : searchBlock(need, o);
 	const target = need.kind === 'kill' ? { mob: id(need.mobs[0]) }
 		: { block: id(main), ...(need.blocks.length > 1 && need.blocks.every((block) => /_(log|stem)$/.test(block)) ? { also: need.blocks.filter((block) => block !== main).slice(0, 8).map(id) } : {}) };
+	const skip = pricedOutOres(need, o);
+	if (skip.length > 0) target.skip = skip;
 	const result = await body.search(target, { timeoutMs: Math.min(MAX_FIND_TIMEOUT_MS, timeoutMs) });
 	budget.lastSearch = result;
 	const at = result?.find?.seen;
@@ -1267,6 +1277,14 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 					? { x: where.x + 0.5, y: where.y + 1, z: where.z + 0.5, tolerance: 2, stopWhenSeen: id(where.blockId), timeoutMs: 120_000 }
 					: { x: where.x + 0.5, y: where.y, z: where.z + 0.5, tolerance: 2, timeoutMs: 120_000 });
 				if (went?.state !== 'SUCCEEDED') { stops.push(went?.reasonCode); body.note(`walk stopped: ${went?.reasonCode ?? went?.state} ${String(went?.message ?? '').slice(0, 140)}`); }
+				// The walk stops at the first block of the id in sight, which need not be the remembered one: the ore in view
+				// is the one to take (its cell is in the receipt), not the old cell further on behind rock.
+				const sighted = where.remembered && went?.reasonCode === 'TARGET_SEEN' ? /seen at (-?\d+),\s*(-?\d+),\s*(-?\d+)/.exec(String(went?.message ?? '')) : null;
+				if (sighted !== null) {
+					const cell = { x: Number(sighted[1]), y: Number(sighted[2]), z: Number(sighted[3]) };
+					if (cell.x !== where.x || cell.y !== where.y || cell.z !== where.z) step(`the walk saw ${bare(where.blockId)} at ${cell.x},${cell.y},${cell.z} first: take that one`);
+					Object.assign(where, cell, { remembered: false });
+				}
 				o = await body.observe();
 				if (ORE_BLOCKS.test(bare(where.blockId)) && rememberFlood(went, where, o)) return 'ore approach flooded';
 				if (body.interrupted() || body.stopped()) return 'approach stopped';

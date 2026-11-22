@@ -366,7 +366,7 @@ export class NativeToolRuntime {
 			if (!(Date.now() - (memory.knownOresAt ?? 0) < KNOWN_ORE_MS)) {
 				memory.knownOresAt = Date.now();
 				const known = this.#occupancy?.knownSources?.(agentId, observation, /_ore$|^minecraft:ancient_debris$/);
-				if (known?.blocks?.length) rememberKnownBlocks(memory, observation, known.blocks, { now: Date.now() });
+				if (known?.blocks?.length) rememberKnownBlocks(memory, observation, known.blocks, { now: Date.now(), tick: known.tick });
 			}
 		} catch { /* a malformed sample adds nothing */ }
 	}

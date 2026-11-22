@@ -354,10 +354,13 @@ export class ObservedMemoryStore {
 		// A mined vein is gone: its start cell, and when the receipt says no seen block of it is left, the same ore beside
 		// it. Air is never a sampled row, so nothing else withdraws it (4-seed check B-2: find dug back up 38 blocks into an
 		// aquifer toward an iron vein obtain had mined).
-		if (actionType === 'mine_vein' && state === 'SUCCEEDED' && reasonCode === 'VEIN_MINED' && args && [args.x, args.y, args.z].every(Number.isSafeInteger)) {
+		// A vein run stopped part way (lava, a hit, a mob) that mined blocks took its start cell too: nearest first from the
+		// body, and the start is what it aimed at. Only a finished run says the seen rest is gone.
+		const partial = actionType === 'mine_vein' && state !== 'SUCCEEDED' && /mined: [1-9]\d* minecraft:/.test(String(message ?? ''));
+		if (actionType === 'mine_vein' && (state === 'SUCCEEDED' && reasonCode === 'VEIN_MINED' || partial) && args && [args.x, args.y, args.z].every(Number.isSafeInteger)) {
 			const named = /mined: \d+ (minecraft:[a-z0-9_]+)/.exec(String(message ?? ''))?.[1];
 			const ore = named ?? scope.blocks.get(`${args.x},${args.y},${args.z}`)?.blockId;
-			const reach = /no seen block of it is left/.test(String(message ?? '')) ? 2 : 0;
+			const reach = !partial && /no seen block of it is left/.test(String(message ?? '')) ? 2 : 0;
 			const gone = (x, y, z) => Math.max(Math.abs(x - args.x), Math.abs(y - args.y), Math.abs(z - args.z)) <= reach;
 			const same = (what) => typeof what === 'string' && typeof ore === 'string' && what.replace(':deepslate_', ':') === ore.replace(':deepslate_', ':');
 			for (const [key, block] of [...scope.blocks]) {
