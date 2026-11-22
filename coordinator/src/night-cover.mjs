@@ -84,8 +84,10 @@ export function nightMoveStop(observation, actionType, args = {}, { environment 
 	const armour = Number.isFinite(player.armor) ? player.armor : 0;
 	const when = phase === 'dusk' ? 'dusk is a minute away' : 'it is night';
 	if (player.skyOpen === false && climbsUp(actionType, args, at, openSky)) {
-		// Rest only seals a shallow spot: deeper (or with no open sky known to measure from) it hands back UNDERGROUND
-		// at once, so only what works down here is named.
+		// Rest only seals a shallow spot: deeper it hands back UNDERGROUND at once, so only what works down here is named.
+		// Depth is estimated from the last open sky the body stood under, not the ground straight above it (the
+		// observation has no such height): under a hill or a valley away from that spot the estimate can be off either
+		// way, and with no open sky known it counts as deep. The deep line names only steps that work anywhere under cover.
 		const shallow = at !== null && Number.isFinite(openSky?.y) && openSky.y - (at.y + EYE_HEIGHT) <= REST_UNDERGROUND_DEPTH;
 		return shallow
 			? `${when} and armour is ${armour}: staying under cover instead of climbing to the surface. Work down here (smelt, craft, mine), or rest (it seals the way up) and go up at dawn`
