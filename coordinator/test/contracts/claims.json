@@ -33884,24 +33884,22 @@
       "reason": "Mechanics and live-authorship instructions; no default action is installed and model adoption requires retained live evidence."
     },
     {
-      "predicate": "Continue a live-authored background program or queued successor when fresh prerequisites match.",
+      "predicate": "A queued successor starts only after its predecessor's natural exhaustion, with its precondition exactly true on freshly sampled handoff facts; continuing a live-authored background program is the model's choice.",
       "checks": [
         {
-          "file": "coordinator/test/native-program-executor.test.mjs",
-          "test": "an authored blocked-leg checkpoint stops on its first receipt despite a false ordinary reassessment condition",
+          "file": "coordinator/test/native-program-successor.test.mjs",
+          "test": "guard uses newly sampled raw facts and fails closed on truthy non-booleans",
           "type": "node-behavior"
         },
         {
-          "type": "live-behavior",
-          "test": "travel.multi-leg",
-          "predicate": "The real moveTo wrapper and server traverse more than one 32-block local planning leg over acquired terrain",
-          "command": "headless Minecraft production bridge fixture: travel.multi-leg"
+          "file": "coordinator/test/native-program-successor.test.mjs",
+          "test": "ready successor preserves selected-agent provenance and gets its own bounded budget",
+          "type": "node-behavior"
         },
         {
-          "type": "live-behavior",
-          "test": "travel.no-supported-arrival",
-          "predicate": "An observed unsupported air destination cannot be silently replaced with a standing point",
-          "command": "headless Minecraft production bridge fixture: travel.no-supported-arrival"
+          "file": "coordinator/test/native-program-successor.test.mjs",
+          "test": "progress wake supplies enough facts to queue and hand off without a status read or extra sample",
+          "type": "node-behavior"
         }
       ],
       "id": "control:ae803a91e944e358:43be5ad176f9bc7c",
@@ -33916,7 +33914,7 @@
         "line": 163
       },
       "status": "partial",
-      "reason": "All factual route/handoff/coverage/receipt clauses are exercised. Remaining clauses prescribe model choices: far endpoint selection, reassessment, reuse, history rechecking and preparation within user limits."
+      "reason": "The successor witnesses cover the factual half: a queued successor starts only after natural exhaustion with its precondition true on freshly sampled handoff facts, and fails closed otherwise. Choosing to continue a background program is model guidance that no deterministic test proves."
     },
     {
       "predicate": "Pure reassessment predicate suppresses only exact-false ordinary attention; failing/unknown/absent predicates notify and urgent/failure/checkpoint/exhaustion bypass the filter without stopping authored watcher updates.",
