@@ -282,6 +282,8 @@ async function runLane(s, agent, queue, seed, seedIndex, nextSpot) {
 					if (ended === null) await s.clock.sleep(1000);
 				}
 				row.respawnRest = String(ended ?? 'still resting at the end of the window').slice(0, 400);
+				// A rest the runtime never sent (an error, not the body's own result) leaves the room's point untested.
+				if (rested?.state === 'ERROR') (row.integrity ??= []).push({ file: 'respawn-rest', error: `rest ${rested.reasonCode ?? 'ERROR'}: ${String(rested.message ?? '').slice(0, 160)}` });
 			}
 			const call = normalizeMinecraftToolCall('do_step', { verb: 'obtain', target: { item: entry.item, count: entry.count ?? 1, timeoutMs: entry.budgetMs }, why: `obtain ${entry.item}` });
 			const ran = await callObtain({ mode: process.env.OBTAIN_HANDBACK, budgetMs: entry.budgetMs, started: t0, now,
@@ -355,6 +357,11 @@ async function runLane(s, agent, queue, seed, seedIndex, nextSpot) {
 			// alive at the end, it is invalid evidence, never a pass (review of #117). A death still counts as a death.
 			const errored = ran.results.find((one) => one?.state === 'ERROR');
 			if (entry.survive === true && errored && row.aliveAtEnd === true) (row.integrity ??= []).push({ file: 'obtain', error: `obtain ${errored.reasonCode ?? 'ERROR'}: ${String(errored.message ?? '').slice(0, 160)}` });
+			// An observation the bridge timed out (a server tick held past 10 s while another lane loads far chunks) says
+			// nothing about the bot: invalid evidence in any room, never a failure it is blamed for (review of the
+			// inspection observe).
+			const transport = ran.results.find((one) => one?.state === 'ERROR' && /^INSPECTION_(TIMEOUT|UNAVAILABLE|BUSY)$/.test(one.reasonCode ?? ''));
+			if (transport && !row.integrity?.some((one) => one.file === 'obtain')) (row.integrity ??= []).push({ file: 'obtain', error: `obtain ${transport.reasonCode}: ${String(transport.message ?? '').slice(0, 160)}` });
 			row.pass = entry.survive === true ? row.deaths === 0 && row.aliveAtEnd === true && !(row.integrity?.length)
 				: result?.state === 'SUCCEEDED' && row.seconds * 1000 <= entry.budgetMs + 15_000 && row.deaths === 0 && row.stationsLeft === 0;
 			row.outcome = row.pass ? 'held' : result?.state === 'INTERRUPTED' && row.deaths === 0 ? 'handed_back' : 'failed';

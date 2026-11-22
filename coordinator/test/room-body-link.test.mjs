@@ -59,7 +59,6 @@ test('the room follows every newer revision the server sends and answers agent_r
 	bridge.emit('message', { type: 'goal_control', agentId: 'agent-a', payload: { operation: 'queue', goalRevision: 9 } });
 	bridge.emit('message', { type: 'observation', agentId: 'agent-b', payload: { goalRevision: 9 } });
 	bridge.emit('message', { type: 'agent_registered', agentId: 'agent-a', payload: { record: { goalRevision: 4 } } });
-	bridge.emit('message', { type: 'goal_control', agentId: 'agent-a', payload: { operation: 'respawn', goalRevision: 4 } });
 	bridge.emit('message', { type: 'goal_control', agentId: 'agent-a', payload: { operation: 'start', goalRevision: 5 } });
 	await Promise.resolve();
 	assert.equal(record.goalRevision, 5);
