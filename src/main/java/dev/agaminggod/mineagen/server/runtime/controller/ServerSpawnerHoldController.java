@@ -348,9 +348,12 @@ public final class ServerSpawnerHoldController implements ServerController {
 				}
 			}
 			// (A kill's drop look and pickup in the open fight finish before any wall-in: the blaze is dead, the rod is near.)
-			// The open fight is the model's ordinary fight: the back-off and cover reflexes stay free for it (the hold owns the
-			// body only while it walls in and heals).
-			HOLDING.remove(player.getUUID());
+			// The hold keeps the body while it can still wall in: the wall-in is its answer to low health, and a back-off reflex
+			// started first walks the hurt body away under fire (review-fix jar, freeing them for the whole open fight: alive in
+			// 3 of 15 blaze spawner rooms against 19 of 30). With no blocks to wall in, the open fight is the model's ordinary
+			// fight and the back-off and cover reflexes are free for it.
+			if (wallInLeft(player)) HOLDING.add(player.getUUID());
+			else HOLDING.remove(player.getUUID());
 			TickResult fought = openPart.tick(player, now);
 			if (fought.state() == State.RUNNING) return fought;
 			openPart.cancel(player);
@@ -883,6 +886,13 @@ public final class ServerSpawnerHoldController implements ServerController {
 				player.getInventory().getSelectedSlot(), InteractionHand.OFF_HAND));
 	}
 
+	/** A wall-in is still possible this call (blocks and tries left), whatever the footing this tick. */
+	private boolean wallInLeft(ServerPlayer player) {
+		if (spawner == null || emergencyFails >= EMERGENCY_TRIES) return false;
+		String item = roofing.blockItem(player);
+		return item != null && ServerFightUntilController.count(player, BuiltInRegistries.ITEM.getValue(Identifier.parse(item))) >= 10;
+	}
+
 	private boolean canWallIn(ServerPlayer player) {
 		if (spawner == null || emergencyFails >= EMERGENCY_TRIES || !player.onGround() || player.level().getGameTime() < emergencyRetryTick) return false;
 		String item = roofing.blockItem(player);
@@ -926,6 +936,14 @@ public final class ServerSpawnerHoldController implements ServerController {
 	/** fight_target form: end now, or first open a walled-up doorway so the next call can see out (death and lava end at once). */
 	private TickResult endTarget(ServerPlayer player, long now, TickResult end) {
 		if (!(sealed || sealWork != null || emergency != null) || cell == null && emergencyCell == null) return stop(player, end);
+		// Still hurt and walled in: the call ends there and the body heals on behind the wall. Opening first exposed a hurt
+		// body at every 15 s call's end (blaze spawner rooms, review-fix jar: alive in 3 of 15 against 19 of 30 before).
+		BlockPos at = cell != null ? cell : emergencyCell;
+		Direction door = cell != null ? opening : emergencyOpening;
+		if (sealed && player.getHealth() < SpawnerHold.TURTLE_DONE && sealWork == null && emergency == null && at != null && door != null)
+			return stop(player, new TickResult(end.state(), end.reasonCode(), end.message() + String.format(Locale.ROOT,
+					"; still walled in at %s to heal (health %.1f), doorway %s: mine it open once healed to fight on",
+					at.toShortString(), player.getHealth(), at.relative(door).toShortString()), end.progress()));
 		if (sealWork != null) { sealWork.cancel(player); sealWork = null; }
 		if (emergency != null) {
 			emergency.cancel(player);
