@@ -15,7 +15,7 @@ const EXEMPT = new Map([
 	['test/inventory-repair.test.mjs', 'drives repair through the real NativeToolRuntime with a fake bridge, so production normalization runs; its one direct runInventoryRepair fake must refuse before any move (act is assert.fail)'],
 ]);
 // The helpers' entry points that take a body; tests import them from the helper, which wraps the body on every call.
-const ENTRY_POINTS = ['searchFor', 'runObtain', 'keepKit', 'lootChest'];
+const ENTRY_POINTS = ['searchFor', 'runObtain', 'keepKit', 'lootChest', 'followEyes', 'findPortalRoom'];
 const HELPER_IMPORT = /from '\.\/helpers\/checked-body\.mjs'/;
 // A fake's act: a key, a method, a local function, or shorthand on a body object.
 const DEFINES_ACT = /\bact\s*:|\basync\s+act\s*\(|\b(?:const|let)\s+act\s*=|[{,]\s*act\s*[,}]/;
@@ -66,6 +66,12 @@ test('tests call the body helpers through the checked entry points, so every bod
 		for (const [, star, whole] of text.matchAll(NAMESPACE)) {
 			const name = star ?? whole;
 			for (const entry of ENTRY_POINTS) if (new RegExp(`\\b${name}\\.${entry}\\b`).test(text)) direct.push(`${file}: ${name}.${entry}`);
+			// The namespace destructured afterwards: const { runObtain } = mod;
+			for (const [, names] of text.matchAll(new RegExp(`\\{([^}]*)\\}\\s*=\\s*${name}\\b(?!\\.)`, 'g'))) {
+				for (const entry of names.split(',').map((item) => item.trim().split(/\s*:\s*/)[0])) {
+					if (ENTRY_POINTS.includes(entry)) direct.push(`${file}: ${entry} (from ${name})`);
+				}
+			}
 		}
 		for (const [, before, entry] of text.matchAll(DYNAMIC_MEMBER)) {
 			if (ENTRY_POINTS.includes(entry) && !/\bchecked(?:SearchFor|RunObtain)\(\s*$/.test(before)) direct.push(`${file}: ${entry} (dynamic import)`);
