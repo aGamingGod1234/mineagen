@@ -1955,7 +1955,7 @@ public final class ServerActionExecutor {
 				JsonObject args = new JsonObject();
 				args.addProperty("pattern", "stairs_up"); args.addProperty("y", y); args.addProperty("heading", heading.getName());
 				args.addProperty("sealFluids", true); args.addProperty("timeoutMs", timeoutMs);
-				return digController(args);
+				return digController(args).climbsInTheOpen(true);
 			}
 			public Vec3 aim(ServerPlayer body, BlockPos at, Direction face, String itemId) { return shelterEnvironment(parent, itemId).aim(body, at, face); }
 			public String place(ServerPlayer body, BlockPos at, Direction face, String itemId) { return shelterEnvironment(parent, itemId).place(body, at, face); }

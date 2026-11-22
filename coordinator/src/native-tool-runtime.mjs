@@ -1,3 +1,6 @@
+import { forgetResourceResult, knownResources, newResourceMemory, rememberKnownBlocks, rememberResources } from './seen-resources.mjs';
+/** How often the dig-seen ore rows are merged from the observed-memory store, per agent. */
+const KNOWN_ORE_MS = 5_000;
 import { createHash, randomUUID } from 'node:crypto';
 import { validateTraceId } from './control-latency-registry.mjs';
 import { ExplorationOccupancy, extractPosition as observationPosition, observationWorldId } from './explore-frontier.mjs';
@@ -190,6 +193,8 @@ export class NativeToolRuntime {
 	// Workstations obtain placed and has not picked up yet, per agent, across obtain calls.
 	#obtainPlaced = new Map();
 	#kitHabit = false;
+	/** Per agent: every source the body has seen (seen-resources.mjs), fed by each stored observation. */
+	#resources = new Map();
 	// Agents whose next blocking body tool starts already interrupted: a danger steer is waiting for a tool boundary the
 	// model has not reached, so the tool it issues next was chosen without the danger (see interruptBlockingTool).
 	#armedDangerInterrupts = new Set();
@@ -348,6 +353,36 @@ export class NativeToolRuntime {
 		return kept;
 	}
 
+	#rememberResources(agentId, observation) {
+		// One memory per agent and world: a replacement world's blocks are not the old world's sources.
+		const worldId = observationWorldId(observation) ?? null;
+		if (!this.#resources.has(agentId) || this.#resources.get(agentId).worldId !== worldId) this.#resources.set(agentId, { ...newResourceMemory(), worldId });
+		try {
+			const memory = this.#resources.get(agentId);
+			rememberResources(memory, observation, { now: Date.now() });
+			// Ores a dig sighted through rock live in the observed-memory store: rows with enclosed: true. Its scan walks every
+			// remembered block, so it runs at most every KNOWN_ORE_MS per agent, not on every sample.
+			if (!(Date.now() - (memory.knownOresAt ?? 0) < KNOWN_ORE_MS)) {
+				memory.knownOresAt = Date.now();
+				const known = this.#occupancy?.knownSources?.(agentId, observation, /_ore$|^minecraft:ancient_debris$/);
+				if (known?.blocks?.length) rememberKnownBlocks(memory, observation, known.blocks, { now: Date.now() });
+			}
+		} catch { /* a malformed sample adds nothing */ }
+	}
+
+	/** Sources this agent has seen in its current world (seen-resources.mjs rows, nearest first from `observation`). */
+	resourcesFor(agentId, query = {}, observation = this.#observations.get(agentId)?.observation ?? {}) {
+		return knownResources(this.#resources.get(agentId) ?? newResourceMemory(), observation, query);
+	}
+
+	/** The observation a helper reads, with the sources seen so far (seenResources, nearest first) attached. */
+	#withResources(agentId, observation) {
+		const memory = this.#resources.get(agentId);
+		if (!memory || !observation || typeof observation !== 'object') return observation;
+		// Read only: the memory is updated once per stored observation (#storeObservation), never again per helper read.
+		return { ...observation, seenResources: knownResources(memory, observation) };
+	}
+
 	updateObservation(record, observation, options = {}) {
 		const stored = this.#storeObservation(record, observation, options);
 		if (stored) this.#notePublishedSample(record);
@@ -415,6 +450,7 @@ export class NativeToolRuntime {
 		// A quiet heartbeat is a new sighting. Ingest only its supplied spatial
 		// facts (without a snapshot), so absent identities/properties keep their age.
 		this.#rememberSpatial(record.agentId, storedObservation);
+		this.#rememberResources(record.agentId, storedObservation);
 		const player = storedObservation.player;
 		if (player?.skyOpen === true && player.onGround !== false && [player.x, player.y, player.z].every(Number.isFinite)) {
 			this.#openSky.set(record.agentId, { x: player.x, y: player.y, z: player.z, dimension: storedObservation.world?.dimension ?? null });
@@ -2615,8 +2651,9 @@ export class NativeToolRuntime {
 				if (!current()) throw codedError('NATIVE_ACTION_CANCELLED', 'obtain cancelled');
 				const facts = await this.#observe(record, { includeMetadata: false, deliver: false });
 				if (facts.freshness?.fresh !== true) throw codedError('FRESH_OBSERVATION_REQUIRED', 'obtain needs a fresh observation at each step');
-				return facts.observation ?? {};
+				return this.#withResources(record.agentId, facts.observation ?? {});
 			},
+			resources: (query = {}) => this.resourcesFor(record.agentId, query),
 			act: (actionType, args) => run('act', { actionType, arguments: args }),
 			mine: (args) => run('mine', args),
 			moveTo: (args) => run('moveTo', args),
@@ -2633,6 +2670,8 @@ export class NativeToolRuntime {
 			// A place obtain could not reach (an ore across a cave): kept with the searches' missed places, so find no longer
 			// reports it or its vein as a sighting.
 			missPlace: (place, why) => this.#searchBody(request, record, executionEpoch, blockingRun, 'obtain').missPlace(place, why),
+			// A look round before deciding where a source is: what it shows joins the seen resources (seen-resources.mjs).
+			look: (args) => this.#searchBody(request, record, executionEpoch, blockingRun, 'obtain').look(args),
 			// The last open-sky spot the body stood on (kept from every sample): a way out of water it filled in with no dry
 			// ground stood on during this obtain.
 			openSky: () => this.#searchBody(request, record, executionEpoch, blockingRun, 'obtain').openSky(),
@@ -2876,8 +2915,9 @@ export class NativeToolRuntime {
 				live();
 				const facts = await this.#observe(record, { includeMetadata: false, deliver: false });
 				if (facts.freshness?.fresh !== true) throw codedError('FRESH_OBSERVATION_REQUIRED', `${label} needs a fresh observation at each step`);
-				return facts.observation ?? {};
+				return this.#withResources(agentId, facts.observation ?? {});
 			},
+			resources: (query = {}) => this.resourcesFor(agentId, query, latest()),
 			look: async ({ pitch, survey }) => {
 				live();
 				steps += 1;
@@ -3368,6 +3408,11 @@ export class NativeToolRuntime {
 		const moved = latest !== undefined && (active.worldId != null && latest.world?.worldId !== active.worldId || active.dimension != null && latest.world?.dimension !== active.dimension);
 		// Game ticks are per world: after a move, the latest sample's tick is not a clock of the dispatch world, so it is dropped.
 		const dispatched = latest === undefined ? undefined : { ...latest, ...(moved ? { worldTick: undefined } : {}), world: { ...(moved ? (({ gameTime, ...world }) => world)(latest.world ?? {}) : latest.world), ...(active.worldId == null ? {} : { worldId: active.worldId }), ...(active.dimension == null ? {} : { dimension: active.dimension }) } };
+		// A source the agent broke or mined is gone (air is never a sampled row, so no later sample withdraws it).
+		const resourceMemory = this.#resources.get(record.agentId);
+		if (resourceMemory !== undefined && dispatched !== undefined && (active.worldId == null || resourceMemory.worldId === active.worldId)) {
+			forgetResourceResult(resourceMemory, dispatched, { actionType: active.actionType, arguments: active.arguments, state, reasonCode, message: payload.message ?? null });
+		}
 		this.#occupancy.recordResourceResult?.(record.agentId, dispatched, { actionType: active.actionType, arguments: active.arguments, state, reasonCode, message: payload.message ?? null, observedAtEpochMs: payload.observedAtEpochMs ?? null });
 		this.#placedWorkstations.onActionResult(record.agentId, { actionType: active.actionType, arguments: active.arguments, state, observedAtEpochMs: payload.observedAtEpochMs, actionObservation: payload.actionObservation }, dispatched);
 		this.#dugStairs.onActionResult(record.agentId, { actionType: active.actionType, arguments: active.arguments, from: active.from ?? null, to: endedAt ?? observationPosition(latest),
@@ -3472,6 +3517,7 @@ export class NativeToolRuntime {
 			this.#placedWorkstations.clear(agentId);
 			this.#lastSweeps.delete(agentId);
 			this.#missedPlaces.delete(agentId);
+			this.#resources.delete(agentId);
 			this.#dugStairs.clear(agentId);
 			this.#lastLive.delete(agentId);
 			this.#receipts.delete(agentId);
