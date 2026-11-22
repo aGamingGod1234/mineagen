@@ -52,8 +52,10 @@ export async function lootChest(body, cell, { wanted = [], heldItem = 'minecraft
 		if (!menu || !/chest|generic_9x|barrel/.test(String(menu.type ?? ''))) { stuck = `no chest menu open (${menu?.type ?? 'none'}; page ${Object.keys(page ?? {}).slice(0, 8).join(',')}${page?.state ? ` ${page.state}` : ''})`; menu = null; break; }
 		read = true;
 		const chestSlots = Math.max(0, (menu.slotCount ?? 0) - PLAYER_SLOTS);
-		const next = pageRows(page).find((row) => Number.isSafeInteger(row.slot) && row.slot < chestSlots && row.count > 0
+		// What the plan asked for first, then what a player keeps: a full inventory takes the wanted stacks.
+		const candidates = pageRows(page).filter((row) => Number.isSafeInteger(row.slot) && row.slot < chestSlots && row.count > 0
 			&& bare(row.itemId) !== 'air' && take(row.itemId) && !(taken[`skip:${row.slot}`]));
+		const next = candidates.find((row) => wanted.includes(bare(row.itemId))) ?? candidates[0];
 		if (!next) break;
 		const result = await body.act('menu_click', { menuId: menu.type, containerId: menu.containerId, stateId: menu.stateId, slot: next.slot, button: 0,
 			clickType: 'QUICK_MOVE', expectedItemId: next.itemId, expectedCount: next.count, ...(next.fingerprint ? { expectedFingerprint: next.fingerprint } : {}) });
@@ -72,5 +74,5 @@ export async function lootChest(body, cell, { wanted = [], heldItem = 'minecraft
 	}
 	}
 	for (const key of Object.keys(taken)) if (key.startsWith('skip:')) delete taken[key];
-	return { ok: stuck === null && closed !== false, read, closed, taken, why: stuck ?? (closed === false ? 'the chest did not close' : null) };
+	return { ok: stuck === null && closed !== false, read, closed, stopped: stuck !== null && stuck.startsWith('stopped'), taken, why: stuck ?? (closed === false ? 'the chest did not close' : null) };
 }

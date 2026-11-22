@@ -440,3 +440,30 @@ test('trip food counts hunger points: 4 bread is a full bar and sends the bot in
 	await runObtain({ item: 'iron_pickaxe', count: 1, timeoutMs: 60_000 }, run.body, { now: (() => { let t = 0; return () => (t += 100); })(), looted: { opened: [], searched: [], structures: [], doors: [] } });
 	assert.equal(run.calls.some(([type]) => type === 'set_door'), false, 'no ordinary house is worth its look');
 });
+
+// Codex review of 42b55e28.
+test('codex: a mineshaft is no chest source (its loot rides in chest minecarts)', () => {
+	assert.deepEqual(structureTables('mineshaft'), []);
+	assert.deepEqual(structureTables('abandoned mineshaft'), []);
+});
+
+test('codex: the stacks the plan asked for are taken before what a player merely keeps', async () => {
+	const body = chestBody([['bread', 3], ['apple', 2], ['iron_ingot', 4]]);
+	await lootChest(body, { x: 1, y: 64, z: 2 }, { wanted: ['iron_ingot'] });
+	assert.equal(body.calls.find(([type]) => type === 'menu_click')[1].expectedItemId, 'minecraft:iron_ingot');
+});
+
+test('codex: a take a stop cut short leaves the chest a source to come back to, though its loot is rolled', async () => {
+	const looted = { opened: [], searched: [], structures: [], doors: [], partial: [] };
+	const menuBody = chestBody([['iron_ingot', 3], ['bread', 2]]);
+	const act = menuBody.act;
+	menuBody.act = async (type, args) => (type === 'menu_click' ? { state: 'INTERRUPTED', reasonCode: 'DANGER' } : act(type, args));
+	const chest = { blockId: 'minecraft:chest', x: 305, y: 77, z: -236 };
+	const { body } = villageRun({ blocks: [chest], menuBody, extra: { closeMenu: async () => ({ state: 'SUCCEEDED' }) } });
+	await runObtain({ item: 'iron_ingot', count: 3, timeoutMs: 30_000 }, body, { now: (() => { let t = 0; return () => (t += 100); })(), looted });
+	assert.deepEqual(looted.opened, []);
+	assert.deepEqual(looted.partial, ['minecraft:overworld|305,77,-236']);
+	const after = { ...village(), blocks: [chest], seenResources: [{ id: 'minecraft:chest', kind: 'container', x: 305, y: 77, z: -236, opened: true }] };
+	assert.equal(lootSources(after, { partial: new Set(looted.partial) }).some((row) => row.kind === 'chest'), true);
+	assert.equal(lootSources(after).some((row) => row.kind === 'chest'), false);
+});

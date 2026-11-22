@@ -27,12 +27,12 @@ export function houseYield(job, item, { houses = config().houses, yields = lootY
 }
 
 // Which chest tables a sighted structure's chests roll from. Structures whose chests sit behind a fight the planner does
-// not price (bastions, fortresses, ancient and end cities, trial chambers, mansions) are left out on purpose.
+// not price (bastions, fortresses, ancient and end cities, trial chambers, mansions) are left out on purpose, and so is
+// the mineshaft: its loot rides in chest minecarts, an entity the loot step does not open.
 const STRUCTURE_TABLES = [
 	[/^village/, (name) => name.startsWith('chests/village/')],
 	[/^shipwreck/, (name) => /^chests\/shipwreck_/.test(name)],
 	[/^ruined.portal/, (name) => name === 'chests/ruined_portal'],
-	[/^(abandoned.)?mineshaft/, (name) => name === 'chests/abandoned_mineshaft'],
 	[/^desert.(temple|pyramid)/, (name) => name === 'chests/desert_pyramid'],
 	[/^jungle.(temple|pyramid)/, (name) => name === 'chests/jungle_temple'],
 	[/^pillager.outpost/, (name) => name === 'chests/pillager_outpost'],
@@ -76,7 +76,7 @@ const keyIn = (dimension) => (row) => `${dimension ?? 'minecraft:overworld'}|${M
  * kept by the caller, since a structure leaves the sighted rows once the body walks off. A container outside any known structure is someone's storage,
  * not loot, and is not offered.
  */
-export function lootSources(o, { opened = new Set(), searched = new Set(), structures: known = [], yields = lootYields() } = {}) {
+export function lootSources(o, { opened = new Set(), searched = new Set(), structures: known = [], partial = new Set(), yields = lootYields() } = {}) {
 	const at = o?.position ?? o?.player;
 	if (!finite(at)) return [];
 	const dimension = o.world?.dimension;
@@ -94,8 +94,9 @@ export function lootSources(o, { opened = new Set(), searched = new Set(), struc
 	// Containers: the shared seen-resource rows when present (they carry opened), else the blocks in view.
 	// Containers: the shared seen-resource rows (they carry opened) and the blocks in view now, which a row may not hold yet.
 	const shared = Array.isArray(o.seenResources) ? o.seenResources.filter((row) => row?.kind === 'container' && (!row.dimension || row.dimension === dimension)) : [];
-	const openedShared = new Set(shared.filter((row) => row.opened === true).map(key));
-	const rows = [...shared.filter((row) => row.opened !== true), ...[...(o.blocks ?? []), ...(o.nearbyContainers ?? [])].map((row) => ({ ...row, id: row.blockId }))]
+	// A chest whose taking a stop cut short (partial) stays a source although its loot is rolled.
+	const openedShared = new Set(shared.filter((row) => row.opened === true).map(key).filter((cell) => !partial.has(cell)));
+	const rows = [...shared.filter((row) => row.opened !== true || partial.has(key(row))), ...[...(o.blocks ?? []), ...(o.nearbyContainers ?? [])].map((row) => ({ ...row, id: row.blockId }))]
 		.filter((row) => finite(row) && !openedShared.has(key(row)));
 	const chests = new Map();
 	for (const row of rows) {

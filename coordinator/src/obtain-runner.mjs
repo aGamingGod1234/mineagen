@@ -1362,7 +1362,7 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		if (chest === null) {
 			step(`look for chests in the ${source.name} at ${source.x},${source.y},${source.z}`);
 			if (source.distance > 24 && !(await walk(source, 8)) && (body.interrupted() || body.stopped())) return 'stopped';
-			const inSight = lootSources(await body.observe(), { opened: new Set([...looted.opened, ...budget.failed]), searched: new Set(looted.searched), structures: looted.structures })
+			const inSight = lootSources(await body.observe(), { opened: new Set([...looted.opened, ...budget.failed]), searched: new Set(looted.searched), structures: looted.structures, partial: new Set(looted.partial ?? []) })
 				.find((row) => row.kind === 'chest');
 			chest = inSight ?? null;
 			// A village's chests stand inside its houses, out of sight from the street: look in through the doors, nearest
@@ -1412,7 +1412,7 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 				await act('navigate_to', { x: Math.floor(door.x) + 0.5, y: Math.floor(door.y), z: Math.floor(door.z) + 0.5, tolerance: 0.6, sprint: false, timeoutMs: 10_000 });
 				if (body.interrupted() || body.stopped()) return 'stopped';
 				// From the doorway a small house is in view already; a step further in only when it shows no chest.
-				const seenFromDoor = lootSources(await body.observe(), { opened: new Set([...looted.opened, ...budget.failed]), searched: new Set(looted.searched), structures: looted.structures })
+				const seenFromDoor = lootSources(await body.observe(), { opened: new Set([...looted.opened, ...budget.failed]), searched: new Set(looted.searched), structures: looted.structures, partial: new Set(looted.partial ?? []) })
 					.find((row) => row.kind === 'chest');
 				// The door's facing is not in the rows: the far side from the body first, the other side when that is no room.
 				if (!seenFromDoor) {
@@ -1423,7 +1423,7 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 					}
 				}
 				if (body.interrupted() || body.stopped()) return 'stopped';
-				chest = lootSources(await body.observe(), { opened: new Set([...looted.opened, ...budget.failed]), searched: new Set(looted.searched), structures: looted.structures })
+				chest = lootSources(await body.observe(), { opened: new Set([...looted.opened, ...budget.failed]), searched: new Set(looted.searched), structures: looted.structures, partial: new Set(looted.partial ?? []) })
 					.find((row) => row.kind === 'chest') ?? null;
 				// Shut behind: now when the house holds nothing, after the loot when it does.
 				if (chest === null) await act('set_door', { x: door.x, y: door.y, z: door.z, open: false });
@@ -1474,7 +1474,10 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		const result = typeof body.menu === 'function'
 			? await lootChest(hands, chest, { wanted: need.accept.map(bare), heldItem, from: bodyAt(o) })
 			: { ok: false, read: false, taken: {}, why: 'this body cannot read an open chest' };
-		if (result.read) looted.opened.push(cellKey(chest));
+		// A take a stop cut short leaves the chest a source to come back to; one fully read and taken from is done.
+		looted.partial ??= [];
+		if (result.read && result.stopped) { if (!looted.partial.includes(cellKey(chest))) looted.partial.push(cellKey(chest)); }
+		else if (result.read) { looted.opened.push(cellKey(chest)); looted.partial = looted.partial.filter((cell) => cell !== cellKey(chest)); }
 		else budget.failed.add(cellKey(chest));
 		if (result.closed === false) step('the chest screen may still be open: closed at the next step');
 		if (houseDoor !== null && !rawBody.interrupted() && !rawBody.stopped()) {
@@ -1811,7 +1814,7 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			rememberStructures(looted, o);
 			// Three loot steps that came to nothing (no way in, no chest found, a menu that would not open): chests drop out
 			// of this call's plans, so the other ways are planned again rather than a stuck loot need.
-			const loot = !OBTAIN_COSTS || (failures.get('loot') ?? 0) >= 3 ? [] : lootSources(o, { opened: new Set([...looted.opened, ...budget.failed]), searched: new Set(looted.searched), structures: looted.structures });
+			const loot = !OBTAIN_COSTS || (failures.get('loot') ?? 0) >= 3 ? [] : lootSources(o, { opened: new Set([...looted.opened, ...budget.failed]), searched: new Set(looted.searched), structures: looted.structures, partial: new Set(looted.partial ?? []) });
 			const places = OBTAIN_COSTS ? seenPlaces(o) : null;
 			// The food the trip down still lacks: a village's bread is then worth the visit before the trip, not after; with a
 			// full bar's worth held, none is.
