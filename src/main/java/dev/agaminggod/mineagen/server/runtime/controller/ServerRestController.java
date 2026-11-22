@@ -84,6 +84,8 @@ public final class ServerRestController implements ServerController {
 	private BlockPos shelter;
 	private Direction opening;
 	private boolean pit;
+	/** Whether the body has looked down at the ground on each side of its feet for a hole (once per rest). */
+	private boolean lookedDown;
 	private int surfaceY;
 	private float shelterHealth;
 	private boolean slept;
@@ -291,6 +293,14 @@ public final class ServerRestController implements ServerController {
 				: player.getDirection().getOpposite();
 		if (avoid == null && blocks >= SEAL_BLOCKS) return seal(player, feet, away, item, now);
 		Direction side = holeSide(player, feet, away);
+		// Looking ahead, the ground beside the feet is below the view (about 58 degrees down), so it is unseen and no side
+		// can be judged (night rooms 22 Nov: "no shelter possible" with an empty inventory on dirt). A player glances
+		// down first: look at each side's ground once, then plan again.
+		if (side == null && !lookedDown) {
+			lookedDown = true;
+			Direction last = avoid;
+			return lookDown(player, feet, 0, () -> shelterPlan(player, dev.agaminggod.mineagen.server.runtime.GameClock.nowMs(), last));
+		}
 		if (side != null) {
 			pit = true;
 			log.add("digging a 1x2 hole beside the body (" + blocks + " plain blocks carried)");
@@ -298,6 +308,11 @@ public final class ServerRestController implements ServerController {
 		}
 		if (item != null && blocks >= 4) return seal(player, feet, away, item, now);
 		return stuck(player, "no shelter possible: " + blocks + " plain blocks carried (" + SEAL_BLOCKS + " wall in on open ground) and the ground below cannot be dug 2 deep");
+	}
+
+	private TickResult lookDown(ServerPlayer player, BlockPos feet, int index, java.util.function.Supplier<TickResult> then) {
+		if (index >= SIDES.length) return then.get();
+		return lookThen(feet.relative(SIDES[index]).below(), () -> lookDown(player, feet, index + 1, then));
 	}
 
 	private static Direction holeSide(ServerPlayer player, BlockPos feet, Direction away) {
