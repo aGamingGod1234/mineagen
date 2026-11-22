@@ -230,7 +230,7 @@ test('hooks are executable and block a private path or host before the commit is
   assert.match(run(['--commit-msg', path.join(dir, 'message')]).stdout, /^message:2: FAIL private host$/m);
  } finally { await rm(dir, { recursive: true, force: true }); }
 });
-test('the pre-push hook stops a private branch name or a new commit with a personal email before anything is public', async () => {
+test('the pre-push hook stops a private branch name, tag or new commit before anything is public, and never a delete', async () => {
  const { dir, git } = await scratchRepo();
  const remote = await mkdtemp(path.join(root, '.public-gate-test-remote-'));
  try {
@@ -272,6 +272,29 @@ test('the pre-push hook stops a private branch name or a new commit with a perso
   const clean = push('fix/clean');
   assert.equal(clean.status, 0, clean.stdout + clean.stderr);
   assert.match(clean.stdout + clean.stderr, /Scanned 3 texts: 0 failures/);
+  // Deleting a branch whose leaked name is already public is never stopped.
+  const leaked = 'fix/' + hostName + '-old';
+  git('branch', leaked);
+  assert.equal(spawnSync('git', ['push', '-q', '--no-verify', 'origin', leaked], { cwd: dir }).status, 0);
+  const removed = push('--delete', leaked);
+  assert.equal(removed.status, 0, removed.stdout + removed.stderr);
+  // An annotated tag's message and tagger email are read.
+  execFileSync('git', ['-c', 'user.name=Probe', '-c', 'user.email=' + 'tagger' + '@' + 'personal.org', 'tag', '-a', 'v1', '-m', 'Built on ' + hostName], { cwd: dir });
+  const blockedTag = push('v1');
+  assert.notEqual(blockedTag.status, 0);
+  assert.match(blockedTag.stdout + blockedTag.stderr, /tag \w+ identity:1: FAIL email/);
+  assert.match(blockedTag.stdout + blockedTag.stderr, /tag \w+ message:1: FAIL private host/);
+  // A commit another remote already has is still read when it goes to this one: that remote may never have run the gate.
+  const mirror = await mkdtemp(path.join(root, '.public-gate-test-remote-'));
+  try {
+   execFileSync('git', ['init', '-q', '--bare', mirror]);
+   git('remote', 'add', 'mirror', mirror);
+   execFileSync('git', ['-c', 'user.name=Probe', '-c', 'user.email=' + 'private' + '@' + 'personal.org', 'commit', '-q', '--no-verify', '--allow-empty', '-m', 'Mirror only'], { cwd: dir });
+   assert.equal(spawnSync('git', ['push', '-q', '--no-verify', 'mirror', 'HEAD:refs/heads/side'], { cwd: dir }).status, 0);
+   const blockedMirror = push('HEAD:refs/heads/side');
+   assert.notEqual(blockedMirror.status, 0);
+   assert.match(blockedMirror.stdout + blockedMirror.stderr, /identity:1: FAIL email/);
+  } finally { await rm(mirror, { recursive: true, force: true }); }
  } finally { await rm(dir, { recursive: true, force: true }); await rm(remote, { recursive: true, force: true }); }
 });
 test('pull request text lists the title, description, branch and every commit message from the API', async () => {

@@ -1,6 +1,7 @@
 #!/bin/sh
-# Scans each pushed branch or tag name, and the message and author and committer emails of every pushed commit no
-# remote has yet, with the publication gate, and stops the push on a finding. A branch name is public the moment it
-# is pushed, and no commit hook sees it.
+# Scans each pushed branch or tag name, an annotated tag's message and tagger email, and the message and author and
+# committer emails of every pushed commit the remote lacks, with the publication gate, and stops the push on a
+# finding. A branch name is public the moment it is pushed, and no commit hook sees it. Git passes the remote's name
+# (or its URL) as $1.
 # Turn the hooks on once per clone: git config core.hooksPath scripts/hooks
-exec node scripts/check-public-tree.mjs --pre-push
+exec node scripts/check-public-tree.mjs --pre-push "$1"

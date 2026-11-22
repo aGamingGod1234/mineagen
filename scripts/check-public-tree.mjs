@@ -13,9 +13,10 @@
 //   node scripts/check-public-tree.mjs --commit-msg <file>  a commit message file (the commit-msg hook)
 //   node scripts/check-public-tree.mjs --identity        the author and committer email the next commit will carry
 //                                                         (the commit-msg hook)
-//   node scripts/check-public-tree.mjs --pre-push        the refs on standard input as Git's pre-push hook gets them:
-//                                                         each branch or tag name, and the message, author email and
-//                                                         committer email of every pushed commit no remote has yet
+//   node scripts/check-public-tree.mjs --pre-push <remote>  the refs on standard input as Git's pre-push hook gets
+//                                                         them: each branch or tag name, an annotated tag's message
+//                                                         and tagger email, and the message, author email and
+//                                                         committer email of every pushed commit the remote lacks
 // Exit code 1 means a failure or a review finding; 2 means the gate could not run.
 import { readdir, readFile } from 'node:fs/promises';
 import { lstatSync, readFileSync } from 'node:fs';
@@ -147,17 +148,32 @@ function scanIdentity() {
  scanLines('identity', 'author-email: ' + identityEmail(git('GIT_AUTHOR_IDENT')) + '\ncommitter-email: ' + identityEmail(git('GIT_COMMITTER_IDENT')), { exempt: false });
 }
 // A branch name and a commit's emails are public the moment they are pushed, and no commit hook sees a branch name.
-// A pushed commit some remote already has was scanned when it first went out, so only new commits are read.
-async function scanPush() {
+// Commits the destination remote already has (its remote-tracking refs, or the sha it reports for the ref) went out
+// before, so only new commits are read; a commit fetched from another remote is read, since that remote may never
+// have run this gate. A delete publishes nothing, so it is never stopped: it may be removing a leaked name.
+async function scanPush(remote) {
  const zero = /^0+$/;
+ const git = (args) => execFileSync('git', args, { maxBuffer: 2 ** 30 }).toString('utf8');
+ const known = sha => { try { execFileSync('git', ['cat-file', '-e', sha + '^{commit}'], { stdio: 'ignore' }); return true; } catch { return false; } };
+ const remotes = git(['remote']).split(/\r?\n/).filter(Boolean);
  for (const line of (await readStdin()).split(/\r?\n/).filter(Boolean)) {
-  const [localRef, localSha, remoteRef] = line.split(' ');
-  for (const ref of new Set([localRef, remoteRef].filter(r => r && r !== '(delete)'))) {
+  const [localRef, localSha, remoteRef, remoteSha] = line.split(' ');
+  if (!localSha || zero.test(localSha)) continue;
+  for (const ref of new Set([localRef, remoteRef].filter(Boolean))) {
    files++;
    scanLines('ref ' + ref, ref.replace(/^refs\/(?:heads|tags)\//, ''), { exempt: false });
   }
-  if (!localSha || zero.test(localSha)) continue;
-  const log = execFileSync('git', ['log', '--format=%H%x00%ae%x00%ce%x00%B%x00', localSha, '--not', '--remotes'], { maxBuffer: 2 ** 30 }).toString('utf8').split('\0');
+  // An annotated tag carries its own message and tagger email.
+  if (git(['cat-file', '-t', localSha]).trim() === 'tag') {
+   const tag = git(['cat-file', '-p', localSha]);
+   const cut = tag.indexOf('\n\n');
+   files += 2;
+   scanLines('tag ' + localSha.slice(0, 12) + ' identity', 'tagger-email: ' + identityEmail(tag.match(/^tagger (.*)$/m)?.[1] ?? ''), { exempt: false });
+   scanLines('tag ' + localSha.slice(0, 12) + ' message', cut < 0 ? '' : tag.slice(cut + 2).replace(/\n$/, ''), { exempt: false });
+  }
+  if (!known(localSha)) continue;
+  const exclude = [...(remotes.includes(remote) ? ['--remotes=' + remote] : []), ...(remoteSha && !zero.test(remoteSha) && known(remoteSha) ? [remoteSha] : [])];
+  const log = git(['log', '--format=%H%x00%ae%x00%ce%x00%B%x00', localSha + '^{commit}', '--not', ...exclude]).split('\0');
   for (let i = 0; i + 4 <= log.length; i += 4) {
    const sha = log[i].trim().slice(0, 12);
    files += 2;
@@ -181,7 +197,7 @@ try {
  else if (mode === '--text') await scanTexts(rest);
  else if (mode === '--commit-msg') await scanCommitMessage(rest[0]);
  else if (mode === '--identity') scanIdentity();
- else if (mode === '--pre-push') await scanPush();
+ else if (mode === '--pre-push') await scanPush(rest[0]);
  else if (mode?.startsWith('--')) throw Error('Unknown option ' + mode);
  else { const root = path.resolve(mode ?? '.'); await walk(root, root); }
 } catch (error) {
