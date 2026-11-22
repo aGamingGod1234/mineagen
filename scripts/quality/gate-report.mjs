@@ -326,7 +326,8 @@ function damageOf(raw, agentId, start, end) {
 		const lines = text.split('\n');
 		lines.pop();
 		const counts = new Map();
-		for (const line of lines) if (line.trim()) counts.set(line, (counts.get(line) ?? 0) + 1);
+		// A CRLF copy and an LF copy of one row are the same row.
+		for (const raw of lines) { const line = raw.replace(/\r$/, ''); if (line.trim()) counts.set(line, (counts.get(line) ?? 0) + 1); }
 		const key = path.basename(file);
 		for (const [line, n] of counts) most.set(`${key}\u0000${line}`, Math.max(most.get(`${key}\u0000${line}`) ?? 0, n));
 	}
