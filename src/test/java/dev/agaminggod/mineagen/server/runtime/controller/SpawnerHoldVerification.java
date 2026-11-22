@@ -84,6 +84,15 @@ public final class SpawnerHoldVerification {
 		check(!SpawnerHold.sealedHeal(SpawnerHold.TURTLE_DONE, 0L, 1_000L), "walled in, the heal ends at TURTLE_DONE");
 		check(!SpawnerHold.sealedHeal(5.0F, 0L, SpawnerHold.SEALED_MS), "walled in, the heal ends at SEALED_MS");
 		check(SpawnerHold.backToCell(11.0F) && !SpawnerHold.backToCell(12.0F), "a rod trip turns back to the cell below 12 health");
+		check(!SpawnerHold.backToCell(14.0F, 10.0D, 0.0F, 0), "unhurt lately and not burning: 14 health 10 blocks out fights on");
+		check(SpawnerHold.backToCell(16.0F, 10.0D, 5.0F, 0), "one fireball in the last 5 s at 10 blocks out: 16 health turns back (5 s walk and wall-in at 1 a second)");
+		check(!SpawnerHold.backToCell(16.0F, 0.0D, 5.0F, 0), "the same hit in the cell: 16 health still has its margin (only the wall-in to cover)");
+		check(SpawnerHold.backToCell(15.0F, 2.0D, 0.0F, 100), "burning for 5 s more: 15 health turns back even by the cell");
+		check(SpawnerHold.backToCell(11.0F, 0.0D, 0.0F, 0), "below 12 always: the old floor stays");
+		check(Math.abs(SpawnerHold.healthAtCover(20.0F, 8.0D, 10.0F, 40) - 10.0F) < 1e-4F, "20 health, 2 health a second of hits over a 4 s walk and wall-in, 2 s of fire: 10 at the cell");
+		check(SpawnerHold.turtle(true, 15.0F, true, -1L, 0L), "the margin ran out: the heal starts on arrival at 15");
+		check(!SpawnerHold.turtle(true, 18.0F, true, -1L, 0L), "not at 18 (nothing to heal)");
+		check(!SpawnerHold.turtle(true, 15.0F, false, -1L, 0L), "at 15 with the margin held: fight on");
 		check("OUT_OF_FOOD".equals(SpawnerHold.handBack(sense(2, 12.0F, 10, false, 60_000L, false, 0L, true, 0, false, false))), "H3 hurt, hungry, no food");
 		check(SpawnerHold.handBack(sense(2, 12.0F, 10, true, 60_000L, false, 0L, true, 0, false, false)) == null, "H3 not with food left (the hold eats)");
 		check(SpawnerHold.handBack(sense(2, 20.0F, 10, false, 60_000L, false, 0L, true, 0, false, false)) == null, "H3 not at full health");

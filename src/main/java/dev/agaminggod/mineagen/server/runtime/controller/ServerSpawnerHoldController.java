@@ -110,6 +110,13 @@ public final class ServerSpawnerHoldController implements ServerController {
 	/** Health lost, by the last damage kind and where the body was: hit counts alone hid which hits cost health. */
 	private final Map<String, Float> lost = new LinkedHashMap<>();
 	private float lastHealth = -1.0F;
+	/** Health lost to hits (not burning) by game tick, for the rate the walk back is expected to cost: {tick, loss}. */
+	private final java.util.ArrayDeque<float[]> recentHits = new java.util.ArrayDeque<>();
+	/** The margin ran out outside the cell: the heal starts on arrival whatever the health (up to TURTLE_DONE). */
+	private boolean coverWanted;
+	private int marginTurns;
+	/** Health at each heal start, for the receipt: the heal began at 2.4-8.3 before the turn-back counted the walk back. */
+	private final List<String> healStarts = new ArrayList<>();
 	private int turtleTicks, blockingTicks;
 	private final CombatInputLease fireInput = new CombatInputLease();
 	private int fireTicks, firesPunched;
@@ -669,11 +676,11 @@ public final class ServerSpawnerHoldController implements ServerController {
 			returning = true;
 			note("collect:false and a hostile near: back to the cell");
 		}
-		if (collector != null && SpawnerHold.backToCell(player.getHealth())) {
+		if (collector != null && marginGone(player, toCell(player))) {
 			collector.cancel(player);
 			collector = null;
 			returning = true;
-			note(String.format(Locale.ROOT, "health %.1f on a rod trip: back to the cell", player.getHealth()));
+			turnBack(player, "a rod trip");
 		}
 		if (ledge != null && collectHeldBack(player)) {
 			ledge.cancel(player);
@@ -681,11 +688,11 @@ public final class ServerSpawnerHoldController implements ServerController {
 			returning = true;
 			note("collect:false and a hostile near: back from the ledge to the cell");
 		}
-		if (ledge != null && SpawnerHold.backToCell(player.getHealth())) {
+		if (ledge != null && marginGone(player, toCell(player))) {
 			ledge.cancel(player);
 			ledge = null;
 			returning = true;
-			note(String.format(Locale.ROOT, "health %.1f on a ledge trip: back to the cell", player.getHealth()));
+			turnBack(player, "a ledge trip");
 		}
 		if (ledge != null) {
 			String done = ledge.tick(player, now);
@@ -709,7 +716,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 		}
 		boolean shot = ReflexSensors.blockableShot(player, 1.5D) != null;
 		boolean turtling = sealed ? SpawnerHold.sealedHeal(player.getHealth(), turtleSinceMs, elapsed)
-				: SpawnerHold.turtle(inCell, player.getHealth(), turtleSinceMs, elapsed);
+				: SpawnerHold.turtle(inCell, player.getHealth(), coverWanted || inCell && marginGone(player, 0.0D), turtleSinceMs, elapsed);
+		if (inCell && !turtling) coverWanted = false;
 		if (turtling) {
 			turtleTicks++;
 			if (player.isBlocking()) blockingTicks++;
@@ -722,6 +730,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 				stopEngine(player);
 				turtleSinceMs = elapsed;
 				turtles++;
+				coverWanted = false;
+				healStarts.add(String.format(Locale.ROOT, "%.1f", player.getHealth()));
 				note(String.format(Locale.ROOT, "health %.1f: heal in the cell (offhand %s, main %s)", player.getHealth(),
 						BuiltInRegistries.ITEM.getKey(player.getOffhandItem().getItem()).getPath(), BuiltInRegistries.ITEM.getKey(player.getMainHandItem().getItem()).getPath()));
 				sealTried = false;
@@ -822,7 +832,9 @@ public final class ServerSpawnerHoldController implements ServerController {
 			}
 		}
 		outOfCellTicks = inCell ? 0 : outOfCellTicks + 1;
-		if (!SpawnerHold.OPEN_FIGHT && outOfCellTicks > OUT_OF_CELL_TICKS || !inCell && SpawnerHold.backToCell(player.getHealth())) {
+		boolean marginOut = !inCell && marginGone(player, toCell(player));
+		if (!SpawnerHold.OPEN_FIGHT && outOfCellTicks > OUT_OF_CELL_TICKS || marginOut) {
+			if (marginOut) turnBack(player, "the open fight");
 			stopEngine(player);
 			returning = true;
 			return collect(player, now);
@@ -1163,6 +1175,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 			if (aboveFeet(player, item)) continue;
 			double blazeNear = Math.min(nearest(blazes, item.position()), nearest(blazes, player.position()));
 			int blazesNearRod = (int) blazes.stream().filter(b -> b.position().distanceTo(item.position()) <= SpawnerHold.LEDGE_BLAZE_RANGE).count();
+			if (marginGone(player, item.position().distanceTo(middle))) continue;
 			if (!SpawnerHold.mayCollect(player.getHealth(), witherToBody, nearest(withers, item.position()), blazeNear, item.getAge())
 					&& !SpawnerHold.mayStepOut(player.getHealth(), witherToBody, nearest(withers, item.position()), item.position().distanceTo(middle), blazesNearRod)
 					&& !SpawnerHold.mayFetchBold(player.getHealth(), witherToBody, nearest(withers, item.position()), nearest(blazes, item.position()), item.position().distanceTo(middle))) continue;
@@ -1190,6 +1203,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 			if (ledgeTried.contains(item.getUUID()) || !aboveFeet(player, item) || !ObservationVisibility.canSeeEntity(player, item)) continue;
 			dev.agaminggod.mineagen.server.perception.ObservedDrops.remember(player, item);
 			int blazesNear = (int) blazes.stream().filter(b -> b.position().distanceTo(item.position()) <= SpawnerHold.LEDGE_BLAZE_RANGE).count();
+			if (marginGone(player, item.position().distanceTo(middle))) continue;
 			if (!SpawnerHold.mayFetchLedge(player.getHealth(), witherToBody, nearest(withers, item.position()), blazesNear)) continue;
 			ids.add(item.getUUID());
 		}
@@ -1249,6 +1263,9 @@ public final class ServerSpawnerHoldController implements ServerController {
 		if (lastHealth >= 0.0F && health < lastHealth) {
 			var source = player.getLastDamageSource();
 			lost.merge((source == null ? "unknown" : source.getMsgId()) + where, lastHealth - health, Float::sum);
+			String kind = source == null ? "" : source.getMsgId();
+			if (!kind.equals("onFire") && !kind.equals("inFire") && !kind.equals("lava"))
+				recentHits.addLast(new float[] {player.level().getGameTime(), lastHealth - health});
 		}
 		lastHealth = health;
 		// A breach is a wither skeleton's own strike in the cell, not later damage (the wither effect) still blamed on it.
@@ -1345,16 +1362,42 @@ public final class ServerSpawnerHoldController implements ServerController {
 
 	private String summary(ServerPlayer player, long elapsed) {
 		int held = ServerFightUntilController.count(player, untilItem);
-		return String.format(Locale.ROOT, "spawner hold at %s: cell %s, %d site%s failed, %d build%s; %+d %s in %.0f s; %d engine run%s %s; %d rod trip%s (%d up a ledge, %d rods from them); %d meal%s; %d defend%s; %d heal%s (%d walled in, %d reopened; shield up %d of %d ticks, asked %d, using %d %s, keys %s, %d bite%s stopped for a volley); %d fire%s punched out; hurts %s; health lost %s%s",
+		return String.format(Locale.ROOT, "spawner hold at %s: cell %s, %d site%s failed, %d build%s; %+d %s in %.0f s; %d engine run%s %s; %d rod trip%s (%d up a ledge, %d rods from them); %d meal%s; %d defend%s; %d heal%s (%d walled in, %d reopened; shield up %d of %d ticks, asked %d, using %d %s, keys %s, %d bite%s stopped for a volley); %d fire%s punched out; hurts %s; health lost %s; %d margin turn-back%s; heals began at %s%s",
 				spawner == null ? "none seen" : spawner.toShortString(), cell == null ? "none" : cell.toShortString(), sitesFailed, sitesFailed == 1 ? "" : "s", builds, builds == 1 ? "" : "s",
 				held - Math.max(0, startHeld), untilItemId, elapsed / 1000.0D, engineRuns, engineRuns == 1 ? "" : "s", engineEnds, trips, trips == 1 ? "" : "s", ledgeTrips, ledgeRods,
-				meals, meals == 1 ? "" : "s", defends, defends == 1 ? "" : "s", turtles, turtles == 1 ? "" : "s", seals, reopens, blockingTicks, turtleTicks, shieldAsks, usingTicks, usedInHeal, healWinners, bitesStopped, bitesStopped == 1 ? "" : "s", firesPunched, firesPunched == 1 ? "" : "s", hurts, lostText(), log.isEmpty() ? "" : "; log: " + String.join(" | ", log.subList(Math.max(0, log.size() - 6), log.size())));
+				meals, meals == 1 ? "" : "s", defends, defends == 1 ? "" : "s", turtles, turtles == 1 ? "" : "s", seals, reopens, blockingTicks, turtleTicks, shieldAsks, usingTicks, usedInHeal, healWinners, bitesStopped, bitesStopped == 1 ? "" : "s", firesPunched, firesPunched == 1 ? "" : "s", hurts, lostText(), marginTurns, marginTurns == 1 ? "" : "s", healStarts.isEmpty() ? "none" : String.join(", ", healStarts), log.isEmpty() ? "" : "; log: " + String.join(" | ", log.subList(Math.max(0, log.size() - 6), log.size())));
 	}
 
 	private String lostText() {
 		StringBuilder text = new StringBuilder("{");
 		lost.forEach((key, value) -> text.append(text.length() > 1 ? ", " : "").append(key).append('=').append(String.format(Locale.ROOT, "%.1f", value)));
 		return text.append('}').toString();
+	}
+
+	private float hitLossRecent(ServerPlayer player) {
+		long now = player.level().getGameTime();
+		while (!recentHits.isEmpty() && now - (long) recentHits.peekFirst()[0] > SpawnerHold.HIT_RATE_TICKS) recentHits.pollFirst();
+		float sum = 0.0F;
+		for (float[] hit : recentHits) sum += hit[1];
+		return sum;
+	}
+
+	/** Whether the margin to the cell is gone with the body this far from it (0 in the cell): see {@link SpawnerHold#backToCell(float, double, float, int)}. */
+	private boolean marginGone(ServerPlayer player, double toCell) {
+		int fire = HazardExits.fireResistant(player) ? 0 : player.getRemainingFireTicks();
+		return SpawnerHold.backToCell(player.getHealth(), toCell, hitLossRecent(player), fire);
+	}
+
+	private double toCell(ServerPlayer player) {
+		return player.position().distanceTo(Vec3.atBottomCenterOf(cell));
+	}
+
+	private void turnBack(ServerPlayer player, String from) {
+		coverWanted = true;
+		marginTurns++;
+		int fire = HazardExits.fireResistant(player) ? 0 : player.getRemainingFireTicks();
+		note(String.format(Locale.ROOT, "health %.1f on %s, %.1f expected at the cell (%.0f blocks): back to the cell", player.getHealth(), from,
+				SpawnerHold.healthAtCover(player.getHealth(), toCell(player), hitLossRecent(player), fire), toCell(player)));
 	}
 
 	private void note(String line) {

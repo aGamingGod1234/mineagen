@@ -182,8 +182,13 @@ public final class SpawnerHold {
 	 * TURTLE_HEALTH it never stops for time: the cell is where it heals, with no hand-back at the health floor.
 	 */
 	static boolean turtle(boolean inCell, float health, long sinceMs, long elapsedMs) {
+		return turtle(inCell, health, false, sinceMs, elapsedMs);
+	}
+
+	/** As {@link #turtle(boolean, float, long, long)}; coverWanted starts the heal above TURTLE_HEALTH (the margin ran out: {@link #backToCell(float, double, float, int)}). */
+	static boolean turtle(boolean inCell, float health, boolean coverWanted, long sinceMs, long elapsedMs) {
 		if (!inCell) return false;
-		if (sinceMs < 0L) return health < TURTLE_HEALTH;
+		if (sinceMs < 0L) return health < TURTLE_HEALTH || coverWanted && health < TURTLE_DONE;
 		return health < TURTLE_HEALTH || health < TURTLE_DONE && elapsedMs - sinceMs < TURTLE_MS;
 	}
 
@@ -197,6 +202,32 @@ public final class SpawnerHold {
 	/** A rod trip (or any step out of the cell) turns back to the cell below this health: the cell is where it heals. */
 	static boolean backToCell(float health) {
 		return health < TURTLE_HEALTH;
+	}
+
+	/** Walking pace back to the cell (blocks a second, a walk, not a sprint), and the seconds to wall the doorway up once there. */
+	static final double WALK_BACK_SPEED = 4.0D, COVER_SECONDS = 2.0D;
+	/** Hits (not burning) taken over this many ticks set the rate the walk back is expected to cost. */
+	static final long HIT_RATE_TICKS = 100L;
+
+	/**
+	 * The health the body is expected to have once it stands walled in its cell: health now, less the hits it is taking (the
+	 * last {@link #HIT_RATE_TICKS}' health lost to hits, as a rate) over the walk back and the wall-in, less the burning still
+	 * to come (1 health a second). Round 6b52e71 live: the turn-back read health alone, below 12, after each hit had landed;
+	 * blazes hit in volleys of three 5-health fireballs and set the body alight, so it turned at 11 already burning, lost up
+	 * to 20 more on the walk back and began the heal at 2.4-8.3, where any hit through the open doorway killed it.
+	 */
+	static float healthAtCover(float health, double toCell, float hitLossRecent, int fireTicksLeft) {
+		double seconds = toCell / WALK_BACK_SPEED + COVER_SECONDS;
+		double hitsPerSecond = hitLossRecent / (HIT_RATE_TICKS / 20.0D);
+		return (float) (health - hitsPerSecond * seconds - Math.max(0, fireTicksLeft) / 20.0D);
+	}
+
+	/**
+	 * Go back for the cell (or, in it, start the heal) while the margin holds: as a player does, sooner the farther the cell
+	 * and the faster the hits come, so the body arrives with about {@link #TURTLE_HEALTH} rather than leaving at it.
+	 */
+	static boolean backToCell(float health, double toCell, float hitLossRecent, int fireTicksLeft) {
+		return health < TURTLE_HEALTH || healthAtCover(health, toCell, hitLossRecent, fireTicksLeft) < TURTLE_HEALTH;
 	}
 
 	/** Two wither skeleton hits inside the cell within the window: the doorway does not keep them out here. */

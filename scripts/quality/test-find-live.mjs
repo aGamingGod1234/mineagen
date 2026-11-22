@@ -174,6 +174,18 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 					...(typeof ev.payload.physicalAttempted === 'boolean' ? { physicalAttempted: ev.payload.physicalAttempted } : {}),
 					message: String(ev.payload.message ?? '').slice(0, 2000) });
 				console.log(`  [${spot.name}]   -> ${ev.payload.state} ${ev.payload.reasonCode ?? ''} ${String(ev.payload.message ?? '').slice(0, 220)}`);
+				// FIND_ITEM_DIAG=1: 2 s after a vein or block break, where the dropped items really are and which the body lists.
+				if (process.env.FIND_ITEM_DIAG === '1' && ['mine_vein', 'break_block'].includes(action?.type)) setTimeout(async () => {
+					try {
+						const truth = [];
+						for (const sort of ['nearest', 'furthest']) truth.push(String(await s.command(`execute as Probe at @s run data get entity @e[type=minecraft:item,distance=..12,limit=1,sort=${sort}] Pos`)).slice(0, 160));
+						const seen = adaptObservation(await s.observe());
+						const listed = (seen.items ?? []).map(item => `${item.itemId}@${[item.x, item.y, item.z].map(v => Number(v).toFixed(1)).join(',')}`);
+						const body = seen.player ? [seen.player.x, seen.player.y, seen.player.z, seen.player.yaw, seen.player.pitch].map(v => Number(v).toFixed(1)).join(',') : null;
+						(row.itemDiag ??= []).push({ after: action.type, atS: action.atS, truth, listed, body });
+						console.log(`  [${spot.name}] items after ${action.type}: truth ${truth.join(' | ')}; listed ${JSON.stringify(listed)}; body ${body}`);
+					} catch (error) { console.log(`  [${spot.name}] item diag failed: ${error?.message ?? error}`); }
+				}, 2_000);
 			}
 			s.bridge.send('action_result_ack', record.agentId, { goalRevision: record.goalRevision, actionId: ev.payload.actionId }).catch(() => {});
 		});

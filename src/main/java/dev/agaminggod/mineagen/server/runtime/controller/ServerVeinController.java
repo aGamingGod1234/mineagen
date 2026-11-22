@@ -83,7 +83,9 @@ public final class ServerVeinController implements ServerController {
 	private final Set<BlockPos> skipped = new HashSet<>();
 	private final java.util.Map<BlockPos, String> skipWhy = new java.util.LinkedHashMap<>();
 	private int leaves, planned = 1;
-	private int stepOffs, steppedAt = -1, relookedAt = -1, relookTicks;
+	private int stepOffs, relookedAt = -1, relookTicks;
+	/** Stances already walked to (or tried): a refused walk gives the next candidate its turn, never the same one again. */
+	private final Set<BlockPos> triedStances = new HashSet<>();
 	private boolean underOnly;
 
 	public ServerVeinController(BlockPos target, int maxBlocks, long timeoutMs, long now, Environment environment) {
@@ -265,12 +267,12 @@ public final class ServerVeinController implements ServerController {
 		}
 		List<BlockPos> under = new ArrayList<>();
 		for (BlockPos at : component(player)) if (!broken.contains(at) && "under the body".equals(skipWhy.get(at))) under.add(at);
-		if (!under.isEmpty() && stepOffs < STEP_OFFS && steppedAt != broken.size() && broken.size() < maxBlocks) {
+		if (!under.isEmpty() && stepOffs < STEP_OFFS && broken.size() < maxBlocks) {
 			BlockPos to = VeinPlan.stepOff(player.blockPosition(), player.position(), under, at -> open(player, at), at -> floor(player, at),
-					player.blockInteractionRange());
+					player.blockInteractionRange(), triedStances);
 			if (to != null) {
 				stepOffs++;
-				steppedAt = broken.size();
+				triedStances.add(to.immutable());
 				stance = to;
 				phase = Phase.APPROACH;
 				return TickResult.running(progress());

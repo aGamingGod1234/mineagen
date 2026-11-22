@@ -234,3 +234,60 @@ test('program handoff transfers the bounded lease before releasing predecessor o
  assert.equal(expirations[0].lease.operationId, successor.operationId);
  assert.equal(observations[0].reason, 'program_lease_expired');
 });
+
+test('a paused Minecraft server holds every work deadline and the stuck check, then shifts them by the pause', async () => {
+	// Playtest: a single-player pause cancelled the bot's running step. Paused, nothing expires; resumed, the step has
+	// the time it had left when the pause began.
+	const { clock, expirations, stuck, supervisor } = fixture();
+	supervisor.activate(key);
+	supervisor.factualProgress(key, 'at 1,2,3');
+	const provider = supervisor.acquire(key, 'provider');
+	clock.advance(10_000);
+	assert.equal(supervisor.serverPaused(true), true);
+	assert.equal(supervisor.serverPaused(true), false, 'a repeated pause report changes nothing');
+	clock.advance(300_000);
+	await clock.runDue();
+	assert.equal(expirations.length, 0, 'five paused minutes expire no lease');
+	assert.equal(stuck.length, 0, 'and no goal reads as stuck');
+	assert.equal(supervisor.serverPaused(false), true);
+	clock.advance(LEASE_TIMEOUTS_MS.provider - 10_000 - 1);
+	await clock.runDue();
+	assert.equal(expirations.length, 0, 'the provider lease keeps the time it had left');
+	clock.advance(2);
+	await clock.runDue();
+	assert.equal(expirations.length, 1);
+	assert.equal(expirations[0].lease.operationId, provider.operationId);
+});
+
+test('progress during a pause counts from the resume, not from before the pause', async () => {
+	const { clock, expirations, supervisor } = fixture();
+	supervisor.activate(key);
+	const action = supervisor.acquire(key, 'action');
+	supervisor.serverPaused(true);
+	clock.advance(200_000);
+	supervisor.progress(action);
+	clock.advance(50_000);
+	supervisor.serverPaused(false);
+	clock.advance(LEASE_TIMEOUTS_MS.action - 1);
+	await clock.runDue();
+	assert.equal(expirations.length, 0);
+	clock.advance(2);
+	await clock.runDue();
+	assert.equal(expirations.length, 1, 'a full lease after the resume, then it expires as before');
+});
+
+test('the stuck check resumes with the time it had left, so short pauses cannot hide a stuck bot', async () => {
+	const { clock, stuck, supervisor } = fixture();
+	supervisor.activate(key);
+	supervisor.factualProgress(key, 'at 1,2,3');
+	clock.advance(29_000);
+	supervisor.serverPaused(true);
+	clock.advance(1_000);
+	supervisor.serverPaused(false);
+	clock.advance(999);
+	await clock.runDue();
+	assert.equal(stuck.length, 0, '29.999 s unpaused without progress');
+	clock.advance(2);
+	await clock.runDue();
+	assert.equal(stuck.length, 1, 'reported at 30 unpaused seconds, not 30 s after the resume');
+});

@@ -792,7 +792,7 @@ public final class ReflexEngine {
 			JsonObject current = new JsonObject();
 			current.addProperty("id", firing.ruleId());
 			current.addProperty("ms", Math.max(0L, now - firing.startTick()) * 50L);
-			if (!agent.detail.isEmpty()) current.addProperty("detail", agent.detail);
+			if (!agent.detail.isEmpty()) current.addProperty("detail", wireDetail(agent.detail));
 			status.add("firing", current);
 		}
 		JsonArray rules = new JsonArray();
@@ -825,7 +825,7 @@ public final class ReflexEngine {
 			row.addProperty("id", event.ruleId());
 			row.addProperty("outcome", event.outcome().wire());
 			row.addProperty("ms", event.durationTicks() * 50L);
-			if (!event.detail().isEmpty()) row.addProperty("detail", event.detail());
+			if (!event.detail().isEmpty()) row.addProperty("detail", wireDetail(event.detail()));
 			if (event.wake()) row.addProperty("wake", true);
 			events.add(row);
 		}
@@ -840,5 +840,20 @@ public final class ReflexEngine {
 	/** A coordinator default rule whose action lacks its item (ReflexActions.lacks) does not fire; a model rule does. */
 	static boolean sleepsWithoutItem(ReflexSpec.Rule rule, String lacks) {
 		return rule.sleepsWithoutItem(lacks);
+	}
+
+	/** The protocol's limit on a reflex detail (protocol-v2 reflexes.firing.detail and reflexes.events.detail). */
+	static final int WIRE_DETAIL_CHARS = 240;
+
+	/**
+	 * A detail clipped to {@link #WIRE_DETAIL_CHARS} with an ellipsis, never splitting a surrogate pair. A longer one made
+	 * the coordinator reject the whole observation and drop the bridge: in the iron-kit room both agents of a server
+	 * lost their coordinator 13 min in, and a body left dead with no coordinator stayed dead for the rest of the round.
+	 */
+	static String wireDetail(String detail) {
+		if (detail.length() <= WIRE_DETAIL_CHARS) return detail;
+		int end = WIRE_DETAIL_CHARS - 1;
+		if (Character.isHighSurrogate(detail.charAt(end - 1))) end--;
+		return detail.substring(0, end) + "\u2026";
 	}
 }
