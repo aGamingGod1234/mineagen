@@ -1289,6 +1289,39 @@
    "reads": "OUT/acceptance-summary.json and the exit code (0 pass, 1 fail, 2 invalid); room-batch shows \"no rows (exit N)\""
   },
   {
+   "room": "drawn-crossbow-4",
+   "fixture": "test-drawn-bow-live.mjs",
+   "stage": "nether-fortress",
+   "skill": "combat",
+   "skill2": null,
+   "line": "SHOOTER=piglin RULE_ARMS=drawn DISTANCES=4 REPEATS=1 ARENA_JAR=$JAR node scripts/quality/test-drawn-bow-live.mjs $OUT",
+   "estMinutes": 2,
+   "tickRate": 20,
+   "reads": "OUT/acceptance-summary.json and the exit code (0 pass, 1 fail, 2 invalid); room-batch shows \"no rows (exit N)\""
+  },
+  {
+   "room": "drawn-crossbow-7",
+   "fixture": "test-drawn-bow-live.mjs",
+   "stage": "nether-fortress",
+   "skill": "combat",
+   "skill2": null,
+   "line": "SHOOTER=piglin RULE_ARMS=drawn DISTANCES=7 REPEATS=1 ARENA_JAR=$JAR node scripts/quality/test-drawn-bow-live.mjs $OUT",
+   "estMinutes": 2,
+   "tickRate": 20,
+   "reads": "OUT/acceptance-summary.json and the exit code (0 pass, 1 fail, 2 invalid); room-batch shows \"no rows (exit N)\""
+  },
+  {
+   "room": "drawn-crossbow-10",
+   "fixture": "test-drawn-bow-live.mjs",
+   "stage": "nether-fortress",
+   "skill": "combat",
+   "skill2": null,
+   "line": "SHOOTER=piglin RULE_ARMS=drawn DISTANCES=10 REPEATS=1 ARENA_JAR=$JAR node scripts/quality/test-drawn-bow-live.mjs $OUT",
+   "estMinutes": 2,
+   "tickRate": 20,
+   "reads": "OUT/acceptance-summary.json and the exit code (0 pass, 1 fail, 2 invalid); room-batch shows \"no rows (exit N)\""
+  },
+  {
    "room": "end-breath",
    "fixture": "test-end-breath-live.mjs",
    "stage": "end",
