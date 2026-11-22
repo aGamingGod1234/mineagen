@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { UNREACHED, UNREACHED_SPOT, chooseHeading, findProfile, oreRockShare, rememberedPlaces, sameVein, searchFor, seenAtOf, sightingOf } from '../src/find-search.mjs';
+import { DESCENT_RESERVE, stepRow, UNREACHED, UNREACHED_SPOT, chooseHeading, pickaxeUses, stairBudget, findProfile, oreRockShare, rememberedPlaces, sameVein, searchFor, seenAtOf, sightingOf } from '../src/find-search.mjs';
 import { normalizeMinecraftToolCall } from '../src/native-minecraft-tools.mjs';
 import { isNativeBodyTool } from '../src/codex-service.mjs';
 
@@ -1477,7 +1477,9 @@ test('batch 1 r5 seeds 3 and 6: the walk off water under a lava dig goes where t
 	assert.equal(await run([]), 0, 'no look ground: away from the water named, as before');
 });
 
-test('batch 1 r5 seed 3: a lava dig near water met under an earlier dig down takes the stair, not the 1-wide shaft it cannot climb out of when it floods', async () => {
+test('batch 1 r5 seed 3: a lava dig near water met under an earlier dig down takes the stair, not the 1-wide shaft it cannot climb out of when it floods', async (t) => {
+	process.env.MINEAGEN_LAVA_STAIRS = 'on';
+	t.after(() => { delete process.env.MINEAGEN_LAVA_STAIRS; });
 	const start = sample({ player: { x: 249.5, y: 67, z: -217.5, yaw: 0, health: 20, skyOpen: true },
 		inventory: { items: [{ itemId: 'minecraft:water_bucket', count: 1 }, { itemId: 'minecraft:iron_pickaxe', count: 1 }] } });
 	const run = async (wetSpots) => {
@@ -1489,8 +1491,30 @@ test('batch 1 r5 seed 3: a lava dig near water met under an earlier dig down tak
 	};
 	// Two wet spots from the search before, 30 blocks west: the same aquifer region.
 	assert.equal(await run([{ x: 219, y: 65, z: -219, why: 'water under a dig down' }, { x: 219, y: 65, z: -209, why: 'water under a dig down' }]), 'steep_down');
-	assert.equal(await run([{ x: 100, y: 65, z: -219, why: 'water under a dig down' }]), 'shaft', 'water met far off says nothing of the ground here');
-	assert.equal(await run([]), 'shaft', 'no water met: the bucket shaft as before');
+	assert.equal(await run([{ x: 100, y: 65, z: -219, why: 'water under a dig down' }]), 'steep_down', 'a lava find digs stairs, water met or not');
+	assert.equal(await run([]), 'steep_down', 'no water met: stairs, not the bucket shaft');
+	process.env.MINEAGEN_LAVA_SHAFT = 'on';
+	try {
+		assert.equal(await run([{ x: 100, y: 65, z: -219, why: 'water under a dig down' }]), 'shaft', 'switch on: water met far off says nothing of the ground here');
+		assert.equal(await run([]), 'shaft', 'switch on: no water met, the bucket shaft as before');
+	} finally { delete process.env.MINEAGEN_LAVA_SHAFT; }
+});
+
+test('lava-gate-1 and -8: a lava find from spawn digs stairs down, never the 1-wide shaft that flooded or dropped it into a mob cave', async (t) => {
+	process.env.MINEAGEN_LAVA_STAIRS = 'on';
+	t.after(() => { delete process.env.MINEAGEN_LAVA_STAIRS; });
+	const start = sample({ player: { x: 16.5, y: 70, z: -47.5, yaw: 0, health: 20, skyOpen: true },
+		inventory: { items: [{ itemId: 'minecraft:iron_pickaxe', count: 1 }, { itemId: 'minecraft:water_bucket', count: 1 }, { itemId: 'minecraft:cobblestone', count: 16 }] } });
+	const body = fakeBody({ start, frontier: { candidates: [], coverage: { headings: {} } },
+		acts: { dig_to: [{ result: { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:lava seen at 20,-54,-40, 6 blocks away' } }] } });
+	await searchFor({ block: 'minecraft:lava' }, body);
+	const digs = body.calls.filter((call) => call.actionType === 'dig_to').map((call) => call.args.pattern);
+	assert.deepEqual(digs, ['steep_down']);
+	// An ore find keeps the bucket shaft: only the lava descent changed.
+	const ore = fakeBody({ start, frontier: { candidates: [], coverage: { headings: {} } },
+		acts: { dig_to: [{ result: { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:iron_ore seen at 20,16,-40, 4 blocks away' } }] } });
+	await searchFor({ block: 'minecraft:iron_ore' }, ore);
+	assert.equal(ore.calls.find((call) => call.actionType === 'dig_to')?.args.pattern, 'shaft');
 });
 
 test('batches 1-2: a lava shaft starts with the water bucket in the hotbar, so the dig cuts one column, not two', async () => {
@@ -1642,6 +1666,83 @@ test('Nether ore searches do not invent nonexistent deepslate variants', () => {
   const expected=['minecraft:'+ore+'_ore','minecraft:deepslate_'+ore+'_ore'].sort();
   for (const block of expected)assert.deepEqual([...findProfile({block}).ids].sort(),expected);
  }
+});
+
+// lava-gate-1 (seed 5433312384530337025): the lava find's 1-wide shaft from spawn broke the roof of a flooded cave at y56
+// (water in every cell round it up to the stone roof at y57); the only air is the shaft, open to the sky, so the spot the
+// runtime keeps under open sky is the body's own at the bottom. On main every way off read "already at the surface" and
+// the body trod water there for 12 minutes (10 of 10 runs).
+function afloatUnderOwnShaft({ bob = false, spawnSky = false, bobY = 56.9 } = {}) {
+	let laid = false, out = false, pulses = 0;
+	const cut = new Set();
+	const water = [];
+	for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]]) water.push({ blockId: 'minecraft:water', x: 16 + dx, y: 56, z: -48 + dz });
+	const start = { x: 16.5, y: 56.3, z: -47.5, yaw: 0, health: 20, inWater: true, underWater: false, air: 300, maxAir: 300, skyOpen: true };
+	const body = fakeBody({ start: sample({ player: start, blocks: water, inventory: { items: [{ itemId: 'minecraft:iron_pickaxe', count: 1 },
+		{ itemId: 'minecraft:water_bucket', count: 1 }, { itemId: 'minecraft:cobblestone', count: 16 }] } }), frontier: { candidates: [], coverage: { headings: {} } }, acts: {
+		travel_to: Array.from({ length: 20 }, () => ({ result: { state: 'FAILED', reasonCode: 'NO_ROUTE',
+			message: 'Could not get out of the water in 30 s; no dry footing seen within 10 blocks' }, ms: 30_000 })),
+		place_block: Array.from({ length: 4 }, () => ({ result: { state: 'SUCCEEDED', reasonCode: 'BLOCK_PLACED' }, ms: 500, move: () => { laid = true; return {}; } })),
+		break_block: Array.from({ length: 40 }, () => ({ result: { state: 'SUCCEEDED', reasonCode: 'BLOCK_BROKEN' }, ms: 1_000,
+			move: (player, args) => { cut.add(`${args.x},${args.y},${args.z}`); return {}; } })),
+		control: Array.from({ length: 80 }, () => ({ result: { state: 'SUCCEEDED' }, ms: 1_000,
+			move: (player, args) => {
+				// Jump pulses in the 1-wide column go nowhere; the hop needs the laid floor and the cut step.
+				if (args.forward === 1 && args.pitch === 0 && laid && cut.size >= 3) { out = true; return { y: 57, z: player.z + 1, inWater: false, underWater: false, skyOpen: false, onGround: true }; }
+				// lava-gate-6: a jump pulse at the water's top lifts the body clear for a sample, then it sinks back.
+				pulses += 1;
+				if (bob && args.jump && pulses % 2 === 1) return { y: bobY, inWater: false, onGround: false };
+				return { y: 56.3, inWater: true, onGround: false };
+			} })),
+		dig_to: Array.from({ length: 30 }, () => ({ get result() { return out ? { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:lava seen at 30,40,-30, 5 blocks away' }
+			: { state: 'FAILED', reasonCode: 'WATER_AHEAD', message: 'Stopped: The body is under water at 16,56,-48 (air 298/300); not digging on.' }; } })),
+	} });
+	// lava-gate-6's spawn is remembered under open sky 12 above; lava-gate-1's open shaft leaves only the body's own spot.
+	body.openSky = () => (spawnSky ? { x: 16.5, y: 68, z: -47.5 } : { x: 16.5, y: 56, z: -47.5 });
+	const missed = [];
+	body.missedPlaces = () => missed;
+	body.missPlace = (place, why) => missed.push({ ...place, why });
+	return body;
+}
+
+for (const [label, options] of [['bobbing clear of the water on every other jump (lava-gate-6)', { bob: true }], ['its spawn remembered under open sky above, bobbing (lava-gate-6)', { bob: true, spawnSky: true }]]) {
+	test(`flooded own shaft, ${label}: the lava find still lays a step, cuts it out and climbs on`, async () => {
+		const body = afloatUnderOwnShaft(options);
+		const result = await searchFor({ block: 'minecraft:lava' }, body, { timeoutMs: 540_000 });
+		const types = body.calls.map((call) => call.actionType);
+		assert.ok(types.includes('place_block') && types.indexOf('break_block') > types.indexOf('place_block'), `laid then cut (calls: ${types.join(',')}; ${result.reasonCode} ${result.message})`);
+		assert.equal(result.reasonCode, 'FIND_SEEN', result.message);
+	});
+}
+
+test('the step out of the water comes from the water\'s row on a bob sample that crossed into the row above', () => {
+	assert.equal(stepRow(56.3, true, false), 56, 'in the water: its own row');
+	assert.equal(stepRow(56.9, false, true), 55, 'clear of the water, water under the feet: the row below (the water the feet left)');
+	assert.equal(stepRow(57.2, false, true), 56, 'a bob into the row over the water: the water row, not 57');
+	assert.equal(stepRow(57.2, false, false), 57, 'dry ground: its own row');
+});
+
+test('a bob that lifts the feet into the row over the water lays and cuts the step from the water\'s row, not a block above the lip', async () => {
+	const body = afloatUnderOwnShaft({ bob: true, bobY: 57.2 });
+	const result = await searchFor({ block: 'minecraft:lava' }, body, { timeoutMs: 540_000 });
+	const laid = body.calls.find((call) => call.actionType === 'place_block');
+	assert.ok(laid !== undefined, `a step laid (${result.reasonCode} ${result.message})`);
+	assert.equal(laid.args.y, 56, 'laid in the water row beside the body');
+	const cuts = body.calls.filter((call) => call.actionType === 'break_block').map((call) => call.args.y);
+	assert.ok(cuts.length > 0 && Math.min(...cuts) === 57, `cut from the row over the step (${cuts.join(',')})`);
+});
+
+test('lava-gate-1: afloat at the bottom of its own shaft open to the sky, the lava find lays a step in the water, cuts it out and climbs on', async () => {
+	const body = afloatUnderOwnShaft();
+	const result = await searchFor({ block: 'minecraft:lava' }, body, { timeoutMs: 540_000 });
+	const types = body.calls.map((call) => call.actionType);
+	const laid = types.indexOf('place_block'), firstCut = types.indexOf('break_block');
+	assert.ok(laid >= 0, `a step laid in the water (calls: ${types.join(',')}; ${result.reasonCode} ${result.message})`);
+	assert.ok(firstCut > laid, 'laid before the step is cut out above it');
+	assert.deepEqual(['x', 'y', 'z', 'face'].map((key) => body.calls[laid].args[key]), [16, 56, -47, 'down'], 'into the water beside the body (south, its yaw), against the rock over it');
+	const stairs = body.calls.find((call) => call.actionType === 'dig_to' && call.args.pattern === 'stairs_up');
+	assert.ok(stairs !== undefined && stairs.args.y >= 64, 'stairs on up out of the flooded shaft, not another dig into the water');
+	assert.equal(result.reasonCode, 'FIND_SEEN', result.message);
 });
 
 // Cave first is opt-in (MINEAGEN_CAVE_FIRST=on); the tests from here on run with it on, except the switch test, which sets it itself.
@@ -1808,4 +1909,129 @@ test('cave first: when no cave walk got in, the body walks back to where the wal
 	const order = body.calls.filter((call) => call.actionType).map((call) => `${call.actionType}${call.args.build === false ? ':walk' : ''}`);
 	assert.deepEqual(order, ['travel_to:walk', 'travel_to:walk', 'dig_to']);
 	assert.deepEqual([body.calls[2].args.x, body.calls[2].args.y, body.calls[2].args.z], [0.5, 70, 0.5]);
+});
+
+test('playtest 22 Nov: below the ore band, find walks back up its own route before cutting new stairs', async () => {
+	const deep = { x: 396.5, y: 11, z: -260.5, yaw: 0, health: 20, skyOpen: false };
+	const body = fakeBody({ start: sample({ player: deep }), frontier: { candidates: [], coverage: { headings: {} } },
+		acts: { travel_to: [{ result: { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:coal_ore seen at 300,40,-240, 3 blocks away' }, move: () => ({ x: 301.5, y: 40, z: -240.5 }) }] } });
+	body.openSky = () => ({ x: 289.5, y: 78, z: -229.5 });
+	const result = await searchFor({ block: 'minecraft:coal_ore' }, body);
+	assert.equal(result.reasonCode, 'FIND_SEEN', result.message);
+	const moves = body.calls.filter((call) => ['travel_to', 'dig_to'].includes(call.actionType));
+	assert.equal(moves[0].actionType, 'travel_to', 'no new staircase first');
+	assert.deepEqual([moves[0].args.retrace, moves[0].args.x, moves[0].args.y], [true, 289.5, 78]);
+	assert.equal(moves[0].args.stopWhenSeen, 'minecraft:coal_ore');
+	// With no way back recorded it digs stairs up, as before.
+	const none = fakeBody({ start: sample({ player: deep }), frontier: { candidates: [], coverage: { headings: {} } },
+		acts: { dig_to: [{ result: { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:coal_ore seen at 396,30,-270, 3 blocks away' } }] } });
+	await searchFor({ block: 'minecraft:coal_ore' }, none);
+	assert.equal(none.calls.find((call) => ['travel_to', 'dig_to'].includes(call.actionType))?.args.pattern, 'stairs_up');
+});
+
+test('review: the walk back up stops once in the ore band, not at the last sky', async () => {
+	const deep = { x: 396.5, y: 11, z: -260.5, yaw: 0, health: 20, skyOpen: false };
+	const body = fakeBody({ start: sample({ player: deep }), frontier: { candidates: [], coverage: { headings: {} } },
+		acts: { travel_to: [{ result: { state: 'SUCCEEDED', reasonCode: 'ARRIVED' }, move: () => ({ x: 300.5, y: 30, z: -240.5 }) }],
+			dig_to: [{ result: { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:coal_ore seen at 300,30,-250, 3 blocks away' } }] } });
+	body.openSky = () => ({ x: 289.5, y: 78, z: -229.5 });
+	let watched = null;
+	const act = body.act;
+	body.act = async (type, args, options) => { if (type === 'travel_to' && args.retrace) watched = options?.watch; return act(type, args, options); };
+	await searchFor({ block: 'minecraft:coal_ore' }, body);
+	assert.ok(watched, 'the walk back is watched');
+	assert.equal(watched(sample({ player: { ...deep, y: 20 } })), null, 'below the band it walks on');
+	assert.deepEqual(watched(sample({ player: { ...deep, y: 30 } })), { until: true }, 'in the band (coal y48 - 24) it stops');
+});
+
+test('review: a remembered ore the caller priced out is no known-place trip', async () => {
+	const ore = { blockId: 'minecraft:iron_ore', x: 10, y: 20, z: 0, tick: 1 };
+	const at = { x: 0.5, y: 22, z: 0.5, yaw: 0, health: 20, skyOpen: false };
+	const trips = (skip) => {
+		const body = fakeBody({ start: sample({ player: at }), known: { sightings: [], blocks: [ore], placed: [], trail: [], tick: 2 },
+			frontier: { candidates: [], coverage: { headings: {} } } });
+		return searchFor({ block: 'minecraft:iron_ore', ...(skip ? { skip: [{ x: 10, y: 20, z: 0 }] } : {}) }, body, { timeoutMs: 120_000 })
+			.then(() => body.calls.filter((call) => call.actionType === 'travel_to' && call.args.x === 10.5 && call.args.z === 0.5).length);
+	};
+	assert.ok(await trips(false) >= 1, 'without a skip the remembered block is a trip');
+	assert.equal(await trips(true), 0, 'priced out: no trip');
+});
+
+test('lava-gate-3 kit: stairs only as far as the pickaxes also cover a shaft for the rest and the search at depth, then the bucket shaft', async (t) => {
+	process.env.MINEAGEN_LAVA_STAIRS = 'on';
+	t.after(() => { delete process.env.MINEAGEN_LAVA_STAIRS; });
+	// An iron (250) and a stone (131) pickaxe, new: 377 uses past the 2 each dig keeps back.
+	const kit = [{ itemId: 'minecraft:iron_pickaxe', count: 1, maxDamage: 250, damage: 0 }, { itemId: 'minecraft:stone_pickaxe', count: 1, maxDamage: 131, damage: 0 },
+		{ itemId: 'minecraft:water_bucket', count: 1 }, { itemId: 'minecraft:cobblestone', count: 16 }];
+	assert.equal(pickaxeUses({ inventory: { items: kit } }), 377);
+	assert.equal(pickaxeUses({ inventory: { items: [{ itemId: 'minecraft:iron_pickaxe', count: 1 }] } }), Infinity, 'no wear reported: unknown');
+	assert.equal(stairBudget(377, 125), 2 * (377 - 125 - DESCENT_RESERVE));
+	assert.equal(stairBudget(200, 125), 0);
+	const start = sample({ player: { x: 0.5, y: 71, z: 0.5, yaw: 0, health: 20, skyOpen: true }, inventory: { items: kit } });
+	const body = fakeBody({ start, frontier: { candidates: [], coverage: { headings: {} } },
+		acts: { dig_to: [
+			// The stairs spend their budget (one use a block) and stop at the limit, about 46 blocks down.
+			{ move: () => ({ y: 25 }), then: { inventory: { items: [{ ...kit[0], damage: 184 }, kit[1], kit[2], kit[3]] } }, result: { state: 'SUCCEEDED', reasonCode: 'DIG_LIMIT_REACHED', message: 'Mined the maxBlocks limit' } },
+			{ result: { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:lava seen at 4,-54,0, 4 blocks away' } }] } });
+	const result = await searchFor({ block: 'minecraft:lava' }, body);
+	assert.equal(result.reasonCode, 'FIND_SEEN', result.message);
+	const digs = body.calls.filter((call) => call.actionType === 'dig_to').map((call) => call.args);
+	assert.deepEqual(digs.map((args) => args.pattern), ['steep_down', 'shaft']);
+	assert.ok(digs[0].maxBlocks <= stairBudget(377, 71 - findProfile({ block: 'minecraft:lava' }).depth), 'the stairs leg is capped at the budget');
+});
+
+test('lava-gate-6: after stairs stop for a mob in the cave below, the next descent stops at cave openings instead of crossing the cave', async (t) => {
+	process.env.MINEAGEN_LAVA_STAIRS = 'on';
+	t.after(() => { delete process.env.MINEAGEN_LAVA_STAIRS; });
+	const start = sample({ player: { x: 0.5, y: 71, z: 0.5, yaw: 0, health: 20, skyOpen: true },
+		inventory: { items: [{ itemId: 'minecraft:iron_pickaxe', count: 1 }, { itemId: 'minecraft:water_bucket', count: 1 }, { itemId: 'minecraft:stone_sword', count: 1 }] } });
+	const body = fakeBody({ start, frontier: { candidates: [], coverage: { headings: {} } },
+		acts: { dig_to: [
+			{ move: () => ({ y: -5 }), result: { state: 'FAILED', reasonCode: 'HOSTILE_NEAR', message: 'Stopped: minecraft:zombie 95d3ca29-7f2f-401f-a6b2-bc81a81c1e25 at 3,-5,0, 3.3 blocks away. At 0,-5,0, steep_down heading south' } },
+			{ result: { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:lava seen at 4,-54,0, 4 blocks away' } }] } });
+	await searchFor({ block: 'minecraft:lava' }, body);
+	const digs = body.calls.filter((call) => call.actionType === 'dig_to' && call.args.pattern === 'steep_down').map((call) => call.args);
+	assert.ok(digs.length >= 2, JSON.stringify(body.calls.map((call) => call.actionType)));
+	assert.equal(digs[0].throughCaves, undefined);
+	assert.equal(digs.at(-1).throughCaves, false);
+	const fled = body.calls.find((call) => call.actionType === 'flee_from');
+	assert.equal(fled?.args.targetId, '95d3ca29-7f2f-401f-a6b2-bc81a81c1e25', 'flees the zombie the stairs stopped for, never fights it');
+	assert.ok(!body.calls.some((call) => call.actionType === 'fight_target'));
+	const back = body.calls.find((call) => call.actionType === 'travel_to' && call.args.retrace === true);
+	assert.ok(back !== undefined && back.args.y === 71, 'backs up its own stairs to where that descent began');
+	assert.notEqual(digs.at(-1).heading, digs[0].heading, 'and goes down another way');
+});
+
+test('the default lava descent is the bucket shaft; MINEAGEN_LAVA_STAIRS=on digs stairs', async (t) => {
+	const start = sample({ player: { x: 16.5, y: 70, z: -47.5, yaw: 0, health: 20, skyOpen: true },
+		inventory: { items: [{ itemId: 'minecraft:iron_pickaxe', count: 1 }, { itemId: 'minecraft:water_bucket', count: 1 }] } });
+	const first = async () => {
+		const body = fakeBody({ start, frontier: { candidates: [], coverage: { headings: {} } },
+			acts: { dig_to: [{ result: { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:lava seen at 20,-54,-40, 6 blocks away' } }] } });
+		await searchFor({ block: 'minecraft:lava' }, body);
+		return body.calls.find((call) => call.actionType === 'dig_to').args.pattern;
+	};
+	assert.equal(await first(), 'shaft');
+	process.env.MINEAGEN_LAVA_STAIRS = 'on';
+	t.after(() => { delete process.env.MINEAGEN_LAVA_STAIRS; });
+	assert.equal(await first(), 'steep_down');
+});
+
+test('stairs into a mob cave: when neither the flee nor the walk back up gets away, the danger goes back, no dig from the same spot', async (t) => {
+	process.env.MINEAGEN_LAVA_STAIRS = 'on';
+	t.after(() => { delete process.env.MINEAGEN_LAVA_STAIRS; });
+	const start = sample({ player: { x: 0.5, y: 71, z: 0.5, yaw: 0, health: 20, skyOpen: true },
+		inventory: { items: [{ itemId: 'minecraft:iron_pickaxe', count: 1 }, { itemId: 'minecraft:water_bucket', count: 1 }, { itemId: 'minecraft:stone_sword', count: 1 }] } });
+	const body = fakeBody({ start, frontier: { candidates: [], coverage: { headings: {} } },
+		acts: {
+			dig_to: [{ move: () => ({ y: -5 }), result: { state: 'FAILED', reasonCode: 'HOSTILE_NEAR', message: 'Stopped: minecraft:zombie 95d3ca29-7f2f-401f-a6b2-bc81a81c1e25 at 3,-5,0, 3.3 blocks away. At 0,-5,0, steep_down heading south' } },
+				{ result: { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:lava seen at 4,-54,0, 4 blocks away' } }],
+			flee_from: [{ result: { state: 'SUCCEEDED', reasonCode: 'WALLED_IN', message: 'Could not get away, so it stood its ground' } }],
+			travel_to: [{ result: { state: 'FAILED', reasonCode: 'NO_ROUTE', message: 'No seen standing spot ahead gets closer' } }],
+		} });
+	const result = await searchFor({ block: 'minecraft:lava' }, body);
+	assert.equal(result.reasonCode, 'FIND_DANGER', result.message);
+	assert.equal(body.calls.filter((call) => call.actionType === 'dig_to').length, 1, 'no second dig from the exposed spot');
+	const flee = body.calls.find((call) => call.actionType === 'flee_from');
+	assert.ok(Number.isFinite(flee?.args.timeoutMs), 'the flee is a timed leg, capped by the search budget');
 });

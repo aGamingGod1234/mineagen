@@ -7,9 +7,9 @@ import { heldCounts, keepPickaxeMakings, planObtain } from './obtain-plan.mjs';
 // call's fields and the facts that make it fit. It names a call the model may make; nothing runs from it.
 
 export const SKILL_FITS_BYTES = 240;
-// fight_until's default area radius; barter_until and cast_obsidian look for piglins and lava within 16 blocks.
+// fight_until's default area radius; barter_until looks for piglins within 32 blocks (it walks that far to one), cast_obsidian for lava within 16.
 const FIGHT_RANGE = 24;
-const BARTER_RANGE = 16;
+const BARTER_RANGE = 32;
 const LAVA_RANGE = 16;
 const MELEE = /^minecraft:(wooden|golden|stone|copper|iron|diamond|netherite)_(sword|axe)$/;
 const GOLD_ARMOUR = /^minecraft:golden_(helmet|chestplate|leggings|boots)$/;
@@ -53,10 +53,15 @@ export function skillFitsLine({ observation: o = null, needs = [], sightings = [
 		return mob && `fight_until mob:minecraft:enderman untilItem:minecraft:ender_pearl untilCount:${need.need} (enderman ${m(mob.distance)}, ${melee}, pearls ${need.have}/${need.need})`;
 	};
 	const barter = need => {
-		const gold = count(/^minecraft:gold_ingot$/);
-		if (running === 'barter_until' || gold === 0 || !items.some(i => WORN.has(i.slot) && GOLD_ARMOUR.test(i.itemId))) return null;
+		// barter_until crafts carried gold blocks and nuggets into ingots and puts on carried gold armour itself; nuggets
+		// need a crafting table carried or one seen within reach (4.5 blocks), as the job crafts them there.
+		const table = count(/^minecraft:crafting_table$/) > 0 || (remembered(o, 'blocks') ? [] : o.blocks ?? [])
+			.some(b => b?.blockId === 'minecraft:crafting_table' && [b.x, b.y, b.z].every(Number.isFinite) && away({ x: b.x + .5, y: b.y + .5, z: b.z + .5 }) <= 4.5);
+		const gold = count(/^minecraft:gold_ingot$/) + 9 * count(/^minecraft:gold_block$/) + (table ? Math.floor(count(/^minecraft:gold_nugget$/) / 9) : 0);
+		const worn = items.some(i => WORN.has(i.slot) && GOLD_ARMOUR.test(i.itemId));
+		if (running === 'barter_until' || gold === 0 || !worn && !items.some(i => GOLD_ARMOUR.test(i.itemId))) return null;
 		const piglin = nearest('minecraft:piglin', BARTER_RANGE, e => e.baby !== true && e.targetingAgent !== true);
-		return piglin && `barter_until itemId:minecraft:ender_pearl count:${Math.min(64, need.need - need.have)} (piglin ${m(piglin.distance)}, gold ${gold}, gold armour worn, pearls ${need.have}/${need.need})`;
+		return piglin && `barter_until itemId:minecraft:ender_pearl count:${Math.min(64, need.need - need.have)} (piglin ${m(piglin.distance)}, gold ${gold}, gold armour ${worn ? 'worn' : 'carried, put on first'}, pearls ${need.have}/${need.need})`;
 	};
 	const cast = need => {
 		// Water poured in the Nether evaporates, so casting is an Overworld (or End) fact.
@@ -202,6 +207,18 @@ const BUCKETS = 'has:minecraft:bucket|minecraft:water_bucket|minecraft:lava_buck
 // Plain blocks a cast frame's mould takes (build nether_portal), with one to step up on.
 const CAST_BLOCKS = 13;
 const EYES = 12;
+// The armour step: a carried kit piece put on, else the next piece crafted from iron the rest of the kit does not need.
+function armourStep(f) {
+	const missing = KIT_ARMOUR.filter(piece => !f.worn.has(piece.slot));
+	// The carried piece's own id: a golden chestplate in the pack is put on as it is, not named as the iron one.
+	const carried = missing.map(piece => ({ piece, id: f.carriedId(piece.part) })).find(c => c.id);
+	if (carried) return [`equip_item ${carried.id} to ${carried.piece.slot}`, `${carried.id} carried, not worn`];
+	const next = missing.find(piece => !f.count(piece.part));
+	if (!next) return null;
+	// Before the kit is done, only from iron it leaves (the kit habit's rule); after it, the step mines its own.
+	if (f.kitOther > 0 && f.iron - f.kitOther < next.iron) return null;
+	return [`obtain ${next.id}, then equip_item it to ${next.slot}`, `iron ${f.iron} held${f.kitOther > 0 ? `, ${f.kitOther} kept for the rest of the kit` : ', kit made'}; ${next.id} takes ${next.iron}, no ${next.slot} armour worn`];
+}
 const ROUTE = [
 	// Food at spawn from the nearest passive animal. Optional: once the first pickaxe is made (a seed with no animal in view
 	// moves on), the portal is lit or the Nether visited, the route no longer holds it up. held: any food carried ends it too (eating it down to one piece keeps it ended; all of it eaten before a pickaxe brings it back).
@@ -244,6 +261,9 @@ const ROUTE = [
 		const need = Math.max(0, 2 - f.buckets) * 3 + (f.count(/^minecraft:flint_and_steel$/) ? 0 : 1);
 		return [`obtain ${first}${missing.length > 1 ? `, then ${missing.slice(1).join(', ')}` : ''}`, `iron ${f.iron} held, ${need} needed for ${missing.join(', ')}`];
 	} },
+	// Armour once the kit is made, before the portal: the Nether and the nights after the kit are where it keeps the body
+	// alive (the day's games died at night with none). Before the kit is done it is made only from iron the kit leaves.
+	{ id: 'armour', done: 'frame:lit | visited:minecraft:the_nether', held: f => armourStep(f) === null, next: armourStep },
 	// Without a diamond pickaxe the frame is cast in place: build nether_portal does it beside a seen lava pool.
 	{ id: 'portal', done: 'frame:lit | visited:minecraft:the_nether', next: f => {
 		const kit = `plain blocks ${f.blocks}/${CAST_BLOCKS}, lava pools seen ${f.pools}`;
@@ -330,8 +350,11 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 	const facts = { count, foodNeeded: foodAdviceNeeded(o), foodHandedBack: foodHandedBack === true, food: count(EDIBLE), cookedMeat: count(COOKED_MEAT), rawMeat: count(RAW_FOOD), nearbyMeat: nearbyMeat(o), blocks: count(MOULD), wood: count(/^minecraft:([a-z_]+_(log|planks|stem))$/), iron: count(/^minecraft:(iron_ingot|raw_iron)$/),
 		buckets: count(/^minecraft:(bucket|water_bucket|lava_bucket)$/), pools: (known.lavaPools ?? []).filter(p => p?.dimension === dimension).length,
 		below: belowGround(o), woodHandedBack: woodHandedBack === true, logs: count(/^minecraft:[a-z_]+_log$/), ingots: count(/^minecraft:iron_ingot$/) };
+	const worn = new Set(items.filter(i => ['head', 'chest', 'legs', 'feet'].includes(i.slot)).map(i => i.slot));
+	const carriedId = re => items.find(i => !['head', 'chest', 'legs', 'feet'].includes(i.slot) && re.test(i.itemId ?? ''))?.itemId?.replace(/^minecraft:/, '') ?? null;
+	Object.assign(facts, { worn, carriedId });
 	const kit = kitLeft(count);
-	Object.assign(facts, { kitIron: kit.iron, kitParts: kit.parts });
+	Object.assign(facts, { kitIron: kit.iron, kitParts: kit.parts, kitOther: kit.other });
 	// Planned only when the route reaches the step: a whole-kit obtain plan per wake is not free.
 	Object.defineProperty(facts, 'tripLogs', { get: () => tripLogs(o, kit) });
 	// Instincts arm: food first in every dimension (C27), before more resource travel.
@@ -447,15 +470,29 @@ function belowGround(o) {
 
 // The iron kit the portal route still needs from what is held: an iron pickaxe (3 iron), a shield (1), two buckets (3
 // each, a filled one counts; none once a frame's 10 obsidian is carried) and flint and steel (1).
-function kitLeft(count) {
+// Armour the route makes after the kit: the chestplate and boots, 8 of 20 armour points for 12 iron (a helmet gives the
+// boots' 2 points for 5 iron), in the kit habit's own order of points per iron (kit-habit.mjs ARMOUR). The kit habit
+// spends only iron beyond the kit's 11 and the trip mined exactly that, so no armour ever came: the iron-kit room's 26
+// lanes wore none in 55 min, and the day's from-scratch games died at night with none.
+export const KIT_ARMOUR = Object.freeze([
+	{ id: 'iron_chestplate', slot: 'chest', iron: 8, part: /^minecraft:[a-z_]+_chestplate$/ },
+	{ id: 'iron_boots', slot: 'feet', iron: 4, part: /^minecraft:[a-z_]+_boots$/ },
+]);
+
+/** The iron kit still to make (pickaxe, shield, 2 buckets, flint and steel) from count(regex) over held items. */
+export function kitLeft(count) {
 	const items = [];
 	if (!count(/^minecraft:(iron|diamond|netherite)_pickaxe$/)) items.push({ id: 'iron_pickaxe', count: 1, iron: 3, name: 'pickaxe 3' });
 	if (!count(/^minecraft:shield$/)) items.push({ id: 'shield', count: 1, iron: 1, name: 'shield 1' });
 	const buckets = count(/^minecraft:obsidian$/) >= 10 ? 0 : Math.max(0, 2 - count(/^minecraft:(bucket|water_bucket|lava_bucket)$/));
 	if (buckets > 0) items.push({ id: 'bucket', count: count(/^minecraft:bucket$/) + buckets, iron: 3 * buckets, name: `${buckets} bucket${buckets > 1 ? 's' : ''} ${3 * buckets}` });
 	if (!count(/^minecraft:flint_and_steel$/)) items.push({ id: 'flint_and_steel', count: 1, iron: 1, name: 'flint_and_steel 1' });
-	return { items, iron: items.reduce((n, item) => n + item.iron, 0), parts: items.map(item => item.name).join(', ') };
+	// Armour is not in the trip: mining its 12 iron with the kit's 11 held the iron pickaxe back (19 to 11 of 26 lanes,
+	// median 18.6 to 29.2 min). It is its own step once the kit is made (the armour row).
+	const other = items.reduce((n, item) => n + item.iron, 0);
+	return { items, iron: other, other, parts: items.map(item => item.name).join(', ') };
 }
+
 
 // Logs the rest of the kit still takes from what is held, by obtain's own planner over the whole kit at once: sticks, the
 // shield's planks, a table when none is carried, and plank fuel for smelting its iron unless coal is held or in view. The

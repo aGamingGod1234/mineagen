@@ -12,6 +12,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
@@ -89,7 +90,7 @@ public final class ServerEscapeController implements ServerController {
 	private int climbs;
 	/** Gives back the running move's attempt when a reflex interrupts it (see {@link #resumed}). */
 	private Runnable refund;
-	private int fills, steps;
+	private int fills, steps, wades;
 	private int covers;
 	/** Runs out of a shooter's range when no cover is in reach. */
 	private int runs;
@@ -110,6 +111,7 @@ public final class ServerEscapeController implements ServerController {
 	public TickResult tick(ServerPlayer player, long now) {
 		if (!player.isAlive()) return finish(player, TickResult.failed("AGENT_DEAD", "Body died while getting out" + done() + facts(player), 0.0D));
 		if (now >= deadline) return finish(player, TickResult.timedOut("ESCAPE_TIMEOUT", "timeoutMs ran out before the body was safe" + done() + facts(player), 0.5D));
+		if (stand != null) return standTick(player, now);
 		if (child != null) return childTick(player, now);
 		if (move != null) return moveTick(player);
 		Situation situation = situation(player);
@@ -184,6 +186,16 @@ public final class ServerEscapeController implements ServerController {
 			refund = () -> climbs--;
 			return startMove(player, climbOut(bank), "climb out onto the bank at " + bank.toShortString());
 		}
+		// No bank within one push, but a flooded step beside the body whose floor is within the climb from where it floats
+		// (a flooded stair): a player wades up onto it, as each step up brings the next one, and the bank, in reach. A
+		// block placed there instead raises the ledge out of reach of a body afloat (6006/0: 4 of 4 climbs failed).
+		BlockPos ledge = (bank == null || player.isUnderWater() || !besideBank(player, bank)) && wades < WADE_LIMIT && (!player.isUnderWater() || player.getAirSupply() >= SWIM_FIRST_AIR)
+				? wadeCell(player.level(), player, connectedWater(player.level(), player.blockPosition())) : null;
+		if (ledge != null) {
+			wades++;
+			refund = () -> wades--;
+			return startMove(player, wadeUp(ledge.immutable()), "wade up onto the flooded step at " + ledge.toShortString());
+		}
 		int tries = bank == null ? 0 : bankTries.merge(bank, 1, Integer::sum);
 		boolean bankAbove = bank != null && bank.getY() > player.getBlockY();
 		String block = plainBlock(player);
@@ -226,6 +238,95 @@ public final class ServerEscapeController implements ServerController {
 				travelBank = bank.immutable();
 				yield startChild(player, environment.travel(player, bank, childMs(now)), "out of the water to the bank at " + bank.toShortString());
 			}
+		};
+	}
+
+	/** At most this many wades up flooded steps in one escape: a flooded stair is climbed one step per wade. */
+	static final int WADE_LIMIT = 16;
+	/** How high above the feet a ledge can be climbed: afloat, vanilla's hop out of water needs the body 0.6 higher free. */
+	static final double WADE_AFLOAT = 0.6D, WADE_STANDING = 1.1D;
+
+	/**
+	 * A water cell beside the body, in its own water, over a sturdy dry floor higher than the floor under the body and
+	 * within the climb from where it is (afloat {@link #WADE_AFLOAT}, standing {@link #WADE_STANDING}), with room for the
+	 * body over it (water or air, nothing solid): the highest such step, or null.
+	 */
+	static BlockPos wadeCell(Level level, ServerPlayer player, Set<BlockPos> pool) {
+		BlockPos feet = player.blockPosition();
+		double reach = player.onGround() ? WADE_STANDING : WADE_AFLOAT;
+		// The top of the floor under the body: the first solid cell down through its water (at most 4 down).
+		int ownFloorTop = Integer.MIN_VALUE;
+		for (int down = 0; down <= 4; down++) {
+			BlockPos below = feet.below(down);
+			if (!level.getBlockState(below).getCollisionShape(level, below).isEmpty()) { ownFloorTop = below.getY() + 1; break; }
+		}
+		BlockPos best = null;
+		double bestLedge = -0.5D;
+		for (int dy = 0; dy <= 1; dy++) {
+			for (Direction side : Direction.Plane.HORIZONTAL) {
+				BlockPos cell = feet.above(dy).relative(side);
+				if (!pool.contains(cell)) continue;
+				BlockPos under = cell.below();
+				if (!level.getFluidState(under).isEmpty() || !level.getBlockState(under).isFaceSturdy(level, under, Direction.UP)
+						|| level.getBlockState(under).is(net.minecraft.world.level.block.Blocks.MAGMA_BLOCK)) continue;
+				if (!roomOver(level, cell) || !roomOver(level, cell.above())) continue;
+				net.minecraft.world.phys.AABB box = player.getBoundingBox();
+				if (!takeoffClear(box.minX, box.maxX, box.minZ, box.maxZ, box.maxY, cell.getY(),
+						at -> !level.getBlockState(at).getCollisionShape(level, at).isEmpty())) continue;
+				double ledge = cell.getY() - player.getY();
+				if (cell.getY() > ownFloorTop && ledge > bestLedge && ledge <= reach) { bestLedge = ledge; best = cell; }
+			}
+		}
+		return best;
+	}
+
+	/** A standing player's height: the body has to fit it over the step before it is on it. */
+	static final double STANDING_HEIGHT = 1.8D;
+
+	/**
+	 * Whether the body can rise in its own column until its feet are level with a step's top at {@code stepTop}: every
+	 * cell over the columns its box covers, from its head ({@code boxTop}) up to the step top plus a standing height, is
+	 * free. A ceiling lower than that (a flooded passage two high with a step up beside it) blocks the jump however long
+	 * the body pushes, so the step is no way out from here.
+	 */
+	static boolean takeoffClear(double minX, double maxX, double minZ, double maxZ, double boxTop, int stepTop,
+			java.util.function.Predicate<BlockPos> solid) {
+		double top = stepTop + STANDING_HEIGHT;
+		if (top <= boxTop) return true;
+		int x0 = net.minecraft.util.Mth.floor(minX), x1 = net.minecraft.util.Mth.floor(maxX - 1.0E-7D);
+		int z0 = net.minecraft.util.Mth.floor(minZ), z1 = net.minecraft.util.Mth.floor(maxZ - 1.0E-7D);
+		int y0 = net.minecraft.util.Mth.floor(boxTop), y1 = net.minecraft.util.Mth.floor(top - 1.0E-7D);
+		for (int x = x0; x <= x1; x++)
+			for (int z = z0; z <= z1; z++)
+				for (int y = y0; y <= y1; y++)
+					if (solid.test(new BlockPos(x, y, z))) return false;
+		return true;
+	}
+
+	/** A cell the body fits in over a step: air or water, nothing solid, no hazard. */
+	private static boolean roomOver(Level level, BlockPos cell) {
+		BlockState state = level.getBlockState(cell);
+		return (state.getFluidState().isEmpty() || state.getFluidState().is(net.minecraft.tags.FluidTags.WATER))
+				&& state.getCollisionShape(level, cell).isEmpty() && !hazard(state);
+	}
+
+	/**
+	 * Face the flooded step and hold forward and jump: done standing in its column (not on its lip from the column below,
+	 * where the next pick would measure the same lower floor again), failed after 3 s.
+	 */
+	static EscapeMoves.Move wadeUp(BlockPos cell) {
+		int[] ticks = {0};
+		return (player, input) -> {
+			double dx = cell.getX() + 0.5D - player.getX(), dz = cell.getZ() + 0.5D - player.getZ();
+			if (player.onGround() && player.getY() >= cell.getY() - 0.05D && player.getBlockX() == cell.getX() && player.getBlockZ() == cell.getZ())
+				return new EscapeMoves.Result(EscapeMoves.Status.DONE, "on the flooded step at " + player.blockPosition().toShortString());
+			if (++ticks[0] > 60) return new EscapeMoves.Result(EscapeMoves.Status.FAILED, "could not get onto the flooded step at " + cell.toShortString() + " in 3 s");
+			float heading = net.minecraft.util.Mth.wrapDegrees((float) Math.toDegrees(Math.atan2(-dx, dz)));
+			float yaw = dev.agaminggod.mineagen.server.runtime.input.AgentInputStates.turnYaw(player.getYRot(), heading);
+			float pitch = dev.agaminggod.mineagen.server.runtime.input.AgentInputStates.turnPitch(player.getXRot(), 0.0F);
+			input.accept(new dev.agaminggod.mineagen.server.runtime.input.AgentInputState(1.0F, 0.0F, true, false, false, false, false, yaw, pitch,
+					player.getInventory().getSelectedSlot(), net.minecraft.world.InteractionHand.MAIN_HAND));
+			return new EscapeMoves.Result(EscapeMoves.Status.RUNNING, "wading onto the flooded step");
 		};
 	}
 
@@ -462,11 +563,79 @@ public final class ServerEscapeController implements ServerController {
 		// A child that failed, timed out or threw may still hold keys under its own lease: release them before moving on.
 		if (result.state() != State.SUCCEEDED) child.cancel(player);
 		note(childLabel + (result.state() == State.SUCCEEDED ? ": " : " (" + result.reasonCode() + "): ") + shortMessage(result.message()));
+		// A hostile stopped the step (a pillar or stairs refuses with a mob beside the body): it is the threat, not an
+		// obstacle to climb past. Retrying left the body in a hole beside a skeleton for 3 refused pillars, the fighting
+		// reflex yielded to this command throughout (playtest 22 Nov: shot point-blank at 7 health). The body goes back to
+		// the agent's rules (CommandFollower hands an escape that ends on HOSTILE_NEAR to them), which answer the mob.
+		if (result.state() != State.SUCCEEDED && "HOSTILE_NEAR".equals(result.reasonCode())) {
+			child = null;
+			travelBank = null;
+			// A mob near enough to fight, with the way out refused because of it (a hole, a pillar beside a skeleton):
+			// running is not open, so the body stands its ground as a cornered flee does, then goes on getting out.
+			LivingEntity near = nearestHostile(player, STAND_RANGE);
+			if (near != null && stands < MAX_TRIES) {
+				stands++;
+				// The climb did not fail on the way out, a mob stopped it: that attempt is given back, so a fight that
+				// takes more than one bounded stand still leaves climbs to get out (bounded by MAX_TRIES stands).
+				pits = climbsAfterStand(pits, childLabel);
+				stand = new CorneredStand(near, null, player, now);
+				standUntil = now + STAND_MS;
+				standLabel = "stood its ground against " + type(near instanceof Mob mob ? mob : null);
+				return standTick(player, now);
+			}
+			return finish(player, TickResult.failed("HOSTILE_NEAR", "Stopped getting out for a hostile: " + shortMessage(result.message())
+					+ done() + facts(player), 0.2D));
+		}
 		// travel stopping to breathe is progress, not a missed bank: the swim to air comes next and the walk goes on.
 		if (travelBank != null && ("AIR_RESERVE_REACHED".equals(result.reasonCode()) || "BREATH_NOT_COVERED".equals(result.reasonCode()))) bankTries.merge(travelBank, -1, Integer::sum);
 		travelBank = null;
 		child = null;
 		return TickResult.running(0.5D);
+	}
+
+	/** A hostile this near when a step is refused for it is fought where the body stands, not climbed past. */
+	static final double STAND_RANGE = 6.0D;
+	private CorneredStand stand;
+	private long standUntil;
+	/** A stand inside an escape lasts at most this long before the escape goes back to getting out. */
+	static final long STAND_MS = 10_000L;
+	private String standLabel;
+	private int stands;
+
+	/** Climbs counted after a stand that a pit step's HOSTILE_NEAR started: that step's climb is not spent. */
+	static int climbsAfterStand(int pits, String stoppedStep) {
+		boolean pitStep = stoppedStep != null && (stoppedStep.startsWith("pillar") || stoppedStep.startsWith("dig stairs") || stoppedStep.startsWith("step out"));
+		return pitStep ? Math.max(0, pits - 1) : pits;
+	}
+
+	private TickResult standTick(ServerPlayer player, long now) {
+		// Bounded: a mob the stand cannot reach (on a rim above the hole) is guarded against, never fought, and would
+		// otherwise hold the body there until the escape's deadline instead of climbing on.
+		if (now >= standUntil) {
+			stand.cancel(player);
+			stand = null;
+			note(standLabel + ": stood " + STAND_MS / 1000 + " s; climbing on");
+			return TickResult.running(0.5D);
+		}
+		TickResult result = stand.tick(player, now);
+		if (result.state() == State.RUNNING) return TickResult.running(0.5D);
+		stand.cancel(player);
+		stand = null;
+		note(standLabel + " (" + result.reasonCode() + "): " + shortMessage(result.message()));
+		if ("AGENT_DEAD".equals(result.reasonCode())) return finish(player, TickResult.failed("AGENT_DEAD", "Body died while getting out" + done() + facts(player), 0.0D));
+		return TickResult.running(0.5D);
+	}
+
+	private static LivingEntity nearestHostile(ServerPlayer player, double within) {
+		LivingEntity best = null;
+		// A creeper is not stood against (the stand does not fight creepers): the creeper reflex and the agent's rules
+		// answer it once the escape hands back.
+		for (Mob mob : player.level().getEntitiesOfClass(Mob.class, player.getBoundingBox().inflate(within),
+				mob -> mob.isAlive() && !(mob instanceof net.minecraft.world.entity.monster.Creeper)
+						&& dev.agaminggod.mineagen.server.perception.ThreatPerception.isHostileTo(mob, player) && player.distanceTo(mob) <= within)) {
+			if (best == null || player.distanceTo(mob) < player.distanceTo(best)) best = mob;
+		}
+		return best;
 	}
 
 	private long childMs(long now) {
@@ -477,6 +646,8 @@ public final class ServerEscapeController implements ServerController {
 	public void cancel(ServerPlayer player) {
 		if (child != null) child.cancel(player);
 		child = null;
+		if (stand != null) stand.cancel(player);
+		stand = null;
 		move = null;
 		input.release();
 	}
@@ -496,6 +667,8 @@ public final class ServerEscapeController implements ServerController {
 	private TickResult finish(ServerPlayer player, TickResult result) {
 		if (child != null) child.cancel(player);
 		child = null;
+		if (stand != null) stand.cancel(player);
+		stand = null;
 		move = null;
 		input.release();
 		return result;

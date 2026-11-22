@@ -685,13 +685,15 @@ final class ReflexActions {
 			int weapon = dev.agaminggod.mineagen.server.runtime.controller.HotbarWeapons.bestSlotOrNone(player);
 			if (startSlot < 0) startSlot = player.getInventory().getSelectedSlot();
 			int slot = weapon >= 0 && !player.getMainHandItem().is(Items.SHIELD) ? weapon : player.getInventory().getSelectedSlot();
-			LivingEntity target = shot != null && shield ? null : inReach(player, context.focus(), player.getInventory().getItem(slot));
+			Swing swing = shot != null && shield ? null : inReach(player, context.focus(), player.getInventory().getItem(slot));
+			LivingEntity target = swing == null ? null : swing.target();
 			int selected = target != null ? slot : player.getInventory().getSelectedSlot();
 			String done = hits + " hit(s) back" + (guardTicks > 0 ? ", shield up " + Math.round(guardTicks / 2.0D) / 10.0D + " s" : "")
 					+ (selected != startSlot ? ", hotbar slot " + selected + " selected (was " + startSlot + ")" : "")
 					+ (backOutNote != null ? ", " + backOuts + " back-out(s), last " + backOutNote : "");
 			if (target != null) {
-				input.accept(look(player, target.getBoundingBox().getCenter(), 0.0F, 0.0F, false, false, slot, InteractionHand.MAIN_HAND));
+				// Aim at the part of the hitbox the eye can see: round a corner its middle can sit behind the stone.
+				input.accept(look(player, swing.aim(), 0.0F, 0.0F, false, false, slot, InteractionHand.MAIN_HAND));
 				var range = player.getAttackRangeWith(player.getMainHandItem());
 				boolean ready = player.getInventory().getSelectedSlot() == slot && !player.isUsingItem()
 						&& player.getAttackStrengthScale(0.5F) >= CombatPlanning.READY_ATTACK_STRENGTH;
@@ -752,21 +754,40 @@ final class ReflexActions {
 			return player.getAttackRangeWith(weapon).isInRange(player, living.getBoundingBox(), 0.0D) ? null : living;
 		}
 
-		/** The attacker if it is in the weapon's reach and seen, else the nearest seen hostile in reach, else null. */
-		private static LivingEntity inReach(ServerPlayer player, Entity focus, ItemStack weapon) {
-			var range = player.getAttackRangeWith(weapon);
-			if (focus instanceof LivingEntity living && living.isAlive() && player.hasLineOfSight(living)
-					&& range.isInRange(player, living.getBoundingBox(), 0.0D)) return living;
-			Mob nearest = null;
+		/** A mob defend can hit now and the point of its hitbox the swing aims at. */
+		record Swing(LivingEntity target, Vec3 aim) { }
+
+		/**
+		 * The attacker if a swing can hit it, else the nearest hostile a swing can hit, else null. A swing can hit a mob
+		 * when part of its hitbox is in the weapon's reach with no block between it and the eye: the eye seeing the mob's
+		 * eye is not enough, since round a corner its middle can sit behind the stone while its head shows.
+		 */
+		private static Swing inReach(ServerPlayer player, Entity focus, ItemStack weapon) {
+			if (focus instanceof LivingEntity living && living.isAlive()) {
+				Vec3 aim = swingPoint(player, living, weapon);
+				if (aim != null) return new Swing(living, aim);
+			}
+			Swing nearest = null;
 			double best = Double.POSITIVE_INFINITY;
 			for (Mob mob : player.level().getEntitiesOfClass(Mob.class, player.getBoundingBox().inflate(6.0D),
 					mob -> mob.isAlive() && ThreatPerception.isHostileTo(mob, player) && !mob.isInvisibleTo(player))) {
 				double distance = player.distanceTo(mob);
-				if (distance >= best || !player.hasLineOfSight(mob) || !range.isInRange(player, mob.getBoundingBox(), 0.0D)) continue;
+				if (distance >= best) continue;
+				Vec3 aim = swingPoint(player, mob, weapon);
+				if (aim == null) continue;
 				best = distance;
-				nearest = mob;
+				nearest = new Swing(mob, aim);
 			}
 			return nearest;
+		}
+
+		/** The visible point of the mob's hitbox within the weapon's reach (fight_target's test), or null. */
+		static Vec3 swingPoint(ServerPlayer player, LivingEntity mob, ItemStack weapon) {
+			var range = player.getAttackRangeWith(weapon);
+			if (!range.isInRange(player, mob.getBoundingBox(), 0.0D)) return null;
+			return dev.agaminggod.mineagen.server.runtime.TargetSightline.entity(player.level(),
+					net.minecraft.world.phys.shapes.CollisionContext.of(player), player.getEyePosition(), mob.getBoundingBox(),
+					range.effectiveMaxRange(player));
 		}
 
 		@Override
@@ -1532,12 +1553,15 @@ final class ReflexActions {
 	/**
 	 * Swim to air until the eyes are out of the water for half a second: along the route to the nearest breathable cell
 	 * the player has seen (the observation's {@code breathable}), which is straight up under open water and around the
-	 * ceiling of a flooded tunnel. With no seen air, hold jump with the view tilted up.
+	 * ceiling of a flooded tunnel. With no seen air under a seen ceiling, duck out into the open water beside it looking
+	 * up (travel's PEEK step, WaterAirFacts.peekCell), so the way up beside the ledge comes into view; with neither,
+	 * hold jump with the view tilted up.
 	 */
 	static final class SwimUp implements Behaviour {
 		private boolean wasInWater;
 		private int surfacedTicks;
 		private int ticks;
+		private int peekTicks;
 		private final SwimAirProgress progress = new SwimAirProgress();
 
 		@Override
@@ -1550,9 +1574,18 @@ final class ReflexActions {
 			if (surfacedTicks >= 10 || !inWater) return Step.done("surfaced");
 			ticks++;
 			var surface = airRoute(player);
-			if (surface == null) {
-				input.accept(riseBlind(player));
-				return Step.running("swimming up");
+			BlockPos peek = surface == null && peekTicks < WaterAirFacts.PEEK_TICKS ? WaterAirFacts.peekCell(player) : null;
+			switch (swimUpStep(surface != null, peek != null, peekTicks)) {
+				case DUCK_OUT -> {
+					peekTicks++;
+					input.accept(duckOut(player, peek));
+					return Step.running("ducking out from under the ceiling to " + peek.toShortString());
+				}
+				case BLIND -> {
+					input.accept(riseBlind(player));
+					return Step.running("swimming up");
+				}
+				case ROUTE -> { }
 			}
 			BlockPos nextDestination = new BlockPos(surface.x(), surface.openY(), surface.z());
 			double left = SwimAirProgress.remaining(player.getEyePosition(), surface.path());
@@ -1565,10 +1598,36 @@ final class ReflexActions {
 		}
 	}
 
+	/** What the swim-up does this tick: along the seen route to air, out from under a capped head, or a blind rise. */
+	enum SwimUpStep { ROUTE, DUCK_OUT, BLIND }
+
+	/**
+	 * A seen route to air comes first. With none and the head capped by a seen block beside a seen open cell
+	 * ({@code peek}, WaterAirFacts.peekCell), duck out into that cell for up to WaterAirFacts.PEEK_TICKS: rising blind
+	 * under a ledge only presses the head into it until the air runs out. Otherwise rise blind.
+	 */
+	static SwimUpStep swimUpStep(boolean route, boolean peek, int peekTicks) {
+		if (route) return SwimUpStep.ROUTE;
+		return peek && peekTicks < WaterAirFacts.PEEK_TICKS ? SwimUpStep.DUCK_OUT : SwimUpStep.BLIND;
+	}
+
 	/** The route to the nearest breathable cell the player has seen, while the eyes are under water; null when none is known. */
 	static dev.agaminggod.mineagen.server.runtime.controller.SwimPlanning.Surface airRoute(ServerPlayer player) {
 		var surface = player.isUnderWater() ? WaterAirFacts.surface(player).surface() : null;
 		return surface == null || surface.path().size() < 2 ? null : surface;
+	}
+
+	/**
+	 * Under a seen ceiling with no way up known: swim into the open cell beside it looking nearly straight up, holding jump,
+	 * as travel's PEEK step does. Not sprinting: a sprint-swim follows the view, which points up into the ceiling.
+	 */
+	static AgentInputState duckOut(ServerPlayer player, BlockPos peek) {
+		float heading = Mth.wrapDegrees(WaterAirFacts.peekYaw(player, peek));
+		float yaw = AgentInputStates.turnYaw(player.getYRot(), heading);
+		float pitch = AgentInputStates.turnPitch(player.getXRot(), WaterAirFacts.PEEK_PITCH);
+		float forward = CombatPlanning.alignedForward(1.0F, AgentInputStates.shortestAngleDelta(yaw, heading));
+		return new AgentInputState(forward, 0.0F, true, false, false, false, false, yaw, pitch,
+				player.getInventory().getSelectedSlot(), InteractionHand.MAIN_HAND);
 	}
 
 	/** No air seen: hold jump with the view tilted up, as a player rises blind. */

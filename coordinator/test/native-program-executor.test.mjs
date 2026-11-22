@@ -1222,3 +1222,21 @@ test('the cancel acknowledgement runs on its own timers, so a game-clock deadlin
 	ack[0].callback();
 	assert.equal((await pending).reasonCode, 'PROGRAM_CANCEL_ACK_TIMEOUT');
 });
+
+test('a program started while the game is paused is credited only the part of the pause it lived through', async () => {
+	const timers = [];
+	let now = 0, release;
+	const run = setup({ executeAction: () => new Promise((resolve) => { release = resolve; }),
+		cancelAction: async () => release({ state: 'CANCELLED', reasonCode: 'INPUT_RELEASED' }) },
+		{ now: () => now, setTimeoutFn: (callback, ms) => { const timer = { callback, ms, at: now }; timers.push(timer); return timer; }, clearTimeoutFn: (timer) => { if (timer) timer.cleared = true; } });
+	run.executor.serverPaused(true);
+	now = 600;
+	const pending = run.executor.run(record, { source: `${prefix} await player.wait(1);`, timeoutMs: 100 }, run.context);
+	assert.equal(timers.some((timer) => timer.ms === 100), false, 'no deadline is armed while paused');
+	now = 800;
+	run.executor.serverPaused(false);
+	const deadline = timers.filter((timer) => !timer.cleared).at(-1);
+	assert.equal(deadline.ms, 100, 'started at 600, resumed at 800: its own 100 ms, not 100 + 800 of pause');
+	deadline.callback();
+	assert.equal((await pending).reasonCode, 'PROGRAM_DEADLINE');
+});

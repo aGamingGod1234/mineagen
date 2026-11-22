@@ -832,7 +832,7 @@ test('scripted gate seed 1: a vein\'s drops left in its pocket out of view: walk
 	body.mine = async (args) => { body.calls.push(['mine', args]); if (args.vein) pocket = args; return { state: 'SUCCEEDED', reasonCode: 'VEIN_MINED', message: 'mined: 6 minecraft:iron_ore in 7.8 s; no seen block of it is left' }; };
 	const act = body.act;
 	body.act = async (type, args) => {
-		if (type === 'travel_to' && pocket && args.x === pocket.x + 0.5 && args.z === pocket.z + 0.5 && args.tolerance === 1) { body.calls.push([type, args]); body.inv.set('raw_iron', 6); return { state: 'SUCCEEDED' }; }
+		if (type === 'navigate_to' && pocket && args.x === pocket.x + 0.5 && args.z === pocket.z + 0.5 && args.tolerance < 1) { body.calls.push([type, args]); body.inv.set('raw_iron', 6); return { state: 'SUCCEEDED' }; }
 		return act(type, args);
 	};
 	const result = await runObtain({ item: 'iron_pickaxe', count: 1 }, body, { now: ticking() });
@@ -2214,4 +2214,32 @@ test('an unreachable ingredient stops before loading a smelt or gathering its re
  assert.ok(planObtain({ids:['rabbit_stew'],count:3},{held:inv,dimension:'minecraft:the_end',index:blockedIndex}).unreachable.length>0);
  const result=await runObtain({item:'rabbit_stew',count:3},body,{now:()=>tick+=50,index:blockedIndex});
  assert.equal(result.reasonCode,'NO_WAY');assert.deepEqual(calls,[]);
+});
+
+test('review of #117: at night on open ground with no armour obtain does not gather (its walks reach 32 blocks); by day it does', async () => {
+	const night = simulatedBody();
+	const observeNight = night.observe;
+	night.observe = async () => { const o = await observeNight(); return { ...o, world: { dimension: 'minecraft:overworld', dayTime: 14_000 }, player: { ...o.player, armor: 0, skyOpen: true } }; };
+	const dark = await runObtain({ item: 'oak_log', count: 3 }, night, { now: (() => { let t = 0; return () => (t += 100); })() });
+	assert.equal(dark.reasonCode, 'NIGHT', dark.message);
+	assert.equal(night.calls.some(([type]) => type === 'gather'), false, 'no gather walk was sent');
+	const day = simulatedBody();
+	const observeDay = day.observe;
+	day.observe = async () => { const o = await observeDay(); return { ...o, world: { dimension: 'minecraft:overworld', dayTime: 6_000 }, player: { ...o.player, armor: 0, skyOpen: true } }; };
+	const light = await runObtain({ item: 'oak_log', count: 3 }, day, { now: (() => { let t = 0; return () => (t += 100); })() });
+	assert.equal(light.state, 'SUCCEEDED', light.message);
+});
+
+// Review of 47cdd2cb, finding 7: an iron pickaxe's trip took on the kit's other 8 iron, but a vein that covered the
+// pickaxe ended the call. With more iron ore at hand, the trip mines it before handing back.
+test('an iron pickaxe trip mines the next vein at hand for the kit once its own vein covered the pickaxe', async () => {
+	const body = simulatedBody({ start: { stone_pickaxe: 1, furnace: 1, crafting_table: 1, stick: 2, oak_planks: 10 } });
+	const observe = body.observe;
+	body.observe = async () => { const o = await observe(); o.blocks.push({ blockId: 'minecraft:iron_ore', x: 4, y: 64, z: 4 }, { blockId: 'minecraft:iron_ore', x: -4, y: 64, z: 4 }); return o; };
+	const result = await runObtain({ item: 'iron_pickaxe', count: 1 }, body, { now: ticking() });
+	assert.equal(result.state, 'SUCCEEDED', result.message);
+	const veins = [...new Set(body.calls.filter(([type, args]) => type === 'mine' && args.vein).map(([, args]) => `${args.x},${args.z}`))];
+	assert.equal(veins.length, 2, `both veins at hand: ${veins.join(' ')}`);
+	assert.ok((body.inv.get('raw_iron') ?? 0) + (body.inv.get('iron_ingot') ?? 0) >= 5, 'iron for the kit kept beside the pickaxe');
+	assert.equal(body.calls.filter(([type]) => type === 'search').length, 0, 'no fresh search for the kit');
 });

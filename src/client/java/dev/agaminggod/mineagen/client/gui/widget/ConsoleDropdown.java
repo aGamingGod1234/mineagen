@@ -1,6 +1,9 @@
 package dev.agaminggod.mineagen.client.gui.widget;
 
 import dev.agaminggod.mineagen.client.gui.ConsoleFocusTarget;
+import dev.agaminggod.mineagen.client.gui.ConsoleDraw;
+import dev.agaminggod.mineagen.client.gui.ConsoleMotion;
+import dev.agaminggod.mineagen.client.gui.ConsoleText;
 import dev.agaminggod.mineagen.client.gui.ConsoleTheme;
 import java.util.List;
 import java.util.function.Consumer;
@@ -17,7 +20,8 @@ import com.mojang.blaze3d.platform.InputConstants;
 
 /** A selectable popup list. The host routes popup input before other controls and draws it last. */
 public final class ConsoleDropdown<T> extends AbstractWidget implements ConsoleFocusTarget {
-	private static final int OPTION_HEIGHT = 22;
+	private static final int OPTION_HEIGHT = 20;
+	private final ConsoleMotion hover = new ConsoleMotion();
 	private final Font font;
 	private final String label;
 	private final List<T> values;
@@ -49,40 +53,59 @@ public final class ConsoleDropdown<T> extends AbstractWidget implements ConsoleF
 
 	public boolean isOpen() { return open && visible && active; }
 	public void close() { open = false; }
-	private int rows() { return Math.min(values.size(), Math.max(1, (viewportHeight - 16) / OPTION_HEIGHT)); }
-	private int popupWidth() { return Math.min(Math.max(getWidth(), 330), Math.max(1, viewportWidth - 16)); }
+	private int rows() { return Math.min(values.size(), Math.max(1, Math.min(8, (viewportHeight - 24) / OPTION_HEIGHT))); }
+	private int popupWidth() { return Math.min(Math.max(getWidth(), 160), Math.max(1, viewportWidth - 16)); }
 	private int popupX() { return Math.max(8, Math.min(getX(), viewportWidth - popupWidth() - 8)); }
-	private int popupY() { return Math.max(8, Math.min(getBottom() + 2, viewportHeight - rows() * OPTION_HEIGHT - 8)); }
+	private int popupY() { return Math.max(12, Math.min(getBottom() + 8, viewportHeight - rows() * OPTION_HEIGHT - 12)); }
 	private void reveal() { first = Math.clamp(first, Math.max(0, highlighted - rows() + 1), highlighted); }
 	private void updateMessage() { setMessage(Component.literal(label + ": " + formatter.apply(values.get(selected)))); }
 
 	@Override protected void extractWidgetRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
-		graphics.fill(getX(), getY(), getRight(), getBottom(), isFocused() ? ConsoleTheme.FOCUS : ConsoleTheme.BORDER);
-		graphics.fill(getX() + 1, getY() + 1, getRight() - 1, getBottom() - 1, ConsoleTheme.SURFACE);
-		graphics.text(font, font.plainSubstrByWidth(formatter.apply(values.get(selected)), getWidth() - 25), getX() + 6, getY() + (height - 9) / 2, ConsoleTheme.TEXT, false);
-		graphics.text(font, open ? "^" : "v", getRight() - 13, getY() + (height - 9) / 2, ConsoleTheme.MUTED, false);
-		if (isHovered()) graphics.setTooltipForNextFrame(font, getMessage(), mouseX, mouseY);
+		float lift = ConsoleMotion.smooth(hover.toward(active && (isHovered() || isFocused() || open) ? 1F : 0F, 120));
+		ConsoleDraw.surface(graphics, getX(), getY(), getWidth(), getHeight(), ConsoleDraw.RADIUS_CONTROL,
+				active ? ConsoleDraw.mix(ConsoleTheme.SURFACE, ConsoleTheme.SURFACE_HOVER, lift) : ConsoleTheme.ROSTER_UNAVAILABLE_SURFACE);
+		if (isFocused() || open) ConsoleDraw.ring(graphics, getX(), getY(), getWidth(), getHeight(), ConsoleDraw.RADIUS_CONTROL,
+				open ? ConsoleTheme.ACCENT : ConsoleTheme.FOCUS);
+		String value = formatter.apply(values.get(selected));
+		int textY = getY() + (height - 8) / 2;
+		graphics.text(font, ConsoleText.strong(fit(value, getWidth() - 30)), getX() + 9, textY, active ? ConsoleTheme.TEXT : ConsoleTheme.SUBTLE, false);
+		ConsoleDraw.icon(graphics, ConsoleDraw.Icon.CHEVRON_DOWN, getRight() - 17, getY() + (height - 12) / 2,
+				ConsoleDraw.mix(ConsoleTheme.MUTED, ConsoleTheme.TEXT, lift));
+	}
+
+	private String fit(String value, int width) {
+		if (ConsoleText.strongWidth(font, value) <= width) return value;
+		int end = value.length();
+		while (end > 0 && ConsoleText.strongWidth(font, value.substring(0, end) + "...") > width) end--;
+		return value.substring(0, end) + "...";
 	}
 
 	public void renderPopup(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
 		if (!isOpen()) return;
 		graphics.nextStratum();
 		int x = popupX(), y = popupY(), width = popupWidth();
-		graphics.fill(x - 1, y - 1, x + width + 1, y + rows() * OPTION_HEIGHT + 1, ConsoleTheme.FOCUS);
+		int height = rows() * OPTION_HEIGHT + 8;
+		ConsoleDraw.shadow(graphics, x, y - 4, width, height, 0x90);
+		ConsoleDraw.surface(graphics, x, y - 4, width, height, ConsoleDraw.RADIUS_CARD, ConsoleTheme.POPUP);
 		for (int row = 0; row < rows(); row++) {
 			int index = first + row;
-			boolean hover = mouseX >= x && mouseX < x + width && mouseY >= y + row * OPTION_HEIGHT && mouseY < y + (row + 1) * OPTION_HEIGHT;
-			graphics.fill(x, y + row * OPTION_HEIGHT, x + width, y + (row + 1) * OPTION_HEIGHT,
-					hover || index == highlighted ? ConsoleTheme.SURFACE_HOVER : ConsoleTheme.SURFACE);
-			String text = (index == selected ? "* " : "  ") + formatter.apply(values.get(index));
-			graphics.text(font, font.plainSubstrByWidth(text, width - 12), x + 5, y + row * OPTION_HEIGHT + 7, ConsoleTheme.TEXT, false);
-			if (hover) graphics.setTooltipForNextFrame(font, Component.literal(text.strip()), mouseX, mouseY);
+			int top = y + row * OPTION_HEIGHT;
+			boolean hover = mouseX >= x && mouseX < x + width && mouseY >= top && mouseY < top + OPTION_HEIGHT;
+			if (hover || index == highlighted) {
+				ConsoleDraw.surface(graphics, x + 4, top, width - 8, OPTION_HEIGHT, ConsoleDraw.RADIUS_SMALL, ConsoleTheme.SURFACE_RAISED);
+			}
+			boolean chosen = index == selected;
+			String text = formatter.apply(values.get(index));
+			int color = chosen ? ConsoleTheme.ACCENT : ConsoleTheme.TEXT;
+			graphics.text(font, chosen ? ConsoleText.strong(fit(text, width - 40)) : ConsoleText.component(font.plainSubstrByWidth(text, width - 40)),
+					x + 12, top + (OPTION_HEIGHT - 8) / 2, color, false);
+			if (chosen) ConsoleDraw.icon(graphics, ConsoleDraw.Icon.CHECK, x + width - 22, top + (OPTION_HEIGHT - 12) / 2, ConsoleTheme.ACCENT);
 		}
 		if (rows() < values.size()) {
 			int track = rows() * OPTION_HEIGHT;
 			int thumb = Math.max(8, track * rows() / values.size());
 			int offset = (track - thumb) * first / (values.size() - rows());
-			graphics.fill(x + width - 3, y + offset, x + width - 1, y + offset + thumb, ConsoleTheme.MUTED);
+			ConsoleDraw.surface(graphics, x + width - 5, y + offset, 2, thumb, 1, ConsoleTheme.SUBTLE);
 		}
 	}
 

@@ -11,6 +11,7 @@ export class ActiveGoalSupervisor {
 	activate(key) { return this.#leases.activate(key); }
 	begin(key, kind, options) { return this.#leases.acquire(key, kind, options); }
 	extend(token, ms) { return this.#leases.extend(token, ms); }
+	serverPaused(paused) { return this.#leases.serverPaused(paused); }
 
 	end(token, { progress = false, scheduleRecovery = true } = {}) {
 		if (progress) this.#leases.progress(token);

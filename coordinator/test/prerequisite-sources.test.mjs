@@ -356,7 +356,7 @@ test('full game: open pearls price each source from the gold held, sightings and
  await views.observe(record, nether);
  let options = views.continuity(record).options;
  // The rods step comes first: the pearl line follows its needs, ahead of the route line.
- assert.match(options, /^blaze_rod: .* \| ender_pearl: 10 more needed \(pearls and eyes held 2\/12: 2 pearls; 10 gold; eyes: 1 per empty End portal frame of 12 \(a frame starts filled 10% of the time\), 1 in 5 thrown to find the stronghold breaks\), est\. options: primary Nether pearl route: find a warped forest through visible exploration; mine seen ore and barter held gold as secondary supply; barter the 10 held gold: ~0\.6 pearls expected, 81% chance of none, ~1 min \(6 s per ingot per piglin, several at once\)/);
+ assert.match(options, /^blaze_rod: .* \| ender_pearl: 10 more needed \(pearls and eyes held 2\/12: 2 pearls; 10 gold; eyes: 1 per empty End portal frame of 12 \(a frame starts filled 10% of the time\), 1 in 5 thrown to find the stronghold breaks\), est\. options: primary Nether pearl route: find a warped forest through visible exploration; mine seen ore and barter held gold as secondary supply; barter the 10 held gold: ~0\.6 pearls expected, 81% chance of none, ~1 min \(about 6 s per ingot with one piglin, measured 3\.2 s with 5\)/);
  assert.match(options, /10 pearls by barter take ~157 gold \(~18 gold blocks\) \| Nether route/);
  assert.doesNotMatch(options, /2-high tunnel/, 'no enderman option, no fight rule');
  // Overworld by day with no enderman: nothing to act on, no line; at night it returns.

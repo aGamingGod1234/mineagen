@@ -628,6 +628,9 @@ export function goldHelmetOption(items) {
 // per pearl; test-barter-odds-live with a fresh loot salt per trial measured 190 pearls from 3350 ingots (~17.6 per pearl).
 const BARTER_HIT = 10 / 469, PEARLS_PER_INGOT = BARTER_HIT * 3;
 const BARTER_S = 6;
+// Measured 22 Nov in the barter practice rooms (barter_until with 5 calm piglins, 20 runs): 3329 ingots in 10623 s of
+// barter calls, about 3.2 s per ingot (19 a minute): piglins walk to each ingot and the body walks to each return.
+const BARTER_FLOOR_S = 3.2;
 // minecraft:entities/enderman: 0-1 pearl (uniform), +0-1 per looting level; 18 from 40 salted kills measured.
 const ENDER_DROP = 0.5;
 const ENDER_FIGHT_MIN = 0.5;
@@ -648,12 +651,12 @@ export function pearlOptions({ observation = null, position = null, known = null
 	const dimension = observation?.world?.dimension ?? null;
 	const entities = (observation?.entities ?? []).filter((row) => row?.alive !== false);
 	const piglins = entities.filter((row) => row.type === 'minecraft:piglin' && row.baby !== true && !row.targetingAgent && Number.isFinite(row.distance) && row.distance <= 48).length;
-	const per = (ingots) => ingots * BARTER_S / Math.min(Math.max(piglins, 1), 8) / 60;
+	const per = (ingots) => ingots * Math.max(BARTER_S / Math.min(Math.max(piglins, 1), 8), BARTER_FLOOR_S) / 60;
 	const parts = [];
 	const ingotsFor = Math.ceil(more / PEARLS_PER_INGOT);
 	const seenGold = goldSourceFact(observation, known, position);
 	if (seenGold) parts.push(seenGold);
-	if (gold > 0) parts.push(`barter the ${gold} held gold: ~${(gold * PEARLS_PER_INGOT).toFixed(1)} pearls expected, ${Math.round((1 - BARTER_HIT) ** gold * 100)}% chance of none, ${round(per(gold)) === '<1' ? '<1' : `~${round(per(gold))}`} min${piglins ? ` with the ${piglins} calm piglin${piglins === 1 ? '' : 's'} in view` : ''} (${BARTER_S} s per ingot per piglin, several at once)`);
+	if (gold > 0) parts.push(`barter the ${gold} held gold: ~${(gold * PEARLS_PER_INGOT).toFixed(1)} pearls expected, ${Math.round((1 - BARTER_HIT) ** gold * 100)}% chance of none, ${round(per(gold)) === '<1' ? '<1' : `~${round(per(gold))}`} min${piglins ? ` with the ${piglins} calm piglin${piglins === 1 ? '' : 's'} in view` : ''} (about ${BARTER_S} s per ingot with one piglin, measured ${BARTER_FLOOR_S} s with 5)`);
 	parts.push(`${more} pearls by barter take ~${ingotsFor} gold (~${Math.ceil(ingotsFor / 9)} gold blocks)${gold ? '' : `; 10 gold gives none ${Math.round((1 - BARTER_HIT) ** 10 * 100)}% of the time`}`);
 	const sightings = position === null ? [] : (known?.sightings ?? []).map((row) => ({ ...row, kind: sightingKind(row) }));
 	const nearest = (rows) => rows.filter((row) => [row.x, row.y, row.z].every(Number.isFinite)).sort((a, b) => Math.hypot(a.x - position.x, a.z - position.z) - Math.hypot(b.x - position.x, b.z - position.z))[0] ?? null;
@@ -664,7 +667,9 @@ export function pearlOptions({ observation = null, position = null, known = null
 	const enderman = nearest(sightings.filter((row) => row.kind === 'mob' && row.what === 'minecraft:enderman' && fresh(row)));
 	const inView = entities.filter((row) => row.type === 'minecraft:enderman').length;
 	const warpedHere = observation?.world?.biome === 'minecraft:warped_forest';
-	const warped = warpedHere ? null : nearest((known?.blocks ?? []).filter((block) => WARPED.test(block.blockId)));
+	// A forest stood in or surveyed is remembered across trips (search-coverage.mjs biome sightings), its blocks only briefly.
+	const warped = warpedHere ? null : nearest([...sightings.filter((row) => row.kind === 'biome' && row.what === 'minecraft:warped_forest'),
+		...(known?.blocks ?? []).filter((block) => WARPED.test(block.blockId))]);
 	const kill = ENDER_DROP > 0 ? (1 / ENDER_DROP) * ENDER_FIGHT_MIN : 0;
 	const hunt = (lead) => `${lead}: 0-1 pearl per kill (~${ENDER_DROP} each), ~${round(kill)} min per pearl once one is near`;
 	const leads = [warpedHere ? 'standing in a warped forest, where endermen are the usual mob' : warped ? `warped forest ${where(position, warped)} (walk ${round(reach(position, warped))} min), where endermen are the usual mob` : '',

@@ -1,0 +1,81 @@
+[
+ {
+  "name": "cave-iron-5596",
+  "seed": "5596758903284113703",
+  "time": 1000,
+  "monsters": false,
+  "repeat": false,
+  "budgetMs": 240000,
+  "inventory": [
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:torch",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "setup": [
+   "forceload add 290 -315 330 -285",
+   "kill @e[type=minecraft:item,distance=..60]",
+   "fill 295 18 -313 325 49 -288 minecraft:stone",
+   "fill 300 46 -300 300 47 -300 minecraft:air",
+   "fill 299 36 -302 314 38 -298 minecraft:air",
+   "fill 302 36 -312 304 38 -302 minecraft:air",
+   "setblock 303 37 -313 minecraft:iron_ore",
+   "tp Probe 300.5 46 -299.5 -90 30"
+  ],
+  "after": {
+   "ms": 1500
+  },
+  "probe": [
+   "execute if block 303 37 -313 minecraft:iron_ore",
+   "data get entity Probe Pos"
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "dig_to",
+     "target": {
+      "pattern": "steep_down",
+      "y": 20,
+      "heading": "east",
+      "throughCaves": true,
+      "stopWhenSeen": "minecraft:iron_ore"
+     },
+     "why": "down toward iron"
+    },
+    "wait": true
+   },
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "raw_iron",
+      "count": 1,
+      "timeoutMs": 150000
+     },
+     "why": "iron for a pickaxe"
+    }
+   }
+  ],
+  "expectCode": "OBTAINED",
+  "finalProbe": [
+   "execute if block 303 37 -313 minecraft:air"
+  ],
+  "expectFinalProbe": [
+   {
+    "index": 0,
+    "match": "Test passed"
+   }
+  ],
+  "maxSeconds": 240
+ }
+]
