@@ -24,6 +24,26 @@ const CRYSTAL_VIEW = 140;
 const PEAK_ITEMS = { blaze_rod: 'blaze_rod', ender_pearl: 'ender_pearl', ender_eye: 'ender_eye' };
 const minutes = (ms) => finite(ms) ? Math.round(ms / 6000) / 10 : null;
 const round1 = (n) => finite(n) ? Math.round(n * 10) / 10 : null;
+// Model latency windows: wall-clock 10-minute buckets, aligned to the epoch so concurrent games pool bucket by bucket.
+export const LATENCY_BUCKET_MS = 600_000;
+/** Nearest-rank quantile of an ascending list, or null when it is empty. */
+export const quantile = (sorted, q) => sorted.length ? sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil(q * sorted.length) - 1))] : null;
+/**
+ * p50 and p90 of native_model_call totalMs over calls ({ at, totalMs }), overall and per wall-clock bucket. Each bucket
+ * keeps its sorted values so a verdict can pool games that ran at the same time.
+ */
+export function modelLatency(calls, { startedAt = null } = {}) {
+	const timed = calls.filter((c) => finite(c.totalMs) && finite(c.at));
+	if (!timed.length) return null;
+	const all = timed.map((c) => c.totalMs).sort((a, b) => a - b), buckets = new Map();
+	for (const c of timed) { const from = Math.floor(c.at / LATENCY_BUCKET_MS) * LATENCY_BUCKET_MS; (buckets.get(from) ?? buckets.set(from, []).get(from)).push(c.totalMs); }
+	return { calls: all.length, p50Ms: quantile(all, 0.5), p90Ms: quantile(all, 0.9), maxMs: all.at(-1),
+		byClock10Min: [...buckets.entries()].sort(([a], [b]) => a - b).map(([from, values]) => {
+			values.sort((a, b) => a - b);
+			return { fromEpochMs: from, fromMinute: finite(startedAt) ? minutes(from - startedAt) : null, calls: values.length, p50Ms: quantile(values, 0.5), p90Ms: quantile(values, 0.9), totalMs: values };
+		}),
+		basis: 'native_model_call totalMs (input to first tool request) in the window, one per modelCallId; nearest-rank quantiles; buckets are wall-clock 10 minutes from the epoch' };
+}
 const short = (dimension) => typeof dimension === 'string' ? dimension.replace(/^minecraft:(the_)?/, '') : 'unknown';
 
 /** Armour points from a sample's equipment text, or null when the sample has none. */
@@ -175,9 +195,9 @@ export function gameFacts() {
 			// A provider can send a call's row again once its usage is reconciled (same modelCallId): the last row stands.
 			// The call was made at its first row's time, so a reconciliation after a milestone stays before it.
 			const same = row.modelCallId != null ? calls.findIndex((c) => c.modelCallId === row.modelCallId) : -1;
-			const at = same >= 0 ? calls[same].at : row.at;
+			const earlier = same >= 0 ? calls[same] : null, at = earlier ? earlier.at : row.at;
 			if (same >= 0) calls.splice(same, 1);
-			calls.push({ at, modelCallId: row.modelCallId ?? null, inputTokens: finite(row.inputTokens) ? row.inputTokens : null, cachedInputTokens: finite(row.cachedInputTokens) ? row.cachedInputTokens : null });
+			calls.push({ at, totalMs: finite(row.totalMs) ? row.totalMs : earlier?.totalMs ?? null, modelCallId: row.modelCallId ?? null, inputTokens: finite(row.inputTokens) ? row.inputTokens : null, cachedInputTokens: finite(row.cachedInputTokens) ? row.cachedInputTokens : null });
 		},
 		/**
 		 * deaths: the scorer's death records; inWindow(at) says whether a time is inside the scored window; logMilestones:
@@ -231,6 +251,7 @@ export function gameFacts() {
 				peakHeld: samples.length ? peak : null,
 				rangedCommands: commandsSeen ? ranged.length : null,
 				modelUse,
+				modelLatency: modelLatency(windowCalls, { startedAt }),
 				basis: { fall: `fall height = highest point in the last ~10 s before death minus the death height; a fall is ${FALL_BLOCKS}+ blocks`, milestones: 'first sample holding the item, in the dimension, or with the advancement; lava seen and portal lit from the decision log (gate-report logMilestones)' },
 			};
 		},

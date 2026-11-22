@@ -20,6 +20,7 @@ import { itemCount } from '../../coordinator/src/benchmark/quality-metrics.mjs';
 import { netherTravel, sampleObservation } from './nether-travel-metrics.mjs';
 import { stopKind } from '../../coordinator/src/benchmark/long-run.mjs';
 import { countCauses, formatCauses, mergeDeaths, readDeathEvidence, sumCauses } from './lib/death-causes.mjs';
+import { quantile } from './lib/game-facts.mjs';
 
 export const SCHEMA = 'arena-gate-report/v1';
 // Funnel order. null in a run = not reached in its window; a missing key = this kind of run does not measure it.
@@ -132,9 +133,43 @@ function readLongRun(dir) {
 		milestones: Object.fromEntries(MILESTONES.filter(({ key }) => key in ms).map(({ key }) => [key, ms[key] === null ? null : minutes(ms[key] - t0)])),
 		deaths: stage.observedDeaths ?? 0, deathCauses: stage.deathCauses ?? rawDeathCauses(raw, stage.identity?.agentId, t0, end, stage.observedDeaths ?? 0),
 		costUsd: Math.round((longRun?.spend?.usd ?? 0) * 1000) / 1000,
+		...latencyOf(stage),
 		decisionLog: decisionFiles(raw).length > 0,
 		...samplesOf(raw, t0, end).nether,
 	}];
+}
+
+// Each run's model call times per wall-clock bucket, kept out of the report and read only to pool a cohort.
+const LATENCY_VALUES = new WeakMap();
+/**
+ * A scored game's model call latency (stage-score game.modelLatency): p50, p90 and max of native_model_call totalMs.
+ * Scores made before stage-score measured it leave the key out: not measured.
+ */
+function latencyOf(stage) {
+	const latency = stage.game?.modelLatency;
+	if (latency === undefined) return {};
+	if (latency === null) return { modelLatency: null };
+	const summary = { calls: latency.calls, p50Ms: latency.p50Ms, p90Ms: latency.p90Ms, maxMs: latency.maxMs };
+	LATENCY_VALUES.set(summary, latency.byClock10Min ?? []);
+	return { modelLatency: summary };
+}
+
+/**
+ * A cohort's model call latency: the median of its games' p90, and every call pooled per wall-clock 10 minutes, so a
+ * tail that follows the clock across games that ran at the same time shows. Null when no game measured it.
+ */
+export function poolLatency(runs) {
+	const measured = runs.map((run) => run.modelLatency).filter((latency) => latency && Number.isFinite(latency.p90Ms));
+	if (!measured.length) return null;
+	const buckets = new Map();
+	for (const latency of measured) for (const bucket of LATENCY_VALUES.get(latency) ?? [])
+		(buckets.get(bucket.fromEpochMs) ?? buckets.set(bucket.fromEpochMs, []).get(bucket.fromEpochMs)).push(...bucket.totalMs);
+	const p90s = measured.map((latency) => latency.p90Ms).sort((a, b) => a - b);
+	return { games: measured.length, gameP90MedianMs: median(p90s), gameP90MaxMs: p90s.at(-1),
+		byClock10Min: [...buckets.entries()].sort(([a], [b]) => a - b).map(([from, values]) => {
+			values.sort((a, b) => a - b);
+			return { from: new Date(from).toISOString(), calls: values.length, p50Ms: quantile(values, 0.5), p90Ms: quantile(values, 0.9) };
+		}) };
 }
 
 const SCRIPTED_KEYS = { iron_pickaxe: 'ironPickaxe', bucket: 'bucket', flint_and_steel: 'flintAndSteel' };
@@ -422,7 +457,7 @@ export function buildGate({ gate, title, cohorts, allowModelMismatch = false }) 
 			provider: one(runs.map((run) => run.provider)), modelId: one(runs.map((run) => run.modelId)), effort: one(runs.map((run) => run.effort)),
 			stops: Object.fromEntries([...new Set(runs.map((run) => run.stopKind ?? 'unrecorded'))].sort().map((kind) => [kind, runs.filter((run) => (run.stopKind ?? 'unrecorded') === kind).length])),
 			windowMin: one(runs.map((run) => run.windowMin)), ranAt: runs.map((run) => run.ranAt).filter(Boolean).sort()[0] ?? null, seeds: [...new Set(runs.map((run) => run.seed))], runs,
-			funnel: funnel(runs), deaths: runs.reduce((sum, run) => sum + run.deaths, 0), deathCauses: sumCauses(runs.map((run) => run.deathCauses)), nether: netherTotals(runs),
+			funnel: funnel(runs), deaths: runs.reduce((sum, run) => sum + run.deaths, 0), deathCauses: sumCauses(runs.map((run) => run.deathCauses)), nether: netherTotals(runs), modelLatency: poolLatency(runs),
 			costUsd: Math.round(runs.reduce((sum, run) => sum + run.costUsd, 0) * 100) / 100, repeats: repeatsOf(runs) };
 	});
 	const notes = [];
@@ -478,6 +513,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 			console.error(`  ${label.padEnd(16)} ${f.reached}/${f.total}  median ${f.medianMin ?? '-'} min${by ? `  early ${f.censoredEarly}: ${EARLY_STOPS.filter((kind) => by[kind]).map((kind) => `${by[kind]} ${kind}`).join(', ')}` : ''}`);
 		}
 		const n = cohort.nether;
+		const l = cohort.modelLatency;
+		if (l) console.error(`  Model calls: per-game p90 median ${l.gameP90MedianMs} ms (max ${l.gameP90MaxMs}); pooled p90 per 10 min ${l.byClock10Min.map((b) => `${b.from.slice(11, 16)}Z ${b.p90Ms}`).join(', ')}`);
 		if (n) console.error(`  Nether: ${n.entered}/${n.games} games entered, ${n.minutes} min there, ${n.deaths} Nether deaths in ${n.gamesWithDeaths} games (${n.deathsAfterFirstEntry} deaths after first entry), respawn ${n.respawnBlocks ? `${n.respawnBlocks.min}-${n.respawnBlocks.max} blocks, median ${n.respawnBlocks.median}` : '-'}, back ${n.back.returned} in ${n.back.returnedMin} min + ${n.back.neverReturned} never in ${n.back.neverReturnedMin} min`);
 	}
 }
