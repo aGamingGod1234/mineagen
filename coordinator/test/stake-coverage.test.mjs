@@ -30,7 +30,7 @@ test('a coordinator diff is covered, a mixed diff partly covered, docs alone no 
 	assert.equal(stakeCoverage(['coordinator/config/minecraft-agent/AGENTS.md']).short, 'not covered (no decision-code change)');
 	// A fix with its own test is covered; coordinator code the stake never loads is not.
 	assert.equal(stakeCoverage(['coordinator/src/obtain-runner.mjs', 'coordinator/test/obtain-placement-support.test.mjs']).short, 'covers 1 decision-code file');
-	for (const file of ['coordinator/src/posix-process-group.mjs', 'coordinator/src/decision-eval/judge.mjs', 'coordinator/src/benchmark/long-run-artifacts.mjs', 'coordinator/src/voice/x.mjs', 'coordinator/src/headless-runner.mjs'])
+	for (const file of ['coordinator/src/codex-service.mjs', 'coordinator/src/claude-service.mjs', 'coordinator/src/provider-session.mjs', 'coordinator/src/posix-process-group.mjs', 'coordinator/src/decision-eval/judge.mjs', 'coordinator/src/benchmark/long-run-artifacts.mjs', 'coordinator/src/voice/x.mjs', 'coordinator/src/headless-runner.mjs'])
 		assert.equal(stakeCoverage([file]).state, 'not covered', file);
 	assert.equal(stakeCoverage(['coordinator/test/a.test.mjs']).state, 'no code change');
 	assert.equal(stakeCoverage(['coordinator/config/minecraft-agent/.codex/skills/minecraft-control/SKILL.md', 'coordinator/src/reflexes.mjs']).state, 'partly covered');

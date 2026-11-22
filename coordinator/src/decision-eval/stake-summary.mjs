@@ -68,10 +68,13 @@ export function baseState(report) {
  */
 /**
  * The coordinator code a stake replay can reach: coordinator/src, without the parts it never loads (traced 23 Nov:
- * benchmark harnesses, the decision-eval tooling, the simulator, voice, headless launchers, process helpers, scripts).
+ * benchmark harnesses, the decision-eval tooling, the simulator, voice, headless launchers, process helpers, scripts)
+ * and the model providers the replay swaps for stubs (it injects an idle provider and a replay planner, so the Codex and
+ * Claude services, their tool server, app server and the provider plumbing never run).
  */
 export const decisionCode = file => /^coordinator\/src\//.test(file) && !/\.ps1$/.test(file)
-	&& !/^coordinator\/src\/(benchmark|decision-eval|simulator|voice)\//.test(file) && !/^coordinator\/src\/(headless-[^/]*|posix-process-[^/]*)$/.test(file);
+	&& !/^coordinator\/src\/(benchmark|decision-eval|simulator|voice)\//.test(file)
+	&& !/^coordinator\/src\/(headless-[^/]*|posix-process-[^/]*|codex-[^/]*|claude-[^/]*|provider-[^/]*)$/.test(file);
 
 export function stakeCoverage(changed) {
 	if (!Array.isArray(changed)) return { state: 'unknown', short: 'coverage unknown', line: 'Coverage unknown: the changed files could not be listed.' };
