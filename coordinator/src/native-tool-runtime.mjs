@@ -596,8 +596,20 @@ export class NativeToolRuntime {
 		const credit = this.#programExecutor.extendDeadline(record.agentId, run.programId, pausedMs);
 		if (!(credit > 0)) return;
 		if (run.deadlineEpochMs != null) run.deadlineEpochMs += credit;
-		run.releaseWork?.extend?.(credit);
+		// The executor counts what the lease was already given (an urgent wait pays the lease up front).
+		const lease = typeof this.#programExecutor.takeLeaseCredit === 'function' ? this.#programExecutor.takeLeaseCredit(record.agentId, run.programId) : credit;
+		if (lease > 0) run.releaseWork?.extend?.(Math.round(lease));
 		this.#trace('reflex_time_credited', { agentId: record.agentId, programId: run.programId, creditMs: credit });
+	}
+
+	/**
+	 * The program is held for the model's urgent answer (up to twice its timeoutMs): the work lease moves out by the hold
+	 * the executor reports, so the lease does not end the step while the answer is on its way.
+	 */
+	#creditUrgentHold(record, run, ms) {
+		if (this.#programRuns.get(record.agentId) !== run || run.state !== 'RUNNING' || !(ms > 0)) return;
+		run.releaseWork?.extend?.(Math.round(ms));
+		this.#trace('urgent_wait_lease_credited', { agentId: record.agentId, programId: run.programId, creditMs: Math.round(ms) });
 	}
 
 	/**
@@ -2318,6 +2330,7 @@ export class NativeToolRuntime {
 				return { observation: facts.observation, eventSequence: facts.eventSequence };
 			},
 			memoryOperation: (operation) => this.#programMemory(request, record, operation),
+			onLeaseCredit: (ms) => this.#creditUrgentHold(record, run, ms),
 		});
 	}
 
