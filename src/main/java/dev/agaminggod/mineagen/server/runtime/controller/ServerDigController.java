@@ -160,7 +160,7 @@ public final class ServerDigController implements ServerController {
 	/** A shaft goes on as steep_down at or below this y (lava lakes and aquifer lava are common down there). */
 	private final int maxShaftY;
 	private Integer shaftEndY;
-	/** A shaft dug without a water bucket: two columns side by side, each floor seen before the body drops onto it. */
+	/** A shaft with two columns side by side, each floor seen before the body drops onto it. */
 	private boolean twoColumn;
 	private final String stopWhenSeen;
 	/** The first lava the eye saw within {@link #LAVA_NEAR} blocks, how far and when (ms into the call). */
@@ -597,10 +597,40 @@ public final class ServerDigController implements ServerController {
 	}
 
 	/**
+	 * Uses a lava search keeps for the work at depth (tunnel legs, a carved cast site) after the way down; the
+	 * coordinator's stair budget keeps the same. A winning lava-gate-3 run spent about 150 uses there.
+	 */
+	static final int LAVA_SEARCH_RESERVE = 160;
+	/** Blocks a stairs_down step cuts per block of depth (head, body and floor of the next step); the shaft cuts one. */
+	static final int STAIR_USES_PER_DEPTH = 3;
+
+	/**
+	 * Whether the pickaxes can pay for stairs for the rest of the way down and still keep {@link #LAVA_SEARCH_RESERVE}.
+	 * On the lava-gate rooms' kit (an iron and a stone pickaxe, about 380 uses) stairs from the surface wore both out at
+	 * y-54 before lava was seen (lava-gate-3: 10 of 10 runs TOOL_WORN); short of uses, the one-wide shaft goes on.
+	 */
+	static boolean stairsAffordable(long uses, int depthLeft) {
+		return uses >= (long) STAIR_USES_PER_DEPTH * Math.max(0, depthLeft) + LAVA_SEARCH_RESERVE;
+	}
+
+	/** Uses left above {@link #WORN_USES} on every carried tool that harvests {@code state}; an unbreakable one counts as plenty. */
+	private static long pickaxeUses(ServerPlayer player, BlockState state) {
+		long uses = 0;
+		for (int slot = 0; slot < 36; slot++) {
+			ItemStack stack = player.getInventory().getItem(slot);
+			if (stack.isEmpty() || !stack.isCorrectToolForDrops(state) || stack.getDestroySpeed(state) <= 1.0F) continue;
+			if (!stack.isDamageableItem()) return Long.MAX_VALUE / 2;
+			uses += (long) Math.max(0, stack.getMaxDamage() - stack.getDamageValue() - WORN_USES) * stack.getCount();
+		}
+		return uses;
+	}
+
+	/**
 	 * Before the shaft breaks the block underfoot: the body stands centred on it (so it drops straight into the hole,
 	 * not onto an edge), and what the eye has already seen of the column under it rules the break out: lava or water
-	 * there, or a drop past a safe fall into open space. Most often nothing below is seen yet; the next floor shows once
-	 * this one breaks, and {@link #shaftFall} looks at it on landing. Null goes on to mine the block.
+	 * there, or a drop past a safe fall into open space. A lava search whose pickaxes can pay for it (see
+	 * {@link #stairsAffordable}) cuts beside its footing when the next floor is open or hidden, which is nearly always, so it
+	 * goes on as two-column stairs that look at each floor from a supported block. Null goes on to mine the block underfoot.
 	 */
 	private TickResult planShaft(ServerPlayer player) {
 		Vec3 center = Vec3.atBottomCenterOf(feet);
@@ -608,9 +638,18 @@ public final class ServerDigController implements ServerController {
 		SeenTerrain.Reader<BlockState> seen = SeenTerrain.of(player);
 		BlockPos floor = feet.below();
 		boolean noClutch = !acceptUnseenBelow && evaporates(player, floor);
+		boolean checkingLavaFloor = !acceptUnseenBelow && "minecraft:lava".equals(stopWhenSeen)
+				&& stairsAffordable(pickaxeUses(player, player.level().getBlockState(floor)), feet.getY() - (targetY != null ? targetY : maxShaftY));
 		for (int depth = 1; depth <= 24; depth++) {
 			BlockPos at = floor.below(depth);
 			BlockState state = seen.known(at.getX(), at.getY(), at.getZ());
+			if (checkingLavaFloor && depth == 1 && (state == null || !seen.seesNow(at.getX(), at.getY(), at.getZ())
+					|| passable(player.level(), at, state) && state.getFluidState().isEmpty())) {
+				// Open the next floor beside the body and check it from the block still supporting the body.
+				twoColumn = true;
+				active = Pattern.STAIRS_DOWN;
+				return TickResult.running(progress(player));
+			}
 			if (state == null) {
 				if (noClutch) return stop(player, "UNSEEN_BELOW", "Nothing under the floor at " + cell(floor) + " is seen " + (depth == 1 ? "" : "past "
 						+ (depth - 1) + " open block(s) ") + "and water evaporates here, so breaking it may drop the body into a cave or lava;"
@@ -780,7 +819,7 @@ public final class ServerDigController implements ServerController {
 		if (slot == -2) return stop(player, "NO_TOOL", "No hotbar tool can harvest " + blockId(state) + " at " + cell(cell) + toolHint(player, state));
 		if (slot == -3) return stop(player, "TOOL_WORN", "Every hotbar tool for " + blockId(state) + " has " + WORN_USES + " or fewer uses left" + toolHint(player, state));
 		if (slot >= 0) lastTool = itemId(player.getInventory().getItem(slot));
-		selected = slot >= 0 ? slot : selected;
+		selected = slot >= 0 ? slot : slot == MiningTools.KEEP ? MiningTools.sparingSlot(player.getInventory(), state, selected) : selected;
 		AgentInputState look = AgentInputStates.lookingAt(player, aim, 0.0F, 0.0F, false, false, false, false, false, InteractionHand.MAIN_HAND);
 		float yaw = AgentInputStates.turnYaw(player.getYRot(), look.yaw());
 		float pitch = AgentInputStates.turnPitch(player.getXRot(), look.pitch());
@@ -2134,7 +2173,7 @@ public final class ServerDigController implements ServerController {
 		BlockPos at = player.blockPosition();
 		long seconds = Math.max(1L, (dev.agaminggod.mineagen.server.runtime.GameClock.nowMs() - startedAt) / 1000L);
 		StringBuilder text = new StringBuilder(headline).append(". At ").append(cell(at)).append(", ").append(pattern.wireName())
-				.append(twoColumn ? " (two columns, no water bucket)" : "")
+				.append(twoColumn ? " (two columns, checks each floor)" : "")
 				.append(shaftEndY != null ? " to y" + shaftEndY + " then steep_down" : "")
 				.append(" heading ").append(heading == null ? "none" : heading.getName()).append("; ").append(blocksMined).append(" blocks mined in ")
 				.append(steps).append(" steps over ").append(seconds).append(" s (y").append(startY).append(" to y").append(at.getY()).append(')');
