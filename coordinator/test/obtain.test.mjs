@@ -832,7 +832,7 @@ test('scripted gate seed 1: a vein\'s drops left in its pocket out of view: walk
 	body.mine = async (args) => { body.calls.push(['mine', args]); if (args.vein) pocket = args; return { state: 'SUCCEEDED', reasonCode: 'VEIN_MINED', message: 'mined: 6 minecraft:iron_ore in 7.8 s; no seen block of it is left' }; };
 	const act = body.act;
 	body.act = async (type, args) => {
-		if (type === 'travel_to' && pocket && args.x === pocket.x + 0.5 && args.z === pocket.z + 0.5 && args.tolerance === 1) { body.calls.push([type, args]); body.inv.set('raw_iron', 6); return { state: 'SUCCEEDED' }; }
+		if (type === 'travel_to' && pocket && args.x === pocket.x + 0.5 && args.z === pocket.z + 0.5 && args.tolerance < 1) { body.calls.push([type, args]); body.inv.set('raw_iron', 6); return { state: 'SUCCEEDED' }; }
 		return act(type, args);
 	};
 	const result = await runObtain({ item: 'iron_pickaxe', count: 1 }, body, { now: ticking() });

@@ -671,7 +671,10 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		const minedCount = Number(/mined: (\d+)/.exec(String(mined?.message ?? ''))?.[1] ?? 0);
 		if (have >= total || have - heldBefore >= minedCount) return;
 		step(`into the mined ${bare(where.blockId)} pocket at ${where.x},${where.y},${where.z} for its drops`);
-		await act('travel_to', { x: where.x + 0.5, y: where.y, z: where.z + 0.5, tolerance: 1, timeoutMs: 20_000 });
+		// Into the pocket itself, not its rim: drops at the bottom of a narrow pocket lie behind its wall from the rim and
+		// never show in sight (22 Nov rooms: 2 raw iron 2 blocks down, unlisted, 3 of 10 runs searched anew). Stepping into
+		// the cell drops the body onto them; it picks up what it touches. Tolerance 1 counted the rim as arrived.
+		await act('travel_to', { x: where.x + 0.5, y: where.y, z: where.z + 0.5, tolerance: 0.4, timeoutMs: 20_000 });
 		if (body.interrupted() || body.stopped()) return;
 		await pickUpNear(where, need.accept, 6);
 	};

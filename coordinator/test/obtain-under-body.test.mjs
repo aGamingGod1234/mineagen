@@ -36,3 +36,19 @@ test('an ore under the body with no stance mine_vein can take: obtain steps back
 	assert.deepEqual([calls[first + 1][1].yaw, calls[first + 1][1].distance], [0, 2], 'back the way it faced from');
 	assert.equal(calls[first + 2]?.[0], 'mine', 'then mines again');
 });
+
+test('drops not picked up after a vein: the body steps into the pocket itself, not its rim', async () => {
+	const calls = [];
+	const o = () => ({ world: { dimension: 'minecraft:overworld' }, player: { x: 299.4, y: 15, z: -261.5, yaw: 90, health: 20, food: 20, onGround: true },
+		inventory: { selectedSlot: 0, items: [{ itemId: 'minecraft:stone_pickaxe', slot: 0, count: 1, remainingDurability: 100 }] },
+		blocks: [{ blockId: 'minecraft:iron_ore', x: 298, y: 14, z: -262 }] });
+	const body = { observe: async () => o(), stopped: () => false, interrupted: () => false, note: () => {},
+		act: async (type, args) => { calls.push([type, args]); return { state: 'SUCCEEDED', reasonCode: 'ARRIVED' }; },
+		mine: async () => ({ state: 'SUCCEEDED', reasonCode: 'VEIN_MINED', message: 'mined: 2 minecraft:iron_ore in 4 s; no seen block of it is left' }),
+		search: async () => ({ reasonCode: 'FIND_NOT_FOUND' }), missPlace: () => {} };
+	let t = 0;
+	await runObtain({ item: 'raw_iron', count: 2, timeoutMs: 600_000 }, body, { now: () => (t += 100) });
+	const into = calls.find(([type, args]) => type === 'travel_to' && args.x === 298.5 && args.z === -261.5);
+	assert.ok(into, 'walks into the mined pocket');
+	assert.ok(into[1].tolerance <= 0.5, `into the cell, not within a block of it: tolerance ${into[1].tolerance}`);
+});
