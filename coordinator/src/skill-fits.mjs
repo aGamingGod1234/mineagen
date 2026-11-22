@@ -452,7 +452,8 @@ function belowGround(o) {
 
 // The iron kit the portal route still needs from what is held: an iron pickaxe (3 iron), a shield (1), two buckets (3
 // each, a filled one counts; none once a frame's 10 obsidian is carried) and flint and steel (1).
-function kitLeft(count) {
+/** The iron kit still to make (pickaxe, shield, 2 buckets, flint and steel) from count(regex) over held items. */
+export function kitLeft(count) {
 	const items = [];
 	if (!count(/^minecraft:(iron|diamond|netherite)_pickaxe$/)) items.push({ id: 'iron_pickaxe', count: 1, iron: 3, name: 'pickaxe 3' });
 	if (!count(/^minecraft:shield$/)) items.push({ id: 'shield', count: 1, iron: 1, name: 'shield 1' });
