@@ -58,9 +58,9 @@ test('readStart reads the start with commands anchored at the body, and an unrea
 	const sent = [];
 	const world = {
 		'data get entity Probe Pos': 'Probe has the following entity data: [200.5d, 150.0d, 200.5d]',
-		'execute at Probe if block ~ ~0 ~ #minecraft:leaves': 'Test failed', 'execute at Probe if block ~ ~1 ~ #minecraft:leaves': 'Test passed',
-		'execute at Probe if block ~ ~0 ~ minecraft:water': 'Test failed', 'execute at Probe if block ~ ~0 ~ minecraft:lava': 'Test failed',
-		'execute at Probe if block ~ ~1 ~ minecraft:water': 'Test failed', 'execute at Probe if block ~ ~1 ~ minecraft:lava': 'Test failed',
+		'execute at Probe if block ~ ~ ~ #minecraft:leaves': 'Test failed', 'execute at Probe anchored eyes positioned ^ ^ ^ if block ~ ~ ~ #minecraft:leaves': 'Test passed',
+		'execute at Probe if block ~ ~ ~ minecraft:water': 'Test failed', 'execute at Probe if block ~ ~ ~ minecraft:lava': 'Test failed',
+		'execute at Probe anchored eyes positioned ^ ^ ^ if block ~ ~ ~ minecraft:water': 'Test failed', 'execute at Probe anchored eyes positioned ^ ^ ^ if block ~ ~ ~ minecraft:lava': 'Test failed',
 		'execute if entity @a[name=Probe,nbt={OnGround:1b}]': 'Test passed',
 		'execute at Probe if entity @e[type=minecraft:skeleton,distance=..16]': 'Test passed, count: 2',
 		'execute at Probe run data get entity @e[type=minecraft:skeleton,limit=1,sort=nearest] Pos': 'Skeleton has the following entity data: [203.5d, 150.0d, 196.5d]',
@@ -69,7 +69,7 @@ test('readStart reads the start with commands anchored at the body, and an unrea
 		'time query daytime': 'The time is 6000',
 	};
 	// Every other fluid test (plants, bubble columns, waterlogged blocks) finds nothing here.
-	const command = async text => { sent.push(text); return world[text] ?? (/^execute at Probe if block /.test(text) ? 'Test failed' : 'Unknown or incomplete command'); };
+	const command = async text => { sent.push(text); return world[text] ?? (/^execute at Probe .*if block /.test(text) ? 'Test failed' : 'Unknown or incomplete command'); };
 	const SPEC = { footing: { notIn: ['leaves', 'fluid'], solidBelow: true }, mobs: [{ type: 'minecraft:skeleton', within: 16, inSight: true }], health: { min: 20 },
 		inventory: { has: { 'minecraft:shield': 1 }, lacks: ['minecraft:water_bucket'] }, time: { from: 0, to: 12000 } };
 	const start = await readStart(command, 'Probe', SPEC, { sight: async mob => mob.distance < 10 });
@@ -81,8 +81,9 @@ test('readStart reads the start with commands anchored at the body, and an unrea
 	assert.deepEqual([start.health, start.inventory, start.timeOfDay], [18.5, { 'minecraft:shield': 1, 'minecraft:water_bucket': 0 }, 6000]);
 	assert.deepEqual(checkStart(SPEC, start).failures.map(failure => failure.reason), ["leaves in the body's head cell", 'health 18.5, wants at least 20']);
 	assert.ok(sent.filter(text => /@e|if block/.test(text)).every(text => text.startsWith('execute at Probe ')), 'every world test is anchored at the body');
+	assert.ok(sent.includes('execute at Probe anchored eyes positioned ^ ^ ^ if block ~ ~ ~ #minecraft:leaves'), 'the head cell is the block at the eyes, whatever the standing height');
 	// Standing in seagrass, or in a waterlogged slab, is a start in water.
-	for (const wet of ['execute at Probe if block ~ ~0 ~ minecraft:seagrass', 'execute at Probe if block ~ ~0 ~ #minecraft:slabs[waterlogged=true]']) {
+	for (const wet of ['execute at Probe if block ~ ~ ~ minecraft:seagrass', 'execute at Probe if block ~ ~ ~ #minecraft:slabs[waterlogged=true]']) {
 		const soaked = await readStart(async text => text === wet ? 'Test passed' : world[text] ?? (/if block/.test(text) ? 'Test failed' : ''), 'Probe', { footing: { notIn: ['fluid'] } });
 		assert.equal(soaked.feet.fluid, 'water', wet);
 	}

@@ -98,18 +98,21 @@ export async function readStart(command, agent, spec, { sight = null } = {}) {
 	if (!SELECTOR.test(agent)) throw new Error(`readStart wants a player name, got ${agent}`);
 	const run = async text => command(text).then(String, () => '');
 	const start = { body: vector(await run(`data get entity ${agent} Pos`)) };
-	const at = (test, dy = 0) => run(`execute at ${agent} if block ~ ~${dy} ~ ${test}`).then(reply => /test (passed|failed)/i.test(reply) ? passed(reply) : null);
+	// The feet cell is the block at the body's position; the head cell is the block at its eyes (anchored eyes), so a body
+	// standing on a slab at Y 64.5 has its head tested in block 66, where its eyes are, not 65.
+	const CELL = { feet: '', head: 'anchored eyes positioned ^ ^ ^ ' };
+	const at = (test, cell) => run(`execute at ${agent} ${CELL[cell]}if block ~ ~ ~ ${test}`).then(reply => /test (passed|failed)/i.test(reply) ? passed(reply) : null);
 	if (spec.footing) {
-		for (const [cell, dy] of [['feet', 0], ['head', 1]]) {
+		for (const cell of ['feet', 'head']) {
 			const facts = {};
 			for (const bad of spec.footing.notIn ?? []) {
-				if (bad === 'leaves') facts.leaves = await at('#minecraft:leaves', dy);
+				if (bad === 'leaves') facts.leaves = await at('#minecraft:leaves', cell);
 				else if (bad === 'fluid') {
 					// Water also fills underwater plants, bubble columns and waterlogged blocks; a block with a waterlogged state
 					// outside these tags is not seen.
 					let found = false, unknown = false;
 					for (const [test, name] of FLUID_TESTS) {
-						const hit = await at(test, dy);
+						const hit = await at(test, cell);
 						if (hit === null) unknown = true;
 						else if (hit) { found = name; break; }
 					}
