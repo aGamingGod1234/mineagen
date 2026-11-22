@@ -256,3 +256,16 @@ test('an iron tool\'s trip mines the rest of the kit\'s iron at the ore too; non
 	assert.equal(kitIronExtra(o, planObtain({ ids: ['stick'], count: 4 }, { held })), 0);
 	assert.equal(kitIronExtra({ ...o, world: { dimension: 'minecraft:the_nether' } }, plan), 0);
 });
+
+test('the chest is opened by the face toward the body, and another face when that one is blocked', async () => {
+	const { facesToward } = await import('../src/loot-step.mjs');
+	assert.deepEqual(facesToward({ x: 311, y: 77, z: -237 }, { x: 311.5, y: 77, z: -240.5 }).slice(0, 2), ['north', 'west']);
+	assert.equal(facesToward({ x: 311, y: 77, z: -237 }, { x: 314.5, y: 79, z: -237.5 })[0], 'up');
+	const body = chestBody([['iron_ingot', 2]]);
+	const act = body.act;
+	let tries = 0;
+	body.act = async (type, args) => (type === 'interact_block' && tries++ === 0 ? (body.calls.push([type, args]), { state: 'FAILED', reasonCode: 'TARGET_OBSTRUCTED' }) : act(type, args));
+	const result = await lootChest(body, { x: 311, y: 77, z: -237 }, { from: { x: 311.5, y: 77, z: -240.5 } });
+	assert.equal(result.read, true);
+	assert.deepEqual(body.calls.filter(([type]) => type === 'interact_block').map(([, args]) => args.face), ['north', 'west']);
+});

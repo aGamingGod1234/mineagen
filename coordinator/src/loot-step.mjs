@@ -20,9 +20,26 @@ export function pageRows(page) {
  * stays in the chest. read: the chest's slots were read (it now counts as opened). The close is sent even when a stop
  * cut the taking short, so no chest is left open.
  */
-export async function lootChest(body, cell, { wanted = [], heldItem = 'minecraft:air' } = {}) {
+/** A block's faces, the one most toward an eye at `from` ({ x, y (feet), z }) first; the top first without one. */
+export function facesToward(cell, from) {
+	const all = ['up', 'north', 'south', 'east', 'west', 'down'];
+	if (![from?.x, from?.y, from?.z].every(Number.isFinite)) return all;
+	const dx = from.x - (cell.x + 0.5), dz = from.z - (cell.z + 0.5), eye = from.y + 1.62;
+	const side = Math.abs(dx) >= Math.abs(dz) ? (dx > 0 ? 'east' : 'west') : (dz > 0 ? 'south' : 'north');
+	const other = Math.abs(dx) >= Math.abs(dz) ? (dz > 0 ? 'south' : 'north') : (dx > 0 ? 'east' : 'west');
+	const first = eye > cell.y + 2 ? ['up', side, other] : [side, other, 'up'];
+	return [...first, ...all.filter((face) => !first.includes(face))];
+}
+
+export async function lootChest(body, cell, { wanted = [], heldItem = 'minecraft:air', from = null } = {}) {
 	const take = (id) => wanted.includes(bare(id)) || LOOT_KEEP.test(bare(id));
-	const opened = await body.act('interact_block', { x: cell.x, y: cell.y, z: cell.z, face: 'up', hand: 'main', expectedItemId: heldItem });
+	// The face toward the eye first (the top only from above), then the others: a chest's top under a roof or a wall
+	// between is TARGET_OBSTRUCTED from where the body stands.
+	let opened = null;
+	for (const face of facesToward(cell, from)) {
+		opened = await body.act('interact_block', { x: cell.x, y: cell.y, z: cell.z, face, hand: 'main', expectedItemId: heldItem });
+		if (opened?.reasonCode !== 'TARGET_OBSTRUCTED') break;
+	}
 	if (opened?.state !== 'SUCCEEDED') return { ok: false, read: false, taken: {}, why: `open the chest at ${cell.x},${cell.y},${cell.z}: ${opened?.reasonCode ?? 'failed'}` };
 	const taken = {};
 	let menu = null, stuck = null, read = false;

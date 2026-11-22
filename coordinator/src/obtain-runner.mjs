@@ -1366,7 +1366,7 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		// The close goes out even after danger stopped the run (obtain's own act refuses new moves then): no chest stays open.
 		const hands = { menu: body.menu, act: (type, args) => (type === 'menu_close' ? rawBody.act(type, args) : body.act(type, args)) };
 		const result = typeof body.menu === 'function'
-			? await lootChest(hands, chest, { wanted: need.accept.map(bare), heldItem })
+			? await lootChest(hands, chest, { wanted: need.accept.map(bare), heldItem, from: bodyAt(o) })
 			: { ok: false, read: false, taken: {}, why: 'this body cannot read an open chest' };
 		if (result.read) looted.opened.push(cellKey(chest));
 		else budget.failed.add(cellKey(chest));
