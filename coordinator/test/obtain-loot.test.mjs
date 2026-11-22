@@ -219,4 +219,21 @@ test('a village chest out of sight is found by looking into the houses through t
 	assert.deepEqual(looted.doors.map((d) => d.x), [300], 'the nearer house first, and no further once a chest is found');
 	assert.ok(body.calls.some(([type, args]) => type === 'set_door' && args.open === true));
 	assert.deepEqual(looted.opened, ['302,77,-228']);
+	assert.deepEqual(body.calls.filter(([type]) => type === 'set_door').map(([, args]) => args.open), [true, false], 'the door is shut behind');
+});
+
+test('a house with a zombie by its door is shut again and not entered', async () => {
+	const calls = [];
+	const pos = { ...at };
+	const observe = async () => ({ ...village(), player: { ...pos, health: 20, onGround: true, skyOpen: true },
+		inventory: { selectedSlot: 0, items: [{ itemId: 'minecraft:stone_pickaxe', count: 1, slot: 0 }] },
+		seenResources: [{ id: 'minecraft:oak_door', kind: 'block', x: 300, y: 77, z: -230, count: 1 }],
+		blocks: [], entities: [{ type: 'minecraft:zombie', x: 302, y: 77, z: -228 }] });
+	const act = async (type, args) => { calls.push([type, args]); if (type === 'travel_to') Object.assign(pos, { x: args.x ?? pos.x, z: args.z ?? pos.z }); return { state: 'SUCCEEDED' }; };
+	await runObtain({ item: 'iron_ingot', count: 3, timeoutMs: 30_000 }, { act, observe, menu: async () => ({}), stopped: () => false, interrupted: () => false, note: () => {},
+		gather: async () => ({ state: 'FAILED', reasonCode: 'NOTHING_MINED' }), mine: async () => ({ state: 'FAILED', reasonCode: 'NOTHING_MINED' }), moveTo: async () => ({ state: 'SUCCEEDED' }),
+		search: async () => ({ state: 'FAILED', reasonCode: 'FIND_NOT_FOUND' }) }, { now: (() => { let t = 0; return () => (t += 100); })(), looted: { opened: [], searched: [], structures: [], doors: [] } });
+	const doorCalls = calls.filter(([type]) => type === 'set_door').map(([, args]) => args.open);
+	assert.deepEqual(doorCalls.slice(0, 2), [true, false]);
+	assert.equal(calls.some(([type, args]) => type === 'travel_to' && args.tolerance === 0.5), false, 'never steps into the doorway');
 });

@@ -120,6 +120,8 @@ const KEPT_STRUCTURES = 16;
 // Houses looked into per loot step before the search, and the door blocks that lead into them.
 const DOOR_VISITS = 6;
 const DOOR = /^(minecraft:)?[a-z_]+_door$/;
+const HOUSE_REACH = 8;
+const HOSTILE_MOB = /^(zombie|zombie_villager|husk|drowned|skeleton|stray|bogged|spider|cave_spider|creeper|witch|pillager|vindicator|evoker|ravager|slime|enderman)$/;
 const DOOR_KINDS = ['oak', 'spruce', 'birch', 'acacia', 'dark_oak', 'jungle', 'mangrove', 'cherry', 'pale_oak'].map((kind) => `minecraft:${kind}_door`);
 export function rememberStructures(looted, o) {
 	for (const row of o?.sighted?.structures ?? []) {
@@ -1260,6 +1262,7 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			return walked?.state === 'SUCCEEDED';
 		};
 		let chest = source.kind === 'chest' ? source : null;
+		let houseDoor = null;
 		if (chest === null) {
 			step(`look for chests in the ${source.name} at ${source.x},${source.y},${source.z}`);
 			if (source.distance > 24 && !(await walk(source, 8)) && (body.interrupted() || body.stopped())) return 'stopped';
@@ -1282,10 +1285,17 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 				step(`look into the house through the door at ${cellKey(door)}`);
 				if (!(await walk(door, 2))) { if (body.interrupted() || body.stopped()) return 'stopped'; continue; }
 				await act('set_door', { x: door.x, y: door.y, z: door.z, open: true });
+				// A hostile in or by the house: not a house to walk into. Shut it again and try the next.
+				const inside = (await body.observe()).entities?.find((row) => (row?.hostile === true || HOSTILE_MOB.test(bare(row?.type ?? '')))
+					&& row.alive !== false && [row.x, row.z].every(Number.isFinite) && Math.hypot(row.x - door.x - 0.5, row.z - door.z - 0.5) <= HOUSE_REACH);
+				if (inside) { await act('set_door', { x: door.x, y: door.y, z: door.z, open: false }); step(`a ${bare(inside.type)} by the door at ${cellKey(door)}: not going in`); continue; }
 				await act('travel_to', { x: Math.floor(door.x) + 0.5, y: Math.floor(door.y), z: Math.floor(door.z) + 0.5, tolerance: 0.5, timeoutMs: 15_000 });
 				if (body.interrupted() || body.stopped()) return 'stopped';
 				chest = lootSources(await body.observe(), { opened: new Set([...looted.opened, ...budget.failed]), searched: new Set(looted.searched), structures: looted.structures })
 					.find((row) => row.kind === 'chest') ?? null;
+				// Shut behind: now when the house holds nothing, after the loot when it does.
+				if (chest === null) await act('set_door', { x: door.x, y: door.y, z: door.z, open: false });
+				else houseDoor = door;
 			}
 			if (chest === null && typeof body.search === 'function') {
 				// Kept to the structure: legs of half the radius, a hand-back at its edge.
@@ -1319,6 +1329,10 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			: { ok: false, read: false, taken: {}, why: 'this body cannot read an open chest' };
 		if (result.read) looted.opened.push(cellKey(chest));
 		else budget.failed.add(cellKey(chest));
+		if (houseDoor !== null && !rawBody.interrupted() && !rawBody.stopped()) {
+			await act('travel_to', { x: Math.floor(houseDoor.x) + 0.5, y: Math.floor(houseDoor.y), z: Math.floor(houseDoor.z) + 0.5, tolerance: 0.5, timeoutMs: 15_000 });
+			await act('set_door', { x: houseDoor.x, y: houseDoor.y, z: houseDoor.z, open: false });
+		}
 		if (looted.opened.length > 256) looted.opened.splice(0, looted.opened.length - 256);
 		const got = Object.entries(result.taken).map(([kind, n]) => `${n} ${kind}`).join(', ');
 		step(got ? `took ${got}` : `the chest at ${cellKey(chest)} held nothing to take`);
