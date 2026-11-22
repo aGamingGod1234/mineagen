@@ -48,6 +48,12 @@ public final class EscapeVerification {
 		assertions += 15;
 		// Hole: level with the rim steps out; blocks and headroom pillar; else dug stairs; else no way.
 		check(ServerEscapeController.pitMove(0, 0, false, false) == ServerEscapeController.PitMove.STEP_OUT, "level with the rim steps out");
+		check(ServerEscapeController.climbsAfterStand(2, "pillar 2 up to the rim at y150") == 1
+				&& ServerEscapeController.climbsAfterStand(1, "dig stairs 4 up to the rim at y150 heading east") == 0
+				&& ServerEscapeController.climbsAfterStand(0, "step out onto the rim at 1,2,3") == 0,
+				"a climb a mob stopped is given back when the body stands its ground, never below zero");
+		check(ServerEscapeController.climbsAfterStand(2, "travel to the bank at 1,2,3") == 2 && ServerEscapeController.climbsAfterStand(2, null) == 2,
+				"steps that are not climbs out of a hole keep their count");
 		check(ServerEscapeController.pitMove(4, 4, true, true) == ServerEscapeController.PitMove.PILLAR, "four blocks under open sky pillar a four-deep hole");
 		check(ServerEscapeController.pitMove(4, 3, true, true) == ServerEscapeController.PitMove.STAIRS, "too few blocks dig stairs");
 		check(ServerEscapeController.pitMove(4, 9, false, true) == ServerEscapeController.PitMove.STAIRS, "a roof over the hole digs stairs");
