@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -17,24 +17,32 @@ F=$FAKE_BOAT_ROOT; [ "$1" = --no-update ] && shift; cmd=$1; shift
 map() { case $1 in bx_*:*) echo "$F/\${1%%:*}/\${1#*:}";; *) echo "$1";; esac; }
 seed() { mkdir -p "$1/rooms/jdk/bin" "$1/.local/bin"; : > "$1/rooms/jdk/bin/java"; chmod +x "$1/rooms/jdk/bin/java"; printf '#!/bin/bash\\necho codex-cli 0.1.0\\n' > "$1/.local/bin/codex"; chmod +x "$1/.local/bin/codex"; }
 case $cmd in
-  ssh) id=$1; shift; [ "$1" = -- ] && shift; [ -f "$F/$id.deleted" ] && { echo gone >&2; exit 255; }; cd "$F/$id" && HOME="$F/$id" bash -c "$*";;
-  scp) s=$(map "$1"); d=$(map "$2"); mkdir -p "$(dirname "$d")"; case $2 in *:ck/game.sh) cp "$F/fake-game.sh" "$d";; *) cp "$s" "$d";; esac;;
+  ssh) id=$1; shift; [ "$1" = -- ] && shift; [ -f "$F/$id.deleted" ] && { echo gone >&2; exit 255; }
+    o=$(cd "$F/$id" && HOME="$F/$id" bash -c "$*"); rc=$?
+    # A DROPSTART file loses the answer to the first game launch there (the game itself starts), as when ssh drops.
+    if [ -f "$F/$id/DROPSTART" ] && printf '%s\n' "$o" | grep -qx started; then rm -f "$F/$id/DROPSTART"; exit 255; fi
+    printf '%s\n' "$o"; exit $rc;;
+  scp) s=$(map "$1"); d=$(map "$2"); mkdir -p "$(dirname "$d")"
+    # A NOAUTH file in a prepared machine's home makes every sign-in upload for a game fail while ssh still works.
+    case $2 in *:.codex/auth.json) h=$F/\${2%%:*}; [ -f "$h/NOAUTH" ] && [ -f "$h/ck/game.sh" ] && { echo "scp failed" >&2; exit 1; };; esac
+    case $2 in *:ck/game.sh) cp "$F/fake-game.sh" "$d";; *) cp "$s" "$d";; esac;;
   info) [ -f "$F/$1.deleted" ] && echo '{"sandbox":{"state":"deleted"}}' || printf '{"sandbox":{"state":"running","name":"%s"}}\\n' "$(cat "$F/$1.name" 2>/dev/null)";;
   delete) touch "$F/$1.deleted"; echo "$1" >> "$F/deleted.log"; echo '{}';;
-  new) echo "new $*" >> "$F/new.log"; n=$(ls "$F" | grep -c '^bx_new'); id=bx_new$n; seed "$F/$id"; printf '{"event":"ready","id":"%s"}\\n' "$id";;
+  new) echo "new $*" >> "$F/new.log"; [ -f "$F/NEWFAIL" ] && { rm -f "$F/NEWFAIL"; echo "no capacity" >&2; exit 1; }; n=$(ls "$F" | grep -c '^bx_new'); id=bx_new$n; seed "$F/$id"; printf '{"event":"ready","id":"%s"}\\n' "$id";;
   extend) echo "extend $*" >> "$F/extend.log"; echo '{}';;
   *) echo "fake boat: $cmd not handled" >&2; exit 2;;
 esac
 `;
 // game.sh ID ARM SP MINUTES SALT MODEL EFFORT; the run folder sits under ~/ck like a real one. A REFRESH file in the fake root makes the game's own sign-in copy change.
 const FAKE_GAME = `#!/bin/bash
-id=$1; dir=$HOME/ck/games/$id; raw=$HOME/ck/arms/runs/$id; mkdir -p "$raw/.codex-home" "$dir/report"
+id=$1; dir=$HOME/ck/games/$id; raw=$HOME/ck/arms/runs/$id; mkdir -p "$raw/.codex-home" "$raw/server" "$dir/report"; echo world > "$raw/server/level.dat"
 # A NODONE file makes each game's first launch end without a done file, as when the launch ssh dropped first.
 [ -f "$FAKE_BOAT_ROOT/NODONE" ] && [ ! -f "$FAKE_BOAT_ROOT/nodone-$id" ] && { touch "$FAKE_BOAT_ROOT/nodone-$id"; exit 0; }
 # A BROKEN file in a machine's home makes every launch there end without a done file (a full disk, a wiped ~/ck).
 [ -f "$HOME/BROKEN" ] && exit 0
-# A SLOW file keeps each game on that machine running across a few passes.
+# A SLOW file keeps each game on that machine running across a few passes; a HANG file keeps it running for minutes.
 [ -f "$HOME/SLOW" ] && sleep 1
+[ -f "$HOME/HANG" ] && sleep 300
 cp "$HOME/.codex/auth.json" "$raw/.codex-home/auth.json"; [ -f "$FAKE_BOAT_ROOT/REFRESH" ] && echo refreshed >> "$raw/.codex-home/auth.json"
 echo '{"event":"native_token_usage"}' > "$raw/coordinator.jsonl"
 echo "Running q: $raw" > "$dir/run.log"; echo '{}' > "$dir/ledger.json"
@@ -69,8 +77,8 @@ function setup({ refresh = false, plan: overrides = {} } = {}) {
 	writeFileSync(path.join(root, 'plan.json'), JSON.stringify({ ...plan, ...overrides }));
 	return root;
 }
-const run = root => execFileSync('node', [script, '--plan', path.join(root, 'plan.json'), '--out', path.join(root, 'out')], {
-	env: { ...process.env, PATH: `${path.join(root, 'bin')}:${process.env.PATH}`, BOAT_BIN: path.join(root, 'bin/boat'), FAKE_BOAT_ROOT: root, CHECKPOINT_POLL_MS: '200' },
+const run = (root, env = {}) => execFileSync('node', [script, '--plan', path.join(root, 'plan.json'), '--out', path.join(root, 'out')], {
+	env: { ...process.env, PATH: `${path.join(root, 'bin')}:${process.env.PATH}`, BOAT_BIN: path.join(root, 'bin/boat'), FAKE_BOAT_ROOT: root, CHECKPOINT_POLL_MS: '200', ...env },
 	encoding: 'utf8', timeout: 120_000 });
 // The fake boat CLI and fake games are bash scripts; the batch itself runs only from Linux or macOS hosts.
 const posixOnly = { skip: process.platform === 'win32' ? 'the fake boat CLI is a bash script' : false };
@@ -85,7 +93,7 @@ test('checkpoint batch copies every game home, writes each env switch on its own
 		assert.ok(state.games.every(g => g.score.known && g.score.targets.fortress === 2 && g.score.deaths === 1));
 		for (const g of state.games) {
 			const listing = execFileSync('tar', ['-tzf', path.join(root, 'out/games', g.id, 'game.tgz')], { encoding: 'utf8' });
-			assert.match(listing, /raw\/coordinator\.jsonl/); assert.doesNotMatch(listing, /auth\.json|\.codex-home/);
+			assert.match(listing, /raw\/coordinator\.jsonl/); assert.doesNotMatch(listing, /auth\.json|\.codex-home|level\.dat/);
 		}
 		assert.equal(readFileSync(path.join(root, 'bx_aaaaaaaa/ck/arms/other/env'), 'utf8'), 'A_SWITCH=on\nB_SWITCH=2\n');
 		assert.deepEqual(readFileSync(path.join(root, 'deleted.log'), 'utf8').trim().split('\n').sort(), ['bx_aaaaaaaa', 'bx_bbbbbbbb']);
@@ -164,5 +172,92 @@ test('checkpoint batch does not hand a game back to the machine it just died on 
 		assert.deepEqual(state.games.map(g => g.state), ['done', 'done', 'done', 'done']);
 		assert.ok(state.games.every(g => g.machine === 'bx_aaaaaaaa' && g.attempts <= 2));
 		assert.equal(state.machines.find(m => m.id === 'bx_bbbbbbbb').lost, true);
+	} finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('checkpoint batch drops machines whose game launches keep failing while ssh still answers, instead of idling to the deadline', posixOnly, () => {
+	const root = setup();
+	for (const id of ['bx_aaaaaaaa', 'bx_bbbbbbbb']) writeFileSync(path.join(root, id, 'NOAUTH'), '');
+	try {
+		run(root, { CHECKPOINT_LOST_AFTER_MS: '1500' });
+		const state = JSON.parse(readFileSync(path.join(root, 'out/state.json'), 'utf8'));
+		assert.deepEqual(state.games.map(g => g.state), ['not started', 'not started', 'not started', 'not started']);
+		assert.ok(state.machines.every(m => m.lost && m.deleted));
+		assert.match(readFileSync(path.join(root, 'out/batch.log'), 'utf8'), /dropping bx_aaaaaaaa: its launches failed/);
+		assert.equal(leftSignIns(root), '0');
+	} finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('checkpoint batch keeps a machine whose launch answer was lost while its game still ran', posixOnly, () => {
+	const root = setup();
+	writeFileSync(path.join(root, 'bx_aaaaaaaa/DROPSTART'), '');
+	for (const id of ['bx_aaaaaaaa', 'bx_bbbbbbbb']) writeFileSync(path.join(root, id, 'SLOW'), '');
+	try {
+		run(root, { CHECKPOINT_LOST_AFTER_MS: '300' });
+		const state = JSON.parse(readFileSync(path.join(root, 'out/state.json'), 'utf8'));
+		assert.deepEqual(state.games.map(g => g.state), ['done', 'done', 'done', 'done']);
+		assert.ok(state.machines.every(m => !m.lost));
+		assert.ok(state.games.filter(g => g.machine === 'bx_aaaaaaaa').length >= 2, 'the machine took a game after the lost answer');
+		assert.ok(!existsSync(path.join(root, 'bx_aaaaaaaa/DROPSTART')), 'the lost answer happened');
+	} finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('checkpoint batch never packs a game whose raw journals failed to copy, and keeps its world on the machine', posixOnly, () => {
+	// Listed machines are kept to the end here, so the healthy one is still there to replay the game the broken one lost.
+	const root = setup({ plan: { drain: undefined } });
+	// A tar that fails to unpack the raw journals on bx_bbbbbbbb only, as on a full disk.
+	const realTar = execFileSync('bash', ['-c', 'command -v tar'], { encoding: 'utf8' }).trim();
+	writeFileSync(path.join(root, 'bin/tar'), `#!/bin/bash\nif [ "$*" = "-C raw -xf -" ] && [ -f "$HOME/BADSTAGE" ]; then cat > /dev/null; exit 2; fi\nexec ${realTar} "$@"\n`);
+	chmodSync(path.join(root, 'bin/tar'), 0o755);
+	writeFileSync(path.join(root, 'bx_bbbbbbbb/BADSTAGE'), '');
+	try {
+		run(root, { CHECKPOINT_LOST_AFTER_MS: '1500' });
+		const state = JSON.parse(readFileSync(path.join(root, 'out/state.json'), 'utf8'));
+		assert.deepEqual(state.games.map(g => g.state), ['done', 'done', 'done', 'done']);
+		assert.ok(state.games.every(g => g.machine === 'bx_aaaaaaaa'), 'every scored game was packed on the healthy machine');
+		assert.ok(state.games.some(g => g.attempts === 2), 'the game lost with the broken machine was played again');
+		assert.equal(state.machines.find(m => m.id === 'bx_bbbbbbbb').lost, true);
+		assert.match(readFileSync(path.join(root, 'out/batch.log'), 'utf8'), /could not pack .* \(copying its raw journals failed\)/);
+		const worlds = dir => readdirSync(path.join(root, dir, 'ck/arms/runs')).filter(id => existsSync(path.join(root, dir, 'ck/arms/runs', id, 'server/level.dat')));
+		assert.ok(worlds('bx_bbbbbbbb').length >= 1, 'the failed game keeps its world');
+		assert.deepEqual(worlds('bx_aaaaaaaa'), []);
+		assert.equal(leftSignIns(root), '0');
+	} finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('checkpoint batch replaces a machine it could not make with a spare', posixOnly, () => {
+	const root = setup({ plan: { vms: [], create: 1, spares: 1, drain: undefined } });
+	writeFileSync(path.join(root, 'NEWFAIL'), '');
+	try {
+		run(root);
+		assert.equal(readFileSync(path.join(root, 'new.log'), 'utf8').trim().split('\n').length, 2);
+		const state = JSON.parse(readFileSync(path.join(root, 'out/state.json'), 'utf8'));
+		assert.deepEqual(state.games.map(g => g.state), ['done', 'done', 'done', 'done']);
+		assert.deepEqual(readFileSync(path.join(root, 'deleted.log'), 'utf8').trim().split('\n'), ['bx_new0']);
+	} finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('checkpoint batch ends its running games and cleans up at once on SIGTERM', posixOnly, async () => {
+	const root = setup();
+	for (const id of ['bx_aaaaaaaa', 'bx_bbbbbbbb']) writeFileSync(path.join(root, id, 'HANG'), '');
+	try {
+		const child = spawn('node', [script, '--plan', path.join(root, 'plan.json'), '--out', path.join(root, 'out')], {
+			env: { ...process.env, PATH: `${path.join(root, 'bin')}:${process.env.PATH}`, BOAT_BIN: path.join(root, 'bin/boat'), FAKE_BOAT_ROOT: root, CHECKPOINT_POLL_MS: '200' }, stdio: ['ignore', 'pipe', 'pipe'] });
+		const exited = new Promise(resolve => child.on('exit', resolve));
+		let out = '';
+		await new Promise((resolve, reject) => {
+			const timer = setTimeout(() => reject(new Error(`no game started: ${out}`)), 60_000);
+			child.stdout.on('data', chunk => { out += chunk; if ((out.match(/started nether/g) ?? []).length >= 2) { clearTimeout(timer); resolve(); } });
+		});
+		const signalledAt = Date.now();
+		child.kill('SIGTERM');
+		await exited;
+		assert.ok(Date.now() - signalledAt < 60_000, 'the cleanup ran well inside systemd\'s 90 s stop timeout');
+		const state = JSON.parse(readFileSync(path.join(root, 'out/state.json'), 'utf8'));
+		assert.deepEqual(state.games.map(g => g.state).sort(), ['not finished', 'not finished', 'not started', 'not started']);
+		assert.deepEqual(readFileSync(path.join(root, 'deleted.log'), 'utf8').trim().split('\n').sort(), ['bx_aaaaaaaa', 'bx_bbbbbbbb']);
+		assert.equal(leftSignIns(root), '0');
+		// pgrep exits 1 when nothing matches.
+		assert.throws(() => execFileSync('pgrep', ['-f', `${root}/bx_.*/ck/game.sh`], { encoding: 'utf8' }), 'no game process is left');
 	} finally { rmSync(root, { recursive: true, force: true }); }
 });

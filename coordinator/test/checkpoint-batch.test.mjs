@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { canStart, expandPlan, loseGame, nextGame, scoreGame, summarize } from '../../scripts/quality/lib/checkpoint-batch-core.mjs';
+import { canStart, expandPlan, loseGame, nextGame, scoreGame, summarize, summaryText } from '../../scripts/quality/lib/checkpoint-batch-core.mjs';
 
 const plan = () => ({
 	minutes: 90, deadline: '2026-11-22T01:00:00+08:00', codexHome: '/x',
@@ -55,7 +55,7 @@ test('checkpoint batch scores earned targets only, keeps inherited and missing o
 	assert.deepEqual(score.targets, { fortress: 30, blaze_rod: false, iron_pickaxe: null });
 	assert.deepEqual(score.inherited, ['iron_pickaxe']);
 	assert.equal(score.deaths, 2);
-	assert.deepEqual(scoreGame(null, ['fortress']), { known: false, targets: { fortress: null }, deaths: null });
+	assert.deepEqual(scoreGame(null, ['fortress']), { known: false, why: 'no report', targets: { fortress: null }, deaths: null, stopReason: null });
 	// A game that failed before any gameplay was observed: run-long's fallback timeline has every milestone unreached, no
 	// deaths and no start. It is unknown, not a played game with 0 targets and 0 deaths.
 	const fallback = { measurementStatus: 'UNAVAILABLE', timeline: { startedAt: null, milestones: [{ id: 'fortress', reached: false, elapsedMs: null }], deaths: [] } };
@@ -64,6 +64,21 @@ test('checkpoint batch scores earned targets only, keeps inherited and missing o
 	const games = [{ savepoint: 'nether', arm: 'main', state: 'done', score }, { savepoint: 'nether', arm: 'main', state: 'lost', score: scoreGame(null, ['fortress', 'blaze_rod']) }];
 	const row = summarize(games, plan()).find(r => r.savepoint === 'nether' && r.arm === 'main');
 	assert.deepEqual([row.games, row.known, row.lost, row.targets.fortress.reached, row.targets.fortress.of, row.deaths], [2, 1, 1, 1, 1, 2]);
+});
+
+test('checkpoint batch scores a game that ended early, or whose journals were damaged, as unknown and counts early ends apart', () => {
+	const played = (stopReason, extra = {}) => ({ measurementStatus: 'INCOMPLETE', ...extra, timeline: { startedAt: 1, playedMs: 240_000, stopReason, milestones: [{ id: 'fortress', reached: false, elapsedMs: null }], deaths: [] } });
+	// A crash or a kill 4 minutes in did not get its chance: not a miss with 0 deaths.
+	const crashed = scoreGame(played('ENDED_EARLY:INTERRUPTED_SIGTERM'), ['fortress']);
+	assert.deepEqual([crashed.known, crashed.endedEarly, crashed.targets.fortress, crashed.deaths], [false, true, null, null]);
+	// A stall or the spend cap is how the game really went, so it still scores.
+	for (const reason of ['ENDED_EARLY:STALL', 'ENDED_EARLY:SPEND_CAP']) assert.equal(scoreGame(played(reason), ['fortress']).known, true, reason);
+	// A damaged or missing protocol journal loses deaths and can make first-seen times late; ordinary connection noise does not.
+	for (const error of ['quality-protocol.jsonl: 3 malformed records', 'Live observer capture unavailable; using retained rotated protocol and provider input snapshots. First-seen milestone times may be late.', 'quality-samples.json: Unexpected end of JSON input'])
+		assert.equal(scoreGame(played('WALL_CLOCK_BUDGET', { observerErrors: ['connect ECONNREFUSED 127.0.0.1:1', error] }), ['fortress']).known, false, error);
+	assert.equal(scoreGame(played('WALL_CLOCK_BUDGET', { observerErrors: ['connect ECONNREFUSED 127.0.0.1:1', 'RCON client is closed'] }), ['fortress']).known, true);
+	const rows = summarize([{ savepoint: 'nether', arm: 'main', state: 'done', score: crashed }], plan());
+	assert.match(summaryText(rows.filter(r => r.savepoint === 'nether' && r.arm === 'main')), /0\/1 games scored, 1 ended early/);
 });
 
 test('checkpoint batch plays a save point only with the arms it lists', () => {

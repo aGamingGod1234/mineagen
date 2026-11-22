@@ -1,5 +1,6 @@
 // Pure parts of checkpoint-batch.mjs: plan checks, the game list, the start gate and scoring. No I/O here.
 import { randomInt } from 'node:crypto';
+import { stopKind } from '../../../coordinator/src/benchmark/long-run.mjs';
 
 const NAME = /^[a-z0-9][a-z0-9-]{0,40}$/;
 
@@ -79,16 +80,27 @@ export function loseGame(games, id, reason) {
 	return game;
 }
 
+// observerErrors that mean the game's journals were lost or damaged (long-run-artifacts.mjs): deaths come only from the
+// protocol journal, and first-seen times from a fallback can be late enough to pass an inherited item as earned.
+const LOST_EVIDENCE = /malformed records|Live observer capture unavailable|^[\w.-]+\.jsonl?: /;
+
 /**
  * Scores one game from its long-run.json. A target counts only when it was first seen more than `inheritedMs` after
  * the goal started: anything held at the first sample came with the save point. A missing report is unknown, never 0.
  */
 export function scoreGame(report, targets, { inheritedMs = 30_000 } = {}) {
 	const timeline = report?.timeline ?? report;
+	const unknown = why => ({ known: false, why, targets: Object.fromEntries(targets.map(t => [t, null])), deaths: null, stopReason: timeline?.stopReason ?? null });
 	// A game that failed before any gameplay was observed still writes a report, with a fallback timeline of unreached
 	// milestones and no deaths: it is unknown, never an unplayed 0.
 	const unplayed = report?.measurementStatus === 'UNAVAILABLE' || (timeline && !Number.isFinite(timeline.startedAt));
-	if (!timeline || !Array.isArray(timeline.milestones) || unplayed) return { known: false, targets: Object.fromEntries(targets.map(t => [t, null])), deaths: null };
+	if (!timeline || !Array.isArray(timeline.milestones) || unplayed) return unknown(timeline ? 'no gameplay observed' : 'no report');
+	// A game that ended before its window for a reason other than a stall, the spend cap or the goal (a crash, a kill)
+	// did not get its chance: its misses and its few deaths would read as a played game, so it is unknown, as in
+	// gate-report.mjs, and counted apart.
+	const reason = timeline.stopReason;
+	if (typeof reason === 'string' && reason.startsWith('ENDED_EARLY:') && [null, 'other'].includes(stopKind(reason))) return { ...unknown('ended early'), endedEarly: true };
+	if ((report?.observerErrors ?? []).some(e => LOST_EVIDENCE.test(String(e)))) return unknown('journals lost or damaged');
 	const byId = new Map(timeline.milestones.map(m => [m.id, m]));
 	const result = {};
 	const inherited = [];
@@ -110,7 +122,7 @@ export function summarize(games, plan) {
 		for (const arm of point.arms ?? Object.keys(plan.arms)) {
 			const mine = games.filter(g => g.savepoint === name && g.arm === arm);
 			const known = mine.filter(g => g.score?.known);
-			const row = { savepoint: name, arm, games: mine.length, known: known.length, lost: mine.filter(g => g.state === 'lost').length, targets: {} };
+			const row = { savepoint: name, arm, games: mine.length, known: known.length, lost: mine.filter(g => g.state === 'lost').length, endedEarly: mine.filter(g => g.score?.endedEarly).length, targets: {} };
 			for (const target of point.targets) {
 				const minutes = known.map(g => g.score.targets[target]).filter(v => typeof v === 'number').sort((a, b) => a - b);
 				row.targets[target] = { reached: minutes.length, of: known.filter(g => g.score.targets[target] !== null).length, minutes };
@@ -128,7 +140,7 @@ export function summaryText(rows) {
 	const lines = [];
 	for (const r of rows) {
 		const targets = Object.entries(r.targets).map(([t, v]) => `${t} ${v.reached}/${v.of}${v.minutes.length ? ` (min ${v.minutes.join(', ')})` : ''}`).join('; ');
-		lines.push(`${r.savepoint} / ${r.arm}: ${r.known}/${r.games} games scored${r.lost ? `, ${r.lost} lost` : ''}; ${targets}; deaths ${r.deaths ?? 'unknown'}${r.deathsPerGame === null ? '' : ` (${r.deathsPerGame} per game)`}`);
+		lines.push(`${r.savepoint} / ${r.arm}: ${r.known}/${r.games} games scored${r.lost ? `, ${r.lost} lost` : ''}${r.endedEarly ? `, ${r.endedEarly} ended early` : ''}; ${targets}; deaths ${r.deaths ?? 'unknown'}${r.deathsPerGame === null ? '' : ` (${r.deathsPerGame} per game)`}`);
 	}
 	return lines.join('\n');
 }
