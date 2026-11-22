@@ -1,4 +1,4 @@
-import { privateInputUrl } from '../scripts/private-inputs.mjs';
+import { privateInputUrl, privateModule } from '../scripts/private-inputs.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { observationSha256 } from '../src/decision-eval/capture.mjs';
 import { validateCaseFile } from '../src/decision-eval/schema.mjs';
 import { renderWake } from '../src/decision-eval/render.mjs';
+await privateModule(import.meta.url);
 
 const { cases } = JSON.parse(fs.readFileSync(privateInputUrl('coordinator/test/fixtures/decision-eval/extra/n18-ironpick2-liquid.json')));
 

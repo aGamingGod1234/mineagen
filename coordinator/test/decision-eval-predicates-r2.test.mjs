@@ -1,4 +1,4 @@
-import { privateInput } from '../scripts/private-inputs.mjs';
+import { privateInput, privateModule } from '../scripts/private-inputs.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -9,6 +9,7 @@ import { gradeSample } from '../src/decision-eval/grade.mjs';
 import { callMatches, buildContext } from '../src/decision-eval/match.mjs';
 import { blockDrop, canonicalCall, collectsWithoutRoom, inventoryHasRoom } from '../src/decision-eval/predicates.mjs';
 import { validatePredicate } from '../src/decision-eval/schema.mjs';
+await privateModule(import.meta.url);
 
 
 const trainDir = privateInput('coordinator/test/fixtures/decision-eval/train');

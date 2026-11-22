@@ -1,4 +1,4 @@
-import { privateInput } from '../scripts/private-inputs.mjs';
+import { privateInput, privateTest } from '../scripts/private-inputs.mjs';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -11,7 +11,7 @@ const coordinator = fileURLToPath(new URL('../', import.meta.url));
 const benchmark = 'src/benchmark/arena-script-facts-benchmark.mjs';
 const privateInputs = process.env.ARENA_PRIVATE_INPUTS;
 
-test('facts benchmark CLI resolves modules and fixtures in a checkout with URL-encoded characters', { skip: !privateInputs && 'Set ARENA_PRIVATE_INPUTS to run the recorded-observation benchmark' }, () => {
+privateTest('facts benchmark CLI resolves modules and fixtures in a checkout with URL-encoded characters', { skip: !privateInputs && 'Set ARENA_PRIVATE_INPUTS to run the recorded-observation benchmark' }, () => {
 	// Keep the real package's node_modules in the ancestor lookup path.
 	const directory = mkdtempSync(path.join(coordinator, '.arena facts % # '));
 	try {

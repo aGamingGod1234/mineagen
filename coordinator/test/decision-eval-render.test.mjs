@@ -1,4 +1,4 @@
-import { privateInputUrl } from '../scripts/private-inputs.mjs';
+import { privateInputUrl, privateModule } from '../scripts/private-inputs.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
@@ -8,6 +8,7 @@ import { MINECRAFT_DYNAMIC_TOOLS } from '../src/native-minecraft-tools.mjs';
 import { ModelObservationViews, encodeNativeEventInput } from '../src/model-fact-encoding.mjs';
 import { REPLAY_AGENT_ID, canonicalEncodedInput, renderPrefix, renderWake, replayAgentRecord } from '../src/decision-eval/render.mjs';
 import { FakeBridge, FakePlanner, eventually, start } from './fixtures/dynamic-main-fixture.mjs';
+await privateModule(import.meta.url);
 
 const replay = JSON.parse(await readFile(privateInputUrl('coordinator/test/fixtures/decision-eval/g1-replay-sample.json'), 'utf8'));
 const NATIVE_CONFIG = { bridge: { port: 25570, secret: 's'.repeat(32) }, codex: { controlProtocol: 'native_tools', launchProfile: { agentId: 'coordinator', model: 'gpt-6-luna', reasoningEffort: 'low', serviceTier: 'fast' } } };

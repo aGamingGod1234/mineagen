@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { privateTest } from '../scripts/private-inputs.mjs';
 import { stageBenchmarkTrial, SCENARIOS } from '../scripts/live-body-benchmark.mjs';
 
 function fixture(stagedHealth, { startHealth = 20, saturation = 0, food = 10 } = {}) {
@@ -62,7 +63,7 @@ test('valid starts pass once; dead non-zombie starts cannot enter results', asyn
 	assert.equal(await stageBenchmarkTrial({ ...dead.args, scenario: SCENARIOS.creeper }), null);
 });
 
-test('historical observations stay intact and zombie claims are explicitly invalidated', async () => {
+privateTest('historical observations stay intact and zombie claims are explicitly invalidated', async () => {
 	const report = JSON.parse(await readFile(new URL('../../reports/live-body-benchmark-26.3-2026-11-01.json', import.meta.url)));
 	const dead = report.results.find((r) => r.scenario === 'low_health_zombie' && r.arm === 'original4' && r.trial === 5);
 	assert.equal(dead.stagedHealth, 0);
