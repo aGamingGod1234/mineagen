@@ -149,6 +149,11 @@ public final class ServerSpawnerHoldController implements ServerController {
 	 */
 	private ServerController sealWork, reopenWork;
 	private boolean sealed, sealTried, reopening, skipLintel;
+	/**
+	 * Part of the doorway placed (the sill) but its window still open: the heal stays the shield heal and the wall-in is
+	 * retried, and whatever stands is mined open after the heal. Only both blocks placed make the unshielded sealed heal.
+	 */
+	private boolean partlySealed;
 	private long sealRetryTick;
 	private int seals, reopens, reopenFails;
 	private long reopenRetryTick;
@@ -345,9 +350,11 @@ public final class ServerSpawnerHoldController implements ServerController {
 			triedSites.add(cell);
 			blockItem = roofing.blockItem(player);
 			BlockPos doorway = cell.relative(opening);
-			if (!player.level().getBlockState(doorway).getCollisionShape(player.level(), doorway).isEmpty()
-					|| !player.level().getBlockState(doorway.above()).getCollisionShape(player.level(), doorway.above()).isEmpty()) {
-				sealed = true;
+			boolean sill = !player.level().getBlockState(doorway).getCollisionShape(player.level(), doorway).isEmpty();
+			boolean window = !player.level().getBlockState(doorway.above()).getCollisionShape(player.level(), doorway.above()).isEmpty();
+			if (sill || window) {
+				sealed = sill && window;
+				partlySealed = !sealed;
 				// Walled in and still hurt: heal on before opening (the last call ended mid-heal).
 				if (player.getHealth() < SpawnerHold.TURTLE_DONE) turtleSinceMs = Math.max(0L, lastElapsed);
 				else reopening = true;
@@ -557,11 +564,13 @@ public final class ServerSpawnerHoldController implements ServerController {
 				if (built.state() == State.RUNNING) return TickResult.running(progress(player));
 				sealWork.cancel(player);
 				sealWork = null;
-				// A wall-in that failed after placing part of the doorway (the sill) still counts: the doorway is mined open after.
+				// A wall-in that failed after placing part of the doorway (the sill) is mined open after the heal, but the
+				// heal stays the shield heal and the wall-in is retried while the window is open.
 				BlockPos doorway = cell.relative(opening);
 				boolean partly = !player.level().getBlockState(doorway).getCollisionShape(player.level(), doorway).isEmpty()
 						|| !player.level().getBlockState(doorway.above()).getCollisionShape(player.level(), doorway.above()).isEmpty();
-				sealed = built.state() == State.SUCCEEDED || partly;
+				sealed = built.state() == State.SUCCEEDED;
+				partlySealed = !sealed && partly;
 				note(built.state() == State.SUCCEEDED ? "walled the doorway up to heal" : "walling the doorway up failed: " + built.reasonCode() + (partly ? " (part placed)" : ""));
 				// A blaze in the doorway blocks the wall: try again in a second (the shield heal holds meanwhile).
 				if (!sealed) { sealTried = false; sealRetryTick = player.level().getGameTime() + 20L; }
@@ -591,8 +600,9 @@ public final class ServerSpawnerHoldController implements ServerController {
 			turtleSinceMs = -1L;
 			shieldInput.release();
 			// Healed while the wall-in was still being placed: stop it and open whatever of the doorway it already closed.
-			if (sealWork != null) { sealWork.cancel(player); sealWork = null; sealed = true; }
-			if (sealed) {
+			if (sealWork != null) { sealWork.cancel(player); sealWork = null; partlySealed = true; }
+			if (sealed || partlySealed) {
+				partlySealed = false;
 				reopening = true;
 				TickResult opening = reopen(player, now);
 				if (opening != null) return opening;
@@ -772,6 +782,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 				if (!player.level().getBlockState(at).getCollisionShape(player.level(), at).isEmpty()) { next = at; break; }
 			if (next == null) {
 				sealed = false;
+				partlySealed = false;
 				reopening = false;
 				reopens++;
 				note("doorway open again");
@@ -972,6 +983,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 		phase = Phase.SITE;
 		cell = null;
 		sealed = false;
+		partlySealed = false;
 		reopening = false;
 		sealTried = false;
 		return TickResult.running(progress(player));
