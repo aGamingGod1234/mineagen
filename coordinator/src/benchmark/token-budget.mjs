@@ -124,6 +124,85 @@ export function representativeProgramWake(sequence = 1) {
 	};
 }
 
+const TAGS = {
+	'minecraft:iron_pickaxe': ['#c:tools', '#c:tools/mining_tool', '#minecraft:pickaxes', '#minecraft:cluster_max_harvestables', '#minecraft:breaks_decorated_pots'],
+	'minecraft:stone_sword': ['#c:tools', '#c:tools/melee_weapon', '#minecraft:swords', '#minecraft:breaks_decorated_pots'],
+	'minecraft:stone_axe': ['#c:tools', '#minecraft:axes', '#minecraft:breaks_decorated_pots'],
+	'minecraft:shield': ['#c:tools', '#c:tools/shield', '#minecraft:durability_enchantable'],
+	'minecraft:iron_chestplate': ['#c:armors', '#c:armors/humanoid', '#minecraft:chest_armor', '#minecraft:trimmable_armor'],
+	'minecraft:iron_boots': ['#c:armors', '#c:armors/humanoid', '#minecraft:foot_armor', '#minecraft:trimmable_armor'],
+	'minecraft:cooked_beef': ['#c:foods', '#c:foods/cooked_meat', '#minecraft:meat'],
+	'minecraft:bread': ['#c:foods', '#c:foods/bread'],
+	'minecraft:oak_log': ['#minecraft:logs', '#minecraft:logs_that_burn', '#minecraft:oak_logs', '#c:stripped_logs'],
+	'minecraft:oak_planks': ['#minecraft:planks', '#c:wooden'],
+	'minecraft:cobblestone': ['#c:cobblestones', '#c:cobblestones/normal', '#minecraft:stone_tool_materials', '#minecraft:stone_crafting_materials'],
+	'minecraft:coal': ['#minecraft:coals', '#c:gems'],
+	'minecraft:raw_iron': ['#c:raw_materials', '#c:raw_materials/iron'],
+	'minecraft:torch': ['#c:torches'],
+	'minecraft:water_bucket': ['#c:buckets', '#c:buckets/water'],
+	'minecraft:flint': ['#c:gems', '#minecraft:decorated_pot_ingredients'],
+	'minecraft:gravel': ['#c:gravels', '#minecraft:mineable/shovel', '#minecraft:sand'],
+	'minecraft:iron_ingot': ['#c:ingots', '#c:ingots/iron', '#minecraft:beacon_payment_items', '#minecraft:trim_materials', '#minecraft:iron_tool_materials'],
+	'minecraft:furnace': ['#c:player_workstations/furnaces', '#minecraft:mineable/pickaxe'],
+};
+const BLOCK_TAGS = {
+	'minecraft:stone': ['#minecraft:mineable/pickaxe', '#minecraft:base_stone_overworld', '#minecraft:stone_ore_replaceables', '#minecraft:dripstone_replaceable_blocks', '#minecraft:azalea_root_replaceable'],
+	'minecraft:deepslate': ['#minecraft:mineable/pickaxe', '#minecraft:base_stone_overworld', '#minecraft:deepslate_ore_replaceables'],
+	'minecraft:iron_ore': ['#minecraft:mineable/pickaxe', '#minecraft:needs_stone_tool', '#c:ores', '#c:ores/iron', '#minecraft:iron_ores'],
+	'minecraft:coal_ore': ['#minecraft:mineable/pickaxe', '#c:ores', '#c:ores/coal', '#minecraft:coal_ores'],
+	'minecraft:gravel': ['#minecraft:mineable/shovel', '#c:gravels'],
+	'minecraft:dirt': ['#minecraft:mineable/shovel', '#minecraft:dirt', '#minecraft:substrate_overworld'],
+	'minecraft:water': ['#minecraft:replaceable'],
+	'minecraft:andesite': ['#minecraft:mineable/pickaxe', '#minecraft:base_stone_overworld', '#minecraft:stone_ore_replaceables', '#minecraft:azalea_root_replaceable', '#minecraft:sculk_replaceable'],
+	'minecraft:granite': ['#minecraft:mineable/pickaxe', '#minecraft:base_stone_overworld', '#minecraft:stone_ore_replaceables', '#minecraft:azalea_root_replaceable', '#minecraft:sculk_replaceable'],
+	'minecraft:diorite': ['#minecraft:mineable/pickaxe', '#minecraft:base_stone_overworld', '#minecraft:stone_ore_replaceables', '#minecraft:azalea_root_replaceable', '#minecraft:sculk_replaceable'],
+	'minecraft:tuff': ['#minecraft:mineable/pickaxe', '#minecraft:base_stone_overworld', '#minecraft:deepslate_ore_replaceables', '#minecraft:sculk_replaceable', '#minecraft:dripstone_replaceable_blocks'],
+	'minecraft:copper_ore': ['#minecraft:mineable/pickaxe', '#minecraft:needs_stone_tool', '#c:ores', '#c:ores/copper', '#minecraft:copper_ores', '#minecraft:snaps_goat_horn'],
+	'minecraft:grass_block': ['#minecraft:mineable/shovel', '#minecraft:dirt', '#minecraft:animals_spawnable_on', '#minecraft:valid_spawn', '#minecraft:substrate_overworld', '#minecraft:sniffer_diggable_block'],
+	'minecraft:oak_leaves': ['#minecraft:mineable/hoe', '#minecraft:leaves', '#minecraft:parrots_spawnable_on', '#minecraft:replaceable_by_trees', '#minecraft:sword_efficient'],
+};
+
+/**
+ * A wake with the section mix of recorded wakes (684 decision-test wakes replayed through the production builder: median
+ * 12.6 KB encoded, 5.4 KB with ARENA_LEAN_INPUT): a now header with plan, route and options, carried gear with its tag
+ * table, fewer and tagged blocks, rather than the many plain blocks of representativeProgramWake.
+ */
+export function representativeRecordedWake(sequence = 1) {
+	const wake = representativeProgramWake(sequence);
+	const observation = wake.observation;
+	const gear = [
+		['minecraft:iron_pickaxe', 1, 250], ['minecraft:stone_sword', 1, 131], ['minecraft:stone_axe', 1, 131], ['minecraft:shield', 1, 336],
+		['minecraft:iron_chestplate', 1, 240], ['minecraft:iron_boots', 1, 195], ['minecraft:cooked_beef', 7], ['minecraft:bread', 3],
+		['minecraft:oak_log', 9], ['minecraft:oak_planks', 14], ['minecraft:cobblestone', 52], ['minecraft:coal', 11], ['minecraft:raw_iron', 6],
+		['minecraft:torch', 18], ['minecraft:water_bucket', 1], ['minecraft:flint', 2], ['minecraft:gravel', 5], ['minecraft:iron_ingot', 3], ['minecraft:furnace', 1],
+	];
+	observation.inventory = {
+		items: gear.map(([itemId, count, maxDamage], slot) => ({ slot, itemId, count, tags: TAGS[itemId], ...(maxDamage ? { maxDamage, usesLeft: maxDamage - 17 * (slot + 1), maxStackSize: 1 } : { maxStackSize: itemId === 'minecraft:water_bucket' ? 1 : 64 }) })),
+		selectedItem: { slot: 0, itemId: 'minecraft:iron_pickaxe', count: 1 },
+		armor: { chest: 'minecraft:iron_chestplate', feet: 'minecraft:iron_boots' },
+		tagCounts: { 'minecraft:logs': 9, 'minecraft:planks': 14, 'minecraft:coals': 11 },
+	};
+	const ids = Object.keys(BLOCK_TAGS);
+	observation.entities = observation.entities.slice(0, 2);
+	observation.player = { ...observation.player, maxHealth: 20, absorption: 0, experienceProgress: 0.42, fallDistance: 0, inWall: false, onFire: false, freezing: false,
+		effects: [], hunger: { food: 15, saturation: 2.4, exhaustion: 1.7, canSprint: true, regenFoodReady: true },
+		exits: { up1: ['north', 'east'], flat: ['north', 'east', 'south'], down1: ['west'] }, light: { block: 0, sky: 11 }, standingOn: 'minecraft:stone', headIn: 'minecraft:air' };
+	observation.blocks = Array.from({ length: 14 }, (_, index) => ({ ...observation.blocks[index], blockId: ids[index % ids.length], tags: BLOCK_TAGS[ids[index % ids.length]] }));
+	observation.blockTags = BLOCK_TAGS;
+	return {
+		...wake,
+		doing: 'Getting iron for a bucket and armour: mine the iron ore seen 6 blocks north-east, then smelt at the furnace.',
+		continuity: {
+			guard: 'none installed',
+			failure: 'move_to NO_STANDABLE_PATH: Destination has no supported arrival region that can be approached within the requested tolerance',
+			plan: 'open iron_kit[unmet:iron_ingot 3/11, bucket 0/1]; open portal[unmet:obsidian 0/10 or flint_and_steel 0/1]; strategy:overworld; later:6',
+			route: 'usual next step: smelt the raw iron, make a bucket and a shield, then iron armour; one trip down for diamonds is optional (iron 3/11, bucket 0, shield 1)',
+			options: '(step iron_kit) iron_ingot: seen iron_ore 6 blocks NE and 2 more remembered within 40 blocks | raw_iron 6 carried (smelt: furnace 12 blocks S, coal 11) | ways (typical): iron ore at y 0-64 in caves and exposed walls; villages: a blacksmith chest',
+			results: [{ tool: 'mine_vein', state: 'SUCCEEDED', reasonCode: 'VEIN_MINED', summary: 'mined 4 iron_ore, picked up 4 raw_iron' }, { tool: 'travel_to', state: 'SUCCEEDED', reasonCode: 'ARRIVED', summary: 'reached the cave mouth at -452,80,131' }],
+		},
+	};
+}
+
 const bytes = (text) => Buffer.byteLength(typeof text === 'string' ? text : JSON.stringify(text), 'utf8');
 
 /** Measures the fixed per-call prefix and per-event input with the production builders and encoders. */

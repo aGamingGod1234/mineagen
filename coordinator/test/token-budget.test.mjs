@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { MEASURED_SESSION, estimateHourlyTokens, measureTokenBudget, representativeProgramWake, representativeRecord } from '../src/benchmark/token-budget.mjs';
+import { MEASURED_SESSION, estimateHourlyTokens, measureTokenBudget, representativeProgramWake, representativeRecord, representativeRecordedWake } from '../src/benchmark/token-budget.mjs';
 import { EVENT_BLOCK_DEFAULTS, buildNativeEventInput } from '../src/dynamic-main.mjs';
 import { ModelObservationViews, decodeModelFacts, encodeNativeEventInput } from '../src/model-fact-encoding.mjs';
 
@@ -29,6 +29,29 @@ test('a representative program wake stays inside its byte budget for every provi
 	assert.ok(sizes.eventEncodedRepeatBytes < sizes.eventEncodedFirstBytes / 2,
 		`repeated wake event delta ${sizes.eventEncodedRepeatBytes} bytes vs full ${sizes.eventEncodedFirstBytes} bytes`);
 	assert.ok(sizes.toolSchemaBytes <= 38_900, `tool schemas ${sizes.toolSchemaBytes} bytes`);
+});
+
+test('a wake with the recorded section mix stays inside its byte budget, full and lean', () => {
+	// Recorded decision-test wakes (684, replayed offline through the production builder): median 12.6 KB encoded, p25
+	// 11.2 KB; with ARENA_LEAN_INPUT on, median 5.4 KB, p75 6.7 KB. This wake carries their mix: a now header, tagged
+	// gear and tagged blocks. Measured at the pin: 11,535 / 1,757 bytes full and 6,391 / 1,036 lean (first / repeat).
+	const sizes = {};
+	const previous = process.env.ARENA_LEAN_INPUT;
+	try {
+		for (const lean of ['0', '1']) {
+			process.env.ARENA_LEAN_INPUT = lean;
+			const views = new ModelObservationViews(), record = representativeRecord();
+			const first = encodeNativeEventInput(buildNativeEventInput(record, representativeRecordedWake(1)), views);
+			const repeat = encodeNativeEventInput(buildNativeEventInput(record, representativeRecordedWake(2)), views);
+			sizes[lean] = { first: Buffer.byteLength(first), repeat: Buffer.byteLength(repeat), now: Object.keys(payload(first).now ?? {}).length };
+		}
+	} finally { if (previous === undefined) delete process.env.ARENA_LEAN_INPUT; else process.env.ARENA_LEAN_INPUT = previous; }
+	assert.ok(sizes[0].now >= 5 && sizes[1].now >= 5, `the now header is part of the mix: ${JSON.stringify(sizes)}`);
+	assert.ok(sizes[0].first <= 12_300, `full first wake ${sizes[0].first} bytes`);
+	assert.ok(sizes[0].repeat <= 2_200, `full repeat wake ${sizes[0].repeat} bytes`);
+	assert.ok(sizes[1].first <= 6_900, `lean first wake ${sizes[1].first} bytes`);
+	assert.ok(sizes[1].repeat <= 1_300, `lean repeat wake ${sizes[1].repeat} bytes`);
+	assert.ok(sizes[1].first <= sizes[0].first * 0.6, `lean saves at least 40%: ${sizes[1].first} vs ${sizes[0].first}`);
 });
 
 test('unchanged goal, goalSpec and taskMemory are named instead of repeated within one provider context', () => {
