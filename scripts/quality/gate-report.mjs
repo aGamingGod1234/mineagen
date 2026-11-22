@@ -310,27 +310,35 @@ export function mergeDamage(breakdowns) {
 
 /**
  * The game's damage rows from its Watcher danger files, inside [start, end] and for its agent: { damage }; with no
- * danger file (watch off, older run), nothing, so the key reads as not measured. A file that cannot be read, or a line
- * that does not parse, makes the game's hits unknown evidence: { damageUnmeasured: reason }, never 0 hits. The same file
- * can be kept both under raw/arena-watch and still under raw/server/arena-watch: only the first copy of each is read.
+ * danger file (watch off, older run), nothing, so the key reads as not measured. The same file can be kept both under
+ * raw/arena-watch (a snapshot) and still under raw/server/arena-watch (the live file, newer while a run plays): each
+ * distinct row counts as many times as the copy holding it most often, so neither copy's rows are lost or doubled. The
+ * Watcher writes whole lines, so a last fragment with no newline is a copy taken mid-write and is dropped. A file that
+ * cannot be read, or a complete line that does not parse, makes the game's hits unknown: { damageUnmeasured: reason }.
  */
 function damageOf(raw, agentId, start, end) {
-	const byName = new Map();
-	for (const file of dangerFiles(raw, agentId)) if (!byName.has(path.basename(file))) byName.set(path.basename(file), file);
-	if (!byName.size) return {};
-	const rows = [];
+	const files = dangerFiles(raw, agentId);
+	if (!files.length) return {};
+	const most = new Map();
 	let malformed = 0;
-	for (const file of byName.values()) {
+	for (const file of files) {
 		let text; try { text = readFileSync(file, 'utf8'); } catch (error) { return { damageUnmeasured: `${path.basename(file)} unreadable: ${error.code ?? error.message}` }; }
-		for (const line of text.split('\n')) {
-			if (!line.trim()) continue;
-			let row; try { row = JSON.parse(line); } catch { malformed++; continue; }
-			if (row?.type !== 'damage' || agentId && row.agentId && row.agentId !== agentId) continue;
-			if (!Number.isFinite(row.atMs) || row.atMs < start || row.atMs > end) continue;
-			rows.push(row);
-		}
+		const lines = text.split('\n');
+		lines.pop();
+		const counts = new Map();
+		for (const line of lines) if (line.trim()) counts.set(line, (counts.get(line) ?? 0) + 1);
+		const key = path.basename(file);
+		for (const [line, n] of counts) most.set(`${key}\u0000${line}`, Math.max(most.get(`${key}\u0000${line}`) ?? 0, n));
 	}
-	if (malformed) return { damageUnmeasured: `${malformed} danger row(s) do not parse` };
+	const rows = [];
+	for (const [keyed, n] of most) {
+		const line = keyed.slice(keyed.indexOf('\u0000') + 1);
+		let row; try { row = JSON.parse(line); } catch { malformed++; continue; }
+		if (row?.type !== 'damage' || agentId && row.agentId && row.agentId !== agentId) continue;
+		if (!Number.isFinite(row.atMs) || row.atMs < start || row.atMs > end) continue;
+		for (let i = 0; i < n; i++) rows.push(row);
+	}
+	if (malformed) return { damageUnmeasured: `${malformed} complete danger row(s) do not parse` };
 	return { damage: damageBreakdown(rows) };
 }
 

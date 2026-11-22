@@ -519,12 +519,19 @@ test('hits split by shield state and running action; schema 1 rows are unknown, 
 		assert.ok('deaths' in cohort && 'deathCauses' in cohort && 'nether' in cohort, 'existing cohort keys stay');
 		// A danger file with a row that does not parse is unknown evidence: no breakdown, kept out of the cohort's sums.
 		await mkdir(path.join(dir, 'game-2', 'raw', 'arena-watch'), { recursive: true });
+		// A last fragment with no newline is a copy taken mid-write: dropped, the game still measured.
 		await writeFile(path.join(dir, 'game-2', 'raw', 'arena-watch', 'x-danger.jsonl'), JSON.stringify(hit(5, { taken: 1 })) + '\n{"type":"damage","atMs":');
+		assert.equal(readRun(dir)[1].damage.hits, 1);
+		// A complete line that does not parse is corruption: unknown evidence, not counted.
+		await writeFile(path.join(dir, 'game-2', 'raw', 'arena-watch', 'x-danger.jsonl'), JSON.stringify(hit(5, { taken: 1 })) + '\n{"type":"damage","atMs":\n');
 		const [, corrupt] = readRun(dir);
 		assert.equal('damage' in corrupt, false);
-		assert.match(corrupt.damageUnmeasured, /1 danger row\(s\) do not parse/);
+		assert.match(corrupt.damageUnmeasured, /1 complete danger row\(s\) do not parse/);
 		const [again] = buildGate({ gate: 'r9', title: 'round 9', cohorts: [{ name: 'r9', label: 'round 9', dirs: [dir] }] }).cohorts;
 		assert.deepEqual([again.damage.games, again.damage.hits, again.damageUnmeasuredGames], [1, 7, 1]);
+		// The live server copy is newer than the snapshot: its extra hit counts, the rows both hold count once.
+		await writeFile(path.join(dir, 'game-1', 'raw', 'server', 'arena-watch', 'agent-a-danger.jsonl'), text + JSON.stringify(hit(12, { taken: 1, shieldHand: null, blocking: false, action: null })) + '\n');
+		assert.equal(readRun(dir)[0].damage.hits, 8);
 	} finally { await rm(root, { recursive: true, force: true }); }
 });
 
