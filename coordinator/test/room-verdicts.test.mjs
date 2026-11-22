@@ -306,6 +306,8 @@ test('a spot can require the body to end out of a pocket (minEndY)', () => {
 	const row = (y) => ({ calls: [{ reasonCode: 'OBTAINED', state: 'SUCCEEDED' }], deaths: 0, end: [298.5, y, -260.5] });
 	assert.equal(findSpotVerdict(spot, row(15)).pass, true);
 	assert.match(findSpotVerdict(spot, row(13)).failReason, /ended at y13.0, below y14.9/);
+});
+
 test('a spot can require a receipt and a time limit', () => {
 	const spot = { expectCode: 'OBTAINED', expectAction: [{ type: 'travel_to', reasonCode: 'TARGET_SEEN' }], maxSeconds: 120 };
 	const row = { calls: [{ reasonCode: 'OBTAINED', state: 'SUCCEEDED', seconds: 45 }], deaths: 0, actions: [{ type: 'travel_to', reasonCode: 'TARGET_SEEN' }] };
