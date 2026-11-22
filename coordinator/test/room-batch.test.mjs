@@ -128,7 +128,8 @@ test('the merge keeps room folders, counts a lost room as notStarted and calls t
 		assert.equal(merged.new.summary.notStarted, 1);
 		assert.equal(merged.new.summary.status, 'INVALID');
 		const written = JSON.parse(await readFile(path.join(out, 'new', 'result.json'), 'utf8'));
-		assert.deepEqual(written.map(item => [item.room, item.host, item.attempts]), [['a', 'vm1', 1], ['b', 'vm2', 2]]);
+		assert.deepEqual(written.map(item => [item.room, item.host, item.attempts]), [['a', 'vm1', 1], ['b', 'vm2', 2], ['c', null, 2]], 'the lost room is one INVALID row of its own');
+		assert.equal(written[2].error, 'room lost: machine gone');
 		assert.equal(JSON.parse(await readFile(path.join(out, 'old', 'result-summary.json'), 'utf8')).failed, 1);
 		const newTotals = armTotals(merged.new), oldTotals = armTotals(merged.old);
 		assert.equal(newTotals.damage, null, 'a row without a damage number makes the total unknown');
@@ -517,7 +518,7 @@ test('the merge ignores rows a lost room left behind, calls a killed arm invalid
 		assert.equal(merged.old.summary.planned, 4, 'arm old selects two rows in room b');
 		assert.equal(merged.old.summary.notStarted, 2, 'the rows a lost room left on disk are not counted');
 		assert.equal(merged.old.summary.status, 'INVALID');
-		assert.equal(merged.new.summary.invalid, 1, 'rows of an arm the room timeout killed are invalid');
+		assert.equal(merged.new.summary.invalid, 2, 'the row of an arm the room timeout killed, and the lost room\'s own row, are invalid');
 		assert.match(merged.new.rows.find(item => item.room === 'c').integrity.join(), /arm killed \(room timeout\)/);
 		assert.equal(merged.new.summary.status, 'INVALID');
 	} finally { await rm(out, { recursive: true, force: true }); }

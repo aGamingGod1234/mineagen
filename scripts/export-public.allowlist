@@ -880,6 +880,7 @@ coordinator/test/tool-response-summary.test.mjs
 coordinator/test/trace-latency.test.mjs
 coordinator/test/trace-writer.test.mjs
 coordinator/test/travel-pair-summary.test.mjs
+coordinator/test/travel-rows.test.mjs
 coordinator/test/tts-cache-identity.test.mjs
 coordinator/test/two-call-llm-wrap.test.mjs
 coordinator/test/unicode-text-contracts.test.mjs
@@ -1005,6 +1006,7 @@ scripts/quality/lib/reflex-failspot-pass.mjs
 scripts/quality/lib/room-evidence.mjs
 scripts/quality/lib/scripted-planner.mjs
 scripts/quality/lib/stake-comparison.mjs
+scripts/quality/lib/travel-rows.mjs
 scripts/quality/make-checkpoint.mjs
 scripts/quality/measure-tick-rate.mjs
 scripts/quality/mod-jar.mjs

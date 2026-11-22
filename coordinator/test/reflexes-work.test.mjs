@@ -130,3 +130,34 @@ test('hot-floor contact can arm an exit without pretending the body is on fire',
   assert.equal(rule.when[0].type, 'on_hot_floor');
   assert.equal(rule.do.type, 'leave_fire');
 });
+
+// CRIT-LEASE-1: reflex holds and urgent waits move the program's work lease from one account, so together they never
+// move it past the executor's own 2 x timeout bound.
+test('reflex holds and an urgent wait share one lease account: the lease moves out by at most the program timeout', async () => {
+	const extensions = [];
+	const sent = [];
+	let sequence = 1, runtime;
+	runtime = new NativeToolRuntime({
+		bridge: { send: async (type, agentId, payload) => {
+			sent.push({ type, payload });
+			if (type === 'action_cancel') queueMicrotask(() => runtime.onActionResult(record(), { actionId: payload.actionId, state: 'CANCELLED', reasonCode: 'CANCELLED', executionStarted: true }));
+		} },
+		requestObservation: async () => ({ observation: adaptObservation(wire()), eventSequence: ++sequence }),
+		onProgramEvent: () => {},
+		onWorkStarted: (_record, kind) => { const release = () => {}; release.extend = (ms) => { if (kind === 'program') extensions.push(ms); return true; }; return release; },
+	});
+	const observe = (observation, options = {}) => runtime.updateObservation(record(), adaptObservation(observation), { eventSequence: ++sequence, ...options });
+	observe(wire());
+	await runtime.execute(call(normalizeMinecraftToolCall('runProgram', { background: true, timeoutMs: 10_000,
+		reflexes: [{ id: 'snack', when: { type: 'health_below', value: 10 }, do: { type: 'eat' } }],
+		source: 'program.onUnhandledAttention("continue_and_notify", { survival: "continue_and_notify" }); await player.wait(60000);' })), record());
+	await until(() => sent.some(({ type }) => type === 'action_command'), 'the program action');
+	observe(wire({}, { reflexes: status(['snack'], undefined, [{ seq: 1, id: 'snack', outcome: 'done', ms: 1_600, detail: 'ate minecraft:cooked_beef' }]) }));
+	assert.deepEqual(extensions, [1_600], 'a reflex hold moves the lease by the time it held the body');
+	observe(wire({ health: 9 }), { attention: true, priority: 'urgent', trigger: 'health_changed', changedFacts: ['player.health'] });
+	await until(() => extensions.length === 2, 'the urgent hold');
+	assert.deepEqual(extensions, [1_600, 8_400], 'an urgent wait pays the rest of the program timeout at once');
+	observe(wire({ health: 9 }, { reflexes: status(['snack'], undefined, [{ seq: 2, id: 'snack', outcome: 'done', ms: 500, detail: 'ate minecraft:cooked_beef' }]) }));
+	assert.deepEqual(extensions, [1_600, 8_400], 'a later reflex hold is already covered: the lease is never paid past the timeout');
+	await runtime.dispose('agent-a', 'test_complete');
+});

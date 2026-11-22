@@ -190,7 +190,8 @@ export async function armRows(dir) {
 
 /**
  * Per arm, the rows of every room folder (OUT/rooms/ROOM/ARM/result.json) go through finishRun into OUT/ARM/result.json.
- * planned counts every room's rows, so a lost or crashed room shows as notStarted and the arm reads INVALID, not short.
+ * planned counts every room's rows, and each row a lost or crashed room did not bring back is an INVALID row of that
+ * room that never started (so it shows in invalid and in notStarted): the arm reads INVALID, never short.
  */
 export async function mergeArms({ out, rooms, arms, outcomes }) {
 	const byRoom = new Map(outcomes.map(outcome => [outcome.room, outcome]));
@@ -206,10 +207,13 @@ export async function mergeArms({ out, rooms, arms, outcomes }) {
 			const found = outcome.lost ? { rows: [], summary: null, problem: null } : await armRows(dir);
 			const own = found.summary;
 			const ownValid = Boolean(own && typeof own === 'object' && Number.isInteger(own.planned));
+			// A room whose summary is INVALID but that wrote rows needs no room-wide verdict: its invalid rows read INVALID
+			// themselves and its missing ones count as notStarted, so one errored course never voids the courses beside it
+			// (as collectRuns in benchmark-score.mjs reads it). With no rows at all the summary's INVALID is the only evidence.
 			const roomInvalid = outcome.lost ? null
 				: found.problem ? found.problem
 				: !ownValid ? 'missing or corrupt room summary'
-				: own.status === 'INVALID' ? 'room summary INVALID'
+				: own.status === 'INVALID' && !found.rows.length ? 'room summary INVALID'
 				: own.planned <= 0 ? 'room planned 0 rows'
 				: null;
 			const basePlanned = ownValid ? own.planned : (room.plannedByArm?.[arm] ?? room.planned);
@@ -223,9 +227,14 @@ export async function mergeArms({ out, rooms, arms, outcomes }) {
 			const roomFlags = [...(killed ? [`arm killed (${killed})`] : []), ...(roomInvalid ? [roomInvalid] : [])];
 			for (const row of roomRows) rows.push({ ...row, ...(roomFlags.length ? { integrity: [...(Array.isArray(row.integrity) ? row.integrity : []), ...roomFlags] } : {}),
 				room: room.room, host: outcome.worker ?? null, attempts: outcome.attempts ?? 0, cantKeepUp: run.cantKeepUp ?? null });
-			if (roomInvalid && !roomRows.length) {
-				rows.push({ name: room.room, room: room.room, host: outcome.worker ?? null, attempts: outcome.attempts ?? 0, cantKeepUp: run.cantKeepUp ?? null,
-					pass: false, error: roomInvalid, integrity: roomFlags, startedAt: null, finishedAt: null, deaths: null, damageTaken: null });
+			// Every row a room planned but did not bring back is an INVALID row of that room (a lost room's rows too), so no
+			// other room's extra rows can make up for them in the arm's count. Such a row never started, so it counts in
+			// notStarted as well as invalid: notStarted is the part of invalid that never ran. (collectRuns, which scores
+			// benchmarks, counts a lost room as one LOST run per arm instead.)
+			for (let i = roomRows.length; i < roomPlanned; i++) {
+				const why = outcome.lost ? `room lost: ${outcome.reason ?? 'unknown'}` : roomInvalid && !roomRows.length ? roomInvalid : `planned row ${i + 1} of ${roomPlanned} never written`;
+				rows.push({ name: roomPlanned > 1 ? `${room.room} row ${i + 1}` : room.room, room: room.room, host: outcome.worker ?? null, attempts: outcome.attempts ?? 0, cantKeepUp: run.cantKeepUp ?? null,
+					pass: false, error: why, integrity: roomFlags, startedAt: null, finishedAt: null, deaths: null, damageTaken: null, ...(outcome.lost ? { lost: true } : {}) });
 			}
 			perRoom.push({ room: room.room, lost: !!outcome.lost, reason: outcome.reason ?? null, rows: roomRows.length, planned: roomPlanned, exit: run.exit ?? null, seconds: run.seconds ?? null, timedOut: !!run.timedOut, cantKeepUp: run.cantKeepUp ?? null });
 		}
