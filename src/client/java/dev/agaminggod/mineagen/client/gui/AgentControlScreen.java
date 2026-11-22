@@ -798,9 +798,10 @@ public final class AgentControlScreen extends Screen {
 		AgentControlLayout layout = layout();
 		int x = layout.contentLeft();
 		int width = layout.contentWidth();
-		int promptY = bodyTop();
-		int promptHeight = Math.max(40, layout.contentBottom() - promptY - ROW_HEIGHT - 7);
-		promptInput = multiLineInput(x, promptY, width, promptHeight, "Agent task",
+		// The editor sits 6 px inside its drawn surface (renderInputSurfaces), so inset it by that much.
+		int promptY = bodyTop() + 6;
+		int promptHeight = Math.max(40, layout.contentBottom() - promptY - ROW_HEIGHT - 6 - FORM_GAP);
+		promptInput = multiLineInput(x + 6, promptY, width - 12, promptHeight, "Agent task",
 				"Describe a clear outcome, for example: Build a safe shelter before night");
 		addRenderableWidget(promptInput);
 		int buttonWidth = (width - GAP * 2) / 3;
@@ -851,6 +852,14 @@ public final class AgentControlScreen extends Screen {
 		int width = layout.contentWidth();
 		int top = bodyTop();
 		int buttonWidth = (width - GAP * 2) / 3;
+		int half = (width - GAP) / 2;
+		// Grouped rows read as sections; the one destructive action sits apart in the footer.
+		addFormLabel("Work", x, top);
+		int windowsTop = top + LABEL_HEIGHT + ROW_HEIGHT + FORM_GAP;
+		addFormLabel("Live windows", x, windowsTop);
+		int behaviourTop = windowsTop + LABEL_HEIGHT + ROW_HEIGHT + FORM_GAP;
+		addFormLabel("Between tasks", x, behaviourTop);
+		top += LABEL_HEIGHT;
 		for (int index = 0; index < 3; index++) {
 			String operation = List.of("stop", "resume", "respawn").get(index);
 			String label = List.of("Pause work", "Resume work", "Respawn").get(index);
@@ -865,16 +874,17 @@ public final class AgentControlScreen extends Screen {
 		}
 		ConsoleButton automatic = consoleButton(
 				agent.automaticProgress() ? "Automatic progress: On" : "Automatic progress: Off",
-				x, top + 32, (width - GAP) / 2, ROW_HEIGHT, agent.automaticProgress(),
+				x, behaviourTop + LABEL_HEIGHT, half, ROW_HEIGHT, agent.automaticProgress(),
 				() -> submitAgentOperation("auto"));
 		automatic.active = canControl();
 		addRenderableWidget(automatic);
-		ConsoleButton remove = dangerButton("Remove agent...", x + (width - GAP) / 2 + GAP, top + 32,
-				(width - GAP) / 2, ROW_HEIGHT, this::confirmRemove).withIcon(ConsoleDraw.Icon.TRASH);
+		int removeWidth = ConsoleButton.fittedWidth(font, "Remove agent...", true, false) + 8;
+		ConsoleButton remove = dangerButton("Remove agent...", layout.contentRight() - removeWidth, layout.footerY(),
+				removeWidth, ROW_HEIGHT, this::confirmRemove).withIcon(ConsoleDraw.Icon.TRASH);
 		remove.active = canControl();
 		addRenderableWidget(remove);
 		ConsoleButton planWindow = consoleButton("Plan window: " + (dev.agaminggod.mineagen.client.control.LiveAgentWindows.planEnabled() ? "On" : "Off"),
-				x, top + 64, (width - GAP) / 2, ROW_HEIGHT,
+				x, windowsTop + LABEL_HEIGHT, half, ROW_HEIGHT,
 				dev.agaminggod.mineagen.client.control.LiveAgentWindows.planEnabled(), () -> {
 					if (!dev.agaminggod.mineagen.client.control.LiveAgentWindows.togglePlan(agent)) setFeedback("Desktop windows are unavailable in a headless client", true);
 					rebuildWidgets();
@@ -884,7 +894,7 @@ public final class AgentControlScreen extends Screen {
 		planWindow.setTooltip(net.minecraft.client.gui.components.Tooltip.create(Component.literal("Open the selected agent's live dependency map in a separate window. Closing it leaves the task running.")));
 		addRenderableWidget(planWindow);
 		ConsoleButton terminalWindow = consoleButton("Model terminal: " + (dev.agaminggod.mineagen.client.control.LiveAgentWindows.terminalEnabled() ? "On" : "Off"),
-				x + (width - GAP) / 2 + GAP, top + 64, (width - GAP) / 2, ROW_HEIGHT,
+				x + half + GAP, windowsTop + LABEL_HEIGHT, half, ROW_HEIGHT,
 				dev.agaminggod.mineagen.client.control.LiveAgentWindows.terminalEnabled(), () -> {
 					if (!dev.agaminggod.mineagen.client.control.LiveAgentWindows.toggleTerminal(agent)) setFeedback("Desktop windows are unavailable in a headless client", true);
 					rebuildWidgets();
@@ -1015,7 +1025,7 @@ public final class AgentControlScreen extends Screen {
 			int x = layout.contextLeft();
 			int width = layout.contextWidth();
 			int detailTop = top + 96;
-			int detailBottom = layout.contentBottom();
+			int detailBottom = Math.min(layout.contentBottom(), detailTop + (selected.lastError().isBlank() ? 120 : 150));
 			ConsoleDraw.surface(graphics, x, detailTop, width, detailBottom - detailTop, ConsoleDraw.RADIUS_CARD, ConsoleTheme.SURFACE);
 			int inner = x + 12;
 			ConsoleDraw.label(graphics, font, "Selected", inner, detailTop + 10, ConsoleTheme.SUBTLE);
@@ -1074,10 +1084,7 @@ public final class AgentControlScreen extends Screen {
 		AgentControlAgent agent = selectedAgent();
 		if (agent == null) return;
 		AgentControlLayout layout = layout();
-		if (!layout.roomy()) {
-			graphics.text(font, ConsoleText.component(fit(agent.displayName() + "  ·  " + AgentControlPresentation.stateLabel(agent.state()),
-					layout.contentWidth())), contentLeft(), layout.contentTop() + 2, MUTED, false);
-		}
+		// Short panels show no title; the breadcrumb already names the agent.
 	}
 
 	private void renderRemoveConfirm(GuiGraphicsExtractor graphics) {

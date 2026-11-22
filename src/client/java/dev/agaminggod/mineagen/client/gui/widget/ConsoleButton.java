@@ -82,7 +82,7 @@ public final class ConsoleButton extends AbstractWidget implements ConsoleFocusT
 	/** Width that fits the label and icon with even padding, so text-only actions line up with content edges. */
 	public static int fittedWidth(Font font, String label, boolean icon, boolean small) {
 		int text = small ? ConsoleDraw.labelWidth(font, label) : ConsoleText.strongWidth(font, label);
-		return text + (icon ? (small ? 14 : 16) : 0) + 16;
+		return text + (icon ? (small ? 14 : 16) : 0) + 18;
 	}
 
 	@Override
@@ -145,12 +145,13 @@ public final class ConsoleButton extends AbstractWidget implements ConsoleFocusT
 
 	private Component fittedMessage() {
 		String value = getMessage().getString();
-		int available = Math.max(8, getWidth() - 12 - (icon == null ? 0 : 16));
-		if (ConsoleText.strongWidth(font, value) <= available) return getMessage();
+		java.util.function.ToIntFunction<String> measure = text -> small ? ConsoleDraw.labelWidth(font, text) : ConsoleText.strongWidth(font, text);
+		int available = Math.max(8, getWidth() - 12 - (icon == null ? 0 : small ? 14 : 16));
+		if (measure.applyAsInt(value) <= available) return getMessage();
 		String suffix = "...";
 		int end = value.length();
-		int target = Math.max(1, available - ConsoleText.strongWidth(font, suffix));
-		while (end > 0 && ConsoleText.strongWidth(font, value.substring(0, end)) > target) end--;
+		int target = Math.max(1, available - measure.applyAsInt(suffix));
+		while (end > 0 && measure.applyAsInt(value.substring(0, end)) > target) end--;
 		return Component.literal(value.substring(0, end) + suffix);
 	}
 

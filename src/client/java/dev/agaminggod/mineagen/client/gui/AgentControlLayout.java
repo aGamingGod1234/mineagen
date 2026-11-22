@@ -33,6 +33,7 @@ public record AgentControlLayout(
 	private static final int MINIMUM_HEIGHT = 240;
 	private static final int OUTER_MARGIN = 8;
 	private static final int MAXIMUM_PANEL_WIDTH = 760;
+	private static final int MAXIMUM_PANEL_HEIGHT = 440;
 	private static final int CONTEXT_RAIL_BREAKPOINT = 700;
 	private static final int CONTEXT_RAIL_WIDTH = 208;
 	private static final int REGION_GAP = 16;
@@ -48,9 +49,11 @@ public record AgentControlLayout(
 		int panelWidth = Math.min(MAXIMUM_PANEL_WIDTH, screenWidth - OUTER_MARGIN * 2);
 		int panelLeft = (screenWidth - panelWidth) / 2;
 		int verticalMargin = screenHeight <= 280 ? 4 : OUTER_MARGIN;
-		int panelTop = verticalMargin;
+		// On tall GUIs the panel stops growing and centers, so a short form doesn't float above a tall empty sheet.
+		int panelHeight = Math.min(MAXIMUM_PANEL_HEIGHT, screenHeight - verticalMargin * 2);
+		int panelTop = (screenHeight - panelHeight) / 2;
 		int panelRight = panelLeft + panelWidth;
-		int panelBottom = screenHeight - verticalMargin;
+		int panelBottom = panelTop + panelHeight;
 		int gutter = panelWidth < 400 ? 10 : GUTTER;
 		int headerBottom = panelTop + HEADER_HEIGHT;
 		int contentLeft = panelLeft + gutter;
