@@ -852,7 +852,7 @@ public final class SightedFeaturesVerification {
 	private static Gathered gather(ScanLevel level, FarSight.LevelIndex index, Vec3 eye) {
 		level.tick++;
 		List<FarSight.Found> built = new ArrayList<>(), lava = new ArrayList<>(), notable = new ArrayList<>(), ore = new ArrayList<>(), poi = new ArrayList<>();
-		boolean complete = FarSight.scanAround(level, index, eye, new ArrayList<>(level.chunks.loaded.values()), 0, built, lava, notable, ore, poi, Map.of());
+		boolean complete = FarSight.scanAround(level, index, eye, new ArrayList<>(level.chunks.loaded.values()), 0, built, lava, notable, ore, poi, new ArrayList<>(), Map.of());
 		return new Gathered(complete, built, notable, ore);
 	}
 
