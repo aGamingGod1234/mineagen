@@ -2108,6 +2108,7 @@ src/test/java/dev/agaminggod/mineagen/server/runtime/input/SneakSettlingVerifica
 src/test/java/dev/agaminggod/mineagen/server/runtime/input/UseTickPhaseVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/input/VanillaMoveInputVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/menu/MenuCapabilityRegistryVerification.java
+src/test/java/dev/agaminggod/mineagen/server/runtime/reflex/ArrowDodgeVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/reflex/DefaultEatRearmingVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/reflex/DrawnBowShieldVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/reflex/EndBreathFloorVerification.java

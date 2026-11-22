@@ -88,7 +88,9 @@ public final class ArrowDodgeVerification {
 		// fire it at most about once per 2 s, under the 40-a-minute limit that would switch it off.
 		check(ReflexActions.Dodge.GRACE_TICKS >= 20L && 60.0D * 20.0D / (ReflexActions.Dodge.GRACE_TICKS + ReflexSensors.DRAW_RAISE_TICKS) < ReflexScheduler.MAX_FIRINGS_PER_MINUTE,
 				"a volley cannot cross the firing-rate limit");
-		check(ReflexActions.Dodge.MOVE_AFTER_TICKS > 20 - ReflexSensors.DRAW_RAISE_TICKS, "the strafe runs past the release");
+		// The draw holds the condition (and the strafe) to release at tick 20; the strafe then runs on through the arrow's
+		// flight, about half a second at a skeleton's 10-15 blocks.
+		check(ReflexActions.Dodge.MOVE_AFTER_TICKS >= 10, "the strafe runs past the release");
 	}
 
 	private static void standsAsideForWhatMovesTheBody() {
