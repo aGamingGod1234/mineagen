@@ -531,7 +531,7 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 	// A non-food obtain recovers at low health itself; while it recovers (active) the coordinator folds the low-health wakes.
 	if (!food) rawBody.recovering?.('armed');
 	// The food hunt's flee line, set once from the health at the first hunt: later rounds never lower it.
-	let foodFlee = null;
+	let foodFlee = null, lastWeighed = null;
 	let lastFailure = null, fuelDiagnostic = null, approachStop = null;
 	const fuelMembers = (group) => (typeof group === 'string' ? index.tags[group] ?? [] : group);
 	const smeltsPer = (itemId) => (index.fuels?.[bare(itemId)] ?? 0) / 200;
@@ -1317,7 +1317,10 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 				// takes the body into the doorway cell itself, then a step inside.
 				await act('navigate_to', { x: Math.floor(door.x) + 0.5, y: Math.floor(door.y), z: Math.floor(door.z) + 0.5, tolerance: 0.6, sprint: false, timeoutMs: 10_000 });
 				if (body.interrupted() || body.stopped()) return 'stopped';
-				await act('navigate_to', { x: into.x, y: Math.floor(door.y), z: into.z, tolerance: 1, sprint: false, timeoutMs: 10_000 });
+				// From the doorway a small house is in view already; a step further in only when it shows no chest.
+				const seenFromDoor = lootSources(await body.observe(), { opened: new Set([...looted.opened, ...budget.failed]), searched: new Set(looted.searched), structures: looted.structures })
+					.find((row) => row.kind === 'chest');
+				if (!seenFromDoor) await act('navigate_to', { x: into.x, y: Math.floor(door.y), z: into.z, tolerance: 1, sprint: false, timeoutMs: 10_000 });
 				if (body.interrupted() || body.stopped()) return 'stopped';
 				chest = lootSources(await body.observe(), { opened: new Set([...looted.opened, ...budget.failed]), searched: new Set(looted.searched), structures: looted.structures })
 					.find((row) => row.kind === 'chest') ?? null;
@@ -1690,6 +1693,9 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			// The food a trip down wants (TRIP_FOOD items): a village's bread is then worth the visit before the trip, not after.
 			const eats = [...counts].filter(([kind]) => FOODS.has(kind) || /^(cooked_|baked_|bread$|golden_carrot)/.test(kind)).reduce((sum, [, n]) => sum + n, 0);
 			plan = planObtain(goal, { held, seen, stations, index, coalFirst, dimension: o.world?.dimension, loot, gear: gearOf(o), places, food: Math.max(0, TRIP_FOOD - eats) });
+			// What the plan weighed, once per change: the loot it knew of and the way each need takes.
+			const weighed = `plan: ${plan.needs.map((need) => `${need.kind} ${need.count} ${need.accept[0]}`).join(', ') || 'crafts only'}; loot known: ${loot.length === 0 ? 'none' : loot.slice(0, 3).map((row) => `${row.kind === 'chest' ? 'chest' : row.name} ${Math.round(row.distance)}m`).join(', ')}`;
+			if (weighed !== lastWeighed) { lastWeighed = weighed; step(weighed); }
 			// At the ore for an iron tool, the rest of the route's kit iron comes in the same trip: a second trip down for
 			// the shield's, buckets' and flint and steel's iron costs the whole descent again.
 			const extra = kitIronExtra(o, plan);

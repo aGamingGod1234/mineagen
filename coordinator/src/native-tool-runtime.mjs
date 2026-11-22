@@ -8,7 +8,7 @@ import { classifyBodyFailure, composeTwoCallView } from './two-call-llm-wrap.mjs
 import { DugStairs, PlacedWorkstations } from './resource-facts.mjs';
 import { howto, howtoHoldings } from './howto.mjs';
 import { minecraftCapabilities, normalizeMinecraftToolCall, toolAdjustments, toolResultContent, withAdjustments } from './native-minecraft-tools.mjs';
-import { runObtain } from './obtain-runner.mjs';
+import { rememberStructures, runObtain } from './obtain-runner.mjs';
 import { resolveObtainItem } from './obtain-plan.mjs';
 import { KIT_CRAFT_TIMEOUT_MS, keepKit } from './kit-habit.mjs';
 import { runInventoryRepair } from './inventory-repair.mjs';
@@ -338,6 +338,14 @@ export class NativeToolRuntime {
 		await this.#occupancy.flush(agentId);
 	}
 
+	/** Per-agent memory obtain keeps across calls: stations placed, furnace loads, flooded approaches, loot. */
+	#obtainMemory(agentId) {
+		if (!this.#obtainPlaced.has(agentId)) this.#obtainPlaced.set(agentId, { placed: [], loads: [], approaches: [] });
+		const kept = this.#obtainPlaced.get(agentId);
+		kept.looted ??= { opened: [], searched: [], structures: [], misses: {}, doors: [] };
+		return kept;
+	}
+
 	updateObservation(record, observation, options = {}) {
 		const stored = this.#storeObservation(record, observation, options);
 		if (stored) this.#notePublishedSample(record);
@@ -371,6 +379,9 @@ export class NativeToolRuntime {
 			? Math.max(eventSequence, latest.eventSequence)
 			: eventSequence;
 		const raw = mergeDeathObservation(observation ?? {}, this.#lastLive.get(record.agentId));
+		// A structure row shows only for 30 s after it is first seen: keep every one from every sample, so a later obtain
+		// still knows the village it started in (loot-sources.mjs).
+		if (raw?.sighted?.structures?.length > 0) { try { rememberStructures(this.#obtainMemory(record.agentId).looted, raw); } catch { /* memory cannot stop a sample */ } }
 		// Keep one owned raw snapshot for both internal consumers. Public snapshot
 		// methods still clone at their boundaries, so sharing here does not expose
 		// mutable coordinator state while avoiding a duplicate deep copy per update.
@@ -2666,9 +2677,7 @@ export class NativeToolRuntime {
 		// Stations an earlier obtain placed and did not pick up (danger ended it) are this call's to pick up, and the
 		// furnace loads it left smelting are this call's to take out. Flooded approaches share this per-agent ledger.
 		// Chests opened and structures searched for loot (loot-sources.mjs) are kept the same way, so no call loots twice.
-		if (!this.#obtainPlaced.has(record.agentId)) this.#obtainPlaced.set(record.agentId, { placed: [], loads: [], approaches: [], looted: { opened: [], searched: [], structures: [], misses: {} } });
-		const kept = this.#obtainPlaced.get(record.agentId);
-		kept.looted ??= { opened: [], searched: [], structures: [], misses: {} };
+		const kept = this.#obtainMemory(record.agentId);
 		const stations = { now: this.#clock.now, placed: kept.placed, loads: kept.loads, approaches: kept.approaches, looted: kept.looted };
 		const result = await runObtain(tool.arguments, body, stations);
 		if (!this.#kitHabit || result?.state !== 'SUCCEEDED' || interrupted() || !current()) return result;
