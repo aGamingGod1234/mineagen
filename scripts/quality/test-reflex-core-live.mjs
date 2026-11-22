@@ -350,9 +350,10 @@ try {
 		await command('setblock 0 80 2 minecraft:crafting_table');
 		await command(`tp ${agent} 0.5 80 0.5 0 35`);
 		await command(`item replace entity ${agent} inventory.5 with minecraft:wheat 24`);
-		o = await setReflexes([{ id: 'table-eat', kind: 'stance', priority: 3, when: [{ type: 'hunger_below', value: 18 }, { type: 'hostile_near', within: 8, not: true }], do: { type: 'eat' }, cooldownS: 20 }]);
-		// Hungry before the craft, with no food in reach (the rule waits): as in the playtest, the meal starts only once bread
-		// reaches the hotbar mid-craft, with the body facing the table.
+		o = await setReflexes([]);
+		// Hungry before the craft with no food in reach. The coordinator's own eat rule sleeps without food; a fixture rule
+		// would fire, fail "no food" and sit out its cooldown, so the rule goes in only once bread reaches the hotbar
+		// mid-craft, with the body facing the table, as in the playtest.
 		let foodStart = o.player?.foodLevel ?? 20;
 		for (let tries = 0; tries < 20 && foodStart >= 16; tries += 1) {
 			await command(`effect give ${agent} minecraft:hunger 1 255 true`); await rate.idleSleep(1200);
@@ -364,6 +365,8 @@ try {
 		await rate.clock.sleep(600);
 		const craftActive = (await observe()).currentAction?.active === true;
 		await command(`item replace entity ${agent} hotbar.2 with minecraft:bread 1`);
+		await setReflexes([{ id: 'table-eat', kind: 'stance', priority: 3, when: [{ type: 'hunger_below', value: 18 }, { type: 'hostile_near', within: 8, not: true }], do: { type: 'eat' }, cooldownS: 20 }]);
+		const craftStillActive = (await observe()).currentAction?.active === true;
 		// Well past the craft's own 30 s: a craft held paused by a meal that never starts has no result in this window.
 		const crafted = await Promise.race([craft.result, rate.clock.sleep(60000).then(() => null)]);
 		await rate.clock.sleep(500); o = await observe();
@@ -372,7 +375,8 @@ try {
 		results.eatAtTable = { craft: crafted?.state ?? 'NO_RESULT', reasonCode: crafted?.reasonCode ?? null, message: crafted?.message ?? null,
 			events: rows, bread: countOf(o, 'minecraft:bread'), foodStart, craftActiveWhenBreadCame: craftActive, food: o.player?.foodLevel, tick };
 		// The room is valid only when the meal came mid-craft from a hungry start.
-		results.eatAtTable.valid = foodStart < 16 && craftActive;
+		results.eatAtTable.craftActiveWhenRuleCame = craftStillActive;
+		results.eatAtTable.valid = foodStart < 16 && craftActive && craftStillActive;
 		results.eatAtTable.pass = results.eatAtTable.valid && crafted?.state === 'SUCCEEDED' && rows.some((row) => row.outcome === 'done' && /ate minecraft:bread/.test(row.detail ?? ''));
 		await setReflexes([]); await command(`clear ${agent}`); await command('setblock 0 80 2 minecraft:air');
 	}
