@@ -102,6 +102,12 @@ public final class ServerTravelController implements ServerController {
 	private Descent descent;
 	private ServerController dig;
 	private int digs;
+	/** Where a staircase up ended under open sky: no staircase up starts again within a block and a half of it. */
+	private Vec3 surfacedAt;
+
+	private boolean surfacedHere(ServerPlayer player) {
+		return surfacedAt != null && Math.hypot(player.getX() - surfacedAt.x, player.getZ() - surfacedAt.z) < 1.5D && Math.abs(player.getY() - surfacedAt.y) < 1.0D;
+	}
 
 	/** Longest single fight a fightThrough trip runs before the fight itself times out (the trip's own deadline still rules). */
 	static final long FIGHT_TIMEOUT_MS = 30_000L;
@@ -1023,7 +1029,7 @@ public final class ServerTravelController implements ServerController {
 			}
 		}
 		if (!build) return fail(player, "NO_ROUTE", "No seen standing spot ahead gets closer, and build is false" + lastFailureText());
-		if (descent != null && digs < MAX_DIGS && (digsDown(player.getY(), targetY, heightTolerance()) || digsUp(player.getY(), targetY, heightTolerance())))
+		if (descent != null && digs < MAX_DIGS && (digsDown(player.getY(), targetY, heightTolerance()) || !surfacedHere(player) && digsUp(player.getY(), targetY, heightTolerance())))
 			return startDig(player, nowEpochMs);
 		if (buildRefusal != null) return fail(player, buildRefusalCode, "No seen way on toward the target, and building cannot continue: " + buildRefusal + lastFailureText());
 		return startBuild(player, world, nowEpochMs);
@@ -1047,6 +1053,9 @@ public final class ServerTravelController implements ServerController {
 		if (result.state() == State.RUNNING) return TickResult.running(progress(player));
 		dig = null;
 		dugDown++;
+		// Out under open sky: walked or built on from here, never another staircase up started on this spot (it would end at
+		// once); once the body has moved (to a wall or a slope) a staircase may dig up from there.
+		if (ServerDigController.OPEN_SKY_REACHED.equals(result.reasonCode())) surfacedAt = player.position();
 		if (result.state() != State.SUCCEEDED) return fail(player, result.reasonCode(), "Digging down toward y " + (int) Math.floor(targetY) + ": " + result.message());
 		// At the target's level: walk or build the rest from here.
 		failedLegs = 0;
@@ -1321,7 +1330,9 @@ public final class ServerTravelController implements ServerController {
 		buildRun += marchedCells(moveFeet, feet(player));
 		lastKind = move == null ? null : move.kind();
 		move = null;
-		if (!routeLeg && buildRun < BUILD_RUN) {
+		// A run goes on only while its next cell is nearer the target: past the target's line it replans (playtest 22 Nov:
+		// a run west toward iron 3 blocks away stepped and tunnelled on to 8 blocks past it before turning back).
+		if (!routeLeg && buildRun < BUILD_RUN && buildDirection != null && left(player.position().add(buildDirection.getStepX(), 0.0D, buildDirection.getStepZ())) < left(player.position())) {
 			MinecraftNavigationWorld world = new MinecraftNavigationWorld(player.level(), player);
 			TravelBuilder.Plan next = TravelBuilder.decide(world, states(world), feet(player), buildDirection, TravelBuilder.blockSlot(player) >= 0,
 					Double.isFinite(targetY) ? (int) Math.floor(targetY) - feet(player).y() : 0);

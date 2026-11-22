@@ -138,6 +138,29 @@ public final class VeinPlanVerification {
 				"the four ores not under the body are all in reach from where it stands");
 		List<BlockPos> capped = VeinPlan.component(List.of(ores[0]), VeinPlan.family("minecraft:iron_ore"), world::get, 3);
 		check(capped.size() == 3, "the search stops at its limit: " + capped);
+		verifyStepOff();
+	}
+
+	/**
+	 * Playtest 22 Nov: a tunnel ended standing on an iron ore; mine_vein refused it (under the body) and obtain wrote the
+	 * ore off as unreachable. A one-wide tunnel north at y15 over ore at (0,14,0): the only stance is back down the tunnel.
+	 */
+	private static void verifyStepOff() {
+		BlockPos ore = new BlockPos(0, 14, 0);
+		java.util.Set<BlockPos> air = new java.util.HashSet<>();
+		for (int z = 0; z <= 4; z++) { air.add(new BlockPos(0, 15, z)); air.add(new BlockPos(0, 16, z)); }
+		java.util.function.Predicate<BlockPos> open = air::contains;
+		java.util.function.Predicate<BlockPos> floor = at -> at.getY() == 14 && !at.equals(ore);
+		BlockPos to = VeinPlan.stepOff(new BlockPos(0, 15, 0), new Vec3(0.5D, 15.0D, 0.5D), List.of(ore), open, floor, RANGE);
+		check(new BlockPos(0, 15, 1).equals(to), "steps one block back down the tunnel, off the ore: " + to);
+		check(VeinPlan.reachable(VeinPlan.eyeAt(to), ore, RANGE), "the floor ore is in reach from the stance");
+		java.util.function.Predicate<BlockPos> walled = at -> at.equals(new BlockPos(0, 15, 0)) || at.equals(new BlockPos(0, 16, 0));
+		check(VeinPlan.stepOff(new BlockPos(0, 15, 0), new Vec3(0.5D, 15.0D, 0.5D), List.of(ore), walled, floor, RANGE) == null,
+				"walled in on every side: no stance, never a cell behind rock");
+		java.util.function.Predicate<BlockPos> veinFloor = at -> at.getY() == 14;
+		BlockPos onVein = VeinPlan.stepOff(new BlockPos(0, 15, 0), new Vec3(0.5D, 15.0D, 0.5D), List.of(ore, new BlockPos(0, 14, 1)), open,
+				at -> veinFloor.test(at) && !at.equals(ore) && !at.equals(new BlockPos(0, 14, 1)), RANGE);
+		check(new BlockPos(0, 15, 2).equals(onVein), "never steps onto another block of the vein: " + onVein);
 	}
 
 	private static void check(boolean value, String reason) {
