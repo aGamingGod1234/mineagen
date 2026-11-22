@@ -1,16 +1,16 @@
 # PR #90: Barter gold for ender pearls as one job
 
-## A barter call that stopped every nine ingots
+## Gold that piglins guard
 
-- **Problem:** The bot only had one way to get the 12 ender pearls the End needs: kill endermen, which drop one half the time. Bartering gold with piglins is the usual player way, but the bot's barter call stopped every 9 ingots to ask the AI to craft more gold. It gave up on piglins more than 16 blocks away, and the returned gravel and blackstone filled its bags.
-- **Solution:** Bartering is now one job. The bot puts on gold armour it carries, crafts its gold blocks and nuggets into ingots as it goes, leaves rubble returns on the ground, and walks to the nearest calm piglin group.
-- **Result:** In practice rooms with bastion gold (10 repeats, same loot seeds on both builds), it traded 184 ingots per 10 game minutes against 80 on main, for 116 pearls against 49, and the AI's calls per game fell from 42 to 21. Measured.
+- **Problem:** Breaking gold near piglins turns them on you even in gold armour, and vanilla counts a box 16 blocks out on each axis, not a 16-block circle. The bot mined gold with piglins around and was killed.
+- **Solution:** The bot treats nearby gold as guarded. It won't break it while any piglin is inside that box, seen or heard, and stops mid-swing if one walks in.
+- **Result:** In a practice room with a calm piglin 17 blocks away but inside the box, main angered it in 10 of 10 games and this branch in 0 of 10. Measured, 10 repeats each.
 
-## A sword sweep that turned a whole piglin group
+## A barter call that stopped for more gold
 
-- **Problem:** Fighting a hoglin beside piglins, the sword's sweep hit the calm piglins next to it, and the whole group turned on the bot. Every death in the bastion-gold rooms came this way.
-- **Solution:** A sword swing now waits while a calm piglin, or another calm neutral mob, stands where its sweep would land.
-- **Result:** Deaths in the bastion-gold rooms went from 2 in 10 games to 0 in 10. In 10 other fight rooms (10 repeats each) nothing got worse. Measured.
+- **Problem:** The bot's barter call only threw ingots and needed gold armour already on, so it kept handing back to the AI to craft gold blocks into ingots or put on a helmet.
+- **Solution:** The barter call now does the whole job: it puts on carried gold armour, crafts gold blocks and nuggets into ingots as it goes, and leaves junk returns on the ground.
+- **Result:** With bastion gold (20 gold blocks), "out of gold" hand-backs fell from 66 to 27 per 10 games and barter calls from 8.4 to 4.9 per game, with 10% more gold traded (174 against 158 ingots per 10 game minutes). Measured, 10 repeats each, same loot seeds on both builds.
 
 ## Honest barter time
 
