@@ -36,6 +36,15 @@ const AWAY_KILLS = new Set(['blaze', 'enderman']);
 // Kills per item for a mob's rare drop (zombie iron, carrots and potatoes, drowned copper): about 1 in 40 in vanilla.
 const RARE_DROP_KILLS = 40;
 const RARE_VARIANT = { sheep: (id) => id.endsWith('_wool') && id !== 'white_wool' };
+// Mobs that live only in a few biomes or structures (cats in villages and swamp huts, parrots in jungles, cave spiders at
+// mineshaft spawners) or hardly
+// spawn at all (zombie horses): out of view, finding one is a long search, so they cost this many times a common mob.
+// Priced like the rest, an unseen cat (12) beat a spider (36) for string and a parrot (4) a chicken (12) for feathers,
+// so obtain bow and obtain arrow searched for a cat or a parrot with spiders and chickens in view, and with none near
+// ended NO_SOURCE. One in view is priced as usual.
+const LOCAL_MOBS = new Set(['cat', 'parrot', 'cave_spider', 'ocelot', 'panda', 'mooshroom', 'polar_bear', 'llama', 'fox', 'goat', 'frog', 'axolotl', 'camel',
+	'armadillo', 'turtle', 'sniffer', 'zombie_horse', 'skeleton_horse']);
+const LOCAL_MOB_SEARCH = 10;
 // A seen source costs the work there (a fraction of an unseen source's cost, which includes finding it) plus the way to it:
 // a walk (WALK_BLOCKS per unit) to a source seen along a clear line of sight, a dig (DIG_STEP per staircase step, the
 // larger of the drop and the distance across) to one known but enclosed. The way is paid once for the source's members
@@ -215,6 +224,7 @@ class Costs {
 			if (flags.includes('r')) cost *= otherWay && flags.includes('k') ? RARE_DROP_KILLS : 3;
 			// Most of a mob's kind look alike: dyed sheep are rare, so only white wool is a sheep's usual drop.
 			if (RARE_VARIANT[mob]?.(id)) cost *= 10;
+			if (LOCAL_MOBS.has(mob) && !this.seen.has(mob)) cost *= LOCAL_MOB_SEARCH;
 			cost = this.seenCost(mob, cost);
 			consider({ kind: 'kill', mobs: [mob] }, cost);
 		}
