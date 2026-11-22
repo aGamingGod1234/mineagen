@@ -153,3 +153,52 @@ test('a program started while the game is already paused gets only the part of t
 		await run.coordinator.stop();
 	}
 });
+
+// The model can answer an urgent decision while the game is paused. Through the production coordinator: a 1 s program,
+// an urgent decision ~0.1 s before a 1.5 s pause, answered 1 s into the pause. The step is not ended during the pause,
+// and after the resume it runs on for the time it had left (~0.9 s). The outer program work lease ends it: that lease
+// is sized to timeoutMs and moves out for reflex holds, lag and pauses, not for urgent waits (the executor's urgent-wait
+// arithmetic is unit-tested in native-program-executor.test.mjs).
+test('an urgent decision answered during a pause leaves the step its own time after the resume, not the pause twice', async (t) => {
+	const { start: startDynamic, FakePlanner: DynamicPlanner, eventually: until, resolveNativeSteerInput } = await import('./fixtures/dynamic-main-fixture.mjs');
+	const { AgentRegistry: Registry } = await import('../src/agent-registry.mjs');
+	const { decodeModelFacts } = await import('../src/model-fact-encoding.mjs');
+	const registry = new Registry(), planner = new DynamicPlanner(registry), completions = [];
+	planner.steerNativeTurn = async (request) => { await resolveNativeSteerInput(request); };
+	planner.requestNativeTurn = async (request) => {
+		planner.requests.push(request);
+		if (planner.requests.length === 1) {
+			await request.executeTool({ agentId: request.agentId, goalRevision: 1, turnId: 'initial', callId: 'program',
+				tool: { kind: 'run_program', background: true, timeoutMs: 1_000,
+					source: 'program.onUnhandledAttention("continue_and_notify", {survival:"continue_and_notify"}); await player.wait(100000);' } });
+			return { status: 'completed', toolCalls: 1 };
+		}
+		return new Promise((resolve) => { completions.push(resolve); });
+	};
+	const traces = [];
+	const run = await startDynamic({ registry, planner, traceWriter: { write: (event, fields) => traces.push({ event, ...fields }) }, config: { bridge: { port: 25570, secret: 's'.repeat(32) }, codex: { controlProtocol: 'native_tools' } } });
+	t.after(async () => { await run.coordinator.stop(); for (const resolve of completions) resolve({ status: 'completed', toolCalls: 0 }); });
+	const cancelled = () => run.bridge.sent.some((message) => message.type === 'action_cancel');
+	run.bridge.emit('goal_control', { agentId: 'agent-a', payload: { operation: 'start', goalRevision: 1, goal: 'Explore safely.' } });
+	run.bridge.emit('observation', { agentId: 'agent-a', payload: { goalRevision: 1, eventSequence: 1, attention: false, changedFacts: [], observation: { player: { x: 0, y: 64, z: 0, health: 20 } } } });
+	await until(() => run.bridge.sent.some((message) => message.type === 'action_command'));
+	run.bridge.emit('observation', { agentId: 'agent-a', payload: { goalRevision: 1, eventSequence: 2, attention: true, changedFacts: ['player.health'], observation: { player: { x: 0, y: 64, z: 0, health: 12 } } } });
+	await until(() => planner.requests.length === 2);
+	const request = planner.requests[1], input = request.input;
+	const shown = decodeModelFacts(JSON.parse(input.slice(input.indexOf('\n') + 1))).program;
+	assert.equal(shown.decision.priority, 'urgent');
+	await sleep(100);
+	run.bridge.emit('serverPause', { paused: true, tickAgeMs: 0 });
+	await sleep(1_000);
+	await request.executeTool({ agentId: request.agentId, goalRevision: 1, turnId: 'decision', callId: 'answer',
+		tool: { kind: 'respond_program', programId: shown.programId, decisionId: shown.decision.decisionId, eventSequence: shown.decision.eventSequence, directive: 'continue' } });
+	await sleep(500);
+	assert.equal(cancelled(), false, 'paused past its deadline, the step is still running');
+	run.bridge.emit('serverPause', { paused: false, tickAgeMs: 0 });
+	const resumedAt = Date.now();
+	await until(cancelled, 4_000);
+	const after = Date.now() - resumedAt;
+	assert.ok(after >= 400, `the step keeps the time it had left (cancelled ${after} ms after the resume)`);
+	assert.ok(after < 1_500, `the pause is not credited twice (cancelled ${after} ms after the resume)`);
+	assert.ok(traces.some((row) => row.event === 'work_lease_expired' && row.kind === 'program'), 'the program lease ends the step');
+});

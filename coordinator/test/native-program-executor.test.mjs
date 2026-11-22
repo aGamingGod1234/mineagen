@@ -1264,3 +1264,113 @@ test('an urgent answer that arrives during a pause counts the wait only up to th
 	deadline.callback();
 	await pending;
 });
+
+/**
+ * Plays one program through a timeline of [atMs, event] steps on a fake clock: 'start' (the program starts; time 0
+ * when absent), 'urgent' (an urgent decision opens), 'answer' (the model continues it), 'pause' / 'resume' (a
+ * single-player pause), 'deadline' (the armed deadline fires). Returns the ms the live deadline timer was armed with,
+ * the time it was armed at, and the run's result once its deadline has ended it.
+ */
+async function urgentPauseTimeline(steps, { timeoutMs = 10_000 } = {}) {
+	const timers = [];
+	let now = 0, release, pending = null;
+	const run = setup({ onDecision() {}, executeAction: () => new Promise((resolve) => { release = resolve; }),
+		cancelAction: async () => release({ state: 'CANCELLED', reasonCode: 'INPUT_RELEASED', observation: observation(12), eventSequence: 9 }) },
+		{ now: () => now, setTimeoutFn: (callback, ms) => { const timer = { callback, ms, at: now }; timers.push(timer); return timer; }, clearTimeoutFn: (timer) => { if (timer) timer.cleared = true; } });
+	const live = () => timers.filter((timer) => !timer.cleared && !timer.fired).at(-1);
+	const start = () => { pending = run.executor.run(record, { programId: 'urgent-pause', source: `${prefix} await player.wait(1000);`, timeoutMs }, run.context); };
+	if (!steps.some(([, event]) => event === 'start')) start();
+	let sequence = 1;
+	for (const [at, event] of steps) {
+		now = at;
+		if (event === 'start') start();
+		else if (event === 'urgent') run.executor.onObservation(record, { observation: observation(9), eventSequence: ++sequence, attention: true, priority: 'urgent', trigger: 'health_changed' });
+		else if (event === 'answer') await run.executor.respond(record, { programId: 'urgent-pause', decisionId: run.executor.status(record).decision.decisionId, directive: 'continue' });
+		else if (event === 'pause') run.executor.serverPaused(true);
+		else if (event === 'resume') run.executor.serverPaused(false);
+		else if (event === 'deadline') { const timer = live(); timer.fired = true; timer.callback(); }
+		else throw new Error(`unknown timeline event ${event}`);
+		await turn();
+	}
+	const deadline = live();
+	const finish = async () => { const timer = live(); timer.fired = true; timer.callback(); return pending; };
+	// Fires each armed deadline at its due time until the program ends (an open urgent wait re-arms it once).
+	const runToEnd = async () => {
+		let settled = null;
+		void pending.then((value) => { settled = value; });
+		for (let fired = 0; settled === null && fired < 4; fired++) {
+			const timer = live();
+			if (timer === undefined) break;
+			now = timer.at + timer.ms; timer.fired = true; timer.callback();
+			await turn(); await turn();
+		}
+		assert.ok(settled !== null, 'the deadline ended the program');
+		return { ...settled, endedAt: now };
+	};
+	return { remainingMs: deadline?.ms ?? null, armedAt: deadline?.at ?? null, finish, runToEnd, executor: run.executor };
+}
+
+test('urgent waits across pauses: the deadline credits each unpaused waited moment once and each paused moment once', async (t) => {
+	// Every case runs a 10 s program from 0 (unless it starts later). Its deadline is 0 + 10 s + the unpaused urgent wait
+	// + the part of each pause the program lived through; the timer armed at the last step is that deadline minus now.
+	const cases = [
+		{ name: 'the wait starts before the pause and is answered during it',
+			steps: [[1_000, 'urgent'], [3_000, 'pause'], [5_000, 'answer'], [8_000, 'resume']], wait: 2_000, paused: 5_000 },
+		{ name: 'the wait starts during the pause and is answered during it (no wait is credited)',
+			steps: [[1_000, 'pause'], [2_000, 'urgent'], [3_000, 'answer'], [4_000, 'resume']], wait: 0, paused: 3_000 },
+		{ name: 'the wait starts during the pause and is answered after the resume',
+			steps: [[1_000, 'pause'], [2_000, 'urgent'], [4_000, 'resume'], [5_000, 'answer']], wait: 1_000, paused: 3_000 },
+		{ name: 'the wait spans a whole pause and is answered after the resume',
+			steps: [[1_000, 'urgent'], [2_000, 'pause'], [3_000, 'resume'], [4_000, 'answer']], wait: 2_000, paused: 1_000 },
+		{ name: 'two pauses during one wait, answered after the second resume',
+			steps: [[1_000, 'urgent'], [2_000, 'pause'], [3_000, 'resume'], [4_000, 'pause'], [6_000, 'resume'], [7_000, 'answer']], wait: 3_000, paused: 3_000 },
+		{ name: 'two pauses during one wait, answered during the second pause',
+			steps: [[1_000, 'urgent'], [2_000, 'pause'], [3_000, 'resume'], [4_000, 'pause'], [5_000, 'answer'], [6_000, 'resume']], wait: 2_000, paused: 3_000 },
+		{ name: 'repeated pause and resume reports change nothing',
+			steps: [[500, 'urgent'], [1_000, 'pause'], [2_000, 'pause'], [3_000, 'resume'], [4_000, 'resume'], [5_000, 'answer']], wait: 2_500, paused: 2_000 },
+		{ name: 'a program started during the pause, with a wait opened and answered in it',
+			steps: [[500, 'pause'], [1_000, 'start'], [2_000, 'urgent'], [3_000, 'answer'], [4_000, 'resume']], startedAt: 1_000, wait: 0, paused: 3_000 },
+		{ name: 'a pause after the wait was answered credits only the pause',
+			steps: [[1_000, 'urgent'], [2_000, 'answer'], [3_000, 'pause'], [5_000, 'resume']], wait: 1_000, paused: 2_000 },
+	];
+	for (const { name, steps, wait, paused, startedAt = 0 } of cases) {
+		await t.test(name, async () => {
+			const result = await urgentPauseTimeline(steps);
+			const end = startedAt + 10_000 + wait + paused;
+			assert.equal(result.armedAt + result.remainingMs, end, `deadline at ${result.armedAt + result.remainingMs} ms, expected ${end} ms`);
+			assert.equal((await result.finish()).reasonCode, 'PROGRAM_DEADLINE');
+		});
+	}
+});
+
+test('an urgent answer during a pause, after the wait already held the deadline past its own end, credits the wait up to the pause', async () => {
+	// 1 s program; the urgent wait opens at 0.8 s, so the 1 s deadline is held. Paused 1.2-2 s, answered at 1.4 s:
+	// 0.4 s of wait (0.8-1.2) and 0.8 s of pause are credited, so it ends at 1 + 0.4 + 0.8 = 2.2 s.
+	const result = await urgentPauseTimeline([[800, 'urgent'], [1_000, 'deadline'], [1_200, 'pause'], [1_400, 'answer'], [2_000, 'resume']], { timeoutMs: 1_000 });
+	assert.equal(result.armedAt + result.remainingMs, 2_200);
+	assert.equal((await result.finish()).reasonCode, 'PROGRAM_DEADLINE');
+});
+
+test('an urgent wait never answered still ends at twice the timeout plus the paused time, wherever the pause fell', async () => {
+	for (const steps of [
+		[[100, 'urgent'], [500, 'pause'], [5_500, 'resume']],
+		[[100, 'urgent'], [1_000, 'deadline'], [1_500, 'pause'], [6_500, 'resume']],
+	]) {
+		const result = await urgentPauseTimeline(steps, { timeoutMs: 1_000 });
+		// Held for the answer, it ends at 2 x 1 s + 5 s paused = 7 s, never earlier and never later.
+		const outcome = await result.runToEnd();
+		assert.equal(outcome.reasonCode, 'PROGRAM_DEADLINE');
+		assert.equal(outcome.endedAt, 7_000, `ended at ${outcome.endedAt} ms`);
+	}
+});
+
+test('an urgent answer during a pause leaves the reflex-hold allowance for later holds, which the work lease moves out by', async () => {
+	// 10 s program: urgent at 1 s, paused 3-12 s, answered at 9 s. Only 2 s of wait is credited, so 8 s of the shared
+	// reflex/urgent allowance is left: a later 5 s reflex hold is credited in full (the runtime extends the program's work
+	// lease by what this returns). Counting the paused 6 s as wait too would leave 2 s, and the lease would end the step early.
+	const result = await urgentPauseTimeline([[1_000, 'urgent'], [3_000, 'pause'], [9_000, 'answer'], [12_000, 'resume']]);
+	assert.equal(result.armedAt + result.remainingMs, 10_000 + 2_000 + 9_000);
+	assert.equal(result.executor.extendDeadline(record.agentId, 'urgent-pause', 5_000), 5_000);
+	assert.equal(result.executor.extendDeadline(record.agentId, 'urgent-pause', 5_000), 3_000, 'the allowance is still capped at timeoutMs in total');
+	assert.equal((await result.finish()).reasonCode, 'PROGRAM_DEADLINE');
+});
