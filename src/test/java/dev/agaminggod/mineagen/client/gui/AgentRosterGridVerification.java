@@ -30,7 +30,53 @@ public final class AgentRosterGridVerification {
 		assertions += verifyUnavailableSelectionSurface();
 		assertions += verifyPageLayoutValidation();
 		assertions += verifyImmutableSnapshots();
+		assertions += verifyStateMarks();
 		return assertions;
+	}
+
+	/** The roster tile and the selected-agent panel mark each raw lifecycle state with its own icon or dot and tone. */
+	private static int verifyStateMarks() {
+		int assertions = 0;
+		java.util.Map<String, ConsoleDraw.Icon> icons = java.util.Map.of(
+				"STARTING", ConsoleDraw.Icon.REFRESH,
+				"PLANNING", ConsoleDraw.Icon.SPARK,
+				"ACTING", ConsoleDraw.Icon.PLAY,
+				"PAUSED", ConsoleDraw.Icon.PAUSE,
+				"COMPLETED", ConsoleDraw.Icon.CHECK,
+				"DEAD", ConsoleDraw.Icon.RESPAWN);
+		for (dev.agaminggod.mineagen.agent.AgentLifecycleState state : dev.agaminggod.mineagen.agent.AgentLifecycleState.values()) {
+			ConsoleDraw.StateMark mark = ConsoleDraw.stateMark(
+					dev.agaminggod.mineagen.control.AgentControlPresentation.stateCue(state.name()));
+			ConsoleDraw.Icon icon = icons.get(state.name());
+			if (icon == null) assertTrue(mark.icon() == null, state + " is marked with a dot");
+			else assertEquals(icon, mark.icon(), state + " is marked with its icon");
+			boolean problem = state == dev.agaminggod.mineagen.agent.AgentLifecycleState.ERROR
+					|| state == dev.agaminggod.mineagen.agent.AgentLifecycleState.DEAD
+					|| state == dev.agaminggod.mineagen.agent.AgentLifecycleState.DISCONNECTED;
+			assertEquals(problem, mark.color() == ConsoleTheme.ERROR, state + (problem ? " is red" : " is not red"));
+			assertions += 2;
+		}
+		ConsoleDraw.StateMark idle = ConsoleDraw.stateMark(dev.agaminggod.mineagen.control.AgentControlPresentation.stateCue("IDLE"));
+		ConsoleDraw.StateMark error = ConsoleDraw.stateMark(dev.agaminggod.mineagen.control.AgentControlPresentation.stateCue("ERROR"));
+		ConsoleDraw.StateMark disconnected = ConsoleDraw.stateMark(dev.agaminggod.mineagen.control.AgentControlPresentation.stateCue("DISCONNECTED"));
+		assertTrue(!idle.hollow() && !error.hollow() && disconnected.hollow(), "a lost link is a hollow dot, ready and needs-attention are filled");
+		assertTrue(idle.color() != error.color(), "ready and needs-attention dots differ in tone");
+
+		AgentRosterEntry dead = new AgentRosterEntry("agent:rook", "Rook", "codex", "Sol", "Dead - ready to respawn", true, "", "DEAD");
+		assertEquals("DEAD", dead.lifecycleState(), "the roster entry carries the raw state beside its label");
+		assertEquals(ConsoleDraw.Icon.RESPAWN, ConsoleDraw.stateMark(
+				dev.agaminggod.mineagen.control.AgentControlPresentation.stateCue(dead.lifecycleState())).icon(),
+				"a dead agent's tile shows respawn, not the ready mark its label text once matched");
+		AgentRosterEntry legacy = entry("agent:kestrel", "Kestrel", "Thinking...", true, "");
+		ConsoleDraw.StateMark unknown = ConsoleDraw.stateMark(
+				dev.agaminggod.mineagen.control.AgentControlPresentation.stateCue(legacy.lifecycleState()));
+		assertTrue(unknown.icon() == null && unknown.hollow() && unknown.color() == ConsoleTheme.MUTED,
+				"an entry without a raw state is a muted hollow dot, not a red error");
+		ContentMetrics normal = AgentRosterTile.contentMetrics(0, 0, 120, 48, false);
+		assertEquals(8, normal.stateCueBounds().width(), "the state mark has an 8 px square");
+		assertEquals(8, normal.stateCueBounds().height(), "the state mark has an 8 px square");
+		assertTrue(normal.stateCueBounds().right() < normal.secondaryTextBounds().left(), "the mark sits left of the model label");
+		return assertions + 9;
 	}
 
 	private static int verifyUnavailableSelectionSurface() {
