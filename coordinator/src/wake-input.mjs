@@ -33,6 +33,15 @@ const HISTORICAL_OBSERVATION_KEYS = ['observedAtEpochMs', 'eventSequence', 'play
 // Older failed receipts an owed program result re-attaches, beside its newest 8 receipts; the rest are counted.
 const MAX_HISTORY_FAILED_RECEIPTS = 8;
 const FAILED_RECEIPT_STATES = new Set(['FAILED', 'TIMED_OUT', 'REJECTED', 'CANCELLED']);
+// The wake's own sample is the newest on every path but one: a steer that failed after newer wakes were queued is merged
+// back on top of them. An owed event newer than the wake's own sample, or one that cannot be ordered, keeps its world.
+function newestFirst(entry, eventSequence, observation) {
+	const own = Number.isFinite(eventSequence) ? eventSequence : observation?.eventSequence;
+	const theirs = Number.isFinite(entry?.eventSequence) ? entry.eventSequence : entry?.observation?.eventSequence;
+	if (Number.isFinite(own) && Number.isFinite(theirs)) return theirs <= own;
+	const ownAt = observation?.observedAtEpochMs, theirAt = entry?.observation?.observedAtEpochMs;
+	return Number.isFinite(ownAt) && Number.isFinite(theirAt) && theirAt <= ownAt;
+}
 function historicalObservation(observation) {
 	const kept = Object.fromEntries(HISTORICAL_OBSERVATION_KEYS.filter((key) => observation[key] !== undefined).map((key) => [key, observation[key]]));
 	if (typeof observation.world?.dimension === 'string') kept.world = { dimension: observation.world.dimension };
@@ -195,7 +204,7 @@ export function buildNativeEventInput(record, { event, trigger, programId, statu
 					facts.program.result.omittedReceipts = (entry.result.omittedReceipts ?? 0) + rows.length - facts.program.result.receipts.length;
 				}
 			}
-			if (facts.observation != null && typeof facts.observation === 'object') facts.observation = historicalObservation(facts.observation);
+			if (facts.observation != null && typeof facts.observation === 'object' && newestFirst(entry, eventSequence, observation)) facts.observation = historicalObservation(facts.observation);
 			return facts;
 		}) }),
 		trigger: typeof trigger === 'string' && trigger.length > 0 ? trigger : (isPlanningDue ? normalizedEvent : 'observation'),

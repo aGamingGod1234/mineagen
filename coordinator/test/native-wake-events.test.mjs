@@ -146,6 +146,35 @@ test('an owed event keeps its own facts and failed receipts but not its copy of 
 	assert.equal(history.program.result.omittedReceipts, 11);
 });
 
+test('an owed event keeps every fact of its own: death, recovery, failure, tool break, action, perception, dimension', () => {
+	const older = wake('damage', 1), newer = wake('threat', 2);
+	Object.assign(older.nativeEvent.observation, {
+		eventSequence: 1, blocks: [{ x: 0, y: 64, z: 0, blockId: 'minecraft:stone' }],
+		death: { cause: 'lava', at: { x: 1, y: 12, z: 3 } }, deathScreen: { open: true }, recovery: { state: 'RESPAWNED' }, failureClass: 'path',
+		toolBroke: { itemId: 'minecraft:stone_pickaxe' }, currentAction: { actionId: 'act-1', actionType: 'travel_to', state: 'RUNNING' },
+		perception: { daylight: false, events: [{ kind: 'sound', id: 'minecraft:block.lava.ambient', distance: 4 }] }, world: { dimension: 'minecraft:the_nether' },
+	});
+	newer.nativeEvent.observation.eventSequence = 2;
+	const history = parse(buildNativeEventInput(record, mergePlannerRequest(older, newer).nativeEvent)).mergedEvents[0];
+	assert.equal(history.observation.blocks, undefined);
+	for (const key of ['death', 'deathScreen', 'recovery', 'failureClass', 'toolBroke', 'currentAction', 'perception']) assert.notEqual(history.observation[key], undefined, key);
+	assert.deepEqual(history.observation.world, { dimension: 'minecraft:the_nether' });
+});
+
+test('an owed event newer than the wake\'s own sample keeps its world', () => {
+	// A steer that failed is merged back on top of newer queued wakes: the wake's own sample is then the older one.
+	const newest = wake('threat', 3), stale = wake('projectile', 2);
+	newest.nativeEvent.observation.inventory = { items: [{ slot: 0, itemId: 'minecraft:iron_pickaxe', count: 1 }] };
+	newest.nativeEvent.observation.eventSequence = 3;
+	stale.nativeEvent.observation.inventory = { items: [{ slot: 0, itemId: 'minecraft:oak_log', count: 1 }] };
+	stale.nativeEvent.observation.eventSequence = 2;
+	const input = buildNativeEventInput(record, mergePlannerRequest(newest, stale).nativeEvent);
+	assert.match(input, /iron_pickaxe/, 'the newest inventory still reaches the model');
+	const payload = parse(input);
+	const kept = payload.mergedEvents.find((entry) => (entry.eventSequence ?? entry.observation?.eventSequence) === 3);
+	assert.ok(kept?.observation?.inventory, 'the newer owed event keeps its own inventory');
+});
+
 test('older failed receipts of an owed result are capped at 8 beside its newest 8', () => {
 	const first = ended(1, 'FAILED'), next = wake('threat', 3);
 	first.nativeEvent.result.receipts = Array.from({ length: 64 }, (_, index) => ({ actionId: `a-${index}`, state: 'FAILED', reasonCode: `r-${index}` }));
