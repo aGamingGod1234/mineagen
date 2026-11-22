@@ -1630,7 +1630,7 @@ public final class ServerBuildController implements ServerController {
 			Boolean known = sideOpenAt.get(at);
 			if (known != null) return known;
 			boolean result = drop.test(at);
-			if (!result && terrain.apply(at) == null && !at.equals(lava) && !solid.contains(at)) {
+			if (!result && terrain.apply(at) == null && !at.equals(lava) && !at.equals(water) && !solid.contains(at)) {
 				for (int dx = -2; dx <= 2 && !result; dx++) for (int dy = -2; dy <= 2 && !result; dy++) for (int dz = -2; dz <= 2 && !result; dz++)
 					result = pool.test(at.offset(dx, dy, dz));
 			}
