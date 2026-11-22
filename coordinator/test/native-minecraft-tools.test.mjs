@@ -865,6 +865,11 @@ test('a survey drops bulk-terrain block searches the server refuses when somethi
 	assert.deepEqual(look.survey.include, ['caves', 'blocks:minecraft:lava']);
 	assert.match(toolAdjustments(look)['survey.include'], /dropped blocks:minecraft:water/);
 	assert.deepEqual(normalizeMinecraftToolCall('survey', { include: ['blocks:minecraft:water'] }).include, ['blocks:minecraft:water'], 'a survey of only bulk terrain still gets the server reason');
+	// A vanilla block named without its namespace is that block (gpt-6.2-sol, 19 Nov: 11 surveys and lookArounds lost to it).
+	const bare = normalizeMinecraftToolCall('lookAround', { centerYaw: 0, pitch: 0, steps: 4, ticksPerStep: 2, survey: { include: ['caves', 'blocks:lava', 'blocks:water'] } });
+	assert.deepEqual(bare.survey.include, ['caves', 'blocks:minecraft:lava']);
+	assert.match(toolAdjustments(bare)['survey.include'], /^read blocks:lava, blocks:water as minecraft: ids; dropped blocks:minecraft:water/);
+	assert.deepEqual(normalizeMinecraftToolCall('survey', { include: ['veins', 'blocks:iron_ore'] }).include, ['veins', 'blocks:minecraft:iron_ore']);
 	const java = readFileSync(new URL('../../src/main/java/dev/agaminggod/mineagen/server/perception/FarSight.java', import.meta.url), 'utf8');
 	const server = java.match(/UNSEARCHABLE = Set\.of\(([^;]+)\);/)[1].match(/Blocks\.([A-Z_]+)/g).map(name => `minecraft:${name.slice(7).toLowerCase()}`);
 	assert.deepEqual([...UNSEARCHABLE_BLOCKS].sort(), server.sort(), 'the coordinator mirrors FarSight.UNSEARCHABLE');
@@ -998,7 +1003,17 @@ test('do_step maps each verb to the call it runs and rejects a step it cannot ru
 	rejects({ verb: 'fly', target: {}, why: 'x' });
 	rejects({ verb: 'dig_to', target: { y: 16 } });
 	rejects({ verb: 'dig_to', target: { y: 16 }, why: 'two\nlines' });
-	rejects({ verb: 'dig_to', target: { y: 16 }, why: 'x'.repeat(101) });
+	// Harmless slips cost no call (gpt-6.2-sol, 19 Nov: 50 of 917 calls lost to them): a background flag the verb already
+	// decides is dropped, an over-long why is cut at a word, and vein:true on a mine step says what it does anyway.
+	const long = normalizeMinecraftToolCall('do_step', { verb: 'dig_to', target: { y: 16 }, why: `${'word '.repeat(30)}end`, background: true });
+	assert.ok(Array.from(long.step.why).length <= 100 && long.step.why.endsWith('…'), long.step.why);
+	assert.equal(long.background, undefined);
+	assert.match(toolAdjustments(long).why, /cut to \d+ characters \(max 100\)/);
+	assert.match(toolAdjustments(long).background, /ignored/);
+	const vein = normalizeMinecraftToolCall('do_step', { verb: 'mine', target: { x: 1, y: 2, z: 3, vein: true }, why: 'x' });
+	assert.equal(vein.arguments.vein, undefined);
+	assert.match(toolAdjustments(vein)['target.vein'], /always a vein mine/);
+	rejects({ verb: 'mine', target: { x: 1, y: 2, z: 3, expectedBlockId: 'minecraft:iron_ore', vein: false }, why: 'x' });
 	rejects({ verb: 'gather', target: { itemId: 'oak_log', count: 8 }, why: 'x', after: 'native:a:1:1' });
 	const named = normalizeMinecraftToolCall('do_step', { verb: 'mine', target: { x: 1, y: 2, z: 3, expectedBlockId: 'minecraft:spruce_log' }, why: 'x' });
 	assert.equal(named.arguments.expectedBlockId, undefined, 'a vein mine takes the block it starts on');
