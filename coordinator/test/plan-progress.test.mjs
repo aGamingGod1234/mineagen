@@ -14,8 +14,8 @@ const checked = check => ({ steps: [{ ...plan.steps[0], check }] });
 const sample = () => structuredClone(scenarios[0].observation);
 const expected = [
  "open rods[howto:blaze_rod 0/7; kill blaze the_nether fortress]; open pearls[howto:ender_pearl 0/12]; done nether; strategy:nether; skipped gear via nether; later:5",
- "open gear[unmet:armor 0/4 iron+, pickaxe missing iron+; crafting option: iron_ingot 0/27 @furnace missing fuel none<-raw_iron 0/27 mine iron_ore y-24..56~16,80..319~232, iron_pickaxe 0/1 @crafting_table missing<-(iron_ingot + stick 0/2 (@inventory<-#planks 0/2 or @inventory<-bamboo 0/4 mine bamboo))]; strategy:tools; later:8",
- "open gear[unmet:armor 0/4 iron+, pickaxe missing iron+; crafting option: iron_ingot 0/27 @furnace missing fuel none<-raw_iron 0/27 mine iron_ore needs stone_pickaxe+ y-24..56~16,80..319~232, iron_pickaxe 0/1 @crafting_table missing<-(iron_ingot + stick 0/4 (@inventory<-#planks 0/2 or @inventory<-bamboo 0/8 mine bamboo)), stone_pickaxe 0/1 @crafting_table missing<-(#stone_tool_materials 0/3 deepslate|stone...]; strategy:tools; later:8",
+ "open gear[unmet:armor 0/4 iron+, pickaxe missing iron+; crafting option: iron_ingot 0/27 @furnace missing fuel none<-raw_iron 0/27 mine iron_ore exposed/cave first, else y-24..56~16,80..319~232, iron_pickaxe 0/1 @crafting_table missing<-(iron_ingot + stick 0/2 (@inventory<-#planks 0/2 or @inventory<-bamboo 0/4 mine bamboo))]; strategy:tools; later:8",
+ "open gear[unmet:armor 0/4 iron+, pickaxe missing iron+; crafting option: iron_ingot 0/27 @furnace missing fuel none<-raw_iron 0/27 mine iron_ore needs stone_pickaxe+ exposed/cave first, else y-24..56~16,80..319~232, iron_pickaxe 0/1 @crafting_table missing<-(iron_ingot + stick 0/4 (@inventory<-#planks 0/2 or @inventory<-bamboo 0/8 mine bamboo)), stone_pickaxe 0/1 @crafting_table...]; strategy:tools; later:8",
  "open stronghold[unmet:seen stronghold]; done gear,eyes; strategy:end; skipped nether,rods,pearls via eyes; later:3",
  "open crystals[unverified:Destroy End crystals]; done gear,end; strategy:end; skipped nether,rods,pearls,eyes,stronghold via end; later:1"
 ];

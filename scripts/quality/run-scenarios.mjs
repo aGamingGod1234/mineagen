@@ -767,7 +767,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
 
 /** Refuse older or mismatched coordinator enforcement before starting its provider processes. */
 export async function validateStrictCoordinator(root) {
- for (const file of ['strict-spend-runtime.mjs', 'provider-service.mjs', 'dynamic-main.mjs', 'agent-planner.mjs', 'claude-service.mjs', 'provider-environment.mjs']) {
+ for (const file of ['strict-spend-runtime.mjs', 'provider-service.mjs', 'dynamic-main.mjs', 'voice-worker.mjs', 'agent-planner.mjs', 'claude-service.mjs', 'provider-environment.mjs']) {
   const relative = path.join('coordinator/src', file);
   const [expected, actual] = await Promise.all([readFile(path.join(ROOT, relative)), readFile(path.join(root, relative))]);
   if (!expected.equals(actual)) throw new Error(`Strict coordinator enforcement mismatch: ${file}; use this runner's coordinator build`);
