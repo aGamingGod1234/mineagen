@@ -328,6 +328,7 @@ try {
 		row.deathEvidence = recordDeathEvidence(row, deathsBefore, await readDeaths());
 		const sawDeath = minHealth <= 0 || row.deaths > 0 || /Lifecycle changed to DEAD/.test(String(last?.message ?? ''));
 		const died = row.died = sawDeath ? true : row.deathEvidence.valid ? false : null;
+		if (room === 'skeleton') row.start = { body: live, skeletonEye: await skeletonEye().catch(() => null), skeletonSeen: skeleton !== null, wall };
 		if (!exposed) row.notExercised = room === 'skeleton' ? 'no skeleton in sight at the start' : 'the live body did not start in danger';
 		else if (executed === 0 && safeAt !== null) row.notExercised = calls === 0 ? 'safe before the first decision (reflexes alone)' : 'safe with no call the body ran';
 		if (healthSamples === 0) row.error = 'no health sample in the window';
