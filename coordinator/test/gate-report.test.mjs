@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { buildGate, readRun, compare, verdict, funnel, parseCli, SCHEMA } from '../../scripts/quality/gate-report.mjs';
+import { buildGate, readRun, compare, verdict, funnel, parseCli, SCHEMA, shieldState, actionAtHit, damageBreakdown } from '../../scripts/quality/gate-report.mjs';
 import { findGateFunnel, collectReplays } from '../../scripts/quality/lib/stake-comparison.mjs';
 import { formatFunnel, formatReplays } from '../src/decision-eval/stake-summary.mjs';
 
@@ -478,4 +478,57 @@ test('a counter-only death takes only a receipt from before it, after the timed 
 		assert.equal(game.deaths, 2);
 		assert.deepEqual(game.deathCauses, { lava: 1, zombie: 1 }, 'the zombie receipt stays with the zombie death');
 	} finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('hits split by shield state and running action; schema 1 rows are unknown, never "no shield"', async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), 'gate-report-'));
+	try {
+		const dir = await standardRound(root, [{ id: 'game-1', seed: '780', stages: {}, agentId: 'agent-a' }, { id: 'game-2', seed: '781', stages: {} }]);
+		const hit = (minute, fields) => ({ type: 'damage', schema: 2, agentId: 'agent-a', atMs: T0 + minute * MIN, gameTime: minute * 1200, blocked: false, paired: true, lethal: false, ...fields });
+		const v1 = (minute, fields) => { const row = hit(minute, fields); row.schema = 1; return row; };
+		const rows = [
+			hit(5, { taken: 0, blocked: true, shieldHand: 'off', blocking: true, action: 'mine_block' }),
+			hit(6, { taken: 3, shieldHand: 'off', blocking: false, action: 'mine_block' }),
+			hit(7, { taken: 4, shieldHand: null, blocking: false, action: null }),
+			// No same-tick read before the hit: the guard is unknown.
+			hit(8, { taken: 2, paired: false, shieldHand: null, blocking: null, action: 'fight_target' }),
+			v1(9, { taken: 5 }),
+			// The lethal hit has no taken: the health and absorption it used.
+			hit(10, { taken: null, lethal: true, healthDrop: 3, absorbed: 1, shieldHand: null, blocking: false, action: 'fight_target' }),
+			hit(11, { taken: null, lethal: true, paired: false, healthDrop: null, absorbed: null, shieldHand: null, blocking: null, action: 'fight_target' }),
+			hit(70, { taken: 9, shieldHand: null, blocking: false, action: null }),
+			{ type: 'onset', schema: 2, agentId: 'agent-a', atMs: T0 + 5 * MIN, onset: 'aimed' },
+		];
+		const text = rows.map((row) => JSON.stringify(row)).join('\n') + '\n';
+		await mkdir(path.join(dir, 'game-1', 'raw', 'arena-watch'), { recursive: true });
+		await writeFile(path.join(dir, 'game-1', 'raw', 'arena-watch', 'agent-a-danger.jsonl'), text);
+		// The same file still under the server folder counts once; another agent's file adds nothing.
+		await mkdir(path.join(dir, 'game-1', 'raw', 'server', 'arena-watch'), { recursive: true });
+		await writeFile(path.join(dir, 'game-1', 'raw', 'server', 'arena-watch', 'agent-a-danger.jsonl'), text);
+		await writeFile(path.join(dir, 'game-1', 'raw', 'arena-watch', 'agent-b-danger.jsonl'), JSON.stringify({ ...hit(5, { taken: 7 }), agentId: 'agent-b' }) + '\n');
+		const [first, second] = readRun(dir);
+		const bucket = (hits, blocked, damage, damageUnknown = 0) => ({ hits, blocked, damage, damageUnknown });
+		const byShield = { blocking: bucket(1, 1, 0), shieldNotBlocking: bucket(1, 0, 3), noShield: bucket(2, 0, 8), unknown: bucket(3, 0, 7, 1) };
+		const byAction = { fight_target: bucket(3, 0, 6, 1), mine_block: bucket(2, 1, 3), '(none)': bucket(1, 0, 4), '(unknown)': bucket(1, 0, 5) };
+		assert.deepEqual(first.damage, { ...bucket(7, 1, 18, 1), byShield, byAction });
+		assert.deepEqual(Object.keys(first.damage.byAction), ['fight_target', 'mine_block', '(none)', '(unknown)'], 'actions by hits, most first');
+		assert.equal('damage' in second, false, 'no danger file: not measured, not zero hits');
+		const [cohort] = buildGate({ gate: 'r9', title: 'round 9', cohorts: [{ name: 'r9', label: 'round 9', dirs: [dir] }] }).cohorts;
+		assert.deepEqual(cohort.damage, { games: 1, ...bucket(7, 1, 18, 1), byShield, byAction, malformedRows: 0 });
+		assert.ok('deaths' in cohort && 'deathCauses' in cohort && 'nether' in cohort, 'existing cohort keys stay');
+	} finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('shield state and action read only the fields a schema 2 row carries', () => {
+	assert.equal(shieldState({ schema: 1, blocked: true }), 'unknown', 'a schema 1 shield block says nothing about the hand');
+	assert.equal(shieldState({ schema: 2, shieldHand: 'main', blocking: true }), 'blocking');
+	assert.equal(shieldState({ schema: 2, shieldHand: 'main', blocking: false }), 'shieldNotBlocking');
+	assert.equal(shieldState({ schema: 2, shieldHand: null, blocking: false }), 'noShield');
+	assert.equal(shieldState({ schema: 2, shieldHand: null, blocking: null }), 'unknown');
+	assert.equal(shieldState({ schema: 2, blocking: false }), 'unknown', 'a missing hand field is unknown');
+	assert.equal(actionAtHit({ schema: 1 }), '(unknown)');
+	assert.equal(actionAtHit({ schema: 2, action: null }), '(none)');
+	assert.equal(actionAtHit({ schema: 2, action: 'flee_from' }), 'flee_from');
+	assert.deepEqual(damageBreakdown([]), { hits: 0, blocked: 0, damage: 0, damageUnknown: 0,
+		byShield: Object.fromEntries(['blocking', 'shieldNotBlocking', 'noShield', 'unknown'].map((state) => [state, { hits: 0, blocked: 0, damage: 0, damageUnknown: 0 }])), byAction: {} });
 });

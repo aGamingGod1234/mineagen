@@ -47,6 +47,9 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.boss.enderdragon.EnderDragon;
 import net.minecraft.world.entity.monster.Ghast;
 import net.minecraft.world.entity.projectile.Projectile;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.level.LightLayer;
+import net.minecraft.world.phys.Vec3;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -713,7 +716,34 @@ public final class Watcher {
 
 	private void beforeDamage(ServerPlayer player, float amount) {
 		AgentWatch watch = watchOf(player);
-		if (watch != null) watch.danger.beforeDamage(server.getTickCount(), player.getHealth(), player.getAbsorptionAmount(), amount);
+		if (watch != null) watch.danger.beforeDamage(server.getTickCount(), player.getHealth(), player.getAbsorptionAmount(), amount, guard(player));
+	}
+
+	/** The hand holding a shield (the off hand first, as the reflexes raise it) and whether a shield is raised now. */
+	private static DangerLog.Guard guard(ServerPlayer player) {
+		String hand = player.getOffhandItem().is(Items.SHIELD) ? "off" : player.getMainHandItem().is(Items.SHIELD) ? "main" : null;
+		return new DangerLog.Guard(hand, player.isBlocking());
+	}
+
+	/**
+	 * Where a hit came from and how lit the body stood. The facing error is measured to the direct source (the arrow, not
+	 * the archer) in the horizontal plane, as a shield's block check reads it; the distance is to the attacker (the archer).
+	 * Light is block light at the feet cell (torches, lava, fire), not sky light.
+	 */
+	private static DangerLog.Exposure exposure(ServerPlayer player, DamageSource source) {
+		Entity cause = source.getEntity() == player ? null : source.getEntity();
+		Entity direct = source.getDirectEntity() == player ? null : source.getDirectEntity();
+		Entity attacker = cause != null ? cause : direct;
+		Entity from = direct != null ? direct : cause;
+		Double facing = null;
+		if (from != null && from.level() == player.level()) {
+			Vec3 look = player.getViewVector(1.0F);
+			Vec3 offset = from.position().subtract(player.position());
+			facing = DangerLog.facingErrorDeg(look.x, look.z, offset.x, offset.z);
+		}
+		Double distance = attacker != null && attacker.level() == player.level() ? Double.valueOf(player.distanceTo(attacker)) : null;
+		Integer light = player.level().getBrightness(LightLayer.BLOCK, player.blockPosition());
+		return new DangerLog.Exposure(facing, distance, light);
 	}
 
 	private void damaged(ServerPlayer player, DamageSource source, float baseDamage, float damageTaken, boolean blocked) {
@@ -732,7 +762,7 @@ public final class Watcher {
 		long offset = player.level().getGameTime() - server.getTickCount();
 		watch.danger.damage(server.getTickCount(), who.kind(), source.typeHolder().getRegisteredName(), who.key() == null ? null : who.sourceType(),
 				who.entityId(), who.key(), baseDamage, taken, blocked, player.getHealth(), player.getAbsorptionAmount(), lethal,
-				player.level().getGameTime(), epochMs, reflexes == null ? null : firingNow(reflexes.view(watch.id), offset));
+				player.level().getGameTime(), epochMs, reflexes == null ? null : firingNow(reflexes.view(watch.id), offset), exposure(player, source));
 		writeDanger(watch);
 	}
 

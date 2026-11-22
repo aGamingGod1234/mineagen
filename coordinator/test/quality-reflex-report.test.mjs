@@ -132,6 +132,9 @@ test('each room is scored over its own window; deaths come from the death counte
 	const other = scoreRun({ scenario: 'R-CREEPER', goalStartedAtMs: START, samples, dangerRows: [...rows, { type: 'damage', schema: 99, atMs: START, healthDrop: 9 }] });
 	assert.equal(other.otherSchemaRows, 1);
 	assert.equal(other.damage, 6, 'rows of another schema are counted apart, never mixed in');
+	const older = scoreRun({ scenario: 'R-CREEPER', goalStartedAtMs: START, samples, dangerRows: [rows[0], { ...rows[1], schema: 1 }] });
+	assert.equal(older.otherSchemaRows, 0);
+	assert.equal(older.damage, 6, 'schema 1 rows (before the damage-state fields) still score');
 });
 
 const scored = (scenario, repetition, damageHp, { deaths = 0, success = true, status = 'valid' } = {}) =>

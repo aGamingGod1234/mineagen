@@ -22,7 +22,7 @@ import java.util.regex.Pattern;
  * read at the Watcher tick that saw them.
  */
 public final class DangerLog {
-	public static final int SCHEMA = 1;
+	public static final int SCHEMA = 2;
 	public static final String RULES = "onset-1";
 	/** A response must start within this many ticks of the onset; after it the onset's response is {@code none}. */
 	public static final long RESPONSE_WINDOW_TICKS = 200L;
@@ -42,9 +42,29 @@ public final class DangerLog {
 	public record FiringNow(String ruleId, long startGameTime, Set<String> when) {
 	}
 
-	/** One hit: health and absorption before (ALLOW_DAMAGE) and after (AFTER_DAMAGE, or 0 health on a lethal hit). */
+	/**
+	 * The body's guard just before a hit (ALLOW_DAMAGE): which hand holds a shield ({@code "main"}, {@code "off"} or null)
+	 * and whether it is raised. It is read before the hit, because a hit that disables the shield lowers it before
+	 * AFTER_DAMAGE and a death empties the hands before its event.
+	 */
+	public record Guard(String shieldHand, boolean blocking) {
+	}
+
+	/**
+	 * Where a hit came from and how lit the body stood, read when it lands; null where unknown. {@code facingErrorDeg} is
+	 * the horizontal angle between the look direction and the direction to the hit's source, {@code attackerDistance} the
+	 * blocks to the attacker, {@code light} the block light at the body's feet.
+	 */
+	public record Exposure(Double facingErrorDeg, Double attackerDistance, Integer light) {
+	}
+
+	/**
+	 * One hit: health and absorption before (ALLOW_DAMAGE) and after (AFTER_DAMAGE, or 0 health on a lethal hit), the
+	 * action and firing running when it landed, and the guard (null when unpaired) and exposure (null when not read).
+	 */
 	public record Hit(String kind, String damageType, String attacker, String attackerId, String sourceKey, Float amount, Float taken,
-			boolean blocked, Float healthBefore, Float absorptionBefore, float healthAfter, float absorptionAfter, boolean lethal) {
+			boolean blocked, Float healthBefore, Float absorptionBefore, float healthAfter, float absorptionAfter, boolean lethal,
+			Command action, String firingRule, Guard guard, Exposure exposure) {
 	}
 
 	private static final class Onset {
@@ -97,6 +117,7 @@ public final class DangerLog {
 	private float beforeHealth;
 	private float beforeAbsorption;
 	private float beforeAmount;
+	private Guard beforeGuard;
 
 	public DangerLog(String agentId) {
 		this.agentId = agentId;
@@ -161,10 +182,16 @@ public final class DangerLog {
 
 	/** ALLOW_DAMAGE: health and absorption before a hit, paired with the hit only within the same server tick. */
 	public void beforeDamage(long serverTick, float health, float absorption, float amount) {
+		beforeDamage(serverTick, health, absorption, amount, null);
+	}
+
+	/** ALLOW_DAMAGE with the body's guard, paired like health; a null guard is written as unknown. */
+	public void beforeDamage(long serverTick, float health, float absorption, float amount, Guard guard) {
 		beforeTick = serverTick;
 		beforeHealth = health;
 		beforeAbsorption = absorption;
 		beforeAmount = amount;
+		beforeGuard = guard;
 	}
 
 	/**
@@ -173,11 +200,20 @@ public final class DangerLog {
 	 */
 	public void damage(long serverTick, String kind, String damageType, String attacker, String attackerId, String sourceKey, Float amount, Float taken,
 			boolean blocked, float healthAfter, float absorptionAfter, boolean lethal, long gameTime, long epochMs, FiringNow firing) {
+		damage(serverTick, kind, damageType, attacker, attackerId, sourceKey, amount, taken, blocked, healthAfter, absorptionAfter, lethal, gameTime,
+				epochMs, firing, null);
+	}
+
+	/** {@link #damage} with the hit's exposure (null: not read, written as unknown). */
+	public void damage(long serverTick, String kind, String damageType, String attacker, String attackerId, String sourceKey, Float amount, Float taken,
+			boolean blocked, float healthAfter, float absorptionAfter, boolean lethal, long gameTime, long epochMs, FiringNow firing, Exposure exposure) {
 		boolean paired = beforeTick == serverTick;
 		beforeTick = Long.MIN_VALUE;
 		Float base = amount != null ? amount : paired ? Float.valueOf(beforeAmount) : null;
 		Hit hit = new Hit(kind, damageType, attacker, attackerId, sourceKey, base, taken, blocked, paired ? beforeHealth : null,
-				paired ? beforeAbsorption : null, lethal ? 0.0F : healthAfter, absorptionAfter, lethal);
+				paired ? beforeAbsorption : null, lethal ? 0.0F : healthAfter, absorptionAfter, lethal, active, firing == null ? null : firing.ruleId(),
+				paired ? beforeGuard : null, exposure);
+		beforeGuard = null;
 		rows.add(damageRow(hit, gameTime, epochMs));
 		String key = sourceKey != null ? sourceKey : kind;
 		boolean known = false;
@@ -373,7 +409,35 @@ public final class DangerLog {
 		row.addProperty("absorbed", paired ? round(Math.max(0.0D, hit.absorptionBefore() - hit.absorptionAfter())) : null);
 		row.addProperty("healthDrop", paired ? round(Math.max(0.0D, hit.healthBefore() - hit.healthAfter())) : null);
 		row.addProperty("lethal", hit.lethal());
+		// Schema 2: what the body was doing and how it stood when hit. The action is the one onset rows name (the last
+		// accepted or running command); null fields are unknown, never "none".
+		Command action = hit.action();
+		row.addProperty("action", action == null ? null : action.actionType());
+		row.addProperty("actionId", action == null ? null : action.actionId());
+		row.addProperty("actionIssuer", action == null ? null : action.issuer());
+		row.addProperty("firingRule", hit.firingRule());
+		Guard guard = hit.guard();
+		row.addProperty("shieldHand", guard == null ? null : guard.shieldHand());
+		row.addProperty("blocking", guard == null ? null : Boolean.valueOf(guard.blocking()));
+		Exposure exposure = hit.exposure();
+		Double facing = exposure == null ? null : exposure.facingErrorDeg();
+		Double distance = exposure == null ? null : exposure.attackerDistance();
+		row.addProperty("facingErrorDeg", facing == null ? null : Double.valueOf(round(facing)));
+		row.addProperty("attackerDistance", distance == null ? null : Double.valueOf(round(distance)));
+		row.addProperty("light", exposure == null ? null : exposure.light());
 		return row;
+	}
+
+	/**
+	 * Horizontal angle in degrees (0 to 180) between a look direction and the offset to a hit's source, the plane a
+	 * shield's block check uses ({@code ProjectilePerception.shieldBlocks}: a raised shield stops a hit under 90). Null
+	 * when either has no horizontal length (looking straight up or down, or a source straight above or below).
+	 */
+	static Double facingErrorDeg(double lookX, double lookZ, double offsetX, double offsetZ) {
+		double look = Math.hypot(lookX, lookZ), offset = Math.hypot(offsetX, offsetZ);
+		if (look < 1.0E-6D || offset < 1.0E-6D) return null;
+		double cos = (lookX * offsetX + lookZ * offsetZ) / (look * offset);
+		return Math.toDegrees(Math.acos(Math.max(-1.0D, Math.min(1.0D, cos))));
 	}
 
 	JsonObject firingRow(ReflexScheduler.Event event, long tickOffset, long gameTime, long epochMs) {
