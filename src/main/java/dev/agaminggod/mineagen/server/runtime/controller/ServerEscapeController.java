@@ -90,7 +90,7 @@ public final class ServerEscapeController implements ServerController {
 	private int climbs;
 	/** Gives back the running move's attempt when a reflex interrupts it (see {@link #resumed}). */
 	private Runnable refund;
-	private int fills, steps;
+	private int fills, steps, wades;
 	private int covers;
 	/** Runs out of a shooter's range when no cover is in reach. */
 	private int runs;
@@ -186,6 +186,16 @@ public final class ServerEscapeController implements ServerController {
 			refund = () -> climbs--;
 			return startMove(player, climbOut(bank), "climb out onto the bank at " + bank.toShortString());
 		}
+		// No bank within one push, but a flooded step beside the body whose floor is within the climb from where it floats
+		// (a flooded stair): a player wades up onto it, as each step up brings the next one, and the bank, in reach. A
+		// block placed there instead raises the ledge out of reach of a body afloat (6006/0: 4 of 4 climbs failed).
+		BlockPos ledge = (bank == null || player.isUnderWater() || !besideBank(player, bank)) && wades < WADE_LIMIT && (!player.isUnderWater() || player.getAirSupply() >= SWIM_FIRST_AIR)
+				? wadeCell(player.level(), player, connectedWater(player.level(), player.blockPosition())) : null;
+		if (ledge != null) {
+			wades++;
+			refund = () -> wades--;
+			return startMove(player, wadeUp(ledge.immutable()), "wade up onto the flooded step at " + ledge.toShortString());
+		}
 		int tries = bank == null ? 0 : bankTries.merge(bank, 1, Integer::sum);
 		boolean bankAbove = bank != null && bank.getY() > player.getBlockY();
 		String block = plainBlock(player);
@@ -228,6 +238,65 @@ public final class ServerEscapeController implements ServerController {
 				travelBank = bank.immutable();
 				yield startChild(player, environment.travel(player, bank, childMs(now)), "out of the water to the bank at " + bank.toShortString());
 			}
+		};
+	}
+
+	/** At most this many wades up flooded steps in one escape: a flooded stair is climbed one step per wade. */
+	static final int WADE_LIMIT = 16;
+	/** How high above the feet a ledge can be climbed: afloat, vanilla's hop out of water needs the body 0.6 higher free. */
+	static final double WADE_AFLOAT = 0.6D, WADE_STANDING = 1.1D;
+
+	/**
+	 * A water cell beside the body, in its own water, over a sturdy dry floor higher than the floor under the body and
+	 * within the climb from where it is (afloat {@link #WADE_AFLOAT}, standing {@link #WADE_STANDING}), with room for the
+	 * body over it (water or air, nothing solid): the highest such step, or null.
+	 */
+	static BlockPos wadeCell(Level level, ServerPlayer player, Set<BlockPos> pool) {
+		BlockPos feet = player.blockPosition();
+		double reach = player.onGround() ? WADE_STANDING : WADE_AFLOAT;
+		// The top of the floor under the body: the first solid cell down through its water (at most 4 down).
+		int ownFloorTop = Integer.MIN_VALUE;
+		for (int down = 0; down <= 4; down++) {
+			BlockPos below = feet.below(down);
+			if (!level.getBlockState(below).getCollisionShape(level, below).isEmpty()) { ownFloorTop = below.getY() + 1; break; }
+		}
+		BlockPos best = null;
+		double bestLedge = -0.5D;
+		for (int dy = 0; dy <= 1; dy++) {
+			for (Direction side : Direction.Plane.HORIZONTAL) {
+				BlockPos cell = feet.above(dy).relative(side);
+				if (!pool.contains(cell)) continue;
+				BlockPos under = cell.below();
+				if (!level.getFluidState(under).isEmpty() || !level.getBlockState(under).isFaceSturdy(level, under, Direction.UP)) continue;
+				if (!roomOver(level, cell) || !roomOver(level, cell.above())) continue;
+				double ledge = cell.getY() - player.getY();
+				if (cell.getY() > ownFloorTop && ledge > bestLedge && ledge <= reach) { bestLedge = ledge; best = cell; }
+			}
+		}
+		return best;
+	}
+
+	/** A cell the body fits in over a step: air or water, nothing solid, no hazard. */
+	private static boolean roomOver(Level level, BlockPos cell) {
+		BlockState state = level.getBlockState(cell);
+		return (state.getFluidState().isEmpty() || state.getFluidState().is(net.minecraft.tags.FluidTags.WATER))
+				&& state.getCollisionShape(level, cell).isEmpty() && !hazard(state);
+	}
+
+	/** Face the flooded step and hold forward and jump: done standing on it, failed after 3 s. */
+	static EscapeMoves.Move wadeUp(BlockPos cell) {
+		int[] ticks = {0};
+		return (player, input) -> {
+			double dx = cell.getX() + 0.5D - player.getX(), dz = cell.getZ() + 0.5D - player.getZ();
+			if (player.onGround() && player.getY() >= cell.getY() - 0.05D && dx * dx + dz * dz <= 0.36D)
+				return new EscapeMoves.Result(EscapeMoves.Status.DONE, "on the flooded step at " + player.blockPosition().toShortString());
+			if (++ticks[0] > 60) return new EscapeMoves.Result(EscapeMoves.Status.FAILED, "could not get onto the flooded step at " + cell.toShortString() + " in 3 s");
+			float heading = net.minecraft.util.Mth.wrapDegrees((float) Math.toDegrees(Math.atan2(-dx, dz)));
+			float yaw = dev.agaminggod.mineagen.server.runtime.input.AgentInputStates.turnYaw(player.getYRot(), heading);
+			float pitch = dev.agaminggod.mineagen.server.runtime.input.AgentInputStates.turnPitch(player.getXRot(), 0.0F);
+			input.accept(new dev.agaminggod.mineagen.server.runtime.input.AgentInputState(1.0F, 0.0F, true, false, false, false, false, yaw, pitch,
+					player.getInventory().getSelectedSlot(), net.minecraft.world.InteractionHand.MAIN_HAND));
+			return new EscapeMoves.Result(EscapeMoves.Status.RUNNING, "wading onto the flooded step");
 		};
 	}
 
