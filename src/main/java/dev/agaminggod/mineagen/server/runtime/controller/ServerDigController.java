@@ -870,6 +870,14 @@ public final class ServerDigController implements ServerController {
 		if (active == Pattern.STAIRS_UP) {
 			BlockPos step = next.below();
 			BlockState state = player.level().getBlockState(step);
+			// Out of the ground: open sky over the head here and over the next step, and that step would be a block placed in
+			// dry air. The rest of the way up is a staircase built into the air, not dug; a player stops digging and walks on.
+			// Under a ledge or a cave mouth the next step is roofed, so the climb goes on there (playtest 22 Nov: a climb to
+			// y79 came out on the grass at y68 and built cobblestone steps up into the open beside a village hill).
+			if (outInTheOpen(standable(player.level(), step, state), state.getFluidState().isEmpty(),
+					() -> dev.agaminggod.mineagen.server.perception.ServerObservationCollector.skyOpenAt(player.level(), feet.above())
+							&& dev.agaminggod.mineagen.server.perception.ServerObservationCollector.skyOpenAt(player.level(), next.above())))
+				return outInTheOpen(player);
 			// A snow layer or grass in the step's cell hides the faces a step block would go against: knock it away
 			// first, as a player does, then place the step on what is under it.
 			if (!standable(player.level(), step, state) && !state.isAir() && state.canBeReplaced() && state.getFluidState().isEmpty()
@@ -1939,6 +1947,21 @@ public final class ServerDigController implements ServerController {
 		releaseInput();
 		String goal = pattern == Pattern.TUNNEL ? "Reached the tunnel goal" : "Reached y" + player.blockPosition().getY();
 		return TickResult.succeeded("DIG_GOAL_REACHED", summary(player, goal));
+	}
+
+	/** stairs_up out of the ground short of its y: a success, as the climb's point (getting out) is met. */
+	private TickResult outInTheOpen(ServerPlayer player) {
+		releaseInput();
+		int y = player.blockPosition().getY();
+		return TickResult.succeeded(OPEN_SKY_REACHED, summary(player, "Out under open sky at y" + y + ", " + (targetY - y) + " below y" + targetY
+				+ ": nothing above to dig through, and the next step would be built in the air; walk on from here (travel_to), or build to go higher"));
+	}
+
+	public static final String OPEN_SKY_REACHED = "OPEN_SKY_REACHED";
+
+	/** A stairs_up step that would be built into dry air, with open sky over the head here and over the next step's head. */
+	static boolean outInTheOpen(boolean stepStandable, boolean stepDry, java.util.function.BooleanSupplier skyOverBoth) {
+		return !stepStandable && stepDry && skyOverBoth.getAsBoolean();
 	}
 
 	private TickResult stop(ServerPlayer player, String code, String why) {

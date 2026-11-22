@@ -1061,6 +1061,7 @@ export const FAILURE_CODES = Object.freeze({
 	ACTION_REPLACED: ['ok'],
 	ACTION_COMPLETED: ['ok'],
 	DIG_GOAL_REACHED: ['ok'],
+	OPEN_SKY_REACHED: ['ok'],
 	TREE_FELLED: ['ok'],
 	VEIN_MINED: ['ok'],
 	DIG_LIMIT_REACHED: ['ok'],
