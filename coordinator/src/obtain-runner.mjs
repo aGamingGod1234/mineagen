@@ -259,12 +259,12 @@ export function isDanger(result, observation) {
  * A mob to hunt seen (not heard or remembered) within the hunt's reach and about the body's height: under cover it is
  * fought there. A cow heard through a cave ceiling still means climbing out to the surface first.
  */
-function huntHere(need, o) {
+function huntHere(need, o, budget) {
 	const at = bodyAt(o);
 	if (!at || o.continuity?.rememberedSections?.includes('entities')) return false;
 	const mobs = new Set(need.mobs.map(id));
 	return (o.entities ?? []).some((row) => mobs.has(row?.type) && row.alive !== false && row.visible !== false && row.perceivedBy !== 'sound' && row.remembered !== true
-		&& [row.x, row.y, row.z].every(Number.isFinite) && Math.abs(row.y - at.y) <= 4 && Math.hypot(row.x - at.x, row.z - at.z) <= HUNT_RADIUS);
+		&& [row.x, row.y, row.z].every(Number.isFinite) && !unreachedHerd(budget, row) && Math.abs(row.y - at.y) <= 4 && Math.hypot(row.x - at.x, row.z - at.z) <= HUNT_RADIUS);
 }
 
 /**
@@ -1167,7 +1167,7 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		await offCanopy();
 		if (body.interrupted() || body.stopped()) return 'stopped';
 		// A mob to hunt already in view under cover (a cave spider in a mineshaft) is hunted where it is, not climbed away from.
-		const covered = need.kind === 'kill' && huntHere(need, await body.observe()) ? null : await surfaceFirst(need);
+		const covered = need.kind === 'kill' && huntHere(need, await body.observe(), budget) ? null : await surfaceFirst(need);
 		if (body.interrupted() || body.stopped()) return 'stopped';
 		// Searching sideways underground finds neither trees nor animals: hand back, saying why.
 		if (covered !== null) { noSurface = `no way up to the surface for ${need.accept[0]}: ${covered}`; return noSurface; }
@@ -1207,6 +1207,8 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			if (food && foodFlee === null && Number.isFinite(health) && health <= LOW_HEALTH) foodFlee = Math.max(0.5, health - 1);
 			const flee = foodFlee !== null ? { fleeAtHealth: foodFlee } : {};
 			const fought = await act('fight_until', { mob: mob.mob, untilItem: id(need.accept[0]), untilCount: total, radius: 24, timeoutMs: 180_000, ...flee });
+			// A hunt under cover that found no way to its mob: the next round climbs out instead of trying it again.
+			if (fought?.state !== 'SUCCEEDED' && /^(NO_TARGET_SEEN|TARGET_OUT_OF_REACH|SPOT_UNREACHABLE)$/.test(fought?.reasonCode ?? '') && (await body.observe()).player?.skyOpen === false) budget.herds.push({ x: mob.x, z: mob.z });
 			return fought?.state === 'SUCCEEDED' ? null : `fight_until ${bare(mob.mob)}: ${fought?.reasonCode ?? 'failed'}`;
 		}
 		budget.lastSearch = null;

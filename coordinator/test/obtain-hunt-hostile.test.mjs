@@ -82,3 +82,22 @@ test('a cow heard through a cave ceiling still means climbing out first', async 
 	assert.ok(calls.includes('dig_to'), `climbs: ${JSON.stringify(calls)}`);
 	assert.ok(!calls.includes('fight_until'), JSON.stringify(calls));
 });
+
+test('a hunt under cover that cannot reach its mob climbs out on the next round', async () => {
+	const calls = [];
+	const cave = { type: 'minecraft:cave_spider', uuid: 'cs', x: 10.5, y: 20, z: 0.5, hostile: true, alive: true, visible: true, distance: 10 };
+	const body = {
+		observe: async () => ({ ready: true, player: { x: 0.5, y: 20, z: 0.5, health: 20, foodLevel: 20, skyOpen: false, onGround: true, threats: [] },
+			world: { dimension: 'minecraft:overworld', dayTime: 6000 }, blocks: [], entities: [cave], inventory: { items: [{ itemId: 'minecraft:iron_sword', count: 1, slot: 0 }] } }),
+		act: async (actionType) => {
+			calls.push(actionType);
+			if (actionType === 'fight_until') return { state: 'FAILED', reasonCode: 'TARGET_OUT_OF_REACH', message: 'no path' };
+			return { state: 'FAILED', reasonCode: 'NO_STANCE', message: 'no stance' };
+		},
+		search: async () => ({ state: 'FAILED', reasonCode: 'FIND_NOT_FOUND', message: 'none' }),
+		survey: async () => ({ entries: [] }), note: () => {}, stopped: () => false, interrupted: () => false, recovering: () => {},
+	};
+	await runObtain({ item: 'string', count: 2, timeoutMs: 600_000 }, body, { now: clock() });
+	assert.equal(calls.filter((type) => type === 'fight_until').length, 1, JSON.stringify(calls));
+	assert.ok(calls.indexOf('dig_to') > calls.indexOf('fight_until'), `climbs after the failed hunt: ${JSON.stringify(calls)}`);
+});
