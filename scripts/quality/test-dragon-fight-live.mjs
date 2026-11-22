@@ -68,7 +68,8 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 		s.record = { ...(e.payload.record ?? e.payload), agentId: e.agentId };
 		await s.bridge.send('agent_ready', s.record.agentId, { goalRevision: s.record.goalRevision, reconciled: false });
 		const started = s.inbox.wait('goal_control', g => g.payload.operation === 'start', 120_000);
-		await s.command(`mineagen start ${AGENT} Survive for 1200 seconds.`);
+		// A goal far past every window: a goal that completes cancels the action in flight and stales every later command.
+		await s.command(`mineagen start ${AGENT} Survive for 7200 seconds.`);
 		s.record.goalRevision = (await started).payload.goalRevision;
 		await s.bridge.send('agent_ready', s.record.agentId, { goalRevision: s.record.goalRevision, reconciled: false });
 		await s.command(`gamemode survival ${AGENT}`);
@@ -94,12 +95,16 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 			runtime.onActionResult(record, ev.payload);
 			s.bridge.send('action_result_ack', record.agentId, { goalRevision: record.goalRevision, actionId: ev.payload.actionId }).catch(() => {});
 		});
-		let calls = 0;
+		let calls = 0, harnessErrors = 0;
 		// Every scripted command takes the path a model's command takes (runtime.execute), reflexes and vetting included.
 		const act = async (actionType, args) => {
 			const n = ++calls;
+			record.goalRevision = s.record.goalRevision;
 			const r = await runtime.execute({ agentId: record.agentId, goalRevision: record.goalRevision, turnId: `fight-${n}`, callId: `fight-${n}`,
 				tool: normalizeMinecraftToolCall('act', { actionType, arguments: args }) }, record).catch(error => ({ state: 'FAILED', reasonCode: 'FIXTURE_ERROR', message: String(error?.message ?? error) }));
+			if (r?.reasonCode === 'FIXTURE_ERROR') harnessErrors += 1;
+			// An action refused at once is not retried in a tight loop.
+			if (r?.state === 'FAILED') await s.clock.sleep(500);
 			return { state: r?.state, reasonCode: r?.reasonCode, message: String(r?.message ?? '').slice(0, 300) };
 		};
 		const view = async () => adaptObservation(await s.observe());
@@ -111,7 +116,6 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 		const dragonHealth = async () => number(await end(s, 'data get entity @e[type=minecraft:ender_dragon,limit=1] Health'));
 		// "Test passed, count: N" or "Test failed" from execute if entity.
 		const crystalsLeft = async () => { const text = String(await end(s, 'execute if entity @e[type=minecraft:end_crystal]')); return /count:?\s*(\d+)/i.test(text) ? Number(/count:?\s*(\d+)/i.exec(text)[1]) : /failed/i.test(text) ? 0 : NaN; };
-		await s.command('scoreboard objectives add qo_crystals dummy');
 		// The End: load the island so the fight starts (the dragon spawns once a player is in the End).
 		await end(s, 'forceload add -64 -64 112 64'); await sleep(2000);
 		const readDamage = await damageCounter(text => s.command(text), AGENT);
@@ -120,6 +124,7 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 		const readDeaths = () => deathCounter(text => s.command(text), AGENT);
 		for (let run = 1; run <= repeats; run++) {
 			const row = { run, room: results.arm, startedAt: Date.now() };
+			harnessErrors = 0;
 			results.runs.push(row);
 			try {
 				await s.normalRate();
@@ -156,7 +161,7 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 				const now = () => s.clock.now(), wall0 = Date.now(), timer = await s.gameTimer(), t0 = now();
 				const limit = SURVIVE ? SURVIVE_MS : FIGHT_MS;
 				const log = [], tried = new Set();
-				let dead = false, killed = false, minY = place.y, shots = 0, crystalBreaks = 0, meleeHits = 0, flyingShots = 0;
+				let dead = false, killed = false, minY = place.y, shots = 0, crystalBreaks = 0, meleeHits = 0, flyingShots = 0, passes = 0;
 				const note = (what, r) => { log.push([Math.round((now() - t0) / 1000), what, r?.state, r?.reasonCode, r?.message?.slice(0, 120)]); };
 				while (now() - t0 < limit) {
 					// The raw sample decides death: a dead body's sample may not adapt, and it respawns in the Overworld.
@@ -169,7 +174,13 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 					if (o) minY = Math.min(minY, o.player?.y ?? minY);
 					if (!SURVIVE) {
 						const health = await dragonHealth();
-						if (!Number.isFinite(health) || health <= 0) { killed = Number.isFinite(dragon); break; }
+						if (Number.isFinite(health) && health <= 0) { killed = Number.isFinite(dragon); break; }
+						if (!Number.isFinite(health) && Number.isFinite(dragon)) {
+							// The island stays force-loaded, so a missing dragon is a dead one only if it is still missing 2 s later.
+							await s.clock.sleep(2000);
+							const gone = !/passed/i.test(String(await end(s, 'execute if entity @e[type=minecraft:ender_dragon]')));
+							if (gone && !Number.isFinite(await dragonHealth())) { killed = true; break; }
+						}
 					}
 					if (SURVIVE || !o) { await s.clock.sleep(1000); continue; }
 					const me = o.player;
@@ -205,7 +216,8 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 						const r = await act('travel_to', { x: WAIT_SPOT.x, y: y + 1, z: WAIT_SPOT.z, tolerance: 3, build: true, timeoutMs: 60000 });
 						note('to the fountain', r); continue;
 					}
-					if (ranged && tried.size > 0 && log.length % 10 === 0) tried.clear();
+					// A crystal missed from one spot is tried again later (the body and its line of sight move).
+					if (++passes % 20 === 0) tried.clear();
 					// Looking round for crystals and the dragon, at the sky: a level gaze would meet endermen and provoke them, which
 					// a player avoids (the first baseline lost both kits to endermen while the script swept the horizon).
 					const turn = ((now() - t0) / 4000) % (2 * Math.PI);
@@ -222,10 +234,17 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 				row.voidFall = minY < 0;
 				row.killed = killed;
 				Object.assign(row, { shots, crystalBreaks, meleeTries: meleeHits, flyingShots, crystalsLeft: await crystalsLeft(), dragonHealthEnd: await dragonHealth(), log: log.slice(-60) });
+				row.deaths = row.deathEvidence.deaths;
+				row.harnessErrors = harnessErrors;
+				// A fresh fight starts with a full dragon and all ten crystals; a repeat after a lost fight does not.
+				const fresh = Number.isFinite(dragon) && dragon >= 200 && row.start.crystals === 10;
 				const missing = [!row.deathEvidence.valid && 'death counter unreadable', !row.placed && `body not placed on the ${SURVIVE ? 'island' : 'arrival platform'}`,
-					!SURVIVE && !Number.isFinite(dragon) && 'no dragon at the start'].filter(Boolean);
+					!Number.isFinite(dragon) && 'no dragon at the start', !fresh && Number.isFinite(dragon) && `not a fresh fight (dragon ${dragon}, crystals ${row.start.crystals})`,
+					!row.armed.includes('default-breath') && 'the End reflexes never armed', harnessErrors > 0 && `${harnessErrors} harness error(s) sending commands`].filter(Boolean);
 				if (missing.length) row.error = `not exercised: ${missing.join('; ')}`;
 				row.pass = SURVIVE ? !row.died && !row.voidFall : row.killed && !row.died;
+				row.failReason = row.pass ? null : row.died ? 'died' : row.voidFall ? 'void fall' : SURVIVE ? null : 'dragon alive at the window end';
+				row.finishedAt = Date.now();
 				console.log(`[dragon-fight] ${results.arm} run ${run}: ${row.error ? 'INVALID' : row.pass ? 'PASS' : 'FAIL'} killed=${killed} died=${row.died} dragon=${row.dragonHealthEnd} crystals=${row.crystalsLeft} shots=${shots} broke=${crystalBreaks} melee=${meleeHits} flying=${flyingShots} damage=${row.damageTaken} game=${row.gameSeconds}s`);
 				// After a kill the End has no dragon: a further repeat on this server measures nothing.
 				if (killed && run < repeats) { results.runs.push(...Array.from({ length: repeats - run }, (_, i) => ({ run: run + i + 1, room: results.arm, error: 'not exercised: the dragon was killed in an earlier repeat' }))); break; }

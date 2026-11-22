@@ -259,7 +259,7 @@ REFLEX_ONLY=look-past,look-at-head,fight-open,fight-tunnel,drop-odds /path/to/re
 
 - **Fight** (default): one scripted player for both kits, branching only on what is held. It walks or bridges from the arrival platform to the fountain, shoots every crystal it has a line to, melees the dragon's head when it perches, shoots it in flight, and otherwise waits near the fountain. Pass: dragon killed and body alive within 20 game minutes of arrival. The no-bow kit is the control and should fail.
 - **`--survive`**: the body stands idle on the island with the dragon circling and the crystals intact. Pass: alive after 10 game minutes, no fall into the void.
-- A body not placed on the platform (or the island), or an unreadable death counter, is INVALID, never a pass. The rooms are `dragon-fight-bow`, `dragon-fight-nobow` and `end-survive-judged` in `benchmark-rooms.json`.
+- A body not placed on the platform (or the island), or an unreadable death counter, is INVALID, never a pass. A run that is not a fresh fight (dragon below 200 or fewer than ten crystals at the start), whose End reflexes never armed, or whose commands hit a harness error is INVALID too. `benchmark-rooms.json` lists `dragon-fight-bow` and `end-survive-judged`; the `--no-bow` control is for A/B batches only, since its expected FAIL would pull the End pass rate down.
 
 ## Forest flee fixture
 
