@@ -124,6 +124,8 @@ try {
 		await s.command(`fill ${X - west} ${F} ${Z - 16} ${X + 24} ${F + 8} ${Z + 16} minecraft:air`);
 		await s.command(`kill @e[type=!minecraft:player,distance=..40,x=${X},y=${F},z=${Z}]`).catch(() => {});
 		await s.command(`clear ${NAME}`);
+		// No effect carries over from the room before (floodlow's water breathing would keep the next room's air full).
+		await s.command(`effect clear ${NAME}`).catch(() => {});
 		let start, drain = 0, facing = 90, bank = null, wall = null;
 		if (room === 'deep') {
 			await s.command(`fill ${X - 5} ${F - 9} ${Z - 5} ${X + 5} ${F - 1} ${Z + 5} minecraft:water`);
