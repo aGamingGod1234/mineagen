@@ -18,6 +18,12 @@ test('which running actions are a blaze hold', () => {
 	assert.equal(blazeHold({ ...hold, arguments: { ...hold.arguments, mob: 'minecraft:enderman' } }), false);
 	assert.equal(blazeHold({ ...hold, actionType: 'fight_target' }), false);
 	assert.equal(blazeHold({ ...hold, dimension: 'minecraft:overworld' }), false);
+	// The mod keeps the ordinary fight for these (never a hold), so a replace with escape or build_shelter is not delayed.
+	assert.equal(blazeHold({ ...hold, arguments: { ...hold.arguments, pursue: false } }), false, 'pursue:false is the ordinary fight');
+	assert.equal(blazeHold({ ...hold, arguments: { ...hold.arguments, sneak: true } }), false, 'sneak:true is the ordinary fight');
+	assert.equal(blazeHold({ ...hold, arguments: { ...hold.arguments, x: 1, y: 64, z: 2 } }), false, 'an explicit spot is the ordinary fight');
+	assert.equal(holdCancelRefusal({ ...hold, arguments: { ...hold.arguments, pursue: false } }, { kind: 'replace_action', actionType: 'build_shelter' }, null, 0), null);
+	assert.equal(blazeHold({ ...hold, arguments: { ...hold.arguments, pursue: true, sneak: false } }), true);
 });
 
 test('H11 a first cancel is refused with the hold state; H12 the same call repeated within 60 s passes', () => {

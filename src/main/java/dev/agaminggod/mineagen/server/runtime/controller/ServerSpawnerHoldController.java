@@ -134,6 +134,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 	private final Set<UUID> ledgeTried = new java.util.HashSet<>();
 	/** Floor rods a trip already went for: one the pickup could not reach (a gap, full bags) is not offered again each tick. */
 	private final Set<UUID> floorTried = new java.util.HashSet<>();
+	/** The rods of the floor trip under way: marked tried only once the trip ends by itself (an interrupted trip marks none). */
+	private List<UUID> tripRods = List.of();
 	private int ledgeTrips, ledgeRods, heldBeforeLedge;
 	private boolean returning;
 	private int eatTicks = -1, eatSlot = -1, eatCount;
@@ -734,7 +736,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 			List<UUID> rods = collectibleRods(player);
 			if (!rods.isEmpty()) {
 				stopEngine(player);
-				floorTried.addAll(rods);
+				tripRods = rods;
 				collector = new KillDropCollector(rods, protection::mayTakeEntity, now, COLLECT_MS).makingRoom(protection::mayDropItem);
 				trips++;
 				return collect(player, now);
@@ -806,6 +808,9 @@ public final class ServerSpawnerHoldController implements ServerController {
 			String done = collector.tick(player, now);
 			if (done == null) return TickResult.running(progress(player));
 			collector = null;
+			// The rods the finished trip went for: one it could not reach is not offered again (picked-up ones are gone).
+			floorTried.addAll(tripRods);
+			tripRods = List.of();
 			note("collect: " + done);
 			returning = true;
 		}
