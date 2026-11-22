@@ -360,8 +360,9 @@ public final class ServerSpawnerHoldController implements ServerController {
 		if (code != null) return target != null ? endTarget(player, now, handBackResult(player, code, elapsed)) : stop(player, handBackResult(player, code, elapsed));
 		// The look round for a spawner comes after the action-wide checks above (death, lava, rod count, health floor,
 		// timeout), so a hurt or finished body never turns on the spot for 4 s.
-		// fight_target form, open fight on: the model's own fight_target runs; hurt below TURTLE_HEALTH, the body walls in
-		// where it stands and heals (emergency), then fights on. No site walk: in the blaze spawner rooms the deaths came on
+		// fight_target form, open fight on: the model's own fight_target runs; once the margin is gone (the hold's own rule,
+		// SpawnerHold.backToCell with no walk: health after the wall-in's 2 s of hits and the fire still burning under
+		// TURTLE_HEALTH), the body walls in where it stands and heals (emergency), then fights on. No site walk: in the blaze spawner rooms the deaths came on
 		// the walk to a cell site and while building it under fire.
 		// A call that starts walled up in the last hold's cell heals on there and opens the doorway once healed (a blaze the
 		// wall hides could not be fought from inside it).
@@ -370,7 +371,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 			if (resumeCell(player)) return TickResult.running(progress(player));
 		}
 		if (target != null && SpawnerHold.OPEN_FIGHT && phase != Phase.HOLD && emergency == null
-				&& (player.getHealth() >= SpawnerHold.TURTLE_HEALTH || !canWallIn(player) || openPart != null && target.isDeadOrDying() && afterOpenKill)) {
+				&& (!marginGone(player, 0.0D) || !canWallIn(player) || openPart != null && target.isDeadOrDying() && afterOpenKill)) {
 			if (openPart == null) {
 				try {
 					// While a wall-in is left the open fight's floor stays under TURTLE_HEALTH: the wall-in answers low health.
@@ -981,7 +982,9 @@ public final class ServerSpawnerHoldController implements ServerController {
 
 	private TickResult emergency(ServerPlayer player, long now, long elapsed) {
 		if (emergency == null) {
-			if (phase == Phase.HOLD || phase == Phase.SCAN || player.getHealth() >= SpawnerHold.TURTLE_HEALTH || !canWallIn(player)) return null;
+			// The same margin rule as the hold's turn-back, with the cell where the body stands (round 2220d78: a fixed
+			// "below 12" began heals at 2.4-8.3 under blaze volleys and fire; the margin began them at a median 16.1).
+			if (phase == Phase.HOLD || phase == Phase.SCAN || !marginGone(player, 0.0D) || !canWallIn(player)) return null;
 			String item = roofing.blockItem(player);
 			cancelParts(player);
 			blockItem = item;
@@ -989,7 +992,11 @@ public final class ServerSpawnerHoldController implements ServerController {
 			emergencyOpening = SpawnerHold.facing(spawner.getX() - emergencyCell.getX(), spawner.getZ() - emergencyCell.getZ());
 			emergency = roofing.seal(emergencyCell, emergencyOpening, blockItem, SEAL_MS + 4_000L, now);
 			emergencies++;
-			note(String.format(Locale.ROOT, "health %.1f before the cell stood: walling in at %s", player.getHealth(), emergencyCell.toShortString()));
+			if (player.getHealth() >= SpawnerHold.TURTLE_HEALTH) marginTurns++;
+			healStarts.add(String.format(Locale.ROOT, "%.1f", player.getHealth()));
+			int fire = HazardExits.fireResistant(player) ? 0 : player.getRemainingFireTicks();
+			note(String.format(Locale.ROOT, "health %.1f (%.1f expected once walled in) before the cell stood: walling in at %s", player.getHealth(),
+					SpawnerHold.healthAtCover(player.getHealth(), 0.0D, hitLossRecent(player), fire), emergencyCell.toShortString()));
 		}
 		TickResult built = emergency.tick(player, now);
 		if (built.state() == State.RUNNING) return TickResult.running(progress(player));
