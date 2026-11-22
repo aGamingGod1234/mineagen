@@ -2842,7 +2842,13 @@ final class ReflexActions {
 				Map<GridPosition, GridPosition> reach = SafeStep.reachable(player, within, MAX_PATH_CELLS);
 				for (GridPosition cell : reach.keySet()) {
 					if (!from.stream().allMatch(mob -> hidden(player, mob, mob.getEyePosition(), cell))) continue;
-					if (reach.get(cell) == null) return Step.done("already out of sight of " + who);
+					// The feet cell hides at its centre, but a shooter that sees the body (at the cell's edge, past the end of a
+					// wall) means it is not hidden here: look on for another cell rather than call it cover (skeleton escape
+					// room: "already out of sight" repeated while the escape still saw the shooter).
+					if (reach.get(cell) == null) {
+						if (from.stream().anyMatch(mob -> mob instanceof Mob seer && seer.hasLineOfSight(player))) continue;
+						return Step.done("already out of sight of " + who);
+					}
 					cover = cell;
 					shooter = from.getFirst();
 					walk = new PathWalk(SafeStep.pathTo(reach, cell));
