@@ -15,10 +15,18 @@ import {damageCounter,recordDamageEvidence} from './lib/damage-counter.mjs';
 import {applyQualitySetup,activateQualitySetup} from '../../coordinator/src/benchmark/quality-scenarios.mjs';
 import {adaptObservation} from '../../coordinator/src/observation-adapter.mjs';
 import {validateAction} from '../../coordinator/src/schema.mjs';
-import {normalizeReflexEntries} from '../../coordinator/src/reflexes.mjs';
-const [checkpointFile,outArg,jarArg,repeatArg='1',ticksArg='24000']=process.argv.slice(2);
+import {normalizeReflexEntries,DEFAULT_REFLEXES} from '../../coordinator/src/reflexes.mjs';
+import {finishRun,EDIT_LOOP_HELP,FIXTURE_OUTCOME_HELP} from './lib/fixture-run.mjs';
+// The room's verdict goes through finishRun into room.json and room-summary.json (one row); result.json stays the
+// detailed report. PASS: at least PEARL_BAR (6) pearls held inside the window, no death, no error.
+const USAGE='Usage: [STANDIN=roof|until|count] [PEARL_BAR=6] [DEFAULTS=1] test-warped-pearl-live.mjs CHECKPOINT OUT JAR [salt=1] [gameTicks=24000] [--strict|--descriptive] under slot.sh live';
+const cli=process.argv.slice(2);
+if(cli.includes('--help')){console.log(USAGE+'\n'+EDIT_LOOP_HELP+'\n'+FIXTURE_OUTCOME_HELP);process.exit(0);}
+const strict=!cli.includes('--descriptive');
+const [checkpointFile,outArg,jarArg,repeatArg='1',ticksArg='24000']=cli.filter(a=>!['--strict','--descriptive'].includes(a));
+if(!process.env.SLOT_PORT_BASE||!process.env.ARENA_HEADLESS_SERVER_TEMPLATE||!process.env.JAVA_HOME||!checkpointFile||!outArg||!jarArg){console.error(USAGE);process.exit(2);}
 const cp=JSON.parse(await readFile(checkpointFile,'utf8')),out=path.resolve(outArg),jar=path.resolve(jarArg),repeat=Number(repeatArg),ticks=Number(ticksArg);
-if(!process.env.SLOT_PORT_BASE)throw Error('Use slot.sh live');await mkdir(out,{recursive:true});if((await readdir(out)).length)throw Error('Fresh output required');
+await mkdir(out,{recursive:true});if((await readdir(out)).length)throw Error('Fresh output required');
 if(cp.fixtureVersion!==2||cp.setup.expectedBiome!=='minecraft:warped_forest')throw Error('Prepared v2 forest checkpoint required');
 const result={checkpointSha256:createHash('sha256').update(await readFile(checkpointFile)).digest('hex'),seed:cp.seed,repeat,requestedGameTicks:ticks,providerCalls:0,naturalSpawns:true,controllerSha256:createHash('sha256').update(await readFile(fileURLToPath(import.meta.url))).digest('hex'),jarSha256:createHash('sha256').update(await readFile(jar)).digest('hex'),actions:{},refusals:{},fights:[],sightings:0};
 const sleep=ms=>new Promise(r=>setTimeout(r,ms)),seen=new Set(),cooldown=new Map();
@@ -31,6 +39,8 @@ async function observe(){
  await s.bridge.send('request_observation',s.record.agentId,{goalRevision:s.record.goalRevision});const raw=(await next).payload;s.observation=raw;
  if(!raw.ready){if(raw.status==='PLAYER_DEAD')dead=true;return facts;}
  facts=adaptObservation(raw);
+ const gt=facts.world?.gameTime;
+ if(startTicks!==undefined&&Number.isFinite(gt)&&gt-startTicks<=ticks&&!dead){result.pearlsInWindow=facts.inventory.items.filter(i=>i.itemId==='minecraft:ender_pearl').reduce((n,i)=>n+i.count,0);result.windowObservedTicks=gt-startTicks;}
  for(const e of facts.entities)if(e.type==='minecraft:enderman'&&e.visible!==false&&e.perceivedBy!=='sound')seen.add(e.stableId);
  return facts;
 }
@@ -38,7 +48,15 @@ async function observe(){
 // repeated after each hand-back, eating when hungry. Results go to result.untilCalls.
 // STANDIN=roof (d41 fight-count): one count-mode call with roof:true for the whole window: fight_target on the nearest
 // seen enderman (untilItem ender_pearl, untilCount held+16), else fight_until on endermen; re-called after a hand-back.
+// FLEE_AT (default 8; the live model passed 14 on every hunt), CALL_TIMEOUT_MS=none (the model's untimed call: fight_until
+// runs its own default, fight_target the coordinator's 30 s), THINK_MS (a model turn between calls, default 0) and
+// the untimed call takes the schema's own default (schema.mjs: 540 s for an enderman pearl fight_until on this branch,
+// 180 s on base). Every call is capped at the window left. Scoring is by game tick: pearlsInWindow is the count the last
+// observation inside startGameTicks+gameTicks showed; a death fails the run (pass false, pearlsInWindow 0).
 const STANDIN=process.env.STANDIN??'script';
+// DEFAULTS=1: the until, roof and count stand-ins play with the coordinator's default reflexes armed (leave lava, step off
+// fire, shield and the rest), as every model game does; without it they play with none.
+const DEFAULTS=process.env.DEFAULTS==='1';
 const gaze={id:'gaze',kind:'trigger',priority:9,when:{type:'enderman_gaze',within:64},do:{type:'look_away'},maxS:2,ttlS:3600};
 async function setRules(next){rules=next;await s.setReflexes(rules);}
 async function act(type,args){
@@ -145,12 +163,27 @@ try{
  const start=s.inbox.wait('goal_control',e=>e.payload.operation==='start');await s.command('mineagen start Probe Survive for 7000 seconds.');s.record.goalRevision=(await start).payload.goalRevision;await s.bridge.send('agent_ready',s.record.agentId,{goalRevision:s.record.goalRevision,reconciled:false});
  const setup=await applyQualitySetup({...cp.setup,randomSalt:repeat},async command=>({text:await s.command(command)}),'Probe');
  await activateQualitySetup(setup,async command=>({text:await s.command(command)}),{stage:'goal-start'});await activateQualitySetup(setup,async command=>({text:await s.command(command)}),{stage:'first-decision'});
- s.bridge.on('observation',e=>{if(active&&e.agentId===s.record.agentId&&e.payload.status==='PLAYER_DEAD')dead=true;});
+ s.bridge.on('observation',e=>{
+  if(!active||e.agentId!==s.record.agentId)return;
+  if(e.payload.status==='PLAYER_DEAD'){dead=true;return;}
+  // Pearls are counted from every sample in the window, also those that arrive while a long fight runs.
+  if(!e.payload.ready||dead)return;
+  try{const f=adaptObservation(e.payload),gt=f.world?.gameTime;
+   if(startTicks!==undefined&&Number.isFinite(gt)&&gt-startTicks<=ticks){result.pearlsInWindow=f.inventory.items.filter(i=>i.itemId==='minecraft:ender_pearl').reduce((n,i)=>n+i.count,0);result.windowObservedTicks=gt-startTicks;}
+  }catch{}
+ });
  await s.command('tick unfreeze');await s.command('difficulty normal');await observe();
  const shield=facts.inventory.items.find(i=>i.itemId==='minecraft:shield');if(shield)await act('equip_item',{sourceSlot:shield.slot,targetSlot:'offhand',expectedItemId:'minecraft:shield'});
  // The window is play: raised to the fixture rate until it ends (see finally).
  readDamage=await damageCounter(text=>s.command(text),'Probe');damage0=await readDamage();
  await s.fastRate();wall0=Date.now();timer=await s.gameTimer();
+ if(DEFAULTS&&['until','roof','count'].includes(STANDIN)){
+  // All of them, as the coordinator arms them (more than the 12 a model may set, so not through setRules).
+  s.revision+=1;await s.bridge.send('reflex_update',s.record.agentId,{revision:s.revision,rules:DEFAULT_REFLEXES.map(rule=>({...structuredClone(rule),coordinatorDefault:true})),yield:false});
+  let armed=false;for(let i=0;i<40&&!armed;i++){armed=(await s.observe()).reflexes?.revision===s.revision;if(!armed)await sleep(100);}
+  if(!armed)throw Error(`default reflexes (revision ${s.revision}) never echoed`);
+ }
+ result.defaultReflexes=DEFAULTS;
  if(STANDIN==='until'){
   startTicks=await gameTicks();started=now();active=true;result.startedAt=new Date(Date.now()).toISOString();result.startGameTicks=startTicks;result.untilCalls=[];
   await select('minecraft:iron_sword');
@@ -175,8 +208,12 @@ try{
    const held=facts.inventory.items.filter(i=>i.itemId==='minecraft:ender_pearl').reduce((n,i)=>n+i.count,0);
    const leftMs=Math.max(1000,Math.min(600000,(ticks-((await gameTicks())-startTicks))*50));
    const e=facts.entities.filter(x=>x.type==='minecraft:enderman'&&x.visible!==false&&x.perceivedBy!=='sound'&&x.distance<=24).sort((a,b)=>a.distance-b.distance)[0];
-   const common={untilItem:'minecraft:ender_pearl',untilCount:held+16,fleeAtHealth:8,roof:true,timeoutMs:leftMs};
-   const [type,args]=e?['fight_target',{targetId:e.stableId,...common}]:['fight_until',{mob:'minecraft:enderman',...common}];
+   const untimed=process.env.CALL_TIMEOUT_MS==='none';
+   const common={untilItem:'minecraft:ender_pearl',untilCount:held+16,fleeAtHealth:Number(process.env.FLEE_AT??8),roof:true,...(untimed?{}:{timeoutMs:leftMs})};
+   let [type,args]=e?['fight_target',{targetId:e.stableId,...common,...(untimed?{timeoutMs:30000}:{})}]:['fight_until',{mob:'minecraft:enderman',...common}];
+   if(untimed&&type==='fight_until'){const normalized=validateAction({type,...args});args={...args,timeoutMs:normalized.timeoutMs};}
+   args={...args,timeoutMs:Math.min(args.timeoutMs??180000,leftMs)};
+   if(Number(process.env.THINK_MS??0)>0)await s.clock.sleep(Number(process.env.THINK_MS));
    const r=await act(type,args);
    result.untilCalls.push({atSeconds:(now()-started)/1000,type,pearlsBefore:held,state:r.state,reason:r.reasonCode,message:String(r.message??'').slice(0,1800)});await save();
    if(r.reasonCode==='AGENT_DEAD')break;
@@ -218,7 +255,7 @@ try{
   if(next){await fight(next);continue;}
   await scan();await s.clock.sleep(300);if(Date.now()-lastSave>10000){lastSave=Date.now();await save();}
  }
- result.elapsedGameTicks=(await gameTicks())-startTicks;result.completedWindow=result.elapsedGameTicks>=ticks||dead;result.endPearls=dead?0:facts.inventory.items.filter(i=>i.itemId==='minecraft:ender_pearl').reduce((n,i)=>n+i.count,0);await s.command('save-all flush');
+ result.elapsedGameTicks=(await gameTicks())-startTicks;result.completedWindow=result.elapsedGameTicks>=ticks&&!dead;result.endPearls=dead?0:facts.inventory.items.filter(i=>i.itemId==='minecraft:ender_pearl').reduce((n,i)=>n+i.count,0);await s.command('save-all flush');
 }catch(error){
  if(dead&&started){
   result.stoppedBecause='PLAYER_DEAD';result.endPearls=0;
@@ -230,12 +267,37 @@ finally{
  if(timer){
   try{result.gameSeconds=Math.round((await timer.elapsed())/1000);result.rates=await timer.rates().catch(()=>null);await s.normalRate();
    recordDamageEvidence(result, damage0,await readDamage());result.tick={rate:s.tickRate,held:await s.tickReport()};}
-  catch(error){result.tickError=String(error.message??error);}
+  catch(error){result.tickError=String(error.message??error);
+   // No damage evidence read: the room has no verdict, never a pass.
+   (result.integrity??=[]).push({file:'damage_taken',error:`teardown failed before the damage counter was read: ${result.tickError}`});}
  }
  await s?.stop().catch(()=>{});
 }
-for(const f of await readdir(path.join(out,'server/world/players/stats')).catch(()=>[])){
+let statsRead=false;
+for(const f of await readdir(path.join(out,'server/world/players/stats')).catch(()=>[])){statsRead=true;
  const stats=JSON.parse(await readFile(path.join(out,'server/world/players/stats',f),'utf8')).stats??{};result.stats=stats;
  result.endermenKilled=stats['minecraft:killed']?.['minecraft:enderman']??0;result.pearlsPickedUp=stats['minecraft:picked_up']?.['minecraft:ender_pearl']??0;result.deaths=stats['minecraft:custom']?.['minecraft:deaths']??0;
 }
-await save();console.log(JSON.stringify(result));process.exitCode=result.error?1:0;
+if(dead)result.pearlsInWindow=0;
+// Shelters built and kills, from every hunt receipt (ServerFightUntilController: "shelters built: N", "N kill(s)").
+let shelters=0,kills=0;for(const c of result.untilCalls??[]){const m=String(c.message);shelters+=Number(/shelters built: (\d+)/.exec(m)?.[1]??0);kills+=Number(/: (\d+) kills?,/.exec(m)?.[1]??0);}
+Object.assign(result,{sheltersBuilt:shelters,receiptKills:kills,sheltersPerKill:kills?shelters/kills:null,pass:!dead&&!(result.deaths>0)&&!result.error&&(result.pearlsInWindow??0)>=Number(process.env.PEARL_BAR??6)});
+// Hand-back codes and main's pass-over of unreachable endermen ("out of reach: passed over N times ... (M let back in)").
+const handBacks={};let passedOver=0,letBackIn=0;
+for(const c of result.untilCalls??[]){handBacks[c.reason]=(handBacks[c.reason]??0)+1;const m=/out of reach: passed over (\d+) times? .*?\((\d+) let back in\)/.exec(String(c.message));if(m){passedOver+=Number(m[1]);letBackIn+=Number(m[2]);}}
+Object.assign(result,{handBacks,passedOver,letBackIn});
+await save();console.log(JSON.stringify(result));
+const bar=Number(process.env.PEARL_BAR??6),pearls=result.pearlsInWindow??0;
+const row={name:`pearl-${cp.seed}-salt${repeat}`,startedAt:started||undefined,finishedAt:Date.now(),seed:cp.seed,salt:repeat,standin:STANDIN,
+ pearlsInWindow:pearls,endPearls:result.endPearls??null,endermenKilled:result.endermenKilled??null,pearlsPickedUp:result.pearlsPickedUp??null,
+ deaths:statsRead?result.deaths:null,dead,receiptKills:kills,sheltersBuilt:shelters,handBacks,passedOver,letBackIn,calls:(result.untilCalls??[]).length,
+ elapsedGameTicks:result.elapsedGameTicks??null,completedWindow:result.completedWindow??false,pass:result.pass};
+if(result.error)row.error=result.error;
+// No player stats file: deaths and kills are unknown, never 0.
+// Missing or corrupt evidence (an unreadable or falling damage counter, missing player stats) is no verdict, never a pass.
+if(Array.isArray(result.integrity)&&result.integrity.length)row.integrity=[...result.integrity];
+if(!statsRead&&!result.error)row.integrity=[...(row.integrity??[]),{file:'server/world/players/stats',error:'missing player stats: deaths and kills unknown'}];
+if(!started&&!result.error)row.notExercised='the hunt never started';
+if(row.pass)row.passReason=`${pearls} pearls in ${ticks} game ticks, no death`;
+else row.failReason=[pearls<bar?`${pearls} of ${bar} pearls in ${ticks} game ticks`:null,dead||result.deaths>0?'died':null].filter(Boolean).join('; ')||'pass false';
+await finishRun([row],{file:path.join(out,'room.json'),strict});

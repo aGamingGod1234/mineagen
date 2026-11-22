@@ -15,9 +15,10 @@ import { fortressSearchOption } from './nether-regions.mjs';
 import { NETHER_OPTIONS_BYTES, SOURCE_BLOCKS, bedSpawnOption, descentRespawnFact, knownLine, needOptions, netherReadiness, netherRouteOption, pearlHuntLine, pearlOptions, pearlSourceInView, pearlsWanted, pickaxeTier, portalAtHand, progressionGoal, textResources } from './need-sources.mjs';
 import { VILLAGE_POI, headingOf, sightingKind } from './search-coverage.mjs';
 import { foodStockHandback, routeLine, skillFitsLine, woodStockHandback } from './skill-fits.mjs';
+import { KIT_ITEMS } from './end-readiness.mjs';
 import { beatsTheGame } from './goal-spec-translator.mjs';
 import { dropLoss, recoveryRoute } from './respawn-recovery.mjs';
-import { lightLine, toolsLine, picksLine, sleepLine, spawnLine, castingLine, frameLine } from './wake-body-facts.mjs';
+import { lightLine, upLine, toolsLine, picksLine, sleepLine, spawnLine, castingLine, frameLine } from './wake-body-facts.mjs';
 import { noteIntent, noteRepeat, noteSearch, progressFacts, resetProgress, takeProgressWake, trackProgress } from './step-progress.mjs';
 
 const ROUTE_SOURCE_BLOCKS = new RegExp(`${SOURCE_BLOCKS.source}|^minecraft:nether_portal$`, SOURCE_BLOCKS.flags);
@@ -173,9 +174,13 @@ export class LiveTaskViews {
   // evidence). An unready or bodiless sample, even one naming another world, only makes current facts unknown.
   if (!currentSample(observation)) { this.#state(record).observation = { ready: false }; return; }
   const state = this.#state(record), world = observation.world?.worldId ?? null;
-  if (world && state.worldId && world !== state.worldId) { state.plan = null; state.revision = 0; state.scope = null; state.lastObserved={}; state.worldProof = {}; state.presenceProof = {}; state.deathLosses = {}; state.known=emptyKnown(); state.verified=false; state.usage=null; state.usageSample=null; state.intent = null; state.planFocus = null; state.workHeading = null; state.deaths = 0; state.results = []; state.foodHandback = null; state.woodHandback = null; state.effect = null; state.liveInventory = null; state.liveDimension = null; state.samples = []; state.ownPoi = []; state.breaks = []; state.gains = []; state.intentLog = []; resetProgress(state); }
+  if (world && state.worldId && world !== state.worldId) { state.plan = null; state.revision = 0; state.scope = null; state.lastObserved={}; state.worldProof = {}; state.presenceProof = {}; state.deathLosses = {}; state.known=emptyKnown(); state.verified=false; state.usage=null; state.usageSample=null; state.intent = null; state.planFocus = null; state.workHeading = null; state.deaths = 0; state.results = []; state.foodHandback = null; state.woodHandback = null; state.effect = null; state.liveInventory = null; state.liveDimension = null; state.samples = []; state.openSky = null; state.ownPoi = []; state.breaks = []; state.gains = []; state.intentLog = []; resetProgress(state); }
   if (world) state.worldId = world;
   state.observation = observation;
+  // The wire carries position; the adapted observation carries it as player.x/y/z (as #memory reads it).
+  const player = observation.player, at = observation.position ?? player?.position ?? player;
+  if (player?.skyOpen === true && player.onGround !== false && player.dead !== true && at && [at.x, at.y, at.z].every(Number.isFinite))
+   state.openSky = { x: at.x, y: at.y, z: at.z, dimension: observation.world?.dimension ?? null };
   await this.#load(record, state);
   if (this.#states.get(record.agentId) !== state) return;
   const dead = observation.player?.dead === true || observation.continuity?.phase === 'dead';
@@ -250,12 +255,24 @@ export class LiveTaskViews {
   * after a restart the step heads the route again until the next one.
   */
  noteFoodHandback(record, tool, result) {
+  this.#noteKitHandback(record, tool, result);
   const food = foodStockHandback(tool, result), wood = !food && woodStockHandback(tool, result);
   if (!beatsTheGame(record.currentGoalSpec) || !food && !wood) return false;
   const state = this.#state(record), o = state.observation;
   if (!currentSample(o) || deadSample(o) || !state.worldId || !Number.isFinite(o.observedAtEpochMs)) return false;
   state[food ? 'foodHandback' : 'woodHandback'] = { at: o.observedAtEpochMs, worldId: state.worldId, deaths: state.deaths };
   return true;
+ }
+ /** An obtain of an End kit item that came back failed (not a danger stop) releases that fix on the route line this life. */
+ #noteKitHandback(record, tool, result) {
+  if (!beatsTheGame(record.currentGoalSpec) || tool?.kind !== 'obtain' || !['FAILED', 'TIMED_OUT'].includes(result?.state) || result.reasonCode === 'OBSERVATION_UNAVAILABLE'
+   || /DANGER|HEALTH|CANCEL|INTERRUPT/.test(result.reasonCode ?? '')) return;
+  const raw = typeof result.item === 'string' ? result.item : tool.arguments?.item;
+  const item = `minecraft:${String(raw ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_').replace(/^minecraft:/, '')}`;
+  if (!KIT_ITEMS.test(item)) return;
+  const state = this.#state(record);
+  if (!state.worldId) return;
+  state.kitHandbacks = [...(state.kitHandbacks ?? []).filter(row => row.item !== item), { item, worldId: state.worldId, deaths: state.deaths }];
  }
  async actionReceipt(record, receipt) {
   if (receipt.goalRevision === record.goalRevision) {
@@ -705,7 +722,8 @@ export class LiveTaskViews {
   const released = handback => handback != null && handback.worldId === current.worldId && handback.deaths === state.deaths
    && handback.at <= state.observation?.observedAtEpochMs;
   const foodHandedBack = released(current.foodHandback), woodHandedBack = released(current.woodHandback);
-  const route = beatsTheGame(record.currentGoalSpec) ? routeLine({ observation: state.observation, known: state.known, memory: this.#memory(record, state, ROUTE_SOURCE_BLOCKS), foodHandedBack, woodHandedBack, evaluate: evaluatePlanCheck, instincts: this.#instincts }) : null;
+  const kitHandedBack = new Set((current.kitHandbacks ?? []).filter(row => row.worldId === current.worldId && row.deaths === state.deaths).map(row => row.item));
+  const route = beatsTheGame(record.currentGoalSpec) ? routeLine({ observation: state.observation, known: state.known, memory: this.#memory(record, state, ROUTE_SOURCE_BLOCKS), foodHandedBack, woodHandedBack, kitHandedBack, evaluate: evaluatePlanCheck, instincts: this.#instincts }) : null;
   return composeContinuityHeader({ goal: record.currentGoal, intent: state.intent, evidence: intentEvidence(state), since, progress: this.#progressLine(state), route, stepProgress: stepProgress.progress ?? null, repeats: stepProgress.repeats ?? null, search: stepProgress.search ?? null, ...this.#memoryFacts(record, state, shown, observation?.recovery ?? null), results: state.results, running, effect: state.effect, orders, guardInstalled, guardCoverage, guardThreatsNear, guardThreatsTargeting, annotate });
  }
  /** The trigger for a no-progress or repeated-result fact not yet woken for ('no_progress' | 'repeated_result'), once. */
@@ -845,8 +863,8 @@ export class LiveTaskViews {
   const activity = intent ? `${intent.step} ${intent.why}` : step ? `${step.label} ${step.detail}` : record.currentGoal;
   const sleep = sleepLine(observation) ?? spawnLine(observation, state.known?.spawn ?? null);
   const casting = castingLine(observation, { goal: `${record.currentGoal} ${activity}` });
-  const light = lightLine(observation), tools = toolsLine(observation, { activity }), frame = frameLine(observation);
-  return { ...(hunt === null ? {} : { hunt }), ...(craft === null ? {} : { craft }), ...(casting === null ? {} : { casting }), ...(frame === null ? {} : { frame }), ...(known === null ? {} : { known }), ...(options === null ? {} : { options }), ...(mining === null ? {} : { mining }), ...(light === null ? {} : { light }), ...(sleep === null ? {} : { sleep }), ...(tools === null ? {} : { tools }) };
+  const light = lightLine(observation), up = upLine(observation, state.openSky ?? null), tools = toolsLine(observation, { activity }), frame = frameLine(observation);
+  return { ...(hunt === null ? {} : { hunt }), ...(craft === null ? {} : { craft }), ...(casting === null ? {} : { casting }), ...(frame === null ? {} : { frame }), ...(known === null ? {} : { known }), ...(options === null ? {} : { options }), ...(mining === null ? {} : { mining }), ...(light === null ? {} : { light }), ...(up === null ? {} : { up }), ...(sleep === null ? {} : { sleep }), ...(tools === null ? {} : { tools }) };
  }
  /**
   * Pearl sources while pearls (or eyes) are an open plan need but not the first unfinished step's: in the Nether, or in
@@ -1358,12 +1376,12 @@ const SAMPLE_HISTORY = 8;
 function rememberSample(state, observation) {
  if (!Number.isFinite(observation?.observedAtEpochMs)) return;
  state.samples.push({ at: observation.observedAtEpochMs, observation, statuses: new Map((state.plan?.steps ?? []).map(s => [s.id, s.status])),
-  early: [...(state.early ?? [])], results: [...state.results], effect: state.effect, deaths: state.deaths });
+  early: [...(state.early ?? [])], results: [...state.results], effect: state.effect, deaths: state.deaths, openSky: state.openSky ?? null });
  if (state.samples.length > SAMPLE_HISTORY) state.samples.splice(0, state.samples.length - SAMPLE_HISTORY);
 }
 function sampleView(state, sample) {
  const plan = state.plan ? { steps: state.plan.steps.map(s => sample.statuses.has(s.id) ? { ...s, status: sample.statuses.get(s.id) } : s) } : null;
- return { ...state, plan, observation: sample.observation, early: sample.early, results: sample.results, effect: sample.effect, deaths: sample.deaths };
+ return { ...state, plan, observation: sample.observation, early: sample.early, results: sample.results, effect: sample.effect, deaths: sample.deaths, openSky: sample.openSky };
 }
 function intentFacts(f) {
  return { ...(typeof f.inPlan === 'boolean' ? { inPlan: f.inPlan } : {}), ...(Number.isSafeInteger(f.deaths) && f.deaths >= 0 ? { deaths: f.deaths } : {}), ...(identifier(f.dimension) ? { dimension: f.dimension } : {}), ...(Number.isSafeInteger(f.at) ? { at: f.at } : {}) };

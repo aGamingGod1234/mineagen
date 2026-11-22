@@ -147,6 +147,34 @@ public final class VeinPlan {
 				&& cell.getZ() + 1 > body.minZ && cell.getZ() < body.maxZ;
 	}
 
+	/**
+	 * Where to stand to mine vein blocks that lie under the body: a seen standing cell (open feet and head over a solid,
+	 * non-vein floor) one or two steps from {@code feet} at the same level, from whose eye at least one of {@code under}
+	 * is in reach; the one nearest the body first, null when none is known. A player steps off an ore in the floor and
+	 * mines it from beside; never standing on it is what keeps the body from dropping into whatever lies below.
+	 */
+	static BlockPos stepOff(BlockPos feet, Vec3 at, Collection<BlockPos> under, Predicate<BlockPos> open, Predicate<BlockPos> floor, double range) {
+		BlockPos best = null;
+		double bestDistance = Double.MAX_VALUE;
+		for (int dx = -2; dx <= 2; dx++) for (int dz = -2; dz <= 2; dz++) {
+			int steps = Math.abs(dx) + Math.abs(dz);
+			if (steps == 0 || steps > 2) continue;
+			BlockPos cell = feet.offset(dx, 0, dz);
+			if (under.contains(cell.below()) || !open.test(cell) || !open.test(cell.above()) || !floor.test(cell.below())) continue;
+			// Two steps away only through an open cell between: never a stance behind a wall.
+			if (steps == 2) {
+				BlockPos mid = Math.abs(dx) == 2 ? feet.offset(dx / 2, 0, 0) : Math.abs(dz) == 2 ? feet.offset(0, 0, dz / 2) : null;
+				if (mid == null ? !(open.test(feet.offset(dx, 0, 0)) && open.test(feet.offset(dx, 1, 0)) || open.test(feet.offset(0, 0, dz)) && open.test(feet.offset(0, 1, dz)))
+						: !open.test(mid) || !open.test(mid.above())) continue;
+			}
+			Vec3 eye = eyeAt(cell);
+			if (under.stream().noneMatch(block -> reachable(eye, block, range))) continue;
+			double distance = horizontal(cell, at);
+			if (distance < bestDistance) { best = cell; bestDistance = distance; }
+		}
+		return best;
+	}
+
 	/** The order blocks are cut: a tree bottom up (each log in sight once the one under it is gone), a vein nearest first. */
 	static Comparator<BlockPos> order(Kind kind, Vec3 eye) {
 		Comparator<BlockPos> nearest = Comparator.comparingDouble(at -> new AABB(at).distanceToSqr(eye));

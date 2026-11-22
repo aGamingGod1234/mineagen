@@ -1,5 +1,6 @@
 package dev.agaminggod.mineagen.client.control;
 
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import java.awt.image.BufferedImage;
@@ -74,6 +75,12 @@ public final class UsageCardsRenderVerification {
 		expect(UsageCards.spendLine(one.getAsJsonArray("agents").get(0).getAsJsonObject()).equals("$12.35 · $12.30/h"), "paid model spend line");
 		expect(UsageCards.cardLimitLine(UsageCards.account(four.getAsJsonArray("accounts"), "codex"), deep).equals("weekly 84% used · ~40 h left"), "card limit line: " + UsageCards.cardLimitLine(UsageCards.account(four.getAsJsonArray("accounts"), "codex"), deep));
 		expect(UsageCards.accountLine(four.getAsJsonArray("accounts").get(0).getAsJsonObject()).contains("credits 1,235 left · ~2.6 h left · -285/h · -4.8/min"), "account credit line: " + UsageCards.accountLine(four.getAsJsonArray("accounts").get(0).getAsJsonObject()));
+		for (JsonElement account : four.getAsJsonArray("accounts")) {
+			String line = UsageCards.accountLine(account.getAsJsonObject());
+			expect(!line.contains("demo") && !line.contains("Claude API"), "usage footer never shows the account: " + line);
+		}
+		expect(UsageCards.accountLine(four.getAsJsonArray("accounts").get(0).getAsJsonObject()).startsWith("! Codex (pro):"),
+				"usage footer names the tool and its plan: " + UsageCards.accountLine(four.getAsJsonArray("accounts").get(0).getAsJsonObject()));
 		expect(UsageCards.warningColor(four.getAsJsonArray("accounts").get(2).getAsJsonObject()).equals(McUi.RED), "red under 1 h");
 		expect(UsageCards.warningColor(four.getAsJsonArray("accounts").get(0).getAsJsonObject()).equals(McUi.YELLOW), "yellow under 3 h");
 		// Nothing on a card or an account line is cut off at the narrowest card or at the 1-agent window width.

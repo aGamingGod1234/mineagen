@@ -102,6 +102,12 @@ public final class ServerTravelController implements ServerController {
 	private Descent descent;
 	private ServerController dig;
 	private int digs;
+	/** Where a staircase up ended under open sky: no staircase up starts again within a block and a half of it. */
+	private Vec3 surfacedAt;
+
+	private boolean surfacedHere(ServerPlayer player) {
+		return surfacedAt != null && Math.hypot(player.getX() - surfacedAt.x, player.getZ() - surfacedAt.z) < 1.5D && Math.abs(player.getY() - surfacedAt.y) < 1.0D;
+	}
 
 	/** Longest single fight a fightThrough trip runs before the fight itself times out (the trip's own deadline still rules). */
 	static final long FIGHT_TIMEOUT_MS = 30_000L;
@@ -211,7 +217,7 @@ public final class ServerTravelController implements ServerController {
 	private float swimTurned;
 	/** Ticks spent ducking out from under a ceiling this swim (SwimStep.PEEK), capped at PEEK_TICKS. */
 	private int peekTicks;
-	private static final int PEEK_TICKS = 30;
+	private static final int PEEK_TICKS = dev.agaminggod.mineagen.server.perception.WaterAirFacts.PEEK_TICKS;
 	/** Banks it reached but could not climb onto (4 s within reach), never chosen again this trip. */
 	private final Set<GridPosition> refusedShores = new HashSet<>();
 	private long nearShoreSince;
@@ -300,8 +306,13 @@ public final class ServerTravelController implements ServerController {
 		return stairs;
 	}
 
+	/**
+	 * Whether a target this far below the feet needs a staircase down: past the arrival band, plus a block for the loose
+	 * band (3 or more) and for a remembered route leg (0.6), where a step down is walked. A trip aimed at a cell (band 1-2) digs once
+	 * the target is past its own band, or a tolerance-1 trip to a target 2 below could neither arrive nor dig.
+	 */
 	static boolean digsDown(double feetY, double targetY, double heightTolerance) {
-		return Double.isFinite(targetY) && feetY - targetY > heightTolerance + 1.0D;
+		return Double.isFinite(targetY) && feetY - targetY > heightTolerance + (heightTolerance >= 1.0D && heightTolerance < 3.0D ? 0.0D : 1.0D);
 	}
 
 	static boolean digsUp(double feetY, double targetY, double heightTolerance) {
@@ -333,7 +344,18 @@ public final class ServerTravelController implements ServerController {
 		return TravelStops.beatable(BuiltInRegistries.ENTITY_TYPE.getKey(mob.getType()).toString(), others, weapon,
 				player.getHealth() + player.getAbsorptionAmount(), minHealth, hit);
 	}
- private double heightTolerance() {return routeLeg ? 0.6D : Math.max(3.0D,tolerance);}
+ private double heightTolerance() {return heightTolerance(routeLeg, tolerance);}
+
+	/**
+	 * How far off the target y a trip may end: a remembered route leg 0.6; a caller aiming at a cell (tolerance 2 or less)
+	 * its own tolerance, at least a block (beside, on or just under the block); a looser trip 3 or its tolerance. Lane 3's
+	 * smoke logs, 22 Nov: with the 3-block band for every trip, 17 of 19 tolerance-1 arrivals ended 1-3 blocks off height
+	 * and a walk to a seen ore "arrived" 3 above it, so the pick-up after found no route.
+	 */
+	static double heightTolerance(boolean routeLeg, double tolerance) {
+		if (routeLeg) return 0.6D;
+		return tolerance <= 2.0D ? Math.max(1.0D, tolerance) : Math.max(3.0D, tolerance);
+	}
 
  /** The target for a heading: {@code distance} blocks along {@code yaw} (Minecraft degrees) from the body. */
 	public static double[] headingTarget(Vec3 from, double yaw, double distance) {
@@ -514,7 +536,10 @@ public final class ServerTravelController implements ServerController {
 		if (health <= minHealth && startHealth > minHealth) return fail(player, "LOW_HEALTH", "Health fell to " + format(health) + " (minHealth " + format(minHealth) + ")");
 		int food = player.getFoodData().getFoodLevel();
 		if (food <= SPRINT_FOOD && startFood > SPRINT_FOOD) return fail(player, "LOW_FOOD", "Food fell to " + food + "; sprinting needs more than " + SPRINT_FOOD);
-		if (ticks % 5 == 0) {
+		// While the trip digs its own staircase, the staircase's mob rule decides (every dig_to stop applies): a climb out
+		// goes on past a mob not yet within reach (#101), where this walking rule stopped it for a new archer targeting the
+		// body at any range or any hostile within 6, halfway up the stair.
+		if (ticks % 5 == 0 && phase != Phase.DIG) {
 			List<Mob> seen = hostiles(player);
 			for (Mob mob : seen) {
 				double distance = mob.distanceTo(player);
@@ -688,8 +713,7 @@ public final class ServerTravelController implements ServerController {
 			// above that cell comes into view and the route up is acquired there. Not sprinting: a sprint-swim follows the
 			// view, which here points up into the ceiling.
 			peekTicks++;
-			double dx = peek.getX() + 0.5D - player.getX(), dz = peek.getZ() + 0.5D - player.getZ();
-			yaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
+			yaw = dev.agaminggod.mineagen.server.perception.WaterAirFacts.peekYaw(player, peek);
 			forward = true;
 			pitch = PEEK_PITCH;
 			boolean jump = SwimPlanning.floatJump(inWater, player.onGround(), eyesUnder);
@@ -755,8 +779,8 @@ public final class ServerTravelController implements ServerController {
 	/** What a swimmer whose eyes are under water does next. */
 	enum SwimStep { AIR, SHORE, PEEK, WAIT, LOOK, STOP }
 
-	/** The view while ducking out from under a ceiling: nearly straight up, so the open column above comes into view. */
-	static final float PEEK_PITCH = -80.0F;
+	/** The view while ducking out from under a ceiling (WaterAirFacts.PEEK_PITCH), shared with the swim-up reflex. */
+	static final float PEEK_PITCH = dev.agaminggod.mineagen.server.perception.WaterAirFacts.PEEK_PITCH;
 
 	/**
 	 * Air first, as a player does: under water the body rises along the seen route to air whenever its breath covers the
@@ -985,7 +1009,7 @@ public final class ServerTravelController implements ServerController {
 			}
 		}
 		if (!build) return fail(player, "NO_ROUTE", "No seen standing spot ahead gets closer, and build is false" + lastFailureText());
-		if (descent != null && digs < MAX_DIGS && (digsDown(player.getY(), targetY, heightTolerance()) || digsUp(player.getY(), targetY, heightTolerance())))
+		if (descent != null && digs < MAX_DIGS && (digsDown(player.getY(), targetY, heightTolerance()) || !surfacedHere(player) && digsUp(player.getY(), targetY, heightTolerance())))
 			return startDig(player, nowEpochMs);
 		if (buildRefusal != null) return fail(player, buildRefusalCode, "No seen way on toward the target, and building cannot continue: " + buildRefusal + lastFailureText());
 		return startBuild(player, world, nowEpochMs);
@@ -1009,6 +1033,9 @@ public final class ServerTravelController implements ServerController {
 		if (result.state() == State.RUNNING) return TickResult.running(progress(player));
 		dig = null;
 		dugDown++;
+		// Out under open sky: walked or built on from here, never another staircase up started on this spot (it would end at
+		// once); once the body has moved (to a wall or a slope) a staircase may dig up from there.
+		if (ServerDigController.OPEN_SKY_REACHED.equals(result.reasonCode())) surfacedAt = player.position();
 		if (result.state() != State.SUCCEEDED) return fail(player, result.reasonCode(), "Digging down toward y " + (int) Math.floor(targetY) + ": " + result.message());
 		// At the target's level: walk or build the rest from here.
 		failedLegs = 0;
@@ -1283,7 +1310,9 @@ public final class ServerTravelController implements ServerController {
 		buildRun += marchedCells(moveFeet, feet(player));
 		lastKind = move == null ? null : move.kind();
 		move = null;
-		if (!routeLeg && buildRun < BUILD_RUN) {
+		// A run goes on only while its next cell is nearer the target: past the target's line it replans (playtest 22 Nov:
+		// a run west toward iron 3 blocks away stepped and tunnelled on to 8 blocks past it before turning back).
+		if (!routeLeg && buildRun < BUILD_RUN && buildDirection != null && left(player.position().add(buildDirection.getStepX(), 0.0D, buildDirection.getStepZ())) < left(player.position())) {
 			MinecraftNavigationWorld world = new MinecraftNavigationWorld(player.level(), player);
 			TravelBuilder.Plan next = TravelBuilder.decide(world, states(world), feet(player), buildDirection, TravelBuilder.blockSlot(player) >= 0,
 					Double.isFinite(targetY) ? (int) Math.floor(targetY) - feet(player).y() : 0);

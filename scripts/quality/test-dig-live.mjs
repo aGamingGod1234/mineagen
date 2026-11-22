@@ -27,10 +27,13 @@
 // Every spot recorded to stop on purpose carries its expectCode; without one, reaching targetY is the rule. Exit code
 // (strict, the default): 0 all passed, 1 a spot failed, 2 invalid evidence (a spot errored, never ran or its health
 // could not be read). --descriptive reports only.
+// Climb-out rooms (climb-out-spots.json): `expectEndDy: [min, max]` replaces the goal rule with where the feet ended,
+// relative to the start feet y, and `maxPlaced` caps the cobblestone the body placed (vanilla's used-item statistic,
+// reported as row.placed). DIG_ONLY=a,b runs only those spots.
 import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
-import { damageCounter, damageEvidence, matchesDamageExpectation, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
+import { damageCounter, damageEvidence, matchesDamageExpectation, deathCounter, deathEvidence, scoreboardCounter } from './lib/damage-counter.mjs';
 import { fileURLToPath } from 'node:url';
 import { applyQualitySetup, activateQualitySetup } from '../../coordinator/src/benchmark/quality-scenarios.mjs';
 import { fixtureTickRate } from './watch-replay.mjs';
@@ -45,7 +48,8 @@ const strict = !cli.includes('--descriptive');
 const [spotsFile, outArg, jarArg] = cli.filter(arg => !['--strict', '--descriptive'].includes(arg));
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port = Number(process.env.SLOT_PORT_BASE);
 if (!spotsFile || !outArg || !template || !port || !process.env.JAVA_HOME) { console.error(USAGE); process.exit(2); }
-const spots = JSON.parse(await readFile(spotsFile, 'utf8'));
+const only = process.env.DIG_ONLY ? new Set(process.env.DIG_ONLY.split(',')) : null;
+const spots = JSON.parse(await readFile(spotsFile, 'utf8')).filter(spot => !only || only.has(spot.name));
 const out = path.resolve(outArg);
 await mkdir(out, { recursive: true });
 if ((await readdir(out)).length) { console.error('Use a fresh output directory'); process.exit(2); }
@@ -139,6 +143,8 @@ for await (const { item: [, raw, checkpoint], server: s, error: bootError } of w
 				const deathsBefore = await deaths();
 				const readDamage = await damageCounter(text => s.command(text), AGENT);
 				const damageBefore = await readDamage(), healthBefore = await health();
+				if (spot.maxPlaced !== undefined) await s.command('scoreboard objectives add placed minecraft.used:minecraft.cobblestone');
+				const placedBefore = spot.maxPlaced === undefined ? null : await scoreboardCounter(text => s.command(text), AGENT, 'placed', { unsetIsZero: true });
 				let heading = spot.heading ?? 'east';
 				row.standIns = 0;
 				await s.fastRate();
@@ -286,7 +292,15 @@ for await (const { item: [, raw, checkpoint], server: s, error: bootError } of w
 				row.finishedAt = Date.now();
 				if (!Number.isFinite(row.healthLost) || !Number.isFinite(row.deaths)) throw new Error('health or deaths unreadable over RCON');
 				const expected = [spot.expectCode].flat().filter(Boolean);
-				const met = expected.length ? expected.includes(row.legs.at(-1)?.reasonCode) : row.reached;
+				if (spot.maxPlaced !== undefined) {
+					const placedAfter = await scoreboardCounter(text => s.command(text), AGENT, 'placed', { unsetIsZero: true });
+					if (!Number.isSafeInteger(placedBefore) || !Number.isSafeInteger(placedAfter)) throw new Error('placed counter unreadable over RCON');
+					row.placed = placedAfter - placedBefore;
+				}
+				row.endDy = Math.floor(row.end?.[1] ?? NaN) - Math.floor(row.start?.[1] ?? NaN);
+				const ended = spot.expectEndDy ? row.endDy >= spot.expectEndDy[0] && row.endDy <= spot.expectEndDy[1] : true;
+				const met = (expected.length ? expected.includes(row.legs.at(-1)?.reasonCode) : spot.expectEndDy ? true : row.reached)
+					&& ended && (spot.maxPlaced === undefined || row.placed <= spot.maxPlaced);
 				row.expectedDamageTaken = spot.expectDamageTaken === undefined ? 0 : spot.expectDamageTaken;
 				row.pass = Boolean(matchesDamageExpectation(row, row.expectedDamageTaken) && met && row.deaths === 0 && row.fallsIntoLava === 0);
 			} catch (error) {
@@ -304,7 +318,7 @@ for await (const { item: [, raw, checkpoint], server: s, error: bootError } of w
 		await s.stop();
 	}
 }
-console.log(JSON.stringify(results.map(({ name, reached, deaths, seconds, legs, error, standIns, pass, tick }) => ({ name, pass, reached, deaths, seconds, standIns, tick, error: error?.slice(0, 200),
+console.log(JSON.stringify(results.map(({ name, reached, deaths, seconds, legs, error, standIns, pass, tick, endDy, placed }) => ({ name, pass, reached, endDy, placed, deaths, seconds, standIns, tick, error: error?.slice(0, 200),
 	legs: legs?.map(({ message, ...leg }) => leg) })), null, 2));
 const report = await finishRun(results, { file: path.join(out, 'result.json'), planned: spots.length, strict });
 console.log(JSON.stringify(report));

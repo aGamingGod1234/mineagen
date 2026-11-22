@@ -13,6 +13,34 @@ export function intersectEyes(a, b) {
 	const t = (dx * v.z - dz * v.x) / cross, s = (dx * u.z - dz * u.x) / cross;
 	return t > 0 && s > 0 ? { x: Math.round(a.from.x + t * u.x), z: Math.round(a.from.z + t * u.z) } : null;
 }
+// Two throws locate the stronghold well enough to stop throwing when they stood this far apart and their headings cross at
+// this angle or more: a 1 degree heading error then moves the crossing by a few blocks per 100, not hundreds.
+export const TRUSTED_BASE_BLOCKS = 24;
+export const TRUSTED_CROSS_DEGREES = 8;
+// Close enough to a trusted crossing to dig down there (the eye targets the stronghold's start, its rooms spread ~50 blocks).
+export const ESTIMATE_DIG_BLOCKS = 16;
+// A dropped eye out of view is searched for once, and only this near: the body walks to where it dropped and looks.
+export const DROP_SEARCH_BLOCKS = 24;
+// How far a thrown eye flies along its heading before it drops or breaks (vanilla: about 12 blocks).
+export const EYE_FLIGHT_BLOCKS = 12;
+// Where the body looks while an eye flies: this far along its heading and a little above, so the end of the flight and the
+// drop below it stay inside the view cone.
+export const EYE_WATCH_BLOCKS = 10;
+// A use click that something at hand took (a villager, a door) throws no eye: after this many in one find it hands back.
+export const BLOCKED_THROW_TRIES = 3;
+// Where the body looks for a throw after a click was taken: well up, over a villager's head or a door's top. An eye flies
+// toward the stronghold whatever the aim, so the heading is not lost.
+export const CLEAR_THROW_PITCH = -75;
+// A leg that ends with one of these after covering ground still counts as a leg: the next eye is thrown from there.
+// A pickup that ends with one of these found no way to the eye at all.
+export const NO_WAY_CODES = new Set(['NO_SEEN_ROUTE', 'NO_STANDABLE_PATH', 'NO_ROUTE', 'REACHED_FRONTIER', 'CAVE_OPENING', 'ITEM_PICKUP_TIMED_OUT']);
+export const SOFT_LEG_CODES = new Set(['TRAVEL_TIMEOUT', 'NO_ROUTE', 'TRAVEL_STALLED', 'STALLED_IN_PLACE', 'BUILD_FAILED', 'OUT_OF_BLOCKS', 'NO_FLOOR', 'NO_STANDABLE_PATH', 'TUNNEL_FLOODED']);
+export function trustedCross(a, b) {
+	if (!Number.isFinite(a?.yaw) || !Number.isFinite(b?.yaw) || !point(a.from) || !point(b.from)) return false;
+	if (Math.hypot(a.from.x - b.from.x, a.from.z - b.from.z) < TRUSTED_BASE_BLOCKS) return false;
+	const angle = Math.abs(((a.yaw - b.yaw) % 360 + 540) % 360 - 180);
+	return angle >= TRUSTED_CROSS_DEGREES && angle <= 180 - TRUSTED_CROSS_DEGREES && intersectEyes(a, b) !== null;
+}
 export function eyeLeg(flight, throwNumber = 1) {
 	if (flight.vertical === 'sank' || (flight.lostFromView !== true && Number.isFinite(flight.flewBlocks) && flight.flewBlocks < 3)) return 0;
 	// A rising eye says only "that way": the first leg is long, later ones shorter so a pass over the stronghold is small
@@ -42,6 +70,7 @@ export async function followEyes(target, body, { observation: initial, deadline,
 	state.filled ??= [];
 	state.phase ??= 'throw';
 	const left = () => deadline - body.now();
+	let blocked = 0, steppedFor = 0;
 	const refresh = async () => {
 		o = await body.observe();
 		const last = state.throws.at(-1);
@@ -63,18 +92,20 @@ export async function followEyes(target, body, { observation: initial, deadline,
 	// portal has a filled frame more often than not (each frame 1 in 10). Below 11 minus filled frames takes the flag.
 	const reserve = () => Math.max(0, 11 - Math.min(11, state.filled.length));
 	const finish = (reasonCode, stop, found = null) => {
+		const left = state.throws.filter(t => t.recovery === 'not_found').map(t => t.droppedAt ?? t.estimatedDrop).filter(point);
 		const facts = { throwsMade: state.throws.length, eyesLeft: eyesHeld(o), throws: structuredClone(state.throws), lastHeading: state.throws.at(-1)?.yaw ?? null,
+			...(left.length ? { eyesLeftBehind: left.map(at => ({ x: Math.floor(at.x), y: Math.floor(at.y), z: Math.floor(at.z) })) } : {}),
 			estimatedStronghold: state.estimate ?? null, travelled: Math.round(state.walked), stoppedBy: stop, reserve: reserve(), allowEyeReserveUse: target.allowEyeReserveUse === true, phase: state.phase };
 		const bearings = state.throws.map((t, i) => `#${i + 1} at ${['x', 'y', 'z'].map(k => Math.round(t.from[k])).join(',')}: ${t.yaw ?? '?'} degrees, ${t.eyesAfter ?? '?'} eyes after throw`).join('; ');
 		return { state: reasonCode === 'FIND_SEEN' ? 'SUCCEEDED' : 'FAILED', reasonCode,
-			message: `${stop}; throws ${facts.throwsMade}, eyes left ${facts.eyesLeft}; ${bearings || 'no headings yet'}; estimated stronghold ${state.estimate ? `${state.estimate.x},${state.estimate.z}` : 'unknown'}; travelled ${facts.travelled} blocks. Reserve ${reserve()} (11 minus known filled frames; the portal takes 12 minus its filled frames); throwing below reserve requires allowEyeReserveUse:true.`,
+			message: `${stop}; throws ${facts.throwsMade}, eyes left ${facts.eyesLeft}; ${bearings || 'no headings yet'}; estimated stronghold ${state.estimate ? `${state.estimate.x},${state.estimate.z}${state.estimateTrusted && !state.estimateRejected ? ' (two throws cross)' : ''}` : 'unknown'}; ${left.length ? `eye left at ${left.map(at => ['x', 'y', 'z'].map(k => Math.floor(at[k])).join(',')).join('; ')}; ` : ''}travelled ${facts.travelled} blocks. Reserve ${reserve()} (11 minus known filled frames; the portal takes 12 minus its filled frames); throwing below reserve requires allowEyeReserveUse:true.`,
 			find: { target: 'stronghold', eyes: facts, covered: { walked: facts.travelled }, ...(found ? { seen: { ...found, id: found.blockId, via: 'eye search' } } : {}) } };
 	};
 	const safety = () => {
 		const p = o.player;
 		return p.health <= 8 ? 'LOW_HEALTH' : p.inLava || p.hazard === 'lava' ? 'IN_LAVA' : p.onFire ? 'ON_FIRE' : p.underWater && (p.air < 60 || p.airSecondsLeft < 3) ? 'AIR_RESERVE_REACHED' : dangerNow(o);
 	};
-	const act = async (type, args, { soft = false } = {}) => {
+	const act = async (type, args, { soft = false, breathStop = false } = {}) => {
 		if (left() < 1000) return finish('FIND_BUDGET', 'timeoutMs exhausted');
 		const unsafe = safety();
 		if (unsafe) return finish('FIND_DANGER', unsafe);
@@ -86,6 +117,14 @@ export async function followEyes(target, body, { observation: initial, deadline,
 		await refresh();
 		if (type === 'use_item') state.throws.at(-1).eyesAfter = eyesHeld(o);
 		state.walked += Math.hypot(o.player.x - before.x, o.player.z - before.z);
+		// Travel's tunnel through a hill flooded and the body backed out dry: the leg still covered its ground, so throw again
+		// from here as a player whose tunnel hits water steps back (eye rooms: 3 of 10 eyes-b finds ended FIND_DANGER so).
+		// A swim hop that surfaced to breathe reached air, as asked: it is a hop, not a danger.
+		if (breathStop && ['BREATH_NOT_COVERED', 'AIR_RESERVE_REACHED'].includes(result?.reasonCode) && !safety() && o.player.underWater !== true) return null;
+		const dryFlood = result?.reasonCode === 'TUNNEL_FLOODED' && !result?.interruptedBy && !safety() && o.player.underWater !== true;
+		if (soft && dryFlood && Math.hypot(o.player.x - before.x, o.player.z - before.z) >= 8) return null;
+		// With no ground covered it is a blocked walk, not a danger: the eye walk leaves the eye, the leg tries the water.
+		if (dryFlood) return finish('FIND_BLOCKED', 'TUNNEL_FLOODED');
 		if (result?.interruptedBy || dangerCodes.has(result?.reasonCode) || safety()) return finish('FIND_DANGER', dangerCodes.has(result?.reasonCode) ? result.reasonCode : safety() ?? result?.interruptedBy ?? 'interrupted');
 		const found = result?.seen ?? arrival();
 		if (found) return finish('FIND_SEEN', `Stronghold blocks seen at ${found.x},${found.y},${found.z}`, found);
@@ -94,19 +133,45 @@ export async function followEyes(target, body, { observation: initial, deadline,
 			if (at) return finish('FIND_SEEN', result.message, { ...at, blockId: 'minecraft:stone_bricks' });
 		}
 		// A leg cut short by its time or by water with ground covered is still a leg: throw again from here.
-		if (soft && ['TRAVEL_TIMEOUT', 'NO_ROUTE', 'TRAVEL_STALLED', 'STALLED_IN_PLACE'].includes(result?.reasonCode) && Math.hypot(o.player.x - before.x, o.player.z - before.z) >= 8) return null;
+		// So is one that covered ground and then stopped at water or a gap it could not bridge: a player throws again from the
+		// shore (eye rooms: legs ended BUILD_FAILED and OUT_OF_BLOCKS at the same lakes after 20-100 blocks walked).
+		if (soft && SOFT_LEG_CODES.has(result?.reasonCode) && Math.hypot(o.player.x - before.x, o.player.z - before.z) >= 8) return null;
 		if (result?.state !== 'SUCCEEDED') return finish('FIND_BLOCKED', result?.reasonCode ?? 'action did not complete');
 		return null;
 	};
 	const bounded = args => ({ ...args, boundaryX: state.origin.x, boundaryZ: state.origin.z, boundaryRadius: within });
+	// How far along unit heading d from `from` stays inside the search circle with 2 blocks to brake.
+	const hopRoom = (from, d) => {
+		const r = within - 2, fx = from.x - state.origin.x, fz = from.z - state.origin.z;
+		const b = fx * d.x + fz * d.z, c = fx * fx + fz * fz - r * r, disc = b * b - c;
+		return disc < 0 ? 0 : Math.max(0, -b + Math.sqrt(disc));
+	};
+	// The eye left the hand when the count fell, an eye entity flies, or a new flight receipt came. None of these after a
+	// use click means something at hand took the click (a villager's trade, a door) and nothing was thrown.
+	const notThrown = t => Number.isFinite(t?.eyesBefore) && eyesHeld(o) >= t.eyesBefore
+		&& !(o.entities ?? []).some(r => r.type === 'minecraft:eye_of_ender')
+		&& !flights(o).some(e => !(state.beforeFlights ?? []).includes(e.flightId ?? e.sequence));
+	// Forget a throw that did not happen and throw again from the throw phase, so no find is left waiting for a flight.
+	const unthrown = () => {
+		state.throws.pop();
+		state.phase = 'throw';
+		blocked++;
+		return blocked >= BLOCKED_THROW_TRIES ? finish('FIND_BLOCKED', `Eye not thrown: something at hand took the use click ${blocked} times`) : null;
+	};
 	const ingest = flight => {
 		const t = state.throws.at(-1);
 		Object.assign(t, flight);
 		for (const earlier of state.throws.slice(0, -1).reverse()) {
 			const cross = intersectEyes(earlier, t);
-			if (cross) { state.estimate = cross; break; }
+			if (cross) { state.estimate = cross; state.estimateTrusted = trustedCross(earlier, t); break; }
 		}
-		state.phase = flight.droppedAt ? 'recover' : 'leg';
+		// An eye lost from view still ends about 12 blocks along its heading and drops there 4 times in 5 (vanilla): it is
+		// searched for there (live eye fixture: 2 of 3 throws ended "unseen", and both eyes stayed on the ground).
+		if (!t.droppedAt && t.outcome === 'unseen' && Number.isFinite(t.yaw) && point(t.from)) {
+			const d = direction(t.yaw);
+			t.estimatedDrop = { x: t.from.x + d.x * EYE_FLIGHT_BLOCKS, y: t.from.y, z: t.from.z + d.z * EYE_FLIGHT_BLOCKS };
+		}
+		state.phase = flight.droppedAt || t.estimatedDrop ? 'recover' : 'leg';
 	};
 	await refresh();
 	if (!safety() && left() >= 2000 && body.look) {
@@ -126,9 +191,21 @@ export async function followEyes(target, body, { observation: initial, deadline,
 			// then keep the seen eye in view so its final height and drop are observable.
 			if ((state.scanTurns ?? 0) < 4) {
 				const eye = (o.entities ?? []).find(r => r.type === 'minecraft:eye_of_ender' && point(r));
+				const from = last.from, gone = eye ? Math.hypot(eye.x - from.x, eye.z - from.z) : 0;
+				// Just thrown, the eye is still at the hand: looking there pitches the view down at the body's own feet, and
+				// the eye is out of sight once it is 2 blocks off (live eye rooms: every throw seen for 1.9 blocks only).
+				// Let it move a little first; from then its heading from the throw point is its heading to the stronghold.
+				if (eye && gone < 0.3 && (state.eyeWaits ?? 0) < 4) {
+					state.eyeWaits = (state.eyeWaits ?? 0) + 1;
+					const end = await act('wait', { durationMs: 100 });
+					if (end) return end;
+					continue;
+				}
 				if (eye) {
 					state.scanTurns = 4;
-					const end = await act('look_at', { x: eye.x, y: eye.y, z: eye.z });
+					// Watch where it goes, as a player does: look along its heading, above where it ends and drops.
+					const ahead = gone >= 0.3 ? { x: (eye.x - from.x) / gone, z: (eye.z - from.z) / gone } : direction(o.player.yaw ?? 0);
+					const end = await act('look_at', { x: from.x + ahead.x * EYE_WATCH_BLOCKS, y: from.y + 4, z: from.z + ahead.z * EYE_WATCH_BLOCKS });
 					if (end) return end;
 				} else {
 					const yaw = [-180, -90, 0, 90][state.scanTurns ?? 0];
@@ -139,7 +216,17 @@ export async function followEyes(target, body, { observation: initial, deadline,
 				}
 				continue;
 			}
-			if (state.waited) return finish('FIND_BLOCKED', 'Eye flight not observed; heading unknown');
+			if (notThrown(last)) {
+				const end = unthrown();
+				if (end) return end;
+				continue;
+			}
+			if (state.waited) {
+				// The eye left the hand but its flight was never seen: the next find throws again rather than waiting on.
+				last.outcome ??= 'not_observed';
+				state.phase = 'throw';
+				return finish('FIND_BLOCKED', 'Eye flight not observed; heading unknown');
+			}
 			state.waited = true;
 			const end = await act('wait', { durationMs: Math.min(5000, left()) });
 			if (end) return end;
@@ -154,30 +241,129 @@ export async function followEyes(target, body, { observation: initial, deadline,
 				continue;
 			}
 			// droppedAt may be an airborne end marker. Only a currently seen item justifies recovery travel.
-			const visibleDrop = () => (o.items ?? []).find(r => r.itemId === EYE && point(r) && r.stableId
-				&& (last.dropId ? r.stableId === last.dropId : Math.hypot(r.x - last.droppedAt.x, r.z - last.droppedAt.z) < 4));
-			const current = visibleDrop();
+			// Read each time: a receipt lost from view can turn into a drop once the walk brings the eye back in sight.
+			const visibleDrop = () => {
+				const dropAt = last.droppedAt ?? last.estimatedDrop, near = last.droppedAt ? 4 : 6;
+				return (o.items ?? []).find(r => r.itemId === EYE && point(r) && r.stableId
+					&& (last.dropId ? r.stableId === last.dropId : Math.hypot(r.x - dropAt.x, r.z - dropAt.z) < near));
+			};
+			let dropAt = last.droppedAt ?? last.estimatedDrop;
+			let current = visibleDrop();
+			// Lost from view in flight: look where it should have dropped before walking there (the drop then reads as seen).
+			if (!current && !last.dropId && !last.lookedAtDrop && !last.droppedAt && point(dropAt)) {
+				last.lookedAtDrop = true;
+				const end = await act('look_at', { x: dropAt.x, y: dropAt.y - 1, z: dropAt.z });
+				if (end) return end;
+				dropAt = last.droppedAt ?? last.estimatedDrop;
+				current = visibleDrop();
+			}
+			// Out of view (it fell behind a rise or into grass): walk once to where it dropped and look, when that is near.
+			// A walk there that fails is not the end of the search: the eye is then named as left behind.
+			// Not for an item already tracked by id (gone from view means taken or despawned), nor from where it dropped.
+			const gap = point(dropAt) ? Math.hypot(dropAt.x - o.player.x, dropAt.z - o.player.z) : Infinity;
+			if (!current && !last.dropId && !last.searchedDrop && gap > 4 && gap <= DROP_SEARCH_BLOCKS) {
+				last.searchedDrop = true;
+				const end = await act('travel_to', bounded({ x: dropAt.x, z: dropAt.z, tolerance: last.droppedAt ? 1 : 2, build: true }));
+				if (end && end.reasonCode !== 'FIND_BLOCKED') return end;
+				if (Number.isFinite(last.eyesAfter) && eyesHeld(o) > last.eyesAfter) continue;
+				current = visibleDrop();
+			}
+			// Standing where it dropped and still not in view: look up (it came to rest on leaves or a ledge above the walk;
+			// live eye rooms: eyes lay 8 and 12 blocks above the search point), then down into a dip, as a player looks around.
+			if (!current && last.searchedDrop && !last.lookedAround && point(dropAt)) {
+				last.lookedAround = true;
+				for (const dy of [5, -2]) {
+					const end = await act('look_at', { x: dropAt.x, y: dropAt.y + dy, z: dropAt.z });
+					if (end) return end;
+					current = visibleDrop();
+					if (current) break;
+				}
+			}
+			// A drop it saw land and cannot pick out now (in grass, at its feet): step onto the spot, as a player walks over an
+			// item to take it (eye rooms: a seen drop 2 blocks off was named left behind and still lay there at the end).
+			const landed = last.droppedAt;
+			if (!current && point(landed) && !last.steppedOn && Math.hypot(landed.x - o.player.x, landed.z - o.player.z) <= 4) {
+				last.steppedOn = true;
+				const end = await act('move_to', { x: landed.x, y: Math.abs(landed.y - o.player.y) <= 2 ? landed.y : o.player.y, z: landed.z, tolerance: 0.5, sprint: false });
+				if (end && end.reasonCode !== 'FIND_BLOCKED') return end;
+				if (Number.isFinite(last.eyesAfter) && eyesHeld(o) > last.eyesAfter) continue;
+				current = visibleDrop();
+			}
 			if (!current) {
-				last.recovery = 'not_visible';
+				last.recovery = last.searchedDrop ? 'not_found' : 'not_visible';
 				state.phase = 'leg';
 				continue;
 			}
 			last.dropId = current.stableId;
-			const end = await act('travel_to', bounded({ x: current.x, y: current.y, z: current.z, tolerance: 1, build: true }));
-			if (end) return end;
-			const drop = visibleDrop();
-			if (drop?.stableId && eyesHeld(o) <= last.eyesAfter) { const end = await act('pick_up_item', { targetSelector: drop.stableId }); if (end) return end; }
+			// Near the eye, not in its cell: an eye on leaves or a ledge 2-3 blocks up is reached by the pickup's own route, and a
+			// travel_to at tolerance 1 must end within a block of the eye's height (#109), which it often cannot.
+			const end = await act('travel_to', bounded({ x: current.x, y: current.y, z: current.z, tolerance: 2, build: true }));
+			const reach = () => Math.hypot(current.x - o.player.x, current.z - o.player.z);
+			if (end && end.reasonCode !== 'FIND_BLOCKED') return end;
+			// A walk to the eye that fails leaves the eye behind and the find goes on along its heading, as a player gives up
+			// on an eye that fell where they cannot get to (eye rooms: walks to a seen drop a block down or on leaves above
+			// ended NO_ROUTE and CAVE_OPENING and handed back the whole find). Close by, it first steps onto the spot once.
+			// A pickup that fails with the eye in view still hands back, so the next find retries it.
+			const leave = () => {
+				last.eyesAfterPickup = eyesHeld(o);
+				if (!(Number.isFinite(last.eyesAfter) && eyesHeld(o) > last.eyesAfter)) last.recovery = 'not_reached';
+				state.phase = 'leg';
+			};
+			if (end && reach() > 4) { leave(); continue; }
+			let drop = visibleDrop(), failed = null;
+			// Arrived and the eye neither came to hand nor stays in view (it lies a block below the feet, in a dip or water):
+			// step onto it, as a player walks over an item (eye rooms: 5 of 13 lost eyes were walked to and left there).
+			if ((end || !drop) && eyesHeld(o) <= last.eyesAfter && !last.steppedOn && reach() <= 4) {
+				last.steppedOn = true;
+				const at = drop ?? current;
+				const stepped = await act('move_to', { x: at.x, y: Math.abs(at.y - o.player.y) <= 2 ? at.y : o.player.y, z: at.z, tolerance: 0.5, sprint: false });
+				if (stepped && stepped.reasonCode !== 'FIND_BLOCKED') return stepped;
+				drop = visibleDrop();
+			}
+			// A walk that fell short within reach still tries the pickup by the eye's id: it plans its own way onto leaves or a
+			// ledge. Only a pickup with no way to the eye gives it up.
+			if (end && !drop?.stableId) { leave(); continue; }
+			if (drop?.stableId && eyesHeld(o) <= last.eyesAfter) {
+				failed = await act('pick_up_item', { targetSelector: drop.stableId });
+				if (failed && failed.reasonCode !== 'FIND_BLOCKED') return failed;
+				// No way to it at all (eye rooms: an eye on a ledge 3 blocks up gave NO_SEEN_ROUTE): leave it and go on.
+				if (failed && NO_WAY_CODES.has(failed.find?.eyes?.stoppedBy)) { leave(); continue; }
+				drop = visibleDrop();
+			}
+			// The pickup failed with the eye still in view (it rolled or fell into a hole): walk to where it is now and try once more.
+			if (failed && drop?.stableId && eyesHeld(o) <= last.eyesAfter) {
+				const end = await act('travel_to', bounded({ x: drop.x, y: drop.y, z: drop.z, tolerance: 1, build: true }));
+				if (end && end.reasonCode !== 'FIND_BLOCKED') return end;
+				if (end) { leave(); continue; }
+				if (eyesHeld(o) <= last.eyesAfter && visibleDrop()) {
+					failed = await act('pick_up_item', { targetSelector: drop.stableId });
+					if (failed && failed.reasonCode !== 'FIND_BLOCKED') return failed;
+				}
+			}
+			// Still not regained after a failed pickup: hand back in the recovery phase, so the next find tries it again.
+			if (failed && eyesHeld(o) <= last.eyesAfter) return failed;
 			last.eyesAfterPickup = eyesHeld(o);
 			state.phase = 'leg';
 			continue;
 		}
 		if (state.phase === 'leg') {
+			// Two throws that cross well place the stronghold: stop throwing, walk to the crossing and dig down there.
+			if (state.estimateTrusted && !state.estimateRejected && point({ ...state.estimate, y: 0 }) && eyeLeg(last, state.throws.length) !== 0) {
+				const near = () => Math.hypot(state.estimate.x - o.player.x, state.estimate.z - o.player.z) <= ESTIMATE_DIG_BLOCKS;
+				if (!near()) {
+					const end = await act('travel_to', bounded({ x: state.estimate.x, z: state.estimate.z, build: true, tolerance: 3 }), { soft: true });
+					if (end) return end;
+				}
+				if (near()) { state.phase = 'dig'; state.digAt = { ...state.estimate }; state.digCentre = { ...state.estimate }; }
+				continue;
+			}
 			state.bracket = eyeBracket(state.bracket, state.throws.at(-2), last) ?? state.bracket;
 			if (state.bracket && eyeLeg(last, state.throws.length) !== 0) {
 				const { a, b } = state.bracket, middle = { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 };
 				const end = await act('travel_to', bounded({ ...middle, build: true, tolerance: 2 }), { soft: true });
 				if (end) return end;
 				state.phase = Math.hypot(a.x - b.x, a.z - b.z) <= 24 ? 'dig' : 'throw';
+				if (state.phase === 'dig') state.digCentre = middle;
 				continue;
 			}
 			const distance = eyeLeg(last, state.throws.length);
@@ -185,30 +371,83 @@ export async function followEyes(target, body, { observation: initial, deadline,
 				if (point(last.to)) {
 					const end = await act('travel_to', bounded({ x: last.to.x, z: last.to.z, tolerance: 2, build: true }));
 					if (end) return end;
+					state.digCentre = { x: last.to.x, z: last.to.z };
 				}
 				state.phase = 'dig'; continue;
 			}
 			if (!Number.isFinite(last.yaw)) return finish('FIND_BLOCKED', 'Eye heading not observed');
 			const d = direction(last.yaw);
 			state.destination ??= { x: last.from.x + d.x * distance, z: last.from.z + d.z * distance };
-			const end = await act('travel_to', bounded({ ...state.destination, build: true, tolerance: 3 }), { soft: true });
+			let end = await act('travel_to', bounded({ ...state.destination, build: true, tolerance: 3 }), { soft: true });
+			// Stopped at the edge of water it could not bridge (out of blocks, or travel will not build there): swim the rest, as a
+			// player does (eye rooms: eyes-a bridged 64 blocks of a lake and stopped OUT_OF_BLOCKS on 7 of 10 runs).
+			// Also when travel stopped short at water with blocks in hand ("building cannot continue: water at ..."; eye rooms
+			// r4: 2 of 40 finds); on dry ground the first hop finds no water and the leg hands back as before.
+			if (SOFT_LEG_CODES.has(end?.find?.eyes?.stoppedBy)) {
+				// travel_to walks only on seen standing spots; move_to swims at the surface. Swim on along the heading in short
+				// hops until the far side is in reach of a walk (at most 12 hops, about 100 blocks), then walk the rest.
+				for (let hop = 0; hop < 12; hop++) {
+					const from = { x: o.player.x, z: o.player.z };
+					// Inside the search circle, as every bounded walk is (2 blocks kept to brake): a hop shortens at the edge.
+					const step = Math.min(8, hopRoom(from, d));
+					if (step < 3) break;
+					// From the bank the water surface is a block or two below the feet; afloat it is where the body is.
+					let swam = null;
+					for (const dy of o.player.inWater === true ? [0, -1] : [-1, -2]) {
+						swam = await act('move_to', { x: from.x + d.x * step, y: Math.floor(o.player.y) + dy, z: from.z + d.z * step, tolerance: 2, sprint: false }, { breathStop: true });
+						if (!(swam?.find?.eyes?.stoppedBy === 'NO_STANDABLE_PATH')) break;
+					}
+					if (swam && swam.reasonCode !== 'FIND_BLOCKED') return swam;
+					if (Math.hypot(o.player.x - from.x, o.player.z - from.z) < 3) break;
+					if (o.player.underWater !== true && o.player.inWater !== true) break;
+				}
+				end = await act('travel_to', bounded({ ...state.destination, build: true, tolerance: 3 }), { soft: true });
+			}
 			if (end) return end;
 			delete state.destination;
 			state.phase = 'throw';
 			continue;
 		}
 		if (state.phase === 'dig') {
-			if (o.player.y <= -54) return finish('FIND_NOT_FOUND', 'Staircase reached y-54 without stronghold blocks');
+			if (o.player.y <= -54) {
+				// A crossing that led nowhere is dropped: the next find climbs to open sky and throws again.
+				if (state.digAt) { state.estimateRejected = true; delete state.digAt; state.phase = 'throw'; }
+				return finish('FIND_NOT_FOUND', 'Staircase reached y-54 without stronghold blocks');
+			}
 			const before = o.player.y;
-			const end = await act('dig_to', bounded({ pattern: 'stairs_down', heading: state.digWest ? 'west' : 'east', y: Math.max(-54, Math.floor(before) - 8), maxBlocks: 32,
+			// The first flight heads back across the point the eyes went down at, so the to-and-fro strip straddles it rather
+			// than running off to one side (eye rooms: strips that ran 8 blocks east of the stronghold passed its depth unseen).
+			if (state.digWest === undefined && Number.isFinite(state.digCentre?.x)) state.digWest = o.player.x > state.digCentre.x;
+			// steep_down sees each floor before it stands on it, as stairs_down does, and drops two levels a step: a third
+			// fewer blocks a level, so one iron pickaxe reaches stronghold depth (eye rooms: stairs_down wore the only pickaxe
+			// out at y-25 in 4 of 10 descents).
+			const end = await act('dig_to', bounded({ pattern: 'steep_down', heading: state.digWest ? 'west' : 'east', y: Math.max(-54, Math.floor(before) - 8), maxBlocks: 32,
 				throughCaves: 'small', stopWhenSeen: 'minecraft:stone_bricks', discard }));
-			if (end) return end;
+			// A flight slowed by gravel that ran out of time on the way down is still progress: dig the next one (eye rooms: a
+			// dig that took 60 s for 4 levels of gravel and deepslate handed back the find 3 blocks above the stronghold).
+			if (end && !(['ACTION_TIMED_OUT', 'DIG_LIMIT_REACHED'].includes(end.find?.eyes?.stoppedBy) && o.player.y < before - 1)) return end;
 			state.digWest = !state.digWest;
 			if (o.player.y >= before - 1) return finish('FIND_BLOCKED', 'Staircase made no downward progress');
 			continue;
 		}
 		if (o.player.skyOpen !== true) {
 			const sky = body.openSky?.();
+			// No open sky seen away from here (the body starts under a tree): step out from under the cover a few blocks each way before
+			// digging up through it, as a player walks out from under leaves to throw (eye rooms: stairs_up into a tree's
+			// canopy stopped CAVE_OPENING before any throw on 4 of 20 eyes-c starts).
+			const skyNear = sky && Math.hypot(sky.x - o.player.x, sky.z - o.player.z) <= 3;
+			// Also when the only open sky remembered is right here (seen before a fall or a teleport): it would dig up through
+			// the cover (eye rooms: 6 of 10 eyes-c starts remembered sky above the spawn spot and dug up into the canopy).
+			if ((!sky || skyNear) && !state.coverTried) {
+				state.coverTried = true;
+				const at = { x: o.player.x, z: o.player.z };
+				for (const [dx, dz] of [[6, 0], [0, 6], [-6, 0], [0, -6]]) {
+					const end = await act('travel_to', bounded({ x: at.x + dx, z: at.z + dz, tolerance: 1.5, build: false }));
+					if (end && end.reasonCode !== 'FIND_BLOCKED') return end;
+					if (o.player.skyOpen === true) break;
+				}
+				continue;
+			}
 			const before = o.player.y;
 			const end = sky && Math.hypot(sky.x - o.player.x, sky.z - o.player.z) > 3
 				? await act('travel_to', bounded({ ...sky, retrace: true, build: true, tolerance: 2 }))
@@ -223,14 +462,47 @@ export async function followEyes(target, body, { observation: initial, deadline,
 		const end = await act(Number.isInteger(eye.slot) && eye.slot >= 9 ? 'select_tool' : 'select_item', Number.isInteger(eye.slot) && eye.slot >= 9
 			? { sourceSlot: eye.slot, hotbarSlot: o.inventory.selectedSlot ?? 0, expectedItemId: EYE, minRemainingDurability: 0 } : { itemId: EYE });
 		if (end) return end;
+		// A click taken twice from here: step back from what is in the way before the next try, as a player does.
+		if (blocked >= 2 && steppedFor < blocked) {
+			steppedFor = blocked;
+			const back = direction((o.player.yaw ?? 0) + 180);
+			const end = await act('travel_to', bounded({ x: o.player.x + back.x * 4, z: o.player.z + back.z * 4, tolerance: 1.5, build: false }));
+			if (end && end.reasonCode !== 'FIND_BLOCKED') return end;
+			continue;
+		}
+		// Face the way the last eye flew, a little up, so this one flies into view from the hand.
+		const previous = state.throws.at(-1);
+		if (blocked > 0) {
+			// The last click was taken at eye level: turn aside and look well up, over what took it.
+			const faced = await act('control', { forward: 0, strafe: 0, jump: false, sneak: false, sprint: false, attack: false, use: false,
+				yaw: (((Number.isFinite(previous?.yaw) ? previous.yaw : o.player.yaw ?? 0) + 90 * blocked + 180) % 360 + 360) % 360 - 180, pitch: CLEAR_THROW_PITCH,
+				selectedSlot: o.inventory.selectedSlot ?? 0, hand: 'main', ticks: 2 });
+			if (faced) return faced;
+		} else if (Number.isFinite(previous?.yaw)) {
+			const faced = await act('control', { forward: 0, strafe: 0, jump: false, sneak: false, sprint: false, attack: false, use: false,
+				yaw: previous.yaw, pitch: -20, selectedSlot: o.inventory.selectedSlot ?? 0, hand: 'main', ticks: 2 });
+			if (faced) return faced;
+		}
 		if (left() < 1000) return finish('FIND_BUDGET', 'timeoutMs exhausted before throw');
 		state.scanTurns = 0;
+		state.eyeWaits = 0;
 		state.beforeFlights = flights(o).map(e => e.flightId ?? e.sequence);
-		state.throws.push({ from: { x: o.player.x, y: o.player.y, z: o.player.z } });
+		state.throws.push({ from: { x: o.player.x, y: o.player.y, z: o.player.z }, eyesBefore: eyesHeld(o) });
 		state.phase = 'flight';
 		state.waited = false;
 		const thrown = await act('use_item', { expectedItemId: EYE, mode: 'once', hand: 'main', durationMs: Math.min(250, left()) });
 		state.throws.at(-1).eyesAfter = eyesHeld(o);
+		// The use failed or was cut short and no eye left the hand: no throw happened.
+		if (thrown && notThrown(state.throws.at(-1))) {
+			if (thrown.reasonCode === 'FIND_BLOCKED') {
+				const end = unthrown();
+				if (end) return end;
+				continue;
+			}
+			state.throws.pop();
+			state.phase = 'throw';
+			return finish(thrown.reasonCode, thrown.find?.eyes?.stoppedBy ?? 'interrupted', thrown.find?.seen ?? null);
+		}
 		body.progress?.({ label: `Eye throw ${state.throws.length}: ${eyesHeld(o)} eyes held` });
 		if (thrown) return thrown;
 	}

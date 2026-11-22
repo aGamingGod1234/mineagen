@@ -14,6 +14,11 @@ const TRANSIENT = new Set(['cave', 'vein', 'lava', 'mob']);
 // Mobs that are themselves an item source, remembered where they were seen: blazes hover near their fortress spawner.
 const SOURCE_MOBS = new Set(['minecraft:blaze', 'minecraft:enderman']);
 const SPAWNER = 'minecraft:spawner';
+// Biomes a need goes back to, from a survey row or the biome the body stands in: endermen are the warped forest's usual
+// mob (pearls). Seven-rods scouts lost a forest once it left the 96-block Nether view. One row per 32-block cell (as structures), at
+// most MAX_BIOME_SIGHTINGS (the oldest goes first), so a long walk through a forest cannot push out a fortress.
+export const REMEMBERED_BIOMES = new Set(['minecraft:warped_forest']);
+const MAX_BIOME_SIGHTINGS = 4;
 // Points of interest villages generate: a bell, beds and villager workstations. One alone is no village (a player
 // places beds and workstations too); need options decide what a group of them shows.
 export const VILLAGE_POI = /(^|:)(bell|[a-z_]+_bed|blast_furnace|smoker|cartography_table|brewing_stand|composter|barrel|fletching_table|cauldron|lectern|stonecutter|loom|smithing_table|grindstone)$/;
@@ -115,7 +120,7 @@ export function observeSearch(search, observation, position, tick, blockAt = () 
 	const sample = classifySample(search, observation, position, tick);
 	search.tick = Math.max(search.tick, tick);
 	// What was seen stays a sighting even when this sample ends a life.
-	recordSightings(search, observation?.sighted && typeof observation.sighted === 'object' ? observation.sighted : {}, tick, sightingAt, seenWith(observation));
+	recordSightings(search, observation?.sighted && typeof observation.sighted === 'object' ? observation.sighted : {}, tick, sightingAt, { ...seenWith(observation), at: position, onGround: observation?.player?.onGround });
 	if (sample.ended) { search.motion = null; search.odometer.recent = []; return sample; }
 	const odometer = search.odometer;
 	const previous = search.motion;
@@ -225,6 +230,8 @@ export function recordSightings(search, sighted, tick, blockAt = () => undefined
 			search.withdrawn.delete(at);
 		}
 		const key = `${what}@${Math.floor(row.x / cell)},${TRANSIENT.has(kind) ? `${Math.floor(row.y / cell)},` : ''}${Math.floor(row.z / cell)}`;
+		// A cell where the body stood in the biome keeps that verified point over a far survey row of the same cell.
+		if (kind === 'biome' && extra.standing !== true && search.sightings.get(key)?.standing === true) return;
 		// A far row does not show the spawner's mob; a closer look that did stays known.
 		const mob = extra.mob ?? search.sightings.get(key)?.mob;
 		touchSighting(search.sightings, key,
@@ -242,6 +249,13 @@ export function recordSightings(search, sighted, tick, blockAt = () => undefined
 	}
 	for (const row of rows('built')) if (notableBuilt(row) && !ownSighting('built', row, search.placed)) keep(row, `built:${row.blocks.join('+')}`, 'built', 32);
 	for (const row of rows('caves')) if (Number.isFinite(row.air) && row.air >= CAVE_MIN_AIR) keep(row, 'cave', 'cave', 16, { air: row.air });
+	for (const row of rows('biomes')) {
+		const biome = typeof row.biome === 'string' ? (row.biome.includes(':') ? row.biome : `minecraft:${row.biome}`) : null;
+		if (REMEMBERED_BIOMES.has(biome)) keep(row, biome, 'biome', 32);
+	}
+	// A standing point only where the body stands: one falling through the biome (knocked off a bridge) is not one.
+	if (REMEMBERED_BIOMES.has(seen.biome) && seen.onGround !== false && seen.at && [seen.at.x, seen.at.y, seen.at.z].every(Number.isFinite))
+		keep({ x: Math.floor(seen.at.x), y: Math.floor(seen.at.y), z: Math.floor(seen.at.z) }, seen.biome, 'biome', 32, { standing: true });
 	for (const row of rows('veins')) if (Number.isFinite(row.visible)) keep(row, row.blockId, 'vein', 8, { visible: row.visible });
 	for (const row of rows('blocks')) {
 		if (row.blockId === 'minecraft:lava') keep(row, row.blockId, 'lava', 16, Number.isFinite(row.count) ? { count: row.count } : {});
@@ -260,7 +274,7 @@ export function recordSightings(search, sighted, tick, blockAt = () => undefined
 /** What a sample shows besides its sighted rows: its dimension, direct block rows and entities, unless only remembered. */
 export function seenWith(observation) {
 	const remembered = Array.isArray(observation?.continuity?.rememberedSections) ? observation.continuity.rememberedSections : [];
-	return { dimension: observation?.world?.dimension,
+	return { dimension: observation?.world?.dimension, ...(typeof observation?.world?.biome === 'string' ? { biome: observation.world.biome } : {}),
 		...(remembered.includes('blocks') ? {} : { blocks: observation?.blocks }),
 		...(remembered.includes('entities') ? {} : { entities: observation?.entities }) };
 }
@@ -271,6 +285,11 @@ export function seenWith(observation) {
  */
 function touchSighting(map, key, value) {
 	map.delete(key); map.set(key, value);
+	if (value.kind === 'biome') {
+		const biomes = [...map.entries()].filter(([, row]) => row.kind === 'biome');
+		while (biomes.length > MAX_BIOME_SIGHTINGS) map.delete(biomes.shift()[0]);
+		if (map.size > LIMITS.sightings && biomes.length > 1) map.delete(biomes.shift()[0]);
+	}
 	if (!TRANSIENT.has(value.kind)) {
 		while (map.size > LIMITS.sightings) map.delete(map.keys().next().value);
 		return;

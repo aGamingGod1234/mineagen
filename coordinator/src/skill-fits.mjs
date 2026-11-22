@@ -1,3 +1,5 @@
+import { EYE_PLAN } from './eye-plan.mjs';
+import { endKit } from './end-readiness.mjs';
 import { foodAdviceNeeded, portalBedSource } from './survival-advice.mjs';
 import { heldCounts, keepPickaxeMakings, planObtain } from './obtain-plan.mjs';
 
@@ -5,9 +7,9 @@ import { heldCounts, keepPickaxeMakings, planObtain } from './obtain-plan.mjs';
 // call's fields and the facts that make it fit. It names a call the model may make; nothing runs from it.
 
 export const SKILL_FITS_BYTES = 240;
-// fight_until's default area radius; barter_until and cast_obsidian look for piglins and lava within 16 blocks.
+// fight_until's default area radius; barter_until looks for piglins within 32 blocks (it walks that far to one), cast_obsidian for lava within 16.
 const FIGHT_RANGE = 24;
-const BARTER_RANGE = 16;
+const BARTER_RANGE = 32;
 const LAVA_RANGE = 16;
 const MELEE = /^minecraft:(wooden|golden|stone|copper|iron|diamond|netherite)_(sword|axe)$/;
 const GOLD_ARMOUR = /^minecraft:golden_(helmet|chestplate|leggings|boots)$/;
@@ -51,10 +53,15 @@ export function skillFitsLine({ observation: o = null, needs = [], sightings = [
 		return mob && `fight_until mob:minecraft:enderman untilItem:minecraft:ender_pearl untilCount:${need.need} (enderman ${m(mob.distance)}, ${melee}, pearls ${need.have}/${need.need})`;
 	};
 	const barter = need => {
-		const gold = count(/^minecraft:gold_ingot$/);
-		if (running === 'barter_until' || gold === 0 || !items.some(i => WORN.has(i.slot) && GOLD_ARMOUR.test(i.itemId))) return null;
+		// barter_until crafts carried gold blocks and nuggets into ingots and puts on carried gold armour itself; nuggets
+		// need a crafting table carried or one seen within reach (4.5 blocks), as the job crafts them there.
+		const table = count(/^minecraft:crafting_table$/) > 0 || (remembered(o, 'blocks') ? [] : o.blocks ?? [])
+			.some(b => b?.blockId === 'minecraft:crafting_table' && [b.x, b.y, b.z].every(Number.isFinite) && away({ x: b.x + .5, y: b.y + .5, z: b.z + .5 }) <= 4.5);
+		const gold = count(/^minecraft:gold_ingot$/) + 9 * count(/^minecraft:gold_block$/) + (table ? Math.floor(count(/^minecraft:gold_nugget$/) / 9) : 0);
+		const worn = items.some(i => WORN.has(i.slot) && GOLD_ARMOUR.test(i.itemId));
+		if (running === 'barter_until' || gold === 0 || !worn && !items.some(i => GOLD_ARMOUR.test(i.itemId))) return null;
 		const piglin = nearest('minecraft:piglin', BARTER_RANGE, e => e.baby !== true && e.targetingAgent !== true);
-		return piglin && `barter_until itemId:minecraft:ender_pearl count:${Math.min(64, need.need - need.have)} (piglin ${m(piglin.distance)}, gold ${gold}, gold armour worn, pearls ${need.have}/${need.need})`;
+		return piglin && `barter_until itemId:minecraft:ender_pearl count:${Math.min(64, need.need - need.have)} (piglin ${m(piglin.distance)}, gold ${gold}, gold armour ${worn ? 'worn' : 'carried, put on first'}, pearls ${need.have}/${need.need})`;
 	};
 	const cast = need => {
 		// Water poured in the Nether evaporates, so casting is an Overworld (or End) fact.
@@ -299,7 +306,7 @@ function foodSource(o) {
  * foodHandedBack: a food hand-back this life (foodStockHandback) released the cooked-meat stock; woodHandedBack: a wood
  * hand-back this life (woodStockHandback) released the trip's wood step.
  */
-export function routeLine({ observation: o = null, known = null, memory = null, foodHandedBack = false, woodHandedBack = false, evaluate, instincts = false } = {}) {
+export function routeLine({ observation: o = null, known = null, memory = null, foodHandedBack = false, woodHandedBack = false, kitHandedBack = new Set(), evaluate, instincts = false } = {}) {
 	if (!live(o) || !Array.isArray(o.inventory?.items) || remembered(o, 'inventory') || known === null || typeof evaluate !== 'function') return null;
 	const items = o.inventory.items.filter(i => i?.count > 0);
 	const count = re => items.filter(i => re.test(i.itemId ?? '')).reduce((n, i) => n + i.count, 0);
@@ -319,6 +326,12 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 	const rods = count(/^minecraft:blaze_rod$/), pearls = count(/^minecraft:ender_pearl$/);
 	const rodsMissing = Math.max(0, rodsNeeded - rods), pearlsMissing = Math.max(0, eyesNeeded - pearls);
 	const eyeFacts = `rods ${rods}/${rodsNeeded}, pearls ${pearls}/${eyesNeeded}, eyes ${eyesHeld} held + ${filled} set of ${EYES}`;
+	// The Nether gathers to the eye plan (eye-plan.mjs): throws and lost drops cost eyes before the frame.
+	// Eyes already made to fill the frame are enough: the margin is for raw rods and pearls, never a trip back.
+	const eyesPlanned = portalOpen || eyesHeld + filled >= EYES ? 0 : Math.max(0, EYE_PLAN - eyesHeld - filled);
+	const rodsPlanned = Math.ceil(Math.max(0, eyesPlanned - count(/^minecraft:blaze_powder$/)) / 2);
+	const rodsShort = Math.max(0, rodsPlanned - rods), pearlsShort = Math.max(0, eyesPlanned - pearls);
+	const planFacts = `rods ${rods}/${rodsPlanned}, pearls ${pearls}/${eyesPlanned}, eyes ${eyesHeld} held + ${filled} set; plan ${EYE_PLAN} eyes, ${EYES} fill the frame`;
 	const facts = { count, foodNeeded: foodAdviceNeeded(o), foodHandedBack: foodHandedBack === true, food: count(EDIBLE), cookedMeat: count(COOKED_MEAT), rawMeat: count(RAW_FOOD), nearbyMeat: nearbyMeat(o), blocks: count(MOULD), wood: count(/^minecraft:([a-z_]+_(log|planks|stem))$/), iron: count(/^minecraft:(iron_ingot|raw_iron)$/),
 		buckets: count(/^minecraft:(bucket|water_bucket|lava_bucket)$/), pools: (known.lavaPools ?? []).filter(p => p?.dimension === dimension).length,
 		below: belowGround(o), woodHandedBack: woodHandedBack === true, logs: count(/^minecraft:[a-z_]+_log$/), ingots: count(/^minecraft:iron_ingot$/) };
@@ -369,23 +382,27 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 		return line('kill the ender_dragon: break the end crystals first', 'in the End');
 	}
 	if (dimension === 'minecraft:the_nether') {
-		if (rodsMissing > 0) {
-			const fortress = `find a fortress and fight_until ${rodsNeeded} blaze_rods`;
-			if (items.some(i => WORN.has(i.slot) && GOLD_ARMOUR.test(i.itemId))) return line(fortress, eyeFacts);
+		if (rodsShort > 0) {
+			const fortress = `find a fortress and fight_until ${rodsPlanned} blaze_rods`;
+			if (items.some(i => WORN.has(i.slot) && GOLD_ARMOUR.test(i.itemId))) return line(fortress, planFacts);
 			const gold = items.find(i => GOLD_ARMOUR.test(i.itemId));
 			const prep = gold ? `consider equip_item ${gold.itemId.slice(10)} before searching` : 'consider gold armour if safely nearby; skip a gold hunt';
-			return line(`${prep}; ${fortress}`, `no gold worn; ${eyeFacts}`);
+			return line(`${prep}; ${fortress}`, `no gold worn; ${planFacts}`);
 		}
-		if (pearlsMissing > 0) return line(`get ${eyesNeeded}-${eyesNeeded + 2} ender_pearls: warped-forest endermen, or barter_until with gold`, eyeFacts);
-		return line('return home through the portal', eyeFacts);
+		if (pearlsShort > 0) return line(`get ${eyesPlanned} ender_pearls: warped-forest endermen, or barter_until with gold`, planFacts);
+		return line('return home through the portal', planFacts);
 	}
 	const visitedNether = ok('visited:minecraft:the_nether') || [...(known.advancements ?? []), ...(o.advancements ?? [])]
 		.some(id => /^(minecraft:)?story\/enter_the_nether$/.test(id));
 	if (visitedNether) {
-		if (portalOpen) return line('enter the End portal', 'portal open');
+		// End readiness (end-readiness.mjs): a note behind the head, never the head; fixes only from what is in reach.
+		const kit = endKit(o, { handedBack: kitHandedBack });
+		const first = kit?.fixes.length ? `; in reach first: ${kit.fixes.join(', ')}` : '';
+		const lacks = kit?.missing.length ? `; End kit lacks ${kit.missing.join(', ')}` : '';
+		if (portalOpen) return line(`enter the End portal${first}`, `portal open${lacks}`);
 		// At the frames with eyes in hand, set them first: an observation lists at most 8 blocks of a kind, so the filled
 		// count seen here is a lower bound and must not send the agent back to the Nether while it still holds eyes.
-		if (eyesHeld > 0 && frames.some(b => b?.blockId === 'minecraft:end_portal_frame')) return line('set the ender_eyes in the empty End portal frames', eyeFacts);
+		if (eyesHeld > 0 && frames.some(b => b?.blockId === 'minecraft:end_portal_frame')) return line(`set the ender_eyes in the empty End portal frames${first}`, `${eyeFacts}${lacks}`);
 		const portal = overworldPortal(o, memory);
 		if ((rodsMissing > 0 || pearlsMissing > 0) && portal) {
 			const survival = foodAdviceNeeded(o) ? `low health/hunger, food ${food} held: recover first; ` : 'food stocking optional while healthy; ';
@@ -398,9 +415,13 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 		if (frames.some(b => /^minecraft:(?:(?:mossy_|cracked_)?stone_bricks|iron_bars)$/.test(b?.blockId ?? '')))
 			return line('find block end_portal_frame walks observed passages to the portal room; resume after handling danger or a blocked doorway', eyeFacts);
 		if (rodsMissing > 0 || pearlsMissing > 0) return line(`go back to the Nether for ${[rodsMissing ? `${rodsMissing} blaze_rods` : null, pearlsMissing ? `${pearlsMissing} ender_pearls` : null].filter(Boolean).join(' and ')}`, eyeFacts);
-		if (eyesNeeded > 0) return line(`craft ${eyesNeeded} ender_eyes from pearls and blaze powder`, eyeFacts);
-		if (filled > 0 || frames.some(b => b?.blockId === 'minecraft:end_portal_frame')) return line(`set the ender_eyes in the empty End portal frames`, eyeFacts);
-		return line('find structure stronghold follows thrown eyes and digs down; then find block end_portal_frame walks passages; resume after danger', eyeFacts);
+		// Craft to the eye plan from what is held (the margin pays for throws and lost drops), never fewer than the frame needs.
+		const craftable = Math.min(pearls, count(/^minecraft:blaze_powder$/) + 2 * rods);
+		const craft = Math.max(eyesNeeded, Math.min(craftable, Math.max(0, EYE_PLAN - eyesHeld - filled)));
+		if (eyesNeeded > 0) return line(`craft ${craft} ender_eyes from pearls and blaze powder${first}`, `${eyeFacts}${lacks}`);
+		if (filled > 0 || frames.some(b => b?.blockId === 'minecraft:end_portal_frame')) return line(`set the ender_eyes in the empty End portal frames${first}`, `${eyeFacts}${lacks}`);
+		if (craft > 0 && !portalOpen) return line(`craft ${craft} spare ender_eyes from the pearls and blaze powder held, then find structure stronghold`, `${eyeFacts}; throws break 1 in 5`);
+		return line(`find structure stronghold follows thrown eyes and digs down; then find block end_portal_frame walks passages; resume after danger${first}`, eyeFacts);
 	}
 	// Round1 games6/8 lit portals, then spent the rest of the game on optional surface preparation; the portal bed is the
 	// one step allowed there, and only from what is in reach.

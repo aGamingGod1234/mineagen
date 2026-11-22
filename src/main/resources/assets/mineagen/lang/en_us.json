@@ -1,7 +1,7 @@
 {
   "entity.mineagen.codex_agent": "Mineagen Agent",
   "key.mineagen.open_controls": "Open control center",
-  "key.mineagen.exit_agent_view": "Exit agent view",
+  "key.mineagen.leave_agent_view": "Leave agent view",
   "key.category.mineagen.controls": "Mineagen",
   "screen.mineagen.controls.title": "Mineagen control center",
   "screen.mineagen.provider": "Provider",

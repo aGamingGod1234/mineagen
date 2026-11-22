@@ -280,3 +280,23 @@ test('boot() proposes the survival the goal text asks for and follows a revision
 	// The production coordinator owns run-incident's bridge, so boot() must not answer agent_ready beside it there.
 	assert.match(await readFile(path.join(quality, 'run-incident.mjs'), 'utf8'), /followRevision: false/);
 });
+
+test('a spot that forbids an action fails when the body took it, whatever the last call ended', () => {
+	const spot = { expectCode: 'OBTAINED', forbid: [{ actionType: 'dig_to', pattern: 'stairs_down' }] };
+	const ok = { calls: [{ reasonCode: 'OBTAINED', state: 'SUCCEEDED' }], deaths: 0, actions: [{ type: 'dig_to', args: { pattern: 'tunnel' } }] };
+	assert.equal(findSpotVerdict(spot, ok).pass, true);
+	const dug = { ...ok, actions: [{ type: 'dig_to', args: { pattern: 'stairs_down', y: 70 } }] };
+	const verdict = findSpotVerdict(spot, dug);
+	assert.equal(verdict.pass, false);
+	assert.match(verdict.failReason, /dig_to stairs_down, which this spot forbids/);
+});
+
+test('a spot with a final-probe expectation fails when the ground truth after the calls does not match', () => {
+	const spot = { expectCode: 'OBTAINED', expectFinalProbe: [{ index: 0, match: 'Test passed' }] };
+	const row = { calls: [{ reasonCode: 'OBTAINED', state: 'SUCCEEDED' }], deaths: 0, finalProbe: ['Test passed'] };
+	assert.equal(findSpotVerdict(spot, row).pass, true);
+	const left = findSpotVerdict(spot, { ...row, finalProbe: ['Test failed'] });
+	assert.equal(left.pass, false);
+	assert.match(left.failReason, /final probe 0 replied "Test failed"/);
+	assert.equal(findSpotVerdict(spot, { ...row, finalProbe: undefined }).pass, false, 'no probe reply is no pass');
+});

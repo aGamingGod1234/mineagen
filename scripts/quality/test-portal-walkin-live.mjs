@@ -82,10 +82,14 @@ async function walkIn(name, start, target, expect) {
 	await s.command(`${ow} tp ${AGENT} 0.5 150 0.5`); await s.idleSleep(2500);
 }
 try {
+	// The body is summoned standing on the start deck. Summoned at y200 over nothing, it could still be falling when the
+	// first case teleported it onto the deck, and died of the fall before any case (2 of 10 benchmark runs).
+	await s.command(`${ow} forceload add -48 -48 48 48`);
+	await s.command(`${ow} fill -2 149 -2 2 149 2 minecraft:stone`); await s.command(`${ow} fill -2 150 -2 2 152 2 minecraft:air`);
 	let e = null;
 	for (let attempt = 0; attempt < 3 && !e; attempt++) {
 		const registered = s.inbox.wait('agent_registered', () => true, 45000).catch(() => null);
-		await s.command(`execute positioned 0.5 200 0.5 run mineagen summon gpt-6.1-sol low ${AGENT}`);
+		await s.command(`execute positioned 0.5 150 0.5 run mineagen summon gpt-6.1-sol low ${AGENT}`);
 		e = await registered;
 	}
 	if (!e) throw new Error('agent never registered');
@@ -102,9 +106,8 @@ try {
 	await s.bridge.send('agent_ready', s.record.agentId, { goalRevision: s.record.goalRevision, reconciled: false });
 	await s.command('time set 1000'); await s.command('gamerule minecraft:advance_time false');
 	await s.command(`gamemode survival ${AGENT}`); await s.command(`clear ${AGENT}`);
-	await s.command(`${ow} forceload add -48 -48 48 48`); await s.idleSleep(2000);
+	await s.idleSleep(2000);
 	readDamage = await damageCounter((text) => s.command(text), AGENT);
-	await s.command(`${ow} fill -2 149 -2 2 149 2 minecraft:stone`);
 
 	// End portal over lava: frame ring at y150, the agent on the deck 5 blocks west, targets the pool centre cell.
 	await endPool(20, 0, 'minecraft:lava');

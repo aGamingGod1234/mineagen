@@ -41,11 +41,14 @@ import org.slf4j.LoggerFactory;
 /** Client side of /mineagen spectate and /mineagen takeover: session state, camera binding, hand source and the exit key. */
 public final class PovClient {
 	private static final Logger LOGGER = LoggerFactory.getLogger(PovClient.class);
-	// Category is a record, so an equal id joins AgentControlClient's registered "Mineagen" group.
+	// Category is a record, so an equal id joins AgentControlClient's registered "Mineagen" group. Unbound, the only way
+	// out was the chat command, and a mirrored agent screen kept chat from opening (playtest). F9 is free in vanilla (F4,
+	// F6 and F7-F8 are its debug keys or common mods'). The id is new: options.txt keeps every binding, so the old
+	// unbound "exit_agent_view" would have stayed unbound on every install that ever ran the mod.
 	private static final KeyMapping EXIT_VIEW = new KeyMapping(
-			"key.mineagen.exit_agent_view",
+			"key.mineagen.leave_agent_view",
 			McClientCompat.KEYBOARD,
-			InputConstants.UNKNOWN.getValue(),
+			InputConstants.KEY_F9,
 			new KeyMapping.Category(Identifier.fromNamespaceAndPath("mineagen", "controls"))
 	);
 	// Poses arrive every server tick; this long without any payload means the server stopped streaming.
@@ -60,8 +63,10 @@ public final class PovClient {
 	private static Entity followedBody;
 	private static PovBodyPosition.Position lastFollowed;
 	private static boolean registered;
-	// The free-look hint shows once per game launch, the first time a spectated agent is on screen.
+	// The free-look hint shows once per game launch, the first time a spectated agent is on screen; the exit hint once per
+	// launch for takeover.
 	private static boolean freeLookHintShown;
+	private static boolean takeoverHintShown;
 	private static AgentPovStatePayload latestState;
 	private static AgentPovMenuPayload latestMenu;
 	private static float attackStrength = 1.0F;
@@ -130,6 +135,16 @@ public final class PovClient {
 				AgentControlCommandBuilder.ROOT + (current.takeover() ? " takeover exit" : " spectate exit"));
 		// With the stream already silent no stop payload will come, so the exit is local only.
 		if (client.getConnection() == null || silentTicks >= SILENT_SERVER_TICKS) endLocal(client);
+	}
+
+	/** The exit key, pressed inside a screen (key mappings are only polled with no screen open). */
+	public static boolean isExitKey(net.minecraft.client.input.KeyEvent event) {
+		return EXIT_VIEW.matches(event);
+	}
+
+	/** The exit key's current binding, as the controls screen names it. */
+	public static Component exitKeyName() {
+		return EXIT_VIEW.getTranslatedKeyMessage();
 	}
 
 	public static Optional<PovVitals> vitals() {
@@ -328,7 +343,12 @@ public final class PovClient {
 		updateFreeLook(client);
 		if (agent != null && !current.takeover() && !freeLookHintShown) {
 			freeLookHintShown = true;
-			overlay(client, Component.literal("Hold ").append(client.options.keyShift.getTranslatedKeyMessage()).append(" to look around"));
+			overlay(client, Component.literal("Hold ").append(client.options.keyShift.getTranslatedKeyMessage()).append(" to look around, ")
+					.append(exitHint()));
+		}
+		if (agent != null && current.takeover() && !takeoverHintShown) {
+			takeoverHintShown = true;
+			overlay(client, exitHint());
 		}
 		// The view rotation is what the camera shows, so the hands chase exactly that; a lost agent forgets
 		// the bob so the hands snap to its look when it reappears instead of swinging in from a stale one.
@@ -381,6 +401,12 @@ public final class PovClient {
 	/** Debug-only: times a sent input frame until a pose produced after it arrives (see {@link PovLatencyProbe}). */
 	public static void inputFrameSent(int sequence) {
 		if (PovLatencyProbe.ENABLED) LATENCY.sent(sequence, System.nanoTime());
+	}
+
+	// An unbound key has no name worth showing; the chat command always works then.
+	private static Component exitHint() {
+		return EXIT_VIEW.isUnbound() ? Component.literal("type /mineagen " + (isTakeover() ? "takeover" : "spectate") + " exit to return")
+				: Component.literal("press ").append(EXIT_VIEW.getTranslatedKeyMessage()).append(" to return");
 	}
 
 	private static void overlay(Minecraft client, String message) {
