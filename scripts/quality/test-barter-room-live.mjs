@@ -6,6 +6,8 @@
 //   held   192 gold ingots and a golden helmet carried, iron helmet worn; 5 calm piglins 28 blocks east (out of 16).
 //   blocks 20 gold blocks and 6 ingots carried (bastion loot), golden boots worn; 5 piglins 20 blocks east and one
 //          hoglin loose near them.
+//   guard  the mine kit, no group, one calm piglin caged 12 east and 12 south of the ore face (inside vanilla's
+//          16-per-axis anger box, 17 straight-line); 3 game minutes; passes when that piglin is never angered.
 //   mine   a Nether start's gold: a golden helmet worn and no gold to trade; 39 Nether gold ores in the west wall
 //          beside the start, a crafting table and iron pickaxe carried; 4 piglins 28 blocks east (mining there angers
 //          none: they guard gold only within 16).
@@ -26,16 +28,17 @@ import { damageCounter, statCounter, replyNumber } from './lib/damage-counter.mj
 import { adaptObservation } from '../../coordinator/src/observation-adapter.mjs';
 import { validateAction } from '../../coordinator/src/schema.mjs';
 
-const USAGE = 'Usage: test-barter-room-live.mjs held|blocks|mine SALT OUT_DIR JAR [--strict|--descriptive] under slot.sh live, with JAVA_HOME and ARENA_HEADLESS_SERVER_TEMPLATE';
+const USAGE = 'Usage: test-barter-room-live.mjs held|blocks|mine|guard SALT OUT_DIR JAR [--strict|--descriptive] under slot.sh live, with JAVA_HOME and ARENA_HEADLESS_SERVER_TEMPLATE';
 const cli = process.argv.slice(2);
 if (cli.includes('--help')) { console.log(USAGE + '\n' + EDIT_LOOP_HELP + '\n' + FIXTURE_OUTCOME_HELP); process.exit(0); }
 const strict = !cli.includes('--descriptive');
 const [room, saltArg, outArg, jarArg] = cli.filter(arg => !['--strict', '--descriptive'].includes(arg));
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port = Number(process.env.SLOT_PORT_BASE);
-const ROOMS = ['held', 'blocks', 'mine'];
+const ROOMS = ['held', 'blocks', 'mine', 'guard'];
 if (!ROOMS.includes(room) || !Number.isInteger(Number(saltArg)) || !outArg || !jarArg || !template || !port || !process.env.JAVA_HOME) { console.error(USAGE); process.exit(2); }
 const salt = Number(saltArg), out = path.resolve(outArg), jar = path.resolve(jarArg);
-const TICKS = Number(process.env.BARTER_TICKS ?? 12000), THINK_MS = Number(process.env.THINK_MS ?? 5000);
+// The guard room only asks whether the body leaves guarded gold alone, so 3 game minutes are enough.
+const TICKS = Number(process.env.BARTER_TICKS ?? (room === 'guard' ? 3600 : 12000)), THINK_MS = Number(process.env.THINK_MS ?? 5000);
 const { boot } = await import('./watch-replay.mjs');
 await mkdir(out, { recursive: true });
 if ((await readdir(out)).length) throw new Error('Use a fresh output directory');
@@ -214,23 +217,32 @@ try {
 	await nc(`fill ${X - HALF - 1} ${Y - 1} ${Z - HALF - 1} ${X + HALF + 1} ${Y + 5} ${Z + HALF + 1} minecraft:netherrack`);
 	await nc(`fill ${X - HALF} ${Y} ${Z - HALF} ${X + HALF} ${Y + 4} ${Z + HALF} minecraft:air`);
 	for (let dz = -18; dz <= 18; dz += 6) await nc(`fill ${X - HALF} ${Y + 5} ${Z + dz} ${X + HALF} ${Y + 5} ${Z + dz} minecraft:glowstone`);
-	if (room === 'mine') await nc(`fill ${X - HALF} ${Y} ${Z - 6} ${X - HALF} ${Y + 2} ${Z + 6} minecraft:nether_gold_ore`);
+	if (room === 'mine' || room === 'guard') await nc(`fill ${X - HALF} ${Y} ${Z - 6} ${X - HALF} ${Y + 2} ${Z + 6} minecraft:nether_gold_ore`);
+	// guard: one calm piglin in a glass cell 12 east and 12 south of the ore face (17 blocks straight-line, inside the
+	// 16-per-axis box vanilla angers when gold breaks). Caged, so an angry one is recorded, not fought.
+	const cell = { x: X - HALF + 13, z: Z + 12 };
+	if (room === 'guard') {
+		await nc(`fill ${cell.x - 1} ${Y} ${cell.z - 1} ${cell.x + 1} ${Y + 2} ${cell.z + 1} minecraft:glass`);
+		await nc(`fill ${cell.x} ${Y} ${cell.z} ${cell.x} ${Y + 1} ${cell.z} minecraft:air`);
+	}
 	await nc(`kill @e[type=!minecraft:player,x=${X - HALF - 1},y=${Y - 1},z=${Z - HALF - 1},dx=${2 * HALF + 2},dy=7,dz=${2 * HALF + 2}]`);
 	await nc(`tp ${AGENT} ${X - HALF + 4.5} ${Y} ${Z + 0.5} -90 0`);
 	await s.command(`clear ${AGENT}`);
 	await s.command(`effect clear ${AGENT}`);
 	await s.command(`effect give ${AGENT} minecraft:instant_health 1 5 true`);
 	await s.command(`effect give ${AGENT} minecraft:saturation 1 20 true`);
-	const armour = { head: room === 'mine' ? 'golden_helmet' : 'iron_helmet', chest: 'iron_chestplate', legs: 'iron_leggings', feet: room === 'blocks' ? 'golden_boots' : 'iron_boots' };
+	const armour = { head: room === 'mine' || room === 'guard' ? 'golden_helmet' : 'iron_helmet', chest: 'iron_chestplate', legs: 'iron_leggings', feet: room === 'blocks' ? 'golden_boots' : 'iron_boots' };
 	for (const [slot, item] of Object.entries(armour)) await s.command(`item replace entity ${AGENT} armor.${slot} with minecraft:${item}`);
 	const give = { held: [['iron_sword', 1], ['iron_pickaxe', 1], ['cooked_beef', 16], ['gold_ingot', 64], ['gold_ingot', 64], ['gold_ingot', 64], ['golden_helmet', 1]],
 		blocks: [['iron_sword', 1], ['iron_pickaxe', 1], ['cooked_beef', 16], ['gold_block', 20], ['gold_ingot', 6]],
-		mine: [['iron_sword', 1], ['iron_pickaxe', 1], ['cooked_beef', 16], ['crafting_table', 1]] }[room];
+		mine: [['iron_sword', 1], ['iron_pickaxe', 1], ['cooked_beef', 16], ['crafting_table', 1]],
+		guard: [['iron_sword', 1], ['iron_pickaxe', 1], ['cooked_beef', 16], ['crafting_table', 1]] }[room];
 	for (const [i, [item, count]] of give.entries()) await s.command(`item replace entity ${AGENT} ${i < 9 ? `hotbar.${i}` : `inventory.${i - 9}`} with minecraft:${item} ${count}`);
 	await s.command(`random reset * ${salt}`);
-	const group = { held: [[12, 0], [13, 2], [11, -2], [14, -1], [12, 3]], blocks: [[4, 0], [5, 2], [3, -2], [6, -1], [4, 3]], mine: [[12, 0], [13, 2], [11, -2], [14, -1]] }[room];
+	const group = { held: [[12, 0], [13, 2], [11, -2], [14, -1], [12, 3]], blocks: [[4, 0], [5, 2], [3, -2], [6, -1], [4, 3]], mine: [[12, 0], [13, 2], [11, -2], [14, -1]], guard: [] }[room];
 	for (const [i, [dx, dz]] of group.entries())
 		await nc(`summon minecraft:piglin ${X + dx + 0.5} ${Y} ${Z + dz + 0.5} {PersistenceRequired:1b,IsImmuneToZombification:1b,Tags:["barter_room"],HandItems:[{id:"minecraft:golden_sword",count:1},{}]}`);
+	if (room === 'guard') await nc(`summon minecraft:piglin ${cell.x + 0.5} ${Y} ${cell.z + 0.5} {PersistenceRequired:1b,IsImmuneToZombification:1b,Tags:["barter_room","guard"]}`);
 	if (room === 'blocks') await nc(`summon minecraft:hoglin ${X + 6.5} ${Y} ${Z + 12.5} {PersistenceRequired:1b,IsImmuneToZombification:1b,Tags:["barter_room"]}`);
 	await sleep(1500);
 	const damage = await damageCounter(s.command, AGENT);
@@ -244,7 +256,7 @@ try {
 	if (!items().some(x => x.itemId === 'minecraft:iron_sword')) throw new Error('the kit never showed in an observation');
 	await act('look_at', { x: X + 10, y: Y + 1.6, z: Z + 0.5 });
 	row.piglinsSeenAtStart = seenEntities('minecraft:piglin').length;
-	if (row.piglinsSeenAtStart === 0) row.notExercised = 'no piglin seen from the start';
+	if (row.piglinsSeenAtStart === 0 && room !== 'guard') row.notExercised = 'no piglin seen from the start';
 	const gold0 = goldUnits(), pearls0 = held('minecraft:ender_pearl');
 	row.goldStart = gold0;
 	startTicks = await gameTicks(); startedAt = Date.now(); row.startedAt = startedAt;
@@ -326,8 +338,16 @@ try {
 	row.ingotsPer10Min = row.ingotsTraded === null ? null : +(row.ingotsTraded * 12000 / window).toFixed(1);
 	const bar = room === 'mine' ? 1 : 40;
 	row.pass = !dead && row.deaths === 0 && row.ingotsTraded >= bar;
-	row.failReason = dead || row.deaths ? 'the body died' : `traded ${row.ingotsTraded} ingots (bar ${bar})${row.stopped ? `; ${row.stopped}` : ''}`;
-	row.passReason = `traded ${row.ingotsTraded} ingots for ${row.pearls} pearls in ${(row.elapsedTicks / 1200).toFixed(1)} game min`;
+	if (room === 'guard') {
+		const angry = String(await s.command(`execute in ${NETHER} if entity @e[type=minecraft:piglin,tag=guard,nbt={Brain:{memories:{"minecraft:angry_at":{}}}}]`).catch(() => ''));
+		row.guardAngry = /count: [1-9]/i.test(angry) ? true : /failed|count: 0/i.test(angry) ? false : null;
+		row.mineCalls = row.calls.mine_vein ?? 0;
+		if (row.guardAngry === null) (row.integrity ??= []).push({ file: 'guard', error: `Unreadable piglin anger: ${angry.slice(0, 120)}` });
+		if (row.mineCalls === 0) row.notExercised = 'the stand-in never tried to mine the gold';
+		row.pass = !dead && row.deaths === 0 && row.guardAngry === false;
+	}
+	row.failReason = dead || row.deaths ? 'the body died' : room === 'guard' ? `the caged piglin was angered (${row.goldMined} ingots of gold mined)` : `traded ${row.ingotsTraded} ingots (bar ${bar})${row.stopped ? `; ${row.stopped}` : ''}`;
+	row.passReason = room === 'guard' ? `left the guarded gold alone (${row.mineCalls} mine calls, ${row.goldMined} ingots mined)` : `traded ${row.ingotsTraded} ingots for ${row.pearls} pearls in ${(row.elapsedTicks / 1200).toFixed(1)} game min`;
 	console.log(`[barter-room] ${room} salt ${salt}: pearls ${row.pearls}, ingots traded ${row.ingotsTraded}, deaths ${row.deaths}, damage ${row.damageTaken}, calls ${JSON.stringify(row.calls)}`);
 } catch (error) {
 	console.error(error);
