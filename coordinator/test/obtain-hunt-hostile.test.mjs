@@ -67,3 +67,18 @@ test('a cave spider in view under cover is hunted there, not climbed away from',
 	assert.ok(calls.includes('fight_until'), JSON.stringify(calls));
 	assert.ok(!calls.includes('dig_to'), `no climb: ${JSON.stringify(calls)}`);
 });
+
+test('a cow heard through a cave ceiling still means climbing out first', async () => {
+	const calls = [];
+	const cow = { type: 'minecraft:cow', uuid: 'c', x: 4.5, y: 40, z: 0.5, alive: true, visible: false, perceivedBy: 'sound', distance: 20 };
+	const body = {
+		observe: async () => ({ ready: true, player: { x: 0.5, y: 20, z: 0.5, health: 20, foodLevel: 20, skyOpen: false, onGround: true, threats: [] },
+			world: { dimension: 'minecraft:overworld', dayTime: 6000 }, blocks: [], entities: [cow], inventory: { items: [{ itemId: 'minecraft:stone_pickaxe', count: 1, slot: 0 }] } }),
+		act: async (actionType) => { calls.push(actionType); return { state: 'FAILED', reasonCode: 'NO_STANCE', message: 'no stance' }; },
+		search: async () => ({ state: 'FAILED', reasonCode: 'FIND_NOT_FOUND', message: 'none' }),
+		survey: async () => ({ entries: [] }), note: () => {}, stopped: () => false, interrupted: () => false, recovering: () => {},
+	};
+	await runObtain({ item: 'beef', count: 1, timeoutMs: 600_000 }, body, { now: clock() });
+	assert.ok(calls.includes('dig_to'), `climbs: ${JSON.stringify(calls)}`);
+	assert.ok(!calls.includes('fight_until'), JSON.stringify(calls));
+});

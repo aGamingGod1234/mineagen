@@ -256,6 +256,18 @@ export function isDanger(result, observation) {
 }
 
 /**
+ * A mob to hunt seen (not heard or remembered) within the hunt's reach and about the body's height: under cover it is
+ * fought there. A cow heard through a cave ceiling still means climbing out to the surface first.
+ */
+function huntHere(need, o) {
+	const at = bodyAt(o);
+	if (!at || o.continuity?.rememberedSections?.includes('entities')) return false;
+	const mobs = new Set(need.mobs.map(id));
+	return (o.entities ?? []).some((row) => mobs.has(row?.type) && row.alive !== false && row.visible !== false && row.perceivedBy !== 'sound' && row.remembered !== true
+		&& [row.x, row.y, row.z].every(Number.isFinite) && Math.abs(row.y - at.y) <= 4 && Math.hypot(row.x - at.x, row.z - at.z) <= HUNT_RADIUS);
+}
+
+/**
  * The sample with the hunted kind's own rows left out, so a walk-up stop for the quarry alone is not danger. Unchanged
  * with no quarry, or with no threat rows to tell the kinds apart (unknown stays danger).
  */
@@ -1155,8 +1167,7 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		await offCanopy();
 		if (body.interrupted() || body.stopped()) return 'stopped';
 		// A mob to hunt already in view under cover (a cave spider in a mineshaft) is hunted where it is, not climbed away from.
-		const close = need.kind === 'kill' ? inView(need, await body.observe(), budget) : null;
-		const covered = close !== null && close.d <= HUNT_RADIUS ? null : await surfaceFirst(need);
+		const covered = need.kind === 'kill' && huntHere(need, await body.observe()) ? null : await surfaceFirst(need);
 		if (body.interrupted() || body.stopped()) return 'stopped';
 		// Searching sideways underground finds neither trees nor animals: hand back, saying why.
 		if (covered !== null) { noSurface = `no way up to the surface for ${need.accept[0]}: ${covered}`; return noSurface; }
