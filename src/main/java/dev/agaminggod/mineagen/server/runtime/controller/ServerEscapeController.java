@@ -104,6 +104,16 @@ public final class ServerEscapeController implements ServerController {
 		return player == null ? null : SHOOTER_MOVES.get(player.getUUID());
 	}
 
+	/**
+	 * Whether this body's escape is answering a shooter, or would on its next choice: its own move when it has one, else
+	 * the situation it reads now. A reflex firing before the escape's first choice (defend on the archer's first arrow)
+	 * would otherwise hold the body and the escape would never get to choose cover (skeleton room: paused 18 to 57 s).
+	 */
+	public static boolean answersShooter(ServerPlayer player) {
+		if (shooterMove(player) != null) return true;
+		return player != null && situation(player) == Situation.SHOOTERS;
+	}
+
 	private static void answering(ServerPlayer player, ShooterMove move) {
 		if (move == null) SHOOTER_MOVES.remove(player.getUUID());
 		else SHOOTER_MOVES.put(player.getUUID(), move);
@@ -136,10 +146,9 @@ public final class ServerEscapeController implements ServerController {
 		if (child != null) return childTick(player, now);
 		if (move != null) return moveTick(player);
 		Situation situation = situation(player);
-		if (situation != Situation.SHOOTERS) {
-			runInterrupted = false;
-			answering(player, null);
-		}
+		if (situation != Situation.SHOOTERS) runInterrupted = false;
+		// A jump or a knock off the ground mid-escape is not a new choice; water, a hole or safety are.
+		if (situation == Situation.WATER || situation == Situation.PIT || situation == Situation.SAFE) answering(player, null);
 		if (situation != Situation.SAFE) safeTicks = 0;
 		return switch (situation) {
 			case SAFE -> {

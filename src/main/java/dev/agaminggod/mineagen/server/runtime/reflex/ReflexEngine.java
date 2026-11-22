@@ -127,8 +127,8 @@ public final class ReflexEngine {
 	 * runs out of range), and no melee mob is in reach. Any archer in sight was too wide: in water or a hole the escape
 	 * swims or climbs first, and a zombie hitting the body is no shot the escape's cover walk blocks.
 	 */
-	static boolean escapingShooter(dev.agaminggod.mineagen.server.runtime.controller.ServerEscapeController.ShooterMove move, boolean meleeInReach) {
-		return move != null && !meleeInReach;
+	static boolean escapingShooter(boolean answersShooter, boolean meleeInReach) {
+		return answersShooter && !meleeInReach;
 	}
 
 	/**
@@ -545,7 +545,8 @@ public final class ReflexEngine {
 		boolean fleeingWithChaser = fleeing && ReflexActions.Defend.nearestChaser(player, ReflexActions.PACK_RANGE) < ReflexActions.PACK_RANGE;
 		dev.agaminggod.mineagen.server.runtime.controller.ServerEscapeController.ShooterMove shooterMove =
 				activeType == ActionType.ESCAPE ? dev.agaminggod.mineagen.server.runtime.controller.ServerEscapeController.shooterMove(player) : null;
-		boolean escapingShooter = escapingShooter(shooterMove, meleeInReach(player));
+		boolean escapingShooter = activeType == ActionType.ESCAPE && escapingShooter(
+				dev.agaminggod.mineagen.server.runtime.controller.ServerEscapeController.answersShooter(player), meleeInReach(player));
 		boolean firingBlocksShots = agent.scheduler.current() != null && agent.behaviour != null && agent.behaviour.blocksShots()
 				|| escapeBlocksShots(shooterMove, player.getOffhandItem().is(net.minecraft.world.item.Items.SHIELD)
 						|| player.getMainHandItem().is(net.minecraft.world.item.Items.SHIELD));

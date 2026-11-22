@@ -349,7 +349,7 @@ try {
 			calls++;
 			last = await s.act(call[0], call[1], left + 10_000).catch(error => ({ state: 'ERROR', reasonCode: error.message }));
 			results.push(`${call[0]}:${last.state}:${last.reasonCode}`);
-			for (const m of String(last?.message ?? '').matchAll(/paused (\d+) time\(s\) by reflex (\S+) for ([\d.]+) s/g)) {
+			for (const m of String(last?.message ?? '').matchAll(/paused (\d+) time\(s\) by reflex (.*?) for ([\d.]+) s/g)) {
 				pauses.push({ rule: m[2], times: Number(m[1]), seconds: Number(m[3]) });
 			}
 			// A call the body ran (not refused at the gate): only these can be credited with a save.
