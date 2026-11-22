@@ -120,7 +120,8 @@ public final class AgentRosterTile extends AbstractWidget implements ConsoleFocu
 			String fittedModel = ellipsize(
 					entry.modelLabel(), secondary.width(), value -> ConsoleText.width(font, value));
 			ConsoleText.text(graphics, font, fittedModel, secondary.left(), secondary.top(), ConsoleTheme.MUTED);
-			drawStateCue(graphics, metrics.stateCueBounds(), entry.lifecycleState());
+			Bounds cue = metrics.stateCueBounds();
+			ConsoleDraw.stateMark(graphics, stateMark(entry), cue.left(), cue.top(), cue.width());
 		}
 		if (metrics.showCheck()) {
 			drawSelectionCheck(graphics, metrics.checkBounds());
@@ -133,8 +134,9 @@ public final class AgentRosterTile extends AbstractWidget implements ConsoleFocu
 		return hovered ? ConsoleTheme.SURFACE_HOVER : ConsoleTheme.SURFACE;
 	}
 
-	private static void drawStateCue(GuiGraphicsExtractor graphics, Bounds bounds, String lifecycleState) {
-		ConsoleDraw.stateMark(graphics, lifecycleState, bounds.left(), bounds.top(), bounds.width());
+	/** What the tile draws for its entry's state: read from the raw lifecycle state, never from the label text. */
+	public static ConsoleDraw.StateMark stateMark(AgentRosterEntry entry) {
+		return ConsoleDraw.stateMark(dev.agaminggod.mineagen.control.AgentControlPresentation.stateCue(entry.lifecycleState()));
 	}
 
 	private static void drawSelectionCheck(GuiGraphicsExtractor graphics, Bounds bounds) {
@@ -207,8 +209,8 @@ public final class AgentRosterTile extends AbstractWidget implements ConsoleFocu
 		Bounds primary = showPrimary
 				? new Bounds(textLeft, primaryY, textRight, primaryY + 9) : hidden;
 
-		int stateWidth = 8;
-		int stateHeight = 8;
+		int stateWidth = ConsoleDraw.STATE_MARK_SIZE;
+		int stateHeight = ConsoleDraw.STATE_MARK_SIZE;
 		int secondaryY = primaryY + 12;
 		int secondaryLeft = textLeft + stateWidth + 4;
 		boolean showSecondary = showPrimary && textRight - secondaryLeft >= 12
@@ -216,7 +218,8 @@ public final class AgentRosterTile extends AbstractWidget implements ConsoleFocu
 		Bounds secondary = showSecondary
 				? new Bounds(secondaryLeft, secondaryY, textRight, secondaryY + 9) : hidden;
 		Bounds state = showSecondary
-				? new Bounds(textLeft, secondaryY, textLeft + stateWidth, secondaryY + stateHeight)
+				// Centred on the 9 px text line it marks.
+				? new Bounds(textLeft, secondaryY - 2, textLeft + stateWidth, secondaryY - 2 + stateHeight)
 				: hidden;
 
 		ArrayList<Bounds> painted = new ArrayList<>();

@@ -62,21 +62,34 @@ public final class AgentRosterGridVerification {
 		assertTrue(!idle.hollow() && !error.hollow() && disconnected.hollow(), "a lost link is a hollow dot, ready and needs-attention are filled");
 		assertTrue(idle.color() != error.color(), "ready and needs-attention dots differ in tone");
 
-		AgentRosterEntry dead = new AgentRosterEntry("agent:rook", "Rook", "codex", "Sol", "Dead - ready to respawn", true, "", "DEAD");
-		assertEquals("DEAD", dead.lifecycleState(), "the roster entry carries the raw state beside its label");
-		assertEquals(ConsoleDraw.Icon.RESPAWN, ConsoleDraw.stateMark(
-				dev.agaminggod.mineagen.control.AgentControlPresentation.stateCue(dead.lifecycleState())).icon(),
+		// The real path: the screen's snapshot-to-roster mapping, then what the tile draws for each entry.
+		String deadId = "11111111-2222-3333-4444-555555555555", thinkingId = "66666666-7777-8888-9999-aaaaaaaaaaaa";
+		List<AgentRosterEntry> entries = AgentControlScreen.rosterEntries(new dev.agaminggod.mineagen.control.AgentControlSnapshot(true, 1L, List.of(
+				controlAgent(deadId, "Rook", "DEAD"), controlAgent(thinkingId, "Kestrel", "PLANNING"))));
+		AgentRosterEntry dead = entries.stream().filter(entry -> entry.id().equals(deadId)).findFirst().orElseThrow();
+		AgentRosterEntry thinking = entries.stream().filter(entry -> entry.id().equals(thinkingId)).findFirst().orElseThrow();
+		assertEquals("DEAD", dead.lifecycleState(), "the roster entry carries the agent's raw state beside its label");
+		assertEquals("Dead - ready to respawn", dead.state(), "and still shows the label");
+		assertEquals(ConsoleDraw.Icon.RESPAWN, AgentRosterTile.stateMark(dead).icon(),
 				"a dead agent's tile shows respawn, not the ready mark its label text once matched");
+		assertEquals(ConsoleDraw.Icon.SPARK, AgentRosterTile.stateMark(thinking).icon(), "a thinking agent's tile shows the spark");
+		assertTrue(AgentRosterTile.stateMark(thinking).color() != ConsoleTheme.ERROR, "and is not red");
 		AgentRosterEntry legacy = entry("agent:kestrel", "Kestrel", "Thinking...", true, "");
-		ConsoleDraw.StateMark unknown = ConsoleDraw.stateMark(
-				dev.agaminggod.mineagen.control.AgentControlPresentation.stateCue(legacy.lifecycleState()));
+		ConsoleDraw.StateMark unknown = AgentRosterTile.stateMark(legacy);
 		assertTrue(unknown.icon() == null && unknown.hollow() && unknown.color() == ConsoleTheme.MUTED,
 				"an entry without a raw state is a muted hollow dot, not a red error");
 		ContentMetrics normal = AgentRosterTile.contentMetrics(0, 0, 120, 48, false);
-		assertEquals(8, normal.stateCueBounds().width(), "the state mark has an 8 px square");
-		assertEquals(8, normal.stateCueBounds().height(), "the state mark has an 8 px square");
+		assertEquals(ConsoleDraw.STATE_MARK_SIZE, normal.stateCueBounds().width(), "the state mark is drawn at the icons' own size");
+		assertEquals(ConsoleDraw.STATE_MARK_SIZE, normal.stateCueBounds().height(), "the state mark is drawn at the icons' own size");
 		assertTrue(normal.stateCueBounds().right() < normal.secondaryTextBounds().left(), "the mark sits left of the model label");
-		return assertions + 9;
+		assertTrue(normal.stateCueBounds().top() >= normal.primaryTextBounds().bottom(), "the mark does not overlap the name");
+		assertTrue(normal.stateCueBounds().bottom() <= 48, "the mark stays inside the tile");
+		return assertions + 13;
+	}
+
+	private static dev.agaminggod.mineagen.control.AgentControlAgent controlAgent(String id, String name, String state) {
+		return new dev.agaminggod.mineagen.control.AgentControlAgent(id, id.substring(0, 8), name, "codex", "gpt-5.6-sol", "high",
+				"Sol_" + id.substring(0, 8), 0, state, "", 0, "", "", false, true);
 	}
 
 	private static int verifyUnavailableSelectionSurface() {
