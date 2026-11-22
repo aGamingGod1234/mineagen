@@ -97,12 +97,15 @@ const SERVER_TYPES = new Set(SERVER_TO_COORDINATOR_TYPES);
 const REVISION_GUARDED_INBOUND_TYPES = new Set(['plan_facts', 'advancement_granted', 'entity_killed', 'observation', 'inspection_result', 'conversation_event', 'action_progress', 'action_result', 'goal_completion_result']);
 const REVISION_GUARDED_OUTBOUND_TYPES = new Set(['agent_ready', 'planning_state', 'goal_completed', 'conversation_wake_ack', 'request_observation', 'inspection_request', 'action_command', 'action_cancel', 'agent_error', 'verbose_event']);
 const TERMINAL_ACTION_STATES = new Set(['SUCCEEDED', 'FAILED', 'CANCELLED', 'TIMED_OUT']);
-// Snapshots that the next message of the same type supersedes. When the payload of one of these fails only because the
-// server emits something this schema does not know (SCHEMA_DRIFT_REPAIRS), the message is dropped and reported instead of
-// closing the session: a reconnect cannot cure an emitter and schema that disagree, it replays the same message while
-// in-flight actions are lost. Containment runs after the same guards a valid message passes (duplicate ID, server
-// instance, fragment ordering, agent identity, goal revision), so corruption behind the drift still closes the connection.
+// Snapshots that the next message of the same type supersedes. Once the session is ready, a payload of one of these that
+// fails validation is dropped and reported instead of closing the session: a reconnect cannot cure an emitter and schema
+// that disagree, it replays the same message while in-flight actions are lost. Containment runs after the same guards a
+// valid message passes (envelope header, duplicate ID, server instance, fragment ordering, agent identity, goal revision),
+// so a bad envelope or revision still closes the connection. Unknown fields (SCHEMA_DRIFT_REPAIRS) are dropped for as long
+// as they last; a malformed or oversized known fact closes the connection only after
+// MAX_CONSECUTIVE_SNAPSHOT_REJECTIONS of that agent's snapshots of that type in a row failed.
 const SUPERSEDED_INBOUND_TYPES = new Set(['observation', 'action_progress']);
+const MAX_CONSECUTIVE_SNAPSHOT_REJECTIONS = 8;
 // Only these errors supply a repair that removes schema drift from a private validation copy.
 // Missing or mistyped facts, bad numbers/identifiers and oversized arrays never supply a repair.
 const SCHEMA_DRIFT_REPAIRS = new WeakMap();
@@ -611,6 +614,7 @@ export class MultiplexedServerBridge extends EventEmitter {
 	#retiredAgentIds = new Set();
 	#observedRevisions = new Map();
 	#payloadRejections = new Map();
+	#snapshotRejectionStreaks = new Map();
 
 	constructor(config, { audit = null, ...dependencies } = {}) {
 		super();
@@ -719,6 +723,7 @@ export class MultiplexedServerBridge extends EventEmitter {
 	#onConnect(socket, connectionEpoch) {
 		if (!this.#isCurrentConnection(socket, connectionEpoch)) return;
 		this.#inboundMessageIds.clear();
+		this.#snapshotRejectionStreaks.clear();
 		this.#observedRevisions.clear();
 		this.#clearInboundQueue();
 		this.#clientNonce = authenticationToken(this.#randomNonce(), 'clientNonce');
@@ -786,26 +791,36 @@ export class MultiplexedServerBridge extends EventEmitter {
 	#accept(value, socket, connectionEpoch) {
 		let envelope;
 		let payloadError = null;
+		let corruptSnapshot = false;
 		try {
 			envelope = validateProtocolV2Envelope(value, { direction: 'server_to_coordinator' });
 		} catch (error) {
-			if (!this.#ready || !SCHEMA_DRIFT_REPAIRS.has(error)) throw error;
+			if (!this.#ready) throw error;
 			const header = validateEnvelopeHeader(value, 'server_to_coordinator');
 			if (!SUPERSEDED_INBOUND_TYPES.has(header.type)) throw error;
-			// Revalidate a private copy after discarding only explicitly classified drift. A later malformed
-			// known fact remains fatal. This copy is never delivered: the whole snapshot is rejected below.
-			const payload = structuredClone(value.payload);
-			for (;;) {
-				try {
-					envelope = { ...header, payload: validateProtocolV2Payload(header.type, payload) };
-					break;
-				} catch (knownError) {
-					const discard = SCHEMA_DRIFT_REPAIRS.get(knownError);
-					if (discard === undefined) throw knownError;
-					discard();
+			payloadError = error;
+			if (SCHEMA_DRIFT_REPAIRS.has(error)) {
+				// Revalidate a private copy after discarding only explicitly classified drift. This copy is never
+				// delivered: the whole snapshot is rejected below.
+				const payload = structuredClone(value.payload);
+				for (;;) {
+					try {
+						envelope = { ...header, payload: validateProtocolV2Payload(header.type, payload) };
+						break;
+					} catch (knownError) {
+						const discard = SCHEMA_DRIFT_REPAIRS.get(knownError);
+						if (discard !== undefined) { discard(); continue; }
+						payloadError = knownError;
+						break;
+					}
 				}
 			}
-			payloadError = error;
+			if (envelope === undefined) {
+				// A malformed or oversized known fact. The guards below still need a valid goal revision, which
+				// they read straight from the raw payload, so a missing or bad revision stays fatal.
+				corruptSnapshot = true;
+				envelope = { ...header, payload: { goalRevision: value.payload.goalRevision } };
+			}
 		}
 		if (payloadError === null) this.#invokeAudit('server_to_coordinator', envelope.type === 'auth_response'
 			? { ...envelope, payload: { ...envelope.payload, proof: '[REDACTED]' } }
@@ -851,10 +866,24 @@ export class MultiplexedServerBridge extends EventEmitter {
 				&& envelope.type !== 'agent_registered' && !retainedRetiredResult) {
 			throw new ProtocolV2Error('UNKNOWN_AGENT', `Message references unknown agent '${envelope.agentId}'`);
 		}
+		const streak = `${envelope.agentId}\0${envelope.type}`;
 		if (payloadError !== null) {
+			if (corruptSnapshot) {
+				const inARow = (this.#snapshotRejectionStreaks.get(streak) ?? 0) + 1;
+				if (inARow >= MAX_CONSECUTIVE_SNAPSHOT_REJECTIONS) {
+					// The server keeps sending snapshots this agent can never use: reconnect rather than run blind.
+					throw new ProtocolV2Error('REPEATED_SNAPSHOT_REJECTION',
+						`${inARow} ${envelope.type} snapshots in a row for '${envelope.agentId}' failed validation; last: ${payloadError.code ?? 'PROTOCOL_ERROR'} ${payloadError.message}`,
+						{ cause: payloadError });
+				}
+				this.#snapshotRejectionStreaks.delete(streak);
+				if (this.#snapshotRejectionStreaks.size >= MAX_TRACKED_PAYLOAD_REJECTIONS) this.#snapshotRejectionStreaks.delete(this.#snapshotRejectionStreaks.keys().next().value);
+				this.#snapshotRejectionStreaks.set(streak, inARow);
+			}
 			this.#reportRejectedPayload(envelope, value, payloadError, connectionEpoch);
 			return;
 		}
+		this.#snapshotRejectionStreaks.delete(streak);
 		if (envelope.type === 'agent_removed') {
 			rememberBounded(this.#retiredAgentIds, envelope.agentId, MAX_TRACKED_TERMINAL_ACTION_IDS);
 			this.#knownAgentIds.delete(envelope.agentId);

@@ -177,8 +177,14 @@ public final class ObservationDetails {
 		return box;
 	}
 
+	/**
+	 * At most {@code maximum} UTF-16 units, never ending on half a surrogate pair. The coordinator's text bounds count
+	 * UTF-16 units, so a cut by code points could still leave a name with emoji up to twice too long for it.
+	 */
 	static String bounded(String value, int maximum) {
-		return value.codePointCount(0, value.length()) <= maximum
-				? value : value.substring(0, value.offsetByCodePoints(0, maximum));
+		if (value.length() <= maximum) return value;
+		int end = maximum;
+		if (end > 0 && Character.isHighSurrogate(value.charAt(end - 1))) end -= 1;
+		return value.substring(0, end);
 	}
 }

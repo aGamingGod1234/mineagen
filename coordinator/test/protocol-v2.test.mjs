@@ -3276,7 +3276,7 @@ test('payload rejection stays contained only for authenticated snapshots; corrup
 	assert.deepEqual(fixture.rejections, []);
 });
 
-test('snapshot schema drift never bypasses revision or required fact validation', async (t) => {
+test('snapshot schema drift never bypasses revision validation', async (t) => {
 	for (const type of ['observation', 'action_progress']) {
 		for (const revision of [3, undefined, -1]) {
 			const fixture = await readyBridgeFixture(t);
@@ -3290,37 +3290,94 @@ test('snapshot schema drift never bypasses revision or required fact validation'
 			assert.equal(fixture.protocolErrors.length, 1);
 			assert.deepEqual(fixture.rejections, []);
 			if (revision === 3) assert.equal(fixture.protocolErrors[0].code, 'STALE_GOAL_REVISION');
+			else assert.equal(fixture.protocolErrors[0].code, 'INVALID_GOAL_REVISION');
 		}
 	}
-	for (const corrupt of [
-		(payload) => { payload.position.x = 'broken'; },
-		(payload) => { payload.threats.entries[0].distance = 'broken'; },
-		(payload) => { payload.threats.entries[0].signals = [123]; },
-		(payload) => { payload.changedFacts = [123]; },
-		(payload) => { payload.attention = true; payload.changedFacts = ['survivalXheal_opportunity']; },
-		(payload) => { payload.threats.entries = Array(9).fill(payload.threats.entries[0]); },
-		(payload) => { payload.attention = false; payload.changedFacts = ['survival.future_signal']; },
-		(payload) => { payload.attention = true; payload.changedFacts = ['survival.future_signal', 'survival.future_signal']; },
-	]) {
-		const fixture = await readyBridgeFixture(t);
-		const payload = observationWithUnknownSignal();
-		payload.futureField = true; // Unknown fields must not hide corruption later in the payload either.
-		corrupt(payload);
-		fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('observation', 'agent-a', 'mixed-facts', payload))}\n`);
-		await new Promise((resolve) => setImmediate(resolve));
-		assert.equal(fixture.socket.destroyed, true);
-		assert.equal(fixture.protocolErrors.length, 1);
-		assert.deepEqual(fixture.rejections, []);
+});
+
+const CORRUPT_OBSERVATIONS = [
+	['non-numeric position', (payload) => { payload.position.x = 'broken'; }],
+	['non-numeric threat distance', (payload) => { payload.threats.entries[0].distance = 'broken'; }],
+	['non-text signal', (payload) => { payload.threats.entries[0].signals = [123]; }],
+	['non-text changed fact', (payload) => { payload.changedFacts = [123]; }],
+	['malformed changed fact', (payload) => { payload.attention = true; payload.changedFacts = ['survivalXheal_opportunity']; }],
+	['oversized threat list', (payload) => { payload.threats.entries = Array(9).fill(payload.threats.entries[0]); }],
+	['changed fact without attention', (payload) => { payload.attention = false; payload.changedFacts = ['survival.future_signal']; }],
+	['duplicate changed fact', (payload) => { payload.attention = true; payload.changedFacts = ['survival.future_signal', 'survival.future_signal']; }],
+	['over-long last result message', (payload) => { payload.lastResult = { present: true, actionId: 'action-1', actionType: 'move_to', state: 'FAILED', reasonCode: 'BLOCKED', message: 'x'.repeat(5000) }; }],
+];
+
+test('a malformed or oversized fact in one snapshot drops that snapshot and keeps the bridge', async (t) => {
+	for (const [name, corrupt] of CORRUPT_OBSERVATIONS) {
+		for (const drift of [false, true]) {
+			const fixture = await readyBridgeFixture(t);
+			const payload = observationWithUnknownSignal();
+			if (!drift) payload.threats.entries[0].signals = ['targeting'];
+			else payload.futureField = true; // Unknown fields alongside corruption take the same contained path.
+			corrupt(payload);
+			fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('observation', 'agent-a', 'mixed-facts', payload))}\n`);
+			fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('observation', 'agent-a', 'server-good', readyServerObservation(4)))}\n`);
+			await new Promise((resolve) => setImmediate(resolve));
+			const label = `${name}${drift ? ' with drift' : ''}`;
+			assert.equal(fixture.socket.destroyed, false, label);
+			assert.deepEqual(fixture.protocolErrors, [], label);
+			assert.equal(fixture.rejections.length, 1, label);
+			assert.equal(fixture.rejections[0].error.code, 'INBOUND_MESSAGE_REJECTED', label);
+			assert.notEqual(fixture.rejections[0].error.cause.code, 'INVALID_PAYLOAD_FIELD', `${label}: reports the corruption, not the drift`);
+			assert.deepEqual(fixture.observations.map((envelope) => envelope.messageId), ['server-good'], label);
+		}
 	}
 	for (const invalid of [{ traceId: null }, { progress: 2 }, { elapsedMs: -1 }, { commandId: 'wrong-action' }]) {
 		const fixture = await readyBridgeFixture(t);
-		const payload = { traceId: TRACE_ID, goalRevision: 4, actionId: 'action-1', futureField: true, ...invalid };
-		fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('action_progress', 'agent-a', 'mixed-progress', payload))}\n`);
+		const payload = { traceId: TRACE_ID, goalRevision: 4, actionId: 'action-1', ...invalid };
+		fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('action_progress', 'agent-a', 'bad-progress', payload))}\n`);
 		await new Promise((resolve) => setImmediate(resolve));
-		assert.equal(fixture.socket.destroyed, true);
-		assert.equal(fixture.protocolErrors.length, 1);
-		assert.deepEqual(fixture.rejections, []);
+		assert.equal(fixture.socket.destroyed, false, JSON.stringify(invalid));
+		assert.deepEqual(fixture.protocolErrors, []);
+		assert.equal(fixture.rejections.length, 1);
+		assert.equal(fixture.rejections[0].type, 'action_progress');
 	}
+});
+
+test('the bridge closes only after eight bad snapshots in a row for one agent and type', async (t) => {
+	const corrupt = (index) => {
+		const payload = readyServerObservation(4);
+		payload.position.x = 'broken';
+		return `${JSON.stringify(serverEnvelope('observation', 'agent-a', `server-bad-${index}`, payload))}\n`;
+	};
+	const good = (id) => `${JSON.stringify(serverEnvelope('observation', 'agent-a', id, readyServerObservation(4)))}\n`;
+	const progress = (id) => `${JSON.stringify(serverEnvelope('action_progress', 'agent-a', id, { traceId: null, goalRevision: 4, actionId: 'action-1' }))}\n`;
+
+	// Seven in a row, a good one, then seven more: each streak is reset by a delivered snapshot.
+	const reset = await readyBridgeFixture(t);
+	for (let index = 0; index < 7; index++) reset.socket.emit('data', corrupt(index));
+	reset.socket.emit('data', good('server-good'));
+	for (let index = 7; index < 14; index++) reset.socket.emit('data', corrupt(index));
+	// Another type's failures keep their own count.
+	for (let index = 0; index < 7; index++) reset.socket.emit('data', progress(`progress-bad-${index}`));
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(reset.socket.destroyed, false);
+	assert.deepEqual(reset.protocolErrors, []);
+	assert.deepEqual(reset.observations.map((envelope) => envelope.messageId), ['server-good']);
+
+	// Unknown-field drift alone never closes, however long it lasts, and does not count toward the limit.
+	const drift = await readyBridgeFixture(t);
+	for (let index = 0; index < 20; index++) {
+		drift.socket.emit('data', `${JSON.stringify(serverEnvelope('observation', 'agent-a', `server-drift-${index}`, observationWithUnknownSignal()))}\n`);
+	}
+	for (let index = 0; index < 7; index++) drift.socket.emit('data', corrupt(index));
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(drift.socket.destroyed, false);
+	assert.deepEqual(drift.protocolErrors, []);
+
+	const closes = await readyBridgeFixture(t);
+	for (let index = 0; index < 8; index++) closes.socket.emit('data', corrupt(index));
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(closes.socket.destroyed, true);
+	assert.equal(closes.protocolErrors.length, 1);
+	assert.equal(closes.protocolErrors[0].code, 'REPEATED_SNAPSHOT_REJECTION');
+	assert.match(closes.protocolErrors[0].message, /8 observation snapshots in a row for 'agent-a' failed validation/);
+	assert.equal(closes.protocolErrors[0].cause.cause.code, 'INVALID_PAYLOAD');
 });
 
 test('snapshot schema drift never interrupts a fragmented registration', async (t) => {
