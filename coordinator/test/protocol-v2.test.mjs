@@ -3391,6 +3391,8 @@ test('the bridge closes only after eight bad snapshots in a row for one agent an
 	lasting.socket.emit('data', good('after-fault'));
 	await new Promise((resolve) => setImmediate(resolve));
 	assert.equal(sent(), 2, 'a second resync after the fault cleared');
+	const second = lasting.socket.writes.map((line) => JSON.parse(line)).filter((envelope) => envelope.type === 'request_observation')[1];
+	assert.deepEqual(second.payload, { goalRevision: 4, resync: true, acceptedEventSequence: 7 }, 'counted from the observation the coordinator accepted');
 	lasting.socket.emit('data', good('re-announced'));
 	lasting.socket.emit('data', good('quiet'));
 	await new Promise((resolve) => setImmediate(resolve));

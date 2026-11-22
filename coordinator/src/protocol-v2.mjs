@@ -431,11 +431,16 @@ function normalizeProtocolV2Payload(type, value) {
 				goalRevision: revision(value.goalRevision, 'goalRevision'),
 			};
 		case 'request_observation':
-			exactKeys(value, ['goalRevision', 'resync'], ['goalRevision'], type);
-			// resync: the coordinator dropped an observation, so the next one must be the whole state, not changes against it.
+			exactKeys(value, ['goalRevision', 'resync', 'acceptedEventSequence'], ['goalRevision'], type);
+			// resync: the coordinator dropped an observation, so the server announces again what it missed, counting from
+			// acceptedEventSequence (its last accepted observation) when given.
 			if (value.resync !== undefined && value.resync !== true) throw new ProtocolV2Error('INVALID_PAYLOAD', 'request_observation resync is only true');
-			return value.resync === undefined ? { goalRevision: revision(value.goalRevision, 'goalRevision') }
-				: { goalRevision: revision(value.goalRevision, 'goalRevision'), resync: true };
+			if (value.acceptedEventSequence !== undefined && value.resync !== true) throw new ProtocolV2Error('INVALID_PAYLOAD', 'request_observation acceptedEventSequence needs resync');
+			return {
+				goalRevision: revision(value.goalRevision, 'goalRevision'),
+				...(value.resync === undefined ? {} : { resync: true }),
+				...(value.acceptedEventSequence === undefined ? {} : { acceptedEventSequence: positiveInteger(value.acceptedEventSequence, 'acceptedEventSequence') }),
+			};
 		case 'inspection_request':
 			exactKeys(value, ['goalRevision', 'requestId', 'query'], ['goalRevision', 'requestId', 'query'], type);
 			return { goalRevision: revision(value.goalRevision, 'goalRevision'), requestId: requireIdentifier(value.requestId, 'requestId'), query: normalizeInspectionQuery(value.query) };
@@ -620,6 +625,8 @@ export class MultiplexedServerBridge extends EventEmitter {
 	#snapshotRejectionStreaks = new Map();
 	/** Agents asked to re-announce their threats, with how many of their observations were dropped since. */
 	#resyncRequested = new Map();
+	/** The event sequence of each agent's last accepted observation: a resync counts the server's changes from it. */
+	#acceptedObservationSequence = new Map();
 
 	constructor(config, { audit = null, ...dependencies } = {}) {
 		super();
@@ -730,6 +737,7 @@ export class MultiplexedServerBridge extends EventEmitter {
 		this.#inboundMessageIds.clear();
 		this.#snapshotRejectionStreaks.clear();
 		this.#resyncRequested.clear();
+		this.#acceptedObservationSequence.clear();
 		this.#observedRevisions.clear();
 		this.#clearInboundQueue();
 		this.#clientNonce = authenticationToken(this.#randomNonce(), 'clientNonce');
@@ -898,12 +906,18 @@ export class MultiplexedServerBridge extends EventEmitter {
 			return;
 		}
 		this.#snapshotRejectionStreaks.delete(streak);
+		if (envelope.type === 'observation' && envelope.payload.eventSequence !== undefined) {
+			this.#acceptedObservationSequence.delete(envelope.agentId);
+			this.#acceptedObservationSequence.set(envelope.agentId, envelope.payload.eventSequence);
+			if (this.#acceptedObservationSequence.size > MAX_REGISTRY_SNAPSHOT_AGENTS) this.#acceptedObservationSequence.delete(this.#acceptedObservationSequence.keys().next().value);
+		}
 		if (envelope.type === 'observation' && this.#resyncRequested.has(envelope.agentId)) {
 			if (this.#resyncRequested.get(envelope.agentId) > 0) this.#requestResync(envelope.agentId, envelope.payload.goalRevision, connectionEpoch);
 			else this.#resyncRequested.delete(envelope.agentId);
 		}
 		if (envelope.type === 'agent_registered' || envelope.type === 'agent_removed') {
 			this.#resyncRequested.delete(envelope.agentId);
+			this.#acceptedObservationSequence.delete(envelope.agentId);
 			for (const type of SUPERSEDED_INBOUND_TYPES) this.#snapshotRejectionStreaks.delete(`${envelope.agentId}\0${type}`);
 		}
 		if (envelope.type === 'agent_removed') {
@@ -919,7 +933,9 @@ export class MultiplexedServerBridge extends EventEmitter {
 
 	#requestResync(agentId, goalRevision, connectionEpoch) {
 		this.#resyncRequested.set(agentId, 0);
-		void this.send('request_observation', agentId, { goalRevision, resync: true }, { connectionEpoch }).catch(() => {});
+		const accepted = this.#acceptedObservationSequence.get(agentId);
+		void this.send('request_observation', agentId, { goalRevision, resync: true, ...(accepted === undefined ? {} : { acceptedEventSequence: accepted }) },
+			{ connectionEpoch }).catch(() => {});
 	}
 
 	/** Report drift only after the normal delivery, identity and revision guards have passed. */
