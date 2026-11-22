@@ -144,6 +144,9 @@ try {
 			await s.command(`fill ${X} ${F - 11} ${Z} ${X} ${F - 10} ${Z} minecraft:water`);
 			await s.command(`fill ${X + 1} ${F - 11} ${Z} ${X + 1} ${F - 1} ${Z} minecraft:water`);
 			start = [X + 0.5, F - 11, Z + 0.5]; target = { x: X + 20.5, z: Z + 0.5 }; drain = 8_750; facing = -90; afterMs = 6_000;
+			// The escape variant is judged on no harm at all, so it starts with about 4 s of air: the detour's drain left
+			// none at the call on the room machines (air read 0 +- 15 ticks in 11 of 11 runs, 22 Nov).
+			if (fixture === 'detour-escape') { drain = 4_750; afterMs = 0; }
 		} else if (fixture === 'waterfall' || fixture === 'narrowfall') {
 			await s.command(`fill ${X + 4} ${F - 26} ${Z - 12} ${X + 24} ${F - 26} ${Z + 12} minecraft:stone`);
 			await s.command(`fill ${X + 4} ${F - 25} ${Z - 12} ${X + 24} ${F + 6} ${Z + 12} minecraft:air`);
