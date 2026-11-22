@@ -2135,10 +2135,16 @@ public final class ServerBuildController implements ServerController {
 	/** Ticks past {@link #LAVA_HOLD_TICKS} a cell's standing lava may hold off a stop while its take-back walks into reach. */
 	static final int LAVA_FINISH_TICKS = 40;
 
-	/** Lava this cast poured first into a frame cell, not yet cooled by the water or taken back, and still there. */
+	/**
+	 * A cast cell half done: lava this cast poured first, not yet cooled by the water or taken back and still there, or
+	 * the water poured against it not yet scooped back (stood, it runs out over the cave into the pool).
+	 */
 	private boolean lavaStanding(ServerPlayer player) {
-		if (!casting || phase != Phase.CAST || pouredLava == null || lavaWatered) return false;
-		if (player.level().getGameTime() - lavaTick > LAVA_HOLD_TICKS + LAVA_FINISH_TICKS) return false;
+		if (!casting || phase != Phase.CAST) return false;
+		long time = player.level().getGameTime();
+		if (quickScoop && pouredWater != null) return time - waterTick <= LAVA_FINISH_TICKS;
+		if (pouredLava == null || lavaWatered) return false;
+		if (time - lavaTick > LAVA_HOLD_TICKS + LAVA_FINISH_TICKS) return false;
 		return TravelBuilder.lava(known(player, pouredLava));
 	}
 
