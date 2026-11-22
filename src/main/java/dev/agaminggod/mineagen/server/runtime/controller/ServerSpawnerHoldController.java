@@ -612,6 +612,12 @@ public final class ServerSpawnerHoldController implements ServerController {
 			returning = true;
 			note(String.format(Locale.ROOT, "health %.1f on a rod trip: back to the cell", player.getHealth()));
 		}
+		if (ledge != null && collectHeldBack(player)) {
+			ledge.cancel(player);
+			ledge = null;
+			returning = true;
+			note("collect:false and a hostile near: back from the ledge to the cell");
+		}
 		if (ledge != null && SpawnerHold.backToCell(player.getHealth())) {
 			ledge.cancel(player);
 			ledge = null;
@@ -1130,8 +1136,10 @@ public final class ServerSpawnerHoldController implements ServerController {
 			lost.merge((source == null ? "unknown" : source.getMsgId()) + where, lastHealth - health, Float::sum);
 		}
 		lastHealth = health;
-		if (player.hurtTime > lastHurtTime && inCell && player.getLastHurtByMob() != null
-				&& player.getLastHurtByMob().getType() == McEntityTypes.WITHER_SKELETON) {
+		// A breach is a wither skeleton's own strike in the cell, not later damage (the wither effect) still blamed on it.
+		var hitBy = player.getLastDamageSource();
+		if (player.hurtTime > lastHurtTime && inCell && hitBy != null && hitBy.getEntity() != null && hitBy.getDirectEntity() == hitBy.getEntity()
+				&& hitBy.getEntity().getType() == McEntityTypes.WITHER_SKELETON) {
 			System.arraycopy(witherHits, 0, witherHits, 1, witherHits.length - 1);
 			witherHits[0] = player.level().getGameTime();
 		}
