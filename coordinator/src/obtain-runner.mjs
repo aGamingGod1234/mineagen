@@ -1306,7 +1306,13 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 				if (near.length > 0) step(`by the door: ${near.slice(0, 6).map((row) => `${bare(row.type ?? '?')}${row.hostile === true ? ' (hostile flag)' : ''}`).join(', ')}`);
 				const inside = near.find((row) => HOSTILE_MOB.test(bare(row.type ?? '')));
 				if (inside) { await act('set_door', { x: door.x, y: door.y, z: door.z, open: false }); step(`a ${bare(inside.type)} by the door at ${cellKey(door)}: not going in`); continue; }
-				await act('travel_to', { x: Math.floor(door.x) + 0.5, y: Math.floor(door.y), z: Math.floor(door.z) + 0.5, tolerance: 0.5, timeoutMs: 15_000 });
+				// Through the doorway: two blocks past the door on the far side from where the body stands (travel's tolerance
+				// is at least a block, so a target in the doorway itself can stop outside).
+				const from = bodyAt(await body.observe()) ?? { x: door.x + 0.5, z: door.z + 1.5 };
+				const dx = door.x + 0.5 - from.x, dz = door.z + 0.5 - from.z;
+				const axisX = Math.abs(dx) >= Math.abs(dz);
+				const into = { x: Math.floor(door.x) + 0.5 + (axisX ? 2 * Math.sign(dx || 1) : 0), z: Math.floor(door.z) + 0.5 + (axisX ? 0 : 2 * Math.sign(dz || 1)) };
+				await act('travel_to', { x: into.x, y: Math.floor(door.y), z: into.z, tolerance: 1, timeoutMs: 15_000 });
 				if (body.interrupted() || body.stopped()) return 'stopped';
 				chest = lootSources(await body.observe(), { opened: new Set([...looted.opened, ...budget.failed]), searched: new Set(looted.searched), structures: looted.structures })
 					.find((row) => row.kind === 'chest') ?? null;
@@ -1348,7 +1354,7 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		if (result.read) looted.opened.push(cellKey(chest));
 		else budget.failed.add(cellKey(chest));
 		if (houseDoor !== null && !rawBody.interrupted() && !rawBody.stopped()) {
-			await act('travel_to', { x: Math.floor(houseDoor.x) + 0.5, y: Math.floor(houseDoor.y), z: Math.floor(houseDoor.z) + 0.5, tolerance: 0.5, timeoutMs: 15_000 });
+			await act('travel_to', { x: Math.floor(houseDoor.x) + 0.5, y: Math.floor(houseDoor.y), z: Math.floor(houseDoor.z) + 0.5, tolerance: 1, timeoutMs: 15_000 });
 			await act('set_door', { x: houseDoor.x, y: houseDoor.y, z: houseDoor.z, open: false });
 		}
 		if (looted.opened.length > 256) looted.opened.splice(0, looted.opened.length - 256);

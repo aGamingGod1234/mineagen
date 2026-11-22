@@ -4,6 +4,7 @@ import { planObtain } from '../src/obtain-plan.mjs';
 import { chestYield, lootSources, structureTables, lootYields } from '../src/loot-sources.mjs';
 import { lootChest } from '../src/loot-step.mjs';
 import { runObtain } from '../src/obtain-runner.mjs';
+import { validateAction } from '../src/schema.mjs';
 
 const at = { x: 311.5, y: 77, z: -241.5 };
 const village = (x = 311, z = -239) => ({ player: { ...at }, world: { dimension: 'minecraft:overworld' }, sighted: { structures: [{ structure: 'village', size: 10, x, y: 78, z }] }, blocks: [] });
@@ -66,6 +67,8 @@ function chestBody(contents) {
 			: { menu: { type: 'minecraft:inventory', containerId: 0, stateId, slotCount: 46 }, entries: [] }),
 		act: async (type, args) => {
 			calls.push([type, args]);
+			// Every move the loot step sends must pass the action schema the runtime applies before dispatch.
+			validateAction({ type, ...args });
 			if (type === 'interact_block') { open = true; return { state: 'SUCCEEDED' }; }
 			if (type === 'menu_click') {
 				const row = slots.find((s) => s.slot === args.slot);
@@ -205,8 +208,8 @@ test('a village chest out of sight is found by looking into the houses through t
 	let inside = false;
 	const act = body.act;
 	body.act = async (type, args) => {
-		if (type === 'travel_to') { Object.assign(pos, { x: args.x, y: args.y ?? pos.y, z: args.z }); if (args.x === 300.5 && args.z === -229.5 && args.tolerance === 0.5) inside = true; }
-		if (type === 'set_door') { body.calls.push([type, args]); return { state: 'SUCCEEDED' }; }
+		if (type === 'travel_to') { Object.assign(pos, { x: args.x, y: args.y ?? pos.y, z: args.z }); validateAction({ type, ...args }); if (args.tolerance === 1 && Math.hypot(args.x - 300.5, args.z - -229.5) === 2) inside = true; }
+		if (type === 'set_door') { validateAction({ type, ...args }); body.calls.push([type, args]); return { state: 'SUCCEEDED' }; }
 		return act(type, args);
 	};
 	const observe = async () => ({ ...village(), player: { ...pos, health: 20, onGround: true, skyOpen: true },
@@ -230,13 +233,13 @@ test('a house with a zombie by its door is shut again and not entered', async ()
 		inventory: { selectedSlot: 0, items: [{ itemId: 'minecraft:stone_pickaxe', count: 1, slot: 0 }] },
 		seenResources: [{ id: 'minecraft:oak_door', kind: 'block', x: 300, y: 77, z: -230, count: 1 }],
 		blocks: [], entities: [{ type: 'minecraft:zombie', x: 302, y: 77, z: -228 }] });
-	const act = async (type, args) => { calls.push([type, args]); if (type === 'travel_to') Object.assign(pos, { x: args.x ?? pos.x, z: args.z ?? pos.z }); return { state: 'SUCCEEDED' }; };
+	const act = async (type, args) => { calls.push([type, args]); validateAction({ type, ...args }); if (type === 'travel_to') Object.assign(pos, { x: args.x ?? pos.x, z: args.z ?? pos.z }); return { state: 'SUCCEEDED' }; };
 	await runObtain({ item: 'iron_ingot', count: 3, timeoutMs: 30_000 }, { act, observe, menu: async () => ({}), stopped: () => false, interrupted: () => false, note: () => {},
 		gather: async () => ({ state: 'FAILED', reasonCode: 'NOTHING_MINED' }), mine: async () => ({ state: 'FAILED', reasonCode: 'NOTHING_MINED' }), moveTo: async () => ({ state: 'SUCCEEDED' }),
 		search: async () => ({ state: 'FAILED', reasonCode: 'FIND_NOT_FOUND' }) }, { now: (() => { let t = 0; return () => (t += 100); })(), looted: { opened: [], searched: [], structures: [], doors: [] } });
 	const doorCalls = calls.filter(([type]) => type === 'set_door').map(([, args]) => args.open);
 	assert.deepEqual(doorCalls.slice(0, 2), [true, false]);
-	assert.equal(calls.some(([type, args]) => type === 'travel_to' && args.tolerance === 0.5), false, 'never steps into the doorway');
+	assert.equal(calls.some(([type, args]) => type === 'travel_to' && args.tolerance === 1), false, 'never steps into the house');
 });
 
 // The playtest's iron trip: obtain iron_pickaxe mined only the pickaxe's 3 iron, and the kit's other 8 took a second trip.
