@@ -385,8 +385,12 @@ public final class ServerFleeController implements ServerController {
 	static final double WAY_BACK_MIN_GAIN = 2.0D;
 	static final int WAY_BACK_MAX_DROP = 1;
 	static final int WAY_BACK_STUCK_TICKS = 30;
+	/** The next cell of the way back is at most this far (horizontal) from the body while it is on the route. */
+	static final double WAY_BACK_STEP_REACH = 1.8D;
 	/** How near a cell's centre a hostile stands for the way back to refuse that cell: the body would run into it. */
 	static final double WAY_BACK_MOB_RADIUS = 1.5D;
+	/** A creeper's blast reaches farther than its body: the way back keeps this far from one. */
+	static final double WAY_BACK_CREEPER_RADIUS = 4.0D;
 
 	/**
 	 * A heading away first; when every heading is refused (a 1-wide stair back up, a bend in a tunnel) the way back along
@@ -412,12 +416,22 @@ public final class ServerFleeController implements ServerController {
 		}
 		if (wayTries >= WAY_BACK_TRIES) return false;
 		wayTries++;
-		double x = 0.0D, z = 0.0D;
-		int n = 0;
-		if (target.isAlive() && target.level() == player.level()) { x += target.getX(); z += target.getZ(); n++; }
-		for (Other other : others) { x += other.mob().getX(); z += other.mob().getZ(); n++; }
-		if (n == 0) return false;
-		List<GridPosition> path = SafeStep.awayPath(player, x / n, z / n, WAY_BACK_STEPS, WAY_BACK_CELLS, WAY_BACK_MIN_GAIN,
+		// Away from where the heading flee would run from, with its priorities (the nearest threats and swelling creepers
+		// weigh most), not from the threats' plain average: a far zombie behind must not pull the route toward a creeper.
+		List<CombatPlanning.FleeThreat> threats = new ArrayList<>(others.size() + 1);
+		if (target.isAlive() && target.level() == player.level()) {
+			boolean creeper = target instanceof Creeper;
+			threats.add(new CombatPlanning.FleeThreat(target.getX() - player.getX(), target.getZ() - player.getZ(),
+					player.distanceTo(target), creeper, creeper && ((Creeper) target).getSwellDir() > 0, true));
+		}
+		for (Other other : others) threats.add(other.threat());
+		if (threats.isEmpty()) return false;
+		Float away = CombatPlanning.fleeAwayYaw(threats);
+		if (away == null) return false;
+		double radians = Math.toRadians(away);
+		// A point a few blocks behind the body along the away heading stands for the threats (heading yaw: -sin x, +cos z).
+		double x = player.getX() + Math.sin(radians) * 4.0D, z = player.getZ() - Math.cos(radians) * 4.0D;
+		List<GridPosition> path = SafeStep.awayPath(player, x, z, WAY_BACK_STEPS, WAY_BACK_CELLS, WAY_BACK_MIN_GAIN,
 				cell -> hostileOn(player, cell), WAY_BACK_MAX_DROP);
 		if (path == null || path.isEmpty()) return false;
 		wayBack = path;
@@ -436,7 +450,8 @@ public final class ServerFleeController implements ServerController {
 		// Any active threat, as the flee's own threat list reads them: a wolf or a player that attacked counts too.
 		return !player.level().getEntitiesOfClass(LivingEntity.class, new net.minecraft.world.phys.AABB(cx - 2.0D, cell.y() - 2.0D, cz - 2.0D, cx + 2.0D, cell.y() + 3.0D, cz + 2.0D),
 				mob -> mob != player && ThreatPerception.isActiveThreat(player, mob)
-						&& Math.hypot(mob.getX() - cx, mob.getZ() - cz) <= WAY_BACK_MOB_RADIUS && Math.abs(mob.getY() - cell.y()) < 2.0D).isEmpty();
+						&& Math.hypot(mob.getX() - cx, mob.getZ() - cz) <= (mob instanceof Creeper ? WAY_BACK_CREEPER_RADIUS : WAY_BACK_MOB_RADIUS)
+						&& Math.abs(mob.getY() - cell.y()) < 2.0D).isEmpty();
 	}
 
 	/** One tick along the way back: false when it ended (arrived, blocked, or a mob stepped onto it). */
@@ -454,6 +469,8 @@ public final class ServerFleeController implements ServerController {
 		wayLast = now;
 		if (wayStuck >= WAY_BACK_STUCK_TICKS) return false;
 		GridPosition cell = wayBack.get(wayIndex);
+		// Knocked off the route (a blast, a hit): the next cell is no longer a step away, and the ground between is unchecked.
+		if (Math.hypot(cell.x() + 0.5D - player.getX(), cell.z() + 0.5D - player.getZ()) > WAY_BACK_STEP_REACH || Math.abs(cell.y() - player.getY()) > 1.5D) return false;
 		// The knockback margin that refused the headings also refuses a step of the way back along the same lip.
 		margin = CombatMoveText.knockbackMargin(player);
 		GridPosition feet = SafeStep.feet(player);
