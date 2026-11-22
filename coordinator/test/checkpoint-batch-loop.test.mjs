@@ -21,6 +21,8 @@ map() { case $1 in bx_*:*) echo "$F/\${1%%:*}/\${1#*:}";; *) echo "$1";; esac; }
 seed() { mkdir -p "$1/rooms/jdk/bin" "$1/.local/bin"; : > "$1/rooms/jdk/bin/java"; chmod +x "$1/rooms/jdk/bin/java"; printf '#!/bin/bash\\necho codex-cli 0.1.0\\n' > "$1/.local/bin/codex"; chmod +x "$1/.local/bin/codex"; }
 case $cmd in
   ssh) id=$1; shift; [ "$1" = -- ] && shift; [ -f "$F/$id.deleted" ] && { echo gone >&2; exit 255; }
+    # A STALLSSH file makes every ssh hang for minutes in a child that holds the pipes, as a stalled ssh under boat does.
+    [ -f "$F/STALLSSH" ] && { sleep 300.5; exit 1; }
     # An OUTAGE_AT_SIGNOFF file starts a 3 s boat outage at the first sign-in removal (an outage as the batch ends).
     if [ -f "$F/OUTAGE_AT_SIGNOFF" ] && printf '%s' "$*" | sed -n 's/.*echo \\([A-Za-z0-9+\/=]*\\) | base64 -d.*/\\1/p' | base64 -d 2>/dev/null | grep -q 'rm -f ~/.codex/auth.json'; then
       rm -f "$F/OUTAGE_AT_SIGNOFF"; touch "$F/OUTAGE"; (sleep 3; rm -f "$F/OUTAGE") > /dev/null 2>&1 < /dev/null & echo "connection refused" >&2; exit 1; fi
@@ -374,4 +376,35 @@ test('checkpoint batch cancels a long upload on SIGTERM and cleans up at once', 
 		assert.equal(leftSignIns(root), '0');
 		assert.equal(readFileSync(path.join(root, 'blocked.log'), 'utf8').trim().split('\n').length, 2, 'no further upload started after the signal');
 	} finally { try { execFileSync('pkill', ['-f', `${root}/bin/boat`]); } catch {} rmSync(root, { recursive: true, force: true }); }
+});
+
+test('checkpoint batch keeps the first cleanup pass inside the signal\'s budget when ssh stalls after SIGTERM', posixOnly, async () => {
+	const root = setup();
+	for (const id of ['bx_aaaaaaaa', 'bx_bbbbbbbb']) writeFileSync(path.join(root, id, 'HANG'), '');
+	const child = spawn('node', [script, '--plan', path.join(root, 'plan.json'), '--out', path.join(root, 'out')], {
+		env: { ...process.env, PATH: `${path.join(root, 'bin')}:${process.env.PATH}`, BOAT_BIN: path.join(root, 'bin/boat'), FAKE_BOAT_ROOT: root, CHECKPOINT_POLL_MS: '200', CHECKPOINT_SIGNAL_BUDGET_MS: '12000' }, stdio: ['ignore', 'pipe', 'pipe'] });
+	try {
+		const exited = new Promise(resolve => child.on('exit', resolve));
+		let out = '';
+		await new Promise((resolve, reject) => {
+			const timer = setTimeout(() => reject(new Error(`no game started: ${out}`)), 60_000);
+			child.stdout.on('data', chunk => { out += chunk; if ((out.match(/started nether/g) ?? []).length >= 2) { clearTimeout(timer); resolve(); } });
+		});
+		// Both games are running, so the first cleanup pass starts by ending their sessions, and that ssh stalls.
+		writeFileSync(path.join(root, 'STALLSSH'), '');
+		const signalledAt = Date.now();
+		child.kill('SIGTERM');
+		await exited;
+		const took = Date.now() - signalledAt;
+		assert.ok(took < 25_000, `the cleanup stayed inside the 12 s signal budget (${took} ms)`);
+		const log = readFileSync(path.join(root, 'out/batch.log'), 'utf8');
+		assert.match(log, /could not end the game sessions on bx_aaaaaaaa/);
+		assert.match(log, /could not end the game sessions on bx_bbbbbbbb/);
+		// The stalled steps left the deletion its share of the budget: both machines are gone, sign-ins with them.
+		assert.deepEqual(readFileSync(path.join(root, 'deleted.log'), 'utf8').trim().split('\n').sort(), ['bx_aaaaaaaa', 'bx_bbbbbbbb']);
+	} finally {
+		child.kill('SIGKILL');
+		for (const pattern of [`${root}/bin/boat`, '^sleep 300[.]5$', `${root}/bx_`]) { try { execFileSync('pkill', ['-f', pattern]); } catch {} }
+		rmSync(root, { recursive: true, force: true });
+	}
 });

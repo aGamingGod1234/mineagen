@@ -22,11 +22,10 @@ export function boat(args, { timeoutMs = 10 * 60_000, input = null, binary = fal
 		let stderr = '';
 		child.stdout.on('data', chunk => { chunks.push(chunk); });
 		child.stderr.on('data', chunk => { stderr += chunk; });
-		const kill = () => child.kill('SIGKILL');
-		const timer = setTimeout(kill, timeoutMs);
-		// On an abort the pipes are closed too: a grandchild (the ssh or scp under boat) that outlives the kill would
-		// otherwise hold them and delay the rejection, and this process's exit, until it ends.
-		const cancel = () => { kill(); child.stdout.destroy(); child.stderr.destroy(); };
+		// On a timeout or an abort the pipes are closed too: a grandchild (the ssh or scp under boat) that outlives the kill
+		// would otherwise hold them and delay the rejection, and this process's exit, until it ends.
+		const cancel = () => { child.kill('SIGKILL'); child.stdout.destroy(); child.stderr.destroy(); };
+		const timer = setTimeout(cancel, timeoutMs);
 		signal?.addEventListener('abort', cancel, { once: true });
 		if (input !== null) { child.stdin.on('error', () => {}); child.stdin.end(input); }
 		child.on('error', error => { clearTimeout(timer); signal?.removeEventListener('abort', cancel); reject(error); });

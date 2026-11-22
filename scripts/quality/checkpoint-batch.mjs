@@ -37,7 +37,7 @@ if (args.includes('--help') || (!flag('score') && (!flag('plan') || !flag('out')
 
 // CHECKPOINT_POLL_MS and CHECKPOINT_LOST_AFTER_MS shorten the pass and the drop wait for the fake-boat test
 // (coordinator/test/checkpoint-batch-loop.test.mjs).
-const POLL_MS = Number(process.env.CHECKPOINT_POLL_MS ?? 60_000), LOST_AFTER_MS = Number(process.env.CHECKPOINT_LOST_AFTER_MS ?? 5 * 60_000), LIVE = new Set(['provisioned', 'cloning', 'ready', 'idle', 'running']);
+const POLL_MS = Number(process.env.CHECKPOINT_POLL_MS ?? 60_000), SIGNAL_BUDGET_MS = Number(process.env.CHECKPOINT_SIGNAL_BUDGET_MS ?? 60_000), LOST_AFTER_MS = Number(process.env.CHECKPOINT_LOST_AFTER_MS ?? 5 * 60_000), LIVE = new Set(['provisioned', 'cloning', 'ready', 'idle', 'running']);
 const sha = file => createHash('sha256').update(readFileSync(file)).digest('hex');
 // Local copy failures of one game (a full disk) are retried each pass; past this many the game scores unknown and the
 // machine is let go, so the batch can always end.
@@ -472,23 +472,30 @@ for (const g of games.filter(g => g.state === 'queued')) g.state = 'not started'
 // Every machine of the batch, lost and half-prepared ones included (one that comes back must not keep it), all at once so
 // a stop by SIGTERM finishes before its sender kills the runner. A step that fails (boat out as the batch ends) is tried
 // again until the machine is clean or boat says it is gone: for up to TTL_SECONDS (a created machine is stopped and
-// erased by then), or for 60 s after a signal, whose sender kills the runner soon after.
+// erased by then), or for CHECKPOINT_SIGNAL_BUDGET_MS (60 s) after a signal, whose sender kills the runner soon after.
 const cleanupFrom = Date.now();
 const pause = ms => new Promise(resolve => { const timer = setTimeout(resolve, ms); stopAll.signal.addEventListener('abort', () => { clearTimeout(timer); resolve(); }, { once: true }); });
 await Promise.all(machines.filter(m => m.id !== 'none' && !m.deleted).map(async vm => {
-	const bound = () => aborted ? Math.max(abortedAt, cleanupFrom) + 60_000 : cleanupFrom + TTL_SECONDS * 1000;
+	const bound = () => aborted ? Math.max(abortedAt, cleanupFrom) + SIGNAL_BUDGET_MS : cleanupFrom + TTL_SECONDS * 1000;
 	for (let pass = 1; ; pass++) {
-		// Before a signal a SIGTERM cuts the call in flight (the next pass retries within the signal's budget); after one,
-		// a retry's calls get only the time left, so no retry runs past the bound.
-		const opts = !aborted ? { ...live } : pass > 1 ? { timeoutMs: Math.max(1_000, bound() - Date.now()) } : {};
 		// A game still running here (an error or a second signal ended the loop; a lost machine that came back) is ended
 		// first, so no session keeps playing on a machine whose sign-in is about to go, or one that is kept for reuse.
 		const endSessions = (vm.game || vm.lost) && !vm.sessionsEnded;
-		if (endSessions) await remote(vm.id, stopGamesScript, { timeoutMs: 180_000, ...opts }).then(() => { vm.sessionsEnded = true; return log(`ended the game sessions on ${vm.id}`); }, e => log(`could not end the game sessions on ${vm.id}: ${e.message.split('\n')[0]}`));
 		// The first pass takes the sign-in off whatever the flag says; later passes only retry a failed removal.
-		if (pass === 1 || !vm.signInRemoved) await removeCodexSignIn(vm.id, undefined, opts).then(() => { vm.signInRemoved = true; return log(`removed the sign-in from ${vm.id}`); }, e => { vm.signInRemoved = false; return log(`could not remove the sign-in from ${vm.id}: ${e.message}`); });
+		const removeSignIn = pass === 1 || !vm.signInRemoved;
+		// Before a signal each call carries it, so a SIGTERM cuts the call in flight. After one, every call (the first
+		// pass's too) gets a share of the time left before the bound, worked out as it starts: the time left over the
+		// steps still to run, so a stalled step cannot use up the time the sign-in removal and the deletion need.
+		let steps = [endSessions, removeSignIn, deletes(vm)].filter(Boolean).length;
+		const opts = (capMs = Infinity) => {
+			const share = aborted ? { timeoutMs: Math.max(1_000, Math.min(capMs, Math.floor((bound() - Date.now()) / Math.max(1, steps)))) } : { ...live, ...(capMs < Infinity ? { timeoutMs: capMs } : {}) };
+			steps--;
+			return share;
+		};
+		if (endSessions) await remote(vm.id, stopGamesScript, opts(180_000)).then(() => { vm.sessionsEnded = true; return log(`ended the game sessions on ${vm.id}`); }, e => log(`could not end the game sessions on ${vm.id}: ${e.message.split('\n')[0]}`));
+		if (removeSignIn) await removeCodexSignIn(vm.id, undefined, opts()).then(() => { vm.signInRemoved = true; return log(`removed the sign-in from ${vm.id}`); }, e => { vm.signInRemoved = false; return log(`could not remove the sign-in from ${vm.id}: ${e.message}`); });
 		// Batch-created extras (and every machine under drain "delete") are deleted, never left idle.
-		if (deletes(vm)) await destroyMachine(vm.id, opts).then(() => { vm.deleted = true; return log(`deleted ${vm.id}`); }, e => log(`could not delete ${vm.id}: ${e.message}`));
+		if (deletes(vm)) await destroyMachine(vm.id, opts()).then(() => { vm.deleted = true; return log(`deleted ${vm.id}`); }, e => log(`could not delete ${vm.id}: ${e.message}`));
 		if (vm.deleted || (vm.signInRemoved && !deletes(vm) && (vm.sessionsEnded || !(vm.game || vm.lost)))) return;
 		if (Date.now() >= bound() - (aborted ? 5_000 : 0)) return;
 		// A machine boat no longer knows took its sign-in with it; a stopped one keeps its disk, so it is named at the end.
