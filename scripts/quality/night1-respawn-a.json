@@ -1,0 +1,100 @@
+{
+	"note": "Night-1 respawn room (test-obtain-live.mjs, OBTAIN_HANDBACK=answer): three bodies per seed each respawn at dusk into the pack that killed it (2 zombies and 2 skeletons in helmets), then re-kit; judged on being alive after 10 game minutes.",
+	"seeds": [
+		20261122,
+		3315172112810107624
+	],
+	"lanes": 3,
+	"items": [
+		{
+			"item": "oak_log",
+			"count": 3,
+			"budgetMs": 600000,
+			"playMs": 600000,
+			"time": 11400,
+			"survive": true,
+			"respawnInto": [
+				[
+					"zombie",
+					5,
+					0
+				],
+				[
+					"zombie",
+					-4,
+					4
+				],
+				[
+					"skeleton",
+					3,
+					-9
+				],
+				[
+					"skeleton",
+					-10,
+					-2
+				]
+			]
+		},
+		{
+			"item": "oak_log",
+			"count": 3,
+			"budgetMs": 600000,
+			"playMs": 600000,
+			"time": 11400,
+			"survive": true,
+			"respawnInto": [
+				[
+					"zombie",
+					5,
+					0
+				],
+				[
+					"zombie",
+					-4,
+					4
+				],
+				[
+					"skeleton",
+					3,
+					-9
+				],
+				[
+					"skeleton",
+					-10,
+					-2
+				]
+			]
+		},
+		{
+			"item": "oak_log",
+			"count": 3,
+			"budgetMs": 600000,
+			"playMs": 600000,
+			"time": 11400,
+			"survive": true,
+			"respawnInto": [
+				[
+					"zombie",
+					5,
+					0
+				],
+				[
+					"zombie",
+					-4,
+					4
+				],
+				[
+					"skeleton",
+					3,
+					-9
+				],
+				[
+					"skeleton",
+					-10,
+					-2
+				]
+			]
+		}
+	]
+}

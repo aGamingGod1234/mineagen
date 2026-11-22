@@ -290,13 +290,18 @@ async function runLane(s, agent, queue, seed, seedIndex, nextSpot) {
 			// The new respawn line at night says rest first; the stand-in follows it, as the model is told to. With
 			// MINEAGEN_NIGHT_COVER=off (the old code) that line is not shown, so the stand-in goes straight to obtain.
 			if (Array.isArray(entry.respawnInto) && String(process.env.MINEAGEN_NIGHT_COVER ?? '').toLowerCase() !== 'off') {
-				const before = agent.actions.length;
-				const rested = await runtime.execute({ agentId: record.agentId, goalRevision: record.goalRevision, turnId: `respawn-rest-${seedIndex}-${lane}-${index}`, callId: `respawn-rest-${index}`,
-					tool: normalizeMinecraftToolCall('do_step', { verb: 'rest', target: { timeoutMs: Math.max(60_000, (entry.playMs ?? entry.budgetMs) - (now() - t0)) }, why: 'respawned at night: rest first' }) }, record).catch((error) => ({ state: 'ERROR', message: String(error?.message ?? error) }));
-				let ended = rested?.state === 'RUNNING' ? null : `${rested?.state} ${rested?.reasonCode ?? ''} ${String(rested?.message ?? '').slice(0, 160)}`;
-				while (ended === null && now() - t0 < (entry.playMs ?? entry.budgetMs) && await health().catch(() => 0) > 0) {
-					ended = agent.actions.slice(before).find((line) => / rest /.test(line)) ?? null;
-					if (ended === null) await s.clock.sleep(2000);
+				let ended = null;
+				// The goal revision can still move just after a respawn: a rest refused as stale is sent again.
+				for (let attempt = 0; attempt < 5 && (ended === null || /STALE_REVISION|STALE_GOAL_REVISION/.test(ended)); attempt++) {
+					if (attempt > 0) await s.clock.sleep(1000);
+					const before = agent.actions.length;
+					const rested = await runtime.execute({ agentId: record.agentId, goalRevision: record.goalRevision, turnId: `respawn-rest-${seedIndex}-${lane}-${index}-${attempt}`, callId: `respawn-rest-${index}-${attempt}`,
+						tool: normalizeMinecraftToolCall('do_step', { verb: 'rest', target: { timeoutMs: Math.max(60_000, (entry.playMs ?? entry.budgetMs) - (now() - t0)) }, why: 'respawned at night: rest first' }) }, record).catch((error) => ({ state: 'ERROR', reasonCode: error?.code, message: String(error?.message ?? error) }));
+					ended = rested?.state === 'RUNNING' ? null : `${rested?.state} ${rested?.reasonCode ?? ''} ${String(rested?.message ?? '').slice(0, 160)}`;
+					while (ended === null && now() - t0 < (entry.playMs ?? entry.budgetMs) && await health().catch(() => 0) > 0) {
+						ended = agent.actions.slice(before).find((line) => / rest /.test(line)) ?? null;
+						if (ended === null) await s.clock.sleep(1000);
+					}
 				}
 				row.respawnRest = String(ended ?? 'still resting at the end of the window').slice(0, 400);
 			}
@@ -304,9 +309,16 @@ async function runLane(s, agent, queue, seed, seedIndex, nextSpot) {
 			const ran = await callObtain({ mode: process.env.OBTAIN_HANDBACK, budgetMs: entry.budgetMs, started: t0, now,
 				execute: async (attempt, left) => {
 					const again = attempt === 0 ? call : normalizeMinecraftToolCall('do_step', { verb: 'obtain', target: { item: entry.item, count: entry.count ?? 1, timeoutMs: Math.max(60_000, left) }, why: `obtain ${entry.item}` });
-					try {
-						return await runtime.execute({ agentId: record.agentId, goalRevision: record.goalRevision, turnId: `obtain-${seedIndex}-${lane}-${index}-${attempt}`, callId: `obtain-${index}-${attempt}`, tool: again }, record);
-					} catch (error) { return { state: 'ERROR', reasonCode: error?.code ?? 'ERROR', message: String(error?.message ?? error) }; }
+					// A call refused for a stale sample or revision (just after a respawn) is sent again, up to 3 times.
+					let outcome = null;
+					for (let retry = 0; retry < 3; retry++) {
+						if (retry > 0) await s.clock.sleep(1000);
+						try {
+							outcome = await runtime.execute({ agentId: record.agentId, goalRevision: record.goalRevision, turnId: `obtain-${seedIndex}-${lane}-${index}-${attempt}-${retry}`, callId: `obtain-${index}-${attempt}-${retry}`, tool: again }, record);
+						} catch (error) { outcome = { state: 'ERROR', reasonCode: error?.code ?? 'ERROR', message: String(error?.message ?? error) }; }
+						if (!(outcome?.state === 'ERROR' && /FRESH_OBSERVATION_REQUIRED|STALE_GOAL_REVISION|STALE_REVISION/.test(`${outcome.reasonCode} ${outcome.message}`)) || !(await health().catch(() => 0) > 0)) break;
+					}
+					return outcome;
 				},
 				alive: async () => await health() > 0,
 				// The simplest answer a model gives: flee a creeper 12 blocks, fight any other named hostile (20 s), else
@@ -411,8 +423,17 @@ async function respawnIntoPack(s, agent, pack, row) {
 	const goal = await started;
 	if (goal) record.goalRevision = goal.payload.goalRevision;
 	await s.bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false }).catch(() => {});
-	// The first obtain needs a live sample of the respawned body (a stale one failed FRESH_OBSERVATION_REQUIRED in the smoke).
+	// The first call needs a live sample of the respawned body taken at the settled revision (a stale one failed
+	// FRESH_OBSERVATION_REQUIRED in 14 of 20 respawn runs).
 	for (let i = 0; i < 100 && !(agent.latest()?.ready && agent.latest()?.player?.dead === false && agent.latest()?.player?.health > 0); i++) await sleep(100);
+	await s.clock.sleep(1500);
+	for (let tries = 0; tries < 5; tries++) {
+		const seq = agent.latest()?.eventSequence ?? 0;
+		await s.bridge.send('request_observation', record.agentId, { goalRevision: record.goalRevision }).catch(() => {});
+		let fresh = false;
+		for (let i = 0; i < 40 && !fresh; i++) { await sleep(100); fresh = (agent.latest()?.eventSequence ?? 0) > seq; }
+		if (fresh) break;
+	}
 	await s.clock.sleep(1500);
 	row.respawnedInto = pack.length;
 }
