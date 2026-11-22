@@ -234,7 +234,14 @@ public final class BrinkGuardVerification {
 				"from an edge column the inland stand is the bridge's middle, the nearest cell: " + inland);
 		check(BrinkGuard.inlandStand(narrow, 0.5D, 64.0D, 0.5D, 3, at -> brink(narrow, noVoid, at.x, at.z) == null) == null,
 				"a 1-wide bridge has no stand off its brink: the body braces in place");
-		return 10;
+		// The push side: an unseen drop to the south of a body shot from the north is a brink; shot from the south, the
+		// same unseen drop lies on the shooter's side and is not. A known lethal drop counts from either side.
+		AABB here = body(0.5D, 0.5D), south = here.move(0.0D, 0.0D, 1.05D);
+		BrinkGuard.Fall unseenDrop = new BrinkGuard.Fall(BrinkGuard.UNKNOWN, 0), lavaDrop = new BrinkGuard.Fall("lava", 40);
+		check(BrinkGuard.pushSide(unseenDrop, here, south, 0.0D, 1.0D) != null, "shot from the north, an unseen drop south is where a hit pushes");
+		check(BrinkGuard.pushSide(unseenDrop, here, south, 0.0D, -1.0D) == null, "shot from the south, an unseen drop south is behind the push");
+		check(BrinkGuard.pushSide(lavaDrop, here, south, 0.0D, -1.0D) == lavaDrop, "a known lava drop counts on the shooter's side too");
+		return 13;
 	}
 
 	/** A deck at floor top y 64 for |z| <= half, a lava sea at y 24 and below; with walls, solid at |z| == half + 1 up to y 66. */

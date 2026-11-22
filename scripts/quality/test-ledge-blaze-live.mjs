@@ -227,6 +227,8 @@ async function trial(s, name, repeat, readDamage) {
 	Object.assign(row, damageEvidence(damageBefore, await readDamage(), start0, healthEnd));
 	recordDeathEvidence(row, deathsBefore, await deathCount(s));
 	row.pass = !row.fell && !lava;
+	// A death whose spot could not be read may have been a fall: no verdict either way.
+	if (row.pass && died && deathY === null) row.notExercised = 'the body died and its death spot could not be read';
 	if (!row.pass) row.failReason = lava ? `fell off the deck into the lava at ${fell?.atS ?? '?'} s (firing ${firingAtFall ?? 'none'})` : `fell below the deck at ${fell?.atS ?? '?'} s (firing ${firingAtFall ?? 'none'})`;
 	else if (row.damageTaken === 0) row.notExercised = `the blaze never hit the body (${fireballs} fireball(s) seen)`;
 	else if (!fired) row.notExercised = 'defend never fired: the room tested nothing of the reflex';
