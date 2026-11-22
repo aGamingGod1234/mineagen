@@ -206,9 +206,11 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 						note('to the fountain', r); continue;
 					}
 					if (ranged && tried.size > 0 && log.length % 10 === 0) tried.clear();
+					// Looking round for crystals and the dragon, at the sky: a level gaze would meet endermen and provoke them, which
+					// a player avoids (the first baseline lost both kits to endermen while the script swept the horizon).
 					const turn = ((now() - t0) / 4000) % (2 * Math.PI);
-					const r = await act('look_at', { x: me.x + Math.cos(turn) * 40, y: me.y + 12, z: me.z + Math.sin(turn) * 40 });
-					if (r.state === 'FAILED') await s.clock.sleep(1000);
+					await act('look_at', { x: me.x + Math.cos(turn) * 20, y: me.y + 40, z: me.z + Math.sin(turn) * 20 });
+					await s.clock.sleep(1000);
 				}
 				Object.assign(row, damageEvidence(damageBefore, await readDamage(), row.start.health, latest?.player?.health));
 				row.deathEvidence = deathEvidence(deathsBefore, await readDeaths());
