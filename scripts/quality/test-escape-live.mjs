@@ -12,6 +12,12 @@
 //   lake     a 1x1 shaft 7 deep that broke the stone roof of a flooded cave (9x9, 6 deep, every cell a source, ceiling
 //            under the shaft): afloat with the feet in the lake's top cell and the head in the shaft; 16 cobblestone and
 //            an iron pickaxe. The only air is the shaft. Pass: dry footing out of the water.
+//   floodstair the bottom of a 1-wide stair cut up through stone (3 high, one block up per step) whose bottom two
+//            cells and the next step's floor cell are flooded, under a ceiling, so the body floats no higher than its
+//            feet a little above the next step's floor (iron-kit seed 6006 lane 0: the stair broke into an aquifer).
+//            16 cobblestone carried. Pass: dry footing out of the water.
+//   floodstair-deep the same stair 15 steps high with every step flooded one deep (sources), so the only dry footing is
+//            the pad at its top, 14 above the body: past escape's bank search, as when 6006/0's escape found no bank.
 //   skeleton the body on open ground with an offhand shield, a skeleton 10 blocks east, a 3x3 stone wall 3 blocks west.
 //   skelzombie  the skeleton room plus a zombie (and a stone sword) beside the body. wadeskel  still water 1 deep, 11
 //            across, a skeleton 12 blocks east, no shield, 16 cobblestone. Both: pass alive with at most 6 damage in 30 s.
@@ -53,7 +59,7 @@ const rooms = (roomsArg ?? 'deep;stair;pit;pitdig;shaft;lake;skeleton').split(';
 const THINK_MS = Number(process.env.ESCAPE_THINK_MS ?? 6_000);
 const PAD_Y = 150;
 const LEGACY = process.env.ESCAPE_LEGACY === 'wake' ? 'wake' : 'strong';
-const WINDOW_MS = { deep: 60_000, stair: 60_000, pit: 60_000, pitdig: 60_000, shaft: 90_000, lake: 90_000, skeleton: 30_000, skelzombie: 30_000, wadeskel: 30_000, pitskel: 40_000, pitcreeper: 60_000, 'pitcreeper-rim': 40_000,
+const WINDOW_MS = { deep: 60_000, stair: 60_000, floodstair: 60_000, 'floodstair-deep': 90_000, pit: 60_000, pitdig: 60_000, shaft: 90_000, lake: 90_000, skeleton: 30_000, skelzombie: 30_000, wadeskel: 30_000, pitskel: 40_000, pitcreeper: 60_000, 'pitcreeper-rim': 40_000,
 	'archer-direction': 15_000, 'archer-resume': 15_000 };
 const out = path.resolve(outArg);
 await mkdir(out, { recursive: true });
@@ -127,6 +133,21 @@ try {
 		} else if (room === 'stair') {
 			for (let i = 0; i < 8; i++) await s.command(`fill ${X + i} ${F - 1 - i} ${Z} ${X + i} ${Math.min(F - 1, F + 1 - i)} ${Z} minecraft:water`);
 			start = [X + 7.5, F - 8, Z + 0.5]; drain = 3_000; facing = 90; bank = { x: X - 1.5, z: Z + 0.5 };
+		} else if (room === 'floodstair') {
+			// Column i (x = X - i) has its floor block at F - 10 + i and three open cells over it; at i = 9 it opens onto the pad.
+			for (let i = 0; i < 10; i++) await s.command(`fill ${X - i} ${F - 9 + i} ${Z} ${X - i} ${Math.min(F + 2, F - 7 + i)} ${Z} minecraft:air`);
+			await s.command(`fill ${X} ${F - 9} ${Z} ${X} ${F - 8} ${Z} minecraft:water`);
+			await s.command(`setblock ${X - 1} ${F - 8} ${Z} minecraft:water`);
+			start = [X + 0.5, F - 9, Z + 0.5]; facing = 90;
+			await s.command(`item replace entity ${NAME} hotbar.0 with minecraft:cobblestone 16`);
+		} else if (room === 'floodstair-deep') {
+			// Column i (x = X - i) has its floor block at F - 16 + i; at i = 15 it opens onto the pad. Stone under the pad first.
+			await s.command(`fill ${X - 16} ${F - 18} ${Z - 2} ${X + 2} ${F - 15} ${Z + 2} minecraft:stone`);
+			for (let i = 0; i < 16; i++) await s.command(`fill ${X - i} ${F - 15 + i} ${Z} ${X - i} ${Math.min(F + 2, F - 13 + i)} ${Z} minecraft:air`);
+			await s.command(`fill ${X} ${F - 15} ${Z} ${X} ${F - 14} ${Z} minecraft:water`);
+			for (let i = 1; i < 15; i++) await s.command(`setblock ${X - i} ${F - 15 + i} ${Z} minecraft:water`);
+			start = [X + 0.5, F - 15, Z + 0.5]; facing = 90;
+			await s.command(`item replace entity ${NAME} hotbar.0 with minecraft:cobblestone 16`);
 		} else if (room === 'pitcreeper' || room === 'pitcreeper-rim') {
 			// Climbing a stair out toward a creeper: the hole 4 deep with a stone pickaxe only (stairs up), a creeper on the
 			// surface 7 blocks from the hole that hunts the body once it is out.
@@ -311,13 +332,13 @@ try {
 			if (room === 'pitskel') return p[1] >= F - 0.01 && await onGround()
 				|| !String(await s.command('execute if entity @e[type=minecraft:skeleton]').catch(() => 'passed')).includes('passed');
 			if (room === 'wadeskel') return await onGround() && !(await blockAt(Math.floor(p[0]), Math.floor(p[1]), Math.floor(p[2]), 'minecraft:water'));
-			if (room === 'lake') return await onGround() && !(await blockAt(Math.floor(p[0]), Math.floor(p[1]), Math.floor(p[2]), 'minecraft:water'));
+			if (room === 'lake' || room === 'floodstair' || room === 'floodstair-deep') return await onGround() && !(await blockAt(Math.floor(p[0]), Math.floor(p[1]), Math.floor(p[2]), 'minecraft:water'));
 			return hidden();
 		};
 		const live = await pos();
 		const exposed = live === null ? false : room === 'deep' || room === 'stair' ? await blockAt(Math.floor(live[0]), Math.floor(live[1] + 1.62), Math.floor(live[2]), 'minecraft:water')
 			: skel ? exposedAtStart
-			: room === 'shaft' || room === 'lake' || room === 'wadeskel' ? await blockAt(Math.floor(live[0]), Math.floor(live[1]), Math.floor(live[2]), 'minecraft:water')
+			: room === 'shaft' || room === 'lake' || room === 'wadeskel' || room.startsWith('floodstair') ? await blockAt(Math.floor(live[0]), Math.floor(live[1]), Math.floor(live[2]), 'minecraft:water')
 			: room === 'pitskel' ? live[1] < F - 1 : live[1] < F - 2;
 		// pitcreeper judges the climb on survival and damage too: climbing on must not trade a stop for a blast.
 		const t0 = Date.now(), window = WINDOW_MS[room];

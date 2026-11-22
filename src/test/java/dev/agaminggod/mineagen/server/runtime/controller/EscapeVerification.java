@@ -85,6 +85,25 @@ public final class EscapeVerification {
 		check(ServerEscapeController.besideWater(pool, new BlockPos(2, 63, 0)), "the cell beside the pool, a block up, is its bank");
 		check(!ServerEscapeController.besideWater(pool, new BlockPos(5, 63, 0)), "a cell beside other water is no bank of this pool");
 		assertions += 9;
+		// Wade takeoff: feet at y 64 in column x 0 (box 0.2-0.8), a flooded step beside whose top is 65. The body must
+		// rise to 65 + 1.8 in its own column, so a ceiling at y 66 over it blocks the jump; one at y 67 does not.
+		Solid lowCeiling = (x, y, z) -> y <= 63 || y >= 66;
+		check(!ServerEscapeController.takeoffClear(0.2, 0.8, 0.2, 0.8, 65.8, 65, at -> lowCeiling.at(at.getX(), at.getY(), at.getZ())),
+				"a ceiling 2 above the feet blocks the takeoff onto a step one up");
+		Solid tallerPassage = (x, y, z) -> y <= 63 || y >= 67;
+		check(ServerEscapeController.takeoffClear(0.2, 0.8, 0.2, 0.8, 65.8, 65, at -> tallerPassage.at(at.getX(), at.getY(), at.getZ())),
+				"a ceiling 3 above the feet leaves room to get onto a step one up");
+		// Afloat on the flooded stair (feet 0.3 above the floor top at 41, the step top 42, the column 3 high): clear.
+		Solid stairColumn = (x, y, z) -> x == 0 ? y <= 40 || y >= 44 : y <= 41 || y >= 45;
+		check(ServerEscapeController.takeoffClear(0.2, 0.8, 0.2, 0.8, 41.3 + 1.8, 42, at -> stairColumn.at(at.getX(), at.getY(), at.getZ())),
+				"the flooded stair's 3-high column leaves room to wade onto the next step");
+		// The box straddling two columns: a low ceiling over either one blocks it.
+		Solid halfCeiling = (x, y, z) -> y <= 63 || (x == 1 && y >= 66);
+		check(!ServerEscapeController.takeoffClear(0.7, 1.3, 0.2, 0.8, 65.8, 65, at -> halfCeiling.at(at.getX(), at.getY(), at.getZ())),
+				"a ceiling over part of the body's box still blocks the takeoff");
+		// Already as high as the step needs: nothing to check.
+		check(ServerEscapeController.takeoffClear(0.2, 0.8, 0.2, 0.8, 66.9, 65, at -> true), "a body already high enough needs no headroom check");
+		assertions += 5;
 		return assertions;
 	}
 

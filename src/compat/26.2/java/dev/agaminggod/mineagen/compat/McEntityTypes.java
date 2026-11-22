@@ -9,6 +9,8 @@ public final class McEntityTypes {
 	public static final net.minecraft.world.entity.EntityType<net.minecraft.world.entity.monster.piglin.Piglin> PIGLIN = net.minecraft.world.entity.EntityTypes.PIGLIN;
 	public static final net.minecraft.world.entity.EntityType<net.minecraft.world.entity.player.Player> PLAYER = net.minecraft.world.entity.EntityTypes.PLAYER;
 	public static final net.minecraft.world.entity.EntityType<net.minecraft.world.entity.monster.zombie.Zombie> ZOMBIE = net.minecraft.world.entity.EntityTypes.ZOMBIE;
+	/** 2.4 blocks tall: kept out by a two-high doorway with a block over it (the blaze spawner hold). */
+	public static final net.minecraft.world.entity.EntityType<?> WITHER_SKELETON = net.minecraft.world.entity.EntityTypes.WITHER_SKELETON;
 
 	private McEntityTypes() {
 	}

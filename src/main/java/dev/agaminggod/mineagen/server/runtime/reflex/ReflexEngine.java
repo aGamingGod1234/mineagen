@@ -537,17 +537,26 @@ public final class ReflexEngine {
 		if (running != null && !inEnd && endOnly(agent.scheduler.rule(running.ruleId()))) end(agentId, agent, agent.scheduler.interrupt(now, "left the End"));
 		agent.scheduler.blockWhere(inEnd ? null : ReflexEngine::endOnly);
 		ObservationVisibility.Frame frame = ObservationVisibility.frame(player.level(), player);
+		// A fortress spawner in view is remembered for a blaze fight started later, cover or not (spawner hold).
+		if (player.tickCount % 20 == 0) dev.agaminggod.mineagen.server.runtime.controller.ServerSpawnerHoldController.notice(player);
 		// A stand inside a flee, or inside an escape whose climb a mob blocked: running or taking cover there only hands
 		// the attackers free hits, so the back-off rules wait; hazard flinches still interrupt.
 		boolean cornered = active != null && (active.type() == ActionType.FLEE_FROM || active.type() == ActionType.ESCAPE)
-				&& dev.agaminggod.mineagen.server.runtime.controller.CorneredStand.standing(player);
+				&& dev.agaminggod.mineagen.server.runtime.controller.CorneredStand.standing(player)
+				// A blaze spawner hold owns the body for its whole run: its roofed cell is the cover a retreat would look for,
+				// it heals there, and rod trips turn back to it when hurt. Running out onto the fortress floor is what kills.
+				|| active != null && (active.type() == ActionType.FIGHT_UNTIL || active.type() == ActionType.FIGHT_TARGET)
+				&& dev.agaminggod.mineagen.server.runtime.controller.ServerSpawnerHoldController.holding(player);
 		boolean fleeing = activeType == ActionType.FLEE_FROM && !cornered
 				|| agent.behaviour instanceof ReflexActions.Defend defend && defend.backingOutOfPack();
 		boolean fleeingWithChaser = fleeing && ReflexActions.Defend.nearestChaser(player, ReflexActions.PACK_RANGE) < ReflexActions.PACK_RANGE;
 		dev.agaminggod.mineagen.server.runtime.controller.ServerEscapeController.ShooterMove shooterMove =
 				activeType == ActionType.ESCAPE ? dev.agaminggod.mineagen.server.runtime.controller.ServerEscapeController.shooterMove(player) : null;
+		// Defend also stands aside while a cast has a cell half done: lava poured and not yet cooled, or its water not yet
+		// scooped back. A pause there leaves the lava to flow onto the body or the water to run into the pool (2-3 s at most).
 		boolean escapingShooter = activeType == ActionType.ESCAPE && escapingShooter(
-				dev.agaminggod.mineagen.server.runtime.controller.ServerEscapeController.answersShooter(player), meleeInReach(player));
+				dev.agaminggod.mineagen.server.runtime.controller.ServerEscapeController.answersShooter(player), meleeInReach(player))
+				|| activeType == ActionType.BUILD && dev.agaminggod.mineagen.server.runtime.controller.ServerBuildController.castCellOpen(player);
 		boolean firingBlocksShots = agent.scheduler.current() != null && agent.behaviour != null && agent.behaviour.blocksShots()
 				|| agent.scheduler.current() == null && escapeBlocksShots(shooterMove, player.getOffhandItem().is(net.minecraft.world.item.Items.SHIELD)
 						|| player.getMainHandItem().is(net.minecraft.world.item.Items.SHIELD));
@@ -819,7 +828,7 @@ public final class ReflexEngine {
 			JsonObject current = new JsonObject();
 			current.addProperty("id", firing.ruleId());
 			current.addProperty("ms", Math.max(0L, now - firing.startTick()) * 50L);
-			if (!agent.detail.isEmpty()) current.addProperty("detail", agent.detail);
+			if (!agent.detail.isEmpty()) current.addProperty("detail", wireDetail(agent.detail));
 			status.add("firing", current);
 		}
 		JsonArray rules = new JsonArray();
@@ -852,7 +861,7 @@ public final class ReflexEngine {
 			row.addProperty("id", event.ruleId());
 			row.addProperty("outcome", event.outcome().wire());
 			row.addProperty("ms", event.durationTicks() * 50L);
-			if (!event.detail().isEmpty()) row.addProperty("detail", event.detail());
+			if (!event.detail().isEmpty()) row.addProperty("detail", wireDetail(event.detail()));
 			if (event.wake()) row.addProperty("wake", true);
 			events.add(row);
 		}
@@ -867,5 +876,20 @@ public final class ReflexEngine {
 	/** A coordinator default rule whose action lacks its item (ReflexActions.lacks) does not fire; a model rule does. */
 	static boolean sleepsWithoutItem(ReflexSpec.Rule rule, String lacks) {
 		return rule.sleepsWithoutItem(lacks);
+	}
+
+	/** The protocol's limit on a reflex detail (protocol-v2 reflexes.firing.detail and reflexes.events.detail). */
+	static final int WIRE_DETAIL_CHARS = 240;
+
+	/**
+	 * A detail clipped to {@link #WIRE_DETAIL_CHARS} with an ellipsis, never splitting a surrogate pair. A longer one made
+	 * the coordinator reject the whole observation and drop the bridge: in the iron-kit room both agents of a server
+	 * lost their coordinator 13 min in, and a body left dead with no coordinator stayed dead for the rest of the round.
+	 */
+	static String wireDetail(String detail) {
+		if (detail.length() <= WIRE_DETAIL_CHARS) return detail;
+		int end = WIRE_DETAIL_CHARS - 1;
+		if (Character.isHighSurrogate(detail.charAt(end - 1))) end--;
+		return detail.substring(0, end) + "\u2026";
 	}
 }

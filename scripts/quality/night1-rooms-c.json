@@ -1,0 +1,69 @@
+{
+	"note": "Night-1 rooms (test-obtain-live.mjs, OBTAIN_HANDBACK=answer): three lanes per seed, all at dusk with no armour and monsters spawning. dusk-surface: a fresh spawn at dusk getting a stone pickaxe. dusk-below: a mine pocket at y30 at dusk needing logs (the from-scratch games climbed up into the night for them). respawn-pack: respawning at dusk into the pack that killed it, 9-14 blocks off as in the from-scratch games (alive 0.5-1 min after respawn there), then re-kitting. Each run is judged on being alive after 10 game minutes.",
+	"seeds": [
+		2002,
+		4004,
+		5005,
+		7007,
+		31001
+	],
+	"lanes": 3,
+	"items": [
+		{
+			"item": "stone_pickaxe",
+			"budgetMs": 600000,
+			"playMs": 600000,
+			"time": 11400,
+			"survive": true
+		},
+		{
+			"item": "oak_log",
+			"count": 3,
+			"budgetMs": 600000,
+			"playMs": 600000,
+			"time": 11400,
+			"survive": true,
+			"below": 30,
+			"kit": [
+				[
+					"minecraft:stone_pickaxe",
+					1
+				],
+				[
+					"minecraft:cobblestone",
+					16
+				]
+			]
+		},
+		{
+			"item": "oak_log",
+			"count": 3,
+			"budgetMs": 600000,
+			"playMs": 600000,
+			"time": 11400,
+			"survive": true,
+			"respawnInto": [
+				[
+					"zombie",
+					11,
+					0
+				],
+				[
+					"zombie",
+					-9,
+					8
+				],
+				[
+					"skeleton",
+					6,
+					-13
+				],
+				[
+					"skeleton",
+					-14,
+					-3
+				]
+			]
+		}
+	]
+}

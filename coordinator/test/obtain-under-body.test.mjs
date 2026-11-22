@@ -93,3 +93,17 @@ test('water under the pocket\'s solid floor does not keep the bot out of a dry p
 	await runObtain({ item: 'raw_iron', count: 2, timeoutMs: 600_000 }, body, { now: () => (t += 100) });
 	assert.ok(calls.some(([type, args]) => type === 'navigate_to' && args.tolerance < 1), 'steps into the dry pocket');
 });
+
+test('the pocket step tries the floor one or two below the top cell when the top cell is not standable', async () => {
+	const navs = [];
+	const o = () => ({ world: { dimension: 'minecraft:overworld' }, player: { x: 300.3, y: 15, z: -261.5, yaw: 90, health: 20, food: 20, onGround: true },
+		inventory: { selectedSlot: 0, items: [{ itemId: 'minecraft:stone_pickaxe', slot: 0, count: 1, remainingDurability: 100 }] },
+		blocks: [{ blockId: 'minecraft:iron_ore', x: 298, y: 14, z: -262 }] });
+	const body = { observe: async () => o(), stopped: () => false, interrupted: () => false, note: () => {},
+		act: async (type, args) => { valid(type, args); if (type === 'navigate_to') { navs.push(args.y); return args.y === 14 ? { state: 'FAILED', reasonCode: 'NO_STANDABLE_PATH' } : { state: 'SUCCEEDED', reasonCode: 'DESTINATION_REACHED' }; } return { state: 'SUCCEEDED', reasonCode: 'ARRIVED' }; },
+		mine: async () => ({ state: 'SUCCEEDED', reasonCode: 'VEIN_MINED', message: 'mined: 2 minecraft:iron_ore in 4 s' }),
+		search: async () => ({ reasonCode: 'FIND_NOT_FOUND' }), missPlace: () => {} };
+	let t = 0;
+	await runObtain({ item: 'raw_iron', count: 2, timeoutMs: 600_000 }, body, { now: () => (t += 100) });
+	assert.deepEqual(navs.slice(0, 2), [14, 13]);
+});

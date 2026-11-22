@@ -804,7 +804,8 @@ function requireUntilCount(action) {
 	if ((action.untilItem === undefined) !== (action.untilCount === undefined)) throw invalid('INVALID_FIELD', 'action.untilItem and action.untilCount go together');
 	if (action.roof !== undefined) {
 		requireBoolean(action.roof, 'action.roof');
-		if (action.untilItem === undefined) throw invalid('INVALID_FIELD', 'action.roof applies only with untilItem and untilCount');
+		// roof:false on a single-target fight keeps the open fight (no spawner hold wall-in for a blaze at a spawner).
+		if (action.untilItem === undefined && action.roof) throw invalid('INVALID_FIELD', 'action.roof:true applies only with untilItem and untilCount');
 	}
 	if (action.untilItem === undefined) return false;
 	requireText(action.untilItem, 'action.untilItem', MAX_IDENTIFIER_LENGTH);

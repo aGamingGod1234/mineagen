@@ -174,8 +174,9 @@ async function act(type, args, ms = 65000, retried = false) {
 	return done.catch(async err => {
 		const cancelled = inbox.wait('action_result', e=>e.payload.actionId===id && ['SUCCEEDED','FAILED','CANCELLED','TIMED_OUT'].includes(e.payload.state),10000).catch(()=>null);
 		await bridge.send('action_cancel',record.agentId,{actionId:id,goalRevision:record.goalRevision}).catch(()=>{});
-		await cancelled;
-		return {state:'ERROR',reasonCode:'FIXTURE_ACTION_DEADLINE',message:String(err)};
+		// The cancel's own result carries the action's receipt (a spawner hold's counts); keep it in the message.
+		const stopped = await cancelled;
+		return {state:'ERROR',reasonCode:'FIXTURE_ACTION_DEADLINE',message:String(err) + (stopped ? `; cancel result ${stopped.payload.reasonCode}: ${String(stopped.payload.message ?? '').slice(0, 2500)}` : '')};
 	}).then(async res=>{ await traceRow({at:now(),command:type,args,result:res});return res; });
 }
 const passed = text => /Test passed/i.test(text);
@@ -581,6 +582,11 @@ try {
 	}
 } finally {
 	results.goalEvents = goalEvents;
+	// The room's pass bar (benchmark-rooms.json passWhen): every run alive at the end with a blaze killed and a rod kept.
+	// Alive alone passed a body that stayed walled in or was refused all window (0 fights, kills or rods).
+	const allRuns = Object.values(results.variants ?? {}).flatMap(v => v.runs ?? []);
+	results.runsKilledAndKeptRod = allRuns.filter(r => r.deaths === 0 && r.kills >= 1 && r.rodsAtEnd >= 1).length;
+	results.allRunsKilledAndKeptRod = allRuns.length > 0 && results.runsKilledAndKeptRod === allRuns.length ? 1 : 0;
 	await writeFile(join(out, 'blaze-spawner.json'), JSON.stringify(results, null, 2)).catch(() => {});
 	if (rcon) await command('stop').catch(() => {});
 	bridge?.stop(); await rcon?.close();

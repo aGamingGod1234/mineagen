@@ -179,16 +179,20 @@ export function forgetResourceResult(memory, observation, { actionType, argument
  * Merges blocks the body knows of without a sight line now (an ore a dig sighted through rock, kept in the observed-
  * memory store) as rows with `enclosed: true`. A row also seen along a sight line keeps `enclosed: false`.
  */
-export function rememberKnownBlocks(memory, observation, blocks, { now = Date.now(), source = 'vein' } = {}) {
+export function rememberKnownBlocks(memory, observation, blocks, { now = Date.now(), source = 'vein', tick = null } = {}) {
 	const body = bodyOf(observation);
 	if (body === null || !Array.isArray(blocks)) return memory;
 	for (const block of blocks) {
 		const blockId = id(block?.blockId);
 		if (!finite(block?.x, block?.y, block?.z) || TERRAIN.test(blockId)) continue;
 		const key = `${body.dimension}|${blockId}@${Math.floor(block.x)},${Math.floor(block.y)},${Math.floor(block.z)}`;
+		// The store keeps the game tick each block was last seen: its age, not the time of this copy, so a block not seen
+		// for 30 min (mined out of sight, say) ages out instead of being refreshed every few seconds.
+		const seenAt = Number.isFinite(tick) && Number.isFinite(block.tick) ? now - Math.max(0, tick - block.tick) * 50 : now;
+		if (now - seenAt > RESOURCE_TTL_MS) continue;
 		const old = memory.rows.get(key);
-		if (old) { memory.rows.set(key, { ...old, seenAt: Math.max(old.seenAt, now) }); continue; }
-		const row = rowOf(CONTAINERS.has(blockId) ? 'container' : 'block', blockId, block.x, block.y, block.z, { source, seenAt: now, dimension: body.dimension });
+		if (old) { memory.rows.set(key, { ...old, seenAt: Math.max(old.seenAt, seenAt) }); continue; }
+		const row = rowOf(CONTAINERS.has(blockId) ? 'container' : 'block', blockId, block.x, block.y, block.z, { source, seenAt, dimension: body.dimension });
 		row.enclosed = true;
 		memory.rows.set(key, row);
 	}

@@ -74,14 +74,18 @@ export function instinctsEnabled(environment = {}) {
  * The automatic stance (D3): the brain need not set one. It is only numbers in the default rules below, so the wire and
  * older mods see ordinary rules (C23). steady equals DEFAULT_REFLEXES.
  */
-export const STANCES = Object.freeze(['steady', 'fight', 'cautious']);
+export const STANCES = Object.freeze(['steady', 'fight', 'cautious', 'fortress']);
+// fortress (wall breaker rods): a wither skeleton within 16 blocks in the Nether. Wither skeletons caused 12 of 28 staged
+// fortress deaths (6 of 13 in the rod gate), most on open decks with the floors of the fight stance; near them the body
+// backs off and takes cover early, fight or not. A blaze spawner hold's cell keeps them out, and the mod holds these back
+// while the body is in that cell.
 export const STANCE_SETTINGS = Object.freeze({
-	'default-retreat': Object.freeze({ condition: 'health_below', steady: 7, fight: 4, cautious: 10 }),
-	'default-cover': Object.freeze({ condition: 'health_below', steady: 6, fight: 4, cautious: 9 }),
-	'default-blaze-cover': Object.freeze({ condition: 'health_below', steady: 11, fight: 8, cautious: 14 }),
+	'default-retreat': Object.freeze({ condition: 'health_below', steady: 7, fight: 4, cautious: 10, fortress: 14 }),
+	'default-cover': Object.freeze({ condition: 'health_below', steady: 6, fight: 4, cautious: 9, fortress: 12 }),
+	'default-blaze-cover': Object.freeze({ condition: 'health_below', steady: 11, fight: 8, cautious: 14, fortress: 16 }),
 	// Heal (Step 2 item 2): health regrows only at hunger 18+, so eat below 18 in every stance. Hazard floor rules (8-9),
 	// retreat (7), cover (6) and defend (5) outrank eat (3), and it holds off with a hostile within 8 (any fight in reach).
-	'default-eat': Object.freeze({ condition: 'hunger_below', steady: 18, fight: 18, cautious: 18 }),
+	'default-eat': Object.freeze({ condition: 'hunger_below', steady: 18, fight: 18, cautious: 18, fortress: 18 }),
 });
 // A new stance takes effect once it has held this long, so a flicker does not resend the set.
 export const STANCE_DWELL_MS = 3_000;
@@ -89,12 +93,27 @@ const STANCE_FIGHTS = new Set(['fight_target', 'fight_until', 'use_ranged']);
 const CAUTIOUS_HEALTH = 8;
 // Cautious from low health lasts until health is back to this, so regeneration around 8 does not flip it each second.
 const CAUTIOUS_CLEAR_HEALTH = 10;
+// fortress starts with a wither skeleton within this many blocks and lasts while one is within the clear range.
+export const FORTRESS_WITHER_RANGE = 16;
+const FORTRESS_CLEAR_RANGE = 20;
 
-/** steady, fight or cautious from the running verb and what the body perceives; previous only adds hysteresis. */
+/** The nearest live wither skeleton the body perceives now (not a remembered one), or Infinity. */
+function nearestWither(observation) {
+	if (observation?.continuity?.rememberedSections?.includes('entities')) return Infinity;
+	let nearest = Infinity;
+	for (const entity of observation?.entities ?? []) {
+		if (entity?.type === 'minecraft:wither_skeleton' && entity.alive !== false && Number.isFinite(entity.distance)) nearest = Math.min(nearest, entity.distance);
+	}
+	return nearest;
+}
+
+/** steady, fight, cautious or fortress from the running verb and what the body perceives; previous only adds hysteresis. */
 export function resolveAutoStance(observation, previous = 'steady') {
 	const action = observation?.currentAction;
-	if (action?.active === true && STANCE_FIGHTS.has(action.actionType)) return 'fight';
 	const dimension = observation?.world?.dimension;
+	// Before fight: a fight's lower floors are what let wither skeletons kill on fortress decks.
+	if (dimension === 'minecraft:the_nether' && nearestWither(observation) <= (previous === 'fortress' ? FORTRESS_CLEAR_RANGE : FORTRESS_WITHER_RANGE)) return 'fortress';
+	if (action?.active === true && STANCE_FIGHTS.has(action.actionType)) return 'fight';
 	if (dimension === 'minecraft:the_nether' || dimension === 'minecraft:the_end') return 'cautious';
 	const health = observation?.player?.health;
 	if (Number.isFinite(health) && (health <= CAUTIOUS_HEALTH || previous === 'cautious' && health < CAUTIOUS_CLEAR_HEALTH)) return 'cautious';
@@ -491,7 +510,8 @@ export class ReflexBook {
 	#settleStance(agent, observation, now) {
 		const candidate = resolveAutoStance(observation, agent.stance);
 		if (candidate === agent.stance) agent.pendingStance = null;
-		else if (now) { agent.stance = candidate; agent.pendingStance = null; }
+		// fortress takes effect at once: a wither skeleton closes 16 blocks in about the 3 s dwell.
+		else if (now || candidate === 'fortress') { agent.stance = candidate; agent.pendingStance = null; }
 		else if (agent.pendingStance !== candidate) { agent.pendingStance = candidate; agent.pendingSince = this.#now(); }
 		else if (this.#now() - agent.pendingSince >= STANCE_DWELL_MS) { agent.stance = candidate; agent.pendingStance = null; }
 		let changed = false;

@@ -306,3 +306,13 @@ test('a queued underground sample keeps its own last open sky, not a later one',
 	assert.match(views.continuity(record, { observation: queued }).up, /^last open sky @0,70,0 /);
 	assert.match(views.continuity(record).up, /^last open sky @100,80,0 /);
 });
+
+test('before dusk an unarmoured body is told to be under cover by dusk; full iron and the night itself are not', () => {
+	const bare = sample(9_600); bare.player.armor = 0;
+	assert.match(lightLine(bare), /; no armour: be under cover by dusk$/);
+	const iron = sample(9_600); iron.player.armor = 15;
+	assert.doesNotMatch(lightLine(iron), /no armour/);
+	const night = sample(14_000); night.player.armor = 0;
+	assert.doesNotMatch(lightLine(night), /no armour/, 'at night the context wake names cover');
+	assert.ok(Buffer.byteLength(lightLine(bare)) <= LIGHT_LINE_BYTES);
+});
