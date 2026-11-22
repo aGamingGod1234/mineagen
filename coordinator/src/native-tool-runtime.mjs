@@ -2666,9 +2666,9 @@ export class NativeToolRuntime {
 		// Stations an earlier obtain placed and did not pick up (danger ended it) are this call's to pick up, and the
 		// furnace loads it left smelting are this call's to take out. Flooded approaches share this per-agent ledger.
 		// Chests opened and structures searched for loot (loot-sources.mjs) are kept the same way, so no call loots twice.
-		if (!this.#obtainPlaced.has(record.agentId)) this.#obtainPlaced.set(record.agentId, { placed: [], loads: [], approaches: [], looted: { opened: [], searched: [], structures: [] } });
+		if (!this.#obtainPlaced.has(record.agentId)) this.#obtainPlaced.set(record.agentId, { placed: [], loads: [], approaches: [], looted: { opened: [], searched: [], structures: [], misses: {} } });
 		const kept = this.#obtainPlaced.get(record.agentId);
-		kept.looted ??= { opened: [], searched: [], structures: [] };
+		kept.looted ??= { opened: [], searched: [], structures: [], misses: {} };
 		const stations = { now: this.#clock.now, placed: kept.placed, loads: kept.loads, approaches: kept.approaches, looted: kept.looted };
 		const result = await runObtain(tool.arguments, body, stations);
 		if (!this.#kitHabit || result?.state !== 'SUCCEEDED' || interrupted() || !current()) return result;

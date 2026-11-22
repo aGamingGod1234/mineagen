@@ -29,6 +29,7 @@ const STRUCTURE_TABLES = [
 // How far from a structure's sighted point its chests lie (a village spreads wider than a shipwreck).
 const STRUCTURE_REACH = { village: 64 };
 const DEFAULT_REACH = 32;
+export const structureReach = (name) => STRUCTURE_REACH[bare(name).replace(/_/g, ' ').toLowerCase().split(' ')[0]] ?? DEFAULT_REACH;
 const CONTAINERS = /^(minecraft:)?(chest|trapped_chest|barrel)$/;
 
 const bare = (value) => String(value ?? '').replace(/^minecraft:/, '');

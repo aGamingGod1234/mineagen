@@ -131,3 +131,57 @@ test('a village chest that lacks the item is opened once, then the plan goes bac
 	assert.deepEqual(looted.searched, ['311,78,-239']);
 	assert.ok(searches.some((target) => /iron_ore/.test(target.block ?? '')), `then mines: ${JSON.stringify(searches)}`);
 });
+
+// The 22 Nov playtest: a stone pickaxe at the village, an iron ore known at y14 about 68 blocks off and 60 down.
+test('the playtest: a village chest near spawn comes before an iron ore 60 blocks down; an exposed ore 10 down an open cave still wins', async () => {
+	const { seenPlaces } = await import('../src/obtain-runner.mjs');
+	const start = { ...village(), player: { x: 311.5, y: 77, z: -241.5 } };
+	const deep = { ...start, landmarks: [{ blockId: 'minecraft:iron_ore', x: 298, y: 14, z: -261 }] };
+	const plan = planObtain({ ids: ['iron_pickaxe'], count: 1 }, { held, seen: new Set(['iron_ore']), places: seenPlaces(deep), loot: lootSources(deep) });
+	assert.equal(plan.needs[0].kind, 'loot', JSON.stringify(plan.needs));
+	const cave = { ...start, landmarks: [{ blockId: 'minecraft:iron_ore', x: 315, y: 67, z: -244, count: 4 }] };
+	const near = planObtain({ ids: ['iron_pickaxe'], count: 1 }, { held, seen: new Set(['iron_ore']), places: seenPlaces(cave), loot: lootSources(cave) });
+	assert.equal(near.needs.some((need) => need.kind === 'loot'), false, JSON.stringify(near.needs));
+	assert.equal(near.needs[0].accept[0], 'raw_iron');
+});
+
+test('a seen source is priced by the way to it: near logs keep their discount, ore far below is no cheaper than unseen', async () => {
+	const { approachCost } = await import('../src/obtain-plan.mjs');
+	assert.ok(approachCost({ distance: 5, across: 5, drop: 0 }) < 0.5);
+	assert.ok(approachCost({ distance: 63, across: 24, drop: 63 }) > 5);
+	assert.ok(approachCost({ distance: 20, across: 10, drop: 17, enclosed: true }) === 17 * 0.4);
+	const places = new Map([['iron_ore', [{ distance: 68, across: 24, drop: 63, count: 1 }]]]);
+	const far = planObtain({ ids: ['raw_iron'], count: 1 }, { held, seen: new Set(['iron_ore']), places });
+	const none = planObtain({ ids: ['raw_iron'], count: 1 }, { held, seen: new Set() });
+	assert.deepEqual(far.needs, none.needs);
+});
+
+test('a stop in the middle of taking still closes the chest; a chest never read is not counted as opened', async () => {
+	const body = chestBody([['iron_ingot', 3], ['bread', 2]]);
+	const act = body.act;
+	body.act = async (type, args) => (type === 'menu_click' ? (body.calls.push([type, args]), { state: 'INTERRUPTED', reasonCode: 'DANGER' }) : act(type, args));
+	const result = await lootChest(body, { x: 1, y: 64, z: 2 }, { wanted: ['iron_ingot'] });
+	assert.equal(result.ok, false);
+	assert.equal(result.read, true);
+	assert.equal(body.calls.at(-1)[0], 'menu_close');
+	const shut = chestBody([]);
+	shut.act = async (type) => (type === 'interact_block' ? { state: 'FAILED', reasonCode: 'BLOCK_OUT_OF_REACH' } : { state: 'SUCCEEDED' });
+	const missed = await lootChest(shut, { x: 1, y: 64, z: 2 });
+	assert.equal(missed.read, false);
+});
+
+test('a chest the body cannot walk to is skipped for this call but not marked opened', async () => {
+	const chest = { blockId: 'minecraft:chest', x: 305, y: 77, z: -236 };
+	const body = chestBody([['iron_ingot', 4]]);
+	const act = body.act;
+	body.act = async (type, args) => (type === 'travel_to' ? { state: 'FAILED', reasonCode: 'NO_ROUTE' } : act(type, args));
+	const observe = async () => ({ ...village(), player: { ...at, health: 20, onGround: true, skyOpen: true },
+		inventory: { selectedSlot: 0, items: [{ itemId: 'minecraft:stone_pickaxe', count: 1, slot: 0 }] }, blocks: [chest], entities: [] });
+	const looted = { opened: [], searched: [], structures: [] };
+	await runObtain({ item: 'iron_ingot', count: 3, timeoutMs: 30_000 }, { ...body, observe, stopped: () => false, interrupted: () => false, note: () => {},
+		gather: async () => ({ state: 'FAILED', reasonCode: 'NOTHING_MINED' }), mine: async () => ({ state: 'FAILED', reasonCode: 'NOTHING_MINED' }), moveTo: async () => ({ state: 'SUCCEEDED' }),
+		search: async () => ({ state: 'FAILED', reasonCode: 'FIND_NOT_FOUND', message: 'none' }) },
+	{ now: (() => { let t = 0; return () => (t += 100); })(), looted });
+	assert.deepEqual(looted.opened, []);
+	assert.equal(body.calls.filter(([type]) => type === 'interact_block').length, 0);
+});

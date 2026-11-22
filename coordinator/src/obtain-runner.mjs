@@ -12,7 +12,7 @@ import { DAMAGE_STOPS, FIGHT_STOPS, DISCARD, LIFE_SAFETY_STOPS, MAX_FIND_TIMEOUT
 import { threatRows, blazeBlocksErrand } from './search-danger.mjs';
 import { REGEN_RESUME_HEALTH, bodyDanger, eatCalls, lowHealthFork } from './fork-rule.mjs';
 import { heldCounts, heldOf, keepPickaxeMakings, planObtain, readyTimes, resolveObtainItem, shortId, OBTAIN_STATIONS } from './obtain-plan.mjs';
-import { lootSources } from './loot-sources.mjs';
+import { lootSources, structureReach } from './loot-sources.mjs';
 import { lootChest } from './loot-step.mjs';
 
 export const OBTAIN_DEFAULT_TIMEOUT_MS = 900_000;
@@ -123,6 +123,30 @@ export function rememberStructures(looted, o) {
 		looted.structures.push({ structure: row.structure, x: row.x, y: row.y, z: row.z, dimension });
 		if (looted.structures.length > KEPT_STRUCTURES) looted.structures.shift();
 	}
+}
+
+/**
+ * Where each seen id is, for the planner's price of the way to it (obtain-plan.mjs approachCost): per short id, the
+ * known places with { distance, across, drop, enclosed, count }. Reads the shared seen-resource rows when the
+ * observation carries them, and the blocks and mobs in view. enclosed: a row the perception marks as not open to a walk.
+ */
+export function seenPlaces(o) {
+	const at = bodyAt(o);
+	const places = new Map();
+	if (at === null) return places;
+	const add = (rawId, row, count = 1) => {
+		if (![row?.x, row?.y, row?.z].every(Number.isFinite)) return;
+		const cx = Number.isInteger(row.x) ? row.x + 0.5 : row.x, cz = Number.isInteger(row.z) ? row.z + 0.5 : row.z;
+		const across = Math.hypot(cx - at.x, cz - at.z), drop = at.y - row.y;
+		const key = bare(rawId);
+		const list = places.get(key) ?? [];
+		list.push({ distance: Math.hypot(across, drop), across, drop, enclosed: row.enclosed === true || row.hidden === true, count: Number.isFinite(row.count) ? row.count : count });
+		places.set(key, list);
+	};
+	for (const row of Array.isArray(o.seenResources) ? o.seenResources : []) if (row?.kind !== 'container') add(row.id ?? row.blockId, row);
+	for (const row of knownBlocks(o)) add(row.blockId, row);
+	for (const row of o.entities ?? []) if (row?.type && row.type !== 'minecraft:item' && row.alive !== false) add(row.type, row);
+	return places;
 }
 
 /** Short ids of blocks and mobs in view or remembered, for the planner's "seen is cheaper". */
@@ -343,7 +367,8 @@ export async function locate(need, body, { budget, timeoutMs }) {
  * Runs obtain to its end. body: { observe(), act(actionType, args), mine(args), moveTo(args), gather(args),
  * survey(include), stopped(), interrupted(), note(text) }. Returns { state, reasonCode, message, held, ... }.
  */
-export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TIMEOUT_MS }, rawBody, { index = howtoIndex(), now = Date.now, locate: find = locate, placed = [], loads = [], approaches = [], looted = { opened: [], searched: [], structures: [] } } = {}) {
+export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TIMEOUT_MS }, rawBody, { index = howtoIndex(), now = Date.now, locate: find = locate, placed = [], loads = [], approaches = [], looted = { opened: [], searched: [], structures: [], misses: {} } } = {}) {
+	looted.misses ??= {};
 	// The deadline holds everywhere: every body call's own timeout and a wait's duration end by it, and past it nothing
 	// more is dispatched (cleanup alone gets a short grace to pick up what was placed).
 	const deadline = now() + timeoutMs;
@@ -1222,32 +1247,40 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		if (chest === null) {
 			step(`look for chests in the ${source.name} at ${source.x},${source.y},${source.z}`);
 			if (source.distance > 24 && !(await walk(source, 8)) && (body.interrupted() || body.stopped())) return 'stopped';
-			const inSight = lootSources(await body.observe(), { opened: new Set(looted.opened), searched: new Set(looted.searched), structures: looted.structures })
+			const inSight = lootSources(await body.observe(), { opened: new Set([...looted.opened, ...budget.failed]), searched: new Set(looted.searched), structures: looted.structures })
 				.find((row) => row.kind === 'chest');
 			chest = inSight ?? null;
 			if (chest === null && typeof body.search === 'function') {
 				const result = await body.search({ block: 'minecraft:chest' }, { timeoutMs: Math.min(60_000, left()) });
 				const at = result?.find?.seen;
-				if (result?.reasonCode === 'FIND_SEEN' && at && [at.x, at.y, at.z].every(Number.isFinite) && !looted.opened.includes(cellKey(at))) chest = { x: at.x, y: at.y, z: at.z };
+				// Only a chest inside this structure, not yet opened or given up on: a chest elsewhere is someone's storage.
+				if (result?.reasonCode === 'FIND_SEEN' && at && [at.x, at.y, at.z].every(Number.isFinite) && !looted.opened.includes(cellKey(at))
+					&& !budget.failed.has(cellKey(at)) && Math.hypot(at.x - source.x, at.z - source.z) <= structureReach(source.name)) chest = { x: at.x, y: at.y, z: at.z };
 			}
 			if (body.interrupted() || body.stopped()) return 'stopped';
 			if (chest === null) {
-				looted.searched.push(cellKey(source));
+				// Twice without a new chest: the structure's chests are done (a search can return a chest already opened).
+				const misses = (looted.misses[cellKey(source)] ?? 0) + 1;
+				looted.misses[cellKey(source)] = misses;
+				if (misses >= 2) looted.searched.push(cellKey(source));
 				return `no unopened chest found in the ${source.name}`;
 			}
 		}
 		step(`loot the chest at ${cellKey(chest)}`);
 		if (!(await walk(chest, 2))) {
 			if (body.interrupted() || body.stopped()) return 'stopped';
-			looted.opened.push(cellKey(chest));
+			budget.failed.add(cellKey(chest));
 			return `no way to the chest at ${cellKey(chest)}: ${lastFailure ?? 'walk failed'}`;
 		}
 		const o = await body.observe();
 		const heldItem = o.inventory?.selectedItem ?? (o.inventory?.items ?? []).find((row) => row.slot === 'mainhand')?.itemId ?? 'minecraft:air';
+		// The close goes out even after danger stopped the run (obtain's own act refuses new moves then): no chest stays open.
+		const hands = { menu: body.menu, act: (type, args) => (type === 'menu_close' ? rawBody.act(type, args) : body.act(type, args)) };
 		const result = typeof body.menu === 'function'
-			? await lootChest(body, chest, { wanted: need.accept.map(bare), heldItem })
-			: { ok: false, taken: {}, why: 'this body cannot read an open chest' };
-		looted.opened.push(cellKey(chest));
+			? await lootChest(hands, chest, { wanted: need.accept.map(bare), heldItem })
+			: { ok: false, read: false, taken: {}, why: 'this body cannot read an open chest' };
+		if (result.read) looted.opened.push(cellKey(chest));
+		else budget.failed.add(cellKey(chest));
 		if (looted.opened.length > 256) looted.opened.splice(0, looted.opened.length - 256);
 		const got = Object.entries(result.taken).map(([kind, n]) => `${n} ${kind}`).join(', ');
 		step(got ? `took ${got}` : `the chest at ${cellKey(chest)} held nothing to take`);
@@ -1564,20 +1597,21 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			rememberStructures(looted, o);
 			// Three loot steps that came to nothing (no way in, no chest found, a menu that would not open): chests drop out
 			// of this call's plans, so the other ways are planned again rather than a stuck loot need.
-			const loot = (failures.get('loot') ?? 0) >= 3 ? [] : lootSources(o, { opened: new Set(looted.opened), searched: new Set(looted.searched), structures: looted.structures });
-			plan = planObtain(goal, { held, seen, stations, index, coalFirst, dimension: o.world?.dimension, loot, gear: gearOf(o) });
+			const loot = (failures.get('loot') ?? 0) >= 3 ? [] : lootSources(o, { opened: new Set([...looted.opened, ...budget.failed]), searched: new Set(looted.searched), structures: looted.structures });
+			const places = seenPlaces(o);
+			plan = planObtain(goal, { held, seen, stations, index, coalFirst, dimension: o.world?.dimension, loot, gear: gearOf(o), places });
 			// The wood kept back for the next pickaxes never sends the body up for wood from under cover: there it is spent
 			// on what this call needs (a table, sticks, a shield). On the surface a log is near and the reserve holds.
 			const woodNeed = (candidate) => candidate.accept.some((member) => /(_log|_wood|_planks|^stick)$/.test(bare(member)));
 			if (held !== counts && o.player?.skyOpen === false && plan.needs.some(woodNeed)) {
-				const full = planObtain(goal, { held: counts, seen, stations, index, coalFirst, dimension: o.world?.dimension });
+				const full = planObtain(goal, { held: counts, seen, stations, index, coalFirst, dimension: o.world?.dimension, loot, gear: gearOf(o), places });
 				if (!full.needs.some(woodNeed)) { plan = full; held = counts; }
 			}
 			const sound = [...counts].some(([item, n]) => /_pickaxe$/.test(item) && n > 0);
 			// Not once its own craft has failed twice (no table spot underground, #319's case): then the goal goes on as before.
 			if (goal !== null && !sound && o.player?.skyOpen === false && !target.ids.some((one) => /_pickaxe$/.test(one))
 				&& !(failures.get('op:stone_pickaxe') >= 2)) {
-				const spare = planObtain({ ids: ['stone_pickaxe'], count: 1 }, { held: counts, seen, stations, index, coalFirst, dimension: o.world?.dimension });
+				const spare = planObtain({ ids: ['stone_pickaxe'], count: 1 }, { held: counts, seen, stations, index, coalFirst, dimension: o.world?.dimension, places });
 				if (spare.needs.length === 0 && spare.unreachable.length === 0 && spare.ops.length > 0) {
 					if (!spareFirst) step('no sound pickaxe under cover: a stone pickaxe first, from what is held');
 					spareFirst = true;
