@@ -2855,6 +2855,19 @@ final class ReflexActions {
 					break;
 				}
 				if (walk == null) {
+					// No seen cell hides: the floor behind the cover is ground the body cannot see from here either. A player
+					// takes the floor as going on behind a wall and walks round to check; the walk meets the real ground.
+					Map<GridPosition, GridPosition> guess = SafeStep.reachableAssumingLevel(player, within, MAX_PATH_CELLS);
+					for (GridPosition cell : guess.keySet()) {
+						if (reach.containsKey(cell) || guess.get(cell) == null) continue;
+						if (!from.stream().allMatch(mob -> hidden(player, mob, mob.getEyePosition(), cell))) continue;
+						cover = cell;
+						shooter = from.getFirst();
+						walk = new PathWalk(SafeStep.pathTo(guess, cell));
+						break;
+					}
+				}
+				if (walk == null) {
 					// Ground the eye has not seen limits the search: a player looks around once before deciding.
 					if (glanced < GLANCE_TURNS * TICKS_PER_TURN && SafeStep.unseenBeside(player, reach.keySet())) {
 						if (Float.isNaN(glanceStart)) glanceStart = player.getYRot();

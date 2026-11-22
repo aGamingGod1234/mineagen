@@ -257,6 +257,16 @@ public final class SafeStep {
 	 * flee probe's footing rules (walk, swim or climb; a one-block step up; a damage-free drop). Breadth first, so the
 	 * map is ordered by path length and each cell maps to the cell it is reached from (the feet map to null).
 	 */
+	/**
+	 * As {@link #reachable(ServerPlayer, int, int)}, with ground the eye has not seen taken as level floor at the feet's
+	 * height, as a player assumes the floor goes on behind a wall: cover from a shooter is the cell the wall hides, which
+	 * from in front of the wall the body cannot see either (skeleton escape room: "no cell within 8 steps hides").
+	 */
+	public static Map<GridPosition, GridPosition> reachableAssumingLevel(ServerPlayer player, int maxSteps, int maxCells) {
+		GridPosition start = standing(player);
+		return reachable(ServerFleeController.assumingLevelGround(ObservedTerrain.of(player), start.y()), start, maxSteps, maxCells);
+	}
+
 	public static Map<GridPosition, GridPosition> reachable(ServerPlayer player, int maxSteps, int maxCells) {
 		return reachable(ObservedTerrain.of(player), standing(player), maxSteps, maxCells);
 	}
