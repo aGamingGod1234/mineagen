@@ -1,4 +1,6 @@
 import { knownResources, newResourceMemory, rememberKnownBlocks, rememberResources } from './seen-resources.mjs';
+/** How often the dig-seen ore rows are merged from the observed-memory store, per agent. */
+const KNOWN_ORE_MS = 5_000;
 import { createHash, randomUUID } from 'node:crypto';
 import { validateTraceId } from './control-latency-registry.mjs';
 import { ExplorationOccupancy, extractPosition as observationPosition, observationWorldId } from './explore-frontier.mjs';
@@ -344,10 +346,15 @@ export class NativeToolRuntime {
 	#rememberResources(agentId, observation) {
 		if (!this.#resources.has(agentId)) this.#resources.set(agentId, newResourceMemory());
 		try {
-			rememberResources(this.#resources.get(agentId), observation, { now: Date.now() });
-			// Ores a dig sighted through rock live in the observed-memory store: rows with enclosed: true.
-			const known = this.#occupancy?.knownSources?.(agentId, observation, /_ore$|^minecraft:ancient_debris$/);
-			if (known?.blocks?.length) rememberKnownBlocks(this.#resources.get(agentId), observation, known.blocks, { now: Date.now() });
+			const memory = this.#resources.get(agentId);
+			rememberResources(memory, observation, { now: Date.now() });
+			// Ores a dig sighted through rock live in the observed-memory store: rows with enclosed: true. Its scan walks every
+			// remembered block, so it runs at most every KNOWN_ORE_MS per agent, not on every sample.
+			if (!(Date.now() - (memory.knownOresAt ?? 0) < KNOWN_ORE_MS)) {
+				memory.knownOresAt = Date.now();
+				const known = this.#occupancy?.knownSources?.(agentId, observation, /_ore$|^minecraft:ancient_debris$/);
+				if (known?.blocks?.length) rememberKnownBlocks(memory, observation, known.blocks, { now: Date.now() });
+			}
 		} catch { /* a malformed sample adds nothing */ }
 	}
 
@@ -355,7 +362,7 @@ export class NativeToolRuntime {
 	#withResources(agentId, observation) {
 		const memory = this.#resources.get(agentId);
 		if (!memory || !observation || typeof observation !== 'object') return observation;
-		this.#rememberResources(agentId, observation);
+		// Read only: the memory is updated once per stored observation (#storeObservation), never again per helper read.
 		return { ...observation, seenResources: knownResources(memory, observation) };
 	}
 
@@ -2643,6 +2650,8 @@ export class NativeToolRuntime {
 			// A place obtain could not reach (an ore across a cave): kept with the searches' missed places, so find no longer
 			// reports it or its vein as a sighting.
 			missPlace: (place, why) => this.#searchBody(request, record, executionEpoch, blockingRun, 'obtain').missPlace(place, why),
+			// A look round before deciding where a source is: what it shows joins the seen resources (seen-resources.mjs).
+			look: (args) => this.#searchBody(request, record, executionEpoch, blockingRun, 'obtain').look(args),
 			// The last open-sky spot the body stood on (kept from every sample): a way out of water it filled in with no dry
 			// ground stood on during this obtain.
 			openSky: () => this.#searchBody(request, record, executionEpoch, blockingRun, 'obtain').openSky(),

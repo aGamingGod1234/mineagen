@@ -77,3 +77,21 @@ test('each door is its own row, named with the village it stands in', () => {
 	assert.deepEqual(doors.slice(0, 2).map((row) => row.structure), ['village', 'village']);
 	assert.equal(doors[2].structure, undefined, 'a door far from any sighted structure names none');
 });
+
+test('remembering stays cheap on a busy scene: 600 local rows and 24 resource rows a sample, 200 samples, memory bounded', () => {
+	const memory = newResourceMemory();
+	const ids = ['oak_leaves', 'poppy', 'oak_log', 'torch', 'oak_planks', 'cobblestone', 'hay_block', 'white_bed', 'oak_door', 'iron_ore'];
+	let worst = 0;
+	for (let step = 0; step < 200; step++) {
+		const px = step * 3;
+		const blocks = Array.from({ length: 600 }, (_, i) => ({ blockId: `minecraft:${ids[i % ids.length]}`, x: px + ((i * 7) % 41) - 20, y: 64 + (i % 5), z: ((i * 13) % 41) - 20 }));
+		const resources = Array.from({ length: 24 }, (_, i) => ({ blockId: `minecraft:${ids[(i * 3) % ids.length]}`, x: px + i * 2, y: 64, z: i, count: 3 }));
+		const o = at(px, 64, 0, { blocks, sighted: { resources } });
+		const started = performance.now();
+		rememberResources(memory, o, { now: step });
+		knownResources(memory, o);
+		worst = Math.max(worst, performance.now() - started);
+	}
+	assert.ok(memory.rows.size < 3000, `memory stays bounded: ${memory.rows.size} rows`);
+	assert.ok(worst < 25, `worst sample took ${worst.toFixed(1)} ms`);
+});

@@ -16,6 +16,7 @@ const ORE = /_ore$|^minecraft:ancient_debris$/;
 const BUILT_MOBS = new Set(['minecraft:iron_golem', 'minecraft:snow_golem']);
 // A placed block this close (horizontally) to a sighted structure's position, or within twice its seen size, belongs to it.
 const STRUCTURE_REACH = 48;
+const LOCAL_KEPT = /_ore$|^minecraft:ancient_debris$|_(log|wood|stem|hyphae)$|^minecraft:(chest|trapped_chest|barrel|vault)$/;
 
 const id = (value) => { const text = String(value ?? '').trim(); return text.includes(':') ? text : `minecraft:${text}`; };
 const bare = (value) => String(value ?? '').replace(/^minecraft:/, '');
@@ -60,8 +61,10 @@ export function observedResources(observation, { now = Date.now() } = {}) {
 		out.push(rowOf(container ? 'container' : 'block', blockId, row.x, row.y, row.z, { count: Number.isFinite(row.count) ? row.count : 1, source, seenAt: now, dimension,
 			placed: source === 'sighted' && !ORE.test(blockId), opened: row.opened }));
 	};
-	for (const row of list(observation?.blocks)) block(row, 'local');
-	for (const row of list(observation?.world?.landmarks ?? observation?.landmarks)) block(row, 'landmark');
+	// The local scan and landmarks are hundreds of rows (leaves, flowers): from them only what a plan takes there and then
+	// (ores, logs, containers). Placed blocks come from far sight's resources rows.
+	for (const row of list(observation?.blocks)) if (LOCAL_KEPT.test(id(row?.blockId))) block(row, 'local');
+	for (const row of list(observation?.world?.landmarks ?? observation?.landmarks)) if (LOCAL_KEPT.test(id(row?.blockId))) block(row, 'landmark');
 	const sighted = observation?.sighted ?? {};
 	for (const row of list(sighted.resources)) block(row, 'sighted');
 	// A placed block or container inside a structure the body sees (a village's door, chest or well) names it.
@@ -113,18 +116,28 @@ export function rememberResources(memory, observation, { now = Date.now() } = {}
 		if (exact !== null) { rows.set(exact, { ...rows.get(exact), ...row }); continue; }
 		const known = rows.get(`${row.dimension}|${row.id}@${row.x},${row.y},${row.z}`);
 		if (known?.enclosed) known.enclosed = false;
-		// A block: one row per id and neighbourhood, at the nearest member seen.
+		// A block: one row per id and neighbourhood (a MERGE-sized grid cell), at the nearest member seen. A door is its own row.
 		let merged = false;
-		for (const [key, old] of rows) {
-			if (old.kind !== 'block' || old.id !== row.id || old.dimension !== row.dimension) continue;
-			if (Math.abs(old.x - row.x) > MERGE || Math.abs(old.y - row.y) > MERGE || Math.abs(old.z - row.z) > MERGE) continue;
+		const cellKey = (bx, by, bz) => `${row.dimension}|${row.id}#${bx},${by},${bz}`;
+		const [bx, by, bz] = [Math.floor(row.x / MERGE), Math.floor(row.y / MERGE), Math.floor(row.z / MERGE)];
+		const bucket = row.id.endsWith('_door') ? null : cellKey(bx, by, bz);
+		// The same id within MERGE blocks may sit in a neighbouring grid cell: the 27 cells around are checked.
+		let key = null, old = null;
+		if (bucket !== null) {
+			for (let dx = -1; dx <= 1 && old === null; dx++) for (let dy = -1; dy <= 1 && old === null; dy++) for (let dz = -1; dz <= 1 && old === null; dz++) {
+				const candidate = rows.get(cellKey(bx + dx, by + dy, bz + dz));
+				if (candidate && Math.abs(candidate.x - row.x) <= MERGE && Math.abs(candidate.y - row.y) <= MERGE && Math.abs(candidate.z - row.z) <= MERGE) {
+					key = cellKey(bx + dx, by + dy, bz + dz); old = candidate;
+				}
+			}
+		}
+		if (old) {
 			const closer = Math.hypot(row.x + 0.5 - body.x, row.z + 0.5 - body.z) < Math.hypot(old.x + 0.5 - body.x, old.z + 0.5 - body.z);
 			rows.set(key, { ...old, ...(closer ? { x: row.x, y: row.y, z: row.z } : {}), count: Math.max(old.count, row.count), seenAt: now,
 				source: closer ? row.source : old.source, placed: old.placed || row.placed, enclosed: false, ...(row.structure ? { structure: row.structure } : {}) });
 			merged = true;
-			break;
 		}
-		if (!merged) rows.set(`${row.dimension}|${row.id}@${row.x},${row.y},${row.z}`, row);
+		if (!merged) rows.set(bucket ?? `${row.dimension}|${row.id}@${row.x},${row.y},${row.z}`, row);
 	}
 	for (const [key, row] of rows) {
 		const far = row.dimension === body.dimension && Math.hypot(row.x + 0.5 - body.x, row.z + 0.5 - body.z) > RESOURCE_KEEP_RADIUS;
