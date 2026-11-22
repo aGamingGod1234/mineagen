@@ -174,7 +174,7 @@ public final class CoordinatorStartupSmokeVerification {
 					},
 					() -> {
 						try {
-							deleteTree(packageRoot);
+							deleteTree(packageRoot, evidence.identities());
 						} catch (Exception | Error failure) {
 							try {
 								failure.addSuppressed(new IOException("Startup smoke cleanup evidence (observations, not lock ownership):\n"
@@ -636,9 +636,50 @@ public final class CoordinatorStartupSmokeVerification {
 	}
 
 	private static void deleteTree(Path root) throws IOException {
+		deleteTree(root, List.of());
+	}
+
+	/**
+	 * Deletes the staged tree once the processes that ran from it are gone. Windows can hold a sharing lock on an exited
+	 * node.exe for several seconds (CI saw the lock outlast a 2 s window with every observed process already exited), so
+	 * cleanup first waits for each observed process to exit, then retries each path for {@link #DELETE_WINDOW_SECONDS}.
+	 * A file still locked after that, with no observed process alive, is quarantined (see {@link #quarantine}) rather than
+	 * failing CI; a process still alive is a real leak and fails.
+	 */
+	private static void deleteTree(Path root, List<CoordinatorProcessOwnership.ProcessIdentity> identities) throws IOException {
 		if (!Files.exists(root)) return;
+		awaitExit(identities, EXIT_WAIT_SECONDS);
+		List<Path> left = new ArrayList<>();
 		try (var paths = Files.walk(root)) {
-			for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) deleteEventually(path);
+			for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) {
+				// A folder that still holds a quarantined-in-place file cannot be emptied.
+				if (left.stream().anyMatch(kept -> kept.startsWith(path))) continue;
+				if (!deleteEventually(path, identities)) left.add(path);
+			}
+		}
+	}
+
+	private static final long DELETE_WINDOW_SECONDS = 20L;
+	private static final long EXIT_WAIT_SECONDS = 15L;
+
+	private static void awaitExit(List<CoordinatorProcessOwnership.ProcessIdentity> identities, long seconds) throws IOException {
+		long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(seconds);
+		for (var identity : identities) {
+			var process = identity.resolve();
+			if (process.isEmpty()) continue;
+			long remaining = deadline - System.nanoTime();
+			if (remaining <= 0L) break;
+			try {
+				process.get().onExit().get(remaining, java.util.concurrent.TimeUnit.NANOSECONDS);
+			} catch (java.util.concurrent.TimeoutException stillRunning) {
+				System.err.println("Startup smoke cleanup: " + identity + " still running after " + seconds + " s");
+				break;
+			} catch (java.util.concurrent.ExecutionException unexpected) {
+				throw new IOException("Waiting for " + identity + " to exit failed", unexpected);
+			} catch (InterruptedException interrupted) {
+				Thread.currentThread().interrupt();
+				throw new IOException("Interrupted while waiting for " + identity + " to exit", interrupted);
+			}
 		}
 	}
 
@@ -686,14 +727,65 @@ public final class CoordinatorStartupSmokeVerification {
 		return 5;
 	}
 
+	/**
+	 * A file still locked after the delete window, with every observed process gone, on a GitHub runner: renamed into a
+	 * quarantine folder under RUNNER_TEMP (the runner empties it after the job), or under the JVM temp folder when
+	 * RUNNER_TEMP is on another volume, since only a rename on the same volume works on a locked file. If even the rename
+	 * is refused, the file is left where it is: the hosted runner is discarded after the job, so a leftover file there
+	 * is not a product fault. Off a runner the original failure stands.
+	 */
+	private static boolean quarantine(Path path, java.nio.file.FileSystemException failure) throws IOException {
+		if (!"true".equals(System.getenv("GITHUB_ACTIONS"))) throw failure;
+		List<Path> folders = new ArrayList<>();
+		String runnerTemp = System.getenv("RUNNER_TEMP");
+		if (runnerTemp != null && !runnerTemp.isBlank()) folders.add(Path.of(runnerTemp));
+		folders.add(Path.of(System.getProperty("java.io.tmpdir")));
+		var store = Files.getFileStore(path);
+		for (Path folder : folders) {
+			try {
+				if (!Files.isDirectory(folder) || !Files.getFileStore(folder).equals(store)) continue;
+				Path target = Files.createDirectories(folder.resolve("mineagen-smoke-quarantine"))
+						.resolve(java.util.UUID.randomUUID() + "-" + path.getFileName());
+				Files.move(path, target, StandardCopyOption.ATOMIC_MOVE);
+				System.err.println("Startup smoke cleanup: quarantined locked " + path + " as " + target + " (" + failure.getMessage() + ")");
+				return true;
+			} catch (IOException refused) {
+				failure.addSuppressed(refused);
+			}
+		}
+		System.err.println("Startup smoke cleanup: left locked " + path + " in place on the discarded runner (" + failure.getMessage()
+				+ "; " + failure.getSuppressed().length + " quarantine attempts refused)");
+		return false;
+	}
+
 	private static void deleteEventually(Path path) throws IOException {
-		long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(2L);
+		if (!deleteEventually(path, List.of())) throw new IOException("Startup smoke cleanup left " + path + " in place");
+	}
+
+	/** True once the path is gone or quarantined; false when it is left in place on a CI runner (see quarantine). */
+	private static boolean deleteEventually(Path path, List<CoordinatorProcessOwnership.ProcessIdentity> identities) throws IOException {
+		long start = System.nanoTime();
+		long deadline = start + java.util.concurrent.TimeUnit.SECONDS.toNanos(DELETE_WINDOW_SECONDS);
+		long nextLog = start + java.util.concurrent.TimeUnit.SECONDS.toNanos(1L);
+		int attempts = 0;
 		while (true) {
 			try {
 				Files.deleteIfExists(path);
-				return;
+				if (attempts > 0) System.err.println("Startup smoke cleanup: deleted " + path + " after " + attempts + " retries");
+				return true;
 			} catch (java.nio.file.FileSystemException exception) {
-				if (System.nanoTime() >= deadline) throw exception;
+				attempts++;
+				long now = System.nanoTime();
+				if (now >= nextLog) {
+					System.err.println("Startup smoke cleanup: retry " + attempts + " for " + path + " ("
+							+ java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(now - start) + " ms): " + exception.getMessage());
+					nextLog = now + java.util.concurrent.TimeUnit.SECONDS.toNanos(1L);
+				}
+				if (now >= deadline) {
+					var alive = identities.stream().filter(CoordinatorProcessOwnership.ProcessIdentity::isAlive).toList();
+					if (!alive.isEmpty() || Files.isDirectory(path)) throw exception;
+					return quarantine(path, exception);
+				}
 				try {
 					Thread.sleep(25L);
 				} catch (InterruptedException interrupted) {
