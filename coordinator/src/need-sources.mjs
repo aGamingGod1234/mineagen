@@ -268,7 +268,22 @@ function knownRows(resource, known, position, placed) {
 	const direct = (row) => ['vein', 'block', 'mob'].includes(row.kind) || row.kind === 'spawner' && row.mob !== undefined ? 0 : row.kind === 'spawner' ? 1 : 2;
 	const sorted = rows.map((row) => ({ row, distance: Math.hypot(row.x - position.x, row.y - position.y, row.z - position.z) }))
 		.sort((left, right) => direct(left.row) - direct(right.row) || left.distance - right.distance);
-	return distinctOpenings(sorted.map(({ row }) => row)).map(row => ({ direct: direct(row) === 0, text: sourceText(row, position, known?.blocks) }));
+	return distinctOpenings(sorted.map(({ row }) => row)).map(row => ({ direct: direct(row) === 0, row, text: sourceText(row, position, known?.blocks) }));
+}
+
+/**
+ * The ready next step for the nearest listed ore or cave, priced in the same minutes as the options: seen ore is a vein
+ * mine at its cell (the walk or staircase to it, then the vein), a cave is a walk in and one look round. Without such a
+ * ready step the 19 Nov games spent 83 survey, lookAround and exploreFrontier calls searching by hand next to listed caves.
+ */
+function readyStep(rows, position) {
+	// do_step mine is a vein mine: it takes ore, not gravel or other remembered blocks.
+	const ore = rows.find((entry) => entry.direct && ['vein', 'block'].includes(entry.row.kind) && /_ore$/.test(entry.row.what ?? ''));
+	const cave = rows.find((entry) => entry.row.kind === 'cave' && Math.hypot(entry.row.x - position.x, entry.row.y - position.y, entry.row.z - position.z) <= CAVE_WALK_REACH);
+	const at = (row) => `@${row.x},${row.y},${row.z}`;
+	const steps = [ore && `do_step mine ${at(ore.row)} ${aboutMinutes(reach(position, ore.row) + LOOK_MIN)}`,
+		cave && `travel_to cave ${at(cave.row)} and look in ${aboutMinutes(caveWalk(position, cave.row) + LOOK_MIN)}`].filter(Boolean);
+	return steps.length ? `ready: ${steps.join(', or ')}` : null;
 }
 
 // Nearby samples must not crowd every other lead out of either short view. Presentation only: this asserts
@@ -295,9 +310,14 @@ const FLOOR_Y = -55;
 const FLOOR_USABLE = 0.95;
 const FLOOR_MISS_MIN = 19;
 const FLOOR_SEARCH = `search: 6 recorded descents, 2 saw a 64-source pool within 4 min, 4 climbed back after 1-16 min without one`;
-const UPPER_MIN = 1767, UPPER_POOLS = 1, UPPER_Y = -20;
+const UPPER_Y = -20;
+// Looking round once inside a cave or beside seen ore before deciding: about the time of one lookAround.
+const LOOK_MIN = 0.5;
+// A cave seen this close is a walk in; a farther remembered one may lie behind rock, so it gets no ready step.
+const CAVE_WALK_REACH = 48;
 const DEEP_NOTE = 'below y-45 the recorded games had a 10+ source pool within 32 blocks at every moment (median 5), behind rock until a cave opening or heard lava shows its side';
-const CAVE_ROWS = 2;
+// One cave option: a second one crowded remembered pools and portals out of the 360-byte line.
+const CAVE_ROWS = 1;
 const POOL_USABLE = 0.75;
 // Small surface lava seen up close in the same games: 0 of 2 (a ruined portal's 1-2 sources, a lava fall's 1).
 const SURFACE_USABLE = 0.2, SURFACE_Y = 56, LARGE_POOL = 8;
@@ -310,6 +330,7 @@ const FRAME_SITE_M = 24;
 
 const minutes = (value) => Math.max(0, value);
 const round = (value) => value < 1 ? '<1' : `${Math.round(value)}`;
+const aboutMinutes = (value) => value < 1 ? 'under 1 min' : `~${Math.round(value)} min`;
 /** Digging minutes from y down to the lava floors: a shaft with a water bucket held, else a staircase. */
 const digFrom = (y, shaft = false) => minutes(y - FLOOR_Y) * (shaft ? SHAFT_MIN : STAIR_MIN);
 /** The descent plus the recorded search down there before usable lava (none was met in the recorded descents). */
@@ -319,6 +340,17 @@ const tripFrom = (y) => 2 * minutes(y - FLOOR_Y) * Math.SQRT2 / WALK_MPS / 60;
 const near = (a, b, horizontal, vertical) => Math.hypot(a.x - b.x, a.z - b.z) <= horizontal && Math.abs(a.y - b.y) <= vertical;
 const isSource = (block) => block.blockId === 'minecraft:lava' && /"level":"0"/.test(block.blockState ?? '');
 const isFlowing = (block) => block.blockId === 'minecraft:lava' && /"level":"[1-9]/.test(block.blockState ?? '');
+
+/**
+ * Getting into a seen cave. The row is one open air cell the sight rays crossed, with no floor or route under it, so
+ * only a walkable slope (one block of height per block across) is priced as a walk; height past that is dug (a
+ * staircase, or a shaft with water held), the same as reaching any other place below or above.
+ */
+function caveWalk(position, row, shaft = false) {
+	const horizontal = Math.hypot(row.x - position.x, row.z - position.z), rise = Math.abs(row.y - position.y);
+	const dug = minutes(rise - horizontal);
+	return Math.hypot(horizontal, rise - dug) / WALK_MPS / 60 + dug * (shaft && row.y < position.y ? SHAFT_MIN : STAIR_MIN);
+}
 
 /** Walking, or staircase digging for the part below, from the agent to a remembered place. */
 function reach(position, row) {
@@ -418,19 +450,26 @@ export function obsidianOptions({ position, known = null, placed = [], items = [
 	const y = Math.floor(position.y);
 	if (y - FLOOR_Y <= 5) add(floorFrom(y, water) + build(casts), `lava-floor depth here ~${round(floorFrom(y, water) + build(casts))} (${FLOOR_SEARCH}; ${buildText(casts)})`);
 	else add(floorFrom(y, water) + build(casts), `dig to the y${FLOOR_Y} lava floors ~${round(floorFrom(y, water) + build(casts))} (${y - FLOOR_Y}-level dig_to ${water ? 'shaft' : 'descent'} ${round(digFrom(y, water))} in a few calls, then a ${FLOOR_SEARCH}; ${buildText(casts)})`);
-	// Above y-20 the measured search there replaces the walking estimate for a surface lake, which it includes.
+	// A seen cave is a way down: walking in costs no digging, and the rest of the descent starts from its floor, with the
+	// same search at the floors. The old "search caves and surface above y-20 ~1780 min" figure measured our own bot,
+	// which rarely entered a cave, so it said nothing about caves as a source (19 Nov round: 98 of 315 digs were for lava).
+	// Only a cave in walking reach: a farther remembered one may lie behind rock (CAVE_WALK_REACH, as the ready step).
+	for (const row of sightings.filter((row) => row.kind === 'cave' && [row.x, row.y, row.z].every(Number.isFinite) && row.y > FLOOR_Y + 5
+		&& Math.hypot(row.x - position.x, row.y - position.y, row.z - position.z) <= CAVE_WALK_REACH)
+		.sort((a, b) => Math.hypot(a.x - position.x, a.y - position.y, a.z - position.z) - Math.hypot(b.x - position.x, b.y - position.y, b.z - position.z)).slice(0, CAVE_ROWS)) {
+		const walk = caveWalk(position, row, water), estimate = walk + floorFrom(row.y, water) + build(casts);
+		add(estimate, `cave ${where(position, row)} y${Math.round(row.y)} ~${round(estimate)} (travel_to @${row.x},${row.y},${row.z}, look in ${round(walk + LOOK_MIN)}, pools sit in caves; then dig_to from there ${round(digFrom(row.y, water))}; ${buildText(casts)})`);
+	}
+	// Deep down the surface is the far option; up here it is the surface walk the cave and floor options already pass.
 	const surface = SURFACE_LAKE_M / WALK_MPS / 60;
-	if (y > UPPER_Y) add(UPPER_MIN / UPPER_POOLS + build(casts), `search caves and surface above y${UPPER_Y} ~${round(UPPER_MIN / UPPER_POOLS + build(casts))} (26 recorded games spent ${UPPER_MIN} min up there and ${UPPER_POOLS} usable pool came into view; vanilla lakes 1 per 200 chunks surface, 1 per 9 underground)`);
-	else add(surface + build(casts), `unseen surface lava lake ~${round(surface + build(casts))} (recorded games: 1 large surface pool per 54 km walked = ${round(surface)} min at ${WALK_MPS} m/s; vanilla lakes 1 per 200 chunks surface, 1 per 9 underground)`);
+	if (y <= UPPER_Y) add(surface + build(casts), `unseen surface lava lake ~${round(surface + build(casts))} (recorded games: 1 large surface pool per 54 km walked = ${round(surface)} min at ${WALK_MPS} m/s; vanilla lakes 1 per 200 chunks surface, 1 per 9 underground)`);
 	options.sort((left, right) => left.estimate - right.estimate);
 
 	const held = [heldObsidian ? `${heldObsidian} obsidian` : '', lavaBuckets ? `${lavaBuckets} lava bucket${lavaBuckets > 1 ? 's' : ''} (1 cast each anywhere)` : ''].filter(Boolean);
 	const head = `obsidian: est. minutes to ${casts} more frame obsidian from here${held.length ? ` (held: ${held.join(', ')})` : ''}${!water && !diamond ? ' (no water bucket held; casting needs one, any water fills a bucket)' : ''}, cheapest first: `;
-	const caves = sightings.filter((row) => row.kind === 'cave' && [row.x, row.y, row.z].every(Number.isFinite))
-		.sort((a, b) => Math.hypot(a.x - position.x, a.y - position.y, a.z - position.z) - Math.hypot(b.x - position.x, b.y - position.y, b.z - position.z)).slice(0, CAVE_ROWS);
-	const caveNote = caves.length ? [`caves seen: ${caves.map((row) => `${where(position, row)} y${Math.round(row.y)}`).join(', ')} (lava pools sit in caves; dig_to's look round one names lava in sight)`] : [];
 	const deep = y <= FLOOR_Y + 15 ? [DEEP_NOTE] : [];
-	const notes = [...deep, ...caveNote, ...unmined, 'water on a lava source casts 1 obsidian in place', 'aquifer water met while digging refills the bucket',
+	const lakes = y > UPPER_Y ? ['vanilla lava lakes: about 1 per 9 chunks underground, 1 per 200 on the surface'] : [];
+	const notes = [...deep, ...unmined, 'water on a lava source casts 1 obsidian in place', ...lakes, 'aquifer water met while digging refills the bucket',
 		'usable = enough still sources (not flowing or filled)', 'staircase cobblestone crafts stone pickaxes'];
 	// Every option stays listed: detail goes first, then whole notes, before any option is shortened.
 	const brief = options.map((option) => option.text.replace(/ \([^()]*(\([^()]*\)[^()]*)*\)$/, ''));
@@ -454,7 +493,8 @@ function resourceText(resource, known, position, placed, cap, context = {}) {
 		const rows = seen.slice(0, count);
 		const direct = rows.filter(row => row.direct).map(row => row.text);
 		const leads = rows.filter(row => !row.direct).map(row => row.text);
-		facts = `${resource.name}: ${[...(direct.length ? [`seen ${direct.join(', ')}`] : []), ...(leads.length ? [`possible ${leads.join(', ')}`] : [])].join('; ')}`;
+		const ready = readyStep(rows, position);
+		facts = `${resource.name}: ${[...(direct.length ? [`seen ${direct.join(', ')}`] : []), ...(leads.length ? [`possible ${leads.join(', ')}`] : []), ...(ready ? [ready] : [])].join('; ')}`;
 		if (Buffer.byteLength(facts) <= cap) break;
 	}
 	// Keep observed alternatives before generic methods: shortening the methods must not erase another source.
@@ -517,7 +557,7 @@ export function knownLine({ known = null, position = null, placed = [], cap = KN
 	const ores = [...veins, ...[...blocks.values()].filter((group) => !veins.some((row) => short(row.what) === short(group.what) && Math.hypot(row.x - group.x, row.y - group.y, row.z - group.z) <= 8))]
 		.map((row) => ({ row, rank: oreRank(row.what), distance: distance(row) })).sort((left, right) => left.rank - right.rank || left.distance - right.distance).map(({ row }) => row);
 	const groups = [['ores', ores], ['caves', distinctOpenings(nearest(byKind(['cave'])))], ['places', nearest([...byKind(['structure', 'portal', 'built', 'spawner']), ...villages(sightings, placed)])], ['lava', nearest(byKind(['lava']))]]
-		.map(([label, rows]) => ({ label, texts: rows.map((row) => sourceText(row, position, known.blocks)), shown: [] }));
+		.map(([label, rows]) => ({ label, rows, texts: rows.map((row) => sourceText(row, position, known.blocks)), shown: [] }));
 	const render = () => groups.filter((group) => group.shown.length).map((group) => `${group.label}: ${group.shown.join(', ')}`).join('; ');
 	for (let rank = 0, added = true; added; rank += 1) {
 		added = false;
@@ -526,6 +566,14 @@ export function knownLine({ known = null, position = null, placed = [], cap = KN
 			group.shown.push(group.texts[rank]);
 			if (Buffer.byteLength(render()) > cap) group.shown.pop(); else added = true;
 		}
+	}
+	// The nearest cave's walk-in time, only when it still fits: it never displaces another remembered place.
+	const caves = groups.find((group) => group.label === 'caves');
+	const first = caves?.rows[0];
+	if (caves.shown.length && Math.hypot(first.x - position.x, first.y - position.y, first.z - position.z) <= CAVE_WALK_REACH) {
+		const plain = caves.shown[0];
+		caves.shown[0] = `${plain} walk in ${aboutMinutes(caveWalk(position, first) + LOOK_MIN)}`;
+		if (Buffer.byteLength(render()) > cap) caves.shown[0] = plain;
 	}
 	const line = render();
 	return line.length ? line : null;
