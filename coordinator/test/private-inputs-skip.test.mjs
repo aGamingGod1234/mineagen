@@ -16,7 +16,7 @@ test('every manifest selection goes through privateTest or privateModule in its 
 	for (const entry of manifestEntries()) {
 		const text = await readFile(path.join(root, entry.file), 'utf8');
 		if (entry.test === '*') {
-			if (!/^await privateModule\(import\.meta\.url\);$/m.test(text)) unwired.push(`${entry.file}: add await privateModule(import.meta.url) after its imports`);
+			if (!/^await privateModule\(import\.meta\.url(?:, \{[^}]*\})?\);$/m.test(text)) unwired.push(`${entry.file}: add await privateModule(import.meta.url) after its imports`);
 		} else {
 			const literal = [`privateTest('${entry.test}'`, `privateTest("${entry.test}"`, `privateTest(\`${entry.test}\``].some((call) => text.includes(call));
 			// A title built from a template (context-cost-replay's per-recording tests) is checked when it registers.
@@ -31,7 +31,7 @@ test('every privateModule or literal privateTest call has a manifest selection',
 	const strays = [];
 	for (const file of new Set(entries.map((entry) => entry.file).concat(await testFilesUsingHelpers()))) {
 		const text = await readFile(path.join(root, file), 'utf8');
-		if (/^await privateModule\(import\.meta\.url\);$/m.test(text) && !entries.some((entry) => entry.file === file && entry.test === '*')) strays.push(`${file}: privateModule`);
+		if (/^await privateModule\(import\.meta\.url(?:, \{[^}]*\})?\);$/m.test(text) && !entries.some((entry) => entry.file === file && entry.test === '*')) strays.push(`${file}: privateModule`);
 		for (const [, , title] of text.matchAll(/privateTest\((['"])(.*?)\1/g)) {
 			if (!entries.some((entry) => entry.file === file && entry.test === title)) strays.push(`${file}: ${title}`);
 		}
@@ -52,7 +52,8 @@ test('a selection skips without the archive, and only the source checkout entrie
 	const checkout = { ...archive, source: 'checkout' };
 	const present = { ...archive, inputs: ['coordinator/package.json'] };
 	assert.deepEqual(unavailableInputs(archive, ''), archive.inputs, 'an empty ARENA_PRIVATE_INPUTS (CI) counts as no archive');
-	assert.deepEqual(unavailableInputs(archive, undefined), archive.inputs);
+	// null, not undefined: undefined would fall back to this run's own ARENA_PRIVATE_INPUTS.
+	assert.deepEqual(unavailableInputs(archive, null), archive.inputs);
 	assert.deepEqual(unavailableInputs(archive, '/some/archive'), [], 'with the archive set, a missing recording fails instead of skipping');
 	assert.deepEqual(unavailableInputs(checkout, '/some/archive'), checkout.inputs, 'the archive never supplies a checkout-only input');
 	assert.deepEqual(unavailableInputs(present, ''), []);
@@ -79,6 +80,12 @@ test('a module selection run directly with no archive reports one skip and exits
 	const failing = await probe('fail.test.mjs', "test('an earlier real failure', () => { throw new Error('real'); });");
 	assert.notEqual(failing.status, 0, 'a failure is never turned into a pass');
 	assert.match(failing.stdout, /# fail 1/);
+});
+
+test('a module given its own input override runs on it instead of skipping', async () => {
+	const { privateModule } = await import('../scripts/private-inputs.mjs');
+	await privateModule(pathToFileURL(path.join(root, 'test/not-this-process.test.mjs')).href,
+		{ entry: { file: 'test/not-this-process.test.mjs', test: '*', inputs: ['coordinator/test/fixtures/no-such-recording.json'] }, suppliedBy: '/another/corpus' });
 });
 
 test('a module selection loaded outside its own process throws instead of holding the run', async () => {

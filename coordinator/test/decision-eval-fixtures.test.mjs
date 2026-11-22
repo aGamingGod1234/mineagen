@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-await privateModule(import.meta.url);
+await privateModule(import.meta.url, { suppliedBy: process.env.DECISION_EVAL_FIXTURE_DIR });
 
 // Consistency invariants for the decision-eval train fixtures (q8 review P2-4). An observation states the inventory
 // several times over (items, held item, tag counts, the inventory menu page, hotbar flags) and entities with a

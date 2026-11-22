@@ -91,8 +91,12 @@ export function privateTest(title, ...rest) {
  * own process (node --test runs each file so), it reports one skipped test and holds the module there, so nothing after
  * it reads the missing inputs, and the process exits 0 instead of Node's 13 for the held await. Imported any other way
  * (--test-isolation=none, or from another module), holding would stall the rest of the run, so it throws instead.
+ * suppliedBy: the value of the module's own input override, such as DECISION_EVAL_FIXTURE_DIR; when set, the module
+ * runs on that input whatever the manifest inputs are.
  */
-export function privateModule(moduleUrl, { entry = null } = {}) {
+export function privateModule(moduleUrl, { entry = null, suppliedBy = null } = {}) {
+ // A module pointed at another corpus by its own override (DECISION_EVAL_FIXTURE_DIR) reads that instead: no skip.
+ if (suppliedBy) return Promise.resolve();
  const file = manifestFile(moduleUrl);
  const selection = entry ?? manifestEntries().find((row) => row.file === file && row.test === '*');
  if (!selection) throw new Error(`privateModule: ${file} has no module entry (test "*") in ${MANIFEST_PATH}`);

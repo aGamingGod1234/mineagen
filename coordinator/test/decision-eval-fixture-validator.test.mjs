@@ -9,7 +9,7 @@ import { matchValue } from '../src/decision-eval/predicates.mjs';
 import { validateClosedGoods, exactGood } from './helpers/closed-progression-good.mjs';
 import { gradeSample } from '../src/decision-eval/grade.mjs';
 import { candidateActions, concreteCounterexample } from './helpers/decision-sequence-universe.mjs';
-await privateModule(import.meta.url);
+await privateModule(import.meta.url, { suppliedBy: process.env.DECISION_EVAL_FIXTURE_DIR });
 
 // DECISION_EVAL_FIXTURE_DIR points the checks at another train directory.
 
