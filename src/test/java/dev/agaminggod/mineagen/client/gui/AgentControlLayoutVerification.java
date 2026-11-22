@@ -81,7 +81,8 @@ public final class AgentControlLayoutVerification {
 				"a stored key shows only its last four characters");
 		verifyReviewFixes();
 		verifyStatusBanner();
-		return 46;
+		verifyBannerCap();
+		return 51;
 	}
 
 	/** Pending feedback is neutral, and a long offline reason gets a measured banner that the Now card stays below. */
@@ -123,6 +124,23 @@ public final class AgentControlLayoutVerification {
 			AgentControlLayout.Bounds manageNow = AgentControlScreen.manageNowBounds(withBanner);
 			assertTrue(manageNow == null || manageNow.top() > banner.bottom(), "the Manage Now card stays below the banner" + at);
 		}
+	}
+
+	/** Short screens hold fewer banner lines, so the Task editor and the Manage rows keep clear of the footer. */
+	private static void verifyBannerCap() {
+		java.util.function.ToIntFunction<String> measure = text -> text.length() * 6;
+		List<String> four = List.of("one two", "three four", "five six", "seven eight");
+		assertEquals(3, AgentControlScreen.capBannerLines(four, 270, 600, measure).size(),
+				"a 270-tall screen holds three banner lines");
+		List<String> two = AgentControlScreen.capBannerLines(four, 240, 600, measure);
+		assertEquals(List.of("one two", "three four five six seven eight..."), two,
+				"a 240-tall screen holds two lines and the last one carries the rest");
+		assertTrue(AgentControlScreen.capBannerLines(four, 239, 600, measure).isEmpty(),
+				"below 240 the banner gives way to the shortened header line");
+		assertTrue(AgentControlScreen.capBannerLines(four, 240, 60, measure).get(1).length() * 6 <= 60,
+				"a shortened last line still fits its width");
+		assertEquals(four.subList(0, 3), AgentControlScreen.capBannerLines(four.subList(0, 3), 360, 600, measure),
+				"lines within the cap are kept as they are");
 	}
 
 	private static void verifyReviewFixes() {

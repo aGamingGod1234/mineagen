@@ -1512,7 +1512,28 @@ public final class AgentControlScreen extends Screen {
 		String text = status().text();
 		int headerRoom = Math.max(24, base.contentRight() - headerStatusLeft(base) - 10);
 		if (ConsoleText.width(font, text) <= headerRoom) return List.of();
-		return AgentControlResult.wrap(text, bannerTextWidth(base), value -> ConsoleText.width(font, value));
+		java.util.function.ToIntFunction<String> measure = value -> ConsoleText.width(font, value);
+		return capBannerLines(AgentControlResult.wrap(text, bannerTextWidth(base), measure), height, bannerTextWidth(base), measure);
+	}
+
+	/**
+	 * Most banner lines a screen this tall can hold without pushing a page's last controls into the footer: 3 from 270
+	 * GUI px, 2 from 240, none below (the header then shows the text shortened, as before the banner existed).
+	 */
+	static int maxBannerLines(int screenHeight) {
+		return screenHeight >= 270 ? 3 : screenHeight >= 240 ? 2 : 0;
+	}
+
+	/** {@code lines} within {@link #maxBannerLines}; the last kept line carries the rest, shortened with "...". */
+	static List<String> capBannerLines(List<String> lines, int screenHeight, int width, java.util.function.ToIntFunction<String> measure) {
+		int max = maxBannerLines(screenHeight);
+		if (lines.size() <= max) return lines;
+		if (max == 0) return List.of();
+		List<String> kept = new java.util.ArrayList<>(lines.subList(0, max - 1));
+		String rest = String.join(" ", lines.subList(max - 1, lines.size()));
+		while (!rest.isEmpty() && measure.applyAsInt(rest + "...") > width) rest = rest.substring(0, rest.length() - 1);
+		kept.add(rest.stripTrailing() + "...");
+		return List.copyOf(kept);
 	}
 
 	static final int BANNER_LINE = 10;

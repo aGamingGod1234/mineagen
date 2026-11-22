@@ -67,11 +67,15 @@ public final class AgentControlSync {
 								ProviderApiKeyStore.runtimeRoot(), payload.provider(), payload.key());
 						AgentServerRuntime.reloadProviderCredentials(context.server());
 						context.player().sendSystemMessage(Component.literal("Provider API key updated. Scanning model CLIs..."));
+						storeResult(context.player().getUUID(), true, "Provider API key updated. Scanning model CLIs...");
 					} catch (ProviderApiKeyStore.LocalOnlyException refused) {
 						context.player().sendSystemMessage(Component.literal(ProviderApiKeyStore.LOCAL_ONLY_MESSAGE));
+						storeResult(context.player().getUUID(), false, ProviderApiKeyStore.LOCAL_ONLY_MESSAGE);
 					} catch (RuntimeException failure) {
 						// Never attach the exception or payload: neither diagnostics nor chat may echo credentials.
-						context.player().sendSystemMessage(Component.literal("API key change rejected. Operator permission and a valid key are required; check server file access."));
+						String rejected = "API key change rejected. Operator permission and a valid key are required; check server file access.";
+						context.player().sendSystemMessage(Component.literal(rejected));
+						storeResult(context.player().getUUID(), false, rejected);
 					}
 					sendSnapshot(context.player());
 				}));

@@ -556,8 +556,11 @@ public final class AgentCommands {
 			} else {
 				var draft = submission.pendingDraft().orElseThrow();
 				String name = manager(context).displayName(manager(context).registry().require(draft.agentId()));
-				succeed(context, "The coordinator is interpreting the goal for " + name
-						+ ". It will " + operationName + " automatically after server validation.");
+				// Not a confirmed result yet: the server may still refuse the draft, so the Control Center keeps its
+				// neutral pending line instead of showing this as a green success.
+				String interpreting = "The coordinator is interpreting the goal for " + name
+						+ ". It will " + operationName + " automatically after server validation.";
+				context.getSource().sendSuccess(() -> Component.literal(interpreting), false);
 			}
 			return 1;
 		} catch (AgentDomainException exception) {
