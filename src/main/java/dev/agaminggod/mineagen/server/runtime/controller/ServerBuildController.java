@@ -1616,12 +1616,20 @@ public final class ServerBuildController implements ServerController {
 			if (!read.containsKey(at)) read.put(at, world.apply(at));
 			return read.get(at);
 		};
+		Predicate<BlockPos> pool = at -> !at.equals(lava) && !solid.contains(at) && lavaSource(terrain.apply(at));
+		// Water left standing carries a pour on, and a cell the eye has not seen within 2 of the pool may be open: a trace
+		// that stopped at either would call a pour safe whose real run-off reaches the lava.
 		Predicate<BlockPos> open = at -> {
 			if (at.equals(lava) || at.equals(water) || solid.contains(at)) return false;
 			BlockState state = terrain.apply(at);
-			return state != null && state.getFluidState().isEmpty() && (state.isAir() || state.canBeReplaced());
+			if (state == null) {
+				for (int dx = -2; dx <= 2; dx++) for (int dy = -2; dy <= 2; dy++) for (int dz = -2; dz <= 2; dz++)
+					if (pool.test(at.offset(dx, dy, dz))) return true;
+				return false;
+			}
+			if (state.is(Blocks.WATER)) return true;
+			return state.getFluidState().isEmpty() && (state.isAir() || state.canBeReplaced());
 		};
-		Predicate<BlockPos> pool = at -> !at.equals(lava) && !solid.contains(at) && lavaSource(terrain.apply(at));
 		Map<BlockPos, Integer> strength = new HashMap<>();
 		ArrayDeque<BlockPos> queue = new ArrayDeque<>();
 		strength.put(water, 8);
