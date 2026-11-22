@@ -23,7 +23,7 @@ export const MIN_PLANNING_OVERLAP_MS = 4_000;
 
 /** Runs selected-model ArenaScript through native tools, returning every new decision to its caller. */
 export class NativeProgramExecutor {
-	#runs = new Map(); #agentDurations = new Map(); #setTimeout; #clearTimeout; #ackSetTimeout; #ackClearTimeout; #cancellationTimeoutMs; #sessionId; #sequence = 0; #now; #ordinaryAttentionIntervalMs;
+	#runs = new Map(); #agentDurations = new Map(); #pausedAt = null; #setTimeout; #clearTimeout; #ackSetTimeout; #ackClearTimeout; #cancellationTimeoutMs; #sessionId; #sequence = 0; #now; #ordinaryAttentionIntervalMs;
 	// acknowledgement*Fn time the cancel acknowledgement (a bridge round trip) apart from program time; default the same timers.
 	constructor({ setTimeoutFn = setTimeout, clearTimeoutFn = clearTimeout, acknowledgementSetTimeoutFn = setTimeoutFn, acknowledgementClearTimeoutFn = clearTimeoutFn, cancellationTimeoutMs = 5_000, sessionId = randomUUID(), now = Date.now, ordinaryAttentionIntervalMs = ORDINARY_ATTENTION_INTERVAL_MS } = {}) {
 		if (typeof setTimeoutFn !== 'function' || typeof clearTimeoutFn !== 'function') throw new TypeError('timer callbacks are required');
@@ -73,8 +73,9 @@ export class NativeProgramExecutor {
 		this.#runs.set(record.agentId, run);
 		run.creditMs = 0;
 		run.lagCreditMs = 0;
+		run.pauseCreditMs = 0;
 		run.urgentWaitSince = null;
-		run.timer = this.#setTimeout(() => this.#deadline(run), timeoutMs);
+		run.timer = this.#pausedAt === null ? this.#setTimeout(() => this.#deadline(run), timeoutMs) : null;
 		run.timer?.unref?.();
 		try {
 			run.engine.install({ agentId: record.agentId, provider: record.provider, modelIdentity: record.model, reasoningEffort: record.reasoningEffort,
@@ -228,9 +229,33 @@ export class NativeProgramExecutor {
 		return credit;
 	}
 
+	/**
+	 * The Minecraft server is paused (a single-player Esc) or running again. Paused, no program deadline fires; on resume
+	 * every running program gets the paused time back, uncapped, as the body's game-time limits stood still too.
+	 */
+	serverPaused(paused) {
+		if (paused === (this.#pausedAt !== null)) return false;
+		if (paused) {
+			this.#pausedAt = this.#now();
+			for (const run of this.#runs.values()) { this.#clearTimeout(run.timer); run.timer = null; }
+			return true;
+		}
+		const held = Math.max(0, this.#now() - this.#pausedAt);
+		this.#pausedAt = null;
+		for (const run of this.#runs.values()) {
+			if (run.settled || run.stopping !== null) continue;
+			run.pauseCreditMs = (run.pauseCreditMs ?? 0) + held;
+			if (run.urgentWaitSince !== null) run.urgentWaitSince += held;
+			this.#armDeadline(run);
+		}
+		return true;
+	}
+
 	#armDeadline(run) {
 		this.#clearTimeout(run.timer);
-		run.timer = this.#setTimeout(() => this.#deadline(run), Math.max(0, run.startedAt + run.timeoutMs + run.creditMs + run.lagCreditMs - this.#now()));
+		run.timer = null;
+		if (this.#pausedAt !== null) return;
+		run.timer = this.#setTimeout(() => this.#deadline(run), Math.max(0, run.startedAt + run.timeoutMs + run.creditMs + run.lagCreditMs + (run.pauseCreditMs ?? 0) - this.#now()));
 		run.timer?.unref?.();
 	}
 
@@ -240,10 +265,10 @@ export class NativeProgramExecutor {
 	 * program that timed out while it was replying.
 	 */
 	#deadline(run) {
-		if (run.settled || run.stopping !== null) return;
+		if (run.settled || run.stopping !== null || this.#pausedAt !== null) return;
 		// With the wait credited 1:1 and that credit capped at timeoutMs, the latest the deadline can fall is twice timeoutMs
-		// (plus any server-lag credit, which has its own budget).
-		const heldUntil = run.startedAt + 2 * run.timeoutMs + run.lagCreditMs;
+		// (plus any server-lag credit, which has its own budget, and the time the game was paused).
+		const heldUntil = run.startedAt + 2 * run.timeoutMs + run.lagCreditMs + (run.pauseCreditMs ?? 0);
 		if (run.decision?.priority === 'urgent' && run.urgentWaitSince !== null && this.#now() < heldUntil) {
 			this.#clearTimeout(run.timer);
 			run.timer = this.#setTimeout(() => this.#deadline(run), heldUntil - this.#now());

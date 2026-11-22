@@ -275,3 +275,19 @@ test('progress during a pause counts from the resume, not from before the pause'
 	await clock.runDue();
 	assert.equal(expirations.length, 1, 'a full lease after the resume, then it expires as before');
 });
+
+test('the stuck check resumes with the time it had left, so short pauses cannot hide a stuck bot', async () => {
+	const { clock, stuck, supervisor } = fixture();
+	supervisor.activate(key);
+	supervisor.factualProgress(key, 'at 1,2,3');
+	clock.advance(29_000);
+	supervisor.serverPaused(true);
+	clock.advance(1_000);
+	supervisor.serverPaused(false);
+	clock.advance(999);
+	await clock.runDue();
+	assert.equal(stuck.length, 0, '29.999 s unpaused without progress');
+	clock.advance(2);
+	await clock.runDue();
+	assert.equal(stuck.length, 1, 'reported at 30 unpaused seconds, not 30 s after the resume');
+});

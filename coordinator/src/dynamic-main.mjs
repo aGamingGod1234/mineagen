@@ -1531,6 +1531,7 @@ export class DynamicCoordinator extends EventEmitter {
 		this.#listen('serverPause', (event) => {
 			const paused = event?.paused === true;
 			this.#goalSupervisor.serverPaused?.(paused);
+			this.#nativeRuntime?.serverPaused?.(paused);
 			this.#writeTrace(paused ? 'bridge_server_paused' : 'bridge_server_resumed', { tickAgeMs: event?.tickAgeMs ?? null });
 		}, { lifecycle: true });
 	}

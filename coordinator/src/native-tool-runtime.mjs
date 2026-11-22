@@ -589,6 +589,11 @@ export class NativeToolRuntime {
 		}
 	}
 
+	/** A single-player pause stopped the game: running programs keep their deadlines until it resumes. */
+	serverPaused(paused) {
+		return this.#programExecutor?.serverPaused?.(paused) ?? false;
+	}
+
 	hasProgram(record, programId) {
 		const run = this.#programRuns.get(record.agentId);
 		return run?.goalRevision === record.goalRevision && (programId === undefined || run.programId === programId);

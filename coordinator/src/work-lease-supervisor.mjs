@@ -148,7 +148,8 @@ export class WorkLeaseSupervisor {
 			}
 			if (entry.state !== 'suspended' && entry.state !== 'terminated') {
 				entry.lastFactualProgressAt += Math.max(0, now - Math.max(pausedAt, entry.lastFactualProgressAt));
-				this.#armStuck(entry);
+				// The time it had left before the pause, not a fresh 30 s: repeated short pauses must not hide a stuck bot.
+				this.#armStuck(entry, Math.max(0, entry.lastFactualProgressAt + FACTUAL_PROGRESS_TIMEOUT_MS - now));
 			}
 		}
 		return true;
@@ -308,7 +309,7 @@ export class WorkLeaseSupervisor {
 		} catch { }
 	}
 
-	#armStuck(entry) {
+	#armStuck(entry, delayMs = FACTUAL_PROGRESS_TIMEOUT_MS) {
 		if (entry.stuckHandle !== null) this.#cancelStuckSchedule(entry.stuckHandle);
 		if (this.#pausedAt !== null) { entry.stuckHandle = null; return; }
 		const expectedProgressAt = entry.lastFactualProgressAt;
@@ -316,7 +317,7 @@ export class WorkLeaseSupervisor {
 			entry.stuckHandle = null;
 			if (!this.#isCurrentEntry(entry) || entry.state === 'suspended' || entry.lastFactualProgressAt !== expectedProgressAt) return;
 			if (this.#now() < expectedProgressAt + FACTUAL_PROGRESS_TIMEOUT_MS) {
-				this.#armStuck(entry);
+				this.#armStuck(entry, Math.max(1, expectedProgressAt + FACTUAL_PROGRESS_TIMEOUT_MS - this.#now()));
 				return;
 			}
 			if (!entry.stuckReported) {
@@ -325,7 +326,7 @@ export class WorkLeaseSupervisor {
 				try { this.#onStuck(event); } catch { }
 				this.#requestRecovery(entry, 'factual_progress_stuck', event);
 			}
-		}, FACTUAL_PROGRESS_TIMEOUT_MS);
+		}, delayMs);
 	}
 
 	#removeAutomatedLeases(entry) {
