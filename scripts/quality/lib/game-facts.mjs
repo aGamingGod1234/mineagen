@@ -47,15 +47,28 @@ function fallTop(points, deathY) {
 export function describeDeaths(deaths, { trails = [], samples = [], startedAt = null } = {}) {
 	return deaths.map((death, index) => {
 		const trail = trails.find((row) => Math.abs(row.at - death.at) < 1500) ?? null;
-		const before = samples.filter((s) => s.at <= death.at + 1000 && s.at >= death.at - FALL_LOOKBACK_MS && s.health > 0);
+		// A death with evidence has the server's time. A death seen only in the samples is timed by the sample that showed
+		// it (an upper bound), so only samples before that one were alive before it.
+		const exact = ['message', 'damageType', 'attacker', 'directAttacker'].some((key) => death[key] != null);
+		const before = samples.filter((s) => (exact ? s.at <= death.at : s.at < death.at) && s.at >= death.at - FALL_LOOKBACK_MS && s.health > 0);
 		const last = before.at(-1) ?? null;
-		const dimension = trail?.dimension ?? last?.dimension ?? null;
-		const position = trail?.position ?? last?.position ?? null;
+		// The sample that shows the body dead (health 0, or the death counter past the last living one), at most 10 s on.
+		const stepped = (s) => s.health <= 0 || finite(s.deathCounter) && finite(last?.deathCounter) && s.deathCounter > last.deathCounter;
+		const dead = samples.find((s) => s.at >= (last?.at ?? death.at - FALL_LOOKBACK_MS) && s.at > (last?.at ?? -Infinity) && s.at <= death.at + FALL_LOOKBACK_MS && s.health <= 0) ?? null;
+		const dimension = trail?.dimension ?? dead?.dimension ?? last?.dimension ?? null;
+		// Without the death row, only a sample showing the body dead gives the death height; a living one would read 0.
+		const position = trail?.position ?? dead?.position ?? null;
+		// The coordinator's trail points carry no dimension: points from before a portal trip in the last 10 s are left out.
+		// Points between the last sample elsewhere and the first sample back in this dimension are in an unknown one.
+		const otherDimensionAt = before.filter((s) => s.dimension && dimension && s.dimension !== dimension).reduce((t, s) => Math.max(t, s.at), -Infinity);
+		const backAt = finite(otherDimensionAt) ? before.find((s) => s.at > otherDimensionAt && s.dimension === dimension)?.at ?? otherDimensionAt : -Infinity;
 		const points = trail?.trail?.length
-			? trail.trail.map((p) => ({ at: death.at + (p.s ?? 0) * 1000, y: p.y, health: p.health ?? null, action: p.action ?? null, reflex: p.reflex ?? null }))
+			? trail.trail.map((p) => ({ at: death.at + (p.s ?? 0) * 1000, y: p.y, health: p.health ?? null, action: p.action ?? null, reflex: p.reflex ?? null })).filter((p) => p.at >= backAt)
 			: before.filter((s) => s.dimension === dimension).map((s) => ({ at: s.at, y: s.position?.y, health: s.health, action: null, reflex: null }));
 		const top = fallTop(points, position?.y);
-		const respawn = samples.find((s) => s.at > death.at && s.health > 0 && (!finite(death.nextAt) || s.at < death.nextAt)) ?? null;
+		// The respawn is the first living sample after the body was seen dead (or after its death counter stepped).
+		const deadAt = dead?.at ?? samples.find((s) => s.at >= death.at && stepped(s))?.at ?? null;
+		const respawn = finite(deadAt) ? samples.find((s) => s.at > deadAt && s.at > death.at && s.health > 0 && (!finite(death.nextAt) || s.at < death.nextAt)) ?? null : null;
 		const fallDistance = before.filter((s) => s.dimension === dimension).reduce((m, s) => finite(s.fallDistance) ? Math.max(m ?? 0, s.fallDistance) : m, null);
 		return {
 			at: death.at, minute: finite(startedAt) ? minutes(death.at - startedAt) : null, ordinal: index + 1, repeat: index > 0,
@@ -98,13 +111,15 @@ export function mechanismTable(deaths) {
 /** The facts collector. Feed it rows, then call finish() once. */
 export function gameFacts() {
 	const samples = [], trails = [], commands = [], progress = [], calls = [];
+	let sawAdvancements = false;
 	const firstSeen = {}, peak = Object.fromEntries(Object.keys(PEAK_ITEMS).map((k) => [k, null]));
 	return {
 		/** A quality sample after the scorer's own filters (window, agent, inventory cleared at death). */
 		sample(s) {
 			if (!finite(s?.at)) return;
 			const nbt = typeof s.inventoryNbt === 'string' && s.inventoryNbt.trim().startsWith('[') ? s.inventoryNbt : null;
-			samples.push({ at: s.at, health: s.health, dimension: s.dimension ?? null, position: s.position ?? null, fallDistance: s.fallDistance ?? null, armour: armourPoints(s.equipmentNbt) });
+			samples.push({ at: s.at, health: s.health, deathCounter: s.deathCounter ?? null, dimension: s.dimension ?? null, position: s.position ?? null, fallDistance: s.fallDistance ?? null, armour: armourPoints(s.equipmentNbt) });
+			if (Array.isArray(s.advancements)) sawAdvancements = true;
 			for (const m of LONG_RUN_MILESTONES) {
 				if (firstSeen[m.id] != null) continue;
 				const holds = m.item ? itemCount(`${s.inventoryNbt ?? ''}${s.equipmentNbt ?? ''}`, m.item) > 0 : m.dimension ? s.dimension === m.dimension : s.advancements?.includes(m.advancement) ?? false;
@@ -128,7 +143,13 @@ export function gameFacts() {
 			progress.push({ at: row.atMs, dimension: row.dim ?? null, dragonHealth: finite(dragon?.health) ? dragon.health : null, crystalsLeft: finite(crystals?.left) ? crystals.left : null });
 		},
 		/** A coordinator native_model_call row. */
-		modelCall(row) { if (finite(row?.at)) calls.push({ at: row.at, inputTokens: finite(row.inputTokens) ? row.inputTokens : null, cachedInputTokens: finite(row.cachedInputTokens) ? row.cachedInputTokens : null }); },
+		modelCall(row) {
+			if (!finite(row?.at)) return;
+			// A provider can send a call's row again once its usage is reconciled (same modelCallId): the last row stands.
+			const same = row.modelCallId != null ? calls.findIndex((c) => c.modelCallId === row.modelCallId) : -1;
+			if (same >= 0) calls.splice(same, 1);
+			calls.push({ at: row.at, modelCallId: row.modelCallId ?? null, inputTokens: finite(row.inputTokens) ? row.inputTokens : null, cachedInputTokens: finite(row.cachedInputTokens) ? row.cachedInputTokens : null });
+		},
 		/**
 		 * deaths: the scorer's death records; inWindow(at) says whether a time is inside the scored window; logMilestones:
 		 * { lavaSeen, portalLit } epoch ms from the decision log, or null when the run kept no decision log.
@@ -155,16 +176,18 @@ export function gameFacts() {
 					crystalsGone: crystals.length ? Math.max(...crystals) - Math.min(...crystals) : null,
 					deathsInEnd: described.filter((d) => d.dimension === END).length, deathsAfterEntry: described.filter((d) => d.at >= endAt).length,
 					strongholdToEndMin: finite(firstSeen.stronghold) ? minutes(endAt - firstSeen.stronghold) : null,
-					dragonKilled: finite(firstSeen.dragon),
+					dragonKilled: finite(firstSeen.dragon) ? true : sawAdvancements ? false : null,
 					basis: progress.length ? 'Watcher progress rows (dragon health, crystals left) after the first End sample' : 'no Watcher progress rows: dragon and crystal numbers unknown' };
 				if (!progress.length) for (const key of ['dragonHealthMin', 'dragonHealthLast', 'crystalsLeftMax', 'crystalsLeftMin', 'crystalsGone']) end[key] = null;
 			}
 			const windowCalls = calls.filter((c) => inWindow(c.at));
 			const spent = (until) => {
 				const before = windowCalls.filter((c) => c.at <= until);
-				return { calls: before.length, inputTokens: before.reduce((n, c) => n + (c.inputTokens ?? 0), 0), cachedInputTokens: before.reduce((n, c) => n + (c.cachedInputTokens ?? 0), 0) };
+				// A sum over calls none of which reported tokens is unknown, not 0.
+				const sum = (key) => before.some((c) => finite(c[key])) ? before.reduce((n, c) => n + (c[key] ?? 0), 0) : null;
+				return { calls: before.length, inputTokens: sum('inputTokens'), cachedInputTokens: sum('cachedInputTokens') };
 			};
-			const modelUse = windowCalls.length ? { ...spent(Infinity), callsWithoutTokens: windowCalls.filter((c) => c.inputTokens == null).length,
+			const modelUse = windowCalls.length ? { ...spent(Infinity), callsWithoutTokens: windowCalls.filter((c) => c.inputTokens == null).length, callsWithoutCachedTokens: windowCalls.filter((c) => c.cachedInputTokens == null).length,
 				byMilestone: Object.fromEntries(Object.entries(milestones).filter(([, m]) => m).map(([id, m]) => [id, spent(m.at)])),
 				basis: 'native_model_call rows in the window: calls and input tokens up to and including each milestone\'s first observation' } : null;
 			return {

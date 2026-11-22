@@ -306,10 +306,12 @@ test('game facts: milestones, a fall into lava with what ran at its top, the res
 			{ type: 'progress', atMs: min(12), dim: 'minecraft:the_end', targets: { dragon: { health: 170 }, crystals: { left: 8 } } },
 			{ type: 'progress', atMs: min(13), dim: 'minecraft:the_end', targets: { dragon: { health: 180 }, crystals: { left: 8 } } },
 		].map(r => JSON.stringify(r)).join('\n') + '\n');
-		await writeFile(path.join(dir, 'decision-1-a.jsonl'), [
+		// Another agent's decision log in the same folder never counts.
+		await writeFile(path.join(dir, 'decision-1--b-0.jsonl'), JSON.stringify({ time: min(1), type: 'input', text: 'lava seen nearby' }) + '\n');
+		await writeFile(path.join(dir, 'decision-1--a-0.jsonl'), [
 			{ time: min(3), type: 'input', text: 'lava seen nearby' },
 			{ time: min(3.5), type: 'action_result', result: { reasonCode: 'PORTAL_LIT' } },
-		].map(r => JSON.stringify(r)).join('\n') + '\n');
+		].map(r => JSON.stringify(r)).join('\n') + '\n{"time": 1, "text": "lava seen nearby", "cut off\n');
 		const { game, deathRecords } = await scoreStageRun(dir);
 		assert.equal(deathRecords.length, 1);
 		assert.deepEqual(Object.fromEntries(['wood', 'flint_and_steel', 'lava_seen', 'portal_lit', 'nether', 'stronghold', 'end', 'dragon'].map(id => [id, game.milestones[id]?.minute ?? null])),
@@ -356,4 +358,34 @@ test('game facts stay unknown without their evidence: no End entry, no decision 
 		assert.equal(death.respawn, null);
 		assert.equal(death.armour, null);
 	} finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('game facts review cases: a sample-only death is measured from the dead sample, a portal trip cuts the trail, a reconciled model call counts once', async () => {
+	const { gameFacts } = await import('../../scripts/quality/lib/game-facts.mjs');
+	const nether = 'minecraft:the_nether', over = 'minecraft:overworld';
+	const facts = gameFacts();
+	for (const s of [{ at: 1000, health: 20, deathCounter: 0, dimension: nether, position: { x: 0, y: 100, z: 0 } },
+		{ at: 4000, health: 0, deathCounter: 1, dimension: nether, position: { x: 0, y: 31, z: 0 } },
+		{ at: 6000, health: 20, deathCounter: 1, dimension: over, position: { x: 5, y: 64, z: 5 } },
+		{ at: 20_000, health: 20, deathCounter: 1, dimension: over, position: { x: 5, y: 90, z: 5 } },
+		{ at: 24_000, health: 20, deathCounter: 1, dimension: nether, position: { x: 0, y: 40, z: 0 } }]) facts.sample(s);
+	// A death row whose trail starts in the Overworld, before a portal trip 6 s ago.
+	facts.deathRow({ diedAtEpochMs: 30_000, dimension: nether, position: { x: 0, y: 38, z: 0 }, armor: 0, trail: [{ s: -9, y: 90, health: 20 }, { s: -5, y: 41, health: 20, action: 'travel_to' }] });
+	facts.modelCall({ at: 2000, modelCallId: 'c1', inputTokens: null });
+	facts.modelCall({ at: 2100, modelCallId: 'c1', inputTokens: 1000, outputReconciled: true });
+	facts.modelCall({ at: 2200, modelCallId: 'c2' });
+	const game = facts.finish({ startedAt: 0, deaths: [{ at: 4000 }, { at: 30_000, damageType: 'minecraft:lava' }] });
+	const [counter, row] = game.deaths;
+	assert.deepEqual(counter.position, { x: 0, y: 31, z: 0 }, 'the dead sample, not the last living one, gives the height');
+	assert.equal(counter.fall.blocks, 69);
+	assert.equal(counter.respawn.dimension, over);
+	assert.equal(row.fall.blocks, 3, 'the Overworld point before the portal trip is not the top of a Nether fall');
+	assert.deepEqual({ calls: game.modelUse.calls, inputTokens: game.modelUse.inputTokens, cached: game.modelUse.cachedInputTokens }, { calls: 2, inputTokens: 1000, cached: null });
+	assert.equal(game.end, null);
+	const none = gameFacts();
+	none.sample({ at: 1000, health: 20, dimension: 'minecraft:the_end', position: { x: 0, y: 64, z: 0 } });
+	none.modelCall({ at: 1000 });
+	const result = none.finish({ startedAt: 0 });
+	assert.equal(result.end.dragonKilled, null, 'samples without advancements cannot show the dragon alive');
+	assert.equal(result.modelUse.inputTokens, null, 'no call reported tokens: unknown, not 0');
 });

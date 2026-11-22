@@ -333,7 +333,7 @@ export async function scoreStageRun(directory, { rawDirectory = null } = {}) {
 	const deathRecords = deathRows.map(row => ({ ...row, cause: classifyDeath(row).cause }));
 	const inWindow = at => finite(at) && (!finite(startedAt) || at >= startedAt) && (!finite(startedAt) || !finite(windowMs) || at <= startedAt + windowMs) && (!operatorStop || at <= operatorStop.at);
 	// lava seen and portal lit come from the decision log, the same reading gate-report gives them.
-	const game = facts.finish({ startedAt, deaths: deathRecords, observedDeaths: Math.max(sampleDeaths, deathTimes.length), inWindow, logMilestones: raw && existsSync(raw) && (await readdir(raw)).some(n => n.startsWith('decision-') && !n.includes('goal-spec')) ? logMilestones(raw) : null });
+	const game = facts.finish({ startedAt, deaths: deathRecords, observedDeaths: Math.max(sampleDeaths, deathTimes.length), inWindow, logMilestones: raw && existsSync(raw) && (await readdir(raw)).some(n => n.startsWith('decision-') && !n.includes('goal-spec') && (!agentId || n.includes(`--${agentId}-`))) ? logMilestones(raw, { agentId, inWindow }) : null });
 	if (actionCounts.conflicts || actionCounts.missingActionIds) integrity.push({ file: protocolName, error: 'Terminal receipts have conflicting or missing action identities' });
 	const executionStarted = protocolStarted || first.samples + recovery.samples > 0;
 	const cancelledBeforeStart = !executionStarted && (startRecord?.status === 'cancelled_before_start' || operatorStop?.beforeStart === true);
