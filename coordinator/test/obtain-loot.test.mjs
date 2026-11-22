@@ -467,3 +467,12 @@ test('codex: a take a stop cut short leaves the chest a source to come back to, 
 	assert.equal(lootSources(after, { partial: new Set(looted.partial) }).some((row) => row.kind === 'chest'), true);
 	assert.equal(lootSources(after).some((row) => row.kind === 'chest'), false);
 });
+
+test('codex: a village no house of which pays for this goal stays a source for the next goal', async () => {
+	const looted = { opened: [], searched: [], structures: [], doors: [] };
+	const fed = villageRun({ seenResources: PLAYTEST_DOORS });
+	fed.body.observe = ((observe) => async () => { const o = await observe(); o.inventory.items.push({ itemId: 'minecraft:bread', count: 12, slot: 8 }); return o; })(fed.body.observe);
+	await runObtain({ item: 'iron_ingot', count: 3, timeoutMs: 60_000 }, fed.body, { now: (() => { let t = 0; return () => (t += 100); })(), looted });
+	assert.deepEqual(looted.searched, [], 'not written off for later goals');
+	assert.equal(lootSources(village(), { searched: new Set(looted.searched), structures: looted.structures }).some((row) => row.kind === 'structure'), true);
+});
