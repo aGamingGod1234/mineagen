@@ -5,6 +5,10 @@ import com.google.gson.JsonObject;
 import dev.agaminggod.mineagen.agent.AgentDomainException;
 import dev.agaminggod.mineagen.server.perception.SightedFeatures.Cell;
 import dev.agaminggod.mineagen.world.ChunkMutationRevisionAccess;
+import it.unimi.dsi.fastutil.doubles.DoubleArrayList;
+import it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongArrayFIFOQueue;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumSet;
@@ -72,6 +76,8 @@ public final class FarSight {
 	static final int LARGE_CLUSTER = 8;
 	/** Line-of-sight tests per pass; passive passes run at most every 10 ticks and reuse results while the eye is still. */
 	static final int PASSIVE_CLIPS = 128;
+	/** The veins section's share of a pass's sight lines, reserved ahead of every other section ({@link Sight#reserve}). */
+	static final double VEIN_SHARE = 0.10D;
 	static final int SURVEY_CLIPS = 256;
 	/**
 	 * Full far-sight passes per level per tick. Observations of up to 8 agents can land on one tick; agents over the cap
@@ -115,6 +121,7 @@ public final class FarSight {
 	private static final int FAR_KINDS = BUILT | LAVA | POI;
 	private static final int NEAR_KINDS = BUILT | LAVA | POI | NOTABLE | ORE;
 
+	private static final Set<String> NOTABLE_BLOCK_IDS = Set.of("minecraft:chest", "minecraft:trapped_chest", "minecraft:barrel", "minecraft:vault");
 	private static final Set<Block> NOTABLE_BLOCKS = Set.of(Blocks.SPAWNER, Blocks.TRIAL_SPAWNER, Blocks.CHEST,
 			Blocks.TRAPPED_CHEST, Blocks.BARREL, Blocks.VAULT);
 	/** Built-looking blocks that terrain also makes: taiga boulders and pale moss. */
@@ -145,7 +152,8 @@ public final class FarSight {
 
 	/** Survey and passive sections. Threats are not a section: they are always reported. */
 	public enum Section {
-		STRUCTURES("structures"), POI("poi"), BIOMES("biomes"), BUILT("built"), BLOCKS("blocks"), CAVES("caves"), VEINS("veins");
+		STRUCTURES("structures"), POI("poi"), BIOMES("biomes"), BUILT("built"), BLOCKS("blocks"), CAVES("caves"), VEINS("veins"),
+		RESOURCES("resources");
 
 		final String key;
 
@@ -664,6 +672,8 @@ public final class FarSight {
 		private final Map<Long, Long> ends = new HashMap<>();
 		private CandidateKey candidatesKey;
 		private Candidates candidates;
+		/** The last lava and built blocks grouped, and their groups in discovery order, reused while unchanged. */
+		private final Grouping lava = new Grouping(), built = new Grouping();
 		private long waterTick = Long.MIN_VALUE;
 		private int waterVisionTime;
 
@@ -671,6 +681,10 @@ public final class FarSight {
 			long x = Math.round(eye.x * 2.0D), y = Math.round(eye.y * 2.0D), z = Math.round(eye.z * 2.0D);
 			if (!dimension.equals(this.dimension) || x != eyeX || y != eyeY || z != eyeZ || revision != this.revision || ends.size() > 16_384) {
 				ends.clear();
+				if (!dimension.equals(this.dimension)) {
+					lava.clear();
+					built.clear();
+				}
 				this.dimension = dimension;
 				eyeX = x;
 				eyeY = y;
@@ -721,6 +735,8 @@ public final class FarSight {
 		private final Map<Long, Boolean> loadedChunks = new HashMap<>();
 		private final int budget;
 		private int sectionLimit = Integer.MAX_VALUE;
+		/** Sight lines held back for a section that runs last (veins), so the sections before it cannot spend them. */
+		private int reserved;
 		int clips;
 		int lavaNeed = CastLava.FRAME_CELLS;
 
@@ -747,7 +763,20 @@ public final class FarSight {
 		}
 
 		boolean exhausted() {
-			return clips >= budget || clips >= sectionLimit;
+			return clips >= budget - reserved || clips >= sectionLimit;
+		}
+
+		/**
+		 * Holds {@code share} of the budget back from every section until {@link #release()}. Each section's share is counted
+		 * from what the sections before it used, so busy views (a village, a fortress) spend the whole budget before the last
+		 * section; the ore section reserves its share this way.
+		 */
+		void reserve(double share) {
+			reserved = (int) Math.ceil(budget * share);
+		}
+
+		void release() {
+			reserved = 0;
 		}
 
 		/** A lava pool too small to feed a portal cast (CastLava): a hazard, not lava to fetch. */
@@ -850,7 +879,7 @@ public final class FarSight {
 	 * surface column per chunk by biome. It depends on where the eye is, not where it looks.
 	 */
 	private record Candidates(List<StartView> starts, List<Found> built, List<Found> lava, List<Found> notable, List<Found> ore,
-			List<Found> poi, Map<String, List<BlockPos>> biomeColumns) {
+			List<Found> poi, List<Found> placed, Map<String, List<BlockPos>> biomeColumns) {
 		int size() {
 			return starts.size() + built.size() + lava.size() + notable.size() + ore.size() + poi.size();
 		}
@@ -866,12 +895,121 @@ public final class FarSight {
 
 	static final long CANDIDATE_TICKS = 100L;
 
-	record Cluster(List<Found> members, double distance) {
+	/**
+	 * Blocks within about 4 blocks of each other and the distance of the nearest. A lava sea is one cluster of tens of
+	 * thousands of blocks, and a look tests only its nearest dozen, so the full nearest-first order is built only when
+	 * {@link #members()} asks for it; {@link #nearestFirst()} yields the same order one member at a time from a heap.
+	 */
+	static final class Cluster {
+		/** In discovery order with {@link #distances}, or already nearest first when {@code distances} is null. */
+		private final List<Found> members;
+		private final double[] distances;
+		private final double distance;
+		private List<Found> sorted;
+
+		/** A cluster whose members are already nearest first. */
+		Cluster(List<Found> members, double distance) {
+			this(members, null, distance);
+		}
+
+		private Cluster(List<Found> members, double[] distances, double distance) {
+			this.members = members;
+			this.distances = distances;
+			this.distance = distance;
+		}
+
+		double distance() {
+			return distance;
+		}
+
+		int size() {
+			return members.size();
+		}
+
+		/** Members nearest first; equal distances keep discovery order. */
+		List<Found> members() {
+			if (distances == null) return members;
+			if (sorted == null) {
+				List<Found> order = new ArrayList<>(members.size());
+				nearestFirst().forEachRemaining(order::add);
+				sorted = order;
+			}
+			return sorted;
+		}
+
+		/** The order of {@link #members()}, costing one heap step per member taken instead of a full sort. */
+		java.util.Iterator<Found> nearestFirst() {
+			if (distances == null || sorted != null) return members().iterator();
+			return new NearestFirst(members, distances);
+		}
+
+		/** The members that pass, nearest first as before, with this cluster's distance. */
+		Cluster filter(Predicate<Found> keep) {
+			if (distances == null) return new Cluster(members.stream().filter(keep).toList(), distance);
+			List<Found> kept = new ArrayList<>();
+			DoubleArrayList keptDistances = new DoubleArrayList();
+			for (int i = 0; i < members.size(); i++) {
+				if (!keep.test(members.get(i))) continue;
+				keptDistances.add(distances[i]);
+				kept.add(members.get(i));
+			}
+			return new Cluster(kept, keptDistances.toDoubleArray(), distance);
+		}
+
 		/** The member with the smallest packed position: stable while the cluster stands, wherever the agent views it from. */
 		long seed() {
 			long seed = Long.MAX_VALUE;
 			for (Found member : members) seed = Math.min(seed, member.position());
 			return seed;
+		}
+	}
+
+	/** A binary min-heap over member indexes by (distance, index): the order a stable sort by distance gives. */
+	private static final class NearestFirst implements java.util.Iterator<Found> {
+		private final List<Found> members;
+		private final double[] distances;
+		private final int[] heap;
+		private int size;
+
+		NearestFirst(List<Found> members, double[] distances) {
+			this.members = members;
+			this.distances = distances;
+			this.size = members.size();
+			this.heap = new int[size];
+			for (int i = 0; i < size; i++) heap[i] = i;
+			for (int i = size / 2 - 1; i >= 0; i--) siftDown(i);
+		}
+
+		private boolean before(int a, int b) {
+			int order = Double.compare(distances[a], distances[b]);
+			return order < 0 || order == 0 && a < b;
+		}
+
+		private void siftDown(int at) {
+			int item = heap[at];
+			while (true) {
+				int child = 2 * at + 1;
+				if (child >= size) break;
+				if (child + 1 < size && before(heap[child + 1], heap[child])) child++;
+				if (!before(heap[child], item)) break;
+				heap[at] = heap[child];
+				at = child;
+			}
+			heap[at] = item;
+		}
+
+		@Override
+		public boolean hasNext() {
+			return size > 0;
+		}
+
+		@Override
+		public Found next() {
+			if (size == 0) throw new java.util.NoSuchElementException();
+			int top = heap[0];
+			heap[0] = heap[--size];
+			if (size > 0) siftDown(0);
+			return members.get(top);
 		}
 	}
 
@@ -908,25 +1046,28 @@ public final class FarSight {
 			List<StartView> starts = new ArrayList<>();
 			Map<Long, List<BoundingBox>> structureBoxes = new HashMap<>();
 			collectStructures(level, eye, loaded, starts, structureBoxes);
-			List<Found> built = new ArrayList<>(), lava = new ArrayList<>(), notable = new ArrayList<>(), ore = new ArrayList<>(), poi = new ArrayList<>();
+			List<Found> built = new ArrayList<>(), lava = new ArrayList<>(), notable = new ArrayList<>(), ore = new ArrayList<>(), poi = new ArrayList<>(), placed = new ArrayList<>();
 			synchronized (index) {
 				index.forgetUnloaded(level);
 				int resets = index.sectionResets;
-				complete = scanAround(level, index, eye, loaded, dimensionClass, built, lava, notable, ore, poi, structureBoxes);
+				complete = scanAround(level, index, eye, loaded, dimensionClass, built, lava, notable, ore, poi, placed, structureBoxes);
 				PerceptionTiming.count("far_sight_section_rescans", index.sectionResets - resets);
 			}
-			gathered = new Candidates(starts, built, lava, notable, ore, poi, biomeColumns(level, loaded));
+			gathered = new Candidates(starts, built, lava, notable, ore, poi, placed, biomeColumns(level, loaded));
 			// Only a finished gather is reused; an unfinished one is redone next pass so the spread-out scan continues.
 			cache.candidatesKey = complete ? key : null;
 			cache.candidates = complete ? gathered : null;
 		}
 		List<Row> rows = new ArrayList<>();
 		int candidates = gathered.size();
-		ToDoubleFunction<Found> distance = found -> Math.sqrt(eye.distanceToSqr(Vec3.atCenterOf(BlockPos.of(found.position()))));
+		ToDoubleFunction<Found> distance = found -> centreDistance(eye, found.position());
 
+		// Ore is what a dig is for: its share is held back from the sections before it (#108's resources made the earlier
+		// shares add up to the whole budget, so a busy fortress or village view left veins no sight lines).
+		if (request.wants(Section.VEINS)) sight.reserve(VEIN_SHARE);
 		if (request.wants(Section.BLOCKS)) {
 			sight.section(0.10D);
-			rows.addAll(lavaRows(sight, cluster(gathered.lava(), distance), request.rowsPerSection()));
+			rows.addAll(lavaRows(sight, withDistances(cache.lava.groups(gathered.lava()), distance), request.rowsPerSection()));
 		}
 		if (request.wants(Section.STRUCTURES)) {
 			sight.section(0.25D);
@@ -938,7 +1079,11 @@ public final class FarSight {
 		}
 		if (request.wants(Section.BUILT)) {
 			sight.section(0.25D);
-			rows.addAll(builtRows(sight, cluster(gathered.built(), distance), request.rowsPerSection()));
+			rows.addAll(builtRows(sight, withDistances(cache.built.groups(gathered.built()), distance), request.rowsPerSection()));
+		}
+		if (request.wants(Section.RESOURCES)) {
+			sight.section(0.10D);
+			rows.addAll(resourceRows(level, sight, gathered.placed(), distance, RESOURCE_ROWS));
 		}
 		if (request.wants(Section.BLOCKS)) {
 			sight.section(0.05D);
@@ -960,18 +1105,28 @@ public final class FarSight {
 		}
 		List<BlockPos> seenOre = new ArrayList<>();
 		if (request.wants(Section.VEINS)) {
-			sight.section(0.10D);
+			sight.release();
+			sight.section(VEIN_SHARE);
+			boolean starved = sight.exhausted();
 			int tests = 0;
 			for (Found found : gathered.ore().stream().sorted(Comparator.comparingDouble(distance)).toList()) {
 				if (tests++ >= SightedFeatures.MAX_VEIN_SEEDS * 2) break;
 				if (sight.sees(found)) seenOre.add(BlockPos.of(found.position()));
 			}
+			// With timing on: how often ore candidates were there but the pass had no sight lines left for them.
+			if (!gathered.ore().isEmpty()) PerceptionTiming.count("far_sight_vein_starved", starved ? 1 : 0);
 		}
 		// Every row is judged by its own distance: a structure or cluster near the edge never reports a block past range.
 		rows.removeIf(row -> row.distance() > range);
 		PerceptionTiming.count("far_sight_candidates", candidates);
 		PerceptionTiming.count("far_sight_sight_lines", sight.clips);
 		return new Result(rows, seenOre, standingIn, sight.clips, candidates, complete && sight.clips < request.clips(), range);
+	}
+
+	/** {@code Math.sqrt(eye.distanceToSqr(Vec3.atCenterOf(BlockPos.of(position))))} with the same arithmetic and no objects. */
+	static double centreDistance(Vec3 eye, long position) {
+		double dx = BlockPos.getX(position) + 0.5D - eye.x, dy = BlockPos.getY(position) + 0.5D - eye.y, dz = BlockPos.getZ(position) + 0.5D - eye.z;
+		return Math.sqrt(dx * dx + dy * dy + dz * dz);
 	}
 
 	private static double horizontalDistanceToChunk(Vec3 eye, ChunkPos chunk) {
@@ -1029,7 +1184,7 @@ public final class FarSight {
 	}
 
 	static boolean scanAround(ServerLevel level, LevelIndex index, Vec3 eye, List<LevelChunk> loaded, int dimensionClass,
-			List<Found> built, List<Found> lava, List<Found> notable, List<Found> ore, List<Found> poi,
+			List<Found> built, List<Found> lava, List<Found> notable, List<Found> ore, List<Found> poi, List<Found> placed,
 			Map<Long, List<BoundingBox>> structureBoxes) {
 		boolean complete = true;
 		int eyeY = Mth.floor(eye.y);
@@ -1037,6 +1192,8 @@ public final class FarSight {
 			ChunkScan scan = index.scanOf(chunk);
 			LevelChunk[] beside = null;
 			boolean near = horizontalDistanceToChunk(eye, chunk.getPos()) <= SMALL_SIGHT;
+			// Placed blocks as sources (resources), inside structures too, only this near: a village's worth, never a view's.
+			boolean resourceNear = horizontalDistanceToChunk(eye, chunk.getPos()) <= RESOURCE_SIGHT;
 			List<BoundingBox> boxes = structureBoxes.getOrDefault(chunk.getPos().pack(), List.of());
 			for (int sectionIndex = 0; sectionIndex < scan.sections.length; sectionIndex++) {
 				int minY = chunk.getSectionYFromSectionIndex(sectionIndex) << 4;
@@ -1050,6 +1207,7 @@ public final class FarSight {
 				if (section == null) continue;
 				for (Found found : section.found) {
 					if ((found.kinds() & BUILT) != 0 && !insideAny(boxes, found.position())) built.add(found);
+					if ((found.kinds() & BUILT) != 0 && resourceNear) placed.add(found);
 					if ((found.kinds() & LAVA) != 0) lava.add(found);
 					if ((found.kinds() & POI) != 0) poi.add(found);
 					if (!near) continue;
@@ -1070,31 +1228,81 @@ public final class FarSight {
 		return false;
 	}
 
-	/** Groups blocks within about 4 blocks of each other (linked 4-block cells), nearest cluster first. */
+	/** Groups blocks within about 4 blocks of each other, nearest cluster first ({@link #groups}, {@link #withDistances}). */
 	static List<Cluster> cluster(List<Found> blocks, ToDoubleFunction<Found> distance) {
-		Map<Long, List<Found>> cells = new LinkedHashMap<>();
+		return withDistances(groups(blocks), distance);
+	}
+
+	/**
+	 * The last blocks one kind gathered and their groups. Which blocks touch which does not depend on where the eye is, so
+	 * while a pass gathers the same blocks in the same order (a lava sea that has not changed), the groups are reused and
+	 * only the distances are computed again. Gathers are not cached in busy places (fire in a fortress rewrites sections
+	 * every few ticks), so without this the sea was regrouped on every pass.
+	 */
+	static final class Grouping {
+		private List<Found> blocks = List.of();
+		private List<List<Found>> groups = List.of();
+
+		List<List<Found>> groups(List<Found> gathered) {
+			if (!gathered.equals(blocks)) {
+				groups = FarSight.groups(gathered);
+				blocks = gathered;
+			}
+			return groups;
+		}
+
+		/** Lets go of the last gather (a lava sea can hold a few MB), as when the agent leaves the dimension. */
+		void clear() {
+			blocks = List.of();
+			groups = List.of();
+		}
+	}
+
+	/** Blocks within about 4 blocks of each other (linked 4-block cells), each group in discovery order. */
+	static List<List<Found>> groups(List<Found> blocks) {
+		Long2ObjectLinkedOpenHashMap<List<Found>> cells = new Long2ObjectLinkedOpenHashMap<>();
 		for (Found found : blocks) {
 			long cell = BlockPos.asLong(BlockPos.getX(found.position()) >> 2, BlockPos.getY(found.position()) >> 2, BlockPos.getZ(found.position()) >> 2);
-			cells.computeIfAbsent(cell, ignored -> new ArrayList<>()).add(found);
+			List<Found> members = cells.get(cell);
+			if (members == null) cells.put(cell, members = new ArrayList<>());
+			members.add(found);
 		}
-		Set<Long> claimed = new HashSet<>();
-		List<Cluster> clusters = new ArrayList<>();
-		for (Long start : cells.keySet()) {
+		LongOpenHashSet claimed = new LongOpenHashSet(cells.size());
+		LongArrayFIFOQueue queue = new LongArrayFIFOQueue();
+		List<List<Found>> groups = new ArrayList<>();
+		for (var starts = cells.keySet().iterator(); starts.hasNext(); ) {
+			long start = starts.nextLong();
 			if (!claimed.add(start)) continue;
 			List<Found> members = new ArrayList<>();
-			java.util.ArrayDeque<Long> queue = new java.util.ArrayDeque<>();
-			queue.add(start);
+			queue.enqueue(start);
 			while (!queue.isEmpty()) {
-				long cell = queue.poll();
+				long cell = queue.dequeueLong();
 				members.addAll(cells.get(cell));
 				int cx = BlockPos.getX(cell), cy = BlockPos.getY(cell), cz = BlockPos.getZ(cell);
 				for (int dx = -1; dx <= 1; dx++) for (int dy = -1; dy <= 1; dy++) for (int dz = -1; dz <= 1; dz++) {
 					long next = BlockPos.asLong(cx + dx, cy + dy, cz + dz);
-					if (cells.containsKey(next) && claimed.add(next)) queue.add(next);
+					if (cells.containsKey(next) && claimed.add(next)) queue.enqueue(next);
 				}
 			}
-			members.sort(Comparator.comparingDouble(distance));
-			clusters.add(new Cluster(members, distance.applyAsDouble(members.getFirst())));
+			groups.add(members);
+		}
+		return groups;
+	}
+
+	/**
+	 * Groups as clusters from this eye, nearest cluster first. Each block's distance is computed once; members are put
+	 * nearest first only as far as a caller reads them ({@link Cluster#nearestFirst}).
+	 */
+	static List<Cluster> withDistances(List<List<Found>> groups, ToDoubleFunction<Found> distance) {
+		List<Cluster> clusters = new ArrayList<>(groups.size());
+		for (List<Found> members : groups) {
+			double[] distances = new double[members.size()];
+			double nearest = Double.NaN;
+			for (int i = 0; i < distances.length; i++) {
+				distances[i] = distance.applyAsDouble(members.get(i));
+				if (i == 0 || Double.compare(distances[i], nearest) < 0) nearest = distances[i];
+			}
+			clusters.add(new Cluster(members, distances, nearest));
 		}
 		clusters.sort(Comparator.comparingDouble(Cluster::distance));
 		return clusters;
@@ -1134,9 +1342,10 @@ public final class FarSight {
 		List<Found> seen = new ArrayList<>();
 		int tested = 0;
 		boolean near = cluster.distance() <= SMALL_SIGHT;
-		for (Found member : cluster.members()) {
+		for (var members = cluster.nearestFirst(); members.hasNext(); ) {
 			if (tested >= maxTests) break;
-			if (!near && seen.size() + (cluster.members().size() - tested) < LARGE_CLUSTER) break;
+			if (!near && seen.size() + (cluster.size() - tested) < LARGE_CLUSTER) break;
+			Found member = members.next();
 			tested++;
 			if (sees.test(member)) seen.add(member);
 			if (near && !seen.isEmpty() && seen.size() >= 3) break;
@@ -1155,15 +1364,15 @@ public final class FarSight {
 		int tests = 0;
 		for (Cluster pool : clusters) {
 			if (rows.size() >= limit || tests >= 32) break;
-			if (pool.distance() > RANGE || pool.distance() > SMALL_SIGHT && pool.members().size() < LARGE_CLUSTER) continue;
+			if (pool.distance() > RANGE || pool.distance() > SMALL_SIGHT && pool.size() < LARGE_CLUSTER) continue;
 			SeenPart part = seenPart(pool, sight::sees, member -> sight.distance(BlockPos.of(member.position())), 12);
 			tests += part.tested();
 			if (part.count() == 0) continue;
 			Found shown = part.seen().stream().filter(FarSight::fluidSource).findFirst().orElse(null);
 			if (shown == null) {
-				List<Found> sources = pool.members().stream().filter(FarSight::fluidSource).toList();
-				SeenPart seenSources = sources.isEmpty() ? null
-						: seenPart(new Cluster(sources, pool.distance()), sight::sees, member -> sight.distance(BlockPos.of(member.position())), 12);
+				Cluster sources = pool.filter(FarSight::fluidSource);
+				SeenPart seenSources = sources.size() == 0 ? null
+						: seenPart(sources, sight::sees, member -> sight.distance(BlockPos.of(member.position())), 12);
 				if (seenSources != null) tests += seenSources.tested();
 				if (seenSources != null && seenSources.count() > 0) shown = seenSources.nearest();
 			}
@@ -1276,10 +1485,13 @@ public final class FarSight {
 		int tests = 0;
 		for (Cluster group : groups) {
 			if (rows.size() >= limit || tests >= 24) break;
-			Found first = group.members().getFirst();
+			// Only the nearest three are ever tested, so take them from the heap instead of ordering the whole group.
+			List<Found> nearest = new ArrayList<>(3);
+			for (var members = group.nearestFirst(); members.hasNext() && nearest.size() < 3; ) nearest.add(members.next());
+			Found first = nearest.getFirst();
 			int reach = first.state().is(Blocks.NETHER_PORTAL) ? RANGE : SMALL_SIGHT;
 			if (group.distance() > reach) continue;
-			for (Found member : group.members().subList(0, Math.min(3, group.members().size()))) {
+			for (Found member : nearest) {
 				tests++;
 				if (!sight.sees(member)) continue;
 				BlockPos position = BlockPos.of(member.position());
@@ -1300,7 +1512,7 @@ public final class FarSight {
 		int tests = 0;
 		for (Cluster cluster : clusters) {
 			if (rows.size() >= limit || tests >= 64) break;
-			if (cluster.distance() > RANGE || cluster.distance() > SMALL_SIGHT && cluster.members().size() < LARGE_CLUSTER) continue;
+			if (cluster.distance() > RANGE || cluster.distance() > SMALL_SIGHT && cluster.size() < LARGE_CLUSTER) continue;
 			SeenPart part = seenPart(cluster, sight::sees, member -> sight.distance(BlockPos.of(member.position())), 16);
 			tests += part.tested();
 			if (part.count() == 0) continue;
@@ -1312,6 +1524,79 @@ public final class FarSight {
 					0, part.horizontalSize(), Cell.of(nearest), sight.distance(nearest)));
 		}
 		return rows;
+	}
+
+	/** Resource rows per pass: distinct placed-block ids and containers, nearest first. */
+	static final int RESOURCE_ROWS = 24;
+
+	/**
+	 * Placed blocks and containers as sources: per block id (and per container), the nearest member the eye sees, with the
+	 * count of that id's members within {@link #SMALL_SIGHT} of it. A player takes a village's cobblestone, a house's planks
+	 * or a chest's loot from what is in view; the planner weighs these rows like any other seen source. {@code size} on a
+	 * container row is 1 once its loot table has been rolled (opened by anyone), 0 while it is still unopened.
+	 */
+	static List<Row> resourceRows(ServerLevel level, Sight sight, List<Found> placed, ToDoubleFunction<Found> distance, int limit) {
+		// One pass over the placed candidates (bounded by RESOURCE_SIGHT): per id, and per door or container, the count and the
+		// RESOURCE_TRIES nearest members. No sort of the whole list; sight tests come from the pass's budget (Sight.sees).
+		Map<String, Group> groups = new HashMap<>();
+		for (Found found : placed) {
+			double d = distance.applyAsDouble(found);
+			if (d > RESOURCE_SIGHT) continue;
+			BlockState state = found.state();
+			if (state.getBlock() instanceof net.minecraft.world.level.block.DoorBlock
+					&& state.getValue(net.minecraft.world.level.block.DoorBlock.HALF) != net.minecraft.world.level.block.state.properties.DoubleBlockHalf.LOWER) continue;
+			boolean single = state.getBlock() instanceof net.minecraft.world.level.block.DoorBlock || NOTABLE_BLOCKS.contains(state.getBlock());
+			String key = single ? blockId(state) + "@" + found.position() : blockId(state);
+			groups.computeIfAbsent(key, ignored -> new Group()).offer(found, d);
+		}
+		List<Group> ordered = new ArrayList<>(groups.values());
+		ordered.sort(Comparator.comparingDouble(group -> group.distances[0]));
+		List<Row> rows = new ArrayList<>();
+		int tests = 0;
+		for (Group group : ordered) {
+			if (rows.size() >= limit || tests >= 64 || sight.exhausted()) break;
+			Found seen = null;
+			for (int i = 0; i < group.size && seen == null && tests < 64; i++) {
+				tests++;
+				if (sight.sees(group.nearest[i])) seen = group.nearest[i];
+			}
+			if (seen == null) continue;
+			BlockPos position = BlockPos.of(seen.position());
+			String id = blockId(seen.state());
+			int opened = 0;
+			// Far sight runs off the server thread: read the chunk's existing block entity, never create or wait for one
+			// (Level.getBlockEntity can), so a village's chests cannot stall the observation.
+			if (NOTABLE_BLOCK_IDS.contains(id)) {
+				LevelChunk chunk = level.getChunkSource().getChunkNow(position.getX() >> 4, position.getZ() >> 4);
+				var entity = chunk == null ? null : chunk.getBlockEntities().get(position);
+				if (entity instanceof net.minecraft.world.level.block.entity.RandomizableContainerBlockEntity box) opened = box.getLootTable() == null ? 1 : 0;
+			}
+			rows.add(new Row(Section.RESOURCES, "res@" + id + "@" + seen.position(), id, List.of(), group.count, opened, Cell.of(position), distance.applyAsDouble(seen)));
+		}
+		return rows;
+	}
+
+	/** How far placed blocks are gathered as resource candidates, and how many of each id's nearest are sight-tested. */
+	static final int RESOURCE_SIGHT = 48;
+	static final int RESOURCE_TRIES = 3;
+
+	/** The count of one id's (or one door's or container's) placed candidates, and its nearest few. */
+	private static final class Group {
+		final Found[] nearest = new Found[RESOURCE_TRIES];
+		final double[] distances = { Double.MAX_VALUE, Double.MAX_VALUE, Double.MAX_VALUE };
+		int size, count;
+
+		void offer(Found found, double d) {
+			count++;
+			int at = size < RESOURCE_TRIES ? size++ : RESOURCE_TRIES - 1;
+			if (at == RESOURCE_TRIES - 1 && size == RESOURCE_TRIES && d >= distances[at]) return;
+			nearest[at] = found;
+			distances[at] = d;
+			for (int i = at; i > 0 && distances[i] < distances[i - 1]; i--) {
+				Found f = nearest[i]; nearest[i] = nearest[i - 1]; nearest[i - 1] = f;
+				double t = distances[i]; distances[i] = distances[i - 1]; distances[i - 1] = t;
+			}
+		}
 	}
 
 	static List<Row> notableRows(Sight sight, List<Found> blocks, ToDoubleFunction<Found> distance, int limit) {
@@ -1495,6 +1780,11 @@ public final class FarSight {
 				case BUILT -> {
 					json.add("blocks", strings(row.blocks()));
 					json.addProperty("size", row.size());
+				}
+				case RESOURCES -> {
+					json.addProperty("blockId", row.label());
+					json.addProperty("count", row.count());
+					if (NOTABLE_BLOCK_IDS.contains(row.label())) json.addProperty("opened", row.size() == 1);
 				}
 				case BIOMES -> json.addProperty("biome", row.label());
 				case POI -> json.addProperty("blockId", row.label());

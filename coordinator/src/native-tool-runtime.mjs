@@ -1,3 +1,6 @@
+import { forgetResourceResult, knownResources, newResourceMemory, rememberKnownBlocks, rememberResources } from './seen-resources.mjs';
+/** How often the dig-seen ore rows are merged from the observed-memory store, per agent. */
+const KNOWN_ORE_MS = 5_000;
 import { createHash, randomUUID } from 'node:crypto';
 import { validateTraceId } from './control-latency-registry.mjs';
 import { ExplorationOccupancy, extractPosition as observationPosition, observationWorldId } from './explore-frontier.mjs';
@@ -7,8 +10,10 @@ import { failureChange, failureFacts, isFailureResult, triedText } from './failu
 import { classifyBodyFailure, composeTwoCallView } from './two-call-llm-wrap.mjs';
 import { DugStairs, PlacedWorkstations } from './resource-facts.mjs';
 import { howto, howtoHoldings } from './howto.mjs';
-import { minecraftCapabilities, normalizeMinecraftToolCall, toolAdjustments, toolResultContent, withAdjustments } from './native-minecraft-tools.mjs';
-import { runObtain } from './obtain-runner.mjs';
+import { minecraftCapabilities, normalizeMinecraftToolCall, toolAdjustments, toolResultContent, UNSEARCHABLE_BLOCKS, withAdjustments } from './native-minecraft-tools.mjs';
+import { lootLedger, rememberStructures, runObtain } from './obtain-runner.mjs';
+// Slots per menu page obtain's loot step asks for: one chest row.
+const MENU_PAGE = 9;
 import { resolveObtainItem } from './obtain-plan.mjs';
 import { KIT_CRAFT_TIMEOUT_MS, keepKit } from './kit-habit.mjs';
 import { runInventoryRepair } from './inventory-repair.mjs';
@@ -188,6 +193,8 @@ export class NativeToolRuntime {
 	// Workstations obtain placed and has not picked up yet, per agent, across obtain calls.
 	#obtainPlaced = new Map();
 	#kitHabit = false;
+	/** Per agent: every source the body has seen (seen-resources.mjs), fed by each stored observation. */
+	#resources = new Map();
 	// Agents whose next blocking body tool starts already interrupted: a danger steer is waiting for a tool boundary the
 	// model has not reached, so the tool it issues next was chosen without the danger (see interruptBlockingTool).
 	#armedDangerInterrupts = new Set();
@@ -348,6 +355,45 @@ export class NativeToolRuntime {
 		await this.#occupancy.flush(agentId);
 	}
 
+	/** Per-agent memory obtain keeps across calls: stations placed, furnace loads, flooded approaches, loot. */
+	#obtainMemory(agentId, observation = null) {
+		if (!this.#obtainPlaced.has(agentId)) this.#obtainPlaced.set(agentId, { placed: [], loads: [], approaches: [] });
+		const kept = this.#obtainPlaced.get(agentId);
+		// The loot ledger is one world's: a replacement world's chests and villages are new (as #108's resource memory).
+		kept.looted = lootLedger(kept.looted, observation ? observationWorldId(observation) ?? null : null);
+		return kept;
+	}
+
+	#rememberResources(agentId, observation) {
+		// One memory per agent and world: a replacement world's blocks are not the old world's sources.
+		const worldId = observationWorldId(observation) ?? null;
+		if (!this.#resources.has(agentId) || this.#resources.get(agentId).worldId !== worldId) this.#resources.set(agentId, { ...newResourceMemory(), worldId });
+		try {
+			const memory = this.#resources.get(agentId);
+			rememberResources(memory, observation, { now: Date.now() });
+			// Ores a dig sighted through rock live in the observed-memory store: rows with enclosed: true. Its scan walks every
+			// remembered block, so it runs at most every KNOWN_ORE_MS per agent, not on every sample.
+			if (!(Date.now() - (memory.knownOresAt ?? 0) < KNOWN_ORE_MS)) {
+				memory.knownOresAt = Date.now();
+				const known = this.#occupancy?.knownSources?.(agentId, observation, /_ore$|^minecraft:ancient_debris$/);
+				if (known?.blocks?.length) rememberKnownBlocks(memory, observation, known.blocks, { now: Date.now() });
+			}
+		} catch { /* a malformed sample adds nothing */ }
+	}
+
+	/** Sources this agent has seen in its current world (seen-resources.mjs rows, nearest first from `observation`). */
+	resourcesFor(agentId, query = {}, observation = this.#observations.get(agentId)?.observation ?? {}) {
+		return knownResources(this.#resources.get(agentId) ?? newResourceMemory(), observation, query);
+	}
+
+	/** The observation a helper reads, with the sources seen so far (seenResources, nearest first) attached. */
+	#withResources(agentId, observation) {
+		const memory = this.#resources.get(agentId);
+		if (!memory || !observation || typeof observation !== 'object') return observation;
+		// Read only: the memory is updated once per stored observation (#storeObservation), never again per helper read.
+		return { ...observation, seenResources: knownResources(memory, observation) };
+	}
+
 	updateObservation(record, observation, options = {}) {
 		const stored = this.#storeObservation(record, observation, options);
 		if (stored) this.#notePublishedSample(record);
@@ -381,6 +427,9 @@ export class NativeToolRuntime {
 			? Math.max(eventSequence, latest.eventSequence)
 			: eventSequence;
 		const raw = mergeDeathObservation(observation ?? {}, this.#lastLive.get(record.agentId));
+		// A structure row shows only for 30 s after it is first seen: keep every one from every sample, so a later obtain
+		// still knows the village it started in (loot-sources.mjs).
+		if (raw?.sighted?.structures?.length > 0) { try { rememberStructures(this.#obtainMemory(record.agentId, raw).looted, raw); } catch { /* memory cannot stop a sample */ } }
 		// Keep one owned raw snapshot for both internal consumers. Public snapshot
 		// methods still clone at their boundaries, so sharing here does not expose
 		// mutable coordinator state while avoiding a duplicate deep copy per update.
@@ -412,6 +461,7 @@ export class NativeToolRuntime {
 		// A quiet heartbeat is a new sighting. Ingest only its supplied spatial
 		// facts (without a snapshot), so absent identities/properties keep their age.
 		this.#rememberSpatial(record.agentId, storedObservation);
+		this.#rememberResources(record.agentId, storedObservation);
 		const player = storedObservation.player;
 		if (player?.skyOpen === true && player.onGround !== false && [player.x, player.y, player.z].every(Number.isFinite)) {
 			this.#openSky.set(record.agentId, { x: player.x, y: player.y, z: player.z, dimension: storedObservation.world?.dimension ?? null });
@@ -2635,9 +2685,17 @@ export class NativeToolRuntime {
 				if (!current()) throw codedError('NATIVE_ACTION_CANCELLED', 'obtain cancelled');
 				const facts = await this.#observe(record, { includeMetadata: false, deliver: false });
 				if (facts.freshness?.fresh !== true) throw codedError('FRESH_OBSERVATION_REQUIRED', 'obtain needs a fresh observation at each step');
-				return facts.observation ?? {};
+				return this.#withResources(record.agentId, facts.observation ?? {});
 			},
+			resources: (query = {}) => this.resourcesFor(record.agentId, query),
 			act: (actionType, args) => run('act', { actionType, arguments: args }),
+			// Closing a screen obtain opened (a looted chest) goes out even once danger has latched: run() refuses every other
+			// move then, and an open chest screen would be left in front of the reflexes.
+			closeMenu: async (args) => {
+				if (!current()) return { state: 'CANCELLED', reasonCode: 'NATIVE_ACTION_CANCELLED' };
+				try { return await this.#executeAction(request, record, normalizeMinecraftToolCall('act', { actionType: 'menu_close', arguments: args }), steps); }
+				catch (error) { return { state: 'FAILED', reasonCode: error?.code ?? 'ACTION_ERROR', message: String(error?.message ?? error).slice(0, 300) }; }
+			},
 			mine: (args) => run('mine', args),
 			moveTo: (args) => run('moveTo', args),
 			gather: async ({ itemIds, ...args }) => {
@@ -2653,6 +2711,8 @@ export class NativeToolRuntime {
 			// A place obtain could not reach (an ore across a cave): kept with the searches' missed places, so find no longer
 			// reports it or its vein as a sighting.
 			missPlace: (place, why) => this.#searchBody(request, record, executionEpoch, blockingRun, 'obtain').missPlace(place, why),
+			// A look round before deciding where a source is: what it shows joins the seen resources (seen-resources.mjs).
+			look: (args) => this.#searchBody(request, record, executionEpoch, blockingRun, 'obtain').look(args),
 			// The last open-sky spot the body stood on (kept from every sample): a way out of water it filled in with no dry
 			// ground stood on during this obtain.
 			openSky: () => this.#searchBody(request, record, executionEpoch, blockingRun, 'obtain').openSky(),
@@ -2684,6 +2744,26 @@ export class NativeToolRuntime {
 				} catch { /* the sample's own rows still serve */ }
 				return rows;
 			},
+			// The open menu (a chest obtain opened to loot): its identity and slots, one page.
+			// The open menu's identity and the container's own slots (all before the player's 36), page by page.
+			menu: async () => {
+				const rows = (page) => Array.isArray(page?.entries) ? page.entries : page?.entries?.$rows ? page.entries.$rows.rows.map((row) => Object.fromEntries(page.entries.$rows.columns.map((column, index) => [column, row[index]]))) : [];
+				const first = await this.#inspect({ kind: 'inspect', section: 'menu', offset: 0, limit: MENU_PAGE }, record, { withSearch: false });
+				const size = first?.menu?.slotCount;
+				const container = Number.isSafeInteger(size) ? Math.max(0, size - 36) : 0;
+				const entries = rows(first);
+				// The server also caps a page's bytes: follow its nextOffset, never a fixed stride, so no slot is skipped.
+				let offset = Number.isSafeInteger(first?.coverage?.nextOffset) ? first.coverage.nextOffset : entries.length;
+				for (let pages = 0; offset < container && pages < 12; pages++) {
+					const page = await this.#inspect({ kind: 'inspect', section: 'menu', offset, limit: Math.min(MENU_PAGE, container - offset) }, record, { withSearch: false });
+					if (page?.menu?.stateId !== first?.menu?.stateId) break;
+					const more = rows(page);
+					if (more.length === 0) break;
+					entries.push(...more);
+					offset = Number.isSafeInteger(page?.coverage?.nextOffset) ? page.coverage.nextOffset : offset + more.length;
+				}
+				return { ...first, entries };
+			},
 			stopped: () => !current(),
 			interrupted,
 			// The fork that stopped this run ({reasonCode, message}), or null for danger: obtain ends with its code.
@@ -2696,9 +2776,9 @@ export class NativeToolRuntime {
 		};
 		// Stations an earlier obtain placed and did not pick up (danger ended it) are this call's to pick up, and the
 		// furnace loads it left smelting are this call's to take out. Flooded approaches share this per-agent ledger.
-		if (!this.#obtainPlaced.has(record.agentId)) this.#obtainPlaced.set(record.agentId, { placed: [], loads: [], approaches: [] });
-		const kept = this.#obtainPlaced.get(record.agentId);
-		const stations = { now: this.#stepNow, placed: kept.placed, loads: kept.loads, approaches: kept.approaches };
+		// Chests opened and structures searched for loot (loot-sources.mjs) are kept the same way, so no call loots twice.
+		const kept = this.#obtainMemory(record.agentId, this.#observations.get(record.agentId)?.observation ?? null);
+		const stations = { now: this.#stepNow, placed: kept.placed, loads: kept.loads, approaches: kept.approaches, looted: kept.looted };
 		const result = await runObtain(tool.arguments, body, stations);
 		if (!this.#kitHabit || result?.state !== 'SUCCEEDED' || interrupted() || !current()) return result;
 		// The kit habit (kit-habit.mjs): from what is held, keep a shield, armour and food in reach before handing back.
@@ -2791,8 +2871,18 @@ export class NativeToolRuntime {
 				await step({ name: 'act', arguments: { actionType: 'look_at', arguments: { x: last.x + 0.5, y: last.y + 1.5, z: last.z + 0.5 } } }, 'look up the trunk');
 				continue;
 			}
+			// Seen before and out of the 6-block observation now (a village's cobblestone obtain chose): walk to the nearest
+			// remembered cell of what is wanted, from the agent's one seen-resource memory.
 			if (target === null) {
-				const search = { include: [...wanted].slice(0, 4).map((id) => `blocks:${id}`), limit: 8 };
+				const known = this.resourcesFor(record.agentId, { ids: [...wanted], kinds: ['block'] }, o)
+					.find((row) => row.placed === true && !failed.has(`${row.x},${row.y},${row.z}`) && Math.hypot(row.x + 0.5 - body.x, row.z + 0.5 - body.z) <= radius);
+				if (known !== undefined) target = { x: known.x, y: known.y, z: known.z, blockId: known.id, far: true };
+			}
+			// Bulk terrain (stone, dirt) is not searchable, and one such id makes the server refuse the whole search: only
+			// searchable ids go in, and with none there is no search.
+			const searchable = [...wanted].filter((id) => !UNSEARCHABLE_BLOCKS.has(id));
+			if (target === null && searchable.length > 0) {
+				const search = { include: searchable.slice(0, 4).map((id) => `blocks:${id}`), limit: 8 };
 				const rowsOf = (result) => (result?.survey?.blocks ?? []).filter((row) => wanted.has(row?.blockId) && [row.x, row.y, row.z].every(Number.isSafeInteger)
 					&& !failed.has(`${row.x},${row.y},${row.z}`) && Math.hypot(row.x + 0.5 - body.x, row.z + 0.5 - body.z) <= radius);
 				let rows = [];
@@ -2876,8 +2966,9 @@ export class NativeToolRuntime {
 				live();
 				const facts = await this.#observe(record, { includeMetadata: false, deliver: false });
 				if (facts.freshness?.fresh !== true) throw codedError('FRESH_OBSERVATION_REQUIRED', `${label} needs a fresh observation at each step`);
-				return facts.observation ?? {};
+				return this.#withResources(agentId, facts.observation ?? {});
 			},
+			resources: (query = {}) => this.resourcesFor(agentId, query, latest()),
 			look: async ({ pitch, survey }) => {
 				live();
 				steps += 1;
@@ -3368,6 +3459,11 @@ export class NativeToolRuntime {
 		const moved = latest !== undefined && (active.worldId != null && latest.world?.worldId !== active.worldId || active.dimension != null && latest.world?.dimension !== active.dimension);
 		// Game ticks are per world: after a move, the latest sample's tick is not a clock of the dispatch world, so it is dropped.
 		const dispatched = latest === undefined ? undefined : { ...latest, ...(moved ? { worldTick: undefined } : {}), world: { ...(moved ? (({ gameTime, ...world }) => world)(latest.world ?? {}) : latest.world), ...(active.worldId == null ? {} : { worldId: active.worldId }), ...(active.dimension == null ? {} : { dimension: active.dimension }) } };
+		// A source the agent broke or mined is gone (air is never a sampled row, so no later sample withdraws it).
+		const resourceMemory = this.#resources.get(record.agentId);
+		if (resourceMemory !== undefined && dispatched !== undefined && (active.worldId == null || resourceMemory.worldId === active.worldId)) {
+			forgetResourceResult(resourceMemory, dispatched, { actionType: active.actionType, arguments: active.arguments, state, reasonCode, message: payload.message ?? null });
+		}
 		this.#occupancy.recordResourceResult?.(record.agentId, dispatched, { actionType: active.actionType, arguments: active.arguments, state, reasonCode, message: payload.message ?? null, observedAtEpochMs: payload.observedAtEpochMs ?? null });
 		this.#placedWorkstations.onActionResult(record.agentId, { actionType: active.actionType, arguments: active.arguments, state, observedAtEpochMs: payload.observedAtEpochMs, actionObservation: payload.actionObservation }, dispatched);
 		this.#dugStairs.onActionResult(record.agentId, { actionType: active.actionType, arguments: active.arguments, from: active.from ?? null, to: endedAt ?? observationPosition(latest),
@@ -3472,6 +3568,7 @@ export class NativeToolRuntime {
 			this.#placedWorkstations.clear(agentId);
 			this.#lastSweeps.delete(agentId);
 			this.#missedPlaces.delete(agentId);
+			this.#resources.delete(agentId);
 			this.#dugStairs.clear(agentId);
 			this.#lastLive.delete(agentId);
 			this.#receipts.delete(agentId);

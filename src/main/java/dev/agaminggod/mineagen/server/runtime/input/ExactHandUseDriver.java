@@ -14,8 +14,12 @@ final class ExactHandUseDriver {
 	private final Map<AgentId, UseState> states = new LinkedHashMap<>();
 	private final Map<AgentId, Long> lastExecutionTicks = new LinkedHashMap<>();
 	private final Map<AgentId, Long> acceptedUses = new LinkedHashMap<>();
+	private final Map<AgentId, String> acceptedTargets = new LinkedHashMap<>();
 
 	long acceptedUses(AgentId agentId) { return acceptedUses.getOrDefault(agentId, 0L); }
+
+	/** What the last accepted use went to when a block or entity took the click, or null when the held item acted in the air. */
+	String lastAcceptedTarget(AgentId agentId) { return acceptedTargets.get(agentId); }
 
 	void start(AgentId agentId, InteractionHand hand, PlayerUseAccess player) {
 		Objects.requireNonNull(agentId, "agentId must not be null");
@@ -65,7 +69,8 @@ final class ExactHandUseDriver {
 			if (player.usedHand() == hand) return true;
 			player.releaseUsingItem();
 		}
-		TargetAttempt target = switch (Objects.requireNonNull(player.target(), "target must not be null")) {
+		TargetKind kind = Objects.requireNonNull(player.target(), "target must not be null");
+		TargetAttempt target = switch (kind) {
 			case BLOCK -> player.useBlock(hand);
 			case ENTITY -> player.useEntity(hand);
 			case MISS -> TargetAttempt.pass();
@@ -73,12 +78,14 @@ final class ExactHandUseDriver {
 		Objects.requireNonNull(target, "target attempt must not be null");
 		if (target.consumed()) {
 			acceptedUses.merge(agentId, 1L, Long::sum);
+			acceptedTargets.put(agentId, Objects.requireNonNullElse(player.targetName(), kind.name().toLowerCase(java.util.Locale.ROOT)));
 			if (target.swing()) player.swing(hand);
 			state.cooldownTicks = REPEAT_COOLDOWN_TICKS;
 			return true;
 		}
 		if (!player.useItem(hand)) return false;
 		acceptedUses.merge(agentId, 1L, Long::sum);
+		acceptedTargets.remove(agentId);
 		state.cooldownTicks = REPEAT_COOLDOWN_TICKS;
 		return true;
 	}
@@ -94,6 +101,7 @@ final class ExactHandUseDriver {
 		states.remove(agentId);
 		lastExecutionTicks.remove(agentId);
 		acceptedUses.remove(agentId);
+		acceptedTargets.remove(agentId);
 	}
 
 	interface PlayerUseAccess {
@@ -104,6 +112,9 @@ final class ExactHandUseDriver {
 		void releaseUsingItem();
 
 		TargetKind target();
+
+		/** The block or entity the last target() ray met, such as "block minecraft:oak_door at 1,64,2". */
+		default String targetName() { return null; }
 
 		TargetAttempt useBlock(InteractionHand hand);
 

@@ -1168,6 +1168,17 @@
    "reads": "OUT/result-summary.json"
   },
   {
+   "room": "water-detour-escape",
+   "fixture": "test-water-live.mjs",
+   "stage": "early",
+   "skill": "movement",
+   "skill2": "survival",
+   "line": "node scripts/quality/test-water-live.mjs $OUT $JAR 1 detour-escape --descriptive",
+   "estMinutes": 1.5,
+   "tickRate": 20,
+   "reads": "OUT/result-summary.json: the escape job (do_step escape) from under a solid block with about 4 s of air and the way up one block east got the body out (SUCCEEDED), no death, no health lost"
+  },
+  {
    "room": "water-waterfall",
    "fixture": "test-water-live.mjs",
    "stage": "early",
@@ -3251,6 +3262,28 @@
    "estMinutes": 6,
    "tickRate": 20,
    "reads": "OUT/result.json row pass: the last obtain ended OBTAINED with no death; the call is asked again after a DANGER hand-back, as a model re-asks"
+  },
+  {
+   "room": "village-stone-pickaxe",
+   "fixture": "test-find-live.mjs",
+   "stage": "early",
+   "skill": "mining",
+   "skill2": null,
+   "line": "FIND_ONLY=village-stone-5596 node scripts/quality/test-find-live.mjs scripts/quality/village-spots.json $OUT $JAR --descriptive",
+   "estMinutes": 3,
+   "tickRate": 20,
+   "reads": "OUT/result.json row pass: obtain stone_pickaxe from nothing ended OBTAINED, no death, and no dig_to stairs_down (stone from the village, not dug for)"
+  },
+  {
+   "room": "village-stone-tree",
+   "fixture": "test-find-live.mjs",
+   "stage": "early",
+   "skill": "mining",
+   "skill2": null,
+   "line": "FIND_ONLY=village-stone-tree-5596 node scripts/quality/test-find-live.mjs scripts/quality/village-spots.json $OUT $JAR --descriptive",
+   "estMinutes": 3,
+   "tickRate": 20,
+   "reads": "OUT/result.json row pass: from the oak tree where the playtest bot began its stone step (wooden pickaxe, sticks, planks held), obtain stone_pickaxe ended OBTAINED with no dig_to stairs_down"
   }
  ]
 }

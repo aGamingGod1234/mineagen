@@ -281,6 +281,16 @@ test('boot() proposes the survival the goal text asks for and follows a revision
 	assert.match(await readFile(path.join(quality, 'run-incident.mjs'), 'utf8'), /followRevision: false/);
 });
 
+test('a spot that forbids an action fails when the body took it, whatever the last call ended', () => {
+	const spot = { expectCode: 'OBTAINED', forbid: [{ actionType: 'dig_to', pattern: 'stairs_down' }] };
+	const ok = { calls: [{ reasonCode: 'OBTAINED', state: 'SUCCEEDED' }], deaths: 0, actions: [{ type: 'dig_to', args: { pattern: 'tunnel' } }] };
+	assert.equal(findSpotVerdict(spot, ok).pass, true);
+	const dug = { ...ok, actions: [{ type: 'dig_to', args: { pattern: 'stairs_down', y: 70 } }] };
+	const verdict = findSpotVerdict(spot, dug);
+	assert.equal(verdict.pass, false);
+	assert.match(verdict.failReason, /dig_to stairs_down, which this spot forbids/);
+});
+
 test('a spot with a final-probe expectation fails when the ground truth after the calls does not match', () => {
 	const spot = { expectCode: 'OBTAINED', expectFinalProbe: [{ index: 0, match: 'Test passed' }] };
 	const row = { calls: [{ reasonCode: 'OBTAINED', state: 'SUCCEEDED' }], deaths: 0, finalProbe: ['Test passed'] };
@@ -289,4 +299,11 @@ test('a spot with a final-probe expectation fails when the ground truth after th
 	assert.equal(left.pass, false);
 	assert.match(left.failReason, /final probe 0 replied "Test failed"/);
 	assert.equal(findSpotVerdict(spot, { ...row, finalProbe: undefined }).pass, false, 'no probe reply is no pass');
+});
+
+test('a spot can require the body to end out of a pocket (minEndY)', () => {
+	const spot = { expectCode: 'OBTAINED', minEndY: 14.9 };
+	const row = (y) => ({ calls: [{ reasonCode: 'OBTAINED', state: 'SUCCEEDED' }], deaths: 0, end: [298.5, y, -260.5] });
+	assert.equal(findSpotVerdict(spot, row(15)).pass, true);
+	assert.match(findSpotVerdict(spot, row(13)).failReason, /ended at y13.0, below y14.9/);
 });
