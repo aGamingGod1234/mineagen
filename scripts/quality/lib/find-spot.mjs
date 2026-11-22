@@ -64,6 +64,11 @@ export function findSpotVerdict(spot = {}, row = {}) {
 		if (Number.isFinite(row.damageTaken) && row.damageTaken > 0) misses.push(`took ${row.damageTaken} HP damage`);
 	}
 	if (row.deaths !== 0) misses.push(Number.isFinite(row.deaths) ? `${row.deaths} deaths` : 'deaths unknown');
+	// forbid: [{ actionType, pattern? }] body actions the spot must not take (a village start never digs down for stone).
+	for (const rule of Array.isArray(spot.forbid) ? spot.forbid : []) {
+		const hits = (row.actions ?? []).filter((action) => action?.type === rule.actionType && (rule.pattern === undefined || action?.args?.pattern === rule.pattern)).length;
+		if (hits > 0) misses.push(`${hits}x ${rule.actionType}${rule.pattern ? ` ${rule.pattern}` : ''}, which this spot forbids`);
+	}
 	const pass = misses.length === 0;
 	const stood = notPlayed({ searched, found, lastFind, pass, calls, spot, row });
 	// When the target was seen: the end of the find that saw it, not of whatever call came after it.

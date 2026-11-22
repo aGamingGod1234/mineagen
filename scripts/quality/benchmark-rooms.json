@@ -3251,6 +3251,17 @@
    "estMinutes": 6,
    "tickRate": 20,
    "reads": "OUT/result.json row pass: the last obtain ended OBTAINED with no death; the call is asked again after a DANGER hand-back, as a model re-asks"
+  },
+  {
+   "room": "village-stone-pickaxe",
+   "fixture": "test-find-live.mjs",
+   "stage": "early",
+   "skill": "mining",
+   "skill2": null,
+   "line": "FIND_ONLY=village-stone-5596 node scripts/quality/test-find-live.mjs scripts/quality/village-spots.json $OUT $JAR --descriptive",
+   "estMinutes": 3,
+   "tickRate": 20,
+   "reads": "OUT/result.json row pass: obtain stone_pickaxe from nothing ended OBTAINED, no death, and no dig_to stairs_down (stone from the village, not dug for)"
   }
  ]
 }
