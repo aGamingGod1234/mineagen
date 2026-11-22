@@ -636,7 +636,8 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 			// starts from there.
 			if (call.setup) break;
 			// An optional route step (the shield) that could not be done: the chain goes on without it, as a player would.
-			if (call.optional) { (row.skipped ??= []).push({ call: callIndex, code: entry.reasonCode }); break; }
+			// skippedSteps, never skipped: a row with skipped set is a room the fixture never played (roomVerdict SKIPPED).
+			if (call.optional) { (row.skippedSteps ??= []).push({ call: callIndex, code: entry.reasonCode }); break; }
 			break calls;
 		}
 		const last = row.calls.at(-1);
