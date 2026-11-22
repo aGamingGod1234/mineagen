@@ -64,7 +64,7 @@ export function decisionFiles(raw) {
 }
 
 /** First lava shown to the model and first PORTAL_LIT result, in ms since the epoch, from the decision log. */
-function logMilestones(raw) {
+export function logMilestones(raw) {
 	let lavaSeen = null, portalLit = null;
 	for (const file of decisionFiles(raw)) {
 		for (const line of readFileSync(file, 'utf8').split('\n')) {

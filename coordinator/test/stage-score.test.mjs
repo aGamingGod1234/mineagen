@@ -271,3 +271,89 @@ test('the long-run capture keeps agent_death rows, so a death\'s record survives
 	const row = { event: 'agent_death', agentId: 'a', cause: 'a drowned' };
 	assert.equal(longTraceRow(row), row);
 });
+
+test('game facts: milestones, a fall into lava with what ran at its top, the respawn, the End fight and model use per milestone', async () => {
+	const { mechanismTable } = await import('../../scripts/quality/lib/game-facts.mjs');
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'stage-facts-'));
+	try {
+		const t0 = 1_000_000, min = (m) => t0 + m * 60_000;
+		const iron = '[{id: "minecraft:iron_helmet", count: 1}, {id: "minecraft:iron_chestplate", count: 1}, {id: "minecraft:iron_leggings", count: 1}, {id: "minecraft:iron_boots", count: 1}]';
+		const sample = (m, extra) => ({ at: min(m), health: 20, deathCounter: 0, dimension: 'minecraft:overworld', position: { x: 0, y: 64, z: 0 }, inventoryNbt: '[]', equipmentNbt: iron, ...extra });
+		await writeFile(path.join(dir, 'quality-samples.jsonl'), [
+			sample(0, { inventoryNbt: inventory({ oak_log: 2 }) }),
+			sample(2, { inventoryNbt: inventory({ flint_and_steel: 1 }) }),
+			sample(4, { dimension: 'minecraft:the_nether', position: { x: 0, y: 70, z: 0 }, inventoryNbt: inventory({ blaze_rod: 3 }) }),
+			sample(5, { dimension: 'minecraft:the_nether', position: { x: 0, y: 31, z: 0 }, health: 0, deathCounter: 1 }),
+			sample(5.5, { position: { x: 10, y: 64, z: 10 }, deathCounter: 1, equipmentNbt: '[]', inventoryNbt: inventory({ ender_eye: 12, ender_pearl: 2 }) }),
+			sample(8, { advancements: ['story/follow_ender_eye'], deathCounter: 1, equipmentNbt: '[]', inventoryNbt: inventory({ ender_eye: 1 }) }),
+			sample(10, { dimension: 'minecraft:the_end', position: { x: 100, y: 49, z: 0 }, deathCounter: 1, equipmentNbt: '[]', inventoryNbt: inventory({ bow: 1 }) }),
+			sample(14, { dimension: 'minecraft:the_end', position: { x: 0, y: 64, z: 0 }, deathCounter: 1, equipmentNbt: '[]' }),
+		].map(s => JSON.stringify(s)).join('\n') + '\n');
+		const command = (m, actionType) => ({ observedAtMs: min(m), envelope: { type: 'action_command', agentId: 'a', payload: { actionId: `${actionType}-${m}`, actionType } } });
+		await writeFile(path.join(dir, 'quality-protocol.jsonl'), [
+			{ observedAtMs: t0, envelope: { type: 'goal_control', agentId: 'a', payload: { operation: 'start', updatedAtEpochMs: t0 } } },
+			command(1, 'use_ranged'), command(11, 'use_ranged'), command(12, 'use_ranged'), command(12.5, 'travel_to'),
+		].map(r => JSON.stringify(r)).join('\n') + '\n');
+		const died = min(5) - 500;
+		const trail = [{ s: -6, health: 20, y: 70, action: 'travel_to', reflex: null }, { s: -4, health: 20, y: 70, action: 'travel_to', reflex: 'default-defend' }, { s: -1, health: 14, y: 45, action: 'travel_to', reflex: null }];
+		await writeFile(path.join(dir, 'coordinator.jsonl'), [
+			{ event: 'agent_death', agentId: 'a', goalRevision: 1, at: died + 10, diedAtEpochMs: died, cause: 'a tried to swim in lava', damageType: 'minecraft:lava', dimension: 'minecraft:the_nether', position: { x: 0, y: 31, z: 0 }, armor: 15, action: { type: 'travel_to' }, reflex: null, trail },
+			...[0.5, 3, 9, 11].map((m) => ({ event: 'native_model_call', agentId: 'a', goalRevision: 1, at: min(m), totalMs: 2000, inputTokens: 1000, cachedInputTokens: 600 })),
+		].map(r => JSON.stringify(r)).join('\n') + '\n');
+		await mkdir(path.join(dir, 'arena-watch'));
+		await writeFile(path.join(dir, 'arena-watch', 'a-progress.jsonl'), [
+			{ type: 'progress', atMs: min(10.5), dim: 'minecraft:the_end', targets: { dragon: { health: 200 }, crystals: { left: 10 } } },
+			{ type: 'progress', atMs: min(12), dim: 'minecraft:the_end', targets: { dragon: { health: 170 }, crystals: { left: 8 } } },
+			{ type: 'progress', atMs: min(13), dim: 'minecraft:the_end', targets: { dragon: { health: 180 }, crystals: { left: 8 } } },
+		].map(r => JSON.stringify(r)).join('\n') + '\n');
+		await writeFile(path.join(dir, 'decision-1-a.jsonl'), [
+			{ time: min(3), type: 'input', text: 'lava seen nearby' },
+			{ time: min(3.5), type: 'action_result', result: { reasonCode: 'PORTAL_LIT' } },
+		].map(r => JSON.stringify(r)).join('\n') + '\n');
+		const { game, deathRecords } = await scoreStageRun(dir);
+		assert.equal(deathRecords.length, 1);
+		assert.deepEqual(Object.fromEntries(['wood', 'flint_and_steel', 'lava_seen', 'portal_lit', 'nether', 'stronghold', 'end', 'dragon'].map(id => [id, game.milestones[id]?.minute ?? null])),
+			{ wood: 0, flint_and_steel: 2, lava_seen: 3, portal_lit: 3.5, nether: 4, stronghold: 8, end: 10, dragon: null });
+		const [death] = game.deaths;
+		assert.equal(death.dimension, 'minecraft:the_nether');
+		assert.equal(death.repeat, false);
+		assert.equal(death.armour, 15);
+		assert.deepEqual(death.fall && { blocks: death.fall.blocks, top: death.fall.actionAtTop, reflex: death.fall.reflexAtTop, health: death.fall.healthAtTop }, { blocks: 39, top: 'travel_to', reflex: null, health: 20 },
+			'the top is the earliest highest point of the trail, 39 blocks above the death');
+		assert.equal(death.respawn.dimension, 'minecraft:overworld');
+		assert.deepEqual(death.respawn.position, { x: 10, y: 64, z: 10 });
+		const [row] = game.deathMechanisms;
+		assert.deepEqual({ cause: row.cause, deaths: row.deaths, fell4: row.fell4, fell20: row.fell20, full: row.fullHealthAtTop, first: row.first, actions: row.actionAtTop }, { cause: 'lava', deaths: 1, fell4: 1, fell20: 1, full: 1, first: 1, actions: { travel_to: 1 } });
+		assert.deepEqual({ ...game.end, basis: undefined, rangedBasis: undefined, enteredAt: undefined }, { enteredAt: undefined, enteredMinute: 10, rangedCommands: 2, rangedCommandsBeforeEnd: 1, rangedBasis: undefined,
+			dragonSeenRows: 3, dragonHealthMin: 170, dragonHealthLast: 180, crystalsLeftMax: 10, crystalsLeftMin: 8, crystalsGone: 2, deathsInEnd: 0, deathsAfterEntry: 0, strongholdToEndMin: 2, dragonKilled: false, basis: undefined });
+		assert.deepEqual(game.peakHeld, { blaze_rod: 3, ender_pearl: 2, ender_eye: 12 });
+		assert.equal(game.rangedCommands, 3);
+		assert.deepEqual({ calls: game.modelUse.calls, inputTokens: game.modelUse.inputTokens }, { calls: 4, inputTokens: 4000 });
+		assert.deepEqual(game.modelUse.byMilestone.nether, { calls: 2, inputTokens: 2000, cachedInputTokens: 1200 });
+		assert.deepEqual(game.modelUse.byMilestone.end, { calls: 3, inputTokens: 3000, cachedInputTokens: 1800 });
+		// Summed over games, a repeat death and a short drop land in their own columns.
+		const table = mechanismTable([...game.deaths, { ...death, repeat: true, fall: { ...death.fall, blocks: 2 } }]);
+		assert.deepEqual({ deaths: table[0].deaths, first: table[0].first, repeat: table[0].repeat, measured: table[0].measuredFall, fell4: table[0].fell4 }, { deaths: 2, first: 1, repeat: 1, measured: 2, fell4: 1 });
+	} finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('game facts stay unknown without their evidence: no End entry, no decision log, no trail, no samples', async () => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'stage-facts-none-'));
+	try {
+		assert.equal((await scoreStageRun(dir)).game.peakHeld, null, 'no samples: peak holdings unknown, not zero');
+		await writeFile(path.join(dir, 'quality-samples.jsonl'), [{ at: 1000, health: 20, deathCounter: 0, dimension: 'minecraft:overworld', position: { x: 0, y: 70, z: 0 }, inventoryNbt: '[]' },
+			{ at: 4000, health: 20, deathCounter: 0, dimension: 'minecraft:overworld', position: { x: 0, y: 60, z: 0 }, inventoryNbt: '[]' },
+			{ at: 6000, health: 0, deathCounter: 1, dimension: 'minecraft:overworld', position: { x: 0, y: 60, z: 0 }, inventoryNbt: '[]' }].map(s => JSON.stringify(s)).join('\n') + '\n');
+		const { game } = await scoreStageRun(dir);
+		assert.equal(game.end, null);
+		assert.equal('lava_seen' in game.milestones, false, 'no decision log: lava seen is not measured, so its key stays out');
+		assert.equal(game.modelUse, null);
+		assert.equal(game.rangedCommands, null, 'no protocol: ranged commands unknown');
+		const [death] = game.deaths;
+		assert.equal(death.action, null);
+		assert.equal(death.fall.blocks, 10, 'without a death row trail the samples give the height');
+		assert.equal(death.fall.actionAtTop, null);
+		assert.equal(death.respawn, null);
+		assert.equal(death.armour, null);
+	} finally { await rm(dir, { recursive: true, force: true }); }
+});

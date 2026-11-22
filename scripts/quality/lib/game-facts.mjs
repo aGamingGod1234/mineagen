@@ -1,0 +1,184 @@
+// Whole-game facts for stage-score.mjs: when each milestone was first seen, how each death happened (fall height, what
+// was running at the top of the fall, dimension, first or repeat, where the body respawned), the End fight, the most
+// rods, pearls and eyes held, and model calls and input tokens spent before each milestone.
+// The scorer feeds rows from its existing passes; finish() reads only those compact rows. null always means "not
+// observed": a game with no End entry has no End numbers, and a death with no height evidence has no fall height.
+import { itemCount } from '../../../coordinator/src/benchmark/quality-metrics.mjs';
+import { LONG_RUN_MILESTONES } from '../../../coordinator/src/benchmark/long-run.mjs';
+import { classifyDeath } from './death-causes.mjs';
+
+const finite = Number.isFinite;
+const END = 'minecraft:the_end';
+// A fall counts from this many blocks: lower drops are steps and stairs.
+export const FALL_BLOCKS = 4;
+export const LONG_FALL_BLOCKS = 20;
+// How far back a death looks for the top of its fall in the samples when the coordinator's death row has no trail.
+// The death row's own trail covers about the last 10 s.
+const FALL_LOOKBACK_MS = 10_000;
+// Armour points per piece, vanilla values (the agent_death row's armor field is the same total).
+const ARMOUR = { leather: [1, 3, 2, 1], golden: [2, 5, 3, 1], chainmail: [2, 5, 4, 1], iron: [2, 6, 5, 2], diamond: [3, 8, 6, 3], netherite: [3, 8, 6, 3] };
+const PIECES = ['helmet', 'chestplate', 'leggings', 'boots'];
+const PEAK_ITEMS = { blaze_rod: 'blaze_rod', ender_pearl: 'ender_pearl', ender_eye: 'ender_eye' };
+const minutes = (ms) => finite(ms) ? Math.round(ms / 6000) / 10 : null;
+const round1 = (n) => finite(n) ? Math.round(n * 10) / 10 : null;
+const short = (dimension) => typeof dimension === 'string' ? dimension.replace(/^minecraft:(the_)?/, '') : 'unknown';
+
+/** Armour points from a sample's equipment text, or null when the sample has none. */
+export function armourPoints(equipmentNbt) {
+	if (typeof equipmentNbt !== 'string' || !equipmentNbt.trim().startsWith('[')) return null;
+	let total = 0;
+	for (const [material, points] of Object.entries(ARMOUR)) PIECES.forEach((piece, i) => { total += points[i] * Math.min(1, itemCount(equipmentNbt, new RegExp(`^minecraft:${material}_${piece}$`))); });
+	if (itemCount(equipmentNbt, /^minecraft:turtle_helmet$/) > 0) total += 2;
+	return total;
+}
+
+/** The top of a fall in a list of { at, y, ... } points before a death at deathY: the highest point (earliest of ties). */
+function fallTop(points, deathY) {
+	let top = null;
+	for (const p of points) if (finite(p.y) && (!top || p.y > top.y)) top = p;
+	if (!top || !finite(deathY)) return null;
+	return { ...top, blocks: round1(Math.max(0, top.y - deathY)) };
+}
+
+/**
+ * One row per death: deaths are the scorer's deathRecords (at, cause evidence); trails are the coordinator's
+ * agent_death rows (dimension, position, armour, the running action and reflex, and a trail of the last ~10 s).
+ */
+export function describeDeaths(deaths, { trails = [], samples = [], startedAt = null } = {}) {
+	return deaths.map((death, index) => {
+		const trail = trails.find((row) => Math.abs(row.at - death.at) < 1500) ?? null;
+		const before = samples.filter((s) => s.at <= death.at + 1000 && s.at >= death.at - FALL_LOOKBACK_MS && s.health > 0);
+		const last = before.at(-1) ?? null;
+		const dimension = trail?.dimension ?? last?.dimension ?? null;
+		const position = trail?.position ?? last?.position ?? null;
+		const points = trail?.trail?.length
+			? trail.trail.map((p) => ({ at: death.at + (p.s ?? 0) * 1000, y: p.y, health: p.health ?? null, action: p.action ?? null, reflex: p.reflex ?? null }))
+			: before.filter((s) => s.dimension === dimension).map((s) => ({ at: s.at, y: s.position?.y, health: s.health, action: null, reflex: null }));
+		const top = fallTop(points, position?.y);
+		const respawn = samples.find((s) => s.at > death.at && s.health > 0 && (!finite(death.nextAt) || s.at < death.nextAt)) ?? null;
+		const fallDistance = before.filter((s) => s.dimension === dimension).reduce((m, s) => finite(s.fallDistance) ? Math.max(m ?? 0, s.fallDistance) : m, null);
+		return {
+			at: death.at, minute: finite(startedAt) ? minutes(death.at - startedAt) : null, ordinal: index + 1, repeat: index > 0,
+			cause: death.cause ?? classifyDeath(death).cause, dimension, position,
+			armour: trail?.armor ?? last?.armour ?? null, armourBasis: finite(trail?.armor) ? 'death row' : finite(last?.armour) ? 'last living sample' : null,
+			action: trail?.action ?? null, reflex: trail?.reflex ?? null,
+			fall: top ? { blocks: top.blocks, secondsBeforeDeath: round1((death.at - top.at) / 1000), healthAtTop: round1(top.health), actionAtTop: top.action, reflexAtTop: top.reflex,
+				basis: trail?.trail?.length ? 'death row trail (coordinator observations over the last ~10 s)' : 'samples over the last 10 s; running action unknown' } : null,
+			maxFallDistance: round1(fallDistance),
+			respawn: respawn ? { at: respawn.at, secondsAfterDeath: round1((respawn.at - death.at) / 1000), dimension: respawn.dimension ?? null, position: respawn.position ?? null } : null,
+		};
+	});
+}
+
+/**
+ * Deaths by mechanism, summed over any list of described deaths (one game or many): per dimension and cause, how
+ * many deaths, how many had a fall height, fell FALL_BLOCKS+ and LONG_FALL_BLOCKS+, were at full health at the top,
+ * first vs repeat deaths, and what was running at the top of each fall of FALL_BLOCKS+.
+ */
+export function mechanismTable(deaths) {
+	const rows = {};
+	for (const d of deaths) {
+		const key = `${short(d.dimension)} ${d.cause}`;
+		const row = rows[key] ??= { dimension: d.dimension ?? null, cause: d.cause, deaths: 0, first: 0, repeat: 0, measuredFall: 0, fell4: 0, fell20: 0, fullHealthAtTop: 0, actionAtTop: {}, reflexAtTop: {}, respawnDimension: {} };
+		row.deaths++; row[d.repeat ? 'repeat' : 'first']++;
+		if (d.respawn) row.respawnDimension[short(d.respawn.dimension)] = (row.respawnDimension[short(d.respawn.dimension)] ?? 0) + 1;
+		if (!d.fall) continue;
+		row.measuredFall++;
+		if (d.fall.blocks < FALL_BLOCKS) continue;
+		row.fell4++;
+		if (d.fall.blocks >= LONG_FALL_BLOCKS) row.fell20++;
+		if (d.fall.healthAtTop >= 20) row.fullHealthAtTop++;
+		const action = d.fall.actionAtTop ?? 'unknown', reflex = d.fall.reflexAtTop ?? 'none';
+		row.actionAtTop[action] = (row.actionAtTop[action] ?? 0) + 1;
+		row.reflexAtTop[reflex] = (row.reflexAtTop[reflex] ?? 0) + 1;
+	}
+	return Object.values(rows).sort((a, b) => b.deaths - a.deaths || a.cause.localeCompare(b.cause));
+}
+
+/** The facts collector. Feed it rows, then call finish() once. */
+export function gameFacts() {
+	const samples = [], trails = [], commands = [], progress = [], calls = [];
+	const firstSeen = {}, peak = Object.fromEntries(Object.keys(PEAK_ITEMS).map((k) => [k, null]));
+	return {
+		/** A quality sample after the scorer's own filters (window, agent, inventory cleared at death). */
+		sample(s) {
+			if (!finite(s?.at)) return;
+			const nbt = typeof s.inventoryNbt === 'string' && s.inventoryNbt.trim().startsWith('[') ? s.inventoryNbt : null;
+			samples.push({ at: s.at, health: s.health, dimension: s.dimension ?? null, position: s.position ?? null, fallDistance: s.fallDistance ?? null, armour: armourPoints(s.equipmentNbt) });
+			for (const m of LONG_RUN_MILESTONES) {
+				if (firstSeen[m.id] != null) continue;
+				const holds = m.item ? itemCount(`${s.inventoryNbt ?? ''}${s.equipmentNbt ?? ''}`, m.item) > 0 : m.dimension ? s.dimension === m.dimension : s.advancements?.includes(m.advancement) ?? false;
+				if (holds) firstSeen[m.id] = s.at;
+			}
+			if (nbt) for (const [key, id] of Object.entries(PEAK_ITEMS)) peak[key] = Math.max(peak[key] ?? 0, itemCount(nbt, new RegExp(`^minecraft:${id}$`)));
+		},
+		/** A coordinator agent_death trace row. */
+		deathRow(row) {
+			const at = row?.diedAtEpochMs ?? row?.at;
+			if (!finite(at) || trails.some((t) => Math.abs(t.at - at) < 1500)) return;
+			trails.push({ at, dimension: row.dimension ?? null, position: row.position ?? null, armor: finite(row.armor) ? row.armor : null, action: row.action?.type ?? null, reflex: row.reflex ?? null, trail: Array.isArray(row.trail) ? row.trail : [] });
+		},
+		/** An action_command envelope payload at its time. */
+		command(at, payload) { if (finite(at) && typeof payload?.actionType === 'string') commands.push({ at, actionType: payload.actionType, actionId: payload.actionId ?? null }); },
+		/** A Watcher progress row (arena-watch/<agent>-progress.jsonl). */
+		progress(row) {
+			if (row?.type !== 'progress' || !finite(row.atMs)) return;
+			const dragon = row.targets?.dragon, crystals = row.targets?.crystals;
+			if (row.dim !== END && !dragon && !crystals) return;
+			progress.push({ at: row.atMs, dimension: row.dim ?? null, dragonHealth: finite(dragon?.health) ? dragon.health : null, crystalsLeft: finite(crystals?.left) ? crystals.left : null });
+		},
+		/** A coordinator native_model_call row. */
+		modelCall(row) { if (finite(row?.at)) calls.push({ at: row.at, inputTokens: finite(row.inputTokens) ? row.inputTokens : null, cachedInputTokens: finite(row.cachedInputTokens) ? row.cachedInputTokens : null }); },
+		/**
+		 * deaths: the scorer's death records; inWindow(at) says whether a time is inside the scored window; logMilestones:
+		 * { lavaSeen, portalLit } epoch ms from the decision log, or null when the run kept no decision log.
+		 */
+		finish({ startedAt, deaths = [], observedDeaths = null, inWindow = () => true, logMilestones = null }) {
+			const at = (ms) => finite(ms) ? { at: ms, minute: finite(startedAt) ? minutes(ms - startedAt) : null } : null;
+			const milestones = Object.fromEntries(LONG_RUN_MILESTONES.map((m) => [m.id, at(firstSeen[m.id] ?? null)]));
+			// No decision log: lava seen and portal lit are not measured, so their keys stay out (never "not reached").
+			if (logMilestones) Object.assign(milestones, { lava_seen: at(logMilestones.lavaSeen), portal_lit: at(logMilestones.portalLit) });
+			const sorted = [...deaths].sort((a, b) => a.at - b.at).map((d, i, all) => ({ ...d, nextAt: all[i + 1]?.at ?? null }));
+			const described = describeDeaths(sorted, { trails, samples, startedAt });
+			const windowCommands = commands.filter((c) => inWindow(c.at));
+			const ranged = windowCommands.filter((c) => c.actionType === 'use_ranged');
+			const endAt = firstSeen.end ?? null;
+			let end = null;
+			if (finite(endAt)) {
+				const after = progress.filter((p) => p.at >= endAt && inWindow(p.at));
+				const dragon = after.map((p) => p.dragonHealth).filter(finite), crystals = after.map((p) => p.crystalsLeft).filter(finite);
+				end = { enteredAt: endAt, enteredMinute: finite(startedAt) ? minutes(endAt - startedAt) : null,
+					rangedCommands: ranged.filter((c) => c.at >= endAt).length, rangedCommandsBeforeEnd: ranged.filter((c) => c.at < endAt).length,
+					rangedBasis: 'use_ranged commands sent to the body; one command can loose several arrows',
+					dragonSeenRows: dragon.length, dragonHealthMin: dragon.length ? Math.min(...dragon) : null, dragonHealthLast: dragon.length ? dragon.at(-1) : null,
+					crystalsLeftMax: crystals.length ? Math.max(...crystals) : null, crystalsLeftMin: crystals.length ? Math.min(...crystals) : null,
+					crystalsGone: crystals.length ? Math.max(...crystals) - Math.min(...crystals) : null,
+					deathsInEnd: described.filter((d) => d.dimension === END).length, deathsAfterEntry: described.filter((d) => d.at >= endAt).length,
+					strongholdToEndMin: finite(firstSeen.stronghold) ? minutes(endAt - firstSeen.stronghold) : null,
+					dragonKilled: finite(firstSeen.dragon),
+					basis: progress.length ? 'Watcher progress rows (dragon health, crystals left) after the first End sample' : 'no Watcher progress rows: dragon and crystal numbers unknown' };
+				if (!progress.length) for (const key of ['dragonHealthMin', 'dragonHealthLast', 'crystalsLeftMax', 'crystalsLeftMin', 'crystalsGone']) end[key] = null;
+			}
+			const windowCalls = calls.filter((c) => inWindow(c.at));
+			const spent = (until) => {
+				const before = windowCalls.filter((c) => c.at <= until);
+				return { calls: before.length, inputTokens: before.reduce((n, c) => n + (c.inputTokens ?? 0), 0), cachedInputTokens: before.reduce((n, c) => n + (c.cachedInputTokens ?? 0), 0) };
+			};
+			const modelUse = windowCalls.length ? { ...spent(Infinity), callsWithoutTokens: windowCalls.filter((c) => c.inputTokens == null).length,
+				byMilestone: Object.fromEntries(Object.entries(milestones).filter(([, m]) => m).map(([id, m]) => [id, spent(m.at)])),
+				basis: 'native_model_call rows in the window: calls and input tokens up to and including each milestone\'s first observation' } : null;
+			return {
+				milestones,
+				deaths: described,
+				// Deaths seen only as a counter step have no record to describe: counted here, never dropped silently.
+				deathsWithoutRecord: finite(observedDeaths) ? Math.max(0, observedDeaths - described.length) : null,
+				deathMechanisms: mechanismTable(described),
+				end,
+				peakHeld: samples.length ? peak : null,
+				rangedCommands: commands.length ? ranged.length : null,
+				modelUse,
+				basis: { fall: `fall height = highest point in the last ~10 s before death minus the death height; a fall is ${FALL_BLOCKS}+ blocks`, milestones: 'first sample holding the item, in the dimension, or with the advancement; lava seen and portal lit from the decision log (gate-report logMilestones)' },
+			};
+		},
+	};
+}
