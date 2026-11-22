@@ -331,7 +331,12 @@ try {
 		if (healthSamples === 0) row.error = 'no health sample in the window';
 		if (last?.state === 'ERROR') row.error = `call never returned: ${last.reasonCode}`;
 		// pitcreeper-rim: no escape call may sit out its whole timeout guarding a creeper it cannot reach.
-		if (room === 'pitcreeper-rim') { row.pass = died === false && !results.some(r => r.startsWith('escape:TIMED_OUT')); if (!row.pass) row.failReason = died ? 'died' : 'an escape call ran to its deadline'; }
+		if (room === 'pitcreeper-rim') {
+			row.pass = died === false && !results.some(r => r.startsWith('escape:TIMED_OUT'));
+			if (!row.pass) row.failReason = died ? 'died' : 'an escape call ran to its deadline';
+			// No escape call the body ran: the room tested nothing (a long ESCAPE_THINK_MS can eat the window).
+			if (!results.some(r => r.startsWith('escape:')) || executed === 0) row.notExercised = 'no escape call ran in the window';
+		}
 		else row.pass = died === false && (room === 'skeleton' ? (row.damageTaken ?? Infinity) <= 6 && endSafe === true : safeAt !== null && endSafe === true);
 		if (!row.pass && room !== 'pitcreeper-rim') row.failReason = died ? 'died' : room === 'skeleton' ? (endSafe !== true ? 'not in cover at the end' : `took ${row.damageTaken} damage`) : safeAt === null ? 'not safe within the window' : 'safe, then back in danger';
 		rows.push(row);

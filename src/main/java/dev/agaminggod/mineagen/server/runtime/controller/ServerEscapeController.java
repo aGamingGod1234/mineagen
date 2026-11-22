@@ -501,10 +501,15 @@ public final class ServerEscapeController implements ServerController {
 	private int stands;
 
 	private TickResult standTick(ServerPlayer player, long now) {
-		TickResult result = stand.tick(player, now);
 		// Bounded: a mob the stand cannot reach (on a rim above the hole) is guarded against, never fought, and would
 		// otherwise hold the body there until the escape's deadline instead of climbing on.
-		if (result.state() == State.RUNNING && now >= standUntil) result = TickResult.failed("STAND_BOUNDED", "stood " + STAND_MS / 1000 + " s; climbing on", 0.5D);
+		if (now >= standUntil) {
+			stand.cancel(player);
+			stand = null;
+			note(standLabel + ": stood " + STAND_MS / 1000 + " s; climbing on");
+			return TickResult.running(0.5D);
+		}
+		TickResult result = stand.tick(player, now);
 		if (result.state() == State.RUNNING) return TickResult.running(0.5D);
 		stand.cancel(player);
 		stand = null;

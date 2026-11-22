@@ -509,7 +509,9 @@ public final class ReflexEngine {
 		if (running != null && !inEnd && endOnly(agent.scheduler.rule(running.ruleId()))) end(agentId, agent, agent.scheduler.interrupt(now, "left the End"));
 		agent.scheduler.blockWhere(inEnd ? null : ReflexEngine::endOnly);
 		ObservationVisibility.Frame frame = ObservationVisibility.frame(player.level(), player);
-		boolean cornered = active != null && active.type() == ActionType.FLEE_FROM
+		// A stand inside a flee, or inside an escape whose climb a mob blocked: running or taking cover there only hands
+		// the attackers free hits, so the back-off rules wait; hazard flinches still interrupt.
+		boolean cornered = active != null && (active.type() == ActionType.FLEE_FROM || active.type() == ActionType.ESCAPE)
 				&& dev.agaminggod.mineagen.server.runtime.controller.CorneredStand.standing(player);
 		boolean fleeing = activeType == ActionType.FLEE_FROM && !cornered
 				|| agent.behaviour instanceof ReflexActions.Defend defend && defend.backingOutOfPack();
