@@ -7,6 +7,7 @@ import { randomBytes, createHash } from 'node:crypto';
 import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
+import { handRolledTickRate } from './lib/fixture-play.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const jarPath = resolve(process.env.ARENA_JAR ?? join(root, MOD_JAR));
@@ -34,6 +35,11 @@ class Inbox {
 	wait(type, match = () => true, ms = 30000) { const i = this.events.findIndex(e => e.type === type && match(e)); if (i >= 0) return Promise.resolve(this.events.splice(i, 1)[0]); return new Promise((res, rej) => { const w = { type, match, done: e => { clearTimeout(t); res(e); } }; const t = setTimeout(() => { this.waiters = this.waiters.filter(x => x !== w); rej(new Error(`TIMEOUT ${type}`)); }, ms); this.waiters.push(w); }); }
 }
 let rcon, bridge, record, observation, inbox, ordinal = 0;
+// FIXTURE_TICK_RATE (test only): setup (reset, tp, settle) runs at 20 TPS; each shot, cancelled walk and the footing move
+// run at the fixture rate with their waits in game time (rate.clock.sleep). Each row's tick holds the rates it ran at.
+// The cancel lands cancelAfterMs of game time after the frame starts, plus one position read and the cancel message:
+// about one tick at 60 TPS against a third of one at 20, a few centimetres of sneak-walk.
+let rate;
 const agent = 'Bridger';
 const footings = [];
 const command = async s => {
@@ -62,32 +68,47 @@ const reset = async () => {
 };
 /** Fires a small fireball from 3 blocks on the -z side at the body; returns how far the hit carried it and whether it fell. */
 async function shot(label, { sneak = false, wall = false } = {}) {
+	await rate.normalRate();
 	await reset();
 	if (wall) await command(`setblock 0 81 1 minecraft:stone`);
-	await command(`tp ${agent} 0.5 81 0.5 -90 10`); await sleep(1500);
+	await command(`tp ${agent} 0.5 81 0.5 -90 10`); await rate.idleSleep(1500);
+	const played = await rate.play();
 	const hold = sneak ? command_('control', { forward: 0, strafe: 0, jump: false, sneak: true, sprint: false, attack: false, use: false, yaw: -90, pitch: 10, selectedSlot: 0, hand: 'main', ticks: 70 }) : null;
-	if (hold) { await hold.sent; await sleep(400); }
+	if (hold) { await hold.sent; await rate.clock.sleep(400); }
 	const start = await pos();
 	await command(`summon minecraft:small_fireball 0.5 81.9 -2.5 {Motion:[0.0,0.0,0.6],acceleration_power:0.0}`);
 	let minY = start.y, far = 0, last = start;
-	for (let i = 0; i < 30; i++) { await sleep(100); last = await pos(); minY = Math.min(minY, last.y); far = Math.max(far, Math.hypot(last.x - start.x, last.z - start.z)); }
+	for (let i = 0; i < 30; i++) { await rate.clock.sleep(100); last = await pos(); minY = Math.min(minY, last.y); far = Math.max(far, Math.hypot(last.x - start.x, last.z - start.z)); }
 	if (hold) await hold.done.catch(() => null);
-	const result = { label, sneak, wall, start, end: { x: round(last.x), y: round(last.y), z: round(last.z) }, horizontal: round(far), fell: round(start.y - minY) };
+	const tick = await played();
+	const result = { label, sneak, wall, start, end: { x: round(last.x), y: round(last.y), z: round(last.z) }, horizontal: round(far), fell: round(start.y - minY), tick };
+	// Resistance keeps the body alive, so the room is judged on falls: a block on the open side must hold it on the bridge.
+	// Standing and sneaking shots are knockback physics (vanilla pushes either off a one-wide bridge) and are only recorded.
+	if (wall) result.pass = result.fell === 0;
 	console.log(JSON.stringify(result));
 	return result;
 }
 /** Sneak-walks toward the bridge end (x=7 edge) and cancels the frame mid-way; returns whether the body stayed up. */
 async function cancelledSneak(cancelAfterMs) {
+	await rate.normalRate();
 	await reset();
-	await command(`tp ${agent} 4.5 81 0.5 -90 70`); await sleep(1500);
+	await command(`tp ${agent} 4.5 81 0.5 -90 70`); await rate.idleSleep(1500);
+	const played = await rate.play();
 	const frame = command_('control', { forward: 1, strafe: 0, jump: false, sneak: true, sprint: false, attack: false, use: false, yaw: -90, pitch: 70, selectedSlot: 0, hand: 'main', ticks: 80 });
-	await frame.sent; await sleep(cancelAfterMs);
+	await frame.sent;
+	// KB_TRACE=1: the body's position every 100 ms of game time through the walk and 2 s after the cancel.
+	const trace = process.env.KB_TRACE === '1' ? [] : null;
+	const sample = async (phase) => { const p = await pos(); trace.push({ phase, at: Math.round(rate.clock.now()), x: round(p.x), y: round(p.y), sneak: observation?.player?.crouching ?? null, brink: observation?.player?.brink ?? null }); };
+	if (trace) { const until = rate.clock.now() + cancelAfterMs; while (rate.clock.now() < until) { await sample('walk'); await rate.clock.sleep(100); } }
+	else await rate.clock.sleep(cancelAfterMs);
 	const before = await pos();
 	await bridge.send('action_cancel', record.agentId, { goalRevision: record.goalRevision, actionId: frame.id });
 	const result = await frame.done.catch(e => ({ state: String(e) }));
-	await sleep(2000);
+	if (trace) for (let i = 0; i < 20; i++) { await sample('after'); await rate.clock.sleep(100); }
+	else await rate.clock.sleep(2000);
 	const after = await pos();
-	const row = { cancelAfterMs, xAtCancel: round(before.x), after: { x: round(after.x), y: round(after.y) }, stayed: after.y > 80.5, state: result.state, message: String(result.message ?? '').slice(0, 200) };
+	const tick = await played();
+	const row = { cancelAfterMs, xAtCancel: round(before.x), after: { x: round(after.x), y: round(after.y) }, stayed: after.y > 80.5, pass: after.y > 80.5, state: result.state, message: String(result.message ?? '').slice(0, 200), tick, ...(trace ? { trace } : {}) };
 	console.log(JSON.stringify(row));
 	return row;
 }
@@ -95,12 +116,13 @@ const results = { footing: {}, shots: [], cancel: [] };
 try {
 	for (let i = 0; i < 150; i++) { try { rcon = new HeadlessRconClient({ host: '127.0.0.1', port: port + 1, password: secret, connectTimeoutMs: 500, commandTimeoutMs: 5000 }); await rcon.connect(); break; } catch (e) { await rcon?.close(); if (i === 149) throw e; await sleep(1000); } }
 	bridge = new MultiplexedServerBridge({ port, secret }, {}); inbox = new Inbox(bridge);
+	rate = handRolledTickRate(text => command(text), bridge, agent);
 	bridge.on('observation', e => { if (e.agentId === record?.agentId && e.payload.ready) { observation = e.payload; if (e.payload.player?.footing) footings.push({ attention: e.payload.attention === true, footing: e.payload.player.footing }); } });
 	bridge.on('goal_spec_request', e => { bridge.send('goal_spec_proposal', e.agentId, { requestId: e.payload.requestId, summary: 'Controlled live mechanics fixture', predicate: { type: 'survive_duration', ticks: 24000 } }).catch(() => {}); });
 	const ready = inbox.wait('ready'); bridge.start(); await ready;
 	await bridge.send('catalog_snapshot', 'server', { refreshedAtEpochMs: Date.now(), models: [{ provider: 'codex', model: 'gpt-6.1-sol', id: 'gpt-6.1-sol', displayName: 'Provider-free knockback fixture', reasoningEfforts: ['low'], serviceTiers: ['priority'] }] });
 	await command('gamerule minecraft:send_command_feedback false'); await command('time set noon');
-	await command('forceload add -32 -32 32 32'); await sleep(2000);
+	await command('forceload add -32 -32 32 32'); await rate.idleSleep(2000);
 	// Floor 22 blocks under the bridge's walking surface, like the fortress bridge the runs fell from.
 	await command('fill -16 58 -16 16 58 16 minecraft:stone'); await command('fill -16 59 -16 16 100 16 minecraft:air');
 	await command('fill -6 80 0 6 80 0 minecraft:stone');
@@ -116,8 +138,10 @@ try {
 	await command(`item replace entity ${agent} hotbar.0 with minecraft:cobblestone 64`);
 
 	// 1. Footing beside the bridge, as a terminal move result reports it (looking along the bridge, not down).
-	await command(`tp ${agent} -1.5 81 0.5 -90 10`); await sleep(1500);
+	await command(`tp ${agent} -1.5 81 0.5 -90 10`); await rate.idleSleep(1500);
+	const moving = await rate.play();
 	const moved = await act('move_to', { x: 0.5, y: 81, z: 0.5, tolerance: 0.3, sprint: false });
+	results.footing.tick = await moving();
 	results.footing.moveResult = /footing \{[^}]*\}/.exec(moved.message ?? '')?.[0] ?? null;
 
 	results.shots.push(await shot('standing'));
@@ -134,6 +158,7 @@ try {
 		cancelStayed: `${results.cancel.filter(c => c.stayed).length}/${results.cancel.length}`,
 		jar: jarPath,
 	};
+	results.tick = await rate.report();
 	console.log(JSON.stringify(results.summary, null, 2));
 } finally {
 	await writeFile(join(out, 'knockback-edge.json'), JSON.stringify(results, null, 2)).catch(() => {});

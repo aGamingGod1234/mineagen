@@ -33,6 +33,14 @@ public final class ModelOwnedDefaultRulesVerification {
 				{"id":"run","kind":"trigger","priority":7,"when":[{"type":"health_below","value":7},{"type":"hostile_near","within":6}],"do":{"type":"sprint_away","blocks":10}}
 				""");
 		check(!ReflexEngine.backsOffWhenWeaker(modelRetreat), "a model-authored retreat still fires during a stand");
+		ReflexScheduler chase = new ReflexScheduler();
+		chase.replace(defaults, 0);
+		for (ReflexSpec.Rule rule : defaults) {
+			boolean waits = heldBack.contains(rule.id()) || rule.id().equals("default-eat") || rule.id().equals("default-arrow");
+			check(ReflexEngine.chaseGate(chase, rule, true, true) != waits, "a melee chase holds back only cover, retreat, eating and the arrow shield: " + rule.id());
+			check(ReflexEngine.chaseGate(chase, rule, true, false), "the default can fire once the chase ends: " + rule.id());
+		}
+		check(ReflexEngine.chaseGate(chase, modelRetreat, true, true), "a melee chase does not block the model's own rule");
 		for (String id : List.of("default-fire", "default-custom", "model-fire")) {
 			ReflexSpec.Rule model = rule("""
 					{"id":"%s","when":{"type":"in_fire"},"do":{"type":"place","item":"water_bucket","where":"below"},"wake":true}

@@ -7,20 +7,28 @@
 // Per run: the find result, every body action with its stop and where the body was, the digs down started from the
 // start cell and how many water stopped, seconds to the first move off the spot, health lost, deaths. The world is
 // deleted after each run (logs kept). Launch under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME.
+// FIXTURE_TICK_RATE runs the find faster: setup stays at 20 TPS, and the find, its health sampler and the runtime it drives
+// are timed in game time (s.clock), so a raised rate plays the same game. row.seconds is game seconds, row.wallSeconds
+// wall seconds, row.rates the rate asked for and reached; row.vanillaDeaths is vanilla's death counter over the find.
 import { appendFile, mkdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { boot } from './watch-replay.mjs';
+import { boot, fixtureTickRate } from './watch-replay.mjs';
+import { gameClockFromObservations } from '../../coordinator/src/game-clock.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
-import { damageCounter, damageEvidence } from './lib/damage-counter.mjs';
+import { damageCounter, damageEvidence, deathCounter, recordDeathEvidence } from './lib/damage-counter.mjs';
 import { NativeToolRuntime } from '../../coordinator/src/native-tool-runtime.mjs';
 import { normalizeMinecraftToolCall } from '../../coordinator/src/native-minecraft-tools.mjs';
 import { adaptObservation } from '../../coordinator/src/observation-adapter.mjs';
 import { InspectionClient } from '../../coordinator/src/inspection-client.mjs';
+import { shouldRepeat } from './lib/find-spot.mjs';
 
 const FIXTURES = {
 	'b1-aquifer': { seed: '5433312384530337025', cell: [12, 58, -45], target: { block: 'minecraft:iron_ore' }, timeoutMs: 180_000,
 		items: [['minecraft:stone_pickaxe', 1], ['minecraft:wooden_pickaxe', 1], ['minecraft:cobblestone', 64], ['minecraft:dirt', 36], ['minecraft:andesite', 23]] },
 };
+// The same spot judged on the escape alone: the find's first dig floods its own hole there, and the room passes when the
+// escape step gets the body out of it (ESCAPED) with no death and no damage, whatever the search finds after.
+FIXTURES['b1-aquifer-escape'] = { ...FIXTURES['b1-aquifer'], bar: 'escape' };
 const cli = process.argv.slice(2);
 if (cli.includes('--help')) { console.log('Usage: test-find-spot-live.mjs OUT_DIR JAR [runs] [fixture] [--strict|--descriptive]\n' + EDIT_LOOP_HELP + '\n' + FIXTURE_OUTCOME_HELP); process.exit(0); }
 const strict = !cli.includes('--descriptive');
@@ -46,7 +54,8 @@ for (let run = 0; run < runs; run++) {
 	let s;
 	try {
 		row.startedAt = Date.now();
-		s = current = await boot(dir, { jar: path.resolve(jarArg), template, port, world: null, seed: fixture.seed, spawnMonsters: false, goalTicks: 2_000_000, extraProperties: 'max-tick-time=-1\n' });
+		s = current = await boot(dir, { jar: path.resolve(jarArg), template, port, world: null, seed: fixture.seed, spawnMonsters: false, goalTicks: 2_000_000, extraProperties: 'max-tick-time=-1\n', tickRate: fixtureTickRate() });
+		await s.normalRate();
 		await s.command('difficulty peaceful');
 		await s.command('gamerule minecraft:advance_time false').catch(() => {});
 		await s.command('time set 1000');
@@ -67,7 +76,7 @@ for (let run = 0; run < runs; run++) {
 		const commands = new Map(), actions = [];
 		const inspections = new InspectionClient({ send: (type, agentId, payload) => s.bridge.send(type, agentId, payload) });
 		s.bridge.on('inspection_result', (message) => { if (message.agentId === record.agentId) inspections.accept(message); });
-		const t0 = { at: Date.now() };
+		const t0 = { at: s.clock.now() };
 		const runtime = new NativeToolRuntime({
 			bridge: { send: async (type, agentId, payload) => { if (type === 'action_command') commands.set(payload.actionId, { actionType: payload.actionType, arguments: payload.arguments }); return s.bridge.send(type, agentId, payload); } },
 			requestObservation: async () => {
@@ -77,6 +86,8 @@ for (let run = 0; run < runs; run++) {
 				return { eventSequence: latest.eventSequence, observation: adaptObservation(latest) };
 			},
 			inspectObservation: async (rec, query) => ({ state: 'SUCCEEDED', reasonCode: 'INSPECTED', ...await inspections.request(rec, query) }),
+			// At a raised rate the runtime times find in game time too (it feeds the clock its samples).
+			...(s.clock.rate === 20 ? {} : { clock: gameClockFromObservations({ tickRate: s.clock.rate }) }),
 		});
 		s.bridge.on('observation', (ev) => {
 			if (ev.agentId !== record.agentId || !ev.payload.ready) return;
@@ -87,7 +98,7 @@ for (let run = 0; run < runs; run++) {
 			if (ev.agentId !== record.agentId || !commands.has(ev.payload.actionId)) return;
 			const sent = commands.get(ev.payload.actionId);
 			const at = latest?.position;
-			actions.push({ s: Math.round((Date.now() - t0.at) / 100) / 10, actionType: sent.actionType, args: sent.arguments, state: ev.payload.state, reasonCode: ev.payload.reasonCode,
+			actions.push({ s: Math.round((s.clock.now() - t0.at) / 100) / 10, actionType: sent.actionType, args: sent.arguments, state: ev.payload.state, reasonCode: ev.payload.reasonCode,
 				at: at ? [Math.floor(at.x), Math.floor(at.y + 1e-3), Math.floor(at.z)] : null, message: String(ev.payload.message ?? '').slice(0, 220) });
 			runtime.onActionResult(record, ev.payload);
 			s.bridge.send('action_result_ack', record.agentId, { goalRevision: record.goalRevision, actionId: ev.payload.actionId }).catch(() => {});
@@ -97,22 +108,43 @@ for (let run = 0; run < runs; run++) {
 		for (const [item, count] of fixture.items) await s.command(`give ${name} ${item} ${count}`);
 		await s.command(`tp ${name} ${cx + 0.5} ${cy} ${cz + 0.5} 0 0`);
 		await s.command(`effect give ${name} minecraft:instant_health 1 10 true`);
-		await sleep(3000);
+		await s.idleSleep(3000);
 		for (let i = 0; i < 200 && !(latest?.ready && (latest?.inventory?.items?.length ?? 0) >= fixture.items.length && Math.floor(latest.position?.y ?? 0) === cy); i++) await sleep(100);
 		const health = async () => number(await s.command(`data get entity ${name} Health`));
 		const readDamage = await damageCounter(text => s.command(text), name);
 		const damageBefore = await readDamage();
+		const deaths = () => deathCounter(text => s.command(text), name, { objective: 'deaths', unsetIsZero: true });
+		const deathsBefore = await deaths().catch(() => null);
+		await s.fastRate();
+		// Play is timed on the fixture clock: game time at a raised rate, plain wall time at 20 TPS.
+		const now = () => s.clock.now();
 		const before = await health();
 		let minHealth = before, sampling = true;
-		const sampler = (async () => { while (sampling) { const h = await health().catch(() => NaN); if (Number.isFinite(h)) minHealth = Math.min(minHealth, h); await sleep(1000); } })();
+		const sampler = (async () => { while (sampling) { const h = await health().catch(() => NaN); if (Number.isFinite(h)) minHealth = Math.min(minHealth, h); await s.clock.sleep(1000); } })();
 		row.start = latest?.position ? [latest.position.x, latest.position.y, latest.position.z] : null;
-		t0.at = Date.now();
-		const call = normalizeMinecraftToolCall('do_step', { verb: 'find', target: { ...fixture.target, timeoutMs: fixture.timeoutMs }, why: 'iron for the pickaxe' });
+		const wall0 = Date.now(), timer = await s.gameTimer();
+		t0.at = now();
+		row.playStartedAt = wall0;
+		// The find, asked again after a hand-back that is not FIND_BLOCKED as the other find rooms do (lib/find-spot.mjs
+		// shouldRepeat), each time with only what is left of the room's timeoutMs.
+		const spotCall = { name: 'do_step', arguments: { verb: 'find' } };
 		let result;
-		try { result = await runtime.execute({ agentId: record.agentId, goalRevision: record.goalRevision, turnId: `find-${run}`, callId: `find-${run}`, tool: call }, record); }
-		catch (error) { result = { state: 'ERROR', reasonCode: error?.code ?? 'ERROR', message: String(error?.message ?? error) }; }
+		row.calls = [];
+		for (let attempt = 0; ; attempt++) {
+			const left = fixture.timeoutMs - (now() - t0.at);
+			const call = normalizeMinecraftToolCall('do_step', { verb: 'find', target: { ...fixture.target, timeoutMs: Math.max(10_000, Math.floor(left)) }, why: 'iron for the pickaxe' });
+			try { result = await runtime.execute({ agentId: record.agentId, goalRevision: record.goalRevision, turnId: `find-${run}-${attempt}`, callId: `find-${run}-${attempt}`, tool: call }, record); }
+			catch (error) { result = { state: 'ERROR', reasonCode: error?.code ?? 'ERROR', message: String(error?.message ?? error) }; }
+			row.calls.push({ attempt, state: result?.state, reasonCode: result?.reasonCode, atS: Math.round((now() - t0.at) / 1000) });
+			if (!shouldRepeat(spotCall, result, { repeat: true }, { budgetLeftMs: fixture.timeoutMs - (now() - t0.at) })) break;
+		}
 		sampling = false; await sampler;
-		row.seconds = Math.round((Date.now() - t0.at) / 1000);
+		row.seconds = Math.round((now() - t0.at) / 1000);
+		row.wallSeconds = Math.round((Date.now() - wall0) / 1000);
+		row.gameSeconds = Math.round((await timer.elapsed()) / 1000);
+		row.rates = await timer.rates().catch(() => null);
+		const healthAfter = await health();
+		await s.normalRate();
 		row.result = { state: result?.state, reasonCode: result?.reasonCode, message: String(result?.message ?? '').slice(0, 400), seen: result?.find?.seen ?? null };
 		row.actions = actions;
 		const startCell = fixture.cell.join(',');
@@ -121,11 +153,16 @@ for (let run = 0; run < runs; run++) {
 		const firstEnd = fromStart[0]?.at?.join(',');
 		row.wetDigsAtSpot = fromStart.filter((a) => a.reasonCode === 'WATER_AHEAD' && [startCell, firstEnd].includes(a.at?.join(','))).length;
 		row.moveOffAtS = actions.find((a) => a.actionType === 'travel_to' && Number.isFinite(a.args?.yaw) && Number.isFinite(a.args?.distance))?.s ?? null;
-		Object.assign(row, damageEvidence(damageBefore, await readDamage(), before, await health()));
+		Object.assign(row, damageEvidence(damageBefore, await readDamage(), before, healthAfter));
+		// Record the vanilla count alongside the sampled-health count.
+		recordDeathEvidence(row, deathsBefore, await deaths().catch(() => null), 'vanillaDeaths');
 		row.healthDropLowerBound = Math.max(0, before - minHealth);
 		row.deaths = minHealth <= 0 ? 1 : 0;
 		row.finishedAt = Date.now();
-		row.pass = row.result.state === 'SUCCEEDED' && row.result.reasonCode === 'FIND_SEEN' && row.deaths === 0 && row.damageTaken === 0;
+		row.tick = { rate: s.tickRate, held: await s.tickReport() };
+		row.escaped = actions.some((a) => a.actionType === 'escape' && a.reasonCode === 'ESCAPED');
+		row.pass = (fixture.bar === 'escape' ? row.escaped : row.result.state === 'SUCCEEDED' && row.result.reasonCode === 'FIND_SEEN')
+			&& row.deaths === 0 && row.damageTaken === 0;
 		row.end = latest?.position ? [Math.round(latest.position.x), Math.round(latest.position.y), Math.round(latest.position.z)] : null;
 		console.log(`[run ${run}] ${row.result.state} ${row.result.reasonCode} ${row.seconds}s wetDigsAtSpot=${row.wetDigsAtSpot} moveOffAt=${row.moveOffAtS}s actions=${actions.length} damageTaken=${row.damageTaken ?? "unknown"} deaths=${row.deaths} end=${row.end}`);
 		for (const a of actions) console.log(`   ${a.s}s ${a.actionType} ${a.args?.pattern ?? ''}${a.args?.heading ? ` ${a.args.heading}` : ''} ${a.reasonCode} at ${a.at}`);

@@ -86,8 +86,11 @@ export function readWait(id, data) {
 	if (data.length > 2 && data.subarray(0, 2).equals(GZIP)) return data;
 	throw new Error(`no answer from ${id}${data.length ? `: ${data.subarray(0, 200).toString().trim()}` : ''}`);
 }
-// secret.txt is a throwaway per-run RCON secret; worlds are already deleted unless kept.
-const packScript = ({ outDir, room }) => `cd ${quote(outDir)} && tar --exclude=secret.txt -cz ${quote(room)}`;
+// secret.txt is a throwaway per-run RCON secret; worlds are already deleted unless kept. A fixture's server folder also
+// holds its copy of the server template (server.jar, libraries, versions, mods: about 140 MB per run) that nothing reads
+// back; copying it home made a 40 s room take 2-8 min to return. Its logs, world and properties still come back.
+export const PACK_EXCLUDES = ['secret.txt', '*/server/server.jar', '*/server/libraries', '*/server/versions', '*/server/mods'];
+const packScript = ({ outDir, room }) => `cd ${quote(outDir)} && tar ${PACK_EXCLUDES.map(item => `--exclude=${quote(item)}`).join(' ')} -cz ${quote(room)}`;
 
 // What a batch machine needs of the code: what scripts/quality/test-*-live.mjs and watch-replay.mjs import (scripts/,
 // coordinator/src, coordinator/config and acorn from coordinator/node_modules) and the files they read while they run
@@ -160,6 +163,24 @@ export async function createMachine({ from = null, type = 'default', ttlSeconds 
 	return { id, ttlSeconds };
 }
 
+/**
+ * Waits until boat says every file of a machine made from a saved image has arrived (`hydrated`). Before that, boat
+ * still downloads the image in the background and the first room plays on a disk filling up under it: on 21 Nov, 7 of
+ * 8 first rooms started before hydration came back INVALID (bridge revision races, handshake timeouts) and 10 of 10
+ * started after it passed. Hydration took 12 to 25 s. Resolves to the seconds waited; a machine that never says so
+ * within maxMs is used anyway.
+ */
+export async function waitHydrated(id, { maxMs = 5 * 60_000, everyMs = 2000, log = () => {} } = {}) {
+	const began = Date.now();
+	while (Date.now() - began < maxMs) {
+		const info = JSON.parse(await boat(['info', id, '--json'], { timeoutMs: 60_000 }).catch(() => '{}')).sandbox ?? null;
+		if (info && info.hydrated !== false) return Math.round((Date.now() - began) / 1000);
+		await new Promise(done => setTimeout(done, everyMs));
+	}
+	log(`machine ${id} still not hydrated after ${Math.round(maxMs / 1000)} s: using it anyway`);
+	return Math.round((Date.now() - began) / 1000);
+}
+
 export async function machineState(id) {
 	const info = JSON.parse(await boat(['info', id, '--json'], { timeoutMs: 60_000 }));
 	return info.sandbox?.state ?? null;
@@ -190,7 +211,12 @@ function untar(data, dir) {
 export function boatPool({ snapshot, type = 'default', ttlSeconds = 7200, namePrefix, bundle, imageDir = 'rooms', waitSeconds = 60, log = console.log }) {
 	let count = 0, payload = null;
 	return {
-		async create() { return createMachine({ from: snapshot, type, ttlSeconds, name: `${namePrefix}-${++count}` }); },
+		async create() {
+			const vm = await createMachine({ from: snapshot, type, ttlSeconds, name: `${namePrefix}-${++count}` });
+			const waited = await waitHydrated(vm.id, { log });
+			if (waited) log(`machine ${vm.id} waited ${waited} s for its image to finish downloading`);
+			return vm;
+		},
 		async prepare(vm) {
 			payload ??= await readFile(bundle.file);
 			const began = Date.now();

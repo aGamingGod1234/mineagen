@@ -100,15 +100,28 @@ public final class ReflexSensors {
 		private int idleTicks;
 		private net.minecraft.resources.ResourceKey<net.minecraft.world.level.Level> footingDimension;
 		private final java.util.ArrayDeque<GridPosition> dryFooting = new java.util.ArrayDeque<>();
+		private BlockPos seenSpawner;
+		private int seenSpawnerAt;
 
 		List<GridPosition> dryFooting() {
 			return List.copyOf(dryFooting);
+		}
+
+		void rememberSpawner(BlockPos spawner, int tick) {
+			seenSpawner = spawner;
+			seenSpawnerAt = tick;
+		}
+
+		BlockPos recentSpawner(int tick) {
+			// As with ground the body just walked, remember the way the pack came from across reflex firings.
+			return tick >= seenSpawnerAt && tick - seenSpawnerAt <= 30 * 20 ? seenSpawner : null;
 		}
 
 		void observe(ServerPlayer player, long tick) {
 			if (footingDimension != player.level().dimension()) {
 				footingDimension = player.level().dimension();
 				dryFooting.clear();
+				seenSpawner = null;
 			}
 			if (player.onGround() && !HazardExits.inHazardBlock(player)) {
 				BlockPos feet = player.blockPosition();
@@ -339,10 +352,7 @@ public final class ReflexSensors {
 			if (projectile.getOwner() == player) continue;
 			boolean grounded = projectile instanceof AbstractArrow arrow && ((AbstractArrowInvoker) arrow).mineagen$isInGround();
 			if (!ProjectilePerception.flying(grounded, projectile.getDeltaMovement())) continue;
-			double eta = ProjectilePerception.impactSeconds(projectile.position(), projectile.getDeltaMovement(), player.getBoundingBox(),
-					player.getDeltaMovement(), type.contains("fireball"), ProjectilePerception.HIT_MARGIN,
-					(from, to) -> player.level().clip(new ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, projectile))
-							.getType() == HitResult.Type.MISS);
+			double eta = shotSeconds(player, projectile, type.contains("fireball"));
 			if (!Double.isFinite(eta) || eta > within || eta >= best) continue;
 			if (!frame.canSeeEntity(projectile)) continue;
 			best = eta;
@@ -353,6 +363,24 @@ public final class ReflexSensors {
 			if (archer != null) return new Reading(true, archer);
 		}
 		return soonest == null ? Reading.FALSE : new Reading(true, soonest);
+	}
+
+	/**
+	 * Seconds until this projectile hits the body along a clear flight, or NaN: what incoming_projectile and shots read.
+	 * A projectile that already struck this body or its shield ({@link StruckShots}) is no shot.
+	 */
+	private static double shotSeconds(ServerPlayer player, Projectile projectile, boolean fireball) {
+		return shotSeconds(StruckShots.struck(projectile, player.getUUID()), player.getBoundingBox(), projectile.position(),
+				projectile.getDeltaMovement(), player.getDeltaMovement(), fireball,
+				(from, to) -> player.level().clip(new ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, projectile))
+						.getType() == HitResult.Type.MISS);
+	}
+
+	/** {@link #shotSeconds(ServerPlayer, Projectile, boolean)} without a server; {@code struck}: it already hit this body. */
+	static double shotSeconds(boolean struck, net.minecraft.world.phys.AABB body, Vec3 at, Vec3 velocity, Vec3 bodyVelocity, boolean fireball,
+			java.util.function.BiPredicate<Vec3, Vec3> clearFlight) {
+		if (struck) return Double.NaN;
+		return ProjectilePerception.impactSeconds(at, velocity, body, bodyVelocity, fireball, ProjectilePerception.HIT_MARGIN, clearFlight);
 	}
 
 	/**
@@ -462,6 +490,50 @@ public final class ReflexSensors {
 		return incoming(player, withinS, true);
 	}
 
+	/**
+	 * Where a raised shield faces to stop this shot while it flies: toward the point where it will touch the body. Vanilla
+	 * blocks a hit by the angle from the body to that point, not to the shooter, so an arrow off line by half a block
+	 * that grazes the body's side counts as a side hit (live drawn-bow room: facing the skeleton 3 degrees off, hit at
+	 * 103). Falls back to the line it flies in from when the flight misses or strikes square on.
+	 */
+	static Vec3 strikeFacing(ServerPlayer player, Entity shot) {
+		Vec3 eye = player.getEyePosition();
+		Vec3 strike = shot instanceof AbstractArrow ? strikePoint(player.getBoundingBox(), shot.position(), shot.getDeltaMovement(),
+				player.getDeltaMovement(), shot.tickCount) : null;
+		return strike == null ? aimPoint(shot) : facingPoint(player.position(), eye, strike, aimPoint(shot));
+	}
+
+	/** A point level with {@code eye} toward {@code strike} as seen from {@code feet}; {@code fallback} when it is overhead. */
+	static Vec3 facingPoint(Vec3 feet, Vec3 eye, Vec3 strike, Vec3 fallback) {
+		double dx = strike.x - feet.x, dz = strike.z - feet.z, length = Math.hypot(dx, dz);
+		if (length < 0.05D) return fallback;
+		return new Vec3(eye.x + dx / length * 2.0D, fallback.y, eye.z + dz / length * 2.0D);
+	}
+
+	/**
+	 * Where an arrow at {@code at} flying {@code velocity}, {@code age} ticks old, first touches {@code body} (moving with
+	 * {@code bodyVelocity}), or null when it misses within 2 s: vanilla's flight (move, then 0.99 drag and 0.05 gravity)
+	 * against the body box grown by vanilla's hit margin, which widens from 0 to 0.3 over the arrow's first 8 ticks. The
+	 * point is on the body as it stands now: the body's travel until the hit is taken back out, so the facing it gives is
+	 * from the body to the hit, not from where the body was (a bot walking behind its shield turned to the wrong side).
+	 */
+	static Vec3 strikePoint(net.minecraft.world.phys.AABB body, Vec3 at, Vec3 velocity, Vec3 bodyVelocity, int age) {
+		Vec3 drift = new Vec3(bodyVelocity.x, 0.0D, bodyVelocity.z);
+		Vec3 point = at;
+		for (int tick = 0; tick < 40; tick++) {
+			double margin = Math.max(0.0D, Math.min(0.3D, (age + tick + 1 - 2) / 20.0D));
+			net.minecraft.world.phys.AABB box = body.move(drift.scale(tick)).inflate(margin);
+			Vec3 next = point.add(velocity);
+			Vec3 travel = drift.scale(tick);
+			if (box.contains(point)) return point.subtract(travel);
+			var hit = box.clip(point, next);
+			if (hit.isPresent()) return hit.get().subtract(travel);
+			point = next;
+			velocity = velocity.scale(0.99D).add(0.0D, -0.05D, 0.0D);
+		}
+		return null;
+	}
+
 	/** {@link #aimPoint} for actions: where a shield faces to stop this shot (the line it flies in from). */
 	public static Vec3 shieldFacing(Entity shot) {
 		return aimPoint(shot);
@@ -488,10 +560,7 @@ public final class ReflexSensors {
 					: !ProjectilePerception.supported(type)) continue;
 			boolean grounded = arrow && ((AbstractArrowInvoker) projectile).mineagen$isInGround();
 			if (!ProjectilePerception.flying(grounded, projectile.getDeltaMovement())) continue;
-			double eta = ProjectilePerception.impactSeconds(projectile.position(), projectile.getDeltaMovement(), player.getBoundingBox(),
-					player.getDeltaMovement(), type.contains("fireball"), ProjectilePerception.HIT_MARGIN,
-					(from, to) -> player.level().clip(new ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, projectile))
-							.getType() == HitResult.Type.MISS);
+			double eta = shotSeconds(player, projectile, type.contains("fireball"));
 			if (!Double.isFinite(eta) || eta > withinS || eta >= best) continue;
 			if (frame == null) frame = ObservationVisibility.frame(player.level(), player);
 			if (!(projectile instanceof AbstractHurtingProjectile ? frame.hasLineOfSight(projectile) : frame.canSeeEntity(projectile))) continue;
@@ -557,13 +626,17 @@ public final class ReflexSensors {
 		Creeper nearest = null;
 		double best = Double.POSITIVE_INFINITY;
 		for (Creeper creeper : player.level().getEntitiesOfClass(Creeper.class, player.getBoundingBox().inflate(within), Creeper::isAlive)) {
-			if (creeper.getSwellDir() <= 0 && creeper.getSwelling(1.0F) <= 0.0F) continue;
+			if (!fusing(creeper)) continue;
 			double distance = player.distanceTo(creeper);
 			if (distance > within || distance >= best) continue;
 			best = distance;
 			nearest = creeper;
 		}
 		return nearest == null ? Reading.FALSE : new Reading(true, nearest);
+	}
+
+	static boolean fusing(Creeper creeper) {
+		return creeper.getSwellDir() > 0 || creeper.getSwelling(1.0F) > 0.0F;
 	}
 
 	/** Twice vanilla's stare tolerance, so a reflex turns away before the stare provokes the enderman. */

@@ -75,6 +75,7 @@ export const ACTION_FIELDS = Object.freeze({
 	cast_obsidian: Object.freeze(['x', 'y', 'z', 'axis', 'frame', 'resume', 'count', 'timeoutMs']),
 	barter_until: Object.freeze(['itemId', 'count', 'timeoutMs']),
 	rest: Object.freeze(['timeoutMs']),
+	escape: Object.freeze(['timeoutMs']),
 	build: Object.freeze(['structure', 'x', 'y', 'z', 'itemId', 'size', 'timeoutMs']),
 	travel_to: Object.freeze(['x', 'y', 'z', 'yaw', 'distance', 'tolerance', 'build', 'throughCaves', 'discard', 'sealFluids', 'retrace', 'dimension', 'boundaryX', 'boundaryZ', 'boundaryRadius', 'stopWhenSeen', 'minHealth', 'fightThrough', 'timeoutMs']),
 	transfer_container: Object.freeze(['x', 'y', 'z', 'sourceKind', 'sourceSlot', 'destinationKind', 'destinationSlot', 'count', 'expectedItemId', 'timeoutMs']),

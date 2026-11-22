@@ -111,6 +111,7 @@ import { provenance } from './fact-provenance.mjs';
 import { BodyPace } from './body-pace.mjs';
 import { dangerGlance } from './danger-glance.mjs';
 import { killTraceFields } from './kill-trace.mjs';
+import { DeathRecorder } from './death-record.mjs';
 
 const SOURCE_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 const COORDINATOR_DIRECTORY = path.resolve(SOURCE_DIRECTORY, '..');
@@ -211,6 +212,7 @@ export class DynamicCoordinator extends EventEmitter {
 	#actionDeferredWakes = new Map();
 	// While the model's own action runs: which wakes are absorbed into the next one, and what they carried.
 	#wakeFilter = new WakeFilter();
+	#deathRecorder = new DeathRecorder();
 	#attentionFlushes = new Map();
 	#lifecycleGenerations = new Map();
 	#providerRetryAfter = new Map();
@@ -981,6 +983,7 @@ export class DynamicCoordinator extends EventEmitter {
 					const previous = this.#registry.get(message.agentId);
 					record = this.#registry.applyGoalControl(message.agentId, message.payload);
 					if (['start','replace','steer'].includes(message.payload.operation)) this.#taskViews.begin(record, { fresh: ['start','replace'].includes(message.payload.operation) });
+					if (message.payload.operation === 'dead') this.#traceDeath(record, message.payload.death);
 					// The death screen's respawn target is where the next body appears: the plan's spawn:bed fact.
 					if (message.payload.operation === 'dead') void this.#taskViews.observe(record, { ready: false, player: { dead: true }, ...(message.payload.death ? { death: message.payload.death } : {}) }).catch(() => {});
 					const lifecycleChanged = previous !== null && !['queue', 'dequeue'].includes(message.payload.operation)
@@ -1090,6 +1093,8 @@ export class DynamicCoordinator extends EventEmitter {
 			if (type === 'entity_killed') this.#writeTrace('entity_killed', killTraceFields(record, message.payload));
 		}, { connectionEpoch }));
 		this.#listen('observation', (message, connectionEpoch) => {
+			// On arrival, before the agent's queue: a death's trace row carries the last 10 s of live samples, whatever the goal state.
+			this.#deathRecorder.observe(message.agentId, message.payload?.observation ?? message.payload);
 			const receiptMonotonicMs = safeClockRead(this.#controlNow);
 			const receiptEpochMs = safeClockRead(this.#epochNow);
 			const lifecycleGeneration = this.#lifecycleGeneration(message.agentId);
@@ -1230,7 +1235,7 @@ export class DynamicCoordinator extends EventEmitter {
 						this.#scheduleNativeTurn(record, { ...wakeRequest, priority: 'urgent', trigger: STEP_UNTIL_TRIGGER, nativeEvent: { ...wakeRequest.nativeEvent, trigger: STEP_UNTIL_TRIGGER } });
 						return;
 					}
-					if (stepFolds(step, attention) && !failureSteerOwed && this.#wakeFilter.discovery(record.agentId, { attention, observation, goalText: record.currentGoal }) === null) {
+					if (stepFolds(step, attention, observation) && !failureSteerOwed && this.#wakeFilter.discovery(record.agentId, { attention, observation, goalText: record.currentGoal }) === null) {
 						this.#wakeFilter.fold(record.agentId, attention.trigger, observation, this.#nativeRuntime.reflexEvents(record));
 						this.#writeTrace('native_wake_filtered', { agentId: record.agentId, goalRevision: record.goalRevision, trigger: attention.trigger, verdict: 'fold', reason: `step ${step} running` });
 						this.#holdWakeForModelAction(record, wakeRequest, { step: true });
@@ -3838,6 +3843,14 @@ export class DynamicCoordinator extends EventEmitter {
 	#emitRuntimeError(error) {
 		try { this.emit('runtimeError', error); }
 		catch { /* reporting must never reject agent control work */ }
+	}
+
+	/** One agent_death row per death (death-record.mjs): the receipt, the last 10 s observed, and the plan's step. */
+	#traceDeath(record, death) {
+		let step = null, doing = null;
+		try { step = this.#taskViews.intent(record)?.step ?? null; doing = this.#taskViews.doingLine(record); }
+		catch { /* the row stands without the plan's view */ }
+		this.#writeTrace('agent_death', this.#deathRecorder.record(record, death, { step, doing }));
 	}
 
 	#writeTrace(event, fields) {
@@ -7105,7 +7118,7 @@ function runningActionFacts(action, start, authored, player) {
 	}
 	if (action.actionType === 'fight_target' && Number.isFinite(args.fleeAtHealth)) facts.fleeAtHealth = args.fleeAtHealth;
 	// A dig runs for minutes: its goal stays in view while it digs.
-	if (action.actionType === 'dig_to') facts.to = `${args.pattern ?? 'stairs_down'}${Number.isFinite(args.y) ? ` y${args.y}` : ''}${Number.isFinite(args.x) ? ` x${args.x}` : ''}${Number.isFinite(args.z) ? ` z${args.z}` : ''}${args.heading ? ` ${args.heading}` : ''}`;
+	if (action.actionType === 'dig_to') facts.to = `${args.pattern ?? 'stairs'}${Number.isFinite(args.y) ? ` y${args.y}` : ''}${Number.isFinite(args.x) ? ` x${args.x}` : ''}${Number.isFinite(args.z) ? ` z${args.z}` : ''}${args.heading ? ` ${args.heading}` : ''}`;
 	if (start?.actionId === action.actionId && Number.isFinite(start.health) && Number.isFinite(player?.health)) {
 		const before = Math.ceil(start.health), now = Math.ceil(player.health);
 		if (now < before) facts.hurtWhileRunning = `${before}->${now}`;
@@ -7282,7 +7295,7 @@ export function carriedCombatOptions(observation) {
 		: [...(count(id => id === 'minecraft:bow') && arrows ? [`use_ranged (bow, ${arrows} arrows)`] : []),
 			...(count(id => id === 'minecraft:crossbow') && arrows + rockets ? [`use_ranged (crossbow, ${[arrows ? `${arrows} arrows` : '', rockets ? `${rockets} rockets` : ''].filter(Boolean).join(', ')})`] : [])];
 	const shield = ['offhand', 'mainhand'].map(slot => (items ?? []).find(e => e.slot === slot && e.itemId === 'minecraft:shield')).find(Boolean);
-	return ['fight_target (melee)', ...ranged, ...(shield ? [`block_with_shield (${shield.slot === 'offhand' ? 'offhand' : 'main-hand'} shield)`] : []), 'flee_from', 'supported cover placement',
+	return ['fight_target (melee)', ...ranged, ...(shield ? [`block_with_shield (${shield.slot === 'offhand' ? 'offhand' : 'main-hand'} shield)`] : []), 'flee_from', 'supported cover placement', 'do_step escape (cover from shooters, out of water or a hole; hands back once safe)',
 		'digging in (a 1x1 hole 2 deep with one block over it is fully enclosed; dirt breaks by hand in under 1 s)'].join(', ');
 }
 // A fresh context or unrelated event can carry an already unsafe body without a new danger edge.
@@ -7304,7 +7317,7 @@ function survivalFactLine(observation, { newContext = false } = {}) {
 		return `Live Minecraft event: nearby threat (player.threats). Options with current gear and footing, in no order: ${carriedCombatOptions(observation)}. After blocked flight or a failed cover search, build cover or open a different exit before exposed work. Flee creepers; break contact at low health before eating. Use the reported target UUID. That call can carry reflexes for the next shots, burning or low health.${edgeNote(player)}`;
 	}
 	if (player.inWater === true && player.underWater === false && player.onGround === false && player.passenger !== true) {
-		return 'Live Minecraft event: eyes above water, body still afloat without footing. Released input sinks. Hold jump while refilling air or choose a reachable shore/air pocket from observed terrain. Guard deletion cancels its current swim or float input; replace it with your next water action before doing stationary work.';
+		return 'Live Minecraft event: eyes above water, body still afloat without footing. Released input sinks. do_step escape swims to the nearest bank and steps out; or choose a reachable shore/air pocket from observed terrain. Guard deletion cancels its current swim or float input; replace it with your next water action before doing stationary work.';
 	}
 	if (Number.isFinite(player.foodLevel) && player.foodLevel <= 6) return 'Live Minecraft event: low food; sprint is unavailable at 6 or below and regeneration needs 18+. Once clear of immediate danger eat carried food, or obtain visible food if empty. healing.options and player.bestFood give the available calls and slots; choose the food action now.';
 	if (lowEligibleBody(player, 8, 0.4) && Number.isFinite(player.foodLevel) && player.foodLevel < 18) return `Live Minecraft event: low health. Food ${player.foodLevel}/20 cannot regenerate health. Eat carried food or obtain a visible food source before routine work; regeneration needs 18+. Use healing.options and current footing for the first food step.`;
@@ -7329,7 +7342,7 @@ export function dangerFactLine(trigger, player) {
 	if (trigger === 'drowning') {
 		const air = Number.isFinite(player.airSecondsLeft) ? ` ${player.airSecondsLeft}s air left;` : '';
 		const breath = player.breathable, cell = at(breath);
-		return `Live Minecraft event: drowning.${air}${cell === null ? ' No breathable cell seen.' : ` Breathable ${cell}${Number.isFinite(breath.distance) ? ` ${breath.distance}m` : ''}${typeof breath.direction === 'string' ? ` ${breath.direction}` : ''}.`} Surfacing alone does not advance a route. Released input sinks; hold jump to refill, then choose moveTo travel or an air pocket (doors create air).`;
+		return `Live Minecraft event: drowning.${air}${cell === null ? ' No breathable cell seen.' : ` Breathable ${cell}${Number.isFinite(breath.distance) ? ` ${breath.distance}m` : ''}${typeof breath.direction === 'string' ? ` ${breath.direction}` : ''}.`} Surfacing alone does not advance a route. do_step escape (stops the running step) swims to air and out onto dry footing, then hands back; or choose moveTo travel or an air pocket (doors create air).`;
 	}
 	if (trigger === 'cloud') {
 		const cloud = (Array.isArray(player.clouds) ? player.clouds : []).find(row => row?.harmful === true);

@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+// FIXTURE_TICK_RATE runs the 7 s watch faster: the room, the summon of the body and its walk in stay at 20 TPS, and from
+// the zombie's summon the watch and its samples are game time on the fixture clock (rate.clock). The spot records
+// seconds (game), wallSeconds and rates.
 import { readFile, writeFile, mkdir, cp, readdir, unlink, open, rm } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,6 +14,7 @@ import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-r
 import { spotPassed } from './lib/reflex-failspot-pass.mjs';
 import { reflexHold } from './lib/room-evidence.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
+import { installTickRate, fixtureTickRate } from './watch-replay.mjs';
 import { deathCounter } from './lib/damage-counter.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
@@ -40,7 +44,7 @@ const results = { jar: jarPath, spots: {} };
 await mkdir(out, { recursive: true });
 if ((await readdir(out)).length) { console.error('Use a fresh output directory'); process.exit(2); }
 await writeFile(join(out, 'manifest.json'), JSON.stringify({ kind: 'provider-free live mechanics', aiPerformanceMeasured: false, fixtureSetupUsesOperatorCommands: true,
-	jarSha256: createHash('sha256').update(await readFile(jarPath).catch(error => { console.error(`no jar: ${error.message}`); process.exit(2); })).digest('hex'), node: process.version }, null, 2));
+	jarSha256: createHash('sha256').update(await readFile(jarPath).catch(error => { console.error(`no jar: ${error.message}`); process.exit(2); })).digest('hex'), tickRate: fixtureTickRate(), node: process.version }, null, 2));
 
 // A stopped run must not leave its server holding the slot's ports.
 let liveServer = null;
@@ -67,8 +71,10 @@ async function boot(dir) {
 	liveServer = child;
 	for (let i = 0; i < 150; i++) { try { s.rcon = new HeadlessRconClient({ host: '127.0.0.1', port: port + 1, password: secret, connectTimeoutMs: 500, commandTimeoutMs: 30000 }); await s.rcon.connect(); break; } catch (e) { await s.rcon?.close(); if (i === 149) throw e; await sleep(1000); } }
 	s.command = async (text) => { if (s.rcon.state === 'closed') { s.rcon = new HeadlessRconClient({ host: '127.0.0.1', port: port + 1, password: secret, commandTimeoutMs: 30000 }); await s.rcon.connect(); } return (await s.rcon.command(text)).text; };
+	// The fixture tick rate helpers (s.normalRate, s.fastRate, s.clock, s.gameTimer) over the reconnecting command above.
+	installTickRate(s, fixtureTickRate());
 	s.bridge = new MultiplexedServerBridge({ port, secret }, {}); s.inbox = new Inbox(s.bridge);
-	s.bridge.on('observation', e => { if (e.agentId === s.record?.agentId && e.payload.ready) s.observation = e.payload; });
+	s.bridge.on('observation', e => { s.clock.observe(e.payload?.world?.gameTime); if (e.agentId === s.record?.agentId && e.payload.ready) s.observation = e.payload; });
 	s.bridge.on('goal_spec_request', e => { s.bridge.send('goal_spec_proposal', e.agentId, { requestId: e.payload.requestId, summary: 'Controlled live mechanics fixture', predicate: { type: 'survive_duration', ticks: 24000 } }).catch(() => {}); });
 	const ready = s.inbox.wait('ready'); s.bridge.start(); await ready;
 	await s.bridge.send('catalog_snapshot', 'server', { refreshedAtEpochMs: Date.now(), models: [{ provider: 'codex', model: 'gpt-6.1-sol', id: 'gpt-6.1-sol', displayName: 'Provider-free failspot fixture', reasoningEfforts: ['low'], serviceTiers: ['priority'] }] });
@@ -128,10 +134,10 @@ async function place(s, spot, kit) {
 	await s.command(`${at} kill @e[type=minecraft:ender_dragon]`); await s.command(`${at} kill @e[type=minecraft:enderman]`);
 	await s.command(`${at} kill @e[type=minecraft:area_effect_cloud]`); await s.command(`${at} kill @e[type=minecraft:skeleton]`); await s.command(`${at} kill @e[type=minecraft:zombie]`);
 	// A dimension change leaves the body invulnerable for 60 ticks (vanilla): wait it out before damage counts.
-	await sleep(3500);
-	await s.command(`effect give ${agent} minecraft:instant_health 1 5 true`); await sleep(700);
+	await s.idleSleep(3500);
+	await s.command(`effect give ${agent} minecraft:instant_health 1 5 true`); await s.idleSleep(700);
 	if (spot.health < 20) await s.command(`damage ${agent} ${round(20 - spot.health)} minecraft:generic`);
-	await sleep(1000);
+	await s.idleSleep(1000);
 }
 
 const eventsOf = (o, ids, since) => (o.reflexes?.events ?? []).filter(e => ids.includes(e.id) && (e.seq ?? 0) > since).map(e => ({ outcome: e.outcome, detail: e.detail, ms: e.ms }));
@@ -140,6 +146,7 @@ const deaths = (s) => deathCounter(text => s.command(text), agent, { objective: 
 const health = async (s) => { const text = await s.command(`data get entity ${agent} Health`); return /No entity|not found/i.test(text) ? 0 : number(text); };
 
 async function tunnelSpot(s, spot) {
+	await s.normalRate();
 	const [ox, oy, oz] = spot.origin;
 	const at = (dx, dy, dz) => `${ox + dx} ${oy + dy} ${oz + dz}`;
 	await s.command(`execute in ${spot.dim} run forceload add ${ox - 24} ${oz - 24} ${ox + 24} ${oz + 24}`); await sleep(1500);
@@ -162,20 +169,28 @@ async function tunnelSpot(s, spot) {
 	const since = Math.max(0, ...(o.reflexes?.events ?? []).map(e => e.seq ?? 0));
 	const start0 = [o.position.x, o.position.z];
 	const deathsBefore = await deaths(s);
+	// The summon starts the watch: the rate goes up just before it.
+	await s.fastRate();
+	const now = () => s.clock.now();
+	const wall0 = Date.now(), timer = await s.gameTimer();
 	await s.command(`execute in ${spot.dim} run summon minecraft:zombie ${world(6, 0).join(' ')} {NoAI:1b,PersistenceRequired:1b}`);
 	const track = [];
-	const start = Date.now();
-	while (Date.now() - start < 7000) {
+	const start = now();
+	while (now() - start < 7000) {
 		o = (await s.observeOrNull()) ?? o;
-		track.push({ t: Date.now() - start, x: round(o.position?.x ?? 0), z: round(o.position?.z ?? 0), firing: o.reflexes?.firing?.detail ?? null });
-		await sleep(250);
+		track.push({ t: now() - start, x: round(o.position?.x ?? 0), z: round(o.position?.z ?? 0), firing: o.reflexes?.firing?.detail ?? null });
+		await s.clock.sleep(250);
 	}
+	const tick = { seconds: Math.round((now() - start) / 1000), wallSeconds: Math.round((Date.now() - wall0) / 1000), gameSeconds: Math.round((await timer.elapsed()) / 1000),
+		rates: await timer.rates().catch(() => null) };
+	await s.normalRate();
+	tick.held = await s.tickReport();
 	const events = eventsOf(o, ids, since);
 	const final = track.at(-1);
 	const died = (await deaths(s)) > deathsBefore || (await health(s)) <= 0;
 	await s.command(`execute in ${spot.dim} run kill @e[type=minecraft:zombie]`);
 	// The rule under test must fire: a body that walked out on its own measured nothing (finishRun reports it invalid).
-	return { recorded: spot.recorded, walkedIn: walked, events, died, hold: reflexHold(o.reflexes, { id: 'escape', sinceSeq: since, holdMs: 0 }), startedAt: start0.map(round), final: [final.x, final.z],
+	return { recorded: spot.recorded, tick: { rate: s.tickRate, ...tick }, walkedIn: walked, events, died, hold: reflexHold(o.reflexes, { id: 'escape', sinceSeq: since, holdMs: 0 }), startedAt: start0.map(round), final: [final.x, final.z],
 		fromZombie: round(Math.hypot(final.x - world(6, 0)[0], final.z - world(6, 0)[2])), escaped: !events.some(e => e.outcome === 'failed') && final.z < oz - 1, track: track.filter((_, i) => i % 2 === 0) };
 }
 

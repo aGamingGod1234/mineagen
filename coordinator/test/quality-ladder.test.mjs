@@ -305,6 +305,19 @@ test('progress reaches the target exactly when the inventory verdict passes', as
 	}
 });
 
+test('a horizontal position clause ignores height, for a walk over or round a hill', async () => {
+	const { evaluateSamples, parseSuccessCheck } = await import('../../scripts/quality/ladder-evaluator.mjs');
+	const check = 'all: position_within_xz overworld (213.5, 108.5) radius 16 AND survive_duration: 0 ticks';
+	assert.deepEqual(parseSuccessCheck(check).of[0], { type: 'position', horizontal: true, dimension: 'minecraft:overworld', center: [213.5, 108.5], radius: 16 });
+	const at = (x, y, t) => sample(t, t / 50, { dimension: 'minecraft:overworld', position: { x, y, z: 108.5 } });
+	// 40 blocks up a hill at the target column passes; a 3D sphere of radius 16 round y 66 would not.
+	const high = evaluateSamples([at(13.5, 66, 0), at(120, 90, 1000), at(205, 106, 2000)], { successCheck: check, durationBudgetMs: 60000, goalStartAt: 0 });
+	assert.equal(high.pass, true);
+	const short = evaluateSamples([at(13.5, 66, 0), at(150, 66, 1000)], { successCheck: check, durationBudgetMs: 60000, goalStartAt: 0 });
+	assert.equal(short.pass, false);
+	assert.equal(short.progress[0].closest, 63.5);
+});
+
 test('survival, position and advancement clauses report how far the run got', async () => {
 	const { evaluateSamples } = await import('../../scripts/quality/ladder-evaluator.mjs');
 	const survive = evaluateSamples([sample(0, 100), sample(1000, 120), sample(2000, 140), sample(3000, 160, { deathCounter: 1 }), sample(4000, 180, { deathCounter: 1 })],

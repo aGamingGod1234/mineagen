@@ -1873,7 +1873,8 @@ function normalizeGoalControl(value) {
 function normalizeDeath(value) {
 	exactKeys(
 		value,
-		['cause', 'dimensionId', 'x', 'y', 'z', 'respawnDimensionId', 'respawnX', 'respawnY', 'respawnZ', 'respawnYaw', 'respawnPitch', 'respawnForced', 'gameMode', 'diedAtEpochMs', 'score'],
+		['cause', 'dimensionId', 'x', 'y', 'z', 'respawnDimensionId', 'respawnX', 'respawnY', 'respawnZ', 'respawnYaw', 'respawnPitch', 'respawnForced', 'gameMode', 'diedAtEpochMs', 'score',
+			'damageType', 'attacker', 'directAttacker', 'foodLevel', 'saturation', 'armor'],
 		['cause', 'dimensionId', 'x', 'y', 'z', 'respawnDimensionId', 'respawnX', 'respawnY', 'respawnZ', 'respawnYaw', 'respawnPitch', 'respawnForced', 'gameMode', 'diedAtEpochMs'],
 		'death',
 	);
@@ -1899,6 +1900,13 @@ function normalizeDeath(value) {
 		respawnDimensionId, respawnX, respawnY, respawnZ, respawnYaw, respawnPitch, respawnForced, gameMode,
 		diedAtEpochMs: nonnegativeInteger(value.diedAtEpochMs, 'death.diedAtEpochMs'),
 		...(value.score === undefined ? {} : { score: integer(value.score, 'death.score') }),
+		// What killed the body and its state then; older servers send none of these.
+		...(value.damageType === undefined ? {} : { damageType: requireIdentifier(value.damageType, 'death.damageType') }),
+		...(value.attacker === undefined ? {} : { attacker: nullableIdentifier(value.attacker, 'death.attacker') }),
+		...(value.directAttacker === undefined ? {} : { directAttacker: nullableIdentifier(value.directAttacker, 'death.directAttacker') }),
+		...(value.foodLevel === undefined ? {} : { foodLevel: nonnegativeInteger(value.foodLevel, 'death.foodLevel') }),
+		...(value.saturation === undefined ? {} : { saturation: finiteNumber(value.saturation, 'death.saturation') }),
+		...(value.armor === undefined ? {} : { armor: nonnegativeInteger(value.armor, 'death.armor') }),
 	});
 }
 
