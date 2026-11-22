@@ -1750,9 +1750,9 @@ public final class MultiplexedServerBridgeVerification {
 
 	/**
 	 * Playtest: a single-player pause stops server ticks, the heartbeat reply waited for one, and the coordinator dropped
-	 * the link after 15 s, cancelling the bot's step. The reply now comes from the bridge's reader thread with no server
-	 * tick at all; a coordinator that announced tickClock also gets the tick age and pause state, an older one the empty
-	 * reply its strict schema accepts.
+	 * the link after 15 s, cancelling the bot's step. A server not ticking for HEARTBEAT_DIRECT_AFTER_MS (or paused) now
+	 * answers from the bridge's reader thread; a coordinator that announced tickClock also gets the tick age and pause
+	 * state, an older one the empty reply its strict schema accepts.
 	 */
 	private static void verifyHeartbeatAnsweredWithoutTicks() {
 		for (boolean tickClock : List.of(false, true)) {
@@ -1773,14 +1773,18 @@ public final class MultiplexedServerBridgeVerification {
 					writeAuthenticatedHello(socket, codec, secret, null, "hello-heartbeat", exchange, false, false, tickClock ? "tickClock" : null);
 					BridgeEnvelope hello = codec.decode(reader.readLine());
 					assertEquals("hello_ack", hello.type(), "the coordinator authenticates");
+					// The server last ticked 6 s ago and ticks nothing during the test, as a paused or hung game: the reply must come.
+					java.lang.reflect.Field lastTick = MultiplexedServerBridge.class.getDeclaredField("lastTickNanos");
+					lastTick.setAccessible(true);
+					lastTick.setLong(bridge, System.nanoTime() - (MultiplexedServerBridge.HEARTBEAT_DIRECT_AFTER_MS + 1_000L) * 1_000_000L);
 					writeEnvelope(socket, codec, new BridgeEnvelope(2, hello.serverInstanceId(), "server", "heartbeat", "paused-heartbeat", new JsonObject()));
-					// No startTick or endTick runs here: a paused game ticks nothing, and the reply must still come.
 					BridgeEnvelope reply = codec.decode(reader.readLine());
 					// Publications the handshake queued may come first; only the heartbeat is waited for.
 					for (int skipped = 0; !"heartbeat".equals(reply.type()) && skipped < 8; skipped++) reply = codec.decode(reader.readLine());
 					assertEquals("heartbeat", reply.type(), "the heartbeat is answered without a server tick");
 					if (tickClock) {
-						assertTrue(reply.payload().has("tickAgeMs") && reply.payload().get("tickAgeMs").getAsLong() >= 0L, "the reply carries the tick age");
+						assertTrue(reply.payload().has("tickAgeMs") && reply.payload().get("tickAgeMs").getAsLong() >= MultiplexedServerBridge.HEARTBEAT_DIRECT_AFTER_MS,
+								"the reply carries the tick age");
 						assertTrue(reply.payload().has("paused") && !reply.payload().get("paused").getAsBoolean(), "no server, not paused");
 					} else {
 						assertTrue(reply.payload().size() == 0, "an older coordinator gets the empty heartbeat its schema accepts");

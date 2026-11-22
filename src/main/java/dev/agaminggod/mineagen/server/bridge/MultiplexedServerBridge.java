@@ -1005,11 +1005,12 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		if (!serverInstanceId.equals(envelope.serverInstanceId())) {
 			throw new BridgeProtocolException("SERVER_INSTANCE_MISMATCH", "Authenticated session changed serverInstanceId");
 		}
-		// Answered on this reader thread, which keeps running while a single-player game is paused. Queued for the server
-		// thread, a paused game sent no reply, the coordinator called the link dead after 15 s and cancelled the bot's step
-		// (playtest: Esc for 13 s). The reply says how long ago the server last ticked and whether it is paused, so a hung
-		// server still reads as dead to a coordinator that announced tickClock; an older one gets the empty reply, on time.
-		if ("heartbeat".equals(envelope.type())) {
+		// A ticking server answers in order on its own thread, after the messages before it (tests and replays use the
+		// reply as that barrier). A paused one, or one not ticking for HEARTBEAT_DIRECT_AFTER_MS, is answered here on the
+		// reader thread instead: queued, a paused single-player game sent no reply, the coordinator called the link dead
+		// after 15 s and cancelled the bot's step (playtest: Esc for 13 s). The reply says how long ago the server ticked
+		// and whether it is paused, so a hung server still reads as dead to a coordinator that announced tickClock.
+		if ("heartbeat".equals(envelope.type()) && answersHeartbeatOffThread()) {
 			synchronized (publicationLock) {
 				if (session == source && source.open.get() && source.authenticated.get())
 					send("heartbeat", "server", source.tickClock ? heartbeatPayload() : new JsonObject());
@@ -1024,6 +1025,16 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		})) {
 			throw new BridgeProtocolException("SERVER_TASK_QUEUE_FULL", "Coordinator exceeded the bounded server task queue");
 		}
+	}
+
+	/** Without a tick this long, a heartbeat is answered off the server thread (see {@link #accept}). */
+	static final long HEARTBEAT_DIRECT_AFTER_MS = 5_000L;
+
+	private boolean answersHeartbeatOffThread() {
+		long last = lastTickNanos;
+		if (last == 0L) return false;
+		net.minecraft.server.MinecraftServer server = manager == null ? null : manager.server();
+		return server != null && server.isPaused() || (System.nanoTime() - last) / 1_000_000L >= HEARTBEAT_DIRECT_AFTER_MS;
 	}
 
 	/** How long ago the server thread last began a tick, and whether the server is paused (a single-player pause). */
@@ -1257,7 +1268,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 			case "agent_error" -> acceptAgentError(envelope);
 			case "agent_notice" -> acceptAgentNotice(envelope);
 			case "verbose_event" -> acceptVerboseEvent(envelope);
-			case "heartbeat" -> send("heartbeat", "server", new JsonObject());
+			case "heartbeat" -> send("heartbeat", "server", session != null && session.tickClock ? heartbeatPayload() : new JsonObject());
 			default -> throw new BridgeProtocolException("UNKNOWN_MESSAGE_TYPE", envelope.type());
 		}
 	}
