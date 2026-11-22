@@ -506,6 +506,14 @@ public final class DriverRuleVerification {
 				&& ReflexEngine.gatedTruth(leave, true, ActionType.FLEE_FROM), "only defend's truth is gated by a fight or flee");
 		check(!ReflexEngine.gatedTruth(defend, true, ActionType.ESCAPE, true) && ReflexEngine.gatedTruth(defend, true, ActionType.ESCAPE, false)
 				&& ReflexEngine.gatedTruth(leave, true, ActionType.ESCAPE, true), "defend stands aside for an escape from a shooter in sight, not for one from a hole or a melee hit");
+		var cover = dev.agaminggod.mineagen.server.runtime.controller.ServerEscapeController.ShooterMove.COVER;
+		var run = dev.agaminggod.mineagen.server.runtime.controller.ServerEscapeController.ShooterMove.RUN;
+		check(ReflexEngine.escapingShooter(cover, false) && ReflexEngine.escapingShooter(run, false), "defend stands aside while the escape walks to cover from a shooter or runs from it");
+		check(!ReflexEngine.escapingShooter(null, false), "defend answers while the escape swims or climbs, an archer in sight or not");
+		check(!ReflexEngine.escapingShooter(cover, true), "defend answers a melee mob in reach during the escape's walk to cover");
+		check(ReflexEngine.escapeBlocksShots(cover, true) && !ReflexEngine.escapeBlocksShots(cover, false)
+				&& !ReflexEngine.escapeBlocksShots(run, true) && !ReflexEngine.escapeBlocksShots(null, true),
+				"the arrow shield leaves only the escape's shielded walk to cover alone");
 	}
 
 	/**

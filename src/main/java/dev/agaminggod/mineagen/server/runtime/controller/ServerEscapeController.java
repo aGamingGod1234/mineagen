@@ -88,6 +88,27 @@ public final class ServerEscapeController implements ServerController {
 	private int safeTicks;
 	private int swims;
 	private int climbs;
+	/** What an escape is doing about a shooter now: walking into cover from it, or running out of its range. */
+	public enum ShooterMove { COVER, RUN }
+
+	/**
+	 * Each body's escape that is answering a shooter itself, and how. The reflex gates read it: defend stands aside and the
+	 * arrow shield leaves a shielded cover walk alone only while the escape is doing this, not while it swims or climbs
+	 * with an archer somewhere in sight. Kept through a reflex's pause (the escape takes the same move up again) and
+	 * cleared when the escape turns to something else or ends.
+	 */
+	private static final Map<java.util.UUID, ShooterMove> SHOOTER_MOVES = new java.util.concurrent.ConcurrentHashMap<>();
+
+	/** The move this body's escape is making against a shooter, or null when it is not answering one. */
+	public static ShooterMove shooterMove(ServerPlayer player) {
+		return player == null ? null : SHOOTER_MOVES.get(player.getUUID());
+	}
+
+	private static void answering(ServerPlayer player, ShooterMove move) {
+		if (move == null) SHOOTER_MOVES.remove(player.getUUID());
+		else SHOOTER_MOVES.put(player.getUUID(), move);
+	}
+
 	/** Gives back the running move's attempt when a reflex interrupts it (see {@link #resumed}). */
 	private Runnable refund;
 	private int fills, steps;
@@ -115,7 +136,10 @@ public final class ServerEscapeController implements ServerController {
 		if (child != null) return childTick(player, now);
 		if (move != null) return moveTick(player);
 		Situation situation = situation(player);
-		if (situation != Situation.SHOOTERS) runInterrupted = false;
+		if (situation != Situation.SHOOTERS) {
+			runInterrupted = false;
+			answering(player, null);
+		}
 		if (situation != Situation.SAFE) safeTicks = 0;
 		return switch (situation) {
 			case SAFE -> {
@@ -423,6 +447,7 @@ public final class ServerEscapeController implements ServerController {
 	}
 
 	private TickResult startMove(ServerPlayer player, EscapeMoves.Move next, String label) {
+		answering(player, label.startsWith("cover from ") ? ShooterMove.COVER : label.startsWith("run out of range") ? ShooterMove.RUN : null);
 		move = next;
 		moveLabel = label;
 		return moveTick(player);
@@ -447,6 +472,7 @@ public final class ServerEscapeController implements ServerController {
 	}
 
 	private TickResult startChild(ServerPlayer player, ServerController next, String label) {
+		answering(player, null);
 		input.release();
 		child = next;
 		childLabel = label;
@@ -479,6 +505,7 @@ public final class ServerEscapeController implements ServerController {
 				// The climb did not fail on the way out, a mob stopped it: that attempt is given back, so a fight that
 				// takes more than one bounded stand still leaves climbs to get out (bounded by MAX_TRIES stands).
 				pits = climbsAfterStand(pits, childLabel);
+				answering(player, null);
 				stand = new CorneredStand(near, null, player, now);
 				standUntil = now + STAND_MS;
 				standLabel = "stood its ground against " + type(near instanceof Mob mob ? mob : null);
@@ -545,6 +572,7 @@ public final class ServerEscapeController implements ServerController {
 
 	@Override
 	public void cancel(ServerPlayer player) {
+		answering(player, null);
 		if (child != null) child.cancel(player);
 		child = null;
 		if (stand != null) stand.cancel(player);
@@ -566,6 +594,7 @@ public final class ServerEscapeController implements ServerController {
 	}
 
 	private TickResult finish(ServerPlayer player, TickResult result) {
+		answering(player, null);
 		if (child != null) child.cancel(player);
 		child = null;
 		if (stand != null) stand.cancel(player);

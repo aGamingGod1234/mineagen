@@ -122,6 +122,33 @@ public final class ReflexEngine {
 	 * does for a flee: its melee stance held the body in the open behind a shield while the escape's own walk to cover
 	 * (which blocks with the shield itself) waited (skeleton escape room: paused 7 to 30 s of a 30 s window).
 	 */
+	/**
+	 * Whether defend stands aside for the escape step: only while the escape itself answers a shooter (walks into cover or
+	 * runs out of range), and no melee mob is in reach. Any archer in sight was too wide: in water or a hole the escape
+	 * swims or climbs first, and a zombie hitting the body is no shot the escape's cover walk blocks.
+	 */
+	static boolean escapingShooter(dev.agaminggod.mineagen.server.runtime.controller.ServerEscapeController.ShooterMove move, boolean meleeInReach) {
+		return move != null && !meleeInReach;
+	}
+
+	/**
+	 * The escape's own walk into cover with a shield in hand blocks shots itself (TakeCover's shield), as a cover firing does,
+	 * so the arrow shield leaves it alone: taken, the walk paused for every fresh bow draw and started over on each resume.
+	 */
+	static boolean escapeBlocksShots(dev.agaminggod.mineagen.server.runtime.controller.ServerEscapeController.ShooterMove move, boolean shieldInHand) {
+		return move == dev.agaminggod.mineagen.server.runtime.controller.ServerEscapeController.ShooterMove.COVER && shieldInHand;
+	}
+
+	/** A melee mob hostile to the body this near: defend answers it during an escape from a shooter. */
+	static final double ESCAPE_MELEE_REACH = 4.0D;
+
+	static boolean meleeInReach(ServerPlayer player) {
+		return !player.level().getEntitiesOfClass(net.minecraft.world.entity.Mob.class, player.getBoundingBox().inflate(ESCAPE_MELEE_REACH),
+				mob -> mob.isAlive() && !dev.agaminggod.mineagen.server.perception.ThreatPerception.isRanged(mob)
+						&& dev.agaminggod.mineagen.server.perception.ThreatPerception.isHostileTo(mob, player)
+						&& player.distanceTo(mob) <= ESCAPE_MELEE_REACH).isEmpty();
+	}
+
 	static boolean gatedTruth(ReflexSpec.Rule rule, boolean truth, ActionType activeType, boolean escapingShooter) {
 		return truth && !("defend".equals(rule.action().type()) && (defendStandsAside(activeType) || escapingShooter));
 	}
@@ -516,8 +543,12 @@ public final class ReflexEngine {
 		boolean fleeing = activeType == ActionType.FLEE_FROM && !cornered
 				|| agent.behaviour instanceof ReflexActions.Defend defend && defend.backingOutOfPack();
 		boolean fleeingWithChaser = fleeing && ReflexActions.Defend.nearestChaser(player, ReflexActions.PACK_RANGE) < ReflexActions.PACK_RANGE;
-		boolean firingBlocksShots = agent.scheduler.current() != null && agent.behaviour != null && agent.behaviour.blocksShots();
-		boolean escapingShooter = activeType == ActionType.ESCAPE && !EscapeMoves.shooters(player).isEmpty();
+		dev.agaminggod.mineagen.server.runtime.controller.ServerEscapeController.ShooterMove shooterMove =
+				activeType == ActionType.ESCAPE ? dev.agaminggod.mineagen.server.runtime.controller.ServerEscapeController.shooterMove(player) : null;
+		boolean escapingShooter = escapingShooter(shooterMove, meleeInReach(player));
+		boolean firingBlocksShots = agent.scheduler.current() != null && agent.behaviour != null && agent.behaviour.blocksShots()
+				|| escapeBlocksShots(shooterMove, player.getOffhandItem().is(net.minecraft.world.item.Items.SHIELD)
+						|| player.getMainHandItem().is(net.minecraft.world.item.Items.SHIELD));
 		Map<String, ReflexScheduler.Sense> senses = new HashMap<>();
 		Map<String, Entity> focus = new HashMap<>();
 		Map<String, Vec3> points = new HashMap<>();
