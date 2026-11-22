@@ -184,12 +184,12 @@ export async function waitHydrated(id, { maxMs = 5 * 60_000, everyMs = 2000, log
 	return Math.round((Date.now() - began) / 1000);
 }
 
-export async function machineState(id) {
-	const info = JSON.parse(await boat(['info', id, '--json'], { timeoutMs: 60_000 }));
+export async function machineState(id, options = {}) {
+	const info = JSON.parse(await boat(['info', id, '--json'], { timeoutMs: 60_000, ...options }));
 	return info.sandbox?.state ?? null;
 }
 const LIVE = new Set(['provisioned', 'cloning', 'ready', 'idle', 'running']);
-export const destroyMachine = id => boat(['delete', id, '--yes', '--json'], { timeoutMs: 120_000 });
+export const destroyMachine = (id, options = {}) => boat(['delete', id, '--yes', '--json'], { timeoutMs: 120_000, ...options });
 export const machineUsage = async id => JSON.parse(await boat(['usage', id, '--json'], { timeoutMs: 60_000 }));
 /**
  * Puts the Codex CLI and a Codex sign-in on a machine for real-model games: codex VERSION under ~/.local (installed only
@@ -206,7 +206,7 @@ export async function installCodex(id, { authFile, version, signal = null }) {
 	return (await remote(id, 'chmod 600 ~/.codex/auth.json; sha256sum ~/.codex/auth.json | cut -c1-64', { signal })).trim();
 }
 export const codexSignInHash = async id => (await remote(id, 'sha256sum ~/.codex/auth.json | cut -c1-64')).trim();
-export const removeCodexSignIn = (id, dirs = ['~/ck']) => remote(id, `rm -f ~/.codex/auth.json; for d in ${dirs.join(' ')}; do [ -d "$d" ] && find "$d" \\( -name auth.json -o -type d -name .codex-home -prune \\) -exec rm -rf {} +; done; true`);
+export const removeCodexSignIn = (id, dirs = ['~/ck'], options) => remote(id, `rm -f ~/.codex/auth.json; for d in ${dirs.join(' ')}; do [ -d "$d" ] && find "$d" \\( -name auth.json -o -type d -name .codex-home -prune \\) -exec rm -rf {} +; done; true`, options);
 export const extendMachine = (id, ttlSeconds) => boat(['extend', id, '--ttl', String(ttlSeconds), '--json'], { timeoutMs: 60_000 });
 export const upload = (id, local, remotePath, options = {}) => boat(['scp', local, `${id}:${remotePath}`], { timeoutMs: 15 * 60_000, ...options });
 export const download = (id, remotePath, local, options = {}) => boat(['scp', `${id}:${remotePath}`, local], { timeoutMs: 15 * 60_000, ...options });

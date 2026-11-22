@@ -176,6 +176,7 @@ function underCap() {
 
 async function prepare(vm) {
 	await remote(vm.id, 'set -e; mkdir -p ~/ck/arms ~/ck/sp ~/ck/games; command -v eatmydata >/dev/null; test -x ~/rooms/jdk/bin/java', live);
+	vm.signInRemoved = false;
 	const hash = await installCodex(vm.id, { authFile, version: codexVersion, ...live });
 	if (hash !== authSha) throw new Error(`sign-in copy on ${vm.id} does not match its source`);
 	for (const [name, pkg] of Object.entries(pkgs)) {
@@ -236,11 +237,13 @@ async function launch(vm, game) {
 	// A sign-in refreshed at its source (Codex on this computer) no longer matches its hash: like a refresh on a machine,
 	// it stops new starts instead of failing every launch until the deadline.
 	if (sha(authFiles[game.account]) !== authShas[game.account]) { signInChanged = true; await log(`SIGN-IN CHANGED at its source (sign-in ${game.account + 1}): Codex refreshed it on this computer; no new game starts`); return; }
+	// Marked before the upload: a launch that fails after the sign-in landed must still have it taken off.
+	vm.signInRemoved = false;
 	await upload(vm.id, authFiles[game.account], '.codex/auth.json', live);
 	const copied = (await remote(vm.id, 'chmod 600 ~/.codex/auth.json; sha256sum ~/.codex/auth.json | cut -c1-64', live)).trim();
 	if (copied !== authShas[game.account]) throw new Error(`sign-in ${game.account + 1} did not copy intact to ${vm.id}`);
 	vm.launchFailingSince = null;
-	game.state = 'running'; game.attempts++; game.machine = vm.id; game.startedAt = new Date().toISOString(); vm.game = game.id; vm.signInRemoved = false;
+	game.state = 'running'; game.attempts++; game.machine = vm.id; game.startedAt = new Date().toISOString(); vm.game = game.id;
 	game.timingOut = false; game.localCopyFailures = 0;
 	await remote(vm.id, `rm -rf ~/ck/games/${game.id}; mkdir -p ~/ck/games/${game.id}\nsetsid nohup ~/ck/game.sh ${game.id} ${game.arm} "$HOME/ck/sp/${game.savepoint}.json" ${plan.minutes} ${game.salt} ${quote(plan.model ?? 'gpt-6.2-sol')} ${quote(plan.effort ?? 'low')} > /dev/null 2>&1 < /dev/null &\necho started`, live);
 	await log(`started ${game.id} on ${vm.id} (salt ${game.salt}, sign-in ${game.account + 1}, attempt ${game.attempts})`);
@@ -473,19 +476,25 @@ for (const g of games.filter(g => g.state === 'queued')) g.state = 'not started'
 const cleanupFrom = Date.now();
 const pause = ms => new Promise(resolve => { const timer = setTimeout(resolve, ms); stopAll.signal.addEventListener('abort', () => { clearTimeout(timer); resolve(); }, { once: true }); });
 await Promise.all(machines.filter(m => m.id !== 'none' && !m.deleted).map(async vm => {
-	for (;;) {
+	const bound = () => aborted ? Math.max(abortedAt, cleanupFrom) + 60_000 : cleanupFrom + TTL_SECONDS * 1000;
+	for (let pass = 1; ; pass++) {
+		// Before a signal a SIGTERM cuts the call in flight (the next pass retries within the signal's budget); after one,
+		// a retry's calls get only the time left, so no retry runs past the bound.
+		const opts = !aborted ? { ...live } : pass > 1 ? { timeoutMs: Math.max(1_000, bound() - Date.now()) } : {};
 		// A game still running here (an error or a second signal ended the loop; a lost machine that came back) is ended
 		// first, so no session keeps playing on a machine whose sign-in is about to go, or one that is kept for reuse.
 		const endSessions = (vm.game || vm.lost) && !vm.sessionsEnded;
-		if (endSessions) await remote(vm.id, stopGamesScript, { timeoutMs: 180_000 }).then(() => { vm.sessionsEnded = true; return log(`ended the game sessions on ${vm.id}`); }, e => log(`could not end the game sessions on ${vm.id}: ${e.message.split('\n')[0]}`));
-		if (!vm.signInRemoved) await removeCodexSignIn(vm.id).then(() => { vm.signInRemoved = true; return log(`removed the sign-in from ${vm.id}`); }, e => log(`could not remove the sign-in from ${vm.id}: ${e.message}`));
+		if (endSessions) await remote(vm.id, stopGamesScript, { timeoutMs: 180_000, ...opts }).then(() => { vm.sessionsEnded = true; return log(`ended the game sessions on ${vm.id}`); }, e => log(`could not end the game sessions on ${vm.id}: ${e.message.split('\n')[0]}`));
+		// The first pass takes the sign-in off whatever the flag says; later passes only retry a failed removal.
+		if (pass === 1 || !vm.signInRemoved) await removeCodexSignIn(vm.id, undefined, opts).then(() => { vm.signInRemoved = true; return log(`removed the sign-in from ${vm.id}`); }, e => { vm.signInRemoved = false; return log(`could not remove the sign-in from ${vm.id}: ${e.message}`); });
 		// Batch-created extras (and every machine under drain "delete") are deleted, never left idle.
-		if (deletes(vm)) await destroyMachine(vm.id).then(() => { vm.deleted = true; return log(`deleted ${vm.id}`); }, e => log(`could not delete ${vm.id}: ${e.message}`));
+		if (deletes(vm)) await destroyMachine(vm.id, opts).then(() => { vm.deleted = true; return log(`deleted ${vm.id}`); }, e => log(`could not delete ${vm.id}: ${e.message}`));
 		if (vm.deleted || (vm.signInRemoved && !deletes(vm) && (vm.sessionsEnded || !(vm.game || vm.lost)))) return;
+		if (Date.now() >= bound() - (aborted ? 5_000 : 0)) return;
 		// A machine boat no longer knows took its sign-in with it; a stopped one keeps its disk, so it is named at the end.
-		const gone = await machineState(vm.id).then(s => LIVE.has(s) ? null : s ?? 'unknown', e => NOT_FOUND.test(e.message) ? 'not found' : null);
+		const gone = await machineState(vm.id, aborted ? { timeoutMs: Math.max(1_000, bound() - Date.now()) } : live).then(s => LIVE.has(s) ? null : s ?? 'unknown', e => NOT_FOUND.test(e.message) ? 'not found' : null);
 		if (gone) { vm.gone = gone; await log(`${vm.id} is ${gone} on boat: nothing more to clean there`); return; }
-		if (Date.now() >= (aborted ? Math.max(abortedAt, cleanupFrom) + 60_000 : cleanupFrom + TTL_SECONDS * 1000)) return;
+		if (Date.now() >= bound() - (aborted ? 5_000 : 0)) return;
 		await pause(aborted ? 5_000 : Math.min(POLL_MS, 30_000));
 	}
 }));
