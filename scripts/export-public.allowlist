@@ -180,6 +180,7 @@ coordinator/src/failure-codes.mjs
 coordinator/src/failure-schema.mjs
 coordinator/src/file-turns.mjs
 coordinator/src/find-eyes.mjs
+coordinator/src/find-fortress.mjs
 coordinator/src/find-portal-room.mjs
 coordinator/src/find-search.mjs
 coordinator/src/fortress-approach.mjs
