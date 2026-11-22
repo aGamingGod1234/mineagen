@@ -203,6 +203,8 @@ export class NativeToolRuntime {
 	#clock;
 	// The executor the runtime built on a game clock already pays server lag in its deadline (no wall-time lag credit).
 	#executorOnGameClock = false;
+	/** Wall time a single-player pause began, or null (see {@link serverPaused}). */
+	#pausedAtEpochMs = null;
 
 	constructor({
 		// { now(), sleep(ms), setTimeout?, clearTimeout?, observe? } (game-clock.mjs); it is fed every stored sample.
@@ -557,7 +559,7 @@ export class NativeToolRuntime {
 		// stall of a second or more with no tick re-anchors, as a frozen world. An out-of-order sample is ignored.
 		if (last !== undefined && (epochMs < last.epochMs || (gameTime === last.gameTime && epochMs - last.epochMs < LAG_SAME_TICK_MS))) return;
 		run.lagClock = { epochMs, gameTime, behindMs: last?.behindMs ?? 0, creditedMs: last?.creditedMs ?? 0 };
-		if (last === undefined || gameTime <= last.gameTime) return;
+		if (last === undefined || last.resumed === true || gameTime <= last.gameTime) return;
 		run.lagClock.behindMs += epochMs - last.epochMs - (gameTime - last.gameTime) * GAME_MS_PER_TICK;
 		const due = Math.round(run.lagClock.behindMs - run.lagClock.creditedMs);
 		if (due < LAG_CREDIT_MIN_MS) return;
@@ -591,7 +593,19 @@ export class NativeToolRuntime {
 
 	/** A single-player pause stopped the game: running programs keep their deadlines until it resumes. */
 	serverPaused(paused) {
-		return this.#programExecutor?.serverPaused?.(paused) ?? false;
+		const changed = this.#programExecutor?.serverPaused?.(paused) ?? false;
+		if (paused) this.#pausedAtEpochMs ??= Date.now();
+		else if (this.#pausedAtEpochMs !== null) {
+			// Samples are stamped in wall time and game time stood still: the first sample after the pause only re-anchors
+			// each lag clock, or it would credit the paused time a second time, as server lag.
+			const held = Math.max(0, Date.now() - this.#pausedAtEpochMs);
+			this.#pausedAtEpochMs = null;
+			for (const run of this.#programRuns.values()) {
+				if (run.lagClock !== undefined) run.lagClock = { ...run.lagClock, resumed: true };
+				if (run.deadlineEpochMs != null) run.deadlineEpochMs += held;
+			}
+		}
+		return changed;
 	}
 
 	hasProgram(record, programId) {

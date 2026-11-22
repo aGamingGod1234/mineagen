@@ -100,6 +100,8 @@ export class NativeProgramExecutor {
 	}
 
 	#scheduleObservation(run) {
+		// Paused, the server answers no sample (its inspections would time out and fail the program): resume reschedules.
+		if (this.#pausedAt !== null) return;
 		if (run.settled || run.stopping !== null || run.observationIntervalMs === undefined || run.observationTimer !== null) return;
 		const timer = this.#setTimeout(async () => {
 			if (run.observationTimer !== timer || run.settled || run.stopping !== null) return;
@@ -237,7 +239,12 @@ export class NativeProgramExecutor {
 		if (paused === (this.#pausedAt !== null)) return false;
 		if (paused) {
 			this.#pausedAt = this.#now();
-			for (const run of this.#runs.values()) { this.#clearTimeout(run.timer); run.timer = null; }
+			for (const run of this.#runs.values()) {
+				this.#clearTimeout(run.timer); run.timer = null;
+				if (run.observationTimer !== null) { this.#clearTimeout(run.observationTimer); run.observationTimer = null; }
+				// A background sample already asked for cannot come while paused: supersede it, so its timeout fails nothing.
+				if (run.refresh?.purpose === 'interval') { run.refreshGeneration++; run.refresh = null; }
+			}
 			return true;
 		}
 		const held = Math.max(0, this.#now() - this.#pausedAt);
@@ -247,6 +254,7 @@ export class NativeProgramExecutor {
 			run.pauseCreditMs = (run.pauseCreditMs ?? 0) + held;
 			if (run.urgentWaitSince !== null) run.urgentWaitSince += held;
 			this.#armDeadline(run);
+			this.#scheduleObservation(run);
 		}
 		return true;
 	}
