@@ -685,7 +685,8 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			.sort((a, b) => b.y - a.y)[0];
 		const wet = below !== undefined && /(^|:)(lava|water)$/.test(below.blockId);
 		if (wet || rim === null) { await pickUpNear(where, need.accept, 6); return; }
-		await act('travel_to', { x: where.x + 0.5, y: where.y, z: where.z + 0.5, tolerance: 0.4, timeoutMs: 20_000 });
+		// navigate_to: travel_to takes no tolerance under 1 block, which is the rim again.
+		await act('navigate_to', { x: where.x + 0.5, y: where.y, z: where.z + 0.5, tolerance: 0.4, timeoutMs: 20_000 });
 		if (body.interrupted() || body.stopped()) return;
 		await pickUpNear(where, need.accept, 6);
 	};
