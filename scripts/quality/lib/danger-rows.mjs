@@ -1,6 +1,7 @@
 // What hit the bot in a practice room: the Watcher's damage rows (arena-watch/<agentId>-danger.jsonl, written when the
 // server runs with -Dmineagen.watch=true; see the "Danger rows" section of scripts/quality/README.md), folded per room
 // row by attacker. finishRun attaches the fold as row.hits; a room without danger files gets no hits (unknown).
+import { existsSync } from 'node:fs';
 import { readFile, readdir, copyFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -32,15 +33,17 @@ export async function watchDirs(root, depth = 3) {
 export async function readDangerRows(root) {
 	let files = 0, dropped = 0, unreadable = 0, lostDamage = 0;
 	// Bodies watched, per server: a server folder's arena-watch and the copy boot() keeps beside it are one server.
-	const rows = [], seen = new Set(), servers = new Map();
+	const rows = [], seen = new Set(), servers = new Map(), activity = new Map(), watched = new Set();
 	for (const dir of await watchDirs(root)) {
-		const server = path.dirname(dir).replace(/[\\/]server$/, '');
+		// boot(DIR) runs its server in DIR/server and keeps the copy in DIR/arena-watch: both are server DIR.
+		const parent = path.dirname(dir), server = path.basename(parent) === 'server' && existsSync(path.join(path.dirname(parent), 'arena-watch')) ? path.dirname(parent) : parent;
 		const bodies = servers.get(server) ?? new Set();
 		servers.set(server, bodies);
 		for (const name of (await readdir(dir).catch(() => [])).filter(name => name.endsWith('-danger.jsonl')).sort()) {
 			files++;
 			// The Watcher makes <agentId>-danger.jsonl, empty, when it starts watching a body: a file is a watched body.
 			bodies.add(name.slice(0, -'-danger.jsonl'.length));
+			watched.add(name.slice(0, -'-danger.jsonl'.length));
 			// A file that is there but cannot be read is unknown evidence, never an empty file that reads as no hits.
 			const text = await readFile(path.join(dir, name), 'utf8').catch(() => null);
 			if (text === null) { unreadable++; continue; }
@@ -50,6 +53,8 @@ export async function readDangerRows(root) {
 				// A cut line could have been a hit, and so could a damage row of another schema: both leave hits unknown.
 				try { row = JSON.parse(line); } catch { dropped++; lostDamage++; continue; }
 				if (row?.schema !== SCHEMA) { dropped++; if (row?.type === 'damage') lostDamage++; continue; }
+				// Every row of any type is evidence the server was capturing then.
+				if (Number.isFinite(row.atMs)) { const span = activity.get(server) ?? [Infinity, -Infinity]; activity.set(server, [Math.min(span[0], row.atMs), Math.max(span[1], row.atMs)]); }
 				if (row.type !== 'damage') continue;
 				const key = JSON.stringify([row.agentId, row.atMs, row.gameTime, row.attackerId, row.damageType, row.amount, row.lethal]);
 				if (seen.has(key)) continue;
@@ -59,7 +64,7 @@ export async function readDangerRows(root) {
 		}
 	}
 	// The most bodies one server watched: 1 for one body per server (travel boots one server per seed), 4 for 4 lanes.
-	return { files, rows, dropped, unreadable, lostDamage, bodies: Math.max(0, ...[...servers.values()].map(set => set.size)) };
+	return { files, rows, dropped, unreadable, lostDamage, watched, servers: servers.size, activity: [...activity.values()], bodies: Math.max(0, ...[...servers.values()].map(set => set.size)) };
 }
 
 const round = value => Math.round(value * 100) / 100;
@@ -119,6 +124,12 @@ export async function attachHits(rows, root) {
 		// A row that names no body can only be read where one body was watched: with several, the hits in its window may
 		// be a sibling lane's, even when only one of them was hit.
 		if (unknown) { delete row.hits; row.hitsUnknown = unknown; continue; }
+		// A row is read only from a capture that covers it: its own body's file, or, for a nameless row under several
+		// servers, a server that wrote something in its window (another room's file proves nothing about this one).
+		if (agentId && !danger.watched.has(agentId)) { delete row.hits; row.hitsUnknown = `no danger file for body ${agentId}`; continue; }
+		if (!agentId && danger.servers > 1 && !danger.activity.some(([first, last]) => first <= row.finishedAt && last >= from)) {
+			delete row.hits; row.hitsUnknown = `${danger.servers} servers were captured and none wrote anything in this row's window`; continue;
+		}
 		// hitsAllBodies: a row that stands for every body on its server (one row per seed with all lanes) takes them all.
 		if (!agentId && danger.bodies > 1 && row.hitsAllBodies !== true) { delete row.hits; row.hitsUnknown = `${danger.bodies} bodies were watched on one server and the row names none`; continue; }
 		delete row.hitsUnknown;

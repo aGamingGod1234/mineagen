@@ -157,3 +157,34 @@ test('a danger file that cannot be read leaves hits unknown, never zero', { skip
 		await chmod(file, 0o644);
 	} finally { await rm(out, { recursive: true, force: true }); }
 });
+
+test('a row is read only from a capture that covers it', async () => {
+	const out = await mkdtemp(path.join(os.tmpdir(), 'danger-cover-'));
+	try {
+		await mkdir(path.join(out, 'spot-0', 'arena-watch'), { recursive: true });
+		await mkdir(path.join(out, 'spot-1', 'arena-watch'), { recursive: true });
+		await writeFile(path.join(out, 'spot-0', 'arena-watch', 'a1-danger.jsonl'), '');
+		await writeFile(path.join(out, 'spot-1', 'arena-watch', 'a3-danger.jsonl'), lines([{ type: 'onset', schema: 1, agentId: 'a3', atMs: T0 + 40_000 }]));
+		const rows = [{ name: 'named', agentId: 'a2', startedAt: T0, finishedAt: T0 + 5_000 }, { name: 'early', startedAt: T0, finishedAt: T0 + 5_000 },
+			{ name: 'late', startedAt: T0 + 30_000, finishedAt: T0 + 50_000 }];
+		await finishRun(rows, { file: path.join(out, 'result.json'), setExitCode: false });
+		assert.match(rows[0].hitsUnknown, /no danger file for body a2/);
+		assert.match(rows[1].hitsUnknown, /2 servers were captured and none wrote anything/);
+		assert.equal(rows[2].hits.hits, 0, 'a capture that wrote in its window covers it');
+	} finally { await rm(out, { recursive: true, force: true }); }
+});
+
+test('boot() in a folder named server (the escape room) keeps one server for its live and kept copies', async () => {
+	const out = await mkdtemp(path.join(os.tmpdir(), 'danger-escape-'));
+	try {
+		const live = path.join(out, 'server', 'server', 'arena-watch');
+		await mkdir(live, { recursive: true });
+		await writeFile(path.join(live, 'a1-danger.jsonl'), '');
+		await keepDangerFiles(live, path.join(out, 'server', 'arena-watch'));
+		const read = await readDangerRows(out);
+		assert.deepEqual([read.files, read.servers, read.bodies], [2, 1, 1]);
+		const rows = [{ name: 'quiet', startedAt: T0, finishedAt: T0 + 5_000 }];
+		await finishRun(rows, { file: path.join(out, 'result.json'), setExitCode: false });
+		assert.equal(rows[0].hits.hits, 0, 'one server, one body, nothing hit: a known zero');
+	} finally { await rm(out, { recursive: true, force: true }); }
+});
