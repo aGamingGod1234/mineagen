@@ -652,8 +652,9 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 	// The food hunt's flee line, set once from the health at the first hunt: later rounds never lower it.
 	let foodFlee = null, lastWeighed = null, kitTrip = false, lastPlan = null;
 	let lastFailure = null, fuelDiagnostic = null, approachStop = null;
-	// Biomes the body stood in this call, for a first-wood hand-back.
+	// Biomes the body stood in this call, and whether anything wooden was held when it began, for a first-wood hand-back.
 	const biomesSeen = new Set();
+	let woodAtStart = null;
 	const fuelMembers = (group) => (typeof group === 'string' ? index.tags[group] ?? [] : group);
 	const smeltsPer = (itemId) => (index.fuels?.[bare(itemId)] ?? 0) / 200;
 	const fuelCover = (counts) => Math.max(0, ...FUEL_GROUPS.map((group) => Math.max(0, ...fuelMembers(group).map((member) => Math.floor(Math.min(64, counts.get(member) ?? 0) * smeltsPer(member))))));
@@ -1891,6 +1892,7 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		}
 		if (typeof o.world?.biome === 'string' && o.world.biome) biomesSeen.add(bare(o.world.biome));
 		counts = heldCounts(o);
+		if (woodAtStart === null && Array.isArray(o.inventory?.items)) woodAtStart = woodHeld(counts);
 		held = keepPickaxeMakings(counts, target.ids, index);
 		have = target.ids.reduce((sum, member) => sum + (counts.get(member) ?? 0), 0);
 		startHave ??= have;
@@ -2070,9 +2072,11 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			// EARLY-7: the first wood goes back to the model after one full search with no log. In a fresh game the first
 			// obtain searched 821 s over its finds with 0 logs and no model check. The biomes seen let the model choose a
 			// heading (woods in sight, a village, a river) instead of the same search again.
-			if (need.blocks.length > 0 && need.blocks.every((block) => /_(log|stem)$/.test(block)) && !woodHeld(counts)
-				&& /^(FIND_NOT_FOUND|FIND_BUDGET)$/.test(budget.lastSearch?.reasonCode ?? '')) {
-				const here = bare((await rawBody.observe().catch(() => null))?.world?.biome ?? '');
+			// Nothing wooden when the call began and nothing now (a fresh look: cleanup may have picked a table back up).
+			const fresh = woodAtStart === false && need.blocks.length > 0 && need.blocks.every((block) => /_(log|stem)$/.test(block))
+				&& /^(FIND_NOT_FOUND|FIND_BUDGET)$/.test(budget.lastSearch?.reasonCode ?? '') ? await rawBody.observe().catch(() => null) : null;
+			if (fresh !== null && Array.isArray(fresh.inventory?.items) && !woodHeld(heldCounts(fresh))) {
+				const here = bare(fresh.world?.biome ?? '');
 				if (here) biomesSeen.add(here);
 				return end('FAILED', 'NO_SOURCE', `No tree for the first wood after one full search (${why}); biomes seen: ${[...biomesSeen].join(', ') || 'unknown'}. Trees grow in forest, taiga, jungle, savanna, swamp and meadow: head for one in sight, or pick a heading and search again`);
 			}

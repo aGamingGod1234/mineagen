@@ -1,0 +1,6 @@
+{
+  "comment": "EARLY-7: world spawns where the first log came late or never in from-scratch games (two ocean shores, snowy plains, swamp, flower forest edge). One lane per seed so each run starts at the world spawn; obtain wooden_pickaxe from nothing. Score: held within budget, seconds to the first log, hand-backs.",
+  "seeds": ["-7115798867888257246", "2165059619622653376", "4714988846826041678", "-5783526578409760122", "-9068878824646396187"],
+  "lanes": 1,
+  "items": [{ "item": "wooden_pickaxe", "budgetMs": 600000 }]
+}

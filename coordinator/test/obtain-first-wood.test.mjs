@@ -54,6 +54,8 @@ test('the first wood hands back after one full search with no log, naming the bi
 		assert.equal(result.reasonCode, 'NO_SOURCE');
 		assert.equal(searches.length, 1, `${reasonCode}: one search, not three`);
 		assert.equal(searches[0].block, 'minecraft:acacia_log', 'a desert spawn looks for acacia first');
+		// find surveys the block and the first three of also: oak, birch and jungle next, not alphabetical.
+		assert.deepEqual(searches[0].also.slice(0, 3), ['minecraft:oak_log', 'minecraft:birch_log', 'minecraft:jungle_log']);
 		assert.match(result.message, /No tree for the first wood after one full search/);
 		assert.match(result.message, /biomes seen: desert, badlands/);
 	}
@@ -66,4 +68,15 @@ test('with wood or a tool held, a fruitless log search is retried as before', as
 		assert.doesNotMatch(result.message ?? '', /first wood/, JSON.stringify(items));
 		assert.ok(searches.length > 1, `${JSON.stringify(items)}: retried (${searches.length} searches)`);
 	}
+});
+
+test('wood held when the call began is not the first wood, even once none is left', async () => {
+	// The pack shows a wooden sword at the start and nothing after (lost during the call): the retries stay.
+	const { body, searches } = treeless();
+	const observe = body.observe;
+	let first = true;
+	body.observe = async () => { const o = await observe(); if (first) { first = false; o.inventory.items = [{ itemId: 'minecraft:wooden_sword', count: 1, slot: 0 }]; } return o; };
+	const result = await runObtain({ item: 'wooden_pickaxe', count: 1, timeoutMs: 600_000 }, body, { now: (() => { let t = 0; return () => (t += 100); })() });
+	assert.doesNotMatch(result.message ?? '', /first wood/);
+	assert.ok(searches.length > 1, `retried (${searches.length} searches)`);
 });
