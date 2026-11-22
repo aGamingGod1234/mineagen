@@ -1,0 +1,82 @@
+[
+ {
+  "name": "remembered-ore-5596",
+  "seed": "5596758903284113703",
+  "time": 1000,
+  "monsters": true,
+  "repeat": true,
+  "budgetMs": 180000,
+  "inventory": [
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:torch",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "setup": [
+   "forceload add 288 -270 326 -240",
+   "kill @e[type=minecraft:item,distance=..40]",
+   "fill 297 14 -264 299 17 -249 minecraft:stone",
+   "fill 297 14 -251 321 17 -249 minecraft:stone",
+   "fill 298 15 -263 298 16 -250 minecraft:air",
+   "fill 298 15 -250 320 16 -250 minecraft:air",
+   "setblock 298 14 -262 minecraft:iron_ore",
+   "setblock 298 13 -262 minecraft:iron_ore",
+   "tp Probe 298.5 15 -258.5 180 35"
+  ],
+  "after": {
+   "ms": 5000,
+   "commands": [
+    "tp Probe 319.5 15 -249.5 -90 0"
+   ]
+  },
+  "probe": [
+   "execute if block 298 14 -262 minecraft:iron_ore",
+   "data get entity Probe Pos"
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "raw_iron",
+      "count": 2
+     },
+     "why": "iron for a pickaxe"
+    }
+   }
+  ],
+  "expectCode": "OBTAINED",
+  "forbid": [
+   {
+    "actionType": "dig_to",
+    "pattern": "tunnel"
+   },
+   {
+    "actionType": "dig_to",
+    "pattern": "steep_down"
+   },
+   {
+    "actionType": "dig_to",
+    "pattern": "stairs_down"
+   }
+  ],
+  "finalProbe": [
+   "execute if block 298 14 -262 minecraft:air"
+  ],
+  "expectFinalProbe": [
+   {
+    "index": 0,
+    "match": "Test passed"
+   }
+  ]
+ }
+]
