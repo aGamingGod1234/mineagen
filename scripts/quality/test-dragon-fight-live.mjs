@@ -9,8 +9,9 @@
 //     body alive within 20 game minutes of arrival.
 //   --survive: the body stands idle on the island with the dragon circling (crystals intact) and endermen about. Pass:
 //     alive after 10 game minutes, no fall into the void.
-// A body that never stands on the platform (or the island, for --survive), or a run whose death counter is unreadable,
-// is invalid evidence, never a pass. Launch under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME.
+// A body that never stands on the platform (or the island, for --survive), a run whose death counter is unreadable, that
+// is not a fresh fight (dragon below 200 or fewer than ten crystals), whose End reflexes never armed, or whose commands hit
+// a harness error is invalid evidence, never a pass. Launch under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME.
 // Judge with REPEATS=1 (the room list does): the End is not reset between repeats, so a repeat after a kill, a lost fight
 // or a death is INVALID; REPEATS=n is for bring-up only.
 import { writeFile, mkdir, readdir } from 'node:fs/promises';
@@ -22,7 +23,7 @@ import { adaptObservation } from '../../coordinator/src/observation-adapter.mjs'
 import { ReflexBook } from '../../coordinator/src/reflexes.mjs';
 import { perchedDragon } from '../../coordinator/src/dragon-fight-facts.mjs';
 import { warmBoots } from './fixture-servers.mjs';
-import { unshownTickRate } from './watch-replay.mjs';
+import { liveRecord, unshownTickRate } from './watch-replay.mjs';
 import { gameClockFromObservations } from '../../coordinator/src/game-clock.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 import { damageCounter, damageEvidence, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
@@ -77,7 +78,8 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 		const fast = s.clock.rate !== 20;
 		const book = new ReflexBook({ ...(fast ? { now: () => s.clock.now() } : {}) });
 		const commands = new Set();
-		const record = { ...s.record, provider: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'low', serviceTier: 'default' };
+		// The live record: its goal revision follows the server's, so acks, observations and commands never go stale.
+		const record = liveRecord(s, { provider: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'low', serviceTier: 'default' });
 		const runtime = new NativeToolRuntime({
 			bridge: { send: async (type, agentId, payload) => { if (type === 'action_command') commands.add(payload.actionId); return s.bridge.send(type, agentId, payload); } },
 			requestObservation: async () => { const payload = await s.observe(); return { eventSequence: payload.eventSequence, observation: adaptObservation(payload) }; },
@@ -100,12 +102,12 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 		// Every scripted command takes the path a model's command takes (runtime.execute), reflexes and vetting included.
 		const act = async (actionType, args) => {
 			const n = ++calls;
-			record.goalRevision = s.record.goalRevision;
 			const r = await runtime.execute({ agentId: record.agentId, goalRevision: record.goalRevision, turnId: `fight-${n}`, callId: `fight-${n}`,
 				tool: normalizeMinecraftToolCall('act', { actionType, arguments: args }) }, record).catch(error => ({ state: 'FAILED', reasonCode: 'FIXTURE_ERROR', message: String(error?.message ?? error) }));
-			if (r?.reasonCode === 'FIXTURE_ERROR') harnessErrors += 1;
-			// An action refused at once is not retried in a tight loop.
-			if (r?.state === 'FAILED') await s.clock.sleep(500);
+			// A thrown command or a stale-command refusal is the harness's failure, not the bot's.
+			if (r?.reasonCode === 'FIXTURE_ERROR' || /^STALE_/.test(String(r?.reasonCode ?? ''))) harnessErrors += 1;
+			// Anything but a success is not retried in a tight loop.
+			if (r?.state !== 'SUCCEEDED') await s.clock.sleep(500);
 			return { state: r?.state, reasonCode: r?.reasonCode, message: String(r?.message ?? '').slice(0, 300) };
 		};
 		const view = async () => adaptObservation(await s.observe());
@@ -179,7 +181,7 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 						if (!Number.isFinite(health) && Number.isFinite(dragon)) {
 							// The island stays force-loaded, so a missing dragon is a dead one only if it is still missing 2 s later.
 							await s.clock.sleep(2000);
-							const gone = !/passed/i.test(String(await end(s, 'execute if entity @e[type=minecraft:ender_dragon]')));
+							const gone = /Test failed/i.test(String(await end(s, 'execute if entity @e[type=minecraft:ender_dragon]')));
 							if (gone && !Number.isFinite(await dragonHealth())) { killed = true; break; }
 						}
 					}
