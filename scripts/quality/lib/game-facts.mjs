@@ -50,11 +50,15 @@ export function describeDeaths(deaths, { trails = [], samples = [], startedAt = 
 		// A death with evidence has the server's time. A death seen only in the samples is timed by the sample that showed
 		// it (an upper bound), so only samples before that one were alive before it.
 		const exact = ['message', 'damageType', 'attacker', 'directAttacker'].some((key) => death[key] != null);
-		const before = samples.filter((s) => (exact ? s.at <= death.at : s.at < death.at) && s.at >= death.at - FALL_LOOKBACK_MS && s.health > 0);
+		// Each death sees only its own life: samples after the previous death and before the next one.
+		const prevAt = finite(death.prevAt) ? death.prevAt : -Infinity, nextAt = finite(death.nextAt) ? death.nextAt : Infinity;
+		const before = samples.filter((s) => (exact ? s.at <= death.at : s.at < death.at) && s.at >= death.at - FALL_LOOKBACK_MS && s.at > prevAt && s.health > 0);
 		const last = before.at(-1) ?? null;
 		// The sample that shows the body dead (health 0, or the death counter past the last living one), at most 10 s on.
-		const stepped = (s) => s.health <= 0 || finite(s.deathCounter) && finite(last?.deathCounter) && s.deathCounter > last.deathCounter;
-		const dead = samples.find((s) => s.at >= (last?.at ?? death.at - FALL_LOOKBACK_MS) && s.at > (last?.at ?? -Infinity) && s.at <= death.at + FALL_LOOKBACK_MS && s.health <= 0) ?? null;
+		// The counter baseline is the last living sample before this death, even one from an earlier life.
+		const baseline = samples.filter((s) => (exact ? s.at <= death.at : s.at < death.at) && s.health > 0).at(-1) ?? null;
+		const stepped = (s) => s.health <= 0 || finite(s.deathCounter) && finite(baseline?.deathCounter) && s.deathCounter > baseline.deathCounter;
+		const dead = samples.find((s) => s.at >= (last?.at ?? death.at - FALL_LOOKBACK_MS) && s.at > (last?.at ?? -Infinity) && s.at <= death.at + FALL_LOOKBACK_MS && s.at > prevAt && s.at < nextAt && s.health <= 0) ?? null;
 		const dimension = trail?.dimension ?? dead?.dimension ?? last?.dimension ?? null;
 		// Without the death row, only a sample showing the body dead gives the death height; a living one would read 0.
 		const position = trail?.position ?? dead?.position ?? null;
@@ -162,7 +166,7 @@ export function gameFacts() {
 			const milestones = Object.fromEntries(LONG_RUN_MILESTONES.map((m) => [m.id, at(firstSeen[m.id] ?? null)]));
 			// No decision log: lava seen and portal lit are not measured, so their keys stay out (never "not reached").
 			if (logMilestones) Object.assign(milestones, { lava_seen: at(logMilestones.lavaSeen), portal_lit: at(logMilestones.portalLit) });
-			const sorted = [...deaths].sort((a, b) => a.at - b.at).map((d, i, all) => ({ ...d, nextAt: all[i + 1]?.at ?? null }));
+			const sorted = [...deaths].sort((a, b) => a.at - b.at).map((d, i, all) => ({ ...d, prevAt: all[i - 1]?.at ?? null, nextAt: all[i + 1]?.at ?? null }));
 			const described = describeDeaths(sorted, { trails, samples, startedAt });
 			const windowCommands = commands.filter((c) => inWindow(c.at));
 			const ranged = windowCommands.filter((c) => c.actionType === 'use_ranged');

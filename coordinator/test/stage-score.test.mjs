@@ -403,4 +403,11 @@ test('game facts review cases: a sample-only death is measured from the dead sam
 	const [a, b] = twice.finish({ startedAt: 0, deaths: [{ at: 10_000, damageType: 'minecraft:fall' }, { at: 11_000, damageType: 'minecraft:fall' }] }).deaths;
 	assert.equal(a.respawn, null);
 	assert.equal(b.respawn.secondsAfterDeath, 3);
+	// A later death's body and an earlier life's fall belong to their own deaths.
+	const near = gameFacts();
+	for (const sample of [{ at: 7000, y: 100, fallDistance: 30 }, { at: 9000, y: 70 }, { at: 9500, y: 70, health: 0, deathCounter: 1 }, { at: 12_000, y: 64, deathCounter: 1 }, { at: 16_000, y: 64, health: 0, deathCounter: 2 }])
+		near.sample({ health: 20, deathCounter: 0, dimension: 'minecraft:overworld', ...sample, position: { x: 0, y: sample.y, z: 0 } });
+	const [first, second] = near.finish({ startedAt: 0, deaths: [{ at: 9400, damageType: 'minecraft:fall' }, { at: 15_000, damageType: 'minecraft:mob_attack', attacker: 'minecraft:zombie' }] }).deaths;
+	assert.equal(first.fall.blocks, 30);
+	assert.deepEqual([second.fall?.blocks, second.maxFallDistance], [0, null], 'the earlier life\'s fall is not the second death\'s');
 });
