@@ -450,12 +450,13 @@ public final class ServerBuildController implements ServerController {
 			if (moved.state() != State.SUCCEEDED) {
 				lastWalkFailure = moved.reasonCode() + " " + moved.message();
 				LOGGER.info("[build] {} walk {} failed at {}: {}", player.getGameProfile().name(), walks, xyz(player.blockPosition()), lastWalkFailure);
-				if (wasFollowingWalkedWay && phase == Phase.CAST && switch (moved.reasonCode()) {
+				if (wasFollowingWalkedWay && phase == Phase.CAST && inFrontOfMould(player.blockPosition())
+						&& inFrontOfMould(walkTarget) && switch (moved.reasonCode()) {
 					case "NO_STANDABLE_PATH", "PATH_BLOCKED", "REACHED_FRONTIER", "NO_PATH" -> true;
 					default -> false;
 				}) {
 					// The frame or pool can cut an old hop. Try the same target before refusing the whole patch of shore.
-					// A partial route can leave the body in a pocket between the mould and the lava with no way out.
+					// Keep the detour on the working side. A route across the frame can close when more blocks go in.
 					walk = new ServerNavigationController(Vec3.atBottomCenterOf(walkTarget), 0.35D, false, now, 20_000L)
 							.withWalkedGround(walkedGround).seenRouteOnly();
 					LOGGER.info("[build] {} replan walk {} to {} after a remembered hop failed", player.getGameProfile().name(), walks, xyz(walkTarget));
@@ -2889,6 +2890,11 @@ public final class ServerBuildController implements ServerController {
 
 	private boolean inFootprint(BlockPos at) {
 		return portal != null && portal.reserved(at);
+	}
+
+	private boolean inFrontOfMould(BlockPos at) {
+		BlockPos origin = portal.origin();
+		return (at.getX() - origin.getX()) * back.getStepX() + (at.getZ() - origin.getZ()) * back.getStepZ() < 0;
 	}
 
 	private boolean standable(ServerPlayer player, ServerLevel level, BlockPos at) {
