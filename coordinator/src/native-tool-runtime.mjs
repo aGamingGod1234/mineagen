@@ -210,6 +210,16 @@ export class NativeToolRuntime {
 	#clock;
 	// The executor the runtime built on a game clock already pays server lag in its deadline (no wall-time lag credit).
 	#executorOnGameClock = false;
+	/** Wall time a single-player pause began, or null (see {@link serverPaused}). */
+	#pausedAtEpochMs = null;
+	/** Wall time spent in single-player pauses that have ended. */
+	#pauseHeldMs = 0;
+	/**
+	 * The clock a step's own time budget runs on (obtain, gather, find): the gameplay clock without the time spent in
+	 * single-player pauses, as the body's game-time limits stood still then. A fixture's game clock already stops.
+	 */
+	#stepNow = () => (this.#clock !== WALL_CLOCK ? this.#clock.now()
+		: this.#clock.now() - this.#pauseHeldMs - (this.#pausedAtEpochMs === null ? 0 : Date.now() - this.#pausedAtEpochMs));
 
 	constructor({
 		// { now(), sleep(ms), setTimeout?, clearTimeout?, observe? } (game-clock.mjs); it is fed every stored sample.
@@ -607,7 +617,7 @@ export class NativeToolRuntime {
 		// stall of a second or more with no tick re-anchors, as a frozen world. An out-of-order sample is ignored.
 		if (last !== undefined && (epochMs < last.epochMs || (gameTime === last.gameTime && epochMs - last.epochMs < LAG_SAME_TICK_MS))) return;
 		run.lagClock = { epochMs, gameTime, behindMs: last?.behindMs ?? 0, creditedMs: last?.creditedMs ?? 0 };
-		if (last === undefined || gameTime <= last.gameTime) return;
+		if (last === undefined || last.resumed === true || gameTime <= last.gameTime) return;
 		run.lagClock.behindMs += epochMs - last.epochMs - (gameTime - last.gameTime) * GAME_MS_PER_TICK;
 		const due = Math.round(run.lagClock.behindMs - run.lagClock.creditedMs);
 		if (due < LAG_CREDIT_MIN_MS) return;
@@ -637,6 +647,30 @@ export class NativeToolRuntime {
 			active.cancelledBy = `reflex:${ruleId}`;
 			await this.#cancelAction(record, { actionId: active.actionId, goalRevision: active.goalRevision }, { invalidateProgram: false });
 		}
+	}
+
+	/** The step clock obtain, gather and find budgets run on (see #stepNow). */
+	stepClockNow() {
+		return this.#stepNow();
+	}
+
+	/** A single-player pause stopped the game: running programs keep their deadlines until it resumes. */
+	serverPaused(paused) {
+		const changed = this.#programExecutor?.serverPaused?.(paused) ?? false;
+		if (paused) this.#pausedAtEpochMs ??= Date.now();
+		else if (this.#pausedAtEpochMs !== null) {
+			// Samples are stamped in wall time and game time stood still: the first sample after the pause only re-anchors
+			// each lag clock, or it would credit the paused time a second time, as server lag.
+			const now = Date.now(), pausedAt = this.#pausedAtEpochMs;
+			this.#pausedAtEpochMs = null;
+			this.#pauseHeldMs += Math.max(0, now - pausedAt);
+			for (const run of this.#programRuns.values()) {
+				if (run.lagClock !== undefined) run.lagClock = { ...run.lagClock, resumed: true };
+				// Only the part of the pause this program lived through, as its executor deadline is credited.
+				if (run.deadlineEpochMs != null) run.deadlineEpochMs += Math.max(0, now - Math.max(pausedAt, run.startedAtMs ?? pausedAt));
+			}
+		}
+		return changed;
 	}
 
 	hasProgram(record, programId) {
@@ -2746,7 +2780,7 @@ export class NativeToolRuntime {
 		// furnace loads it left smelting are this call's to take out. Flooded approaches share this per-agent ledger.
 		// Chests opened and structures searched for loot (loot-sources.mjs) are kept the same way, so no call loots twice.
 		const kept = this.#obtainMemory(record.agentId, this.#observations.get(record.agentId)?.observation ?? null);
-		const stations = { now: this.#clock.now, placed: kept.placed, loads: kept.loads, approaches: kept.approaches, looted: kept.looted };
+		const stations = { now: this.#stepNow, placed: kept.placed, loads: kept.loads, approaches: kept.approaches, looted: kept.looted };
 		const result = await runObtain(tool.arguments, body, stations);
 		if (!this.#kitHabit || result?.state !== 'SUCCEEDED' || interrupted() || !current()) return result;
 		// The kit habit (kit-habit.mjs): from what is held, keep a shield, armour and food in reach before handing back.
@@ -2789,7 +2823,7 @@ export class NativeToolRuntime {
 		// obtain asks for any of several items (any log): each counts toward the count and each drop is picked up.
 		const counted = new Set(tool.arguments.itemIds ?? [itemId]);
 		const wanted = new Set(blockIds);
-		const now = this.#clock.now, startedAt = now();
+		const now = this.#stepNow, startedAt = now();
 		const failed = new Set(), triedItems = new Set(), reasons = [];
 		let last = null, broken = 0, picked = 0, misses = 0, steps = 0, held = 0, startHeld = null, lookedUp = null, sweeps = 0, farWalks = 0;
 		const step = async (call, label) => {
@@ -2928,7 +2962,7 @@ export class NativeToolRuntime {
 		const latest = () => this.#observations.get(agentId)?.observation ?? {};
 		return {
 			eyeSearchState,
-			now: () => this.#clock.now(),
+			now: () => this.#stepNow(),
 			progress: (facts) => { blockingRun[label] = { step: steps, ...facts }; },
 			observe: async () => {
 				live();

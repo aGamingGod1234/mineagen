@@ -208,6 +208,8 @@ export class PlanningScheduler {
 	#lastLane = null;
 	#urgentStreak = 0;
 	#active = new Map();
+	/** When a single-player pause began, or null (see serverPaused). */
+	#pausedAt = null;
 	#settling = new Map();
 	#runningTasks = new Set();
 	#closed = false;
@@ -428,6 +430,7 @@ export class PlanningScheduler {
 				leasePhase: 'provider',
 				phaseTimeoutMs: entry.leaseTimeoutMs,
 				leaseDeadline: entry.maxLeaseDurationMs === null ? null : this.#now() + entry.maxLeaseDurationMs,
+				admittedAt: this.#now(),
 				settlementTimeoutHandle: null,
 				cancelError: null,
 				promiseSettled: false,
@@ -521,9 +524,42 @@ export class PlanningScheduler {
 		}
 	}
 
+	/**
+	 * The Minecraft server is paused (a single-player Esc) or running again. Paused, no planning lease expires: a turn
+	 * waiting on its foreground tool keeps its phase lease and its overall budget; on resume each gets the time it had
+	 * left, and the budget moves out by the paused time (playtest: a pause cancelled the bot's running step).
+	 */
+	serverPaused(paused) {
+		if (paused === (this.#pausedAt !== null)) return false;
+		const now = this.#now();
+		if (paused) {
+			this.#pausedAt = now;
+			for (const entry of this.#active.values()) {
+				if (entry.leaseTimeoutHandle === null) continue;
+				entry.pausedRemainingMs = Math.max(1, (entry.leaseDueAt ?? now) - now);
+				this.#cancelLeaseTimeout(entry);
+			}
+			return true;
+		}
+		const pausedAt = this.#pausedAt;
+		this.#pausedAt = null;
+		for (const entry of this.#active.values()) {
+			// Only the part of the pause this turn lived through: one admitted while paused gets the time since admission.
+			if (entry.leaseDeadline !== null) entry.leaseDeadline += Math.max(0, now - Math.max(pausedAt, entry.admittedAt ?? pausedAt));
+			if (entry.pausedRemainingMs == null || entry.controller.signal.aborted) continue;
+			const remaining = entry.pausedRemainingMs;
+			entry.pausedRemainingMs = null;
+			this.#armLease(entry, remaining);
+		}
+		return true;
+	}
+
 	#armLease(entry, timeoutMs) {
 		this.#cancelLeaseTimeout(entry);
 		entry.phaseTimeoutMs = timeoutMs;
+		// Paused: armed on resume with this full length (see serverPaused).
+		if (this.#pausedAt !== null) { entry.pausedRemainingMs = timeoutMs; return; }
+		entry.leaseDueAt = this.#now() + timeoutMs;
 		const generation = entry.leaseGeneration;
 		entry.leaseTimeoutHandle = this.#scheduleTimeout(() => {
 			if (entry.leaseGeneration === generation) this.#expire(entry.agentId, entry.controller);
@@ -534,7 +570,8 @@ export class PlanningScheduler {
 		if (!['provider', 'tool'].includes(phase)) throw new TypeError('planning lease phase must be provider or tool');
 		if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) throw new TypeError('planning renewal timeoutMs must be a positive safe integer');
 		if (entry.leaseDeadline === null || this.#active.get(entry.agentId) !== entry || entry.controller.signal.aborted) return false;
-		const remainingMs = entry.leaseDeadline - this.#now();
+		// Paused, the budget stands still at the moment the pause began, or at admission for a turn admitted while paused.
+		const remainingMs = entry.leaseDeadline - (this.#pausedAt === null ? this.#now() : Math.max(this.#pausedAt, entry.admittedAt ?? this.#pausedAt));
 		if (remainingMs <= 0) {
 			this.#expire(entry.agentId, entry.controller);
 			return false;

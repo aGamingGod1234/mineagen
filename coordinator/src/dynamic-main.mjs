@@ -1528,6 +1528,26 @@ export class DynamicCoordinator extends EventEmitter {
 		}, { lifecycle: true });
 		this.#listen('transportError', (error) => this.emit('runtimeError', error), { lifecycle: true });
 		this.#listen('heartbeatLate', (event) => this.#writeTrace('bridge_heartbeat_late', { lateMs: event?.lateMs ?? null }), { lifecycle: true });
+		// A single-player pause stops the game, not the bot's work: its deadlines wait and the running step resumes after.
+		this.#listen('serverPause', (event) => this.#serverPaused(event?.paused === true, event?.tickAgeMs ?? null), { lifecycle: true });
+	}
+
+	/**
+	 * A single-player pause stops the game, not the bot's work. Every wall-clock timer that can end a live step holds
+	 * here, in one place, and resumes with the time it had left:
+	 * - work leases (provider 45 s, action 125 s+, program, completion) and the 30 s no-progress check (goal supervisor);
+	 * - the planner's per-phase lease (a foreground tool's 130 s) and its overall turn budget (planning scheduler);
+	 * - each running program's deadline, its world sampling and its server-lag clock (native runtime, program executor);
+	 * - the time budgets of obtain, gather and find steps (native runtime's step clock);
+	 * - the 10 s timeout of a fresh-sample request already sent (inspection client).
+	 * The body's own limits run on game time in the mod, which stands still while paused.
+	 */
+	#serverPaused(paused, tickAgeMs) {
+		this.#goalSupervisor.serverPaused?.(paused);
+		this.#scheduler.serverPaused?.(paused);
+		this.#nativeRuntime?.serverPaused?.(paused);
+		this.#inspections.serverPaused(paused);
+		this.#writeTrace(paused ? 'bridge_server_paused' : 'bridge_server_resumed', { tickAgeMs });
 	}
 
 	#beginReconciliation(registry, connectionEpoch, { providerOnly = false } = {}) {

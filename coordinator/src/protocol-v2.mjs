@@ -266,7 +266,7 @@ function normalizeProtocolV2Payload(type, value) {
 				proof: authenticationToken(value.proof, 'proof'),
 			};
 		case 'hello':
-			exactKeys(value, ['replyTo', 'clientNonce', 'serverNonce', 'proof', 'launchId', 'registryFragments', 'actionTiming', 'blockTags', 'planFacts', 'bodyFacts', 'breakExposureFacts', 'breakOutcomeFacts', 'placementFacts', 'dropAheadFacts', 'pausedByFacts', 'actionIssuer', 'killFacts'], ['replyTo', 'clientNonce', 'serverNonce', 'proof'], type);
+			exactKeys(value, ['replyTo', 'clientNonce', 'serverNonce', 'proof', 'launchId', 'registryFragments', 'actionTiming', 'blockTags', 'planFacts', 'bodyFacts', 'breakExposureFacts', 'breakOutcomeFacts', 'placementFacts', 'dropAheadFacts', 'pausedByFacts', 'actionIssuer', 'killFacts', 'tickClock'], ['replyTo', 'clientNonce', 'serverNonce', 'proof'], type);
 			return {
 				replyTo: boundedText(value.replyTo, 'replyTo', MAX_COMMAND_ID_LENGTH),
 				clientNonce: authenticationToken(value.clientNonce, 'clientNonce'),
@@ -284,6 +284,7 @@ function normalizeProtocolV2Payload(type, value) {
 				...(value.pausedByFacts === undefined ? {} : { pausedByFacts: boolean(value.pausedByFacts, 'pausedByFacts') }),
 				...(value.actionIssuer === undefined ? {} : { actionIssuer: boolean(value.actionIssuer, 'actionIssuer') }),
 				...(value.killFacts === undefined ? {} : { killFacts: boolean(value.killFacts, 'killFacts') }),
+				...(value.tickClock === undefined ? {} : { tickClock: boolean(value.tickClock, 'tickClock') }),
 				...(value.launchId === undefined ? {} : { launchId: launchIdentity(value.launchId) }),
 			};
 		case 'hello_ack':
@@ -504,8 +505,12 @@ function normalizeProtocolV2Payload(type, value) {
 			};
 		}
 		case 'heartbeat':
-			exactKeys(value, [], [], type);
-			return {};
+			// From a server that saw tickClock in hello: how long ago it last ticked, and whether it is paused.
+			exactKeys(value, ['tickAgeMs', 'paused'], [], type);
+			return {
+				...(value.tickAgeMs === undefined ? {} : { tickAgeMs: nonnegativeInteger(value.tickAgeMs, 'tickAgeMs') }),
+				...(value.paused === undefined ? {} : { paused: boolean(value.paused, 'paused') }),
+			};
 		case 'shutdown':
 			exactKeys(value, ['reason'], ['reason'], type);
 			return { reason: boundedText(value.reason, 'reason', MAX_REASON_CODE_LENGTH) };
@@ -577,6 +582,7 @@ export class MultiplexedServerBridge extends EventEmitter {
 	#handshakeDeadlineHandle = null;
 	#handshakeDeadlineToken = 0;
 	#heartbeatDeadlineHandle = null;
+	#serverPaused = false;
 	#heartbeatDeadlineToken = 0;
 	#heartbeatProbeHandle = null;
 	#heartbeatProbeToken = 0;
@@ -855,7 +861,7 @@ export class MultiplexedServerBridge extends EventEmitter {
 			this.#observedRevisions.delete(envelope.agentId);
 			this.#terminalActionsByGoal.delete(envelope.agentId);
 		}
-		if (envelope.type === 'heartbeat') this.#refreshHeartbeatDeadline(socket, connectionEpoch);
+		if (envelope.type === 'heartbeat' && !this.#acceptHeartbeat(envelope.payload, socket, connectionEpoch)) return;
 		const event = { ...envelope, connectionEpoch };
 		this.#enqueueInbound(event, socket, connectionEpoch);
 	}
@@ -978,6 +984,8 @@ export class MultiplexedServerBridge extends EventEmitter {
 				actionIssuer: true,
 				// Lets the server add entity_killed.at (where the body saw the mob die); an older coordinator rejects the key.
 				killFacts: true,
+				// Asks the server for heartbeat tickAgeMs and paused, answered off its game thread (an older coordinator rejects them).
+				tickClock: true,
 				...(this.#launchId === null ? {} : { launchId: this.#launchId }),
 			},
 		});
@@ -1448,6 +1456,11 @@ export class MultiplexedServerBridge extends EventEmitter {
 		this.#clearConnectionDeadlines();
 		if (this.#running) this.#recovering = true;
 		const wasReady = this.#ready;
+		// A dropped link ends any pause it reported; the next link reports its own.
+		if (this.#serverPaused) {
+			this.#serverPaused = false;
+			this.#emitSafely('serverPause', { paused: false, tickAgeMs: null, connectionEpoch });
+		}
 		this.#socket = null;
 		this.#ready = false;
 		this.#writeBlocked = false;
@@ -1483,6 +1496,31 @@ export class MultiplexedServerBridge extends EventEmitter {
 
 	/** Inbound messages accepted but not yet released by their handlers (reads pause at three quarters of the cap). */
 	get inboundQueued() { return this.#inboundEntries.size; }
+
+	/**
+	 * A heartbeat keeps the link alive, unless it says the server has stopped ticking without being paused: the reply comes
+	 * from the server's network thread, so a hung game would otherwise look alive forever. A paused single-player game is
+	 * alive; its pause and resume are announced (serverPause) so work deadlines can wait for it. False when the link failed.
+	 */
+	#acceptHeartbeat(value, socket, connectionEpoch) {
+		const paused = value?.paused === true;
+		// The first heartbeat after a pause still counts back to the last tick before it: the game has just resumed, not
+		// hung. A server that really is hung shows a growing tick age again on the next heartbeat, and drops then.
+		const resuming = this.#serverPaused && !paused;
+		if (Number.isSafeInteger(value?.tickAgeMs) && !paused && !resuming && value.tickAgeMs > this.#heartbeatTimeoutMs) {
+			this.#fail(new ProtocolV2Error('HEARTBEAT_TIMEOUT', `Minecraft server stopped ticking ${value.tickAgeMs} ms ago without a pause`), socket, connectionEpoch);
+			return false;
+		}
+		if (paused !== this.#serverPaused) {
+			this.#serverPaused = paused;
+			this.#emitSafely('serverPause', { paused, tickAgeMs: value?.tickAgeMs ?? null, connectionEpoch });
+		}
+		this.#refreshHeartbeatDeadline(socket, connectionEpoch);
+		return true;
+	}
+
+	/** Whether the server's last heartbeat said it is paused (false before any, and after the link ends). */
+	get serverPaused() { return this.#serverPaused; }
 
 	#refreshHeartbeatDeadline(socket, connectionEpoch, { allowLateGrace = true } = {}) {
 		this.#clearHeartbeatDeadline();
