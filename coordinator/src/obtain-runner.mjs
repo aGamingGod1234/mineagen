@@ -405,6 +405,38 @@ function inView(need, o, budget) {
 		.filter((row) => row.d <= radius).sort((a, b) => a.d - b.d)[0] ?? null;
 }
 
+/**
+ * An ore of the need the body saw earlier (the seen-resource memory: digs, looks, earlier trips) and has not failed at,
+ * cheapest first, while going back to it costs less than finding one fresh (obtain-plan's seenRowCost against
+ * searchCost, the planner's own prices). A player goes back to the vein it walked past before strip mining for a new
+ * one, but not to a lone ore 60 blocks up its stairs. Never one a search
+ * already found unreachable (missedPlaces), one this run failed at, or one whose approach flooded from here.
+ */
+function rememberedOre(need, o, budget, missed = []) {
+	if (need.kind === 'kill' || !need.blocks?.some((block) => ORE_BLOCKS.test(block))) return null;
+	const at = bodyAt(o);
+	if (at === null) return null;
+	const blocks = new Set(need.blocks.map(id));
+	const unreachable = new Set(missed.filter((place) => place.why === UNREACHED).map((place) => `${place.x},${place.y},${place.z}`));
+	const rows = (o.seenResources ?? []).filter((row) => row?.kind === 'block' && blocks.has(row.id) && [row.x, row.y, row.z].every(Number.isSafeInteger))
+		.map((row) => ({ x: row.x, y: row.y, z: row.z, blockId: row.id, cost: seenRowCost(row, o) }))
+		.filter((row) => row.cost < searchCost(row.blockId) && !budget?.failed?.has(`${row.x},${row.y},${row.z}`) && !unreachable.has(`${row.x},${row.y},${row.z}`) && !floodedApproach(budget, row));
+	// A vein joined to an ore this run or an earlier search could not reach is that same vein: never walked back to.
+	const bad = [...(budget?.unreached ?? []), ...missed.filter((place) => place.why === UNREACHED)];
+	const vein = bad.length > 0 ? sameVein(bad, rows) : new Set();
+	return rows.filter((row) => !vein.has(row))
+		.map((row) => ({ ...row, remembered: true, d: Math.hypot(row.x + 0.5 - at.x, row.y - at.y, row.z + 0.5 - at.z) }))
+		.sort((a, b) => a.cost - b.cost)[0] ?? null;
+}
+
+/** Remembered ores of the need that cost more to reach than a fresh search: find's known-place trips skip them too. */
+function pricedOutOres(need, o) {
+	if (need.kind === 'kill' || !need.blocks?.some((block) => ORE_BLOCKS.test(block))) return [];
+	const blocks = new Set(need.blocks.map(id));
+	return (o.seenResources ?? []).filter((row) => row?.kind === 'block' && blocks.has(row.id) && [row.x, row.y, row.z].every(Number.isSafeInteger)
+		&& !(seenRowCost(row, o) < searchCost(row.id))).slice(0, 16).map((row) => ({ x: row.x, y: row.y, z: row.z }));
+}
+
 /** A mob near a herd a walk could not get within hunting reach of (budget.herds): not one to walk at again. */
 const unreachedHerd = (budget, row) => (budget?.herds ?? []).some((herd) => Math.hypot(herd.x - row.x, herd.z - row.z) <= HUNT_RADIUS);
 
@@ -418,6 +450,8 @@ export async function locate(need, body, { budget, timeoutMs }) {
 	const o = await body.observe();
 	const seen = inView(need, o, budget);
 	if (seen) return seen;
+	const remembered = rememberedOre(need, o, budget, body.missedPlaces?.() ?? []);
+	if (remembered) return remembered;
 	// Do not send find toward the only currently seen ore via the same rejected approach.
 	if (knownBlocks(o).some((row) => need.blocks?.includes(bare(row.blockId)) && floodedApproach(budget, row))) {
 		budget.lastSearch = { reasonCode: 'OBTAIN_APPROACH_FLOODED', message: 'seen ore flooded from this footing; change approach before reconsidering' };
@@ -427,6 +461,8 @@ export async function locate(need, body, { budget, timeoutMs }) {
 	const main = need.kind === 'kill' ? null : searchBlock(need, o);
 	const target = need.kind === 'kill' ? { mob: id(need.mobs[0]) }
 		: { block: id(main), ...(need.blocks.length > 1 && need.blocks.every((block) => /_(log|stem)$/.test(block)) ? { also: need.blocks.filter((block) => block !== main).slice(0, 8).map(id) } : {}) };
+	const skip = pricedOutOres(need, o);
+	if (skip.length > 0) target.skip = skip;
 	const result = await body.search(target, { timeoutMs: Math.min(MAX_FIND_TIMEOUT_MS, timeoutMs) });
 	budget.lastSearch = result;
 	const at = result?.find?.seen;
@@ -801,7 +837,11 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		const wet = below !== undefined && /(^|:)(lava|water)$/.test(below.blockId);
 		if (wet || rim === null) { await pickUpNear(where, need.accept, 6); return; }
 		// navigate_to: travel_to takes no tolerance under 1 block, which is the rim again.
-		await act('navigate_to', { x: where.x + 0.5, y: where.y, z: where.z + 0.5, tolerance: 0.4, timeoutMs: 20_000 });
+		// The pocket's floor is where the last of the vein was, one or two below its top cell: the first standable one.
+		for (let down = 0; down <= 2; down++) {
+			const went = await act('navigate_to', { x: where.x + 0.5, y: where.y - down, z: where.z + 0.5, tolerance: 0.4, timeoutMs: 20_000 });
+			if (went?.state === 'SUCCEEDED' || went?.reasonCode !== 'NO_STANDABLE_PATH' || body.interrupted() || body.stopped()) break;
+		}
 		if (body.interrupted() || body.stopped()) return;
 		await pickUpNear(where, need.accept, 6);
 	};
@@ -1236,8 +1276,21 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			const stops = [];
 			if (at && eyeDistance(at, where) > REACH) {
 				step(`go to the ${bare(where.blockId)} at ${where.x},${where.y},${where.z}`);
-				const went = await act('travel_to', { x: where.x + 0.5, y: where.y, z: where.z + 0.5, tolerance: 2, timeoutMs: 120_000 });
+				// A remembered ore out of view is walked toward until it shows (stopWhenSeen), aimed at the cell over it rather
+				// than the solid ore cell: aimed at the ore itself, travel tunnelled 12 blocks round to a cell 2 off with the ore
+				// behind rock (22 Nov remembered-ore room). Once it shows, the reach check below digs the last blocks.
+				const went = await act('travel_to', where.remembered
+					? { x: where.x + 0.5, y: where.y + 1, z: where.z + 0.5, tolerance: 2, stopWhenSeen: id(where.blockId), timeoutMs: 120_000 }
+					: { x: where.x + 0.5, y: where.y, z: where.z + 0.5, tolerance: 2, timeoutMs: 120_000 });
 				if (went?.state !== 'SUCCEEDED') { stops.push(went?.reasonCode); body.note(`walk stopped: ${went?.reasonCode ?? went?.state} ${String(went?.message ?? '').slice(0, 140)}`); }
+				// The walk stops at the first block of the id in sight, which need not be the remembered one: the ore in view
+				// is the one to take (its cell is in the receipt), not the old cell further on behind rock.
+				const sighted = where.remembered && went?.reasonCode === 'TARGET_SEEN' ? /seen at (-?\d+),\s*(-?\d+),\s*(-?\d+)/.exec(String(went?.message ?? '')) : null;
+				if (sighted !== null) {
+					const cell = { x: Number(sighted[1]), y: Number(sighted[2]), z: Number(sighted[3]) };
+					if (cell.x !== where.x || cell.y !== where.y || cell.z !== where.z) step(`the walk saw ${bare(where.blockId)} at ${cell.x},${cell.y},${cell.z} first: take that one`);
+					Object.assign(where, cell, { remembered: false });
+				}
 				o = await body.observe();
 				if (ORE_BLOCKS.test(bare(where.blockId)) && rememberFlood(went, where, o)) return 'ore approach flooded';
 				if (body.interrupted() || body.stopped()) return 'approach stopped';

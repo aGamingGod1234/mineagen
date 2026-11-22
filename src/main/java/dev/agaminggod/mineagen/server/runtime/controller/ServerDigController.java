@@ -140,7 +140,17 @@ public final class ServerDigController implements ServerController {
 	private static final String WATER_BUCKET = "minecraft:water_bucket";
 	private static final int OFFHAND = 40;
 
-	private enum Phase { START, MINE, SETTLE_FALL, FLOOR, PLACE, MOVE, RETREAT, RECENTER, SHAFT_FALL, CAVE_LOOK }
+	/**
+	 * A cave the dig breaks into and goes on through gets one turn of the head before the next step, when the dig is
+	 * looking for a block (stopWhenSeen): its forward fan points down the stairs and never sees across the cave, so an
+	 * ore exposed on the cave's far wall stayed unseen (playtest 22 Nov: iron about 10 blocks down a cave it dug past).
+	 */
+	private static final int PASS_LOOK_TICKS = 30;
+	/** How far into a passed cave its ores are noted (and remembered) during that look. */
+	private static final double PASS_LOOK_ORE_SIGHT = 32.0D;
+	private static final int PASS_LOOKS = 4;
+
+	private enum Phase { START, MINE, SETTLE_FALL, FLOOR, PLACE, MOVE, RETREAT, RECENTER, SHAFT_FALL, CAVE_LOOK, PASS_LOOK }
 
 	private Pattern pattern;
 	/** No pattern was named: the first tick picks stairs up or down from the feet then (inferDirection). */
@@ -172,6 +182,8 @@ public final class ServerDigController implements ServerController {
 	private String lookCode;
 	private String lookWhy;
 	private float lookTurned;
+	private boolean passLookPending;
+	private int passLooks;
 	private float lookLastYaw;
 	private BlockPos caveFloor;
 	private BlockPos caveLava;
@@ -372,6 +384,17 @@ public final class ServerDigController implements ServerController {
 		if (danger != null) return danger;
 		TickResult sight = sight(player, nowEpochMs);
 		if (sight != null) return sight;
+		// Blocks only: a fluid target keeps its own source-only sighting (sight()), which this look does not apply.
+		if (passLookPending && phase == Phase.START && stopWhenSeen != null && !ServerTravelController.bucketFluid(stopWhenSeen)
+				&& passLooks < PASS_LOOKS && standsOnOwnBlock(player)) {
+			passLookPending = false;
+			passLooks++;
+			if (notes.size() < 6) notes.add("looked round the cave at y" + player.blockPosition().getY());
+			lookTurned = 0.0F;
+			lookLastYaw = player.getYRot();
+			phaseTicks = 0;
+			phase = Phase.PASS_LOOK;
+		}
 		return switch (phase) {
 			case START -> plan(player);
 			case MINE -> mine(player);
@@ -383,6 +406,7 @@ public final class ServerDigController implements ServerController {
 			case RECENTER -> recenter(player);
 			case SHAFT_FALL -> shaftFall(player);
 			case CAVE_LOOK -> caveLook(player);
+			case PASS_LOOK -> passLook(player);
 		};
 	}
 
@@ -892,7 +916,7 @@ public final class ServerDigController implements ServerController {
 				}
 			}
 		}
-		if (newlyOpen >= 2 && caves.size() < 4) caves.add(cell(firstOpen) + " (y" + firstOpen.getY() + ")");
+		if (newlyOpen >= 2 && caves.size() < 4) { caves.add(cell(firstOpen) + " (y" + firstOpen.getY() + ")"); passLookPending = true; }
 		return null;
 	}
 
@@ -1430,7 +1454,7 @@ public final class ServerDigController implements ServerController {
 		if (drop > 1 && drops.size() < 4) drops.add(drop + " blocks into a cave at " + cell(at));
 		if (newlyOpen >= 2 && (!throughCaves || smallCaves && !smallOpening(player, firstOpen))) return stop(player, "CAVE_OPENING", "The shaft opened into a cave at " + cell(firstOpen)
 				+ " (" + newlyOpen + " open cells beside it); not going on (throughCaves:" + caveMode() + ")");
-		if (newlyOpen >= 2 && caves.size() < 4) caves.add(cell(firstOpen) + " (y" + firstOpen.getY() + ")");
+		if (newlyOpen >= 2 && caves.size() < 4) { caves.add(cell(firstOpen) + " (y" + firstOpen.getY() + ")"); passLookPending = true; }
 		phase = Phase.START;
 		phaseTicks = 0;
 		return TickResult.running(progress(player));
@@ -1575,6 +1599,73 @@ public final class ServerDigController implements ServerController {
 		if (lookTurned < 360.0F && phaseTicks < CAVE_LOOK_TICKS) return TickResult.running(progress(player));
 		releaseInput();
 		return TickResult.failed(lookCode, summary(player, "Stopped: " + lookWhy + caveRoute(player)), progress(player));
+	}
+
+	/**
+	 * One turn of the head round a cave the dig is passing through, level with the cave: the target in sight ends the dig
+	 * with TARGET_SEEN, and every ore the eye lands on is noted (listed in the result and remembered), so the search can
+	 * walk to it instead of digging on.
+	 */
+	private TickResult passLook(ServerPlayer player) {
+		phaseTicks++;
+		float yaw = player.getYRot();
+		lookTurned += Math.abs(AgentInputStates.shortestAngleDelta(lookLastYaw, yaw));
+		lookLastYaw = yaw;
+		applyInput(player, 0.0F, false, true, false, AgentInputStates.turnYaw(yaw, yaw + 30.0F), AgentInputStates.turnPitch(player.getXRot(), 15.0F),
+				player.getInventory().getSelectedSlot());
+		if (phaseTicks % 3 == 0) {
+			BlockPos target = ServerTravelController.sees(player, stopWhenSeen, false);
+			TickResult found = target == null ? null : seen(player, target);
+			if (found != null) return found;
+			noteOresInView(player);
+		}
+		if (lookTurned < 360.0F && phaseTicks < PASS_LOOK_TICKS) return TickResult.running(progress(player));
+		releaseInput();
+		// The sight fan's rays are 10 degrees apart: at 12 blocks they pass 2 blocks apart and slip past a single ore down a
+		// side passage. After the turn, every block of the target near the eye level that a straight line reaches counts.
+		BlockPos near = visibleNear(player, stopWhenSeen);
+		if (near != null) {
+			TickResult found = seen(player, near);
+			if (found != null) return found;
+		}
+		phase = Phase.START;
+		phaseTicks = 0;
+		return TickResult.running(progress(player));
+	}
+
+	/** The nearest block of {@code blockId} within {@link #PASS_LOOK_ORE_SIGHT} / 2 of the eye, 4 up or down, in a clear line. */
+	private static BlockPos visibleNear(ServerPlayer player, String blockId) {
+		ServerLevel level = player.level();
+		Vec3 eye = player.getEyePosition();
+		BlockPos center = BlockPos.containing(eye);
+		int r = (int) (PASS_LOOK_ORE_SIGHT / 2);
+		BlockPos best = null;
+		double bestDistance = Double.MAX_VALUE;
+		BlockPos.MutableBlockPos at = new BlockPos.MutableBlockPos();
+		for (int dx = -r; dx <= r; dx++) for (int dz = -r; dz <= r; dz++) for (int dy = -4; dy <= 4; dy++) {
+			at.set(center.getX() + dx, center.getY() + dy, center.getZ() + dz);
+			if (!blockId(level.getBlockState(at)).equals(blockId)) continue;
+			double distance = at.distToCenterSqr(eye);
+			if (distance >= bestDistance || distance > r * r) continue;
+			BlockHitResult hit = level.clip(new ClipContext(eye, Vec3.atCenterOf(at), ClipContext.Block.VISUAL, ClipContext.Fluid.NONE, player));
+			if (hit.getType() == HitResult.Type.BLOCK && hit.getBlockPos().equals(at)) { best = at.immutable(); bestDistance = distance; }
+		}
+		return best;
+	}
+
+	/** Ores the eye lands on across the current view, within {@link #PASS_LOOK_ORE_SIGHT}. */
+	private void noteOresInView(ServerPlayer player) {
+		ServerLevel level = player.level();
+		Vec3 eye = player.getEyePosition();
+		for (int yawStep = -4; yawStep <= 4; yawStep++) {
+			for (int pitchStep = -3; pitchStep <= 3; pitchStep++) {
+				Vec3 direction = Vec3.directionFromRotation(Mth.clamp(player.getXRot() + pitchStep * 10.0F, -90.0F, 90.0F), player.getYRot() + yawStep * 12.0F);
+				BlockHitResult hit = level.clip(new ClipContext(eye, eye.add(direction.scale(PASS_LOOK_ORE_SIGHT)), ClipContext.Block.VISUAL, ClipContext.Fluid.NONE, player));
+				if (hit.getType() != HitResult.Type.BLOCK) continue;
+				BlockState state = level.getBlockState(hit.getBlockPos());
+				if (isOre(state)) noteOre(blockId(state), hit.getBlockPos().immutable());
+			}
+		}
 	}
 
 	/** On the ground with the block under its own column holding it: not leaning out over an edge. */
