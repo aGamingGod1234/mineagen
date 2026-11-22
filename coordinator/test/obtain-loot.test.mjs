@@ -47,7 +47,7 @@ test('cost decides, not the place: seen ore or a far village still mines, a near
 
 test('opened chests and searched structures stop being sources; a chest outside any structure is not loot', () => {
 	const o = { ...village(), blocks: [{ blockId: 'minecraft:chest', x: 300, y: 78, z: -230 }] };
-	assert.deepEqual(lootSources(o, { opened: new Set(['300,78,-230']), searched: new Set(['311,78,-239']) }), []);
+	assert.deepEqual(lootSources(o, { opened: new Set(['minecraft:overworld|300,78,-230']), searched: new Set(['minecraft:overworld|311,78,-239']) }), []);
 	const lone = { player: { ...at }, world: { dimension: 'minecraft:overworld' }, blocks: [{ blockId: 'minecraft:chest', x: 300, y: 78, z: -230 }] };
 	assert.deepEqual(lootSources(lone), []);
 	const shared = { ...village(), seenResources: [{ id: 'minecraft:chest', kind: 'container', x: 305, y: 78, z: -235, opened: true }, { id: 'minecraft:barrel', kind: 'container', x: 306, y: 78, z: -235, opened: false }] };
@@ -104,7 +104,7 @@ test('obtain iron_ingot in a village loots its chests before any search for ore'
 	{ now: (() => { let t = 0; return () => (t += 100); })(), looted });
 	assert.equal(result.state, 'SUCCEEDED', JSON.stringify(result));
 	assert.deepEqual(searches, []);
-	assert.deepEqual(looted.opened, ['305,77,-236']);
+	assert.deepEqual(looted.opened, ['minecraft:overworld|305,77,-236']);
 	assert.equal(body.inv.get('bread'), 3, 'food comes along');
 	assert.equal(looted.structures[0].structure, 'village');
 });
@@ -121,10 +121,10 @@ test('a village chest that lacks the item is opened once, then the plan goes bac
 		search: async (target) => { searches.push(target); return { state: 'FAILED', reasonCode: 'FIND_NOT_FOUND', message: 'none' }; } },
 	{ now: (() => { let t = 0; return () => (t += 100); })(), looted });
 	assert.notEqual(result.state, 'SUCCEEDED');
-	assert.deepEqual(looted.opened, ['305,77,-236']);
+	assert.deepEqual(looted.opened, ['minecraft:overworld|305,77,-236']);
 	assert.ok(searches.some((target) => target.block === 'minecraft:oak_door'), 'looks for the village\'s other houses');
 	assert.equal(searches.some((target) => target.block === 'minecraft:chest'), false, 'no chest search in a village: its chests are indoors');
-	assert.deepEqual(looted.searched, ['311,78,-239']);
+	assert.deepEqual(looted.searched, ['minecraft:overworld|311,78,-239']);
 	assert.ok(searches.some((target) => /iron_ore/.test(target.block ?? '')), `then mines: ${JSON.stringify(searches)}`);
 });
 
@@ -223,7 +223,7 @@ test('a village chest out of sight is found by looking into the houses through t
 	assert.equal(result.state, 'SUCCEEDED', JSON.stringify(result));
 	assert.deepEqual(looted.doors.map((d) => d.x), [300], 'the nearer house first, and no further once a chest is found');
 	assert.ok(body.calls.some(([type, args]) => type === 'set_door' && args.open === true));
-	assert.deepEqual(looted.opened, ['302,77,-228']);
+	assert.deepEqual(looted.opened, ['minecraft:overworld|302,77,-228']);
 	assert.deepEqual(body.calls.filter(([type]) => type === 'set_door').map(([, args]) => args.open), [true, false], 'the door is shut behind');
 });
 
@@ -239,7 +239,7 @@ test('a house with a zombie by its door is shut again and not entered', async ()
 		gather: async () => ({ state: 'FAILED', reasonCode: 'NOTHING_MINED' }), mine: async () => ({ state: 'FAILED', reasonCode: 'NOTHING_MINED' }), moveTo: async () => ({ state: 'SUCCEEDED' }),
 		search: async () => ({ state: 'FAILED', reasonCode: 'FIND_NOT_FOUND' }) }, { now: (() => { let t = 0; return () => (t += 100); })(), looted: { opened: [], searched: [], structures: [], doors: [] } });
 	const doorCalls = calls.filter(([type]) => type === 'set_door').map(([, args]) => args.open);
-	assert.deepEqual(doorCalls.slice(0, 2), [true, false]);
+	assert.deepEqual(doorCalls, [], 'a zombie seen by the door before it opens: the door stays shut');
 	assert.equal(calls.some(([type]) => type === 'navigate_to'), false, 'never steps into the house');
 });
 
@@ -290,4 +290,110 @@ test('a real chest inspection page keeps its menu through the tool-result path, 
 	assert.equal(result.ok, true, result.why);
 	assert.deepEqual(result.taken, { iron_ingot: 2 });
 	assert.equal(body.calls.find(([type]) => type === 'menu_click')[1].menuId, 'minecraft:generic_9x3');
+});
+
+// Review of 47cdd2cb (8 findings): each one's case.
+function villageRun({ blocks = [], entities = [], seenResources = [], menuBody = chestBody([['iron_ingot', 4]]), extra = {} } = {}) {
+	const pos = { ...at };
+	const calls = menuBody.calls;
+	const observe = async () => ({ ...village(), player: { ...pos, health: 20, onGround: true, skyOpen: true },
+		inventory: { selectedSlot: 0, items: [{ itemId: 'minecraft:stone_pickaxe', count: 1, slot: 0 }, ...[...menuBody.inv].map(([id, count], i) => ({ itemId: `minecraft:${id}`, count, slot: i + 1 }))] },
+		blocks: typeof blocks === 'function' ? blocks() : blocks, entities: typeof entities === 'function' ? entities() : entities, seenResources });
+	const act = menuBody.act;
+	const body = { ...menuBody, observe, stopped: () => false, interrupted: () => false, note: () => {},
+		act: async (type, args) => { if (type === 'travel_to' || type === 'navigate_to') { calls.push([type, args]); validateAction({ type, ...args }); Object.assign(pos, { x: args.x, z: args.z }); return { state: 'SUCCEEDED' }; } if (type === 'set_door') { calls.push([type, args]); validateAction({ type, ...args }); return { state: 'SUCCEEDED' }; } return act(type, args); },
+		gather: async () => ({ state: 'FAILED', reasonCode: 'NOTHING_MINED' }), mine: async () => ({ state: 'FAILED', reasonCode: 'NOTHING_MINED' }), moveTo: async () => ({ state: 'SUCCEEDED' }),
+		search: async () => ({ state: 'FAILED', reasonCode: 'FIND_NOT_FOUND', message: 'none' }), ...extra };
+	return { body, calls, pos };
+}
+
+test('review 1: a stop while taking still closes the chest through closeMenu, which bypasses the halted act', async () => {
+	const menuBody = chestBody([['iron_ingot', 3], ['bread', 2]]);
+	const act = menuBody.act;
+	let halted = false;
+	menuBody.act = async (type, args) => {
+		if (halted) { menuBody.calls.push(['refused', type]); return { state: 'INTERRUPTED', reasonCode: 'DANGER' }; }
+		if (type === 'menu_click') { halted = true; return { state: 'INTERRUPTED', reasonCode: 'DANGER' }; }
+		return act(type, args);
+	};
+	const closes = [];
+	const { body } = villageRun({ blocks: [{ blockId: 'minecraft:chest', x: 305, y: 77, z: -236 }], menuBody,
+		extra: { closeMenu: async (args) => { closes.push(args); validateAction({ type: 'menu_close', ...args }); return { state: 'SUCCEEDED', reasonCode: 'MENU_CLOSED' }; } } });
+	await runObtain({ item: 'iron_ingot', count: 3, timeoutMs: 30_000 }, body, { now: (() => { let t = 0; return () => (t += 100); })(), looted: { opened: [], searched: [], structures: [], doors: [] } });
+	assert.equal(closes.length, 1, 'closed once, by closeMenu');
+	assert.equal(menuBody.calls.some(([type, what]) => type === 'refused' && what === 'menu_close'), false);
+});
+
+test('review 2: no use on a cell that no longer holds a container (a stale target)', async () => {
+	const looted = { opened: [], searched: [], structures: [], doors: [] };
+	let n = 0;
+	// Seen as a chest when planned, a TNT block by the time the body stands there.
+	const { body, calls } = villageRun({ blocks: () => (n++ < 3 ? [{ blockId: 'minecraft:chest', x: 305, y: 77, z: -236 }] : [{ blockId: 'minecraft:tnt', x: 305, y: 77, z: -236 }]) });
+	await runObtain({ item: 'iron_ingot', count: 3, timeoutMs: 30_000 }, body, { now: (() => { let t = 0; return () => (t += 100); })(), looted });
+	assert.equal(calls.some(([type]) => type === 'interact_block'), false);
+	assert.deepEqual(looted.opened, []);
+});
+
+test('review 3: a hostile near the chest stops the run before the chest is opened; the server hostile flag counts at a door, a golem\'s does not', async () => {
+	const chest = { blockId: 'minecraft:chest', x: 305, y: 77, z: -236 };
+	const { body, calls } = villageRun({ blocks: [chest], entities: [{ type: 'minecraft:zombie', x: 307, y: 77, z: -236, hostile: true }] });
+	const result = await runObtain({ item: 'iron_ingot', count: 3, timeoutMs: 30_000 }, body, { now: (() => { let t = 0; return () => (t += 100); })(), looted: { opened: [], searched: [], structures: [], doors: [] } });
+	assert.equal(calls.some(([type]) => type === 'interact_block'), false);
+	assert.equal(result.state, 'INTERRUPTED');
+	const door = [{ id: 'minecraft:oak_door', kind: 'block', x: 300, y: 77, z: -230, count: 1 }];
+	const flagged = villageRun({ seenResources: door, entities: [{ type: 'minecraft:phantom', x: 301, y: 79, z: -230, hostile: true }] });
+	await runObtain({ item: 'iron_ingot', count: 3, timeoutMs: 30_000 }, flagged.body, { now: (() => { let t = 0; return () => (t += 100); })(), looted: { opened: [], searched: [], structures: [], doors: [] } });
+	assert.equal(flagged.calls.some(([type]) => type === 'set_door'), false, 'a flagged hostile by the door: not opened');
+	const golem = villageRun({ seenResources: door, entities: [{ type: 'minecraft:iron_golem', x: 301, y: 77, z: -230, hostile: true }] });
+	await runObtain({ item: 'iron_ingot', count: 3, timeoutMs: 30_000 }, golem.body, { now: (() => { let t = 0; return () => (t += 100); })(), looted: { opened: [], searched: [], structures: [], doors: [] } });
+	assert.ok(golem.calls.some(([type, args]) => type === 'set_door' && args.open), 'the village golem does not keep it out');
+});
+
+test('review 4: ledger keys carry the dimension, and the runtime starts a new ledger in a new world', async () => {
+	const { lootKey } = await import('../src/obtain-runner.mjs');
+	assert.notEqual(lootKey({ x: 1, y: 2, z: 3 }, 'minecraft:overworld'), lootKey({ x: 1, y: 2, z: 3 }, 'minecraft:the_nether'));
+	const o = { ...village(), blocks: [{ blockId: 'minecraft:chest', x: 300, y: 78, z: -230 }] };
+	assert.equal(lootSources(o, { opened: new Set(['minecraft:the_nether|300,78,-230']) }).some((row) => row.kind === 'chest'), true);
+	assert.equal(lootSources(o, { opened: new Set(['minecraft:overworld|300,78,-230']) }).some((row) => row.kind === 'chest'), false);
+});
+
+test('review 5: failed chest visits keep their own tries, so the item\'s other way still gets its turns', async () => {
+	const src = (await import('node:fs')).readFileSync(new URL('../src/obtain-runner.mjs', import.meta.url), 'utf8');
+	assert.match(src, /candidate\.kind === 'loot' \? 'loot-need' : 'need'/);
+	assert.equal((src.match(/fail\(`need:\$\{need\.accept\[0\]\}`\)/g) ?? []).length, 0);
+});
+
+test('review 6: a step into the house that finds no room tries the door\'s other side', async () => {
+	const door = [{ id: 'minecraft:oak_door', kind: 'block', x: 300, y: 77, z: -230, count: 1 }];
+	const { body, calls } = villageRun({ seenResources: door });
+	const act = body.act;
+	let first = true;
+	body.act = async (type, args) => (type === 'navigate_to' && args.tolerance === 1 && first ? (first = false, calls.push([type, args]), { state: 'FAILED', reasonCode: 'REACHED_FRONTIER' }) : act(type, args));
+	await runObtain({ item: 'iron_ingot', count: 3, timeoutMs: 30_000 }, body, { now: (() => { let t = 0; return () => (t += 100); })(), looted: { opened: [], searched: [], structures: [], doors: [] } });
+	const steps = calls.filter(([type, args]) => type === 'navigate_to' && args.tolerance === 1).map(([, args]) => [args.x, args.z]);
+	assert.equal(steps.length, 2);
+	assert.deepEqual([steps[0][0] + steps[1][0], steps[0][1] + steps[1][1]], [2 * 300.5, 2 * -229.5], 'opposite sides of the door');
+});
+
+test('review 7: on a kit-iron trip a small vein that covers the pickaxe does not end the call while more iron ore is at hand', async () => {
+	const { kitIronShort } = await import('../src/obtain-runner.mjs');
+	assert.equal(kitIronShort({ inventory: { items: [{ itemId: 'minecraft:iron_pickaxe', count: 1 }] } }), 8);
+	assert.equal(kitIronShort({ inventory: { items: [{ itemId: 'minecraft:iron_pickaxe', count: 1 }, { itemId: 'minecraft:raw_iron', count: 8 }] } }), 0);
+	const src = (await import('node:fs')).readFileSync(new URL('../src/obtain-runner.mjs', import.meta.url), 'utf8');
+	assert.match(src, /const topUp = have >= count && kitShort > 0/);
+});
+
+test('review 8: an ore in view whose dig costs more than a fresh search is not walked at; a near open one is; places come only from counted rows', async () => {
+	const { locate, seenPlaces, seenIds } = await import('../src/obtain-runner.mjs');
+	const need = { kind: 'mine', blocks: ['iron_ore', 'deepslate_iron_ore'], mobs: [], accept: ['raw_iron'] };
+	const base = { player: { x: 0.5, y: 64, z: 0.5 }, world: { dimension: 'minecraft:overworld' } };
+	const searched = [];
+	const body = (blocks) => ({ observe: async () => ({ ...base, blocks }), search: async (t) => { searched.push(t); return { state: 'FAILED', reasonCode: 'FIND_NOT_FOUND' }; } });
+	const deep = await locate(need, body([{ blockId: 'minecraft:iron_ore', x: 0, y: 44, z: 0, enclosed: true }]), { budget: { failed: new Set() }, timeoutMs: 60_000 });
+	assert.equal(deep, null, 'an enclosed ore 20 down (dig 8 units) is no better than a search (8): searched instead');
+	assert.equal(searched.length, 1);
+	const open = await locate(need, body([{ blockId: 'minecraft:iron_ore', x: 3, y: 60, z: 0 }]), { budget: { failed: new Set() }, timeoutMs: 60_000 });
+	assert.equal(open?.x, 3);
+	const remembered = { ...base, blocks: [], seenResources: [{ id: 'minecraft:iron_ore', kind: 'block', x: 5, y: 20, z: 5, placed: false }] };
+	assert.equal(seenIds(remembered).has('iron_ore'), seenPlaces(remembered).has('iron_ore'), 'seen and priced from the same rows');
 });

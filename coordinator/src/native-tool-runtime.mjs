@@ -2655,6 +2655,13 @@ export class NativeToolRuntime {
 			},
 			resources: (query = {}) => this.resourcesFor(record.agentId, query),
 			act: (actionType, args) => run('act', { actionType, arguments: args }),
+			// Closing a screen obtain opened (a looted chest) goes out even once danger has latched: run() refuses every other
+			// move then, and an open chest screen would be left in front of the reflexes.
+			closeMenu: async (args) => {
+				if (!current()) return { state: 'CANCELLED', reasonCode: 'NATIVE_ACTION_CANCELLED' };
+				try { return await this.#executeAction(request, record, normalizeMinecraftToolCall('act', { actionType: 'menu_close', arguments: args }), steps); }
+				catch (error) { return { state: 'FAILED', reasonCode: error?.code ?? 'ACTION_ERROR', message: String(error?.message ?? error).slice(0, 300) }; }
+			},
 			mine: (args) => run('mine', args),
 			moveTo: (args) => run('moveTo', args),
 			gather: async ({ itemIds, ...args }) => {

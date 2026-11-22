@@ -18,7 +18,7 @@ export function pageRows(page) {
  * Opens the chest at cell, takes every stack of `wanted` (bare ids) or LOOT_KEEP, closes it. body: { act(type, args),
  * menu() -> inspected 'menu' page, observe() }. Returns { ok, taken: { id: count }, why }. A stack that no longer fits
  * stays in the chest. read: the chest's slots were read (it now counts as opened). The close is sent even when a stop
- * cut the taking short, so no chest is left open.
+ * cut the taking short; closed: false when it did not land (the caller closes the screen at its next step).
  */
 /** A block's faces, the one most toward an eye at `from` ({ x, y (feet), z }) first; the top first without one. */
 export function facesToward(cell, from) {
@@ -42,7 +42,7 @@ export async function lootChest(body, cell, { wanted = [], heldItem = 'minecraft
 	}
 	if (opened?.state !== 'SUCCEEDED') return { ok: false, read: false, taken: {}, why: `open the chest at ${cell.x},${cell.y},${cell.z}: ${opened?.reasonCode ?? 'failed'}` };
 	const taken = {};
-	let menu = null, stuck = null, read = false;
+	let menu = null, stuck = null, read = false, closed = null;
 	try {
 	for (let turn = 0; turn < MAX_TAKES; turn++) {
 		let page;
@@ -66,10 +66,11 @@ export async function lootChest(body, cell, { wanted = [], heldItem = 'minecraft
 		try {
 			const last = await body.menu();
 			const m = last?.menu ? { ...last.menu, type: last.menu.menuId ?? last.menu.type } : menu;
-			await body.act('menu_close', { menuId: m.type, containerId: m.containerId, stateId: m.stateId });
-		} catch { /* a menu that closed on its own needs no close */ }
+			const shut = await body.act('menu_close', { menuId: m.type, containerId: m.containerId, stateId: m.stateId });
+			closed = shut?.state === 'SUCCEEDED';
+		} catch { closed = false; }
 	}
 	}
 	for (const key of Object.keys(taken)) if (key.startsWith('skip:')) delete taken[key];
-	return { ok: stuck === null, read, taken, why: stuck };
+	return { ok: stuck === null && closed !== false, read, closed, taken, why: stuck ?? (closed === false ? 'the chest did not close' : null) };
 }

@@ -11,7 +11,7 @@ import { howtoIndex } from './howto.mjs';
 import { DAMAGE_STOPS, FIGHT_STOPS, DISCARD, LIFE_SAFETY_STOPS, MAX_FIND_TIMEOUT_MS, UNREACHED, UNREACHED_SPOT, caveLog, hostileIsDanger, sameVein } from './find-search.mjs';
 import { threatRows, blazeBlocksErrand } from './search-danger.mjs';
 import { REGEN_RESUME_HEALTH, bodyDanger, eatCalls, lowHealthFork } from './fork-rule.mjs';
-import { heldCounts, heldOf, keepPickaxeMakings, planObtain, readyTimes, resolveObtainItem, shortId, OBTAIN_STATIONS } from './obtain-plan.mjs';
+import { heldCounts, heldOf, keepPickaxeMakings, planObtain, readyTimes, resolveObtainItem, searchCost, seenRowCost, shortId, OBTAIN_STATIONS } from './obtain-plan.mjs';
 import { lootSources, structureReach } from './loot-sources.mjs';
 import { lootChest } from './loot-step.mjs';
 import { kitLeft } from './skill-fits.mjs';
@@ -128,6 +128,13 @@ export function kitIronExtra(o, plan) {
 	return Math.max(0, kitLeft(count).iron - count(/^minecraft:(iron_ingot|raw_iron)$/) - mining);
 }
 
+/** Iron (ingots and raw) the route's kit still lacks beyond what is held. */
+export function kitIronShort(o) {
+	const items = (o?.inventory?.items ?? []).filter((row) => row?.count > 0);
+	const count = (re) => items.filter((row) => re.test(row.itemId ?? '')).reduce((n, row) => n + row.count, 0);
+	return Math.max(0, kitLeft(count).iron - count(/^minecraft:(iron_ingot|raw_iron)$/));
+}
+
 /** Armour points worn and the best sword or axe tier held (-1 none): whether a built mob's fight is a way. */
 export function gearOf(o) {
 	const weapons = (o?.inventory?.items ?? []).filter((row) => row?.count > 0 && /_(sword|axe)$/.test(bare(row.itemId)))
@@ -142,6 +149,13 @@ const DOOR_VISITS = 6;
 const DOOR = /^(minecraft:)?[a-z_]+_door$/;
 const HOUSE_REACH = 8;
 const HOSTILE_MOB = /^(zombie|zombie_villager|husk|drowned|skeleton|stray|bogged|spider|cave_spider|creeper|witch|pillager|vindicator|evoker|ravager|slime|enderman)$/;
+// The server's hostility flag counts too, except on a village's own (a golem defends, villagers and cats are harmless).
+const VILLAGE_FOLK = /^(villager|iron_golem|wandering_trader|trader_llama|cat|snow_golem)$/;
+const hostileMob = (row) => HOSTILE_MOB.test(bare(row?.type ?? '')) || (row?.hostile === true && !VILLAGE_FOLK.test(bare(row?.type ?? '')));
+const CONTAINER = /^(minecraft:)?(chest|trapped_chest|barrel)$/;
+const CONTAINER_SCREEN = /generic_9x|shulker_box/;
+/** A loot ledger key: the cell in its dimension. */
+export const lootKey = (row, dimension) => `${dimension ?? 'minecraft:overworld'}|${Math.floor(row.x)},${Math.floor(row.y)},${Math.floor(row.z)}`;
 const DOOR_KINDS = ['oak', 'spruce', 'birch', 'acacia', 'dark_oak', 'jungle', 'mangrove', 'cherry', 'pale_oak'].map((kind) => `minecraft:${kind}_door`);
 export function rememberStructures(looted, o) {
 	for (const row of o?.sighted?.structures ?? []) {
@@ -171,7 +185,8 @@ export function seenPlaces(o) {
 		list.push({ distance: Math.hypot(across, drop), across, drop, enclosed: row.enclosed === true || row.hidden === true, count: Number.isFinite(row.count) ? row.count : count });
 		places.set(key, list);
 	};
-	for (const row of Array.isArray(o.seenResources) ? o.seenResources : []) if (row?.kind !== 'container') add(row.id ?? row.blockId, row);
+	// The same rows seenIds counts (knownBlocks: remembered ore stays the ore-memory lane's), so a place is priced only
+	// for a source the plan counts as seen.
 	for (const row of knownBlocks(o)) add(row.blockId, row);
 	for (const row of o.entities ?? []) if (row?.type && row.type !== 'minecraft:item' && row.alive !== false) add(row.type, row);
 	return places;
@@ -357,7 +372,10 @@ function inView(need, o, budget) {
 	const rows = knownBlocks(o).filter((row) => blocks.has(row.blockId) && !budget?.failed?.has(`${row.x},${row.y},${row.z}`)
 		&& !caveLog(row.blockId, row.y, o?.world?.dimension, at.y) && !floodedApproach(budget, row));
 	const vein = ore && budget?.unreached?.length > 0 ? sameVein(budget.unreached, rows) : new Set();
-	return rows.filter((row) => !vein.has(row))
+	// An ore whose way there (a long dig down) costs more than finding another is not a source to walk at (obtain-plan
+	// seenRowCost against searchCost, the planner's own prices).
+	const worthIt = (row) => !ore || !OBTAIN_COSTS || seenRowCost({ ...row, id: row.blockId }, o) <= searchCost(row.blockId);
+	return rows.filter((row) => !vein.has(row) && worthIt(row))
 		.map((row) => ({ x: row.x, y: row.y, z: row.z, blockId: row.blockId, d: Math.hypot(row.x + 0.5 - at.x, (row.y - at.y) * 1.5, row.z + 0.5 - at.z) }))
 		.filter((row) => row.d <= radius).sort((a, b) => a.d - b.d)[0] ?? null;
 }
@@ -521,7 +539,7 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 	// Blocks and mobs of needs out of tries: seen, but no source the body reached. The plan no longer counts them as
 	// seen, so it turns to another way (planks for fuel when the coal ore it saw stays out of reach).
 	const spent = new Set();
-	const budget = { failed: new Set(), dug: 0, herds: [], approaches };
+	const budget = { failed: new Set(), dug: 0, herds: [], approaches, veins: new Set() };
 	const rememberFlood = (result, source, o) => {
 		if (result?.reasonCode !== 'TUNNEL_FLOODED' || !['FAILED', 'INTERRUPTED'].includes(result.state)
 			|| result.executionStarted !== true || result.physicalAttempted !== true || rawBody.stopped()) return false;
@@ -539,7 +557,7 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 	// A non-food obtain recovers at low health itself; while it recovers (active) the coordinator folds the low-health wakes.
 	if (!food) rawBody.recovering?.('armed');
 	// The food hunt's flee line, set once from the health at the first hunt: later rounds never lower it.
-	let foodFlee = null, lastWeighed = null;
+	let foodFlee = null, lastWeighed = null, kitTrip = false;
 	let lastFailure = null, fuelDiagnostic = null, approachStop = null;
 	const fuelMembers = (group) => (typeof group === 'string' ? index.tags[group] ?? [] : group);
 	const smeltsPer = (itemId) => (index.fuels?.[bare(itemId)] ?? 0) / 200;
@@ -1213,6 +1231,7 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 				}
 				step(`mine the ${bare(where.blockId)} vein at ${where.x},${where.y},${where.z}`);
 				const heldBefore = heldOf(need.accept.join('|'), heldCounts(await body.observe()), index);
+				budget.veins.add(`${where.x},${where.y},${where.z}`);
 				let mined = await body.mine({ x: where.x, y: where.y, z: where.z, vein: true, maxBlocks: 24, timeoutMs: 90_000 });
 				if (['INVALID_VEIN_TARGET', 'NOTHING_MINED'].includes(mined?.reasonCode) && !body.interrupted() && !body.stopped()) {
 					step(`dig to the hidden ${bare(where.blockId)} at ${where.x},${where.y},${where.z}`);
@@ -1285,13 +1304,16 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		const result = await body.search({ block: 'minecraft:oak_door', also: DOOR_KINDS.slice(1) }, { timeoutMs: Math.min(20_000, left()), within: 24 });
 		const at = result?.find?.seen;
 		if (result?.reasonCode !== 'FIND_SEEN' || !at || ![at.x, at.y, at.z].every(Number.isFinite) || Math.hypot(at.x - source.x, at.z - source.z) > reach
-			|| looted.doors.some((d) => Math.hypot(d.x - at.x, d.z - at.z) < 2 && Math.abs(d.y - at.y) < 2)) return null;
+			|| looted.doors.some((d) => (d.dimension ?? null) === (source.dimension ?? d.dimension ?? null) && Math.hypot(d.x - at.x, d.z - at.z) < 2 && Math.abs(d.y - at.y) < 2)) return null;
 		return { x: at.x, y: at.y, z: at.z, blockId: at.id };
 	};
 	const lootOnce = async (need) => {
 		const source = need.sources?.[0];
 		if (!source) return `no chest left for ${need.accept[0]}`;
-		const cellKey = (row) => `${Math.floor(row.x)},${Math.floor(row.y)},${Math.floor(row.z)}`;
+		const dimension = (await body.observe()).world?.dimension ?? null;
+		// Ledger keys carry the dimension: a Nether chest at a village chest's coordinates is another chest.
+		const cellKey = (row) => lootKey(row, dimension);
+		const sameDoor = (d, row) => (d.dimension ?? null) === dimension && Math.hypot(d.x - row.x, d.z - row.z) < 2 && Math.abs(d.y - row.y) < 2;
 		const walk = async (row, tolerance) => {
 			const o = await body.observe();
 			const at = bodyAt(o);
@@ -1315,21 +1337,27 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 				const rows = await known();
 				const at = bodyAt(await body.observe());
 				const door = rows.filter((row) => DOOR.test(row.blockId ?? '') && [row.x, row.y, row.z].every(Number.isFinite)
-					&& Math.hypot(row.x - source.x, row.z - source.z) <= reach && !looted.doors.some((d) => Math.hypot(d.x - row.x, d.z - row.z) < 2 && Math.abs(d.y - row.y) < 2))
+					&& Math.hypot(row.x - source.x, row.z - source.z) <= reach && !looted.doors.some((d) => sameDoor(d, row)))
 					.sort((a, b) => (at ? Math.hypot(a.x - at.x, a.z - at.z) - Math.hypot(b.x - at.x, b.z - at.z) : 0))[0]
 					?? await doorInSight(source, reach);
 				if (!door) break;
-				looted.doors.push({ x: door.x, y: door.y, z: door.z });
+				looted.doors.push({ x: door.x, y: door.y, z: door.z, dimension });
 				step(`look into the house through the door at ${cellKey(door)}`);
 				if (!(await walk(door, 2))) { if (body.interrupted() || body.stopped()) return 'stopped'; continue; }
 				// The way in is away from where the body stands outside the door.
 				const from = bodyAt(await body.observe()) ?? { x: door.x + 0.5, z: door.z + 1.5 };
+				// A hostile in or by the house (seen before the door opens, and again once it shows the room): not a house to
+				// walk into; shut it again and try the next.
+				const hostileByDoor = async () => {
+					const near = ((await body.observe()).entities ?? []).filter((row) => row?.alive !== false && [row.x, row.z].every(Number.isFinite)
+						&& Math.hypot(row.x - door.x - 0.5, row.z - door.z - 0.5) <= HOUSE_REACH);
+					if (near.length > 0) step(`by the door: ${near.slice(0, 6).map((row) => `${bare(row.type ?? '?')}${row.hostile === true ? ' (hostile flag)' : ''}`).join(', ')}`);
+					return near.find(hostileMob) ?? null;
+				};
+				let inside = await hostileByDoor();
+				if (inside) { step(`a ${bare(inside.type)} by the door at ${cellKey(door)}: not going in`); continue; }
 				await act('set_door', { x: door.x, y: door.y, z: door.z, open: true });
-				// A hostile in or by the house: not a house to walk into. Shut it again and try the next.
-				const near = ((await body.observe()).entities ?? []).filter((row) => row?.alive !== false && [row.x, row.z].every(Number.isFinite)
-					&& Math.hypot(row.x - door.x - 0.5, row.z - door.z - 0.5) <= HOUSE_REACH);
-				if (near.length > 0) step(`by the door: ${near.slice(0, 6).map((row) => `${bare(row.type ?? '?')}${row.hostile === true ? ' (hostile flag)' : ''}`).join(', ')}`);
-				const inside = near.find((row) => HOSTILE_MOB.test(bare(row.type ?? '')));
+				inside = await hostileByDoor();
 				if (inside) { await act('set_door', { x: door.x, y: door.y, z: door.z, open: false }); step(`a ${bare(inside.type)} by the door at ${cellKey(door)}: not going in`); continue; }
 				// Through the doorway: two blocks past the door on the far side from where the body stands (travel's tolerance
 				// is at least a block, so a target in the doorway itself can stop outside).
@@ -1343,7 +1371,14 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 				// From the doorway a small house is in view already; a step further in only when it shows no chest.
 				const seenFromDoor = lootSources(await body.observe(), { opened: new Set([...looted.opened, ...budget.failed]), searched: new Set(looted.searched), structures: looted.structures })
 					.find((row) => row.kind === 'chest');
-				if (!seenFromDoor) await act('navigate_to', { x: into.x, y: Math.floor(door.y), z: into.z, tolerance: 1, sprint: false, timeoutMs: 10_000 });
+				// The door's facing is not in the rows: the far side from the body first, the other side when that is no room.
+				if (!seenFromDoor) {
+					const stepped = await act('navigate_to', { x: into.x, y: Math.floor(door.y), z: into.z, tolerance: 1, sprint: false, timeoutMs: 10_000 });
+					if (stepped?.state !== 'SUCCEEDED' && !body.interrupted() && !body.stopped()) {
+						const back = { x: 2 * (Math.floor(door.x) + 0.5) - into.x, z: 2 * (Math.floor(door.z) + 0.5) - into.z };
+						await act('navigate_to', { x: back.x, y: Math.floor(door.y), z: back.z, tolerance: 1, sprint: false, timeoutMs: 10_000 });
+					}
+				}
 				if (body.interrupted() || body.stopped()) return 'stopped';
 				chest = lootSources(await body.observe(), { opened: new Set([...looted.opened, ...budget.failed]), searched: new Set(looted.searched), structures: looted.structures })
 					.find((row) => row.kind === 'chest') ?? null;
@@ -1383,14 +1418,22 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 				await act('navigate_to', { x: Math.floor(chest.x) + 0.5, y: Math.floor(chest.y), z: Math.floor(chest.z) + 0.5, tolerance: 1.5, sprint: false, timeoutMs: 10_000 });
 		}
 		const o = await body.observe();
+		// A use on the cell is only safe on a container still there now: a stale target could be anything (TNT, a bed).
+		const here = [...(o.blocks ?? []), ...(o.nearbyContainers ?? [])].find((row) => row?.x === chest.x && row?.y === chest.y && row?.z === chest.z);
+		if (!here || !CONTAINER.test(here.blockId ?? '')) { budget.failed.add(cellKey(chest)); return `no chest at ${cellKey(chest)} now (${here?.blockId ?? 'not in view'})`; }
+		// Opening a chest takes the screen for a moment: never with danger or a hostile near.
+		const risk = bodyDanger(o) ?? hostileOn(o);
+		if (risk) { danger ??= `before opening a chest: ${risk}`; return 'stopped'; }
 		const heldItem = o.inventory?.selectedItem ?? (o.inventory?.items ?? []).find((row) => row.slot === 'mainhand')?.itemId ?? 'minecraft:air';
 		// The close goes out even after danger stopped the run (obtain's own act refuses new moves then): no chest stays open.
-		const hands = { menu: body.menu, act: (type, args) => (type === 'menu_close' ? rawBody.act(type, args) : body.act(type, args)) };
+		const close = rawBody.closeMenu ?? ((args) => rawBody.act('menu_close', args));
+		const hands = { menu: body.menu, act: (type, args) => (type === 'menu_close' ? close(args) : body.act(type, args)) };
 		const result = typeof body.menu === 'function'
 			? await lootChest(hands, chest, { wanted: need.accept.map(bare), heldItem, from: bodyAt(o) })
 			: { ok: false, read: false, taken: {}, why: 'this body cannot read an open chest' };
 		if (result.read) looted.opened.push(cellKey(chest));
 		else budget.failed.add(cellKey(chest));
+		if (result.closed === false) step('the chest screen may still be open: closed at the next step');
 		if (houseDoor !== null && !rawBody.interrupted() && !rawBody.stopped()) {
 			await act('navigate_to', { x: Math.floor(houseDoor.x) + 0.5, y: Math.floor(houseDoor.y), z: Math.floor(houseDoor.z) + 0.5, tolerance: 0.6, sprint: false, timeoutMs: 15_000 });
 			await act('set_door', { x: houseDoor.x, y: houseDoor.y, z: houseDoor.z, open: false });
@@ -1665,7 +1708,13 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		}
 		if (rawBody.stopped()) return end('CANCELLED', 'CANCELLED', 'Cancelled');
 		if (cleanupObservationFailed) return end('FAILED', 'OBSERVATION_UNAVAILABLE', 'Fresh station cleanup observation unavailable');
-		const o = await body.observe();
+		let o = await body.observe();
+		// A container screen left open (a loot close that did not land before a stop): shut it before anything else.
+		const screen = o.interaction?.menu;
+		if (screen && CONTAINER_SCREEN.test(String(screen.type ?? screen.menuId ?? '')) && Number.isSafeInteger(screen.containerId) && screen.containerId !== 0) {
+			await (rawBody.closeMenu ?? ((args) => rawBody.act('menu_close', args)))({ menuId: screen.type ?? screen.menuId, containerId: screen.containerId, stateId: screen.stateId });
+			o = await body.observe();
+		}
 		counts = heldCounts(o);
 		held = keepPickaxeMakings(counts, target.ids, index);
 		have = target.ids.reduce((sum, member) => sum + (counts.get(member) ?? 0), 0);
@@ -1674,7 +1723,13 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		// This sample can satisfy the inventory goal and report danger at the same time.
 		const unsafe = bodyDanger(o);
 		if (unsafe !== null) { danger ??= unsafe; continue; }
-		if (have >= count) return end('SUCCEEDED', 'OBTAINED', `Obtained ${label}`);
+		// On a kit-iron trip (an iron tool's call that took on the rest of the kit's iron), the target alone does not end
+		// it: the kit's iron still short is mined from ore at hand first, while raw-iron tries and time are left.
+		const kitShort = kitTrip ? kitIronShort(o) : 0;
+		// "At the ore": only while iron ore is in view or known within reach, never a fresh search after the target is held.
+		const topUp = have >= count && kitShort > 0 && (failures.get('need:raw_iron') ?? 0) < 5 && left() > 60_000
+			&& inView({ kind: 'mine', blocks: ['iron_ore', 'deepslate_iron_ore'], mobs: [] }, o, { ...budget, failed: new Set([...budget.failed, ...budget.veins]) }) !== null;
+		if (have >= count && !topUp) return end('SUCCEEDED', 'OBTAINED', `Obtained ${label}${kitTrip && kitShort > 0 ? `; the kit is still ${kitShort} iron short` : ''}`);
 		if (now() - startedAt >= timeoutMs) return end('TIMED_OUT', 'OBTAIN_TIMEOUT', `timeoutMs ${timeoutMs} ran out`);
 		if (capacityStop !== null) return end('FAILED', 'OBTAIN_STUCK', capacityStop);
 		if (approachStop !== null) return end('FAILED', approachStop.reasonCode, approachStop.message);
@@ -1690,7 +1745,8 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		// Output an earlier call left in a furnace comes out first: the plan counts only the inventory.
 		if (loads.length > 0) { await collectLoads(); continue; }
 		// A filled bucket: an empty one first (the plan below makes it), then a source to fill it at.
-		const goal = fluid === null ? { ids: target.ids, count } : (held.get('bucket') ?? 0) > 0 ? null : { ids: ['bucket'], count: 1 };
+		const goal = topUp ? { ids: ['raw_iron'], count: (counts.get('raw_iron') ?? 0) + kitShort }
+			: fluid === null ? { ids: target.ids, count } : (held.get('bucket') ?? 0) > 0 ? null : { ids: ['bucket'], count: 1 };
 		if (goal === null) {
 			if (placed.length > 0) await cleanup();
 			const why = await fillAt();
@@ -1721,7 +1777,8 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			if (weighed !== lastWeighed) { lastWeighed = weighed; step(weighed); }
 			// At the ore for an iron tool, the rest of the route's kit iron comes in the same trip: a second trip down for
 			// the shield's, buckets' and flint and steel's iron costs the whole descent again.
-			const extra = OBTAIN_COSTS ? kitIronExtra(o, plan) : 0;
+			const extra = OBTAIN_COSTS && !topUp ? kitIronExtra(o, plan) : 0;
+			if (extra > 0) kitTrip = true;
 			if (extra > 0) plan = planObtain({ ...goal, also: [{ ids: ['raw_iron'], count: extra }] }, { held, seen, stations, index, coalFirst, dimension: o.world?.dimension, loot, gear: gearOf(o), places, food: Math.max(0, TRIP_FOOD - eats) });
 			// The wood kept back for the next pickaxes never sends the body up for wood from under cover: there it is spent
 			// on what this call needs (a table, sticks, a shield). On the surface a log is near and the reserve holds.
@@ -1751,7 +1808,9 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		const depth = (candidate) => candidate.kind === 'kill' || candidate.kind === 'loot' ? 0 : candidate.blocks.some((block) => ORE_BLOCKS.test(block)) ? 2 : candidate.blocks.every((block) => STONE_BLOCKS.test(block)) ? 1 : 0;
 		// A need that failed waits until the others have had their turn: gravel missed on the surface is often in the
 		// tunnels dug for iron.
-		const tries = (candidate) => failures.get(`need:${candidate.accept[0]}`) ?? 0;
+		// A loot visit's misses count apart from the item's other ways: three empty chests must not use up the tree's tries.
+		const needKey = (candidate) => `${candidate.kind === 'loot' ? 'loot-need' : 'need'}:${candidate.accept[0]}`;
+		const tries = (candidate) => failures.get(needKey(candidate)) ?? 0;
 		// Ore gets more tries than a surface source: each try is another vein, and the deadline still bounds them.
 		const triesLeft = (candidate) => tries(candidate) < (depth(candidate) === 2 ? 5 : 3);
 		// A need still to gather (its tool held, tries left) that brings more of any of these items.
@@ -1803,7 +1862,7 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		if (!need) {
 			const blocked = plan.ops.filter((candidate) => readyTimes(candidate, held, index) > 0 && !stationReady(candidate)).map((candidate) => `${candidate.outputs[0]} needs a ${candidate.station}`);
 			const failedOps = plan.ops.filter((candidate) => failures.get(`op:${candidate.outputs[0]}`) >= 2).map((candidate) => `${candidate.kind} ${candidate.outputs[0]} failed: ${failures.get(`why:${candidate.outputs[0]}`)}`);
-			const why = [...failedOps, ...blocked, ...plan.needs.map((n) => `${n.count} ${n.accept[0]}${n.tool ? ` (needs ${n.tool})` : ''}${failures.has(`need:${n.accept[0]}`) ? `: ${failures.get(`why:${n.accept[0]}`) ?? 'failed'}` : ''}`)];
+			const why = [...failedOps, ...blocked, ...plan.needs.map((n) => `${n.count} ${n.accept[0]}${n.tool ? ` (needs ${n.tool})` : ''}${failures.has(needKey(n)) ? `: ${failures.get(`why:${n.accept[0]}`) ?? 'failed'}` : ''}`)];
 			const sourceless = plan.needs.filter((n) => !n.tool && !triesLeft(n));
 			if (sourceless.length > 0) return end('FAILED', 'NO_SOURCE', `Stuck on ${sourceless.map((n) => `${n.accept[0]}: ${failures.get(`why:${n.accept[0]}`)}`).join('; ')}`, { missing: why });
 			return end('FAILED', 'OBTAIN_STUCK', `Stuck: still missing ${why.join('; ') || 'a step the game data does not show'}`, { missing: why });
@@ -1826,7 +1885,7 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		if (why !== null) {
 			failures.set(`why:${need.accept[0]}`, why);
 			step(why);
-			fail(`need:${need.accept[0]}`);
+			fail(needKey(need));
 			if (!triesLeft(need)) for (const source of [...(need.blocks ?? []), ...(need.mobs ?? [])]) spent.add(source);
 		}
 	}

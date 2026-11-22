@@ -50,7 +50,8 @@ export function chestYield(tables, item, yields = lootYields()) {
 }
 
 const finite = (row) => [row?.x, row?.y, row?.z].every(Number.isFinite);
-const key = (row) => `${Math.floor(row.x)},${Math.floor(row.y)},${Math.floor(row.z)}`;
+// Ledger keys carry the dimension (obtain-runner lootKey): the same coordinates in another dimension are another place.
+const keyIn = (dimension) => (row) => `${dimension ?? 'minecraft:overworld'}|${Math.floor(row.x)},${Math.floor(row.y)},${Math.floor(row.z)}`;
 
 /**
  * Loot sources the body knows now, nearest first: { kind: 'chest', x, y, z, distance, tables } for a container seen
@@ -64,6 +65,7 @@ export function lootSources(o, { opened = new Set(), searched = new Set(), struc
 	const at = o?.position ?? o?.player;
 	if (!finite(at)) return [];
 	const dimension = o.world?.dimension;
+	const key = keyIn(dimension);
 	const structures = (o.sighted?.structures ?? []).filter(finite)
 		.map((row) => ({ name: structureName(row), x: row.x, y: row.y, z: row.z, tables: structureTables(structureName(row), yields) }))
 		.filter((row) => row.tables.length > 0);
