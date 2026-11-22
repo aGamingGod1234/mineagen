@@ -44,22 +44,6 @@ final class TravelCheckpoints {
 	 */
 	static Checkpoint pick(WalkabilityView world, double bodyX, double bodyY, double bodyZ, double targetX, double targetY,
 			double targetZ, double reach, Predicate<GridPosition> refused, java.util.List<GridPosition> sighted) {
-		return pick(world, bodyX, bodyY, bodyZ, targetX, targetY, targetZ, reach, refused, sighted, 0.0D);
-	}
-
-	/**
-	 * Whether a spot {@code left} from the target is worth a leg from {@code bodyLeft}: {@link #MIN_GAIN} closer, or any
-	 * closer when it is within the trip's arrival distance, where the next leg ends the trip. Playtest 22 Nov: a leg
-	 * stalled a block short of a seen ledge beside the iron; from there the ledge was 1.8 closer, so the walk refused it,
-	 * saw nothing else closer, and tunnelled 12 blocks through the rock (8 past the ore) instead.
-	 */
-	static boolean closer(double bodyLeft, double left, double arriveWithin) {
-		return left <= bodyLeft - MIN_GAIN || left <= arriveWithin && left < bodyLeft;
-	}
-
-	/** As above; {@code arriveWithin} is the trip's arrival distance (0: every leg needs {@link #MIN_GAIN}). */
-	static Checkpoint pick(WalkabilityView world, double bodyX, double bodyY, double bodyZ, double targetX, double targetY,
-			double targetZ, double reach, Predicate<GridPosition> refused, java.util.List<GridPosition> sighted, double arriveWithin) {
 		double bodyLeft = left(bodyX, bodyY, bodyZ, targetX, targetY, targetZ, Y_BAND);
 		int feetY = ServerTravelController.standingCellY(bodyY);
 		if (bodyLeft <= reach) {
@@ -93,7 +77,7 @@ final class TravelCheckpoints {
 				counts[1]++;
 				counts[2]++;
 				double left = left(at, targetX, targetY, targetZ);
-				if (!closer(bodyLeft, left, arriveWithin)) { counts[3]++; continue; }
+				if (left > bodyLeft - MIN_GAIN) { counts[3]++; continue; }
 				double score = score(world, at, left, feetY, targetY);
 				if (score < bestScore) {
 					bestScore = score;
@@ -108,7 +92,7 @@ final class TravelCheckpoints {
 			if (!world.isStandable(at) || world.exposureCost(at) > 0 || refused.test(at)) continue;
 			counts[2]++;
 			double left = left(at, targetX, targetY, targetZ);
-			if (!closer(bodyLeft, left, arriveWithin)) { counts[3]++; continue; }
+			if (left > bodyLeft - MIN_GAIN) { counts[3]++; continue; }
 			double score = score(world, at, left, feetY, targetY);
 			if (score < bestScore) {
 				bestScore = score;
@@ -122,7 +106,7 @@ final class TravelCheckpoints {
 	/** Synchronous convenience for geometry fixtures; live travel retains WalkingSearch between ticks. */
 	static Checkpoint walkingPick(WalkabilityView world, double x, double y, double z, double targetX, double targetY,
 			double targetZ, double reach, Predicate<GridPosition> refused, java.util.List<GridPosition> sighted) {
-		WalkingSearch pending = beginWalkingPick(world, x, y, z, targetX, targetY, targetZ, reach, refused, sighted, 0.0D);
+		WalkingSearch pending = beginWalkingPick(world, x, y, z, targetX, targetY, targetZ, reach, refused, sighted);
 		if (pending == null) return null;
 		Checkpoint result;
 		do { result = pending.advance(world); } while (!pending.finished());
@@ -131,23 +115,18 @@ final class TravelCheckpoints {
 
 	static WalkingSearch beginWalkingPick(WalkabilityView world, double x, double y, double z, double targetX, double targetY,
 			double targetZ, double reach, Predicate<GridPosition> refused, java.util.List<GridPosition> sighted) {
-		return beginWalkingPick(world, x, y, z, targetX, targetY, targetZ, reach, refused, sighted, 0.0D);
-	}
-
-	static WalkingSearch beginWalkingPick(WalkabilityView world, double x, double y, double z, double targetX, double targetY,
-			double targetZ, double reach, Predicate<GridPosition> refused, java.util.List<GridPosition> sighted, double arriveWithin) {
 		var candidates = new java.util.ArrayList<Checkpoint>();
 		for (int i = 0; i < 8; i++) {
 			Checkpoint next = pick(world, x, y, z, targetX, targetY, targetZ, reach,
 					cell -> refused.test(cell) || candidates.stream().anyMatch(p -> Math.abs(p.feet().x() - cell.x()) <= 4
-							&& Math.abs(p.feet().z() - cell.z()) <= 4 && Math.abs(p.feet().y() - cell.y()) <= 2), sighted, arriveWithin);
+							&& Math.abs(p.feet().z() - cell.z()) <= 4 && Math.abs(p.feet().y() - cell.y()) <= 2), sighted);
 			if (next == null) continue;
 			candidates.add(next);
 		}
 		// Longer legs must not skip an acquired uphill path whose first eight blocks are all the height scan can reach.
 		// Keep this out of the ordinary goal set: a nearby goal there would truncate an available longer walking leg.
 		if (candidates.isEmpty() && reach > SCAN_UP) {
-			Checkpoint near = pick(world, x, y, z, targetX, targetY, targetZ, SCAN_UP, refused, sighted, arriveWithin);
+			Checkpoint near = pick(world, x, y, z, targetX, targetY, targetZ, SCAN_UP, refused, sighted);
 			if (near != null) candidates.add(near);
 		}
 		if (candidates.isEmpty()) return null;
@@ -159,7 +138,7 @@ final class TravelCheckpoints {
 		// Standing at the end of a newly built bridge is a valid frontier. If it is best, build on from here
 		// rather than walking back to a worse frontier near the old start of the bridge.
 		search.allowStartFrontier();
-		return new WalkingSearch(start, search, candidates, left(x, y, z, targetX, targetY, targetZ, Y_BAND), targetX, targetY, targetZ, refused, arriveWithin);
+		return new WalkingSearch(start, search, candidates, left(x, y, z, targetX, targetY, targetZ, Y_BAND), targetX, targetY, targetZ, refused);
 	}
 
 	/** A slice limit means unfinished work, not proof that the acquired ground has no connected route. */
@@ -167,16 +146,15 @@ final class TravelCheckpoints {
 		final GridPosition origin;
 		private final dev.agaminggod.mineagen.client.navigation.LocalPathfinder.Search search;
 		private final java.util.List<Checkpoint> candidates;
-		private final double before, targetX, targetY, targetZ, arriveWithin;
+		private final double before, targetX, targetY, targetZ;
 		private final Predicate<GridPosition> refused;
 		private int expanded;
 		private boolean done;
 
 		WalkingSearch(GridPosition origin, dev.agaminggod.mineagen.client.navigation.LocalPathfinder.Search search,
-				java.util.List<Checkpoint> candidates, double before, double targetX, double targetY, double targetZ, Predicate<GridPosition> refused,
-				double arriveWithin) {
+				java.util.List<Checkpoint> candidates, double before, double targetX, double targetY, double targetZ, Predicate<GridPosition> refused) {
 			this.origin = origin; this.search = search; this.candidates = candidates; this.before = before;
-			this.targetX = targetX; this.targetY = targetY; this.targetZ = targetZ; this.refused = refused; this.arriveWithin = arriveWithin;
+			this.targetX = targetX; this.targetY = targetY; this.targetZ = targetZ; this.refused = refused;
 		}
 
 		boolean finished() { return done; }
@@ -194,7 +172,7 @@ final class TravelCheckpoints {
 			double after = left(end, targetX, targetY, targetZ);
 			boolean finalApproach = candidates.stream().anyMatch(p -> p.finalApproach() && p.feet().equals(end));
 			// Dense remembered turns and a trip's last block need less than the intermediate-leg progress threshold.
-			if (!finalApproach && !closer(before, after, arriveWithin) || refused.test(end)) return null;
+			if (!finalApproach && before - after < MIN_GAIN || refused.test(end)) return null;
 			double backtrack = route.nodes().stream().mapToDouble(n -> left(n.position().x() + 0.5D, n.position().y(),
 					n.position().z() + 0.5D, targetX, targetY, targetZ, Y_BAND) - before).max().orElse(0);
 			return new Checkpoint(end, after, finalApproach, Math.max(0, backtrack));

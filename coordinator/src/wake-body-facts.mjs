@@ -28,8 +28,8 @@ export const UP_LINE_BYTES = 160;
  * beside its own way down, with nothing in its facts naming the way back.
  */
 export function upLine(observation, openSky) {
-	const o = observation, p = o?.player;
-	if (!live(o) || o.world?.dimension !== 'minecraft:overworld' || p?.skyOpen !== false || !openSky || openSky.dimension !== o.world.dimension) return null;
+	const o = observation, p = o?.position ?? o?.player?.position ?? o?.player;
+	if (!live(o) || o.world?.dimension !== 'minecraft:overworld' || o.player?.skyOpen !== false || !openSky || openSky.dimension !== o.world.dimension || !p) return null;
 	if (![p.x, p.y, p.z, openSky.x, openSky.y, openSky.z].every(Number.isFinite) || openSky.y - p.y <= 3) return null;
 	const at = [openSky.x, openSky.y, openSky.z].map(Math.floor);
 	const distance = Math.round(Math.hypot(openSky.x - p.x, openSky.y - p.y, openSky.z - p.z));

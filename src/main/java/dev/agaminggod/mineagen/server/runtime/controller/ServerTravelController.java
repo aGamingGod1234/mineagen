@@ -339,18 +339,7 @@ public final class ServerTravelController implements ServerController {
 		return TravelStops.beatable(BuiltInRegistries.ENTITY_TYPE.getKey(mob.getType()).toString(), others, weapon,
 				player.getHealth() + player.getAbsorptionAmount(), minHealth, hit);
 	}
- private double heightTolerance() {return heightTolerance(routeLeg, tolerance);}
-
-	/**
-	 * How far off the target y a trip may end: a remembered route leg 0.6; a caller aiming at a cell (tolerance 2 or less)
-	 * its own tolerance, at least a block (beside, on or just under the block); a looser trip 3 or its tolerance. Lane 3's
-	 * smoke logs, 22 Nov: with the 3-block band for every trip, 17 of 19 tolerance-1 arrivals ended 1-3 blocks off height
-	 * and a walk to a seen ore "arrived" 3 above it, so the pick-up after found no route.
-	 */
-	static double heightTolerance(boolean routeLeg, double tolerance) {
-		if (routeLeg) return 0.6D;
-		return tolerance <= 2.0D ? Math.max(1.0D, tolerance) : Math.max(3.0D, tolerance);
-	}
+ private double heightTolerance() {return routeLeg ? 0.6D : Math.max(3.0D,tolerance);}
 
  /** The target for a heading: {@code distance} blocks along {@code yaw} (Minecraft degrees) from the body. */
 	public static double[] headingTarget(Vec3 from, double yaw, double distance) {
@@ -937,7 +926,7 @@ public final class ServerTravelController implements ServerController {
 		else {
 			if (checkpointSearch != null && !checkpointSearch.origin.equals(feet(player))) checkpointSearch = null;
 			if (checkpointSearch == null) checkpointSearch = TravelCheckpoints.beginWalkingPick(legs, player.getX(), player.getY(), player.getZ(),
-					targetX, targetY, targetZ, LEG_REACH, this::isRefused, sightedSpots(player), tolerance);
+					targetX, targetY, targetZ, LEG_REACH, this::isRefused, sightedSpots(player));
 			if (checkpointSearch != null) {
 				next = checkpointSearch.advance(legs);
 				if (!checkpointSearch.finished()) return TickResult.running(progress(player));

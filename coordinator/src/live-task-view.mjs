@@ -177,9 +177,10 @@ export class LiveTaskViews {
   if (world && state.worldId && world !== state.worldId) { state.plan = null; state.revision = 0; state.scope = null; state.lastObserved={}; state.worldProof = {}; state.presenceProof = {}; state.deathLosses = {}; state.known=emptyKnown(); state.verified=false; state.usage=null; state.usageSample=null; state.intent = null; state.planFocus = null; state.workHeading = null; state.deaths = 0; state.results = []; state.foodHandback = null; state.woodHandback = null; state.effect = null; state.liveInventory = null; state.liveDimension = null; state.samples = []; state.openSky = null; state.ownPoi = []; state.breaks = []; state.gains = []; state.intentLog = []; resetProgress(state); }
   if (world) state.worldId = world;
   state.observation = observation;
-  const player = observation.player;
-  if (player?.skyOpen === true && player.onGround !== false && player.dead !== true && [player.x, player.y, player.z].every(Number.isFinite))
-   state.openSky = { x: player.x, y: player.y, z: player.z, dimension: observation.world?.dimension ?? null };
+  // The wire carries position; the adapted observation carries it as player.x/y/z (as #memory reads it).
+  const player = observation.player, at = observation.position ?? player?.position ?? player;
+  if (player?.skyOpen === true && player.onGround !== false && player.dead !== true && at && [at.x, at.y, at.z].every(Number.isFinite))
+   state.openSky = { x: at.x, y: at.y, z: at.z, dimension: observation.world?.dimension ?? null };
   await this.#load(record, state);
   if (this.#states.get(record.agentId) !== state) return;
   const dead = observation.player?.dead === true || observation.continuity?.phase === 'dead';
