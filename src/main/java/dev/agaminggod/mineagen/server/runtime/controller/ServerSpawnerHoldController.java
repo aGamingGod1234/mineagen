@@ -409,7 +409,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 		int needed = 0;
 		for (BlockPos at : shelterCells(cell, opening)) if (!solid(player, seen, at)) needed++;
 		int carried = blockItem == null ? 0 : ServerFightUntilController.count(player, BuiltInRegistries.ITEM.getValue(Identifier.parse(blockItem)));
-		if (blockItem == null || carried < needed)
+		// A shelter that already stands needs no blocks: the body walks in and holds without any placing.
+		if (needed > 0 && (blockItem == null || carried < needed))
 			return stop(player, TickResult.failed("ROOF_BLOCKS_MISSING", String.format(Locale.ROOT,
 					"spawner hold: the shelter at %s needs %d full solid blocks of one kind; carries %s. Fetch blocks, or roof:false fights in the open",
 					cell.toShortString(), needed, blockItem == null ? "none" : carried + " " + blockItem), progress(player)));
@@ -435,6 +436,14 @@ public final class ServerSpawnerHoldController implements ServerController {
 	}
 
 	private TickResult build(ServerPlayer player, long now) {
+		if (work == null && blockItem == null) {
+			// No blocks carried and nothing to place (chooseSite): the shelter stands; no lintel without blocks either.
+			lintelTicks = 0;
+			skipLintel = true;
+			phase = Phase.LINTEL;
+			note("the shelter already stands: no blocks placed");
+			return TickResult.running(progress(player));
+		}
 		if (work == null) work = roofing.shelter(cell, opening, blockItem, false, BUILD_MS, now);
 		TickResult built = work.tick(player, now);
 		if (built.state() == State.RUNNING) return TickResult.running(progress(player));
