@@ -685,13 +685,15 @@ final class ReflexActions {
 			int weapon = dev.agaminggod.mineagen.server.runtime.controller.HotbarWeapons.bestSlotOrNone(player);
 			if (startSlot < 0) startSlot = player.getInventory().getSelectedSlot();
 			int slot = weapon >= 0 && !player.getMainHandItem().is(Items.SHIELD) ? weapon : player.getInventory().getSelectedSlot();
-			LivingEntity target = shot != null && shield ? null : inReach(player, context.focus(), player.getInventory().getItem(slot));
+			Swing swing = shot != null && shield ? null : inReach(player, context.focus(), player.getInventory().getItem(slot));
+			LivingEntity target = swing == null ? null : swing.target();
 			int selected = target != null ? slot : player.getInventory().getSelectedSlot();
 			String done = hits + " hit(s) back" + (guardTicks > 0 ? ", shield up " + Math.round(guardTicks / 2.0D) / 10.0D + " s" : "")
 					+ (selected != startSlot ? ", hotbar slot " + selected + " selected (was " + startSlot + ")" : "")
 					+ (backOutNote != null ? ", " + backOuts + " back-out(s), last " + backOutNote : "");
 			if (target != null) {
-				input.accept(look(player, target.getBoundingBox().getCenter(), 0.0F, 0.0F, false, false, slot, InteractionHand.MAIN_HAND));
+				// Aim at the part of the hitbox the eye can see: round a corner its middle can sit behind the stone.
+				input.accept(look(player, swing.aim(), 0.0F, 0.0F, false, false, slot, InteractionHand.MAIN_HAND));
 				var range = player.getAttackRangeWith(player.getMainHandItem());
 				boolean ready = player.getInventory().getSelectedSlot() == slot && !player.isUsingItem()
 						&& player.getAttackStrengthScale(0.5F) >= CombatPlanning.READY_ATTACK_STRENGTH;
@@ -752,21 +754,40 @@ final class ReflexActions {
 			return player.getAttackRangeWith(weapon).isInRange(player, living.getBoundingBox(), 0.0D) ? null : living;
 		}
 
-		/** The attacker if it is in the weapon's reach and seen, else the nearest seen hostile in reach, else null. */
-		private static LivingEntity inReach(ServerPlayer player, Entity focus, ItemStack weapon) {
-			var range = player.getAttackRangeWith(weapon);
-			if (focus instanceof LivingEntity living && living.isAlive() && player.hasLineOfSight(living)
-					&& range.isInRange(player, living.getBoundingBox(), 0.0D)) return living;
-			Mob nearest = null;
+		/** A mob defend can hit now and the point of its hitbox the swing aims at. */
+		record Swing(LivingEntity target, Vec3 aim) { }
+
+		/**
+		 * The attacker if a swing can hit it, else the nearest hostile a swing can hit, else null. A swing can hit a mob
+		 * when part of its hitbox is in the weapon's reach with no block between it and the eye: the eye seeing the mob's
+		 * eye is not enough, since round a corner its middle can sit behind the stone while its head shows.
+		 */
+		private static Swing inReach(ServerPlayer player, Entity focus, ItemStack weapon) {
+			if (focus instanceof LivingEntity living && living.isAlive()) {
+				Vec3 aim = swingPoint(player, living, weapon);
+				if (aim != null) return new Swing(living, aim);
+			}
+			Swing nearest = null;
 			double best = Double.POSITIVE_INFINITY;
 			for (Mob mob : player.level().getEntitiesOfClass(Mob.class, player.getBoundingBox().inflate(6.0D),
 					mob -> mob.isAlive() && ThreatPerception.isHostileTo(mob, player) && !mob.isInvisibleTo(player))) {
 				double distance = player.distanceTo(mob);
-				if (distance >= best || !player.hasLineOfSight(mob) || !range.isInRange(player, mob.getBoundingBox(), 0.0D)) continue;
+				if (distance >= best) continue;
+				Vec3 aim = swingPoint(player, mob, weapon);
+				if (aim == null) continue;
 				best = distance;
-				nearest = mob;
+				nearest = new Swing(mob, aim);
 			}
 			return nearest;
+		}
+
+		/** The visible point of the mob's hitbox within the weapon's reach (fight_target's test), or null. */
+		static Vec3 swingPoint(ServerPlayer player, LivingEntity mob, ItemStack weapon) {
+			var range = player.getAttackRangeWith(weapon);
+			if (!range.isInRange(player, mob.getBoundingBox(), 0.0D)) return null;
+			return dev.agaminggod.mineagen.server.runtime.TargetSightline.entity(player.level(),
+					net.minecraft.world.phys.shapes.CollisionContext.of(player), player.getEyePosition(), mob.getBoundingBox(),
+					range.effectiveMaxRange(player));
 		}
 
 		@Override
