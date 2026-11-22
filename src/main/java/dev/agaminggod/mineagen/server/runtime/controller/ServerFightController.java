@@ -1187,6 +1187,12 @@ public final class ServerFightController implements ServerController {
 	 * for {@link #DROP_LOOK_TICKS}; a drop of the kill's age now seen there is witnessed and collected as one seen at the kill.
 	 */
 	private TickResult tickDropLook(ServerPlayer player, long nowEpochMs) {
+		// Lava entered during the look (knockback off the deck after the kill) ends it, as in the fight itself.
+		String hazardCode = hazard.observe(player);
+		if (HazardEntry.IN_LAVA.equals(hazardCode)) {
+			dropLookEnd = null;
+			return finish(player, TickResult.failed(hazardCode, CombatMoveText.hazardStop(hazardCode, player, "fight_target") + kills(), progress(player)));
+		}
 		long tick = player.level().getGameTime();
 		dev.agaminggod.mineagen.server.perception.ObservationVisibility.Frame sight =
 				dev.agaminggod.mineagen.server.perception.ObservationVisibility.frame(player.level(), player);

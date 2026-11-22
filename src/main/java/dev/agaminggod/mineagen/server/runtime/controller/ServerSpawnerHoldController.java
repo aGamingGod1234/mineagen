@@ -185,6 +185,9 @@ public final class ServerSpawnerHoldController implements ServerController {
 				arguments.has("timeoutMs") ? arguments.get("timeoutMs").getAsLong() : ServerFightUntilController.DEFAULT_TIMEOUT_MS);
 		this.elapsedTime = new ElapsedTimeAccumulator(now);
 		Arrays.fill(witherHits, Long.MIN_VALUE);
+		// The hold owns the body from the moment it is the active action: reflexes run before its first tick, and a
+		// retreat started then would walk the hurt body away instead of the wall-in.
+		HOLDING.add(player.getUUID());
 	}
 
 	/**
@@ -571,6 +574,12 @@ public final class ServerSpawnerHoldController implements ServerController {
 	}
 
 	private TickResult hold(ServerPlayer player, long now, long elapsed, boolean inCell) {
+		if (collector != null && collectHeldBack(player)) {
+			collector.cancel(player);
+			collector = null;
+			returning = true;
+			note("collect:false and a hostile near: back to the cell");
+		}
 		if (collector != null && SpawnerHold.backToCell(player.getHealth())) {
 			collector.cancel(player);
 			collector = null;
@@ -665,6 +674,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 			note(String.format(Locale.ROOT, "healed to %.1f in %.0f s", player.getHealth(), (elapsed - turtleSinceMs) / 1000.0D));
 			turtleSinceMs = -1L;
 			shieldInput.release();
+			// Healed while the wall-in was still being placed: stop it and open whatever of the doorway it already closed.
+			if (sealWork != null) { sealWork.cancel(player); sealWork = null; sealed = true; }
 			if (sealed) {
 				reopening = true;
 				TickResult opening = reopen(player, now);
@@ -941,9 +952,15 @@ public final class ServerSpawnerHoldController implements ServerController {
 	}
 
 	/** Seen rods on walkable ground near the cell that {@link SpawnerHold#mayCollect} allows a trip to now. */
+	/** collect:false (the model's choice): no rod trip while a hostile is within 16 blocks, as the ordinary count fight. */
+	private boolean collectHeldBack(ServerPlayer player) {
+		return model.has("collect") && !model.get("collect").getAsBoolean() && KillDropCollector.hostileNear(player) != null;
+	}
+
 	private List<UUID> collectibleRods(ServerPlayer player) {
 		Vec3 middle = Vec3.atBottomCenterOf(cell);
 		List<UUID> ids = new ArrayList<>();
+		if (collectHeldBack(player)) return ids;
 		List<LivingEntity> withers = player.level().getEntitiesOfClass(LivingEntity.class, new AABB(middle, middle).inflate(SpawnerHold.COLLECT_RANGE + 12.0D),
 				e -> e.getType() == McEntityTypes.WITHER_SKELETON && e.isAlive());
 		List<LivingEntity> blazes = player.level().getEntitiesOfClass(LivingEntity.class, new AABB(middle, middle).inflate(SpawnerHold.COLLECT_RANGE + 8.0D),
@@ -972,6 +989,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 	private List<UUID> ledgeRods(ServerPlayer player) {
 		Vec3 middle = Vec3.atBottomCenterOf(cell);
 		List<UUID> ids = new ArrayList<>();
+		if (collectHeldBack(player)) return ids;
 		List<LivingEntity> withers = player.level().getEntitiesOfClass(LivingEntity.class, new AABB(middle, middle).inflate(SpawnerHold.COLLECT_RANGE + 12.0D),
 				e -> e.getType() == McEntityTypes.WITHER_SKELETON && e.isAlive());
 		List<LivingEntity> blazes = player.level().getEntitiesOfClass(LivingEntity.class, new AABB(middle, middle).inflate(SpawnerHold.COLLECT_RANGE + 8.0D),
