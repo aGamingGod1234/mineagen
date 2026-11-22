@@ -144,7 +144,8 @@ async function addMachine(kind) {
 	const vm = await createMachine({ from: plan.snapshot ?? 'mineagen-rooms-263', type: plan.type ?? 'default', ttlSeconds: 86_400, name: `${plan.name ?? 'ckpt'}-${++created}`, snapshots: false, noAutoStop: true });
 	// A machine made from a saved image keeps downloading it in the background until boat reports it hydrated.
 	const began = Date.now();
-	await waitHydrated(vm.id, { log: line => log(line) });
+	// A machine whose image never finishes is deleted here: the caller never learns its id, and it has no auto-stop.
+	await waitHydrated(vm.id, { log: line => log(line) }).catch(async error => { await destroyMachine(vm.id).catch(() => {}); throw error; });
 	await log(`created machine ${vm.id} (${kind}), image ready after ${Math.round((Date.now() - began) / 1000)} s`);
 	return { id: vm.id, created: true };
 }
@@ -206,7 +207,9 @@ async function writeSummary(dir, s) {
 // Machines: the listed ones, then new ones.
 const machines = state.machines;
 for (const id of plan.vms ?? []) machines.push({ id, created: false });
-for (let i = 0; i < (plan.create ?? 0); i++) machines.push(await addMachine('pool'));
+// A machine that cannot be made is logged and the batch plays on the rest, so the cleanup at the end always runs and
+// deletes every machine already created.
+for (let i = 0; i < (plan.create ?? 0); i++) machines.push(await addMachine('pool').catch(async e => { await log(`machine creation failed: ${e.message.split('\n')[0].slice(0, 300)}`); return { id: 'none', lost: true }; }));
 await save();
 await log(`batch: ${games.length} games, ${plan.minutes} min, ${machines.length} machines, deadline ${plan.deadline}`);
 // Prepare every machine at once (about a minute each), so the first wave starts together; one that fails is retried in the loop.
