@@ -315,7 +315,9 @@ export function topUp({ rooms, arms, valid, out, countValid = armValidRuns }) {
 	const groups = new Map(), names = new Set(rooms.map(room => room.room)), added = [];
 	for (const room of rooms) {
 		const key = repeatGroup(room.room);
-		const group = groups.get(key) ?? { template: room, copies: 0, pending: 0, perCopy: Math.max(1, room.planned ?? 1), valid: Object.fromEntries(arms.map(arm => [arm, 0])),
+		// Runs a copy plays: the most any arm's line selects (an arm's own line can select more cases than the first arm's).
+		const lineRows = Math.max(1, room.planned ?? 1, ...Object.values(room.plannedByArm ?? {}).filter(Number.isFinite));
+		const group = groups.get(key) ?? { template: room, copies: 0, pending: 0, perCopy: lineRows, valid: Object.fromEntries(arms.map(arm => [arm, 0])),
 			next: 1, style: /-r\d+$/.test(room.room) ? '-r' : '.c' };
 		group.copies++; group.pending++;
 		groups.set(key, group);

@@ -272,6 +272,11 @@ test('top-ups: copies finishing together keep each other\'s counts, multi-row co
 	let made = [];
 	for (const room of multi) made.push(...await none.more(room, { lost: false, arms: {} }));
 	assert.deepEqual(made.map(copy => copy.room), ['dig.c4'], 'the cap counts runs, not copies');
+	// Arm old's own line selects 3 cases where new's selects 1: the cap counts the larger, 2N = 6 runs is 2 copies.
+	const arms = parseCommands(`@s.c1:new BUILD_ONLY=a ${LINE}\n@s.c1:old BUILD_ONLY=a,b,c ${LINE}`, ['new', 'old']);
+	const perArm = topUp({ rooms: arms, arms: ['new', 'old'], valid: 3, out: '/x', countValid: async () => ({ valid: 0, rows: null }) });
+	assert.deepEqual((await perArm.more(arms[0], { lost: false, arms: {} })).map(copy => copy.room), ['s.c2']);
+	assert.equal(perArm.report()[0].planned, 6);
 	const r = parseCommands(`@tr-wastes-r1 ${LINE}`, ['new']);
 	assert.deepEqual((await topUp({ rooms: r, arms: ['new'], valid: 1, out: '/x', countValid: async () => ({ valid: 0, rows: 1 }) }).more(r[0], { lost: false, arms: {} })).map(copy => copy.room), ['tr-wastes-r2']);
 });
