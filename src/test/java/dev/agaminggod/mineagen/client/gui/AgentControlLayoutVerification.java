@@ -10,29 +10,29 @@ public final class AgentControlLayoutVerification {
 
 	public static int verify() {
 		AgentControlLayout wide = AgentControlLayout.calculate(960, 540);
-		assertTrue(wide.sideNavigation(), "wide control center keeps persistent side navigation");
 		assertTrue(wide.splitWorkspace(), "wide control center reserves a readable context rail");
 		assertTrue(wide.canvasWidth() >= 420, "wide control center keeps a useful primary canvas");
 		assertTrue(wide.contextWidth() >= 180, "wide control center context rail remains readable");
-		assertTrue(wide.navigationTop() - wide.panelTop() >= 57,
-				"wide navigation leaves breathing room below the control center header");
+		assertTrue(wide.contentTop() - wide.panelTop() >= AgentControlLayout.HEADER_HEIGHT,
+				"content starts below the header row");
 		assertTrue(wide.contentBottom() < wide.footerY(), "wide content never collides with footer actions");
+		assertTrue(wide.roomy(), "wide panels show page titles and field labels");
+		assertTrue(wide.formWidth() <= 600 && wide.formLeft() > wide.contentLeft(),
+				"forms keep a measured, centered column on wide panels");
 
 		AgentControlLayout compact = AgentControlLayout.calculate(320, 240);
-		assertTrue(!compact.sideNavigation(), "compact control center reflows navigation above the canvas");
 		assertTrue(!compact.splitWorkspace(), "compact control center stacks context below the primary task");
 		assertTrue(compact.canvasWidth() >= 276, "compact canvas stays wide enough for prompt and roster controls");
-		assertTrue(compact.contentTop() > compact.navigationBottom(), "compact content begins after navigation");
-		assertTrue(compact.navigationTop() - compact.panelTop() >= 45,
-				"compact navigation leaves breathing room below the control center header");
+		assertTrue(compact.contentTop() > compact.headerBottom(), "compact content begins after the header");
 		assertTrue(compact.footerY() + AgentControlLayout.CONTROL_HEIGHT <= compact.panelBottom(),
 				"compact footer remains fully on screen");
 		assertTrue(compact.minimumTargetHeight() >= 24, "custom controls meet the minimum target-height contract");
+		assertTrue(!compact.roomy(), "short panels drop page titles to fit their controls");
 
-		AgentControlLayout mid = AgentControlLayout.calculate(700, 360);
-		assertTrue(mid.sideNavigation(), "medium screens preserve stable side navigation when space permits");
-		assertTrue(!mid.splitWorkspace(), "medium screens avoid cramped three-column layouts");
-		assertTrue(mid.canvasWidth() > 500, "medium workspace uses the freed context-rail width");
+		AgentControlLayout scaleThree = AgentControlLayout.calculate(640, 360);
+		assertTrue(!scaleThree.splitWorkspace(), "a 1080p screen at GUI scale 3 avoids a cramped context rail");
+		assertTrue(scaleThree.roomy(), "a 1080p screen at GUI scale 3 has room for page titles");
+		assertTrue(scaleThree.formWidth() == scaleThree.contentWidth(), "narrow panels give forms the full width");
 
 		assertThrows(IllegalArgumentException.class, () -> AgentControlLayout.calculate(319, 240),
 				"unsupported widths fail explicitly instead of creating negative widgets");
@@ -64,8 +64,14 @@ public final class AgentControlLayoutVerification {
 
 		assertEquals("********", dev.agaminggod.mineagen.client.gui.widget.ConsoleEditBox.maskedText("fake-key"), "input masks every character");
 		assertEquals("API key, hidden", dev.agaminggod.mineagen.client.gui.widget.ConsoleEditBox.secretNarration(), "narration never speaks input");
-		assertTrue(AgentControlScreen.providerKeyScrollMaximum(80, 210, 110, 4) > 0, "compact setup scrolls to all provider keys");
-		assertEquals(0, AgentControlScreen.providerKeyScrollMaximum(80, 600, 110, 4), "tall setup fits all inline rows");
+		dev.agaminggod.mineagen.control.AgentControlProvider planRow = new dev.agaminggod.mineagen.control.AgentControlProvider(
+				"claude", "Claude Code", 0xD97757, true, "2.1.330", true, "player-name", "max", null, List.of(), "plan_percent", null, 0L);
+		assertEquals("Max plan", AgentControlScreen.providerSignIn(planRow), "sign-in names the plan, never the account");
+		dev.agaminggod.mineagen.control.AgentControlProvider accountOnly = new dev.agaminggod.mineagen.control.AgentControlProvider(
+				"codex", "Codex CLI", 0x42D39B, true, "0.171.0", true, "player-name", null, null, List.of(), "plan_percent", null, 0L);
+		assertEquals("Signed in", AgentControlScreen.providerSignIn(accountOnly), "an account name alone is never shown");
+		assertEquals("API key ····abcd", AgentControlScreen.providerSignIn(accountOnly.withApiKeySuffix("abcd")),
+				"a stored key shows only its last four characters");
 		return 33;
 	}
 
