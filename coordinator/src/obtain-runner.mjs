@@ -342,16 +342,37 @@ export function placementCell(o, tried = new Set(), options = {}) {
 	return placementCells(o, tried, options)[0] ?? null;
 }
 
-// The log to look for when none is in view: the one the biome grows (find watches for one block id).
-const BIOME_LOGS = [[/cherry/, 'cherry_log'], [/mangrove/, 'mangrove_log'], [/jungle|bamboo/, 'jungle_log'], [/savanna/, 'acacia_log'],
-	[/dark_forest/, 'dark_oak_log'], [/pale_garden/, 'pale_oak_log'], [/birch/, 'birch_log'], [/taiga|snowy|grove|old_growth/, 'spruce_log']];
+// The logs to look for when none is in view, most likely first: the one the spawn biome grows, then the ones its usual
+// neighbours grow (find watches for every id, but its survey searches only the first four). EARLY-7: alphabetical, a
+// desert or plains spawn surveyed oak, acacia, birch and cherry, and spruce never.
+const NEAR_LOGS = [
+	[/cherry/, ['cherry_log', 'oak_log', 'birch_log', 'spruce_log']],
+	[/mangrove/, ['mangrove_log', 'oak_log', 'jungle_log', 'birch_log']],
+	[/jungle|bamboo/, ['jungle_log', 'oak_log', 'acacia_log', 'birch_log']],
+	[/savanna/, ['acacia_log', 'oak_log', 'jungle_log', 'birch_log']],
+	[/dark_forest/, ['dark_oak_log', 'oak_log', 'birch_log', 'spruce_log']],
+	[/pale_garden/, ['pale_oak_log', 'dark_oak_log', 'oak_log', 'birch_log']],
+	[/birch/, ['birch_log', 'oak_log', 'spruce_log', 'dark_oak_log']],
+	[/taiga|snowy|grove|old_growth|ice|frozen|peaks|slopes/, ['spruce_log', 'oak_log', 'birch_log', 'dark_oak_log']],
+	// Deserts border savannas and plains; badlands grow oak on their wooded plateaus.
+	[/desert/, ['acacia_log', 'oak_log', 'birch_log', 'jungle_log']],
+	[/badlands/, ['oak_log', 'acacia_log', 'spruce_log', 'birch_log']],
+	[/swamp/, ['oak_log', 'mangrove_log', 'birch_log', 'spruce_log']],
+];
+const COMMON_LOGS = ['oak_log', 'birch_log', 'spruce_log', 'dark_oak_log', 'acacia_log', 'jungle_log', 'mangrove_log', 'cherry_log', 'pale_oak_log'];
+
+/** Any-log blocks in search order for this biome: its own and its neighbours' first, then the rest most common first. */
+export function logOrder(blocks, o) {
+	const biome = bare(o?.world?.biome ?? '');
+	const near = NEAR_LOGS.find(([pattern]) => pattern.test(biome))?.[1] ?? [];
+	const rank = (block) => { const at = [...near, ...COMMON_LOGS].indexOf(block); return at < 0 ? Infinity : at; };
+	return [...blocks].sort((a, b) => rank(a) - rank(b));
+}
 
 /** The block find searches for: the need's own block, or for any log the one this biome grows (oak elsewhere). */
 export function searchBlock(need, o) {
 	if (need.blocks.length === 1 || !need.blocks.every((block) => /_(log|stem)$/.test(block))) return need.blocks[0];
-	const biome = bare(o?.world?.biome ?? '');
-	const grown = BIOME_LOGS.find(([pattern]) => pattern.test(biome))?.[1] ?? 'oak_log';
-	return need.blocks.includes(grown) ? grown : need.blocks[0];
+	return logOrder(need.blocks, o)[0];
 }
 
 // A flood rejects an approach, never the ore or its vein. Keep only recent failures at the current
@@ -461,7 +482,7 @@ export async function locate(need, body, { budget, timeoutMs }) {
 	if (typeof body.search !== 'function' || timeoutMs < 5_000) return null;
 	const main = need.kind === 'kill' ? null : searchBlock(need, o);
 	const target = need.kind === 'kill' ? { mob: id(need.mobs[0]) }
-		: { block: id(main), ...(need.blocks.length > 1 && need.blocks.every((block) => /_(log|stem)$/.test(block)) ? { also: need.blocks.filter((block) => block !== main).slice(0, 8).map(id) } : {}) };
+		: { block: id(main), ...(need.blocks.length > 1 && need.blocks.every((block) => /_(log|stem)$/.test(block)) ? { also: logOrder(need.blocks, o).filter((block) => block !== main).slice(0, 8).map(id) } : {}) };
 	const skip = pricedOutOres(need, o);
 	if (skip.length > 0) target.skip = skip;
 	const result = await body.search(target, { timeoutMs: Math.min(MAX_FIND_TIMEOUT_MS, timeoutMs) });
@@ -631,6 +652,8 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 	// The food hunt's flee line, set once from the health at the first hunt: later rounds never lower it.
 	let foodFlee = null, lastWeighed = null, kitTrip = false, lastPlan = null;
 	let lastFailure = null, fuelDiagnostic = null, approachStop = null;
+	// Biomes the body stood in this call, for a first-wood hand-back.
+	const biomesSeen = new Set();
 	const fuelMembers = (group) => (typeof group === 'string' ? index.tags[group] ?? [] : group);
 	const smeltsPer = (itemId) => (index.fuels?.[bare(itemId)] ?? 0) / 200;
 	const fuelCover = (counts) => Math.max(0, ...FUEL_GROUPS.map((group) => Math.max(0, ...fuelMembers(group).map((member) => Math.floor(Math.min(64, counts.get(member) ?? 0) * smeltsPer(member))))));
@@ -1866,6 +1889,7 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			await (rawBody.closeMenu ?? ((args) => rawBody.act('menu_close', args)))({ menuId: screen.type ?? screen.menuId, containerId: screen.containerId, stateId: screen.stateId });
 			o = await body.observe();
 		}
+		if (typeof o.world?.biome === 'string' && o.world.biome) biomesSeen.add(bare(o.world.biome));
 		counts = heldCounts(o);
 		held = keepPickaxeMakings(counts, target.ids, index);
 		have = target.ids.reduce((sum, member) => sum + (counts.get(member) ?? 0), 0);
@@ -2043,6 +2067,19 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			step(why);
 			fail(needKey(need));
 			if (!triesLeft(need)) for (const source of [...(need.blocks ?? []), ...(need.mobs ?? [])]) spent.add(source);
+			// EARLY-7: the first wood goes back to the model after one full search with no log. In a fresh game the first
+			// obtain searched 821 s over its finds with 0 logs and no model check. The biomes seen let the model choose a
+			// heading (woods in sight, a village, a river) instead of the same search again.
+			if (need.blocks.length > 0 && need.blocks.every((block) => /_(log|stem)$/.test(block)) && !woodHeld(counts)
+				&& /^(FIND_NOT_FOUND|FIND_BUDGET)$/.test(budget.lastSearch?.reasonCode ?? '')) {
+				const here = bare((await rawBody.observe().catch(() => null))?.world?.biome ?? '');
+				if (here) biomesSeen.add(here);
+				return end('FAILED', 'NO_SOURCE', `No tree for the first wood after one full search (${why}); biomes seen: ${[...biomesSeen].join(', ') || 'unknown'}. Trees grow in forest, taiga, jungle, savanna, swamp and meadow: head for one in sight, or pick a heading and search again`);
+			}
 		}
 	}
 }
+
+// Anything wooden held: logs, planks, sticks, a table or a tool. With none, a log need is the game's first wood.
+const WOOD_HELD = /(^|_)(log|wood|planks|stem|hyphae)$|^(stick|crafting_table)$|_(pickaxe|axe|sword|shovel|hoe)$/;
+function woodHeld(counts) { return [...counts].some(([item, n]) => n > 0 && WOOD_HELD.test(item)); }
