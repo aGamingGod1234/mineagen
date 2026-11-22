@@ -19,6 +19,7 @@ import dev.agaminggod.mineagen.control.AgentControlCommandBuilder;
 import dev.agaminggod.mineagen.control.AgentControlPresentation;
 import dev.agaminggod.mineagen.control.AgentControlSelectionState;
 import dev.agaminggod.mineagen.control.AgentControlSnapshot;
+import dev.agaminggod.mineagen.control.AgentNowCard;
 import dev.agaminggod.mineagen.control.AgentRosterEntry;
 import dev.agaminggod.mineagen.control.AgentRosterFilter;
 import dev.agaminggod.mineagen.control.AgentRosterPage;
@@ -70,6 +71,16 @@ public final class AgentControlScreen extends Screen {
 	private static final int TITLE_BLOCK = 44;
 	private static final int FORM_GAP = 10;
 	private static final int LABEL_HEIGHT = 12;
+	// The Now card: one row per line of what the agent is doing, inside a padded card.
+	static final int NOW_ROW = 12;
+	static final int NOW_PAD = 5;
+	static final int NOW_GAP = 6;
+	static final int NOW_MAX_ROWS = 4;
+	/** When each agent's current state was first seen by this client, for the Now card's duration. */
+	private static final Map<String, StateSeen> STATE_SEEN = new java.util.HashMap<>();
+
+	private record StateSeen(String state, long sinceMs) {
+	}
 	private static final String KEY_BILLING_NOTE = "An API key bills per token. Without one, the tool's signed-in plan is used.";
 	private ConsoleDropdown<String> modelDropdown;
 	private boolean animateProviderPick;
@@ -365,6 +376,8 @@ public final class AgentControlScreen extends Screen {
 
 	@Override
 	public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
+		// While the control center is open the selected agent's live view keeps coming, for its Now card.
+		dev.agaminggod.mineagen.client.control.LiveAgentWindows.watch();
 		AgentControlLayout layout = layout();
 		graphics.fill(0, 0, width, height, BACKDROP);
 		int panelWidth = layout.panelRight() - layout.panelLeft();
@@ -473,7 +486,7 @@ public final class AgentControlScreen extends Screen {
 			addOverviewActions(layout.contextLeft(), top, layout.contextWidth());
 			addOverviewFooter();
 		} else {
-			addRosterGrid(overviewRosterBounds(layout, filtersVisible), AgentRosterGrid.Mode.FOCUS_ONLY);
+			addRosterGrid(overviewRosterBounds(layout, filtersVisible, rosterState.page(1).totalFiltered()), AgentRosterGrid.Mode.FOCUS_ONLY);
 			addCompactOverviewActions(layout.contentLeft(), layout.footerY(), layout.contentWidth());
 		}
 	}
@@ -624,6 +637,61 @@ public final class AgentControlScreen extends Screen {
 	/** The overview roster region the live screen uses, shared with the layout tests so they measure the real thing. */
 	static AgentControlLayout.Bounds overviewRosterBounds(AgentControlLayout layout, boolean filtersVisible) {
 		return layout.rosterBounds(bodyTop(layout), filtersVisible, false);
+	}
+
+	/** The roster region once a narrow overview's Now strip has its share (see {@link #overviewNowBounds}). */
+	static AgentControlLayout.Bounds overviewRosterBounds(AgentControlLayout layout, boolean filtersVisible, int shownAgents) {
+		AgentControlLayout.Bounds full = overviewRosterBounds(layout, filtersVisible);
+		AgentControlLayout.Bounds now = overviewNowBounds(layout, filtersVisible, shownAgents);
+		return now == null ? full : new AgentControlLayout.Bounds(full.left(), full.top(), full.right(), Math.max(full.top(), now.top() - NOW_GAP));
+	}
+
+	/**
+	 * Where a narrow overview (no context rail, as at 1080p GUI scale 3 or 4) draws the selected agent's Now strip: across
+	 * the bottom of the roster region, as many rows (up to {@link #NOW_MAX_ROWS}) as leave the roster grid its rows and
+	 * readable tiles, and at least one row while the grid still fits. Null on a wide overview (the rail carries it), with
+	 * no agents shown, or when not even one row fits.
+	 */
+	static AgentControlLayout.Bounds overviewNowBounds(AgentControlLayout layout, boolean filtersVisible, int shownAgents) {
+		if (layout.splitWorkspace() || shownAgents <= 0) return null;
+		AgentControlLayout.Bounds full = overviewRosterBounds(layout, filtersVisible);
+		AgentRosterGridLayout alone = grid(full, full.bottom(), shownAgents);
+		if (alone == null) return null;
+		for (int rows = NOW_MAX_ROWS; rows >= 1; rows--) {
+			int height = rows * NOW_ROW + NOW_PAD * 2;
+			AgentRosterGridLayout shared = grid(full, full.bottom() - height - NOW_GAP, shownAgents);
+			boolean keepsRoster = shared != null && shared.rows() == alone.rows()
+					&& shared.tileHeight() >= Math.min(alone.tileHeight(), READABLE_TILE_HEIGHT);
+			if (keepsRoster || rows == 1 && shared != null) {
+				return new AgentControlLayout.Bounds(full.left(), full.bottom() - height, full.right(), full.bottom());
+			}
+		}
+		return null;
+	}
+
+	/** Roster tiles at least this tall keep the portrait, name and model line (AgentRosterGridLayout's preferred size). */
+	private static final int READABLE_TILE_HEIGHT = 48;
+
+	private static AgentRosterGridLayout grid(AgentControlLayout.Bounds region, int bottom, int entries) {
+		if (bottom <= region.top()) return null;
+		try {
+			return AgentRosterGridLayout.calculate(region.left(), region.top(), region.right(), bottom, entries);
+		} catch (IllegalArgumentException tooSmall) {
+			return null;
+		}
+	}
+
+	/** The Manage page's Now card: below its three rows of controls, down to the footer. Null when no row fits. */
+	static AgentControlLayout.Bounds manageNowBounds(AgentControlLayout layout) {
+		int top = bodyTop(layout) + 3 * (LABEL_HEIGHT + ROW_HEIGHT + FORM_GAP) - FORM_GAP + NOW_GAP;
+		int bottom = Math.min(layout.contentBottom(), top + NOW_MAX_ROWS * NOW_ROW + NOW_PAD * 2);
+		if (bottom - top < NOW_ROW + NOW_PAD * 2) return null;
+		return new AgentControlLayout.Bounds(layout.contentLeft(), top, layout.contentRight(), bottom);
+	}
+
+	/** How many Now rows a card of this height shows. */
+	static int nowRowCapacity(int height) {
+		return Math.max(0, (height - NOW_PAD * 2) / NOW_ROW);
 	}
 
 	private void addFormLabel(String text, int x, int y) {
@@ -1205,27 +1273,88 @@ public final class AgentControlScreen extends Screen {
 			return;
 		}
 		AgentControlAgent selected = selectedAgent();
-		if (layout.splitWorkspace() && selected != null) {
+		if (selected == null) return;
+		if (layout.splitWorkspace()) {
 			int x = layout.contextLeft();
 			int width = layout.contextWidth();
 			int detailTop = top + 96;
-			int detailBottom = Math.min(layout.contentBottom(), detailTop + (selected.lastError().isBlank() ? 120 : 150));
+			int detailBottom = layout.contentBottom();
+			if (detailBottom - detailTop < 60) return;
 			ConsoleDraw.surface(graphics, x, detailTop, width, detailBottom - detailTop, ConsoleDraw.RADIUS_CARD, ConsoleTheme.SURFACE);
 			int inner = x + 12;
-			ConsoleDraw.label(graphics, font, "Selected", inner, detailTop + 10, ConsoleTheme.SUBTLE);
+			ConsoleDraw.label(graphics, font, "Now", inner, detailTop + 10, ConsoleTheme.SUBTLE);
 			graphics.text(font, ConsoleText.strong(fit(selected.displayName(), width - 24)), inner, detailTop + 23, TEXT, false);
 			ConsoleDraw.label(graphics, font, AgentControlPresentation.profileLabel(selected), inner, detailTop + 36, MUTED);
-			ConsoleDraw.stateMark(graphics, selected.state(), inner, detailTop + 48);
-			graphics.text(font, ConsoleText.component(AgentControlPresentation.stateLabel(selected.state())), inner + 16, detailTop + 50,
-					stateColor(selected.state()), false);
-			String goal = selected.currentGoal().isBlank() ? "No task right now" : selected.currentGoal();
-			ConsoleDraw.label(graphics, font, "Task", inner, detailTop + 68, ConsoleTheme.SUBTLE);
-			graphics.textWithWordWrap(font, ConsoleText.component(goal), inner, detailTop + 80, width - 24, TEXT);
-			if (!selected.lastError().isBlank()) {
-				graphics.textWithWordWrap(font, ConsoleText.component("Needs attention: " + selected.lastError()), inner, detailTop + 116,
-						width - 24, ERROR);
-			}
+			renderNowRows(graphics, selected, inner, detailTop + 48, x + width - 12, detailBottom - NOW_PAD, false, true);
+			return;
 		}
+		AgentControlLayout.Bounds now = overviewNowBounds(layout, filtersVisible(), rosterState.page(1).totalFiltered());
+		if (now != null) renderNowCard(graphics, selected, now, true);
+	}
+
+	private void renderNowCard(GuiGraphicsExtractor graphics, AgentControlAgent agent, AgentControlLayout.Bounds area, boolean named) {
+		ConsoleDraw.surface(graphics, area.left(), area.top(), area.width(), area.height(), ConsoleDraw.RADIUS_CARD, ConsoleTheme.SURFACE);
+		renderNowRows(graphics, agent, area.left() + 10, area.top() + NOW_PAD, area.right() - 10, area.bottom() - NOW_PAD, named, false);
+	}
+
+	/**
+	 * Draws the agent's Now rows (see {@link AgentNowCard}) from the top down while they fit: one line each, or in the
+	 * narrow context rail a label over up to two lines of text.
+	 */
+	private void renderNowRows(GuiGraphicsExtractor graphics, AgentControlAgent agent, int left, int top, int right, int bottom,
+			boolean named, boolean stacked) {
+		List<AgentNowCard.Row> rows = AgentNowCard.rows(agent, stateMs(agent),
+				AgentNowCard.Live.from(dev.agaminggod.mineagen.client.control.LiveAgentWindows.liveView(agent)));
+		int labelColumn = 0;
+		for (AgentNowCard.Row row : rows) labelColumn = Math.max(labelColumn, ConsoleDraw.labelWidth(font, row.label()));
+		labelColumn += 6;
+		int width = right - left;
+		int y = top;
+		for (AgentNowCard.Row row : rows) {
+			int color = row.tone() == AgentControlPresentation.StateTone.NEUTRAL ? TEXT : ConsoleTheme.stateColor(row.tone());
+			if (row.kind() == AgentNowCard.Kind.STATE) {
+				if (y + NOW_ROW > bottom) return;
+				ConsoleDraw.stateMark(graphics, agent.state(), left, y);
+				String text = named ? agent.displayName() + " · " + row.text() : row.text();
+				graphics.text(font, ConsoleText.component(fit(text, width - 16)), left + 16, y + 2, color, false);
+				y += NOW_ROW + (stacked ? 4 : 0);
+				continue;
+			}
+			if (stacked) {
+				List<String> lines = twoLines(row.text(), width);
+				if (y + 9 + lines.size() * 10 > bottom) return;
+				ConsoleDraw.label(graphics, font, row.label(), left, y, ConsoleTheme.SUBTLE);
+				for (int index = 0; index < lines.size(); index++) {
+					graphics.text(font, ConsoleText.component(lines.get(index)), left, y + 9 + index * 10, color, false);
+				}
+				y += 9 + lines.size() * 10 + 3;
+				continue;
+			}
+			if (y + NOW_ROW > bottom) return;
+			ConsoleDraw.label(graphics, font, row.label(), left, y + 3, ConsoleTheme.SUBTLE);
+			graphics.text(font, ConsoleText.component(fit(row.text(), width - labelColumn)), left + labelColumn, y + 2, color, false);
+			y += NOW_ROW;
+		}
+	}
+
+	/** {@code text} on at most two lines of {@code width}: broken at a space where one fits, the rest cut with "...". */
+	private List<String> twoLines(String text, int width) {
+		if (font.width(text) <= width) return List.of(text);
+		String first = font.plainSubstrByWidth(text, width);
+		int space = first.lastIndexOf(' ');
+		if (space > first.length() / 2) first = first.substring(0, space);
+		return List.of(first, fit(text.substring(first.length()).trim(), width));
+	}
+
+	/** How long the agent has been in its current state, as far as this client has seen. */
+	private static long stateMs(AgentControlAgent agent) {
+		long now = System.currentTimeMillis();
+		StateSeen seen = STATE_SEEN.get(agent.agentId());
+		if (seen == null || !seen.state().equals(agent.state())) {
+			if (STATE_SEEN.size() > 64) STATE_SEEN.clear();
+			STATE_SEEN.put(agent.agentId(), seen = new StateSeen(agent.state(), now));
+		}
+		return now - seen.sinceMs();
 	}
 
 	private void renderEmptyState(GuiGraphicsExtractor graphics, int left, int right, int top, String title, String detail, int detailColor) {
@@ -1274,6 +1403,8 @@ public final class AgentControlScreen extends Screen {
 		if (agent == null) return;
 		AgentControlLayout layout = layout();
 		// Short panels show no title; the breadcrumb already names the agent.
+		AgentControlLayout.Bounds now = manageNowBounds(layout);
+		if (now != null) renderNowCard(graphics, agent, now, false);
 	}
 
 	private void renderRemoveConfirm(GuiGraphicsExtractor graphics) {
@@ -1683,10 +1814,6 @@ public final class AgentControlScreen extends Screen {
 
 	private AgentControlLayout layout() {
 		return AgentControlLayout.calculate(width, height);
-	}
-
-	private static int stateColor(String state) {
-		return ConsoleTheme.stateColor(AgentControlPresentation.stateCue(state).tone());
 	}
 
 	private static String capitalize(String value) {
