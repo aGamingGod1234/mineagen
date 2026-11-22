@@ -11,7 +11,7 @@ import { classifyBodyFailure, composeTwoCallView } from './two-call-llm-wrap.mjs
 import { DugStairs, PlacedWorkstations } from './resource-facts.mjs';
 import { howto, howtoHoldings } from './howto.mjs';
 import { minecraftCapabilities, normalizeMinecraftToolCall, toolAdjustments, toolResultContent, withAdjustments } from './native-minecraft-tools.mjs';
-import { rememberStructures, runObtain } from './obtain-runner.mjs';
+import { lootLedger, rememberStructures, runObtain } from './obtain-runner.mjs';
 // Slots per menu page obtain's loot step asks for: one chest row.
 const MENU_PAGE = 9;
 import { resolveObtainItem } from './obtain-plan.mjs';
@@ -350,10 +350,7 @@ export class NativeToolRuntime {
 		if (!this.#obtainPlaced.has(agentId)) this.#obtainPlaced.set(agentId, { placed: [], loads: [], approaches: [] });
 		const kept = this.#obtainPlaced.get(agentId);
 		// The loot ledger is one world's: a replacement world's chests and villages are new (as #108's resource memory).
-		const worldId = observation ? observationWorldId(observation) ?? null : null;
-		// A sample with no world id changes nothing; only a known, different world starts a new ledger.
-		if (!kept.looted || (worldId !== null && kept.looted.worldId != null && kept.looted.worldId !== worldId)) kept.looted = { opened: [], searched: [], structures: [], misses: {}, doors: [], worldId };
-		else if (worldId !== null) kept.looted.worldId ??= worldId;
+		kept.looted = lootLedger(kept.looted, observation ? observationWorldId(observation) ?? null : null);
 		return kept;
 	}
 

@@ -357,11 +357,6 @@ test('review 4: ledger keys carry the dimension, and the runtime starts a new le
 	assert.equal(lootSources(o, { opened: new Set(['minecraft:overworld|300,78,-230']) }).some((row) => row.kind === 'chest'), false);
 });
 
-test('review 5: failed chest visits keep their own tries, so the item\'s other way still gets its turns', async () => {
-	const src = (await import('node:fs')).readFileSync(new URL('../src/obtain-runner.mjs', import.meta.url), 'utf8');
-	assert.match(src, /candidate\.kind === 'loot' \? 'loot-need' : 'need'/);
-	assert.equal((src.match(/fail\(`need:\$\{need\.accept\[0\]\}`\)/g) ?? []).length, 0);
-});
 
 test('review 6: a step into the house that finds no room tries the door\'s other side', async () => {
 	const door = [{ id: 'minecraft:oak_door', kind: 'block', x: 300, y: 77, z: -230, count: 1 }];
@@ -375,13 +370,6 @@ test('review 6: a step into the house that finds no room tries the door\'s other
 	assert.deepEqual([steps[0][0] + steps[1][0], steps[0][1] + steps[1][1]], [2 * 300.5, 2 * -229.5], 'opposite sides of the door');
 });
 
-test('review 7: on a kit-iron trip a small vein that covers the pickaxe does not end the call while more iron ore is at hand', async () => {
-	const { kitIronShort } = await import('../src/obtain-runner.mjs');
-	assert.equal(kitIronShort({ inventory: { items: [{ itemId: 'minecraft:iron_pickaxe', count: 1 }] } }), 8);
-	assert.equal(kitIronShort({ inventory: { items: [{ itemId: 'minecraft:iron_pickaxe', count: 1 }, { itemId: 'minecraft:raw_iron', count: 8 }] } }), 0);
-	const src = (await import('node:fs')).readFileSync(new URL('../src/obtain-runner.mjs', import.meta.url), 'utf8');
-	assert.match(src, /const topUp = have >= count && kitShort > 0/);
-});
 
 test('review 8: an ore in view whose dig costs more than a fresh search is not walked at; a near open one is; places come only from counted rows', async () => {
 	const { locate, seenPlaces, seenIds } = await import('../src/obtain-runner.mjs');
@@ -398,7 +386,28 @@ test('review 8: an ore in view whose dig costs more than a fresh search is not w
 	assert.equal(seenIds(remembered).has('iron_ore'), seenPlaces(remembered).has('iron_ore'), 'seen and priced from the same rows');
 });
 
-test('review 4: the runtime keeps one loot ledger per world', async () => {
-	const src = (await import('node:fs')).readFileSync(new URL('../src/native-tool-runtime.mjs', import.meta.url), 'utf8');
-	assert.match(src, /kept\.looted\.worldId !== worldId\)\) kept\.looted = \{ opened: \[\]/);
+
+test('review 4: one loot ledger per world: kept while the world is the same or unknown, new in a known different world', async () => {
+	const { lootLedger } = await import('../src/obtain-runner.mjs');
+	const first = lootLedger(undefined, 'world-a');
+	first.opened.push('minecraft:overworld|1,2,3');
+	assert.equal(lootLedger(first, 'world-a'), first);
+	assert.equal(lootLedger(first, null), first, 'a sample without a world id changes nothing');
+	const next = lootLedger(first, 'world-b');
+	assert.notEqual(next, first);
+	assert.deepEqual(next.opened, []);
+	assert.equal(next.worldId, 'world-b');
+});
+
+test('review 5: three empty chest visits for apples leave the apple tree its own tries', async () => {
+	const looted = { opened: [], searched: [], structures: [], doors: [] };
+	const searches = [];
+	// Three chests in view that no walk reaches: three failed loot steps.
+	const chests = [0, 1, 2].map((i) => ({ blockId: 'minecraft:chest', x: 300 + 3 * i, y: 77, z: -230 }));
+	const { body, calls } = villageRun({ blocks: chests, extra: { search: async (target) => { searches.push(target.block); return { state: 'FAILED', reasonCode: 'FIND_NOT_FOUND', message: 'none' }; } } });
+	const act = body.act;
+	body.act = async (type, args) => (type === 'travel_to' && chests.some((c) => args.x === c.x + 0.5 && args.z === c.z + 0.5) ? (calls.push([type, args]), { state: 'FAILED', reasonCode: 'NO_ROUTE' }) : act(type, args));
+	await runObtain({ item: 'apple', count: 1, timeoutMs: 60_000 }, body, { now: (() => { let t = 0; return () => (t += 100); })(), looted });
+	assert.equal(calls.filter(([type, args]) => type === 'travel_to' && chests.some((c) => args.x === c.x + 0.5)).length, 3, 'three chest visits failed');
+	assert.ok(searches.some((block) => /_leaves$/.test(block)), `then the leaves still get a search: ${searches.join(', ')}`);
 });

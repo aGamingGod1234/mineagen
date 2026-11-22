@@ -142,6 +142,16 @@ export function gearOf(o) {
 	return { armor: Number.isFinite(o?.player?.armor) ? o.player.armor : 0, weapon: Math.max(-1, ...weapons) };
 }
 
+/**
+ * The loot ledger for a world: the same one while the world is the same or unknown (a sample without a world id), a new
+ * one once a known, different world is seen (a replacement server's chests and villages are new).
+ */
+export function lootLedger(ledger, worldId) {
+	if (!ledger || (worldId !== null && ledger.worldId != null && ledger.worldId !== worldId)) return { opened: [], searched: [], structures: [], misses: {}, doors: [], worldId };
+	if (worldId !== null) ledger.worldId ??= worldId;
+	return ledger;
+}
+
 // Structures seen this life, kept so a village's chests stay a source after the body walks out of its sight.
 const KEPT_STRUCTURES = 16;
 // Houses looked into per loot step before the search, and the door blocks that lead into them.
@@ -369,7 +379,9 @@ function inView(need, o, budget) {
 	const blocks = new Set(need.blocks.map(id));
 	const radius = need.blocks.some((block) => ORE_BLOCKS.test(block)) ? ORE_RADIUS : SURFACE_RADIUS;
 	const ore = need.blocks.some((block) => ORE_BLOCKS.test(block));
+	// A kit top-up goes on to the next vein, never back to one this call already mined (it can still show a block or two).
 	const rows = knownBlocks(o).filter((row) => blocks.has(row.blockId) && !budget?.failed?.has(`${row.x},${row.y},${row.z}`)
+		&& !(budget?.topUp && budget.veins?.has(`${row.x},${row.y},${row.z}`))
 		&& !caveLog(row.blockId, row.y, o?.world?.dimension, at.y) && !floodedApproach(budget, row));
 	const vein = ore && budget?.unreached?.length > 0 ? sameVein(budget.unreached, rows) : new Set();
 	// An ore whose way there (a long dig down) costs more than finding another is not a source to walk at (obtain-plan
@@ -1728,7 +1740,8 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		const kitShort = kitTrip ? kitIronShort(o) : 0;
 		// "At the ore": only while iron ore is in view or known within reach, never a fresh search after the target is held.
 		const topUp = have >= count && kitShort > 0 && (failures.get('need:raw_iron') ?? 0) < 5 && left() > 60_000
-			&& inView({ kind: 'mine', blocks: ['iron_ore', 'deepslate_iron_ore'], mobs: [] }, o, { ...budget, failed: new Set([...budget.failed, ...budget.veins]) }) !== null;
+			&& inView({ kind: 'mine', blocks: ['iron_ore', 'deepslate_iron_ore'], mobs: [] }, o, { ...budget, topUp: true }) !== null;
+		budget.topUp = topUp;
 		if (have >= count && !topUp) return end('SUCCEEDED', 'OBTAINED', `Obtained ${label}${kitTrip && kitShort > 0 ? `; the kit is still ${kitShort} iron short` : ''}`);
 		if (now() - startedAt >= timeoutMs) return end('TIMED_OUT', 'OBTAIN_TIMEOUT', `timeoutMs ${timeoutMs} ran out`);
 		if (capacityStop !== null) return end('FAILED', 'OBTAIN_STUCK', capacityStop);
