@@ -301,9 +301,16 @@ async function runLane(s, agent, queue, seed, seedIndex, nextSpot) {
 				answer: async (handedBack, attempt) => {
 					if (handedBack.reasonCode === 'NIGHT') {
 						try {
+							const before = agent.actions.length;
 							const rested = await runtime.execute({ agentId: record.agentId, goalRevision: record.goalRevision, turnId: `rest-${seedIndex}-${lane}-${index}-${attempt}`, callId: `rest-${index}-${attempt}`,
 								tool: normalizeMinecraftToolCall('do_step', { verb: 'rest', target: { timeoutMs: Math.max(60_000, (entry.playMs ?? entry.budgetMs) - (now() - t0)) }, why: 'night: rest until dawn' }) }, record);
-							return `answered rest: ${rested?.state} ${rested?.reasonCode ?? ''} ${String(rested?.message ?? '').slice(0, 160)}`;
+							// rest runs in the background: the stand-in waits for its end (morning, or stuck), as the model would.
+							let ended = rested?.state === 'RUNNING' ? null : `${rested?.state} ${rested?.reasonCode ?? ''} ${String(rested?.message ?? '').slice(0, 160)}`;
+							while (ended === null && now() - t0 < (entry.playMs ?? entry.budgetMs) && await health().catch(() => 0) > 0) {
+								ended = agent.actions.slice(before).find((line) => / rest /.test(line)) ?? null;
+								if (ended === null) await s.clock.sleep(2000);
+							}
+							return `answered rest: ${String(ended ?? 'still resting at the end of the window').slice(0, 300)}`;
 						} catch (error) { return `rest failed: ${error?.code ?? error?.message}`; }
 					}
 					const named = /minecraft:([a-z_]+) ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/.exec(String(handedBack.message ?? ''));
@@ -391,6 +398,8 @@ async function respawnIntoPack(s, agent, pack, row) {
 	const goal = await started;
 	if (goal) record.goalRevision = goal.payload.goalRevision;
 	await s.bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false }).catch(() => {});
+	// The first obtain needs a live sample of the respawned body (a stale one failed FRESH_OBSERVATION_REQUIRED in the smoke).
+	for (let i = 0; i < 100 && !(agent.latest()?.ready && agent.latest()?.player?.dead === false && agent.latest()?.player?.health > 0); i++) await sleep(100);
 	await s.clock.sleep(1500);
 	row.respawnedInto = pack.length;
 }
