@@ -149,13 +149,14 @@ function latencyOf(stage) {
 	const latency = stage.game?.modelLatency;
 	if (latency === undefined) return {};
 	if (latency === null) return { modelLatency: null };
-	const summary = { calls: latency.calls, p50Ms: latency.p50Ms, p90Ms: latency.p90Ms, maxMs: latency.maxMs };
+	const summary = { calls: latency.calls, ...(latency.interruptedCalls ? { interruptedCalls: latency.interruptedCalls } : {}), p50Ms: latency.p50Ms, p90Ms: latency.p90Ms, maxMs: latency.maxMs };
 	LATENCY_VALUES.set(summary, latency.byClock10Min ?? []);
 	return { modelLatency: summary };
 }
 
 /**
- * A cohort's model call latency: the median of its games' p90, and every call pooled per wall-clock 10 minutes, so a
+ * A cohort's model call latency: the median of its games' p90 (the gate's usual median, which averages the two middle
+ * games; the pooled buckets use nearest rank), and every call pooled per wall-clock 10 minutes, so a
  * tail that follows the clock across games that ran at the same time shows. Null when no game measured it.
  */
 export function poolLatency(runs) {
@@ -514,7 +515,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 		}
 		const n = cohort.nether;
 		const l = cohort.modelLatency;
-		if (l) console.error(`  Model calls: per-game p90 median ${l.gameP90MedianMs} ms (max ${l.gameP90MaxMs}); pooled p90 per 10 min ${l.byClock10Min.map((b) => `${b.from.slice(11, 16)}Z ${b.p90Ms}`).join(', ')}`);
+		if (l) console.error(`  Model calls: per-game p90 median ${l.gameP90MedianMs} ms (max ${l.gameP90MaxMs}); pooled p90 per 10 min ${l.byClock10Min.map((b) => `${new Set(l.byClock10Min.map((x) => x.from.slice(0, 10))).size > 1 ? b.from.slice(5, 16).replace('T', ' ') : b.from.slice(11, 16)}Z ${b.p90Ms}`).join(', ')}`);
 		if (n) console.error(`  Nether: ${n.entered}/${n.games} games entered, ${n.minutes} min there, ${n.deaths} Nether deaths in ${n.gamesWithDeaths} games (${n.deathsAfterFirstEntry} deaths after first entry), respawn ${n.respawnBlocks ? `${n.respawnBlocks.min}-${n.respawnBlocks.max} blocks, median ${n.respawnBlocks.median}` : '-'}, back ${n.back.returned} in ${n.back.returnedMin} min + ${n.back.neverReturned} never in ${n.back.neverReturnedMin} min`);
 	}
 }

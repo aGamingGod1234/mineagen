@@ -33,16 +33,18 @@ export const quantile = (sorted, q) => sorted.length ? sorted[Math.min(sorted.le
  * keeps its sorted values so a verdict can pool games that ran at the same time.
  */
 export function modelLatency(calls, { startedAt = null } = {}) {
-	const timed = calls.filter((c) => finite(c.totalMs) && finite(c.at));
-	if (!timed.length) return null;
+	// A call cut short by an interrupt was timed only to the interrupt: counted apart, not in the tail.
+	const timed = calls.filter((c) => finite(c.totalMs) && finite(c.at) && !c.interrupted);
+	const interruptedCalls = calls.filter((c) => c.interrupted).length;
+	if (!timed.length) return interruptedCalls ? { calls: 0, interruptedCalls, p50Ms: null, p90Ms: null, maxMs: null, byClock10Min: [] } : null;
 	const all = timed.map((c) => c.totalMs).sort((a, b) => a - b), buckets = new Map();
 	for (const c of timed) { const from = Math.floor(c.at / LATENCY_BUCKET_MS) * LATENCY_BUCKET_MS; (buckets.get(from) ?? buckets.set(from, []).get(from)).push(c.totalMs); }
-	return { calls: all.length, p50Ms: quantile(all, 0.5), p90Ms: quantile(all, 0.9), maxMs: all.at(-1),
+	return { calls: all.length, interruptedCalls, p50Ms: quantile(all, 0.5), p90Ms: quantile(all, 0.9), maxMs: all.at(-1),
 		byClock10Min: [...buckets.entries()].sort(([a], [b]) => a - b).map(([from, values]) => {
 			values.sort((a, b) => a - b);
 			return { fromEpochMs: from, fromMinute: finite(startedAt) ? minutes(from - startedAt) : null, calls: values.length, p50Ms: quantile(values, 0.5), p90Ms: quantile(values, 0.9), totalMs: values };
 		}),
-		basis: 'native_model_call totalMs (input to first tool request) in the window, one per modelCallId; nearest-rank quantiles; buckets are wall-clock 10 minutes from the epoch' };
+		basis: 'native_model_call totalMs in the window, one per modelCallId, interrupted calls left out: Codex times input to first tool request, Claude request to end of call; nearest-rank quantiles; buckets are wall-clock 10 minutes from the epoch' };
 }
 const short = (dimension) => typeof dimension === 'string' ? dimension.replace(/^minecraft:(the_)?/, '') : 'unknown';
 
@@ -197,7 +199,7 @@ export function gameFacts() {
 			const same = row.modelCallId != null ? calls.findIndex((c) => c.modelCallId === row.modelCallId) : -1;
 			const earlier = same >= 0 ? calls[same] : null, at = earlier ? earlier.at : row.at;
 			if (same >= 0) calls.splice(same, 1);
-			calls.push({ at, totalMs: finite(row.totalMs) ? row.totalMs : earlier?.totalMs ?? null, modelCallId: row.modelCallId ?? null, inputTokens: finite(row.inputTokens) ? row.inputTokens : null, cachedInputTokens: finite(row.cachedInputTokens) ? row.cachedInputTokens : null });
+			calls.push({ at, interrupted: row.interrupted === true, totalMs: finite(row.totalMs) ? row.totalMs : earlier?.totalMs ?? null, modelCallId: row.modelCallId ?? null, inputTokens: finite(row.inputTokens) ? row.inputTokens : null, cachedInputTokens: finite(row.cachedInputTokens) ? row.cachedInputTokens : null });
 		},
 		/**
 		 * deaths: the scorer's death records; inWindow(at) says whether a time is inside the scored window; logMilestones:

@@ -440,4 +440,9 @@ test('model latency: per-game and per wall-clock 10-minute p50 and p90 of model 
 	assert.deepEqual({ calls: latency.calls, p50: latency.p50Ms, p90: latency.p90Ms, max: latency.maxMs }, { calls: 11, p50: 6000, p90: 10_000, max: 40_000 });
 	assert.deepEqual(latency.byClock10Min.map(b => [b.fromMinute, b.calls, b.p50Ms, b.p90Ms]), [[0, 10, 5000, 9000], [10, 1, 40_000, 40_000]]);
 	assert.deepEqual(latency.byClock10Min[1].totalMs, [40_000], 'each bucket keeps its values so games at the same time pool exactly');
+	const facts = (await import('../../scripts/quality/lib/game-facts.mjs')).gameFacts();
+	facts.modelCall({ at: 1000, modelCallId: 'x', totalMs: 3000 });
+	facts.modelCall({ at: 2000, modelCallId: 'y', totalMs: 500, interrupted: true });
+	const timed = facts.finish({ startedAt: 0 }).modelLatency;
+	assert.deepEqual([timed.calls, timed.interruptedCalls, timed.p90Ms], [1, 1, 3000], 'a call cut short by an interrupt stays out of the tail');
 });
