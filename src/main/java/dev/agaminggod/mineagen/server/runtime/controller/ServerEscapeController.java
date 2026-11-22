@@ -476,6 +476,9 @@ public final class ServerEscapeController implements ServerController {
 			LivingEntity near = nearestHostile(player, STAND_RANGE);
 			if (near != null && stands < MAX_TRIES) {
 				stands++;
+				// The climb did not fail on the way out, a mob stopped it: that attempt is given back, so a fight that
+				// takes more than one bounded stand still leaves climbs to get out (bounded by MAX_TRIES stands).
+				pits = climbsAfterStand(pits, childLabel);
 				stand = new CorneredStand(near, null, player, now);
 				standUntil = now + STAND_MS;
 				standLabel = "stood its ground against " + type(near instanceof Mob mob ? mob : null);
@@ -499,6 +502,12 @@ public final class ServerEscapeController implements ServerController {
 	static final long STAND_MS = 10_000L;
 	private String standLabel;
 	private int stands;
+
+	/** Climbs counted after a stand that a pit step's HOSTILE_NEAR started: that step's climb is not spent. */
+	static int climbsAfterStand(int pits, String stoppedStep) {
+		boolean pitStep = stoppedStep != null && (stoppedStep.startsWith("pillar") || stoppedStep.startsWith("dig stairs") || stoppedStep.startsWith("step out"));
+		return pitStep ? Math.max(0, pits - 1) : pits;
+	}
 
 	private TickResult standTick(ServerPlayer player, long now) {
 		// Bounded: a mob the stand cannot reach (on a rim above the hole) is guarded against, never fought, and would
