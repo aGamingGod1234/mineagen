@@ -1134,7 +1134,8 @@ const STEP_STATUS_VECTORS = [
 	['Mining iron: need 3', 'Mining iron: need 3'],
 	['  a\n\tb\r\n  c  ', 'a b c'],
 	['§cRed§r text', 'cRedr text'],
-	['x y\u0085z\u007f', 'x y z'],
+	['x\u2028y\u0085z\u007f', 'x y z'],
+	['a\u2029b\u2029', 'a b'],
 	['§\n ', ''],
 	['a'.repeat(100), 'a'.repeat(80)],
 	['a'.repeat(79) + '😀b', 'a'.repeat(79)],

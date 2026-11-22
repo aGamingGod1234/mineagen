@@ -1688,6 +1688,7 @@ public final class MultiplexedServerBridgeVerification {
 				{"  a\n\tb\r\n  c  ", "a b c"},
 				{"\u00a7cRed\u00a7r text", "cRedr text"},
 				{"x\u2028y\u0085z\u007f", "x y z"},
+				{"a\u2029b\u2029", "a b"},
 				{"\u00a7\n ", ""},
 				{"a".repeat(100), "a".repeat(80)},
 				{"a".repeat(79) + "\uD83D\uDE00b", "a".repeat(79)},
@@ -1740,6 +1741,23 @@ public final class MultiplexedServerBridgeVerification {
 			cleared.addProperty("stepStatus", "");
 			invokePlannerReady(bridge, new BridgeEnvelope(2, "coordinator", started.agentId().toString(), "planning_state", "step-status-5", cleared));
 			assertTrue(bridge.stepStatus(started.agentId()) == null, "an empty step status clears it");
+
+			JsonObject again = withoutStatus.deepCopy();
+			again.addProperty("stepStatus", "Doing: smelt iron");
+			invokePlannerReady(bridge, new BridgeEnvelope(2, "coordinator", started.agentId().toString(), "planning_state", "step-status-6", again));
+			assertEquals("Doing: smelt iron", bridge.stepStatus(started.agentId()), "a new step status is stored after a clear");
+			AgentRecord paused = manager.registry().stop(started.agentId(), 1_802L).after();
+			assertTrue(paused.goalRevision() != started.goalRevision(), "stopping the agent moves its goal revision");
+			assertTrue(bridge.stepStatus(started.agentId()) == null, "a goal revision change drops the previous step status");
+
+			JsonObject pausedStatus = new JsonObject();
+			pausedStatus.addProperty("goalRevision", paused.goalRevision());
+			pausedStatus.addProperty("state", "PLANNING");
+			pausedStatus.addProperty("stepStatus", "Doing: wait");
+			invokePlannerReady(bridge, new BridgeEnvelope(2, "coordinator", started.agentId().toString(), "planning_state", "step-status-7", pausedStatus));
+			assertEquals("Doing: wait", bridge.stepStatus(started.agentId()), "a step status for the current revision is stored");
+			manager.registry().remove(started.agentId());
+			assertTrue(bridge.stepStatus(started.agentId()) == null, "removing the agent drops its step status");
 		} catch (java.io.IOException exception) {
 			throw new AssertionError("could not prepare step status verification", exception);
 		} finally {
