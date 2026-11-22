@@ -34,16 +34,28 @@ export async function kitStatTotal(command, agent, objectives) {
 
 /**
  * The first call a route line names, as a model reading it would make it: { kind: 'obtain', item, count } |
- * { kind: 'find_animal' } | { kind: 'equip_shield' } | null. A low-hunger suffix ("obtain cooked_beef on the way") is
+ * { kind: 'find_animal' } | { kind: 'equip', item, slot } | null; an obtain whose line ends "then equip_item it to SLOT"
+ * carries then: { equip: SLOT }. A low-hunger suffix ("obtain cooked_beef on the way") is
  * taken first: a hungry player eats before going on.
  */
 export function routeCall(line) {
 	const text = String(line ?? '').replace(/^usual next step:\s*/, '').replace(/\s*\([^()]*\)\s*$/, '');
 	const restock = /low hunger\/health, food \d+ held: obtain ([a-z_]+)/.exec(text);
 	if (restock) return { kind: 'obtain', item: restock[1], count: null, restock: true };
-	if (/^equip_item shield/.test(text)) return { kind: 'equip_shield' };
+	const equip = /^equip_item ([a-z_:]+)(?: to (offhand|head|chest|legs|feet))?/.exec(text);
+	if (equip) { const item = equip[1].replace(/^minecraft:/, ''); return { kind: 'equip', item, slot: equip[2] ?? (item === 'shield' ? 'offhand' : null) }; }
 	if (/^look for nearby cows/.test(text)) return { kind: 'find_animal' };
 	const obtain = /obtain ([#a-z_:]+)(?: count (\d+))?/.exec(text);
-	if (obtain) return { kind: 'obtain', item: obtain[1].replace(/^minecraft:/, ''), count: obtain[2] ? Number(obtain[2]) : null, then: /then equip_item it to offhand/.test(text) ? 'equip_shield' : null };
+	if (obtain) return { kind: 'obtain', item: obtain[1].replace(/^minecraft:/, ''), count: obtain[2] ? Number(obtain[2]) : null, then: thenEquip(text) };
 	return null;
+}
+
+function thenEquip(text) {
+	const slot = /then equip_item it to (offhand|head|chest|legs|feet)/.exec(text)?.[1];
+	return slot ? { equip: slot } : null;
+}
+
+/** The portal row of the route: the kit and anything the route puts before the portal are done (the room's until: 'portal'). */
+export function portalReady(o, line) {
+	return kitHeld(o) && /build nether_portal/.test(String(line ?? ''));
 }
