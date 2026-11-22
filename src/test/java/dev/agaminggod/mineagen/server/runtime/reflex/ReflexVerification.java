@@ -185,6 +185,14 @@ public final class ReflexVerification {
 		var stall = new dev.agaminggod.mineagen.server.runtime.ElapsedTimeAccumulator(7_000L);
 		check(timeout.advance(7_500L) == 1_500L && stall.advance(7_500L) == 500L, "accumulators made after the pause keep counting run time");
 		dev.agaminggod.mineagen.server.runtime.ElapsedTimeAccumulator.pausedFor(restore);
+		// Playtest: a meal at a crafting table kept a bread craft paused for minutes. Any firing but a fight, shield, brace or
+		// hazard floor that keeps an action paused for REFLEX_HOLD_LIMIT_MS ends it, so its result reaches the model.
+		long span = 0L;
+		for (int loop = 0; loop < 2_400; loop++) span = dev.agaminggod.mineagen.server.runtime.ServerActionExecutor.stuckPauseSpan(span, 50L, false);
+		check(span >= dev.agaminggod.mineagen.server.runtime.ServerActionExecutor.REFLEX_HOLD_LIMIT_MS, "2 minutes held by a meal reaches the limit");
+		check(dev.agaminggod.mineagen.server.runtime.ServerActionExecutor.stuckPauseSpan(span, 50L, true) == 0L, "a fight or hazard hold restarts the span");
+		check(ReflexEngine.HOLDING_ACTIONS.containsAll(java.util.Set.of("defend", "shield", "brace")) && !ReflexEngine.HOLDING_ACTIONS.contains("eat"),
+				"fights, shields and braces hold on purpose; a meal does not");
 	}
 
 	private static List<ReflexSpec.Rule> rules(String json) {
