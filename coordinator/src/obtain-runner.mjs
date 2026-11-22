@@ -100,7 +100,10 @@ const eyeDistance = (body, b) => Math.hypot(b.x + 0.5 - body.x, b.y + 0.5 - (bod
 const flatDistance = (body, b) => Math.hypot(b.x + 0.5 - body.x, b.z + 0.5 - body.z);
 
 function knownBlocks(o) {
-	return [...(o.blocks ?? []), ...(o.world?.landmarks ?? o.landmarks ?? []), ...(o.routeMemory?.seenResources ?? [])]
+	// seenResources (seen-resources.mjs): placed blocks seen so far (a village's cobblestone, a house's planks), nearest
+	// first. Remembered ore is the ore-memory lane's to use; here only what perception never listed as terrain or ore.
+	return [...(o.blocks ?? []), ...(o.world?.landmarks ?? o.landmarks ?? []), ...(o.routeMemory?.seenResources ?? []),
+		...(o.seenResources ?? []).filter((row) => row.kind === 'block' && row.placed === true).map((row) => ({ ...row, blockId: row.id }))]
 		.filter((row) => row && typeof row.blockId === 'string' && [row.x, row.y, row.z].every(Number.isSafeInteger));
 }
 
@@ -1014,6 +1017,21 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		const stoneOnly = need.blocks.every((block) => STONE_BLOCKS.test(block));
 		const searchMs = coalShort && need.accept.includes('coal') ? Math.min(COAL_SEARCH_MS, left()) : left();
 		let where = stoneOnly ? inView(need, await body.observe(), budget) : await find(need, body, { budget, timeoutMs: searchMs });
+		// Nothing in view: look round once before digging, as a player turns to see what is about before reaching for a
+		// pickaxe. Whatever it shows that drops the item (a seen source the planner could not count yet: a village's
+		// cobblestone, a house's planks) becomes a block of this need.
+		if (!where && stoneOnly && typeof body.look === 'function' && !budget.lookedRound && left() >= 10_000) {
+			budget.lookedRound = true;
+			step('look round before digging');
+			await body.look({ pitch: 10 });
+			if (body.interrupted() || body.stopped()) return 'stopped';
+			const after = await body.observe();
+			const seenNow = seenIds(after);
+			const dropping = need.accept.flatMap((accepted) => (index.blockDrops?.[bare(accepted)] ?? []).filter(([, flags]) => !/[sh]/.test(flags)).map(([block]) => block));
+			const extra = [...new Set(dropping)].filter((block) => seenNow.has(block) && !need.blocks.includes(block));
+			if (extra.length > 0) need.blocks = [...extra, ...need.blocks];
+			where = inView(need, after, budget);
+		}
 		if (!where && budget.lastSearch?.reasonCode === 'OBTAIN_APPROACH_FLOODED') {
 			// A remembered flood cannot authorize the same approach. Use the existing relocation,
 			// and require fresh evidence that it changed this context before selecting the ore again.

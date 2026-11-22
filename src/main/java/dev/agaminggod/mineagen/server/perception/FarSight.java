@@ -119,6 +119,7 @@ public final class FarSight {
 	private static final int FAR_KINDS = BUILT | LAVA | POI;
 	private static final int NEAR_KINDS = BUILT | LAVA | POI | NOTABLE | ORE;
 
+	private static final Set<String> NOTABLE_BLOCK_IDS = Set.of("minecraft:chest", "minecraft:trapped_chest", "minecraft:barrel", "minecraft:vault");
 	private static final Set<Block> NOTABLE_BLOCKS = Set.of(Blocks.SPAWNER, Blocks.TRIAL_SPAWNER, Blocks.CHEST,
 			Blocks.TRAPPED_CHEST, Blocks.BARREL, Blocks.VAULT);
 	/** Built-looking blocks that terrain also makes: taiga boulders and pale moss. */
@@ -149,7 +150,8 @@ public final class FarSight {
 
 	/** Survey and passive sections. Threats are not a section: they are always reported. */
 	public enum Section {
-		STRUCTURES("structures"), POI("poi"), BIOMES("biomes"), BUILT("built"), BLOCKS("blocks"), CAVES("caves"), VEINS("veins");
+		STRUCTURES("structures"), POI("poi"), BIOMES("biomes"), BUILT("built"), BLOCKS("blocks"), CAVES("caves"), VEINS("veins"),
+		RESOURCES("resources");
 
 		final String key;
 
@@ -860,7 +862,7 @@ public final class FarSight {
 	 * surface column per chunk by biome. It depends on where the eye is, not where it looks.
 	 */
 	private record Candidates(List<StartView> starts, List<Found> built, List<Found> lava, List<Found> notable, List<Found> ore,
-			List<Found> poi, Map<String, List<BlockPos>> biomeColumns) {
+			List<Found> poi, List<Found> placed, Map<String, List<BlockPos>> biomeColumns) {
 		int size() {
 			return starts.size() + built.size() + lava.size() + notable.size() + ore.size() + poi.size();
 		}
@@ -1027,14 +1029,14 @@ public final class FarSight {
 			List<StartView> starts = new ArrayList<>();
 			Map<Long, List<BoundingBox>> structureBoxes = new HashMap<>();
 			collectStructures(level, eye, loaded, starts, structureBoxes);
-			List<Found> built = new ArrayList<>(), lava = new ArrayList<>(), notable = new ArrayList<>(), ore = new ArrayList<>(), poi = new ArrayList<>();
+			List<Found> built = new ArrayList<>(), lava = new ArrayList<>(), notable = new ArrayList<>(), ore = new ArrayList<>(), poi = new ArrayList<>(), placed = new ArrayList<>();
 			synchronized (index) {
 				index.forgetUnloaded(level);
 				int resets = index.sectionResets;
-				complete = scanAround(level, index, eye, loaded, dimensionClass, built, lava, notable, ore, poi, structureBoxes);
+				complete = scanAround(level, index, eye, loaded, dimensionClass, built, lava, notable, ore, poi, placed, structureBoxes);
 				PerceptionTiming.count("far_sight_section_rescans", index.sectionResets - resets);
 			}
-			gathered = new Candidates(starts, built, lava, notable, ore, poi, biomeColumns(level, loaded));
+			gathered = new Candidates(starts, built, lava, notable, ore, poi, placed, biomeColumns(level, loaded));
 			// Only a finished gather is reused; an unfinished one is redone next pass so the spread-out scan continues.
 			cache.candidatesKey = complete ? key : null;
 			cache.candidates = complete ? gathered : null;
@@ -1058,6 +1060,10 @@ public final class FarSight {
 		if (request.wants(Section.BUILT)) {
 			sight.section(0.25D);
 			rows.addAll(builtRows(sight, withDistances(cache.built.groups(gathered.built()), distance), request.rowsPerSection()));
+		}
+		if (request.wants(Section.RESOURCES)) {
+			sight.section(0.10D);
+			rows.addAll(resourceRows(level, sight, gathered.placed(), distance, RESOURCE_ROWS));
 		}
 		if (request.wants(Section.BLOCKS)) {
 			sight.section(0.05D);
@@ -1154,7 +1160,7 @@ public final class FarSight {
 	}
 
 	static boolean scanAround(ServerLevel level, LevelIndex index, Vec3 eye, List<LevelChunk> loaded, int dimensionClass,
-			List<Found> built, List<Found> lava, List<Found> notable, List<Found> ore, List<Found> poi,
+			List<Found> built, List<Found> lava, List<Found> notable, List<Found> ore, List<Found> poi, List<Found> placed,
 			Map<Long, List<BoundingBox>> structureBoxes) {
 		boolean complete = true;
 		int eyeY = Mth.floor(eye.y);
@@ -1162,6 +1168,8 @@ public final class FarSight {
 			ChunkScan scan = index.scanOf(chunk);
 			LevelChunk[] beside = null;
 			boolean near = horizontalDistanceToChunk(eye, chunk.getPos()) <= SMALL_SIGHT;
+			// Placed blocks as sources (resources), inside structures too, only this near: a village's worth, never a view's.
+			boolean resourceNear = horizontalDistanceToChunk(eye, chunk.getPos()) <= RESOURCE_SIGHT;
 			List<BoundingBox> boxes = structureBoxes.getOrDefault(chunk.getPos().pack(), List.of());
 			for (int sectionIndex = 0; sectionIndex < scan.sections.length; sectionIndex++) {
 				int minY = chunk.getSectionYFromSectionIndex(sectionIndex) << 4;
@@ -1175,6 +1183,7 @@ public final class FarSight {
 				if (section == null) continue;
 				for (Found found : section.found) {
 					if ((found.kinds() & BUILT) != 0 && !insideAny(boxes, found.position())) built.add(found);
+					if ((found.kinds() & BUILT) != 0 && resourceNear) placed.add(found);
 					if ((found.kinds() & LAVA) != 0) lava.add(found);
 					if ((found.kinds() & POI) != 0) poi.add(found);
 					if (!near) continue;
@@ -1493,6 +1502,79 @@ public final class FarSight {
 		return rows;
 	}
 
+	/** Resource rows per pass: distinct placed-block ids and containers, nearest first. */
+	static final int RESOURCE_ROWS = 24;
+
+	/**
+	 * Placed blocks and containers as sources: per block id (and per container), the nearest member the eye sees, with the
+	 * count of that id's members within {@link #SMALL_SIGHT} of it. A player takes a village's cobblestone, a house's planks
+	 * or a chest's loot from what is in view; the planner weighs these rows like any other seen source. {@code size} on a
+	 * container row is 1 once its loot table has been rolled (opened by anyone), 0 while it is still unopened.
+	 */
+	static List<Row> resourceRows(ServerLevel level, Sight sight, List<Found> placed, ToDoubleFunction<Found> distance, int limit) {
+		// One pass over the placed candidates (bounded by RESOURCE_SIGHT): per id, and per door or container, the count and the
+		// RESOURCE_TRIES nearest members. No sort of the whole list; sight tests come from the pass's budget (Sight.sees).
+		Map<String, Group> groups = new HashMap<>();
+		for (Found found : placed) {
+			double d = distance.applyAsDouble(found);
+			if (d > RESOURCE_SIGHT) continue;
+			BlockState state = found.state();
+			if (state.getBlock() instanceof net.minecraft.world.level.block.DoorBlock
+					&& state.getValue(net.minecraft.world.level.block.DoorBlock.HALF) != net.minecraft.world.level.block.state.properties.DoubleBlockHalf.LOWER) continue;
+			boolean single = state.getBlock() instanceof net.minecraft.world.level.block.DoorBlock || NOTABLE_BLOCKS.contains(state.getBlock());
+			String key = single ? blockId(state) + "@" + found.position() : blockId(state);
+			groups.computeIfAbsent(key, ignored -> new Group()).offer(found, d);
+		}
+		List<Group> ordered = new ArrayList<>(groups.values());
+		ordered.sort(Comparator.comparingDouble(group -> group.distances[0]));
+		List<Row> rows = new ArrayList<>();
+		int tests = 0;
+		for (Group group : ordered) {
+			if (rows.size() >= limit || tests >= 64 || sight.exhausted()) break;
+			Found seen = null;
+			for (int i = 0; i < group.size && seen == null && tests < 64; i++) {
+				tests++;
+				if (sight.sees(group.nearest[i])) seen = group.nearest[i];
+			}
+			if (seen == null) continue;
+			BlockPos position = BlockPos.of(seen.position());
+			String id = blockId(seen.state());
+			int opened = 0;
+			// Far sight runs off the server thread: read the chunk's existing block entity, never create or wait for one
+			// (Level.getBlockEntity can), so a village's chests cannot stall the observation.
+			if (NOTABLE_BLOCK_IDS.contains(id)) {
+				LevelChunk chunk = level.getChunkSource().getChunkNow(position.getX() >> 4, position.getZ() >> 4);
+				var entity = chunk == null ? null : chunk.getBlockEntities().get(position);
+				if (entity instanceof net.minecraft.world.level.block.entity.RandomizableContainerBlockEntity box) opened = box.getLootTable() == null ? 1 : 0;
+			}
+			rows.add(new Row(Section.RESOURCES, "res@" + id + "@" + seen.position(), id, List.of(), group.count, opened, Cell.of(position), distance.applyAsDouble(seen)));
+		}
+		return rows;
+	}
+
+	/** How far placed blocks are gathered as resource candidates, and how many of each id's nearest are sight-tested. */
+	static final int RESOURCE_SIGHT = 48;
+	static final int RESOURCE_TRIES = 3;
+
+	/** The count of one id's (or one door's or container's) placed candidates, and its nearest few. */
+	private static final class Group {
+		final Found[] nearest = new Found[RESOURCE_TRIES];
+		final double[] distances = { Double.MAX_VALUE, Double.MAX_VALUE, Double.MAX_VALUE };
+		int size, count;
+
+		void offer(Found found, double d) {
+			count++;
+			int at = size < RESOURCE_TRIES ? size++ : RESOURCE_TRIES - 1;
+			if (at == RESOURCE_TRIES - 1 && size == RESOURCE_TRIES && d >= distances[at]) return;
+			nearest[at] = found;
+			distances[at] = d;
+			for (int i = at; i > 0 && distances[i] < distances[i - 1]; i--) {
+				Found f = nearest[i]; nearest[i] = nearest[i - 1]; nearest[i - 1] = f;
+				double t = distances[i]; distances[i] = distances[i - 1]; distances[i - 1] = t;
+			}
+		}
+	}
+
 	static List<Row> notableRows(Sight sight, List<Found> blocks, ToDoubleFunction<Found> distance, int limit) {
 		List<Row> rows = new ArrayList<>();
 		int tests = 0;
@@ -1674,6 +1756,11 @@ public final class FarSight {
 				case BUILT -> {
 					json.add("blocks", strings(row.blocks()));
 					json.addProperty("size", row.size());
+				}
+				case RESOURCES -> {
+					json.addProperty("blockId", row.label());
+					json.addProperty("count", row.count());
+					if (NOTABLE_BLOCK_IDS.contains(row.label())) json.addProperty("opened", row.size() == 1);
 				}
 				case BIOMES -> json.addProperty("biome", row.label());
 				case POI -> json.addProperty("blockId", row.label());

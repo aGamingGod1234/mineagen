@@ -103,7 +103,9 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		s.record.goalRevision = (await started).payload.goalRevision;
 		await s.bridge.send('agent_ready', s.record.agentId, { goalRevision: s.record.goalRevision, reconciled: false });
 		const command = async text => ({ text: await s.command(text) });
-		const setup = { dimension: 'minecraft:overworld', startAt: 'world_spawn', inventory: spot.inventory ?? [{ item: 'minecraft:bread', count: 8 }], mobs: [], commands: [], freezeUntilGoalStart: true };
+		// position: [x, y, z] starts the body there (on the surface) instead of at the world spawn: a playtest's own start.
+		const setup = { dimension: 'minecraft:overworld', ...(Array.isArray(spot.position) ? { position: spot.position, surface: true } : { startAt: 'world_spawn' }),
+			inventory: spot.inventory ?? [{ item: 'minecraft:bread', count: 8 }], mobs: [], commands: [], freezeUntilGoalStart: true };
 		const receipt = await applyQualitySetup(setup, command, AGENT);
 		await activateQualitySetup(receipt, command, { stage: 'goal-start' });
 		await activateQualitySetup(receipt, command, { stage: 'first-decision' });
