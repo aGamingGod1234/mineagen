@@ -57,6 +57,9 @@ const FIND_CHEST_COST = 2;
 export const OBTAIN_STATIONS = Object.freeze(['crafting_table', 'furnace']);
 const EQUIPMENT = /_(pickaxe|shovel|axe|hoe|sword|spear|helmet|chestplate|leggings|boots|horse_armor|nautilus_armor)$/;
 const NO_GEAR = Object.freeze({ armor: 0, weapon: -1 });
+// Food a trip is stocked with the other way (cooked over a hunt) and food chests hold ready to eat.
+const TRIP_FOODS = ['cooked_beef', 'cooked_porkchop', 'cooked_mutton', 'cooked_chicken', 'bread'];
+const CHEST_FOODS = ['bread', 'apple', 'carrot', 'potato', 'baked_potato', 'beetroot', 'cooked_cod', 'cooked_salmon'];
 
 /**
  * The way to one known place of a source: { distance (3D, blocks), across (horizontal), drop (body y minus its y),
@@ -253,9 +256,10 @@ class Costs {
  *   gear: { armor (points worn), weapon (best sword or axe tier index held, -1 none) } for built-mob fights.
  *   places: Map short id -> [{ distance, across, drop, enclosed, count }] for seen ids (seenPlaces in obtain-runner);
  *   without it a seen id costs a flat share of an unseen one.
+ *   food: food items the trip still lacks, which a chest visit's price counts (lootVisit).
  * Returns { ops, needs, fuel, unreachable }: unreachable lists ids with no way the body can do.
  */
-export function planObtain({ ids, count, also = [] }, { held = new Map(), seen = new Set(), stations = {}, index = howtoIndex(), coalFirst = false, dimension = 'minecraft:overworld', costHeld = held, loot = [], gear = NO_GEAR, yields = null, places = null } = {}) {
+export function planObtain({ ids, count, also = [] }, { held = new Map(), seen = new Set(), stations = {}, index = howtoIndex(), coalFirst = false, dimension = 'minecraft:overworld', costHeld = held, loot = [], gear = NO_GEAR, yields = null, places = null, food = 0 } = {}) {
 	const costs = new Costs(index, costHeld, seen, dimension, loot, gear, yields, places);
 	const pool = new Map(held);
 	const ops = new Map(), needs = new Map(), unreachable = new Set(), stationNeed = new Set();
@@ -373,10 +377,10 @@ export function planObtain({ ids, count, also = [] }, { held = new Map(), seen =
 	// and stations in the cost context, since they are reusable rather than recipe inputs.
 	const alternativeCosts = new Map([...held].filter(([id]) => EQUIPMENT.test(id) || STATIONS.has(id)));
 	if (unreachable.size > 0 && costHeld === held && alternativeCosts.size < held.size) {
-		return planObtain({ ids, count, also }, { held, seen, stations, index, coalFirst, dimension, costHeld: alternativeCosts, loot, gear, yields, places });
+		return planObtain({ ids, count, also }, { held, seen, stations, index, coalFirst, dimension, costHeld: alternativeCosts, loot, gear, yields, places, food });
 	}
 	const planned = { ops: [...ops.values()], needs: [...needs.values()], fuel, unreachable: [...unreachable], tools: [...tools] };
-	const visit = lootVisit(planned, { ids, count, also, held, seen, index, dimension, costHeld, loot, gear, yields, places });
+	const visit = lootVisit(planned, { ids, count, also, held, seen, index, dimension, costHeld, loot, gear, yields, places, food });
 	if (visit) planned.needs.unshift(visit);
 	return planned;
 }
@@ -385,9 +389,11 @@ export function planObtain({ ids, count, also = [] }, { held = new Map(), seen =
  * One chest visit priced against everything this plan still needs from it: the mean count of each wanted item one
  * chest holds (at most the count wanted) times what that item costs the other way, stations taken as built (the plan
  * builds them either way). A visit whose saving beats its walk and opening comes first, even when no single item would
- * pay for it alone (a village chest: a little iron, sometimes a pickaxe). Returns a loot need or null.
+ * pay for it alone (a village chest: a little iron, sometimes a pickaxe). food: food items the trip still lacks (the
+ * caller's stock target less what is held); chest food counts at what the cheapest other food costs here, so a village
+ * is looted for bread before the trip down rather than climbed back to. Returns a loot need or null.
  */
-function lootVisit(plan, { ids, count, also, held, seen, index, dimension, costHeld, loot, gear, yields, places }) {
+function lootVisit(plan, { ids, count, also, held, seen, index, dimension, costHeld, loot, gear, yields, places, food = 0 }) {
 	if (loot.length === 0 || plan.needs.some((need) => need.kind === 'loot') || plan.unreachable.length > 0) return null;
 	const built = new Map(costHeld);
 	for (const station of OBTAIN_STATIONS) if (!(built.get(station) > 0)) built.set(station, 1);
@@ -401,6 +407,7 @@ function lootVisit(plan, { ids, count, also, held, seen, index, dimension, costH
 	for (const op of plan.ops) for (const out of op.outputs) want(out, op.times * op.yieldCount);
 	for (const need of plan.needs) for (const id of need.accept) want(id, need.count);
 	const table = yields ?? lootYields();
+	const foodCost = food > 0 ? Math.min(...TRIP_FOODS.map((id) => other.of(id).cost)) : Infinity;
 	let best = null;
 	for (const source of loot) {
 		let saving = 0;
@@ -412,6 +419,10 @@ function lootVisit(plan, { ids, count, also, held, seen, index, dimension, costH
 			if (!Number.isFinite(cost)) continue;
 			saving += Math.min(per, n) * cost;
 			items.push(id);
+		}
+		if (Number.isFinite(foodCost)) {
+			const meals = CHEST_FOODS.reduce((sum, id) => sum + chestYield(source.tables, id, table), 0);
+			if (meals > 0) { saving += Math.min(meals, food) * foodCost; items.push(...CHEST_FOODS.filter((id) => chestYield(source.tables, id, table) > 0 && !items.includes(id))); }
 		}
 		const cost = source.distance / WALK_BLOCKS + OPEN_COST + (source.kind === 'structure' ? FIND_CHEST_COST : 0);
 		if (items.length > 0 && saving > cost && (best === null || saving - cost > best.gain)) best = { source, items, gain: saving - cost };

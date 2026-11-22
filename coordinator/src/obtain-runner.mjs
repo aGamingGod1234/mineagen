@@ -28,6 +28,8 @@ const EAT_RESUME_HEALTH = 12;
 // food taken straight from an animal or plant: a crafted or smelted food's chain mines, smelts and travels like any other.
 const FOODS = new Set(['beef', 'porkchop', 'mutton', 'chicken', 'rabbit', 'cod', 'salmon', 'apple', 'carrot', 'potato',
 	'sweet_berries', 'glow_berries', 'melon_slice', 'beetroot']);
+// Food a trip below ground is stocked with: about a quarter hour's eating.
+const TRIP_FOOD = 8;
 // Climbing out of a mine for logs or animals: stairs up a leg of 24 at a time, enough legs to reach the surface from y -58.
 const CLIMB_LEG = 24;
 const CLIMB_LEGS = 6;
@@ -1599,7 +1601,9 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			// of this call's plans, so the other ways are planned again rather than a stuck loot need.
 			const loot = (failures.get('loot') ?? 0) >= 3 ? [] : lootSources(o, { opened: new Set([...looted.opened, ...budget.failed]), searched: new Set(looted.searched), structures: looted.structures });
 			const places = seenPlaces(o);
-			plan = planObtain(goal, { held, seen, stations, index, coalFirst, dimension: o.world?.dimension, loot, gear: gearOf(o), places });
+			// The food a trip down wants (TRIP_FOOD items): a village's bread is then worth the visit before the trip, not after.
+			const eats = [...counts].filter(([kind]) => FOODS.has(kind) || /^(cooked_|baked_|bread$|golden_carrot)/.test(kind)).reduce((sum, [, n]) => sum + n, 0);
+			plan = planObtain(goal, { held, seen, stations, index, coalFirst, dimension: o.world?.dimension, loot, gear: gearOf(o), places, food: Math.max(0, TRIP_FOOD - eats) });
 			// The wood kept back for the next pickaxes never sends the body up for wood from under cover: there it is spent
 			// on what this call needs (a table, sticks, a shield). On the surface a log is near and the reserve holds.
 			const woodNeed = (candidate) => candidate.accept.some((member) => /(_log|_wood|_planks|^stick)$/.test(bare(member)));

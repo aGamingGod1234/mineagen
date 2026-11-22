@@ -177,3 +177,14 @@ test('a chest the body cannot walk to is skipped for this call but not marked op
 	assert.deepEqual(looted.opened, []);
 	assert.equal(body.calls.filter(([type]) => type === 'interact_block').length, 0);
 });
+
+// The same playtest, later: after the iron it climbed back to the village for food. The trip's food is priced up front.
+test('with no food for the trip a village visit comes before even a near cave ore; with food held the ore wins', async () => {
+	const { seenPlaces } = await import('../src/obtain-runner.mjs');
+	const cave = { ...village(), player: { x: 311.5, y: 77, z: -241.5 }, landmarks: [{ blockId: 'minecraft:iron_ore', x: 315, y: 67, z: -244, count: 4 }] };
+	const options = { held, seen: new Set(['iron_ore']), places: seenPlaces(cave), loot: lootSources(cave) };
+	const hungry = planObtain({ ids: ['iron_ingot'], count: 8 }, { ...options, food: 8 });
+	assert.equal(hungry.needs[0].kind, 'loot', JSON.stringify(hungry.needs));
+	assert.ok(hungry.needs[0].accept.includes('bread'));
+	assert.equal(planObtain({ ids: ['iron_ingot'], count: 8 }, { ...options, food: 0 }).needs[0].accept[0], 'raw_iron');
+});
