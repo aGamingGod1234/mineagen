@@ -13,12 +13,16 @@ import dev.agaminggod.mineagen.server.runtime.input.AgentInputStates;
 import dev.agaminggod.mineagen.server.runtime.input.InputLease;
 import dev.agaminggod.mineagen.server.runtime.input.InputOwner;
 import dev.agaminggod.mineagen.server.runtime.input.LeasedServerInputController;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -1586,6 +1590,74 @@ public final class ServerBuildController implements ServerController {
 		return false;
 	}
 
+	/**
+	 * Water left behind the new obsidian can run until the bot walks round to scoop it. Trace this pour with the
+	 * finished mould and frame under it. A drop restores the full flat reach, so a total cell limit cannot judge it.
+	 */
+	static boolean crossPourMeetsLava(Function<BlockPos, BlockState> world, BlockPos water, BlockPos lava, Set<BlockPos> solid) {
+		Map<BlockPos, BlockState> read = new HashMap<>();
+		Function<BlockPos, BlockState> terrain = at -> {
+			if (!read.containsKey(at)) read.put(at, world.apply(at));
+			return read.get(at);
+		};
+		Predicate<BlockPos> open = at -> {
+			if (at.equals(lava) || at.equals(water) || solid.contains(at)) return false;
+			BlockState state = terrain.apply(at);
+			return state != null && state.getFluidState().isEmpty() && (state.isAir() || state.canBeReplaced());
+		};
+		Predicate<BlockPos> pool = at -> !at.equals(lava) && !solid.contains(at) && lavaSource(terrain.apply(at));
+		Map<BlockPos, Integer> strength = new HashMap<>();
+		ArrayDeque<BlockPos> queue = new ArrayDeque<>();
+		strength.put(water, 8);
+		queue.add(water);
+		while (!queue.isEmpty()) {
+			BlockPos at = queue.remove();
+			BlockPos below = at.below();
+			if (pool.test(below)) return true;
+			for (Direction side : Direction.Plane.HORIZONTAL) if (pool.test(at.relative(side))) return true;
+			if (open.test(below)) {
+				if (strength.getOrDefault(below, 0) < 8) {
+					strength.put(below, 8);
+					queue.add(below);
+				}
+				continue;
+			}
+			int next = strength.get(at) - 1;
+			if (next <= 0) continue;
+			int nearestDrop = Integer.MAX_VALUE;
+			List<BlockPos> best = new ArrayList<>(4);
+			for (Direction side : Direction.Plane.HORIZONTAL) {
+				BlockPos neighbour = at.relative(side);
+				if (!open.test(neighbour)) continue;
+				int distance = waterDropDistance(neighbour, side.getOpposite(), open, 4);
+				if (distance < nearestDrop) {
+					best.clear();
+					nearestDrop = distance;
+				}
+				if (distance == nearestDrop) best.add(neighbour);
+			}
+			for (BlockPos neighbour : best) if (strength.getOrDefault(neighbour, 0) < next) {
+				strength.put(neighbour, next);
+				queue.add(neighbour);
+			}
+		}
+		return false;
+	}
+
+	/** Vanilla water prefers the nearest downward opening within four more side steps, including ties. */
+	private static int waterDropDistance(BlockPos at, Direction back, Predicate<BlockPos> open, int remaining) {
+		if (open.test(at.below())) return 0;
+		if (remaining == 0) return Integer.MAX_VALUE;
+		int best = Integer.MAX_VALUE;
+		for (Direction side : Direction.Plane.HORIZONTAL) {
+			BlockPos next = at.relative(side);
+			if (side == back || !open.test(next)) continue;
+			int distance = waterDropDistance(next, side.getOpposite(), open, remaining - 1);
+			if (distance != Integer.MAX_VALUE) best = Math.min(best, distance + 1);
+		}
+		return best;
+	}
+
 	/** Plugs a carve may place before it gives the fluid up as more than a few openings and steps back from it. */
 	static final int MAX_PLUGS = 8;
 
@@ -1983,7 +2055,9 @@ public final class ServerBuildController implements ServerController {
 			BlockPos spot = partner == null ? null : standFor(player, eye -> reaches.test(eye) && pourClick(player, eye, partner, false, partnerAvoid) != null);
 			// Water poured across the lava's cell stands behind the obsidian it casts, out of the scoop's reach until the body
 			// walks round (one stood 211 ticks): only where its whole run-off meets no lava, so it cannot crust the pool.
-			if (spot == null && paired && !crossAllowed && !runOffMeetsLava && standFor(player, eye -> pourClick(player, eye, target, false) != null && pourClick(player, eye, partner, false) != null) != null) {
+			if (spot == null && paired && !crossAllowed
+					&& standFor(player, eye -> pourClick(player, eye, target, false) != null && pourClick(player, eye, partner, false) != null) != null
+					&& !crossPourMeetsLava(cell -> known(player, cell), partner, target, madeSolid)) {
 				// No spot's water line misses the lava's cell (a frame's top cell under a low roof, cast-obi-1: 9 of 10 runs
 				// pillared into the rock over the head): pour this cell from a spot whose line crosses it, as main did.
 				crossAllowed = true;

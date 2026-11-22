@@ -46,7 +46,7 @@ public final class BuildPlanVerification {
 			if (ServerBuildController.order(portal.frame(), List.of(), cell -> false) != null) throw new AssertionError("A frame in the air has no order");
 			checks++;
 		}
-		return checks + verifyCastPlan() + verifySpill() + verifyCastTiming() + verifyCastBlocks() + verifyMaterials() + verifyHoleLanding() + verifyLineCells() + verifyStepCrouch() + verifyCarve();
+		return checks + verifyCastPlan() + verifySpill() + verifyCrossPour() + verifyCastTiming() + verifyCastBlocks() + verifyMaterials() + verifyHoleLanding() + verifyLineCells() + verifyStepCrouch() + verifyCarve();
 	}
 
 	/**
@@ -140,6 +140,34 @@ public final class BuildPlanVerification {
 			checks += 2;
 		}
 		return checks;
+	}
+
+	private static int verifyCrossPour() {
+		BlockPos water = new BlockPos(0, 40, 0), frame = water.above();
+		for (int pool : new int[] { 8, 9 }) {
+			var lava = water.east(pool);
+			boolean spills = ServerBuildController.crossPourMeetsLava(
+					cell -> cell.equals(lava) ? Blocks.LAVA.defaultBlockState()
+							: cell.getY() == 40 && cell.getZ() == 0 ? Blocks.AIR.defaultBlockState() : Blocks.STONE.defaultBlockState(),
+					water, frame, Set.of());
+			if (spills != (pool == 8)) throw new AssertionError("Seven flat flow steps can cool a source on the eighth cell");
+		}
+		if (!ServerBuildController.crossPourMeetsLava(
+				cell -> cell.equals(water.below(35).east(7)) ? Blocks.LAVA.defaultBlockState()
+						: cell.getX() == 0 && cell.getZ() == 0 && cell.getY() >= 5 || cell.getY() == 5 && cell.getZ() == 0
+						? Blocks.AIR.defaultBlockState() : Blocks.STONE.defaultBlockState(), water, frame, Set.of()))
+			throw new AssertionError("A fall past 32 cells still leaves seven flat steps");
+		var lava = water.east(4);
+		var drop = water.west().below();
+		var terrain = (java.util.function.Function<BlockPos, BlockState>) cell -> cell.equals(lava) ? Blocks.LAVA.defaultBlockState()
+				: cell.equals(drop) || cell.getY() == 40 && cell.getZ() == 0 ? Blocks.AIR.defaultBlockState() : Blocks.STONE.defaultBlockState();
+		if (ServerBuildController.crossPourMeetsLava(terrain, water, frame, Set.of()))
+			throw new AssertionError("Water follows the closer drop, away from the pool");
+		if (!ServerBuildController.crossPourMeetsLava(terrain, water, frame, Set.of(drop)))
+			throw new AssertionError("A filled drop restores the flat path toward lava");
+		if (ServerBuildController.crossPourMeetsLava(terrain, water, frame, Set.of(drop, water.east())))
+			throw new AssertionError("Solid frame blocks the flat path to the pool");
+		return 6;
 	}
 
 	/**
