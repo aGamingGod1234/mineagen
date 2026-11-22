@@ -85,6 +85,13 @@ public final class ServerSpawnerHoldController implements ServerController {
 	private LivingEntity target;
 	/** The fight_target form's open fight while healthy (open fight on). */
 	private ServerController openPart;
+	/** fight_target form: the call's end held back until the walled-up doorway is open again (the next call must see out). */
+	private TickResult pendingEnd;
+	/** fight_target form: the tick the named blaze died with the hold fighting (not the open fight), for the rod's pickup. */
+	private long killTick = -1L;
+	private static final long KILL_COLLECT_TICKS = 60L, KILL_COLLECT_MAX_TICKS = 200L;
+	private int emergencyFails;
+	private static final int EMERGENCY_TRIES = 3;
 	private final long startedAt;
 	private final Item untilItem;
 	private final String untilItemId;
@@ -292,6 +299,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 		if (!player.isAlive()) return stop(player, TickResult.failed("AGENT_DEAD", "Agent player died during the spawner hold", progress(player)));
 		if (!HazardExits.fireResistant(player) && HazardExits.contact(player) == HazardExits.Contact.LAVA)
 			return stop(player, TickResult.failed("IN_LAVA", "Lava contact during the spawner hold", progress(player)));
+		if (pendingEnd != null) return closeOut(player, now);
 		boolean inCell = cell != null && phase == Phase.HOLD && player.blockPosition().equals(cell);
 		// The hold owns the body from its first tick to its hand-back: site walk, build, rod trips and the walk back
 		// included. Round 1 lost 3 of 4 deaths to default take-cover pausing the hold outside the cell and walking off.
@@ -304,7 +312,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 		boolean spawnerGone = seenSpawner != null && !seenSpawner.is(Blocks.SPAWNER);
 		// The fight_target form ends at its own timeout with fight_target's code (the hold's own is FIGHT_UNTIL_TIMED_OUT).
 		if (target != null && elapsed >= timeoutMs)
-			return stop(player, TickResult.timedOut("FIGHT_TIMED_OUT", String.format(Locale.ROOT, "%.0f s timeout reached; %s", timeoutMs / 1000.0D,
+			return endTarget(player, now, TickResult.timedOut("FIGHT_TIMED_OUT", String.format(Locale.ROOT, "%.0f s timeout reached; %s", timeoutMs / 1000.0D,
 					summary(player, elapsed)), progress(player)));
 		String code = SpawnerHold.handBack(new SpawnerHold.Sense(ServerFightUntilController.count(player, untilItem), untilCount, player.getHealth(),
 				fleeAtHealth, player.getFoodData().getFoodLevel(), foodSlot(player) >= 0, elapsed, timeoutMs, spawnerGone,
@@ -312,10 +320,16 @@ public final class ServerSpawnerHoldController implements ServerController {
 				phase == Phase.HOLD && SpawnerHold.breached(witherHits, player.level().getGameTime())));
 		// The open fight_target reports its own kill (and collects the drop first).
 		if (target != null && code == null && openPart == null) {
-			if (target.isDeadOrDying()) code = "TARGET_KILLED";
+			long tick = player.level().getGameTime();
+			if (target.isDeadOrDying() || killTick >= 0L) {
+				// Killed by the hold's own fight (after a wall-in): a few seconds for the rod's pickup before the call ends.
+				if (killTick < 0L) killTick = tick;
+				boolean collecting = collector != null || ledge != null || returning;
+				if (tick - killTick >= KILL_COLLECT_MAX_TICKS || tick - killTick >= KILL_COLLECT_TICKS && !collecting) code = "TARGET_KILLED";
+			}
 			else if (!target.isAlive() || target.isRemoved() || target.level() != player.level()) code = "TARGET_GONE";
 		}
-		if (code != null) return stop(player, handBackResult(player, code, elapsed));
+		if (code != null) return target != null ? endTarget(player, now, handBackResult(player, code, elapsed)) : stop(player, handBackResult(player, code, elapsed));
 		// The look round for a spawner comes after the action-wide checks above (death, lava, rod count, health floor,
 		// timeout), so a hurt or finished body never turns on the spot for 4 s.
 		// fight_target form, open fight on: the model's own fight_target runs; hurt below TURTLE_HEALTH, the body walls in
@@ -333,6 +347,9 @@ public final class ServerSpawnerHoldController implements ServerController {
 					return stop(player, TickResult.failed(lost.code(), lost.getMessage() + "; " + summary(player, elapsed), progress(player)));
 				}
 			}
+			// The open fight is the model's ordinary fight: the back-off and cover reflexes stay free for it (the hold owns the
+			// body only while it walls in and heals).
+			HOLDING.remove(player.getUUID());
 			TickResult fought = openPart.tick(player, now);
 			if (fought.state() == State.RUNNING) return fought;
 			openPart.cancel(player);
@@ -344,6 +361,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 		if (target != null && SpawnerHold.OPEN_FIGHT && openPart != null) { openPart.cancel(player); openPart = null; }
 		TickResult walling = emergency(player, now, elapsed);
 		if (walling != null) return walling;
+		// fight_target form: no cell site walk (the open fight or the wall-in where the body stands only).
+		if (target != null && SpawnerHold.OPEN_FIGHT && phase != Phase.HOLD) return TickResult.running(progress(player));
 		// A melee attacker in reach is fought first, also while looking round for a spawner.
 		if (!inCell || defend != null) {
 			TickResult defending = defend(player, now);
@@ -854,7 +873,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 	}
 
 	private boolean canWallIn(ServerPlayer player) {
-		if (spawner == null || !player.onGround() || player.level().getGameTime() < emergencyRetryTick) return false;
+		if (spawner == null || emergencyFails >= EMERGENCY_TRIES || !player.onGround() || player.level().getGameTime() < emergencyRetryTick) return false;
 		String item = roofing.blockItem(player);
 		return item != null && ServerFightUntilController.count(player, BuiltInRegistries.ITEM.getValue(Identifier.parse(item))) >= 10;
 	}
@@ -876,7 +895,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 		emergency.cancel(player);
 		emergency = null;
 		if (built.state() != State.SUCCEEDED) {
-			note("walling in where it stood failed: " + built.reasonCode());
+			emergencyFails++;
+			note("walling in where it stood failed (" + emergencyFails + "): " + built.reasonCode());
 			emergencyRetryTick = player.level().getGameTime() + 20L;
 			return null;
 		}
@@ -890,6 +910,30 @@ public final class ServerSpawnerHoldController implements ServerController {
 		LAST_HOLD.put(player.getUUID(), new Held(spawner, cell, opening));
 		note("walled in at " + cell.toShortString() + " to heal; it is the cell now, doorway " + opening.getSerializedName());
 		return TickResult.running(progress(player));
+	}
+
+	/** fight_target form: end now, or first open a walled-up doorway so the next call can see out (death and lava end at once). */
+	private TickResult endTarget(ServerPlayer player, long now, TickResult end) {
+		if (!(sealed || sealWork != null || emergency != null) || cell == null && emergencyCell == null) return stop(player, end);
+		if (sealWork != null) { sealWork.cancel(player); sealWork = null; }
+		if (emergency != null) {
+			emergency.cancel(player);
+			emergency = null;
+			cell = emergencyCell;
+			opening = emergencyOpening;
+		}
+		sealed = true;
+		reopening = true;
+		pendingEnd = end;
+		note("ending the call: opening the doorway first");
+		return closeOut(player, now);
+	}
+
+	private TickResult closeOut(ServerPlayer player, long now) {
+		TickResult opening = reopen(player, now);
+		if (finished != null) return finished;
+		if (opening != null && sealed) return opening;
+		return stop(player, pendingEnd);
 	}
 
 	/** Mines the walled-up doorway open again (window first, then sill). Null once it is open or cannot be opened. */
