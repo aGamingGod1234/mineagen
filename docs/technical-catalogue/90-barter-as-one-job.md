@@ -10,7 +10,7 @@
 
 - **Problem:** The bot's barter call only threw ingots and needed gold armour already on, so it kept handing back to the AI to craft gold blocks into ingots or put on a helmet.
 - **Solution:** The barter call now does the whole job: it puts on carried gold armour, crafts gold blocks and nuggets into ingots as it goes, and leaves junk returns on the ground.
-- **Result:** With bastion gold (20 gold blocks), "out of gold" hand-backs fell from 66 to 27 per 10 games and barter calls from 8.4 to 4.9 per game, with 10% more gold traded (174 against 158 ingots per 10 game minutes). Measured, 10 repeats each, same loot seeds on both builds.
+- **Result:** With bastion gold (20 gold blocks), "out of gold" hand-backs fell from 90 to 29 per 10 games and barter calls from 11.2 to 5.6 per game, with about 10% more gold traded (170 against 153 ingots per 10 game minutes). Measured, 10 repeats each, same loot seeds on both builds.
 
 ## Honest barter time
 
