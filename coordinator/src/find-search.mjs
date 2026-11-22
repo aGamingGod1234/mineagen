@@ -75,6 +75,7 @@ export function hostileIsDanger(observation) {
 	return (Array.isArray(observation?.entities) ? observation.entities : []).some((row) => row?.hostile === true && row.alive !== false
 		&& (Number.isFinite(row.distance) ? row.distance : Math.hypot(row.x - at.x, row.y - at.y, row.z - at.z)) <= CLOSE_HOSTILE);
 }
+const MAX_ESCAPES = 2;
 const BREATH_STOPS = new Set(['AIR_RESERVE_REACHED', 'BREATH_NOT_COVERED', 'TUNNEL_FLOODED']);
 // Stops a search cannot work round by itself: the model decides (craft a pickaxe, empty the inventory...).
 const BLOCKED = new Set(['NO_TOOL', 'TOOL_WORN', 'INVENTORY_FULL']);
@@ -131,7 +132,7 @@ export function stairBudget(uses, depthLeft, reserve = DESCENT_RESERVE) {
 	if (!Number.isFinite(uses)) return Infinity;
 	return Math.max(0, 2 * (uses - Math.max(0, depthLeft) - reserve));
 }
-const TIMED = new Set(['travel_to', 'dig_to', 'fight_target', 'break_block', 'build_shelter']);
+const TIMED = new Set(['travel_to', 'dig_to', 'fight_target', 'break_block', 'build_shelter', 'escape']);
 const SHELTER_BLOCKS = new Set(['minecraft:cobblestone', 'minecraft:cobbled_deepslate', 'minecraft:dirt', 'minecraft:stone', 'minecraft:deepslate', 'minecraft:andesite', 'minecraft:diorite', 'minecraft:granite', 'minecraft:tuff', 'minecraft:netherrack']);
 const MAX_PEEKS = 2;
 // Shafts a lava find short of pickaxe uses may start: one, and one more after a stop (a cave, water) turned it.
@@ -829,6 +830,7 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 		return null;
 	};
 	let swaps = 0;
+	let escapes = 0;
 	const bucketToHotbar = async () => {
 		const items = observation?.inventory?.items ?? [];
 		const selected = observation?.inventory?.selectedSlot;
@@ -1225,12 +1227,24 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 			return [CARDINALS[(i + 1) % 4], CARDINALS[(i + 3) % 4]].filter((option) => stepsLeft(option) >= WET_SIDE_MIN)
 				.sort((a, b) => wetAhead(a) - wetAhead(b) || stepsLeft(b) - stepsLeft(a))[0] ?? null;
 		};
+		// Still in the water of its own wet hole after the way back failed: the escape job (do_step escape) gets the body
+		// out as a player swims or climbs out, then the search judges the spot from dry footing. B-1's aquifer: the way
+		// back NO_ROUTE and the walk off STALLED_IN_PLACE, 3 blocks under the start, then a hand-back in the water.
+		const escapeWater = async () => {
+			if (!inWater() || escapes >= MAX_ESCAPES) return null;
+			escapes += 1;
+			// At most do_step escape's own 60 s, and never past the search's budget (leg caps a timed action by what is left).
+			return settle(await leg('escape the water', 'escape', { timeoutMs: 60_000 }));
+		};
 		const climbOut = async (top, away, label) => {
 			const up = await leg(label, 'travel_to', { x: top.x, y: top.y, z: top.z, retrace: true, tolerance: 3, stopWhenSeen: profile.stopId });
 			if (!up.seen && !up.interrupted && SHUT_WAY.has(up.result?.reasonCode) && afloat()) {
-				// Afloat in its own flooded hole: up the water and out onto a step cut beside it, then the stairs from there.
+				// Afloat in its own flooded hole: up the water and out onto a step cut beside it, then the stairs from there;
+				// still in the water after that, the escape body job.
 				const swum = await swimUpStair(top, up);
 				if (swum !== null) return swum;
+				const ended = await escapeWater();
+				if (ended !== null) return ended;
 				if (afloat()) return settle(up);
 			}
 			const at = bodyAt(observation);
@@ -1455,6 +1469,8 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 						if (ended !== null) return ended;
 					}
 				}
+				ended = await escapeWater();
+				if (ended !== null) return ended;
 				previous = bodyAt(observation);
 				// A move off that left the body where it was: digging here again meets the same stop. Live, B-1's aquifer cell:
 				// two such moves (BUILD_FAILED in the water) each followed by two more wet digs down, 108 s in all.
