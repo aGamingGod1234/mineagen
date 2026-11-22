@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { lightLine, toolsLine, LIGHT_LINE_BYTES, TOOLS_LINE_BYTES } from '../src/wake-body-facts.mjs';
+import { lightLine, upLine, toolsLine, LIGHT_LINE_BYTES, TOOLS_LINE_BYTES, UP_LINE_BYTES } from '../src/wake-body-facts.mjs';
 import { howtoHeldRecipe, howtoHoldings } from '../src/howto.mjs';
 import { LiveTaskViews } from '../src/live-task-view.mjs';
 
@@ -268,4 +268,41 @@ test('frame line reads the seen portal frame back without choosing a build', asy
  done.sighted.portalFrames[0].lit = true; assert.match(frameLine(done), /; lit$/);
  assert.equal(frameLine({ ...o, continuity: { rememberedSections: ['sighted'] } }), null);
  assert.equal(frameLine({ ...o, ready: false }), null);
+});
+
+test('up names the last open sky and retrace only under cover well below it', () => {
+	const under = (y, skyOpen = false, dimension = 'minecraft:overworld') => ({ ready: true, player: { dead: false, skyOpen, x: 380.7, y, z: -258.7 }, world: { dimension } });
+	const sky = { x: 331.4, y: 73, z: -268.2, dimension: 'minecraft:overworld' };
+	assert.equal(upLine(under(12), sky), 'last open sky @331,73,-269 79m dy+61; travel_to retrace:true there walks your own way back up');
+	assert.ok(Buffer.byteLength(upLine(under(12), sky)) <= UP_LINE_BYTES);
+	assert.equal(upLine(under(12, true), sky), null, 'under open sky now');
+	assert.equal(upLine({ ...under(12), player: { dead: false, x: 380.7, y: 12, z: -258.7 } }, sky), null, 'unknown sky');
+	assert.equal(upLine(under(70), sky), null, 'within 3 blocks of the sky spot height');
+	assert.equal(upLine(under(12, false, 'minecraft:the_nether'), { ...sky, dimension: 'minecraft:the_nether' }), null, 'Overworld only');
+	assert.equal(upLine(under(12), { ...sky, dimension: 'minecraft:the_nether' }), null, 'sky remembered in another dimension');
+	assert.equal(upLine(under(12), null), null, 'no sky remembered');
+});
+
+test('the live view remembers the last open sky and shows up once under cover', async () => {
+	const views = new LiveTaskViews();
+	const record = { agentId: 'up-agent', goalRevision: 1, currentGoal: 'Beat the game' };
+	const at = (y, skyOpen) => ({ ready: true, observedAtEpochMs: 1_000, player: { dead: false, skyOpen, onGround: true, x: 10.5, y, z: 4.5 }, world: { dimension: 'minecraft:overworld', dayTime: 1_000, worldId: 'w' }, inventory: { selectedSlot: 0, items: [] } });
+	await views.observe(record, at(70, true));
+	await views.observe(record, at(20, false));
+	assert.equal(views.continuity(record).up, 'last open sky @10,70,4 50m dy+50; travel_to retrace:true there walks your own way back up');
+	await views.observe(record, at(68, true));
+	assert.equal(views.continuity(record)?.up, undefined, 'under open sky again');
+});
+
+test('a queued underground sample keeps its own last open sky, not a later one', async () => {
+	const views = new LiveTaskViews();
+	const record = { agentId: 'up-queue', goalRevision: 1, currentGoal: 'Beat the game' };
+	const at = (x, y, skyOpen, ms) => ({ ready: true, observedAtEpochMs: ms, player: { dead: false, skyOpen, onGround: true, x, y, z: 0 }, world: { dimension: 'minecraft:overworld', dayTime: 1_000, worldId: 'w' }, inventory: { selectedSlot: 0, items: [] } });
+	await views.observe(record, at(0, 70, true, 1_000));
+	const queued = at(0, 20, false, 2_000);
+	await views.observe(record, queued);
+	await views.observe(record, at(100, 80, true, 3_000));
+	await views.observe(record, at(100, 30, false, 4_000));
+	assert.match(views.continuity(record, { observation: queued }).up, /^last open sky @0,70,0 /);
+	assert.match(views.continuity(record).up, /^last open sky @100,80,0 /);
 });
