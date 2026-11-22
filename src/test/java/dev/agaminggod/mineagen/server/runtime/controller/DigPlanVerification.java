@@ -56,6 +56,10 @@ public final class DigPlanVerification {
 		check(ServerDigController.Pattern.parse("shaft").down() && !ServerDigController.Pattern.STAIRS_UP.down(), "the shaft digs down");
 		assertions++;
 		check(ServerDigController.DEFAULT_MAX_SHAFT_Y == -20, "a shaft goes on as steep_down from y-20 down by default");
+		// The rooms' kit (an iron and a stone pickaxe, about 380 uses) at y71 heading for y-54: the shaft, not stairs.
+		check(!ServerDigController.stairsAffordable(380, 125), "a lava search short of pickaxe uses keeps the one-wide shaft");
+		check(ServerDigController.stairsAffordable(380, 70), "a lava search whose pickaxes cover stairs and the reserve checks each floor");
+		check(ServerDigController.stairsAffordable(Long.MAX_VALUE / 2, 300), "an unbreakable pickaxe always affords the stairs");
 		assertions++;
 		net.minecraft.SharedConstants.tryDetectVersion();
 		net.minecraft.server.Bootstrap.bootStrap();

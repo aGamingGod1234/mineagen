@@ -597,10 +597,40 @@ public final class ServerDigController implements ServerController {
 	}
 
 	/**
+	 * Uses a lava search keeps for the work at depth (tunnel legs, a carved cast site) after the way down; the
+	 * coordinator's stair budget keeps the same. A winning lava-gate-3 run spent about 150 uses there.
+	 */
+	static final int LAVA_SEARCH_RESERVE = 160;
+	/** Blocks a stairs_down step cuts per block of depth (head, body and floor of the next step); the shaft cuts one. */
+	static final int STAIR_USES_PER_DEPTH = 3;
+
+	/**
+	 * Whether the pickaxes can pay for stairs for the rest of the way down and still keep {@link #LAVA_SEARCH_RESERVE}.
+	 * On the lava-gate rooms' kit (an iron and a stone pickaxe, about 380 uses) stairs from the surface wore both out at
+	 * y-54 before lava was seen (lava-gate-3: 10 of 10 runs TOOL_WORN); short of uses, the one-wide shaft goes on.
+	 */
+	static boolean stairsAffordable(long uses, int depthLeft) {
+		return uses >= (long) STAIR_USES_PER_DEPTH * Math.max(0, depthLeft) + LAVA_SEARCH_RESERVE;
+	}
+
+	/** Uses left above {@link #WORN_USES} on every carried tool that harvests {@code state}; an unbreakable one counts as plenty. */
+	private static long pickaxeUses(ServerPlayer player, BlockState state) {
+		long uses = 0;
+		for (int slot = 0; slot < 36; slot++) {
+			ItemStack stack = player.getInventory().getItem(slot);
+			if (stack.isEmpty() || !stack.isCorrectToolForDrops(state) || stack.getDestroySpeed(state) <= 1.0F) continue;
+			if (!stack.isDamageableItem()) return Long.MAX_VALUE / 2;
+			uses += (long) Math.max(0, stack.getMaxDamage() - stack.getDamageValue() - WORN_USES) * stack.getCount();
+		}
+		return uses;
+	}
+
+	/**
 	 * Before the shaft breaks the block underfoot: the body stands centred on it (so it drops straight into the hole,
 	 * not onto an edge), and what the eye has already seen of the column under it rules the break out: lava or water
-	 * there, or a drop past a safe fall into open space. A lava search cuts beside its footing when the next floor is
-	 * open or hidden, so it can look below from a supported block. Null goes on to mine the block underfoot.
+	 * there, or a drop past a safe fall into open space. A lava search whose pickaxes can pay for it (see
+	 * {@link #stairsAffordable}) cuts beside its footing when the next floor is open or hidden, which is nearly always, so it
+	 * goes on as two-column stairs that look at each floor from a supported block. Null goes on to mine the block underfoot.
 	 */
 	private TickResult planShaft(ServerPlayer player) {
 		Vec3 center = Vec3.atBottomCenterOf(feet);
@@ -608,7 +638,8 @@ public final class ServerDigController implements ServerController {
 		SeenTerrain.Reader<BlockState> seen = SeenTerrain.of(player);
 		BlockPos floor = feet.below();
 		boolean noClutch = !acceptUnseenBelow && evaporates(player, floor);
-		boolean checkingLavaFloor = !acceptUnseenBelow && "minecraft:lava".equals(stopWhenSeen);
+		boolean checkingLavaFloor = !acceptUnseenBelow && "minecraft:lava".equals(stopWhenSeen)
+				&& stairsAffordable(pickaxeUses(player, player.level().getBlockState(floor)), feet.getY() - (targetY != null ? targetY : maxShaftY));
 		for (int depth = 1; depth <= 24; depth++) {
 			BlockPos at = floor.below(depth);
 			BlockState state = seen.known(at.getX(), at.getY(), at.getZ());
