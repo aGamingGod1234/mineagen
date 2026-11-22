@@ -243,6 +243,7 @@ public final class VerificationMain {
 		passedAssertions += dev.agaminggod.mineagen.server.perception.ObservedDropsVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.KillDropRoomVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.reflex.OwedDropsVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.reflex.SwimUnderLedgeVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.OreHarvestFactsVerification.verify();
 		passedAssertions += DesiredBlockStateVerification.verify();
 		passedAssertions += ResourceLeaseManagerVerification.verify();

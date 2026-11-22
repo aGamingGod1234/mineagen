@@ -77,6 +77,8 @@ export function hostileIsDanger(observation) {
 }
 const MAX_ESCAPES = 2;
 const BREATH_STOPS = new Set(['AIR_RESERVE_REACHED', 'BREATH_NOT_COVERED', 'TUNNEL_FLOODED']);
+// A walk's or swim's own stop for its air (travel's breath rule), as against a dig that flooded.
+const AIR_STOPS = new Set(['AIR_RESERVE_REACHED', 'BREATH_NOT_COVERED']);
 // Stops a search cannot work round by itself: the model decides (craft a pickaxe, empty the inventory...).
 const BLOCKED = new Set(['NO_TOOL', 'TOOL_WORN', 'INVENTORY_FULL']);
 const CARDINALS = Object.freeze([{ name: 'south', yaw: 0 }, { name: 'west', yaw: 90 }, { name: 'north', yaw: 180 }, { name: 'east', yaw: -90 }]);
@@ -736,6 +738,14 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 				if (stepped !== null) return stepped === true ? null : stepped;
 			}
 		}
+		// A walk or swim that stopped for breath with the body still in the water: the escape job is the player's next
+		// move, not a hand-back, since no model answers inside the air left (#83's duck-out is in escape's swim too). Only
+		// when it leaves the body in the water does the breath stop go back as danger.
+		if (AIR_STOPS.has(code) && inWater() && escapes < MAX_ESCAPES) {
+			const escaped = await escapeWater();
+			if (escaped !== null) return escaped;
+			if (!inWater()) return null;
+		}
 		// Lava ahead is what a lava search is after: the dig loop peeks at it (below) rather than handing back.
 		if (DANGER.has(code) && !(code === 'LAVA_AHEAD' && profile.ids.has('minecraft:lava'))) {
 			// Underground, the body is handed back walled in rather than idle in a cave's line of fire; never on a stop for
@@ -764,6 +774,16 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 	};
 	let swaps = 0;
 	let escapes = 0;
+	// Still in the water after a leg stopped there: the escape job (do_step escape) gets the body out as a player swims or
+	// climbs out (to air, out from under a ledge, to a bank, a step or a filled shaft), then the search judges the spot
+	// from dry footing. B-1's aquifer: the way back NO_ROUTE and the walk off STALLED_IN_PLACE, 3 blocks under the start,
+	// then a hand-back in the water.
+	const escapeWater = async () => {
+		if (!inWater() || escapes >= MAX_ESCAPES) return null;
+		escapes += 1;
+		// At most do_step escape's own 60 s, and never past the search's budget (leg caps a timed action by what is left).
+		return settle(await leg('escape the water', 'escape', { timeoutMs: 60_000 }));
+	};
 	const bucketToHotbar = async () => {
 		const items = observation?.inventory?.items ?? [];
 		const selected = observation?.inventory?.selectedSlot;
@@ -1156,15 +1176,7 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 			return [CARDINALS[(i + 1) % 4], CARDINALS[(i + 3) % 4]].filter((option) => stepsLeft(option) >= WET_SIDE_MIN)
 				.sort((a, b) => wetAhead(a) - wetAhead(b) || stepsLeft(b) - stepsLeft(a))[0] ?? null;
 		};
-		// Still in the water of its own wet hole after the way back failed: the escape job (do_step escape) gets the body
-		// out as a player swims or climbs out, then the search judges the spot from dry footing. B-1's aquifer: the way
-		// back NO_ROUTE and the walk off STALLED_IN_PLACE, 3 blocks under the start, then a hand-back in the water.
-		const escapeWater = async () => {
-			if (!inWater() || escapes >= MAX_ESCAPES) return null;
-			escapes += 1;
-			// At most do_step escape's own 60 s, and never past the search's budget (leg caps a timed action by what is left).
-			return settle(await leg('escape the water', 'escape', { timeoutMs: 60_000 }));
-		};
+		// Out of its own wet hole the way it came; still in the water when that way is shut, the escape job (escapeWater).
 		const climbOut = async (top, away, label) => {
 			const up = await leg(label, 'travel_to', { x: top.x, y: top.y, z: top.z, retrace: true, tolerance: 3, stopWhenSeen: profile.stopId });
 			if (!up.seen && !up.interrupted && SHUT_WAY.has(up.result?.reasonCode) && inWater()) {

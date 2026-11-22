@@ -1532,12 +1532,15 @@ final class ReflexActions {
 	/**
 	 * Swim to air until the eyes are out of the water for half a second: along the route to the nearest breathable cell
 	 * the player has seen (the observation's {@code breathable}), which is straight up under open water and around the
-	 * ceiling of a flooded tunnel. With no seen air, hold jump with the view tilted up.
+	 * ceiling of a flooded tunnel. With no seen air under a seen ceiling, duck out into the open water beside it looking
+	 * up (travel's PEEK step, WaterAirFacts.peekCell), so the way up beside the ledge comes into view; with neither,
+	 * hold jump with the view tilted up.
 	 */
 	static final class SwimUp implements Behaviour {
 		private boolean wasInWater;
 		private int surfacedTicks;
 		private int ticks;
+		private int peekTicks;
 		private final SwimAirProgress progress = new SwimAirProgress();
 
 		@Override
@@ -1550,9 +1553,18 @@ final class ReflexActions {
 			if (surfacedTicks >= 10 || !inWater) return Step.done("surfaced");
 			ticks++;
 			var surface = airRoute(player);
-			if (surface == null) {
-				input.accept(riseBlind(player));
-				return Step.running("swimming up");
+			BlockPos peek = surface == null && peekTicks < WaterAirFacts.PEEK_TICKS ? WaterAirFacts.peekCell(player) : null;
+			switch (swimUpStep(surface != null, peek != null, peekTicks)) {
+				case DUCK_OUT -> {
+					peekTicks++;
+					input.accept(duckOut(player, peek));
+					return Step.running("ducking out from under the ceiling to " + peek.toShortString());
+				}
+				case BLIND -> {
+					input.accept(riseBlind(player));
+					return Step.running("swimming up");
+				}
+				case ROUTE -> { }
 			}
 			BlockPos nextDestination = new BlockPos(surface.x(), surface.openY(), surface.z());
 			double left = SwimAirProgress.remaining(player.getEyePosition(), surface.path());
@@ -1565,10 +1577,36 @@ final class ReflexActions {
 		}
 	}
 
+	/** What the swim-up does this tick: along the seen route to air, out from under a capped head, or a blind rise. */
+	enum SwimUpStep { ROUTE, DUCK_OUT, BLIND }
+
+	/**
+	 * A seen route to air comes first. With none and the head capped by a seen block beside a seen open cell
+	 * ({@code peek}, WaterAirFacts.peekCell), duck out into that cell for up to WaterAirFacts.PEEK_TICKS: rising blind
+	 * under a ledge only presses the head into it until the air runs out. Otherwise rise blind.
+	 */
+	static SwimUpStep swimUpStep(boolean route, boolean peek, int peekTicks) {
+		if (route) return SwimUpStep.ROUTE;
+		return peek && peekTicks < WaterAirFacts.PEEK_TICKS ? SwimUpStep.DUCK_OUT : SwimUpStep.BLIND;
+	}
+
 	/** The route to the nearest breathable cell the player has seen, while the eyes are under water; null when none is known. */
 	static dev.agaminggod.mineagen.server.runtime.controller.SwimPlanning.Surface airRoute(ServerPlayer player) {
 		var surface = player.isUnderWater() ? WaterAirFacts.surface(player).surface() : null;
 		return surface == null || surface.path().size() < 2 ? null : surface;
+	}
+
+	/**
+	 * Under a seen ceiling with no way up known: swim into the open cell beside it looking nearly straight up, holding jump,
+	 * as travel's PEEK step does. Not sprinting: a sprint-swim follows the view, which points up into the ceiling.
+	 */
+	static AgentInputState duckOut(ServerPlayer player, BlockPos peek) {
+		float heading = Mth.wrapDegrees(WaterAirFacts.peekYaw(player, peek));
+		float yaw = AgentInputStates.turnYaw(player.getYRot(), heading);
+		float pitch = AgentInputStates.turnPitch(player.getXRot(), WaterAirFacts.PEEK_PITCH);
+		float forward = CombatPlanning.alignedForward(1.0F, AgentInputStates.shortestAngleDelta(yaw, heading));
+		return new AgentInputState(forward, 0.0F, true, false, false, false, false, yaw, pitch,
+				player.getInventory().getSelectedSlot(), InteractionHand.MAIN_HAND);
 	}
 
 	/** No air seen: hold jump with the view tilted up, as a player rises blind. */
