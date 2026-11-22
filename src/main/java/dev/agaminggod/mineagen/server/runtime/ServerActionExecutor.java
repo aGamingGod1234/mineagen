@@ -3704,10 +3704,14 @@ public final class ServerActionExecutor {
 								: result(ServerActionState.FAILED, "USE_NOT_ACCEPTED", "The bucket did not act; its ray met "
 										+ bucketRay + "; " + hand, now);
 					}
+					// A block or entity in reach takes the click before the held item (a door opens, a villager trades): the
+					// receipt names it, so a throw it took is not read as thrown.
+					String takenBy = accepted > 0 ? AgentInputRuntime.controller(player).lastAcceptedUseTarget(request.agentId()) : null;
 					return accepted > 0
 							? result(ServerActionState.SUCCEEDED, "USE_INPUT_CONFIRMED",
 									useFeedback("Held use for " + useElapsedTicks + " server ticks; accepted interactions=" + accepted
-											+ ", using state observed=" + useStartObserved + ", input released=true; downstream effects are unconfirmed",
+											+ ", using state observed=" + useStartObserved + ", input released=true; downstream effects are unconfirmed"
+											+ (takenBy == null ? "" : "; the click went to " + takenBy + ", not to the held item in the air"),
 											useFoodRefusal, useStartObserved), now)
 							: result(ServerActionState.FAILED, "USE_NOT_ACCEPTED", Objects.requireNonNullElse(
 									useFoodRefusal, "Held use input was released without an accepted vanilla interaction"), now);

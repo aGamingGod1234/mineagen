@@ -16,6 +16,7 @@ import java.util.WeakHashMap;
 import java.util.function.Supplier;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
@@ -188,6 +189,9 @@ public final class CarpetInputStateSink implements InputStateSink {
 	public long acceptedUses(AgentId agentId) { return useDriver.acceptedUses(agentId); }
 
 	@Override
+	public String lastAcceptedUseTarget(AgentId agentId) { return useDriver.lastAcceptedTarget(agentId); }
+
+	@Override
 	public void revoke(AgentId agentId) {
 		manager.records().stream().filter(record -> record.agentId().equals(agentId)).findFirst()
 				.flatMap(record -> manager.findAgentPlayer(agentId))
@@ -242,6 +246,16 @@ public final class CarpetInputStateSink implements InputStateSink {
 				case ENTITY -> ExactHandUseDriver.TargetKind.ENTITY;
 				case MISS -> ExactHandUseDriver.TargetKind.MISS;
 			};
+		}
+
+		@Override
+		public String targetName() {
+			if (target instanceof BlockHitResult hit) {
+				BlockPos at = hit.getBlockPos();
+				return "block " + BuiltInRegistries.BLOCK.getKey(player.level().getBlockState(at).getBlock())
+						+ " at " + at.getX() + "," + at.getY() + "," + at.getZ();
+			}
+			return target instanceof EntityHitResult hit ? "entity " + BuiltInRegistries.ENTITY_TYPE.getKey(hit.getEntity().getType()) : null;
 		}
 
 		@Override
