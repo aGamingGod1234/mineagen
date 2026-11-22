@@ -180,10 +180,15 @@ tar --exclude=auth.json --exclude=.codex-home -czf ../${game.id}.tgz . && echo o
 	const local = error => Object.assign(error, { local: true });
 	await download(vm.id, `ck/games/${game.id}.tgz`, path.join(dest, 'game.tgz')).catch(error => { throw local(error); });
 	if (tgzSha && sha(path.join(dest, 'game.tgz')) !== tgzSha) throw local(new Error(`copy of ${game.id} does not match the machine's (sha), copied again next pass`));
-	// tar exits non-zero when a member is missing (a game that died before its report): the rest still unpacks, and a
-	// missing report scores unknown.
-	try { execFileSync('tar', ['-xzf', path.join(dest, 'game.tgz'), '-C', dest, './done', './run.log', './ledger.json', './report'], { stdio: 'ignore' }); }
-	catch { await log(`${game.id}: copy is missing some of done, run.log, ledger.json, report`); }
+	// A member the archive lacks (a game that died before its report) scores unknown; failing to list or unpack the
+	// archive here (a full disk) is a local error, so the game is copied again next pass instead of counting as unplayed.
+	let members;
+	try { members = new Set(execFileSync('tar', ['-tzf', path.join(dest, 'game.tgz')], { encoding: 'utf8', maxBuffer: 1 << 28 }).split('\n')); }
+	catch (error) { throw local(new Error(`could not read the copy of ${game.id}: ${error.message.split('\n')[0]}`)); }
+	const wanted = ['./done', './run.log', './ledger.json', './report/'].filter(m => members.has(m));
+	if (wanted.length < 4) await log(`${game.id}: copy is missing some of done, run.log, ledger.json, report`);
+	try { if (wanted.length) execFileSync('tar', ['-xzf', path.join(dest, 'game.tgz'), '-C', dest, ...wanted.map(m => m.replace(/\/$/, ''))], { stdio: 'ignore' }); }
+	catch (error) { throw local(new Error(`could not unpack the copy of ${game.id}: ${error.message.split('\n')[0]}`)); }
 	execFileSync('find', [dest, '-name', 'auth.json', '-delete']);
 	game.done = (await readFile(path.join(dest, 'done'), 'utf8').catch(() => 'missing')).trim();
 	game.score = await scoreFrom(out, game, plan);
@@ -262,19 +267,23 @@ async function eachLimited(items, limit, fn) {
 }
 const copyLimit = plan.copyConcurrency ?? 8;
 
-while (true) {
+// Whatever stops the loop (a local write failing on a full disk, a bug), the cleanup below still runs: no machine keeps
+// its sign-in, and created machines are deleted.
+let crash = null;
+try { while (true) {
 	await eachLimited(machines.filter(m => !m.lost && !m.deleted), copyLimit, vm => tend(vm, () => check(vm)));
 	// Starts stay one at a time, so two machines never take the same game.
 	for (const vm of machines.filter(m => !m.lost && !m.deleted && m.prepared && !m.game)) {
 		if (noMoreGames()) { await tend(vm, () => retire(vm)); continue; }
 		if (underCap() && await meterOk()) await tend(vm, async () => { const game = nextGame(games); if (game) await start(vm, game); });
 	}
-	await save(); await writeSummary(out, state);
+	// A failed local write (a full disk) is retried next pass; the state in memory is complete.
+	await save().then(() => writeSummary(out, state)).catch(error => log(`could not write the state: ${error.message}`));
 	const running = machines.some(m => m.game && !m.lost);
 	const startable = !stopped && !signInChanged && !meterLow && !existsSync(path.join(out, 'STOP')) && canStart(Date.now(), plan) && nextGame(games);
 	if (!running && !startable) break;
 	await new Promise(resolve => setTimeout(resolve, POLL_MS));
-}
+} } catch (error) { crash = error; await log(`batch stopped by an error: ${error.stack ?? error.message}`); }
 for (const g of games.filter(g => g.state === 'queued')) g.state = 'not started';
 // Every machine of the batch, lost and half-prepared ones included (one that comes back must not keep it); a failure is logged.
 for (const vm of machines.filter(m => m.id !== 'none' && !m.deleted)) {
@@ -283,6 +292,7 @@ for (const vm of machines.filter(m => m.id !== 'none' && !m.deleted)) {
 	if (deletes(vm)) await destroyMachine(vm.id).then(() => { vm.deleted = true; return log(`deleted ${vm.id}`); }).catch(e => log(`could not delete ${vm.id}: ${e.message}`));
 }
 state.endedAt = new Date().toISOString();
-await save(); await writeSummary(out, state);
+await save().then(() => writeSummary(out, state)).catch(error => log(`could not write the final state: ${error.message}`));
 await log(`batch ended; machines left running: ${machines.filter(m => !m.lost && !m.deleted).map(m => m.id).join(' ') || 'none'}`);
-console.log(await readFile(path.join(out, 'summary.txt'), 'utf8'));
+console.log(await readFile(path.join(out, 'summary.txt'), 'utf8').catch(() => ''));
+if (crash) process.exitCode = 1;
