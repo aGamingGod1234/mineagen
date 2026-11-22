@@ -349,6 +349,77 @@ public final class SightedFeaturesVerification {
 		check(clusters.size() == 3, "a house and two far-apart torches are three clusters: " + clusters.size());
 		check(clusters.get(0).members().size() == 1 && clusters.get(1).members().size() == 20, "nearest cluster first; the house keeps all 20 blocks");
 		check(net.minecraft.core.BlockPos.getX(clusters.get(1).members().getFirst().position()) == 100, "members are nearest first");
+		clusterOrderMatchesAStableSort();
+	}
+
+	/**
+	 * A lava sea is one cluster of tens of thousands of blocks, so cluster() orders members lazily from a heap. Its clusters,
+	 * their order, each member order (lazy and full) and a filtered sub-cluster's order must equal the earlier full-sort
+	 * clustering, reimplemented here, including the order of exact ties.
+	 */
+	private static void clusterOrderMatchesAStableSort() {
+		java.util.Random random = new java.util.Random(7);
+		List<FarSight.Found> blocks = new ArrayList<>();
+		for (int x = 0; x < 120; x++) for (int z = 0; z < 120; z++) {
+			var state = random.nextBoolean() ? Blocks.LAVA.defaultBlockState()
+					: Blocks.LAVA.defaultBlockState().setValue(net.minecraft.world.level.block.LiquidBlock.LEVEL, 2);
+			blocks.add(new FarSight.Found(net.minecraft.core.BlockPos.asLong(x, 31, z), state, FarSight.LAVA, 1));
+		}
+		for (int i = 0; i < 300; i++) blocks.add(found(random.nextInt(600) - 300, 60 + random.nextInt(20), random.nextInt(600) - 300));
+		java.util.Collections.shuffle(blocks, random);
+		// Coarse distances make many exact ties, so the tie order is tested too.
+		ToDoubleFunction<FarSight.Found> distance = entry -> Math.floor(horizontal(entry) / 4.0D);
+		List<FarSight.Cluster> clusters = FarSight.cluster(blocks, distance);
+		List<List<FarSight.Found>> expected = fullSortClusters(blocks, distance);
+		check(clusters.size() == expected.size(), "same clusters as the full sort: " + clusters.size() + " vs " + expected.size());
+		boolean same = true, lazySame = true;
+		for (int i = 0; i < Math.min(clusters.size(), expected.size()); i++) {
+			List<FarSight.Found> lazy = new ArrayList<>();
+			clusters.get(i).nearestFirst().forEachRemaining(lazy::add);
+			lazySame &= lazy.equals(expected.get(i));
+			same &= clusters.get(i).members().equals(expected.get(i)) && clusters.get(i).size() == expected.get(i).size()
+					&& clusters.get(i).distance() == distance.applyAsDouble(expected.get(i).getFirst());
+		}
+		check(lazySame, "the heap gives each cluster's members in the full sort's order, ties included");
+		check(same, "members(), size and distance match the full sort");
+		FarSight.Cluster sea = clusters.stream().max(java.util.Comparator.comparingInt(FarSight.Cluster::size)).orElseThrow();
+		check(sea.size() == 120 * 120, "the sea is one cluster: " + sea.size());
+		List<FarSight.Found> sources = new ArrayList<>();
+		FarSight.Cluster filtered = sea.filter(FarSight::fluidSource);
+		filtered.nearestFirst().forEachRemaining(sources::add);
+		check(!sources.isEmpty() && sources.equals(sea.members().stream().filter(FarSight::fluidSource).toList()),
+				"a filtered cluster keeps the full sort's order");
+		check(filtered.distance() == sea.distance(), "a filtered cluster keeps the pool's distance");
+	}
+
+	/** The clustering before the lazy order: cells in first-seen order, breadth first, each cluster stably sorted. */
+	private static List<List<FarSight.Found>> fullSortClusters(List<FarSight.Found> blocks, ToDoubleFunction<FarSight.Found> distance) {
+		java.util.Map<Long, List<FarSight.Found>> cells = new java.util.LinkedHashMap<>();
+		for (FarSight.Found entry : blocks) {
+			long cell = net.minecraft.core.BlockPos.asLong(net.minecraft.core.BlockPos.getX(entry.position()) >> 2,
+					net.minecraft.core.BlockPos.getY(entry.position()) >> 2, net.minecraft.core.BlockPos.getZ(entry.position()) >> 2);
+			cells.computeIfAbsent(cell, ignored -> new ArrayList<>()).add(entry);
+		}
+		java.util.Set<Long> claimed = new java.util.HashSet<>();
+		List<List<FarSight.Found>> clusters = new ArrayList<>();
+		for (Long start : cells.keySet()) {
+			if (!claimed.add(start)) continue;
+			List<FarSight.Found> members = new ArrayList<>();
+			java.util.ArrayDeque<Long> queue = new java.util.ArrayDeque<>(List.of(start));
+			while (!queue.isEmpty()) {
+				long cell = queue.poll();
+				members.addAll(cells.get(cell));
+				int cx = net.minecraft.core.BlockPos.getX(cell), cy = net.minecraft.core.BlockPos.getY(cell), cz = net.minecraft.core.BlockPos.getZ(cell);
+				for (int dx = -1; dx <= 1; dx++) for (int dy = -1; dy <= 1; dy++) for (int dz = -1; dz <= 1; dz++) {
+					long next = net.minecraft.core.BlockPos.asLong(cx + dx, cy + dy, cz + dz);
+					if (cells.containsKey(next) && claimed.add(next)) queue.add(next);
+				}
+			}
+			members.sort(java.util.Comparator.comparingDouble(distance));
+			clusters.add(members);
+		}
+		clusters.sort(java.util.Comparator.comparingDouble(members -> distance.applyAsDouble(members.getFirst())));
+		return clusters;
 	}
 
 	private static void farSightGeometry() {
