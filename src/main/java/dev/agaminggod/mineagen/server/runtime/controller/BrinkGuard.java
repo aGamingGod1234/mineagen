@@ -745,6 +745,16 @@ public final class BrinkGuard {
 	}
 
 	/**
+	 * Whether a lethal or unseen drop lies within the braced level reach (the guard's longest, {@code LEVEL_BRACE_STEPS})
+	 * of the body as it stands: a deck where a stance standing still under fire should keep its level.
+	 */
+	public static boolean exposedDeck(ServerPlayer player) {
+		WalkabilityView world = ObservedTerrain.of(player);
+		return brinkWithin(player.getBoundingBox(), LEVEL_BRACE_STEPS, blocked(player), shifted -> unsupportedAt(player, shifted),
+				shifted -> fall(player, world, shifted)) != null;
+	}
+
+	/**
 	 * A hit pushes away from the shooter: an unseen drop on the shooter's side of the body is no brink (a hit does not
 	 * push the body that way), while one on the far side is, and a known lethal drop counts whichever way it lies.
 	 */

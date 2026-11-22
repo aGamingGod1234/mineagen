@@ -2812,7 +2812,7 @@ final class ReflexActions {
 			};
 		}
 
-		/** Releases any level hold under this wall-in's name (it takes none now; kept so an old holder can never linger). */
+		/** Releases the level hold this wall-in took on an exposed deck, if any. */
 		void end(ServerPlayer player) {
 			dev.agaminggod.mineagen.server.runtime.controller.BrinkGuard.keepLevel(player, this, false);
 		}
@@ -2850,6 +2850,10 @@ final class ReflexActions {
 				if (!overlaps || Math.abs(dx) <= 0.15D && Math.abs(dz) <= 0.15D || ++ticks > CENTER_TICKS) {
 					centred = true;
 					ticks = 0;
+					// On an exposed deck (a lethal or unseen drop within the guard's braced reach: the middle of a 3-wide
+					// bridge) the body keeps its level while it places, so a fireball's 1-2 block push is walked back. On
+					// ordinary ground it takes no hold: beside a 1-block step it crouched and stood on alternate ticks.
+					if (dev.agaminggod.mineagen.server.runtime.controller.BrinkGuard.exposedDeck(player)) dev.agaminggod.mineagen.server.runtime.controller.BrinkGuard.keepLevel(player, this, true, false);
 				} else {
 					float[] keys = dev.agaminggod.mineagen.server.runtime.controller.BrinkGuard.keysToward(player.getYRot(), dx, dz);
 					input.accept(new AgentInputState(keys[0] * 0.3F, keys[1] * 0.3F, false, true, false, false, false, player.getYRot(),
