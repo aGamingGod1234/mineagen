@@ -74,7 +74,33 @@ public final class AgentNowCardVerification {
 		assertEquals("1 h", AgentNowCard.duration(3_600_000L), "an hour");
 		assertEquals("2 h 5 min", AgentNowCard.duration(7_500_000L), "hours and minutes");
 		assertEquals("0 s", AgentNowCard.duration(-5L), "a clock step back is not negative");
-		return assertions + 6;
+		return assertions + 6 + verifyStateClock();
+	}
+
+	/** A duration is shown only for a state change this client watched without a break. */
+	private static int verifyStateClock() {
+		AgentStateClock clock = new AgentStateClock();
+		clock.observe(ID, "PLANNING", 0L);
+		assertEquals(-1L, clock.durationMs(ID, "PLANNING", 0L), "a state first seen mid-way has no known start");
+		clock.observe(ID, "ACTING", 1_000L);
+		clock.observe(ID, "ACTING", 2_000L);
+		assertEquals(1_500L, clock.durationMs(ID, "ACTING", 2_500L), "a watched change starts the clock");
+		clock.observe(ID, "PLANNING", 3_000L);
+		assertEquals(500L, clock.durationMs(ID, "PLANNING", 3_500L), "the next watched change restarts it");
+		// The player looks away for a minute; the bot may have acted and planned again unseen.
+		clock.observe(ID, "PLANNING", 63_000L);
+		assertEquals(-1L, clock.durationMs(ID, "PLANNING", 63_000L), "after a gap the duration is unknown, not a minute");
+		clock.observe(ID, "ACTING", 64_000L);
+		assertEquals(0L, clock.durationMs(ID, "ACTING", 64_000L), "until the next watched change");
+		assertEquals(-1L, clock.durationMs(ID, "PLANNING", 64_000L), "a state the agent is no longer in has no duration");
+		assertEquals(-1L, clock.durationMs("other", "ACTING", 64_000L), "an agent never seen has none");
+		clock.observe(ID, "ACTING", 60_000L);
+		assertEquals(-1L, clock.durationMs(ID, "ACTING", 60_000L), "a clock stepping back loses the thread");
+		AgentStateClock all = new AgentStateClock();
+		all.observe(List.of(agent("IDLE", "", 0, "", "", true)), 0L);
+		all.observe(List.of(agent("ACTING", "", 0, "", "", true)), 1_000L);
+		assertEquals(2_000L, all.durationMs(ID, "ACTING", 3_000L), "observing a snapshot tracks its agents");
+		return 9;
 	}
 
 	private static AgentControlAgent agent(String state, String goal, int queued, String error, String summary, boolean body) {

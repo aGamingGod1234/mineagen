@@ -76,11 +76,8 @@ public final class AgentControlScreen extends Screen {
 	static final int NOW_PAD = 5;
 	static final int NOW_GAP = 6;
 	static final int NOW_MAX_ROWS = 4;
-	/** When each agent's current state was first seen by this client, for the Now card's duration. */
-	private static final Map<String, StateSeen> STATE_SEEN = new java.util.HashMap<>();
-
-	private record StateSeen(String state, long sinceMs) {
-	}
+	/** How long each agent has been in its state while this client watched, for the Now card's duration. */
+	private static final dev.agaminggod.mineagen.control.AgentStateClock STATE_CLOCK = new dev.agaminggod.mineagen.control.AgentStateClock();
 	private static final String KEY_BILLING_NOTE = "An API key bills per token. Without one, the tool's signed-in plan is used.";
 	private ConsoleDropdown<String> modelDropdown;
 	private boolean animateProviderPick;
@@ -378,6 +375,8 @@ public final class AgentControlScreen extends Screen {
 	public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
 		// While the control center is open the selected agent's live view keeps coming, for its Now card.
 		dev.agaminggod.mineagen.client.control.LiveAgentWindows.watch();
+		// Every agent, not just the selected one, so a switch back does not show a duration it never watched.
+		if (snapshot != null) STATE_CLOCK.observe(snapshot.agents(), System.currentTimeMillis());
 		AgentControlLayout layout = layout();
 		graphics.fill(0, 0, width, height, BACKDROP);
 		int panelWidth = layout.panelRight() - layout.panelLeft();
@@ -1346,15 +1345,9 @@ public final class AgentControlScreen extends Screen {
 		return List.of(first, fit(text.substring(first.length()).trim(), width));
 	}
 
-	/** How long the agent has been in its current state, as far as this client has seen. */
+	/** How long the agent has been in its current state while this client watched, or -1 when not known. */
 	private static long stateMs(AgentControlAgent agent) {
-		long now = System.currentTimeMillis();
-		StateSeen seen = STATE_SEEN.get(agent.agentId());
-		if (seen == null || !seen.state().equals(agent.state())) {
-			if (STATE_SEEN.size() > 64) STATE_SEEN.clear();
-			STATE_SEEN.put(agent.agentId(), seen = new StateSeen(agent.state(), now));
-		}
-		return now - seen.sinceMs();
+		return STATE_CLOCK.durationMs(agent.agentId(), agent.state(), System.currentTimeMillis());
 	}
 
 	private void renderEmptyState(GuiGraphicsExtractor graphics, int left, int right, int top, String title, String detail, int detailColor) {

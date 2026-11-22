@@ -235,8 +235,12 @@ public final class LiveAgentWindows {
 			return;
 		}
 		liveDecision = parsed.has("decision") && parsed.get("decision").isJsonObject() ? parsed.getAsJsonObject("decision") : null;
+		// The server replays its cached view while the coordinator is away: only a changed view from an online
+		// coordinator is fresh, as the desktop window judges it, so the Now card never shows an old step as current.
+		boolean sameAgent = packet.agentId().toString().equals(liveDecisionAgent);
+		if (!packet.online()) liveViewAt = 0L;
+		else if (!sameAgent || !parsed.equals(liveView)) liveViewAt = System.currentTimeMillis();
 		liveView = parsed;
-		liveViewAt = System.currentTimeMillis();
 		liveDecisionAgent = packet.agentId().toString();
 		SwingUtilities.invokeLater(() -> {
 			if (!packet.agentId().toString().equals(selected)) return;
