@@ -34,7 +34,7 @@ test('a representative program wake stays inside its byte budget for every provi
 test('a wake with the recorded section mix stays inside its byte budget, full and lean', () => {
 	// Recorded decision-test wakes (684, replayed offline through the production builder): median 12.6 KB encoded, p25
 	// 11.2 KB; with ARENA_LEAN_INPUT on, median 5.4 KB, p75 6.7 KB. This wake carries their mix: a now header, tagged
-	// gear and tagged blocks. Measured at the pin: 11,535 / 1,757 bytes full and 6,391 / 1,036 lean (first / repeat).
+	// gear and tagged blocks. Measured at the pin: 10,831 / 1,747 bytes full and 6,053 / 1,026 lean (first / repeat).
 	const sizes = {};
 	const previous = process.env.ARENA_LEAN_INPUT;
 	try {
@@ -47,10 +47,10 @@ test('a wake with the recorded section mix stays inside its byte budget, full an
 		}
 	} finally { if (previous === undefined) delete process.env.ARENA_LEAN_INPUT; else process.env.ARENA_LEAN_INPUT = previous; }
 	assert.ok(sizes[0].now >= 5 && sizes[1].now >= 5, `the now header is part of the mix: ${JSON.stringify(sizes)}`);
-	assert.ok(sizes[0].first <= 12_300, `full first wake ${sizes[0].first} bytes`);
-	assert.ok(sizes[0].repeat <= 2_200, `full repeat wake ${sizes[0].repeat} bytes`);
-	assert.ok(sizes[1].first <= 6_900, `lean first wake ${sizes[1].first} bytes`);
-	assert.ok(sizes[1].repeat <= 1_300, `lean repeat wake ${sizes[1].repeat} bytes`);
+	assert.ok(sizes[0].first <= 11_500, `full first wake ${sizes[0].first} bytes`);
+	assert.ok(sizes[0].repeat <= 2_100, `full repeat wake ${sizes[0].repeat} bytes`);
+	assert.ok(sizes[1].first <= 6_500, `lean first wake ${sizes[1].first} bytes`);
+	assert.ok(sizes[1].repeat <= 1_250, `lean repeat wake ${sizes[1].repeat} bytes`);
 	assert.ok(sizes[1].first <= sizes[0].first * 0.6, `lean saves at least 40%: ${sizes[1].first} vs ${sizes[0].first}`);
 });
 
