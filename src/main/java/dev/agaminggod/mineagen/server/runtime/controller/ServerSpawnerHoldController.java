@@ -310,8 +310,10 @@ public final class ServerSpawnerHoldController implements ServerController {
 			}
 			if (attacker == null) return null;
 			cancelWalk(player);
-			// The open-fight engine is put down too: left unticked through the defend its input leases would lapse.
+			// The open-fight engine and the look round's keys are put down too: left unticked through the defend their input
+			// leases would lapse.
 			stopEngine(player);
+			shieldInput.release();
 			if (work != null) { work.cancel(player); work = null; }
 			if (collector != null) { collector.cancel(player); collector = null; returning = true; }
 			if (ledge != null) { ledge.cancel(player); ledge = null; returning = true; }
