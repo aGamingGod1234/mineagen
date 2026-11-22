@@ -891,10 +891,18 @@ final class ReflexActions {
 	 * and golden apples are kept for low health ({@link #bestFood}).
 	 */
 	static final class Eat implements Behaviour {
+		/** Use held this long without the body starting to eat is a failed meal, not a wait (eating starts on the first tick). */
+		static final int START_TICKS = 10;
+		/** Facing within this of the chosen look counts as there; the use key goes down only then. */
+		static final float AIM_TOLERANCE_DEGREES = 2.0F;
 		private int slot = -2;
 		private InteractionHand hand;
 		private String item;
 		private int count;
+		private float lookYaw;
+		private float lookPitch;
+		private String facing;
+		private int heldTicks;
 
 		@Override
 		public Step tick(Context context, Consumer<AgentInputState> input) {
@@ -910,15 +918,80 @@ final class ReflexActions {
 				ItemStack stack = hand == InteractionHand.OFF_HAND ? player.getOffhandItem() : player.getInventory().getItem(slot);
 				item = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
 				count = stack.getCount();
+				// Use goes to what the crosshair is on before the food (a table opens, a villager trades), so a player
+				// turns from it first. Live playtest: 32 eats in a row faced the crafting table just placed, reopened it
+				// every few ticks and timed out, with the bread craft paused under them for minutes.
+				float[] clear = clearLook(player);
+				lookYaw = clear[0];
+				lookPitch = clear[1];
+				facing = useTarget(player, player.getYRot(), player.getXRot());
 			}
 			ItemStack now = hand == InteractionHand.OFF_HAND ? player.getOffhandItem() : player.getInventory().getItem(slot);
 			if (now.isEmpty() || !item.equals(BuiltInRegistries.ITEM.getKey(now.getItem()).toString()) || now.getCount() < count) {
 				return Step.done("ate " + item);
 			}
-			input.accept(new AgentInputState(0.0F, 0.0F, false, false, false, false, true,
-					player.getYRot(), player.getXRot(), slot, hand));
-			return Step.running("eating " + item);
+			float yaw = AgentInputStates.turnYaw(player.getYRot(), lookYaw);
+			float pitch = AgentInputStates.turnPitch(player.getXRot(), lookPitch);
+			boolean aimed = Math.abs(AgentInputStates.shortestAngleDelta(player.getYRot(), lookYaw)) <= AIM_TOLERANCE_DEGREES
+					&& Math.abs(player.getXRot() - lookPitch) <= AIM_TOLERANCE_DEGREES;
+			if (aimed && !player.isUsingItem() && ++heldTicks > START_TICKS) {
+				String target = useTarget(player, player.getYRot(), player.getXRot());
+				return Step.failed("could not start eating " + item + (target != null ? "; use goes to the " + target
+						: facing != null ? "; turned from the " + facing + " and still could not" : ""));
+			}
+			input.accept(new AgentInputState(0.0F, 0.0F, false, false, false, false, aimed,
+					yaw, pitch, slot, hand));
+			return Step.running((aimed ? "eating " : "turning to eat ") + item);
 		}
+
+		/**
+		 * The look to eat with: the current one when use would reach no block or entity that answers it, else the first
+		 * clear one of looking up, down, then around at eye level and half up. With none clear, the current look (the meal
+		 * then fails fast and says what is in the way instead of holding the body).
+		 */
+		static float[] clearLook(ServerPlayer player) {
+			float yaw = player.getYRot();
+			float pitch = player.getXRot();
+			if (useTarget(player, yaw, pitch) == null) return new float[] {yaw, pitch};
+			float[][] candidates = {{yaw, -90.0F}, {yaw, 90.0F}, {yaw + 90.0F, 0.0F}, {yaw - 90.0F, 0.0F}, {yaw + 180.0F, 0.0F},
+					{yaw + 90.0F, -45.0F}, {yaw - 90.0F, -45.0F}, {yaw + 180.0F, -45.0F}};
+			for (float[] candidate : candidates) {
+				float candidateYaw = Mth.wrapDegrees(candidate[0]);
+				if (useTarget(player, candidateYaw, candidate[1]) == null) return new float[] {candidateYaw, candidate[1]};
+			}
+			return new float[] {yaw, pitch};
+		}
+
+		/** What a use press at this look would act on instead of eating (a block with a use, an entity), or null for none. */
+		static String useTarget(ServerPlayer player, float yaw, float pitch) {
+			Vec3 eye = player.getEyePosition();
+			Vec3 direction = Vec3.directionFromRotation(pitch, yaw);
+			Vec3 blockEnd = eye.add(direction.scale(player.blockInteractionRange()));
+			BlockHitResult block = player.level().clip(new ClipContext(eye, blockEnd, ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, player));
+			double blockDistance = block.getType() == HitResult.Type.MISS ? Double.MAX_VALUE : block.getLocation().distanceTo(eye);
+			Vec3 entityEnd = eye.add(direction.scale(Math.min(player.entityInteractionRange(), blockDistance)));
+			for (Entity entity : player.level().getEntities(player, new AABB(eye, entityEnd).inflate(1.0D),
+					candidate -> candidate.isPickable() && !candidate.isSpectator())) {
+				if (entity.getBoundingBox().inflate(entity.getPickRadius()).clip(eye, entityEnd).isPresent())
+					return BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType()).getPath();
+			}
+			if (block.getType() == HitResult.Type.MISS) return null;
+			BlockState state = player.level().getBlockState(block.getBlockPos());
+			return answersUse(player.level(), block.getBlockPos(), state) ? BuiltInRegistries.BLOCK.getKey(state.getBlock()).getPath() : null;
+		}
+
+		/** Blocks whose use acts before the held food: menus, block entities, doors and switches, beds, a composter. */
+		static boolean answersUse(Level level, BlockPos pos, BlockState state) {
+			if (state.getBlock() instanceof EntityBlock || state.getMenuProvider(level, pos) != null) return true;
+			if (state.is(net.minecraft.tags.BlockTags.DOORS) || state.is(net.minecraft.tags.BlockTags.TRAPDOORS)
+					|| state.is(net.minecraft.tags.BlockTags.FENCE_GATES) || state.is(net.minecraft.tags.BlockTags.BUTTONS)
+					|| state.is(net.minecraft.tags.BlockTags.BEDS)) return true;
+			return USE_BLOCKS.contains(BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString());
+		}
+
+		// Ids, not Blocks fields: a static Blocks reference would load the registries with this class in pure tests.
+		private static final Set<String> USE_BLOCKS = Set.of("minecraft:lever", "minecraft:composter", "minecraft:cake",
+				"minecraft:note_block", "minecraft:repeater", "minecraft:comparator", "minecraft:respawn_anchor", "minecraft:dragon_egg");
 
 		private static boolean edible(ServerPlayer player, FoodProperties food) {
 			return food != null && player.canEat(food.canAlwaysEat());
