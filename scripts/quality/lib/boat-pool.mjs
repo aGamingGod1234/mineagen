@@ -205,7 +205,9 @@ export async function installCodex(id, { authFile, version, signal = null }) {
 	return (await remote(id, 'chmod 600 ~/.codex/auth.json; sha256sum ~/.codex/auth.json | cut -c1-64', { signal })).trim();
 }
 export const codexSignInHash = async id => (await remote(id, 'sha256sum ~/.codex/auth.json | cut -c1-64')).trim();
-export const removeCodexSignIn = (id, dirs = ['~/ck'], options) => remote(id, `rm -f ~/.codex/auth.json; for d in ${dirs.join(' ')}; do [ -d "$d" ] && find "$d" \\( -name auth.json -o -type d -name .codex-home -prune \\) -exec rm -rf {} +; done; true`, options);
+// A sign-in or folder that is not there is fine; a removal that fails (a folder no longer writable) rejects, so callers
+// retry it or name the machine as still signed in instead of marking it clean.
+export const removeCodexSignIn = (id, dirs = ['~/ck'], options) => remote(id, `rm -f ~/.codex/auth.json || exit 1; for d in ${dirs.join(' ')}; do if [ -d "$d" ]; then find "$d" \\( -name auth.json -o -type d -name .codex-home -prune \\) -exec rm -rf {} + || exit 1; fi; done`, options);
 export const extendMachine = (id, ttlSeconds) => boat(['extend', id, '--ttl', String(ttlSeconds), '--json'], { timeoutMs: 60_000 });
 export const upload = (id, local, remotePath, options = {}) => boat(['scp', local, `${id}:${remotePath}`], { timeoutMs: 15 * 60_000, ...options });
 export const download = (id, remotePath, local, options = {}) => boat(['scp', `${id}:${remotePath}`, local], { timeoutMs: 15 * 60_000, ...options });

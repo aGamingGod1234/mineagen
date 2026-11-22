@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { removeCodexSignIn } from '../../scripts/quality/lib/boat-pool.mjs';
 
 // Drives scripts/quality/checkpoint-batch.mjs end to end against a fake boat CLI (BOAT_BIN): each "machine" is a folder
 // used as HOME, ssh runs the command there, scp copies files, delete marks the machine gone. The fake game writes a
@@ -443,4 +444,33 @@ test('checkpoint batch treats an empty meter reading as unreadable and plays eve
 		const state = JSON.parse(readFileSync(path.join(root, 'out/state.json'), 'utf8'));
 		assert.deepEqual(state.games.map(g => g.state), ['done', 'done', 'done', 'done']);
 	} finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('removing a sign-in tolerates missing files and folders but rejects a removal that fails', posixOnly, async t => {
+	const root = setup();
+	const home = path.join(root, 'bx_aaaaaaaa');
+	const saved = { BOAT_BIN: process.env.BOAT_BIN, FAKE_BOAT_ROOT: process.env.FAKE_BOAT_ROOT };
+	Object.assign(process.env, { BOAT_BIN: path.join(root, 'bin/boat'), FAKE_BOAT_ROOT: root });
+	const put = file => { mkdirSync(path.dirname(path.join(home, file)), { recursive: true }); writeFileSync(path.join(home, file), '{}'); };
+	try {
+		// Nothing there yet: no ~/.codex/auth.json and no ~/ck.
+		await removeCodexSignIn('bx_aaaaaaaa');
+		for (const file of ['.codex/auth.json', 'ck/arms/runs/g1/.codex-home/auth.json', 'ck/games/g1/auth.json']) put(file);
+		await removeCodexSignIn('bx_aaaaaaaa');
+		assert.equal(leftSignIns(root), '0');
+		if (process.getuid?.() === 0) { t.diagnostic('root ignores folder permissions: failure cases skipped'); return; }
+		for (const [file, locked] of [['.codex/auth.json', '.codex'], ['ck/games/g2/auth.json', 'ck/games/g2']]) {
+			put(file);
+			chmodSync(path.join(home, locked), 0o555);
+			try {
+				await assert.rejects(removeCodexSignIn('bx_aaaaaaaa'), /command failed on bx_aaaaaaaa/, `a failed removal under ${locked} rejects`);
+				assert.ok(existsSync(path.join(home, file)), `${file} is still there`);
+			} finally { chmodSync(path.join(home, locked), 0o755); }
+			await removeCodexSignIn('bx_aaaaaaaa');
+			assert.ok(!existsSync(path.join(home, file)), `${file} goes once the folder is writable again`);
+		}
+	} finally {
+		for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+		rmSync(root, { recursive: true, force: true });
+	}
 });
