@@ -153,3 +153,56 @@ test('a program started while the game is already paused gets only the part of t
 		await run.coordinator.stop();
 	}
 });
+
+// The model can answer an urgent decision while the game is paused. Through the production coordinator: a 1 s program,
+// an urgent decision ~0.1 s before a 1.5 s pause, answered 1 s into the pause. The step is not ended during the pause,
+// and after the resume it runs on for the time it had left at the pause. The outer program work lease ends it: that
+// lease is sized to timeoutMs and moves out for reflex holds, lag and pauses, not for urgent waits, so this test cannot
+// tell whether the executor counted the pause twice. native-program-executor.test.mjs checks that arithmetic.
+test('an urgent decision answered during a pause past the deadline does not end the step in the pause; after the resume it gets its remaining time', async (t) => {
+	const { start: startDynamic, FakePlanner: DynamicPlanner, eventually: until, resolveNativeSteerInput } = await import('./fixtures/dynamic-main-fixture.mjs');
+	const { AgentRegistry: Registry } = await import('../src/agent-registry.mjs');
+	const { decodeModelFacts } = await import('../src/model-fact-encoding.mjs');
+	const registry = new Registry(), planner = new DynamicPlanner(registry), completions = [];
+	let startedAt = null;
+	planner.steerNativeTurn = async (request) => { await resolveNativeSteerInput(request); };
+	planner.requestNativeTurn = async (request) => {
+		planner.requests.push(request);
+		if (planner.requests.length === 1) {
+			startedAt = Date.now();
+			await request.executeTool({ agentId: request.agentId, goalRevision: 1, turnId: 'initial', callId: 'program',
+				tool: { kind: 'run_program', background: true, timeoutMs: 1_000,
+					source: 'program.onUnhandledAttention("continue_and_notify", {survival:"continue_and_notify"}); await player.wait(100000);' } });
+			return { status: 'completed', toolCalls: 1 };
+		}
+		return new Promise((resolve) => { completions.push(resolve); });
+	};
+	const traces = [];
+	const run = await startDynamic({ registry, planner, traceWriter: { write: (event, fields) => traces.push({ event, ...fields }) }, config: { bridge: { port: 25570, secret: 's'.repeat(32) }, codex: { controlProtocol: 'native_tools' } } });
+	t.after(async () => { await run.coordinator.stop(); for (const resolve of completions) resolve({ status: 'completed', toolCalls: 0 }); });
+	const cancelled = () => run.bridge.sent.some((message) => message.type === 'action_cancel');
+	run.bridge.emit('goal_control', { agentId: 'agent-a', payload: { operation: 'start', goalRevision: 1, goal: 'Explore safely.' } });
+	run.bridge.emit('observation', { agentId: 'agent-a', payload: { goalRevision: 1, eventSequence: 1, attention: false, changedFacts: [], observation: { player: { x: 0, y: 64, z: 0, health: 20 } } } });
+	await until(() => run.bridge.sent.some((message) => message.type === 'action_command'));
+	run.bridge.emit('observation', { agentId: 'agent-a', payload: { goalRevision: 1, eventSequence: 2, attention: true, changedFacts: ['player.health'], observation: { player: { x: 0, y: 64, z: 0, health: 12 } } } });
+	await until(() => planner.requests.length === 2);
+	const request = planner.requests[1], input = request.input;
+	const shown = decodeModelFacts(JSON.parse(input.slice(input.indexOf('\n') + 1))).program;
+	assert.equal(shown.decision.priority, 'urgent');
+	await sleep(100);
+	const pausedAt = Date.now();
+	run.bridge.emit('serverPause', { paused: true, tickAgeMs: 0 });
+	await sleep(1_000);
+	await request.executeTool({ agentId: request.agentId, goalRevision: 1, turnId: 'decision', callId: 'answer',
+		tool: { kind: 'respond_program', programId: shown.programId, decisionId: shown.decision.decisionId, eventSequence: shown.decision.eventSequence, directive: 'continue' } });
+	await sleep(500);
+	assert.equal(cancelled(), false, 'paused past its deadline, the step is still running');
+	run.bridge.emit('serverPause', { paused: false, tickAgeMs: 0 });
+	const resumedAt = Date.now();
+	await until(cancelled);
+	const after = Date.now() - resumedAt, left = 1_000 - (pausedAt - startedAt);
+	// The lease began at or after startedAt, so it has at least `left` after the resume (less timer slack).
+	assert.ok(after >= left - 50, `the step keeps the ${left} ms it had left at the pause (cancelled ${after} ms after the resume)`);
+	assert.ok(after < left + 1_000, `and is not given the pause again on top (cancelled ${after} ms after the resume)`);
+	assert.ok(traces.some((row) => row.event === 'work_lease_expired' && row.kind === 'program'), 'the program lease ends the step');
+});
