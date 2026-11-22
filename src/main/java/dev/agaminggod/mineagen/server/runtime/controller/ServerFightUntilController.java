@@ -638,7 +638,7 @@ public final class ServerFightUntilController implements ServerController {
 			}
 		}
 		LivingEntity target = nextTarget(player, elapsed);
-		if (mob == McEntityTypes.ENDERMAN && forest == null) {
+		if (mob == McEntityTypes.ENDERMAN && forest == null && !WarpedForestHunt.inForest(player)) {
 			// Outside a warped forest only: there, staring from afar provoked several at once (deaths 9 to 24 of 40 runs).
 			// A back-off for an angry one out of reach, and the hold after it, are not cut short by re-engaging it.
 			TickResult drawing = tickDrawOver(player, elapsed, nowEpochMs, target == null);
@@ -696,6 +696,8 @@ public final class ServerFightUntilController implements ServerController {
 						target.getUUID(), (PROVOKE_MS + 4_000L) / 1000, player.distanceTo(target), target.getEyeY() - player.getY(),
 						hidden ? "; blocks hide your column at its eye height, so vanilla ignores the stare" : ""));
 				excluded.put(target.getUUID(), elapsed + EXCLUDE_MS);
+				// No longer the first target either: the quiet spell (and leaving the shelter) may start.
+				if (firstTarget == target) firstTarget = null;
 				provoking = null;
 				return TickResult.running(progress(player));
 			}
@@ -1134,6 +1136,7 @@ public final class ServerFightUntilController implements ServerController {
 				if (beyondReach(player, target)) {
 					// Beyond the area, on a shelf or across lava: a player does not walk there; it leaves this one.
 					excluded.put(target.getUUID(), elapsed + EXCLUDE_MS);
+					if (firstTarget == target) firstTarget = null;
 					note(String.format(Locale.ROOT, "stare did not provoke %s %s in %d s (%.1f blocks away, out of reach); left alone", mobId,
 							target.getUUID(), PROVOKE_MS / 1000, player.distanceTo(target)));
 					return TickResult.running(progress(player));
@@ -1528,7 +1531,11 @@ public final class ServerFightUntilController implements ServerController {
 		}
 		if (drawn != null && elapsed < drawHoldUntilMs) {
 			// Hold where the back-off ended until it comes within reach or moves (then the fight takes it), or the hold runs out.
-			if (drawn.isAlive() && !drawn.isDeadOrDying() && player.distanceTo(drawn) > ENDER_HOLD_RANGE
+			boolean hurtByAnother = player.getLastHurtByMob() != null && player.getLastHurtByMob() != drawn
+					&& player.tickCount - player.getLastHurtByMobTimestamp() <= HURT_TURN_TICKS;
+			boolean anotherAtIt = !player.level().getEntitiesOfClass(McCompat.ENDERMAN, player.getBoundingBox().inflate(ENDER_HOLD_RANGE),
+					e -> e != drawn && e.isAlive() && !e.isDeadOrDying() && attacking(player, e)).isEmpty();
+			if (drawn.isAlive() && !drawn.isDeadOrDying() && player.distanceTo(drawn) > ENDER_HOLD_RANGE && !hurtByAnother && !anotherAtIt
 					&& drawn.position().distanceTo(drawnAt) < UnreachableTargets.MOVED && (holdAt == null || player.position().distanceTo(holdAt) < UnreachableTargets.MOVED)) {
 				lastTargetMs = elapsed;
 				if (look != null) { look.cancel(player); look = null; }
@@ -1665,7 +1672,8 @@ public final class ServerFightUntilController implements ServerController {
 	 */
 	private List<LivingEntity> candidates(ServerPlayer player) {
 		List<LivingEntity> out = new ArrayList<>();
-		AABB area = new AABB(center, center).inflate(radius);
+		// The area, and the ground round the body: a walk can leave the area, and an attacker there is fought back too.
+		AABB area = new AABB(center, center).inflate(radius).minmax(player.getBoundingBox().inflate(CombatPlanning.THREAT_RANGE));
 		for (LivingEntity entity : player.level().getEntitiesOfClass(LivingEntity.class, area, e -> e.getType() == mob && e != player && e.isAlive() && !e.isDeadOrDying())) {
 			boolean attacker = attacking(player, entity);
 			if (!choices.candidate(true, attacker, entity instanceof net.minecraft.world.entity.player.Player)) continue;

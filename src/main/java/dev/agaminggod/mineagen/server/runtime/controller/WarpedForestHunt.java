@@ -56,6 +56,8 @@ final class WarpedForestHunt {
 	 * walk went a few blocks over, and the bot died to the fortress mobs or in lava fleeing them.
 	 */
 	static final double DANGER_KEEP = 24.0D;
+	/** Walks keep this far from where lava stopped one. */
+	static final double LAVA_KEEP = 12.0D;
 	/** A route failure that still moved at least this far counts as arrived where it stopped. */
 	static final double MOVED_ENOUGH = 8.0D;
 	private static final int RINGS_HEADINGS = 16;
@@ -101,6 +103,8 @@ final class WarpedForestHunt {
 	private final List<Vec3> refused = new ArrayList<>();
 	/** Where hostiles or hits stopped walks this call (DANGER_KEEP). */
 	private final List<Vec3> dangers = new ArrayList<>();
+	/** Where lava stopped walks this call (LAVA_KEEP). */
+	private final List<Vec3> lavaStops = new ArrayList<>();
 	/** Standing points seen in the forest at decision time, and their columns, for the call. */
 	private final List<Vec3> floors = new ArrayList<>();
 	private final Set<Long> floorColumns = new HashSet<>();
@@ -223,6 +227,11 @@ final class WarpedForestHunt {
 		return false;
 	}
 
+	static boolean nearAny(Vec3 at, List<Vec3> spots, double within) {
+		for (Vec3 spot : spots) if (flat(spot, at) < within) return true;
+		return false;
+	}
+
 	private static boolean clearOf(Vec3 at, List<Vec3> dangers) {
 		for (Vec3 danger : dangers) if (flat(danger, at) < DANGER_KEEP) return false;
 		return true;
@@ -303,6 +312,8 @@ final class WarpedForestHunt {
 
 	/** Starts a relocation walk toward the next destination; false when there is none (an empty scan). */
 	boolean startWalk(ServerPlayer player, Vec3 outsideSighting, long now) {
+		// An enderman seen outside the area is a destination only where the forest goes on.
+		if (outsideSighting != null && !BIOME.equals(probe.biome(player, BlockPos.containing(outsideSighting)))) outsideSighting = null;
 		Vec3 goal;
 		Kind kind;
 		int heading = -1;
@@ -318,6 +329,8 @@ final class WarpedForestHunt {
 			List<Vec3> headings = new ArrayList<>();
 			for (int index = 0; index < HEADING_COUNT; index++) headings.add(headingsFailed.contains(index) ? null : headingPoint(here, index));
 			for (Vec3 point : headings) if (point != null) candidates.add(point);
+			candidates.removeIf(point -> nearAny(point, lavaStops, LAVA_KEEP));
+			if (outsideSighting != null && nearAny(outsideSighting, lavaStops, LAVA_KEEP)) outsideSighting = null;
 			goal = choose(here, start, searched, refused, dangers, outsideSighting, candidates);
 			if (goal == null) { emptyScans++; return false; }
 			heading = headings.indexOf(goal);
@@ -367,12 +380,10 @@ final class WarpedForestHunt {
 		}
 		standing(player);
 		if (walkKind == Kind.BACK && inForest(player) && flat(walkFrom, player.position()) > 0.5D) {
-			// Back in the forest: that is the walk's arrival, wherever travel would have stopped.
+			// Back in the forest: that is the walk's arrival, wherever travel would have stopped. A walk back is no new
+			// ground: the failures in a row and the failed headings stand, so walking out and back cannot hide FOREST_UNREACHABLE.
 			cancel(player);
 			arrivals++;
-			failedInRow = 0;
-			headingsFailed.clear();
-			searched.add(player.position());
 			arrivedAt = player.position();
 			return Walk.ARRIVED;
 		}
@@ -391,6 +402,8 @@ final class WarpedForestHunt {
 				lastFailure = "LAVA_NEAR at " + player.blockPosition().toShortString();
 				stops++;
 				refuse();
+				// That shore is remembered: later walks from it keep LAVA_KEEP away instead of stopping there again.
+				lavaStops.add(player.position());
 				return Walk.STOPPED;
 			}
 		}
@@ -414,6 +427,7 @@ final class WarpedForestHunt {
 			// Lava, a hostile or a hit that way: the destination and its heading are not walked again.
 			if (refusesWay(code)) refuse();
 			if ("HOSTILE_NEAR".equals(code) || code.endsWith("_DAMAGED") || "DAMAGE_TAKEN".equals(code)) dangers.add(dangerAt(result.message(), here));
+			if (code.startsWith("LAVA_") || "IN_LAVA".equals(code)) lavaStops.add(here);
 			return Walk.STOPPED;
 		}
 		refuse();

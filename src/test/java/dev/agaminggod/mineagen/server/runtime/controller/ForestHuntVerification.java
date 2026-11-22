@@ -27,6 +27,7 @@ public final class ForestHuntVerification {
 		verifyLavaNear();
 		verifyWalkBackGoal();
 		verifyDangerKept();
+		verifyLavaShoreKept();
 		return assertions;
 	}
 
@@ -118,6 +119,13 @@ public final class ForestHuntVerification {
 		check(WarpedForestHunt.choose(start, start, searched, List.of(), ledge, List.of(far)) == far, "an enderman seen 6 blocks above the feet is on a ledge: not walked to");
 		check(WarpedForestHunt.choose(start, start, searched, List.of(), below, List.of(far)) == far, "one seen 7 blocks below is across a drop: not walked to");
 		check(WarpedForestHunt.choose(start, start, searched, List.of(), level, List.of(far)) == level, "one 3.5 blocks up on open ground is walked to");
+	}
+
+	private static void verifyLavaShoreKept() {
+		Vec3 shore = new Vec3(10.5D, 70.0D, 0.5D);
+		check(WarpedForestHunt.nearAny(new Vec3(18.5D, 70.0D, 4.5D), List.of(shore), WarpedForestHunt.LAVA_KEEP), "a destination 9 blocks from a lava stop is skipped");
+		check(!WarpedForestHunt.nearAny(new Vec3(30.5D, 70.0D, 0.5D), List.of(shore), WarpedForestHunt.LAVA_KEEP), "one 20 blocks off is not");
+		check(!WarpedForestHunt.nearAny(shore, List.of(), WarpedForestHunt.LAVA_KEEP), "no lava stops, nothing skipped");
 	}
 
 	private static void verifyDangerKept() {
