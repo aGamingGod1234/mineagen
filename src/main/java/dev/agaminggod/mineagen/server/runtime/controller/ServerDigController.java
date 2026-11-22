@@ -388,6 +388,7 @@ public final class ServerDigController implements ServerController {
 				&& passLooks < PASS_LOOKS && standsOnOwnBlock(player)) {
 			passLookPending = false;
 			passLooks++;
+			if (notes.size() < 6) notes.add("looked round the cave at y" + player.blockPosition().getY());
 			lookTurned = 0.0F;
 			lookLastYaw = player.getYRot();
 			phaseTicks = 0;
@@ -1619,9 +1620,36 @@ public final class ServerDigController implements ServerController {
 		}
 		if (lookTurned < 360.0F && phaseTicks < PASS_LOOK_TICKS) return TickResult.running(progress(player));
 		releaseInput();
+		// The sight fan's rays are 10 degrees apart: at 12 blocks they pass 2 blocks apart and slip past a single ore down a
+		// side passage. After the turn, every block of the target near the eye level that a straight line reaches counts.
+		BlockPos near = visibleNear(player, stopWhenSeen);
+		if (near != null) {
+			TickResult found = seen(player, near);
+			if (found != null) return found;
+		}
 		phase = Phase.START;
 		phaseTicks = 0;
 		return TickResult.running(progress(player));
+	}
+
+	/** The nearest block of {@code blockId} within {@link #PASS_LOOK_ORE_SIGHT} / 2 of the eye, 4 up or down, in a clear line. */
+	private static BlockPos visibleNear(ServerPlayer player, String blockId) {
+		ServerLevel level = player.level();
+		Vec3 eye = player.getEyePosition();
+		BlockPos center = BlockPos.containing(eye);
+		int r = (int) (PASS_LOOK_ORE_SIGHT / 2);
+		BlockPos best = null;
+		double bestDistance = Double.MAX_VALUE;
+		BlockPos.MutableBlockPos at = new BlockPos.MutableBlockPos();
+		for (int dx = -r; dx <= r; dx++) for (int dz = -r; dz <= r; dz++) for (int dy = -4; dy <= 4; dy++) {
+			at.set(center.getX() + dx, center.getY() + dy, center.getZ() + dz);
+			if (!blockId(level.getBlockState(at)).equals(blockId)) continue;
+			double distance = at.distToCenterSqr(eye);
+			if (distance >= bestDistance || distance > r * r) continue;
+			BlockHitResult hit = level.clip(new ClipContext(eye, Vec3.atCenterOf(at), ClipContext.Block.VISUAL, ClipContext.Fluid.NONE, player));
+			if (hit.getType() == HitResult.Type.BLOCK && hit.getBlockPos().equals(at)) { best = at.immutable(); bestDistance = distance; }
+		}
+		return best;
 	}
 
 	/** Ores the eye lands on across the current view, within {@link #PASS_LOOK_ORE_SIGHT}. */
