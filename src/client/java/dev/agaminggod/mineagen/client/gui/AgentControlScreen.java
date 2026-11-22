@@ -73,6 +73,9 @@ public final class AgentControlScreen extends Screen {
 	private static final String KEY_BILLING_NOTE = "An API key bills per token. Without one, the tool's signed-in plan is used.";
 	private ConsoleDropdown<String> modelDropdown;
 	private boolean animateProviderPick;
+	/** How far the New agent form is scrolled; only nonzero when the form is taller than the panel (small GUIs). */
+	private int createScroll;
+	private int createScrollMaximum;
 	private final List<FormLabel> formLabels = new ArrayList<>();
 	private final AgentControlSelectionState managementSelection = new AgentControlSelectionState();
 	private final AgentRosterViewState rosterState = new AgentRosterViewState();
@@ -321,6 +324,11 @@ public final class AgentControlScreen extends Screen {
 	@Override
 	public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
 		if (modelDropdown != null && modelDropdown.popupScroll(verticalAmount)) return true;
+		if (page == Page.CREATE && createScrollMaximum > 0 && verticalAmount != 0) {
+			createScroll = Math.clamp(createScroll - (int) Math.signum(verticalAmount) * 24, 0, createScrollMaximum);
+			rebuildWidgets();
+			return true;
+		}
 		if (page == Page.OVERVIEW && rosterGrid != null
 				&& rosterGrid.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount)) {
 			rebuildWidgets();
@@ -518,11 +526,19 @@ public final class AgentControlScreen extends Screen {
 	}
 
 	private void initCreate() {
+		int bodyStart = children().size();
+		// A form rebuilt after a catalog change can be shorter than the old scroll offset; then it restarts once.
+		if (createBody(bodyStart)) return;
+		addCreateFooter();
+	}
+
+	/** Builds the form body; returns true when it had to restart the whole page with a smaller scroll offset. */
+	private boolean createBody(int bodyStart) {
 		AgentControlLayout layout = layout();
 		int x = layout.formLeft();
 		int width = layout.formWidth();
 		int half = (width - FORM_GAP) / 2;
-		int y = bodyTop();
+		int y = bodyTop() - createScroll;
 		boolean pickAnimated = animateProviderPick;
 		animateProviderPick = false;
 		if (!AgentControlCatalog.isEmpty()) normalizeCreateSelection();
@@ -552,8 +568,7 @@ public final class AgentControlScreen extends Screen {
 		y += cardRows * (cardHeight + 6) - 6 + FORM_GAP;
 		if (AgentControlCatalog.isEmpty()) {
 			emptyCreateTop = y;
-			addCreateFooter();
-			return;
+			return finishCreateBody(bodyStart, y + 30);
 		}
 
 		addFormLabel("Model", x, y);
@@ -567,7 +582,7 @@ public final class AgentControlScreen extends Screen {
 					serviceTier = AgentControlCatalog.defaultServiceTier(provider, model);
 					rememberPreferences();
 					rebuildWidgets();
-				}, width, height);
+				}, this.width, height);
 		modelDropdown.active = canControl();
 		addRenderableWidget(modelDropdown);
 		ConsoleSegmented<String> thinking = new ConsoleSegmented<>(font, x + half + FORM_GAP, y, width - half - FORM_GAP, 22,
@@ -606,7 +621,28 @@ public final class AgentControlScreen extends Screen {
 		nameInput.setValue(name);
 		nameInput.setResponder(value -> name = value);
 		addRenderableWidget(nameInput);
-		addCreateFooter();
+		return finishCreateBody(bodyStart, y + 22);
+	}
+
+	/**
+	 * On GUIs too short for the whole form (320x240, scale 4 on small screens) the body scrolls with the mouse wheel:
+	 * controls outside the content area hide, and a chevron under the form says more is below.
+	 */
+	private boolean finishCreateBody(int bodyStart, int formBottom) {
+		AgentControlLayout layout = layout();
+		createScrollMaximum = Math.max(0, formBottom + createScroll - layout.contentBottom());
+		if (createScroll > createScrollMaximum) {
+			createScroll = createScrollMaximum;
+			rebuildWidgets();
+			return true;
+		}
+		for (var child : children().subList(bodyStart, children().size())) {
+			if (child instanceof AbstractWidget widget) {
+				widget.visible = widget.getY() >= layout.contentTop() && widget.getBottom() <= layout.contentBottom();
+			}
+		}
+		formLabels.removeIf(label -> label.y() < layout.contentTop() || label.y() + 8 > layout.contentBottom());
+		return false;
 	}
 
 	/** Top of the message shown in place of the form when no tool offers a model yet. */
@@ -1055,6 +1091,11 @@ public final class AgentControlScreen extends Screen {
 	}
 
 	private void renderCreate(GuiGraphicsExtractor graphics) {
+		AgentControlLayout scrollLayout = layout();
+		if (createScroll < createScrollMaximum) {
+			ConsoleDraw.icon(graphics, ConsoleDraw.Icon.CHEVRON_DOWN, (scrollLayout.contentLeft() + scrollLayout.contentRight()) / 2 - 6,
+					scrollLayout.contentBottom() - 4, ConsoleTheme.SUBTLE);
+		}
 		if (!AgentControlCatalog.isEmpty()) return;
 		AgentControlLayout layout = layout();
 		int x = layout.formLeft();
@@ -1225,6 +1266,7 @@ public final class AgentControlScreen extends Screen {
 	private void show(Page next) {
 		Page destination = next;
 		clearKeyDraft();
+		createScroll = 0;
 		page = destination;
 		feedback = "";
 		rebuildWidgets();
