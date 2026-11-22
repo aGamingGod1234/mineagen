@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { logOrder, runObtain, searchBlock } from '../src/obtain-runner.mjs';
+import { logOrder, searchBlock } from '../src/obtain-runner.mjs';
+import { runObtain } from './helpers/checked-body.mjs';
 import { planObtain } from '../src/obtain-plan.mjs';
 
 // EARLY-7: the first-log search on a treeless spawn surveys the logs its neighbours grow, and after one full search with
