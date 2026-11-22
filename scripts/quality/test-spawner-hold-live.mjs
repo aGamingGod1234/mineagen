@@ -25,6 +25,7 @@ import { MOD_JAR } from './mod-jar.mjs';
 import { ReflexBook } from '../../coordinator/src/reflexes.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 import { startHealthWatch } from './lib/room-evidence.mjs';
+import { deathCounter, recordDeathEvidence } from './lib/damage-counter.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const USAGE = 'Usage: test-spawner-hold-live.mjs OUT_DIR under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME (ARENA_JAR, SEEDS, VARIANTS, RUN_MIN, UNTIL, ARM, FIXTURE_TICK_RATE)';
@@ -52,7 +53,8 @@ const sleep = ms => new Promise(done => setTimeout(done, ms));
 const AGENT = 'Rods';
 const number = text => Number((/(-?\d+(?:\.\d+)?)[fdb]?\s*$/.exec(String(text).trim()) ?? [])[1]);
 // "Rods has 1 [deaths]": the score is the number after "has".
-const deathCount = async s => Number(/has (\d+)/.exec(String(await s.command(`scoreboard players get ${AGENT} deaths`)))?.[1] ?? 0);
+// boot() adds the deathCount objective `deaths` before the body exists, so an unset score is 0; an unreadable one is null.
+const deathCount = s => deathCounter(text => s.command(text), AGENT, { objective: 'deaths', unsetIsZero: true });
 const NETHER = 'execute in minecraft:the_nether run';
 // The room: spawner at SX,SY,SZ; floor top at FLOOR (feet y); the bridge runs west from the room's open side.
 const SX = 1000, SZ = 1000, FLOOR = 80, SY = FLOOR + 1;
@@ -188,7 +190,8 @@ async function oneRun(s, seed, variant, keepStance) {
 		row.stances[stance ?? 'none'] = (row.stances[stance ?? 'none'] ?? 0) + 1;
 		const h = o.player?.health ?? 20;
 		row.minHealth = Math.min(row.minHealth, h);
-		if ((await deathCount(s)) > deathsBefore || h <= 0 || o.player?.dead || (await health(s).catch(() => 1)) <= 0) { dead = true; break; }
+		const deathsNow = await deathCount(s);
+		if (deathsNow !== null && deathsBefore !== null && deathsNow > deathsBefore || h <= 0 || o.player?.dead || (await health(s).catch(() => 1)) <= 0) { dead = true; break; }
 		const rods = rodsHeld(o);
 		row.maxRods = Math.max(row.maxRods, rods);
 		if (rods >= UNTIL) { row.reachedMin ??= +((await timer.elapsed()) / 60_000).toFixed(1); break; }
@@ -234,7 +237,8 @@ async function oneRun(s, seed, variant, keepStance) {
 	row.tick = await timer.rates();
 	await s.normalRate();
 	if (s.observation?.currentAction?.active) await s.bridge.send('action_cancel', s.record.agentId, { goalRevision: s.record.goalRevision, actionId: s.lastActionId }).catch(() => {});
-	row.deaths = (await deathCount(s)) - deathsBefore;
+	// An unreadable or decreasing count is unknown evidence (row.deaths null, an integrity entry), never zero deaths.
+	recordDeathEvidence(row, deathsBefore, await deathCount(s));
 	if (dead && row.deaths === 0) row.deaths = 1;
 	const last = await s.observe().catch(() => null);
 	row.rodsAtEnd = row.deaths > 0 ? 0 : Math.max(rodsHeld(last), row.reachedMin !== null ? UNTIL : 0);
