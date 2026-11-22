@@ -208,7 +208,8 @@ test('a village chest out of sight is found by looking into the houses through t
 	let inside = false;
 	const act = body.act;
 	body.act = async (type, args) => {
-		if (type === 'travel_to') { Object.assign(pos, { x: args.x, y: args.y ?? pos.y, z: args.z }); validateAction({ type, ...args }); if (args.tolerance === 1 && Math.hypot(args.x - 300.5, args.z - -229.5) === 2) inside = true; }
+		if (type === 'travel_to') { Object.assign(pos, { x: args.x, y: args.y ?? pos.y, z: args.z }); validateAction({ type, ...args }); }
+		if (type === 'navigate_to') { validateAction({ type, ...args }); body.calls.push([type, args]); Object.assign(pos, { x: args.x, y: args.y, z: args.z }); if (args.tolerance === 1 && Math.hypot(args.x - 300.5, args.z - -229.5) === 2) inside = true; return { state: 'SUCCEEDED' }; }
 		if (type === 'set_door') { validateAction({ type, ...args }); body.calls.push([type, args]); return { state: 'SUCCEEDED' }; }
 		return act(type, args);
 	};
@@ -239,7 +240,7 @@ test('a house with a zombie by its door is shut again and not entered', async ()
 		search: async () => ({ state: 'FAILED', reasonCode: 'FIND_NOT_FOUND' }) }, { now: (() => { let t = 0; return () => (t += 100); })(), looted: { opened: [], searched: [], structures: [], doors: [] } });
 	const doorCalls = calls.filter(([type]) => type === 'set_door').map(([, args]) => args.open);
 	assert.deepEqual(doorCalls.slice(0, 2), [true, false]);
-	assert.equal(calls.some(([type, args]) => type === 'travel_to' && args.tolerance === 1), false, 'never steps into the house');
+	assert.equal(calls.some(([type]) => type === 'navigate_to'), false, 'never steps into the house');
 });
 
 // The playtest's iron trip: obtain iron_pickaxe mined only the pickaxe's 3 iron, and the kit's other 8 took a second trip.
