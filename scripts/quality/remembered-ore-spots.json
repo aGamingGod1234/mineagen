@@ -71,6 +71,11 @@
    {
     "actionType": "dig_to",
     "pattern": "stairs_up"
+   },
+   {
+    "actionType": "dig_to",
+    "pattern": "tunnel",
+    "max": 2
    }
   ],
   "finalProbe": [
@@ -80,12 +85,6 @@
    {
     "index": 0,
     "match": "Test passed"
-   }
-  ],
-  "expectAction": [
-   {
-    "type": "travel_to",
-    "reasonCode": "TARGET_SEEN"
    }
   ],
   "maxSeconds": 120

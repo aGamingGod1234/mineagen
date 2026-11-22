@@ -313,3 +313,10 @@ test('a spot can require a receipt and a time limit', () => {
 	assert.match(findSpotVerdict(spot, { ...row, actions: [{ type: 'travel_to', reasonCode: 'ARRIVED' }] }).failReason, /no travel_to TARGET_SEEN receipt/);
 	assert.match(findSpotVerdict(spot, { ...row, calls: [{ reasonCode: 'OBTAINED', state: 'SUCCEEDED', seconds: 300 }] }).failReason, /took 300 s, more than 120 s/);
 });
+
+test('a forbid rule can allow a few of an action', () => {
+	const spot = { expectCode: 'OBTAINED', forbid: [{ actionType: 'dig_to', pattern: 'tunnel', max: 2 }] };
+	const row = (n) => ({ calls: [{ reasonCode: 'OBTAINED', state: 'SUCCEEDED', seconds: 40 }], deaths: 0, actions: Array.from({ length: n }, () => ({ type: 'dig_to', args: { pattern: 'tunnel' } })) });
+	assert.equal(findSpotVerdict(spot, row(2)).pass, true);
+	assert.match(findSpotVerdict(spot, row(3)).failReason, /3x dig_to tunnel, which this spot allows 2 of/);
+});

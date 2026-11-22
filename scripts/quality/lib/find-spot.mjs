@@ -67,7 +67,8 @@ export function findSpotVerdict(spot = {}, row = {}) {
 	// forbid: [{ actionType, pattern? }] body actions the spot must not take (a village start never digs down for stone).
 	for (const rule of Array.isArray(spot.forbid) ? spot.forbid : []) {
 		const hits = (row.actions ?? []).filter((action) => action?.type === rule.actionType && (rule.pattern === undefined || action?.args?.pattern === rule.pattern)).length;
-		if (hits > 0) misses.push(`${hits}x ${rule.actionType}${rule.pattern ? ` ${rule.pattern}` : ''}, which this spot forbids`);
+		// max: how many the spot allows (a short dig to a known ore), 0 when not given.
+		if (hits > (Number.isFinite(rule.max) ? rule.max : 0)) misses.push(`${hits}x ${rule.actionType}${rule.pattern ? ` ${rule.pattern}` : ''}, which this spot ${Number.isFinite(rule.max) ? `allows ${rule.max} of` : 'forbids'}`);
 	}
 	// minEndY: the body ends at or above this height (out of a pocket it mined), from the run's own end position.
 	if (Number.isFinite(spot.minEndY) && !(Array.isArray(row.end) && row.end[1] >= spot.minEndY)) misses.push(`ended at y${Array.isArray(row.end) ? Number(row.end[1]).toFixed(1) : '?'}, below y${spot.minEndY}`);
