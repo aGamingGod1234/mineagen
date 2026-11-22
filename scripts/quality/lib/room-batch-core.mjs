@@ -206,10 +206,13 @@ export async function mergeArms({ out, rooms, arms, outcomes }) {
 			const found = outcome.lost ? { rows: [], summary: null, problem: null } : await armRows(dir);
 			const own = found.summary;
 			const ownValid = Boolean(own && typeof own === 'object' && Number.isInteger(own.planned));
+			// A room whose summary is INVALID but that wrote rows needs no room-wide verdict: its invalid rows read INVALID
+			// themselves and its missing ones count as notStarted, so one errored course never voids the courses beside it
+			// (as collectRuns in benchmark-score.mjs reads it). With no rows at all the summary's INVALID is the only evidence.
 			const roomInvalid = outcome.lost ? null
 				: found.problem ? found.problem
 				: !ownValid ? 'missing or corrupt room summary'
-				: own.status === 'INVALID' ? 'room summary INVALID'
+				: own.status === 'INVALID' && !found.rows.length ? 'room summary INVALID'
 				: own.planned <= 0 ? 'room planned 0 rows'
 				: null;
 			const basePlanned = ownValid ? own.planned : (room.plannedByArm?.[arm] ?? room.planned);

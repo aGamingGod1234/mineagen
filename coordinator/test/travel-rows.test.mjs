@@ -18,6 +18,7 @@ test('a travel course passes on arrival with no death and fails when it stops sh
 	assert.equal(arrived.name, 'a');
 	assert.equal(arrived.startedAt, 1_000);
 	assert.equal(arrived.finishedAt, 301_000);
+	assert.equal(arrived.minutes, 5, 'the course\'s own wall time, not the arm\'s');
 	assert.equal(arrived.pickaxeUsesPer100Blocks, 25);
 	assert.equal(arrived.bar, undefined, 'no cap declared, no bar');
 	assert.equal(roomVerdict(travelRow(course('seen', { arrived: true, targetSeen: 'fortress at 40 blocks', endDistance: 90 }))).verdict, 'PASS');
@@ -83,4 +84,24 @@ test('a room batch merges travel courses as passes and fails, where the old resu
 		const written = JSON.parse(await readFile(path.join(dir, 'result-summary.json'), 'utf8'));
 		assert.equal(written.started, 2);
 	} finally { await rm(out, { recursive: true, force: true }); }
+});
+
+test('one course that errored leaves the other courses in its room judged on their own evidence', async () => {
+	const out = await mkdtemp(path.join(os.tmpdir(), 'travel-rows-mixed-'));
+	try {
+		const rooms = parseCommands(`@courses ${LINE}`, ['new']);
+		const runs = [course('a'), course('b'), course('c'), { id: 'd', mode: 'travel', error: 'server did not boot: Error: bridge never ready' }];
+		const dir = path.join(out, 'rooms', 'courses', 'new');
+		await mkdir(dir, { recursive: true });
+		const own = await finishRun(runs.map(run => travelRow(run)), { file: path.join(dir, 'result.json'), planned: 4, setExitCode: false });
+		assert.equal(own.status, 'INVALID');
+		const merged = await mergeArms({ out, rooms, arms: ['new'], outcomes: [{ room: 'courses', lost: false, worker: 'vm1', attempts: 1, arms: { new: { exit: 2, seconds: 900 } } }] });
+		assert.deepEqual(merged.new.summary.rooms.map(room => `${room.name} ${room.verdict}`), ['a PASS', 'b PASS', 'c PASS', 'd INVALID']);
+		assert.equal(merged.new.summary.status, 'INVALID', 'the arm still reads INVALID: rerun the course that never played');
+		assert.equal(armTotals(merged.new).pass, 3);
+	} finally { await rm(out, { recursive: true, force: true }); }
+});
+
+test('a room-wide flag on a merged row names itself in the verdict reason', () => {
+	assert.deepEqual(roomVerdict({ pass: true, integrity: ['arm killed (room timeout)'] }), { verdict: 'INVALID', reason: 'missing evidence: arm killed (room timeout)' });
 });

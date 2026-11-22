@@ -13,7 +13,9 @@ export function pickaxeUsesPer100(run) {
  * course that gained nothing. Without a cap there is no bar; an A/B compares the per-100 figure between arms.
  */
 export function travelRow(run, { maxPickaxeUsesPer100 = null } = {}) {
-	const row = { ...run, name: run.id, startedAt: run.startedAt ?? run.startedAtEpochMs ?? null, finishedAt: run.finishedAt ?? run.endedAtEpochMs ?? null };
+	// minutes: the course's own wall time, which ai-room-report.mjs reads before it falls back to the whole arm's.
+	const row = { ...run, name: run.id, startedAt: run.startedAt ?? run.startedAtEpochMs ?? null, finishedAt: run.finishedAt ?? run.endedAtEpochMs ?? null,
+		minutes: Number.isFinite(run.wallSeconds) ? run.wallSeconds / 60 : null };
 	if (run.error) return row;
 	row.pickaxeUsesPer100Blocks = pickaxeUsesPer100(run);
 	// An unknown death count is missing evidence (INVALID), never a measured miss or a pass.
