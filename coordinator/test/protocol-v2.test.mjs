@@ -3392,7 +3392,20 @@ test('the bridge closes only after eight bad snapshots in a row for one agent an
 	await new Promise((resolve) => setImmediate(resolve));
 	assert.equal(sent(), 2, 'a second resync after the fault cleared');
 	const second = lasting.socket.writes.map((line) => JSON.parse(line)).filter((envelope) => envelope.type === 'request_observation')[1];
-	assert.deepEqual(second.payload, { goalRevision: 4, resync: true, acceptedEventSequence: 7 }, 'counted from the observation the coordinator accepted');
+	assert.deepEqual(second.payload, { goalRevision: 4, resync: true }, 'nothing was accepted before the drops, so the server re-announces every threat');
+
+	// Accepted 7, dropped 8 and 9, accepted 10: the recovery resync still counts from 7, the last one before the drops.
+	const sequenced = await readyBridgeFixture(t);
+	const at = (id, sequence, broken) => {
+		const payload = readyServerObservation(4);
+		payload.eventSequence = sequence;
+		if (broken) payload.position.x = 'broken';
+		return `${JSON.stringify(serverEnvelope('observation', 'agent-a', id, payload))}\n`;
+	};
+	for (const [id, sequence, broken] of [['s7', 7, false], ['s8', 8, true], ['s9', 9, true], ['s10', 10, false], ['s11', 11, false]]) sequenced.socket.emit('data', at(id, sequence, broken));
+	await new Promise((resolve) => setImmediate(resolve));
+	const froms = sequenced.socket.writes.map((line) => JSON.parse(line)).filter((envelope) => envelope.type === 'request_observation').map((envelope) => envelope.payload.acceptedEventSequence);
+	assert.deepEqual(froms, [7, 7]);
 	lasting.socket.emit('data', good('re-announced'));
 	lasting.socket.emit('data', good('quiet'));
 	await new Promise((resolve) => setImmediate(resolve));

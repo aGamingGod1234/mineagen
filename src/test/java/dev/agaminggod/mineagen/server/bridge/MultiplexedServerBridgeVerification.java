@@ -3621,6 +3621,13 @@ public final class MultiplexedServerBridgeVerification {
 		state.forgetDelivered(agentId, 1L);
 		assertTrue(state.delta(agentId, still, 3L, 3L).changedFacts().contains("player.air"),
 				"a resync from the accepted delivery announces low air again");
+		// A lasting fault: 2 dropped, the answer to the first resync (3) dropped too, 4 accepted. Counted from 1 again.
+		state.commit(agentId, still);
+		JsonObject later = com.google.gson.JsonParser.parseString("{\"eventSequence\":4,\"player\":{\"air\":40}}").getAsJsonObject();
+		state.commit(agentId, later);
+		state.forgetDelivered(agentId, 1L);
+		assertTrue(state.delta(agentId, later, 5L, 5L).changedFacts().contains("player.air"),
+				"a resync after a lasting fault still announces low air");
 		state.forgetDelivered(agentId, 99L); // Unknown: falls back to re-announcing threats only.
 		assertEquals(Set.of(), state.threatBaseline(agentId), "an unknown accepted delivery still clears the threat baseline");
 	}

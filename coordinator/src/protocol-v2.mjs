@@ -623,7 +623,7 @@ export class MultiplexedServerBridge extends EventEmitter {
 	#observedRevisions = new Map();
 	#payloadRejections = new Map();
 	#snapshotRejectionStreaks = new Map();
-	/** Agents asked to re-announce their threats, with how many of their observations were dropped since. */
+	/** Agents asked to re-announce what they missed: the last observation accepted before the drops, and drops since asking. */
 	#resyncRequested = new Map();
 	/** The event sequence of each agent's last accepted observation: a resync counts the server's changes from it. */
 	#acceptedObservationSequence = new Map();
@@ -897,9 +897,10 @@ export class MultiplexedServerBridge extends EventEmitter {
 				// would never come again. Ask it to announce every current threat again: once now, and once more after the
 				// fault clears if the answer was dropped too, so a fault lasting a few seconds is ridden out at the normal rate.
 				if (envelope.type === 'observation') {
-					const dropped = this.#resyncRequested.get(envelope.agentId);
-					if (dropped === undefined) this.#requestResync(envelope.agentId, envelope.payload.goalRevision, connectionEpoch);
-					else this.#resyncRequested.set(envelope.agentId, dropped + 1);
+					const pending = this.#resyncRequested.get(envelope.agentId);
+					if (pending === undefined) {
+						this.#requestResync(envelope.agentId, envelope.payload.goalRevision, this.#acceptedObservationSequence.get(envelope.agentId), connectionEpoch);
+					} else pending.dropped += 1;
 				}
 			}
 			this.#reportRejectedPayload(envelope, value, payloadError, connectionEpoch);
@@ -912,7 +913,9 @@ export class MultiplexedServerBridge extends EventEmitter {
 			if (this.#acceptedObservationSequence.size > MAX_REGISTRY_SNAPSHOT_AGENTS) this.#acceptedObservationSequence.delete(this.#acceptedObservationSequence.keys().next().value);
 		}
 		if (envelope.type === 'observation' && this.#resyncRequested.has(envelope.agentId)) {
-			if (this.#resyncRequested.get(envelope.agentId) > 0) this.#requestResync(envelope.agentId, envelope.payload.goalRevision, connectionEpoch);
+			// Still counted from the last observation accepted before the drops: later ones were changes against dropped ones.
+			const pending = this.#resyncRequested.get(envelope.agentId);
+			if (pending.dropped > 0) this.#requestResync(envelope.agentId, envelope.payload.goalRevision, pending.from, connectionEpoch);
 			else this.#resyncRequested.delete(envelope.agentId);
 		}
 		if (envelope.type === 'agent_registered' || envelope.type === 'agent_removed') {
@@ -931,10 +934,9 @@ export class MultiplexedServerBridge extends EventEmitter {
 		this.#enqueueInbound(event, socket, connectionEpoch);
 	}
 
-	#requestResync(agentId, goalRevision, connectionEpoch) {
-		this.#resyncRequested.set(agentId, 0);
-		const accepted = this.#acceptedObservationSequence.get(agentId);
-		void this.send('request_observation', agentId, { goalRevision, resync: true, ...(accepted === undefined ? {} : { acceptedEventSequence: accepted }) },
+	#requestResync(agentId, goalRevision, from, connectionEpoch) {
+		this.#resyncRequested.set(agentId, { dropped: 0, from });
+		void this.send('request_observation', agentId, { goalRevision, resync: true, ...(from === undefined ? {} : { acceptedEventSequence: from }) },
 			{ connectionEpoch }).catch(() => {});
 	}
 

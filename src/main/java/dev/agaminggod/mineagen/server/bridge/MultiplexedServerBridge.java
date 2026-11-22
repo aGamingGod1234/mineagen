@@ -4236,7 +4236,8 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		private final Map<AgentId, java.util.LinkedHashSet<String>> conversationSources = new java.util.LinkedHashMap<>();
 		// The last few deliveries by event sequence, so a resync can go back to the one the coordinator actually accepted.
 		private final Map<AgentId, LinkedHashMap<Long, DeliveredBaseline>> recentDeliveries = new HashMap<>();
-		private static final int RECENT_DELIVERIES = 8;
+		// Covers a run of dropped observations up to the coordinator's limit, plus the answers already on their way.
+		private static final int RECENT_DELIVERIES = 12;
 
 		private record DeliveredBaseline(JsonObject observation, Set<String> threatSignals) {}
 
