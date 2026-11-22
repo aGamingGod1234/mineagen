@@ -786,7 +786,22 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		const minedCount = Number(/mined: (\d+)/.exec(String(mined?.message ?? ''))?.[1] ?? 0);
 		if (have >= total || have - heldBefore >= minedCount) return;
 		step(`into the mined ${bare(where.blockId)} pocket at ${where.x},${where.y},${where.z} for its drops`);
-		await act('travel_to', { x: where.x + 0.5, y: where.y, z: where.z + 0.5, tolerance: 1, timeoutMs: 20_000 });
+		// Into the pocket itself, not its rim: drops at the bottom of a narrow pocket lie behind its wall from the rim and
+		// never show in sight (22 Nov rooms: 2 raw iron 2 blocks down, unlisted, 3 of 10 runs searched anew). Stepping into
+		// the cell drops the body onto them; it picks up what it touches. Tolerance 1 counted the rim as arrived.
+		// Never into a pocket with lava or water known in it or under it; travel itself steps down only onto a floor it has
+		// seen, so an unseen bottom is no step either.
+		const before = await body.observe();
+		const rim = bodyAt(before);
+		// Only what the body would land in or on counts: the first known block down the pocket's column (a sample never
+		// lists air). Water further down, under the pocket's solid floor, is no reason to stay out.
+		const below = knownBlocks(before).filter((row) => row.x === where.x && row.z === where.z && row.y <= where.y && row.y >= where.y - 4
+			&& !ORE_BLOCKS.test(bare(row.blockId)))
+			.sort((a, b) => b.y - a.y)[0];
+		const wet = below !== undefined && /(^|:)(lava|water)$/.test(below.blockId);
+		if (wet || rim === null) { await pickUpNear(where, need.accept, 6); return; }
+		// navigate_to: travel_to takes no tolerance under 1 block, which is the rim again.
+		await act('navigate_to', { x: where.x + 0.5, y: where.y, z: where.z + 0.5, tolerance: 0.4, timeoutMs: 20_000 });
 		if (body.interrupted() || body.stopped()) return;
 		await pickUpNear(where, need.accept, 6);
 	};
@@ -1255,13 +1270,23 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 					return `could not reach the ${bare(where.blockId)} at ${where.x},${where.y},${where.z}${notReach === undefined ? '' : ` (${notReach})`}`;
 				}
 				step(`mine the ${bare(where.blockId)} vein at ${where.x},${where.y},${where.z}`);
-				const heldBefore = heldOf(need.accept.join('|'), heldCounts(await body.observe()), index);
+				const beforeMine = await body.observe();
+				const heldBefore = heldOf(need.accept.join('|'), heldCounts(beforeMine), index);
+				const level = bodyAt(beforeMine)?.y ?? null;
 				budget.veins.add(`${where.x},${where.y},${where.z}`);
 				let mined = await body.mine({ x: where.x, y: where.y, z: where.z, vein: true, maxBlocks: 24, timeoutMs: 90_000 });
 				if (['INVALID_VEIN_TARGET', 'NOTHING_MINED'].includes(mined?.reasonCode) && !body.interrupted() && !body.stopped()) {
 					step(`dig to the hidden ${bare(where.blockId)} at ${where.x},${where.y},${where.z}`);
 					await act('dig_to', { pattern: 'tunnel', x: where.x, z: where.z, maxBlocks: 6, stopWhenSeen: id(where.blockId), throughCaves: 'small', timeoutMs: 30_000 });
 					mined = await body.mine({ x: where.x, y: where.y, z: where.z, vein: true, maxBlocks: 24, timeoutMs: 90_000 });
+				}
+				// Every block in reach under the feet and no stance mine_vein could see or reach: step back the way the body
+				// faced from and try once more from there, as a player steps off an ore to mine it.
+				if (mined?.reasonCode === 'VEIN_UNDER_BODY' && !body.interrupted() && !body.stopped()) {
+					const facing = (await body.observe()).player?.yaw ?? 0;
+					step(`step off the ${bare(where.blockId)} at ${where.x},${where.y},${where.z} and mine it from beside`);
+					await act('travel_to', { yaw: Math.round((((facing + 180) % 360) + 540) % 360 - 180), distance: 2, tolerance: 1, timeoutMs: 15_000 });
+					if (!body.interrupted() && !body.stopped()) mined = await body.mine({ x: where.x, y: where.y, z: where.z, vein: true, maxBlocks: 24, timeoutMs: 90_000 });
 				}
 				if (body.interrupted() || body.stopped()) return 'stopped';
 				if (mined?.state !== 'SUCCEEDED') {
@@ -1270,6 +1295,13 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 				}
 				await pickUpNear(where, need.accept, 6);
 				if (mined?.state === 'SUCCEEDED' && !body.interrupted() && !body.stopped()) await veinRest(need, where, total, heldBefore, mined);
+				// A pickup that walked down into the mined pocket (or a vein that ended in it) leaves the body in a hole: stairs
+				// back up to the level it mined from, cut into the pocket's wall as a player does.
+				const after = bodyAt(await body.observe());
+				if (level !== null && after !== null && after.y < level - 0.5 && !body.interrupted() && !body.stopped()) {
+					step(`climb back out of the pocket to y${Math.floor(level)}`);
+					await act('dig_to', { pattern: 'stairs_up', y: Math.floor(level), maxBlocks: 12, throughCaves: 'small', timeoutMs: 30_000 });
+				}
 				return mined?.state === 'SUCCEEDED' ? null : `mine ${bare(where.blockId)}: ${mined?.reasonCode ?? 'failed'}`;
 			}
 		} else if (at && !where.dug && flatDistance(at, where) > 8) {

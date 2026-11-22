@@ -300,3 +300,10 @@ test('a spot with a final-probe expectation fails when the ground truth after th
 	assert.match(left.failReason, /final probe 0 replied "Test failed"/);
 	assert.equal(findSpotVerdict(spot, { ...row, finalProbe: undefined }).pass, false, 'no probe reply is no pass');
 });
+
+test('a spot can require the body to end out of a pocket (minEndY)', () => {
+	const spot = { expectCode: 'OBTAINED', minEndY: 14.9 };
+	const row = (y) => ({ calls: [{ reasonCode: 'OBTAINED', state: 'SUCCEEDED' }], deaths: 0, end: [298.5, y, -260.5] });
+	assert.equal(findSpotVerdict(spot, row(15)).pass, true);
+	assert.match(findSpotVerdict(spot, row(13)).failReason, /ended at y13.0, below y14.9/);
+});
