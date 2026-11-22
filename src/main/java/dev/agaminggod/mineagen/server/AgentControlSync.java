@@ -3,6 +3,7 @@ package dev.agaminggod.mineagen.server;
 import dev.agaminggod.mineagen.control.AgentControlRequestPayload;
 import dev.agaminggod.mineagen.control.AgentControlModelOption;
 import dev.agaminggod.mineagen.control.AgentControlRedaction;
+import dev.agaminggod.mineagen.control.AgentControlResult;
 import dev.agaminggod.mineagen.control.AgentControlSnapshot;
 import dev.agaminggod.mineagen.agent.AgentId;
 import dev.agaminggod.mineagen.agent.AgentRecord;
@@ -32,6 +33,9 @@ public final class AgentControlSync {
 	private static final Logger LOGGER = LoggerFactory.getLogger(AgentControlSync.class);
 	private static final Map<MinecraftServer, Long> CONTROL_REVISIONS = new WeakHashMap<>();
 	private static final SnapshotRequestLimiter SNAPSHOT_REQUESTS = new SnapshotRequestLimiter();
+	/** Each player's latest command result, sent in their own snapshots so the Control Center shows refusals. */
+	private static final Map<UUID, AgentControlResult> LATEST_RESULTS = new java.util.concurrent.ConcurrentHashMap<>();
+	private static final java.util.concurrent.atomic.AtomicLong RESULT_SEQUENCE = new java.util.concurrent.atomic.AtomicLong();
 	private static boolean registered;
 
 	private AgentControlSync() {
@@ -109,6 +113,24 @@ public final class AgentControlSync {
 		requestSnapshot(player);
 	}
 
+	/**
+	 * Records what happened to a control command a player ran, for that player's next snapshot, and asks for one.
+	 * Chat output is unchanged; this only lets the Control Center show the same answer. Console sources are ignored.
+	 */
+	public static void recordResult(net.minecraft.commands.CommandSourceStack source, boolean accepted, String message) {
+		if (source == null || !(source.getEntity() instanceof ServerPlayer player)) return;
+		LATEST_RESULTS.put(player.getUUID(), result(RESULT_SEQUENCE.incrementAndGet(), accepted, message));
+		requestSnapshot(player);
+	}
+
+	static AgentControlResult result(long sequence, boolean accepted, String message) {
+		return new AgentControlResult(sequence, accepted, message == null ? "" : message);
+	}
+
+	static Optional<AgentControlResult> latestResult(UUID playerId) {
+		return Optional.ofNullable(LATEST_RESULTS.get(playerId));
+	}
+
 	static void requestSnapshot(ServerPlayer player) {
 		switch (SNAPSHOT_REQUESTS.request(player.getUUID(), monotonicMillis())) {
 			case SEND -> sendSnapshot(player);
@@ -126,6 +148,7 @@ public final class AgentControlSync {
 			for (int sent = 0; sent < due.getOrDefault(player.getUUID(), 0); sent++) sendSnapshot(player);
 		}
 		SNAPSHOT_REQUESTS.retain(connected);
+		LATEST_RESULTS.keySet().retainAll(connected);
 	}
 
 	private static long monotonicMillis() {
@@ -147,7 +170,9 @@ public final class AgentControlSync {
 					manager::findAgentPlayer
 			);
 			if (ServerPlayNetworking.canSend(player, AgentControlSnapshotPayload.TYPE)) {
-				ServerPlayNetworking.send(player, AgentControlSnapshotPayload.fromSnapshot(ProviderApiKeyStore.withMetadata(snapshot, ProviderApiKeyStore.runtimeRoot())));
+				AgentControlSnapshot withKeys = ProviderApiKeyStore.withMetadata(snapshot, ProviderApiKeyStore.runtimeRoot());
+				ServerPlayNetworking.send(player, AgentControlSnapshotPayload.fromSnapshot(
+						withKeys.withResult(AgentControlRedaction.forViewer(LATEST_RESULTS.get(player.getUUID())))));
 			}
 		} catch (RuntimeException exception) {
 			LOGGER.warn("Could not send Mineagen control snapshot to {}", player.getScoreboardName(), exception);
