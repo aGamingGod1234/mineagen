@@ -76,6 +76,7 @@ public final class AgentControlScreen extends Screen {
 	/** How far the New agent form is scrolled; only nonzero when the form is taller than the panel (small GUIs). */
 	private int createScroll;
 	private int createScrollMaximum;
+	private final java.util.Set<AbstractWidget> createBodyWidgets = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
 	private final List<FormLabel> formLabels = new ArrayList<>();
 	private final AgentControlSelectionState managementSelection = new AgentControlSelectionState();
 	private final AgentRosterViewState rosterState = new AgentRosterViewState();
@@ -99,6 +100,9 @@ public final class AgentControlScreen extends Screen {
 	private ConsoleEditBox nameInput;
 	private MultiLineEditBox promptInput;
 	private boolean widgetRefreshPending;
+	private final DeferredRebuild inputRebuild = new DeferredRebuild();
+	/** The agent a Task, Manage or Remove page was opened for; those pages close instead of retargeting if it goes. */
+	private String pageAgentId = "";
 
 	public AgentControlScreen() {
 		this(null);
@@ -142,6 +146,7 @@ public final class AgentControlScreen extends Screen {
 		contentChanged = contentChanged || snapshot == null || !snapshot.agents().equals(checkedSnapshot.agents())
 				|| !snapshot.catalog().equals(checkedSnapshot.catalog());
 		boolean mutationWasPending = mutationState.mutationPending();
+		boolean catalogChanged = snapshot == null || !snapshot.catalog().equals(checkedSnapshot.catalog());
 		mutationState = mutationState.accept(checkedSnapshot.generatedAtEpochMs(), acknowledgedMutationId);
 		if (!contentChanged) {
 			snapshot = checkedSnapshot;
@@ -170,7 +175,76 @@ public final class AgentControlScreen extends Screen {
 			normalizeRosterFilterOptions();
 		}
 		rosterState.focus(managementSelection.selectedAgentId());
+		if (isAgentPage(page) && pageAgentGone(pageAgentId, snapshot.agents())) {
+			// Another operator removed this agent. Selection has already moved to a different agent, so staying here
+			// would retarget the open page (and a pending Remove) at someone else.
+			page = Page.OVERVIEW;
+			pageAgentId = "";
+			setFeedback("That agent was removed by someone else. Nothing was changed.", true);
+			widgetRefreshPending = true;
+			rebuildWidgets();
+			return;
+		}
+		if (catalogChanged && page == Page.CREATE) {
+			// The form's dropdown and choices format ids from the catalog; rebuild now even while Name is focused,
+			// rather than leave widgets holding ids the new catalog no longer has. Name keeps its text and focus.
+			widgetRefreshPending = true;
+			rebuildWidgets();
+			return;
+		}
 		requestWidgetRefresh();
+	}
+
+	/**
+	 * Tab order for a New agent form taller than the panel. Controls scrolled out of view are hidden, and vanilla
+	 * Tab skips hidden widgets, so the screen walks the order itself and scrolls the next control into view.
+	 */
+	private boolean tabThroughScrolledForm(int direction) {
+		List<AbstractWidget> ring = children().stream().filter(AbstractWidget.class::isInstance).map(AbstractWidget.class::cast)
+				.filter(widget -> widget.active).toList();
+		if (ring.isEmpty()) return false;
+		int current = getFocused() instanceof AbstractWidget focused ? ring.indexOf(focused) : -1;
+		int nextIndex = current < 0 ? (direction > 0 ? 0 : ring.size() - 1) : Math.floorMod(current + direction, ring.size());
+		AbstractWidget next = ring.get(nextIndex);
+		AgentControlLayout layout = layout();
+		int target = createBodyWidgets.contains(next)
+				? scrollToReveal(createScroll, next.getY() + createScroll, next.getBottom() + createScroll,
+						layout.contentTop(), layout.contentBottom(), createScrollMaximum)
+				: createScroll;
+		if (target != createScroll) {
+			String identity = ConsoleFocusIdentity.of(next);
+			createScroll = target;
+			rebuildWidgets();
+			children().stream().filter(AbstractWidget.class::isInstance).map(AbstractWidget.class::cast)
+					.filter(widget -> ConsoleFocusIdentity.of(widget).equals(identity)).findFirst().ifPresent(this::setInitialFocus);
+		} else {
+			setInitialFocus(next);
+		}
+		return true;
+	}
+
+	/** Scroll offset that brings the span {@code top..bottom} (unscrolled y) fully inside the view, moving as little as possible. */
+	static int scrollToReveal(int scroll, int top, int bottom, int viewTop, int viewBottom, int maximum) {
+		int next = scroll;
+		if (top - next < viewTop) next = top - viewTop;
+		else if (bottom - next > viewBottom) next = bottom - viewBottom;
+		return Math.clamp(next, 0, Math.max(0, maximum));
+	}
+
+	private static boolean isAgentPage(Page page) {
+		return page == Page.TASK || page == Page.MANAGE || page == Page.REMOVE_CONFIRM;
+	}
+
+	/** True when a page opened for {@code pageAgentId} must close because that agent is no longer in the roster. */
+	static boolean pageAgentGone(String pageAgentId, List<AgentControlAgent> agents) {
+		if (pageAgentId == null || pageAgentId.isBlank()) return false;
+		return agents.stream().noneMatch(agent -> agent.agentId().equals(pageAgentId));
+	}
+
+	/** The agent the open Task, Manage or Remove page belongs to, or null if it is gone. */
+	private AgentControlAgent pageAgent() {
+		if (snapshot == null || pageAgentId.isBlank()) return null;
+		return snapshot.agents().stream().filter(agent -> agent.agentId().equals(pageAgentId)).findFirst().orElse(null);
 	}
 
 	private void requestWidgetRefresh() {
@@ -277,6 +351,7 @@ public final class AgentControlScreen extends Screen {
 
 	@Override
 	protected void rebuildWidgets() {
+		if (!inputRebuild.request()) return;
 		String focusKey = getFocused() instanceof AbstractWidget widget ? ConsoleFocusIdentity.of(widget) : "";
 		super.rebuildWidgets();
 		if (focusKey.isBlank()) return;
@@ -318,7 +393,12 @@ public final class AgentControlScreen extends Screen {
 	@Override
 	public boolean mouseClicked(MouseButtonEvent event, boolean doubled) {
 		if (modelDropdown != null && modelDropdown.popupClick(event)) return true;
-		return super.mouseClicked(event, doubled);
+		inputRebuild.enter();
+		try {
+			return super.mouseClicked(event, doubled);
+		} finally {
+			if (inputRebuild.exit()) rebuildWidgets();
+		}
 	}
 
 	@Override
@@ -339,6 +419,18 @@ public final class AgentControlScreen extends Screen {
 
 	@Override
 	public boolean keyPressed(KeyEvent event) {
+		if (event.key() == InputConstants.KEY_TAB && page == Page.CREATE && createScrollMaximum > 0) {
+			return tabThroughScrolledForm(event.hasShiftDown() ? -1 : 1);
+		}
+		inputRebuild.enter();
+		try {
+			return dispatchKey(event);
+		} finally {
+			if (inputRebuild.exit()) rebuildWidgets();
+		}
+	}
+
+	private boolean dispatchKey(KeyEvent event) {
 		if (event.key() == InputConstants.KEY_ESCAPE) {
 			if (modelDropdown != null && modelDropdown.isOpen()) {
 				modelDropdown.close();
@@ -377,11 +469,11 @@ public final class AgentControlScreen extends Screen {
 		int top = bodyTop();
 		addRosterFilters(layout.canvasLeft(), top, layout.canvasWidth());
 		if (layout.splitWorkspace()) {
-			addRosterGrid(layout.rosterBounds(top, filtersVisible, false), AgentRosterGrid.Mode.FOCUS_ONLY);
+			addRosterGrid(overviewRosterBounds(layout, filtersVisible), AgentRosterGrid.Mode.FOCUS_ONLY);
 			addOverviewActions(layout.contextLeft(), top, layout.contextWidth());
 			addOverviewFooter();
 		} else {
-			addRosterGrid(layout.rosterBounds(top, filtersVisible, false), AgentRosterGrid.Mode.FOCUS_ONLY);
+			addRosterGrid(overviewRosterBounds(layout, filtersVisible), AgentRosterGrid.Mode.FOCUS_ONLY);
 			addCompactOverviewActions(layout.contentLeft(), layout.footerY(), layout.contentWidth());
 		}
 	}
@@ -420,8 +512,13 @@ public final class AgentControlScreen extends Screen {
 	private void addRosterGrid(AgentControlLayout.Bounds region, AgentRosterGrid.Mode mode) {
 		if (snapshot == null || region.width() < 24 || region.height() < 24) return;
 		AgentRosterPage probe = rosterState.page(1);
-		AgentRosterGridLayout gridLayout = AgentRosterGridLayout.calculate(
-				region.left(), region.top(), region.right(), region.bottom(), probe.totalFiltered());
+		AgentRosterGridLayout gridLayout;
+		try {
+			gridLayout = AgentRosterGridLayout.calculate(region.left(), region.top(), region.right(), region.bottom(),
+					probe.totalFiltered());
+		} catch (IllegalArgumentException tooSmall) {
+			return; // a GUI below the design minimum has no room for a tile; the header and actions still work
+		}
 		AgentRosterPage rosterPage = rosterState.page(Math.max(1, gridLayout.pageSize()));
 		Set<String> selected = mode == AgentRosterGrid.Mode.MULTI_SELECT
 				? rosterState.selectedIds() : Set.of();
@@ -517,8 +614,16 @@ public final class AgentControlScreen extends Screen {
 
 	/** Where a page's controls start: below its title when the panel is tall enough to show one. */
 	private int bodyTop() {
-		AgentControlLayout layout = layout();
+		return bodyTop(layout());
+	}
+
+	static int bodyTop(AgentControlLayout layout) {
 		return layout.contentTop() + (layout.roomy() ? TITLE_BLOCK : 2);
+	}
+
+	/** The overview roster region the live screen uses, shared with the layout tests so they measure the real thing. */
+	static AgentControlLayout.Bounds overviewRosterBounds(AgentControlLayout layout, boolean filtersVisible) {
+		return layout.rosterBounds(bodyTop(layout), filtersVisible, false);
 	}
 
 	private void addFormLabel(String text, int x, int y) {
@@ -575,8 +680,9 @@ public final class AgentControlScreen extends Screen {
 		addFormLabel("Thinking", x + half + FORM_GAP, y);
 		y += LABEL_HEIGHT;
 		List<String> models = AgentControlCatalog.models(provider);
+		String dropdownProvider = provider;
 		modelDropdown = new ConsoleDropdown<>(font, x, y, half, 22, "Model", models, model,
-				value -> AgentControlCatalog.displayName(provider, value), value -> {
+				value -> safeDisplayName(dropdownProvider, value), value -> {
 					model = value;
 					reasoning = AgentControlCatalog.defaultReasoning(provider, model);
 					serviceTier = AgentControlCatalog.defaultServiceTier(provider, model);
@@ -593,8 +699,9 @@ public final class AgentControlScreen extends Screen {
 		addFormLabel("Plays in", x + half + FORM_GAP, y);
 		y += LABEL_HEIGHT;
 		if (AgentControlCatalog.hasSpeedMode(provider, model)) {
+			String speedProvider = provider;
 			addChoice(x, y, half, "Speed", AgentControlCatalog.serviceTiers(provider, model), serviceTier,
-					value -> AgentControlPresentation.speedLabel(provider, value), value -> serviceTier = value, true, canControl());
+					value -> AgentControlPresentation.speedLabel(speedProvider, value), value -> serviceTier = value, true, canControl());
 		} else {
 			ConsoleSegmented<String> speed = new ConsoleSegmented<>(font, x, y, half, 22, "Speed", List.of("normal"), "normal",
 					value -> "Normal", value -> { });
@@ -629,9 +736,11 @@ public final class AgentControlScreen extends Screen {
 			rebuildWidgets();
 			return true;
 		}
+		createBodyWidgets.clear();
 		for (var child : children().subList(bodyStart, children().size())) {
 			if (child instanceof AbstractWidget widget) {
 				widget.visible = widget.getY() >= layout.contentTop() && widget.getBottom() <= layout.contentBottom();
+				createBodyWidgets.add(widget);
 			}
 		}
 		formLabels.removeIf(label -> label.y() < layout.contentTop() || label.y() + 8 > layout.contentBottom());
@@ -656,6 +765,15 @@ public final class AgentControlScreen extends Screen {
 		}
 		widget.active = active;
 		addRenderableWidget(widget);
+	}
+
+	/** A model's display name, or its id once a catalog refresh has dropped it, so an old widget never throws. */
+	static String safeDisplayName(String provider, String model) {
+		try {
+			return AgentControlCatalog.displayName(provider, model);
+		} catch (IllegalArgumentException missing) {
+			return model;
+		}
 	}
 
 	/** Top of the message shown in place of the form when no tool offers a model yet. */
@@ -709,9 +827,9 @@ public final class AgentControlScreen extends Screen {
 			// A missing tool can't use a new key, but a key saved earlier must stay removable.
 			action.active = canControl() && (editing || localKeys)
 					&& (row.apiKeySuffix() != null || !Boolean.FALSE.equals(row.installed()));
-			action.setTooltip(net.minecraft.client.gui.components.Tooltip.create(Component.literal(localKeys
+			action.setTooltip(net.minecraft.client.gui.components.Tooltip.create(Component.literal(keyStatusLine(row) + ". " + (localKeys
 					? "A key set in the server's environment overrides a key saved here."
-					: AgentControlClient.LOCAL_KEY_ONLY_REASON + " On a dedicated server, use the tool's own login or environment variables there.")));
+					: AgentControlClient.LOCAL_KEY_ONLY_REASON + " On a dedicated server, use the tool's own login or environment variables there."))));
 			addRenderableWidget(action);
 			if (editing) {
 				keyInput = new ConsoleEditBox(font, x + 8, y + 42, width - 90, 22,
@@ -760,6 +878,21 @@ public final class AgentControlScreen extends Screen {
 		if (Boolean.FALSE.equals(row.installed()) || Boolean.FALSE.equals(row.signedIn())) return "";
 		if (row.plan() != null && !row.plan().isBlank()) return capitalize(row.plan()) + " plan";
 		return Boolean.TRUE.equals(row.signedIn()) ? "Signed in" : "";
+	}
+
+	/** One status sentence for a tool's row on the Sign-in & keys page. */
+	static String keyStatusLine(dev.agaminggod.mineagen.control.AgentControlProvider row) {
+		if (Boolean.FALSE.equals(row.installed())) return "Not installed. An API key can't replace the tool itself";
+		if (Boolean.FALSE.equals(row.signedIn()) && row.apiKeySuffix() == null) return "Not signed in. Run the tool's login there, or add an API key";
+		String signIn = providerSignIn(row);
+		return providerStatus(row) + (signIn.isBlank() ? "" : "  ·  " + signIn);
+	}
+
+	private String fitLabel(String value, int available) {
+		if (ConsoleDraw.labelWidth(font, value) <= available) return value;
+		int end = value.length();
+		while (end > 0 && ConsoleDraw.labelWidth(font, value.substring(0, end) + "...") > available) end--;
+		return value.substring(0, end) + "...";
 	}
 
 	private static String providerDetail(dev.agaminggod.mineagen.control.AgentControlProvider row) {
@@ -822,12 +955,9 @@ public final class AgentControlScreen extends Screen {
 			renderProviderMark(graphics, row.id(), row.label(), x + 8, y + 10, 20);
 			String title = row.label() + (row.version() == null ? "" : "  v" + row.version());
 			graphics.text(font, ConsoleText.strong(fit(title, width - 150)), x + 36, y + 9, TEXT, false);
-			String signIn = providerSignIn(row);
-			String line = providerStatus(row) + (signIn.isBlank() ? "" : "  ·  " + signIn);
-			if (Boolean.FALSE.equals(row.installed())) line = "Not installed. An API key can't replace the tool itself";
-			else if (Boolean.FALSE.equals(row.signedIn()) && row.apiKeySuffix() == null) line = "Not signed in. Run the tool's login there, or add an API key";
 			ConsoleDraw.surface(graphics, x + 36, y + 24, 4, 4, ConsoleDraw.RADIUS_SMALL, providerStatusColor(row));
-			ConsoleDraw.label(graphics, font, line, x + 43, y + 22, MUTED);
+			// The line ends before the row's button; the button's tooltip carries the full sentence.
+			ConsoleDraw.label(graphics, font, fitLabel(keyStatusLine(row), width - 43 - 112), x + 43, y + 22, MUTED);
 			y += PROVIDER_KEY_ROW_HEIGHT + (editing ? 30 : 0);
 		}
 		// Off the host machine a key cannot be saved at all, so that reason replaces the billing note.
@@ -1224,7 +1354,7 @@ public final class AgentControlScreen extends Screen {
 	}
 
 	private void submitPrompt(String operation) {
-		AgentControlAgent agent = selectedAgent();
+		AgentControlAgent agent = pageAgent();
 		if (agent == null) return;
 		if (rejectPendingMutation()) return;
 		if (!canUseAutomation()) {
@@ -1240,7 +1370,7 @@ public final class AgentControlScreen extends Screen {
 	}
 
 	private void submitAgentOperation(String operation) {
-		AgentControlAgent agent = selectedAgent();
+		AgentControlAgent agent = pageAgent();
 		if (agent == null) return;
 		send(AgentControlCommandBuilder.agent(operation, agent.agentId()), "Updating " + agent.displayName() + "...");
 	}
@@ -1250,8 +1380,12 @@ public final class AgentControlScreen extends Screen {
 	}
 
 	private void submitConfirmedRemove() {
-		AgentControlAgent agent = selectedAgent();
-		if (agent == null) return;
+		AgentControlAgent agent = pageAgent();
+		if (agent == null) {
+			show(Page.OVERVIEW);
+			setFeedback("That agent is already gone. Nothing was removed.", true);
+			return;
+		}
 		page = Page.OVERVIEW;
 		rebuildWidgets();
 		send(AgentControlCommandBuilder.agent("remove", agent.agentId()),
@@ -1285,6 +1419,7 @@ public final class AgentControlScreen extends Screen {
 		Page destination = next;
 		clearKeyDraft();
 		createScroll = 0;
+		pageAgentId = isAgentPage(destination) ? managementSelection.selectedAgentId() : "";
 		page = destination;
 		feedback = "";
 		rebuildWidgets();

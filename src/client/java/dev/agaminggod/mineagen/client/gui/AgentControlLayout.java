@@ -30,7 +30,6 @@ public record AgentControlLayout(
 	public static final int HEADER_HEIGHT = 32;
 	public static final int GUTTER = 16;
 	private static final int MINIMUM_WIDTH = 320;
-	private static final int MINIMUM_HEIGHT = 240;
 	private static final int OUTER_MARGIN = 8;
 	private static final int MAXIMUM_PANEL_WIDTH = 760;
 	private static final int MAXIMUM_PANEL_HEIGHT = 440;
@@ -42,25 +41,29 @@ public record AgentControlLayout(
 	/** Content taller than this shows page titles and field labels; shorter panels drop them to fit. */
 	private static final int ROOMY_CONTENT_HEIGHT = 250;
 
-	public static AgentControlLayout calculate(int screenWidth, int screenHeight) {
-		if (screenWidth < MINIMUM_WIDTH || screenHeight < MINIMUM_HEIGHT) {
-			throw new IllegalArgumentException("Agent control requires at least a 320x240 GUI");
-		}
-		int panelWidth = Math.min(MAXIMUM_PANEL_WIDTH, screenWidth - OUTER_MARGIN * 2);
+	/**
+	 * Never throws: below the 320x240 design minimum (a 1280x720 window at scale 3 with Force Unicode Font becomes
+	 * scale 4, 320x180) every region shrinks but stays ordered, and pages scroll or drop decoration to fit.
+	 */
+	public static AgentControlLayout calculate(int requestedWidth, int requestedHeight) {
+		int screenWidth = Math.max(1, requestedWidth);
+		int screenHeight = Math.max(1, requestedHeight);
+		int horizontalMargin = screenWidth < MINIMUM_WIDTH + OUTER_MARGIN * 2 ? 4 : OUTER_MARGIN;
+		int panelWidth = Math.max(1, Math.min(MAXIMUM_PANEL_WIDTH, screenWidth - horizontalMargin * 2));
 		int panelLeft = (screenWidth - panelWidth) / 2;
 		int verticalMargin = screenHeight <= 280 ? 4 : OUTER_MARGIN;
 		// On tall GUIs the panel stops growing and centers, so a short form doesn't float above a tall empty sheet.
-		int panelHeight = Math.min(MAXIMUM_PANEL_HEIGHT, screenHeight - verticalMargin * 2);
+		int panelHeight = Math.max(1, Math.min(MAXIMUM_PANEL_HEIGHT, screenHeight - verticalMargin * 2));
 		int panelTop = (screenHeight - panelHeight) / 2;
 		int panelRight = panelLeft + panelWidth;
 		int panelBottom = panelTop + panelHeight;
 		int gutter = panelWidth < 400 ? 10 : GUTTER;
 		int headerBottom = panelTop + HEADER_HEIGHT;
 		int contentLeft = panelLeft + gutter;
-		int contentRight = panelRight - gutter;
+		int contentRight = Math.max(contentLeft + 1, panelRight - gutter);
 		int contentTop = headerBottom + 4;
-		int footerY = panelBottom - CONTROL_HEIGHT - (panelWidth < 400 ? 6 : 10);
-		int contentBottom = footerY - 8;
+		int footerY = Math.max(contentTop, panelBottom - CONTROL_HEIGHT - (panelWidth < 400 ? 6 : 10));
+		int contentBottom = Math.max(contentTop, footerY - 8);
 		int contentWidth = contentRight - contentLeft;
 		boolean splitWorkspace = contentWidth >= CONTEXT_RAIL_BREAKPOINT;
 		int contextLeft = splitWorkspace ? contentRight - CONTEXT_RAIL_WIDTH : contentRight;
@@ -129,8 +132,8 @@ public record AgentControlLayout(
 	}
 
 	public Bounds rosterBounds(int bodyTop, boolean filtersVisible, boolean reserveActionRow) {
-		int top = bodyTop + (filtersVisible ? ROSTER_FILTER_HEIGHT : 0);
-		int bottom = contentBottom - (reserveActionRow ? CONTROL_HEIGHT + WORKSPACE_ACTION_GAP : 0);
+		int top = Math.min(contentBottom, bodyTop + (filtersVisible ? ROSTER_FILTER_HEIGHT : 0));
+		int bottom = Math.max(top, contentBottom - (reserveActionRow ? CONTROL_HEIGHT + WORKSPACE_ACTION_GAP : 0));
 		return new Bounds(canvasLeft, top, canvasRight, bottom);
 	}
 

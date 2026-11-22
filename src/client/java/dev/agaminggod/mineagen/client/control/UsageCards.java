@@ -211,11 +211,12 @@ public final class UsageCards {
 
 	/**
 	 * Every number the account exposes, one group per limit in reading order: used or left, time left, rate per hour,
-	 * rate per minute. The first group is the account name; then windows, credits and request counts.
+	 * rate per minute. The first group names the tool and its plan (never the account, which can be part of an email
+	 * address); then windows, credits and request counts.
 	 */
 	static List<List<String>> accountGroups(JsonObject account) {
 		List<List<String>> groups = new ArrayList<>();
-		String who = string(account, "label", string(account, "provider", "")) + (has(account, "account") ? " (" + string(account, "account", "") + (has(account, "plan") ? ", " + string(account, "plan", "") : "") + ")" : "");
+		String who = string(account, "label", string(account, "provider", "")) + (has(account, "plan") ? " (" + string(account, "plan", "") + ")" : "");
 		groups.add(List.of((string(account, "warning", "none").equals("none") ? "" : "! ") + who + ":"));
 		for (JsonElement element : array(account, "windows")) {
 			JsonObject window = element.getAsJsonObject();
