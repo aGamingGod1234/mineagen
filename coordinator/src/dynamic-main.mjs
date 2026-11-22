@@ -68,7 +68,7 @@ import { dragonPerchEdge, noteCombatDispatch, rememberEndCrystals, settleCombatR
 import { heldToolBreak } from './held-tool-break.mjs';
 import { SituationChangeTracker } from './situation-changes.mjs';
 import { ContextEntryTracker, uncoveredDangers } from './danger-contexts.mjs';
-import { WakeFilter, countSkillKinds, stepFolds } from './wake-filter.mjs';
+import { STALL_STOP_CODE, STALL_STOP_STEPS, WakeFilter, countSkillKinds, stepFolds } from './wake-filter.mjs';
 import { searchHoldsSteer } from './search-danger.mjs';
 import { carriedFoodToEat, naturalRegeneration } from './fork-rule.mjs';
 // Danger triggers a running count skill handles itself when they come from its own mob (see countSkillKinds).
@@ -1165,11 +1165,23 @@ export class DynamicCoordinator extends EventEmitter {
 					}
 					if (stepFolds(step, attention, observation) && !failureSteerOwed && this.#wakeFilter.discovery(record.agentId, { attention, observation, goalText: record.currentGoal }) === null) {
 						this.#wakeFilter.fold(record.agentId, attention.trigger, observation, this.#nativeRuntime.reflexEvents(record));
-						// A step stuck for minutes (its loop and stall notes keep coming, no item gained) wakes the model once
-						// with the folded counts, while the step keeps running (wake-filter.mjs stalled).
-						const stalledMs = this.#wakeFilter.stalled(record.agentId, attention.trigger, observation, finiteOrNull(observation?.observedAtEpochMs) ?? Date.now());
-						if (stalledMs !== null) {
-							this.#writeTrace('native_wake_filtered', { agentId: record.agentId, goalRevision: record.goalRevision, trigger: attention.trigger, verdict: 'wake', reason: `step ${step} stalled ${Math.round(stalledMs / 1_000)} s` });
+						// A search stuck for minutes (its loop and stall notes keep coming, no item gained) is handed back to the model
+						// (wake-filter.mjs stalled): a background step wakes it while the step runs on; obtain, which runs inside the
+						// model's own call, is stopped with its own code so its result reaches the model now.
+						// obtain is judged only while its own find drives the body: walking to a seen block, gathering and crafting are progress.
+						const judged = STALL_STOP_STEPS.has(step) && this.#nativeRuntime.searching?.(record) !== true ? null : step;
+						const stall = this.#wakeFilter.stalled(record.agentId, judged, attention.trigger, observation, this.#nativeRuntime.reflexEvents(record));
+						if (stall !== null) {
+							const minutes = Math.max(1, Math.round(stall.stalledMs / 60_000));
+							if (stall.stop) {
+								const stopped = this.#nativeRuntime.interruptBlockingTool(record.agentId, { forkStop: { reasonCode: STALL_STOP_CODE,
+									message: `Searched ${minutes} min without progress (no item gained; ${stall.notes} loop or stall notes)` } });
+								this.#writeTrace('native_wake_filtered', { agentId: record.agentId, goalRevision: record.goalRevision, trigger: attention.trigger, verdict: stopped ? 'stop' : 'fold', reason: `step ${step} stalled ${Math.round(stall.stalledMs / 1_000)} s` });
+								this.#holdWakeForModelAction(record, wakeRequest, { step: true });
+								return;
+							}
+							this.#wakeFilter.noteStall(record.agentId, stall.stalledMs, observation);
+							this.#writeTrace('native_wake_filtered', { agentId: record.agentId, goalRevision: record.goalRevision, trigger: attention.trigger, verdict: 'wake', reason: `step ${step} stalled ${Math.round(stall.stalledMs / 1_000)} s` });
 							this.#resumeDeferredWake(record, attention);
 							this.#scheduleNativeTurn(record, { ...wakeRequest, priority: 'urgent', trigger: STEP_STALLED_TRIGGER, nativeEvent: { ...wakeRequest.nativeEvent, trigger: STEP_STALLED_TRIGGER } });
 							return;
@@ -2689,6 +2701,8 @@ export class DynamicCoordinator extends EventEmitter {
 
 	async #executeNativeToolCall(work, toolRequest) {
 		const record = this.#registry.get(work.agentId);
+		// Each model call is a fresh choice (a new step included), so a step's stall clock starts over from it.
+		this.#wakeFilter.resetStall(work.agentId);
 		if (work.expired === true || (work.survivalReissued === true && !isSurvivalReissueTool(toolRequest.tool)) || record === null || record.goalRevision !== work.goalRevision
 				|| !this.#isConnectionEpochCurrent(work.connectionEpoch)
 				|| !this.#isLifecycleGenerationCurrent(work.agentId, work.lifecycleGeneration)) {

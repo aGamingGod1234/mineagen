@@ -204,6 +204,8 @@ async function loopFor(run, { from, atMs, untilMs, stepMs = 5_000, items = () =>
 	for (let at = atMs, index = 0; at <= untilMs; at += stepMs, index += 1) {
 		const sample = observation(sequence++, { x: index % 2 });
 		sample.payload.observedAtEpochMs = at;
+		// The stall clock runs on game ticks (20 a second), as live samples carry them.
+		sample.payload.observation.world = { dimension: 'minecraft:overworld', gameTime: Math.round(at / 50), dayTime: 1_000, raining: false, thundering: false };
 		sample.payload.observation.inventory.items = items(at);
 		run.bridge.emit('observation', sample);
 		await tick();
@@ -230,11 +232,11 @@ test('a step whose walk keeps looping for 3 min wakes the model once with the st
 	} finally { await run.coordinator.stop(); }
 });
 
-test('a looping step that keeps gaining items is not woken for a stall', async () => {
+test('a looping step that keeps gaining items is not woken for a stall (same cadence as the stalled case)', async () => {
 	const { run, planner } = await startWithStep();
 	try {
 		const start = 1_787_184_000_000;
-		await loopFor(run, { from: 2, atMs: start, untilMs: start + 400_000, stepMs: 10_000, items: (at) => [{ slot: 0, itemId: 'minecraft:cobblestone', count: 1 + Math.floor((at - start) / 60_000) }] });
+		await loopFor(run, { from: 2, atMs: start, untilMs: start + 400_000, items: (at) => [{ slot: 0, itemId: 'minecraft:cobblestone', count: 1 + Math.floor((at - start) / 60_000) }] });
 		assert.equal(planner.requests.length, 1, 'a cobblestone gained every minute resets the stall clock');
 	} finally { await run.coordinator.stop(); }
 });
