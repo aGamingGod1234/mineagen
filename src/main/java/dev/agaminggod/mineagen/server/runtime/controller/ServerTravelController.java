@@ -209,6 +209,9 @@ public final class ServerTravelController implements ServerController {
 	private long swimStartedAt;
 	private GridPosition shore;
 	private float swimTurned;
+	/** Ticks spent ducking out from under a ceiling this swim (SwimStep.PEEK), capped at PEEK_TICKS. */
+	private int peekTicks;
+	private static final int PEEK_TICKS = 30;
 	/** Banks it reached but could not climb onto (4 s within reach), never chosen again this trip. */
 	private final Set<GridPosition> refusedShores = new HashSet<>();
 	private long nearShoreSince;
@@ -660,8 +663,9 @@ public final class ServerTravelController implements ServerController {
 		// A route to the true surface in the body's own column, every cell open water or air: open water straight up.
 		boolean straightUp = surface != null && !surface.breathOnly() && openColumnUp(surface.path(), Mth.floor(player.getX()), Mth.floor(player.getZ()),
 				cell -> openWaterOrAir(player.level(), cell));
+		BlockPos peek = eyesUnder && surface == null && peekTicks < PEEK_TICKS ? dev.agaminggod.mineagen.server.perception.WaterAirFacts.peekCell(player) : null;
 		SwimStep under = eyesUnder ? underWater(air, lookup != null && lookup.searching(),
-				surface == null ? Double.NaN : surface.distance(), straightUp, shoreDistance, swimTurned >= 360.0F) : null;
+				surface == null ? Double.NaN : surface.distance(), straightUp, shoreDistance, swimTurned >= 360.0F, peek != null) : null;
 		if (under == SwimStep.STOP) {
 			return fail(player, air <= SwimPlanning.AIR_RESERVE_TICKS ? "AIR_RESERVE_REACHED" : "BREATH_NOT_COVERED", String.format(Locale.ROOT,
 					"Under water with %.1f s of air: %s, %s; stopped before swimming farther than the air left",
@@ -679,6 +683,18 @@ public final class ServerTravelController implements ServerController {
 				if (forward) yaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
 			}
 			pitch = SwimPlanning.SURFACING_PITCH;
+		} else if (under == SwimStep.PEEK) {
+			// Under a seen ceiling with no way up known: swim out into the open cell beside it, looking up, so the column
+			// above that cell comes into view and the route up is acquired there. Not sprinting: a sprint-swim follows the
+			// view, which here points up into the ceiling.
+			peekTicks++;
+			double dx = peek.getX() + 0.5D - player.getX(), dz = peek.getZ() + 0.5D - player.getZ();
+			yaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
+			forward = true;
+			pitch = PEEK_PITCH;
+			boolean jump = SwimPlanning.floatJump(inWater, player.onGround(), eyesUnder);
+			apply(player, new AgentInputStates.MotorTarget(net.minecraft.util.Mth.wrapDegrees(yaw), pitch, forward, jump, false), false, false, false, nowEpochMs);
+			return TickResult.running(progress(player));
 		} else if (under == SwimStep.LOOK) {
 			// No way up and no bank seen yet: look round once while rising, as a player turns to find the way up.
 			yaw = player.getYRot() + 9.0F;
@@ -737,7 +753,10 @@ public final class ServerTravelController implements ServerController {
 	}
 
 	/** What a swimmer whose eyes are under water does next. */
-	enum SwimStep { AIR, SHORE, WAIT, LOOK, STOP }
+	enum SwimStep { AIR, SHORE, PEEK, WAIT, LOOK, STOP }
+
+	/** The view while ducking out from under a ceiling: nearly straight up, so the open column above comes into view. */
+	static final float PEEK_PITCH = -80.0F;
 
 	/**
 	 * Air first, as a player does: under water the body rises along the seen route to air whenever its breath covers the
@@ -748,8 +767,20 @@ public final class ServerTravelController implements ServerController {
 	 * reserve, it stops with its air: it never swims under a ceiling farther than its air allows.
 	 */
 	static SwimStep underWater(int air, boolean searching, double airRoute, boolean straightUp, double shoreDistance, boolean lookedRound) {
+		return underWater(air, searching, airRoute, straightUp, shoreDistance, lookedRound, false);
+	}
+
+	/**
+	 * {@code peek}: the eye's own column is capped by a seen block and a seen open cell beside it may lead up
+	 * (WaterAirFacts.peekCell). With no route to air known that comes before the reserve stop and the look-round: a stop
+	 * under a ceiling only drowns the body before the model can answer, and turning in place never shows the column
+	 * beside it. One block across costs well under a second of air.
+	 */
+	static SwimStep underWater(int air, boolean searching, double airRoute, boolean straightUp, double shoreDistance, boolean lookedRound,
+			boolean peek) {
 		if (Double.isFinite(airRoute) && (straightUp || airRoute <= SwimPlanning.navigationBreathNodes(air, true))) return SwimStep.AIR;
 		if (Double.isFinite(shoreDistance) && shoreDistance <= SwimPlanning.breathNodes(air)) return SwimStep.SHORE;
+		if (peek && !Double.isFinite(airRoute)) return SwimStep.PEEK;
 		if (air <= SwimPlanning.AIR_RESERVE_TICKS) return SwimStep.STOP;
 		if (searching) return SwimStep.WAIT;
 		return lookedRound ? SwimStep.STOP : SwimStep.LOOK;
@@ -868,6 +899,7 @@ public final class ServerTravelController implements ServerController {
 			swimStartedAt = nowEpochMs;
 			shore = null;
 			swimTurned = 0.0F;
+			peekTicks = 0;
 			nearShoreSince = 0L;
 			return swimTick(player, nowEpochMs);
 		}
@@ -933,6 +965,7 @@ public final class ServerTravelController implements ServerController {
 			swimStartedAt = nowEpochMs;
 			shore = null;
 			swimTurned = 0.0F;
+			peekTicks = 0;
 			nearShoreSince = 0L;
 			return swimTick(player, nowEpochMs);
 		}

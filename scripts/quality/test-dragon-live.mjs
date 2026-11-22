@@ -9,7 +9,7 @@ import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 import { installTickRate, unshownTickRate } from './watch-replay.mjs';
-import { damageCounter, recordDamageEvidence } from './lib/damage-counter.mjs';
+import { damageCounter, recordDamageEvidence, deathCounter, recordDeathEvidence } from './lib/damage-counter.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const jarPath = resolve(process.env.ARENA_JAR ?? join(root, MOD_JAR));
@@ -82,6 +82,7 @@ async function endPlay() {
 	await rate.normalRate();
 	tick.held = await rate.tickReport();
 	recordDamageEvidence(tick, p.damage0, await p.damage().catch(() => null));
+	recordDeathEvidence(tick, p.deaths0, await p.deaths().catch(() => null));
 	return tick;
 }
 try {
@@ -112,7 +113,8 @@ try {
 	// fixture rate on its clock. The perch cases (2b-2d) stay at 20: each reads the dragon's phase, then teleports and
 	// reads its parts before the body acts, and at a raised rate those harness steps eat more of the perch.
 	const damage = await damageCounter(command, agent);
-	play = { damage0: await damage(), damage };
+	await command('scoreboard objectives add fixture_deaths deathCount'); const deaths = () => deathCounter(command, agent, { objective: 'fixture_deaths', unsetIsZero: true });
+	play = { damage0: await damage(), damage, deaths0: await deaths().catch(() => null), deaths };
 	await rate.fastRate();
 	play.t0 = rate.clock.now(); play.wall0 = Date.now(); play.timer = await rate.gameTimer();
 	// 1. Crystals on 5x5 pillars 25-30 up and 38-52 out: the pillar top hides their middle, only the top shows.
@@ -223,6 +225,10 @@ try {
 		perchedMotion: results.perchedRow?.motion ?? null, perchedSpeed: results.perchedRow?.velocity ? Math.hypot(results.perchedRow.velocity.x, results.perchedRow.velocity.z) : null,
 		reflexMeleeHealthDrop: results.reflexMelee?.healthDrop ?? null, jar: jarPath,
 	};
+	// Resistance keeps the body alive, so the room is judged on its shots: the crystals hidden behind pillar tops break,
+	// one miss allowed. Hurting the dragon in flight is recorded, not judged.
+	results.bar = 'hidden crystals broken >= shots - 1';
+	results.pass = results.summary.hiddenCrystalShots > 0 && results.summary.hiddenCrystalHits >= results.summary.hiddenCrystalShots - 1;
 	await writeFile(join(out, 'dragon.json'), JSON.stringify(results, null, 2));
 	console.log(JSON.stringify(results, null, 2));
 } finally {
