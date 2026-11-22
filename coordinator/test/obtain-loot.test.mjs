@@ -427,3 +427,16 @@ test('houses are priced: the toolsmith\'s house first though farther; with food 
 	await runObtain({ item: 'iron_ingot', count: 3, timeoutMs: 60_000 }, fed.body, { now: (() => { let t = 0; return () => (t += 100); })(), looted: { opened: [], searched: [], structures: [], doors: [] } });
 	assert.equal(fed.calls.some(([type]) => type === 'set_door'), false, 'plain houses hold no iron and the trip has its food: none looked into');
 });
+
+// The rerun's stone-pickaxe village start (4 bread held) looked into up to 5 ordinary houses for bread and found none.
+test('trip food counts hunger points: 4 bread is a full bar and sends the bot into no ordinary house for food', async () => {
+	const { tripFoodShort } = await import('../src/obtain-runner.mjs');
+	assert.equal(tripFoodShort(new Map([['bread', 4]])), 0);
+	assert.equal(tripFoodShort(new Map([['bread', 1]])), 3);
+	assert.equal(tripFoodShort(new Map([['cooked_beef', 3]])), 0);
+	assert.equal(tripFoodShort(new Map()), 4);
+	const run = villageRun({ seenResources: PLAYTEST_DOORS });
+	run.body.observe = ((observe) => async () => { const o = await observe(); o.inventory.items.push({ itemId: 'minecraft:bread', count: 4, slot: 8 }); return o; })(run.body.observe);
+	await runObtain({ item: 'iron_pickaxe', count: 1, timeoutMs: 60_000 }, run.body, { now: (() => { let t = 0; return () => (t += 100); })(), looted: { opened: [], searched: [], structures: [], doors: [] } });
+	assert.equal(run.calls.some(([type]) => type === 'set_door'), false, 'no ordinary house is worth its look');
+});

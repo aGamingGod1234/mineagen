@@ -31,8 +31,17 @@ const FOODS = new Set(['beef', 'porkchop', 'mutton', 'chicken', 'rabbit', 'cod',
 	'sweet_berries', 'glow_berries', 'melon_slice', 'beetroot']);
 // MINEAGEN_OBTAIN_COSTS=off plans as before chests, the seen-source cost model and the one-trip kit iron (A/B rooms).
 const OBTAIN_COSTS = process.env.MINEAGEN_OBTAIN_COSTS !== 'off';
-// Food a trip below ground is stocked with: about a quarter hour's eating.
-const TRIP_FOOD = 8;
+// Food a trip below ground is stocked with, in hunger points: one full bar (20), about a quarter hour's eating. Food the
+// trip lacks is counted in bread-sized items (5 points) for a chest's value; 4 bread held is a full bar and none is short.
+const TRIP_HUNGER = 20;
+const NUTRITION = { bread: 5, baked_potato: 5, cooked_beef: 8, cooked_porkchop: 8, cooked_mutton: 6, cooked_chicken: 6, cooked_salmon: 6, cooked_cod: 5,
+	cooked_rabbit: 5, golden_carrot: 6, apple: 4, carrot: 3, potato: 1, beetroot: 1, beef: 3, porkchop: 3, mutton: 2, chicken: 2, rabbit: 3, cod: 2, salmon: 2,
+	sweet_berries: 2, glow_berries: 2, melon_slice: 2 };
+/** Bread-sized food items the trip still lacks, from the hunger points of the food held. */
+export function tripFoodShort(counts) {
+	const points = [...counts].reduce((sum, [kind, n]) => sum + (NUTRITION[kind] ?? 0) * n, 0);
+	return Math.max(0, Math.ceil((TRIP_HUNGER - points) / 5));
+}
 // Climbing out of a mine for logs or animals: stairs up a leg of 24 at a time, enough legs to reach the surface from y -58.
 const CLIMB_LEG = 24;
 const CLIMB_LEGS = 6;
@@ -158,9 +167,10 @@ const KEPT_STRUCTURES = 16;
 const DOOR_VISITS = 6;
 const DOOR = /^(minecraft:)?[a-z_]+_door$/;
 const HOUSE_REACH = 8;
-// Looking into one house: open the door, step in, look, shut it (about 13 s a house over 109 looks in the 22 Nov batch),
-// in the planner's cost units of about 5 s.
-const HOUSE_LOOK = 2.6;
+// Looking into one house, all in: plan, walk to the door, open it, step in, look, shut it. In the 22 Nov rerun the door
+// walk to the shut door took a median 17 s over 115 houses, and the stone-pickaxe village start ran 168 s longer for
+// about 5 houses (about 34 s each). In the planner's cost units of about 5 s.
+const HOUSE_LOOK = 6;
 const HOSTILE_MOB = /^(zombie|zombie_villager|husk|drowned|skeleton|stray|bogged|spider|cave_spider|creeper|witch|pillager|vindicator|evoker|ravager|slime|enderman)$/;
 // The server's hostility flag counts too, except on a village's own (a golem defends, villagers and cats are harmless).
 const VILLAGE_FOLK = /^(villager|iron_golem|wandering_trader|trader_llama|cat|snow_golem)$/;
@@ -1803,9 +1813,10 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			// of this call's plans, so the other ways are planned again rather than a stuck loot need.
 			const loot = !OBTAIN_COSTS || (failures.get('loot') ?? 0) >= 3 ? [] : lootSources(o, { opened: new Set([...looted.opened, ...budget.failed]), searched: new Set(looted.searched), structures: looted.structures });
 			const places = OBTAIN_COSTS ? seenPlaces(o) : null;
-			// The food a trip down wants (TRIP_FOOD items): a village's bread is then worth the visit before the trip, not after.
-			const eats = [...counts].filter(([kind]) => FOODS.has(kind) || /^(cooked_|baked_|bread$|golden_carrot)/.test(kind)).reduce((sum, [, n]) => sum + n, 0);
-			plan = planObtain(goal, { held, seen, stations, index, coalFirst, dimension: o.world?.dimension, loot, gear: gearOf(o), places, food: OBTAIN_COSTS ? Math.max(0, TRIP_FOOD - eats) : 0 });
+			// The food the trip down still lacks: a village's bread is then worth the visit before the trip, not after; with a
+			// full bar's worth held, none is.
+			const foodShort = OBTAIN_COSTS ? tripFoodShort(counts) : 0;
+			plan = planObtain(goal, { held, seen, stations, index, coalFirst, dimension: o.world?.dimension, loot, gear: gearOf(o), places, food: foodShort });
 			lastPlan = plan;
 			// What the plan weighed, once per change: the loot it knew of and the way each need takes.
 			const weighed = `plan: ${plan.needs.map((need) => `${need.kind} ${need.count} ${need.accept[0]}`).join(', ') || 'crafts only'}; loot known: ${loot.length === 0 ? 'none' : loot.slice(0, 3).map((row) => `${row.kind === 'chest' ? 'chest' : row.name} ${Math.round(row.distance)}m`).join(', ')}`;
@@ -1814,7 +1825,7 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			// the shield's, buckets' and flint and steel's iron costs the whole descent again.
 			const extra = OBTAIN_COSTS && !topUp ? kitIronExtra(o, plan) : 0;
 			if (extra > 0) kitTrip = true;
-			if (extra > 0) plan = planObtain({ ...goal, also: [{ ids: ['raw_iron'], count: extra }] }, { held, seen, stations, index, coalFirst, dimension: o.world?.dimension, loot, gear: gearOf(o), places, food: Math.max(0, TRIP_FOOD - eats) });
+			if (extra > 0) plan = planObtain({ ...goal, also: [{ ids: ['raw_iron'], count: extra }] }, { held, seen, stations, index, coalFirst, dimension: o.world?.dimension, loot, gear: gearOf(o), places, food: foodShort });
 			// The wood kept back for the next pickaxes never sends the body up for wood from under cover: there it is spent
 			// on what this call needs (a table, sticks, a shield). On the surface a log is near and the reserve holds.
 			const woodNeed = (candidate) => candidate.accept.some((member) => /(_log|_wood|_planks|^stick)$/.test(bare(member)));
