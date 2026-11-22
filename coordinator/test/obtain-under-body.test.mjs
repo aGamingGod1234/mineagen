@@ -53,7 +53,7 @@ test('drops not picked up after a vein: the body steps into the pocket itself, n
 	assert.ok(into[1].tolerance <= 0.5, `into the cell, not within a block of it: tolerance ${into[1].tolerance}`);
 });
 
-test('the pocket step: never into lava or water, and climbs back out to the rim after the pickup', async () => {
+test('the pocket step: never into lava or water, and climbs back out to its mining level after the pickup', async () => {
 	const run = async (extra) => {
 		const calls = [];
 		let player = { x: 299.4, y: 15, z: -261.5, yaw: 90, health: 20, food: 20, onGround: true };
@@ -71,8 +71,8 @@ test('the pocket step: never into lava or water, and climbs back out to the rim 
 	const dry = await run([]);
 	const into = dry.findIndex(([type, args]) => type === 'travel_to' && args.tolerance < 1);
 	assert.ok(into >= 0);
-	const out = dry.slice(into + 1).find(([type]) => type === 'travel_to');
-	assert.deepEqual([out?.[1].x, out?.[1].y, out?.[1].z], [299.4, 15, -261.5], 'back out to the rim');
+	const out = dry.slice(into + 1).find(([type]) => type === 'dig_to');
+	assert.deepEqual([out?.[1].pattern, out?.[1].y], ['stairs_up', 15], 'stairs back up to the level it mined from');
 	const lava = await run([{ blockId: 'minecraft:lava', x: 298, y: 12, z: -262 }]);
 	assert.equal(lava.filter(([type, args]) => type === 'travel_to' && args.tolerance < 1).length, 0, 'no step into a pocket over lava');
 });
