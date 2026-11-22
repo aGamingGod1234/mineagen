@@ -554,9 +554,12 @@ public final class ServerFightController implements ServerController {
 		Map<LivingEntity, Float> calm = step.attack() ? calmNeutralsBeside(player) : Map.of();
 		// A sword sweep hurts calm piglins beside the target and turns the whole group on the body (three of three barter
 		// room deaths beside a hoglin): hold the swing until none stands in the sweep, as a player does.
-		// Vanilla sweeps only on a charged sword swing from the ground that is neither a sprint hit nor a crit.
+		// Vanilla sweeps only on a charged sword swing from the ground that is neither a sprint hit nor a crit. The sprint
+		// counts only when the body is sprinting and this tick's input keeps it so: input that stops the sprint turns the
+		// swing into a sweeping one (a barter-room death came that way).
+		boolean sprintHit = player.isSprinting() && sprint && !sneak;
 		boolean sweepLands = player.getMainHandItem().is(net.minecraft.tags.ItemTags.SWORDS) && player.getAttackStrengthScale(0.5F) > 0.9F
-				&& player.onGround() && !player.isSprinting();
+				&& player.onGround() && !sprintHit;
 		boolean holdForSweep = holdSwingForSweep(sweepLands, calm.size(), sweepHoldRun);
 		if (holdForSweep) { sweepHolds++; sweepHoldRun++; } else if (step.attack()) sweepHoldRun = 0;
 		// A held swing keeps the shield up: lowering it for a hit that never comes leaves the body open.
