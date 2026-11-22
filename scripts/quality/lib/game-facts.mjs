@@ -54,10 +54,10 @@ export function describeDeaths(deaths, { trails = [], samples = [], startedAt = 
 		const prevAt = finite(death.prevAt) ? death.prevAt : -Infinity, nextAt = finite(death.nextAt) ? death.nextAt : Infinity;
 		const before = samples.filter((s) => (exact ? s.at <= death.at : s.at < death.at) && s.at >= death.at - FALL_LOOKBACK_MS && s.at > prevAt && s.health > 0);
 		const last = before.at(-1) ?? null;
-		// The sample that shows the body dead (health 0, or the death counter past the last living one), at most 10 s on.
 		// The counter baseline is the last living sample before this death, even one from an earlier life.
 		const baseline = samples.filter((s) => (exact ? s.at <= death.at : s.at < death.at) && s.health > 0).at(-1) ?? null;
 		const stepped = (s) => s.health <= 0 || finite(s.deathCounter) && finite(baseline?.deathCounter) && s.deathCounter > baseline.deathCounter;
+		// The sample that shows the body dead (health 0) inside this life, at most 10 s on.
 		const dead = samples.find((s) => s.at >= (last?.at ?? death.at - FALL_LOOKBACK_MS) && s.at > (last?.at ?? -Infinity) && s.at <= death.at + FALL_LOOKBACK_MS && s.at > prevAt && s.at < nextAt && s.health <= 0) ?? null;
 		const dimension = trail?.dimension ?? dead?.dimension ?? last?.dimension ?? null;
 		// Without the death row, only a sample showing the body dead gives the death height; a living one would read 0.
