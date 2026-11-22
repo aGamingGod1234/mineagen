@@ -222,8 +222,13 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 						// A call argument that is exactly "{x+n}" (y, z) is the fixture's cell at spawn plus n, as a number.
 						: row.fixtureAt ? JSON.parse(JSON.stringify(call.arguments).replace(/"(\{[xyz](?:[+-][\d.]+)?\})"/g, (_, text) => atBody(text, row.fixtureAt))
 							.replace(/"\{item\}"/g, () => JSON.stringify(itemUuid))) : call.arguments;
+					// Another call with its own target timeoutMs (an obtain asked again after danger) gets at most what is left of the
+					// spot's budget too, so a room never passes on time an interruption added.
+					const left = Math.max(10_000, budgetMs - (now() - t0));
+					const bounded = !isFindCall(call) && Number.isFinite(args?.target?.timeoutMs) && args.target.timeoutMs > left
+						? { ...args, target: { ...args.target, timeoutMs: left } } : args;
 					result = await runtime.execute({ agentId: record.agentId, goalRevision: record.goalRevision, turnId: `find-live-${callIndex}-${attempt}`, callId: `find-${callIndex}-${attempt}`,
-						tool: normalizeMinecraftToolCall(call.name, args) }, record);
+						tool: normalizeMinecraftToolCall(call.name, bounded) }, record);
 				} catch (error) {
 					result = { state: 'ERROR', reasonCode: error?.code ?? 'ERROR', message: String(error?.message ?? error).slice(0, 600) };
 				}
