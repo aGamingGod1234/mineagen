@@ -390,6 +390,19 @@ public final class SightedFeaturesVerification {
 		check(!sources.isEmpty() && sources.equals(sea.members().stream().filter(FarSight::fluidSource).toList()),
 				"a filtered cluster keeps the full sort's order");
 		check(filtered.distance() == sea.distance(), "a filtered cluster keeps the pool's distance");
+		FarSight.Grouping grouping = new FarSight.Grouping();
+		var first = grouping.groups(blocks);
+		check(grouping.groups(new ArrayList<>(blocks)) == first, "the same blocks gathered again reuse their groups");
+		List<FarSight.Found> moved = new ArrayList<>(blocks);
+		moved.removeLast();
+		check(grouping.groups(moved) != first && grouping.groups(moved).stream().mapToInt(List::size).sum() == moved.size(),
+				"changed blocks are grouped again");
+		ToDoubleFunction<FarSight.Found> elsewhere = entry -> Math.floor(Math.abs(net.minecraft.core.BlockPos.getX(entry.position()) - 90) / 3.0D);
+		List<List<FarSight.Found>> fromElsewhere = fullSortClusters(blocks, elsewhere);
+		List<FarSight.Cluster> reused = FarSight.withDistances(first, elsewhere);
+		boolean sameElsewhere = reused.size() == fromElsewhere.size();
+		for (int i = 0; sameElsewhere && i < reused.size(); i++) sameElsewhere = reused.get(i).members().equals(fromElsewhere.get(i));
+		check(sameElsewhere, "reused groups seen from another eye order like a fresh full sort from there");
 	}
 
 	/** The clustering before the lazy order: cells in first-seen order, breadth first, each cluster stably sorted. */

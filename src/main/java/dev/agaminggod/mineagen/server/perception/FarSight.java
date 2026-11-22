@@ -664,6 +664,8 @@ public final class FarSight {
 		private final Map<Long, Long> ends = new HashMap<>();
 		private CandidateKey candidatesKey;
 		private Candidates candidates;
+		/** The last lava and built blocks grouped, and their groups in discovery order, reused while unchanged. */
+		private final Grouping lava = new Grouping(), built = new Grouping();
 		private long waterTick = Long.MIN_VALUE;
 		private int waterVisionTime;
 
@@ -1035,7 +1037,7 @@ public final class FarSight {
 
 		if (request.wants(Section.BLOCKS)) {
 			sight.section(0.10D);
-			rows.addAll(lavaRows(sight, cluster(gathered.lava(), distance), request.rowsPerSection()));
+			rows.addAll(lavaRows(sight, withDistances(cache.lava.groups(gathered.lava()), distance), request.rowsPerSection()));
 		}
 		if (request.wants(Section.STRUCTURES)) {
 			sight.section(0.25D);
@@ -1047,7 +1049,7 @@ public final class FarSight {
 		}
 		if (request.wants(Section.BUILT)) {
 			sight.section(0.25D);
-			rows.addAll(builtRows(sight, cluster(gathered.built(), distance), request.rowsPerSection()));
+			rows.addAll(builtRows(sight, withDistances(cache.built.groups(gathered.built()), distance), request.rowsPerSection()));
 		}
 		if (request.wants(Section.BLOCKS)) {
 			sight.section(0.05D);
@@ -1185,11 +1187,32 @@ public final class FarSight {
 		return false;
 	}
 
-	/**
-	 * Groups blocks within about 4 blocks of each other (linked 4-block cells), nearest cluster first. Each block's distance
-	 * is computed once; members are put nearest first only as far as a caller reads them ({@link Cluster#nearestFirst}).
-	 */
+	/** Groups blocks within about 4 blocks of each other, nearest cluster first ({@link #groups}, {@link #withDistances}). */
 	static List<Cluster> cluster(List<Found> blocks, ToDoubleFunction<Found> distance) {
+		return withDistances(groups(blocks), distance);
+	}
+
+	/**
+	 * The last blocks one kind gathered and their groups. Which blocks touch which does not depend on where the eye is, so
+	 * while a pass gathers the same blocks in the same order (a lava sea that has not changed), the groups are reused and
+	 * only the distances are computed again. Gathers are not cached in busy places (fire in a fortress rewrites sections
+	 * every few ticks), so without this the sea was regrouped on every pass.
+	 */
+	static final class Grouping {
+		private List<Found> blocks = List.of();
+		private List<List<Found>> groups = List.of();
+
+		List<List<Found>> groups(List<Found> gathered) {
+			if (!gathered.equals(blocks)) {
+				groups = FarSight.groups(gathered);
+				blocks = gathered;
+			}
+			return groups;
+		}
+	}
+
+	/** Blocks within about 4 blocks of each other (linked 4-block cells), each group in discovery order. */
+	static List<List<Found>> groups(List<Found> blocks) {
 		it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap<List<Found>> cells = new it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap<>();
 		for (Found found : blocks) {
 			long cell = BlockPos.asLong(BlockPos.getX(found.position()) >> 2, BlockPos.getY(found.position()) >> 2, BlockPos.getZ(found.position()) >> 2);
@@ -1199,7 +1222,7 @@ public final class FarSight {
 		}
 		it.unimi.dsi.fastutil.longs.LongOpenHashSet claimed = new it.unimi.dsi.fastutil.longs.LongOpenHashSet(cells.size());
 		it.unimi.dsi.fastutil.longs.LongArrayFIFOQueue queue = new it.unimi.dsi.fastutil.longs.LongArrayFIFOQueue();
-		List<Cluster> clusters = new ArrayList<>();
+		List<List<Found>> groups = new ArrayList<>();
 		for (var starts = cells.keySet().iterator(); starts.hasNext(); ) {
 			long start = starts.nextLong();
 			if (!claimed.add(start)) continue;
@@ -1214,6 +1237,18 @@ public final class FarSight {
 					if (cells.containsKey(next) && claimed.add(next)) queue.enqueue(next);
 				}
 			}
+			groups.add(List.copyOf(members));
+		}
+		return groups;
+	}
+
+	/**
+	 * Groups as clusters from this eye, nearest cluster first. Each block's distance is computed once; members are put
+	 * nearest first only as far as a caller reads them ({@link Cluster#nearestFirst}).
+	 */
+	static List<Cluster> withDistances(List<List<Found>> groups, ToDoubleFunction<Found> distance) {
+		List<Cluster> clusters = new ArrayList<>(groups.size());
+		for (List<Found> members : groups) {
 			double[] distances = new double[members.size()];
 			double nearest = Double.NaN;
 			for (int i = 0; i < distances.length; i++) {
