@@ -64,7 +64,7 @@ Written 23 Nov 2026 (SGT). None of this is a status-table row: none of these gam
 
 ### From scratch, cut short (22 Nov 2026)
 
-16 games from a fresh world on main as of 22 Nov, with GPT-6.2 Sol at low reasoning and the instincts on. Each was planned for 90 minutes, and all 16 were stopped after 24 to 27 minutes when the model allowance ran out. The stop is censoring, not a wall: it says nothing about how far a game would have got. In 3 games the model made no call in the last 5 to 7 minutes before the stop.
+16 games from a fresh world on main as of 22 Nov, with GPT-6.2 Sol at low reasoning and the instincts on. Each was planned for 90 minutes, and all 16 were stopped after 24 to 27 minutes when the model allowance ran out. The stop is censoring, not a wall: it says nothing about how far a game would have got. In 3 games the model made no call in the last 3 to 7 minutes before the stop.
 
 | Milestone | Games that got it (of 16) | Median minutes (games that got it) |
 |---|---:|---:|
@@ -78,11 +78,11 @@ Written 23 Nov 2026 (SGT). None of this is a status-table row: none of these gam
 | Cooked food | 8 | 18.3 |
 | Obsidian, diamond, iron armour, the Nether and beyond | 0 | |
 
-The one game with no wood died twice and never held a log. There were 14 deaths in the 16 games, in 8 of them: skeleton arrows 7, zombies 5, drowning 1, fire 1.
+The one game with no wood died twice and never held a log. There were 14 deaths in the 16 games, in 8 of them: skeleton arrows 7, zombies 5 (one a husk), drowning 1, fire 1.
 
 ### Save-point starts: checkpoint round 2 (22 Nov 2026)
 
-156 games from save points on four versions, 39 each: main as of 21 Nov, and main with one of three changes (a longer conversation memory, a tool that lets the model pick its response at key moments, and truer cave costs). Each version played 18 starts in the Nether, 12 beside a portal frame and 9 holding eyes of ender, with GPT-6.2 Sol at low reasoning. Games were planned at 90 minutes; 95 played the full 90 and 61 were cut at 37 to 86 minutes.
+156 games from save points on four versions, 39 each: main as of 21 Nov, and main with one of three changes (a longer conversation memory, a tool that lets the model pick its response at key moments, and truer cave costs). Each version played 18 starts in the Nether, 12 beside a lava pool with buckets and flint and steel to cast a portal, and 9 holding eyes of ender, with GPT-6.2 Sol at low reasoning. Games were planned at 90 minutes; 95 played the full 90 and 61 were cut at 37 to 86 minutes.
 
 - **Nether and portal starts, pooled (30 per version):** main found a fortress in 20 of 30 and got blaze rods in 5 of 30. The other versions found a fortress in 18 to 20 of 30 and got rods in 0, 7 and 9 of 30. No version differs from main by the noise rule; the closest, 0 of 30 rods, has p = 0.052.
 - **Eyes starts:** main reached the stronghold in 4 of 9 games and the End in 3 of 9. No game on any version killed the dragon: 0 of 36.
@@ -93,7 +93,7 @@ The one game with no wood died twice and never held a log. There were 14 deaths 
 The biggest measured gains, each against main before the change. These are rooms, not games.
 
 - **Following eyes of ender (#88):** reached the stronghold from 250 blocks 6/20 -> 17/20 and from a lake start 0/20 -> 16/20; eyes lost per throw 0.83 -> 0.29; ran out of eyes 8 times -> 0.
-- **Casting a portal (#74):** 53 -> 75 passes over 18 rooms of 10 runs; one far start 0/10 -> 8/10. Lava-room runs with a death rose 13/100 -> 20/99, which the noise rule calls no change (p = 0.19); watch it.
+- **Casting a portal (#74):** 53 of 180 -> 75 of 179 valid runs over 18 rooms; one far start 0/10 -> 8/10. Lava-room runs with a death rose 13/100 -> 20/99, which the noise rule calls no change (p = 0.19); watch it.
 - **Iron armour (#122):** makes and wears an iron chestplate and boots after the iron kit, 0/26 -> 19/25.
 - **Holding a blaze spawner (#89):** alive with a blaze killed and a rod picked up 10/40 -> 24/40; deaths 26 -> 16.
 - **Fighting blazes (#93):** walls in on the spot to heal; alive with a kill and a rod 7/40 -> 18/40; deaths 33 -> 14.
@@ -101,8 +101,8 @@ The biggest measured gains, each against main before the change. These are rooms
 - **A mob blocking the climb out of a cave (#111):** stands its ground, then climbs; deaths 14/30 -> 4/30.
 - **Fight or flee (#77):** pillars up from a creeper 1/10 -> 10/10, backs off a spawner 0/10 -> 10/10, walks to cover behind its shield 0/15 -> 15/15.
 - **A mob round a blind corner (#124):** zombie killed 0/18 -> 12/12; damage taken 90 -> 36 HP.
-- **The first tools (#108):** stone pickaxe from an oak-tree start 0/10 -> 10/10.
-- **Ore (#105, #119):** mines ore under its own feet 0/10 -> 10/10; goes back to iron it has already seen, which in a recorded cave case took it 0/5 -> 5/5, in 43 s instead of 115 s.
+- **The first tools (#108):** takes cobblestone from a village in sight instead of digging down; stone pickaxe from an oak-tree start near a village 0/10 -> 10/10.
+- **Ore (#105, #119):** mines ore under its own feet 0/10 -> 10/10; goes back to iron it has already seen; in a recorded cave case it got the iron 0/5 -> 5/5, in about 43 s.
 - **Water (#83, #125):** ducks out from under a ceiling into open water and rises instead of drowning 0/10 -> 10/10; wades up a 15-step flooded stair 0/10 -> 10/10.
 
 ### Not yet measured
