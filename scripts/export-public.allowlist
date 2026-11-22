@@ -148,6 +148,7 @@ coordinator/src/conversation-memory.mjs
 coordinator/src/coordinator-status.mjs
 coordinator/src/danger-contexts.mjs
 coordinator/src/danger-glance.mjs
+coordinator/src/danger-lines.mjs
 coordinator/src/danger-steer-coalescer.mjs
 coordinator/src/decision-eval/capture.mjs
 coordinator/src/decision-eval/decision-stake.mjs
@@ -169,6 +170,7 @@ coordinator/src/decision-log.mjs
 coordinator/src/decision-parser.mjs
 coordinator/src/diagnostic-sanitizer.mjs
 coordinator/src/dragon-fight-facts.mjs
+coordinator/src/dynamic-config.mjs
 coordinator/src/dynamic-main.mjs
 coordinator/src/event-observation-presentation.mjs
 coordinator/src/explore-frontier.mjs
@@ -180,6 +182,7 @@ coordinator/src/failure-codes.mjs
 coordinator/src/failure-schema.mjs
 coordinator/src/file-turns.mjs
 coordinator/src/find-eyes.mjs
+coordinator/src/find-fortress.mjs
 coordinator/src/find-portal-room.mjs
 coordinator/src/find-search.mjs
 coordinator/src/fortress-approach.mjs
@@ -228,6 +231,7 @@ coordinator/src/need-sources.mjs
 coordinator/src/nether-regions.mjs
 coordinator/src/notebook-action-journal.mjs
 coordinator/src/observation-adapter.mjs
+coordinator/src/observation-facts.mjs
 coordinator/src/observed-memory-store.mjs
 coordinator/src/obtain-plan.mjs
 coordinator/src/obtain-runner.mjs
@@ -316,8 +320,10 @@ coordinator/src/voice/voice-http-server.mjs
 coordinator/src/voice/voice-profile-store.mjs
 coordinator/src/voice/voice-supervisor.mjs
 coordinator/src/voice/windows-tts-provider.mjs
+coordinator/src/voice-worker.mjs
 coordinator/src/wake-body-facts.mjs
 coordinator/src/wake-filter.mjs
+coordinator/src/wake-input.mjs
 coordinator/src/work-lease-supervisor.mjs
 coordinator/src/work-notices.mjs
 coordinator/test-support/local-speech-cold-warmup-fixture.mjs

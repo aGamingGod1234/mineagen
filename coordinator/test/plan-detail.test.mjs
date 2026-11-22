@@ -51,12 +51,12 @@ for (const fixture of inventories) test(`next requirement is visible with captur
  const views = new LiveTaskViews(); views.suggest(record.agentId, goal, route);
  const o = observation(fixture.items); await views.observe(record, o);
  const line = views.progress(record);
- assert.match(line, /^open iron_pickaxe\[unmet:pickaxe missing iron\+; iron_pickaxe 0\/1 @crafting_table\(held\)<-\(?iron_ingot 0\/3 @furnace\(held\)<-raw_iron 0\/3 mine iron_ore y-24\.\.56~16/);
+ assert.match(line, /^open iron_pickaxe\[unmet:pickaxe missing iron\+; iron_pickaxe 0\/1 @crafting_table\(held\)<-\(?iron_ingot 0\/3 @furnace\(held\)<-raw_iron 0\/3 mine iron_ore exposed\/cave first, else y-24\.\.56~16/);
  assert.ok(Buffer.byteLength(line) <= 240 + 362);
  const input = buildNativeEventInput(record, { trigger: 'start', observation: o, progress: line });
  assert.equal(JSON.parse(input.slice(input.indexOf('\n') + 1)).progress, line);
  await views.operate(record, { operation: 'replace', plan: { steps: [step('iron', 'has:minecraft:iron_ingot*3')] } });
- assert.equal(views.progress(record), 'open iron[howto:iron_ingot 0/3; @furnace(held)<-raw_iron 0/3 mine iron_ore y-24..56~16,80..319~232]; strategy:sourcing');
+ assert.equal(views.progress(record), 'open iron[howto:iron_ingot 0/3; @furnace(held)<-raw_iron 0/3 mine iron_ore exposed/cave first, else y-24..56~16,80..319~232]; strategy:sourcing');
 });
 
 test('checked progress survives wakes, steering, context rotation and reload; death reopens lost equipment', async t => {
