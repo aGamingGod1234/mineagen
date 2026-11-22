@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { observedResources, rememberResources, knownResources, knownResourceIds, newResourceMemory, RESOURCE_TTL_MS } from '../src/seen-resources.mjs';
+import { forgetResourceResult, observedResources, rememberResources, knownResources, knownResourceIds, newResourceMemory, RESOURCE_TTL_MS } from '../src/seen-resources.mjs';
 
 const at = (x, y, z, extra = {}) => ({ player: { x, y, z }, world: { dimension: 'minecraft:overworld' }, ...extra });
 
@@ -94,4 +94,27 @@ test('remembering stays cheap on a busy scene: 600 local rows and 24 resource ro
 	}
 	assert.ok(memory.rows.size < 3000, `memory stays bounded: ${memory.rows.size} rows`);
 	assert.ok(worst < 25, `worst sample took ${worst.toFixed(1)} ms`);
+});
+
+test('a block the agent broke or a vein it mined is forgotten, though no sample ever lists the air left behind', () => {
+	const memory = newResourceMemory();
+	const cobble = (x, count) => ({ blockId: 'minecraft:cobblestone', x, y: 64, z: 0, count });
+	rememberResources(memory, at(0.5, 64, 0.5, { sighted: { resources: [cobble(6, 3)] } }), { now: 1000 });
+	// Review case: the row stands at x=6; the bot breaks it; later only x=7 is seen. Without the receipt x=6 stayed.
+	forgetResourceResult(memory, at(0.5, 64, 0.5), { actionType: 'break_block', arguments: { x: 6, y: 64, z: 0 }, state: 'SUCCEEDED', reasonCode: 'BLOCK_BROKEN' });
+	assert.equal(knownResources(memory, at(0.5, 64, 0.5), { ids: ['cobblestone'] }).length, 0, 'the broken representative goes');
+	rememberResources(memory, at(0.5, 64, 0.5, { sighted: { resources: [cobble(7, 2)] } }), { now: 2000 });
+	assert.deepEqual(knownResources(memory, at(0.5, 64, 0.5), { ids: ['cobblestone'] }).map((row) => row.x), [7], 'what is left comes back at its own cell');
+	// A failed break, another action or another dimension keeps the row.
+	for (const result of [{ actionType: 'break_block', arguments: { x: 7, y: 64, z: 0 }, state: 'FAILED', reasonCode: 'BLOCK_UNBREAKABLE' },
+		{ actionType: 'look_at', arguments: { x: 7, y: 64, z: 0 }, state: 'SUCCEEDED', reasonCode: 'LOOKED' }]) forgetResourceResult(memory, at(0.5, 64, 0.5), result);
+	forgetResourceResult(memory, { player: { x: 0, y: 64, z: 0 }, world: { dimension: 'minecraft:the_nether' } }, { actionType: 'break_block', arguments: { x: 7, y: 64, z: 0 }, state: 'SUCCEEDED', reasonCode: 'BLOCK_BROKEN' });
+	assert.equal(knownResources(memory, at(0.5, 64, 0.5), { ids: ['cobblestone'] }).length, 1);
+	// A mined vein: its start cell, and the same ore within 2 when the receipt says none of it is left in view.
+	const ore = (x, y, blockId = 'minecraft:iron_ore') => ({ blockId, x, y, z: 0 });
+	rememberResources(memory, at(0.5, 12, 0.5, { sighted: { veins: [ore(20, 12), ore(40, 12), ore(20, 30, 'minecraft:deepslate_iron_ore')] } }), { now: 3000 });
+	forgetResourceResult(memory, at(0.5, 12, 0.5), { actionType: 'mine_vein', arguments: { x: 21, y: 13, z: 0 }, state: 'SUCCEEDED', reasonCode: 'VEIN_MINED',
+		message: 'mined: 4 minecraft:iron_ore; no seen block of it is left' });
+	assert.deepEqual(knownResources(memory, at(0.5, 12, 0.5), { ids: ['iron_ore', 'deepslate_iron_ore'] }).map((row) => row.x).sort((a, b) => a - b), [20, 40],
+		'the vein beside the start is gone; a vein 20 blocks off and the deepslate one 18 above stay');
 });

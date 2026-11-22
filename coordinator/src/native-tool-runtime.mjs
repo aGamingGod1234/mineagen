@@ -1,4 +1,4 @@
-import { knownResources, newResourceMemory, rememberKnownBlocks, rememberResources } from './seen-resources.mjs';
+import { forgetResourceResult, knownResources, newResourceMemory, rememberKnownBlocks, rememberResources } from './seen-resources.mjs';
 /** How often the dig-seen ore rows are merged from the observed-memory store, per agent. */
 const KNOWN_ORE_MS = 5_000;
 import { createHash, randomUUID } from 'node:crypto';
@@ -344,7 +344,9 @@ export class NativeToolRuntime {
 	}
 
 	#rememberResources(agentId, observation) {
-		if (!this.#resources.has(agentId)) this.#resources.set(agentId, newResourceMemory());
+		// One memory per agent and world: a replacement world's blocks are not the old world's sources.
+		const worldId = observationWorldId(observation) ?? null;
+		if (!this.#resources.has(agentId) || this.#resources.get(agentId).worldId !== worldId) this.#resources.set(agentId, { ...newResourceMemory(), worldId });
 		try {
 			const memory = this.#resources.get(agentId);
 			rememberResources(memory, observation, { now: Date.now() });
@@ -356,6 +358,11 @@ export class NativeToolRuntime {
 				if (known?.blocks?.length) rememberKnownBlocks(memory, observation, known.blocks, { now: Date.now() });
 			}
 		} catch { /* a malformed sample adds nothing */ }
+	}
+
+	/** Sources this agent has seen in its current world (seen-resources.mjs rows, nearest first from `observation`). */
+	resourcesFor(agentId, query = {}, observation = this.#observations.get(agentId)?.observation ?? {}) {
+		return knownResources(this.#resources.get(agentId) ?? newResourceMemory(), observation, query);
 	}
 
 	/** The observation a helper reads, with the sources seen so far (seenResources, nearest first) attached. */
@@ -2633,7 +2640,7 @@ export class NativeToolRuntime {
 				if (facts.freshness?.fresh !== true) throw codedError('FRESH_OBSERVATION_REQUIRED', 'obtain needs a fresh observation at each step');
 				return this.#withResources(record.agentId, facts.observation ?? {});
 			},
-			resources: (query = {}) => knownResources(this.#resources.get(record.agentId) ?? newResourceMemory(), this.#observations.get(record.agentId)?.observation ?? {}, query),
+			resources: (query = {}) => this.resourcesFor(record.agentId, query),
 			act: (actionType, args) => run('act', { actionType, arguments: args }),
 			mine: (args) => run('mine', args),
 			moveTo: (args) => run('moveTo', args),
@@ -2877,7 +2884,7 @@ export class NativeToolRuntime {
 				if (facts.freshness?.fresh !== true) throw codedError('FRESH_OBSERVATION_REQUIRED', `${label} needs a fresh observation at each step`);
 				return this.#withResources(agentId, facts.observation ?? {});
 			},
-			resources: (query = {}) => knownResources(this.#resources.get(agentId) ?? newResourceMemory(), latest(), query),
+			resources: (query = {}) => this.resourcesFor(agentId, query, latest()),
 			look: async ({ pitch, survey }) => {
 				live();
 				steps += 1;
@@ -3368,6 +3375,11 @@ export class NativeToolRuntime {
 		const moved = latest !== undefined && (active.worldId != null && latest.world?.worldId !== active.worldId || active.dimension != null && latest.world?.dimension !== active.dimension);
 		// Game ticks are per world: after a move, the latest sample's tick is not a clock of the dispatch world, so it is dropped.
 		const dispatched = latest === undefined ? undefined : { ...latest, ...(moved ? { worldTick: undefined } : {}), world: { ...(moved ? (({ gameTime, ...world }) => world)(latest.world ?? {}) : latest.world), ...(active.worldId == null ? {} : { worldId: active.worldId }), ...(active.dimension == null ? {} : { dimension: active.dimension }) } };
+		// A source the agent broke or mined is gone (air is never a sampled row, so no later sample withdraws it).
+		const resourceMemory = this.#resources.get(record.agentId);
+		if (resourceMemory !== undefined && dispatched !== undefined && (active.worldId == null || resourceMemory.worldId === active.worldId)) {
+			forgetResourceResult(resourceMemory, dispatched, { actionType: active.actionType, arguments: active.arguments, state, reasonCode, message: payload.message ?? null });
+		}
 		this.#occupancy.recordResourceResult?.(record.agentId, dispatched, { actionType: active.actionType, arguments: active.arguments, state, reasonCode, message: payload.message ?? null, observedAtEpochMs: payload.observedAtEpochMs ?? null });
 		this.#placedWorkstations.onActionResult(record.agentId, { actionType: active.actionType, arguments: active.arguments, state, observedAtEpochMs: payload.observedAtEpochMs, actionObservation: payload.actionObservation }, dispatched);
 		this.#dugStairs.onActionResult(record.agentId, { actionType: active.actionType, arguments: active.arguments, from: active.from ?? null, to: endedAt ?? observationPosition(latest),
@@ -3472,6 +3484,7 @@ export class NativeToolRuntime {
 			this.#placedWorkstations.clear(agentId);
 			this.#lastSweeps.delete(agentId);
 			this.#missedPlaces.delete(agentId);
+			this.#resources.delete(agentId);
 			this.#dugStairs.clear(agentId);
 			this.#lastLive.delete(agentId);
 			this.#receipts.delete(agentId);

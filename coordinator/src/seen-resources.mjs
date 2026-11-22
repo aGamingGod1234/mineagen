@@ -147,6 +147,35 @@ export function rememberResources(memory, observation, { now = Date.now() } = {}
 }
 
 /**
+ * Forgets sources the agent's own action took (memory mutated and returned). A sample never lists air, so a mined
+ * cell is otherwise never contradicted; a merged row standing at that cell goes too, and the cluster's remaining blocks
+ * come back as a new row at their own cell the next time they are seen.
+ * - break_block SUCCEEDED BLOCK_BROKEN: the broken cell.
+ * - mine_vein SUCCEEDED VEIN_MINED: the start cell, and every row of the same ore within 2 when the receipt says no seen
+ *   block of it is left.
+ */
+export function forgetResourceResult(memory, observation, { actionType, arguments: args, state, reasonCode, message = null } = {}) {
+	if (!memory?.rows || state !== 'SUCCEEDED' || !args || ![args.x, args.y, args.z].every(Number.isFinite)) return memory;
+	const dimension = observation?.world?.dimension ?? observation?.dimension ?? null;
+	const [x, y, z] = [Math.floor(args.x), Math.floor(args.y), Math.floor(args.z)];
+	let reach = -1, ore = null;
+	if (actionType === 'break_block' && reasonCode === 'BLOCK_BROKEN') reach = 0;
+	else if (actionType === 'mine_vein' && reasonCode === 'VEIN_MINED') {
+		reach = /no seen block of it is left/.test(String(message ?? '')) ? 2 : 0;
+		ore = /mined: \d+ (minecraft:[a-z0-9_]+)/.exec(String(message ?? ''))?.[1] ?? null;
+	}
+	if (reach < 0) return memory;
+	const same = (what) => ore !== null && what.replace(':deepslate_', ':') === ore.replace(':deepslate_', ':');
+	for (const [key, row] of memory.rows) {
+		if (row.kind === 'mob' || (dimension !== null && row.dimension !== dimension)) continue;
+		const at = row.x === x && row.y === y && row.z === z;
+		const near = Math.max(Math.abs(row.x - x), Math.abs(row.y - y), Math.abs(row.z - z)) <= reach;
+		if (at || (near && same(row.id))) memory.rows.delete(key);
+	}
+	return memory;
+}
+
+/**
  * Merges blocks the body knows of without a sight line now (an ore a dig sighted through rock, kept in the observed-
  * memory store) as rows with `enclosed: true`. A row also seen along a sight line keeps `enclosed: false`.
  */
