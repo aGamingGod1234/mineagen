@@ -175,7 +175,7 @@ test('staged mode scans the staged content of staged files, not the working tree
  } finally { await rm(dir, { recursive: true, force: true }); }
 });
 test('hooks are executable and block a private path or host before the commit is made', async () => {
- for (const hook of ['pre-commit', 'commit-msg']) {
+ for (const hook of ['pre-commit', 'commit-msg', 'pre-push']) {
   assert.match(execFileSync('git', ['ls-files', '-s', 'scripts/hooks/' + hook], { cwd: root, encoding: 'utf8' }), /^100755 /, hook + ' is committed executable');
  }
  const { dir, git } = await scratchRepo();
@@ -188,6 +188,17 @@ test('hooks are executable and block a private path or host before the commit is
   git('commit', '-q', '-m', 'Add the gate');
   git('config', 'core.hooksPath', 'scripts/hooks');
   const commit = (...args) => spawnSync('git', ['-c', 'user.name=Probe', '-c', 'user.email=probe@example.com', 'commit', '-q', ...args], { cwd: dir, encoding: 'utf8' });
+  // A personal author or committer email is stopped before the commit carries it.
+  await writeFile(path.join(dir, 'notes.txt'), 'line\n');
+  git('add', 'notes.txt');
+  const personalEmail = 'private' + '@' + 'personal.org';
+  const blockedAuthor = spawnSync('git', ['-c', 'user.name=Probe', '-c', 'user.email=' + personalEmail, 'commit', '-q', '-m', 'Add notes'], { cwd: dir, encoding: 'utf8' });
+  assert.notEqual(blockedAuthor.status, 0);
+  assert.match(blockedAuthor.stdout + blockedAuthor.stderr, /identity:1: FAIL email/);
+  const blockedCommitter = spawnSync('git', ['-c', 'user.name=Probe', '-c', 'user.email=probe@example.com', 'commit', '-q', '-m', 'Add notes'],
+   { cwd: dir, encoding: 'utf8', env: { ...process.env, GIT_COMMITTER_EMAIL: personalEmail } });
+  assert.notEqual(blockedCommitter.status, 0);
+  assert.match(blockedCommitter.stdout + blockedCommitter.stderr, /identity:2: FAIL email/);
   await writeFile(path.join(dir, 'notes.txt'), 'line\n' + homePath + '\n');
   git('add', 'notes.txt');
   const blockedFile = commit('-m', 'Add notes');
@@ -219,10 +230,56 @@ test('hooks are executable and block a private path or host before the commit is
   assert.match(run(['--commit-msg', path.join(dir, 'message')]).stdout, /^message:2: FAIL private host$/m);
  } finally { await rm(dir, { recursive: true, force: true }); }
 });
+test('the pre-push hook stops a private branch name or a new commit with a personal email before anything is public', async () => {
+ const { dir, git } = await scratchRepo();
+ const remote = await mkdtemp(path.join(root, '.public-gate-test-remote-'));
+ try {
+  execFileSync('git', ['init', '-q', '--bare', remote]);
+  await mkdir(path.join(dir, 'scripts/hooks'), { recursive: true });
+  for (const file of ['check-public-tree.mjs', 'public-tree-exemptions.json', 'hooks/pre-push']) {
+   await writeFile(path.join(dir, 'scripts', file), await readFile(path.join(root, 'scripts', file)), { mode: 0o755 });
+  }
+  git('add', 'scripts');
+  git('commit', '-q', '-m', 'Add the gate');
+  git('remote', 'add', 'origin', remote);
+  git('config', 'core.hooksPath', 'scripts/hooks');
+  const push = (...args) => spawnSync('git', ['push', '-q', 'origin', ...args], { cwd: dir, encoding: 'utf8' });
+  const first = push('HEAD:refs/heads/main');
+  assert.equal(first.status, 0, first.stdout + first.stderr);
+  // The branch name alone is enough: no commit hook ever sees it.
+  git('branch', 'fix/' + hostName + '-lag');
+  const blockedName = push('fix/' + hostName + '-lag');
+  assert.notEqual(blockedName.status, 0);
+  assert.match(blockedName.stdout + blockedName.stderr, new RegExp('ref refs/heads/fix/' + hostName + '-lag:1: FAIL private host'));
+  assert.equal(execFileSync('git', ['--git-dir', remote, 'branch', '--list'], { encoding: 'utf8' }).includes(hostName), false, 'the branch never reached the remote');
+  const desk = 'Desk' + 'top';
+  git('branch', 'fix/' + desk + '-rooms');
+  assert.match((r => r.stdout + r.stderr)(push('fix/' + desk + '-rooms')), new RegExp('REVIEW device-word context'));
+  // A commit made around the commit hooks still has its emails and message read when it is pushed.
+  await writeFile(path.join(dir, 'notes.txt'), 'line\n');
+  git('add', 'notes.txt');
+  execFileSync('git', ['-c', 'user.name=Probe', '-c', 'user.email=' + 'private' + '@' + 'personal.org', 'commit', '-q', '--no-verify', '-m', 'Add notes', '-m', 'Seen on ' + hostName], { cwd: dir });
+  const blockedCommit = push('HEAD:refs/heads/notes');
+  assert.notEqual(blockedCommit.status, 0);
+  assert.match(blockedCommit.stdout + blockedCommit.stderr, /identity:1: FAIL email/);
+  assert.match(blockedCommit.stdout + blockedCommit.stderr, /message:3: FAIL private host/);
+  // Commits the remote already has are not read again, and a clean branch goes out.
+  git('reset', '-q', '--hard', 'origin/main');
+  git('checkout', '-q', '-b', 'fix/clean');
+  await writeFile(path.join(dir, 'notes.txt'), 'line\n');
+  git('add', 'notes.txt');
+  git('commit', '-q', '--no-verify', '-m', 'Add notes');
+  const clean = push('fix/clean');
+  assert.equal(clean.status, 0, clean.stdout + clean.stderr);
+  assert.match(clean.stdout + clean.stderr, /Scanned 3 texts: 0 failures/);
+ } finally { await rm(dir, { recursive: true, force: true }); await rm(remote, { recursive: true, force: true }); }
+});
 test('pull request text lists the title, description, branch and every commit message from the API', async () => {
  const dir = await mkdtemp(path.join(root, '.public-gate-test-'));
  let listed = 101;
- const commits = n => Array.from({ length: n }, (_, i) => ({ sha: i.toString(16).padStart(4, '0') + 'b'.repeat(36), commit: { message: 'Commit ' + i + (i === 100 ? '\n\nSeen on ' + hostName : '') } }));
+ const noreply = '1+probe@users.noreply.github.com', personalEmail = 'private' + '@' + 'personal.org';
+ const commits = n => Array.from({ length: n }, (_, i) => ({ sha: i.toString(16).padStart(4, '0') + 'b'.repeat(36), commit: { message: 'Commit ' + i + (i === 100 ? '\n\nSeen on ' + hostName : ''),
+  author: { name: 'Probe', email: i === 99 ? personalEmail : noreply }, committer: { name: 'GitHub', email: 'noreply@github.com' } } }));
  const server = createServer((request, response) => {
   assert.equal(request.headers.authorization, 'Bearer probe-token');
   const url = new URL(request.url, 'http://x');
@@ -245,15 +302,17 @@ test('pull request text lists the title, description, branch and every commit me
   await writeFile(path.join(dir, 'event.json'), JSON.stringify({ pull_request: { number: 7, title: 'stale title' } }));
   const first = await collect(path.join(dir, 'out'));
   assert.equal(first.status, 0, first.output);
-  assert.match(first.output, /Wrote 104 texts/);
+  assert.match(first.output, /Wrote 205 texts/);
   assert.equal(await readFile(path.join(dir, 'out/pull-request-title'), 'utf8'), 'A title\n');
   assert.equal(await readFile(path.join(dir, 'out/branch-name'), 'utf8'), 'feature/probe\n');
   const texts = await readdir(path.join(dir, 'out'));
-  assert.equal(texts.length, 104);
+  assert.equal(texts.length, 205);
+  assert.equal(await readFile(path.join(dir, 'out/commit-0063bbbbbbbb-identity'), 'utf8'), 'author-email: ' + personalEmail + '\ncommitter-email: noreply@github.com\n');
   const scan = run(['--text', ...texts.map(name => path.join(dir, 'out', name))]);
   assert.equal(scan.status, 1);
   assert.match(scan.stdout, /^commit-0064bbbbbbbb:3: FAIL private host$/m);
-  assert.match(scan.stdout, /Scanned 104 texts: 1 failures, 0 review findings/);
+  assert.match(scan.stdout, /^commit-0063bbbbbbbb-identity:1: FAIL email$/m);
+  assert.match(scan.stdout, /Scanned 205 texts: 2 failures, 0 review findings/);
   // A pull request with more commits than the API lists fails instead of scanning part of it.
   listed = 100;
   const short = await collect(path.join(dir, 'short'));
