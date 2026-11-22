@@ -29,6 +29,8 @@ const EAT_RESUME_HEALTH = 12;
 // food taken straight from an animal or plant: a crafted or smelted food's chain mines, smelts and travels like any other.
 const FOODS = new Set(['beef', 'porkchop', 'mutton', 'chicken', 'rabbit', 'cod', 'salmon', 'apple', 'carrot', 'potato',
 	'sweet_berries', 'glow_berries', 'melon_slice', 'beetroot']);
+// MINEAGEN_OBTAIN_COSTS=off plans as before chests, the seen-source cost model and the one-trip kit iron (A/B rooms).
+const OBTAIN_COSTS = process.env.MINEAGEN_OBTAIN_COSTS !== 'off';
 // Food a trip below ground is stocked with: about a quarter hour's eating.
 const TRIP_FOOD = 8;
 // Climbing out of a mine for logs or animals: stairs up a leg of 24 at a time, enough legs to reach the surface from y -58.
@@ -1688,17 +1690,17 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			rememberStructures(looted, o);
 			// Three loot steps that came to nothing (no way in, no chest found, a menu that would not open): chests drop out
 			// of this call's plans, so the other ways are planned again rather than a stuck loot need.
-			const loot = (failures.get('loot') ?? 0) >= 3 ? [] : lootSources(o, { opened: new Set([...looted.opened, ...budget.failed]), searched: new Set(looted.searched), structures: looted.structures });
-			const places = seenPlaces(o);
+			const loot = !OBTAIN_COSTS || (failures.get('loot') ?? 0) >= 3 ? [] : lootSources(o, { opened: new Set([...looted.opened, ...budget.failed]), searched: new Set(looted.searched), structures: looted.structures });
+			const places = OBTAIN_COSTS ? seenPlaces(o) : null;
 			// The food a trip down wants (TRIP_FOOD items): a village's bread is then worth the visit before the trip, not after.
 			const eats = [...counts].filter(([kind]) => FOODS.has(kind) || /^(cooked_|baked_|bread$|golden_carrot)/.test(kind)).reduce((sum, [, n]) => sum + n, 0);
-			plan = planObtain(goal, { held, seen, stations, index, coalFirst, dimension: o.world?.dimension, loot, gear: gearOf(o), places, food: Math.max(0, TRIP_FOOD - eats) });
+			plan = planObtain(goal, { held, seen, stations, index, coalFirst, dimension: o.world?.dimension, loot, gear: gearOf(o), places, food: OBTAIN_COSTS ? Math.max(0, TRIP_FOOD - eats) : 0 });
 			// What the plan weighed, once per change: the loot it knew of and the way each need takes.
 			const weighed = `plan: ${plan.needs.map((need) => `${need.kind} ${need.count} ${need.accept[0]}`).join(', ') || 'crafts only'}; loot known: ${loot.length === 0 ? 'none' : loot.slice(0, 3).map((row) => `${row.kind === 'chest' ? 'chest' : row.name} ${Math.round(row.distance)}m`).join(', ')}`;
 			if (weighed !== lastWeighed) { lastWeighed = weighed; step(weighed); }
 			// At the ore for an iron tool, the rest of the route's kit iron comes in the same trip: a second trip down for
 			// the shield's, buckets' and flint and steel's iron costs the whole descent again.
-			const extra = kitIronExtra(o, plan);
+			const extra = OBTAIN_COSTS ? kitIronExtra(o, plan) : 0;
 			if (extra > 0) plan = planObtain({ ...goal, also: [{ ids: ['raw_iron'], count: extra }] }, { held, seen, stations, index, coalFirst, dimension: o.world?.dimension, loot, gear: gearOf(o), places, food: Math.max(0, TRIP_FOOD - eats) });
 			// The wood kept back for the next pickaxes never sends the body up for wood from under cover: there it is spent
 			// on what this call needs (a table, sticks, a shield). On the surface a log is near and the reserve holds.
