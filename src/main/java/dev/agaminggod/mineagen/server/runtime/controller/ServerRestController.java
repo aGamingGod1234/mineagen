@@ -25,7 +25,8 @@ import net.minecraft.world.phys.Vec3;
  * is carried or can be crafted from what is carried (3 wool of one colour and 3 planks, at a crafting table within reach,
  * a carried one, or one made from 4 more planks); sleeping also sets the spawn there. Without a bed, or when sleep is
  * refused, it walls itself in where it stands with carried blocks (build_shelter's sealed cell), or with too few blocks
- * digs a 1x2 hole and roofs it with what it dug. At morning it opens the walls (or digs stairs back up) and hands back.
+ * digs a hole 3 deep (two cells beside the body it has looked into, then one under its own feet) and roofs it with one
+ * dug block over its head. At morning it opens the walls (or digs stairs back up) and hands back.
  * Underground (more than 4 blocks of ground over its eyes) the night changes nothing, so it hands back at once and the work goes on.
  * It hands back too when stuck (no safe cell, no blocks, attacked inside) and at timeoutMs.
  */
@@ -59,6 +60,11 @@ public final class ServerRestController implements ServerController {
 	/** More ground than this over the eyes is underground (a 1x2 night hole is not). */
 	static final double UNDERGROUND_DEPTH = 4.0D;
 	private static final Direction[] SIDES = {Direction.NORTH, Direction.EAST, Direction.SOUTH, Direction.WEST};
+	/** A break whose aim a reflex turn or a push took away is looked at again and tried this many more times. */
+	static final int DIG_RETRIES = 2;
+	private static final java.util.Set<String> AIM_LOST = java.util.Set.of("TARGET_NOT_VISIBLE", "TARGET_CHANGED", "AIM_NOT_REACHED");
+	/** After the block under the feet breaks: time to land on the new floor and pick up the drop (pickup delay 10 ticks). */
+	static final long LAND_MS = 1_500L;
 
 	private enum Phase { PLAN, LOOK, LOOK_AT, CHILD, PLACE, SLEEP, SLEEPING, WAIT, DONE }
 
@@ -302,8 +308,16 @@ public final class ServerRestController implements ServerController {
 			return lookDown(player, feet, 0, () -> shelterPlan(player, dev.agaminggod.mineagen.server.runtime.GameClock.nowMs(), last));
 		}
 		if (side != null) {
+			// Empty-handed, the roof is a block the dig gives back: ground that drops none by hand (snow, sand, stone) is
+			// said before any digging, not found out in an open hole.
+			BlockPos first = feet.relative(side).below();
+			BlockState ground = SeenTerrain.of(player).known(first.getX(), first.getY(), first.getZ());
+			if (item == null && ground != null && !dropsRoofBlock(player, first, ground)) {
+				return stuck(player, "the ground here (" + BuiltInRegistries.BLOCK.getKey(ground.getBlock()) + " at " + first.toShortString()
+						+ ") gives no block to roof a hole when dug with what is held; carry 1 plain block (dirt, cobblestone, planks) or rest on dirt or grass");
+			}
 			pit = true;
-			log.add("digging a 1x2 hole beside the body (" + blocks + " plain blocks carried)");
+			log.add("digging a hole beside the body (" + blocks + " plain blocks carried)");
 			return digHole(player, feet.relative(side), away);
 		}
 		if (item != null && blocks >= 4) return seal(player, feet, away, item, now);
@@ -319,37 +333,92 @@ public final class ServerRestController implements ServerController {
 		for (int turn = 0; turn < 4; turn++) {
 			Direction side = SIDES[(indexOf(away) + turn) % 4];
 			BlockPos cell = feet.relative(side);
-			if (open(player, cell) && open(player, cell.above()) && diggable(player, cell.below())) return side;
+			if (open(player, cell) && open(player, cell.above()) && diggableColumn(player, cell.below())) return side;
 		}
 		return null;
 	}
 
-	/** Digs the column at {@code top}'s two blocks below, judging each from what the body sees, then steps down into it. */
+	/** Whether breaking this ground with the held item drops a block that can roof the hole. */
+	private static boolean dropsRoofBlock(ServerPlayer player, BlockPos at, BlockState state) {
+		for (ItemStack drop : net.minecraft.world.level.block.Block.getDrops(state, player.level(), at, null, player, player.getMainHandItem()))
+			if (roofBlock(drop.getItem())) return true;
+		return false;
+	}
+
+	/** A plain full block that stays where it is placed (build_shelter's rule: nothing that falls or holds contents). */
+	private static boolean roofBlock(net.minecraft.world.item.Item item) {
+		return item instanceof net.minecraft.world.item.BlockItem blockItem && !(blockItem.getBlock() instanceof net.minecraft.world.level.block.FallingBlock)
+				&& !(blockItem.getBlock() instanceof net.minecraft.world.level.block.EntityBlock)
+				&& blockItem.getBlock().defaultBlockState().isCollisionShapeFullBlock(net.minecraft.world.level.EmptyBlockGetter.INSTANCE, BlockPos.ZERO)
+				&& item != Items.OBSIDIAN && item != Items.CRYING_OBSIDIAN;
+	}
+
+	/** Breaks the cell; a break whose aim was taken away (a reflex turned the view, a mob pushed the body) is looked at again. */
+	private TickResult clearThen(ServerPlayer player, BlockPos cell, int attempt, java.util.function.Supplier<TickResult> then) {
+		return runChild(environment.clear(player, cell, STEP_MS), dug -> {
+			if (dug.state() == State.SUCCEEDED) return then.get();
+			if (attempt < DIG_RETRIES && AIM_LOST.contains(dug.reasonCode())) {
+				log.add("looked again at " + cell.toShortString() + " after " + dug.reasonCode());
+				return lookThen(cell, () -> clearThen(player, cell, attempt + 1, then));
+			}
+			return stuck(player, "could not dig the hole: " + dug.reasonCode() + " " + dug.message());
+		});
+	}
+
+	/**
+	 * Digs the column at {@code top}'s two blocks below, judging each from what the body sees, steps down into it, then
+	 * deepens it by the block under its own feet (in view straight down) so the roof is one block over the head, set
+	 * against the hole's own walls (2 deep, the roof sat at ground level and needed a scaffold block too).
+	 */
 	private TickResult digHole(ServerPlayer player, BlockPos top, Direction away) {
 		BlockPos first = top.below(), second = top.below(2), floor = top.below(3);
-		return runChild(environment.clear(player, first, STEP_MS), dug -> {
-			if (dug.state() != State.SUCCEEDED) return stuck(player, "could not dig the hole: " + dug.reasonCode() + " " + dug.message());
-			return lookThen(second, () -> {
-				String below = describeBelow(player, second);
-				if (!diggable(player, second)) return stuck(player, "under the dug cell " + first.toShortString() + " is " + below
-						+ ": not digging toward a drop; wall in with 10 or more plain blocks, or rest somewhere with solid ground");
-				return runChild(environment.clear(player, second, STEP_MS), dug2 -> {
-					if (dug2.state() != State.SUCCEEDED) return stuck(player, "could not dig the hole: " + dug2.reasonCode() + " " + dug2.message());
-					return lookThen(floor, () -> {
-						// From beside a 1-wide hole the body's own block hides the hole's floor, so it is nearly always unseen
-						// (from-scratch game 13: rest refused every night hole at 1.3 health with an empty inventory). A player
-						// digs two down and steps in; only a floor known to be open or fluid is a drop.
-						boolean unseen = SeenTerrain.of(player).known(floor.getX(), floor.getY(), floor.getZ()) == null;
-						if (!unseen && !solid(player, floor)) return stuck(player, "under the hole at " + second.toShortString() + " is "
-								+ describeBelow(player, floor) + ": not stepping into a drop; wall in with 10 or more plain blocks, or rest on solid ground");
-						log.add("hole dug to " + second.toShortString() + (unseen ? " (its floor hidden from beside it)" : " over solid " + describeBelow(player, floor)));
-						return runChild(new ServerNavigationController(Vec3.atBottomCenterOf(second), 0.35D, false, dev.agaminggod.mineagen.server.runtime.GameClock.nowMs(), STEP_MS, false),
-								stepped -> stepped.state() == State.SUCCEEDED || feet(player).equals(second) ? roofHole(player, away)
-										: stuck(player, "could not step into the hole: " + stepped.reasonCode() + " " + stepped.message()));
-					});
-				});
-			});
+		return clearThen(player, first, 0, () -> lookThen(second, () -> {
+			String below = describeBelow(player, second);
+			if (!diggableColumn(player, second)) return stuck(player, "under the dug cell " + first.toShortString() + " is " + below
+					+ ": not digging toward a drop; wall in with 10 or more plain blocks, or rest somewhere with solid ground");
+			return clearThen(player, second, 0, () -> lookThen(floor, () -> {
+				// From beside a 1-wide hole the body's own block hides the hole's floor, so it is nearly always unseen
+				// (from-scratch game 13: rest refused every night hole at 1.3 health with an empty inventory). A player
+				// digs two down and steps in; only a floor known to be open or fluid is a drop.
+				boolean unseen = SeenTerrain.of(player).known(floor.getX(), floor.getY(), floor.getZ()) == null;
+				if (!unseen && !solid(player, floor)) return stuck(player, "under the hole at " + second.toShortString() + " is "
+						+ describeBelow(player, floor) + ": not stepping into a drop; wall in with 10 or more plain blocks, or rest on solid ground");
+				log.add("hole dug to " + second.toShortString() + (unseen ? " (its floor hidden from beside it)" : " over solid " + describeBelow(player, floor)));
+				return runChild(new ServerNavigationController(Vec3.atBottomCenterOf(second), 0.35D, false, dev.agaminggod.mineagen.server.runtime.GameClock.nowMs(), STEP_MS, false),
+						stepped -> stepped.state() == State.SUCCEEDED || feet(player).equals(second) ? deepen(player, away)
+								: stuck(player, "could not step into the hole: " + stepped.reasonCode() + " " + stepped.message()));
+			}));
+		}));
+	}
+
+	/** In the hole: the block under the feet, then a look at every wall cell so the roof plan knows they are solid. */
+	private TickResult deepen(ServerPlayer player, Direction away) {
+		BlockPos under = feet(player).below();
+		return lookThen(under, () -> {
+			if (!diggableColumn(player, under)) {
+				log.add("kept the hole 2 deep over " + describeBelow(player, under));
+				return roofHole(player, away);
+			}
+			return clearThen(player, under, 0, () -> runChild(landed(player, under), done -> {
+				log.add("deepened to " + feet(player).toShortString());
+				return lookWalls(player, feet(player), away, 0);
+			}));
 		});
+	}
+
+	/** Waits until the body stands on the floor below the broken block (and its drop is picked up), at most LAND_MS. */
+	private ServerController landed(ServerPlayer body, BlockPos under) {
+		long until = dev.agaminggod.mineagen.server.runtime.GameClock.nowMs() + LAND_MS;
+		String before = environment.blockItem(body);
+		return (player, now) -> (feet(player).getY() <= under.getY() && player.onGround() && (before != null || environment.blockItem(player) != null)) || now >= until
+				? TickResult.succeeded("LANDED", "") : TickResult.running(0.5D);
+	}
+
+	/** The cells build_shelter's sealed plan checks round the hole: each side at feet and head height, and the roof's support. */
+	private TickResult lookWalls(ServerPlayer player, BlockPos center, Direction away, int index) {
+		if (index >= SIDES.length * 2 + 1) return roofHole(player, away);
+		BlockPos cell = index < SIDES.length * 2 ? center.relative(SIDES[index / 2]).above(index % 2) : center.relative(away.getOpposite()).above(2);
+		return lookThen(cell, () -> lookWalls(player, center, away, index + 1));
 	}
 
 	/** What the body knows of a cell: its block, "an open drop", a fluid, or "unseen". */
@@ -629,12 +698,17 @@ public final class ServerRestController implements ServerController {
 		return state != null && state.isCollisionShapeFullBlock(player.level(), at);
 	}
 
-	/** A seen full block a player can dig out to stand in: no fluid, no block entity, not bedrock, nothing that falls. */
-	private static boolean diggable(ServerPlayer player, BlockPos at) {
+	/**
+	 * Ground the hole goes down through: a seen full block a player can dig out (no fluid, no block entity, not bedrock),
+	 * sand and gravel included. Nothing rests on a cell of the hole's own
+	 * column (the cell above is open or already dug), so a falling block there drops nothing in.
+	 */
+	private static boolean diggableColumn(ServerPlayer player, BlockPos at) {
 		BlockState state = SeenTerrain.of(player).known(at.getX(), at.getY(), at.getZ());
 		return state != null && state.isCollisionShapeFullBlock(player.level(), at) && !state.hasBlockEntity() && !state.is(Blocks.BEDROCK)
-				&& !(state.getBlock() instanceof net.minecraft.world.level.block.FallingBlock) && state.getDestroySpeed(player.level(), at) >= 0.0F;
+				&& state.getDestroySpeed(player.level(), at) >= 0.0F;
 	}
+
 
 	private static Mob nearestHostile(ServerPlayer player) {
 		Mob best = null;
