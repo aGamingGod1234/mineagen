@@ -3,6 +3,7 @@ package dev.agaminggod.mineagen.server.runtime.controller;
 import dev.agaminggod.mineagen.client.navigation.GridPosition;
 import dev.agaminggod.mineagen.client.navigation.WalkabilityView;
 import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
 
 public final class BrinkGuardVerification {
 	private BrinkGuardVerification() {
@@ -105,7 +106,7 @@ public final class BrinkGuardVerification {
 		double[] left = BrinkGuard.worldHeading(0.0F, 0.0F, 1.0F);
 		check(left[0] > 0.99D, "yaw 0 strafe left walks east (+x), as vanilla's xxa");
 		assertions++;
-		return assertions + verifyIdleHandoff() + verifyHandoffGuardComposition()
+		return assertions + verifyWallInFooting() + verifyIdleHandoff() + verifyHandoffGuardComposition()
 				+ dev.agaminggod.mineagen.server.runtime.input.BrinkGuardIngressVerification.verify();
 	}
 
@@ -208,6 +209,61 @@ public final class BrinkGuardVerification {
 		handoff.hold(BrinkGuard.InputPresence.CONTROL, level, 100, true, false, .01D, 0);
 		handoff.applied(BrinkGuard.InputPresence.CONTROL, true, true);
 		return handoff;
+	}
+
+	/**
+	 * NE-LAVA-1: defend's wall-in stands still under a blaze's fire. A fortress bridge three wide (z -1..1, floor top y 64)
+	 * over a 40-block drop into the lava sea refuses its edge columns and allows its middle; a one-wide bridge refuses
+	 * everywhere; the same floor between walls (a corridor) allows every column. The inland stand from an edge column is
+	 * the bridge's middle, and a one-wide bridge has none.
+	 */
+	private static int verifyWallInFooting() {
+		WalkabilityView bridge = deck(1, false), narrow = deck(0, false), corridor = deck(1, true);
+		BrinkGuard.VoidProbe noVoid = (x, y, z) -> false;
+		check(brink(bridge, noVoid, 0.5D, 1.5D) != null, "a 3-wide bridge's edge column has the lava sea within a shove");
+		BrinkGuard.Fall edge = brink(bridge, noVoid, 0.5D, -0.5D);
+		check(edge != null && !edge.unknown(), "the other edge column too, and the drop is a known lethal one: " + edge);
+		check(brink(bridge, noVoid, 0.5D, 0.5D) == null, "the middle of a 3-wide bridge is 1.2 blocks from either lip: no brink in a shove");
+		check(brink(narrow, noVoid, 0.5D, 0.5D) != null, "a 1-wide bridge has the drop on both sides");
+		for (double z : new double[]{-0.5D, 0.5D, 1.5D}) check(brink(corridor, noVoid, 0.5D, z) == null, "a corridor floor column " + z + " is walled: no brink");
+		WalkabilityView unseen = position -> position.y() < 63 ? WalkabilityView.Cell.UNLOADED : bridge.cellAt(position);
+		BrinkGuard.Fall blind = brink(unseen, noVoid, 0.5D, 1.5D);
+		check(blind != null && blind.unknown(), "an edge whose bottom was never seen counts as a brink too");
+		Vec3 inland = BrinkGuard.inlandStand(bridge, 0.5D, 64.0D, 1.5D, 3, at -> brink(bridge, noVoid, at.x, at.z) == null);
+		check(inland != null && Math.abs(inland.z - 0.5D) < 1.0E-6D && Math.abs(inland.x - 0.5D) < 1.0E-6D,
+				"from an edge column the inland stand is the bridge's middle, the nearest cell: " + inland);
+		check(BrinkGuard.inlandStand(narrow, 0.5D, 64.0D, 0.5D, 3, at -> brink(narrow, noVoid, at.x, at.z) == null) == null,
+				"a 1-wide bridge has no stand off its brink: the body braces in place");
+		return 9;
+	}
+
+	/** A deck at floor top y 64 for |z| <= half, a lava sea at y 24 and below; with walls, solid at |z| == half + 1 up to y 66. */
+	private static WalkabilityView deck(int half, boolean walls) {
+		return position -> {
+			int y = position.y(), z = Math.abs(position.z());
+			if (z <= half && y == 63) return WalkabilityView.Cell.SAFE_SUPPORT;
+			if (walls && z == half + 1 && y >= 63 && y <= 66) return WalkabilityView.Cell.SAFE_SUPPORT;
+			if (y <= 23) return WalkabilityView.Cell.HAZARD;
+			return WalkabilityView.Cell.CLEAR;
+		};
+	}
+
+	private static BrinkGuard.Fall brink(WalkabilityView world, BrinkGuard.VoidProbe voids, double x, double z) {
+		java.util.function.Predicate<AABB> blocked = box -> !columns(box).stream().allMatch(c ->
+				CombatPlanning.open(world, new GridPosition(c[0], 64, c[1])) && CombatPlanning.open(world, new GridPosition(c[0], 65, c[1])));
+		java.util.function.Predicate<AABB> unsupported = box -> columns(box).stream().noneMatch(c -> {
+			WalkabilityView.Cell below = world.cellAt(new GridPosition(c[0], 63, c[1]));
+			return below == WalkabilityView.Cell.SAFE_SUPPORT || below == WalkabilityView.Cell.BLOCKED;
+		});
+		return BrinkGuard.brinkWithin(body(x, z), BrinkGuard.BRACE_STEPS, blocked, unsupported,
+				box -> BrinkGuard.fall(world, box, -64, voids, 0.0D, 20.0D));
+	}
+
+	private static java.util.List<int[]> columns(AABB box) {
+		java.util.List<int[]> columns = new java.util.ArrayList<>();
+		for (int x = (int) Math.floor(box.minX + 1.0E-7D); x <= (int) Math.floor(box.maxX - 1.0E-7D); x++)
+			for (int z = (int) Math.floor(box.minZ + 1.0E-7D); z <= (int) Math.floor(box.maxZ - 1.0E-7D); z++) columns.add(new int[]{x, z});
+		return columns;
 	}
 
 	private static AABB body(double x, double z) {
