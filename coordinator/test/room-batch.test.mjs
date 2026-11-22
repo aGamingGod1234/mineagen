@@ -240,7 +240,7 @@ test('top-up groups: repeat labels fold, a lost copy counts no valid run, and co
 	assert.equal(repeatGroup('lava-gate-1'), 'lava-gate-1');
 	const rooms = parseCommands([1, 2].map(copy => `@r.c${copy} ${LINE}`).join('\n'), ['new']);
 	const counts = { 'r.c1': 1, 'r.c2': 0 };
-	const plan = topUp({ rooms, arms: ['new'], valid: 2, out: '/nowhere', countValid: async dir => counts[path.basename(path.dirname(dir))] ?? 0 });
+	const plan = topUp({ rooms, arms: ['new'], valid: 2, out: '/nowhere', countValid: async dir => ({ valid: counts[path.basename(path.dirname(dir))] ?? 0, rows: 1 }) });
 	// r.c2 still playing: r.c1's one valid run plus one pending reaches N, so nothing is added yet.
 	assert.deepEqual(await plan.more(rooms[0], { lost: false, arms: {} }), []);
 	// r.c2 lost: short by one, one copy.
@@ -249,6 +249,45 @@ test('top-up groups: repeat labels fold, a lost copy counts no valid run, and co
 	assert.deepEqual(extra[0].lines, rooms[1].lines);
 	assert.notEqual(extra[0].lines[0].args, rooms[1].lines[0].args, 'a copy owns its lines');
 	assert.throws(() => topUp({ rooms, arms: ['new'], valid: 0, out: '/x' }), /whole number/);
+});
+
+test('top-ups: copies finishing together keep each other\'s counts, multi-row copies size by their summary, -rN groups keep their style', async () => {
+	// Three copies of g, N = 3: c1 and c2 valid, c3 not; their counts resolve together.
+	const rooms = parseCommands([1, 2, 3].map(copy => `@g.c${copy} ${LINE}`).join('\n'), ['new']);
+	let release;
+	const gate = new Promise(done => { release = done; });
+	const plan = topUp({ rooms, arms: ['new'], valid: 3, out: '/x', countValid: async dir => { await gate; return { valid: path.basename(path.dirname(dir)) === 'g.c3' ? 0 : 1, rows: 1 }; } });
+	const settled = Promise.all(rooms.map(room => plan.more(room, { lost: false, arms: {} })));
+	release();
+	const extra = (await settled).flat();
+	assert.deepEqual(extra.map(copy => copy.room), ['g.c4'], 'one copy for one missing run, not one per caller');
+	assert.deepEqual(plan.report()[0].valid, { new: 2 });
+	// A line with no selector whose copies write 5 rows each: 2 copies of 5 already reach N = 10, so nothing is added.
+	const multi = parseCommands([1, 2, 3].map(copy => `@dig.c${copy} ${LINE}`).join('\n'), ['new']);
+	const big = topUp({ rooms: multi, arms: ['new'], valid: 10, out: '/x', countValid: async () => ({ valid: 5, rows: 5 }) });
+	assert.deepEqual(await big.more(multi[0], { lost: false, arms: {} }), []);
+	assert.equal(big.report()[0].planned, 15);
+	// Its cap is 2N runs: 4 copies of 5.
+	const none = topUp({ rooms: multi, arms: ['new'], valid: 10, out: '/x', countValid: async () => ({ valid: 0, rows: 5 }) });
+	let made = [];
+	for (const room of multi) made.push(...await none.more(room, { lost: false, arms: {} }));
+	assert.deepEqual(made.map(copy => copy.room), ['dig.c4'], 'the cap counts runs, not copies');
+	const r = parseCommands(`@tr-wastes-r1 ${LINE}`, ['new']);
+	assert.deepEqual((await topUp({ rooms: r, arms: ['new'], valid: 1, out: '/x', countValid: async () => ({ valid: 0, rows: 1 }) }).more(r[0], { lost: false, arms: {} })).map(copy => copy.room), ['tr-wastes-r2']);
+});
+
+test('with top-ups on, an idle machine stays until no busy machine can add rooms, so top-ups spread over the machines', async () => {
+	const order = [];
+	let added = false;
+	const workers = [{ id: 'w1' }, { id: 'w2' }];
+	const released = [];
+	const outcomes = await runQueue({ rooms: [{ room: 'slow' }, { room: 'fast' }], workers, maxAttempts: 1,
+		attempt: async (worker, item) => { order.push(`${worker.id}:${item.room}`); await new Promise(done => setTimeout(done, item.room === 'slow' ? 40 : 1)); return { lost: false }; },
+		more: async item => { if (item.room !== 'slow' || added) return []; added = true; return [{ room: 'extra1' }, { room: 'extra2' }]; },
+		release: worker => { released.push(worker.id); } });
+	assert.deepEqual(outcomes.map(outcome => outcome.room), ['slow', 'fast', 'extra1', 'extra2']);
+	assert.ok(order.includes('w2:extra1') || order.includes('w2:extra2'), `the idle machine took a top-up: ${order.join(' ')}`);
+	assert.deepEqual(released.sort(), ['w1', 'w2']);
 });
 
 test('the machine helper plays every arm side by side under the wrapper, each in its own folder and port range from the job port base', async () => {
