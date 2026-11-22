@@ -11,7 +11,9 @@ import { classifyBodyFailure, composeTwoCallView } from './two-call-llm-wrap.mjs
 import { DugStairs, PlacedWorkstations } from './resource-facts.mjs';
 import { howto, howtoHoldings } from './howto.mjs';
 import { minecraftCapabilities, normalizeMinecraftToolCall, toolAdjustments, toolResultContent, UNSEARCHABLE_BLOCKS, withAdjustments } from './native-minecraft-tools.mjs';
-import { runObtain } from './obtain-runner.mjs';
+import { lootLedger, rememberStructures, runObtain } from './obtain-runner.mjs';
+// Slots per menu page obtain's loot step asks for: one chest row.
+const MENU_PAGE = 9;
 import { resolveObtainItem } from './obtain-plan.mjs';
 import { KIT_CRAFT_TIMEOUT_MS, keepKit } from './kit-habit.mjs';
 import { runInventoryRepair } from './inventory-repair.mjs';
@@ -343,6 +345,15 @@ export class NativeToolRuntime {
 		await this.#occupancy.flush(agentId);
 	}
 
+	/** Per-agent memory obtain keeps across calls: stations placed, furnace loads, flooded approaches, loot. */
+	#obtainMemory(agentId, observation = null) {
+		if (!this.#obtainPlaced.has(agentId)) this.#obtainPlaced.set(agentId, { placed: [], loads: [], approaches: [] });
+		const kept = this.#obtainPlaced.get(agentId);
+		// The loot ledger is one world's: a replacement world's chests and villages are new (as #108's resource memory).
+		kept.looted = lootLedger(kept.looted, observation ? observationWorldId(observation) ?? null : null);
+		return kept;
+	}
+
 	#rememberResources(agentId, observation) {
 		// One memory per agent and world: a replacement world's blocks are not the old world's sources.
 		const worldId = observationWorldId(observation) ?? null;
@@ -355,7 +366,7 @@ export class NativeToolRuntime {
 			if (!(Date.now() - (memory.knownOresAt ?? 0) < KNOWN_ORE_MS)) {
 				memory.knownOresAt = Date.now();
 				const known = this.#occupancy?.knownSources?.(agentId, observation, /_ore$|^minecraft:ancient_debris$/);
-				if (known?.blocks?.length) rememberKnownBlocks(memory, observation, known.blocks, { now: Date.now() });
+				if (known?.blocks?.length) rememberKnownBlocks(memory, observation, known.blocks, { now: Date.now(), tick: known.tick });
 			}
 		} catch { /* a malformed sample adds nothing */ }
 	}
@@ -406,6 +417,9 @@ export class NativeToolRuntime {
 			? Math.max(eventSequence, latest.eventSequence)
 			: eventSequence;
 		const raw = mergeDeathObservation(observation ?? {}, this.#lastLive.get(record.agentId));
+		// A structure row shows only for 30 s after it is first seen: keep every one from every sample, so a later obtain
+		// still knows the village it started in (loot-sources.mjs).
+		if (raw?.sighted?.structures?.length > 0) { try { rememberStructures(this.#obtainMemory(record.agentId, raw).looted, raw); } catch { /* memory cannot stop a sample */ } }
 		// Keep one owned raw snapshot for both internal consumers. Public snapshot
 		// methods still clone at their boundaries, so sharing here does not expose
 		// mutable coordinator state while avoiding a duplicate deep copy per update.
@@ -2642,6 +2656,13 @@ export class NativeToolRuntime {
 			},
 			resources: (query = {}) => this.resourcesFor(record.agentId, query),
 			act: (actionType, args) => run('act', { actionType, arguments: args }),
+			// Closing a screen obtain opened (a looted chest) goes out even once danger has latched: run() refuses every other
+			// move then, and an open chest screen would be left in front of the reflexes.
+			closeMenu: async (args) => {
+				if (!current()) return { state: 'CANCELLED', reasonCode: 'NATIVE_ACTION_CANCELLED' };
+				try { return await this.#executeAction(request, record, normalizeMinecraftToolCall('act', { actionType: 'menu_close', arguments: args }), steps); }
+				catch (error) { return { state: 'FAILED', reasonCode: error?.code ?? 'ACTION_ERROR', message: String(error?.message ?? error).slice(0, 300) }; }
+			},
 			mine: (args) => run('mine', args),
 			moveTo: (args) => run('moveTo', args),
 			gather: async ({ itemIds, ...args }) => {
@@ -2657,6 +2678,7 @@ export class NativeToolRuntime {
 			// A place obtain could not reach (an ore across a cave): kept with the searches' missed places, so find no longer
 			// reports it or its vein as a sighting.
 			missPlace: (place, why) => this.#searchBody(request, record, executionEpoch, blockingRun, 'obtain').missPlace(place, why),
+			missedPlaces: () => this.#searchBody(request, record, executionEpoch, blockingRun, 'obtain').missedPlaces(),
 			// A look round before deciding where a source is: what it shows joins the seen resources (seen-resources.mjs).
 			look: (args) => this.#searchBody(request, record, executionEpoch, blockingRun, 'obtain').look(args),
 			// The last open-sky spot the body stood on (kept from every sample): a way out of water it filled in with no dry
@@ -2690,6 +2712,26 @@ export class NativeToolRuntime {
 				} catch { /* the sample's own rows still serve */ }
 				return rows;
 			},
+			// The open menu (a chest obtain opened to loot): its identity and slots, one page.
+			// The open menu's identity and the container's own slots (all before the player's 36), page by page.
+			menu: async () => {
+				const rows = (page) => Array.isArray(page?.entries) ? page.entries : page?.entries?.$rows ? page.entries.$rows.rows.map((row) => Object.fromEntries(page.entries.$rows.columns.map((column, index) => [column, row[index]]))) : [];
+				const first = await this.#inspect({ kind: 'inspect', section: 'menu', offset: 0, limit: MENU_PAGE }, record, { withSearch: false });
+				const size = first?.menu?.slotCount;
+				const container = Number.isSafeInteger(size) ? Math.max(0, size - 36) : 0;
+				const entries = rows(first);
+				// The server also caps a page's bytes: follow its nextOffset, never a fixed stride, so no slot is skipped.
+				let offset = Number.isSafeInteger(first?.coverage?.nextOffset) ? first.coverage.nextOffset : entries.length;
+				for (let pages = 0; offset < container && pages < 12; pages++) {
+					const page = await this.#inspect({ kind: 'inspect', section: 'menu', offset, limit: Math.min(MENU_PAGE, container - offset) }, record, { withSearch: false });
+					if (page?.menu?.stateId !== first?.menu?.stateId) break;
+					const more = rows(page);
+					if (more.length === 0) break;
+					entries.push(...more);
+					offset = Number.isSafeInteger(page?.coverage?.nextOffset) ? page.coverage.nextOffset : offset + more.length;
+				}
+				return { ...first, entries };
+			},
 			stopped: () => !current(),
 			interrupted,
 			// The fork that stopped this run ({reasonCode, message}), or null for danger: obtain ends with its code.
@@ -2702,9 +2744,9 @@ export class NativeToolRuntime {
 		};
 		// Stations an earlier obtain placed and did not pick up (danger ended it) are this call's to pick up, and the
 		// furnace loads it left smelting are this call's to take out. Flooded approaches share this per-agent ledger.
-		if (!this.#obtainPlaced.has(record.agentId)) this.#obtainPlaced.set(record.agentId, { placed: [], loads: [], approaches: [] });
-		const kept = this.#obtainPlaced.get(record.agentId);
-		const stations = { now: this.#clock.now, placed: kept.placed, loads: kept.loads, approaches: kept.approaches };
+		// Chests opened and structures searched for loot (loot-sources.mjs) are kept the same way, so no call loots twice.
+		const kept = this.#obtainMemory(record.agentId, this.#observations.get(record.agentId)?.observation ?? null);
+		const stations = { now: this.#clock.now, placed: kept.placed, loads: kept.loads, approaches: kept.approaches, looted: kept.looted };
 		const result = await runObtain(tool.arguments, body, stations);
 		if (!this.#kitHabit || result?.state !== 'SUCCEEDED' || interrupted() || !current()) return result;
 		// The kit habit (kit-habit.mjs): from what is held, keep a shield, armour and food in reach before handing back.
