@@ -1030,7 +1030,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 	JsonObject heartbeatPayload() {
 		long last = lastTickNanos;
 		long ageMs = last == 0L ? 0L : Math.max(0L, (System.nanoTime() - last) / 1_000_000L);
-		net.minecraft.server.MinecraftServer server = manager.server();
+		net.minecraft.server.MinecraftServer server = manager == null ? null : manager.server();
 		JsonObject payload = new JsonObject();
 		payload.addProperty("tickAgeMs", ageMs);
 		payload.addProperty("paused", server != null && server.isPaused());
