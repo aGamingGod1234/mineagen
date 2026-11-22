@@ -419,11 +419,15 @@ public final class ServerBuildController implements ServerController {
 
 	@Override
 	public TickResult tick(ServerPlayer player, long now) {
-		if (now >= deadline) return end(player, TickResult.timedOut("BUILD_TIMEOUT", facts(player) + "; the time limit ran out", progress()));
+		// Lava this cast poured first stands uncooled until the water lands beside it or it is taken back, a few ticks: a
+		// build that stopped now would leave it to flow onto the working spot. The cell is finished first; only lava or
+		// fire on the body stops it at once.
+		boolean finishing = lavaStanding(player) && !player.isInLava() && !player.isOnFire();
+		if (now >= deadline && !finishing) return end(player, TickResult.timedOut("BUILD_TIMEOUT", facts(player) + "; the time limit ran out", progress()));
 		if (!player.isAlive()) return fail(player, "AGENT_DEAD", "The body died while building");
 		if (dimension == null) { dimension = player.level().dimension(); lastHealth = player.getHealth(); }
 		if (!player.level().dimension().equals(dimension)) return fail(player, "ACTION_DIMENSION_CHANGED", "The body changed dimension");
-		TickResult danger = danger(player);
+		TickResult danger = finishing ? null : danger(player);
 		if (danger != null) return danger;
 		if (child != null) return childTick(player, now);
 		// From the first step of a cast build: the walks to open the pool cross the shore the fetches need later.
@@ -2126,6 +2130,16 @@ public final class ServerBuildController implements ServerController {
 			if (hit.getType() == net.minecraft.world.phys.HitResult.Type.BLOCK && hit.getBlockPos().equals(source)) return true;
 		}
 		return false;
+	}
+
+	/** Ticks past {@link #LAVA_HOLD_TICKS} a cell's standing lava may hold off a stop while its take-back walks into reach. */
+	static final int LAVA_FINISH_TICKS = 40;
+
+	/** Lava this cast poured first into a frame cell, not yet cooled by the water or taken back, and still there. */
+	private boolean lavaStanding(ServerPlayer player) {
+		if (!casting || phase != Phase.CAST || pouredLava == null || lavaWatered) return false;
+		if (player.level().getGameTime() - lavaTick > LAVA_HOLD_TICKS + LAVA_FINISH_TICKS) return false;
+		return TravelBuilder.lava(known(player, pouredLava));
 	}
 
 	/** The empty bucket's own ray along the current look, when it meets the water source at {@code source}; else null. */
