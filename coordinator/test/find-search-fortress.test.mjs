@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { pathToFileURL } from 'node:url';
-const { searchFor } = await import(process.env.FIND_SEARCH_SOURCE ? pathToFileURL(process.env.FIND_SEARCH_SOURCE) : '../src/find-search.mjs');
+import { checkedSearchBody, checkedSearchFor } from './helpers/checked-body.mjs';
+const searchFor = checkedSearchFor((await import(process.env.FIND_SEARCH_SOURCE ? pathToFileURL(process.env.FIND_SEARCH_SOURCE) : '../src/find-search.mjs')).searchFor);
 
 // Synthetic top-face masonry at the G6 owned position. Health/empty threats and frontier are
 // explicit fixture context; this diagnoses dispatch, not historical survival or Minecraft geometry.
@@ -11,7 +12,7 @@ const sample = () => ({ player: { x: 5.94, y: 65, z: 119.50, health: 20, yaw: 0 
 function body({ observation = sample(), frontier = null, stop = null, discover = false } = {}) {
 	let clock = 0;
 	const calls = [];
-	return { calls, now: () => clock, observe: async () => structuredClone(observation), progress: () => {},
+	return checkedSearchBody({ calls, now: () => clock, observe: async () => structuredClone(observation), progress: () => {},
 		known: () => null, places: async () => [], frontier: () => frontier,
 		look: async () => { clock += 1000; return { state: 'SUCCEEDED', survey: {} }; },
 		act: async (actionType, args) => {
@@ -24,7 +25,7 @@ function body({ observation = sample(), frontier = null, stop = null, discover =
 			}
 			if (discover) observation.blocks.push({ blockId: 'minecraft:spawner', x: observation.player.x + 2, y: observation.player.y, z: observation.player.z });
 			return { state: 'SUCCEEDED', reasonCode: 'ARRIVED' };
-		} };
+		} });
 }
 const target = { block: 'minecraft:spawner' };
 const options = { within: 96, timeoutMs: 60_000 };
