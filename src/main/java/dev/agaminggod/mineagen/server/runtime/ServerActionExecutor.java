@@ -1906,6 +1906,9 @@ public final class ServerActionExecutor {
 		until.addProperty("untilCount", 64 * 36);
 		if (arguments.has("fleeAtHealth")) until.addProperty("fleeAtHealth", number(arguments, "fleeAtHealth"));
 		if (arguments.has("timeoutMs")) until.addProperty("timeoutMs", integer(arguments, "timeoutMs"));
+		// fight_target's collection choice carries into the hold's own rod trips: collect unset or false walks out for a
+		// drop only with no hostile near, as the ordinary fight_target does.
+		until.addProperty("collect", arguments.has("collect") && bool(arguments, "collect"));
 		return new dev.agaminggod.mineagen.server.runtime.controller.ServerSpawnerHoldController(player, until, protection, spawner,
 				roofing(request), GameClock.nowMs()).untilDead(target, () -> openFightTarget(player, arguments));
 	}

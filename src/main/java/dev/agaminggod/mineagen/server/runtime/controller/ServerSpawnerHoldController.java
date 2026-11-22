@@ -336,7 +336,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 		// where it stands and heals (emergency), then fights on. No site walk: in the blaze spawner rooms the deaths came on
 		// the walk to a cell site and while building it under fire.
 		if (target != null && SpawnerHold.OPEN_FIGHT && phase != Phase.HOLD && emergency == null
-				&& (player.getHealth() >= SpawnerHold.TURTLE_HEALTH || !canWallIn(player))) {
+				&& (player.getHealth() >= SpawnerHold.TURTLE_HEALTH || !canWallIn(player) || openPart != null && target.isDeadOrDying())) {
 			if (openPart == null) {
 				try {
 					openPart = openFight.get();
@@ -347,6 +347,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 					return stop(player, TickResult.failed(lost.code(), lost.getMessage() + "; " + summary(player, elapsed), progress(player)));
 				}
 			}
+			// (A kill's drop look and pickup in the open fight finish before any wall-in: the blaze is dead, the rod is near.)
 			// The open fight is the model's ordinary fight: the back-off and cover reflexes stay free for it (the hold owns the
 			// body only while it walls in and heals).
 			HOLDING.remove(player.getUUID());
