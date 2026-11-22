@@ -1301,8 +1301,10 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 				if (!(await walk(door, 2))) { if (body.interrupted() || body.stopped()) return 'stopped'; continue; }
 				await act('set_door', { x: door.x, y: door.y, z: door.z, open: true });
 				// A hostile in or by the house: not a house to walk into. Shut it again and try the next.
-				const inside = (await body.observe()).entities?.find((row) => HOSTILE_MOB.test(bare(row?.type ?? ''))
-					&& row.alive !== false && [row.x, row.z].every(Number.isFinite) && Math.hypot(row.x - door.x - 0.5, row.z - door.z - 0.5) <= HOUSE_REACH);
+				const near = ((await body.observe()).entities ?? []).filter((row) => row?.alive !== false && [row.x, row.z].every(Number.isFinite)
+					&& Math.hypot(row.x - door.x - 0.5, row.z - door.z - 0.5) <= HOUSE_REACH);
+				if (near.length > 0) step(`by the door: ${near.slice(0, 6).map((row) => `${bare(row.type ?? '?')}${row.hostile === true ? ' (hostile flag)' : ''}`).join(', ')}`);
+				const inside = near.find((row) => HOSTILE_MOB.test(bare(row.type ?? '')));
 				if (inside) { await act('set_door', { x: door.x, y: door.y, z: door.z, open: false }); step(`a ${bare(inside.type)} by the door at ${cellKey(door)}: not going in`); continue; }
 				await act('travel_to', { x: Math.floor(door.x) + 0.5, y: Math.floor(door.y), z: Math.floor(door.z) + 0.5, tolerance: 0.5, timeoutMs: 15_000 });
 				if (body.interrupted() || body.stopped()) return 'stopped';
