@@ -174,6 +174,8 @@ test('a fresh-sample request sent just before a pause does not time out while pa
 	client.serverPaused(false);
 	await new Promise((resolve) => setTimeout(resolve, 20));
 	assert.equal(settled, null, 'resumed, it has the time it had left');
-	await pending;
+	// The client's timer is unref'd (it never holds the process open), so the test keeps the event loop alive itself.
+	const keepAlive = setTimeout(() => {}, 1_000);
+	try { await pending; } finally { clearTimeout(keepAlive); }
 	assert.equal(settled, 'INSPECTION_TIMEOUT', 'a server that never answers still times it out after the resume');
 });
