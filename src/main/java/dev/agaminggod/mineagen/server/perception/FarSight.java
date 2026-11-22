@@ -1361,8 +1361,12 @@ public final class FarSight {
 			BlockPos position = BlockPos.of(seen.position());
 			String id = blockId(seen.state());
 			int opened = 0;
-			if (NOTABLE_BLOCK_IDS.contains(id) && level.getBlockEntity(position) instanceof net.minecraft.world.level.block.entity.RandomizableContainerBlockEntity box) {
-				opened = box.getLootTable() == null ? 1 : 0;
+			// Far sight runs off the server thread: read the chunk's existing block entity, never create or wait for one
+			// (Level.getBlockEntity can), so a village's chests cannot stall the observation.
+			if (NOTABLE_BLOCK_IDS.contains(id)) {
+				LevelChunk chunk = level.getChunkSource().getChunkNow(position.getX() >> 4, position.getZ() >> 4);
+				var entity = chunk == null ? null : chunk.getBlockEntities().get(position);
+				if (entity instanceof net.minecraft.world.level.block.entity.RandomizableContainerBlockEntity box) opened = box.getLootTable() == null ? 1 : 0;
 			}
 			rows.add(new Row(Section.RESOURCES, "res@" + id + "@" + seen.position(), id, List.of(), group.count, opened, Cell.of(position), distance.applyAsDouble(seen)));
 		}
