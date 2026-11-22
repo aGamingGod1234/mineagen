@@ -61,14 +61,17 @@ export function describeDeaths(deaths, { trails = [], samples = [], startedAt = 
 		// The coordinator's trail points carry no dimension: points from before a portal trip in the last 10 s are left out.
 		// Points between the last sample elsewhere and the first sample back in this dimension are in an unknown one.
 		const otherDimensionAt = before.filter((s) => s.dimension && dimension && s.dimension !== dimension).reduce((t, s) => Math.max(t, s.at), -Infinity);
-		const backAt = finite(otherDimensionAt) ? before.find((s) => s.at > otherDimensionAt && s.dimension === dimension)?.at ?? otherDimensionAt : -Infinity;
+		// No sample back in this dimension: no trail point is known to be in it, so the fall is unknown.
+		const backAt = finite(otherDimensionAt) ? before.find((s) => s.at > otherDimensionAt && s.dimension === dimension)?.at ?? Infinity : -Infinity;
 		const points = trail?.trail?.length
 			? trail.trail.map((p) => ({ at: death.at + (p.s ?? 0) * 1000, y: p.y, health: p.health ?? null, action: p.action ?? null, reflex: p.reflex ?? null })).filter((p) => p.at >= backAt)
 			: before.filter((s) => s.dimension === dimension).map((s) => ({ at: s.at, y: s.position?.y, health: s.health, action: null, reflex: null }));
 		const top = fallTop(points, position?.y);
 		// The respawn is the first living sample after the body was seen dead (or after its death counter stepped).
-		const deadAt = dead?.at ?? samples.find((s) => s.at >= death.at && stepped(s))?.at ?? null;
-		const respawn = finite(deadAt) ? samples.find((s) => s.at > deadAt && s.at > death.at && s.health > 0 && (!finite(death.nextAt) || s.at < death.nextAt)) ?? null : null;
+		// A living sample whose death counter stepped is already the respawned body.
+		const step = dead ? null : samples.find((s) => s.at >= death.at && stepped(s)) ?? null;
+		const deadAt = dead?.at ?? step?.at ?? null;
+		const respawn = step?.health > 0 ? step : finite(deadAt) ? samples.find((s) => s.at > deadAt && s.at > death.at && s.health > 0 && (!finite(death.nextAt) || s.at < death.nextAt)) ?? null : null;
 		const fallDistance = before.filter((s) => s.dimension === dimension).reduce((m, s) => finite(s.fallDistance) ? Math.max(m ?? 0, s.fallDistance) : m, null);
 		return {
 			at: death.at, minute: finite(startedAt) ? minutes(death.at - startedAt) : null, ordinal: index + 1, repeat: index > 0,
@@ -184,7 +187,7 @@ export function gameFacts() {
 			const spent = (until) => {
 				const before = windowCalls.filter((c) => c.at <= until);
 				// A sum over calls none of which reported tokens is unknown, not 0.
-				const sum = (key) => before.some((c) => finite(c[key])) ? before.reduce((n, c) => n + (c[key] ?? 0), 0) : null;
+				const sum = (key) => !before.length || before.some((c) => finite(c[key])) ? before.reduce((n, c) => n + (c[key] ?? 0), 0) : null;
 				return { calls: before.length, inputTokens: sum('inputTokens'), cachedInputTokens: sum('cachedInputTokens') };
 			};
 			const modelUse = windowCalls.length ? { ...spent(Infinity), callsWithoutTokens: windowCalls.filter((c) => c.inputTokens == null).length, callsWithoutCachedTokens: windowCalls.filter((c) => c.cachedInputTokens == null).length,

@@ -388,4 +388,12 @@ test('game facts review cases: a sample-only death is measured from the dead sam
 	const result = none.finish({ startedAt: 0 });
 	assert.equal(result.end.dragonKilled, null, 'samples without advancements cannot show the dragon alive');
 	assert.equal(result.modelUse.inputTokens, null, 'no call reported tokens: unknown, not 0');
+	// A portal trip with no sample back in the death's dimension: no trail point is known to be there.
+	const portal = gameFacts();
+	portal.sample({ at: 2000, health: 20, deathCounter: 0, dimension: 'minecraft:the_nether', position: { x: 0, y: 100, z: 0 } });
+	portal.sample({ at: 13_000, health: 20, deathCounter: 1, dimension: 'minecraft:overworld', position: { x: 0, y: 64, z: 0 } });
+	portal.deathRow({ diedAtEpochMs: 10_000, dimension: 'minecraft:overworld', position: { x: 0, y: 60, z: 0 }, trail: [{ s: -8, y: 100 }, { s: -2, y: 61 }] });
+	const [lost] = portal.finish({ startedAt: 0, deaths: [{ at: 10_000, damageType: 'minecraft:fall' }] }).deaths;
+	assert.equal(lost.fall, null);
+	assert.equal(lost.respawn.secondsAfterDeath, 3, 'the living sample whose counter stepped is the respawn');
 });
