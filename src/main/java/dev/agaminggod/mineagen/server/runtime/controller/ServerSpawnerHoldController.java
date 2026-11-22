@@ -239,13 +239,14 @@ public final class ServerSpawnerHoldController implements ServerController {
 		if (code != null) return stop(player, handBackResult(player, code, elapsed));
 		// The look round for a spawner comes after the action-wide checks above (death, lava, rod count, health floor,
 		// timeout), so a hurt or finished body never turns on the spot for 4 s.
-		if (phase == Phase.SCAN) {
-			TickResult scanning = scan(player, now, elapsed);
-			if (scanning != null) return scanning;
-		}
+		// A melee attacker in reach is fought first, also while looking round for a spawner.
 		if (!inCell || defend != null) {
 			TickResult defending = defend(player, now);
 			if (defending != null) return defending;
+		}
+		if (phase == Phase.SCAN) {
+			TickResult scanning = scan(player, now, elapsed);
+			if (scanning != null) return scanning;
 		}
 		return switch (phase) {
 			case SCAN, SITE -> chooseSite(player, now);
