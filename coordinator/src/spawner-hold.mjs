@@ -8,10 +8,15 @@
  */
 export const CONFIRM_MS = 60_000;
 
-/** True for a blaze fight_until the mod may run as a spawner hold (roof:false keeps the open fight). */
+/**
+ * True for a blaze fight_until the mod may run as a spawner hold (roof:false keeps the open fight). pursue:false,
+ * sneak:true and an explicit spot (x, y, z) keep the ordinary fight in the mod too (ServerActionExecutor.fightUntil), so
+ * replacing those is never delayed.
+ */
 export function blazeHold(active) {
-	return active?.actionType === 'fight_until' && active.arguments?.mob === 'minecraft:blaze'
-		&& active.arguments?.roof !== false && (active.dimension === undefined || active.dimension === null || active.dimension === 'minecraft:the_nether');
+	const args = active?.arguments ?? {};
+	return active?.actionType === 'fight_until' && args.mob === 'minecraft:blaze'
+		&& args.roof !== false && args.pursue !== false && args.sneak !== true && args.x === undefined && args.y === undefined && args.z === undefined && (active.dimension === undefined || active.dimension === null || active.dimension === 'minecraft:the_nether');
 }
 
 /**
