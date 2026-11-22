@@ -1504,7 +1504,10 @@ export class MultiplexedServerBridge extends EventEmitter {
 	 */
 	#acceptHeartbeat(value, socket, connectionEpoch) {
 		const paused = value?.paused === true;
-		if (Number.isSafeInteger(value?.tickAgeMs) && !paused && value.tickAgeMs > this.#heartbeatTimeoutMs) {
+		// The first heartbeat after a pause still counts back to the last tick before it: the game has just resumed, not
+		// hung. A server that really is hung shows a growing tick age again on the next heartbeat, and drops then.
+		const resuming = this.#serverPaused && !paused;
+		if (Number.isSafeInteger(value?.tickAgeMs) && !paused && !resuming && value.tickAgeMs > this.#heartbeatTimeoutMs) {
 			this.#fail(new ProtocolV2Error('HEARTBEAT_TIMEOUT', `Minecraft server stopped ticking ${value.tickAgeMs} ms ago without a pause`), socket, connectionEpoch);
 			return false;
 		}

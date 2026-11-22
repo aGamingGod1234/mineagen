@@ -1561,6 +1561,19 @@ test('the server announces a pause unprompted, so deadlines stop before the next
 	assert.equal(errors.length, 0);
 });
 
+test('the resume after a pause longer than the timeout keeps the link; a server still not ticking after it drops', async (t) => {
+	// The resume is announced before the server's next tick, so its tick age still counts the whole pause.
+	const { socket, errors, pauses, beat } = await tickClockBridge(t);
+	beat('server-paused-long', { tickAgeMs: 50, paused: true });
+	beat('server-resumed', { tickAgeMs: 61_000, paused: false });
+	assert.equal(socket.destroyed, false, 'a game that just resumed is not a hung game');
+	assert.deepEqual(pauses, [true, false]);
+	assert.equal(errors.length, 0);
+	beat('server-still-hung', { tickAgeMs: 66_000, paused: false });
+	assert.equal(socket.destroyed, true, 'still no tick on the next heartbeat: the server is hung');
+	assert.equal(errors.at(-1)?.code, 'HEARTBEAT_TIMEOUT');
+});
+
 test('a server that stopped ticking without a pause is dead, though its network thread still answers', async (t) => {
 	const { socket, errors, beat } = await tickClockBridge(t);
 	beat('server-slow', { tickAgeMs: 20, paused: false });
