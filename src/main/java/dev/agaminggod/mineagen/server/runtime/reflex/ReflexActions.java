@@ -2600,9 +2600,22 @@ final class ReflexActions {
 			this.shooter = shooter;
 		}
 
+		/**
+		 * Water a player cannot build from: the head under, the feet off the bottom (afloat), or a current at the feet that
+		 * carries the body off the cell. Standing on the bottom of still water one deep is building ground (defend-shallow:
+		 * the refusal left the bot facing a skeleton in the open at 12 health, 2 of 3 runs dead).
+		 */
+		static boolean unsteadyWater(ServerPlayer player) {
+			if (player.isUnderWater()) return true;
+			if (!player.isInWater()) return false;
+			if (!player.onGround()) return true;
+			var fluid = player.level().getFluidState(player.blockPosition());
+			return !fluid.isEmpty() && !fluid.isSource();
+		}
+
 		/** Why the body must not wall in here now, or null. */
 		static String refusal(ServerPlayer player, BlockPos center) {
-			if (player.isInWater() || player.isUnderWater()) return "the body is in water";
+			if (unsteadyWater(player)) return "the body is in water";
 			for (Creeper creeper : player.level().getEntitiesOfClass(Creeper.class, player.getBoundingBox().inflate(CREEPER_RANGE), Creeper::isAlive)) {
 				if (player.distanceTo(creeper) <= CREEPER_RANGE) return "a creeper is within " + (int) CREEPER_RANGE + " blocks";
 			}
@@ -2631,7 +2644,7 @@ final class ReflexActions {
 				if (shooter.getEyeY() > player.getY() + player.getBbHeight() && level.getBlockState(roof).canBeReplaced()) plan.add(roof);
 				if (plan.isEmpty()) return Step.done(report(level, "already closed on every side"));
 			}
-			if (player.isInWater() || player.isUnderWater()) return stop(level, "the body went into water");
+			if (unsteadyWater(player)) return stop(level, "the body went into water");
 			for (Creeper creeper : level.getEntitiesOfClass(Creeper.class, player.getBoundingBox().inflate(CREEPER_RANGE), Creeper::isAlive)) {
 				if (player.distanceTo(creeper) <= CREEPER_RANGE) return stop(level, "a creeper came within " + (int) CREEPER_RANGE + " blocks");
 			}
