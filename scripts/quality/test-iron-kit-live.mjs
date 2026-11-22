@@ -21,7 +21,7 @@
 // Exit code (strict, the default): 0 every lane held the kit with no death, 1 one did not, 2 invalid evidence.
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, renameSync, rmSync, statSync } from 'node:fs';
 import { appendFile, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -56,9 +56,22 @@ async function coordinatorRoot(arg) {
 	if (statSync(full).isDirectory()) return full;
 	const hash = createHash('sha256').update(await readFile(full)).digest('hex').slice(0, 12);
 	const into = path.join(root, 'coordinator', '.kit-arms', hash);
+	// Rooms on one Windows PC share this checkout and start together: each unpacks into its own folder and renames it into
+	// place, so no room loads a half-unpacked coordinator another room is still writing.
 	if (!existsSync(path.join(into, 'coordinator', 'src'))) {
-		await mkdir(into, { recursive: true });
-		execFileSync('tar', ['-xzf', full, '-C', into]);
+		const own = `${into}.${process.pid}`;
+		await mkdir(own, { recursive: true });
+		execFileSync('tar', ['-xzf', full, '-C', own]);
+		// Windows refuses a folder rename while a scanner holds a file just written: retry briefly. A copy another room put
+		// in place first wins; failing both, this room plays its own complete copy (acorn still resolves from coordinator/).
+		for (let tries = 0; ; tries += 1) {
+			try { renameSync(own, into); break; }
+			catch (error) {
+				if (existsSync(path.join(into, 'coordinator', 'src'))) { try { rmSync(own, { recursive: true, force: true, maxRetries: 5 }); } catch { /* a leftover copy only costs disk */ } break; }
+				if (!['EPERM', 'EACCES', 'EBUSY'].includes(error?.code) || tries >= 10) return path.join(own, 'coordinator');
+				await new Promise(done => setTimeout(done, 200 * (tries + 1)));
+			}
+		}
 	}
 	return path.join(into, 'coordinator');
 }

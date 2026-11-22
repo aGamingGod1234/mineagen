@@ -2818,8 +2818,12 @@ export class NativeToolRuntime {
 		// Chests opened and structures searched for loot (loot-sources.mjs) are kept the same way, so no call loots twice.
 		const kept = this.#obtainMemory(record.agentId, this.#observations.get(record.agentId)?.observation ?? null);
 		const stations = { now: this.#stepNow, placed: kept.placed, loads: kept.loads, approaches: kept.approaches, looted: kept.looted };
+		const held = inventoryKey(this.#observations.get(record.agentId)?.observation);
 		const result = await runObtain(tool.arguments, body, stations);
-		if (!this.#kitHabit || result?.state !== 'SUCCEEDED' || interrupted() || !current()) return result;
+		// COMBAT-2: a failed obtain that still changed what is held (iron mined before the search gave out) keeps the kit
+		// too; a time-out or a stop for danger does not, and a failure that changed nothing has nothing new to keep.
+		const changed = result?.state === 'FAILED' && held !== null && inventoryKey(this.#observations.get(record.agentId)?.observation) !== held;
+		if (!this.#kitHabit || !(result?.state === 'SUCCEEDED' || changed) || interrupted() || !current()) return result;
 		// The kit habit (kit-habit.mjs): from what is held, keep a shield, armour and food in reach before handing back.
 		// What this obtain handed back is kept from kit crafts (obtain iron_ingot count 3 keeps its 3 ingots).
 		const asked = resolveObtainItem(tool.arguments?.item ?? '');
@@ -2828,7 +2832,7 @@ export class NativeToolRuntime {
 		const stop = {};
 		try {
 			// Furnace loads an earlier obtain left are the next obtain's to collect, not a kit craft's walk.
-			kit = await keepKit(body, (item) => runObtain({ item, count: 1, timeoutMs: KIT_CRAFT_TIMEOUT_MS }, body, { ...stations, loads: [] }),
+			kit = await keepKit(body, (item, count = 1) => runObtain({ item, count, timeoutMs: KIT_CRAFT_TIMEOUT_MS }, body, { ...stations, loads: [] }),
 				{ stopped: () => interrupted() || !current(), reserved, stop });
 		} catch (error) {
 			if (!current()) throw error;
@@ -2840,10 +2844,14 @@ export class NativeToolRuntime {
 		this.#trace('native_obtain_step', { agentId: record.agentId, goalRevision: record.goalRevision, step: steps, text: `kit: ${kit.join(', ')}` });
 		const message = `${result.message ?? 'obtained'}; kit: ${kit.join(', ')}`;
 		if (!cut) return { ...result, kit, message };
-		// Danger during kit upkeep is handed back as obtain's own interruption: the item is held, the action still running
-		// (an equip, a kit craft's leg) is the model's to replace or cancel.
 		const running = halt?.state === 'INTERRUPTED' ? halt.running ?? null
 			: typeof halt?.actionId === 'string' ? { actionId: halt.actionId, ...(halt.recoveryHint ? { recoveryHint: halt.recoveryHint } : {}) } : null;
+		// After a failed obtain, the failure stays the result (its code is what sends the model to another source); the
+		// danger that cut the kit and any action still running ride along.
+		if (result.state !== 'SUCCEEDED') return { ...result, ...(running === null ? {} : { running }), kit,
+			message: `${message}; kit upkeep stopped for danger after the obtain failed; decide, then carry on` };
+		// Danger during kit upkeep is handed back as obtain's own interruption: the item is held, the action still running
+		// (an equip, a kit craft's leg) is the model's to replace or cancel.
 		return { ...result, ...halted(), ...(halt?.state === 'INTERRUPTED' && halt.reasonCode ? { reasonCode: halt.reasonCode } : {}),
 			...(running === null ? {} : { running }), kit,
 			message: `${message}; stopped for danger after the item was obtained; decide, then carry on` };
@@ -4198,4 +4206,14 @@ function sweepSightings(views) {
 		}
 	}
 	return { historical: true, dimension, samples: samples.map((sample, heading) => presentSweepHeading(sample, omittedCounts(heading))) };
+}
+
+// What is held, as item counts: two samples with the same key hold the same items (slots and wear aside). Null without
+// a readable inventory.
+function inventoryKey(observation) {
+	const items = observation?.inventory?.items;
+	if (!Array.isArray(items)) return null;
+	const counts = new Map();
+	for (const item of items) if (typeof item?.itemId === 'string' && item.count > 0) counts.set(item.itemId, (counts.get(item.itemId) ?? 0) + item.count);
+	return [...counts].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([id, n]) => `${id}*${n}`).join(',');
 }
