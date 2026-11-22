@@ -160,6 +160,7 @@ final class ReflexActions {
 			case "away_from_edge" -> new AwayFromEdge(action.number("blocks", 6.0D));
 			case "dig_out" -> new DigOut();
 			case "defend" -> new Defend();
+			case "dodge" -> new Dodge();
 			case "leave_fire", "leave_lava" -> new LeaveFire();
 			// Never started: the engine treats a brace rule as a body setting (see ReflexEngine), not a firing.
 			case "brace" -> (context, input) -> Step.done("brace never takes the body");
@@ -221,6 +222,8 @@ final class ReflexActions {
 			case "place" -> holds(slots, offhand, 9, held -> item.equals(held.id())) ? null : "no " + item + " in hotbar or offhand";
 			// The stance raises the shield it holds; it does not switch to one.
 			case "shield" -> "minecraft:shield".equals(offhand.id()) || "minecraft:shield".equals(slots.apply(selected).id()) ? null : "no shield in either hand";
+			// The dodge answers a drawn bow only empty of a shield: with one in either hand the arrow shield blocks instead.
+			case "dodge" -> "minecraft:shield".equals(offhand.id()) || "minecraft:shield".equals(slots.apply(selected).id()) ? "a shield in hand" : null;
 			case "eat" -> holds(slots, offhand, 9, Held::food) ? null : "no food in hotbar or offhand";
 			case "place_block" -> holds(slots, Held.EMPTY, 9, held -> item != null ? item.equals(held.id()) : held.coverBlock()) ? null
 					: "no " + (item != null ? item : "full block") + " in hotbar";
@@ -498,6 +501,8 @@ final class ReflexActions {
 		/** A failed back-out (no heading away) is not tried again until the body has moved this far from where it failed. */
 		static final double BACK_OUT_RETRY_BLOCKS = 3.0D;
 		private SprintAway backOut;
+		/** The shieldless answer to a ranged mob beyond reach: the same step across its shot line as the dodge rule. */
+		private final Dodge dodge = new Dodge();
 		private Mob backOutFocus;
 		private Vec3 backOutPoint;
 		private int nextSpawnerLook;
@@ -605,6 +610,11 @@ final class ReflexActions {
 
 		boolean backingOutOfPack() {
 			return backOut != null && retreat != Retreat.WEAK;
+		}
+
+		/** Backing out, walling in or walking to cover: the body is already leaving the shot line. */
+		boolean movingBody() {
+			return backOut != null || walls != null || cover != null;
 		}
 
 		@Override
@@ -736,7 +746,16 @@ final class ReflexActions {
 				coverRetryTick = player.tickCount + (hidden.status() == ReflexScheduler.ActionStatus.DONE ? 20 : 40);
 			}
 			Entity focus = context.focus();
-			Vec3 at = focus != null && focus.isAlive() ? ReflexSensors.aimPoint(focus instanceof Projectile p && p.getOwner() != null ? p.getOwner() : focus) : null;
+			// A ranged mob beyond reach (or its shot) is stepped away from across the shot line, not stood still in front of.
+			Entity from = focus instanceof Projectile p && p.getOwner() != null ? p.getOwner() : focus;
+			if (from instanceof Mob ranged && ranged.isAlive() && ThreatPerception.isRanged(ranged) && swingPoint(player, ranged, player.getInventory().getItem(slot)) == null) {
+				Step stepped = dodge.tick(new Context(player, ReflexSensors.drawnAt(player, ObservationVisibility.frame(player.level(), player)) == ranged || focus instanceof Projectile
+						? focus : null, context.stance(), context.memory(), context.point(), context.below(), context.fightShields()), input);
+				if (stepped.status() == ReflexScheduler.ActionStatus.RUNNING) {
+					return Step.running(done + "; no shield, " + stepped.detail() + (coverNote == null ? "" : "; cover: " + coverNote));
+				}
+			}
+			Vec3 at = focus != null && focus.isAlive() ? ReflexSensors.aimPoint(from) : null;
 			input.accept(look(player, at, 0.0F, 0.0F, false, false, slot, InteractionHand.MAIN_HAND));
 			return Step.running(done + "; no shield, facing the attacker" + (coverNote == null ? "" : "; cover: " + coverNote));
 		}
@@ -903,6 +922,154 @@ final class ReflexActions {
 		private static float clean(float value) {
 			return Math.abs(value) < 1.0E-4F ? 0.0F : Mth.clamp(value, -1.0F, 1.0F);
 		}
+	}
+
+	/**
+	 * Without a shield, step across a drawn bow's line as a player does: strafe perpendicular to the shooter from a few
+	 * ticks before release until shortly after it, then the other way on the next draw. A skeleton leads a moving target
+	 * only by its velocity at release, so a strafe that keeps going after release carries the body off the arrow's line.
+	 * Footing is checked like any step ({@link SafeStep#heading}: no drop over one block, no lava, fire or void); with no
+	 * safe side the body stands facing the shooter. A melee mob in reach is swung at while stepping, as a player strafes.
+	 * A hold: one firing covers a volley (its release grace bridges the gap between draws), and its maxS ends it done.
+	 */
+	static final class Dodge implements Behaviour {
+		/** Headings tried around the chosen side: square across the line first, then angled off it. */
+		static final float[] OFFSETS = {0.0F, 30.0F, -30.0F};
+		/** Deepest single drop a dodge step takes: one block, as a step down a stair. */
+		static final int MAX_DROP = 1;
+		/** Ticks the strafe goes on after the last drawn bow or incoming arrow was seen: past release and the arrow's flight. */
+		static final int MOVE_AFTER_TICKS = 12;
+		/** Ticks a firing holds after its condition clears: a second skeleton's draw or the next shot falls inside it. */
+		static final long GRACE_TICKS = 30L;
+		/** The side a body last stepped to, kept across firings so the next draw is met by the other side. */
+		private static final Map<java.util.UUID, Integer> LAST_SIDE = new java.util.concurrent.ConcurrentHashMap<>();
+		private int side;
+		private int shooterId = -1;
+		private boolean shooterDrawing;
+		private int lastThreatTick = Integer.MIN_VALUE;
+		private Entity shooter;
+		private Float lastHeading;
+		private int steps;
+		private int refused;
+		private int hits;
+
+		/** Minecraft yaw of the heading square across the line from {@code body} to {@code shooter}: side +1 or -1. */
+		static float sideYaw(Vec3 body, Vec3 shooter, int side) {
+			double dx = shooter.x - body.x, dz = shooter.z - body.z;
+			float toward = (float) Math.toDegrees(Math.atan2(-dx, dz));
+			return Mth.wrapDegrees(toward + 90.0F * (side >= 0 ? 1 : -1));
+		}
+
+		/** The side after {@code previous}: the other one, or +1 the first time. */
+		static int nextSide(int previous) {
+			return previous == 0 ? 1 : -previous;
+		}
+
+		/** {@code preferred} when its footing is safe, else the other side when its is, else 0 (stand). */
+		static int chooseSide(int preferred, java.util.function.IntPredicate safe) {
+			if (safe.test(preferred)) return preferred;
+			return safe.test(-preferred) ? -preferred : 0;
+		}
+
+		/** A new draw (or a different shooter) flips the side; a draw already being answered keeps it. */
+		static boolean newDraw(int shooterId, boolean drawing, int previousId, boolean previousDrawing) {
+			return drawing && (shooterId != previousId || !previousDrawing);
+		}
+
+		@Override
+		public Step tick(Context context, Consumer<AgentInputState> input) {
+			ServerPlayer player = context.player();
+			Entity focus = context.focus() != null && context.focus().isAlive() ? context.focus() : null;
+			Entity from = focus instanceof Projectile shot && shot.getOwner() != null ? shot.getOwner() : focus;
+			if (from != null) {
+				lastThreatTick = player.tickCount;
+				boolean drawing = from instanceof Mob mob && mob.isUsingItem();
+				if (side == 0 || newDraw(from.getId(), drawing, shooterId, shooterDrawing)) {
+					side = nextSide(side == 0 ? LAST_SIDE.getOrDefault(player.getUUID(), 0) : side);
+					LAST_SIDE.put(player.getUUID(), side);
+					lastHeading = null;
+				}
+				shooterId = from.getId();
+				shooterDrawing = drawing;
+				shooter = from;
+			}
+			if (shooter == null || !shooter.isAlive()) return Step.done(steps > 0 ? "stepped aside " + steps + " time(s)" : "no shooter");
+			int weapon = HotbarWeapons.bestSlotOrNone(player);
+			int slot = weapon >= 0 && !player.getMainHandItem().is(Items.SHIELD) ? weapon : player.getInventory().getSelectedSlot();
+			LivingEntity melee = meleeInReach(player, player.getInventory().getItem(slot));
+			Vec3 faceAt = melee != null ? melee.getBoundingBox().getCenter() : ReflexSensors.aimPoint(shooter);
+			AgentInputState aim = look(player, faceAt, 0.0F, 0.0F, false, false, slot, InteractionHand.MAIN_HAND);
+			if (melee != null && player.getInventory().getSelectedSlot() == slot && !player.isUsingItem()
+					&& player.getAttackStrengthScale(0.5F) >= CombatPlanning.READY_ATTACK_STRENGTH
+					&& Tracer.rayTrace(player, 1.0F, player.getAttackRangeWith(player.getMainHandItem()).effectiveMaxRange(player), false)
+							instanceof EntityHitResult hit && hit.getEntity() == melee) {
+				player.attack(melee);
+				ArmSwing.attack(player, InteractionHand.MAIN_HAND);
+				player.resetAttackStrengthTicker();
+				player.resetLastActionTime();
+				hits++;
+			}
+			String swung = hits > 0 ? ", " + hits + " hit(s)" : "";
+			if (player.tickCount - lastThreatTick > MOVE_AFTER_TICKS) {
+				input.accept(aim);
+				lastHeading = null;
+				return Step.running("watching " + type(shooter) + " between shots" + swung);
+			}
+			Vec3 body = player.position();
+			Vec3 at = shooter.position();
+			Float[] headings = new Float[3];
+			int chosen = chooseSide(side, candidate -> {
+				Float heading = SafeStep.heading(player, sideYaw(body, at, candidate), OFFSETS, candidate == side ? lastHeading : null, List.of(), MAX_DROP);
+				headings[candidate + 1] = heading;
+				return heading != null;
+			});
+			if (chosen == 0) {
+				refused++;
+				input.accept(aim);
+				lastHeading = null;
+				return Step.running("no safe footing to either side of " + type(shooter) + "'s shot, facing it" + swung);
+			}
+			if (chosen != side) {
+				side = chosen;
+				LAST_SIDE.put(player.getUUID(), side);
+			}
+			Float heading = headings[chosen + 1];
+			if (lastHeading == null) steps++;
+			lastHeading = heading;
+			float relative = (float) Math.toRadians(AgentInputStates.shortestAngleDelta(aim.yaw(), heading));
+			float forward = cleanAxis((float) Math.cos(relative));
+			float strafe = cleanAxis(-(float) Math.sin(relative));
+			input.accept(new AgentInputState(forward, strafe, false, false, false, false, false, aim.yaw(), aim.pitch(), aim.selectedSlot(), aim.hand()));
+			return Step.running("stepping " + SafeStep.compass(heading) + " across " + type(shooter) + "'s shot" + swung);
+		}
+
+		/** The nearest hostile a swing of {@code weapon} reaches now (defend's reach test), or null. */
+		private static LivingEntity meleeInReach(ServerPlayer player, ItemStack weapon) {
+			LivingEntity nearest = null;
+			double best = Double.POSITIVE_INFINITY;
+			for (Mob mob : player.level().getEntitiesOfClass(Mob.class, player.getBoundingBox().inflate(6.0D),
+					mob -> mob.isAlive() && ThreatPerception.isHostileTo(mob, player) && !mob.isInvisibleTo(player))) {
+				double distance = player.distanceTo(mob);
+				if (distance >= best || Defend.swingPoint(player, mob, weapon) == null) continue;
+				best = distance;
+				nearest = mob;
+			}
+			return nearest;
+		}
+
+		private static float cleanAxis(float value) {
+			return Math.abs(value) < 1.0E-4F ? 0.0F : Mth.clamp(value, -1.0F, 1.0F);
+		}
+
+		@Override
+		public boolean holdsWhileTrue() { return true; }
+
+		@Override
+		public long releaseGraceTicks() { return GRACE_TICKS; }
+
+		/** Two skeletons drawing in turn hold its condition true: its maxS is a held volley, done, never a timeout. */
+		@Override
+		public boolean settled() { return true; }
 	}
 
 	/**

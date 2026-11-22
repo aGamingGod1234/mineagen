@@ -147,6 +147,24 @@
 		"coordinatorDefault": true
 	},
 	{
+		"id": "default-arrow-dodge",
+		"kind": "trigger",
+		"priority": 7,
+		"when": [
+			{
+				"type": "incoming_projectile",
+				"withinS": 0.6,
+				"drawn": true
+			}
+		],
+		"do": {
+			"type": "dodge"
+		},
+		"maxMs": 10000,
+		"ttlMs": 3600000,
+		"coordinatorDefault": true
+	},
+	{
 		"id": "default-retreat",
 		"kind": "trigger",
 		"priority": 7,

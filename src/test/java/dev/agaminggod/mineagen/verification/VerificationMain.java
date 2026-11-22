@@ -176,6 +176,7 @@ public final class VerificationMain {
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.reflex.EndBreathFloorVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.reflex.CoverRuleVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.reflex.DrawnBowShieldVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.reflex.ArrowDodgeVerification.verify();
 		passedAssertions += CoordinatorProcessOwnershipVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.WindowsCoordinatorJobDrainVerification.verify();
 		passedAssertions += CoordinatorStartupSmokeVerification.verify();

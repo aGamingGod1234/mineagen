@@ -139,6 +139,30 @@ public final class ReflexEngine {
 	}
 
 	/**
+	 * A dodge stands aside for whatever already moves or guards the body against the shooter: the body's own fight or
+	 * flight (as defend does), an escape walking to cover from a shooter, and a firing that runs or hides (take_cover,
+	 * sprint_away, defend backing out, walling in or walking to cover). Stepping sideways there would pause the walk to
+	 * cover or the run that gets the body out of the shot line for good.
+	 */
+	static boolean dodgeStandsAside(ReflexSpec.Rule rule, ActionType activeType, boolean escapingShooter, boolean firingMoves) {
+		return "dodge".equals(rule.action().type()) && (defendStandsAside(activeType) || escapingShooter || firingMoves);
+	}
+
+	/** Whether the running firing moves or shelters the body itself, so a dodge must not take it (see dodgeStandsAside). */
+	static boolean firingMovesBody(ReflexActions.Behaviour behaviour) {
+		return behaviour instanceof ReflexActions.TakeCover || behaviour instanceof ReflexActions.SprintAway
+				|| behaviour instanceof ReflexActions.Defend defend && defend.movingBody();
+	}
+
+	/** Apply the dodge's stand-aside gate, dropping a queued start too (as the shield's gate does). */
+	static boolean dodgeGate(ReflexScheduler scheduler, ReflexSpec.Rule rule, boolean truth, ActionType activeType, boolean escapingShooter,
+			boolean firingMoves) {
+		if (!dodgeStandsAside(rule, activeType, escapingShooter, firingMoves)) return truth;
+		scheduler.discardPendingStart(rule.id());
+		return false;
+	}
+
+	/**
 	 * Apply the retreat pace check. Forcing truth false alone leaves a retreat edge queued before the outpacing chaser came
 	 * (while a higher-priority firing held the body) to start within its pending window, so the queued start goes too.
 	 */
@@ -188,7 +212,8 @@ public final class ReflexEngine {
 	 */
 	static FiringStep firingStep(ReflexSpec.Rule rule, ReflexScheduler.ActionStatus status, String detail, ActionType activeType, boolean settled,
 			long elapsedTicks, long maxTicks, boolean yieldsToFight) {
-		if (status == ReflexScheduler.ActionStatus.RUNNING && rule != null && "defend".equals(rule.action().type()) && defendStandsAside(activeType)) {
+		if (status == ReflexScheduler.ActionStatus.RUNNING && rule != null && ("defend".equals(rule.action().type()) || "dodge".equals(rule.action().type()))
+				&& defendStandsAside(activeType)) {
 			status = ReflexScheduler.ActionStatus.DONE;
 			detail = (detail == null || detail.isEmpty() ? "" : detail + "; ") + "handed to " + activeType.wireName();
 		}
@@ -523,6 +548,7 @@ public final class ReflexEngine {
 				|| agent.behaviour instanceof ReflexActions.Defend defend && defend.backingOutOfPack();
 		boolean fleeingWithChaser = fleeing && ReflexActions.Defend.nearestChaser(player, ReflexActions.PACK_RANGE) < ReflexActions.PACK_RANGE;
 		boolean firingBlocksShots = agent.scheduler.current() != null && agent.behaviour != null && agent.behaviour.blocksShots();
+		boolean firingMoves = agent.scheduler.current() != null && firingMovesBody(agent.behaviour);
 		// Defend also stands aside while a cast has a cell half done: lava poured and not yet cooled, or its water not yet
 		// scooped back. A pause there leaves the lava to flow onto the body or the water to run into the pool (2-3 s at most).
 		boolean escapingShooter = activeType == ActionType.ESCAPE && !EscapeMoves.shooters(player).isEmpty()
@@ -563,6 +589,7 @@ public final class ReflexEngine {
 			truth = gatedTruth(rule, truth, activeType, escapingShooter);
 			if (!inEnd && endOnly(rule)) truth = false;
 			truth = shieldGate(agent.scheduler, rule, truth, firingBlocksShots);
+			truth = dodgeGate(agent.scheduler, rule, truth, activeType, escapingShooter, firingMoves);
 			truth = chaseGate(agent.scheduler, rule, truth, fleeingWithChaser);
 			owedDropsGate(agent.scheduler, rule, truth);
 			// A default "back off when weaker" rule does not pause a flee that has already found no way out and stands its
