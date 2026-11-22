@@ -682,8 +682,9 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 			if (call.optional) { (row.skipped ??= []).push({ call: callIndex, code: entry.reasonCode }); break; }
 			// A stop the retries do not cover, or retries spent: the shared stand-in answers its fork (a hostile in the way,
 			// water, hunger, a blocked step tried once from another angle), then the step again, as the model's next turn would.
-			// Each fork has a per-step cap (FORK_CAPS), so this ends; the step limit bounds it too.
-			if (spot.retry && !call.once && spot.expectCode !== entry.reasonCode && left() > 60_000) {
+			// Each fork has a per-step cap (FORK_CAPS), so this ends; the step limit bounds it too. A step still running past the
+			// harness wait gets no second body action beside it.
+			if (spot.retry && !call.once && result?.state !== 'HARNESS_TIMEOUT' && spot.expectCode !== entry.reasonCode && left() > 60_000) {
 				const answered = await standinAnswer(result, `${callIndex}-${attempt}-end`, ['tool'])
 					.catch(async (error) => { if ((await deaths()) > deathsBefore) return null; throw error; });
 				if ((await deaths()) > deathsBefore) { row.ended = 'death'; break calls; }

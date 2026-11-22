@@ -368,7 +368,8 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 				}
 				const decision = await standinAnswer(result, callIndex, attempt, used);
 				if ((await deaths()) > deathsBefore) { row.ended = 'death or lost observations'; break; }
-				if (blockedFind && !decision?.fork) break;
+				// A spot with repeatBlocked keeps re-asking after a blocked search as main does, fork or not.
+				if (blockedFind && !blockedReask && !decision?.fork) break;
 				// The recovery may have spent the budget: ask again only with the 10 s shouldRepeat needs.
 				if (budgetMs - (now() - t0) < 10_000) break;
 				// No fork answered: give the reflexes (and regeneration, when hurt) a moment, then ask again.
