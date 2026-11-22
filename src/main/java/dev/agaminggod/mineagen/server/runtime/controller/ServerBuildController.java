@@ -369,6 +369,8 @@ public final class ServerBuildController implements ServerController {
 	private int plugged;
 	/** Steps the body took during the cast, cell to cell (a drop of 2+ one way only): the way back it knows it can walk. */
 	private final java.util.Map<BlockPos, Set<BlockPos>> stepsWalked = new java.util.HashMap<>();
+	private final Map<BlockPos, BlockState> walkedGround = new HashMap<>();
+	private boolean followingWalkedWay;
 	private BlockPos lastStood;
 	/** Where scoops landed, latest last: dry spots in reach of the pool that the body has stood on. */
 	private final List<BlockPos> scoopSpots = new ArrayList<>();
@@ -434,7 +436,7 @@ public final class ServerBuildController implements ServerController {
 		if (danger != null) return danger;
 		if (child != null) return childTick(player, now);
 		// From the first step of a cast build: the walks to open the pool cross the shore the fetches need later.
-		if (casting && player.onGround()) recordStep(player.blockPosition());
+		if (casting && player.onGround()) recordStep(player);
 		if (walk != null) {
 			if (casting) walk.keepLavaFlowRoutes();
 			TickResult moved = walk.tick(player, now);
@@ -443,9 +445,22 @@ public final class ServerBuildController implements ServerController {
 			walk = null;
 			if (moved.state() == State.SUCCEEDED && !wayBack.isEmpty()) { nextHop(now); return running(); }
 			wayBack.clear();
+			boolean wasFollowingWalkedWay = followingWalkedWay;
+			followingWalkedWay = false;
 			if (moved.state() != State.SUCCEEDED) {
 				lastWalkFailure = moved.reasonCode() + " " + moved.message();
 				LOGGER.info("[build] {} walk {} failed at {}: {}", player.getGameProfile().name(), walks, xyz(player.blockPosition()), lastWalkFailure);
+				if (wasFollowingWalkedWay && phase == Phase.CAST && switch (moved.reasonCode()) {
+					case "NO_STANDABLE_PATH", "PATH_BLOCKED", "REACHED_FRONTIER", "NO_PATH" -> true;
+					default -> false;
+				}) {
+					// The frame or pool can cut an old hop. Try the same target before refusing the whole patch of shore.
+					// A partial route can leave the body in a pocket between the mould and the lava with no way out.
+					walk = new ServerNavigationController(Vec3.atBottomCenterOf(walkTarget), 0.35D, false, now, 20_000L)
+							.withWalkedGround(walkedGround).seenRouteOnly();
+					LOGGER.info("[build] {} replan walk {} to {} after a remembered hop failed", player.getGameProfile().name(), walks, xyz(walkTarget));
+					return running();
+				}
 				BlockPos flow = casting && "LAVA_FLOW".equals(moved.reasonCode()) ? lavaNamed(moved.message()) : null;
 				if (flow != null && flowWaits < 3 && !fed(player, flow)) {
 					// Lava running from a source the cast took (or one gone) is draining: wait for it, then walk there again.
@@ -2774,6 +2789,7 @@ public final class ServerBuildController implements ServerController {
 		LOGGER.info("[build] {} walk {} to {} in {} ({})", player.getGameProfile().name(), walks, xyz(spot), phase, way != null && way.size() > 3 ? way.size() + " steps walked before" : "travel");
 		if (way != null && way.size() > 3) {
 			// Cell by cell along steps it took: travel plans only through what is in sight, and a way round the frame is not.
+			followingWalkedWay = true;
 			wayBack.addAll(way.subList(1, way.size()));
 			nextHop(now);
 			return running();
@@ -2801,8 +2817,17 @@ public final class ServerBuildController implements ServerController {
 		return false;
 	}
 
-	private void recordStep(BlockPos at) {
-		if (lastStood != null && !at.equals(lastStood) && stepsWalked.size() < 4096 && Math.abs(at.getX() - lastStood.getX()) <= 1 && Math.abs(at.getZ() - lastStood.getZ()) <= 1
+	private void recordStep(ServerPlayer player) {
+		BlockPos at = player.blockPosition().immutable();
+		if (at.equals(lastStood)) return;
+		if (stepsWalked.size() < 4096) {
+			var seen = SeenTerrain.of(player);
+			for (BlockPos touched : List.of(at.below(), at, at.above())) {
+				BlockState state = seen.known(touched.getX(), touched.getY(), touched.getZ());
+				if (state != null) walkedGround.put(touched, state);
+			}
+		}
+		if (lastStood != null && stepsWalked.size() < 4096 && Math.abs(at.getX() - lastStood.getX()) <= 1 && Math.abs(at.getZ() - lastStood.getZ()) <= 1
 				&& at.getY() - lastStood.getY() <= 1 && lastStood.getY() - at.getY() <= 3) {
 			stepsWalked.computeIfAbsent(lastStood.immutable(), k -> new HashSet<>()).add(at.immutable());
 			if (lastStood.getY() - at.getY() <= 1) stepsWalked.computeIfAbsent(at.immutable(), k -> new HashSet<>()).add(lastStood.immutable());

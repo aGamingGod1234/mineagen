@@ -79,6 +79,7 @@ public final class MinecraftNavigationWorld implements WalkabilityView {
 		@Override public int getMinY() { return level.getMinY(); }
 	};
 	private Set<GridPosition> portalEntries = Set.of();
+	private Map<BlockPos, BlockState> walkedGround = Map.of();
 	private final ItemEnchantments bootsEnchantments;
 	private final int soulSpeedLevel;
 	private final boolean weaving;
@@ -776,11 +777,11 @@ public final class MinecraftNavigationWorld implements WalkabilityView {
 			// Memory changes are recorded on acquisition. Refresh consulted facts before trusting an unchanged log.
 			for (var entry : states.long2ObjectEntrySet()) {
 				long key = entry.getLongKey();
-				if (!Objects.equals(entry.getValue(), now.known(BlockPos.getX(key), BlockPos.getY(key), BlockPos.getZ(key)))) return false;
+				if (!Objects.equals(entry.getValue(), acquiredState(now, BlockPos.getX(key), BlockPos.getY(key), BlockPos.getZ(key)))) return false;
 			}
 		}
 		boolean changed = now.changedSince(stamp, key -> states.containsKey(key)
-				&& !Objects.equals(states.get(key), now.known(BlockPos.getX(key), BlockPos.getY(key), BlockPos.getZ(key))));
+				&& !Objects.equals(states.get(key), acquiredState(now, BlockPos.getX(key), BlockPos.getY(key), BlockPos.getZ(key))));
 		if (changed) return false;
 		seen = now;
 		stamp = now.stamp();
@@ -809,6 +810,24 @@ public final class MinecraftNavigationWorld implements WalkabilityView {
 	boolean hasUnknown() { return unknownRead; }
 
 	boolean belongsTo(ServerLevel candidate) { return level == candidate; }
+
+	/** Terrain the calling build stood in or on, kept for the lifetime of that build. */
+	MinecraftNavigationWorld withWalkedGround(Map<BlockPos, BlockState> walkedGround) {
+		this.walkedGround = walkedGround;
+		return this;
+	}
+
+	private BlockState acquiredState(SeenTerrain.Reader<BlockState> reader, int x, int y, int z) {
+		BlockState known = reader.known(x, y, z);
+		if (walkedGround.isEmpty()) return known;
+		BlockPos at = new BlockPos(x, y, z);
+		BlockState walked = walkedGround.get(at);
+		if (walked == null) return known;
+		if (!(level instanceof ServerLevel server) || !server.hasChunk(x >> 4, z >> 4)) return null;
+		if (level.getBlockState(at) == walked) return walked;
+		// Only discard a changed memory. A new block or gap is usable once the body sees it.
+		return reader.seesNow(x, y, z) ? reader.known(x, y, z) : null;
+	}
 
 	BlockState stateAt(BlockPos position) { return stateAt(position.getX(), position.getY(), position.getZ()); }
 
@@ -862,7 +881,7 @@ public final class MinecraftNavigationWorld implements WalkabilityView {
 		long key = BlockPos.asLong(x, y, z);
 		boolean retained = states.containsKey(key);
 		if (retained && (!refreshCached || refreshed.contains(key))) return states.get(key);
-		BlockState state = seen.known(x, y, z);
+		BlockState state = acquiredState(seen, x, y, z);
 		if (retained && state != states.get(key)) {
 			cells.remove(new GridPosition(x, y, z));
 			shapeDependencies.remove(key);
@@ -871,7 +890,10 @@ public final class MinecraftNavigationWorld implements WalkabilityView {
 		if (refreshCached) refreshed.add(key);
 		states.put(key, state);
 		if (state == null) unknownRead = true;
-		else knownUntil = Math.min(knownUntil, seen.rememberedUntil(x, y, z));
+		else {
+			long until = seen.rememberedUntil(x, y, z);
+			if (walkedGround.isEmpty() || until >= seen.tick()) knownUntil = Math.min(knownUntil, until);
+		}
 		return state;
 	}
 
