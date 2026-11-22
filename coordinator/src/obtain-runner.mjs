@@ -12,7 +12,7 @@ import { DAMAGE_STOPS, FIGHT_STOPS, DISCARD, LIFE_SAFETY_STOPS, MAX_FIND_TIMEOUT
 import { threatRows, blazeBlocksErrand } from './search-danger.mjs';
 import { REGEN_RESUME_HEALTH, bodyDanger, eatCalls, lowHealthFork } from './fork-rule.mjs';
 import { heldCounts, heldOf, keepPickaxeMakings, planObtain, readyTimes, resolveObtainItem, searchCost, seenRowCost, shortId, OBTAIN_STATIONS } from './obtain-plan.mjs';
-import { lootSources, structureReach } from './loot-sources.mjs';
+import { JOB_BLOCK, houseYield, lootSources, structureReach } from './loot-sources.mjs';
 import { lootChest } from './loot-step.mjs';
 import { kitLeft } from './skill-fits.mjs';
 
@@ -158,6 +158,9 @@ const KEPT_STRUCTURES = 16;
 const DOOR_VISITS = 6;
 const DOOR = /^(minecraft:)?[a-z_]+_door$/;
 const HOUSE_REACH = 8;
+// Looking into one house: open the door, step in, look, shut it (about 13 s a house over 109 looks in the 22 Nov batch),
+// in the planner's cost units of about 5 s.
+const HOUSE_LOOK = 2.6;
 const HOSTILE_MOB = /^(zombie|zombie_villager|husk|drowned|skeleton|stray|bogged|spider|cave_spider|creeper|witch|pillager|vindicator|evoker|ravager|slime|enderman)$/;
 // The server's hostility flag counts too, except on a village's own (a golem defends, villagers and cats are harmless).
 const VILLAGE_FOLK = /^(villager|iron_golem|wandering_trader|trader_llama|cat|snow_golem)$/;
@@ -569,7 +572,7 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 	// A non-food obtain recovers at low health itself; while it recovers (active) the coordinator folds the low-health wakes.
 	if (!food) rawBody.recovering?.('armed');
 	// The food hunt's flee line, set once from the health at the first hunt: later rounds never lower it.
-	let foodFlee = null, lastWeighed = null, kitTrip = false;
+	let foodFlee = null, lastWeighed = null, kitTrip = false, lastPlan = null;
 	let lastFailure = null, fuelDiagnostic = null, approachStop = null;
 	const fuelMembers = (group) => (typeof group === 'string' ? index.tags[group] ?? [] : group);
 	const smeltsPer = (itemId) => (index.fuels?.[bare(itemId)] ?? 0) / 200;
@@ -1319,6 +1322,17 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			|| looted.doors.some((d) => (d.dimension ?? null) === (source.dimension ?? d.dimension ?? null) && Math.hypot(d.x - at.x, d.z - at.z) < 2 && Math.abs(d.y - at.y) < 2)) return null;
 		return { x: at.x, y: at.y, z: at.z, blockId: at.id };
 	};
+	// A house's price for the plan: its building kind (the nearest job block within a house's reach of the door, else an
+	// ordinary house), what that kind holds for the plan (planned.lootValue), and the walk plus the look inside.
+	const housePrice = (door, jobs, at, need) => {
+		const near = jobs.filter((row) => Math.hypot(row.x - door.x, row.z - door.z) <= HOUSE_REACH && Math.abs(row.y - door.y) <= 3)
+			.sort((a, b) => Math.hypot(a.x - door.x, a.z - door.z) - Math.hypot(b.x - door.x, b.z - door.z))[0];
+		const job = near ? bare(near.blockId) : 'none';
+		const value = lastPlan?.lootValue;
+		const saving = value ? value((item) => houseYield(job, item)).saving : need.accept.reduce((sum, item) => sum + houseYield(job, item), 0);
+		const cost = (at ? Math.hypot(door.x + 0.5 - at.x, door.z + 0.5 - at.z) : 0) / 20 + HOUSE_LOOK;
+		return { job, saving, cost, gain: saving - cost };
+	};
 	const lootOnce = async (need) => {
 		const source = need.sources?.[0];
 		if (!source) return `no chest left for ${need.accept[0]}`;
@@ -1334,7 +1348,7 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			return walked?.state === 'SUCCEEDED';
 		};
 		let chest = source.kind === 'chest' ? source : null;
-		let houseDoor = null;
+		let houseDoor = null, doorsDone = false;
 		if (chest === null) {
 			step(`look for chests in the ${source.name} at ${source.x},${source.y},${source.z}`);
 			if (source.distance > 24 && !(await walk(source, 8)) && (body.interrupted() || body.stopped())) return 'stopped';
@@ -1348,11 +1362,18 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			for (let tries = 0; chest === null && tries < DOOR_VISITS && left() > 20_000; tries++) {
 				const rows = await known();
 				const at = bodyAt(await body.observe());
-				const door = rows.filter((row) => DOOR.test(row.blockId ?? '') && [row.x, row.y, row.z].every(Number.isFinite)
+				// Each house priced like any source: what its kind of building (the job block by its door) holds for this plan,
+				// chests it may lack included, against the walk and the look inside. The best first; none once none pays.
+				const jobs = rows.filter((row) => JOB_BLOCK.test(row.blockId ?? '') && [row.x, row.y, row.z].every(Number.isFinite));
+				const priced = rows.filter((row) => DOOR.test(row.blockId ?? '') && [row.x, row.y, row.z].every(Number.isFinite)
 					&& Math.hypot(row.x - source.x, row.z - source.z) <= reach && !looted.doors.some((d) => sameDoor(d, row)))
-					.sort((a, b) => (at ? Math.hypot(a.x - at.x, a.z - at.z) - Math.hypot(b.x - at.x, b.z - at.z) : 0))[0]
-					?? await doorInSight(source, reach);
+					.map((row) => ({ row, ...housePrice(row, jobs, at, need) }))
+					.sort((a, b) => b.gain - a.gain);
+				const best = priced[0];
+				if (best && !(best.gain > 0)) { step(`no house left worth a look (best: ${best.job} at ${cellKey(best.row)}, ${best.saving.toFixed(1)} saved for ${best.cost.toFixed(1)})`); doorsDone = true; break; }
+				const door = best?.row ?? await doorInSight(source, reach);
 				if (!door) break;
+				if (best) step(`house by the ${best.job} door at ${cellKey(door)}: ${best.saving.toFixed(1)} saved for ${best.cost.toFixed(1)}`);
 				looted.doors.push({ x: door.x, y: door.y, z: door.z, dimension });
 				step(`look into the house through the door at ${cellKey(door)}`);
 				if (!(await walk(door, 2))) { if (body.interrupted() || body.stopped()) return 'stopped'; continue; }
@@ -1409,10 +1430,10 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			}
 			if (body.interrupted() || body.stopped()) return 'stopped';
 			if (chest === null) {
-				// Twice without a new chest: the structure's chests are done (a search can return a chest already opened).
+				// Twice without a new chest, or no house left that pays its look: the structure's chests are done.
 				const misses = (looted.misses[cellKey(source)] ?? 0) + 1;
 				looted.misses[cellKey(source)] = misses;
-				if (misses >= 2) looted.searched.push(cellKey(source));
+				if (misses >= 2 || doorsDone) looted.searched.push(cellKey(source));
 				return `no unopened chest found in the ${source.name}`;
 			}
 		}
@@ -1785,6 +1806,7 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			// The food a trip down wants (TRIP_FOOD items): a village's bread is then worth the visit before the trip, not after.
 			const eats = [...counts].filter(([kind]) => FOODS.has(kind) || /^(cooked_|baked_|bread$|golden_carrot)/.test(kind)).reduce((sum, [, n]) => sum + n, 0);
 			plan = planObtain(goal, { held, seen, stations, index, coalFirst, dimension: o.world?.dimension, loot, gear: gearOf(o), places, food: OBTAIN_COSTS ? Math.max(0, TRIP_FOOD - eats) : 0 });
+			lastPlan = plan;
 			// What the plan weighed, once per change: the loot it knew of and the way each need takes.
 			const weighed = `plan: ${plan.needs.map((need) => `${need.kind} ${need.count} ${need.accept[0]}`).join(', ') || 'crafts only'}; loot known: ${loot.length === 0 ? 'none' : loot.slice(0, 3).map((row) => `${row.kind === 'chest' ? 'chest' : row.name} ${Math.round(row.distance)}m`).join(', ')}`;
 			if (weighed !== lastWeighed) { lastWeighed = weighed; step(weighed); }
@@ -1813,6 +1835,7 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			}
 		}
 		catch (error) { return end('FAILED', 'OBTAIN_STUCK', `The plan for ${label} could not be made (${String(error?.message ?? error).slice(0, 120)})`); }
+		lastPlan = plan;
 		materialsKeep = new Set([...target.ids, ...plan.needs.flatMap((n) => n.accept),
 			...plan.ops.flatMap((op) => op.inputs.flatMap((input) => fuelMembers(input.spec.startsWith('#') ? input.spec : input.spec.split('|'))))].map(bare));
 

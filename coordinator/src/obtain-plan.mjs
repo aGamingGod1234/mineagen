@@ -400,8 +400,11 @@ export function planObtain({ ids, count, also = [] }, { held = new Map(), seen =
 		return planObtain({ ids, count, also }, { held, seen, stations, index, coalFirst, dimension, costHeld: alternativeCosts, loot, gear, yields, places, food });
 	}
 	const planned = { ops: [...ops.values()], needs: [...needs.values()], fuel, unreachable: [...unreachable], tools: [...tools] };
-	const visit = lootVisit(planned, { ids, count, also, held, seen, index, dimension, costHeld, loot, gear, yields, places, food });
+	const context = { ids, count, also, held, seen, index, dimension, costHeld, loot, gear, yields, places, food };
+	const visit = lootVisit(planned, context);
 	if (visit) planned.needs.unshift(visit);
+	// What a container found later (a house's chest) would save this plan: the loot step ranks houses with it.
+	Object.defineProperty(planned, 'lootValue', { value: lootValuer(planned, context), enumerable: false });
 	return planned;
 }
 
@@ -413,8 +416,27 @@ export function planObtain({ ids, count, also = [] }, { held = new Map(), seen =
  * caller's stock target less what is held); chest food counts at what the cheapest other food costs here, so a village
  * is looted for bread before the trip down rather than climbed back to. Returns a loot need or null.
  */
-function lootVisit(plan, { ids, count, also, held, seen, index, dimension, costHeld, loot, gear, yields, places, food = 0 }) {
+function lootVisit(plan, ctx) {
+	const { loot } = ctx;
 	if (loot.length === 0 || plan.needs.some((need) => need.kind === 'loot') || plan.unreachable.length > 0) return null;
+	const value = lootValuer(plan, ctx);
+	const table = ctx.yields ?? lootYields();
+	let best = null;
+	for (const source of loot) {
+		const { saving, items } = value((id) => chestYield(source.tables, id, table));
+		const cost = source.distance / WALK_BLOCKS + OPEN_COST + (source.kind === 'structure' ? FIND_CHEST_COST : 0);
+		if (items.length > 0 && saving > cost && (best === null || saving - cost > best.gain)) best = { source, items, gain: saving - cost };
+	}
+	if (best === null) return null;
+	return { kind: 'loot', accept: best.items, blocks: [], mobs: [], count: 1, tool: null, chance: false, sources: [best.source], visit: true };
+}
+
+/**
+ * What a container would save this plan, for any yield: perItem(id) is the mean count of an item the container holds.
+ * Returns (perItem) => { saving, items }: each wanted item at most the count still wanted, times what it costs the
+ * other way (stations taken as built), and the trip's missing food at the cheapest other food's cost.
+ */
+export function lootValuer(plan, { ids, count, also = [], held, seen, index, dimension, costHeld, gear, yields, places, food = 0 }) {
 	const built = new Map(costHeld);
 	for (const station of OBTAIN_STATIONS) if (!(built.get(station) > 0)) built.set(station, 1);
 	const other = new Costs(index, built, seen, dimension, [], gear, yields, places);
@@ -426,14 +448,12 @@ function lootVisit(plan, { ids, count, also, held, seen, index, dimension, costH
 	}
 	for (const op of plan.ops) for (const out of op.outputs) want(out, op.times * op.yieldCount);
 	for (const need of plan.needs) for (const id of need.accept) want(id, need.count);
-	const table = yields ?? lootYields();
 	const foodCost = food > 0 ? Math.min(...TRIP_FOODS.map((id) => other.of(id).cost)) : Infinity;
-	let best = null;
-	for (const source of loot) {
+	return (perItem) => {
 		let saving = 0;
 		const items = [];
 		for (const [id, n] of wanted) {
-			const per = chestYield(source.tables, id, table);
+			const per = perItem(id);
 			if (!(per > 0)) continue;
 			const cost = other.of(id).cost;
 			if (!Number.isFinite(cost)) continue;
@@ -441,14 +461,11 @@ function lootVisit(plan, { ids, count, also, held, seen, index, dimension, costH
 			items.push(id);
 		}
 		if (Number.isFinite(foodCost)) {
-			const meals = CHEST_FOODS.reduce((sum, id) => sum + chestYield(source.tables, id, table), 0);
-			if (meals > 0) { saving += Math.min(meals, food) * foodCost; items.push(...CHEST_FOODS.filter((id) => chestYield(source.tables, id, table) > 0 && !items.includes(id))); }
+			const meals = CHEST_FOODS.reduce((sum, id) => sum + perItem(id), 0);
+			if (meals > 0) { saving += Math.min(meals, food) * foodCost; items.push(...CHEST_FOODS.filter((id) => perItem(id) > 0 && !items.includes(id))); }
 		}
-		const cost = source.distance / WALK_BLOCKS + OPEN_COST + (source.kind === 'structure' ? FIND_CHEST_COST : 0);
-		if (items.length > 0 && saving > cost && (best === null || saving - cost > best.gain)) best = { source, items, gain: saving - cost };
-	}
-	if (best === null) return null;
-	return { kind: 'loot', accept: best.items, blocks: [], mobs: [], count: 1, tool: null, chance: false, sources: [best.source], visit: true };
+		return { saving, items };
+	};
 }
 
 export function heldOf(spec, held, index = howtoIndex()) {

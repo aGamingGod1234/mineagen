@@ -411,3 +411,19 @@ test('review 5: three empty chest visits for apples leave the apple tree its own
 	assert.equal(calls.filter(([type, args]) => type === 'travel_to' && chests.some((c) => args.x === c.x + 0.5)).length, 3, 'three chest visits failed');
 	assert.ok(searches.some((block) => /_leaves$/.test(block)), `then the leaves still get a search: ${searches.join(', ')}`);
 });
+
+// The playtest village (22 Nov smoke logs): house doors at 322,77,-232, 334,79,-235 and 296,78,-239 from the start.
+const PLAYTEST_DOORS = [[322, 77, -232], [334, 79, -235], [296, 78, -239]].map(([x, y, z]) => ({ id: 'minecraft:oak_door', kind: 'block', x, y, z, count: 1, placed: true }));
+test('houses are priced: the toolsmith\'s house first though farther; with food held and no job block in sight no house pays its look', async () => {
+	const { houseYield } = await import('../src/loot-sources.mjs');
+	assert.ok(houseYield('grindstone', 'iron_ingot') > 1 && houseYield('none', 'iron_ingot') === 0 && houseYield('brewing_stand', 'bread') === 0);
+	const smithy = { id: 'minecraft:smithing_table', kind: 'block', x: 335, y: 79, z: -238, count: 1, placed: true };
+	const first = villageRun({ seenResources: [...PLAYTEST_DOORS, smithy] });
+	await runObtain({ item: 'iron_ingot', count: 3, timeoutMs: 60_000 }, first.body, { now: (() => { let t = 0; return () => (t += 100); })(), looted: { opened: [], searched: [], structures: [], doors: [] } });
+	const opened = first.calls.filter(([type, args]) => type === 'set_door' && args.open).map(([, args]) => `${args.x},${args.z}`);
+	assert.equal(opened[0], '334,-235', `the toolsmith's door first: ${opened.join(' ')}`);
+	const fed = villageRun({ seenResources: PLAYTEST_DOORS });
+	fed.body.observe = ((observe) => async () => { const o = await observe(); o.inventory.items.push({ itemId: 'minecraft:bread', count: 12, slot: 8 }); return o; })(fed.body.observe);
+	await runObtain({ item: 'iron_ingot', count: 3, timeoutMs: 60_000 }, fed.body, { now: (() => { let t = 0; return () => (t += 100); })(), looted: { opened: [], searched: [], structures: [], doors: [] } });
+	assert.equal(fed.calls.some(([type]) => type === 'set_door'), false, 'plain houses hold no iron and the trip has its food: none looked into');
+});

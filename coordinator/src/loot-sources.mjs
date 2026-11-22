@@ -6,9 +6,24 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 let cached = null;
+const config = () => (cached ??= JSON.parse(readFileSync(fileURLToPath(new URL('../config/loot-yield.json', import.meta.url)), 'utf8')));
 export function lootYields() {
-	cached ??= JSON.parse(readFileSync(fileURLToPath(new URL('../config/loot-yield.json', import.meta.url)), 'utf8')).tables;
-	return cached;
+	return config().tables;
+}
+
+// Job blocks that mark a village building (scripts/loot-yield.mjs reads them from the game's village buildings).
+export const JOB_BLOCK = /^(minecraft:)?(smithing_table|grindstone|blast_furnace|smoker|cartography_table|fletching_table|stonecutter|loom|water_cauldron|cauldron|brewing_stand|barrel)$/;
+
+/**
+ * Mean count of an item in one village building of a kind, chests it may not have included: the building kind is the
+ * job block standing in it ('none' for an ordinary house). A weaponsmith's has a chest in 4 of 5 variants, a temple's in
+ * none; an ordinary house's in about 1 of 3.
+ */
+export function houseYield(job, item, { houses = config().houses, yields = lootYields() } = {}) {
+	const kind = houses?.[bare(job ?? 'none')] ?? houses?.none;
+	if (!kind || !(kind.buildings > 0)) return 0;
+	const id = bare(item);
+	return Object.entries(kind.chests).reduce((sum, [table, n]) => sum + n * (yields[table]?.[id] ?? 0), 0) / kind.buildings;
 }
 
 // Which chest tables a sighted structure's chests roll from. Structures whose chests sit behind a fight the planner does

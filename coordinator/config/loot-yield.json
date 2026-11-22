@@ -1,5 +1,5 @@
 {
-	"source": "vanilla chest loot tables: mean count per opened chest",
+	"source": "vanilla chest loot tables: mean count per opened chest; village buildings with a door by job block: variants and their loot chests",
 	"tables": {
 		"chests/abandoned_camp_common_chest": {
 			"abandoned_camp_map": 1,
@@ -858,6 +858,82 @@
 			"string": 3.375,
 			"vex_armor_trim_smithing_template": 0.5,
 			"wheat": 0.714
+		}
+	},
+	"houses": {
+		"blast_furnace": {
+			"buildings": 6,
+			"chests": {
+				"chests/village/village_armorer": 1
+			}
+		},
+		"smoker": {
+			"buildings": 8,
+			"chests": {
+				"chests/village/village_butcher": 1
+			}
+		},
+		"cartography_table": {
+			"buildings": 5,
+			"chests": {
+				"chests/village/village_cartographer": 4
+			}
+		},
+		"barrel": {
+			"buildings": 5,
+			"chests": {
+				"chests/village/village_fisher": 1
+			}
+		},
+		"fletching_table": {
+			"buildings": 5,
+			"chests": {
+				"chests/village/village_fletcher": 1
+			}
+		},
+		"none": {
+			"buildings": 59,
+			"chests": {
+				"chests/village/village_desert_house": 4,
+				"chests/village/village_plains_house": 3,
+				"chests/village/village_savanna_house": 5,
+				"chests/village/village_snowy_house": 2,
+				"chests/village/village_taiga_house": 5
+			}
+		},
+		"stonecutter": {
+			"buildings": 6,
+			"chests": {
+				"chests/village/village_mason": 1
+			}
+		},
+		"loom": {
+			"buildings": 5,
+			"chests": {
+				"chests/village/village_shepherd": 1
+			}
+		},
+		"water_cauldron": {
+			"buildings": 5,
+			"chests": {
+				"chests/village/village_tannery": 4
+			}
+		},
+		"smithing_table": {
+			"buildings": 5,
+			"chests": {
+				"chests/village/village_toolsmith": 2
+			}
+		},
+		"brewing_stand": {
+			"buildings": 6,
+			"chests": {}
+		},
+		"grindstone": {
+			"buildings": 5,
+			"chests": {
+				"chests/village/village_weaponsmith": 4
+			}
 		}
 	}
 }
