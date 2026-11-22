@@ -31,10 +31,16 @@ export async function watchDirs(root, depth = 3) {
  */
 export async function readDangerRows(root) {
 	let files = 0, dropped = 0;
-	const rows = [], seen = new Set();
+	// Bodies watched, per server: a server folder's arena-watch and the copy boot() keeps beside it are one server.
+	const rows = [], seen = new Set(), servers = new Map();
 	for (const dir of await watchDirs(root)) {
+		const server = path.dirname(dir).replace(/[\\/]server$/, '');
+		const bodies = servers.get(server) ?? new Set();
+		servers.set(server, bodies);
 		for (const name of (await readdir(dir).catch(() => [])).filter(name => name.endsWith('-danger.jsonl')).sort()) {
 			files++;
+			// The Watcher makes <agentId>-danger.jsonl, empty, when it starts watching a body: a file is a watched body.
+			bodies.add(name.slice(0, -'-danger.jsonl'.length));
 			const text = await readFile(path.join(dir, name), 'utf8').catch(() => '');
 			for (const line of text.split('\n')) {
 				if (!line.trim()) continue;
@@ -49,7 +55,8 @@ export async function readDangerRows(root) {
 			}
 		}
 	}
-	return { files, rows, dropped };
+	// The most bodies one server watched: 1 for one body per server (travel boots one server per seed), 4 for 4 lanes.
+	return { files, rows, dropped, bodies: Math.max(0, ...[...servers.values()].map(set => set.size)) };
 }
 
 const round = value => Math.round(value * 100) / 100;
@@ -74,8 +81,8 @@ export function foldHits(rows, { from = -Infinity, to = Infinity, agentId = null
 	for (const row of rows) {
 		if (!Number.isFinite(row.atMs) || row.atMs < from || row.atMs > to) continue;
 		if (agentId && row.agentId !== agentId) continue;
-		agents.add(row.agentId);
 		if (setupHit(row)) { if (Number.isFinite(row.taken)) setupDamage = round(setupDamage + row.taken); continue; }
+		agents.add(row.agentId);
 		for (const into of [total, byAttacker[attackerOf(row)] ??= empty()]) {
 			into.hits++;
 			if (Number.isFinite(row.taken)) into.taken = round(into.taken + row.taken);
@@ -90,8 +97,8 @@ export function foldHits(rows, { from = -Infinity, to = Infinity, agentId = null
  * Each row with its own epoch-ms startedAt and finishedAt and no hits of its own gets row.hits (source 'watch') from the
  * danger rows under root that fall in its time window (from row.hitsFrom instead of startedAt when the fixture marks
  * where play began). With no danger file under root the rows are left alone: no watch, no claim. A row that names its
- * body (agentId) counts only that body's hits; a row that does not, in a window where several bodies were hit (parallel
- * lanes on one server), gets no hits, never another body's.
+ * body (agentId) counts only that body's hits; a row that does not, where several bodies were watched (parallel lanes on
+ * one server), gets no hits, never another body's.
  */
 export async function attachHits(rows, root) {
 	const danger = await readDangerRows(root);
@@ -103,7 +110,9 @@ export async function attachHits(rows, root) {
 		if (!(row.startedAt > 1e12) || !(row.finishedAt >= row.startedAt)) continue;
 		const from = row.hitsFrom > 1e12 ? row.hitsFrom : row.startedAt, agentId = typeof row.agentId === 'string' ? row.agentId : null;
 		const hits = foldHits(danger.rows, { from, to: row.finishedAt, agentId });
-		if (!agentId && hits.agents > 1) { delete row.hits; row.hitsUnknown = `${hits.agents} bodies were hit in this window and the row names none`; continue; }
+		// A row that names no body can only be read where one body was watched: with several, the hits in its window may
+		// be a sibling lane's, even when only one of them was hit.
+		if (!agentId && danger.bodies > 1) { delete row.hits; row.hitsUnknown = `${danger.bodies} bodies were watched on one server and the row names none`; continue; }
 		delete row.hitsUnknown;
 		row.hits = { source: 'watch', ...hits };
 		if (danger.dropped) row.hits.droppedLines = danger.dropped;

@@ -91,7 +91,31 @@ test('a row counts only its own body, never parallel lanes\' hits, and room setu
 		assert.equal(rows[0].hits.setupDamage, 13, 'the room\'s own /damage is setup, not a hit');
 		assert.deepEqual(Object.keys(rows[1].hits.byAttacker), ['minecraft:lava']);
 		assert.equal(rows[2].hits, undefined, 'two bodies hit and the row names none: unknown');
-		assert.match(rows[2].hitsUnknown, /2 bodies/);
+		assert.match(rows[2].hitsUnknown, /2 bodies were watched/);
+		// One lane never hit: its file is there, empty, and a nameless row still cannot claim the other lane's hits.
+		const quiet = await mkdtemp(path.join(os.tmpdir(), 'danger-quiet-'));
+		try {
+			await mkdir(path.join(quiet, 'arena-watch'), { recursive: true });
+			await writeFile(path.join(quiet, 'arena-watch', 'a1-danger.jsonl'), lines([hit(T0 + 1_000, 'minecraft:zombie', 3)]));
+			await writeFile(path.join(quiet, 'arena-watch', 'b2-danger.jsonl'), '');
+			const lanes = [{ name: 'l0', startedAt: T0, finishedAt: T0 + 5_000 }, { name: 'l1', startedAt: T0, finishedAt: T0 + 5_000 }];
+			await finishRun(lanes, { file: path.join(quiet, 'result.json'), setExitCode: false });
+			assert.deepEqual(lanes.map(lane => lane.hits), [undefined, undefined]);
+		} finally { await rm(quiet, { recursive: true, force: true }); }
+		// One body per server, several servers (travel boots one per seed): nameless rows still get their hits.
+		const seeds = await mkdtemp(path.join(os.tmpdir(), 'danger-seeds-'));
+		try {
+			for (const [seed, agent, at] of [['seed-1', 'a1', T0 + 1_000], ['seed-2', 'b2', T0 + 20_000]]) {
+				await mkdir(path.join(seeds, seed, 'server', 'arena-watch'), { recursive: true });
+				await writeFile(path.join(seeds, seed, 'server', 'arena-watch', `${agent}-danger.jsonl`), lines([hit(at, 'minecraft:zombie', 2, { agentId: agent })]));
+				await keepDangerFiles(path.join(seeds, seed, 'server', 'arena-watch'), path.join(seeds, seed, 'arena-watch'));
+			}
+			const courses = [{ name: 'c1', startedAt: T0, finishedAt: T0 + 10_000 }, { name: 'c2', startedAt: T0 + 15_000, finishedAt: T0 + 25_000 }];
+			await finishRun(courses, { file: path.join(seeds, 'result.json'), setExitCode: false });
+			assert.deepEqual(courses.map(course => course.hits?.hits), [1, 1]);
+		} finally { await rm(seeds, { recursive: true, force: true }); }
+		// Setup damage is not a hit: a body that only took the room's /damage is not counted among the bodies hit.
+		assert.equal(foldHits([hit(T0, null, 13, { damageType: 'minecraft:generic' })]).agents, 0);
 		assert.equal(rows[3].hits.hits, 0, 'hitsFrom starts the window after setup');
 	} finally { await rm(out, { recursive: true, force: true }); }
 });
