@@ -68,7 +68,7 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 		s.record = { ...(e.payload.record ?? e.payload), agentId: e.agentId };
 		await s.bridge.send('agent_ready', s.record.agentId, { goalRevision: s.record.goalRevision, reconciled: false });
 		const started = s.inbox.wait('goal_control', g => g.payload.operation === 'start', 120_000);
-		await s.command(`mineagen start ${AGENT} Kill the ender dragon.`);
+		await s.command(`mineagen start ${AGENT} Survive for 1200 seconds.`);
 		s.record.goalRevision = (await started).payload.goalRevision;
 		await s.bridge.send('agent_ready', s.record.agentId, { goalRevision: s.record.goalRevision, reconciled: false });
 		await s.command(`gamemode survival ${AGENT}`);
