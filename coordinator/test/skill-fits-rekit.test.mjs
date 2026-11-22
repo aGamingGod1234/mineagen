@@ -115,13 +115,16 @@ test('live view: a Nether death and an empty Overworld respawn get the re-kit, n
 	assert.doesNotMatch(await step(first), /re-kit/);
 	assert.match(await step(live(200, FULL, { dimension: 'minecraft:the_nether' })), /find a fortress/);
 	await step(corpse(300));
-	assert.equal(await step(live(400, [])), 'usual next step: obtain wooden_pickaxe (no tools yet; re-kit after a death)');
+	const respawn = live(400, []);
+	assert.equal(await step(respawn), 'usual next step: obtain wooden_pickaxe (no tools yet; re-kit after a death)');
 	// A queued wake built from a sample before the death states that sample's route (its own death count).
 	assert.doesNotMatch(views.continuity(r, { observation: first }).route, /re-kit/);
 	assert.match(await step(live(410, TOOLS)), /^usual next step: obtain shield.*re-kit after a death\)$/);
 	// Kit back on: the walk back; alive in the Nether: the death is settled; home alive with nothing: no re-kit.
 	assert.match(await step(live(500, FULL)), /return via known Overworld portal at 30,-20,7/);
 	await step(live(600, FULL, { dimension: 'minecraft:the_nether' }));
+	// A wake queued from the empty-handed respawn and delivered after re-entry keeps that sample's mark: still the re-kit.
+	assert.match(views.continuity(r, { observation: respawn }).route, /re-kit after a death\)$/);
 	assert.match(await step(live(700, [])), /return via known Overworld portal at 30,-20,7/);
 	// A second death (in the Overworld this time) brings it back again.
 	await step(corpse(800, 'minecraft:overworld'));

@@ -725,7 +725,7 @@ export class LiveTaskViews {
    && handback.at <= state.observation?.observedAtEpochMs;
   const foodHandedBack = released(current.foodHandback), woodHandedBack = released(current.woodHandback);
   const kitHandedBack = new Set((current.kitHandbacks ?? []).filter(row => row.worldId === current.worldId && row.deaths === state.deaths).map(row => row.item));
-  const diedSincePortal = Number.isSafeInteger(current.portalDeaths) && state.deaths > current.portalDeaths;
+  const diedSincePortal = Number.isSafeInteger(state.portalDeaths) && state.deaths > state.portalDeaths;
   const route = beatsTheGame(record.currentGoalSpec) ? routeLine({ observation: state.observation, known: state.known, memory: this.#memory(record, state, ROUTE_SOURCE_BLOCKS), foodHandedBack, woodHandedBack, kitHandedBack, diedSincePortal, evaluate: evaluatePlanCheck, instincts: this.#instincts }) : null;
   return composeContinuityHeader({ goal: record.currentGoal, intent: state.intent, evidence: intentEvidence(state), since, progress: this.#progressLine(state), route, stepProgress: stepProgress.progress ?? null, repeats: stepProgress.repeats ?? null, search: stepProgress.search ?? null, ...this.#memoryFacts(record, state, shown, observation?.recovery ?? null), results: state.results, running, effect: state.effect, orders, guardInstalled, guardCoverage, guardThreatsNear, guardThreatsTargeting, annotate });
  }
@@ -1379,12 +1379,12 @@ const SAMPLE_HISTORY = 8;
 function rememberSample(state, observation) {
  if (!Number.isFinite(observation?.observedAtEpochMs)) return;
  state.samples.push({ at: observation.observedAtEpochMs, observation, statuses: new Map((state.plan?.steps ?? []).map(s => [s.id, s.status])),
-  early: [...(state.early ?? [])], results: [...state.results], effect: state.effect, deaths: state.deaths, openSky: state.openSky ?? null });
+  early: [...(state.early ?? [])], results: [...state.results], effect: state.effect, deaths: state.deaths, portalDeaths: state.portalDeaths ?? null, openSky: state.openSky ?? null });
  if (state.samples.length > SAMPLE_HISTORY) state.samples.splice(0, state.samples.length - SAMPLE_HISTORY);
 }
 function sampleView(state, sample) {
  const plan = state.plan ? { steps: state.plan.steps.map(s => sample.statuses.has(s.id) ? { ...s, status: sample.statuses.get(s.id) } : s) } : null;
- return { ...state, plan, observation: sample.observation, early: sample.early, results: sample.results, effect: sample.effect, deaths: sample.deaths, openSky: sample.openSky };
+ return { ...state, plan, observation: sample.observation, early: sample.early, results: sample.results, effect: sample.effect, deaths: sample.deaths, portalDeaths: sample.portalDeaths ?? null, openSky: sample.openSky };
 }
 function intentFacts(f) {
  return { ...(typeof f.inPlan === 'boolean' ? { inPlan: f.inPlan } : {}), ...(Number.isSafeInteger(f.deaths) && f.deaths >= 0 ? { deaths: f.deaths } : {}), ...(identifier(f.dimension) ? { dimension: f.dimension } : {}), ...(Number.isSafeInteger(f.at) ? { at: f.at } : {}) };
