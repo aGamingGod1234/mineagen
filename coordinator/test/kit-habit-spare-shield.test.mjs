@@ -11,7 +11,7 @@ const WOOD = [['oak_planks', 12, 11], ['crafting_table', 1, 12]];
 // The route's kit done: iron pickaxe, 2 buckets, flint and steel, one shield in the off hand.
 const KIT = [['iron_pickaxe', 1, 'mainhand'], ['bucket', 2, 13], ['flint_and_steel', 1, 14], ['shield', 1, 'offhand']];
 const WORN = [['iron_chestplate', 1, 'chest'], ['iron_boots', 1, 'feet']];
-const SPARE = { kind: 'craft', itemId: 'minecraft:shield', spare: true };
+const SPARE = { kind: 'craft', itemId: 'minecraft:shield', count: 2 };
 
 test('a spare shield is made from iron left once the chestplate and boots are on, in the Overworld only', () => {
 	assert.deepEqual(nextKitStep(body([...KIT, ...WORN, ['iron_ingot', 1, 10], ...WOOD])), SPARE);

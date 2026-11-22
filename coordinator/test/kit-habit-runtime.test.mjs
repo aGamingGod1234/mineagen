@@ -165,3 +165,29 @@ test('a failed obtain that changed nothing hands back as before, with no kit ste
 	assert.equal(result.kit, undefined);
 	assert.ok(!after.some(item => item.itemId === 'minecraft:shield'));
 });
+
+test('a spare shield is really crafted: the kit asks obtain for 2 shields with one held, not for 1', async () => {
+	const items = [{ itemId: 'minecraft:iron_pickaxe', slot: 'mainhand', count: 1 }, { itemId: 'minecraft:shield', slot: 'offhand', count: 1 },
+		{ itemId: 'minecraft:iron_chestplate', slot: 'chest', count: 1 }, { itemId: 'minecraft:iron_boots', slot: 'feet', count: 1 },
+		{ itemId: 'minecraft:flint_and_steel', slot: 14, count: 1 }, { itemId: 'minecraft:bucket', slot: 13, count: 1 },
+		{ itemId: 'minecraft:iron_ingot', slot: 10, count: 4 }, { itemId: 'minecraft:oak_planks', slot: 11, count: 16 }, { itemId: 'minecraft:crafting_table', slot: 1, count: 1 }];
+	const { result, commands, items: after } = await obtainBucket({ kitHabit: true, items, target: { item: 'bucket', count: 2, timeoutMs: 60000 } });
+	assert.equal(result.state, 'SUCCEEDED', result.message);
+	assert.deepEqual(commands.filter(c => c.actionType === 'craft_table').map(c => c.arguments.recipeId), ['minecraft:bucket', 'minecraft:shield']);
+	assert.equal(after.filter(item => item.itemId === 'minecraft:shield').reduce((n, item) => n + item.count, 0), 2);
+	assert.deepEqual(result.kit, ['crafted shield']);
+});
+
+test('danger during kit upkeep after a failed obtain keeps the failure as the result', async () => {
+	let actionId = null;
+	const items = [{ itemId: 'minecraft:iron_pickaxe', slot: 'mainhand', count: 1 }, { itemId: 'minecraft:iron_ingot', slot: 10, count: 4 },
+		{ itemId: 'minecraft:oak_planks', slot: 11, count: 8 }, { itemId: 'minecraft:crafting_table', slot: 1, count: 1 }, { itemId: 'minecraft:shield', slot: 20, count: 1 }];
+	const { result } = await obtainBucket({ kitHabit: true, items, target: { item: 'bucket', count: 2, timeoutMs: 60000 }, craftRoom: 40,
+		onEquip: (runtime, record, p) => { actionId = p.actionId; queueMicrotask(() => runtime.interruptBlockingTool(record.agentId)); return 'hold'; } });
+	assert.ok(actionId, 'the stored shield equip started');
+	assert.equal(result.state, 'FAILED', JSON.stringify(result));
+	assert.equal(result.reasonCode, 'NO_SOURCE');
+	assert.equal(result.running?.actionId, actionId);
+	assert.match(result.message, /kit upkeep stopped for danger after the obtain failed/);
+	assert.doesNotMatch(result.message, /after the item was obtained/);
+});

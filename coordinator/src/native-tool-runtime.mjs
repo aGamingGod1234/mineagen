@@ -2818,7 +2818,7 @@ export class NativeToolRuntime {
 		const stop = {};
 		try {
 			// Furnace loads an earlier obtain left are the next obtain's to collect, not a kit craft's walk.
-			kit = await keepKit(body, (item) => runObtain({ item, count: 1, timeoutMs: KIT_CRAFT_TIMEOUT_MS }, body, { ...stations, loads: [] }),
+			kit = await keepKit(body, (item, count = 1) => runObtain({ item, count, timeoutMs: KIT_CRAFT_TIMEOUT_MS }, body, { ...stations, loads: [] }),
 				{ stopped: () => interrupted() || !current(), reserved, stop });
 		} catch (error) {
 			if (!current()) throw error;
@@ -2830,10 +2830,14 @@ export class NativeToolRuntime {
 		this.#trace('native_obtain_step', { agentId: record.agentId, goalRevision: record.goalRevision, step: steps, text: `kit: ${kit.join(', ')}` });
 		const message = `${result.message ?? 'obtained'}; kit: ${kit.join(', ')}`;
 		if (!cut) return { ...result, kit, message };
-		// Danger during kit upkeep is handed back as obtain's own interruption: the item is held, the action still running
-		// (an equip, a kit craft's leg) is the model's to replace or cancel.
 		const running = halt?.state === 'INTERRUPTED' ? halt.running ?? null
 			: typeof halt?.actionId === 'string' ? { actionId: halt.actionId, ...(halt.recoveryHint ? { recoveryHint: halt.recoveryHint } : {}) } : null;
+		// After a failed obtain, the failure stays the result (its code is what sends the model to another source); the
+		// danger that cut the kit and any action still running ride along.
+		if (result.state !== 'SUCCEEDED') return { ...result, ...(running === null ? {} : { running }), kit,
+			message: `${message}; kit upkeep stopped for danger after the obtain failed; decide, then carry on` };
+		// Danger during kit upkeep is handed back as obtain's own interruption: the item is held, the action still running
+		// (an equip, a kit craft's leg) is the model's to replace or cancel.
 		return { ...result, ...halted(), ...(halt?.state === 'INTERRUPTED' && halt.reasonCode ? { reasonCode: halt.reasonCode } : {}),
 			...(running === null ? {} : { running }), kit,
 			message: `${message}; stopped for danger after the item was obtained; decide, then carry on` };
