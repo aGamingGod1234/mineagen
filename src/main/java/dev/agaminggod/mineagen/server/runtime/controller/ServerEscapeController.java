@@ -177,6 +177,14 @@ public final class ServerEscapeController implements ServerController {
 		return WaterMove.TRAVEL;
 	}
 
+	/**
+	 * Push onto a bank in reach before anything else, also with the eyes under water, unless the air is low: then the
+	 * swim to air comes first, as for every other move.
+	 */
+	static boolean climbFirst(boolean besideBank, int climbs, boolean underwater, int air) {
+		return besideBank && climbs < MAX_TRIES && (!underwater || air >= SWIM_FIRST_AIR);
+	}
+
 	private TickResult water(ServerPlayer player, long now) {
 		BlockPos bank = bank(player, bankTries);
 		// travel_to counts a stop within a block of the bank as arrived, often still treading water at its edge: a player
@@ -184,7 +192,7 @@ public final class ServerEscapeController implements ServerController {
 		// (SwimPlanning.climbsOut), not where the eyes are: a body with its eyes under, beside a bank at or below its feet,
 		// rises and climbs out the same way (a travel there only arrives again, still in the water).
 		boolean beside = bank != null && besideBank(player, bank);
-		if (beside && climbs < MAX_TRIES) {
+		if (climbFirst(beside, climbs, player.isUnderWater(), player.getAirSupply())) {
 			climbs++;
 			refund = () -> climbs--;
 			return startMove(player, climbOut(bank), "climb out onto the bank at " + bank.toShortString());
@@ -371,12 +379,12 @@ public final class ServerEscapeController implements ServerController {
 	/**
 	 * A water cell beside the body (at its feet or one above), connected to its water, with a sturdy block under it, two
 	 * cells over it the body fits in (water or air), and a top a swimmer in water topping at {@code waterTop} climbs onto
-	 * (SwimPlanning.climbsOut): a block placed there is a step beside the body. The one at the feet comes first. A step
-	 * whose top is out of that climb only raises the way out (iron-kit seed 6006: a step 1.3 over the floating feet, 4 of
-	 * 4 climbs failed). Null when none.
+	 * (SwimPlanning.climbsOut): a block placed there is a step beside the body. The higher one comes first (when both are
+	 * in reach the lower one's top is still under water). A step whose top is out of that climb only raises the way out
+	 * (iron-kit seed 6006: a step whose top was a block over the water, 4 of 4 climbs failed). Null when none.
 	 */
 	static BlockPos stepCell(Level level, BlockPos feet, Set<BlockPos> pool, int waterTop) {
-		for (int dy = 0; dy <= 1; dy++) {
+		for (int dy = 1; dy >= 0; dy--) {
 			for (Direction side : Direction.Plane.HORIZONTAL) {
 				BlockPos cell = feet.above(dy).relative(side);
 				if (!pool.contains(cell) || !SwimPlanning.climbsOut(cell.getY() + 1, waterTop)) continue;

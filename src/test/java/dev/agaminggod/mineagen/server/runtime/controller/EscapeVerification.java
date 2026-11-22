@@ -113,7 +113,13 @@ public final class EscapeVerification {
 		java.util.function.IntPredicate column = y -> y >= 40 && y <= 42;
 		check(SwimPlanning.waterTop(40, column) == 43 && SwimPlanning.waterTop(42, column) == 43, "the column's water tops out at its highest cell's top face");
 		check(SwimPlanning.waterTop(43, column) == Integer.MIN_VALUE, "a dry start cell has no water top");
-		assertions += 7;
+		// Beside a bank in reach the body pushes onto it with its eyes under water too; low air swims to air first.
+		check(ServerEscapeController.climbFirst(true, 0, true, 300), "eyes under beside a bank in reach: push onto it (fresh-r3)");
+		check(ServerEscapeController.climbFirst(true, 0, false, 300), "afloat beside a bank: push onto it, as before");
+		check(!ServerEscapeController.climbFirst(true, 0, true, 60), "eyes under with little air: swim to air first");
+		check(!ServerEscapeController.climbFirst(false, 0, false, 300) && !ServerEscapeController.climbFirst(true, ServerEscapeController.MAX_TRIES, false, 300),
+				"no bank in reach, or the climbs spent: no push");
+		assertions += 10;
 		assertions += 5;
 		return assertions;
 	}
