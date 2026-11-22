@@ -8,6 +8,7 @@ import { howtoIndex } from './howto.mjs';
 import { corridorFloor, witherOnLeg, withersSeen } from './fortress-approach.mjs';
 import { eyeTarget, eyesHeld, followEyes } from './find-eyes.mjs';
 import { portalTarget, strongholdNearby, findPortalRoom } from './find-portal-room.mjs';
+import { nightMoveStop } from './night-cover.mjs';
 import { ENGAGE_CLOSE, SEARCH_LOW_HEALTH, creeperNear, pursuedByPack, searchDanger, threatRows } from './search-danger.mjs';
 
 export const FIND_KINDS = Object.freeze(['block', 'biome', 'mob', 'structure']);
@@ -222,6 +223,8 @@ export const UNREACHED_SPOT = 'unreachable spot';
 // Underground, a trip to a remembered place is a dig; past this many blocks it costs more than the search at depth.
 // 4-seed check: trips of 39 and 62 blocks from y24 and y16 dug for 96 s, flooded, and once left the body in an aquifer.
 const UNDERGROUND_TRIP = 32;
+// A search below its ore's depth walks back up its own route first when the way back starts within this many blocks.
+const WALK_BACK_UP = 128;
 // Descent patterns: water stopping one is in the ground under this spot, whatever the heading.
 const DESCENTS = /^dig (steep_down|stairs_down|shaft) /;
 
@@ -442,7 +445,14 @@ function nearestCardinal(yaw) {
  * early, reported as result.seen), frontier() (exploreFrontier footing with coverage), known() (remembered sightings
  * and blocks), places() (the model's remembered places), progress(facts). Returns { state, reasonCode, message, find }.
  */
-export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, within = DEFAULT_FIND_WITHIN } = {}) {
+export async function searchFor(target, body, options = {}) {
+	const night = { ended: null };
+	const result = await searchLegs(target, body, options, night);
+	// A night stop ends every later leg at once; whatever the search said after it, the night is why it stopped.
+	return night.ended !== null && result?.state !== 'SUCCEEDED' ? night.ended : result;
+}
+
+async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, within = DEFAULT_FIND_WITHIN } = {}, night) {
 	const startedAt = body.now();
 	const deadline = startedAt + timeoutMs;
 	let observation = await body.observe();
@@ -488,7 +498,9 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 		return { state, reasonCode, ...extra, message: `${why}. Covered in ${c.seconds} s: ${c.legs} leg(s), walked ${c.walked} blocks, now ${c.fromStart} from the start at y${c.y}${c.deepestY < c.startY - 2 ? ` (deepest y${c.deepestY})` : ''}; ${profile.label} not seen${caveNote}`,
 			find: { target: profile.label, covered: c } };
 	};
-	const left = () => deadline - body.now();
+	// Set once a leg would take the body up or out into the night: every later leg ends the search the same way.
+	let nightEnded = null;
+	const left = () => nightEnded !== null ? 0 : deadline - body.now();
 	const armed = () => (observation?.inventory?.items ?? []).some((item) => WEAPON.test(item?.itemId ?? ''));
 	const forTarget = (place) => place.blockId === undefined || profile.ids.has(place.blockId);
 	const unreached = (body.missedPlaces?.() ?? []).filter((place) => place.why === UNREACHED && forTarget(place)).map(({ x, y, z }) => ({ x, y, z }));
@@ -663,19 +675,26 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 
 	// One body action toward the search; a sighting during it (its own stopWhenSeen, or the watch) ends it.
 	// sight: what ends this leg as seen (default: the target in view anywhere, as sightingOf reads it).
-	const leg = async (how, actionType, args, sight = null) => {
+	// until(sample): an extra stop for the leg (the walk back up ends at the ore's band), handed back as no sighting.
+	const leg = async (how, actionType, args, sight = null, { until = null } = {}) => {
+		if (nightEnded === null) {
+			const why = nightMoveStop(observation, actionType, args, { openSky: body.openSky?.() ?? null });
+			if (why !== null) night.ended = nightEnded = handBack('FAILED', 'FIND_NIGHT', `Stopped before "${how}": ${why}`);
+		}
+		if (nightEnded !== null) return { ended: nightEnded, result: { state: 'FAILED', reasonCode: 'FIND_NIGHT' } };
 		// While a Nether biome is approached, every leg (a fight or sidestep on the way too) ends as seen only standing in it.
 		if (sight === null && approaching && netherBiome()) sight = standingIn;
 		progress(how);
 		const timeout = Math.min(left(), 600_000, args.timeoutMs ?? Infinity);
 		// Controllers enforce the original circle on every tick, including retrace detours.
 		if (profile.ids.has('minecraft:water') && ['travel_to', 'dig_to'].includes(actionType)) args = { ...args, boundaryX: origin.x, boundaryZ: origin.z, boundaryRadius: within };
-		const result = await body.act(actionType, TIMED.has(actionType) ? { ...args, timeoutMs: Math.max(MIN_LEG_MS, Math.floor(timeout)) } : args, { watch: sight ?? ((sample) => sightingOf(profile, sample, null, excluded)) });
+		const result = await body.act(actionType, TIMED.has(actionType) ? { ...args, timeoutMs: Math.max(MIN_LEG_MS, Math.floor(timeout)) } : args, { watch: sight ?? ((sample) => sightingOf(profile, sample, null, excluded) ?? (until?.(sample) ? { until: true } : null)) });
 		const entry = { how, actionType, state: result?.state, reasonCode: result?.reasonCode, underWater: /body is under water/i.test(String(result?.message ?? '')),
 			waterAt: result?.reasonCode === 'WATER_AHEAD' ? waterOf(result?.message) : null };
 		legs.push(entry);
 		noteCaves(result?.message, null);
 		if (result?.interruptedBy !== undefined) return { interrupted: result };
+		if (result?.seen?.until === true) { observation = await body.observe(); walked += moved(); return { result: { ...result, seen: undefined } }; }
 		if (result?.seen != null) { observation = await body.observe(); walked += moved(); return { seen: result.seen, result }; }
 		// A dig stopped at lava is a sighting only when it names a pool (a source): a fall or spill it plugged is not.
 		const seenAt = result?.reasonCode === 'TARGET_SEEN' || (result?.reasonCode === 'LAVA_AHEAD' && profile.ids.has('minecraft:lava') && /target pool found/i.test(String(result.message ?? ''))) ? seenAtOf(result.message) : null;
@@ -1179,6 +1198,8 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 	// did not see it at, or could not reach, is not tried again (body.missedPlaces, kept by the runtime across calls);
 	// underground, a place further than a short dig is left to the search at depth.
 	const missed = (body.missedPlaces?.() ?? []).filter((place) => (place.why !== UNREACHED_SPOT || profile.ids.has('minecraft:water')) && forTarget(place));
+	// Remembered places the caller priced out (obtain: a remembered ore dearer to reach than a fresh search) are no trip.
+	for (const cell of Array.isArray(target?.skip) ? target.skip : []) if ([cell?.x, cell?.y, cell?.z].every(Number.isFinite)) missed.push({ x: cell.x, y: cell.y, z: cell.z, why: 'priced out' });
 	const wasMissed = (row) => missed.some((place) => Math.hypot(place.x - row.x, place.y - row.y, place.z - row.z) <= SAME_PLACE);
 	const miss = (place, why) => { missed.push({ ...place, why }); body.missPlace?.({ x: place.x, y: place.y, z: place.z }, why); };
 	const underground = !profile.surface && observation?.player?.skyOpen === false;
@@ -1320,6 +1341,7 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 		const tunnelBlocks = () => cap('tunnel').maxBlocks;
 		const descentCap = (pattern) => cap(pattern);
 		// Ores only: lava keeps its own band and rock searches have no depth. Off for the A/B arm.
+		let walkedUp = false;
 		let cavePicked = !caveFirst() || profile.ids.has('minecraft:lava') || rock;
 		// Caves a cave-first walk may go to: seen in this search or remembered, unvisited, within reach and inside within, at
 		// or below the body and not far under the band, not where the body stands, and with no hostile seen near it.
@@ -1521,6 +1543,20 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 			}
 			// Below an ore's band (a start deep in a cave): stairs up to its depth.
 			if (profile.depth !== null && !profile.ids.has('minecraft:lava') && at.y < profile.depth - CAVE_BAND && descentStops < MAX_DESCENT_STOPS) {
+				// The way the body came down passes that depth: walk back up it, watching for the target, before cutting a
+				// new staircase (playtest 22 Nov: 37 blocks of new stairs up for coal wore out two pickaxes, its own stair
+				// and tunnel back up were open).
+				const sky = walkedUp ? null : body.openSky?.() ?? null;
+				if (sky !== null && [sky.x, sky.y, sky.z].every(Number.isFinite) && sky.y >= profile.depth && insideBoundary(sky)
+					&& Math.hypot(sky.x - at.x, sky.z - at.z) <= WALK_BACK_UP) {
+					walkedUp = true;
+					// It stops once in the ore's band: past it the walk would leave the band and a new descent would follow.
+					const back = await leg(`back up the way it came toward y${profile.depth}`, 'travel_to', { x: sky.x, y: sky.y, z: sky.z, retrace: true, tolerance: 3, stopWhenSeen: profile.stopId },
+						null, { until: (sample) => { const p = bodyAt(sample); return p !== null && p.y >= profile.depth - CAVE_BAND; } });
+					const ended = await settle(back);
+					if (ended !== null) return ended;
+					continue;
+				}
 				inward();
 				if (stepsLeft(heading) < 1) return handBack('FAILED', 'FIND_NOT_FOUND', `Searched to ${within} blocks from the start`);
 				const outcome = await leg(`climb stairs to y${profile.depth}`, 'dig_to', { pattern: 'stairs_up', y: profile.depth, heading: heading.name, ...descentCap('stairs_up'), stopWhenSeen: profile.stopId, discard: DISCARD });

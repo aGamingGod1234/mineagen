@@ -17,7 +17,9 @@ export function lightLine(observation) {
 	const phase = tick < 12_000 ? `dusk in ${minutes(12_000 - tick)}` : tick < 13_000 ? 'sunset' : tick < 23_000 ? 'night' : 'sunrise';
 	const timing = tick < 13_000 ? 'night lasts ~8m' : tick < 23_000 ? `sunrise in ${minutes(23_000 - tick)}` : `daylight in ${minutes(24_000 - tick)}`;
 	const exposure = o.player?.skyOpen === true ? '; sky-exposed' : o.player?.skyOpen === false ? '; sky covered' : '';
-	return cap(`${phase} (day ${day}); ${timing}; mobs spawn in darkness${exposure}`, LIGHT_LINE_BYTES);
+	// Planning for the night before it falls: unarmoured, stay down (or get under cover) rather than climb into it.
+	const plan = tick < 12_000 && Number.isFinite(o.player?.armor) && o.player.armor < 15 ? '; no armour: be under cover by dusk' : '';
+	return cap(`${phase} (day ${day}); ${timing}; mobs spawn in darkness${exposure}${plan}`, LIGHT_LINE_BYTES);
 }
 
 export const UP_LINE_BYTES = 160;

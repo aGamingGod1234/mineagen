@@ -67,7 +67,22 @@ export function findSpotVerdict(spot = {}, row = {}) {
 	// forbid: [{ actionType, pattern? }] body actions the spot must not take (a village start never digs down for stone).
 	for (const rule of Array.isArray(spot.forbid) ? spot.forbid : []) {
 		const hits = (row.actions ?? []).filter((action) => action?.type === rule.actionType && (rule.pattern === undefined || action?.args?.pattern === rule.pattern)).length;
-		if (hits > 0) misses.push(`${hits}x ${rule.actionType}${rule.pattern ? ` ${rule.pattern}` : ''}, which this spot forbids`);
+		// max: how many the spot allows (a short dig to a known ore), 0 when not given.
+		if (hits > (Number.isFinite(rule.max) ? rule.max : 0)) misses.push(`${hits}x ${rule.actionType}${rule.pattern ? ` ${rule.pattern}` : ''}, which this spot ${Number.isFinite(rule.max) ? `allows ${rule.max} of` : 'forbids'}`);
+	}
+	// minEndY: the body ends at or above this height (out of a pocket it mined), from the run's own end position.
+	if (Number.isFinite(spot.minEndY) && !(Array.isArray(row.end) && row.end[1] >= spot.minEndY)) misses.push(`ended at y${Array.isArray(row.end) ? Number(row.end[1]).toFixed(1) : '?'}, below y${spot.minEndY}`);
+	// expectAction: [{ type, reasonCode? }] body receipts the spot needs (the remembered-ore walk must end in a sighting).
+	for (const rule of Array.isArray(spot.expectAction) ? spot.expectAction : []) {
+		if (!(row.actions ?? []).some((action) => action?.type === rule.type && (rule.reasonCode === undefined || action?.reasonCode === rule.reasonCode))) {
+			misses.push(`no ${rule.type}${rule.reasonCode ? ` ${rule.reasonCode}` : ''} receipt, which this spot needs`);
+		}
+	}
+	// maxSeconds: the calls together must end within this much game time.
+	if (Number.isFinite(spot.maxSeconds)) {
+		// The run's own play time when recorded (background steps and waits included), else the calls' own.
+		const seconds = Number.isFinite(row.seconds) ? row.seconds : calls.reduce((total, call) => total + (Number.isFinite(call?.seconds) ? call.seconds : Infinity), 0);
+		if (!(seconds <= spot.maxSeconds)) misses.push(`took ${Number.isFinite(seconds) ? `${seconds} s` : 'an unknown time'}, more than ${spot.maxSeconds} s`);
 	}
 	// expectFinalProbe: [{ index, match }] a finalProbe reply (ground truth after the calls) must match (an ore left in the floor).
 	for (const rule of Array.isArray(spot.expectFinalProbe) ? spot.expectFinalProbe : []) {
