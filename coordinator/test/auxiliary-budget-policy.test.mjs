@@ -32,6 +32,8 @@ test('r6: strict long runner launches with no auxiliary allowance and counts eve
    setImmediate(async () => {
     try {
      assert.equal(launch.env.ARENA_STRICT_SPEND_GATE, '1');
+     // The coordinator gets normal play's lean model input unless the environment sets it (the mod supervisor's default).
+     assert.equal(launch.env.ARENA_LEAN_INPUT, process.env.ARENA_LEAN_INPUT ?? '1');
      assert.match(launch.env.ANTHROPIC_BASE_URL, /^http:\/\/127\.0\.0\.1:/);
      const totals = await new SpendLedger({ file: ledger, capUsd: 3 }).totals();
      assert.equal(totals.reservedUsd, 3);
@@ -49,6 +51,7 @@ test('r6: strict long runner launches with no auxiliary allowance and counts eve
   assert.equal(launches.length, 1); assert.equal(outbound.length, 1);
   assert.match(report.budgetPolicy, /^Strict:/);
   assert.equal(scenarioReport.runs[0].gate.preparationDisabled, true);
+  assert.equal(scenarioReport.runs[0].coordinatorInputs.leanInput, process.env.ARENA_LEAN_INPUT === undefined || /^(1|true|on|yes)$/i.test(process.env.ARENA_LEAN_INPUT.trim()), 'the run records the lean setting it played with');
   assert.equal(scenarioReport.runs[0].gate.byLabel.preparation, undefined);
   assert.equal(scenarioReport.runs[0].gate.byLabel['judge allowance'], undefined);
   assert.ok(report.spend.usd > 0 && report.spend.usd <= 3);

@@ -353,6 +353,8 @@ export async function scoreStageRun(directory, { rawDirectory = null } = {}) {
 		// A death seen only in the samples has no receipt: unknown. Every other death has the cause its evidence names.
 		deathCauses: countCauses([...deathRows, ...Array.from({ length: Math.max(0, Math.max(sampleDeaths, deathTimes.length) - deathRows.length) }, () => ({}))]),
 		deathRecords, game,
+		// The coordinator inputs the runner recorded (lean model input on or off), or null for runs before it recorded them.
+		coordinatorInputs: context?.coordinatorInputs ?? outcome?.coordinatorInputs ?? null,
 		timing: { decisionSegments: latencies.length, decisionP50Ms: p50(latencies), usageRecords: usageLatencies.length, usageRecordP50Ms: p50(usageLatencies), basis: 'completed provider decision segments; usage notification timing shown separately, never substituted' },
 		coverage: { protocolRecords: protocol.rows, samples: first.samples + recovery.samples, watcherFiles: watchFiles.length, diagnostics: [...new Set(diagnostics)] } };
 }

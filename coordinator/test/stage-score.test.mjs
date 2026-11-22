@@ -429,6 +429,18 @@ test('game facts review cases: a sample-only death is measured from the dead sam
 	assert.deepEqual([second.fall?.blocks, second.maxFallDistance], [0, null], 'the earlier life\'s fall is not the second death\'s');
 });
 
+test('a score carries the coordinator inputs the runner recorded, or null before runners recorded them', async () => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'stage-inputs-'));
+	try {
+		await writeFile(path.join(dir, 'quality-samples.jsonl'), JSON.stringify({ at: 1000, health: 20, inventoryNbt: '[]' }) + '\n');
+		assert.equal((await scoreStageRun(dir)).coordinatorInputs, null);
+		await writeFile(path.join(dir, 'quality-run.json'), JSON.stringify({ coordinatorInputs: { leanInput: true, leanInputSource: 'production default (as the mod supervisor sets it)' } }));
+		assert.deepEqual((await scoreStageRun(dir)).coordinatorInputs, { leanInput: true, leanInputSource: 'production default (as the mod supervisor sets it)' });
+		await writeFile(path.join(dir, 'long-run-context.json'), JSON.stringify({ coordinatorInputs: { leanInput: false, leanInputSource: 'environment' } }));
+		assert.equal((await scoreStageRun(dir)).coordinatorInputs.leanInput, false, 'the context written at the start wins');
+	} finally { await rm(dir, { recursive: true, force: true }); }
+});
+
 test('model latency: per-game and per wall-clock 10-minute p50 and p90 of model call time, nearest rank', async () => {
 	const { modelLatency, quantile } = await import('../../scripts/quality/lib/game-facts.mjs');
 	assert.equal(modelLatency([]), null, 'no timed call: unknown, not zero');
