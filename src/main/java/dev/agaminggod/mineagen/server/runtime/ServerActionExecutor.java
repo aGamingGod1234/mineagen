@@ -1891,6 +1891,9 @@ public final class ServerActionExecutor {
 	private dev.agaminggod.mineagen.server.runtime.controller.ServerController blazeTargetHold(ServerActionRequest request, ServerPlayer player, JsonObject arguments) {
 		if (!dev.agaminggod.mineagen.server.runtime.controller.SpawnerHold.ENABLED || player.level().dimension() != net.minecraft.world.level.Level.NETHER) return null;
 		if (arguments.has("roof") && !bool(arguments, "roof")) return null;
+		// sneak:true (crouch on an edge) keeps the ordinary fight: the wall-in does not crouch. pursue:false is honoured
+		// (the open fight keeps it and the wall-in is built where the body stands).
+		if (arguments.has("sneak") && bool(arguments, "sneak")) return null;
 		net.minecraft.world.entity.LivingEntity target;
 		try { target = combatTarget(player, string(arguments, "targetId")); }
 		catch (AgentDomainException unresolved) { return null; }
