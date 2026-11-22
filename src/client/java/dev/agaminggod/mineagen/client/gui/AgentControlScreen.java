@@ -1465,8 +1465,7 @@ public final class AgentControlScreen extends Screen {
 
 	private Status status() {
 		if (!feedback.isBlank()) {
-			AgentControlResult.Tone tone = feedbackError ? AgentControlResult.Tone.REFUSED
-					: feedbackConfirmed ? AgentControlResult.Tone.SUCCESS : AgentControlResult.Tone.PENDING;
+			AgentControlResult.Tone tone = feedbackTone(feedbackError, feedbackConfirmed);
 			String shortText = switch (tone) {
 				case REFUSED -> "Not done";
 				case SUCCESS -> "Done";
@@ -1483,6 +1482,11 @@ public final class AgentControlScreen extends Screen {
 		}
 		if (!snapshot.automationAvailable()) return new Status(snapshot.automationStatus(), ERROR, "Automation offline", true);
 		return new Status("Online", SUCCESS, "Online", false);
+	}
+
+	/** A feedback line is a success only once the server confirmed it; a line the screen wrote itself is pending. */
+	static AgentControlResult.Tone feedbackTone(boolean error, boolean confirmed) {
+		return error ? AgentControlResult.Tone.REFUSED : confirmed ? AgentControlResult.Tone.SUCCESS : AgentControlResult.Tone.PENDING;
 	}
 
 	/** Pending is neutral: green means the server confirmed the change, red that it refused it. */
@@ -1531,14 +1535,11 @@ public final class AgentControlScreen extends Screen {
 
 	/** The full result or offline reason, wrapped below the header when the header line is too short for it. */
 	private void renderBanner(GuiGraphicsExtractor graphics) {
-		if (builtBannerInset == 0) return;
 		List<String> lines = bannerLines();
-		if (lines.isEmpty()) return;
+		if (!bannerHolds(lines)) return;
 		Status status = status();
 		AgentControlLayout layout = layout();
-		// Widgets were placed for builtBannerInset; until they are rebuilt, draw only the lines that space holds.
-		int capacity = Math.max(1, (builtBannerInset - 4 - BANNER_PAD * 2) / BANNER_LINE);
-		int shown = Math.min(lines.size(), capacity);
+		int shown = lines.size();
 		AgentControlLayout.Bounds area = bannerBounds(layout, shown);
 		ConsoleDraw.surface(graphics, area.left(), area.top(), area.width(), area.height(), ConsoleDraw.RADIUS_CARD,
 				status.danger() ? ConsoleTheme.DANGER_SURFACE : ConsoleTheme.SURFACE);
@@ -1548,6 +1549,14 @@ public final class AgentControlScreen extends Screen {
 		}
 	}
 
+	/**
+	 * True when the space reserved at the last widget build holds every banner line. While a focused text box defers
+	 * that rebuild, the header keeps showing the text itself (shortened) rather than a label for a banner not yet drawn.
+	 */
+	private boolean bannerHolds(List<String> lines) {
+		return !lines.isEmpty() && builtBannerInset >= bannerInset(lines.size());
+	}
+
 	/** One status on the header's right: the latest feedback, a pending update, or the link state. */
 	private void renderStatus(GuiGraphicsExtractor graphics, int minimumX, int middle) {
 		AgentControlLayout layout = layout();
@@ -1555,8 +1564,7 @@ public final class AgentControlScreen extends Screen {
 		int right = layout.contentRight();
 		int room = Math.max(24, right - minimumX - 10);
 		// A text too long for the header is shown whole in the banner below; the header then names only its kind.
-		String shown = builtBannerInset == 0 && ConsoleText.width(font, status.text()) <= room
-				? status.text() : fit(status.shortText(), room);
+		String shown = bannerHolds(bannerLines()) ? fit(status.shortText(), room) : fit(status.text(), room);
 		int textWidth = ConsoleText.width(font, shown);
 		graphics.text(font, ConsoleText.component(shown), right - textWidth, middle - 4, status.color(), false);
 		ConsoleDraw.surface(graphics, right - textWidth - 9, middle - 2, 5, 5, ConsoleDraw.RADIUS_SMALL, status.color());

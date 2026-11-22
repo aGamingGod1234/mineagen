@@ -119,12 +119,15 @@ public final class AgentControlSync {
 	 */
 	public static void recordResult(net.minecraft.commands.CommandSourceStack source, boolean accepted, String message) {
 		if (source == null || !(source.getEntity() instanceof ServerPlayer player)) return;
-		LATEST_RESULTS.put(player.getUUID(), result(RESULT_SEQUENCE.incrementAndGet(), accepted, message));
+		storeResult(player.getUUID(), accepted, message);
 		requestSnapshot(player);
 	}
 
-	static AgentControlResult result(long sequence, boolean accepted, String message) {
-		return new AgentControlResult(sequence, accepted, message == null ? "" : message);
+	/** Stores {@code playerId}'s newest result under the next sequence number and returns it. */
+	static AgentControlResult storeResult(UUID playerId, boolean accepted, String message) {
+		AgentControlResult result = new AgentControlResult(RESULT_SEQUENCE.incrementAndGet(), accepted, message == null ? "" : message);
+		LATEST_RESULTS.put(playerId, result);
+		return result;
 	}
 
 	static Optional<AgentControlResult> latestResult(UUID playerId) {

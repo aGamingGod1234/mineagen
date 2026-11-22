@@ -86,6 +86,12 @@ public final class AgentControlLayoutVerification {
 
 	/** Pending feedback is neutral, and a long offline reason gets a measured banner that the Now card stays below. */
 	private static void verifyStatusBanner() {
+		assertEquals(dev.agaminggod.mineagen.control.AgentControlResult.Tone.PENDING, AgentControlScreen.feedbackTone(false, false),
+				"a \"Sending...\" line the screen wrote itself is pending, not success");
+		assertEquals(dev.agaminggod.mineagen.control.AgentControlResult.Tone.SUCCESS, AgentControlScreen.feedbackTone(false, true),
+				"a line the server confirmed is a success");
+		assertEquals(dev.agaminggod.mineagen.control.AgentControlResult.Tone.REFUSED, AgentControlScreen.feedbackTone(true, false),
+				"an error line is a refusal");
 		assertEquals(ConsoleTheme.MUTED, AgentControlScreen.toneColor(dev.agaminggod.mineagen.control.AgentControlResult.Tone.PENDING),
 				"a command still on its way is drawn neutral grey");
 		assertTrue(AgentControlScreen.toneColor(dev.agaminggod.mineagen.control.AgentControlResult.Tone.PENDING) != ConsoleTheme.SUCCESS,

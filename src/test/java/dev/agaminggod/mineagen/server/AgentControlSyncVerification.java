@@ -27,7 +27,23 @@ public final class AgentControlSyncVerification {
 	}
 
 	public static int verify() {
-		return  verifyObservedPresence() + verifySnapshotRequestLimit() + verifySnapshotRedaction();
+		return  verifyObservedPresence() + verifySnapshotRequestLimit() + verifySnapshotRedaction() + verifyCommandResults();
+	}
+
+	/** A refused Control Center command is stored for that player with its plain reason, newest first. */
+	private static int verifyCommandResults() {
+		UUID player = UUID.fromString("00000000-0000-4000-8000-0000000000c1");
+		UUID other = UUID.fromString("00000000-0000-4000-8000-0000000000c2");
+		String reason = "Automation is offline: Node.js was not found on the server machine.";
+		var refused = AgentControlSync.storeResult(player, false, reason);
+		assertTrue(!refused.accepted(), "a refused command is stored as a refusal");
+		assertEquals(reason, AgentControlSync.latestResult(player).orElseThrow().message(),
+				"the player's snapshot result carries the refusal's plain reason");
+		var accepted = AgentControlSync.storeResult(player, true, "Removed Brick.");
+		assertTrue(accepted.sequence() > refused.sequence(), "each new result gets a higher sequence so the screen shows it once");
+		assertEquals(accepted, AgentControlSync.latestResult(player).orElseThrow(), "only the newest result is kept");
+		assertTrue(AgentControlSync.latestResult(other).isEmpty(), "another player never sees this player's result");
+		return 5;
 	}
 
 	private static int verifySnapshotRequestLimit() {
