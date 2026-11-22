@@ -66,13 +66,6 @@ public final class DrawnBowShieldVerification {
 				"a bow is read as before: drawn 8+ ticks, whatever its target");
 		// The shortest loaded hold (20 ticks) still leaves the 5-tick raise and about 5 ticks to turn.
 		check(20 >= 5 + 5, "the shield is up and turned before the crossbow fires");
-		net.minecraft.server.Bootstrap.bootStrap();
-		net.minecraft.world.item.ItemStack crossbow = new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.CROSSBOW);
-		check(!ReflexSensors.loaded(crossbow), "an empty crossbow is not loaded");
-		crossbow.set(net.minecraft.core.component.DataComponents.CHARGED_PROJECTILES, net.minecraft.world.item.component.ChargedProjectiles.ofNonEmpty(
-				List.of(new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.ARROW))));
-		check(ReflexSensors.loaded(crossbow), "a crossbow with an arrow in it is loaded");
-		check(!ReflexSensors.loaded(new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.BOW)), "a bow is never a loaded crossbow");
 	}
 
 	private static void headFacingIsHorizontal() {

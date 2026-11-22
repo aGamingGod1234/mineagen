@@ -429,7 +429,7 @@ public final class ReflexSensors {
 		return drawingBow ? ticksDrawing >= DRAW_RAISE_TICKS : loadedCrossbow && targetsBody;
 	}
 
-	static boolean loaded(ItemStack hand) {
+	private static boolean loaded(ItemStack hand) {
 		return hand.getItem() instanceof CrossbowItem && CrossbowItem.isCharged(hand);
 	}
 
