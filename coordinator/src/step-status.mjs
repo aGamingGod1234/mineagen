@@ -24,8 +24,9 @@ export function stepStatusLine(doingLine) {
 
 /**
  * Sends the step line to Minecraft as planning_state.stepStatus. It sends nothing for a connection epoch and goal
- * revision until the coordinator's own planning_state for them went out (arm), because any planning_state moves a
- * STARTING agent to PLANNING. A record back in STARTING (a respawn keeps its revision) disarms it until the next own
+ * revision until the coordinator's own planning_state for them went out (arm), because on servers older than this
+ * change any planning_state moves a STARTING agent to PLANNING (newer servers leave the state alone when stepStatus is
+ * present). A record back in STARTING (a respawn keeps its revision) disarms it until the next own
  * planning_state. Repeats of the same (epoch, revision, text) are dropped; a changed line inside the rate window waits
  * for the next update. Delivery is display only: a failed send is swallowed and retried on a later update.
  */
@@ -75,10 +76,5 @@ export class StepStatusPublisher {
 			Promise.resolve(this.#send(connectionEpoch, record.agentId, { goalRevision: record.goalRevision, state: 'PLANNING', stepStatus: text })).catch(lost);
 		} catch { lost(); }
 		return true;
-	}
-
-	forget(agentId) {
-		this.#armed.delete(agentId);
-		this.#sent.delete(agentId);
 	}
 }

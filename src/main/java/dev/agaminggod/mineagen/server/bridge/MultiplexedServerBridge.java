@@ -2437,7 +2437,9 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 				&& record.currentGoal().isPresent()) {
 			manager.registry().rearmAfterCoordinatorRecovery(id.value(), revision, System.currentTimeMillis());
 		}
-		if (!recoveryReady && record.state() == AgentLifecycleState.STARTING) {
+		// A step-status update (UI-STATUS-3) is display only; the coordinator's own planning_state never carries the field.
+		boolean statusOnly = !agentReady && envelope.payload().has(STEP_STATUS_FIELD);
+		if (!recoveryReady && !statusOnly && record.state() == AgentLifecycleState.STARTING) {
 			router.plannerStarted(id);
 		}
 		if (agentReady && shouldRequestReadyObservation(id, revision, recoveryReady)) {

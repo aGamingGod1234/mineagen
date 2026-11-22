@@ -1719,12 +1719,17 @@ public final class MultiplexedServerBridgeVerification {
 			withStatus.addProperty("stepStatus", "Doing: mine \u00a7citer\non");
 			invokePlannerReady(bridge, new BridgeEnvelope(2, "coordinator", started.agentId().toString(), "planning_state", "step-status-1", withStatus));
 			assertEquals("Doing: mine citer on", bridge.stepStatus(started.agentId()), "planning_state stores the sanitised step status");
+			assertEquals(AgentLifecycleState.STARTING, started.state(), "the agent starts in STARTING");
+			assertEquals(AgentLifecycleState.STARTING, manager.registry().require(started.agentId()).state(),
+					"a step-status update is display only and leaves a STARTING agent STARTING");
 
 			JsonObject withoutStatus = new JsonObject();
 			withoutStatus.addProperty("goalRevision", started.goalRevision());
 			withoutStatus.addProperty("state", "PLANNING");
 			invokePlannerReady(bridge, new BridgeEnvelope(2, "coordinator", started.agentId().toString(), "planning_state", "step-status-2", withoutStatus));
 			assertEquals("Doing: mine citer on", bridge.stepStatus(started.agentId()), "a planning_state without the field keeps the status");
+			assertEquals(AgentLifecycleState.PLANNING, manager.registry().require(started.agentId()).state(),
+					"the coordinator's own planning_state still moves a STARTING agent to PLANNING");
 
 			JsonObject wrongType = withoutStatus.deepCopy();
 			wrongType.addProperty("stepStatus", 42);
