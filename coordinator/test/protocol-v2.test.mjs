@@ -4,7 +4,7 @@ import { createHmac } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-import { createActionResultReplayProof, createBridgeAuthenticationProof, createProtocolV2Envelope, MultiplexedServerBridge, ProtocolV2Error, SURVIVAL_SIGNAL_VALUES, THREAT_SIGNAL_VALUES, validateProtocolV2Envelope, validateProtocolV2Payload } from '../src/protocol-v2.mjs';
+import { createActionResultReplayProof, createBridgeAuthenticationProof, createProtocolV2Envelope, MultiplexedServerBridge, ProtocolV2Error, sanitizeStepStatus, STEP_STATUS_FIELD, STEP_STATUS_MAX_LENGTH, SURVIVAL_SIGNAL_VALUES, THREAT_SIGNAL_VALUES, validateProtocolV2Envelope, validateProtocolV2Payload } from '../src/protocol-v2.mjs';
 import { goalSpecFingerprint } from '../src/goal-spec.mjs';
 import { adaptObservation } from '../src/observation-adapter.mjs';
 import { AgentRegistry } from '../src/agent-registry.mjs';
@@ -1127,6 +1127,58 @@ test('protocol v2 envelope is strict and directional', () => {
 		() => validateProtocolV2Envelope(outbound, { direction: 'server_to_coordinator' }),
 		(error) => error.code === 'INVALID_MESSAGE_TYPE',
 	);
+});
+
+// MultiplexedServerBridgeVerification.verifyPlanningStateStepStatus runs the Java sanitiser over the same vectors.
+const STEP_STATUS_VECTORS = [
+	['Mining iron: need 3', 'Mining iron: need 3'],
+	['  a\n\tb\r\n  c  ', 'a b c'],
+	['§cRed§r text', 'cRedr text'],
+	['x y\u0085z\u007f', 'x y z'],
+	['§\n ', ''],
+	['a'.repeat(100), 'a'.repeat(80)],
+	['a'.repeat(79) + '😀b', 'a'.repeat(79)],
+	['a'.repeat(78) + '😀b', 'a'.repeat(78) + '😀'],
+	['a'.repeat(79) + ' bbbbb', 'a'.repeat(79)],
+];
+
+test('step status sanitiser strips controls, line breaks and formatting codes and clips to the bound', () => {
+	for (const [input, expected] of STEP_STATUS_VECTORS) assert.equal(sanitizeStepStatus(input), expected, JSON.stringify(input));
+	assert.equal(sanitizeStepStatus(null), '');
+	assert.equal(sanitizeStepStatus(undefined), '');
+	assert.equal(STEP_STATUS_MAX_LENGTH, 80);
+	// The live doing line runs to 320 bytes; its sanitised form always fits the wire bound.
+	const doing = 'Doing: mine_iron: need 3 raw iron §léé; via strip mine at y16; heading @120,16,-40; last: mine_block SUCCEEDED';
+	const clipped = sanitizeStepStatus(doing);
+	assert.ok(clipped.length <= STEP_STATUS_MAX_LENGTH && !clipped.includes('§'));
+	assert.equal(sanitizeStepStatus(clipped), clipped, 'the sanitiser is idempotent');
+});
+
+test('planning_state carries an optional sanitised stepStatus and rejects anything else', () => {
+	const send = payload => createProtocolV2Envelope({ serverInstanceId: 'server-instance', agentId: 'agent-a', type: 'planning_state', messageId: 'planning-step', payload });
+	assert.deepEqual(send({ goalRevision: 2, state: 'PLANNING' }).payload, { goalRevision: 2, state: 'PLANNING' });
+	assert.deepEqual(send({ goalRevision: 2, state: 'PLANNING', stepStatus: 'Doing: craft a furnace' }).payload, { goalRevision: 2, state: 'PLANNING', stepStatus: 'Doing: craft a furnace' });
+	assert.deepEqual(send({ goalRevision: 2, state: 'PLANNING', stepStatus: '' }).payload, { goalRevision: 2, state: 'PLANNING', stepStatus: '' }, 'an empty status clears the display');
+	const longest = 'x'.repeat(STEP_STATUS_MAX_LENGTH);
+	assert.equal(send({ goalRevision: 2, state: 'PLANNING', stepStatus: longest }).payload.stepStatus, longest);
+	for (const stepStatus of ['x'.repeat(STEP_STATUS_MAX_LENGTH + 1), 'two\nlines', '§cred', ' padded', 'tab\there', 42, null]) {
+		assert.throws(() => send({ goalRevision: 2, state: 'PLANNING', stepStatus }), (error) => error instanceof ProtocolV2Error && error.code === 'INVALID_PAYLOAD', JSON.stringify(stepStatus));
+	}
+	assert.throws(() => send({ goalRevision: 2, state: 'PLANNING', stepDoing: 'x' }), (error) => error instanceof ProtocolV2Error);
+});
+
+test('Minecraft reads planning_state.stepStatus under the same name and bound, and old servers ignore it', () => {
+	const java = readFileSync(new URL('../../src/main/java/dev/agaminggod/mineagen/server/bridge/MultiplexedServerBridge.java', import.meta.url), 'utf8');
+	assert.equal(STEP_STATUS_FIELD, 'stepStatus');
+	assert.match(java, new RegExp(`public static final String STEP_STATUS_FIELD = "${STEP_STATUS_FIELD}";`));
+	assert.match(java, new RegExp(`public static final int STEP_STATUS_MAX_LENGTH = ${STEP_STATUS_MAX_LENGTH};`));
+	// Compatibility: plannerReady handles planning_state without a requireKeys allowlist, so a server that predates the
+	// field accepts the message. If someone adds an allowlist there, it must include the field.
+	const start = java.indexOf('private void plannerReady(');
+	const plannerReady = java.slice(start, java.indexOf('private boolean shouldRequestReadyObservation(', start));
+	assert.ok(start >= 0 && plannerReady.length > 0);
+	assert.ok(!/requireKeys\(/.test(plannerReady) || plannerReady.includes('STEP_STATUS_FIELD'), 'plannerReady must accept stepStatus');
+	assert.match(plannerReady, /if \(!agentReady\) rememberStepStatus\(id, revision, envelope\.payload\(\)\);/);
 });
 
 test('multiplexed bridge authenticates once and learns the complete registry snapshot', async () => {
