@@ -810,6 +810,8 @@ test('round-2 P1 3: a dig that stopped for lava with iron in view hands back the
 	assert.match(result.message, /LAVA_AHEAD.*also seen: iron_ore seen at 4,15,1/);
 	const { isDanger } = await import('../src/obtain-runner.mjs');
 	assert.ok(isDanger({ reasonCode: 'LAVA_AHEAD' }));
+	// A leg a reflex held for minutes ends obtain instead of being retried into the same hold.
+	assert.ok(isDanger({ reasonCode: 'HELD_BY_REFLEX' }));
 });
 
 // Threat rows as the server sends them (ThreatPerception entries): a hostile after the body within 16 blocks.
