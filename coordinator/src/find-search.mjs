@@ -1534,28 +1534,35 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 				const limit = descentCap(pattern);
 				if (pattern === 'steep_down' && Number.isFinite(stairs) && stairs >= STEP_CELLS.steep_down * 2) limit.maxBlocks = Math.min(limit.maxBlocks ?? MAX_DIG_BLOCKS, stairs);
 				const outcome = await leg(`dig ${pattern} to y${profile.depth}`, 'dig_to', { pattern, y: profile.depth, heading: heading.name, ...limit, ...(mobCave ? { throughCaves: false } : {}), stopWhenSeen: profile.stopId, discard: DISCARD });
+				// Stairs that opened into a mob cave (a spawner room keeps sending more): flee the mob, not fight it, then back up
+				// the stairs just dug and go down another way, as a player does. lava-gate-6: fighting at the cave's edge, the
+				// bot died in 9 of 10 runs; walking back with travel_to, the defend reflex paused the walk and fought (7 of 10).
+				// flee_from is the body's own flight, which the defend reflex stands aside for.
+				const mobStop = outcome.result?.reasonCode === 'HOSTILE_NEAR' && !outcome.seen && !outcome.ended && !outcome.interrupted;
+				const here = bodyAt(observation);
+				if (mobStop && lava && pattern !== 'shaft' && descentFrom !== null && here !== null && descentFrom.y > here.y + 6 && mobRetreats < MAX_MOB_RETREATS) {
+					mobRetreats += 1;
+					mobCave = true;
+					descentStops += 1;
+					const mob = String(outcome.result?.message ?? '').match(/minecraft:[a-z_]+ ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/);
+					if (mob !== null) {
+						const fled = await leg('flee the mob cave', 'flee_from', { targetId: mob[1], distance: 16 });
+						if (fled.seen || fled.interrupted || fled.ended) return settle(fled);
+					}
+					const back = await leg('back up the stairs away from the mob cave', 'travel_to', { x: descentFrom.x, y: descentFrom.y, z: descentFrom.z, retrace: true, tolerance: 3, stopWhenSeen: profile.stopId });
+					const backEnded = await settle(back);
+					if (backEnded !== null) return backEnded;
+					heading = CARDINALS[(CARDINALS.indexOf(heading) + 2) % 4];
+					base = heading; turns = 0;
+					continue;
+				}
 				const ended = await settle(outcome);
 				if (ended !== null) return ended;
 				const code = outcome.result?.reasonCode;
 				if (code === 'DIG_GOAL_REACHED') reversals = 0;
 				if (code === 'DIG_GOAL_REACHED' || code === 'DIG_LIMIT_REACHED') continue;
 				descentStops += 1;
-				if (code === 'HOSTILE_NEAR') {
-					mobCave = true;
-					// Stairs that opened into a mob cave (a spawner room keeps sending more): back up the stairs just dug, as a
-					// player does, and go down another way from there. lava-gate-6: fighting on at the cave's edge, the bot died in
-					// 9 of 10 runs, 7 of 10 with fight-or-flee's back-off.
-					const here = bodyAt(observation);
-					if (lava && pattern !== 'shaft' && descentFrom !== null && here !== null && descentFrom.y > here.y + 6 && mobRetreats < MAX_MOB_RETREATS) {
-						mobRetreats += 1;
-						const back = await leg('back up the stairs away from the mob cave', 'travel_to', { x: descentFrom.x, y: descentFrom.y, z: descentFrom.z, retrace: true, tolerance: 3, stopWhenSeen: profile.stopId });
-						const backEnded = await settle(back);
-						if (backEnded !== null) return backEnded;
-						heading = CARDINALS[(CARDINALS.indexOf(heading) + 2) % 4];
-						base = heading; turns = 0;
-						continue;
-					}
-				}
+				if (code === 'HOSTILE_NEAR') mobCave = true;
 				if (code === 'CAVE_OPENING') {
 					const cave = await look(25);
 					if (cave.interrupted || cave.seen || cave.ended) return settle(cave);

@@ -1922,13 +1922,16 @@ test('lava-gate-6: after stairs stop for a mob in the cave below, the next desce
 		inventory: { items: [{ itemId: 'minecraft:iron_pickaxe', count: 1 }, { itemId: 'minecraft:water_bucket', count: 1 }, { itemId: 'minecraft:stone_sword', count: 1 }] } });
 	const body = fakeBody({ start, frontier: { candidates: [], coverage: { headings: {} } },
 		acts: { dig_to: [
-			{ move: () => ({ y: -5 }), result: { state: 'FAILED', reasonCode: 'HOSTILE_NEAR', message: 'Stopped: minecraft:zombie z1 at 3,-5,0, 3.3 blocks away. At 0,-5,0, steep_down heading south' } },
+			{ move: () => ({ y: -5 }), result: { state: 'FAILED', reasonCode: 'HOSTILE_NEAR', message: 'Stopped: minecraft:zombie 95d3ca29-7f2f-401f-a6b2-bc81a81c1e25 at 3,-5,0, 3.3 blocks away. At 0,-5,0, steep_down heading south' } },
 			{ result: { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:lava seen at 4,-54,0, 4 blocks away' } }] } });
 	await searchFor({ block: 'minecraft:lava' }, body);
 	const digs = body.calls.filter((call) => call.actionType === 'dig_to' && call.args.pattern === 'steep_down').map((call) => call.args);
 	assert.ok(digs.length >= 2, JSON.stringify(body.calls.map((call) => call.actionType)));
 	assert.equal(digs[0].throughCaves, undefined);
 	assert.equal(digs.at(-1).throughCaves, false);
+	const fled = body.calls.find((call) => call.actionType === 'flee_from');
+	assert.equal(fled?.args.targetId, '95d3ca29-7f2f-401f-a6b2-bc81a81c1e25', 'flees the zombie the stairs stopped for, never fights it');
+	assert.ok(!body.calls.some((call) => call.actionType === 'fight_target'));
 	const back = body.calls.find((call) => call.actionType === 'travel_to' && call.args.retrace === true);
 	assert.ok(back !== undefined && back.args.y === 71, 'backs up its own stairs to where that descent began');
 	assert.notEqual(digs.at(-1).heading, digs[0].heading, 'and goes down another way');
