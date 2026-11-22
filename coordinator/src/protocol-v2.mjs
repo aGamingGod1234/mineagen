@@ -618,7 +618,8 @@ export class MultiplexedServerBridge extends EventEmitter {
 	#observedRevisions = new Map();
 	#payloadRejections = new Map();
 	#snapshotRejectionStreaks = new Map();
-	#resyncRequested = new Set();
+	/** Agents asked to re-announce their threats, with how many of their observations were dropped since. */
+	#resyncRequested = new Map();
 
 	constructor(config, { audit = null, ...dependencies } = {}) {
 		super();
@@ -885,19 +886,22 @@ export class MultiplexedServerBridge extends EventEmitter {
 				if (this.#snapshotRejectionStreaks.size >= MAX_TRACKED_PAYLOAD_REJECTIONS) this.#snapshotRejectionStreaks.delete(this.#snapshotRejectionStreaks.keys().next().value);
 				this.#snapshotRejectionStreaks.set(streak, inARow);
 				// The server counted the dropped observation as delivered, so a wake it carried (a creeper starting to swell)
-				// would never come again. Ask it to announce every current threat again: once until an observation is accepted,
-				// so a fault lasting a few seconds is ridden out at the normal observation rate.
-				if (envelope.type === 'observation' && !this.#resyncRequested.has(envelope.agentId)) {
-					this.#resyncRequested.add(envelope.agentId);
-					void this.send('request_observation', envelope.agentId, { goalRevision: envelope.payload.goalRevision, resync: true },
-						{ connectionEpoch }).catch(() => {});
+				// would never come again. Ask it to announce every current threat again: once now, and once more after the
+				// fault clears if the answer was dropped too, so a fault lasting a few seconds is ridden out at the normal rate.
+				if (envelope.type === 'observation') {
+					const dropped = this.#resyncRequested.get(envelope.agentId);
+					if (dropped === undefined) this.#requestResync(envelope.agentId, envelope.payload.goalRevision, connectionEpoch);
+					else this.#resyncRequested.set(envelope.agentId, dropped + 1);
 				}
 			}
 			this.#reportRejectedPayload(envelope, value, payloadError, connectionEpoch);
 			return;
 		}
 		this.#snapshotRejectionStreaks.delete(streak);
-		if (envelope.type === 'observation') this.#resyncRequested.delete(envelope.agentId);
+		if (envelope.type === 'observation' && this.#resyncRequested.has(envelope.agentId)) {
+			if (this.#resyncRequested.get(envelope.agentId) > 0) this.#requestResync(envelope.agentId, envelope.payload.goalRevision, connectionEpoch);
+			else this.#resyncRequested.delete(envelope.agentId);
+		}
 		if (envelope.type === 'agent_registered' || envelope.type === 'agent_removed') {
 			this.#resyncRequested.delete(envelope.agentId);
 			for (const type of SUPERSEDED_INBOUND_TYPES) this.#snapshotRejectionStreaks.delete(`${envelope.agentId}\0${type}`);
@@ -911,6 +915,11 @@ export class MultiplexedServerBridge extends EventEmitter {
 		if (envelope.type === 'heartbeat' && !this.#acceptHeartbeat(envelope.payload, socket, connectionEpoch)) return;
 		const event = { ...envelope, connectionEpoch };
 		this.#enqueueInbound(event, socket, connectionEpoch);
+	}
+
+	#requestResync(agentId, goalRevision, connectionEpoch) {
+		this.#resyncRequested.set(agentId, 0);
+		void this.send('request_observation', agentId, { goalRevision, resync: true }, { connectionEpoch }).catch(() => {});
 	}
 
 	/** Report drift only after the normal delivery, identity and revision guards have passed. */

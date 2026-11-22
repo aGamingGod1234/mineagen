@@ -3380,6 +3380,22 @@ test('the bridge closes only after eight bad snapshots in a row for one agent an
 	await new Promise((resolve) => setImmediate(resolve));
 	const resyncs = closes.socket.writes.filter((line) => JSON.parse(line).type === 'request_observation');
 	assert.equal(resyncs.length, 1, 'one resync until an observation is accepted');
+
+	// The fault outlasted the first resync, so its answer was dropped too: ask once more after the fault clears.
+	const lasting = await readyBridgeFixture(t);
+	const sent = () => lasting.socket.writes.map((line) => JSON.parse(line)).filter((envelope) => envelope.type === 'request_observation').length;
+	lasting.socket.emit('data', corrupt(0));
+	lasting.socket.emit('data', corrupt(1));
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(sent(), 1);
+	lasting.socket.emit('data', good('after-fault'));
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(sent(), 2, 'a second resync after the fault cleared');
+	lasting.socket.emit('data', good('re-announced'));
+	lasting.socket.emit('data', good('quiet'));
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(sent(), 2, 'no more once an answer is accepted');
+	assert.deepEqual(lasting.observations.map((envelope) => envelope.messageId), ['after-fault', 're-announced', 'quiet']);
 	assert.equal(closes.socket.destroyed, true);
 	assert.equal(closes.protocolErrors.length, 1);
 	assert.equal(closes.protocolErrors[0].code, 'REPEATED_SNAPSHOT_REJECTION');
