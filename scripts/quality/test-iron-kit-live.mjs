@@ -1,5 +1,5 @@
 // Provider-free route room: node scripts/quality/test-iron-kit-live.mjs SEEDS.json OUT_DIR [JAR] [--coordinator TGZ|DIR] [--descriptive]
-// SEEDS.json: { seeds: [<seed>...], lanes: 2, budgetMinutes: 45 }. KIT_SEEDS=a,b plays only those seeds. One fresh
+// SEEDS.json: { seeds: [<seed>...], lanes: 2, budgetMinutes: 45, start?: 'kit', until?: 'kit'|'portal' }. KIT_SEEDS=a,b plays only those seeds. One fresh
 // normal-difficulty server per seed with monsters on; each lane is a body that starts with nothing at the world spawn or
 // on dry soil 200+ blocks from the other lanes, and plays until it holds the full iron kit (an iron pickaxe, a shield, two
 // buckets and flint and steel) or its budget runs out.
@@ -14,6 +14,10 @@
 // Per lane: minutes to the full kit, climbs back to the surface (down a mine, under y 50 with no open sky, then open sky
 // within 8 blocks of the start height again without a death between), descents, deaths, blocks mined (vanilla mined
 // scores for the usual blocks, and the dig results' own counts), pickaxe uses, every call and the line that named it. One row per seed in result.json; the row passes when every lane held the kit with no death.
+// start: 'kit' gives each lane, before its clock starts, what lanes held when they made the kit from nothing (the kit with
+// the shield worn, two spare stone pickaxes, a stack of cobblestone, some wood, a table, a furnace, food and 1 raw iron).
+// until: 'portal' plays on past the kit until the route's line reaches the portal (whatever the route puts between the
+// kit and the portal, such as armour, is done); a lane then passes on reaching it with no death.
 // Exit code (strict, the default): 0 every lane held the kit with no death, 1 one did not, 2 invalid evidence.
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
@@ -26,7 +30,7 @@ import { callObtain } from './obtain-handbacks.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 import { deathCounter, deathEvidence } from './lib/damage-counter.mjs';
-import { kitMinutes, kitStatTotal, routeCall, routeToolTimeout } from './lib/iron-kit-route.mjs';
+import { kitHeld, kitMinutes, kitStatTotal, portalReady, routeCall, routeToolTimeout } from './lib/iron-kit-route.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const USAGE = 'Usage: test-iron-kit-live.mjs SEEDS.json OUT_DIR [JAR] [--coordinator TGZ|DIR] [--strict|--descriptive] under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME';
@@ -69,8 +73,15 @@ console.log(`[kit] coordinator ${armId} (${arm})`);
 const sleep = ms => new Promise(done => setTimeout(done, ms));
 const number = text => Number((/(-?\d+(?:\.\d+)?)[fdb]?\s*$/.exec(String(text).trim()) ?? [])[1]);
 const SPACING = 200;
+// Mob night as the coordinator's danger contexts read it: dusk (12000) until sunrise burns them (23500).
+const isNightTime = dayTime => Number.isFinite(dayTime) ? ((dayTime % 24_000) + 24_000) % 24_000 >= 12_000 && ((dayTime % 24_000) + 24_000) % 24_000 < 23_500 : null;
 const lanes = Math.min(plan.lanes ?? 2, 4);
 const budgetMs = (plan.budgetMinutes ?? 45) * 60_000;
+const until = plan.until ?? 'kit';
+if (!['kit', 'portal'].includes(until) || ![undefined, 'kit'].includes(plan.start)) { console.error("until is 'kit' or 'portal'; start is 'kit' or absent"); process.exit(2); }
+// Leftovers from the lanes that made the kit from nothing in the iron-kit room (median-ish of 20 such lanes).
+const START_KIT = [['iron_pickaxe', 1], ['stone_pickaxe', 2], ['bucket', 2], ['flint_and_steel', 1], ['cobblestone', 64], ['oak_planks', 8], ['oak_log', 4],
+	['crafting_table', 1], ['furnace', 1], ['cooked_beef', 6], ['raw_iron', 1]];
 const only = new Set(String(process.env.KIT_SEEDS ?? '').split(',').map(s => s.trim()).filter(Boolean));
 const seeds = plan.seeds.map(String).filter(seed => only.size === 0 || only.has(seed));
 const results = [];
@@ -94,6 +105,12 @@ for (const [seedIndex, seed] of seeds.entries()) {
 	let s;
 	try {
 		s = current = await boot(dir, { jar: path.resolve(jarArg ?? path.join(root, MOD_JAR)), template, port: port + (seedIndex % 20) * 4, world: null, seed, spawnMonsters: true, goalTicks: 2_000_000, extraProperties: 'max-tick-time=-1\n' });
+		// Why a lane stalls: the coordinator side of the bridge dropping or rejecting a message is otherwise silent (the
+		// server only says "Connection lost"); lanes copy these into their result.
+		s.bridgeEvents = [];
+		for (const kind of ['disconnected', 'recovered', 'protocolError', 'transportError', 'heartbeatLate', 'messageRejected', 'listenerError']) {
+			s.bridge.on(kind, (event) => { if (s.bridgeEvents.length < 200) s.bridgeEvents.push({ at: Date.now(), kind, detail: String(event?.error?.message ?? event?.message ?? event?.type ?? '').slice(0, 200) }); });
+		}
 		const secret = (await readFile(path.join(dir, 'secret.txt'), 'utf8')).trim();
 		const once = s.command;
 		s.command = async (text) => {
@@ -133,10 +150,10 @@ for (const [seedIndex, seed] of seeds.entries()) {
 	if (row.error || played.length < lanes) row.error ??= `${lanes - played.length} lane(s) did not play`;
 	if (played.some(lane => lane.deaths === null)) (row.integrity ??= []).push({ file: 'deaths', error: 'Missing or decreasing vanilla death counter' });
 	for (const lane of played) for (const flaw of lane.integrity ?? []) (row.integrity ??= []).push({ ...flaw, lane: lane.lane });
-	row.pass = !row.error && played.every(lane => lane.kitMinutes !== null && lane.deaths === 0);
+	row.pass = !row.error && played.every(lane => (until === 'portal' ? lane.portalMinutes !== null : lane.kitMinutes !== null) && lane.deaths === 0);
 	results.push(row);
 	await appendFile(rowsFile, `${JSON.stringify(row)}\n`);
-	for (const lane of row.lanes) console.log(`[${seed} L${lane.lane}] kit ${lane.kitMinutes ?? '-'} min, climbs ${lane.climbs?.length ?? '?'}, descents ${lane.descents ?? '?'}, deaths ${lane.deaths ?? '?'}, mined ${lane.mined ?? '?'}${lane.error ? ` ERROR ${lane.error.split('\n')[0]}` : ''}`);
+	for (const lane of row.lanes) console.log(`[${seed} L${lane.lane}] kit ${lane.kitMinutes ?? '-'} min, portal-ready ${lane.portalMinutes ?? '-'} min, armour worn ${lane.firsts?.armorWorn ?? '-'} min, climbs ${lane.climbs?.length ?? '?'}, descents ${lane.descents ?? '?'}, deaths ${lane.deaths ?? '?'}, mined ${lane.mined ?? '?'}${lane.error ? ` ERROR ${lane.error.split('\n')[0]}` : ''}`);
 }
 const report = await finishRun(results, { file: path.join(out, 'result.json'), planned: seeds.length, strict });
 console.log(JSON.stringify(report));
@@ -147,7 +164,12 @@ async function surfaceAt(s, x, z) {
 	for (let wait = 0; wait < 60 && !/time is/i.test(await s.command(`execute if loaded ${x} 0 ${z} run time query gametime`)); wait++) await sleep(1000);
 	const top = async (test) => /passed/i.test(await s.command(`execute positioned ${x} 0 ${z} positioned over motion_blocking if block ~ ~-1 ~ ${test}`).catch(() => ''));
 	const wet = await top('minecraft:water') || await top('minecraft:lava') || await top('#minecraft:ice') || await top('minecraft:powder_snow');
-	return { x, z, wet };
+	// The body is summoned over motion_blocking_no_leaves: under a tree that is the ground inside the canopy, with leaves in
+	// its feet or head cell, where no player can stand and every dig sightline starts inside a leaf (seed 31005 lane 1 made
+	// no armour in 35 min: every search ended FIND_BLOCKED after 0 blocks walked).
+	const inLeaves = async (dy) => /passed/i.test(await s.command(`execute positioned ${x} 0 ${z} positioned over motion_blocking_no_leaves if block ~ ~${dy} ~ #minecraft:leaves`).catch(() => ''));
+	const leaves = await inLeaves(0) || await inLeaves(1);
+	return { x, z, wet: wet || leaves, leaves };
 }
 
 async function landSpot(s, nextSpot) {
@@ -155,6 +177,7 @@ async function landSpot(s, nextSpot) {
 		const [x, z] = nextSpot();
 		const surface = await surfaceAt(s, x, z).catch(() => ({ wet: true }));
 		if (!surface.wet) return [x, z];
+		if (surface.leaves) console.log(`[spot] ${x},${z} skipped: leaves in the body's feet or head cell`);
 		await s.command(`forceload remove ${x} ${z}`).catch(() => {});
 	}
 	throw new Error('no dry soil found in 48 spots round the spawn');
@@ -178,11 +201,12 @@ async function joinAgent(s, lane, nextSpot) {
 	const t0 = Date.now();
 	const inspections = new InspectionClient({ send: (type, agentId, payload) => s.bridge.send(type, agentId, payload) });
 	s.bridge.on('inspection_result', message => { if (message.agentId === record.agentId) inspections.accept(message); });
+	// As the production coordinator asks (dynamic-main requestObservation): an observation inspection the server answers.
+	// The old stand-in polled 10 s for a newer published sample and handed back the stale one, which the runtime refuses
+	// (FRESH_OBSERVATION_REQUIRED, in 4 old and 7 new lanes of the shield-first round).
 	const observe = async () => {
-		const before = latest?.eventSequence ?? 0;
-		await s.bridge.send('request_observation', record.agentId, { goalRevision: record.goalRevision });
-		for (let i = 0; i < 400 && !(latest?.eventSequence > before); i++) await sleep(25);
-		return { eventSequence: latest.eventSequence, observation: adaptObservation(latest) };
+		const result = await inspections.request(record, { section: 'observation' });
+		return { ...result, observation: adaptObservation(result.observation) };
 	};
 	// The kit habit is on in production (MINEAGEN_KIT_HABIT unset): equip the shield and armour, food in reach.
 	const runtime = new NativeToolRuntime({
@@ -226,9 +250,14 @@ async function playLane(s, agent, seed, seedIndex, dir) {
 	await s.command(`effect give ${name} minecraft:instant_health 1 20 true`);
 	await s.command(`effect give ${name} minecraft:saturation 2 20 true`);
 	for (let i = 0; i < 300 && !(agent.latest()?.ready && (agent.latest()?.inventory?.items?.length ?? 0) === 0); i++) await sleep(100);
+	if (plan.start === 'kit') {
+		for (const [item, count] of START_KIT) await s.command(`give ${name} minecraft:${item} ${count}`);
+		await s.command(`item replace entity ${name} weapon.offhand with minecraft:shield`);
+		for (let i = 0; i < 100 && !kitHeld(agent.latest() ? adaptObservation(agent.latest()) : null); i++) { await agent.observe().catch(() => null); await sleep(200); }
+	}
 	const start = await pos();
 	const startY = start?.[1] ?? 64;
-	const result = { lane, seed, spot: agent.spot, start, kitMinutes: null, climbs: [], descents: 0, deathsAt: [], calls: [] };
+	const result = { lane, seed, spot: agent.spot, start, kitMinutes: null, portalMinutes: null, climbs: [], descents: 0, deathsAt: [], calls: [], firsts: {} };
 	const deathsBefore = await deaths();
 	const t0 = Date.now();
 	const minutes = () => Math.round((Date.now() - t0) / 600) / 100;
@@ -241,6 +270,14 @@ async function playLane(s, agent, seed, seedIndex, dir) {
 		while (sampling) {
 			const o = agent.latest() ? adaptObservation(agent.latest()) : null;
 			const p = o?.player;
+			// Minutes to the first time each kit item is held, the shield and any armour worn, and the whole kit held.
+			for (const item of o?.inventory?.items ?? []) {
+				const id = String(item?.itemId ?? '').replace(/^minecraft:/, '');
+				if (['iron_ingot', 'iron_pickaxe', 'shield', 'bucket', 'flint_and_steel', 'iron_chestplate', 'iron_boots'].includes(id) && item.count > 0) result.firsts[id] ??= minutes();
+				if (id === 'shield' && item.slot === 'offhand') result.firsts.shieldWorn ??= minutes();
+				if (['head', 'chest', 'legs', 'feet'].includes(item.slot) && item.count > 0) { result.firsts.armorWorn ??= minutes(); result.firsts[`${item.slot}Worn`] ??= minutes(); }
+			}
+			if (o && kitHeld(o)) result.firsts.kit ??= minutes();
 			if (p && Number.isFinite(p.y) && !(p.health <= 0)) {
 				const deep = p.y < MINE_Y && p.skyOpen === false;
 				const up = p.skyOpen === true && p.y >= startY - 8;
@@ -279,12 +316,23 @@ async function playLane(s, agent, seed, seedIndex, dir) {
 		const answered = await execute(normalizeMinecraftToolCall('act', act), `answer-${tag}`);
 		return `answered ${act.actionType} ${named[1]}: ${answered?.state} ${answered?.reasonCode ?? ''}`;
 	};
-	let turn = 0;
+	let turn = 0, aliveSinceDeath = true;
 	while (remaining() > 0) {
 		turn += 1;
-		if (!(await health() > 0)) {
-			result.deathsAt.push(minutes());
-			lastDeaths += 1;
+		const hp = await health();
+		// Unreadable health (the body gone from the server, or RCON failing) is not a death; a body that stays dead because
+		// its respawn did not take (the bridge down) is one death, not one per pass of this loop (two lanes logged 36 each).
+		if (!Number.isFinite(hp)) { result.unreadableHealth = (result.unreadableHealth ?? 0) + 1; await sleep(Math.min(3000, Math.max(0, remaining()))); continue; }
+		if (hp > 0) aliveSinceDeath = true;
+		if (!(hp > 0)) {
+			if (aliveSinceDeath) {
+				result.deathsAt.push(minutes()); lastDeaths += 1;
+				// Where and when, from the last sample alive: a surface death at night is the night-cover question.
+				const last = agent.latest() ? adaptObservation(agent.latest()) : null;
+				const worn = (last?.inventory?.items ?? []).filter(i => ['head', 'chest', 'legs', 'feet'].includes(i?.slot) && i.count > 0).map(i => String(i.itemId).replace(/^minecraft:/, ''));
+				(result.deathContext ??= []).push({ at: minutes(), dayTime: Number.isFinite(last?.world?.dayTime) ? last.world.dayTime : null, night: isNightTime(last?.world?.dayTime), skyOpen: last?.player?.skyOpen ?? null, y: last?.player?.y ?? null, worn });
+			} else result.stuckDead = (result.stuckDead ?? 0) + 1;
+			aliveSinceDeath = false;
 			foodHandedBack = false; woodHandedBack = false;
 			const started = s.inbox.wait('goal_control', g => g.agentId === record.agentId && g.payload.operation === 'start', 60_000).catch(() => null);
 			await s.command(`mineagen respawn ${name}`).catch(() => {});
@@ -300,9 +348,10 @@ async function playLane(s, agent, seed, seedIndex, dir) {
 		const o = agent.latest() ? adaptObservation(agent.latest()) : null;
 		if (!o) { await sleep(1000); continue; }
 		rememberPlanFacts?.(known, o);
-		result.kitMinutes = kitMinutes(o, Date.now() - t0, budgetMs);
-		if (result.kitMinutes !== null || remaining() <= 0) break;
+		result.kitMinutes ??= kitMinutes(o, Date.now() - t0, budgetMs);
+		if ((until === 'kit' && result.kitMinutes !== null) || remaining() <= 0) break;
 		const line = routeLine({ observation: o, known, foodHandedBack, woodHandedBack, evaluate: evaluatePlanCheck });
+		if (until === 'portal' && portalReady(o, line)) { result.portalMinutes = minutes(); result.portalLine = line; break; }
 		let call = hunt ?? routeCall(line);
 		hunt = null;
 		const key = call ? JSON.stringify(call) : null;
@@ -331,10 +380,10 @@ async function playLane(s, agent, seed, seedIndex, dir) {
 			const mob = near ? String(near.type).replace(/^minecraft:/, '') : ['cow', 'pig', 'sheep', 'chicken'][turn % 4];
 			tool = (timeoutMs) => normalizeMinecraftToolCall('do_step', { verb: 'find', target: { mob, within: 96, timeoutMs }, why: 'route: look for an animal' });
 			call = { ...call, mob };
-		} else if (call.kind === 'equip_shield') {
-			const shield = (o.inventory?.items ?? []).find(i => i.itemId === 'minecraft:shield' && Number.isInteger(i.slot));
-			if (!shield) { await sleep(1000); continue; }
-			tool = () => normalizeMinecraftToolCall('act', { actionType: 'equip_item', arguments: { sourceSlot: shield.slot, targetSlot: 'offhand', expectedItemId: 'minecraft:shield' } });
+		} else if (call.kind === 'equip') {
+			const piece = (o.inventory?.items ?? []).find(i => i.itemId === `minecraft:${call.item}` && Number.isInteger(i.slot));
+			if (!piece || !call.slot) { await sleep(1000); continue; }
+			tool = () => normalizeMinecraftToolCall('act', { actionType: 'equip_item', arguments: { sourceSlot: piece.slot, targetSlot: call.slot, expectedItemId: piece.itemId } });
 		}
 		const begun = Date.now();
 		const ran = await callObtain({
@@ -350,8 +399,8 @@ async function playLane(s, agent, seed, seedIndex, dir) {
 		const done = ran.result;
 		result.calls.push({ at: Math.round((begun - t0) / 600) / 100, seconds: Math.round((Date.now() - begun) / 1000), line, call, state: done?.state, code: done?.reasonCode ?? null, message: String(done?.message ?? '').slice(0, 300), handBacks: ran.handBacks });
 		console.log(`[${seed} L${lane}] ${result.calls.at(-1).at} min ${call.kind}${call.item ? ` ${call.item} x${call.count}` : call.mob ? ` ${call.mob}` : ''}: ${done?.state} ${done?.reasonCode ?? ''} ${result.calls.at(-1).seconds}s, climbs ${result.climbs.length}`);
-		result.kitMinutes = kitMinutes(adaptObservation(agent.latest()), Date.now() - t0, budgetMs);
-		if (result.kitMinutes !== null || remaining() <= 0 || done?.reasonCode === 'LANE_BUDGET') break;
+		result.kitMinutes ??= kitMinutes(adaptObservation(agent.latest()), Date.now() - t0, budgetMs);
+		if ((until === 'kit' && result.kitMinutes !== null) || remaining() <= 0 || done?.reasonCode === 'LANE_BUDGET') break;
 		if (call.kind === 'obtain' && foodStockHandback({ kind: 'obtain', arguments: { item: call.item } }, done)) foodHandedBack = true;
 		if (call.kind === 'find_animal' && foodStockHandback({ kind: 'find', arguments: { mob: call.mob } }, done)) foodHandedBack = true;
 		if (call.kind === 'obtain' && woodStockHandback({ kind: 'obtain', arguments: { item: call.item } }, done)) woodHandedBack = true;
@@ -365,16 +414,20 @@ async function playLane(s, agent, seed, seedIndex, dir) {
 			failures.set(key, (failures.get(key) ?? 0) + 1);
 			if (failures.get(key) >= 2) { resting.set(key, Date.now() + REST_MS); failures.delete(key); }
 		}
-		if (call.then === 'equip_shield' && done?.state === 'SUCCEEDED') {
+		if (call.then?.equip && done?.state === 'SUCCEEDED') {
 			const after = adaptObservation(agent.latest());
-			const shield = (after.inventory?.items ?? []).find(i => i.itemId === 'minecraft:shield' && Number.isInteger(i.slot));
-			if (shield) await execute(normalizeMinecraftToolCall('act', { actionType: 'equip_item', arguments: { sourceSlot: shield.slot, targetSlot: 'offhand', expectedItemId: 'minecraft:shield' } }), `${turn}-equip`);
+			const piece = (after.inventory?.items ?? []).find(i => i.itemId === `minecraft:${call.item}` && Number.isInteger(i.slot));
+			if (piece) await execute(normalizeMinecraftToolCall('act', { actionType: 'equip_item', arguments: { sourceSlot: piece.slot, targetSlot: call.then.equip, expectedItemId: piece.itemId } }), `${turn}-equip`);
 		}
 	}
 	sampling = false; clearInterval(stepWatch); await sampler;
 	result.minutes = minutes();
 	const deathResult = deathEvidence(deathsBefore, await deaths());
-	result.deaths = deathResult.valid ? Math.max(deathResult.deaths, result.deathsAt.length) : null;
+	// The server's own death counter is the count. When it cannot be read the count is unknown (null fails the seed's
+	// integrity check): the loop skips unreadable health, so its sightings are kept only as a diagnostic, never as zero.
+	result.deaths = deathResult.valid ? deathResult.deaths : null;
+	result.deathsSeen = result.deathsAt.length;
+	result.bridgeEvents = (s.bridgeEvents ?? []).map((event) => ({ ...event, at: Math.round((event.at - t0) / 600) / 100 }));
 	result.end = await pos();
 	result.inventory = String(await s.command(`data get entity ${name} Inventory`)).slice(0, 1500);
 	// Blocks mined and pickaxe uses from the body's vanilla statistics (scores: a fake player's stats file is never saved).

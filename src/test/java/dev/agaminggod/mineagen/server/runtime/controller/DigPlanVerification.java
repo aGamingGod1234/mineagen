@@ -56,6 +56,10 @@ public final class DigPlanVerification {
 		check(ServerDigController.Pattern.parse("shaft").down() && !ServerDigController.Pattern.STAIRS_UP.down(), "the shaft digs down");
 		assertions++;
 		check(ServerDigController.DEFAULT_MAX_SHAFT_Y == -20, "a shaft goes on as steep_down from y-20 down by default");
+		// The rooms' kit (an iron and a stone pickaxe, about 380 uses) at y71 heading for y-54: the shaft, not stairs.
+		check(!ServerDigController.stairsAffordable(380, 125), "a lava search short of pickaxe uses keeps the one-wide shaft");
+		check(ServerDigController.stairsAffordable(380, 70), "a lava search whose pickaxes cover stairs and the reserve checks each floor");
+		check(ServerDigController.stairsAffordable(Long.MAX_VALUE / 2, 300), "an unbreakable pickaxe always affords the stairs");
 		assertions++;
 		net.minecraft.SharedConstants.tryDetectVersion();
 		net.minecraft.server.Bootstrap.bootStrap();
@@ -102,6 +106,9 @@ public final class DigPlanVerification {
 		check(ServerDigController.stopsDig(10.0D, 10.6D, 10.6D, true, true, false), "a hostile after the body in sight and closing in stops it");
 		check(ServerDigController.stopsDig(3.5D, 3.5D, 3.5D, false, false, false), "any hostile within 4 blocks stops it");
 		check(!ServerDigController.stopsDig(11.0D, null, null, true, true, false), "a creeper first sensed in sight is judged at the next check");
+		check(!ServerDigController.stopsClimb(7.1D, 8.0D, 9.0D, true, true, false) && !ServerDigController.stopsClimb(10.0D, 12.0D, 12.0D, true, true, true),
+				"climbing a stair out, a hunting mob closing from 7 blocks (or an archer in sight) does not stop the climb");
+		check(ServerDigController.stopsClimb(3.5D, 4.0D, 6.0D, true, true, false), "climbing out, a mob within 4 blocks still stops it");
 		check(!ServerDigController.stopsDig(11.0D, 11.0D, 11.0D, true, true, false), "a creeper in sight that stays where it is does not stop the dig");
 		check(!ServerDigController.stopsDig(9.6D, 9.7D, 9.7D, true, true, false), "drifting a tenth of a block nearer is not closing in");
 		check(ServerDigController.stopsDig(9.0D, 9.6D, 9.6D, true, true, false), "a creeper coming at the body stops it");

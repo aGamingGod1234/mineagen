@@ -25,6 +25,7 @@ final class CommandFollower {
 	 */
 	static final Map<ActionType, Set<String>> HANDOFF_CODES_BY_TYPE = Map.of(
 			ActionType.TRAVEL_TO, Set.of("TRAVEL_DAMAGED", "HOSTILE_NEAR"),
+			ActionType.ESCAPE, Set.of("HOSTILE_NEAR"),
 			ActionType.FLEE_FROM, Set.of("FLEE_BLOCKED", "FLEE_TIMED_OUT", "TARGET_GONE"),
 			ActionType.BUILD_SHELTER, union(APPROACH_FAILURES, Set.of("SHELTER_TIMEOUT", "SHELTER_BLOCKED", "SNEAK_SHELTER_BLOCKED",
 					"SHELTER_DISPLACED", "NO_TOOL", "TOOL_WORN", "ITEM_NOT_FOUND", "TARGET_OCCUPIED", "PROTECTION_DENIED")));

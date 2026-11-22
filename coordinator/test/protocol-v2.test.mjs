@@ -1509,6 +1509,89 @@ test('only a heartbeat response refreshes the authenticated peer deadline', asyn
 	assert.notEqual(deadlines.pendingId(29), initialDeadline, 'the server heartbeat response proves the round trip and renews the deadline');
 });
 
+async function tickClockBridge(t) {
+	const socket = new FakeSocket();
+	const deadlines = new ManualTimerQueue();
+	const bridge = new MultiplexedServerBridge({ port: 25570, secret: SECRET, handshakeTimeoutMs: 11, heartbeatIntervalMs: 13, heartbeatTimeoutMs: 29 }, {
+		socketFactory: () => socket, schedule: () => 1, cancelSchedule: () => {},
+		scheduleDeadline: deadlines.schedule, cancelDeadline: deadlines.cancel, currentRevision: () => 0, monotonicNow: () => 0,
+	});
+	t.after(() => bridge.stop());
+	const errors = [], pauses = [];
+	bridge.on('protocolError', (error) => errors.push(error));
+	bridge.on('serverPause', (event) => pauses.push(event.paused));
+	bridge.start();
+	socket.emit('connect');
+	const hello = JSON.parse(socket.writes[0]);
+	assert.equal(hello.payload.tickClock, true, 'the coordinator asks for the server tick clock');
+	const ready = once(bridge, 'ready');
+	socket.emit('data', `${JSON.stringify(serverEnvelope('hello_ack', 'server', 'server-tick-ready', {
+		replyTo: hello.messageId, authenticated: true, registry: [registeredRecord()],
+	}))}\n`);
+	await ready;
+	const beat = (id, payload) => socket.emit('data', `${JSON.stringify(serverEnvelope('heartbeat', 'server', id, payload))}\n`);
+	return { socket, deadlines, bridge, errors, pauses, beat };
+}
+
+test('a paused single-player server keeps the link: its heartbeats renew the deadline and announce the pause', async (t) => {
+	// Playtest: Esc for 13 s stopped the server thread that answered heartbeats; the link dropped and the bot's step was
+	// cancelled. Answered off that thread, the reply says the game is paused, however long ago it last ticked.
+	const { socket, deadlines, bridge, errors, pauses, beat } = await tickClockBridge(t);
+	const initial = deadlines.pendingId(29);
+	beat('server-paused-1', { tickAgeMs: 60_000, paused: true });
+	assert.notEqual(deadlines.pendingId(29), initial, 'a paused server is alive');
+	assert.equal(socket.destroyed, false);
+	assert.equal(bridge.serverPaused, true);
+	beat('server-paused-2', { tickAgeMs: 90_000, paused: true });
+	beat('server-running', { tickAgeMs: 4, paused: false });
+	assert.deepEqual(pauses, [true, false], 'one pause and one resume, not one per heartbeat');
+	assert.equal(errors.length, 0);
+});
+
+test('the server announces a pause unprompted, so deadlines stop before the next heartbeat probe', async (t) => {
+	// The mod's pause watcher sends the heartbeat fields the moment a pause starts; waiting for the 5 s probe, a program
+	// with a second or two left would time out first.
+	const { socket, errors, pauses, beat } = await tickClockBridge(t);
+	const probesBefore = socket.writes.filter((line) => JSON.parse(line).type === 'heartbeat').length;
+	beat('server-pause-start', { tickAgeMs: 120, paused: true });
+	assert.deepEqual(pauses, [true], 'the pause is known the moment it is announced');
+	assert.equal(socket.writes.filter((line) => JSON.parse(line).type === 'heartbeat').length, probesBefore, 'no probe was needed');
+	beat('server-pause-end', { tickAgeMs: 3, paused: false });
+	assert.deepEqual(pauses, [true, false]);
+	assert.equal(errors.length, 0);
+});
+
+test('the resume after a pause longer than the timeout keeps the link; a server still not ticking after it drops', async (t) => {
+	// The resume is announced before the server's next tick, so its tick age still counts the whole pause.
+	const { socket, errors, pauses, beat } = await tickClockBridge(t);
+	beat('server-paused-long', { tickAgeMs: 50, paused: true });
+	beat('server-resumed', { tickAgeMs: 61_000, paused: false });
+	assert.equal(socket.destroyed, false, 'a game that just resumed is not a hung game');
+	assert.deepEqual(pauses, [true, false]);
+	assert.equal(errors.length, 0);
+	beat('server-still-hung', { tickAgeMs: 66_000, paused: false });
+	assert.equal(socket.destroyed, true, 'still no tick on the next heartbeat: the server is hung');
+	assert.equal(errors.at(-1)?.code, 'HEARTBEAT_TIMEOUT');
+});
+
+test('a server that stopped ticking without a pause is dead, though its network thread still answers', async (t) => {
+	const { socket, errors, beat } = await tickClockBridge(t);
+	beat('server-slow', { tickAgeMs: 20, paused: false });
+	assert.equal(socket.destroyed, false, 'a tick within the heartbeat timeout is a live server');
+	beat('server-hung', { tickAgeMs: 30, paused: false });
+	assert.equal(socket.destroyed, true, 'a hung game must not look alive because its network thread answers');
+	assert.equal(errors.at(-1)?.code, 'HEARTBEAT_TIMEOUT');
+	assert.match(errors.at(-1)?.message ?? '', /stopped ticking/);
+});
+
+test('heartbeat tick fields are optional and strict', () => {
+	assert.deepEqual(validateProtocolV2Payload('heartbeat', {}), {}, 'an older server sends an empty heartbeat');
+	assert.deepEqual(validateProtocolV2Payload('heartbeat', { tickAgeMs: 12, paused: true }), { tickAgeMs: 12, paused: true });
+	assert.throws(() => validateProtocolV2Payload('heartbeat', { tickAgeMs: -1 }));
+	assert.throws(() => validateProtocolV2Payload('heartbeat', { paused: 'yes' }));
+	assert.throws(() => validateProtocolV2Payload('heartbeat', { lag: 1 }));
+});
+
 test('an application listener failure does not tear down the authenticated transport', async (t) => {
 	const socket = new FakeSocket();
 	const bridge = new MultiplexedServerBridge({ port: 25570, secret: SECRET }, {
@@ -2906,6 +2989,26 @@ test('a seen portal frame row passes wire validation with bounded cells', () => 
 	}
 });
 
+test('seen resource rows (placed blocks, doors, containers) pass wire validation', () => {
+	const observation = readyServerObservation();
+	observation.sighted = { resources: [
+		{ x: 311, y: 77, z: -241, distance: 14, bearing: 3, blockId: 'minecraft:cobblestone', count: 6 },
+		{ x: 305, y: 78, z: -236, distance: 9, bearing: 7, blockId: 'minecraft:chest', count: 1, opened: false, new: true },
+	] };
+	assert.deepEqual(validateProtocolV2Payload('observation', observation).sighted, observation.sighted);
+	for (const mutate of [
+		(value) => { delete value.sighted.resources[0].count; },
+		(value) => { value.sighted.resources[0].blockId = ''; },
+		(value) => { value.sighted.resources[1].opened = 'no'; },
+		(value) => { value.sighted.resources[0].contents = []; },
+		(value) => { value.sighted.resources = Array.from({ length: 25 }, () => value.sighted.resources[0]); },
+	]) {
+		const bad = structuredClone(observation);
+		mutate(bad);
+		assert.throws(() => validateProtocolV2Payload('observation', bad));
+	}
+});
+
 test('block tags listed once per type are put back on every row before anything reads the observation', () => {
 	const tags = ['#minecraft:mineable/pickaxe', '#minecraft:base_stone_overworld'];
 	const grass = ['#minecraft:dirt'];
@@ -3519,4 +3622,20 @@ test('entity_killed carries an optional strict at behind the killFacts hello cap
 	bridge.start();
 	socket.emit('connect');
 	assert.equal(JSON.parse(socket.writes[0]).payload.killFacts, true, 'our hello announces killFacts');
+});
+
+// Iron-kit room: a reflex detail over 240 characters made the coordinator refuse the observation and drop the bridge,
+// stranding both agents of the server. The free text is trimmed; the observation and the bridge stay.
+test('an over-long reflex detail is trimmed instead of refusing the observation', () => {
+	const observation = readyServerObservation();
+	const long = `fled the creeper ${'and kept running '.repeat(30)}`;
+	observation.reflexes = { revision: 1, rules: [], events: [{ seq: 1, id: 'flee', outcome: 'done', ms: 500, detail: long }], firing: { id: 'flee', ms: 100, detail: long }, error: long };
+	const valid = validateProtocolV2Payload('observation', observation).reflexes;
+	for (const text of [valid.events[0].detail, valid.firing.detail, valid.error]) {
+		assert.equal(text.length, 240);
+		assert.ok(text.startsWith('fled the creeper') && text.endsWith('…'));
+	}
+	const bad = structuredClone(observation);
+	bad.reflexes.events[0].detail = 42;
+	assert.throws(() => validateProtocolV2Payload('observation', bad), 'a detail that is not text is still refused');
 });

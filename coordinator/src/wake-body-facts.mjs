@@ -17,7 +17,25 @@ export function lightLine(observation) {
 	const phase = tick < 12_000 ? `dusk in ${minutes(12_000 - tick)}` : tick < 13_000 ? 'sunset' : tick < 23_000 ? 'night' : 'sunrise';
 	const timing = tick < 13_000 ? 'night lasts ~8m' : tick < 23_000 ? `sunrise in ${minutes(23_000 - tick)}` : `daylight in ${minutes(24_000 - tick)}`;
 	const exposure = o.player?.skyOpen === true ? '; sky-exposed' : o.player?.skyOpen === false ? '; sky covered' : '';
-	return cap(`${phase} (day ${day}); ${timing}; mobs spawn in darkness${exposure}`, LIGHT_LINE_BYTES);
+	// Planning for the night before it falls: unarmoured, stay down (or get under cover) rather than climb into it.
+	const plan = tick < 12_000 && Number.isFinite(o.player?.armor) && o.player.armor < 15 ? '; no armour: be under cover by dusk' : '';
+	return cap(`${phase} (day ${day}); ${timing}; mobs spawn in darkness${exposure}${plan}`, LIGHT_LINE_BYTES);
+}
+
+export const UP_LINE_BYTES = 160;
+
+/**
+ * Under cover in the Overworld, more than 3 blocks below the last spot it stood under open sky: where that was and that
+ * retrace walks the body's own route back there. Playtest 22 Nov: the model dug a new staircase up "to reach daylight"
+ * beside its own way down, with nothing in its facts naming the way back.
+ */
+export function upLine(observation, openSky) {
+	const o = observation, p = o?.position ?? o?.player?.position ?? o?.player;
+	if (!live(o) || o.world?.dimension !== 'minecraft:overworld' || o.player?.skyOpen !== false || !openSky || openSky.dimension !== o.world.dimension || !p) return null;
+	if (![p.x, p.y, p.z, openSky.x, openSky.y, openSky.z].every(Number.isFinite) || openSky.y - p.y <= 3) return null;
+	const at = [openSky.x, openSky.y, openSky.z].map(Math.floor);
+	const distance = Math.round(Math.hypot(openSky.x - p.x, openSky.y - p.y, openSky.z - p.z));
+	return cap(`last open sky @${at.join(',')} ${distance}m dy+${Math.round(openSky.y - p.y)}; travel_to retrace:true there walks your own way back up`, UP_LINE_BYTES);
 }
 
 /** Wear of the held tool, or the best carried tool for the model's stated activity. No action is chosen here. */

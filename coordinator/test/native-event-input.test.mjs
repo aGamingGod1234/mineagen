@@ -106,6 +106,8 @@ test('a death wake names the death and the hostiles at the respawn point, not th
 	assert.match(bed, /Set respawn -85,72,30: hostiles within 16 blocks of it now: skeleton\.$/);
 	const unknown = buildNativeEventInput(named, { event: 'player_death', trigger: 'player_death', observation }).split('\n')[0];
 	assert.equal(unknown, 'Died: slain by Zombie. While dead only respawn acts. Respawn keeps the goal; then choose dropped-item recovery or re-kit from fresh inventory.', 'no respawn point known, no claim about it');
+	const atNight = buildNativeEventInput(named, { event: 'player_death', trigger: 'player_death', observation: { ...observation, world: { ...observation.world, dayTime: 14_000 } } }).split('\n')[0];
+	assert.match(atNight, /re-kit from fresh inventory\. It is night: after respawn, rest first \(with no blocks it digs a hole\), then recover or re-kit at dawn\.$/, 'game 13: 4 deaths in 3 minutes respawning into the pack at night');
 	const alive = buildNativeEventInput(record, { event: 'player_death', trigger: 'player_death', taskMemory,
 		observation: { ...observation, player: { dead: false, health: 20, x: -65, y: 71, z: 22 } } }).split('\n')[0];
 	assert.doesNotMatch(alive, /^Died/, 'once respawned the death line is gone');

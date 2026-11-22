@@ -13,12 +13,16 @@ import dev.agaminggod.mineagen.server.runtime.input.AgentInputStates;
 import dev.agaminggod.mineagen.server.runtime.input.InputLease;
 import dev.agaminggod.mineagen.server.runtime.input.InputOwner;
 import dev.agaminggod.mineagen.server.runtime.input.LeasedServerInputController;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -101,6 +105,14 @@ public final class ServerBuildController implements ServerController {
 		 * filled bucket), through use_item's own lava pour guard; null when it acted, else why not.
 		 */
 		String useBucket(ServerPlayer body, BlockPos clicked, Direction face);
+
+		/**
+		 * {@link #useBucket(ServerPlayer, BlockPos, Direction)}, except that lava poured where no water touches it yet is
+		 * refused only when its flow would reach the body within {@code lavaGraceSeconds}: the cast's water follows sooner.
+		 */
+		default String useBucket(ServerPlayer body, BlockPos clicked, Direction face, double lavaGraceSeconds) {
+			return useBucket(body, clicked, face);
+		}
 	}
 
 	/** Ticks a single block may take to mine with the best carried tool for a site to count it as clearable (dirt by hand: 15). */
@@ -126,13 +138,38 @@ public final class ServerBuildController implements ServerController {
 	static final double CAST_RISE = 2.0D;
 	static final int CAST_CLICK_TICKS = 60;
 	/**
-	 * Cells poured water may run (5 ticks each) before it is gone: {@link #WATER_STAND_TICKS} standing, the scoop's turn and
-	 * click, and the front's last step. A cast usually scoops it 9-12 ticks after the pour.
+	 * Cells the poured water's run is followed for. A cast scoops its water 9-12 ticks after the pour, past the source's first
+	 * spread at 5, and taking the source up does not stop the flow already out: the drying spreads back from the source one
+	 * cell per 5 ticks, as fast as the front advances, so the front runs its whole vanilla course (7 cells on the flat,
+	 * afresh below each drop). In one cave room it ran 10 cells down a sloping floor into the pool and crusted it to
+	 * obsidian. The bound only ends the search; a run-off into the pool takes at most a few drops.
 	 */
-	static final int SPILL_CELLS = 8;
+	static final int SPILL_CELLS = 32;
+	/**
+	 * Cells the water runs in the cast's own order (lava first, then water against it, scooped the next tick): vanilla
+	 * casts a lava source to obsidian the moment water lands beside or above it (LiquidBlock's neighbour update), and a
+	 * poured source first spreads at its 5-tick fluid tick, so water scooped before then never leaves its cell. One cell
+	 * allows a scoop as late as tick 9: the ring a source puts out at tick 5 dries at tick 10 without spreading on.
+	 */
+	static final int QUICK_SPILL_CELLS = 1;
+	/**
+	 * The water's run a site is first chosen by (the bound before the quick scoop): a site whose 8-cell run meets no lava
+	 * stays safe when a scoop comes late. Open sites the quick bound alone admits sit tighter by the pool: in two away rooms
+	 * main always lit, they were taken over sites 3 blocks farther out, and 19 of 20 runs then had a frame cell no spot
+	 * could see or reach (BUILD_BLOCKED, NO_STAND_SPOT).
+	 */
+	static final int SURE_SPILL_CELLS = 8;
+	/** Added to a site's cost when only {@link #QUICK_SPILL_CELLS} admits it: any site {@link #SURE_SPILL_CELLS} admits comes first. */
+	static final double LOOSE_SITE_COST = 1000.0D;
+	/**
+	 * Ticks lava poured first may stand in a frame cell waiting for the water before it is taken back: it first flows at
+	 * its 30-tick fluid tick (the cast never runs where lava is fast, since water there boils away), and the turn back to
+	 * the lava's own aim and the click take well under the other 18.
+	 */
+	static final int LAVA_HOLD_TICKS = 12;
 	/** Long enough for a 7-block lava flow with no source to drain (30 ticks a level in the Overworld). */
 	static final int DRAIN_TICKS = 300;
-	/** Water left standing longer than this (its lava click not landing) is scooped back before it runs {@link #SPILL_CELLS} cells. */
+	/** Water left standing longer than this (its lava click not landing) is scooped back to pour the pair from another spot. */
 	static final int WATER_STAND_TICKS = 25;
 	static final int WIDE_RADIUS = 14;
 	/**
@@ -230,7 +267,23 @@ public final class ServerBuildController implements ServerController {
 
 
 	private enum Phase { START, APPROACH, UNCOVER, SURVEY, CLEAR, PLUG, COLLECT, PLACE, CAST, LIGHT, PILLAR, BRIDGE }
-	private enum Pour { WATER, LAVA, SCOOP, FILL }
+	private enum Pour { WATER, LAVA, SCOOP, FILL, TAKE }
+
+	/** The next bucket click for a frame cell not yet cast, in the lava-first order. */
+	enum CastStep { LAVA, WATER, SCOOP, TAKE_BACK }
+
+	/**
+	 * Lava first, water against it, the water scooped at once: {@code waterStanding} the cast's water still in its cell,
+	 * {@code lavaInCell} lava in the frame cell, {@code ourLava} poured there by this cast {@code lavaAge} ticks ago,
+	 * {@code waterLands} a water click from here would land beside it now. Lava the water cannot follow at once, or that
+	 * has stood {@link #LAVA_HOLD_TICKS}, is taken back before it flows.
+	 */
+	static CastStep castStep(boolean waterStanding, boolean lavaInCell, boolean ourLava, long lavaAge, boolean waterLands) {
+		if (waterStanding) return CastStep.SCOOP;
+		if (!lavaInCell) return CastStep.LAVA;
+		if (ourLava && (lavaAge > LAVA_HOLD_TICKS || !waterLands)) return CastStep.TAKE_BACK;
+		return CastStep.WATER;
+	}
 	private enum Child { NONE, CLEAR, SHELTER, UNCOVER }
 
 	private final Structure structure;
@@ -316,6 +369,8 @@ public final class ServerBuildController implements ServerController {
 	private int plugged;
 	/** Steps the body took during the cast, cell to cell (a drop of 2+ one way only): the way back it knows it can walk. */
 	private final java.util.Map<BlockPos, Set<BlockPos>> stepsWalked = new java.util.HashMap<>();
+	private final Map<BlockPos, BlockState> walkedGround = new HashMap<>();
+	private boolean followingWalkedWay;
 	private BlockPos lastStood;
 	/** Where scoops landed, latest last: dry spots in reach of the pool that the body has stood on. */
 	private final List<BlockPos> scoopSpots = new ArrayList<>();
@@ -328,6 +383,18 @@ public final class ServerBuildController implements ServerController {
 	/** When the standing water was poured; with no spot that reaches both cells of a cast, water goes in from one that reaches its own. */
 	private long waterTick;
 	private boolean waterAlone, staleWater;
+	/** Lava this cast poured first into a frame cell and when; the water then poured beside it is scooped the next tick. */
+	private BlockPos pouredLava;
+	private long lavaTick;
+	private boolean quickScoop, lavaWatered;
+	/**
+	 * The cell's pair goes in the old order, water first (no spot reaches both cells), allowed only where the water's
+	 * whole run ({@link #SPILL_CELLS}) meets no lava: water standing for the lava's turn runs its full course.
+	 */
+	private boolean waterFirst, runOffMeetsLava;
+	/** This cell has no spot whose water line misses the lava's cell: pour it from a spot where it crosses (main's way). */
+	private boolean crossAllowed;
+	private int lavaTakes, fetchRetries;
 	private int staleScoops;
 	private final java.util.ArrayDeque<BlockPos> wayBack = new java.util.ArrayDeque<>();
 
@@ -355,15 +422,21 @@ public final class ServerBuildController implements ServerController {
 
 	@Override
 	public TickResult tick(ServerPlayer player, long now) {
-		if (now >= deadline) return end(player, TickResult.timedOut("BUILD_TIMEOUT", facts(player) + "; the time limit ran out", progress()));
+		// Lava this cast poured first stands uncooled until the water lands beside it or it is taken back, a few ticks: a
+		// build that stopped now would leave it to flow onto the working spot. The cell is finished first; only lava or
+		// fire on the body stops it at once.
+		boolean finishing = lavaStanding(player) && !player.isInLava() && !player.isOnFire();
+		if (finishing) OPEN_CELLS.add(player.getUUID());
+		else OPEN_CELLS.remove(player.getUUID());
+		if (now >= deadline && !finishing) return end(player, TickResult.timedOut("BUILD_TIMEOUT", facts(player) + "; the time limit ran out", progress()));
 		if (!player.isAlive()) return fail(player, "AGENT_DEAD", "The body died while building");
 		if (dimension == null) { dimension = player.level().dimension(); lastHealth = player.getHealth(); }
 		if (!player.level().dimension().equals(dimension)) return fail(player, "ACTION_DIMENSION_CHANGED", "The body changed dimension");
-		TickResult danger = danger(player);
+		TickResult danger = finishing ? null : danger(player);
 		if (danger != null) return danger;
 		if (child != null) return childTick(player, now);
 		// From the first step of a cast build: the walks to open the pool cross the shore the fetches need later.
-		if (casting && player.onGround()) recordStep(player.blockPosition());
+		if (casting && player.onGround()) recordStep(player);
 		if (walk != null) {
 			if (casting) walk.keepLavaFlowRoutes();
 			TickResult moved = walk.tick(player, now);
@@ -372,9 +445,23 @@ public final class ServerBuildController implements ServerController {
 			walk = null;
 			if (moved.state() == State.SUCCEEDED && !wayBack.isEmpty()) { nextHop(now); return running(); }
 			wayBack.clear();
+			boolean wasFollowingWalkedWay = followingWalkedWay;
+			followingWalkedWay = false;
 			if (moved.state() != State.SUCCEEDED) {
 				lastWalkFailure = moved.reasonCode() + " " + moved.message();
 				LOGGER.info("[build] {} walk {} failed at {}: {}", player.getGameProfile().name(), walks, xyz(player.blockPosition()), lastWalkFailure);
+				if (wasFollowingWalkedWay && phase == Phase.CAST && inFrontOfMould(player.blockPosition())
+						&& inFrontOfMould(walkTarget) && switch (moved.reasonCode()) {
+					case "NO_STANDABLE_PATH", "PATH_BLOCKED", "REACHED_FRONTIER", "NO_PATH" -> true;
+					default -> false;
+				}) {
+					// The frame or pool can cut an old hop. Try the same target before refusing the whole patch of shore.
+					// Keep the detour on the working side. A route across the frame can close when more blocks go in.
+					walk = new ServerNavigationController(Vec3.atBottomCenterOf(walkTarget), 0.35D, false, now, 20_000L)
+							.withWalkedGround(walkedGround).seenRouteOnly();
+					LOGGER.info("[build] {} replan walk {} to {} after a remembered hop failed", player.getGameProfile().name(), walks, xyz(walkTarget));
+					return running();
+				}
 				BlockPos flow = casting && "LAVA_FLOW".equals(moved.reasonCode()) ? lavaNamed(moved.message()) : null;
 				if (flow != null && flowWaits < 3 && !fed(player, flow)) {
 					// Lava running from a source the cast took (or one gone) is draining: wait for it, then walk there again.
@@ -414,6 +501,7 @@ public final class ServerBuildController implements ServerController {
 
 	@Override
 	public void cancel(ServerPlayer player) {
+		if (player != null) OPEN_CELLS.remove(player.getUUID());
 		if (child != null) child.cancel(player);
 		child = null;
 		if (walk != null) walk.cancel(player);
@@ -571,6 +659,7 @@ public final class ServerBuildController implements ServerController {
 		Portal best = null;
 		Direction bestBack = null;
 		double bestCost = Double.MAX_VALUE;
+		boolean bestSure = true;
 		List<BlockPos> pool = casting ? castPool(player, center, SITE_RADIUS + (int) CAST_POOL_REACH) : List.of();
 		int plain = casting ? plainCount(player) : 0;
 		for (Direction.Axis axis : new Direction.Axis[] { Direction.Axis.X, Direction.Axis.Z })
@@ -580,11 +669,14 @@ public final class ServerBuildController implements ServerController {
 				double cost = siteCost(player, level, candidate, rejects);
 				if (cost == Double.MAX_VALUE) continue;
 				Direction side = null;
+				boolean sure = true;
 				if (casting) {
 					double castCost = Double.MAX_VALUE;
 					for (Direction wall : new Direction[] { candidate.normal(), candidate.normal().getOpposite() }) {
 						double c = castCost(player, level, candidate, wall, pool, plain, rejects);
-						if (c < castCost) { castCost = c; side = wall; }
+						boolean wallSure = c != Double.MAX_VALUE && !spillMeetsLava(cell -> known(player, cell), candidate, wall, SURE_SPILL_CELLS);
+						if (c != Double.MAX_VALUE && !wallSure) c += LOOSE_SITE_COST;
+						if (c < castCost) { castCost = c; side = wall; sure = wallSure; }
 					}
 					if (side == null) continue;
 					cost += castCost;
@@ -594,7 +686,7 @@ public final class ServerBuildController implements ServerController {
 				// for the mould and a roof too low for the step up.
 				if (candidate.equals(carved) && side == carvedBack) cost -= 100.0D;
 				if (lastFrame != null && candidate.equals(lastFrame.origin()) && side == lastFrame.back()) cost -= 80.0D;
-				if (cost < bestCost) { bestCost = cost; best = candidate; bestBack = side; }
+				if (cost < bestCost) { bestCost = cost; best = candidate; bestBack = side; bestSure = sure; }
 			}
 		// A site fit for the cast but for the blocks carried: more blocks, not another spot, is what it takes.
 		if (best == null && rejects[9] > 0) return short_(player, String.format(Locale.ROOT, "casting the frame needs %d plain blocks for the mould behind it at the best site by the lava near %s, "
@@ -605,6 +697,20 @@ public final class ServerBuildController implements ServerController {
 				rejects[5], rejects[0] + rejects[1] + rejects[2] + rejects[3] + rejects[4] + rejects[5],
 				casting ? String.format(Locale.ROOT, "; for casting, %d had no seen open or solid cells behind for the mould or before the frame, %d stood over %.0f blocks from, or %.0f above or below, the %d lava sources seen, %d would let the poured water run into the lava",
 						rejects[6], rejects[7], CAST_POOL_REACH, CAST_RISE, pool.size(), rejects[8]) : "");
+		// After a carve, an open site only the quick bound admits is the dug rock beside the refused carve (away-pair-1: 10
+		// of 10 runs lost the way to its spots mid-cast, where main carved a second site and lit it 10 of 10): the next carve first.
+		boolean loose = best != null && !bestSure && !(best.equals(carved) && bestBack == carvedBack);
+		if (loose && casting && carves > 0 && carves < MAX_CARVES && !pool.isEmpty()) {
+			Portal kept = best;
+			best = null;
+			if (carved != null) {
+				carveNote += "; the carved site was refused after the dig (" + refusal(player, level, carved, carvedBack, pool, plain) + ")";
+				rejectedSites.add(carved.origin());
+				carved = null;
+			}
+			if (carve(player, pool, plain)) return running();
+			best = kept;
+		}
 		if (best == null && carved != null) {
 			carveNote += "; the carved site was refused after the dig (" + refusal(player, level, carved, carvedBack, pool, plain) + ")";
 			rejectedSites.add(carved.origin());
@@ -1439,8 +1545,9 @@ public final class ServerBuildController implements ServerController {
 		}
 		// Ten trips there and back: a pool far below or above the frame's ground is a climb travel may not make each time.
 		if (near > CAST_POOL_REACH || rise > CAST_RISE) { rejects[7]++; return Double.MAX_VALUE; }
-		// The poured water must not run into the pool: lava it meets is cast where it lies, out of a bucket's use.
-		if (spillMeetsLava(cell -> known(player, cell), p, wall)) { rejects[8]++; return Double.MAX_VALUE; }
+		// The poured water must not run into the pool: lava it meets is cast where it lies, out of a bucket's use. Scooped
+		// the tick after it lands, it stays in its cell.
+		if (spillMeetsLava(cell -> known(player, cell), p, wall, QUICK_SPILL_CELLS)) { rejects[8]++; return Double.MAX_VALUE; }
 		// Last, so a site refused here lacks only blocks.
 		int need = castBlocks(blocks);
 		if (need > plain) { rejects[9]++; rejects[10] = Math.min(rejects[10], need); return Double.MAX_VALUE; }
@@ -1453,11 +1560,19 @@ public final class ServerBuildController implements ServerController {
 
 	/**
 	 * Whether water poured for the cast could run into a lava source: from each pour's water cell it falls where nothing
-	 * holds it up and spreads where something does (vanilla flow, 7 blocks at most), one cell per 5 ticks for the
-	 * {@link #SPILL_CELLS} cells it runs before it is scooped back, through cells seen open; the frame, opening and the cells
-	 * in front count as open (dug or cleared), the mould and the cells cast before as solid, unseen cells as rock.
+	 * holds it up and spreads where something does (vanilla flow, 7 blocks on the flat and afresh below each drop), its
+	 * whole course even though the source is scooped (see {@link #SPILL_CELLS}), through cells seen open; the frame, opening
+	 * and the cells in front count as open (dug or cleared), the mould and the cells cast before as solid, unseen cells as rock.
 	 */
-	static boolean spillMeetsLava(java.util.function.Function<BlockPos, BlockState> known, Portal p, Direction wall) {
+	static boolean spillMeetsLava(java.util.function.Function<BlockPos, BlockState> world, Portal p, Direction wall) {
+		return spillMeetsLava(world, p, wall, SPILL_CELLS);
+	}
+
+	/** {@link #spillMeetsLava(java.util.function.Function, Portal, Direction)} with the water's run cut at {@code cells}. */
+	static boolean spillMeetsLava(java.util.function.Function<BlockPos, BlockState> world, Portal p, Direction wall, int cells) {
+		// Every pour's run reads the same cells: read each once.
+		java.util.Map<BlockPos, java.util.Optional<BlockState>> read = new java.util.HashMap<>();
+		java.util.function.Function<BlockPos, BlockState> known = cell -> read.computeIfAbsent(cell, at -> java.util.Optional.ofNullable(world.apply(at))).orElse(null);
 		Set<BlockPos> mould = new HashSet<>(wallCells(p, wall)), cleared = new HashSet<>(p.frame());
 		// Everything in the frame's plane above the ground corners is dug or cleared, and the cells in front of it.
 		for (int i = 0; i <= 3; i++) for (int y = 1; y <= 4; y++) { cleared.add(p.at(i, y)); cleared.add(p.at(i, y).relative(wall.getOpposite())); }
@@ -1478,7 +1593,7 @@ public final class ServerBuildController implements ServerController {
 				BlockPos at = queue.poll();
 				int[] here = reach.get(at);
 				for (Direction side : Direction.values()) if (!at.relative(side).equals(pair[0]) && lavaSource(known.apply(at.relative(side)))) return true;
-				if (here[1] >= SPILL_CELLS) continue;
+				if (here[1] >= cells) continue;
 				if (flows.test(at.below())) { if (reach.putIfAbsent(at.below(), new int[] { 8, here[1] + 1 }) == null) queue.add(at.below()); continue; }
 				if (here[0] <= 1) continue;
 				for (Direction side : Direction.Plane.HORIZONTAL) {
@@ -1489,6 +1604,74 @@ public final class ServerBuildController implements ServerController {
 			cast.add(pair[0]);
 		}
 		return false;
+	}
+
+	/**
+	 * Water left behind the new obsidian can run until the bot walks round to scoop it. Trace this pour with the
+	 * finished mould and frame under it. A drop restores the full flat reach, so a total cell limit cannot judge it.
+	 */
+	static boolean crossPourMeetsLava(Function<BlockPos, BlockState> world, BlockPos water, BlockPos lava, Set<BlockPos> solid) {
+		Map<BlockPos, BlockState> read = new HashMap<>();
+		Function<BlockPos, BlockState> terrain = at -> {
+			if (!read.containsKey(at)) read.put(at, world.apply(at));
+			return read.get(at);
+		};
+		Predicate<BlockPos> open = at -> {
+			if (at.equals(lava) || at.equals(water) || solid.contains(at)) return false;
+			BlockState state = terrain.apply(at);
+			return state != null && state.getFluidState().isEmpty() && (state.isAir() || state.canBeReplaced());
+		};
+		Predicate<BlockPos> pool = at -> !at.equals(lava) && !solid.contains(at) && lavaSource(terrain.apply(at));
+		Map<BlockPos, Integer> strength = new HashMap<>();
+		ArrayDeque<BlockPos> queue = new ArrayDeque<>();
+		strength.put(water, 8);
+		queue.add(water);
+		while (!queue.isEmpty()) {
+			BlockPos at = queue.remove();
+			BlockPos below = at.below();
+			if (pool.test(below)) return true;
+			for (Direction side : Direction.Plane.HORIZONTAL) if (pool.test(at.relative(side))) return true;
+			if (open.test(below)) {
+				if (strength.getOrDefault(below, 0) < 8) {
+					strength.put(below, 8);
+					queue.add(below);
+				}
+				continue;
+			}
+			int next = strength.get(at) - 1;
+			if (next <= 0) continue;
+			int nearestDrop = Integer.MAX_VALUE;
+			List<BlockPos> best = new ArrayList<>(4);
+			for (Direction side : Direction.Plane.HORIZONTAL) {
+				BlockPos neighbour = at.relative(side);
+				if (!open.test(neighbour)) continue;
+				int distance = waterDropDistance(neighbour, side.getOpposite(), open, 4);
+				if (distance < nearestDrop) {
+					best.clear();
+					nearestDrop = distance;
+				}
+				if (distance == nearestDrop) best.add(neighbour);
+			}
+			for (BlockPos neighbour : best) if (strength.getOrDefault(neighbour, 0) < next) {
+				strength.put(neighbour, next);
+				queue.add(neighbour);
+			}
+		}
+		return false;
+	}
+
+	/** Vanilla water prefers the nearest downward opening within four more side steps, including ties. */
+	private static int waterDropDistance(BlockPos at, Direction back, Predicate<BlockPos> open, int remaining) {
+		if (open.test(at.below())) return 0;
+		if (remaining == 0) return Integer.MAX_VALUE;
+		int best = Integer.MAX_VALUE;
+		for (Direction side : Direction.Plane.HORIZONTAL) {
+			BlockPos next = at.relative(side);
+			if (side == back || !open.test(next)) continue;
+			int distance = waterDropDistance(next, side.getOpposite(), open, remaining - 1);
+			if (distance != Integer.MAX_VALUE) best = Math.min(best, distance + 1);
+		}
+		return best;
 	}
 
 	/** Plugs a carve may place before it gives the fluid up as more than a few openings and steps back from it. */
@@ -1655,7 +1838,7 @@ public final class ServerBuildController implements ServerController {
 			if (state == null || state.getFluidState().isEmpty()) continue;
 			if (TravelBuilder.lava(state) || (i >= -1 && i <= 4 && k >= -1 && k <= 1)) return -1;
 		}
-		if (spillMeetsLava(known, p, wall)) return -1;
+		if (spillMeetsLava(known, p, wall, QUICK_SPILL_CELLS)) return -1;
 		return cells;
 	}
 
@@ -1698,6 +1881,7 @@ public final class ServerBuildController implements ServerController {
 					for (BlockPos cell : wallCells(p, wall)) { BlockState state = known(player, cell); if (state != null && !rock.test(cell, state)) open++; }
 					if (castBlocks(open) > plain) { blocks++; continue; }
 					double cost = 0.5D * dig + 0.6D * open + 0.4D * near + 0.8D * rise + 0.3D * Math.sqrt(stand.distSqr(from));
+					if (spillMeetsLava(cell -> known(player, cell), p, wall, SURE_SPILL_CELLS)) cost += LOOSE_SITE_COST;
 					if (cost < bestCost) { bestCost = cost; best = p; bestWall = wall; bestStand = stand; bestDig = dig; }
 				}
 			}
@@ -1742,6 +1926,9 @@ public final class ServerBuildController implements ServerController {
 		castOrder.clear();
 		castOrder.addAll(castPairs(portal));
 		spares = mouldBlocks + 1;
+		runOffMeetsLava = spillMeetsLava(cell -> known(player, cell), portal, back, SPILL_CELLS);
+		pouredLava = null;
+		quickScoop = waterFirst = crossAllowed = false;
 		BlockPos source = lavaSources(player, portal.at(1, 1), (int) CAST_POOL_REACH + 4).stream().findFirst().orElse(poolAt);
 		siteNote = (relocations > 0 ? "walked to level ground; " : "") + (uncoverNote == null ? "" : uncoverNote + "; ") + (carveNote == null ? "" : carveNote + "; ") + (rejectNote == null ? "" : rejectNote + "; ") + "cast site " + xyz(portal.origin()) + " axis " + axisName() + ", mould " + mouldBlocks
 				+ " blocks on its " + back.getSerializedName() + " side, " + clears.size() + " cells to clear, lava source " + xyz(source)
@@ -1758,6 +1945,9 @@ public final class ServerBuildController implements ServerController {
 			return running();
 		}
 		BlockPos cell = castOrder.get(castIndex)[0], water = castOrder.get(castIndex)[1];
+		// The water poured against the lava cast it as it landed: take it up before its first spread, whatever the eye
+		// has caught up with.
+		if (castStep(quickScoop && pouredWater != null, false, false, 0, false) == CastStep.SCOOP) return pour(player, now, Pour.SCOOP, pouredWater, null);
 		BlockState state = known(player, cell);
 		// Water standing while the lava does not follow (the body gone to look or walk) runs out over the cave and into
 		// the pool: take it back before anything else.
@@ -1773,6 +1963,8 @@ public final class ServerBuildController implements ServerController {
 			cellPours = 0;
 			if (pouredWater != null) return pour(player, now, Pour.SCOOP, pouredWater, null);
 			castIndex++;
+			pouredLava = null;
+			lavaWatered = waterFirst = crossAllowed = false;
 			castWait = 0;
 			clickTicks = 0;
 			staleScoops = 0;
@@ -1796,8 +1988,25 @@ public final class ServerBuildController implements ServerController {
 				if (stray != null && carried(player, "minecraft:bucket") > 0) { pouredWater = stray; return pour(player, now, Pour.SCOOP, stray, null); }
 				return short_(player, "casting needs a water bucket and none is carried (" + castIndex + " of 10 cells done)");
 			}
-			// Water first: lava then lands beside it and is cast the moment it is poured.
-			return pour(player, now, Pour.WATER, water, cell);
+			// No spot reaches both cells and the water's whole run meets no lava: water first, the lava poured beside it after.
+			if (waterFirst && !lava) return pour(player, now, Pour.WATER, water, cell);
+			// Lava first, then water against it from the same spot, which casts it as it lands, then the water scooped the
+			// next tick, before it spreads: the cast's water never runs out over the cave into the pool.
+			boolean ours = cell.equals(pouredLava);
+			long age = ours ? player.level().getGameTime() - lavaTick : 0L;
+			if (ours && lavaWatered && player.level().getGameTime() - waterTick <= 20) {
+				// Water landed beside it, which vanilla casts at once; the eye has not caught up yet: wait to see the obsidian.
+				releaseInput();
+				ServerLookController.turnToward(player, Vec3.atCenterOf(cell));
+				return running();
+			}
+			lavaWatered = false;
+			boolean lands = ours && !moveForClick && pourClick(player, player.getEyePosition(), water, true, crossAllowed ? null : cell) != null;
+			return switch (castStep(false, lava, ours, age, lands)) {
+				case LAVA -> pour(player, now, Pour.LAVA, cell, water);
+				case TAKE_BACK -> pour(player, now, Pour.TAKE, cell, null);
+				default -> pour(player, now, Pour.WATER, water, null);
+			};
 		}
 		if (!waterSource(player, pouredWater)) {
 			if (castWait++ < 20) { releaseInput(); ServerLookController.turnToward(player, Vec3.atCenterOf(pouredWater)); return running(); }
@@ -1829,10 +2038,19 @@ public final class ServerBuildController implements ServerController {
 	 */
 	private TickResult pour(ServerPlayer player, long now, Pour kind, BlockPos target, BlockPos partner) {
 		String item = switch (kind) { case WATER -> "minecraft:water_bucket"; case LAVA -> "minecraft:lava_bucket"; default -> "minecraft:bucket"; };
-		boolean scoop = kind == Pour.SCOOP || kind == Pour.FILL;
-		BlockHitResult click = moveForClick ? null : scoop ? scoopClick(player, target) : pourClick(player, player.getEyePosition(), target, true);
-		// Water goes in only where the lava can follow from the same spot at once.
-		if (click != null && kind == Pour.WATER && !waterAlone && pourClick(player, player.getEyePosition(), partner, false) == null) click = null;
+		boolean scoop = kind == Pour.SCOOP || kind == Pour.FILL || kind == Pour.TAKE;
+		// Water against lava poured first comes in by a line clear of the lava's cell (see crosses).
+		BlockPos avoid = kind == Pour.WATER && partner == null && pouredLava != null && !waterFirst && !crossAllowed ? pouredLava : null;
+		BlockHitResult click = moveForClick ? null : scoop ? scoopClick(player, target) : pourClick(player, player.getEyePosition(), target, true, avoid);
+		// The water just poured against the lava is in the look's own line (it came in through the face it was poured
+		// against): scoop it along that look, with no turn, before its first spread.
+		BlockHitResult onLook = kind == Pour.SCOOP && quickScoop ? lookScoop(player, target) : null;
+		if (onLook != null) click = onLook;
+		// Water goes in only where the lava can follow from the same spot at once, and lava only where the water can.
+		if (click != null && kind == Pour.WATER && partner != null && !waterAlone && pourClick(player, player.getEyePosition(), partner, false) == null) click = null;
+		// Lava poured first (no water standing yet) never stands without the water following: a lava-only spot is no spot for it.
+		boolean paired = kind == Pour.LAVA && partner != null && pouredWater == null && !waterFirst;
+		if (click != null && paired && pourClick(player, player.getEyePosition(), partner, false, crossAllowed ? null : target) == null) click = null;
 		if (click == null) {
 			if (kind == Pour.FILL) { triedSources.add(target); return running(); }
 			releaseInput();
@@ -1848,15 +2066,31 @@ public final class ServerBuildController implements ServerController {
 				phase = Phase.PILLAR;
 				return running();
 			}
-			Predicate<Vec3> reaches = kind == Pour.SCOOP ? eye -> scoopReaches(player, eye, target) : eye -> pourClick(player, eye, target, false) != null;
-			BlockPos spot = partner == null ? null : standFor(player, eye -> reaches.test(eye) && pourClick(player, eye, partner, false) != null);
+			Predicate<Vec3> reaches = kind == Pour.SCOOP || kind == Pour.TAKE ? eye -> scoopReaches(player, eye, target) : eye -> pourClick(player, eye, target, false, avoid) != null;
+			BlockPos partnerAvoid = paired && !crossAllowed ? target : null;
+			BlockPos spot = partner == null ? null : standFor(player, eye -> reaches.test(eye) && pourClick(player, eye, partner, false, partnerAvoid) != null);
+			// Water poured across the lava's cell stands behind the obsidian it casts, out of the scoop's reach until the body
+			// walks round (one stood 211 ticks): only where its whole run-off meets no lava, so it cannot crust the pool.
+			if (spot == null && paired && !crossAllowed
+					&& standFor(player, eye -> pourClick(player, eye, target, false) != null && pourClick(player, eye, partner, false) != null) != null
+					&& !crossPourMeetsLava(cell -> known(player, cell), partner, target, madeSolid)) {
+				// No spot's water line misses the lava's cell (a frame's top cell under a low roof, cast-obi-1: 9 of 10 runs
+				// pillared into the rock over the head): pour this cell from a spot whose line crosses it, as main did.
+				crossAllowed = true;
+				return running();
+			}
 			if (spot == null && kind == Pour.WATER) waterAlone = true;
-			if (spot == null) spot = standFor(player, reaches);
+			if (spot == null && paired && !runOffMeetsLava) {
+				// No spot pours both: the old order, water first, whose standing water runs its whole course and meets no lava here.
+				waterFirst = true;
+				return running();
+			}
+			if (spot == null && !paired) spot = standFor(player, reaches);
 			if (spot == null && steps < 3) {
 				// From the ground no eye sees a face for it: a spot whose eye, one block up, does.
 				BlockPos raised = standFor(player, eye -> reaches.test(eye.add(0.0D, 1.0D, 0.0D))
-						&& (partner == null || pourClick(player, eye.add(0.0D, 1.0D, 0.0D), partner, false) != null));
-				if (raised == null) raised = standFor(player, eye -> reaches.test(eye.add(0.0D, 1.0D, 0.0D)));
+						&& (partner == null || pourClick(player, eye.add(0.0D, 1.0D, 0.0D), partner, false, partnerAvoid) != null));
+				if (raised == null && !paired) raised = standFor(player, eye -> reaches.test(eye.add(0.0D, 1.0D, 0.0D)));
 				if (raised != null) {
 					BlockState head = known(player, raised.above(2));
 					if (head != null && head.getCollisionShape(player.level(), raised.above(2)).isEmpty() && head.getFluidState().isEmpty()) {
@@ -1884,7 +2118,8 @@ public final class ServerBuildController implements ServerController {
 			}
 			return walkTo(player, spot, now);
 		}
-		int slot = slot(player, item);
+		// The held bucket first: the water bucket just poured is the empty one that scoops it back.
+		int slot = carriedHere(player, item) ? player.getInventory().getSelectedSlot() : slot(player, item);
 		if (slot < 0) return short_(player, "the cast needs a " + item.substring(10) + " and none is carried");
 		if (slot >= 9) {
 			releaseInput();
@@ -1894,9 +2129,16 @@ public final class ServerBuildController implements ServerController {
 			return running();
 		}
 		if (player.getInventory().getSelectedSlot() != slot) { player.getInventory().setSelectedSlot(slot); pause = 1; return running(); }
-		if (!turn(player, click.getLocation(), false)) return clickStall(player, now);
+		if (onLook == null && !turn(player, click.getLocation(), false)) return clickStall(player, now);
+		// The limit is checked before the click: a fourth pour checked after it would leave its lava standing uncooled in the frame.
+		if (kind == Pour.LAVA && cellPours >= 3)
+			return fail(player, "BUILD_BLOCKED", "Lava poured into frame cell " + xyz(target) + " " + cellPours + " times without casting it" + (refusal == null ? "" : "; " + refusal));
 		int held = carried(player, item);
-		String why = environment.useBucket(player, click.getBlockPos(), click.getDirection());
+		// Lava poured first stands uncooled for the few ticks until the water lands beside it, or is taken back: refused
+		// only where its flow would meet the body before its first flow tick.
+		String why = paired
+				? environment.useBucket(player, click.getBlockPos(), click.getDirection(), Fluids.LAVA.getTickDelay(player.level()) / 20.0D)
+				: environment.useBucket(player, click.getBlockPos(), click.getDirection());
 		// A click counts only when the bucket changed (filled or emptied); one that reports success and leaves it as it
 		// was is a refused click, never a pour (gate-5: 3508 "pours" in 9 minutes cast nothing).
 		if (why == null && carried(player, item) == held) {
@@ -1905,20 +2147,40 @@ public final class ServerBuildController implements ServerController {
 			if (!scoop) deadSupports.add(click.getBlockPos().immutable());
 		}
 		if (why != null) { refusal = why; return clickStall(player, now); }
-		if (kind == Pour.LAVA && ++cellPours > 3)
-			return fail(player, "BUILD_BLOCKED", "Lava poured into frame cell " + xyz(target) + " " + cellPours + " times without casting it" + (refusal == null ? "" : "; " + refusal));
+		if (kind == Pour.LAVA) cellPours++;
 		clickTicks = 0;
 		clickStalls = 0;
 		waterAlone = false;
 		pause = 2;
+		long tick = player.level().getGameTime();
 		standRetries = 0;
 		LOGGER.info("[build] {} {} at {} from {} (cell {} of 10)", player.getGameProfile().name(), kind, xyz(target), xyz(player.blockPosition()), castIndex + 1);
 		walks = 0;
 		triedSpots.clear();
 		switch (kind) {
-			case WATER -> { pouredWater = target.immutable(); waterTick = player.level().getGameTime(); waterPours++; }
-			case LAVA -> lavaPours++;
+			case WATER -> {
+				pouredWater = target.immutable();
+				waterTick = tick;
+				waterPours++;
+				// Against lava poured first: the lava cast as the water landed; scoop the water the very next tick.
+				if (pouredLava != null && !waterFirst) { quickScoop = true; lavaWatered = true; pause = 0; OPEN_CELLS.add(player.getUUID()); }
+			}
+			case LAVA -> {
+				lavaPours++;
+				// Open from this tick: the reflexes run before the build's next tick and must not pause it with lava standing.
+				if (paired) { pouredLava = target.immutable(); lavaTick = tick; lavaWatered = false; OPEN_CELLS.add(player.getUUID()); }
+			}
+			case TAKE -> {
+				// Taken back before it flowed: pour the pair again from a spot whose water click lands.
+				LOGGER.info("[build] {} took the lava back from {} after {} ticks", player.getGameProfile().name(), xyz(target), tick - lavaTick);
+				pouredLava = null;
+				lavaTakes++;
+				moveForClick = true;
+				triedSpots.add(player.blockPosition().immutable());
+			}
 			case SCOOP -> {
+				if (quickScoop) LOGGER.info("[build] {} water at {} stood {} ticks", player.getGameProfile().name(), xyz(target), tick - waterTick);
+				quickScoop = false;
 				pouredWater = null;
 				scoops++;
 				// Taken back because the lava did not follow from here: pour the pair from another spot.
@@ -1958,6 +2220,46 @@ public final class ServerBuildController implements ServerController {
 		return false;
 	}
 
+	/**
+	 * Bodies whose cast has a cell half done this tick (see {@link #lavaStanding}): the defend reflex stands aside for them
+	 * as for the body's own fight or flight, since a pause would leave the lava to flow or the water to run into the pool.
+	 */
+	private static final Set<java.util.UUID> OPEN_CELLS = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+	/** Whether this body's cast has a cell half done (lava in and not cooled, or its water not scooped back). */
+	public static boolean castCellOpen(ServerPlayer player) {
+		return player != null && OPEN_CELLS.contains(player.getUUID());
+	}
+
+	/** Ticks past {@link #LAVA_HOLD_TICKS} a cell's standing lava may hold off a stop while its take-back walks into reach. */
+	static final int LAVA_FINISH_TICKS = 40;
+
+	/**
+	 * A cast cell half done: lava this cast poured first, not yet cooled by the water or taken back and still there, or
+	 * the water poured against it not yet scooped back (stood, it runs out over the cave into the pool).
+	 */
+	private boolean lavaStanding(ServerPlayer player) {
+		if (!casting || phase != Phase.CAST) return false;
+		long time = player.level().getGameTime();
+		if (quickScoop && pouredWater != null) return time - waterTick <= LAVA_FINISH_TICKS;
+		if (pouredLava == null || lavaWatered) return false;
+		if (time - lavaTick > LAVA_HOLD_TICKS + LAVA_FINISH_TICKS) return false;
+		return TravelBuilder.lava(known(player, pouredLava));
+	}
+
+	/** The empty bucket's own ray along the current look, when it meets the water source at {@code source}; else null. */
+	private BlockHitResult lookScoop(ServerPlayer player, BlockPos source) {
+		Vec3 eye = player.getEyePosition();
+		BlockHitResult hit = environment.bucketRay(player, eye.add(player.getLookAngle().scale(player.blockInteractionRange())), true);
+		if (hit == null || hit.getType() != HitResult.Type.BLOCK || !hit.getBlockPos().equals(source)) return null;
+		return new BlockHitResult(hit.getLocation(), hit.getDirection(), source.immutable(), false);
+	}
+
+	private static boolean carriedHere(ServerPlayer player, String itemId) {
+		Item item = BuiltInRegistries.ITEM.getValue(net.minecraft.resources.Identifier.parse(itemId));
+		return item != Items.AIR && player.getMainHandItem().is(item);
+	}
+
 	private BlockHitResult scoopClick(ServerPlayer player, BlockPos source) {
 		Vec3 aim = environment.scoopAim(player, source);
 		if (aim == null) return null;
@@ -1970,6 +2272,21 @@ public final class ServerBuildController implements ServerController {
 	 * sees within reach. {@code verify} checks it with the bucket's own ray from the body's eye now.
 	 */
 	private BlockHitResult pourClick(ServerPlayer player, Vec3 eye, BlockPos target, boolean verify) {
+		return pourClick(player, eye, target, verify, null);
+	}
+
+	/**
+	 * Whether the line from {@code eye} to {@code point} passes through {@code cell}. The water poured against lava poured
+	 * first must not come in through the lava's cell: the lava casts as the water lands, and the obsidian then stands
+	 * between the eye and the water, so it cannot be scooped before it spreads (in one cave room, water poured along the
+	 * frame's plane through the cell it cast stood 211 ticks while the body walked round, and ran out of the frame).
+	 */
+	static boolean crosses(Vec3 eye, Vec3 point, BlockPos cell) {
+		return cell != null && new AABB(cell).deflate(0.01D).clip(eye, point).isPresent();
+	}
+
+	/** {@link #pourClick(ServerPlayer, Vec3, BlockPos, boolean)} whose line does not pass through {@code avoid}. */
+	private BlockHitResult pourClick(ServerPlayer player, Vec3 eye, BlockPos target, boolean verify, BlockPos avoid) {
 		List<Direction> sides = new ArrayList<>(List.of(Direction.values()));
 		sides.sort(Comparator.comparingDouble(d -> Vec3.atCenterOf(target.relative(d)).distanceToSqr(eye)));
 		for (Direction side : sides) {
@@ -1977,7 +2294,7 @@ public final class ServerBuildController implements ServerController {
 			if (!full(player, support) && !madeSolid.contains(support) || deadSupports.contains(support)) continue;
 			Direction face = side.getOpposite();
 			Vec3 point = TargetSightline.block(player.level(), CollisionContext.of(player), eye, support, player.blockInteractionRange() - 0.2D, face);
-			if (point == null) continue;
+			if (point == null || crosses(eye, point, avoid)) continue;
 			if (verify) {
 				BlockHitResult hit = environment.bucketRay(player, point, false);
 				if (hit == null || hit.getType() != HitResult.Type.BLOCK || !hit.getBlockPos().equals(support) || hit.getDirection() != face) continue;
@@ -2050,6 +2367,17 @@ public final class ServerBuildController implements ServerController {
 			BlockPos toward = k < remembered.size() && k % 2 == 1 ? remembered.get(k) : k == 0 ? around : around.relative(Direction.from2DDataValue(k), 7);
 			BlockPos spot = nearestStand(player, toward, 5);
 			if (spot != null) { seekLooks = 0; triedSources.clear(); return walkTo(player, spot, now); }
+		}
+		// One walk that failed rules out the spots round its target (see the walk's failure), which on a narrow shore is
+		// every dry spot by the pool (away-pair-7: 8 sources in view, BUILD_SHORT after one failed walk in 4 of 10 runs on
+		// main, 10 of 10 on this branch): with lava still seen, forget them once and try the shore again.
+		if (!sources.isEmpty() && !triedSpots.isEmpty() && fetchRetries < 2 && walks < MAX_WALKS - 1) {
+			fetchRetries++;
+			triedSpots.clear();
+			triedSources.clear();
+			seekLooks = 0;
+			seekWalks = 0;
+			return running();
 		}
 		return fail(player, "BUILD_SHORT", "Short of material: no lava source in reach after " + castIndex + " of 10 cells (" + sources.size() + " seen within "
 				+ CAST_FETCH_RANGE + " blocks of the frame, none with a dry spot beside it) after looking round and walking the shore near " + xyz(around)
@@ -2463,6 +2791,7 @@ public final class ServerBuildController implements ServerController {
 		LOGGER.info("[build] {} walk {} to {} in {} ({})", player.getGameProfile().name(), walks, xyz(spot), phase, way != null && way.size() > 3 ? way.size() + " steps walked before" : "travel");
 		if (way != null && way.size() > 3) {
 			// Cell by cell along steps it took: travel plans only through what is in sight, and a way round the frame is not.
+			followingWalkedWay = true;
 			wayBack.addAll(way.subList(1, way.size()));
 			nextHop(now);
 			return running();
@@ -2490,8 +2819,17 @@ public final class ServerBuildController implements ServerController {
 		return false;
 	}
 
-	private void recordStep(BlockPos at) {
-		if (lastStood != null && !at.equals(lastStood) && stepsWalked.size() < 4096 && Math.abs(at.getX() - lastStood.getX()) <= 1 && Math.abs(at.getZ() - lastStood.getZ()) <= 1
+	private void recordStep(ServerPlayer player) {
+		BlockPos at = player.blockPosition().immutable();
+		if (at.equals(lastStood)) return;
+		if (stepsWalked.size() < 4096) {
+			var seen = SeenTerrain.of(player);
+			for (BlockPos touched : List.of(at.below(), at, at.above())) {
+				BlockState state = seen.known(touched.getX(), touched.getY(), touched.getZ());
+				if (state != null) walkedGround.put(touched, state);
+			}
+		}
+		if (lastStood != null && stepsWalked.size() < 4096 && Math.abs(at.getX() - lastStood.getX()) <= 1 && Math.abs(at.getZ() - lastStood.getZ()) <= 1
 				&& at.getY() - lastStood.getY() <= 1 && lastStood.getY() - at.getY() <= 3) {
 			stepsWalked.computeIfAbsent(lastStood.immutable(), k -> new HashSet<>()).add(at.immutable());
 			if (lastStood.getY() - at.getY() <= 1) stepsWalked.computeIfAbsent(at.immutable(), k -> new HashSet<>()).add(lastStood.immutable());
@@ -2553,6 +2891,11 @@ public final class ServerBuildController implements ServerController {
 
 	private boolean inFootprint(BlockPos at) {
 		return portal != null && portal.reserved(at);
+	}
+
+	private boolean inFrontOfMould(BlockPos at) {
+		BlockPos origin = portal.origin();
+		return (at.getX() - origin.getX()) * back.getStepX() + (at.getZ() - origin.getZ()) * back.getStepZ() < 0;
 	}
 
 	private boolean standable(ServerPlayer player, ServerLevel level, BlockPos at) {
@@ -2750,6 +3093,7 @@ public final class ServerBuildController implements ServerController {
 	}
 
 	private TickResult end(ServerPlayer player, TickResult result) {
+		OPEN_CELLS.remove(player.getUUID());
 		if (casting && !poolMemory.isEmpty()) LAST_POOL.put(player.getUUID(), new PoolNote(player.level().dimension(), player.level().getGameTime(), Set.copyOf(poolMemory),
 				portal != null && back != null && castIndex > 0 && result.state() != State.SUCCEEDED ? new FrameNote(portal.origin(), back) : null));
 		cancel(player);

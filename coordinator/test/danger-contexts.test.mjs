@@ -99,6 +99,10 @@ test('a context wake leads with the entry and lists dangers; a danger wake names
 	const entry = buildNativeEventInput(record, { event: 'observation', trigger: 'context_entry', observation, contexts, uncovered: ['melee hits (spider, zombie)'] });
 	const [line, json] = [entry.slice(0, entry.indexOf('\n')), JSON.parse(entry.slice(entry.indexOf('\n') + 1))];
 	assert.match(line, /^entered night on the surface\. contexts lists each danger there/);
+	assert.match(line, /With no armour a player spends the night under cover: rest \(bed, walls or a dug hole\) until dawn/, 'the cover a player takes, not only the dangers');
+	const armoured = { ...observation, player: { ...observation.player, armor: 15 } };
+	const ironLine = buildNativeEventInput(record, { event: 'observation', trigger: 'context_entry', observation: armoured, contexts, uncovered: [] }).split('\n')[0];
+	assert.doesNotMatch(ironLine, /under cover/, 'full iron takes the night');
 	assert.deepEqual(json.contexts, contexts);
 	assert.equal(json.noRuleFor, undefined, 'not a danger wake');
 	const danger = JSON.parse(buildNativeEventInput(record, { event: 'observation', trigger: 'damage', observation, uncovered: ['melee hits (spider, zombie)'] }).split('\n')[1]);

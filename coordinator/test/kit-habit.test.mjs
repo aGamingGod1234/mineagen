@@ -156,3 +156,14 @@ test('MINEAGEN_KIT_HABIT=off is the only way to turn it off', () => {
 	assert.equal(kitHabitEnabled({ MINEAGEN_KIT_HABIT: 'OFF ' }), false);
 	assert.equal(kitHabitEnabled({ MINEAGEN_KIT_HABIT: 'on' }), true);
 });
+
+// The route's trip now mines the kit's armour iron too (skill-fits KIT_ARMOUR, 23 in all). With all of it held after the
+// trip, the iron beyond the rest of the kit's is exactly the chestplate and the boots, in the habit's own order.
+test('the trip\'s armour iron becomes a chestplate and then boots, never the buckets\' iron', () => {
+	const tools = [item('stone_pickaxe', 'mainhand'), item('crafting_table', 5), item('oak_planks', 6, 16), item('stick', 7, 4)];
+	const after = (extra, ingots) => nextKitStep(sample([...tools, item('shield', 'offhand'), ...extra, item('iron_ingot', 1, ingots)]));
+	// 23 held, shield made (22): 10 kept for the iron pickaxe, buckets and lighter, 12 spare.
+	assert.deepEqual(after([], 22), { kind: 'craft', itemId: 'minecraft:iron_chestplate' });
+	assert.deepEqual(after([item('iron_chestplate', 'chest')], 14), { kind: 'craft', itemId: 'minecraft:iron_boots' });
+	assert.equal(after([item('iron_chestplate', 'chest'), item('iron_boots', 'feet')], 10), null, 'the last 10 are the rest of the kit\'s');
+});

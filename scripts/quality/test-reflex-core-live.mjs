@@ -10,6 +10,7 @@
 //   7. mined drops in view are walked to and picked up between and during break actions;
 //   8. a full inventory fires a stop rule mid-walk: the body holds, the walk is cancelled (as the coordinator does), and
 //      the report asks to wake the model.
+//   9. a meal that starts facing a crafting table (mid bread craft at it) turns away and eats, and the craft finishes.
 // Always launch under slot.sh live; ports come from SLOT_PORT_BASE. Operator commands build fixtures and spawn mobs only.
 // FIXTURE_TICK_RATE (test only): each check's setup (building, items, rules) runs at 20 TPS; its play, from the summon,
 // teleport into water or first action to its last read, runs at the fixture rate with its windows in game time (now,
@@ -148,6 +149,8 @@ try {
 		const blazeReports = [...events(o, 'blaze-shield'), ...(o.reflexes?.firing?.id === 'blaze-shield' ? [o.reflexes.firing] : [])];
 		results.blazeShield.after = events(o, 'blaze-shield');
 		results.blazeShield.pass = blazeReports.some((row) => /blocked [1-9]/.test(row.detail ?? '')) || results.blazeShield.firingNow?.detail?.startsWith('blocked');
+		// No hit blocked and none taken: the blaze never shot at the body in its window, so the room measured nothing.
+		if (!results.blazeShield.pass && tick?.damageTaken === 0) results.blazeShield.notExercised = 'the blaze never hit or was blocked in its 15 s';
 		await command(`effect give ${agent} minecraft:instant_health 1 3 true`); await command('fill -24 80 -24 40 95 40 minecraft:air');
 
 	}
@@ -340,13 +343,54 @@ try {
 			&& events(o, 'full-stop').some((row) => row.outcome === 'done' && row.wake === true && /stopped the running action/.test(row.detail ?? ''));
 		await command(`clear ${agent}`);
 	}
+	// 9. Eating at a crafting table (a live playtest): the body crafts bread at the table it faces; hunger drops mid-craft
+	// and the default-shaped eat stance fires. Use goes to what the crosshair is on first, so a meal eaten facing the table
+	// reopened it every few ticks, never ate, and kept the craft paused for minutes. Pass: it eats and the craft finishes.
+	if (only.length === 0 || only.includes('eatAtTable')) {
+		await command(`clear ${agent}`); await command(`effect clear ${agent}`); await command('time set noon');
+		await command('fill -3 80 -3 3 82 4 minecraft:air'); await command('fill -3 79 -3 3 79 4 minecraft:stone');
+		await command('setblock 0 80 2 minecraft:crafting_table');
+		await command(`tp ${agent} 0.5 80 0.5 0 35`);
+		await command(`item replace entity ${agent} inventory.5 with minecraft:wheat 24`);
+		o = await setReflexes([]);
+		// Hungry before the craft with no food in reach. The coordinator's own eat rule sleeps without food; a fixture rule
+		// would fire, fail "no food" and sit out its cooldown, so the rule goes in only once bread reaches the hotbar
+		// mid-craft, with the body facing the table, as in the playtest.
+		let foodStart = o.player?.foodLevel ?? 20;
+		for (let tries = 0; tries < 20 && foodStart >= 16; tries += 1) {
+			await command(`effect give ${agent} minecraft:hunger 1 255 true`); await rate.idleSleep(1200);
+			foodStart = (await observe()).player?.foodLevel ?? 20;
+		}
+		await command(`effect clear ${agent}`);
+		const played = await rate.play();
+		const craft = await startAction('craft_table', { recipeId: 'minecraft:bread', x: 0, y: 80, z: 2, count: 8, timeoutMs: 30000 });
+		await rate.clock.sleep(600);
+		const craftActive = (await observe()).currentAction?.active === true;
+		await command(`item replace entity ${agent} hotbar.2 with minecraft:bread 1`);
+		await setReflexes([{ id: 'table-eat', kind: 'stance', priority: 3, when: [{ type: 'hunger_below', value: 18 }, { type: 'hostile_near', within: 8, not: true }], do: { type: 'eat' }, cooldownS: 20 }]);
+		const craftStillActive = (await observe()).currentAction?.active === true;
+		// Well past the craft's own 30 s: a craft held paused by a meal that never starts has no result in this window.
+		const crafted = await Promise.race([craft.result, rate.clock.sleep(60000).then(() => null)]);
+		await rate.clock.sleep(500); o = await observe();
+		const tick = await played();
+		const rows = events(o, 'table-eat');
+		results.eatAtTable = { craft: crafted?.state ?? 'NO_RESULT', reasonCode: crafted?.reasonCode ?? null, message: crafted?.message ?? null,
+			events: rows, bread: countOf(o, 'minecraft:bread'), foodStart, craftActiveWhenBreadCame: craftActive, food: o.player?.foodLevel, tick };
+		// The room is valid only when the meal came mid-craft from a hungry start.
+		results.eatAtTable.craftActiveWhenRuleCame = craftStillActive;
+		results.eatAtTable.valid = foodStart < 16 && craftActive && craftStillActive;
+		results.eatAtTable.pass = results.eatAtTable.valid && crafted?.state === 'SUCCEEDED' && rows.some((row) => row.outcome === 'done' && /ate minecraft:bread/.test(row.detail ?? ''));
+		await setReflexes([]); await command(`clear ${agent}`); await command('setblock 0 80 2 minecraft:air');
+	}
 	results.status = o?.reflexes;
 	await writeFile(join(out, 'tick.json'), JSON.stringify(await rate.report(), null, 2));
 	await writeFile(join(out, 'results.json'), JSON.stringify(results, null, 2));
 	await writeFile(join(out, 'timeline.json'), JSON.stringify(timeline, null, 1));
 	console.log(JSON.stringify(Object.fromEntries(Object.entries(results).filter(([key]) => key !== 'status').map(([key, value]) => [key, value.pass]))));
-	const failed = Object.entries(results).filter(([key, value]) => key !== 'status' && !value.pass).map(([key]) => key);
+	const failed = Object.entries(results).filter(([key, value]) => key !== 'status' && !value.pass && !value.notExercised).map(([key]) => key);
+	const unmeasured = Object.entries(results).filter(([key, value]) => key !== 'status' && !value.pass && value.notExercised).map(([key]) => key);
 	if (failed.length > 0) { console.log(JSON.stringify(results, null, 2)); process.exitCode = 1; }
+	else if (unmeasured.length > 0) { console.log(`INVALID (not exercised): ${unmeasured.join(', ')}`); process.exitCode = 2; }
 	else console.log('Reflex core mechanics verified');
 } finally {
 	if (rcon) await command('stop').catch(() => {});
