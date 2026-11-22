@@ -211,6 +211,11 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		const budgetMs = spot.budgetMs ?? 900_000;
 		for (const [callIndex, call] of (spot.calls ?? []).entries()) {
 			for (let attempt = 0; ; attempt++) {
+				// A call with its own target timeoutMs (obtain) is not asked again with less than its 60 s minimum left of the
+				// budget (normalizeObtain refuses shorter): the last answer stands.
+				if (attempt > 0 && !isFindCall(call) && Number.isFinite(call.arguments?.target?.timeoutMs) && budgetMs - (now() - t0) < 60_000) {
+					row.ended = 'under 60 s of the budget left for another ask'; break;
+				}
 				const callStarted = now();
 				// "{item}": the UUID of the dropped item nearest the body now (pick_up_item takes a canonical UUID).
 				const itemUuid = JSON.stringify(call.arguments).includes('"{item}"') ? uuidOf(await s.command(`data get entity @e[type=item,sort=nearest,limit=1] UUID`)) : null;
@@ -224,7 +229,7 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 							.replace(/"\{item\}"/g, () => JSON.stringify(itemUuid))) : call.arguments;
 					// Another call with its own target timeoutMs (an obtain asked again after danger) gets at most what is left of the
 					// spot's budget too, so a room never passes on time an interruption added.
-					const left = Math.max(10_000, budgetMs - (now() - t0));
+					const left = Math.max(60_000, budgetMs - (now() - t0));
 					const bounded = !isFindCall(call) && Number.isFinite(args?.target?.timeoutMs) && args.target.timeoutMs > left
 						? { ...args, target: { ...args.target, timeoutMs: left } } : args;
 					result = await runtime.execute({ agentId: record.agentId, goalRevision: record.goalRevision, turnId: `find-live-${callIndex}-${attempt}`, callId: `find-${callIndex}-${attempt}`,
