@@ -45,3 +45,38 @@ test('gather stops NO_TOOL when a break drops nothing for want of the right tool
 	assert.equal(state, 'FAILED');
 	assert.equal(commands.filter((type) => type === 'break_block').length, 1, 'one break, not a block punched after block');
 });
+
+// Audit of #108/#109: obtain chose a remembered village cobblestone cell, but gather knew only block ids. Out of reach
+// with cobblestone and stone on its list, its one far-sight search named stone (bulk terrain), the server refused the
+// whole search, and gather ended NO_TARGET. Gather now walks to the remembered placed cell and never searches terrain.
+test('gather walks to a remembered placed block and never sends bulk terrain to the far-sight search', async () => {
+	const { NativeToolRuntime } = await import('../src/native-tool-runtime.mjs');
+	const record = () => ({ agentId: 'agent-v', provider: 'codex', model: 'test-model', reasoningEffort: 'low', serviceTier: 'fast', goalRevision: 3, currentGoal: 'get cobblestone' });
+	const world = { worldId: 'w1', dimension: 'minecraft:overworld' };
+	const state = { x: 0.5, cobble: 0, broken: false };
+	const observe = () => ({ player: { x: state.x, y: 64, z: 0.5, yaw: 0, pitch: 0, health: 20 }, world, items: [],
+		inventory: { items: state.cobble > 0 ? [{ slot: 0, itemId: 'minecraft:cobblestone', count: state.cobble }] : [] },
+		blocks: state.x > 10 && !state.broken ? [{ blockId: 'minecraft:cobblestone', x: 14, y: 64, z: 0, visible: true }] : [] });
+	const sent = [];
+	let runtime, sequence = 1;
+	runtime = new NativeToolRuntime({
+		bridge: { send: async (type, _agentId, payload) => {
+			sent.push({ type, payload });
+			if (type !== 'action_command') return;
+			if (['move_to', 'navigate_to', 'travel_to'].includes(payload.actionType)) state.x = 12.5;
+			if (payload.actionType === 'break_block') { state.broken = true; state.cobble = 1; }
+			queueMicrotask(() => runtime.onActionResult(record(), { actionId: payload.actionId, goalRevision: payload.goalRevision, state: 'SUCCEEDED',
+				reasonCode: payload.actionType === 'break_block' ? 'BLOCK_BROKEN' : 'ACTION_COMPLETED', message: 'done' }));
+		} },
+		requestObservation: async (_record, { afterEventSequence }) => ({ eventSequence: Math.max(afterEventSequence, sequence++) + 1, observation: observe() }),
+	});
+	// Seen earlier from the plaza: a village wall's cobblestone 14 blocks off, now out of the local scan.
+	runtime.updateObservation(record(), { ...observe(), sighted: { resources: [{ blockId: 'minecraft:cobblestone', x: 14, y: 64, z: 0, distance: 13.5, bearing: 0, count: 6 }] } }, { eventSequence: 1 });
+	const tool = normalizeMinecraftToolCall('gather', { itemId: 'cobblestone', count: 1, blockIds: ['cobblestone', 'stone'], radius: 24, timeoutMs: 30_000 });
+	const result = await runtime.execute({ agentId: 'agent-v', goalRevision: 3, turnId: 'turn-1', callId: 'call-1', tool }, record());
+	const reasonCode = result.reasonCode ?? result.result?.reasonCode;
+	assert.equal(reasonCode, 'GATHER_DONE', JSON.stringify(result).slice(0, 600));
+	assert.ok(!JSON.stringify(sent).includes('blocks:minecraft:stone'), 'no search names bulk terrain');
+	const actions = sent.filter((entry) => entry.type === 'action_command').map((entry) => entry.payload.actionType);
+	assert.ok(actions.indexOf('break_block') > 0 && actions.slice(0, actions.indexOf('break_block')).some((type) => /move|navigate|travel/.test(type)), actions.join(','));
+});

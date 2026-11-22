@@ -56,6 +56,12 @@ public final class UseTickPhaseVerification {
 		check(tick.contains("CarpetActionArbitration.bind(player, agentId, state.hand(), useDriver);\n\t\t\treturn;")
 				|| tick.contains("CarpetActionArbitration.bind(player, agentId, state.hand(), useDriver);\r\n\t\t\treturn;"),
 				"START does not claim the combined attack/use slot");
+		// Releasing the use lease clears the driver's record of what took the click, so the receipt reads it first.
+		String executor = Files.readString(sources.resolve("server/runtime/ServerActionExecutor.java"));
+		int useDone = executor.indexOf("useOnce && accepted > 0");
+		int takenBy = executor.indexOf("lastAcceptedUseTarget(request.agentId())", useDone);
+		check(useDone >= 0 && takenBy > useDone && takenBy < executor.indexOf("releaseInput();", useDone),
+				"the use receipt reads what took the click before releasing input clears it");
 		String mixin = Files.readString(sources.resolve("mixin/EntityPlayerActionPackMixin.java"));
 		check(mixin.contains("method = \"onUpdate\"") && mixin.contains("CarpetActionArbitration.arbitrate(player,"),
 				"Carpet action update retains the use-before-attack redirect");

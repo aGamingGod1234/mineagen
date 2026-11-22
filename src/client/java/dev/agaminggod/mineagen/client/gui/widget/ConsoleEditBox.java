@@ -1,6 +1,8 @@
 package dev.agaminggod.mineagen.client.gui.widget;
 
 import dev.agaminggod.mineagen.client.gui.ConsoleFocusTarget;
+import dev.agaminggod.mineagen.client.gui.ConsoleDraw;
+import dev.agaminggod.mineagen.client.gui.ConsoleMotion;
 import dev.agaminggod.mineagen.client.gui.ConsoleTheme;
 import dev.agaminggod.mineagen.client.gui.ConsoleText;
 import java.util.Objects;
@@ -11,7 +13,8 @@ import net.minecraft.network.chat.Component;
 
 /** Single-line editor drawn as part of the control center instead of a vanilla text box. */
 public final class ConsoleEditBox extends EditBox implements ConsoleFocusTarget {
-	private static final int HORIZONTAL_PADDING = 6;
+	private static final int HORIZONTAL_PADDING = 8;
+	private final ConsoleMotion hover = new ConsoleMotion();
 	private final Font font;
 	private boolean secret;
 	private final int outerX;
@@ -87,15 +90,15 @@ public final class ConsoleEditBox extends EditBox implements ConsoleFocusTarget 
 			int mouseY,
 			float partialTick
 	) {
-		int outline = isFocused() ? ConsoleTheme.FOCUS
-				: isHovered() ? ConsoleTheme.ACCENT : ConsoleTheme.BORDER;
-		graphics.fill(outerX, outerY, outerX + outerWidth, outerY + outerHeight, outline);
-		int inset = isFocused() ? 2 : 1;
-		graphics.fill(outerX + inset, outerY + inset,
-				outerX + outerWidth - inset, outerY + outerHeight - inset, ConsoleTheme.TRACK);
+		float lift = ConsoleMotion.smooth(hover.toward(isHovered() || isFocused() ? 1F : 0F, 120));
+		ConsoleDraw.surface(graphics, outerX, outerY, outerWidth, outerHeight, ConsoleDraw.RADIUS_CONTROL,
+				ConsoleDraw.mix(ConsoleTheme.TRACK, 0xFF10151C, lift));
+		if (isFocused()) ConsoleDraw.ring(graphics, outerX, outerY, outerWidth, outerHeight, ConsoleDraw.RADIUS_CONTROL, ConsoleTheme.ACCENT);
+		else ConsoleDraw.ring(graphics, outerX, outerY, outerWidth, outerHeight, ConsoleDraw.RADIUS_CONTROL,
+				ConsoleDraw.mix(0xFF1E252F, 0xFF2E3846, lift));
 		if (getValue().isEmpty() && !isFocused()) {
 			ConsoleText.text(graphics, font, placeholder, outerX + HORIZONTAL_PADDING,
-					outerY + (outerHeight - 8) / 2, ConsoleTheme.MUTED);
+					outerY + (outerHeight - 8) / 2, ConsoleTheme.SUBTLE);
 		}
 		super.extractWidgetRenderState(graphics, mouseX, mouseY, partialTick);
 	}

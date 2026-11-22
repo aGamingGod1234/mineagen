@@ -126,7 +126,8 @@ public record AgentRosterGridLayout(
 		int usedWidth = columns * tileWidth + (columns - 1) * TILE_GAP;
 		int usedHeight = rows * tileHeight + (rows - 1) * TILE_GAP;
 		int gridLeft = left + (regionWidth - usedWidth) / 2;
-		int gridTop = top + (slotHeight - usedHeight) / 2;
+		// Tiles start right under the page title, like a list, instead of floating in the middle of the region.
+		int gridTop = top;
 		Bounds gridBounds = new Bounds(gridLeft, gridTop, gridLeft + usedWidth, gridTop + usedHeight);
 		if (hasPager) {
 			pagerBounds = new Bounds(gridLeft, bottom - PAGER_HEIGHT, gridLeft + usedWidth, bottom);
@@ -147,8 +148,8 @@ public record AgentRosterGridLayout(
 	) {
 		int tileWidth = Math.min(SINGLE_TILE_MAXIMUM_WIDTH, regionWidth);
 		int tileHeight = Math.min(SINGLE_TILE_MAXIMUM_HEIGHT, regionHeight);
-		int tileLeft = left + (regionWidth - tileWidth) / 2;
-		int tileTop = top + (regionHeight - tileHeight) / 2;
+		int tileLeft = left;
+		int tileTop = top;
 		Bounds gridBounds = new Bounds(tileLeft, tileTop, tileLeft + tileWidth, tileTop + tileHeight);
 		Bounds emptyPager = new Bounds(right, bottom, right, bottom);
 		return new AgentRosterGridLayout(gridBounds, 1, 1, tileWidth, tileHeight, 1, emptyPager, false);

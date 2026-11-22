@@ -55,6 +55,7 @@ public final class SightedFeaturesVerification {
 		neighbourEditsExposeBlocks();
 		neighbourEditsKeepScanProgress();
 		cachedSurveyReusesSightLines();
+		veinRaysAreReservedFromEarlierSections();
 		lavaRowsPointAtSources();
 		bucketReachesSourceThroughSpill();
 		castLavaCountsWhatABucketTakes();
@@ -902,6 +903,32 @@ public final class SightedFeaturesVerification {
 
 	/** Audit fix: a survey over the tick's cap answers from the agent's cached sight lines instead of nothing. */
 	@SuppressWarnings("unchecked")
+	/** Audit of #107/#108: sections before veins used to be able to spend every passive sight line in a busy view. */
+	private static void veinRaysAreReservedFromEarlierSections() {
+		try {
+			var field = sun.misc.Unsafe.class.getDeclaredField("theUnsafe"); field.setAccessible(true);
+			var unsafe = (sun.misc.Unsafe) field.get(null);
+			var level = (StructureBoundaryLevel) unsafe.allocateInstance(StructureBoundaryLevel.class);
+			level.chunks = (StructureBoundaryChunks) unsafe.allocateInstance(StructureBoundaryChunks.class);
+			level.chunks.level = level;
+			var sight = new FarSight.Sight(level, new Vec3(.5D, 64.5D, .5D), new Vec3(1, 0, 0), 256D,
+					net.minecraft.world.phys.shapes.CollisionContext.empty(), new FarSight.SightCache(), FarSight.PASSIVE_CLIPS);
+			int held = (int) Math.ceil(FarSight.PASSIVE_CLIPS * FarSight.VEIN_SHARE);
+			sight.reserve(FarSight.VEIN_SHARE);
+			// Every section before veins at its full share: lava, structures, POI, built, resources, notable, biomes.
+			for (double share : new double[] {0.10D, 0.25D, 0.10D, 0.25D, 0.10D, 0.05D, 0.15D}) {
+				sight.section(share);
+				while (!sight.exhausted()) sight.clips++;
+			}
+			check(sight.clips == FarSight.PASSIVE_CLIPS - held, "earlier sections stop at the veins' reserve: " + sight.clips);
+			sight.release();
+			sight.section(FarSight.VEIN_SHARE);
+			int start = sight.clips;
+			while (!sight.exhausted()) sight.clips++;
+			check(sight.clips - start == held, "veins get their whole share in a busy view: " + (sight.clips - start));
+		} catch (ReflectiveOperationException failure) { throw new AssertionError("vein reserve fixture failed", failure); }
+	}
+
 	private static void cachedSurveyReusesSightLines() {
 		try {
 			var field = sun.misc.Unsafe.class.getDeclaredField("theUnsafe"); field.setAccessible(true);
