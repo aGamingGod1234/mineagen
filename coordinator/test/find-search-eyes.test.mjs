@@ -3,16 +3,16 @@ import assert from 'node:assert/strict';
 import { searchFor } from '../src/find-search.mjs';
 import { eyeBracket, eyeLeg, intersectEyes } from '../src/find-eyes.mjs';
 import { normalizeMinecraftToolCall } from '../src/native-minecraft-tools.mjs';
+import { checkedSearchBody } from './helpers/checked-body.mjs';
 const flight = (extra = {}) => ({ type: 'eye_of_ender_flight', flightId: 17, from: { x: 0, y: 70, z: 0 }, to: { x: -12, y: 75, z: 0 }, yaw: 90, vertical: 'rose', flewBlocks: 12, outcome: 'shattered', ...extra });
 function fake({ eyes = 16, event = flight(), skyOpen = true, filled = [] } = {}) {
 	let clock = 0;
 	const o = { player: { x: 0, y: 70, z: 0, health: 20, skyOpen, threats: [] }, world: { dimension: 'minecraft:overworld' },
 		inventory: { selectedSlot: 0, items: [{ itemId: 'minecraft:ender_eye', count: eyes, slot: 11 }] }, perception: { events: [] }, blocks: filled };
 	const calls = [];
-	const body = { calls, o, eyeSearchState: {}, now: () => clock, observe: async () => structuredClone(o),
+	const body = checkedSearchBody({ calls, o, eyeSearchState: {}, now: () => clock, observe: async () => structuredClone(o),
 		look: async () => ({ survey: {} }), progress: () => {},
 		act: async (type, args, options) => {
-			normalizeMinecraftToolCall('act', { actionType: type, arguments: args });
 			calls.push({ type, args }); clock += ['control', 'look_at'].includes(type) ? 100 : 1000;
 			if (type === 'use_item') { o.inventory.items[0].count--; }
 			if (type === 'wait') o.perception.events.push(event);
@@ -25,7 +25,7 @@ function fake({ eyes = 16, event = flight(), skyOpen = true, filled = [] } = {})
 			if (type === 'pick_up_item') o.inventory.items[0].count++;
 			return { state: 'SUCCEEDED', reasonCode: 'ARRIVED', ...(options?.watch?.(o) ? { seen: options.watch(o) } : {}) };
 		},
-	};
+	});
 	return body;
 }
 const target = { structure: 'stronghold', throwCap: 1 };

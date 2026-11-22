@@ -5,6 +5,7 @@ import { adaptObservation } from '../src/observation-adapter.mjs';
 import { factToWireObservation } from './fixtures/dynamic-main-fixture.mjs';
 import { DEFAULT_REFLEXES, MAX_REFLEXES, ReflexBook, normalizeReflexEntries } from '../src/reflexes.mjs';
 import { runObtain } from '../src/obtain-runner.mjs';
+import { checkedObtainBody } from './helpers/checked-body.mjs';
 
 function view({visible=true,targeting=false,distance=10,items=[],blocks=[]}={}) {
  const w=factToWireObservation({player:{health:20},inventory:{items},blocks},1,1,false,1000);
@@ -39,7 +40,7 @@ test('resource obtain stops before any search or gather dispatch under seen blaz
  search:async()=>{calls.push('search');return{state:'FAILED',reasonCode:'NO_SOURCE'};},
  gather:async()=>{calls.push('gather');return{state:'FAILED',reasonCode:'NO_SOURCE'};},
  moveTo:async()=>{calls.push('move');return{state:'FAILED',reasonCode:'NO_ROUTE'};},mine:async()=>{calls.push('mine');return{state:'FAILED',reasonCode:'NO_TOOL'};}};
- const result=await runObtain({item:'diamond',timeoutMs:10000},body);
+ const result=await runObtain({item:'diamond',timeoutMs:10000},checkedObtainBody(body));
  assert.equal(result.reasonCode,'DANGER');assert.equal(result.state,'INTERRUPTED');assert.equal(calls.some(c=>['search','gather','move','travel_to','dig_to'].includes(c)),false);
 });
 
@@ -49,7 +50,7 @@ test('held bow inputs can still be crafted at a known table without an errand',a
  const calls=[],body={note:()=>{},observe:async()=>o,interrupted:()=>false,stopped:()=>false,
  act:async(type)=>{calls.push(type);if(type==='craft_table'){o.inventory.items.push({itemId:'minecraft:bow',count:1,slot:2});return{state:'SUCCEEDED',reasonCode:'CRAFT_CONFIRMED'};}return{state:'FAILED',reasonCode:'UNEXPECTED_TEST_ACTION'};},
  search:async()=>{throw Error('unexpected resource search');},gather:async()=>{throw Error('unexpected gather');}};
- const result=await runObtain({item:'bow',timeoutMs:10000},body);
+ const result=await runObtain({item:'bow',timeoutMs:10000},checkedObtainBody(body));
  assert.equal(result.reasonCode,'OBTAINED');assert.ok(calls.includes('craft_table'));
  assert.equal(calls.some(t=>['travel_to','dig_to','navigate_to'].includes(t)),false);
 });

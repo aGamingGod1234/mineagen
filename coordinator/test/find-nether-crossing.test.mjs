@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { searchFor } from '../src/find-search.mjs';
+import { checkedSearchBody } from './helpers/checked-body.mjs';
 
 const noRoute = { state: 'FAILED', reasonCode: 'NO_ROUTE', message: 'No seen standing spot ahead gets closer, and build is false' };
 const found = { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', seen: { id: 'fortress', x: 60, y: 43, z: 0, distance: 8, via: 'sight' } };
@@ -12,7 +13,7 @@ function bodyFor({ items = blocks(64), travel = () => ({ result: noRoute }), onL
 		world: { dimension: 'minecraft:the_nether', biome: 'minecraft:nether_wastes' }, inventory: { items },
 	};
 	const calls = [];
-	return { calls, now: () => now, observe: async () => structuredClone(observation), frontier: () => null, known: () => null, places: async () => [],
+	return checkedSearchBody({ calls, now: () => now, observe: async () => structuredClone(observation), frontier: () => null, known: () => null, places: async () => [],
 		look: async () => { now += 1000; observation = onLook?.(observation, calls) ?? observation; return { state: 'SUCCEEDED', survey: {} }; },
 		act: async (type, args) => {
 			assert.equal(type, 'travel_to');
@@ -23,7 +24,7 @@ function bodyFor({ items = blocks(64), travel = () => ({ result: noRoute }), onL
 			if (step.then) observation = { ...observation, ...step.then };
 			return step.result;
 		},
-	};
+	});
 }
 
 test('R5 G3:42/80 progress keeps walking, then zero progress gets one short build on that bearing', async () => {

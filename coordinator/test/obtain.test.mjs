@@ -1,10 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { keepPickaxeMakings, planObtain, resolveObtainItem } from '../src/obtain-plan.mjs';
-import { locate, runObtain, searchBlock, placementCell, placementCells } from '../src/obtain-runner.mjs';
+import { locate, runObtain as runObtainUnchecked, searchBlock, placementCell, placementCells } from '../src/obtain-runner.mjs';
 import { searchFor } from '../src/find-search.mjs';
 import { normalizeMinecraftToolCall } from '../src/native-minecraft-tools.mjs';
 import { howtoIndex } from '../src/howto.mjs';
+import { checkedObtainBody, checkedSearchBody } from './helpers/checked-body.mjs';
+
+// Every fake body a test hands obtain is checked at the call, after the test has swapped in its own act or mine.
+const runObtain = (target, body, options) => runObtainUnchecked(target, checkedObtainBody(body), options);
 
 const index = howtoIndex();
 const bare = (value) => String(value).replace(/^minecraft:/, '');
@@ -164,9 +168,9 @@ for (const tree of ['acacia_log', 'spruce_log', 'pale_oak_log']) test(`generic w
 	let target;
 	const body = { observe: async () => observation, search: async (asked) => {
 		target = asked;
-		return searchFor(asked, { now: () => 0, observe: async () => ({ ...observation, blocks: [source] }), known: () => null, places: async () => [],
+		return searchFor(asked, checkedSearchBody({ now: () => 0, observe: async () => ({ ...observation, blocks: [source] }), known: () => null, places: async () => [],
 			look: async () => { assert.fail('the accepted visible log must end the search before another survey'); },
-			act: async () => { assert.fail('the accepted visible log must end the search before walking'); } });
+			act: async () => { assert.fail('the accepted visible log must end the search before walking'); } }));
 	} };
 	const result = await locate(need, body, { budget: { failed: new Set() }, timeoutMs: 60_000 });
 	assert.equal(target.block, 'minecraft:oak_log', 'a plains start keeps its original primary');
@@ -411,7 +415,7 @@ const ticking = () => { let t = 0; return () => (t += 100); };
 test('gate seed 5 scripted: a raw iron drop past the tunnel end is dug to and picked up, not left for a second vein', async () => {
 	const body = simulatedBody({ start: { stone_pickaxe: 1, furnace: 1, crafting_table: 1, stick: 2, oak_planks: 8 } });
 	let drop = null, dug = false;
-	body.mine = async (args) => { body.calls.push(['mine', args]); if (args.vein) drop = { stableId: 'raw-1', itemId: 'minecraft:raw_iron', x: 7.5, y: 20, z: 4.5 }; return { state: 'SUCCEEDED' }; };
+	body.mine = async (args) => { body.calls.push(['mine', args]); if (args.vein) drop = { stableId: '00000000-0000-4000-8000-00000000a001', itemId: 'minecraft:raw_iron', x: 7.5, y: 20, z: 4.5 }; return { state: 'SUCCEEDED' }; };
 	const observe = body.observe;
 	body.observe = async () => { const o = await observe(); o.player.skyOpen = o.player.y < 60 ? false : true; if (drop) o.items = [drop]; return o; };
 	const act = body.act;
@@ -541,7 +545,7 @@ test('round-2 P2 4: every pickup carries a timeout, inside what is left of obtai
 	const body = simulatedBody();
 	let broke = null;
 	const observe = body.observe;
-	body.observe = async () => { const o = await observe(); if (broke) o.items = [{ stableId: 'drop-1', itemId: 'minecraft:crafting_table', x: broke.x + 0.5, y: broke.y, z: broke.z + 0.5 }]; return o; };
+	body.observe = async () => { const o = await observe(); if (broke) o.items = [{ stableId: '00000000-0000-4000-8000-00000000d001', itemId: 'minecraft:crafting_table', x: broke.x + 0.5, y: broke.y, z: broke.z + 0.5 }]; return o; };
 	const act = body.act;
 	body.act = async (type, args) => { const result = await act(type, args); if (type === 'break_block') broke = args; if (type === 'pick_up_item') broke = null; return result; };
 	const result = await runObtain({ item: 'wooden_pickaxe', count: 1, timeoutMs: 20_000 }, body, { now: ticking() });
@@ -797,7 +801,7 @@ test('a placed cobblestone block seen earlier (seen-resource model) is the stone
 test('scripted gate seed 8: drops out of view after a vein: look at where the ore was, then pick them up, not a search for another vein', async () => {
 	const body = simulatedBody({ start: { stone_pickaxe: 1, furnace: 1, crafting_table: 1, stick: 2, oak_planks: 8 } });
 	let drop = null, lookedAt = null;
-	body.mine = async (args) => { body.calls.push(['mine', args]); if (args.vein) drop = { stableId: 'raw-8', itemId: 'minecraft:raw_iron', x: args.x + 0.5, y: args.y, z: args.z + 0.5 }; return { state: 'SUCCEEDED' }; };
+	body.mine = async (args) => { body.calls.push(['mine', args]); if (args.vein) drop = { stableId: '00000000-0000-4000-8000-00000000a008', itemId: 'minecraft:raw_iron', x: args.x + 0.5, y: args.y, z: args.z + 0.5 }; return { state: 'SUCCEEDED' }; };
 	const observe = body.observe;
 	// The drop is in the sample only once the body has looked toward it.
 	body.observe = async () => { const o = await observe(); if (drop && lookedAt) o.items = [drop]; return o; };

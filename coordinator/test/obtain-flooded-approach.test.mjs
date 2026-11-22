@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { runObtain } from '../src/obtain-runner.mjs';
 const { NativeToolRuntime } = await import(process.env.IRON_RUNTIME ?? '../src/native-tool-runtime.mjs');
 import { normalizeMinecraftToolCall } from '../src/native-minecraft-tools.mjs';
+import { checkedObtainBody } from './helpers/checked-body.mjs';
 
 const ore = { blockId: 'minecraft:deepslate_iron_ore', x: 24, y: 4, z: 172 };
 const sample = () => ({ world: { worldId: 'flood-world', dimension: 'minecraft:overworld' },
@@ -19,7 +20,8 @@ function fixture() {
 		missPlace: (...args) => misses.push(args) };
 	return { o, approaches, actions, misses, body, setResult: (r) => { result = r; }, cancel: () => { stop = true; },
 		advance: (ms) => { clock += ms; },
-		run: () => runObtain({ item: 'raw_iron', timeoutMs: 60000 }, body, { approaches, now: () => clock }) };
+		// A fresh checked copy each run, so an act a test puts on f.body is checked too.
+		run: () => runObtain({ item: 'raw_iron', timeoutMs: 60000 }, checkedObtainBody({ ...body }), { approaches, now: () => clock }) };
 }
 
 test('runObtain retains terminal flood provenance, hands back danger, and excludes only that approach', async () => {

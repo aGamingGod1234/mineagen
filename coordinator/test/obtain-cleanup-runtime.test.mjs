@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { NativeToolRuntime } from '../src/native-tool-runtime.mjs';
 import { normalizeMinecraftToolCall } from '../src/native-minecraft-tools.mjs';
+import { checkedObtainBody } from './helpers/checked-body.mjs';
 
 const keepAlive = setInterval(() => {}, 1000);
 // A stop the coordinator makes for a fork, not for danger (Step 3: fork stops keep their own codes).
@@ -118,11 +119,11 @@ test('cleanup cancellation outranks raw danger and retains station/load ledgers'
 	for (const cancelled of [false, true]) {
 		const placed = [{ kind: 'furnace', x: 0, y: 64, z: 1 }], loads = [{ x: 0, y: 64, z: 1, output: 'iron_ingot', want: 3 }];
 		let stopped = false, interrupted = false, breaks = 0;
-		const result = await runObtain({ item: 'water_bucket' }, {
+		const result = await runObtain({ item: 'water_bucket' }, checkedObtainBody({
 			observe: async () => ({ player: { x: 0, y: 64, z: 0, health: 20 }, inventory: { items: [{ itemId: 'minecraft:water_bucket', count: 1 }] } }),
 			stopped: () => stopped, interrupted: () => interrupted, note: () => {},
 			act: async () => { breaks++; stopped = cancelled; interrupted = true; return { state: 'RUNNING', actionId: 'live-cleanup' }; },
-		}, { placed, loads });
+		}), { placed, loads });
 		assert.equal(result.reasonCode, cancelled ? 'CANCELLED' : 'DANGER');
 		assert.equal(result.running.actionId, 'live-cleanup');
 		assert.equal(breaks, 1);

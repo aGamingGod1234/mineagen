@@ -3,6 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { locate, runObtain } from '../src/obtain-runner.mjs';
+import { checkedObtainBody } from './helpers/checked-body.mjs';
 
 const need = { kind: 'block', blocks: ['iron_ore', 'deepslate_iron_ore'], accept: ['raw_iron'], count: 3 };
 const at = (extra = {}) => ({ world: { dimension: 'minecraft:overworld' }, player: { x: 298.5, y: 15, z: -240.5, health: 20, onGround: true },
@@ -40,11 +41,11 @@ test('an ore under the body (VEIN_UNDER_BODY) is not written off as unreachable 
 	const o = () => ({ world: { dimension: 'minecraft:overworld' }, player: { x: 298.5, y: 15, z: -260.5, health: 20, food: 20, onGround: true },
 		inventory: { selectedSlot: 0, items: [{ itemId: 'minecraft:stone_pickaxe', slot: 0, count: 1, remainingDurability: 100 }] },
 		blocks: [{ blockId: 'minecraft:iron_ore', x: 298, y: 14, z: -261 }, { blockId: 'minecraft:stone', x: 298, y: 14, z: -260 }] });
-	const body = { observe: async () => o(), stopped: () => false, interrupted: () => false, note: () => {},
+	const body = checkedObtainBody({ observe: async () => o(), stopped: () => false, interrupted: () => false, note: () => {},
 		act: async () => ({ state: 'SUCCEEDED', reasonCode: 'DIG_GOAL_REACHED' }),
 		mine: async () => ({ state: 'FAILED', reasonCode: 'VEIN_UNDER_BODY', message: 'every seen block lies under the body' }),
 		search: async () => ({ reasonCode: 'FIND_NOT_FOUND', message: 'not found' }),
-		missPlace: (place, why) => missed.push({ ...place, why }) };
+		missPlace: (place, why) => missed.push({ ...place, why }) });
 	let t = 0;
 	await runObtain({ item: 'raw_iron', count: 1, timeoutMs: 60_000 }, body, { now: () => (t += 1000) });
 	assert.deepEqual(missed.filter((row) => row.why === 'unreachable'), [], 'the ore stays a known source');
@@ -54,9 +55,9 @@ test('a remembered ore is walked toward until it shows, aimed at the cell over i
 	const acts = [];
 	const o = () => at({ inventory: { selectedSlot: 0, items: [{ itemId: 'minecraft:stone_pickaxe', slot: 0, count: 1, remainingDurability: 100 }] },
 		player: { x: 319.5, y: 15, z: -249.5, health: 20, food: 20, onGround: true }, seenResources: [ore] });
-	const body = { observe: async () => o(), stopped: () => false, interrupted: () => false, note: () => {},
+	const body = checkedObtainBody({ observe: async () => o(), stopped: () => false, interrupted: () => false, note: () => {},
 		act: async (type, args) => { acts.push([type, args]); return { state: 'FAILED', reasonCode: 'NO_ROUTE' }; },
-		mine: async () => ({ state: 'FAILED', reasonCode: 'NOTHING_MINED' }), search: async () => ({ reasonCode: 'FIND_NOT_FOUND' }), missPlace: () => {} };
+		mine: async () => ({ state: 'FAILED', reasonCode: 'NOTHING_MINED' }), search: async () => ({ reasonCode: 'FIND_NOT_FOUND' }), missPlace: () => {} });
 	let t = 0;
 	await runObtain({ item: 'raw_iron', count: 1, timeoutMs: 30_000 }, body, { now: () => (t += 1000) });
 	const walk = acts.find(([type]) => type === 'travel_to')?.[1];
@@ -69,14 +70,14 @@ test('review: a remembered walk that sights another block of the ore takes that 
 	const near = { blockId: 'minecraft:iron_ore', x: 300, y: 14, z: -255 };
 	const o = () => at({ inventory: { selectedSlot: 0, items: [{ itemId: 'minecraft:stone_pickaxe', slot: 0, count: 1, remainingDurability: 100 }] },
 		player, seenResources: [ore], blocks: player.x < 302 ? [near] : [] });
-	const body = { observe: async () => o(), stopped: () => false, interrupted: () => false, note: () => {},
+	const body = checkedObtainBody({ observe: async () => o(), stopped: () => false, interrupted: () => false, note: () => {},
 		act: async (type, args) => {
 			acts.push([type, args]);
 			if (type === 'travel_to') { player = { ...player, x: 300.5, z: -253.5 }; return { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:iron_ore seen at 300,14,-255, 2 blocks away' }; }
 			return { state: 'SUCCEEDED', reasonCode: 'DIG_GOAL_REACHED' };
 		},
 		mine: async (args) => { mined.push(args); return { state: 'FAILED', reasonCode: 'HOSTILE_NEAR' }; },
-		search: async () => ({ reasonCode: 'FIND_NOT_FOUND' }), missPlace: (place, why) => missed.push({ ...place, why }) };
+		search: async () => ({ reasonCode: 'FIND_NOT_FOUND' }), missPlace: (place, why) => missed.push({ ...place, why }) });
 	let t = 0;
 	await runObtain({ item: 'raw_iron', count: 1, timeoutMs: 20_000 }, body, { now: () => (t += 1000) });
 	assert.deepEqual([mined[0]?.x, mined[0]?.y, mined[0]?.z], [300, 14, -255], 'mines the ore the walk saw');

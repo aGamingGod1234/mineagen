@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { searchFor } from '../src/find-search.mjs';
 import { runObtain } from '../src/obtain-runner.mjs';
 import { ObservedMemoryStore } from '../src/observed-memory-store.mjs';
+import { checkedObtainBody, checkedSearchBody } from './helpers/checked-body.mjs';
 
 const sample = (player, extra = {}) => ({ player: { yaw: 0, health: 20, ...player }, world: { dimension: 'minecraft:overworld', biome: 'minecraft:plains' },
 	inventory: { items: [{ itemId: 'minecraft:stone_pickaxe', count: 1 }] }, ...extra });
@@ -13,7 +14,7 @@ const sample = (player, extra = {}) => ({ player: { yaw: 0, health: 20, ...playe
 function scriptedBody({ start, acts = {}, known = null, missed = [] }) {
 	let observation = structuredClone(start), clock = 0;
 	const calls = [];
-	return {
+	return checkedSearchBody({
 		calls, missed,
 		now: () => clock,
 		progress: () => {},
@@ -31,7 +32,7 @@ function scriptedBody({ start, acts = {}, known = null, missed = [] }) {
 		places: async () => [],
 		missedPlaces: () => missed,
 		missPlace: (place, why) => missed.push({ ...place, why }),
-	};
+	});
 }
 
 test('B-1: water under a spot stops one dig down there, then the body moves off, not four digs one per heading', async () => {
@@ -124,7 +125,7 @@ test('B-3: a walk to a herd that stops out of reach is not followed by a hunt, a
 	// OUT_OF_BLOCKS), and each time fight_until then saw no cow for 30 s.
 	const calls = [];
 	const at = { x: 492.3, y: 62, z: -165.5 };
-	const body = {
+	const body = checkedObtainBody({
 		observe: async () => ({ player: { ...at, health: 20, yaw: 0, skyOpen: true }, world: { dimension: 'minecraft:overworld', biome: 'minecraft:plains' },
 			inventory: { selectedSlot: 0, items: [{ itemId: 'minecraft:stone_sword', count: 1, slot: 0 }] }, blocks: [], entities: [], items: [] }),
 		stopped: () => false, interrupted: () => false, note: () => {},
@@ -138,7 +139,7 @@ test('B-3: a walk to a herd that stops out of reach is not followed by a hunt, a
 			if (type === 'fight_until') return { state: 'FAILED', reasonCode: 'NO_TARGET_SEEN', message: 'No minecraft:cow seen within 24 blocks for 30 s' };
 			return { state: 'SUCCEEDED' };
 		},
-	};
+	});
 	const result = await runObtain({ item: 'minecraft:beef', count: 3, timeoutMs: 600_000 }, body);
 	const hunts = calls.filter(([type]) => type === 'fight_until').length;
 	const walks = calls.filter(([type]) => type === 'travel_to').length;

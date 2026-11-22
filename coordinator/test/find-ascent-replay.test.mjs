@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 const { searchFor } = await import(process.env.ASCENT_SOURCE ?? '../src/find-search.mjs');
 const { NativeToolRuntime } = await import(process.env.ASCENT_RUNTIME ?? '../src/native-tool-runtime.mjs');
 import { normalizeMinecraftToolCall } from '../src/native-minecraft-tools.mjs';
+import { checkedSearchBody } from './helpers/checked-body.mjs';
 
 const sample = () => ({ player: { x: 55.5, y: 19, z: -54.5, yaw: 0, health: 20, air: 300, maxAir: 300, skyOpen: false, onGround: true },
 	world: { dimension: 'minecraft:overworld' }, inventory: { selectedSlot: 0, items: [{ itemId: 'minecraft:stone_pickaxe', slot: 0, count: 1 }] }, blocks: [] });
@@ -45,9 +46,9 @@ function sequence(mode = 'loss') {
 }
 async function run(mode) {
 	const f = sequence(mode);
-	const body = { now: f.now, observe: async () => structuredClone(f.o), progress: () => {},
+	const body = checkedSearchBody({ now: f.now, observe: async () => structuredClone(f.o), progress: () => {},
 		look: async () => ({ state: 'SUCCEEDED', survey: {} }), act: async (type, args) => f.act(type, args),
-		openSky: () => sky, known: () => null, places: async () => [], frontier: () => null };
+		openSky: () => sky, known: () => null, places: async () => [], frontier: () => null });
 	const result = await searchFor({ block: 'minecraft:gravel' }, body, { timeoutMs: 570000 });
 	return { ...f, result };
 }

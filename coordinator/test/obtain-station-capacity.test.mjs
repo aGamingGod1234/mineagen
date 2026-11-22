@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { runObtain } from '../src/obtain-runner.mjs';
+import { checkedObtainBody } from './helpers/checked-body.mjs';
 
 // G2 receipt :485 broke the table after a replacement craft filled its old slot.
 // This body models that capacity boundary, not Minecraft pickup geometry.
@@ -15,7 +16,7 @@ for (const scenario of ['junk', 'two junk', 'no junk', 'rejected drop', 'danger'
 		}));
 		let broken = false, danger = false;
 		const calls = [];
-		const body = {
+		const body = checkedObtainBody({
 			observe: async () => ({ player: { x: -460.5, y: -23, z: -93.5, health: 20, onFire: danger },
 				world: { dimension: station.dimension }, inventory: { selectedSlot: 0, items: structuredClone(items) },
 				blocks: broken ? [] : [{ ...station, blockId: 'minecraft:crafting_table' }], items: [] }),
@@ -36,7 +37,7 @@ for (const scenario of ['junk', 'two junk', 'no junk', 'rejected drop', 'danger'
 				}
 				return { state: 'SUCCEEDED', reasonCode: 'ACTION_COMPLETED' };
 			},
-		};
+		});
 		const result = await runObtain({ item: 'stone_pickaxe' }, body, { placed, now: () => 0 });
 		if (['junk', 'two junk', 'room', 'stack'].includes(scenario)) {
 			assert.equal(result.reasonCode, 'OBTAINED');
@@ -58,9 +59,9 @@ for (const stale of [false, true]) test(`station cleanup retains its ledger with
  const placed = [{kind:'crafting_table',x:0,y:64,z:0,dimension:'minecraft:overworld'}];
  const items = Array.from({length:36},(_,slot)=>({itemId:slot===0?'minecraft:stone_pickaxe':'minecraft:granite',slot,count:1}));
  let samples = 0, actions = 0;
- const body = {observe:async()=>{samples++;return {player:{x:0.5,y:64,z:0.5,health:20},world:{dimension:'minecraft:overworld'},
+ const body = checkedObtainBody({observe:async()=>{samples++;return {player:{x:0.5,y:64,z:0.5,health:20},world:{dimension:'minecraft:overworld'},
   inventory:samples===1||stale?{items}:{},...(stale&&samples>1?{continuity:{rememberedSections:['inventory']}}:{}),blocks:[],items:[]};},
-  stopped:()=>false,interrupted:()=>false,note:()=>{},act:async()=>{actions++;return {state:'FAILED',reasonCode:'UNEXPECTED_ACTION'};}};
+  stopped:()=>false,interrupted:()=>false,note:()=>{},act:async()=>{actions++;return {state:'FAILED',reasonCode:'UNEXPECTED_ACTION'};}});
  await runObtain({item:'stone_pickaxe'},body,{placed,now:()=>0});
  assert.equal(actions,0,'unknown capacity permits neither discard nor dismantling');
  assert.equal(placed.length,1);
@@ -74,13 +75,13 @@ for (const firstPickup of ['collected', 'blocked', 'unconfirmed']) test(`station
 		: { itemId: slot === 0 ? 'minecraft:stone_pickaxe' : 'minecraft:diamond', slot, count: 1 });
 	let broken = false, allowPickup = firstPickup === 'collected';
 	const calls = [];
-	const body = {
+	const body = checkedObtainBody({
 		observe: async () => ({ player: { x: 0.5, y: 64, z: 0.5, health: 20, skyOpen: true },
 			world: { dimension: station.dimension }, inventory: { selectedSlot: 0, items: structuredClone(items) },
 			blocks: broken ? [] : [{ ...station, blockId: 'minecraft:crafting_table' }],
 			items: broken && !items.some((row) => row.itemId === 'minecraft:crafting_table') ? [
-				{ stableId: 'discarded-dirt', itemId: 'minecraft:dirt', x: 0.5, y: 64, z: 1.5 },
-				{ stableId: 'station-drop', itemId: 'minecraft:crafting_table', x: 0.5, y: 64, z: 1.5 },
+				{ stableId: '00000000-0000-4000-8000-00000000d127', itemId: 'minecraft:dirt', x: 0.5, y: 64, z: 1.5 },
+				{ stableId: '00000000-0000-4000-8000-0000000057a7', itemId: 'minecraft:crafting_table', x: 0.5, y: 64, z: 1.5 },
 			] : [] }),
 		stopped: () => false, interrupted: () => false, note: () => {},
 		act: async (type, args) => {
@@ -88,14 +89,14 @@ for (const firstPickup of ['collected', 'blocked', 'unconfirmed']) test(`station
 			if (type === 'drop_item') items.splice(items.findIndex((row) => row.slot === args.slot), 1);
 			if (type === 'break_block') { broken = true; items.push(structuredClone(junk)); }
 			if (type === 'pick_up_item') {
-				assert.equal(args.targetSelector, 'station-drop', 'do not collect discarded junk');
+				assert.equal(args.targetSelector, '00000000-0000-4000-8000-0000000057a7', 'do not collect discarded junk');
 				assert.equal(items.length, 35, 'reclaim room after the long break');
 				if (allowPickup) items.push({ itemId: 'minecraft:crafting_table', slot: 1, count: 1 });
 				else if (firstPickup === 'blocked') return { state: 'FAILED', reasonCode: 'PATH_BLOCKED' };
 			}
 			return { state: 'SUCCEEDED', reasonCode: 'ACTION_COMPLETED' };
 		},
-	};
+	});
 	const result = await runObtain({ item: 'stone_pickaxe' }, body, { placed, now: () => 0 });
 	assert.equal(calls.filter((call) => call.type === 'drop_item').length, 2);
 	assert.equal(calls.filter((call) => call.type === 'break_block').length, 1);
@@ -118,11 +119,11 @@ for (const change of ['spare used', 'different table acquired']) test(`resumed s
 	const items = [{ itemId: 'minecraft:stone_pickaxe', slot: 0, count: 1 }];
 	if (change === 'spare used') items.push({ itemId: 'minecraft:crafting_table', slot: 1, count: 1 });
 	let broken = false, collected = false, allowPickup = false;
-	const body = {
+	const body = checkedObtainBody({
 		observe: async () => ({ player: { x: 0.5, y: 64, z: 0.5, health: 20, skyOpen: true },
 			world: { dimension: station.dimension }, inventory: { selectedSlot: 0, items: structuredClone(items) },
 			blocks: broken ? [] : [{ ...station, blockId: 'minecraft:crafting_table' }],
-			items: broken && !collected ? [{ stableId: 'station-drop', itemId: 'minecraft:crafting_table', x: 0.5, y: 64, z: 1.5 }] : [] }),
+			items: broken && !collected ? [{ stableId: '00000000-0000-4000-8000-0000000057a7', itemId: 'minecraft:crafting_table', x: 0.5, y: 64, z: 1.5 }] : [] }),
 		stopped: () => false, interrupted: () => false, note: () => {},
 		act: async (type, args) => {
 			calls.push({ type, args });
@@ -134,7 +135,7 @@ for (const change of ['spare used', 'different table acquired']) test(`resumed s
 			}
 			return { state: 'SUCCEEDED', reasonCode: 'ACTION_COMPLETED' };
 		},
-	};
+	});
 	await runObtain({ item: 'stone_pickaxe' }, body, { placed, now: () => 0 });
 	assert.equal(placed.length, 1);
 	assert.equal(placed[0].drop, true);
