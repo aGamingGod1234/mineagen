@@ -148,6 +148,7 @@ coordinator/src/conversation-memory.mjs
 coordinator/src/coordinator-status.mjs
 coordinator/src/danger-contexts.mjs
 coordinator/src/danger-glance.mjs
+coordinator/src/danger-lines.mjs
 coordinator/src/danger-steer-coalescer.mjs
 coordinator/src/decision-eval/capture.mjs
 coordinator/src/decision-eval/decision-stake.mjs
@@ -169,6 +170,7 @@ coordinator/src/decision-log.mjs
 coordinator/src/decision-parser.mjs
 coordinator/src/diagnostic-sanitizer.mjs
 coordinator/src/dragon-fight-facts.mjs
+coordinator/src/dynamic-config.mjs
 coordinator/src/dynamic-main.mjs
 coordinator/src/event-observation-presentation.mjs
 coordinator/src/explore-frontier.mjs
@@ -229,6 +231,7 @@ coordinator/src/need-sources.mjs
 coordinator/src/nether-regions.mjs
 coordinator/src/notebook-action-journal.mjs
 coordinator/src/observation-adapter.mjs
+coordinator/src/observation-facts.mjs
 coordinator/src/observed-memory-store.mjs
 coordinator/src/obtain-plan.mjs
 coordinator/src/obtain-runner.mjs
@@ -317,8 +320,10 @@ coordinator/src/voice/voice-http-server.mjs
 coordinator/src/voice/voice-profile-store.mjs
 coordinator/src/voice/voice-supervisor.mjs
 coordinator/src/voice/windows-tts-provider.mjs
+coordinator/src/voice-worker.mjs
 coordinator/src/wake-body-facts.mjs
 coordinator/src/wake-filter.mjs
+coordinator/src/wake-input.mjs
 coordinator/src/work-lease-supervisor.mjs
 coordinator/src/work-notices.mjs
 coordinator/test-support/local-speech-cold-warmup-fixture.mjs
@@ -875,6 +880,7 @@ coordinator/test/tool-response-summary.test.mjs
 coordinator/test/trace-latency.test.mjs
 coordinator/test/trace-writer.test.mjs
 coordinator/test/travel-pair-summary.test.mjs
+coordinator/test/travel-rows.test.mjs
 coordinator/test/tts-cache-identity.test.mjs
 coordinator/test/two-call-llm-wrap.test.mjs
 coordinator/test/unicode-text-contracts.test.mjs
@@ -1000,6 +1006,7 @@ scripts/quality/lib/reflex-failspot-pass.mjs
 scripts/quality/lib/room-evidence.mjs
 scripts/quality/lib/scripted-planner.mjs
 scripts/quality/lib/stake-comparison.mjs
+scripts/quality/lib/travel-rows.mjs
 scripts/quality/make-checkpoint.mjs
 scripts/quality/measure-tick-rate.mjs
 scripts/quality/mod-jar.mjs
