@@ -68,7 +68,8 @@ export function hostileInWay(result, observation, { within = 16 } = {}) {
 	const near = alive.filter(one => distanceTo(at, one) <= within).sort((a, b) => distanceTo(at, a) - distanceTo(at, b));
 	if (named) {
 		const seen = alive.find(one => one.stableId === named[2]);
-		return { type: named[1], id: named[2], many: false, distance: seen ? distanceTo(at, seen) : null, seen: Boolean(seen) };
+		// Another hostile near besides the named one makes it more than one, as for an unnamed stop.
+		return { type: named[1], id: named[2], many: near.some(one => one.stableId !== named[2]), distance: seen ? distanceTo(at, seen) : null, seen: Boolean(seen) };
 	}
 	if (!near.length) return null;
 	return { type: mobType(near[0].type), id: near[0].stableId, many: near.length > 1, distance: distanceTo(at, near[0]), seen: true };
@@ -87,8 +88,10 @@ export function eatCalls(observation) {
 		const free = [8, 7, 6, 5, 4, 3, 2, 1, 0].find(slot => !used.has(slot)) ?? 8;
 		calls.push({ name: 'act', arguments: { actionType: 'select_tool', arguments: { sourceSlot: food.slot, hotbarSlot: free, expectedItemId: food.itemId, minRemainingDurability: 0 } } });
 	}
-	calls.push({ name: 'act', arguments: { actionType: 'select_item', arguments: { itemId: food.itemId } } });
-	calls.push({ name: 'act', arguments: { actionType: 'use_item', arguments: { mode: 'hold', durationMs: 2_000 } } });
+	// Food in the offhand is eaten from there: select_item takes hotbar slots only, and use_item defaults to the main hand.
+	const offhand = food.slot === 'offhand' || food.slot === 40;
+	if (!offhand) calls.push({ name: 'act', arguments: { actionType: 'select_item', arguments: { itemId: food.itemId } } });
+	calls.push({ name: 'act', arguments: { actionType: 'use_item', arguments: { mode: 'hold', durationMs: 2_000, ...(offhand ? { hand: 'off' } : {}) } } });
 	return { food: food.itemId, calls };
 }
 

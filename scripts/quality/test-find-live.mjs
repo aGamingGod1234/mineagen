@@ -244,7 +244,12 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 			if (!decision.fork) { (row.standin ??= []).push(standinEntry(decision, { atS, step: callIndex, code: result?.reasonCode })); return decision; }
 			used[decision.fork] = (used[decision.fork] ?? 0) + 1;
 			const outcomes = await playStandin(decision, { dead: async () => (await deaths()) > deathsBefore, run: (one, index) => {
-				const args = one.name === 'do_step' ? { ...one.arguments, target: { ...one.arguments.target, timeoutMs: Math.max(60_000, Math.min(300_000, budgetMs - (now() - t0) - 30_000)) } } : one.arguments;
+				// Recovery stays inside the room budget: an obtain needs its 60 s minimum left, an act call gets at most what is left.
+				const left = budgetMs - (now() - t0);
+				if (left < (one.name === 'do_step' ? 60_000 : 10_000)) return { state: 'SKIPPED', reasonCode: 'ROOM_BUDGET', message: `${Math.round(left / 1000)} s of the room budget left` };
+				const inner = one.arguments?.arguments;
+				const args = one.name === 'do_step' ? { ...one.arguments, target: { ...one.arguments.target, timeoutMs: Math.max(60_000, Math.min(300_000, left - 30_000)) } }
+					: Number.isFinite(inner?.timeoutMs) ? { ...one.arguments, arguments: { ...inner, timeoutMs: Math.min(inner.timeoutMs, Math.floor(left)) } } : one.arguments;
 				return standinRun({ ...one, arguments: args }, `${callIndex}-${attempt}-${index}`);
 			} });
 			const entry = standinEntry(decision, { atS, step: callIndex, code: result?.reasonCode, outcomes });
@@ -306,6 +311,8 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 				const decision = await standinAnswer(result, callIndex, attempt, used);
 				if ((await deaths()) > deathsBefore) { row.ended = 'death or lost observations'; break; }
 				if (blockedFind && !decision?.fork) break;
+				// The recovery may have spent the budget: ask again only with the 10 s shouldRepeat needs.
+				if (budgetMs - (now() - t0) < 10_000) break;
 				// No fork answered: give the reflexes (and regeneration, when hurt) a moment, then ask again.
 				if (result?.reasonCode === 'FIND_DANGER' && !decision?.fork) await s.clock.sleep((await health()) < 12 ? 15000 : 4000);
 			}

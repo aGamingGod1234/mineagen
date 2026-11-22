@@ -25,6 +25,26 @@ test('an archer named by the stop but not in the latest sample is fled, never ch
 	assert.equal(decision.choice, 'flee');
 });
 
+test('a named zombie with another hostile near counts as more than one and is fled', () => {
+	const CREEPER = 'c2d1e0f9-8a7b-4c6d-9e5f-4a3b2c1d0e9f';
+	const creeper = { stableId: CREEPER, type: 'minecraft:creeper', hostile: true, alive: true, x: 4.5, y: 64, z: 0.5 };
+	const observation = body({ items: kit, entities: [zombie(2), creeper] });
+	const named = standinFork({ result: failed('HOSTILE_NEAR', `build nether_portal; minecraft:zombie ${ZOMBIE} 2.0 blocks away`), observation });
+	const unnamed = standinFork({ result: failed('HOSTILE_NEAR', 'build nether_portal; hostile near'), observation });
+	assert.equal(named.choice, 'flee');
+	assert.equal(named.choice, unnamed.choice);
+});
+
+test('food only in the offhand is eaten from the offhand, not selected into the main hand', () => {
+	const eat = eatCalls(body({ items: [{ itemId: 'minecraft:iron_pickaxe', count: 1, slot: 0 }, { itemId: 'minecraft:bread', count: 4, slot: 40 }] }));
+	assert.deepEqual(eat.calls.map(one => one.arguments.actionType), ['use_item']);
+	assert.equal(eat.calls[0].arguments.arguments.hand, 'off');
+	for (const one of eat.calls) assert.doesNotThrow(() => normalizeMinecraftToolCall(one.name, one.arguments));
+	const hotbar = eatCalls(body({ items: [{ itemId: 'minecraft:bread', count: 4, slot: 3 }] }));
+	assert.deepEqual(hotbar.calls.map(one => one.arguments.actionType), ['select_item', 'use_item']);
+	assert.equal(hotbar.calls[1].arguments.arguments.hand, undefined);
+});
+
 test('a zombie that stopped the build next to the body is fought, not waited out', () => {
 	// cast-gate-7: build nether_portal ended HOSTILE_NEAR with a zombie 1.4 blocks away; the old stand-in only re-asked.
 	const decision = standinFork({ result: failed('HOSTILE_NEAR', `build nether_portal; minecraft:zombie ${ZOMBIE} 1.4 blocks away`), observation: body({ items: kit, entities: [zombie(1.4)] }) });
