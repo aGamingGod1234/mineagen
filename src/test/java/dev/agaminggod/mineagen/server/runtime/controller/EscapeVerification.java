@@ -103,6 +103,17 @@ public final class EscapeVerification {
 				"a ceiling over part of the body's box still blocks the takeoff");
 		// Already as high as the step needs: nothing to check.
 		check(ServerEscapeController.takeoffClear(0.2, 0.8, 0.2, 0.8, 66.9, 65, at -> true), "a body already high enough needs no headroom check");
+		// The water-exit climb (test-water-exit-live, 23 Nov): a ledge top up to 0.875 over the water's top face climbed from
+		// every start; 0.9375 never did.
+		check(SwimPlanning.climbsOut(64.875, 64), "a ledge 0.875 over the water is climbed (measured)");
+		check(!SwimPlanning.climbsOut(64.9375, 64), "a ledge 0.9375 over the water is not (measured)");
+		check(SwimPlanning.climbsOut(64, 64) && SwimPlanning.climbsOut(63.5, 64), "a bank level with or under the water's top is climbed");
+		check(!SwimPlanning.climbsOut(65, 64), "a full block over the water's top is out of reach: a step there raises the way out (iron-kit seed 6006)");
+		// The top of a column's water, rising from a cell: water at 40..42 tops out at 43; no water at the start is none.
+		java.util.function.IntPredicate column = y -> y >= 40 && y <= 42;
+		check(SwimPlanning.waterTop(40, column) == 43 && SwimPlanning.waterTop(42, column) == 43, "the column's water tops out at its highest cell's top face");
+		check(SwimPlanning.waterTop(43, column) == Integer.MIN_VALUE, "a dry start cell has no water top");
+		assertions += 7;
 		assertions += 5;
 		return assertions;
 	}
