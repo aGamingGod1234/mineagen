@@ -86,6 +86,7 @@ export function validateTaskStep(v) {
 }
 
 /** A factual, persistent view of agent-authored plans; never chooses game actions. */
+const ORE_CHECK = /\btool:[a-z_]+:(?:iron|diamond)\+|\bhas:[^&]*\b(?:raw_iron|iron_|raw_gold|gold_|diamond|coal|redstone|lapis|bucket|shield|flint_and_steel)/;
 export class LiveTaskViews {
  #directory; #states = new Map(); #advice = new Map(); #writes = Promise.resolve(); #now; #sources; #progressTiming; #instincts;
  /** sources(record, observation, blockPattern) returns remembered { sightings, blocks } of that world and dimension, or null. */
@@ -558,6 +559,15 @@ export class LiveTaskViews {
   const items = [...counts.values()].slice(0, GOAL_LINE_ITEMS).map(term => term.reason);
   const parts = [...(items.length ? [items.join(', ')] : []), ...(next ? [`next: ${next.id}`] : [])];
   return parts.length ? parts.join('; ') : null;
+ }
+ /**
+  * Whether the step being worked needs ore: its check names an ore item, an item made from one (bucket, shield,
+  * flint and steel), or an iron or diamond tool tier. The goal line's "next:" names the step id, which can be anything.
+  */
+ nextNeedsOre(record) {
+  if (!record.currentGoal) return false;
+  const check = firstUnfinished(this.#state(record))?.check;
+  return typeof check === 'string' && ORE_CHECK.test(check);
  }
  /** One goal skill whose preconditions hold now (skill-fits.mjs), from the plan's open counted needs; null otherwise. */
  skillLine(record) {

@@ -42,7 +42,8 @@ const CARRY_ON = new Set(['keep_working', 'ignore', 'carry_on', 'restart_here', 
 // The same kind is not asked again within this window, so a long fight or a cave in view does not repeat the menu.
 // Lava is asked rarely: in the Nether it is in view most of the time. Night is asked once per night (a night is 7 min).
 const REPEAT_MS = Object.freeze({ low_health: 20_000, threat: 20_000, lava_seen: 180_000, respawned: 30_000, entered_dim: 30_000, night_falls: 600_000, cave_seen: 120_000, kit_gap: 300_000, food_stored: 300_000 });
-// The goal line names the next base resource ("...; next: iron"); a cave matters while that is an ore.
+// The goal line names the next step ("...; next: iron"); a cave matters while that is an ore. A step id that names no
+// ore (next: iron_capability) is read from the step's check instead (needsOre).
 const ORE_NEXT = /\bnext: (?:iron|coal|gold|diamonds?|redstone)\b/;
 // A known cave in the task facts: "cave(air 62/125) 12m S dy+12 y42 @8,42,-200". Only one close enough to walk into now.
 const CAVE_LEAD = /\bcave\(air \d+\/\d+\) (\d+)m[^;@|]*@(-?\d+),(-?\d+),(-?\d+)/g;
@@ -66,7 +67,7 @@ export const CHOOSE_RESPONSE_TOOL = Object.freeze({
  * The live signals a wake shows: the decorated observation, the wake trigger, its change line, the task facts text
  * (options and known sources, where cave leads appear) and the goal line (its "next:" resource).
  */
-export function momentSignals({ observation = {}, trigger = null, changed = null, taskFacts = null, goalNow = null } = {}) {
+export function momentSignals({ observation = {}, trigger = null, changed = null, taskFacts = null, goalNow = null, needsOre = false } = {}) {
 	const player = observation?.player ?? {};
 	// Only hostiles that target the player: a mob merely nearby is not this moment.
 	const threats = rows(player.threats).filter((t) => t && t.alive !== false && (t.targeting === true || t.targetingAgent === true || (Array.isArray(t.signals) && t.signals.includes('targeting'))));
@@ -74,11 +75,12 @@ export function momentSignals({ observation = {}, trigger = null, changed = null
 	const kit = safe(() => nextKitStep(observation));
 	const dimension = observation?.world?.dimension ?? observation?.dimension ?? null;
 	const overworld = dimension === null || /overworld/.test(String(dimension));
-	const cave = overworld && typeof goalNow === 'string' && ORE_NEXT.test(goalNow) && typeof taskFacts === 'string'
+	const oreNext = needsOre === true || (typeof goalNow === 'string' && ORE_NEXT.test(goalNow));
+	const cave = overworld && oreNext && typeof taskFacts === 'string'
 		? [...taskFacts.matchAll(CAVE_LEAD)].find((m) => Number(m[1]) <= CAVE_NEAR_BLOCKS) ?? null : null;
 	const contexts = safe(() => activeContexts(observation)) ?? new Set();
 	return {
-		emergency: emergencyNow(player),
+		emergency: emergencyNow(player) ?? triggerEmergency(trigger, player),
 		health: Number.isFinite(player.health) ? player.health : null,
 		threats,
 		// The death screen is not the respawn: only respawn acts while dead, so the choice waits for the living body.
@@ -129,14 +131,16 @@ export class ChoiceMoments {
 	#now; #agents = new Map();
 	constructor({ now = Date.now } = {}) { this.#now = now; }
 	/** Flags a moment for this wake, or null (nothing flagged, or the same kind was asked recently). */
-	offer(agentId, signals) {
+	offer(agentId, signals, { goalRevision = null } = {}) {
 		const kind = flagMoment(signals);
 		const agent = this.#agent(agentId);
+		// Each wake replaces the last: a menu the newest wake did not show is over, and answering it acts on old facts.
+		agent.offered = null;
 		if (kind === null) return null;
 		const at = this.#now();
 		if (at - (agent.asked.get(kind) ?? -Infinity) < REPEAT_MS[kind]) return null;
 		agent.asked.set(kind, at);
-		agent.offered = { kind, signals, at };
+		agent.offered = { kind, signals, at, goalRevision };
 		return { kind, line: momentLine(kind) };
 	}
 	offered(agentId) {
@@ -148,6 +152,19 @@ export class ChoiceMoments {
 		if (!this.#agents.has(agentId)) this.#agents.set(agentId, { asked: new Map(), offered: null });
 		return this.#agents.get(agentId);
 	}
+}
+
+// Farther than this from where the menu was offered, its place-bound plans (the cave, the shelter) are of another place.
+const OFFER_MOVED_BLOCKS = 8;
+/** Why an open offer no longer fits the body now (another goal revision, dimension or place), or null. */
+export function offerStale(offered, fresh, goalRevision) {
+	if (offered == null) return null;
+	if (offered.goalRevision !== null && offered.goalRevision !== undefined && goalRevision !== offered.goalRevision) return 'goal';
+	const then = offered.signals ?? {};
+	if (fresh?.dimension != null && then.dimension != null && fresh.dimension !== then.dimension) return 'dimension';
+	const a = then.position, b = fresh?.position;
+	if (a && b && Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) > OFFER_MOVED_BLOCKS) return 'moved';
+	return null;
 }
 
 /**
@@ -195,25 +212,24 @@ export function planChoice(kind, key, s) {
 }
 
 /**
- * The same plan when a body action is already running (a new action would be refused): urgent moves replace it,
- * moving food waits for it to end, and an obtain (foreground) cancels it first. Returns [plan, cancelFirst].
+ * The same plan when a body action is already running (a new action would be refused): urgent moves (act) replace it,
+ * moving food waits for it to end, and a do_step cancels it first. Returns { plan, cancel }.
  */
 export function againstRunning(plan, running, goalRevision) {
 	if (plan.kind !== 'call' || running == null || typeof running.actionId !== 'string') return { plan, cancel: null };
 	const cancel = { name: 'cancelAction', args: { actionId: running.actionId, goalRevision } };
 	if (plan.name === 'act' && plan.args.actionType === 'select_tool') return { plan: { ...plan, args: { ...plan.args, after: running.actionId } }, cancel: null };
 	if (plan.name === 'act') return { plan: { ...plan, name: 'replaceAction', args: { actionId: running.actionId, goalRevision, ...plan.args } }, cancel: null };
-	if (plan.name === 'do_step' && BACKGROUND_VERBS.has(plan.args.verb)) {
-		return { plan: { ...plan, name: 'replaceAction', args: { actionId: running.actionId, goalRevision, actionType: plan.args.verb, arguments: plan.args.target } }, cancel: null };
-	}
+	// A do_step (travel into the cave, a shelter, an obtain) stays a do_step after the running action is cancelled, so it
+	// registers as the current step with its why, exactly as when the body was idle: a raw replaceAction would skip that.
 	return { plan, cancel };
 }
-const BACKGROUND_VERBS = new Set(['travel_to', 'build_shelter']);
 
 /** The choose_response result text the model reads, from what the body did. */
 export function choiceResultText(kind, key, plan, body = null) {
 	const meaning = CHOICE_MENUS[kind]?.[key];
 	if (plan.kind === 'invalid') return `${JSON.stringify(key)} is not a listed response${kind ? ` (keys: ${Object.keys(CHOICE_MENUS[kind]).join(', ')})` : '; no moment is open'}. Carry on with your next call.`;
+	if (plan.kind === 'stale') return `Not carried out: that moment has passed (${plan.why === 'goal' ? 'the goal changed' : plan.why === 'dimension' ? 'you are in another dimension' : 'you have moved on'}). Make your next call from the current facts.`;
 	if (plan.kind === 'emergency') return `Not carried out: ${EMERGENCY_TEXT[plan.emergency] ?? 'an emergency'} comes first. Deal with it now (do_step escape gets you out of water, lava, fire or a hole); the menu is closed.`;
 	if (plan.kind === 'carry_on') return `Chosen: ${meaning}. The running step goes on; make your next call as usual.`;
 	if (plan.kind === 'hand_back') return `Chosen: ${meaning}. No body step does this by itself: make the tool call that does it now.`;
@@ -259,6 +275,14 @@ export function emergencyNow(player = {}) {
 	if (!fireproof && (player.onFire === true || player.fire === true || player.hazard === 'fire')) return 'fire';
 	if (player.onGround === false && Number.isFinite(player.fallDistance) && player.fallDistance > FALL_EMERGENCY_BLOCKS
 		&& player.inWater !== true && player.gliding !== true && player.onClimbable !== true) return 'falling';
+	return null;
+}
+/** The wake's own danger triggers lead with their danger line (dynamic-main dangerFactLine); no menu goes ahead of it. */
+function triggerEmergency(trigger, player = {}) {
+	if (trigger === 'drowning' && player?.underWater !== false) return 'air';
+	if (trigger === 'lava' || trigger === 'lava_flow') return 'lava';
+	if (trigger === 'suffocation' && player?.suffocating === true) return 'suffocation';
+	if (trigger === 'fall' && ((player?.onGround === false && player?.fallDistance > 0) || player?.dropAhead)) return 'falling';
 	return null;
 }
 function threatId(t) { return t?.uuid ?? t?.id ?? t?.stableId ?? null; }

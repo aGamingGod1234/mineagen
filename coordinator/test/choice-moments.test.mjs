@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { CHOICE_MENUS, CHOOSE_RESPONSE_TOOL, ChoiceMoments, againstRunning, choiceResultText, choiceToolEnabled, flagMoment, momentLine, momentSignals, planChoice } from '../src/choice-moments.mjs';
+import { CHOICE_MENUS, CHOOSE_RESPONSE_TOOL, ChoiceMoments, againstRunning, choiceResultText, choiceToolEnabled, flagMoment, momentLine, momentSignals, offerStale, planChoice } from '../src/choice-moments.mjs';
 import { normalizeMinecraftToolCall } from '../src/native-minecraft-tools.mjs';
 import { planCountDefault } from '../src/plan-count.mjs';
+import { LiveTaskViews } from '../src/live-task-view.mjs';
 
 const zombie = { uuid: '0b7f4f5e-8a54-4a33-9d0e-2c1b1d6f2a10', type: 'minecraft:zombie', distance: 6, targeting: true };
 const skeleton = { uuid: '9a3c2b1d-0000-4a33-9d0e-2c1b1d6f2a11', type: 'minecraft:skeleton', distance: 14, signals: ['targeting'] };
@@ -48,6 +49,45 @@ test('a known cave flags cave_seen only while the next resource is an ore, in th
 	assert.equal(momentSignals({ observation: observation(), taskFacts: far.replace('20m E', '40m E'), goalNow: 'next: iron' }).cave, null);
 	const nether = observation({}, { world: { dimension: 'minecraft:the_nether' } });
 	assert.equal(momentSignals({ observation: nether, taskFacts, goalNow: 'next: iron' }).cave, null);
+});
+
+test('a cave is offered when the step being worked needs ore, whatever the plan calls that step', async () => {
+	const taskFacts = '{"known":"caves: cave(air 62/125) 12m S dy+12 y42 @8,42,-200"}';
+	const views = new LiveTaskViews(), r = { agentId: 'agent-ore', currentGoal: 'beat the game', currentGoalSpec: null, goalRevision: 1 };
+	const step = (id, check) => ({ id, label: id, kind: 'inventory', status: 'pending', dependsOn: [], detail: '', evidence: null, check });
+	await views.observe(r, { ready: true, observedAtEpochMs: 1_000, world: { worldId: 'w', dimension: 'minecraft:overworld' }, player: { dead: false, health: 20 }, inventory: { items: [] } });
+	await views.operate(r, normalizeMinecraftToolCall('taskPlan', { operation: 'replace', plan: { steps: [
+		step('iron_capability', 'tool:pickaxe:iron+ & has:minecraft:bucket|minecraft:water_bucket|minecraft:lava_bucket*1'), step('nether', 'in:minecraft:the_nether')] } }));
+	const goalNow = views.goalLine(r);
+	assert.match(goalNow, /next: iron_capability/);
+	assert.equal(flagMoment(momentSignals({ observation: observation(), taskFacts, goalNow })), null, 'the step id alone does not read as ore');
+	assert.equal(views.nextNeedsOre(r), true);
+	assert.equal(flagMoment(momentSignals({ observation: observation(), taskFacts, goalNow, needsOre: views.nextNeedsOre(r) })), 'cave_seen');
+	await views.operate(r, normalizeMinecraftToolCall('taskPlan', { operation: 'replace', plan: { steps: [step('wood', 'has:minecraft:oak_log*4')] } }));
+	assert.equal(views.nextNeedsOre(r), false, 'logs are not ore');
+});
+
+test('a menu lasts one wake, and an answer after the goal, dimension or place changed is not carried out', () => {
+	const moments = new ChoiceMoments({ now: () => 0 });
+	assert.equal(moments.offer('a', momentSignals({ observation: observation({ threats: [zombie] }) }), { goalRevision: 4 }).kind, 'threat');
+	assert.equal(moments.offered('a').goalRevision, 4);
+	assert.equal(moments.offer('a', momentSignals({ observation: observation() })), null);
+	assert.equal(moments.offered('a'), null, 'the next wake showed no menu, so the old one is closed');
+	const here = momentSignals({ observation: observation({ x: 0, y: 64, z: 0 }) });
+	const open = { signals: here, goalRevision: 4 };
+	assert.equal(offerStale(open, here, 4), null);
+	assert.equal(offerStale(open, here, 5), 'goal');
+	assert.equal(offerStale(open, momentSignals({ observation: observation({ x: 30, y: 64, z: 0 }) }), 4), 'moved');
+	assert.equal(offerStale(open, momentSignals({ observation: observation({ x: 0, y: 64, z: 0 }, { world: { dimension: 'minecraft:the_nether' } }) }), 4), 'dimension');
+	assert.equal(offerStale(open, null, 4), null, 'with no fresh sample only the goal is checked');
+	assert.match(choiceResultText('cave_seen', 'enter_cave', { kind: 'stale', why: 'moved' }), /moment has passed/);
+});
+
+test('the wake\'s own danger triggers keep the menu off even before the body sample shows it', () => {
+	assert.equal(flagMoment(momentSignals({ observation: observation({ health: 6, underWater: true }), trigger: 'drowning' })), null);
+	assert.equal(flagMoment(momentSignals({ observation: observation({ threats: [zombie] }), trigger: 'lava_flow' })), null);
+	assert.equal(flagMoment(momentSignals({ observation: observation({ threats: [zombie], dropAhead: true }), trigger: 'fall' })), null);
+	assert.equal(flagMoment(momentSignals({ observation: observation({ threats: [zombie] }), trigger: 'suffocation' })), 'threat', 'an air refill wake while not suffocating is no emergency');
 });
 
 test('night is flagged from the change line or the clock, last of all', () => {
@@ -163,7 +203,7 @@ test('an open offer expires after a minute', () => {
 	assert.equal(moments.offered('a'), null);
 });
 
-test('with a body action running, urgent moves replace it, food waits for it, and obtain cancels it first', () => {
+test('with a body action running, urgent moves replace it, food waits for it, and a step cancels it first', () => {
 	const running = { actionId: 'act-7', actionType: 'dig_to', arguments: {} };
 	const s = momentSignals({ observation: observation({ threats: [zombie], x: 1, y: 64, z: 1 }, { inventory: { selectedSlot: 0, items: [{ itemId: 'minecraft:cobblestone', count: 40, slot: 4 }] } }) });
 	s.foodToHotbar = { kind: 'hotbar', sourceSlot: 12, hotbarSlot: 8, itemId: 'minecraft:bread' };
@@ -172,9 +212,12 @@ test('with a body action running, urgent moves replace it, food waits for it, an
 	assert.equal(flee.plan.name, 'replaceAction');
 	assert.deepEqual(flee.plan.args, { actionId: 'act-7', goalRevision: 3, actionType: 'flee_from', arguments: { targetId: zombie.uuid, distance: 16, timeoutMs: 10_000 } });
 	assert.equal(flee.cancel, null);
+	// Mid-dig, entering the cave is the same do_step travel_to as from an idle body, with its why, after a cancel.
 	const cave = againstRunning(planChoice('cave_seen', 'enter_cave', s), running, 3);
-	assert.equal(cave.plan.name, 'replaceAction');
-	assert.equal(cave.plan.args.actionType, 'travel_to');
+	assert.equal(cave.plan.name, 'do_step');
+	assert.equal(cave.plan.args.verb, 'travel_to');
+	assert.equal(cave.plan.args.why, 'Go into the cave and scan its walls for ore.');
+	assert.deepEqual(cave.cancel, { name: 'cancelAction', args: { actionId: 'act-7', goalRevision: 3 } });
 	const food = againstRunning(planChoice('food_stored', 'food_to_hotbar', s), running, 3);
 	assert.equal(food.plan.name, 'act');
 	assert.equal(food.plan.args.after, 'act-7');

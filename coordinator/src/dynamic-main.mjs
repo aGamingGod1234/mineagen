@@ -104,7 +104,7 @@ import { carriedFoodToEat, eatCalls, naturalRegeneration } from './fork-rule.mjs
 const COUNT_SKILL_HELD = new Set(['damage', 'threat', 'projectile', 'fire']);
 import { DEFAULT_REFLEXES, DIMENSION_REFLEXES, ReflexBook, instinctsEnabled } from './reflexes.mjs';
 import { kitHabitEnabled } from './kit-habit.mjs';
-import { ChoiceMoments, againstRunning, choiceResultText, choiceToolEnabled, momentSignals, planChoice } from './choice-moments.mjs';
+import { ChoiceMoments, againstRunning, choiceResultText, choiceToolEnabled, momentSignals, offerStale, planChoice } from './choice-moments.mjs';
 import { normalizeMinecraftToolCall } from './native-minecraft-tools.mjs';
 // Namespace import: situationStrategyTopic is optional, so the changed line works with or without it.
 import * as strategyReference from './minecraft-strategy-reference.mjs';
@@ -2712,7 +2712,7 @@ export class DynamicCoordinator extends EventEmitter {
 		// Only Codex threads are given the choose_response tool (codex-service.mjs).
 		if (this.#choiceMoments === null || record?.provider !== 'codex') return input;
 		let offer = null;
-		try { offer = this.#choiceMoments.offer(record.agentId, momentSignals(facts)); } catch { return input; }
+		try { offer = this.#choiceMoments.offer(record.agentId, momentSignals(facts), { goalRevision: record.goalRevision }); } catch { this.#choiceMoments.clear(record.agentId); return input; }
 		if (offer === null) return input;
 		this.#writeTrace('choice_moment_offered', { agentId: record.agentId, goalRevision: record.goalRevision, kind: offer.kind });
 		return `${offer.line} ${input}`;
@@ -2727,19 +2727,21 @@ export class DynamicCoordinator extends EventEmitter {
 		const record = this.#registry.get(work.agentId);
 		const open = this.#choiceMoments?.offered(work.agentId) ?? null;
 		let signals = open?.signals ?? null;
-		let emergency = null;
+		let emergency = null, stale = open === null ? null : offerStale(open, null, record?.goalRevision ?? work.goalRevision);
 		const latest = record === null ? null : this.#nativeRuntime.latestObservation(record)?.observation ?? null;
 		if (open !== null && latest !== null) {
 			try {
 				const fresh = momentSignals({ observation: latest });
 				emergency = fresh.emergency;
+				stale = offerStale(open, fresh, record?.goalRevision ?? work.goalRevision);
 				// No targeting hostile in the latest observation is a real update: fight or flee then goes back to the model.
 				signals = { ...signals, threats: fresh.threats, position: fresh.position ?? signals.position,
 					block: fresh.block ?? signals.block, facing: fresh.facing ?? signals.facing, foodToHotbar: open.kind === 'food_stored' ? fresh.foodToHotbar : signals.foodToHotbar };
 			} catch { /* the offer's own facts stand */ }
 		}
 		// An emergency since the offer outranks every answer: no fight, carry-on or lava use takes the body from escape.
-		const planned = open === null ? { kind: 'invalid' } : emergency !== null ? { kind: 'emergency', emergency } : planChoice(open.kind, key, signals);
+		const planned = open === null ? { kind: 'invalid' } : emergency !== null ? { kind: 'emergency', emergency }
+			: stale !== null ? { kind: 'stale', why: stale } : planChoice(open.kind, key, signals);
 		const running = record === null ? null : this.#nativeRuntime.runningAction(record);
 		const { plan, cancel } = againstRunning(planned, running, work.goalRevision);
 		if (planned.kind !== 'invalid') this.#choiceMoments.clear(work.agentId);
@@ -2748,7 +2750,14 @@ export class DynamicCoordinator extends EventEmitter {
 		if (plan.kind !== 'call') { trace({}); return { state: 'SUCCEEDED', choice: choiceResultText(open?.kind ?? null, key, plan) }; }
 		let result;
 		try {
-			if (cancel !== null) await this.#executeNativeTool(work, { ...toolRequest, callId: `${toolRequest.callId}:choice-cancel`, tool: normalizeMinecraftToolCall(cancel.name, cancel.args) }).catch(() => null);
+			if (cancel !== null) {
+				const stopped = await this.#executeNativeTool(work, { ...toolRequest, callId: `${toolRequest.callId}:choice-cancel`, tool: normalizeMinecraftToolCall(cancel.name, cancel.args) }).catch((error) => ({ state: 'ERROR', reasonCode: error?.code ?? 'ERROR' }));
+				// The step would be refused as busy behind an action that did not stop: say so instead of trying it.
+				if (!['SUCCEEDED', 'FAILED', 'CANCELLED', 'TIMED_OUT'].includes(stopped?.state)) {
+					trace({ bodyState: 'NOT_STOPPED', reasonCode: String(stopped?.reasonCode ?? stopped?.state ?? 'UNKNOWN').slice(0, 64) });
+					return { state: 'SUCCEEDED', choice: choiceResultText(open.kind, key, plan, { executed: false, reasonCode: `running step not stopped: ${stopped?.reasonCode ?? stopped?.state ?? 'unknown'}` }) };
+				}
+			}
 			result = await this.#executeNativeTool(work, { ...toolRequest, callId: `${toolRequest.callId}:choice`, tool: normalizeMinecraftToolCall(plan.name, plan.args) });
 		} catch (error) {
 			trace({ bodyState: 'ERROR', reasonCode: String(error?.code ?? 'ERROR').slice(0, 64) });
@@ -4530,7 +4539,7 @@ export class DynamicCoordinator extends EventEmitter {
 				request.nativeConversationDelivery.omittedEntries = delivered.omittedEntries + (reservation.more ? 1 : 0);
 				request.nativeConversationDelivery.sequences = delivered.entries.map((entry) => entry.sequence).filter(Number.isSafeInteger);
 			}
-			const offered = isPlanning ? input : this.#offerChoiceMoment(record, input, { observation, trigger: nativeEvent.trigger ?? null, changed, taskFacts: continuity === null ? null : JSON.stringify(continuity), goalNow: this.#taskViews.goalLine(record) });
+			const offered = isPlanning ? input : this.#offerChoiceMoment(record, input, { observation, trigger: nativeEvent.trigger ?? null, changed, taskFacts: continuity === null ? null : JSON.stringify(continuity), goalNow: this.#taskViews.goalLine(record), needsOre: this.#taskViews.nextNeedsOre(record) });
 			return request.retryInstruction === undefined ? offered : `${offered}\n${request.retryInstruction}`;
 		} catch (error) { this.#restoreNativeConversation(request); throw error; }
 	}

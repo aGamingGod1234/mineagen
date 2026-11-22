@@ -17,7 +17,7 @@ const ZOMBIE = '00000000-0000-4000-8000-00000000a001';
 const zombie = { uuid: ZOMBIE, type: 'minecraft:zombie', signals: ['targeting'], distance: 6, bearing: 0, targeting: true, swelling: false, lineOfSight: true, visible: true };
 
 // Only Codex threads get the choose_response tool, so the agent is a Codex agent unless a case says otherwise.
-async function launch(t, env = {}, agent = record()) {
+async function launch(t, env = {}, agent = record(), body = {}) {
 	const registry = new AgentRegistry(), planner = new FakePlanner(registry), turns = [], traces = [];
 	planner.steers = [];
 	planner.steerNativeTurn = async request => { planner.steers.push(request); if (typeof request.input === 'function') await request.input(); };
@@ -28,7 +28,7 @@ async function launch(t, env = {}, agent = record()) {
 	run.bridge.emit('observation', { agentId: 'agent-a', payload: { ready: true, position: { x: 0, y: 64, z: 0 }, view: { yaw: 0, pitch: 0 },
 		inventory: { items: [] }, entities: [], blocks: [], world: { dimension: 'minecraft:overworld', gameTime: 1, dayTime: 1000, raining: false, thundering: false },
 		goalRevision: 1, eventSequence: 1, observedAtEpochMs: 1, attention: true, changedFacts: ['threats.zombie.targeting'], threats: { entries: [zombie] },
-		player: { health: 20, maxHealth: 20, air: 300, maxAir: 300, foodLevel: 20, onGround: true } } });
+		...body, player: { health: 20, maxHealth: 20, air: 300, maxAir: 300, foodLevel: 20, onGround: true, ...body.player } } });
 	await eventually(() => planner.requests.length === 1);
 	return { run, planner, traces, request: planner.requests[0] };
 }
@@ -128,6 +128,47 @@ test('an emergency after the offer stops the chosen fight: drowning keeps the bo
 	await new Promise(resolve => setTimeout(resolve, 30));
 	assert.equal(run.bridge.sent.some(x => x.type === 'action_command'), false, 'no fight is sent to the body');
 	const result = await pending;
-	assert.match(result.choice, /running out of air comes first/, result.choice);
-	assert.deepEqual(traces.filter(x => x.event === 'choice_made').map(x => x.plan), ['emergency']);
+	// Either the drowning wake already closed the menu (no menu leads it), or the answer meets the drowning body.
+	assert.match(result.choice, /running out of air comes first|no moment is open/, result.choice);
+	assert.ok(traces.filter(x => x.event === 'choice_made').every(x => x.plan !== 'call'));
+});
+
+test('a drowning wake at low health with a drowned on the bot leads with the drowning line, not a fight-or-run menu', async t => {
+	const drowned = { ...zombie, type: 'minecraft:drowned' };
+	const { request, traces } = await launch(t, { MINEAGEN_CHOICE_TOOL: 'on' }, record(), { threats: { entries: [drowned] },
+		changedFacts: ['threats.drowned.targeting', 'player.air'], player: { health: 6, air: 40, underWater: true, onGround: false } });
+	assert.equal(typeof request.input, 'string');
+	assert.doesNotMatch(request.input, /choose_response/);
+	assert.match(request.input.split('\n')[0], /drowning/);
+	assert.equal(traces.some(x => x.event === 'choice_moment_offered'), false);
+});
+
+test('a bot touching lava is offered no use-lava or carry-on menu', async t => {
+	const { request, traces } = await launch(t, { MINEAGEN_CHOICE_TOOL: 'on' }, record(), { threats: { entries: [] }, changedFacts: ['player.inLava'],
+		blocks: [{ blockId: 'minecraft:lava', x: 0, y: 64, z: 0 }], player: { health: 14, inLava: true } });
+	assert.doesNotMatch(request.input, /choose_response/);
+	assert.equal(traces.some(x => x.event === 'choice_moment_offered'), false);
+});
+
+test('choosing a shelter while walking stops the walk and starts the same registered step, with its why, as from rest', async t => {
+	const { run, request, traces } = await launch(t, { MINEAGEN_CHOICE_TOOL: 'on' }, record(), { threats: { entries: [] }, changedFacts: ['world.night'],
+		world: { dimension: 'minecraft:overworld', gameTime: 1, dayTime: 15000, raining: false, thundering: false },
+		inventory: { items: [{ itemId: 'minecraft:cobblestone', count: 40, slot: 4 }], selectedSlot: 0 }, player: { skyOpen: true, yaw: 0 } });
+	assert.deepEqual(traces.filter(x => x.event === 'choice_moment_offered').map(x => x.kind), ['night_falls']);
+	const walking = await request.executeTool({ agentId: 'agent-a', goalRevision: 1, turnId: 'turn-1', callId: 'walk',
+		tool: normalizeMinecraftToolCall('startAction', { actionType: 'travel_to', arguments: { x: 40, y: 64, z: 0, timeoutMs: 60_000 } }) });
+	assert.equal(walking.state, 'RUNNING', JSON.stringify(walking));
+	const pending = choose(request, 'shelter');
+	for (let i = 0; i < 50 && !run.bridge.sent.some(x => x.type === 'action_command' && x.payload.actionType === 'build_shelter'); i++) {
+		const cancel = run.bridge.sent.find(x => x.type === 'action_cancel' && !x.answered);
+		if (cancel) { cancel.answered = true; run.bridge.emit('action_result', { agentId: 'agent-a', payload: { goalRevision: 1, actionId: walking.actionId, state: 'CANCELLED', reasonCode: 'CANCELLED', message: 'Cancelled', executionStarted: true, eventSequence: 2 } }); }
+		await new Promise(resolve => setTimeout(resolve, 10));
+	}
+	const shelter = run.bridge.sent.find(x => x.type === 'action_command' && x.payload.actionType === 'build_shelter');
+	assert.ok(shelter, `sent: ${run.bridge.sent.map(x => `${x.type}:${x.payload?.actionType ?? ''}`).join(', ')}`);
+	const result = await pending;
+	assert.equal(result.step?.verb, 'build_shelter', JSON.stringify(result));
+	assert.equal(result.step?.started, true, 'the step is registered as the current step');
+	assert.equal(result.step?.why, 'Wall in and wait it out safely.');
+	assert.deepEqual(traces.filter(x => x.event === 'choice_made').map(x => [x.choice, x.body, x.via, x.replacedRunning]), [['shelter', 'build_shelter', 'do_step', true]]);
 });
