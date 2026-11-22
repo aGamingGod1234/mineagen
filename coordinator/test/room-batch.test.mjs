@@ -292,6 +292,21 @@ test('a killed arm counts no valid run but its summary still sizes the copies', 
 	} finally { await rm(out, { recursive: true, force: true }); }
 });
 
+test('a copy whose summary reads INVALID beside a passing row counts that row, as the merge now keeps it', async () => {
+	const out = await mkdtemp(path.join(os.tmpdir(), 'room-batch-valid-mixed-'));
+	try {
+		const rooms = parseCommands(`@m.c1 CASES=a,b ${LINE}`, ['new']);
+		const dir = path.join(out, 'rooms', 'm.c1', 'new');
+		await mkdir(dir, { recursive: true });
+		const { finishRun } = await import('../../scripts/quality/lib/fixture-run.mjs');
+		await finishRun([row('a'), row('b', { error: 'bad start' })], { file: path.join(dir, 'result.json'), planned: 2, setExitCode: false });
+		const { armValidRuns } = await import('../../scripts/quality/lib/room-batch-core.mjs');
+		assert.deepEqual(await armValidRuns(dir, {}), { valid: 1, rows: 2 });
+		const merged = await mergeArms({ out, rooms, arms: ['new'], outcomes: [{ room: 'm.c1', lost: false, worker: 'vm1', attempts: 1, arms: { new: { exit: 2, seconds: 5 } } }] });
+		assert.equal(armTotals(merged.new).pass, 1, 'the merge counts the same one valid run');
+	} finally { await rm(out, { recursive: true, force: true }); }
+});
+
 test('a stopped batch makes no top-ups and says its groups were short with copies left, not at the cap', async () => {
 	const out = await mkdtemp(path.join(os.tmpdir(), 'room-batch-valid-stop-'));
 	try {
