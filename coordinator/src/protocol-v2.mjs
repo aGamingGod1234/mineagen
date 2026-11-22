@@ -2076,7 +2076,9 @@ function normalizeObservation(value) {
 function reflexStatusObservation(value) {
 	if (!isPlainObject(value)) throw new ProtocolV2Error('INVALID_PAYLOAD', 'reflexes must be an object');
 	exactKeys(value, ['revision', 'firing', 'rules', 'events', 'error'], ['revision', 'rules', 'events'], 'reflexes');
-	const text = (row, key, maximum) => row[key] === undefined ? {} : { [key]: boundedText(row[key], `reflexes.${key}`, maximum, 0) };
+	// Reflex free text only describes (why a rule sleeps, what a firing did): an over-long one is trimmed, not a reason to
+	// refuse the whole observation. Refusing it dropped the bridge and stranded both agents of a server (iron-kit room).
+	const text = (row, key, maximum) => row[key] === undefined ? {} : { [key]: boundedText(clipText(row[key], maximum), `reflexes.${key}`, maximum, 0) };
 	const result = {
 		revision: nonnegativeInteger(value.revision, 'reflexes.revision'),
 		rules: boundedArray(value.rules, 'reflexes.rules', MAX_REFLEX_RULES).map((row) => {
@@ -2097,7 +2099,7 @@ function reflexStatusObservation(value) {
 		exactKeys(value.firing, ['id', 'ms', 'detail'], ['id', 'ms'], 'reflexes.firing');
 		result.firing = { id: boundedText(value.firing.id, 'reflexes.firing.id', 32), ms: nonnegativeInteger(value.firing.ms, 'reflexes.firing.ms'), ...text(value.firing, 'detail', 240) };
 	}
-	if (value.error !== undefined) result.error = boundedText(value.error, 'reflexes.error', 240);
+	if (value.error !== undefined) result.error = boundedText(clipText(value.error, 240), 'reflexes.error', 240);
 	return result;
 }
 
@@ -3095,6 +3097,14 @@ function isExactArray(value) {
 		if (!descriptor || !Object.hasOwn(descriptor, 'value') || !descriptor.enumerable || !descriptor.writable || !descriptor.configurable) return false;
 	}
 	return true;
+}
+
+/** A string cut to `maximum` UTF-16 units with an ellipsis, never splitting a surrogate pair; anything else unchanged. */
+function clipText(value, maximum) {
+	if (typeof value !== 'string' || value.length <= maximum) return value;
+	let end = maximum - 1;
+	if (/[\uD800-\uDBFF]/.test(value[end - 1])) end -= 1;
+	return `${value.slice(0, end)}\u2026`;
 }
 
 function boundedText(value, field, maximum, minimum = 1) {
