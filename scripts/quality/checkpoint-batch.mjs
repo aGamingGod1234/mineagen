@@ -42,6 +42,9 @@ const sha = file => createHash('sha256').update(readFileSync(file)).digest('hex'
 // Local copy failures of one game (a full disk) are retried each pass; past this many the game scores unknown and the
 // machine is let go, so the batch can always end.
 const MAX_LOCAL_COPY_FAILURES = 30;
+// While boat itself does not answer (an outage on this side) a failing machine is dropped only after this much longer
+// wait, so an outage drops nothing, yet one machine boat never answers about cannot hold the batch open forever.
+const OUTAGE_GRACE_MS = 6 * LOST_AFTER_MS;
 // Every pass, at most this often, a created machine's boat deadline is set again to TTL from now.
 const EXTEND_EVERY_MS = 10 * 60_000;
 
@@ -201,10 +204,20 @@ async function start(vm, game) {
 	catch (error) {
 		if (vm.game === game.id) throw error;
 		vm.launchFailingSince ??= Date.now();
-		if (Date.now() - vm.launchFailingSince <= LOST_AFTER_MS) throw error;
-		await log(`dropping ${vm.id}: its launches failed for ${Math.round(LOST_AFTER_MS / 1000)} s in a row (${error.message.split('\n')[0].slice(0, 200)})`);
+		if (!dropDue(vm, await boatSays(vm.id), 'launchFailingSince')) throw error;
+		await log(`dropping ${vm.id}: its launches keep failing (${error.message.split('\n')[0].slice(0, 200)})`);
 		await dropMachine(vm);
 	}
+}
+// What boat says about a machine that failed: true live, false gone (not live, or not found), null no answer at all.
+const boatSays = id => machineState(id).then(s => LIVE.has(s), e => /\b(?:sandbox|machine)\b[^\n]*\bnot found\b|\b404\b/i.test(e.message) ? false : null);
+// A failing machine is dropped at once when boat says it is gone, after LOST_AFTER_MS of failures while boat says it is
+// live, and only after OUTAGE_GRACE_MS while boat does not answer. Time while boat did not answer does not count toward
+// LOST_AFTER_MS: once boat answers again, the failure clock (vm[since]) starts over.
+function dropDue(vm, live, since) {
+	if (live === null) { vm.unansweredSince ??= Date.now(); return Date.now() - vm.unansweredSince > OUTAGE_GRACE_MS; }
+	if (vm.unansweredSince) { vm.unansweredSince = null; vm[since] = Date.now(); }
+	return live === false || Date.now() - vm[since] > LOST_AFTER_MS;
 }
 async function launch(vm, game) {
 	// A sign-in refreshed at its source (Codex on this computer) no longer matches its hash: like a refresh on a machine,
@@ -293,7 +306,7 @@ async function retire(vm) {
 // is left for it. Errors count against the machine only when it stops answering: a machine is dropped after it failed
 // for LOST_AFTER_MS in a row (or boat no longer lists it), never because of a local copy failure.
 async function tend(vm, step) {
-	try { await step(); vm.failingSince = null; }
+	try { await step(); vm.failingSince = null; vm.unansweredSince = null; }
 	catch (error) {
 		await log(`machine ${vm.id}: ${error.message.split('\n')[0].slice(0, 300)}`);
 		if (error.local) {
@@ -307,11 +320,9 @@ async function tend(vm, step) {
 			return;
 		}
 		vm.failingSince ??= Date.now();
-		// boat not answering at all is an outage on this side (the network, boat itself), not this machine's fault: it
-		// never drops a machine, or one outage would drop them all and end the batch mid-game.
-		const machineLive = await machineState(vm.id).then(s => LIVE.has(s), () => null);
-		if (machineLive === null) return;
-		if (!machineLive || Date.now() - vm.failingSince > LOST_AFTER_MS) await dropMachine(vm);
+		// boat not answering at all is most likely an outage on this side (the network, boat itself), not this machine's
+		// fault, so it waits OUTAGE_GRACE_MS (see dropDue): one outage must not drop every machine and end the batch mid-game.
+		if (dropDue(vm, await boatSays(vm.id), 'failingSince')) await dropMachine(vm);
 	}
 }
 // A machine that stopped answering, or whose launches keep dying: its game goes back to the queue once, a machine this
