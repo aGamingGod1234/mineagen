@@ -445,7 +445,7 @@ public final class ServerDigController implements ServerController {
 		if (player.tickCount % 5 == 0 && (plannedFall <= 0.0F || player.onGround()) && phase != Phase.SHAFT_FALL) {
 			List<Mob> threats = player.level().getEntitiesOfClass(Mob.class, player.getBoundingBox().inflate(HOSTILE_RANGE),
 					mob -> player.distanceTo(mob) <= HOSTILE_RANGE && ThreatPerception.isSensedThreat(player, mob)
-							&& stopsDig(player, mob, hostileDistances, false));
+							&& stopsDig(player, mob, hostileDistances, false, active == Pattern.STAIRS_UP));
 			if (!threats.isEmpty()) {
 				Mob nearest = threats.stream().min((a, b) -> Double.compare(player.distanceTo(a), player.distanceTo(b))).orElseThrow();
 				return stop(player, "HOSTILE_NEAR", BuiltInRegistries.ENTITY_TYPE.getKey(nearest.getType()) + " " + nearest.getUUID()
@@ -474,7 +474,21 @@ public final class ServerDigController implements ServerController {
 		return previous != null && previous - distance >= TravelStops.CLOSING_STEP || first != null && first - distance >= CLOSED_TOTAL;
 	}
 
+	/**
+	 * Climbing a stair out, a mob that hunts the body and closes from farther than {@link #DIG_CLOSE} does not stop the
+	 * dig: standing still hands it the stair while the model thinks, where a player climbs on and fights if it catches up
+	 * (defend and the creeper reflex answer contact). Climb-out rooms: cave-y20-a 3-4 of 10, deep-y-40 0 of 10, stopped
+	 * for a creeper 7 blocks away in a cave the stair passed.
+	 */
+	static boolean stopsClimb(double distance, Double previous, Double first, boolean hunting, boolean sight, boolean ranged) {
+		return distance <= DIG_CLOSE;
+	}
+
 	static boolean stopsDig(ServerPlayer player, Mob mob, java.util.Map<java.util.UUID, double[]> seen, boolean vein) {
+		return stopsDig(player, mob, seen, vein, false);
+	}
+
+	static boolean stopsDig(ServerPlayer player, Mob mob, java.util.Map<java.util.UUID, double[]> seen, boolean vein, boolean climbing) {
 		double distance = player.distanceTo(mob);
 		double[] row = seen.get(mob.getUUID());
 		Double first = row == null ? null : row[0], previous = row == null ? null : row[1];
@@ -483,7 +497,8 @@ public final class ServerDigController implements ServerController {
 		boolean sight = mob.getSensing().hasLineOfSight(player);
 		String type = BuiltInRegistries.ENTITY_TYPE.getKey(mob.getType()).toString();
 		boolean ranged = TravelStops.RANGED.contains(type) || type.endsWith("guardian") || ThreatPerception.isRanged(mob);
-		return vein ? stopsVein(distance, previous, first, hunting, sight, ranged) : stopsDig(distance, previous, first, hunting, sight, ranged);
+		if (vein) return stopsVein(distance, previous, first, hunting, sight, ranged);
+		return climbing ? stopsClimb(distance, previous, first, hunting, sight, ranged) : stopsDig(distance, previous, first, hunting, sight, ranged);
 	}
 
 
