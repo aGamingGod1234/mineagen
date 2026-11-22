@@ -91,7 +91,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 	/** fight_target form: the call's end held back until the walled-up doorway is open again (the next call must see out). */
 	private TickResult pendingEnd;
 	/** fight_target form: the tick the named blaze died with the hold fighting (not the open fight), for the rod's pickup. */
-	private long killTick = -1L;
+	private long killTick = -1L, openKillTick = -1L;
 	private static final long KILL_COLLECT_TICKS = 60L, KILL_COLLECT_MAX_TICKS = 200L;
 	private int emergencyFails;
 	private static final int EMERGENCY_TRIES = 3;
@@ -323,7 +323,11 @@ public final class ServerSpawnerHoldController implements ServerController {
 		boolean spawnerGone = seenSpawner != null && !seenSpawner.is(Blocks.SPAWNER);
 		// The fight_target form ends at its own timeout with fight_target's code (the hold's own is FIGHT_UNTIL_TIMED_OUT).
 		// A kill's drop look and pickup under way (the open fight's, or the hold's own) finish first, up to 10 s past it.
-		boolean pickingUp = target != null && target.isDeadOrDying() && (openPart != null || collector != null || ledge != null || returning);
+		// The open fight's own after-kill work (drop look, pickup) gets 10 s from the kill. With continueWithAttackers it may
+		// instead fight on against another blaze: past that window that is an ordinary open fight again (wall-in, timeout).
+		if (target != null && openPart != null && target.isDeadOrDying() && openKillTick < 0L) openKillTick = player.level().getGameTime();
+		boolean afterOpenKill = openKillTick >= 0L && player.level().getGameTime() - openKillTick < KILL_COLLECT_MAX_TICKS;
+		boolean pickingUp = target != null && target.isDeadOrDying() && (openPart != null && afterOpenKill || collector != null || ledge != null || returning);
 		if (target != null && elapsed >= timeoutMs && !(pickingUp && elapsed < timeoutMs + KILL_COLLECT_MAX_TICKS * 50L))
 			return endTarget(player, now, TickResult.timedOut("FIGHT_TIMED_OUT", String.format(Locale.ROOT, "%.0f s timeout reached; %s", timeoutMs / 1000.0D,
 					summary(player, elapsed)), progress(player)));
@@ -359,7 +363,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 			if (resumeCell(player)) return TickResult.running(progress(player));
 		}
 		if (target != null && SpawnerHold.OPEN_FIGHT && phase != Phase.HOLD && emergency == null
-				&& (player.getHealth() >= SpawnerHold.TURTLE_HEALTH || !canWallIn(player) || openPart != null && target.isDeadOrDying())) {
+				&& (player.getHealth() >= SpawnerHold.TURTLE_HEALTH || !canWallIn(player) || openPart != null && target.isDeadOrDying() && afterOpenKill)) {
 			if (openPart == null) {
 				try {
 					// While a wall-in is left the open fight's floor stays under TURTLE_HEALTH: the wall-in answers low health.
