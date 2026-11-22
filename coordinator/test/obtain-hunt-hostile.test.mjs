@@ -175,3 +175,26 @@ test('after climbing out of a failed hunt under cover, a spider on the surface a
 	assert.equal(result.state, 'SUCCEEDED', `${result.message} ${JSON.stringify(calls)}`);
 	assert.equal(calls.filter((type) => type === 'fight_until').length, 2, JSON.stringify(calls));
 });
+
+test('a skeleton found by a search and drawing on the body during the walk-up is still the hunt\'s arrival', async () => {
+	const calls = [];
+	const state = { at: { x: 0.5, y: 64, z: 0.5 }, bone: 0, searched: false };
+	const hunted = { type: 'minecraft:skeleton', uuid: 'h', stableId: 'h', x: 40.5, y: 64, z: 0.5, hostile: true, alive: true, visible: true };
+	const rows = () => state.searched ? [{ ...hunted, targeting: calls.includes('travel_to'), distance: Math.hypot(hunted.x - state.at.x, hunted.z - state.at.z) }] : [];
+	const body = {
+		observe: async () => ({ ready: true, player: { ...state.at, health: 20, foodLevel: 20, skyOpen: true, onGround: true, threats: rows() },
+			world: { dimension: 'minecraft:overworld', dayTime: 6000 }, blocks: [], entities: rows(),
+			inventory: { items: [{ itemId: 'minecraft:iron_sword', count: 1, slot: 0 }, ...(state.bone ? [{ itemId: 'minecraft:bone', count: state.bone, slot: 1 }] : [])] } }),
+		act: async (actionType, args) => {
+			calls.push(actionType);
+			if (actionType === 'travel_to') { state.at = { x: 26.5, y: 64, z: 0.5 }; return { state: 'FAILED', reasonCode: 'HOSTILE_NEAR', message: 'Stopped: minecraft:skeleton targeting 14 blocks away' }; }
+			if (actionType === 'fight_until') { state.bone = args.untilCount; return { state: 'SUCCEEDED', reasonCode: 'TARGET_REACHED' }; }
+			return { state: 'SUCCEEDED', reasonCode: 'ACTION_COMPLETED' };
+		},
+		search: async () => { calls.push('search'); state.searched = true; return { state: 'SUCCEEDED', reasonCode: 'FIND_SEEN', message: 'seen', find: { seen: { x: 40, y: 64, z: 0, id: 'minecraft:skeleton' } } }; },
+		survey: async () => ({ entries: [] }), note: () => {}, stopped: () => false, interrupted: () => false, recovering: () => {},
+	};
+	const result = await runObtain({ item: 'bone', count: 2, timeoutMs: 600_000 }, body, { now: clock() });
+	assert.equal(result.state, 'SUCCEEDED', `${result.message} ${JSON.stringify(calls)}`);
+	assert.deepEqual(calls.filter((type) => ['search', 'travel_to', 'fight_until'].includes(type)), ['search', 'travel_to', 'fight_until']);
+});

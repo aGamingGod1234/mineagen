@@ -498,7 +498,14 @@ export async function locate(need, body, { budget, timeoutMs }) {
 	budget.lastSearch = result;
 	const at = result?.find?.seen;
 	if (result?.reasonCode !== 'FIND_SEEN' || !at || ![at.x, at.y, at.z].every(Number.isFinite) || budget.failed.has(`${at.x},${at.y},${at.z}`)) return null;
-	if (need.kind === 'kill') return unreachedHerd(budget, at) ? null : { x: at.x + 0.5, y: at.y, z: at.z + 0.5, mob: at.id };
+	if (need.kind === 'kill') {
+		if (unreachedHerd(budget, at)) return null;
+		// The found mob's identity from a fresh look (its row nearest the sighting), so a hunt's walk-up can tell it apart
+		// from others of its kind.
+		const near = ((await body.observe()).entities ?? []).filter((row) => row?.type === at.id && typeof row.stableId === 'string' && [row.x, row.z].every(Number.isFinite))
+			.map((row) => ({ row, d: Math.hypot(row.x - at.x - 0.5, row.z - at.z - 0.5) })).filter(({ d }) => d <= 4).sort((a, b) => a.d - b.d)[0]?.row;
+		return { x: at.x + 0.5, y: at.y, z: at.z + 0.5, mob: at.id, ...(near ? { stableId: near.stableId } : {}) };
+	}
 	const fresh = await body.observe();
 	const source = { x: at.x, y: at.y, z: at.z, blockId: at.id };
 	return inView(need, fresh, budget) ?? (floodedApproach(budget, source) ? null : source);
