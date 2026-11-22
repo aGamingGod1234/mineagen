@@ -37677,7 +37677,7 @@
       "status": "checked"
     },
     {
-      "predicate": "Retrace follows actual walked turns across deaths; dimension transitions retain portal edges and require reissue after the standard lifecycle cancellation. Current legs retain ordinary travel safety. No connected route fails NO_ROUTE.",
+      "predicate": "Retrace follows actual walked turns across deaths; dimension transitions retain portal edges and require reissue after the standard lifecycle cancellation. Current legs retain ordinary travel safety. No connected route fails NO_ROUTE. Under cover more than 3 blocks below the last spot the body stood under open sky in the Overworld, the wake shows now.up with that spot and the retrace hint; it is absent under open sky.",
       "checks": [
         {
           "file": "coordinator/test/d38-recovery.test.mjs",
@@ -37689,12 +37689,22 @@
           "test": "verify",
           "type": "java-behavior",
           "entryPoint": "verifyCore"
+        },
+        {
+          "file": "coordinator/test/wake-body-facts.test.mjs",
+          "test": "up names the last open sky and retrace only under cover well below it",
+          "type": "node-behavior"
+        },
+        {
+          "file": "coordinator/test/wake-body-facts.test.mjs",
+          "test": "the live view remembers the last open sky and shows up once under cover",
+          "type": "node-behavior"
         }
       ],
-      "id": "control:e2c1a93886a46505:c158b37785c3d3c3",
+      "id": "control:e2c1a93886a46505:21bd6a532a0182a7",
       "contract": {
-        "id": "control:e2c1a93886a46505:c158b37785c3d3c3",
-        "claim": "`retrace:true` with `x,y,z` and optional `dimension` follows the route your body actually walked, including remembered portal transitions, across deaths. Turns stay in order, even when they lead away from the destination. Each leg uses current sight and ordinary travel safety (lava brake, brink guard, building and vertical steps); remembered terrain may have changed. No connected route returns `NO_ROUTE`. At a portal the body enters it; after `DIMENSION_TRANSITION`, reissue retrace in the new dimension. A save point supplies no route you never walked. `routeMemory` reports the death route length, remembered hazards and nearest seen wood, planks, crafting table and chest.",
+        "id": "control:e2c1a93886a46505:21bd6a532a0182a7",
+        "claim": "`retrace:true` with `x,y,z` and optional `dimension` follows the route your body actually walked (the way back to daylight: retrace to now.up, the last spot you stood under open sky), including remembered portal transitions, across deaths. Turns stay in order, even when they lead away from the destination. Each leg uses current sight and ordinary travel safety (lava brake, brink guard, building and vertical steps); remembered terrain may have changed. No connected route returns `NO_ROUTE`. At a portal the body enters it; after `DIMENSION_TRANSITION`, reissue retrace in the new dimension. A save point supplies no route you never walked. `routeMemory` reports the death route length, remembered hazards and nearest seen wood, planks, crafting table and chest.",
         "kind": "control-reference",
         "topic": "travelTo"
       },
@@ -44922,18 +44932,28 @@
       "reason": "Contextual vanilla world-generation, loot, recipes, physiology or tactical comparisons, not an Arena tool behavior claim. Such world mechanics can be sampled, but are not inherently untestable; variable outcomes and chosen strategies are not universal tool guarantees."
     },
     {
-      "predicate": "This vanilla knowledge or tactical option informs model choice; current tool behavior is separately enumerated wherever the paragraph names a callable action or observation fact. Automatic food resupply requires low health/hunger; quick local bed setup follows an available stage wherever these options appear in this section.",
+      "predicate": "This vanilla knowledge or tactical option informs model choice; current tool behavior is separately enumerated wherever the paragraph names a callable action or observation fact. Automatic food resupply requires low health/hunger; quick local bed setup follows an available stage wherever these options appear in this section. Under cover more than 3 blocks below the last spot the body stood under open sky in the Overworld, the wake shows now.up with that spot and the retrace hint; it is absent under open sky.",
       "checks": [
         {
           "file": "coordinator/test/minecraft-strategy-reference.test.mjs",
           "test": "stage references subordinate quick bed setup and food supply to current needs",
           "type": "node-behavior"
+        },
+        {
+          "file": "coordinator/test/wake-body-facts.test.mjs",
+          "test": "up names the last open sky and retrace only under cover well below it",
+          "type": "node-behavior"
+        },
+        {
+          "file": "coordinator/test/wake-body-facts.test.mjs",
+          "test": "the live view remembers the last open sky and shows up once under cover",
+          "type": "node-behavior"
         }
       ],
-      "id": "strategy:05d8cb47341cb6f3:0e331bc76845ac1b",
+      "id": "strategy:05d8cb47341cb6f3:321bf552a3f546a8",
       "contract": {
-        "id": "strategy:05d8cb47341cb6f3:0e331bc76845ac1b",
-        "claim": "One trip down: players finish the surface work first (logs for a table and sticks, stone tools from the first stone) and carry a crafting table and a furnace (or 8 cobblestone) underground, then do every underground job there (iron, coal, lava, diamonds) before climbing back. Tools wear out down there (a stone pickaxe lasts 131 blocks, about one 40-level staircase); the next one needs a table and 2 sticks, and a climb back up for them takes about as long as the dig. Food resupply is for current low hunger or health (14/20 or less); otherwise continue the available stage with what you carry. A staircase already dug is walked down (travel_to with retrace:true), not dug again beside it.",
+        "id": "strategy:05d8cb47341cb6f3:321bf552a3f546a8",
+        "claim": "One trip down: players finish the surface work first (logs for a table and sticks, stone tools from the first stone) and carry a crafting table and a furnace (or 8 cobblestone) underground, then do every underground job there (iron, coal, lava, diamonds) before climbing back. Tools wear out down there (a stone pickaxe lasts 131 blocks, about one 40-level staircase); the next one needs a table and 2 sticks, and a climb back up for them takes about as long as the dig. Food resupply is for current low hunger or health (14/20 or less); otherwise continue the available stage with what you carry. A staircase already dug is walked down (travel_to with retrace:true), not dug again beside it. Back up the same way: under cover, now.up names the last spot you stood under open sky, and travel_to retrace:true to it walks your own way back to daylight; dig_to stairs_up cuts a new staircase and is for when no way back is known.",
         "kind": "strategy-reference",
         "topic": "Getting ores and resources"
       },
@@ -51609,14 +51629,14 @@
           "entryPoint": "verifyCore"
         }
       ],
-      "id": "control:e2c1a93886a46505:c158b37785c3d3c3:result:NO_ROUTE",
+      "id": "control:e2c1a93886a46505:21bd6a532a0182a7:result:NO_ROUTE",
       "contract": {
-        "id": "control:e2c1a93886a46505:c158b37785c3d3c3:result:NO_ROUTE",
-        "claim": "`retrace:true` with `x,y,z` and optional `dimension` follows the route your body actually walked, including remembered portal transitions, across deaths. Turns stay in order, even when they lead away from the destination. Each leg uses current sight and ordinary travel safety (lava brake, brink guard, building and vertical steps); remembered terrain may have changed. No connected route returns `NO_ROUTE`. At a portal the body enters it; after `DIMENSION_TRANSITION`, reissue retrace in the new dimension. A save point supplies no route you never walked. `routeMemory` reports the death route length, remembered hazards and nearest seen wood, planks, crafting table and chest.",
+        "id": "control:e2c1a93886a46505:21bd6a532a0182a7:result:NO_ROUTE",
+        "claim": "`retrace:true` with `x,y,z` and optional `dimension` follows the route your body actually walked (the way back to daylight: retrace to now.up, the last spot you stood under open sky), including remembered portal transitions, across deaths. Turns stay in order, even when they lead away from the destination. Each leg uses current sight and ordinary travel safety (lava brake, brink guard, building and vertical steps); remembered terrain may have changed. No connected route returns `NO_ROUTE`. At a portal the body enters it; after `DIMENSION_TRANSITION`, reissue retrace in the new dimension. A save point supplies no route you never walked. `routeMemory` reports the death route length, remembered hazards and nearest seen wood, planks, crafting table and chest.",
         "kind": "result-code",
         "topic": "travelTo",
         "code": "NO_ROUTE",
-        "parent": "control:e2c1a93886a46505:c158b37785c3d3c3"
+        "parent": "control:e2c1a93886a46505:21bd6a532a0182a7"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -51639,14 +51659,14 @@
           "entryPoint": "verifyCore"
         }
       ],
-      "id": "control:e2c1a93886a46505:c158b37785c3d3c3:result:DIMENSION_TRANSITION",
+      "id": "control:e2c1a93886a46505:21bd6a532a0182a7:result:DIMENSION_TRANSITION",
       "contract": {
-        "id": "control:e2c1a93886a46505:c158b37785c3d3c3:result:DIMENSION_TRANSITION",
-        "claim": "`retrace:true` with `x,y,z` and optional `dimension` follows the route your body actually walked, including remembered portal transitions, across deaths. Turns stay in order, even when they lead away from the destination. Each leg uses current sight and ordinary travel safety (lava brake, brink guard, building and vertical steps); remembered terrain may have changed. No connected route returns `NO_ROUTE`. At a portal the body enters it; after `DIMENSION_TRANSITION`, reissue retrace in the new dimension. A save point supplies no route you never walked. `routeMemory` reports the death route length, remembered hazards and nearest seen wood, planks, crafting table and chest.",
+        "id": "control:e2c1a93886a46505:21bd6a532a0182a7:result:DIMENSION_TRANSITION",
+        "claim": "`retrace:true` with `x,y,z` and optional `dimension` follows the route your body actually walked (the way back to daylight: retrace to now.up, the last spot you stood under open sky), including remembered portal transitions, across deaths. Turns stay in order, even when they lead away from the destination. Each leg uses current sight and ordinary travel safety (lava brake, brink guard, building and vertical steps); remembered terrain may have changed. No connected route returns `NO_ROUTE`. At a portal the body enters it; after `DIMENSION_TRANSITION`, reissue retrace in the new dimension. A save point supplies no route you never walked. `routeMemory` reports the death route length, remembered hazards and nearest seen wood, planks, crafting table and chest.",
         "kind": "result-code",
         "topic": "travelTo",
         "code": "DIMENSION_TRANSITION",
-        "parent": "control:e2c1a93886a46505:c158b37785c3d3c3"
+        "parent": "control:e2c1a93886a46505:21bd6a532a0182a7"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",

@@ -57,6 +57,11 @@ public final class DigContinuationVerification {
 			check(!ServerDigController.outInTheOpen(false, true, false, () -> true), "stairs_up with rock still to cut in the step (a ledge edge) digs on"); n++;
 			check(!ServerDigController.outInTheOpen(true, true, true, () -> true), "stairs_up with ground under the next step (a hillside) digs on"); n++;
 			check(!ServerDigController.outInTheOpen(false, false, true, () -> true), "stairs_up over water under sky still places its step"); n++;
+			BlockPos stepAt = new BlockPos(0, 70, 0);
+			check(!ServerDigController.groundRisesAhead(stepAt, net.minecraft.core.Direction.EAST, column -> 69), "flat ground ahead (top at the step's floor): nothing rises"); n++;
+			check(ServerDigController.groundRisesAhead(stepAt, net.minecraft.core.Direction.EAST, column -> column.getX() == 4 ? 77 : 63), "a pit wall 4 steps ahead rises into the stairs"); n++;
+			check(!ServerDigController.groundRisesAhead(stepAt, net.minecraft.core.Direction.EAST, column -> column.getX() == 5 ? 77 : 63), "a wall 5 steps ahead is past the look"); n++;
+			check(!ServerDigController.groundRisesAhead(stepAt, net.minecraft.core.Direction.EAST, column -> column.getX() == 3 ? 72 : 69), "a gentle rise that stays under the stairs does not"); n++;
 			BlockPos origin = new BlockPos(0,64,0);
 			Set<BlockPos> air = new HashSet<>();
 			for(int x=0;x<2;x++) for(int y=64;y<66;y++) for(int z=0;z<2;z++) air.add(new BlockPos(x,y,z));

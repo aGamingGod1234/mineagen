@@ -537,7 +537,8 @@ public final class ServerDigController implements ServerController {
 			boolean cellsOpen = cells.stream().allMatch(cell -> { BlockState in = level.getBlockState(cell); return passable(level, cell, in) && in.getFluidState().isEmpty(); });
 			if (outInTheOpen(standable(level, step, floorState), floorState.getFluidState().isEmpty(), cellsOpen,
 					() -> dev.agaminggod.mineagen.server.perception.ServerObservationCollector.skyOpenAt(level, feet.above())
-							&& dev.agaminggod.mineagen.server.perception.ServerObservationCollector.skyOpenAt(level, next.above())))
+							&& dev.agaminggod.mineagen.server.perception.ServerObservationCollector.skyOpenAt(level, next.above())
+							&& !groundRisesAhead(next, heading, column -> level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, column.getX(), column.getZ()))))
 				return outInTheOpen(player);
 		}
 		openBefore.clear();
@@ -1969,6 +1970,23 @@ public final class ServerDigController implements ServerController {
 	/** A stairs_up step with nothing to dig that would be built into dry air, under open sky over the head here and over the step. */
 	static boolean outInTheOpen(boolean stepStandable, boolean stepDry, boolean cellsOpen, java.util.function.BooleanSupplier skyOverBoth) {
 		return !stepStandable && stepDry && cellsOpen && skyOverBoth.getAsBoolean();
+	}
+
+	/** Steps ahead within which rising ground (a pit or ravine wall, a slope) keeps an open-air step worth placing. */
+	static final int GROUND_AHEAD_STEPS = 4;
+
+	/**
+	 * Whether ground ahead along the heading rises into the staircase's path within {@link #GROUND_AHEAD_STEPS} steps: a
+	 * column whose top (leaves ignored) reaches the floor the stairs would have there. On a pit floor the wall a few cells
+	 * away does (one step in the air, then the stairs dig into it, as before); out on the grass nothing does.
+	 */
+	static boolean groundRisesAhead(BlockPos next, Direction heading, java.util.function.ToIntFunction<BlockPos> top) {
+		for (int i = 1; i <= GROUND_AHEAD_STEPS; i++) {
+			BlockPos column = next.relative(heading, i);
+			// Stairs from next rise one a step: their floor at step i is next.y - 1 + i; top is the first free y above.
+			if (top.applyAsInt(column) > next.getY() - 1 + i) return true;
+		}
+		return false;
 	}
 
 	/** escape's pit and flooded-bank climbs: steps built in open air are the way out there, toward a rim it has seen. */

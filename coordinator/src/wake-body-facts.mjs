@@ -20,6 +20,22 @@ export function lightLine(observation) {
 	return cap(`${phase} (day ${day}); ${timing}; mobs spawn in darkness${exposure}`, LIGHT_LINE_BYTES);
 }
 
+export const UP_LINE_BYTES = 160;
+
+/**
+ * Under cover in the Overworld, more than 3 blocks below the last spot it stood under open sky: where that was and that
+ * retrace walks the body's own route back there. Playtest 22 Nov: the model dug a new staircase up "to reach daylight"
+ * beside its own way down, with nothing in its facts naming the way back.
+ */
+export function upLine(observation, openSky) {
+	const o = observation, p = o?.player;
+	if (!live(o) || o.world?.dimension !== 'minecraft:overworld' || p?.skyOpen !== false || !openSky || openSky.dimension !== o.world.dimension) return null;
+	if (![p.x, p.y, p.z, openSky.x, openSky.y, openSky.z].every(Number.isFinite) || openSky.y - p.y <= 3) return null;
+	const at = [openSky.x, openSky.y, openSky.z].map(Math.floor);
+	const distance = Math.round(Math.hypot(openSky.x - p.x, openSky.y - p.y, openSky.z - p.z));
+	return cap(`last open sky @${at.join(',')} ${distance}m dy+${Math.round(openSky.y - p.y)}; travel_to retrace:true there walks your own way back up`, UP_LINE_BYTES);
+}
+
 /** Wear of the held tool, or the best carried tool for the model's stated activity. No action is chosen here. */
 export function toolsLine(observation, { activity = '' } = {}) {
 	const o = observation;
