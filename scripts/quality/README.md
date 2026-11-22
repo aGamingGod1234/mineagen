@@ -493,7 +493,9 @@ The reflex rooms (`scripts/quality/reflex-rooms.json`) are a fast regression che
 
 ### Danger rows
 
-With `-Dmineagen.watch=true` (every harness launcher passes it) the Watcher also writes `arena-watch/<agentId>-danger.jsonl`, created empty when it starts watching the agent, so a watched run with no danger rows reads as a clean capture rather than missing evidence. With the watch off nothing is written and observations are unchanged. Every row has `type`, `schema` (currently 1), `agentId`, `atMs` (epoch ms) and `gameTime`. Onset and clear rows also carry `rules` (`onset-1`); a change to an onset, close or response rule bumps it, because it moves the gate's denominator. Rows of another schema are counted apart, never mixed in.
+With `-Dmineagen.watch=true` (the headless matrix passes it, and so does every practice room that boots its server through `watch-replay.mjs` `boot()` unless `FIXTURE_WATCH=0`; the room scripts that launch their own server do not yet) the Watcher also writes `arena-watch/<agentId>-danger.jsonl`, created empty when it starts watching the agent, so a watched run with no danger rows reads as a clean capture rather than missing evidence. With the watch off nothing is written and observations are unchanged. Every row has `type`, `schema` (currently 1), `agentId`, `atMs` (epoch ms) and `gameTime`. Onset and clear rows also carry `rules` (`onset-1`); a change to an onset, close or response rule bumps it, because it moves the gate's denominator. Rows of another schema are counted apart, never mixed in.
+
+In a practice room, `boot()` copies the danger files to `DIR/arena-watch/` when the server stops, so they outlive the world, and `finishRun` folds the `damage` rows that fall between each result row's `startedAt` and `finishedAt` into `row.hits`: `hits`, `taken`, `blocked`, `lethal`, `lethalAmount`, `agents` and the same per attacker in `byAttacker` (the attacking entity type, else the damage type such as `minecraft:lava`). A room with no danger file gets no `hits` (unknown, not zero). The fold is `scripts/quality/lib/danger-rows.mjs`.
 
 | Row | What it records |
 |---|---|
