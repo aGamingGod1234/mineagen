@@ -7,6 +7,9 @@
 // DRAWN_MIN_SHARE of the damage and more than the arrow-only arm. The benchmark plays RULE_ARMS=drawn, judged on that floor alone:
 // since #59 the shipped rule blocks 95-100% at every distance, and at 10 blocks the arrow-only rule ties it, so "more than" failed
 // rooms the bot played well. CP2r baseline with a shield in hand: 41 of 77 hits blocked.
+// SHOOTER=piglin plays a crossbow piglin (immune to zombifying in this Overworld room) in place of the skeleton: it fires
+// from 8 blocks or nearer, so at 10 it walks in first (each case records where it ended). Checkpoint main blocked 61% of
+// piglin shots against 73% for skeletons, as only a drawn bow read as drawn.
 // Always launch under slot.sh live; ports come from SLOT_PORT_BASE. Operator commands build the fixture and spawn mobs only.
 import { readFile, writeFile, mkdir, cp, readdir, unlink, open } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -23,7 +26,7 @@ import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-r
 import { statCounter, shieldShareVerdict } from './lib/damage-counter.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
-const USAGE = 'Usage: test-drawn-bow-live.mjs [OUT_DIR] [--strict|--descriptive] under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME (DISTANCES, REPEATS, CASE_SECONDS, DRAWN_MIN_SHARE, RULE_ARMS, ARENA_JAR)';
+const USAGE = 'Usage: test-drawn-bow-live.mjs [OUT_DIR] [--strict|--descriptive] under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME (DISTANCES, REPEATS, CASE_SECONDS, DRAWN_MIN_SHARE, RULE_ARMS, SHOOTER, ARENA_JAR)';
 const cli = process.argv.slice(2);
 if (cli.includes('--help')) { console.log(USAGE + '\n' + EDIT_LOOP_HELP + '\n' + FIXTURE_OUTCOME_HELP); process.exit(0); }
 const strict = !cli.includes('--descriptive');
@@ -144,21 +147,28 @@ try {
 	const ruleArms = (process.env.RULE_ARMS ?? 'arrowOnly,drawn').split(',').filter(Boolean);
 	if (!ruleArms.includes('drawn') || ruleArms.some((arm) => !['arrowOnly', 'drawn'].includes(arm))) throw new Error(`RULE_ARMS wants arrowOnly,drawn or drawn, got ${ruleArms}`);
 	const distances = (process.env.DISTANCES ?? '4,7,10').split(',').map(Number);
+	const SHOOTERS = {
+		skeleton: { type: 'minecraft:skeleton', nbt: '{PersistenceRequired:1b,equipment:{mainhand:{id:"minecraft:bow",count:1}}}' },
+		piglin: { type: 'minecraft:piglin', nbt: '{PersistenceRequired:1b,IsImmuneToZombification:1b,equipment:{mainhand:{id:"minecraft:crossbow",count:1}}}' },
+	};
+	const shooter = SHOOTERS[process.env.SHOOTER ?? 'skeleton'];
+	if (!shooter) throw new Error(`SHOOTER wants ${Object.keys(SHOOTERS)}, got ${process.env.SHOOTER}`);
+	acceptance.shooter = shooter.type;
 	const repeats = Number(process.env.REPEATS ?? 2), seconds = Number(process.env.CASE_SECONDS ?? 30);
 	const cases = [];
 	for (let repeat = 0; repeat < repeats; repeat += 1) {
 		for (const distance of distances) {
 			for (const [arm, rule] of [['arrowOnly', arrowOnly], ['drawn', drawn]].filter(([arm]) => ruleArms.includes(arm))) {
 				await rate.normalRate();
-				await command('kill @e[type=minecraft:skeleton]'); await command('kill @e[type=minecraft:arrow]');
+				await command(`kill @e[type=${shooter.type}]`); await command('kill @e[type=minecraft:arrow]');
 				await command(`tp ${agent} 0.5 80 0.5 0 0`); await command(`item replace entity ${agent} weapon.offhand with minecraft:shield`);
 				await command(`effect give ${agent} minecraft:instant_health 1 3 true`);
 				await setReflexes([rule]); await rate.idleSleep(1000);
 				const blocked0 = await score.blk(), taken0 = await score.dmg();
 				await rate.fastRate();
 				const wall0 = Date.now(), timer = await rate.gameTimer();
-				// /summon gives a skeleton no bow (it then walks up and punches): hand it one, as a natural spawn has.
-				await command(`summon minecraft:skeleton 0.5 80 ${0.5 + distance} {PersistenceRequired:1b,equipment:{mainhand:{id:"minecraft:bow",count:1}}}`);
+				// /summon with data gives a mob no weapon (a skeleton then walks up and punches): hand it one, as a natural spawn has.
+				await command(`summon ${shooter.type} 0.5 80 ${0.5 + distance} ${shooter.nbt}`);
 				const seenEvents = new Map();
 				// DRAWN_TRACE=1: sample every 50 ms of game time (firing, shield in use, health, arrows due) into the case.
 				const trace = process.env.DRAWN_TRACE === '1' ? [] : null;
@@ -173,13 +183,15 @@ try {
 					if ((health(o) ?? 20) < 12) await command(`effect give ${agent} minecraft:instant_health 1 3 true`);
 				}
 				const gameMs = await timer.elapsed();
+				const shooterAt = /\[\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?\]/.exec(String(await command(`data get entity @e[type=${shooter.type},limit=1] Pos`)))?.slice(1).map(Number);
+				const shooterEndDistance = shooterAt ? +Math.hypot(shooterAt[0] - 0.5, shooterAt[2] - 0.5).toFixed(1) : null;
 				const tick = { tickRate: rate.tickRate, gameSeconds: Math.round(gameMs / 1000), wallSeconds: Math.round((Date.now() - wall0) / 1000), rates: await timer.rates().catch(() => null) };
 				await rate.normalRate();
 				const blocked1 = await score.blk(), taken1 = await score.dmg();
 				o = await observe();
-				cases.push({ arm, repeat, distance, blocked0, blocked1, taken0, taken1, events: [...seenEvents.values()], tick, ...(trace ? { trace } : {}) });
+				cases.push({ arm, repeat, distance, shooter: shooter.type, shooterEndDistance, blocked0, blocked1, taken0, taken1, events: [...seenEvents.values()], tick, ...(trace ? { trace } : {}) });
 				const counter = (before, after) => before === null || after === null ? 'unreadable' : `${(after - before) / 10} HP`;
-				console.log(`[case] ${arm} ${distance} blocks: blocked ${counter(blocked0, blocked1)}, taken ${counter(taken0, taken1)}; firings ${seenEvents.size}: ${[...seenEvents.values()].slice(0, 4).map(row => `${row.outcome} ${row.detail}`).join(' | ')}`);
+				console.log(`[case] ${arm} ${shooter.type} ${distance} blocks (ended ${shooterEndDistance}): blocked ${counter(blocked0, blocked1)}, taken ${counter(taken0, taken1)}; firings ${seenEvents.size}: ${[...seenEvents.values()].slice(0, 4).map(row => `${row.outcome} ${row.detail}`).join(' | ')}`);
 				await setReflexes([]);
 			}
 		}
