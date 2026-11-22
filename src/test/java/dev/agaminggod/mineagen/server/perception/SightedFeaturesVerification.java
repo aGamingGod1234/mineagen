@@ -420,7 +420,7 @@ public final class SightedFeaturesVerification {
 		check(sameElsewhere, "reused groups seen from another eye order like a fresh full sort from there");
 	}
 
-	/** centreDistance must be bit for bit the old eye.distanceTo(Vec3.atCenterOf(BlockPos.of(position))). */
+	/** centreDistance must be bit for bit the old Math.sqrt(eye.distanceToSqr(Vec3.atCenterOf(BlockPos.of(position)))). */
 	private static void centreDistanceMatchesVec3() {
 		java.util.Random random = new java.util.Random(11);
 		boolean same = true;
@@ -428,7 +428,8 @@ public final class SightedFeaturesVerification {
 			Vec3 eye = new Vec3((random.nextDouble() - 0.5D) * 60_000D, random.nextDouble() * 400D - 64D, (random.nextDouble() - 0.5D) * 60_000D);
 			long position = net.minecraft.core.BlockPos.asLong((int) Math.floor(eye.x) + random.nextInt(513) - 256,
 					(int) Math.floor(eye.y) + random.nextInt(129) - 64, (int) Math.floor(eye.z) + random.nextInt(513) - 256);
-			double expected = eye.distanceTo(Vec3.atCenterOf(net.minecraft.core.BlockPos.of(position)));
+			// The expression the far-sight distance used before this change.
+			double expected = Math.sqrt(eye.distanceToSqr(Vec3.atCenterOf(net.minecraft.core.BlockPos.of(position))));
 			same = Double.doubleToRawLongBits(FarSight.centreDistance(eye, position)) == Double.doubleToRawLongBits(expected);
 		}
 		check(same, "centreDistance is bit for bit the Vec3 distance, negative and fractional coordinates included");

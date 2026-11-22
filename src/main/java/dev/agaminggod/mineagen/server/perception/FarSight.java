@@ -5,6 +5,10 @@ import com.google.gson.JsonObject;
 import dev.agaminggod.mineagen.agent.AgentDomainException;
 import dev.agaminggod.mineagen.server.perception.SightedFeatures.Cell;
 import dev.agaminggod.mineagen.world.ChunkMutationRevisionAccess;
+import it.unimi.dsi.fastutil.doubles.DoubleArrayList;
+import it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongArrayFIFOQueue;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumSet;
@@ -924,7 +928,7 @@ public final class FarSight {
 		Cluster filter(Predicate<Found> keep) {
 			if (distances == null) return new Cluster(members.stream().filter(keep).toList(), distance);
 			List<Found> kept = new ArrayList<>();
-			it.unimi.dsi.fastutil.doubles.DoubleArrayList keptDistances = new it.unimi.dsi.fastutil.doubles.DoubleArrayList();
+			DoubleArrayList keptDistances = new DoubleArrayList();
 			for (int i = 0; i < members.size(); i++) {
 				if (!keep.test(members.get(i))) continue;
 				keptDistances.add(distances[i]);
@@ -1223,15 +1227,15 @@ public final class FarSight {
 
 	/** Blocks within about 4 blocks of each other (linked 4-block cells), each group in discovery order. */
 	static List<List<Found>> groups(List<Found> blocks) {
-		it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap<List<Found>> cells = new it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap<>();
+		Long2ObjectLinkedOpenHashMap<List<Found>> cells = new Long2ObjectLinkedOpenHashMap<>();
 		for (Found found : blocks) {
 			long cell = BlockPos.asLong(BlockPos.getX(found.position()) >> 2, BlockPos.getY(found.position()) >> 2, BlockPos.getZ(found.position()) >> 2);
 			List<Found> members = cells.get(cell);
 			if (members == null) cells.put(cell, members = new ArrayList<>());
 			members.add(found);
 		}
-		it.unimi.dsi.fastutil.longs.LongOpenHashSet claimed = new it.unimi.dsi.fastutil.longs.LongOpenHashSet(cells.size());
-		it.unimi.dsi.fastutil.longs.LongArrayFIFOQueue queue = new it.unimi.dsi.fastutil.longs.LongArrayFIFOQueue();
+		LongOpenHashSet claimed = new LongOpenHashSet(cells.size());
+		LongArrayFIFOQueue queue = new LongArrayFIFOQueue();
 		List<List<Found>> groups = new ArrayList<>();
 		for (var starts = cells.keySet().iterator(); starts.hasNext(); ) {
 			long start = starts.nextLong();
@@ -1448,10 +1452,13 @@ public final class FarSight {
 		int tests = 0;
 		for (Cluster group : groups) {
 			if (rows.size() >= limit || tests >= 24) break;
-			Found first = group.members().getFirst();
+			// Only the nearest three are ever tested, so take them from the heap instead of ordering the whole group.
+			List<Found> nearest = new ArrayList<>(3);
+			for (var members = group.nearestFirst(); members.hasNext() && nearest.size() < 3; ) nearest.add(members.next());
+			Found first = nearest.getFirst();
 			int reach = first.state().is(Blocks.NETHER_PORTAL) ? RANGE : SMALL_SIGHT;
 			if (group.distance() > reach) continue;
-			for (Found member : group.members().subList(0, Math.min(3, group.members().size()))) {
+			for (Found member : nearest) {
 				tests++;
 				if (!sight.sees(member)) continue;
 				BlockPos position = BlockPos.of(member.position());
