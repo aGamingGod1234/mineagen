@@ -14,6 +14,7 @@ import { REGEN_RESUME_HEALTH, bodyDanger, eatCalls, lowHealthFork } from './fork
 import { heldCounts, heldOf, keepPickaxeMakings, planObtain, readyTimes, resolveObtainItem, shortId, OBTAIN_STATIONS } from './obtain-plan.mjs';
 import { lootSources, structureReach } from './loot-sources.mjs';
 import { lootChest } from './loot-step.mjs';
+import { kitLeft } from './skill-fits.mjs';
 
 export const OBTAIN_DEFAULT_TIMEOUT_MS = 900_000;
 export const OBTAIN_MAX_TIMEOUT_MS = 1_800_000;
@@ -106,6 +107,20 @@ const flatDistance = (body, b) => Math.hypot(b.x + 0.5 - body.x, b.z + 0.5 - bod
 function knownBlocks(o) {
 	return [...(o.blocks ?? []), ...(o.world?.landmarks ?? o.landmarks ?? []), ...(o.routeMemory?.seenResources ?? [])]
 		.filter((row) => row && typeof row.blockId === 'string' && [row.x, row.y, row.z].every(Number.isSafeInteger));
+}
+
+/**
+ * Raw iron to mine beyond this plan's own while at the ore: the iron the route's kit (kitLeft) still lacks, less the
+ * iron held and what this plan already mines. 0 unless this plan mines raw iron in the Overworld.
+ */
+export function kitIronExtra(o, plan) {
+	if ((o?.world?.dimension ?? 'minecraft:overworld') !== 'minecraft:overworld') return 0;
+	const mining = plan.needs.filter((need) => need.kind === 'mine' && need.accept.includes('raw_iron')).reduce((n, need) => n + need.count, 0);
+	if (mining === 0) return 0;
+	const items = (o?.inventory?.items ?? []).filter((row) => row?.count > 0);
+	const count = (re) => items.filter((row) => re.test(row.itemId ?? '')).reduce((n, row) => n + row.count, 0);
+	// The kit's iron less what is held and what this plan brings up already.
+	return Math.max(0, kitLeft(count).iron - count(/^minecraft:(iron_ingot|raw_iron)$/) - mining);
 }
 
 /** Armour points worn and the best sword or axe tier held (-1 none): whether a built mob's fight is a way. */
@@ -1654,6 +1669,10 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			// The food a trip down wants (TRIP_FOOD items): a village's bread is then worth the visit before the trip, not after.
 			const eats = [...counts].filter(([kind]) => FOODS.has(kind) || /^(cooked_|baked_|bread$|golden_carrot)/.test(kind)).reduce((sum, [, n]) => sum + n, 0);
 			plan = planObtain(goal, { held, seen, stations, index, coalFirst, dimension: o.world?.dimension, loot, gear: gearOf(o), places, food: Math.max(0, TRIP_FOOD - eats) });
+			// At the ore for an iron tool, the rest of the route's kit iron comes in the same trip: a second trip down for
+			// the shield's, buckets' and flint and steel's iron costs the whole descent again.
+			const extra = kitIronExtra(o, plan);
+			if (extra > 0) plan = planObtain({ ...goal, also: [{ ids: ['raw_iron'], count: extra }] }, { held, seen, stations, index, coalFirst, dimension: o.world?.dimension, loot, gear: gearOf(o), places, food: Math.max(0, TRIP_FOOD - eats) });
 			// The wood kept back for the next pickaxes never sends the body up for wood from under cover: there it is spent
 			// on what this call needs (a table, sticks, a shield). On the surface a log is near and the reserve holds.
 			const woodNeed = (candidate) => candidate.accept.some((member) => /(_log|_wood|_planks|^stick)$/.test(bare(member)));

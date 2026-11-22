@@ -237,3 +237,17 @@ test('a house with a zombie by its door is shut again and not entered', async ()
 	assert.deepEqual(doorCalls.slice(0, 2), [true, false]);
 	assert.equal(calls.some(([type, args]) => type === 'travel_to' && args.tolerance === 0.5), false, 'never steps into the doorway');
 });
+
+// The playtest's iron trip: obtain iron_pickaxe mined only the pickaxe's 3 iron, and the kit's other 8 took a second trip.
+test('an iron tool\'s trip mines the rest of the kit\'s iron at the ore too; none extra when the plan mines no iron', async () => {
+	const { kitIronExtra } = await import('../src/obtain-runner.mjs');
+	const o = { world: { dimension: 'minecraft:overworld' }, inventory: { items: [{ itemId: 'minecraft:stone_pickaxe', count: 1 }, { itemId: 'minecraft:oak_log', count: 4 }] } };
+	const plan = planObtain({ ids: ['iron_pickaxe'], count: 1 }, { held });
+	assert.equal(kitIronExtra(o, plan), 8, 'shield 1, 2 buckets 6, flint and steel 1');
+	const both = planObtain({ ids: ['iron_pickaxe'], count: 1, also: [{ ids: ['raw_iron'], count: 8 }] }, { held });
+	assert.equal(both.needs.find((need) => need.accept.includes('raw_iron')).count, 11, 'one vein trip for 11 raw iron');
+	const twoHeld = { ...o, inventory: { items: [...o.inventory.items, { itemId: 'minecraft:raw_iron', count: 2 }] } };
+	assert.equal(kitIronExtra(twoHeld, planObtain({ ids: ['iron_pickaxe'], count: 1 }, { held: new Map([...held, ['raw_iron', 2]]) })), 8);
+	assert.equal(kitIronExtra(o, planObtain({ ids: ['stick'], count: 4 }, { held })), 0);
+	assert.equal(kitIronExtra({ ...o, world: { dimension: 'minecraft:the_nether' } }, plan), 0);
+});
