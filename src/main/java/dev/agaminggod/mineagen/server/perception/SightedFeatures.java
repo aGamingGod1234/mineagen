@@ -69,7 +69,8 @@ public final class SightedFeatures {
 	static final int MAX_REMEMBERED_STRUCTURES = 128;
 	/** Passive rows per far-sight section; a survey can ask for up to {@link FarSight#MAX_ROWS}. */
 	static final Map<FarSight.Section, Integer> PASSIVE_ROWS = Map.of(FarSight.Section.STRUCTURES, MAX_STRUCTURES,
-			FarSight.Section.POI, 4, FarSight.Section.BIOMES, 4, FarSight.Section.BUILT, 3, FarSight.Section.BLOCKS, 4);
+			FarSight.Section.POI, 4, FarSight.Section.BIOMES, 4, FarSight.Section.BUILT, 3, FarSight.Section.BLOCKS, 4,
+			FarSight.Section.RESOURCES, FarSight.RESOURCE_ROWS);
 	private static final Set<net.minecraft.world.level.block.Block> NATURAL_BLOCKS = Set.of(
 			Blocks.STONE, Blocks.DEEPSLATE, Blocks.GRANITE, Blocks.DIORITE, Blocks.ANDESITE, Blocks.TUFF, Blocks.NETHERRACK,
 			Blocks.BASALT, Blocks.BLACKSTONE, Blocks.DIRT, Blocks.GRASS_BLOCK, Blocks.COARSE_DIRT, Blocks.SAND, Blocks.RED_SAND,
