@@ -85,5 +85,14 @@ test('readStart reads the start with commands anchored at the body, and an unrea
 	assert.equal(checkStart(SPEC, blank).ok, false);
 	assert.equal(blank.mobs, null);
 	await assert.rejects(readStart(command, 'Probe', { mobs: [{ type: 'minecraft:skeleton', inSight: true }] }), /give readStart the room's sight/);
+	await assert.rejects(readStart(command, 'Probe', { mobs: [{ type: 'minecraft:skeleton', min: 2, inSight: true }] }, { sight: async () => true }), /can judge sight for one mob/);
+	// Two requirements on one type read apart: one skeleton within 6 does not also fill "two within 16".
+	const two = { mobs: [{ type: 'minecraft:skeleton', min: 2, within: 16 }, { type: 'minecraft:skeleton', min: 1, within: 6 }] };
+	const one = { 'execute at Probe if entity @e[type=minecraft:skeleton,distance=..16]': 'Test passed, count: 1', 'execute at Probe if entity @e[type=minecraft:skeleton,distance=..6]': 'Test passed, count: 1' };
+	const lone = await readStart(async text => one[text] ?? world[text] ?? '', 'Probe', two);
+	assert.deepEqual(checkStart(two, lone).failures.map(failure => failure.reason), ['1 minecraft:skeleton within 16 blocks, wants 2 (nearest 5 blocks away)']);
+	// No range asked: the count is not cut to any range.
+	const any = await readStart(async text => { sent.push(text); return text === 'execute at Probe if entity @e[type=minecraft:skeleton]' ? 'Test passed, count: 2' : world[text] ?? ''; }, 'Probe', { mobs: [{ type: 'minecraft:skeleton', min: 2 }] });
+	assert.equal(checkStart({ mobs: [{ type: 'minecraft:skeleton', min: 2 }] }, any).ok, true);
 	await assert.rejects(readStart(command, 'Probe; kill @e', SPEC), /player name/);
 });

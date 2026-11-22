@@ -32,8 +32,9 @@ export function checkStart(spec, start) {
 			else if (!start.below.solid) fail('footing', 'no solid block under the body');
 		}
 	}
-	for (const want of spec.mobs ?? []) {
-		const mobs = (start.mobs ?? []).filter(mob => mob.type === want.type);
+	for (const [index, want] of (spec.mobs ?? []).entries()) {
+		// Each requirement reads its own observations (mob.for, from readStart), so one mob never counts for two of them.
+		const mobs = (start.mobs ?? []).filter(mob => mob.type === want.type && (mob.for === undefined || mob.for === index));
 		const within = Number.isFinite(want.within) ? want.within : Infinity;
 		const near = mobs.filter(mob => Number.isFinite(mob.distance) && mob.distance <= within);
 		const min = want.min ?? 1;
@@ -110,22 +111,26 @@ export async function readStart(command, agent, spec, { sight = null } = {}) {
 	}
 	if (spec.mobs) {
 		start.mobs = [];
-		for (const want of spec.mobs) {
+		for (const [index, want] of spec.mobs.entries()) {
 			if (!ID.test(want.type)) throw new Error(`readStart wants an entity id, got ${want.type}`);
 			if (want.inSight && !sight) throw new Error(`${want.type} asks for inSight: give readStart the room's sight()`);
-			const within = Number.isFinite(want.within) ? want.within : 64;
-			const n = count(await run(`execute at ${agent} if entity @e[type=${want.type},distance=..${within}]`));
+			// Only the nearest mob's position (and so its sight) can be read; a room needing several in sight checks them itself.
+			if (want.inSight && (want.min ?? 1) > 1) throw new Error(`${want.type}: readStart can judge sight for one mob; with min ${want.min} give checkStart the room's own mobs list`);
+			const within = Number.isFinite(want.within) ? want.within : Infinity;
+			// No range asked: every loaded mob of the type counts, as checkStart counts it.
+			const range = Number.isFinite(within) ? `,distance=..${within}` : '';
+			const n = count(await run(`execute at ${agent} if entity @e[type=${want.type}${range}]`));
 			const nearest = vector(await run(`execute at ${agent} run data get entity @e[type=${want.type},limit=1,sort=nearest] Pos`));
 			const distance = nearest && start.body ? Math.hypot(...nearest.map((value, i) => value - start.body[i])) : null;
 			if (n === null) { start.mobs = null; break; }
 			for (let i = 0; i < n; i++) {
 				// Only the nearest has a known position; the others are within range by the selector.
-				const mob = i === 0 && nearest ? { type: want.type, position: nearest, distance } : { type: want.type, distance: within };
+				const mob = i === 0 && nearest ? { type: want.type, position: nearest, distance, for: index } : { type: want.type, distance: Number.isFinite(within) ? within : distance, for: index };
 				if (want.inSight && i === 0) mob.inSight = await Promise.resolve().then(() => sight(mob)).catch(() => null);
 				start.mobs.push(mob);
 			}
 			// A mob beyond range is still worth recording: "nearest 82 blocks away" tells a room owner what went wrong.
-			if (!n && nearest) start.mobs.push({ type: want.type, position: nearest, distance });
+			if (!n && nearest) start.mobs.push({ type: want.type, position: nearest, distance, for: index });
 		}
 	}
 	if (spec.health) start.health = number(await run(`data get entity ${agent} Health`));
