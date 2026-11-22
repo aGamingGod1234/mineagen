@@ -7,6 +7,7 @@
 **Result:** these are measured on boat machines, 10 runs per kit.
 - **Dragon kills:** 0/10 with a bow and 0/10 without.
 - **Crystals:** with the bow, the body broke crystals in 10/10 runs (4.1 of 10 on average). Without it, 0/10.
-- **Deaths:** the body died in 8/10 bow fights and 9/10 no-bow fights, mostly to endermen. The dragon never took damage.
+- **Deaths:** the body died in 8/10 bow fights and 9/10 no-bow fights, mostly to endermen.
+- **Dragon health:** it ended at 200/200 in every run. Arrows that struck it were healed back by the crystals still standing, and the script never opens the 2 caged ones.
 - **Survival:** idle bodies were alive after 10 minutes in 11/20 runs.
-- **Takeaway:** surviving endermen, not the weapon, is what currently blocks the win.
+- **Takeaway:** what blocks a win is surviving endermen, reaching the perched head and the caged crystals, not the bow alone.
