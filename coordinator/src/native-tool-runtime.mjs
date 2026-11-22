@@ -604,7 +604,8 @@ export class NativeToolRuntime {
 
 	/**
 	 * The program is held for the model's urgent answer (up to twice its timeoutMs): the work lease moves out by the hold
-	 * the executor reports, so the lease does not end the step while the answer is on its way.
+	 * the executor reports, so the lease does not end the step while the answer is on its way. (The lease started while
+	 * the program was prepared, so it still ends that much before an unanswered hold does, as at the plain timeout.)
 	 */
 	#creditUrgentHold(record, run, ms) {
 		if (this.#programRuns.get(record.agentId) !== run || run.state !== 'RUNNING' || !(ms > 0)) return;

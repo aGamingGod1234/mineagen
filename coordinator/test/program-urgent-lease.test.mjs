@@ -58,8 +58,8 @@ test('an urgent answer that lands after the program timeout keeps the step: the 
 	// When the cancel was sent, not when the poll saw it (a loaded runner polls late).
 	const endedAt = cancelSentAt - startedAt;
 	// The executor's own deadline is start + 1 s + the wait. startedAt is taken before the tool call, the wait opens
-	// between urgentAt and openedAt and ends between answeredAt and answerDoneAt: the deadline lies between these bounds.
-	// The wait opened when the lease was paid for it (a loaded runner may take the urgent sample late).
+	// between urgentAt and openedAt (when the lease was paid for it; a loaded runner may take the urgent sample late) and
+	// ends between answeredAt and answerDoneAt, so the deadline lies between these bounds.
 	const openedAt = traces.find((row) => row.event === 'urgent_wait_lease_credited')?.at;
 	assert.ok(openedAt >= urgentAt, 'the lease was paid for the hold as the urgent wait opened');
 	const earliest = 1_000 + (answeredAt - openedAt), latest = 1_000 + (answerDoneAt - urgentAt);
@@ -70,5 +70,6 @@ test('an urgent answer that lands after the program timeout keeps the step: the 
 	// loaded runner) changes nothing; it must not come first.
 	const expiry = traces.find((row) => row.event === 'work_lease_expired' && row.kind === 'program');
 	assert.ok(expiry === undefined || expiry.at >= cancelSentAt, `the work lease did not end the step (expired ${expiry?.at - startedAt} ms in)`);
+	// Both the program deadline and a lease expiry end as PROGRAM_DEADLINE; the expiry check above tells them apart.
 	assert.equal(traces.find((row) => row.event === 'native_program_ended' && row.programId === shown.programId).reasonCode, 'PROGRAM_DEADLINE');
 });
