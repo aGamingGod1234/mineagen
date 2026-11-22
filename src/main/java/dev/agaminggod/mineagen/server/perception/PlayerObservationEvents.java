@@ -353,7 +353,7 @@ public final class PlayerObservationEvents {
 			JsonObject event = new JsonObject();
 			event.addProperty("type", kind);
 			event.addProperty("text", ObservationDetails.bounded(value, 512));
-			event.addProperty("textTruncated", value.codePointCount(0, value.length()) > 512);
+			event.addProperty("textTruncated", value.length() > 512);
 			record(event, tick, dimension);
 		}
 

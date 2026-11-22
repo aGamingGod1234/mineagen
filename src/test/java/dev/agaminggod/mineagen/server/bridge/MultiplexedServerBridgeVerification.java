@@ -3699,6 +3699,30 @@ public final class MultiplexedServerBridgeVerification {
 		state.commit(agentId, observation);
 		assertTrue(!state.delta(agentId, observation, 2L, 1_001L).attention(),
 				"committed conversation attention is exact once");
+		verifyResyncFromAcceptedDelivery(agentId);
+	}
+
+	private static void verifyResyncFromAcceptedDelivery(AgentId agentId) {
+		MultiplexedServerBridge.PublishedObservationState state =
+				new MultiplexedServerBridge.PublishedObservationState(AgentConstants.DEFAULT_AGENT_LIMIT);
+		JsonObject breathing = com.google.gson.JsonParser.parseString("{\"eventSequence\":1,\"player\":{\"air\":300}}").getAsJsonObject();
+		JsonObject drowning = com.google.gson.JsonParser.parseString("{\"eventSequence\":2,\"player\":{\"air\":40}}").getAsJsonObject();
+		state.commit(agentId, breathing);
+		state.commit(agentId, drowning); // Sent with the low-air edge, then dropped by the coordinator.
+		JsonObject still = com.google.gson.JsonParser.parseString("{\"eventSequence\":3,\"player\":{\"air\":40}}").getAsJsonObject();
+		assertTrue(!state.delta(agentId, still, 3L, 3L).changedFacts().contains("player.air"), "without a resync the low-air edge is spent");
+		state.forgetDelivered(agentId, 1L);
+		assertTrue(state.delta(agentId, still, 3L, 3L).changedFacts().contains("player.air"),
+				"a resync from the accepted delivery announces low air again");
+		// A lasting fault: 2 dropped, the answer to the first resync (3) dropped too, 4 accepted. Counted from 1 again.
+		state.commit(agentId, still);
+		JsonObject later = com.google.gson.JsonParser.parseString("{\"eventSequence\":4,\"player\":{\"air\":40}}").getAsJsonObject();
+		state.commit(agentId, later);
+		state.forgetDelivered(agentId, 1L);
+		assertTrue(state.delta(agentId, later, 5L, 5L).changedFacts().contains("player.air"),
+				"a resync after a lasting fault still announces low air");
+		state.forgetDelivered(agentId, 99L); // Unknown: falls back to re-announcing threats only.
+		assertEquals(Set.of(), state.threatBaseline(agentId), "an unknown accepted delivery still clears the threat baseline");
 	}
 
 	private static void verifyDeathFacts() {
@@ -4577,6 +4601,12 @@ public final class MultiplexedServerBridgeVerification {
 			assertEquals(java.util.List.of("threats." + creeper + ".swelling"), changedFacts(again),
 					"a relatched swelling signal is a new edge (cycle " + cycle + ")");
 		}
+		assertTrue(changedFacts(publish.apply(withCreeper, keys)).isEmpty(), "a delivered swell is not announced twice");
+		// The coordinator dropped that delivery and asked for a resync: the swelling creeper must wake it again.
+		publication.publishedState().forgetDelivered(agent, null);
+		JsonObject resynced = publish.apply(withCreeper, keys);
+		assertTrue(changedFacts(resynced).contains("threats." + creeper + ".swelling"),
+				"after a resync the swelling creeper is announced again: " + changedFacts(resynced));
 
 		java.util.Set<String> withOther = new java.util.TreeSet<>(expired);
 		withOther.add(dev.agaminggod.mineagen.server.perception.ThreatSignalLatch.key(other, "ranged_aiming"));
@@ -5140,7 +5170,7 @@ public final class MultiplexedServerBridgeVerification {
 		assertTrue(delivered.containsKey(agent), "and keeps the inventory baseline");
 		delivered.remove(agent);
 		assertTrue(ObservationInventoryMarker.prepare(delivered.get(agent), observation).payload().getAsJsonObject("inventory").has("items"),
-				"a forgotten baseline (new connection, registration, removal, coordinator request after a miss) sends the full inventory");
+				"with no stored inventory for the agent the full inventory is sent");
 		JsonObject request = com.google.gson.JsonParser.parseString("{\"goalRevision\":4}").getAsJsonObject();
 		assertEquals(false, MultiplexedServerBridge.requestsFullInventory(request), "a routine observation request keeps the stored inventory");
 		request.addProperty("fullInventory", true);
@@ -5160,6 +5190,12 @@ public final class MultiplexedServerBridgeVerification {
 		repeat = first.deepCopy();
 		state.omitUnchangedFooting(agent, repeat);
 		assertEquals(false, repeat.getAsJsonObject("player").has("footing"), "omitted event retains last delivered footing");
+		state.forgetDelivered(agent, null);
+		JsonObject resynced = first.deepCopy();
+		state.omitUnchangedFooting(agent, resynced);
+		assertEquals(true, resynced.getAsJsonObject("player").has("footing"), "a resync delivers footing again");
+		assertEquals(Set.of(), state.threatBaseline(agent), "a resync announces every current threat again");
+		state.commit(agent, first);
 		for (String field : new String[] {"drop", "atLeast", "into", "yaw"}) {
 			JsonObject changed = first.deepCopy();
 			JsonObject footing = changed.getAsJsonObject("player").getAsJsonObject("footing");

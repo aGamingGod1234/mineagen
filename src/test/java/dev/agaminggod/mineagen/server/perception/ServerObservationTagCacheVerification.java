@@ -41,7 +41,11 @@ public final class ServerObservationTagCacheVerification {
 		String emoji = "\uD83D\uDE00";
 		assertEquals(emoji.repeat(256), ServerObservationCollector.boundedEntityName(emoji.repeat(257)),
 				"entity name truncation preserves complete Unicode code points");
-		return 9;
+		assertEquals(256, ObservationDetails.bounded(emoji.repeat(200), 256).length(),
+				"observation text is bounded in the UTF-16 units the coordinator counts");
+		assertEquals(emoji.repeat(127), ObservationDetails.bounded(emoji.repeat(128), 255),
+				"observation text is never cut inside a surrogate pair");
+		return 11;
 	}
 
 	public static void main(String[] args) {

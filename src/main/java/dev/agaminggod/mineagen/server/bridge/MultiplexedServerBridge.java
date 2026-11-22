@@ -1593,9 +1593,14 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		AgentId id = AgentId.parse(envelope.agentId());
 		AgentRecord record = manager.registry().require(id);
 		JsonObject payload = envelope.payload();
-		requireKeysAllowing(payload, Set.of("goalRevision"), Set.of("fullInventory"), "request_observation");
+		requireKeysAllowing(payload, Set.of("goalRevision"), Set.of("fullInventory", "resync", "acceptedEventSequence"), "request_observation");
 		if (requiredLong(payload, "goalRevision") != record.goalRevision()) {
 			throw new AgentDomainException("STALE_REVISION", "Coordinator observation request revision is stale");
+		}
+		// The coordinator dropped an observation it could not validate, which this side counted as delivered: announce every
+		// current threat again, or a wake the dropped one carried (a creeper starting to swell) would be lost.
+		if (payload.has("resync") && requiredBoolean(payload, "resync")) {
+			observationPublication.forgetDelivered(id, payload.has("acceptedEventSequence") ? requiredLong(payload, "acceptedEventSequence") : null);
 		}
 		observations.invalidate(id);
 		observationPublication.markAttention(id);
@@ -1664,7 +1669,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 			JsonObject error = new JsonObject();
 			error.addProperty("code", exception instanceof AgentDomainException domain ? domain.code()
 					: exception instanceof BridgeProtocolException protocol ? protocol.code() : "INVALID_INSPECTION");
-			error.addProperty("message", exception.getMessage() == null ? "Inspection unavailable" : exception.getMessage());
+			error.addProperty("message", boundedMessage(exception.getMessage(), "Inspection unavailable"));
 			reply.remove("result");
 			reply.add("error", error);
 		}
@@ -2659,7 +2664,11 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 	private record PendingRespawnPublication(ServerActionResult result, AgentTransition transition, Runnable commit) { }
 
 	static String boundedRejectionMessage(String message) {
-		String fallback = "Action rejected";
+		return boundedMessage(message, "Action rejected");
+	}
+
+	/** A message within the coordinator's 1 to 2048 character bound, never cut inside a surrogate pair. */
+	static String boundedMessage(String message, String fallback) {
 		if (message == null || message.isBlank()) return fallback;
 		int end = Math.min(message.length(), ProtocolConstants.MAX_RESULT_MESSAGE_LENGTH);
 		if (end < message.length() && end > 0 && Character.isHighSurrogate(message.charAt(end - 1))
@@ -4146,6 +4155,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		}
 		boolean markDirty(AgentId agentId) { return published.markDirty(agentId); }
 		boolean markAttention(AgentId agentId) { return published.markAttention(agentId); }
+		void forgetDelivered(AgentId agentId, Long acceptedEventSequence) { published.forgetDelivered(agentId, acceptedEventSequence); }
 		boolean markSample(AgentId agentId) { return published.markSample(agentId); }
 		void requireObservedTarget(AgentId agentId, long eventSequence, String targetId) {
 			published.requireObservedTarget(agentId, eventSequence, targetId);
@@ -4317,6 +4327,12 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		private final Set<AgentId> sampleRequests = new HashSet<>();
 		private final Map<AgentId, ObservationTargetHistory> targetHistory = new java.util.LinkedHashMap<>();
 		private final Map<AgentId, java.util.LinkedHashSet<String>> conversationSources = new java.util.LinkedHashMap<>();
+		// The last few deliveries by event sequence, so a resync can go back to the one the coordinator actually accepted.
+		private final Map<AgentId, LinkedHashMap<Long, DeliveredBaseline>> recentDeliveries = new HashMap<>();
+		// Covers a run of dropped observations up to the coordinator's limit, plus the answers already on their way.
+		private static final int RECENT_DELIVERIES = 12;
+
+		private record DeliveredBaseline(JsonObject observation, Set<String> threatSignals) {}
 
 		public PublishedObservationState(int retryCapacity) {
 			if (retryCapacity < 1) throw new IllegalArgumentException("retryCapacity must be positive");
@@ -4390,6 +4406,10 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 				}
 				targetHistory.computeIfAbsent(agentId, ignored -> new ObservationTargetHistory())
 						.retain(eventSequence, observedTargetIds(deliveredObservation));
+				LinkedHashMap<Long, DeliveredBaseline> recent = recentDeliveries.computeIfAbsent(agentId, ignored -> new LinkedHashMap<>());
+				recent.remove(eventSequence);
+				recent.put(eventSequence, new DeliveredBaseline(deliveredObservation, deliveredThreatSignals.get(agentId)));
+				while (recent.size() > RECENT_DELIVERIES) recent.remove(recent.keySet().iterator().next());
 			}
 			dirty.remove(agentId);
 			forcedAttention.remove(agentId);
@@ -4540,6 +4560,27 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 			requireObservedTarget(agentId, eventSequence, recipientId);
 		}
 
+		/**
+		 * After the coordinator dropped a delivery. The next changes are counted from the delivery it last accepted, when that
+		 * one is still known, so every danger edge it missed (low air, fire, a swelling creeper) is announced again. Otherwise
+		 * every threat signal now latched is announced again (an empty threat baseline, not a missing one, which a first
+		 * delivery would absorb silently). Footing is sent again either way.
+		 */
+		public synchronized void forgetDelivered(AgentId agentId, Long acceptedEventSequence) {
+			Objects.requireNonNull(agentId, "agentId must not be null");
+			deliveredFooting.remove(agentId);
+			threatRepublish.remove(agentId);
+			LinkedHashMap<Long, DeliveredBaseline> recent = recentDeliveries.get(agentId);
+			DeliveredBaseline accepted = acceptedEventSequence == null || recent == null ? null : recent.get(acceptedEventSequence);
+			if (accepted != null) {
+				delivered.put(agentId, accepted.observation());
+				if (accepted.threatSignals() == null) deliveredThreatSignals.remove(agentId);
+				else deliveredThreatSignals.put(agentId, accepted.threatSignals());
+			} else if (delivered.containsKey(agentId)) {
+				deliveredThreatSignals.put(agentId, Set.of());
+			}
+		}
+
 		public synchronized boolean markAttention(AgentId agentId) {
 			Objects.requireNonNull(agentId, "agentId must not be null");
 			if (forcedAttention.contains(agentId)) return true;
@@ -4582,6 +4623,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 			sampleRequests.remove(agentId);
 			targetHistory.remove(agentId);
 			conversationSources.remove(agentId);
+			recentDeliveries.remove(agentId);
 		}
 
 		public synchronized int retainedCount() {
@@ -4598,6 +4640,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 			sampleRequests.clear();
 			targetHistory.clear();
 			conversationSources.clear();
+			recentDeliveries.clear();
 		}
 
 		private static Set<String> observedTargetIds(JsonObject observation) {
