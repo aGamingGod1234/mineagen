@@ -511,7 +511,9 @@ public final class ReflexEngine {
 		ObservationVisibility.Frame frame = ObservationVisibility.frame(player.level(), player);
 		// A fortress spawner in view is remembered for a blaze fight started later, cover or not (spawner hold).
 		if (player.tickCount % 20 == 0) dev.agaminggod.mineagen.server.runtime.controller.ServerSpawnerHoldController.notice(player);
-		boolean cornered = active != null && active.type() == ActionType.FLEE_FROM
+		// A stand inside a flee, or inside an escape whose climb a mob blocked: running or taking cover there only hands
+		// the attackers free hits, so the back-off rules wait; hazard flinches still interrupt.
+		boolean cornered = active != null && (active.type() == ActionType.FLEE_FROM || active.type() == ActionType.ESCAPE)
 				&& dev.agaminggod.mineagen.server.runtime.controller.CorneredStand.standing(player)
 				// A blaze spawner hold owns the body for its whole run: its roofed cell is the cover a retreat would look for,
 				// it heals there, and rod trips turn back to it when hurt. Running out onto the fortress floor is what kills.

@@ -12,6 +12,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
@@ -110,6 +111,7 @@ public final class ServerEscapeController implements ServerController {
 	public TickResult tick(ServerPlayer player, long now) {
 		if (!player.isAlive()) return finish(player, TickResult.failed("AGENT_DEAD", "Body died while getting out" + done() + facts(player), 0.0D));
 		if (now >= deadline) return finish(player, TickResult.timedOut("ESCAPE_TIMEOUT", "timeoutMs ran out before the body was safe" + done() + facts(player), 0.5D));
+		if (stand != null) return standTick(player, now);
 		if (child != null) return childTick(player, now);
 		if (move != null) return moveTick(player);
 		Situation situation = situation(player);
@@ -462,11 +464,79 @@ public final class ServerEscapeController implements ServerController {
 		// A child that failed, timed out or threw may still hold keys under its own lease: release them before moving on.
 		if (result.state() != State.SUCCEEDED) child.cancel(player);
 		note(childLabel + (result.state() == State.SUCCEEDED ? ": " : " (" + result.reasonCode() + "): ") + shortMessage(result.message()));
+		// A hostile stopped the step (a pillar or stairs refuses with a mob beside the body): it is the threat, not an
+		// obstacle to climb past. Retrying left the body in a hole beside a skeleton for 3 refused pillars, the fighting
+		// reflex yielded to this command throughout (playtest 22 Nov: shot point-blank at 7 health). The body goes back to
+		// the agent's rules (CommandFollower hands an escape that ends on HOSTILE_NEAR to them), which answer the mob.
+		if (result.state() != State.SUCCEEDED && "HOSTILE_NEAR".equals(result.reasonCode())) {
+			child = null;
+			travelBank = null;
+			// A mob near enough to fight, with the way out refused because of it (a hole, a pillar beside a skeleton):
+			// running is not open, so the body stands its ground as a cornered flee does, then goes on getting out.
+			LivingEntity near = nearestHostile(player, STAND_RANGE);
+			if (near != null && stands < MAX_TRIES) {
+				stands++;
+				// The climb did not fail on the way out, a mob stopped it: that attempt is given back, so a fight that
+				// takes more than one bounded stand still leaves climbs to get out (bounded by MAX_TRIES stands).
+				pits = climbsAfterStand(pits, childLabel);
+				stand = new CorneredStand(near, null, player, now);
+				standUntil = now + STAND_MS;
+				standLabel = "stood its ground against " + type(near instanceof Mob mob ? mob : null);
+				return standTick(player, now);
+			}
+			return finish(player, TickResult.failed("HOSTILE_NEAR", "Stopped getting out for a hostile: " + shortMessage(result.message())
+					+ done() + facts(player), 0.2D));
+		}
 		// travel stopping to breathe is progress, not a missed bank: the swim to air comes next and the walk goes on.
 		if (travelBank != null && ("AIR_RESERVE_REACHED".equals(result.reasonCode()) || "BREATH_NOT_COVERED".equals(result.reasonCode()))) bankTries.merge(travelBank, -1, Integer::sum);
 		travelBank = null;
 		child = null;
 		return TickResult.running(0.5D);
+	}
+
+	/** A hostile this near when a step is refused for it is fought where the body stands, not climbed past. */
+	static final double STAND_RANGE = 6.0D;
+	private CorneredStand stand;
+	private long standUntil;
+	/** A stand inside an escape lasts at most this long before the escape goes back to getting out. */
+	static final long STAND_MS = 10_000L;
+	private String standLabel;
+	private int stands;
+
+	/** Climbs counted after a stand that a pit step's HOSTILE_NEAR started: that step's climb is not spent. */
+	static int climbsAfterStand(int pits, String stoppedStep) {
+		boolean pitStep = stoppedStep != null && (stoppedStep.startsWith("pillar") || stoppedStep.startsWith("dig stairs") || stoppedStep.startsWith("step out"));
+		return pitStep ? Math.max(0, pits - 1) : pits;
+	}
+
+	private TickResult standTick(ServerPlayer player, long now) {
+		// Bounded: a mob the stand cannot reach (on a rim above the hole) is guarded against, never fought, and would
+		// otherwise hold the body there until the escape's deadline instead of climbing on.
+		if (now >= standUntil) {
+			stand.cancel(player);
+			stand = null;
+			note(standLabel + ": stood " + STAND_MS / 1000 + " s; climbing on");
+			return TickResult.running(0.5D);
+		}
+		TickResult result = stand.tick(player, now);
+		if (result.state() == State.RUNNING) return TickResult.running(0.5D);
+		stand.cancel(player);
+		stand = null;
+		note(standLabel + " (" + result.reasonCode() + "): " + shortMessage(result.message()));
+		if ("AGENT_DEAD".equals(result.reasonCode())) return finish(player, TickResult.failed("AGENT_DEAD", "Body died while getting out" + done() + facts(player), 0.0D));
+		return TickResult.running(0.5D);
+	}
+
+	private static LivingEntity nearestHostile(ServerPlayer player, double within) {
+		LivingEntity best = null;
+		// A creeper is not stood against (the stand does not fight creepers): the creeper reflex and the agent's rules
+		// answer it once the escape hands back.
+		for (Mob mob : player.level().getEntitiesOfClass(Mob.class, player.getBoundingBox().inflate(within),
+				mob -> mob.isAlive() && !(mob instanceof net.minecraft.world.entity.monster.Creeper)
+						&& dev.agaminggod.mineagen.server.perception.ThreatPerception.isHostileTo(mob, player) && player.distanceTo(mob) <= within)) {
+			if (best == null || player.distanceTo(mob) < player.distanceTo(best)) best = mob;
+		}
+		return best;
 	}
 
 	private long childMs(long now) {
@@ -477,6 +547,8 @@ public final class ServerEscapeController implements ServerController {
 	public void cancel(ServerPlayer player) {
 		if (child != null) child.cancel(player);
 		child = null;
+		if (stand != null) stand.cancel(player);
+		stand = null;
 		move = null;
 		input.release();
 	}
@@ -496,6 +568,8 @@ public final class ServerEscapeController implements ServerController {
 	private TickResult finish(ServerPlayer player, TickResult result) {
 		if (child != null) child.cancel(player);
 		child = null;
+		if (stand != null) stand.cancel(player);
+		stand = null;
 		move = null;
 		input.release();
 		return result;
