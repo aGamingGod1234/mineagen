@@ -314,10 +314,6 @@ public final class ServerSpawnerHoldController implements ServerController {
 		if (code != null) return stop(player, handBackResult(player, code, elapsed));
 		// The look round for a spawner comes after the action-wide checks above (death, lava, rod count, health floor,
 		// timeout), so a hurt or finished body never turns on the spot for 4 s.
-		if (phase == Phase.SCAN) {
-			TickResult scanning = scan(player, now, elapsed);
-			if (scanning != null) return scanning;
-		}
 		// fight_target form, open fight on: the model's own fight_target runs; hurt below TURTLE_HEALTH, the body walls in
 		// where it stands and heals (emergency), then fights on. No site walk: in the blaze spawner rooms the deaths came on
 		// the walk to a cell site and while building it under fire.
@@ -344,9 +340,14 @@ public final class ServerSpawnerHoldController implements ServerController {
 		if (target != null && SpawnerHold.OPEN_FIGHT && openPart != null) { openPart.cancel(player); openPart = null; }
 		TickResult walling = emergency(player, now, elapsed);
 		if (walling != null) return walling;
+		// A melee attacker in reach is fought first, also while looking round for a spawner.
 		if (!inCell || defend != null) {
 			TickResult defending = defend(player, now);
 			if (defending != null) return defending;
+		}
+		if (phase == Phase.SCAN) {
+			TickResult scanning = scan(player, now, elapsed);
+			if (scanning != null) return scanning;
 		}
 		return switch (phase) {
 			case SCAN, SITE -> chooseSite(player, now);
