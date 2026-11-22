@@ -45,7 +45,9 @@ test('native guidance exposes safe model-action overlap and the deterministic ti
 	const startActionDescription = MINECRAFT_DYNAMIC_TOOLS.find(({ name }) => name === 'startAction').description;
 	assert.ok(NATIVE_AGENT_INSTRUCTIONS.length <= 1_500);
 	// The contracts branch moved these habits from the capped instructions into the tool descriptions.
-	assert.match(NATIVE_AGENT_INSTRUCTIONS, /Loop repeat work in background:true programs/);
+	// Repeat work goes to one background step; the program habits live in the runProgram and queueProgram descriptions,
+	// which are offered with MINEAGEN_PROGRAM_TOOLS=on.
+	assert.match(NATIVE_AGENT_INSTRUCTIONS, /Give repeat work to one background do_step; chain known next steps with after:<actionId>\./);
 	assert.match(programDescription, /ArenaScript/);
 	assert.match(startActionDescription, /Return an action handle immediately/);
 	assert.match(programDescription, /Size loops/);

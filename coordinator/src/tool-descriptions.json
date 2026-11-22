@@ -103,6 +103,12 @@
         "claim": "Cancel exact agent/goal-revision program and await result. New body actions stay blocked until cancellation is confirmed."
       }
     ],
+    "reflexes": [
+      {
+        "id": "tool:reflexes:description",
+        "claim": "Install, replace or remove per-tick reflex rules (control topic tool:reflexes) without touching the body; [] lists them."
+      }
+    ],
     "lookAround": [
       {
         "id": "tool:lookAround:description",

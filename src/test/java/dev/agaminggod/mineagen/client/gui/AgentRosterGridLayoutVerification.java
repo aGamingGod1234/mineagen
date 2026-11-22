@@ -110,17 +110,18 @@ public final class AgentRosterGridLayoutVerification {
 		AgentControlLayout mediumShell = AgentControlLayout.calculate(700, 360);
 		AgentRosterGridLayout medium = fromCanvas(mediumShell, 16);
 		assertEquals(4, medium.columns(), "700 by 360 canvas uses four roster columns");
-		assertEquals(3, medium.rows(), "700 by 360 overview fits three readable rows under its title and filters");
-		assertTrue(medium.hasPager(), "700 by 360 overview pages sixteen entries: twelve per page plus a pager");
-		assertEquals(12, medium.pageSize(), "700 by 360 overview shows twelve agents per page");
+		// Sixteen agents fill the region, so the selected agent's one-row Now strip takes a tile row.
+		assertEquals(2, medium.rows(), "700 by 360 overview fits two readable rows under its title, filters and Now strip");
+		assertTrue(medium.hasPager(), "700 by 360 overview pages sixteen entries: eight per page plus a pager");
+		assertEquals(8, medium.pageSize(), "700 by 360 overview shows eight agents per page");
 		assertTrue(medium.tileWidth() >= 24 && medium.tileHeight() >= 48,
 				"700 by 360 tiles meet the readable target contract");
 
 		AgentControlLayout compactShell = AgentControlLayout.calculate(320, 240);
 		AgentRosterGridLayout compact = fromCanvas(compactShell, 16);
 		assertEquals(2, compact.columns(), "320 by 240 canvas switches to two roster columns");
-		assertEquals(2, compact.rows(), "320 by 240 overview fits two readable rows under its filters");
-		assertEquals(4, compact.pageSize(), "320 by 240 overview shows four agents per page");
+		assertEquals(1, compact.rows(), "320 by 240 overview fits one readable row under its filters and Now strip");
+		assertEquals(2, compact.pageSize(), "320 by 240 overview shows two agents per page");
 		assertTrue(compact.hasPager(), "320 by 240 canvas pages the sixteen-entry roster");
 		assertTrue(compact.tileWidth() >= 24 && compact.tileHeight() >= 48,
 				"320 by 240 tiles meet the readable target contract");
@@ -274,7 +275,7 @@ public final class AgentRosterGridLayoutVerification {
 	/** The roster region the live overview uses: below the page title, and below the filters once they show. */
 	private static AgentRosterGridLayout fromCanvas(AgentControlLayout shell, int totalEntries) {
 		AgentControlLayout.Bounds region = AgentControlScreen.overviewRosterBounds(
-				shell, AgentControlLayout.rosterFiltersVisible(totalEntries));
+				shell, AgentControlLayout.rosterFiltersVisible(totalEntries), totalEntries);
 		return AgentRosterGridLayout.calculate(region.left(), region.top(), region.right(), region.bottom(), totalEntries);
 	}
 
