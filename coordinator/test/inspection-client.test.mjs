@@ -159,3 +159,21 @@ test('pending-query capacity is recovered after lifecycle cancellation', async (
 	client.accept(reply(sent.at(-1), { health: 19 }));
 	assert.deepEqual(await next, { health: 19 });
 });
+
+test('a fresh-sample request sent just before a pause does not time out while paused, and keeps its remaining time', async () => {
+	const { InspectionClient: Client } = await import('../src/inspection-client.mjs');
+	const sent = [];
+	const client = new Client({ send: async (...args) => { sent.push(args); } });
+	let settled = null;
+	const pending = client.request({ agentId: 'agent-a', goalRevision: 1 }, { section: 'observation' }, { timeoutMs: 80 })
+		.then(() => { settled = 'resolved'; }, (error) => { settled = error.code; });
+	await new Promise((resolve) => setTimeout(resolve, 20));
+	client.serverPaused(true);
+	await new Promise((resolve) => setTimeout(resolve, 200));
+	assert.equal(settled, null, 'paused past its timeout, the request is still waiting');
+	client.serverPaused(false);
+	await new Promise((resolve) => setTimeout(resolve, 20));
+	assert.equal(settled, null, 'resumed, it has the time it had left');
+	await pending;
+	assert.equal(settled, 'INSPECTION_TIMEOUT', 'a server that never answers still times it out after the resume');
+});

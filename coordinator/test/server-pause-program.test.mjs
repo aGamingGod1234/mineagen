@@ -83,3 +83,38 @@ test('a program sampling the world asks for no sample while the game is paused, 
 		await run.coordinator.stop();
 	}
 });
+
+test('obtain, gather and find budgets run on a step clock that stands still while the game is paused', async () => {
+	const { NativeToolRuntime } = await import('../src/native-tool-runtime.mjs');
+	const runtime = new NativeToolRuntime({ bridge: { send: async () => {} }, onProgramEvent: () => {} });
+	const before = runtime.stepClockNow();
+	runtime.serverPaused(true);
+	await sleep(150);
+	const during = runtime.stepClockNow();
+	assert.ok(during - before < 50, `paused, the step clock stands still (moved ${during - before} ms)`);
+	runtime.serverPaused(false);
+	const resumed = runtime.stepClockNow();
+	assert.ok(resumed - before < 60, `no jump on resume (moved ${resumed - before} ms)`);
+	await sleep(100);
+	assert.ok(runtime.stepClockNow() - resumed >= 90, 'it runs again after the resume');
+});
+
+test('one pause event reaches every timer that can end a live step: leases, planner, programs, step clock, inspections', async (t) => {
+	const { PlanningScheduler } = await import('../src/planning-scheduler.mjs');
+	const path = await mkdtemp(join(tmpdir(), 'server-pause-hub-'));
+	t.after(() => rm(path, { recursive: true, force: true }));
+	const calls = [];
+	class SpyScheduler extends PlanningScheduler { serverPaused(paused) { calls.push(['planner', paused]); return super.serverPaused(paused); } }
+	class SpySupervisor extends ActiveGoalSupervisor { serverPaused(paused) { calls.push(['leases', paused]); return super.serverPaused(paused); } }
+	const bridge = new FakeBridge();
+	const run = await start({ bridge, scheduler: new SpyScheduler(), goalSupervisor: new SpySupervisor(), memoryDirectory: path,
+		setStatusInterval: () => null, clearStatusInterval: () => {}, config: { bridge: { port: 25570, secret: 's'.repeat(32) }, codex: { controlProtocol: 'native_tools' } } });
+	try {
+		bridge.emit('serverPause', { paused: true, tickAgeMs: 0 });
+		bridge.emit('serverPause', { paused: false, tickAgeMs: 0 });
+		assert.deepEqual(calls.filter(([name]) => name === 'planner'), [['planner', true], ['planner', false]], 'the planner scheduler holds and resumes');
+		assert.deepEqual(calls.filter(([name]) => name === 'leases'), [['leases', true], ['leases', false]], 'the work leases hold and resume');
+	} finally {
+		await run.coordinator.stop();
+	}
+});

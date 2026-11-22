@@ -205,6 +205,14 @@ export class NativeToolRuntime {
 	#executorOnGameClock = false;
 	/** Wall time a single-player pause began, or null (see {@link serverPaused}). */
 	#pausedAtEpochMs = null;
+	/** Wall time spent in single-player pauses that have ended. */
+	#pauseHeldMs = 0;
+	/**
+	 * The clock a step's own time budget runs on (obtain, gather, find): the gameplay clock without the time spent in
+	 * single-player pauses, as the body's game-time limits stood still then. A fixture's game clock already stops.
+	 */
+	#stepNow = () => (this.#clock !== WALL_CLOCK ? this.#clock.now()
+		: this.#clock.now() - this.#pauseHeldMs - (this.#pausedAtEpochMs === null ? 0 : Date.now() - this.#pausedAtEpochMs));
 
 	constructor({
 		// { now(), sleep(ms), setTimeout?, clearTimeout?, observe? } (game-clock.mjs); it is fed every stored sample.
@@ -591,6 +599,11 @@ export class NativeToolRuntime {
 		}
 	}
 
+	/** The step clock obtain, gather and find budgets run on (see #stepNow). */
+	stepClockNow() {
+		return this.#stepNow();
+	}
+
 	/** A single-player pause stopped the game: running programs keep their deadlines until it resumes. */
 	serverPaused(paused) {
 		const changed = this.#programExecutor?.serverPaused?.(paused) ?? false;
@@ -600,6 +613,7 @@ export class NativeToolRuntime {
 			// each lag clock, or it would credit the paused time a second time, as server lag.
 			const held = Math.max(0, Date.now() - this.#pausedAtEpochMs);
 			this.#pausedAtEpochMs = null;
+			this.#pauseHeldMs += held;
 			for (const run of this.#programRuns.values()) {
 				if (run.lagClock !== undefined) run.lagClock = { ...run.lagClock, resumed: true };
 				if (run.deadlineEpochMs != null) run.deadlineEpochMs += held;
@@ -2684,7 +2698,7 @@ export class NativeToolRuntime {
 		// furnace loads it left smelting are this call's to take out. Flooded approaches share this per-agent ledger.
 		if (!this.#obtainPlaced.has(record.agentId)) this.#obtainPlaced.set(record.agentId, { placed: [], loads: [], approaches: [] });
 		const kept = this.#obtainPlaced.get(record.agentId);
-		const stations = { now: this.#clock.now, placed: kept.placed, loads: kept.loads, approaches: kept.approaches };
+		const stations = { now: this.#stepNow, placed: kept.placed, loads: kept.loads, approaches: kept.approaches };
 		const result = await runObtain(tool.arguments, body, stations);
 		if (!this.#kitHabit || result?.state !== 'SUCCEEDED' || interrupted() || !current()) return result;
 		// The kit habit (kit-habit.mjs): from what is held, keep a shield, armour and food in reach before handing back.
@@ -2727,7 +2741,7 @@ export class NativeToolRuntime {
 		// obtain asks for any of several items (any log): each counts toward the count and each drop is picked up.
 		const counted = new Set(tool.arguments.itemIds ?? [itemId]);
 		const wanted = new Set(blockIds);
-		const now = this.#clock.now, startedAt = now();
+		const now = this.#stepNow, startedAt = now();
 		const failed = new Set(), triedItems = new Set(), reasons = [];
 		let last = null, broken = 0, picked = 0, misses = 0, steps = 0, held = 0, startHeld = null, lookedUp = null, sweeps = 0, farWalks = 0;
 		const step = async (call, label) => {
@@ -2856,7 +2870,7 @@ export class NativeToolRuntime {
 		const latest = () => this.#observations.get(agentId)?.observation ?? {};
 		return {
 			eyeSearchState,
-			now: () => this.#clock.now(),
+			now: () => this.#stepNow(),
 			progress: (facts) => { blockingRun[label] = { step: steps, ...facts }; },
 			observe: async () => {
 				live();

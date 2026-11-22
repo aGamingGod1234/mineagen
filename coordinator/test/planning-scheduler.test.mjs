@@ -627,3 +627,35 @@ test('shutdown drain retains a cancelled task until its final capture has settle
 	gate.resolve(); await drain;
 	assert.equal(captured, true); assert.equal(drained, true);
 });
+
+test('a single-player pause holds a foreground tool lease and the turn budget, then resumes them on their remaining time', async () => {
+	// Playtest: Esc open while a foreground tool ran; the planner's wall-clock tool lease expired and the step was cancelled.
+	let now = 0;
+	const timers = [];
+	const scheduler = new PlanningScheduler({
+		maxConcurrent: 1, maxPending: 0, now: () => now,
+		scheduleTimeout(callback, delay) { const timer = { callback, delay, at: now }; timers.push(timer); return timer; },
+		cancelTimeout(timer) { if (timer) timer.cancelled = true; },
+	});
+	const gate = deferred();
+	let task;
+	const run = scheduler.schedule('paused', (context) => { task = context; return gate.promise; }, { leaseTimeoutMs: 25, maxLeaseDurationMs: 300 });
+	await Promise.resolve();
+	now = 10;
+	assert.equal(task.renewLease({ phase: 'tool', timeoutMs: 130 }), true);
+	now = 50;
+	assert.equal(scheduler.serverPaused(true), true);
+	assert.equal(timers.at(-1).cancelled, true, 'the tool lease timer stops at the pause');
+	now = 1_000;
+	for (const timer of timers) if (!timer.cancelled) timer.callback();
+	assert.equal(task.signal.aborted, false, 'a pause far past the tool lease and the turn budget ends nothing');
+	assert.equal(task.renewLease({ phase: 'provider' }), true, 'a renewal while paused is not an exhausted budget');
+	assert.equal(scheduler.serverPaused(false), true);
+	const live = timers.filter((timer) => !timer.cancelled).at(-1);
+	assert.equal(live.delay, 25, 'resumed with the renewed lease, armed only now');
+	now = 1_010;
+	assert.equal(task.renewLease({ phase: 'tool', timeoutMs: 500 }), true);
+	assert.equal(timers.at(-1).delay, 300 - 50 - (1_010 - 1_000), 'the turn budget moved out by the paused time only');
+	gate.resolve('done');
+	assert.equal(await run, 'done');
+});
