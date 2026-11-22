@@ -311,6 +311,8 @@ export class WakeFilter {
 		}
 		for (const event of events) if ((event?.seq ?? 0) > stall.reflexSeq && REFLEX_HELD.has(event.outcome) && Number.isFinite(event.ms) && event.ms > 0) stall.heldMs += event.ms;
 		stall.reflexSeq = Math.max(stall.reflexSeq, reflexSeq);
+		// Items spent or placed lower the baseline: a gain is judged against the lowest count since the clock started.
+		for (const [item, count] of stall.items) stall.items.set(item, Math.min(count, items.get(item) ?? 0));
 		stall.last = clock.at;
 		stall.notes += 1;
 		const stalledMs = clock.at - stall.since - stall.heldMs;

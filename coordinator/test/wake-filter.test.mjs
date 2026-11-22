@@ -206,6 +206,14 @@ test('the stall clock starts over on progress, a quiet gap, a new step, a model 
 	woken.take('a', at(150));
 	assert.equal(loopNotes(woken, 'obtain', 180, 330), null, 'the model was just woken');
 	assert.equal(loopNotes(woken, 'obtain', 360, 360).s, 360);
+	// Spent items lower the baseline: 64 cobblestone placed down to 32, then one gained, is progress.
+	const spent = new WakeFilter();
+	const cobble = (count) => [{ itemId: 'minecraft:cobblestone', count }];
+	assert.equal(loopNotes(spent, 'obtain', 0, 90, { items: cobble(64) }), null);
+	assert.equal(loopNotes(spent, 'obtain', 120, 150, { items: cobble(32) }), null);
+	assert.equal(spent.stalled('a', 'obtain', 'movement_loop', at(170, { items: cobble(33) })), null, 'one cobblestone gained after spending');
+	assert.equal(loopNotes(spent, 'obtain', 180, 330, { items: cobble(33) }), null, 'the clock restarted at 170 s');
+	assert.equal(loopNotes(spent, 'obtain', 350, 350, { items: cobble(33) }).s, 350);
 	const working = new WakeFilter();
 	assert.equal(loopNotes(working, 'obtain', 0, 150), null);
 	assert.equal(working.stalled('a', null, 'observation', at(160)), null, 'obtain stopped searching: it walks to a seen tree');
