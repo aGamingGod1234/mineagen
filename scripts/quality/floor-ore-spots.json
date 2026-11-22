@@ -1,0 +1,128 @@
+[
+ {
+  "name": "floor-ore-5596",
+  "seed": "5596758903284113703",
+  "time": 1000,
+  "monsters": true,
+  "repeat": true,
+  "budgetMs": 120000,
+  "inventory": [
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:torch",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "setup": [
+   "forceload add 290 -270 306 -250",
+   "kill @e[type=minecraft:item,distance=..40]",
+   "fill 297 10 -267 299 17 -255 minecraft:stone",
+   "fill 298 15 -266 298 16 -256 minecraft:air",
+   "setblock 298 14 -261 minecraft:iron_ore",
+   "setblock 298 13 -261 minecraft:iron_ore",
+   "tp Probe 298.5 15 -260.5 180 30"
+  ],
+  "after": {
+   "ms": 1500
+  },
+  "probe": [
+   "execute if block 298 14 -261 minecraft:iron_ore",
+   "data get entity Probe Pos"
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "raw_iron",
+      "count": 1
+     },
+     "why": "iron for a pickaxe"
+    }
+   }
+  ],
+  "expectCode": "OBTAINED",
+  "finalProbe": [
+   "execute if block 298 14 -261 minecraft:air"
+  ],
+  "expectFinalProbe": [
+   {
+    "index": 0,
+    "match": "Test passed"
+   }
+  ],
+  "minEndY": 14.9
+ },
+ {
+  "name": "floor-ore-gap-5596",
+  "seed": "5596758903284113703",
+  "time": 1000,
+  "monsters": true,
+  "repeat": false,
+  "budgetMs": 120000,
+  "inventory": [
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:torch",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "setup": [
+   "forceload add 290 -270 306 -250",
+   "kill @e[type=minecraft:item,distance=..40]",
+   "fill 296 10 -266 300 18 -255 minecraft:stone",
+   "fill 298 15 -261 298 16 -256 minecraft:air",
+   "fill 298 11 -260 298 14 -260 minecraft:air",
+   "setblock 298 14 -261 minecraft:iron_ore",
+   "tp Probe 298.5 15 -260.05 180 30"
+  ],
+  "after": {
+   "ms": 1500
+  },
+  "probe": [
+   "execute if block 298 14 -261 minecraft:iron_ore",
+   "execute if block 298 14 -260 minecraft:air",
+   "data get entity Probe Pos"
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "raw_iron",
+      "count": 1,
+      "timeoutMs": 120000
+     },
+     "why": "iron for a pickaxe"
+    }
+   }
+  ],
+  "expectCode": "OBTAINED",
+  "finalProbe": [
+   "execute if block 298 14 -261 minecraft:air"
+  ],
+  "expectFinalProbe": [
+   {
+    "index": 0,
+    "match": "Test passed"
+   }
+  ],
+  "minEndY": 14.9
+ }
+]

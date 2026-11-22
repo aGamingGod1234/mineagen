@@ -140,7 +140,17 @@ public final class ServerDigController implements ServerController {
 	private static final String WATER_BUCKET = "minecraft:water_bucket";
 	private static final int OFFHAND = 40;
 
-	private enum Phase { START, MINE, SETTLE_FALL, FLOOR, PLACE, MOVE, RETREAT, RECENTER, SHAFT_FALL, CAVE_LOOK }
+	/**
+	 * A cave the dig breaks into and goes on through gets one turn of the head before the next step, when the dig is
+	 * looking for a block (stopWhenSeen): its forward fan points down the stairs and never sees across the cave, so an
+	 * ore exposed on the cave's far wall stayed unseen (playtest 22 Nov: iron about 10 blocks down a cave it dug past).
+	 */
+	private static final int PASS_LOOK_TICKS = 30;
+	/** How far into a passed cave its ores are noted (and remembered) during that look. */
+	private static final double PASS_LOOK_ORE_SIGHT = 32.0D;
+	private static final int PASS_LOOKS = 4;
+
+	private enum Phase { START, MINE, SETTLE_FALL, FLOOR, PLACE, MOVE, RETREAT, RECENTER, SHAFT_FALL, CAVE_LOOK, PASS_LOOK }
 
 	private Pattern pattern;
 	/** No pattern was named: the first tick picks stairs up or down from the feet then (inferDirection). */
@@ -150,7 +160,7 @@ public final class ServerDigController implements ServerController {
 	/** A shaft goes on as steep_down at or below this y (lava lakes and aquifer lava are common down there). */
 	private final int maxShaftY;
 	private Integer shaftEndY;
-	/** A shaft dug without a water bucket: two columns side by side, each floor seen before the body drops onto it. */
+	/** A shaft with two columns side by side, each floor seen before the body drops onto it. */
 	private boolean twoColumn;
 	private final String stopWhenSeen;
 	/** The first lava the eye saw within {@link #LAVA_NEAR} blocks, how far and when (ms into the call). */
@@ -172,6 +182,8 @@ public final class ServerDigController implements ServerController {
 	private String lookCode;
 	private String lookWhy;
 	private float lookTurned;
+	private boolean passLookPending;
+	private int passLooks;
 	private float lookLastYaw;
 	private BlockPos caveFloor;
 	private BlockPos caveLava;
@@ -372,6 +384,17 @@ public final class ServerDigController implements ServerController {
 		if (danger != null) return danger;
 		TickResult sight = sight(player, nowEpochMs);
 		if (sight != null) return sight;
+		// Blocks only: a fluid target keeps its own source-only sighting (sight()), which this look does not apply.
+		if (passLookPending && phase == Phase.START && stopWhenSeen != null && !ServerTravelController.bucketFluid(stopWhenSeen)
+				&& passLooks < PASS_LOOKS && standsOnOwnBlock(player)) {
+			passLookPending = false;
+			passLooks++;
+			if (notes.size() < 6) notes.add("looked round the cave at y" + player.blockPosition().getY());
+			lookTurned = 0.0F;
+			lookLastYaw = player.getYRot();
+			phaseTicks = 0;
+			phase = Phase.PASS_LOOK;
+		}
 		return switch (phase) {
 			case START -> plan(player);
 			case MINE -> mine(player);
@@ -383,6 +406,7 @@ public final class ServerDigController implements ServerController {
 			case RECENTER -> recenter(player);
 			case SHAFT_FALL -> shaftFall(player);
 			case CAVE_LOOK -> caveLook(player);
+			case PASS_LOOK -> passLook(player);
 		};
 	}
 
@@ -445,7 +469,7 @@ public final class ServerDigController implements ServerController {
 		if (player.tickCount % 5 == 0 && (plannedFall <= 0.0F || player.onGround()) && phase != Phase.SHAFT_FALL) {
 			List<Mob> threats = player.level().getEntitiesOfClass(Mob.class, player.getBoundingBox().inflate(HOSTILE_RANGE),
 					mob -> player.distanceTo(mob) <= HOSTILE_RANGE && ThreatPerception.isSensedThreat(player, mob)
-							&& stopsDig(player, mob, hostileDistances, false));
+							&& stopsDig(player, mob, hostileDistances, false, active == Pattern.STAIRS_UP));
 			if (!threats.isEmpty()) {
 				Mob nearest = threats.stream().min((a, b) -> Double.compare(player.distanceTo(a), player.distanceTo(b))).orElseThrow();
 				return stop(player, "HOSTILE_NEAR", BuiltInRegistries.ENTITY_TYPE.getKey(nearest.getType()) + " " + nearest.getUUID()
@@ -474,7 +498,21 @@ public final class ServerDigController implements ServerController {
 		return previous != null && previous - distance >= TravelStops.CLOSING_STEP || first != null && first - distance >= CLOSED_TOTAL;
 	}
 
+	/**
+	 * Climbing a stair out, a mob that hunts the body and closes from farther than {@link #DIG_CLOSE} does not stop the
+	 * dig: standing still hands it the stair while the model thinks, where a player climbs on and fights if it catches up
+	 * (defend and the creeper reflex answer contact). Climb-out rooms: cave-y20-a 3-4 of 10, deep-y-40 0 of 10, stopped
+	 * for a creeper 7 blocks away in a cave the stair passed.
+	 */
+	static boolean stopsClimb(double distance, Double previous, Double first, boolean hunting, boolean sight, boolean ranged) {
+		return distance <= DIG_CLOSE;
+	}
+
 	static boolean stopsDig(ServerPlayer player, Mob mob, java.util.Map<java.util.UUID, double[]> seen, boolean vein) {
+		return stopsDig(player, mob, seen, vein, false);
+	}
+
+	static boolean stopsDig(ServerPlayer player, Mob mob, java.util.Map<java.util.UUID, double[]> seen, boolean vein, boolean climbing) {
 		double distance = player.distanceTo(mob);
 		double[] row = seen.get(mob.getUUID());
 		Double first = row == null ? null : row[0], previous = row == null ? null : row[1];
@@ -483,7 +521,8 @@ public final class ServerDigController implements ServerController {
 		boolean sight = mob.getSensing().hasLineOfSight(player);
 		String type = BuiltInRegistries.ENTITY_TYPE.getKey(mob.getType()).toString();
 		boolean ranged = TravelStops.RANGED.contains(type) || type.endsWith("guardian") || ThreatPerception.isRanged(mob);
-		return vein ? stopsVein(distance, previous, first, hunting, sight, ranged) : stopsDig(distance, previous, first, hunting, sight, ranged);
+		if (vein) return stopsVein(distance, previous, first, hunting, sight, ranged);
+		return climbing ? stopsClimb(distance, previous, first, hunting, sight, ranged) : stopsDig(distance, previous, first, hunting, sight, ranged);
 	}
 
 
@@ -525,6 +564,22 @@ public final class ServerDigController implements ServerController {
 		BlockState atFeet = player.level().getBlockState(feet);
 		if (shape == Pattern.SHAFT && !open(player.level(), feet, atFeet) && atFeet.getFluidState().isEmpty()) cells = List.of(feet, feet.below());
 		next = stepTarget(shape, feet, heading);
+		// Out of the ground, judged before this step cuts anything (a cut through a ledge would open its own sky): nothing
+		// left to dig in the step, its floor would be a block placed in dry air, and open sky over the head here and over the
+		// step. The rest of the way up would be a staircase built into the air; a player stops digging and walks on. Under
+		// a ledge or overhang the step is roofed or has rock to cut, so the climb goes on (playtest 22 Nov: a climb to y79
+		// came out on the grass at y68 and built cobblestone steps up into the open beside a village hill).
+		if (shape == Pattern.STAIRS_UP && !climbsInTheOpen) {
+			ServerLevel level = player.level();
+			BlockPos step = next.below();
+			BlockState floorState = level.getBlockState(step);
+			boolean cellsOpen = cells.stream().allMatch(cell -> { BlockState in = level.getBlockState(cell); return passable(level, cell, in) && in.getFluidState().isEmpty(); });
+			if (outInTheOpen(standable(level, step, floorState), floorState.getFluidState().isEmpty(), cellsOpen,
+					() -> dev.agaminggod.mineagen.server.perception.ServerObservationCollector.skyOpenAt(level, feet.above())
+							&& dev.agaminggod.mineagen.server.perception.ServerObservationCollector.skyOpenAt(level, next.above())
+							&& !groundRisesAhead(next, heading, column -> level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, column.getX(), column.getZ()))))
+				return outInTheOpen(player);
+		}
 		openBefore.clear();
 		SeenTerrain.Reader<BlockState> seen = SeenTerrain.of(player);
 		for (BlockPos cell : cells) for (Direction side : Direction.values()) {
@@ -542,10 +597,40 @@ public final class ServerDigController implements ServerController {
 	}
 
 	/**
+	 * Uses a lava search keeps for the work at depth (tunnel legs, a carved cast site) after the way down; the
+	 * coordinator's stair budget keeps the same. A winning lava-gate-3 run spent about 150 uses there.
+	 */
+	static final int LAVA_SEARCH_RESERVE = 160;
+	/** Blocks a stairs_down step cuts per block of depth (head, body and floor of the next step); the shaft cuts one. */
+	static final int STAIR_USES_PER_DEPTH = 3;
+
+	/**
+	 * Whether the pickaxes can pay for stairs for the rest of the way down and still keep {@link #LAVA_SEARCH_RESERVE}.
+	 * On the lava-gate rooms' kit (an iron and a stone pickaxe, about 380 uses) stairs from the surface wore both out at
+	 * y-54 before lava was seen (lava-gate-3: 10 of 10 runs TOOL_WORN); short of uses, the one-wide shaft goes on.
+	 */
+	static boolean stairsAffordable(long uses, int depthLeft) {
+		return uses >= (long) STAIR_USES_PER_DEPTH * Math.max(0, depthLeft) + LAVA_SEARCH_RESERVE;
+	}
+
+	/** Uses left above {@link #WORN_USES} on every carried tool that harvests {@code state}; an unbreakable one counts as plenty. */
+	private static long pickaxeUses(ServerPlayer player, BlockState state) {
+		long uses = 0;
+		for (int slot = 0; slot < 36; slot++) {
+			ItemStack stack = player.getInventory().getItem(slot);
+			if (stack.isEmpty() || !stack.isCorrectToolForDrops(state) || stack.getDestroySpeed(state) <= 1.0F) continue;
+			if (!stack.isDamageableItem()) return Long.MAX_VALUE / 2;
+			uses += (long) Math.max(0, stack.getMaxDamage() - stack.getDamageValue() - WORN_USES) * stack.getCount();
+		}
+		return uses;
+	}
+
+	/**
 	 * Before the shaft breaks the block underfoot: the body stands centred on it (so it drops straight into the hole,
 	 * not onto an edge), and what the eye has already seen of the column under it rules the break out: lava or water
-	 * there, or a drop past a safe fall into open space. Most often nothing below is seen yet; the next floor shows once
-	 * this one breaks, and {@link #shaftFall} looks at it on landing. Null goes on to mine the block.
+	 * there, or a drop past a safe fall into open space. A lava search whose pickaxes can pay for it (see
+	 * {@link #stairsAffordable}) cuts beside its footing when the next floor is open or hidden, which is nearly always, so it
+	 * goes on as two-column stairs that look at each floor from a supported block. Null goes on to mine the block underfoot.
 	 */
 	private TickResult planShaft(ServerPlayer player) {
 		Vec3 center = Vec3.atBottomCenterOf(feet);
@@ -553,9 +638,18 @@ public final class ServerDigController implements ServerController {
 		SeenTerrain.Reader<BlockState> seen = SeenTerrain.of(player);
 		BlockPos floor = feet.below();
 		boolean noClutch = !acceptUnseenBelow && evaporates(player, floor);
+		boolean checkingLavaFloor = !acceptUnseenBelow && "minecraft:lava".equals(stopWhenSeen)
+				&& stairsAffordable(pickaxeUses(player, player.level().getBlockState(floor)), feet.getY() - (targetY != null ? targetY : maxShaftY));
 		for (int depth = 1; depth <= 24; depth++) {
 			BlockPos at = floor.below(depth);
 			BlockState state = seen.known(at.getX(), at.getY(), at.getZ());
+			if (checkingLavaFloor && depth == 1 && (state == null || !seen.seesNow(at.getX(), at.getY(), at.getZ())
+					|| passable(player.level(), at, state) && state.getFluidState().isEmpty())) {
+				// Open the next floor beside the body and check it from the block still supporting the body.
+				twoColumn = true;
+				active = Pattern.STAIRS_DOWN;
+				return TickResult.running(progress(player));
+			}
 			if (state == null) {
 				if (noClutch) return stop(player, "UNSEEN_BELOW", "Nothing under the floor at " + cell(floor) + " is seen " + (depth == 1 ? "" : "past "
 						+ (depth - 1) + " open block(s) ") + "and water evaporates here, so breaking it may drop the body into a cave or lava;"
@@ -725,7 +819,7 @@ public final class ServerDigController implements ServerController {
 		if (slot == -2) return stop(player, "NO_TOOL", "No hotbar tool can harvest " + blockId(state) + " at " + cell(cell) + toolHint(player, state));
 		if (slot == -3) return stop(player, "TOOL_WORN", "Every hotbar tool for " + blockId(state) + " has " + WORN_USES + " or fewer uses left" + toolHint(player, state));
 		if (slot >= 0) lastTool = itemId(player.getInventory().getItem(slot));
-		selected = slot >= 0 ? slot : selected;
+		selected = slot >= 0 ? slot : slot == MiningTools.KEEP ? MiningTools.sparingSlot(player.getInventory(), state, selected) : selected;
 		AgentInputState look = AgentInputStates.lookingAt(player, aim, 0.0F, 0.0F, false, false, false, false, false, InteractionHand.MAIN_HAND);
 		float yaw = AgentInputStates.turnYaw(player.getYRot(), look.yaw());
 		float pitch = AgentInputStates.turnPitch(player.getXRot(), look.pitch());
@@ -861,7 +955,7 @@ public final class ServerDigController implements ServerController {
 				}
 			}
 		}
-		if (newlyOpen >= 2 && caves.size() < 4) caves.add(cell(firstOpen) + " (y" + firstOpen.getY() + ")");
+		if (newlyOpen >= 2 && caves.size() < 4) { caves.add(cell(firstOpen) + " (y" + firstOpen.getY() + ")"); passLookPending = true; }
 		return null;
 	}
 
@@ -1399,7 +1493,7 @@ public final class ServerDigController implements ServerController {
 		if (drop > 1 && drops.size() < 4) drops.add(drop + " blocks into a cave at " + cell(at));
 		if (newlyOpen >= 2 && (!throughCaves || smallCaves && !smallOpening(player, firstOpen))) return stop(player, "CAVE_OPENING", "The shaft opened into a cave at " + cell(firstOpen)
 				+ " (" + newlyOpen + " open cells beside it); not going on (throughCaves:" + caveMode() + ")");
-		if (newlyOpen >= 2 && caves.size() < 4) caves.add(cell(firstOpen) + " (y" + firstOpen.getY() + ")");
+		if (newlyOpen >= 2 && caves.size() < 4) { caves.add(cell(firstOpen) + " (y" + firstOpen.getY() + ")"); passLookPending = true; }
 		phase = Phase.START;
 		phaseTicks = 0;
 		return TickResult.running(progress(player));
@@ -1544,6 +1638,73 @@ public final class ServerDigController implements ServerController {
 		if (lookTurned < 360.0F && phaseTicks < CAVE_LOOK_TICKS) return TickResult.running(progress(player));
 		releaseInput();
 		return TickResult.failed(lookCode, summary(player, "Stopped: " + lookWhy + caveRoute(player)), progress(player));
+	}
+
+	/**
+	 * One turn of the head round a cave the dig is passing through, level with the cave: the target in sight ends the dig
+	 * with TARGET_SEEN, and every ore the eye lands on is noted (listed in the result and remembered), so the search can
+	 * walk to it instead of digging on.
+	 */
+	private TickResult passLook(ServerPlayer player) {
+		phaseTicks++;
+		float yaw = player.getYRot();
+		lookTurned += Math.abs(AgentInputStates.shortestAngleDelta(lookLastYaw, yaw));
+		lookLastYaw = yaw;
+		applyInput(player, 0.0F, false, true, false, AgentInputStates.turnYaw(yaw, yaw + 30.0F), AgentInputStates.turnPitch(player.getXRot(), 15.0F),
+				player.getInventory().getSelectedSlot());
+		if (phaseTicks % 3 == 0) {
+			BlockPos target = ServerTravelController.sees(player, stopWhenSeen, false);
+			TickResult found = target == null ? null : seen(player, target);
+			if (found != null) return found;
+			noteOresInView(player);
+		}
+		if (lookTurned < 360.0F && phaseTicks < PASS_LOOK_TICKS) return TickResult.running(progress(player));
+		releaseInput();
+		// The sight fan's rays are 10 degrees apart: at 12 blocks they pass 2 blocks apart and slip past a single ore down a
+		// side passage. After the turn, every block of the target near the eye level that a straight line reaches counts.
+		BlockPos near = visibleNear(player, stopWhenSeen);
+		if (near != null) {
+			TickResult found = seen(player, near);
+			if (found != null) return found;
+		}
+		phase = Phase.START;
+		phaseTicks = 0;
+		return TickResult.running(progress(player));
+	}
+
+	/** The nearest block of {@code blockId} within {@link #PASS_LOOK_ORE_SIGHT} / 2 of the eye, 4 up or down, in a clear line. */
+	private static BlockPos visibleNear(ServerPlayer player, String blockId) {
+		ServerLevel level = player.level();
+		Vec3 eye = player.getEyePosition();
+		BlockPos center = BlockPos.containing(eye);
+		int r = (int) (PASS_LOOK_ORE_SIGHT / 2);
+		BlockPos best = null;
+		double bestDistance = Double.MAX_VALUE;
+		BlockPos.MutableBlockPos at = new BlockPos.MutableBlockPos();
+		for (int dx = -r; dx <= r; dx++) for (int dz = -r; dz <= r; dz++) for (int dy = -4; dy <= 4; dy++) {
+			at.set(center.getX() + dx, center.getY() + dy, center.getZ() + dz);
+			if (!blockId(level.getBlockState(at)).equals(blockId)) continue;
+			double distance = at.distToCenterSqr(eye);
+			if (distance >= bestDistance || distance > r * r) continue;
+			BlockHitResult hit = level.clip(new ClipContext(eye, Vec3.atCenterOf(at), ClipContext.Block.VISUAL, ClipContext.Fluid.NONE, player));
+			if (hit.getType() == HitResult.Type.BLOCK && hit.getBlockPos().equals(at)) { best = at.immutable(); bestDistance = distance; }
+		}
+		return best;
+	}
+
+	/** Ores the eye lands on across the current view, within {@link #PASS_LOOK_ORE_SIGHT}. */
+	private void noteOresInView(ServerPlayer player) {
+		ServerLevel level = player.level();
+		Vec3 eye = player.getEyePosition();
+		for (int yawStep = -4; yawStep <= 4; yawStep++) {
+			for (int pitchStep = -3; pitchStep <= 3; pitchStep++) {
+				Vec3 direction = Vec3.directionFromRotation(Mth.clamp(player.getXRot() + pitchStep * 10.0F, -90.0F, 90.0F), player.getYRot() + yawStep * 12.0F);
+				BlockHitResult hit = level.clip(new ClipContext(eye, eye.add(direction.scale(PASS_LOOK_ORE_SIGHT)), ClipContext.Block.VISUAL, ClipContext.Fluid.NONE, player));
+				if (hit.getType() != HitResult.Type.BLOCK) continue;
+				BlockState state = level.getBlockState(hit.getBlockPos());
+				if (isOre(state)) noteOre(blockId(state), hit.getBlockPos().immutable());
+			}
+		}
 	}
 
 	/** On the ground with the block under its own column holding it: not leaning out over an edge. */
@@ -1941,6 +2102,46 @@ public final class ServerDigController implements ServerController {
 		return TickResult.succeeded("DIG_GOAL_REACHED", summary(player, goal));
 	}
 
+	/** stairs_up out of the ground short of its y: a success, as the climb's point (getting out) is met. */
+	private TickResult outInTheOpen(ServerPlayer player) {
+		releaseInput();
+		int y = player.blockPosition().getY();
+		return TickResult.succeeded(OPEN_SKY_REACHED, summary(player, "Under open sky at y" + y + ", " + (targetY - y) + " below y" + targetY
+				+ ": nothing left to dig, and the next step would be a block built in the air; walk on from here (travel_to), or to a wall or slope to dig up from"));
+	}
+
+	public static final String OPEN_SKY_REACHED = "OPEN_SKY_REACHED";
+
+	/** A stairs_up step with nothing to dig that would be built into dry air, under open sky over the head here and over the step. */
+	static boolean outInTheOpen(boolean stepStandable, boolean stepDry, boolean cellsOpen, java.util.function.BooleanSupplier skyOverBoth) {
+		return !stepStandable && stepDry && cellsOpen && skyOverBoth.getAsBoolean();
+	}
+
+	/** Steps ahead within which rising ground (a pit or ravine wall, a slope) keeps an open-air step worth placing. */
+	static final int GROUND_AHEAD_STEPS = 4;
+
+	/**
+	 * Whether ground ahead along the heading rises into the staircase's path within {@link #GROUND_AHEAD_STEPS} steps: a
+	 * column whose top (leaves ignored) reaches the floor the stairs would have there. On a pit floor the wall a few cells
+	 * away does (one step in the air, then the stairs dig into it, as before); out on the grass nothing does.
+	 */
+	static boolean groundRisesAhead(BlockPos next, Direction heading, java.util.function.ToIntFunction<BlockPos> top) {
+		for (int i = 1; i <= GROUND_AHEAD_STEPS; i++) {
+			BlockPos column = next.relative(heading, i);
+			// Stairs from next rise one a step: their floor at step i is next.y - 1 + i; top is the first free y above.
+			if (top.applyAsInt(column) > next.getY() - 1 + i) return true;
+		}
+		return false;
+	}
+
+	/** escape's pit and flooded-bank climbs: steps built in open air are the way out there, toward a rim it has seen. */
+	private boolean climbsInTheOpen;
+
+	public ServerDigController climbsInTheOpen(boolean enabled) {
+		this.climbsInTheOpen = enabled;
+		return this;
+	}
+
 	private TickResult stop(ServerPlayer player, String code, String why) {
 		if ("LAVA_AHEAD".equals(code) && !why.contains("cast_obsidian")) why += lavaOptions(player);
 		// Let go of a crouch at an edge (leaning out to look or to place) and the body slides off it: step back first.
@@ -1972,7 +2173,7 @@ public final class ServerDigController implements ServerController {
 		BlockPos at = player.blockPosition();
 		long seconds = Math.max(1L, (dev.agaminggod.mineagen.server.runtime.GameClock.nowMs() - startedAt) / 1000L);
 		StringBuilder text = new StringBuilder(headline).append(". At ").append(cell(at)).append(", ").append(pattern.wireName())
-				.append(twoColumn ? " (two columns, no water bucket)" : "")
+				.append(twoColumn ? " (two columns, checks each floor)" : "")
 				.append(shaftEndY != null ? " to y" + shaftEndY + " then steep_down" : "")
 				.append(" heading ").append(heading == null ? "none" : heading.getName()).append("; ").append(blocksMined).append(" blocks mined in ")
 				.append(steps).append(" steps over ").append(seconds).append(" s (y").append(startY).append(" to y").append(at.getY()).append(')');

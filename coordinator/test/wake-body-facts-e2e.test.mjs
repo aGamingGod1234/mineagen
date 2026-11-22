@@ -34,7 +34,7 @@ async function coordinator(t) {
 test('production ingress carries dusk and worn-tool facts without a plan, and only per-event data changes', async t => {
 	const { wake, planner } = await coordinator(t);
 	const dusk = await wake(wire(1));
-	assert.equal(dusk.now.light, 'dusk in ~2m (day 1); night lasts ~8m; mobs spawn in darkness; sky-exposed');
+	assert.equal(dusk.now.light, 'dusk in ~2m (day 1); night lasts ~8m; mobs spawn in darkness; sky-exposed; no armour: be under cover by dusk', 'the live sample carries armour 0');
 	assert.equal(dusk.now.tools, 'stone_pickaxe 12 uses left (no spare pickaxe; replacement materials held: 3 cobblestone + 2 stick; crafting_table not held/seen)');
 	assert.equal(dusk.observation.world.dayTime, undefined, 'world clock is stripped from the model observation but the header survives');
 	assert.equal(dusk.observation.inventory.items[0].usesLeft, 12, 'real adaptation preserves slot wear');
@@ -88,4 +88,15 @@ test('sleep rules cross strict wire validation and adaptation into the actual pr
  assert.equal(encoded.now.sleep,event.now.sleep);
  assert.throws(()=>validateProtocolV2Payload('observation',{...strictPayload,world:{...strictPayload.world,sleep:{bedExplodes:'false',timeAllowsSleep:true}}}),/boolean/);
  assert.throws(()=>validateProtocolV2Payload('observation',{...strictPayload,world:{...strictPayload.world,sleep:{bedExplodes:false,timeAllowsSleep:true,hiddenMonsters:0}}}),/field/i);
+});
+
+test('under cover the provider wake carries now.up with the last open sky and the retrace hint', async t => {
+	const { wake, planner } = await coordinator(t);
+	await wake(wire(1));
+	const below = wire(2, { skyOpen: false });
+	below.payload.position.y = 20;
+	const event = await wake(below);
+	assert.equal(event.now.up, 'last open sky @10,64,10 44m dy+44; travel_to retrace:true there walks your own way back up');
+	const encoded = decodeModelFacts(JSON.parse(encodeNativeEventInput(planner.requests.at(-1).input, new ModelObservationViews()).split('\n')[1]));
+	assert.equal(encoded.now.up, event.now.up);
 });

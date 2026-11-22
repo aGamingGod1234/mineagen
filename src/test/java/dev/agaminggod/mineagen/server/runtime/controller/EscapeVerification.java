@@ -20,6 +20,18 @@ public final class EscapeVerification {
 		check(ServerEscapeController.waterMove(true, 60, true, 1, false, true, false, 0) == ServerEscapeController.WaterMove.SWIM, "little air swims to air first");
 		check(ServerEscapeController.waterMove(true, 300, false, 0, false, false, false, 0) == ServerEscapeController.WaterMove.SWIM, "no bank in reach swims to air");
 		check(ServerEscapeController.waterMove(true, 300, true, 1, true, true, false, 0) == ServerEscapeController.WaterMove.TRAVEL, "full air with a bank travels out");
+		check(ServerEscapeController.waterMove(false, 300, false, 0, false, false, false, 0, false, true) == ServerEscapeController.WaterMove.STEP,
+				"afloat with air, no bank, a step cell beside: place the step (the flooded hole whose rim is 2 above)");
+		check(ServerEscapeController.waterMove(false, 300, false, 0, false, false, false, 0, false, false) == ServerEscapeController.WaterMove.NO_SHORE,
+				"afloat with air, no bank and no step cell: the stop as before");
+		check(ServerEscapeController.waterMove(false, 300, false, 0, false, false, false, 0, true, true) == ServerEscapeController.WaterMove.FILL,
+				"a confined shaft still fills before a step");
+		check(ServerEscapeController.waterMove(true, 300, false, 0, false, false, false, 0, false, true) == ServerEscapeController.WaterMove.STEP,
+				"eyes under with full air and a step cell: place it rather than swim off");
+		check(ServerEscapeController.waterMove(true, 60, false, 0, false, false, false, 0, false, true) == ServerEscapeController.WaterMove.SWIM,
+				"little air still swims to air first");
+		check(ServerEscapeController.waterMove(false, 300, true, 1, true, true, false, 0, false, true) == ServerEscapeController.WaterMove.TRAVEL,
+				"a bank still comes first");
 		check(ServerEscapeController.waterMove(false, 300, true, 1, false, false, false, 3) == ServerEscapeController.WaterMove.TRAVEL, "afloat with a bank travels out");
 		check(ServerEscapeController.waterMove(false, 300, true, 3, true, true, false, 0) == ServerEscapeController.WaterMove.STAIRS, "a bank missed twice from breathable footing gets sealed stairs");
 		check(ServerEscapeController.waterMove(true, 300, true, 3, true, true, false, 0) == ServerEscapeController.WaterMove.TRAVEL, "with the eyes under water no stairs are cut (dig_to would stop at once)");
@@ -36,6 +48,12 @@ public final class EscapeVerification {
 		assertions += 15;
 		// Hole: level with the rim steps out; blocks and headroom pillar; else dug stairs; else no way.
 		check(ServerEscapeController.pitMove(0, 0, false, false) == ServerEscapeController.PitMove.STEP_OUT, "level with the rim steps out");
+		check(ServerEscapeController.climbsAfterStand(2, "pillar 2 up to the rim at y150") == 1
+				&& ServerEscapeController.climbsAfterStand(1, "dig stairs 4 up to the rim at y150 heading east") == 0
+				&& ServerEscapeController.climbsAfterStand(0, "step out onto the rim at 1,2,3") == 0,
+				"a climb a mob stopped is given back when the body stands its ground, never below zero");
+		check(ServerEscapeController.climbsAfterStand(2, "travel to the bank at 1,2,3") == 2 && ServerEscapeController.climbsAfterStand(2, null) == 2,
+				"steps that are not climbs out of a hole keep their count");
 		check(ServerEscapeController.pitMove(4, 4, true, true) == ServerEscapeController.PitMove.PILLAR, "four blocks under open sky pillar a four-deep hole");
 		check(ServerEscapeController.pitMove(4, 3, true, true) == ServerEscapeController.PitMove.STAIRS, "too few blocks dig stairs");
 		check(ServerEscapeController.pitMove(4, 9, false, true) == ServerEscapeController.PitMove.STAIRS, "a roof over the hole digs stairs");
@@ -67,6 +85,25 @@ public final class EscapeVerification {
 		check(ServerEscapeController.besideWater(pool, new BlockPos(2, 63, 0)), "the cell beside the pool, a block up, is its bank");
 		check(!ServerEscapeController.besideWater(pool, new BlockPos(5, 63, 0)), "a cell beside other water is no bank of this pool");
 		assertions += 9;
+		// Wade takeoff: feet at y 64 in column x 0 (box 0.2-0.8), a flooded step beside whose top is 65. The body must
+		// rise to 65 + 1.8 in its own column, so a ceiling at y 66 over it blocks the jump; one at y 67 does not.
+		Solid lowCeiling = (x, y, z) -> y <= 63 || y >= 66;
+		check(!ServerEscapeController.takeoffClear(0.2, 0.8, 0.2, 0.8, 65.8, 65, at -> lowCeiling.at(at.getX(), at.getY(), at.getZ())),
+				"a ceiling 2 above the feet blocks the takeoff onto a step one up");
+		Solid tallerPassage = (x, y, z) -> y <= 63 || y >= 67;
+		check(ServerEscapeController.takeoffClear(0.2, 0.8, 0.2, 0.8, 65.8, 65, at -> tallerPassage.at(at.getX(), at.getY(), at.getZ())),
+				"a ceiling 3 above the feet leaves room to get onto a step one up");
+		// Afloat on the flooded stair (feet 0.3 above the floor top at 41, the step top 42, the column 3 high): clear.
+		Solid stairColumn = (x, y, z) -> x == 0 ? y <= 40 || y >= 44 : y <= 41 || y >= 45;
+		check(ServerEscapeController.takeoffClear(0.2, 0.8, 0.2, 0.8, 41.3 + 1.8, 42, at -> stairColumn.at(at.getX(), at.getY(), at.getZ())),
+				"the flooded stair's 3-high column leaves room to wade onto the next step");
+		// The box straddling two columns: a low ceiling over either one blocks it.
+		Solid halfCeiling = (x, y, z) -> y <= 63 || (x == 1 && y >= 66);
+		check(!ServerEscapeController.takeoffClear(0.7, 1.3, 0.2, 0.8, 65.8, 65, at -> halfCeiling.at(at.getX(), at.getY(), at.getZ())),
+				"a ceiling over part of the body's box still blocks the takeoff");
+		// Already as high as the step needs: nothing to check.
+		check(ServerEscapeController.takeoffClear(0.2, 0.8, 0.2, 0.8, 66.9, 65, at -> true), "a body already high enough needs no headroom check");
+		assertions += 5;
 		return assertions;
 	}
 

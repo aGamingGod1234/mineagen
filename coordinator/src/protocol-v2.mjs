@@ -266,7 +266,7 @@ function normalizeProtocolV2Payload(type, value) {
 				proof: authenticationToken(value.proof, 'proof'),
 			};
 		case 'hello':
-			exactKeys(value, ['replyTo', 'clientNonce', 'serverNonce', 'proof', 'launchId', 'registryFragments', 'actionTiming', 'blockTags', 'planFacts', 'bodyFacts', 'breakExposureFacts', 'breakOutcomeFacts', 'placementFacts', 'dropAheadFacts', 'pausedByFacts', 'actionIssuer', 'killFacts'], ['replyTo', 'clientNonce', 'serverNonce', 'proof'], type);
+			exactKeys(value, ['replyTo', 'clientNonce', 'serverNonce', 'proof', 'launchId', 'registryFragments', 'actionTiming', 'blockTags', 'planFacts', 'bodyFacts', 'breakExposureFacts', 'breakOutcomeFacts', 'placementFacts', 'dropAheadFacts', 'pausedByFacts', 'actionIssuer', 'killFacts', 'tickClock'], ['replyTo', 'clientNonce', 'serverNonce', 'proof'], type);
 			return {
 				replyTo: boundedText(value.replyTo, 'replyTo', MAX_COMMAND_ID_LENGTH),
 				clientNonce: authenticationToken(value.clientNonce, 'clientNonce'),
@@ -284,6 +284,7 @@ function normalizeProtocolV2Payload(type, value) {
 				...(value.pausedByFacts === undefined ? {} : { pausedByFacts: boolean(value.pausedByFacts, 'pausedByFacts') }),
 				...(value.actionIssuer === undefined ? {} : { actionIssuer: boolean(value.actionIssuer, 'actionIssuer') }),
 				...(value.killFacts === undefined ? {} : { killFacts: boolean(value.killFacts, 'killFacts') }),
+				...(value.tickClock === undefined ? {} : { tickClock: boolean(value.tickClock, 'tickClock') }),
 				...(value.launchId === undefined ? {} : { launchId: launchIdentity(value.launchId) }),
 			};
 		case 'hello_ack':
@@ -504,8 +505,12 @@ function normalizeProtocolV2Payload(type, value) {
 			};
 		}
 		case 'heartbeat':
-			exactKeys(value, [], [], type);
-			return {};
+			// From a server that saw tickClock in hello: how long ago it last ticked, and whether it is paused.
+			exactKeys(value, ['tickAgeMs', 'paused'], [], type);
+			return {
+				...(value.tickAgeMs === undefined ? {} : { tickAgeMs: nonnegativeInteger(value.tickAgeMs, 'tickAgeMs') }),
+				...(value.paused === undefined ? {} : { paused: boolean(value.paused, 'paused') }),
+			};
 		case 'shutdown':
 			exactKeys(value, ['reason'], ['reason'], type);
 			return { reason: boundedText(value.reason, 'reason', MAX_REASON_CODE_LENGTH) };
@@ -577,6 +582,7 @@ export class MultiplexedServerBridge extends EventEmitter {
 	#handshakeDeadlineHandle = null;
 	#handshakeDeadlineToken = 0;
 	#heartbeatDeadlineHandle = null;
+	#serverPaused = false;
 	#heartbeatDeadlineToken = 0;
 	#heartbeatProbeHandle = null;
 	#heartbeatProbeToken = 0;
@@ -855,7 +861,7 @@ export class MultiplexedServerBridge extends EventEmitter {
 			this.#observedRevisions.delete(envelope.agentId);
 			this.#terminalActionsByGoal.delete(envelope.agentId);
 		}
-		if (envelope.type === 'heartbeat') this.#refreshHeartbeatDeadline(socket, connectionEpoch);
+		if (envelope.type === 'heartbeat' && !this.#acceptHeartbeat(envelope.payload, socket, connectionEpoch)) return;
 		const event = { ...envelope, connectionEpoch };
 		this.#enqueueInbound(event, socket, connectionEpoch);
 	}
@@ -978,6 +984,8 @@ export class MultiplexedServerBridge extends EventEmitter {
 				actionIssuer: true,
 				// Lets the server add entity_killed.at (where the body saw the mob die); an older coordinator rejects the key.
 				killFacts: true,
+				// Asks the server for heartbeat tickAgeMs and paused, answered off its game thread (an older coordinator rejects them).
+				tickClock: true,
 				...(this.#launchId === null ? {} : { launchId: this.#launchId }),
 			},
 		});
@@ -1448,6 +1456,11 @@ export class MultiplexedServerBridge extends EventEmitter {
 		this.#clearConnectionDeadlines();
 		if (this.#running) this.#recovering = true;
 		const wasReady = this.#ready;
+		// A dropped link ends any pause it reported; the next link reports its own.
+		if (this.#serverPaused) {
+			this.#serverPaused = false;
+			this.#emitSafely('serverPause', { paused: false, tickAgeMs: null, connectionEpoch });
+		}
 		this.#socket = null;
 		this.#ready = false;
 		this.#writeBlocked = false;
@@ -1483,6 +1496,31 @@ export class MultiplexedServerBridge extends EventEmitter {
 
 	/** Inbound messages accepted but not yet released by their handlers (reads pause at three quarters of the cap). */
 	get inboundQueued() { return this.#inboundEntries.size; }
+
+	/**
+	 * A heartbeat keeps the link alive, unless it says the server has stopped ticking without being paused: the reply comes
+	 * from the server's network thread, so a hung game would otherwise look alive forever. A paused single-player game is
+	 * alive; its pause and resume are announced (serverPause) so work deadlines can wait for it. False when the link failed.
+	 */
+	#acceptHeartbeat(value, socket, connectionEpoch) {
+		const paused = value?.paused === true;
+		// The first heartbeat after a pause still counts back to the last tick before it: the game has just resumed, not
+		// hung. A server that really is hung shows a growing tick age again on the next heartbeat, and drops then.
+		const resuming = this.#serverPaused && !paused;
+		if (Number.isSafeInteger(value?.tickAgeMs) && !paused && !resuming && value.tickAgeMs > this.#heartbeatTimeoutMs) {
+			this.#fail(new ProtocolV2Error('HEARTBEAT_TIMEOUT', `Minecraft server stopped ticking ${value.tickAgeMs} ms ago without a pause`), socket, connectionEpoch);
+			return false;
+		}
+		if (paused !== this.#serverPaused) {
+			this.#serverPaused = paused;
+			this.#emitSafely('serverPause', { paused, tickAgeMs: value?.tickAgeMs ?? null, connectionEpoch });
+		}
+		this.#refreshHeartbeatDeadline(socket, connectionEpoch);
+		return true;
+	}
+
+	/** Whether the server's last heartbeat said it is paused (false before any, and after the link ends). */
+	get serverPaused() { return this.#serverPaused; }
 
 	#refreshHeartbeatDeadline(socket, connectionEpoch, { allowLateGrace = true } = {}) {
 		this.#clearHeartbeatDeadline();
@@ -2076,7 +2114,9 @@ function normalizeObservation(value) {
 function reflexStatusObservation(value) {
 	if (!isPlainObject(value)) throw new ProtocolV2Error('INVALID_PAYLOAD', 'reflexes must be an object');
 	exactKeys(value, ['revision', 'firing', 'rules', 'events', 'error'], ['revision', 'rules', 'events'], 'reflexes');
-	const text = (row, key, maximum) => row[key] === undefined ? {} : { [key]: boundedText(row[key], `reflexes.${key}`, maximum, 0) };
+	// Reflex free text only describes (why a rule sleeps, what a firing did): an over-long one is trimmed, not a reason to
+	// refuse the whole observation. Refusing it dropped the bridge and stranded both agents of a server (iron-kit room).
+	const text = (row, key, maximum) => row[key] === undefined ? {} : { [key]: boundedText(clipText(row[key], maximum), `reflexes.${key}`, maximum, 0) };
 	const result = {
 		revision: nonnegativeInteger(value.revision, 'reflexes.revision'),
 		rules: boundedArray(value.rules, 'reflexes.rules', MAX_REFLEX_RULES).map((row) => {
@@ -2097,7 +2137,7 @@ function reflexStatusObservation(value) {
 		exactKeys(value.firing, ['id', 'ms', 'detail'], ['id', 'ms'], 'reflexes.firing');
 		result.firing = { id: boundedText(value.firing.id, 'reflexes.firing.id', 32), ms: nonnegativeInteger(value.firing.ms, 'reflexes.firing.ms'), ...text(value.firing, 'detail', 240) };
 	}
-	if (value.error !== undefined) result.error = boundedText(value.error, 'reflexes.error', 240);
+	if (value.error !== undefined) result.error = boundedText(clipText(value.error, 240), 'reflexes.error', 240);
 	return result;
 }
 
@@ -2155,6 +2195,9 @@ const SIGHTED_ROWS = Object.freeze({
 	poi: { maximum: 4, required: { blockId: requireIdentifier }, optional: { new: boolean } },
 	// flowing: a fluid row with no source in sight (a fall or spill); small: a lava pool too small for a portal cast.
 	blocks: { maximum: 4, required: { blockId: requireIdentifier }, optional: { count: positiveInteger, new: boolean, flowing: boolean, small: boolean } },
+	// Placed blocks, doors and containers as sources (FarSight resources rows, seen-resources.mjs): count is the id's placed
+	// candidates near the eye; opened on a chest or barrel once its loot was rolled.
+	resources: { maximum: 24, required: { blockId: requireIdentifier, count: positiveInteger }, optional: { opened: boolean, new: boolean } },
 	// The visible frame nearest completion; x/y/z is its interior's low corner.
 	portalFrames: { maximum: 1, required: { axis: portalAxis, interior: portalInterior, obsidian: nonnegativeInteger, needed: positiveInteger, missing: portalCells, blocked: portalCells, lit: boolean }, optional: { unseenInterior: positiveInteger } },
 });
@@ -3092,6 +3135,14 @@ function isExactArray(value) {
 		if (!descriptor || !Object.hasOwn(descriptor, 'value') || !descriptor.enumerable || !descriptor.writable || !descriptor.configurable) return false;
 	}
 	return true;
+}
+
+/** A string cut to `maximum` UTF-16 units with an ellipsis, never splitting a surrogate pair; anything else unchanged. */
+function clipText(value, maximum) {
+	if (typeof value !== 'string' || value.length <= maximum) return value;
+	let end = maximum - 1;
+	if (/[\uD800-\uDBFF]/.test(value[end - 1])) end -= 1;
+	return `${value.slice(0, end)}\u2026`;
 }
 
 function boundedText(value, field, maximum, minimum = 1) {

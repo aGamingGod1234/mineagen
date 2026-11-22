@@ -67,7 +67,7 @@ test('the 220-byte route preserves UTF-8 ellipsis and fortress progress when cli
 		assert.doesNotMatch(line, /\uFFFD/);
 	}
 	// Satisfy early food stocking so this still exercises the long casting/restock route.
-	const clipped = route(sample([item('iron_pickaxe'), item('shield', 1, 'offhand'), item('water_bucket'), item('bucket'), item('flint_and_steel'), item('cooked_mutton', 8)],
+	const clipped = route(sample([item('iron_pickaxe'), item('shield', 1, 'offhand'), item('iron_chestplate', 1, 'chest'), item('iron_boots', 1, 'feet'), item('water_bucket'), item('bucket'), item('flint_and_steel'), item('cooked_mutton', 8)],
 		{ world: { dimension: 'minecraft:overworld' }, player: { health: 10, foodLevel: 10 } }));
 	assert.ok(Buffer.byteLength(clipped) <= 220);
 	assert.match(clipped, /^usual next step: find block minecraft:lava/);

@@ -126,6 +126,17 @@ public final class ServerActionExecutor {
 			Direction.NORTH, Direction.EAST, Direction.SOUTH, Direction.WEST
 	};
 	private static final long DEFAULT_TIMEOUT_MS = 60_000L;
+	/**
+	 * Longest a reflex may hold a running action paused without a single tick of it (game time). A paused action's own
+	 * timeout is frozen, so without this a reflex that never finishes held it for good with the model's wakes folded under
+	 * the step (playtest: an eat stance at a crafting table kept a bread craft paused for over 5 minutes).
+	 */
+	public static final long REFLEX_HOLD_LIMIT_MS = 120_000L;
+
+	/** The stuck-pause span after one more paused loop: a firing that holds on purpose (a fight, a hazard) restarts it. */
+	public static long stuckPauseSpan(long spanMs, long sinceLastLoopMs, boolean holdsOnPurpose) {
+		return holdsOnPurpose ? 0L : spanMs + Math.max(0L, sinceLastLoopMs);
+	}
 	private static final long MOVEMENT_STALL_TIMEOUT_MS = 4_000L;
 	private static final long PLACE_TIMEOUT_MS = 5_000L;
 	/** A 180 degree turn takes about 6 ticks; past this something is fighting the view and the frame starts anyway. */
@@ -410,6 +421,15 @@ public final class ServerActionExecutor {
 
 	/** As {@link #tick(Set, Set)}; {@code firingRule} names the reflex rule holding a paused agent (for the result text). */
 	public synchronized void tick(Set<AgentId> held, Set<AgentId> paused, java.util.function.Function<AgentId, String> firingRule) {
+		tick(held, paused, firingRule, ignored -> false);
+	}
+
+	/**
+	 * As {@link #tick(Set, Set, java.util.function.Function)}; {@code holdsOnPurpose} names agents whose current firing holds
+	 * the body for as long as its danger lasts (a fight, a shield, a hazard floor), which {@link #REFLEX_HOLD_LIMIT_MS} spares.
+	 */
+	public synchronized void tick(Set<AgentId> held, Set<AgentId> paused, java.util.function.Function<AgentId, String> firingRule,
+			java.util.function.Predicate<AgentId> holdsOnPurpose) {
 		long now = GameClock.nowMs();
 		retryPendingPublications();
 		tickShiftHolds();
@@ -435,6 +455,22 @@ public final class ServerActionExecutor {
 				if (paused.contains(action.request().agentId())) {
 					action.pausedMs += sinceLastLoop;
 					action.pauseUnder(firingRule.apply(action.request().agentId()));
+					// A fight or hazard floor holds as long as its danger lasts; any other firing that keeps the body this
+					// long is stuck, and the action's result is what brings the model back.
+					action.pausedSpanMs = stuckPauseSpan(action.pausedSpanMs, sinceLastLoop, holdsOnPurpose.test(action.request().agentId()));
+					if (!hasPendingPublication(action.request().agentId())) {
+						CleanupRetry<ServerActionResult> retained = pendingCompletions.get(action.request().agentId());
+						// A hold-limit end whose cleanup threw is retried here: the firing still holds the body, so the normal
+						// retry below is never reached and the action would be stuck again.
+						if (retained != null && action.endedByHoldLimit) finish(action, retained.pending());
+						else if (retained == null && action.pausedSpanMs >= REFLEX_HOLD_LIMIT_MS) {
+							long heldSeconds = action.pausedSpanMs / 1000L;
+							action.pausedSpanMs = 0L;
+							action.endedByHoldLimit = true;
+							finish(action, action.result(ServerActionState.FAILED, "HELD_BY_REFLEX", String.format(java.util.Locale.ROOT,
+									"Reflexes held the body for %d s in a row and this action could not run", heldSeconds), now));
+						}
+					}
 					continue;
 				}
 				if (held.contains(action.request().agentId())) continue;
@@ -679,6 +715,9 @@ public final class ServerActionExecutor {
 		} else if (committed == null && action.controller instanceof ServerNavigationController navigation) {
 			result = action.result(ServerActionState.CANCELLED, "ACTION_CANCELLED",
 					cancellationReason + navigation.stoppedBodyFacts(action.player), GameClock.nowMs());
+		} else if (committed == null && action.controller instanceof dev.agaminggod.mineagen.server.runtime.controller.ServerSpawnerHoldController hold) {
+			result = action.result(ServerActionState.CANCELLED, "ACTION_CANCELLED",
+					cancellationReason + hold.stoppedBodyFacts(action.player), GameClock.nowMs());
 		}
 		complete(action, result);
 		return true;
@@ -914,7 +953,7 @@ public final class ServerActionExecutor {
 			case ESCAPE -> ActiveAction.controller(request, player, new dev.agaminggod.mineagen.server.runtime.controller.ServerEscapeController(
 					integer(arguments, "timeoutMs"), GameClock.nowMs(), escapeEnvironment(request)));
 			case BARTER_UNTIL -> ActiveAction.controller(request, player, new ServerBarterController(
-					string(arguments, "itemId"), integer(arguments, "count"), integer(arguments, "timeoutMs"), GameClock.nowMs()));
+					string(arguments, "itemId"), integer(arguments, "count"), integer(arguments, "timeoutMs"), GameClock.nowMs(), barterEnvironment(request)));
 			// Turns over a few ticks like a player instead of snapping; finishes on the exact lookAt rotation.
 			case LOOK_AT -> ActiveAction.controller(request, player, new ServerLookController(new Vec3(
 					number(arguments, "x"),
@@ -925,27 +964,10 @@ public final class ServerActionExecutor {
 			case ATTACK -> ActiveAction.aimedAtEntity(request, player,
 					() -> resolveExactObservedTarget(player, string(arguments, "targetId")),
 					() -> attack(player, string(arguments, "targetId")));
-			case FIGHT_TARGET -> ActiveAction.controller(request, player, strikePart(player, string(arguments, "targetId"), new ServerFightController(
-					combatTarget(player, string(arguments, "targetId")),
-					arguments.has("desiredRange") ? number(arguments, "desiredRange") : null,
-					arguments.has("fleeAtHealth") ? (float) number(arguments, "fleeAtHealth") : null,
-					continueWithAttackers(arguments),
-					// The model chooses the policy; the controller only applies it (named by default).
-					dev.agaminggod.mineagen.server.runtime.controller.CombatPlanning.TargetPolicy.parse(
-							nullableString(arguments, "targetPolicy")),
-					// Players are follow-through or policy candidates only when the model opts in.
-					arguments.has("includePlayers") && bool(arguments, "includePlayers"),
-					!arguments.has("pursue") || bool(arguments, "pursue"),
-					arguments.has("sneak") && bool(arguments, "sneak"),
-					arguments.has("shield") && bool(arguments, "shield"),
-					integer(arguments, "timeoutMs"), GameClock.nowMs())
-					.collectDrops(arguments.has("collect") && bool(arguments, "collect") ? protection::mayTakeEntity : null)
-					// collect false or unset: the drops are walked to only once no hostile is within 16 blocks (ExamplePlayer, Oct 29).
-					.collectWhenClear(arguments.has("collect") && bool(arguments, "collect") ? null : protection::mayTakeEntity)
-					.makingRoom(protection::mayDropItem)));
+			case FIGHT_TARGET -> ActiveAction.controller(request, player, blazeTargetHold(request, player, arguments) instanceof dev.agaminggod.mineagen.server.runtime.controller.ServerController hold ? hold
+					: openFightTarget(player, arguments));
 			// Model-chosen goal skill (ExamplePlayer, Oct 28): fight one mob type until an item count, each engagement a fight_target or volley.
-			case FIGHT_UNTIL -> ActiveAction.controller(request, player, new dev.agaminggod.mineagen.server.runtime.controller.ServerFightUntilController(
-					player, arguments, protection, GameClock.nowMs(), "fight_until", null, roofing(request)));
+			case FIGHT_UNTIL -> ActiveAction.controller(request, player, fightUntil(request, player, arguments));
 			case FLEE_FROM -> ActiveAction.controller(request, player, new ServerFleeController(
 					resolveCombatTarget(player, string(arguments, "targetId")),
 					number(arguments, "distance"), integer(arguments, "timeoutMs"), GameClock.nowMs()).cornered(roofing(request)));
@@ -1874,6 +1896,88 @@ public final class ServerActionExecutor {
 				player, until, protection, GameClock.nowMs(), request.type().wireName(), first, roofing(request)));
 	}
 
+	/** fight_target's ordinary fight (the open fight, or a named dragon part). */
+	/** The model's arguments with fleeAtHealth at most {@code cap} (null keeps them as given). */
+	private static JsonObject fleeCapped(JsonObject arguments, Float cap) {
+		if (cap == null || !arguments.has("fleeAtHealth") || arguments.get("fleeAtHealth").getAsFloat() <= cap) return arguments;
+		JsonObject capped = arguments.deepCopy();
+		capped.addProperty("fleeAtHealth", cap);
+		return capped;
+	}
+
+	private ServerFightController openFightTarget(ServerPlayer player, JsonObject arguments) {
+		return strikePart(player, string(arguments, "targetId"), new ServerFightController(
+				combatTarget(player, string(arguments, "targetId")),
+				arguments.has("desiredRange") ? number(arguments, "desiredRange") : null,
+				arguments.has("fleeAtHealth") ? (float) number(arguments, "fleeAtHealth") : null,
+				continueWithAttackers(arguments),
+				// The model chooses the policy; the controller only applies it (named by default).
+				dev.agaminggod.mineagen.server.runtime.controller.CombatPlanning.TargetPolicy.parse(
+						nullableString(arguments, "targetPolicy")),
+				// Players are follow-through or policy candidates only when the model opts in.
+				arguments.has("includePlayers") && bool(arguments, "includePlayers"),
+				!arguments.has("pursue") || bool(arguments, "pursue"),
+				arguments.has("sneak") && bool(arguments, "sneak"),
+				arguments.has("shield") && bool(arguments, "shield"),
+				integer(arguments, "timeoutMs"), GameClock.nowMs())
+				.collectDrops(arguments.has("collect") && bool(arguments, "collect") ? protection::mayTakeEntity : null)
+				// collect false or unset: the drops are walked to only once no hostile is within 16 blocks (ExamplePlayer, Oct 29).
+				.collectWhenClear(arguments.has("collect") && bool(arguments, "collect") ? null : protection::mayTakeEntity)
+				.makingRoom(protection::mayDropItem));
+	}
+
+	/**
+	 * fight_target on a blaze by a seen fortress spawner, hold on: the fight is held from the spawner hold's roofed cell
+	 * (built, or the one this body held before) and ends when that blaze dies, as a player fights blazes from a nook by
+	 * the spawner instead of chasing them across the deck. Main's blaze spawner rooms: the open fight died in 27 of 30.
+	 * roof:false keeps the open fight. Null when the open fight runs.
+	 */
+	private dev.agaminggod.mineagen.server.runtime.controller.ServerController blazeTargetHold(ServerActionRequest request, ServerPlayer player, JsonObject arguments) {
+		if (!dev.agaminggod.mineagen.server.runtime.controller.SpawnerHold.ENABLED || player.level().dimension() != net.minecraft.world.level.Level.NETHER) return null;
+		if (arguments.has("roof") && !bool(arguments, "roof")) return null;
+		// sneak:true (crouch on an edge) keeps the ordinary fight: the wall-in does not crouch. pursue:false is honoured
+		// (the open fight keeps it and the wall-in is built where the body stands).
+		if (arguments.has("sneak") && bool(arguments, "sneak")) return null;
+		net.minecraft.world.entity.LivingEntity target;
+		try { target = combatTarget(player, string(arguments, "targetId")); }
+		catch (AgentDomainException unresolved) { return null; }
+		if (!(target instanceof net.minecraft.world.entity.monster.Blaze)) return null;
+		BlockPos spawner = dev.agaminggod.mineagen.server.runtime.controller.ServerSpawnerHoldController.seenFortressSpawner(player);
+		if (spawner == null) return null;
+		JsonObject until = new JsonObject();
+		until.addProperty("mob", "minecraft:blaze");
+		until.addProperty("untilItem", "minecraft:blaze_rod");
+		until.addProperty("untilCount", 64 * 36);
+		if (arguments.has("fleeAtHealth")) until.addProperty("fleeAtHealth", number(arguments, "fleeAtHealth"));
+		if (arguments.has("timeoutMs")) until.addProperty("timeoutMs", integer(arguments, "timeoutMs"));
+		// fight_target's collection choice carries into the hold's own rod trips: collect unset or false walks out for a
+		// drop only with no hostile near, as the ordinary fight_target does.
+		until.addProperty("collect", arguments.has("collect") && bool(arguments, "collect"));
+		return new dev.agaminggod.mineagen.server.runtime.controller.ServerSpawnerHoldController(player, until, protection, spawner,
+				roofing(request), GameClock.nowMs()).untilDead(target, cap -> openFightTarget(player, fleeCapped(arguments, cap)));
+	}
+
+	/** fight_until; blazes at a seen fortress spawner get the body-owned spawner hold (roof:false keeps the open fight). */
+	private dev.agaminggod.mineagen.server.runtime.controller.ServerController fightUntil(ServerActionRequest request, ServerPlayer player, JsonObject arguments) {
+		boolean blaze = "minecraft:blaze".equals(string(arguments, "mob")) && "minecraft:blaze_rod".equals(string(arguments, "untilItem"));
+		BlockPos spawner = blaze && dev.agaminggod.mineagen.server.runtime.controller.SpawnerHold.ENABLED
+				? dev.agaminggod.mineagen.server.runtime.controller.ServerSpawnerHoldController.seenFortressSpawner(player) : null;
+		Boolean roof = arguments.has("roof") ? bool(arguments, "roof") : null;
+		// No spawner in view: the hold looks round for one first, then hands over to the ordinary fight (spawner null).
+		boolean nether = blaze && dev.agaminggod.mineagen.server.runtime.controller.SpawnerHold.ENABLED
+				&& player.level().dimension() == net.minecraft.world.level.Level.NETHER;
+		// pursue:false (stay put) and sneak:true (crouch on an edge) keep the ordinary fight: the hold walks to its cell
+		// site and on rod trips, and does not crouch.
+		// An explicit spot (x, y, z) also keeps it: the ordinary fight hunts and returns there, the hold would pick its own cell.
+		boolean constrained = arguments.has("pursue") && !bool(arguments, "pursue") || arguments.has("sneak") && bool(arguments, "sneak")
+				|| arguments.has("x") || arguments.has("y") || arguments.has("z");
+		if (!constrained && dev.agaminggod.mineagen.server.runtime.controller.SpawnerHold.applies(nether, blaze, roof, true))
+			return new dev.agaminggod.mineagen.server.runtime.controller.ServerSpawnerHoldController(player, arguments, protection, spawner,
+					roofing(request), GameClock.nowMs());
+		return new dev.agaminggod.mineagen.server.runtime.controller.ServerFightUntilController(
+				player, arguments, protection, GameClock.nowMs(), "fight_until", null, roofing(request));
+	}
+
 	/** roof:true construction for the fight engine: build_shelter's placement and clearing with a carried block. */
 	private dev.agaminggod.mineagen.server.runtime.controller.ServerFightUntilController.Roofing roofing(ServerActionRequest parent) {
 		return new dev.agaminggod.mineagen.server.runtime.controller.ServerFightUntilController.Roofing() {
@@ -1901,6 +2005,13 @@ public final class ServerActionExecutor {
 			public String place(ServerPlayer body, BlockPos at, Direction face, String itemId) {
 				return shelterEnvironment(parent, itemId).place(body, at, face);
 			}
+			public dev.agaminggod.mineagen.server.runtime.controller.ServerController clear(ServerPlayer body, BlockPos at, long timeoutMs) {
+				BlockState state = body.level().getBlockState(at);
+				if (state.isAir()) return (player, now) -> dev.agaminggod.mineagen.server.runtime.controller.ServerController.TickResult.succeeded("BLOCK_BROKEN", "already open");
+				int slot = dev.agaminggod.mineagen.server.runtime.controller.ServerDigController.toolSlot(body, state);
+				if (slot >= 0) body.getInventory().setSelectedSlot(slot);
+				return shelterEnvironment(parent, "minecraft:cobblestone").clear(body, at, false, timeoutMs);
+			}
 		};
 	}
 
@@ -1919,10 +2030,39 @@ public final class ServerActionExecutor {
 				JsonObject args = new JsonObject();
 				args.addProperty("pattern", "stairs_up"); args.addProperty("y", y); args.addProperty("heading", heading.getName());
 				args.addProperty("sealFluids", true); args.addProperty("timeoutMs", timeoutMs);
-				return digController(args);
+				return digController(args).climbsInTheOpen(true);
 			}
 			public Vec3 aim(ServerPlayer body, BlockPos at, Direction face, String itemId) { return shelterEnvironment(parent, itemId).aim(body, at, face); }
 			public String place(ServerPlayer body, BlockPos at, Direction face, String itemId) { return shelterEnvironment(parent, itemId).place(body, at, face); }
+		};
+	}
+
+	/** barter_until's hands: the craft transaction (gold blocks or nuggets into ingots) and placing a carried table. */
+	private ServerBarterController.Environment barterEnvironment(ServerActionRequest parent) {
+		return new ServerBarterController.Environment() {
+			public dev.agaminggod.mineagen.server.runtime.controller.ServerController craft(ServerPlayer body, String recipeId, int count, BlockPos table, long timeoutMs) {
+				JsonObject args = new JsonObject();
+				args.addProperty("recipeId", recipeId); args.addProperty("count", count); args.addProperty("timeoutMs", timeoutMs);
+				if (table != null) { args.addProperty("x", table.getX()); args.addProperty("y", table.getY()); args.addProperty("z", table.getZ()); }
+				ServerActionRequest internal = new ServerActionRequest(parent.agentId(), parent.goalRevision(), parent.actionId(),
+						table == null ? ActionType.CRAFT_INVENTORY : ActionType.CRAFT_TABLE, args, parent.provenance(), parent.traceId());
+				ActiveAction craft = ActiveAction.transaction(internal, body, advancedInteractions.begin(body, internal, args));
+				if (table != null) craft.transactionAimTarget = () -> TargetSightline.block(body, table, null);
+				return new dev.agaminggod.mineagen.server.runtime.controller.ServerController() {
+					public TickResult tick(ServerPlayer player, long now) {
+						ServerActionResult result = craft.tick(now);
+						if (result == null) return TickResult.running(0.0D);
+						craft.cleanup();
+						return result.state() == ServerActionState.SUCCEEDED ? TickResult.succeeded(result.reasonCode(), result.message())
+								: TickResult.failed(result.reasonCode(), result.message(), 0.0D);
+					}
+					public void cancel(ServerPlayer player) { craft.cancel("Barter ended"); }
+				};
+			}
+			public String place(ServerPlayer body, BlockPos at, Direction face, String itemId) {
+				try { return shelterEnvironment(parent, itemId).place(body, at, face); }
+				catch (AgentDomainException refused) { return refused.getMessage(); }
+			}
 		};
 	}
 
@@ -2085,6 +2225,9 @@ public final class ServerActionExecutor {
 				}
 			}
 			public String useBucket(ServerPlayer body, BlockPos clicked, Direction face) {
+				return useBucket(body, clicked, face, -1.0D);
+			}
+			public String useBucket(ServerPlayer body, BlockPos clicked, Direction face, double lavaGraceSeconds) {
 				ItemStack held = body.getMainHandItem();
 				if (!BucketUse.is(held)) return "not holding a bucket";
 				boolean empty = held.is(net.minecraft.world.item.Items.BUCKET);
@@ -2095,6 +2238,11 @@ public final class ServerActionExecutor {
 				BlockPos cell = empty ? clicked : clicked.relative(face);
 				if (!protection.mayModifyBlock(body, body.level(), cell) || !body.level().mayInteract(body, cell)) return "PROTECTION_DENIED at " + coordinates(cell);
 				String guard = BucketUse.lavaPourAtBody(body, held);
+				// The cast's own lava, which its water follows within the grace: refused only where its flow meets the body sooner.
+				if (guard != null && lavaGraceSeconds > 0.0D) {
+					double seconds = BucketUse.lavaReachSecondsAtLook(body);
+					if (seconds < 0.0D || seconds >= lavaGraceSeconds) guard = null;
+				}
 				if (guard != null) return "LAVA_POUR_AT_BODY: " + guard;
 				ServerLevel level = (ServerLevel) body.level();
 				InteractionResult result = body.gameMode.useItemOn(body, level, held, InteractionHand.MAIN_HAND, hit);
@@ -3283,6 +3431,10 @@ public final class ServerActionExecutor {
 		/** Reflex firings that paused this action (rule id -> times), whether one holds it now, and how often it resumed. */
 		private final java.util.LinkedHashMap<String, Integer> pausedBy = new java.util.LinkedHashMap<>();
 		private boolean pausedNow;
+		/** Game time paused since the action last ticked; reset on every resume. */
+		private long pausedSpanMs;
+		/** The reflex hold limit ended this action; its completion is retried even while the firing still holds the body. */
+		private boolean endedByHoldLimit;
 		private int resumes;
 		private long lastLoopMs;
 		private long startedAtEpochMs;
@@ -3650,6 +3802,9 @@ public final class ServerActionExecutor {
 				long accepted = Math.max(0L, AgentInputRuntime.controller(player).acceptedUses(request.agentId()) - useAcceptedBaseline);
 				if (useElapsedTicks >= useDurationTicks || useOnce && accepted > 0) {
 					if (!useStartObserved) useFoodRefusal = fullHungerRefusal(player, useHand);
+					// A block or entity in reach takes the click before the held item (a door opens, a villager trades): the
+					// receipt names it, so a throw it took is not read as thrown. Read before the release, which clears it.
+					String takenBy = accepted > 0 ? AgentInputRuntime.controller(player).lastAcceptedUseTarget(request.agentId()) : null;
 					releaseInput();
 					if (bucketRay != null) {
 						ItemStack after = player.getItemInHand(useHand);
@@ -3667,7 +3822,8 @@ public final class ServerActionExecutor {
 					return accepted > 0
 							? result(ServerActionState.SUCCEEDED, "USE_INPUT_CONFIRMED",
 									useFeedback("Held use for " + useElapsedTicks + " server ticks; accepted interactions=" + accepted
-											+ ", using state observed=" + useStartObserved + ", input released=true; downstream effects are unconfirmed",
+											+ ", using state observed=" + useStartObserved + ", input released=true; downstream effects are unconfirmed"
+											+ (takenBy == null ? "" : "; the click went to " + takenBy + ", not to the held item in the air"),
 											useFoodRefusal, useStartObserved), now)
 							: result(ServerActionState.FAILED, "USE_NOT_ACCEPTED", Objects.requireNonNullElse(
 									useFoodRefusal, "Held use input was released without an accepted vanilla interaction"), now);
@@ -4446,6 +4602,8 @@ public final class ServerActionExecutor {
 				case CONTROLLER -> !(controller instanceof dev.agaminggod.mineagen.server.runtime.controller.ServerShelterController)
 						&& !(controller instanceof ServerFightController) && !(controller instanceof ServerFleeController)
 						&& !(controller instanceof dev.agaminggod.mineagen.server.runtime.controller.ServerFightUntilController)
+						// The spawner hold steps off or punches out fire and hands back on lava itself, as the fights do.
+						&& !(controller instanceof dev.agaminggod.mineagen.server.runtime.controller.ServerSpawnerHoldController)
 						&& !(controller instanceof ServerDigController dig && dig.pattern() == ServerDigController.Pattern.SHAFT);
 				case IMMEDIATE, AIMED, USE, TRANSACTION -> false;
 			};
@@ -4554,6 +4712,7 @@ public final class ServerActionExecutor {
 		void resumeAfterPause() {
 			if (!pausedNow) return;
 			pausedNow = false;
+			pausedSpanMs = 0L;
 			resumes++;
 			if (controller != null && player != null) controller.resumed(player);
 		}

@@ -11,7 +11,10 @@ import net.minecraft.client.gui.font.FontSet;
 public final class ConsoleFont {
 	public static final net.minecraft.resources.Identifier ID =
 			net.minecraft.resources.Identifier.fromNamespaceAndPath("mineagen", "console");
+	public static final net.minecraft.resources.Identifier MEDIUM_ID =
+			net.minecraft.resources.Identifier.fromNamespaceAndPath("mineagen", "console_medium");
 	private static FontSet cachedSet;
+	private static FontSet cachedMedium;
 	private static Font cachedFont;
 
 	private ConsoleFont() {
@@ -21,12 +24,17 @@ public final class ConsoleFont {
 		FontManager manager = ((MinecraftFontManagerAccessor) minecraft).mineagen$fontManager();
 		FontSet selected = ((FontManagerAccessor) manager).mineagen$fontSets().get(ID);
 		if (selected == null) return minecraft.font;
-		if (selected == cachedSet && cachedFont != null) return cachedFont;
+		// Text styled with the medium description draws from the medium set; everything else stays regular.
+		FontSet medium = ((FontManagerAccessor) manager).mineagen$fontSets().getOrDefault(MEDIUM_ID, selected);
+		if (selected == cachedSet && medium == cachedMedium && cachedFont != null) return cachedFont;
 		cachedSet = selected;
+		cachedMedium = medium;
 		cachedFont = new Font(new Font.Provider() {
 			@Override
 			public net.minecraft.client.gui.GlyphSource glyphs(net.minecraft.network.chat.FontDescription description) {
-				return selected.source(false);
+				boolean strong = description instanceof net.minecraft.network.chat.FontDescription.Resource resource
+						&& resource.id().equals(MEDIUM_ID);
+				return (strong ? medium : selected).source(false);
 			}
 
 			@Override

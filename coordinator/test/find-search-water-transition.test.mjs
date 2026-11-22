@@ -181,3 +181,29 @@ test('initial cover near remembered sky still listens for nearby water before wa
 	assert.equal((await run(body)).reasonCode, 'FIND_SEEN');
 	assert.deepEqual(calls.map(({ actionType }) => actionType), ['look_at']);
 });
+
+test('a walk that stops for breath with the body under water runs the escape job before any hand-back', async () => {
+	for (const reasonCode of ['AIR_RESERVE_REACHED', 'BREATH_NOT_COVERED']) {
+		let stopped = false;
+		const body = transitionBody(({ actionType }) => {
+			if (actionType === 'escape') return { result: ok('ESCAPED'), player: { inWater: false, underWater: false, air: 300 } };
+			if (!stopped) { stopped = true; return { result: stop(reasonCode), player: { inWater: true, underWater: true, air: 60, maxAir: 300 } }; }
+			return { result: ok(), blocks: [{ ...source, y: 26 }] };
+		});
+		const result = await run(body);
+		const escape = body.calls.findIndex((call) => call.actionType === 'escape');
+		assert.ok(escape >= 0, `${reasonCode}: escape ran (calls: ${body.calls.map((call) => call.actionType).join(',')})`);
+		assert.equal(escape, 10, `${reasonCode}: right after the leg that stopped for breath`);
+		assert.equal(result.reasonCode, 'FIND_SEEN', `${reasonCode}: out of the water, the search goes on: ${result.message}`);
+	}
+	// Escape leaves the body in the water: the breath stop goes back, never a third swim.
+	const stuck = transitionBody(({ actionType }) => actionType === 'escape'
+		? { result: stop('ESCAPE_NO_WAY') } : { result: stop('AIR_RESERVE_REACHED'), player: { inWater: true, underWater: true, air: 40, maxAir: 300 } });
+	const result = await run(stuck);
+	assert.ok(['FIND_DANGER', 'FIND_BLOCKED'].includes(result.reasonCode), result.reasonCode);
+	assert.ok(stuck.calls.filter((call) => call.actionType === 'escape').length <= 2);
+	// Out of the water (a dry walk stopped for its air reserve): no escape, the stop goes back as before.
+	const dry = transitionBody(() => ({ result: stop('AIR_RESERVE_REACHED') }));
+	assert.equal((await run(dry)).reasonCode, 'FIND_DANGER');
+	assert.equal(dry.calls.some((call) => call.actionType === 'escape'), false);
+});

@@ -114,7 +114,16 @@ public final class ReflexEngine {
 
 	/** A rule's sensed truth after the engine's gates: defend reads false while the body's own fight or flight runs. */
 	static boolean gatedTruth(ReflexSpec.Rule rule, boolean truth, ActionType activeType) {
-		return truth && !("defend".equals(rule.action().type()) && defendStandsAside(activeType));
+		return gatedTruth(rule, truth, activeType, false);
+	}
+
+	/**
+	 * As above; {@code escapingShooter}: the body's escape step runs with a shooter in sight. Defend stands aside as it
+	 * does for a flee: its melee stance held the body in the open behind a shield while the escape's own walk to cover
+	 * (which blocks with the shield itself) waited (skeleton escape room: paused 7 to 30 s of a 30 s window).
+	 */
+	static boolean gatedTruth(ReflexSpec.Rule rule, boolean truth, ActionType activeType, boolean escapingShooter) {
+		return truth && !("defend".equals(rule.action().type()) && (defendStandsAside(activeType) || escapingShooter));
 	}
 
 	/**
@@ -500,12 +509,24 @@ public final class ReflexEngine {
 		if (running != null && !inEnd && endOnly(agent.scheduler.rule(running.ruleId()))) end(agentId, agent, agent.scheduler.interrupt(now, "left the End"));
 		agent.scheduler.blockWhere(inEnd ? null : ReflexEngine::endOnly);
 		ObservationVisibility.Frame frame = ObservationVisibility.frame(player.level(), player);
-		boolean cornered = active != null && active.type() == ActionType.FLEE_FROM
-				&& dev.agaminggod.mineagen.server.runtime.controller.CorneredStand.standing(player);
+		// A fortress spawner in view is remembered for a blaze fight started later, cover or not (spawner hold).
+		if (player.tickCount % 20 == 0) dev.agaminggod.mineagen.server.runtime.controller.ServerSpawnerHoldController.notice(player);
+		// A stand inside a flee, or inside an escape whose climb a mob blocked: running or taking cover there only hands
+		// the attackers free hits, so the back-off rules wait; hazard flinches still interrupt.
+		boolean cornered = active != null && (active.type() == ActionType.FLEE_FROM || active.type() == ActionType.ESCAPE)
+				&& dev.agaminggod.mineagen.server.runtime.controller.CorneredStand.standing(player)
+				// A blaze spawner hold owns the body for its whole run: its roofed cell is the cover a retreat would look for,
+				// it heals there, and rod trips turn back to it when hurt. Running out onto the fortress floor is what kills.
+				|| active != null && (active.type() == ActionType.FIGHT_UNTIL || active.type() == ActionType.FIGHT_TARGET)
+				&& dev.agaminggod.mineagen.server.runtime.controller.ServerSpawnerHoldController.holding(player);
 		boolean fleeing = activeType == ActionType.FLEE_FROM && !cornered
 				|| agent.behaviour instanceof ReflexActions.Defend defend && defend.backingOutOfPack();
 		boolean fleeingWithChaser = fleeing && ReflexActions.Defend.nearestChaser(player, ReflexActions.PACK_RANGE) < ReflexActions.PACK_RANGE;
 		boolean firingBlocksShots = agent.scheduler.current() != null && agent.behaviour != null && agent.behaviour.blocksShots();
+		// Defend also stands aside while a cast has a cell half done: lava poured and not yet cooled, or its water not yet
+		// scooped back. A pause there leaves the lava to flow onto the body or the water to run into the pool (2-3 s at most).
+		boolean escapingShooter = activeType == ActionType.ESCAPE && !EscapeMoves.shooters(player).isEmpty()
+				|| activeType == ActionType.BUILD && dev.agaminggod.mineagen.server.runtime.controller.ServerBuildController.castCellOpen(player);
 		Map<String, ReflexScheduler.Sense> senses = new HashMap<>();
 		Map<String, Entity> focus = new HashMap<>();
 		Map<String, Vec3> points = new HashMap<>();
@@ -514,7 +535,7 @@ public final class ReflexEngine {
 			Entity found = null;
 			Vec3 point = null;
 			boolean defend = "defend".equals(rule.action().type());
-			boolean guards = defend && !defendStandsAside(activeType);
+			boolean guards = defend && !defendStandsAside(activeType) && !escapingShooter;
 			for (ReflexSpec.Condition condition : rule.when()) {
 				ReflexSensors.Reading reading = ReflexSensors.sense(player, condition, frame, agent.memory, now);
 				// For defend, "attacked" also reads a melee hit about to land, as it does a shot about to land.
@@ -539,7 +560,7 @@ public final class ReflexEngine {
 				if (!until) break;
 				until = ReflexSensors.sense(player, condition, frame, agent.memory, now).truth();
 			}
-			truth = gatedTruth(rule, truth, activeType);
+			truth = gatedTruth(rule, truth, activeType, escapingShooter);
 			if (!inEnd && endOnly(rule)) truth = false;
 			truth = shieldGate(agent.scheduler, rule, truth, firingBlocksShots);
 			truth = chaseGate(agent.scheduler, rule, truth, fleeingWithChaser);
@@ -715,6 +736,25 @@ public final class ReflexEngine {
 	public record RuleView(String id, String state, Set<String> when) {
 	}
 
+	/** Reflex actions that hold the body on purpose for as long as their danger lasts (a fight, a raised shield, a brace). */
+	public static final java.util.Set<String> HOLDING_ACTIONS = java.util.Set.of("defend", "shield", "brace");
+
+	/**
+	 * Whether the firing that holds the agent now is a hold the reflex-hold limit leaves alone: a hazard floor or a fight,
+	 * shield or brace, which hold for as long as their danger lasts. Anything else (a meal, a pickup) that keeps the body
+	 * for minutes is stuck.
+	 */
+	public synchronized boolean firingHoldsOnPurpose(AgentId agentId) {
+		AgentReflexes agent = agents.get(agentId);
+		ReflexScheduler.Firing firing = agent == null ? null : agent.scheduler.current();
+		if (firing == null) return false;
+		for (ReflexSpec.Rule rule : agent.scheduler.activeRules()) {
+			if (!rule.id().equals(firing.ruleId())) continue;
+			return ReflexScheduler.floor(rule) || HOLDING_ACTIONS.contains(rule.action().type());
+		}
+		return false;
+	}
+
 	/** The id of the rule whose firing holds the agent's body now, or null. */
 	public synchronized String firingRule(AgentId agentId) {
 		AgentReflexes agent = agents.get(agentId);
@@ -755,7 +795,7 @@ public final class ReflexEngine {
 			JsonObject current = new JsonObject();
 			current.addProperty("id", firing.ruleId());
 			current.addProperty("ms", Math.max(0L, now - firing.startTick()) * 50L);
-			if (!agent.detail.isEmpty()) current.addProperty("detail", agent.detail);
+			if (!agent.detail.isEmpty()) current.addProperty("detail", wireDetail(agent.detail));
 			status.add("firing", current);
 		}
 		JsonArray rules = new JsonArray();
@@ -788,7 +828,7 @@ public final class ReflexEngine {
 			row.addProperty("id", event.ruleId());
 			row.addProperty("outcome", event.outcome().wire());
 			row.addProperty("ms", event.durationTicks() * 50L);
-			if (!event.detail().isEmpty()) row.addProperty("detail", event.detail());
+			if (!event.detail().isEmpty()) row.addProperty("detail", wireDetail(event.detail()));
 			if (event.wake()) row.addProperty("wake", true);
 			events.add(row);
 		}
@@ -803,5 +843,20 @@ public final class ReflexEngine {
 	/** A coordinator default rule whose action lacks its item (ReflexActions.lacks) does not fire; a model rule does. */
 	static boolean sleepsWithoutItem(ReflexSpec.Rule rule, String lacks) {
 		return rule.sleepsWithoutItem(lacks);
+	}
+
+	/** The protocol's limit on a reflex detail (protocol-v2 reflexes.firing.detail and reflexes.events.detail). */
+	static final int WIRE_DETAIL_CHARS = 240;
+
+	/**
+	 * A detail clipped to {@link #WIRE_DETAIL_CHARS} with an ellipsis, never splitting a surrogate pair. A longer one made
+	 * the coordinator reject the whole observation and drop the bridge: in the iron-kit room both agents of a server
+	 * lost their coordinator 13 min in, and a body left dead with no coordinator stayed dead for the rest of the round.
+	 */
+	static String wireDetail(String detail) {
+		if (detail.length() <= WIRE_DETAIL_CHARS) return detail;
+		int end = WIRE_DETAIL_CHARS - 1;
+		if (Character.isHighSurrogate(detail.charAt(end - 1))) end--;
+		return detail.substring(0, end) + "\u2026";
 	}
 }

@@ -33,6 +33,7 @@ public final class ReflexVerification {
 		shippingClassOrigins();
 		validation();
 		triggerFiresOnceOnRisingEdge();
+		wireDetailFitsTheProtocol();
 		triggerEdgeDuringAnotherFiringFiresAfterIt();
 		stanceHoldsWhileTrueAndIsBounded();
 		priorityPreemptsAndHandsBack();
@@ -185,6 +186,14 @@ public final class ReflexVerification {
 		var stall = new dev.agaminggod.mineagen.server.runtime.ElapsedTimeAccumulator(7_000L);
 		check(timeout.advance(7_500L) == 1_500L && stall.advance(7_500L) == 500L, "accumulators made after the pause keep counting run time");
 		dev.agaminggod.mineagen.server.runtime.ElapsedTimeAccumulator.pausedFor(restore);
+		// Playtest: a meal at a crafting table kept a bread craft paused for minutes. Any firing but a fight, shield, brace or
+		// hazard floor that keeps an action paused for REFLEX_HOLD_LIMIT_MS ends it, so its result reaches the model.
+		long span = 0L;
+		for (int loop = 0; loop < 2_400; loop++) span = dev.agaminggod.mineagen.server.runtime.ServerActionExecutor.stuckPauseSpan(span, 50L, false);
+		check(span >= dev.agaminggod.mineagen.server.runtime.ServerActionExecutor.REFLEX_HOLD_LIMIT_MS, "2 minutes held by a meal reaches the limit");
+		check(dev.agaminggod.mineagen.server.runtime.ServerActionExecutor.stuckPauseSpan(span, 50L, true) == 0L, "a fight or hazard hold restarts the span");
+		check(ReflexEngine.HOLDING_ACTIONS.containsAll(java.util.Set.of("defend", "shield", "brace")) && !ReflexEngine.HOLDING_ACTIONS.contains("eat"),
+				"fights, shields and braces hold on purpose; a meal does not");
 	}
 
 	private static List<ReflexSpec.Rule> rules(String json) {
@@ -777,6 +786,17 @@ public final class ReflexVerification {
 		controller.apply(reflex, new AgentInputState(0.0F, 1.0F, false, false, false, false, true, 90.0F, 0.0F, 2, InteractionHand.OFF_HAND));
 		check(controller.stateBelow(agent, ReflexEngine.INPUT_PRIORITY).orElseThrow().equals(walking), "the walking action's keys are read under the shield");
 		check(controller.currentState(agent).orElseThrow().use(), "while the shield lease wins");
+	}
+
+	/** A reflex detail over the protocol's 240 characters made the coordinator reject the observation and drop the bridge. */
+	private static void wireDetailFitsTheProtocol() {
+		check(ReflexEngine.wireDetail("short").equals("short"), "a short detail is sent as it is");
+		String exact = "x".repeat(ReflexEngine.WIRE_DETAIL_CHARS);
+		check(ReflexEngine.wireDetail(exact).equals(exact), "a detail of exactly the limit is sent whole");
+		String clipped = ReflexEngine.wireDetail("y".repeat(500));
+		check(clipped.length() == ReflexEngine.WIRE_DETAIL_CHARS && clipped.endsWith("\u2026"), "a long detail is clipped to the limit with an ellipsis");
+		String pair = ReflexEngine.wireDetail("z".repeat(ReflexEngine.WIRE_DETAIL_CHARS - 2) + "\uD83D\uDE00" + "z".repeat(10));
+		check(pair.length() <= ReflexEngine.WIRE_DETAIL_CHARS && !Character.isHighSurrogate(pair.charAt(pair.length() - 2)), "a clip never splits a surrogate pair");
 	}
 
 	private static void check(boolean condition, String message) {

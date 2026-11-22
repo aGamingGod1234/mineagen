@@ -97,6 +97,7 @@ import { DRAGON_PERCHED_TRIGGER, dragonPerchEdge, dragonPerchLine, noteCombatDis
 import { heldToolBreak } from './held-tool-break.mjs';
 import { SITUATION_CHANGED_FIELD, STRATEGY_POINTER_FIELD, SituationChangeTracker } from './situation-changes.mjs';
 import { ContextEntryTracker, uncoveredDangers } from './danger-contexts.mjs';
+import { nightFor } from './night-cover.mjs';
 import { WakeFilter, countSkillKinds, stepFolds } from './wake-filter.mjs';
 import { searchHoldsSteer } from './search-danger.mjs';
 import { carriedFoodToEat, eatCalls, naturalRegeneration } from './fork-rule.mjs';
@@ -1527,6 +1528,26 @@ export class DynamicCoordinator extends EventEmitter {
 		}, { lifecycle: true });
 		this.#listen('transportError', (error) => this.emit('runtimeError', error), { lifecycle: true });
 		this.#listen('heartbeatLate', (event) => this.#writeTrace('bridge_heartbeat_late', { lateMs: event?.lateMs ?? null }), { lifecycle: true });
+		// A single-player pause stops the game, not the bot's work: its deadlines wait and the running step resumes after.
+		this.#listen('serverPause', (event) => this.#serverPaused(event?.paused === true, event?.tickAgeMs ?? null), { lifecycle: true });
+	}
+
+	/**
+	 * A single-player pause stops the game, not the bot's work. Every wall-clock timer that can end a live step holds
+	 * here, in one place, and resumes with the time it had left:
+	 * - work leases (provider 45 s, action 125 s+, program, completion) and the 30 s no-progress check (goal supervisor);
+	 * - the planner's per-phase lease (a foreground tool's 130 s) and its overall turn budget (planning scheduler);
+	 * - each running program's deadline, its world sampling and its server-lag clock (native runtime, program executor);
+	 * - the time budgets of obtain, gather and find steps (native runtime's step clock);
+	 * - the 10 s timeout of a fresh-sample request already sent (inspection client).
+	 * The body's own limits run on game time in the mod, which stands still while paused.
+	 */
+	#serverPaused(paused, tickAgeMs) {
+		this.#goalSupervisor.serverPaused?.(paused);
+		this.#scheduler.serverPaused?.(paused);
+		this.#nativeRuntime?.serverPaused?.(paused);
+		this.#inspections.serverPaused(paused);
+		this.#writeTrace(paused ? 'bridge_server_paused' : 'bridge_server_resumed', { tickAgeMs });
 	}
 
 	#beginReconciliation(registry, connectionEpoch, { providerOnly = false } = {}) {
@@ -7002,9 +7023,12 @@ export function buildNativeEventInput(record, { event, trigger, programId, statu
 	// Danger and hazard lines stay as they are; the contexts field still rides on those wakes.
 	if (Array.isArray(contexts) && contexts.length > 0 && !conversationOnly && !isPlanningDue && !hazardContact && !residualBurn && dangerLine === null && !dangerDecision && !DANGER_DECISION_TRIGGERS.has(effectiveTrigger)) {
 		const entered = contexts.map((row) => row.entered).join(', ');
+		// From-scratch games 22 Nov: 10 of 14 deaths were unarmoured bodies out on the surface at night; the wake listed the
+		// dangers but never the cover a player takes.
+		const cover = contexts.some((row) => row.lasts === 'night') && nightFor(observation) === 'night' ? ` ${NIGHT_COVER_LINE}` : '';
 		instruction = instruction === GENERIC_UPDATE_INSTRUCTION || instruction === GENERIC_FACTS_INSTRUCTION
-			? `Live Minecraft event: entered ${entered}. contexts lists each danger there and which armed reflex senses it.${status?.decision ? ' Answer program decisions.' : ''}`
-			: `${instruction} Entered ${entered}: contexts lists its dangers and armed reflexes.`;
+			? `Live Minecraft event: entered ${entered}. contexts lists each danger there and which armed reflex senses it.${cover}${status?.decision ? ' Answer program decisions.' : ''}`
+			: `${instruction} Entered ${entered}: contexts lists its dangers and armed reflexes.${cover}`;
 	}
 	// Respawn wakes 2026-10-23: after 35 End deaths and the Nether deaths the model rebuilt from nothing beside the
 	// portal while its kit waited minutes away; where the drops are, how long they last and the way back lead the wake.
@@ -7156,8 +7180,12 @@ function deathInstruction(event, observation, taskMemory, name) {
 	const raw = typeof observation.death?.cause === 'string' ? observation.death.cause.trim() : '';
 	// Vanilla death messages begin with the player's name.
 	const cause = (typeof name === 'string' && name.length > 0 && raw.startsWith(`${name} `) ? raw.slice(name.length + 1) : raw).replace(/^was /, '') || 'cause unknown';
-	return `Died: ${cause}. While dead only respawn acts. Respawn keeps the goal; then choose dropped-item recovery or re-kit from fresh inventory.${respawnSurroundings(observation, taskMemory)}`;
+	// Respawning at night lands an empty-handed body in the pack that killed it (game 13: 4 deaths in 3 minutes).
+	const night = nightFor({ ...observation, player: { ...player, dead: false, armor: 0 } }) === 'night' ? ` ${RESPAWN_NIGHT_LINE}` : '';
+	return `Died: ${cause}. While dead only respawn acts. Respawn keeps the goal; then choose dropped-item recovery or re-kit from fresh inventory.${night}${respawnSurroundings(observation, taskMemory)}`;
 }
+const NIGHT_COVER_LINE = 'With no armour a player spends the night under cover: rest (bed, walls or a dug hole) until dawn, or dig down and work underground.';
+const RESPAWN_NIGHT_LINE = 'It is night: after respawn, rest first (with no blocks it digs a hole), then recover or re-kit at dawn.';
 
 // Hostiles seen now around where the next respawn lands: the set respawn, else the last respawn in this dimension (the
 // world spawn area). Nothing is said when that point is unknown or nothing hostile is seen near it.

@@ -38,6 +38,10 @@ public final class LeasedServerInputController implements ServerInputController 
 		return sink.acceptedUses(agentId);
 	}
 
+	public synchronized String lastAcceptedUseTarget(AgentId agentId) {
+		return sink.lastAcceptedUseTarget(agentId);
+	}
+
 	@Override
 	public synchronized InputLease acquire(AgentId agentId, InputOwner owner, int priority) {
 		long nextSequence = Math.incrementExact(sequence);

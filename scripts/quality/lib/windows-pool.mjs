@@ -242,9 +242,17 @@ foreach ($d in 'jobs', 'out') { New-Item -ItemType Directory -Force -Path (Join-
 [W.P]::SetThreadExecutionState([uint32]2147483649) | Out-Null
 $p = Start-Process -FilePath ${psQuote(layout.node)} -ArgumentList '"${windowsPath(layout.helper)}"', '"${windowsPath(file)}"' -WorkingDirectory ${psQuote(windowsPath(layout.code))} -NoNewWindow -PassThru -Wait -RedirectStandardOutput ${psQuote(`${layout.jobs}/${job.room}.log`)} -RedirectStandardError ${psQuote(`${layout.jobs}/${job.room}.err`)}
 exit $p.ExitCode`;
+		// The launch goes up as a .ps1 beside the job and runs with -File. Encoded inline it was encoded twice (once for
+		// WMI, once for ssh), about 7 times its length: a long room name passed cmd.exe's 8191-character line limit
+		// ("The command line is too long", build-material-planks-pillar-1001).
+		const launchLocal = path.join(os.tmpdir(), `room-batch-${process.pid}-${vm.id}-${job.room}.ps1`);
+		await writeFile(launchLocal, `\ufeff${launch}`, 'utf8');
+		const launchFile = `${layout.jobs}/${job.room}.ps1`;
+		try { await runUpload(vm.host, launchLocal, launchFile); } finally { await rm(launchLocal, { force: true }); }
+		if (closed()) throw new Error('past its cutoff');
 		const text = await runPs(vm.host, `
 if (Test-Path -LiteralPath ${psQuote(job.outDir)}) { Remove-Item -Recurse -Force -LiteralPath ${psQuote(job.outDir)} }
-$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = 'powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand ${encode(launch)}'; CurrentDirectory = ${psQuote(windowsPath(layout.code))} }
+$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = 'powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "${windowsPath(launchFile)}"'; CurrentDirectory = ${psQuote(windowsPath(layout.code))} }
 if ($r.ReturnValue -ne 0) { throw "Win32_Process.Create returned $($r.ReturnValue)" }
 $p = Get-CimInstance Win32_Process -Filter "ProcessId=$($r.ProcessId)"
 "pid=$($r.ProcessId) born=$(if ($p) { $p.CreationDate.ToFileTimeUtc() } else { 0 })"`);

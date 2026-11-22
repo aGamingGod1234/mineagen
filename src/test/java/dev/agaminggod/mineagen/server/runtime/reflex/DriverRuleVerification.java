@@ -53,6 +53,8 @@ public final class DriverRuleVerification {
 		}
 		check(CommandFollower.handsOff(ActionType.TRAVEL_TO, "TRAVEL_DAMAGED") && CommandFollower.handsOff(ActionType.TRAVEL_TO, "HOSTILE_NEAR"),
 				"a travel stopped by a hit or a hostile hands off");
+		check(CommandFollower.handsOff(ActionType.ESCAPE, "HOSTILE_NEAR") && !CommandFollower.handsOff(ActionType.ESCAPE, "ESCAPE_NO_WAY"),
+				"an escape stopped by a hostile hands the body to the rules; one with no way out does not");
 		for (ActionType work : List.of(ActionType.DIG_TO, ActionType.MINE_VEIN, ActionType.CAST_OBSIDIAN, ActionType.BARTER_UNTIL)) {
 			check(!CommandFollower.handsOff(work, "HOSTILE_NEAR"), work.wireName() + " stopping on HOSTILE_NEAR hands nothing off");
 		}
@@ -502,6 +504,8 @@ public final class DriverRuleVerification {
 				&& ReflexEngine.firingStep(leave, RUNNING, "", null, true, 199L, 200L, false).status() == RUNNING, "a settled hold ends done at its maxS");
 		check(!ReflexEngine.gatedTruth(defend, true, ActionType.USE_RANGED) && ReflexEngine.gatedTruth(defend, true, ActionType.DIG_TO)
 				&& ReflexEngine.gatedTruth(leave, true, ActionType.FLEE_FROM), "only defend's truth is gated by a fight or flee");
+		check(!ReflexEngine.gatedTruth(defend, true, ActionType.ESCAPE, true) && ReflexEngine.gatedTruth(defend, true, ActionType.ESCAPE, false)
+				&& ReflexEngine.gatedTruth(leave, true, ActionType.ESCAPE, true), "defend stands aside for an escape from a shooter in sight, not for one from a hole or a melee hit");
 	}
 
 	/**

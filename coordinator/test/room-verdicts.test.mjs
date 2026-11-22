@@ -280,3 +280,51 @@ test('boot() proposes the survival the goal text asks for and follows a revision
 	// The production coordinator owns run-incident's bridge, so boot() must not answer agent_ready beside it there.
 	assert.match(await readFile(path.join(quality, 'run-incident.mjs'), 'utf8'), /followRevision: false/);
 });
+
+test('a spot that forbids an action fails when the body took it, whatever the last call ended', () => {
+	const spot = { expectCode: 'OBTAINED', forbid: [{ actionType: 'dig_to', pattern: 'stairs_down' }] };
+	const ok = { calls: [{ reasonCode: 'OBTAINED', state: 'SUCCEEDED' }], deaths: 0, actions: [{ type: 'dig_to', args: { pattern: 'tunnel' } }] };
+	assert.equal(findSpotVerdict(spot, ok).pass, true);
+	const dug = { ...ok, actions: [{ type: 'dig_to', args: { pattern: 'stairs_down', y: 70 } }] };
+	const verdict = findSpotVerdict(spot, dug);
+	assert.equal(verdict.pass, false);
+	assert.match(verdict.failReason, /dig_to stairs_down, which this spot forbids/);
+});
+
+test('a spot with a final-probe expectation fails when the ground truth after the calls does not match', () => {
+	const spot = { expectCode: 'OBTAINED', expectFinalProbe: [{ index: 0, match: 'Test passed' }] };
+	const row = { calls: [{ reasonCode: 'OBTAINED', state: 'SUCCEEDED' }], deaths: 0, finalProbe: ['Test passed'] };
+	assert.equal(findSpotVerdict(spot, row).pass, true);
+	const left = findSpotVerdict(spot, { ...row, finalProbe: ['Test failed'] });
+	assert.equal(left.pass, false);
+	assert.match(left.failReason, /final probe 0 replied "Test failed"/);
+	assert.equal(findSpotVerdict(spot, { ...row, finalProbe: undefined }).pass, false, 'no probe reply is no pass');
+});
+
+test('a spot can require the body to end out of a pocket (minEndY)', () => {
+	const spot = { expectCode: 'OBTAINED', minEndY: 14.9 };
+	const row = (y) => ({ calls: [{ reasonCode: 'OBTAINED', state: 'SUCCEEDED' }], deaths: 0, end: [298.5, y, -260.5] });
+	assert.equal(findSpotVerdict(spot, row(15)).pass, true);
+	assert.match(findSpotVerdict(spot, row(13)).failReason, /ended at y13.0, below y14.9/);
+});
+
+test('a spot can require a receipt and a time limit', () => {
+	const spot = { expectCode: 'OBTAINED', expectAction: [{ type: 'travel_to', reasonCode: 'TARGET_SEEN' }], maxSeconds: 120 };
+	const row = { calls: [{ reasonCode: 'OBTAINED', state: 'SUCCEEDED', seconds: 45 }], deaths: 0, actions: [{ type: 'travel_to', reasonCode: 'TARGET_SEEN' }] };
+	assert.equal(findSpotVerdict(spot, row).pass, true);
+	assert.match(findSpotVerdict(spot, { ...row, actions: [{ type: 'travel_to', reasonCode: 'ARRIVED' }] }).failReason, /no travel_to TARGET_SEEN receipt/);
+	assert.match(findSpotVerdict(spot, { ...row, calls: [{ reasonCode: 'OBTAINED', state: 'SUCCEEDED', seconds: 300 }] }).failReason, /took 300 s, more than 120 s/);
+});
+
+test('a forbid rule can allow a few of an action', () => {
+	const spot = { expectCode: 'OBTAINED', forbid: [{ actionType: 'dig_to', pattern: 'tunnel', max: 2 }] };
+	const row = (n) => ({ calls: [{ reasonCode: 'OBTAINED', state: 'SUCCEEDED', seconds: 40 }], deaths: 0, actions: Array.from({ length: n }, () => ({ type: 'dig_to', args: { pattern: 'tunnel' } })) });
+	assert.equal(findSpotVerdict(spot, row(2)).pass, true);
+	assert.match(findSpotVerdict(spot, row(3)).failReason, /3x dig_to tunnel, which this spot allows 2 of/);
+});
+
+test('review: a room time limit counts the run\'s own play time, background waits included', () => {
+	const spot = { expectCode: 'OBTAINED', maxSeconds: 120 };
+	const row = { calls: [{ reasonCode: 'OBTAINED', state: 'SUCCEEDED', seconds: 40 }], deaths: 0, seconds: 200 };
+	assert.match(findSpotVerdict(spot, row).failReason, /took 200 s, more than 120 s/);
+});

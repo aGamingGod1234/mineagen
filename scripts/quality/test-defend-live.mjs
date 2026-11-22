@@ -92,7 +92,7 @@ try {
 		return count;
 	};
 	// Health the gate2 bodies had when the danger arrived (no food, so no regeneration): set after the full heal.
-	const START_HEALTH = { approach: 8, 'approach-hungry': 8, 'approach-fast': 8, shallow: 12 };
+	const START_HEALTH = { approach: 8, 'approach-hungry': 8, 'approach-fast': 8, shallow: 12, corner: 20, 'corner-bare': 20 };
 	const readDamage = await damageCounter(text => s.command(text), AGENT);
 	for (const name of (process.env.CASES ?? 'zombie,shield,water,creeper,command').split(',')) {
 		for (let run = 1; run <= REPEATS; run++) {
@@ -125,11 +125,25 @@ try {
 				await s.command('setblock -301 100 16 minecraft:spawner{Delay:32767s,SpawnData:{entity:{id:"minecraft:zombie"}}}');
 			}
 			if (name === 'cover-zombie') await s.command('fill -304 100 9 -304 102 11 minecraft:stone');
-			await s.command(`execute in minecraft:overworld run tp ${AGENT} -299.5 ${name === 'water' ? 98 : 100} 10.5 0 0`);
+			// corner, corner-bare: the body at the dig face of its own 1-wide stair cut into stone (solid ahead to the west,
+			// the stair up behind it to the east, so a hit cannot knock it out of reach), a zombie coming along a tunnel one block lower that ends diagonal to the body, round the stone corner.
+			// The corner is solid at the body's feet, open at its head, so the zombie's eye sees the body's eye (it can hit)
+			// while the line to the middle of its hitbox runs into the corner (iron-kit seed 8008 lane 0, 22 Nov).
+			const cornerCase = name.startsWith('corner');
+			if (cornerCase) {
+				await s.command('fill -306 100 4 -294 104 18 minecraft:stone');
+				await s.command('fill -300 101 10 -300 103 10 minecraft:air');
+				await s.command('fill -299 102 10 -299 104 10 minecraft:air');
+				await s.command('fill -298 103 10 -298 104 10 minecraft:air');
+				await s.command('fill -299 100 11 -299 101 16 minecraft:air');
+				await s.command('setblock -299 102 11 minecraft:air');
+				await s.command('setblock -300 102 11 minecraft:air');
+			}
+			await s.command(`execute in minecraft:overworld run tp ${AGENT} -299.5 ${name === 'water' ? 98 : cornerCase ? 101 : 100} 10.5 ${cornerCase ? 90 : 0} 0`);
 			await s.command(`clear ${AGENT}`);
-			await s.command(`item replace entity ${AGENT} container.0 with minecraft:${['approach', 'approach-hungry'].includes(name) ? 'iron_pickaxe' : 'stone_sword'}`);
+			await s.command(`item replace entity ${AGENT} container.0 with minecraft:${['approach', 'approach-hungry'].includes(name) || cornerCase ? 'iron_pickaxe' : 'stone_sword'}`);
 			if (name !== 'open-archer') await s.command(`item replace entity ${AGENT} container.3 with minecraft:cobblestone 16`);
-			if (name === 'shield' || name === 'spawner-archer') await s.command(`item replace entity ${AGENT} weapon.offhand with minecraft:shield`);
+			if (name === 'shield' || name === 'spawner-archer' || name === 'corner') await s.command(`item replace entity ${AGENT} weapon.offhand with minecraft:shield`);
 			await s.command(`effect clear ${AGENT}`);
 			await s.command(`effect give ${AGENT} minecraft:instant_health 1 5 true`);
 			// A hungry body gets no saturation: its food is drained below sprinting instead.
@@ -142,6 +156,7 @@ try {
 			const damageBefore = await readDamage();
 			const start = await health();
 			const skeleton = `summon minecraft:skeleton %X% %Y% %Z% {PersistenceRequired:1b,equipment:{mainhand:{id:"minecraft:bow",count:1}}}`;
+			if (cornerCase) await s.command(`summon minecraft:zombie -298.5 100 15.5 {PersistenceRequired:1b,CanPickUpLoot:0b,IsBaby:0b}`);
 			if (name === 'zombie' || name === 'spawner' || name === 'spawner-archer') await s.command(`summon minecraft:zombie -299.5 100 14.5 {PersistenceRequired:1b,CanPickUpLoot:0b,IsBaby:0b}`);
 			if (name === 'spawner-behind') {
 				await s.command(`summon minecraft:zombie -299.5 100 14.5 {PersistenceRequired:1b,CanPickUpLoot:0b,IsBaby:0b}`);
@@ -152,7 +167,7 @@ try {
 				await s.command(skeleton.replace('%X%', '-299.5').replace('%Y%', '100').replace('%Z%', '20.5'));
 				await s.command(`summon minecraft:zombie -299.5 100 3.5 {PersistenceRequired:1b,CanPickUpLoot:0b,IsBaby:0b}`);
 			}
-			else if (spawnerCase || name === 'cover-zombie') { /* summoned above */ }
+			else if (spawnerCase || cornerCase || name === 'cover-zombie') { /* summoned above */ }
 			else if (name.startsWith('approach')) await s.command(`summon minecraft:zombie -299.5 100 19.5 {PersistenceRequired:1b,CanPickUpLoot:0b,IsBaby:${name === 'approach-fast' ? 1 : 0}b}`);
 			else if (name === 'water') await s.command(skeleton.replace('%X%', '-299.5').replace('%Y%', '103').replace('%Z%', '16.5'));
 			else await s.command(skeleton.replace('%X%', '-299.5').replace('%Y%', '100').replace('%Z%', '20.5'));
@@ -255,6 +270,12 @@ try {
 			// Cover reached by any firing (defend's own step or a low-health cover rule): only a finished move says "in cover at".
 			row.coverSeen = steps.some((step) => /in cover at|already out of sight/.test(step)) || /in cover at|already out of sight/.test(endDetail ?? '');
 			if (name === 'cover-zombie') row.pass = !died && row.coverSeen;
+			// Corner: the body lives and kills the zombie that hits it round the corner within the watch.
+			if (cornerCase) {
+				row.zombieAlive = score(await s.command('execute store result score #z chk if entity @e[type=minecraft:zombie]').then(() => s.command('scoreboard players get #z chk'))) > 0;
+				row.pass = !died && !row.zombieAlive;
+				if (!fired) row.notExercised = 'default-defend never fired: the zombie never hit or closed on the body';
+			}
 			runs.push(row);
 			console.log(`[defend] ${name}#${run}: fired ${fired}, hits back ${hits}, back-outs ${backOuts} (backing seen ${backingSeen})${food !== null ? `, food ${food}` : ''}, shield ${shieldS} s, walling ${wallingSeen}, walls max ${maxWalls} end ${wallsAtEnd}${refusal ? `, ${refusal}` : ''}${stopped ? `, ${stopped}` : ''}${commandResult ? `, command ${JSON.stringify(commandResult)} (walls when sent ${wallsAtCommand})` : ''}${healthAtCreeper !== null ? `, creeper exploded ${creeperExploded}, blast damage ${row.blastDamage}` : ''}, ${died ? 'DIED' : `lost ${row.healthLost}`}`);
 			await writeFile(path.join(out, 'runs.json'), JSON.stringify(runs, null, 1));
