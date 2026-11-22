@@ -329,6 +329,13 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		row.path = { walked: Math.round(walked), net: Math.round(Math.hypot(end[0] - row.start[0], end[2] - row.start[2])), farthest: Math.round(farthest),
 			descended: Math.round(row.start[1] - Math.min(...trail.map(p => p[1]), row.start[1])), samples: trail.length };
 		row.end = await pos();
+		// FIND_ITEM_DIAG=1: the dropped items the body's own observation lists at the end (what obtain's pickup filters).
+		if (process.env.FIND_ITEM_DIAG === '1') {
+			const seen = adaptObservation(await s.observe());
+			row.itemDiag = { body: seen.player ? [seen.player.x, seen.player.y, seen.player.z] : null,
+				items: (seen.items ?? []).map(item => ({ itemId: item.itemId, x: item.x, y: item.y, z: item.z, stableId: item.stableId, perceivedBy: item.perceivedBy ?? null })) };
+			console.log(`[${spot.name}] observed items ${JSON.stringify(row.itemDiag)}`);
+		}
 		// finalProbe: ground-truth commands after the calls (eyes still lying in the world), {x},{y},{z} at the body's end.
 		if (Array.isArray(spot.finalProbe)) {
 			const at = { x: Math.floor(row.end[0]), y: Math.floor(row.end[1]), z: Math.floor(row.end[2]) };
