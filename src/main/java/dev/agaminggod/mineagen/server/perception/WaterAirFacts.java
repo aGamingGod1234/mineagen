@@ -63,8 +63,20 @@ public final class WaterAirFacts {
 	 * neighbour qualifies. The neighbour must be open just below eye level too, so the body fits through.
 	 */
 	public static BlockPos peekCell(ServerPlayer agent) {
+		if (!agent.isUnderWater()) return null;
 		var eye = agent.getEyePosition();
 		return peekCell(view(agent), Mth.floor(eye.x), Mth.floor(eye.y), Mth.floor(eye.z));
+	}
+
+	/** The view while ducking out from under a ceiling: nearly straight up, so the open column above comes into view. */
+	public static final float PEEK_PITCH = -80.0F;
+	/** Ticks one swim may spend ducking out (about 1.5 s): one block across costs well under a second of air. */
+	public static final int PEEK_TICKS = 30;
+
+	/** The yaw from the body toward the middle of {@code peek}, the cell it ducks out into. */
+	public static float peekYaw(ServerPlayer agent, BlockPos peek) {
+		double dx = peek.getX() + 0.5D - agent.getX(), dz = peek.getZ() + 0.5D - agent.getZ();
+		return (float) Math.toDegrees(Math.atan2(-dx, dz));
 	}
 
 	static BlockPos peekCell(SwimPlanning.ColumnView view, int x, int eyeY, int z) {
