@@ -1093,7 +1093,7 @@ public final class FarSight {
 		return new Result(rows, seenOre, standingIn, sight.clips, candidates, complete && sight.clips < request.clips(), range);
 	}
 
-	/** {@code eye.distanceTo(Vec3.atCenterOf(BlockPos.of(position)))} with the same arithmetic and no objects. */
+	/** {@code Math.sqrt(eye.distanceToSqr(Vec3.atCenterOf(BlockPos.of(position))))} with the same arithmetic and no objects. */
 	static double centreDistance(Vec3 eye, long position) {
 		double dx = BlockPos.getX(position) + 0.5D - eye.x, dy = BlockPos.getY(position) + 0.5D - eye.y, dz = BlockPos.getZ(position) + 0.5D - eye.z;
 		return Math.sqrt(dx * dx + dy * dy + dz * dz);
