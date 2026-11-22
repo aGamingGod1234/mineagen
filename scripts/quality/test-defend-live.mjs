@@ -94,6 +94,48 @@ try {
 	// Health the gate2 bodies had when the danger arrived (no food, so no regeneration): set after the full heal.
 	const START_HEALTH = { approach: 8, 'approach-hungry': 8, 'approach-fast': 8, shallow: 12, corner: 20, 'corner-bare': 20 };
 	const readDamage = await damageCounter(text => s.command(text), AGENT);
+	/**
+	 * creeper-command (COMBAT-9): a creeper 2 blocks off fuses, default-creeper runs, and 0.3 s in a model command comes as
+	 * the coordinator sends one: the reflex update asking the firing to yield, then the action (wait 4 s, which stands).
+	 * Before, the run ended at once and the body stood in the blast. Pass: alive and at most 2 HP of damage. Invalid
+	 * (notExercised) when the run was not firing as the command came.
+	 */
+	async function creeperCommand() {
+		await s.command('summon minecraft:creeper -299.5 100 12.5 {PersistenceRequired:1b}');
+		const tight = ms => new Promise(done => setTimeout(done, ms));
+		let o = null, firingSeen = false;
+		for (const until = s.clock.now() + 6000; s.clock.now() < until && !firingSeen;) {
+			o = await s.observeOrNull();
+			firingSeen = o?.reflexes?.firing?.id === 'default-creeper';
+			if (!firingSeen) await tight(20);
+		}
+		if (!firingSeen) return { notExercised: 'default-creeper never fired within 6 s of the creeper' };
+		await s.clock.sleep(300);
+		o = await s.observeOrNull();
+		const firingAtCommand = o?.reflexes?.firing?.id ?? null;
+		const sent = book.payload(s.record.agentId, { yieldFiring: true });
+		await s.bridge.send('reflex_update', s.record.agentId, sent);
+		const commandSentAt = s.clock.now();
+		let commandResult = null;
+		s.act('wait', { durationMs: 4000 }, 60000).then(r => { commandResult = { state: r.state, reasonCode: r.reasonCode ?? null }; }).catch(error => { commandResult = { error: error.message }; });
+		const seen = new Map();
+		let lastDistance = null, distanceAtBlast = null, exploded = false, died = false;
+		const position = async (entity) => (String(await s.command(`data get entity ${entity} Pos`)).match(/\[\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?\]/)?.slice(1).map(Number) ?? null);
+		while (s.clock.now() - commandSentAt < 6000) {
+			o = await s.observeOrNull();
+			for (const event of o?.reflexes?.events ?? []) if (event.id === 'default-creeper') seen.set(event.seq, { outcome: event.outcome, detail: String(event.detail ?? '').slice(0, 160) });
+			const [creeper, body] = [await position('@e[type=minecraft:creeper,limit=1]'), await position(AGENT)];
+			if (creeper && body) lastDistance = +Math.hypot(creeper[0] - body[0], creeper[2] - body[2]).toFixed(1);
+			if (!creeper && !exploded) { exploded = true; distanceAtBlast = lastDistance; }
+			const h = await health().catch(() => null);
+			if (h === 0) { died = true; break; }
+			await tight(30);
+		}
+		const events = [...seen.values()];
+		return { firingAtCommand, commandResult, exploded, distanceAtBlast, lastDistance, died, creeperEvents: events,
+			yieldedToCommand: events.some(event => event.outcome === 'yielded' && /model command/.test(event.detail)),
+			...(firingAtCommand !== 'default-creeper' ? { notExercised: `the run was not firing as the command came (${firingAtCommand})` } : {}) };
+	}
 	for (const name of (process.env.CASES ?? 'zombie,shield,water,creeper,command').split(',')) {
 		for (let run = 1; run <= REPEATS; run++) {
 			await s.normalRate();
@@ -155,6 +197,17 @@ try {
 			const deathsBefore = await deaths();
 			const damageBefore = await readDamage();
 			const start = await health();
+			if (name === 'creeper-command') {
+				const row = { case: name, run, ...(await creeperCommand()) };
+				const deathsEnd = await deaths().catch(() => null);
+				Object.assign(row, damageEvidence(damageBefore, await readDamage(), start, await health().catch(() => null)));
+				recordDeathEvidence(row, deathsBefore, deathsEnd);
+				row.pass = !row.notExercised && !row.died && !(row.deaths > 0) && Number.isFinite(row.damageTaken) && row.damageTaken <= 2;
+				runs.push(row);
+				console.log(`[defend] ${name}#${run}: firing at command ${row.firingAtCommand}, yielded ${row.yieldedToCommand}, exploded ${row.exploded} at ${row.distanceAtBlast} blocks, damage ${row.damageTaken}, ${row.died ? 'DIED' : 'alive'}${row.notExercised ? `, NOT EXERCISED: ${row.notExercised}` : ''}`);
+				await writeFile(path.join(out, 'runs.json'), JSON.stringify(runs, null, 1));
+				continue;
+			}
 			const skeleton = `summon minecraft:skeleton %X% %Y% %Z% {PersistenceRequired:1b,equipment:{mainhand:{id:"minecraft:bow",count:1}}}`;
 			if (cornerCase) await s.command(`summon minecraft:zombie -298.5 100 15.5 {PersistenceRequired:1b,CanPickUpLoot:0b,IsBaby:0b}`);
 			if (name === 'zombie' || name === 'spawner' || name === 'spawner-archer') await s.command(`summon minecraft:zombie -299.5 100 14.5 {PersistenceRequired:1b,CanPickUpLoot:0b,IsBaby:0b}`);
