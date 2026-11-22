@@ -160,7 +160,7 @@ public final class ServerDigController implements ServerController {
 	/** A shaft goes on as steep_down at or below this y (lava lakes and aquifer lava are common down there). */
 	private final int maxShaftY;
 	private Integer shaftEndY;
-	/** A shaft dug without a water bucket: two columns side by side, each floor seen before the body drops onto it. */
+	/** A shaft with two columns side by side, each floor seen before the body drops onto it. */
 	private boolean twoColumn;
 	private final String stopWhenSeen;
 	/** The first lava the eye saw within {@link #LAVA_NEAR} blocks, how far and when (ms into the call). */
@@ -599,8 +599,8 @@ public final class ServerDigController implements ServerController {
 	/**
 	 * Before the shaft breaks the block underfoot: the body stands centred on it (so it drops straight into the hole,
 	 * not onto an edge), and what the eye has already seen of the column under it rules the break out: lava or water
-	 * there, or a drop past a safe fall into open space. Most often nothing below is seen yet; the next floor shows once
-	 * this one breaks, and {@link #shaftFall} looks at it on landing. Null goes on to mine the block.
+	 * there, or a drop past a safe fall into open space. A lava search cuts beside its footing when the next floor is
+	 * open or hidden, so it can look below from a supported block. Null goes on to mine the block underfoot.
 	 */
 	private TickResult planShaft(ServerPlayer player) {
 		Vec3 center = Vec3.atBottomCenterOf(feet);
@@ -608,9 +608,17 @@ public final class ServerDigController implements ServerController {
 		SeenTerrain.Reader<BlockState> seen = SeenTerrain.of(player);
 		BlockPos floor = feet.below();
 		boolean noClutch = !acceptUnseenBelow && evaporates(player, floor);
+		boolean checkingLavaFloor = !acceptUnseenBelow && "minecraft:lava".equals(stopWhenSeen);
 		for (int depth = 1; depth <= 24; depth++) {
 			BlockPos at = floor.below(depth);
 			BlockState state = seen.known(at.getX(), at.getY(), at.getZ());
+			if (checkingLavaFloor && depth == 1 && (state == null || !seen.seesNow(at.getX(), at.getY(), at.getZ())
+					|| passable(player.level(), at, state) && state.getFluidState().isEmpty())) {
+				// Open the next floor beside the body and check it from the block still supporting the body.
+				twoColumn = true;
+				active = Pattern.STAIRS_DOWN;
+				return TickResult.running(progress(player));
+			}
 			if (state == null) {
 				if (noClutch) return stop(player, "UNSEEN_BELOW", "Nothing under the floor at " + cell(floor) + " is seen " + (depth == 1 ? "" : "past "
 						+ (depth - 1) + " open block(s) ") + "and water evaporates here, so breaking it may drop the body into a cave or lava;"
@@ -2134,7 +2142,7 @@ public final class ServerDigController implements ServerController {
 		BlockPos at = player.blockPosition();
 		long seconds = Math.max(1L, (dev.agaminggod.mineagen.server.runtime.GameClock.nowMs() - startedAt) / 1000L);
 		StringBuilder text = new StringBuilder(headline).append(". At ").append(cell(at)).append(", ").append(pattern.wireName())
-				.append(twoColumn ? " (two columns, no water bucket)" : "")
+				.append(twoColumn ? " (two columns, checks each floor)" : "")
 				.append(shaftEndY != null ? " to y" + shaftEndY + " then steep_down" : "")
 				.append(" heading ").append(heading == null ? "none" : heading.getName()).append("; ").append(blocksMined).append(" blocks mined in ")
 				.append(steps).append(" steps over ").append(seconds).append(" s (y").append(startY).append(" to y").append(at.getY()).append(')');
