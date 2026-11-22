@@ -292,7 +292,7 @@ export function offeredMinecraftTools(environment = process.env) {
 
 /** Schema claims whose out-of-range values are bounded and reported instead of rejected (tool:path). */
 export const ADJUSTED_SCHEMA_FIELDS = Object.freeze(['survey.limit', 'inspect.limit', 'exploreFrontier.limit', 'exploreFrontier.radius', 'queryMemory.limit', 'taskMemory.query.limit',
-	'taskPlan.intent.why', 'taskPlan.intent.via', 'taskPlan.intent.until', 'taskPlan.intent.unless', 'taskPlan.intent.next', 'finish.summary', 'sequence.finish.summary']);
+	'taskPlan.intent.why', 'taskPlan.intent.via', 'taskPlan.intent.until', 'taskPlan.intent.unless', 'taskPlan.intent.next', 'finish.summary', 'sequence.finish.summary', 'do_step.why']);
 
 export const MAXIMUM_ADJUSTED_SCHEMA_FIELDS = Object.freeze(['runProgram.timeoutMs', 'runProgram.expectedDurationMs', 'queueProgram.timeoutMs', 'queueProgram.expectedDurationMs']);
 
@@ -366,9 +366,16 @@ function repairToolArguments(name, value) {
 		// The server refuses the whole survey for one bulk-terrain search (DeepSeek: 14 lookAround/inspect calls lost to
 		// blocks:minecraft:water); drop just those entries when something else is still searched.
 		if (Array.isArray(copy.include)) {
+			// "blocks:lava" names a vanilla block without its namespace (gpt-6.2-sol: 11 of 917 calls in four games lost a
+			// whole survey or lookAround to it); the id is unambiguous, so it is searched as minecraft:lava.
+			const bare = copy.include.filter(entry => typeof entry === 'string' && /^blocks:[a-z0-9_./-]+$/.test(entry));
+			if (bare.length > 0) {
+				copy.include = copy.include.map(entry => bare.includes(entry) ? `blocks:minecraft:${entry.slice(7)}` : entry);
+				adjusted[`${prefix}include`] = `read ${bare.join(', ')} as minecraft: ids`;
+			}
 			const kept = copy.include.filter(entry => !(typeof entry === 'string' && entry.startsWith('blocks:') && UNSEARCHABLE_BLOCKS.has(entry.slice(7))));
 			if (kept.length > 0 && kept.length < copy.include.length) {
-				adjusted[`${prefix}include`] = `dropped ${copy.include.filter(entry => !kept.includes(entry)).join(', ')}: bulk terrain is not searchable; observed blocks list exposed terrain`;
+				adjusted[`${prefix}include`] = [adjusted[`${prefix}include`], `dropped ${copy.include.filter(entry => !kept.includes(entry)).join(', ')}: bulk terrain is not searchable; observed blocks list exposed terrain`].filter(Boolean).join('; ');
 				copy.include = kept;
 			}
 		}
@@ -394,8 +401,13 @@ function repairToolArguments(name, value) {
 				else args.why = why;
 				if (args.until !== undefined && (typeof args.until !== 'string' || args.until.trim().length === 0 || /[\x00-\x1f\x7f]/.test(args.until.trim())
 					|| codePointLength(args.until.trim()) > INTENT_FIELDS.until)) { adjusted.until = 'ignored: not one line of text within the until limit'; delete args.until; }
+				return done(args);
 			}
-			return done(args);
+			// The verb decides foreground or background, so a background flag changes nothing; an over-long why is the
+			// model's own commentary. gpt-6.2-sol lost 50 of 917 calls in four games to these two rejections.
+			if (args.background !== undefined) { delete args.background; adjusted.background = 'ignored: the verb decides whether a step runs in the background'; }
+			truncateText(args, 'why', 'why', STEP_WHY_LENGTH, adjusted);
+			break;
 		case 'lookAround':
 			if (args.survey !== undefined) args.survey = survey(args.survey, 'survey.');
 			break;
@@ -889,9 +901,12 @@ function normalizeStep(args) {
 	}
 	// A vein mine takes whatever log or ore it starts on; naming that block is the natural way to ask for it (live rw-loop
 	// game: the first step was rejected for it), so the name is dropped and reported instead of costing a call.
-	if (args.verb === 'mine' && target.expectedBlockId !== undefined) {
-		dropped = { 'target.expectedBlockId': 'ignored: a vein mine takes the log or ore at x,y,z' };
-		const { expectedBlockId: _expected, ...rest } = target; target = rest;
+	// vein:true says the same thing (gpt-6.2-sol: 6 of 917 calls lost to it).
+	if (args.verb === 'mine' && (target.expectedBlockId !== undefined || target.vein === true)) {
+		dropped = {
+			...(target.expectedBlockId === undefined ? {} : { 'target.expectedBlockId': 'ignored: a vein mine takes the log or ore at x,y,z' }),
+			...(target.vein === true ? { 'target.vein': 'ignored: a mine step is always a vein mine' } : {}) };
+		const { expectedBlockId: _expected, ...rest } = target; if (rest.vein === true) delete rest.vein; target = rest;
 	}
 	const line = (value, field, maximum) => {
 		const text = boundedText(value, field, maximum).trim();
