@@ -149,7 +149,8 @@ public final class ServerFleeController implements ServerController {
 		List<Other> others = otherThreats(player);
 		List<CombatPlanning.FleeThreat> otherThreats = others.stream().map(Other::threat).toList();
 		TickResult pinned = pinned(player, others, nowEpochMs);
-		if (pinned != null && !retrace(player, others, nowEpochMs)) return cornered(player, pinned);
+		// A pinned body retraces its way in while the flee's deadline lasts; past it, or with no way back, it stands.
+		if (pinned != null && (elapsed >= timeoutMs || !retrace(player, others, nowEpochMs))) return cornered(player, pinned);
 		if (pinned != null) return TickResult.running(0.0D);
 		int blocker = CombatPlanning.escapeBlocker(otherThreats, distance);
 		boolean targetPresent = target.isAlive() && !target.isRemoved() && target.level() == player.level();
@@ -452,14 +453,24 @@ public final class ServerFleeController implements ServerController {
 		wayLast = now;
 		if (wayStuck >= WAY_BACK_STUCK_TICKS) return false;
 		GridPosition cell = wayBack.get(wayIndex);
+		// The knockback margin that refused the headings also refuses a step of the way back along the same lip.
+		margin = CombatMoveText.knockbackMargin(player);
+		GridPosition feet = SafeStep.feet(player);
+		if (CombatPlanning.routeMarginRefusal(ObservedTerrain.of(player), feet, cell,
+				cell.y() > feet.y() ? dev.agaminggod.mineagen.client.navigation.TraversalType.JUMP_UP : dev.agaminggod.mineagen.client.navigation.TraversalType.WALK,
+				margin) != null) return false;
 		float toward = (float) Math.toDegrees(Math.atan2(-(cell.x() + 0.5D - player.getX()), cell.z() + 0.5D - player.getZ()));
 		float yaw = AgentInputStates.turnYaw(player.getYRot(), toward);
 		float error = AgentInputStates.shortestAngleDelta(yaw, toward);
 		float forward = CombatPlanning.alignedForward(1.0F, error);
-		boolean jump = cell.y() > SafeStep.feet(player).y() && player.onGround() && Math.abs(error) < 30.0F;
-		boolean sprint = Math.abs(error) < 30.0F && player.getFoodData().getFoodLevel() > 6;
-		input.apply(player, new AgentInputState(forward, 0.0F, jump, false, sprint, false, false, yaw, 0.0F,
-				player.getInventory().getSelectedSlot(), InteractionHand.MAIN_HAND));
+		boolean inWater = player.isInWater(), eyesInWater = player.isUnderWater();
+		// Through water a player holds jump to stay afloat and looks up while under, as the heading flee does.
+		boolean jump = SwimPlanning.floatJump(inWater, player.onGround(), eyesInWater)
+				|| cell.y() > feet.y() && player.onGround() && Math.abs(error) < 30.0F;
+		int food = player.getFoodData().getFoodLevel();
+		boolean sprint = Math.abs(error) < 30.0F && (inWater ? SwimPlanning.swimSprint(true, eyesInWater, 1.0F, food) : food > 6);
+		input.apply(player, new AgentInputState(forward, 0.0F, jump, false, sprint, false, false, yaw,
+				SwimPlanning.swimPitch(inWater, eyesInWater, 0.0F), player.getInventory().getSelectedSlot(), InteractionHand.MAIN_HAND));
 		return true;
 	}
 
