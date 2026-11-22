@@ -20,11 +20,15 @@ import { NativeToolRuntime } from '../../coordinator/src/native-tool-runtime.mjs
 import { normalizeMinecraftToolCall } from '../../coordinator/src/native-minecraft-tools.mjs';
 import { adaptObservation } from '../../coordinator/src/observation-adapter.mjs';
 import { InspectionClient } from '../../coordinator/src/inspection-client.mjs';
+import { shouldRepeat } from './lib/find-spot.mjs';
 
 const FIXTURES = {
 	'b1-aquifer': { seed: '5433312384530337025', cell: [12, 58, -45], target: { block: 'minecraft:iron_ore' }, timeoutMs: 180_000,
 		items: [['minecraft:stone_pickaxe', 1], ['minecraft:wooden_pickaxe', 1], ['minecraft:cobblestone', 64], ['minecraft:dirt', 36], ['minecraft:andesite', 23]] },
 };
+// The same spot judged on the escape alone: the find's first dig floods its own hole there, and the room passes when the
+// escape step gets the body out of it (ESCAPED) with no death and no damage, whatever the search finds after.
+FIXTURES['b1-aquifer-escape'] = { ...FIXTURES['b1-aquifer'], bar: 'escape' };
 const cli = process.argv.slice(2);
 if (cli.includes('--help')) { console.log('Usage: test-find-spot-live.mjs OUT_DIR JAR [runs] [fixture] [--strict|--descriptive]\n' + EDIT_LOOP_HELP + '\n' + FIXTURE_OUTCOME_HELP); process.exit(0); }
 const strict = !cli.includes('--descriptive');
@@ -121,10 +125,19 @@ for (let run = 0; run < runs; run++) {
 		const wall0 = Date.now(), timer = await s.gameTimer();
 		t0.at = now();
 		row.playStartedAt = wall0;
-		const call = normalizeMinecraftToolCall('do_step', { verb: 'find', target: { ...fixture.target, timeoutMs: fixture.timeoutMs }, why: 'iron for the pickaxe' });
+		// The find, asked again after a hand-back that is not FIND_BLOCKED as the other find rooms do (lib/find-spot.mjs
+		// shouldRepeat), each time with only what is left of the room's timeoutMs.
+		const spotCall = { name: 'do_step', arguments: { verb: 'find' } };
 		let result;
-		try { result = await runtime.execute({ agentId: record.agentId, goalRevision: record.goalRevision, turnId: `find-${run}`, callId: `find-${run}`, tool: call }, record); }
-		catch (error) { result = { state: 'ERROR', reasonCode: error?.code ?? 'ERROR', message: String(error?.message ?? error) }; }
+		row.calls = [];
+		for (let attempt = 0; ; attempt++) {
+			const left = fixture.timeoutMs - (now() - t0.at);
+			const call = normalizeMinecraftToolCall('do_step', { verb: 'find', target: { ...fixture.target, timeoutMs: Math.max(10_000, Math.floor(left)) }, why: 'iron for the pickaxe' });
+			try { result = await runtime.execute({ agentId: record.agentId, goalRevision: record.goalRevision, turnId: `find-${run}-${attempt}`, callId: `find-${run}-${attempt}`, tool: call }, record); }
+			catch (error) { result = { state: 'ERROR', reasonCode: error?.code ?? 'ERROR', message: String(error?.message ?? error) }; }
+			row.calls.push({ attempt, state: result?.state, reasonCode: result?.reasonCode, atS: Math.round((now() - t0.at) / 1000) });
+			if (!shouldRepeat(spotCall, result, { repeat: true }, { budgetLeftMs: fixture.timeoutMs - (now() - t0.at) })) break;
+		}
 		sampling = false; await sampler;
 		row.seconds = Math.round((now() - t0.at) / 1000);
 		row.wallSeconds = Math.round((Date.now() - wall0) / 1000);
@@ -147,7 +160,9 @@ for (let run = 0; run < runs; run++) {
 		row.deaths = minHealth <= 0 ? 1 : 0;
 		row.finishedAt = Date.now();
 		row.tick = { rate: s.tickRate, held: await s.tickReport() };
-		row.pass = row.result.state === 'SUCCEEDED' && row.result.reasonCode === 'FIND_SEEN' && row.deaths === 0 && row.damageTaken === 0;
+		row.escaped = actions.some((a) => a.actionType === 'escape' && a.reasonCode === 'ESCAPED');
+		row.pass = (fixture.bar === 'escape' ? row.escaped : row.result.state === 'SUCCEEDED' && row.result.reasonCode === 'FIND_SEEN')
+			&& row.deaths === 0 && row.damageTaken === 0;
 		row.end = latest?.position ? [Math.round(latest.position.x), Math.round(latest.position.y), Math.round(latest.position.z)] : null;
 		console.log(`[run ${run}] ${row.result.state} ${row.result.reasonCode} ${row.seconds}s wetDigsAtSpot=${row.wetDigsAtSpot} moveOffAt=${row.moveOffAtS}s actions=${actions.length} damageTaken=${row.damageTaken ?? "unknown"} deaths=${row.deaths} end=${row.end}`);
 		for (const a of actions) console.log(`   ${a.s}s ${a.actionType} ${a.args?.pattern ?? ''}${a.args?.heading ? ` ${a.args.heading}` : ''} ${a.reasonCode} at ${a.at}`);

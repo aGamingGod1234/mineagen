@@ -20,6 +20,18 @@ public final class EscapeVerification {
 		check(ServerEscapeController.waterMove(true, 60, true, 1, false, true, false, 0) == ServerEscapeController.WaterMove.SWIM, "little air swims to air first");
 		check(ServerEscapeController.waterMove(true, 300, false, 0, false, false, false, 0) == ServerEscapeController.WaterMove.SWIM, "no bank in reach swims to air");
 		check(ServerEscapeController.waterMove(true, 300, true, 1, true, true, false, 0) == ServerEscapeController.WaterMove.TRAVEL, "full air with a bank travels out");
+		check(ServerEscapeController.waterMove(false, 300, false, 0, false, false, false, 0, false, true) == ServerEscapeController.WaterMove.STEP,
+				"afloat with air, no bank, a step cell beside: place the step (the flooded hole whose rim is 2 above)");
+		check(ServerEscapeController.waterMove(false, 300, false, 0, false, false, false, 0, false, false) == ServerEscapeController.WaterMove.NO_SHORE,
+				"afloat with air, no bank and no step cell: the stop as before");
+		check(ServerEscapeController.waterMove(false, 300, false, 0, false, false, false, 0, true, true) == ServerEscapeController.WaterMove.FILL,
+				"a confined shaft still fills before a step");
+		check(ServerEscapeController.waterMove(true, 300, false, 0, false, false, false, 0, false, true) == ServerEscapeController.WaterMove.STEP,
+				"eyes under with full air and a step cell: place it rather than swim off");
+		check(ServerEscapeController.waterMove(true, 60, false, 0, false, false, false, 0, false, true) == ServerEscapeController.WaterMove.SWIM,
+				"little air still swims to air first");
+		check(ServerEscapeController.waterMove(false, 300, true, 1, true, true, false, 0, false, true) == ServerEscapeController.WaterMove.TRAVEL,
+				"a bank still comes first");
 		check(ServerEscapeController.waterMove(false, 300, true, 1, false, false, false, 3) == ServerEscapeController.WaterMove.TRAVEL, "afloat with a bank travels out");
 		check(ServerEscapeController.waterMove(false, 300, true, 3, true, true, false, 0) == ServerEscapeController.WaterMove.STAIRS, "a bank missed twice from breathable footing gets sealed stairs");
 		check(ServerEscapeController.waterMove(true, 300, true, 3, true, true, false, 0) == ServerEscapeController.WaterMove.TRAVEL, "with the eyes under water no stairs are cut (dig_to would stop at once)");

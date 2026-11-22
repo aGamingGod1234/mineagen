@@ -233,6 +233,11 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		const budgetMs = spot.budgetMs ?? 900_000;
 		for (const [callIndex, call] of (spot.calls ?? []).entries()) {
 			for (let attempt = 0; ; attempt++) {
+				// A call with its own target timeoutMs (obtain) is not asked again with less than its 60 s minimum left of the
+				// budget (normalizeObtain refuses shorter): the last answer stands.
+				if (attempt > 0 && !isFindCall(call) && Number.isFinite(call.arguments?.target?.timeoutMs) && budgetMs - (now() - t0) < 60_000) {
+					row.ended = 'under 60 s of the budget left for another ask'; break;
+				}
 				const callStarted = now();
 				// "{item}": the UUID of the dropped item nearest the body now (pick_up_item takes a canonical UUID).
 				const itemUuid = JSON.stringify(call.arguments).includes('"{item}"') ? uuidOf(await s.command(`data get entity @e[type=item,sort=nearest,limit=1] UUID`)) : null;
@@ -244,9 +249,14 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 						// A call argument that is exactly "{x+n}" (y, z) is the fixture's cell at spawn plus n, as a number.
 						: row.fixtureAt ? JSON.parse(JSON.stringify(call.arguments).replace(/"(\{[xyz](?:[+-][\d.]+)?\})"/g, (_, text) => atBody(text, row.fixtureAt))
 							.replace(/"\{item\}"/g, () => JSON.stringify(itemUuid))) : call.arguments;
+					// Another call with its own target timeoutMs (an obtain asked again after danger) gets at most what is left of the
+					// spot's budget too, so a room never passes on time an interruption added.
+					const left = Math.max(60_000, budgetMs - (now() - t0));
+					const bounded = !isFindCall(call) && Number.isFinite(args?.target?.timeoutMs) && args.target.timeoutMs > left
+						? { ...args, target: { ...args.target, timeoutMs: left } } : args;
 					row.currentCall = call.name === 'do_step' ? call.arguments.verb : call.name;
 					result = await runtime.execute({ agentId: record.agentId, goalRevision: record.goalRevision, turnId: `find-live-${callIndex}-${attempt}`, callId: `find-${callIndex}-${attempt}`,
-						tool: normalizeMinecraftToolCall(call.name, args) }, record);
+						tool: normalizeMinecraftToolCall(call.name, bounded) }, record);
 				} catch (error) {
 					result = { state: 'ERROR', reasonCode: error?.code ?? 'ERROR', message: String(error?.message ?? error).slice(0, 600) };
 				}
@@ -316,6 +326,12 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		row.path = { walked: Math.round(walked), net: Math.round(Math.hypot(end[0] - row.start[0], end[2] - row.start[2])), farthest: Math.round(farthest),
 			descended: Math.round(row.start[1] - Math.min(...trail.map(p => p[1]), row.start[1])), samples: trail.length };
 		row.end = await pos();
+		// finalProbe: ground-truth commands after the calls (eyes still lying in the world), {x},{y},{z} at the body's end.
+		if (Array.isArray(spot.finalProbe)) {
+			const at = { x: Math.floor(row.end[0]), y: Math.floor(row.end[1]), z: Math.floor(row.end[2]) };
+			row.finalProbe = [];
+			for (const text of spot.finalProbe) row.finalProbe.push(String(await s.command(atBody(text, at))).slice(0, 300));
+		}
 		if (Array.isArray(spot.finish)) { row.finish = []; for (const text of spot.finish) row.finish.push({ command: text, reply: String(await s.command(text)).slice(0, 4000) }); }
 		const healthAfter = await health();
 		Object.assign(row, damageEvidence(damageBefore, await readDamage(), healthBefore, healthAfter));
