@@ -118,13 +118,15 @@ public final class AgentControlSync {
 	}
 
 	/**
-	 * Records what happened to a control command a player ran, for that player's next snapshot, and asks for one.
-	 * Chat output is unchanged; this only lets the Control Center show the same answer. Console sources are ignored.
+	 * Records what happened to a control command a player ran, for that player's next snapshot. Chat output is
+	 * unchanged; this only lets the Control Center show the same answer. Console sources are ignored.
+	 * It sends no snapshot itself: the client pairs every snapshot with its oldest outstanding request, so an unasked
+	 * one would acknowledge the wrong command. The Control Center requests a snapshot right after each command, and
+	 * that request reaches the server after the command, so the result rides the snapshot the client asked for.
 	 */
 	public static void recordResult(net.minecraft.commands.CommandSourceStack source, boolean accepted, String message) {
 		if (source == null || !(source.getEntity() instanceof ServerPlayer player)) return;
 		storeResult(player.getUUID(), accepted, message);
-		requestSnapshot(player);
 	}
 
 	/** Stores {@code playerId}'s newest result under the next sequence number and returns it. */
