@@ -227,5 +227,97 @@
    "fill {x} {y+2} {z} {x} {y+6} {z} minecraft:stone",
    "fill {x-1} {y} {z-2} {x+4} {y+6} {z+3} minecraft:air"
   ]
+ },
+ {
+  "name": "climb-past-caged-zombie",
+  "seed": "1001",
+  "x": 0,
+  "z": 0,
+  "y": 100,
+  "legs": 1,
+  "inventory": [
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 32
+   }
+  ],
+  "fixture": [
+   "forceload add {x-6} {z-10} {x+26} {z+18}",
+   "time set noon",
+   "fill {x-6} {y+7} {z-10} {x+26} {y+40} {z+18} minecraft:air",
+   "fill {x-6} {y-2} {z-10} {x-1} {y+6} {z+18} minecraft:stone",
+   "fill {x+1} {y-2} {z-10} {x+26} {y+6} {z+18} minecraft:stone",
+   "fill {x} {y-2} {z-10} {x} {y+6} {z-1} minecraft:stone",
+   "fill {x} {y-2} {z+1} {x} {y+6} {z+18} minecraft:stone",
+   "fill {x} {y-2} {z} {x} {y-1} {z} minecraft:stone",
+   "fill {x} {y+2} {z} {x} {y+6} {z} minecraft:stone",
+   "fill {x+3} {y+1} {z+2} {x+7} {y+5} {z+5} minecraft:air",
+   "fill {x+3} {y+1} {z+1} {x+7} {y+5} {z+1} minecraft:glass",
+   "summon minecraft:zombie {x+5} {y+3} {z+5} {PersistenceRequired:1b,NoAI:1b}"
+  ],
+  "travelTo": {
+   "dx": 12,
+   "dy": 7,
+   "dz": 0
+  },
+  "digArgs": {
+   "tolerance": 2
+  },
+  "expectCode": "ARRIVED",
+  "expectEndDy": [
+   6,
+   8
+  ],
+  "maxPlaced": 99
+ },
+ {
+  "name": "climb-past-caged-skeleton",
+  "seed": "1001",
+  "x": 0,
+  "z": 0,
+  "y": 100,
+  "legs": 1,
+  "inventory": [
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 32
+   }
+  ],
+  "fixture": [
+   "forceload add {x-6} {z-10} {x+26} {z+18}",
+   "time set noon",
+   "fill {x-6} {y+7} {z-10} {x+26} {y+40} {z+18} minecraft:air",
+   "fill {x-6} {y-2} {z-10} {x-1} {y+6} {z+18} minecraft:stone",
+   "fill {x+1} {y-2} {z-10} {x+26} {y+6} {z+18} minecraft:stone",
+   "fill {x} {y-2} {z-10} {x} {y+6} {z-1} minecraft:stone",
+   "fill {x} {y-2} {z+1} {x} {y+6} {z+18} minecraft:stone",
+   "fill {x} {y-2} {z} {x} {y-1} {z} minecraft:stone",
+   "fill {x} {y+2} {z} {x} {y+6} {z} minecraft:stone",
+   "fill {x+3} {y+1} {z+2} {x+7} {y+5} {z+5} minecraft:air",
+   "fill {x+3} {y+1} {z+1} {x+7} {y+5} {z+1} minecraft:glass",
+   "summon minecraft:skeleton {x+5} {y+3} {z+5} {PersistenceRequired:1b,NoAI:1b}"
+  ],
+  "travelTo": {
+   "dx": 12,
+   "dy": 7,
+   "dz": 0
+  },
+  "digArgs": {
+   "tolerance": 2
+  },
+  "expectCode": "ARRIVED",
+  "expectEndDy": [
+   6,
+   8
+  ],
+  "maxPlaced": 99
  }
 ]

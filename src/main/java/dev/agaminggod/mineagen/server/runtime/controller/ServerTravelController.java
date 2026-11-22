@@ -536,7 +536,10 @@ public final class ServerTravelController implements ServerController {
 		if (health <= minHealth && startHealth > minHealth) return fail(player, "LOW_HEALTH", "Health fell to " + format(health) + " (minHealth " + format(minHealth) + ")");
 		int food = player.getFoodData().getFoodLevel();
 		if (food <= SPRINT_FOOD && startFood > SPRINT_FOOD) return fail(player, "LOW_FOOD", "Food fell to " + food + "; sprinting needs more than " + SPRINT_FOOD);
-		if (ticks % 5 == 0) {
+		// While the trip digs its own staircase, the staircase's mob rule decides (every dig_to stop applies): a climb out
+		// goes on past a mob not yet within reach (#101), where this walking rule stopped it for a new archer targeting the
+		// body at any range or any hostile within 6, halfway up the stair.
+		if (ticks % 5 == 0 && phase != Phase.DIG) {
 			List<Mob> seen = hostiles(player);
 			for (Mob mob : seen) {
 				double distance = mob.distanceTo(player);
