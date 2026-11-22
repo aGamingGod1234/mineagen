@@ -2226,8 +2226,7 @@ public final class ServerBuildController implements ServerController {
 				if (scoopClick(player, source) != null) { seekLooks = 0; return pour(player, now, Pour.FILL, source, null); }
 			// Back to where a scoop last landed while lava it reaches is left: a dry spot it has stood on, by the way it
 			// walked (sight of the shore fades while the body works at the frame, and the frame hides it).
-			// On a retry of the shore, a fresh spot by the pool: the spots stood on before reached no lava last time.
-			for (int k = scoopSpots.size() - 1; k >= 0 && walks < MAX_WALKS - 1 && fetchRetries == 0; k--) {
+			for (int k = scoopSpots.size() - 1; k >= 0 && walks < MAX_WALKS - 1; k--) {
 				BlockPos spot = scoopSpots.get(k);
 				if (spot.equals(player.blockPosition()) || triedSpots.contains(spot)) continue;
 				Vec3 eye = Vec3.atBottomCenterOf(spot).add(0.0D, player.getEyeHeight(), 0.0D);
