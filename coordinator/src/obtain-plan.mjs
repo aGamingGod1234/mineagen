@@ -66,6 +66,26 @@ const CHEST_FOODS = ['bread', 'apple', 'carrot', 'potato', 'baked_potato', 'beet
  * enclosed (known but not seen along a clear line: dug to) }. A walk prices the distance across and the climb; a dig
  * prices staircase steps.
  */
+/**
+ * Cost units (about 5 s of body time each) of getting one block of a source: searchCost is the price with no place
+ * known (it includes finding one), seenRowCost the price of a known row (Early's seen-resource shape: x, y, z, count,
+ * enclosed?) from the body in observation: the work there plus the walk or dig to it, shared over up to 4 members.
+ * A known row is worth going back to while seenRowCost < searchCost. Same model obtain's planner uses.
+ */
+export function searchCost(blockId) {
+	const block = short(blockId);
+	const base = MINE_COSTS.find(([pattern]) => pattern.test(block))?.[1] ?? DEFAULT_MINE;
+	return block.startsWith('deepslate_') ? base * 1.6 : base;
+}
+export function seenRowCost(row, observation) {
+	const at = observation?.position ?? observation?.player;
+	if (![at?.x, at?.y, at?.z, row?.x, row?.y, row?.z].every(Number.isFinite)) return Infinity;
+	const cx = Number.isInteger(row.x) ? row.x + 0.5 : row.x, cz = Number.isInteger(row.z) ? row.z + 0.5 : row.z;
+	const across = Math.hypot(cx - at.x, cz - at.z), drop = at.y - row.y;
+	const way = approachCost({ distance: Math.hypot(across, drop), across, drop, enclosed: row.enclosed === true || row.hidden === true });
+	return searchCost(row.id ?? row.blockId) * SEEN_FACTOR + way / Math.max(1, Math.min(SHARE_CAP, Number.isFinite(row.count) ? row.count : 1));
+}
+
 export function approachCost(row) {
 	if (row.enclosed) return Math.max(Math.abs(row.drop ?? 0), row.across ?? row.distance ?? 0) * DIG_STEP;
 	// Climbing down into a cave or up a cliff is slower than walking across: a block of height counts as two.

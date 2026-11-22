@@ -188,3 +188,12 @@ test('with no food for the trip a village visit comes before even a near cave or
 	assert.ok(hungry.needs[0].accept.includes('bread'));
 	assert.equal(planObtain({ ids: ['iron_ingot'], count: 8 }, { ...options, food: 0 }).needs[0].accept[0], 'raw_iron');
 });
+
+test('seenRowCost against searchCost: a near cave ore is worth going back to, one 60 blocks down is not', async () => {
+	const { searchCost, seenRowCost } = await import('../src/obtain-plan.mjs');
+	const o = { player: { x: 311.5, y: 77, z: -241.5 } };
+	assert.equal(searchCost('minecraft:iron_ore'), 8);
+	assert.ok(seenRowCost({ id: 'minecraft:iron_ore', x: 315, y: 67, z: -244, count: 4 }, o) < 8);
+	assert.ok(seenRowCost({ id: 'minecraft:iron_ore', x: 298, y: 14, z: -261 }, o) > 8);
+	assert.ok(seenRowCost({ id: 'minecraft:iron_ore', x: 298, y: 14, z: -261, enclosed: true }, o) > seenRowCost({ id: 'minecraft:iron_ore', x: 298, y: 14, z: -261 }, o));
+});
