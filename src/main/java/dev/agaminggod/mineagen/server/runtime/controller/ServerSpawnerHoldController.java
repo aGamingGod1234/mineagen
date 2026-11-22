@@ -258,6 +258,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 	private ServerController ordinaryFight(ServerPlayer player, long now, long elapsed) {
 		if (openFight != null) return openFight.get();
 		JsonObject left = model.deepCopy();
+		// roof is the hold's own option; the ordinary blaze fight refuses it.
+		left.remove("roof");
 		left.addProperty("timeoutMs", Math.max(1_000L, timeoutMs - elapsed));
 		return new ServerFightUntilController(player, left, protection, now, "fight_until", null, roofing);
 	}
@@ -318,7 +320,16 @@ public final class ServerSpawnerHoldController implements ServerController {
 		// the walk to a cell site and while building it under fire.
 		if (target != null && SpawnerHold.OPEN_FIGHT && phase != Phase.HOLD && emergency == null
 				&& (player.getHealth() >= SpawnerHold.TURTLE_HEALTH || !canWallIn(player))) {
-			if (openPart == null) openPart = openFight.get();
+			if (openPart == null) {
+				try {
+					openPart = openFight.get();
+				} catch (dev.agaminggod.mineagen.agent.AgentDomainException lost) {
+					// The named blaze went out of sight while the body healed walled in: the call ends as fight_target does for
+					// a target it cannot see (the model picks the next blaze), not with an exception.
+					HOLDING.remove(player.getUUID());
+					return stop(player, TickResult.failed(lost.code(), lost.getMessage() + "; " + summary(player, elapsed), progress(player)));
+				}
+			}
 			TickResult fought = openPart.tick(player, now);
 			if (fought.state() == State.RUNNING) return fought;
 			openPart.cancel(player);
