@@ -92,6 +92,14 @@ public final class ServerEscapeController implements ServerController {
 	private Runnable refund;
 	private int fills, steps;
 	private int covers;
+	/**
+	 * Cover was reached from a shooter that still hunts the body: out of its sight is not safe yet, as it walks round
+	 * the cover. The escape holds there and takes cover again from where the shooter now stands when it is seen.
+	 */
+	private boolean holdingCover;
+	private int recovers;
+	/** Cover moves that reached cover and were taken again as the shooter moved, at most this many per escape. */
+	static final int MAX_RECOVERS = 8;
 	/** Runs out of a shooter's range when no cover is in reach. */
 	private int runs;
 	private boolean runInterrupted;
@@ -120,6 +128,12 @@ public final class ServerEscapeController implements ServerController {
 		return switch (situation) {
 			case SAFE -> {
 				input.release();
+				// In cover from an archer that is still after the body (skeleton escape room: it walked round the wall, and
+				// the escape had already ended "safe" after 1 s, so the body stood in its sight until the next call).
+				if (holdingCover && huntingShooter(player) != null) {
+					safeTicks = 0;
+					yield TickResult.running(0.8D);
+				}
 				if (++safeTicks < SAFE_TICKS) yield TickResult.running(0.9D);
 				yield finish(player, TickResult.succeeded("ESCAPED", (log.isEmpty() ? "Already safe: footing, eyes in air, no hole to climb, no shooter in sight"
 						: "Safe: footing, eyes in air, no hole to climb, no shooter in sight") + done() + facts(player)));
@@ -432,6 +446,13 @@ public final class ServerEscapeController implements ServerController {
 		EscapeMoves.Result result = move.tick(player, state -> input.apply(player, state));
 		if (result.status() == EscapeMoves.Status.RUNNING) return TickResult.running(0.5D);
 		note(moveLabel + (result.status() == EscapeMoves.Status.DONE ? ": " : " failed: ") + result.detail());
+		// Cover reached: that try is given back, so a shooter walking round the cover is answered by taking cover again
+		// from its new line rather than running out of tries.
+		if (result.status() == EscapeMoves.Status.DONE && moveLabel.startsWith("cover") && recovers < MAX_RECOVERS) {
+			holdingCover = true;
+			recovers++;
+			covers = Math.max(0, covers - 1);
+		}
 		input.release();
 		move = null;
 		refund = null;
@@ -760,6 +781,14 @@ public final class ServerEscapeController implements ServerController {
 			if (count > bestCount) { best = id; bestCount = count; }
 		}
 		return best;
+	}
+
+	/** A ranged hostile within {@link #SHOOTER_RANGE} whose target is the body, seen or not, or null. */
+	static Mob huntingShooter(ServerPlayer player) {
+		for (Mob mob : player.level().getEntitiesOfClass(Mob.class, player.getBoundingBox().inflate(SHOOTER_RANGE),
+				mob -> mob.isAlive() && mob.getTarget() == player && dev.agaminggod.mineagen.server.perception.ThreatPerception.isRanged(mob)
+						&& player.distanceTo(mob) <= SHOOTER_RANGE)) return mob;
+		return null;
 	}
 
 	static Mob shooterNear(ServerPlayer player) {
