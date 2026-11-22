@@ -460,7 +460,7 @@ public final class InputStateVerification {
 				"missed target does not fabricate a target interaction");
 		assertEquals(List.of(InteractionHand.OFF_HAND), heldItem.itemHands,
 				"item use starts with the requested offhand");
-		assertEquals(null, driver.lastAcceptedTarget(AGENT), "the held item acting in the air names no target");
+		assertTrue(driver.lastAcceptedTarget(AGENT) == null, "the held item acting in the air names no target");
 		assertEquals(InteractionHand.OFF_HAND, heldItem.usedHand(), "held item reports the requested active hand");
 		for (int tick = 0; tick <= ExactHandUseDriver.REPEAT_COOLDOWN_TICKS; tick++) {
 			driver.tick(AGENT, InteractionHand.OFF_HAND, heldItem, tick + 21L);
