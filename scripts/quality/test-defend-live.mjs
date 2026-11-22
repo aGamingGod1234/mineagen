@@ -188,7 +188,8 @@ try {
 			await s.command(`execute in minecraft:overworld run tp ${AGENT} -299.5 ${name === 'water' ? 98 : cornerCase ? 101 : 100} 10.5 ${cornerCase ? 90 : 0} 0`);
 			await s.command(`clear ${AGENT}`);
 			await s.command(`item replace entity ${AGENT} container.0 with minecraft:${['approach', 'approach-hungry'].includes(name) || cornerCase ? 'iron_pickaxe' : 'stone_sword'}`);
-			if (name !== 'open-archer') await s.command(`item replace entity ${AGENT} container.3 with minecraft:cobblestone 16`);
+			// archers-zombie (COMBAT-1's lethal room): no shield and no blocks, so neither the arrow shield nor a wall-in can answer.
+			if (name !== 'open-archer' && name !== 'archers-zombie') await s.command(`item replace entity ${AGENT} container.3 with minecraft:cobblestone 16`);
 			if (name === 'shield' || name === 'spawner-archer' || name === 'corner') await s.command(`item replace entity ${AGENT} weapon.offhand with minecraft:shield`);
 			await s.command(`effect clear ${AGENT}`);
 			await s.command(`effect give ${AGENT} minecraft:instant_health 1 5 true`);
@@ -220,11 +221,17 @@ try {
 				await s.command(`summon minecraft:zombie -299.5 100 5.5 {PersistenceRequired:1b,CanPickUpLoot:0b,IsBaby:0b}`);
 			}
 			if (name === 'spawner-archer') await s.command(skeleton.replace('%X%', '-288.5').replace('%Y%', '100').replace('%Z%', '8.5'));
+			if (name === 'archers-zombie') {
+				// Two skeletons 10 blocks off at right angles (north and east) and a zombie from 8 blocks south, on open stone at night.
+				await s.command(skeleton.replace('%X%', '-299.5').replace('%Y%', '100').replace('%Z%', '20.5'));
+				await s.command(skeleton.replace('%X%', '-289.5').replace('%Y%', '100').replace('%Z%', '10.5'));
+				await s.command(`summon minecraft:zombie -299.5 100 2.5 {PersistenceRequired:1b,CanPickUpLoot:0b,IsBaby:0b}`);
+			}
 			if (name === 'cover-zombie') {
 				await s.command(skeleton.replace('%X%', '-299.5').replace('%Y%', '100').replace('%Z%', '20.5'));
 				await s.command(`summon minecraft:zombie -299.5 100 3.5 {PersistenceRequired:1b,CanPickUpLoot:0b,IsBaby:0b}`);
 			}
-			else if (spawnerCase || cornerCase || name === 'cover-zombie') { /* summoned above */ }
+			else if (spawnerCase || cornerCase || name === 'cover-zombie' || name === 'archers-zombie') { /* summoned above */ }
 			else if (name.startsWith('approach')) await s.command(`summon minecraft:zombie -299.5 100 19.5 {PersistenceRequired:1b,CanPickUpLoot:0b,IsBaby:${name === 'approach-fast' ? 1 : 0}b}`);
 			else if (name === 'water') await s.command(skeleton.replace('%X%', '-299.5').replace('%Y%', '103').replace('%Z%', '16.5'));
 			else await s.command(skeleton.replace('%X%', '-299.5').replace('%Y%', '100').replace('%Z%', '20.5'));
@@ -235,7 +242,8 @@ try {
 			if (name !== 'creeper') await s.fastRate();
 			const now = () => s.clock.now();
 			const t0 = now(), wall0 = Date.now(), timer = await s.gameTimer();
-			while (now() - t0 < 25000) {
+			const watchMs = name === 'archers-zombie' ? 40000 : 25000;
+			while (now() - t0 < watchMs) {
 				await s.clock.sleep(250);
 				const o = await s.observeOrNull();
 				const detail = o?.reflexes?.firing?.id === 'default-defend' ? String(o.reflexes.firing.detail ?? '') : '';
@@ -295,6 +303,8 @@ try {
 			}
 			const seconds = Math.round((now() - t0) / 1000), wallSeconds = Math.round((Date.now() - wall0) / 1000), gameSeconds = Math.round((await timer.elapsed()) / 1000);
 			const rates = await timer.rates().catch(() => null);
+			// The lethal room ends its fight before deaths are read, after a settle, so a death just past the watch is still this run's.
+			if (name === 'archers-zombie') { await s.command('kill @e[type=!minecraft:player]'); await s.idleSleep(2000); }
 			const healthEnd = await health().catch(() => null);
 			const deathsEnd = await deaths().catch(() => null);
 			await s.normalRate();
@@ -327,6 +337,7 @@ try {
 			// Cover reached by any firing (defend's own step or a low-health cover rule): only a finished move says "in cover at".
 			row.coverSeen = steps.some((step) => /in cover at|already out of sight/.test(step)) || /in cover at|already out of sight/.test(endDetail ?? '');
 			if (name === 'cover-zombie') row.pass = !died && row.coverSeen;
+			if (name === 'archers-zombie') row.pass = !died && !(row.deaths > 0);
 			// Corner: the body lives and kills the zombie that hits it round the corner within the watch.
 			if (cornerCase) {
 				row.zombieAlive = score(await s.command('execute store result score #z chk if entity @e[type=minecraft:zombie]').then(() => s.command('scoreboard players get #z chk'))) > 0;
