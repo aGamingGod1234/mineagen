@@ -77,7 +77,7 @@ test('unseen flight hands back unknown and never chooses a generic heading', asy
 });
 test('stronghold route states the skill inside ROUTE_BYTES', async () => {
 	const { routeLine, ROUTE_BYTES } = await import('../src/skill-fits.mjs');
-	const b = fake(); b.o.inventory.items.push({ itemId: 'minecraft:iron_pickaxe', count: 1 }, { itemId: 'minecraft:cooked_beef', count: 20 });
+	const b = fake(); b.o.inventory.items.push({ itemId: 'minecraft:iron_pickaxe', count: 1 }, { itemId: 'minecraft:cooked_beef', count: 20 }, { itemId: 'minecraft:bow', count: 1 }, { itemId: 'minecraft:arrow', count: 32 });
 	const line = routeLine({ observation: { ...b.o, ready: true, observedAtEpochMs: 10 }, known: {}, evaluate: () => ({ ok: true }) });
 	assert.match(line, /find structure stronghold follows thrown eyes and digs down/);
 	assert.ok(Buffer.byteLength(line) <= ROUTE_BYTES);

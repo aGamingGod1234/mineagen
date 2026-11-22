@@ -168,7 +168,9 @@ test('enough eyes never send the agent back for blazes: missing counts down from
 	assert.match(route([...KIT, ['blaze_rod', 7], ['ender_pearl', 12]], {}, visitedNether()), /craft 12 ender_eyes from pearls and blaze powder/);
 	// After crafting: 12 eyes, no loose powder or rods. The old line said "go back to the Nether ... (rods 6/7, pearls 12/12)".
 	const crafted = route([...KIT, ['ender_eye', 12]], {}, visitedNether());
-	assert.match(crafted, /^usual next step: find structure stronghold\b/);
+	// No bow held: the bow comes before the stronghold search (end-readiness.mjs); with one and its arrows, the search.
+	assert.match(crafted, /^usual next step: obtain bow \(/);
+	assert.match(route([...KIT, ['ender_eye', 12], ['bow', 1], ['arrow', 32]], {}, visitedNether()), /^usual next step: find structure stronghold\b/);
 	assert.doesNotMatch(crafted, /Nether/);
 	assert.match(route([...KIT, ['ender_eye', 12]], { dimension: 'minecraft:the_nether' }), /return home through the portal/);
 	// Throwing: one eye broke, 11 held; one more eye needs one pearl and one powder (half a rod).

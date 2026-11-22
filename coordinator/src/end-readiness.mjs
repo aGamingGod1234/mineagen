@@ -1,7 +1,8 @@
-// End readiness (late-game wall, order 11b): what the End fight wants carried, and the fixes in reach now. A note on the
-// route line, never its head: no fresh game ever carried a bow into the End, and staged End starts died to breath and
-// falls. Only fixes whose inputs are held or in view are named (the in-reach gate); an obtain of a kit item that handed
-// back this life drops that fix (the release), so the note never holds the route.
+// End readiness (late-game wall, order 11b): what the End fight wants carried, and the fixes in reach now. The bow and
+// its arrows are the one part of the kit that heads the route line (skill-fits.mjs, before the stronghold search): End
+// crystals are shot from the ground, and no fresh game carried a bow into the End. The rest is a note behind the head
+// (staged End starts died to breath and falls). Only fixes whose inputs are held or in view are named (the in-reach gate);
+// an obtain of a kit item that handed back this life drops that fix (the release), so the kit never holds the route.
 
 const id = value => String(value ?? '').replace(/^minecraft:/, '');
 const ARMOUR_SLOTS = new Set(['head', 'chest', 'legs', 'feet']);
@@ -11,13 +12,15 @@ const BLOCKS = /^(cobblestone|cobbled_deepslate|dirt|stone|deepslate|andesite|di
 const MINEABLE = /^minecraft:(stone|deepslate|cobblestone|stone_bricks|mossy_stone_bricks|cracked_stone_bricks|end_stone|andesite|diorite|granite|tuff)$/;
 const WOOL = /^([a-z_]+)_wool$/;
 
-export const END_KIT = Object.freeze({ arrows: 32, food: 16, blocks: 32, pillarBlocks: 64 });
+// Blocks pillar up to the 2 caged crystals (the bow breaks the rest) and wall off a fall or breath.
+export const END_KIT = Object.freeze({ arrows: 32, food: 16, blocks: 32 });
 
 /** Kit item ids whose obtain hands back release that fix: the ids the fixes below ask obtain for. */
 export const KIT_ITEMS = /^minecraft:(arrow|bow|water_bucket|[a-z_]+_bed|cooked_(beef|porkchop|mutton|chicken|rabbit|cod|salmon)|cobblestone|iron_chestplate)$/;
 
 /**
- * { missing: [short names], fixes: [obtain steps] } for the End kit, or null without a fresh live sample.
+ * { missing: [short names], fixes: [obtain steps], bow: held?, arrows: count, arrowsWanted } for the End kit, or null
+ * without a fresh live sample.
  * handedBack: kit item ids (minecraft:...) whose obtain came back failed this life.
  */
 export function endKit(o, { handedBack = new Set() } = {}) {
@@ -33,10 +36,9 @@ export function endKit(o, { handedBack = new Set() } = {}) {
 	const blocks = count(BLOCKS);
 
 	const bow = count(/^bow$/) > 0, arrows = count(/^(arrow|spectral_arrow|tipped_arrow)$/);
-	// Arrow-free: pillar up to each crystal and break it by hand, which takes blocks.
-	const arrowFree = !bow && blocks >= END_KIT.pillarBlocks;
-	if (!bow && !arrowFree) {
-		missing.push(`bow (or ${END_KIT.pillarBlocks} blocks to pillar to crystals)`);
+	// No block count stands in for a bow: pillaring to every crystal is the slow, fall-prone way the bow replaces.
+	if (!bow) {
+		missing.push('bow');
 		if (count(/^string$/) >= 3 && (count(/^stick$/) >= 3 || count(/_planks$/) >= 2 || count(/_(log|stem)$/) >= 1)) fix('bow', 'obtain bow');
 	}
 	if (bow && arrows < END_KIT.arrows) {
@@ -71,7 +73,7 @@ export function endKit(o, { handedBack = new Set() } = {}) {
 		const colour = [...wool].find(([, n]) => n >= 3)?.[0];
 		if (colour) fix(`${colour}_bed`, `obtain ${colour}_bed`);
 	}
-	return { missing, fixes };
+	return { missing, fixes, bow, arrows, arrowsWanted: END_KIT.arrows };
 }
 
 /** The route-line note: fixes in reach first, then what is still missing; null with a full kit. */

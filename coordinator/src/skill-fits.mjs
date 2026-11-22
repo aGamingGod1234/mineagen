@@ -452,7 +452,8 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 	const visitedNether = ok('visited:minecraft:the_nether') || [...(known.advancements ?? []), ...(o.advancements ?? [])]
 		.some(id => /^(minecraft:)?story\/enter_the_nether$/.test(id));
 	if (visitedNether) {
-		// End readiness (end-readiness.mjs): a note behind the head, never the head; fixes only from what is in reach.
+		// End readiness (end-readiness.mjs): the bow and arrows head the line before the stronghold search; the rest of the
+		// kit is a note behind the head, with fixes only from what is in reach.
 		const kit = endKit(o, { handedBack: kitHandedBack });
 		const first = kit?.fixes.length ? `; in reach first: ${kit.fixes.join(', ')}` : '';
 		const lacks = kit?.missing.length ? `; End kit lacks ${kit.missing.join(', ')}` : '';
@@ -480,6 +481,12 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 		const craft = Math.max(eyesNeeded, Math.min(craftable, Math.max(0, EYE_PLAN - eyesHeld - filled)));
 		if (eyesNeeded > 0) return line(`craft ${craft} ender_eyes from pearls and blaze powder${first}`, `${eyeFacts}${lacks}`);
 		if (filled > 0 || frames.some(b => b?.blockId === 'minecraft:end_portal_frame')) return line(`set the ender_eyes in the empty End portal frames${first}`, `${eyeFacts}${lacks}`);
+		// The ranged kit before the search: a game entered the End bowless and shot no crystal in 38 minutes. An obtain that
+		// handed back this life releases its step, so the search is never held.
+		if (kit && !kit.bow && !kitHandedBack.has('minecraft:bow'))
+			return line('obtain bow', 'no bow: End crystals are shot from the ground; a bow takes 3 string (spiders) and 3 sticks');
+		if (kit?.bow && kit.arrows < kit.arrowsWanted && !kitHandedBack.has('minecraft:arrow'))
+			return line(`obtain arrow count ${kit.arrowsWanted}`, `arrows ${kit.arrows}/${kit.arrowsWanted}: each 4 take a flint (gravel), a feather (chickens) and a stick`);
 		if (craft > 0 && !portalOpen) return line(`craft ${craft} spare ender_eyes from the pearls and blaze powder held, then find structure stronghold`, `${eyeFacts}; throws break 1 in 5`);
 		return line(`find structure stronghold follows thrown eyes and digs down; then find block end_portal_frame walks passages; resume after danger${first}`, eyeFacts);
 	}
