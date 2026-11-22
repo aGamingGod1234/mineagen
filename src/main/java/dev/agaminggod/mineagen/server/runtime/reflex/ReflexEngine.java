@@ -134,19 +134,20 @@ public final class ReflexEngine {
 	/**
 	 * The escape's own walk into cover with a shield in hand blocks shots itself (TakeCover's shield), as a cover firing does,
 	 * so the arrow shield leaves it alone: taken, the walk paused for every fresh bow draw and started over on each resume.
+	 * Only while the escape runs: when another reflex holds the body (a meal), the walk does not tick or raise its shield.
 	 */
 	static boolean escapeBlocksShots(dev.agaminggod.mineagen.server.runtime.controller.ServerEscapeController.ShooterMove move, boolean shieldInHand) {
 		return move == dev.agaminggod.mineagen.server.runtime.controller.ServerEscapeController.ShooterMove.COVER && shieldInHand;
 	}
 
-	/** A melee mob hostile to the body this near: defend answers it during an escape from a shooter. */
+	/** A melee mob hostile to the body this near, with nothing solid between: defend answers it during an escape from a shooter. */
 	static final double ESCAPE_MELEE_REACH = 4.0D;
 
 	static boolean meleeInReach(ServerPlayer player) {
 		return !player.level().getEntitiesOfClass(net.minecraft.world.entity.Mob.class, player.getBoundingBox().inflate(ESCAPE_MELEE_REACH),
 				mob -> mob.isAlive() && !dev.agaminggod.mineagen.server.perception.ThreatPerception.isRanged(mob)
 						&& dev.agaminggod.mineagen.server.perception.ThreatPerception.isHostileTo(mob, player)
-						&& player.distanceTo(mob) <= ESCAPE_MELEE_REACH).isEmpty();
+						&& player.distanceTo(mob) <= ESCAPE_MELEE_REACH && mob.hasLineOfSight(player)).isEmpty();
 	}
 
 	static boolean gatedTruth(ReflexSpec.Rule rule, boolean truth, ActionType activeType, boolean escapingShooter) {
@@ -548,7 +549,7 @@ public final class ReflexEngine {
 		boolean escapingShooter = activeType == ActionType.ESCAPE && escapingShooter(
 				dev.agaminggod.mineagen.server.runtime.controller.ServerEscapeController.answersShooter(player), meleeInReach(player));
 		boolean firingBlocksShots = agent.scheduler.current() != null && agent.behaviour != null && agent.behaviour.blocksShots()
-				|| escapeBlocksShots(shooterMove, player.getOffhandItem().is(net.minecraft.world.item.Items.SHIELD)
+				|| agent.scheduler.current() == null && escapeBlocksShots(shooterMove, player.getOffhandItem().is(net.minecraft.world.item.Items.SHIELD)
 						|| player.getMainHandItem().is(net.minecraft.world.item.Items.SHIELD));
 		Map<String, ReflexScheduler.Sense> senses = new HashMap<>();
 		Map<String, Entity> focus = new HashMap<>();
