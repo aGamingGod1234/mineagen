@@ -399,7 +399,7 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		// A fresh observation yields: preserve cancellation and the deadline before dispatching after it.
 		if (danger !== null || rawBody.interrupted() || rawBody.stopped()) return halted();
 		if (left() <= 0) return expired;
-		const night = type === undefined ? null : nightMoveStop(o, type, args);
+		const night = type === undefined ? null : nightMoveStop(o, type, args, { openSky: typeof rawBody.openSky === 'function' ? rawBody.openSky() : null });
 		if (night !== null) { nightStop = night; step(`not now: ${night}`); return nightRefused; }
 		if (blazeBlocksErrand(o) === null) return null;
 		danger = 'blaze exposure: stay in cover or choose combat before resource travel';

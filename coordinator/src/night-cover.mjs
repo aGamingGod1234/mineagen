@@ -36,10 +36,24 @@ export function nightFor(observation) {
 	return tick >= NIGHT_FROM - DUSK_PLAN_TICKS && tick < NIGHT_FROM ? 'dusk' : null;
 }
 
-/** A move that takes the body up out of cover: stairs up, or a retrace back toward the open sky it came down from. */
-function climbsUp(actionType, args, at) {
-	if (actionType === 'dig_to') return args?.pattern === 'stairs_up' || Number.isFinite(args?.y) && at !== null && args.y > at.y + 2 && args.pattern !== 'stairs_down';
-	return WALKS.has(actionType) && (args?.retrace === true || Number.isFinite(args?.y) && at !== null && args.y > at.y + 3);
+/** A climb up to this many blocks is a step out of a pocket (a mined vein, a pickup hole), not a way to the surface. */
+const POCKET_CLIMB = 8;
+/** A climb ending this close under the last open sky the body stood under comes out at the surface. */
+const SKY_MARGIN = 4;
+
+/**
+ * A move that takes the body up out of cover: a retrace back toward the open sky it came down from, stairs with no
+ * height (they run to the surface), or a climb that rises past a pocket's depth or ends near the known open sky.
+ * Review of #117: obtain's stairs out of the pocket a vein left (a few blocks, deep underground) stay allowed.
+ */
+function climbsUp(actionType, args, at, openSky) {
+	if (WALKS.has(actionType) && args?.retrace === true) return true;
+	const up = actionType === 'dig_to' ? args?.pattern === 'stairs_up' || Number.isFinite(args?.y) && at !== null && args.y > at.y + 2 && args.pattern !== 'stairs_down'
+		: WALKS.has(actionType) && Number.isFinite(args?.y) && at !== null && args.y > at.y + 3;
+	if (!up) return false;
+	if (!Number.isFinite(args?.y) || at === null) return true;
+	if (args.y - at.y > POCKET_CLIMB) return true;
+	return Number.isFinite(openSky?.y) && args.y >= openSky.y - SKY_MARGIN;
 }
 
 function walkLength(args, at) {
@@ -53,7 +67,7 @@ function walkLength(args, at) {
  * ground, a walk longer than a step to cover is refused after dark. Getting out of water and going down are never
  * refused (breath and cover come first), nor anything in full iron or outside the Overworld.
  */
-export function nightMoveStop(observation, actionType, args = {}, environment = process.env) {
+export function nightMoveStop(observation, actionType, args = {}, { environment = process.env, openSky = null } = {}) {
 	// MINEAGEN_NIGHT_COVER=off restores the old behaviour, for room A/Bs on one code bundle.
 	if (String(environment?.MINEAGEN_NIGHT_COVER ?? '').trim().toLowerCase() === 'off') return null;
 	const phase = nightFor(observation);
@@ -63,7 +77,7 @@ export function nightMoveStop(observation, actionType, args = {}, environment = 
 	const at = bodyAt(observation);
 	const armour = Number.isFinite(player.armor) ? player.armor : 0;
 	const when = phase === 'dusk' ? 'dusk is a minute away' : 'it is night';
-	if (player.skyOpen === false && climbsUp(actionType, args, at)) {
+	if (player.skyOpen === false && climbsUp(actionType, args, at, openSky)) {
 		return `${when} and armour is ${armour}: staying under cover instead of climbing to the surface. Work down here (smelt, craft, mine), or rest (it seals the way up) and go up at dawn`;
 	}
 	if (phase === 'night' && player.skyOpen !== false && WALKS.has(actionType) && !(Number.isFinite(args?.y) && at !== null && args.y < at.y - WAY_DOWN) && walkLength(args, at) > SHORT_WALK) {

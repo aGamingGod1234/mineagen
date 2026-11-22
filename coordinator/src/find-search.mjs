@@ -674,7 +674,7 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 	// sight: what ends this leg as seen (default: the target in view anywhere, as sightingOf reads it).
 	const leg = async (how, actionType, args, sight = null) => {
 		if (nightEnded === null) {
-			const why = nightMoveStop(observation, actionType, args);
+			const why = nightMoveStop(observation, actionType, args, { openSky: body.openSky?.() ?? null });
 			if (why !== null) night.ended = nightEnded = handBack('FAILED', 'FIND_NIGHT', `Stopped before "${how}": ${why}`);
 		}
 		if (nightEnded !== null) return { ended: nightEnded, result: { state: 'FAILED', reasonCode: 'FIND_NIGHT' } };

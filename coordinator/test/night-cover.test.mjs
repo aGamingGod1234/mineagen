@@ -18,12 +18,24 @@ test('night is from dusk to sunrise for an unarmoured body in the Overworld, wit
 
 test('from-scratch game 14: under cover at dusk, a climb to the surface for gravel waits for morning', () => {
 	const below = at(11_500, { y: 30, skyOpen: false });
-	assert.match(nightMoveStop(below, 'dig_to', { pattern: 'stairs_up', y: 54 }), /staying under cover/);
+	assert.match(nightMoveStop(below, 'dig_to', { pattern: 'stairs_up', y: 54 }), /staying under cover/, 'a 24-block leg is no pocket exit');
 	assert.match(nightMoveStop(below, 'travel_to', { x: 0, y: 70, z: 0, retrace: true }), /staying under cover/);
 	assert.equal(nightMoveStop(below, 'dig_to', { pattern: 'tunnel', heading: 'west' }), null, 'working down here goes on');
 	assert.equal(nightMoveStop(below, 'dig_to', { pattern: 'stairs_down', y: 16 }), null);
 	assert.equal(nightMoveStop(at(11_500, { y: 30, skyOpen: false, underWater: true }), 'travel_to', { x: 0, y: 70, z: 0, retrace: true }), null, 'breath first');
 	assert.equal(nightMoveStop(at(6_000, { y: 30, skyOpen: false }), 'dig_to', { pattern: 'stairs_up', y: 54 }), null, 'by day it climbs');
+});
+
+test('review of #117: a short climb out of a mined pocket deep underground is allowed at night; a climb to the surface is not', () => {
+	const pocket = at(15_000, { y: 13, skyOpen: false });
+	const sky = { openSky: { x: 0.5, y: 70, z: 0.5 } };
+	assert.equal(nightMoveStop(pocket, 'dig_to', { pattern: 'stairs_up', y: 16, maxBlocks: 12 }, sky), null, 'obtain back to the level it mined from');
+	assert.equal(nightMoveStop(pocket, 'dig_to', { pattern: 'stairs_up', y: 16 }), null, 'with no open sky known');
+	assert.match(nightMoveStop(pocket, 'dig_to', { pattern: 'stairs_up' }, sky), /staying under cover/, 'no height: stairs to the surface');
+	assert.match(nightMoveStop(pocket, 'dig_to', { pattern: 'stairs_up', y: 37 }, sky), /staying under cover/, 'a leg of 24 up is a climb out');
+	const nearTop = at(15_000, { y: 62, skyOpen: false });
+	assert.match(nightMoveStop(nearTop, 'dig_to', { pattern: 'stairs_up', y: 67 }, sky), /staying under cover/, 'ends near the open sky above');
+	assert.match(nightMoveStop(pocket, 'travel_to', { x: 0.5, y: 70, z: 0.5, retrace: true }, sky), /staying under cover/, 'a retrace is always the way out');
 });
 
 test('from-scratch games 5 and 13: on open ground at night a long walk is refused, a step to cover and a way down are not', () => {
