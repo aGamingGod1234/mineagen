@@ -69,6 +69,8 @@ export function findSpotVerdict(spot = {}, row = {}) {
 		const hits = (row.actions ?? []).filter((action) => action?.type === rule.actionType && (rule.pattern === undefined || action?.args?.pattern === rule.pattern)).length;
 		if (hits > 0) misses.push(`${hits}x ${rule.actionType}${rule.pattern ? ` ${rule.pattern}` : ''}, which this spot forbids`);
 	}
+	// minEndY: the body ends at or above this height (out of a pocket it mined), from the run's own end position.
+	if (Number.isFinite(spot.minEndY) && !(Array.isArray(row.end) && row.end[1] >= spot.minEndY)) misses.push(`ended at y${Array.isArray(row.end) ? Number(row.end[1]).toFixed(1) : '?'}, below y${spot.minEndY}`);
 	// expectFinalProbe: [{ index, match }] a finalProbe reply (ground truth after the calls) must match (an ore left in the floor).
 	for (const rule of Array.isArray(spot.expectFinalProbe) ? spot.expectFinalProbe : []) {
 		const reply = row.finalProbe?.[rule.index];
