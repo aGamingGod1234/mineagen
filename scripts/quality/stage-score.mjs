@@ -193,8 +193,12 @@ export async function scoreStageRun(directory, { rawDirectory = null } = {}) {
 		if (files.length) { watchFiles.push(...files); break; }
 	}
 	const fatalEpisodes = [];
-	for (const dir of watchDirs) for (const n of (await readdir(dir).catch(() => [])).filter(n => n.endsWith('-progress.jsonl') && (!agentId || n.startsWith(agentId))))
-		await readJsonl(path.join(dir, n), row => facts.progress(row));
+	// One copy of the progress journal: the retained one, else the server's live original (like the episode files).
+	for (const dir of watchDirs) {
+		const files = (await readdir(dir).catch(() => [])).filter(n => n.endsWith('-progress.jsonl') && (!agentId || n.startsWith(agentId)));
+		for (const n of files) await readJsonl(path.join(dir, n), row => facts.progress(row));
+		if (files.length) break;
+	}
 	for (const f of watchFiles) await readJsonl(f, e => {
 		// The episode keeps the vanilla death message (Episode.deathMessage), the cause when no receipt survives.
 		if (e.outcome === 'death') acceptDeath({ at: e.closedAt?.epochMs, cause: e.source?.type ?? e.kind, message: typeof e.deathMessage === 'string' ? e.deathMessage : null, source: 'watcher' });
@@ -333,7 +337,7 @@ export async function scoreStageRun(directory, { rawDirectory = null } = {}) {
 	const deathRecords = deathRows.map(row => ({ ...row, cause: classifyDeath(row).cause }));
 	const inWindow = at => finite(at) && (!finite(startedAt) || at >= startedAt) && (!finite(startedAt) || !finite(windowMs) || at <= startedAt + windowMs) && (!operatorStop || at <= operatorStop.at);
 	// lava seen and portal lit come from the decision log, the same reading gate-report gives them.
-	const game = facts.finish({ startedAt, deaths: deathRecords, observedDeaths: Math.max(sampleDeaths, deathTimes.length), inWindow, logMilestones: raw && existsSync(raw) && (await readdir(raw)).some(n => n.startsWith('decision-') && !n.includes('goal-spec') && (!agentId || n.includes(`--${agentId}-`))) ? logMilestones(raw, { agentId, inWindow }) : null });
+	const game = facts.finish({ startedAt, deaths: deathRecords, observedDeaths: Math.max(sampleDeaths, deathTimes.length), protocolRecords: protocol.rows, inWindow, logMilestones: raw && existsSync(raw) && (await readdir(raw)).some(n => n.startsWith('decision-') && !n.includes('goal-spec') && (!agentId || n.includes(`--${agentId}-`))) ? logMilestones(raw, { agentId, inWindow }) : null });
 	if (actionCounts.conflicts || actionCounts.missingActionIds) integrity.push({ file: protocolName, error: 'Terminal receipts have conflicting or missing action identities' });
 	const executionStarted = protocolStarted || first.samples + recovery.samples > 0;
 	const cancelledBeforeStart = !executionStarted && (startRecord?.status === 'cancelled_before_start' || operatorStop?.beforeStart === true);

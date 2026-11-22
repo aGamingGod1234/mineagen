@@ -302,9 +302,11 @@ test('game facts: milestones, a fall into lava with what ran at its top, the res
 		].map(r => JSON.stringify(r)).join('\n') + '\n');
 		await mkdir(path.join(dir, 'arena-watch'));
 		await writeFile(path.join(dir, 'arena-watch', 'a-progress.jsonl'), [
-			{ type: 'progress', atMs: min(10.5), dim: 'minecraft:the_end', targets: { dragon: { health: 200 }, crystals: { left: 10 } } },
-			{ type: 'progress', atMs: min(12), dim: 'minecraft:the_end', targets: { dragon: { health: 170 }, crystals: { left: 8 } } },
-			{ type: 'progress', atMs: min(13), dim: 'minecraft:the_end', targets: { dragon: { health: 180 }, crystals: { left: 8 } } },
+			{ type: 'progress', atMs: min(10.5), dim: 'minecraft:the_end', pos: { x: 100, y: 49, z: 0 }, targets: { dragon: { health: 200 }, crystals: { left: 10 } } },
+			// Far from the island the Watcher sees fewer crystals: that is not destruction.
+			{ type: 'progress', atMs: min(11), dim: 'minecraft:the_end', pos: { x: 400, y: 60, z: 0 }, targets: { dragon: { health: 200 }, crystals: { left: 3 } } },
+			{ type: 'progress', atMs: min(12), dim: 'minecraft:the_end', pos: { x: 0, y: 64, z: 0 }, targets: { dragon: { health: 170 }, crystals: { left: 8 } } },
+			{ type: 'progress', atMs: min(13), dim: 'minecraft:the_end', pos: { x: 0, y: 64, z: 0 }, targets: { dragon: { health: 180 }, crystals: { left: 8 } } },
 		].map(r => JSON.stringify(r)).join('\n') + '\n');
 		// Another agent's decision log in the same folder never counts.
 		await writeFile(path.join(dir, 'decision-1--b-0.jsonl'), JSON.stringify({ time: min(1), type: 'input', text: 'lava seen nearby' }) + '\n');
@@ -327,7 +329,7 @@ test('game facts: milestones, a fall into lava with what ran at its top, the res
 		const [row] = game.deathMechanisms;
 		assert.deepEqual({ cause: row.cause, deaths: row.deaths, fell4: row.fell4, fell20: row.fell20, full: row.fullHealthAtTop, first: row.first, actions: row.actionAtTop }, { cause: 'lava', deaths: 1, fell4: 1, fell20: 1, full: 1, first: 1, actions: { travel_to: 1 } });
 		assert.deepEqual({ ...game.end, basis: undefined, rangedBasis: undefined, enteredAt: undefined }, { enteredAt: undefined, enteredMinute: 10, rangedCommands: 2, rangedCommandsBeforeEnd: 1, rangedBasis: undefined,
-			dragonSeenRows: 3, dragonHealthMin: 170, dragonHealthLast: 180, crystalsLeftMax: 10, crystalsLeftMin: 8, crystalsGone: 2, deathsInEnd: 0, deathsAfterEntry: 0, strongholdToEndMin: 2, dragonKilled: false, basis: undefined });
+			dragonSeenRows: 4, dragonHealthMin: 170, dragonHealthLast: 180, crystalsLeftMax: 10, crystalsLeftMin: 8, crystalsGone: 2, deathsInEnd: 0, deathsAfterEntry: 0, strongholdToEndMin: 2, dragonKilled: false, basis: undefined });
 		assert.deepEqual(game.peakHeld, { blaze_rod: 3, ender_pearl: 2, ender_eye: 12 });
 		assert.equal(game.rangedCommands, 3);
 		assert.deepEqual({ calls: game.modelUse.calls, inputTokens: game.modelUse.inputTokens }, { calls: 4, inputTokens: 4000 });
@@ -403,6 +405,21 @@ test('game facts review cases: a sample-only death is measured from the dead sam
 	const [a, b] = twice.finish({ startedAt: 0, deaths: [{ at: 10_000, damageType: 'minecraft:fall' }, { at: 11_000, damageType: 'minecraft:fall' }] }).deaths;
 	assert.equal(a.respawn, null);
 	assert.equal(b.respawn.secondsAfterDeath, 3);
+	// A death first seen in the samples 20 s after its coordinator row still takes that row's trail.
+	const late = gameFacts();
+	late.sample({ at: 1000, health: 20, deathCounter: 0, dimension: 'minecraft:the_nether', position: { x: 0, y: 90, z: 0 } });
+	late.sample({ at: 40_000, health: 20, deathCounter: 1, dimension: 'minecraft:overworld', position: { x: 0, y: 64, z: 0 } });
+	late.deathRow({ diedAtEpochMs: 20_000, dimension: 'minecraft:the_nether', position: { x: 0, y: 31, z: 0 }, action: { type: 'travel_to' }, trail: [{ s: -3, y: 80, action: 'travel_to', health: 20 }] });
+	const [matched] = late.finish({ startedAt: 0, deaths: [{ at: 40_000, damageType: 'minecraft:lava' }] }).deaths;
+	assert.deepEqual([matched.action, matched.fall.blocks, matched.fall.secondsBeforeDeath], ['travel_to', 49, 3]);
+	// A reconciled call keeps the time it was made; no protocol journal leaves End ranged commands unknown.
+	const spend = gameFacts();
+	spend.sample({ at: 1000, health: 20, dimension: 'minecraft:the_end', position: { x: 0, y: 64, z: 0 } });
+	spend.modelCall({ at: 500, modelCallId: 'c', inputTokens: 10 });
+	spend.modelCall({ at: 1500, modelCallId: 'c', inputTokens: 12 });
+	const spent = spend.finish({ startedAt: 0, protocolRecords: 0 });
+	assert.deepEqual(spent.modelUse.byMilestone.end, { calls: 1, inputTokens: 12, cachedInputTokens: null });
+	assert.deepEqual([spent.end.rangedCommands, spent.end.rangedCommandsBeforeEnd, spent.rangedCommands], [null, null, null]);
 	// A later death's body and an earlier life's fall belong to their own deaths.
 	const near = gameFacts();
 	for (const sample of [{ at: 7000, y: 100, fallDistance: 30 }, { at: 9000, y: 70 }, { at: 9500, y: 70, health: 0, deathCounter: 1 }, { at: 12_000, y: 64, deathCounter: 1 }, { at: 16_000, y: 64, health: 0, deathCounter: 2 }])

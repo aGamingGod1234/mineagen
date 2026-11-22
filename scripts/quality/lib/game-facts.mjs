@@ -15,9 +15,12 @@ export const LONG_FALL_BLOCKS = 20;
 // How far back a death looks for the top of its fall in the samples when the coordinator's death row has no trail.
 // The death row's own trail covers about the last 10 s.
 const FALL_LOOKBACK_MS = 10_000;
+// How long after its coordinator row the sample that first shows a death may come (stage-score SAMPLE_DEATH_BOUND_MS).
+const SAMPLE_DEATH_BOUND_MS = 60_000;
 // Armour points per piece, vanilla values (the agent_death row's armor field is the same total).
 const ARMOUR = { leather: [1, 3, 2, 1], golden: [2, 5, 3, 1], chainmail: [2, 5, 4, 1], iron: [2, 6, 5, 2], diamond: [3, 8, 6, 3], netherite: [3, 8, 6, 3] };
 const PIECES = ['helmet', 'chestplate', 'leggings', 'boots'];
+const CRYSTAL_VIEW = 140;
 const PEAK_ITEMS = { blaze_rod: 'blaze_rod', ender_pearl: 'ender_pearl', ender_eye: 'ender_eye' };
 const minutes = (ms) => finite(ms) ? Math.round(ms / 6000) / 10 : null;
 const round1 = (n) => finite(n) ? Math.round(n * 10) / 10 : null;
@@ -45,20 +48,34 @@ function fallTop(points, deathY) {
  * agent_death rows (dimension, position, armour, the running action and reflex, and a trail of the last ~10 s).
  */
 export function describeDeaths(deaths, { trails = [], samples = [], startedAt = null } = {}) {
+	// A death's coordinator row is the one at its time; a death first seen in the samples is timed by that sample (up to
+	// a minute after the row), so it takes the nearest earlier row in its own life that no other death took.
+	const taken = new Set();
+	const near = deaths.map((death) => trails.find((row) => Math.abs(row.at - death.at) < 1500) ?? null);
+	near.forEach((row) => row && taken.add(row));
+	const trailOf = (death) => {
+		const i = deaths.indexOf(death);
+		if (near[i]) return near[i];
+		const row = trails.filter((t) => !taken.has(t) && t.at <= death.at && death.at - t.at <= SAMPLE_DEATH_BOUND_MS && (!finite(death.prevAt) || t.at > death.prevAt)).at(-1) ?? null;
+		if (row) taken.add(row);
+		return row;
+	};
 	return deaths.map((death, index) => {
-		const trail = trails.find((row) => Math.abs(row.at - death.at) < 1500) ?? null;
+		const trail = trailOf(death);
 		// A death with evidence has the server's time. A death seen only in the samples is timed by the sample that showed
 		// it (an upper bound), so only samples before that one were alive before it.
-		const exact = ['message', 'damageType', 'attacker', 'directAttacker'].some((key) => death[key] != null);
+		// A matched death row carries the server's time of death, which can be earlier than a sample-timed death.
+		const exact = Boolean(trail) || ['message', 'damageType', 'attacker', 'directAttacker'].some((key) => death[key] != null);
+		const at = trail?.at ?? death.at;
 		// Each death sees only its own life: samples after the previous death and before the next one.
 		const prevAt = finite(death.prevAt) ? death.prevAt : -Infinity, nextAt = finite(death.nextAt) ? death.nextAt : Infinity;
-		const before = samples.filter((s) => (exact ? s.at <= death.at : s.at < death.at) && s.at >= death.at - FALL_LOOKBACK_MS && s.at > prevAt && s.health > 0);
+		const before = samples.filter((s) => (exact ? s.at <= at : s.at < at) && s.at >= at - FALL_LOOKBACK_MS && s.at > prevAt && s.health > 0);
 		const last = before.at(-1) ?? null;
 		// The counter baseline is the last living sample before this death, even one from an earlier life.
-		const baseline = samples.filter((s) => (exact ? s.at <= death.at : s.at < death.at) && s.health > 0).at(-1) ?? null;
+		const baseline = samples.filter((s) => (exact ? s.at <= at : s.at < at) && s.health > 0).at(-1) ?? null;
 		const stepped = (s) => s.health <= 0 || finite(s.deathCounter) && finite(baseline?.deathCounter) && s.deathCounter > baseline.deathCounter;
 		// The sample that shows the body dead (health 0) inside this life, at most 10 s on.
-		const dead = samples.find((s) => s.at >= (last?.at ?? death.at - FALL_LOOKBACK_MS) && s.at > (last?.at ?? -Infinity) && s.at <= death.at + FALL_LOOKBACK_MS && s.at > prevAt && s.at < nextAt && s.health <= 0) ?? null;
+		const dead = samples.find((s) => s.at >= (last?.at ?? at - FALL_LOOKBACK_MS) && s.at > (last?.at ?? -Infinity) && s.at <= at + FALL_LOOKBACK_MS && s.at > prevAt && s.at < nextAt && s.health <= 0) ?? null;
 		const dimension = trail?.dimension ?? dead?.dimension ?? last?.dimension ?? null;
 		// Without the death row, only a sample showing the body dead gives the death height; a living one would read 0.
 		const position = trail?.position ?? dead?.position ?? null;
@@ -68,24 +85,24 @@ export function describeDeaths(deaths, { trails = [], samples = [], startedAt = 
 		// No sample back in this dimension: no trail point is known to be in it, so the fall is unknown.
 		const backAt = finite(otherDimensionAt) ? before.find((s) => s.at > otherDimensionAt && s.dimension === dimension)?.at ?? Infinity : -Infinity;
 		const points = trail?.trail?.length
-			? trail.trail.map((p) => ({ at: death.at + (p.s ?? 0) * 1000, y: p.y, health: p.health ?? null, action: p.action ?? null, reflex: p.reflex ?? null })).filter((p) => p.at >= backAt)
+			? trail.trail.map((p) => ({ at: trail.at + (p.s ?? 0) * 1000, y: p.y, health: p.health ?? null, action: p.action ?? null, reflex: p.reflex ?? null })).filter((p) => p.at >= backAt)
 			: before.filter((s) => s.dimension === dimension).map((s) => ({ at: s.at, y: s.position?.y, health: s.health, action: null, reflex: null }));
 		const top = fallTop(points, position?.y);
 		// The respawn is the first living sample after the body was seen dead (or after its death counter stepped).
 		// A living sample whose death counter stepped is already the respawned body.
-		const step = dead ? null : samples.find((s) => s.at >= death.at && (!finite(death.nextAt) || s.at < death.nextAt) && stepped(s)) ?? null;
+		const step = dead ? null : samples.find((s) => s.at >= at && (!finite(death.nextAt) || s.at < death.nextAt) && stepped(s)) ?? null;
 		const deadAt = dead?.at ?? step?.at ?? null;
-		const respawn = step?.health > 0 ? step : finite(deadAt) ? samples.find((s) => s.at > deadAt && s.at > death.at && s.health > 0 && (!finite(death.nextAt) || s.at < death.nextAt)) ?? null : null;
+		const respawn = step?.health > 0 ? step : finite(deadAt) ? samples.find((s) => s.at > deadAt && s.at > at && s.health > 0 && (!finite(death.nextAt) || s.at < death.nextAt)) ?? null : null;
 		const fallDistance = before.filter((s) => s.dimension === dimension).reduce((m, s) => finite(s.fallDistance) ? Math.max(m ?? 0, s.fallDistance) : m, null);
 		return {
 			at: death.at, minute: finite(startedAt) ? minutes(death.at - startedAt) : null, ordinal: index + 1, repeat: index > 0,
 			cause: death.cause ?? classifyDeath(death).cause, dimension, position,
 			armour: trail?.armor ?? last?.armour ?? null, armourBasis: finite(trail?.armor) ? 'death row' : finite(last?.armour) ? 'last living sample' : null,
 			action: trail?.action ?? null, reflex: trail?.reflex ?? null,
-			fall: top ? { blocks: top.blocks, secondsBeforeDeath: round1((death.at - top.at) / 1000), healthAtTop: round1(top.health), actionAtTop: top.action, reflexAtTop: top.reflex,
+			fall: top ? { blocks: top.blocks, secondsBeforeDeath: round1(((trail?.at ?? death.at) - top.at) / 1000), healthAtTop: round1(top.health), actionAtTop: top.action, reflexAtTop: top.reflex,
 				basis: trail?.trail?.length ? 'death row trail (coordinator observations over the last ~10 s)' : 'samples over the last 10 s; running action unknown' } : null,
 			maxFallDistance: round1(fallDistance),
-			respawn: respawn ? { at: respawn.at, secondsAfterDeath: round1((respawn.at - death.at) / 1000), dimension: respawn.dimension ?? null, position: respawn.position ?? null } : null,
+			respawn: respawn ? { at: respawn.at, secondsAfterDeath: round1((respawn.at - (trail?.at ?? death.at)) / 1000), dimension: respawn.dimension ?? null, position: respawn.position ?? null } : null,
 		};
 	});
 }
@@ -147,21 +164,28 @@ export function gameFacts() {
 			if (row?.type !== 'progress' || !finite(row.atMs)) return;
 			const dragon = row.targets?.dragon, crystals = row.targets?.crystals;
 			if (row.dim !== END && !dragon && !crystals) return;
-			progress.push({ at: row.atMs, dimension: row.dim ?? null, dragonHealth: finite(dragon?.health) ? dragon.health : null, crystalsLeft: finite(crystals?.left) ? crystals.left : null });
+			// The Watcher counts crystals within 192 blocks of the body on each axis; the towers stand within about 45 blocks of
+			// the island centre, so only a body within CRYSTAL_VIEW of the centre sees every one of them.
+			const seesAll = finite(row.pos?.x) && finite(row.pos?.z) && Math.max(Math.abs(row.pos.x), Math.abs(row.pos.z)) <= CRYSTAL_VIEW && (!finite(row.pos?.y) || row.pos.y > -100);
+			progress.push({ at: row.atMs, dimension: row.dim ?? null, dragonHealth: finite(dragon?.health) ? dragon.health : null, crystalsLeft: finite(crystals?.left) && seesAll ? crystals.left : null });
 		},
 		/** A coordinator native_model_call row. */
 		modelCall(row) {
 			if (!finite(row?.at)) return;
 			// A provider can send a call's row again once its usage is reconciled (same modelCallId): the last row stands.
+			// The call was made at its first row's time, so a reconciliation after a milestone stays before it.
 			const same = row.modelCallId != null ? calls.findIndex((c) => c.modelCallId === row.modelCallId) : -1;
+			const at = same >= 0 ? calls[same].at : row.at;
 			if (same >= 0) calls.splice(same, 1);
-			calls.push({ at: row.at, modelCallId: row.modelCallId ?? null, inputTokens: finite(row.inputTokens) ? row.inputTokens : null, cachedInputTokens: finite(row.cachedInputTokens) ? row.cachedInputTokens : null });
+			calls.push({ at, modelCallId: row.modelCallId ?? null, inputTokens: finite(row.inputTokens) ? row.inputTokens : null, cachedInputTokens: finite(row.cachedInputTokens) ? row.cachedInputTokens : null });
 		},
 		/**
 		 * deaths: the scorer's death records; inWindow(at) says whether a time is inside the scored window; logMilestones:
 		 * { lavaSeen, portalLit } epoch ms from the decision log, or null when the run kept no decision log.
 		 */
-		finish({ startedAt, deaths = [], observedDeaths = null, inWindow = () => true, logMilestones = null }) {
+		finish({ startedAt, deaths = [], observedDeaths = null, inWindow = () => true, logMilestones = null, protocolRecords = null }) {
+			// Ranged commands are counted from the protocol journal; without one they are unknown.
+			const commandsSeen = protocolRecords == null ? commands.length > 0 : protocolRecords > 0;
 			const at = (ms) => finite(ms) ? { at: ms, minute: finite(startedAt) ? minutes(ms - startedAt) : null } : null;
 			const milestones = Object.fromEntries(LONG_RUN_MILESTONES.map((m) => [m.id, at(firstSeen[m.id] ?? null)]));
 			// No decision log: lava seen and portal lit are not measured, so their keys stay out (never "not reached").
@@ -176,7 +200,7 @@ export function gameFacts() {
 				const after = progress.filter((p) => p.at >= endAt && inWindow(p.at));
 				const dragon = after.map((p) => p.dragonHealth).filter(finite), crystals = after.map((p) => p.crystalsLeft).filter(finite);
 				end = { enteredAt: endAt, enteredMinute: finite(startedAt) ? minutes(endAt - startedAt) : null,
-					rangedCommands: ranged.filter((c) => c.at >= endAt).length, rangedCommandsBeforeEnd: ranged.filter((c) => c.at < endAt).length,
+					rangedCommands: commandsSeen ? ranged.filter((c) => c.at >= endAt).length : null, rangedCommandsBeforeEnd: commandsSeen ? ranged.filter((c) => c.at < endAt).length : null,
 					rangedBasis: 'use_ranged commands sent to the body; one command can loose several arrows',
 					dragonSeenRows: dragon.length, dragonHealthMin: dragon.length ? Math.min(...dragon) : null, dragonHealthLast: dragon.length ? dragon.at(-1) : null,
 					crystalsLeftMax: crystals.length ? Math.max(...crystals) : null, crystalsLeftMin: crystals.length ? Math.min(...crystals) : null,
@@ -205,7 +229,7 @@ export function gameFacts() {
 				deathMechanisms: mechanismTable(described),
 				end,
 				peakHeld: samples.length ? peak : null,
-				rangedCommands: commands.length ? ranged.length : null,
+				rangedCommands: commandsSeen ? ranged.length : null,
 				modelUse,
 				basis: { fall: `fall height = highest point in the last ~10 s before death minus the death height; a fall is ${FALL_BLOCKS}+ blocks`, milestones: 'first sample holding the item, in the dimension, or with the advancement; lava seen and portal lit from the decision log (gate-report logMilestones)' },
 			};
